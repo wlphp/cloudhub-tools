@@ -91,7 +91,7 @@ if ($DryRun) {
 }
 
 if (-not $Yes) {
-  $answer = Read-Host "Publish v$nextVersion? Type Y to continue"
+  $answer = Read-Host "Publish v${nextVersion}? Type Y to continue"
   if ($answer -notmatch "^(y|yes)$") {
     Write-Host "Release cancelled."
     exit 0
