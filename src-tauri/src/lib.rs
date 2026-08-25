@@ -1642,15 +1642,18 @@ async fn oss_list_buckets(access_key_id: &str, access_key_secret: &str) -> Resul
     Ok(items)
 }
 
-async fn oss_list_objects(bucket: &str, location: &str, access_key_id: &str, access_key_secret: &str) -> Result<Vec<Value>, String> {
+async fn oss_list_objects(bucket: &str, location: &str, access_key_id: &str, access_key_secret: &str, prefix: &str, marker: &str) -> Result<Value, String> {
     let location = if location.is_empty() { "oss-cn-hangzhou" } else { location };
     let host = format!("{bucket}.{location}.aliyuncs.com"); let date = Utc::now().format("%a, %d %b %Y %H:%M:%S GMT").to_string();
     let resource = format!("/{bucket}/"); let string_to_sign = format!("GET\n\n\n{date}\n{resource}");
     let mut mac: Hmac<Sha1> = <Hmac<Sha1> as Mac>::new_from_slice(access_key_secret.as_bytes()).map_err(|e| e.to_string())?; mac.update(string_to_sign.as_bytes());
-    let response = reqwest::Client::new().get(format!("https://{host}/?delimiter=/&max-keys=1000")).header("Date", date).header("Host", &host).header("Authorization", format!("OSS {access_key_id}:{}", B64.encode(mac.finalize().into_bytes()))).timeout(std::time::Duration::from_secs(25)).send().await.map_err(|e| format!("OSS 请求失败: {e}"))?;
+    let mut query = "delimiter=%2F&max-keys=1000".to_string();
+    if !prefix.is_empty() { query.push_str(&format!("&prefix={}", rpc_encode(prefix))); }
+    if !marker.is_empty() { query.push_str(&format!("&marker={}", rpc_encode(marker))); }
+    let response = reqwest::Client::new().get(format!("https://{host}/?{query}")).header("Date", date).header("Host", &host).header("Authorization", format!("OSS {access_key_id}:{}", B64.encode(mac.finalize().into_bytes()))).timeout(std::time::Duration::from_secs(25)).send().await.map_err(|e| format!("OSS 请求失败: {e}"))?;
     let status = response.status(); let body = response.text().await.map_err(|e| e.to_string())?; if !status.is_success() { let code = body.split("<Code>").nth(1).and_then(|v| v.split("</Code>").next()).unwrap_or("请求被拒绝"); return Err(format!("OSS 返回错误（{status}）：{code}")); }
-    let mut items = Vec::new(); let mut rest = body.as_str(); while let Some(start) = rest.find("<Contents>") { let chunk = &rest[start..]; let Some(end) = chunk.find("</Contents>") else { break }; let block=&chunk[..end]; let value=|tag:&str| { let open=format!("<{tag}>"); let close=format!("</{tag}>"); block.find(&open).and_then(|s| block[s+open.len()..].find(&close).map(|e| block[s+open.len()..s+open.len()+e].to_string())).unwrap_or_default() }; items.push(json!({"Key":value("Key"),"Size":value("Size"),"LastModified":value("LastModified"),"ETag":value("ETag")})); rest=&chunk[end+"</Contents>".len()..]; }
-    Ok(items)
+    let objects = xml_blocks(&body, "Contents").into_iter().map(|object| json!({"Key": xml_text(&object, "Key"), "Size": xml_text(&object, "Size"), "LastModified": xml_text(&object, "LastModified"), "ETag": xml_text(&object, "ETag")})).filter(|object| object.get("Key").and_then(Value::as_str).is_some_and(|key| !key.is_empty() && key != prefix)).collect::<Vec<_>>();
+    Ok(json!({"objects": objects, "prefixes": xml_blocks(&body, "CommonPrefixes").into_iter().map(|entry| xml_text(&entry, "Prefix")).filter(|value| !value.is_empty()).collect::<Vec<_>>(), "isTruncated": xml_text(&body, "IsTruncated").eq_ignore_ascii_case("true"), "nextMarker": xml_text(&body, "NextMarker")}))
 }
 
 async fn oss_get_acl(bucket: &str, location: &str, access_key_id: &str, access_key_secret: &str) -> Result<String, String> {
@@ -1745,9 +1748,13 @@ async fn cos_list_buckets(access_key_id: &str, access_key_secret: &str) -> Resul
     Ok(xml_blocks(&body, "Bucket").into_iter().map(|bucket| { let name = xml_text(&bucket, "Name"); let location = xml_text(&bucket, "Location"); json!({"Name": name, "Location": location, "CreationDate": xml_text(&bucket, "CreationDate"), "StorageClass": "Standard", "ExtranetEndpoint": format!("{}.cos.{}.myqcloud.com", name, location), "IntranetEndpoint": "-", "Acl": "private"}) }).filter(|bucket| bucket.get("Name").and_then(Value::as_str).is_some_and(|name| !name.is_empty())).collect())
 }
 
-async fn cos_list_objects(bucket: &str, location: &str, access_key_id: &str, access_key_secret: &str) -> Result<Vec<Value>, String> {
-    let body = cos_request(bucket, location, "list-type=2&max-keys=1000&delimiter=%2F", access_key_id, access_key_secret).await?;
-    Ok(xml_blocks(&body, "Contents").into_iter().map(|object| json!({"Key": xml_text(&object, "Key"), "Size": xml_text(&object, "Size"), "LastModified": xml_text(&object, "LastModified"), "ETag": xml_text(&object, "ETag")})).collect())
+async fn cos_list_objects(bucket: &str, location: &str, access_key_id: &str, access_key_secret: &str, prefix: &str, marker: &str) -> Result<Value, String> {
+    let mut query = "list-type=2&max-keys=1000&delimiter=%2F".to_string();
+    if !prefix.is_empty() { query.push_str(&format!("&prefix={}", rpc_encode(prefix))); }
+    if !marker.is_empty() { query.push_str(&format!("&continuation-token={}", rpc_encode(marker))); }
+    let body = cos_request(bucket, location, &query, access_key_id, access_key_secret).await?;
+    let objects = xml_blocks(&body, "Contents").into_iter().map(|object| json!({"Key": xml_text(&object, "Key"), "Size": xml_text(&object, "Size"), "LastModified": xml_text(&object, "LastModified"), "ETag": xml_text(&object, "ETag")})).filter(|object| object.get("Key").and_then(Value::as_str).is_some_and(|key| !key.is_empty() && key != prefix)).collect::<Vec<_>>();
+    Ok(json!({"objects": objects, "prefixes": xml_blocks(&body, "CommonPrefixes").into_iter().map(|entry| xml_text(&entry, "Prefix")).filter(|value| !value.is_empty()).collect::<Vec<_>>(), "isTruncated": xml_text(&body, "IsTruncated").eq_ignore_ascii_case("true"), "nextMarker": xml_text(&body, "NextContinuationToken")}))
 }
 
 #[derive(Debug, Serialize)]
@@ -2844,10 +2851,10 @@ async fn list_redis_accounts(id: i64, instance_id: String, region_id: String) ->
 }
 
 #[tauri::command]
-async fn list_oss_objects(id: i64, bucket: String, location: String) -> Result<Vec<Value>, String> {
+async fn list_oss_objects(id: i64, bucket: String, location: String, prefix: String, marker: String) -> Result<Value, String> {
     let (access_key_id, access_key_secret) = account_credentials(id)?;
-    if account_cloud_type(id)? == "tencent" { return cos_list_objects(&bucket, &location, &access_key_id, &access_key_secret).await; }
-    oss_list_objects(&bucket, &location, &access_key_id, &access_key_secret).await
+    if account_cloud_type(id)? == "tencent" { return cos_list_objects(&bucket, &location, &access_key_id, &access_key_secret, &prefix, &marker).await; }
+    oss_list_objects(&bucket, &location, &access_key_id, &access_key_secret, &prefix, &marker).await
 }
 
 #[tauri::command]

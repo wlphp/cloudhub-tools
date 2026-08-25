@@ -392,7 +392,7 @@ const assetTypes = [
 
 const runningInTauri =
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-const bundledVersion = "0.1.10";
+const bundledVersion = "0.1.11";
 
 type UpdateState =
   | { phase: "idle" }
@@ -1506,7 +1506,7 @@ function BucketCard({
     try {
       setError("");
       const listing = runningInTauri
-        ? { objects: await invoke<OssObject[]>("list_oss_objects", { id: account.id, bucket: bucketName, location }), prefixes: [], isTruncated: false, nextMarker: "" }
+        ? await invoke<OssObjectListing>("list_oss_objects", { id: account.id, bucket: bucketName, location, prefix, marker })
         : await webApi<OssObjectListing>(
             `/api/oss-objects?id=${account.id}&bucket=${encodeURIComponent(bucketName)}&location=${encodeURIComponent(location)}&prefix=${encodeURIComponent(prefix)}&marker=${encodeURIComponent(marker)}`,
           );
