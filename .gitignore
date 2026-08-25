@@ -12,6 +12,7 @@ dist
 dist-ssr
 release
 src-tauri/target
+.cargo-check-*
 *.local
 
 # Editor directories and files

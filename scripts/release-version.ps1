@@ -27,10 +27,11 @@ function Require-Command([string]$Name) {
   }
 }
 
-function Replace-Text([string]$RelativePath, [string]$Pattern, [string]$Replacement) {
+function Replace-Text([string]$RelativePath, [string]$Pattern, [string]$Replacement, [int]$MaximumReplacements = 1) {
   $path = Join-Path $root $RelativePath
   $content = [System.IO.File]::ReadAllText($path)
-  $updated = [regex]::Replace($content, $Pattern, $Replacement, 1)
+  $regex = [regex]::new($Pattern)
+  $updated = if ($MaximumReplacements -eq 0) { $regex.Replace($content, $Replacement) } else { $regex.Replace($content, $Replacement, $MaximumReplacements) }
   if ($updated -eq $content) {
     throw "Could not update the version in $RelativePath"
   }
@@ -80,7 +81,7 @@ if (-not $Yes) {
 
 $escapedCurrent = [regex]::Escape($currentVersion)
 Replace-Text "package.json" ('"version"\s*:\s*"' + $escapedCurrent + '"') ('"version": "' + $nextVersion + '"')
-Replace-Text "package-lock.json" ('"version"\s*:\s*"' + $escapedCurrent + '"') ('"version": "' + $nextVersion + '"')
+Replace-Text "package-lock.json" ('"version"\s*:\s*"' + $escapedCurrent + '"') ('"version": "' + $nextVersion + '"') 0
 Replace-Text "src-tauri\Cargo.toml" ('(?m)^version\s*=\s*"' + $escapedCurrent + '"\s*$') ('version = "' + $nextVersion + '"')
 Replace-Text "src-tauri\Cargo.lock" ('(?ms)(name = "cloudhub-tools"\r?\nversion = "' + $escapedCurrent + '")') ('$1' + $nextVersion + '$2')
 Replace-Text "src-tauri\tauri.conf.json" ('"version"\s*:\s*"' + $escapedCurrent + '"') ('"version": "' + $nextVersion + '"')
