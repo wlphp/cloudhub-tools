@@ -2,7 +2,7 @@ import { FormEvent, PointerEvent, useEffect, useMemo, useRef, useState } from "r
 import { createPortal } from "react-dom";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import type { Terminal as XtermTerminal } from "@xterm/xterm";
@@ -47,6 +47,9 @@ import {
   X,
   Maximize2,
   Minimize2,
+  Keyboard,
+  PanelRightClose,
+  PanelRightOpen,
 } from "lucide-react";
 import "./App.css";
 import "./summary.css";
@@ -376,7 +379,7 @@ const assetTypes = [
 
 const runningInTauri =
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-const bundledVersion = "0.1.4";
+const bundledVersion = "0.1.7";
 
 type UpdateState =
   | { phase: "idle" }
@@ -1889,7 +1892,9 @@ function App() {
   const [sshFileError, setSshFileError] = useState("");
   const [sshFileEditor, setSshFileEditor] = useState<{ path: string; content: string } | null>(null);
   const [sshFileSaving, setSshFileSaving] = useState(false);
-  const [sshFilePaneWidth, setSshFilePaneWidth] = useState(460);
+  const [sshFilePaneWidth, setSshFilePaneWidth] = useState(520);
+  const [sshFilePaneCollapsed, setSshFilePaneCollapsed] = useState(false);
+  const [sshFileDragActive, setSshFileDragActive] = useState(false);
   const sshTerminalHostRef = useRef<HTMLDivElement | null>(null);
   const sshTerminalRef = useRef<XtermTerminal | null>(null);
   const sshPendingOutputRef = useRef("");
@@ -2310,6 +2315,8 @@ function App() {
     setSshFilePath("/");
     setSshFileError("");
     setSshFileEditor(null);
+    setSshFilePaneCollapsed(false);
+    setSshFileDragActive(false);
     try {
       const saved = await invoke<SavedSshConnection | null>("get_ssh_connection", { accountId: account.id, assetKey: asset.asset_key });
       if (saved) {
@@ -2330,6 +2337,8 @@ function App() {
     setSshFiles([]);
     setSshFileEditor(null);
     setSshFileError("");
+    setSshFilePaneCollapsed(false);
+    setSshFileDragActive(false);
     if (sessionId && runningInTauri) {
       try { await invoke("ssh_disconnect", { sessionId }); } catch { /* session already closed */ }
     }
@@ -2463,9 +2472,9 @@ function App() {
     event.preventDefault();
     const initialX = event.clientX;
     const initialWidth = sshFilePaneWidth;
-    const maxWidth = Math.max(320, workspace.clientWidth - 360);
+    const maxWidth = Math.max(360, workspace.clientWidth - 360);
     const resize = (moveEvent: globalThis.PointerEvent) => {
-      setSshFilePaneWidth(Math.min(maxWidth, Math.max(320, initialWidth - (moveEvent.clientX - initialX))));
+      setSshFilePaneWidth(Math.min(maxWidth, Math.max(360, initialWidth - (moveEvent.clientX - initialX))));
     };
     const finish = () => {
       window.removeEventListener("pointermove", resize);
@@ -2491,24 +2500,39 @@ function App() {
     catch (error) { setSshFileError(`保存文件失败：${String(error)}`); }
     finally { setSshFileSaving(false); }
   }
-  async function uploadSshFile(file: globalThis.File) {
+  async function uploadSshFiles(files: Iterable<globalThis.File>) {
     if (!sshSessionId) return;
-    if (file.size > 20 * 1024 * 1024) { setSshFileError("单次上传暂限 20 MB"); return; }
-    const targetPath = joinSshPath(sshFilePath, file.name);
-    if (sshFiles.some((entry) => entry.name === file.name) && !window.confirm(`“${file.name}”已存在，确定覆盖吗？`)) return;
+    const pendingFiles = Array.from(files);
+    if (!pendingFiles.length) return;
+    const oversized = pendingFiles.find((file) => file.size > 20 * 1024 * 1024);
+    if (oversized) { setSshFileError(`“${oversized.name}”超过单文件 20 MB 上传限制`); return; }
+    const existingFiles = pendingFiles.filter((file) => sshFiles.some((entry) => entry.name === file.name));
+    if (existingFiles.length && !window.confirm(`“${existingFiles.map((file) => file.name).join("、")}”已存在，确定覆盖吗？`)) return;
     setSshFilesLoading(true);
     setSshFileError("");
     try {
-      const contentBase64 = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result || "").split(",")[1] || ""); reader.onerror = () => reject(new Error("读取本地文件失败")); reader.readAsDataURL(file); });
-      await invoke("ssh_upload_file", { sessionId: sshSessionId, path: targetPath, contentBase64 });
-      await loadSshFiles(); setStatus(`已上传：${file.name}`);
+      for (const file of pendingFiles) {
+        const contentBase64 = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result || "").split(",")[1] || ""); reader.onerror = () => reject(new Error("读取本地文件失败")); reader.readAsDataURL(file); });
+        await invoke("ssh_upload_file", { sessionId: sshSessionId, path: joinSshPath(sshFilePath, file.name), contentBase64 });
+      }
+      await loadSshFiles(); setStatus(`已上传 ${pendingFiles.length} 个文件`);
     } catch (error) { setSshFileError(`上传文件失败：${String(error)}`); }
     finally { setSshFilesLoading(false); }
+  }
+  function completeSshCommand() {
+    if (!sshSessionId) return;
+    void invoke("ssh_write", { sessionId: sshSessionId, data: "\t" })
+      .catch((error) => setSshError(`发送命令补全失败：${String(error)}`));
+    sshTerminalRef.current?.focus();
   }
   async function downloadSshFile(entry: SshFileEntry) {
     if (!sshSessionId || !entry.isFile) return;
     setSshFileError("");
-    try { const path = await invoke<string>("ssh_download_file", { sessionId: sshSessionId, path: entry.path }); setStatus(`文件已下载到：${path}`); }
+    try {
+      const path = await invoke<string>("ssh_download_file", { sessionId: sshSessionId, path: entry.path });
+      await revealItemInDir(path);
+      setStatus(`已下载并在本机定位：${path}`);
+    }
     catch (error) { setSshFileError(`下载文件失败：${String(error)}`); }
   }
   async function makeSshDirectory() {
@@ -5126,20 +5150,21 @@ function App() {
                 </form>
               ) : (
                 <div className="ssh-terminal-shell">
-                  <div className="ssh-terminal-meta"><span>{sshUsername}@{sshHost}:{sshPort}</span><span className="ssh-connected">已连接</span><button className="ssh-clear-button" onClick={() => sshTerminalRef.current?.clear()}>清屏</button><button className="ssh-disconnect-button" onClick={() => void closeSshClient()}>断开</button></div>
-                  <div ref={sshWorkspaceRef} className="ssh-terminal-workspace" style={{ gridTemplateColumns: `minmax(360px, 1fr) 8px minmax(320px, ${sshFilePaneWidth}px)` }}>
+                  <div className="ssh-terminal-meta"><span>{sshUsername}@{sshHost}:{sshPort}</span><span className="ssh-connected">已连接</span><button type="button" className="ssh-terminal-command" title="命令补全 (Tab)" aria-label="命令补全 (Tab)" onClick={completeSshCommand}><Keyboard size={16} /></button><button className="ssh-clear-button" onClick={() => sshTerminalRef.current?.clear()}>清屏</button><button className="ssh-disconnect-button" onClick={() => void closeSshClient()}>断开</button></div>
+                  <div ref={sshWorkspaceRef} className={`ssh-terminal-workspace${sshFilePaneCollapsed ? " is-file-pane-collapsed" : ""}`} style={{ gridTemplateColumns: sshFilePaneCollapsed ? "minmax(0, 1fr) 0 0" : `minmax(360px, 1fr) 8px minmax(360px, ${sshFilePaneWidth}px)` }}>
                     <div className="ssh-terminal-viewport" ref={sshTerminalHostRef} aria-label="SSH 终端" />
-                    <div className="ssh-file-resizer" role="separator" aria-label="调整文件管理面板宽度" aria-orientation="vertical" onPointerDown={startSshFileResize} />
-                    <aside className="ssh-file-manager" aria-label="远程文件管理">
+                    {!sshFilePaneCollapsed && <div className="ssh-file-resizer" role="separator" aria-label="调整文件管理面板宽度" aria-orientation="vertical" onPointerDown={startSshFileResize} />}
+                    {!sshFilePaneCollapsed && <aside className={`ssh-file-manager${sshFileDragActive ? " is-dragging" : ""}`} aria-label="远程文件管理" onDragEnter={(event) => { event.preventDefault(); setSshFileDragActive(true); }} onDragOver={(event) => event.preventDefault()} onDragLeave={(event) => { if (event.currentTarget === event.target) setSshFileDragActive(false); }} onDrop={(event) => { event.preventDefault(); setSshFileDragActive(false); void uploadSshFiles(event.dataTransfer.files); }}>
                       <div className="ssh-file-toolbar">
                         <button type="button" title="返回上级目录" disabled={sshFilesLoading || sshFilePath === "/"} onClick={() => void loadSshFiles(parentSshPath(sshFilePath))}><ChevronLeft size={16} /></button>
                         <input className="ssh-file-path" value={sshFilePath} onChange={(event) => setSshFilePath(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void loadSshFiles(event.currentTarget.value); }} aria-label="远程目录路径" />
                         <button type="button" title="刷新目录" disabled={sshFilesLoading} onClick={() => void loadSshFiles()}><RefreshCw size={15} className={sshFilesLoading ? "spin" : ""} /></button>
+                        <button type="button" title="收起文件管理" aria-label="收起文件管理" onClick={() => setSshFilePaneCollapsed(true)}><PanelRightClose size={16} /></button>
                       </div>
                       <div className="ssh-file-actions">
                         <button type="button" title="上传文件" disabled={sshFilesLoading} onClick={() => sshUploadInputRef.current?.click()}><Upload size={15} />上传</button>
                         <button type="button" title="新建文件夹" disabled={sshFilesLoading} onClick={() => void makeSshDirectory()}><FolderPlus size={15} />新建</button>
-                        <input ref={sshUploadInputRef} className="ssh-file-upload-input" type="file" onChange={(event) => { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ""; if (file) void uploadSshFile(file); }} />
+                        <input ref={sshUploadInputRef} className="ssh-file-upload-input" type="file" multiple onChange={(event) => { const files = event.currentTarget.files; event.currentTarget.value = ""; if (files?.length) void uploadSshFiles(files); }} />
                       </div>
                       {sshFileEditor ? (
                         <div className="ssh-file-editor">
@@ -5151,16 +5176,17 @@ function App() {
                         <div className="ssh-file-list">
                           <div className="ssh-file-list-head"><span>名称</span><span>大小</span><span>权限 / 所有者</span></div>
                           {sshFiles.map((entry) => <div className="ssh-file-row" key={entry.path} onDoubleClick={() => void openSshFile(entry)}>
-                            <button type="button" className="ssh-file-name" title={entry.isDir ? "进入目录" : "打开文本文件"} onClick={() => void openSshFile(entry)}>{entry.isDir ? <FolderOpen size={16} /> : <FileCode2 size={16} />}<span>{entry.name}</span></button>
+                            <button type="button" className="ssh-file-name" title={`${entry.isDir ? "进入目录" : "打开文本文件"}：${entry.name}`} onClick={() => void openSshFile(entry)}>{entry.isDir ? <FolderOpen size={16} /> : <FileCode2 size={16} />}<span>{entry.name}</span></button>
                             <span>{entry.isDir ? "文件夹" : sshFileSize(entry.size)}</span><span>{entry.mode}/{entry.owner}</span>
-                            <div className="ssh-file-row-actions">{entry.isFile && <button type="button" title="下载到本机" onClick={() => void downloadSshFile(entry)}><Download size={14} /></button>}<button type="button" title="删除" className="danger" onClick={() => void deleteSshEntry(entry)}><Trash2 size={14} /></button></div>
+                            <div className="ssh-file-row-actions">{entry.isFile && <button type="button" className="ssh-file-download" title="下载到本机并定位文件" onClick={() => void downloadSshFile(entry)}><Download size={14} /><span>下载</span></button>}<button type="button" title="删除" className="danger" onClick={() => void deleteSshEntry(entry)}><Trash2 size={14} /></button></div>
                           </div>)}
                           {!sshFilesLoading && sshFiles.length === 0 && <div className="ssh-file-empty">此目录为空</div>}
                           {sshFilesLoading && <div className="ssh-file-empty">正在读取目录…</div>}
                         </div>
                       )}
                       {sshFileError && <div className="ssh-file-error">{sshFileError}</div>}
-                    </aside>
+                    </aside>}
+                    {sshFilePaneCollapsed && <button type="button" className="ssh-file-reveal-tab" title="展开文件管理" aria-label="展开文件管理" onClick={() => setSshFilePaneCollapsed(false)}><PanelRightOpen size={18} /></button>}
                   </div>
                   {sshError && <div className="error-list ssh-error">{sshError}</div>}
                 </div>
