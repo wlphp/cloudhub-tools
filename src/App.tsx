@@ -2,6 +2,8 @@ import { FormEvent, PointerEvent, useEffect, useMemo, useRef, useState } from "r
 import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { relaunch } from "@tauri-apps/plugin-process";
+import { check, type Update } from "@tauri-apps/plugin-updater";
 import type { Terminal as XtermTerminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import {
@@ -373,6 +375,16 @@ const assetTypes = [
 
 const runningInTauri =
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
+type UpdateState =
+  | { phase: "idle" }
+  | { phase: "checking" }
+  | { phase: "available"; version: string; notes?: string }
+  | { phase: "downloading"; version: string; downloaded: number; total?: number }
+  | { phase: "ready"; version: string }
+  | { phase: "current" }
+  | { phase: "error"; message: string };
+
 async function webApi<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`http://127.0.0.1:1430${path}`, init);
   const payload = await response.json();
@@ -1827,6 +1839,7 @@ function App() {
   const [operationLogClearedAt, setOperationLogClearedAt] = useState(() => Number(localStorage.getItem("aliyun-operation-log-cleared-at") || "0"));
   const [autoRefresh, setAutoRefresh] = useState(() => localStorage.getItem("aliyun-auto-refresh") !== "0");
   const [compactMode, setCompactMode] = useState(() => localStorage.getItem("aliyun-compact-mode") === "1");
+  const [updateState, setUpdateState] = useState<UpdateState>({ phase: "idle" });
   const [logFilter, setLogFilter] = useState("");
   const [logTypeFilter, setLogTypeFilter] = useState("");
   const [resourceAccountId, setResourceAccountId] = useState<number | null>(null);
@@ -1879,6 +1892,7 @@ function App() {
   const sshPendingOutputRef = useRef("");
   const sshUploadInputRef = useRef<HTMLInputElement | null>(null);
   const sshWorkspaceRef = useRef<HTMLDivElement | null>(null);
+  const updateRef = useRef<Update | null>(null);
 
   useEffect(() => {
     if (!sshSessionId) return;
@@ -1968,6 +1982,54 @@ function App() {
     const remaining = 320 - (Date.now() - startedAt);
     if (remaining > 0)
       await new Promise<void>((resolve) => window.setTimeout(resolve, remaining));
+  }
+
+  async function checkForUpdates(quiet = false) {
+    if (!runningInTauri) {
+      setUpdateState({ phase: "idle" });
+      return;
+    }
+    setUpdateState({ phase: "checking" });
+    try {
+      const update = await check();
+      const previous = updateRef.current;
+      updateRef.current = update;
+      if (previous && previous !== update) void previous.close();
+      if (update) {
+        setUpdateState({ phase: "available", version: update.version, notes: update.body });
+      } else {
+        setUpdateState({ phase: "current" });
+      }
+    } catch (error) {
+      updateRef.current = null;
+      setUpdateState(quiet ? { phase: "idle" } : { phase: "error", message: String(error) });
+    }
+  }
+
+  async function installUpdate() {
+    const update = updateRef.current;
+    if (!update) {
+      await checkForUpdates();
+      return;
+    }
+    let downloaded = 0;
+    let total: number | undefined;
+    setUpdateState({ phase: "downloading", version: update.version, downloaded, total });
+    try {
+      await update.downloadAndInstall((event) => {
+        if (event.event === "Started") {
+          total = event.data.contentLength;
+        } else if (event.event === "Progress") {
+          downloaded += event.data.chunkLength;
+        }
+        setUpdateState({ phase: "downloading", version: update.version, downloaded, total });
+      });
+      updateRef.current = null;
+      setUpdateState({ phase: "ready", version: update.version });
+      await relaunch();
+    } catch (error) {
+      setUpdateState({ phase: "error", message: `安装更新失败：${String(error)}` });
+    }
   }
 
   async function loadLocalAssets() {
@@ -2975,6 +3037,12 @@ function App() {
     void loadManagedHosts();
     void loadPanelConnections();
     void loadApiLogs();
+    void checkForUpdates(true);
+    return () => {
+      const update = updateRef.current;
+      updateRef.current = null;
+      if (update) void update.close();
+    };
   }, []);
   useEffect(() => { localStorage.setItem("aliyun-auto-refresh", autoRefresh ? "1" : "0"); }, [autoRefresh]);
   useEffect(() => { localStorage.setItem("aliyun-compact-mode", compactMode ? "1" : "0"); document.documentElement.classList.toggle("compact-mode", compactMode); }, [compactMode]);
@@ -5113,6 +5181,7 @@ function App() {
               <div className="settings-card"><div className="settings-icon blue"><List size={22} /></div><div className="settings-copy"><strong>每页显示条数</strong><small>账号、资源和操作日志列表统一使用此分页大小</small></div><select className="settings-select" value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))}><option value={10}>10 条</option><option value={20}>20 条</option><option value={50}>50 条</option><option value={100}>100 条</option></select></div>
               <div className="settings-card"><div className="settings-icon purple"><Database size={22} /></div><div className="settings-copy"><strong>数据库位置</strong><small>系统应用数据目录 / CloudHubTools / cloudhub_tools.sqlite3</small></div><button className="secondary settings-link" onClick={() => setStatus("数据库文件由客户端自动管理")}>查看说明 ↗</button></div>
               <div className="settings-card"><div className="settings-icon green"><Globe2 size={22} /></div><div className="settings-copy"><strong>作者网站</strong><small>https://www.wlphp.com</small></div><a className="secondary settings-link" href="https://www.wlphp.com" target="_blank" rel="noreferrer">访问网站 ↗</a></div>
+              <div className="settings-card"><div className="settings-icon blue"><Download size={22} /></div><div className="settings-copy"><strong>客户端更新</strong><small>{!runningInTauri ? "自动更新仅在桌面客户端可用" : updateState.phase === "available" ? `发现 v${updateState.version}${updateState.notes ? "，可下载并安装" : ""}` : updateState.phase === "downloading" ? `正在下载 v${updateState.version}` : updateState.phase === "ready" ? `v${updateState.version} 已安装，正在重新启动` : updateState.phase === "current" ? "当前已是最新版本" : updateState.phase === "error" ? updateState.message : "启动时会自动检查新版本"}</small></div><div className="settings-update-actions">{runningInTauri && updateState.phase === "downloading" ? <span className="setting-state on">{updateState.total ? `${Math.min(100, Math.round((updateState.downloaded / updateState.total) * 100))}%` : "下载中"}</span> : runningInTauri && updateState.phase === "checking" ? <span className="setting-state on">检查中</span> : runningInTauri && updateState.phase === "available" ? <button className="secondary settings-link" onClick={() => void installUpdate()}><Download size={16} />下载并安装</button> : runningInTauri ? <button className="secondary settings-link" onClick={() => void checkForUpdates()}><RefreshCw size={16} />检查更新</button> : <span className="setting-state">桌面端</span>}</div></div>
               <div className="settings-card"><div className="settings-icon amber"><Terminal size={22} /></div><div className="settings-copy"><strong>GitHub 开源仓库</strong><small>https://github.com/wlphp/cloudhub-tools</small></div><a className="secondary settings-link" href="https://github.com/wlphp/cloudhub-tools" target="_blank" rel="noreferrer">访问仓库 ↗</a></div>
             </section>
           </section>

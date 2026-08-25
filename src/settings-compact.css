@@ -6,6 +6,7 @@
 .utility-page .setting-state.on{padding:6px 11px}
 .utility-page .settings-select{height:40px;min-width:96px;padding:0 11px}
 .utility-page .settings-link{padding:8px 12px}
+.utility-page .settings-update-actions{display:flex;align-items:center;justify-content:flex-end;min-width:108px}
 .utility-page .setting-switch span{width:52px;height:28px}
 .utility-page .setting-switch span:after{width:20px;height:20px;left:4px;top:4px}
 .utility-page .setting-switch input:checked+span:after{left:28px}

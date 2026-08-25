@@ -63,9 +63,10 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Build and upload release assets
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: CloudHub Tools ${{ github.ref_name }}
@@ -77,4 +78,8 @@ jobs:
             - Intel: Intel-based Macs.
           releaseDraft: false
           prerelease: false
+          retryAttempts: 5
+          uploadUpdaterJson: true
+          updaterJsonPreferNsis: true
+          uploadUpdaterSignatures: true
           args: ${{ matrix.args }}

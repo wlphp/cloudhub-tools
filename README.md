@@ -75,13 +75,17 @@ npm run tauri build
 
 ### GitHub Release
 
-推送形如 `v0.1.1` 的版本标签会自动创建 GitHub Release，并上传以下原生安装包：
+推送形如 `v0.1.3` 的版本标签会自动创建 GitHub Release，并上传以下原生安装包：
 
 - Windows x64
 - macOS Apple Silicon（M 系列芯片）和 macOS Intel
 - Linux x64（AppImage、DEB、RPM，具体格式由 Tauri 生成）
 
 macOS 发布包按芯片类型拆分，避免通用包的额外下载体积。Apple Silicon 对应 M1、M2、M3、M4 及后续芯片；Intel Mac 请选择 Intel 包。
+
+从 `v0.1.3` 开始，已安装的桌面客户端会在启动时检查新版本，也可以在“系统设置”中手动检查、下载并安装更新。首次升级到 `v0.1.3` 仍需要从 Release 页面手动下载安装包。
+
+维护发布流程需要在 GitHub Actions Secrets 中配置 `TAURI_SIGNING_PRIVATE_KEY`，用于签名更新包；私钥仅保存在发布者安全的本机或密钥管理服务中，不能提交到仓库。
 
 ### 构建 macOS 安装包
 

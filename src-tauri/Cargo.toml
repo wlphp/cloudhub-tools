@@ -1,6 +1,6 @@
 [package]
 name = "cloudhub-tools"
-version = "0.1.2"
+version = "0.1.3"
 description = "本地阿里云资源管理客户端"
 authors = ["wanglei"]
 edition = "2021"
@@ -40,3 +40,6 @@ percent-encoding = "2"
 rsa = { version = "0.9", features = ["pem"] }
 russh = { version = "0.63", default-features = false, features = ["ring", "rsa"] }
 bytes = "1"
+
+[target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))'.dependencies]
+tauri-plugin-updater = "2.10.1"
