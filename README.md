@@ -108,3 +108,7 @@ npm run bundle:mac:x64
 - 桌面端：Tauri 2、Rust
 - 终端：xterm.js
 - 本地存储：SQLite
+
+## 许可证
+
+本项目采用 [MIT License](LICENSE) 开源。
