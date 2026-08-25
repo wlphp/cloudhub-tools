@@ -2,6 +2,7 @@
 param(
   [ValidateSet("patch", "minor", "major")]
   [string]$Bump = "patch",
+  [switch]$IncludeChanges,
   [switch]$Yes,
   [switch]$DryRun,
   [switch]$Help
@@ -12,9 +13,9 @@ Set-StrictMode -Version Latest
 
 if ($Help) {
   Write-Host "CloudHub Tools release helper"
-  Write-Host "Usage: release-new-version.bat [patch|minor|major] [-Yes] [-DryRun]"
+  Write-Host "Usage: release-new-version.bat [patch|minor|major] [-IncludeChanges] [-Yes] [-DryRun]"
   Write-Host ""
-  Write-Host "Default: patch. The script validates, commits, tags, and pushes a new release."
+  Write-Host "Default: patch. Existing changes are shown and can be included in the release."
   exit 0
 }
 
@@ -43,8 +44,26 @@ Require-Command "npm"
 Require-Command "cargo"
 
 $changes = @(git status --porcelain)
+$includeAllChanges = $false
 if ($changes.Count -gt 0) {
-  throw "The working tree has uncommitted changes. Commit, stash, or discard them before releasing."
+  Write-Host ""
+  Write-Host "Uncommitted changes detected:" -ForegroundColor Yellow
+  $changes | ForEach-Object { Write-Host "  $_" }
+
+  if ($DryRun) {
+    Write-Host "Dry run would include the changes shown above."
+  }
+  elseif ($Yes -or $IncludeChanges) {
+    $includeAllChanges = $true
+  }
+  else {
+    $answer = Read-Host "Include all listed changes in this release? Type Y to continue"
+    if ($answer -notmatch "^(y|yes)$") {
+      Write-Host "Release cancelled."
+      exit 0
+    }
+    $includeAllChanges = $true
+  }
 }
 
 $packagePath = Join-Path $root "package.json"
@@ -113,7 +132,12 @@ $releaseFiles = @(
   "src/local-assets.css"
 )
 
-git add -- $releaseFiles
+if ($includeAllChanges) {
+  git add -A
+}
+else {
+  git add -- $releaseFiles
+}
 if ($LASTEXITCODE -ne 0) { throw "Could not stage release files." }
 
 git diff --cached --check
