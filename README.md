@@ -77,7 +77,7 @@ npm run tauri build
 
 推送形如 `v0.1.1` 的版本标签会自动创建 GitHub Release，并上传以下原生安装包：
 
-- Windows x64 和 Windows ARM64
+- Windows x64
 - macOS Apple Silicon（M 系列芯片）和 macOS Intel
 - Linux x64（AppImage、DEB、RPM，具体格式由 Tauri 生成）
 
