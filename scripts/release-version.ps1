@@ -102,7 +102,7 @@ $escapedCurrent = [regex]::Escape($currentVersion)
 Replace-Text "package.json" ('"version"\s*:\s*"' + $escapedCurrent + '"') ('"version": "' + $nextVersion + '"')
 Replace-Text "package-lock.json" ('"version"\s*:\s*"' + $escapedCurrent + '"') ('"version": "' + $nextVersion + '"') 0
 Replace-Text "src-tauri\Cargo.toml" ('(?m)^version\s*=\s*"' + $escapedCurrent + '"\s*$') ('version = "' + $nextVersion + '"')
-Replace-Text "src-tauri\Cargo.lock" ('(?ms)(name = "cloudhub-tools"\r?\nversion = "' + $escapedCurrent + '")') ('$1' + $nextVersion + '$2')
+Replace-Text "src-tauri\Cargo.lock" ('(?ms)(name = "cloudhub-tools"\r?\nversion = ")' + $escapedCurrent + '(")') ('${1}' + $nextVersion + '${2}')
 Replace-Text "src-tauri\tauri.conf.json" ('"version"\s*:\s*"' + $escapedCurrent + '"') ('"version": "' + $nextVersion + '"')
 Replace-Text "src\App.tsx" ('const bundledVersion = "' + $escapedCurrent + '";') ('const bundledVersion = "' + $nextVersion + '";')
 

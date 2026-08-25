@@ -3162,7 +3162,14 @@ fn import_panel_connections(panels: Vec<ImportPanelConnection>) -> Result<usize,
 }
 
 fn ssh_saved_connection(account_id: i64, asset_key: &str) -> Result<Option<(String, u16, String, Option<String>, Option<String>)>, String> {
-    open_db()?.query_row(
+    let conn = open_db()?;
+    let managed = conn.query_row(
+        "SELECT host,port,username,password_ciphertext,host_key_fingerprint FROM managed_hosts WHERE source_account_id=?1 AND source_asset_key=?2 ORDER BY id LIMIT 1",
+        params![account_id, asset_key],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+    ).optional().map_err(|e| format!("读取终端管理 SSH 配置失败: {e}"))?;
+    if managed.is_some() { return Ok(managed); }
+    conn.query_row(
         "SELECT host,port,username,password_ciphertext,host_key_fingerprint FROM ssh_connections WHERE account_id=?1 AND asset_key=?2",
         params![account_id, asset_key],
         |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
@@ -3206,6 +3213,47 @@ fn save_ssh_connection(input: &SshConnectInput, password_ciphertext: Option<&str
     Ok(())
 }
 
+fn managed_host_name_for_asset(conn: &Connection, account_id: i64, asset_key: &str) -> Result<(String, Option<String>), String> {
+    let asset: Option<(String, Option<String>, Option<String>)> = conn.query_row(
+        "SELECT a.account_name,a.group_name,assets.payload_json FROM cloud_assets assets JOIN cloud_accounts a ON a.id=assets.account_id WHERE assets.account_id=?1 AND assets.asset_key=?2 ORDER BY assets.fetched_at DESC LIMIT 1",
+        params![account_id, asset_key],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    ).optional().map_err(|e| format!("读取云资源名称失败: {e}"))?;
+    let Some((account_name, account_group, payload)) = asset else { return Ok((asset_key.to_string(), None)); };
+    let payload = payload.as_deref().and_then(|value| serde_json::from_str::<Value>(value).ok()).unwrap_or(Value::Null);
+    let name = ["InstanceName", "Name", "name", "ServerName", "InstanceId", "Id"]
+        .iter()
+        .find_map(|key| payload.get(*key).and_then(Value::as_str).map(str::trim).filter(|value| !value.is_empty()).map(str::to_string))
+        .unwrap_or_else(|| asset_key.to_string());
+    let group = account_group.filter(|value| !value.trim().is_empty()).or_else(|| (!account_name.trim().is_empty()).then_some(account_name));
+    Ok((name, group))
+}
+
+fn save_managed_host_from_ssh(input: &SshConnectInput, password_ciphertext: &str, fingerprint: &str) -> Result<(), String> {
+    let account_id = input.account_id.ok_or("缺少云账号标识")?;
+    let asset_key = input.asset_key.as_deref().map(str::trim).filter(|value| !value.is_empty()).ok_or("缺少资产标识")?;
+    let conn = open_db()?;
+    let now = Utc::now().timestamp_millis();
+    let existing_id: Option<i64> = conn.query_row(
+        "SELECT id FROM managed_hosts WHERE source_account_id=?1 AND source_asset_key=?2 ORDER BY id LIMIT 1",
+        params![account_id, asset_key],
+        |row| row.get(0),
+    ).optional().map_err(|e| format!("读取终端管理服务器失败: {e}"))?;
+    if let Some(id) = existing_id {
+        conn.execute(
+            "UPDATE managed_hosts SET host=?1,port=?2,username=?3,password_ciphertext=?4,host_key_fingerprint=?5,status='online',last_error=NULL,updated_at=?6 WHERE id=?7",
+            params![input.host.trim(), input.port.max(1), input.username.trim(), password_ciphertext, fingerprint, now, id],
+        ).map_err(|e| format!("更新终端管理服务器失败: {e}"))?;
+        return Ok(());
+    }
+    let (name, group_name) = managed_host_name_for_asset(&conn, account_id, asset_key)?;
+    conn.execute(
+        "INSERT INTO managed_hosts(name,host,port,username,password_ciphertext,group_name,source_account_id,source_asset_key,host_key_fingerprint,status,metrics_json,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,'online','{}',?10,?10)",
+        params![name, input.host.trim(), input.port.max(1), input.username.trim(), password_ciphertext, group_name, account_id, asset_key, fingerprint, now],
+    ).map_err(|e| format!("保存终端管理服务器失败: {e}"))?;
+    Ok(())
+}
+
 #[tauri::command]
 fn get_ssh_connection(account_id: i64, asset_key: String) -> Result<Option<SavedSshConnection>, String> {
     Ok(ssh_saved_connection(account_id, &asset_key)?.map(|(host, port, username, password, _)| SavedSshConnection {
@@ -3221,8 +3269,10 @@ fn reveal_ssh_password(account_id: Option<i64>, asset_key: Option<String>, manag
     } else {
         let account_id = account_id.ok_or("缺少云账号标识")?;
         let asset_key = asset_key.filter(|value| !value.trim().is_empty()).ok_or("缺少服务器标识")?;
-        open_db()?.query_row("SELECT password_ciphertext FROM ssh_connections WHERE account_id=?1 AND asset_key=?2", params![account_id, asset_key], |row| row.get(0))
-            .map_err(|e| format!("读取 SSH 密码失败: {e}"))?
+        let conn = open_db()?;
+        let managed: Option<String> = conn.query_row("SELECT password_ciphertext FROM managed_hosts WHERE source_account_id=?1 AND source_asset_key=?2 ORDER BY id LIMIT 1", params![account_id, asset_key], |row| row.get(0))
+            .optional().map_err(|e| format!("读取终端管理 SSH 密码失败: {e}"))?;
+        managed.or_else(|| conn.query_row("SELECT password_ciphertext FROM ssh_connections WHERE account_id=?1 AND asset_key=?2", params![account_id, asset_key], |row| row.get(0)).optional().ok().flatten())
     };
     let ciphertext = ciphertext.ok_or("当前没有保存 SSH 密码")?;
     decrypt_secret(&ciphertext)
@@ -3363,7 +3413,8 @@ async fn ssh_connect(store: tauri::State<'_, SshTerminalStore>, input: SshConnec
         let _ = writer.close().await;
         let _ = session.disconnect(russh::Disconnect::ByApplication, "Local SSH client closed", "en").await;
     });
-    let persisted = if input.save_password { if let SshCredentials::Password(password) = &credentials { Some(encrypt_secret(password)?) } else { None } } else { None };
+    let managed_password = if let SshCredentials::Password(password) = &credentials { Some(encrypt_secret(password)?) } else { None };
+    let persisted = if input.save_password { managed_password.clone() } else { None };
     let mut persisted_input = input;
     persisted_input.host = host;
     persisted_input.username = username;
@@ -3375,6 +3426,9 @@ async fn ssh_connect(store: tauri::State<'_, SshTerminalStore>, input: SshConnec
         open_db()?.execute("UPDATE managed_hosts SET host=?1,port=?2,username=?3,password_ciphertext=COALESCE(?4,password_ciphertext),host_key_fingerprint=?5,status='online',last_error=NULL,updated_at=?6 WHERE id=?7", params![persisted_input.host, port, persisted_input.username, persisted.as_deref(), fingerprint, Utc::now().timestamp_millis(), managed_host_id]).map_err(|e| e.to_string())?;
     } else {
         save_ssh_connection(&persisted_input, persisted.as_deref(), &fingerprint)?;
+        if let Some(password_ciphertext) = managed_password.as_deref() {
+            save_managed_host_from_ssh(&persisted_input, password_ciphertext, &fingerprint)?;
+        }
     }
     let session_id = Uuid::new_v4().to_string();
     let profile = SshConnectionProfile { host: persisted_input.host.clone(), port, username: persisted_input.username.clone(), credentials, fingerprint: fingerprint.clone() };

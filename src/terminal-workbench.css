@@ -1,0 +1,186 @@
+.terminal-group-title {
+  gap: 8px;
+}
+
+.terminal-tabs {
+  overflow-x: auto;
+}
+
+.terminal-tab {
+  min-width: 0;
+  padding: 0;
+}
+
+.terminal-tab.active {
+  background: #163859;
+  box-shadow: inset 0 -2px #56b8ec;
+}
+
+.terminal-tab-select {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  flex: 1;
+  height: 41px;
+  padding: 0 7px 0 12px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.terminal-tab-select:hover {
+  background: #1b3957;
+}
+
+.terminal-tab-select span {
+  min-width: 0;
+}
+
+.terminal-tab-close {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 27px;
+  height: 27px;
+  margin-right: 4px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #85a0ba;
+  cursor: pointer;
+}
+
+.terminal-tab-close:hover {
+  background: #3a526b;
+  color: #fff;
+}
+
+.terminal-group-title select {
+  min-width: 0;
+  max-width: 132px;
+  height: 27px;
+  border: 1px solid #294968;
+  border-radius: 4px;
+  background: #081421;
+  color: #9fb8d0;
+  padding: 0 6px;
+  font-size: 11px;
+}
+
+.terminal-host-row > button:not(:first-child) {
+  display: grid;
+  place-items: center;
+  width: 25px;
+  height: 27px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #7391ac;
+  cursor: pointer;
+}
+
+.terminal-host-row > button:not(:first-child):hover:not(:disabled) {
+  background: #204869;
+  color: #e6f5ff;
+}
+
+.terminal-host-row > button:disabled {
+  opacity: .45;
+  cursor: wait;
+}
+
+.terminal-host-row > button:last-child {
+  margin-right: 3px;
+  color: #c9838c;
+}
+
+.terminal-workbench.is-file-pane-collapsed .ssh-terminal-workspace {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+
+.terminal-workbench.is-file-pane-collapsed .ssh-file-resizer,
+.terminal-workbench.is-file-pane-collapsed .ssh-file-manager {
+  display: none;
+}
+
+.terminal-connect-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(2, 8, 18, .62);
+}
+
+.terminal-connect-card {
+  width: min(560px, calc(100vw - 40px));
+  border: 1px solid #2a5275;
+  border-radius: 8px;
+  background: #0c1c30;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, .54);
+  padding: 20px;
+}
+
+.terminal-connect-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.terminal-connect-card h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 5px 0 0;
+  color: #edf7ff;
+  font-size: 19px;
+}
+
+.terminal-connect-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 120px;
+  gap: 14px;
+  margin-top: 20px;
+}
+
+.terminal-connect-fields label {
+  margin: 0;
+}
+
+.terminal-connect-fields label:nth-child(3),
+.terminal-connect-fields label:nth-child(4) {
+  grid-column: 1 / -1;
+}
+
+.terminal-connect-fields input {
+  height: 40px;
+  margin-top: 7px;
+}
+
+.terminal-connect-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.terminal-connect-actions button {
+  height: 38px;
+}
+
+@media (max-width: 560px) {
+  .terminal-connect-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .terminal-connect-fields label:nth-child(3),
+  .terminal-connect-fields label:nth-child(4) {
+    grid-column: auto;
+  }
+}
