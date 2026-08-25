@@ -1,5 +1,6 @@
 import { FormEvent, PointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { relaunch } from "@tauri-apps/plugin-process";
@@ -375,6 +376,7 @@ const assetTypes = [
 
 const runningInTauri =
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+const bundledVersion = "0.1.4";
 
 type UpdateState =
   | { phase: "idle" }
@@ -1839,6 +1841,7 @@ function App() {
   const [operationLogClearedAt, setOperationLogClearedAt] = useState(() => Number(localStorage.getItem("aliyun-operation-log-cleared-at") || "0"));
   const [autoRefresh, setAutoRefresh] = useState(() => localStorage.getItem("aliyun-auto-refresh") !== "0");
   const [compactMode, setCompactMode] = useState(() => localStorage.getItem("aliyun-compact-mode") === "1");
+  const [appVersion, setAppVersion] = useState(bundledVersion);
   const [updateState, setUpdateState] = useState<UpdateState>({ phase: "idle" });
   const [logFilter, setLogFilter] = useState("");
   const [logTypeFilter, setLogTypeFilter] = useState("");
@@ -1997,8 +2000,10 @@ function App() {
       if (previous && previous !== update) void previous.close();
       if (update) {
         setUpdateState({ phase: "available", version: update.version, notes: update.body });
+        if (!quiet) setStatus(`已检查更新：当前 v${appVersion}，发现最新 v${update.version}`);
       } else {
         setUpdateState({ phase: "current" });
+        if (!quiet) setStatus(`已检查更新：当前 v${appVersion}，最新版本也是 v${appVersion}`);
       }
     } catch (error) {
       updateRef.current = null;
@@ -3037,6 +3042,9 @@ function App() {
     void loadManagedHosts();
     void loadPanelConnections();
     void loadApiLogs();
+    if (runningInTauri) {
+      void getVersion().then(setAppVersion).catch(() => {});
+    }
     void checkForUpdates(true);
     return () => {
       const update = updateRef.current;
@@ -4125,7 +4133,7 @@ function App() {
         <div className="top-right-status">
           <span>本地模式</span>
           <strong>SQLite 已启用</strong>
-          <em>云枢 Tools · v0.1.1</em>
+          <em>云枢 Tools · v{appVersion}</em>
         </div>
         {status && <div className="toast-notice">{status}</div>}
         <div className={`account-section ${section === "accounts" ? "" : "section-hidden"}`}>
@@ -5181,7 +5189,7 @@ function App() {
               <div className="settings-card"><div className="settings-icon blue"><List size={22} /></div><div className="settings-copy"><strong>每页显示条数</strong><small>账号、资源和操作日志列表统一使用此分页大小</small></div><select className="settings-select" value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))}><option value={10}>10 条</option><option value={20}>20 条</option><option value={50}>50 条</option><option value={100}>100 条</option></select></div>
               <div className="settings-card"><div className="settings-icon purple"><Database size={22} /></div><div className="settings-copy"><strong>数据库位置</strong><small>系统应用数据目录 / CloudHubTools / cloudhub_tools.sqlite3</small></div><button className="secondary settings-link" onClick={() => setStatus("数据库文件由客户端自动管理")}>查看说明 ↗</button></div>
               <div className="settings-card"><div className="settings-icon green"><Globe2 size={22} /></div><div className="settings-copy"><strong>作者网站</strong><small>https://www.wlphp.com</small></div><a className="secondary settings-link" href="https://www.wlphp.com" target="_blank" rel="noreferrer">访问网站 ↗</a></div>
-              <div className="settings-card"><div className="settings-icon blue"><Download size={22} /></div><div className="settings-copy"><strong>客户端更新</strong><small>{!runningInTauri ? "自动更新仅在桌面客户端可用" : updateState.phase === "available" ? `发现 v${updateState.version}${updateState.notes ? "，可下载并安装" : ""}` : updateState.phase === "downloading" ? `正在下载 v${updateState.version}` : updateState.phase === "ready" ? `v${updateState.version} 已安装，正在重新启动` : updateState.phase === "current" ? "当前已是最新版本" : updateState.phase === "error" ? updateState.message : "启动时会自动检查新版本"}</small></div><div className="settings-update-actions">{runningInTauri && updateState.phase === "downloading" ? <span className="setting-state on">{updateState.total ? `${Math.min(100, Math.round((updateState.downloaded / updateState.total) * 100))}%` : "下载中"}</span> : runningInTauri && updateState.phase === "checking" ? <span className="setting-state on">检查中</span> : runningInTauri && updateState.phase === "available" ? <button className="secondary settings-link" onClick={() => void installUpdate()}><Download size={16} />下载并安装</button> : runningInTauri ? <button className="secondary settings-link" onClick={() => void checkForUpdates()}><RefreshCw size={16} />检查更新</button> : <span className="setting-state">桌面端</span>}</div></div>
+              <div className="settings-card"><div className="settings-icon blue"><Download size={22} /></div><div className="settings-copy"><strong>客户端更新</strong><small>{!runningInTauri ? `当前版本 v${appVersion}；自动更新仅在桌面客户端可用` : updateState.phase === "available" ? `当前 v${appVersion}，最新 v${updateState.version}${updateState.notes ? "，可下载并安装" : ""}` : updateState.phase === "downloading" ? `当前 v${appVersion}，正在下载 v${updateState.version}` : updateState.phase === "ready" ? `v${updateState.version} 已安装，正在重新启动` : updateState.phase === "current" ? `当前 v${appVersion} 已是最新版本` : updateState.phase === "error" ? `当前 v${appVersion}；${updateState.message}` : `当前版本 v${appVersion}，启动时会自动检查新版本`}</small></div><div className="settings-update-actions">{runningInTauri && updateState.phase === "downloading" ? <span className="setting-state on">{updateState.total ? `${Math.min(100, Math.round((updateState.downloaded / updateState.total) * 100))}%` : "下载中"}</span> : runningInTauri && updateState.phase === "checking" ? <span className="setting-state on">检查中</span> : runningInTauri && updateState.phase === "available" ? <button className="secondary settings-link" onClick={() => void installUpdate()}><Download size={16} />下载并安装</button> : runningInTauri ? <button className="secondary settings-link" onClick={() => void checkForUpdates()}><RefreshCw size={16} />检查更新</button> : <span className="setting-state">桌面端</span>}</div></div>
               <div className="settings-card"><div className="settings-icon amber"><Terminal size={22} /></div><div className="settings-copy"><strong>GitHub 开源仓库</strong><small>https://github.com/wlphp/cloudhub-tools</small></div><a className="secondary settings-link" href="https://github.com/wlphp/cloudhub-tools" target="_blank" rel="noreferrer">访问仓库 ↗</a></div>
             </section>
           </section>

@@ -21,10 +21,10 @@ jobs:
             args: --target x86_64-pc-windows-msvc --bundles nsis
           - name: macOS Intel
             platform: macos-15-intel
-            args: --target x86_64-apple-darwin --bundles dmg
+            args: --target x86_64-apple-darwin --bundles app,dmg
           - name: macOS Apple Silicon
             platform: macos-latest
-            args: --target aarch64-apple-darwin --bundles dmg
+            args: --target aarch64-apple-darwin --bundles app,dmg
           - name: Linux x64
             platform: ubuntu-24.04
             args: --target x86_64-unknown-linux-gnu
