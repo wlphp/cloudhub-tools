@@ -10,6 +10,7 @@ import "@xterm/xterm/css/xterm.css";
 import {
   ArrowUp,
   ArrowDown,
+  AlertTriangle,
   Bookmark,
   BookmarkCheck,
   ChevronDown,
@@ -259,6 +260,8 @@ type SshConnectResult = {
   sessionId: string;
   hostKeyFingerprint: string;
 };
+type ConfirmRequest = { message: string; resolve: (confirmed: boolean) => void };
+type PromptRequest = { message: string; resolve: (value: string | null) => void };
 type SshAuthMethod = "password" | "private_key";
 
 const empty: Draft = {
@@ -389,7 +392,7 @@ const assetTypes = [
 
 const runningInTauri =
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-const bundledVersion = "0.1.9";
+const bundledVersion = "0.1.10";
 
 type UpdateState =
   | { phase: "idle" }
@@ -709,12 +712,14 @@ function ServerCard({
   onStatus,
   onNotice,
   onSshLogin,
+  onConfirm,
 }: {
   account: Account;
   item: Record<string, unknown>;
   onStatus: () => void;
   onNotice: (message: string) => void;
   onSshLogin: () => void;
+  onConfirm: (message: string) => Promise<boolean>;
 }) {
   const [disks, setDisks] = useState<Record<string, unknown>[]>([]);
   const [diskLoading, setDiskLoading] = useState(true);
@@ -776,7 +781,7 @@ function ServerCard({
   }
   async function changeStatus(action: "start" | "stop") {
     const label = action === "start" ? "开机" : "关机";
-    if (!window.confirm(`确认${label}服务器"${String(item.InstanceName || item.InstanceId)}"？`)) return;
+    if (!(await onConfirm(`确认${label}服务器“${String(item.InstanceName || item.InstanceId)}”？`))) return;
     try {
       if (account.cloud_type === "oracle") {
         const payload = { id: account.id, regionId, instanceId: String(item.InstanceId || ""), action };
@@ -795,7 +800,7 @@ function ServerCard({
     } catch (error) { onNotice(`服务器${label}失败：${String(error)}`); }
   }
   async function reboot() {
-    if (!window.confirm(`确认${forceReboot ? "强制" : "正常"}重启服务器“${String(item.InstanceName || item.InstanceId || "")}"？`)) return;
+    if (!(await onConfirm(`确认${forceReboot ? "强制" : "正常"}重启服务器“${String(item.InstanceName || item.InstanceId || "")}”？`))) return;
     setRebooting(true);
     try {
       if (account.cloud_type === "oracle") {
@@ -932,12 +937,14 @@ function SwasCard({
   onRefresh,
   onNotice,
   onSshLogin,
+  onConfirm,
 }: {
   account: Account;
   item: Record<string, unknown>;
   onRefresh: () => void;
   onNotice: (message: string) => void;
   onSshLogin: () => void;
+  onConfirm: (message: string) => Promise<boolean>;
 }) {
   const [forceReboot, setForceReboot] = useState(false);
   const [submitting, setSubmitting] = useState<"start" | "reboot" | "stop" | null>(null);
@@ -949,7 +956,7 @@ function SwasCard({
   const canForceReboot = account.cloud_type === "aliyun" || account.cloud_type === "tencent";
   async function submit(action: "start" | "reboot" | "stop") {
     const label = action === "start" ? "开机" : action === "reboot" ? `${canForceReboot && forceReboot ? "强制" : "正常"}重启` : "关机";
-    if (!window.confirm(`确认${label}轻量服务器“${instanceName}”？`)) return;
+    if (!(await onConfirm(`确认${label}轻量服务器“${instanceName}”？`))) return;
     setSubmitting(action);
     try {
       if (runningInTauri) {
@@ -1420,11 +1427,15 @@ function BucketCard({
   item,
   quickAction,
   onQuickActionOpened,
+  onConfirm,
+  onPrompt,
 }: {
   account: Account;
   item: Record<string, unknown>;
   quickAction?: "files" | "stat" | null;
   onQuickActionOpened?: () => void;
+  onConfirm: (message: string) => Promise<boolean>;
+  onPrompt: (message: string, initialValue?: string) => Promise<string | null>;
 }) {
   const [objectListing, setObjectListing] = useState<OssObjectListing | null>(null);
   const [objectDialog, setObjectDialog] = useState<"files" | "stat" | null>(null);
@@ -1452,6 +1463,15 @@ function BucketCard({
   const endpoint = String(item.ExtranetEndpoint || (bucketName && location ? (isTencent ? `${bucketName}.cos.${location}.myqcloud.com` : isVolcengine ? `${bucketName}.tos-${location}.volces.com` : isCtyun || isHuawei || isBaidu ? "-" : `${bucketName}.${location}.aliyuncs.com`) : "-"));
   const intranetEndpoint = String(item.IntranetEndpoint || (bucketName && location && !isTencent && !isVolcengine && !isCtyun && !isHuawei && !isBaidu ? `${bucketName}.${location}-internal.aliyuncs.com` : "-"));
   const storageClassNames: Record<string, string> = { Standard: "标准存储", IA: "低频访问", Archive: "归档存储", ColdArchive: "冷归档存储", DeepColdArchive: "深度冷归档" };
+  async function fetchDetail() {
+    if (!runningInTauri) return webApi<OssDetail>(`/api/oss-detail?id=${account.id}&bucket=${encodeURIComponent(bucketName)}&location=${encodeURIComponent(location)}`);
+    try {
+      const acl = await invoke<string>("get_oss_acl", { id: account.id, bucket: bucketName, location });
+      return { storage: 0, objectCount: 0, multipartUploadCount: 0, liveChannelCount: 0, monthTraffic: 0, monthRequests: 0, acl, cnames: [], cors: [], errors: [] };
+    } catch (error) {
+      return { storage: 0, objectCount: 0, multipartUploadCount: 0, liveChannelCount: 0, monthTraffic: 0, monthRequests: 0, acl: String(item.Acl || "private"), cnames: [], cors: [], errors: [`存储桶详情读取失败：${String(error)}`] };
+    }
+  }
   async function loadDetail() {
     if (isReadOnlyBucketProvider) {
       setDetail(null);
@@ -1461,7 +1481,7 @@ function BucketCard({
     }
     setDetailLoading(true);
     try {
-      const value = await webApi<OssDetail>(`/api/oss-detail?id=${account.id}&bucket=${encodeURIComponent(bucketName)}&location=${encodeURIComponent(location)}`);
+      const value = await fetchDetail();
       setDetail(value);
       if (value.errors.length) setError(value.errors.join("；"));
     } catch (reason) {
@@ -1485,9 +1505,11 @@ function BucketCard({
     setObjectDialog("files");
     try {
       setError("");
-      const listing = await webApi<OssObjectListing>(
-        `/api/oss-objects?id=${account.id}&bucket=${encodeURIComponent(bucketName)}&location=${encodeURIComponent(location)}&prefix=${encodeURIComponent(prefix)}&marker=${encodeURIComponent(marker)}`,
-      );
+      const listing = runningInTauri
+        ? { objects: await invoke<OssObject[]>("list_oss_objects", { id: account.id, bucket: bucketName, location }), prefixes: [], isTruncated: false, nextMarker: "" }
+        : await webApi<OssObjectListing>(
+            `/api/oss-objects?id=${account.id}&bucket=${encodeURIComponent(bucketName)}&location=${encodeURIComponent(location)}&prefix=${encodeURIComponent(prefix)}&marker=${encodeURIComponent(marker)}`,
+          );
       setObjectListing(marker && objectListing ? {
         ...listing,
         objects: [...objectListing.objects, ...listing.objects],
@@ -1512,7 +1534,7 @@ function BucketCard({
     let cancelled = false;
     (async () => {
       try {
-        const value = await webApi<OssDetail>(`/api/oss-detail?id=${account.id}&bucket=${encodeURIComponent(bucketName)}&location=${encodeURIComponent(location)}`);
+        const value = await fetchDetail();
         if (!cancelled) {
           setDetail(value);
           if (value.errors.length) setError(value.errors.join("；"));
@@ -1542,9 +1564,10 @@ function BucketCard({
     }
   }
   async function setPublicRead() {
-    if (!window.confirm(`确定要将存储桶【${bucketName}】设置为公共读吗？\n公共读权限允许任何人读取存储桶中的文件。`)) return;
+    if (!(await onConfirm(`确定要将存储桶【${bucketName}】设置为公共读吗？\n公共读权限允许任何人读取存储桶中的文件。`))) return;
     try {
-      await webApi(`/api/oss-public-read?id=${account.id}&bucket=${encodeURIComponent(bucketName)}&location=${encodeURIComponent(location)}`, { method: "POST" });
+      if (runningInTauri) await invoke("set_oss_public_read", { id: account.id, bucket: bucketName, location });
+      else await webApi(`/api/oss-public-read?id=${account.id}&bucket=${encodeURIComponent(bucketName)}&location=${encodeURIComponent(location)}`, { method: "POST" });
       setNotice("已设置为公共读");
       await loadDetail();
     } catch (reason) {
@@ -1552,15 +1575,17 @@ function BucketCard({
     }
   }
   async function setCors() {
-    const origins = window.prompt("允许来源（输入 * 表示允许所有来源）", "*");
+    const origins = await onPrompt("允许来源（输入 * 表示允许所有来源）", "*");
     if (origins === null) return;
     try {
-      await webApi(`/api/oss-cors?id=${account.id}&bucket=${encodeURIComponent(bucketName)}&location=${encodeURIComponent(location)}&origins=${encodeURIComponent(origins)}`, { method: "POST" });
+      if (runningInTauri) await invoke("set_oss_cors", { id: account.id, bucket: bucketName, location, origins });
+      else await webApi(`/api/oss-cors?id=${account.id}&bucket=${encodeURIComponent(bucketName)}&location=${encodeURIComponent(location)}&origins=${encodeURIComponent(origins)}`, { method: "POST" });
       setNotice("CORS 配置已保存");
       await loadDetail();
     } catch (reason) { setNotice(`CORS 设置失败：${String(reason)}`); }
   }
   async function createCnameToken() {
+    if (runningInTauri) { setNotice("桌面客户端暂未接入 OSS 自定义域名配置，请使用 Web API 模式操作"); return; }
     setCnameLoading(true);
     try {
       const result = await webApi<Record<string, string>>(`/api/oss-cname-token?id=${account.id}&bucket=${encodeURIComponent(bucketName)}&location=${encodeURIComponent(location)}&domain=${encodeURIComponent(cnameValue)}`, { method: "POST" });
@@ -1569,6 +1594,7 @@ function BucketCard({
     } catch (reason) { setNotice(`获取 Token 失败：${String(reason)}`); } finally { setCnameLoading(false); }
   }
   async function bindCname() {
+    if (runningInTauri) { setNotice("桌面客户端暂未接入 OSS 自定义域名配置，请使用 Web API 模式操作"); return; }
     setCnameLoading(true);
     try {
       await webApi(`/api/oss-cname?id=${account.id}&bucket=${encodeURIComponent(bucketName)}&location=${encodeURIComponent(location)}&domain=${encodeURIComponent(cnameValue)}`, { method: "POST" });
@@ -1577,7 +1603,8 @@ function BucketCard({
     } catch (reason) { setNotice(`绑定失败：${String(reason)}`); } finally { setCnameLoading(false); }
   }
   async function deleteCname(domain: string) {
-    if (!window.confirm(`确定删除自定义域名【${domain}】吗？`)) return;
+    if (!(await onConfirm(`确定删除自定义域名【${domain}】吗？`))) return;
+    if (runningInTauri) { setNotice("桌面客户端暂未接入 OSS 自定义域名配置，请使用 Web API 模式操作"); return; }
     try {
       await webApi(`/api/oss-cname?id=${account.id}&bucket=${encodeURIComponent(bucketName)}&location=${encodeURIComponent(location)}&domain=${encodeURIComponent(domain)}`, { method: "DELETE" });
       setNotice("自定义域名已删除");
@@ -1762,6 +1789,9 @@ function App() {
   const [selectedAccountIds, setSelectedAccountIds] = useState<Set<number>>(() => new Set());
   const [keyword, setKeyword] = useState("");
   const [dialog, setDialog] = useState(false);
+  const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
+  const [promptRequest, setPromptRequest] = useState<PromptRequest | null>(null);
+  const [promptValue, setPromptValue] = useState("");
   const [showSecret, setShowSecret] = useState(false);
   const [verifyingAccount, setVerifyingAccount] = useState(false);
   const [draft, setDraft] = useState<Draft>(empty);
@@ -1915,6 +1945,22 @@ function App() {
   const sshUploadInputRef = useRef<HTMLInputElement | null>(null);
   const sshWorkspaceRef = useRef<HTMLDivElement | null>(null);
   const updateRef = useRef<Update | null>(null);
+
+  function requestConfirm(message: string) {
+    return new Promise<boolean>((resolve) => setConfirmRequest({ message, resolve }));
+  }
+  function resolveConfirm(confirmed: boolean) {
+    confirmRequest?.resolve(confirmed);
+    setConfirmRequest(null);
+  }
+  function requestPrompt(message: string, initialValue = "") {
+    setPromptValue(initialValue);
+    return new Promise<string | null>((resolve) => setPromptRequest({ message, resolve }));
+  }
+  function resolvePrompt(value: string | null) {
+    promptRequest?.resolve(value);
+    setPromptRequest(null);
+  }
 
   useEffect(() => {
     terminalTabsRef.current = terminalTabs;
@@ -2161,7 +2207,7 @@ function App() {
     }
   }
   async function deletePanelConnection(panel: PanelConnection) {
-    if (!window.confirm(`确认移除面板“${panel.name}”吗？本机保存的 API 密钥也会删除。`)) return;
+    if (!(await requestConfirm(`确认移除面板“${panel.name}”吗？本机保存的 API 密钥也会删除。`))) return;
     try { await invoke("delete_panel_connection", { id: panel.id }); setPanelConnections((current) => current.filter((item) => item.id !== panel.id)); setSelectedPanelIds((current) => { const next = new Set(current); next.delete(panel.id); return next; }); setStatus("面板已移除"); }
     catch (error) { setStatus(`移除面板失败：${String(error)}`); }
   }
@@ -2184,7 +2230,7 @@ function App() {
   async function exportSelectedPanels() {
     const panelIds = [...selectedPanelIds];
     if (!panelIds.length) { setStatus("请先勾选需要导出的面板"); return; }
-    if (!window.confirm(`导出文件会包含 ${panelIds.length} 个面板的 API 密钥，请妥善保管。确定继续吗？`)) return;
+    if (!(await requestConfirm(`导出文件会包含 ${panelIds.length} 个面板的 API 密钥，请妥善保管。确定继续吗？`))) return;
     try {
       const path = await invoke<string>("export_panel_connections_file", { panelIds });
       setStatus(`已导出 ${panelIds.length} 个面板，文件已保存到：${path}`);
@@ -2234,7 +2280,7 @@ function App() {
     finally { setManagedHostLoadingId(null); }
   }
   async function deleteManagedHost(host: ManagedHost) {
-    if (!window.confirm(`确认从服务器管理中移除“${host.name}”吗？本机保存的 SSH 密码也会删除。`)) return;
+    if (!(await requestConfirm(`确认从服务器管理中移除“${host.name}”吗？本机保存的 SSH 密码也会删除。`))) return;
     try { await invoke("delete_managed_host", { id: host.id }); setManagedHosts((current) => current.filter((item) => item.id !== host.id)); setStatus("服务器已移除"); }
     catch (error) { setStatus(`移除服务器失败：${String(error)}`); }
   }
@@ -2297,7 +2343,7 @@ function App() {
     const regionId = String(asset.region_id || asset.payload?.RegionId || account?.region_id || "");
     if (!account || !regionId || !instanceId) { setStatus("服务器缺少账号、地域或实例 ID"); return; }
     const resourceLabel = asset.resource_type === "swas" ? "轻量服务器" : "服务器";
-    if (!window.confirm(`确认${forceStop ? "强制" : "正常"}重启${resourceLabel}“${String(asset.payload?.InstanceName || instanceId)}”吗？`)) return;
+    if (!(await requestConfirm(`确认${forceStop ? "强制" : "正常"}重启${resourceLabel}“${String(asset.payload?.InstanceName || instanceId)}”吗？`))) return;
     try {
       if (asset.resource_type === "swas") {
         if (account.cloud_type !== "aliyun" && account.cloud_type !== "tencent") throw new Error("当前轻量服务器暂不支持重启操作");
@@ -2322,6 +2368,40 @@ function App() {
       setStatus(`${forceStop ? "强制" : "正常"}重启${resourceLabel}指令已提交`);
       await loadApiLogs();
     } catch (error) { setStatus(`${resourceLabel}重启失败：${String(error)}`); }
+  }
+  async function stopLocalAsset(asset: LocalAsset) {
+    const account = accounts.find((item) => item.id === asset.account_id);
+    const instanceId = String(asset.payload?.InstanceId || asset.asset_key);
+    const regionId = String(asset.region_id || asset.payload?.RegionId || account?.region_id || "");
+    if (!account || !regionId || !instanceId) { setStatus("服务器缺少账号、地域或实例 ID"); return; }
+    const resourceLabel = asset.resource_type === "swas" ? "轻量服务器" : "服务器";
+    if (!(await requestConfirm(`确认关机${resourceLabel}“${String(asset.payload?.InstanceName || instanceId)}”吗？`))) return;
+    try {
+      if (asset.resource_type === "swas") {
+        if (account.cloud_type !== "aliyun" && account.cloud_type !== "tencent") throw new Error("当前轻量服务器暂不支持关机操作");
+        const payload = { id: account.id, regionId, instanceId, action: "stop", forceStop: false };
+        if (runningInTauri) await invoke("swas_instance_action", payload);
+        else await webApi("/api/swas-action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      } else if (account.cloud_type === "tencent") {
+        const payload = { id: account.id, regionId, instanceId, action: "stop", forceStop: false };
+        if (runningInTauri) await invoke("cvm_instance_action", payload);
+        else await webApi("/api/cvm-action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      } else if (account.cloud_type === "oracle") {
+        const payload = { id: account.id, regionId, instanceId, action: "stop" };
+        if (runningInTauri) await invoke("oracle_instance_action", payload);
+        else await webApi("/api/oracle-instance-action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      } else if (account.cloud_type === "baidu") {
+        const payload = { id: account.id, regionId, instanceId, action: "stop", forceStop: false };
+        if (runningInTauri) await invoke("baidu_instance_action", payload);
+        else await webApi("/api/bcc-action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      } else {
+        const payload = { id: account.id, regionId, instanceId, action: "stop" };
+        if (runningInTauri) await invoke("stop_instance", payload);
+        else await webApi("/api/ecs-action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      }
+      setStatus(`${resourceLabel}关机指令已提交`);
+      await loadApiLogs();
+    } catch (error) { setStatus(`${resourceLabel}关机失败：${String(error)}`); }
   }
   async function saveServerName(asset: LocalAsset, account: Account, key: string) {
     const draft = editingAssetName;
@@ -2589,7 +2669,7 @@ function App() {
     const oversized = pendingFiles.find((file) => file.size > 20 * 1024 * 1024);
     if (oversized) { setSshFileError(`“${oversized.name}”超过单文件 20 MB 上传限制`); return; }
     const existingFiles = pendingFiles.filter((file) => sshFiles.some((entry) => entry.name === file.name));
-    if (existingFiles.length && !window.confirm(`“${existingFiles.map((file) => file.name).join("、")}”已存在，确定覆盖吗？`)) return;
+    if (existingFiles.length && !(await requestConfirm(`“${existingFiles.map((file) => file.name).join("、")}”已存在，确定覆盖吗？`))) return;
     setSshFilesLoading(true);
     setSshFileError("");
     try {
@@ -2619,13 +2699,13 @@ function App() {
   }
   async function makeSshDirectory() {
     if (!sshSessionId) return;
-    const name = window.prompt("新建文件夹名称");
+    const name = await requestPrompt("新建文件夹名称");
     if (!name?.trim() || /[\\/\0]/.test(name)) { if (name) setSshFileError("文件夹名称不能包含 / 或 \\ "); return; }
     try { await invoke("ssh_make_directory", { sessionId: sshSessionId, path: joinSshPath(sshFilePath, name.trim()) }); await loadSshFiles(); }
     catch (error) { setSshFileError(`新建文件夹失败：${String(error)}`); }
   }
   async function deleteSshEntry(entry: SshFileEntry) {
-    if (!sshSessionId || !window.confirm(`确定删除${entry.isDir ? "文件夹及其全部内容" : "文件"}“${entry.name}”？此操作不可恢复。`)) return;
+    if (!sshSessionId || !(await requestConfirm(`确定删除${entry.isDir ? "文件夹及其全部内容" : "文件"}“${entry.name}”？此操作不可恢复。`))) return;
     try { await invoke("ssh_delete_path", { sessionId: sshSessionId, path: entry.path }); if (sshFileEditor?.path === entry.path) setSshFileEditor(null); await loadSshFiles(); }
     catch (error) { setSshFileError(`删除失败：${String(error)}`); }
   }
@@ -2678,7 +2758,7 @@ function App() {
   }
   async function clearLogs(kind: "api" | "operation") {
     const title = kind === "api" ? "API 日志" : "操作日志";
-    if (!window.confirm(`确定清空全部${title}吗？此操作不可恢复。`)) return;
+    if (!(await requestConfirm(`确定清空全部${title}吗？此操作不可恢复。`))) return;
     try {
       if (runningInTauri) await invoke(kind === "api" ? "clear_api_logs" : "clear_operation_logs", {});
       else await webApi(kind === "api" ? "/api/api-logs" : "/api/operation-logs", { method: "DELETE" });
@@ -3090,7 +3170,7 @@ function App() {
     try {
       if (
         action === "delete" &&
-        !confirm(`确定删除 ${String(row.RR || "")} 记录吗？`)
+        !(await requestConfirm(`确定删除 ${String(row.RR || "")} 记录吗？`))
       )
         return;
       if (action === "edit") {
@@ -3274,7 +3354,7 @@ function App() {
     } finally { setVerifyingAccount(false); }
   }
   async function remove(id: number) {
-    if (!confirm("确定删除这个本地云账号吗？")) return;
+    if (!(await requestConfirm("确定删除这个本地云账号吗？"))) return;
     try {
       if (runningInTauri) await invoke("delete_account", { id });
       else await webApi(`/api/accounts?id=${id}`, { method: "DELETE" });
@@ -3288,7 +3368,7 @@ function App() {
     const accountIds = [...selectedAccountIds];
     const exportCount = accountIds.length || accounts.length;
     const exportScope = accountIds.length ? `已勾选的 ${accountIds.length} 个` : `全部 ${exportCount} 个`;
-    if (!confirm(`导出文件会包含 AccessKey Secret，将导出${exportScope}云账号，请妥善保管。确定继续吗？`))
+    if (!(await requestConfirm(`导出文件会包含 AccessKey Secret，将导出${exportScope}云账号，请妥善保管。确定继续吗？`)))
       return;
     try {
       if (runningInTauri) {
@@ -3579,6 +3659,7 @@ function App() {
                 item={item}
                 onStatus={() => active && void pullLatestResources(active.account, "ecs")}
                 onNotice={setStatus}
+                onConfirm={requestConfirm}
                 onSshLogin={() => {
                   if (!active) return;
                   const instanceId = String(item.InstanceId || index);
@@ -3648,6 +3729,7 @@ function App() {
               item={item}
               onRefresh={() => active && void pullLatestResources(active.account, "swas")}
               onNotice={setStatus}
+              onConfirm={requestConfirm}
               onSshLogin={() => {
                 if (!active) return;
                 const instanceId = String(item.InstanceId || item.InstanceName || index);
@@ -3833,6 +3915,8 @@ function App() {
               key={String(item.Name || index)}
               quickAction={ossQuickTool?.accountId === active?.account.id && ossQuickTool?.bucket === String(item.Name || "") ? ossQuickTool?.kind ?? null : null}
               onQuickActionOpened={() => setOssQuickTool(null)}
+              onConfirm={requestConfirm}
+              onPrompt={requestPrompt}
             />
           ))}
         </div>
@@ -4193,6 +4277,7 @@ function App() {
       <button className="asset-ssh-button" onClick={() => void openSshClient(asset, account)}><Terminal size={13} />SSH 登录</button>
       {["aliyun", "tencent", "baidu", "oracle"].includes(account.cloud_type) && <button className="asset-reboot-button" onClick={() => void rebootLocalAsset(asset, false)}>重启</button>}
       {["aliyun", "tencent", "baidu", "oracle"].includes(account.cloud_type) && <button className="asset-force-reboot-button" onClick={() => void rebootLocalAsset(asset, true)}>强制重启</button>}
+      {["aliyun", "tencent", "baidu", "oracle"].includes(account.cloud_type) && <button className="asset-shutdown-button" onClick={() => void stopLocalAsset(asset)}>关机</button>}
     </div>;
     return <span className="asset-action-muted">—</span>;
   };
@@ -4278,11 +4363,6 @@ function App() {
             <span>资源总数</span>
             <strong>{localAssets.length}</strong>
             <small>已获取资产</small>
-          </div>
-          <div>
-            <span>最近更新</span>
-            <strong>{localAssets.length ? formatChineseDateTime(Math.max(...localAssets.map((item) => item.fetched_at))) : "-"}</strong>
-            <small>本地资产</small>
           </div>
         </section>
         <section className="panel">
@@ -4402,8 +4482,6 @@ function App() {
                 <thead>
                   <tr>
                     <th className="account-select"><input aria-label="全选当前页账号" type="checkbox" checked={allPagedAccountsSelected} onChange={togglePagedAccountSelection} /></th>
-                    <th>序号</th>
-                    <th>排序</th>
                     <th>云类型</th>
                     <th>账号名称</th>
                     <th>分组</th>
@@ -4415,11 +4493,9 @@ function App() {
                   </tr>
                 </thead>
                 <tbody>
-                  {pagedAccounts.map((account, index) => (
+                  {pagedAccounts.map((account) => (
                     <tr key={account.id}>
                       <td className="account-select"><input aria-label={`选择账号 ${account.account_name}`} type="checkbox" checked={selectedAccountIds.has(account.id)} onChange={() => toggleAccountSelection(account.id)} /></td>
-                      <td>{(accountPage - 1) * pageSize + index + 1}</td>
-                      <td>{account.sort_order ?? 0}</td>
                       <td>
                         <span className={`cloud-type cloud-type-text ${account.cloud_type}`}>
                           {cloudProvider(account.cloud_type).label}
@@ -5518,6 +5594,26 @@ function App() {
             </div>
           </form>
         </div>
+      )}
+      {confirmRequest && createPortal(
+        <div className="app-confirm-backdrop" onClick={() => resolveConfirm(false)}>
+          <section className="app-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" onClick={(event) => event.stopPropagation()}>
+            <div className="app-confirm-icon"><AlertTriangle size={20} /></div>
+            <div className="app-confirm-copy"><span className="eyebrow">PLEASE CONFIRM</span><h2 id="confirm-title">确认操作</h2><p>{confirmRequest.message}</p></div>
+            <div className="app-confirm-actions"><button type="button" className="secondary" autoFocus onClick={() => resolveConfirm(false)}>取消</button><button type="button" className="primary app-confirm-primary" onClick={() => resolveConfirm(true)}>确认</button></div>
+          </section>
+        </div>,
+        document.body,
+      )}
+      {promptRequest && createPortal(
+        <div className="app-confirm-backdrop" onClick={() => resolvePrompt(null)}>
+          <form className="app-confirm-dialog app-prompt-dialog" onSubmit={(event) => { event.preventDefault(); resolvePrompt(promptValue); }} onClick={(event) => event.stopPropagation()}>
+            <div className="app-confirm-icon"><AlertTriangle size={20} /></div>
+            <div className="app-confirm-copy"><span className="eyebrow">INPUT REQUIRED</span><h2>请输入内容</h2><p>{promptRequest.message}</p><input value={promptValue} autoFocus onChange={(event) => setPromptValue(event.target.value)} /></div>
+            <div className="app-confirm-actions"><button type="button" className="secondary" onClick={() => resolvePrompt(null)}>取消</button><button type="submit" className="primary app-confirm-primary">确定</button></div>
+          </form>
+        </div>,
+        document.body,
       )}
     </div>
   );

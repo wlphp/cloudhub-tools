@@ -2601,6 +2601,28 @@ async fn reboot_instance(id: i64, region_id: String, instance_id: String, force_
 }
 
 #[tauri::command]
+async fn start_instance(id: i64, region_id: String, instance_id: String) -> Result<String, String> {
+    ensure_aliyun_account(id)?;
+    if region_id.is_empty() || instance_id.is_empty() { return Err("缺少服务器地域或实例 ID".into()); }
+    let (access_key_id, access_key_secret) = account_credentials(id)?;
+    let result = aliyun_rpc(&format!("ecs.{region_id}.aliyuncs.com"), "2014-05-26", "StartInstance", string_params(&[
+        ("RegionId", region_id), ("InstanceId", instance_id),
+    ]), &access_key_id, &access_key_secret).await?;
+    Ok(result.get("RequestId").and_then(Value::as_str).unwrap_or_default().to_string())
+}
+
+#[tauri::command]
+async fn stop_instance(id: i64, region_id: String, instance_id: String) -> Result<String, String> {
+    ensure_aliyun_account(id)?;
+    if region_id.is_empty() || instance_id.is_empty() { return Err("缺少服务器地域或实例 ID".into()); }
+    let (access_key_id, access_key_secret) = account_credentials(id)?;
+    let result = aliyun_rpc(&format!("ecs.{region_id}.aliyuncs.com"), "2014-05-26", "StopInstance", string_params(&[
+        ("RegionId", region_id), ("InstanceId", instance_id),
+    ]), &access_key_id, &access_key_secret).await?;
+    Ok(result.get("RequestId").and_then(Value::as_str).unwrap_or_default().to_string())
+}
+
+#[tauri::command]
 async fn cvm_instance_reboot(id: i64, region_id: String, instance_id: String, force_stop: bool) -> Result<String, String> {
     ensure_tencent_account(id)?;
     if region_id.is_empty() || instance_id.is_empty() { return Err("缺少服务器地域或实例 ID".into()); }
@@ -2608,6 +2630,23 @@ async fn cvm_instance_reboot(id: i64, region_id: String, instance_id: String, fo
     let mut payload = json!({"InstanceIds": [instance_id]});
     if force_stop { payload["ForceStop"] = json!(true); }
     let result = tencent_request("cvm", "2017-03-12", "RebootInstances", payload, Some(&region_id), &access_key_id, &access_key_secret).await?;
+    Ok(result.get("RequestId").and_then(Value::as_str).unwrap_or_default().to_string())
+}
+
+#[tauri::command]
+async fn cvm_instance_action(id: i64, region_id: String, instance_id: String, action: String, force_stop: bool) -> Result<String, String> {
+    ensure_tencent_account(id)?;
+    if region_id.is_empty() || instance_id.is_empty() { return Err("缺少服务器地域或实例 ID".into()); }
+    let action_name = match action.as_str() {
+        "start" => "StartInstances",
+        "stop" => "StopInstances",
+        "reboot" => "RebootInstances",
+        _ => return Err("不支持的腾讯云服务器操作".into()),
+    };
+    let (access_key_id, access_key_secret) = account_credentials(id)?;
+    let mut payload = json!({"InstanceIds": [instance_id]});
+    if force_stop && (action == "stop" || action == "reboot") { payload["ForceStop"] = json!(true); }
+    let result = tencent_request("cvm", "2017-03-12", action_name, payload, Some(&region_id), &access_key_id, &access_key_secret).await?;
     Ok(result.get("RequestId").and_then(Value::as_str).unwrap_or_default().to_string())
 }
 
@@ -3841,7 +3880,7 @@ pub fn run() {
         .manage(SshTerminalStore { terminals: Mutex::new(HashMap::new()) })
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![list_accounts, save_account, delete_account, app_data_path, open_app_data_directory, reveal_account_secret, cloud_account_summary, list_cloud_resources, sync_cloud_assets, verify_vultr_account, verify_ctyun_account, verify_huawei_account, verify_baidu_account, verify_ucloud_account, verify_qiniu_account, verify_aws_account, verify_azure_account, verify_gcp_account, verify_jdcloud_account, verify_qingcloud_account, verify_ksyun_account, esa_overview, list_local_assets, list_managed_hosts, save_managed_host, delete_managed_host, probe_managed_host, list_panel_connections, save_panel_connection, refresh_panel_connection, panel_temporary_login, delete_panel_connection, export_panel_connections_file, import_panel_connections, list_api_logs, clear_api_logs, clear_operation_logs, list_instance_disks, instance_status, reboot_instance, oracle_instance_action, cvm_instance_reboot, baidu_instance_action, rename_server, swas_instance_action, list_dns_records, add_dns_record, update_dns_record, delete_dns_record, toggle_dns_record, list_domain_logs, query_whois, list_rds_databases, list_rds_accounts, list_redis_accounts, list_oss_objects, get_oss_acl, set_oss_public_read, set_oss_cors, get_ssh_connection, reveal_ssh_password, delete_ssh_connection, get_rdp_connection, reveal_rdp_password, delete_rdp_connection, launch_rdp_connection, ssh_connect, ssh_test_connection, ssh_list_files, ssh_read_text_file, ssh_write_text_file, ssh_upload_file, ssh_download_file, ssh_make_directory, ssh_delete_path, ssh_read, ssh_write, ssh_resize, ssh_disconnect, export_accounts, export_accounts_file, import_accounts])
+        .invoke_handler(tauri::generate_handler![list_accounts, save_account, delete_account, app_data_path, open_app_data_directory, reveal_account_secret, cloud_account_summary, list_cloud_resources, sync_cloud_assets, verify_vultr_account, verify_ctyun_account, verify_huawei_account, verify_baidu_account, verify_ucloud_account, verify_qiniu_account, verify_aws_account, verify_azure_account, verify_gcp_account, verify_jdcloud_account, verify_qingcloud_account, verify_ksyun_account, esa_overview, list_local_assets, list_managed_hosts, save_managed_host, delete_managed_host, probe_managed_host, list_panel_connections, save_panel_connection, refresh_panel_connection, panel_temporary_login, delete_panel_connection, export_panel_connections_file, import_panel_connections, list_api_logs, clear_api_logs, clear_operation_logs, list_instance_disks, instance_status, reboot_instance, start_instance, stop_instance, oracle_instance_action, cvm_instance_reboot, cvm_instance_action, baidu_instance_action, rename_server, swas_instance_action, list_dns_records, add_dns_record, update_dns_record, delete_dns_record, toggle_dns_record, list_domain_logs, query_whois, list_rds_databases, list_rds_accounts, list_redis_accounts, list_oss_objects, get_oss_acl, set_oss_public_read, set_oss_cors, get_ssh_connection, reveal_ssh_password, delete_ssh_connection, get_rdp_connection, reveal_rdp_password, delete_rdp_connection, launch_rdp_connection, ssh_connect, ssh_test_connection, ssh_list_files, ssh_read_text_file, ssh_write_text_file, ssh_upload_file, ssh_download_file, ssh_make_directory, ssh_delete_path, ssh_read, ssh_write, ssh_resize, ssh_disconnect, export_accounts, export_accounts_file, import_accounts])
         .run(tauri::generate_context!())
         .expect("error while running Tauri application");
 }

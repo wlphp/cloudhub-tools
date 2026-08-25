@@ -2609,9 +2609,25 @@ const server = http.createServer(async (req, res) => {
       const region = String(payload.regionId || "");
       const instanceId = String(payload.instanceId || "");
       if (!region || !instanceId) return send(res, 400, { error: "缺少服务器地域或实例 ID" });
+      const action = String(payload.action || "reboot");
+      const actionNames = { start: "StartInstances", stop: "StopInstances", reboot: "RebootInstances" };
+      const actionName = actionNames[action];
+      if (!actionName) return send(res, 400, { error: "不支持的腾讯云服务器操作" });
       const request = { InstanceIds: [instanceId] };
-      if (payload.forceStop) request.ForceStop = true;
-      return send(res, 200, await tencentRequest(id, "cvm", "2017-03-12", "RebootInstances", request, region));
+      if (payload.forceStop && (action === "stop" || action === "reboot")) request.ForceStop = true;
+      return send(res, 200, await tencentRequest(id, "cvm", "2017-03-12", actionName, request, region));
+    }
+    if (req.method === "POST" && url.pathname === "/api/ecs-action") {
+      const payload = JSON.parse(await readBody(req));
+      const id = Number(payload.id);
+      const region = String(payload.regionId || "");
+      const instanceId = String(payload.instanceId || "");
+      const action = String(payload.action || "");
+      if (!region || !instanceId) return send(res, 400, { error: "缺少服务器地域或实例 ID" });
+      const actionNames = { start: "StartInstance", stop: "StopInstance", reboot: "RebootInstance" };
+      const actionName = actionNames[action];
+      if (!actionName) return send(res, 400, { error: "不支持的阿里云服务器操作" });
+      return send(res, 200, await rpc(id, `ecs.${region}.aliyuncs.com`, "2014-05-26", actionName, { RegionId: region, InstanceId: instanceId }));
     }
     if (req.method === "POST" && url.pathname === "/api/bcc-action") {
       const payload = JSON.parse(await readBody(req));
