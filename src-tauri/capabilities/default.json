@@ -7,6 +7,13 @@
     "core:default",
     "core:webview:allow-create-webview-window",
     "opener:default",
+    {
+      "identifier": "opener:allow-open-path",
+      "allow": [
+        { "path": "$APPLOCALDATA" },
+        { "path": "$APPLOCALDATA/**" }
+      ]
+    },
     "updater:default"
   ]
 }
