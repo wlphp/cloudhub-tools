@@ -1,0 +1,19 @@
+.utility-page .settings-grid{gap:14px}
+.utility-page .settings-card{min-height:96px;grid-template-columns:48px minmax(0,1fr) auto;gap:14px;padding:16px 20px;border-radius:10px}
+.utility-page .settings-icon{width:44px;height:44px}
+.utility-page .settings-copy strong{font-size:16px}
+.utility-page .settings-copy small{margin-top:5px;font-size:12px}
+.utility-page .setting-state.on{padding:6px 11px}
+.utility-page .settings-select{height:40px;min-width:96px;padding:0 11px}
+.utility-page .settings-link{padding:8px 12px}
+.utility-page .setting-switch span{width:52px;height:28px}
+.utility-page .setting-switch span:after{width:20px;height:20px;left:4px;top:4px}
+.utility-page .setting-switch input:checked+span:after{left:28px}
+.account-key-tip{display:flex;align-items:center;justify-content:space-between;gap:14px}.account-key-tip a{color:#73c9ff;text-decoration:none;white-space:nowrap}.account-key-tip a:hover{color:#fff;text-decoration:underline}
+html,body,#root{height:100%;overflow:hidden}.app-shell{height:100vh;min-height:0;overflow:hidden}.app-shell aside{position:sticky;top:0;height:100vh;align-self:flex-start}.app-shell main{height:100vh;min-height:0;overflow-x:hidden;overflow-y:auto}
+@media(max-width:900px){.app-shell aside{flex-basis:190px;flex:0 0 190px}}@media(max-width:680px){.app-shell aside{display:none}.app-shell main{height:100vh}}
+.resource-modal-backdrop{overflow:hidden!important}
+.resource-modal{overflow:hidden!important}
+.domain-tool-modal{max-height:calc(100vh - 32px)!important}
+.domain-tool-modal .domain-tool-body{max-height:calc(100vh - 132px)!important;overflow-y:auto!important;overflow-x:hidden!important}
+.resource-modal-backdrop.nested-resource-modal,.domain-tool-backdrop{z-index:100!important}

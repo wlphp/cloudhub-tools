@@ -1,0 +1,30 @@
+.server-reference{padding:24px 28px;overflow:auto;flex:1;background:#0a1828;color:#dbe7f5}
+.server-toolbar{display:flex;align-items:center;gap:12px;margin-bottom:18px;color:#7892af;font-size:12px}
+.server-toolbar .layui-btn{height:30px;border-radius:6px;padding:0 12px;font-size:12px}
+.server-summary{background:linear-gradient(145deg,#0b1d34,#0a1729);padding:18px 22px;border-radius:10px;margin-bottom:20px;display:flex;gap:36px;flex-wrap:wrap;color:#7f98b5;border:1px solid #1c3a5e}
+.server-summary strong{font-size:22px;color:#f4f8ff;margin-left:8px;font-weight:700}
+.server-summary .running strong{color:#50d5a0}.server-summary .stopped strong{color:#ff6b6b}
+.region-section{margin-bottom:24px}
+.region-title{font-size:16px;font-weight:600;color:#43c8ff;padding:12px 0;border-bottom:1px solid #1e3555;margin-bottom:14px;letter-spacing:.02em}
+.region-title.rds-region-title,.region-title.redis-region-title{color:#a78bfa;border-bottom-color:#3a2a55}
+.server-card{background:linear-gradient(145deg,#0b1d34,#0a1729);border:1px solid #1c3a5e;border-radius:10px;padding:18px;margin-bottom:14px;transition:border-color .15s}
+.server-card:hover{border-color:#2a5688}
+.server-header{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #1e3555;padding-bottom:12px;margin-bottom:14px}
+.server-header strong{font-size:16px;color:#f4f8ff;font-weight:600}
+.server-status{padding:3px 10px;border-radius:12px;font-size:11px;border:1px solid #1e3555}
+.status-running{background:#0a2e25;color:#50d5a0;border-color:#1a5e4a}.status-stopped{background:#3a2028;color:#ff6b6b;border-color:#69343b}.status-other{background:#3a2a1a;color:#ffb86b;border-color:#6e4f30}
+.server-info{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
+.server-info>div{display:flex;line-height:1.6;word-break:break-all;color:#b8cbe0;font-size:13px}
+.server-info span{color:#6f8eae;min-width:90px;flex-shrink:0}
+.disk-info{margin-top:14px;padding:12px 14px;background:#091a30;border-radius:7px;font-size:12px;color:#7892af;min-height:20px}
+.disk-item{display:flex;justify-content:space-between;padding:4px 0}
+.disk-name{color:#b8cbe0}.disk-size{color:#43c8ff}
+.server-actions{margin-top:14px;padding-top:14px;border-top:1px solid #1e3555;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.server-actions .layui-btn{margin:0;height:30px;border-radius:6px;padding:0 12px;font-size:12px}
+.server-actions .ssh-login-button{display:inline-flex;align-items:center;gap:5px;background:#5a3cb8;color:#fff;border:1px solid #8e73ed}.server-actions .ssh-login-button:hover{background:#7254d4}
+.server-actions .layui-btn-danger{background:#a8424f}.server-actions .layui-btn-normal{background:#1c6eaa}
+.layui-btn-small{height:28px;padding:0 10px;font-size:12px}
+.server-empty{text-align:center;padding:80px 20px}.server-empty p{margin-top:14px;color:#7892af}
+.server-reference .layui-btn-primary{background:#0d2037;color:#b8cbe0;border:1px solid #1f3a5a}
+.server-reference .layui-btn-primary:hover{background:#173456;color:#fff}
+.force-reboot-toggle{color:#9ab3cd}

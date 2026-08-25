@@ -1,0 +1,42 @@
+[package]
+name = "cloudhub-tools"
+version = "0.1.1"
+description = "本地阿里云资源管理客户端"
+authors = ["wanglei"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "cloudhub_tools_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.32", features = ["bundled"] }
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync"] }
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+base64 = "0.22"
+aes-gcm = "0.10"
+rand = "0.8"
+dirs = "5"
+hmac = "0.12"
+sha1 = "0.10"
+md-5 = "0.10"
+sha2 = { version = "0.10", features = ["oid"] }
+hex = "0.4"
+percent-encoding = "2"
+rsa = { version = "0.9", features = ["pem"] }
+russh = { version = "0.63", default-features = false, features = ["ring", "rsa"] }
+bytes = "1"

@@ -1,0 +1,83 @@
+name: Release desktop apps
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x64
+            platform: windows-2025
+            args: --target x86_64-pc-windows-msvc
+          - name: Windows ARM64
+            platform: windows-11-arm
+            args: --target aarch64-pc-windows-msvc
+          - name: macOS Intel
+            platform: macos-15-intel
+            args: --target x86_64-apple-darwin
+          - name: macOS Apple Silicon
+            platform: macos-latest
+            args: --target aarch64-apple-darwin
+          - name: Linux x64
+            platform: ubuntu-24.04
+            args: --target x86_64-unknown-linux-gnu
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build and upload release assets
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: CloudHub Tools ${{ github.ref_name }}
+          releaseBody: |
+            Desktop builds for Windows, macOS, and Linux.
+
+            macOS downloads are split by processor:
+            - Apple Silicon: M1, M2, M3, M4, and newer Macs.
+            - Intel: Intel-based Macs.
+          releaseDraft: false
+          prerelease: false
+          args: ${{ matrix.args }}
