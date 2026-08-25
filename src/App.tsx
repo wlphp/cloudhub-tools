@@ -2119,7 +2119,6 @@ function App() {
       setPanelOpeningId(null);
     }
   }
-  async function copyPanelAddress(panel: PanelConnection) {
   async function openDataDirectory() {
     if (!runningInTauri) { setStatus("打开数据目录仅支持桌面客户端"); return; }
     try {
@@ -2129,6 +2128,7 @@ function App() {
       setStatus(`打开数据目录失败：${String(error)}`);
     }
   }
+  async function copyPanelAddress(panel: PanelConnection) {
     try {
       await navigator.clipboard.writeText(panel.panel_url);
       setStatus(`${panel.name} 面板地址已复制`);

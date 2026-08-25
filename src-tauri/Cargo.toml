@@ -1,6 +1,6 @@
 [package]
 name = "cloudhub-tools"
-version = "0.1.5"
+version = "0.1.6"
 description = "本地阿里云资源管理客户端"
 authors = ["wanglei"]
 edition = "2021"
