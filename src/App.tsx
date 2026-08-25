@@ -401,7 +401,7 @@ const assetTypes = [
 
 const runningInTauri =
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-const bundledVersion = "0.1.12";
+const bundledVersion = "0.1.13";
 
 type UpdateState =
   | { phase: "idle" }
