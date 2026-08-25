@@ -203,6 +203,15 @@ function savedFavoriteAssetKeys() {
     return [];
   }
 }
+
+function favoriteAssetKeysFromValue(value: string | undefined) {
+  try {
+    const parsed = JSON.parse(value || "[]");
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+  } catch {
+    return [];
+  }
+}
 type ApiLog = {
   id: number;
   account_id?: number | null;
@@ -392,7 +401,7 @@ const assetTypes = [
 
 const runningInTauri =
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-const bundledVersion = "0.1.11";
+const bundledVersion = "0.1.12";
 
 type UpdateState =
   | { phase: "idle" }
@@ -1880,6 +1889,7 @@ function App() {
   const [managedHostGroup, setManagedHostGroup] = useState("");
   const [terminalSelectedHostId, setTerminalSelectedHostId] = useState<number | null>(null);
   const [favoriteAssetKeys, setFavoriteAssetKeys] = useState<string[]>(savedFavoriteAssetKeys);
+  const [clientPreferencesReady, setClientPreferencesReady] = useState(!runningInTauri);
   const [apiLogs, setApiLogs] = useState<ApiLog[]>([]);
   const [apiLogDetail, setApiLogDetail] = useState<ApiLog | null>(null);
   const [operationLogClearedAt, setOperationLogClearedAt] = useState(() => Number(localStorage.getItem("aliyun-operation-log-cleared-at") || "0"));
@@ -3247,18 +3257,41 @@ function App() {
       if (update) void update.close();
     };
   }, []);
-  useEffect(() => { localStorage.setItem("aliyun-auto-refresh", autoRefresh ? "1" : "0"); }, [autoRefresh]);
-  useEffect(() => { localStorage.setItem("aliyun-compact-mode", compactMode ? "1" : "0"); document.documentElement.classList.toggle("compact-mode", compactMode); }, [compactMode]);
-  useEffect(() => { localStorage.setItem("aliyun-panel-hide-ip", hidePanelIps ? "1" : "0"); }, [hidePanelIps]);
-  useEffect(() => { localStorage.setItem("aliyun-panel-open-mode", panelOpenMode); }, [panelOpenMode]);
-  useEffect(() => { localStorage.setItem("aliyun-panel-refresh-seconds", String(panelRefreshSeconds)); }, [panelRefreshSeconds]);
+  useEffect(() => {
+    if (!runningInTauri) return;
+    let cancelled = false;
+    void invoke<Record<string, string>>("list_client_preferences").then((preferences) => {
+      if (cancelled) return;
+      if (preferences[cloudHubFavoriteAssetsStorageKey] !== undefined) setFavoriteAssetKeys(favoriteAssetKeysFromValue(preferences[cloudHubFavoriteAssetsStorageKey]));
+      if (preferences["aliyun-auto-refresh"] !== undefined) setAutoRefresh(preferences["aliyun-auto-refresh"] !== "0");
+      if (preferences["aliyun-compact-mode"] !== undefined) setCompactMode(preferences["aliyun-compact-mode"] === "1");
+      if (preferences["aliyun-panel-hide-ip"] !== undefined) setHidePanelIps(preferences["aliyun-panel-hide-ip"] === "1");
+      if (preferences["aliyun-panel-open-mode"] === "copy") setPanelOpenMode("copy");
+      const refreshSeconds = Number(preferences["aliyun-panel-refresh-seconds"]);
+      if ([0, 5, 10, 30, 60].includes(refreshSeconds)) setPanelRefreshSeconds(refreshSeconds);
+      const savedPageSize = Number(preferences["aliyun-page-size"]);
+      if ([10, 20, 50, 100].includes(savedPageSize)) setPageSize(savedPageSize);
+      const clearedAt = Number(preferences["aliyun-operation-log-cleared-at"]);
+      if (Number.isFinite(clearedAt) && clearedAt > 0) setOperationLogClearedAt(clearedAt);
+    }).catch(() => {}).finally(() => { if (!cancelled) setClientPreferencesReady(true); });
+    return () => { cancelled = true; };
+  }, []);
+  function saveClientPreference(key: string, value: string) {
+    if (runningInTauri && clientPreferencesReady) void invoke("save_client_preference", { key, value }).catch(() => {});
+  }
+  useEffect(() => { const value = autoRefresh ? "1" : "0"; localStorage.setItem("aliyun-auto-refresh", value); saveClientPreference("aliyun-auto-refresh", value); }, [autoRefresh, clientPreferencesReady]);
+  useEffect(() => { const value = compactMode ? "1" : "0"; localStorage.setItem("aliyun-compact-mode", value); document.documentElement.classList.toggle("compact-mode", compactMode); saveClientPreference("aliyun-compact-mode", value); }, [compactMode, clientPreferencesReady]);
+  useEffect(() => { const value = hidePanelIps ? "1" : "0"; localStorage.setItem("aliyun-panel-hide-ip", value); saveClientPreference("aliyun-panel-hide-ip", value); }, [hidePanelIps, clientPreferencesReady]);
+  useEffect(() => { localStorage.setItem("aliyun-panel-open-mode", panelOpenMode); saveClientPreference("aliyun-panel-open-mode", panelOpenMode); }, [panelOpenMode, clientPreferencesReady]);
+  useEffect(() => { const value = String(panelRefreshSeconds); localStorage.setItem("aliyun-panel-refresh-seconds", value); saveClientPreference("aliyun-panel-refresh-seconds", value); }, [panelRefreshSeconds, clientPreferencesReady]);
   useEffect(() => {
     if (!runningInTauri || section !== "panels" || panelRefreshSeconds <= 0 || !panelConnections.length) return;
     const timer = window.setInterval(() => { void refreshAllPanelConnections(true); }, panelRefreshSeconds * 1000);
     return () => window.clearInterval(timer);
   }, [section, panelRefreshSeconds, panelConnections]);
-  useEffect(() => { localStorage.setItem("aliyun-page-size", String(pageSize)); setAccountPage(1); setAssetPage(1); setFavoritePage(1); setLogPage(1); setApiLogPage(1); }, [pageSize]);
-  useEffect(() => { localStorage.setItem(cloudHubFavoriteAssetsStorageKey, JSON.stringify(favoriteAssetKeys)); }, [favoriteAssetKeys]);
+  useEffect(() => { const value = String(pageSize); localStorage.setItem("aliyun-page-size", value); saveClientPreference("aliyun-page-size", value); setAccountPage(1); setAssetPage(1); setFavoritePage(1); setLogPage(1); setApiLogPage(1); }, [pageSize, clientPreferencesReady]);
+  useEffect(() => { const value = JSON.stringify(favoriteAssetKeys); localStorage.setItem(cloudHubFavoriteAssetsStorageKey, value); saveClientPreference(cloudHubFavoriteAssetsStorageKey, value); }, [favoriteAssetKeys, clientPreferencesReady]);
+  useEffect(() => { const value = String(operationLogClearedAt); localStorage.setItem("aliyun-operation-log-cleared-at", value); saveClientPreference("aliyun-operation-log-cleared-at", value); }, [operationLogClearedAt, clientPreferencesReady]);
   useEffect(() => {
     setSelectedAccountIds((current) => {
       const accountIds = new Set(accounts.map((account) => account.id));

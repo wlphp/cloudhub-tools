@@ -294,16 +294,16 @@ fn data_dir() -> Result<PathBuf, String> {
     let base = dirs::data_local_dir().ok_or_else(|| "无法获取本机应用数据目录".to_string())?;
     let path = base.join("CloudHubTools");
     let legacy_path = base.join("AliyunTools");
-    if !path.exists() && legacy_path.exists() {
-        fs::create_dir_all(&path).map_err(|e| format!("创建数据目录失败: {e}"))?;
+    fs::create_dir_all(&path).map_err(|e| format!("创建数据目录失败: {e}"))?;
+    if legacy_path.exists() {
         for (legacy_name, current_name) in [("aliyun_tools.sqlite3", "cloudhub_tools.sqlite3"), (".key", ".key")] {
             let source = legacy_path.join(legacy_name);
-            if source.exists() {
-                fs::copy(&source, path.join(current_name)).map_err(|e| format!("迁移本地数据失败: {e}"))?;
+            let destination = path.join(current_name);
+            if source.exists() && !destination.exists() {
+                fs::copy(&source, destination).map_err(|e| format!("迁移本地数据失败: {e}"))?;
             }
         }
     }
-    fs::create_dir_all(&path).map_err(|e| format!("创建数据目录失败: {e}"))?;
     Ok(path)
 }
 
@@ -316,7 +316,8 @@ fn open_db() -> Result<Connection, String> {
       CREATE TABLE IF NOT EXISTS rdp_connections (target_key TEXT PRIMARY KEY, host TEXT NOT NULL, port INTEGER NOT NULL DEFAULT 3389, username TEXT NOT NULL, password_ciphertext TEXT, updated_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS managed_hosts (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, host TEXT NOT NULL, port INTEGER NOT NULL DEFAULT 22, username TEXT NOT NULL, password_ciphertext TEXT NOT NULL, group_name TEXT, tags TEXT, source_account_id INTEGER, source_asset_key TEXT, host_key_fingerprint TEXT, status TEXT NOT NULL DEFAULT 'unknown', last_latency_ms INTEGER, metrics_json TEXT NOT NULL DEFAULT '{}', last_checked_at INTEGER, last_error TEXT, remark TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS panel_connections (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, panel_url TEXT NOT NULL UNIQUE, api_key_ciphertext TEXT NOT NULL, sort_order INTEGER NOT NULL DEFAULT 0, allow_insecure_tls INTEGER NOT NULL DEFAULT 0, group_name TEXT, source_account_id INTEGER, source_asset_key TEXT, status TEXT NOT NULL DEFAULT 'unknown', summary_json TEXT NOT NULL DEFAULT '{}', last_checked_at INTEGER, last_error TEXT, remark TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
-      CREATE TABLE IF NOT EXISTS operation_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER, action TEXT NOT NULL, result TEXT NOT NULL, message TEXT, created_at INTEGER NOT NULL);")
+      CREATE TABLE IF NOT EXISTS operation_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER, action TEXT NOT NULL, result TEXT NOT NULL, message TEXT, created_at INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS client_preferences (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL);")
       .map_err(|e| format!("初始化 SQLite 表失败: {e}"))?;
     let has_sort: bool = conn.prepare("PRAGMA table_info(cloud_accounts)").map_err(|e| e.to_string())?.query_map([], |row| row.get::<_, String>(1)).map_err(|e| e.to_string())?.filter_map(Result::ok).any(|name| name == "sort_order");
     if !has_sort { conn.execute("ALTER TABLE cloud_accounts ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0", []).map_err(|e| e.to_string())?; }
@@ -328,6 +329,28 @@ fn open_db() -> Result<Connection, String> {
     if !has_panel_sort_order { conn.execute("ALTER TABLE panel_connections ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0", []).map_err(|e| e.to_string())?; }
     conn.execute("CREATE TABLE IF NOT EXISTS api_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER, endpoint TEXT NOT NULL, action TEXT NOT NULL, request_params TEXT NOT NULL, response_params TEXT, status TEXT NOT NULL, message TEXT, created_at INTEGER NOT NULL)", []).map_err(|e| e.to_string())?;
     Ok(conn)
+}
+
+#[tauri::command]
+fn list_client_preferences() -> Result<BTreeMap<String, String>, String> {
+    let conn = open_db()?;
+    let mut statement = conn.prepare("SELECT key, value FROM client_preferences").map_err(|error| error.to_string())?;
+    let preferences = statement.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+        .map_err(|error| error.to_string())?
+        .map(|row| row.map_err(|error| error.to_string()))
+        .collect::<Result<BTreeMap<_, _>, _>>()?;
+    Ok(preferences)
+}
+
+#[tauri::command]
+fn save_client_preference(key: String, value: String) -> Result<(), String> {
+    let key = key.trim();
+    if key.is_empty() || key.len() > 120 || value.len() > 100_000 { return Err("客户端设置数据无效".into()); }
+    open_db()?.execute(
+        "INSERT INTO client_preferences(key, value, updated_at) VALUES(?1, ?2, ?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
+        params![key, value, Utc::now().timestamp_millis()],
+    ).map_err(|error| error.to_string())?;
+    Ok(())
 }
 
 fn write_api_log(access_key_id: &str, endpoint: &str, action: &str, request_params: &Value, response: Option<&Value>, status: &str, message: Option<&str>) {
@@ -3887,7 +3910,7 @@ pub fn run() {
         .manage(SshTerminalStore { terminals: Mutex::new(HashMap::new()) })
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![list_accounts, save_account, delete_account, app_data_path, open_app_data_directory, reveal_account_secret, cloud_account_summary, list_cloud_resources, sync_cloud_assets, verify_vultr_account, verify_ctyun_account, verify_huawei_account, verify_baidu_account, verify_ucloud_account, verify_qiniu_account, verify_aws_account, verify_azure_account, verify_gcp_account, verify_jdcloud_account, verify_qingcloud_account, verify_ksyun_account, esa_overview, list_local_assets, list_managed_hosts, save_managed_host, delete_managed_host, probe_managed_host, list_panel_connections, save_panel_connection, refresh_panel_connection, panel_temporary_login, delete_panel_connection, export_panel_connections_file, import_panel_connections, list_api_logs, clear_api_logs, clear_operation_logs, list_instance_disks, instance_status, reboot_instance, start_instance, stop_instance, oracle_instance_action, cvm_instance_reboot, cvm_instance_action, baidu_instance_action, rename_server, swas_instance_action, list_dns_records, add_dns_record, update_dns_record, delete_dns_record, toggle_dns_record, list_domain_logs, query_whois, list_rds_databases, list_rds_accounts, list_redis_accounts, list_oss_objects, get_oss_acl, set_oss_public_read, set_oss_cors, get_ssh_connection, reveal_ssh_password, delete_ssh_connection, get_rdp_connection, reveal_rdp_password, delete_rdp_connection, launch_rdp_connection, ssh_connect, ssh_test_connection, ssh_list_files, ssh_read_text_file, ssh_write_text_file, ssh_upload_file, ssh_download_file, ssh_make_directory, ssh_delete_path, ssh_read, ssh_write, ssh_resize, ssh_disconnect, export_accounts, export_accounts_file, import_accounts])
+        .invoke_handler(tauri::generate_handler![list_accounts, save_account, delete_account, app_data_path, open_app_data_directory, list_client_preferences, save_client_preference, reveal_account_secret, cloud_account_summary, list_cloud_resources, sync_cloud_assets, verify_vultr_account, verify_ctyun_account, verify_huawei_account, verify_baidu_account, verify_ucloud_account, verify_qiniu_account, verify_aws_account, verify_azure_account, verify_gcp_account, verify_jdcloud_account, verify_qingcloud_account, verify_ksyun_account, esa_overview, list_local_assets, list_managed_hosts, save_managed_host, delete_managed_host, probe_managed_host, list_panel_connections, save_panel_connection, refresh_panel_connection, panel_temporary_login, delete_panel_connection, export_panel_connections_file, import_panel_connections, list_api_logs, clear_api_logs, clear_operation_logs, list_instance_disks, instance_status, reboot_instance, start_instance, stop_instance, oracle_instance_action, cvm_instance_reboot, cvm_instance_action, baidu_instance_action, rename_server, swas_instance_action, list_dns_records, add_dns_record, update_dns_record, delete_dns_record, toggle_dns_record, list_domain_logs, query_whois, list_rds_databases, list_rds_accounts, list_redis_accounts, list_oss_objects, get_oss_acl, set_oss_public_read, set_oss_cors, get_ssh_connection, reveal_ssh_password, delete_ssh_connection, get_rdp_connection, reveal_rdp_password, delete_rdp_connection, launch_rdp_connection, ssh_connect, ssh_test_connection, ssh_list_files, ssh_read_text_file, ssh_write_text_file, ssh_upload_file, ssh_download_file, ssh_make_directory, ssh_delete_path, ssh_read, ssh_write, ssh_resize, ssh_disconnect, export_accounts, export_accounts_file, import_accounts])
         .run(tauri::generate_context!())
         .expect("error while running Tauri application");
 }
