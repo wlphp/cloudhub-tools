@@ -24,6 +24,7 @@
 .server-actions .layui-btn{margin:0;height:30px;border-radius:6px;padding:0 12px;font-size:12px}
 .server-actions .ssh-login-button{display:inline-flex;align-items:center;gap:5px;background:#5a3cb8;color:#fff;border:1px solid #8e73ed}.server-actions .ssh-login-button:hover{background:#7254d4}
 .server-actions .layui-btn-danger{background:#a8424f}.server-actions .layui-btn-normal{background:#1c6eaa}
+.vultr-manage-wrap{position:relative}.vultr-manage-button{display:inline-flex;align-items:center;gap:4px}.vultr-manage-menu{position:absolute;z-index:30;right:0;bottom:calc(100% + 7px);display:grid;min-width:172px;padding:5px;border:1px solid #315d84;border-radius:7px;background:#0a192b;box-shadow:0 14px 28px #000a}.vultr-manage-menu button{width:100%;border:0;border-radius:4px;background:transparent;color:#c5dbee;padding:8px 9px;text-align:left;white-space:nowrap;cursor:pointer;font:12px inherit}.vultr-manage-menu button:hover{background:#163451;color:#fff}
 .layui-btn-small{height:28px;padding:0 10px;font-size:12px}
 .server-empty{text-align:center;padding:80px 20px}.server-empty p{margin-top:14px;color:#7892af}
 .server-reference .layui-btn-primary{background:#0d2037;color:#b8cbe0;border:1px solid #1f3a5a}

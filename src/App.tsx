@@ -1,4 +1,4 @@
-import { FormEvent, PointerEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, PointerEvent, type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
@@ -442,7 +442,7 @@ const assetTypes = [
 
 const runningInTauri =
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-const bundledVersion = "0.1.15";
+const bundledVersion = "0.1.16";
 
 type UpdateState =
   | { phase: "idle" }
@@ -482,6 +482,12 @@ function firstAddress(value: unknown): string {
     return firstAddress(record.IpAddress || record.Address || Object.values(record)[0]);
   }
   return String(value || "").trim();
+}
+function remotePlatformFromPayload(payload: Record<string, unknown>): "linux" | "windows" {
+  const system = [payload.OSName, payload.OSType, payload.ImageName, payload.ImageId, payload.Platform, payload.SystemType]
+    .map((value) => displayValue(value))
+    .join(" ");
+  return /windows|win(?:dows)?\s*(?:server)?/i.test(system) ? "windows" : "linux";
 }
 function formatCloudDate(value: unknown): string {
   if (!value) return "-";
@@ -765,6 +771,7 @@ function ServerCard({
   onNotice,
   onSshLogin,
   onConfirm,
+  onPrompt,
 }: {
   account: Account;
   item: Record<string, unknown>;
@@ -774,20 +781,28 @@ function ServerCard({
   onNotice: (message: string) => void;
   onSshLogin: () => void;
   onConfirm: (message: string) => Promise<boolean>;
+  onPrompt: (message: string, initialValue?: string) => Promise<string | null>;
 }) {
   const [disks, setDisks] = useState<Record<string, unknown>[]>([]);
   const [diskLoading, setDiskLoading] = useState(true);
   const [forceReboot, setForceReboot] = useState(false);
   const [rebooting, setRebooting] = useState(false);
+  const [vultrMenuOpen, setVultrMenuOpen] = useState(false);
+  const [vultrManaging, setVultrManaging] = useState(false);
   const [editingDisplayName, setEditingDisplayName] = useState(false);
   const [displayNameDraft, setDisplayNameDraft] = useState(displayName || "");
   const regionId = String(item._region_id || item.RegionId || "");
   const rawStatus = String(item.Status || item.InstanceStatus || "");
-  const status = rawStatus.toUpperCase() === "RUNNING" ? "Running" : rawStatus.toUpperCase() === "STOPPED" ? "Stopped" : rawStatus;
+  const normalizedStatus = rawStatus.trim().toUpperCase();
+  const status = ["RUNNING", "ACTIVE", "ON"].includes(normalizedStatus) ? "Running" : ["STOPPED", "OFF", "INACTIVE"].includes(normalizedStatus) ? "Stopped" : rawStatus;
   const networkError = String(item._network_error || "");
   const networkAccessDenied = /Authorization failed|NotAuthorized|not authorized/i.test(networkError);
-  const supportsPowerControls = account.cloud_type === "aliyun" || account.cloud_type === "baidu" || account.cloud_type === "oracle";
+  const supportsPowerControls = account.cloud_type === "aliyun" || account.cloud_type === "baidu" || account.cloud_type === "oracle" || account.cloud_type === "vultr";
+  const supportsForceReboot = account.cloud_type === "aliyun" || account.cloud_type === "baidu" || account.cloud_type === "oracle";
   const canReadDisks = account.cloud_type === "aliyun" || account.cloud_type === "tencent" || account.cloud_type === "oracle";
+  const fallbackDisks: Record<string, unknown>[] = account.cloud_type === "vultr" && item.Disk != null && item.Disk !== ""
+    ? [{ DiskId: item.InstanceId, DiskName: "本地系统盘", Category: "local", Size: item.Disk, Status: item.PowerStatus || item.Status }]
+    : [];
   const defaultDisplayName = String(item.InstanceName || item.InstanceId || "未命名实例");
   const resolvedDisplayName = displayName || defaultDisplayName;
   function saveDisplayName() {
@@ -853,6 +868,10 @@ function ServerCard({
         const payload = { id: account.id, regionId, instanceId: String(item.InstanceId || ""), action, forceStop: false };
         if (runningInTauri) await invoke("baidu_instance_action", payload);
         else await webApi("/api/bcc-action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      } else if (account.cloud_type === "vultr") {
+        const payload = { id: account.id, instanceId: String(item.InstanceId || ""), action };
+        if (runningInTauri) await invoke("vultr_instance_action", payload);
+        else await webApi("/api/vultr-instance-action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       } else {
         if (!runningInTauri) throw new Error(`网页端暂不支持${label}，请使用客户端操作`);
         await invoke(action === "start" ? "start_instance" : "stop_instance", { id: account.id, regionId, instanceId: String(item.InstanceId || "") });
@@ -873,6 +892,10 @@ function ServerCard({
         const payload = { id: account.id, regionId, instanceId: String(item.InstanceId || ""), action: "reboot", forceStop: forceReboot };
         if (runningInTauri) await invoke("baidu_instance_action", payload);
         else await webApi("/api/bcc-action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      } else if (account.cloud_type === "vultr") {
+        const payload = { id: account.id, instanceId: String(item.InstanceId || ""), action: "reboot" };
+        if (runningInTauri) await invoke("vultr_instance_action", payload);
+        else await webApi("/api/vultr-instance-action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       } else {
         if (!runningInTauri) throw new Error("网页端暂不支持服务器重启，请使用客户端操作");
         await invoke("reboot_instance", { id: account.id, regionId, instanceId: String(item.InstanceId || ""), forceStop: forceReboot });
@@ -881,6 +904,46 @@ function ServerCard({
       onStatus();
     } catch (error) { onNotice(`服务器重启失败：${String(error)}`); }
     finally { setRebooting(false); }
+  }
+  async function manageVultr(action: "snapshot" | "label" | "tags" | "enable_backups" | "disable_backups" | "enable_ddos" | "disable_ddos" | "enable_ipv6" | "firewall") {
+    const labels = {
+      snapshot: "创建快照", label: "修改实例名称", tags: "修改标签", enable_backups: "开启自动备份", disable_backups: "关闭自动备份",
+      enable_ddos: "开启 DDoS 防护", disable_ddos: "关闭 DDoS 防护", enable_ipv6: "启用 IPv6", firewall: "绑定防火墙组",
+    };
+    let value = "";
+    if (action === "snapshot") {
+      const input = await onPrompt(`为实例“${String(item.InstanceName || item.InstanceId)}”创建快照，请输入快照说明（可留空）`, String(item.InstanceName || ""));
+      if (input === null) return;
+      value = input;
+    } else if (action === "label") {
+      const input = await onPrompt("请输入新的 Vultr 实例名称", String(item.InstanceName || ""));
+      if (!input?.trim()) return;
+      value = input;
+    } else if (action === "tags") {
+      const input = await onPrompt("请输入标签，以英文逗号分隔；留空将清空全部标签", Array.isArray(item.Tags) ? item.Tags.join(", ") : String(item.Tags || ""));
+      if (input === null) return;
+      value = input;
+    } else if (action === "firewall") {
+      const input = await onPrompt("请输入要绑定的 Vultr 防火墙组 ID", String(item.FirewallGroupId || ""));
+      if (!input?.trim()) return;
+      value = input;
+    }
+    const warning = action === "snapshot" ? "快照会占用存储并可能产生费用，确认创建？"
+      : action === "enable_backups" ? "自动备份可能产生额外费用，确认开启？"
+      : action === "enable_ddos" ? "DDoS 防护可能产生额外费用，确认开启？"
+      : action === "enable_ipv6" ? "启用 IPv6 后将变更实例网络配置，确认继续？"
+      : `确认${labels[action]}？`;
+    if (!(await onConfirm(warning))) return;
+    setVultrManaging(true);
+    setVultrMenuOpen(false);
+    try {
+      const payload = { id: account.id, instanceId: String(item.InstanceId || ""), action, value };
+      if (runningInTauri) await invoke("vultr_instance_manage", payload);
+      else await webApi("/api/vultr-instance-manage", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      onNotice(`${labels[action]}指令已提交`);
+      onStatus();
+    } catch (error) { onNotice(`${labels[action]}失败：${String(error)}`); }
+    finally { setVultrManaging(false); }
   }
   return (
     <article className="server-card">
@@ -918,7 +981,10 @@ function ServerCard({
             ? displayValue(item.InstanceType || item.shape)
             : <>{displayValue(item.Cpu)}核 / {(Number(item.Memory) / 1024).toFixed(1)}GB{item.InstanceType ? ` · ${displayValue(item.InstanceType)}` : ""}</>}
         </div>
-        {account.cloud_type !== "oracle" && <div>
+        {account.cloud_type === "vultr" ? <div>
+          <span>月流量：</span>
+          {item.AllowedBandwidth == null || item.AllowedBandwidth === "" ? "-" : `${displayValue(item.AllowedBandwidth)} GB`}
+        </div> : account.cloud_type !== "oracle" && <div>
           <span>带宽：</span>
           {displayValue(item.InternetMaxBandwidthIn || 0)}M入 /{" "}
           {displayValue(item.InternetMaxBandwidthOut || 0)}M出
@@ -928,12 +994,31 @@ function ServerCard({
           {displayValue(item.OSName || item.OSType || item.ImageId || item.imageId)}
         </div>
         <div>
-          <span>{account.cloud_type === "oracle" ? "创建时间：" : "时间："}</span>
-          {account.cloud_type === "oracle" ? formatCloudDate(item.CreationTime) : <>{formatCloudDate(item.CreationTime)} ~ {formatCloudDate(item.ExpiredTime)}</>}
+          <span>{account.cloud_type === "oracle" || account.cloud_type === "vultr" ? "创建时间：" : "时间："}</span>
+          {account.cloud_type === "oracle" || account.cloud_type === "vultr" ? formatCloudDate(item.CreationTime) : <>{formatCloudDate(item.CreationTime)} ~ {formatCloudDate(item.ExpiredTime)}</>}
         </div>
+        {account.cloud_type === "vultr" && <>
+          <div><span>地域：</span>{displayValue(item.Region || regionId)}</div>
+          <div><span>主机名：</span>{displayValue(item.Hostname)}</div>
+          <div><span>IPv4 网关：</span>{displayValue(item.GatewayV4)}</div>
+          <div><span>IPv4 掩码：</span>{displayValue(item.NetmaskV4)}</div>
+          <div><span>IPv6：</span>{displayValue(item.V6MainIp)}</div>
+          <div><span>VPC：</span>{displayValue(item.VpcIds)}</div>
+          <div><span>防火墙组：</span>{displayValue(item.FirewallGroupId)}</div>
+          <div><span>标签：</span>{displayValue(item.Tags)}</div>
+          <div><span>自动备份：</span>{displayValue(item.Backups)}</div>
+          <div><span>DDoS 防护：</span>{item.DdosProtection === true ? "已开启" : item.DdosProtection === false ? "未开启" : displayValue(item.DdosProtection)}</div>
+        </>}
       </div>
       <div className="disk-info">
-        {!canReadDisks ? <span>当前仅同步实例清单，磁盘详情暂未接入</span> : diskLoading ? (
+        {fallbackDisks.length ? (
+          fallbackDisks.map((disk) => (
+            <div className="disk-item" key={String(disk.DiskId)}>
+              <span className="disk-name">{displayValue(disk.DiskName)} ({displayValue(disk.Category)})</span>
+              <span className="disk-size">{displayValue(disk.Size)} GB · {displayValue(disk.Status)}</span>
+            </div>
+          ))
+        ) : !canReadDisks ? <span>当前仅同步实例清单，磁盘详情暂未接入</span> : diskLoading ? (
           <span>磁盘信息加载中...</span>
         ) : disks.length ? (
           disks.map((disk) => (
@@ -957,7 +1042,7 @@ function ServerCard({
           SSH 登录
         </button>
         {supportsPowerControls && <>
-          <label className="force-reboot-toggle"><input type="checkbox" checked={forceReboot} onChange={(event) => setForceReboot(event.target.checked)} /><span>强制重启</span></label>
+          {supportsForceReboot && <label className="force-reboot-toggle"><input type="checkbox" checked={forceReboot} onChange={(event) => setForceReboot(event.target.checked)} /><span>强制重启</span></label>}
           <button className="layui-btn layui-btn-small layui-btn-danger" disabled={rebooting} onClick={() => void reboot()}>{rebooting ? "重启中…" : "重启"}</button>
         </>}
         <button
@@ -989,6 +1074,18 @@ function ServerCard({
             开机
           </button>
         )}
+        {account.cloud_type === "vultr" && <div className={`vultr-manage-wrap${vultrMenuOpen ? " is-open" : ""}`}>
+          <button type="button" className="layui-btn layui-btn-small layui-btn-primary vultr-manage-button" disabled={vultrManaging} onClick={() => setVultrMenuOpen((open) => !open)}><MoreHorizontal size={15} />更多操作</button>
+          {vultrMenuOpen && <div className="vultr-manage-menu">
+            <button type="button" onClick={() => void manageVultr("label")}>修改实例名称</button>
+            <button type="button" onClick={() => void manageVultr("tags")}>修改标签</button>
+            <button type="button" onClick={() => void manageVultr("snapshot")}>创建快照</button>
+            <button type="button" onClick={() => void manageVultr(String(item.Backups).toLowerCase() === "enabled" ? "disable_backups" : "enable_backups")}>{String(item.Backups).toLowerCase() === "enabled" ? "关闭自动备份" : "开启自动备份"}</button>
+            <button type="button" onClick={() => void manageVultr(item.DdosProtection === true || String(item.DdosProtection).toLowerCase() === "true" ? "disable_ddos" : "enable_ddos")}>{item.DdosProtection === true || String(item.DdosProtection).toLowerCase() === "true" ? "关闭 DDoS 防护" : "开启 DDoS 防护"}</button>
+            {!item.V6MainIp && <button type="button" onClick={() => void manageVultr("enable_ipv6")}>启用 IPv6</button>}
+            <button type="button" onClick={() => void manageVultr("firewall")}>绑定防火墙组</button>
+          </div>}
+        </div>}
       </div>
     </article>
   );
@@ -2059,6 +2156,10 @@ function App() {
   const [sshFilePaneWidth, setSshFilePaneWidth] = useState(520);
   const [sshFilePaneCollapsed, setSshFilePaneCollapsed] = useState(false);
   const [sshFileDragActive, setSshFileDragActive] = useState(false);
+  const [appSidebarWidth, setAppSidebarWidth] = useState(() => Math.min(340, Math.max(190, Number(localStorage.getItem("cloudhub-app-sidebar-width") || "235"))));
+  const [terminalHostSidebarWidth, setTerminalHostSidebarWidth] = useState(() => Math.min(420, Math.max(190, Number(localStorage.getItem("cloudhub-terminal-host-sidebar-width") || "250"))));
+  const appShellRef = useRef<HTMLDivElement | null>(null);
+  const terminalWorkbenchRef = useRef<HTMLDivElement | null>(null);
   const sshTerminalHostRef = useRef<HTMLDivElement | null>(null);
   const sshTerminalRef = useRef<XtermTerminal | null>(null);
   const sshPendingOutputRef = useRef("");
@@ -2702,10 +2803,14 @@ function App() {
       openManagedHostDialog(host);
       return;
     }
+    const platform = remotePlatformFromPayload(payload);
     setManagedHostDraft({
       ...emptyManagedHost,
       name: String(payload.InstanceName || asset.asset_key),
       host: firstAddress(payload.PublicIpAddress || payload.PublicAddresses || payload.PublicIp || payload.InternetIp || payload.EipAddress),
+      platform,
+      port: platform === "windows" ? 3389 : 22,
+      username: platform === "windows" ? "administrator" : "root",
       group_name: account.group_name || "",
       source_account_id: account.id,
       source_asset_key: asset.asset_key,
@@ -2714,16 +2819,18 @@ function App() {
     setManagedHostDialog(true);
   }
   async function openSshClient(asset: LocalAsset, account: Account) {
-    if (!runningInTauri) { setStatus("SSH 登录仅支持桌面客户端，请从客户端打开资源管理"); return; }
+    if (!runningInTauri) { setStatus("远程连接仅支持桌面客户端，请从客户端打开资源管理"); return; }
     const payload = asset.payload || {};
     const defaultHost = firstAddress(payload.PublicIpAddress || payload.PublicAddresses || payload.PublicIp || payload.InternetIp || payload.EipAddress);
+    const platform = remotePlatformFromPayload(payload);
+    const windows = platform === "windows";
     setSshTarget({ account, asset });
     setSshHost(defaultHost);
-    setSshPort(22);
-    setSshUsername("root");
+    setSshPort(windows ? 3389 : 22);
+    setSshUsername(windows ? "administrator" : "root");
     setSshPassword("");
     setShowSshPassword(false);
-    setSshPlatform("linux");
+    setSshPlatform(platform);
     setSshAuthMethod("password");
     setSshPrivateKey("");
     setSshKeyPassphrase("");
@@ -2740,15 +2847,17 @@ function App() {
     setSshFilePaneCollapsed(false);
     setSshFileDragActive(false);
     try {
-      const saved = await invoke<SavedSshConnection | null>("get_ssh_connection", { accountId: account.id, assetKey: asset.asset_key });
+      const saved = windows
+        ? await invoke<SavedRdpConnection | null>("get_rdp_connection", { targetKey: `asset:${account.id}:${asset.asset_key}` })
+        : await invoke<SavedSshConnection | null>("get_ssh_connection", { accountId: account.id, assetKey: asset.asset_key });
       if (saved) {
         setSshHost(saved.host || defaultHost);
-        setSshPort(saved.port || 22);
-        setSshUsername(saved.username || "root");
+        setSshPort(saved.port || (windows ? 3389 : 22));
+        setSshUsername(saved.username || (windows ? "administrator" : "root"));
         setSshSavePassword(saved.passwordSaved);
         setSshPasswordSaved(saved.passwordSaved);
       }
-    } catch (error) { setSshError(`读取本地 SSH 配置失败：${String(error)}`); }
+    } catch (error) { setSshError(`读取本地${windows ? "RDP" : "SSH"}配置失败：${String(error)}`); }
   }
   async function closeSshClient() {
     if (section === "servers" && activeTerminalTabId) {
@@ -2777,7 +2886,25 @@ function App() {
     setSshPlatform(platform);
     setSshError("");
     setShowSshPassword(false);
-    if (platform === "linux") return;
+    if (platform === "linux") {
+      setSshAuthMethod("password");
+      setSshPort((port) => port === 3389 ? 22 : port);
+      if (!sshUsername || sshUsername === "administrator") setSshUsername("root");
+      setSshPassword("");
+      setSshSavePassword(false);
+      setSshPasswordSaved(false);
+      if (!sshTarget || sshTarget.direct || sshTarget.managedHostId) return;
+      try {
+        const saved = await invoke<SavedSshConnection | null>("get_ssh_connection", { accountId: sshTarget.account.id, assetKey: sshTarget.asset.asset_key });
+        if (!saved) return;
+        setSshHost(saved.host || sshHost);
+        setSshPort(saved.port || 22);
+        setSshUsername(saved.username || "root");
+        setSshSavePassword(saved.passwordSaved);
+        setSshPasswordSaved(saved.passwordSaved);
+      } catch (error) { setSshError(`读取本地 SSH 配置失败：${String(error)}`); }
+      return;
+    }
     setSshAuthMethod("password");
     setSshPrivateKey("");
     setSshKeyPassphrase("");
@@ -2924,6 +3051,40 @@ function App() {
       document.body.classList.remove("ssh-resizing");
     };
     document.body.classList.add("ssh-resizing");
+    window.addEventListener("pointermove", resize);
+    window.addEventListener("pointerup", finish, { once: true });
+  }
+  function startAppSidebarResize(event: PointerEvent<HTMLDivElement>) {
+    const shell = appShellRef.current;
+    if (!shell || window.innerWidth <= 900) return;
+    event.preventDefault();
+    const initialX = event.clientX;
+    const initialWidth = appSidebarWidth;
+    const maxWidth = Math.max(190, Math.min(340, shell.clientWidth - 560));
+    const resize = (moveEvent: globalThis.PointerEvent) => setAppSidebarWidth(Math.min(maxWidth, Math.max(190, initialWidth + moveEvent.clientX - initialX)));
+    const finish = () => {
+      window.removeEventListener("pointermove", resize);
+      document.body.classList.remove("pane-resizing");
+      setAppSidebarWidth((width) => { localStorage.setItem("cloudhub-app-sidebar-width", String(width)); return width; });
+    };
+    document.body.classList.add("pane-resizing");
+    window.addEventListener("pointermove", resize);
+    window.addEventListener("pointerup", finish, { once: true });
+  }
+  function startTerminalHostSidebarResize(event: PointerEvent<HTMLDivElement>) {
+    const workbench = terminalWorkbenchRef.current;
+    if (!workbench || window.innerWidth <= 900) return;
+    event.preventDefault();
+    const initialX = event.clientX;
+    const initialWidth = terminalHostSidebarWidth;
+    const maxWidth = Math.max(190, Math.min(420, workbench.clientWidth - 360));
+    const resize = (moveEvent: globalThis.PointerEvent) => setTerminalHostSidebarWidth(Math.min(maxWidth, Math.max(190, initialWidth + moveEvent.clientX - initialX)));
+    const finish = () => {
+      window.removeEventListener("pointermove", resize);
+      document.body.classList.remove("pane-resizing");
+      setTerminalHostSidebarWidth((width) => { localStorage.setItem("cloudhub-terminal-host-sidebar-width", String(width)); return width; });
+    };
+    document.body.classList.add("pane-resizing");
     window.addEventListener("pointermove", resize);
     window.addEventListener("pointerup", finish, { once: true });
   }
@@ -3981,6 +4142,7 @@ function App() {
                 onStatus={() => active && void pullLatestResources(active.account, "ecs")}
                 onNotice={setStatus}
                 onConfirm={requestConfirm}
+                onPrompt={requestPrompt}
                 onSshLogin={() => {
                   if (!active) return;
                   const instanceId = String(item.InstanceId || index);
@@ -4640,14 +4802,14 @@ function App() {
   const pagedApiLogs = filteredApiLogs.slice((apiLogPage - 1) * pageSize, apiLogPage * pageSize);
 
   return (
-    <div className="app-shell">
-      <aside>
+    <div className="app-shell" ref={appShellRef} style={{ "--app-sidebar-width": `${appSidebarWidth}px` } as CSSProperties}>
+      <aside style={{ flexBasis: appSidebarWidth, width: appSidebarWidth }}>
         <div className="brand">
           <div className="brand-mark">
             <img src="/cloudhub-logo.png" alt="云枢 Tools" />
           </div>
           <div>
-            <strong>云枢 Tools</strong>
+            <strong>云枢 Tools <span className="brand-version">v{appVersion}</span></strong>
             <small>本地多云资源管家</small>
           </div>
         </div>
@@ -4686,12 +4848,8 @@ function App() {
           </button>
         </nav>
       </aside>
+      {section === "servers" && <div className="app-sidebar-resizer" role="separator" aria-label="调整主导航宽度" aria-orientation="vertical" onPointerDown={startAppSidebarResize} />}
       <main>
-        <div className="top-right-status">
-          <span>本地模式</span>
-          <strong>SQLite 已启用</strong>
-          <em>云枢 Tools · v{appVersion}</em>
-        </div>
         {status && <div className="toast-notice">{status}</div>}
         <div className={`account-section ${section === "accounts" ? "" : "section-hidden"}`}>
         <header>
@@ -5550,7 +5708,7 @@ function App() {
         )}
         {section === "servers" && (
           <section className="managed-servers-page">
-            <div className={`terminal-workbench${sshFilePaneCollapsed ? " is-file-pane-collapsed" : ""}`}>
+            <div ref={terminalWorkbenchRef} className={`terminal-workbench${sshFilePaneCollapsed ? " is-file-pane-collapsed" : ""}`} style={{ gridTemplateColumns: `${terminalHostSidebarWidth}px minmax(0, 1fr)`, "--terminal-host-sidebar-width": `${terminalHostSidebarWidth}px` } as CSSProperties}>
               <aside className="terminal-host-sidebar" aria-label="服务器列表">
                 <div className="terminal-host-actions"><button type="button" className="terminal-toolbar-icon" title="导出全部服务器（明文 JSON）" disabled={!managedHosts.length} onClick={() => void exportManagedHosts()}><Download size={15} /></button><label className="terminal-toolbar-icon terminal-import-button" title="导入服务器 JSON"><Upload size={15} /><input ref={managedHostImportInputRef} type="file" accept="application/json,.json" disabled={managedHostImporting} onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void importManagedHosts(file); }} /></label><button type="button" className="terminal-toolbar-icon" title="刷新服务器状态" onClick={() => void loadManagedHosts()}><RefreshCw size={16} /></button></div>
                 <div className="terminal-group-title"><span><List size={15} />分组</span><select value={managedHostGroup} onChange={(event) => setManagedHostGroup(event.target.value)}><option value="">全部分组</option>{managedHostGroups.map((group) => <option key={group} value={group}>{group}</option>)}</select></div>
@@ -5565,6 +5723,7 @@ function App() {
                   {!visibleManagedHosts.length && <div className="terminal-host-empty"><Server size={30} /><p>{managedHosts.length ? "没有匹配的服务器" : "添加服务器后即可开始连接"}</p></div>}
                 </div>
               </aside>
+              <div className="terminal-host-resizer" role="separator" aria-label="调整服务器列表宽度" aria-orientation="vertical" onPointerDown={startTerminalHostSidebarResize} />
               <section className="terminal-stage">
                 <div className="terminal-tabs" role="tablist" aria-label="SSH 终端标签">
                   {terminalTabs.map((tab) => {
@@ -5582,10 +5741,10 @@ function App() {
         {section === "servers" && sshTarget && !sshSessionId && (
           <div className="terminal-connect-backdrop">
             <form className="terminal-connect-card" onSubmit={(event) => { event.preventDefault(); void connectSshClient(); }}>
-              <div className="terminal-connect-card-head"><div><span className="eyebrow">SSH CONNECTION</span><h2><Terminal size={18} />连接 {displayValue(sshTarget.asset.payload.InstanceName || sshTarget.asset.asset_key)}</h2></div><button type="button" className="close" title="关闭连接" onClick={() => void closeSshClient()}><X size={19} /></button></div>
-              <div className="terminal-connect-fields"><label>主机<input value={sshHost} onChange={(event) => setSshHost(event.target.value)} placeholder="公网 IP 或域名" autoFocus /></label><label>端口<input type="number" min={1} max={65535} value={sshPort} onChange={(event) => setSshPort(Number(event.target.value) || 22)} /></label><label>用户名<input value={sshUsername} onChange={(event) => setSshUsername(event.target.value)} placeholder="root" /></label><label>密码<input type="password" value={sshPassword} onChange={(event) => setSshPassword(event.target.value)} placeholder={sshPasswordSaved ? "已保存密码，可直接连接" : "请输入 SSH 密码"} autoComplete="current-password" /></label></div>
+              <div className="terminal-connect-card-head"><div><span className="eyebrow">{sshPlatform === "windows" ? "REMOTE DESKTOP" : "SSH CONNECTION"}</span><h2><Terminal size={18} />连接 {displayValue(sshTarget.asset.payload.InstanceName || sshTarget.asset.asset_key)}</h2></div><button type="button" className="close" title="关闭连接" onClick={() => void closeSshClient()}><X size={19} /></button></div>
+              <div className="terminal-connect-fields"><div className="ssh-choice-row ssh-platform-row"><span>操作系统</span><div className="ssh-segmented"><button type="button" className={sshPlatform === "linux" ? "active" : ""} onClick={() => void setRemotePlatform("linux")}>Linux</button><button type="button" className={sshPlatform === "windows" ? "active" : ""} onClick={() => void setRemotePlatform("windows")}>Windows</button></div></div><label>主机<input value={sshHost} onChange={(event) => setSshHost(event.target.value)} placeholder="公网 IP 或域名" autoFocus /></label><label>{sshPlatform === "windows" ? "RDP 端口" : "SSH 端口"}<input type="number" min={1} max={65535} value={sshPort} onChange={(event) => setSshPort(Number(event.target.value) || (sshPlatform === "windows" ? 3389 : 22))} /></label><label className="terminal-connect-user">{sshPlatform === "windows" ? "RDP 用户名" : "SSH 用户名"}<input value={sshUsername} onChange={(event) => setSshUsername(event.target.value)} placeholder={sshPlatform === "windows" ? "administrator" : "root"} /></label><label className="terminal-connect-password">{sshPlatform === "windows" ? "密码（可选）" : "密码"}<input type="password" value={sshPassword} onChange={(event) => setSshPassword(event.target.value)} placeholder={sshPlatform === "windows" ? (sshPasswordSaved ? "已保存本地记录" : "由 Windows 远程桌面验证") : (sshPasswordSaved ? "已保存密码，可直接连接" : "请输入 SSH 密码")} autoComplete="current-password" /></label></div>
               {sshError && <div className="error-list ssh-error">{sshError}</div>}
-              <div className="terminal-connect-actions"><button type="button" className="secondary" disabled={sshTesting || sshConnecting} onClick={() => void testSshConnection()}>{sshTesting ? "测试中…" : "测试连接"}</button><button type="button" className="secondary" onClick={() => void closeSshClient()}>取消</button><button type="submit" className="layui-btn layui-btn-normal" disabled={sshTesting || sshConnecting}>{sshConnecting ? "连接中…" : "连接"}</button></div>
+              <div className="terminal-connect-actions">{sshPlatform === "linux" ? <button type="button" className="secondary" disabled={sshTesting || sshConnecting} onClick={() => void testSshConnection()}>{sshTesting ? "测试中…" : "测试连接"}</button> : <span />}<button type="button" className="secondary" onClick={() => void closeSshClient()}>取消</button><button type="submit" className="layui-btn layui-btn-normal" disabled={sshTesting || sshConnecting}>{sshConnecting ? (sshPlatform === "windows" ? "启动中…" : "连接中…") : sshPlatform === "windows" ? "打开远程桌面" : "连接"}</button></div>
             </form>
           </div>
         )}
@@ -5768,7 +5927,7 @@ function App() {
           </div>
         )}
         {managedHostDialog && (
-          <div className="modal-backdrop" onClick={() => !managedHostSaving && setManagedHostDialog(false)}>
+          <div className="modal-backdrop">
             <form className="modal managed-host-modal" onSubmit={saveManagedHost} onClick={(event) => event.stopPropagation()}>
               <div className="modal-head"><div><span className="eyebrow">MANAGED SERVER</span><h2>{managedHostDraft.id ? "编辑服务器" : "添加服务器"}</h2></div><button type="button" className="close" disabled={managedHostSaving} onClick={() => setManagedHostDialog(false)}><X size={20} /></button></div>
               <p className="security-tip">{managedHostDraft.platform === "windows" ? "RDP 连接资料会使用本机密钥加密保存，打开连接时将调用 Windows 远程桌面。" : managedHostDraft.auth_method === "private_key" ? "SSH 私钥与可选口令会使用本机密钥加密保存。首次成功连接时会记录服务器主机指纹。" : "SSH 密码会使用本机密钥加密保存。首次成功连接时会记录服务器主机指纹，后续变化将被拒绝。"}</p>

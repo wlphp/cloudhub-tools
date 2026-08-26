@@ -1744,21 +1744,28 @@ async function ossCnameMutation(id, bucket, location, operation, domain) {
   const xml = await ossRequest(id, bucket, location, { method: "POST", query, resource: `/${bucket}/?${query}`, body, contentType: "application/xml" });
   return { domain: value, token: xmlText(xml, "Token"), cname: xmlText(xml, "Cname"), expireTime: xmlText(xml, "ExpireTime") };
 }
-async function vultrRequest(accountId, pathName, query = {}) {
+async function vultrRequest(accountId, pathName, query = {}, init = {}) {
   const row = database().prepare("SELECT access_key_id,secret_ciphertext,enabled,cloud_type FROM cloud_accounts WHERE id=?").get(accountId);
   if (!row) throw new Error("云账号不存在");
   if (!row.enabled) throw new Error("云账号已停用");
   if (row.cloud_type !== "vultr") throw new Error("当前账号不是 Vultr 账号");
   const params = new URLSearchParams(query);
-  const response = await fetch(`https://api.vultr.com/v2/${pathName}${params.size ? `?${params}` : ""}`, { headers: { Authorization: `Bearer ${decryptSecret(row.secret_ciphertext).trim()}`, Accept: "application/json" } });
-  const data = await response.json().catch(() => ({}));
-  const action = `GET /v2/${String(pathName).split("?")[0]}`;
+  const method = String(init.method || "GET").toUpperCase();
+  const response = await fetch(`https://api.vultr.com/v2/${pathName}${params.size ? `?${params}` : ""}`, {
+    ...init,
+    method,
+    headers: { Authorization: `Bearer ${decryptSecret(row.secret_ciphertext).trim()}`, Accept: "application/json", ...(init.headers || {}) },
+  });
+  const text = await response.text();
+  let data = {};
+  try { data = text ? JSON.parse(text) : {}; } catch { data = { body: text }; }
+  const action = `${method} /v2/${String(pathName).split("?")[0]}`;
   if (!response.ok) {
     const message = data?.error?.message || data?.error || data?.message || `Vultr API ${response.status}`;
     writeApiLog(accountId, "api.vultr.com", action, query, data, "失败", message);
     throw new Error(message);
   }
-  writeApiLog(accountId, "api.vultr.com", action, query, data, "成功");
+  writeApiLog(accountId, "api.vultr.com", action, { ...query, ...(init.body ? { body: init.body } : {}) }, data, "成功");
   return data;
 }
 function vultrCursor(next) {
@@ -1782,7 +1789,7 @@ function vultrInventory(item, type) {
 }
 async function vultrResources(accountId, type) {
   const definitions = {
-    ecs: ["instances", "instances", (item) => ({ InstanceId: vultrValue(item, "id"), InstanceName: vultrValue(item, "label", "hostname", "id"), Status: vultrValue(item, "status"), InstanceStatus: vultrValue(item, "status"), PublicIpAddress: vultrValue(item, "main_ip"), PrivateIpAddress: vultrValue(item, "internal_ip"), InstanceType: vultrValue(item, "plan"), Cpu: vultrValue(item, "vcpu_count"), Memory: vultrValue(item, "ram"), Disk: vultrValue(item, "disk"), OSName: vultrValue(item, "os"), VpcIds: vultrValue(item, "vpc2_ids"), FirewallGroupId: vultrValue(item, "firewall_group_id"), Tags: vultrValue(item, "tags"), CreationTime: vultrValue(item, "date_created"), _region_id: vultrValue(item, "region"), _raw: item })],
+    ecs: ["instances", "instances", (item) => ({ InstanceId: vultrValue(item, "id"), InstanceName: vultrValue(item, "label", "hostname", "id"), Status: vultrValue(item, "status"), InstanceStatus: vultrValue(item, "status"), PublicIpAddress: vultrValue(item, "main_ip"), PrivateIpAddress: vultrValue(item, "internal_ip"), InstanceType: vultrValue(item, "plan"), Cpu: vultrValue(item, "vcpu_count"), Memory: vultrValue(item, "ram"), Disk: vultrValue(item, "disk"), OSName: vultrValue(item, "os"), Hostname: vultrValue(item, "hostname"), Region: vultrValue(item, "region"), AllowedBandwidth: vultrValue(item, "allowed_bandwidth"), NetmaskV4: vultrValue(item, "netmask_v4"), GatewayV4: vultrValue(item, "gateway_v4"), V6MainIp: vultrValue(item, "v6_main_ip"), PowerStatus: vultrValue(item, "power_status"), ServerStatus: vultrValue(item, "server_status"), Backups: vultrValue(item, "backups"), DdosProtection: vultrValue(item, "ddos_protection"), VpcIds: vultrValue(item, "vpc2_ids"), FirewallGroupId: vultrValue(item, "firewall_group_id"), Tags: vultrValue(item, "tags"), CreationTime: vultrValue(item, "date_created"), _region_id: vultrValue(item, "region"), _raw: item })],
     domain: ["domains", "domains", (item) => ({ DomainName: vultrValue(item, "domain"), DomainStatus: "ACTIVE", RecordCount: 0, RegistrationDate: vultrValue(item, "date_created"), ZoneId: vultrValue(item, "domain"), _region_id: "global", _raw: item })],
     oss: ["object-storage", "object_storages", (item) => ({ AssetId: vultrValue(item, "id", "cluster_id"), Name: vultrValue(item, "label", "cluster_id", "id"), BucketName: vultrValue(item, "label", "cluster_id", "id"), Status: vultrValue(item, "status"), Location: vultrValue(item, "region"), CreationDate: vultrValue(item, "date_created"), StorageClass: vultrValue(item, "plan"), _region_id: vultrValue(item, "region"), _raw: item })],
     rds: ["databases", "databases", (item) => ({ DBInstanceId: vultrValue(item, "id"), DBInstanceDescription: vultrValue(item, "label", "id"), DBInstanceStatus: vultrValue(item, "status"), DBInstanceClass: vultrValue(item, "plan"), ConnectionString: vultrValue(item, "host"), Port: vultrValue(item, "port"), Engine: vultrValue(item, "database_engine"), EngineVersion: vultrValue(item, "database_engine_version"), CreateTime: vultrValue(item, "date_created"), VpcId: vultrValue(item, "vpc_id"), _region_id: vultrValue(item, "region"), _raw: item })],
@@ -1804,6 +1811,30 @@ async function verifyVultrAccount(id) {
   const ids = regions.map((region) => String(region.id || "")).filter(Boolean);
   return { provider: "vultr", verified: true, region_count: ids.length, regions: ids, default_region: ids[0] || "ewr", account: account.account || account };
 }
+async function aliyunDomainResources(id) {
+  const [registration, dns] = await Promise.allSettled([
+    rpc(id, "domain.aliyuncs.com", "2018-01-29", "QueryDomainList", { PageNum: "1", PageSize: "100" }),
+    rpc(id, "alidns.aliyuncs.com", "2015-01-09", "DescribeDomains", { PageNumber: "1", PageSize: "20" }),
+  ]);
+  const merged = new Map();
+  const errors = [];
+  if (registration.status === "fulfilled") {
+    for (const item of arr(registration.value, ["Data", "Domain"])) {
+      const name = String(item.DomainName || "").trim();
+      if (name) merged.set(name.toLowerCase(), { ...item });
+    }
+  } else errors.push(`域名注册: ${registration.reason?.message || registration.reason}`);
+  if (dns.status === "fulfilled") {
+    for (const item of arr(dns.value, ["Domains", "Domain"])) {
+      const name = String(item.DomainName || "").trim();
+      if (!name) continue;
+      const key = name.toLowerCase();
+      merged.set(key, { ...(merged.get(key) || { DomainName: name }), ...item, DomainName: name, RecordCount: Number(item.RecordCount || 0) });
+    }
+  } else errors.push(`AliDNS: ${dns.reason?.message || dns.reason}`);
+  return { resource_type: "domain", items: [...merged.values()], errors, fetched_at: Date.now() };
+}
+
 async function cloudResources(id, type) {
   const account = database().prepare("SELECT cloud_type FROM cloud_accounts WHERE id=?").get(id);
   if (!account) throw new Error("云账号不存在");
@@ -1822,6 +1853,7 @@ async function cloudResources(id, type) {
   if (account.cloud_type === "qingcloud") return qingcloudResources(id, type);
   if (account.cloud_type === "ksyun") return ksyunResources(id, type);
   if (account.cloud_type === "oracle") return oracleResources(id, type);
+  if (type === "domain") return aliyunDomainResources(id);
   const items = [];
   const errors = [];
   if (type === "oss") {
@@ -2054,11 +2086,7 @@ async function syncCloudAssets(id, resourceTypes) {
   const errors = requestedTypes.filter((type) => !availableTypes.includes(type)).map((type) => `${type}: 暂未接入此资源`);
   for (const type of types) {
     try {
-      let response;
-      if (account.cloud_type === "aliyun" && type === "domain") {
-        const data = await rpc(id, "domain.aliyuncs.com", "2018-01-29", "QueryDomainList", { PageNum: "1", PageSize: "100" });
-        response = { items: arr(data, ["Data", "Domain"]), errors: [] };
-      } else response = await cloudResources(id, type);
+      const response = await cloudResources(id, type);
       errors.push(...(response.errors || []).map((error) => `${type}: ${error}`));
       rows.push({ type, items: response.items || [], fetchedAt: Date.now() });
     } catch (error) { errors.push(`${type}: ${error.message}`); rows.push({ type, items: [], fetchedAt: Date.now() }); }
@@ -2629,6 +2657,39 @@ const server = http.createServer(async (req, res) => {
       if (!actionName) return send(res, 400, { error: "不支持的阿里云服务器操作" });
       return send(res, 200, await rpc(id, `ecs.${region}.aliyuncs.com`, "2014-05-26", actionName, { RegionId: region, InstanceId: instanceId }));
     }
+    if (req.method === "POST" && url.pathname === "/api/vultr-instance-action") {
+      const payload = JSON.parse(await readBody(req));
+      const id = Number(payload.id);
+      const instanceId = String(payload.instanceId || "").trim();
+      const action = String(payload.action || "").trim();
+      if (!instanceId) return send(res, 400, { error: "缺少 Vultr 实例 ID" });
+      if (!new Set(["start", "stop", "reboot"]).has(action)) return send(res, 400, { error: "不支持的 Vultr 服务器操作" });
+      const endpoint = action === "stop" ? "halt" : action;
+      return send(res, 200, await vultrRequest(id, `instances/${encodeURIComponent(instanceId)}/${endpoint}`, {}, { method: "POST" }));
+    }
+    if (req.method === "POST" && url.pathname === "/api/vultr-instance-manage") {
+      const payload = JSON.parse(await readBody(req));
+      const id = Number(payload.id);
+      const instanceId = String(payload.instanceId || "").trim();
+      const action = String(payload.action || "").trim();
+      const value = String(payload.value || "").trim();
+      if (!instanceId) return send(res, 400, { error: "缺少 Vultr 实例 ID" });
+      const updatePath = `instances/${encodeURIComponent(instanceId)}`;
+      const actions = {
+        snapshot: { path: "snapshots", method: "POST", body: { instance_id: instanceId, description: value } },
+        label: value ? { path: updatePath, method: "PATCH", body: { label: value } } : null,
+        tags: { path: updatePath, method: "PATCH", body: { tags: value.split(",").map((tag) => tag.trim()).filter(Boolean) } },
+        enable_backups: { path: updatePath, method: "PATCH", body: { backups: "enabled" } },
+        disable_backups: { path: updatePath, method: "PATCH", body: { backups: "disabled" } },
+        enable_ddos: { path: updatePath, method: "PATCH", body: { ddos_protection: true } },
+        disable_ddos: { path: updatePath, method: "PATCH", body: { ddos_protection: false } },
+        enable_ipv6: { path: updatePath, method: "PATCH", body: { enable_ipv6: true } },
+        firewall: value ? { path: updatePath, method: "PATCH", body: { firewall_group_id: value } } : null,
+      };
+      const request = actions[action];
+      if (!request) return send(res, 400, { error: "不支持的 Vultr 实例管理操作，或缺少必要参数" });
+      return send(res, 200, await vultrRequest(id, request.path, {}, { method: request.method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(request.body) }));
+    }
     if (req.method === "POST" && url.pathname === "/api/bcc-action") {
       const payload = JSON.parse(await readBody(req));
       const id = Number(payload.id);
@@ -2705,21 +2766,7 @@ const server = http.createServer(async (req, res) => {
       const id = Number(url.searchParams.get("id"));
       const account = database().prepare("SELECT cloud_type FROM cloud_accounts WHERE id=?").get(id);
       if (!account) return send(res, 404, { error: "云账号不存在" });
-      if (account.cloud_type !== "aliyun" || type !== "domain")
-        return send(res, 200, await cloudResources(id, type));
-      const data = await rpc(
-        id,
-        "domain.aliyuncs.com",
-        "2018-01-29",
-        "QueryDomainList",
-        { PageNum: "1", PageSize: "100" },
-      );
-      return send(res, 200, {
-        resource_type: type,
-        items: arr(data, ["Data", "Domain"]),
-        errors: [],
-        fetched_at: Date.now(),
-      });
+      return send(res, 200, await cloudResources(id, type));
     }
     if (req.method === "GET" && url.pathname === "/api/esa-overview") {
       return send(res, 200, await esaOverview(

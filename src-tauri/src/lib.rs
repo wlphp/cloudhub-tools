@@ -487,6 +487,86 @@ async fn vultr_request(id: i64, path: &str, query: &BTreeMap<String, String>) ->
     Ok(data)
 }
 
+#[tauri::command]
+async fn vultr_instance_action(id: i64, instance_id: String, action: String) -> Result<Value, String> {
+    if instance_id.trim().is_empty() { return Err("缺少 Vultr 实例 ID".into()); }
+    let endpoint = match action.as_str() {
+        "start" => "start",
+        "stop" => "halt",
+        "reboot" => "reboot",
+        _ => return Err("不支持的 Vultr 服务器操作".into()),
+    };
+    if account_cloud_type(id)? != "vultr" { return Err("当前账号不是 Vultr 账号".into()); }
+    let (access_key_id, api_key) = account_credentials(id)?;
+    let path = format!("instances/{instance_id}/{endpoint}");
+    let payload = json!({});
+    let response = reqwest::Client::new()
+        .post(format!("https://api.vultr.com/v2/{path}"))
+        .header("Authorization", format!("Bearer {api_key}"))
+        .header("Accept", "application/json")
+        .header("Content-Type", "application/json")
+        .json(&payload)
+        .timeout(std::time::Duration::from_secs(30))
+        .send().await.map_err(|error| format!("Vultr 请求失败: {error}"))?;
+    let status = response.status();
+    let body = response.text().await.map_err(|error| format!("Vultr 返回读取失败: {error}"))?;
+    let data: Value = serde_json::from_str(&body).unwrap_or_else(|_| json!({"body": body}));
+    let log_action = format!("POST /v2/{path}");
+    if !status.is_success() {
+        let message = data.get("error").and_then(Value::as_str)
+            .or_else(|| data.get("message").and_then(Value::as_str))
+            .or_else(|| data.pointer("/error/message").and_then(Value::as_str))
+            .map(str::to_string).unwrap_or_else(|| format!("Vultr API 返回 HTTP {status}"));
+        write_api_log(&access_key_id, "api.vultr.com", &log_action, &payload, Some(&data), "失败", Some(&message));
+        return Err(message);
+    }
+    write_api_log(&access_key_id, "api.vultr.com", &log_action, &payload, Some(&data), "成功", None);
+    Ok(data)
+}
+
+#[tauri::command]
+async fn vultr_instance_manage(id: i64, instance_id: String, action: String, value: Option<String>) -> Result<Value, String> {
+    if instance_id.trim().is_empty() { return Err("缺少 Vultr 实例 ID".into()); }
+    if account_cloud_type(id)? != "vultr" { return Err("当前账号不是 Vultr 账号".into()); }
+    let instance_id = instance_id.trim();
+    let value = value.unwrap_or_default().trim().to_string();
+    let (method, path, payload) = match action.as_str() {
+        "snapshot" => (reqwest::Method::POST, "snapshots".to_string(), json!({"instance_id": instance_id, "description": value})),
+        "label" if !value.is_empty() => (reqwest::Method::PATCH, format!("instances/{instance_id}"), json!({"label": value})),
+        "tags" => (reqwest::Method::PATCH, format!("instances/{instance_id}"), json!({"tags": value.split(',').map(str::trim).filter(|tag| !tag.is_empty()).collect::<Vec<_>>() })),
+        "enable_backups" => (reqwest::Method::PATCH, format!("instances/{instance_id}"), json!({"backups": "enabled"})),
+        "disable_backups" => (reqwest::Method::PATCH, format!("instances/{instance_id}"), json!({"backups": "disabled"})),
+        "enable_ddos" => (reqwest::Method::PATCH, format!("instances/{instance_id}"), json!({"ddos_protection": true})),
+        "disable_ddos" => (reqwest::Method::PATCH, format!("instances/{instance_id}"), json!({"ddos_protection": false})),
+        "enable_ipv6" => (reqwest::Method::PATCH, format!("instances/{instance_id}"), json!({"enable_ipv6": true})),
+        "firewall" if !value.is_empty() => (reqwest::Method::PATCH, format!("instances/{instance_id}"), json!({"firewall_group_id": value})),
+        _ => return Err("不支持的 Vultr 实例管理操作，或缺少必要参数".into()),
+    };
+    let (access_key_id, api_key) = account_credentials(id)?;
+    let action_label = format!("{} /v2/{path}", method.as_str());
+    let response = reqwest::Client::new()
+        .request(method, format!("https://api.vultr.com/v2/{path}"))
+        .header("Authorization", format!("Bearer {api_key}"))
+        .header("Accept", "application/json")
+        .header("Content-Type", "application/json")
+        .json(&payload)
+        .timeout(std::time::Duration::from_secs(30))
+        .send().await.map_err(|error| format!("Vultr 请求失败: {error}"))?;
+    let status = response.status();
+    let body = response.text().await.map_err(|error| format!("Vultr 返回读取失败: {error}"))?;
+    let data: Value = serde_json::from_str(&body).unwrap_or_else(|_| json!({"body": body}));
+    if !status.is_success() {
+        let message = data.get("error").and_then(Value::as_str)
+            .or_else(|| data.get("message").and_then(Value::as_str))
+            .or_else(|| data.pointer("/error/message").and_then(Value::as_str))
+            .map(str::to_string).unwrap_or_else(|| format!("Vultr API 返回 HTTP {status}"));
+        write_api_log(&access_key_id, "api.vultr.com", &action_label, &payload, Some(&data), "失败", Some(&message));
+        return Err(message);
+    }
+    write_api_log(&access_key_id, "api.vultr.com", &action_label, &payload, Some(&data), "成功", None);
+    Ok(data)
+}
+
 fn vultr_cursor(next: &str) -> Option<String> {
     next.split('?').nth(1)?.split('&').find_map(|entry| {
         let (key, value) = entry.split_once('=')?;
@@ -527,6 +607,16 @@ fn vultr_instance(item: &Value) -> Value {
         "Memory": vultr_value(item, &["ram"]),
         "Disk": vultr_value(item, &["disk"]),
         "OSName": vultr_value(item, &["os"]),
+        "Hostname": vultr_value(item, &["hostname"]),
+        "Region": vultr_value(item, &["region"]),
+        "AllowedBandwidth": vultr_value(item, &["allowed_bandwidth"]),
+        "NetmaskV4": vultr_value(item, &["netmask_v4"]),
+        "GatewayV4": vultr_value(item, &["gateway_v4"]),
+        "V6MainIp": vultr_value(item, &["v6_main_ip"]),
+        "PowerStatus": vultr_value(item, &["power_status"]),
+        "ServerStatus": vultr_value(item, &["server_status"]),
+        "Backups": vultr_value(item, &["backups"]),
+        "DdosProtection": vultr_value(item, &["ddos_protection"]),
         "VpcIds": vultr_value(item, &["vpc2_ids"]),
         "FirewallGroupId": vultr_value(item, &["firewall_group_id"]),
         "Tags": vultr_value(item, &["tags"]),
@@ -1889,7 +1979,7 @@ async fn resource_items(resource_type: &str, access_key_id: &str, access_key_sec
             let registration_failed = registration.is_err(); let dns_failed = dns.is_err();
             let mut merged: BTreeMap<String, Value> = BTreeMap::new();
             if let Ok(result) = registration { for item in array_at(&result, &["Data", "Domain"]) { if let Some(name) = item.get("DomainName").and_then(Value::as_str) { merged.insert(name.to_lowercase(), (*item).clone()); } } }
-            if let Ok(result) = dns { for item in array_at(&result, &["Domains", "Domain"]) { if let Some(name) = item.get("DomainName").and_then(Value::as_str) { let entry = merged.entry(name.to_lowercase()).or_insert_with(|| json!({"DomainName": name})); if let (Value::Object(target), Value::Object(source)) = (entry, (*item).clone()) { for (key, value) in source { target.insert(key, value); } } } } }
+            if let Ok(result) = dns { for item in array_at(&result, &["Domains", "Domain"]) { if let Some(name) = item.get("DomainName").and_then(Value::as_str) { let entry = merged.entry(name.to_lowercase()).or_insert_with(|| json!({"DomainName": name})); if let Some(target) = entry.as_object_mut() { if let Some(source) = item.as_object() { for (key, value) in source { target.insert(key.clone(), value.clone()); } } target.insert("RecordCount".into(), item.get("RecordCount").cloned().unwrap_or(json!(0))); } } } }
             if merged.is_empty() && registration_failed && dns_failed { add_error("域名注册和 DNS 接口均请求失败".into()); }
             items.extend(merged.into_values());
         },
@@ -4088,7 +4178,7 @@ pub fn run() {
         .manage(SshTerminalStore { terminals: Mutex::new(HashMap::new()) })
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![list_accounts, save_account, delete_account, app_data_path, open_app_data_directory, list_client_preferences, save_client_preference, reveal_account_secret, cloud_account_summary, list_cloud_resources, sync_cloud_assets, verify_vultr_account, verify_ctyun_account, verify_huawei_account, verify_baidu_account, verify_ucloud_account, verify_qiniu_account, verify_aws_account, verify_azure_account, verify_gcp_account, verify_jdcloud_account, verify_qingcloud_account, verify_ksyun_account, esa_overview, list_local_assets, list_managed_hosts, save_managed_host, delete_managed_host, probe_managed_host, export_managed_hosts_file, import_managed_hosts, list_panel_connections, save_panel_connection, refresh_panel_connection, panel_temporary_login, delete_panel_connection, update_panel_connection_remark, export_panel_connections_file, import_panel_connections, list_api_logs, clear_api_logs, clear_operation_logs, list_instance_disks, instance_status, reboot_instance, start_instance, stop_instance, oracle_instance_action, cvm_instance_reboot, cvm_instance_action, baidu_instance_action, rename_server, swas_instance_action, list_dns_records, add_dns_record, update_dns_record, delete_dns_record, toggle_dns_record, list_domain_logs, query_whois, list_rds_databases, list_rds_accounts, list_redis_accounts, list_oss_objects, get_oss_acl, set_oss_public_read, set_oss_cors, get_ssh_connection, reveal_ssh_password, delete_ssh_connection, get_rdp_connection, reveal_rdp_password, delete_rdp_connection, launch_rdp_connection, launch_managed_host_rdp, ssh_connect, ssh_test_connection, ssh_list_files, ssh_read_text_file, ssh_write_text_file, ssh_upload_file, ssh_download_file, ssh_make_directory, ssh_delete_path, ssh_read, ssh_write, ssh_resize, ssh_disconnect, export_accounts, export_accounts_file, import_accounts])
+        .invoke_handler(tauri::generate_handler![list_accounts, save_account, delete_account, app_data_path, open_app_data_directory, list_client_preferences, save_client_preference, reveal_account_secret, cloud_account_summary, list_cloud_resources, sync_cloud_assets, verify_vultr_account, verify_ctyun_account, verify_huawei_account, verify_baidu_account, verify_ucloud_account, verify_qiniu_account, verify_aws_account, verify_azure_account, verify_gcp_account, verify_jdcloud_account, verify_qingcloud_account, verify_ksyun_account, esa_overview, list_local_assets, list_managed_hosts, save_managed_host, delete_managed_host, probe_managed_host, export_managed_hosts_file, import_managed_hosts, list_panel_connections, save_panel_connection, refresh_panel_connection, panel_temporary_login, delete_panel_connection, update_panel_connection_remark, export_panel_connections_file, import_panel_connections, list_api_logs, clear_api_logs, clear_operation_logs, list_instance_disks, instance_status, reboot_instance, start_instance, stop_instance, vultr_instance_action, vultr_instance_manage, oracle_instance_action, cvm_instance_reboot, cvm_instance_action, baidu_instance_action, rename_server, swas_instance_action, list_dns_records, add_dns_record, update_dns_record, delete_dns_record, toggle_dns_record, list_domain_logs, query_whois, list_rds_databases, list_rds_accounts, list_redis_accounts, list_oss_objects, get_oss_acl, set_oss_public_read, set_oss_cors, get_ssh_connection, reveal_ssh_password, delete_ssh_connection, get_rdp_connection, reveal_rdp_password, delete_rdp_connection, launch_rdp_connection, launch_managed_host_rdp, ssh_connect, ssh_test_connection, ssh_list_files, ssh_read_text_file, ssh_write_text_file, ssh_upload_file, ssh_download_file, ssh_make_directory, ssh_delete_path, ssh_read, ssh_write, ssh_resize, ssh_disconnect, export_accounts, export_accounts_file, import_accounts])
         .run(tauri::generate_context!())
         .expect("error while running Tauri application");
 }
