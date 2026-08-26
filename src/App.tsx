@@ -442,7 +442,7 @@ const assetTypes = [
 
 const runningInTauri =
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-const bundledVersion = "0.1.16";
+const bundledVersion = "0.1.17";
 
 type UpdateState =
   | { phase: "idle" }
@@ -4848,7 +4848,7 @@ function App() {
           </button>
         </nav>
       </aside>
-      {section === "servers" && <div className="app-sidebar-resizer" role="separator" aria-label="调整主导航宽度" aria-orientation="vertical" onPointerDown={startAppSidebarResize} />}
+      <div className="app-sidebar-resizer" role="separator" aria-label="调整主导航宽度" aria-orientation="vertical" onPointerDown={startAppSidebarResize} />
       <main>
         {status && <div className="toast-notice">{status}</div>}
         <div className={`account-section ${section === "accounts" ? "" : "section-hidden"}`}>
