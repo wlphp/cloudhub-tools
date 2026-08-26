@@ -2441,7 +2441,7 @@ async fn oracle_instance_action(id: i64, region_id: String, instance_id: String,
         _ => return Err("不支持的 OCI 实例操作".into()),
     };
     let credentials = oracle_credentials(id)?;
-    let host = format!("iaas.{region_id}.oci.oraclecloud.com");
+    let host = format!("iaas.{region_id}.oraclecloud.com");
     let path = format!("/20160918/instances/{}?action={action_name}", rpc_encode(&instance_id));
     let private_key = RsaPrivateKey::from_pkcs8_pem(&credentials.private_key)
         .or_else(|_| RsaPrivateKey::from_pkcs1_pem(&credentials.private_key))
@@ -2512,7 +2512,7 @@ fn oracle_bucket(item: &Value, region: &str, compartment: &Value) -> Value {
 async fn oracle_instance_disks(id: i64, region: &str, instance_id: &str, compartment_id: &str) -> Result<Vec<Value>, String> {
     if region.is_empty() || instance_id.is_empty() || compartment_id.is_empty() { return Ok(vec![]); }
     let credentials = oracle_credentials(id)?;
-    let host = format!("iaas.{region}.oci.oraclecloud.com");
+    let host = format!("iaas.{region}.oraclecloud.com");
     let query = vec![("compartmentId".into(), compartment_id.into()), ("instanceId".into(), instance_id.into())];
     let boot_attachments = oracle_pages(&credentials, &host, "/20160918/bootVolumeAttachments", query.clone()).await.unwrap_or_default();
     let volume_attachments = oracle_pages(&credentials, &host, "/20160918/volumeAttachments", query).await.unwrap_or_default();
@@ -2538,7 +2538,7 @@ async fn oracle_resource_items(id: i64, resource_type: &str) -> ResourceResponse
     let (compartments, regions) = match oracle_context(&credentials).await { Ok(value) => value, Err(error) => return ResourceResponse { resource_type: resource_type.into(), items: vec![], errors: vec![error], fetched_at: now } };
     let mut items = Vec::new(); let mut errors = Vec::new();
     for region in regions {
-        let host = match resource_type { "ecs" => format!("iaas.{region}.oci.oraclecloud.com"), "rds" => format!("database.{region}.oci.oraclecloud.com"), "domain" => format!("dns.{region}.oci.oraclecloud.com"), "oss" => format!("objectstorage.{region}.oci.oraclecloud.com"), _ => { errors.push(format!("Oracle Cloud 暂未接入 {resource_type} 资源")); break; } };
+        let host = match resource_type { "ecs" => format!("iaas.{region}.oraclecloud.com"), "rds" => format!("database.{region}.oci.oraclecloud.com"), "domain" => format!("dns.{region}.oci.oraclecloud.com"), "oss" => format!("objectstorage.{region}.oci.oraclecloud.com"), _ => { errors.push(format!("Oracle Cloud 暂未接入 {resource_type} 资源")); break; } };
         let namespace = if resource_type == "oss" { match oracle_request(&credentials, &host, "/n/").await { Ok((Value::String(value), _)) if !value.is_empty() => Some(value), Ok(_) => { errors.push(format!("{region}: 未能读取 Object Storage namespace")); None }, Err(error) => { errors.push(format!("{region}: {error}")); None } } } else { None };
         if resource_type == "oss" && namespace.is_none() { continue; }
         for compartment in &compartments {
