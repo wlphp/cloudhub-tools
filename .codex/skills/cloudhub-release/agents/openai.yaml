@@ -1,0 +1,3 @@
+interface:
+  display_name: "CloudHub 发布"
+  short_description: "发布 CloudHub Tools 桌面端版本"
