@@ -12,6 +12,7 @@ dist
 dist-ssr
 release
 src-tauri/target
+src-tauri/**/target-verify/
 .cargo-check-*
 .cargo-target/
 *.local

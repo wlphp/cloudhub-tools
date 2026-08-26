@@ -56,6 +56,19 @@ struct SshTerminalStore {
     terminals: Mutex<HashMap<String, SshTerminal>>,
 }
 
+#[derive(Clone)]
+struct SavedSshCredentials {
+    host: String,
+    port: u16,
+    username: String,
+    platform: String,
+    auth_method: String,
+    password_ciphertext: Option<String>,
+    private_key_ciphertext: Option<String>,
+    key_passphrase_ciphertext: Option<String>,
+    host_key_fingerprint: Option<String>,
+}
+
 struct SshHostKeyHandler {
     expected_fingerprint: Option<String>,
     observed_fingerprint: Arc<Mutex<Option<String>>>,
@@ -157,11 +170,14 @@ struct ManagedHost {
     host: String,
     port: u16,
     username: String,
+    platform: String,
+    auth_method: String,
     group_name: Option<String>,
     tags: Option<String>,
     source_account_id: Option<i64>,
     source_asset_key: Option<String>,
     password_saved: bool,
+    private_key_saved: bool,
     host_key_fingerprint: Option<String>,
     status: String,
     last_latency_ms: Option<i64>,
@@ -181,6 +197,10 @@ struct ManagedHostInput {
     port: Option<u16>,
     username: String,
     password: Option<String>,
+    platform: Option<String>,
+    auth_method: Option<String>,
+    private_key: Option<String>,
+    key_passphrase: Option<String>,
     group_name: Option<String>,
     tags: Option<String>,
     source_account_id: Option<i64>,
@@ -243,6 +263,47 @@ struct ImportPanelConnection {
     api_key: String,
     allow_insecure_tls: Option<bool>,
     group_name: Option<String>,
+    source_account_id: Option<i64>,
+    source_asset_key: Option<String>,
+    remark: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct ExportManagedHost {
+    name: String,
+    host: String,
+    port: u16,
+    username: String,
+    platform: String,
+    auth_method: String,
+    password: Option<String>,
+    private_key: Option<String>,
+    key_passphrase: Option<String>,
+    group_name: Option<String>,
+    tags: Option<String>,
+    source_account_id: Option<i64>,
+    source_asset_key: Option<String>,
+    remark: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ImportManagedHost {
+    name: String,
+    host: String,
+    port: Option<u16>,
+    username: String,
+    #[serde(default)]
+    platform: Option<String>,
+    #[serde(default)]
+    auth_method: Option<String>,
+    #[serde(default)]
+    password: Option<String>,
+    #[serde(default)]
+    private_key: Option<String>,
+    #[serde(default)]
+    key_passphrase: Option<String>,
+    group_name: Option<String>,
+    tags: Option<String>,
     source_account_id: Option<i64>,
     source_asset_key: Option<String>,
     remark: Option<String>,
@@ -314,7 +375,7 @@ fn open_db() -> Result<Connection, String> {
       CREATE TABLE IF NOT EXISTS cloud_assets (account_id INTEGER NOT NULL, resource_type TEXT NOT NULL, asset_key TEXT NOT NULL, region_id TEXT, payload_json TEXT NOT NULL, fetched_at INTEGER NOT NULL, PRIMARY KEY(account_id, resource_type, asset_key), FOREIGN KEY(account_id) REFERENCES cloud_accounts(id) ON DELETE CASCADE);
       CREATE TABLE IF NOT EXISTS ssh_connections (account_id INTEGER NOT NULL, asset_key TEXT NOT NULL, host TEXT NOT NULL, port INTEGER NOT NULL DEFAULT 22, username TEXT NOT NULL, password_ciphertext TEXT, host_key_fingerprint TEXT, updated_at INTEGER NOT NULL, PRIMARY KEY(account_id, asset_key), FOREIGN KEY(account_id) REFERENCES cloud_accounts(id) ON DELETE CASCADE);
       CREATE TABLE IF NOT EXISTS rdp_connections (target_key TEXT PRIMARY KEY, host TEXT NOT NULL, port INTEGER NOT NULL DEFAULT 3389, username TEXT NOT NULL, password_ciphertext TEXT, updated_at INTEGER NOT NULL);
-      CREATE TABLE IF NOT EXISTS managed_hosts (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, host TEXT NOT NULL, port INTEGER NOT NULL DEFAULT 22, username TEXT NOT NULL, password_ciphertext TEXT NOT NULL, group_name TEXT, tags TEXT, source_account_id INTEGER, source_asset_key TEXT, host_key_fingerprint TEXT, status TEXT NOT NULL DEFAULT 'unknown', last_latency_ms INTEGER, metrics_json TEXT NOT NULL DEFAULT '{}', last_checked_at INTEGER, last_error TEXT, remark TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS managed_hosts (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, host TEXT NOT NULL, port INTEGER NOT NULL DEFAULT 22, username TEXT NOT NULL, password_ciphertext TEXT NOT NULL DEFAULT '', platform TEXT NOT NULL DEFAULT 'linux', auth_method TEXT NOT NULL DEFAULT 'password', private_key_ciphertext TEXT, key_passphrase_ciphertext TEXT, group_name TEXT, tags TEXT, source_account_id INTEGER, source_asset_key TEXT, host_key_fingerprint TEXT, status TEXT NOT NULL DEFAULT 'unknown', last_latency_ms INTEGER, metrics_json TEXT NOT NULL DEFAULT '{}', last_checked_at INTEGER, last_error TEXT, remark TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS panel_connections (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, panel_url TEXT NOT NULL UNIQUE, api_key_ciphertext TEXT NOT NULL, sort_order INTEGER NOT NULL DEFAULT 0, allow_insecure_tls INTEGER NOT NULL DEFAULT 0, group_name TEXT, source_account_id INTEGER, source_asset_key TEXT, status TEXT NOT NULL DEFAULT 'unknown', summary_json TEXT NOT NULL DEFAULT '{}', last_checked_at INTEGER, last_error TEXT, remark TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS operation_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER, action TEXT NOT NULL, result TEXT NOT NULL, message TEXT, created_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS client_preferences (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL);")
@@ -327,6 +388,11 @@ fn open_db() -> Result<Connection, String> {
     if !has_panel_insecure_tls { conn.execute("ALTER TABLE panel_connections ADD COLUMN allow_insecure_tls INTEGER NOT NULL DEFAULT 0", []).map_err(|e| e.to_string())?; }
     let has_panel_sort_order: bool = conn.prepare("PRAGMA table_info(panel_connections)").map_err(|e| e.to_string())?.query_map([], |row| row.get::<_, String>(1)).map_err(|e| e.to_string())?.filter_map(Result::ok).any(|name| name == "sort_order");
     if !has_panel_sort_order { conn.execute("ALTER TABLE panel_connections ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0", []).map_err(|e| e.to_string())?; }
+    let managed_columns = conn.prepare("PRAGMA table_info(managed_hosts)").map_err(|e| e.to_string())?.query_map([], |row| row.get::<_, String>(1)).map_err(|e| e.to_string())?.filter_map(Result::ok).collect::<Vec<_>>();
+    if !managed_columns.iter().any(|name| name == "platform") { conn.execute("ALTER TABLE managed_hosts ADD COLUMN platform TEXT NOT NULL DEFAULT 'linux'", []).map_err(|e| e.to_string())?; }
+    if !managed_columns.iter().any(|name| name == "auth_method") { conn.execute("ALTER TABLE managed_hosts ADD COLUMN auth_method TEXT NOT NULL DEFAULT 'password'", []).map_err(|e| e.to_string())?; }
+    if !managed_columns.iter().any(|name| name == "private_key_ciphertext") { conn.execute("ALTER TABLE managed_hosts ADD COLUMN private_key_ciphertext TEXT", []).map_err(|e| e.to_string())?; }
+    if !managed_columns.iter().any(|name| name == "key_passphrase_ciphertext") { conn.execute("ALTER TABLE managed_hosts ADD COLUMN key_passphrase_ciphertext TEXT", []).map_err(|e| e.to_string())?; }
     conn.execute("CREATE TABLE IF NOT EXISTS api_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER, endpoint TEXT NOT NULL, action TEXT NOT NULL, request_params TEXT NOT NULL, response_params TEXT, status TEXT NOT NULL, message TEXT, created_at INTEGER NOT NULL)", []).map_err(|e| e.to_string())?;
     Ok(conn)
 }
@@ -2926,20 +2992,22 @@ fn clear_operation_logs() -> Result<usize, String> {
 }
 
 fn row_managed_host(row: &rusqlite::Row<'_>) -> rusqlite::Result<ManagedHost> {
-    let metrics: String = row.get(13)?;
+    let metrics: String = row.get(17)?;
     Ok(ManagedHost {
         id: row.get(0)?, name: row.get(1)?, host: row.get(2)?, port: row.get(3)?, username: row.get(4)?,
-        group_name: row.get(5)?, tags: row.get(6)?, source_account_id: row.get(7)?, source_asset_key: row.get(8)?,
-        password_saved: row.get::<_, Option<String>>(9)?.is_some(), host_key_fingerprint: row.get(10)?, status: row.get(11)?,
-        last_latency_ms: row.get(12)?, metrics: serde_json::from_str(&metrics).unwrap_or_else(|_| json!({})), last_checked_at: row.get(14)?,
-        last_error: row.get(15)?, remark: row.get(16)?, created_at: row.get(17)?, updated_at: row.get(18)?,
+        platform: row.get(5)?, auth_method: row.get(6)?, group_name: row.get(7)?, tags: row.get(8)?, source_account_id: row.get(9)?, source_asset_key: row.get(10)?,
+        password_saved: row.get::<_, Option<String>>(11)?.is_some_and(|value| !value.is_empty()), private_key_saved: row.get::<_, Option<String>>(12)?.is_some_and(|value| !value.is_empty()), host_key_fingerprint: row.get(14)?, status: row.get(15)?,
+        last_latency_ms: row.get(16)?, metrics: serde_json::from_str(&metrics).unwrap_or_else(|_| json!({})), last_checked_at: row.get(18)?,
+        last_error: row.get(19)?, remark: row.get(20)?, created_at: row.get(21)?, updated_at: row.get(22)?,
     })
 }
+
+const MANAGED_HOST_SELECT: &str = "SELECT id,name,host,port,username,platform,auth_method,group_name,tags,source_account_id,source_asset_key,password_ciphertext,private_key_ciphertext,key_passphrase_ciphertext,host_key_fingerprint,status,last_latency_ms,metrics_json,last_checked_at,last_error,remark,created_at,updated_at FROM managed_hosts";
 
 #[tauri::command]
 fn list_managed_hosts() -> Result<Vec<ManagedHost>, String> {
     let conn = open_db()?;
-    let mut stmt = conn.prepare("SELECT id,name,host,port,username,group_name,tags,source_account_id,source_asset_key,password_ciphertext,host_key_fingerprint,status,last_latency_ms,metrics_json,last_checked_at,last_error,remark,created_at,updated_at FROM managed_hosts ORDER BY COALESCE(group_name,''), name COLLATE NOCASE")
+    let mut stmt = conn.prepare(&format!("{MANAGED_HOST_SELECT} ORDER BY COALESCE(group_name,''), name COLLATE NOCASE"))
         .map_err(|e| e.to_string())?;
     let hosts = stmt.query_map([], row_managed_host).map_err(|e| e.to_string())?.map(|row| row.map_err(|e| e.to_string())).collect();
     hosts
@@ -2948,19 +3016,30 @@ fn list_managed_hosts() -> Result<Vec<ManagedHost>, String> {
 #[tauri::command]
 fn save_managed_host(input: ManagedHostInput) -> Result<ManagedHost, String> {
     let name = input.name.trim(); let host = input.host.trim(); let username = input.username.trim();
-    if name.is_empty() || host.is_empty() || username.is_empty() { return Err("请填写服务器名称、主机地址和 SSH 用户名".into()); }
-    let port = input.port.unwrap_or(22).max(1);
+    let platform = input.platform.as_deref().unwrap_or("linux");
+    if !matches!(platform, "linux" | "windows") { return Err("不支持的操作系统类型".into()); }
+    let auth_method = if platform == "linux" { input.auth_method.as_deref().unwrap_or("password") } else { "password" };
+    if !matches!(auth_method, "password" | "private_key") { return Err("不支持的 Linux 验证方式".into()); }
+    if name.is_empty() || host.is_empty() || username.is_empty() { return Err(format!("请填写服务器名称、主机地址和 {}用户名", if platform == "windows" { "RDP " } else { "SSH " })); }
+    let port = input.port.unwrap_or(if platform == "windows" { 3389 } else { 22 }).max(1);
     let conn = open_db()?; let now = Utc::now().timestamp_millis();
-    let existing_secret = input.id.and_then(|id| conn.query_row("SELECT password_ciphertext FROM managed_hosts WHERE id=?1", [id], |row| row.get::<_, String>(0)).optional().ok().flatten());
-    let secret = match input.password.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
-        Some(password) => encrypt_secret(password)?,
-        None => existing_secret.ok_or_else(|| "首次添加服务器需要填写 SSH 密码".to_string())?,
-    };
+    let existing = input.id.and_then(|id| conn.query_row("SELECT password_ciphertext,private_key_ciphertext,key_passphrase_ciphertext FROM managed_hosts WHERE id=?1", [id], |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, Option<String>>(1)?, row.get::<_, Option<String>>(2)?))).optional().ok().flatten());
+    let password_secret = input.password.as_deref().map(str::trim).filter(|value| !value.is_empty()).map(encrypt_secret).transpose()?.or_else(|| existing.as_ref().and_then(|value| value.0.clone()));
+    let has_new_key = input.private_key.as_deref().is_some_and(|value| !value.trim().is_empty());
+    let private_key_secret = if auth_method == "private_key" {
+        input.private_key.as_deref().map(str::trim).filter(|value| !value.is_empty()).map(encrypt_secret).transpose()?.or_else(|| existing.as_ref().and_then(|value| value.1.clone()))
+    } else { None };
+    let key_passphrase_secret = if auth_method == "private_key" {
+        if has_new_key || input.key_passphrase.is_some() { input.key_passphrase.as_deref().map(str::trim).filter(|value| !value.is_empty()).map(encrypt_secret).transpose()? } else { existing.as_ref().and_then(|value| value.2.clone()) }
+    } else { None };
+    if platform == "linux" && auth_method == "password" && password_secret.as_deref().is_none_or(str::is_empty) { return Err("首次添加 Linux 服务器需要填写 SSH 密码".into()); }
+    if platform == "linux" && auth_method == "private_key" && private_key_secret.as_deref().is_none_or(str::is_empty) { return Err("首次添加 Linux 服务器需要粘贴 SSH 私钥".into()); }
+    let password_value = if auth_method == "private_key" { String::new() } else { password_secret.unwrap_or_default() };
     let id = match input.id {
-        Some(id) => { conn.execute("UPDATE managed_hosts SET name=?1,host=?2,port=?3,username=?4,password_ciphertext=?5,group_name=?6,tags=?7,source_account_id=?8,source_asset_key=?9,remark=?10,updated_at=?11 WHERE id=?12", params![name,host,port,username,secret,input.group_name,input.tags,input.source_account_id,input.source_asset_key,input.remark,now,id]).map_err(|e| e.to_string())?; id }
-        None => { conn.execute("INSERT INTO managed_hosts(name,host,port,username,password_ciphertext,group_name,tags,source_account_id,source_asset_key,remark,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?11)", params![name,host,port,username,secret,input.group_name,input.tags,input.source_account_id,input.source_asset_key,input.remark,now]).map_err(|e| e.to_string())?; conn.last_insert_rowid() }
+        Some(id) => { conn.execute("UPDATE managed_hosts SET name=?1,host=?2,port=?3,username=?4,platform=?5,auth_method=?6,password_ciphertext=?7,private_key_ciphertext=?8,key_passphrase_ciphertext=?9,group_name=?10,tags=?11,source_account_id=?12,source_asset_key=?13,remark=?14,host_key_fingerprint=CASE WHEN platform<>?5 OR auth_method<>?6 THEN NULL ELSE host_key_fingerprint END,updated_at=?15 WHERE id=?16", params![name,host,port,username,platform,auth_method,password_value,private_key_secret,key_passphrase_secret,input.group_name,input.tags,input.source_account_id,input.source_asset_key,input.remark,now,id]).map_err(|e| e.to_string())?; id }
+        None => { conn.execute("INSERT INTO managed_hosts(name,host,port,username,platform,auth_method,password_ciphertext,private_key_ciphertext,key_passphrase_ciphertext,group_name,tags,source_account_id,source_asset_key,remark,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?15)", params![name,host,port,username,platform,auth_method,password_value,private_key_secret,key_passphrase_secret,input.group_name,input.tags,input.source_account_id,input.source_asset_key,input.remark,now]).map_err(|e| e.to_string())?; conn.last_insert_rowid() }
     };
-    conn.query_row("SELECT id,name,host,port,username,group_name,tags,source_account_id,source_asset_key,password_ciphertext,host_key_fingerprint,status,last_latency_ms,metrics_json,last_checked_at,last_error,remark,created_at,updated_at FROM managed_hosts WHERE id=?1", [id], row_managed_host).map_err(|e| e.to_string())
+    conn.query_row(&format!("{MANAGED_HOST_SELECT} WHERE id=?1"), [id], row_managed_host).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -2969,23 +3048,29 @@ fn delete_managed_host(id: i64) -> Result<(), String> {
     Ok(())
 }
 
-fn managed_host_saved_connection(id: i64) -> Result<Option<(String, u16, String, Option<String>, Option<String>)>, String> {
-    open_db()?.query_row("SELECT host,port,username,password_ciphertext,host_key_fingerprint FROM managed_hosts WHERE id=?1", [id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)))
+fn managed_host_saved_connection(id: i64) -> Result<Option<SavedSshCredentials>, String> {
+    open_db()?.query_row("SELECT host,port,username,platform,auth_method,password_ciphertext,private_key_ciphertext,key_passphrase_ciphertext,host_key_fingerprint FROM managed_hosts WHERE id=?1", [id], |row| Ok(SavedSshCredentials { host: row.get(0)?, port: row.get(1)?, username: row.get(2)?, platform: row.get(3)?, auth_method: row.get(4)?, password_ciphertext: row.get(5)?, private_key_ciphertext: row.get(6)?, key_passphrase_ciphertext: row.get(7)?, host_key_fingerprint: row.get(8)? }))
         .optional().map_err(|e| format!("读取受管服务器失败: {e}"))
 }
 
 #[tauri::command]
 async fn probe_managed_host(id: i64) -> Result<ManagedHost, String> {
     let saved = managed_host_saved_connection(id)?.ok_or("服务器不存在")?;
-    let (host, port, username, password_ciphertext, known_fingerprint) = saved;
-    let password = decrypt_secret(&password_ciphertext.ok_or("服务器未保存 SSH 密码")?)?;
+    if saved.platform == "windows" { return Err("Windows 服务器请通过 RDP 打开，暂不支持 SSH 状态检测".into()); }
+    let host = saved.host.clone(); let port = saved.port; let username = saved.username.clone(); let known_fingerprint = saved.host_key_fingerprint.clone();
+    let credentials = if saved.auth_method == "private_key" {
+        let key_ciphertext = saved.private_key_ciphertext.as_deref().filter(|value| !value.is_empty()).ok_or_else(|| "服务器未保存 SSH 私钥".to_string())?;
+        let key = decrypt_secret(key_ciphertext)?;
+        let passphrase = saved.key_passphrase_ciphertext.as_deref().filter(|value| !value.is_empty()).map(decrypt_secret).transpose()?;
+        SshCredentials::PrivateKey { key, passphrase }
+    } else { SshCredentials::Password(decrypt_secret(saved.password_ciphertext.as_deref().filter(|value| !value.is_empty()).ok_or("服务器未保存 SSH 密码")?)?) };
     let started = Instant::now(); let observed_fingerprint = Arc::new(Mutex::new(None));
     let handler = SshHostKeyHandler { expected_fingerprint: known_fingerprint, observed_fingerprint: observed_fingerprint.clone() };
     let attempt = async {
         let config = Arc::new(client::Config::default());
         let mut session = client::connect(config, (host.as_str(), port), handler).await.map_err(|error| format!("连接 SSH 主机失败: {error}"))?;
         let fingerprint = observed_fingerprint.lock().map_err(|_| "SSH 主机密钥状态不可用".to_string())?.clone().ok_or("无法读取 SSH 主机密钥")?;
-        if !session.authenticate_password(username.clone(), password).await.map_err(|error| format!("SSH 身份验证失败: {error}"))?.success() { return Err("SSH 身份验证失败，请检查用户名和密码".into()); }
+        authenticate_ssh(&mut session, &username, &credentials, "探测").await?;
         let mut channel = session.channel_open_session().await.map_err(|error| format!("打开 SSH 会话失败: {error}"))?;
         let command = r#"printf 'hostname='; hostname; printf 'os='; uname -sr; printf 'uptime='; uptime; printf 'memory='; free -b 2>/dev/null | awk '/^Mem:/ {print $2 \",\" $3}'; printf 'disk='; df -B1 / 2>/dev/null | awk 'NR==2 {print $2 \",\" $3}'"#;
         channel.exec(true, command).await.map_err(|error| format!("读取服务器状态失败: {error}"))?;
@@ -3006,7 +3091,7 @@ async fn probe_managed_host(id: i64) -> Result<ManagedHost, String> {
             conn.execute("UPDATE managed_hosts SET status='offline',last_checked_at=?1,last_error=?2,updated_at=?1 WHERE id=?3", params![now, error, id]).map_err(|e| e.to_string())?;
         }
     }
-    conn.query_row("SELECT id,name,host,port,username,group_name,tags,source_account_id,source_asset_key,password_ciphertext,host_key_fingerprint,status,last_latency_ms,metrics_json,last_checked_at,last_error,remark,created_at,updated_at FROM managed_hosts WHERE id=?1", [id], row_managed_host).map_err(|e| e.to_string())
+    conn.query_row(&format!("{MANAGED_HOST_SELECT} WHERE id=?1"), [id], row_managed_host).map_err(|e| e.to_string())
 }
 
 fn row_panel_connection(row: &rusqlite::Row<'_>) -> rusqlite::Result<PanelConnection> {
@@ -3178,9 +3263,18 @@ async fn panel_temporary_login(id: i64) -> Result<String, String> {
 fn delete_panel_connection(id: i64) -> Result<(), String> { open_db()?.execute("DELETE FROM panel_connections WHERE id=?1", [id]).map_err(|e| e.to_string())?; Ok(()) }
 
 #[tauri::command]
-fn export_panel_connections_file(panel_ids: Vec<i64>) -> Result<String, String> {
-    if panel_ids.is_empty() { return Err("请至少选择一个面板".into()); }
+fn update_panel_connection_remark(id: i64, remark: Option<String>) -> Result<PanelConnection, String> {
+    let remark = remark.and_then(|value| (!value.trim().is_empty()).then(|| value.trim().to_string()));
     let conn = open_db()?;
+    let now = Utc::now().timestamp_millis();
+    conn.execute("UPDATE panel_connections SET remark=?1,updated_at=?2 WHERE id=?3", params![remark, now, id]).map_err(|e| e.to_string())?;
+    conn.query_row("SELECT id,name,panel_url,sort_order,allow_insecure_tls,group_name,source_account_id,source_asset_key,api_key_ciphertext,status,summary_json,last_checked_at,last_error,remark,created_at,updated_at FROM panel_connections WHERE id=?1", [id], row_panel_connection).map_err(|_| "面板不存在".to_string())
+}
+
+#[tauri::command]
+fn export_panel_connections_file(panel_ids: Option<Vec<i64>>) -> Result<String, String> {
+    let conn = open_db()?;
+    let selected_ids = panel_ids.filter(|ids| !ids.is_empty());
     let mut stmt = conn.prepare("SELECT id,name,panel_url,sort_order,api_key_ciphertext,allow_insecure_tls,group_name,source_account_id,source_asset_key,remark FROM panel_connections ORDER BY sort_order ASC, name COLLATE NOCASE").map_err(|e| e.to_string())?;
     let rows = stmt.query_map([], |row| Ok((
         row.get::<_, i64>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, i64>(3)?, row.get::<_, String>(4)?, row.get::<_, i64>(5)? == 1,
@@ -3189,7 +3283,7 @@ fn export_panel_connections_file(panel_ids: Vec<i64>) -> Result<String, String> 
     let mut panels = Vec::new();
     for row in rows {
         let (id, name, panel_url, sort_order, ciphertext, allow_insecure_tls, group_name, source_account_id, source_asset_key, remark) = row.map_err(|e| e.to_string())?;
-        if !panel_ids.contains(&id) { continue; }
+        if selected_ids.as_ref().is_some_and(|ids| !ids.contains(&id)) { continue; }
         panels.push(ExportPanelConnection { name, panel_url, sort_order, api_key: decrypt_secret(&ciphertext)?, allow_insecure_tls, group_name, source_account_id, source_asset_key, remark });
     }
     if panels.is_empty() { return Err("未找到选择的面板".into()); }
@@ -3201,6 +3295,7 @@ fn export_panel_connections_file(panel_ids: Vec<i64>) -> Result<String, String> 
     let payload = json!({
         "format": "cloudhub-tools-panel-export",
         "version": 1,
+        "encryption": "plaintext",
         "api_key_exported": true,
         "exported_at": Utc::now().to_rfc3339(),
         "panels": panels,
@@ -3230,28 +3325,97 @@ fn import_panel_connections(panels: Vec<ImportPanelConnection>) -> Result<usize,
     Ok(imported)
 }
 
-fn ssh_saved_connection(account_id: i64, asset_key: &str) -> Result<Option<(String, u16, String, Option<String>, Option<String>)>, String> {
+#[tauri::command]
+fn export_managed_hosts_file() -> Result<String, String> {
+    let conn = open_db()?;
+    let mut stmt = conn.prepare("SELECT name,host,port,username,platform,auth_method,password_ciphertext,private_key_ciphertext,key_passphrase_ciphertext,group_name,tags,source_account_id,source_asset_key,remark FROM managed_hosts ORDER BY COALESCE(group_name,''), name COLLATE NOCASE").map_err(|e| e.to_string())?;
+    let rows = stmt.query_map([], |row| Ok((
+        row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, u16>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?, row.get::<_, String>(5)?, row.get::<_, Option<String>>(6)?, row.get::<_, Option<String>>(7)?, row.get::<_, Option<String>>(8)?,
+        row.get::<_, Option<String>>(9)?, row.get::<_, Option<String>>(10)?, row.get::<_, Option<i64>>(11)?, row.get::<_, Option<String>>(12)?, row.get::<_, Option<String>>(13)?,
+    ))).map_err(|e| e.to_string())?;
+    let mut hosts = Vec::new();
+    for row in rows {
+        let (name, host, port, username, platform, auth_method, password_ciphertext, private_key_ciphertext, key_passphrase_ciphertext, group_name, tags, source_account_id, source_asset_key, remark) = row.map_err(|e| e.to_string())?;
+        let decrypt_optional = |value: Option<String>| value.filter(|item| !item.is_empty()).map(|item| decrypt_secret(&item)).transpose();
+        hosts.push(ExportManagedHost { name, host, port, username, platform, auth_method, password: decrypt_optional(password_ciphertext)?, private_key: decrypt_optional(private_key_ciphertext)?, key_passphrase: decrypt_optional(key_passphrase_ciphertext)?, group_name, tags, source_account_id, source_asset_key, remark });
+    }
+    if hosts.is_empty() { return Err("没有可导出的服务器".into()); }
+    let base = dirs::home_dir().unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+    let desktop = base.join("Desktop");
+    let dir = if desktop.exists() { desktop } else { base };
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = dir.join(format!("cloudhub-tools-terminal-hosts-{}.json", Utc::now().format("%Y%m%d-%H%M%S")));
+    let payload = json!({
+        "format": "cloudhub-tools-managed-host-export",
+        "version": 1,
+        "encryption": "plaintext",
+        "credentials_exported": true,
+        "exported_at": Utc::now().to_rfc3339(),
+        "hosts": hosts,
+    });
+    std::fs::write(&path, serde_json::to_vec_pretty(&payload).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+fn import_managed_hosts(hosts: Vec<ImportManagedHost>) -> Result<usize, String> {
+    if hosts.is_empty() { return Err("导入文件中没有服务器配置".into()); }
+    let conn = open_db()?;
+    let now = Utc::now().timestamp_millis();
+    let mut imported = 0usize;
+    for (index, host) in hosts.into_iter().enumerate() {
+        let name = host.name.trim();
+        let address = host.host.trim();
+        let username = host.username.trim();
+        let platform = host.platform.as_deref().unwrap_or("linux");
+        if !matches!(platform, "linux" | "windows") { return Err(format!("第 {} 条服务器的操作系统类型不支持", index + 1)); }
+        let auth_method = if platform == "linux" { host.auth_method.as_deref().unwrap_or("password") } else { "password" };
+        if !matches!(auth_method, "password" | "private_key") { return Err(format!("第 {} 条服务器的 Linux 验证方式不支持", index + 1)); }
+        if name.is_empty() || address.is_empty() || username.is_empty() { return Err(format!("第 {} 条服务器缺少名称、主机地址或用户名", index + 1)); }
+        let port = host.port.unwrap_or(if platform == "windows" { 3389 } else { 22 }).max(1);
+        let password = host.password.as_deref().map(str::trim).filter(|value| !value.is_empty());
+        let private_key = host.private_key.as_deref().map(str::trim).filter(|value| !value.is_empty());
+        if platform == "linux" && auth_method == "password" && password.is_none() { return Err(format!("第 {} 条 Linux 服务器缺少 SSH 密码", index + 1)); }
+        if platform == "linux" && auth_method == "private_key" && private_key.is_none() { return Err(format!("第 {} 条 Linux 服务器缺少 SSH 私钥", index + 1)); }
+        let password_ciphertext = if auth_method == "private_key" { String::new() } else { password.map(encrypt_secret).transpose()?.unwrap_or_default() };
+        let private_key_ciphertext = if auth_method == "private_key" { private_key.map(encrypt_secret).transpose()? } else { None };
+        let key_passphrase_ciphertext = if auth_method == "private_key" { host.key_passphrase.as_deref().map(str::trim).filter(|value| !value.is_empty()).map(encrypt_secret).transpose()? } else { None };
+        let existing_id: Option<i64> = conn.query_row("SELECT id FROM managed_hosts WHERE host=?1 AND port=?2 AND username=?3", params![address, port, username], |row| row.get(0)).optional().map_err(|e| e.to_string())?;
+        match existing_id {
+            Some(id) => conn.execute("UPDATE managed_hosts SET name=?1,platform=?2,auth_method=?3,password_ciphertext=?4,private_key_ciphertext=?5,key_passphrase_ciphertext=?6,group_name=?7,tags=?8,source_account_id=?9,source_asset_key=?10,remark=?11,host_key_fingerprint=NULL,status='unknown',last_latency_ms=NULL,metrics_json='{}',last_checked_at=NULL,last_error=NULL,updated_at=?12 WHERE id=?13", params![name,platform,auth_method,password_ciphertext,private_key_ciphertext,key_passphrase_ciphertext,host.group_name,host.tags,host.source_account_id,host.source_asset_key,host.remark,now,id]).map_err(|e| e.to_string())?,
+            None => conn.execute("INSERT INTO managed_hosts(name,host,port,username,platform,auth_method,password_ciphertext,private_key_ciphertext,key_passphrase_ciphertext,group_name,tags,source_account_id,source_asset_key,status,metrics_json,remark,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,'unknown','{}',?14,?15,?15)", params![name,address,port,username,platform,auth_method,password_ciphertext,private_key_ciphertext,key_passphrase_ciphertext,host.group_name,host.tags,host.source_account_id,host.source_asset_key,host.remark,now]).map_err(|e| e.to_string())?,
+        };
+        imported += 1;
+    }
+    Ok(imported)
+}
+
+fn ssh_saved_connection(account_id: i64, asset_key: &str) -> Result<Option<SavedSshCredentials>, String> {
     let conn = open_db()?;
     let managed = conn.query_row(
-        "SELECT host,port,username,password_ciphertext,host_key_fingerprint FROM managed_hosts WHERE source_account_id=?1 AND source_asset_key=?2 ORDER BY id LIMIT 1",
+        "SELECT host,port,username,platform,auth_method,password_ciphertext,private_key_ciphertext,key_passphrase_ciphertext,host_key_fingerprint FROM managed_hosts WHERE source_account_id=?1 AND source_asset_key=?2 AND platform='linux' ORDER BY id LIMIT 1",
         params![account_id, asset_key],
-        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+        |row| Ok(SavedSshCredentials { host: row.get(0)?, port: row.get(1)?, username: row.get(2)?, platform: row.get(3)?, auth_method: row.get(4)?, password_ciphertext: row.get(5)?, private_key_ciphertext: row.get(6)?, key_passphrase_ciphertext: row.get(7)?, host_key_fingerprint: row.get(8)? }),
     ).optional().map_err(|e| format!("读取终端管理 SSH 配置失败: {e}"))?;
     if managed.is_some() { return Ok(managed); }
     conn.query_row(
         "SELECT host,port,username,password_ciphertext,host_key_fingerprint FROM ssh_connections WHERE account_id=?1 AND asset_key=?2",
         params![account_id, asset_key],
-        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+        |row| Ok(SavedSshCredentials { host: row.get(0)?, port: row.get(1)?, username: row.get(2)?, platform: "linux".into(), auth_method: "password".into(), password_ciphertext: row.get(3)?, private_key_ciphertext: None, key_passphrase_ciphertext: None, host_key_fingerprint: row.get(4)? }),
     ).optional().map_err(|e| format!("读取 SSH 连接配置失败: {e}"))
 }
 
-fn ssh_credentials(input: &SshConnectInput, saved: &Option<(String, u16, String, Option<String>, Option<String>)>) -> Result<SshCredentials, String> {
+fn ssh_credentials(input: &SshConnectInput, saved: &Option<SavedSshCredentials>) -> Result<SshCredentials, String> {
     if input.auth_method.as_deref() == Some("private_key") {
-        let key = input.private_key.as_deref().map(str::trim).filter(|value| !value.is_empty()).ok_or("请粘贴 SSH 私钥")?;
-        return Ok(SshCredentials::PrivateKey { key: key.to_string(), passphrase: input.key_passphrase.as_deref().filter(|value| !value.is_empty()).map(str::to_string) });
+        let key = input.private_key.as_deref().map(str::trim).filter(|value| !value.is_empty()).map(str::to_string)
+            .or_else(|| saved.as_ref().and_then(|value| value.private_key_ciphertext.as_deref()).filter(|value| !value.is_empty()).map(decrypt_secret).transpose().ok().flatten())
+            .ok_or("请粘贴 SSH 私钥，或使用已保存私钥连接")?;
+        let passphrase = input.key_passphrase.as_deref().filter(|value| !value.is_empty()).map(str::to_string)
+            .or_else(|| saved.as_ref().and_then(|value| value.key_passphrase_ciphertext.as_deref()).filter(|value| !value.is_empty()).map(decrypt_secret).transpose().ok().flatten());
+        return Ok(SshCredentials::PrivateKey { key, passphrase });
     }
     input.password.as_deref().filter(|value| !value.is_empty()).map(str::to_owned)
-        .or_else(|| saved.as_ref().and_then(|(_, _, _, value, _)| value.as_ref()).map(|value| decrypt_secret(value)).transpose().ok().flatten())
+        .or_else(|| saved.as_ref().and_then(|value| value.password_ciphertext.as_deref()).filter(|value| !value.is_empty()).map(decrypt_secret).transpose().ok().flatten())
         .map(SshCredentials::Password)
         .ok_or("请输入 SSH 密码，或使用已保存的密码连接".into())
 }
@@ -3324,9 +3488,23 @@ fn save_managed_host_from_ssh(input: &SshConnectInput, password_ciphertext: &str
 }
 
 #[tauri::command]
+fn launch_managed_host_rdp(id: i64) -> Result<(), String> {
+    let saved = managed_host_saved_connection(id)?.ok_or("服务器不存在")?;
+    if saved.platform != "windows" { return Err("当前服务器不是 Windows / RDP 类型".into()); }
+    launch_rdp_connection(RdpConnectionInput {
+        target_key: format!("managed-host:{id}"),
+        host: saved.host,
+        port: saved.port,
+        username: saved.username,
+        password: saved.password_ciphertext.as_deref().filter(|value| !value.is_empty()).map(decrypt_secret).transpose()?,
+        save_password: false,
+    })
+}
+
+#[tauri::command]
 fn get_ssh_connection(account_id: i64, asset_key: String) -> Result<Option<SavedSshConnection>, String> {
-    Ok(ssh_saved_connection(account_id, &asset_key)?.map(|(host, port, username, password, _)| SavedSshConnection {
-        host, port, username, password_saved: password.is_some(),
+    Ok(ssh_saved_connection(account_id, &asset_key)?.map(|saved| SavedSshConnection {
+        host: saved.host, port: saved.port, username: saved.username, password_saved: saved.password_ciphertext.is_some_and(|value| !value.is_empty()),
     }))
 }
 
@@ -3433,7 +3611,7 @@ async fn ssh_connect(store: tauri::State<'_, SshTerminalStore>, input: SshConnec
     let credentials = ssh_credentials(&input, &saved)?;
     let observed_fingerprint = Arc::new(Mutex::new(None));
     let handler = SshHostKeyHandler {
-        expected_fingerprint: saved.as_ref().and_then(|(_, _, _, _, fingerprint)| fingerprint.clone()),
+        expected_fingerprint: saved.as_ref().and_then(|value| value.host_key_fingerprint.clone()),
         observed_fingerprint: observed_fingerprint.clone(),
     };
     let config = Arc::new(client::Config::default());
@@ -3519,7 +3697,7 @@ async fn ssh_test_connection(input: SshConnectInput) -> Result<(), String> {
     };
     let credentials = ssh_credentials(&input, &saved)?;
     let observed_fingerprint = Arc::new(Mutex::new(None));
-    let handler = SshHostKeyHandler { expected_fingerprint: saved.as_ref().and_then(|(_, _, _, _, fingerprint)| fingerprint.clone()), observed_fingerprint: observed_fingerprint.clone() };
+    let handler = SshHostKeyHandler { expected_fingerprint: saved.as_ref().and_then(|value| value.host_key_fingerprint.clone()), observed_fingerprint: observed_fingerprint.clone() };
     let config = Arc::new(client::Config::default());
     let mut session = client::connect(config, (host.as_str(), port), handler).await.map_err(|error| format!("连接 SSH 主机失败: {error}"))?;
     authenticate_ssh(&mut session, &username, &credentials, "测试").await?;
@@ -3910,7 +4088,7 @@ pub fn run() {
         .manage(SshTerminalStore { terminals: Mutex::new(HashMap::new()) })
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![list_accounts, save_account, delete_account, app_data_path, open_app_data_directory, list_client_preferences, save_client_preference, reveal_account_secret, cloud_account_summary, list_cloud_resources, sync_cloud_assets, verify_vultr_account, verify_ctyun_account, verify_huawei_account, verify_baidu_account, verify_ucloud_account, verify_qiniu_account, verify_aws_account, verify_azure_account, verify_gcp_account, verify_jdcloud_account, verify_qingcloud_account, verify_ksyun_account, esa_overview, list_local_assets, list_managed_hosts, save_managed_host, delete_managed_host, probe_managed_host, list_panel_connections, save_panel_connection, refresh_panel_connection, panel_temporary_login, delete_panel_connection, export_panel_connections_file, import_panel_connections, list_api_logs, clear_api_logs, clear_operation_logs, list_instance_disks, instance_status, reboot_instance, start_instance, stop_instance, oracle_instance_action, cvm_instance_reboot, cvm_instance_action, baidu_instance_action, rename_server, swas_instance_action, list_dns_records, add_dns_record, update_dns_record, delete_dns_record, toggle_dns_record, list_domain_logs, query_whois, list_rds_databases, list_rds_accounts, list_redis_accounts, list_oss_objects, get_oss_acl, set_oss_public_read, set_oss_cors, get_ssh_connection, reveal_ssh_password, delete_ssh_connection, get_rdp_connection, reveal_rdp_password, delete_rdp_connection, launch_rdp_connection, ssh_connect, ssh_test_connection, ssh_list_files, ssh_read_text_file, ssh_write_text_file, ssh_upload_file, ssh_download_file, ssh_make_directory, ssh_delete_path, ssh_read, ssh_write, ssh_resize, ssh_disconnect, export_accounts, export_accounts_file, import_accounts])
+        .invoke_handler(tauri::generate_handler![list_accounts, save_account, delete_account, app_data_path, open_app_data_directory, list_client_preferences, save_client_preference, reveal_account_secret, cloud_account_summary, list_cloud_resources, sync_cloud_assets, verify_vultr_account, verify_ctyun_account, verify_huawei_account, verify_baidu_account, verify_ucloud_account, verify_qiniu_account, verify_aws_account, verify_azure_account, verify_gcp_account, verify_jdcloud_account, verify_qingcloud_account, verify_ksyun_account, esa_overview, list_local_assets, list_managed_hosts, save_managed_host, delete_managed_host, probe_managed_host, export_managed_hosts_file, import_managed_hosts, list_panel_connections, save_panel_connection, refresh_panel_connection, panel_temporary_login, delete_panel_connection, update_panel_connection_remark, export_panel_connections_file, import_panel_connections, list_api_logs, clear_api_logs, clear_operation_logs, list_instance_disks, instance_status, reboot_instance, start_instance, stop_instance, oracle_instance_action, cvm_instance_reboot, cvm_instance_action, baidu_instance_action, rename_server, swas_instance_action, list_dns_records, add_dns_record, update_dns_record, delete_dns_record, toggle_dns_record, list_domain_logs, query_whois, list_rds_databases, list_rds_accounts, list_redis_accounts, list_oss_objects, get_oss_acl, set_oss_public_read, set_oss_cors, get_ssh_connection, reveal_ssh_password, delete_ssh_connection, get_rdp_connection, reveal_rdp_password, delete_rdp_connection, launch_rdp_connection, launch_managed_host_rdp, ssh_connect, ssh_test_connection, ssh_list_files, ssh_read_text_file, ssh_write_text_file, ssh_upload_file, ssh_download_file, ssh_make_directory, ssh_delete_path, ssh_read, ssh_write, ssh_resize, ssh_disconnect, export_accounts, export_accounts_file, import_accounts])
         .run(tauri::generate_context!())
         .expect("error while running Tauri application");
 }

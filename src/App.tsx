@@ -27,6 +27,7 @@ import {
   FolderOpen,
   FolderPlus,
   Globe2,
+  GripVertical,
   Home,
   Eye,
   EyeOff,
@@ -36,6 +37,7 @@ import {
   Terminal,
   FileText,
   Plus,
+  Power,
   RefreshCw,
   Save,
   Search,
@@ -107,11 +109,14 @@ type ManagedHost = {
   host: string;
   port: number;
   username: string;
+  platform: "linux" | "windows" | string;
+  auth_method: "password" | "private_key" | string;
   group_name?: string | null;
   tags?: string | null;
   source_account_id?: number | null;
   source_asset_key?: string | null;
   password_saved: boolean;
+  private_key_saved: boolean;
   host_key_fingerprint?: string | null;
   status: "online" | "offline" | "unknown" | string;
   last_latency_ms?: number | null;
@@ -129,6 +134,10 @@ type ManagedHostDraft = {
   port: number;
   username: string;
   password: string;
+  platform: "linux" | "windows";
+  auth_method: "password" | "private_key";
+  private_key: string;
+  key_passphrase: string;
   group_name: string;
   tags: string;
   source_account_id?: number | null;
@@ -186,7 +195,11 @@ type LocalAsset = {
 };
 
 const cloudHubFavoriteAssetsStorageKey = "cloudhub-tools-favorite-assets";
+const cloudHubFavoriteAssetOrderStorageKey = "cloudhub-tools-favorite-asset-order";
 const legacyFavoriteAssetsStorageKey = "aliyun-tools-favorite-assets";
+const cloudHubAssetNotesStorageKey = "cloudhub-tools-asset-notes";
+const cloudHubAssetOrderStorageKey = "cloudhub-tools-asset-order";
+const cloudHubAssetDisplayNamesStorageKey = "cloudhub-tools-asset-display-names";
 
 function assetFavoriteKey(asset: LocalAsset) {
   return `${asset.account_id}:${asset.resource_type}:${asset.asset_key}`;
@@ -205,6 +218,30 @@ function savedFavoriteAssetKeys() {
 }
 
 function favoriteAssetKeysFromValue(value: string | undefined) {
+  try {
+    const parsed = JSON.parse(value || "[]");
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function assetNotesFromValue(value: string | undefined) {
+  try {
+    const parsed = JSON.parse(value || "{}");
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? Object.fromEntries(Object.entries(parsed).filter(([, note]) => typeof note === "string")) as Record<string, string>
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function assetDisplayNamesFromValue(value: string | undefined) {
+  return assetNotesFromValue(value);
+}
+
+function assetOrderFromValue(value: string | undefined) {
   try {
     const parsed = JSON.parse(value || "[]");
     return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
@@ -295,6 +332,10 @@ const emptyManagedHost: ManagedHostDraft = {
   port: 22,
   username: "root",
   password: "",
+  platform: "linux",
+  auth_method: "password",
+  private_key: "",
+  key_passphrase: "",
   group_name: "",
   tags: "",
   remark: "",
@@ -401,7 +442,7 @@ const assetTypes = [
 
 const runningInTauri =
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-const bundledVersion = "0.1.13";
+const bundledVersion = "0.1.14";
 
 type UpdateState =
   | { phase: "idle" }
@@ -718,6 +759,8 @@ function columnLabel(key: string) {
 function ServerCard({
   account,
   item,
+  displayName,
+  onDisplayNameChange,
   onStatus,
   onNotice,
   onSshLogin,
@@ -725,6 +768,8 @@ function ServerCard({
 }: {
   account: Account;
   item: Record<string, unknown>;
+  displayName?: string;
+  onDisplayNameChange?: (value: string) => void;
   onStatus: () => void;
   onNotice: (message: string) => void;
   onSshLogin: () => void;
@@ -734,6 +779,8 @@ function ServerCard({
   const [diskLoading, setDiskLoading] = useState(true);
   const [forceReboot, setForceReboot] = useState(false);
   const [rebooting, setRebooting] = useState(false);
+  const [editingDisplayName, setEditingDisplayName] = useState(false);
+  const [displayNameDraft, setDisplayNameDraft] = useState(displayName || "");
   const regionId = String(item._region_id || item.RegionId || "");
   const rawStatus = String(item.Status || item.InstanceStatus || "");
   const status = rawStatus.toUpperCase() === "RUNNING" ? "Running" : rawStatus.toUpperCase() === "STOPPED" ? "Stopped" : rawStatus;
@@ -741,6 +788,12 @@ function ServerCard({
   const networkAccessDenied = /Authorization failed|NotAuthorized|not authorized/i.test(networkError);
   const supportsPowerControls = account.cloud_type === "aliyun" || account.cloud_type === "baidu" || account.cloud_type === "oracle";
   const canReadDisks = account.cloud_type === "aliyun" || account.cloud_type === "tencent" || account.cloud_type === "oracle";
+  const defaultDisplayName = String(item.InstanceName || item.InstanceId || "未命名实例");
+  const resolvedDisplayName = displayName || defaultDisplayName;
+  function saveDisplayName() {
+    setEditingDisplayName(false);
+    onDisplayNameChange?.(displayNameDraft.trim());
+  }
   useEffect(() => {
     let alive = true;
     const instanceId = String(item.InstanceId || "");
@@ -831,8 +884,9 @@ function ServerCard({
   }
   return (
     <article className="server-card">
+      <div className="server-account-label"><span className={`avatar cloud-avatar ${account.cloud_type}`}>{cloudProvider(account.cloud_type).avatar}</span><span>{account.account_name}</span></div>
       <div className="server-header">
-        <strong>{displayValue(item.InstanceName || item.InstanceId)}</strong>
+        {editingDisplayName ? <input className="server-display-name-editor" value={displayNameDraft} autoFocus onChange={(event) => setDisplayNameDraft(event.target.value)} onBlur={saveDisplayName} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") { setDisplayNameDraft(displayName || ""); setEditingDisplayName(false); } }} placeholder={defaultDisplayName} aria-label="实例显示名称" /> : <button type="button" className="server-display-name" title="点击修改本地显示名称" onClick={() => { setDisplayNameDraft(displayName || ""); setEditingDisplayName(true); }}>{resolvedDisplayName}</button>}
         <span
           className={`server-status ${status === "Running" ? "status-running" : status === "Stopped" ? "status-stopped" : "status-other"}`}
         >
@@ -938,6 +992,48 @@ function ServerCard({
       </div>
     </article>
   );
+}
+
+function FavoriteServerDetails({ asset, account, onCopyIp }: { asset: LocalAsset; account: Account; onCopyIp: (address: string) => void }) {
+  const [disks, setDisks] = useState<Record<string, unknown>[]>([]);
+  const [diskLoading, setDiskLoading] = useState(false);
+  const payload = asset.payload || {};
+  const instanceId = String(payload.InstanceId || asset.asset_key);
+  const regionId = String(asset.region_id || payload._region_id || payload.RegionId || account.region_id || "");
+  const canReadDisks = ["aliyun", "tencent", "oracle"].includes(account.cloud_type) && Boolean(instanceId && regionId);
+  const ip = firstAddress(payload.PublicIpAddress || payload.PublicAddresses || payload.InternetIp || payload.PublicIp || payload.PrivateIpAddress);
+  const cpu = Number(payload.Cpu ?? payload.CPU ?? payload.cpuCount ?? 0);
+  const memoryInGb = Number(payload.MemoryInGB ?? payload.memoryInGB ?? payload.memoryCapacityInGB ?? 0);
+  const memoryInMb = Number(payload.Memory ?? payload.memory ?? 0);
+  const memory = memoryInGb > 0 ? `${memoryInGb} GB` : memoryInMb > 0 ? `${memoryInMb >= 1024 ? Number((memoryInMb / 1024).toFixed(1)) : memoryInMb} ${memoryInMb >= 1024 ? "GB" : "MB"}` : "";
+  const bandwidth = Number(payload.InternetMaxBandwidthOut ?? payload.Bandwidth ?? payload.InternetMaxBandwidthIn ?? 0);
+  const specification = [cpu > 0 ? `${cpu} 核` : "", memory].filter(Boolean).join(" / ") || displayValue(payload.InstanceType || payload.PlanId);
+  useEffect(() => {
+    let alive = true;
+    if (!canReadDisks) return;
+    setDiskLoading(true);
+    const loader = runningInTauri
+      ? () => invoke<Record<string, unknown>[]>("list_instance_disks", { id: account.id, regionId, instanceId, compartmentOcid: String(payload._compartment_ocid || "") })
+      : () => webApi<Record<string, unknown>[]>(`/api/instance-disks?id=${account.id}&region=${encodeURIComponent(regionId)}&instance=${encodeURIComponent(instanceId)}&compartment=${encodeURIComponent(String(payload._compartment_ocid || ""))}`);
+    loader().then((value) => { if (alive) setDisks(value || []); }).catch(() => { if (alive) setDisks([]); }).finally(() => { if (alive) setDiskLoading(false); });
+    return () => { alive = false; };
+  }, [account.id, canReadDisks, instanceId, regionId, payload._compartment_ocid]);
+  const fallbackDisks: Record<string, unknown>[] = [
+    payload.SystemDisk || payload.SystemDiskSize ? { Type: "system", DiskName: "系统盘", Size: payload.SystemDiskSize || payload.SystemDisk } : null,
+    ...(Array.isArray(payload.DataDisks) ? payload.DataDisks : []),
+  ].filter((disk): disk is Record<string, unknown> => Boolean(disk));
+  const allDisks = disks.length ? disks : fallbackDisks;
+  return <div className="favorite-card-details favorite-server-details">
+    <div><span>IP 地址：</span><div className="favorite-detail-value"><strong title={ip || "-"}>{ip || "-"}</strong>{ip && <button type="button" className="favorite-ip-copy" title="复制 IP 地址" aria-label="复制 IP 地址" onClick={() => onCopyIp(ip)}><Copy size={14} /></button>}</div></div>
+    <div><span>规格：</span><strong title={bandwidth > 0 ? `${specification} · ${bandwidth}M 带宽` : specification}>{specification}{bandwidth > 0 ? ` · ${bandwidth}M 带宽` : ""}</strong></div>
+    <div className="favorite-disk-row"><span>磁盘：</span><div className="favorite-disk-list">{diskLoading ? <em>磁盘信息加载中…</em> : allDisks.length ? allDisks.map((disk, index) => {
+      const kind = String(disk.Type || disk.DiskUsage || disk.Usage || disk.Category || "").toLowerCase();
+      const label = /system|boot|startup|启动|系统/.test(kind) ? "系统盘" : "数据盘";
+      const name = displayValue(disk.DiskName || disk.DiskId || label);
+      const size = Number(disk.Size || disk.DiskSize || 0);
+      return <span className={`favorite-disk-chip ${label === "系统盘" ? "system" : "data"}`} key={`${name}-${index}`} title={`${label} · ${name}${size > 0 ? ` · ${size} GB` : ""}`}><b>{label}</b><i>{name}{size > 0 ? ` ${size} GB` : ""}</i></span>;
+    }) : <em>暂无磁盘信息</em>}</div></div>
+  </div>;
 }
 
 function SwasCard({
@@ -1869,6 +1965,7 @@ function App() {
   const [panelOpeningId, setPanelOpeningId] = useState<number | null>(null);
   const [panelKeyword, setPanelKeyword] = useState("");
   const [panelGroup, setPanelGroup] = useState("");
+  const [editingPanelRemark, setEditingPanelRemark] = useState<{ id: number; value: string; initial: string } | null>(null);
   const [selectedPanelIds, setSelectedPanelIds] = useState<Set<number>>(() => new Set());
   const [expandedPanelDisks, setExpandedPanelDisks] = useState<Set<number>>(() => new Set());
   const [panelImporting, setPanelImporting] = useState(false);
@@ -1881,6 +1978,8 @@ function App() {
   const panelRefreshInFlightRef = useRef(false);
   const panelImportInputRef = useRef<HTMLInputElement>(null);
   const [managedHosts, setManagedHosts] = useState<ManagedHost[]>([]);
+  const [managedHostImporting, setManagedHostImporting] = useState(false);
+  const managedHostImportInputRef = useRef<HTMLInputElement>(null);
   const [managedHostDialog, setManagedHostDialog] = useState(false);
   const [managedHostDraft, setManagedHostDraft] = useState<ManagedHostDraft>(emptyManagedHost);
   const [managedHostSaving, setManagedHostSaving] = useState(false);
@@ -1892,6 +1991,7 @@ function App() {
   const [clientPreferencesReady, setClientPreferencesReady] = useState(!runningInTauri);
   const [apiLogs, setApiLogs] = useState<ApiLog[]>([]);
   const [apiLogDetail, setApiLogDetail] = useState<ApiLog | null>(null);
+  const [assetDetail, setAssetDetail] = useState<{ asset: LocalAsset; account: Account } | null>(null);
   const [operationLogClearedAt, setOperationLogClearedAt] = useState(() => Number(localStorage.getItem("aliyun-operation-log-cleared-at") || "0"));
   const [autoRefresh, setAutoRefresh] = useState(() => localStorage.getItem("aliyun-auto-refresh") !== "0");
   const [compactMode, setCompactMode] = useState(() => localStorage.getItem("aliyun-compact-mode") === "1");
@@ -1917,6 +2017,17 @@ function App() {
   const [favoritePage, setFavoritePage] = useState(1);
   const [editingAssetName, setEditingAssetName] = useState<{ key: string; value: string; initial: string } | null>(null);
   const [savingAssetName, setSavingAssetName] = useState<string | null>(null);
+  const [assetNotes, setAssetNotes] = useState<Record<string, string>>(() => assetNotesFromValue(localStorage.getItem(cloudHubAssetNotesStorageKey) || undefined));
+  const [assetOrder, setAssetOrder] = useState<string[]>(() => assetOrderFromValue(localStorage.getItem(cloudHubAssetOrderStorageKey) || undefined));
+  const [favoriteAssetOrder, setFavoriteAssetOrder] = useState<string[]>(() => assetOrderFromValue(localStorage.getItem(cloudHubFavoriteAssetOrderStorageKey) || undefined));
+  const [assetDisplayNames, setAssetDisplayNames] = useState<Record<string, string>>(() => assetDisplayNamesFromValue(localStorage.getItem(cloudHubAssetDisplayNamesStorageKey) || undefined));
+  const [editingAssetNote, setEditingAssetNote] = useState<{ key: string; value: string; initial: string } | null>(null);
+  const [favoriteRefreshingKey, setFavoriteRefreshingKey] = useState<string | null>(null);
+  const [draggedAssetKey, setDraggedAssetKey] = useState<string | null>(null);
+  const [draggedFavoriteKey, setDraggedFavoriteKey] = useState<string | null>(null);
+  const assetDragKeyRef = useRef<string | null>(null);
+  const favoriteDragKeyRef = useRef<string | null>(null);
+  const [assetMoreKey, setAssetMoreKey] = useState<string | null>(null);
   const [logPage, setLogPage] = useState(1);
   const [apiLogPage, setApiLogPage] = useState(1);
   const [sshTarget, setSshTarget] = useState<SshTarget | null>(null);
@@ -2216,6 +2327,39 @@ function App() {
       setStatus("复制面板地址失败，请手动复制");
     }
   }
+  async function savePanelRemark(panel: PanelConnection) {
+    const draft = editingPanelRemark;
+    if (!draft || draft.id !== panel.id) return;
+    const remark = draft.value.trim();
+    setEditingPanelRemark(null);
+    if (remark === draft.initial) return;
+    try {
+      const updated = await invoke<PanelConnection>("update_panel_connection_remark", { id: panel.id, remark: remark || null });
+      setPanelConnections((current) => current.map((item) => item.id === updated.id ? updated : item));
+      setStatus("面板备注已保存");
+    } catch (error) { setStatus(`保存面板备注失败：${String(error)}`); }
+  }
+  async function copyAssetIp(address: string) {
+    try {
+      await navigator.clipboard.writeText(address);
+      setStatus("IP 地址已复制");
+    } catch {
+      setStatus("复制 IP 地址失败，请手动复制");
+    }
+  }
+  async function refreshFavoriteAsset(asset: LocalAsset, account: Account) {
+    const key = assetFavoriteKey(asset);
+    if (favoriteRefreshingKey) return;
+    setFavoriteRefreshingKey(key);
+    try {
+      const result = runningInTauri
+        ? await invoke<{ counts: Record<string, number>; errors: string[] }>("sync_cloud_assets", { id: account.id, resourceTypes: [asset.resource_type] })
+        : await webApi<{ counts: Record<string, number>; errors: string[] }>("/api/sync-assets", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ account_id: account.id, resource_types: [asset.resource_type] }) });
+      await loadLocalAssets();
+      setStatus(`${account.account_name} · ${assetTypes.find(([type]) => type === asset.resource_type)?.[1] || "资源"}已刷新${result.errors.length ? `，${result.errors.length} 项失败` : ""}`);
+    } catch (error) { setStatus(`刷新服务器失败：${String(error)}`); }
+    finally { setFavoriteRefreshingKey(null); }
+  }
   async function deletePanelConnection(panel: PanelConnection) {
     if (!(await requestConfirm(`确认移除面板“${panel.name}”吗？本机保存的 API 密钥也会删除。`))) return;
     try { await invoke("delete_panel_connection", { id: panel.id }); setPanelConnections((current) => current.filter((item) => item.id !== panel.id)); setSelectedPanelIds((current) => { const next = new Set(current); next.delete(panel.id); return next; }); setStatus("面板已移除"); }
@@ -2237,13 +2381,14 @@ function App() {
       return next;
     });
   }
-  async function exportSelectedPanels() {
-    const panelIds = [...selectedPanelIds];
-    if (!panelIds.length) { setStatus("请先勾选需要导出的面板"); return; }
-    if (!(await requestConfirm(`导出文件会包含 ${panelIds.length} 个面板的 API 密钥，请妥善保管。确定继续吗？`))) return;
+  async function exportPanels() {
+    if (!panelConnections.length) { setStatus("没有可导出的面板"); return; }
+    const panelIds = selectedPanelIds.size ? [...selectedPanelIds] : undefined;
+    const count = panelIds?.length || panelConnections.length;
+    if (!(await requestConfirm(`导出文件会包含 ${count} 个面板的 API 密钥明文，请妥善保管。确定继续吗？`))) return;
     try {
       const path = await invoke<string>("export_panel_connections_file", { panelIds });
-      setStatus(`已导出 ${panelIds.length} 个面板，文件已保存到：${path}`);
+      setStatus(`已导出 ${count} 个面板，明文文件已保存到：${path}`);
     } catch (error) { setStatus(`导出面板失败：${String(error)}`); }
   }
   async function importPanels(file: File) {
@@ -2262,6 +2407,7 @@ function App() {
   function openManagedHostDialog(host?: ManagedHost) {
     setManagedHostDraft(host ? {
       id: host.id, name: host.name, host: host.host, port: host.port, username: host.username, password: "",
+      platform: host.platform === "windows" ? "windows" : "linux", auth_method: host.auth_method === "private_key" ? "private_key" : "password", private_key: "", key_passphrase: "",
       group_name: host.group_name || "", tags: host.tags || "", source_account_id: host.source_account_id,
       source_asset_key: host.source_asset_key, remark: host.remark || "",
     } : emptyManagedHost);
@@ -2290,9 +2436,29 @@ function App() {
     finally { setManagedHostLoadingId(null); }
   }
   async function deleteManagedHost(host: ManagedHost) {
-    if (!(await requestConfirm(`确认从服务器管理中移除“${host.name}”吗？本机保存的 SSH 密码也会删除。`))) return;
+    if (!(await requestConfirm(`确认从服务器管理中移除“${host.name}”吗？本机保存的连接凭据也会删除。`))) return;
     try { await invoke("delete_managed_host", { id: host.id }); setManagedHosts((current) => current.filter((item) => item.id !== host.id)); setStatus("服务器已移除"); }
     catch (error) { setStatus(`移除服务器失败：${String(error)}`); }
+  }
+  async function exportManagedHosts() {
+    if (!managedHosts.length) { setStatus("没有可导出的服务器"); return; }
+    if (!(await requestConfirm(`导出文件会包含 ${managedHosts.length} 台服务器的连接凭据明文（SSH 密码/私钥或 RDP 密码），请妥善保管。确定继续吗？`))) return;
+    try {
+      const path = await invoke<string>("export_managed_hosts_file");
+      setStatus(`已导出 ${managedHosts.length} 台服务器的连接凭据明文文件：${path}`);
+    } catch (error) { setStatus(`导出服务器失败：${String(error)}`); }
+  }
+  async function importManagedHosts(file: File) {
+    setManagedHostImporting(true);
+    try {
+      const parsed = JSON.parse(await file.text());
+      const hosts = Array.isArray(parsed) ? parsed : parsed.hosts;
+      if (!Array.isArray(hosts) || !hosts.length) throw new Error("文件中没有服务器配置");
+      const count = await invoke<number>("import_managed_hosts", { hosts });
+      await loadManagedHosts();
+      setStatus(`已导入 ${count} 台服务器`);
+    } catch (error) { setStatus(`导入服务器失败：${String(error)}`); }
+    finally { setManagedHostImporting(false); }
   }
   function activateTerminalTab(tab: TerminalWorkspaceTab) {
     setActiveTerminalTabId(tab.id);
@@ -2331,8 +2497,12 @@ function App() {
     }
   }
   function openManagedHostSsh(host: ManagedHost) {
-    if (!runningInTauri) { setStatus("SSH 登录仅支持桌面客户端"); return; }
+    if (!runningInTauri) { setStatus("远程连接仅支持桌面客户端"); return; }
     setTerminalSelectedHostId(host.id);
+    if (host.platform === "windows") {
+      void invoke("launch_managed_host_rdp", { id: host.id }).then(() => setStatus(`已打开 ${host.name} 的 Windows 远程桌面连接`)).catch((error) => setStatus(`打开 RDP 失败：${String(error)}`));
+      return;
+    }
     const existingTab = terminalTabsRef.current.find((tab) => tab.target.managedHostId === host.id);
     if (existingTab) {
       activateTerminalTab(existingTab);
@@ -2343,8 +2513,8 @@ function App() {
     const placeholderAsset: LocalAsset = { account_id: 0, resource_type: "managed", asset_key: `managed-host-${host.id}`, payload: { InstanceName: host.name }, fetched_at: host.updated_at };
     setSshTarget({ account: placeholderAccount, asset: placeholderAsset, managedHostId: host.id });
     setSshHost(host.host); setSshPort(host.port || 22); setSshUsername(host.username || "root"); setSshPassword(""); setShowSshPassword(false);
-    setSshPlatform("linux"); setSshAuthMethod("password"); setSshPrivateKey(""); setSshKeyPassphrase("");
-    setSshSavePassword(false); setSshPasswordSaved(host.password_saved); setSshModalMaximized(false); setSshSessionId("");
+    setSshPlatform("linux"); setSshAuthMethod(host.auth_method === "private_key" ? "private_key" : "password"); setSshPrivateKey(""); setSshKeyPassphrase("");
+    setSshSavePassword(false); setSshPasswordSaved(host.password_saved || host.private_key_saved); setSshModalMaximized(false); setSshSessionId("");
     sshPendingOutputRef.current = ""; setSshError(""); setSshFiles([]); setSshFilePath("/"); setSshFileError(""); setSshFileEditor(null); setSshFilePaneCollapsed(true);
   }
   async function rebootLocalAsset(asset: LocalAsset, forceStop: boolean) {
@@ -2442,6 +2612,106 @@ function App() {
     } finally {
       setSavingAssetName(null);
     }
+  }
+  function saveAssetNote(key: string) {
+    const draft = editingAssetNote;
+    if (!draft || draft.key !== key) return;
+    const note = draft.value.trim();
+    setEditingAssetNote(null);
+    if (note === draft.initial) return;
+    setAssetNotes((current) => {
+      const next = { ...current };
+      if (note) next[key] = note;
+      else delete next[key];
+      return next;
+    });
+  }
+  function moveAssetBefore(sourceKey: string, targetKey: string) {
+    if (!sourceKey || sourceKey === targetKey) return;
+    const visibleKeys = visibleLocalAssets.map(assetFavoriteKey);
+    const sourceIndex = visibleKeys.indexOf(sourceKey);
+    const targetIndex = visibleKeys.indexOf(targetKey);
+    if (sourceIndex < 0 || targetIndex < 0) return;
+    const nextVisible = [...visibleKeys];
+    nextVisible.splice(sourceIndex, 1);
+    nextVisible.splice(targetIndex, 0, sourceKey);
+    const visibleKeySet = new Set(nextVisible);
+    const remaining = localAssets.map(assetFavoriteKey).filter((key) => !visibleKeySet.has(key));
+    setAssetOrder([...nextVisible, ...remaining]);
+  }
+  function startAssetDrag(event: PointerEvent<HTMLButtonElement>, sourceKey: string) {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    assetDragKeyRef.current = sourceKey;
+    setDraggedAssetKey(sourceKey);
+    const endDrag = (endEvent: globalThis.PointerEvent) => {
+      const target = document.elementFromPoint(endEvent.clientX, endEvent.clientY)?.closest<HTMLElement>("[data-asset-row-key]");
+      const targetKey = target?.dataset.assetRowKey;
+      if (assetDragKeyRef.current && targetKey) moveAssetBefore(assetDragKeyRef.current, targetKey);
+      assetDragKeyRef.current = null;
+      setDraggedAssetKey(null);
+      document.removeEventListener("pointercancel", cancelDrag);
+    };
+    const cancelDrag = () => {
+      assetDragKeyRef.current = null;
+      setDraggedAssetKey(null);
+      document.removeEventListener("pointerup", endDrag);
+    };
+    document.addEventListener("pointerup", endDrag, { once: true });
+    document.addEventListener("pointercancel", cancelDrag, { once: true });
+  }
+  function moveFavoriteBefore(sourceKey: string, targetKey: string) {
+    if (!sourceKey || sourceKey === targetKey) return;
+    const visibleKeys = visibleFavoriteAssets.map(assetFavoriteKey);
+    const sourceIndex = visibleKeys.indexOf(sourceKey);
+    const targetIndex = visibleKeys.indexOf(targetKey);
+    if (sourceIndex < 0 || targetIndex < 0) return;
+    const nextVisible = [...visibleKeys];
+    nextVisible.splice(sourceIndex, 1);
+    nextVisible.splice(targetIndex, 0, sourceKey);
+    const visibleKeySet = new Set(nextVisible);
+    const remaining = favoriteAssets.map(assetFavoriteKey).filter((key) => !visibleKeySet.has(key));
+    setFavoriteAssetOrder([...nextVisible, ...remaining]);
+  }
+  function startFavoriteCardDrag(event: PointerEvent<HTMLButtonElement>, sourceKey: string) {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    favoriteDragKeyRef.current = sourceKey;
+    setDraggedFavoriteKey(sourceKey);
+    const endDrag = (endEvent: globalThis.PointerEvent) => {
+      const target = document.elementFromPoint(endEvent.clientX, endEvent.clientY)?.closest<HTMLElement>("[data-favorite-asset-key]");
+      const targetKey = target?.dataset.favoriteAssetKey;
+      if (favoriteDragKeyRef.current && targetKey) moveFavoriteBefore(favoriteDragKeyRef.current, targetKey);
+      favoriteDragKeyRef.current = null;
+      setDraggedFavoriteKey(null);
+      document.removeEventListener("pointercancel", cancelDrag);
+    };
+    const cancelDrag = () => {
+      favoriteDragKeyRef.current = null;
+      setDraggedFavoriteKey(null);
+      document.removeEventListener("pointerup", endDrag);
+    };
+    document.addEventListener("pointerup", endDrag, { once: true });
+    document.addEventListener("pointercancel", cancelDrag, { once: true });
+  }
+  function openTerminalConfiguration(asset: LocalAsset, account: Account, host?: ManagedHost) {
+    const payload = asset.payload || {};
+    if (host) {
+      openManagedHostDialog(host);
+      return;
+    }
+    setManagedHostDraft({
+      ...emptyManagedHost,
+      name: String(payload.InstanceName || asset.asset_key),
+      host: firstAddress(payload.PublicIpAddress || payload.PublicAddresses || payload.PublicIp || payload.InternetIp || payload.EipAddress),
+      group_name: account.group_name || "",
+      source_account_id: account.id,
+      source_asset_key: asset.asset_key,
+      remark: `来源：${account.account_name} / ${asset.resource_type}`,
+    });
+    setManagedHostDialog(true);
   }
   async function openSshClient(asset: LocalAsset, account: Account) {
     if (!runningInTauri) { setStatus("SSH 登录仅支持桌面客户端，请从客户端打开资源管理"); return; }
@@ -2553,7 +2823,7 @@ function App() {
     if (sshPlatform === "windows") { await launchRdpClient(); return; }
     if (!sshHost.trim() || !sshUsername.trim()) { setSshError("请填写 SSH 主机和用户名"); return; }
     if (sshAuthMethod === "password" && !sshPassword && !sshPasswordSaved) { setSshError("请输入 SSH 密码，或使用已保存的密码连接"); return; }
-    if (sshAuthMethod === "private_key" && !sshPrivateKey.trim()) { setSshError("请粘贴 SSH 私钥"); return; }
+    if (sshAuthMethod === "private_key" && !sshPrivateKey.trim() && !sshPasswordSaved) { setSshError("请粘贴 SSH 私钥，或使用已保存私钥连接"); return; }
     setSshConnecting(true);
     setSshError("");
     try {
@@ -2590,7 +2860,7 @@ function App() {
         setStatus("SSH 已连接，并已自动加入终端管理");
       }
       setSshPassword("");
-      setSshPasswordSaved(sshAuthMethod === "password" && (sshTarget.managedHostId ? true : sshSavePassword));
+      setSshPasswordSaved(sshTarget.managedHostId ? (sshAuthMethod === "private_key" || sshSavePassword || sshPasswordSaved) : sshAuthMethod === "password" && sshSavePassword);
     } catch (error) { setSshError(String(error)); }
     finally { setSshConnecting(false); }
   }
@@ -2598,7 +2868,7 @@ function App() {
     if (!sshTarget) return;
     if (!sshHost.trim() || !sshUsername.trim()) { setSshError("请填写 SSH 主机和用户名"); return; }
     if (sshAuthMethod === "password" && !sshPassword && !sshPasswordSaved) { setSshError("请输入 SSH 密码，或使用已保存的密码测试"); return; }
-    if (sshAuthMethod === "private_key" && !sshPrivateKey.trim()) { setSshError("请粘贴 SSH 私钥"); return; }
+    if (sshAuthMethod === "private_key" && !sshPrivateKey.trim() && !sshPasswordSaved) { setSshError("请粘贴 SSH 私钥，或使用已保存私钥测试"); return; }
     setSshTesting(true); setSshError("");
     try {
       await invoke("ssh_test_connection", { input: {
@@ -3263,6 +3533,10 @@ function App() {
     void invoke<Record<string, string>>("list_client_preferences").then((preferences) => {
       if (cancelled) return;
       if (preferences[cloudHubFavoriteAssetsStorageKey] !== undefined) setFavoriteAssetKeys(favoriteAssetKeysFromValue(preferences[cloudHubFavoriteAssetsStorageKey]));
+      if (preferences[cloudHubFavoriteAssetOrderStorageKey] !== undefined) setFavoriteAssetOrder(assetOrderFromValue(preferences[cloudHubFavoriteAssetOrderStorageKey]));
+      if (preferences[cloudHubAssetNotesStorageKey] !== undefined) setAssetNotes(assetNotesFromValue(preferences[cloudHubAssetNotesStorageKey]));
+      if (preferences[cloudHubAssetOrderStorageKey] !== undefined) setAssetOrder(assetOrderFromValue(preferences[cloudHubAssetOrderStorageKey]));
+      if (preferences[cloudHubAssetDisplayNamesStorageKey] !== undefined) setAssetDisplayNames(assetDisplayNamesFromValue(preferences[cloudHubAssetDisplayNamesStorageKey]));
       if (preferences["aliyun-auto-refresh"] !== undefined) setAutoRefresh(preferences["aliyun-auto-refresh"] !== "0");
       if (preferences["aliyun-compact-mode"] !== undefined) setCompactMode(preferences["aliyun-compact-mode"] === "1");
       if (preferences["aliyun-panel-hide-ip"] !== undefined) setHidePanelIps(preferences["aliyun-panel-hide-ip"] === "1");
@@ -3291,6 +3565,10 @@ function App() {
   }, [section, panelRefreshSeconds, panelConnections]);
   useEffect(() => { const value = String(pageSize); localStorage.setItem("aliyun-page-size", value); saveClientPreference("aliyun-page-size", value); setAccountPage(1); setAssetPage(1); setFavoritePage(1); setLogPage(1); setApiLogPage(1); }, [pageSize, clientPreferencesReady]);
   useEffect(() => { const value = JSON.stringify(favoriteAssetKeys); localStorage.setItem(cloudHubFavoriteAssetsStorageKey, value); saveClientPreference(cloudHubFavoriteAssetsStorageKey, value); }, [favoriteAssetKeys, clientPreferencesReady]);
+  useEffect(() => { const value = JSON.stringify(favoriteAssetOrder); localStorage.setItem(cloudHubFavoriteAssetOrderStorageKey, value); saveClientPreference(cloudHubFavoriteAssetOrderStorageKey, value); }, [favoriteAssetOrder, clientPreferencesReady]);
+  useEffect(() => { const value = JSON.stringify(assetNotes); localStorage.setItem(cloudHubAssetNotesStorageKey, value); saveClientPreference(cloudHubAssetNotesStorageKey, value); }, [assetNotes, clientPreferencesReady]);
+  useEffect(() => { const value = JSON.stringify(assetOrder); localStorage.setItem(cloudHubAssetOrderStorageKey, value); saveClientPreference(cloudHubAssetOrderStorageKey, value); }, [assetOrder, clientPreferencesReady]);
+  useEffect(() => { const value = JSON.stringify(assetDisplayNames); localStorage.setItem(cloudHubAssetDisplayNamesStorageKey, value); saveClientPreference(cloudHubAssetDisplayNamesStorageKey, value); }, [assetDisplayNames, clientPreferencesReady]);
   useEffect(() => { const value = String(operationLogClearedAt); localStorage.setItem("aliyun-operation-log-cleared-at", value); saveClientPreference("aliyun-operation-log-cleared-at", value); }, [operationLogClearedAt, clientPreferencesReady]);
   useEffect(() => {
     setSelectedAccountIds((current) => {
@@ -3690,6 +3968,16 @@ function App() {
                 key={String(item.InstanceId || index)}
                 account={active?.account!}
                 item={item}
+                displayName={assetDisplayNames[`${active?.account.id}:ecs:${String(item.InstanceId || index)}`]}
+                onDisplayNameChange={(value) => {
+                  const key = `${active?.account.id}:ecs:${String(item.InstanceId || index)}`;
+                  setAssetDisplayNames((current) => {
+                    const next = { ...current };
+                    if (value) next[key] = value;
+                    else delete next[key];
+                    return next;
+                  });
+                }}
                 onStatus={() => active && void pullLatestResources(active.account, "ecs")}
                 onNotice={setStatus}
                 onConfirm={requestConfirm}
@@ -4252,13 +4540,31 @@ function App() {
   );
 
   const selectedResourceAccount = accounts.find((account) => account.id === resourceAccountId) ?? null;
-  const visibleLocalAssets = useMemo(() => localAssets.filter((asset) => { const payload = asset.payload || {}; const label = String(payload.InstanceName || payload.DBInstanceDescription || payload.SiteName || payload.DomainName || payload.Name || asset.asset_key); const region = String(asset.region_id || payload.RegionId || payload.Location || ""); const status = String(payload.Status || payload.InstanceStatus || payload.DBInstanceStatus || payload.DomainStatus || ""); return (resourceAccountId === null || asset.account_id === resourceAccountId) && (!resourceTypeFilter || asset.resource_type === resourceTypeFilter) && (!assetKeyword || `${label} ${asset.asset_key}`.toLowerCase().includes(assetKeyword.toLowerCase())) && (!assetRegionFilter || region === assetRegionFilter) && (!assetStatusFilter || status === assetStatusFilter); }), [localAssets, resourceAccountId, resourceTypeFilter, assetKeyword, assetRegionFilter, assetStatusFilter]);
+  const visibleLocalAssets = useMemo(() => {
+    const order = new Map(assetOrder.map((key, index) => [key, index]));
+    return localAssets
+      .filter((asset) => {
+        const payload = asset.payload || {};
+        const label = String(payload.InstanceName || payload.DBInstanceDescription || payload.SiteName || payload.DomainName || payload.Name || asset.asset_key);
+        const region = String(asset.region_id || payload.RegionId || payload.Location || "");
+        const status = String(payload.Status || payload.InstanceStatus || payload.DBInstanceStatus || payload.DomainStatus || "");
+        const note = assetNotes[assetFavoriteKey(asset)] || "";
+        return (resourceAccountId === null || asset.account_id === resourceAccountId)
+          && (!resourceTypeFilter || asset.resource_type === resourceTypeFilter)
+          && (!assetKeyword || `${label} ${asset.asset_key} ${note}`.toLowerCase().includes(assetKeyword.toLowerCase()))
+          && (!assetRegionFilter || region === assetRegionFilter)
+          && (!assetStatusFilter || status === assetStatusFilter);
+      })
+      .sort((left, right) => (order.get(assetFavoriteKey(left)) ?? Number.MAX_SAFE_INTEGER) - (order.get(assetFavoriteKey(right)) ?? Number.MAX_SAFE_INTEGER));
+  }, [localAssets, assetOrder, assetNotes, resourceAccountId, resourceTypeFilter, assetKeyword, assetRegionFilter, assetStatusFilter]);
   const pagedLocalAssets = visibleLocalAssets.slice((assetPage - 1) * pageSize, assetPage * pageSize);
   const favoriteAssets = useMemo(() => {
     const keys = new Set(favoriteAssetKeys);
     return localAssets.filter((asset) => keys.has(assetFavoriteKey(asset)));
   }, [localAssets, favoriteAssetKeys]);
-  const visibleFavoriteAssets = useMemo(() => favoriteAssets.filter((asset) => {
+  const visibleFavoriteAssets = useMemo(() => {
+    const order = new Map(favoriteAssetOrder.map((key, index) => [key, index]));
+    return favoriteAssets.filter((asset) => {
     const payload = asset.payload || {};
     const account = accounts.find((item) => item.id === asset.account_id);
     const label = String(payload.InstanceName || payload.DBInstanceDescription || payload.SiteName || payload.DomainName || payload.Name || asset.asset_key);
@@ -4266,7 +4572,8 @@ function App() {
     return (!favoriteTypeFilter || asset.resource_type === favoriteTypeFilter)
       && (!favoriteKeyword || `${label} ${asset.asset_key} ${account?.account_name || ""}`.toLowerCase().includes(favoriteKeyword.toLowerCase()))
       && (!favoriteRegionFilter || region === favoriteRegionFilter);
-  }), [favoriteAssets, accounts, favoriteTypeFilter, favoriteKeyword, favoriteRegionFilter]);
+    }).sort((left, right) => (order.get(assetFavoriteKey(left)) ?? Number.MAX_SAFE_INTEGER) - (order.get(assetFavoriteKey(right)) ?? Number.MAX_SAFE_INTEGER));
+  }, [favoriteAssets, favoriteAssetOrder, accounts, favoriteTypeFilter, favoriteKeyword, favoriteRegionFilter]);
   const pagedFavoriteAssets = visibleFavoriteAssets.slice((favoritePage - 1) * pageSize, favoritePage * pageSize);
   const managedHostGroups = useMemo(() => Array.from(new Set(managedHosts.map((host) => host.group_name || "未分组"))).sort(), [managedHosts]);
   const visibleManagedHosts = useMemo(() => managedHosts.filter((host) => {
@@ -4305,13 +4612,26 @@ function App() {
       <button className="asset-oss-files-button" onClick={() => void openOssQuickTool(account, asset, "files")}>文件列表</button>
       <button className="asset-oss-stat-button" onClick={() => void openOssQuickTool(account, asset, "stat")}>容量统计</button>
     </div>;
-    if (asset.resource_type === "ecs" || asset.resource_type === "swas") return <div className="asset-action-buttons server-asset-actions">
-      <button className="asset-manage-button" onClick={() => openPanelFromAsset(asset, account)}><Plus size={13} />配置面板</button>
-      <button className="asset-ssh-button" onClick={() => void openSshClient(asset, account)}><Terminal size={13} />SSH 登录</button>
-      {["aliyun", "tencent", "baidu", "oracle"].includes(account.cloud_type) && <button className="asset-reboot-button" onClick={() => void rebootLocalAsset(asset, false)}>重启</button>}
-      {["aliyun", "tencent", "baidu", "oracle"].includes(account.cloud_type) && <button className="asset-force-reboot-button" onClick={() => void rebootLocalAsset(asset, true)}>强制重启</button>}
-      {["aliyun", "tencent", "baidu", "oracle"].includes(account.cloud_type) && <button className="asset-shutdown-button" onClick={() => void stopLocalAsset(asset)}>关机</button>}
-    </div>;
+    if (asset.resource_type === "ecs" || asset.resource_type === "swas") {
+      const key = assetFavoriteKey(asset);
+      const linkedPanel = panelConnections.find((panel) => panel.source_account_id === account.id && panel.source_asset_key === asset.asset_key);
+      const linkedHost = managedHosts.find((host) => host.source_account_id === account.id && host.source_asset_key === asset.asset_key);
+      const canControl = ["aliyun", "tencent", "baidu", "oracle"].includes(account.cloud_type);
+      return <div className="asset-action-buttons server-asset-actions">
+        {canControl && <button className="asset-force-reboot-button" onClick={() => void rebootLocalAsset(asset, true)}><RefreshCw size={15} />强制重启</button>}
+        <span className={`asset-more-wrap ${assetMoreKey === key ? "is-open" : ""}`}>
+          <button type="button" className="asset-more-button" title="更多功能" aria-label="更多功能" aria-expanded={assetMoreKey === key} onClick={() => setAssetMoreKey((current) => current === key ? null : key)}>更多功能<ChevronDown size={15} /></button>
+          {assetMoreKey === key && <div className="asset-more-menu">
+            <button type="button" onClick={() => { setAssetMoreKey(null); setAssetDetail({ asset, account }); }}><FileText size={14} />查看详情</button>
+            <button type="button" onClick={() => { setAssetMoreKey(null); linkedPanel ? openPanelDialog(linkedPanel) : openPanelFromAsset(asset, account); }}><Monitor size={14} />{linkedPanel ? "修改面板配置" : "添加面板配置"}</button>
+            <button type="button" onClick={() => { setAssetMoreKey(null); openTerminalConfiguration(asset, account, linkedHost); }}><Terminal size={14} />{linkedHost ? "修改终端配置" : "添加终端配置"}</button>
+            <button type="button" onClick={() => { setAssetMoreKey(null); void openSshClient(asset, account); }}><Terminal size={14} />SSH 登录</button>
+            {canControl && <button type="button" onClick={() => { setAssetMoreKey(null); void rebootLocalAsset(asset, false); }}><RefreshCw size={14} />普通重启</button>}
+            {canControl && <button type="button" className="danger" onClick={() => { setAssetMoreKey(null); void stopLocalAsset(asset); }}><Power size={14} />关机</button>}
+          </div>}
+        </span>
+      </div>;
+    }
     return <span className="asset-action-muted">—</span>;
   };
   const logRows = useMemo(() => accounts.flatMap((account) => localAssets.filter((asset) => asset.account_id === account.id && asset.fetched_at > operationLogClearedAt).map((asset) => ({ account, asset, action: "获取并保存资产" }))).filter((row) => (!logTypeFilter || row.asset.resource_type === logTypeFilter) && (!logFilter || `${row.account.account_name} ${row.asset.resource_type} ${row.action}`.toLowerCase().includes(logFilter.toLowerCase()))).sort((a, b) => b.asset.fetched_at - a.asset.fetched_at), [accounts, localAssets, operationLogClearedAt, logTypeFilter, logFilter]);
@@ -5158,17 +5478,22 @@ function App() {
                 const region = displayValue(asset.region_id || payload.RegionId || payload.Location);
                 const status = cloudStatusText(payload.Status || payload.InstanceStatus || payload.DBInstanceStatus || payload.DomainStatus);
                 const expiry = payload.ExpiredTime || payload.ExpirationTime || payload.ExpirationDate || payload.ExpireTime || payload.ExpireDate || payload.EndTime;
-                const detailRows = asset.resource_type === "ecs" || asset.resource_type === "swas"
-                  ? [["IP 地址", displayValue(payload.PublicIpAddress || payload.PublicAddresses || payload.InternetIp || payload.PrivateIpAddress)], ["规格", displayValue(payload.InstanceType || payload.Cpu && `${payload.Cpu} 核 / ${Number(payload.Memory || 0) / 1024} GB`)], ["系统盘", displayValue(payload.SystemDisk || payload.SystemDiskSize)]]
-                  : asset.resource_type === "domain"
+                const assetKey = assetFavoriteKey(asset);
+                const assetNote = assetNotes[assetKey] || "";
+                const isServer = asset.resource_type === "ecs" || asset.resource_type === "swas";
+                const detailRows = asset.resource_type === "domain"
                     ? [["注册商", displayValue(payload.RegistrantOrganization || payload.Registrant || payload.RegistrantName)], ["到期时间", formatAssetDate(expiry)], ["地域", region]]
                     : asset.resource_type === "oss"
                       ? [["地域", region], ["存储类型", displayValue(payload.StorageClass)], ["创建时间", formatAssetDate(payload.CreationDate || payload.CreationTime)]]
                       : [["地域", region], ["版本 / 引擎", displayValue(payload.EngineVersion || payload.Engine || payload.Version)], ["到期时间", formatAssetDate(expiry)]];
-                return <article className="favorite-resource-card" key={assetFavoriteKey(asset)}>
+                return <article className={`favorite-resource-card${draggedFavoriteKey === assetKey ? " is-favorite-dragging" : ""}`} key={assetKey} data-favorite-asset-key={assetKey}>
+                  <div className="favorite-card-account"><button type="button" className="favorite-card-drag-handle" aria-label={`拖动排序 ${title}`} title="拖动排序" onPointerDown={(event) => startFavoriteCardDrag(event, assetKey)}><GripVertical size={16} /></button><span className={`avatar cloud-avatar ${account?.cloud_type || "other"}`}>{cloudProvider(account?.cloud_type || "other").avatar}</span><span>{account?.account_name || `账号 ${asset.account_id}`}</span></div>
+                  <div className="favorite-card-note"><span>备注</span>{editingAssetNote?.key === assetKey ? <input value={editingAssetNote.value} autoFocus onChange={(event) => setEditingAssetNote((current) => current?.key === assetKey ? { ...current, value: event.target.value } : current)} onBlur={() => saveAssetNote(assetKey)} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") setEditingAssetNote(null); }} aria-label="资产备注" placeholder="添加备注" /> : <button type="button" className={assetNote ? "has-note" : ""} onClick={() => setEditingAssetNote({ key: assetKey, value: assetNote, initial: assetNote })}>{assetNote || "添加备注"}</button>}</div>
                   <div className="favorite-card-head"><div><h2 title={title}>{title}</h2><small>{asset.asset_key}</small></div><button type="button" className="asset-favorite-button is-favorite" title="取消收藏" aria-label="取消收藏" onClick={() => toggleAssetFavorite(asset)}><BookmarkCheck size={18} /></button></div>
-                  <div className="favorite-card-details">{detailRows.map(([label, value]) => <div key={label}><span>{label}：</span><strong title={String(value)}>{value}</strong></div>)}</div>
-                  <div className="favorite-card-meta"><span className={`favorite-resource-type ${asset.resource_type}`}>{assetTypes.find(([value]) => value === asset.resource_type)?.[1] || asset.resource_type}</span><span className="favorite-status">{status}</span><small>{account?.account_name || `账号 ${asset.account_id}`}</small></div>
+                  {isServer && account
+                    ? <FavoriteServerDetails asset={asset} account={account} onCopyIp={(address) => void copyAssetIp(address)} />
+                    : <div className="favorite-card-details">{detailRows.map(([label, value]) => <div key={label}><span>{label}：</span><div className="favorite-detail-value"><strong title={String(value)}>{value}</strong>{label === "IP 地址" && value !== "-" && <button type="button" className="favorite-ip-copy" title="复制 IP 地址" aria-label="复制 IP 地址" onClick={() => void copyAssetIp(String(value))}><Copy size={14} /></button>}</div></div>)}</div>}
+                  <div className="favorite-card-meta"><span className={`favorite-resource-type ${asset.resource_type}`}>{assetTypes.find(([value]) => value === asset.resource_type)?.[1] || asset.resource_type}</span><span className="favorite-status">{status}</span>{isServer && account && <button type="button" className="favorite-status-refresh" title="刷新服务器状态" disabled={favoriteRefreshingKey !== null} onClick={() => void refreshFavoriteAsset(asset, account)}><RefreshCw size={13} className={favoriteRefreshingKey === assetKey ? "spin" : ""} />{favoriteRefreshingKey === assetKey ? "刷新中" : "刷新"}</button>}</div>
                   <div className="favorite-card-actions">{renderAssetActions(asset, account)}</div>
                 </article>;
               })}
@@ -5186,7 +5511,7 @@ function App() {
               <select value={panelGroup} onChange={(event) => setPanelGroup(event.target.value)}><option value="">全部分组</option>{panelGroups.map((group) => <option key={group} value={group}>{group}</option>)}</select>
               <button className="secondary" disabled={panelLoadingId !== null} onClick={() => void refreshAllPanelConnections()}><RefreshCw size={15} className={panelLoadingId !== null ? "spin" : ""} />{panelLoadingId !== null ? "刷新中" : "刷新列表"}</button>
               <button type="button" className="layui-btn layui-btn-normal panel-toolbar-add" onClick={() => openPanelDialog()}><Plus size={15} />添加服务器面板</button>
-              <button type="button" className="secondary" disabled={!selectedPanelIds.size} onClick={() => void exportSelectedPanels()}><Download size={15} />导出{selectedPanelIds.size ? ` (${selectedPanelIds.size})` : ""}</button>
+              <button type="button" className="secondary" disabled={!panelConnections.length} onClick={() => void exportPanels()}><Download size={15} />导出{selectedPanelIds.size ? ` (${selectedPanelIds.size})` : "全部"}</button>
               <label className="layui-btn panel-toolbar-import"><Upload size={15} />{panelImporting ? "导入中" : "导入"}<input ref={panelImportInputRef} type="file" accept="application/json,.json" disabled={panelImporting} onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void importPanels(file); }} /></label>
               <label className="panel-toolbar-option"><input type="checkbox" checked={hidePanelIps} onChange={(event) => setHidePanelIps(event.target.checked)} />隐藏 IP</label>
               <label className="panel-toolbar-option panel-refresh-mode">监控刷新<select value={panelRefreshSeconds} onChange={(event) => setPanelRefreshSeconds(Number(event.target.value))} aria-label="监控资源刷新间隔"><option value={0}>关闭</option><option value={5}>5 秒</option><option value={10}>10 秒</option><option value={30}>30 秒</option><option value={60}>60 秒</option></select></label>
@@ -5215,7 +5540,7 @@ function App() {
               ];
               return <article className={`panel-monitor-row ${panel.status}`} key={panel.id}>
                 <div className="panel-row-order"><input aria-label={`选择面板 ${panel.name}`} type="checkbox" checked={selectedPanelIds.has(panel.id)} onChange={() => togglePanelSelection(panel.id)} /></div>
-                <div className="panel-row-server"><div className="panel-row-address"><i className={panel.status} /><strong title={hidePanelIps ? undefined : panel.panel_url}>{hidePanelIps ? hiddenPanelAddress(panel.panel_url) : panelAddress(panel.panel_url)}</strong><button type="button" title="复制面板地址" onClick={() => void copyPanelAddress(panel)}><Copy size={15} /></button><button type="button" title="编辑面板" onClick={() => openPanelDialog(panel)}><Settings size={15} /></button></div><div className="panel-row-details"><span>名称：{panel.name}</span><span>备注：{panel.remark || panel.group_name || "-"}</span></div></div>
+                <div className="panel-row-server"><div className="panel-row-note"><span>备注</span>{editingPanelRemark?.id === panel.id ? <input value={editingPanelRemark.value} autoFocus onChange={(event) => setEditingPanelRemark((current) => current?.id === panel.id ? { ...current, value: event.target.value } : current)} onBlur={() => void savePanelRemark(panel)} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") setEditingPanelRemark(null); }} aria-label={`${panel.name} 的备注`} placeholder="添加备注" /> : <button type="button" className={panel.remark ? "has-note" : ""} onClick={() => setEditingPanelRemark({ id: panel.id, value: panel.remark || "", initial: panel.remark || "" })}>{panel.remark || "添加备注"}</button>}</div><div className="panel-row-address"><i className={panel.status} /><strong title={hidePanelIps ? undefined : panel.panel_url}>{hidePanelIps ? hiddenPanelAddress(panel.panel_url) : panelAddress(panel.panel_url)}</strong><button type="button" title="复制面板地址" onClick={() => void copyPanelAddress(panel)}><Copy size={15} /></button><button type="button" title="编辑面板" onClick={() => openPanelDialog(panel)}><Settings size={15} /></button></div><div className="panel-row-details"><span>名称：{panel.name}</span><span>来源：{panel.group_name || "-"}</span></div></div>
                 <div className="panel-row-status"><span className={`managed-server-status ${panel.status}`}>{panel.status === "online" ? "在线" : panel.status === "offline" ? "离线" : "未检测"}</span><small>{value("version") === "-" ? "版本未获取" : value("version")}</small><small>{panel.last_checked_at ? `同步于 ${formatChineseDateTime(panel.last_checked_at)}` : "尚未同步"}</small>{panel.status === "offline" && panel.last_error && <em title={panel.last_error}>连接失败</em>}</div>
                 <div className="panel-row-metrics">{metrics.map((metric) => <div className={`panel-resource-metric ${metric.label === "磁盘" ? "is-disk-metric" : ""}`} key={metric.label}>{metric.label === "磁盘" ? <div className="panel-disk-label"><span>磁盘</span>{diskItems.length > 1 && <button type="button" className="panel-disk-toggle" title={panelDisksExpanded ? "收起磁盘分区" : "展开全部磁盘分区"} aria-label={panelDisksExpanded ? "收起磁盘分区" : "展开全部磁盘分区"} aria-expanded={panelDisksExpanded} onClick={() => setExpandedPanelDisks((current) => { const next = new Set(current); if (next.has(panel.id)) next.delete(panel.id); else next.add(panel.id); return next; })}>{panelDisksExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</button>}</div> : <span>{metric.label}</span>}{metric.label === "磁盘" ? <strong title={`${disk.path} ${metric.detail}`}>{disk.path !== "-" ? `[${disk.path}] ` : ""}{metric.detail}</strong> : typeof metric.detail === "string" ? <strong title={metric.detail}>{metric.detail}</strong> : <strong className="panel-network-detail">{metric.detail}</strong>}{metric.percent !== null ? <i title={`${metric.label} ${Math.round(metric.percent)}%`}><b style={{ width: `${metric.percent}%` }} /></i> : <i className="panel-metric-idle" />}{metric.label === "磁盘" && panelDisksExpanded && diskItems.slice(1).length > 0 && <div className="panel-disk-volumes">{diskItems.slice(1).map((volume) => <div className="panel-disk-volume" key={`${panel.id}-${volume.path}`}><span>{volume.path}</span><strong title={volume.detail}>{volume.detail}</strong>{volume.percent !== null && <i title={`${volume.path} ${Math.round(volume.percent)}%`}><b style={{ width: `${volume.percent}%` }} /></i>}</div>)}</div>}</div>)}</div>
                 <div className="panel-row-actions"><button type="button" className="panel-action-button panel-open-button" disabled={panelOpeningId !== null} onClick={() => void openPanelTemporaryLogin(panel)}><Globe2 size={15} />{panelOpeningId === panel.id ? "打开中" : "面板"}</button><button type="button" className="panel-action-button" disabled={!canSsh} title={canSsh ? "通过关联云服务器 SSH 登录" : "关联云服务器后可使用 SSH"} onClick={() => sourceAccount && sourceAsset && void openSshClient(sourceAsset, sourceAccount)}><Terminal size={15} />SSH</button><button type="button" className="panel-action-button panel-reboot-button" disabled={!canReboot} title={canReboot ? "重启关联云服务器" : "关联云服务器后可重启"} onClick={() => sourceAsset && void rebootLocalAsset(sourceAsset, false)}><RefreshCw size={15} />重启</button><button type="button" className="panel-action-button panel-delete-button" disabled={panelOpeningId !== null} title="移除面板" onClick={() => void deletePanelConnection(panel)}><Trash2 size={16} /></button></div>
@@ -5227,14 +5552,15 @@ function App() {
           <section className="managed-servers-page">
             <div className={`terminal-workbench${sshFilePaneCollapsed ? " is-file-pane-collapsed" : ""}`}>
               <aside className="terminal-host-sidebar" aria-label="服务器列表">
-                <div className="terminal-host-actions"><button className="layui-btn layui-btn-normal" onClick={() => openManagedHostDialog()}><Plus size={16} />服务器</button><button className="terminal-toolbar-icon" title="刷新服务器状态" onClick={() => void loadManagedHosts()}><RefreshCw size={16} /></button></div>
+                <div className="terminal-host-actions"><button type="button" className="terminal-toolbar-icon" title="导出全部服务器（明文 JSON）" disabled={!managedHosts.length} onClick={() => void exportManagedHosts()}><Download size={15} /></button><label className="terminal-toolbar-icon terminal-import-button" title="导入服务器 JSON"><Upload size={15} /><input ref={managedHostImportInputRef} type="file" accept="application/json,.json" disabled={managedHostImporting} onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void importManagedHosts(file); }} /></label><button type="button" className="terminal-toolbar-icon" title="刷新服务器状态" onClick={() => void loadManagedHosts()}><RefreshCw size={16} /></button></div>
                 <div className="terminal-group-title"><span><List size={15} />分组</span><select value={managedHostGroup} onChange={(event) => setManagedHostGroup(event.target.value)}><option value="">全部分组</option>{managedHostGroups.map((group) => <option key={group} value={group}>{group}</option>)}</select></div>
                 <label className="terminal-host-search"><Search size={15} /><input value={managedHostKeyword} onChange={(event) => setManagedHostKeyword(event.target.value)} placeholder="搜索服务器 IP/名称" /></label>
+                <button type="button" className="terminal-add-host" onClick={() => openManagedHostDialog()}><Plus size={16} />添加服务器</button>
                 <div className="terminal-host-tree">
                   {managedHostGroups.map((group) => {
                     const hosts = visibleManagedHosts.filter((host) => (host.group_name || "未分组") === group);
                     if (!hosts.length) return null;
-                    return <section className="terminal-host-group" key={group}><h2>{group}</h2>{hosts.map((host) => <div className={`terminal-host-row ${terminalSelectedHostId === host.id ? "active" : ""}`} key={host.id}><button type="button" onClick={() => { setTerminalSelectedHostId(host.id); openManagedHostSsh(host); }}><i className={host.status} /><span title={host.name}>{host.name}</span><small>{host.host}</small></button><button type="button" title="刷新服务器状态" disabled={managedHostLoadingId !== null} onClick={() => void probeManagedHost(host.id)}><RefreshCw size={14} className={managedHostLoadingId === host.id ? "spin" : ""} /></button><button type="button" title="编辑服务器" onClick={() => openManagedHostDialog(host)}><Settings size={14} /></button><button type="button" title="移除服务器" onClick={() => void deleteManagedHost(host)}><Trash2 size={14} /></button></div>)}</section>;
+                    return <section className="terminal-host-group" key={group}><h2>{group}</h2>{hosts.map((host) => <div className={`terminal-host-row ${terminalSelectedHostId === host.id ? "active" : ""}`} key={host.id}><button type="button" title={host.platform === "windows" ? "打开 Windows 远程桌面" : "打开 SSH 终端"} onClick={() => { setTerminalSelectedHostId(host.id); openManagedHostSsh(host); }}><i className={host.status} /><span title={host.name}>{host.name}</span><small>{host.platform === "windows" ? `RDP · ${host.host}` : host.host}</small></button>{host.platform !== "windows" && <button type="button" title="刷新服务器状态" disabled={managedHostLoadingId !== null} onClick={() => void probeManagedHost(host.id)}><RefreshCw size={14} className={managedHostLoadingId === host.id ? "spin" : ""} /></button>}<button type="button" title="编辑服务器" onClick={() => openManagedHostDialog(host)}><Settings size={14} /></button><button type="button" title="移除服务器" onClick={() => void deleteManagedHost(host)}><Trash2 size={14} /></button></div>)}</section>;
                   })}
                   {!visibleManagedHosts.length && <div className="terminal-host-empty"><Server size={30} /><p>{managedHosts.length ? "没有匹配的服务器" : "添加服务器后即可开始连接"}</p></div>}
                 </div>
@@ -5278,7 +5604,7 @@ function App() {
             </div>
             <section className="panel local-assets-panel">
               <div className="asset-list-toolbar"><input value={assetKeyword} onChange={(event) => setAssetKeyword(event.target.value)} placeholder="请输入资产名称 / ID / 账号" /><select value={resourceTypeFilter || ""} onChange={(event) => setResourceTypeFilter(event.target.value || null)}><option value="">全部类型</option>{assetTypes.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><select value={assetRegionFilter} onChange={(event) => setAssetRegionFilter(event.target.value)}><option value="">全部地域</option>{Array.from(new Set(localAssets.map((asset) => asset.region_id || String(asset.payload?.RegionId || asset.payload?.Location || "")).filter(Boolean))).map((region) => <option key={region} value={region}>{region}</option>)}</select><select value={assetStatusFilter} onChange={(event) => setAssetStatusFilter(event.target.value)}><option value="">全部状态</option>{Array.from(new Set(localAssets.map((asset) => String(asset.payload?.Status || asset.payload?.InstanceStatus || asset.payload?.DBInstanceStatus || asset.payload?.DomainStatus || "")).filter(Boolean))).map((status) => <option key={status} value={status}>{cloudStatusText(status)}</option>)}</select></div>
-              {visibleLocalAssets.length ? <div className="table-wrap"><table><thead><tr><th>资源类型</th><th>资产名称 / ID</th><th>到期时间</th><th>账号信息</th><th>地域</th><th>状态</th><th>最后获取</th><th>操作</th></tr></thead><tbody>
+              {visibleLocalAssets.length ? <div className="table-wrap"><table><thead><tr><th className="asset-order-column"><span className="sr-only">排序</span></th><th>资源类型</th><th>资产名称 / ID</th><th>到期时间</th><th>账号信息</th><th>地域</th><th>状态</th><th>操作</th></tr></thead><tbody>
                 {pagedLocalAssets.map((asset, index) => {
                   const account = accounts.find((item) => item.id === asset.account_id);
                   const payload = asset.payload || {};
@@ -5301,23 +5627,18 @@ function App() {
                       <button className="asset-oss-stat-button" onClick={() => void openOssQuickTool(account, asset, "stat")}>容量统计</button>
                     </div>
                   ) : null;
-                  const serverActions = (asset.resource_type === "ecs" || asset.resource_type === "swas") && account ? (
-                    <div className="asset-action-buttons server-asset-actions">
-                      <button className="asset-ssh-button" onClick={() => void openSshClient(asset, account)}><Terminal size={13} />SSH 登录</button>
-                      {["aliyun", "tencent", "baidu", "oracle"].includes(account.cloud_type) && <button className="asset-reboot-button" onClick={() => void rebootLocalAsset(asset, false)}>重启</button>}
-                      {["aliyun", "tencent", "baidu", "oracle"].includes(account.cloud_type) && <button className="asset-force-reboot-button" onClick={() => void rebootLocalAsset(asset, true)}>强制重启</button>}
-                    </div>
-                  ) : null;
-                  return <tr key={`${asset.account_id}-${asset.resource_type}-${asset.asset_key}-${index}`}>
+                  const serverActions = (asset.resource_type === "ecs" || asset.resource_type === "swas") ? renderAssetActions(asset, account) : null;
+                  const assetNote = assetNotes[assetRowKey] || "";
+                  return <tr key={`${asset.account_id}-${asset.resource_type}-${asset.asset_key}-${index}`} className={draggedAssetKey === assetRowKey ? "is-asset-dragging" : ""} data-asset-row-key={assetRowKey}>
+                    <td className="asset-order-cell"><button type="button" className="asset-drag-handle" aria-label={`拖动排序 ${serverName}`} title="拖动排序" onPointerDown={(event) => startAssetDrag(event, assetRowKey)}><GripVertical size={17} /></button></td>
                     <td>{assetTypes.find(([value]) => value === asset.resource_type)?.[1] || asset.resource_type}</td>
-                    <td><div className="asset-name-cell"><div className="asset-name-primary">{canEditServerName && account ? (
+                    <td><div className="asset-name-cell"><div className="asset-note-line">{editingAssetNote?.key === assetRowKey ? <input className="asset-note-editor" value={editingAssetNote.value} autoFocus onChange={(event) => setEditingAssetNote((current) => current?.key === assetRowKey ? { ...current, value: event.target.value } : current)} onBlur={() => saveAssetNote(assetRowKey)} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") setEditingAssetNote(null); }} aria-label="资产备注" placeholder="添加备注" /> : <button type="button" className={`asset-note-button${assetNote ? " has-note" : ""}`} onClick={() => setEditingAssetNote({ key: assetRowKey, value: assetNote, initial: assetNote })}>{assetNote || "添加备注"}</button>}</div><div className="asset-name-primary">{canEditServerName && account ? (
                       editingAssetName?.key === assetRowKey ? <input className="asset-name-editor" value={editingAssetName.value} autoFocus disabled={savingAssetName === assetRowKey} onChange={(event) => setEditingAssetName((current) => current?.key === assetRowKey ? { ...current, value: event.target.value } : current)} onBlur={() => void saveServerName(asset, account, assetRowKey)} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") setEditingAssetName(null); }} aria-label="服务器名称" /> : <button type="button" className="asset-name-edit-button" title="点击修改服务器名称" onClick={() => setEditingAssetName({ key: assetRowKey, value: serverName === "-" ? "" : serverName, initial: serverName === "-" ? "" : serverName })}><strong>{serverName}</strong></button>
                     ) : <strong>{displayValue(payload.InstanceName || payload.DBInstanceDescription || payload.SiteName || payload.DomainName || payload.Name || asset.asset_key)}</strong>}<button type="button" className={`asset-favorite-button asset-name-favorite ${favoriteAssetKeys.includes(assetFavoriteKey(asset)) ? "is-favorite" : ""}`} title={favoriteAssetKeys.includes(assetFavoriteKey(asset)) ? "取消收藏" : "收藏资源"} aria-label={favoriteAssetKeys.includes(assetFavoriteKey(asset)) ? "取消收藏" : "收藏资源"} onClick={() => toggleAssetFavorite(asset)}>{favoriteAssetKeys.includes(assetFavoriteKey(asset)) ? <BookmarkCheck size={14} /> : <Bookmark size={14} />}</button></div><small className="asset-subline">{asset.asset_key}</small></div></td>
                     <td>{formatAssetDate(expiry)}</td>
-                    <td><strong>{account?.account_name || `账号 ${asset.account_id}`}</strong><small className="asset-subline">{account?.cloud_type || "aliyun"} · {maskedKey}</small><small className="asset-subline">{account?.group_name || "未分组"}</small></td>
+                    <td><div className="asset-account-name"><span className={`avatar cloud-avatar ${account?.cloud_type || "other"}`}>{cloudProvider(account?.cloud_type || "other").avatar}</span><strong>{account?.account_name || `账号 ${asset.account_id}`}</strong></div><small className="asset-subline">{cloudProvider(account?.cloud_type || "other").label} · {maskedKey}</small><small className="asset-subline">{account?.group_name || "未分组"}</small></td>
                     <td>{displayValue(asset.region_id || payload.RegionId || payload.Location)}</td>
                     <td>{cloudStatusText(payload.Status || payload.InstanceStatus || payload.DBInstanceStatus || payload.DomainStatus)}</td>
-                    <td>{formatAssetDate(asset.fetched_at)}</td>
                     <td>{domainActions || ossActions || serverActions || <span className="asset-action-muted">—</span>}</td>
                   </tr>;
                 })}
@@ -5341,7 +5662,7 @@ function App() {
                     <label>端口<input type="number" min={1} max={65535} value={sshPort} onChange={(event) => setSshPort(Number(event.target.value) || (sshPlatform === "windows" ? 3389 : 22))} /></label>
                     <label>用户名<input value={sshUsername} onChange={(event) => setSshUsername(event.target.value)} placeholder={sshPlatform === "windows" ? "administrator" : "root"} /></label>
                     {sshPlatform === "linux" && <div className="ssh-choice-row ssh-auth-row"><span>验证方式</span><div className="ssh-segmented"><button type="button" className={sshAuthMethod === "password" ? "active" : ""} onClick={() => setSshAuthMethod("password")}>密码验证</button><button type="button" className={sshAuthMethod === "private_key" ? "active" : ""} onClick={() => { setSshAuthMethod("private_key"); setShowSshPassword(false); }}>私钥验证</button></div></div>}
-                    {sshPlatform === "windows" || sshAuthMethod === "password" ? <label className="ssh-form-password">{sshPlatform === "windows" ? "密码（可选）" : "密码"}<span className="ssh-password-wrap"><input type={showSshPassword ? "text" : "password"} value={sshPassword} onChange={(event) => setSshPassword(event.target.value)} placeholder={sshPlatform === "windows" ? (sshPasswordSaved ? "已保存本地记录" : "由 Windows 远程桌面验证") : (sshPasswordSaved ? "已保存密码，可直接连接" : "请输入 SSH 密码")} autoComplete="current-password" /><button type="button" className="ssh-password-toggle" disabled={sshPasswordRevealing} title={sshPasswordRevealing ? "正在读取密码" : showSshPassword ? "隐藏密码" : sshPasswordSaved ? "读取当前保存密码" : "显示密码"} aria-label={sshPasswordRevealing ? "正在读取密码" : showSshPassword ? "隐藏密码" : sshPasswordSaved ? "读取当前保存密码" : "显示密码"} onClick={() => void toggleSshPasswordVisibility()}>{sshPasswordRevealing ? <RefreshCw size={16} className="spin" /> : showSshPassword ? <EyeOff size={17} /> : <Eye size={17} />}</button></span></label> : <><label className="ssh-form-password">私钥<textarea value={sshPrivateKey} onChange={(event) => setSshPrivateKey(event.target.value)} placeholder="粘贴 OpenSSH、PKCS#8 或 PEM 格式私钥" spellCheck={false} /></label><label className="ssh-form-passphrase">私钥口令<input type="password" value={sshKeyPassphrase} onChange={(event) => setSshKeyPassphrase(event.target.value)} placeholder="未加密私钥可留空" autoComplete="off" /></label></>}
+                    {sshPlatform === "windows" || sshAuthMethod === "password" ? <label className="ssh-form-password">{sshPlatform === "windows" ? "密码（可选）" : "密码"}<span className="ssh-password-wrap"><input type={showSshPassword ? "text" : "password"} value={sshPassword} onChange={(event) => setSshPassword(event.target.value)} placeholder={sshPlatform === "windows" ? (sshPasswordSaved ? "已保存本地记录" : "由 Windows 远程桌面验证") : (sshPasswordSaved ? "已保存密码，可直接连接" : "请输入 SSH 密码")} autoComplete="current-password" /><button type="button" className="ssh-password-toggle" disabled={sshPasswordRevealing} title={sshPasswordRevealing ? "正在读取密码" : showSshPassword ? "隐藏密码" : sshPasswordSaved ? "读取当前保存密码" : "显示密码"} aria-label={sshPasswordRevealing ? "正在读取密码" : showSshPassword ? "隐藏密码" : sshPasswordSaved ? "读取当前保存密码" : "显示密码"} onClick={() => void toggleSshPasswordVisibility()}>{sshPasswordRevealing ? <RefreshCw size={16} className="spin" /> : showSshPassword ? <EyeOff size={17} /> : <Eye size={17} />}</button></span></label> : <><label className="ssh-form-password">私钥<textarea value={sshPrivateKey} onChange={(event) => setSshPrivateKey(event.target.value)} placeholder={sshPasswordSaved ? "已保存私钥，可直接连接或粘贴替换" : "粘贴 OpenSSH、PKCS#8 或 PEM 格式私钥"} spellCheck={false} /></label><label className="ssh-form-passphrase">私钥口令<input type="password" value={sshKeyPassphrase} onChange={(event) => setSshKeyPassphrase(event.target.value)} placeholder="未加密私钥可留空" autoComplete="off" /></label></>}
                     {sshPlatform === "linux" && <label className="ssh-proxy-field">代理<select value=""><option value="">不使用代理</option></select></label>}
                   </div>
                   {(sshPlatform === "windows" || sshAuthMethod === "password") && !sshTarget.direct && <div className="ssh-save-row"><label className="toggle"><input type="checkbox" checked={sshSavePassword} onChange={(event) => setSshSavePassword(event.target.checked)} /><span>{sshPlatform === "windows" ? "保存连接资料到本机" : "保存密码到本机"}</span></label>{sshPasswordSaved && <button type="button" className="ssh-clear-button" onClick={() => void clearSavedSshConnection()}>清除已保存配置</button>}</div>}
@@ -5450,9 +5771,12 @@ function App() {
           <div className="modal-backdrop" onClick={() => !managedHostSaving && setManagedHostDialog(false)}>
             <form className="modal managed-host-modal" onSubmit={saveManagedHost} onClick={(event) => event.stopPropagation()}>
               <div className="modal-head"><div><span className="eyebrow">MANAGED SERVER</span><h2>{managedHostDraft.id ? "编辑服务器" : "添加服务器"}</h2></div><button type="button" className="close" disabled={managedHostSaving} onClick={() => setManagedHostDialog(false)}><X size={20} /></button></div>
-              <p className="security-tip">SSH 密码会使用本机密钥加密保存。首次成功连接时会记录服务器主机指纹，后续变化将被拒绝。</p>
+              <p className="security-tip">{managedHostDraft.platform === "windows" ? "RDP 连接资料会使用本机密钥加密保存，打开连接时将调用 Windows 远程桌面。" : managedHostDraft.auth_method === "private_key" ? "SSH 私钥与可选口令会使用本机密钥加密保存。首次成功连接时会记录服务器主机指纹。" : "SSH 密码会使用本机密钥加密保存。首次成功连接时会记录服务器主机指纹，后续变化将被拒绝。"}</p>
               <label>服务器名称<input required value={managedHostDraft.name} onChange={(event) => setManagedHostDraft((current) => ({ ...current, name: event.target.value }))} placeholder="例如：生产 Web 01" autoFocus /></label>
-              <div className="form-grid"><label>主机 / IP<input required value={managedHostDraft.host} onChange={(event) => setManagedHostDraft((current) => ({ ...current, host: event.target.value }))} placeholder="203.0.113.10 或 server.example.com" /></label><label>SSH 端口<input required type="number" min={1} max={65535} value={managedHostDraft.port} onChange={(event) => setManagedHostDraft((current) => ({ ...current, port: Number(event.target.value) || 22 }))} /></label><label>SSH 用户名<input required value={managedHostDraft.username} onChange={(event) => setManagedHostDraft((current) => ({ ...current, username: event.target.value }))} placeholder="root" /></label><label>SSH 密码<input required={!managedHostDraft.id} type="password" value={managedHostDraft.password} onChange={(event) => setManagedHostDraft((current) => ({ ...current, password: event.target.value }))} placeholder={managedHostDraft.id ? "留空则保留已保存密码" : "首次添加必填"} autoComplete="new-password" /></label></div>
+              <div className="managed-host-choice"><span>操作系统</span><div className="ssh-segmented"><button type="button" className={managedHostDraft.platform === "linux" ? "active" : ""} onClick={() => setManagedHostDraft((current) => ({ ...current, platform: "linux", auth_method: "password", port: current.port === 3389 ? 22 : current.port, username: current.username === "administrator" ? "root" : current.username }))}>Linux</button><button type="button" className={managedHostDraft.platform === "windows" ? "active" : ""} onClick={() => setManagedHostDraft((current) => ({ ...current, platform: "windows", auth_method: "password", port: current.port === 22 ? 3389 : current.port, username: current.username === "root" ? "administrator" : current.username }))}>Windows</button></div></div>
+              <div className="form-grid"><label>主机 / IP<input required value={managedHostDraft.host} onChange={(event) => setManagedHostDraft((current) => ({ ...current, host: event.target.value }))} placeholder="203.0.113.10 或 server.example.com" /></label><label>{managedHostDraft.platform === "windows" ? "RDP 端口" : "SSH 端口"}<input required type="number" min={1} max={65535} value={managedHostDraft.port} onChange={(event) => setManagedHostDraft((current) => ({ ...current, port: Number(event.target.value) || (current.platform === "windows" ? 3389 : 22) }))} /></label><label>{managedHostDraft.platform === "windows" ? "RDP 用户名" : "SSH 用户名"}<input required value={managedHostDraft.username} onChange={(event) => setManagedHostDraft((current) => ({ ...current, username: event.target.value }))} placeholder={managedHostDraft.platform === "windows" ? "administrator" : "root"} /></label></div>
+              {managedHostDraft.platform === "linux" && <div className="managed-host-choice"><span>验证方式</span><div className="ssh-segmented"><button type="button" className={managedHostDraft.auth_method === "password" ? "active" : ""} onClick={() => setManagedHostDraft((current) => ({ ...current, auth_method: "password" }))}>密码验证</button><button type="button" className={managedHostDraft.auth_method === "private_key" ? "active" : ""} onClick={() => setManagedHostDraft((current) => ({ ...current, auth_method: "private_key", password: "" }))}>私钥验证</button></div></div>}
+              {managedHostDraft.platform === "windows" || managedHostDraft.auth_method === "password" ? <label>{managedHostDraft.platform === "windows" ? "RDP 密码（可选）" : "SSH 密码"}<input required={managedHostDraft.platform === "linux" && !managedHostDraft.id} type="password" value={managedHostDraft.password} onChange={(event) => setManagedHostDraft((current) => ({ ...current, password: event.target.value }))} placeholder={managedHostDraft.platform === "windows" ? "留空时由 Windows 远程桌面验证" : managedHostDraft.id ? "留空则保留已保存密码" : "首次添加必填"} autoComplete="new-password" /></label> : <><label>SSH 私钥<textarea required={!managedHostDraft.id} rows={5} value={managedHostDraft.private_key} onChange={(event) => setManagedHostDraft((current) => ({ ...current, private_key: event.target.value }))} placeholder={managedHostDraft.id ? "留空则保留已保存私钥" : "粘贴 OpenSSH、PKCS#8 或 PEM 格式私钥"} spellCheck={false} /></label><label>私钥口令（可选）<input type="password" value={managedHostDraft.key_passphrase} onChange={(event) => setManagedHostDraft((current) => ({ ...current, key_passphrase: event.target.value }))} placeholder="未加密私钥可留空" autoComplete="off" /></label></>}
               <div className="form-grid"><label>分组<input value={managedHostDraft.group_name} onChange={(event) => setManagedHostDraft((current) => ({ ...current, group_name: event.target.value }))} placeholder="生产 / 测试 / 个人" /></label><label>标签<input value={managedHostDraft.tags} onChange={(event) => setManagedHostDraft((current) => ({ ...current, tags: event.target.value }))} placeholder="web, nginx, cn" /></label></div>
               <label>备注<textarea rows={2} value={managedHostDraft.remark} onChange={(event) => setManagedHostDraft((current) => ({ ...current, remark: event.target.value }))} placeholder="可选" /></label>
               <div className="modal-actions"><button type="button" className="secondary" disabled={managedHostSaving} onClick={() => setManagedHostDialog(false)}>取消</button><button type="submit" className="layui-btn layui-btn-normal" disabled={managedHostSaving}>{managedHostSaving ? "保存中…" : managedHostDraft.id ? "保存修改" : "加入服务器管理"}</button></div>
@@ -5467,6 +5791,16 @@ function App() {
               <div className="api-log-section"><h3>上送参数</h3><pre>{formatJson(apiLogDetail.request_params)}</pre></div>
               <div className="api-log-section"><h3>返回参数</h3><pre>{formatJson(apiLogDetail.response_params)}</pre></div>
               {apiLogDetail.message && <div className="api-log-message">错误信息：{apiLogDetail.message}</div>}
+            </section>
+          </div>
+        )}
+        {assetDetail && (
+          <div className="modal-backdrop" onClick={() => setAssetDetail(null)}>
+            <section className="modal asset-detail-modal" onClick={(event) => event.stopPropagation()}>
+              <div className="modal-head"><div><span className="eyebrow">SERVER DETAIL</span><h2>{displayValue(assetDetail.asset.payload.InstanceName || assetDetail.asset.asset_key)}</h2></div><button className="close" title="关闭详情" onClick={() => setAssetDetail(null)}><X size={20} /></button></div>
+              <div className="asset-detail-meta"><span className={`avatar cloud-avatar ${assetDetail.account.cloud_type}`}>{cloudProvider(assetDetail.account.cloud_type).avatar}</span><span>{assetDetail.account.account_name}</span><span>{assetTypes.find(([value]) => value === assetDetail.asset.resource_type)?.[1] || assetDetail.asset.resource_type}</span><span>{assetDetail.asset.region_id || String(assetDetail.asset.payload.RegionId || assetDetail.asset.payload.Location || "未标注地域")}</span></div>
+              <div className="asset-detail-list">{Object.entries(assetDetail.asset.payload).filter(([key]) => !key.startsWith("_")).map(([key, value]) => <div key={key}><span>{columnLabel(key)}</span><strong title={displayValue(value)}>{displayValue(value)}</strong></div>)}</div>
+              <div className="modal-actions"><button className="secondary" onClick={() => setAssetDetail(null)}>关闭</button></div>
             </section>
           </div>
         )}
