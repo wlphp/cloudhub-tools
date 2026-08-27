@@ -28,3 +28,26 @@ src-tauri/**/target-verify/
 *.njsproj
 *.sln
 *.sw?
+
+# Personal AI assistant configuration and local workflows
+.claude/
+.codex/
+.cursor/
+.aider/
+.continue/
+.agents/
+AGENTS.md
+CLAUDE.md
+docs/agent-integration.md
+docs/tasks/
+scripts/agent-safety-policy.mjs
+scripts/claude.cmd
+scripts/codex-bridge.mjs
+scripts/codex.cmd
+scripts/task-tracker.mjs
+
+# Local credentials and machine-specific settings
+.env
+.env.*
+!.env.example
+!.env.template
