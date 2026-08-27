@@ -475,7 +475,8 @@ const assetTypes = [
 
 const runningInTauri =
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-const bundledVersion = "0.1.19";
+const bundledVersion = "0.1.20";
+const isDevelopmentBuild = import.meta.env.DEV;
 
 type UpdateState =
   | { phase: "idle" }
@@ -5236,7 +5237,10 @@ function App() {
             <img src="/cloudhub-logo.png" alt="云枢 Tools" />
           </div>
           <div>
-            <strong>云枢 Tools <span className="brand-version">v{appVersion}</span></strong>
+            <strong>
+              云枢 Tools <span className="brand-version">v{appVersion}</span>
+              {isDevelopmentBuild ? <span className="brand-dev-badge">本地开发版</span> : null}
+            </strong>
             <small>本地多云资源管家</small>
           </div>
         </div>
