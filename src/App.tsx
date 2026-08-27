@@ -13,6 +13,7 @@ import {
   AlertTriangle,
   Bookmark,
   BookmarkCheck,
+  Building2,
   ChevronDown,
   ChevronLeft,
   ChevronUp,
@@ -32,6 +33,7 @@ import {
   Eye,
   EyeOff,
   MoreHorizontal,
+  MoreVertical,
   Monitor,
   List,
   Terminal,
@@ -42,17 +44,20 @@ import {
   Save,
   Search,
   Server,
+  ShieldCheck,
   Settings,
   Square,
   Star,
   Trash2,
   Upload,
+  UserRound,
   X,
   Maximize2,
   Minimize2,
   Keyboard,
   PanelRightClose,
   PanelRightOpen,
+  Palette,
 } from "lucide-react";
 import "./App.css";
 import "./summary.css";
@@ -200,6 +205,34 @@ const legacyFavoriteAssetsStorageKey = "aliyun-tools-favorite-assets";
 const cloudHubAssetNotesStorageKey = "cloudhub-tools-asset-notes";
 const cloudHubAssetOrderStorageKey = "cloudhub-tools-asset-order";
 const cloudHubAssetDisplayNamesStorageKey = "cloudhub-tools-asset-display-names";
+const cloudHubManagedHostOrderStorageKey = "cloudhub-tools-managed-host-order";
+const cloudHubManagedHostGroupOrderStorageKey = "cloudhub-tools-managed-host-group-order";
+const cloudHubTerminalThemeStorageKey = "cloudhub-tools-terminal-theme";
+
+const terminalThemes = {
+  dark: {
+    label: "深色",
+    background: "#000000", foreground: "#f5f5f5", cursor: "#f5f5f5", selectionBackground: "#295b91",
+    black: "#000000", brightBlack: "#8a8a8a", red: "#ff6b6b", brightRed: "#ff8b8b", green: "#61d095", brightGreen: "#7ff0b0", yellow: "#f6d365", brightYellow: "#ffe38c", blue: "#70b7ff", brightBlue: "#9dceff", magenta: "#d29cff", brightMagenta: "#e5bfff", cyan: "#66d9ef", brightCyan: "#9beaff", white: "#e6e6e6", brightWhite: "#ffffff",
+  },
+  blue: {
+    label: "蓝墨",
+    background: "#071523", foreground: "#dceeff", cursor: "#7fc8ff", selectionBackground: "#22527d",
+    black: "#071523", brightBlack: "#607d98", red: "#ff7788", brightRed: "#ff9dab", green: "#69dca5", brightGreen: "#9befc2", yellow: "#f4cf72", brightYellow: "#ffe39c", blue: "#6ab6ff", brightBlue: "#9ad2ff", magenta: "#d4a5ff", brightMagenta: "#e8c7ff", cyan: "#65d7e8", brightCyan: "#a7f0f7", white: "#c6dceb", brightWhite: "#ffffff",
+  },
+  green: {
+    label: "松绿",
+    background: "#081914", foreground: "#d5f2df", cursor: "#7ce6a4", selectionBackground: "#1e5741",
+    black: "#081914", brightBlack: "#668b7b", red: "#f07878", brightRed: "#ffaaaa", green: "#5fd492", brightGreen: "#8df1bb", yellow: "#e8c96a", brightYellow: "#ffe596", blue: "#68bfff", brightBlue: "#9bd5ff", magenta: "#d1a7ff", brightMagenta: "#e4c6ff", cyan: "#65d8c5", brightCyan: "#a4f4e5", white: "#cce4d5", brightWhite: "#ffffff",
+  },
+  amber: {
+    label: "暖琥珀",
+    background: "#1a1208", foreground: "#f8ead2", cursor: "#ffd080", selectionBackground: "#65451a",
+    black: "#1a1208", brightBlack: "#927957", red: "#ef7e72", brightRed: "#ffafa2", green: "#9ed27d", brightGreen: "#c6ef9e", yellow: "#f2c35f", brightYellow: "#ffe19a", blue: "#79b7ed", brightBlue: "#a9d5ff", magenta: "#d6a2ed", brightMagenta: "#eac5fb", cyan: "#6ed3c7", brightCyan: "#aaf0e6", white: "#e7d4b5", brightWhite: "#fff7e9",
+  },
+} as const;
+
+type TerminalThemeName = keyof typeof terminalThemes;
 
 function assetFavoriteKey(asset: LocalAsset) {
   return `${asset.account_id}:${asset.resource_type}:${asset.asset_key}`;
@@ -442,7 +475,7 @@ const assetTypes = [
 
 const runningInTauri =
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-const bundledVersion = "0.1.18";
+const bundledVersion = "0.1.19";
 
 type UpdateState =
   | { phase: "idle" }
@@ -762,6 +795,220 @@ function columnLabel(key: string) {
   return columnLabels[key] || key.replace(/([A-Z])/g, " $1").trim();
 }
 
+type SecurityGroup = { SecurityGroupId: string; SecurityGroupName: string; Description: string; VpcId: string; NicType: string };
+type SecurityGroupRule = { Direction: string; IpProtocol: string; PortRange: string; SourceCidrIp: string; SourceGroupId: string; Policy: string; Priority: number; Description: string; NicType: string; SecurityGroupRuleId?: string };
+type SecurityGroupResponse = { groups: SecurityGroup[]; selectedSecurityGroupId: string; rules: SecurityGroupRule[]; sgVersion?: number };
+type LightFirewallRule = { RuleId: string; IpProtocol: string; PortRange: string; SourceCidrIp: string; Policy: string; Description: string; FirewallRule?: Record<string, unknown> };
+type LightFirewallResponse = { rules: LightFirewallRule[]; firewallVersion?: number };
+type VultrFirewallRule = { RuleId: string; IpProtocol: string; PortRange: string; SourceCidrIp: string; Description: string };
+type VultrFirewallResponse = { rules: VultrFirewallRule[] };
+
+function SecurityGroupDialog({ account, regionId, instanceId, onClose, onConfirm, onNotice }: { account: Account; regionId: string; instanceId: string; onClose: () => void; onConfirm: (message: string) => Promise<boolean>; onNotice: (message: string) => void }) {
+  const [groups, setGroups] = useState<SecurityGroup[]>([]);
+  const [selectedSecurityGroupId, setSelectedSecurityGroupId] = useState("");
+  const [rules, setRules] = useState<SecurityGroupRule[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const [protocol, setProtocol] = useState("tcp");
+  const [portRange, setPortRange] = useState("");
+  const [sourceCidrIp, setSourceCidrIp] = useState("0.0.0.0/0");
+  const [description, setDescription] = useState("");
+  const [maximized, setMaximized] = useState(false);
+  const isTencent = account.cloud_type === "tencent";
+  const isBaidu = account.cloud_type === "baidu";
+  const [sgVersion, setSgVersion] = useState<number | undefined>();
+  const providerLabel = isTencent ? "腾讯云 CVM" : isBaidu ? "百度智能云 BCC" : "ALIYUN ECS";
+  const selectedGroup = groups.find((group) => group.SecurityGroupId === selectedSecurityGroupId);
+  const inboundRules = rules.filter((rule) => String(rule.Direction).toLowerCase() === "ingress" && String(rule.Policy || "accept").toLowerCase() === "accept");
+
+  async function loadSecurityGroups(securityGroupId = selectedSecurityGroupId) {
+    setLoading(true); setError("");
+    try {
+      const result = runningInTauri
+        ? await invoke<SecurityGroupResponse>(isTencent ? "list_tencent_security_groups" : isBaidu ? "list_baidu_security_groups" : "list_aliyun_security_groups", { id: account.id, regionId, instanceId, securityGroupId: securityGroupId || null })
+        : await webApi<SecurityGroupResponse>(`${isTencent ? "/api/tencent-security-groups" : isBaidu ? "/api/baidu-security-groups" : "/api/aliyun-security-groups"}?id=${account.id}&region=${encodeURIComponent(regionId)}&instance=${encodeURIComponent(instanceId)}${securityGroupId ? `&securityGroupId=${encodeURIComponent(securityGroupId)}` : ""}`);
+      setGroups(result.groups || []); setSelectedSecurityGroupId(result.selectedSecurityGroupId || ""); setRules(result.rules || []); setSgVersion(result.sgVersion);
+    } catch (reason) { setGroups([]); setRules([]); setError(String(reason)); }
+    finally { setLoading(false); }
+  }
+  useEffect(() => { void loadSecurityGroups(""); }, []);
+
+  async function addRule(event: FormEvent) {
+    event.preventDefault();
+    const normalizedPortRange = protocol === "all" ? "-1/-1" : portRange.trim();
+    const normalizedCidr = sourceCidrIp.trim();
+    if (!selectedGroup) { setError("请先选择安全组"); return; }
+    if (!normalizedPortRange || !/^-?\d+\/-?\d+$/.test(normalizedPortRange)) { setError("端口范围请填写为 80/80 或 8000/9000"); return; }
+    if (!normalizedCidr || !normalizedCidr.includes("/")) { setError("来源地址请填写 CIDR，例如 0.0.0.0/0"); return; }
+    if (!(await onConfirm(`确认在安全组“${selectedGroup.SecurityGroupName || selectedGroup.SecurityGroupId}”开放 ${protocol.toUpperCase()} ${normalizedPortRange}，来源 ${normalizedCidr} 吗？\n安全组规则会影响所有绑定该安全组的服务器。`))) return;
+    setSubmitting(true); setError("");
+    try {
+      const payload = { id: account.id, regionId, securityGroupId: selectedGroup.SecurityGroupId, ipProtocol: protocol, portRange: normalizedPortRange, sourceCidrIp: normalizedCidr, description: description.trim() || null, nicType: selectedGroup.NicType || null, sgVersion: sgVersion ?? null };
+      if (runningInTauri) await invoke(isTencent ? "authorize_tencent_security_group_rule" : isBaidu ? "authorize_baidu_security_group_rule" : "authorize_aliyun_security_group_rule", payload);
+      else await webApi(isTencent ? "/api/tencent-security-group-rules" : isBaidu ? "/api/baidu-security-group-rules" : "/api/aliyun-security-group-rules", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, action: "authorize" }) });
+      setPortRange(""); setDescription(""); onNotice(`已开放 ${protocol.toUpperCase()} ${normalizedPortRange}`); await loadSecurityGroups(selectedGroup.SecurityGroupId);
+    } catch (reason) { setError(String(reason)); } finally { setSubmitting(false); }
+  }
+
+  async function revokeRule(rule: SecurityGroupRule) {
+    if (!selectedGroup || !rule.SourceCidrIp) return;
+    const label = `${String(rule.IpProtocol || "").toUpperCase()} ${rule.PortRange || "-"}，来源 ${rule.SourceCidrIp}`;
+    if (!(await onConfirm(`确认关闭安全组规则 ${label} 吗？\n安全组规则会影响所有绑定该安全组的服务器。`))) return;
+    setSubmitting(true); setError("");
+    try {
+      const payload = { id: account.id, regionId, securityGroupId: selectedGroup.SecurityGroupId, ipProtocol: String(rule.IpProtocol || ""), portRange: String(rule.PortRange || ""), sourceCidrIp: rule.SourceCidrIp, policy: String(rule.Policy || "accept"), priority: Number(rule.Priority || 1), nicType: rule.NicType || selectedGroup.NicType || null, securityGroupRuleId: rule.SecurityGroupRuleId || null, sgVersion: sgVersion ?? null };
+      if (runningInTauri) await invoke(isTencent ? "revoke_tencent_security_group_rule" : isBaidu ? "revoke_baidu_security_group_rule" : "revoke_aliyun_security_group_rule", payload);
+      else await webApi(isTencent ? "/api/tencent-security-group-rules" : isBaidu ? "/api/baidu-security-group-rules" : "/api/aliyun-security-group-rules", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, action: "revoke" }) });
+      onNotice(`已关闭 ${label}`); await loadSecurityGroups(selectedGroup.SecurityGroupId);
+    } catch (reason) { setError(String(reason)); } finally { setSubmitting(false); }
+  }
+
+  return createPortal(<div className="modal-backdrop security-group-backdrop">
+    <section className={`modal security-group-modal${maximized ? " is-maximized" : ""}`} role="dialog" aria-modal="true" aria-labelledby="security-group-title">
+      <div className="modal-head"><div><span className="eyebrow">{providerLabel}</span><h2 id="security-group-title">安全组端口</h2></div><div className="security-group-head-actions"><button type="button" className="close" title={maximized ? "还原窗口" : "全屏"} aria-label={maximized ? "还原窗口" : "全屏"} onClick={() => setMaximized((value) => !value)}>{maximized ? <Minimize2 size={18} /> : <Maximize2 size={18} />}</button><button type="button" className="close" aria-label="关闭安全组" onClick={onClose}><X size={18} /></button></div></div>
+      <div className="security-group-body"><p className="security-group-note">仅管理入方向允许规则。安全组对同组内所有绑定服务器生效。</p>
+        {loading ? <div className="security-group-loading">正在读取安全组规则...</div> : !groups.length ? <div className="security-group-empty">当前服务器没有可用安全组，或 AccessKey 缺少安全组读取权限。</div> : <>
+          <label className="security-group-select">安全组<select value={selectedSecurityGroupId} disabled={submitting} onChange={(event) => void loadSecurityGroups(event.target.value)}>{groups.map((group) => <option key={group.SecurityGroupId} value={group.SecurityGroupId}>{group.SecurityGroupName || group.SecurityGroupId} ({group.SecurityGroupId})</option>)}</select>{selectedGroup?.Description && <small>{selectedGroup.Description}</small>}</label>
+          <form className="security-group-add" onSubmit={(event) => void addRule(event)}><div className="security-group-add-title">开放端口</div><div className="security-group-form-grid"><label>协议<select value={protocol} disabled={submitting} onChange={(event) => setProtocol(event.target.value)}><option value="tcp">TCP</option><option value="udp">UDP</option>{!isBaidu && <option value="all">全部协议</option>}</select></label><label>端口范围<input value={protocol === "all" ? "-1/-1" : portRange} disabled={submitting || protocol === "all"} onChange={(event) => setPortRange(event.target.value)} placeholder="80/80 或 8000/9000" /></label><label>来源 CIDR<input value={sourceCidrIp} disabled={submitting} onChange={(event) => setSourceCidrIp(event.target.value)} placeholder="0.0.0.0/0" /></label><label>说明（可选）<input value={description} disabled={submitting} maxLength={80} onChange={(event) => setDescription(event.target.value)} placeholder="例如 Web 服务" /></label></div><button type="submit" className="layui-btn layui-btn-normal" disabled={submitting}>{submitting ? "提交中…" : "开放端口"}</button></form>
+          <div className="security-group-rules-head"><strong>已开放端口</strong><button type="button" className="secondary" disabled={submitting} onClick={() => void loadSecurityGroups(selectedSecurityGroupId)}><RefreshCw size={13} />刷新</button></div><div className="security-group-rule-list">{!inboundRules.length ? <div className="security-group-empty">暂无入方向允许规则</div> : inboundRules.map((rule, index) => <div className="security-group-rule" key={rule.SecurityGroupRuleId || `${rule.IpProtocol}-${rule.PortRange}-${rule.SourceCidrIp || rule.SourceGroupId}-${index}`}><div><strong>{String(rule.IpProtocol || "-").toUpperCase()} {rule.PortRange || "-"}</strong><span>来源：{rule.SourceCidrIp || `安全组 ${rule.SourceGroupId || "-"}`}</span>{rule.Description && <small>{rule.Description}</small>}</div>{rule.SourceCidrIp && (!isBaidu || rule.SecurityGroupRuleId) ? <button type="button" className="layui-btn layui-btn-danger" disabled={submitting} onClick={() => void revokeRule(rule)}>关闭</button> : <span className="security-group-readonly">组引用规则</span>}</div>)}</div>
+        </>}{error && <p className="security-group-error">{error}</p>}</div>
+      <div className="modal-actions"><span /><button type="button" className="secondary" onClick={onClose}>关闭</button></div>
+    </section></div>, document.body);
+}
+
+function LightFirewallDialog({ account, regionId, instanceId, onClose, onConfirm, onNotice }: { account: Account; regionId: string; instanceId: string; onClose: () => void; onConfirm: (message: string) => Promise<boolean>; onNotice: (message: string) => void }) {
+  const [rules, setRules] = useState<LightFirewallRule[]>([]);
+  const [firewallVersion, setFirewallVersion] = useState<number | undefined>();
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const [protocol, setProtocol] = useState("tcp");
+  const [portRange, setPortRange] = useState("");
+  const [sourceCidrIp, setSourceCidrIp] = useState("0.0.0.0/0");
+  const [description, setDescription] = useState("");
+  const [maximized, setMaximized] = useState(false);
+  const isTencent = account.cloud_type === "tencent";
+  const providerLabel = isTencent ? "腾讯云 Lighthouse" : account.cloud_type === "jdcloud" ? "京东云轻量应用服务器" : "阿里云轻量应用服务器";
+
+  async function loadRules() {
+    setLoading(true); setError("");
+    try {
+      const result = runningInTauri
+        ? await invoke<LightFirewallResponse>("list_light_firewall_rules", { id: account.id, regionId, instanceId })
+        : await webApi<LightFirewallResponse>(`/api/light-firewall-rules?id=${account.id}&region=${encodeURIComponent(regionId)}&instance=${encodeURIComponent(instanceId)}`);
+      setRules(result.rules || []); setFirewallVersion(result.firewallVersion);
+    } catch (reason) { setRules([]); setError(String(reason)); }
+    finally { setLoading(false); }
+  }
+  useEffect(() => { void loadRules(); }, []);
+
+  async function addRule(event: FormEvent) {
+    event.preventDefault();
+    const normalizedPortRange = portRange.trim();
+    const normalizedCidr = sourceCidrIp.trim();
+    if (!/^\d+\/\d+$/.test(normalizedPortRange)) { setError("端口范围请填写为 80/80 或 8000/9000"); return; }
+    const [start, end] = normalizedPortRange.split("/").map(Number);
+    if (start < 1 || end < start || end > 65535) { setError("端口范围必须在 1 到 65535 之间"); return; }
+    if (!normalizedCidr || !normalizedCidr.includes("/")) { setError("来源地址请填写 CIDR，例如 0.0.0.0/0"); return; }
+    if (!(await onConfirm(`确认在轻量服务器开放 ${protocol.toUpperCase()} ${normalizedPortRange}，来源 ${normalizedCidr} 吗？`))) return;
+    setSubmitting(true); setError("");
+    try {
+      const payload = { id: account.id, regionId, instanceId, ipProtocol: protocol, portRange: normalizedPortRange, sourceCidrIp: normalizedCidr, description: description.trim() || null, firewallVersion: firewallVersion ?? null };
+      if (runningInTauri) await invoke("create_light_firewall_rule", payload);
+      else await webApi("/api/light-firewall-rules", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, action: "create" }) });
+      setPortRange(""); setDescription(""); onNotice(`已开放 ${protocol.toUpperCase()} ${normalizedPortRange}`); await loadRules();
+    } catch (reason) { setError(String(reason)); } finally { setSubmitting(false); }
+  }
+
+  async function deleteRule(rule: LightFirewallRule) {
+    const label = `${String(rule.IpProtocol || "-").toUpperCase()} ${rule.PortRange || "-"}，来源 ${rule.SourceCidrIp || "-"}`;
+    if (!(await onConfirm(`确认关闭轻量服务器防火墙规则 ${label} 吗？\n关闭后该端口将无法从该来源访问。`))) return;
+    setSubmitting(true); setError("");
+    try {
+      const payload = { id: account.id, regionId, instanceId, ruleId: rule.RuleId || null, firewallRule: rule.FirewallRule || null, firewallVersion: firewallVersion ?? null };
+      if (runningInTauri) await invoke("delete_light_firewall_rule", payload);
+      else await webApi("/api/light-firewall-rules", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, action: "delete" }) });
+      onNotice(`已关闭 ${label}`); await loadRules();
+    } catch (reason) { setError(String(reason)); } finally { setSubmitting(false); }
+  }
+
+  return createPortal(<div className="modal-backdrop security-group-backdrop">
+    <section className={`modal security-group-modal${maximized ? " is-maximized" : ""}`} role="dialog" aria-modal="true" aria-labelledby="light-firewall-title">
+      <div className="modal-head"><div><span className="eyebrow">{providerLabel}</span><h2 id="light-firewall-title">防火墙端口</h2></div><div className="security-group-head-actions"><button type="button" className="close" title={maximized ? "还原窗口" : "全屏"} aria-label={maximized ? "还原窗口" : "全屏"} onClick={() => setMaximized((value) => !value)}>{maximized ? <Minimize2 size={18} /> : <Maximize2 size={18} />}</button><button type="button" className="close" aria-label="关闭防火墙" onClick={onClose}><X size={18} /></button></div></div>
+      <div className="security-group-body"><p className="security-group-note">仅管理当前轻量服务器的入方向允许规则，变更不会影响其他服务器。</p>
+        {loading ? <div className="security-group-loading">正在读取防火墙规则...</div> : <><form className="security-group-add" onSubmit={(event) => void addRule(event)}><div className="security-group-add-title">开放端口</div><div className="security-group-form-grid"><label>协议<select value={protocol} disabled={submitting} onChange={(event) => setProtocol(event.target.value)}><option value="tcp">TCP</option><option value="udp">UDP</option></select></label><label>端口范围<input value={portRange} disabled={submitting} onChange={(event) => setPortRange(event.target.value)} placeholder="80/80 或 8000/9000" /></label><label>来源 CIDR<input value={sourceCidrIp} disabled={submitting} onChange={(event) => setSourceCidrIp(event.target.value)} placeholder="0.0.0.0/0" /></label><label>说明（可选）<input value={description} disabled={submitting} maxLength={80} onChange={(event) => setDescription(event.target.value)} placeholder="例如 Web 服务" /></label></div><button type="submit" className="layui-btn layui-btn-normal" disabled={submitting}>{submitting ? "提交中…" : "开放端口"}</button></form>
+          <div className="security-group-rules-head"><strong>已开放端口</strong><button type="button" className="secondary" disabled={submitting} onClick={() => void loadRules()}><RefreshCw size={13} />刷新</button></div><div className="security-group-rule-list">{!rules.length ? <div className="security-group-empty">暂无入方向允许规则</div> : rules.map((rule, index) => <div className="security-group-rule" key={rule.RuleId || `${rule.IpProtocol}-${rule.PortRange}-${rule.SourceCidrIp}-${index}`}><div><strong>{String(rule.IpProtocol || "-").toUpperCase()} {rule.PortRange || "-"}</strong><span>来源：{rule.SourceCidrIp || "-"}</span>{rule.Description && <small>{rule.Description}</small>}</div><button type="button" className="layui-btn layui-btn-danger" disabled={submitting} onClick={() => void deleteRule(rule)}>关闭</button></div>)}</div>
+        </>}{error && <p className="security-group-error">{error}</p>}</div>
+      <div className="modal-actions"><span /><button type="button" className="secondary" onClick={onClose}>关闭</button></div>
+    </section></div>, document.body);
+}
+
+function VultrFirewallDialog({ account, firewallGroupId, onClose, onConfirm, onNotice }: { account: Account; firewallGroupId: string; onClose: () => void; onConfirm: (message: string) => Promise<boolean>; onNotice: (message: string) => void }) {
+  const [rules, setRules] = useState<VultrFirewallRule[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const [protocol, setProtocol] = useState("tcp");
+  const [port, setPort] = useState("");
+  const [sourceCidrIp, setSourceCidrIp] = useState("0.0.0.0/0");
+  const [description, setDescription] = useState("");
+  const [maximized, setMaximized] = useState(false);
+
+  async function loadRules() {
+    setLoading(true); setError("");
+    try {
+      const result = runningInTauri
+        ? await invoke<VultrFirewallResponse>("list_vultr_firewall_rules", { id: account.id, firewallGroupId })
+        : await webApi<VultrFirewallResponse>(`/api/vultr-firewall-rules?id=${account.id}&firewallGroupId=${encodeURIComponent(firewallGroupId)}`);
+      setRules(result.rules || []);
+    } catch (reason) { setRules([]); setError(String(reason)); }
+    finally { setLoading(false); }
+  }
+  useEffect(() => { void loadRules(); }, [firewallGroupId]);
+
+  async function addRule(event: FormEvent) {
+    event.preventDefault();
+    const normalizedPort = port.trim();
+    const normalizedCidr = sourceCidrIp.trim();
+    if (!/^\d+(?:-\d+)?$/.test(normalizedPort)) { setError("端口请填写为 80 或 8000-9000"); return; }
+    const [start, end = start] = normalizedPort.split("-").map(Number);
+    if (start < 1 || end < start || end > 65535) { setError("端口范围必须在 1 到 65535 之间"); return; }
+    if (!normalizedCidr || !normalizedCidr.includes("/")) { setError("来源地址请填写 IPv4 CIDR，例如 0.0.0.0/0"); return; }
+    if (!(await onConfirm(`确认在 Vultr 防火墙组 ${firewallGroupId} 开放 ${protocol.toUpperCase()} ${normalizedPort}，来源 ${normalizedCidr} 吗？\n防火墙组规则会影响所有绑定该组的服务器。`))) return;
+    setSubmitting(true); setError("");
+    try {
+      const payload = { id: account.id, firewallGroupId, ipProtocol: protocol, port: normalizedPort, sourceCidrIp: normalizedCidr, description: description.trim() || null };
+      if (runningInTauri) await invoke("create_vultr_firewall_rule", payload);
+      else await webApi("/api/vultr-firewall-rules", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, action: "create" }) });
+      setPort(""); setDescription(""); onNotice(`已开放 ${protocol.toUpperCase()} ${normalizedPort}`); await loadRules();
+    } catch (reason) { setError(String(reason)); } finally { setSubmitting(false); }
+  }
+
+  async function deleteRule(rule: VultrFirewallRule) {
+    if (!rule.RuleId) return;
+    const label = `${String(rule.IpProtocol || "-").toUpperCase()} ${rule.PortRange || "-"}，来源 ${rule.SourceCidrIp || "-"}`;
+    if (!(await onConfirm(`确认关闭 Vultr 防火墙规则 ${label} 吗？\n关闭后，所有绑定该防火墙组的服务器都会失去该端口访问。`))) return;
+    setSubmitting(true); setError("");
+    try {
+      const payload = { id: account.id, firewallGroupId, ruleId: rule.RuleId };
+      if (runningInTauri) await invoke("delete_vultr_firewall_rule", payload);
+      else await webApi("/api/vultr-firewall-rules", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, action: "delete" }) });
+      onNotice(`已关闭 ${label}`); await loadRules();
+    } catch (reason) { setError(String(reason)); } finally { setSubmitting(false); }
+  }
+
+  return createPortal(<div className="modal-backdrop security-group-backdrop">
+    <section className={`modal security-group-modal${maximized ? " is-maximized" : ""}`} role="dialog" aria-modal="true" aria-labelledby="vultr-firewall-title">
+      <div className="modal-head"><div><span className="eyebrow">Vultr Firewall Group</span><h2 id="vultr-firewall-title">防火墙端口</h2></div><div className="security-group-head-actions"><button type="button" className="close" title={maximized ? "还原窗口" : "全屏"} aria-label={maximized ? "还原窗口" : "全屏"} onClick={() => setMaximized((value) => !value)}>{maximized ? <Minimize2 size={18} /> : <Maximize2 size={18} />}</button><button type="button" className="close" aria-label="关闭防火墙" onClick={onClose}><X size={18} /></button></div></div>
+      <div className="security-group-body"><p className="security-group-note">管理防火墙组 {firewallGroupId} 的 IPv4 入方向允许规则。变更会影响所有绑定该组的服务器。</p>
+        {loading ? <div className="security-group-loading">正在读取防火墙规则...</div> : <><form className="security-group-add" onSubmit={(event) => void addRule(event)}><div className="security-group-add-title">开放端口</div><div className="security-group-form-grid"><label>协议<select value={protocol} disabled={submitting} onChange={(event) => setProtocol(event.target.value)}><option value="tcp">TCP</option><option value="udp">UDP</option></select></label><label>端口或范围<input value={port} disabled={submitting} onChange={(event) => setPort(event.target.value)} placeholder="80 或 8000-9000" /></label><label>来源 CIDR<input value={sourceCidrIp} disabled={submitting} onChange={(event) => setSourceCidrIp(event.target.value)} placeholder="0.0.0.0/0" /></label><label>说明（可选）<input value={description} disabled={submitting} maxLength={80} onChange={(event) => setDescription(event.target.value)} placeholder="例如 Web 服务" /></label></div><button type="submit" className="layui-btn layui-btn-normal" disabled={submitting}>{submitting ? "提交中…" : "开放端口"}</button></form>
+          <div className="security-group-rules-head"><strong>已开放端口</strong><button type="button" className="secondary" disabled={submitting} onClick={() => void loadRules()}><RefreshCw size={13} />刷新</button></div><div className="security-group-rule-list">{!rules.length ? <div className="security-group-empty">暂无 IPv4 入方向允许规则</div> : rules.map((rule, index) => <div className="security-group-rule" key={rule.RuleId || `${rule.IpProtocol}-${rule.PortRange}-${rule.SourceCidrIp}-${index}`}><div><strong>{String(rule.IpProtocol || "-").toUpperCase()} {rule.PortRange || "-"}</strong><span>来源：{rule.SourceCidrIp || "-"}</span>{rule.Description && <small>{rule.Description}</small>}</div><button type="button" className="layui-btn layui-btn-danger" disabled={submitting} onClick={() => void deleteRule(rule)}>关闭</button></div>)}</div>
+        </>}{error && <p className="security-group-error">{error}</p>}</div>
+      <div className="modal-actions"><span /><button type="button" className="secondary" onClick={onClose}>关闭</button></div>
+    </section></div>, document.body);
+}
+
 function ServerCard({
   account,
   item,
@@ -785,10 +1032,11 @@ function ServerCard({
 }) {
   const [disks, setDisks] = useState<Record<string, unknown>[]>([]);
   const [diskLoading, setDiskLoading] = useState(true);
-  const [forceReboot, setForceReboot] = useState(false);
   const [rebooting, setRebooting] = useState(false);
   const [vultrMenuOpen, setVultrMenuOpen] = useState(false);
   const [vultrManaging, setVultrManaging] = useState(false);
+  const [securityGroupOpen, setSecurityGroupOpen] = useState(false);
+  const [vultrFirewallOpen, setVultrFirewallOpen] = useState(false);
   const [editingDisplayName, setEditingDisplayName] = useState(false);
   const [displayNameDraft, setDisplayNameDraft] = useState(displayName || "");
   const regionId = String(item._region_id || item.RegionId || "");
@@ -880,7 +1128,7 @@ function ServerCard({
       onStatus();
     } catch (error) { onNotice(`服务器${label}失败：${String(error)}`); }
   }
-  async function reboot() {
+  async function reboot(forceReboot: boolean) {
     if (!(await onConfirm(`确认${forceReboot ? "强制" : "正常"}重启服务器“${String(item.InstanceName || item.InstanceId || "")}”？`))) return;
     setRebooting(true);
     try {
@@ -946,6 +1194,7 @@ function ServerCard({
     finally { setVultrManaging(false); }
   }
   return (
+    <>
     <article className="server-card">
       <div className="server-account-label"><span className={`avatar cloud-avatar ${account.cloud_type}`}>{cloudProvider(account.cloud_type).avatar}</span><span>{account.account_name}</span></div>
       <div className="server-header">
@@ -1041,9 +1290,11 @@ function ServerCard({
           <Terminal size={13} />
           SSH 登录
         </button>
+        {["aliyun", "tencent", "baidu"].includes(account.cloud_type) && Boolean(regionId && item.InstanceId) && <button type="button" className="layui-btn layui-btn-small security-group-button" onClick={() => setSecurityGroupOpen(true)}><ShieldCheck size={13} />安全组</button>}
+        {account.cloud_type === "vultr" && Boolean(item.FirewallGroupId) && <button type="button" className="layui-btn layui-btn-small security-group-button" onClick={() => setVultrFirewallOpen(true)}><ShieldCheck size={13} />防火墙</button>}
         {supportsPowerControls && <>
-          {supportsForceReboot && <label className="force-reboot-toggle"><input type="checkbox" checked={forceReboot} onChange={(event) => setForceReboot(event.target.checked)} /><span>强制重启</span></label>}
-          <button className="layui-btn layui-btn-small layui-btn-danger" disabled={rebooting} onClick={() => void reboot()}>{rebooting ? "重启中…" : "重启"}</button>
+          <button className="layui-btn layui-btn-small layui-btn-danger" disabled={rebooting} onClick={() => void reboot(false)}>{rebooting ? "重启中…" : "重启"}</button>
+          {supportsForceReboot && <button className="layui-btn layui-btn-small layui-btn-danger" disabled={rebooting} onClick={() => void reboot(true)}>{rebooting ? "强制重启中…" : "强制重启"}</button>}
         </>}
         <button
           className="layui-btn layui-btn-small"
@@ -1088,6 +1339,9 @@ function ServerCard({
         </div>}
       </div>
     </article>
+    {securityGroupOpen && <SecurityGroupDialog account={account} regionId={regionId} instanceId={String(item.InstanceId)} onClose={() => setSecurityGroupOpen(false)} onConfirm={onConfirm} onNotice={onNotice} />}
+    {vultrFirewallOpen && <VultrFirewallDialog account={account} firewallGroupId={String(item.FirewallGroupId)} onClose={() => setVultrFirewallOpen(false)} onConfirm={onConfirm} onNotice={onNotice} />}
+    </>
   );
 }
 
@@ -1148,18 +1402,19 @@ function SwasCard({
   onSshLogin: () => void;
   onConfirm: (message: string) => Promise<boolean>;
 }) {
-  const [forceReboot, setForceReboot] = useState(false);
-  const [submitting, setSubmitting] = useState<"start" | "reboot" | "stop" | null>(null);
+  const [submitting, setSubmitting] = useState<"start" | "reboot" | "force-reboot" | "stop" | null>(null);
+  const [firewallOpen, setFirewallOpen] = useState(false);
   const regionId = String(item._region_id || item.RegionId || "");
   const instanceId = String(item.InstanceId || "");
   const status = String(item.Status || item.InstanceStatus || "");
   const instanceName = String(item.InstanceName || instanceId);
-  const canControl = (account.cloud_type === "aliyun" || account.cloud_type === "tencent") && regionId && instanceId;
+  const canControl = ["aliyun", "tencent", "jdcloud"].includes(account.cloud_type) && regionId && instanceId;
+  const canFirewall = account.cloud_type === "aliyun" || account.cloud_type === "tencent" || account.cloud_type === "jdcloud";
   const canForceReboot = account.cloud_type === "aliyun" || account.cloud_type === "tencent";
-  async function submit(action: "start" | "reboot" | "stop") {
+  async function submit(action: "start" | "reboot" | "stop", forceReboot = false) {
     const label = action === "start" ? "开机" : action === "reboot" ? `${canForceReboot && forceReboot ? "强制" : "正常"}重启` : "关机";
     if (!(await onConfirm(`确认${label}轻量服务器“${instanceName}”？`))) return;
-    setSubmitting(action);
+    setSubmitting(action === "reboot" && forceReboot ? "force-reboot" : action);
     try {
       if (runningInTauri) {
         await invoke("swas_instance_action", { id: account.id, regionId, instanceId, action, forceStop: action === "reboot" && canForceReboot && forceReboot });
@@ -1177,10 +1432,13 @@ function SwasCard({
   function openMonitor() {
     const url = account.cloud_type === "tencent"
       ? `https://console.cloud.tencent.com/lighthouse/instance/index?rid=${encodeURIComponent(regionId)}`
-      : `https://swas.console.aliyun.com/?regionId=${encodeURIComponent(regionId)}`;
+      : account.cloud_type === "jdcloud"
+        ? `https://console.jdcloud.com/lavm/instance/list?region=${encodeURIComponent(regionId)}`
+        : `https://swas.console.aliyun.com/?regionId=${encodeURIComponent(regionId)}`;
     window.open(url, "_blank", "noopener,noreferrer");
   }
   return (
+    <>
     <article className="swas-card">
       <div className="swas-header">
         <strong>{displayValue(item.InstanceName || item.InstanceId)}</strong>
@@ -1191,18 +1449,26 @@ function SwasCard({
         <div><span>地域：</span>{displayValue(item.RegionId || item._region_id)}</div>
         <div><span>公网 IP：</span>{displayValue(item.PublicIpAddress || item.PublicIp)}</div>
         <div><span>套餐：</span>{displayValue(item.PlanId || item.InstanceType)}</div>
+        <div><span>配置：</span>{displayValue(item.Cpu) !== "-" || displayValue(item.Memory) !== "-" ? `${displayValue(item.Cpu)} 核 / ${displayValue(item.Memory)} MB${displayValue(item.Bandwidth) !== "-" ? ` / ${displayValue(item.Bandwidth)} Mbps` : ""}` : "-"}</div>
         <div><span>镜像：</span>{displayValue(item.ImageId || item.ImageName)}</div>
+        <div><span>系统盘：</span>{displayValue(item.SystemDiskSize)} GB</div>
+        <div><span>私网 IP：</span>{displayValue(item.PrivateIpAddress)}</div>
         <div><span>到期时间：</span>{displayValue(item.ExpiredTime || item.ExpirationTime)}</div>
+        <div><span>创建时间：</span>{displayValue(item.CreateTime)}</div>
+        <div><span>VPC：</span>{displayValue(item.VpcId)}</div>
       </div>
       {canControl && <div className="server-actions">
         <button className="layui-btn layui-btn-small ssh-login-button" onClick={onSshLogin}><Terminal size={13} />SSH 登录</button>
-        {canForceReboot && <label className="force-reboot-toggle"><input type="checkbox" checked={forceReboot} disabled={Boolean(submitting)} onChange={(event) => setForceReboot(event.target.checked)} /><span>强制重启</span></label>}
+        {canFirewall && <button type="button" className="layui-btn layui-btn-small security-group-button" disabled={Boolean(submitting)} onClick={() => setFirewallOpen(true)}><ShieldCheck size={13} />防火墙</button>}
         <button className="layui-btn layui-btn-small layui-btn-danger" disabled={!canControl || Boolean(submitting)} onClick={() => void submit("reboot")}>{submitting === "reboot" ? "重启中…" : "重启"}</button>
+        {canForceReboot && <button className="layui-btn layui-btn-small layui-btn-danger" disabled={Boolean(submitting)} onClick={() => void submit("reboot", true)}>{submitting === "force-reboot" ? "强制重启中…" : "强制重启"}</button>}
         <button className="layui-btn layui-btn-small" disabled={Boolean(submitting)} onClick={onRefresh}><RefreshCw size={13} />刷新状态</button>
         <button className="layui-btn layui-btn-small layui-btn-primary" disabled={!regionId} onClick={openMonitor}><Monitor size={13} />监控</button>
         {status.toLowerCase() === "stopped" ? <button className="layui-btn layui-btn-small layui-btn-normal" disabled={Boolean(submitting)} onClick={() => void submit("start")}>{submitting === "start" ? "开机中…" : "开机"}</button> : <button className="layui-btn layui-btn-small layui-btn-danger" disabled={Boolean(submitting)} onClick={() => void submit("stop")}>{submitting === "stop" ? "关机中…" : "关机"}</button>}
       </div>}
     </article>
+    {firewallOpen && <LightFirewallDialog account={account} regionId={regionId} instanceId={instanceId} onClose={() => setFirewallOpen(false)} onConfirm={onConfirm} onNotice={onNotice} />}
+    </>
   );
 }
 
@@ -2060,6 +2326,8 @@ function App() {
   const [panelSaving, setPanelSaving] = useState(false);
   const [panelLoadingId, setPanelLoadingId] = useState<number | null>(null);
   const [panelOpeningId, setPanelOpeningId] = useState<number | null>(null);
+  const [panelSorting, setPanelSorting] = useState(false);
+  const [draggedPanelId, setDraggedPanelId] = useState<number | null>(null);
   const [panelKeyword, setPanelKeyword] = useState("");
   const [panelGroup, setPanelGroup] = useState("");
   const [editingPanelRemark, setEditingPanelRemark] = useState<{ id: number; value: string; initial: string } | null>(null);
@@ -2073,6 +2341,7 @@ function App() {
     return [0, 5, 10, 30, 60].includes(value) ? value : 0;
   });
   const panelRefreshInFlightRef = useRef(false);
+  const panelDragIdRef = useRef<number | null>(null);
   const panelImportInputRef = useRef<HTMLInputElement>(null);
   const [managedHosts, setManagedHosts] = useState<ManagedHost[]>([]);
   const [managedHostImporting, setManagedHostImporting] = useState(false);
@@ -2083,6 +2352,13 @@ function App() {
   const [managedHostLoadingId, setManagedHostLoadingId] = useState<number | null>(null);
   const [managedHostKeyword, setManagedHostKeyword] = useState("");
   const [managedHostGroup, setManagedHostGroup] = useState("");
+  const [managedHostOrder, setManagedHostOrder] = useState<string[]>(() => assetOrderFromValue(localStorage.getItem(cloudHubManagedHostOrderStorageKey) || undefined));
+  const [managedHostGroupOrder, setManagedHostGroupOrder] = useState<string[]>(() => assetOrderFromValue(localStorage.getItem(cloudHubManagedHostGroupOrderStorageKey) || undefined));
+  const [managedHostSorting, setManagedHostSorting] = useState(false);
+  const [draggedManagedHostId, setDraggedManagedHostId] = useState<number | null>(null);
+  const [draggedManagedHostGroup, setDraggedManagedHostGroup] = useState<string | null>(null);
+  const [collapsedManagedHostGroups, setCollapsedManagedHostGroups] = useState<Set<string>>(() => new Set());
+  const [managedHostMoreId, setManagedHostMoreId] = useState<number | null>(null);
   const [terminalSelectedHostId, setTerminalSelectedHostId] = useState<number | null>(null);
   const [favoriteAssetKeys, setFavoriteAssetKeys] = useState<string[]>(savedFavoriteAssetKeys);
   const [clientPreferencesReady, setClientPreferencesReady] = useState(!runningInTauri);
@@ -2124,6 +2400,8 @@ function App() {
   const [draggedFavoriteKey, setDraggedFavoriteKey] = useState<string | null>(null);
   const assetDragKeyRef = useRef<string | null>(null);
   const favoriteDragKeyRef = useRef<string | null>(null);
+  const managedHostDragIdRef = useRef<number | null>(null);
+  const managedHostGroupDragRef = useRef<string | null>(null);
   const [assetMoreKey, setAssetMoreKey] = useState<string | null>(null);
   const [logPage, setLogPage] = useState(1);
   const [apiLogPage, setApiLogPage] = useState(1);
@@ -2141,6 +2419,11 @@ function App() {
   const [sshSavePassword, setSshSavePassword] = useState(false);
   const [sshPasswordSaved, setSshPasswordSaved] = useState(false);
   const [sshPasswordRevealing, setSshPasswordRevealing] = useState(false);
+  const [terminalThemeName, setTerminalThemeName] = useState<TerminalThemeName>(() => {
+    const saved = localStorage.getItem(cloudHubTerminalThemeStorageKey);
+    return saved && saved in terminalThemes ? saved as TerminalThemeName : "dark";
+  });
+  const [terminalThemeMenuOpen, setTerminalThemeMenuOpen] = useState(false);
   const [sshSessionId, setSshSessionId] = useState("");
   const [terminalTabs, setTerminalTabs] = useState<TerminalWorkspaceTab[]>([]);
   const [activeTerminalTabId, setActiveTerminalTabId] = useState<string | null>(null);
@@ -2225,13 +2508,7 @@ function App() {
         fontSize: 14,
         lineHeight: 1.25,
         scrollback: 8_000,
-        theme: {
-          background: "#000000", foreground: "#f5f5f5", cursor: "#f5f5f5", selectionBackground: "#295b91",
-          black: "#000000", brightBlack: "#8a8a8a", red: "#ff6b6b", brightRed: "#ff8b8b",
-          green: "#61d095", brightGreen: "#7ff0b0", yellow: "#f6d365", brightYellow: "#ffe38c",
-          blue: "#70b7ff", brightBlue: "#9dceff", magenta: "#d29cff", brightMagenta: "#e5bfff",
-          cyan: "#66d9ef", brightCyan: "#9beaff", white: "#e6e6e6", brightWhite: "#ffffff",
-        },
+        theme: terminalThemes[terminalThemeName],
       });
       const fitAddon = new addon.FitAddon();
       terminal.loadAddon(fitAddon);
@@ -2268,6 +2545,13 @@ function App() {
       terminal?.dispose();
     };
   }, [sshSessionId]);
+
+  useEffect(() => {
+    const terminal = sshTerminalRef.current;
+    if (!terminal) return;
+    terminal.options.theme = terminalThemes[terminalThemeName];
+    terminal.refresh(0, Math.max(0, terminal.rows - 1));
+  }, [terminalThemeName]);
 
   useEffect(() => {
     if (sshSessionId) void loadSshFiles("/");
@@ -2369,6 +2653,49 @@ function App() {
       setPanelDialog(false); setStatus("面板验证成功，已加入面板管理");
     } catch (error) { setStatus(`绑定面板失败：${String(error)}`); }
     finally { setPanelSaving(false); }
+  }
+  async function reorderPanels(sourceId: number, targetId: number) {
+    if (sourceId === targetId) return;
+    const visibleIds = visiblePanels.map((panel) => panel.id);
+    const sourceIndex = visibleIds.indexOf(sourceId);
+    const targetIndex = visibleIds.indexOf(targetId);
+    if (sourceIndex < 0 || targetIndex < 0) return;
+    const nextVisibleIds = [...visibleIds];
+    nextVisibleIds.splice(sourceIndex, 1);
+    nextVisibleIds.splice(targetIndex, 0, sourceId);
+    const visibleIdSet = new Set(nextVisibleIds);
+    const remainingIds = panelConnections.filter((panel) => !visibleIdSet.has(panel.id)).map((panel) => panel.id);
+    const orderedIds = [...nextVisibleIds, ...remainingIds];
+    const order = new Map(orderedIds.map((id, index) => [id, index]));
+    setPanelConnections((current) => [...current].sort((left, right) => (order.get(left.id) ?? Number.MAX_SAFE_INTEGER) - (order.get(right.id) ?? Number.MAX_SAFE_INTEGER)).map((panel, index) => ({ ...panel, sort_order: index })));
+    try {
+      await invoke("update_panel_connection_order", { ids: orderedIds });
+    } catch (error) {
+      setStatus(`保存面板排序失败：${String(error)}`);
+      await loadPanelConnections();
+    }
+  }
+  function startPanelDrag(event: PointerEvent<HTMLButtonElement>, sourceId: number) {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    panelDragIdRef.current = sourceId;
+    setDraggedPanelId(sourceId);
+    const endDrag = (endEvent: globalThis.PointerEvent) => {
+      const target = document.elementFromPoint(endEvent.clientX, endEvent.clientY)?.closest<HTMLElement>("[data-panel-id]");
+      const targetId = Number(target?.dataset.panelId);
+      if (panelDragIdRef.current !== null && Number.isInteger(targetId)) void reorderPanels(panelDragIdRef.current, targetId);
+      panelDragIdRef.current = null;
+      setDraggedPanelId(null);
+      document.removeEventListener("pointercancel", cancelDrag);
+    };
+    const cancelDrag = () => {
+      panelDragIdRef.current = null;
+      setDraggedPanelId(null);
+      document.removeEventListener("pointerup", endDrag);
+    };
+    document.addEventListener("pointerup", endDrag, { once: true });
+    document.addEventListener("pointercancel", cancelDrag, { once: true });
   }
   async function refreshAllPanelConnections(quiet = false) {
     if (!runningInTauri || panelRefreshInFlightRef.current || !panelConnections.length) return;
@@ -2561,6 +2888,72 @@ function App() {
     } catch (error) { setStatus(`导入服务器失败：${String(error)}`); }
     finally { setManagedHostImporting(false); }
   }
+  function reorderManagedHosts(sourceId: number, targetId: number) {
+    if (sourceId === targetId) return;
+    const source = managedHosts.find((host) => host.id === sourceId);
+    const target = managedHosts.find((host) => host.id === targetId);
+    if (!source || !target || (source.group_name || "未分组") !== (target.group_name || "未分组")) return;
+    const order = new Map(managedHostOrder.map((id, index) => [id, index]));
+    const groupHostIds = managedHosts
+      .filter((host) => (host.group_name || "未分组") === (source.group_name || "未分组"))
+      .sort((left, right) => (order.get(String(left.id)) ?? Number.MAX_SAFE_INTEGER) - (order.get(String(right.id)) ?? Number.MAX_SAFE_INTEGER))
+      .map((host) => String(host.id));
+    const movedId = String(sourceId);
+    const nextGroupHostIds = groupHostIds.filter((id) => id !== movedId);
+    nextGroupHostIds.splice(nextGroupHostIds.indexOf(String(targetId)), 0, movedId);
+    const groupHostIdSet = new Set(groupHostIds);
+    setManagedHostOrder((current) => [...current.filter((id) => !groupHostIdSet.has(id)), ...nextGroupHostIds]);
+  }
+  function startManagedHostDrag(event: PointerEvent<HTMLButtonElement>, sourceId: number) {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    managedHostDragIdRef.current = sourceId;
+    setDraggedManagedHostId(sourceId);
+    const endDrag = (endEvent: globalThis.PointerEvent) => {
+      const target = document.elementFromPoint(endEvent.clientX, endEvent.clientY)?.closest<HTMLElement>("[data-managed-host-id]");
+      const targetId = Number(target?.dataset.managedHostId);
+      if (managedHostDragIdRef.current !== null && Number.isInteger(targetId)) reorderManagedHosts(managedHostDragIdRef.current, targetId);
+      managedHostDragIdRef.current = null;
+      setDraggedManagedHostId(null);
+      document.removeEventListener("pointercancel", cancelDrag);
+    };
+    const cancelDrag = () => {
+      managedHostDragIdRef.current = null;
+      setDraggedManagedHostId(null);
+      document.removeEventListener("pointerup", endDrag);
+    };
+    document.addEventListener("pointerup", endDrag, { once: true });
+    document.addEventListener("pointercancel", cancelDrag, { once: true });
+  }
+  function reorderManagedHostGroups(sourceGroup: string, targetGroup: string) {
+    if (!sourceGroup || sourceGroup === targetGroup) return;
+    const nextGroups = managedHostGroups.filter((group) => group !== sourceGroup);
+    nextGroups.splice(nextGroups.indexOf(targetGroup), 0, sourceGroup);
+    setManagedHostGroupOrder(nextGroups);
+  }
+  function startManagedHostGroupDrag(event: PointerEvent<HTMLButtonElement>, sourceGroup: string) {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    managedHostGroupDragRef.current = sourceGroup;
+    setDraggedManagedHostGroup(sourceGroup);
+    const endDrag = (endEvent: globalThis.PointerEvent) => {
+      const target = document.elementFromPoint(endEvent.clientX, endEvent.clientY)?.closest<HTMLElement>("[data-managed-host-group]");
+      const targetGroup = target?.dataset.managedHostGroup;
+      if (managedHostGroupDragRef.current && targetGroup) reorderManagedHostGroups(managedHostGroupDragRef.current, targetGroup);
+      managedHostGroupDragRef.current = null;
+      setDraggedManagedHostGroup(null);
+      document.removeEventListener("pointercancel", cancelDrag);
+    };
+    const cancelDrag = () => {
+      managedHostGroupDragRef.current = null;
+      setDraggedManagedHostGroup(null);
+      document.removeEventListener("pointerup", endDrag);
+    };
+    document.addEventListener("pointerup", endDrag, { once: true });
+    document.addEventListener("pointercancel", cancelDrag, { once: true });
+  }
   function activateTerminalTab(tab: TerminalWorkspaceTab) {
     setActiveTerminalTabId(tab.id);
     if (tab.target.managedHostId) setTerminalSelectedHostId(tab.target.managedHostId);
@@ -2642,6 +3035,10 @@ function App() {
         const payload = { id: account.id, regionId, instanceId, action: "reboot", forceStop };
         if (runningInTauri) await invoke("baidu_instance_action", payload);
         else await webApi("/api/bcc-action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      } else if (account.cloud_type === "vultr") {
+        const payload = { id: account.id, instanceId, action: "reboot" };
+        if (runningInTauri) await invoke("vultr_instance_action", payload);
+        else await webApi("/api/vultr-instance-action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       } else {
         if (!runningInTauri) throw new Error("网页端暂不支持阿里云服务器重启，请使用客户端操作");
         await invoke("reboot_instance", { id: account.id, regionId, instanceId, forceStop });
@@ -2675,6 +3072,10 @@ function App() {
         const payload = { id: account.id, regionId, instanceId, action: "stop", forceStop: false };
         if (runningInTauri) await invoke("baidu_instance_action", payload);
         else await webApi("/api/bcc-action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      } else if (account.cloud_type === "vultr") {
+        const payload = { id: account.id, instanceId, action: "stop" };
+        if (runningInTauri) await invoke("vultr_instance_action", payload);
+        else await webApi("/api/vultr-instance-action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       } else {
         const payload = { id: account.id, regionId, instanceId, action: "stop" };
         if (runningInTauri) await invoke("stop_instance", payload);
@@ -3698,6 +4099,9 @@ function App() {
       if (preferences[cloudHubAssetNotesStorageKey] !== undefined) setAssetNotes(assetNotesFromValue(preferences[cloudHubAssetNotesStorageKey]));
       if (preferences[cloudHubAssetOrderStorageKey] !== undefined) setAssetOrder(assetOrderFromValue(preferences[cloudHubAssetOrderStorageKey]));
       if (preferences[cloudHubAssetDisplayNamesStorageKey] !== undefined) setAssetDisplayNames(assetDisplayNamesFromValue(preferences[cloudHubAssetDisplayNamesStorageKey]));
+      if (preferences[cloudHubManagedHostOrderStorageKey] !== undefined) setManagedHostOrder(assetOrderFromValue(preferences[cloudHubManagedHostOrderStorageKey]));
+      if (preferences[cloudHubManagedHostGroupOrderStorageKey] !== undefined) setManagedHostGroupOrder(assetOrderFromValue(preferences[cloudHubManagedHostGroupOrderStorageKey]));
+      if (preferences[cloudHubTerminalThemeStorageKey] !== undefined && preferences[cloudHubTerminalThemeStorageKey] in terminalThemes) setTerminalThemeName(preferences[cloudHubTerminalThemeStorageKey] as TerminalThemeName);
       if (preferences["aliyun-auto-refresh"] !== undefined) setAutoRefresh(preferences["aliyun-auto-refresh"] !== "0");
       if (preferences["aliyun-compact-mode"] !== undefined) setCompactMode(preferences["aliyun-compact-mode"] === "1");
       if (preferences["aliyun-panel-hide-ip"] !== undefined) setHidePanelIps(preferences["aliyun-panel-hide-ip"] === "1");
@@ -3730,6 +4134,9 @@ function App() {
   useEffect(() => { const value = JSON.stringify(assetNotes); localStorage.setItem(cloudHubAssetNotesStorageKey, value); saveClientPreference(cloudHubAssetNotesStorageKey, value); }, [assetNotes, clientPreferencesReady]);
   useEffect(() => { const value = JSON.stringify(assetOrder); localStorage.setItem(cloudHubAssetOrderStorageKey, value); saveClientPreference(cloudHubAssetOrderStorageKey, value); }, [assetOrder, clientPreferencesReady]);
   useEffect(() => { const value = JSON.stringify(assetDisplayNames); localStorage.setItem(cloudHubAssetDisplayNamesStorageKey, value); saveClientPreference(cloudHubAssetDisplayNamesStorageKey, value); }, [assetDisplayNames, clientPreferencesReady]);
+  useEffect(() => { const value = JSON.stringify(managedHostOrder); localStorage.setItem(cloudHubManagedHostOrderStorageKey, value); saveClientPreference(cloudHubManagedHostOrderStorageKey, value); }, [managedHostOrder, clientPreferencesReady]);
+  useEffect(() => { const value = JSON.stringify(managedHostGroupOrder); localStorage.setItem(cloudHubManagedHostGroupOrderStorageKey, value); saveClientPreference(cloudHubManagedHostGroupOrderStorageKey, value); }, [managedHostGroupOrder, clientPreferencesReady]);
+  useEffect(() => { localStorage.setItem(cloudHubTerminalThemeStorageKey, terminalThemeName); saveClientPreference(cloudHubTerminalThemeStorageKey, terminalThemeName); }, [terminalThemeName, clientPreferencesReady]);
   useEffect(() => { const value = String(operationLogClearedAt); localStorage.setItem("aliyun-operation-log-cleared-at", value); saveClientPreference("aliyun-operation-log-cleared-at", value); }, [operationLogClearedAt, clientPreferencesReady]);
   useEffect(() => {
     setSelectedAccountIds((current) => {
@@ -4737,12 +5144,19 @@ function App() {
     }).sort((left, right) => (order.get(assetFavoriteKey(left)) ?? Number.MAX_SAFE_INTEGER) - (order.get(assetFavoriteKey(right)) ?? Number.MAX_SAFE_INTEGER));
   }, [favoriteAssets, favoriteAssetOrder, accounts, favoriteTypeFilter, favoriteKeyword, favoriteRegionFilter]);
   const pagedFavoriteAssets = visibleFavoriteAssets.slice((favoritePage - 1) * pageSize, favoritePage * pageSize);
-  const managedHostGroups = useMemo(() => Array.from(new Set(managedHosts.map((host) => host.group_name || "未分组"))).sort(), [managedHosts]);
-  const visibleManagedHosts = useMemo(() => managedHosts.filter((host) => {
+  const managedHostGroups = useMemo(() => {
+    const order = new Map(managedHostGroupOrder.map((group, index) => [group, index]));
+    return Array.from(new Set(managedHosts.map((host) => host.group_name || "未分组")))
+      .sort((left, right) => (order.get(left) ?? Number.MAX_SAFE_INTEGER) - (order.get(right) ?? Number.MAX_SAFE_INTEGER) || left.localeCompare(right));
+  }, [managedHosts, managedHostGroupOrder]);
+  const visibleManagedHosts = useMemo(() => {
+    const order = new Map(managedHostOrder.map((id, index) => [id, index]));
     const keyword = managedHostKeyword.trim().toLowerCase();
-    return (!managedHostGroup || (host.group_name || "未分组") === managedHostGroup)
-      && (!keyword || `${host.name} ${host.host} ${host.username} ${host.tags || ""}`.toLowerCase().includes(keyword));
-  }), [managedHosts, managedHostGroup, managedHostKeyword]);
+    return managedHosts.filter((host) => {
+      return (!managedHostGroup || (host.group_name || "未分组") === managedHostGroup)
+        && (!keyword || `${host.name} ${host.host} ${host.username} ${host.tags || ""}`.toLowerCase().includes(keyword));
+    }).sort((left, right) => (order.get(String(left.id)) ?? Number.MAX_SAFE_INTEGER) - (order.get(String(right.id)) ?? Number.MAX_SAFE_INTEGER));
+  }, [managedHosts, managedHostOrder, managedHostGroup, managedHostKeyword]);
   const panelGroups = useMemo(() => Array.from(new Set(panelConnections.map((panel) => panel.group_name || "未分组"))).sort(), [panelConnections]);
   const visiblePanels = useMemo(() => panelConnections.filter((panel) => {
     const keyword = panelKeyword.trim().toLowerCase();
@@ -4763,8 +5177,21 @@ function App() {
     const key = assetFavoriteKey(asset);
     setFavoriteAssetKeys((current) => current.includes(key) ? current.filter((item) => item !== key) : [...current, key]);
   };
+  async function deleteLocalAsset(asset: LocalAsset) {
+    const assetName = String(asset.payload?.InstanceName || asset.payload?.Name || asset.payload?.DomainName || asset.asset_key);
+    if (!(await requestConfirm(`确认删除本地缓存记录“${assetName}”吗？\n这不会删除云端真实资源。`))) return;
+    try {
+      if (runningInTauri) await invoke("delete_local_asset", { accountId: asset.account_id, resourceType: asset.resource_type, assetKey: asset.asset_key });
+      else await webApi(`/api/local-assets?account_id=${asset.account_id}&resource_type=${encodeURIComponent(asset.resource_type)}&asset_key=${encodeURIComponent(asset.asset_key)}`, { method: "DELETE" });
+      setLocalAssets((items) => items.filter((item) => item.account_id !== asset.account_id || item.resource_type !== asset.resource_type || item.asset_key !== asset.asset_key));
+      setStatus(`已删除“${assetName}”的本地缓存记录`);
+    } catch (error) { setStatus(`删除本地缓存记录失败：${String(error)}`); }
+  }
   const renderAssetActions = (asset: LocalAsset, account: Account | undefined) => {
     if (!account) return <span className="asset-action-muted">—</span>;
+    if (account.cloud_type === "other") return <div className="asset-action-buttons">
+      <button type="button" className="asset-cache-delete-button" onClick={() => void deleteLocalAsset(asset)}><Trash2 size={15} />删除记录</button>
+    </div>;
     if (asset.resource_type === "domain" && !["oracle", "huawei", "baidu", "ucloud", "aws", "azure", "gcp", "jdcloud", "qingcloud", "ksyun"].includes(account.cloud_type)) return <div className="asset-action-buttons domain-asset-actions">
       <button className="asset-domain-dns-button" onClick={() => openLocalDomainTool(asset, account, "dns")}>解析管理</button>
       <button className="asset-domain-log-button" onClick={() => openLocalDomainTool(asset, account, "logs")}>操作日志</button>
@@ -4778,7 +5205,7 @@ function App() {
       const key = assetFavoriteKey(asset);
       const linkedPanel = panelConnections.find((panel) => panel.source_account_id === account.id && panel.source_asset_key === asset.asset_key);
       const linkedHost = managedHosts.find((host) => host.source_account_id === account.id && host.source_asset_key === asset.asset_key);
-      const canControl = ["aliyun", "tencent", "baidu", "oracle"].includes(account.cloud_type);
+      const canControl = ["aliyun", "tencent", "baidu", "oracle", "jdcloud", "vultr"].includes(account.cloud_type);
       return <div className="asset-action-buttons server-asset-actions">
         {canControl && <button className="asset-force-reboot-button" onClick={() => void rebootLocalAsset(asset, true)}><RefreshCw size={15} />强制重启</button>}
         <span className={`asset-more-wrap ${assetMoreKey === key ? "is-open" : ""}`}>
@@ -5666,17 +6093,17 @@ function App() {
             </header>
             <section className="managed-server-toolbar panel-management-toolbar">
               <label className="managed-host-search"><Search size={16} /><input value={panelKeyword} onChange={(event) => setPanelKeyword(event.target.value)} placeholder="搜索面板名称、IP 地址或备注" /></label>
-              <select value={panelGroup} onChange={(event) => setPanelGroup(event.target.value)}><option value="">全部分组</option>{panelGroups.map((group) => <option key={group} value={group}>{group}</option>)}</select>
-              <button className="secondary" disabled={panelLoadingId !== null} onClick={() => void refreshAllPanelConnections()}><RefreshCw size={15} className={panelLoadingId !== null ? "spin" : ""} />{panelLoadingId !== null ? "刷新中" : "刷新列表"}</button>
-              <button type="button" className="layui-btn layui-btn-normal panel-toolbar-add" onClick={() => openPanelDialog()}><Plus size={15} />添加服务器面板</button>
+              <select value={panelGroup} disabled={panelSorting} onChange={(event) => setPanelGroup(event.target.value)}><option value="">全部分组</option>{panelGroups.map((group) => <option key={group} value={group}>{group}</option>)}</select>
+              <button className="secondary" disabled={panelLoadingId !== null} onClick={() => void refreshAllPanelConnections()}><RefreshCw size={15} className={panelLoadingId !== null ? "spin" : ""} />{panelLoadingId !== null ? "刷新中" : "刷新"}</button>
+              <button type="button" className="layui-btn layui-btn-normal panel-toolbar-add" onClick={() => openPanelDialog()}><Plus size={15} />添加</button>
               <button type="button" className="secondary" disabled={!panelConnections.length} onClick={() => void exportPanels()}><Download size={15} />导出{selectedPanelIds.size ? ` (${selectedPanelIds.size})` : "全部"}</button>
               <label className="layui-btn panel-toolbar-import"><Upload size={15} />{panelImporting ? "导入中" : "导入"}<input ref={panelImportInputRef} type="file" accept="application/json,.json" disabled={panelImporting} onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void importPanels(file); }} /></label>
               <label className="panel-toolbar-option"><input type="checkbox" checked={hidePanelIps} onChange={(event) => setHidePanelIps(event.target.checked)} />隐藏 IP</label>
               <label className="panel-toolbar-option panel-refresh-mode">监控刷新<select value={panelRefreshSeconds} onChange={(event) => setPanelRefreshSeconds(Number(event.target.value))} aria-label="监控资源刷新间隔"><option value={0}>关闭</option><option value={5}>5 秒</option><option value={10}>10 秒</option><option value={30}>30 秒</option><option value={60}>60 秒</option></select></label>
               <label className="panel-toolbar-option panel-open-mode">打开面板<select value={panelOpenMode} onChange={(event) => setPanelOpenMode(event.target.value as "browser" | "copy")}><option value="browser">默认浏览器打开</option><option value="copy">复制临时 URL</option></select></label>
-              <span>共 {panelConnections.length} 台服务器</span>
+              <button type="button" className={`panel-sort-button${panelSorting ? " is-sorting" : ""}`} onClick={() => { setPanelSorting((value) => !value); setDraggedPanelId(null); }}><GripVertical size={15} />{panelSorting ? "退出排序" : "排序"}</button><span>共 {panelConnections.length} 台服务器</span>
             </section>
-            {visiblePanels.length ? <div className="panel-monitor-scroll"><div className="panel-monitor-table"><div className="panel-monitor-table-head"><span><input type="checkbox" aria-label="选择全部当前面板" checked={visiblePanels.length > 0 && visiblePanels.every((panel) => selectedPanelIds.has(panel.id))} onChange={toggleAllVisiblePanels} /></span><span>服务器信息</span><span>状态</span><span>资源监控</span><span>操作</span></div>{visiblePanels.map((panel) => {
+            {visiblePanels.length ? <div className={`panel-monitor-scroll${panelSorting ? " is-sorting" : ""}`}><div className="panel-monitor-table"><div className="panel-monitor-table-head"><span>{panelSorting ? "排序" : <input type="checkbox" aria-label="选择全部当前面板" checked={visiblePanels.length > 0 && visiblePanels.every((panel) => selectedPanelIds.has(panel.id))} onChange={toggleAllVisiblePanels} />}</span><span>服务器信息</span><span>状态</span><span>资源监控</span><span>操作</span></div>{visiblePanels.map((panel) => {
               const summary = panel.summary || {};
               const value = (key: string) => { const entry = summary[key]; return entry == null || entry === "" ? "-" : typeof entry === "string" || typeof entry === "number" ? String(entry) : "-"; };
               const sourceAccount = panel.source_account_id ? accounts.find((account) => account.id === panel.source_account_id) : undefined;
@@ -5696,8 +6123,8 @@ function App() {
                 { label: "内存", detail: memory.detail, percent: memory.percent },
                 { label: "磁盘", detail: disk.detail, percent: disk.percent },
               ];
-              return <article className={`panel-monitor-row ${panel.status}`} key={panel.id}>
-                <div className="panel-row-order"><input aria-label={`选择面板 ${panel.name}`} type="checkbox" checked={selectedPanelIds.has(panel.id)} onChange={() => togglePanelSelection(panel.id)} /></div>
+              return <article className={`panel-monitor-row ${panel.status}${panelSorting ? " is-sorting" : ""}${draggedPanelId === panel.id ? " is-dragging" : ""}`} key={panel.id} data-panel-id={panel.id}>
+                <div className="panel-row-order">{panelSorting ? <button type="button" className="panel-drag-handle" title="拖动排序" aria-label={`拖动排序 ${panel.name}`} onPointerDown={(event) => startPanelDrag(event, panel.id)}><GripVertical size={18} /></button> : <input aria-label={`选择面板 ${panel.name}`} type="checkbox" checked={selectedPanelIds.has(panel.id)} onChange={() => togglePanelSelection(panel.id)} />}</div>
                 <div className="panel-row-server"><div className="panel-row-note"><span>备注</span>{editingPanelRemark?.id === panel.id ? <input value={editingPanelRemark.value} autoFocus onChange={(event) => setEditingPanelRemark((current) => current?.id === panel.id ? { ...current, value: event.target.value } : current)} onBlur={() => void savePanelRemark(panel)} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") setEditingPanelRemark(null); }} aria-label={`${panel.name} 的备注`} placeholder="添加备注" /> : <button type="button" className={panel.remark ? "has-note" : ""} onClick={() => setEditingPanelRemark({ id: panel.id, value: panel.remark || "", initial: panel.remark || "" })}>{panel.remark || "添加备注"}</button>}</div><div className="panel-row-address"><i className={panel.status} /><strong title={hidePanelIps ? undefined : panel.panel_url}>{hidePanelIps ? hiddenPanelAddress(panel.panel_url) : panelAddress(panel.panel_url)}</strong><button type="button" title="复制面板地址" onClick={() => void copyPanelAddress(panel)}><Copy size={15} /></button><button type="button" title="编辑面板" onClick={() => openPanelDialog(panel)}><Settings size={15} /></button></div><div className="panel-row-details"><span>名称：{panel.name}</span><span>来源：{panel.group_name || "-"}</span></div></div>
                 <div className="panel-row-status"><span className={`managed-server-status ${panel.status}`}>{panel.status === "online" ? "在线" : panel.status === "offline" ? "离线" : "未检测"}</span><small>{value("version") === "-" ? "版本未获取" : value("version")}</small><small>{panel.last_checked_at ? `同步于 ${formatChineseDateTime(panel.last_checked_at)}` : "尚未同步"}</small>{panel.status === "offline" && panel.last_error && <em title={panel.last_error}>连接失败</em>}</div>
                 <div className="panel-row-metrics">{metrics.map((metric) => <div className={`panel-resource-metric ${metric.label === "磁盘" ? "is-disk-metric" : ""}`} key={metric.label}>{metric.label === "磁盘" ? <div className="panel-disk-label"><span>磁盘</span>{diskItems.length > 1 && <button type="button" className="panel-disk-toggle" title={panelDisksExpanded ? "收起磁盘分区" : "展开全部磁盘分区"} aria-label={panelDisksExpanded ? "收起磁盘分区" : "展开全部磁盘分区"} aria-expanded={panelDisksExpanded} onClick={() => setExpandedPanelDisks((current) => { const next = new Set(current); if (next.has(panel.id)) next.delete(panel.id); else next.add(panel.id); return next; })}>{panelDisksExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</button>}</div> : <span>{metric.label}</span>}{metric.label === "磁盘" ? <strong title={`${disk.path} ${metric.detail}`}>{disk.path !== "-" ? `[${disk.path}] ` : ""}{metric.detail}</strong> : typeof metric.detail === "string" ? <strong title={metric.detail}>{metric.detail}</strong> : <strong className="panel-network-detail">{metric.detail}</strong>}{metric.percent !== null ? <i title={`${metric.label} ${Math.round(metric.percent)}%`}><b style={{ width: `${metric.percent}%` }} /></i> : <i className="panel-metric-idle" />}{metric.label === "磁盘" && panelDisksExpanded && diskItems.slice(1).length > 0 && <div className="panel-disk-volumes">{diskItems.slice(1).map((volume) => <div className="panel-disk-volume" key={`${panel.id}-${volume.path}`}><span>{volume.path}</span><strong title={volume.detail}>{volume.detail}</strong>{volume.percent !== null && <i title={`${volume.path} ${Math.round(volume.percent)}%`}><b style={{ width: `${volume.percent}%` }} /></i>}</div>)}</div>}</div>)}</div>
@@ -5710,15 +6137,17 @@ function App() {
           <section className="managed-servers-page">
             <div ref={terminalWorkbenchRef} className={`terminal-workbench${sshFilePaneCollapsed ? " is-file-pane-collapsed" : ""}`} style={{ gridTemplateColumns: `${terminalHostSidebarWidth}px minmax(0, 1fr)`, "--terminal-host-sidebar-width": `${terminalHostSidebarWidth}px` } as CSSProperties}>
               <aside className="terminal-host-sidebar" aria-label="服务器列表">
-                <div className="terminal-host-actions"><button type="button" className="terminal-toolbar-icon" title="导出全部服务器（明文 JSON）" disabled={!managedHosts.length} onClick={() => void exportManagedHosts()}><Download size={15} /></button><label className="terminal-toolbar-icon terminal-import-button" title="导入服务器 JSON"><Upload size={15} /><input ref={managedHostImportInputRef} type="file" accept="application/json,.json" disabled={managedHostImporting} onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void importManagedHosts(file); }} /></label><button type="button" className="terminal-toolbar-icon" title="刷新服务器状态" onClick={() => void loadManagedHosts()}><RefreshCw size={16} /></button></div>
-                <div className="terminal-group-title"><span><List size={15} />分组</span><select value={managedHostGroup} onChange={(event) => setManagedHostGroup(event.target.value)}><option value="">全部分组</option>{managedHostGroups.map((group) => <option key={group} value={group}>{group}</option>)}</select></div>
+                <div className="terminal-host-actions"><button type="button" className="terminal-toolbar-action" title="导出全部服务器（明文 JSON）" disabled={!managedHosts.length} onClick={() => void exportManagedHosts()}><Download size={15} />导出</button><label className="terminal-toolbar-action terminal-import-button" title="导入服务器 JSON"><Upload size={15} />{managedHostImporting ? "导入中" : "导入"}<input ref={managedHostImportInputRef} type="file" accept="application/json,.json" disabled={managedHostImporting} onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void importManagedHosts(file); }} /></label><button type="button" className="terminal-toolbar-action" title="刷新服务器状态" onClick={() => void loadManagedHosts()}><RefreshCw size={16} />刷新</button></div>
+                <div className="terminal-group-title"><span><List size={15} />分组</span><div className="terminal-group-controls"><select value={managedHostGroup} disabled={managedHostSorting} onChange={(event) => setManagedHostGroup(event.target.value)}><option value="">全部分组</option>{managedHostGroups.map((group) => <option key={group} value={group}>{group}</option>)}</select><button type="button" className={managedHostSorting ? "is-sorting" : ""} onClick={() => { setManagedHostSorting((value) => !value); setDraggedManagedHostId(null); setDraggedManagedHostGroup(null); setManagedHostMoreId(null); }}><GripVertical size={14} />{managedHostSorting ? "退出排序" : "排序"}</button></div></div>
                 <label className="terminal-host-search"><Search size={15} /><input value={managedHostKeyword} onChange={(event) => setManagedHostKeyword(event.target.value)} placeholder="搜索服务器 IP/名称" /></label>
                 <button type="button" className="terminal-add-host" onClick={() => openManagedHostDialog()}><Plus size={16} />添加服务器</button>
                 <div className="terminal-host-tree">
                   {managedHostGroups.map((group) => {
                     const hosts = visibleManagedHosts.filter((host) => (host.group_name || "未分组") === group);
                     if (!hosts.length) return null;
-                    return <section className="terminal-host-group" key={group}><h2>{group}</h2>{hosts.map((host) => <div className={`terminal-host-row ${terminalSelectedHostId === host.id ? "active" : ""}`} key={host.id}><button type="button" title={host.platform === "windows" ? "打开 Windows 远程桌面" : "打开 SSH 终端"} onClick={() => { setTerminalSelectedHostId(host.id); openManagedHostSsh(host); }}><i className={host.status} /><span title={host.name}>{host.name}</span><small>{host.platform === "windows" ? `RDP · ${host.host}` : host.host}</small></button>{host.platform !== "windows" && <button type="button" title="刷新服务器状态" disabled={managedHostLoadingId !== null} onClick={() => void probeManagedHost(host.id)}><RefreshCw size={14} className={managedHostLoadingId === host.id ? "spin" : ""} /></button>}<button type="button" title="编辑服务器" onClick={() => openManagedHostDialog(host)}><Settings size={14} /></button><button type="button" title="移除服务器" onClick={() => void deleteManagedHost(host)}><Trash2 size={14} /></button></div>)}</section>;
+                    const collapsed = !managedHostSorting && collapsedManagedHostGroups.has(group);
+                    const personalGroup = /个人|默认/.test(group);
+                    return <section className={`terminal-host-group${draggedManagedHostGroup === group ? " is-dragging" : ""}${collapsed ? " is-collapsed" : ""}`} key={group} data-managed-host-group={group}><div className="terminal-host-group-head">{managedHostSorting ? <button type="button" className="terminal-group-drag-handle" title="拖动分组排序" aria-label={`拖动分组排序 ${group}`} onPointerDown={(event) => startManagedHostGroupDrag(event, group)}><GripVertical size={15} /></button> : personalGroup ? <UserRound size={18} /> : <Building2 size={18} />}<button type="button" className="terminal-host-group-toggle" disabled={managedHostSorting} onClick={() => setCollapsedManagedHostGroups((current) => { const next = new Set(current); if (next.has(group)) next.delete(group); else next.add(group); return next; })}><strong>{group}</strong><span>{hosts.length}</span>{collapsed ? <ChevronDown size={18} /> : <ChevronUp size={18} />}</button></div>{!collapsed && hosts.map((host) => <article className={`terminal-host-card${terminalSelectedHostId === host.id ? " active" : ""}${managedHostSorting ? " is-sorting" : ""}${draggedManagedHostId === host.id ? " is-dragging" : ""}`} key={host.id} data-managed-host-id={host.id}>{managedHostSorting && <button type="button" className="terminal-host-drag-handle" title="拖动排序" aria-label={`拖动排序 ${host.name}`} onPointerDown={(event) => startManagedHostDrag(event, host.id)}><GripVertical size={16} /></button>}<button type="button" className="terminal-host-card-main" title={host.platform === "windows" ? "打开 Windows 远程桌面" : "打开 SSH 终端"} disabled={managedHostSorting} onClick={(event) => { if (event.detail > 1) return; setTerminalSelectedHostId(host.id); openManagedHostSsh(host); }}><span className="terminal-host-platform"><Monitor size={25} /><i className={host.status} /></span><span className="terminal-host-card-copy"><strong title={host.name}>{host.name}</strong><small>{host.platform === "windows" ? `RDP · ${host.host}` : host.host}</small></span></button>{!managedHostSorting && <div className="terminal-host-card-actions"><button type="button" title="更多操作" aria-label={`${host.name} 的更多操作`} aria-expanded={managedHostMoreId === host.id} onClick={(event) => { event.stopPropagation(); setManagedHostMoreId((current) => current === host.id ? null : host.id); }}><MoreVertical size={20} /></button>{managedHostMoreId === host.id && <div className="terminal-host-more-menu"><button type="button" onClick={() => { setManagedHostMoreId(null); openManagedHostDialog(host); }}><Settings size={14} />编辑</button>{host.platform !== "windows" && <button type="button" disabled={managedHostLoadingId !== null} onClick={() => { setManagedHostMoreId(null); void probeManagedHost(host.id); }}><RefreshCw size={14} />刷新</button>}<button type="button" className="danger" onClick={() => { setManagedHostMoreId(null); void deleteManagedHost(host); }}><Trash2 size={14} />移除</button></div>}</div>}</article>)}</section>;
                   })}
                   {!visibleManagedHosts.length && <div className="terminal-host-empty"><Server size={30} /><p>{managedHosts.length ? "没有匹配的服务器" : "添加服务器后即可开始连接"}</p></div>}
                 </div>
@@ -5733,7 +6162,7 @@ function App() {
                   })}
                   {sshSessionId && <button type="button" title={sshFilePaneCollapsed ? "展开文件管理" : "收起文件管理"} aria-label={sshFilePaneCollapsed ? "展开文件管理" : "收起文件管理"} onClick={() => setSshFilePaneCollapsed((value) => !value)}>{sshFilePaneCollapsed ? <PanelRightOpen size={16} /> : <PanelRightClose size={16} />}</button>}
                 </div>
-                {sshSessionId ? <div className="terminal-session-shell"><div className="ssh-terminal-meta"><span>{sshUsername}@{sshHost}:{sshPort}</span><span className="ssh-connected">已连接</span><button type="button" className="ssh-terminal-command" title="命令补全 (Tab)" aria-label="命令补全 (Tab)" onClick={completeSshCommand}><Keyboard size={16} /></button><button className="ssh-clear-button" onClick={() => sshTerminalRef.current?.clear()}>清屏</button><button className="ssh-disconnect-button" onClick={() => void closeSshClient()}>断开</button></div><div ref={sshWorkspaceRef} className="ssh-terminal-workspace" style={{ gridTemplateColumns: `minmax(360px, 1fr) 8px minmax(330px, ${sshFilePaneWidth}px)` }}><div className="ssh-terminal-viewport" ref={sshTerminalHostRef} aria-label="SSH 终端" /><div className="ssh-file-resizer" role="separator" aria-label="调整文件管理面板宽度" aria-orientation="vertical" onPointerDown={startSshFileResize} /> <aside className={`ssh-file-manager${sshFileDragActive ? " is-dragging" : ""}`} aria-label="远程文件管理" onDragEnter={(event) => { event.preventDefault(); setSshFileDragActive(true); }} onDragOver={(event) => event.preventDefault()} onDragLeave={(event) => { if (event.currentTarget === event.target) setSshFileDragActive(false); }} onDrop={(event) => { event.preventDefault(); setSshFileDragActive(false); void uploadSshFiles(event.dataTransfer.files); }}><div className="ssh-file-toolbar"><button type="button" title="返回上级目录" disabled={sshFilesLoading || sshFilePath === "/"} onClick={() => void loadSshFiles(parentSshPath(sshFilePath))}><ChevronLeft size={16} /></button><input className="ssh-file-path" value={sshFilePath} onChange={(event) => setSshFilePath(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void loadSshFiles(event.currentTarget.value); }} aria-label="远程目录路径" /><button type="button" title="刷新目录" disabled={sshFilesLoading} onClick={() => void loadSshFiles()}><RefreshCw size={15} className={sshFilesLoading ? "spin" : ""} /></button></div><div className="ssh-file-actions"><button type="button" title="上传文件" disabled={sshFilesLoading} onClick={() => sshUploadInputRef.current?.click()}><Upload size={15} />上传</button><button type="button" title="新建文件夹" disabled={sshFilesLoading} onClick={() => void makeSshDirectory()}><FolderPlus size={15} />新建</button><input ref={sshUploadInputRef} className="ssh-file-upload-input" type="file" multiple onChange={(event) => { const files = event.currentTarget.files; event.currentTarget.value = ""; if (files?.length) void uploadSshFiles(files); }} /></div>{sshFileEditor ? <div className="ssh-file-editor"><div className="ssh-file-editor-head"><span title={sshFileEditor.path}>{sshFileEditor.path}</span><button type="button" title="关闭编辑器" onClick={() => setSshFileEditor(null)}><X size={15} /></button></div><textarea value={sshFileEditor.content} spellCheck={false} onChange={(event) => setSshFileEditor((current) => current ? { ...current, content: event.target.value } : current)} /><div className="ssh-file-editor-actions"><button type="button" onClick={() => setSshFileEditor(null)}>关闭</button><button type="button" className="primary" disabled={sshFileSaving} onClick={() => void saveSshFile()}><Save size={15} />{sshFileSaving ? "保存中" : "保存"}</button></div></div> : <div className="ssh-file-list"><div className="ssh-file-list-head"><span>名称</span><span>大小</span><span>权限 / 所有者</span></div>{sshFiles.map((entry) => <div className="ssh-file-row" key={entry.path} onDoubleClick={() => void openSshFile(entry)}><button type="button" className="ssh-file-name" title={`${entry.isDir ? "进入目录" : "打开文本文件"}：${entry.name}`} onClick={() => void openSshFile(entry)}>{entry.isDir ? <FolderOpen size={16} /> : <FileCode2 size={16} />}<span>{entry.name}</span></button><span>{entry.isDir ? "文件夹" : sshFileSize(entry.size)}</span><span>{entry.mode}/{entry.owner}</span><div className="ssh-file-row-actions">{entry.isFile && <button type="button" className="ssh-file-download" title="下载到本机并定位文件" onClick={() => void downloadSshFile(entry)}><Download size={14} /><span>下载</span></button>}<button type="button" title="删除" className="danger" onClick={() => void deleteSshEntry(entry)}><Trash2 size={14} /></button></div></div>)}{!sshFilesLoading && sshFiles.length === 0 && <div className="ssh-file-empty">此目录为空</div>}{sshFilesLoading && <div className="ssh-file-empty">正在读取目录…</div>}</div>}{sshFileError && <div className="ssh-file-error">{sshFileError}</div>}</aside></div>{sshError && <div className="error-list ssh-error">{sshError}</div>}</div> : <div className="terminal-stage-empty"><Terminal size={54} /><h1>选择一台服务器开始连接</h1><p>从左侧服务器列表打开 SSH 终端，连接后可在右侧直接浏览和管理远程文件。</p><button className="layui-btn layui-btn-normal" onClick={() => openManagedHostDialog()}><Plus size={16} />添加服务器</button></div>}
+                {sshSessionId ? <div className="terminal-session-shell"><div className="ssh-terminal-meta"><span>{sshUsername}@{sshHost}:{sshPort}</span><span className="ssh-connected">已连接</span><button type="button" className="ssh-terminal-command" title="命令补全 (Tab)" aria-label="命令补全 (Tab)" onClick={completeSshCommand}><Keyboard size={16} /></button><span className="ssh-terminal-theme"><button type="button" className="ssh-terminal-command" title="终端配色" aria-label="终端配色" aria-expanded={terminalThemeMenuOpen} onClick={() => setTerminalThemeMenuOpen((value) => !value)}><Palette size={16} /></button>{terminalThemeMenuOpen && <span className="ssh-terminal-theme-menu">{(Object.entries(terminalThemes) as [TerminalThemeName, typeof terminalThemes[TerminalThemeName]][]).map(([name, theme]) => <button type="button" className={terminalThemeName === name ? "active" : ""} key={name} onClick={() => { setTerminalThemeName(name); setTerminalThemeMenuOpen(false); }}>{theme.label}</button>)}</span>}</span><button className="ssh-clear-button" onClick={() => sshTerminalRef.current?.clear()}>清屏</button><button className="ssh-disconnect-button" onClick={() => void closeSshClient()}>断开</button></div><div ref={sshWorkspaceRef} className="ssh-terminal-workspace" style={{ gridTemplateColumns: `minmax(360px, 1fr) 8px minmax(330px, ${sshFilePaneWidth}px)` }}><div className="ssh-terminal-viewport" ref={sshTerminalHostRef} aria-label="SSH 终端" /><div className="ssh-file-resizer" role="separator" aria-label="调整文件管理面板宽度" aria-orientation="vertical" onPointerDown={startSshFileResize} /> <aside className={`ssh-file-manager${sshFileDragActive ? " is-dragging" : ""}`} aria-label="远程文件管理" onDragEnter={(event) => { event.preventDefault(); setSshFileDragActive(true); }} onDragOver={(event) => event.preventDefault()} onDragLeave={(event) => { if (event.currentTarget === event.target) setSshFileDragActive(false); }} onDrop={(event) => { event.preventDefault(); setSshFileDragActive(false); void uploadSshFiles(event.dataTransfer.files); }}><div className="ssh-file-toolbar"><button type="button" title="返回上级目录" disabled={sshFilesLoading || sshFilePath === "/"} onClick={() => void loadSshFiles(parentSshPath(sshFilePath))}><ChevronLeft size={16} /></button><input className="ssh-file-path" value={sshFilePath} onChange={(event) => setSshFilePath(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void loadSshFiles(event.currentTarget.value); }} aria-label="远程目录路径" /><button type="button" title="刷新目录" disabled={sshFilesLoading} onClick={() => void loadSshFiles()}><RefreshCw size={15} className={sshFilesLoading ? "spin" : ""} /></button></div><div className="ssh-file-actions"><button type="button" title="上传文件" disabled={sshFilesLoading} onClick={() => sshUploadInputRef.current?.click()}><Upload size={15} />上传</button><button type="button" title="新建文件夹" disabled={sshFilesLoading} onClick={() => void makeSshDirectory()}><FolderPlus size={15} />新建</button><input ref={sshUploadInputRef} className="ssh-file-upload-input" type="file" multiple onChange={(event) => { const files = event.currentTarget.files; event.currentTarget.value = ""; if (files?.length) void uploadSshFiles(files); }} /></div>{sshFileEditor ? <div className="ssh-file-editor"><div className="ssh-file-editor-head"><span title={sshFileEditor.path}>{sshFileEditor.path}</span><button type="button" title="关闭编辑器" onClick={() => setSshFileEditor(null)}><X size={15} /></button></div><textarea value={sshFileEditor.content} spellCheck={false} onChange={(event) => setSshFileEditor((current) => current ? { ...current, content: event.target.value } : current)} /><div className="ssh-file-editor-actions"><button type="button" onClick={() => setSshFileEditor(null)}>关闭</button><button type="button" className="primary" disabled={sshFileSaving} onClick={() => void saveSshFile()}><Save size={15} />{sshFileSaving ? "保存中" : "保存"}</button></div></div> : <div className="ssh-file-list"><div className="ssh-file-list-head"><span>名称</span><span>大小</span><span>权限 / 所有者</span></div>{sshFiles.map((entry) => <div className="ssh-file-row" key={entry.path} onDoubleClick={() => void openSshFile(entry)}><button type="button" className="ssh-file-name" title={`${entry.isDir ? "进入目录" : "打开文本文件"}：${entry.name}`} onClick={() => void openSshFile(entry)}>{entry.isDir ? <FolderOpen size={16} /> : <FileCode2 size={16} />}<span>{entry.name}</span></button><span>{entry.isDir ? "文件夹" : sshFileSize(entry.size)}</span><span>{entry.mode}/{entry.owner}</span><div className="ssh-file-row-actions">{entry.isFile && <button type="button" className="ssh-file-download" title="下载到本机并定位文件" onClick={() => void downloadSshFile(entry)}><Download size={14} /><span>下载</span></button>}<button type="button" title="删除" className="danger" onClick={() => void deleteSshEntry(entry)}><Trash2 size={14} /></button></div></div>)}{!sshFilesLoading && sshFiles.length === 0 && <div className="ssh-file-empty">此目录为空</div>}{sshFilesLoading && <div className="ssh-file-empty">正在读取目录…</div>}</div>}{sshFileError && <div className="ssh-file-error">{sshFileError}</div>}</aside></div>{sshError && <div className="error-list ssh-error">{sshError}</div>}</div> : <div className="terminal-stage-empty"><Terminal size={54} /><h1>选择一台服务器开始连接</h1><p>从左侧服务器列表打开 SSH 终端，连接后可在右侧直接浏览和管理远程文件。</p><button className="layui-btn layui-btn-normal" onClick={() => openManagedHostDialog()}><Plus size={16} />添加服务器</button></div>}
               </section>
             </div>
           </section>
@@ -5742,7 +6171,7 @@ function App() {
           <div className="terminal-connect-backdrop">
             <form className="terminal-connect-card" onSubmit={(event) => { event.preventDefault(); void connectSshClient(); }}>
               <div className="terminal-connect-card-head"><div><span className="eyebrow">{sshPlatform === "windows" ? "REMOTE DESKTOP" : "SSH CONNECTION"}</span><h2><Terminal size={18} />连接 {displayValue(sshTarget.asset.payload.InstanceName || sshTarget.asset.asset_key)}</h2></div><button type="button" className="close" title="关闭连接" onClick={() => void closeSshClient()}><X size={19} /></button></div>
-              <div className="terminal-connect-fields"><div className="ssh-choice-row ssh-platform-row"><span>操作系统</span><div className="ssh-segmented"><button type="button" className={sshPlatform === "linux" ? "active" : ""} onClick={() => void setRemotePlatform("linux")}>Linux</button><button type="button" className={sshPlatform === "windows" ? "active" : ""} onClick={() => void setRemotePlatform("windows")}>Windows</button></div></div><label>主机<input value={sshHost} onChange={(event) => setSshHost(event.target.value)} placeholder="公网 IP 或域名" autoFocus /></label><label>{sshPlatform === "windows" ? "RDP 端口" : "SSH 端口"}<input type="number" min={1} max={65535} value={sshPort} onChange={(event) => setSshPort(Number(event.target.value) || (sshPlatform === "windows" ? 3389 : 22))} /></label><label className="terminal-connect-user">{sshPlatform === "windows" ? "RDP 用户名" : "SSH 用户名"}<input value={sshUsername} onChange={(event) => setSshUsername(event.target.value)} placeholder={sshPlatform === "windows" ? "administrator" : "root"} /></label><label className="terminal-connect-password">{sshPlatform === "windows" ? "密码（可选）" : "密码"}<input type="password" value={sshPassword} onChange={(event) => setSshPassword(event.target.value)} placeholder={sshPlatform === "windows" ? (sshPasswordSaved ? "已保存本地记录" : "由 Windows 远程桌面验证") : (sshPasswordSaved ? "已保存密码，可直接连接" : "请输入 SSH 密码")} autoComplete="current-password" /></label></div>
+              <div className="terminal-connect-fields"><div className="ssh-choice-row ssh-platform-row"><span>操作系统</span><div className="ssh-segmented"><button type="button" className={sshPlatform === "linux" ? "active" : ""} onClick={() => void setRemotePlatform("linux")}>Linux</button><button type="button" className={sshPlatform === "windows" ? "active" : ""} onClick={() => void setRemotePlatform("windows")}>Windows</button></div></div><label>主机<input value={sshHost} onChange={(event) => setSshHost(event.target.value)} placeholder="公网 IP 或域名" autoFocus /></label><label>{sshPlatform === "windows" ? "RDP 端口" : "SSH 端口"}<input type="number" min={1} max={65535} value={sshPort} onChange={(event) => setSshPort(Number(event.target.value) || (sshPlatform === "windows" ? 3389 : 22))} /></label><label className="terminal-connect-user">{sshPlatform === "windows" ? "RDP 用户名" : "SSH 用户名"}<input value={sshUsername} onChange={(event) => setSshUsername(event.target.value)} placeholder={sshPlatform === "windows" ? "administrator" : "root"} /></label><label className="terminal-connect-password">{sshPlatform === "windows" ? "密码（可选）" : "密码"}<span className="ssh-password-wrap"><input type={showSshPassword ? "text" : "password"} value={sshPassword} onChange={(event) => setSshPassword(event.target.value)} placeholder={sshPlatform === "windows" ? (sshPasswordSaved ? "已保存本地记录" : "由 Windows 远程桌面验证") : (sshPasswordSaved ? "已保存密码，可直接连接" : "请输入 SSH 密码")} autoComplete="current-password" /><button type="button" className="ssh-password-toggle" disabled={sshPasswordRevealing} title={sshPasswordRevealing ? "正在读取密码" : showSshPassword ? "隐藏密码" : sshPasswordSaved ? "读取当前保存密码" : "显示密码"} aria-label={sshPasswordRevealing ? "正在读取密码" : showSshPassword ? "隐藏密码" : sshPasswordSaved ? "读取当前保存密码" : "显示密码"} onClick={() => void toggleSshPasswordVisibility()}>{sshPasswordRevealing ? <RefreshCw size={16} className="spin" /> : showSshPassword ? <EyeOff size={17} /> : <Eye size={17} />}</button></span></label></div>
               {sshError && <div className="error-list ssh-error">{sshError}</div>}
               <div className="terminal-connect-actions">{sshPlatform === "linux" ? <button type="button" className="secondary" disabled={sshTesting || sshConnecting} onClick={() => void testSshConnection()}>{sshTesting ? "测试中…" : "测试连接"}</button> : <span />}<button type="button" className="secondary" onClick={() => void closeSshClient()}>取消</button><button type="submit" className="layui-btn layui-btn-normal" disabled={sshTesting || sshConnecting}>{sshConnecting ? (sshPlatform === "windows" ? "启动中…" : "连接中…") : sshPlatform === "windows" ? "打开远程桌面" : "连接"}</button></div>
             </form>

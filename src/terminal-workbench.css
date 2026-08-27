@@ -107,6 +107,354 @@
   display: none;
 }
 
+.terminal-host-sidebar {
+  background: #0b182b;
+}
+
+.terminal-host-actions {
+  gap: 10px;
+  margin: 0 16px;
+  padding: 16px 0;
+}
+
+.terminal-host-actions .terminal-toolbar-action {
+  box-sizing: border-box;
+  align-self: center;
+  margin: 0;
+  height: 40px;
+  border-color: #314b70;
+  border-radius: 7px;
+  background: #101f35;
+  color: #d8e7f5;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.terminal-host-actions .terminal-toolbar-action:hover:not(:disabled) {
+  border-color: #5da8ec;
+  background: #17365a;
+}
+
+.terminal-group-title {
+  padding: 14px 18px 10px;
+  color: #d8e7f4;
+  font-size: 14px;
+}
+
+.terminal-group-title span:first-child {
+  color: #d8e7f4;
+  font-size: 14px;
+}
+
+.terminal-group-controls select {
+  height: 34px;
+  max-width: 126px;
+  border-radius: 6px;
+  background: #0b192a;
+  color: #b7cce0;
+  font-size: 12px;
+}
+
+.terminal-group-controls button {
+  height: 34px;
+  font-size: 13px;
+}
+
+.terminal-host-search {
+  height: 40px;
+  margin: 0 16px 12px !important;
+  padding: 0 12px !important;
+  border-radius: 7px;
+  font-size: 13px;
+}
+
+.terminal-add-host {
+  height: 40px;
+  margin: 0 16px 14px;
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.terminal-host-tree {
+  padding: 0 16px 20px;
+}
+
+.terminal-host-group {
+  margin: 0 0 16px;
+}
+
+.terminal-host-group-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 50px;
+  padding: 0 12px;
+  border: 1px solid #243b5b;
+  border-radius: 9px;
+  background: #0d1a2d;
+  color: #b6c9dd;
+}
+
+.terminal-host-group-head > svg {
+  flex: 0 0 auto;
+  color: #a9bdd2;
+}
+
+.terminal-host-group-toggle {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  flex: 1;
+  height: 48px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.terminal-host-group-toggle:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
+.terminal-host-group-toggle strong {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: #e4edf6;
+  font-size: 15px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-host-group-toggle span {
+  display: grid;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 50%;
+  background: #1b2a42;
+  color: #dce7f3;
+  font-size: 13px;
+}
+
+.terminal-host-group-toggle > svg {
+  flex: 0 0 auto;
+  color: #b4c7db;
+}
+
+.terminal-group-drag-handle {
+  display: grid;
+  flex: 0 0 22px;
+  width: 22px;
+  height: 34px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #85a4bf;
+  cursor: grab;
+}
+
+.terminal-host-group.is-dragging {
+  opacity: .45;
+}
+
+.terminal-host-card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  min-height: 82px;
+  margin-top: 8px;
+  border: 1px solid #233955;
+  border-radius: 9px;
+  background: #0d1a2d;
+  transition: border-color .15s, background .15s;
+}
+
+.terminal-host-card:hover,
+.terminal-host-card.active {
+  border-color: #3d6f9e;
+  background: #10223a;
+}
+
+.terminal-host-card.active {
+  box-shadow: inset 2px 0 #4fb8f1;
+}
+
+.terminal-host-card-main {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  min-width: 0;
+  flex: 1;
+  min-height: 80px;
+  padding: 10px 12px;
+  border: 0;
+  background: transparent;
+  color: #e5eef8;
+  cursor: pointer;
+  text-align: left;
+}
+
+.terminal-host-card-main:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
+.terminal-host-platform {
+  position: relative;
+  display: grid;
+  flex: 0 0 54px;
+  width: 54px;
+  height: 54px;
+  place-items: center;
+  border-radius: 9px;
+  background: #19283e;
+  color: #c7d7e8;
+}
+
+.terminal-host-platform i {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 11px;
+  height: 11px;
+  border: 2px solid #19283e;
+  border-radius: 50%;
+  background: #71879e;
+}
+
+.terminal-host-platform i.online {
+  background: #4cd57f;
+  box-shadow: 0 0 9px #4cd57f99;
+}
+
+.terminal-host-platform i.offline {
+  background: #ed7478;
+}
+
+.terminal-host-card-copy {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.terminal-host-card-copy strong,
+.terminal-host-card-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-host-card-copy strong {
+  color: #e6eef8;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.terminal-host-card-copy small {
+  color: #93abc3;
+  font-size: 13px;
+}
+
+.terminal-host-card-actions {
+  position: relative;
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  padding-right: 8px;
+}
+
+.terminal-host-card-actions > button {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #c0d0e1;
+  cursor: pointer;
+}
+
+.terminal-host-card-actions > button:hover,
+.terminal-host-card-actions > button[aria-expanded="true"] {
+  background: #213b59;
+  color: #fff;
+}
+
+.terminal-host-more-menu {
+  position: absolute;
+  z-index: 20;
+  top: 42px;
+  right: 8px;
+  display: grid;
+  min-width: 112px;
+  padding: 5px;
+  border: 1px solid #315474;
+  border-radius: 7px;
+  background: #10223a;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, .4);
+}
+
+.terminal-host-more-menu button {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 31px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #c7d8e8;
+  cursor: pointer;
+  font: 12px inherit;
+  text-align: left;
+}
+
+.terminal-host-more-menu button:hover:not(:disabled) {
+  background: #204463;
+  color: #fff;
+}
+
+.terminal-host-more-menu button.danger {
+  color: #ef9aa4;
+}
+
+.terminal-host-card.is-sorting {
+  cursor: grab;
+}
+
+.terminal-host-card.is-sorting.is-dragging {
+  opacity: .45;
+}
+
+.terminal-host-card.is-sorting .terminal-host-drag-handle {
+  display: grid;
+  flex: 0 0 30px;
+  width: 30px;
+  height: 80px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #89a8c1;
+  cursor: grab;
+}
+
+.terminal-host-card.is-sorting .terminal-host-card-main {
+  padding-left: 2px;
+}
+
 .terminal-connect-backdrop {
   position: fixed;
   inset: 0;

@@ -361,6 +361,148 @@ async function rpc(accountId, endpoint, version, action, params = {}) {
   writeApiLog(accountId, endpoint, action, query, data, "成功");
   return data;
 }
+
+function securityGroupRuleParams({ regionId, securityGroupId, ipProtocol, portRange, sourceCidrIp, policy = "accept", priority = 1, nicType = "" }) {
+  const protocol = String(ipProtocol || "").trim().toLowerCase();
+  const range = String(portRange || "").trim();
+  const source = String(sourceCidrIp || "").trim();
+  const [start, end, extra] = range.split("/");
+  if (!regionId || !securityGroupId) throw new Error("缺少安全组地域或安全组 ID");
+  if (!["tcp", "udp", "icmp", "gre", "all"].includes(protocol)) throw new Error("不支持的安全组协议");
+  if (extra !== undefined || !/^-?\d+$/.test(start || "") || !/^-?\d+$/.test(end || "")) throw new Error("端口范围格式无效，请使用 80/80 或 8000/9000");
+  if (!(["tcp", "udp"].includes(protocol) ? ((Number(start) === -1 && Number(end) === -1) || (Number(start) >= 1 && Number(end) >= Number(start) && Number(end) <= 65535)) : (Number(start) === -1 && Number(end) === -1))) throw new Error("端口范围与协议不匹配，请使用 80/80、8000/9000 或 -1/-1");
+  if (!source || !source.includes("/")) throw new Error("来源地址必须是 CIDR，例如 0.0.0.0/0");
+  if (!Number.isInteger(Number(priority)) || Number(priority) < 1 || Number(priority) > 100) throw new Error("安全组规则优先级必须在 1 到 100 之间");
+  const params = { RegionId: regionId, SecurityGroupId: securityGroupId, IpProtocol: protocol, PortRange: range, SourceCidrIp: source, Policy: String(policy).toLowerCase() === "drop" ? "drop" : "accept", Priority: String(priority) };
+  if (["internet", "intranet"].includes(String(nicType).toLowerCase())) params.NicType = String(nicType).toLowerCase();
+  return params;
+}
+
+async function aliyunSecurityGroupDetails(id, regionId, instanceId, securityGroupId = "") {
+  if (!regionId || !instanceId) throw new Error("缺少服务器地域或实例 ID");
+  const instance = await rpc(id, `ecs.${regionId}.aliyuncs.com`, "2014-05-26", "DescribeInstanceAttribute", { RegionId: regionId, InstanceId: instanceId });
+  const attachedGroupIds = arr(instance, ["SecurityGroupIds", "SecurityGroupId"]).map(String).filter(Boolean);
+  const groupsResult = await rpc(id, `ecs.${regionId}.aliyuncs.com`, "2014-05-26", "DescribeSecurityGroups", { RegionId: regionId, PageSize: "100" });
+  const groups = arr(groupsResult, ["SecurityGroups", "SecurityGroup"]).map((group) => ({ SecurityGroupId: String(group.SecurityGroupId || ""), SecurityGroupName: String(group.SecurityGroupName || ""), Description: String(group.Description || ""), VpcId: String(group.VpcId || ""), NicType: group.VpcId ? "intranet" : "internet" })).filter((group) => group.SecurityGroupId && (!attachedGroupIds.length || attachedGroupIds.includes(group.SecurityGroupId)));
+  const selectedSecurityGroupId = groups.some((group) => group.SecurityGroupId === securityGroupId) ? securityGroupId : groups[0]?.SecurityGroupId || "";
+  if (!selectedSecurityGroupId) return { groups, selectedSecurityGroupId, rules: [] };
+  const detail = await rpc(id, `ecs.${regionId}.aliyuncs.com`, "2014-05-26", "DescribeSecurityGroupAttribute", { RegionId: regionId, SecurityGroupId: selectedSecurityGroupId });
+  const rules = arr(detail, ["Permissions", "Permission"]).filter((rule) => String(rule.Direction || "").toLowerCase() === "ingress").map((rule) => ({ Direction: String(rule.Direction || ""), IpProtocol: String(rule.IpProtocol || ""), PortRange: String(rule.PortRange || ""), SourceCidrIp: String(rule.SourceCidrIp || ""), SourceGroupId: String(rule.SourceGroupId || ""), Policy: String(rule.Policy || "accept"), Priority: Number(rule.Priority || 1), Description: String(rule.Description || ""), NicType: String(rule.NicType || "") }));
+  return { groups, selectedSecurityGroupId, rules };
+}
+
+function tencentSecurityGroupPolicy({ ipProtocol, portRange, sourceCidrIp, description = "" }) {
+  const protocol = String(ipProtocol || "").trim().toLowerCase();
+  const range = String(portRange || "").trim();
+  const source = String(sourceCidrIp || "").trim();
+  const [start, end, extra] = range.split("/");
+  if (!["tcp", "udp", "icmp", "gre", "all"].includes(protocol)) throw new Error("不支持的安全组协议");
+  if (extra !== undefined || !/^-?\d+$/.test(start || "") || !/^-?\d+$/.test(end || "")) throw new Error("端口范围格式无效，请使用 80/80 或 8000/9000");
+  const validRange = ["tcp", "udp"].includes(protocol) ? ((Number(start) === -1 && Number(end) === -1) || (Number(start) >= 1 && Number(end) >= Number(start) && Number(end) <= 65535)) : Number(start) === -1 && Number(end) === -1;
+  if (!validRange) throw new Error("端口范围与协议不匹配，请使用 80/80、8000/9000 或 -1/-1");
+  if (!source || !source.includes("/")) throw new Error("来源地址必须是 CIDR，例如 0.0.0.0/0");
+  const port = protocol === "all" ? "ALL" : start === end ? start : `${start}-${end}`;
+  const policy = { Action: "ACCEPT", CidrBlock: source, Port: port, Protocol: protocol.toUpperCase() };
+  if (String(description || "").trim()) policy.PolicyDescription = String(description).trim();
+  return policy;
+}
+
+function tencentSecurityGroupPort(port) {
+  const value = String(port || "");
+  if (!value || value.toLowerCase() === "all") return "-1/-1";
+  const [start, end] = value.split("-");
+  return end === undefined ? `${start}/${start}` : `${start}/${end}`;
+}
+
+async function tencentSecurityGroupDetails(id, regionId, instanceId, securityGroupId = "") {
+  if (!regionId || !instanceId) throw new Error("缺少服务器地域或实例 ID");
+  const instanceData = await tencentRequest(id, "cvm", "2017-03-12", "DescribeInstances", { InstanceIds: [instanceId] }, regionId);
+  const attachedGroupIds = arr(instanceData, ["InstanceSet"])[0]?.SecurityGroupIds || [];
+  const groupsData = await tencentRequest(id, "cvm", "2017-03-12", "DescribeSecurityGroups", { Limit: 100 }, regionId);
+  const groups = arr(groupsData, ["SecurityGroupSet"]).map((group) => ({ SecurityGroupId: String(group.SecurityGroupId || ""), SecurityGroupName: String(group.SecurityGroupName || ""), Description: String(group.SecurityGroupDesc || ""), VpcId: String(group.VpcId || ""), NicType: "" })).filter((group) => group.SecurityGroupId && (!attachedGroupIds.length || attachedGroupIds.includes(group.SecurityGroupId)));
+  const selectedSecurityGroupId = groups.some((group) => group.SecurityGroupId === securityGroupId) ? securityGroupId : groups[0]?.SecurityGroupId || "";
+  if (!selectedSecurityGroupId) return { groups, selectedSecurityGroupId, rules: [] };
+  const policies = await tencentRequest(id, "cvm", "2017-03-12", "DescribeSecurityGroupPolicies", { SecurityGroupId: selectedSecurityGroupId }, regionId);
+  const rules = arr(policies, ["SecurityGroupPolicySet", "Ingress"]).map((rule) => ({ Direction: "ingress", IpProtocol: String(rule.Protocol || "").toLowerCase(), PortRange: tencentSecurityGroupPort(rule.Port), SourceCidrIp: String(rule.CidrBlock || ""), SourceGroupId: String(rule.SecurityGroupId || ""), Policy: String(rule.Action || "ACCEPT"), Priority: Number(rule.PolicyIndex || 0), Description: String(rule.PolicyDescription || ""), NicType: "" }));
+  return { groups, selectedSecurityGroupId, rules };
+}
+
+function baiduSecurityGroupPort(portRange) {
+  const value = String(portRange || "").trim();
+  if (!value) return "-1/-1";
+  const [start, end] = value.split("-");
+  return end === undefined ? `${start}/${start}` : `${start}/${end}`;
+}
+
+function baiduSecurityGroupRuleInput({ ipProtocol, portRange, sourceCidrIp, description = "" }) {
+  const protocol = String(ipProtocol || "").trim().toLowerCase();
+  const range = String(portRange || "").trim();
+  const sourceIp = String(sourceCidrIp || "").trim();
+  const [startText, endText, extra] = range.split("/");
+  const start = Number(startText);
+  const end = Number(endText);
+  if (!["tcp", "udp"].includes(protocol)) throw new Error("百度云安全组端口仅支持 TCP 或 UDP");
+  if (extra !== undefined || !/^\d+$/.test(startText || "") || !/^\d+$/.test(endText || "") || start < 1 || end < start || end > 65535) throw new Error("端口范围必须为 1 到 65535 之间的 80/80 或 8000/9000");
+  if (!sourceIp || !sourceIp.includes("/")) throw new Error("来源地址必须是 CIDR，例如 0.0.0.0/0");
+  const rule = { direction: "ingress", ethertype: "IPv4", portRange: `${start}-${end}`, protocol, sourceIp };
+  if (String(description || "").trim()) rule.remark = String(description).trim();
+  return rule;
+}
+
+async function baiduSecurityGroupDetails(id, regionId, instanceId, securityGroupId = "") {
+  if (!regionId || !instanceId) throw new Error("缺少服务器地域或实例 ID");
+  const host = `bcc.${regionId}.baidubce.com`;
+  const { data } = await baiduRequest(id, host, "/v2/securityGroup", { instanceId, maxKeys: 1000 });
+  const groups = arr(data, ["securityGroups"]).map((group) => ({ SecurityGroupId: String(group.id || ""), SecurityGroupName: String(group.name || ""), Description: String(group.desc || ""), VpcId: String(group.vpcId || ""), NicType: "" }));
+  const selectedSecurityGroupId = groups.some((group) => group.SecurityGroupId === securityGroupId) ? securityGroupId : groups[0]?.SecurityGroupId || "";
+  if (!selectedSecurityGroupId) return { groups, selectedSecurityGroupId, rules: [] };
+  const { data: detail } = await baiduRequest(id, host, `/v2/securityGroup/${encodeURIComponent(selectedSecurityGroupId)}`);
+  const rules = arr(detail, ["rules"]).filter((rule) => String(rule.direction || "").toLowerCase() === "ingress").map((rule) => ({ Direction: String(rule.direction || "ingress"), IpProtocol: String(rule.protocol || ""), PortRange: baiduSecurityGroupPort(rule.portRange), SourceCidrIp: String(rule.sourceIp || ""), SourceGroupId: String(rule.sourceGroupId || ""), Policy: "accept", Priority: 0, Description: String(rule.remark || ""), NicType: "", SecurityGroupRuleId: String(rule.securityGroupRuleId || "") }));
+  return { groups, selectedSecurityGroupId, rules, sgVersion: detail.sgVersion };
+}
+
+function lightFirewallRuleInput({ ipProtocol, portRange, sourceCidrIp, description = "" }) {
+  const protocol = String(ipProtocol || "").trim().toLowerCase();
+  const range = String(portRange || "").trim();
+  const source = String(sourceCidrIp || "").trim();
+  const [startText, endText, extra] = range.split("/");
+  const start = Number(startText);
+  const end = Number(endText);
+  if (!["tcp", "udp"].includes(protocol)) throw new Error("轻量服务器仅支持 TCP 或 UDP 端口规则");
+  if (extra !== undefined || !/^\d+$/.test(startText || "") || !/^\d+$/.test(endText || "") || start < 1 || end < start || end > 65535) throw new Error("端口范围必须为 1 到 65535 之间的 80/80 或 8000/9000");
+  if (!source || !source.includes("/")) throw new Error("来源地址必须是 CIDR，例如 0.0.0.0/0");
+  return { protocol, portRange: range, sourceCidrIp: source, description: String(description || "").trim() };
+}
+
+function tencentLighthousePort(port) {
+  const value = String(port || "").trim();
+  if (!value || value.toLowerCase() === "all") return "-1/-1";
+  const [start, end] = value.split("-");
+  return end === undefined ? `${start}/${start}` : `${start}/${end}`;
+}
+
+async function lightFirewallDetails(id, regionId, instanceId) {
+  if (!regionId || !instanceId) throw new Error("缺少轻量服务器地域或实例 ID");
+  const account = database().prepare("SELECT cloud_type FROM cloud_accounts WHERE id=?").get(id);
+  if (!account) throw new Error("云账号不存在");
+  if (account.cloud_type === "aliyun") {
+    const data = await rpc(id, `swas.${regionId}.aliyuncs.com`, "2020-06-01", "ListFirewallRules", { RegionId: regionId, InstanceId: instanceId, PageNumber: "1", PageSize: "100" });
+    const firewallRules = Array.isArray(data.FirewallRules) ? data.FirewallRules : arr(data, ["FirewallRules", "FirewallRule"]);
+    return { rules: firewallRules.filter((rule) => String(rule.Policy || "accept").toLowerCase() === "accept").map((rule) => ({ RuleId: String(rule.RuleId || ""), IpProtocol: String(rule.RuleProtocol || ""), PortRange: String(rule.Port || ""), SourceCidrIp: String(rule.SourceCidrIp || ""), Policy: String(rule.Policy || "accept"), Description: String(rule.Remark || "") })) };
+  }
+  if (account.cloud_type === "tencent") {
+    const data = await tencentRequest(id, "lighthouse", "2020-03-24", "DescribeFirewallRules", { InstanceId: instanceId, Limit: 100 }, regionId);
+    return { rules: arr(data, ["FirewallRuleSet"]).filter((rule) => String(rule.Action || "ACCEPT").toUpperCase() === "ACCEPT").map((rule) => {
+      const firewallRule = { Protocol: String(rule.Protocol || ""), Port: String(rule.Port || ""), CidrBlock: String(rule.CidrBlock || ""), Action: String(rule.Action || "ACCEPT"), FirewallRuleDescription: String(rule.FirewallRuleDescription || "") };
+      return { RuleId: "", IpProtocol: firewallRule.Protocol, PortRange: tencentLighthousePort(firewallRule.Port), SourceCidrIp: firewallRule.CidrBlock, Policy: firewallRule.Action, Description: firewallRule.FirewallRuleDescription, FirewallRule: firewallRule };
+    }), firewallVersion: data.FirewallVersion };
+  }
+  if (account.cloud_type === "jdcloud") {
+    const data = await jdcloudRequest(id, "lavm", regionId, `/v1/regions/${encodeURIComponent(regionId)}/firewallRule`, { instanceId, pageSize: 100, pageNumber: 1 });
+    return { rules: arr(data?.result, ["firewallRules"]).map((rule) => ({ RuleId: String(rule.ruleId || ""), IpProtocol: String(rule.ruleProtocol || ""), PortRange: String(rule.port || ""), SourceCidrIp: String(rule.sourceAddress || ""), Policy: "accept", Description: String(rule.remark || "") })) };
+  }
+  throw new Error("当前云类型暂不支持轻量服务器防火墙管理");
+}
 async function tencentRequest(accountId, service, version, action, payload = {}, region = "") {
   const row = database().prepare("SELECT access_key_id,secret_ciphertext,enabled,cloud_type FROM cloud_accounts WHERE id=?").get(accountId);
   if (!row) throw new Error("云账号不存在");
@@ -1027,8 +1169,18 @@ async function gcpResources(accountId, type) { const context = await gcpToken(ac
 async function verifyGcpAccount(id) { const context = await gcpToken(id); await gcpGet(context, `https://cloudresourcemanager.googleapis.com/v1/projects/${encodeURIComponent(context.projectId)}`); const regions = configuredRegions(id, "asia-east1"); return { provider: "gcp", verified: true, region_count: regions.length, regions, default_region: regions[0] }; }
 async function jdcloudRequest(accountId, service, region, pathname, query = {}) {
   const row = database().prepare("SELECT access_key_id,secret_ciphertext,enabled,cloud_type FROM cloud_accounts WHERE id=?").get(accountId); if (!row) throw new Error("云账号不存在"); if (!row.enabled) throw new Error("云账号已停用"); if (row.cloud_type !== "jdcloud") throw new Error("当前账号不是京东云账号");
-  const host = service === "oss" ? "oss.jdcloud-api.com" : service === "domainservice" ? "domainservice.jdcloud-api.com" : `${service}.${region}.jdcloud-api.com`; const datetime = new Date().toISOString().replace(/[-:]|\.\d{3}/g, ""); const date = datetime.slice(0, 8); const queryText = awsQuery(query); const payloadHash = crypto.createHash("sha256").update("").digest("hex"); const canonicalHeaders = `host:${host}\nx-jdcloud-date:${datetime}\n`; const signedHeaders = "host;x-jdcloud-date"; const canonicalRequest = `GET\n${pathname}\n${queryText}\n${canonicalHeaders}\n${signedHeaders}\n${payloadHash}`; const scope = `${date}/${region}/${service}/jdcloud2_request`; const stringToSign = `JDCLOUD2-HMAC-SHA256\n${datetime}\n${scope}\n${crypto.createHash("sha256").update(canonicalRequest).digest("hex")}`; const secret = decryptSecret(row.secret_ciphertext); const signingKey = awsSign(awsSign(awsSign(awsSign(`JDCLOUD2${secret}`, date), region), service), "jdcloud2_request"); const signature = awsSign(signingKey, stringToSign).toString("hex"); const authorization = `JDCLOUD2-HMAC-SHA256 Credential=${row.access_key_id}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
-  const response = await fetch(`https://${host}${pathname}${queryText ? `?${queryText}` : ""}`, { headers: { Host: host, "X-Jdcloud-Date": datetime, Authorization: authorization } }); const data = await response.json().catch(() => ({})); if (!response.ok) { const message = data?.error?.message || data?.message || data?.code || `京东云 ${response.status}`; writeApiLog(accountId, host, `GET ${pathname}`, query, data, "失败", message); throw new Error(message); } writeApiLog(accountId, host, `GET ${pathname}`, query, data, "成功"); return data;
+  const host = service === "oss" ? "oss.jdcloud-api.com" : service === "domainservice" ? "domainservice.jdcloud-api.com" : `${service}.${region}.jdcloud-api.com`; const datetime = new Date().toISOString().replace(/[-:]|\.\d{3}/g, ""); const nonce = crypto.randomUUID(); const date = datetime.slice(0, 8); const queryText = awsQuery(query); const payloadHash = crypto.createHash("sha256").update("").digest("hex"); const canonicalHeaders = `host:${host}\nx-jdcloud-date:${datetime}\nx-jdcloud-nonce:${nonce}\n`; const signedHeaders = "host;x-jdcloud-date;x-jdcloud-nonce"; const canonicalRequest = `GET\n${pathname}\n${queryText}\n${canonicalHeaders}\n${signedHeaders}\n${payloadHash}`; const scope = `${date}/${region}/${service}/jdcloud2_request`; const stringToSign = `JDCLOUD2-HMAC-SHA256\n${datetime}\n${scope}\n${crypto.createHash("sha256").update(canonicalRequest).digest("hex")}`; const secret = decryptSecret(row.secret_ciphertext); const signingKey = awsSign(awsSign(awsSign(awsSign(`JDCLOUD2${secret}`, date), region), service), "jdcloud2_request"); const signature = awsSign(signingKey, stringToSign).toString("hex"); const authorization = `JDCLOUD2-HMAC-SHA256 Credential=${row.access_key_id}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
+  const response = await fetch(`https://${host}${pathname}${queryText ? `?${queryText}` : ""}`, { headers: { Host: host, "X-Jdcloud-Date": datetime, "X-Jdcloud-Nonce": nonce, Authorization: authorization } }); const data = await response.json().catch(() => ({})); if (!response.ok) { const message = data?.error?.message || data?.message || data?.code || `京东云 ${response.status}`; writeApiLog(accountId, host, `GET ${pathname}`, query, data, "失败", message); throw new Error(message); } writeApiLog(accountId, host, `GET ${pathname}`, query, data, "成功"); return data;
+}
+async function jdcloudInstanceAction(accountId, region, instanceId, action) {
+  const row = database().prepare("SELECT access_key_id,secret_ciphertext,enabled,cloud_type FROM cloud_accounts WHERE id=?").get(accountId); if (!row || row.cloud_type !== "jdcloud") throw new Error("当前账号不是京东云账号");
+  const service = "lavm"; const host = `${service}.${region}.jdcloud-api.com`; const pathname = `/v1/regions/${encodeURIComponent(region)}/instances/${encodeURIComponent(instanceId)}:${action}`; const datetime = new Date().toISOString().replace(/[-:]|\.\d{3}/g, ""); const nonce = crypto.randomUUID(); const date = datetime.slice(0, 8); const payloadHash = crypto.createHash("sha256").update("").digest("hex"); const canonicalHeaders = `host:${host}\nx-jdcloud-date:${datetime}\nx-jdcloud-nonce:${nonce}\n`; const signedHeaders = "host;x-jdcloud-date;x-jdcloud-nonce"; const canonicalRequest = `POST\n${pathname}\n\n${canonicalHeaders}\n${signedHeaders}\n${payloadHash}`; const scope = `${date}/${region}/${service}/jdcloud2_request`; const stringToSign = `JDCLOUD2-HMAC-SHA256\n${datetime}\n${scope}\n${crypto.createHash("sha256").update(canonicalRequest).digest("hex")}`; const secret = decryptSecret(row.secret_ciphertext); const signingKey = awsSign(awsSign(awsSign(awsSign(`JDCLOUD2${secret}`, date), region), service), "jdcloud2_request"); const signature = awsSign(signingKey, stringToSign).toString("hex"); const authorization = `JDCLOUD2-HMAC-SHA256 Credential=${row.access_key_id}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
+  const response = await fetch(`https://${host}${pathname}`, { method: "POST", headers: { Host: host, "X-Jdcloud-Date": datetime, "X-Jdcloud-Nonce": nonce, Authorization: authorization } }); const data = await response.json().catch(() => ({})); if (!response.ok) throw new Error(data?.error?.message || data?.message || data?.code || `京东云 ${response.status}`); return data;
+}
+async function jdcloudFirewallMutation(accountId, region, method, pathname, payload) {
+  const row = database().prepare("SELECT access_key_id,secret_ciphertext,enabled,cloud_type FROM cloud_accounts WHERE id=?").get(accountId); if (!row || row.cloud_type !== "jdcloud") throw new Error("当前账号不是京东云账号");
+  const service = "lavm"; const host = `${service}.${region}.jdcloud-api.com`; const body = JSON.stringify(payload || {}); const datetime = new Date().toISOString().replace(/[-:]|\.\d{3}/g, ""); const nonce = crypto.randomUUID(); const date = datetime.slice(0, 8); const payloadHash = crypto.createHash("sha256").update(body).digest("hex"); const canonicalHeaders = `content-type:application/json\nhost:${host}\nx-jdcloud-date:${datetime}\nx-jdcloud-nonce:${nonce}\n`; const signedHeaders = "content-type;host;x-jdcloud-date;x-jdcloud-nonce"; const canonicalRequest = `${method}\n${pathname}\n\n${canonicalHeaders}\n${signedHeaders}\n${payloadHash}`; const scope = `${date}/${region}/${service}/jdcloud2_request`; const stringToSign = `JDCLOUD2-HMAC-SHA256\n${datetime}\n${scope}\n${crypto.createHash("sha256").update(canonicalRequest).digest("hex")}`; const secret = decryptSecret(row.secret_ciphertext); const signingKey = awsSign(awsSign(awsSign(awsSign(`JDCLOUD2${secret}`, date), region), service), "jdcloud2_request"); const signature = awsSign(signingKey, stringToSign).toString("hex"); const authorization = `JDCLOUD2-HMAC-SHA256 Credential=${row.access_key_id}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
+  const response = await fetch(`https://${host}${pathname}`, { method, headers: { Host: host, "Content-Type": "application/json", "X-Jdcloud-Date": datetime, "X-Jdcloud-Nonce": nonce, Authorization: authorization }, body }); const data = await response.json().catch(() => ({})); if (!response.ok) throw new Error(data?.error?.message || data?.message || data?.code || `京东云 ${response.status}`); return data;
 }
 function jdcloudInstance(item, region) { return { ...item, InstanceId: item.instanceId || item.id, InstanceName: item.name || item.instanceId, InstanceStatus: item.status, Status: item.status, PublicIpAddress: firstAddress(item.elasticIp || item.publicIpAddress), PrivateIpAddress: firstAddress(item.privateIpAddress), InstanceType: item.instanceType || "", VpcId: item.vpcId || "", _region_id: region }; }
 function jdcloudRds(item, region) { return { ...item, DBInstanceId: item.instanceId || item.id, DBInstanceDescription: item.instanceName || item.name || item.instanceId, DBInstanceStatus: item.instanceStatus || item.status, DBInstanceClass: item.instanceClass || item.instanceType || "", DBInstanceStorage: Number(item.instanceStorageGB || item.storageGB || 0), ConnectionString: item.internalDomainName || item.connectionString || "", Port: item.port || "", Engine: item.engine || item.engineType || "", EngineVersion: item.engineVersion || "", CreateTime: item.createTime || "", _region_id: region }; }
@@ -1768,6 +1920,33 @@ async function vultrRequest(accountId, pathName, query = {}, init = {}) {
   writeApiLog(accountId, "api.vultr.com", action, { ...query, ...(init.body ? { body: init.body } : {}) }, data, "成功");
   return data;
 }
+function vultrFirewallRuleInput(payload) {
+  const protocol = String(payload.ipProtocol || "").trim().toLowerCase();
+  if (!["tcp", "udp"].includes(protocol)) throw new Error("Vultr 防火墙端口仅支持 TCP 或 UDP");
+  const port = String(payload.port || "").trim();
+  if (!/^\d+(?:-\d+)?$/.test(port)) throw new Error("端口格式无效，请使用 80 或 8000-9000");
+  const [start, end = start] = port.split("-").map(Number);
+  if (start < 1 || end < start || end > 65535) throw new Error("端口范围必须在 1 到 65535 之间");
+  const parts = String(payload.sourceCidrIp || "").trim().split("/");
+  if (parts.length !== 2 || !/^\d+$/.test(parts[1])) throw new Error("来源地址必须是 IPv4 CIDR，例如 0.0.0.0/0");
+  const octets = parts[0].split(".");
+  const subnetSize = Number(parts[1]);
+  if (octets.length !== 4 || octets.some((octet) => !/^\d+$/.test(octet) || Number(octet) > 255) || subnetSize > 32) throw new Error("来源地址必须是有效 IPv4 CIDR，例如 0.0.0.0/0");
+  const rule = { ip_type: "v4", protocol, subnet: parts[0], subnet_size: subnetSize, port };
+  const notes = String(payload.description || "").trim();
+  if (notes) rule.notes = notes;
+  return rule;
+}
+function vultrFirewallRules(data) {
+  const values = Array.isArray(data?.firewall_rules) ? data.firewall_rules : [];
+  return values.filter((rule) => !rule?.ip_type || rule.ip_type === "v4").map((rule) => ({
+    RuleId: vultrValue(rule, "id"),
+    IpProtocol: vultrValue(rule, "protocol"),
+    PortRange: vultrValue(rule, "port"),
+    SourceCidrIp: vultrValue(rule, "source") || (rule?.subnet_size !== undefined && rule?.subnet_size !== null ? `${vultrValue(rule, "subnet")}/${rule.subnet_size}` : vultrValue(rule, "subnet")),
+    Description: vultrValue(rule, "notes"),
+  }));
+}
 function vultrCursor(next) {
   try { return new URL(String(next || ""), "https://api.vultr.com").searchParams.get("cursor") || ""; } catch { return ""; }
 }
@@ -2263,6 +2442,15 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === "GET" && url.pathname === "/api/local-assets")
       return send(res, 200, localAssets(url.searchParams.has("account_id") ? Number(url.searchParams.get("account_id")) : null, url.searchParams.get("resource_type") || null));
+    if (req.method === "DELETE" && url.pathname === "/api/local-assets") {
+      const accountId = Number(url.searchParams.get("account_id"));
+      const resourceType = String(url.searchParams.get("resource_type") || "").trim();
+      const assetKey = String(url.searchParams.get("asset_key") || "").trim();
+      if (!Number.isInteger(accountId) || accountId <= 0 || !resourceType || !assetKey) return send(res, 400, { error: "缺少本地资产标识" });
+      const result = database().prepare("DELETE FROM cloud_assets WHERE account_id=? AND resource_type=? AND asset_key=?").run(accountId, resourceType, assetKey);
+      if (!result.changes) return send(res, 404, { error: "本地资产记录不存在" });
+      return send(res, 200, { ok: true });
+    }
     if (req.method === "GET" && url.pathname === "/api/api-logs") {
       const rows = database().prepare("SELECT l.id,l.account_id,a.account_name,l.endpoint,l.action,l.request_params,l.response_params,l.status,l.message,l.created_at FROM api_logs l LEFT JOIN cloud_accounts a ON a.id=l.account_id ORDER BY l.created_at DESC LIMIT 500").all();
       return send(res, 200, rows);
@@ -2605,6 +2793,54 @@ const server = http.createServer(async (req, res) => {
         return send(res, 200, item);
       } catch (error) { return send(res, 200, []); }
     }
+    if (req.method === "GET" && url.pathname === "/api/light-firewall-rules") {
+      return send(res, 200, await lightFirewallDetails(Number(url.searchParams.get("id")), String(url.searchParams.get("region") || ""), String(url.searchParams.get("instance") || "")));
+    }
+    if (req.method === "POST" && url.pathname === "/api/light-firewall-rules") {
+      const payload = JSON.parse(await readBody(req));
+      const id = Number(payload.id);
+      const region = String(payload.regionId || "");
+      const instanceId = String(payload.instanceId || "");
+      const action = String(payload.action || "");
+      if (!region || !instanceId) return send(res, 400, { error: "缺少轻量服务器地域或实例 ID" });
+      const account = database().prepare("SELECT cloud_type FROM cloud_accounts WHERE id=?").get(id);
+      if (!account) return send(res, 404, { error: "云账号不存在" });
+      if (action === "create") {
+        const rule = lightFirewallRuleInput(payload);
+        if (account.cloud_type === "aliyun") {
+          return send(res, 200, await rpc(id, `swas.${region}.aliyuncs.com`, "2020-06-01", "CreateFirewallRules", { RegionId: region, InstanceId: instanceId, FirewallRules: JSON.stringify([{ Port: rule.portRange, RuleProtocol: rule.protocol.toUpperCase(), SourceCidrIp: rule.sourceCidrIp, Remark: rule.description }]) }));
+        }
+        if (account.cloud_type === "tencent") {
+          const [start, end] = rule.portRange.split("/");
+          const firewallRule = { Protocol: rule.protocol.toUpperCase(), Port: start === end ? start : `${start}-${end}`, CidrBlock: rule.sourceCidrIp, Action: "ACCEPT" };
+          if (rule.description) firewallRule.FirewallRuleDescription = rule.description;
+          const request = { InstanceId: instanceId, FirewallRules: [firewallRule] };
+          if (Number.isInteger(Number(payload.firewallVersion))) request.FirewallVersion = Number(payload.firewallVersion);
+          return send(res, 200, await tencentRequest(id, "lighthouse", "2020-03-24", "CreateFirewallRules", request, region));
+        }
+        if (account.cloud_type === "jdcloud") return send(res, 200, await jdcloudFirewallMutation(id, region, "POST", `/v1/regions/${encodeURIComponent(region)}/firewallRule`, { instanceId: instanceId, sourceAddress: rule.sourceCidrIp, ruleProtocol: rule.protocol.toUpperCase(), port: rule.portRange, remark: rule.description || "", clientToken: crypto.randomUUID(), regionId: region }));
+      }
+      if (action === "delete") {
+        if (account.cloud_type === "aliyun") {
+          const ruleId = String(payload.ruleId || "").trim();
+          if (!ruleId) return send(res, 400, { error: "缺少阿里云防火墙规则 ID" });
+          return send(res, 200, await rpc(id, `swas.${region}.aliyuncs.com`, "2020-06-01", "DeleteFirewallRules", { RegionId: region, InstanceId: instanceId, RuleIds: ruleId }));
+        }
+        if (account.cloud_type === "tencent") {
+          const firewallRule = payload.firewallRule;
+          if (!firewallRule || typeof firewallRule !== "object" || Array.isArray(firewallRule)) return send(res, 400, { error: "缺少腾讯云防火墙规则内容" });
+          const request = { InstanceId: instanceId, FirewallRules: [firewallRule] };
+          if (Number.isInteger(Number(payload.firewallVersion))) request.FirewallVersion = Number(payload.firewallVersion);
+          return send(res, 200, await tencentRequest(id, "lighthouse", "2020-03-24", "DeleteFirewallRules", request, region));
+        }
+        if (account.cloud_type === "jdcloud") {
+          const ruleId = String(payload.ruleId || "").trim();
+          if (!ruleId) return send(res, 400, { error: "缺少京东云防火墙规则 ID" });
+          return send(res, 200, await jdcloudFirewallMutation(id, region, "DELETE", `/v1/regions/${encodeURIComponent(region)}/firewallRule`, { instanceId, ruleId, regionId: region }));
+        }
+      }
+      return send(res, 400, { error: "不支持的轻量服务器防火墙操作" });
+    }
     if (req.method === "POST" && (url.pathname === "/api/swas-action" || url.pathname === "/api/lighthouse-action")) {
       const payload = JSON.parse(await readBody(req));
       const id = Number(payload.id);
@@ -2618,9 +2854,10 @@ const server = http.createServer(async (req, res) => {
         ? { start: "StartInstances", reboot: "RebootInstances", stop: "StopInstances" }
         : account.cloud_type === "aliyun"
           ? { start: "StartInstance", reboot: "RebootInstance", stop: "StopInstance" }
-          : {};
+          : account.cloud_type === "jdcloud" ? { start: "startInstance", reboot: "rebootInstance", stop: "stopInstance" } : {};
       const actionName = actionNames[action];
       if (!actionName) return send(res, 400, { error: "不支持的轻量服务器操作" });
+      if (account.cloud_type === "jdcloud") return send(res, 200, await jdcloudInstanceAction(id, region, instanceId, actionName));
       if (account.cloud_type === "aliyun") {
         const forceReboot = action === "reboot" && Boolean(payload.forceStop);
         return send(res, 200, await rpc(id, `swas.${region}.aliyuncs.com`, "2020-06-01", forceReboot ? "RebootInstances" : actionName, forceReboot
@@ -2656,6 +2893,106 @@ const server = http.createServer(async (req, res) => {
       const actionName = actionNames[action];
       if (!actionName) return send(res, 400, { error: "不支持的阿里云服务器操作" });
       return send(res, 200, await rpc(id, `ecs.${region}.aliyuncs.com`, "2014-05-26", actionName, { RegionId: region, InstanceId: instanceId }));
+    }
+    if (req.method === "GET" && url.pathname === "/api/aliyun-security-groups") {
+      const id = Number(url.searchParams.get("id"));
+      const region = String(url.searchParams.get("region") || "");
+      const instanceId = String(url.searchParams.get("instance") || "");
+      const securityGroupId = String(url.searchParams.get("securityGroupId") || "");
+      return send(res, 200, await aliyunSecurityGroupDetails(id, region, instanceId, securityGroupId));
+    }
+    if (req.method === "POST" && url.pathname === "/api/aliyun-security-group-rules") {
+      const payload = JSON.parse(await readBody(req));
+      const id = Number(payload.id);
+      const region = String(payload.regionId || "");
+      const securityGroupId = String(payload.securityGroupId || "");
+      const params = securityGroupRuleParams({ regionId: region, securityGroupId, ipProtocol: payload.ipProtocol, portRange: payload.portRange, sourceCidrIp: payload.sourceCidrIp, policy: payload.policy, priority: payload.priority, nicType: payload.nicType });
+      const action = String(payload.action || "");
+      if (action === "authorize") {
+        const description = String(payload.description || "").trim();
+        if (description) params.Description = description;
+        return send(res, 200, await rpc(id, `ecs.${region}.aliyuncs.com`, "2014-05-26", "AuthorizeSecurityGroup", params));
+      }
+      if (action === "revoke") return send(res, 200, await rpc(id, `ecs.${region}.aliyuncs.com`, "2014-05-26", "RevokeSecurityGroup", params));
+      return send(res, 400, { error: "不支持的安全组规则操作" });
+    }
+    if (req.method === "GET" && url.pathname === "/api/tencent-security-groups") {
+      const id = Number(url.searchParams.get("id"));
+      const region = String(url.searchParams.get("region") || "");
+      const instanceId = String(url.searchParams.get("instance") || "");
+      const securityGroupId = String(url.searchParams.get("securityGroupId") || "");
+      return send(res, 200, await tencentSecurityGroupDetails(id, region, instanceId, securityGroupId));
+    }
+    if (req.method === "POST" && url.pathname === "/api/tencent-security-group-rules") {
+      const payload = JSON.parse(await readBody(req));
+      const id = Number(payload.id);
+      const region = String(payload.regionId || "");
+      const securityGroupId = String(payload.securityGroupId || "");
+      if (!region || !securityGroupId) return send(res, 400, { error: "缺少安全组地域或安全组 ID" });
+      const action = String(payload.action || "");
+      if (action === "authorize") {
+        const policy = tencentSecurityGroupPolicy({ ipProtocol: payload.ipProtocol, portRange: payload.portRange, sourceCidrIp: payload.sourceCidrIp, description: payload.description });
+        return send(res, 200, await tencentRequest(id, "cvm", "2017-03-12", "AuthorizeSecurityGroupIngress", { SecurityGroupId: securityGroupId, SecurityGroupPolicySet: [policy] }, region));
+      }
+      if (action === "revoke") {
+        const policyIndex = Number(payload.priority);
+        if (!Number.isInteger(policyIndex) || policyIndex < 0) return send(res, 400, { error: "缺少有效的安全组规则索引" });
+        return send(res, 200, await tencentRequest(id, "cvm", "2017-03-12", "RevokeSecurityGroupIngress", { SecurityGroupId: securityGroupId, SecurityGroupPolicySet: [{ PolicyIndex: policyIndex }] }, region));
+      }
+      return send(res, 400, { error: "不支持的安全组规则操作" });
+    }
+    if (req.method === "GET" && url.pathname === "/api/baidu-security-groups") {
+      const id = Number(url.searchParams.get("id"));
+      const region = String(url.searchParams.get("region") || "");
+      const instanceId = String(url.searchParams.get("instance") || "");
+      const securityGroupId = String(url.searchParams.get("securityGroupId") || "");
+      return send(res, 200, await baiduSecurityGroupDetails(id, region, instanceId, securityGroupId));
+    }
+    if (req.method === "POST" && url.pathname === "/api/baidu-security-group-rules") {
+      const payload = JSON.parse(await readBody(req));
+      const id = Number(payload.id);
+      const region = String(payload.regionId || "");
+      const securityGroupId = String(payload.securityGroupId || "");
+      if (!region || !securityGroupId) return send(res, 400, { error: "缺少安全组地域或安全组 ID" });
+      const host = `bcc.${region}.baidubce.com`;
+      const action = String(payload.action || "");
+      if (action === "authorize") {
+        const query = { authorizeRule: "", clientToken: crypto.randomUUID() };
+        if (Number.isInteger(Number(payload.sgVersion))) query.sgVersion = Number(payload.sgVersion);
+        const { data } = await baiduRequest(id, host, `/v2/securityGroup/${encodeURIComponent(securityGroupId)}`, query, { method: "PUT", body: { rule: baiduSecurityGroupRuleInput(payload) }, includeEmptyQuery: true });
+        return send(res, 200, data);
+      }
+      if (action === "revoke") {
+        const ruleId = String(payload.securityGroupRuleId || "").trim();
+        if (!ruleId) return send(res, 400, { error: "缺少百度云安全组规则 ID" });
+        const query = { clientToken: crypto.randomUUID() };
+        if (Number.isInteger(Number(payload.sgVersion))) query.sgVersion = Number(payload.sgVersion);
+        const { data } = await baiduRequest(id, host, `/v2/securityGroup/rule/${encodeURIComponent(ruleId)}`, query, { method: "DELETE" });
+        return send(res, 200, data);
+      }
+      return send(res, 400, { error: "不支持的百度云安全组规则操作" });
+    }
+    if (req.method === "GET" && url.pathname === "/api/vultr-firewall-rules") {
+      const id = Number(url.searchParams.get("id"));
+      const firewallGroupId = String(url.searchParams.get("firewallGroupId") || "").trim();
+      if (!firewallGroupId) return send(res, 400, { error: "缺少 Vultr 防火墙组 ID" });
+      const data = await vultrRequest(id, `firewalls/${encodeURIComponent(firewallGroupId)}/rules`);
+      return send(res, 200, { rules: vultrFirewallRules(data) });
+    }
+    if (req.method === "POST" && url.pathname === "/api/vultr-firewall-rules") {
+      const payload = JSON.parse(await readBody(req));
+      const id = Number(payload.id);
+      const firewallGroupId = String(payload.firewallGroupId || "").trim();
+      const action = String(payload.action || "").trim();
+      if (!firewallGroupId) return send(res, 400, { error: "缺少 Vultr 防火墙组 ID" });
+      const pathName = `firewalls/${encodeURIComponent(firewallGroupId)}/rules`;
+      if (action === "create") return send(res, 200, await vultrRequest(id, pathName, {}, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(vultrFirewallRuleInput(payload)) }));
+      if (action === "delete") {
+        const ruleId = String(payload.ruleId || "").trim();
+        if (!ruleId) return send(res, 400, { error: "缺少 Vultr 防火墙规则 ID" });
+        return send(res, 200, await vultrRequest(id, `${pathName}/${encodeURIComponent(ruleId)}`, {}, { method: "DELETE" }));
+      }
+      return send(res, 400, { error: "不支持的 Vultr 防火墙规则操作" });
     }
     if (req.method === "POST" && url.pathname === "/api/vultr-instance-action") {
       const payload = JSON.parse(await readBody(req));

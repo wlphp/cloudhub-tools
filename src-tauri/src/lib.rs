@@ -9,6 +9,7 @@ use std::{
     collections::{BTreeMap, HashMap},
     future::Future,
     fs,
+    net::Ipv4Addr,
     path::PathBuf,
     process::Command,
     sync::{mpsc, Arc, Mutex},
@@ -487,6 +488,33 @@ async fn vultr_request(id: i64, path: &str, query: &BTreeMap<String, String>) ->
     Ok(data)
 }
 
+async fn vultr_mutation(id: i64, method: reqwest::Method, path: String, payload: Value) -> Result<Value, String> {
+    if account_cloud_type(id)? != "vultr" { return Err("当前账号不是 Vultr 账号".into()); }
+    let (access_key_id, api_key) = account_credentials(id)?;
+    let action_label = format!("{} /v2/{path}", method.as_str());
+    let response = reqwest::Client::new()
+        .request(method, format!("https://api.vultr.com/v2/{path}"))
+        .header("Authorization", format!("Bearer {api_key}"))
+        .header("Accept", "application/json")
+        .header("Content-Type", "application/json")
+        .json(&payload)
+        .timeout(std::time::Duration::from_secs(30))
+        .send().await.map_err(|error| format!("Vultr 请求失败: {error}"))?;
+    let status = response.status();
+    let body = response.text().await.map_err(|error| format!("Vultr 返回读取失败: {error}"))?;
+    let data: Value = serde_json::from_str(&body).unwrap_or_else(|_| json!({"body": body}));
+    if !status.is_success() {
+        let message = data.get("error").and_then(Value::as_str)
+            .or_else(|| data.get("message").and_then(Value::as_str))
+            .or_else(|| data.pointer("/error/message").and_then(Value::as_str))
+            .map(str::to_string).unwrap_or_else(|| format!("Vultr API 返回 HTTP {status}"));
+        write_api_log(&access_key_id, "api.vultr.com", &action_label, &payload, Some(&data), "失败", Some(&message));
+        return Err(message);
+    }
+    write_api_log(&access_key_id, "api.vultr.com", &action_label, &payload, Some(&data), "成功", None);
+    Ok(data)
+}
+
 #[tauri::command]
 async fn vultr_instance_action(id: i64, instance_id: String, action: String) -> Result<Value, String> {
     if instance_id.trim().is_empty() { return Err("缺少 Vultr 实例 ID".into()); }
@@ -565,6 +593,70 @@ async fn vultr_instance_manage(id: i64, instance_id: String, action: String, val
     }
     write_api_log(&access_key_id, "api.vultr.com", &action_label, &payload, Some(&data), "成功", None);
     Ok(data)
+}
+
+fn vultr_firewall_rule_input(ip_protocol: String, port: String, source_cidr_ip: String, description: Option<String>) -> Result<Value, String> {
+    let protocol = ip_protocol.trim().to_ascii_lowercase();
+    if !matches!(protocol.as_str(), "tcp" | "udp") { return Err("Vultr 防火墙端口仅支持 TCP 或 UDP".into()); }
+    let port = port.trim().to_string();
+    let (start, end) = match port.split_once('-') {
+        Some((start, end)) => (start.parse::<u16>(), end.parse::<u16>()),
+        None => (port.parse::<u16>(), port.parse::<u16>()),
+    };
+    let (Ok(start), Ok(end)) = (start, end) else { return Err("端口格式无效，请使用 80 或 8000-9000".into()); };
+    if start == 0 || end < start { return Err("端口范围必须在 1 到 65535 之间".into()); }
+    let source = source_cidr_ip.trim();
+    let Some((subnet, subnet_size)) = source.split_once('/') else { return Err("来源地址必须是 IPv4 CIDR，例如 0.0.0.0/0".into()); };
+    subnet.parse::<Ipv4Addr>().map_err(|_| "来源地址必须是有效 IPv4 CIDR，例如 0.0.0.0/0".to_string())?;
+    let subnet_size = subnet_size.parse::<u8>().map_err(|_| "来源地址必须是有效 IPv4 CIDR，例如 0.0.0.0/0".to_string())?;
+    if subnet_size > 32 { return Err("IPv4 CIDR 掩码必须在 0 到 32 之间".into()); }
+    let mut payload = json!({"ip_type": "v4", "protocol": protocol, "subnet": subnet, "subnet_size": subnet_size, "port": port});
+    if let Some(notes) = description.map(|value| value.trim().to_string()).filter(|value| !value.is_empty()) {
+        payload["notes"] = json!(notes);
+    }
+    Ok(payload)
+}
+
+fn vultr_firewall_rules(data: &Value) -> Vec<Value> {
+    array_at(data, &["firewall_rules"]).into_iter().filter_map(|rule| {
+        if rule.get("ip_type").and_then(Value::as_str).is_some_and(|ip_type| ip_type != "v4") { return None; }
+        let subnet = rule.get("subnet").and_then(Value::as_str).unwrap_or("");
+        let subnet_size = rule.get("subnet_size").and_then(Value::as_i64);
+        let source = rule.get("source").and_then(Value::as_str).filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| subnet_size.map(|size| format!("{subnet}/{size}")).unwrap_or_else(|| subnet.to_string()));
+        Some(json!({
+            "RuleId": vultr_value(rule, &["id"]),
+            "IpProtocol": vultr_value(rule, &["protocol"]),
+            "PortRange": vultr_value(rule, &["port"]),
+            "SourceCidrIp": source,
+            "Description": vultr_value(rule, &["notes"]),
+        }))
+    }).collect()
+}
+
+#[tauri::command]
+async fn list_vultr_firewall_rules(id: i64, firewall_group_id: String) -> Result<Value, String> {
+    let firewall_group_id = firewall_group_id.trim();
+    if firewall_group_id.is_empty() { return Err("缺少 Vultr 防火墙组 ID".into()); }
+    let data = vultr_request(id, &format!("firewalls/{firewall_group_id}/rules"), &BTreeMap::new()).await?;
+    Ok(json!({"rules": vultr_firewall_rules(&data)}))
+}
+
+#[tauri::command]
+async fn create_vultr_firewall_rule(id: i64, firewall_group_id: String, ip_protocol: String, port: String, source_cidr_ip: String, description: Option<String>) -> Result<Value, String> {
+    let firewall_group_id = firewall_group_id.trim();
+    if firewall_group_id.is_empty() { return Err("缺少 Vultr 防火墙组 ID".into()); }
+    let payload = vultr_firewall_rule_input(ip_protocol, port, source_cidr_ip, description)?;
+    vultr_mutation(id, reqwest::Method::POST, format!("firewalls/{firewall_group_id}/rules"), payload).await
+}
+
+#[tauri::command]
+async fn delete_vultr_firewall_rule(id: i64, firewall_group_id: String, rule_id: String) -> Result<Value, String> {
+    let firewall_group_id = firewall_group_id.trim();
+    let rule_id = rule_id.trim();
+    if firewall_group_id.is_empty() || rule_id.is_empty() { return Err("缺少 Vultr 防火墙组 ID 或规则 ID".into()); }
+    vultr_mutation(id, reqwest::Method::DELETE, format!("firewalls/{firewall_group_id}/rules/{rule_id}"), json!({})).await
 }
 
 fn vultr_cursor(next: &str) -> Option<String> {
@@ -1534,9 +1626,10 @@ async fn jdcloud_request(id: i64, service: &str, region: &str, path: &str, query
     let date = &datetime[..8];
     let host = if service == "oss" { "oss.jdcloud-api.com".to_string() } else if service == "domainservice" { "domainservice.jdcloud-api.com".to_string() } else { format!("{service}.{region}.jdcloud-api.com") };
     let query_text = aws_query(&query);
+    let nonce = Uuid::new_v4().to_string();
     let payload_hash = format!("{:x}", Sha256::digest(b""));
-    let canonical_headers = format!("host:{host}\nx-jdcloud-date:{datetime}\n");
-    let signed_headers = "host;x-jdcloud-date";
+    let canonical_headers = format!("host:{host}\nx-jdcloud-date:{datetime}\nx-jdcloud-nonce:{nonce}\n");
+    let signed_headers = "host;x-jdcloud-date;x-jdcloud-nonce";
     let canonical_request = format!("GET\n{path}\n{query_text}\n{canonical_headers}\n{signed_headers}\n{payload_hash}");
     let scope = format!("{date}/{region}/{service}/jdcloud2_request");
     let string_to_sign = format!("JDCLOUD2-HMAC-SHA256\n{datetime}\n{scope}\n{:x}", Sha256::digest(canonical_request.as_bytes()));
@@ -1545,10 +1638,47 @@ async fn jdcloud_request(id: i64, service: &str, region: &str, path: &str, query
     let service_key = aws_sign(&region_key, service)?;
     let signing_key = aws_sign(&service_key, "jdcloud2_request")?;
     let authorization = format!("JDCLOUD2-HMAC-SHA256 Credential={access_key_id}/{scope}, SignedHeaders={signed_headers}, Signature={}", hex::encode(aws_sign(&signing_key, &string_to_sign)?));
-    let response = reqwest::Client::new().get(format!("https://{host}{path}{}", if query_text.is_empty() { String::new() } else { format!("?{query_text}") })).header("Host", &host).header("X-Jdcloud-Date", &datetime).header("Authorization", authorization).timeout(std::time::Duration::from_secs(30)).send().await.map_err(|error| format!("京东云请求失败: {error}"))?;
+    let response = reqwest::Client::new().get(format!("https://{host}{path}{}", if query_text.is_empty() { String::new() } else { format!("?{query_text}") })).header("Host", &host).header("X-Jdcloud-Date", &datetime).header("X-Jdcloud-Nonce", nonce).header("Authorization", authorization).timeout(std::time::Duration::from_secs(30)).send().await.map_err(|error| format!("京东云请求失败: {error}"))?;
     let status = response.status(); let data: Value = response.json().await.map_err(|error| format!("京东云返回解析失败: {error}"))?;
     if !status.is_success() { let message = data.pointer("/error/message").or_else(|| data.get("message")).or_else(|| data.get("code")).and_then(Value::as_str).unwrap_or("京东云 API 返回错误").to_string(); write_api_log(&access_key_id, &host, &format!("GET {path}"), &json!(query), Some(&data), "失败", Some(&message)); return Err(message); }
     write_api_log(&access_key_id, &host, &format!("GET {path}"), &json!(query), Some(&data), "成功", None); Ok(data)
+}
+
+async fn jdcloud_instance_action(id: i64, region: &str, instance_id: &str, action: &str) -> Result<Value, String> {
+    let path = format!("/v1/regions/{}/instances/{}:{}", rpc_encode(region), rpc_encode(instance_id), action);
+    if account_cloud_type(id)? != "jdcloud" { return Err("当前账号不是京东云账号".into()); }
+    let (access_key_id, access_key_secret) = account_credentials(id)?;
+    let datetime = Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
+    let date = &datetime[..8];
+    let host = format!("lavm.{region}.jdcloud-api.com");
+    let nonce = Uuid::new_v4().to_string();
+    let payload_hash = format!("{:x}", Sha256::digest(b""));
+    let canonical_headers = format!("host:{host}\nx-jdcloud-date:{datetime}\nx-jdcloud-nonce:{nonce}\n");
+    let signed_headers = "host;x-jdcloud-date;x-jdcloud-nonce";
+    let canonical_request = format!("POST\n{path}\n\n{canonical_headers}\n{signed_headers}\n{payload_hash}");
+    let scope = format!("{date}/{region}/lavm/jdcloud2_request");
+    let string_to_sign = format!("JDCLOUD2-HMAC-SHA256\n{datetime}\n{scope}\n{:x}", Sha256::digest(canonical_request.as_bytes()));
+    let date_key = aws_sign(format!("JDCLOUD2{access_key_secret}").as_bytes(), date)?;
+    let region_key = aws_sign(&date_key, region)?;
+    let service_key = aws_sign(&region_key, "lavm")?;
+    let signing_key = aws_sign(&service_key, "jdcloud2_request")?;
+    let authorization = format!("JDCLOUD2-HMAC-SHA256 Credential={access_key_id}/{scope}, SignedHeaders={signed_headers}, Signature={}", hex::encode(aws_sign(&signing_key, &string_to_sign)?));
+    let response = reqwest::Client::new().post(format!("https://{host}{path}")).header("Host", &host).header("X-Jdcloud-Date", &datetime).header("X-Jdcloud-Nonce", nonce).header("Authorization", authorization).timeout(std::time::Duration::from_secs(30)).send().await.map_err(|error| format!("京东云请求失败: {error}"))?;
+    let status = response.status(); let data: Value = response.json().await.map_err(|error| format!("京东云返回解析失败: {error}"))?;
+    if !status.is_success() { return Err(data.pointer("/error/message").or_else(|| data.get("message")).or_else(|| data.get("code")).and_then(Value::as_str).unwrap_or("京东云 API 返回错误").to_string()); }
+    Ok(data)
+}
+
+async fn jdcloud_firewall_mutation(id: i64, region: &str, method: reqwest::Method, path: &str, payload: Value) -> Result<Value, String> {
+    if account_cloud_type(id)? != "jdcloud" { return Err("当前账号不是京东云账号".into()); }
+    let (access_key_id, access_key_secret) = account_credentials(id)?;
+    let datetime = Utc::now().format("%Y%m%dT%H%M%SZ").to_string(); let date = &datetime[..8]; let host = format!("lavm.{region}.jdcloud-api.com"); let nonce = Uuid::new_v4().to_string();
+    let body = serde_json::to_string(&payload).map_err(|error| error.to_string())?; let payload_hash = format!("{:x}", Sha256::digest(body.as_bytes()));
+    let canonical_headers = format!("content-type:application/json\nhost:{host}\nx-jdcloud-date:{datetime}\nx-jdcloud-nonce:{nonce}\n"); let signed_headers = "content-type;host;x-jdcloud-date;x-jdcloud-nonce";
+    let canonical_request = format!("{}\n{path}\n\n{canonical_headers}\n{signed_headers}\n{payload_hash}", method.as_str()); let scope = format!("{date}/{region}/lavm/jdcloud2_request"); let string_to_sign = format!("JDCLOUD2-HMAC-SHA256\n{datetime}\n{scope}\n{:x}", Sha256::digest(canonical_request.as_bytes()));
+    let date_key = aws_sign(format!("JDCLOUD2{access_key_secret}").as_bytes(), date)?; let region_key = aws_sign(&date_key, region)?; let service_key = aws_sign(&region_key, "lavm")?; let signing_key = aws_sign(&service_key, "jdcloud2_request")?; let authorization = format!("JDCLOUD2-HMAC-SHA256 Credential={access_key_id}/{scope}, SignedHeaders={signed_headers}, Signature={}", hex::encode(aws_sign(&signing_key, &string_to_sign)?));
+    let response = reqwest::Client::new().request(method, format!("https://{host}{path}")).header("Host", &host).header("Content-Type", "application/json").header("X-Jdcloud-Date", &datetime).header("X-Jdcloud-Nonce", nonce).header("Authorization", authorization).body(body).timeout(std::time::Duration::from_secs(30)).send().await.map_err(|error| format!("京东云请求失败: {error}"))?;
+    let status = response.status(); let data: Value = response.json().await.map_err(|error| format!("京东云返回解析失败: {error}"))?; if !status.is_success() { return Err(data.pointer("/error/message").or_else(|| data.get("message")).or_else(|| data.get("code")).and_then(Value::as_str).unwrap_or("京东云防火墙 API 返回错误").to_string()); } Ok(data)
 }
 
 fn value_first_string(value: Option<&Value>) -> Value { value.and_then(Value::as_array).and_then(|items| items.first()).cloned().or_else(|| value.cloned()).unwrap_or(json!("")) }
@@ -1557,7 +1687,7 @@ fn jdcloud_rds(item: &Value, region: &str) -> Value { json!({"DBInstanceId": ite
 fn jdcloud_redis(item: &Value, region: &str) -> Value { json!({"InstanceId": item.get("cacheInstanceId").or_else(|| item.get("instanceId")).or_else(|| item.get("id")), "InstanceName": item.get("cacheInstanceName").or_else(|| item.get("name")).or_else(|| item.get("cacheInstanceId")), "InstanceStatus": item.get("cacheInstanceStatus").or_else(|| item.get("status")), "InstanceType": "Redis", "InstanceClass": item.get("cacheInstanceClass").or_else(|| item.get("instanceClass")), "Capacity": item.get("cacheInstanceMemoryMB").or_else(|| item.get("memory")).unwrap_or(&json!(0)), "ConnectionDomain": item.get("cacheInstanceDomainName").or_else(|| item.get("connectionDomain")), "Port": item.get("port"), "EngineVersion": item.get("engineVersion"), "NetworkType": item.get("vpcId"), "_region_id": region, "_raw": item}) }
 fn jdcloud_bucket(item: &Value, region: &str) -> Value { let name = item.get("name").or_else(|| item.get("bucketName")).or_else(|| item.get("bucket")); json!({"Name": name, "BucketName": name, "Location": item.get("location").or_else(|| item.get("region")).unwrap_or(&json!(region)), "CreationDate": item.get("creationDate").or_else(|| item.get("createTime")), "StorageClass": item.get("storageClass").unwrap_or(&json!("STANDARD")), "Acl": item.get("acl").unwrap_or(&json!("private")), "ExtranetEndpoint": name.and_then(Value::as_str).filter(|name| !name.is_empty()).map(|name| format!("{name}.s3.{region}.jdcloud-oss.com")).unwrap_or_else(|| "-".into()), "IntranetEndpoint": "-", "_region_id": item.get("location").or_else(|| item.get("region")).unwrap_or(&json!(region)), "_raw": item}) }
 fn jdcloud_zone(item: &Value, region: &str) -> Value { json!({"DomainName": item.get("domainName").or_else(|| item.get("domain")).or_else(|| item.get("name")), "DomainStatus": item.get("status").unwrap_or(&json!("ACTIVE")), "ZoneId": item.get("id").or_else(|| item.get("domainId")).or_else(|| item.get("domainName")), "RecordCount": item.get("recordCount").or_else(|| item.get("recordNum")).unwrap_or(&json!(0)), "RegistrationDate": item.get("createTime"), "_region_id": region, "_jdcloud_dns": true, "_raw": item}) }
-fn jdcloud_swas_instance(item: &Value, region: &str) -> Value { json!({"InstanceId": item.get("instanceId").or_else(|| item.get("id")), "InstanceName": item.get("name").or_else(|| item.get("instanceName")).or_else(|| item.get("instanceId")), "InstanceStatus": item.get("status").or_else(|| item.get("instanceStatus")), "Status": item.get("status").or_else(|| item.get("instanceStatus")), "PublicIpAddress": value_first_string(item.get("publicIpAddress").or_else(|| item.get("elasticIp"))), "PrivateIpAddress": value_first_string(item.get("privateIpAddress")), "InstanceType": item.get("instanceType").or_else(|| item.get("planName")).unwrap_or(&json!("")), "VpcId": item.get("vpcId").unwrap_or(&json!("")), "_region_id": region, "_raw": item}) }
+fn jdcloud_swas_instance(item: &Value, region: &str) -> Value { json!({"InstanceId": item.get("instanceId").or_else(|| item.get("id")), "InstanceName": item.get("name").or_else(|| item.get("instanceName")).or_else(|| item.get("instanceId")), "InstanceStatus": item.get("status").or_else(|| item.get("instanceStatus")), "Status": item.get("status").or_else(|| item.get("instanceStatus")), "PublicIpAddress": value_first_string(item.get("publicIpAddress").or_else(|| item.get("elasticIp")).or_else(|| item.get("publicIp"))), "PrivateIpAddress": value_first_string(item.get("privateIpAddress").or_else(|| item.get("privateIp"))), "InstanceType": item.get("instanceType").or_else(|| item.get("planName")).or_else(|| item.get("planId")).unwrap_or(&json!("")), "PlanId": item.get("planId").or_else(|| item.get("planName")).unwrap_or(&json!("")), "ImageId": item.get("imageId").or_else(|| item.get("imageName")).unwrap_or(&json!("")), "Cpu": item.get("cpu").or_else(|| item.get("cpuCores")).or_else(|| item.get("vCpu")).unwrap_or(&json!(0)), "Memory": item.get("memory").or_else(|| item.get("memorySize")).or_else(|| item.get("memoryMB")).unwrap_or(&json!(0)), "Bandwidth": item.get("bandwidth").or_else(|| item.get("bandwidthMbps")).unwrap_or(&json!(0)), "SystemDiskSize": item.get("systemDiskSize").or_else(|| item.get("systemDisk")).unwrap_or(&json!(0)), "ExpiredTime": item.get("expiredTime").or_else(|| item.get("expirationTime")).or_else(|| item.get("expireTime")).unwrap_or(&json!("")), "CreateTime": item.get("createTime").or_else(|| item.get("createdTime")).unwrap_or(&json!("")), "VpcId": item.get("vpcId").unwrap_or(&json!("")), "_region_id": region, "_raw": item}) }
 
 async fn jdcloud_resource_items(id: i64, resource_type: &str) -> ResourceResponse {
     let now = Utc::now().timestamp_millis(); let regions = match configured_regions(id, "cn-north-1") { Ok(value) => value, Err(error) => return ResourceResponse { resource_type: resource_type.into(), items: vec![], errors: vec![error], fetched_at: now } };
@@ -2770,6 +2900,186 @@ async fn list_instance_disks(id: i64, region_id: String, instance_id: String, co
     Ok(array_at(&result, &["Disks", "Disk"]).into_iter().cloned().collect())
 }
 
+fn valid_security_group_protocol(protocol: &str) -> bool { matches!(protocol, "tcp" | "udp" | "icmp" | "gre" | "all") }
+
+fn valid_security_group_port_range(protocol: &str, port_range: &str) -> bool {
+    let Some((start, end)) = port_range.split_once('/') else { return false; };
+    let Ok(start) = start.parse::<i32>() else { return false; };
+    let Ok(end) = end.parse::<i32>() else { return false; };
+    if !matches!(protocol, "tcp" | "udp") { return start == -1 && end == -1; }
+    (start == -1 && end == -1) || (start >= 1 && end >= start && end <= 65535)
+}
+
+fn security_group_rule_params(region_id: String, security_group_id: String, ip_protocol: String, port_range: String, source_cidr_ip: String, policy: String, priority: i32, nic_type: Option<String>) -> Result<BTreeMap<String, String>, String> {
+    let protocol = ip_protocol.trim().to_ascii_lowercase();
+    let range = port_range.trim().to_string();
+    let source = source_cidr_ip.trim().to_string();
+    if region_id.is_empty() || security_group_id.trim().is_empty() { return Err("缺少安全组地域或安全组 ID".into()); }
+    if !valid_security_group_protocol(&protocol) { return Err("不支持的安全组协议".into()); }
+    if !valid_security_group_port_range(&protocol, &range) { return Err("端口范围与协议不匹配，请使用 80/80、8000/9000 或 -1/-1".into()); }
+    if source.is_empty() || !source.contains('/') { return Err("来源地址必须是 CIDR，例如 0.0.0.0/0".into()); }
+    if !(1..=100).contains(&priority) { return Err("安全组规则优先级必须在 1 到 100 之间".into()); }
+    let mut params = string_params(&[("RegionId", region_id), ("SecurityGroupId", security_group_id), ("IpProtocol", protocol), ("PortRange", range), ("SourceCidrIp", source), ("Policy", if policy.eq_ignore_ascii_case("drop") { "drop".into() } else { "accept".into() }), ("Priority", priority.to_string())]);
+    if let Some(nic_type) = nic_type.map(|value| value.trim().to_ascii_lowercase()).filter(|value| matches!(value.as_str(), "internet" | "intranet")) { params.insert("NicType".into(), nic_type); }
+    Ok(params)
+}
+
+#[tauri::command]
+async fn list_aliyun_security_groups(id: i64, region_id: String, instance_id: String, security_group_id: Option<String>) -> Result<Value, String> {
+    ensure_aliyun_account(id)?;
+    if region_id.is_empty() || instance_id.is_empty() { return Err("缺少服务器地域或实例 ID".into()); }
+    let (access_key_id, access_key_secret) = account_credentials(id)?;
+    let instance = aliyun_rpc(&format!("ecs.{region_id}.aliyuncs.com"), "2014-05-26", "DescribeInstanceAttribute", string_params(&[("RegionId", region_id.clone()), ("InstanceId", instance_id)]), &access_key_id, &access_key_secret).await?;
+    let attached_group_ids = array_at(&instance, &["SecurityGroupIds", "SecurityGroupId"]).into_iter().filter_map(Value::as_str).collect::<Vec<_>>();
+    let response = aliyun_rpc(&format!("ecs.{region_id}.aliyuncs.com"), "2014-05-26", "DescribeSecurityGroups", string_params(&[("RegionId", region_id.clone()), ("PageSize", "100".into())]), &access_key_id, &access_key_secret).await?;
+    let groups = array_at(&response, &["SecurityGroups", "SecurityGroup"]).into_iter().map(|group| {
+        let vpc_id = group.get("VpcId").and_then(Value::as_str).unwrap_or("");
+        json!({"SecurityGroupId": group.get("SecurityGroupId").cloned().unwrap_or(json!("")), "SecurityGroupName": group.get("SecurityGroupName").cloned().unwrap_or(json!("")), "Description": group.get("Description").cloned().unwrap_or(json!("")), "VpcId": vpc_id, "NicType": if vpc_id.is_empty() { "internet" } else { "intranet" }})
+    }).filter(|group| attached_group_ids.is_empty() || group.get("SecurityGroupId").and_then(Value::as_str).is_some_and(|id| attached_group_ids.contains(&id))).collect::<Vec<_>>();
+    let selected_security_group_id = security_group_id.filter(|value| groups.iter().any(|group| group.get("SecurityGroupId").and_then(Value::as_str) == Some(value.as_str()))).or_else(|| groups.first().and_then(|group| group.get("SecurityGroupId")).and_then(Value::as_str).map(String::from)).unwrap_or_default();
+    let rules = if selected_security_group_id.is_empty() { Vec::new() } else {
+        let detail = aliyun_rpc(&format!("ecs.{region_id}.aliyuncs.com"), "2014-05-26", "DescribeSecurityGroupAttribute", string_params(&[("RegionId", region_id), ("SecurityGroupId", selected_security_group_id.clone())]), &access_key_id, &access_key_secret).await?;
+        array_at(&detail, &["Permissions", "Permission"]).into_iter().filter(|rule| rule.get("Direction").and_then(Value::as_str).is_some_and(|direction| direction.eq_ignore_ascii_case("ingress"))).map(|rule| json!({"Direction": rule.get("Direction").cloned().unwrap_or(json!("")), "IpProtocol": rule.get("IpProtocol").cloned().unwrap_or(json!("")), "PortRange": rule.get("PortRange").cloned().unwrap_or(json!("")), "SourceCidrIp": rule.get("SourceCidrIp").cloned().unwrap_or(json!("")), "SourceGroupId": rule.get("SourceGroupId").cloned().unwrap_or(json!("")), "Policy": rule.get("Policy").cloned().unwrap_or(json!("accept")), "Priority": rule.get("Priority").cloned().unwrap_or(json!(1)), "Description": rule.get("Description").cloned().unwrap_or(json!("")), "NicType": rule.get("NicType").cloned().unwrap_or(json!(""))})).collect()
+    };
+    Ok(json!({"groups": groups, "selectedSecurityGroupId": selected_security_group_id, "rules": rules}))
+}
+
+#[tauri::command]
+async fn authorize_aliyun_security_group_rule(id: i64, region_id: String, security_group_id: String, ip_protocol: String, port_range: String, source_cidr_ip: String, description: Option<String>, nic_type: Option<String>) -> Result<String, String> {
+    ensure_aliyun_account(id)?;
+    let (access_key_id, access_key_secret) = account_credentials(id)?;
+    let mut params = security_group_rule_params(region_id.clone(), security_group_id, ip_protocol, port_range, source_cidr_ip, "accept".into(), 1, nic_type)?;
+    if let Some(description) = description.map(|value| value.trim().to_string()).filter(|value| !value.is_empty()) { params.insert("Description".into(), description); }
+    let result = aliyun_rpc(&format!("ecs.{region_id}.aliyuncs.com"), "2014-05-26", "AuthorizeSecurityGroup", params, &access_key_id, &access_key_secret).await?;
+    Ok(result.get("RequestId").and_then(Value::as_str).unwrap_or_default().to_string())
+}
+
+#[tauri::command]
+async fn revoke_aliyun_security_group_rule(id: i64, region_id: String, security_group_id: String, ip_protocol: String, port_range: String, source_cidr_ip: String, policy: String, priority: i32, nic_type: Option<String>) -> Result<String, String> {
+    ensure_aliyun_account(id)?;
+    let (access_key_id, access_key_secret) = account_credentials(id)?;
+    let params = security_group_rule_params(region_id.clone(), security_group_id, ip_protocol, port_range, source_cidr_ip, policy, priority, nic_type)?;
+    let result = aliyun_rpc(&format!("ecs.{region_id}.aliyuncs.com"), "2014-05-26", "RevokeSecurityGroup", params, &access_key_id, &access_key_secret).await?;
+    Ok(result.get("RequestId").and_then(Value::as_str).unwrap_or_default().to_string())
+}
+
+fn tencent_security_group_policy(ip_protocol: String, port_range: String, source_cidr_ip: String, description: Option<String>) -> Result<Value, String> {
+    let protocol = ip_protocol.trim().to_ascii_lowercase();
+    let range = port_range.trim().to_string();
+    let source = source_cidr_ip.trim().to_string();
+    if !valid_security_group_protocol(&protocol) { return Err("不支持的安全组协议".into()); }
+    if !valid_security_group_port_range(&protocol, &range) { return Err("端口范围与协议不匹配，请使用 80/80、8000/9000 或 -1/-1".into()); }
+    if source.is_empty() || !source.contains('/') { return Err("来源地址必须是 CIDR，例如 0.0.0.0/0".into()); }
+    let port = if protocol == "all" { "ALL".into() } else if let Some((start, end)) = range.split_once('/') { if start == end { start.into() } else { format!("{start}-{end}") } } else { range };
+    let mut policy = json!({"Action": "ACCEPT", "CidrBlock": source, "Port": port, "Protocol": protocol.to_ascii_uppercase()});
+    if let Some(description) = description.map(|value| value.trim().to_string()).filter(|value| !value.is_empty()) { policy["PolicyDescription"] = json!(description); }
+    Ok(policy)
+}
+
+fn tencent_security_group_port(value: &Value) -> String {
+    let port = value.as_str().unwrap_or("");
+    if port.eq_ignore_ascii_case("all") { "-1/-1".into() }
+    else if let Some((start, end)) = port.split_once('-') { format!("{start}/{end}") }
+    else if port.is_empty() { "-1/-1".into() } else { format!("{port}/{port}") }
+}
+
+#[tauri::command]
+async fn list_tencent_security_groups(id: i64, region_id: String, instance_id: String, security_group_id: Option<String>) -> Result<Value, String> {
+    ensure_tencent_account(id)?;
+    if region_id.is_empty() || instance_id.is_empty() { return Err("缺少服务器地域或实例 ID".into()); }
+    let (access_key_id, access_key_secret) = account_credentials(id)?;
+    let instance_data = tencent_request("cvm", "2017-03-12", "DescribeInstances", json!({"InstanceIds": [instance_id]}), Some(&region_id), &access_key_id, &access_key_secret).await?;
+    let attached_group_ids = array_at(&instance_data, &["InstanceSet"]).first().map(|instance| array_at(instance, &["SecurityGroupIds"]).into_iter().filter_map(Value::as_str).collect::<Vec<_>>()).unwrap_or_default();
+    let groups_data = tencent_request("cvm", "2017-03-12", "DescribeSecurityGroups", json!({"Limit": 100}), Some(&region_id), &access_key_id, &access_key_secret).await?;
+    let groups = array_at(&groups_data, &["SecurityGroupSet"]).into_iter().map(|group| json!({"SecurityGroupId": group.get("SecurityGroupId").cloned().unwrap_or(json!("")), "SecurityGroupName": group.get("SecurityGroupName").cloned().unwrap_or(json!("")), "Description": group.get("SecurityGroupDesc").cloned().unwrap_or(json!("")), "VpcId": group.get("VpcId").cloned().unwrap_or(json!("")), "NicType": ""})).filter(|group| attached_group_ids.is_empty() || group.get("SecurityGroupId").and_then(Value::as_str).is_some_and(|value| attached_group_ids.contains(&value))).collect::<Vec<_>>();
+    let selected_security_group_id = security_group_id.filter(|value| groups.iter().any(|group| group.get("SecurityGroupId").and_then(Value::as_str) == Some(value.as_str()))).or_else(|| groups.first().and_then(|group| group.get("SecurityGroupId")).and_then(Value::as_str).map(String::from)).unwrap_or_default();
+    let rules = if selected_security_group_id.is_empty() { Vec::new() } else {
+        let policies = tencent_request("cvm", "2017-03-12", "DescribeSecurityGroupPolicies", json!({"SecurityGroupId": selected_security_group_id}), Some(&region_id), &access_key_id, &access_key_secret).await?;
+        array_at(&policies, &["SecurityGroupPolicySet", "Ingress"]).into_iter().map(|rule| json!({"Direction": "ingress", "IpProtocol": rule.get("Protocol").and_then(Value::as_str).unwrap_or("").to_ascii_lowercase(), "PortRange": tencent_security_group_port(rule.get("Port").unwrap_or(&Value::Null)), "SourceCidrIp": rule.get("CidrBlock").cloned().unwrap_or(json!("")), "SourceGroupId": rule.get("SecurityGroupId").cloned().unwrap_or(json!("")), "Policy": rule.get("Action").cloned().unwrap_or(json!("ACCEPT")), "Priority": rule.get("PolicyIndex").cloned().unwrap_or(json!(0)), "Description": rule.get("PolicyDescription").cloned().unwrap_or(json!("")), "NicType": ""})).collect()
+    };
+    Ok(json!({"groups": groups, "selectedSecurityGroupId": selected_security_group_id, "rules": rules}))
+}
+
+#[tauri::command]
+async fn authorize_tencent_security_group_rule(id: i64, region_id: String, security_group_id: String, ip_protocol: String, port_range: String, source_cidr_ip: String, description: Option<String>, nic_type: Option<String>) -> Result<String, String> {
+    let _ = nic_type;
+    ensure_tencent_account(id)?;
+    if region_id.is_empty() || security_group_id.is_empty() { return Err("缺少安全组地域或安全组 ID".into()); }
+    let (access_key_id, access_key_secret) = account_credentials(id)?;
+    let result = tencent_request("cvm", "2017-03-12", "AuthorizeSecurityGroupIngress", json!({"SecurityGroupId": security_group_id, "SecurityGroupPolicySet": [tencent_security_group_policy(ip_protocol, port_range, source_cidr_ip, description)?]}), Some(&region_id), &access_key_id, &access_key_secret).await?;
+    Ok(result.get("RequestId").and_then(Value::as_str).unwrap_or_default().to_string())
+}
+
+#[tauri::command]
+async fn revoke_tencent_security_group_rule(id: i64, region_id: String, security_group_id: String, ip_protocol: String, port_range: String, source_cidr_ip: String, policy: String, priority: i32, nic_type: Option<String>) -> Result<String, String> {
+    let _ = (ip_protocol, port_range, source_cidr_ip, policy, nic_type);
+    ensure_tencent_account(id)?;
+    if region_id.is_empty() || security_group_id.is_empty() || priority < 0 { return Err("缺少安全组地域、安全组 ID 或规则索引".into()); }
+    let (access_key_id, access_key_secret) = account_credentials(id)?;
+    let result = tencent_request("cvm", "2017-03-12", "RevokeSecurityGroupIngress", json!({"SecurityGroupId": security_group_id, "SecurityGroupPolicySet": [{"PolicyIndex": priority}]}), Some(&region_id), &access_key_id, &access_key_secret).await?;
+    Ok(result.get("RequestId").and_then(Value::as_str).unwrap_or_default().to_string())
+}
+
+fn baidu_security_group_rule_input(ip_protocol: String, port_range: String, source_cidr_ip: String, description: Option<String>) -> Result<Value, String> {
+    let protocol = ip_protocol.trim().to_ascii_lowercase();
+    let port_range = port_range.trim();
+    let source_ip = source_cidr_ip.trim();
+    let Some((start, end)) = port_range.split_once('/') else { return Err("端口范围格式无效，请使用 80/80 或 8000/9000".into()); };
+    let Ok(start) = start.parse::<u16>() else { return Err("端口范围格式无效，请使用 80/80 或 8000/9000".into()); };
+    let Ok(end) = end.parse::<u16>() else { return Err("端口范围格式无效，请使用 80/80 或 8000/9000".into()); };
+    if !matches!(protocol.as_str(), "tcp" | "udp") { return Err("百度云安全组端口仅支持 TCP 或 UDP".into()); }
+    if start == 0 || end < start { return Err("端口范围必须在 1 到 65535 之间".into()); }
+    if source_ip.is_empty() || !source_ip.contains('/') { return Err("来源地址必须是 CIDR，例如 0.0.0.0/0".into()); }
+    let mut rule = json!({"direction": "ingress", "ethertype": "IPv4", "portRange": format!("{start}-{end}"), "protocol": protocol, "sourceIp": source_ip});
+    if let Some(description) = description.map(|value| value.trim().to_string()).filter(|value| !value.is_empty()) { rule["remark"] = json!(description); }
+    Ok(rule)
+}
+
+fn baidu_security_group_port(port_range: &str) -> String {
+    let value = port_range.trim();
+    if value.is_empty() { return "-1/-1".into(); }
+    if let Some((start, end)) = value.split_once('-') { format!("{start}/{end}") } else { format!("{value}/{value}") }
+}
+
+#[tauri::command]
+async fn list_baidu_security_groups(id: i64, region_id: String, instance_id: String, security_group_id: Option<String>) -> Result<Value, String> {
+    if account_cloud_type(id)? != "baidu" { return Err("当前账号不是百度智能云账号".into()); }
+    if region_id.trim().is_empty() || instance_id.trim().is_empty() { return Err("缺少服务器地域或实例 ID".into()); }
+    let host = format!("bcc.{region_id}.baidubce.com");
+    let (result, _) = baidu_request(id, &host, "/v2/securityGroup", string_params(&[("instanceId", instance_id), ("maxKeys", "1000".into())])).await?;
+    let groups = array_at(&result, &["securityGroups"]).into_iter().map(|group| json!({"SecurityGroupId": group.get("id").cloned().unwrap_or(json!("")), "SecurityGroupName": group.get("name").cloned().unwrap_or(json!("")), "Description": group.get("desc").cloned().unwrap_or(json!("")), "VpcId": group.get("vpcId").cloned().unwrap_or(json!("")), "NicType": ""})).collect::<Vec<_>>();
+    let selected_security_group_id = security_group_id.filter(|value| groups.iter().any(|group| group.get("SecurityGroupId").and_then(Value::as_str) == Some(value.as_str()))).or_else(|| groups.first().and_then(|group| group.get("SecurityGroupId")).and_then(Value::as_str).map(String::from)).unwrap_or_default();
+    if selected_security_group_id.is_empty() { return Ok(json!({"groups": groups, "selectedSecurityGroupId": "", "rules": []})); }
+    let (detail, _) = baidu_request(id, &host, &format!("/v2/securityGroup/{selected_security_group_id}"), BTreeMap::new()).await?;
+    let rules = array_at(&detail, &["rules"]).into_iter().filter(|rule| rule.get("direction").and_then(Value::as_str).is_some_and(|direction| direction.eq_ignore_ascii_case("ingress"))).map(|rule| json!({"Direction": rule.get("direction").cloned().unwrap_or(json!("ingress")), "IpProtocol": rule.get("protocol").cloned().unwrap_or(json!("")), "PortRange": baidu_security_group_port(rule.get("portRange").and_then(Value::as_str).unwrap_or("")), "SourceCidrIp": rule.get("sourceIp").cloned().unwrap_or(json!("")), "SourceGroupId": rule.get("sourceGroupId").cloned().unwrap_or(json!("")), "Policy": "accept", "Priority": 0, "Description": rule.get("remark").cloned().unwrap_or(json!("")), "NicType": "", "SecurityGroupRuleId": rule.get("securityGroupRuleId").cloned().unwrap_or(json!(""))})).collect::<Vec<_>>();
+    Ok(json!({"groups": groups, "selectedSecurityGroupId": selected_security_group_id, "rules": rules, "sgVersion": detail.get("sgVersion").cloned().unwrap_or(Value::Null)}))
+}
+
+#[tauri::command]
+async fn authorize_baidu_security_group_rule(id: i64, region_id: String, security_group_id: String, ip_protocol: String, port_range: String, source_cidr_ip: String, description: Option<String>, nic_type: Option<String>, sg_version: Option<i64>) -> Result<String, String> {
+    let _ = nic_type;
+    if account_cloud_type(id)? != "baidu" { return Err("当前账号不是百度智能云账号".into()); }
+    if region_id.trim().is_empty() || security_group_id.trim().is_empty() { return Err("缺少安全组地域或安全组 ID".into()); }
+    let mut query = string_params(&[("authorizeRule", String::new()), ("clientToken", Uuid::new_v4().to_string())]);
+    if let Some(version) = sg_version { query.insert("sgVersion".into(), version.to_string()); }
+    let host = format!("bcc.{region_id}.baidubce.com");
+    let (result, _) = baidu_request_with_options(id, &host, &format!("/v2/securityGroup/{security_group_id}"), query, "PUT", Some(json!({"rule": baidu_security_group_rule_input(ip_protocol, port_range, source_cidr_ip, description)?})), true).await?;
+    Ok(result.get("requestId").or_else(|| result.get("RequestId")).and_then(Value::as_str).unwrap_or_default().to_string())
+}
+
+#[tauri::command]
+async fn revoke_baidu_security_group_rule(id: i64, region_id: String, security_group_id: String, ip_protocol: String, port_range: String, source_cidr_ip: String, policy: String, priority: i32, nic_type: Option<String>, security_group_rule_id: Option<String>, sg_version: Option<i64>) -> Result<String, String> {
+    let _ = (security_group_id, ip_protocol, port_range, source_cidr_ip, policy, priority, nic_type);
+    if account_cloud_type(id)? != "baidu" { return Err("当前账号不是百度智能云账号".into()); }
+    if region_id.trim().is_empty() { return Err("缺少安全组地域".into()); }
+    let rule_id = security_group_rule_id.filter(|value| !value.trim().is_empty()).ok_or("缺少百度云安全组规则 ID")?;
+    let mut query = string_params(&[("clientToken", Uuid::new_v4().to_string())]);
+    if let Some(version) = sg_version { query.insert("sgVersion".into(), version.to_string()); }
+    let host = format!("bcc.{region_id}.baidubce.com");
+    let (result, _) = baidu_request_with_options(id, &host, &format!("/v2/securityGroup/rule/{rule_id}"), query, "DELETE", None, false).await?;
+    Ok(result.get("requestId").or_else(|| result.get("RequestId")).and_then(Value::as_str).unwrap_or_default().to_string())
+}
+
 #[tauri::command]
 async fn instance_status(id: i64, region_id: String, instance_id: String) -> Result<String, String> {
     let (access_key_id, access_key_secret) = account_credentials(id)?;
@@ -2899,7 +3209,104 @@ async fn swas_instance_action(id: i64, region_id: String, instance_id: String, a
         let mut payload = json!({"InstanceIds": [instance_id]});
         if action == "reboot" && force_stop { payload["ForceStop"] = json!(true); }
         tencent_request("lighthouse", "2020-03-24", action_name, payload, Some(&region_id), &access_key_id, &access_key_secret).await?
+    } else if cloud_type == "jdcloud" {
+        let action_name = match action.as_str() { "start" => "startInstance", "reboot" => "rebootInstance", "stop" => "stopInstance", _ => return Err("不支持的轻量服务器操作".into()) };
+        jdcloud_instance_action(id, &region_id, &instance_id, action_name).await?
     } else { return Err("当前云类型暂不支持轻量服务器操作".into()); };
+    Ok(result.get("RequestId").and_then(Value::as_str).unwrap_or_default().to_string())
+}
+
+fn light_firewall_rule_input(ip_protocol: String, port_range: String, source_cidr_ip: String, description: Option<String>) -> Result<(String, String, String, String), String> {
+    let protocol = ip_protocol.trim().to_ascii_lowercase();
+    let port_range = port_range.trim().to_string();
+    let source_cidr_ip = source_cidr_ip.trim().to_string();
+    let parts = port_range.split('/').collect::<Vec<_>>();
+    if !matches!(protocol.as_str(), "tcp" | "udp") { return Err("轻量服务器仅支持 TCP 或 UDP 端口规则".into()); }
+    if parts.len() != 2 { return Err("端口范围格式无效，请使用 80/80 或 8000/9000".into()); }
+    let start = parts[0].parse::<u16>().ok();
+    let end = parts[1].parse::<u16>().ok();
+    if start.is_none() || end.is_none() || start.unwrap() == 0 || end.unwrap() < start.unwrap() { return Err("端口范围必须在 1 到 65535 之间".into()); }
+    if source_cidr_ip.is_empty() || !source_cidr_ip.contains('/') { return Err("来源地址必须是 CIDR，例如 0.0.0.0/0".into()); }
+    Ok((protocol, port_range, source_cidr_ip, description.unwrap_or_default().trim().to_string()))
+}
+
+fn tencent_lighthouse_port(port: &str) -> String {
+    let port = port.trim();
+    if port.eq_ignore_ascii_case("all") { return "-1/-1".into(); }
+    let parts = port.split('-').collect::<Vec<_>>();
+    if parts.len() == 2 { format!("{}/{}", parts[0], parts[1]) } else { format!("{port}/{port}") }
+}
+
+#[tauri::command]
+async fn list_light_firewall_rules(id: i64, region_id: String, instance_id: String) -> Result<Value, String> {
+    if region_id.is_empty() || instance_id.is_empty() { return Err("缺少轻量服务器地域或实例 ID".into()); }
+    let cloud_type = account_cloud_type(id)?;
+    let (access_key_id, access_key_secret) = account_credentials(id)?;
+    if cloud_type == "aliyun" {
+        let result = aliyun_rpc(&format!("swas.{region_id}.aliyuncs.com"), "2020-06-01", "ListFirewallRules", string_params(&[("RegionId", region_id), ("InstanceId", instance_id), ("PageNumber", "1".into()), ("PageSize", "100".into())]), &access_key_id, &access_key_secret).await?;
+        let rules = array_at(&result, &["FirewallRules"]).into_iter()
+            .filter(|rule| rule.get("Policy").and_then(Value::as_str).unwrap_or("accept").eq_ignore_ascii_case("accept"))
+            .map(|rule| json!({"RuleId": rule.get("RuleId").cloned().unwrap_or(json!("")), "IpProtocol": rule.get("RuleProtocol").cloned().unwrap_or(json!("")), "PortRange": rule.get("Port").cloned().unwrap_or(json!("")), "SourceCidrIp": rule.get("SourceCidrIp").cloned().unwrap_or(json!("")), "Policy": rule.get("Policy").cloned().unwrap_or(json!("accept")), "Description": rule.get("Remark").cloned().unwrap_or(json!(""))})).collect::<Vec<_>>();
+        return Ok(json!({"rules": rules}));
+    }
+    if cloud_type == "tencent" {
+        let result = tencent_request("lighthouse", "2020-03-24", "DescribeFirewallRules", json!({"InstanceId": instance_id, "Limit": 100}), Some(&region_id), &access_key_id, &access_key_secret).await?;
+        let rules = array_at(&result, &["FirewallRuleSet"]).into_iter()
+            .filter(|rule| rule.get("Action").and_then(Value::as_str).unwrap_or("ACCEPT").eq_ignore_ascii_case("ACCEPT"))
+            .map(|rule| {
+                let firewall_rule = json!({"Protocol": rule.get("Protocol").cloned().unwrap_or(json!("")), "Port": rule.get("Port").cloned().unwrap_or(json!("")), "CidrBlock": rule.get("CidrBlock").cloned().unwrap_or(json!("")), "Action": rule.get("Action").cloned().unwrap_or(json!("ACCEPT")), "FirewallRuleDescription": rule.get("FirewallRuleDescription").cloned().unwrap_or(json!(""))});
+                json!({"RuleId": "", "IpProtocol": rule.get("Protocol").cloned().unwrap_or(json!("")), "PortRange": tencent_lighthouse_port(rule.get("Port").and_then(Value::as_str).unwrap_or("")), "SourceCidrIp": rule.get("CidrBlock").cloned().unwrap_or(json!("")), "Policy": rule.get("Action").cloned().unwrap_or(json!("ACCEPT")), "Description": rule.get("FirewallRuleDescription").cloned().unwrap_or(json!("")), "FirewallRule": firewall_rule})
+            }).collect::<Vec<_>>();
+        return Ok(json!({"rules": rules, "firewallVersion": result.get("FirewallVersion").cloned().unwrap_or(Value::Null)}));
+    }
+    if cloud_type == "jdcloud" {
+        let result = jdcloud_request(id, "lavm", &region_id, &format!("/v1/regions/{}/firewallRule", rpc_encode(&region_id)), string_params(&[("instanceId", instance_id), ("pageSize", "100".into()), ("pageNumber", "1".into())])).await?;
+        let rules = array_at(&result, &["result", "firewallRules"]).into_iter().map(|rule| json!({"RuleId": rule.get("ruleId").cloned().unwrap_or(json!("")), "IpProtocol": rule.get("ruleProtocol").cloned().unwrap_or(json!("")), "PortRange": rule.get("port").cloned().unwrap_or(json!("")), "SourceCidrIp": rule.get("sourceAddress").cloned().unwrap_or(json!("")), "Policy": "accept", "Description": rule.get("remark").cloned().unwrap_or(json!(""))})).collect::<Vec<_>>();
+        return Ok(json!({"rules": rules}));
+    }
+    Err("当前云类型暂不支持轻量服务器防火墙管理".into())
+}
+
+#[tauri::command]
+async fn create_light_firewall_rule(id: i64, region_id: String, instance_id: String, ip_protocol: String, port_range: String, source_cidr_ip: String, description: Option<String>, firewall_version: Option<i64>) -> Result<String, String> {
+    if region_id.is_empty() || instance_id.is_empty() { return Err("缺少轻量服务器地域或实例 ID".into()); }
+    let (protocol, port_range, source_cidr_ip, description) = light_firewall_rule_input(ip_protocol, port_range, source_cidr_ip, description)?;
+    let cloud_type = account_cloud_type(id)?;
+    let (access_key_id, access_key_secret) = account_credentials(id)?;
+    let result = if cloud_type == "aliyun" {
+        let rule = json!({"Port": port_range, "RuleProtocol": protocol.to_ascii_uppercase(), "SourceCidrIp": source_cidr_ip, "Remark": description});
+        aliyun_rpc(&format!("swas.{region_id}.aliyuncs.com"), "2020-06-01", "CreateFirewallRules", string_params(&[("RegionId", region_id), ("InstanceId", instance_id), ("FirewallRules", json!([rule]).to_string())]), &access_key_id, &access_key_secret).await?
+    } else if cloud_type == "tencent" {
+        let parts = port_range.split('/').collect::<Vec<_>>();
+        let port = if parts[0] == parts[1] { parts[0].to_string() } else { format!("{}-{}", parts[0], parts[1]) };
+        let mut rule = json!({"Protocol": protocol.to_ascii_uppercase(), "Port": port, "CidrBlock": source_cidr_ip, "Action": "ACCEPT"});
+        if !description.is_empty() { rule["FirewallRuleDescription"] = json!(description); }
+        let mut payload = json!({"InstanceId": instance_id, "FirewallRules": [rule]});
+        if let Some(version) = firewall_version { payload["FirewallVersion"] = json!(version); }
+        tencent_request("lighthouse", "2020-03-24", "CreateFirewallRules", payload, Some(&region_id), &access_key_id, &access_key_secret).await?
+    } else if cloud_type == "jdcloud" {
+        jdcloud_firewall_mutation(id, &region_id, reqwest::Method::POST, &format!("/v1/regions/{}/firewallRule", rpc_encode(&region_id)), json!({"instanceId": instance_id, "sourceAddress": source_cidr_ip, "ruleProtocol": protocol.to_ascii_uppercase(), "port": port_range, "remark": description, "clientToken": Uuid::new_v4().to_string(), "regionId": region_id})).await?
+    } else { return Err("当前云类型暂不支持轻量服务器防火墙管理".into()); };
+    Ok(result.get("RequestId").and_then(Value::as_str).unwrap_or_default().to_string())
+}
+
+#[tauri::command]
+async fn delete_light_firewall_rule(id: i64, region_id: String, instance_id: String, rule_id: Option<String>, firewall_rule: Option<Value>, firewall_version: Option<i64>) -> Result<String, String> {
+    if region_id.is_empty() || instance_id.is_empty() { return Err("缺少轻量服务器地域或实例 ID".into()); }
+    let cloud_type = account_cloud_type(id)?;
+    let (access_key_id, access_key_secret) = account_credentials(id)?;
+    let result = if cloud_type == "aliyun" {
+        let rule_id = rule_id.filter(|value| !value.trim().is_empty()).ok_or("缺少阿里云防火墙规则 ID")?;
+        aliyun_rpc(&format!("swas.{region_id}.aliyuncs.com"), "2020-06-01", "DeleteFirewallRules", string_params(&[("RegionId", region_id), ("InstanceId", instance_id), ("RuleIds", rule_id)]), &access_key_id, &access_key_secret).await?
+    } else if cloud_type == "tencent" {
+        let firewall_rule = firewall_rule.filter(Value::is_object).ok_or("缺少腾讯云防火墙规则内容")?;
+        let mut payload = json!({"InstanceId": instance_id, "FirewallRules": [firewall_rule]});
+        if let Some(version) = firewall_version { payload["FirewallVersion"] = json!(version); }
+        tencent_request("lighthouse", "2020-03-24", "DeleteFirewallRules", payload, Some(&region_id), &access_key_id, &access_key_secret).await?
+    } else if cloud_type == "jdcloud" {
+        let rule_id = rule_id.filter(|value| !value.trim().is_empty()).ok_or("缺少京东云防火墙规则 ID")?;
+        jdcloud_firewall_mutation(id, &region_id, reqwest::Method::DELETE, &format!("/v1/regions/{}/firewallRule", rpc_encode(&region_id)), json!({"instanceId": instance_id, "ruleId": rule_id, "regionId": region_id})).await?
+    } else { return Err("当前云类型暂不支持轻量服务器防火墙管理".into()); };
     Ok(result.get("RequestId").and_then(Value::as_str).unwrap_or_default().to_string())
 }
 
@@ -3317,6 +3724,21 @@ fn list_panel_connections() -> Result<Vec<PanelConnection>, String> {
 }
 
 #[tauri::command]
+fn update_panel_connection_order(ids: Vec<i64>) -> Result<(), String> {
+    let conn = open_db()?;
+    let transaction = conn.unchecked_transaction().map_err(|e| format!("更新面板排序失败: {e}"))?;
+    let now = Utc::now().timestamp_millis();
+    for (sort_order, id) in ids.into_iter().enumerate() {
+        transaction.execute(
+            "UPDATE panel_connections SET sort_order=?1,updated_at=?2 WHERE id=?3",
+            params![sort_order as i64, now, id],
+        ).map_err(|e| format!("更新面板排序失败: {e}"))?;
+    }
+    transaction.commit().map_err(|e| format!("保存面板排序失败: {e}"))?;
+    Ok(())
+}
+
+#[tauri::command]
 async fn save_panel_connection(input: PanelConnectionInput) -> Result<PanelConnection, String> {
     let name = input.name.trim(); let panel_url = normalize_panel_url(&input.panel_url)?;
     if name.is_empty() { return Err("请填写面板名称".into()); }
@@ -3664,6 +4086,20 @@ fn save_rdp_connection(input: &RdpConnectionInput) -> Result<(), String> {
     Ok(())
 }
 
+fn rdp_connection_password(input: &RdpConnectionInput) -> Result<Option<String>, String> {
+    if let Some(password) = input.password.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+        return Ok(Some(password.to_string()));
+    }
+    let target_key = input.target_key.trim();
+    if target_key.is_empty() { return Ok(None); }
+    let ciphertext: Option<String> = open_db()?.query_row(
+        "SELECT password_ciphertext FROM rdp_connections WHERE target_key=?1",
+        [target_key],
+        |row| row.get(0),
+    ).optional().map_err(|e| format!("读取 RDP 密码失败: {e}"))?.flatten();
+    ciphertext.as_deref().filter(|value| !value.is_empty()).map(decrypt_secret).transpose()
+}
+
 #[tauri::command]
 fn launch_rdp_connection(input: RdpConnectionInput) -> Result<(), String> {
     let host = input.host.trim();
@@ -3673,8 +4109,20 @@ fn launch_rdp_connection(input: RdpConnectionInput) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         let address = if input.port == 3389 { host.to_string() } else { format!("{host}:{}", input.port) };
+        let password = rdp_connection_password(&input)?;
+        if let Some(password) = password.as_deref() {
+            let credential_target = format!("TERMSRV/{host}");
+            let status = Command::new("cmdkey.exe")
+                .arg(format!("/generic:{credential_target}"))
+                .arg(format!("/user:{username}"))
+                .arg(format!("/pass:{password}"))
+                .status()
+                .map_err(|e| format!("无法保存 Windows RDP 凭据: {e}"))?;
+            if !status.success() { return Err("Windows RDP 凭据保存失败".into()); }
+        }
         let path = std::env::temp_dir().join(format!("cloudhub-tools-rdp-{}.rdp", Uuid::new_v4()));
-        let content = format!("full address:s:{address}\r\nusername:s:{username}\r\nprompt for credentials:i:1\r\nauthentication level:i:2\r\nredirectclipboard:i:1\r\n");
+        let prompt_for_credentials = if password.is_some() { 0 } else { 1 };
+        let content = format!("full address:s:{address}\r\nusername:s:{username}\r\nprompt for credentials:i:{prompt_for_credentials}\r\nauthentication level:i:2\r\nredirectclipboard:i:1\r\n");
         fs::write(&path, content).map_err(|e| format!("创建 RDP 配置失败: {e}"))?;
         Command::new("mstsc.exe").arg(&path).spawn().map_err(|e| format!("无法启动 Windows 远程桌面: {e}"))?;
         Ok(())
@@ -3943,6 +4391,14 @@ fn list_local_assets(account_id: Option<i64>, resource_type: Option<String>) -> 
 }
 
 #[tauri::command]
+fn delete_local_asset(account_id: i64, resource_type: String, asset_key: String) -> Result<(), String> {
+    if account_id <= 0 || resource_type.trim().is_empty() || asset_key.trim().is_empty() { return Err("缺少本地资产标识".into()); }
+    let deleted = open_db()?.execute("DELETE FROM cloud_assets WHERE account_id=?1 AND resource_type=?2 AND asset_key=?3", params![account_id, resource_type, asset_key]).map_err(|e| e.to_string())?;
+    if deleted == 0 { return Err("本地资产记录不存在".into()); }
+    Ok(())
+}
+
+#[tauri::command]
 async fn set_oss_public_read(id: i64, bucket: String, location: String) -> Result<(), String> {
     let (access_key_id, access_key_secret) = account_credentials(id)?;
     oss_set_public_read(&bucket, &location, &access_key_id, &access_key_secret).await
@@ -4178,7 +4634,7 @@ pub fn run() {
         .manage(SshTerminalStore { terminals: Mutex::new(HashMap::new()) })
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![list_accounts, save_account, delete_account, app_data_path, open_app_data_directory, list_client_preferences, save_client_preference, reveal_account_secret, cloud_account_summary, list_cloud_resources, sync_cloud_assets, verify_vultr_account, verify_ctyun_account, verify_huawei_account, verify_baidu_account, verify_ucloud_account, verify_qiniu_account, verify_aws_account, verify_azure_account, verify_gcp_account, verify_jdcloud_account, verify_qingcloud_account, verify_ksyun_account, esa_overview, list_local_assets, list_managed_hosts, save_managed_host, delete_managed_host, probe_managed_host, export_managed_hosts_file, import_managed_hosts, list_panel_connections, save_panel_connection, refresh_panel_connection, panel_temporary_login, delete_panel_connection, update_panel_connection_remark, export_panel_connections_file, import_panel_connections, list_api_logs, clear_api_logs, clear_operation_logs, list_instance_disks, instance_status, reboot_instance, start_instance, stop_instance, vultr_instance_action, vultr_instance_manage, oracle_instance_action, cvm_instance_reboot, cvm_instance_action, baidu_instance_action, rename_server, swas_instance_action, list_dns_records, add_dns_record, update_dns_record, delete_dns_record, toggle_dns_record, list_domain_logs, query_whois, list_rds_databases, list_rds_accounts, list_redis_accounts, list_oss_objects, get_oss_acl, set_oss_public_read, set_oss_cors, get_ssh_connection, reveal_ssh_password, delete_ssh_connection, get_rdp_connection, reveal_rdp_password, delete_rdp_connection, launch_rdp_connection, launch_managed_host_rdp, ssh_connect, ssh_test_connection, ssh_list_files, ssh_read_text_file, ssh_write_text_file, ssh_upload_file, ssh_download_file, ssh_make_directory, ssh_delete_path, ssh_read, ssh_write, ssh_resize, ssh_disconnect, export_accounts, export_accounts_file, import_accounts])
+        .invoke_handler(tauri::generate_handler![list_accounts, save_account, delete_account, app_data_path, open_app_data_directory, list_client_preferences, save_client_preference, reveal_account_secret, cloud_account_summary, list_cloud_resources, sync_cloud_assets, verify_vultr_account, verify_ctyun_account, verify_huawei_account, verify_baidu_account, verify_ucloud_account, verify_qiniu_account, verify_aws_account, verify_azure_account, verify_gcp_account, verify_jdcloud_account, verify_qingcloud_account, verify_ksyun_account, esa_overview, list_local_assets, delete_local_asset, list_managed_hosts, save_managed_host, delete_managed_host, probe_managed_host, export_managed_hosts_file, import_managed_hosts, list_panel_connections, update_panel_connection_order, save_panel_connection, refresh_panel_connection, panel_temporary_login, delete_panel_connection, update_panel_connection_remark, export_panel_connections_file, import_panel_connections, list_api_logs, clear_api_logs, clear_operation_logs, list_instance_disks, list_aliyun_security_groups, authorize_aliyun_security_group_rule, revoke_aliyun_security_group_rule, list_tencent_security_groups, authorize_tencent_security_group_rule, revoke_tencent_security_group_rule, list_light_firewall_rules, create_light_firewall_rule, delete_light_firewall_rule, list_vultr_firewall_rules, create_vultr_firewall_rule, delete_vultr_firewall_rule, instance_status, reboot_instance, start_instance, stop_instance, vultr_instance_action, vultr_instance_manage, oracle_instance_action, cvm_instance_reboot, cvm_instance_action, baidu_instance_action, rename_server, swas_instance_action, list_dns_records, add_dns_record, update_dns_record, delete_dns_record, toggle_dns_record, list_domain_logs, query_whois, list_rds_databases, list_rds_accounts, list_redis_accounts, list_oss_objects, get_oss_acl, set_oss_public_read, set_oss_cors, get_ssh_connection, reveal_ssh_password, delete_ssh_connection, get_rdp_connection, reveal_rdp_password, delete_rdp_connection, launch_rdp_connection, launch_managed_host_rdp, ssh_connect, ssh_test_connection, ssh_list_files, ssh_read_text_file, ssh_write_text_file, ssh_upload_file, ssh_download_file, ssh_make_directory, ssh_delete_path, ssh_read, ssh_write, ssh_resize, ssh_disconnect, export_accounts, export_accounts_file, import_accounts])
         .run(tauri::generate_context!())
         .expect("error while running Tauri application");
 }
