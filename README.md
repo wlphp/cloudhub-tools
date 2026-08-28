@@ -132,4 +132,6 @@ npm run bundle:mac:x64
 
 ## 许可证
 
-本项目采用 [MIT License](LICENSE) 开源。
+本项目采用 [PolyForm Noncommercial License 1.0.0](LICENSE) 授权，源码公开但禁止商业用途。
+该许可证允许个人、研究、教育、公益和政府机构等非商业使用；商业使用需获得版权所有者的单独授权。
+由于包含非商业限制，本项目不属于 OSI 严格定义的“开源软件”。
