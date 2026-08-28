@@ -155,6 +155,25 @@ const emptyManagedHost = emptyManagedHostDraft;
 const emptyPanelConnection = emptyPanelConnectionDraft;
 const labels = resourceLabels;
 const cloudProviders = catalogCloudProviders;
+type AccountResourceType = (typeof catalogAssetTypes)[number][0];
+type AccountResourceView = Exclude<View, "summary">;
+const accountResourceViews: readonly AccountResourceView[] = ["ecs", "domain", "oss", "rds", "redis", "swas", "esa"];
+const accountResourceActionLabels: Record<AccountResourceType, string> = {
+  ecs: "服务器",
+  domain: "域名",
+  oss: "对象存储",
+  rds: "云数据库",
+  redis: "Redis",
+  swas: "轻量服务器",
+  esa: "边缘安全加速",
+  block: "块存储",
+  network: "私有网络",
+  firewall: "防火墙",
+  ip: "保留 IP",
+  loadbalancer: "负载均衡",
+  snapshot: "快照",
+  kubernetes: "Kubernetes",
+};
 
 function cloudProvider(value: string) {
   return getCloudProvider(value);
@@ -1905,6 +1924,9 @@ function App() {
     finally { setSyncing(false); }
   }
 
+  const syncResultLevel = syncResult?.errors.length ? (syncResult.fetched > 0 ? "warning" : "has-errors") : "success";
+  const showOracleDatabasePermissionHint = syncAccount?.cloud_type === "oracle" && Boolean(syncResult?.errors.some((error) => /rds:.*Authorization failed or requested resource not found/i.test(error)));
+
   async function cachedResourceResponse(account: Account, view: Exclude<View, "summary">): Promise<ResourceResponse> {
     const assets = runningInTauri
       ? await invoke<LocalAsset[]>("list_local_assets", { accountId: account.id, resourceType: view })
@@ -1982,6 +2004,19 @@ function App() {
       await keepLoadingVisible(startedAt);
       setLoading(false);
     }
+  }
+
+  function openAccountResource(account: Account, resourceType: AccountResourceType) {
+    if (accountResourceViews.includes(resourceType as AccountResourceView)) {
+      void openCachedView(account, resourceType as AccountResourceView);
+      return;
+    }
+    setMoreId(null);
+    setMorePosition(null);
+    setResourceAccountId(account.id);
+    setResourceTypeFilter(resourceType);
+    setSection("resources");
+    void loadLocalAssets();
   }
 
   async function pullLatestResources(account: Account, view: Exclude<View, "summary">) {
@@ -3503,12 +3538,22 @@ function App() {
   const pagedLogRows = logRows.slice((logPage - 1) * pageSize, logPage * pageSize);
   const filteredApiLogs = useMemo(() => apiLogs.filter((log) => !logFilter || `${log.account_name || ""} ${log.endpoint} ${log.action} ${log.status}`.toLowerCase().includes(logFilter.toLowerCase())), [apiLogs, logFilter]);
   const pagedApiLogs = filteredApiLogs.slice((apiLogPage - 1) * pageSize, apiLogPage * pageSize);
+  const accountResourceActions = (account: Account) => {
+    return syncAssetTypes(account)
+      .map(([resourceType], order) => ({
+        resourceType,
+        count: localAssets.filter((asset) => asset.account_id === account.id && asset.resource_type === resourceType).length,
+        order,
+      }))
+      .sort((left, right) => right.count - left.count || left.order - right.order);
+  };
 
   return (
     <div className="app-shell ide-theme" ref={appShellRef} style={{ "--app-sidebar-width": `${appSidebarWidth}px` } as CSSProperties}>
       <a className="skip-link" href="#main-content">跳到主要内容</a>
       <div className="ide-topbar" role="banner">
         <div className="ide-topbar-brand" data-tauri-drag-region onMouseDown={handleTitlebarMouseDown}><Cloud size={15} /><strong>云枢 Tools</strong><span>本地多云资源管理</span></div>
+        <div className="ide-topbar-drag-region" data-tauri-drag-region aria-hidden="true" onMouseDown={handleTitlebarMouseDown} />
         <div className="ide-topbar-actions">
           <div className="ide-topbar-context"><span className="ide-topbar-dot" />LOCAL</div>
           {runningInTauri && <div className="ide-window-controls" aria-label="窗口控制">
@@ -3742,45 +3787,45 @@ function App() {
                 <thead>
                   <tr>
                     <th className="account-select"><input aria-label="全选当前页账号" type="checkbox" checked={allPagedAccountsSelected} onChange={togglePagedAccountSelection} /></th>
-                    <th>云类型</th>
-                    <th>账号名称</th>
+                    <th>云类型 / AccessKeyId</th>
+                    <th>账号名称 / 添加时间</th>
                     <th>分组</th>
-                    <th>AccessKeyId</th>
                     <th>备注</th>
-                    <th>添加时间</th>
                     <th>状态</th>
+                    <th className="account-resources-column">资源</th>
                     <th className="account-actions-column">操作</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {pagedAccounts.map((account) => (
-                    <tr key={account.id}>
+                  {pagedAccounts.map((account) => {
+                    const resourceActions = accountResourceActions(account);
+                    const primaryResourceActions = resourceActions.slice(0, 3);
+                    const moreResourceActions = resourceActions.slice(3);
+                    return <tr key={account.id}>
                       <td className="account-select"><input aria-label={`选择账号 ${account.account_name}`} type="checkbox" checked={selectedAccountIds.has(account.id)} onChange={() => toggleAccountSelection(account.id)} /></td>
                       <td>
-                        <span className={`cloud-type cloud-type-text ${account.cloud_type}`}>
-                          {cloudProvider(account.cloud_type).label}
-                        </span>
+                        <div className="account-cloud-credential">
+                          <span className={`cloud-type cloud-type-text ${account.cloud_type}`}>
+                            {cloudProvider(account.cloud_type).label}
+                          </span>
+                          <code>
+                            {account.access_key_id.length > 10
+                              ? `${account.access_key_id.slice(0, 6)}****${account.access_key_id.slice(-4)}`
+                              : account.access_key_id}
+                          </code>
+                        </div>
                       </td>
                       <td>
                         <div className="account-name">
                           <span className={`avatar cloud-avatar ${account.cloud_type}`}>{cloudProvider(account.cloud_type).avatar}</span>
                           <div>
                             <strong>{account.account_name}</strong>
+                            <small>{new Date(account.created_at).toLocaleString("zh-CN")}</small>
                           </div>
                         </div>
                       </td>
                       <td>{account.group_name || ""}</td>
-                      <td>
-                        <code>
-                          {account.access_key_id.length > 10
-                            ? `${account.access_key_id.slice(0, 6)}****${account.access_key_id.slice(-4)}`
-                            : account.access_key_id}
-                        </code>
-                      </td>
                       <td>{account.remark || ""}</td>
-                      <td>
-                        {new Date(account.created_at).toLocaleString("zh-CN")}
-                      </td>
                       <td>
                         <button
                           className={`status-switch ${account.enabled ? "checked" : ""}`}
@@ -3810,36 +3855,59 @@ function App() {
                           {account.enabled ? "启用" : "禁用"}
                         </button>
                       </td>
-                      <td className="account-actions-cell">
-                        <div className="resource-actions">
-                          {supportsResourceSync(account) ? <>
+                      <td className="account-resources-cell">
+                        {supportsResourceSync(account) ? <div className="resource-actions account-resource-actions">
+                          {primaryResourceActions.map(({ resourceType, count }) => <button
+                            key={resourceType}
+                            type="button"
+                            className={resourceType === "domain" ? "purple" : "blue"}
+                            title={`查看${accountResourceActionLabels[resourceType]}资产（已获取 ${count} 项）`}
+                            aria-label={`查看 ${account.account_name} ${accountResourceActionLabels[resourceType]}资产，已获取 ${count} 项`}
+                            onClick={() => openAccountResource(account, resourceType)}
+                          >
+                            {accountResourceActionLabels[resourceType]}
+                          </button>)}
+                          {moreResourceActions.length > 0 && <span className={`more-wrap ${moreId === account.id ? "more-open" : ""}`}>
                             <button
                               type="button"
-                              className="orange"
-                              title="打开账号资产汇总"
-                              aria-label={`打开 ${account.account_name} 资产汇总`}
-                              onClick={() => void openCachedSummary(account)}
+                              className="action-text more-trigger"
+                              title="更多资产类型"
+                              aria-label={`更多 ${account.account_name} 资产操作`}
+                              onClick={(event) => {
+                                if (moreId === account.id) {
+                                  setMoreId(null);
+                                  setMorePosition(null);
+                                  return;
+                                }
+                                const rect = event.currentTarget.getBoundingClientRect();
+                                const menuHeight = Math.min(280, 14 + moreResourceActions.length * 38);
+                                const top = rect.bottom + menuHeight > window.innerHeight ? Math.max(8, rect.top - menuHeight - 6) : rect.bottom + 6;
+                                setMoreId(account.id);
+                                setMorePosition({ top, left: Math.max(8, Math.min(window.innerWidth - 182, rect.right - 174)) });
+                              }}
                             >
-                              汇总
+                              <MoreHorizontal size={17} />
                             </button>
-                            {syncAssetTypes(account).some(([value]) => value === "ecs") && <button
-                              type="button"
-                              className="blue"
-                              title="查看服务器资产"
-                              aria-label={`查看 ${account.account_name} 服务器资产`}
-                              onClick={() => void openCachedView(account, "ecs")}
-                            >
-                              服务器
-                            </button>}
-                            {syncAssetTypes(account).some(([value]) => value === "domain") && <button
-                              type="button"
-                              className="purple"
-                              title="查看域名资产"
-                              aria-label={`查看 ${account.account_name} 域名资产`}
-                              onClick={() => void openCachedView(account, "domain")}
-                            >
-                              域名
-                            </button>}
+                            {moreId === account.id && (
+                              <div className="more-menu" style={morePosition ? { position: "fixed", top: morePosition.top, left: morePosition.left, right: "auto" } : undefined}>
+                                {moreResourceActions.map(({ resourceType, count }) => (
+                                  <button
+                                    key={resourceType}
+                                    title={`查看${accountResourceActionLabels[resourceType]}资产（已获取 ${count} 项）`}
+                                    aria-label={`查看 ${account.account_name} ${accountResourceActionLabels[resourceType]}资产，已获取 ${count} 项`}
+                                    onClick={() => openAccountResource(account, resourceType)}
+                                  >
+                                    {accountResourceActionLabels[resourceType]}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </span>}
+                        </div> : <span className="account-resource-muted">—</span>}
+                      </td>
+                      <td className="account-actions-cell">
+                        <div className="resource-actions account-actions">
+                          {supportsResourceSync(account) ? <>
                             <button
                               type="button"
                               className="teal"
@@ -3851,6 +3919,15 @@ function App() {
                               }}
                             >
                               获取资产
+                            </button>
+                            <button
+                              type="button"
+                              className="orange"
+                              title="打开账号资产汇总"
+                              aria-label={`打开 ${account.account_name} 资产汇总`}
+                              onClick={() => void openCachedSummary(account)}
+                            >
+                              汇总
                             </button>
                           </> : <span className="action-text">仅保留历史账号</span>}
                           <button
@@ -3871,44 +3948,10 @@ function App() {
                           >
                             删除
                           </button>
-                          {supportsResourceSync(account) && <span className={`more-wrap ${moreId === account.id ? "more-open" : ""}`}>
-                            <button
-                              type="button"
-                              className="action-text more-trigger"
-                              title="更多资产类型"
-                              aria-label={`更多 ${account.account_name} 资产操作`}
-                              onClick={(event) => {
-                                if (moreId === account.id) {
-                                  setMoreId(null);
-                                  setMorePosition(null);
-                                  return;
-                                }
-                                const rect = event.currentTarget.getBoundingClientRect();
-                                setMoreId(account.id);
-                                const menuHeight = 230;
-                                const top = rect.bottom + menuHeight > window.innerHeight ? Math.max(8, rect.top - menuHeight - 6) : rect.bottom + 6;
-                                setMorePosition({ top, left: Math.max(8, Math.min(window.innerWidth - 182, rect.right - 174)) });
-                              }}
-                            >
-                              <MoreHorizontal size={17} />
-                            </button>
-                            {moreId === account.id && (
-                              <div className="more-menu" style={morePosition ? { position: "fixed", top: morePosition.top, left: morePosition.left, right: "auto" } : undefined}>
-                                {(["swas", "rds", "redis", "oss", "esa"] as const).filter((view) => syncAssetTypes(account).some(([type]) => type === view)).map((view) => (
-                                  <button
-                                    key={view}
-                                    onClick={() => void openCachedView(account, view)}
-                                  >
-                                    {labels[view]}
-                                  </button>
-                                ))}
-                              </div>
-                            )}
-                          </span>}
                         </div>
                       </td>
-                    </tr>
-                  ))}
+                    </tr>;
+                  })}
                 </tbody>
               </table>
             </div>
@@ -4746,7 +4789,7 @@ function App() {
               <p className="security-tip">选择要从{cloudProvider(syncAccount.cloud_type).label}获取并保存到本地 SQLite 的资产类型。当前支持{providerSyncDescription(syncAccount.cloud_type)}。</p>
               <div className="asset-check-grid">{syncAssetTypes(syncAccount).map(([value, label]) => <label key={value} className="asset-check"><input type="checkbox" checked={syncTypes.includes(value)} onChange={(event) => setSyncTypes((current) => event.target.checked ? [...new Set([...current, value])] : current.filter((item) => item !== value))} /><span>{syncAccount.cloud_type === "tencent" && value === "ecs" ? "CVM服务器" : label}</span></label>)}</div>
               <div className="asset-sync-account">账号：{syncAccount.account_name}</div>
-              {syncResult && <div className={`asset-sync-result ${syncResult.errors.length ? "has-errors" : "success"}`}><strong>{syncResult.errors.length ? "获取完成（部分失败）" : "获取成功并已保存到本地"}</strong><span>共保存 {syncResult.fetched} 项资产</span><div className="asset-result-counts">{syncTypes.map((type) => <span key={type}>{assetTypes.find(([value]) => value === type)?.[1] || type}：{syncResult.counts[type] ?? 0} 个</span>)}</div>{syncResult.errors.length > 0 && <div className="asset-sync-errors">{syncResult.errors.map((error, index) => <div key={`${error}-${index}`}>{error}</div>)}</div>}</div>}
+              {syncResult && <div className={`asset-sync-result ${syncResultLevel}`} role="status" aria-atomic="true"><strong>{syncResultLevel === "has-errors" ? "获取失败" : syncResultLevel === "warning" ? "获取完成（含提示）" : "获取成功并已保存到本地"}</strong><span>共保存 {syncResult.fetched} 项资产</span><div className="asset-result-counts">{syncTypes.map((type) => <span key={type}>{assetTypes.find(([value]) => value === type)?.[1] || type}：{syncResult.counts[type] ?? 0} 个</span>)}</div>{showOracleDatabasePermissionHint && <div className="asset-sync-guidance"><AlertTriangle size={16} /><div><strong>云数据库未获取</strong><span>当前 OCI 密钥缺少数据库读取权限。请在 OCI IAM 为用户或所属组授予目标资源组的 <code>read database-family</code>，或配置更精细的 DB System 只读策略后重新获取。</span></div></div>}{syncResult.errors.length > 0 && <div className="asset-sync-errors">{syncResult.errors.map((error, index) => <div key={`${error}-${index}`}>{error}</div>)}</div>}</div>}
               <div className="modal-actions"><button className="secondary" onClick={() => { setSyncAccount(null); setSyncResult(null); }}>{syncResult ? "关闭" : "取消"}</button><button className="primary" disabled={syncing || syncTypes.length === 0} onClick={() => void syncAssets(syncAccount)}>{syncing ? "获取中…" : supportsResourceSync(syncAccount) ? (syncResult ? "重新获取" : "开始获取并保存") : "查看接入状态"}</button></div>
             </section>
           </div>
