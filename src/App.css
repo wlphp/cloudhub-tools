@@ -295,6 +295,9 @@ main { background: var(--ui-bg); }
 .ide-theme .mobile-nav-bar { background: var(--jb-sidebar); border-bottom-color: var(--jb-border); }
 .ide-theme .mobile-nav-scroll button { min-height: 44px; border-color: var(--jb-border); border-radius: 3px; background: transparent; color: var(--jb-muted); }
 .ide-theme .mobile-nav-scroll button.nav-active { border-color: var(--jb-accent); background: var(--jb-accent-soft); color: #f0edff; }
+
+.ide-theme .terminal-host-sidebar { padding-left: 12px; }
+
 @media (max-width: 900px) {
   .ide-theme main { padding: 20px 20px 30px; }
 }
