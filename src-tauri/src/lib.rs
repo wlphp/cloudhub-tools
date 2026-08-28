@@ -2157,6 +2157,31 @@ fn oracle_query(params: &[(String, String)]) -> String {
     params.iter().map(|(key, value)| format!("{}={}", rpc_encode(key), rpc_encode(value))).collect::<Vec<_>>().join("&")
 }
 
+fn oracle_object_storage_host(region: &str) -> String {
+    format!("objectstorage.{region}.oci.customer-oci.com")
+}
+
+fn oracle_is_user_compartment(compartment: &Value) -> bool {
+    !compartment.get("name").and_then(Value::as_str).is_some_and(|name| name.eq_ignore_ascii_case("ManagedCompartmentForPaaS"))
+}
+
+#[cfg(test)]
+mod oracle_resource_tests {
+    use super::{oracle_is_user_compartment, oracle_object_storage_host};
+    use serde_json::json;
+
+    #[test]
+    fn uses_the_tls_validated_object_storage_endpoint() {
+        assert_eq!(oracle_object_storage_host("me-dubai-1"), "objectstorage.me-dubai-1.oci.customer-oci.com");
+    }
+
+    #[test]
+    fn excludes_the_oracle_managed_paas_compartment_only() {
+        assert!(!oracle_is_user_compartment(&json!({"name": "ManagedCompartmentForPaaS"})));
+        assert!(oracle_is_user_compartment(&json!({"name": "业务资源组"})));
+    }
+}
+
 async fn oracle_request(credentials: &OracleCredentials, host: &str, path: &str) -> Result<(Value, Option<String>), String> {
     let private_key = RsaPrivateKey::from_pkcs8_pem(&credentials.private_key)
         .or_else(|_| RsaPrivateKey::from_pkcs1_pem(&credentials.private_key))
@@ -2209,7 +2234,11 @@ async fn oracle_context(credentials: &OracleCredentials) -> Result<(Vec<Value>, 
     // every resource type.
     let subscriptions = oracle_pages(credentials, &host, &format!("/20160918/tenancy/{}/regionSubscriptions", rpc_encode(&credentials.tenancy_ocid)), vec![]).await.unwrap_or_default();
     let mut all_compartments = vec![json!({"id": credentials.tenancy_ocid, "name": "Root Compartment"})];
-    for item in compartments { if item.get("id").is_some_and(|id| !all_compartments.iter().any(|current| current.get("id") == Some(id))) { all_compartments.push(item); } }
+    for item in compartments {
+        if oracle_is_user_compartment(&item) && item.get("id").is_some_and(|id| !all_compartments.iter().any(|current| current.get("id") == Some(id))) {
+            all_compartments.push(item);
+        }
+    }
     let mut regions = subscriptions.iter().filter(|item| item.get("status").and_then(Value::as_str).is_some_and(|status| status.eq_ignore_ascii_case("READY"))).filter_map(|item| item.get("regionName").and_then(Value::as_str)).map(str::to_string).collect::<Vec<_>>();
     regions.sort(); regions.dedup();
     if regions.is_empty() { regions.push(credentials.region.clone()); }
@@ -2342,7 +2371,7 @@ async fn oracle_resource_items(id: i64, resource_type: &str) -> ResourceResponse
     let (compartments, regions) = match oracle_context(&credentials).await { Ok(value) => value, Err(error) => return ResourceResponse { resource_type: resource_type.into(), items: vec![], errors: vec![error], fetched_at: now } };
     let mut items = Vec::new(); let mut errors = Vec::new();
     for region in regions {
-        let host = match resource_type { "ecs" => format!("iaas.{region}.oraclecloud.com"), "rds" => format!("database.{region}.oci.oraclecloud.com"), "domain" => format!("dns.{region}.oci.oraclecloud.com"), "oss" => format!("objectstorage.{region}.oci.oraclecloud.com"), _ => { errors.push(format!("Oracle Cloud 暂未接入 {resource_type} 资源")); break; } };
+        let host = match resource_type { "ecs" => format!("iaas.{region}.oraclecloud.com"), "rds" => format!("database.{region}.oci.oraclecloud.com"), "domain" => format!("dns.{region}.oci.oraclecloud.com"), "oss" => oracle_object_storage_host(&region), _ => { errors.push(format!("Oracle Cloud 暂未接入 {resource_type} 资源")); break; } };
         let namespace = if resource_type == "oss" { match oracle_request(&credentials, &host, "/n/").await { Ok((Value::String(value), _)) if !value.is_empty() => Some(value), Ok(_) => { errors.push(format!("{region}: 未能读取 Object Storage namespace")); None }, Err(error) => { errors.push(format!("{region}: {error}")); None } } } else { None };
         if resource_type == "oss" && namespace.is_none() { continue; }
         for compartment in &compartments {

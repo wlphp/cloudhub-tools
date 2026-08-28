@@ -46,6 +46,12 @@ function serializeOciPrivateKey(value) {
 function oracleEncode(value) {
   return encodeURIComponent(String(value)).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
 }
+function oracleObjectStorageHost(region) {
+  return `objectstorage.${region}.oci.customer-oci.com`;
+}
+function oracleIsUserCompartment(compartment) {
+  return !/^ManagedCompartmentForPaaS$/i.test(String(compartment?.name || ""));
+}
 async function oracleRequest(accountId, host, requestPath, options = {}) {
   const method = String(options.method || "GET").toUpperCase();
   const body = options.body === undefined ? "" : typeof options.body === "string" ? options.body : JSON.stringify(options.body);
@@ -107,7 +113,9 @@ async function oracleContext(accountId) {
   // Region subscriptions can be independently restricted by OCI IAM. The configured
   // region remains a valid scope for read-only resource discovery in that case.
   const subscriptions = await oraclePages(accountId, identityHost, `/20160918/tenancy/${oracleEncode(tenancyOcid)}/regionSubscriptions`).catch(() => []);
-  const allCompartments = [{ id: tenancyOcid, name: "Root Compartment" }, ...compartments].filter((value, index, values) => values.findIndex((item) => item.id === value.id) === index);
+  const allCompartments = [{ id: tenancyOcid, name: "Root Compartment" }, ...compartments]
+    .filter(oracleIsUserCompartment)
+    .filter((value, index, values) => values.findIndex((item) => item.id === value.id) === index);
   const regions = [...new Set(subscriptions.filter((item) => String(item.status || "").toUpperCase() === "READY").map((item) => item.regionName).filter(Boolean))];
   return { compartments: allCompartments, regions: regions.length ? regions : [homeRegion] };
 }
@@ -216,6 +224,7 @@ async function oracleResources(accountId, type) {
   const items = []; const errors = [];
   for (const region of regions) {
     const hosts = { ecs: `iaas.${region}.oraclecloud.com`, rds: `database.${region}.oci.oraclecloud.com`, domain: `dns.${region}.oci.oraclecloud.com`, oss: `objectstorage.${region}.oraclecloud.com` };
+    hosts.oss = oracleObjectStorageHost(region);
     if (!hosts[type]) return { resource_type: type, items, errors: [`Oracle Cloud 暂未接入 ${type} 资源`], fetched_at: Date.now() };
     let namespace = "";
     if (type === "oss") {
