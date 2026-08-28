@@ -1,7 +1,6 @@
-import { FormEvent, PointerEvent, type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, PointerEvent, type CSSProperties, type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { getVersion } from "@tauri-apps/api/app";
-import { invoke } from "@tauri-apps/api/core";
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
@@ -17,19 +16,15 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronUp,
-  CheckSquare,
   Cloud,
   Copy,
   Database,
   Download,
-  File,
   FileCode2,
-  Folder,
   FolderOpen,
   FolderPlus,
   Globe2,
   GripVertical,
-  Home,
   Eye,
   EyeOff,
   MoreHorizontal,
@@ -44,7 +39,6 @@ import {
   Save,
   Search,
   Server,
-  ShieldCheck,
   Settings,
   Square,
   Star,
@@ -54,6 +48,7 @@ import {
   X,
   Maximize2,
   Minimize2,
+  Minus,
   Keyboard,
   PanelRightClose,
   PanelRightOpen,
@@ -67,141 +62,62 @@ import "./domain-tools.css";
 import "./local-assets.css";
 import "./settings-compact.css";
 import "./terminal-workbench.css";
+import "./ide-theme.css";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { invoke, runningInTauri, webApi } from "./platform/api";
+import {
+  assetFavoriteKey,
+  savedFavoriteAssetKeys,
+  stringListFromValue,
+  stringRecordFromValue,
+} from "./features/assets/preferences";
+import {
+  assetTypes as catalogAssetTypes,
+  cloudProvider as getCloudProvider,
+  cloudProviders as catalogCloudProviders,
+  emptyAccountDraft,
+  emptyManagedHostDraft,
+  emptyPanelConnectionDraft,
+  providerSyncDescription as getProviderSyncDescription,
+  resourceLabels,
+  supportsResourceSync as accountSupportsResourceSync,
+  syncAssetTypes as getSyncAssetTypes,
+} from "./features/cloud/catalog";
+import { DnsEditorDialog } from "./features/domains/DnsEditorDialog";
+import { FavoriteServerDetails, ServerCard } from "./features/servers/ServerCards";
+import { SwasCard } from "./features/servers/SwasCard";
+import { RdsCard } from "./features/resources/RdsCard";
+import { RedisCard } from "./features/resources/RedisCard";
+import { BucketCard } from "./features/storage/BucketCard";
+import type {
+  Account,
+  ApiLog,
+  ConfirmRequest,
+  DomainTool,
+  Draft,
+  EsaOverview,
+  LocalAsset,
+  ManagedHost,
+  ManagedHostDraft,
+  PanelConnection,
+  PanelConnectionDraft,
+  PromptRequest,
+  ResourceResponse,
+  SavedRdpConnection,
+  SavedSshConnection,
+  SshAuthMethod,
+  SshConnectResult,
+  SshDirectoryListing,
+  SshFileEntry,
+  SshTarget,
+  TerminalWorkspaceTab,
+  TransferAccount,
+  View,
+} from "./shared/types";
 
-type Account = {
-  id: number;
-  account_name: string;
-  cloud_type: string;
-  group_name?: string;
-  access_key_id: string;
-  credential_meta?: string | null;
-  region_id?: string;
-  enabled: boolean;
-  remark?: string;
-  sort_order: number;
-  created_at: number;
-  updated_at: number;
-};
-type Draft = {
-  id?: number;
-  account_name: string;
-  cloud_type: string;
-  group_name: string;
-  access_key_id: string;
-  access_key_secret: string;
-  tenancy_ocid: string;
-  key_fingerprint: string;
-  tenant_id: string;
-  subscription_id: string;
-  project_id: string;
-  region_id: string;
-  enabled: boolean;
-  remark: string;
-  sort_order: number;
-};
-type TransferAccount = Draft & { id?: number };
-type ResourceResponse = {
-  resource_type: string;
-  items: Record<string, unknown>[];
-  errors: string[];
-  fetched_at: number;
-};
-type SshFileEntry = { name: string; path: string; isDir: boolean; isFile: boolean; size: number; mode: string; owner: string; group: string; modified: string };
-type SshDirectoryListing = { path: string; entries: SshFileEntry[] };
-type ManagedHost = {
-  id: number;
-  name: string;
-  host: string;
-  port: number;
-  username: string;
-  platform: "linux" | "windows" | string;
-  auth_method: "password" | "private_key" | string;
-  group_name?: string | null;
-  tags?: string | null;
-  source_account_id?: number | null;
-  source_asset_key?: string | null;
-  password_saved: boolean;
-  private_key_saved: boolean;
-  host_key_fingerprint?: string | null;
-  status: "online" | "offline" | "unknown" | string;
-  last_latency_ms?: number | null;
-  metrics: Record<string, unknown>;
-  last_checked_at?: number | null;
-  last_error?: string | null;
-  remark?: string | null;
-  created_at: number;
-  updated_at: number;
-};
-type ManagedHostDraft = {
-  id?: number;
-  name: string;
-  host: string;
-  port: number;
-  username: string;
-  password: string;
-  platform: "linux" | "windows";
-  auth_method: "password" | "private_key";
-  private_key: string;
-  key_passphrase: string;
-  group_name: string;
-  tags: string;
-  source_account_id?: number | null;
-  source_asset_key?: string | null;
-  remark: string;
-};
-type PanelConnection = {
-  id: number;
-  name: string;
-  panel_url: string;
-  sort_order: number;
-  allow_insecure_tls: boolean;
-  group_name?: string | null;
-  source_account_id?: number | null;
-  source_asset_key?: string | null;
-  api_key_saved: boolean;
-  status: "online" | "offline" | "unknown" | string;
-  summary: Record<string, unknown>;
-  last_checked_at?: number | null;
-  last_error?: string | null;
-  remark?: string | null;
-  created_at: number;
-  updated_at: number;
-};
-type PanelConnectionDraft = {
-  id?: number;
-  name: string;
-  panel_url: string;
-  sort_order: number;
-  api_key: string;
-  allow_insecure_tls: boolean;
-  group_name: string;
-  source_account_id?: number | null;
-  source_asset_key?: string | null;
-  remark: string;
-};
-type EsaTrendPoint = { time: string; value: number };
-type EsaOverview = {
-  traffic: number;
-  requests: number;
-  defence_requests: number;
-  site_count: number;
-  active_count: number;
-  range_label: string;
-  trend: Record<"traffic" | "requests" | "page_view", EsaTrendPoint[]>;
-  site_options: { id: string; name: string }[];
-};
-type LocalAsset = {
-  account_id: number;
-  resource_type: string;
-  asset_key: string;
-  region_id?: string | null;
-  payload: Record<string, unknown>;
-  fetched_at: number;
-};
 
 const cloudHubFavoriteAssetsStorageKey = "cloudhub-tools-favorite-assets";
 const cloudHubFavoriteAssetOrderStorageKey = "cloudhub-tools-favorite-asset-order";
-const legacyFavoriteAssetsStorageKey = "aliyun-tools-favorite-assets";
 const cloudHubAssetNotesStorageKey = "cloudhub-tools-asset-notes";
 const cloudHubAssetOrderStorageKey = "cloudhub-tools-asset-order";
 const cloudHubAssetDisplayNamesStorageKey = "cloudhub-tools-asset-display-names";
@@ -234,247 +150,29 @@ const terminalThemes = {
 
 type TerminalThemeName = keyof typeof terminalThemes;
 
-function assetFavoriteKey(asset: LocalAsset) {
-  return `${asset.account_id}:${asset.resource_type}:${asset.asset_key}`;
-}
-
-function savedFavoriteAssetKeys() {
-  try {
-    const storedValue = localStorage.getItem(cloudHubFavoriteAssetsStorageKey)
-      ?? localStorage.getItem(legacyFavoriteAssetsStorageKey)
-      ?? "[]";
-    const value = JSON.parse(storedValue);
-    return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
-  } catch {
-    return [];
-  }
-}
-
-function favoriteAssetKeysFromValue(value: string | undefined) {
-  try {
-    const parsed = JSON.parse(value || "[]");
-    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
-  } catch {
-    return [];
-  }
-}
-
-function assetNotesFromValue(value: string | undefined) {
-  try {
-    const parsed = JSON.parse(value || "{}");
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? Object.fromEntries(Object.entries(parsed).filter(([, note]) => typeof note === "string")) as Record<string, string>
-      : {};
-  } catch {
-    return {};
-  }
-}
-
-function assetDisplayNamesFromValue(value: string | undefined) {
-  return assetNotesFromValue(value);
-}
-
-function assetOrderFromValue(value: string | undefined) {
-  try {
-    const parsed = JSON.parse(value || "[]");
-    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
-  } catch {
-    return [];
-  }
-}
-type ApiLog = {
-  id: number;
-  account_id?: number | null;
-  account_name?: string | null;
-  endpoint: string;
-  action: string;
-  request_params: string;
-  response_params?: string | null;
-  status: string;
-  message?: string | null;
-  created_at: number;
-};
-type View =
-  | "summary"
-  | "ecs"
-  | "domain"
-  | "oss"
-  | "rds"
-  | "redis"
-  | "swas"
-  | "esa";
-type DomainTool = {
-  kind: "dns" | "logs" | "whois";
-  account: Account;
-  domain: string;
-};
-type SshTarget = {
-  account: Account;
-  asset: LocalAsset;
-  managedHostId?: number;
-  direct?: boolean;
-};
-type TerminalWorkspaceTab = {
-  id: string;
-  target: SshTarget;
-  host: string;
-  port: number;
-  username: string;
-  sessionId: string;
-  output: string;
-};
-type SavedSshConnection = {
-  host: string;
-  port: number;
-  username: string;
-  passwordSaved: boolean;
-};
-type SavedRdpConnection = {
-  host: string;
-  port: number;
-  username: string;
-  passwordSaved: boolean;
-};
-type SshConnectResult = {
-  sessionId: string;
-  hostKeyFingerprint: string;
-};
-type ConfirmRequest = { message: string; resolve: (confirmed: boolean) => void };
-type PromptRequest = { message: string; resolve: (value: string | null) => void };
-type SshAuthMethod = "password" | "private_key";
-
-const empty: Draft = {
-  account_name: "",
-  cloud_type: "aliyun",
-  group_name: "",
-  access_key_id: "",
-  access_key_secret: "",
-  tenancy_ocid: "",
-  key_fingerprint: "",
-  tenant_id: "",
-  subscription_id: "",
-  project_id: "",
-  region_id: "",
-  sort_order: 0,
-  enabled: true,
-  remark: "",
-};
-const emptyManagedHost: ManagedHostDraft = {
-  name: "",
-  host: "",
-  port: 22,
-  username: "root",
-  password: "",
-  platform: "linux",
-  auth_method: "password",
-  private_key: "",
-  key_passphrase: "",
-  group_name: "",
-  tags: "",
-  remark: "",
-};
-const emptyPanelConnection: PanelConnectionDraft = { name: "", panel_url: "", sort_order: 0, api_key: "", allow_insecure_tls: true, group_name: "", remark: "" };
-
-const labels: Record<Exclude<View, "summary">, string> = {
-  ecs: "服务器",
-  domain: "域名",
-  oss: "对象存储",
-  rds: "云数据库",
-  redis: "Redis",
-  swas: "轻量应用服务器",
-  esa: "边缘安全加速",
-};
-const cloudProviders = [
-  { value: "aliyun", label: "阿里云", idLabel: "AccessKey ID", secretLabel: "AccessKey Secret", regionPlaceholder: "cn-hangzhou", avatar: "阿" },
-  { value: "tencent", label: "腾讯云", idLabel: "SecretId", secretLabel: "SecretKey", regionPlaceholder: "ap-guangzhou", avatar: "腾" },
-  { value: "volcengine", label: "火山引擎", idLabel: "AccessKey ID", secretLabel: "Secret Access Key", regionPlaceholder: "cn-beijing", avatar: "火" },
-  { value: "ctyun", label: "天翼云", idLabel: "AccessKey", secretLabel: "SecretKey", regionPlaceholder: "cn-huabei-9", avatar: "翼" },
-  { value: "oracle", label: "Oracle Cloud", idLabel: "User OCID", secretLabel: "API 私钥 PEM", regionPlaceholder: "ap-tokyo-1", avatar: "甲" },
-  { value: "huawei", label: "华为云", idLabel: "Access Key", secretLabel: "Secret Key", regionPlaceholder: "cn-north-4", avatar: "华" },
-  { value: "baidu", label: "百度智能云", idLabel: "Access Key", secretLabel: "Secret Key", regionPlaceholder: "bj", avatar: "百" },
-  { value: "jdcloud", label: "京东云", idLabel: "Access Key", secretLabel: "Secret Key", regionPlaceholder: "cn-north-1", avatar: "京" },
-  { value: "ucloud", label: "UCloud", idLabel: "PublicKey", secretLabel: "PrivateKey", regionPlaceholder: "cn-bj2", avatar: "U" },
-  { value: "qingcloud", label: "青云 QingCloud", idLabel: "Access Key ID", secretLabel: "Secret Access Key", regionPlaceholder: "pek3a", avatar: "青" },
-  { value: "ksyun", label: "金山云", idLabel: "AccessKey ID", secretLabel: "AccessKey Secret", regionPlaceholder: "cn_beijing_6", avatar: "金" },
-  { value: "qiniu", label: "七牛云", idLabel: "AccessKey", secretLabel: "SecretKey", regionPlaceholder: "z0", avatar: "七" },
-  { value: "aws", label: "AWS", idLabel: "Access Key ID", secretLabel: "Secret Access Key", regionPlaceholder: "ap-northeast-1", avatar: "A" },
-  { value: "azure", label: "Microsoft Azure", idLabel: "Client ID", secretLabel: "Client Secret", regionPlaceholder: "eastasia", avatar: "Az" },
-  { value: "gcp", label: "Google Cloud", idLabel: "Service Account Email", secretLabel: "Private Key PEM", regionPlaceholder: "asia-east1", avatar: "G" },
-  { value: "vultr", label: "Vultr", idLabel: "API Key 标识（可选）", secretLabel: "Vultr API Key", regionPlaceholder: "ewr", avatar: "V" },
-] as const;
-const legacyOtherCloudProvider = { value: "other", label: "未接入云", idLabel: "凭证 ID", secretLabel: "凭证 Secret", regionPlaceholder: "可选", avatar: "云" } as const;
+const empty = emptyAccountDraft;
+const emptyManagedHost = emptyManagedHostDraft;
+const emptyPanelConnection = emptyPanelConnectionDraft;
+const labels = resourceLabels;
+const cloudProviders = catalogCloudProviders;
 
 function cloudProvider(value: string) {
-  return cloudProviders.find((provider) => provider.value === value) || legacyOtherCloudProvider;
+  return getCloudProvider(value);
 }
 
 function supportsResourceSync(account: Account) {
-  return account.cloud_type === "aliyun" || account.cloud_type === "vultr" || account.cloud_type === "tencent" || account.cloud_type === "volcengine" || account.cloud_type === "ctyun" || account.cloud_type === "oracle" || account.cloud_type === "huawei" || account.cloud_type === "baidu" || ["jdcloud", "ucloud", "qingcloud", "ksyun", "qiniu", "aws", "azure", "gcp"].includes(account.cloud_type);
+  return accountSupportsResourceSync(account);
 }
 
 function providerSyncDescription(cloudType: string) {
-  const descriptions: Record<string, string> = {
-    aliyun: "ECS、域名、轻量应用服务器、RDS、Redis、OSS 和 ESA 资产同步",
-    vultr: "云计算、DNS、对象存储、托管数据库、块存储、VPC、防火墙、保留 IP、负载均衡、快照和 Kubernetes 资产同步",
-    tencent: "CVM、域名、轻量应用服务器、云数据库、Redis、对象存储和边缘安全加速资产同步",
-    volcengine: "ECS、轻量应用服务器、MySQL RDS、Redis、TOS、火山 DNS 和 CDN 域名只读同步",
-    ctyun: "云主机、私有 DNS、MySQL RDS、Redis 和 ZOS 存储桶只读同步",
-    oracle: "Compute、DNS Zone、Database DB System 及 Object Storage 存储桶只读同步",
-    huawei: "按 IAM 项目和区域同步 ECS、DNS、RDS、Redis 与 OBS 存储桶",
-    baidu: "BCC、云 DNS、RDS、Redis 与 BOS 存储桶只读同步",
-    jdcloud: "云主机、轻量云主机、云解析、RDS、Redis 与 OSS 存储桶只读同步",
-    ucloud: "UHost、UDNS、UDB、URedis 与 UFile 存储桶只读同步",
-    qingcloud: "实例、DNS Alias、RDB、Cache 与 QingStor 存储桶只读同步",
-    ksyun: "KEC、KRDS、KCS 与 KS3 存储桶只读同步",
-    qiniu: "Kodo 存储桶清单只读同步",
-    aws: "EC2、Route 53、RDS、ElastiCache 与 S3 存储桶只读同步",
-    azure: "虚拟机、DNS Zone、SQL Server、Azure Cache for Redis 与 Storage Account 只读同步",
-    gcp: "Compute Engine、Cloud DNS、Cloud SQL、Memorystore 与 Cloud Storage 只读同步",
-  };
-  return descriptions[cloudType] || "账号可保存和筛选，资源同步尚未接入";
+  return getProviderSyncDescription(cloudType);
 }
 
 function syncAssetTypes(account: Account): ReadonlyArray<(typeof assetTypes)[number]> {
-  if (!supportsResourceSync(account)) return [];
-  return account.cloud_type === "qiniu"
-    ? assetTypes.filter(([value]) => value === "oss")
-    : account.cloud_type === "vultr"
-    ? assetTypes.filter(([value]) => ["ecs", "domain", "oss", "rds", "block", "network", "firewall", "ip", "loadbalancer", "snapshot", "kubernetes"].includes(value))
-    : account.cloud_type === "jdcloud"
-    ? assetTypes.filter(([value]) => value === "ecs" || value === "domain" || value === "swas" || value === "rds" || value === "redis" || value === "oss")
-    : account.cloud_type === "qingcloud"
-    ? assetTypes.filter(([value]) => value === "ecs" || value === "domain" || value === "rds" || value === "redis" || value === "oss")
-    : account.cloud_type === "ksyun"
-    ? assetTypes.filter(([value]) => value === "ecs" || value === "rds" || value === "redis" || value === "oss")
-    : account.cloud_type === "huawei" || account.cloud_type === "baidu" || ["jdcloud", "ucloud", "qingcloud", "ksyun", "aws", "azure", "gcp"].includes(account.cloud_type)
-    ? assetTypes.filter(([value]) => value === "ecs" || value === "domain" || value === "rds" || value === "redis" || value === "oss")
-    : account.cloud_type === "oracle"
-    ? assetTypes.filter(([value]) => value === "ecs" || value === "domain" || value === "rds" || value === "oss")
-    : account.cloud_type === "ctyun"
-    ? assetTypes.filter(([value]) => value === "ecs" || value === "domain" || value === "rds" || value === "redis" || value === "oss")
-    : account.cloud_type === "volcengine"
-    ? assetTypes.filter(([value]) => value === "ecs" || value === "domain" || value === "swas" || value === "rds" || value === "redis" || value === "oss" || value === "esa")
-    : assetTypes.filter(([value]) => ["ecs", "domain", "oss", "rds", "redis", "swas", "esa"].includes(value));
+  return getSyncAssetTypes(account);
 }
-const assetTypes = [
-  ["ecs", "服务器"],
-  ["domain", "域名"],
-  ["oss", "对象存储"],
-  ["rds", "云数据库"],
-  ["redis", "Redis"],
-  ["swas", "轻量应用服务器"],
-  ["esa", "边缘安全加速"],
-  ["block", "块存储"],
-  ["network", "私有网络"],
-  ["firewall", "防火墙"],
-  ["ip", "保留 IP"],
-  ["loadbalancer", "负载均衡"],
-  ["snapshot", "快照"],
-  ["kubernetes", "Kubernetes"],
-] as const;
+const assetTypes = catalogAssetTypes;
 
-const runningInTauri =
-  typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 const bundledVersion = "0.1.20";
 const isDevelopmentBuild = import.meta.env.DEV;
 
@@ -486,14 +184,6 @@ type UpdateState =
   | { phase: "ready"; version: string }
   | { phase: "current" }
   | { phase: "error"; message: string };
-
-async function webApi<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`http://127.0.0.1:1430${path}`, init);
-  const payload = await response.json();
-  if (!response.ok)
-    throw new Error(payload.error || `Web API ${response.status}`);
-  return payload as T;
-}
 
 function displayValue(value: unknown): string {
   if (value === null || value === undefined || value === "") return "-";
@@ -522,15 +212,6 @@ function remotePlatformFromPayload(payload: Record<string, unknown>): "linux" | 
     .map((value) => displayValue(value))
     .join(" ");
   return /windows|win(?:dows)?\s*(?:server)?/i.test(system) ? "windows" : "linux";
-}
-function formatCloudDate(value: unknown): string {
-  if (!value) return "-";
-  const text = String(value).trim();
-  if (!text || text === "-") return "-";
-  const normalized = text.includes("T") ? text : text.replace(" ", "T");
-  const date = new Date(normalized);
-  if (Number.isNaN(date.getTime())) return text;
-  return date.toLocaleString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 function formatJson(value: string | null | undefined): string {
   if (!value) return "-";
@@ -608,19 +289,6 @@ function cloudStatusText(value: unknown): string {
       } as Record<string, string>
     )[status] || status
   );
-}
-function redisArchitecture(value: unknown): string {
-  const key = String(value || "").toLowerCase();
-  return ({ standard: "标准版", cluster: "集群版", rwsplit: "读写分离版", splitrw: "读写分离版" } as Record<string, string>)[key] || String(value || "-");
-}
-function redisNetwork(value: unknown): string {
-  return ({ CLASSIC: "经典网络", VPC: "专有网络" } as Record<string, string>)[String(value || "")] || String(value || "-");
-}
-function redisCharge(value: unknown): string {
-  return ({ PostPaid: "按量付费", PrePaid: "包年包月" } as Record<string, string>)[String(value || "")] || String(value || "-");
-}
-function payType(value: unknown): string {
-  return ({ Postpaid: "按量付费", Prepaid: "包年包月", PostPaid: "按量付费", PrePaid: "包年包月", Serverless: "Serverless" } as Record<string, string>)[String(value || "")] || String(value || "-");
 }
 function formatBytes(value: unknown): string {
   let bytes = Number(value || 0);
@@ -796,884 +464,6 @@ function columnLabel(key: string) {
   return columnLabels[key] || key.replace(/([A-Z])/g, " $1").trim();
 }
 
-type SecurityGroup = { SecurityGroupId: string; SecurityGroupName: string; Description: string; VpcId: string; NicType: string };
-type SecurityGroupRule = { Direction: string; IpProtocol: string; PortRange: string; SourceCidrIp: string; SourceGroupId: string; Policy: string; Priority: number; Description: string; NicType: string; SecurityGroupRuleId?: string };
-type SecurityGroupResponse = { groups: SecurityGroup[]; selectedSecurityGroupId: string; rules: SecurityGroupRule[]; sgVersion?: number };
-type LightFirewallRule = { RuleId: string; IpProtocol: string; PortRange: string; SourceCidrIp: string; Policy: string; Description: string; FirewallRule?: Record<string, unknown> };
-type LightFirewallResponse = { rules: LightFirewallRule[]; firewallVersion?: number };
-type VultrFirewallRule = { RuleId: string; IpProtocol: string; PortRange: string; SourceCidrIp: string; Description: string };
-type VultrFirewallResponse = { rules: VultrFirewallRule[] };
-
-function SecurityGroupDialog({ account, regionId, instanceId, onClose, onConfirm, onNotice }: { account: Account; regionId: string; instanceId: string; onClose: () => void; onConfirm: (message: string) => Promise<boolean>; onNotice: (message: string) => void }) {
-  const [groups, setGroups] = useState<SecurityGroup[]>([]);
-  const [selectedSecurityGroupId, setSelectedSecurityGroupId] = useState("");
-  const [rules, setRules] = useState<SecurityGroupRule[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState("");
-  const [protocol, setProtocol] = useState("tcp");
-  const [portRange, setPortRange] = useState("");
-  const [sourceCidrIp, setSourceCidrIp] = useState("0.0.0.0/0");
-  const [description, setDescription] = useState("");
-  const [maximized, setMaximized] = useState(false);
-  const isTencent = account.cloud_type === "tencent";
-  const isBaidu = account.cloud_type === "baidu";
-  const [sgVersion, setSgVersion] = useState<number | undefined>();
-  const providerLabel = isTencent ? "腾讯云 CVM" : isBaidu ? "百度智能云 BCC" : "ALIYUN ECS";
-  const selectedGroup = groups.find((group) => group.SecurityGroupId === selectedSecurityGroupId);
-  const inboundRules = rules.filter((rule) => String(rule.Direction).toLowerCase() === "ingress" && String(rule.Policy || "accept").toLowerCase() === "accept");
-
-  async function loadSecurityGroups(securityGroupId = selectedSecurityGroupId) {
-    setLoading(true); setError("");
-    try {
-      const result = runningInTauri
-        ? await invoke<SecurityGroupResponse>(isTencent ? "list_tencent_security_groups" : isBaidu ? "list_baidu_security_groups" : "list_aliyun_security_groups", { id: account.id, regionId, instanceId, securityGroupId: securityGroupId || null })
-        : await webApi<SecurityGroupResponse>(`${isTencent ? "/api/tencent-security-groups" : isBaidu ? "/api/baidu-security-groups" : "/api/aliyun-security-groups"}?id=${account.id}&region=${encodeURIComponent(regionId)}&instance=${encodeURIComponent(instanceId)}${securityGroupId ? `&securityGroupId=${encodeURIComponent(securityGroupId)}` : ""}`);
-      setGroups(result.groups || []); setSelectedSecurityGroupId(result.selectedSecurityGroupId || ""); setRules(result.rules || []); setSgVersion(result.sgVersion);
-    } catch (reason) { setGroups([]); setRules([]); setError(String(reason)); }
-    finally { setLoading(false); }
-  }
-  useEffect(() => { void loadSecurityGroups(""); }, []);
-
-  async function addRule(event: FormEvent) {
-    event.preventDefault();
-    const normalizedPortRange = protocol === "all" ? "-1/-1" : portRange.trim();
-    const normalizedCidr = sourceCidrIp.trim();
-    if (!selectedGroup) { setError("请先选择安全组"); return; }
-    if (!normalizedPortRange || !/^-?\d+\/-?\d+$/.test(normalizedPortRange)) { setError("端口范围请填写为 80/80 或 8000/9000"); return; }
-    if (!normalizedCidr || !normalizedCidr.includes("/")) { setError("来源地址请填写 CIDR，例如 0.0.0.0/0"); return; }
-    if (!(await onConfirm(`确认在安全组“${selectedGroup.SecurityGroupName || selectedGroup.SecurityGroupId}”开放 ${protocol.toUpperCase()} ${normalizedPortRange}，来源 ${normalizedCidr} 吗？\n安全组规则会影响所有绑定该安全组的服务器。`))) return;
-    setSubmitting(true); setError("");
-    try {
-      const payload = { id: account.id, regionId, securityGroupId: selectedGroup.SecurityGroupId, ipProtocol: protocol, portRange: normalizedPortRange, sourceCidrIp: normalizedCidr, description: description.trim() || null, nicType: selectedGroup.NicType || null, sgVersion: sgVersion ?? null };
-      if (runningInTauri) await invoke(isTencent ? "authorize_tencent_security_group_rule" : isBaidu ? "authorize_baidu_security_group_rule" : "authorize_aliyun_security_group_rule", payload);
-      else await webApi(isTencent ? "/api/tencent-security-group-rules" : isBaidu ? "/api/baidu-security-group-rules" : "/api/aliyun-security-group-rules", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, action: "authorize" }) });
-      setPortRange(""); setDescription(""); onNotice(`已开放 ${protocol.toUpperCase()} ${normalizedPortRange}`); await loadSecurityGroups(selectedGroup.SecurityGroupId);
-    } catch (reason) { setError(String(reason)); } finally { setSubmitting(false); }
-  }
-
-  async function revokeRule(rule: SecurityGroupRule) {
-    if (!selectedGroup || !rule.SourceCidrIp) return;
-    const label = `${String(rule.IpProtocol || "").toUpperCase()} ${rule.PortRange || "-"}，来源 ${rule.SourceCidrIp}`;
-    if (!(await onConfirm(`确认关闭安全组规则 ${label} 吗？\n安全组规则会影响所有绑定该安全组的服务器。`))) return;
-    setSubmitting(true); setError("");
-    try {
-      const payload = { id: account.id, regionId, securityGroupId: selectedGroup.SecurityGroupId, ipProtocol: String(rule.IpProtocol || ""), portRange: String(rule.PortRange || ""), sourceCidrIp: rule.SourceCidrIp, policy: String(rule.Policy || "accept"), priority: Number(rule.Priority || 1), nicType: rule.NicType || selectedGroup.NicType || null, securityGroupRuleId: rule.SecurityGroupRuleId || null, sgVersion: sgVersion ?? null };
-      if (runningInTauri) await invoke(isTencent ? "revoke_tencent_security_group_rule" : isBaidu ? "revoke_baidu_security_group_rule" : "revoke_aliyun_security_group_rule", payload);
-      else await webApi(isTencent ? "/api/tencent-security-group-rules" : isBaidu ? "/api/baidu-security-group-rules" : "/api/aliyun-security-group-rules", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, action: "revoke" }) });
-      onNotice(`已关闭 ${label}`); await loadSecurityGroups(selectedGroup.SecurityGroupId);
-    } catch (reason) { setError(String(reason)); } finally { setSubmitting(false); }
-  }
-
-  return createPortal(<div className="modal-backdrop security-group-backdrop">
-    <section className={`modal security-group-modal${maximized ? " is-maximized" : ""}`} role="dialog" aria-modal="true" aria-labelledby="security-group-title">
-      <div className="modal-head"><div><span className="eyebrow">{providerLabel}</span><h2 id="security-group-title">安全组端口</h2></div><div className="security-group-head-actions"><button type="button" className="close" title={maximized ? "还原窗口" : "全屏"} aria-label={maximized ? "还原窗口" : "全屏"} onClick={() => setMaximized((value) => !value)}>{maximized ? <Minimize2 size={18} /> : <Maximize2 size={18} />}</button><button type="button" className="close" aria-label="关闭安全组" onClick={onClose}><X size={18} /></button></div></div>
-      <div className="security-group-body"><p className="security-group-note">仅管理入方向允许规则。安全组对同组内所有绑定服务器生效。</p>
-        {loading ? <div className="security-group-loading">正在读取安全组规则...</div> : !groups.length ? <div className="security-group-empty">当前服务器没有可用安全组，或 AccessKey 缺少安全组读取权限。</div> : <>
-          <label className="security-group-select">安全组<select value={selectedSecurityGroupId} disabled={submitting} onChange={(event) => void loadSecurityGroups(event.target.value)}>{groups.map((group) => <option key={group.SecurityGroupId} value={group.SecurityGroupId}>{group.SecurityGroupName || group.SecurityGroupId} ({group.SecurityGroupId})</option>)}</select>{selectedGroup?.Description && <small>{selectedGroup.Description}</small>}</label>
-          <form className="security-group-add" onSubmit={(event) => void addRule(event)}><div className="security-group-add-title">开放端口</div><div className="security-group-form-grid"><label>协议<select value={protocol} disabled={submitting} onChange={(event) => setProtocol(event.target.value)}><option value="tcp">TCP</option><option value="udp">UDP</option>{!isBaidu && <option value="all">全部协议</option>}</select></label><label>端口范围<input value={protocol === "all" ? "-1/-1" : portRange} disabled={submitting || protocol === "all"} onChange={(event) => setPortRange(event.target.value)} placeholder="80/80 或 8000/9000" /></label><label>来源 CIDR<input value={sourceCidrIp} disabled={submitting} onChange={(event) => setSourceCidrIp(event.target.value)} placeholder="0.0.0.0/0" /></label><label>说明（可选）<input value={description} disabled={submitting} maxLength={80} onChange={(event) => setDescription(event.target.value)} placeholder="例如 Web 服务" /></label></div><button type="submit" className="layui-btn layui-btn-normal" disabled={submitting}>{submitting ? "提交中…" : "开放端口"}</button></form>
-          <div className="security-group-rules-head"><strong>已开放端口</strong><button type="button" className="secondary" disabled={submitting} onClick={() => void loadSecurityGroups(selectedSecurityGroupId)}><RefreshCw size={13} />刷新</button></div><div className="security-group-rule-list">{!inboundRules.length ? <div className="security-group-empty">暂无入方向允许规则</div> : inboundRules.map((rule, index) => <div className="security-group-rule" key={rule.SecurityGroupRuleId || `${rule.IpProtocol}-${rule.PortRange}-${rule.SourceCidrIp || rule.SourceGroupId}-${index}`}><div><strong>{String(rule.IpProtocol || "-").toUpperCase()} {rule.PortRange || "-"}</strong><span>来源：{rule.SourceCidrIp || `安全组 ${rule.SourceGroupId || "-"}`}</span>{rule.Description && <small>{rule.Description}</small>}</div>{rule.SourceCidrIp && (!isBaidu || rule.SecurityGroupRuleId) ? <button type="button" className="layui-btn layui-btn-danger" disabled={submitting} onClick={() => void revokeRule(rule)}>关闭</button> : <span className="security-group-readonly">组引用规则</span>}</div>)}</div>
-        </>}{error && <p className="security-group-error">{error}</p>}</div>
-      <div className="modal-actions"><span /><button type="button" className="secondary" onClick={onClose}>关闭</button></div>
-    </section></div>, document.body);
-}
-
-function LightFirewallDialog({ account, regionId, instanceId, onClose, onConfirm, onNotice }: { account: Account; regionId: string; instanceId: string; onClose: () => void; onConfirm: (message: string) => Promise<boolean>; onNotice: (message: string) => void }) {
-  const [rules, setRules] = useState<LightFirewallRule[]>([]);
-  const [firewallVersion, setFirewallVersion] = useState<number | undefined>();
-  const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState("");
-  const [protocol, setProtocol] = useState("tcp");
-  const [portRange, setPortRange] = useState("");
-  const [sourceCidrIp, setSourceCidrIp] = useState("0.0.0.0/0");
-  const [description, setDescription] = useState("");
-  const [maximized, setMaximized] = useState(false);
-  const isTencent = account.cloud_type === "tencent";
-  const providerLabel = isTencent ? "腾讯云 Lighthouse" : account.cloud_type === "jdcloud" ? "京东云轻量应用服务器" : "阿里云轻量应用服务器";
-
-  async function loadRules() {
-    setLoading(true); setError("");
-    try {
-      const result = runningInTauri
-        ? await invoke<LightFirewallResponse>("list_light_firewall_rules", { id: account.id, regionId, instanceId })
-        : await webApi<LightFirewallResponse>(`/api/light-firewall-rules?id=${account.id}&region=${encodeURIComponent(regionId)}&instance=${encodeURIComponent(instanceId)}`);
-      setRules(result.rules || []); setFirewallVersion(result.firewallVersion);
-    } catch (reason) { setRules([]); setError(String(reason)); }
-    finally { setLoading(false); }
-  }
-  useEffect(() => { void loadRules(); }, []);
-
-  async function addRule(event: FormEvent) {
-    event.preventDefault();
-    const normalizedPortRange = portRange.trim();
-    const normalizedCidr = sourceCidrIp.trim();
-    if (!/^\d+\/\d+$/.test(normalizedPortRange)) { setError("端口范围请填写为 80/80 或 8000/9000"); return; }
-    const [start, end] = normalizedPortRange.split("/").map(Number);
-    if (start < 1 || end < start || end > 65535) { setError("端口范围必须在 1 到 65535 之间"); return; }
-    if (!normalizedCidr || !normalizedCidr.includes("/")) { setError("来源地址请填写 CIDR，例如 0.0.0.0/0"); return; }
-    if (!(await onConfirm(`确认在轻量服务器开放 ${protocol.toUpperCase()} ${normalizedPortRange}，来源 ${normalizedCidr} 吗？`))) return;
-    setSubmitting(true); setError("");
-    try {
-      const payload = { id: account.id, regionId, instanceId, ipProtocol: protocol, portRange: normalizedPortRange, sourceCidrIp: normalizedCidr, description: description.trim() || null, firewallVersion: firewallVersion ?? null };
-      if (runningInTauri) await invoke("create_light_firewall_rule", payload);
-      else await webApi("/api/light-firewall-rules", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, action: "create" }) });
-      setPortRange(""); setDescription(""); onNotice(`已开放 ${protocol.toUpperCase()} ${normalizedPortRange}`); await loadRules();
-    } catch (reason) { setError(String(reason)); } finally { setSubmitting(false); }
-  }
-
-  async function deleteRule(rule: LightFirewallRule) {
-    const label = `${String(rule.IpProtocol || "-").toUpperCase()} ${rule.PortRange || "-"}，来源 ${rule.SourceCidrIp || "-"}`;
-    if (!(await onConfirm(`确认关闭轻量服务器防火墙规则 ${label} 吗？\n关闭后该端口将无法从该来源访问。`))) return;
-    setSubmitting(true); setError("");
-    try {
-      const payload = { id: account.id, regionId, instanceId, ruleId: rule.RuleId || null, firewallRule: rule.FirewallRule || null, firewallVersion: firewallVersion ?? null };
-      if (runningInTauri) await invoke("delete_light_firewall_rule", payload);
-      else await webApi("/api/light-firewall-rules", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, action: "delete" }) });
-      onNotice(`已关闭 ${label}`); await loadRules();
-    } catch (reason) { setError(String(reason)); } finally { setSubmitting(false); }
-  }
-
-  return createPortal(<div className="modal-backdrop security-group-backdrop">
-    <section className={`modal security-group-modal${maximized ? " is-maximized" : ""}`} role="dialog" aria-modal="true" aria-labelledby="light-firewall-title">
-      <div className="modal-head"><div><span className="eyebrow">{providerLabel}</span><h2 id="light-firewall-title">防火墙端口</h2></div><div className="security-group-head-actions"><button type="button" className="close" title={maximized ? "还原窗口" : "全屏"} aria-label={maximized ? "还原窗口" : "全屏"} onClick={() => setMaximized((value) => !value)}>{maximized ? <Minimize2 size={18} /> : <Maximize2 size={18} />}</button><button type="button" className="close" aria-label="关闭防火墙" onClick={onClose}><X size={18} /></button></div></div>
-      <div className="security-group-body"><p className="security-group-note">仅管理当前轻量服务器的入方向允许规则，变更不会影响其他服务器。</p>
-        {loading ? <div className="security-group-loading">正在读取防火墙规则...</div> : <><form className="security-group-add" onSubmit={(event) => void addRule(event)}><div className="security-group-add-title">开放端口</div><div className="security-group-form-grid"><label>协议<select value={protocol} disabled={submitting} onChange={(event) => setProtocol(event.target.value)}><option value="tcp">TCP</option><option value="udp">UDP</option></select></label><label>端口范围<input value={portRange} disabled={submitting} onChange={(event) => setPortRange(event.target.value)} placeholder="80/80 或 8000/9000" /></label><label>来源 CIDR<input value={sourceCidrIp} disabled={submitting} onChange={(event) => setSourceCidrIp(event.target.value)} placeholder="0.0.0.0/0" /></label><label>说明（可选）<input value={description} disabled={submitting} maxLength={80} onChange={(event) => setDescription(event.target.value)} placeholder="例如 Web 服务" /></label></div><button type="submit" className="layui-btn layui-btn-normal" disabled={submitting}>{submitting ? "提交中…" : "开放端口"}</button></form>
-          <div className="security-group-rules-head"><strong>已开放端口</strong><button type="button" className="secondary" disabled={submitting} onClick={() => void loadRules()}><RefreshCw size={13} />刷新</button></div><div className="security-group-rule-list">{!rules.length ? <div className="security-group-empty">暂无入方向允许规则</div> : rules.map((rule, index) => <div className="security-group-rule" key={rule.RuleId || `${rule.IpProtocol}-${rule.PortRange}-${rule.SourceCidrIp}-${index}`}><div><strong>{String(rule.IpProtocol || "-").toUpperCase()} {rule.PortRange || "-"}</strong><span>来源：{rule.SourceCidrIp || "-"}</span>{rule.Description && <small>{rule.Description}</small>}</div><button type="button" className="layui-btn layui-btn-danger" disabled={submitting} onClick={() => void deleteRule(rule)}>关闭</button></div>)}</div>
-        </>}{error && <p className="security-group-error">{error}</p>}</div>
-      <div className="modal-actions"><span /><button type="button" className="secondary" onClick={onClose}>关闭</button></div>
-    </section></div>, document.body);
-}
-
-function VultrFirewallDialog({ account, firewallGroupId, onClose, onConfirm, onNotice }: { account: Account; firewallGroupId: string; onClose: () => void; onConfirm: (message: string) => Promise<boolean>; onNotice: (message: string) => void }) {
-  const [rules, setRules] = useState<VultrFirewallRule[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState("");
-  const [protocol, setProtocol] = useState("tcp");
-  const [port, setPort] = useState("");
-  const [sourceCidrIp, setSourceCidrIp] = useState("0.0.0.0/0");
-  const [description, setDescription] = useState("");
-  const [maximized, setMaximized] = useState(false);
-
-  async function loadRules() {
-    setLoading(true); setError("");
-    try {
-      const result = runningInTauri
-        ? await invoke<VultrFirewallResponse>("list_vultr_firewall_rules", { id: account.id, firewallGroupId })
-        : await webApi<VultrFirewallResponse>(`/api/vultr-firewall-rules?id=${account.id}&firewallGroupId=${encodeURIComponent(firewallGroupId)}`);
-      setRules(result.rules || []);
-    } catch (reason) { setRules([]); setError(String(reason)); }
-    finally { setLoading(false); }
-  }
-  useEffect(() => { void loadRules(); }, [firewallGroupId]);
-
-  async function addRule(event: FormEvent) {
-    event.preventDefault();
-    const normalizedPort = port.trim();
-    const normalizedCidr = sourceCidrIp.trim();
-    if (!/^\d+(?:-\d+)?$/.test(normalizedPort)) { setError("端口请填写为 80 或 8000-9000"); return; }
-    const [start, end = start] = normalizedPort.split("-").map(Number);
-    if (start < 1 || end < start || end > 65535) { setError("端口范围必须在 1 到 65535 之间"); return; }
-    if (!normalizedCidr || !normalizedCidr.includes("/")) { setError("来源地址请填写 IPv4 CIDR，例如 0.0.0.0/0"); return; }
-    if (!(await onConfirm(`确认在 Vultr 防火墙组 ${firewallGroupId} 开放 ${protocol.toUpperCase()} ${normalizedPort}，来源 ${normalizedCidr} 吗？\n防火墙组规则会影响所有绑定该组的服务器。`))) return;
-    setSubmitting(true); setError("");
-    try {
-      const payload = { id: account.id, firewallGroupId, ipProtocol: protocol, port: normalizedPort, sourceCidrIp: normalizedCidr, description: description.trim() || null };
-      if (runningInTauri) await invoke("create_vultr_firewall_rule", payload);
-      else await webApi("/api/vultr-firewall-rules", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, action: "create" }) });
-      setPort(""); setDescription(""); onNotice(`已开放 ${protocol.toUpperCase()} ${normalizedPort}`); await loadRules();
-    } catch (reason) { setError(String(reason)); } finally { setSubmitting(false); }
-  }
-
-  async function deleteRule(rule: VultrFirewallRule) {
-    if (!rule.RuleId) return;
-    const label = `${String(rule.IpProtocol || "-").toUpperCase()} ${rule.PortRange || "-"}，来源 ${rule.SourceCidrIp || "-"}`;
-    if (!(await onConfirm(`确认关闭 Vultr 防火墙规则 ${label} 吗？\n关闭后，所有绑定该防火墙组的服务器都会失去该端口访问。`))) return;
-    setSubmitting(true); setError("");
-    try {
-      const payload = { id: account.id, firewallGroupId, ruleId: rule.RuleId };
-      if (runningInTauri) await invoke("delete_vultr_firewall_rule", payload);
-      else await webApi("/api/vultr-firewall-rules", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, action: "delete" }) });
-      onNotice(`已关闭 ${label}`); await loadRules();
-    } catch (reason) { setError(String(reason)); } finally { setSubmitting(false); }
-  }
-
-  return createPortal(<div className="modal-backdrop security-group-backdrop">
-    <section className={`modal security-group-modal${maximized ? " is-maximized" : ""}`} role="dialog" aria-modal="true" aria-labelledby="vultr-firewall-title">
-      <div className="modal-head"><div><span className="eyebrow">Vultr Firewall Group</span><h2 id="vultr-firewall-title">防火墙端口</h2></div><div className="security-group-head-actions"><button type="button" className="close" title={maximized ? "还原窗口" : "全屏"} aria-label={maximized ? "还原窗口" : "全屏"} onClick={() => setMaximized((value) => !value)}>{maximized ? <Minimize2 size={18} /> : <Maximize2 size={18} />}</button><button type="button" className="close" aria-label="关闭防火墙" onClick={onClose}><X size={18} /></button></div></div>
-      <div className="security-group-body"><p className="security-group-note">管理防火墙组 {firewallGroupId} 的 IPv4 入方向允许规则。变更会影响所有绑定该组的服务器。</p>
-        {loading ? <div className="security-group-loading">正在读取防火墙规则...</div> : <><form className="security-group-add" onSubmit={(event) => void addRule(event)}><div className="security-group-add-title">开放端口</div><div className="security-group-form-grid"><label>协议<select value={protocol} disabled={submitting} onChange={(event) => setProtocol(event.target.value)}><option value="tcp">TCP</option><option value="udp">UDP</option></select></label><label>端口或范围<input value={port} disabled={submitting} onChange={(event) => setPort(event.target.value)} placeholder="80 或 8000-9000" /></label><label>来源 CIDR<input value={sourceCidrIp} disabled={submitting} onChange={(event) => setSourceCidrIp(event.target.value)} placeholder="0.0.0.0/0" /></label><label>说明（可选）<input value={description} disabled={submitting} maxLength={80} onChange={(event) => setDescription(event.target.value)} placeholder="例如 Web 服务" /></label></div><button type="submit" className="layui-btn layui-btn-normal" disabled={submitting}>{submitting ? "提交中…" : "开放端口"}</button></form>
-          <div className="security-group-rules-head"><strong>已开放端口</strong><button type="button" className="secondary" disabled={submitting} onClick={() => void loadRules()}><RefreshCw size={13} />刷新</button></div><div className="security-group-rule-list">{!rules.length ? <div className="security-group-empty">暂无 IPv4 入方向允许规则</div> : rules.map((rule, index) => <div className="security-group-rule" key={rule.RuleId || `${rule.IpProtocol}-${rule.PortRange}-${rule.SourceCidrIp}-${index}`}><div><strong>{String(rule.IpProtocol || "-").toUpperCase()} {rule.PortRange || "-"}</strong><span>来源：{rule.SourceCidrIp || "-"}</span>{rule.Description && <small>{rule.Description}</small>}</div><button type="button" className="layui-btn layui-btn-danger" disabled={submitting} onClick={() => void deleteRule(rule)}>关闭</button></div>)}</div>
-        </>}{error && <p className="security-group-error">{error}</p>}</div>
-      <div className="modal-actions"><span /><button type="button" className="secondary" onClick={onClose}>关闭</button></div>
-    </section></div>, document.body);
-}
-
-function ServerCard({
-  account,
-  item,
-  displayName,
-  onDisplayNameChange,
-  onStatus,
-  onNotice,
-  onSshLogin,
-  onConfirm,
-  onPrompt,
-}: {
-  account: Account;
-  item: Record<string, unknown>;
-  displayName?: string;
-  onDisplayNameChange?: (value: string) => void;
-  onStatus: () => void;
-  onNotice: (message: string) => void;
-  onSshLogin: () => void;
-  onConfirm: (message: string) => Promise<boolean>;
-  onPrompt: (message: string, initialValue?: string) => Promise<string | null>;
-}) {
-  const [disks, setDisks] = useState<Record<string, unknown>[]>([]);
-  const [diskLoading, setDiskLoading] = useState(true);
-  const [rebooting, setRebooting] = useState(false);
-  const [vultrMenuOpen, setVultrMenuOpen] = useState(false);
-  const [vultrManaging, setVultrManaging] = useState(false);
-  const [securityGroupOpen, setSecurityGroupOpen] = useState(false);
-  const [vultrFirewallOpen, setVultrFirewallOpen] = useState(false);
-  const [editingDisplayName, setEditingDisplayName] = useState(false);
-  const [displayNameDraft, setDisplayNameDraft] = useState(displayName || "");
-  const regionId = String(item._region_id || item.RegionId || "");
-  const rawStatus = String(item.Status || item.InstanceStatus || "");
-  const normalizedStatus = rawStatus.trim().toUpperCase();
-  const status = ["RUNNING", "ACTIVE", "ON"].includes(normalizedStatus) ? "Running" : ["STOPPED", "OFF", "INACTIVE"].includes(normalizedStatus) ? "Stopped" : rawStatus;
-  const networkError = String(item._network_error || "");
-  const networkAccessDenied = /Authorization failed|NotAuthorized|not authorized/i.test(networkError);
-  const supportsPowerControls = account.cloud_type === "aliyun" || account.cloud_type === "baidu" || account.cloud_type === "oracle" || account.cloud_type === "vultr";
-  const supportsForceReboot = account.cloud_type === "aliyun" || account.cloud_type === "baidu" || account.cloud_type === "oracle";
-  const canReadDisks = account.cloud_type === "aliyun" || account.cloud_type === "tencent" || account.cloud_type === "oracle";
-  const fallbackDisks: Record<string, unknown>[] = account.cloud_type === "vultr" && item.Disk != null && item.Disk !== ""
-    ? [{ DiskId: item.InstanceId, DiskName: "本地系统盘", Category: "local", Size: item.Disk, Status: item.PowerStatus || item.Status }]
-    : [];
-  const defaultDisplayName = String(item.InstanceName || item.InstanceId || "未命名实例");
-  const resolvedDisplayName = displayName || defaultDisplayName;
-  function saveDisplayName() {
-    setEditingDisplayName(false);
-    onDisplayNameChange?.(displayNameDraft.trim());
-  }
-  useEffect(() => {
-    let alive = true;
-    const instanceId = String(item.InstanceId || "");
-    if (!canReadDisks || !regionId || !instanceId) {
-      setDisks([]);
-      setDiskLoading(false);
-      return;
-    }
-    const loader = runningInTauri
-      ? () => invoke<Record<string, unknown>[]>("list_instance_disks", { id: account.id, regionId, instanceId, compartmentOcid: String(item._compartment_ocid || "") })
-      : () => webApi<Record<string, unknown>[]>(`/api/instance-disks?id=${account.id}&region=${encodeURIComponent(regionId)}&instance=${encodeURIComponent(instanceId)}&compartment=${encodeURIComponent(String(item._compartment_ocid || ""))}`);
-    loader()
-      .then((value) => {
-        if (alive) setDisks(value || []);
-      })
-      .catch(() => {
-        if (alive) setDisks([]);
-      })
-      .finally(() => {
-        if (alive) setDiskLoading(false);
-      });
-    return () => {
-      alive = false;
-    };
-  }, [account.id, canReadDisks, regionId, item.InstanceId]);
-  async function refreshStatus() {
-    if (account.cloud_type !== "aliyun" && account.cloud_type !== "baidu") {
-      onStatus();
-      return;
-    }
-    try {
-      if (account.cloud_type === "baidu") {
-        const payload = { id: account.id, regionId, instanceId: String(item.InstanceId || ""), action: "status", forceStop: false };
-        if (runningInTauri) await invoke("baidu_instance_action", payload);
-        else await webApi("/api/bcc-action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-      } else {
-        await invoke("instance_status", {
-          id: account.id,
-          regionId,
-          instanceId: String(item.InstanceId || ""),
-        });
-      }
-      onStatus();
-    } catch {
-      onStatus();
-    }
-  }
-  async function changeStatus(action: "start" | "stop") {
-    const label = action === "start" ? "开机" : "关机";
-    if (!(await onConfirm(`确认${label}服务器“${String(item.InstanceName || item.InstanceId)}”？`))) return;
-    try {
-      if (account.cloud_type === "oracle") {
-        const payload = { id: account.id, regionId, instanceId: String(item.InstanceId || ""), action };
-        if (runningInTauri) await invoke("oracle_instance_action", payload);
-        else await webApi("/api/oracle-instance-action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-      } else if (account.cloud_type === "baidu") {
-        const payload = { id: account.id, regionId, instanceId: String(item.InstanceId || ""), action, forceStop: false };
-        if (runningInTauri) await invoke("baidu_instance_action", payload);
-        else await webApi("/api/bcc-action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-      } else if (account.cloud_type === "vultr") {
-        const payload = { id: account.id, instanceId: String(item.InstanceId || ""), action };
-        if (runningInTauri) await invoke("vultr_instance_action", payload);
-        else await webApi("/api/vultr-instance-action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-      } else {
-        if (!runningInTauri) throw new Error(`网页端暂不支持${label}，请使用客户端操作`);
-        await invoke(action === "start" ? "start_instance" : "stop_instance", { id: account.id, regionId, instanceId: String(item.InstanceId || "") });
-      }
-      onNotice(`服务器${label}指令已提交`);
-      onStatus();
-    } catch (error) { onNotice(`服务器${label}失败：${String(error)}`); }
-  }
-  async function reboot(forceReboot: boolean) {
-    if (!(await onConfirm(`确认${forceReboot ? "强制" : "正常"}重启服务器“${String(item.InstanceName || item.InstanceId || "")}”？`))) return;
-    setRebooting(true);
-    try {
-      if (account.cloud_type === "oracle") {
-        const payload = { id: account.id, regionId, instanceId: String(item.InstanceId || ""), action: forceReboot ? "forceReboot" : "reboot" };
-        if (runningInTauri) await invoke("oracle_instance_action", payload);
-        else await webApi("/api/oracle-instance-action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-      } else if (account.cloud_type === "baidu") {
-        const payload = { id: account.id, regionId, instanceId: String(item.InstanceId || ""), action: "reboot", forceStop: forceReboot };
-        if (runningInTauri) await invoke("baidu_instance_action", payload);
-        else await webApi("/api/bcc-action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-      } else if (account.cloud_type === "vultr") {
-        const payload = { id: account.id, instanceId: String(item.InstanceId || ""), action: "reboot" };
-        if (runningInTauri) await invoke("vultr_instance_action", payload);
-        else await webApi("/api/vultr-instance-action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-      } else {
-        if (!runningInTauri) throw new Error("网页端暂不支持服务器重启，请使用客户端操作");
-        await invoke("reboot_instance", { id: account.id, regionId, instanceId: String(item.InstanceId || ""), forceStop: forceReboot });
-      }
-      onNotice("服务器重启指令已提交");
-      onStatus();
-    } catch (error) { onNotice(`服务器重启失败：${String(error)}`); }
-    finally { setRebooting(false); }
-  }
-  async function manageVultr(action: "snapshot" | "label" | "tags" | "enable_backups" | "disable_backups" | "enable_ddos" | "disable_ddos" | "enable_ipv6" | "firewall") {
-    const labels = {
-      snapshot: "创建快照", label: "修改实例名称", tags: "修改标签", enable_backups: "开启自动备份", disable_backups: "关闭自动备份",
-      enable_ddos: "开启 DDoS 防护", disable_ddos: "关闭 DDoS 防护", enable_ipv6: "启用 IPv6", firewall: "绑定防火墙组",
-    };
-    let value = "";
-    if (action === "snapshot") {
-      const input = await onPrompt(`为实例“${String(item.InstanceName || item.InstanceId)}”创建快照，请输入快照说明（可留空）`, String(item.InstanceName || ""));
-      if (input === null) return;
-      value = input;
-    } else if (action === "label") {
-      const input = await onPrompt("请输入新的 Vultr 实例名称", String(item.InstanceName || ""));
-      if (!input?.trim()) return;
-      value = input;
-    } else if (action === "tags") {
-      const input = await onPrompt("请输入标签，以英文逗号分隔；留空将清空全部标签", Array.isArray(item.Tags) ? item.Tags.join(", ") : String(item.Tags || ""));
-      if (input === null) return;
-      value = input;
-    } else if (action === "firewall") {
-      const input = await onPrompt("请输入要绑定的 Vultr 防火墙组 ID", String(item.FirewallGroupId || ""));
-      if (!input?.trim()) return;
-      value = input;
-    }
-    const warning = action === "snapshot" ? "快照会占用存储并可能产生费用，确认创建？"
-      : action === "enable_backups" ? "自动备份可能产生额外费用，确认开启？"
-      : action === "enable_ddos" ? "DDoS 防护可能产生额外费用，确认开启？"
-      : action === "enable_ipv6" ? "启用 IPv6 后将变更实例网络配置，确认继续？"
-      : `确认${labels[action]}？`;
-    if (!(await onConfirm(warning))) return;
-    setVultrManaging(true);
-    setVultrMenuOpen(false);
-    try {
-      const payload = { id: account.id, instanceId: String(item.InstanceId || ""), action, value };
-      if (runningInTauri) await invoke("vultr_instance_manage", payload);
-      else await webApi("/api/vultr-instance-manage", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-      onNotice(`${labels[action]}指令已提交`);
-      onStatus();
-    } catch (error) { onNotice(`${labels[action]}失败：${String(error)}`); }
-    finally { setVultrManaging(false); }
-  }
-  return (
-    <>
-    <article className="server-card">
-      <div className="server-account-label"><span className={`avatar cloud-avatar ${account.cloud_type}`}>{cloudProvider(account.cloud_type).avatar}</span><span>{account.account_name}</span></div>
-      <div className="server-header">
-        {editingDisplayName ? <input className="server-display-name-editor" value={displayNameDraft} autoFocus onChange={(event) => setDisplayNameDraft(event.target.value)} onBlur={saveDisplayName} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") { setDisplayNameDraft(displayName || ""); setEditingDisplayName(false); } }} placeholder={defaultDisplayName} aria-label="实例显示名称" /> : <button type="button" className="server-display-name" title="点击修改本地显示名称" onClick={() => { setDisplayNameDraft(displayName || ""); setEditingDisplayName(true); }}>{resolvedDisplayName}</button>}
-        <span
-          className={`server-status ${status === "Running" ? "status-running" : status === "Stopped" ? "status-stopped" : "status-other"}`}
-        >
-          {status === "Running"
-            ? "运行中"
-            : status === "Stopped"
-              ? "已停止"
-              : status || "未知"}
-        </span>
-      </div>
-      <div className="server-info">
-        <div>
-          <span>实例ID：</span>
-          {displayValue(item.InstanceId)}
-        </div>
-        <div title={networkError || undefined}>
-          <span>公网IP：</span>
-          {displayValue(item.PublicIpAddress)}
-          {!item.PublicIpAddress && networkError && <small>（{networkAccessDenied ? "OCI IAM 未授权读取 VNIC" : "网络接口读取失败"}）</small>}
-        </div>
-        <div title={networkError || undefined}>
-          <span>内网IP：</span>
-          {displayValue(item.PrivateIpAddress)}
-          {!item.PrivateIpAddress && networkError && <small>（{networkAccessDenied ? "OCI IAM 未授权读取 VNIC" : "网络接口读取失败"}）</small>}
-        </div>
-        <div>
-          <span>配置：</span>
-          {item.Cpu == null || item.Memory == null
-            ? displayValue(item.InstanceType || item.shape)
-            : <>{displayValue(item.Cpu)}核 / {(Number(item.Memory) / 1024).toFixed(1)}GB{item.InstanceType ? ` · ${displayValue(item.InstanceType)}` : ""}</>}
-        </div>
-        {account.cloud_type === "vultr" ? <div>
-          <span>月流量：</span>
-          {item.AllowedBandwidth == null || item.AllowedBandwidth === "" ? "-" : `${displayValue(item.AllowedBandwidth)} GB`}
-        </div> : account.cloud_type !== "oracle" && <div>
-          <span>带宽：</span>
-          {displayValue(item.InternetMaxBandwidthIn || 0)}M入 /{" "}
-          {displayValue(item.InternetMaxBandwidthOut || 0)}M出
-        </div>}
-        <div>
-          <span>操作系统：</span>
-          {displayValue(item.OSName || item.OSType || item.ImageId || item.imageId)}
-        </div>
-        <div>
-          <span>{account.cloud_type === "oracle" || account.cloud_type === "vultr" ? "创建时间：" : "时间："}</span>
-          {account.cloud_type === "oracle" || account.cloud_type === "vultr" ? formatCloudDate(item.CreationTime) : <>{formatCloudDate(item.CreationTime)} ~ {formatCloudDate(item.ExpiredTime)}</>}
-        </div>
-        {account.cloud_type === "vultr" && <>
-          <div><span>地域：</span>{displayValue(item.Region || regionId)}</div>
-          <div><span>主机名：</span>{displayValue(item.Hostname)}</div>
-          <div><span>IPv4 网关：</span>{displayValue(item.GatewayV4)}</div>
-          <div><span>IPv4 掩码：</span>{displayValue(item.NetmaskV4)}</div>
-          <div><span>IPv6：</span>{displayValue(item.V6MainIp)}</div>
-          <div><span>VPC：</span>{displayValue(item.VpcIds)}</div>
-          <div><span>防火墙组：</span>{displayValue(item.FirewallGroupId)}</div>
-          <div><span>标签：</span>{displayValue(item.Tags)}</div>
-          <div><span>自动备份：</span>{displayValue(item.Backups)}</div>
-          <div><span>DDoS 防护：</span>{item.DdosProtection === true ? "已开启" : item.DdosProtection === false ? "未开启" : displayValue(item.DdosProtection)}</div>
-        </>}
-      </div>
-      <div className="disk-info">
-        {fallbackDisks.length ? (
-          fallbackDisks.map((disk) => (
-            <div className="disk-item" key={String(disk.DiskId)}>
-              <span className="disk-name">{displayValue(disk.DiskName)} ({displayValue(disk.Category)})</span>
-              <span className="disk-size">{displayValue(disk.Size)} GB · {displayValue(disk.Status)}</span>
-            </div>
-          ))
-        ) : !canReadDisks ? <span>当前仅同步实例清单，磁盘详情暂未接入</span> : diskLoading ? (
-          <span>磁盘信息加载中...</span>
-        ) : disks.length ? (
-          disks.map((disk) => (
-            <div className="disk-item" key={String(disk.DiskId)}>
-              <span className="disk-name">
-                {displayValue(disk.DiskName || disk.DiskId)} (
-                {displayValue(disk.Category)})
-              </span>
-              <span className="disk-size">
-                {displayValue(disk.Size)} GB · {displayValue(disk.Status)}
-              </span>
-            </div>
-          ))
-        ) : (
-          <span>暂无磁盘信息</span>
-        )}
-      </div>
-      <div className="server-actions">
-        <button className="layui-btn layui-btn-small ssh-login-button" onClick={onSshLogin}>
-          <Terminal size={13} />
-          SSH 登录
-        </button>
-        {["aliyun", "tencent", "baidu"].includes(account.cloud_type) && Boolean(regionId && item.InstanceId) && <button type="button" className="layui-btn layui-btn-small security-group-button" onClick={() => setSecurityGroupOpen(true)}><ShieldCheck size={13} />安全组</button>}
-        {account.cloud_type === "vultr" && Boolean(item.FirewallGroupId) && <button type="button" className="layui-btn layui-btn-small security-group-button" onClick={() => setVultrFirewallOpen(true)}><ShieldCheck size={13} />防火墙</button>}
-        {supportsPowerControls && <>
-          <button className="layui-btn layui-btn-small layui-btn-danger" disabled={rebooting} onClick={() => void reboot(false)}>{rebooting ? "重启中…" : "重启"}</button>
-          {supportsForceReboot && <button className="layui-btn layui-btn-small layui-btn-danger" disabled={rebooting} onClick={() => void reboot(true)}>{rebooting ? "强制重启中…" : "强制重启"}</button>}
-        </>}
-        <button
-          className="layui-btn layui-btn-small"
-          onClick={() => void refreshStatus()}
-        >
-          <RefreshCw size={13} />
-          刷新状态
-        </button>
-        <button
-          className="layui-btn layui-btn-small layui-btn-primary"
-          onClick={() => onStatus()}
-        >
-          监控
-        </button>
-        {supportsPowerControls && status === "Running" && (
-          <button
-            className="layui-btn layui-btn-small layui-btn-danger"
-            onClick={() => void changeStatus("stop")}
-          >
-            关机
-          </button>
-        )}
-        {supportsPowerControls && status === "Stopped" && (
-          <button
-            className="layui-btn layui-btn-small layui-btn-normal"
-            onClick={() => void changeStatus("start")}
-          >
-            开机
-          </button>
-        )}
-        {account.cloud_type === "vultr" && <div className={`vultr-manage-wrap${vultrMenuOpen ? " is-open" : ""}`}>
-          <button type="button" className="layui-btn layui-btn-small layui-btn-primary vultr-manage-button" disabled={vultrManaging} onClick={() => setVultrMenuOpen((open) => !open)}><MoreHorizontal size={15} />更多操作</button>
-          {vultrMenuOpen && <div className="vultr-manage-menu">
-            <button type="button" onClick={() => void manageVultr("label")}>修改实例名称</button>
-            <button type="button" onClick={() => void manageVultr("tags")}>修改标签</button>
-            <button type="button" onClick={() => void manageVultr("snapshot")}>创建快照</button>
-            <button type="button" onClick={() => void manageVultr(String(item.Backups).toLowerCase() === "enabled" ? "disable_backups" : "enable_backups")}>{String(item.Backups).toLowerCase() === "enabled" ? "关闭自动备份" : "开启自动备份"}</button>
-            <button type="button" onClick={() => void manageVultr(item.DdosProtection === true || String(item.DdosProtection).toLowerCase() === "true" ? "disable_ddos" : "enable_ddos")}>{item.DdosProtection === true || String(item.DdosProtection).toLowerCase() === "true" ? "关闭 DDoS 防护" : "开启 DDoS 防护"}</button>
-            {!item.V6MainIp && <button type="button" onClick={() => void manageVultr("enable_ipv6")}>启用 IPv6</button>}
-            <button type="button" onClick={() => void manageVultr("firewall")}>绑定防火墙组</button>
-          </div>}
-        </div>}
-      </div>
-    </article>
-    {securityGroupOpen && <SecurityGroupDialog account={account} regionId={regionId} instanceId={String(item.InstanceId)} onClose={() => setSecurityGroupOpen(false)} onConfirm={onConfirm} onNotice={onNotice} />}
-    {vultrFirewallOpen && <VultrFirewallDialog account={account} firewallGroupId={String(item.FirewallGroupId)} onClose={() => setVultrFirewallOpen(false)} onConfirm={onConfirm} onNotice={onNotice} />}
-    </>
-  );
-}
-
-function FavoriteServerDetails({ asset, account, onCopyIp }: { asset: LocalAsset; account: Account; onCopyIp: (address: string) => void }) {
-  const [disks, setDisks] = useState<Record<string, unknown>[]>([]);
-  const [diskLoading, setDiskLoading] = useState(false);
-  const payload = asset.payload || {};
-  const instanceId = String(payload.InstanceId || asset.asset_key);
-  const regionId = String(asset.region_id || payload._region_id || payload.RegionId || account.region_id || "");
-  const canReadDisks = ["aliyun", "tencent", "oracle"].includes(account.cloud_type) && Boolean(instanceId && regionId);
-  const ip = firstAddress(payload.PublicIpAddress || payload.PublicAddresses || payload.InternetIp || payload.PublicIp || payload.PrivateIpAddress);
-  const cpu = Number(payload.Cpu ?? payload.CPU ?? payload.cpuCount ?? 0);
-  const memoryInGb = Number(payload.MemoryInGB ?? payload.memoryInGB ?? payload.memoryCapacityInGB ?? 0);
-  const memoryInMb = Number(payload.Memory ?? payload.memory ?? 0);
-  const memory = memoryInGb > 0 ? `${memoryInGb} GB` : memoryInMb > 0 ? `${memoryInMb >= 1024 ? Number((memoryInMb / 1024).toFixed(1)) : memoryInMb} ${memoryInMb >= 1024 ? "GB" : "MB"}` : "";
-  const bandwidth = Number(payload.InternetMaxBandwidthOut ?? payload.Bandwidth ?? payload.InternetMaxBandwidthIn ?? 0);
-  const specification = [cpu > 0 ? `${cpu} 核` : "", memory].filter(Boolean).join(" / ") || displayValue(payload.InstanceType || payload.PlanId);
-  useEffect(() => {
-    let alive = true;
-    if (!canReadDisks) return;
-    setDiskLoading(true);
-    const loader = runningInTauri
-      ? () => invoke<Record<string, unknown>[]>("list_instance_disks", { id: account.id, regionId, instanceId, compartmentOcid: String(payload._compartment_ocid || "") })
-      : () => webApi<Record<string, unknown>[]>(`/api/instance-disks?id=${account.id}&region=${encodeURIComponent(regionId)}&instance=${encodeURIComponent(instanceId)}&compartment=${encodeURIComponent(String(payload._compartment_ocid || ""))}`);
-    loader().then((value) => { if (alive) setDisks(value || []); }).catch(() => { if (alive) setDisks([]); }).finally(() => { if (alive) setDiskLoading(false); });
-    return () => { alive = false; };
-  }, [account.id, canReadDisks, instanceId, regionId, payload._compartment_ocid]);
-  const fallbackDisks: Record<string, unknown>[] = [
-    payload.SystemDisk || payload.SystemDiskSize ? { Type: "system", DiskName: "系统盘", Size: payload.SystemDiskSize || payload.SystemDisk } : null,
-    ...(Array.isArray(payload.DataDisks) ? payload.DataDisks : []),
-  ].filter((disk): disk is Record<string, unknown> => Boolean(disk));
-  const allDisks = disks.length ? disks : fallbackDisks;
-  return <div className="favorite-card-details favorite-server-details">
-    <div><span>IP 地址：</span><div className="favorite-detail-value"><strong title={ip || "-"}>{ip || "-"}</strong>{ip && <button type="button" className="favorite-ip-copy" title="复制 IP 地址" aria-label="复制 IP 地址" onClick={() => onCopyIp(ip)}><Copy size={14} /></button>}</div></div>
-    <div><span>规格：</span><strong title={bandwidth > 0 ? `${specification} · ${bandwidth}M 带宽` : specification}>{specification}{bandwidth > 0 ? ` · ${bandwidth}M 带宽` : ""}</strong></div>
-    <div className="favorite-disk-row"><span>磁盘：</span><div className="favorite-disk-list">{diskLoading ? <em>磁盘信息加载中…</em> : allDisks.length ? allDisks.map((disk, index) => {
-      const kind = String(disk.Type || disk.DiskUsage || disk.Usage || disk.Category || "").toLowerCase();
-      const label = /system|boot|startup|启动|系统/.test(kind) ? "系统盘" : "数据盘";
-      const name = displayValue(disk.DiskName || disk.DiskId || label);
-      const size = Number(disk.Size || disk.DiskSize || 0);
-      return <span className={`favorite-disk-chip ${label === "系统盘" ? "system" : "data"}`} key={`${name}-${index}`} title={`${label} · ${name}${size > 0 ? ` · ${size} GB` : ""}`}><b>{label}</b><i>{name}{size > 0 ? ` ${size} GB` : ""}</i></span>;
-    }) : <em>暂无磁盘信息</em>}</div></div>
-  </div>;
-}
-
-function SwasCard({
-  account,
-  item,
-  onRefresh,
-  onNotice,
-  onSshLogin,
-  onConfirm,
-}: {
-  account: Account;
-  item: Record<string, unknown>;
-  onRefresh: () => void;
-  onNotice: (message: string) => void;
-  onSshLogin: () => void;
-  onConfirm: (message: string) => Promise<boolean>;
-}) {
-  const [submitting, setSubmitting] = useState<"start" | "reboot" | "force-reboot" | "stop" | null>(null);
-  const [firewallOpen, setFirewallOpen] = useState(false);
-  const regionId = String(item._region_id || item.RegionId || "");
-  const instanceId = String(item.InstanceId || "");
-  const status = String(item.Status || item.InstanceStatus || "");
-  const instanceName = String(item.InstanceName || instanceId);
-  const canControl = ["aliyun", "tencent", "jdcloud"].includes(account.cloud_type) && regionId && instanceId;
-  const canFirewall = account.cloud_type === "aliyun" || account.cloud_type === "tencent" || account.cloud_type === "jdcloud";
-  const canForceReboot = account.cloud_type === "aliyun" || account.cloud_type === "tencent";
-  async function submit(action: "start" | "reboot" | "stop", forceReboot = false) {
-    const label = action === "start" ? "开机" : action === "reboot" ? `${canForceReboot && forceReboot ? "强制" : "正常"}重启` : "关机";
-    if (!(await onConfirm(`确认${label}轻量服务器“${instanceName}”？`))) return;
-    setSubmitting(action === "reboot" && forceReboot ? "force-reboot" : action);
-    try {
-      if (runningInTauri) {
-        await invoke("swas_instance_action", { id: account.id, regionId, instanceId, action, forceStop: action === "reboot" && canForceReboot && forceReboot });
-      } else {
-        await webApi("/api/swas-action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: account.id, regionId, instanceId, action, forceStop: action === "reboot" && canForceReboot && forceReboot }) });
-      }
-      onNotice(`轻量服务器${label}指令已提交`);
-      onRefresh();
-    } catch (error) {
-      onNotice(`轻量服务器${label}失败：${String(error)}`);
-    } finally {
-      setSubmitting(null);
-    }
-  }
-  function openMonitor() {
-    const url = account.cloud_type === "tencent"
-      ? `https://console.cloud.tencent.com/lighthouse/instance/index?rid=${encodeURIComponent(regionId)}`
-      : account.cloud_type === "jdcloud"
-        ? `https://console.jdcloud.com/lavm/instance/list?region=${encodeURIComponent(regionId)}`
-        : `https://swas.console.aliyun.com/?regionId=${encodeURIComponent(regionId)}`;
-    window.open(url, "_blank", "noopener,noreferrer");
-  }
-  return (
-    <>
-    <article className="swas-card">
-      <div className="swas-header">
-        <strong>{displayValue(item.InstanceName || item.InstanceId)}</strong>
-        <span className="swas-status">{cloudStatusText(status || "-")}</span>
-      </div>
-      <div className="swas-info">
-        <div><span>实例 ID：</span>{displayValue(item.InstanceId)}</div>
-        <div><span>地域：</span>{displayValue(item.RegionId || item._region_id)}</div>
-        <div><span>公网 IP：</span>{displayValue(item.PublicIpAddress || item.PublicIp)}</div>
-        <div><span>套餐：</span>{displayValue(item.PlanId || item.InstanceType)}</div>
-        <div><span>配置：</span>{displayValue(item.Cpu) !== "-" || displayValue(item.Memory) !== "-" ? `${displayValue(item.Cpu)} 核 / ${displayValue(item.Memory)} MB${displayValue(item.Bandwidth) !== "-" ? ` / ${displayValue(item.Bandwidth)} Mbps` : ""}` : "-"}</div>
-        <div><span>镜像：</span>{displayValue(item.ImageId || item.ImageName)}</div>
-        <div><span>系统盘：</span>{displayValue(item.SystemDiskSize)} GB</div>
-        <div><span>私网 IP：</span>{displayValue(item.PrivateIpAddress)}</div>
-        <div><span>到期时间：</span>{displayValue(item.ExpiredTime || item.ExpirationTime)}</div>
-        <div><span>创建时间：</span>{displayValue(item.CreateTime)}</div>
-        <div><span>VPC：</span>{displayValue(item.VpcId)}</div>
-      </div>
-      {canControl && <div className="server-actions">
-        <button className="layui-btn layui-btn-small ssh-login-button" onClick={onSshLogin}><Terminal size={13} />SSH 登录</button>
-        {canFirewall && <button type="button" className="layui-btn layui-btn-small security-group-button" disabled={Boolean(submitting)} onClick={() => setFirewallOpen(true)}><ShieldCheck size={13} />防火墙</button>}
-        <button className="layui-btn layui-btn-small layui-btn-danger" disabled={!canControl || Boolean(submitting)} onClick={() => void submit("reboot")}>{submitting === "reboot" ? "重启中…" : "重启"}</button>
-        {canForceReboot && <button className="layui-btn layui-btn-small layui-btn-danger" disabled={Boolean(submitting)} onClick={() => void submit("reboot", true)}>{submitting === "force-reboot" ? "强制重启中…" : "强制重启"}</button>}
-        <button className="layui-btn layui-btn-small" disabled={Boolean(submitting)} onClick={onRefresh}><RefreshCw size={13} />刷新状态</button>
-        <button className="layui-btn layui-btn-small layui-btn-primary" disabled={!regionId} onClick={openMonitor}><Monitor size={13} />监控</button>
-        {status.toLowerCase() === "stopped" ? <button className="layui-btn layui-btn-small layui-btn-normal" disabled={Boolean(submitting)} onClick={() => void submit("start")}>{submitting === "start" ? "开机中…" : "开机"}</button> : <button className="layui-btn layui-btn-small layui-btn-danger" disabled={Boolean(submitting)} onClick={() => void submit("stop")}>{submitting === "stop" ? "关机中…" : "关机"}</button>}
-      </div>}
-    </article>
-    {firewallOpen && <LightFirewallDialog account={account} regionId={regionId} instanceId={instanceId} onClose={() => setFirewallOpen(false)} onConfirm={onConfirm} onNotice={onNotice} />}
-    </>
-  );
-}
-
-function RdsCard({
-  account,
-  item,
-}: {
-  account: Account;
-  item: Record<string, unknown>;
-}) {
-  const [databases, setDatabases] = useState<Record<string, unknown>[]>([]);
-  const [accounts, setAccounts] = useState<Record<string, unknown>[]>([]);
-  const [mode, setMode] = useState<"db" | "accounts" | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [accountDialog, setAccountDialog] = useState(false);
-  const [accountDialogMaximized, setAccountDialogMaximized] = useState(false);
-  const [accountError, setAccountError] = useState("");
-  const regionId = String(item._region_id || item.RegionId || "");
-  const canReadDetails = account.cloud_type === "aliyun" || account.cloud_type === "tencent";
-  async function load(kind: "db" | "accounts") {
-    setBusy(true);
-    if (kind === "accounts") setAccountError("");
-    try {
-      const value = runningInTauri
-        ? await invoke<Record<string, unknown>[]>(
-            kind === "db" ? "list_rds_databases" : "list_rds_accounts",
-            {
-              id: account.id,
-              regionId,
-              instanceId: String(item.DBInstanceId || ""),
-            },
-          )
-        : await webApi<Record<string, unknown>[]>(
-            `/api/${kind === "db" ? "rds-databases" : "rds-accounts"}?id=${account.id}&region=${encodeURIComponent(regionId)}&instance=${encodeURIComponent(String(item.DBInstanceId || ""))}`,
-          );
-      kind === "db" ? setDatabases(value) : setAccounts(value);
-      setMode(kind);
-    } catch (error) {
-      if (kind === "accounts") {
-        setAccountError(error instanceof Error ? error.message : "获取账号失败");
-      }
-      setMode(kind);
-    } finally {
-      setBusy(false);
-    }
-  }
-  return (
-    <article className="rds-card">
-      <div className="rds-header">
-        <strong>
-          {displayValue(item.DBInstanceDescription || item.DBInstanceId)}{" "}
-          <span className="engine-tag">
-            {displayValue(item.Engine)} {displayValue(item.EngineVersion)}
-          </span>
-        </strong>
-        <span className="rds-status">
-          {cloudStatusText(item.DBInstanceStatus)}
-        </span>
-      </div>
-      <div className="rds-info">
-        <div>
-          <span>实例 ID：</span>
-          {displayValue(item.DBInstanceId)}
-        </div>
-        <div>
-          <span>实例类型：</span>
-          {displayValue(item.DBInstanceType)}
-        </div>
-        <div>
-          <span>实例规格：</span>
-          {displayValue(item.DBInstanceClass)}
-        </div>
-        <div>
-          <span>存储空间：</span>
-          {displayValue(item.DBInstanceStorage)} GB
-        </div>
-        <div>
-          <span>连接地址：</span>
-          {displayValue(item.ConnectionString)}
-        </div>
-        <div>
-          <span>端口：</span>
-          {displayValue(item.Port)}
-        </div>
-        <div>
-          <span>网络类型：</span>
-          {displayValue(item.DBInstanceNetType)}
-        </div>
-        <div>
-          <span>付费类型：</span>
-          {payType(item.PayType)}
-        </div>
-        <div>
-          <span>创建时间：</span>
-          {displayValue(item.CreateTime)}
-        </div>
-        <div>
-          <span>到期时间：</span>
-          {displayValue(item.ExpireTime)}
-        </div>
-      </div>
-      <div className="db-list">
-        {!canReadDetails ? "当前仅同步数据库实例清单，库与账号详情暂未接入"
-          : busy
-          ? "加载中…"
-          : mode === "db"
-            ? databases.length
-              ? databases.map((db, index) => (
-                  <span className="db-item" key={index}>
-                    {displayValue(db.DBName)}
-                  </span>
-                ))
-              : "暂无数据库"
-            : "点击下方按钮加载数据库"}
-      </div>
-      {canReadDetails && <div className="rds-actions">
-        <button
-          className="layui-btn layui-btn-xs"
-          disabled={busy}
-          onClick={() => void load("db")}
-        >
-          <RefreshCw className={busy ? "spin" : undefined} size={13} />
-          {busy ? "读取中…" : "刷新数据库"}
-        </button>
-        <button
-          className="layui-btn layui-btn-xs layui-btn-normal"
-          onClick={() => {
-            setAccountDialog(true);
-            void load("accounts");
-          }}
-        >
-          账号管理
-        </button>
-      </div>}
-      {accountDialog && (
-        <div
-          className="resource-modal-backdrop nested-resource-modal"
-          onClick={() => { setAccountDialog(false); setAccountDialogMaximized(false); }}
-        >
-          <section
-            className={`detail-panel resource-modal account-dialog${accountDialogMaximized ? " is-maximized" : ""}`}
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="detail-toolbar">
-              <div>
-                <span className="eyebrow">
-                  {displayValue(item.DBInstanceDescription || item.DBInstanceId)}
-                </span>
-                <h2>账号管理</h2>
-              </div>
-              <div className="detail-toolbar-actions">
-                <button
-                  className="secondary"
-                  title={accountDialogMaximized ? "还原窗口" : "放大到全屏"}
-                  onClick={() => setAccountDialogMaximized((value) => !value)}
-                >
-                  {accountDialogMaximized ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
-                  {accountDialogMaximized ? "还原" : "放大"}
-                </button>
-                <button className="layui-btn" disabled={busy} onClick={() => void load("accounts")}>
-                  <RefreshCw className={busy ? "spin" : undefined} size={13} />
-                  {busy ? "读取中…" : "刷新"}
-                </button>
-                <button className="close-detail" onClick={() => { setAccountDialog(false); setAccountDialogMaximized(false); }}>
-                  <X size={20} />
-                </button>
-              </div>
-            </div>
-            {accountError && <div className="error-list">{accountError}</div>}
-            <div className="resource-table-wrap account-table-wrap">
-              {busy ? (
-                <div className="detail-empty">正在加载数据库账号…</div>
-              ) : accounts.length ? (
-                <table>
-                  <thead>
-                    <tr>
-                      <th>账号名称</th>
-                      <th>账号类型</th>
-                      <th>账号状态</th>
-                      <th>账号描述</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {accounts.map((row, index) => (
-                      <tr key={index}>
-                        <td>{displayValue(row.AccountName)}</td>
-                        <td>{displayValue(row.AccountType) === "Super" ? "高权限" : "普通"}</td>
-                        <td>{displayValue(row.AccountStatus) === "Available" ? "可用" : displayValue(row.AccountStatus)}</td>
-                        <td>{displayValue(row.AccountDescription)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              ) : (
-                <div className="detail-empty">暂无数据库账号</div>
-              )}
-            </div>
-          </section>
-        </div>
-      )}
-    </article>
-  );
-}
-
 function resourceColumns(items: Record<string, unknown>[]) {
   const preferred = [
     "InstanceName",
@@ -1706,550 +496,6 @@ function resourceColumns(items: Record<string, unknown>[]) {
   return [...ordered, ...keys.filter((key) => !ordered.includes(key))].slice(
     0,
     7,
-  );
-}
-
-function RedisCard({
-  account,
-  item,
-  onRefresh,
-}: {
-  account: Account;
-  item: Record<string, unknown>;
-  onRefresh: () => void;
-}) {
-  const [accounts, setAccounts] = useState<Record<string, unknown>[]>([]);
-  const [accountDialog, setAccountDialog] = useState(false);
-  const [accountDialogMaximized, setAccountDialogMaximized] = useState(false);
-  const [accountError, setAccountError] = useState("");
-  const canReadDetails = account.cloud_type === "aliyun" || account.cloud_type === "tencent";
-  async function loadAccounts() {
-    setAccountError("");
-    try {
-      const regionId = String(item._region_id || item.RegionId || "");
-      setAccounts(
-        runningInTauri
-          ? await invoke<Record<string, unknown>[]>("list_redis_accounts", {
-              id: account.id,
-              instanceId: String(item.InstanceId || ""),
-              regionId,
-            })
-          : await webApi<Record<string, unknown>[]>(
-              `/api/redis-accounts?id=${account.id}&region=${encodeURIComponent(regionId)}&instance=${encodeURIComponent(String(item.InstanceId || ""))}`,
-            ),
-      );
-    } catch (error) {
-      setAccounts([]);
-      setAccountError(error instanceof Error ? error.message : "获取账号失败");
-    }
-  }
-  return (
-    <article className="redis-card">
-      <div className="redis-header">
-        <strong>
-          {displayValue(item.InstanceName || item.InstanceId)}{" "}
-          <span className="arch-tag">
-            {redisArchitecture(item.ArchitectureType || "standard")}
-          </span>
-        </strong>
-        <span className="redis-status">
-          {cloudStatusText(item.InstanceStatus)}
-        </span>
-      </div>
-      <div className="redis-info">
-        <div>
-          <span>实例 ID：</span>
-          {displayValue(item.InstanceId)}
-        </div>
-        <div>
-          <span>实例类型：</span>
-          {displayValue(item.InstanceType)}
-        </div>
-        <div>
-          <span>实例规格：</span>
-          {displayValue(item.InstanceClass)}
-        </div>
-        <div>
-          <span>内存容量：</span>
-          {displayValue(item.Capacity)} MB
-        </div>
-        <div>
-          <span>带宽：</span>
-          {displayValue(item.Bandwidth)} Mbps
-        </div>
-        <div>
-          <span>连接数：</span>
-          {displayValue(item.Connections)}
-        </div>
-        <div>
-          <span>连接地址：</span>
-          {displayValue(item.ConnectionDomain)}
-        </div>
-        <div>
-          <span>端口：</span>
-          {displayValue(item.Port)}
-        </div>
-        <div>
-          <span>引擎版本：</span>Redis {displayValue(item.EngineVersion)}
-        </div>
-        <div>
-          <span>网络类型：</span>
-          {redisNetwork(item.NetworkType)}
-        </div>
-        <div>
-          <span>付费类型：</span>
-          {redisCharge(item.ChargeType)}
-        </div>
-        <div>
-          <span>到期时间：</span>
-          {displayValue(item.EndTime)}
-        </div>
-      </div>
-      <div className="memory-bar">
-        内存容量：{displayValue(item.Capacity)} MB
-      </div>
-      {canReadDetails && <div className="redis-actions">
-        <button className="layui-btn layui-btn-xs" onClick={onRefresh}>
-          刷新状态
-        </button>
-        <button
-          className="layui-btn layui-btn-xs layui-btn-normal"
-          onClick={() => {
-            setAccountDialog(true);
-            void loadAccounts();
-          }}
-        >
-          账号列表
-        </button>
-      </div>}
-      {accountDialog && (
-        <div className="resource-modal-backdrop nested-resource-modal" onClick={() => { setAccountDialog(false); setAccountDialogMaximized(false); }}>
-          <section className={`detail-panel resource-modal account-dialog${accountDialogMaximized ? " is-maximized" : ""}`} onClick={(event) => event.stopPropagation()}>
-            <div className="detail-toolbar">
-              <div>
-                <span className="eyebrow">{displayValue(item.InstanceName || item.InstanceId)}</span>
-                <h2>账号列表</h2>
-              </div>
-              <div className="detail-toolbar-actions">
-                <button
-                  className="secondary"
-                  title={accountDialogMaximized ? "还原窗口" : "放大到全屏"}
-                  onClick={() => setAccountDialogMaximized((value) => !value)}
-                >
-                  {accountDialogMaximized ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
-                  {accountDialogMaximized ? "还原" : "放大"}
-                </button>
-                <button className="layui-btn" onClick={() => void loadAccounts()}>刷新</button>
-                <button className="close-detail" onClick={() => { setAccountDialog(false); setAccountDialogMaximized(false); }}><X size={20} /></button>
-              </div>
-            </div>
-            {accountError && <div className="error-list">{accountError}</div>}
-            <div className="resource-table-wrap account-table-wrap">
-              {accounts.length ? (
-                <table>
-                  <thead><tr><th>账号名称</th><th>账号类型</th><th>账号状态</th><th>账号描述</th></tr></thead>
-                  <tbody>{accounts.map((row, index) => <tr key={index}>
-                    <td>{displayValue(row.AccountName)}</td>
-                    <td>{displayValue(row.AccountType) === "Normal" ? "普通账号" : displayValue(row.AccountType)}</td>
-                    <td>{displayValue(row.AccountStatus) === "Available" ? "可用" : displayValue(row.AccountStatus)}</td>
-                    <td>{displayValue(row.AccountDescription)}</td>
-                  </tr>)}</tbody>
-                </table>
-              ) : <div className="detail-empty">{accountError ? "获取账号失败" : "暂无账号信息"}</div>}
-            </div>
-          </section>
-        </div>
-      )}
-    </article>
-  );
-}
-
-type OssDetail = {
-  storage: number;
-  objectCount: number;
-  multipartUploadCount: number;
-  liveChannelCount: number;
-  monthTraffic: number;
-  monthRequests: number;
-  acl: string;
-  cnames: { Domain: string; Status?: string }[];
-  cors: { origin: string[]; method: string[]; header: string[] }[];
-  errors: string[];
-};
-
-type OssObject = {
-  Key: string;
-  LastModified: string;
-  ETag: string;
-  Size: string;
-};
-
-type OssObjectListing = {
-  objects: OssObject[];
-  prefixes: string[];
-  isTruncated: boolean;
-  nextMarker: string;
-};
-
-function BucketCard({
-  account,
-  item,
-  quickAction,
-  onQuickActionOpened,
-  onConfirm,
-  onPrompt,
-}: {
-  account: Account;
-  item: Record<string, unknown>;
-  quickAction?: "files" | "stat" | null;
-  onQuickActionOpened?: () => void;
-  onConfirm: (message: string) => Promise<boolean>;
-  onPrompt: (message: string, initialValue?: string) => Promise<string | null>;
-}) {
-  const [objectListing, setObjectListing] = useState<OssObjectListing | null>(null);
-  const [objectDialog, setObjectDialog] = useState<"files" | "stat" | null>(null);
-  const [objectDialogMaximized, setObjectDialogMaximized] = useState(false);
-  const [objectPrefix, setObjectPrefix] = useState("");
-  const [objectFilter, setObjectFilter] = useState("");
-  const [selectedObjectKeys, setSelectedObjectKeys] = useState<Set<string>>(() => new Set());
-  const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
-  const [detail, setDetail] = useState<OssDetail | null>(null);
-  const [detailLoading, setDetailLoading] = useState(true);
-  const [objectsLoading, setObjectsLoading] = useState(false);
-  const [cnameDialog, setCnameDialog] = useState(false);
-  const [cnameValue, setCnameValue] = useState("");
-  const [cnameToken, setCnameToken] = useState<Record<string, string> | null>(null);
-  const [cnameLoading, setCnameLoading] = useState(false);
-  const bucketName = String(item.Name || "");
-  const location = String(item.Location || "");
-  const isTencent = account.cloud_type === "tencent";
-  const isVolcengine = account.cloud_type === "volcengine";
-  const isCtyun = account.cloud_type === "ctyun";
-  const isHuawei = account.cloud_type === "huawei";
-  const isBaidu = account.cloud_type === "baidu";
-  const isReadOnlyBucketProvider = ["volcengine", "ctyun", "huawei", "baidu", "ucloud", "qiniu", "aws", "azure", "gcp", "jdcloud", "qingcloud", "ksyun"].includes(account.cloud_type);
-  const endpoint = String(item.ExtranetEndpoint || (bucketName && location ? (isTencent ? `${bucketName}.cos.${location}.myqcloud.com` : isVolcengine ? `${bucketName}.tos-${location}.volces.com` : isCtyun || isHuawei || isBaidu ? "-" : `${bucketName}.${location}.aliyuncs.com`) : "-"));
-  const intranetEndpoint = String(item.IntranetEndpoint || (bucketName && location && !isTencent && !isVolcengine && !isCtyun && !isHuawei && !isBaidu ? `${bucketName}.${location}-internal.aliyuncs.com` : "-"));
-  const storageClassNames: Record<string, string> = { Standard: "标准存储", IA: "低频访问", Archive: "归档存储", ColdArchive: "冷归档存储", DeepColdArchive: "深度冷归档" };
-  async function fetchDetail() {
-    if (!runningInTauri) return webApi<OssDetail>(`/api/oss-detail?id=${account.id}&bucket=${encodeURIComponent(bucketName)}&location=${encodeURIComponent(location)}`);
-    try {
-      const acl = await invoke<string>("get_oss_acl", { id: account.id, bucket: bucketName, location });
-      return { storage: 0, objectCount: 0, multipartUploadCount: 0, liveChannelCount: 0, monthTraffic: 0, monthRequests: 0, acl, cnames: [], cors: [], errors: [] };
-    } catch (error) {
-      return { storage: 0, objectCount: 0, multipartUploadCount: 0, liveChannelCount: 0, monthTraffic: 0, monthRequests: 0, acl: String(item.Acl || "private"), cnames: [], cors: [], errors: [`存储桶详情读取失败：${String(error)}`] };
-    }
-  }
-  async function loadDetail() {
-    if (isReadOnlyBucketProvider) {
-      setDetail(null);
-      setDetailLoading(false);
-      setError(`${cloudProvider(account.cloud_type).label}当前支持存储桶清单，对象浏览和桶配置暂未接入。`);
-      return;
-    }
-    setDetailLoading(true);
-    try {
-      const value = await fetchDetail();
-      setDetail(value);
-      if (value.errors.length) setError(value.errors.join("；"));
-    } catch (reason) {
-      setDetail(null);
-      setError(String(reason));
-    } finally {
-      setDetailLoading(false);
-    }
-  }
-  async function loadObjects(kind: "files" | "stat", prefix = objectPrefix, marker = "") {
-    if (isReadOnlyBucketProvider) {
-      setError(`${cloudProvider(account.cloud_type).label}当前仅支持存储桶清单。`);
-      return;
-    }
-    if (kind === "stat") {
-      setObjectDialog("stat");
-      if (!detail && !detailLoading) await loadDetail();
-      return;
-    }
-    setObjectsLoading(true);
-    setObjectDialog("files");
-    try {
-      setError("");
-      const listing = runningInTauri
-        ? await invoke<OssObjectListing>("list_oss_objects", { id: account.id, bucket: bucketName, location, prefix, marker })
-        : await webApi<OssObjectListing>(
-            `/api/oss-objects?id=${account.id}&bucket=${encodeURIComponent(bucketName)}&location=${encodeURIComponent(location)}&prefix=${encodeURIComponent(prefix)}&marker=${encodeURIComponent(marker)}`,
-          );
-      setObjectListing(marker && objectListing ? {
-        ...listing,
-        objects: [...objectListing.objects, ...listing.objects],
-        prefixes: [...objectListing.prefixes, ...listing.prefixes],
-      } : listing);
-      setObjectPrefix(prefix);
-      setObjectFilter("");
-      setSelectedObjectKeys(new Set());
-    } catch (reason) {
-      setObjectListing(null);
-      setError(String(reason));
-    } finally {
-      setObjectsLoading(false);
-    }
-  }
-  useEffect(() => {
-    if (isReadOnlyBucketProvider) {
-      setDetailLoading(false);
-      setError(`${cloudProvider(account.cloud_type).label}当前支持存储桶清单，对象浏览和桶配置暂未接入。`);
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      try {
-        const value = await fetchDetail();
-        if (!cancelled) {
-          setDetail(value);
-          if (value.errors.length) setError(value.errors.join("；"));
-        }
-      } catch (reason) {
-        if (!cancelled) setError(String(reason));
-      } finally {
-        if (!cancelled) setDetailLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [account.id, bucketName, location, isReadOnlyBucketProvider]);
-  useEffect(() => {
-    if (!quickAction) return;
-    if (quickAction === "files") void loadObjects("files", "");
-    else void loadObjects("stat");
-    onQuickActionOpened?.();
-    // The parent clears quickAction after this one-shot request is consumed.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [quickAction]);
-  async function copyEndpoint() {
-    try {
-      await navigator.clipboard.writeText(endpoint);
-      setNotice("域名已复制");
-    } catch {
-      setNotice("复制失败，请手动复制");
-    }
-  }
-  async function setPublicRead() {
-    if (!(await onConfirm(`确定要将存储桶【${bucketName}】设置为公共读吗？\n公共读权限允许任何人读取存储桶中的文件。`))) return;
-    try {
-      if (runningInTauri) await invoke("set_oss_public_read", { id: account.id, bucket: bucketName, location });
-      else await webApi(`/api/oss-public-read?id=${account.id}&bucket=${encodeURIComponent(bucketName)}&location=${encodeURIComponent(location)}`, { method: "POST" });
-      setNotice("已设置为公共读");
-      await loadDetail();
-    } catch (reason) {
-      setNotice(`设置失败：${String(reason)}`);
-    }
-  }
-  async function setCors() {
-    const origins = await onPrompt("允许来源（输入 * 表示允许所有来源）", "*");
-    if (origins === null) return;
-    try {
-      if (runningInTauri) await invoke("set_oss_cors", { id: account.id, bucket: bucketName, location, origins });
-      else await webApi(`/api/oss-cors?id=${account.id}&bucket=${encodeURIComponent(bucketName)}&location=${encodeURIComponent(location)}&origins=${encodeURIComponent(origins)}`, { method: "POST" });
-      setNotice("CORS 配置已保存");
-      await loadDetail();
-    } catch (reason) { setNotice(`CORS 设置失败：${String(reason)}`); }
-  }
-  async function createCnameToken() {
-    if (runningInTauri) { setNotice("桌面客户端暂未接入 OSS 自定义域名配置，请使用 Web API 模式操作"); return; }
-    setCnameLoading(true);
-    try {
-      const result = await webApi<Record<string, string>>(`/api/oss-cname-token?id=${account.id}&bucket=${encodeURIComponent(bucketName)}&location=${encodeURIComponent(location)}&domain=${encodeURIComponent(cnameValue)}`, { method: "POST" });
-      setCnameToken(result);
-      setNotice("验证 Token 已生成，请按弹窗提示配置 TXT 记录");
-    } catch (reason) { setNotice(`获取 Token 失败：${String(reason)}`); } finally { setCnameLoading(false); }
-  }
-  async function bindCname() {
-    if (runningInTauri) { setNotice("桌面客户端暂未接入 OSS 自定义域名配置，请使用 Web API 模式操作"); return; }
-    setCnameLoading(true);
-    try {
-      await webApi(`/api/oss-cname?id=${account.id}&bucket=${encodeURIComponent(bucketName)}&location=${encodeURIComponent(location)}&domain=${encodeURIComponent(cnameValue)}`, { method: "POST" });
-      setNotice("域名已绑定，请按提示添加 CNAME 解析");
-      await loadDetail();
-    } catch (reason) { setNotice(`绑定失败：${String(reason)}`); } finally { setCnameLoading(false); }
-  }
-  async function deleteCname(domain: string) {
-    if (!(await onConfirm(`确定删除自定义域名【${domain}】吗？`))) return;
-    if (runningInTauri) { setNotice("桌面客户端暂未接入 OSS 自定义域名配置，请使用 Web API 模式操作"); return; }
-    try {
-      await webApi(`/api/oss-cname?id=${account.id}&bucket=${encodeURIComponent(bucketName)}&location=${encodeURIComponent(location)}&domain=${encodeURIComponent(domain)}`, { method: "DELETE" });
-      setNotice("自定义域名已删除");
-      await loadDetail();
-    } catch (reason) { setNotice(`删除失败：${String(reason)}`); }
-  }
-  const acl = detail?.acl || String(item.Acl || "private");
-  const cnameHost = cnameValue.split(".").length > 2 ? cnameValue.split(".")[0] : "@";
-  const tokenHost = cnameValue.split(".").length > 2 ? `_dnsauth.${cnameValue.split(".")[0]}` : "_dnsauth";
-  const filterText = objectFilter.trim().toLocaleLowerCase();
-  const folderRows = (objectListing?.prefixes || [])
-    .map((prefix) => ({ key: prefix, name: prefix.slice(objectPrefix.length).replace(/\/$/, ""), prefix }))
-    .filter((folder) => !filterText || folder.name.toLocaleLowerCase().includes(filterText));
-  const fileRows = (objectListing?.objects || [])
-    .map((object) => ({ ...object, name: object.Key.slice(objectPrefix.length) }))
-    .filter((object) => !filterText || object.name.toLocaleLowerCase().includes(filterText));
-  const selectableKeys = [...folderRows.map((folder) => folder.key), ...fileRows.map((object) => object.Key)];
-  const allVisibleSelected = selectableKeys.length > 0 && selectableKeys.every((key) => selectedObjectKeys.has(key));
-  const pathSegments = objectPrefix ? objectPrefix.replace(/\/$/, "").split("/") : [];
-  const parentPrefix = pathSegments.length ? `${pathSegments.slice(0, -1).join("/")}${pathSegments.length > 1 ? "/" : ""}` : "";
-  function toggleObjectSelection(key: string) {
-    setSelectedObjectKeys((current) => {
-      const next = new Set(current);
-      if (next.has(key)) next.delete(key); else next.add(key);
-      return next;
-    });
-  }
-  function toggleAllVisibleObjects() {
-    setSelectedObjectKeys((current) => {
-      const next = new Set(current);
-      if (allVisibleSelected) selectableKeys.forEach((key) => next.delete(key));
-      else selectableKeys.forEach((key) => next.add(key));
-      return next;
-    });
-  }
-  async function copyObjectPaths() {
-    if (!selectedObjectKeys.size) return;
-    try {
-      await navigator.clipboard.writeText([...selectedObjectKeys].sort().join("\n"));
-      setNotice(`已复制 ${selectedObjectKeys.size} 个对象路径`);
-    } catch {
-      setNotice("复制失败，请手动复制对象路径");
-    }
-  }
-  return (
-    <article className="bucket-card">
-      <div className="bucket-header">
-        <strong>🪣 {displayValue(item.Name)}</strong>
-        <span className="bucket-acl">{acl === "public-read-write" ? "公共读写" : acl === "public-read" ? "公共读" : "私有"}</span>
-      </div>
-      <div className="bucket-info">
-        <div>
-          <span>存储桶名称：</span>
-          {displayValue(item.Name)}
-        </div>
-        <div>
-          <span>地域：</span>
-          {displayValue(item.Location)}
-        </div>
-        <div>
-          <span>创建时间：</span>
-          {displayValue(item.CreationDate)}
-        </div>
-        <div>
-          <span>存储类型：</span>
-          {storageClassNames[String(item.StorageClass || "Standard")] || displayValue(item.StorageClass)}
-        </div>
-        <div>
-          <span>外网域名：</span>
-          {endpoint}
-        </div>
-        <div>
-          <span>内网域名：</span>
-          {intranetEndpoint}
-        </div>
-      </div>
-      <div className="bucket-detail-box">
-        {isReadOnlyBucketProvider ? <span>{cloudProvider(account.cloud_type).label}当前仅同步存储桶清单。</span> : detailLoading ? <span className="bucket-detail-loading"><RefreshCw className="spin" size={13} /> 正在读取存储桶详情…</span> : <>
-          <span>存储容量：{formatBytes(detail?.storage)}</span>
-          <span>文件数量：{detail?.objectCount || 0} 个</span>
-          <span>当月流量：{formatBytes(detail?.monthTraffic)}</span>
-          <span>当月请求：{detail?.monthRequests || 0} 次</span>
-          <span>自定义域名：{detail?.cnames?.length ? detail.cnames.map((cname) => <button className="bucket-cname" key={cname.Domain} title="删除此自定义域名" onClick={() => void deleteCname(cname.Domain)}>{cname.Domain}<X size={12} /></button>) : "未绑定"}</span>
-          <span>CORS 配置：{detail?.cors?.length ? detail.cors.map((rule, index) => <i className="bucket-cors" key={index} title={`来源：${rule.origin.join(", ")}\n方法：${rule.method.join(", ")}\nHeader：${rule.header.join(", ")}`}>{rule.origin.join(", ") || "*"}</i>) : "未配置"}</span>
-        </>}
-      </div>
-      {!isVolcengine && !isCtyun && <div className="bucket-actions">
-        <button
-          className="layui-btn layui-btn-xs layui-btn-normal"
-          disabled={objectsLoading}
-          onClick={() => void loadObjects("files")}
-        >
-          <RefreshCw className={objectsLoading ? "spin" : undefined} size={13} />
-          {objectsLoading ? "读取中…" : "文件列表"}
-        </button>
-        <button
-          className="layui-btn layui-btn-xs"
-          disabled={objectsLoading}
-          onClick={() => void loadObjects("stat")}
-        >
-          <RefreshCw className={objectsLoading ? "spin" : undefined} size={13} />
-          {objectsLoading ? "读取中…" : "容量统计"}
-        </button>
-        {!isTencent && <button className="layui-btn layui-btn-xs layui-btn-warm" onClick={() => void setPublicRead()}>设置公共读</button>}
-        {!isTencent && <button className="layui-btn layui-btn-xs layui-btn-danger" onClick={() => void setCors()}>设置跨域</button>}
-        {!isTencent && <button className="layui-btn layui-btn-xs bucket-cname-btn" onClick={() => { setCnameDialog(true); setCnameToken(null); }}>添加域名</button>}
-        <button className="layui-btn layui-btn-xs layui-btn-primary" onClick={() => void copyEndpoint()}>复制域名</button>
-      </div>}
-      {notice && <div className="bucket-notice">{notice}</div>}
-      {error && <div className="bucket-inline-error">{error}</div>}
-      {objectDialog && (
-        <div className="resource-modal-backdrop nested-resource-modal" onClick={() => { setObjectDialog(null); setObjectDialogMaximized(false); }}>
-          <section className={`detail-panel resource-modal oss-object-dialog${objectDialogMaximized ? " is-maximized" : ""}`} onClick={(event) => event.stopPropagation()}>
-            <div className="detail-toolbar">
-              <div><span className="eyebrow">{bucketName}</span><h2>{objectDialog === "files" ? "文件列表" : "容量统计"}</h2></div>
-              <div className="detail-toolbar-actions">
-                <button
-                  className="secondary"
-                  title={objectDialogMaximized ? "还原窗口" : "放大到全屏"}
-                  onClick={() => setObjectDialogMaximized((value) => !value)}
-                >
-                  {objectDialogMaximized ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
-                  {objectDialogMaximized ? "还原" : "放大"}
-                </button>
-                <button className="close-detail" onClick={() => { setObjectDialog(null); setObjectDialogMaximized(false); }}><X size={20} /></button>
-              </div>
-            </div>
-            {error && <div className="error-list">{error}</div>}
-            {objectDialog === "stat" ? (
-              <div className="oss-stat-grid">
-                <div><span>存储桶</span><strong>{bucketName}</strong></div>
-                <div><span>文件数量</span><strong>{detail?.objectCount || 0} 个</strong></div>
-                <div><span>存储容量</span><strong>{formatBytes(detail?.storage)}</strong></div>
-                <div><span>分片数量</span><strong>{detail?.multipartUploadCount || 0} 个</strong></div>
-                <div><span>活跃直播通道</span><strong>{detail?.liveChannelCount || 0} 个</strong></div>
-              </div>
-            ) : (
-              <div className="oss-browser">
-                <div className="oss-browser-pathbar">
-                  <div className="oss-browser-nav" aria-label="目录导航">
-                    <button title="向上一级" disabled={!objectPrefix || objectsLoading} onClick={() => void loadObjects("files", parentPrefix)}><ArrowUp size={16} /></button>
-                    <button title="返回存储桶根目录" disabled={!objectPrefix || objectsLoading} onClick={() => void loadObjects("files", "")}><Home size={16} /></button>
-                    <button title="刷新当前目录" disabled={objectsLoading} onClick={() => void loadObjects("files", objectPrefix)}><RefreshCw className={objectsLoading ? "spin" : undefined} size={16} /></button>
-                  </div>
-                  <div className="oss-browser-address" title={`oss://${bucketName}/${objectPrefix}`}><span>oss://{bucketName}/</span>{pathSegments.map((segment, index) => <button key={`${segment}-${index}`} onClick={() => void loadObjects("files", `${pathSegments.slice(0, index + 1).join("/")}/`)}>{segment}/</button>)}</div>
-                  <label className="oss-browser-search"><Search size={15} /><input value={objectFilter} onChange={(event) => setObjectFilter(event.target.value)} placeholder="按名称筛选" /></label>
-                </div>
-                <div className="oss-browser-actions">
-                  <button className="oss-browser-command" disabled={!selectedObjectKeys.size} onClick={() => void copyObjectPaths()}><Copy size={15} />复制路径{selectedObjectKeys.size ? ` (${selectedObjectKeys.size})` : ""}</button>
-                  <button className="oss-browser-icon" title={allVisibleSelected ? "取消全选" : "全选当前目录"} disabled={!selectableKeys.length} onClick={toggleAllVisibleObjects}>{allVisibleSelected ? <CheckSquare size={17} /> : <Square size={17} />}</button>
-                  <span>{objectListing ? `${folderRows.length} 个目录，${fileRows.length} 个文件` : "正在读取目录..."}</span>
-                </div>
-                <div className="resource-table-wrap oss-object-table">
-                  {objectsLoading && !objectListing ? <div className="detail-empty"><RefreshCw className="spin" size={17} />正在读取目录...</div> : folderRows.length || fileRows.length ? <table><thead><tr><th className="oss-object-check"><input aria-label="全选" type="checkbox" checked={allVisibleSelected} onChange={toggleAllVisibleObjects} /></th><th>名称</th><th>类型 / 大小</th><th>最后修改时间</th><th>ETag</th></tr></thead><tbody>
-                    {folderRows.map((folder) => <tr className="oss-folder-row" key={folder.key}><td className="oss-object-check"><input aria-label={`选择目录 ${folder.name}`} type="checkbox" checked={selectedObjectKeys.has(folder.key)} onChange={() => toggleObjectSelection(folder.key)} /></td><td><button className="oss-object-name" title={`打开 ${folder.name}`} onClick={() => void loadObjects("files", folder.prefix)}><Folder size={17} />{folder.name}</button></td><td><span className="oss-object-kind">目录</span></td><td>-</td><td>-</td></tr>)}
-                    {fileRows.map((object) => <tr key={object.Key}><td className="oss-object-check"><input aria-label={`选择文件 ${object.name}`} type="checkbox" checked={selectedObjectKeys.has(object.Key)} onChange={() => toggleObjectSelection(object.Key)} /></td><td><span className="oss-object-file"><File size={16} />{object.name}</span></td><td>{formatBytes(object.Size)}</td><td>{formatCloudDate(object.LastModified)}</td><td><code title={object.ETag}>{object.ETag || "-"}</code></td></tr>)}
-                  </tbody></table> : <div className="detail-empty">{error || (objectFilter ? "没有符合筛选条件的对象" : "此目录暂无对象")}</div>}
-                  {objectListing?.isTruncated && objectListing.nextMarker && <div className="oss-browser-more"><button className="secondary" disabled={objectsLoading} onClick={() => void loadObjects("files", objectPrefix, objectListing.nextMarker)}>{objectsLoading ? "读取中..." : "加载更多"}</button></div>}
-                </div>
-              </div>
-            )}
-          </section>
-        </div>
-      )}
-      {cnameDialog && (
-        <div className="resource-modal-backdrop nested-resource-modal" onClick={() => setCnameDialog(false)}>
-          <section className="detail-panel resource-modal oss-cname-dialog" onClick={(event) => event.stopPropagation()}>
-            <div className="detail-toolbar"><div><span className="eyebrow">{bucketName}</span><h2>添加自定义域名</h2></div><button className="close-detail" onClick={() => setCnameDialog(false)}><X size={20} /></button></div>
-            <label className="oss-cname-input"><span>域名</span><input value={cnameValue} onChange={(event) => { setCnameValue(event.target.value.trim()); setCnameToken(null); }} placeholder="例如 img.example.com" /></label>
-            <div className="oss-cname-steps"><p>1. 获取验证 Token。</p><p>2. 在 DNS 服务商添加 TXT 记录验证域名。</p><p>3. DNS 生效后绑定域名，再添加 CNAME 记录。</p></div>
-            {cnameToken && <div className="oss-cname-records"><strong>TXT 验证记录</strong><div><span>类型</span><code>TXT</code></div><div><span>主机记录</span><code>{tokenHost}</code></div><div><span>记录值</span><code>{cnameToken.token || "未返回 Token"}</code></div><strong>CNAME 解析记录</strong><div><span>类型</span><code>CNAME</code></div><div><span>主机记录</span><code>{cnameHost}</code></div><div><span>记录值</span><code>{endpoint}</code></div></div>}
-            <div className="oss-cname-actions"><button className="layui-btn layui-btn-primary" disabled={!cnameValue || cnameLoading} onClick={() => void createCnameToken()}>{cnameLoading ? "处理中…" : "获取验证 Token"}</button><button className="layui-btn" disabled={!cnameValue || cnameLoading} onClick={() => void bindCname()}>绑定域名</button></div>
-          </section>
-        </div>
-      )}
-    </article>
   );
 }
 
@@ -2353,8 +599,8 @@ function App() {
   const [managedHostLoadingId, setManagedHostLoadingId] = useState<number | null>(null);
   const [managedHostKeyword, setManagedHostKeyword] = useState("");
   const [managedHostGroup, setManagedHostGroup] = useState("");
-  const [managedHostOrder, setManagedHostOrder] = useState<string[]>(() => assetOrderFromValue(localStorage.getItem(cloudHubManagedHostOrderStorageKey) || undefined));
-  const [managedHostGroupOrder, setManagedHostGroupOrder] = useState<string[]>(() => assetOrderFromValue(localStorage.getItem(cloudHubManagedHostGroupOrderStorageKey) || undefined));
+  const [managedHostOrder, setManagedHostOrder] = useState<string[]>(() => stringListFromValue(localStorage.getItem(cloudHubManagedHostOrderStorageKey) || undefined));
+  const [managedHostGroupOrder, setManagedHostGroupOrder] = useState<string[]>(() => stringListFromValue(localStorage.getItem(cloudHubManagedHostGroupOrderStorageKey) || undefined));
   const [managedHostSorting, setManagedHostSorting] = useState(false);
   const [draggedManagedHostId, setDraggedManagedHostId] = useState<number | null>(null);
   const [draggedManagedHostGroup, setDraggedManagedHostGroup] = useState<string | null>(null);
@@ -2391,10 +637,10 @@ function App() {
   const [favoritePage, setFavoritePage] = useState(1);
   const [editingAssetName, setEditingAssetName] = useState<{ key: string; value: string; initial: string } | null>(null);
   const [savingAssetName, setSavingAssetName] = useState<string | null>(null);
-  const [assetNotes, setAssetNotes] = useState<Record<string, string>>(() => assetNotesFromValue(localStorage.getItem(cloudHubAssetNotesStorageKey) || undefined));
-  const [assetOrder, setAssetOrder] = useState<string[]>(() => assetOrderFromValue(localStorage.getItem(cloudHubAssetOrderStorageKey) || undefined));
-  const [favoriteAssetOrder, setFavoriteAssetOrder] = useState<string[]>(() => assetOrderFromValue(localStorage.getItem(cloudHubFavoriteAssetOrderStorageKey) || undefined));
-  const [assetDisplayNames, setAssetDisplayNames] = useState<Record<string, string>>(() => assetDisplayNamesFromValue(localStorage.getItem(cloudHubAssetDisplayNamesStorageKey) || undefined));
+  const [assetNotes, setAssetNotes] = useState<Record<string, string>>(() => stringRecordFromValue(localStorage.getItem(cloudHubAssetNotesStorageKey) || undefined));
+  const [assetOrder, setAssetOrder] = useState<string[]>(() => stringListFromValue(localStorage.getItem(cloudHubAssetOrderStorageKey) || undefined));
+  const [favoriteAssetOrder, setFavoriteAssetOrder] = useState<string[]>(() => stringListFromValue(localStorage.getItem(cloudHubFavoriteAssetOrderStorageKey) || undefined));
+  const [assetDisplayNames, setAssetDisplayNames] = useState<Record<string, string>>(() => stringRecordFromValue(localStorage.getItem(cloudHubAssetDisplayNamesStorageKey) || undefined));
   const [editingAssetNote, setEditingAssetNote] = useState<{ key: string; value: string; initial: string } | null>(null);
   const [favoriteRefreshingKey, setFavoriteRefreshingKey] = useState<string | null>(null);
   const [draggedAssetKey, setDraggedAssetKey] = useState<string | null>(null);
@@ -2467,6 +713,35 @@ function App() {
     promptRequest?.resolve(value);
     setPromptRequest(null);
   }
+  async function performWindowAction(action: "minimize" | "toggleMaximize" | "close") {
+    if (!runningInTauri) return;
+    try {
+      await getCurrentWindow()[action]();
+    } catch (error) {
+      setStatus(`窗口操作失败：${String(error)}`);
+    }
+  }
+
+  function handleTitlebarMouseDown(event: MouseEvent<HTMLDivElement>) {
+    if (!runningInTauri || event.button !== 0) return;
+    if (event.detail > 1) {
+      void performWindowAction("toggleMaximize");
+      return;
+    }
+    void getCurrentWindow().startDragging();
+  }
+
+  useEffect(() => {
+    if (!confirmRequest && !promptRequest) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      if (confirmRequest) resolveConfirm(false);
+      else resolvePrompt(null);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [confirmRequest, promptRequest]);
 
   useEffect(() => {
     terminalTabsRef.current = terminalTabs;
@@ -4095,13 +2370,13 @@ function App() {
     let cancelled = false;
     void invoke<Record<string, string>>("list_client_preferences").then((preferences) => {
       if (cancelled) return;
-      if (preferences[cloudHubFavoriteAssetsStorageKey] !== undefined) setFavoriteAssetKeys(favoriteAssetKeysFromValue(preferences[cloudHubFavoriteAssetsStorageKey]));
-      if (preferences[cloudHubFavoriteAssetOrderStorageKey] !== undefined) setFavoriteAssetOrder(assetOrderFromValue(preferences[cloudHubFavoriteAssetOrderStorageKey]));
-      if (preferences[cloudHubAssetNotesStorageKey] !== undefined) setAssetNotes(assetNotesFromValue(preferences[cloudHubAssetNotesStorageKey]));
-      if (preferences[cloudHubAssetOrderStorageKey] !== undefined) setAssetOrder(assetOrderFromValue(preferences[cloudHubAssetOrderStorageKey]));
-      if (preferences[cloudHubAssetDisplayNamesStorageKey] !== undefined) setAssetDisplayNames(assetDisplayNamesFromValue(preferences[cloudHubAssetDisplayNamesStorageKey]));
-      if (preferences[cloudHubManagedHostOrderStorageKey] !== undefined) setManagedHostOrder(assetOrderFromValue(preferences[cloudHubManagedHostOrderStorageKey]));
-      if (preferences[cloudHubManagedHostGroupOrderStorageKey] !== undefined) setManagedHostGroupOrder(assetOrderFromValue(preferences[cloudHubManagedHostGroupOrderStorageKey]));
+      if (preferences[cloudHubFavoriteAssetsStorageKey] !== undefined) setFavoriteAssetKeys(stringListFromValue(preferences[cloudHubFavoriteAssetsStorageKey]));
+      if (preferences[cloudHubFavoriteAssetOrderStorageKey] !== undefined) setFavoriteAssetOrder(stringListFromValue(preferences[cloudHubFavoriteAssetOrderStorageKey]));
+      if (preferences[cloudHubAssetNotesStorageKey] !== undefined) setAssetNotes(stringRecordFromValue(preferences[cloudHubAssetNotesStorageKey]));
+      if (preferences[cloudHubAssetOrderStorageKey] !== undefined) setAssetOrder(stringListFromValue(preferences[cloudHubAssetOrderStorageKey]));
+      if (preferences[cloudHubAssetDisplayNamesStorageKey] !== undefined) setAssetDisplayNames(stringRecordFromValue(preferences[cloudHubAssetDisplayNamesStorageKey]));
+      if (preferences[cloudHubManagedHostOrderStorageKey] !== undefined) setManagedHostOrder(stringListFromValue(preferences[cloudHubManagedHostOrderStorageKey]));
+      if (preferences[cloudHubManagedHostGroupOrderStorageKey] !== undefined) setManagedHostGroupOrder(stringListFromValue(preferences[cloudHubManagedHostGroupOrderStorageKey]));
       if (preferences[cloudHubTerminalThemeStorageKey] !== undefined && preferences[cloudHubTerminalThemeStorageKey] in terminalThemes) setTerminalThemeName(preferences[cloudHubTerminalThemeStorageKey] as TerminalThemeName);
       if (preferences["aliyun-auto-refresh"] !== undefined) setAutoRefresh(preferences["aliyun-auto-refresh"] !== "0");
       if (preferences["aliyun-compact-mode"] !== undefined) setCompactMode(preferences["aliyun-compact-mode"] === "1");
@@ -4152,7 +2427,7 @@ function App() {
   useEffect(() => { setLogPage(1); }, [logFilter, logTypeFilter]);
   useEffect(() => { setApiLogPage(1); }, [logFilter]);
   useEffect(() => { if (!status) return; const timer = window.setTimeout(() => setStatus(""), 2600); return () => window.clearTimeout(timer); }, [status]);
-  useEffect(() => { if (moreId === null) return; const close = (event: MouseEvent) => { const target = event.target as HTMLElement; if (!target.closest(".more-wrap")) { setMoreId(null); setMorePosition(null); } }; document.addEventListener("mousedown", close); return () => document.removeEventListener("mousedown", close); }, [moreId]);
+  useEffect(() => { if (moreId === null) return; const close = (event: globalThis.MouseEvent) => { const target = event.target as HTMLElement; if (!target.closest(".more-wrap")) { setMoreId(null); setMorePosition(null); } }; document.addEventListener("mousedown", close); return () => document.removeEventListener("mousedown", close); }, [moreId]);
 
   function edit(account: Account) {
     let credentialMeta: { tenancy_ocid?: string; key_fingerprint?: string; tenant_id?: string; subscription_id?: string; project_id?: string } = {};
@@ -4409,14 +2684,14 @@ function App() {
         <span>{active?.source === "cache" ? `当前展示本地缓存${summary?.cached_at ? `，更新于 ${formatAssetDate(summary.cached_at)}` : ""}` : "当前展示实时拉取结果，资源缓存已更新"}</span>
       </div>
       <section className="summary-block-section">
-        <h3>♙ 账号信息</h3>
+        <h3><UserRound size={15} aria-hidden="true" />账号信息</h3>
         <div className="summary-info-grid">
           <div><span>{active?.account.cloud_type === "tencent" ? "腾讯云 AppId：" : "账号ID："}</span><strong>{displayValue(summary?.account_id)}</strong></div>
           <div><span>账号类型：</span><strong>{displayValue(summary?.account_type)}</strong></div>
         </div>
       </section>
       <section className="summary-block-section">
-        <h3>￥ 账户余额</h3>
+        <h3><Globe2 size={15} aria-hidden="true" />账户余额</h3>
         <div className="summary-balance-grid">
           <div className="summary-balance-item">
             <strong className="value-orange">{formatMoney(summary?.available_amount)}</strong>
@@ -4433,7 +2708,7 @@ function App() {
         </div>
       </section>
       <section className="summary-block-section">
-        <h3>▥ 消费统计</h3>
+        <h3><List size={15} aria-hidden="true" />消费统计</h3>
         <div className="summary-consume-grid">
           <div className="summary-consume-item">
             <strong className="value-pink">{formatMoney(summary?.month_consume)}</strong>
@@ -4446,7 +2721,7 @@ function App() {
         </div>
       </section>
       <section className="summary-block-section">
-        <h3>▦ 资源统计</h3>
+        <h3><Server size={15} aria-hidden="true" />资源统计</h3>
         <div className="summary-resource-grid">
           <div className="summary-resource-item">
             <strong className="value-blue">{displayValue(summary?.ecs_count) || 0}</strong>
@@ -5230,7 +3505,19 @@ function App() {
   const pagedApiLogs = filteredApiLogs.slice((apiLogPage - 1) * pageSize, apiLogPage * pageSize);
 
   return (
-    <div className="app-shell" ref={appShellRef} style={{ "--app-sidebar-width": `${appSidebarWidth}px` } as CSSProperties}>
+    <div className="app-shell ide-theme" ref={appShellRef} style={{ "--app-sidebar-width": `${appSidebarWidth}px` } as CSSProperties}>
+      <a className="skip-link" href="#main-content">跳到主要内容</a>
+      <div className="ide-topbar" role="banner">
+        <div className="ide-topbar-brand" data-tauri-drag-region onMouseDown={handleTitlebarMouseDown}><Cloud size={15} /><strong>云枢 Tools</strong><span>本地多云资源管理</span></div>
+        <div className="ide-topbar-actions">
+          <div className="ide-topbar-context"><span className="ide-topbar-dot" />LOCAL</div>
+          {runningInTauri && <div className="ide-window-controls" aria-label="窗口控制">
+            <button type="button" aria-label="最小化窗口" title="最小化" onClick={() => void performWindowAction("minimize")}><Minus size={14} /></button>
+            <button type="button" aria-label="最大化或还原窗口" title="最大化或还原" onClick={() => void performWindowAction("toggleMaximize")}><Square size={12} /></button>
+            <button type="button" className="ide-window-close" aria-label="关闭窗口" title="关闭" onClick={() => void performWindowAction("close")}><X size={15} /></button>
+          </div>}
+        </div>
+      </div>
       <aside style={{ flexBasis: appSidebarWidth, width: appSidebarWidth }}>
         <div className="brand">
           <div className="brand-mark">
@@ -5244,44 +3531,56 @@ function App() {
             <small>本地多云资源管家</small>
           </div>
         </div>
-        <nav>
-          <button className={section === "accounts" ? "nav-active" : ""} onClick={() => setSection("accounts")}>
+        <nav aria-label="主导航">
+          <button type="button" className={section === "accounts" ? "nav-active" : ""} aria-current={section === "accounts" ? "page" : undefined} onClick={() => setSection("accounts")}>
             <Database size={18} />
             账号管理
           </button>
-          <button className={section === "resources" ? "nav-active" : ""} onClick={() => { setSection("resources"); void loadLocalAssets(); }}>
+          <button type="button" className={section === "resources" ? "nav-active" : ""} aria-current={section === "resources" ? "page" : undefined} onClick={() => { setSection("resources"); void loadLocalAssets(); }}>
             <Server size={18} />
             资产管理
           </button>
-          <button className={section === "favorites" ? "nav-active" : ""} onClick={() => { setSection("favorites"); void loadLocalAssets(); }}>
+          <button type="button" className={section === "favorites" ? "nav-active" : ""} aria-current={section === "favorites" ? "page" : undefined} onClick={() => { setSection("favorites"); void loadLocalAssets(); }}>
             <Star size={18} />
             我的收藏
           </button>
-          <button className={section === "panels" ? "nav-active" : ""} onClick={() => { setSection("panels"); void loadPanelConnections(); }}>
+          <button type="button" className={section === "panels" ? "nav-active" : ""} aria-current={section === "panels" ? "page" : undefined} onClick={() => { setSection("panels"); void loadPanelConnections(); }}>
             <Monitor size={18} />
             面板管理
           </button>
-          <button className={section === "servers" ? "nav-active" : ""} onClick={() => { setSection("servers"); void loadManagedHosts(); }}>
+          <button type="button" className={section === "servers" ? "nav-active" : ""} aria-current={section === "servers" ? "page" : undefined} onClick={() => { setSection("servers"); void loadManagedHosts(); }}>
             <Terminal size={18} />
             终端管理
           </button>
-          <button className={section === "logs" ? "nav-active" : ""} onClick={() => setSection("logs")}>
+          <button type="button" className={section === "logs" ? "nav-active" : ""} aria-current={section === "logs" ? "page" : undefined} onClick={() => setSection("logs")}>
             <FileText size={18} />
             操作日志
           </button>
-          <button className={section === "api_logs" ? "nav-active" : ""} onClick={() => { setSection("api_logs"); void loadApiLogs(); }}>
+          <button type="button" className={section === "api_logs" ? "nav-active" : ""} aria-current={section === "api_logs" ? "page" : undefined} onClick={() => { setSection("api_logs"); void loadApiLogs(); }}>
             <Terminal size={18} />
             API日志
           </button>
-          <button className={section === "settings" ? "nav-active" : ""} onClick={() => setSection("settings")}>
+          <button type="button" className={section === "settings" ? "nav-active" : ""} aria-current={section === "settings" ? "page" : undefined} onClick={() => setSection("settings")}>
             <Settings size={18} />
             系统设置
           </button>
         </nav>
       </aside>
       <div className="app-sidebar-resizer" role="separator" aria-label="调整主导航宽度" aria-orientation="vertical" onPointerDown={startAppSidebarResize} />
-      <main>
-        {status && <div className="toast-notice">{status}</div>}
+      <main id="main-content">
+        <nav className="mobile-nav-bar" aria-label="移动端主导航">
+          <div className="mobile-nav-scroll">
+            <button type="button" className={section === "accounts" ? "nav-active" : ""} aria-current={section === "accounts" ? "page" : undefined} onClick={() => setSection("accounts")}><Database size={16} /><span>账号</span></button>
+            <button type="button" className={section === "resources" ? "nav-active" : ""} aria-current={section === "resources" ? "page" : undefined} onClick={() => { setSection("resources"); void loadLocalAssets(); }}><Server size={16} /><span>资产</span></button>
+            <button type="button" className={section === "favorites" ? "nav-active" : ""} aria-current={section === "favorites" ? "page" : undefined} onClick={() => { setSection("favorites"); void loadLocalAssets(); }}><Star size={16} /><span>收藏</span></button>
+            <button type="button" className={section === "panels" ? "nav-active" : ""} aria-current={section === "panels" ? "page" : undefined} onClick={() => { setSection("panels"); void loadPanelConnections(); }}><Monitor size={16} /><span>面板</span></button>
+            <button type="button" className={section === "servers" ? "nav-active" : ""} aria-current={section === "servers" ? "page" : undefined} onClick={() => { setSection("servers"); void loadManagedHosts(); }}><Terminal size={16} /><span>终端</span></button>
+            <button type="button" className={section === "logs" ? "nav-active" : ""} aria-current={section === "logs" ? "page" : undefined} onClick={() => setSection("logs")}><FileText size={16} /><span>操作日志</span></button>
+            <button type="button" className={section === "api_logs" ? "nav-active" : ""} aria-current={section === "api_logs" ? "page" : undefined} onClick={() => { setSection("api_logs"); void loadApiLogs(); }}><Terminal size={16} /><span>API 日志</span></button>
+            <button type="button" className={section === "settings" ? "nav-active" : ""} aria-current={section === "settings" ? "page" : undefined} onClick={() => setSection("settings")}><Settings size={16} /><span>设置</span></button>
+          </div>
+        </nav>
+        {status && <div className="toast-notice" role="status" aria-live="polite" aria-atomic="true">{status}</div>}
         <div className={`account-section ${section === "accounts" ? "" : "section-hidden"}`}>
         <header>
           <div>
@@ -5322,6 +3621,7 @@ function App() {
               <option value="access_key_id">AccessKeyId</option>
             </select>
             <input
+              className="account-keyword-input"
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && void load()}
@@ -5330,6 +3630,8 @@ function App() {
             />
             <label>分组：</label>
             <select
+              className="account-group-filter"
+              aria-label="按分组筛选"
               value={groupFilter}
               onChange={(e) => setGroupFilter(e.target.value)}
             >
@@ -5342,6 +3644,8 @@ function App() {
             </select>
             <label>状态：</label>
             <select
+              className="account-status-filter"
+              aria-label="按状态筛选"
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
             >
@@ -5351,6 +3655,8 @@ function App() {
             </select>
             <label>云类型：</label>
             <select
+              className="account-cloud-filter"
+              aria-label="按云类型筛选"
               value={cloudFilter}
               onChange={(e) => setCloudFilter(e.target.value)}
             >
@@ -5359,7 +3665,10 @@ function App() {
               {accounts.some((account) => account.cloud_type === "other") && <option value="other">未接入云（历史账号）</option>}
             </select>
             <button
-              className="layui-btn layui-btn-search"
+              type="button"
+              className="layui-btn layui-btn-search account-search-button"
+              title="按当前条件搜索账号"
+              aria-label="搜索账号"
               disabled={accountSearchLoading}
               onClick={() => void load()}
             >
@@ -5367,7 +3676,10 @@ function App() {
               {accountSearchLoading ? "查询中…" : "搜索"}
             </button>
             <button
-              className="layui-btn"
+              type="button"
+              className="layui-btn account-add-button"
+              title="添加云账号"
+              aria-label="添加云账号"
               onClick={() => {
               setDraft(empty);
                 setShowSecret(false);
@@ -5378,19 +3690,25 @@ function App() {
               添加
             </button>
             <button
-              className="layui-btn layui-btn-normal"
+              type="button"
+              className="layui-btn account-group-button"
+              title="账号分组跟随账号编辑"
+              aria-label="分组管理"
               onClick={() => setStatus("分组管理：本地分组跟随账号编辑")}
             >
               分组管理
             </button>
             <button
-              className="layui-btn layui-btn-warm"
+              type="button"
+              className="layui-btn account-export-button"
+              title={selectedAccountIds.size ? `导出已勾选 ${selectedAccountIds.size} 个账号` : "导出全部账号"}
+              aria-label="导出账号"
               onClick={() => void exportAccounts()}
             >
               <Download size={14} />
               {selectedAccountIds.size ? `导出已勾选 (${selectedAccountIds.size})` : "导出全部"}
             </button>
-            <label className="layui-btn layui-btn-import">
+            <label className="layui-btn layui-btn-import account-import-button" title="导入账号 JSON">
               导入
               <input
                 type="file"
@@ -5431,7 +3749,7 @@ function App() {
                     <th>备注</th>
                     <th>添加时间</th>
                     <th>状态</th>
-                    <th>操作</th>
+                    <th className="account-actions-column">操作</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -5492,29 +3810,41 @@ function App() {
                           {account.enabled ? "启用" : "禁用"}
                         </button>
                       </td>
-                      <td>
+                      <td className="account-actions-cell">
                         <div className="resource-actions">
                           {supportsResourceSync(account) ? <>
                             <button
+                              type="button"
                               className="orange"
+                              title="打开账号资产汇总"
+                              aria-label={`打开 ${account.account_name} 资产汇总`}
                               onClick={() => void openCachedSummary(account)}
                             >
                               汇总
                             </button>
                             {syncAssetTypes(account).some(([value]) => value === "ecs") && <button
+                              type="button"
                               className="blue"
+                              title="查看服务器资产"
+                              aria-label={`查看 ${account.account_name} 服务器资产`}
                               onClick={() => void openCachedView(account, "ecs")}
                             >
                               服务器
                             </button>}
                             {syncAssetTypes(account).some(([value]) => value === "domain") && <button
+                              type="button"
                               className="purple"
+                              title="查看域名资产"
+                              aria-label={`查看 ${account.account_name} 域名资产`}
                               onClick={() => void openCachedView(account, "domain")}
                             >
                               域名
                             </button>}
                             <button
+                              type="button"
                               className="teal"
+                              title="选择资产类型并同步到本地"
+                              aria-label={`获取 ${account.account_name} 资产`}
                               onClick={() => {
                                 setSyncTypes(syncAssetTypes(account).map(([value]) => value));
                                 setSyncAccount(account);
@@ -5524,20 +3854,29 @@ function App() {
                             </button>
                           </> : <span className="action-text">仅保留历史账号</span>}
                           <button
+                            type="button"
                             className="action-text"
+                            title={`修改 ${account.account_name}`}
+                            aria-label={`修改 ${account.account_name}`}
                             onClick={() => edit(account)}
                           >
                             修改
                           </button>
                           <button
+                            type="button"
                             className="action-text danger"
+                            title={`删除 ${account.account_name}`}
+                            aria-label={`删除 ${account.account_name}`}
                             onClick={() => void remove(account.id)}
                           >
                             删除
                           </button>
                           {supportsResourceSync(account) && <span className={`more-wrap ${moreId === account.id ? "more-open" : ""}`}>
                             <button
+                              type="button"
                               className="action-text more-trigger"
+                              title="更多资产类型"
+                              aria-label={`更多 ${account.account_name} 资产操作`}
                               onClick={(event) => {
                                 if (moreId === account.id) {
                                   setMoreId(null);
@@ -6096,16 +4435,21 @@ function App() {
               <div><h1>面板管理</h1><p>统一绑定和管理多台宝塔或 aaPanel 面板；API 密钥仅加密保存在当前设备。</p></div>
             </header>
             <section className="managed-server-toolbar panel-management-toolbar">
-              <label className="managed-host-search"><Search size={16} /><input value={panelKeyword} onChange={(event) => setPanelKeyword(event.target.value)} placeholder="搜索面板名称、IP 地址或备注" /></label>
-              <select value={panelGroup} disabled={panelSorting} onChange={(event) => setPanelGroup(event.target.value)}><option value="">全部分组</option>{panelGroups.map((group) => <option key={group} value={group}>{group}</option>)}</select>
-              <button className="secondary" disabled={panelLoadingId !== null} onClick={() => void refreshAllPanelConnections()}><RefreshCw size={15} className={panelLoadingId !== null ? "spin" : ""} />{panelLoadingId !== null ? "刷新中" : "刷新"}</button>
-              <button type="button" className="layui-btn layui-btn-normal panel-toolbar-add" onClick={() => openPanelDialog()}><Plus size={15} />添加</button>
-              <button type="button" className="secondary" disabled={!panelConnections.length} onClick={() => void exportPanels()}><Download size={15} />导出{selectedPanelIds.size ? ` (${selectedPanelIds.size})` : "全部"}</button>
-              <label className="layui-btn panel-toolbar-import"><Upload size={15} />{panelImporting ? "导入中" : "导入"}<input ref={panelImportInputRef} type="file" accept="application/json,.json" disabled={panelImporting} onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void importPanels(file); }} /></label>
-              <label className="panel-toolbar-option"><input type="checkbox" checked={hidePanelIps} onChange={(event) => setHidePanelIps(event.target.checked)} />隐藏 IP</label>
-              <label className="panel-toolbar-option panel-refresh-mode">监控刷新<select value={panelRefreshSeconds} onChange={(event) => setPanelRefreshSeconds(Number(event.target.value))} aria-label="监控资源刷新间隔"><option value={0}>关闭</option><option value={5}>5 秒</option><option value={10}>10 秒</option><option value={30}>30 秒</option><option value={60}>60 秒</option></select></label>
-              <label className="panel-toolbar-option panel-open-mode">打开面板<select value={panelOpenMode} onChange={(event) => setPanelOpenMode(event.target.value as "browser" | "copy")}><option value="browser">默认浏览器打开</option><option value="copy">复制临时 URL</option></select></label>
-              <button type="button" className={`panel-sort-button${panelSorting ? " is-sorting" : ""}`} onClick={() => { setPanelSorting((value) => !value); setDraggedPanelId(null); }}><GripVertical size={15} />{panelSorting ? "退出排序" : "排序"}</button><span>共 {panelConnections.length} 台服务器</span>
+              <div className="panel-toolbar-primary">
+                <label className="managed-host-search" title="搜索面板"><Search size={16} /><input aria-label="搜索面板" value={panelKeyword} onChange={(event) => setPanelKeyword(event.target.value)} placeholder="搜索面板名称、IP 地址或备注" /></label>
+                <select aria-label="面板分组" title="按分组筛选面板" value={panelGroup} disabled={panelSorting} onChange={(event) => setPanelGroup(event.target.value)}><option value="">全部分组</option>{panelGroups.map((group) => <option key={group} value={group}>{group}</option>)}</select>
+                <button type="button" className="secondary" title="刷新所有面板状态" disabled={panelLoadingId !== null} onClick={() => void refreshAllPanelConnections()}><RefreshCw size={15} className={panelLoadingId !== null ? "spin" : ""} />{panelLoadingId !== null ? "刷新中" : "刷新"}</button>
+                <button type="button" className="layui-btn panel-toolbar-add" title="添加新的面板连接" onClick={() => openPanelDialog()}><Plus size={15} />添加面板</button>
+                <button type="button" className="secondary" title={selectedPanelIds.size ? `导出已选 ${selectedPanelIds.size} 个面板` : "导出全部面板"} disabled={!panelConnections.length} onClick={() => void exportPanels()}><Download size={15} />导出{selectedPanelIds.size ? ` (${selectedPanelIds.size})` : "全部"}</button>
+                <label className="layui-btn panel-toolbar-import" title="导入面板 JSON"><Upload size={15} />{panelImporting ? "导入中" : "导入"}<input ref={panelImportInputRef} type="file" accept="application/json,.json" disabled={panelImporting} onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void importPanels(file); }} /></label>
+              </div>
+              <div className="panel-toolbar-secondary">
+                <label className="panel-toolbar-option" title="在地址和列表中隐藏 IP"><input type="checkbox" checked={hidePanelIps} onChange={(event) => setHidePanelIps(event.target.checked)} />隐藏 IP</label>
+                <label className="panel-toolbar-option panel-refresh-mode"><span>监控刷新</span><select value={panelRefreshSeconds} onChange={(event) => setPanelRefreshSeconds(Number(event.target.value))} aria-label="监控资源刷新间隔" title="监控资源刷新间隔"><option value={0}>关闭</option><option value={5}>5 秒</option><option value={10}>10 秒</option><option value={30}>30 秒</option><option value={60}>60 秒</option></select></label>
+                <label className="panel-toolbar-option panel-open-mode"><span>打开面板</span><select value={panelOpenMode} onChange={(event) => setPanelOpenMode(event.target.value as "browser" | "copy")} aria-label="打开面板方式" title="打开面板方式"><option value="browser">默认浏览器打开</option><option value="copy">复制临时 URL</option></select></label>
+                <button type="button" className={`panel-sort-button${panelSorting ? " is-sorting" : ""}`} title={panelSorting ? "退出面板排序" : "调整面板顺序"} onClick={() => { setPanelSorting((value) => !value); setDraggedPanelId(null); }}><GripVertical size={15} />{panelSorting ? "退出排序" : "排序"}</button>
+                <span className="panel-toolbar-count">共 {panelConnections.length} 台服务器</span>
+              </div>
             </section>
             {visiblePanels.length ? <div className={`panel-monitor-scroll${panelSorting ? " is-sorting" : ""}`}><div className="panel-monitor-table"><div className="panel-monitor-table-head"><span>{panelSorting ? "排序" : <input type="checkbox" aria-label="选择全部当前面板" checked={visiblePanels.length > 0 && visiblePanels.every((panel) => selectedPanelIds.has(panel.id))} onChange={toggleAllVisiblePanels} />}</span><span>服务器信息</span><span>状态</span><span>资源监控</span><span>操作</span></div>{visiblePanels.map((panel) => {
               const summary = panel.summary || {};
@@ -6129,10 +4473,10 @@ function App() {
               ];
               return <article className={`panel-monitor-row ${panel.status}${panelSorting ? " is-sorting" : ""}${draggedPanelId === panel.id ? " is-dragging" : ""}`} key={panel.id} data-panel-id={panel.id}>
                 <div className="panel-row-order">{panelSorting ? <button type="button" className="panel-drag-handle" title="拖动排序" aria-label={`拖动排序 ${panel.name}`} onPointerDown={(event) => startPanelDrag(event, panel.id)}><GripVertical size={18} /></button> : <input aria-label={`选择面板 ${panel.name}`} type="checkbox" checked={selectedPanelIds.has(panel.id)} onChange={() => togglePanelSelection(panel.id)} />}</div>
-                <div className="panel-row-server"><div className="panel-row-note"><span>备注</span>{editingPanelRemark?.id === panel.id ? <input value={editingPanelRemark.value} autoFocus onChange={(event) => setEditingPanelRemark((current) => current?.id === panel.id ? { ...current, value: event.target.value } : current)} onBlur={() => void savePanelRemark(panel)} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") setEditingPanelRemark(null); }} aria-label={`${panel.name} 的备注`} placeholder="添加备注" /> : <button type="button" className={panel.remark ? "has-note" : ""} onClick={() => setEditingPanelRemark({ id: panel.id, value: panel.remark || "", initial: panel.remark || "" })}>{panel.remark || "添加备注"}</button>}</div><div className="panel-row-address"><i className={panel.status} /><strong title={hidePanelIps ? undefined : panel.panel_url}>{hidePanelIps ? hiddenPanelAddress(panel.panel_url) : panelAddress(panel.panel_url)}</strong><button type="button" title="复制面板地址" onClick={() => void copyPanelAddress(panel)}><Copy size={15} /></button><button type="button" title="编辑面板" onClick={() => openPanelDialog(panel)}><Settings size={15} /></button></div><div className="panel-row-details"><span>名称：{panel.name}</span><span>来源：{panel.group_name || "-"}</span></div></div>
+                <div className="panel-row-server"><div className="panel-row-note"><span>备注</span>{editingPanelRemark?.id === panel.id ? <input value={editingPanelRemark.value} autoFocus onChange={(event) => setEditingPanelRemark((current) => current?.id === panel.id ? { ...current, value: event.target.value } : current)} onBlur={() => void savePanelRemark(panel)} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") setEditingPanelRemark(null); }} aria-label={`${panel.name} 的备注`} placeholder="添加备注" /> : <button type="button" aria-label={`编辑 ${panel.name} 的备注`} className={panel.remark ? "has-note" : ""} onClick={() => setEditingPanelRemark({ id: panel.id, value: panel.remark || "", initial: panel.remark || "" })}>{panel.remark || "添加备注"}</button>}</div><div className="panel-row-address"><i className={panel.status} /><strong title={hidePanelIps ? undefined : panel.panel_url}>{hidePanelIps ? hiddenPanelAddress(panel.panel_url) : panelAddress(panel.panel_url)}</strong><button type="button" title="复制面板地址" aria-label={`复制 ${panel.name} 的面板地址`} onClick={() => void copyPanelAddress(panel)}><Copy size={15} /></button><button type="button" title="编辑面板" aria-label={`编辑 ${panel.name}`} onClick={() => openPanelDialog(panel)}><Settings size={15} /></button></div><div className="panel-row-details"><span>名称：{panel.name}</span><span>来源：{panel.group_name || "-"}</span></div></div>
                 <div className="panel-row-status"><span className={`managed-server-status ${panel.status}`}>{panel.status === "online" ? "在线" : panel.status === "offline" ? "离线" : "未检测"}</span><small>{value("version") === "-" ? "版本未获取" : value("version")}</small><small>{panel.last_checked_at ? `同步于 ${formatChineseDateTime(panel.last_checked_at)}` : "尚未同步"}</small>{panel.status === "offline" && panel.last_error && <em title={panel.last_error}>连接失败</em>}</div>
                 <div className="panel-row-metrics">{metrics.map((metric) => <div className={`panel-resource-metric ${metric.label === "磁盘" ? "is-disk-metric" : ""}`} key={metric.label}>{metric.label === "磁盘" ? <div className="panel-disk-label"><span>磁盘</span>{diskItems.length > 1 && <button type="button" className="panel-disk-toggle" title={panelDisksExpanded ? "收起磁盘分区" : "展开全部磁盘分区"} aria-label={panelDisksExpanded ? "收起磁盘分区" : "展开全部磁盘分区"} aria-expanded={panelDisksExpanded} onClick={() => setExpandedPanelDisks((current) => { const next = new Set(current); if (next.has(panel.id)) next.delete(panel.id); else next.add(panel.id); return next; })}>{panelDisksExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</button>}</div> : <span>{metric.label}</span>}{metric.label === "磁盘" ? <strong title={`${disk.path} ${metric.detail}`}>{disk.path !== "-" ? `[${disk.path}] ` : ""}{metric.detail}</strong> : typeof metric.detail === "string" ? <strong title={metric.detail}>{metric.detail}</strong> : <strong className="panel-network-detail">{metric.detail}</strong>}{metric.percent !== null ? <i title={`${metric.label} ${Math.round(metric.percent)}%`}><b style={{ width: `${metric.percent}%` }} /></i> : <i className="panel-metric-idle" />}{metric.label === "磁盘" && panelDisksExpanded && diskItems.slice(1).length > 0 && <div className="panel-disk-volumes">{diskItems.slice(1).map((volume) => <div className="panel-disk-volume" key={`${panel.id}-${volume.path}`}><span>{volume.path}</span><strong title={volume.detail}>{volume.detail}</strong>{volume.percent !== null && <i title={`${volume.path} ${Math.round(volume.percent)}%`}><b style={{ width: `${volume.percent}%` }} /></i>}</div>)}</div>}</div>)}</div>
-                <div className="panel-row-actions"><button type="button" className="panel-action-button panel-open-button" disabled={panelOpeningId !== null} onClick={() => void openPanelTemporaryLogin(panel)}><Globe2 size={15} />{panelOpeningId === panel.id ? "打开中" : "面板"}</button><button type="button" className="panel-action-button" disabled={!canSsh} title={canSsh ? "通过关联云服务器 SSH 登录" : "关联云服务器后可使用 SSH"} onClick={() => sourceAccount && sourceAsset && void openSshClient(sourceAsset, sourceAccount)}><Terminal size={15} />SSH</button><button type="button" className="panel-action-button panel-reboot-button" disabled={!canReboot} title={canReboot ? "重启关联云服务器" : "关联云服务器后可重启"} onClick={() => sourceAsset && void rebootLocalAsset(sourceAsset, false)}><RefreshCw size={15} />重启</button><button type="button" className="panel-action-button panel-delete-button" disabled={panelOpeningId !== null} title="移除面板" onClick={() => void deletePanelConnection(panel)}><Trash2 size={16} /></button></div>
+                <div className="panel-row-actions"><button type="button" className="panel-action-button panel-open-button" title="在浏览器中打开面板" aria-label={`打开 ${panel.name}`} disabled={panelOpeningId !== null} onClick={() => void openPanelTemporaryLogin(panel)}><Globe2 size={15} />{panelOpeningId === panel.id ? "打开中" : "面板"}</button><button type="button" className="panel-action-button" disabled={!canSsh} title={canSsh ? "通过关联云服务器 SSH 登录" : "关联云服务器后可使用 SSH"} aria-label={`通过 SSH 连接 ${panel.name}`} onClick={() => sourceAccount && sourceAsset && void openSshClient(sourceAsset, sourceAccount)}><Terminal size={15} />SSH</button><button type="button" className="panel-action-button panel-reboot-button" disabled={!canReboot} title={canReboot ? "重启关联云服务器" : "关联云服务器后可重启"} aria-label={`重启 ${panel.name} 关联服务器`} onClick={() => sourceAsset && void rebootLocalAsset(sourceAsset, false)}><RefreshCw size={15} />重启</button><button type="button" className="panel-action-button panel-delete-button" disabled={panelOpeningId !== null} title="移除面板" aria-label={`移除 ${panel.name}`} onClick={() => void deletePanelConnection(panel)}><Trash2 size={16} /></button></div>
               </article>;
             })}</div></div> : <div className="managed-server-empty"><Monitor size={42} /><h3>{panelConnections.length ? "没有符合条件的面板" : "还没有绑定面板"}</h3><p>{panelConnections.length ? "调整搜索或分组条件后再试。" : "添加面板 URL 与 API 密钥，验证成功后即可统一查看并快速进入面板。"}</p></div>}
           </section>
@@ -6141,19 +4485,18 @@ function App() {
           <section className="managed-servers-page">
             <div ref={terminalWorkbenchRef} className={`terminal-workbench${sshFilePaneCollapsed ? " is-file-pane-collapsed" : ""}`} style={{ gridTemplateColumns: `${terminalHostSidebarWidth}px minmax(0, 1fr)`, "--terminal-host-sidebar-width": `${terminalHostSidebarWidth}px` } as CSSProperties}>
               <aside className="terminal-host-sidebar" aria-label="服务器列表">
-                <div className="terminal-host-actions"><button type="button" className="terminal-toolbar-action" title="导出全部服务器（明文 JSON）" disabled={!managedHosts.length} onClick={() => void exportManagedHosts()}><Download size={15} />导出</button><label className="terminal-toolbar-action terminal-import-button" title="导入服务器 JSON"><Upload size={15} />{managedHostImporting ? "导入中" : "导入"}<input ref={managedHostImportInputRef} type="file" accept="application/json,.json" disabled={managedHostImporting} onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void importManagedHosts(file); }} /></label><button type="button" className="terminal-toolbar-action" title="刷新服务器状态" onClick={() => void loadManagedHosts()}><RefreshCw size={16} />刷新</button></div>
-                <div className="terminal-group-title"><span><List size={15} />分组</span><div className="terminal-group-controls"><select value={managedHostGroup} disabled={managedHostSorting} onChange={(event) => setManagedHostGroup(event.target.value)}><option value="">全部分组</option>{managedHostGroups.map((group) => <option key={group} value={group}>{group}</option>)}</select><button type="button" className={managedHostSorting ? "is-sorting" : ""} onClick={() => { setManagedHostSorting((value) => !value); setDraggedManagedHostId(null); setDraggedManagedHostGroup(null); setManagedHostMoreId(null); }}><GripVertical size={14} />{managedHostSorting ? "退出排序" : "排序"}</button></div></div>
-                <label className="terminal-host-search"><Search size={15} /><input value={managedHostKeyword} onChange={(event) => setManagedHostKeyword(event.target.value)} placeholder="搜索服务器 IP/名称" /></label>
-                <button type="button" className="terminal-add-host" onClick={() => openManagedHostDialog()}><Plus size={16} />添加服务器</button>
+                <div className="terminal-host-header"><div className="terminal-host-heading"><Server size={16} /><strong>服务器</strong><span>{visibleManagedHosts.length}</span></div><div className="terminal-host-actions"><button type="button" className="terminal-toolbar-action" title="导出全部服务器（明文 JSON）" aria-label="导出服务器" disabled={!managedHosts.length} onClick={() => void exportManagedHosts()}><Download size={15} />导出</button><label className="terminal-toolbar-action terminal-import-button" title="导入服务器 JSON"><Upload size={15} />{managedHostImporting ? "导入中" : "导入"}<input ref={managedHostImportInputRef} type="file" accept="application/json,.json" disabled={managedHostImporting} onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void importManagedHosts(file); }} /></label><button type="button" className="terminal-toolbar-action" title="刷新服务器状态" aria-label="刷新服务器" onClick={() => void loadManagedHosts()}><RefreshCw size={16} />刷新</button></div></div>
+                <div className="terminal-group-title"><span><List size={15} />分组</span><div className="terminal-group-controls"><select aria-label="服务器分组" value={managedHostGroup} disabled={managedHostSorting} onChange={(event) => setManagedHostGroup(event.target.value)}><option value="">全部分组</option>{managedHostGroups.map((group) => <option key={group} value={group}>{group}</option>)}</select><button type="button" className={managedHostSorting ? "is-sorting" : ""} onClick={() => { setManagedHostSorting((value) => !value); setDraggedManagedHostId(null); setDraggedManagedHostGroup(null); setManagedHostMoreId(null); }}><GripVertical size={14} />{managedHostSorting ? "退出排序" : "排序"}</button></div></div>
+                <div className="terminal-host-filter"><label className="terminal-host-search"><Search size={15} /><input value={managedHostKeyword} onChange={(event) => setManagedHostKeyword(event.target.value)} placeholder="搜索服务器 IP / 名称" /></label><button type="button" className="terminal-add-host" onClick={() => openManagedHostDialog()}><Plus size={16} />添加服务器</button></div>
                 <div className="terminal-host-tree">
                   {managedHostGroups.map((group) => {
                     const hosts = visibleManagedHosts.filter((host) => (host.group_name || "未分组") === group);
                     if (!hosts.length) return null;
                     const collapsed = !managedHostSorting && collapsedManagedHostGroups.has(group);
                     const personalGroup = /个人|默认/.test(group);
-                    return <section className={`terminal-host-group${draggedManagedHostGroup === group ? " is-dragging" : ""}${collapsed ? " is-collapsed" : ""}`} key={group} data-managed-host-group={group}><div className="terminal-host-group-head">{managedHostSorting ? <button type="button" className="terminal-group-drag-handle" title="拖动分组排序" aria-label={`拖动分组排序 ${group}`} onPointerDown={(event) => startManagedHostGroupDrag(event, group)}><GripVertical size={15} /></button> : personalGroup ? <UserRound size={18} /> : <Building2 size={18} />}<button type="button" className="terminal-host-group-toggle" disabled={managedHostSorting} onClick={() => setCollapsedManagedHostGroups((current) => { const next = new Set(current); if (next.has(group)) next.delete(group); else next.add(group); return next; })}><strong>{group}</strong><span>{hosts.length}</span>{collapsed ? <ChevronDown size={18} /> : <ChevronUp size={18} />}</button></div>{!collapsed && hosts.map((host) => <article className={`terminal-host-card${terminalSelectedHostId === host.id ? " active" : ""}${managedHostSorting ? " is-sorting" : ""}${draggedManagedHostId === host.id ? " is-dragging" : ""}`} key={host.id} data-managed-host-id={host.id}>{managedHostSorting && <button type="button" className="terminal-host-drag-handle" title="拖动排序" aria-label={`拖动排序 ${host.name}`} onPointerDown={(event) => startManagedHostDrag(event, host.id)}><GripVertical size={16} /></button>}<button type="button" className="terminal-host-card-main" title={host.platform === "windows" ? "打开 Windows 远程桌面" : "打开 SSH 终端"} disabled={managedHostSorting} onClick={(event) => { if (event.detail > 1) return; setTerminalSelectedHostId(host.id); openManagedHostSsh(host); }}><span className="terminal-host-platform"><Monitor size={25} /><i className={host.status} /></span><span className="terminal-host-card-copy"><strong title={host.name}>{host.name}</strong><small>{host.platform === "windows" ? `RDP · ${host.host}` : host.host}</small></span></button>{!managedHostSorting && <div className="terminal-host-card-actions"><button type="button" title="更多操作" aria-label={`${host.name} 的更多操作`} aria-expanded={managedHostMoreId === host.id} onClick={(event) => { event.stopPropagation(); setManagedHostMoreId((current) => current === host.id ? null : host.id); }}><MoreVertical size={20} /></button>{managedHostMoreId === host.id && <div className="terminal-host-more-menu"><button type="button" onClick={() => { setManagedHostMoreId(null); openManagedHostDialog(host); }}><Settings size={14} />编辑</button>{host.platform !== "windows" && <button type="button" disabled={managedHostLoadingId !== null} onClick={() => { setManagedHostMoreId(null); void probeManagedHost(host.id); }}><RefreshCw size={14} />刷新</button>}<button type="button" className="danger" onClick={() => { setManagedHostMoreId(null); void deleteManagedHost(host); }}><Trash2 size={14} />移除</button></div>}</div>}</article>)}</section>;
+                    return <section className={`terminal-host-group${draggedManagedHostGroup === group ? " is-dragging" : ""}${collapsed ? " is-collapsed" : ""}`} key={group} data-managed-host-group={group}><div className="terminal-host-group-head">{managedHostSorting ? <button type="button" className="terminal-group-drag-handle" title="拖动分组排序" aria-label={`拖动分组排序 ${group}`} onPointerDown={(event) => startManagedHostGroupDrag(event, group)}><GripVertical size={15} /></button> : personalGroup ? <UserRound size={18} /> : <Building2 size={18} />}<button type="button" className="terminal-host-group-toggle" disabled={managedHostSorting} onClick={() => setCollapsedManagedHostGroups((current) => { const next = new Set(current); if (next.has(group)) next.delete(group); else next.add(group); return next; })}><strong>{group}</strong><span>{hosts.length}</span>{collapsed ? <ChevronDown size={18} /> : <ChevronUp size={18} />}</button></div>{!collapsed && hosts.map((host) => <article className={`terminal-host-card${terminalSelectedHostId === host.id ? " active" : ""}${managedHostSorting ? " is-sorting" : ""}${draggedManagedHostId === host.id ? " is-dragging" : ""}`} key={host.id} data-managed-host-id={host.id}>{managedHostSorting && <button type="button" className="terminal-host-drag-handle" title="拖动排序" aria-label={`拖动排序 ${host.name}`} onPointerDown={(event) => startManagedHostDrag(event, host.id)}><GripVertical size={16} /></button>}<button type="button" className="terminal-host-card-main" title={host.platform === "windows" ? "打开 Windows 远程桌面" : "打开 SSH 终端"} disabled={managedHostSorting} onClick={(event) => { if (event.detail > 1) return; setTerminalSelectedHostId(host.id); openManagedHostSsh(host); }}><span className="terminal-host-platform"><Monitor size={25} /><i className={host.status} /></span><span className="terminal-host-card-copy"><strong title={host.name}>{host.name}</strong><small className="terminal-host-card-meta"><span className="terminal-host-card-platform">{host.platform === "windows" ? "RDP" : "SSH"}</span><span className={`terminal-host-card-state ${host.status}`}>{host.status === "online" ? "在线" : host.status === "offline" ? "离线" : "未检测"}</span><span className="terminal-host-address">{host.host}</span></small></span></button>{!managedHostSorting && <div className="terminal-host-card-actions"><button type="button" title="更多操作" aria-label={`${host.name} 的更多操作`} aria-expanded={managedHostMoreId === host.id} onClick={(event) => { event.stopPropagation(); setManagedHostMoreId((current) => current === host.id ? null : host.id); }}><MoreVertical size={20} /></button>{managedHostMoreId === host.id && <div className="terminal-host-more-menu"><button type="button" onClick={() => { setManagedHostMoreId(null); openManagedHostDialog(host); }}><Settings size={14} />编辑</button>{host.platform !== "windows" && <button type="button" disabled={managedHostLoadingId !== null} onClick={() => { setManagedHostMoreId(null); void probeManagedHost(host.id); }}><RefreshCw size={14} />刷新</button>}<button type="button" className="danger" onClick={() => { setManagedHostMoreId(null); void deleteManagedHost(host); }}><Trash2 size={14} />移除</button></div>}</div>}</article>)}</section>;
                   })}
-                  {!visibleManagedHosts.length && <div className="terminal-host-empty"><Server size={30} /><p>{managedHosts.length ? "没有匹配的服务器" : "添加服务器后即可开始连接"}</p></div>}
+                   {!visibleManagedHosts.length && <div className="terminal-host-empty"><Server size={30} /><p>{managedHosts.length ? "没有匹配的服务器" : "添加服务器后即可开始连接"}</p><button type="button" className="terminal-host-empty-action" onClick={() => openManagedHostDialog()}><Plus size={14} />添加服务器</button></div>}
                 </div>
               </aside>
               <div className="terminal-host-resizer" role="separator" aria-label="调整服务器列表宽度" aria-orientation="vertical" onPointerDown={startTerminalHostSidebarResize} />
@@ -6190,13 +4533,13 @@ function App() {
                 <p>所有资产来自本地 SQLite，不会在此页面实时请求云端。</p>
               </div>
             </header>
-            <div className="resource-account-switcher"><span>当前账号</span><select value={resourceAccountId ?? "all"} onChange={(event) => { const value = event.target.value; setResourceAccountId(value === "all" ? null : Number(value)); setResourceTypeFilter(null); }}><option value="all">全部账号（汇总）</option>{accounts.map((account) => <option key={account.id} value={account.id}>{account.account_name} · {account.access_key_id}</option>)}</select>{selectedResourceAccount && <strong>{selectedResourceAccount.account_name}</strong>}</div>
+            <div className="resource-account-switcher"><span>当前账号</span><select aria-label="当前资源账号" title="切换资源账号" value={resourceAccountId ?? "all"} onChange={(event) => { const value = event.target.value; setResourceAccountId(value === "all" ? null : Number(value)); setResourceTypeFilter(null); }}><option value="all">全部账号（汇总）</option>{accounts.map((account) => <option key={account.id} value={account.id}>{account.account_name} · {account.access_key_id}</option>)}</select>{selectedResourceAccount && <strong>{selectedResourceAccount.account_name}</strong>}</div>
             <div className="local-asset-summary">
-              {assetTypes.map(([value, label]) => <button type="button" className={`asset-summary-card ${resourceTypeFilter === value ? "active" : ""}`} key={value} onClick={() => setResourceTypeFilter(resourceTypeFilter === value ? null : value)}><span>{label}</span><strong>{localAssets.filter((item) => (resourceAccountId === null || item.account_id === resourceAccountId) && item.resource_type === value).length}</strong><small>点击查看</small></button>)}
+              {assetTypes.map(([value, label]) => <button type="button" className={`asset-summary-card asset-summary-tile ${resourceTypeFilter === value ? "active" : ""}`} key={value} title={`筛选${label}资产`} aria-pressed={resourceTypeFilter === value} onClick={() => setResourceTypeFilter(resourceTypeFilter === value ? null : value)}><span>{label}</span><strong>{localAssets.filter((item) => (resourceAccountId === null || item.account_id === resourceAccountId) && item.resource_type === value).length}</strong><small>点击查看</small></button>)}
             </div>
             <section className="panel local-assets-panel">
-              <div className="asset-list-toolbar"><input value={assetKeyword} onChange={(event) => setAssetKeyword(event.target.value)} placeholder="请输入资产名称 / ID / 账号" /><select value={resourceTypeFilter || ""} onChange={(event) => setResourceTypeFilter(event.target.value || null)}><option value="">全部类型</option>{assetTypes.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><select value={assetRegionFilter} onChange={(event) => setAssetRegionFilter(event.target.value)}><option value="">全部地域</option>{Array.from(new Set(localAssets.map((asset) => asset.region_id || String(asset.payload?.RegionId || asset.payload?.Location || "")).filter(Boolean))).map((region) => <option key={region} value={region}>{region}</option>)}</select><select value={assetStatusFilter} onChange={(event) => setAssetStatusFilter(event.target.value)}><option value="">全部状态</option>{Array.from(new Set(localAssets.map((asset) => String(asset.payload?.Status || asset.payload?.InstanceStatus || asset.payload?.DBInstanceStatus || asset.payload?.DomainStatus || "")).filter(Boolean))).map((status) => <option key={status} value={status}>{cloudStatusText(status)}</option>)}</select></div>
-              {visibleLocalAssets.length ? <div className="table-wrap"><table><thead><tr><th className="asset-order-column"><span className="sr-only">排序</span></th><th>资源类型</th><th>资产名称 / ID</th><th>到期时间</th><th>账号信息</th><th>地域</th><th>状态</th><th>操作</th></tr></thead><tbody>
+              <div className="asset-list-toolbar"><input className="asset-list-search" aria-label="搜索资产" value={assetKeyword} onChange={(event) => setAssetKeyword(event.target.value)} placeholder="请输入资产名称 / ID / 账号" /><select className="asset-type-filter" aria-label="按资产类型筛选" value={resourceTypeFilter || ""} onChange={(event) => setResourceTypeFilter(event.target.value || null)}><option value="">全部类型</option>{assetTypes.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><select className="asset-region-filter" aria-label="按地域筛选" value={assetRegionFilter} onChange={(event) => setAssetRegionFilter(event.target.value)}><option value="">全部地域</option>{Array.from(new Set(localAssets.map((asset) => asset.region_id || String(asset.payload?.RegionId || asset.payload?.Location || "")).filter(Boolean))).map((region) => <option key={region} value={region}>{region}</option>)}</select><select className="asset-status-filter" aria-label="按状态筛选" value={assetStatusFilter} onChange={(event) => setAssetStatusFilter(event.target.value)}><option value="">全部状态</option>{Array.from(new Set(localAssets.map((asset) => String(asset.payload?.Status || asset.payload?.InstanceStatus || asset.payload?.DBInstanceStatus || asset.payload?.DomainStatus || "")).filter(Boolean))).map((status) => <option key={status} value={status}>{cloudStatusText(status)}</option>)}</select></div>
+              {visibleLocalAssets.length ? <div className="table-wrap"><table><thead><tr><th className="asset-order-column"><span className="sr-only">排序</span></th><th>资源类型</th><th>资产名称 / ID</th><th>到期时间</th><th>账号信息</th><th>地域</th><th>状态</th><th className="asset-actions-column">操作</th></tr></thead><tbody>
                 {pagedLocalAssets.map((asset, index) => {
                   const account = accounts.find((item) => item.id === asset.account_id);
                   const payload = asset.payload || {};
@@ -6208,15 +4551,15 @@ function App() {
                   const expiry = payload.ExpiredTime || payload.ExpirationTime || payload.ExpirationDate || payload.ExpirationTime || payload.ExpireTime || payload.ExpireDate || payload.EndTime;
                   const domainActions = asset.resource_type === "domain" && account && !["oracle", "huawei", "baidu", "ucloud", "aws", "azure", "gcp", "jdcloud", "qingcloud", "ksyun"].includes(account.cloud_type) ? (
                     <div className="asset-action-buttons domain-asset-actions">
-                      <button className="asset-domain-dns-button" onClick={() => openLocalDomainTool(asset, account, "dns")}>解析管理</button>
-                      <button className="asset-domain-log-button" onClick={() => openLocalDomainTool(asset, account, "logs")}>操作日志</button>
-                      <button className="asset-domain-whois-button" onClick={() => openLocalDomainTool(asset, account, "whois")}>WHOIS</button>
+                      <button type="button" className="asset-domain-dns-button" title="打开域名解析管理" onClick={() => openLocalDomainTool(asset, account, "dns")}>解析管理</button>
+                      <button type="button" className="asset-domain-log-button" title="查看域名操作日志" onClick={() => openLocalDomainTool(asset, account, "logs")}>操作日志</button>
+                      <button type="button" className="asset-domain-whois-button" title="查看 WHOIS 信息" onClick={() => openLocalDomainTool(asset, account, "whois")}>WHOIS</button>
                     </div>
                   ) : null;
                   const ossActions = asset.resource_type === "oss" && account && !["volcengine", "ctyun", "oracle", "huawei", "baidu", "ucloud", "qiniu", "aws", "azure", "gcp", "jdcloud", "qingcloud", "ksyun"].includes(account.cloud_type) ? (
                     <div className="asset-action-buttons oss-asset-actions">
-                      <button className="asset-oss-files-button" onClick={() => void openOssQuickTool(account, asset, "files")}>文件列表</button>
-                      <button className="asset-oss-stat-button" onClick={() => void openOssQuickTool(account, asset, "stat")}>容量统计</button>
+                      <button type="button" className="asset-oss-files-button" title="查看对象文件列表" onClick={() => void openOssQuickTool(account, asset, "files")}>文件列表</button>
+                      <button type="button" className="asset-oss-stat-button" title="查看对象存储容量统计" onClick={() => void openOssQuickTool(account, asset, "stat")}>容量统计</button>
                     </div>
                   ) : null;
                   const serverActions = (asset.resource_type === "ecs" || asset.resource_type === "swas") ? renderAssetActions(asset, account) : null;
@@ -6231,7 +4574,7 @@ function App() {
                     <td><div className="asset-account-name"><span className={`avatar cloud-avatar ${account?.cloud_type || "other"}`}>{cloudProvider(account?.cloud_type || "other").avatar}</span><strong>{account?.account_name || `账号 ${asset.account_id}`}</strong></div><small className="asset-subline">{cloudProvider(account?.cloud_type || "other").label} · {maskedKey}</small><small className="asset-subline">{account?.group_name || "未分组"}</small></td>
                     <td>{displayValue(asset.region_id || payload.RegionId || payload.Location)}</td>
                     <td>{cloudStatusText(payload.Status || payload.InstanceStatus || payload.DBInstanceStatus || payload.DomainStatus)}</td>
-                    <td>{domainActions || ossActions || serverActions || <span className="asset-action-muted">—</span>}</td>
+                    <td className="asset-actions-cell">{domainActions || ossActions || serverActions || <span className="asset-action-muted">—</span>}</td>
                   </tr>;
                 })}
               </tbody></table></div> : <div className="empty"><Server size={40} /><h3>暂无本地资产</h3><p>请到账号管理，勾选资产类型并点击“获取资产”。</p></div>}
@@ -6311,7 +4654,7 @@ function App() {
           <section className="utility-page">
             <header><div><span className="eyebrow">AUDIT TRAIL</span><h1>操作日志</h1><p>记录本机账号和资产管理操作，日志只保存在当前设备。</p></div></header>
             <section className="panel utility-panel"><div className="utility-toolbar log-toolbar"><input value={logFilter} onChange={(event) => setLogFilter(event.target.value)} placeholder="搜索账号、资源类型或操作" /><select value={logTypeFilter} onChange={(event) => setLogTypeFilter(event.target.value)}><option value="">全部资源类型</option>{assetTypes.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><select><option>全部操作状态</option><option>已完成</option></select><button className="secondary" onClick={() => { setLogFilter(""); setLogTypeFilter(""); }}>重置</button><button className="clear-log-button" onClick={() => void clearLogs("operation")}>清空日志</button></div><div className="log-list"><div className="log-head"><span>操作内容</span><span>资源类型</span><span>操作时间</span><span>状态</span></div>
-              {pagedLogRows.map((row, index) => <div className="log-row" key={`${row.asset.account_id}-${row.asset.resource_type}-${row.asset.asset_key}-${index}`}><span className="log-dot" /><div><strong>{row.action}</strong><small>{row.account.account_name} · {assetTypes.find(([value]) => value === row.asset.resource_type)?.[1] || row.asset.resource_type} · {row.asset.asset_key}</small></div><span className={`log-type ${row.asset.resource_type}`}>{assetTypes.find(([value]) => value === row.asset.resource_type)?.[1] || row.asset.resource_type}</span><time>{new Date(row.asset.fetched_at).toLocaleString()}</time><span className="log-success">已完成</span></div>)}
+              {pagedLogRows.map((row, index) => <div className="log-row" key={`${row.asset.account_id}-${row.asset.resource_type}-${row.asset.asset_key}-${index}`}><span className="log-dot" /><div><strong>{row.action}</strong><small>{row.account.account_name} · {assetTypes.find(([value]) => value === row.asset.resource_type)?.[1] || row.asset.resource_type} · {row.asset.asset_key}</small></div><span className={`log-type ${row.asset.resource_type}`}>{assetTypes.find(([value]) => value === row.asset.resource_type)?.[1] || row.asset.resource_type}</span><time>{new Date(row.asset.fetched_at).toLocaleString()}</time><span className="log-success" title="操作完成">完成</span></div>)}
               {!logRows.length && <div className="empty"><FileText size={38} /><h3>暂无操作日志</h3><p>获取资产后会在这里显示记录。</p></div>}
               {logRows.length > 0 && <div className="pagination"><span>共 {logRows.length} 条记录</span><button disabled={logPage <= 1} onClick={() => setLogPage((value) => Math.max(1, value - 1))}>‹</button><strong>{logPage}</strong><button disabled={logPage >= Math.max(1, Math.ceil(logRows.length / pageSize))} onClick={() => setLogPage((value) => value + 1)}>›</button></div>}
             </div></section>
@@ -6556,9 +4899,9 @@ function App() {
       )}
       {confirmRequest && createPortal(
         <div className="app-confirm-backdrop" onClick={() => resolveConfirm(false)}>
-          <section className="app-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" onClick={(event) => event.stopPropagation()}>
+          <section className="app-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-message" onClick={(event) => event.stopPropagation()}>
             <div className="app-confirm-icon"><AlertTriangle size={20} /></div>
-            <div className="app-confirm-copy"><span className="eyebrow">PLEASE CONFIRM</span><h2 id="confirm-title">确认操作</h2><p>{confirmRequest.message}</p></div>
+            <div className="app-confirm-copy"><span className="eyebrow">PLEASE CONFIRM</span><h2 id="confirm-title">确认操作</h2><p id="confirm-message">{confirmRequest.message}</p></div>
             <div className="app-confirm-actions"><button type="button" className="secondary" autoFocus onClick={() => resolveConfirm(false)}>取消</button><button type="button" className="primary app-confirm-primary" onClick={() => resolveConfirm(true)}>确认</button></div>
           </section>
         </div>,
@@ -6566,155 +4909,14 @@ function App() {
       )}
       {promptRequest && createPortal(
         <div className="app-confirm-backdrop" onClick={() => resolvePrompt(null)}>
-          <form className="app-confirm-dialog app-prompt-dialog" onSubmit={(event) => { event.preventDefault(); resolvePrompt(promptValue); }} onClick={(event) => event.stopPropagation()}>
+          <form className="app-confirm-dialog app-prompt-dialog" role="dialog" aria-modal="true" aria-labelledby="prompt-title" aria-describedby="prompt-message" onSubmit={(event) => { event.preventDefault(); resolvePrompt(promptValue); }} onClick={(event) => event.stopPropagation()}>
             <div className="app-confirm-icon"><AlertTriangle size={20} /></div>
-            <div className="app-confirm-copy"><span className="eyebrow">INPUT REQUIRED</span><h2>请输入内容</h2><p>{promptRequest.message}</p><input value={promptValue} autoFocus onChange={(event) => setPromptValue(event.target.value)} /></div>
+            <div className="app-confirm-copy"><span className="eyebrow">INPUT REQUIRED</span><h2 id="prompt-title">请输入内容</h2><p id="prompt-message">{promptRequest.message}</p><input aria-label="需要输入的内容" value={promptValue} autoFocus onChange={(event) => setPromptValue(event.target.value)} /></div>
             <div className="app-confirm-actions"><button type="button" className="secondary" onClick={() => resolvePrompt(null)}>取消</button><button type="submit" className="primary app-confirm-primary">确定</button></div>
           </form>
         </div>,
         document.body,
       )}
-    </div>
-  );
-}
-
-function DnsEditorDialog({
-  mode,
-  row,
-  preset,
-  onCancel,
-  onSubmit,
-}: {
-  mode: "add" | "edit" | "quick";
-  row?: Record<string, unknown>;
-  preset?: { type?: string; rr?: string };
-  onCancel: () => void;
-  onSubmit: (input: { type: string; rr: string; value: string; ttl: number; priority: number; line: string }) => Promise<void> | void;
-}) {
-  const initType = String(row?.Type || preset?.type || "A");
-  const [type, setType] = useState(initType);
-  const [rr, setRr] = useState(String(row?.RR ?? preset?.rr ?? ""));
-  const [value, setValue] = useState(String(row?.Value ?? ""));
-  const [ttl, setTtl] = useState<number>(Number(row?.TTL || 600));
-  const [priority, setPriority] = useState<number>(Number(row?.Priority || 10));
-  const [line, setLine] = useState(String(row?.Line || "default"));
-  const [submitting, setSubmitting] = useState(false);
-  const [errMsg, setErrMsg] = useState("");
-  const [errHint, setErrHint] = useState("");
-  const rrRef = useRef<HTMLInputElement | null>(null);
-  useEffect(() => { rrRef.current?.focus(); rrRef.current?.select(); }, []);
-  const handleSubmit = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!rr.trim() || !value.trim()) return;
-    const normalizedValue = value.trim();
-    if (type === "A") {
-      const octets = normalizedValue.split(".");
-      if (
-        octets.length !== 4 ||
-        octets.some((octet) => !/^\d{1,3}$/.test(octet) || Number(octet) > 255)
-      ) {
-        setErrMsg("A 记录的记录值必须是有效的 IPv4 地址，例如 192.0.2.1。");
-        return;
-      }
-    }
-    if (type === "AAAA" && !normalizedValue.includes(":")) {
-      setErrMsg("AAAA 记录的记录值必须是有效的 IPv6 地址。");
-      return;
-    }
-    setSubmitting(true);
-    setErrMsg("");
-    setErrHint("");
-    try {
-      await onSubmit({ type, rr: rr.trim(), value: normalizedValue, ttl, priority, line });
-    } catch (error) {
-      const msg = String(error);
-      setErrMsg(msg);
-      if (/SignatureDoesNotMatch|signature is not matched/i.test(msg)) {
-        setErrHint("请求签名校验失败。请确认本地 Web API 已重启并使用最新代码后再试。");
-      } else if (/Forbidden|AccessDenied|NoPermission/i.test(msg)) {
-        setErrHint("当前 AccessKey 缺少 DNS 写权限。请在 RAM 中授予 AliyunDNSFullAccess，或至少授予对应的 alidns 写入权限。");
-      }
-    } finally {
-      setSubmitting(false);
-    }
-  };
-  const title = mode === "edit" ? "编辑解析记录" : "添加解析记录";
-  return (
-    <div className="modal-backdrop dns-editor-backdrop" onClick={onCancel}>
-      <section className="modal dns-editor-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-head">
-          <h2>{title}</h2>
-          <button className="close" onClick={onCancel}><X size={18} /></button>
-        </div>
-        <form onSubmit={handleSubmit}>
-          <label>
-            记录类型
-            <select value={type} onChange={(e) => setType(e.target.value)}>
-              <option value="A">A</option>
-              <option value="AAAA">AAAA</option>
-              <option value="CNAME">CNAME</option>
-              <option value="MX">MX</option>
-              <option value="TXT">TXT</option>
-              <option value="NS">NS</option>
-              <option value="SRV">SRV</option>
-              <option value="CAA">CAA</option>
-              <option value="REDIRECT_URL">显性URL</option>
-              <option value="FORWARD_URL">隐性URL</option>
-            </select>
-          </label>
-          <label>
-            主机记录
-            <input ref={rrRef} value={rr} onChange={(e) => setRr(e.target.value)} placeholder="如：www、@、mail" />
-          </label>
-          <label>
-            记录值
-            <input value={value} onChange={(e) => setValue(e.target.value)} placeholder="请输入记录值" />
-          </label>
-          <div className="form-grid">
-            <label>
-              TTL
-              <select value={String(ttl)} onChange={(e) => setTtl(Number(e.target.value))}>
-                <option value="60">1分钟</option>
-                <option value="120">2分钟</option>
-                <option value="300">5分钟</option>
-                <option value="600">10分钟</option>
-                <option value="1800">30分钟</option>
-                <option value="3600">1小时</option>
-                <option value="43200">12小时</option>
-                <option value="86400">1天</option>
-              </select>
-            </label>
-            <label>
-              解析线路
-              <select value={line} onChange={(e) => setLine(e.target.value)}>
-                <option value="default">默认</option>
-                <option value="telecom">电信</option>
-                <option value="unicom">联通</option>
-                <option value="mobile">移动</option>
-                <option value="oversea">境外</option>
-                <option value="edu">教育网</option>
-                <option value="search">搜索引擎</option>
-              </select>
-            </label>
-          </div>
-          {type === "MX" && (
-            <label>
-              MX 优先级
-              <input type="number" min={1} max={50} value={priority} onChange={(e) => setPriority(Number(e.target.value))} />
-            </label>
-          )}
-          {errMsg && (
-            <div className="error-list" style={{ margin: "14px 0 0" }}>
-              <div style={{ marginBottom: errHint ? 6 : 0 }}>{errMsg}</div>
-              {errHint && <div style={{ color: "#ffd479", fontSize: "11px" }}>💡 {errHint}</div>}
-            </div>
-          )}
-          <div className="modal-actions">
-            <button type="button" className="layui-btn layui-btn-primary" onClick={onCancel} disabled={submitting}>取消</button>
-            <button type="submit" className="layui-btn layui-btn-normal" disabled={submitting}>{submitting ? "提交中…" : "确定"}</button>
-          </div>
-        </form>
-      </section>
     </div>
   );
 }

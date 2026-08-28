@@ -1,84 +1,16 @@
 import http from "node:http";
-import fs from "node:fs";
-import path from "node:path";
 import crypto from "node:crypto";
-import { DatabaseSync } from "node:sqlite";
+import { database, decryptSecret, encryptSecret, writeApiLog } from "./web-api/core/storage.mjs";
+import { readBody, send } from "./web-api/core/http.mjs";
+import { handleAccountRoutes } from "./web-api/routes/accounts.mjs";
 
-const localAppData =
-  process.env.LOCALAPPDATA ||
-  path.join(process.env.USERPROFILE, "AppData", "Local");
-const dataDir = path.join(localAppData, "CloudHubTools");
-const legacyDataDir = path.join(localAppData, "AliyunTools");
-const dbPath = path.join(dataDir, "cloudhub_tools.sqlite3");
-const keyPath = path.join(dataDir, ".key");
-const port = Number(process.env.CLOUDHUB_TOOLS_WEB_API_PORT || process.env.ALIYUN_TOOLS_WEB_API_PORT || 1430);
-
-function migrateLegacyData() {
-  if (fs.existsSync(dataDir) || !fs.existsSync(legacyDataDir)) return;
-  fs.mkdirSync(dataDir, { recursive: true });
-  for (const [legacyName, currentName] of [["aliyun_tools.sqlite3", "cloudhub_tools.sqlite3"], [".key", ".key"]]) {
-    const source = path.join(legacyDataDir, legacyName);
-    if (fs.existsSync(source)) fs.copyFileSync(source, path.join(dataDir, currentName));
-  }
+function webApiPort(value) {
+  const port = Number(value || 1430);
+  return Number.isInteger(port) && port > 0 && port <= 65535 ? port : 1430;
 }
 
-migrateLegacyData();
-fs.mkdirSync(dataDir, { recursive: true });
+const port = webApiPort(process.env.CLOUDHUB_TOOLS_WEB_API_PORT || process.env.ALIYUN_TOOLS_WEB_API_PORT);
 
-function database() {
-  const db = new DatabaseSync(dbPath);
-  try { db.exec("ALTER TABLE cloud_accounts ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0"); } catch { /* already migrated */ }
-  try { db.exec("ALTER TABLE cloud_accounts ADD COLUMN credential_meta TEXT"); } catch { /* already migrated */ }
-  db.exec(`CREATE TABLE IF NOT EXISTS cloud_assets (
-    account_id INTEGER NOT NULL,
-    resource_type TEXT NOT NULL,
-    asset_key TEXT NOT NULL,
-    region_id TEXT,
-    payload_json TEXT NOT NULL,
-    fetched_at INTEGER NOT NULL,
-    PRIMARY KEY(account_id, resource_type, asset_key)
-  )`);
-  db.exec(`CREATE TABLE IF NOT EXISTS api_logs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER, endpoint TEXT NOT NULL,
-    action TEXT NOT NULL, request_params TEXT NOT NULL, response_params TEXT,
-    status TEXT NOT NULL, message TEXT, created_at INTEGER NOT NULL
-  )`);
-  db.exec(`CREATE TABLE IF NOT EXISTS operation_logs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER, action TEXT NOT NULL,
-    result TEXT NOT NULL, message TEXT, created_at INTEGER NOT NULL
-  )`);
-  return db;
-}
-function writeApiLog(accountId, endpoint, action, request, response, status, message = null) {
-  const db = database();
-  db.prepare("INSERT INTO api_logs(account_id,endpoint,action,request_params,response_params,status,message,created_at) VALUES(?,?,?,?,?,?,?,?)").run(accountId, endpoint, action, JSON.stringify(request || {}), response == null ? null : JSON.stringify(response), status, message, Date.now());
-}
-function decryptSecret(ciphertext) {
-  const packed = Buffer.from(ciphertext, "base64");
-  const key = fs.readFileSync(keyPath);
-  const decipher = crypto.createDecipheriv(
-    "aes-256-gcm",
-    key,
-    packed.subarray(0, 12),
-  );
-  decipher.setAuthTag(packed.subarray(packed.length - 16));
-  return Buffer.concat([
-    decipher.update(packed.subarray(12, packed.length - 16)),
-    decipher.final(),
-  ]).toString("utf8");
-}
-function encryptSecret(secret) {
-  const key = fs.readFileSync(keyPath);
-  const nonce = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv("aes-256-gcm", key, nonce);
-  const encrypted = Buffer.concat([
-    cipher.update(String(secret), "utf8"),
-    cipher.final(),
-  ]);
-  return Buffer.concat([nonce, encrypted, cipher.getAuthTag()]).toString(
-    "base64",
-  );
-}
 function oracleMeta(row) {
   let meta = {};
   try { meta = JSON.parse(row.credential_meta || "{}"); } catch { /* legacy account */ }
@@ -2287,25 +2219,22 @@ async function syncCloudAssets(id, resourceTypes) {
         fetched += 1;
       }
     }
-    db.exec("COMMIT"); db.close();
+    db.exec("COMMIT");
     return { fetched, counts, errors, fetched_at: Date.now() };
-  } catch (error) { db.exec("ROLLBACK"); db.close(); throw error; }
+  } catch (error) { db.exec("ROLLBACK"); throw error; }
 }
 function localAssets(accountId, resourceType) {
   const db = database();
   const rows = db.prepare("SELECT account_id,resource_type,asset_key,region_id,payload_json,fetched_at FROM cloud_assets WHERE (? IS NULL OR account_id=?) AND (? IS NULL OR resource_type=?) ORDER BY resource_type,asset_key").all(accountId ?? null, accountId ?? null, resourceType ?? null, resourceType ?? null);
-  db.close();
   return rows.map((row) => ({ account_id: row.account_id, resource_type: row.resource_type, asset_key: row.asset_key, region_id: row.region_id, payload: JSON.parse(row.payload_json), fetched_at: row.fetched_at }));
 }
 function updateCachedServerName(accountId, instanceId, instanceName) {
   const db = database();
-  try {
-    const row = db.prepare("SELECT payload_json FROM cloud_assets WHERE account_id=? AND resource_type='ecs' AND asset_key=?").get(accountId, instanceId);
-    if (!row) return;
-    const payload = JSON.parse(row.payload_json);
-    payload.InstanceName = instanceName;
-    db.prepare("UPDATE cloud_assets SET payload_json=? WHERE account_id=? AND resource_type='ecs' AND asset_key=?").run(JSON.stringify(payload), accountId, instanceId);
-  } finally { db.close(); }
+  const row = db.prepare("SELECT payload_json FROM cloud_assets WHERE account_id=? AND resource_type='ecs' AND asset_key=?").get(accountId, instanceId);
+  if (!row) return;
+  const payload = JSON.parse(row.payload_json);
+  payload.InstanceName = instanceName;
+  db.prepare("UPDATE cloud_assets SET payload_json=? WHERE account_id=? AND resource_type='ecs' AND asset_key=?").run(JSON.stringify(payload), accountId, instanceId);
 }
 function accounts(keyword = "", includeSecret = false) {
   const db = database();
@@ -2316,7 +2245,6 @@ function accounts(keyword = "", includeSecret = false) {
     FROM cloud_accounts WHERE ? = '' OR account_name LIKE ? OR access_key_id LIKE ? OR COALESCE(group_name,'') LIKE ? ORDER BY sort_order ASC, updated_at DESC`,
     )
     .all(value, `%${value}%`, `%${value}%`, `%${value}%`);
-  db.close();
   return rows.map((row) => {
     const result = {
       id: row.id,
@@ -2348,59 +2276,34 @@ function saveAccount(input) {
   const accountId = Number(input.id);
   const isUpdate = Number.isInteger(accountId) && accountId > 0;
   const db = database();
-  try {
-    const old = isUpdate
-      ? db.prepare("SELECT secret_ciphertext,credential_meta FROM cloud_accounts WHERE id=?").get(accountId)
-      : null;
-    if (isUpdate && !old) throw new Error("云账号不存在");
-    const newSecret = cloudType === "oracle"
-      ? serializeOciPrivateKey(input.access_key_secret)
-      : String(input.access_key_secret || "").trim();
-    const secret = newSecret ? encryptSecret(newSecret) : old?.secret_ciphertext;
-    if (!secret) throw new Error("首次添加必须填写密钥 Secret");
-    const now = Date.now();
-    const values = [
-      String(input.account_name).trim(), cloudType, input.group_name || null,
-      String(input.access_key_id).trim(), secret, ["oracle", "azure", "gcp"].includes(cloudType) ? String(input.credential_meta || old?.credential_meta || "").trim() || null : null, input.region_id || null,
-      Math.max(0, Number(input.sort_order) || 0), input.enabled === false ? 0 : 1,
-      input.remark || null, now,
-    ];
-    let id = accountId;
-    if (isUpdate) {
-      db.prepare("UPDATE cloud_accounts SET account_name=?,cloud_type=?,group_name=?,access_key_id=?,secret_ciphertext=?,credential_meta=?,region_id=?,sort_order=?,enabled=?,remark=?,updated_at=? WHERE id=?")
-        .run(...values, id);
-    } else {
-      db.prepare("INSERT INTO cloud_accounts(account_name,cloud_type,group_name,access_key_id,secret_ciphertext,credential_meta,region_id,sort_order,enabled,remark,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)")
-        .run(...values, now);
-      id = Number(db.prepare("SELECT last_insert_rowid() AS id").get().id);
-    }
-    const row = db.prepare("SELECT id,account_name,cloud_type,group_name,access_key_id,credential_meta,region_id,sort_order,enabled,remark,created_at,updated_at FROM cloud_accounts WHERE id=?").get(id);
-    return { ...row, enabled: Boolean(row.enabled) };
-  } finally {
-    db.close();
+  const old = isUpdate
+    ? db.prepare("SELECT secret_ciphertext,credential_meta FROM cloud_accounts WHERE id=?").get(accountId)
+    : null;
+  if (isUpdate && !old) throw new Error("云账号不存在");
+  const newSecret = cloudType === "oracle"
+    ? serializeOciPrivateKey(input.access_key_secret)
+    : String(input.access_key_secret || "").trim();
+  const secret = newSecret ? encryptSecret(newSecret) : old?.secret_ciphertext;
+  if (!secret) throw new Error("首次添加必须填写密钥 Secret");
+  const now = Date.now();
+  const values = [
+    String(input.account_name).trim(), cloudType, input.group_name || null,
+    String(input.access_key_id).trim(), secret, ["oracle", "azure", "gcp"].includes(cloudType) ? String(input.credential_meta || old?.credential_meta || "").trim() || null : null, input.region_id || null,
+    Math.max(0, Number(input.sort_order) || 0), input.enabled === false ? 0 : 1,
+    input.remark || null, now,
+  ];
+  let id = accountId;
+  if (isUpdate) {
+    db.prepare("UPDATE cloud_accounts SET account_name=?,cloud_type=?,group_name=?,access_key_id=?,secret_ciphertext=?,credential_meta=?,region_id=?,sort_order=?,enabled=?,remark=?,updated_at=? WHERE id=?")
+      .run(...values, id);
+  } else {
+    db.prepare("INSERT INTO cloud_accounts(account_name,cloud_type,group_name,access_key_id,secret_ciphertext,credential_meta,region_id,sort_order,enabled,remark,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)")
+      .run(...values, now);
+    id = Number(db.prepare("SELECT last_insert_rowid() AS id").get().id);
   }
+  const row = db.prepare("SELECT id,account_name,cloud_type,group_name,access_key_id,credential_meta,region_id,sort_order,enabled,remark,created_at,updated_at FROM cloud_accounts WHERE id=?").get(id);
+  return { ...row, enabled: Boolean(row.enabled) };
 }
-function send(res, status, body) {
-  const payload = JSON.stringify(body);
-  res.writeHead(status, {
-    "Content-Type": "application/json; charset=utf-8",
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Headers": "Content-Type",
-  });
-  res.end(payload);
-}
-function readBody(req) {
-  return new Promise((resolve, reject) => {
-    let body = "";
-    req.on("data", (chunk) => {
-      body += chunk;
-      if (body.length > 10 * 1024 * 1024) reject(new Error("请求过大"));
-    });
-    req.on("end", () => resolve(body));
-    req.on("error", reject);
-  });
-}
-
 const server = http.createServer(async (req, res) => {
   if (req.method === "OPTIONS") {
     res.writeHead(204, {
@@ -2412,34 +2315,7 @@ const server = http.createServer(async (req, res) => {
   }
   try {
     const url = new URL(req.url, `http://localhost:${port}`);
-    if (req.method === "GET" && url.pathname === "/api/accounts")
-      return send(
-        res,
-        200,
-        accounts(url.searchParams.get("keyword") || "", false),
-      );
-    if (req.method === "POST" && url.pathname === "/api/accounts") {
-      try {
-        return send(res, 200, saveAccount(JSON.parse(await readBody(req))));
-      } catch (error) {
-        return send(res, 400, { error: error.message || "保存账号失败" });
-      }
-    }
-    if (req.method === "DELETE" && url.pathname === "/api/accounts") {
-      const id = Number(url.searchParams.get("id"));
-      if (!Number.isInteger(id) || id <= 0) return send(res, 400, { error: "账号 ID 无效" });
-      const db = database();
-      try {
-        const result = db.prepare("DELETE FROM cloud_accounts WHERE id=?").run(id);
-        if (!result.changes) return send(res, 404, { error: "云账号不存在" });
-        return send(res, 200, { ok: true });
-      } finally { db.close(); }
-    }
-    if (req.method === "GET" && url.pathname === "/api/account-secret") {
-      const row = database().prepare("SELECT secret_ciphertext FROM cloud_accounts WHERE id=?").get(Number(url.searchParams.get("id")));
-      if (!row) return send(res, 404, { error: "账号不存在" });
-      return send(res, 200, decryptSecret(row.secret_ciphertext));
-    }
+    if (await handleAccountRoutes(req, res, url, { accounts, saveAccount, database, decryptSecret })) return;
     if (req.method === "GET" && url.pathname === "/api/local-assets")
       return send(res, 200, localAssets(url.searchParams.has("account_id") ? Number(url.searchParams.get("account_id")) : null, url.searchParams.get("resource_type") || null));
     if (req.method === "DELETE" && url.pathname === "/api/local-assets") {
@@ -2559,7 +2435,6 @@ const server = http.createServer(async (req, res) => {
           );
         imported++;
       }
-      db.close();
       return send(res, 200, { imported });
     }
     if (req.method === "GET" && url.pathname === "/api/dns-records") {
@@ -3275,7 +3150,8 @@ const server = http.createServer(async (req, res) => {
     }
     return send(res, 404, { error: "Not found" });
   } catch (error) {
-    return send(res, 500, { error: String(error?.message || error) });
+    const status = Number(error?.statusCode);
+    return send(res, Number.isInteger(status) && status >= 400 && status < 600 ? status : 500, { error: String(error?.message || error) });
   }
 });
 server.listen(port, "127.0.0.1", () =>

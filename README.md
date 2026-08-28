@@ -64,6 +64,22 @@ npm install
 npm run dev
 ```
 
+浏览器预览需要同时启动本地 API：
+
+```powershell
+npm run web:api
+```
+
+默认端口为 `1430`。修改端口时，API 进程使用 `CLOUDHUB_TOOLS_WEB_API_PORT`，前端构建或开发进程使用 `VITE_CLOUDHUB_TOOLS_WEB_API_PORT`，两者必须设为相同值。例如：
+
+```powershell
+$env:CLOUDHUB_TOOLS_WEB_API_PORT = "1431"
+$env:VITE_CLOUDHUB_TOOLS_WEB_API_PORT = "1431"
+npm run web:api
+```
+
+在另一个终端使用相同的 `VITE_CLOUDHUB_TOOLS_WEB_API_PORT` 运行 `npm run dev`。
+
 ### 构建 Windows 安装包
 
 ```powershell
@@ -71,7 +87,8 @@ npm install
 npm run tauri build
 ```
 
-安装包将生成到 `src-tauri\target\release\bundle\`。
+安装包将生成到 `src-tauri\target\release\bundle\`。Windows MSI 默认同时生成英文和简体中文安装器：
+`CloudHub Tools_<版本>_x64_en-US.msi` 与 `CloudHub Tools_<版本>_x64_zh-CN.msi`。
 
 ### GitHub Release
 

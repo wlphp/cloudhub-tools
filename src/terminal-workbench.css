@@ -534,3 +534,16 @@
     grid-column: auto;
   }
 }
+
+/* The global mobile app-shell rule hides every nested <aside>. Keep the
+   terminal host tool window available on narrow screens; only the primary
+   app navigation should collapse there. */
+@media (max-width: 680px) {
+  .app-shell .terminal-workbench .terminal-host-sidebar {
+    display: flex;
+    width: auto;
+    min-width: 0;
+    min-height: 0;
+    max-height: 260px;
+  }
+}
