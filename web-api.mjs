@@ -1538,13 +1538,12 @@ async function tencentResources(id, type) {
     let regions = [fallbackRegion];
     try {
       const regionData = await tencentRequest(id, "lighthouse", "2020-03-24", "DescribeRegions");
-      regions = [...new Set([
-        ...arr(regionData, ["RegionSet"])
+      regions = [...new Set(
+        arr(regionData, ["RegionSet"])
           .filter((item) => String(item.RegionState || "AVAILABLE").toUpperCase() === "AVAILABLE")
           .map((item) => String(item.Region || ""))
           .filter(Boolean),
-        fallbackRegion,
-      ])];
+      )];
     } catch (error) {
       errors.push(`读取轻量服务器地域失败，已仅查询 ${fallbackRegion}: ${error.message}`);
     }

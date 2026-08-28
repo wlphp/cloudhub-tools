@@ -1922,7 +1922,6 @@ async fn tencent_resource_items(id: i64, resource_type: &str, access_key_id: &st
                         .filter(|region| region.get("RegionState").and_then(Value::as_str).unwrap_or("AVAILABLE").eq_ignore_ascii_case("AVAILABLE"))
                         .filter_map(|region| region.get("Region").and_then(Value::as_str).filter(|value| !value.is_empty()).map(String::from))
                         .collect::<Vec<_>>();
-                    listed.push(fallback_region);
                     listed.sort(); listed.dedup(); regions = listed;
                 },
                 Err(error) => errors.push(format!("读取轻量服务器地域失败，已仅查询 {}: {error}", fallback_region)),
