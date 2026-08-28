@@ -219,6 +219,7 @@ main { background: var(--ui-bg); }
 .ide-theme .ide-topbar-brand, .ide-theme .ide-topbar-actions, .ide-theme .ide-topbar-context { display: flex; align-items: center; gap: 7px; min-width: 0; }
 .ide-theme .ide-topbar-brand svg { color: var(--jb-accent); }
 .ide-theme .ide-topbar-brand { cursor: move; }
+.ide-theme .ide-topbar-drag-region { align-self: stretch; flex: 1 1 auto; min-width: 20px; cursor: move; }
 .ide-theme .ide-topbar-brand strong { color: #e0e0e0; font-size: 11px; font-weight: 600; }
 .ide-theme .ide-topbar-brand span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--jb-subtle); }
 .ide-theme .ide-topbar-context { letter-spacing: .08em; font-size: 10px; }

@@ -3509,6 +3509,7 @@ function App() {
       <a className="skip-link" href="#main-content">跳到主要内容</a>
       <div className="ide-topbar" role="banner">
         <div className="ide-topbar-brand" data-tauri-drag-region onMouseDown={handleTitlebarMouseDown}><Cloud size={15} /><strong>云枢 Tools</strong><span>本地多云资源管理</span></div>
+        <div className="ide-topbar-drag-region" data-tauri-drag-region aria-hidden="true" onMouseDown={handleTitlebarMouseDown} />
         <div className="ide-topbar-actions">
           <div className="ide-topbar-context"><span className="ide-topbar-dot" />LOCAL</div>
           {runningInTauri && <div className="ide-window-controls" aria-label="窗口控制">
