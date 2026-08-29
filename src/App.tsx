@@ -100,7 +100,7 @@ function PageLoadingState() {
   </section>;
 }
 
-function App() {
+function App({ onReady }: { onReady?: () => void } = {}) {
   const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
   const [promptRequest, setPromptRequest] = useState<PromptRequest | null>(null);
   const [promptValue, setPromptValue] = useState("");
@@ -120,6 +120,9 @@ function App() {
   const [appSidebarWidth, setAppSidebarWidth] = useState(() => Math.min(340, Math.max(190, Number(localStorage.getItem("cloudhub-app-sidebar-width") || "235"))));
   const [terminalHostSidebarWidth, setTerminalHostSidebarWidth] = useState(() => Math.min(420, Math.max(190, Number(localStorage.getItem("cloudhub-terminal-host-sidebar-width") || "250"))));
   const appShellRef = useRef<HTMLDivElement | null>(null);
+  const onReadyRef = useRef(onReady);
+  onReadyRef.current = onReady;
+  useEffect(() => { onReadyRef.current?.(); }, []);
   const terminalWorkbenchRef = useRef<HTMLDivElement | null>(null);
 
   const {
@@ -1253,3 +1256,7 @@ function App() {
 }
 
 export default App;
+
+
+
+

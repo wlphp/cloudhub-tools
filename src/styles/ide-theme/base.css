@@ -49,8 +49,10 @@
 }
 .ide-theme :where(.layui-btn, .primary) { border: 1px solid #72996e !important; background: #5b805a !important; color: #fff !important; }
 .ide-theme :where(.layui-btn, .primary):hover:not(:disabled) { border-color: #9abf92 !important; background: #6e986c !important; }
+.ide-theme :where(.layui-btn, .primary):active:not(:disabled) { background: #4d6e4c !important; border-color: #5e8559 !important; }
 .ide-theme :where(.secondary, .layui-btn-primary, .panel-action-button, .terminal-toolbar-action, .terminal-toolbar-icon, .quick-add-btn) { border: 1px solid var(--jb-border-strong) !important; background: var(--jb-surface-3) !important; color: var(--jb-text) !important; }
 .ide-theme :where(.secondary, .layui-btn-primary, .panel-action-button, .terminal-toolbar-action, .terminal-toolbar-icon, .quick-add-btn):hover:not(:disabled) { border-color: #747474 !important; background: #404040 !important; color: #fff !important; }
+.ide-theme :where(.secondary, .layui-btn-primary, .panel-action-button, .terminal-toolbar-action, .terminal-toolbar-icon, .quick-add-btn):active:not(:disabled) { background: #4a4a4a !important; border-color: #6a6a6a !important; }
 .ide-theme :where(.layui-btn-normal, .resource-actions .blue, .asset-domain-dns-button, .asset-oss-files-button, .asset-reboot-button) { background: #4f6f50 !important; border-color: #739573 !important; }
 .ide-theme :where(.layui-btn-warm, .resource-actions .orange, .clear-log-button) { background: #8b6235 !important; border-color: #aa7b48 !important; color: #fff !important; }
 .ide-theme :where(.layui-btn-danger, .asset-force-reboot-button, .asset-cache-delete-button, .dns-action-btn.danger) { background: #8d4f59 !important; border-color: #b66b75 !important; color: #fff !important; }
@@ -481,5 +483,7 @@
   .ide-theme .terminal-host-actions { width: 100%; }
   .ide-theme .terminal-host-actions .terminal-toolbar-action { flex: 1 1 0; }
 }
+
+
 
 

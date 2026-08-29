@@ -18,3 +18,4 @@ html,body,#root{height:100%;overflow:hidden}.app-shell{height:100vh;min-height:0
 .domain-tool-modal{max-height:calc(100vh - 32px)!important}
 .domain-tool-modal .domain-tool-body{max-height:calc(100vh - 132px)!important;overflow-y:auto!important;overflow-x:hidden!important}
 .resource-modal-backdrop.nested-resource-modal,.domain-tool-backdrop{z-index:100!important}
+
