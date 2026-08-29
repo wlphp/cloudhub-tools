@@ -1,1 +1,16 @@
+pub mod aliyun;
+pub mod aws;
+pub mod azure;
+pub mod baidu;
+pub mod gcp;
+pub mod ctyun;
+pub mod huawei;
+pub mod jdcloud;
+pub mod ksyun;
+pub mod oracle;
+pub mod qingcloud;
+pub mod qiniu;
+pub mod tencent;
+pub mod ucloud;
 pub mod vultr;
+pub mod volcengine;
