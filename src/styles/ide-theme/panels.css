@@ -12,7 +12,7 @@
 }
 .ide-theme .panel-management-page > header h1 {
   margin: 0;
-  color: #e6e6e6;
+  color: var(--jb-text);
   font-size: 18px;
   font-weight: 600;
   letter-spacing: 0;
@@ -55,7 +55,7 @@
 }
 .ide-theme .panel-toolbar-primary .managed-host-search:focus-within {
   border-color: var(--jb-accent) !important;
-  box-shadow: 0 0 0 2px #6fa36d26;
+  box-shadow: 0 0 0 2px var(--jb-accent)26;
 }
 .ide-theme .panel-toolbar-primary .managed-host-search input {
   height: 100%;
@@ -75,13 +75,13 @@
 }
 .ide-theme .panel-toolbar-primary .panel-toolbar-add {
   min-width: 104px;
-  border-color: #72996e !important;
-  background: #5b805a !important;
+  border-color: var(--jb-accent) !important;
+  background: var(--jb-accent) !important;
   color: #fff !important;
 }
 .ide-theme .panel-toolbar-primary .panel-toolbar-add:hover:not(:disabled) {
-  border-color: #9abf92 !important;
-  background: #6e986c !important;
+  border-color: var(--jb-accent) !important;
+  background: var(--jb-accent) !important;
 }
 .ide-theme .panel-toolbar-primary .panel-toolbar-import {
   border-color: var(--jb-border-strong) !important;
@@ -89,14 +89,14 @@
   color: var(--jb-text) !important;
 }
 .ide-theme .panel-toolbar-primary .panel-toolbar-import:hover {
-  border-color: #747474 !important;
-  background: #404040 !important;
+  border-color: var(--jb-border-strong) !important;
+  background: var(--jb-surface-3) !important;
   color: #fff !important;
 }
 .ide-theme .panel-toolbar-secondary {
   align-items: center;
   min-height: 42px;
-  background: #292929;
+  background: var(--jb-border);
 }
 .ide-theme .panel-toolbar-secondary .panel-toolbar-option {
   min-height: 28px;
@@ -141,7 +141,7 @@
 .ide-theme .panel-toolbar-secondary .panel-sort-button.is-sorting {
   border-color: var(--jb-accent);
   background: var(--jb-accent-soft);
-  color: #edf2eb;
+  color: var(--jb-green);
 }
 .ide-theme .panel-toolbar-count {
   margin-left: 4px !important;
@@ -174,7 +174,7 @@
   background: var(--jb-surface);
 }
 .ide-theme .panel-monitor-row:hover {
-  background: #303035;
+  background: var(--jb-border);
 }
 .ide-theme .panel-monitor-row > div {
   padding: 16px 14px;
@@ -208,7 +208,7 @@
   gap: 7px;
 }
 .ide-theme .panel-row-address strong {
-  color: #e6e6e6 !important;
+  color: var(--jb-text) !important;
   font-size: 14px;
 }
 .ide-theme .panel-row-address button {
@@ -241,13 +241,13 @@
   font-size: 11px;
 }
 .ide-theme .panel-row-status .managed-server-status.online {
-  border-color: #377b64;
-  background: #234b3f;
+  border-color: var(--jb-accent);
+  background: var(--jb-accent-soft);
   color: var(--jb-green);
 }
 .ide-theme .panel-row-status .managed-server-status.offline {
-  border-color: #81505a;
-  background: #4a2d34;
+  border-color: var(--jb-red);
+  background: var(--jb-red);
   color: var(--jb-red);
 }
 .ide-theme .panel-row-status em {
@@ -309,39 +309,39 @@
   font-size: 11px;
 }
 .ide-theme .panel-action-button:hover:not(:disabled) {
-  border-color: #747474 !important;
-  background: #404040 !important;
+  border-color: var(--jb-border-strong) !important;
+  background: var(--jb-surface-3) !important;
   color: #fff !important;
 }
 .ide-theme .panel-open-button {
-  border-color: #72996e !important;
-  background: #5b805a !important;
+  border-color: var(--jb-accent) !important;
+  background: var(--jb-accent) !important;
   color: #fff !important;
 }
 .ide-theme .panel-open-button:hover:not(:disabled) {
-  border-color: #9abf92 !important;
-  background: #6e986c !important;
+  border-color: var(--jb-accent) !important;
+  background: var(--jb-accent) !important;
 }
 .ide-theme .panel-reboot-button {
-  border-color: #806a3e !important;
-  background: #403628 !important;
+  border-color: var(--jb-yellow) !important;
+  background: var(--jb-yellow) !important;
   color: var(--jb-yellow) !important;
 }
 .ide-theme .panel-reboot-button:hover:not(:disabled) {
-  border-color: #b18f58 !important;
-  background: #51422f !important;
-  color: #ffe6a8 !important;
+  border-color: var(--jb-yellow) !important;
+  background: var(--jb-yellow) !important;
+  color: var(--jb-yellow) !important;
 }
 .ide-theme .panel-delete-button {
   width: 32px;
   padding: 0;
-  border-color: #70434d !important;
-  background: #39282d !important;
+  border-color: var(--jb-red) !important;
+  background: var(--jb-red) !important;
   color: var(--jb-red) !important;
 }
 .ide-theme .panel-delete-button:hover:not(:disabled) {
-  border-color: #b66b75 !important;
-  background: #4a2d34 !important;
+  border-color: var(--jb-red) !important;
+  background: var(--jb-red) !important;
   color: #fff !important;
 }
 .ide-theme .panel-management-page .managed-server-empty {
@@ -395,10 +395,10 @@
 }
 .modal-backdrop .panel-bind-modal .panel-auth-static span {
   padding: 3px 7px;
-  border: 1px solid #72996e;
+  border: 1px solid var(--jb-accent);
   border-radius: 3px;
   background: var(--jb-accent-soft);
-  color: #edf2eb;
+  color: var(--jb-green);
   font-size: 11px;
 }
 .modal-backdrop .panel-bind-modal .panel-auth-static small {
@@ -408,20 +408,20 @@
 .modal-backdrop .panel-bind-modal .panel-insecure-tls {
   margin: 13px 16px 0;
   padding: 9px 10px;
-  border-color: #6f5b37;
+  border-color: var(--jb-bg);
   border-radius: 3px;
-  background: #332d22;
+  background: var(--jb-yellow);
   color: var(--jb-yellow);
 }
 .modal-backdrop .panel-bind-modal .panel-insecure-tls small {
-  color: #c7ad7a;
+  color: var(--jb-yellow);
 }
 .modal-backdrop .panel-bind-modal .panel-bind-steps {
   margin: 13px 16px 0;
   padding: 10px 12px 10px 27px;
   border-color: var(--jb-border);
   border-radius: 3px;
-  background: #252525;
+  background: var(--jb-bg);
   color: var(--jb-subtle);
   font-size: 11px;
   line-height: 1.65;
@@ -435,7 +435,7 @@
   margin-top: 16px;
   padding: 10px 16px;
   border-top-color: var(--jb-border) !important;
-  background: #292929 !important;
+  background: var(--jb-border) !important;
 }
 .modal-backdrop .panel-bind-modal .modal-actions > button {
   height: 32px;

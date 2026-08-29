@@ -1,26 +1,26 @@
 /* Portals render under document.body, outside .app-shell; keep their surfaces on the same token set. */
 :root {
-  --jb-bg: #1f1f1f;
-  --jb-sidebar: #252526;
-  --jb-surface: #2b2b2b;
-  --jb-surface-2: #333333;
-  --jb-surface-3: #393939;
-  --jb-input: #202020;
-  --jb-border: #3b3b3b;
-  --jb-border-strong: #505050;
-  --jb-text: #d7d7d7;
-  --jb-muted: #a4a4a4;
-  --jb-subtle: #7d7d7d;
-  --jb-accent: #6fa36d;
-  --jb-accent-strong: #a8c7a2;
-  --jb-accent-soft: #303b31;
-  --jb-blue: #a8c7a2;
-  --jb-green: #63d7ad;
-  --jb-yellow: #e5b567;
-  --jb-red: #ef8585;
-  --jb-success: #63d7ad;
-  --jb-warning: #e5b567;
-  --jb-danger: #ef8585;
+  --jb-bg: var(--jb-bg);
+  --jb-sidebar: var(--jb-bg);
+  --jb-surface: var(--jb-surface);
+  --jb-surface-2: var(--jb-surface-2);
+  --jb-surface-3: var(--jb-surface-3);
+  --jb-input: var(--jb-bg);
+  --jb-border: var(--jb-border);
+  --jb-border-strong: var(--jb-border-strong);
+  --jb-text: var(--jb-muted);
+  --jb-muted: var(--jb-muted);
+  --jb-subtle: var(--jb-border-strong);
+  --jb-accent: var(--jb-accent);
+  --jb-accent-strong: var(--jb-accent);
+  --jb-accent-soft: var(--jb-accent-soft);
+  --jb-blue: var(--jb-accent);
+  --jb-green: var(--jb-green);
+  --jb-yellow: var(--jb-yellow);
+  --jb-red: var(--jb-red);
+  --jb-success: var(--jb-green);
+  --jb-warning: var(--jb-yellow);
+  --jb-danger: var(--jb-red);
 }
 .modal-backdrop,
 .resource-modal-backdrop,
@@ -46,7 +46,7 @@
 .resource-modal-backdrop .loading-overlay,
 .terminal-connect-backdrop .loading-overlay {
   min-height: 260px;
-  background: #242424 !important;
+  background: var(--jb-surface-2) !important;
   color: var(--jb-muted) !important;
 }
 .modal-backdrop .modal-head,
@@ -59,7 +59,7 @@
 .resource-modal-backdrop .modal-actions,
 .terminal-connect-backdrop .terminal-connect-actions {
   border-top-color: var(--jb-border) !important;
-  background: #292929 !important;
+  background: var(--jb-surface-2) !important;
 }
 .modal-backdrop :where(input, select, textarea),
 .resource-modal-backdrop :where(input, select, textarea),
@@ -73,44 +73,44 @@
 .resource-modal-backdrop :where(input, select, textarea):focus,
 .terminal-connect-backdrop :where(input, select, textarea):focus {
   border-color: var(--jb-accent) !important;
-  box-shadow: 0 0 0 2px #6fa36d26 !important;
+  box-shadow: 0 0 0 2px var(--jb-accent)26 !important;
 }
 .modal-backdrop .security-tip,
 .resource-modal-backdrop .security-tip,
 .terminal-connect-backdrop .security-tip {
-  border-color: #46586d !important;
+  border-color: var(--jb-border-strong) !important;
   border-radius: 3px !important;
-  background: #29323d !important;
-  color: #b9c5d3 !important;
+  background: var(--jb-surface) !important;
+  color: var(--jb-muted) !important;
 }
-.resource-modal-backdrop .summary-reference { padding: 16px 18px !important; background: #242424 !important; color: var(--jb-text) !important; }
-.resource-modal-backdrop .summary-source-toolbar { min-height: 34px; margin-bottom: 10px; padding: 8px 10px !important; border: 1px solid var(--jb-border) !important; border-radius: 3px; background: #303030 !important; color: var(--jb-muted) !important; }
-.resource-modal-backdrop .summary-block-section { margin-bottom: 10px; padding: 13px 14px !important; border: 1px solid var(--jb-border) !important; border-radius: 4px !important; background: #2b2b2b !important; }
+.resource-modal-backdrop .summary-reference { padding: 16px 18px !important; background: var(--jb-surface-2) !important; color: var(--jb-text) !important; }
+.resource-modal-backdrop .summary-source-toolbar { min-height: 34px; margin-bottom: 10px; padding: 8px 10px !important; border: 1px solid var(--jb-border) !important; border-radius: 3px; background: var(--jb-surface-2) !important; color: var(--jb-muted) !important; }
+.resource-modal-backdrop .summary-block-section { margin-bottom: 10px; padding: 13px 14px !important; border: 1px solid var(--jb-border) !important; border-radius: 4px !important; background: var(--jb-surface) !important; }
 .resource-modal-backdrop .summary-block-section h3 { margin-bottom: 11px; padding-bottom: 8px; border-bottom-color: var(--jb-border) !important; color: var(--jb-accent-strong) !important; font-size: 12px; }
-.resource-modal-backdrop :where(.summary-balance-item, .summary-consume-item, .summary-resource-item) { padding: 13px 11px; border: 1px solid #444 !important; border-radius: 3px !important; background: #252525 !important; }
+.resource-modal-backdrop :where(.summary-balance-item, .summary-consume-item, .summary-resource-item) { padding: 13px 11px; border: 1px solid #444 !important; border-radius: 3px !important; background: var(--jb-bg) !important; }
 .resource-modal-backdrop :where(.summary-balance-item strong, .summary-consume-item strong, .summary-resource-item strong) { font-size: 21px; }
 .resource-modal-backdrop :where(.summary-balance-item span, .summary-consume-item span, .summary-resource-item span) { color: var(--jb-subtle) !important; }
 
 /* Account summary: a compact IDEA tool window with metric strips instead of oversized cards. */
 .resource-modal-backdrop .summary-workbench {
   padding: 12px 16px !important;
-  background: #242424 !important;
+  background: var(--jb-surface-2) !important;
 }
 .resource-modal-backdrop .summary-workbench .summary-source-toolbar {
   min-height: 32px;
   margin: 0;
   padding: 0 10px !important;
-  border: 1px solid #414141 !important;
+  border: 1px solid var(--jb-surface-3) !important;
   border-radius: 3px;
-  background: #303030 !important;
-  color: #a6a6a6 !important;
+  background: var(--jb-surface-2) !important;
+  color: var(--jb-muted) !important;
   font-size: 12px;
 }
 .resource-modal-backdrop .summary-workbench .summary-block-section {
   margin: 0 !important;
   padding: 13px 0 !important;
   border: 0 !important;
-  border-bottom: 1px solid #414141 !important;
+  border-bottom: 1px solid var(--jb-surface-3) !important;
   border-radius: 0 !important;
   background: transparent !important;
 }
@@ -124,19 +124,19 @@
   margin: 0 0 8px;
   padding: 0;
   border: 0 !important;
-  color: #b4cdb0 !important;
+  color: var(--jb-accent) !important;
   font-size: 12px;
   font-weight: 600;
 }
-.resource-modal-backdrop .summary-workbench .summary-block-section h3 svg { color: #6fbde8; }
+.resource-modal-backdrop .summary-workbench .summary-block-section h3 svg { color: var(--jb-blue); }
 .resource-modal-backdrop .summary-workbench .summary-info-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 1px;
   overflow: hidden;
-  border: 1px solid #414141;
+  border: 1px solid var(--jb-surface-3);
   border-radius: 3px;
-  background: #414141;
+  background: var(--jb-surface-3);
 }
 .resource-modal-backdrop .summary-workbench .summary-info-grid > div {
   display: flex;
@@ -145,18 +145,18 @@
   min-height: 54px;
   gap: 9px;
   padding: 0 11px;
-  background: #2b2b2b;
+  background: var(--jb-surface);
 }
-.resource-modal-backdrop .summary-workbench .summary-info-grid span { flex: 0 0 auto; color: #949494 !important; font-size: 11px; }
-.resource-modal-backdrop .summary-workbench .summary-info-grid strong { min-width: 0; overflow: hidden; color: #e2e2e2 !important; font-family: "JetBrains Mono", Consolas, monospace; font-size: 12px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.resource-modal-backdrop .summary-workbench .summary-info-grid span { flex: 0 0 auto; color: var(--jb-muted) !important; font-size: 11px; }
+.resource-modal-backdrop .summary-workbench .summary-info-grid strong { min-width: 0; overflow: hidden; color: var(--jb-text) !important; font-family: "JetBrains Mono", Consolas, monospace; font-size: 12px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .resource-modal-backdrop .summary-workbench :where(.summary-balance-grid, .summary-consume-grid, .summary-resource-grid) {
   display: grid;
   gap: 1px;
   overflow: hidden;
   padding: 1px;
-  border: 1px solid #414141;
+  border: 1px solid var(--jb-surface-3);
   border-radius: 3px;
-  background: #414141;
+  background: var(--jb-surface-3);
 }
 .resource-modal-backdrop .summary-workbench .summary-balance-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .resource-modal-backdrop .summary-workbench .summary-consume-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -170,21 +170,21 @@
   padding: 8px 11px !important;
   border: 0 !important;
   border-radius: 0 !important;
-  background: #2b2b2b !important;
+  background: var(--jb-surface) !important;
   text-align: left;
 }
-.resource-modal-backdrop .summary-workbench :where(.summary-balance-item, .summary-consume-item, .summary-resource-item):hover { background: #333333 !important; }
-.resource-modal-backdrop .summary-workbench :where(.summary-balance-item span, .summary-consume-item span, .summary-resource-item span) { order: -1; overflow: hidden; color: #989898 !important; font-size: 11px; line-height: 16px; text-overflow: ellipsis; white-space: nowrap; }
+.resource-modal-backdrop .summary-workbench :where(.summary-balance-item, .summary-consume-item, .summary-resource-item):hover { background: var(--jb-surface-2) !important; }
+.resource-modal-backdrop .summary-workbench :where(.summary-balance-item span, .summary-consume-item span, .summary-resource-item span) { order: -1; overflow: hidden; color: var(--jb-muted) !important; font-size: 11px; line-height: 16px; text-overflow: ellipsis; white-space: nowrap; }
 .resource-modal-backdrop .summary-workbench .summary-metric-value,
 .resource-modal-backdrop .summary-workbench .summary-resource-value { display: block; overflow: hidden; margin-top: 3px; font-size: 19px !important; font-weight: 600; line-height: 25px; text-overflow: ellipsis; white-space: nowrap; }
 .resource-modal-backdrop .summary-workbench .summary-resource-value { font-size: 20px !important; }
-.resource-modal-backdrop .summary-workbench .summary-metric-value.is-empty { color: #858585 !important; font-size: 15px !important; font-weight: 400; }
-.resource-modal-backdrop .summary-workbench .value-orange { color: #e9a54d !important; }
-.resource-modal-backdrop .summary-workbench .value-green { color: #6dcc9d !important; }
-.resource-modal-backdrop .summary-workbench .value-blue { color: #76bfe9 !important; }
-.resource-modal-backdrop .summary-workbench .value-pink { color: #e889a2 !important; }
+.resource-modal-backdrop .summary-workbench .summary-metric-value.is-empty { color: var(--jb-subtle) !important; font-size: 15px !important; font-weight: 400; }
+.resource-modal-backdrop .summary-workbench .value-orange { color: var(--jb-yellow) !important; }
+.resource-modal-backdrop .summary-workbench .value-green { color: var(--jb-green) !important; }
+.resource-modal-backdrop .summary-workbench .value-blue { color: var(--jb-blue) !important; }
+.resource-modal-backdrop .summary-workbench .value-pink { color: var(--jb-red) !important; }
 .resource-modal-backdrop .summary-workbench .value-purple { color: var(--jb-text) !important; }
-.resource-modal-backdrop .summary-workbench .value-gray { color: #a8b2c2 !important; }
+.resource-modal-backdrop .summary-workbench .value-gray { color: var(--jb-muted) !important; }
 
 @media (max-width: 760px) {
   .resource-modal-backdrop .summary-workbench { padding: 10px 12px !important; }
@@ -198,17 +198,17 @@
   .resource-modal-backdrop .summary-workbench .summary-resource-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 .modal-backdrop .ssh-segmented button,
-.terminal-connect-backdrop .ssh-segmented button { border-color: var(--jb-border-strong) !important; background: #303030 !important; color: var(--jb-muted) !important; }
+.terminal-connect-backdrop .ssh-segmented button { border-color: var(--jb-border-strong) !important; background: var(--jb-surface-2) !important; color: var(--jb-muted) !important; }
 .modal-backdrop .ssh-segmented button.active,
-.terminal-connect-backdrop .ssh-segmented button.active { border-color: #72996e !important; background: var(--jb-accent-soft) !important; color: #edf2eb !important; }
-.resource-modal-backdrop :where(.server-reference, .rds-reference, .redis-reference, .oss-reference, .swas-reference, .esa-reference, .domain-reference, .domain-tool-body, .resource-modal-body) { background: #242424 !important; color: var(--jb-text) !important; }
-.resource-modal-backdrop :where(.server-toolbar, .summary-source-toolbar, .domain-toolbar, .domain-tool-actions, .esa-sites-toolbar, .oss-browser-pathbar, .oss-browser-actions) { border-color: var(--jb-border) !important; background: #303030 !important; color: var(--jb-muted) !important; }
-.resource-modal-backdrop :where(.server-card, .swas-card, .rds-card, .redis-card, .bucket-card, .domain-card, .function-panel, .esa-chart-panel, .esa-sites, .security-group-add, .security-group-rule-list, .memory-bar, .db-list, .whois-result) { border-color: var(--jb-border) !important; border-radius: 4px !important; background: #2b2b2b !important; box-shadow: none !important; }
-.resource-modal-backdrop :where(.summary-card, .metric-card, .oss-stat-grid > div, .panel-connection-summary, .domain-summary) { border-color: #444 !important; border-radius: 3px !important; background: #252525 !important; }
-.resource-modal-backdrop :where(table, th, td) { border-color: #414141 !important; background: #2b2b2b !important; color: var(--jb-muted) !important; }
-.resource-modal-backdrop :where(th) { background: #303030 !important; color: #bcbcbc !important; }
+.terminal-connect-backdrop .ssh-segmented button.active { border-color: var(--jb-accent) !important; background: var(--jb-accent-soft) !important; color: var(--jb-green) !important; }
+.resource-modal-backdrop :where(.server-reference, .rds-reference, .redis-reference, .oss-reference, .swas-reference, .esa-reference, .domain-reference, .domain-tool-body, .resource-modal-body) { background: var(--jb-border) !important; color: var(--jb-text) !important; }
+.resource-modal-backdrop :where(.server-toolbar, .summary-source-toolbar, .domain-toolbar, .domain-tool-actions, .esa-sites-toolbar, .oss-browser-pathbar, .oss-browser-actions) { border-color: var(--jb-border) !important; background: var(--jb-surface-2) !important; color: var(--jb-muted) !important; }
+.resource-modal-backdrop :where(.server-card, .swas-card, .rds-card, .redis-card, .bucket-card, .domain-card, .function-panel, .esa-chart-panel, .esa-sites, .security-group-add, .security-group-rule-list, .memory-bar, .db-list, .whois-result) { border-color: var(--jb-border) !important; border-radius: 4px !important; background: var(--jb-surface) !important; box-shadow: none !important; }
+.resource-modal-backdrop :where(.summary-card, .metric-card, .oss-stat-grid > div, .panel-connection-summary, .domain-summary) { border-color: #444 !important; border-radius: 3px !important; background: var(--jb-bg) !important; }
+.resource-modal-backdrop :where(table, th, td) { border-color: var(--jb-surface-3) !important; background: var(--jb-surface) !important; color: var(--jb-muted) !important; }
+.resource-modal-backdrop :where(th) { background: var(--jb-surface-2) !important; color: var(--jb-muted) !important; }
 .resource-modal-backdrop :where(.resource-actions button, .bucket-actions .layui-btn, .rds-actions .layui-btn, .redis-actions .layui-btn, .domain-actions .layui-btn, .quick-add-btn, .dns-action-btn, .esa-range-tabs button, .esa-tabs button) { border-radius: 3px !important; box-shadow: none !important; }
-.resource-modal-backdrop :where(.esa-tabs button.active, .esa-range-tabs button.active) { border-color: var(--jb-accent) !important; background: var(--jb-accent-soft) !important; color: #edf2eb !important; }
+.resource-modal-backdrop :where(.esa-tabs button.active, .esa-range-tabs button.active) { border-color: var(--jb-accent) !important; background: var(--jb-accent-soft) !important; color: var(--jb-green) !important; }
 
 @media (max-width: 560px) {
   .modal-backdrop,
@@ -232,23 +232,23 @@
 
 /* Top-level ErrorBoundary fallback. Lives outside .ide-theme so it ships its
    own surface styling that mirrors the rest of the workbench. */
-.app-error-boundary { min-height: 100vh; display: grid; place-items: center; padding: 40px; background: #1f1f1f; color: #dedede; font: 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-.app-error-boundary-card { width: min(520px, 100%); display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 18px; padding: 22px 24px; border: 1px solid #3d3d3d; border-radius: 6px; background: #2b2b2b; box-shadow: 0 18px 48px rgba(0,0,0,.55); }
-.app-error-boundary-icon { display: grid; place-items: center; width: 48px; height: 48px; border: 1px solid #8b6235; border-radius: 6px; background: #3a2e1a; color: #e5b567; }
+.app-error-boundary { min-height: 100vh; display: grid; place-items: center; padding: 40px; background: var(--jb-bg); color: var(--jb-text); font: 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+.app-error-boundary-card { width: min(520px, 100%); display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 18px; padding: 22px 24px; border: 1px solid var(--jb-border); border-radius: 6px; background: var(--jb-surface); box-shadow: 0 18px 48px rgba(0,0,0,.55); }
+.app-error-boundary-icon { display: grid; place-items: center; width: 48px; height: 48px; border: 1px solid var(--jb-yellow); border-radius: 6px; background: var(--jb-yellow); color: var(--jb-yellow); }
 .app-error-boundary-copy { min-width: 0; }
-.app-error-boundary-copy .eyebrow { font-size: 10px; letter-spacing: .18em; color: #a8c7a2; font-weight: 700; }
-.app-error-boundary-copy h2 { margin: 4px 0 8px; color: #f0f0f0; font-size: 18px; }
-.app-error-boundary-copy p { margin: 0 0 10px; color: #a9bdd2; line-height: 1.6; }
-.app-error-boundary-detail { margin: 0; padding: 10px 12px; border: 1px solid #414141; border-radius: 4px; background: #202020; color: #ee8585; font: 12px "JetBrains Mono", Consolas, monospace; white-space: pre-wrap; word-break: break-word; }
+.app-error-boundary-copy .eyebrow { font-size: 10px; letter-spacing: .18em; color: var(--jb-accent); font-weight: 700; }
+.app-error-boundary-copy h2 { margin: 4px 0 8px; color: var(--jb-text); font-size: 18px; }
+.app-error-boundary-copy p { margin: 0 0 10px; color: var(--jb-muted); line-height: 1.6; }
+.app-error-boundary-detail { margin: 0; padding: 10px 12px; border: 1px solid var(--jb-surface-3); border-radius: 4px; background: var(--jb-bg); color: var(--jb-red); font: 12px "JetBrains Mono", Consolas, monospace; white-space: pre-wrap; word-break: break-word; }
 .app-error-boundary-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 8px; }
 .app-error-boundary-actions button { min-height: 32px; padding: 0 14px; border-radius: 3px; cursor: pointer; font: inherit; display: inline-flex; align-items: center; gap: 6px; }
-.app-error-boundary-actions .secondary { border: 1px solid #555; background: #353535; color: #dedede; }
-.app-error-boundary-actions .secondary:hover { border-color: #747474; background: #404040; color: #fff; }
-.app-error-boundary-actions .primary { border: 1px solid #72996e; background: #5b805a; color: #fff; }
-.app-error-boundary-actions .primary:hover { border-color: #9abf92; background: #6e986c; }
-.app-boot-timeout { display: grid; gap: 8px; padding: 28px 32px; border: 1px solid #8b6235; border-radius: 6px; background: #2b2b2b; color: #dedede; max-width: 520px; margin: 40px auto; }
-.app-boot-timeout h2 { margin: 0; color: #e5b567; font-size: 18px; }
-.app-boot-timeout p { margin: 0; color: #a9bdd2; line-height: 1.6; }
+.app-error-boundary-actions .secondary { border: 1px solid #555; background: var(--jb-surface-3); color: var(--jb-text); }
+.app-error-boundary-actions .secondary:hover { border-color: var(--jb-border-strong); background: var(--jb-surface-3); color: #fff; }
+.app-error-boundary-actions .primary { border: 1px solid var(--jb-accent); background: var(--jb-accent); color: #fff; }
+.app-error-boundary-actions .primary:hover { border-color: var(--jb-accent); background: var(--jb-accent); }
+.app-boot-timeout { display: grid; gap: 8px; padding: 28px 32px; border: 1px solid var(--jb-yellow); border-radius: 6px; background: var(--jb-surface); color: var(--jb-text); max-width: 520px; margin: 40px auto; }
+.app-boot-timeout h2 { margin: 0; color: var(--jb-yellow); font-size: 18px; }
+.app-boot-timeout p { margin: 0; color: var(--jb-muted); line-height: 1.6; }
 
 
 /* Subtle motion: section fade-in on nav switch, dialog scale-in on open.

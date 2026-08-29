@@ -1,4 +1,15 @@
+// Terminal ANSI colors keep their own blue/cyan/magenta hues so that `ls`, `git diff`,
+// and other CLI output remain readable. The rest of the app stays in the JetBrains
+// neutral sage palette via the --jb-* tokens.
 import { useEffect, useRef, useState } from "react";
+
+// Terminal ANSI colors keep their own blue/cyan/magenta hues so that `ls`, `git diff`,
+// and other CLI output remain readable. The rest of the app stays in the JetBrains
+// neutral sage palette via the --jb-* tokens.
+const ANSI_BLUE = "#6fb1ff";
+const ANSI_CYAN = "#7fdfe0";
+const ANSI_MAGENTA = "#c08df0";
+const ANSI_SELECTION = "#2a4664";
 import type { Terminal as XtermTerminal } from "@xterm/xterm";
 import { invoke, runningInTauri } from "../../platform/api";
 import type { TerminalWorkspaceTab } from "../../shared/types";
@@ -8,23 +19,23 @@ const terminalThemeStorageKey = "cloudhub-tools-terminal-theme";
 export const terminalThemes = {
   dark: {
     label: "深色",
-    background: "#000000", foreground: "#f5f5f5", cursor: "#f5f5f5", selectionBackground: "#295b91",
-    black: "#000000", brightBlack: "#8a8a8a", red: "#ff6b6b", brightRed: "#ff8b8b", green: "#61d095", brightGreen: "#7ff0b0", yellow: "#f6d365", brightYellow: "#ffe38c", blue: "#70b7ff", brightBlue: "#9dceff", magenta: "#d29cff", brightMagenta: "#e5bfff", cyan: "#66d9ef", brightCyan: "#9beaff", white: "#e6e6e6", brightWhite: "#ffffff",
+    background: "var(--jb-bg)", foreground: "var(--jb-text)", cursor: "var(--jb-text)", selectionBackground: ANSI_SELECTION,
+    black: "var(--jb-bg)", brightBlack: "var(--jb-muted)", red: "var(--jb-red)", brightRed: "var(--jb-red)", green: "var(--jb-green)", brightGreen: "var(--jb-green)", yellow: "var(--jb-yellow)", brightYellow: "var(--jb-yellow)", blue: ANSI_BLUE, brightBlue: ANSI_BLUE, magenta: ANSI_MAGENTA, brightMagenta: ANSI_MAGENTA, cyan: ANSI_CYAN, brightCyan: ANSI_CYAN, white: "var(--jb-text)", brightWhite: "var(--jb-text)",
   },
   blue: {
     label: "蓝墨",
-    background: "#071523", foreground: "#dceeff", cursor: "#7fc8ff", selectionBackground: "#22527d",
-    black: "#071523", brightBlack: "#607d98", red: "#ff7788", brightRed: "#ff9dab", green: "#69dca5", brightGreen: "#9befc2", yellow: "#f4cf72", brightYellow: "#ffe39c", blue: "#6ab6ff", brightBlue: "#9ad2ff", magenta: "#d4a5ff", brightMagenta: "#e8c7ff", cyan: "#65d7e8", brightCyan: "#a7f0f7", white: "#c6dceb", brightWhite: "#ffffff",
+    background: "var(--jb-bg)", foreground: "var(--jb-blue)", cursor: "var(--jb-blue)", selectionBackground: ANSI_SELECTION,
+    black: "var(--jb-bg)", brightBlack: "var(--jb-muted)", red: "var(--jb-red)", brightRed: "var(--jb-red)", green: "var(--jb-green)", brightGreen: "var(--jb-green)", yellow: "var(--jb-yellow)", brightYellow: "var(--jb-yellow)", blue: ANSI_BLUE, brightBlue: ANSI_BLUE, magenta: ANSI_MAGENTA, brightMagenta: ANSI_MAGENTA, cyan: ANSI_CYAN, brightCyan: ANSI_CYAN, white: "var(--jb-blue)", brightWhite: "var(--jb-text)",
   },
   green: {
     label: "松绿",
-    background: "#081914", foreground: "#d5f2df", cursor: "#7ce6a4", selectionBackground: "#1e5741",
-    black: "#081914", brightBlack: "#668b7b", red: "#f07878", brightRed: "#ffaaaa", green: "#5fd492", brightGreen: "#8df1bb", yellow: "#e8c96a", brightYellow: "#ffe596", blue: "#68bfff", brightBlue: "#9bd5ff", magenta: "#d1a7ff", brightMagenta: "#e4c6ff", cyan: "#65d8c5", brightCyan: "#a4f4e5", white: "#cce4d5", brightWhite: "#ffffff",
+    background: "var(--jb-bg)", foreground: "var(--jb-green)", cursor: "var(--jb-green)", selectionBackground: "var(--jb-accent-soft)",
+    black: "var(--jb-bg)", brightBlack: "var(--jb-muted)", red: "var(--jb-red)", brightRed: "var(--jb-red)", green: "var(--jb-green)", brightGreen: "var(--jb-green)", yellow: "var(--jb-yellow)", brightYellow: "var(--jb-yellow)", blue: ANSI_BLUE, brightBlue: ANSI_BLUE, magenta: ANSI_MAGENTA, brightMagenta: ANSI_MAGENTA, cyan: "var(--jb-green)", brightCyan: "var(--jb-green)", white: "var(--jb-green)", brightWhite: "var(--jb-text)",
   },
   amber: {
     label: "暖琥珀",
-    background: "#1a1208", foreground: "#f8ead2", cursor: "#ffd080", selectionBackground: "#65451a",
-    black: "#1a1208", brightBlack: "#927957", red: "#ef7e72", brightRed: "#ffafa2", green: "#9ed27d", brightGreen: "#c6ef9e", yellow: "#f2c35f", brightYellow: "#ffe19a", blue: "#79b7ed", brightBlue: "#a9d5ff", magenta: "#d6a2ed", brightMagenta: "#eac5fb", cyan: "#6ed3c7", brightCyan: "#aaf0e6", white: "#e7d4b5", brightWhite: "#fff7e9",
+    background: "var(--jb-bg)", foreground: "var(--jb-yellow)", cursor: "var(--jb-yellow)", selectionBackground: "var(--jb-yellow)",
+    black: "var(--jb-bg)", brightBlack: "var(--jb-yellow)", red: "var(--jb-red)", brightRed: "var(--jb-red)", green: "var(--jb-accent)", brightGreen: "var(--jb-green)", yellow: "var(--jb-yellow)", brightYellow: "var(--jb-yellow)", blue: ANSI_BLUE, brightBlue: ANSI_BLUE, magenta: ANSI_MAGENTA, brightMagenta: ANSI_MAGENTA, cyan: "var(--jb-green)", brightCyan: "var(--jb-green)", white: "var(--jb-yellow)", brightWhite: "var(--jb-yellow)",
   },
 } as const;
 

@@ -44,18 +44,18 @@
   color: var(--jb-text) !important;
 }
 .ide-theme .account-section .layui-toolbar :where(.account-search-button, .account-group-button, .account-export-button, .account-import-button):hover:not(:disabled) {
-  border-color: #747474 !important;
-  background: #404040 !important;
+  border-color: var(--jb-border-strong) !important;
+  background: var(--jb-surface-3) !important;
   color: #fff !important;
 }
 .ide-theme .account-section .layui-toolbar .account-add-button {
-  border: 1px solid #72996e !important;
-  background: #5b805a !important;
+  border: 1px solid var(--jb-accent) !important;
+  background: var(--jb-accent) !important;
   color: #fff !important;
 }
 .ide-theme .account-section .layui-toolbar .account-add-button:hover:not(:disabled) {
-  border-color: #9abf92 !important;
-  background: #6e986c !important;
+  border-color: var(--jb-accent) !important;
+  background: var(--jb-accent) !important;
 }
 .ide-theme .account-section .table-wrap {
   background: var(--jb-surface) !important;
@@ -78,7 +78,7 @@
   font-weight: 600;
 }
 .ide-theme .account-section .table-wrap tr:hover td {
-  background: #303035;
+  background: var(--jb-border);
 }
 .ide-theme .account-section .cloud-type-text {
   color: var(--jb-muted) !important;
@@ -103,8 +103,8 @@
   font-size: 11px;
 }
 .ide-theme .account-section .status-switch.checked {
-  border-color: #377b64;
-  background: #234b3f;
+  border-color: var(--jb-accent);
+  background: var(--jb-accent-soft);
   color: var(--jb-success);
 }
 .ide-theme .account-section .resource-actions {
@@ -122,30 +122,30 @@
   font-size: 11px;
 }
 .ide-theme .account-section .resource-actions :where(button, .action-text):hover:not(:disabled) {
-  border-color: #747474 !important;
-  background: #404040 !important;
+  border-color: var(--jb-border-strong) !important;
+  background: var(--jb-surface-3) !important;
   color: #fff !important;
   transform: none;
 }
 .ide-theme .account-section .resource-actions .teal {
-  border-color: #72996e !important;
-  background: #5b805a !important;
+  border-color: var(--jb-accent) !important;
+  background: var(--jb-accent) !important;
   color: #fff !important;
 }
 .ide-theme .account-section .resource-actions .teal:hover:not(:disabled) {
-  border-color: #9abf92 !important;
-  background: #6e986c !important;
+  border-color: var(--jb-accent) !important;
+  background: var(--jb-accent) !important;
 }
 .ide-theme .account-section .resource-actions .danger,
 .ide-theme .account-section .resource-actions .action-text.danger {
-  border-color: #70434d !important;
-  background: #39282d !important;
+  border-color: var(--jb-red) !important;
+  background: var(--jb-red) !important;
   color: var(--jb-red) !important;
 }
 .ide-theme .account-section .resource-actions .danger:hover:not(:disabled),
 .ide-theme .account-section .resource-actions .action-text.danger:hover:not(:disabled) {
-  border-color: #b66b75 !important;
-  background: #4a2d34 !important;
+  border-color: var(--jb-red) !important;
+  background: var(--jb-red) !important;
   color: #fff !important;
 }
 .ide-theme .account-section .more-menu {
@@ -153,7 +153,7 @@
   padding: 4px;
   border-color: var(--jb-border-strong);
   border-radius: 3px;
-  background: #252525;
+  background: var(--jb-bg);
   box-shadow: 0 16px 32px #000a;
 }
 .ide-theme .account-section .more-menu button {
@@ -267,7 +267,7 @@
   font-weight: 600;
 }
 .ide-theme .local-resource-page .local-assets-panel tr:hover td {
-  background: #303035;
+  background: var(--jb-border);
 }
 .ide-theme .local-resource-page .asset-subline {
   color: var(--jb-subtle);
@@ -291,22 +291,22 @@
   font-size: 11px;
 }
 .ide-theme .local-resource-page .asset-action-buttons button:hover:not(:disabled) {
-  border-color: #747474 !important;
-  background: #404040 !important;
+  border-color: var(--jb-border-strong) !important;
+  background: var(--jb-surface-3) !important;
   color: #fff !important;
 }
 .ide-theme .local-resource-page .asset-action-buttons :where(.asset-domain-dns-button, .asset-oss-files-button, .asset-ssh-button) {
-  border-color: #72996e !important;
-  background: #5b805a !important;
+  border-color: var(--jb-accent) !important;
+  background: var(--jb-accent) !important;
   color: #fff !important;
 }
 .ide-theme .local-resource-page .asset-action-buttons :where(.asset-domain-dns-button, .asset-oss-files-button, .asset-ssh-button):hover:not(:disabled) {
-  border-color: #9abf92 !important;
-  background: #6e986c !important;
+  border-color: var(--jb-accent) !important;
+  background: var(--jb-accent) !important;
 }
 .ide-theme .local-resource-page .asset-action-buttons :where(.asset-force-reboot-button, .asset-cache-delete-button) {
-  border-color: #70434d !important;
-  background: #39282d !important;
+  border-color: var(--jb-red) !important;
+  background: var(--jb-red) !important;
   color: var(--jb-red) !important;
 }
 
@@ -361,7 +361,7 @@
   margin-top: 0;
   padding: 10px 16px;
   border-top-color: var(--jb-border) !important;
-  background: #292929 !important;
+  background: var(--jb-border) !important;
 }
 .resource-modal-backdrop .asset-detail-modal .modal-actions button {
   min-height: 32px;
@@ -399,13 +399,13 @@
   outline-offset: 2px;
 }
 .ide-theme :where(.layui-btn, .primary) {
-  border-color: #72996e !important;
-  background: #5b805a !important;
+  border-color: var(--jb-accent) !important;
+  background: var(--jb-accent) !important;
   color: #fff !important;
 }
 .ide-theme :where(.layui-btn, .primary):hover:not(:disabled) {
-  border-color: #9abf92 !important;
-  background: #6e986c !important;
+  border-color: var(--jb-accent) !important;
+  background: var(--jb-accent) !important;
 }
 .ide-theme :where(.layui-btn-primary, .secondary, .layui-btn-search, .layui-btn-import) {
   border: 1px solid var(--jb-border-strong) !important;
@@ -413,23 +413,23 @@
   color: var(--jb-text) !important;
 }
 .ide-theme :where(.layui-btn-primary, .secondary, .layui-btn-search, .layui-btn-import):hover:not(:disabled) {
-  border-color: #747474 !important;
-  background: #424242 !important;
+  border-color: var(--jb-border-strong) !important;
+  background: var(--jb-surface-3) !important;
   color: #fff !important;
 }
 .ide-theme :where(.layui-btn-warm, .resource-actions .orange) {
-  border-color: #9a7540 !important;
-  background: #684a29 !important;
-  color: #f2cf91 !important;
+  border-color: var(--jb-yellow) !important;
+  background: var(--jb-yellow) !important;
+  color: var(--jb-yellow) !important;
 }
 .ide-theme :where(.layui-btn-danger, .resource-actions .danger, .asset-force-reboot-button, .asset-cache-delete-button) {
-  border-color: #9b5c66 !important;
-  background: #5a3038 !important;
-  color: #f3b8b8 !important;
+  border-color: var(--jb-red) !important;
+  background: var(--jb-red) !important;
+  color: var(--jb-red) !important;
 }
 .ide-theme :where(.layui-btn-normal, .resource-actions .purple, .server-actions .ssh-login-button) {
-  border-color: #72996e !important;
-  background: #5b805a !important;
+  border-color: var(--jb-accent) !important;
+  background: var(--jb-accent) !important;
   color: #fff !important;
 }
 .ide-theme :where(.resource-actions .blue, .resource-actions .teal, .security-group-button, .asset-domain-dns-button, .asset-oss-files-button, .asset-domain-log-button, .asset-domain-whois-button, .asset-oss-stat-button, .asset-reboot-button) {
@@ -438,8 +438,8 @@
   color: var(--jb-text) !important;
 }
 .ide-theme :where(.resource-actions .blue, .resource-actions .teal, .security-group-button, .asset-domain-dns-button, .asset-oss-files-button, .asset-domain-log-button, .asset-domain-whois-button, .asset-oss-stat-button, .asset-reboot-button):hover:not(:disabled) {
-  border-color: #747474 !important;
-  background: #424242 !important;
+  border-color: var(--jb-border-strong) !important;
+  background: var(--jb-surface-3) !important;
   color: #fff !important;
 }
 .ide-theme :where(.layui-btn-xs, .layui-btn-sm, .layui-btn-small) {
@@ -469,7 +469,7 @@
   gap: 20px;
   padding: 14px 16px !important;
 }
-.ide-theme :where(.server-summary strong, .domain-summary strong) { color: #ededed !important; }
+.ide-theme :where(.server-summary strong, .domain-summary strong) { color: var(--jb-text) !important; }
 .ide-theme :where(.badge, .log-success, .setting-state.on, .managed-server-status, .server-status, .dns-tag, .registrant-type, .favorite-resource-type, .favorite-status) {
   border: 1px solid var(--jb-border-strong) !important;
   border-radius: 3px !important;
@@ -689,7 +689,7 @@
   }
 }
 .ide-theme :where(.setting-switch span) { border: 1px solid var(--jb-border-strong); }
-.ide-theme :where(.setting-switch input:checked + span) { background: #5b805a !important; }
+.ide-theme :where(.setting-switch input:checked + span) { background: var(--jb-accent) !important; }
 .ide-theme :where(.asset-action-muted) { color: var(--jb-subtle) !important; }
 
 

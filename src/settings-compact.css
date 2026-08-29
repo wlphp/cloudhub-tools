@@ -10,7 +10,7 @@
 .utility-page .setting-switch span{width:52px;height:28px}
 .utility-page .setting-switch span:after{width:20px;height:20px;left:4px;top:4px}
 .utility-page .setting-switch input:checked+span:after{left:28px}
-.account-key-tip{display:flex;align-items:center;justify-content:space-between;gap:14px}.account-key-tip a{color:#73c9ff;text-decoration:none;white-space:nowrap}.account-key-tip a:hover{color:#fff;text-decoration:underline}
+.account-key-tip{display:flex;align-items:center;justify-content:space-between;gap:14px}.account-key-tip a{color:var(--jb-blue);text-decoration:none;white-space:nowrap}.account-key-tip a:hover{color:#fff;text-decoration:underline}
 html,body,#root{height:100%;overflow:hidden}.app-shell{height:100vh;min-height:0;overflow:hidden}.app-shell aside{position:sticky;top:0;height:100vh;align-self:flex-start}.app-shell main{height:100vh;min-height:0;overflow-x:hidden;overflow-y:auto}
 @media(max-width:900px){.app-shell aside{flex-basis:190px;flex:0 0 190px}}@media(max-width:680px){.app-shell aside{display:none}.app-shell main{height:100vh}}
 .resource-modal-backdrop{overflow:hidden!important}

@@ -82,7 +82,7 @@ export function DnsEditorDialog({ mode, row, preset, onCancel, onSubmit }: DnsEd
             <label>解析线路<select value={line} onChange={(event) => setLine(event.target.value)}><option value="default">默认</option><option value="telecom">电信</option><option value="unicom">联通</option><option value="mobile">移动</option><option value="oversea">境外</option><option value="edu">教育网</option><option value="search">搜索引擎</option></select></label>
           </div>
           {type === "MX" && <label>MX 优先级<input type="number" min={1} max={50} value={priority} onChange={(event) => setPriority(Number(event.target.value))} /></label>}
-          {errMsg && <div className="error-list" style={{ margin: "14px 0 0" }}><div style={{ marginBottom: errHint ? 6 : 0 }}>{errMsg}</div>{errHint && <div style={{ color: "#ffd479", fontSize: "11px" }}>提示：{errHint}</div>}</div>}
+          {errMsg && <div className="error-list" style={{ margin: "14px 0 0" }}><div style={{ marginBottom: errHint ? 6 : 0 }}>{errMsg}</div>{errHint && <div style={{ color: "var(--jb-yellow)", fontSize: "11px" }}>提示：{errHint}</div>}</div>}
           <div className="modal-actions"><button type="button" className="layui-btn layui-btn-primary" onClick={onCancel} disabled={submitting}>取消</button><button type="submit" className="layui-btn layui-btn-normal" disabled={submitting}>{submitting ? "提交中…" : "确定"}</button></div>
         </form>
       </section>

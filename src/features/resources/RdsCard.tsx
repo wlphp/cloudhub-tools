@@ -114,7 +114,7 @@ export function RdsCard({
       <div className="db-list">
         {!canReadDetails ? "当前仅同步数据库实例清单，库与账号详情暂未接入"
           : busy
-          ? "加载中…"
+          ? <span className="loading-text">加载中…</span>
           : mode === "db"
             ? databases.length
               ? databases.map((db, index) => (
