@@ -1,0 +1,364 @@
+/* Terminal workbench: compact IDEA tool-window language for list, session and file actions. */
+.ide-theme .terminal-workbench {
+  border: 1px solid var(--jb-border) !important;
+  border-radius: 4px !important;
+  background: var(--jb-bg) !important;
+}
+.ide-theme .terminal-host-sidebar {
+  background: var(--jb-sidebar) !important;
+  border-right: 1px solid var(--jb-border) !important;
+}
+.ide-theme .terminal-host-header {
+  gap: 6px;
+  min-height: 70px;
+  padding: 8px 10px 7px;
+  background: var(--jb-surface-2) !important;
+}
+.ide-theme .terminal-host-heading { min-height: 22px; }
+.ide-theme .terminal-host-heading svg { width: 15px; height: 15px; }
+.ide-theme .terminal-host-heading span { min-width: 16px; padding: 1px 4px; }
+.ide-theme .terminal-host-actions { gap: 3px; }
+.ide-theme .terminal-host-actions .terminal-toolbar-action {
+  min-width: 0;
+  min-height: 28px;
+  height: 28px;
+  padding: 0 7px;
+  border-color: var(--jb-border-strong) !important;
+  border-radius: 3px !important;
+  background: var(--jb-surface-3) !important;
+  color: var(--jb-muted) !important;
+  font-size: 11px;
+  font-weight: 500;
+}
+.ide-theme .terminal-host-actions .terminal-toolbar-action:hover:not(:disabled) {
+  border-color: #747474 !important;
+  background: #404040 !important;
+  color: #fff !important;
+}
+.ide-theme .terminal-group-title {
+  min-height: 38px;
+  padding: 6px 10px 5px;
+  background: var(--jb-surface-2) !important;
+}
+.ide-theme .terminal-group-title span:first-child { font-size: 11px; color: var(--jb-muted); }
+.ide-theme .terminal-group-title span:first-child svg { width: 14px; height: 14px; color: var(--jb-subtle); }
+.ide-theme .terminal-group-controls select { max-width: 112px; height: 27px; font-size: 11px; }
+.ide-theme .terminal-group-controls button {
+  height: 27px;
+  padding: 0 5px;
+  color: var(--jb-subtle);
+  font-size: 11px;
+}
+.ide-theme .terminal-host-filter {
+  gap: 6px;
+  padding: 7px 10px 8px;
+  background: var(--jb-sidebar) !important;
+}
+.ide-theme .terminal-host-filter .terminal-host-search {
+  box-sizing: border-box;
+  height: 30px;
+  padding: 0 8px !important;
+  background: var(--jb-input) !important;
+  color: var(--jb-subtle) !important;
+}
+.ide-theme .terminal-host-filter .terminal-host-search svg { width: 14px; height: 14px; }
+.ide-theme .terminal-host-filter .terminal-host-search input { font-size: 11px; }
+.ide-theme .terminal-host-filter .terminal-add-host {
+  height: 30px;
+  border-color: #72996e !important;
+  border-radius: 3px !important;
+  background: #5b805a !important;
+  font-size: 11px;
+  font-weight: 600;
+}
+.ide-theme .terminal-host-tree { padding: 3px 5px 10px; }
+.ide-theme .terminal-host-group { margin-top: 5px; }
+.ide-theme .terminal-host-group-head {
+  min-height: 30px;
+  padding: 0 5px;
+  border-color: transparent !important;
+  border-radius: 3px !important;
+  background: transparent !important;
+}
+.ide-theme .terminal-host-group-head:hover { background: #303030 !important; }
+.ide-theme .terminal-host-group-head > svg { width: 14px; height: 14px; color: var(--jb-subtle); }
+.ide-theme .terminal-host-group-toggle { height: 30px; gap: 6px; }
+.ide-theme .terminal-host-group-toggle strong { color: var(--jb-muted); font-size: 11px; font-weight: 600; }
+.ide-theme .terminal-host-group-toggle span {
+  width: 18px;
+  height: 18px;
+  border: 1px solid var(--jb-border);
+  border-radius: 3px;
+  background: var(--jb-surface-3);
+  color: var(--jb-subtle);
+  font-size: 10px;
+}
+.ide-theme .terminal-host-group-toggle > svg { width: 14px; height: 14px; color: var(--jb-subtle); }
+.ide-theme .terminal-host-card {
+  min-height: 56px;
+  margin: 1px 0;
+  border-color: transparent !important;
+  border-radius: 3px !important;
+  background: transparent !important;
+}
+.ide-theme .terminal-host-card:hover { background: #303030 !important; }
+.ide-theme .terminal-host-card.active {
+  border-color: #52644f !important;
+  background: var(--jb-accent-soft) !important;
+  box-shadow: inset 2px 0 var(--jb-accent) !important;
+}
+.ide-theme .terminal-host-card-main {
+  min-height: 54px;
+  gap: 9px;
+  padding: 6px 5px;
+}
+.ide-theme .terminal-host-platform {
+  flex-basis: 32px;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--jb-border);
+  border-radius: 3px;
+  background: var(--jb-surface-3);
+  color: var(--jb-muted);
+}
+.ide-theme .terminal-host-platform svg { width: 17px; height: 17px; }
+.ide-theme .terminal-host-platform i {
+  top: 3px;
+  right: 3px;
+  width: 7px;
+  height: 7px;
+  border: 1px solid var(--jb-surface-3);
+  box-shadow: none !important;
+}
+.ide-theme .terminal-host-card-copy { gap: 2px; }
+.ide-theme .terminal-host-card-copy strong { color: var(--jb-text); font-size: 12px; font-weight: 500; }
+.ide-theme .terminal-host-card-copy small { color: var(--jb-subtle); font-size: 10px; }
+.ide-theme .terminal-host-card-actions { padding-right: 3px; }
+.ide-theme .terminal-host-card-actions > button {
+  width: 28px;
+  height: 28px;
+  border-radius: 3px;
+  color: var(--jb-subtle);
+}
+.ide-theme .terminal-host-card-actions > button:hover,
+.ide-theme .terminal-host-card-actions > button[aria-expanded="true"] {
+  background: #404040 !important;
+  color: #fff;
+}
+.ide-theme .terminal-host-more-menu {
+  top: 33px;
+  right: 3px;
+  min-width: 104px;
+  padding: 3px;
+  border-color: var(--jb-border-strong) !important;
+  border-radius: 3px !important;
+  background: var(--jb-surface) !important;
+  box-shadow: 0 12px 28px #000a !important;
+}
+.ide-theme .terminal-host-more-menu button { height: 29px; border-radius: 2px; color: var(--jb-muted); font-size: 11px; }
+.ide-theme .terminal-host-more-menu button:hover:not(:disabled) { background: #404040 !important; color: #fff; }
+.ide-theme .terminal-host-empty { padding: 34px 10px; color: var(--jb-subtle); }
+.ide-theme .terminal-host-empty svg { width: 24px; height: 24px; color: var(--jb-subtle); }
+.ide-theme .terminal-host-empty p { font-size: 11px; }
+
+.ide-theme .terminal-stage { background: #181818 !important; }
+.ide-theme .terminal-tabs {
+  min-height: 36px;
+  border-bottom-color: var(--jb-border) !important;
+  background: var(--jb-surface-2) !important;
+}
+.ide-theme .terminal-tab {
+  min-width: 148px;
+  min-height: 36px;
+  border-right-color: var(--jb-border) !important;
+  background: var(--jb-surface-2) !important;
+  color: var(--jb-muted);
+  font-size: 11px;
+}
+.ide-theme .terminal-tab.active {
+  background: var(--jb-accent-soft) !important;
+  box-shadow: inset 0 -2px var(--jb-accent) !important;
+  color: #eef3ec !important;
+}
+.ide-theme .terminal-tab-select { height: 35px; padding-left: 9px; }
+.ide-theme .terminal-tab-select:hover { background: #3a3a3a !important; }
+.ide-theme .terminal-tab-close { width: 24px; height: 24px; color: var(--jb-subtle); }
+.ide-theme .terminal-tab-close:hover { background: #4a4a4a !important; color: #fff; }
+.ide-theme .terminal-tabs > button {
+  width: 30px;
+  margin-left: 2px;
+  color: var(--jb-subtle);
+}
+.ide-theme .terminal-tabs > button:hover { background: #404040 !important; color: #fff; }
+.ide-theme .terminal-stage-empty {
+  background: #181818 !important;
+  color: var(--jb-subtle) !important;
+}
+.ide-theme .terminal-stage-empty > svg { width: 42px; height: 42px; color: var(--jb-subtle) !important; }
+.ide-theme .terminal-stage-empty h1 { color: var(--jb-text); font-size: 17px; font-weight: 500; }
+.ide-theme .terminal-stage-empty p { max-width: 390px; color: var(--jb-subtle); font-size: 12px; }
+.ide-theme .terminal-stage-empty .layui-btn { min-height: 30px; height: 30px; margin-top: 2px; }
+
+.ide-theme .terminal-session-shell { background: #181818 !important; }
+.ide-theme .ssh-terminal-meta {
+  min-height: 36px;
+  box-sizing: border-box;
+  gap: 5px;
+  padding: 5px 8px !important;
+  border-bottom-color: var(--jb-border) !important;
+  background: #242424 !important;
+  color: var(--jb-muted);
+  font-size: 11px;
+}
+.ide-theme .ssh-connected {
+  padding: 2px 6px;
+  border-color: #2e8669 !important;
+  border-radius: 3px;
+  background: #234b3f !important;
+  color: var(--jb-green) !important;
+  font-size: 10px;
+}
+.ide-theme .ssh-terminal-command,
+.ide-theme .ssh-clear-button,
+.ide-theme .ssh-disconnect-button {
+  min-width: 27px;
+  width: 27px;
+  height: 27px;
+  padding: 0;
+  border-color: var(--jb-border-strong) !important;
+  border-radius: 3px !important;
+  background: var(--jb-surface-3) !important;
+  color: var(--jb-muted) !important;
+  font-size: 11px;
+}
+.ide-theme .ssh-terminal-meta .ssh-clear-button { margin-left: auto; }
+.ide-theme .ssh-terminal-command:hover:not(:disabled),
+.ide-theme .ssh-clear-button:hover:not(:disabled) { border-color: #747474 !important; background: #404040 !important; color: #fff !important; }
+.ide-theme .ssh-disconnect-button { border-color: #794a50 !important; background: #3c292d !important; color: #e99aa0 !important; }
+.ide-theme .ssh-disconnect-button:hover:not(:disabled) { border-color: #a96770 !important; background: #563237 !important; color: #fff !important; }
+.ide-theme .ssh-terminal-theme-menu {
+  top: 32px;
+  min-width: 106px;
+  padding: 3px;
+  border-color: var(--jb-border-strong) !important;
+  border-radius: 3px !important;
+  background: var(--jb-surface) !important;
+}
+.ide-theme .ssh-terminal-theme-menu button { height: 28px; border-radius: 2px; color: var(--jb-muted); font-size: 11px; }
+.ide-theme .ssh-terminal-theme-menu button:hover,
+.ide-theme .ssh-terminal-theme-menu button.active { background: var(--jb-accent-soft) !important; color: #eef3ec; }
+.ide-theme .ssh-terminal-viewport { padding: 10px 12px; background: #1e1e1e !important; }
+.ide-theme .ssh-file-manager { border-left-color: var(--jb-border) !important; background: #242424 !important; color: var(--jb-muted); }
+.ide-theme .ssh-file-toolbar,
+.ide-theme .ssh-file-actions { border-bottom-color: var(--jb-border) !important; background: var(--jb-surface-2) !important; }
+.ide-theme .ssh-file-toolbar { gap: 4px; padding: 6px; }
+.ide-theme .ssh-file-toolbar button,
+.ide-theme .ssh-file-actions button,
+.ide-theme .ssh-file-row-actions button,
+.ide-theme .ssh-file-editor-head button {
+  min-width: 28px;
+  height: 28px;
+  border-color: var(--jb-border-strong) !important;
+  border-radius: 3px !important;
+  background: var(--jb-surface-3) !important;
+  color: var(--jb-muted) !important;
+}
+.ide-theme .ssh-file-toolbar button:hover:not(:disabled),
+.ide-theme .ssh-file-actions button:hover:not(:disabled),
+.ide-theme .ssh-file-row-actions button:hover:not(:disabled),
+.ide-theme .ssh-file-editor-head button:hover:not(:disabled) { border-color: #747474 !important; background: #404040 !important; color: #fff !important; }
+.ide-theme .ssh-file-path { height: 28px !important; background: var(--jb-input) !important; color: var(--jb-text) !important; font-size: 11px !important; }
+.ide-theme .ssh-file-actions { gap: 4px; padding: 6px; }
+.ide-theme .ssh-file-actions button { min-width: 0; padding: 0 8px; font-size: 11px; }
+.ide-theme .ssh-file-list-head,
+.ide-theme .ssh-file-row { border-color: var(--jb-border) !important; }
+.ide-theme .ssh-file-list-head { height: 28px; background: #303030 !important; color: var(--jb-subtle); font-size: 10px; }
+.ide-theme .ssh-file-row { min-height: 32px; background: #242424 !important; color: var(--jb-muted); font-size: 11px; }
+.ide-theme .ssh-file-row:hover { background: #34343a !important; }
+.ide-theme .ssh-file-name { color: var(--jb-text); font-size: 11px; }
+.ide-theme .ssh-file-name svg { color: var(--jb-accent); }
+.ide-theme .ssh-file-row > span { color: var(--jb-subtle); font-size: 10px; }
+.ide-theme .ssh-file-row-actions .ssh-file-download { min-width: 27px; border-color: transparent !important; background: transparent !important; }
+.ide-theme .ssh-file-empty { padding: 28px 10px; color: var(--jb-subtle); font-size: 11px; }
+.ide-theme .ssh-file-error { border-color: #794a50 !important; border-radius: 3px !important; background: #3c292d !important; color: #e99aa0 !important; }
+.ide-theme .ssh-file-editor-head,
+.ide-theme .ssh-file-editor-actions { border-color: var(--jb-border) !important; background: var(--jb-surface-2) !important; }
+.ide-theme .ssh-file-editor textarea { background: #1e1e1e !important; color: var(--jb-text) !important; }
+.ide-theme .ssh-file-editor-actions button { border-color: var(--jb-border-strong) !important; border-radius: 3px !important; background: var(--jb-surface-3) !important; color: var(--jb-muted) !important; }
+.ide-theme .ssh-file-editor-actions .primary { border-color: #72996e !important; background: #5b805a !important; color: #fff !important; }
+
+/* Managed-server form: keep a compact, scroll-safe modal with visible actions. */
+.ide-theme .managed-host-modal {
+  box-sizing: border-box;
+  width: min(620px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px) !important;
+  padding: 0 !important;
+  overflow-y: auto;
+}
+.ide-theme .terminal-connect-card {
+  box-sizing: border-box;
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px) !important;
+  overflow-y: auto;
+}
+.ide-theme .terminal-connect-card-head { padding-bottom: 12px; }
+.ide-theme .terminal-connect-card h2 { color: var(--jb-text); font-size: 17px; font-weight: 500; }
+.ide-theme .terminal-connect-fields { gap: 11px 12px; margin-top: 14px; }
+.ide-theme .terminal-connect-fields > label { color: var(--jb-muted); font-size: 11px; }
+.ide-theme .terminal-connect-fields input { height: 36px; margin-top: 5px; padding: 0 9px; font-size: 12px; }
+.ide-theme .terminal-connect-actions { gap: 6px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--jb-border); }
+.ide-theme .terminal-connect-actions button { height: 32px; min-height: 32px; padding: 0 12px; font-size: 11px; }
+.ide-theme .managed-host-modal .modal-head {
+  min-height: 62px;
+  box-sizing: border-box;
+  padding: 12px 16px !important;
+}
+.ide-theme .managed-host-modal .modal-head h2 { font-size: 17px; }
+.ide-theme .managed-host-modal .close {
+  border-color: var(--jb-border-strong) !important;
+  background: var(--jb-surface-3) !important;
+  color: var(--jb-muted) !important;
+}
+.ide-theme .managed-host-modal .close:hover:not(:disabled) {
+  border-color: var(--jb-accent) !important;
+  background: var(--jb-accent-soft) !important;
+  color: #fff !important;
+}
+.ide-theme .managed-host-modal > .security-tip,
+.ide-theme .managed-host-modal > label,
+.ide-theme .managed-host-modal > .form-grid,
+.ide-theme .managed-host-modal > .managed-host-choice { margin-left: 16px !important; margin-right: 16px !important; }
+.ide-theme .managed-host-modal > .security-tip { margin-top: 12px; padding: 8px 10px; font-size: 11px; line-height: 1.45; }
+.ide-theme .managed-host-modal > label { margin-top: 11px; font-size: 11px; }
+.ide-theme .managed-host-modal > label input,
+.ide-theme .managed-host-modal > label textarea { margin-top: 5px; }
+.ide-theme .managed-host-modal > label input { height: 36px; padding: 0 9px; }
+.ide-theme .managed-host-modal > label textarea { min-height: 78px; padding: 8px 9px; }
+.ide-theme .managed-host-modal > .form-grid { gap: 10px; }
+.ide-theme .managed-host-modal > .managed-host-choice { min-height: 32px; margin-top: 11px; gap: 10px; }
+.ide-theme .managed-host-modal .managed-host-choice > span { width: 58px; flex-basis: 58px; color: var(--jb-subtle); font-size: 11px; }
+.ide-theme .managed-host-modal .ssh-segmented button { height: 30px !important; min-height: 30px !important; padding: 0 11px !important; font-size: 11px; }
+.ide-theme .managed-host-modal .modal-actions {
+  min-height: 56px;
+  box-sizing: border-box;
+  margin-top: 14px;
+  padding: 10px 16px;
+  border-top-color: var(--jb-border) !important;
+  background: #292929 !important;
+}
+.ide-theme .managed-host-modal .modal-actions button { height: 32px; min-height: 32px; padding: 0 12px; font-size: 11px; }
+
+@media (max-width: 650px) {
+  .ide-theme .terminal-host-sidebar { max-height: 260px; }
+  .ide-theme .terminal-host-card { min-height: 52px; }
+  .ide-theme .terminal-host-card-main { min-height: 50px; }
+  .ide-theme .managed-host-modal { width: calc(100vw - 24px); max-height: calc(100vh - 24px) !important; }
+  .ide-theme .managed-host-modal .modal-head { padding: 10px 12px !important; }
+  .ide-theme .managed-host-modal > .security-tip,
+  .ide-theme .managed-host-modal > label,
+  .ide-theme .managed-host-modal > .form-grid,
+  .ide-theme .managed-host-modal > .managed-host-choice { margin-left: 12px !important; margin-right: 12px !important; }
+  .ide-theme .managed-host-modal .modal-actions { padding: 9px 12px; }
+}
+
+

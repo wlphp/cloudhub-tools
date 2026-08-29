@@ -1,23 +1,23 @@
-.domain-reference{padding:24px 28px;overflow:auto;flex:1;background:#0a1828;color:#dbe7f5}
+.domain-reference{padding:24px 28px;overflow:auto;flex:1;background:#1f1f1f;color:#dbe7f5}
 .domain-toolbar{display:flex;gap:10px;margin-bottom:18px;align-items:center}
-.domain-toolbar input{width:240px;height:36px;border:1px solid #234565;background:#091629;padding:0 14px;border-radius:7px;color:#e6effa;font:inherit;outline:none}
+.domain-toolbar input{width:240px;height:36px;border:1px solid #234565;background:#252525;padding:0 14px;border-radius:7px;color:#e6effa;font:inherit;outline:none}
 .domain-toolbar input:focus{border-color:#42b9ec}
 .domain-summary{background:linear-gradient(145deg,#0b1d34,#0a1729);padding:18px 22px;border-radius:10px;margin-bottom:20px;display:flex;gap:36px;flex-wrap:wrap;color:#7f98b5;border:1px solid #1c3a5e}
 .domain-summary strong{font-size:22px;color:#f4f8ff;margin-left:8px;font-weight:700}
-.domain-summary .blue-text{color:#43c8ff}.domain-summary .orange-text{color:#ff8a26}.domain-summary .red-text{color:#ff6b6b}.domain-summary .gray-text{color:#7892af}
+.domain-summary .blue-text{color:#a8c7a2}.domain-summary .orange-text{color:#ff8a26}.domain-summary .red-text{color:#ff6b6b}.domain-summary .gray-text{color:#7892af}
 .domain-card{background:linear-gradient(145deg,#0b1d34,#0a1729);border:1px solid #1c3a5e;border-radius:10px;padding:18px;margin-bottom:14px;transition:border-color .15s}
 .domain-card:hover{border-color:#2a5688}
 .domain-header{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #1e3555;padding-bottom:12px;margin-bottom:14px}
 .domain-name{font-size:17px;font-weight:600;color:#f4f8ff}
-.domain-status{padding:3px 10px;border-radius:12px;font-size:11px;background:#0d2037;color:#50d5a0;border:1px solid #1e3555}
+.domain-status{padding:3px 10px;border-radius:12px;font-size:11px;background:#2b2b2b;color:#50d5a0;border:1px solid #1e3555}
 .domain-info{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
 .domain-info>div{display:flex;line-height:1.6;word-break:break-all;color:#b8cbe0;font-size:13px}
 .domain-info>div>span{color:#6f8eae;min-width:100px;flex-shrink:0}
 .domain-actions{margin-top:14px;padding-top:14px;border-top:1px solid #1e3555;display:flex;gap:8px}
 .domain-actions .layui-btn{margin-right:0;height:30px;border-radius:6px;padding:0 12px;font-size:12px}
 .dns-tag,.registrant-type{display:inline-block;padding:3px 8px;border-radius:4px;font-size:11px;margin-left:6px;font-weight:500}
-.dns-aliyun{background:#0d2e4a;color:#43c8ff;border:1px solid #155676}.dns-other{background:#3a2028;color:#ff8a8a;border:1px solid #69343b}.dns-not-added{background:#3a2028;color:#ff6b6b;border:1px solid #69343b}
-.domain-type-tag{background:#2a1d3a;color:#a78bfa;border:1px solid #4a3869}.registrant-type{background:#0d2e4a;color:#43c8ff;border:1px solid #155676}
+.dns-aliyun{background:#0d2e4a;color:#a8c7a2;border:1px solid #155676}.dns-other{background:#3a2028;color:#ff8a8a;border:1px solid #69343b}.dns-not-added{background:#3a2028;color:#ff6b6b;border:1px solid #69343b}
+.domain-type-tag{background:#2a1d3a;color:#a78bfa;border:1px solid #4a3869}.registrant-type{background:#0d2e4a;color:#a8c7a2;border:1px solid #155676}
 .audit-succeed{background:#0a2e25;color:#50d5a0;border:1px solid #1a5e4a}.audit-auditing{background:#3a2a1a;color:#ffb86b;border:1px solid #6e4f30}.audit-nonaudit{background:#1a2030;color:#7892af;border:1px solid #2a3550}
 .expire-warning{color:#ffb86b;font-weight:600}.expire-danger{color:#ff6b6b;font-weight:600}
 .domain-empty{text-align:center;padding:80px 20px}.domain-empty p{margin-top:14px;color:#7892af}

@@ -1,0 +1,231 @@
+/* Portals render under document.body, outside .app-shell; keep their surfaces on the same token set. */
+:root {
+  --jb-bg: #1f1f1f;
+  --jb-sidebar: #252526;
+  --jb-surface: #2b2b2b;
+  --jb-surface-2: #333333;
+  --jb-surface-3: #393939;
+  --jb-input: #202020;
+  --jb-border: #3b3b3b;
+  --jb-border-strong: #505050;
+  --jb-text: #d7d7d7;
+  --jb-muted: #a4a4a4;
+  --jb-subtle: #7d7d7d;
+  --jb-accent: #6fa36d;
+  --jb-accent-strong: #a8c7a2;
+  --jb-accent-soft: #303b31;
+  --jb-blue: #a8c7a2;
+  --jb-green: #63d7ad;
+  --jb-yellow: #e5b567;
+  --jb-red: #ef8585;
+  --jb-success: #63d7ad;
+  --jb-warning: #e5b567;
+  --jb-danger: #ef8585;
+}
+.modal-backdrop,
+.resource-modal-backdrop,
+.terminal-connect-backdrop {
+  inset: 0 !important;
+  z-index: 90 !important;
+  color: var(--jb-text);
+  background: rgba(0, 0, 0, .62) !important;
+  backdrop-filter: blur(3px);
+}
+.modal-backdrop .modal,
+.resource-modal-backdrop .resource-modal,
+.resource-modal-backdrop .nested-resource-modal,
+.terminal-connect-backdrop .terminal-connect-card {
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  border-color: var(--jb-border-strong) !important;
+  border-radius: 5px !important;
+  background: var(--jb-surface) !important;
+  box-shadow: 0 22px 60px #000a !important;
+}
+.modal-backdrop .loading-overlay,
+.resource-modal-backdrop .loading-overlay,
+.terminal-connect-backdrop .loading-overlay {
+  min-height: 260px;
+  background: #242424 !important;
+  color: var(--jb-muted) !important;
+}
+.modal-backdrop .modal-head,
+.resource-modal-backdrop .detail-toolbar,
+.terminal-connect-backdrop .terminal-connect-card-head {
+  border-bottom-color: var(--jb-border) !important;
+  background: var(--jb-surface-2) !important;
+}
+.modal-backdrop .modal-actions,
+.resource-modal-backdrop .modal-actions,
+.terminal-connect-backdrop .terminal-connect-actions {
+  border-top-color: var(--jb-border) !important;
+  background: #292929 !important;
+}
+.modal-backdrop :where(input, select, textarea),
+.resource-modal-backdrop :where(input, select, textarea),
+.terminal-connect-backdrop :where(input, select, textarea) {
+  border-color: var(--jb-border-strong) !important;
+  border-radius: 3px !important;
+  background: var(--jb-input) !important;
+  color: var(--jb-text) !important;
+}
+.modal-backdrop :where(input, select, textarea):focus,
+.resource-modal-backdrop :where(input, select, textarea):focus,
+.terminal-connect-backdrop :where(input, select, textarea):focus {
+  border-color: var(--jb-accent) !important;
+  box-shadow: 0 0 0 2px #6fa36d26 !important;
+}
+.modal-backdrop .security-tip,
+.resource-modal-backdrop .security-tip,
+.terminal-connect-backdrop .security-tip {
+  border-color: #46586d !important;
+  border-radius: 3px !important;
+  background: #29323d !important;
+  color: #b9c5d3 !important;
+}
+.resource-modal-backdrop .summary-reference { padding: 16px 18px !important; background: #242424 !important; color: var(--jb-text) !important; }
+.resource-modal-backdrop .summary-source-toolbar { min-height: 34px; margin-bottom: 10px; padding: 8px 10px !important; border: 1px solid var(--jb-border) !important; border-radius: 3px; background: #303030 !important; color: var(--jb-muted) !important; }
+.resource-modal-backdrop .summary-block-section { margin-bottom: 10px; padding: 13px 14px !important; border: 1px solid var(--jb-border) !important; border-radius: 4px !important; background: #2b2b2b !important; }
+.resource-modal-backdrop .summary-block-section h3 { margin-bottom: 11px; padding-bottom: 8px; border-bottom-color: var(--jb-border) !important; color: var(--jb-accent-strong) !important; font-size: 12px; }
+.resource-modal-backdrop :where(.summary-balance-item, .summary-consume-item, .summary-resource-item) { padding: 13px 11px; border: 1px solid #444 !important; border-radius: 3px !important; background: #252525 !important; }
+.resource-modal-backdrop :where(.summary-balance-item strong, .summary-consume-item strong, .summary-resource-item strong) { font-size: 21px; }
+.resource-modal-backdrop :where(.summary-balance-item span, .summary-consume-item span, .summary-resource-item span) { color: var(--jb-subtle) !important; }
+
+/* Account summary: a compact IDEA tool window with metric strips instead of oversized cards. */
+.resource-modal-backdrop .summary-workbench {
+  padding: 12px 16px !important;
+  background: #242424 !important;
+}
+.resource-modal-backdrop .summary-workbench .summary-source-toolbar {
+  min-height: 32px;
+  margin: 0;
+  padding: 0 10px !important;
+  border: 1px solid #414141 !important;
+  border-radius: 3px;
+  background: #303030 !important;
+  color: #a6a6a6 !important;
+  font-size: 12px;
+}
+.resource-modal-backdrop .summary-workbench .summary-block-section {
+  margin: 0 !important;
+  padding: 13px 0 !important;
+  border: 0 !important;
+  border-bottom: 1px solid #414141 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+.resource-modal-backdrop .summary-workbench .summary-source-toolbar + .summary-block-section { margin-top: 2px !important; }
+.resource-modal-backdrop .summary-workbench .summary-block-section:last-child { border-bottom: 0 !important; padding-bottom: 2px !important; }
+.resource-modal-backdrop .summary-workbench .summary-block-section h3 {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 24px;
+  margin: 0 0 8px;
+  padding: 0;
+  border: 0 !important;
+  color: #b4cdb0 !important;
+  font-size: 12px;
+  font-weight: 600;
+}
+.resource-modal-backdrop .summary-workbench .summary-block-section h3 svg { color: #6fbde8; }
+.resource-modal-backdrop .summary-workbench .summary-info-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid #414141;
+  border-radius: 3px;
+  background: #414141;
+}
+.resource-modal-backdrop .summary-workbench .summary-info-grid > div {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  min-height: 54px;
+  gap: 9px;
+  padding: 0 11px;
+  background: #2b2b2b;
+}
+.resource-modal-backdrop .summary-workbench .summary-info-grid span { flex: 0 0 auto; color: #949494 !important; font-size: 11px; }
+.resource-modal-backdrop .summary-workbench .summary-info-grid strong { min-width: 0; overflow: hidden; color: #e2e2e2 !important; font-family: "JetBrains Mono", Consolas, monospace; font-size: 12px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.resource-modal-backdrop .summary-workbench :where(.summary-balance-grid, .summary-consume-grid, .summary-resource-grid) {
+  display: grid;
+  gap: 1px;
+  overflow: hidden;
+  padding: 1px;
+  border: 1px solid #414141;
+  border-radius: 3px;
+  background: #414141;
+}
+.resource-modal-backdrop .summary-workbench .summary-balance-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.resource-modal-backdrop .summary-workbench .summary-consume-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.resource-modal-backdrop .summary-workbench .summary-resource-grid { grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); }
+.resource-modal-backdrop .summary-workbench :where(.summary-balance-item, .summary-consume-item, .summary-resource-item) {
+  display: flex;
+  min-width: 0;
+  min-height: 66px;
+  flex-direction: column;
+  justify-content: center;
+  padding: 8px 11px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: #2b2b2b !important;
+  text-align: left;
+}
+.resource-modal-backdrop .summary-workbench :where(.summary-balance-item, .summary-consume-item, .summary-resource-item):hover { background: #333333 !important; }
+.resource-modal-backdrop .summary-workbench :where(.summary-balance-item span, .summary-consume-item span, .summary-resource-item span) { order: -1; overflow: hidden; color: #989898 !important; font-size: 11px; line-height: 16px; text-overflow: ellipsis; white-space: nowrap; }
+.resource-modal-backdrop .summary-workbench .summary-metric-value,
+.resource-modal-backdrop .summary-workbench .summary-resource-value { display: block; overflow: hidden; margin-top: 3px; font-size: 19px !important; font-weight: 600; line-height: 25px; text-overflow: ellipsis; white-space: nowrap; }
+.resource-modal-backdrop .summary-workbench .summary-resource-value { font-size: 20px !important; }
+.resource-modal-backdrop .summary-workbench .summary-metric-value.is-empty { color: #858585 !important; font-size: 15px !important; font-weight: 400; }
+.resource-modal-backdrop .summary-workbench .value-orange { color: #e9a54d !important; }
+.resource-modal-backdrop .summary-workbench .value-green { color: #6dcc9d !important; }
+.resource-modal-backdrop .summary-workbench .value-blue { color: #76bfe9 !important; }
+.resource-modal-backdrop .summary-workbench .value-pink { color: #e889a2 !important; }
+.resource-modal-backdrop .summary-workbench .value-purple { color: #abc2a6 !important; }
+.resource-modal-backdrop .summary-workbench .value-gray { color: #a8b2c2 !important; }
+
+@media (max-width: 760px) {
+  .resource-modal-backdrop .summary-workbench { padding: 10px 12px !important; }
+  .resource-modal-backdrop .summary-workbench .summary-balance-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .resource-modal-backdrop .summary-workbench .summary-resource-grid { grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); }
+}
+@media (max-width: 540px) {
+  .resource-modal-backdrop .summary-workbench .summary-info-grid,
+  .resource-modal-backdrop .summary-workbench .summary-balance-grid,
+  .resource-modal-backdrop .summary-workbench .summary-consume-grid { grid-template-columns: 1fr; }
+  .resource-modal-backdrop .summary-workbench .summary-resource-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.modal-backdrop .ssh-segmented button,
+.terminal-connect-backdrop .ssh-segmented button { border-color: var(--jb-border-strong) !important; background: #303030 !important; color: var(--jb-muted) !important; }
+.modal-backdrop .ssh-segmented button.active,
+.terminal-connect-backdrop .ssh-segmented button.active { border-color: #72996e !important; background: var(--jb-accent-soft) !important; color: #edf2eb !important; }
+.resource-modal-backdrop :where(.server-reference, .rds-reference, .redis-reference, .oss-reference, .swas-reference, .esa-reference, .domain-reference, .domain-tool-body, .resource-modal-body) { background: #242424 !important; color: var(--jb-text) !important; }
+.resource-modal-backdrop :where(.server-toolbar, .summary-source-toolbar, .domain-toolbar, .domain-tool-actions, .esa-sites-toolbar, .oss-browser-pathbar, .oss-browser-actions) { border-color: var(--jb-border) !important; background: #303030 !important; color: var(--jb-muted) !important; }
+.resource-modal-backdrop :where(.server-card, .swas-card, .rds-card, .redis-card, .bucket-card, .domain-card, .function-panel, .esa-chart-panel, .esa-sites, .security-group-add, .security-group-rule-list, .memory-bar, .db-list, .whois-result) { border-color: var(--jb-border) !important; border-radius: 4px !important; background: #2b2b2b !important; box-shadow: none !important; }
+.resource-modal-backdrop :where(.summary-card, .metric-card, .oss-stat-grid > div, .panel-connection-summary, .domain-summary) { border-color: #444 !important; border-radius: 3px !important; background: #252525 !important; }
+.resource-modal-backdrop :where(table, th, td) { border-color: #414141 !important; background: #2b2b2b !important; color: var(--jb-muted) !important; }
+.resource-modal-backdrop :where(th) { background: #303030 !important; color: #bcbcbc !important; }
+.resource-modal-backdrop :where(.resource-actions button, .bucket-actions .layui-btn, .rds-actions .layui-btn, .redis-actions .layui-btn, .domain-actions .layui-btn, .quick-add-btn, .dns-action-btn, .esa-range-tabs button, .esa-tabs button) { border-radius: 3px !important; box-shadow: none !important; }
+.resource-modal-backdrop :where(.esa-tabs button.active, .esa-range-tabs button.active) { border-color: var(--jb-accent) !important; background: var(--jb-accent-soft) !important; color: #edf2eb !important; }
+
+@media (max-width: 560px) {
+  .modal-backdrop,
+  .resource-modal-backdrop,
+  .terminal-connect-backdrop {
+    align-items: flex-start;
+    overflow-y: auto;
+    padding: 20px 12px;
+  }
+
+  .modal-backdrop .modal,
+  .resource-modal-backdrop .resource-modal,
+  .resource-modal-backdrop .nested-resource-modal,
+  .terminal-connect-backdrop .terminal-connect-card {
+    width: min(560px, calc(100vw - 24px));
+    margin: 0 auto;
+  }
+}
+
+

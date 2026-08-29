@@ -1,0 +1,469 @@
+/* Panel management: compact IDEA tool-window treatment. Keep these selectors
+   local to the panel surface so the existing resource and terminal layouts
+   can continue to own their spacing. */
+.ide-theme .panel-management-page {
+  color: var(--jb-text);
+}
+.ide-theme .panel-management-page > header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin: 0 0 14px;
+}
+.ide-theme .panel-management-page > header h1 {
+  margin: 0;
+  color: #e6e6e6;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+.ide-theme .panel-management-page > header p {
+  margin: 3px 0 0;
+  color: var(--jb-subtle);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.ide-theme .panel-management-toolbar {
+  gap: 0 !important;
+  margin: 0 0 14px;
+  border: 1px solid var(--jb-border) !important;
+  border-radius: 4px;
+  background: var(--jb-surface-2) !important;
+}
+.ide-theme .panel-toolbar-primary,
+.ide-theme .panel-toolbar-secondary {
+  gap: 6px;
+  min-height: 48px;
+  padding: 8px 9px;
+}
+.ide-theme .panel-toolbar-primary {
+  border-bottom: 1px solid var(--jb-border);
+  background: var(--jb-surface-2);
+}
+.ide-theme .panel-toolbar-primary .managed-host-search {
+  position: relative;
+  flex: 1 1 260px;
+  min-width: 180px;
+  width: auto;
+  height: 32px;
+  padding: 0 9px !important;
+  border-color: var(--jb-border-strong) !important;
+  border-radius: 3px !important;
+  background: var(--jb-input) !important;
+  color: var(--jb-subtle);
+}
+.ide-theme .panel-toolbar-primary .managed-host-search:focus-within {
+  border-color: var(--jb-accent) !important;
+  box-shadow: 0 0 0 2px #6fa36d26;
+}
+.ide-theme .panel-toolbar-primary .managed-host-search input {
+  height: 100%;
+  color: var(--jb-text) !important;
+}
+.ide-theme .panel-toolbar-primary > select {
+  flex: 0 0 124px;
+  height: 32px;
+  padding: 0 8px;
+}
+.ide-theme .panel-toolbar-primary > button,
+.ide-theme .panel-toolbar-primary > label {
+  min-height: 32px;
+  height: 32px;
+  border-radius: 3px !important;
+  font-size: 12px;
+}
+.ide-theme .panel-toolbar-primary .panel-toolbar-add {
+  min-width: 104px;
+  border-color: #72996e !important;
+  background: #5b805a !important;
+  color: #fff !important;
+}
+.ide-theme .panel-toolbar-primary .panel-toolbar-add:hover:not(:disabled) {
+  border-color: #9abf92 !important;
+  background: #6e986c !important;
+}
+.ide-theme .panel-toolbar-primary .panel-toolbar-import {
+  border-color: var(--jb-border-strong) !important;
+  background: var(--jb-surface-3) !important;
+  color: var(--jb-text) !important;
+}
+.ide-theme .panel-toolbar-primary .panel-toolbar-import:hover {
+  border-color: #747474 !important;
+  background: #404040 !important;
+  color: #fff !important;
+}
+.ide-theme .panel-toolbar-secondary {
+  align-items: center;
+  min-height: 42px;
+  background: #292929;
+}
+.ide-theme .panel-toolbar-secondary .panel-toolbar-option {
+  min-height: 28px;
+  height: 28px;
+  padding: 0 5px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  color: var(--jb-muted) !important;
+}
+.ide-theme .panel-toolbar-secondary .panel-toolbar-option:hover {
+  background: #333;
+}
+.ide-theme .panel-toolbar-secondary .panel-toolbar-option input {
+  accent-color: var(--jb-accent);
+}
+.ide-theme .panel-toolbar-secondary .panel-toolbar-option > span {
+  color: var(--jb-subtle);
+}
+.ide-theme .panel-toolbar-secondary .panel-refresh-mode select,
+.ide-theme .panel-toolbar-secondary .panel-open-mode select {
+  height: 28px !important;
+  min-width: 84px;
+  padding: 0 7px !important;
+  border-color: var(--jb-border-strong) !important;
+  border-radius: 3px !important;
+  background: var(--jb-input) !important;
+  color: var(--jb-text) !important;
+}
+.ide-theme .panel-toolbar-secondary .panel-open-mode select {
+  min-width: 142px;
+}
+.ide-theme .panel-toolbar-secondary .panel-sort-button {
+  height: 28px;
+  margin-left: auto;
+  padding: 0 8px;
+  border: 1px solid var(--jb-border-strong);
+  border-radius: 3px;
+  background: var(--jb-surface-3);
+  color: var(--jb-muted);
+}
+.ide-theme .panel-toolbar-secondary .panel-sort-button:hover,
+.ide-theme .panel-toolbar-secondary .panel-sort-button.is-sorting {
+  border-color: var(--jb-accent);
+  background: var(--jb-accent-soft);
+  color: #edf2eb;
+}
+.ide-theme .panel-toolbar-count {
+  margin-left: 4px !important;
+  color: var(--jb-subtle) !important;
+  font-size: 11px !important;
+}
+
+.ide-theme .panel-monitor-scroll {
+  border: 1px solid var(--jb-border) !important;
+  border-radius: 4px;
+  background: var(--jb-surface) !important;
+}
+.ide-theme .panel-monitor-table {
+  min-width: 1030px;
+}
+.ide-theme .panel-monitor-table-head {
+  min-height: 40px;
+  border-bottom: 1px solid var(--jb-border);
+  background: var(--jb-surface-2);
+  color: var(--jb-subtle);
+  font-size: 11px;
+  font-weight: 600;
+}
+.ide-theme .panel-monitor-table-head span {
+  padding: 0 13px;
+}
+.ide-theme .panel-monitor-row {
+  min-height: 164px;
+  border-bottom: 1px solid var(--jb-border);
+  background: var(--jb-surface);
+}
+.ide-theme .panel-monitor-row:hover {
+  background: #303035;
+}
+.ide-theme .panel-monitor-row > div {
+  padding: 16px 14px;
+}
+.ide-theme .panel-row-order {
+  padding: 16px 0 !important;
+}
+.ide-theme .panel-row-server,
+.ide-theme .panel-row-status,
+.ide-theme .panel-row-metrics,
+.ide-theme .panel-row-actions {
+  border-left-color: var(--jb-border) !important;
+}
+.ide-theme .panel-row-note {
+  margin: -1px 0 9px;
+  color: var(--jb-subtle);
+  font-size: 11px;
+}
+.ide-theme .panel-row-note > span,
+.ide-theme .panel-row-details,
+.ide-theme .panel-row-status small {
+  color: var(--jb-subtle);
+}
+.ide-theme .panel-row-note button {
+  color: var(--jb-muted);
+}
+.ide-theme .panel-row-note button:hover {
+  color: var(--jb-accent-strong);
+}
+.ide-theme .panel-row-address {
+  gap: 7px;
+}
+.ide-theme .panel-row-address strong {
+  color: #e6e6e6 !important;
+  font-size: 14px;
+}
+.ide-theme .panel-row-address button {
+  width: 26px;
+  height: 26px;
+  border-color: var(--jb-border-strong);
+  border-radius: 3px;
+  background: var(--jb-surface-3);
+  color: var(--jb-muted);
+}
+.ide-theme .panel-row-address button:hover {
+  border-color: var(--jb-accent);
+  background: var(--jb-accent-soft);
+  color: #fff;
+}
+.ide-theme .panel-row-details {
+  gap: 5px;
+  margin-top: 11px;
+  font-size: 11px;
+}
+.ide-theme .panel-row-status {
+  gap: 7px;
+}
+.ide-theme .panel-row-status .managed-server-status {
+  padding: 2px 6px;
+  border: 1px solid var(--jb-border-strong);
+  border-radius: 3px;
+  background: var(--jb-surface-3);
+  color: var(--jb-muted);
+  font-size: 11px;
+}
+.ide-theme .panel-row-status .managed-server-status.online {
+  border-color: #377b64;
+  background: #234b3f;
+  color: var(--jb-green);
+}
+.ide-theme .panel-row-status .managed-server-status.offline {
+  border-color: #81505a;
+  background: #4a2d34;
+  color: var(--jb-red);
+}
+.ide-theme .panel-row-status em {
+  color: var(--jb-red);
+}
+.ide-theme .panel-row-metrics {
+  gap: 6px;
+}
+.ide-theme .panel-resource-metric {
+  grid-template-columns: 44px minmax(0, 1fr);
+  column-gap: 7px;
+}
+.ide-theme .panel-resource-metric > span,
+.ide-theme .panel-disk-label {
+  color: var(--jb-subtle);
+  font-size: 11px;
+}
+.ide-theme .panel-resource-metric > strong {
+  color: var(--jb-text);
+  font-size: 12px;
+}
+.ide-theme .panel-resource-metric i,
+.ide-theme .panel-disk-volume i {
+  height: 3px;
+  border-radius: 2px;
+  background: #444;
+}
+.ide-theme .panel-resource-metric i b,
+.ide-theme .panel-disk-volume i b {
+  background: var(--jb-accent);
+  box-shadow: none;
+}
+.ide-theme .panel-network-rate.up { color: var(--jb-yellow); }
+.ide-theme .panel-network-rate.down { color: var(--jb-blue); }
+.ide-theme .panel-disk-toggle {
+  width: 18px;
+  height: 18px;
+  border-color: var(--jb-border-strong);
+  border-radius: 3px;
+  background: var(--jb-surface-3);
+  color: var(--jb-muted);
+}
+.ide-theme .panel-disk-toggle:hover {
+  border-color: var(--jb-accent);
+  background: var(--jb-accent-soft);
+  color: #fff;
+}
+.ide-theme .panel-row-actions {
+  gap: 6px;
+}
+.ide-theme .panel-action-button {
+  height: 32px;
+  min-height: 32px;
+  padding: 0 9px;
+  border-color: var(--jb-border-strong) !important;
+  border-radius: 3px !important;
+  background: var(--jb-surface-3) !important;
+  color: var(--jb-text) !important;
+  font-size: 11px;
+}
+.ide-theme .panel-action-button:hover:not(:disabled) {
+  border-color: #747474 !important;
+  background: #404040 !important;
+  color: #fff !important;
+}
+.ide-theme .panel-open-button {
+  border-color: #72996e !important;
+  background: #5b805a !important;
+  color: #fff !important;
+}
+.ide-theme .panel-open-button:hover:not(:disabled) {
+  border-color: #9abf92 !important;
+  background: #6e986c !important;
+}
+.ide-theme .panel-reboot-button {
+  border-color: #806a3e !important;
+  background: #403628 !important;
+  color: var(--jb-yellow) !important;
+}
+.ide-theme .panel-reboot-button:hover:not(:disabled) {
+  border-color: #b18f58 !important;
+  background: #51422f !important;
+  color: #ffe6a8 !important;
+}
+.ide-theme .panel-delete-button {
+  width: 32px;
+  padding: 0;
+  border-color: #70434d !important;
+  background: #39282d !important;
+  color: var(--jb-red) !important;
+}
+.ide-theme .panel-delete-button:hover:not(:disabled) {
+  border-color: #b66b75 !important;
+  background: #4a2d34 !important;
+  color: #fff !important;
+}
+.ide-theme .panel-management-page .managed-server-empty {
+  margin-top: 0;
+  border-color: var(--jb-border-strong);
+  border-radius: 4px;
+  background: var(--jb-surface);
+  color: var(--jb-subtle);
+}
+.ide-theme .panel-management-page .managed-server-empty h3 {
+  color: var(--jb-text);
+  font-size: 15px;
+}
+
+/* Panel bind/edit dialog. The portal is mounted under body, so the class is
+   intentionally unscoped by .ide-theme while still staying panel-specific. */
+.modal-backdrop .panel-bind-modal {
+  width: min(620px, calc(100vw - 32px));
+  border-color: var(--jb-border-strong) !important;
+  border-radius: 5px !important;
+  background: var(--jb-surface) !important;
+}
+.modal-backdrop .panel-bind-modal .modal-head {
+  min-height: 58px;
+  padding: 14px 16px 12px;
+  border-bottom-color: var(--jb-border) !important;
+  background: var(--jb-surface-2) !important;
+}
+.modal-backdrop .panel-bind-modal .modal-head h2 {
+  margin-top: 3px;
+  color: var(--jb-text);
+  font-size: 16px;
+}
+.modal-backdrop .panel-bind-modal > label,
+.modal-backdrop .panel-bind-modal > .form-grid {
+  margin-left: 16px;
+  margin-right: 16px;
+}
+.modal-backdrop .panel-bind-modal > label {
+  margin-top: 13px;
+  color: var(--jb-muted);
+  font-size: 12px;
+}
+.modal-backdrop .panel-bind-modal .panel-auth-static {
+  height: 34px;
+  margin-top: 6px;
+  padding: 0 9px;
+  border-color: var(--jb-border);
+  border-radius: 3px;
+  background: var(--jb-surface-2);
+}
+.modal-backdrop .panel-bind-modal .panel-auth-static span {
+  padding: 3px 7px;
+  border: 1px solid #72996e;
+  border-radius: 3px;
+  background: var(--jb-accent-soft);
+  color: #edf2eb;
+  font-size: 11px;
+}
+.modal-backdrop .panel-bind-modal .panel-auth-static small {
+  color: var(--jb-subtle);
+  font-size: 11px;
+}
+.modal-backdrop .panel-bind-modal .panel-insecure-tls {
+  margin: 13px 16px 0;
+  padding: 9px 10px;
+  border-color: #6f5b37;
+  border-radius: 3px;
+  background: #332d22;
+  color: var(--jb-yellow);
+}
+.modal-backdrop .panel-bind-modal .panel-insecure-tls small {
+  color: #c7ad7a;
+}
+.modal-backdrop .panel-bind-modal .panel-bind-steps {
+  margin: 13px 16px 0;
+  padding: 10px 12px 10px 27px;
+  border-color: var(--jb-border);
+  border-radius: 3px;
+  background: #252525;
+  color: var(--jb-subtle);
+  font-size: 11px;
+  line-height: 1.65;
+}
+.modal-backdrop .panel-bind-modal .panel-bind-steps code {
+  color: var(--jb-blue);
+}
+.modal-backdrop .panel-bind-modal .modal-actions {
+  position: sticky;
+  bottom: 0;
+  margin-top: 16px;
+  padding: 10px 16px;
+  border-top-color: var(--jb-border) !important;
+  background: #292929 !important;
+}
+.modal-backdrop .panel-bind-modal .modal-actions > button {
+  height: 32px;
+  min-height: 32px;
+  border-radius: 3px !important;
+  font-size: 12px;
+}
+
+@media (max-width: 900px) {
+  .ide-theme .panel-toolbar-primary { flex-wrap: wrap; }
+  .ide-theme .panel-toolbar-primary .managed-host-search { flex-basis: 100%; }
+  .ide-theme .panel-toolbar-secondary { flex-wrap: wrap; }
+  .ide-theme .panel-toolbar-secondary .panel-sort-button { margin-left: 0; }
+  .ide-theme .panel-monitor-table { min-width: 920px; }
+}
+@media (max-width: 650px) {
+  .ide-theme .panel-management-page > header { display: block; }
+  .ide-theme .panel-management-page > header p { margin-top: 5px; }
+  .ide-theme .panel-toolbar-primary,
+  .ide-theme .panel-toolbar-secondary { align-items: stretch; padding: 8px; }
+  .ide-theme .panel-toolbar-primary > select,
+  .ide-theme .panel-toolbar-primary > button,
+  .ide-theme .panel-toolbar-primary > label { flex: 1 1 calc(50% - 3px); }
+  .ide-theme .panel-toolbar-primary .managed-host-search { flex-basis: 100%; }
+  .ide-theme .panel-toolbar-secondary .panel-toolbar-option,
+  .ide-theme .panel-toolbar-secondary .panel-sort-button { flex: 1 1 100%; justify-content: space-between; }
+  .ide-theme .panel-toolbar-count { width: 100%; margin-left: 0 !important; }
+  .modal-backdrop .panel-bind-modal { width: calc(100vw - 24px); }
+}
+
+

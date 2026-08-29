@@ -469,7 +469,7 @@
   width: min(560px, calc(100vw - 40px));
   border: 1px solid #2a5275;
   border-radius: 8px;
-  background: #0c1c30;
+  background: #2b2b2b;
   box-shadow: 0 24px 70px rgba(0, 0, 0, .54);
   padding: 20px;
 }
