@@ -183,7 +183,7 @@
 .resource-modal-backdrop .summary-workbench .value-green { color: #6dcc9d !important; }
 .resource-modal-backdrop .summary-workbench .value-blue { color: #76bfe9 !important; }
 .resource-modal-backdrop .summary-workbench .value-pink { color: #e889a2 !important; }
-.resource-modal-backdrop .summary-workbench .value-purple { color: #abc2a6 !important; }
+.resource-modal-backdrop .summary-workbench .value-purple { color: var(--jb-text) !important; }
 .resource-modal-backdrop .summary-workbench .value-gray { color: #a8b2c2 !important; }
 
 @media (max-width: 760px) {
@@ -249,3 +249,19 @@
 .app-boot-timeout { display: grid; gap: 8px; padding: 28px 32px; border: 1px solid #8b6235; border-radius: 6px; background: #2b2b2b; color: #dedede; max-width: 520px; margin: 40px auto; }
 .app-boot-timeout h2 { margin: 0; color: #e5b567; font-size: 18px; }
 .app-boot-timeout p { margin: 0; color: #a9bdd2; line-height: 1.6; }
+
+
+/* Subtle motion: section fade-in on nav switch, dialog scale-in on open.
+   JetBrains New UI uses ~120ms ease-out for both. Respect reduced motion. */
+@keyframes ide-section-fade-in { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }
+@keyframes ide-modal-pop-in   { from { opacity: 0; transform: translateY(4px) scale(.98); } to { opacity: 1; transform: none; } }
+.ide-theme main > * { animation: ide-section-fade-in 140ms ease-out; }
+.ide-theme .modal-backdrop > .modal,
+.ide-theme .resource-modal-backdrop > .resource-modal,
+.ide-theme .app-confirm-backdrop > .app-confirm-dialog { animation: ide-modal-pop-in 140ms ease-out; transform-origin: 50% 40%; }
+@media (prefers-reduced-motion: reduce) {
+  .ide-theme main > *,
+  .ide-theme .modal-backdrop > .modal,
+  .ide-theme .resource-modal-backdrop > .resource-modal,
+  .ide-theme .app-confirm-backdrop > .app-confirm-dialog { animation: none; }
+}

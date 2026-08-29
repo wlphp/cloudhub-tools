@@ -1,4 +1,4 @@
-import { lazy, PointerEvent, startTransition, Suspense, type CSSProperties, useEffect, useRef, useState } from "react";
+import { PointerEvent, startTransition, Suspense, type CSSProperties, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import "@xterm/xterm/css/xterm.css";
 import {
@@ -23,15 +23,6 @@ import "./settings-compact.css";
 import "./terminal-workbench.css";
 import "./ide-theme.css";
 import { invoke, runningInTauri, webApi } from "./platform/api";
-import {
-  assetFavoriteKey,
-  stringListFromValue,
-  stringRecordFromValue,
-} from "./features/assets/preferences";
-import {
-  assetTypes as catalogAssetTypes,
-  emptyManagedHostDraft,
-} from "./features/cloud/catalog";
 import { useDomainTools } from "./features/domains/useDomainTools";
 import { AccountsPage } from "./features/accounts/AccountsPage";
 import { useAccounts } from "./features/accounts/useAccounts";
@@ -41,6 +32,40 @@ import { usePanels } from "./features/panels/usePanels";
 import { useLogWorkspace } from "./features/logs/useLogWorkspace";
 import { AppShell, type AppSection } from "./app/AppShell";
 import { useDesktopApp } from "./app/useDesktopApp";
+import {
+  AccountDialog,
+  ApiLogsPage,
+  AssetDetailDialog,
+  AssetSyncDialog,
+  AssetsPage,
+  DnsEditorDialog,
+  DomainToolDialog,
+  FavoritesPage,
+  ManagedHostDialog,
+  OperationLogsPage,
+  PageLoadingState,
+  PanelResourceMetrics,
+  PanelsPage,
+  ResourceDetailDialog,
+  SettingsPage,
+  SshClientDialog,
+  TerminalConnectDialog,
+  TerminalHostSidebar,
+  TerminalWorkspace,
+  assetFavoriteKey,
+  assetTypes,
+  bundledVersion,
+  cloudHubAssetDisplayNamesStorageKey,
+  cloudHubAssetNotesStorageKey,
+  cloudHubAssetOrderStorageKey,
+  cloudHubFavoriteAssetOrderStorageKey,
+  cloudHubFavoriteAssetsStorageKey,
+  cloudHubTerminalThemeStorageKey,
+  emptyManagedHost,
+  isDevelopmentBuild,
+  stringListFromValue,
+  stringRecordFromValue,
+} from "./app/appBootstrap";
 import { managedHostGroupOrderStorageKey, managedHostOrderStorageKey, useManagedHosts } from "./features/servers/useManagedHosts";
 import { terminalThemes, type TerminalThemeName } from "./features/servers/useSshTerminal";
 import { useTerminalWorkspaceController } from "./features/servers/useTerminalWorkspaceController";
@@ -58,48 +83,6 @@ import type {
   PanelConnection,
   PromptRequest,
 } from "./shared/types";
-
-const AccountDialog = lazy(() => import("./features/accounts/AccountDialog").then(({ AccountDialog }) => ({ default: AccountDialog })));
-const FavoritesPage = lazy(() => import("./features/assets/FavoritesPage").then(({ FavoritesPage }) => ({ default: FavoritesPage })));
-const AssetsPage = lazy(() => import("./features/assets/AssetsPage").then(({ AssetsPage }) => ({ default: AssetsPage })));
-const AssetDetailDialog = lazy(() => import("./features/assets/AssetDialogs").then(({ AssetDetailDialog }) => ({ default: AssetDetailDialog })));
-const AssetSyncDialog = lazy(() => import("./features/assets/AssetDialogs").then(({ AssetSyncDialog }) => ({ default: AssetSyncDialog })));
-const DomainToolDialog = lazy(() => import("./features/domains/DomainToolDialog").then(({ DomainToolDialog }) => ({ default: DomainToolDialog })));
-const DnsEditorDialog = lazy(() => import("./features/domains/DnsEditorDialog").then(({ DnsEditorDialog }) => ({ default: DnsEditorDialog })));
-const PanelsPage = lazy(() => import("./features/panels/PanelsPage").then(({ PanelsPage }) => ({ default: PanelsPage })));
-const PanelResourceMetrics = lazy(() => import("./features/panels/PanelResourceMetrics").then(({ PanelResourceMetrics }) => ({ default: PanelResourceMetrics })));
-const OperationLogsPage = lazy(() => import("./features/logs/LogsPages").then(({ OperationLogsPage }) => ({ default: OperationLogsPage })));
-const ApiLogsPage = lazy(() => import("./features/logs/LogsPages").then(({ ApiLogsPage }) => ({ default: ApiLogsPage })));
-const SettingsPage = lazy(() => import("./features/settings/SettingsPage").then(({ SettingsPage }) => ({ default: SettingsPage })));
-const ManagedHostDialog = lazy(() => import("./features/servers/ManagedHostDialog").then(({ ManagedHostDialog }) => ({ default: ManagedHostDialog })));
-const TerminalHostSidebar = lazy(() => import("./features/servers/TerminalHostSidebar").then(({ TerminalHostSidebar }) => ({ default: TerminalHostSidebar })));
-const TerminalConnectDialog = lazy(() => import("./features/servers/TerminalConnectDialog").then(({ TerminalConnectDialog }) => ({ default: TerminalConnectDialog })));
-const TerminalWorkspace = lazy(() => import("./features/servers/TerminalWorkspace").then(({ TerminalWorkspace }) => ({ default: TerminalWorkspace })));
-const SshClientDialog = lazy(() => import("./features/servers/SshClientDialog").then(({ SshClientDialog }) => ({ default: SshClientDialog })));
-const ResourceDetailDialog = lazy(() => import("./features/resources/ResourceDetailDialog").then(({ ResourceDetailDialog }) => ({ default: ResourceDetailDialog })));
-
-
-const cloudHubFavoriteAssetsStorageKey = "cloudhub-tools-favorite-assets";
-const cloudHubFavoriteAssetOrderStorageKey = "cloudhub-tools-favorite-asset-order";
-const cloudHubAssetNotesStorageKey = "cloudhub-tools-asset-notes";
-const cloudHubAssetOrderStorageKey = "cloudhub-tools-asset-order";
-const cloudHubAssetDisplayNamesStorageKey = "cloudhub-tools-asset-display-names";
-const cloudHubTerminalThemeStorageKey = "cloudhub-tools-terminal-theme";
-
-const emptyManagedHost = emptyManagedHostDraft;
-const assetTypes = catalogAssetTypes;
-
-const bundledVersion = "0.1.20";
-const isDevelopmentBuild = import.meta.env.DEV;
-
-function PageLoadingState() {
-  return <section className="page-loading-state" role="status" aria-live="polite" aria-label="正在载入页面">
-    <div className="page-loading-header"><span /><strong /></div>
-    <div className="page-loading-toolbar"><i /><i /><i /></div>
-    <div className="page-loading-table"><span /><span /><span /><span /><span /></div>
-  </section>;
-}
-
 function App({ onReady }: { onReady?: () => void } = {}) {
   const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
   const [promptRequest, setPromptRequest] = useState<PromptRequest | null>(null);

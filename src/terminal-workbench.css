@@ -12,7 +12,7 @@
 }
 
 .terminal-tab.active {
-  background: #163859;
+  background:#303b31;
   box-shadow: inset 0 -2px #56b8ec;
 }
 
@@ -547,5 +547,7 @@
     max-height: 260px;
   }
 }
+
+
 
 

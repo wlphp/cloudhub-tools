@@ -11,7 +11,7 @@
 .server-card:hover{border-color:#2a5688}
 .server-account-label{display:inline-flex;align-items:center;gap:7px;max-width:100%;margin-bottom:12px;padding:5px 10px 5px 6px;border-radius:18px;background:#102946;color:#9db8d2;font-size:12px}.server-account-label .avatar{width:24px;height:24px;flex:0 0 24px;border-radius:5px;font-size:11px}.server-account-label span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .server-header{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #1e3555;padding-bottom:12px;margin-bottom:14px}
-.server-display-name{min-width:0;overflow:hidden;border:0;background:transparent;color:var(--jb-text);cursor:text;font:600 16px inherit;text-align:left;text-overflow:ellipsis;white-space:nowrap}.server-display-name:hover{color:var(--jb-muted);text-decoration:underline;text-underline-offset:3px}.server-display-name-editor{min-width:0;width:min(360px,46vw);height:31px;border:1px solid var(--jb-border-strong);border-radius:5px;background:#202020;color:var(--jb-text);padding:0 8px;font:600 16px inherit;outline:0;box-shadow:0 0 0 2px #168cff24}
+.server-display-name{min-width:0;overflow:hidden;border:0;background:transparent;color:var(--jb-text);cursor:text;font:600 16px inherit;text-align:left;text-overflow:ellipsis;white-space:nowrap}.server-display-name:hover{color:var(--jb-muted);text-decoration:underline;text-underline-offset:3px}.server-display-name-editor{min-width:0;width:min(360px,46vw);height:31px;border:1px solid var(--jb-border-strong);border-radius:5px;background:#202020;color:var(--jb-text);padding:0 8px;font:600 16px inherit;outline:0;box-shadow:0 0 0 2px #6fa36d26}
 .server-status{padding:3px 10px;border-radius:12px;font-size:11px;border:1px solid var(--jb-border)}
 .status-running{background:#0a2e25;color:#63d7ad;border-color:#1a5e4a}.status-stopped{background:#3a2028;color:#ff6b6b;border-color:#69343b}.status-other{background:#3a2a1a;color:#ffb86b;border-color:#6e4f30}
 .server-info{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
@@ -32,5 +32,6 @@
 .server-reference .layui-btn-primary{background:var(--jb-surface);color:var(--jb-text);border:1px solid #1f3a5a}
 .server-reference .layui-btn-primary:hover{background:#173456;color:#fff}
 .force-reboot-toggle{color:var(--jb-muted)}
+
 
 
