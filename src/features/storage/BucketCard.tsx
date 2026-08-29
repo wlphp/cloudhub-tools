@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
-import { ArrowUp, CheckSquare, Copy, File, Folder, Home, Maximize2, Minimize2, RefreshCw, Search, Square, X } from "lucide-react";
+import { createPortal } from "react-dom";
+import { ArrowUp, Copy, File, Folder, HardDrive, Home, RefreshCw, Search, X } from "lucide-react";
 import { invoke, runningInTauri, webApi } from "../../platform/api";
 import type { Account } from "../../shared/types";
 import { displayValue } from "../../shared/utils/display";
 import { cloudProvider } from "../cloud/catalog";
+import "./oss-browser.css";
 
 function formatBytes(value: unknown): string {
   let bytes = Number(value || 0);
@@ -20,6 +22,17 @@ function formatCloudDate(value: unknown): string {
   if (!text || text === "-") return "-";
   const date = new Date(text.includes("T") ? text : text.replace(" ", "T"));
   return Number.isNaN(date.getTime()) ? text : date.toLocaleString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+function displayEtag(value: unknown): string {
+  const decoded = String(value || "")
+    .replace(/&quot;/gi, '"')
+    .replace(/&apos;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&amp;/gi, "&")
+    .trim();
+  return decoded.replace(/^"(.*)"$/, "$1") || "-";
 }
 
 type OssDetail = {
@@ -66,7 +79,6 @@ export function BucketCard({
 }) {
   const [objectListing, setObjectListing] = useState<OssObjectListing | null>(null);
   const [objectDialog, setObjectDialog] = useState<"files" | "stat" | null>(null);
-  const [objectDialogMaximized, setObjectDialogMaximized] = useState(false);
   const [objectPrefix, setObjectPrefix] = useState("");
   const [objectFilter, setObjectFilter] = useState("");
   const [selectedObjectKeys, setSelectedObjectKeys] = useState<Set<string>>(() => new Set());
@@ -278,44 +290,28 @@ export function BucketCard({
   }
   return (
     <article className="bucket-card">
-      <div className="bucket-header">
-        <strong>🪣 {displayValue(item.Name)}</strong>
+      <header className="bucket-header">
+        <div className="bucket-identity">
+          <HardDrive size={17} aria-hidden="true" />
+          <h3 title={displayValue(item.Name)}>{displayValue(item.Name)}</h3>
+        </div>
         <span className="bucket-acl">{acl === "public-read-write" ? "公共读写" : acl === "public-read" ? "公共读" : "私有"}</span>
-      </div>
-      <div className="bucket-info">
-        <div>
-          <span>存储桶名称：</span>
-          {displayValue(item.Name)}
-        </div>
-        <div>
-          <span>地域：</span>
-          {displayValue(item.Location)}
-        </div>
-        <div>
-          <span>创建时间：</span>
-          {displayValue(item.CreationDate)}
-        </div>
-        <div>
-          <span>存储类型：</span>
-          {storageClassNames[String(item.StorageClass || "Standard")] || displayValue(item.StorageClass)}
-        </div>
-        <div>
-          <span>外网域名：</span>
-          {endpoint}
-        </div>
-        <div>
-          <span>内网域名：</span>
-          {intranetEndpoint}
-        </div>
-      </div>
+      </header>
+      <dl className="bucket-info">
+        <div><dt>地域</dt><dd>{displayValue(item.Location)}</dd></div>
+        <div><dt>存储类型</dt><dd>{storageClassNames[String(item.StorageClass || "Standard")] || displayValue(item.StorageClass)}</dd></div>
+        <div><dt>创建时间</dt><dd>{displayValue(item.CreationDate)}</dd></div>
+        <div className="bucket-endpoint"><dt>外网端点</dt><dd><code title={endpoint}>{endpoint}</code></dd></div>
+        <div className="bucket-endpoint"><dt>内网端点</dt><dd><code title={intranetEndpoint}>{intranetEndpoint}</code></dd></div>
+      </dl>
       <div className="bucket-detail-box">
         {isReadOnlyBucketProvider ? <span>{cloudProvider(account.cloud_type).label}当前仅同步存储桶清单。</span> : detailLoading ? <span className="bucket-detail-loading"><RefreshCw className="spin" size={13} /> 正在读取存储桶详情…</span> : <>
-          <span>存储容量：{formatBytes(detail?.storage)}</span>
-          <span>文件数量：{detail?.objectCount || 0} 个</span>
-          <span>当月流量：{formatBytes(detail?.monthTraffic)}</span>
-          <span>当月请求：{detail?.monthRequests || 0} 次</span>
-          <span>自定义域名：{detail?.cnames?.length ? detail.cnames.map((cname) => <button className="bucket-cname" key={cname.Domain} title="删除此自定义域名" onClick={() => void deleteCname(cname.Domain)}>{cname.Domain}<X size={12} /></button>) : "未绑定"}</span>
-          <span>CORS 配置：{detail?.cors?.length ? detail.cors.map((rule, index) => <i className="bucket-cors" key={index} title={`来源：${rule.origin.join(", ")}\n方法：${rule.method.join(", ")}\nHeader：${rule.header.join(", ")}`}>{rule.origin.join(", ") || "*"}</i>) : "未配置"}</span>
+          <div className="bucket-metric"><span>存储容量</span><strong>{formatBytes(detail?.storage)}</strong></div>
+          <div className="bucket-metric"><span>文件数量</span><strong>{detail?.objectCount || 0} 个</strong></div>
+          <div className="bucket-metric"><span>当月流量</span><strong>{formatBytes(detail?.monthTraffic)}</strong></div>
+          <div className="bucket-metric"><span>当月请求</span><strong>{detail?.monthRequests || 0} 次</strong></div>
+          <div className="bucket-config"><span>自定义域名</span><strong>{detail?.cnames?.length ? detail.cnames.map((cname) => <button className="bucket-cname" key={cname.Domain} title="删除此自定义域名" onClick={() => void deleteCname(cname.Domain)}>{cname.Domain}<X size={12} /></button>) : "未绑定"}</strong></div>
+          <div className="bucket-config"><span>CORS 配置</span><strong>{detail?.cors?.length ? detail.cors.map((rule, index) => <i className="bucket-cors" key={index} title={`来源：${rule.origin.join(", ")}\n方法：${rule.method.join(", ")}\nHeader：${rule.header.join(", ")}`}>{rule.origin.join(", ") || "*"}</i>) : "未配置"}</strong></div>
         </>}
       </div>
       {!isVolcengine && !isCtyun && <div className="bucket-actions">
@@ -342,52 +338,43 @@ export function BucketCard({
       </div>}
       {notice && <div className="bucket-notice">{notice}</div>}
       {error && <div className="bucket-inline-error">{error}</div>}
-      {objectDialog && (
-        <div className="resource-modal-backdrop nested-resource-modal" onClick={() => { setObjectDialog(null); setObjectDialogMaximized(false); }}>
-          <section className={`detail-panel resource-modal oss-object-dialog${objectDialogMaximized ? " is-maximized" : ""}`} onClick={(event) => event.stopPropagation()}>
-            <div className="detail-toolbar">
+      {objectDialog && createPortal(
+        <div className="resource-modal-backdrop nested-resource-modal" onClick={() => setObjectDialog(null)}>
+          <section className={`detail-panel resource-modal oss-object-dialog${objectDialog === "files" ? " oss-file-dialog" : " oss-stat-dialog"}`} onClick={(event) => event.stopPropagation()}>
+            <div className={`detail-toolbar${objectDialog === "files" ? " oss-file-dialog-header" : ""}`}>
               <div><span className="eyebrow">{bucketName}</span><h2>{objectDialog === "files" ? "文件列表" : "容量统计"}</h2></div>
               <div className="detail-toolbar-actions">
-                <button
-                  className="secondary"
-                  title={objectDialogMaximized ? "还原窗口" : "放大到全屏"}
-                  onClick={() => setObjectDialogMaximized((value) => !value)}
-                >
-                  {objectDialogMaximized ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
-                  {objectDialogMaximized ? "还原" : "放大"}
-                </button>
-                <button className="close-detail" onClick={() => { setObjectDialog(null); setObjectDialogMaximized(false); }}><X size={20} /></button>
+                <button type="button" className="close-detail" title="关闭" aria-label="关闭" onClick={() => setObjectDialog(null)}><X size={20} /></button>
               </div>
             </div>
             {error && <div className="error-list">{error}</div>}
             {objectDialog === "stat" ? (
               <div className="oss-stat-grid">
-                <div><span>存储桶</span><strong>{bucketName}</strong></div>
-                <div><span>文件数量</span><strong>{detail?.objectCount || 0} 个</strong></div>
-                <div><span>存储容量</span><strong>{formatBytes(detail?.storage)}</strong></div>
-                <div><span>分片数量</span><strong>{detail?.multipartUploadCount || 0} 个</strong></div>
-                <div><span>活跃直播通道</span><strong>{detail?.liveChannelCount || 0} 个</strong></div>
+                <div className="oss-stat-bucket"><span>存储桶</span><strong title={bucketName}>{bucketName}</strong></div>
+                <div className="oss-stat-metric"><span>文件数量</span><strong>{detail?.objectCount || 0}<small>个</small></strong></div>
+                <div className="oss-stat-metric"><span>存储容量</span><strong>{formatBytes(detail?.storage)}</strong></div>
+                <div className="oss-stat-metric"><span>分片数量</span><strong>{detail?.multipartUploadCount || 0}<small>个</small></strong></div>
+                <div className="oss-stat-metric"><span>活跃直播通道</span><strong>{detail?.liveChannelCount || 0}<small>个</small></strong></div>
               </div>
             ) : (
               <div className="oss-browser">
                 <div className="oss-browser-pathbar">
                   <div className="oss-browser-nav" aria-label="目录导航">
-                    <button title="向上一级" disabled={!objectPrefix || objectsLoading} onClick={() => void loadObjects("files", parentPrefix)}><ArrowUp size={16} /></button>
-                    <button title="返回存储桶根目录" disabled={!objectPrefix || objectsLoading} onClick={() => void loadObjects("files", "")}><Home size={16} /></button>
-                    <button title="刷新当前目录" disabled={objectsLoading} onClick={() => void loadObjects("files", objectPrefix)}><RefreshCw className={objectsLoading ? "spin" : undefined} size={16} /></button>
+                    <button type="button" title="向上一级" aria-label="向上一级目录" disabled={!objectPrefix || objectsLoading} onClick={() => void loadObjects("files", parentPrefix)}><ArrowUp size={16} /></button>
+                    <button type="button" title="返回存储桶根目录" aria-label="返回存储桶根目录" disabled={!objectPrefix || objectsLoading} onClick={() => void loadObjects("files", "")}><Home size={16} /></button>
+                    <button type="button" title="刷新当前目录" aria-label="刷新当前目录" disabled={objectsLoading} onClick={() => void loadObjects("files", objectPrefix)}><RefreshCw className={objectsLoading ? "spin" : undefined} size={16} /></button>
                   </div>
-                  <div className="oss-browser-address" title={`oss://${bucketName}/${objectPrefix}`}><span>oss://{bucketName}/</span>{pathSegments.map((segment, index) => <button key={`${segment}-${index}`} onClick={() => void loadObjects("files", `${pathSegments.slice(0, index + 1).join("/")}/`)}>{segment}/</button>)}</div>
-                  <label className="oss-browser-search"><Search size={15} /><input value={objectFilter} onChange={(event) => setObjectFilter(event.target.value)} placeholder="按名称筛选" /></label>
+                  <div className="oss-browser-address" title={`oss://${bucketName}/${objectPrefix}`}><span>oss://{bucketName}/</span>{pathSegments.map((segment, index) => <button type="button" key={`${segment}-${index}`} onClick={() => void loadObjects("files", `${pathSegments.slice(0, index + 1).join("/")}/`)}>{segment}/</button>)}</div>
+                  <label className="oss-browser-search"><Search size={15} aria-hidden="true" /><input aria-label="按名称筛选对象" value={objectFilter} onChange={(event) => setObjectFilter(event.target.value)} placeholder="按名称筛选" /></label>
                 </div>
                 <div className="oss-browser-actions">
-                  <button className="oss-browser-command" disabled={!selectedObjectKeys.size} onClick={() => void copyObjectPaths()}><Copy size={15} />复制路径{selectedObjectKeys.size ? ` (${selectedObjectKeys.size})` : ""}</button>
-                  <button className="oss-browser-icon" title={allVisibleSelected ? "取消全选" : "全选当前目录"} disabled={!selectableKeys.length} onClick={toggleAllVisibleObjects}>{allVisibleSelected ? <CheckSquare size={17} /> : <Square size={17} />}</button>
-                  <span>{objectListing ? `${folderRows.length} 个目录，${fileRows.length} 个文件` : "正在读取目录..."}</span>
+                  <button type="button" className="oss-browser-command" disabled={!selectedObjectKeys.size} onClick={() => void copyObjectPaths()}><Copy size={15} />复制路径{selectedObjectKeys.size ? ` (${selectedObjectKeys.size})` : ""}</button>
+                  <span className="oss-browser-summary">{objectListing ? `${folderRows.length} 个目录 · ${fileRows.length} 个文件` : "正在读取目录..."}</span>
                 </div>
                 <div className="resource-table-wrap oss-object-table">
                   {objectsLoading && !objectListing ? <div className="detail-empty"><RefreshCw className="spin" size={17} />正在读取目录...</div> : folderRows.length || fileRows.length ? <table><thead><tr><th className="oss-object-check"><input aria-label="全选" type="checkbox" checked={allVisibleSelected} onChange={toggleAllVisibleObjects} /></th><th>名称</th><th>类型 / 大小</th><th>最后修改时间</th><th>ETag</th></tr></thead><tbody>
-                    {folderRows.map((folder) => <tr className="oss-folder-row" key={folder.key}><td className="oss-object-check"><input aria-label={`选择目录 ${folder.name}`} type="checkbox" checked={selectedObjectKeys.has(folder.key)} onChange={() => toggleObjectSelection(folder.key)} /></td><td><button className="oss-object-name" title={`打开 ${folder.name}`} onClick={() => void loadObjects("files", folder.prefix)}><Folder size={17} />{folder.name}</button></td><td><span className="oss-object-kind">目录</span></td><td>-</td><td>-</td></tr>)}
-                    {fileRows.map((object) => <tr key={object.Key}><td className="oss-object-check"><input aria-label={`选择文件 ${object.name}`} type="checkbox" checked={selectedObjectKeys.has(object.Key)} onChange={() => toggleObjectSelection(object.Key)} /></td><td><span className="oss-object-file"><File size={16} />{object.name}</span></td><td>{formatBytes(object.Size)}</td><td>{formatCloudDate(object.LastModified)}</td><td><code title={object.ETag}>{object.ETag || "-"}</code></td></tr>)}
+                    {folderRows.map((folder) => <tr className="oss-folder-row" key={folder.key}><td className="oss-object-check"><input aria-label={`选择目录 ${folder.name}`} type="checkbox" checked={selectedObjectKeys.has(folder.key)} onChange={() => toggleObjectSelection(folder.key)} /></td><td><button type="button" className="oss-object-name" title={`打开 ${folder.name}`} onClick={() => void loadObjects("files", folder.prefix)}><Folder size={17} />{folder.name}</button></td><td><span className="oss-object-kind">目录</span></td><td>-</td><td>-</td></tr>)}
+                    {fileRows.map((object) => { const etag = displayEtag(object.ETag); return <tr key={object.Key}><td className="oss-object-check"><input aria-label={`选择文件 ${object.name}`} type="checkbox" checked={selectedObjectKeys.has(object.Key)} onChange={() => toggleObjectSelection(object.Key)} /></td><td><span className="oss-object-file"><File size={16} />{object.name}</span></td><td>{formatBytes(object.Size)}</td><td>{formatCloudDate(object.LastModified)}</td><td><code title={etag}>{etag}</code></td></tr>; })}
                   </tbody></table> : <div className="detail-empty">{error || (objectFilter ? "没有符合筛选条件的对象" : "此目录暂无对象")}</div>}
                   {objectListing?.isTruncated && objectListing.nextMarker && <div className="oss-browser-more"><button className="secondary" disabled={objectsLoading} onClick={() => void loadObjects("files", objectPrefix, objectListing.nextMarker)}>{objectsLoading ? "读取中..." : "加载更多"}</button></div>}
                 </div>
@@ -395,8 +382,8 @@ export function BucketCard({
             )}
           </section>
         </div>
-      )}
-      {cnameDialog && (
+      , document.body)}
+      {cnameDialog && createPortal(
         <div className="resource-modal-backdrop nested-resource-modal" onClick={() => setCnameDialog(false)}>
           <section className="detail-panel resource-modal oss-cname-dialog" onClick={(event) => event.stopPropagation()}>
             <div className="detail-toolbar"><div><span className="eyebrow">{bucketName}</span><h2>添加自定义域名</h2></div><button className="close-detail" onClick={() => setCnameDialog(false)}><X size={20} /></button></div>
@@ -406,7 +393,7 @@ export function BucketCard({
             <div className="oss-cname-actions"><button className="layui-btn layui-btn-primary" disabled={!cnameValue || cnameLoading} onClick={() => void createCnameToken()}>{cnameLoading ? "处理中…" : "获取验证 Token"}</button><button className="layui-btn" disabled={!cnameValue || cnameLoading} onClick={() => void bindCname()}>绑定域名</button></div>
           </section>
         </div>
-      )}
+      , document.body)}
     </article>
   );
 }
