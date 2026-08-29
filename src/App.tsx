@@ -1,8 +1,7 @@
-import { PointerEvent, startTransition, Suspense, type CSSProperties, useEffect, useRef, useState } from "react";
+import { lazy, PointerEvent, startTransition, Suspense, type CSSProperties, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import "@xterm/xterm/css/xterm.css";
 import {
-  AlertTriangle,
   ChevronDown,
   Download,
   Monitor,
@@ -23,6 +22,17 @@ import "./settings-compact.css";
 import "./terminal-workbench.css";
 import "./ide-theme.css";
 import { invoke, runningInTauri, webApi } from "./platform/api";
+import { ConfirmDialog, PromptDialog, useConfirm } from "./app/useConfirm";
+import { useToast } from "./app/useToast";
+import {
+  assetFavoriteKey,
+  stringListFromValue,
+  stringRecordFromValue,
+} from "./features/assets/preferences";
+import {
+  assetTypes as catalogAssetTypes,
+  emptyManagedHostDraft,
+} from "./features/cloud/catalog";
 import { useDomainTools } from "./features/domains/useDomainTools";
 import { AccountsPage } from "./features/accounts/AccountsPage";
 import { useAccounts } from "./features/accounts/useAccounts";
@@ -32,40 +42,6 @@ import { usePanels } from "./features/panels/usePanels";
 import { useLogWorkspace } from "./features/logs/useLogWorkspace";
 import { AppShell, type AppSection } from "./app/AppShell";
 import { useDesktopApp } from "./app/useDesktopApp";
-import {
-  AccountDialog,
-  ApiLogsPage,
-  AssetDetailDialog,
-  AssetSyncDialog,
-  AssetsPage,
-  DnsEditorDialog,
-  DomainToolDialog,
-  FavoritesPage,
-  ManagedHostDialog,
-  OperationLogsPage,
-  PageLoadingState,
-  PanelResourceMetrics,
-  PanelsPage,
-  ResourceDetailDialog,
-  SettingsPage,
-  SshClientDialog,
-  TerminalConnectDialog,
-  TerminalHostSidebar,
-  TerminalWorkspace,
-  assetFavoriteKey,
-  assetTypes,
-  bundledVersion,
-  cloudHubAssetDisplayNamesStorageKey,
-  cloudHubAssetNotesStorageKey,
-  cloudHubAssetOrderStorageKey,
-  cloudHubFavoriteAssetOrderStorageKey,
-  cloudHubFavoriteAssetsStorageKey,
-  cloudHubTerminalThemeStorageKey,
-  emptyManagedHost,
-  isDevelopmentBuild,
-  stringListFromValue,
-  stringRecordFromValue,
-} from "./app/appBootstrap";
 import { managedHostGroupOrderStorageKey, managedHostOrderStorageKey, useManagedHosts } from "./features/servers/useManagedHosts";
 import { terminalThemes, type TerminalThemeName } from "./features/servers/useSshTerminal";
 import { useTerminalWorkspaceController } from "./features/servers/useTerminalWorkspaceController";
@@ -76,18 +52,56 @@ import { cloudStatusText, columnLabel, remotePlatformFromPayload } from "./featu
 import { hiddenPanelAddress, panelAddress } from "./features/panels/panelMetrics";
 import type {
   Account,
-  ConfirmRequest,
   DomainTool,
   LocalAsset,
   ManagedHost,
   PanelConnection,
-  PromptRequest,
 } from "./shared/types";
+
+const AccountDialog = lazy(() => import("./features/accounts/AccountDialog").then(({ AccountDialog }) => ({ default: AccountDialog })));
+const FavoritesPage = lazy(() => import("./features/assets/FavoritesPage").then(({ FavoritesPage }) => ({ default: FavoritesPage })));
+const AssetsPage = lazy(() => import("./features/assets/AssetsPage").then(({ AssetsPage }) => ({ default: AssetsPage })));
+const AssetDetailDialog = lazy(() => import("./features/assets/AssetDialogs").then(({ AssetDetailDialog }) => ({ default: AssetDetailDialog })));
+const AssetSyncDialog = lazy(() => import("./features/assets/AssetDialogs").then(({ AssetSyncDialog }) => ({ default: AssetSyncDialog })));
+const DomainToolDialog = lazy(() => import("./features/domains/DomainToolDialog").then(({ DomainToolDialog }) => ({ default: DomainToolDialog })));
+const DnsEditorDialog = lazy(() => import("./features/domains/DnsEditorDialog").then(({ DnsEditorDialog }) => ({ default: DnsEditorDialog })));
+const PanelsPage = lazy(() => import("./features/panels/PanelsPage").then(({ PanelsPage }) => ({ default: PanelsPage })));
+const PanelResourceMetrics = lazy(() => import("./features/panels/PanelResourceMetrics").then(({ PanelResourceMetrics }) => ({ default: PanelResourceMetrics })));
+const OperationLogsPage = lazy(() => import("./features/logs/LogsPages").then(({ OperationLogsPage }) => ({ default: OperationLogsPage })));
+const ApiLogsPage = lazy(() => import("./features/logs/LogsPages").then(({ ApiLogsPage }) => ({ default: ApiLogsPage })));
+const SettingsPage = lazy(() => import("./features/settings/SettingsPage").then(({ SettingsPage }) => ({ default: SettingsPage })));
+const ManagedHostDialog = lazy(() => import("./features/servers/ManagedHostDialog").then(({ ManagedHostDialog }) => ({ default: ManagedHostDialog })));
+const TerminalHostSidebar = lazy(() => import("./features/servers/TerminalHostSidebar").then(({ TerminalHostSidebar }) => ({ default: TerminalHostSidebar })));
+const TerminalConnectDialog = lazy(() => import("./features/servers/TerminalConnectDialog").then(({ TerminalConnectDialog }) => ({ default: TerminalConnectDialog })));
+const TerminalWorkspace = lazy(() => import("./features/servers/TerminalWorkspace").then(({ TerminalWorkspace }) => ({ default: TerminalWorkspace })));
+const SshClientDialog = lazy(() => import("./features/servers/SshClientDialog").then(({ SshClientDialog }) => ({ default: SshClientDialog })));
+const ResourceDetailDialog = lazy(() => import("./features/resources/ResourceDetailDialog").then(({ ResourceDetailDialog }) => ({ default: ResourceDetailDialog })));
+
+
+const cloudHubFavoriteAssetsStorageKey = "cloudhub-tools-favorite-assets";
+const cloudHubFavoriteAssetOrderStorageKey = "cloudhub-tools-favorite-asset-order";
+const cloudHubAssetNotesStorageKey = "cloudhub-tools-asset-notes";
+const cloudHubAssetOrderStorageKey = "cloudhub-tools-asset-order";
+const cloudHubAssetDisplayNamesStorageKey = "cloudhub-tools-asset-display-names";
+const cloudHubTerminalThemeStorageKey = "cloudhub-tools-terminal-theme";
+
+const emptyManagedHost = emptyManagedHostDraft;
+const assetTypes = catalogAssetTypes;
+
+const bundledVersion = "0.1.20";
+const isDevelopmentBuild = import.meta.env.DEV;
+
+function PageLoadingState() {
+  return <section className="page-loading-state" role="status" aria-live="polite" aria-label="正在载入页面">
+    <div className="page-loading-header"><span /><strong /></div>
+    <div className="page-loading-toolbar"><i /><i /><i /></div>
+    <div className="page-loading-table"><span /><span /><span /><span /><span /></div>
+  </section>;
+}
+
 function App({ onReady }: { onReady?: () => void } = {}) {
-  const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
-  const [promptRequest, setPromptRequest] = useState<PromptRequest | null>(null);
-  const [promptValue, setPromptValue] = useState("");
-  const [status, setStatus] = useState("");
+  const { confirm: requestConfirm, prompt: requestPrompt, confirmRequest, promptRequest, promptValue, setPromptValue, resolveConfirm, resolvePrompt } = useConfirm();
+  const { message: status, notify: setStatus } = useToast();
   const [ossQuickTool, setOssQuickTool] = useState<{
     accountId: number;
     bucket: string;
@@ -119,9 +133,6 @@ function App({ onReady }: { onReady?: () => void } = {}) {
     installUpdate,
   } = useDesktopApp({ bundledVersion, notify: setStatus });
 
-  function requestConfirm(message: string, options: Pick<ConfirmRequest, "tone" | "title" | "confirmLabel"> = {}) {
-    return new Promise<boolean>((resolve) => setConfirmRequest({ message, resolve, ...options }));
-  }
   const {
     connections: panelConnections,
     dialogOpen: panelDialog,
@@ -384,18 +395,6 @@ function App({ onReady }: { onReady?: () => void } = {}) {
       setSection("resources");
     },
   });
-  function resolveConfirm(confirmed: boolean) {
-    confirmRequest?.resolve(confirmed);
-    setConfirmRequest(null);
-  }
-  function requestPrompt(message: string, initialValue = "") {
-    setPromptValue(initialValue);
-    return new Promise<string | null>((resolve) => setPromptRequest({ message, resolve }));
-  }
-  function resolvePrompt(value: string | null) {
-    promptRequest?.resolve(value);
-    setPromptRequest(null);
-  }
   const {
     selectedHostId: terminalSelectedHostId,
     setSelectedHostId: setTerminalSelectedHostId,
@@ -478,17 +477,6 @@ function App({ onReady }: { onReady?: () => void } = {}) {
     requestConfirm,
     requestPrompt,
   });
-  useEffect(() => {
-    if (!confirmRequest && !promptRequest) return;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      if (confirmRequest) resolveConfirm(false);
-      else resolvePrompt(null);
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [confirmRequest, promptRequest]);
 
 
   async function loadLocalAssets() {
@@ -638,7 +626,6 @@ function App({ onReady }: { onReady?: () => void } = {}) {
   useEffect(() => { const value = JSON.stringify(managedHostOrder); localStorage.setItem(managedHostOrderStorageKey, value); saveClientPreference(managedHostOrderStorageKey, value); }, [managedHostOrder, clientPreferencesReady]);
   useEffect(() => { const value = JSON.stringify(managedHostGroupOrder); localStorage.setItem(managedHostGroupOrderStorageKey, value); saveClientPreference(managedHostGroupOrderStorageKey, value); }, [managedHostGroupOrder, clientPreferencesReady]);
   useEffect(() => { localStorage.setItem(cloudHubTerminalThemeStorageKey, terminalThemeName); saveClientPreference(cloudHubTerminalThemeStorageKey, terminalThemeName); }, [terminalThemeName, clientPreferencesReady]);
-  useEffect(() => { if (!status) return; const timer = window.setTimeout(() => setStatus(""), 2600); return () => window.clearTimeout(timer); }, [status]);
   async function openOssQuickTool(account: Account, asset: LocalAsset, kind: "files" | "stat") {
     const bucket = String(asset.payload?.Name || asset.asset_key || "").trim();
     if (!bucket) { setStatus("对象存储资产缺少存储桶名称"); return; }
@@ -1214,26 +1201,8 @@ function App({ onReady }: { onReady?: () => void } = {}) {
         onToggleSecret={() => void toggleAccountSecretVisibility()}
         onVerify={() => void verifyCloudAccount()}
       /></Suspense>}
-      {confirmRequest && createPortal(
-        <div className="app-confirm-backdrop" onClick={() => resolveConfirm(false)}>
-          <section className={`app-confirm-dialog${confirmRequest.tone === "danger" ? " is-danger" : ""}`} role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-message" onClick={(event) => event.stopPropagation()}>
-            <div className="app-confirm-icon"><AlertTriangle size={20} aria-hidden="true" /></div>
-            <div className="app-confirm-copy"><span className="eyebrow">{confirmRequest.tone === "danger" ? "危险操作" : "确认操作"}</span><h2 id="confirm-title">{confirmRequest.title ?? "确认操作"}</h2><p id="confirm-message">{confirmRequest.message}</p></div>
-            <div className="app-confirm-actions"><button type="button" className="secondary" autoFocus onClick={() => resolveConfirm(false)}>取消</button><button type="button" className={`primary app-confirm-primary${confirmRequest.tone === "danger" ? " app-confirm-danger" : ""}`} onClick={() => resolveConfirm(true)}>{confirmRequest.confirmLabel ?? "确认"}</button></div>
-          </section>
-        </div>,
-        document.body,
-      )}
-      {promptRequest && createPortal(
-        <div className="app-confirm-backdrop" onClick={() => resolvePrompt(null)}>
-          <form className="app-confirm-dialog app-prompt-dialog" role="dialog" aria-modal="true" aria-labelledby="prompt-title" aria-describedby="prompt-message" onSubmit={(event) => { event.preventDefault(); resolvePrompt(promptValue); }} onClick={(event) => event.stopPropagation()}>
-            <div className="app-confirm-icon"><AlertTriangle size={20} /></div>
-            <div className="app-confirm-copy"><span className="eyebrow">INPUT REQUIRED</span><h2 id="prompt-title">请输入内容</h2><p id="prompt-message">{promptRequest.message}</p><input aria-label="需要输入的内容" value={promptValue} autoFocus onChange={(event) => setPromptValue(event.target.value)} /></div>
-            <div className="app-confirm-actions"><button type="button" className="secondary" onClick={() => resolvePrompt(null)}>取消</button><button type="submit" className="primary app-confirm-primary">确定</button></div>
-          </form>
-        </div>,
-        document.body,
-      )}
+      <ConfirmDialog request={confirmRequest} onResolve={resolveConfirm} />
+      <PromptDialog request={promptRequest} value={promptValue} onValueChange={setPromptValue} onResolve={resolvePrompt} />
     </AppShell>
   );
 }
