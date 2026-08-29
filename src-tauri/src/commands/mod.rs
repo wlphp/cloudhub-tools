@@ -1,1 +1,16 @@
 pub mod accounts;
+pub mod assets;
+pub mod cloud_assets;
+pub mod domains;
+pub mod light_firewall;
+pub mod instances;
+pub mod logs;
+pub mod managed_hosts;
+pub mod panels;
+pub mod preferences;
+pub mod resource_details;
+pub mod resource_overview;
+pub mod security_groups;
+pub mod ssh_files;
+pub mod ssh_connection;
+pub mod system;
