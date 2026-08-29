@@ -219,6 +219,9 @@ export type SshConnectResult = {
 export type ConfirmRequest = {
   message: string;
   resolve: (confirmed: boolean) => void;
+  tone?: "danger";
+  title?: string;
+  confirmLabel?: string;
 };
 
 export type PromptRequest = {
