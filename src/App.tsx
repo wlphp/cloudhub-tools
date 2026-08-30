@@ -529,7 +529,6 @@ function App({ onReady }: { onReady?: () => void } = {}) {
     const finish = () => {
       window.removeEventListener("pointermove", resize);
       document.body.classList.remove("pane-resizing");
-      setAppSidebarWidth((width) => { localStorage.setItem("cloudhub-app-sidebar-width", String(width)); return width; });
     };
     document.body.classList.add("pane-resizing");
     window.addEventListener("pointermove", resize);
@@ -562,7 +561,6 @@ function App({ onReady }: { onReady?: () => void } = {}) {
     const finish = () => {
       window.removeEventListener("pointermove", resize);
       document.body.classList.remove("pane-resizing");
-      setTerminalHostSidebarWidth((width) => { localStorage.setItem("cloudhub-terminal-host-sidebar-width", String(width)); return width; });
     };
     document.body.classList.add("pane-resizing");
     window.addEventListener("pointermove", resize);

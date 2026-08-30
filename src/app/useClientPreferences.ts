@@ -73,6 +73,16 @@ export function useClientPreferences(): ClientPreferences {
     saveClientPreference(compactModeStorageKey, value);
   }, [compactMode, clientPreferencesReady]);
 
+  useEffect(() => {
+    localStorage.setItem(appSidebarWidthStorageKey, String(appSidebarWidth));
+    saveClientPreference(appSidebarWidthStorageKey, String(appSidebarWidth));
+  }, [appSidebarWidth, clientPreferencesReady]);
+
+  useEffect(() => {
+    localStorage.setItem(terminalHostSidebarWidthStorageKey, String(terminalHostSidebarWidth));
+    saveClientPreference(terminalHostSidebarWidthStorageKey, String(terminalHostSidebarWidth));
+  }, [terminalHostSidebarWidth, clientPreferencesReady]);
+
   return {
     autoRefresh,
     setAutoRefresh,
