@@ -23,6 +23,7 @@ import "./terminal-workbench.css";
 import "./ide-theme.css";
 import { invoke, runningInTauri, webApi } from "./platform/api";
 import { ConfirmDialog, PromptDialog, useConfirm } from "./app/useConfirm";
+import { useClientPreferences } from "./app/useClientPreferences";
 import { useToast } from "./app/useToast";
 import {
   assetFavoriteKey,
@@ -100,13 +101,16 @@ function App({ onReady }: { onReady?: () => void } = {}) {
   } | null>(null);
   const [section, setSection] = useState<AppSection>("accounts");
   const [localAssets, setLocalAssets] = useState<LocalAsset[]>([]);
-  const [clientPreferencesReady, setClientPreferencesReady] = useState(!runningInTauri);
   const [assetDetail, setAssetDetail] = useState<{ asset: LocalAsset; account: Account } | null>(null);
-  const [autoRefresh, setAutoRefresh] = useState(() => localStorage.getItem("aliyun-auto-refresh") !== "0");
-  const [compactMode, setCompactMode] = useState(() => localStorage.getItem("aliyun-compact-mode") === "1");
-  const [pageSize, setPageSize] = useState(() => { const value = Number(localStorage.getItem("aliyun-page-size") || "10"); return [10, 20, 50, 100].includes(value) ? value : 10; });
-  const [appSidebarWidth, setAppSidebarWidth] = useState(() => Math.min(340, Math.max(190, Number(localStorage.getItem("cloudhub-app-sidebar-width") || "235"))));
-  const [terminalHostSidebarWidth, setTerminalHostSidebarWidth] = useState(() => Math.min(420, Math.max(190, Number(localStorage.getItem("cloudhub-terminal-host-sidebar-width") || "250"))));
+  const {
+    autoRefresh, setAutoRefresh,
+    compactMode, setCompactMode,
+    pageSize, setPageSize,
+    appSidebarWidth, setAppSidebarWidth,
+    terminalHostSidebarWidth, setTerminalHostSidebarWidth,
+    clientPreferencesReady, setClientPreferencesReady,
+    saveClientPreference,
+  } = useClientPreferences();
   const appShellRef = useRef<HTMLDivElement | null>(null);
   const onReadyRef = useRef(onReady);
   onReadyRef.current = onReady;
@@ -608,11 +612,6 @@ function App({ onReady }: { onReady?: () => void } = {}) {
     }).catch(() => {}).finally(() => { if (!cancelled) setClientPreferencesReady(true); });
     return () => { cancelled = true; };
   }, []);
-  function saveClientPreference(key: string, value: string) {
-    if (runningInTauri && clientPreferencesReady) void invoke("save_client_preference", { key, value }).catch(() => {});
-  }
-  useEffect(() => { const value = autoRefresh ? "1" : "0"; localStorage.setItem("aliyun-auto-refresh", value); saveClientPreference("aliyun-auto-refresh", value); }, [autoRefresh, clientPreferencesReady]);
-  useEffect(() => { const value = compactMode ? "1" : "0"; localStorage.setItem("aliyun-compact-mode", value); document.documentElement.classList.toggle("compact-mode", compactMode); saveClientPreference("aliyun-compact-mode", value); }, [compactMode, clientPreferencesReady]);
   useEffect(() => { const value = String(pageSize); localStorage.setItem("aliyun-page-size", value); saveClientPreference("aliyun-page-size", value); setAccountPage(1); setAssetPage(1); setFavoritePage(1); setLogPage(1); setApiLogPage(1); }, [pageSize, clientPreferencesReady]);
   useEffect(() => { const value = JSON.stringify(managedHostOrder); localStorage.setItem(managedHostOrderStorageKey, value); saveClientPreference(managedHostOrderStorageKey, value); }, [managedHostOrder, clientPreferencesReady]);
   useEffect(() => { const value = JSON.stringify(managedHostGroupOrder); localStorage.setItem(managedHostGroupOrderStorageKey, value); saveClientPreference(managedHostGroupOrderStorageKey, value); }, [managedHostGroupOrder, clientPreferencesReady]);
