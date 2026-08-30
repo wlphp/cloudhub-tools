@@ -33,7 +33,7 @@
 }
 
 /* Shared controls */
-.ide-theme :where(input, select, textarea) {
+.ide-theme :where(input, select, textarea) { accent-color: var(--jb-accent) !important;
   border: 1px solid var(--jb-border-strong) !important;
   border-radius: 3px !important;
   background: var(--jb-input) !important;
@@ -548,3 +548,4 @@
   min-height: 36px;
   background: var(--jb-surface);
 }
+

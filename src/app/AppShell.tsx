@@ -87,7 +87,7 @@ export function AppShell({
         </div>
       </div>
       <aside style={{ flexBasis: sidebarWidth, width: sidebarWidth }}>
-        <div className="brand"><div className="brand-mark"><img src="/cloudhub-logo.png" alt="云枢 Tools" /></div><div><strong>云枢 Tools <span className="brand-version">v{appVersion}</span>{isDevelopmentBuild ? <span className="brand-dev-badge">本地开发版</span> : null}</strong><small>本地多云资源管家</small></div></div>
+        <div className="brand"><div className="brand-mark" aria-hidden="true"><svg className="brand-mark-svg" viewBox="0 0 32 32" focusable="false" role="img"><title>云枢 Tools</title><circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" strokeWidth="1.4" /><path d="M9.5 18.5a6.5 6.5 0 0 1 12.6-1.4" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /><path d="M22.5 13.5a6.5 6.5 0 0 1-12.6 1.4" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /><circle cx="16" cy="16" r="2" fill="currentColor" /></svg></div><div><strong>云枢 Tools <span className="brand-version">v{appVersion}</span>{isDevelopmentBuild ? <span className="brand-dev-badge">本地开发版</span> : null}</strong><small>本地多云资源管家</small></div></div>
         <nav aria-label="主导航">{navigationItems.map(({ section: itemSection, desktopLabel, Icon }) => <button key={itemSection} type="button" className={section === itemSection ? "nav-active" : ""} aria-current={section === itemSection ? "page" : undefined} onClick={() => onNavigate(itemSection)}><Icon size={18} />{desktopLabel}</button>)}</nav>
       </aside>
       <div className="app-sidebar-resizer" role="separator" aria-label="调整主导航宽度" aria-orientation="vertical" onPointerDown={onSidebarResize} />
