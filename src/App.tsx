@@ -42,6 +42,7 @@ import { usePanels } from "./features/panels/usePanels";
 import { useLogWorkspace } from "./features/logs/useLogWorkspace";
 import { AppShell, type AppSection } from "./app/AppShell";
 import { useDesktopApp } from "./app/useDesktopApp";
+import { PageLoadingState, bundledVersion, isDevelopmentBuild } from "./app/appBootstrap";
 import { managedHostGroupOrderStorageKey, managedHostOrderStorageKey, useManagedHosts } from "./features/servers/useManagedHosts";
 import { terminalThemes, type TerminalThemeName } from "./features/servers/useSshTerminal";
 import { useTerminalWorkspaceController } from "./features/servers/useTerminalWorkspaceController";
@@ -88,16 +89,6 @@ const cloudHubTerminalThemeStorageKey = "cloudhub-tools-terminal-theme";
 const emptyManagedHost = emptyManagedHostDraft;
 const assetTypes = catalogAssetTypes;
 
-const bundledVersion = "0.1.20";
-const isDevelopmentBuild = import.meta.env.DEV;
-
-function PageLoadingState() {
-  return <section className="page-loading-state" role="status" aria-live="polite" aria-label="正在载入页面">
-    <div className="page-loading-header"><span /><strong /></div>
-    <div className="page-loading-toolbar"><i /><i /><i /></div>
-    <div className="page-loading-table"><span /><span /><span /><span /><span /></div>
-  </section>;
-}
 
 function App({ onReady }: { onReady?: () => void } = {}) {
   const { confirm: requestConfirm, prompt: requestPrompt, confirmRequest, promptRequest, promptValue, setPromptValue, resolveConfirm, resolvePrompt } = useConfirm();
