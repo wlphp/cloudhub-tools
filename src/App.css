@@ -90,21 +90,26 @@ main{flex:1 1 auto;min-width:0;padding:36px 48px;max-width:none;margin:0;width:1
 /* P0 UI foundation: keep the dense console readable and keyboard-friendly. */
 :root {
   color-scheme: dark;
-  --ui-bg: var(--jb-bg);
-  --ui-surface: var(--jb-surface);
-  --ui-surface-raised: var(--jb-surface-2);
-  --ui-surface-muted: var(--jb-bg);
-  --ui-border: var(--jb-border);
-  --ui-border-strong: var(--jb-border-strong);
-  --ui-text: var(--jb-muted);
-  --ui-text-muted: var(--jb-muted);
-  --ui-text-subtle: var(--jb-muted);
-  --ui-accent: var(--jb-accent);
-  --ui-accent-strong: var(--jb-accent);
-  --ui-success: var(--jb-green);
-  --ui-warning: var(--jb-yellow);
-  --ui-danger: var(--jb-red);
-  --ui-focus: var(--jb-accent);
+  /* Mirror the JetBrains Darcula-leaning workbench palette so body,
+     `:root`-level consumers, and `.ide-theme` all resolve to the same
+     hex values. The `--ui-*` aliases stay so existing rule bodies
+     keep working.
+  */
+  --ui-bg: #1f1f1f;
+  --ui-surface: #2b2b2b;
+  --ui-surface-raised: #303030;
+  --ui-surface-muted: #1f1f1f;
+  --ui-border: #3c3c3c;
+  --ui-border-strong: #555555;
+  --ui-text: #d4d4d4;
+  --ui-text-muted: #9a9a9a;
+  --ui-text-subtle: #6f6f6f;
+  --ui-accent: #6fa36d;
+  --ui-accent-strong: #7fb87c;
+  --ui-success: #6fa36d;
+  --ui-warning: #b58900;
+  --ui-danger: #c75450;
+  --ui-focus: #6fa36d;
   --ui-radius: 6px;
   --ui-z-nav: 20;
   --ui-z-dropdown: 30;
@@ -240,13 +245,28 @@ body:has(.modal-backdrop, .resource-modal-backdrop, .terminal-connect-backdrop, 
 .ide-theme .brand-mark-svg { width: 22px; height: 22px; display: block; }
 .ide-theme .brand strong { color: var(--jb-text); font-size: 14px; letter-spacing: 0; }
 .ide-theme .brand small, .ide-theme .brand-version { color: var(--jb-subtle); font-size: 10px; }
-.ide-theme .brand-dev-badge { border-color: var(--jb-accent); color: var(--jb-accent-strong); background: var(--jb-accent); }
+.ide-theme .brand-dev-badge {
+  /* JetBrains build-tag style: outlined chip on the workbench surface,
+     not a saturated primary button. Filled solid used to read as a call
+     to action and clashed with the version number.
+  */
+  border-color: var(--jb-border-strong);
+  color: var(--jb-muted);
+  background: var(--jb-surface);
+  border-radius: 3px;
+  padding: 1px 6px;
+  font-size: 10px;
+}
 .ide-theme nav button { min-height: 38px; margin-bottom: 2px; padding: 0 10px; border-radius: 4px; gap: 10px; color: var(--jb-muted); font-size: 13px; }
 .ide-theme nav button svg { color: var(--jb-muted); }
 .ide-theme nav button:hover { background: var(--jb-surface-2); color: var(--jb-text); }
 .ide-theme nav button:hover svg { color: var(--jb-muted); }
-.ide-theme nav button.nav-active { background: var(--jb-accent-soft); box-shadow: inset 2px 0 var(--jb-accent); color: var(--jb-green); }
-.ide-theme nav button.nav-active svg { color: var(--jb-accent-strong); }
+.ide-theme nav button.nav-active {
+  background: var(--jb-accent-soft);
+  box-shadow: inset 2px 0 var(--jb-accent);
+  color: var(--jb-text);
+}
+.ide-theme nav button.nav-active svg { color: var(--jb-accent); }
 .ide-theme nav button:nth-child(6) { margin-top: 13px; position: relative; }
 .ide-theme nav button:nth-child(6)::before { content: ""; position: absolute; top: -8px; left: 10px; right: 10px; border-top: 1px solid var(--jb-border); }
 .ide-theme .side-note { margin: auto 6px 0; padding: 10px; border: 1px solid var(--jb-border); border-radius: 4px; background: var(--jb-border); color: var(--jb-subtle); font-size: 11px; }

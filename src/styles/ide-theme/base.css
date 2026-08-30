@@ -1,22 +1,33 @@
 /* Shared JetBrains-style surface layer. Page-specific CSS stays responsible for layout. */
 .ide-theme {
-  --jb-bg: var(--jb-bg);
-  --jb-sidebar: var(--jb-bg);
-  --jb-surface: var(--jb-surface);
-  --jb-surface-2: var(--jb-surface-2);
-  --jb-surface-3: var(--jb-surface-3);
-  --jb-input: var(--jb-bg);
-  --jb-border: var(--jb-border);
-  --jb-border-strong: #555;
-  --jb-text: var(--jb-text);
-  --jb-muted: #aaa;
-  --jb-subtle: var(--jb-subtle);
-  --jb-accent: var(--jb-accent);
-  --jb-accent-soft: var(--jb-accent-soft);
-  --jb-blue: var(--jb-accent);
-  --jb-green: var(--jb-green);
-  --jb-yellow: var(--jb-yellow);
-  --jb-red: var(--jb-red);
+  /* JetBrains Darcula-leaning neutral workbench palette. All values are
+     concrete so `var(--jb-*)` lookups actually resolve; the previous
+     declarations were self-referential and let the browser default in,
+     which produced inconsistent surfaces and an accidental purple selection.
+     Keep this list in sync with src/ide-theme.css and any preview iframe.
+  */
+  --jb-bg: #1f1f1f;
+  --jb-sidebar: #252526;
+  --jb-surface: #2b2b2b;
+  --jb-surface-2: #303030;
+  --jb-surface-3: #3c3c3c;
+  --jb-input: #1f1f1f;
+  --jb-border: #3c3c3c;
+  --jb-border-strong: #555555;
+  --jb-text: #d4d4d4;
+  --jb-muted: #9a9a9a;
+  --jb-subtle: #6f6f6f;
+  /* A muted green-grey accent (JetBrains "current line" / selection).
+     Deliberately not blue or purple; the only place this saturates is
+     focused inputs and the nav selection accent stripe.
+  */
+  --jb-accent: #6fa36d;
+  --jb-accent-strong: #7fb87c;
+  --jb-accent-soft: #3a4636;
+  --jb-blue: #6fa36d;
+  --jb-green: #6fa36d;
+  --jb-yellow: #b58900;
+  --jb-red: #c75450;
   color: var(--jb-text);
 }
 

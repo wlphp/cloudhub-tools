@@ -388,10 +388,13 @@
 
 /* Product-wide control contract: neutral tool-window actions, one purple
    primary action, and semantic colors reserved for warning/danger states. */
-.ide-theme :where(button, .layui-btn, .primary, .secondary) {
+.ide-theme :where(button:not(.nav-active), .layui-btn, .primary, .secondary) {
   font-family: inherit;
-  box-shadow: none !important;
-  transform: none !important;
+  /* Keep nav-active box-shadow: the inset left accent stripe is the only
+     thing that marks the active sidebar item without going purple.
+  */
+  box-shadow: none;
+  transform: none;
   transition: background-color .15s ease, border-color .15s ease, color .15s ease;
 }
 .ide-theme :where(button, input, select, textarea, a):focus-visible {
