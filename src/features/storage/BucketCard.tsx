@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ArrowUp, CheckSquare, Copy, Download, File, Folder, Home, Maximize2, Minimize2, RefreshCw, Search, Square, Upload, X } from "lucide-react";
+import { ArrowUp, CheckSquare, Copy, Download, Eye, File, Folder, Home, Link2, Maximize2, Minimize2, RefreshCw, Search, Square, Upload, X } from "lucide-react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { invoke, runningInTauri, webApi } from "../../platform/api";
 import type { Account } from "../../shared/types";
@@ -21,6 +21,10 @@ function formatCloudDate(value: unknown): string {
   if (!text || text === "-") return "-";
   const date = new Date(text.includes("T") ? text : text.replace(" ", "T"));
   return Number.isNaN(date.getTime()) ? text : date.toLocaleString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+function isViewableObject(name: string): boolean {
+  return /\.(avif|bmp|gif|jpe?g|png|svg|webp|html?|pdf|txt|csv|json|xml|md|mp3|m4a|ogg|wav|mp4|webm|mov)$/i.test(name);
 }
 
 type OssDetail = {
@@ -373,6 +377,28 @@ export function BucketCard({
       setObjectTransfer(null);
     }
   }
+  async function getObjectUrl(object: OssObject & { name: string }) {
+    if (!supportsObjectTransfer || !runningInTauri) { setObjectTransferMessage("在线查看和 URL 复制仅支持桌面客户端的阿里云 OSS"); return null; }
+    return invoke<string>("get_oss_object_url", { id: account.id, bucket: bucketName, location, objectKey: object.Key });
+  }
+  async function viewObject(object: OssObject & { name: string }) {
+    try {
+      setError("");
+      const url = await getObjectUrl(object);
+      if (!url) return;
+      window.open(url, "_blank", "noopener,noreferrer");
+      setObjectTransferMessage(`已打开在线查看：${object.name}`);
+    } catch (reason) { setError(`在线查看失败：${String(reason)}`); }
+  }
+  async function copyObjectUrl(object: OssObject & { name: string }) {
+    try {
+      setError("");
+      const url = await getObjectUrl(object);
+      if (!url) return;
+      await navigator.clipboard.writeText(url);
+      setObjectTransferMessage(`URL 已复制：${object.name}`);
+    } catch (reason) { setError(`复制 URL 失败：${String(reason)}`); }
+  }
   async function downloadSelectedObjects() {
     if (!selectedFileKeys.length || objectTransfer) return;
     if (!supportsObjectTransfer) { setObjectTransferMessage("当前仅支持阿里云 OSS 文件上传与下载"); return; }
@@ -504,7 +530,7 @@ export function BucketCard({
                 <div className="resource-table-wrap oss-object-table">
                   {objectsLoading && !objectListing ? <div className="detail-empty"><RefreshCw className="spin" size={17} />正在读取目录...</div> : folderRows.length || fileRows.length ? <table><thead><tr><th className="oss-object-check"><input aria-label="全选" type="checkbox" checked={allVisibleSelected} onChange={toggleAllVisibleObjects} /></th><th>名称</th><th>类型 / 大小</th><th>最后修改时间</th><th>ETag</th><th className="oss-object-operation">操作</th></tr></thead><tbody>
                     {folderRows.map((folder) => <tr className="oss-folder-row" key={folder.key}><td className="oss-object-check"><input aria-label={`选择目录 ${folder.name}`} type="checkbox" checked={selectedObjectKeys.has(folder.key)} onChange={() => toggleObjectSelection(folder.key)} /></td><td><button className="oss-object-name" title={`打开 ${folder.name}`} onClick={() => void loadObjects("files", folder.prefix)}><Folder size={17} />{folder.name}</button></td><td><span className="oss-object-kind">目录</span></td><td>-</td><td>-</td><td className="oss-object-operation">-</td></tr>)}
-                    {fileRows.map((object) => <tr key={object.Key}><td className="oss-object-check"><input aria-label={`选择文件 ${object.name}`} type="checkbox" checked={selectedObjectKeys.has(object.Key)} onChange={() => toggleObjectSelection(object.Key)} /></td><td><span className="oss-object-file" title={object.name}><File size={16} />{object.name}</span></td><td>{formatBytes(object.Size)}</td><td>{formatCloudDate(object.LastModified)}</td><td><code title={object.ETag}>{object.ETag || "-"}</code></td><td className="oss-object-operation"><button className="oss-download-button" disabled={!supportsObjectTransfer || Boolean(objectTransfer)} title={supportsObjectTransfer ? `下载 ${object.name} 并指定保存位置` : "当前仅支持阿里云 OSS 文件下载"} onClick={() => void downloadObject(object)}>{objectTransfer?.kind === "download" && objectTransfer.key === object.Key ? <RefreshCw className="spin" size={14} /> : <Download size={14} />}下载</button></td></tr>)}
+                    {fileRows.map((object) => <tr key={object.Key}><td className="oss-object-check"><input aria-label={`选择文件 ${object.name}`} type="checkbox" checked={selectedObjectKeys.has(object.Key)} onChange={() => toggleObjectSelection(object.Key)} /></td><td><span className="oss-object-file" title={object.name}><File size={16} />{object.name}</span></td><td>{formatBytes(object.Size)}</td><td>{formatCloudDate(object.LastModified)}</td><td><code title={object.ETag}>{object.ETag || "-"}</code></td><td className="oss-object-operation"><div className="oss-object-actions">{isViewableObject(object.name) && <button className="oss-object-action" disabled={!supportsObjectTransfer || Boolean(objectTransfer)} title={`在线查看 ${object.name}`} aria-label={`在线查看 ${object.name}`} onClick={() => void viewObject(object)}><Eye size={14} /></button>}<button className="oss-object-action" disabled={!supportsObjectTransfer || Boolean(objectTransfer)} title={`复制 ${object.name} 的临时 URL`} aria-label={`复制 ${object.name} 的临时 URL`} onClick={() => void copyObjectUrl(object)}><Link2 size={14} /></button><button className="oss-download-button" disabled={!supportsObjectTransfer || Boolean(objectTransfer)} title={supportsObjectTransfer ? `下载 ${object.name} 并指定保存位置` : "当前仅支持阿里云 OSS 文件下载"} onClick={() => void downloadObject(object)}>{objectTransfer?.kind === "download" && objectTransfer.key === object.Key ? <RefreshCw className="spin" size={14} /> : <Download size={14} />}下载</button></div></td></tr>)}
                   </tbody></table> : <div className="detail-empty">{error || (objectFilter ? "没有符合筛选条件的对象" : "此目录暂无对象")}</div>}
                   {objectListing?.isTruncated && objectListing.nextMarker && <div className="oss-browser-more"><button className="secondary" disabled={objectsLoading} onClick={() => void loadObjects("files", objectPrefix, objectListing.nextMarker)}>{objectsLoading ? "读取中..." : "加载更多"}</button></div>}
                 </div>
