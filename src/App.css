@@ -320,3 +320,7 @@ main { background: var(--ui-bg); }
     transition-duration: 0.01ms !important;
   }
 }
+
+.oss-transfer-status{display:flex;align-items:center;gap:7px;padding:8px 18px;border-bottom:1px solid #245275;background:#0d2940;color:#a9cbe4;font-size:12px;overflow-wrap:anywhere}.oss-transfer-status.is-active{color:#d8ecff}.oss-upload-command{border-color:#2a785f;background:#15513f;color:#d5ffef}.oss-upload-command:hover:not(:disabled){background:#1b6b52}.oss-object-operation{width:88px;text-align:center!important}.oss-download-button{display:inline-flex;align-items:center;justify-content:center;gap:5px;height:28px;padding:0 9px;border:1px solid #2a608e;border-radius:5px;background:#123654;color:#cce8ff;cursor:pointer;font:12px inherit}.oss-download-button:hover:not(:disabled){border-color:#4ca7ed;background:#1a4a72;color:#fff}.oss-download-button:disabled{opacity:.5;cursor:wait}
+
+@media(max-width:680px){.oss-browser-actions{align-items:stretch;flex-wrap:wrap}.oss-browser-actions>span{width:100%;margin-left:0}.oss-browser-command{flex:1;justify-content:center}.oss-object-table table{min-width:820px}}

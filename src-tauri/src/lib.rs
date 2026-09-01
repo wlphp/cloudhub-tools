@@ -22,6 +22,9 @@ use russh::keys::{decode_secret_key, PrivateKeyWithHashAlg};
 use rsa::{pkcs1::DecodeRsaPrivateKey, pkcs8::DecodePrivateKey, pkcs1v15::SigningKey, RsaPrivateKey};
 use rsa::signature::{SignatureEncoding, Signer};
 use uuid::Uuid;
+use tauri_plugin_dialog::DialogExt;
+use tokio::io::AsyncWriteExt;
+use tokio_util::io::ReaderStream;
 
 mod core;
 use core::storage::{data_dir, decrypt_secret, encrypt_secret, open_db};
@@ -59,6 +62,18 @@ enum SshCredentials {
 
 struct SshTerminalStore {
     terminals: Mutex<HashMap<String, SshTerminal>>,
+}
+
+struct OssUploadSelectionStore {
+    files: Mutex<HashMap<String, PathBuf>>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OssUploadSelection {
+    token: String,
+    name: String,
+    size: u64,
 }
 
 #[derive(Clone)]
@@ -1548,6 +1563,102 @@ async fn oss_list_objects(bucket: &str, location: &str, access_key_id: &str, acc
     let status = response.status(); let body = response.text().await.map_err(|e| e.to_string())?; if !status.is_success() { let code = body.split("<Code>").nth(1).and_then(|v| v.split("</Code>").next()).unwrap_or("请求被拒绝"); return Err(format!("OSS 返回错误（{status}）：{code}")); }
     let objects = xml_blocks(&body, "Contents").into_iter().map(|object| json!({"Key": xml_text(&object, "Key"), "Size": xml_text(&object, "Size"), "LastModified": xml_text(&object, "LastModified"), "ETag": xml_text(&object, "ETag")})).filter(|object| object.get("Key").and_then(Value::as_str).is_some_and(|key| !key.is_empty() && key != prefix)).collect::<Vec<_>>();
     Ok(json!({"objects": objects, "prefixes": xml_blocks(&body, "CommonPrefixes").into_iter().map(|entry| xml_text(&entry, "Prefix")).filter(|value| !value.is_empty()).collect::<Vec<_>>(), "isTruncated": xml_text(&body, "IsTruncated").eq_ignore_ascii_case("true"), "nextMarker": xml_text(&body, "NextMarker")}))
+}
+
+fn validate_object_key(key: &str) -> Result<(), String> {
+    if key.is_empty() { return Err("对象路径不能为空".into()); }
+    if key.as_bytes().len() > 1023 { return Err("对象路径不能超过 1023 字节".into()); }
+    if key.starts_with('/') || key.starts_with('\\') { return Err("对象路径不能以斜杠开头".into()); }
+    if key.chars().any(char::is_control) { return Err("对象路径不能包含控制字符".into()); }
+    Ok(())
+}
+
+fn validate_storage_endpoint_parts(bucket: &str, location: &str) -> Result<(), String> {
+    let valid_dns_label = |value: &str, max_len: usize| {
+        !value.is_empty()
+            && value.len() <= max_len
+            && !value.starts_with('-')
+            && !value.ends_with('-')
+            && value.bytes().all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+    };
+    if !valid_dns_label(bucket, 128) { return Err("存储桶名称无效".into()); }
+    if !valid_dns_label(location, 64) { return Err("存储桶地域无效".into()); }
+    Ok(())
+}
+
+fn encode_object_path(key: &str) -> String {
+    key.split('/').map(rpc_encode).collect::<Vec<_>>().join("/")
+}
+
+async fn oss_upload_object(bucket: &str, location: &str, access_key_id: &str, access_key_secret: &str, key: &str, source_path: &std::path::Path, overwrite: bool) -> Result<(), String> {
+    validate_object_key(key)?;
+    let metadata = tokio::fs::metadata(source_path).await.map_err(|error| format!("读取本机文件失败: {error}"))?;
+    if !metadata.is_file() { return Err("所选路径不是文件".into()); }
+    if metadata.len() > 5 * 1024 * 1024 * 1024 { return Err("单文件上传不能超过 5 GB，请使用 OSS 分片上传工具".into()); }
+    let location = if location.is_empty() { "oss-cn-hangzhou" } else { location };
+    validate_storage_endpoint_parts(bucket, location)?;
+    let host = format!("{bucket}.{location}.aliyuncs.com");
+    let date = Utc::now().format("%a, %d %b %Y %H:%M:%S GMT").to_string();
+    let content_type = "application/octet-stream";
+    let resource = format!("/{bucket}/{key}");
+    let overwrite_header = if overwrite { "" } else { "x-oss-forbid-overwrite:true\n" };
+    let string_to_sign = format!("PUT\n\n{content_type}\n{date}\n{overwrite_header}{resource}");
+    let mut mac: Hmac<Sha1> = <Hmac<Sha1> as Mac>::new_from_slice(access_key_secret.as_bytes()).map_err(|error| error.to_string())?;
+    mac.update(string_to_sign.as_bytes());
+    let file = tokio::fs::File::open(source_path).await.map_err(|error| format!("打开本机文件失败: {error}"))?;
+    let body = reqwest::Body::wrap_stream(ReaderStream::new(file));
+    let mut request = reqwest::Client::new().put(format!("https://{host}/{}", encode_object_path(key)))
+        .header("Date", date).header("Host", &host).header("Content-Type", content_type)
+        .header("Content-Length", metadata.len()).header("Authorization", format!("OSS {access_key_id}:{}", B64.encode(mac.finalize().into_bytes())));
+    if !overwrite { request = request.header("x-oss-forbid-overwrite", "true"); }
+    let response = request.body(body).timeout(std::time::Duration::from_secs(60 * 60)).send().await.map_err(|error| format!("OSS 上传失败: {error}"))?;
+    let status = response.status();
+    if !status.is_success() {
+        let body = response.text().await.unwrap_or_default();
+        let code = xml_text(&body, "Code");
+        let message = xml_text(&body, "Message");
+        return Err(if code == "FileAlreadyExists" { "同名对象已存在，请确认覆盖后重试".into() } else { format!("OSS 上传失败（{status}）：{}", if message.is_empty() { if code.is_empty() { "请求被拒绝" } else { &code } } else { &message }) });
+    }
+    Ok(())
+}
+
+async fn oss_download_object(bucket: &str, location: &str, access_key_id: &str, access_key_secret: &str, key: &str, target_path: &std::path::Path) -> Result<(), String> {
+    validate_object_key(key)?;
+    let location = if location.is_empty() { "oss-cn-hangzhou" } else { location };
+    validate_storage_endpoint_parts(bucket, location)?;
+    let host = format!("{bucket}.{location}.aliyuncs.com");
+    let date = Utc::now().format("%a, %d %b %Y %H:%M:%S GMT").to_string();
+    let resource = format!("/{bucket}/{key}");
+    let mut mac: Hmac<Sha1> = <Hmac<Sha1> as Mac>::new_from_slice(access_key_secret.as_bytes()).map_err(|error| error.to_string())?;
+    mac.update(format!("GET\n\n\n{date}\n{resource}").as_bytes());
+    let client = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).build().map_err(|error| format!("创建 OSS 客户端失败: {error}"))?;
+    let response = client.get(format!("https://{host}/{}", encode_object_path(key))).header("Date", date).header("Host", &host).header("Authorization", format!("OSS {access_key_id}:{}", B64.encode(mac.finalize().into_bytes()))).timeout(std::time::Duration::from_secs(60 * 60)).send().await.map_err(|error| format!("OSS 下载失败: {error}"))?;
+    write_object_response(response, target_path, "OSS").await
+}
+
+async fn write_object_response(mut response: reqwest::Response, target_path: &std::path::Path, provider: &str) -> Result<(), String> {
+    let status = response.status();
+    if !status.is_success() {
+        let body = response.text().await.unwrap_or_default();
+        let code = xml_text(&body, "Code");
+        let message = xml_text(&body, "Message");
+        return Err(format!("{provider} 下载失败（{status}）：{}", if message.is_empty() { if code.is_empty() { "请求被拒绝" } else { &code } } else { &message }));
+    }
+    let parent = target_path.parent().ok_or_else(|| "下载位置无效".to_string())?;
+    if !parent.is_dir() { return Err("下载目录不存在".into()); }
+    let temp_path = parent.join(format!(".cloudhub-download-{}.part", Uuid::new_v4()));
+    let result = async {
+        let mut file = tokio::fs::File::create(&temp_path).await.map_err(|error| format!("创建临时文件失败: {error}"))?;
+        while let Some(chunk) = response.chunk().await.map_err(|error| format!("读取下载数据失败: {error}"))? {
+            file.write_all(&chunk).await.map_err(|error| format!("写入下载文件失败: {error}"))?;
+        }
+        file.flush().await.map_err(|error| format!("刷新下载文件失败: {error}"))?;
+        drop(file);
+        if target_path.exists() { tokio::fs::remove_file(target_path).await.map_err(|error| format!("替换已有文件失败: {error}"))?; }
+        tokio::fs::rename(&temp_path, target_path).await.map_err(|error| format!("保存下载文件失败: {error}"))
+    }.await;
+    if result.is_err() { let _ = tokio::fs::remove_file(&temp_path).await; }
+    result
 }
 
 async fn oss_get_acl(bucket: &str, location: &str, access_key_id: &str, access_key_secret: &str) -> Result<String, String> {
@@ -3057,6 +3168,46 @@ async fn list_oss_objects(id: i64, bucket: String, location: String, prefix: Str
 }
 
 #[tauri::command]
+fn select_oss_upload_file(app: tauri::AppHandle, store: tauri::State<'_, OssUploadSelectionStore>) -> Result<Option<OssUploadSelection>, String> {
+    let Some(selected) = app.dialog().file().blocking_pick_file() else { return Ok(None) };
+    let path = selected.into_path().map_err(|_| "当前平台返回了不支持的文件地址".to_string())?;
+    let canonical = path.canonicalize().map_err(|error| format!("读取所选文件失败: {error}"))?;
+    let metadata = canonical.metadata().map_err(|error| format!("读取所选文件信息失败: {error}"))?;
+    if !metadata.is_file() { return Err("请选择一个本机文件".into()); }
+    if metadata.len() > 5 * 1024 * 1024 * 1024 { return Err("单文件上传不能超过 5 GB".into()); }
+    let name = canonical.file_name().and_then(|value| value.to_str()).filter(|value| !value.is_empty()).ok_or_else(|| "无法识别文件名".to_string())?.to_string();
+    let token = Uuid::new_v4().to_string();
+    store.files.lock().map_err(|_| "上传文件选择状态不可用".to_string())?.insert(token.clone(), canonical);
+    Ok(Some(OssUploadSelection { token, name, size: metadata.len() }))
+}
+
+#[tauri::command]
+fn discard_oss_upload_selection(store: tauri::State<'_, OssUploadSelectionStore>, selection_token: String) -> Result<(), String> {
+    store.files.lock().map_err(|_| "上传文件选择状态不可用".to_string())?.remove(&selection_token);
+    Ok(())
+}
+
+#[tauri::command]
+async fn upload_oss_object(store: tauri::State<'_, OssUploadSelectionStore>, id: i64, bucket: String, location: String, object_key: String, selection_token: String, overwrite: bool) -> Result<(), String> {
+    let source_path = store.files.lock().map_err(|_| "上传文件选择状态不可用".to_string())?.remove(&selection_token).ok_or_else(|| "上传文件选择已失效，请重新选择文件".to_string())?;
+    if account_cloud_type(id)? != "aliyun" { return Err("当前仅支持阿里云 OSS 文件上传".into()); }
+    let (access_key_id, access_key_secret) = account_credentials(id)?;
+    oss_upload_object(&bucket, &location, &access_key_id, &access_key_secret, &object_key, &source_path, overwrite).await
+}
+
+#[tauri::command]
+async fn download_oss_object(app: tauri::AppHandle, id: i64, bucket: String, location: String, object_key: String) -> Result<Option<String>, String> {
+    validate_object_key(&object_key)?;
+    if account_cloud_type(id)? != "aliyun" { return Err("当前仅支持阿里云 OSS 文件下载".into()); }
+    let suggested_name = object_key.rsplit('/').find(|value| !value.is_empty()).unwrap_or("download").replace(['\\', '/', ':', '*', '?', '"', '<', '>', '|'], "_");
+    let Some(selected) = app.dialog().file().set_file_name(suggested_name).blocking_save_file() else { return Ok(None) };
+    let target_path = selected.into_path().map_err(|_| "当前平台返回了不支持的下载地址".to_string())?;
+    let (access_key_id, access_key_secret) = account_credentials(id)?;
+    oss_download_object(&bucket, &location, &access_key_id, &access_key_secret, &object_key, &target_path).await?;
+    Ok(Some(target_path.to_string_lossy().into_owned()))
+}
+
+#[tauri::command]
 async fn get_oss_acl(id: i64, bucket: String, location: String) -> Result<String, String> {
     let (access_key_id, access_key_secret) = account_credentials(id)?;
     if account_cloud_type(id)? == "tencent" {
@@ -4133,9 +4284,11 @@ fn open_app_data_directory() -> Result<(), String> {
 pub fn run() {
     tauri::Builder::default()
         .manage(SshTerminalStore { terminals: Mutex::new(HashMap::new()) })
+        .manage(OssUploadSelectionStore { files: Mutex::new(HashMap::new()) })
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![list_accounts, save_account, delete_account, app_data_path, open_app_data_directory, list_client_preferences, save_client_preference, reveal_account_secret, cloud_account_summary, list_cloud_resources, sync_cloud_assets, cloud::vultr::verify_vultr_account, verify_ctyun_account, verify_huawei_account, verify_baidu_account, verify_ucloud_account, verify_qiniu_account, verify_aws_account, verify_azure_account, verify_gcp_account, verify_jdcloud_account, verify_qingcloud_account, verify_ksyun_account, esa_overview, list_local_assets, delete_local_asset, list_managed_hosts, save_managed_host, delete_managed_host, probe_managed_host, export_managed_hosts_file, import_managed_hosts, list_panel_connections, update_panel_connection_order, save_panel_connection, refresh_panel_connection, panel_temporary_login, delete_panel_connection, update_panel_connection_remark, export_panel_connections_file, import_panel_connections, list_api_logs, clear_api_logs, clear_operation_logs, list_instance_disks, list_aliyun_security_groups, authorize_aliyun_security_group_rule, revoke_aliyun_security_group_rule, list_tencent_security_groups, authorize_tencent_security_group_rule, revoke_tencent_security_group_rule, list_baidu_security_groups, authorize_baidu_security_group_rule, revoke_baidu_security_group_rule, list_light_firewall_rules, create_light_firewall_rule, delete_light_firewall_rule, cloud::vultr::list_vultr_firewall_rules, cloud::vultr::create_vultr_firewall_rule, cloud::vultr::delete_vultr_firewall_rule, instance_status, reboot_instance, start_instance, stop_instance, cloud::vultr::vultr_instance_action, cloud::vultr::vultr_instance_manage, oracle_instance_action, cvm_instance_reboot, cvm_instance_action, baidu_instance_action, rename_server, swas_instance_action, list_dns_records, add_dns_record, update_dns_record, delete_dns_record, toggle_dns_record, list_domain_logs, query_whois, list_rds_databases, list_rds_accounts, list_redis_accounts, list_oss_objects, get_oss_acl, set_oss_public_read, set_oss_cors, get_ssh_connection, reveal_ssh_password, delete_ssh_connection, get_rdp_connection, reveal_rdp_password, delete_rdp_connection, launch_rdp_connection, launch_managed_host_rdp, ssh_connect, ssh_test_connection, ssh_list_files, ssh_read_text_file, ssh_write_text_file, ssh_upload_file, ssh_download_file, ssh_make_directory, ssh_delete_path, ssh_read, ssh_write, ssh_resize, ssh_disconnect, export_accounts, export_accounts_file, import_accounts])
+        .invoke_handler(tauri::generate_handler![list_accounts, save_account, delete_account, app_data_path, open_app_data_directory, list_client_preferences, save_client_preference, reveal_account_secret, cloud_account_summary, list_cloud_resources, sync_cloud_assets, cloud::vultr::verify_vultr_account, verify_ctyun_account, verify_huawei_account, verify_baidu_account, verify_ucloud_account, verify_qiniu_account, verify_aws_account, verify_azure_account, verify_gcp_account, verify_jdcloud_account, verify_qingcloud_account, verify_ksyun_account, esa_overview, list_local_assets, delete_local_asset, list_managed_hosts, save_managed_host, delete_managed_host, probe_managed_host, export_managed_hosts_file, import_managed_hosts, list_panel_connections, update_panel_connection_order, save_panel_connection, refresh_panel_connection, panel_temporary_login, delete_panel_connection, update_panel_connection_remark, export_panel_connections_file, import_panel_connections, list_api_logs, clear_api_logs, clear_operation_logs, list_instance_disks, list_aliyun_security_groups, authorize_aliyun_security_group_rule, revoke_aliyun_security_group_rule, list_tencent_security_groups, authorize_tencent_security_group_rule, revoke_tencent_security_group_rule, list_baidu_security_groups, authorize_baidu_security_group_rule, revoke_baidu_security_group_rule, list_light_firewall_rules, create_light_firewall_rule, delete_light_firewall_rule, cloud::vultr::list_vultr_firewall_rules, cloud::vultr::create_vultr_firewall_rule, cloud::vultr::delete_vultr_firewall_rule, instance_status, reboot_instance, start_instance, stop_instance, cloud::vultr::vultr_instance_action, cloud::vultr::vultr_instance_manage, oracle_instance_action, cvm_instance_reboot, cvm_instance_action, baidu_instance_action, rename_server, swas_instance_action, list_dns_records, add_dns_record, update_dns_record, delete_dns_record, toggle_dns_record, list_domain_logs, query_whois, list_rds_databases, list_rds_accounts, list_redis_accounts, list_oss_objects, select_oss_upload_file, discard_oss_upload_selection, upload_oss_object, download_oss_object, get_oss_acl, set_oss_public_read, set_oss_cors, get_ssh_connection, reveal_ssh_password, delete_ssh_connection, get_rdp_connection, reveal_rdp_password, delete_rdp_connection, launch_rdp_connection, launch_managed_host_rdp, ssh_connect, ssh_test_connection, ssh_list_files, ssh_read_text_file, ssh_write_text_file, ssh_upload_file, ssh_download_file, ssh_make_directory, ssh_delete_path, ssh_read, ssh_write, ssh_resize, ssh_disconnect, export_accounts, export_accounts_file, import_accounts])
         .run(tauri::generate_context!())
         .expect("error while running Tauri application");
 }
