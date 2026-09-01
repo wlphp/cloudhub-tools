@@ -136,6 +136,17 @@ npm run bundle:mac:x64
 该许可证允许个人、研究、教育、公益和政府机构等非商业使用；商业使用需获得版权所有者的单独授权。
 由于包含非商业限制，本项目不属于 OSI 严格定义的“开源软件”。
 
-## 致谢
+## ❤️ 赞助商
 
-感谢 [Linux.do](https://linux.do) 社区。
+> [想出现在这里？](https://github.com/wlphp/cloudhub-tools/issues/new?title=%E8%B5%9E%E5%8A%A9%E5%90%88%E4%BD%9C)
+
+<table>
+  <tr>
+    <td align="center" width="240">
+      <a href="https://linux.do"><strong>LINUX DO</strong><br><sub>新的理想型社区</sub></a>
+    </td>
+    <td>
+      感谢 <a href="https://linux.do">Linux.do</a> 社区对本项目的支持！欢迎前往 Linux.do，与社区开发者交流并分享技术经验。
+    </td>
+  </tr>
+</table>
