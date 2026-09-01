@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ArrowUp, CheckSquare, Copy, Download, Eye, File, Folder, Home, Link2, Maximize2, Minimize2, RefreshCw, Search, Square, Upload, X } from "lucide-react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { invoke, runningInTauri, webApi } from "../../platform/api";
 import type { Account } from "../../shared/types";
 import { displayValue } from "../../shared/utils/display";
@@ -386,7 +387,7 @@ export function BucketCard({
       setError("");
       const url = await getObjectUrl(object);
       if (!url) return;
-      window.open(url, "_blank", "noopener,noreferrer");
+      await openUrl(url);
       setObjectTransferMessage(`已打开在线查看：${object.name}`);
     } catch (reason) { setError(`在线查看失败：${String(reason)}`); }
   }
