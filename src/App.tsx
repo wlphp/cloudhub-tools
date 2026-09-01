@@ -193,7 +193,7 @@ function syncAssetTypes(account: Account): ReadonlyArray<(typeof assetTypes)[num
 }
 const assetTypes = catalogAssetTypes;
 
-const bundledVersion = "0.1.22";
+const bundledVersion = "0.1.23";
 const isDevelopmentBuild = import.meta.env.DEV;
 
 type UpdateState =
