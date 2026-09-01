@@ -33,6 +33,7 @@ import {
   ChevronUp,
   Cloud,
   Copy,
+  ExternalLink,
   Database,
   Download,
   FileCode2,
@@ -4391,7 +4392,33 @@ function App() {
               <div className="settings-card"><div className="settings-icon blue"><List size={22} /></div><div className="settings-copy"><strong>每页显示条数</strong><small>账号、资源和操作日志列表统一使用此分页大小</small></div><select className="settings-select" value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))}><option value={10}>10 条</option><option value={20}>20 条</option><option value={50}>50 条</option><option value={100}>100 条</option></select></div>
               <div className="settings-card"><div className="settings-icon purple"><Database size={22} /></div><div className="settings-copy"><strong>数据库位置</strong><small>系统应用数据目录 / CloudHubTools / cloudhub_tools.sqlite3</small></div><button className="secondary settings-link" onClick={() => void openDataDirectory()}><FolderOpen size={16} />打开目录</button></div>
               <div className="settings-card"><div className="settings-icon amber"><Terminal size={22} /></div><div className="settings-copy"><strong>GitHub 开源仓库</strong><small>https://github.com/wlphp/cloudhub-tools</small></div><a className="secondary settings-link" href="https://github.com/wlphp/cloudhub-tools" target="_blank" rel="noreferrer">访问仓库 ↗</a></div>
-              <div className={`settings-card${updateState.phase === "available" && updateState.notes ? " has-update-notes" : ""}`}><div className="settings-icon blue"><Download size={22} /></div><div className="settings-copy"><strong>客户端更新</strong><small>{!runningInTauri ? `当前版本 v${appVersion}；自动更新仅在桌面客户端可用` : updateState.phase === "available" ? `当前 v${appVersion}，最新 v${updateState.version}${updateState.notes ? "，可下载并安装" : ""}` : updateState.phase === "downloading" ? `当前 v${appVersion}，正在下载 v${updateState.version}` : updateState.phase === "ready" ? `v${updateState.version} 已安装，正在重新启动` : updateState.phase === "current" ? `当前 v${appVersion} 已是最新版本` : updateState.phase === "error" ? `当前 v${appVersion}；${updateState.message}` : `当前版本 v${appVersion}，启动时会自动检查新版本`}</small></div><div className="settings-update-actions">{runningInTauri && updateState.phase === "downloading" ? <span className="setting-state on">{updateState.total ? `${Math.min(100, Math.round((updateState.downloaded / updateState.total) * 100))}%` : "下载中"}</span> : runningInTauri && updateState.phase === "checking" ? <span className="setting-state on">检查中</span> : runningInTauri && updateState.phase === "available" ? <button className="secondary settings-link" onClick={() => void installUpdate()}><Download size={16} />下载并安装</button> : runningInTauri ? <button className="secondary settings-link" onClick={() => void checkForUpdates()}><RefreshCw size={16} />检查更新</button> : <span className="setting-state">桌面端</span>}</div>{updateState.phase === "available" && updateState.notes && <div className="settings-update-notes"><strong>更新内容</strong><p>{updateState.notes}</p></div>}</div>
+              <div className={`settings-card${updateState.phase === "available" && updateState.notes ? " has-update-notes" : ""}`}>
+                <div className="settings-icon blue"><Download size={22} /></div>
+                <div className="settings-copy">
+                  <strong>客户端更新</strong>
+                  <small>{!runningInTauri ? `当前版本 v${appVersion}；自动更新仅在桌面客户端可用` : updateState.phase === "available" ? `当前 v${appVersion}，最新 v${updateState.version}${updateState.notes ? "，可下载并安装" : ""}` : updateState.phase === "downloading" ? `当前 v${appVersion}，正在下载 v${updateState.version}` : updateState.phase === "ready" ? `v${updateState.version} 已安装，正在重新启动` : updateState.phase === "current" ? `当前 v${appVersion} 已是最新版本` : updateState.phase === "error" ? `当前 v${appVersion}；${updateState.message}` : `当前版本 v${appVersion}，启动时会自动检查新版本`}</small>
+                </div>
+                <div className="settings-update-actions">
+                  <a className="secondary settings-link" href="https://github.com/wlphp/cloudhub-tools/releases" target="_blank" rel="noreferrer" onClick={(e) => { if (runningInTauri) { e.preventDefault(); void openUrl("https://github.com/wlphp/cloudhub-tools/releases"); } }}>
+                    <ExternalLink size={14} />
+                    更新日志
+                  </a>
+                  {runningInTauri && updateState.phase === "downloading" ? (
+                    <button type="button" className="settings-link primary-update-btn" disabled><Download size={14} />{updateState.total ? `下载中 ${Math.min(100, Math.round((updateState.downloaded / updateState.total) * 100))}%` : "下载中…"}</button>
+                  ) : runningInTauri && updateState.phase === "checking" ? (
+                    <button type="button" className="secondary settings-link" disabled><RefreshCw size={14} className="spin" />检查中…</button>
+                  ) : runningInTauri && updateState.phase === "ready" ? (
+                    <button type="button" className="settings-link primary-update-btn" disabled><RefreshCw size={14} className="spin" />正在重启…</button>
+                  ) : runningInTauri && updateState.phase === "available" ? (
+                    <button type="button" className="settings-link primary-update-btn" onClick={() => void installUpdate()}><Download size={14} />更新到 v{updateState.version}</button>
+                  ) : runningInTauri ? (
+                    <button type="button" className="secondary settings-link" onClick={() => void checkForUpdates()}><RefreshCw size={14} />检查更新</button>
+                  ) : (
+                    <span className="setting-state">桌面端</span>
+                  )}
+                </div>
+                {updateState.phase === "available" && updateState.notes && <div className="settings-update-notes"><strong>更新内容</strong><p>{updateState.notes}</p></div>}
+              </div>
             </section>
           </section>
         )}
