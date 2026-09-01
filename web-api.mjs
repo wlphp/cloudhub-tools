@@ -1,7 +1,8 @@
 import http from "node:http";
 import crypto from "node:crypto";
 import { database, decryptSecret, encryptSecret, writeApiLog } from "./web-api/core/storage.mjs";
-import { readBody, send } from "./web-api/core/http.mjs";
+import { readBody, send, sendError, sendUnsupportedInPreview } from "./web-api/core/http.mjs";
+import { allowedWebOrigins, applyWebCors } from "./web-api/core/security.mjs";
 import { handleAccountRoutes } from "./web-api/routes/accounts.mjs";
 
 function webApiPort(value) {
@@ -10,6 +11,7 @@ function webApiPort(value) {
 }
 
 const port = webApiPort(process.env.CLOUDHUB_TOOLS_WEB_API_PORT || process.env.ALIYUN_TOOLS_WEB_API_PORT);
+const allowedOrigins = allowedWebOrigins();
 
 function oracleMeta(row) {
   let meta = {};
@@ -2244,7 +2246,7 @@ function updateCachedServerName(accountId, instanceId, instanceName) {
   payload.InstanceName = instanceName;
   db.prepare("UPDATE cloud_assets SET payload_json=? WHERE account_id=? AND resource_type='ecs' AND asset_key=?").run(JSON.stringify(payload), accountId, instanceId);
 }
-function accounts(keyword = "", includeSecret = false) {
+function accounts(keyword = "") {
   const db = database();
   const value = String(keyword || "").trim();
   const rows = db
@@ -2268,8 +2270,6 @@ function accounts(keyword = "", includeSecret = false) {
       created_at: row.created_at,
       updated_at: row.updated_at,
     };
-    if (includeSecret)
-      result.access_key_secret = decryptSecret(row.secret_ciphertext);
     return result;
   });
 }
@@ -2313,17 +2313,17 @@ function saveAccount(input) {
   return { ...row, enabled: Boolean(row.enabled) };
 }
 const server = http.createServer(async (req, res) => {
+  const originPolicy = applyWebCors(req, res, allowedOrigins);
+  if (!originPolicy.allowed) {
+    return sendError(res, 403, "forbidden-origin", "请求来源不受 CloudHub Tools Web API 信任");
+  }
   if (req.method === "OPTIONS") {
-    res.writeHead(204, {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type",
-    });
+    res.writeHead(204);
     return res.end();
   }
   try {
     const url = new URL(req.url, `http://localhost:${port}`);
-    if (await handleAccountRoutes(req, res, url, { accounts, saveAccount, database, decryptSecret })) return;
+    if (await handleAccountRoutes(req, res, url, { accounts, saveAccount, database })) return;
     if (req.method === "GET" && url.pathname === "/api/local-assets")
       return send(res, 200, localAssets(url.searchParams.has("account_id") ? Number(url.searchParams.get("account_id")) : null, url.searchParams.get("resource_type") || null));
     if (req.method === "DELETE" && url.pathname === "/api/local-assets") {
@@ -2374,20 +2374,7 @@ const server = http.createServer(async (req, res) => {
       } catch (error) { return send(res, 400, { error: error.message || "天翼云账号验证失败" }); }
     }
     if (req.method === "GET" && url.pathname === "/api/export") {
-      const selectedIds = new Set(
-        url.searchParams
-          .getAll("id")
-          .map((value) => Number(value))
-          .filter((value) => Number.isInteger(value) && value > 0),
-      );
-      return send(res, 200, {
-        format: "cloudhub-tools-account-export",
-        version: 2,
-        encryption: "plaintext",
-        secret_exported: true,
-        exported_at: new Date().toISOString(),
-        accounts: accounts("", true).filter((account) => !selectedIds.size || selectedIds.has(account.id)),
-      });
+      return sendUnsupportedInPreview(res, "导出账号密钥", "请在桌面端导出并妥善保管文件");
     }
     if (req.method === "POST" && url.pathname === "/api/import") {
       const payload = JSON.parse(await readBody(req));

@@ -1,7 +1,7 @@
-import { readBody, send } from "../core/http.mjs";
+import { readBody, send, sendUnsupportedInPreview } from "../core/http.mjs";
 
 export async function handleAccountRoutes(req, res, url, services) {
-  const { accounts, saveAccount, database, decryptSecret } = services;
+  const { accounts, saveAccount, database } = services;
 
   if (req.method === "GET" && url.pathname === "/api/accounts") {
     send(res, 200, accounts(url.searchParams.get("keyword") || "", false));
@@ -27,8 +27,7 @@ export async function handleAccountRoutes(req, res, url, services) {
     return true;
   }
   if (req.method === "GET" && url.pathname === "/api/account-secret") {
-    const row = database().prepare("SELECT secret_ciphertext FROM cloud_accounts WHERE id=?").get(Number(url.searchParams.get("id")));
-    send(res, row ? 200 : 404, row ? decryptSecret(row.secret_ciphertext) : { error: "账号不存在" });
+    sendUnsupportedInPreview(res, "读取账号 Secret");
     return true;
   }
   return false;

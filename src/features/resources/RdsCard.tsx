@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Maximize2, Minimize2, RefreshCw, X } from "lucide-react";
-import { invoke, runningInTauri, webApi } from "../../platform/api";
+import { resourcesClient } from "../../platform/clients";
 import type { Account } from "../../shared/types";
 import { displayValue } from "../../shared/utils/display";
 
@@ -33,18 +33,12 @@ export function RdsCard({
     setBusy(true);
     if (kind === "accounts") setAccountError("");
     try {
-      const value = runningInTauri
-        ? await invoke<Record<string, unknown>[]>(
-            kind === "db" ? "list_rds_databases" : "list_rds_accounts",
-            {
-              id: account.id,
-              regionId,
-              instanceId: String(item.DBInstanceId || ""),
-            },
-          )
-        : await webApi<Record<string, unknown>[]>(
-            `/api/${kind === "db" ? "rds-databases" : "rds-accounts"}?id=${account.id}&region=${encodeURIComponent(regionId)}&instance=${encodeURIComponent(String(item.DBInstanceId || ""))}`,
-          );
+      const value = await resourcesClient.rdsDetails(
+        kind === "db" ? "databases" : "accounts",
+        account.id,
+        regionId,
+        String(item.DBInstanceId || ""),
+      );
       kind === "db" ? setDatabases(value) : setAccounts(value);
       setMode(kind);
     } catch (error) {

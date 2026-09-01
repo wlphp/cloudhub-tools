@@ -1,7 +1,7 @@
 import { type FormEvent, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Maximize2, Minimize2, RefreshCw, X } from "lucide-react";
-import { invoke, runningInTauri, webApi } from "../../platform/api";
+import { serversClient } from "../../platform/clients";
 import type { Account } from "../../shared/types";
 
 type SecurityGroup = { SecurityGroupId: string; SecurityGroupName: string; Description: string; VpcId: string; NicType: string };
@@ -34,9 +34,10 @@ export function SecurityGroupDialog({ account, regionId, instanceId, onClose, on
   async function loadSecurityGroups(securityGroupId = selectedSecurityGroupId) {
     setLoading(true); setError("");
     try {
-      const result = runningInTauri
-        ? await invoke<SecurityGroupResponse>(isTencent ? "list_tencent_security_groups" : isBaidu ? "list_baidu_security_groups" : "list_aliyun_security_groups", { id: account.id, regionId, instanceId, securityGroupId: securityGroupId || null })
-        : await webApi<SecurityGroupResponse>(`${isTencent ? "/api/tencent-security-groups" : isBaidu ? "/api/baidu-security-groups" : "/api/aliyun-security-groups"}?id=${account.id}&region=${encodeURIComponent(regionId)}&instance=${encodeURIComponent(instanceId)}${securityGroupId ? `&securityGroupId=${encodeURIComponent(securityGroupId)}` : ""}`);
+      const result = await serversClient.listSecurityGroups<SecurityGroupResponse>(
+        isTencent ? "tencent" : isBaidu ? "baidu" : "aliyun",
+        { id: account.id, regionId, instanceId, securityGroupId: securityGroupId || null },
+      );
       setGroups(result.groups || []); setSelectedSecurityGroupId(result.selectedSecurityGroupId || ""); setRules(result.rules || []); setSgVersion(result.sgVersion);
     } catch (reason) { setGroups([]); setRules([]); setError(String(reason)); }
     finally { setLoading(false); }
@@ -54,8 +55,7 @@ export function SecurityGroupDialog({ account, regionId, instanceId, onClose, on
     setSubmitting(true); setError("");
     try {
       const payload = { id: account.id, regionId, securityGroupId: selectedGroup.SecurityGroupId, ipProtocol: protocol, portRange: normalizedPortRange, sourceCidrIp: normalizedCidr, description: description.trim() || null, nicType: selectedGroup.NicType || null, sgVersion: sgVersion ?? null };
-      if (runningInTauri) await invoke(isTencent ? "authorize_tencent_security_group_rule" : isBaidu ? "authorize_baidu_security_group_rule" : "authorize_aliyun_security_group_rule", payload);
-      else await webApi(isTencent ? "/api/tencent-security-group-rules" : isBaidu ? "/api/baidu-security-group-rules" : "/api/aliyun-security-group-rules", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, action: "authorize" }) });
+      await serversClient.mutateSecurityGroup(isTencent ? "tencent" : isBaidu ? "baidu" : "aliyun", "authorize", payload);
       setPortRange(""); setDescription(""); onNotice(`已开放 ${protocol.toUpperCase()} ${normalizedPortRange}`); await loadSecurityGroups(selectedGroup.SecurityGroupId);
     } catch (reason) { setError(String(reason)); } finally { setSubmitting(false); }
   }
@@ -67,8 +67,7 @@ export function SecurityGroupDialog({ account, regionId, instanceId, onClose, on
     setSubmitting(true); setError("");
     try {
       const payload = { id: account.id, regionId, securityGroupId: selectedGroup.SecurityGroupId, ipProtocol: String(rule.IpProtocol || ""), portRange: String(rule.PortRange || ""), sourceCidrIp: rule.SourceCidrIp, policy: String(rule.Policy || "accept"), priority: Number(rule.Priority || 1), nicType: rule.NicType || selectedGroup.NicType || null, securityGroupRuleId: rule.SecurityGroupRuleId || null, sgVersion: sgVersion ?? null };
-      if (runningInTauri) await invoke(isTencent ? "revoke_tencent_security_group_rule" : isBaidu ? "revoke_baidu_security_group_rule" : "revoke_aliyun_security_group_rule", payload);
-      else await webApi(isTencent ? "/api/tencent-security-group-rules" : isBaidu ? "/api/baidu-security-group-rules" : "/api/aliyun-security-group-rules", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, action: "revoke" }) });
+      await serversClient.mutateSecurityGroup(isTencent ? "tencent" : isBaidu ? "baidu" : "aliyun", "revoke", payload);
       onNotice(`已关闭 ${label}`); await loadSecurityGroups(selectedGroup.SecurityGroupId);
     } catch (reason) { setError(String(reason)); } finally { setSubmitting(false); }
   }
@@ -103,9 +102,7 @@ export function LightFirewallDialog({ account, regionId, instanceId, onClose, on
   async function loadRules() {
     setLoading(true); setError("");
     try {
-      const result = runningInTauri
-        ? await invoke<LightFirewallResponse>("list_light_firewall_rules", { id: account.id, regionId, instanceId })
-        : await webApi<LightFirewallResponse>(`/api/light-firewall-rules?id=${account.id}&region=${encodeURIComponent(regionId)}&instance=${encodeURIComponent(instanceId)}`);
+      const result = await serversClient.listLightFirewall<LightFirewallResponse>({ id: account.id, regionId, instanceId });
       setRules(result.rules || []); setFirewallVersion(result.firewallVersion);
     } catch (reason) { setRules([]); setError(String(reason)); }
     finally { setLoading(false); }
@@ -124,8 +121,7 @@ export function LightFirewallDialog({ account, regionId, instanceId, onClose, on
     setSubmitting(true); setError("");
     try {
       const payload = { id: account.id, regionId, instanceId, ipProtocol: protocol, portRange: normalizedPortRange, sourceCidrIp: normalizedCidr, description: description.trim() || null, firewallVersion: firewallVersion ?? null };
-      if (runningInTauri) await invoke("create_light_firewall_rule", payload);
-      else await webApi("/api/light-firewall-rules", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, action: "create" }) });
+      await serversClient.mutateLightFirewall("create", payload);
       setPortRange(""); setDescription(""); onNotice(`已开放 ${protocol.toUpperCase()} ${normalizedPortRange}`); await loadRules();
     } catch (reason) { setError(String(reason)); } finally { setSubmitting(false); }
   }
@@ -136,8 +132,7 @@ export function LightFirewallDialog({ account, regionId, instanceId, onClose, on
     setSubmitting(true); setError("");
     try {
       const payload = { id: account.id, regionId, instanceId, ruleId: rule.RuleId || null, firewallRule: rule.FirewallRule || null, firewallVersion: firewallVersion ?? null };
-      if (runningInTauri) await invoke("delete_light_firewall_rule", payload);
-      else await webApi("/api/light-firewall-rules", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, action: "delete" }) });
+      await serversClient.mutateLightFirewall("delete", payload);
       onNotice(`已关闭 ${label}`); await loadRules();
     } catch (reason) { setError(String(reason)); } finally { setSubmitting(false); }
   }
@@ -167,9 +162,7 @@ export function VultrFirewallDialog({ account, firewallGroupId, onClose, onConfi
   async function loadRules() {
     setLoading(true); setError("");
     try {
-      const result = runningInTauri
-        ? await invoke<VultrFirewallResponse>("list_vultr_firewall_rules", { id: account.id, firewallGroupId })
-        : await webApi<VultrFirewallResponse>(`/api/vultr-firewall-rules?id=${account.id}&firewallGroupId=${encodeURIComponent(firewallGroupId)}`);
+      const result = await serversClient.listVultrFirewall<VultrFirewallResponse>({ id: account.id, firewallGroupId });
       setRules(result.rules || []);
     } catch (reason) { setRules([]); setError(String(reason)); }
     finally { setLoading(false); }
@@ -188,8 +181,7 @@ export function VultrFirewallDialog({ account, firewallGroupId, onClose, onConfi
     setSubmitting(true); setError("");
     try {
       const payload = { id: account.id, firewallGroupId, ipProtocol: protocol, port: normalizedPort, sourceCidrIp: normalizedCidr, description: description.trim() || null };
-      if (runningInTauri) await invoke("create_vultr_firewall_rule", payload);
-      else await webApi("/api/vultr-firewall-rules", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, action: "create" }) });
+      await serversClient.mutateVultrFirewall("create", payload);
       setPort(""); setDescription(""); onNotice(`已开放 ${protocol.toUpperCase()} ${normalizedPort}`); await loadRules();
     } catch (reason) { setError(String(reason)); } finally { setSubmitting(false); }
   }
@@ -201,8 +193,7 @@ export function VultrFirewallDialog({ account, firewallGroupId, onClose, onConfi
     setSubmitting(true); setError("");
     try {
       const payload = { id: account.id, firewallGroupId, ruleId: rule.RuleId };
-      if (runningInTauri) await invoke("delete_vultr_firewall_rule", payload);
-      else await webApi("/api/vultr-firewall-rules", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, action: "delete" }) });
+      await serversClient.mutateVultrFirewall("delete", payload);
       onNotice(`已关闭 ${label}`); await loadRules();
     } catch (reason) { setError(String(reason)); } finally { setSubmitting(false); }
   }
