@@ -1,3 +1,17 @@
+import {
+  displayDnsServers,
+  formatMoney,
+  daysUntil,
+  domainStatus,
+  cloudStatusText,
+  formatBytes,
+  formatMetric,
+  formatEsaTime,
+  columnLabel,
+} from "./shared/utils/format";
+import { panelAddress, hiddenPanelAddress, panelCpuInfo, panelMemoryInfo, panelDiskInfo, panelDiskItems, panelNetworkInfo, panelLoadText } from "./features/panels/panelMetrics";
+import { resourceColumns } from "./features/resources/pure";
+import { fetchCachedResources, fetchCachedSummary } from "./features/resources/cache";
 import { FormEvent, PointerEvent, type CSSProperties, type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { getVersion } from "@tauri-apps/api/app";
@@ -19,6 +33,7 @@ import {
   ChevronUp,
   Cloud,
   Copy,
+  ExternalLink,
   Database,
   Download,
   FileCode2,
@@ -262,263 +277,6 @@ function formatChineseDateTime(value: unknown): string {
   const pad = (part: number) => String(part).padStart(2, "0");
   return `${date.getFullYear()}年${pad(date.getMonth() + 1)}月${pad(date.getDate())}日 ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 }
-function displayDnsServers(value: unknown): string {
-  if (Array.isArray(value))
-    return value.map(displayDnsServers).filter(Boolean).join(", ");
-  if (value && typeof value === "object") {
-    const object = value as Record<string, unknown>;
-    const values = Object.values(object).map(displayDnsServers).filter(Boolean);
-    return values.join(", ");
-  }
-  return value == null || value === "" ? "" : String(value);
-}
-function formatMoney(value: unknown) {
-  if (value === null || value === undefined || value === "") return "-";
-  const number = Number(value);
-  return Number.isFinite(number) ? number.toFixed(2) : displayValue(value);
-}
-function daysUntil(value: unknown) {
-  if (!value) return null;
-  const time = Date.parse(String(value).replace(" ", "T"));
-  return Number.isNaN(time) ? null : Math.ceil((time - Date.now()) / 86400000);
-}
-function domainStatus(item: Record<string, unknown>): [string, string] {
-  const days = daysUntil(item.ExpirationDate);
-  if (days !== null && days < 0) return ["已过期", "status-expired"];
-  if (item.DomainStatus === "PAUSE") return ["暂停", "status-other"];
-  return ["正常", "status-normal"];
-}
-function cloudStatusText(value: unknown): string {
-  const status = String(value || "-");
-  return (
-    (
-      {
-        Running: "运行中",
-        Normal: "运行中",
-        Stopped: "已停止",
-        Creating: "创建中",
-        Deleting: "删除中",
-        Rebooting: "重启中",
-        running: "运行中",
-        stopped: "已停止",
-        pending: "处理中",
-        active: "已启用",
-        inactive: "未启用",
-        suspended: "已暂停",
-        rebuilding: "重建中",
-      } as Record<string, string>
-    )[status] || status
-  );
-}
-function formatBytes(value: unknown): string {
-  let bytes = Number(value || 0);
-  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
-  const units = ["B", "KB", "MB", "GB", "TB", "PB"];
-  let index = 0;
-  while (bytes >= 1024 && index < units.length - 1) {
-    bytes /= 1024;
-    index += 1;
-  }
-  return `${bytes.toFixed(index ? 2 : 0)} ${units[index]}`;
-}
-function formatMetric(value: unknown): string {
-  const number = Number(value || 0);
-  return Number.isFinite(number) ? new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 2 }).format(number) : "0";
-}
-function panelAddress(value: string): string {
-  try { return new URL(value).hostname; } catch { return value.replace(/^https?:\/\//, "").split(/[/:?#]/)[0] || value; }
-}
-function hiddenPanelAddress(value: string): string {
-  const address = panelAddress(value);
-  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(address)) {
-    const parts = address.split(".");
-    return `${parts[0]}.***.***.${parts[3]}`;
-  }
-  return address.includes(":") ? "****" : address;
-}
-function panelMetricNumber(value: unknown): number | null {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "string") {
-    const match = value.match(/-?\d+(?:\.\d+)?/);
-    if (match) return Number(match[0]);
-  }
-  return null;
-}
-function panelMetricRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
-}
-function panelMetricField(value: unknown, keys: string[]): unknown {
-  const record = panelMetricRecord(value);
-  return record ? keys.map((key) => record[key]).find((item) => item !== undefined && item !== null && item !== "") : undefined;
-}
-function panelPercent(value: unknown): number | null {
-  const percent = panelMetricNumber(value);
-  return percent === null ? null : Math.max(0, Math.min(100, percent <= 1 ? percent * 100 : percent));
-}
-function formatPanelNumber(value: unknown): string {
-  const number = panelMetricNumber(value);
-  return number === null ? displayValue(value) : formatMetric(number);
-}
-function panelLoadText(value: unknown): string {
-  const values = Array.isArray(value)
-    ? value.slice(0, 3)
-    : [panelMetricField(value, ["one"]), panelMetricField(value, ["five"]), panelMetricField(value, ["fifteen"])];
-  const visible = values.filter((item) => item !== undefined && item !== null && item !== "").map(formatPanelNumber);
-  return visible.length ? visible.join(" / ") : "-";
-}
-function panelCpuInfo(value: unknown): { detail: string; percent: number | null } {
-  const usage = Array.isArray(value) ? value[0] : panelMetricField(value, ["used_percent", "usage", "used", "cpuRealUsed"]);
-  const cores = Array.isArray(value) ? value[1] : panelMetricField(value, ["cores", "cpuNum", "count"]);
-  const percent = panelPercent(usage);
-  const coreText = cores === undefined || cores === null || cores === "" ? "-" : `${formatPanelNumber(cores)} 核`;
-  return { detail: percent === null ? coreText : `${coreText} (${formatPanelNumber(percent)}%)`, percent };
-}
-function panelMemoryInfo(value: unknown): { detail: string; percent: number | null } {
-  const used = panelMetricField(value, ["used", "memRealUsed", "realUsed"]);
-  const total = panelMetricField(value, ["total", "memTotal"]);
-  const unit = String(panelMetricField(value, ["unit"]) || "MB");
-  const calculated = panelMetricNumber(used) !== null && panelMetricNumber(total) !== null && Number(total) > 0 ? Number(used) / Number(total) * 100 : null;
-  const percent = panelPercent(panelMetricField(value, ["used_percent", "percent", "usage"]) ?? calculated);
-  if (used === undefined || total === undefined) return { detail: "-", percent };
-  return { detail: `${formatPanelNumber(used)} / ${formatPanelNumber(total)} ${unit}${percent === null ? "" : ` (${formatPanelNumber(percent)}%)`}`, percent };
-}
-function formatPanelStorage(value: unknown): string {
-  const text = String(value ?? "").trim();
-  if (!text) return "-";
-  if (/^\d+(?:\.\d+)?\s*G$/i.test(text)) return text.replace(/\s*G$/i, " GB");
-  if (/^\d+(?:\.\d+)?\s*M$/i.test(text)) return text.replace(/\s*M$/i, " MB");
-  return text;
-}
-type PanelDiskInfo = { path: string; detail: string; percent: number | null };
-function panelDiskItems(value: unknown): PanelDiskInfo[] {
-  const record = panelMetricRecord(value);
-  const disks = Array.isArray(value) ? value : Array.isArray(record?.volumes) ? record.volumes : [value];
-  return disks.map((disk) => {
-  const size = panelMetricField(disk, ["size"]);
-  const used = panelMetricField(disk, ["used", "use"]) ?? (Array.isArray(size) ? size[1] : undefined);
-  const total = panelMetricField(disk, ["total", "size_total"]) ?? (Array.isArray(size) ? size[0] : undefined);
-  const percent = panelPercent(panelMetricField(disk, ["used_percent", "percent", "usage"]) ?? (Array.isArray(size) ? size[3] : undefined));
-  const path = panelMetricField(disk, ["path", "rname", "mount"]);
-    return {
-      path: String(path || "-"),
-      detail: used === undefined || total === undefined ? "-" : `${formatPanelStorage(used)} / ${formatPanelStorage(total)}${percent === null ? "" : ` (${formatPanelNumber(percent)}%)`}`,
-      percent,
-    };
-  }).sort((left, right) => (left.path === "/" ? -1 : right.path === "/" ? 1 : left.path.localeCompare(right.path)));
-}
-function panelDiskInfo(value: unknown): PanelDiskInfo {
-  return panelDiskItems(value)[0] || { path: "-", detail: "-", percent: null };
-}
-function panelNetworkInfo(value: unknown): { up: string; down: string } {
-  const record = panelMetricRecord(value);
-  const directUp = panelMetricField(value, ["up", "upload"]);
-  const directDown = panelMetricField(value, ["down", "download"]);
-  const interfaces = Object.entries(record || {}).filter(([, item]) => panelMetricRecord(item));
-  const legacyRate = (keys: string[]) => {
-    let hasValue = false;
-    const total = interfaces.reduce((sum, [, item]) => {
-      const amount = panelMetricNumber(panelMetricField(item, keys));
-      if (amount === null) return sum;
-      hasValue = true;
-      return sum + amount;
-    }, 0);
-    return hasValue ? total : null;
-  };
-  const up = panelMetricNumber(directUp) ?? legacyRate(["up", "upload"]);
-  const down = panelMetricNumber(directDown) ?? legacyRate(["down", "download"]);
-  const rate = (amount: number | null) => {
-    if (amount === null) return "-";
-    const units = ["KB", "MB", "GB", "TB"];
-    let value = amount;
-    let index = 0;
-    while (value >= 1024 && index < units.length - 1) { value /= 1024; index += 1; }
-    return `${formatMetric(value)} ${units[index]}/s`;
-  };
-  return { up: rate(up), down: rate(down) };
-}
-function formatEsaTime(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value || "-";
-  return `${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")} ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
-}
-
-const columnLabels: Record<string, string> = {
-  InstanceName: "实例名称",
-  InstanceId: "实例 ID",
-  Status: "状态",
-  RegionId: "地域",
-  PublicIpAddress: "公网 IP",
-  PrivateIpAddress: "内网 IP",
-  Cpu: "CPU",
-  Memory: "内存(MB)",
-  OSType: "系统类型",
-  OSName: "操作系统",
-  ExpiredTime: "到期时间",
-  CreationTime: "创建时间",
-  DomainName: "域名",
-  DomainStatus: "域名状态",
-  RegistrationDate: "注册时间",
-  ExpirationDate: "到期时间",
-  DBInstanceDescription: "实例名称",
-  DBInstanceId: "实例 ID",
-  DBInstanceStatus: "状态",
-  DBInstanceType: "实例类型",
-  DBInstanceClass: "规格",
-  Engine: "引擎",
-  EngineVersion: "引擎版本",
-  ConnectionString: "连接地址",
-  Port: "端口",
-  KVStoreInstanceId: "实例 ID",
-  ConnectionDomain: "连接地址",
-  InstanceStatus: "状态",
-  Capacity: "容量(GB)",
-  Bandwidth: "带宽",
-  CreateTime: "创建时间",
-  EndTime: "到期时间",
-  BucketName: "存储桶",
-  Location: "地域",
-  Name: "名称",
-  PlanName: "套餐",
-};
-function columnLabel(key: string) {
-  return columnLabels[key] || key.replace(/([A-Z])/g, " $1").trim();
-}
-
-function resourceColumns(items: Record<string, unknown>[]) {
-  const preferred = [
-    "InstanceName",
-    "InstanceId",
-    "Status",
-    "RegionId",
-    "PublicIpAddress",
-    "PublicIp",
-    "DomainName",
-    "DBInstanceDescription",
-    "DBInstanceId",
-    "KVStoreInstanceId",
-    "AssetId",
-    "BucketName",
-    "Name",
-    "IpAddress",
-    "SizeGb",
-    "AttachedTo",
-    "CreatedAt",
-    "PlanName",
-  ];
-  const keys = Array.from(
-    new Set(
-      items.flatMap((item) =>
-        Object.keys(item).filter((key) => !key.startsWith("_")),
-      ),
-    ),
-  );
-  const ordered = preferred.filter((key) => keys.includes(key));
-  return [...ordered, ...keys.filter((key) => !ordered.includes(key))].slice(
-    0,
-    7,
-  );
-}
-
 function App() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [selectedAccountIds, setSelectedAccountIds] = useState<Set<number>>(() => new Set());
@@ -1908,44 +1666,13 @@ function App() {
   const syncResultLevel = syncResult?.errors.length ? (syncResult.fetched > 0 ? "warning" : "has-errors") : "success";
   const showOracleDatabasePermissionHint = syncAccount?.cloud_type === "oracle" && Boolean(syncResult?.errors.some((error) => /rds:.*Authorization failed or requested resource not found/i.test(error)));
 
-  async function cachedResourceResponse(account: Account, view: Exclude<View, "summary">): Promise<ResourceResponse> {
-    const assets = await resourcesClient.listLocal({ accountId: account.id, resourceType: view });
-    const items = assets.map((asset) => ({
-      ...asset.payload,
-      _region_id: asset.region_id || asset.payload._region_id || asset.payload.RegionId || undefined,
-    }));
-    return {
-      resource_type: view,
-      items,
-      errors: [],
-      fetched_at: assets.reduce((latest, asset) => Math.max(latest, asset.fetched_at), 0),
-    };
+    async function cachedResourceResponse(account: Account, view: Exclude<View, "summary">) {
+    return fetchCachedResources(account, view);
   }
 
-  async function cachedSummary(account: Account): Promise<Record<string, unknown>> {
-    const assets = await resourcesClient.listLocal({ accountId: account.id });
-    const count = (type: string) => assets.filter((asset) => asset.resource_type === type).length;
-    const dnsRecordCount = assets
-      .filter((asset) => asset.resource_type === "domain")
-      .reduce((total, asset) => total + Number(asset.payload.RecordCount || 0), 0);
-    return {
-      account_id: account.access_key_id,
-      account_type: "本地缓存",
-      available_amount: "-",
-      available_cash_amount: "-",
-      credit_amount: "-",
-      month_consume: "-",
-      month_bill: "-",
-      ecs_count: count("ecs"),
-      domain_count: count("domain"),
-      dns_record_count: dnsRecordCount,
-      oss_count: count("oss"),
-      rds_count: count("rds"),
-      redis_count: count("redis"),
-      swas_count: count("swas"),
-      esa_count: count("esa"),
-      cached_at: assets.reduce((latest, asset) => Math.max(latest, asset.fetched_at), 0),
-    };
+  async function cachedSummary(account: Account) {
+    const result = await fetchCachedSummary(account);
+    return result as unknown as Record<string, unknown>;
   }
 
   async function openCachedSummary(account: Account) {
@@ -4665,7 +4392,33 @@ function App() {
               <div className="settings-card"><div className="settings-icon blue"><List size={22} /></div><div className="settings-copy"><strong>每页显示条数</strong><small>账号、资源和操作日志列表统一使用此分页大小</small></div><select className="settings-select" value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))}><option value={10}>10 条</option><option value={20}>20 条</option><option value={50}>50 条</option><option value={100}>100 条</option></select></div>
               <div className="settings-card"><div className="settings-icon purple"><Database size={22} /></div><div className="settings-copy"><strong>数据库位置</strong><small>系统应用数据目录 / CloudHubTools / cloudhub_tools.sqlite3</small></div><button className="secondary settings-link" onClick={() => void openDataDirectory()}><FolderOpen size={16} />打开目录</button></div>
               <div className="settings-card"><div className="settings-icon amber"><Terminal size={22} /></div><div className="settings-copy"><strong>GitHub 开源仓库</strong><small>https://github.com/wlphp/cloudhub-tools</small></div><a className="secondary settings-link" href="https://github.com/wlphp/cloudhub-tools" target="_blank" rel="noreferrer">访问仓库 ↗</a></div>
-              <div className={`settings-card${updateState.phase === "available" && updateState.notes ? " has-update-notes" : ""}`}><div className="settings-icon blue"><Download size={22} /></div><div className="settings-copy"><strong>客户端更新</strong><small>{!runningInTauri ? `当前版本 v${appVersion}；自动更新仅在桌面客户端可用` : updateState.phase === "available" ? `当前 v${appVersion}，最新 v${updateState.version}${updateState.notes ? "，可下载并安装" : ""}` : updateState.phase === "downloading" ? `当前 v${appVersion}，正在下载 v${updateState.version}` : updateState.phase === "ready" ? `v${updateState.version} 已安装，正在重新启动` : updateState.phase === "current" ? `当前 v${appVersion} 已是最新版本` : updateState.phase === "error" ? `当前 v${appVersion}；${updateState.message}` : `当前版本 v${appVersion}，启动时会自动检查新版本`}</small></div><div className="settings-update-actions">{runningInTauri && updateState.phase === "downloading" ? <span className="setting-state on">{updateState.total ? `${Math.min(100, Math.round((updateState.downloaded / updateState.total) * 100))}%` : "下载中"}</span> : runningInTauri && updateState.phase === "checking" ? <span className="setting-state on">检查中</span> : runningInTauri && updateState.phase === "available" ? <button className="secondary settings-link" onClick={() => void installUpdate()}><Download size={16} />下载并安装</button> : runningInTauri ? <button className="secondary settings-link" onClick={() => void checkForUpdates()}><RefreshCw size={16} />检查更新</button> : <span className="setting-state">桌面端</span>}</div>{updateState.phase === "available" && updateState.notes && <div className="settings-update-notes"><strong>更新内容</strong><p>{updateState.notes}</p></div>}</div>
+              <div className={`settings-card${updateState.phase === "available" && updateState.notes ? " has-update-notes" : ""}`}>
+                <div className="settings-icon blue"><Download size={22} /></div>
+                <div className="settings-copy">
+                  <strong>客户端更新</strong>
+                  <small>{!runningInTauri ? `当前版本 v${appVersion}；自动更新仅在桌面客户端可用` : updateState.phase === "available" ? `当前 v${appVersion}，最新 v${updateState.version}${updateState.notes ? "，可下载并安装" : ""}` : updateState.phase === "downloading" ? `当前 v${appVersion}，正在下载 v${updateState.version}` : updateState.phase === "ready" ? `v${updateState.version} 已安装，正在重新启动` : updateState.phase === "current" ? `当前 v${appVersion} 已是最新版本` : updateState.phase === "error" ? `当前 v${appVersion}；${updateState.message}` : `当前版本 v${appVersion}，启动时会自动检查新版本`}</small>
+                </div>
+                <div className="settings-update-actions">
+                  <a className="secondary settings-link" href="https://github.com/wlphp/cloudhub-tools/releases" target="_blank" rel="noreferrer" onClick={(e) => { if (runningInTauri) { e.preventDefault(); void openUrl("https://github.com/wlphp/cloudhub-tools/releases"); } }}>
+                    <ExternalLink size={14} />
+                    更新日志
+                  </a>
+                  {runningInTauri && updateState.phase === "downloading" ? (
+                    <button type="button" className="settings-link primary-update-btn" disabled><Download size={14} />{updateState.total ? `下载中 ${Math.min(100, Math.round((updateState.downloaded / updateState.total) * 100))}%` : "下载中…"}</button>
+                  ) : runningInTauri && updateState.phase === "checking" ? (
+                    <button type="button" className="secondary settings-link" disabled><RefreshCw size={14} className="spin" />检查中…</button>
+                  ) : runningInTauri && updateState.phase === "ready" ? (
+                    <button type="button" className="settings-link primary-update-btn" disabled><RefreshCw size={14} className="spin" />正在重启…</button>
+                  ) : runningInTauri && updateState.phase === "available" ? (
+                    <button type="button" className="settings-link primary-update-btn" onClick={() => void installUpdate()}><Download size={14} />更新到 v{updateState.version}</button>
+                  ) : runningInTauri ? (
+                    <button type="button" className="secondary settings-link" onClick={() => void checkForUpdates()}><RefreshCw size={14} />检查更新</button>
+                  ) : (
+                    <span className="setting-state">桌面端</span>
+                  )}
+                </div>
+                {updateState.phase === "available" && updateState.notes && <div className="settings-update-notes"><strong>更新内容</strong><p>{updateState.notes}</p></div>}
+              </div>
             </section>
           </section>
         )}

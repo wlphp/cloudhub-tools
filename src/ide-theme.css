@@ -2182,7 +2182,10 @@
 .ide-theme .utility-page .setting-switch input:checked + span::after { left: 19px; }
 .ide-theme .utility-page .settings-select { height: 30px; min-width: 82px; padding: 0 8px; border-radius: 3px !important; font-size: 11px; }
 .ide-theme .utility-page .settings-link { height: 30px; min-height: 30px; padding: 0 9px; border-radius: 3px !important; font-size: 11px; }
-.ide-theme .utility-page .settings-update-actions { min-width: 90px; }
+.ide-theme .utility-page .settings-update-actions { display: inline-flex; align-items: center; justify-content: flex-end; gap: 6px; min-width: auto; }
+.ide-theme .utility-page .primary-update-btn { height: 30px; min-height: 30px; padding: 0 10px; border: 1px solid #3574f0 !important; border-radius: 3px !important; background: #3574f0 !important; color: #ffffff !important; font-size: 11px; font-weight: 500; display: inline-flex; align-items: center; gap: 5px; cursor: pointer; box-shadow: none !important; }
+.ide-theme .utility-page .primary-update-btn:hover:not(:disabled) { border-color: #4c87f7 !important; background: #4682f7 !important; color: #ffffff !important; }
+.ide-theme .utility-page .primary-update-btn:disabled { opacity: 0.72; cursor: wait; }
 
 @media (max-width: 900px) {
   .ide-theme .favorites-page .favorite-toolbar { grid-template-columns: minmax(0, 1fr) minmax(190px, 240px); }
