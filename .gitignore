@@ -11,6 +11,9 @@ node_modules
 dist
 dist-ssr
 release
+target/
+target-*/
+target-codex-check/
 src-tauri/target
 src-tauri/target-codex-check/
 src-tauri/**/target-verify/
