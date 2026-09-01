@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Maximize2, Minimize2, X } from "lucide-react";
-import { invoke, runningInTauri, webApi } from "../../platform/api";
+import { resourcesClient } from "../../platform/clients";
 import type { Account } from "../../shared/types";
 import { displayValue } from "../../shared/utils/display";
 
@@ -40,17 +40,11 @@ export function RedisCard({
     setAccountError("");
     try {
       const regionId = String(item._region_id || item.RegionId || "");
-      setAccounts(
-        runningInTauri
-          ? await invoke<Record<string, unknown>[]>("list_redis_accounts", {
-              id: account.id,
-              instanceId: String(item.InstanceId || ""),
-              regionId,
-            })
-          : await webApi<Record<string, unknown>[]>(
-              `/api/redis-accounts?id=${account.id}&region=${encodeURIComponent(regionId)}&instance=${encodeURIComponent(String(item.InstanceId || ""))}`,
-            ),
-      );
+      setAccounts(await resourcesClient.redisAccounts(
+        account.id,
+        regionId,
+        String(item.InstanceId || ""),
+      ));
     } catch (error) {
       setAccounts([]);
       setAccountError(error instanceof Error ? error.message : "获取账号失败");

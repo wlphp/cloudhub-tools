@@ -2,10 +2,18 @@ export function send(res, status, body) {
   const payload = JSON.stringify(body);
   res.writeHead(status, {
     "Content-Type": "application/json; charset=utf-8",
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Headers": "Content-Type",
   });
   res.end(payload);
+}
+
+export function sendError(res, status, code, message, details = undefined) {
+  const body = { error: message, code };
+  if (details) body.details = details;
+  send(res, status, body);
+}
+
+export function sendUnsupportedInPreview(res, feature, hint = "请在桌面端运行 CloudHub Tools") {
+  sendError(res, 501, "unsupported-in-preview", `${feature} 仅在桌面端可用`, { feature, hint });
 }
 
 const MAX_BODY_BYTES = 10 * 1024 * 1024;

@@ -15,6 +15,7 @@
   "scripts": {
     "dev": "vite",
     "web:api": "node web-api.mjs",
+    "verify:platform-contracts": "node scripts/verify-platform-contracts.mjs",
     "build": "tsc && vite build",
     "bundle:mac": "tauri build --target universal-apple-darwin",
     "bundle:mac:arm64": "tauri build --target aarch64-apple-darwin",

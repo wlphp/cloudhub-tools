@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Monitor, RefreshCw, ShieldCheck, Terminal } from "lucide-react";
-import { invoke, runningInTauri, webApi } from "../../platform/api";
+import { serversClient } from "../../platform/clients";
 import type { Account } from "../../shared/types";
 import { displayValue } from "../../shared/utils/display";
 import { LightFirewallDialog } from "./SecurityDialogs";
@@ -39,11 +39,7 @@ export function SwasCard({
     if (!(await onConfirm(`确认${label}轻量服务器“${instanceName}”？`))) return;
     setSubmitting(action === "reboot" && forceReboot ? "force-reboot" : action);
     try {
-      if (runningInTauri) {
-        await invoke("swas_instance_action", { id: account.id, regionId, instanceId, action, forceStop: action === "reboot" && canForceReboot && forceReboot });
-      } else {
-        await webApi("/api/swas-action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: account.id, regionId, instanceId, action, forceStop: action === "reboot" && canForceReboot && forceReboot }) });
-      }
+      await serversClient.swasAction({ id: account.id, regionId, instanceId, action, forceStop: action === "reboot" && canForceReboot && forceReboot });
       onNotice(`轻量服务器${label}指令已提交`);
       onRefresh();
     } catch (error) {

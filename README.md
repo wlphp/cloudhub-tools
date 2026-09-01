@@ -80,6 +80,11 @@ npm run web:api
 
 在另一个终端使用相同的 `VITE_CLOUDHUB_TOOLS_WEB_API_PORT` 运行 `npm run dev`。
 
+本地 API 默认只允许来自 `http://127.0.0.1:1420` 与
+`http://localhost:1420` 的浏览器请求。若 Vite 使用其他本机地址，可在启动 API 前通过
+逗号分隔的 `CLOUDHUB_TOOLS_WEB_ALLOWED_ORIGINS` 显式配置允许来源。浏览器预览不提供
+账号 Secret 明文读取或密钥导出，这些敏感操作仅能在 Tauri 桌面端执行。
+
 ### 构建 Windows 安装包
 
 ```powershell

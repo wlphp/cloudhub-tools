@@ -66,6 +66,7 @@ import "./terminal-workbench.css";
 import "./ide-theme.css";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke, runningInTauri, webApi } from "./platform/api";
+import { accountsClient, resourcesClient, serversClient } from "./platform/clients";
 import {
   assetFavoriteKey,
   savedFavoriteAssetKeys,
@@ -112,7 +113,6 @@ import type {
   SshFileEntry,
   SshTarget,
   TerminalWorkspaceTab,
-  TransferAccount,
   View,
 } from "./shared/types";
 
@@ -914,14 +914,12 @@ function App() {
 
   async function loadLocalAssets() {
     try {
-      setLocalAssets(runningInTauri
-        ? await invoke<LocalAsset[]>("list_local_assets", {})
-        : await webApi<LocalAsset[]>("/api/local-assets"));
+      setLocalAssets(await resourcesClient.listLocal());
     } catch (error) { setStatus(`读取本地资产失败：${String(error)}`); }
   }
   async function loadManagedHosts() {
     if (!runningInTauri) return;
-    try { setManagedHosts(await invoke<ManagedHost[]>("list_managed_hosts")); }
+    try { setManagedHosts(await serversClient.listManaged()); }
     catch (error) { setStatus(`读取服务器管理列表失败：${String(error)}`); }
   }
   async function loadPanelConnections() {
@@ -1079,9 +1077,7 @@ function App() {
     if (favoriteRefreshingKey) return;
     setFavoriteRefreshingKey(key);
     try {
-      const result = runningInTauri
-        ? await invoke<{ counts: Record<string, number>; errors: string[] }>("sync_cloud_assets", { id: account.id, resourceTypes: [asset.resource_type] })
-        : await webApi<{ counts: Record<string, number>; errors: string[] }>("/api/sync-assets", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ account_id: account.id, resource_types: [asset.resource_type] }) });
+      const result = await resourcesClient.sync(account.id, [asset.resource_type]);
       await loadLocalAssets();
       setStatus(`${account.account_name} · ${assetTypes.find(([type]) => type === asset.resource_type)?.[1] || "资源"}已刷新${result.errors.length ? `，${result.errors.length} 项失败` : ""}`);
     } catch (error) { setStatus(`刷新服务器失败：${String(error)}`); }
@@ -1145,7 +1141,7 @@ function App() {
     if (!runningInTauri) { setStatus("服务器管理仅支持桌面客户端"); return; }
     setManagedHostSaving(true);
     try {
-      const saved = await invoke<ManagedHost>("save_managed_host", { input: managedHostDraft });
+      const saved = await serversClient.saveManaged(managedHostDraft);
       setManagedHosts((current) => current.some((item) => item.id === saved.id) ? current.map((item) => item.id === saved.id ? saved : item) : [...current, saved]);
       setManagedHostDialog(false);
       setStatus(managedHostDraft.id ? "服务器已更新" : "服务器已加入管理，点击刷新状态完成首次探测");
@@ -1156,7 +1152,7 @@ function App() {
     if (!runningInTauri || managedHostLoadingId !== null) return;
     setManagedHostLoadingId(id);
     try {
-      const updated = await invoke<ManagedHost>("probe_managed_host", { id });
+      const updated = await serversClient.probeManaged(id);
       setManagedHosts((current) => current.map((item) => item.id === id ? updated : item));
       setStatus(updated.status === "online" ? `${updated.name} 状态已更新` : `${updated.name} 暂时无法连接`);
     } catch (error) { setStatus(`读取服务器状态失败：${String(error)}`); }
@@ -1164,14 +1160,14 @@ function App() {
   }
   async function deleteManagedHost(host: ManagedHost) {
     if (!(await requestConfirm(`确认从服务器管理中移除“${host.name}”吗？本机保存的连接凭据也会删除。`))) return;
-    try { await invoke("delete_managed_host", { id: host.id }); setManagedHosts((current) => current.filter((item) => item.id !== host.id)); setStatus("服务器已移除"); }
+    try { await serversClient.removeManaged(host.id); setManagedHosts((current) => current.filter((item) => item.id !== host.id)); setStatus("服务器已移除"); }
     catch (error) { setStatus(`移除服务器失败：${String(error)}`); }
   }
   async function exportManagedHosts() {
     if (!managedHosts.length) { setStatus("没有可导出的服务器"); return; }
     if (!(await requestConfirm(`导出文件会包含 ${managedHosts.length} 台服务器的连接凭据明文（SSH 密码/私钥或 RDP 密码），请妥善保管。确定继续吗？`))) return;
     try {
-      const path = await invoke<string>("export_managed_hosts_file");
+      const path = await serversClient.exportManaged();
       setStatus(`已导出 ${managedHosts.length} 台服务器的连接凭据明文文件：${path}`);
     } catch (error) { setStatus(`导出服务器失败：${String(error)}`); }
   }
@@ -1181,7 +1177,7 @@ function App() {
       const parsed = JSON.parse(await file.text());
       const hosts = Array.isArray(parsed) ? parsed : parsed.hosts;
       if (!Array.isArray(hosts) || !hosts.length) throw new Error("文件中没有服务器配置");
-      const count = await invoke<number>("import_managed_hosts", { hosts });
+      const count = await serversClient.importManaged(hosts);
       await loadManagedHosts();
       setStatus(`已导入 ${count} 台服务器`);
     } catch (error) { setStatus(`导入服务器失败：${String(error)}`); }
@@ -1293,7 +1289,7 @@ function App() {
     if (!runningInTauri) { setStatus("远程连接仅支持桌面客户端"); return; }
     setTerminalSelectedHostId(host.id);
     if (host.platform === "windows") {
-      void invoke("launch_managed_host_rdp", { id: host.id }).then(() => setStatus(`已打开 ${host.name} 的 Windows 远程桌面连接`)).catch((error) => setStatus(`打开 RDP 失败：${String(error)}`));
+      void serversClient.launchManagedRdp(host.id).then(() => setStatus(`已打开 ${host.name} 的 Windows 远程桌面连接`)).catch((error) => setStatus(`打开 RDP 失败：${String(error)}`));
       return;
     }
     const existingTab = terminalTabsRef.current.find((tab) => tab.target.managedHostId === host.id);
@@ -1321,26 +1317,20 @@ function App() {
       if (asset.resource_type === "swas") {
         if (account.cloud_type !== "aliyun" && account.cloud_type !== "tencent") throw new Error("当前轻量服务器暂不支持重启操作");
         const supportsForcedReboot = account.cloud_type === "aliyun" || account.cloud_type === "tencent";
-        if (runningInTauri) await invoke("swas_instance_action", { id: account.id, regionId, instanceId, action: "reboot", forceStop: supportsForcedReboot && forceStop });
-        else await webApi("/api/swas-action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: account.id, regionId, instanceId, action: "reboot", forceStop: supportsForcedReboot && forceStop }) });
+        await serversClient.swasAction({ id: account.id, regionId, instanceId, action: "reboot", forceStop: supportsForcedReboot && forceStop });
       } else if (account.cloud_type === "tencent") {
-        if (runningInTauri) await invoke("cvm_instance_reboot", { id: account.id, regionId, instanceId, forceStop });
-        else await webApi("/api/cvm-action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: account.id, regionId, instanceId, forceStop }) });
+        await serversClient.providerAction("tencent", { id: account.id, regionId, instanceId, action: "reboot", forceStop });
       } else if (account.cloud_type === "oracle") {
         const payload = { id: account.id, regionId, instanceId, action: forceStop ? "forceReboot" : "reboot" };
-        if (runningInTauri) await invoke("oracle_instance_action", payload);
-        else await webApi("/api/oracle-instance-action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        await serversClient.providerAction("oracle", payload);
       } else if (account.cloud_type === "baidu") {
         const payload = { id: account.id, regionId, instanceId, action: "reboot", forceStop };
-        if (runningInTauri) await invoke("baidu_instance_action", payload);
-        else await webApi("/api/bcc-action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        await serversClient.providerAction("baidu", payload);
       } else if (account.cloud_type === "vultr") {
         const payload = { id: account.id, instanceId, action: "reboot" };
-        if (runningInTauri) await invoke("vultr_instance_action", payload);
-        else await webApi("/api/vultr-instance-action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        await serversClient.providerAction("vultr", payload);
       } else {
-        if (!runningInTauri) throw new Error("网页端暂不支持阿里云服务器重启，请使用客户端操作");
-        await invoke("reboot_instance", { id: account.id, regionId, instanceId, forceStop });
+        await serversClient.aliyunAction({ id: account.id, regionId, instanceId, action: "reboot", forceStop });
       }
       setStatus(`${forceStop ? "强制" : "正常"}重启${resourceLabel}指令已提交`);
       await loadApiLogs();
@@ -1356,29 +1346,22 @@ function App() {
     try {
       if (asset.resource_type === "swas") {
         if (account.cloud_type !== "aliyun" && account.cloud_type !== "tencent") throw new Error("当前轻量服务器暂不支持关机操作");
-        const payload = { id: account.id, regionId, instanceId, action: "stop", forceStop: false };
-        if (runningInTauri) await invoke("swas_instance_action", payload);
-        else await webApi("/api/swas-action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        const payload = { id: account.id, regionId, instanceId, action: "stop" as const, forceStop: false };
+        await serversClient.swasAction(payload);
       } else if (account.cloud_type === "tencent") {
         const payload = { id: account.id, regionId, instanceId, action: "stop", forceStop: false };
-        if (runningInTauri) await invoke("cvm_instance_action", payload);
-        else await webApi("/api/cvm-action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        await serversClient.providerAction("tencent", payload);
       } else if (account.cloud_type === "oracle") {
         const payload = { id: account.id, regionId, instanceId, action: "stop" };
-        if (runningInTauri) await invoke("oracle_instance_action", payload);
-        else await webApi("/api/oracle-instance-action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        await serversClient.providerAction("oracle", payload);
       } else if (account.cloud_type === "baidu") {
         const payload = { id: account.id, regionId, instanceId, action: "stop", forceStop: false };
-        if (runningInTauri) await invoke("baidu_instance_action", payload);
-        else await webApi("/api/bcc-action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        await serversClient.providerAction("baidu", payload);
       } else if (account.cloud_type === "vultr") {
         const payload = { id: account.id, instanceId, action: "stop" };
-        if (runningInTauri) await invoke("vultr_instance_action", payload);
-        else await webApi("/api/vultr-instance-action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        await serversClient.providerAction("vultr", payload);
       } else {
-        const payload = { id: account.id, regionId, instanceId, action: "stop" };
-        if (runningInTauri) await invoke("stop_instance", payload);
-        else await webApi("/api/ecs-action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        await serversClient.aliyunAction({ id: account.id, regionId, instanceId, action: "stop" }, true);
       }
       setStatus(`${resourceLabel}关机指令已提交`);
       await loadApiLogs();
@@ -1395,11 +1378,7 @@ function App() {
     if (!instanceId || !regionId) { setStatus("服务器缺少地域或实例 ID，无法修改名称"); return; }
     setSavingAssetName(key);
     try {
-      if (runningInTauri) {
-        await invoke("rename_server", { id: account.id, regionId, instanceId, instanceName });
-      } else {
-        await webApi("/api/server-name", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: account.id, regionId, instanceId, instanceName }) });
-      }
+      await serversClient.rename({ id: account.id, regionId, instanceId, instanceName });
       setLocalAssets((items) => items.map((item) => item.account_id === asset.account_id && item.resource_type === asset.resource_type && item.asset_key === asset.asset_key
         ? { ...item, payload: { ...item.payload, InstanceName: instanceName } }
         : item));
@@ -1917,9 +1896,7 @@ function App() {
     setSyncing(true);
     setSyncResult(null);
     try {
-      const result = runningInTauri
-        ? await invoke<{ fetched: number; counts: Record<string, number>; errors: string[] }>("sync_cloud_assets", { id: account.id, resourceTypes: syncTypes })
-        : await webApi<{ fetched: number; counts: Record<string, number>; errors: string[] }>("/api/sync-assets", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ account_id: account.id, resource_types: syncTypes }) });
+      const result = await resourcesClient.sync(account.id, syncTypes);
       setSyncResult(result);
       setStatus(`${account.account_name} 已获取 ${result.fetched} 项资产${result.errors.length ? `，${result.errors.length} 项失败` : ""}`);
       await loadLocalAssets();
@@ -1932,9 +1909,7 @@ function App() {
   const showOracleDatabasePermissionHint = syncAccount?.cloud_type === "oracle" && Boolean(syncResult?.errors.some((error) => /rds:.*Authorization failed or requested resource not found/i.test(error)));
 
   async function cachedResourceResponse(account: Account, view: Exclude<View, "summary">): Promise<ResourceResponse> {
-    const assets = runningInTauri
-      ? await invoke<LocalAsset[]>("list_local_assets", { accountId: account.id, resourceType: view })
-      : await webApi<LocalAsset[]>(`/api/local-assets?account_id=${account.id}&resource_type=${encodeURIComponent(view)}`);
+    const assets = await resourcesClient.listLocal({ accountId: account.id, resourceType: view });
     const items = assets.map((asset) => ({
       ...asset.payload,
       _region_id: asset.region_id || asset.payload._region_id || asset.payload.RegionId || undefined,
@@ -1948,9 +1923,7 @@ function App() {
   }
 
   async function cachedSummary(account: Account): Promise<Record<string, unknown>> {
-    const assets = runningInTauri
-      ? await invoke<LocalAsset[]>("list_local_assets", { accountId: account.id, resourceType: null })
-      : await webApi<LocalAsset[]>(`/api/local-assets?account_id=${account.id}`);
+    const assets = await resourcesClient.listLocal({ accountId: account.id });
     const count = (type: string) => assets.filter((asset) => asset.resource_type === type).length;
     const dnsRecordCount = assets
       .filter((asset) => asset.resource_type === "domain")
@@ -2035,9 +2008,7 @@ function App() {
     const startedAt = Date.now();
     setLoading(true);
     try {
-      const result = runningInTauri
-        ? await invoke<{ fetched: number; counts: Record<string, number>; errors: string[] }>("sync_cloud_assets", { id: account.id, resourceTypes: [view] })
-        : await webApi<{ fetched: number; counts: Record<string, number>; errors: string[] }>("/api/sync-assets", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ account_id: account.id, resource_types: [view] }) });
+      const result = await resourcesClient.sync(account.id, [view]);
       setResources(await cachedResourceResponse(account, view));
       setActive({ account, view, source: "live" });
       await loadLocalAssets();
@@ -2059,12 +2030,8 @@ function App() {
     const startedAt = Date.now();
     setLoading(true);
     try {
-      const syncResult = runningInTauri
-        ? await invoke<{ fetched: number; counts: Record<string, number>; errors: string[] }>("sync_cloud_assets", { id: account.id, resourceTypes: ["esa"] })
-        : await webApi<{ fetched: number; counts: Record<string, number>; errors: string[] }>("/api/sync-assets", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ account_id: account.id, resource_types: ["esa"] }) });
-      const overview = runningInTauri
-        ? await invoke<EsaOverview>("esa_overview", { id: account.id, range: esaRange, siteId: esaSelectedSiteId || null })
-        : await webApi<EsaOverview>(`/api/esa-overview?id=${account.id}&range=${encodeURIComponent(esaRange)}${esaSelectedSiteId ? `&site_id=${encodeURIComponent(esaSelectedSiteId)}` : ""}`);
+      const syncResult = await resourcesClient.sync(account.id, ["esa"]);
+      const overview = await resourcesClient.esaOverview(account.id, esaRange, esaSelectedSiteId || undefined);
       setResources(await cachedResourceResponse(account, "esa"));
       setEsaOverview(overview);
       setActive({ account, view: "esa", source: "live" });
@@ -2088,14 +2055,10 @@ function App() {
     setLoading(true);
     try {
       const types = syncAssetTypes(account).map(([type]) => type);
-      const syncResult = runningInTauri
-        ? await invoke<{ fetched: number; errors: string[] }>("sync_cloud_assets", { id: account.id, resourceTypes: types })
-        : await webApi<{ fetched: number; errors: string[] }>("/api/sync-assets", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ account_id: account.id, resource_types: types }) });
+      const syncResult = await resourcesClient.sync(account.id, types);
       const latestSummary = ["vultr", "oracle", "huawei", "baidu", "ucloud", "qiniu", "aws", "azure", "gcp", "jdcloud", "qingcloud", "ksyun"].includes(account.cloud_type)
         ? await cachedSummary(account)
-        : runningInTauri
-        ? await invoke<Record<string, unknown>>("cloud_account_summary", { id: account.id })
-        : await webApi<Record<string, unknown>>(`/api/cloud-summary?id=${account.id}`);
+        : await resourcesClient.summary(account.id);
       setSummary(latestSummary);
       setActive({ account, view: "summary", source: "live" });
       await loadLocalAssets();
@@ -2372,15 +2335,7 @@ function App() {
     const startedAt = Date.now();
     setAccountSearchLoading(true);
     try {
-      setAccounts(
-        runningInTauri
-          ? await invoke<Account[]>("list_accounts", {
-              keyword: keyword || null,
-            })
-          : await webApi<Account[]>(
-              `/api/accounts?keyword=${encodeURIComponent(keyword)}`,
-            ),
-      );
+      setAccounts(await accountsClient.list(keyword));
     } catch (error) {
       setStatus(String(error));
     } finally {
@@ -2519,11 +2474,7 @@ function App() {
         access_key_secret: normalizedDraft.access_key_secret || null,
         credential_meta: normalizedDraft.cloud_type === "oracle" ? JSON.stringify({ tenancy_ocid: normalizedDraft.tenancy_ocid, key_fingerprint: normalizedDraft.key_fingerprint }) : normalizedDraft.cloud_type === "azure" ? JSON.stringify({ tenant_id: normalizedDraft.tenant_id, subscription_id: normalizedDraft.subscription_id }) : normalizedDraft.cloud_type === "gcp" ? JSON.stringify({ project_id: normalizedDraft.project_id }) : null,
       };
-      const saved = runningInTauri ? await invoke<Account>("save_account", { input }) : await webApi<Account>("/api/accounts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(input),
-      });
+      const saved = await accountsClient.save(input);
       if (saved.cloud_type !== draft.cloud_type)
         throw new Error(`账号保存类型异常：期望 ${cloudProvider(draft.cloud_type).label}，实际为 ${cloudProvider(saved.cloud_type).label}。请重启本地服务后重试。`);
       setDialog(false);
@@ -2538,9 +2489,7 @@ function App() {
     if (!draft.id || !["vultr", "ctyun", "huawei", "baidu", "jdcloud", "ucloud", "qingcloud", "ksyun", "qiniu", "aws", "azure", "gcp"].includes(draft.cloud_type)) return;
     setVerifyingAccount(true);
     try {
-      const result = runningInTauri
-        ? await invoke<{ region_count: number; default_region: string }>(`verify_${draft.cloud_type}_account`, { id: draft.id })
-        : await webApi<{ region_count: number; default_region: string }>("/api/verify-account", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ account_id: draft.id }) });
+      const result = await accountsClient.verify(draft.cloud_type as import("./platform/clients/accounts").VerifiableCloudType, draft.id);
       setStatus(`${cloudProvider(draft.cloud_type).label}账号验证成功，已读取 ${result.region_count} 个地域`);
       if (!draft.region_id && result.default_region) setDraft((current) => ({ ...current, region_id: result.default_region }));
     } catch (error) {
@@ -2550,8 +2499,7 @@ function App() {
   async function remove(id: number) {
     if (!(await requestConfirm("确定删除这个本地云账号吗？"))) return;
     try {
-      if (runningInTauri) await invoke("delete_account", { id });
-      else await webApi(`/api/accounts?id=${id}`, { method: "DELETE" });
+      await accountsClient.remove(id);
       setStatus("账号已删除");
       await load();
     } catch (error) {
@@ -2566,12 +2514,11 @@ function App() {
       return;
     try {
       if (runningInTauri) {
-        const path = await invoke<string>("export_accounts_file", { accountIds: accountIds.length ? accountIds : null });
+        const path = await accountsClient.exportFile(accountIds.length ? accountIds : null);
         setStatus(`已导出云账号，文件已保存到：${path}`);
         return;
       }
-      const query = accountIds.length ? `?${accountIds.map((id) => `id=${encodeURIComponent(id)}`).join("&")}` : "";
-      const data = (await webApi<{ accounts: TransferAccount[] }>(`/api/export${query}`)).accounts;
+      const data = await accountsClient.exportPreview(accountIds);
       downloadJson(
         { format: "cloudhub-tools-account-export", version: 2, encryption: "plaintext", secret_exported: true, exported_at: new Date().toISOString(), accounts: data },
         `cloudhub-tools-accounts-${new Date().toISOString().slice(0, 10)}.json`,
@@ -2604,15 +2551,7 @@ function App() {
       if (!data.length) throw new Error("导入文件中没有云账号");
       const missingSecret = data.findIndex((item) => !String(item?.access_key_secret || "").trim());
       if (missingSecret >= 0) throw new Error(`第 ${missingSecret + 1} 条账号没有 AccessKey Secret，请使用完整导出文件`);
-      const count = runningInTauri
-        ? await invoke<number>("import_accounts", { accounts: data })
-        : (
-            await webApi<{ imported: number }>("/api/import", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ accounts: data }),
-            })
-          ).imported;
+      const count = await accountsClient.import(data);
       setStatus(`已导入 ${count} 个云账号`);
       await load();
     } catch (error) {
@@ -3496,8 +3435,7 @@ function App() {
     const assetName = String(asset.payload?.InstanceName || asset.payload?.Name || asset.payload?.DomainName || asset.asset_key);
     if (!(await requestConfirm(`确认删除本地缓存记录“${assetName}”吗？\n这不会删除云端真实资源。`))) return;
     try {
-      if (runningInTauri) await invoke("delete_local_asset", { accountId: asset.account_id, resourceType: asset.resource_type, assetKey: asset.asset_key });
-      else await webApi(`/api/local-assets?account_id=${asset.account_id}&resource_type=${encodeURIComponent(asset.resource_type)}&asset_key=${encodeURIComponent(asset.asset_key)}`, { method: "DELETE" });
+      await resourcesClient.removeLocal(asset);
       setLocalAssets((items) => items.filter((item) => item.account_id !== asset.account_id || item.resource_type !== asset.resource_type || item.asset_key !== asset.asset_key));
       setStatus(`已删除“${assetName}”的本地缓存记录`);
     } catch (error) { setStatus(`删除本地缓存记录失败：${String(error)}`); }
@@ -3849,8 +3787,7 @@ function App() {
                                 enabled: !account.enabled,
                                 remark: account.remark || null,
                               };
-                              if (runningInTauri) await invoke("save_account", { input });
-                              else await webApi("/api/accounts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
+                              await accountsClient.save(input);
                               await load();
                             } catch (error) {
                               setStatus(String(error));
@@ -4906,7 +4843,7 @@ function App() {
                     setDraft({ ...draft, access_key_secret: e.target.value })
                   }
                   placeholder={draft.id ? "留空表示不修改" : `请输入 ${cloudProvider(draft.cloud_type).secretLabel}`}
-                />{draft.cloud_type !== "oracle" && <button type="button" className="secret-eye" aria-label={showSecret ? `隐藏 ${cloudProvider(draft.cloud_type).secretLabel}` : `显示 ${cloudProvider(draft.cloud_type).secretLabel}`} onClick={async () => { if (!showSecret && draft.id && !draft.access_key_secret) { try { const secret = runningInTauri ? await invoke<string>("reveal_account_secret", { id: draft.id }) : await webApi<string>(`/api/account-secret?id=${draft.id}`); setDraft((current) => ({ ...current, access_key_secret: secret })); } catch (error) { setStatus(`读取 Secret 失败：${String(error)}`); return; } } setShowSecret((value) => !value); }}>{showSecret ? <EyeOff size={17} /> : <Eye size={17} />}</button>}</span>
+                />{draft.cloud_type !== "oracle" && <button type="button" className="secret-eye" aria-label={showSecret ? `隐藏 ${cloudProvider(draft.cloud_type).secretLabel}` : `显示 ${cloudProvider(draft.cloud_type).secretLabel}`} onClick={async () => { if (!showSecret && draft.id && !draft.access_key_secret) { try { const secret = await accountsClient.revealSecret(draft.id); setDraft((current) => ({ ...current, access_key_secret: secret })); } catch (error) { setStatus(`读取 Secret 失败：${String(error)}`); return; } } setShowSecret((value) => !value); }}>{showSecret ? <EyeOff size={17} /> : <Eye size={17} />}</button>}</span>
             </label>
             <label>
               备注

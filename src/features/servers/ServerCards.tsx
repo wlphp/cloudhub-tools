@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Copy, MoreHorizontal, RefreshCw, ShieldCheck, Terminal } from "lucide-react";
-import { invoke, runningInTauri, webApi } from "../../platform/api";
+import { serversClient } from "../../platform/clients";
 import type { Account, LocalAsset } from "../../shared/types";
 import { displayValue } from "../../shared/utils/display";
 import { cloudProvider } from "../cloud/catalog";
@@ -79,10 +79,7 @@ export function ServerCard({
       setDiskLoading(false);
       return;
     }
-    const loader = runningInTauri
-      ? () => invoke<Record<string, unknown>[]>("list_instance_disks", { id: account.id, regionId, instanceId, compartmentOcid: String(item._compartment_ocid || "") })
-      : () => webApi<Record<string, unknown>[]>(`/api/instance-disks?id=${account.id}&region=${encodeURIComponent(regionId)}&instance=${encodeURIComponent(instanceId)}&compartment=${encodeURIComponent(String(item._compartment_ocid || ""))}`);
-    loader()
+    serversClient.listDisks(account.id, regionId, instanceId, String(item._compartment_ocid || ""))
       .then((value) => {
         if (alive) setDisks(value || []);
       })
@@ -104,10 +101,9 @@ export function ServerCard({
     try {
       if (account.cloud_type === "baidu") {
         const payload = { id: account.id, regionId, instanceId: String(item.InstanceId || ""), action: "status", forceStop: false };
-        if (runningInTauri) await invoke("baidu_instance_action", payload);
-        else await webApi("/api/bcc-action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        await serversClient.providerAction("baidu", payload);
       } else {
-        await invoke("instance_status", {
+        await serversClient.instanceStatus({
           id: account.id,
           regionId,
           instanceId: String(item.InstanceId || ""),
@@ -124,19 +120,15 @@ export function ServerCard({
     try {
       if (account.cloud_type === "oracle") {
         const payload = { id: account.id, regionId, instanceId: String(item.InstanceId || ""), action };
-        if (runningInTauri) await invoke("oracle_instance_action", payload);
-        else await webApi("/api/oracle-instance-action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        await serversClient.providerAction("oracle", payload);
       } else if (account.cloud_type === "baidu") {
         const payload = { id: account.id, regionId, instanceId: String(item.InstanceId || ""), action, forceStop: false };
-        if (runningInTauri) await invoke("baidu_instance_action", payload);
-        else await webApi("/api/bcc-action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        await serversClient.providerAction("baidu", payload);
       } else if (account.cloud_type === "vultr") {
         const payload = { id: account.id, instanceId: String(item.InstanceId || ""), action };
-        if (runningInTauri) await invoke("vultr_instance_action", payload);
-        else await webApi("/api/vultr-instance-action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        await serversClient.providerAction("vultr", payload);
       } else {
-        if (!runningInTauri) throw new Error(`网页端暂不支持${label}，请使用客户端操作`);
-        await invoke(action === "start" ? "start_instance" : "stop_instance", { id: account.id, regionId, instanceId: String(item.InstanceId || "") });
+        await serversClient.aliyunAction({ id: account.id, regionId, instanceId: String(item.InstanceId || ""), action });
       }
       onNotice(`服务器${label}指令已提交`);
       onStatus();
@@ -148,19 +140,15 @@ export function ServerCard({
     try {
       if (account.cloud_type === "oracle") {
         const payload = { id: account.id, regionId, instanceId: String(item.InstanceId || ""), action: forceReboot ? "forceReboot" : "reboot" };
-        if (runningInTauri) await invoke("oracle_instance_action", payload);
-        else await webApi("/api/oracle-instance-action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        await serversClient.providerAction("oracle", payload);
       } else if (account.cloud_type === "baidu") {
         const payload = { id: account.id, regionId, instanceId: String(item.InstanceId || ""), action: "reboot", forceStop: forceReboot };
-        if (runningInTauri) await invoke("baidu_instance_action", payload);
-        else await webApi("/api/bcc-action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        await serversClient.providerAction("baidu", payload);
       } else if (account.cloud_type === "vultr") {
         const payload = { id: account.id, instanceId: String(item.InstanceId || ""), action: "reboot" };
-        if (runningInTauri) await invoke("vultr_instance_action", payload);
-        else await webApi("/api/vultr-instance-action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        await serversClient.providerAction("vultr", payload);
       } else {
-        if (!runningInTauri) throw new Error("网页端暂不支持服务器重启，请使用客户端操作");
-        await invoke("reboot_instance", { id: account.id, regionId, instanceId: String(item.InstanceId || ""), forceStop: forceReboot });
+        await serversClient.aliyunAction({ id: account.id, regionId, instanceId: String(item.InstanceId || ""), action: "reboot", forceStop: forceReboot });
       }
       onNotice("服务器重启指令已提交");
       onStatus();
@@ -200,8 +188,7 @@ export function ServerCard({
     setVultrMenuOpen(false);
     try {
       const payload = { id: account.id, instanceId: String(item.InstanceId || ""), action, value };
-      if (runningInTauri) await invoke("vultr_instance_manage", payload);
-      else await webApi("/api/vultr-instance-manage", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      await serversClient.vultrManage(payload);
       onNotice(`${labels[action]}指令已提交`);
       onStatus();
     } catch (error) { onNotice(`${labels[action]}失败：${String(error)}`); }
@@ -377,10 +364,7 @@ export function FavoriteServerDetails({ asset, account, onCopyIp }: { asset: Loc
     let alive = true;
     if (!canReadDisks) return;
     setDiskLoading(true);
-    const loader = runningInTauri
-      ? () => invoke<Record<string, unknown>[]>("list_instance_disks", { id: account.id, regionId, instanceId, compartmentOcid: String(payload._compartment_ocid || "") })
-      : () => webApi<Record<string, unknown>[]>(`/api/instance-disks?id=${account.id}&region=${encodeURIComponent(regionId)}&instance=${encodeURIComponent(instanceId)}&compartment=${encodeURIComponent(String(payload._compartment_ocid || ""))}`);
-    loader().then((value) => { if (alive) setDisks(value || []); }).catch(() => { if (alive) setDisks([]); }).finally(() => { if (alive) setDiskLoading(false); });
+    serversClient.listDisks(account.id, regionId, instanceId, String(payload._compartment_ocid || "")).then((value) => { if (alive) setDisks(value || []); }).catch(() => { if (alive) setDisks([]); }).finally(() => { if (alive) setDiskLoading(false); });
     return () => { alive = false; };
   }, [account.id, canReadDisks, instanceId, regionId, payload._compartment_ocid]);
   const fallbackDisks: Record<string, unknown>[] = [
