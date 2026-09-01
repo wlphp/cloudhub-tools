@@ -7,6 +7,7 @@
 .utility-page .settings-select{height:40px;min-width:96px;padding:0 11px}
 .utility-page .settings-link{padding:8px 12px}
 .utility-page .settings-update-actions{display:flex;align-items:center;justify-content:flex-end;min-width:108px}
+.utility-page .settings-card.has-update-notes{grid-template-columns:48px minmax(0,1fr) auto;row-gap:12px}.utility-page .settings-update-notes{grid-column:1/-1;padding:11px 13px;border:1px solid #394b67;border-radius:7px;background:#111f32;color:#b8cde2;font-size:12px;line-height:1.55}.utility-page .settings-update-notes strong{display:block;margin-bottom:5px;color:#d9ebff;font-size:12px}.utility-page .settings-update-notes p{max-height:130px;margin:0;overflow:auto;color:#9fb6cd;white-space:pre-wrap;overflow-wrap:anywhere}
 .utility-page .setting-switch span{width:52px;height:28px}
 .utility-page .setting-switch span:after{width:20px;height:20px;left:4px;top:4px}
 .utility-page .setting-switch input:checked+span:after{left:28px}

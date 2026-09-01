@@ -2006,6 +2006,7 @@
 }
 .ide-theme .favorites-page .favorite-search svg { width: 14px; height: 14px; color: var(--jb-subtle); }
 .ide-theme .favorites-page .favorite-search input { font-size: 11px; }
+.ide-theme .favorites-page .favorite-search input:focus { border: 0 !important; box-shadow: none !important; outline: 0 !important; }
 .ide-theme .favorites-page .favorite-toolbar > select {
   min-width: 0;
   width: 100%;
