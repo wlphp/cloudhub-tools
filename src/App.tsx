@@ -8,6 +8,7 @@ import type { Terminal as XtermTerminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import {
   ArrowUp,
+  ArrowUpCircle,
   ArrowDown,
   AlertTriangle,
   Bookmark,
@@ -3574,6 +3575,7 @@ function App() {
           <div>
             <strong>
               云枢 Tools <span className="brand-version">v{appVersion}</span>
+              {runningInTauri && updateState.phase === "available" && <button type="button" className="brand-update-button" aria-label={`发现新版本 v${updateState.version}`} title={`发现新版本 v${updateState.version}，点击更新`} onClick={() => void installUpdate()}><ArrowUpCircle size={16} /></button>}
               {isDevelopmentBuild ? <span className="brand-dev-badge">本地开发版</span> : null}
             </strong>
             <small>本地多云资源管家</small>

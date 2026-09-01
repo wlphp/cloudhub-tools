@@ -234,6 +234,7 @@ main { background: var(--ui-bg); }
 .ide-theme .brand-mark { width: 32px; height: 32px; border-radius: 6px; background: #303030; }
 .ide-theme .brand strong { color: #e5e5e5; font-size: 14px; letter-spacing: 0; }
 .ide-theme .brand small, .ide-theme .brand-version { color: var(--jb-subtle); font-size: 10px; }
+.ide-theme .brand-update-button{display:inline-grid;place-items:center;width:22px;height:22px;margin-left:5px;padding:0;border:1px solid #5d9ee2;border-radius:50%;background:#173d68;color:#8dccff;vertical-align:middle;cursor:pointer;box-shadow:0 0 0 2px #4aa7ed1c;animation:brand-update-pulse 1.8s ease-in-out infinite}.ide-theme .brand-update-button:hover{border-color:#8dd5ff;background:#20598c;color:#fff;transform:translateY(-1px)}.ide-theme .brand-update-button:focus-visible{outline:2px solid #8dd5ff;outline-offset:2px}@keyframes brand-update-pulse{0%,100%{box-shadow:0 0 0 2px #4aa7ed1c}50%{box-shadow:0 0 0 5px #4aa7ed26}}
 .ide-theme .brand-dev-badge { border-color: #5a4e9c; color: var(--jb-accent-strong); background: #342e54; }
 .ide-theme nav button { min-height: 38px; margin-bottom: 2px; padding: 0 10px; border-radius: 4px; gap: 10px; color: var(--jb-muted); font-size: 13px; }
 .ide-theme nav button svg { color: #898989; }
