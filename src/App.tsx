@@ -743,11 +743,14 @@ function App() {
 
   function handleTitlebarMouseDown(event: MouseEvent<HTMLDivElement>) {
     if (!runningInTauri || event.button !== 0) return;
-    if (event.detail > 1) {
-      void performWindowAction("toggleMaximize");
-      return;
-    }
+    if (event.detail !== 1) return;
     void getCurrentWindow().startDragging();
+  }
+
+  function handleTitlebarDoubleClick(event: MouseEvent<HTMLDivElement>) {
+    if (!runningInTauri || event.button !== 0) return;
+    event.preventDefault();
+    void performWindowAction("toggleMaximize");
   }
 
   useEffect(() => {
@@ -3552,8 +3555,8 @@ function App() {
     <div className="app-shell ide-theme" ref={appShellRef} style={{ "--app-sidebar-width": `${appSidebarWidth}px` } as CSSProperties}>
       <a className="skip-link" href="#main-content">跳到主要内容</a>
       <div className="ide-topbar" role="banner">
-        <div className="ide-topbar-brand" data-tauri-drag-region onMouseDown={handleTitlebarMouseDown}><Cloud size={15} /><strong>云枢 Tools</strong><span>本地多云资源管理</span></div>
-        <div className="ide-topbar-drag-region" data-tauri-drag-region aria-hidden="true" onMouseDown={handleTitlebarMouseDown} />
+        <div className="ide-topbar-brand" onMouseDown={handleTitlebarMouseDown} onDoubleClick={handleTitlebarDoubleClick}><Cloud size={15} /><strong>云枢 Tools</strong><span>本地多云资源管理</span></div>
+        <div className="ide-topbar-drag-region" aria-hidden="true" onMouseDown={handleTitlebarMouseDown} onDoubleClick={handleTitlebarDoubleClick} />
         <div className="ide-topbar-actions">
           <div className="ide-topbar-context"><span className="ide-topbar-dot" />LOCAL</div>
           {runningInTauri && <div className="ide-window-controls" aria-label="窗口控制">
