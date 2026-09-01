@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { ArrowUp, CheckSquare, Copy, Download, File, Folder, Home, Maximize2, Minimize2, RefreshCw, Search, Square, Upload, X } from "lucide-react";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { invoke, runningInTauri, webApi } from "../../platform/api";
 import type { Account } from "../../shared/types";
 import { displayValue } from "../../shared/utils/display";
@@ -83,6 +84,7 @@ export function BucketCard({
   const [objectsLoading, setObjectsLoading] = useState(false);
   const [objectTransfer, setObjectTransfer] = useState<{ kind: "upload" | "download"; key: string } | null>(null);
   const [objectTransferMessage, setObjectTransferMessage] = useState("");
+  const [isDragOver, setIsDragOver] = useState(false);
   const [cnameDialog, setCnameDialog] = useState(false);
   const [cnameValue, setCnameValue] = useState("");
   const [cnameToken, setCnameToken] = useState<Record<string, string> | null>(null);
@@ -258,6 +260,7 @@ export function BucketCard({
     .map((object) => ({ ...object, name: object.Key.slice(objectPrefix.length) }))
     .filter((object) => !filterText || object.name.toLocaleLowerCase().includes(filterText));
   const selectableKeys = [...folderRows.map((folder) => folder.key), ...fileRows.map((object) => object.Key)];
+  const selectedFileKeys = fileRows.map((object) => object.Key).filter((key) => selectedObjectKeys.has(key));
   const allVisibleSelected = selectableKeys.length > 0 && selectableKeys.every((key) => selectedObjectKeys.has(key));
   const pathSegments = objectPrefix ? objectPrefix.replace(/\/$/, "").split("/") : [];
   const parentPrefix = pathSegments.length ? `${pathSegments.slice(0, -1).join("/")}${pathSegments.length > 1 ? "/" : ""}` : "";
@@ -285,46 +288,69 @@ export function BucketCard({
       setNotice("复制失败，请手动复制对象路径");
     }
   }
+  async function uploadSelection(selection: OssUploadSelection): Promise<boolean> {
+    const objectKey = `${objectPrefix}${selection.name}`;
+    const exists = objectListing?.objects.some((object) => object.Key === objectKey) ?? false;
+    const overwrite = exists ? await onConfirm(`对象【${objectKey}】已经存在。\n继续上传将覆盖原文件，确定继续吗？`) : false;
+    if (exists && !overwrite) {
+      await invoke("discard_oss_upload_selection", { selectionToken: selection.token });
+      return false;
+    }
+    setObjectTransfer({ kind: "upload", key: objectKey });
+    setObjectTransferMessage(`正在上传 ${selection.name}（${formatBytes(selection.size)}）…`);
+    await invoke("upload_oss_object", { id: account.id, bucket: bucketName, location, objectKey, selectionToken: selection.token, overwrite });
+    return true;
+  }
   async function uploadObject() {
-    if (!supportsObjectTransfer) {
-      setObjectTransferMessage("当前仅支持阿里云 OSS 文件上传与下载");
-      return;
-    }
-    if (!runningInTauri) {
-      setObjectTransferMessage("上传文件仅支持桌面客户端");
-      return;
-    }
+    if (!supportsObjectTransfer) { setObjectTransferMessage("当前仅支持阿里云 OSS 文件上传与下载"); return; }
+    if (!runningInTauri) { setObjectTransferMessage("上传文件仅支持桌面客户端"); return; }
     try {
       setError("");
       setObjectTransfer({ kind: "upload", key: "" });
       setObjectTransferMessage("请选择要上传的本机文件…");
       const selection = await invoke<OssUploadSelection | null>("select_oss_upload_file", {});
-      if (!selection) {
-        setObjectTransferMessage("已取消上传");
-        return;
-      }
-      const objectKey = `${objectPrefix}${selection.name}`;
-      const exists = objectListing?.objects.some((object) => object.Key === objectKey) ?? false;
-      const overwrite = exists
-        ? await onConfirm(`对象【${objectKey}】已经存在。\n继续上传将覆盖原文件，确定继续吗？`)
-        : false;
-      if (exists && !overwrite) {
-        await invoke("discard_oss_upload_selection", { selectionToken: selection.token });
-        setObjectTransferMessage("已取消上传");
-        return;
-      }
-      setObjectTransfer({ kind: "upload", key: objectKey });
-      setObjectTransferMessage(`正在上传 ${selection.name}（${formatBytes(selection.size)}）…`);
-      await invoke("upload_oss_object", { id: account.id, bucket: bucketName, location, objectKey, selectionToken: selection.token, overwrite });
-      setObjectTransferMessage(`已上传到 oss://${bucketName}/${objectKey}`);
-      await loadObjects("files", objectPrefix);
+      if (!selection) { setObjectTransferMessage("已取消上传"); return; }
+      if (await uploadSelection(selection)) {
+        setObjectTransferMessage(`已上传到 oss://${bucketName}/${objectPrefix}${selection.name}`);
+        await loadObjects("files", objectPrefix);
+      } else setObjectTransferMessage("已取消上传");
     } catch (reason) {
       setError(`上传失败：${String(reason)}`);
       setObjectTransferMessage("上传未完成，请根据错误提示重试");
-    } finally {
-      setObjectTransfer(null);
-    }
+    } finally { setObjectTransfer(null); }
   }
+  async function uploadDroppedObjects(paths: string[]) {
+    if (!supportsObjectTransfer || !runningInTauri || objectTransfer || !paths.length) return;
+    const uniquePaths = [...new Set(paths)].slice(0, 20);
+    setIsDragOver(false);
+    setObjectTransfer({ kind: "upload", key: "" });
+    setObjectTransferMessage(`已接收 ${uniquePaths.length} 个文件，准备上传…`);
+    try {
+      setError("");
+      let uploaded = 0;
+      for (const sourcePath of uniquePaths) {
+        const selection = await invoke<OssUploadSelection>("stage_oss_upload_file", { sourcePath });
+        if (await uploadSelection(selection)) uploaded += 1;
+      }
+      setObjectTransferMessage(uploaded ? `已上传 ${uploaded} 个文件` : "已取消上传");
+      if (uploaded) await loadObjects("files", objectPrefix);
+    } catch (reason) {
+      setError(`拖拽上传失败：${String(reason)}`);
+      setObjectTransferMessage("部分文件可能未完成，请根据错误提示重试");
+    } finally { setObjectTransfer(null); }
+  }
+  useEffect(() => {
+    if (!runningInTauri || objectDialog !== "files" || !supportsObjectTransfer) return;
+    let unlisten: (() => void) | undefined;
+    void getCurrentWebview().onDragDropEvent((event) => {
+      if (event.payload.type === "over") setIsDragOver(true);
+      else if (event.payload.type === "drop") void uploadDroppedObjects(event.payload.paths);
+      else setIsDragOver(false);
+    }).then((dispose) => { unlisten = dispose; }).catch(() => {});
+    return () => { unlisten?.(); setIsDragOver(false); };
+    // The listener follows the current directory so dropped files use its prefix.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [objectDialog, objectPrefix, supportsObjectTransfer, objectTransfer]);
   async function downloadObject(object: OssObject & { name: string }) {
     if (!supportsObjectTransfer) {
       setObjectTransferMessage("当前仅支持阿里云 OSS 文件上传与下载");
@@ -346,6 +372,22 @@ export function BucketCard({
     } finally {
       setObjectTransfer(null);
     }
+  }
+  async function downloadSelectedObjects() {
+    if (!selectedFileKeys.length || objectTransfer) return;
+    if (!supportsObjectTransfer) { setObjectTransferMessage("当前仅支持阿里云 OSS 文件上传与下载"); return; }
+    if (!runningInTauri) { setObjectTransferMessage("下载文件仅支持桌面客户端"); return; }
+    if (!(await onConfirm(`将下载当前目录中选中的 ${selectedFileKeys.length} 个文件。\n下载时请选择保存目录，若存在同名文件会被替换，确定继续吗？`))) return;
+    setObjectTransfer({ kind: "download", key: "*" });
+    setObjectTransferMessage(`正在准备下载 ${selectedFileKeys.length} 个文件，请选择保存目录…`);
+    setError("");
+    try {
+      const targets = await invoke<string[] | null>("download_oss_objects", { id: account.id, bucket: bucketName, location, objectKeys: selectedFileKeys });
+      setObjectTransferMessage(targets ? `已下载 ${targets.length} 个文件` : "已取消批量下载");
+    } catch (reason) {
+      setError(`批量下载失败：${String(reason)}`);
+      setObjectTransferMessage("批量下载未完成，请根据错误提示重试");
+    } finally { setObjectTransfer(null); }
   }
   return (
     <article className="bucket-card">
@@ -450,8 +492,10 @@ export function BucketCard({
                   <div className="oss-browser-address" title={`oss://${bucketName}/${objectPrefix}`}><span>oss://{bucketName}/</span>{pathSegments.map((segment, index) => <button key={`${segment}-${index}`} onClick={() => void loadObjects("files", `${pathSegments.slice(0, index + 1).join("/")}/`)}>{segment}/</button>)}</div>
                   <label className="oss-browser-search"><Search size={15} /><input value={objectFilter} onChange={(event) => setObjectFilter(event.target.value)} placeholder="按名称筛选" /></label>
                 </div>
+                {supportsObjectTransfer && <div className={`oss-drop-zone${isDragOver ? " is-drag-over" : ""}`} aria-label="拖拽文件上传区域"><Upload size={16} /><span>{isDragOver ? "松开鼠标以上传文件" : "支持将文件拖拽到这里上传，也可点击“上传文件”选择"}</span></div>}
                 <div className="oss-browser-actions">
                   <button className="oss-browser-command oss-upload-command" disabled={!supportsObjectTransfer || Boolean(objectTransfer) || objectsLoading} title={!supportsObjectTransfer ? "当前仅支持阿里云 OSS 文件上传" : runningInTauri ? `上传到 oss://${bucketName}/${objectPrefix}` : "仅桌面客户端支持上传"} onClick={() => void uploadObject()}><Upload size={15} />{objectTransfer?.kind === "upload" ? "上传中…" : "上传文件"}</button>
+                  <button className="oss-browser-command oss-batch-download-command" disabled={!supportsObjectTransfer || !selectedFileKeys.length || Boolean(objectTransfer)} title={selectedFileKeys.length ? `批量下载选中的 ${selectedFileKeys.length} 个文件` : "先勾选文件"} onClick={() => void downloadSelectedObjects()}><Download size={15} />批量下载{selectedFileKeys.length ? ` (${selectedFileKeys.length})` : ""}</button>
                   <button className="oss-browser-command" disabled={!selectedObjectKeys.size} onClick={() => void copyObjectPaths()}><Copy size={15} />复制路径{selectedObjectKeys.size ? ` (${selectedObjectKeys.size})` : ""}</button>
                   <button className="oss-browser-icon" title={allVisibleSelected ? "取消全选" : "全选当前目录"} disabled={!selectableKeys.length} onClick={toggleAllVisibleObjects}>{allVisibleSelected ? <CheckSquare size={17} /> : <Square size={17} />}</button>
                   <span>{objectListing ? `${folderRows.length} 个目录，${fileRows.length} 个文件` : "正在读取目录..."}</span>

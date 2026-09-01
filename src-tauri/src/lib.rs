@@ -3171,6 +3171,10 @@ async fn list_oss_objects(id: i64, bucket: String, location: String, prefix: Str
 fn select_oss_upload_file(app: tauri::AppHandle, store: tauri::State<'_, OssUploadSelectionStore>) -> Result<Option<OssUploadSelection>, String> {
     let Some(selected) = app.dialog().file().blocking_pick_file() else { return Ok(None) };
     let path = selected.into_path().map_err(|_| "当前平台返回了不支持的文件地址".to_string())?;
+    stage_oss_upload_path(store, path).map(Some)
+}
+
+fn stage_oss_upload_path(store: tauri::State<'_, OssUploadSelectionStore>, path: PathBuf) -> Result<OssUploadSelection, String> {
     let canonical = path.canonicalize().map_err(|error| format!("读取所选文件失败: {error}"))?;
     let metadata = canonical.metadata().map_err(|error| format!("读取所选文件信息失败: {error}"))?;
     if !metadata.is_file() { return Err("请选择一个本机文件".into()); }
@@ -3178,7 +3182,12 @@ fn select_oss_upload_file(app: tauri::AppHandle, store: tauri::State<'_, OssUplo
     let name = canonical.file_name().and_then(|value| value.to_str()).filter(|value| !value.is_empty()).ok_or_else(|| "无法识别文件名".to_string())?.to_string();
     let token = Uuid::new_v4().to_string();
     store.files.lock().map_err(|_| "上传文件选择状态不可用".to_string())?.insert(token.clone(), canonical);
-    Ok(Some(OssUploadSelection { token, name, size: metadata.len() }))
+    Ok(OssUploadSelection { token, name, size: metadata.len() })
+}
+
+#[tauri::command]
+fn stage_oss_upload_file(store: tauri::State<'_, OssUploadSelectionStore>, source_path: String) -> Result<OssUploadSelection, String> {
+    stage_oss_upload_path(store, PathBuf::from(source_path))
 }
 
 #[tauri::command]
@@ -3205,6 +3214,30 @@ async fn download_oss_object(app: tauri::AppHandle, id: i64, bucket: String, loc
     let (access_key_id, access_key_secret) = account_credentials(id)?;
     oss_download_object(&bucket, &location, &access_key_id, &access_key_secret, &object_key, &target_path).await?;
     Ok(Some(target_path.to_string_lossy().into_owned()))
+}
+
+#[tauri::command]
+async fn download_oss_objects(app: tauri::AppHandle, id: i64, bucket: String, location: String, object_keys: Vec<String>) -> Result<Option<Vec<String>>, String> {
+    if account_cloud_type(id)? != "aliyun" { return Err("当前仅支持阿里云 OSS 文件下载".into()); }
+    if object_keys.is_empty() { return Err("请至少选择一个文件".into()); }
+    if object_keys.len() > 50 { return Err("单次最多下载 50 个文件".into()); }
+    let mut names = std::collections::HashSet::new();
+    for key in &object_keys {
+        validate_object_key(key)?;
+        let name = key.rsplit('/').find(|value| !value.is_empty()).unwrap_or("download").replace(['\\', '/', ':', '*', '?', '"', '<', '>', '|'], "_");
+        if !names.insert(name.to_ascii_lowercase()) { return Err("所选文件存在同名目标，无法安全批量下载".into()); }
+    }
+    let Some(folder) = app.dialog().file().blocking_pick_folder() else { return Ok(None) };
+    let (access_key_id, access_key_secret) = account_credentials(id)?;
+    let folder_path = folder.into_path().map_err(|_| "当前平台返回了不支持的下载目录".to_string())?;
+    let mut paths = Vec::with_capacity(object_keys.len());
+    for key in object_keys {
+        let filename = key.rsplit('/').find(|value| !value.is_empty()).unwrap_or("download").replace(['\\', '/', ':', '*', '?', '"', '<', '>', '|'], "_");
+        let target = folder_path.join(filename);
+        oss_download_object(&bucket, &location, &access_key_id, &access_key_secret, &key, &target).await?;
+        paths.push(target.to_string_lossy().into_owned());
+    }
+    Ok(Some(paths))
 }
 
 #[tauri::command]
@@ -4288,7 +4321,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![list_accounts, save_account, delete_account, app_data_path, open_app_data_directory, list_client_preferences, save_client_preference, reveal_account_secret, cloud_account_summary, list_cloud_resources, sync_cloud_assets, cloud::vultr::verify_vultr_account, verify_ctyun_account, verify_huawei_account, verify_baidu_account, verify_ucloud_account, verify_qiniu_account, verify_aws_account, verify_azure_account, verify_gcp_account, verify_jdcloud_account, verify_qingcloud_account, verify_ksyun_account, esa_overview, list_local_assets, delete_local_asset, list_managed_hosts, save_managed_host, delete_managed_host, probe_managed_host, export_managed_hosts_file, import_managed_hosts, list_panel_connections, update_panel_connection_order, save_panel_connection, refresh_panel_connection, panel_temporary_login, delete_panel_connection, update_panel_connection_remark, export_panel_connections_file, import_panel_connections, list_api_logs, clear_api_logs, clear_operation_logs, list_instance_disks, list_aliyun_security_groups, authorize_aliyun_security_group_rule, revoke_aliyun_security_group_rule, list_tencent_security_groups, authorize_tencent_security_group_rule, revoke_tencent_security_group_rule, list_baidu_security_groups, authorize_baidu_security_group_rule, revoke_baidu_security_group_rule, list_light_firewall_rules, create_light_firewall_rule, delete_light_firewall_rule, cloud::vultr::list_vultr_firewall_rules, cloud::vultr::create_vultr_firewall_rule, cloud::vultr::delete_vultr_firewall_rule, instance_status, reboot_instance, start_instance, stop_instance, cloud::vultr::vultr_instance_action, cloud::vultr::vultr_instance_manage, oracle_instance_action, cvm_instance_reboot, cvm_instance_action, baidu_instance_action, rename_server, swas_instance_action, list_dns_records, add_dns_record, update_dns_record, delete_dns_record, toggle_dns_record, list_domain_logs, query_whois, list_rds_databases, list_rds_accounts, list_redis_accounts, list_oss_objects, select_oss_upload_file, discard_oss_upload_selection, upload_oss_object, download_oss_object, get_oss_acl, set_oss_public_read, set_oss_cors, get_ssh_connection, reveal_ssh_password, delete_ssh_connection, get_rdp_connection, reveal_rdp_password, delete_rdp_connection, launch_rdp_connection, launch_managed_host_rdp, ssh_connect, ssh_test_connection, ssh_list_files, ssh_read_text_file, ssh_write_text_file, ssh_upload_file, ssh_download_file, ssh_make_directory, ssh_delete_path, ssh_read, ssh_write, ssh_resize, ssh_disconnect, export_accounts, export_accounts_file, import_accounts])
+        .invoke_handler(tauri::generate_handler![list_accounts, save_account, delete_account, app_data_path, open_app_data_directory, list_client_preferences, save_client_preference, reveal_account_secret, cloud_account_summary, list_cloud_resources, sync_cloud_assets, cloud::vultr::verify_vultr_account, verify_ctyun_account, verify_huawei_account, verify_baidu_account, verify_ucloud_account, verify_qiniu_account, verify_aws_account, verify_azure_account, verify_gcp_account, verify_jdcloud_account, verify_qingcloud_account, verify_ksyun_account, esa_overview, list_local_assets, delete_local_asset, list_managed_hosts, save_managed_host, delete_managed_host, probe_managed_host, export_managed_hosts_file, import_managed_hosts, list_panel_connections, update_panel_connection_order, save_panel_connection, refresh_panel_connection, panel_temporary_login, delete_panel_connection, update_panel_connection_remark, export_panel_connections_file, import_panel_connections, list_api_logs, clear_api_logs, clear_operation_logs, list_instance_disks, list_aliyun_security_groups, authorize_aliyun_security_group_rule, revoke_aliyun_security_group_rule, list_tencent_security_groups, authorize_tencent_security_group_rule, revoke_tencent_security_group_rule, list_baidu_security_groups, authorize_baidu_security_group_rule, revoke_baidu_security_group_rule, list_light_firewall_rules, create_light_firewall_rule, delete_light_firewall_rule, cloud::vultr::list_vultr_firewall_rules, cloud::vultr::create_vultr_firewall_rule, cloud::vultr::delete_vultr_firewall_rule, instance_status, reboot_instance, start_instance, stop_instance, cloud::vultr::vultr_instance_action, cloud::vultr::vultr_instance_manage, oracle_instance_action, cvm_instance_reboot, cvm_instance_action, baidu_instance_action, rename_server, swas_instance_action, list_dns_records, add_dns_record, update_dns_record, delete_dns_record, toggle_dns_record, list_domain_logs, query_whois, list_rds_databases, list_rds_accounts, list_redis_accounts, list_oss_objects, select_oss_upload_file, stage_oss_upload_file, discard_oss_upload_selection, upload_oss_object, download_oss_object, download_oss_objects, get_oss_acl, set_oss_public_read, set_oss_cors, get_ssh_connection, reveal_ssh_password, delete_ssh_connection, get_rdp_connection, reveal_rdp_password, delete_rdp_connection, launch_rdp_connection, launch_managed_host_rdp, ssh_connect, ssh_test_connection, ssh_list_files, ssh_read_text_file, ssh_write_text_file, ssh_upload_file, ssh_download_file, ssh_make_directory, ssh_delete_path, ssh_read, ssh_write, ssh_resize, ssh_disconnect, export_accounts, export_accounts_file, import_accounts])
         .run(tauri::generate_context!())
         .expect("error while running Tauri application");
 }
