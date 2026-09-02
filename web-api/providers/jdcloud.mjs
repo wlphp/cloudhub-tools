@@ -1,0 +1,96 @@
+import crypto from "node:crypto";
+import { writeApiLog } from "../core/database.mjs";
+import { decryptSecret } from "../core/crypto.mjs";
+import { sign, queryValues } from "./aws.mjs";
+import { getAccountSecretRecord } from "../repositories/accounts.mjs";
+
+function account(accountId) {
+  const row = getAccountSecretRecord(accountId);
+  if (!row) throw new Error("云账号不存在");
+  if (!row.enabled) throw new Error("云账号已停用");
+  if (row.cloud_type !== "jdcloud") throw new Error("当前账号不是京东云账号");
+  return row;
+}
+
+function firstAddress(value) {
+  if (Array.isArray(value)) return value.find((item) => item !== undefined && item !== null && String(item).trim() !== "") || "";
+  return value === undefined || value === null ? "" : String(value);
+}
+
+export async function request(accountId, service, region, pathname, query = {}) {
+  const row = account(accountId);
+  const host = service === "oss" ? "oss.jdcloud-api.com" : service === "domainservice" ? "domainservice.jdcloud-api.com" : `${service}.${region}.jdcloud-api.com`;
+  const datetime = new Date().toISOString().replace(/[-:]|\.\d{3}/g, "");
+  const nonce = crypto.randomUUID();
+  const date = datetime.slice(0, 8);
+  const queryText = queryValues(query);
+  const payloadHash = crypto.createHash("sha256").update("").digest("hex");
+  const canonicalHeaders = `host:${host}\nx-jdcloud-date:${datetime}\nx-jdcloud-nonce:${nonce}\n`;
+  const signedHeaders = "host;x-jdcloud-date;x-jdcloud-nonce";
+  const canonicalRequest = `GET\n${pathname}\n${queryText}\n${canonicalHeaders}\n${signedHeaders}\n${payloadHash}`;
+  const scope = `${date}/${region}/${service}/jdcloud2_request`;
+  const stringToSign = `JDCLOUD2-HMAC-SHA256\n${datetime}\n${scope}\n${crypto.createHash("sha256").update(canonicalRequest).digest("hex")}`;
+  const secret = decryptSecret(row.secret_ciphertext);
+  const signingKey = sign(sign(sign(sign(`JDCLOUD2${secret}`, date), region), service), "jdcloud2_request");
+  const signature = sign(signingKey, stringToSign).toString("hex");
+  const authorization = `JDCLOUD2-HMAC-SHA256 Credential=${row.access_key_id}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
+  const response = await fetch(`https://${host}${pathname}${queryText ? `?${queryText}` : ""}`, { headers: { Host: host, "X-Jdcloud-Date": datetime, "X-Jdcloud-Nonce": nonce, Authorization: authorization } });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) { const message = data?.error?.message || data?.message || data?.code || `京东云 ${response.status}`; writeApiLog(accountId, host, `GET ${pathname}`, query, data, "失败", message); throw new Error(message); }
+  writeApiLog(accountId, host, `GET ${pathname}`, query, data, "成功");
+  return data;
+}
+
+function instance(item, region) { return { ...item, InstanceId: item.instanceId || item.id, InstanceName: item.name || item.instanceId, InstanceStatus: item.status, Status: item.status, PublicIpAddress: firstAddress(item.elasticIp || item.publicIpAddress), PrivateIpAddress: firstAddress(item.privateIpAddress), InstanceType: item.instanceType || "", VpcId: item.vpcId || "", _region_id: region }; }
+function rds(item, region) { return { ...item, DBInstanceId: item.instanceId || item.id, DBInstanceDescription: item.instanceName || item.name || item.instanceId, DBInstanceStatus: item.instanceStatus || item.status, DBInstanceClass: item.instanceClass || item.instanceType || "", DBInstanceStorage: Number(item.instanceStorageGB || item.storageGB || 0), ConnectionString: item.internalDomainName || item.connectionString || "", Port: item.port || "", Engine: item.engine || item.engineType || "", EngineVersion: item.engineVersion || "", CreateTime: item.createTime || "", _region_id: region }; }
+function redis(item, region) { return { ...item, InstanceId: item.cacheInstanceId || item.instanceId || item.id, InstanceName: item.cacheInstanceName || item.name || item.cacheInstanceId, InstanceStatus: item.cacheInstanceStatus || item.status, InstanceType: "Redis", InstanceClass: item.cacheInstanceClass || item.instanceClass || "", Capacity: Number(item.cacheInstanceMemoryMB || item.memory || 0), ConnectionDomain: item.cacheInstanceDomainName || item.connectionDomain || "", Port: item.port || "", EngineVersion: item.engineVersion || "", NetworkType: item.vpcId || "", _region_id: region }; }
+function bucket(item, region) { const name = item.name || item.bucketName || item.bucket; return { ...item, Name: name, BucketName: name, Location: item.location || item.region || region, CreationDate: item.creationDate || item.createTime || "", StorageClass: item.storageClass || "STANDARD", Acl: item.acl || "private", ExtranetEndpoint: name ? `${name}.s3.${region}.jdcloud-oss.com` : "-", IntranetEndpoint: "-", _region_id: item.location || item.region || region }; }
+function zone(item, region) { return { ...item, DomainName: item.domainName || item.domain || item.name, DomainStatus: item.status || "ACTIVE", ZoneId: item.id || item.domainId || item.domainName, RecordCount: Number(item.recordCount || item.recordNum || 0), RegistrationDate: item.createTime || "", _region_id: region, _jdcloud_dns: true }; }
+function swasInstance(item, region) { return { ...item, InstanceId: item.instanceId || item.id, InstanceName: item.name || item.instanceName || item.instanceId, InstanceStatus: item.status || item.instanceStatus, Status: item.status || item.instanceStatus, PublicIpAddress: firstAddress(item.publicIpAddress || item.elasticIp), PrivateIpAddress: firstAddress(item.privateIpAddress), InstanceType: item.instanceType || item.planName || "", VpcId: item.vpcId || "", _region_id: region }; }
+
+export async function resources(accountId, type, regions = ["cn-north-1"]) {
+  const definitions = { ecs: ["vm", "v1", "instances", instance], rds: ["rds", "v1", "instances", rds], redis: ["redis", "v1", "cacheInstance", redis], oss: ["oss", "v1", "buckets", bucket], domain: ["domainservice", "v2", "domain", zone], swas: ["lavm", "v1", "instances", swasInstance] };
+  const definition = definitions[type];
+  if (!definition) return { resource_type: type, items: [], errors: [`京东云暂未接入 ${type} 资源`], fetched_at: Date.now() };
+  const [service, version, resource, normalize] = definition;
+  const items = [];
+  const errors = [];
+  for (const region of regions) {
+    try {
+      const data = await request(accountId, service, region, `/${version}/regions/${encodeURIComponent(region)}/${resource}`, type === "oss" ? {} : { pageNumber: 1, pageSize: 100 });
+      const result = data?.result || {};
+      const page = result.instances || result.cacheInstances || result.cacheInstance || result.buckets || result.dataList || result.data || data.buckets || [];
+      items.push(...(Array.isArray(page) ? page : []).map((item) => normalize(item, region)));
+    } catch (error) { errors.push(`${region}: ${error.message}`); }
+  }
+  return { resource_type: type, items, errors, fetched_at: Date.now() };
+}
+
+export async function verify(accountId, regions = ["cn-north-1"]) {
+  await request(accountId, "vm", regions[0], `/v1/regions/${encodeURIComponent(regions[0])}/instances`, { pageNumber: 1, pageSize: 1 });
+  return { provider: "jdcloud", verified: true, region_count: regions.length, regions, default_region: regions[0] };
+}
+
+export async function mutate(accountId, region, method, pathname, payload = null) {
+  const row = account(accountId);
+  const service = "lavm";
+  const host = `${service}.${region}.jdcloud-api.com`;
+  const hasBody = payload !== null && payload !== undefined;
+  const body = hasBody ? JSON.stringify(payload) : "";
+  const datetime = new Date().toISOString().replace(/[-:]|\.\d{3}/g, "");
+  const nonce = crypto.randomUUID();
+  const date = datetime.slice(0, 8);
+  const payloadHash = crypto.createHash("sha256").update(body).digest("hex");
+  const canonicalHeaders = hasBody ? `content-type:application/json\nhost:${host}\nx-jdcloud-date:${datetime}\nx-jdcloud-nonce:${nonce}\n` : `host:${host}\nx-jdcloud-date:${datetime}\nx-jdcloud-nonce:${nonce}\n`;
+  const signedHeaders = hasBody ? "content-type;host;x-jdcloud-date;x-jdcloud-nonce" : "host;x-jdcloud-date;x-jdcloud-nonce";
+  const canonicalRequest = `${method}\n${pathname}\n\n${canonicalHeaders}\n${signedHeaders}\n${payloadHash}`;
+  const scope = `${date}/${region}/${service}/jdcloud2_request`;
+  const stringToSign = `JDCLOUD2-HMAC-SHA256\n${datetime}\n${scope}\n${crypto.createHash("sha256").update(canonicalRequest).digest("hex")}`;
+  const signingKey = sign(sign(sign(sign(`JDCLOUD2${decryptSecret(row.secret_ciphertext)}`, date), region), service), "jdcloud2_request");
+  const signature = sign(signingKey, stringToSign).toString("hex");
+  const authorization = `JDCLOUD2-HMAC-SHA256 Credential=${row.access_key_id}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
+  const response = await fetch(`https://${host}${pathname}`, { method, headers: { Host: host, ...(hasBody ? { "Content-Type": "application/json" } : {}), "X-Jdcloud-Date": datetime, "X-Jdcloud-Nonce": nonce, Authorization: authorization }, ...(hasBody ? { body } : {}) });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data?.error?.message || data?.message || data?.code || `京东云 ${response.status}`);
+  return data;
+}

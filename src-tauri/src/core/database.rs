@@ -1,25 +1,6 @@
-use aes_gcm::{aead::{Aead, KeyInit}, Aes256Gcm, Key, Nonce};
-use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
-use rand::RngCore;
 use rusqlite::Connection;
-use std::{fs, path::PathBuf};
 
-pub fn data_dir() -> Result<PathBuf, String> {
-    let base = dirs::data_local_dir().ok_or_else(|| "无法获取本机应用数据目录".to_string())?;
-    let path = base.join("CloudHubTools");
-    let legacy_path = base.join("AliyunTools");
-    fs::create_dir_all(&path).map_err(|error| format!("创建数据目录失败: {error}"))?;
-    if legacy_path.exists() {
-        for (legacy_name, current_name) in [("aliyun_tools.sqlite3", "cloudhub_tools.sqlite3"), (".key", ".key")] {
-            let source = legacy_path.join(legacy_name);
-            let destination = path.join(current_name);
-            if source.exists() && !destination.exists() {
-                fs::copy(&source, destination).map_err(|error| format!("迁移本地数据失败: {error}"))?;
-            }
-        }
-    }
-    Ok(path)
-}
+use super::paths::data_dir;
 
 pub fn open_db() -> Result<Connection, String> {
     let conn = Connection::open(data_dir()?.join("cloudhub_tools.sqlite3")).map_err(|error| format!("打开 SQLite 失败: {error}"))?;
@@ -34,8 +15,8 @@ pub fn open_db() -> Result<Connection, String> {
       CREATE TABLE IF NOT EXISTS client_preferences (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL);")
       .map_err(|error| format!("初始化 SQLite 表失败: {error}"))?;
     let columns = |table: &str| -> Result<Vec<String>, String> {
-        let values = conn.prepare(&format!("PRAGMA table_info({table})")).map_err(|error| error.to_string())?
-            .query_map([], |row| row.get::<_, String>(1)).map_err(|error| error.to_string())?
+        let mut statement = conn.prepare(&format!("PRAGMA table_info({table})")).map_err(|error| error.to_string())?;
+        let values = statement.query_map([], |row| row.get::<_, String>(1)).map_err(|error| error.to_string())?
             .filter_map(Result::ok).collect::<Vec<_>>();
         Ok(values)
     };
@@ -52,34 +33,4 @@ pub fn open_db() -> Result<Connection, String> {
     if !managed_columns.iter().any(|name| name == "key_passphrase_ciphertext") { conn.execute("ALTER TABLE managed_hosts ADD COLUMN key_passphrase_ciphertext TEXT", []).map_err(|error| error.to_string())?; }
     conn.execute("CREATE TABLE IF NOT EXISTS api_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER, endpoint TEXT NOT NULL, action TEXT NOT NULL, request_params TEXT NOT NULL, response_params TEXT, status TEXT NOT NULL, message TEXT, created_at INTEGER NOT NULL)", []).map_err(|error| error.to_string())?;
     Ok(conn)
-}
-
-fn crypto_key() -> Result<[u8; 32], String> {
-    let path = data_dir()?.join(".key");
-    if path.exists() {
-        let bytes = fs::read(&path).map_err(|error| error.to_string())?;
-        return bytes.try_into().map_err(|_| "本地密钥无效".to_string());
-    }
-    let mut key = [0u8; 32];
-    rand::thread_rng().fill_bytes(&mut key);
-    fs::write(path, key).map_err(|error| error.to_string())?;
-    Ok(key)
-}
-
-pub fn encrypt_secret(secret: &str) -> Result<String, String> {
-    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&crypto_key()?));
-    let mut nonce = [0u8; 12];
-    rand::thread_rng().fill_bytes(&mut nonce);
-    let encrypted = cipher.encrypt(Nonce::from_slice(&nonce), secret.as_bytes()).map_err(|_| "加密 Secret 失败".to_string())?;
-    let mut packed = nonce.to_vec();
-    packed.extend(encrypted);
-    Ok(B64.encode(packed))
-}
-
-pub fn decrypt_secret(ciphertext: &str) -> Result<String, String> {
-    let packed = B64.decode(ciphertext).map_err(|error| format!("读取 Secret 失败: {error}"))?;
-    if packed.len() < 12 { return Err("本地 Secret 数据损坏".into()); }
-    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&crypto_key()?));
-    let value = cipher.decrypt(Nonce::from_slice(&packed[..12]), &packed[12..]).map_err(|_| "解密 Secret 失败".to_string())?;
-    String::from_utf8(value).map_err(|_| "Secret 编码无效".into())
 }

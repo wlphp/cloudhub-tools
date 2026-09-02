@@ -40,6 +40,10 @@ export const emptyPanelConnectionDraft: PanelConnectionDraft = {
   allow_insecure_tls: true,
   group_name: "",
   remark: "",
+  ssh_port: 22,
+  ssh_username: "root",
+  ssh_password: "",
+  ssh_password_saved: false,
 };
 
 export const resourceLabels: Record<Exclude<View, "summary">, string> = {
