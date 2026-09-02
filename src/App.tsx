@@ -80,6 +80,7 @@ import "./settings-compact.css";
 import "./terminal-workbench.css";
 import "./ide-theme.css";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { invoke, runningInTauri, webApi } from "./platform/api";
 import { accountsClient, resourcesClient, serversClient } from "./platform/clients";
 import {
@@ -168,7 +169,6 @@ type TerminalThemeName = keyof typeof terminalThemes;
 
 const empty = emptyAccountDraft;
 const emptyManagedHost = emptyManagedHostDraft;
-const emptyPanelConnection = emptyPanelConnectionDraft;
 const labels = resourceLabels;
 const cloudProviders = catalogCloudProviders;
 type AccountResourceType = (typeof catalogAssetTypes)[number][0];
@@ -277,6 +277,12 @@ function formatChineseDateTime(value: unknown): string {
   const pad = (part: number) => String(part).padStart(2, "0");
   return `${date.getFullYear()}年${pad(date.getMonth() + 1)}月${pad(date.getDate())}日 ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 }
+const detachedTerminalHostId = (() => {
+  const value = Number(new URLSearchParams(window.location.search).get("detachedTerminalHostId"));
+  return Number.isInteger(value) && value > 0 ? value : null;
+})();
+const isDetachedTerminalWindow = runningInTauri && detachedTerminalHostId !== null;
+
 function App() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [selectedAccountIds, setSelectedAccountIds] = useState<Set<number>>(() => new Set());
@@ -343,11 +349,12 @@ function App() {
   const [esaSelectedSiteId, setEsaSelectedSiteId] = useState("");
   const [esaOverview, setEsaOverview] = useState<EsaOverview | null>(null);
   const [esaSiteKeyword, setEsaSiteKeyword] = useState("");
-  const [section, setSection] = useState<"accounts" | "resources" | "panels" | "servers" | "favorites" | "logs" | "api_logs" | "settings">("accounts");
+  const [section, setSection] = useState<"accounts" | "resources" | "panels" | "servers" | "favorites" | "logs" | "api_logs" | "settings">(() => isDetachedTerminalWindow ? "servers" : "accounts");
   const [localAssets, setLocalAssets] = useState<LocalAsset[]>([]);
   const [panelConnections, setPanelConnections] = useState<PanelConnection[]>([]);
   const [panelDialog, setPanelDialog] = useState(false);
-  const [panelDraft, setPanelDraft] = useState<PanelConnectionDraft>(emptyPanelConnection);
+  const [panelMenuId, setPanelMenuId] = useState<number | null>(null);
+  const [panelDraft, setPanelDraft] = useState<PanelConnectionDraft>(emptyPanelConnectionDraft);
   const [panelSaving, setPanelSaving] = useState(false);
   const [panelLoadingId, setPanelLoadingId] = useState<number | null>(null);
   const [panelOpeningId, setPanelOpeningId] = useState<number | null>(null);
@@ -369,10 +376,13 @@ function App() {
   const panelDragIdRef = useRef<number | null>(null);
   const panelImportInputRef = useRef<HTMLInputElement>(null);
   const [managedHosts, setManagedHosts] = useState<ManagedHost[]>([]);
+  const [managedHostsLoading, setManagedHostsLoading] = useState(isDetachedTerminalWindow);
   const [managedHostImporting, setManagedHostImporting] = useState(false);
   const managedHostImportInputRef = useRef<HTMLInputElement>(null);
   const [managedHostDialog, setManagedHostDialog] = useState(false);
   const [managedHostDraft, setManagedHostDraft] = useState<ManagedHostDraft>(emptyManagedHost);
+  const [showManagedHostPassword, setShowManagedHostPassword] = useState(false);
+  const [managedHostPasswordRevealing, setManagedHostPasswordRevealing] = useState(false);
   const [managedHostSaving, setManagedHostSaving] = useState(false);
   const [managedHostLoadingId, setManagedHostLoadingId] = useState<number | null>(null);
   const [managedHostKeyword, setManagedHostKeyword] = useState("");
@@ -452,9 +462,9 @@ function App() {
   const [sshSessionId, setSshSessionId] = useState("");
   const [terminalTabs, setTerminalTabs] = useState<TerminalWorkspaceTab[]>([]);
   const [activeTerminalTabId, setActiveTerminalTabId] = useState<string | null>(null);
+  const [detachingTerminalTabId, setDetachingTerminalTabId] = useState<string | null>(null);
   const [sshError, setSshError] = useState("");
   const [sshConnecting, setSshConnecting] = useState(false);
-  const [sshModalMaximized, setSshModalMaximized] = useState(false);
   const [sshFiles, setSshFiles] = useState<SshFileEntry[]>([]);
   const [sshFilePath, setSshFilePath] = useState("/");
   const [sshFilesLoading, setSshFilesLoading] = useState(false);
@@ -472,6 +482,8 @@ function App() {
   const sshTerminalRef = useRef<XtermTerminal | null>(null);
   const sshPendingOutputRef = useRef("");
   const terminalTabsRef = useRef<TerminalWorkspaceTab[]>([]);
+  const terminalTabDragRef = useRef<{ tabId: string; startX: number; startY: number; detached: boolean } | null>(null);
+  const terminalTabSuppressClickRef = useRef<string | null>(null);
   const sshUploadInputRef = useRef<HTMLInputElement | null>(null);
   const sshWorkspaceRef = useRef<HTMLDivElement | null>(null);
   const updateRef = useRef<Update | null>(null);
@@ -523,6 +535,19 @@ function App() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [confirmRequest, promptRequest]);
+
+  useEffect(() => {
+    if (panelMenuId === null && managedHostMoreId === null && assetMoreKey === null) return;
+    const handleWindowClick = (event: globalThis.MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest?.(".panel-row-edit-wrap, .terminal-host-card-actions, .asset-more-wrap, .favorite-card-settings")) return;
+      setPanelMenuId(null);
+      setManagedHostMoreId(null);
+      setAssetMoreKey(null);
+    };
+    window.addEventListener("click", handleWindowClick);
+    return () => window.removeEventListener("click", handleWindowClick);
+  }, [panelMenuId, managedHostMoreId, assetMoreKey]);
 
   useEffect(() => {
     terminalTabsRef.current = terminalTabs;
@@ -677,8 +702,10 @@ function App() {
   }
   async function loadManagedHosts() {
     if (!runningInTauri) return;
+    setManagedHostsLoading(true);
     try { setManagedHosts(await serversClient.listManaged()); }
     catch (error) { setStatus(`读取服务器管理列表失败：${String(error)}`); }
+    finally { setManagedHostsLoading(false); }
   }
   async function loadPanelConnections() {
     if (!runningInTauri) return;
@@ -686,17 +713,121 @@ function App() {
     catch (error) { setStatus(`读取面板管理列表失败：${String(error)}`); }
   }
   function openPanelDialog(panel?: PanelConnection) {
-    setPanelDraft(panel ? {
+    const draft: PanelConnectionDraft = panel ? {
       id: panel.id, name: panel.name, panel_url: panel.panel_url, sort_order: panel.sort_order ?? 0, api_key: "", allow_insecure_tls: panel.allow_insecure_tls, group_name: panel.group_name || "",
       source_account_id: panel.source_account_id, source_asset_key: panel.source_asset_key, remark: panel.remark || "",
-    } : { ...emptyPanelConnection, sort_order: Math.max(-1, ...panelConnections.map((item) => item.sort_order ?? 0)) + 1 });
+      ssh_port: 22, ssh_username: "root", ssh_password: "", ssh_password_saved: false,
+    } : { ...emptyPanelConnectionDraft, sort_order: Math.max(-1, ...panelConnections.map((item) => item.sort_order ?? 0)) + 1 };
+    setPanelDraft(draft);
     setPanelDialog(true);
+    if (panel?.source_account_id && panel.source_asset_key) {
+      void invoke<SavedSshConnection | null>("get_ssh_connection", { accountId: panel.source_account_id, assetKey: panel.source_asset_key })
+        .then((saved) => {
+          if (saved) {
+            setPanelDraft((current) => ({
+              ...current,
+              ssh_port: saved.port || 22,
+              ssh_username: saved.username || "root",
+              ssh_password_saved: saved.passwordSaved,
+            }));
+          }
+        }).catch(() => {});
+    }
   }
   function openPanelFromAsset(asset: LocalAsset, account: Account) {
     const payload = asset.payload || {};
     const ip = firstAddress(payload.PublicIpAddress || payload.PublicAddresses || payload.PublicIp || payload.InternetIp || payload.EipAddress);
-    setPanelDraft({ ...emptyPanelConnection, name: String(payload.InstanceName || asset.asset_key), panel_url: ip ? `https://${ip}:8888` : "", sort_order: Math.max(-1, ...panelConnections.map((item) => item.sort_order ?? 0)) + 1, group_name: account.group_name || "", source_account_id: account.id, source_asset_key: asset.asset_key, remark: `来源：${account.account_name} / ${asset.resource_type}` });
+    setPanelDraft({ ...emptyPanelConnectionDraft, name: String(payload.InstanceName || asset.asset_key), panel_url: ip ? `https://${ip}:8888` : "", sort_order: Math.max(-1, ...panelConnections.map((item) => item.sort_order ?? 0)) + 1, group_name: account.group_name || "", source_account_id: account.id, source_asset_key: asset.asset_key, remark: `来源：${account.account_name} / ${asset.resource_type}` });
     setPanelDialog(true);
+    void invoke<SavedSshConnection | null>("get_ssh_connection", { accountId: account.id, assetKey: asset.asset_key })
+      .then((saved) => {
+        if (saved) {
+          setPanelDraft((current) => ({
+            ...current,
+            ssh_port: saved.port || 22,
+            ssh_username: saved.username || "root",
+            ssh_password_saved: saved.passwordSaved,
+          }));
+        }
+      }).catch(() => {});
+  }
+  function openPanelTerminalConfiguration(panel: PanelConnection) {
+    const sourceAccount = panel.source_account_id ? accounts.find((account) => account.id === panel.source_account_id) : undefined;
+    const sourceAsset = sourceAccount && panel.source_asset_key ? localAssets.find((asset) => asset.account_id === sourceAccount.id && asset.asset_key === panel.source_asset_key) : undefined;
+    const defaultHost = panelAddress(panel.panel_url);
+    const linkedHost = managedHosts.find((host) => (panel.source_account_id && host.source_account_id === panel.source_account_id && panel.source_asset_key && host.source_asset_key === panel.source_asset_key) || host.host === defaultHost);
+    if (sourceAsset && sourceAccount) {
+      openTerminalConfiguration(sourceAsset, sourceAccount, linkedHost);
+      return;
+    }
+    if (linkedHost) {
+      openManagedHostDialog(linkedHost);
+      return;
+    }
+    setManagedHostDraft({
+      ...emptyManagedHost,
+      name: panel.name,
+      host: defaultHost,
+      platform: "linux",
+      port: 22,
+      username: "root",
+      group_name: panel.group_name || "",
+      source_account_id: panel.source_account_id,
+      source_asset_key: panel.source_asset_key,
+      remark: `面板关联：${panel.name}`,
+    });
+    setManagedHostDialog(true);
+  }
+  async function launchPanelSshDirect(panel: PanelConnection) {
+    await openPanelTerminalDetached(panel);
+  }
+  async function openPanelTerminalDetached(panel: PanelConnection) {
+    if (!runningInTauri) { setStatus("独立窗口仅支持桌面客户端"); return; }
+    const defaultHost = panelAddress(panel.panel_url);
+    const linkedHost = managedHosts.find((host) => (panel.source_account_id && host.source_account_id === panel.source_account_id && panel.source_asset_key && host.source_asset_key === panel.source_asset_key) || host.host === defaultHost);
+    let hostId = linkedHost?.id;
+    if (!hostId) {
+      try {
+        const saved = await serversClient.saveManaged({
+          ...emptyManagedHost,
+          name: panel.name,
+          host: defaultHost,
+          platform: "linux",
+          port: 22,
+          username: "root",
+          group_name: panel.group_name || "",
+          source_account_id: panel.source_account_id,
+          source_asset_key: panel.source_asset_key,
+          password: "",
+          private_key: "",
+          key_passphrase: "",
+          auth_method: "password",
+          tags: "",
+          remark: `面板关联：${panel.name}`,
+        });
+        hostId = saved.id;
+        setManagedHosts((current) => [...current, saved]);
+      } catch { /* save managed host fallback */ }
+    }
+    if (hostId) {
+      const label = `terminal-detached-${hostId}-${Date.now()}`;
+      const url = new URL(window.location.href);
+      url.search = `?detachedTerminalHostId=${encodeURIComponent(String(hostId))}`;
+      url.hash = "";
+      try {
+        new WebviewWindow(label, {
+          url: url.toString(),
+          title: `SSH 终端 · ${panel.name}`,
+          width: 1200,
+          height: 760,
+          minWidth: 720,
+          minHeight: 480,
+          decorations: false,
+          resizable: true,
+        });
+        setStatus(`已为 ${panel.name} 打开独立终端窗口`);
+      } catch (err) { setStatus(`打开独立窗口失败：${String(err)}`); }
+    }
   }
   async function savePanelConnection(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -704,6 +835,30 @@ function App() {
     setPanelSaving(true);
     try {
       await invoke<PanelConnection>("save_panel_connection", { input: panelDraft });
+      if (panelDraft.source_account_id && panelDraft.source_asset_key && panelDraft.ssh_password) {
+        const host = panelAddress(panelDraft.panel_url);
+        try {
+          await invoke("ssh_connect", {
+            input: {
+              accountId: panelDraft.source_account_id,
+              assetKey: panelDraft.source_asset_key,
+              host,
+              port: panelDraft.ssh_port || 22,
+              username: panelDraft.ssh_username?.trim() || "root",
+              authMethod: "password",
+              password: panelDraft.ssh_password,
+              privateKey: null,
+              keyPassphrase: null,
+              savePassword: true,
+              cols: 80,
+              rows: 24,
+            },
+          }).then((res: unknown) => {
+            const sid = (res as { sessionId?: string })?.sessionId;
+            if (sid) void invoke("ssh_disconnect", { sessionId: sid });
+          });
+        } catch { /* background credential validation */ }
+      }
       await loadPanelConnections();
       setPanelDialog(false); setStatus("面板验证成功，已加入面板管理");
     } catch (error) { setStatus(`绑定面板失败：${String(error)}`); }
@@ -886,6 +1041,7 @@ function App() {
     finally { setPanelImporting(false); }
   }
   function openManagedHostDialog(host?: ManagedHost) {
+    setShowManagedHostPassword(false);
     setManagedHostDraft(host ? {
       id: host.id, name: host.name, host: host.host, port: host.port, username: host.username, password: "",
       platform: host.platform === "windows" ? "windows" : "linux", auth_method: host.auth_method === "private_key" ? "private_key" : "password", private_key: "", key_passphrase: "",
@@ -893,6 +1049,27 @@ function App() {
       source_asset_key: host.source_asset_key, remark: host.remark || "",
     } : emptyManagedHost);
     setManagedHostDialog(true);
+  }
+  async function toggleManagedHostPasswordVisibility() {
+    if (showManagedHostPassword) {
+      setShowManagedHostPassword(false);
+      return;
+    }
+    if (managedHostDraft.id && !managedHostDraft.password) {
+      setManagedHostPasswordRevealing(true);
+      try {
+        const password = managedHostDraft.platform === "windows"
+          ? await invoke<string>("reveal_rdp_password", { targetKey: `managed:${managedHostDraft.id}` })
+          : await invoke<string>("reveal_ssh_password", { managedHostId: managedHostDraft.id });
+        setManagedHostDraft((current) => ({ ...current, password }));
+      } catch (error) {
+        setStatus(`读取已保存密码失败：${String(error)}`);
+        return;
+      } finally {
+        setManagedHostPasswordRevealing(false);
+      }
+    }
+    setShowManagedHostPassword(true);
   }
   async function saveManagedHost(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1007,6 +1184,84 @@ function App() {
     document.addEventListener("pointerup", endDrag, { once: true });
     document.addEventListener("pointercancel", cancelDrag, { once: true });
   }
+  function openDetachedTerminalWindow(hostId: number, title?: string, onCreated?: () => void) {
+    if (!runningInTauri) { setStatus("独立终端窗口仅支持桌面客户端"); return; }
+    const host = managedHosts.find((item) => item.id === hostId);
+    const label = `terminal-detached-${hostId}-${Date.now()}`;
+    const url = new URL(window.location.href);
+    url.search = `?detachedTerminalHostId=${encodeURIComponent(String(hostId))}`;
+    url.hash = "";
+    try {
+      const detachedWindow = new WebviewWindow(label, {
+        url: url.toString(),
+        title: `SSH 终端 · ${title || host?.name || "服务器"}`,
+        width: 1200,
+        height: 760,
+        minWidth: 720,
+        minHeight: 480,
+        decorations: false,
+        resizable: true,
+      });
+      detachedWindow.once("tauri://created", () => {
+        if (onCreated) onCreated();
+        setStatus(`已打开 ${title || host?.name || "服务器"} 独立终端窗口`);
+      });
+      detachedWindow.once("tauri://error", () => {
+        setStatus("打开独立终端窗口失败，请重试");
+      });
+    } catch (error) {
+      setStatus(`打开独立终端失败：${String(error)}`);
+    }
+  }
+  async function openDetachedTerminalForAsset(asset: LocalAsset, account: Account) {
+    if (!runningInTauri) { setStatus("远程连接仅支持桌面客户端"); return; }
+    const payload = asset.payload || {};
+    const defaultHost = firstAddress(payload.PublicIpAddress || payload.PublicAddresses || payload.PublicIp || payload.InternetIp || payload.EipAddress);
+    const platform = remotePlatformFromPayload(payload);
+    const linkedHost = managedHosts.find((host) => (host.source_account_id === account.id && host.source_asset_key === asset.asset_key) || host.host === defaultHost);
+    let hostId = linkedHost?.id;
+    if (!hostId) {
+      try {
+        const saved = await serversClient.saveManaged({ ...emptyManagedHost, name: String(payload.InstanceName || asset.asset_key), host: defaultHost, platform, port: platform === "windows" ? 3389 : 22, username: platform === "windows" ? "administrator" : "root", group_name: account.group_name || "", source_account_id: account.id, source_asset_key: asset.asset_key, password: "", private_key: "", key_passphrase: "", auth_method: "password", tags: "", remark: `来源：${account.account_name} / ${asset.resource_type}` });
+        hostId = saved.id;
+        setManagedHosts((current) => [...current, saved]);
+      } catch { /* save fallback */ }
+    }
+    if (hostId) openDetachedTerminalWindow(hostId, String(payload.InstanceName || asset.asset_key));
+  }
+  async function detachTerminalTab(tab: TerminalWorkspaceTab) {
+    if (!runningInTauri || !tab.target.managedHostId) {
+      setStatus("只有服务器管理中的 SSH 标签可以分离");
+      return;
+    }
+    const host = managedHosts.find((item) => item.id === tab.target.managedHostId);
+    openDetachedTerminalWindow(tab.target.managedHostId, host?.name, () => {
+      void closeTerminalTab(tab.id);
+    });
+  }
+  function startTerminalTabDrag(event: PointerEvent<HTMLButtonElement>, tabId: string) {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    terminalTabDragRef.current = { tabId, startX: event.clientX, startY: event.clientY, detached: false };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+  function moveTerminalTabDrag(event: PointerEvent<HTMLButtonElement>, tab: TerminalWorkspaceTab) {
+    const drag = terminalTabDragRef.current;
+    if (!drag || drag.tabId !== tab.id || drag.detached) return;
+    if (Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < 12) return;
+    drag.detached = true;
+    terminalTabSuppressClickRef.current = tab.id;
+    setDetachingTerminalTabId(tab.id);
+    void detachTerminalTab(tab).finally(() => {
+      window.setTimeout(() => {
+        if (terminalTabSuppressClickRef.current === tab.id) terminalTabSuppressClickRef.current = null;
+        setDetachingTerminalTabId((current) => current === tab.id ? null : current);
+      }, 500);
+    });
+  }
+  function endTerminalTabDrag(event: PointerEvent<HTMLButtonElement>) {
+    try { event.currentTarget.releasePointerCapture(event.pointerId); } catch { /* pointer capture may already be released */ }
+    if (!terminalTabDragRef.current?.detached) terminalTabDragRef.current = null;
+  }
   function activateTerminalTab(tab: TerminalWorkspaceTab) {
     setActiveTerminalTabId(tab.id);
     if (tab.target.managedHostId) setTerminalSelectedHostId(tab.target.managedHostId);
@@ -1043,7 +1298,7 @@ function App() {
       try { await invoke("ssh_disconnect", { sessionId: tab.sessionId }); } catch { /* session already closed */ }
     }
   }
-  function openManagedHostSsh(host: ManagedHost) {
+  async function openManagedHostSsh(host: ManagedHost) {
     if (!runningInTauri) { setStatus("远程连接仅支持桌面客户端"); return; }
     setTerminalSelectedHostId(host.id);
     if (host.platform === "windows") {
@@ -1056,13 +1311,44 @@ function App() {
       return;
     }
     setActiveTerminalTabId(null);
+    setSshSessionId("");
     const placeholderAccount: Account = { id: 0, account_name: "服务器管理", cloud_type: "other", access_key_id: "managed-host", enabled: true, sort_order: 0, created_at: host.created_at, updated_at: host.updated_at };
     const placeholderAsset: LocalAsset = { account_id: 0, resource_type: "managed", asset_key: `managed-host-${host.id}`, payload: { InstanceName: host.name }, fetched_at: host.updated_at };
-    setSshTarget({ account: placeholderAccount, asset: placeholderAsset, managedHostId: host.id });
-    setSshHost(host.host); setSshPort(host.port || 22); setSshUsername(host.username || "root"); setSshPassword(""); setShowSshPassword(false);
-    setSshPlatform("linux"); setSshAuthMethod(host.auth_method === "private_key" ? "private_key" : "password"); setSshPrivateKey(""); setSshKeyPassphrase("");
-    setSshSavePassword(false); setSshPasswordSaved(host.password_saved || host.private_key_saved); setSshModalMaximized(false); setSshSessionId("");
+    const target = { account: placeholderAccount, asset: placeholderAsset, managedHostId: host.id };
+    const port = host.port || 22;
+    const username = host.username || "root";
+    const authMethod = host.auth_method === "private_key" ? "private_key" : "password";
+    setSshHost(host.host); setSshPort(port); setSshUsername(username); setSshPassword(""); setShowSshPassword(false);
+    setSshPlatform("linux"); setSshAuthMethod(authMethod); setSshPrivateKey(""); setSshKeyPassphrase("");
+    setSshSavePassword(false); setSshPasswordSaved(host.password_saved || host.private_key_saved);
     sshPendingOutputRef.current = ""; setSshError(""); setSshFiles([]); setSshFilePath("/"); setSshFileError(""); setSshFileEditor(null); setSshFilePaneCollapsed(true);
+    setSshConnecting(true);
+    try {
+      const result = await invoke<SshConnectResult>("ssh_connect", {
+        input: {
+          managedHostId: host.id,
+          host: host.host,
+          port,
+          username,
+          authMethod,
+          password: null,
+          privateKey: null,
+          keyPassphrase: null,
+          savePassword: false,
+          cols: 112,
+          rows: 30,
+        },
+      });
+      setSshTarget(target);
+      setSshSessionId(result.sessionId);
+      const tab: TerminalWorkspaceTab = { id: result.sessionId, target, host: host.host, port, username, sessionId: result.sessionId, output: "" };
+      setTerminalTabs((current) => [...current.filter((item) => item.id !== tab.id), tab]);
+      setActiveTerminalTabId(tab.id);
+      setStatus(`已连接 ${host.name}`);
+    } catch (error) {
+      setStatus(`连接 ${host.name} 失败：${String(error)}`);
+      setSshError(String(error));
+    } finally { setSshConnecting(false); }
   }
   async function rebootLocalAsset(asset: LocalAsset, forceStop: boolean) {
     const account = accounts.find((item) => item.id === asset.account_id);
@@ -1255,47 +1541,6 @@ function App() {
     });
     setManagedHostDialog(true);
   }
-  async function openSshClient(asset: LocalAsset, account: Account) {
-    if (!runningInTauri) { setStatus("远程连接仅支持桌面客户端，请从客户端打开资源管理"); return; }
-    const payload = asset.payload || {};
-    const defaultHost = firstAddress(payload.PublicIpAddress || payload.PublicAddresses || payload.PublicIp || payload.InternetIp || payload.EipAddress);
-    const platform = remotePlatformFromPayload(payload);
-    const windows = platform === "windows";
-    setSshTarget({ account, asset });
-    setSshHost(defaultHost);
-    setSshPort(windows ? 3389 : 22);
-    setSshUsername(windows ? "administrator" : "root");
-    setSshPassword("");
-    setShowSshPassword(false);
-    setSshPlatform(platform);
-    setSshAuthMethod("password");
-    setSshPrivateKey("");
-    setSshKeyPassphrase("");
-    setSshSavePassword(false);
-    setSshPasswordSaved(false);
-    setSshModalMaximized(false);
-    setSshSessionId("");
-    sshPendingOutputRef.current = "";
-    setSshError("");
-    setSshFiles([]);
-    setSshFilePath("/");
-    setSshFileError("");
-    setSshFileEditor(null);
-    setSshFilePaneCollapsed(false);
-    setSshFileDragActive(false);
-    try {
-      const saved = windows
-        ? await invoke<SavedRdpConnection | null>("get_rdp_connection", { targetKey: `asset:${account.id}:${asset.asset_key}` })
-        : await invoke<SavedSshConnection | null>("get_ssh_connection", { accountId: account.id, assetKey: asset.asset_key });
-      if (saved) {
-        setSshHost(saved.host || defaultHost);
-        setSshPort(saved.port || (windows ? 3389 : 22));
-        setSshUsername(saved.username || (windows ? "administrator" : "root"));
-        setSshSavePassword(saved.passwordSaved);
-        setSshPasswordSaved(saved.passwordSaved);
-      }
-    } catch (error) { setSshError(`读取本地${windows ? "RDP" : "SSH"}配置失败：${String(error)}`); }
-  }
   async function closeSshClient() {
     if (section === "servers" && activeTerminalTabId) {
       await closeTerminalTab(activeTerminalTabId);
@@ -1305,7 +1550,6 @@ function App() {
     setSshSessionId("");
     setSshTarget(null);
     setShowSshPassword(false);
-    setSshModalMaximized(false);
     setSshFiles([]);
     setSshFileEditor(null);
     setSshFileError("");
@@ -1586,24 +1830,6 @@ function App() {
     if (!sshSessionId || !(await requestConfirm(`确定删除${entry.isDir ? "文件夹及其全部内容" : "文件"}“${entry.name}”？此操作不可恢复。`))) return;
     try { await invoke("ssh_delete_path", { sessionId: sshSessionId, path: entry.path }); if (sshFileEditor?.path === entry.path) setSshFileEditor(null); await loadSshFiles(); }
     catch (error) { setSshFileError(`删除失败：${String(error)}`); }
-  }
-  async function clearSavedSshConnection() {
-    if (!sshTarget) return;
-    try {
-      if (sshPlatform === "windows") {
-        const targetKey = rdpTargetKey();
-        if (!targetKey) return;
-        await invoke("delete_rdp_connection", { targetKey });
-      } else {
-        if (sshTarget.managedHostId) return;
-        await invoke("delete_ssh_connection", { accountId: sshTarget.account.id, assetKey: sshTarget.asset.asset_key });
-      }
-      setSshPasswordSaved(false);
-      setSshSavePassword(false);
-      setSshPassword("");
-      setShowSshPassword(false);
-      setSshError("");
-    } catch (error) { setSshError(`清除本地连接配置失败：${String(error)}`); }
   }
   async function toggleSshPasswordVisibility() {
     if (showSshPassword) {
@@ -2087,6 +2313,11 @@ function App() {
     };
   }, []);
   useEffect(() => {
+    if (!isDetachedTerminalWindow || detachedTerminalHostId === null || sshSessionId || terminalTabs.length) return;
+    const host = managedHosts.find((item) => item.id === detachedTerminalHostId);
+    if (host) void openManagedHostSsh(host);
+  }, [managedHosts, sshSessionId, terminalTabs.length]);
+  useEffect(() => {
     if (!runningInTauri) return;
     let cancelled = false;
     void invoke<Record<string, string>>("list_client_preferences").then((preferences) => {
@@ -2534,7 +2765,7 @@ function App() {
                 onSshLogin={() => {
                   if (!active) return;
                   const instanceId = String(item.InstanceId || index);
-                  void openSshClient({
+                  void openDetachedTerminalForAsset({
                     account_id: active.account.id,
                     resource_type: "ecs",
                     asset_key: instanceId,
@@ -2604,7 +2835,7 @@ function App() {
               onSshLogin={() => {
                 if (!active) return;
                 const instanceId = String(item.InstanceId || item.InstanceName || index);
-                void openSshClient({
+                void openDetachedTerminalForAsset({
                   account_id: active.account.id,
                   resource_type: "swas",
                   asset_key: instanceId,
@@ -3184,17 +3415,15 @@ function App() {
     if (asset.resource_type === "ecs" || asset.resource_type === "swas") {
       const key = assetFavoriteKey(asset);
       const linkedPanel = panelConnections.find((panel) => panel.source_account_id === account.id && panel.source_asset_key === asset.asset_key);
-      const linkedHost = managedHosts.find((host) => host.source_account_id === account.id && host.source_asset_key === asset.asset_key);
       const canControl = ["aliyun", "tencent", "baidu", "oracle", "jdcloud", "vultr"].includes(account.cloud_type);
       return <div className="asset-action-buttons server-asset-actions">
         {canControl && <button className="asset-force-reboot-button" onClick={() => void rebootLocalAsset(asset, true)}><RefreshCw size={15} />强制重启</button>}
         <span className={`asset-more-wrap ${assetMoreKey === key ? "is-open" : ""}`}>
-          <button type="button" className="asset-more-button" title="更多功能" aria-label="更多功能" aria-expanded={assetMoreKey === key} onClick={() => setAssetMoreKey((current) => current === key ? null : key)}>更多功能<ChevronDown size={15} /></button>
-          {assetMoreKey === key && <div className="asset-more-menu">
+          <button type="button" className="asset-more-button" title="更多功能" aria-label="更多功能" aria-expanded={assetMoreKey === key} onClick={(event) => { event.stopPropagation(); setAssetMoreKey((current) => current === key ? null : key); }}>更多功能<ChevronDown size={15} /></button>
+          {assetMoreKey === key && <div className="asset-more-menu" onClick={(event) => event.stopPropagation()}>
             <button type="button" onClick={() => { setAssetMoreKey(null); setAssetDetail({ asset, account }); }}><FileText size={14} />查看详情</button>
-            <button type="button" onClick={() => { setAssetMoreKey(null); linkedPanel ? openPanelDialog(linkedPanel) : openPanelFromAsset(asset, account); }}><Monitor size={14} />{linkedPanel ? "修改面板配置" : "添加面板配置"}</button>
-            <button type="button" onClick={() => { setAssetMoreKey(null); openTerminalConfiguration(asset, account, linkedHost); }}><Terminal size={14} />{linkedHost ? "修改终端配置" : "添加终端配置"}</button>
-            <button type="button" onClick={() => { setAssetMoreKey(null); void openSshClient(asset, account); }}><Terminal size={14} />SSH 登录</button>
+            <button type="button" disabled={!linkedPanel || panelOpeningId !== null} title={linkedPanel ? "打开已配置的面板登录页" : "请先在右上角设置中配置面板"} onClick={() => { setAssetMoreKey(null); if (linkedPanel) void openPanelTemporaryLogin(linkedPanel); }}><Globe2 size={14} />面板登录</button>
+            <button type="button" onClick={() => { setAssetMoreKey(null); void openDetachedTerminalForAsset(asset, account); }}><Terminal size={14} />SSH 登录</button>
             {canControl && <button type="button" onClick={() => { setAssetMoreKey(null); void rebootLocalAsset(asset, false); }}><RefreshCw size={14} />普通重启</button>}
             {canControl && <button type="button" className="danger" onClick={() => { setAssetMoreKey(null); void stopLocalAsset(asset); }}><Power size={14} />关机</button>}
           </div>}
@@ -3202,6 +3431,18 @@ function App() {
       </div>;
     }
     return <span className="asset-action-muted">—</span>;
+  };
+  const renderServerAssetSettings = (asset: LocalAsset, account: Account) => {
+    const key = `settings:${assetFavoriteKey(asset)}`;
+    const linkedPanel = panelConnections.find((panel) => panel.source_account_id === account.id && panel.source_asset_key === asset.asset_key);
+    const linkedHost = managedHosts.find((host) => host.source_account_id === account.id && host.source_asset_key === asset.asset_key);
+    return <span className={`favorite-card-settings ${assetMoreKey === key ? "is-open" : ""}`}>
+      <button type="button" className="favorite-card-settings-button" title="配置服务器" aria-label={`配置服务器 ${asset.asset_key}`} aria-expanded={assetMoreKey === key} onClick={(event) => { event.stopPropagation(); setAssetMoreKey((current) => current === key ? null : key); }}><Settings size={16} /></button>
+      {assetMoreKey === key && <div className="favorite-card-settings-menu" onClick={(event) => event.stopPropagation()}>
+        <button type="button" onClick={() => { setAssetMoreKey(null); linkedPanel ? openPanelDialog(linkedPanel) : openPanelFromAsset(asset, account); }}><Monitor size={14} />{linkedPanel ? "修改面板配置" : "配置面板"}</button>
+        <button type="button" onClick={() => { setAssetMoreKey(null); openTerminalConfiguration(asset, account, linkedHost); }}><Terminal size={14} />{linkedHost ? "修改 SSH 配置" : "配置 SSH"}</button>
+      </div>}
+    </span>;
   };
   const logRows = useMemo(() => accounts.flatMap((account) => localAssets.filter((asset) => asset.account_id === account.id && asset.fetched_at > operationLogClearedAt).map((asset) => ({ account, asset, action: "获取并保存资产" }))).filter((row) => (!logTypeFilter || row.asset.resource_type === logTypeFilter) && (!logFilter || `${row.account.account_name} ${row.asset.resource_type} ${row.action}`.toLowerCase().includes(logFilter.toLowerCase()))).sort((a, b) => b.asset.fetched_at - a.asset.fetched_at), [accounts, localAssets, operationLogClearedAt, logTypeFilter, logFilter]);
   const pagedLogRows = logRows.slice((logPage - 1) * pageSize, logPage * pageSize);
@@ -3217,11 +3458,15 @@ function App() {
       .sort((left, right) => right.count - left.count || left.order - right.order);
   };
 
+  const detachedTerminalHost = isDetachedTerminalWindow
+    ? managedHosts.find((item) => item.id === detachedTerminalHostId)
+    : undefined;
+  const detachedTerminalIsLoading = isDetachedTerminalWindow && (managedHostsLoading || sshConnecting || (!sshSessionId && !sshError));
   return (
-    <div className="app-shell ide-theme" ref={appShellRef} style={{ "--app-sidebar-width": `${appSidebarWidth}px` } as CSSProperties}>
+    <div className={`app-shell ide-theme${isDetachedTerminalWindow ? " detached-terminal-window" : ""}`} ref={appShellRef} style={{ "--app-sidebar-width": `${appSidebarWidth}px` } as CSSProperties}>
       <a className="skip-link" href="#main-content">跳到主要内容</a>
       <div className="ide-topbar" role="banner">
-        <div className="ide-topbar-brand" onMouseDown={handleTitlebarMouseDown} onDoubleClick={handleTitlebarDoubleClick}><Cloud size={15} /><strong>云枢 Tools</strong><span>本地多云资源管理</span></div>
+        <div className="ide-topbar-brand" onMouseDown={handleTitlebarMouseDown} onDoubleClick={handleTitlebarDoubleClick}>{isDetachedTerminalWindow ? <><Terminal size={15} /><strong>{detachedTerminalHost?.name || "SSH 终端"}</strong><span>{detachedTerminalHost?.host || ""}</span>{detachedTerminalHost?.remark ? <span className="detached-terminal-context">备注：{detachedTerminalHost.remark}</span> : null}{detachedTerminalHost?.group_name ? <span className="detached-terminal-context">分组：{detachedTerminalHost.group_name}</span> : null}</> : <><Cloud size={15} /><strong>云枢 Tools</strong><span>本地多云资源管理</span></>}</div>
         <div className="ide-topbar-drag-region" aria-hidden="true" onMouseDown={handleTitlebarMouseDown} onDoubleClick={handleTitlebarDoubleClick} />
         <div className="ide-topbar-actions">
           <div className="ide-topbar-context"><span className="ide-topbar-dot" />LOCAL</div>
@@ -3232,56 +3477,60 @@ function App() {
           </div>}
         </div>
       </div>
-      <aside style={{ flexBasis: appSidebarWidth, width: appSidebarWidth }}>
-        <div className="brand">
-          <div className="brand-mark">
-            <img src="/cloudhub-logo.png" alt="云枢 Tools" />
-          </div>
-          <div>
-            <strong>
-              云枢 Tools <span className="brand-version">v{appVersion}</span>
-              {runningInTauri && updateState.phase === "available" && <button type="button" className="brand-update-button" aria-label={`发现新版本 v${updateState.version}`} title={`发现新版本 v${updateState.version}，点击更新`} onClick={() => void installUpdate()}><ArrowUpCircle size={16} /></button>}
-              {isDevelopmentBuild ? <span className="brand-dev-badge">本地开发版</span> : null}
-            </strong>
-            <small>本地多云资源管家</small>
-          </div>
-        </div>
-        <nav aria-label="主导航">
-          <button type="button" className={section === "accounts" ? "nav-active" : ""} aria-current={section === "accounts" ? "page" : undefined} onClick={() => setSection("accounts")}>
-            <Database size={18} />
-            账号管理
-          </button>
-          <button type="button" className={section === "resources" ? "nav-active" : ""} aria-current={section === "resources" ? "page" : undefined} onClick={() => { setSection("resources"); void loadLocalAssets(); }}>
-            <Server size={18} />
-            资产管理
-          </button>
-          <button type="button" className={section === "favorites" ? "nav-active" : ""} aria-current={section === "favorites" ? "page" : undefined} onClick={() => { setSection("favorites"); void loadLocalAssets(); }}>
-            <Star size={18} />
-            我的收藏
-          </button>
-          <button type="button" className={section === "panels" ? "nav-active" : ""} aria-current={section === "panels" ? "page" : undefined} onClick={() => { setSection("panels"); void loadPanelConnections(); }}>
-            <Monitor size={18} />
-            面板管理
-          </button>
-          <button type="button" className={section === "servers" ? "nav-active" : ""} aria-current={section === "servers" ? "page" : undefined} onClick={() => { setSection("servers"); void loadManagedHosts(); }}>
-            <Terminal size={18} />
-            终端管理
-          </button>
-          <button type="button" className={section === "logs" ? "nav-active" : ""} aria-current={section === "logs" ? "page" : undefined} onClick={() => setSection("logs")}>
-            <FileText size={18} />
-            操作日志
-          </button>
-          <button type="button" className={section === "api_logs" ? "nav-active" : ""} aria-current={section === "api_logs" ? "page" : undefined} onClick={() => { setSection("api_logs"); void loadApiLogs(); }}>
-            <Terminal size={18} />
-            API日志
-          </button>
-          <button type="button" className={section === "settings" ? "nav-active" : ""} aria-current={section === "settings" ? "page" : undefined} onClick={() => setSection("settings")}>
-            <Settings size={18} />
-            系统设置
-          </button>
-        </nav>
-      </aside>
-      <div className="app-sidebar-resizer" role="separator" aria-label="调整主导航宽度" aria-orientation="vertical" onPointerDown={startAppSidebarResize} />
+      {!isDetachedTerminalWindow && (
+        <>
+          <aside style={{ flexBasis: appSidebarWidth, width: appSidebarWidth }}>
+            <div className="brand">
+              <div className="brand-mark">
+                <img src="/cloudhub-logo.png" alt="云枢 Tools" />
+              </div>
+              <div>
+                <strong>
+                  云枢 Tools <span className="brand-version">v{appVersion}</span>
+                  {runningInTauri && updateState.phase === "available" && <button type="button" className="brand-update-button" aria-label={`发现新版本 v${updateState.version}`} title={`发现新版本 v${updateState.version}，点击更新`} onClick={() => void installUpdate()}><ArrowUpCircle size={16} /></button>}
+                  {isDevelopmentBuild ? <span className="brand-dev-badge">本地开发版</span> : null}
+                </strong>
+                <small>本地多云资源管家</small>
+              </div>
+            </div>
+            <nav aria-label="主导航">
+              <button type="button" className={section === "accounts" ? "nav-active" : ""} aria-current={section === "accounts" ? "page" : undefined} onClick={() => setSection("accounts")}>
+                <Database size={18} />
+                账号管理
+              </button>
+              <button type="button" className={section === "resources" ? "nav-active" : ""} aria-current={section === "resources" ? "page" : undefined} onClick={() => { setSection("resources"); void loadLocalAssets(); }}>
+                <Server size={18} />
+                资产管理
+              </button>
+              <button type="button" className={section === "favorites" ? "nav-active" : ""} aria-current={section === "favorites" ? "page" : undefined} onClick={() => { setSection("favorites"); void loadLocalAssets(); }}>
+                <Star size={18} />
+                我的收藏
+              </button>
+              <button type="button" className={section === "panels" ? "nav-active" : ""} aria-current={section === "panels" ? "page" : undefined} onClick={() => { setSection("panels"); void loadPanelConnections(); }}>
+                <Monitor size={18} />
+                面板管理
+              </button>
+              <button type="button" className={section === "servers" ? "nav-active" : ""} aria-current={section === "servers" ? "page" : undefined} onClick={() => { setSection("servers"); void loadManagedHosts(); }}>
+                <Terminal size={18} />
+                终端管理
+              </button>
+              <button type="button" className={section === "logs" ? "nav-active" : ""} aria-current={section === "logs" ? "page" : undefined} onClick={() => setSection("logs")}>
+                <FileText size={18} />
+                操作日志
+              </button>
+              <button type="button" className={section === "api_logs" ? "nav-active" : ""} aria-current={section === "api_logs" ? "page" : undefined} onClick={() => { setSection("api_logs"); void loadApiLogs(); }}>
+                <Terminal size={18} />
+                API日志
+              </button>
+              <button type="button" className={section === "settings" ? "nav-active" : ""} aria-current={section === "settings" ? "page" : undefined} onClick={() => setSection("settings")}>
+                <Settings size={18} />
+                系统设置
+              </button>
+            </nav>
+          </aside>
+          <div className="app-sidebar-resizer" role="separator" aria-label="调整主导航宽度" aria-orientation="vertical" onPointerDown={startAppSidebarResize} />
+        </>
+      )}
       <main id="main-content">
         <nav className="mobile-nav-bar" aria-label="移动端主导航">
           <div className="mobile-nav-scroll">
@@ -4126,8 +4375,8 @@ function App() {
                     : asset.resource_type === "oss"
                       ? [["地域", region], ["存储类型", displayValue(payload.StorageClass)], ["创建时间", formatAssetDate(payload.CreationDate || payload.CreationTime)]]
                       : [["地域", region], ["版本 / 引擎", displayValue(payload.EngineVersion || payload.Engine || payload.Version)], ["到期时间", formatAssetDate(expiry)]];
-                return <article className={`favorite-resource-card${draggedFavoriteKey === assetKey ? " is-favorite-dragging" : ""}`} key={assetKey} data-favorite-asset-key={assetKey}>
-                  <div className="favorite-card-account"><button type="button" className="favorite-card-drag-handle" aria-label={`拖动排序 ${title}`} title="拖动排序" onPointerDown={(event) => startFavoriteCardDrag(event, assetKey)}><GripVertical size={16} /></button><span className={`avatar cloud-avatar ${account?.cloud_type || "other"}`}>{cloudProvider(account?.cloud_type || "other").avatar}</span><span>{account?.account_name || `账号 ${asset.account_id}`}</span></div>
+                return <article className={`favorite-resource-card${draggedFavoriteKey === assetKey ? " is-favorite-dragging" : ""}${assetMoreKey === assetKey ? " settings-open" : ""}`} key={assetKey} data-favorite-asset-key={assetKey}>
+                  <div className="favorite-card-account"><button type="button" className="favorite-card-drag-handle" aria-label={`拖动排序 ${title}`} title="拖动排序" onPointerDown={(event) => startFavoriteCardDrag(event, assetKey)}><GripVertical size={16} /></button><span className={`avatar cloud-avatar ${account?.cloud_type || "other"}`}>{cloudProvider(account?.cloud_type || "other").avatar}</span><span>{account?.account_name || `账号 ${asset.account_id}`}</span>{isServer && account && renderServerAssetSettings(asset, account)}</div>
                   <div className="favorite-card-note"><span>备注</span>{editingAssetNote?.key === assetKey ? <input value={editingAssetNote.value} autoFocus onChange={(event) => setEditingAssetNote((current) => current?.key === assetKey ? { ...current, value: event.target.value } : current)} onBlur={() => saveAssetNote(assetKey)} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") setEditingAssetNote(null); }} aria-label="资产备注" placeholder="添加备注" /> : <button type="button" className={assetNote ? "has-note" : ""} onClick={() => setEditingAssetNote({ key: assetKey, value: assetNote, initial: assetNote })}>{assetNote || "添加备注"}</button>}</div>
                   <div className="favorite-card-head"><div><h2 title={title}>{title}</h2><small>{asset.asset_key}</small></div><button type="button" className="asset-favorite-button is-favorite" title="取消收藏" aria-label="取消收藏" onClick={() => toggleAssetFavorite(asset)}><BookmarkCheck size={18} /></button></div>
                   {isServer && account
@@ -4168,7 +4417,6 @@ function App() {
               const value = (key: string) => { const entry = summary[key]; return entry == null || entry === "" ? "-" : typeof entry === "string" || typeof entry === "number" ? String(entry) : "-"; };
               const sourceAccount = panel.source_account_id ? accounts.find((account) => account.id === panel.source_account_id) : undefined;
               const sourceAsset = sourceAccount && panel.source_asset_key ? localAssets.find((asset) => asset.account_id === sourceAccount.id && asset.asset_key === panel.source_asset_key) : undefined;
-              const canSsh = Boolean(sourceAccount && sourceAsset);
               const canReboot = Boolean(sourceAccount && sourceAsset && (sourceAsset.resource_type === "ecs" || sourceAsset.resource_type === "swas"));
               const cpu = panelCpuInfo(summary.cpu);
               const memory = panelMemoryInfo(summary.mem);
@@ -4184,40 +4432,51 @@ function App() {
                 { label: "磁盘", detail: disk.detail, percent: disk.percent },
               ];
               return <article className={`panel-monitor-row ${panel.status}${panelSorting ? " is-sorting" : ""}${draggedPanelId === panel.id ? " is-dragging" : ""}`} key={panel.id} data-panel-id={panel.id}>
-                <div className="panel-row-order">{panelSorting ? <button type="button" className="panel-drag-handle" title="拖动排序" aria-label={`拖动排序 ${panel.name}`} onPointerDown={(event) => startPanelDrag(event, panel.id)}><GripVertical size={18} /></button> : <input aria-label={`选择面板 ${panel.name}`} type="checkbox" checked={selectedPanelIds.has(panel.id)} onChange={() => togglePanelSelection(panel.id)} />}</div>
-                <div className="panel-row-server"><div className="panel-row-note"><span>备注</span>{editingPanelRemark?.id === panel.id ? <input value={editingPanelRemark.value} autoFocus onChange={(event) => setEditingPanelRemark((current) => current?.id === panel.id ? { ...current, value: event.target.value } : current)} onBlur={() => void savePanelRemark(panel)} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") setEditingPanelRemark(null); }} aria-label={`${panel.name} 的备注`} placeholder="添加备注" /> : <button type="button" aria-label={`编辑 ${panel.name} 的备注`} className={panel.remark ? "has-note" : ""} onClick={() => setEditingPanelRemark({ id: panel.id, value: panel.remark || "", initial: panel.remark || "" })}>{panel.remark || "添加备注"}</button>}</div><div className="panel-row-address"><i className={panel.status} /><strong title={hidePanelIps ? undefined : panel.panel_url}>{hidePanelIps ? hiddenPanelAddress(panel.panel_url) : panelAddress(panel.panel_url)}</strong><button type="button" title="复制面板地址" aria-label={`复制 ${panel.name} 的面板地址`} onClick={() => void copyPanelAddress(panel)}><Copy size={15} /></button><button type="button" title="编辑面板" aria-label={`编辑 ${panel.name}`} onClick={() => openPanelDialog(panel)}><Settings size={15} /></button></div><div className="panel-row-details"><span>名称：{panel.name}</span><span>来源：{panel.group_name || "-"}</span></div></div>
+                <div className="panel-row-server"><div className="panel-row-card-head"><div className="panel-row-order">{panelSorting ? <button type="button" className="panel-drag-handle" title="拖动排序" aria-label={`拖动排序 ${panel.name}`} onPointerDown={(event) => startPanelDrag(event, panel.id)}><GripVertical size={18} /></button> : <input aria-label={`选择面板 ${panel.name}`} type="checkbox" checked={selectedPanelIds.has(panel.id)} onChange={() => togglePanelSelection(panel.id)} />}</div><div className="panel-row-title"><strong title={panel.name}>{panel.name}</strong><span>分组：{panel.group_name || "未分组"}</span></div><div className="panel-row-edit-wrap"><button type="button" className={`panel-row-edit${panelMenuId === panel.id ? " is-active" : ""}`} title="配置选项" aria-label={`配置 ${panel.name}`} aria-expanded={panelMenuId === panel.id} onClick={(event) => { event.stopPropagation(); setPanelMenuId((current) => current === panel.id ? null : panel.id); }}><Settings size={15} /></button>{panelMenuId === panel.id && <div className="panel-row-edit-menu" onClick={(event) => event.stopPropagation()}><button type="button" onClick={() => { setPanelMenuId(null); openPanelDialog(panel); }}><Monitor size={14} /><span>面板配置</span></button><button type="button" onClick={() => { setPanelMenuId(null); openPanelTerminalConfiguration(panel); }}><Terminal size={14} /><span>终端配置</span></button>{runningInTauri && <button type="button" onClick={() => { setPanelMenuId(null); void openPanelTerminalDetached(panel); }}><ExternalLink size={14} /><span>独立窗口</span></button>}</div>}</div></div><div className="panel-row-address"><i className={panel.status} /><strong title={hidePanelIps ? undefined : panel.panel_url}>{hidePanelIps ? hiddenPanelAddress(panel.panel_url) : panelAddress(panel.panel_url)}</strong><button type="button" title="复制面板地址" aria-label={`复制 ${panel.name} 的面板地址`} onClick={() => void copyPanelAddress(panel)}><Copy size={14} /></button></div><div className="panel-row-note"><span>备注</span>{editingPanelRemark?.id === panel.id ? <input value={editingPanelRemark.value} autoFocus onChange={(event) => setEditingPanelRemark((current) => current?.id === panel.id ? { ...current, value: event.target.value } : current)} onBlur={() => void savePanelRemark(panel)} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") setEditingPanelRemark(null); }} aria-label={`${panel.name} 的备注`} placeholder="添加备注" /> : <button type="button" aria-label={`编辑 ${panel.name} 的备注`} className={panel.remark ? "has-note" : ""} onClick={() => setEditingPanelRemark({ id: panel.id, value: panel.remark || "", initial: panel.remark || "" })}>{panel.remark || "添加备注"}</button>}</div></div>
                 <div className="panel-row-status"><span className={`managed-server-status ${panel.status}`}>{panel.status === "online" ? "在线" : panel.status === "offline" ? "离线" : "未检测"}</span><small>{value("version") === "-" ? "版本未获取" : value("version")}</small><small>{panel.last_checked_at ? `同步于 ${formatChineseDateTime(panel.last_checked_at)}` : "尚未同步"}</small>{panel.status === "offline" && panel.last_error && <em title={panel.last_error}>连接失败</em>}</div>
                 <div className="panel-row-metrics">{metrics.map((metric) => <div className={`panel-resource-metric ${metric.label === "磁盘" ? "is-disk-metric" : ""}`} key={metric.label}>{metric.label === "磁盘" ? <div className="panel-disk-label"><span>磁盘</span>{diskItems.length > 1 && <button type="button" className="panel-disk-toggle" title={panelDisksExpanded ? "收起磁盘分区" : "展开全部磁盘分区"} aria-label={panelDisksExpanded ? "收起磁盘分区" : "展开全部磁盘分区"} aria-expanded={panelDisksExpanded} onClick={() => setExpandedPanelDisks((current) => { const next = new Set(current); if (next.has(panel.id)) next.delete(panel.id); else next.add(panel.id); return next; })}>{panelDisksExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</button>}</div> : <span>{metric.label}</span>}{metric.label === "磁盘" ? <strong title={`${disk.path} ${metric.detail}`}>{disk.path !== "-" ? `[${disk.path}] ` : ""}{metric.detail}</strong> : typeof metric.detail === "string" ? <strong title={metric.detail}>{metric.detail}</strong> : <strong className="panel-network-detail">{metric.detail}</strong>}{metric.percent !== null ? <i title={`${metric.label} ${Math.round(metric.percent)}%`}><b style={{ width: `${metric.percent}%` }} /></i> : <i className="panel-metric-idle" />}{metric.label === "磁盘" && panelDisksExpanded && diskItems.slice(1).length > 0 && <div className="panel-disk-volumes">{diskItems.slice(1).map((volume) => <div className="panel-disk-volume" key={`${panel.id}-${volume.path}`}><span>{volume.path}</span><strong title={volume.detail}>{volume.detail}</strong>{volume.percent !== null && <i title={`${volume.path} ${Math.round(volume.percent)}%`}><b style={{ width: `${volume.percent}%` }} /></i>}</div>)}</div>}</div>)}</div>
-                <div className="panel-row-actions"><button type="button" className="panel-action-button panel-open-button" title="在浏览器中打开面板" aria-label={`打开 ${panel.name}`} disabled={panelOpeningId !== null} onClick={() => void openPanelTemporaryLogin(panel)}><Globe2 size={15} />{panelOpeningId === panel.id ? "打开中" : "面板"}</button><button type="button" className="panel-action-button" disabled={!canSsh} title={canSsh ? "通过关联云服务器 SSH 登录" : "关联云服务器后可使用 SSH"} aria-label={`通过 SSH 连接 ${panel.name}`} onClick={() => sourceAccount && sourceAsset && void openSshClient(sourceAsset, sourceAccount)}><Terminal size={15} />SSH</button><button type="button" className="panel-action-button panel-reboot-button" disabled={!canReboot} title={canReboot ? "重启关联云服务器" : "关联云服务器后可重启"} aria-label={`重启 ${panel.name} 关联服务器`} onClick={() => sourceAsset && void rebootLocalAsset(sourceAsset, false)}><RefreshCw size={15} />重启</button><button type="button" className="panel-action-button panel-delete-button" disabled={panelOpeningId !== null} title="移除面板" aria-label={`移除 ${panel.name}`} onClick={() => void deletePanelConnection(panel)}><Trash2 size={16} /></button></div>
+                <div className="panel-row-actions"><button type="button" className="panel-action-button panel-open-button" title="在浏览器中打开面板" aria-label={`打开 ${panel.name}`} disabled={panelOpeningId !== null} onClick={() => void openPanelTemporaryLogin(panel)}><Globe2 size={15} />{panelOpeningId === panel.id ? "打开中" : "面板"}</button><button type="button" className="panel-action-button" title="打开 SSH 终端管理" aria-label={`通过 SSH 连接 ${panel.name}`} onClick={() => void launchPanelSshDirect(panel)}><Terminal size={15} />SSH</button><button type="button" className="panel-action-button panel-reboot-button" disabled={!canReboot} title={canReboot ? "重启关联云服务器" : "关联云服务器后可重启"} aria-label={`重启 ${panel.name} 关联服务器`} onClick={() => sourceAsset && void rebootLocalAsset(sourceAsset, false)}><RefreshCw size={15} />重启</button><button type="button" className="panel-action-button panel-delete-button" disabled={panelOpeningId !== null} title="移除面板" aria-label={`移除 ${panel.name}`} onClick={() => void deletePanelConnection(panel)}><Trash2 size={15} />删除</button></div>
               </article>;
             })}</div></div> : <div className="managed-server-empty"><Monitor size={42} /><h3>{panelConnections.length ? "没有符合条件的面板" : "还没有绑定面板"}</h3><p>{panelConnections.length ? "调整搜索或分组条件后再试。" : "添加面板 URL 与 API 密钥，验证成功后即可统一查看并快速进入面板。"}</p></div>}
           </section>
         )}
         {section === "servers" && (
           <section className="managed-servers-page">
-            <div ref={terminalWorkbenchRef} className={`terminal-workbench${sshFilePaneCollapsed ? " is-file-pane-collapsed" : ""}`} style={{ gridTemplateColumns: `${terminalHostSidebarWidth}px minmax(0, 1fr)`, "--terminal-host-sidebar-width": `${terminalHostSidebarWidth}px` } as CSSProperties}>
-              <aside className="terminal-host-sidebar" aria-label="服务器列表">
-                <div className="terminal-host-header"><div className="terminal-host-heading"><Server size={16} /><strong>服务器</strong><span>{visibleManagedHosts.length}</span></div><div className="terminal-host-actions"><button type="button" className="terminal-toolbar-action" title="导出全部服务器（明文 JSON）" aria-label="导出服务器" disabled={!managedHosts.length} onClick={() => void exportManagedHosts()}><Download size={15} />导出</button><label className="terminal-toolbar-action terminal-import-button" title="导入服务器 JSON"><Upload size={15} />{managedHostImporting ? "导入中" : "导入"}<input ref={managedHostImportInputRef} type="file" accept="application/json,.json" disabled={managedHostImporting} onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void importManagedHosts(file); }} /></label><button type="button" className="terminal-toolbar-action" title="刷新服务器状态" aria-label="刷新服务器" onClick={() => void loadManagedHosts()}><RefreshCw size={16} />刷新</button></div></div>
-                <div className="terminal-group-title"><span><List size={15} />分组</span><div className="terminal-group-controls"><select aria-label="服务器分组" value={managedHostGroup} disabled={managedHostSorting} onChange={(event) => setManagedHostGroup(event.target.value)}><option value="">全部分组</option>{managedHostGroups.map((group) => <option key={group} value={group}>{group}</option>)}</select><button type="button" className={managedHostSorting ? "is-sorting" : ""} onClick={() => { setManagedHostSorting((value) => !value); setDraggedManagedHostId(null); setDraggedManagedHostGroup(null); setManagedHostMoreId(null); }}><GripVertical size={14} />{managedHostSorting ? "退出排序" : "排序"}</button></div></div>
-                <div className="terminal-host-filter"><label className="terminal-host-search"><Search size={15} /><input value={managedHostKeyword} onChange={(event) => setManagedHostKeyword(event.target.value)} placeholder="搜索服务器 IP / 名称" /></label><button type="button" className="terminal-add-host" onClick={() => openManagedHostDialog()}><Plus size={16} />添加服务器</button></div>
-                <div className="terminal-host-tree">
-                  {managedHostGroups.map((group) => {
-                    const hosts = visibleManagedHosts.filter((host) => (host.group_name || "未分组") === group);
-                    if (!hosts.length) return null;
-                    const collapsed = !managedHostSorting && collapsedManagedHostGroups.has(group);
-                    const personalGroup = /个人|默认/.test(group);
-                    return <section className={`terminal-host-group${draggedManagedHostGroup === group ? " is-dragging" : ""}${collapsed ? " is-collapsed" : ""}`} key={group} data-managed-host-group={group}><div className="terminal-host-group-head">{managedHostSorting ? <button type="button" className="terminal-group-drag-handle" title="拖动分组排序" aria-label={`拖动分组排序 ${group}`} onPointerDown={(event) => startManagedHostGroupDrag(event, group)}><GripVertical size={15} /></button> : personalGroup ? <UserRound size={18} /> : <Building2 size={18} />}<button type="button" className="terminal-host-group-toggle" disabled={managedHostSorting} onClick={() => setCollapsedManagedHostGroups((current) => { const next = new Set(current); if (next.has(group)) next.delete(group); else next.add(group); return next; })}><strong>{group}</strong><span>{hosts.length}</span>{collapsed ? <ChevronDown size={18} /> : <ChevronUp size={18} />}</button></div>{!collapsed && hosts.map((host) => <article className={`terminal-host-card${terminalSelectedHostId === host.id ? " active" : ""}${managedHostSorting ? " is-sorting" : ""}${draggedManagedHostId === host.id ? " is-dragging" : ""}`} key={host.id} data-managed-host-id={host.id}>{managedHostSorting && <button type="button" className="terminal-host-drag-handle" title="拖动排序" aria-label={`拖动排序 ${host.name}`} onPointerDown={(event) => startManagedHostDrag(event, host.id)}><GripVertical size={16} /></button>}<button type="button" className="terminal-host-card-main" title={host.platform === "windows" ? "打开 Windows 远程桌面" : "打开 SSH 终端"} disabled={managedHostSorting} onClick={(event) => { if (event.detail > 1) return; setTerminalSelectedHostId(host.id); openManagedHostSsh(host); }}><span className="terminal-host-platform"><Monitor size={25} /><i className={host.status} /></span><span className="terminal-host-card-copy"><strong title={host.name}>{host.name}</strong><small className="terminal-host-card-meta"><span className="terminal-host-card-platform">{host.platform === "windows" ? "RDP" : "SSH"}</span><span className={`terminal-host-card-state ${host.status}`}>{host.status === "online" ? "在线" : host.status === "offline" ? "离线" : "未检测"}</span><span className="terminal-host-address">{host.host}</span></small></span></button>{!managedHostSorting && <div className="terminal-host-card-actions"><button type="button" title="更多操作" aria-label={`${host.name} 的更多操作`} aria-expanded={managedHostMoreId === host.id} onClick={(event) => { event.stopPropagation(); setManagedHostMoreId((current) => current === host.id ? null : host.id); }}><MoreVertical size={20} /></button>{managedHostMoreId === host.id && <div className="terminal-host-more-menu"><button type="button" onClick={() => { setManagedHostMoreId(null); openManagedHostDialog(host); }}><Settings size={14} />编辑</button>{host.platform !== "windows" && <button type="button" disabled={managedHostLoadingId !== null} onClick={() => { setManagedHostMoreId(null); void probeManagedHost(host.id); }}><RefreshCw size={14} />刷新</button>}<button type="button" className="danger" onClick={() => { setManagedHostMoreId(null); void deleteManagedHost(host); }}><Trash2 size={14} />移除</button></div>}</div>}</article>)}</section>;
-                  })}
-                   {!visibleManagedHosts.length && <div className="terminal-host-empty"><Server size={30} /><p>{managedHosts.length ? "没有匹配的服务器" : "添加服务器后即可开始连接"}</p><button type="button" className="terminal-host-empty-action" onClick={() => openManagedHostDialog()}><Plus size={14} />添加服务器</button></div>}
-                </div>
-              </aside>
-              <div className="terminal-host-resizer" role="separator" aria-label="调整服务器列表宽度" aria-orientation="vertical" onPointerDown={startTerminalHostSidebarResize} />
-              <section className="terminal-stage">
+            <div ref={terminalWorkbenchRef} className={`terminal-workbench${sshFilePaneCollapsed ? " is-file-pane-collapsed" : ""}${isDetachedTerminalWindow ? " is-detached-workbench" : ""}`} style={{ gridTemplateColumns: isDetachedTerminalWindow ? "1fr" : `${terminalHostSidebarWidth}px minmax(0, 1fr)`, "--terminal-host-sidebar-width": isDetachedTerminalWindow ? "0px" : `${terminalHostSidebarWidth}px` } as CSSProperties}>
+              {!isDetachedTerminalWindow && (
+                <>
+                  <aside className="terminal-host-sidebar" aria-label="服务器列表">
+                    <div className="terminal-host-header"><div className="terminal-host-heading"><Server size={16} /><strong>服务器</strong><span>{visibleManagedHosts.length}</span></div><div className="terminal-host-actions"><button type="button" className="terminal-toolbar-action" title="导出全部服务器（明文 JSON）" aria-label="导出服务器" disabled={!managedHosts.length} onClick={() => void exportManagedHosts()}><Download size={15} />导出</button><label className="terminal-toolbar-action terminal-import-button" title="导入服务器 JSON"><Upload size={15} />{managedHostImporting ? "导入中" : "导入"}<input ref={managedHostImportInputRef} type="file" accept="application/json,.json" disabled={managedHostImporting} onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void importManagedHosts(file); }} /></label><button type="button" className="terminal-toolbar-action" title="刷新服务器状态" aria-label="刷新服务器" onClick={() => void loadManagedHosts()}><RefreshCw size={16} />刷新</button></div></div>
+                    <div className="terminal-group-title"><span><List size={15} />分组</span><div className="terminal-group-controls"><select aria-label="服务器分组" value={managedHostGroup} disabled={managedHostSorting} onChange={(event) => setManagedHostGroup(event.target.value)}><option value="">全部分组</option>{managedHostGroups.map((group) => <option key={group} value={group}>{group}</option>)}</select><button type="button" className={managedHostSorting ? "is-sorting" : ""} onClick={() => { setManagedHostSorting((value) => !value); setDraggedManagedHostId(null); setDraggedManagedHostGroup(null); setManagedHostMoreId(null); }}><GripVertical size={14} />{managedHostSorting ? "退出排序" : "排序"}</button></div></div>
+                    <div className="terminal-host-filter"><label className="terminal-host-search"><Search size={15} /><input value={managedHostKeyword} onChange={(event) => setManagedHostKeyword(event.target.value)} placeholder="搜索服务器 IP / 名称" /></label><button type="button" className="terminal-add-host" onClick={() => openManagedHostDialog()}><Plus size={16} />添加服务器</button></div>
+                    <div className="terminal-host-tree">
+                      {managedHostGroups.map((group) => {
+                        const hosts = visibleManagedHosts.filter((host) => (host.group_name || "未分组") === group);
+                        if (!hosts.length) return null;
+                        const collapsed = !managedHostSorting && collapsedManagedHostGroups.has(group);
+                        const personalGroup = /个人|默认/.test(group);
+                        return <section className={`terminal-host-group${draggedManagedHostGroup === group ? " is-dragging" : ""}${collapsed ? " is-collapsed" : ""}`} key={group} data-managed-host-group={group}><div className="terminal-host-group-head">{managedHostSorting ? <button type="button" className="terminal-group-drag-handle" title="拖动分组排序" aria-label={`拖动分组排序 ${group}`} onPointerDown={(event) => startManagedHostGroupDrag(event, group)}><GripVertical size={15} /></button> : personalGroup ? <UserRound size={18} /> : <Building2 size={18} />}<button type="button" className="terminal-host-group-toggle" disabled={managedHostSorting} onClick={() => setCollapsedManagedHostGroups((current) => { const next = new Set(current); if (next.has(group)) next.delete(group); else next.add(group); return next; })}><strong>{group}</strong><span>{hosts.length}</span>{collapsed ? <ChevronDown size={18} /> : <ChevronUp size={18} />}</button></div>{!collapsed && hosts.map((host) => <article className={`terminal-host-card${terminalSelectedHostId === host.id ? " active" : ""}${managedHostSorting ? " is-sorting" : ""}${draggedManagedHostId === host.id ? " is-dragging" : ""}`} key={host.id} data-managed-host-id={host.id}>{managedHostSorting && <button type="button" className="terminal-host-drag-handle" title="拖动排序" aria-label={`拖动排序 ${host.name}`} onPointerDown={(event) => startManagedHostDrag(event, host.id)}><GripVertical size={16} /></button>}<button type="button" className="terminal-host-card-main" title={host.platform === "windows" ? "双击打开 Windows 远程桌面" : "双击打开 SSH 终端"} disabled={managedHostSorting} onClick={() => setTerminalSelectedHostId(host.id)} onDoubleClick={() => void openManagedHostSsh(host)}><span className="terminal-host-platform"><Monitor size={25} /><i className={host.status} /></span><span className="terminal-host-card-copy"><strong title={host.name}>{host.name}</strong><small className="terminal-host-card-meta"><span className="terminal-host-card-platform">{host.platform === "windows" ? "RDP" : "SSH"}</span><span className={`terminal-host-card-state ${host.status}`}>{host.status === "online" ? "在线" : host.status === "offline" ? "离线" : "未检测"}</span><span className="terminal-host-address">{host.host}</span></small></span></button>{!managedHostSorting && <div className="terminal-host-card-actions"><button type="button" title="更多操作" aria-label={`${host.name} 的更多操作`} aria-expanded={managedHostMoreId === host.id} onClick={(event) => { event.stopPropagation(); setManagedHostMoreId((current) => current === host.id ? null : host.id); }}><MoreVertical size={20} /></button>{managedHostMoreId === host.id && <div className="terminal-host-more-menu"><button type="button" onClick={() => { setManagedHostMoreId(null); openManagedHostDialog(host); }}><Settings size={14} />编辑</button>{host.platform !== "windows" && <button type="button" disabled={managedHostLoadingId !== null} onClick={() => { setManagedHostMoreId(null); void probeManagedHost(host.id); }}><RefreshCw size={14} />刷新</button>}<button type="button" className="danger" onClick={() => { setManagedHostMoreId(null); void deleteManagedHost(host); }}><Trash2 size={14} />移除</button></div>}</div>}</article>)}</section>;
+                      })}
+                      {!visibleManagedHosts.length && <div className="terminal-host-empty"><Server size={30} /><p>{managedHosts.length ? "没有匹配的服务器" : "添加服务器后即可开始连接"}</p><button type="button" className="terminal-host-empty-action" onClick={() => openManagedHostDialog()}><Plus size={14} />添加服务器</button></div>}
+                    </div>
+                  </aside>
+                  <div className="terminal-host-resizer" role="separator" aria-label="调整服务器列表宽度" aria-orientation="vertical" onPointerDown={startTerminalHostSidebarResize} />
+                </>
+              )}
+              <section className={`terminal-stage${detachedTerminalIsLoading ? " is-loading" : ""}`}>
+                {detachedTerminalIsLoading && <div className="terminal-stage-loading"><RefreshCw size={28} className="spin" /><strong>正在加载服务器…</strong><span>正在准备独立终端，请稍候</span></div>}
+                {isDetachedTerminalWindow && sshSessionId && <div className="detached-ssh-actions" aria-label="SSH 操作">
+                  <span className="ssh-connected">已连接</span>
+                  <button type="button" className="ssh-terminal-command" title="命令补全 (Tab)" aria-label="命令补全 (Tab)" onClick={completeSshCommand}><Keyboard size={16} /></button>
+                  <span className="ssh-terminal-theme"><button type="button" className="ssh-terminal-command" title="终端配色" aria-label="终端配色" aria-expanded={terminalThemeMenuOpen} onClick={() => setTerminalThemeMenuOpen((value) => !value)}><Palette size={16} /></button>{terminalThemeMenuOpen && <span className="ssh-terminal-theme-menu">{(Object.entries(terminalThemes) as [TerminalThemeName, typeof terminalThemes[TerminalThemeName]][]).map(([name, theme]) => <button type="button" className={terminalThemeName === name ? "active" : ""} key={name} onClick={() => { setTerminalThemeName(name); setTerminalThemeMenuOpen(false); }}>{theme.label}</button>)}</span>}</span>
+                  <button type="button" className="ssh-clear-button" onClick={() => sshTerminalRef.current?.clear()}>清屏</button>
+                  <button type="button" className="ssh-disconnect-button" onClick={() => void closeSshClient()}>断开</button>
+                </div>}
                 <div className="terminal-tabs" role="tablist" aria-label="SSH 终端标签">
                   {terminalTabs.map((tab) => {
-                    const label = tab.target.managedHostId ? managedHosts.find((host) => host.id === tab.target.managedHostId)?.name || "SSH 终端" : displayValue(tab.target.asset.payload.InstanceName || tab.target.asset.asset_key);
+                    const label = tab.target.managedHostId ? managedHosts.find((host) => host.id === tab.target.managedHostId)?.name || displayValue(tab.target.asset.payload.InstanceName || tab.target.asset.asset_key) : displayValue(tab.target.asset.payload.InstanceName || tab.target.asset.asset_key);
                     const activeTab = tab.id === activeTerminalTabId;
-                    return <div className={`terminal-tab${activeTab ? " active" : ""}`} key={tab.id} role="presentation"><button type="button" className="terminal-tab-select" role="tab" aria-selected={activeTab} title={`${label} · ${tab.username}@${tab.host}`} onClick={() => activateTerminalTab(tab)}><Terminal size={15} /><span>{label}</span><i /></button><button type="button" className="terminal-tab-close" title={`关闭 ${label}`} aria-label={`关闭 ${label}`} onClick={() => void closeTerminalTab(tab.id)}><X size={14} /></button></div>;
+                    return <div className={`terminal-tab${activeTab ? " active" : ""}${detachingTerminalTabId === tab.id ? " is-detaching" : ""}`} key={tab.id} role="presentation"><button type="button" className="terminal-tab-select" role="tab" aria-selected={activeTab} title={`${label} · 拖出可分离窗口`} onPointerDown={(event) => startTerminalTabDrag(event, tab.id)} onPointerMove={(event) => moveTerminalTabDrag(event, tab)} onPointerUp={endTerminalTabDrag} onPointerCancel={endTerminalTabDrag} onClick={() => { if (terminalTabSuppressClickRef.current === tab.id) { terminalTabSuppressClickRef.current = null; return; } activateTerminalTab(tab); }}><Terminal size={15} /><span>{label}</span><i /></button><button type="button" className="terminal-tab-detach" title={`分离 ${label}`} aria-label={`分离 ${label}`} onClick={(event) => { event.stopPropagation(); void detachTerminalTab(tab); }}><ExternalLink size={13} /></button><button type="button" className="terminal-tab-close" title={`关闭 ${label}`} aria-label={`关闭 ${label}`} onClick={() => void closeTerminalTab(tab.id)}><X size={14} /></button></div>;
                   })}
                   {sshSessionId && <button type="button" title={sshFilePaneCollapsed ? "展开文件管理" : "收起文件管理"} aria-label={sshFilePaneCollapsed ? "展开文件管理" : "收起文件管理"} onClick={() => setSshFilePaneCollapsed((value) => !value)}>{sshFilePaneCollapsed ? <PanelRightOpen size={16} /> : <PanelRightClose size={16} />}</button>}
                 </div>
@@ -4294,74 +4553,6 @@ function App() {
             </section>
           </section>
         )}
-        {sshTarget && section !== "servers" && !sshTarget.managedHostId && (
-          <div className="resource-modal-backdrop ssh-modal-backdrop">
-            <section className={`detail-panel resource-modal ssh-modal${sshModalMaximized ? " is-maximized" : ""}${!sshSessionId ? " is-connect" : ""}`} onClick={(event) => event.stopPropagation()}>
-              <div className="detail-toolbar">
-                <div><span className="eyebrow">{sshTarget.direct ? "QUICK CONNECT" : sshTarget.asset.resource_type === "swas" ? "LIGHTHOUSE" : "SERVER"}</span><h2><Terminal size={18} /> {sshTarget.direct ? "快速连接" : `${sshPlatform === "windows" ? "RDP 登录" : "SSH 登录"} · ${displayValue(sshTarget.asset.payload.InstanceName || sshTarget.asset.asset_key)}`}</h2></div>
-                <div className="detail-toolbar-actions">{sshSessionId && <button className="close-detail" type="button" title={sshModalMaximized ? "退出全屏" : "全屏"} aria-label={sshModalMaximized ? "退出全屏" : "全屏"} onClick={() => setSshModalMaximized((value) => !value)}>{sshModalMaximized ? <Minimize2 size={18} /> : <Maximize2 size={18} />}</button>}<button className="close-detail" type="button" title="关闭 SSH" onClick={() => void closeSshClient()}><X size={20} /></button></div>
-              </div>
-              {!sshSessionId ? (
-                <form className="ssh-connect-form" onSubmit={(event) => { event.preventDefault(); void connectSshClient(); }}>
-                  <div className="ssh-form-grid">
-                    <div className="ssh-choice-row ssh-platform-row"><span>操作系统</span><div className="ssh-segmented"><button type="button" className={sshPlatform === "linux" ? "active" : ""} onClick={() => void setRemotePlatform("linux")}>Linux</button><button type="button" className={sshPlatform === "windows" ? "active" : ""} onClick={() => void setRemotePlatform("windows")}>Windows</button></div></div>
-                    <label className="ssh-form-host">主机<input value={sshHost} onChange={(event) => setSshHost(event.target.value)} placeholder="公网 IP 或域名" autoFocus /></label>
-                    <label>端口<input type="number" min={1} max={65535} value={sshPort} onChange={(event) => setSshPort(Number(event.target.value) || (sshPlatform === "windows" ? 3389 : 22))} /></label>
-                    <label>用户名<input value={sshUsername} onChange={(event) => setSshUsername(event.target.value)} placeholder={sshPlatform === "windows" ? "administrator" : "root"} /></label>
-                    {sshPlatform === "linux" && <div className="ssh-choice-row ssh-auth-row"><span>验证方式</span><div className="ssh-segmented"><button type="button" className={sshAuthMethod === "password" ? "active" : ""} onClick={() => setSshAuthMethod("password")}>密码验证</button><button type="button" className={sshAuthMethod === "private_key" ? "active" : ""} onClick={() => { setSshAuthMethod("private_key"); setShowSshPassword(false); }}>私钥验证</button></div></div>}
-                    {sshPlatform === "windows" || sshAuthMethod === "password" ? <label className="ssh-form-password">{sshPlatform === "windows" ? "密码（可选）" : "密码"}<span className="ssh-password-wrap"><input type={showSshPassword ? "text" : "password"} value={sshPassword} onChange={(event) => setSshPassword(event.target.value)} placeholder={sshPlatform === "windows" ? (sshPasswordSaved ? "已保存本地记录" : "由 Windows 远程桌面验证") : (sshPasswordSaved ? "已保存密码，可直接连接" : "请输入 SSH 密码")} autoComplete="current-password" /><button type="button" className="ssh-password-toggle" disabled={sshPasswordRevealing} title={sshPasswordRevealing ? "正在读取密码" : showSshPassword ? "隐藏密码" : sshPasswordSaved ? "读取当前保存密码" : "显示密码"} aria-label={sshPasswordRevealing ? "正在读取密码" : showSshPassword ? "隐藏密码" : sshPasswordSaved ? "读取当前保存密码" : "显示密码"} onClick={() => void toggleSshPasswordVisibility()}>{sshPasswordRevealing ? <RefreshCw size={16} className="spin" /> : showSshPassword ? <EyeOff size={17} /> : <Eye size={17} />}</button></span></label> : <><label className="ssh-form-password">私钥<textarea value={sshPrivateKey} onChange={(event) => setSshPrivateKey(event.target.value)} placeholder={sshPasswordSaved ? "已保存私钥，可直接连接或粘贴替换" : "粘贴 OpenSSH、PKCS#8 或 PEM 格式私钥"} spellCheck={false} /></label><label className="ssh-form-passphrase">私钥口令<input type="password" value={sshKeyPassphrase} onChange={(event) => setSshKeyPassphrase(event.target.value)} placeholder="未加密私钥可留空" autoComplete="off" /></label></>}
-                    {sshPlatform === "linux" && <label className="ssh-proxy-field">代理<select value=""><option value="">不使用代理</option></select></label>}
-                  </div>
-                  {(sshPlatform === "windows" || sshAuthMethod === "password") && !sshTarget.direct && <div className="ssh-save-row"><label className="toggle"><input type="checkbox" checked={sshSavePassword} onChange={(event) => setSshSavePassword(event.target.checked)} /><span>{sshPlatform === "windows" ? "保存连接资料到本机" : "保存密码到本机"}</span></label>{sshPasswordSaved && <button type="button" className="ssh-clear-button" onClick={() => void clearSavedSshConnection()}>清除已保存配置</button>}</div>}
-                  {sshError && <div className="error-list ssh-error">{sshError}</div>}
-                  <div className="modal-actions ssh-connect-actions">{sshPlatform === "linux" ? <button type="button" className="secondary" disabled={sshTesting || sshConnecting} onClick={() => void testSshConnection()}>{sshTesting ? "测试中…" : "测试连接"}</button> : <span />}<span /><button type="button" className="secondary" onClick={() => void closeSshClient()}>取消</button><button type="submit" className="layui-btn layui-btn-normal" disabled={sshTesting || sshConnecting}>{sshConnecting ? "启动中…" : sshPlatform === "windows" ? "打开远程桌面" : "连接"}</button></div>
-                </form>
-              ) : (
-                <div className="ssh-terminal-shell">
-                  <div className="ssh-terminal-meta"><span>{sshUsername}@{sshHost}:{sshPort}</span><span className="ssh-connected">已连接</span><button type="button" className="ssh-terminal-command" title="命令补全 (Tab)" aria-label="命令补全 (Tab)" onClick={completeSshCommand}><Keyboard size={16} /></button><button className="ssh-clear-button" onClick={() => sshTerminalRef.current?.clear()}>清屏</button><button className="ssh-disconnect-button" onClick={() => void closeSshClient()}>断开</button></div>
-                  <div ref={sshWorkspaceRef} className={`ssh-terminal-workspace${sshFilePaneCollapsed ? " is-file-pane-collapsed" : ""}`} style={{ gridTemplateColumns: sshFilePaneCollapsed ? "minmax(0, 1fr) 0 0" : `minmax(360px, 1fr) 8px minmax(360px, ${sshFilePaneWidth}px)` }}>
-                    <div className="ssh-terminal-viewport" ref={sshTerminalHostRef} aria-label="SSH 终端" />
-                    {!sshFilePaneCollapsed && <div className="ssh-file-resizer" role="separator" aria-label="调整文件管理面板宽度" aria-orientation="vertical" onPointerDown={startSshFileResize} />}
-                    {!sshFilePaneCollapsed && <aside className={`ssh-file-manager${sshFileDragActive ? " is-dragging" : ""}`} aria-label="远程文件管理" onDragEnter={(event) => { event.preventDefault(); setSshFileDragActive(true); }} onDragOver={(event) => event.preventDefault()} onDragLeave={(event) => { if (event.currentTarget === event.target) setSshFileDragActive(false); }} onDrop={(event) => { event.preventDefault(); setSshFileDragActive(false); void uploadSshFiles(event.dataTransfer.files); }}>
-                      <div className="ssh-file-toolbar">
-                        <button type="button" title="返回上级目录" disabled={sshFilesLoading || sshFilePath === "/"} onClick={() => void loadSshFiles(parentSshPath(sshFilePath))}><ChevronLeft size={16} /></button>
-                        <input className="ssh-file-path" value={sshFilePath} onChange={(event) => setSshFilePath(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void loadSshFiles(event.currentTarget.value); }} aria-label="远程目录路径" />
-                        <button type="button" title="刷新目录" disabled={sshFilesLoading} onClick={() => void loadSshFiles()}><RefreshCw size={15} className={sshFilesLoading ? "spin" : ""} /></button>
-                        <button type="button" title="收起文件管理" aria-label="收起文件管理" onClick={() => setSshFilePaneCollapsed(true)}><PanelRightClose size={16} /></button>
-                      </div>
-                      <div className="ssh-file-actions">
-                        <button type="button" title="上传文件" disabled={sshFilesLoading} onClick={() => sshUploadInputRef.current?.click()}><Upload size={15} />上传</button>
-                        <button type="button" title="新建文件夹" disabled={sshFilesLoading} onClick={() => void makeSshDirectory()}><FolderPlus size={15} />新建</button>
-                        <input ref={sshUploadInputRef} className="ssh-file-upload-input" type="file" multiple onChange={(event) => { const files = event.currentTarget.files; event.currentTarget.value = ""; if (files?.length) void uploadSshFiles(files); }} />
-                      </div>
-                      {sshFileEditor ? (
-                        <div className="ssh-file-editor">
-                          <div className="ssh-file-editor-head"><span title={sshFileEditor.path}>{sshFileEditor.path}</span><button type="button" title="关闭编辑器" onClick={() => setSshFileEditor(null)}><X size={15} /></button></div>
-                          <textarea value={sshFileEditor.content} spellCheck={false} onChange={(event) => setSshFileEditor((current) => current ? { ...current, content: event.target.value } : current)} />
-                          <div className="ssh-file-editor-actions"><button type="button" onClick={() => setSshFileEditor(null)}>关闭</button><button type="button" className="primary" disabled={sshFileSaving} onClick={() => void saveSshFile()}><Save size={15} />{sshFileSaving ? "保存中" : "保存"}</button></div>
-                        </div>
-                      ) : (
-                        <div className="ssh-file-list">
-                          <div className="ssh-file-list-head"><span>名称</span><span>大小</span><span>权限 / 所有者</span></div>
-                          {sshFiles.map((entry) => <div className="ssh-file-row" key={entry.path} onDoubleClick={() => void openSshFile(entry)}>
-                            <button type="button" className="ssh-file-name" title={`${entry.isDir ? "进入目录" : "打开文本文件"}：${entry.name}`} onClick={() => void openSshFile(entry)}>{entry.isDir ? <FolderOpen size={16} /> : <FileCode2 size={16} />}<span>{entry.name}</span></button>
-                            <span>{entry.isDir ? "文件夹" : sshFileSize(entry.size)}</span><span>{entry.mode}/{entry.owner}</span>
-                            <div className="ssh-file-row-actions">{entry.isFile && <button type="button" className="ssh-file-download" title="下载到本机并定位文件" onClick={() => void downloadSshFile(entry)}><Download size={14} /><span>下载</span></button>}<button type="button" title="删除" className="danger" onClick={() => void deleteSshEntry(entry)}><Trash2 size={14} /></button></div>
-                          </div>)}
-                          {!sshFilesLoading && sshFiles.length === 0 && <div className="ssh-file-empty">此目录为空</div>}
-                          {sshFilesLoading && <div className="ssh-file-empty">正在读取目录…</div>}
-                        </div>
-                      )}
-                      {sshFileError && <div className="ssh-file-error">{sshFileError}</div>}
-                    </aside>}
-                    {sshFilePaneCollapsed && <button type="button" className="ssh-file-reveal-tab" title="展开文件管理" aria-label="展开文件管理" onClick={() => setSshFilePaneCollapsed(false)}><PanelRightOpen size={18} /></button>}
-                  </div>
-                  {sshError && <div className="error-list ssh-error">{sshError}</div>}
-                </div>
-              )}
-            </section>
-          </div>
-        )}
         {section === "logs" && (
           <section className="utility-page">
             <header><div><span className="eyebrow">AUDIT TRAIL</span><h1>操作日志</h1><p>记录本机账号和资产管理操作，日志只保存在当前设备。</p></div></header>
@@ -4433,6 +4624,8 @@ function App() {
               <label>API 密钥<textarea required={!panelDraft.id} rows={2} value={panelDraft.api_key} onChange={(event) => setPanelDraft((current) => ({ ...current, api_key: event.target.value }))} placeholder={panelDraft.id ? "留空则保留已保存 API 密钥" : "粘贴面板 API 接口密钥"} autoComplete="off" /></label>
               <label className="panel-insecure-tls"><input type="checkbox" checked={panelDraft.allow_insecure_tls} onChange={(event) => setPanelDraft((current) => ({ ...current, allow_insecure_tls: event.target.checked }))} /><span><strong>允许不受信任 HTTPS 证书</strong><small>仅在面板使用确认可信的自签名证书时开启。</small></span></label>
               <div className="form-grid"><label>分组<input value={panelDraft.group_name} onChange={(event) => setPanelDraft((current) => ({ ...current, group_name: event.target.value }))} placeholder="生产 / 测试 / 个人" /></label><label>排序号<input type="number" min={0} value={panelDraft.sort_order} onChange={(event) => setPanelDraft((current) => ({ ...current, sort_order: Math.max(0, Number(event.target.value) || 0) }))} placeholder="数字越小越靠前" /></label></div>
+              <div className="form-grid"><label>SSH 端口<input type="number" min={1} max={65535} value={panelDraft.ssh_port || 22} onChange={(event) => setPanelDraft((current) => ({ ...current, ssh_port: Number(event.target.value) || 22 }))} placeholder="22" /></label><label>SSH 用户名<input value={panelDraft.ssh_username || "root"} onChange={(event) => setPanelDraft((current) => ({ ...current, ssh_username: event.target.value }))} placeholder="root" /></label></div>
+              <label>SSH 登录密码（可选）<input type="password" value={panelDraft.ssh_password || ""} onChange={(event) => setPanelDraft((current) => ({ ...current, ssh_password: event.target.value }))} placeholder={panelDraft.ssh_password_saved ? "已保存密码，留空保持不变" : "填写后可在面板卡片一键直连 SSH 终端"} autoComplete="new-password" /></label>
               <label>备注<input value={panelDraft.remark} onChange={(event) => setPanelDraft((current) => ({ ...current, remark: event.target.value }))} placeholder="可选" /></label>
               <ul className="panel-bind-steps"><li>填写面板 URL，例如 <code>https://192.168.1.2:8888</code>。</li><li>在宝塔或 aaPanel 的“面板设置 / API 接口”中启用 API。</li><li>把当前电脑的公网 IP 加到 API 白名单；没有固定 IP 时可按面板规则配置。</li><li>复制接口密钥到上方，保存时会即时验证连接。</li></ul>
               <div className="modal-actions"><button type="button" className="secondary" disabled={panelSaving} onClick={() => setPanelDialog(false)}>取消</button><button type="submit" className="layui-btn layui-btn-normal" disabled={panelSaving}>{panelSaving ? "验证并保存中…" : panelDraft.id ? "验证并保存" : "绑定面板"}</button></div>
@@ -4448,7 +4641,7 @@ function App() {
               <div className="managed-host-choice"><span>操作系统</span><div className="ssh-segmented"><button type="button" className={managedHostDraft.platform === "linux" ? "active" : ""} onClick={() => setManagedHostDraft((current) => ({ ...current, platform: "linux", auth_method: "password", port: current.port === 3389 ? 22 : current.port, username: current.username === "administrator" ? "root" : current.username }))}>Linux</button><button type="button" className={managedHostDraft.platform === "windows" ? "active" : ""} onClick={() => setManagedHostDraft((current) => ({ ...current, platform: "windows", auth_method: "password", port: current.port === 22 ? 3389 : current.port, username: current.username === "root" ? "administrator" : current.username }))}>Windows</button></div></div>
               <div className="form-grid"><label>主机 / IP<input required value={managedHostDraft.host} onChange={(event) => setManagedHostDraft((current) => ({ ...current, host: event.target.value }))} placeholder="203.0.113.10 或 server.example.com" /></label><label>{managedHostDraft.platform === "windows" ? "RDP 端口" : "SSH 端口"}<input required type="number" min={1} max={65535} value={managedHostDraft.port} onChange={(event) => setManagedHostDraft((current) => ({ ...current, port: Number(event.target.value) || (current.platform === "windows" ? 3389 : 22) }))} /></label><label>{managedHostDraft.platform === "windows" ? "RDP 用户名" : "SSH 用户名"}<input required value={managedHostDraft.username} onChange={(event) => setManagedHostDraft((current) => ({ ...current, username: event.target.value }))} placeholder={managedHostDraft.platform === "windows" ? "administrator" : "root"} /></label></div>
               {managedHostDraft.platform === "linux" && <div className="managed-host-choice"><span>验证方式</span><div className="ssh-segmented"><button type="button" className={managedHostDraft.auth_method === "password" ? "active" : ""} onClick={() => setManagedHostDraft((current) => ({ ...current, auth_method: "password" }))}>密码验证</button><button type="button" className={managedHostDraft.auth_method === "private_key" ? "active" : ""} onClick={() => setManagedHostDraft((current) => ({ ...current, auth_method: "private_key", password: "" }))}>私钥验证</button></div></div>}
-              {managedHostDraft.platform === "windows" || managedHostDraft.auth_method === "password" ? <label>{managedHostDraft.platform === "windows" ? "RDP 密码（可选）" : "SSH 密码"}<input required={managedHostDraft.platform === "linux" && !managedHostDraft.id} type="password" value={managedHostDraft.password} onChange={(event) => setManagedHostDraft((current) => ({ ...current, password: event.target.value }))} placeholder={managedHostDraft.platform === "windows" ? "留空时由 Windows 远程桌面验证" : managedHostDraft.id ? "留空则保留已保存密码" : "首次添加必填"} autoComplete="new-password" /></label> : <><label>SSH 私钥<textarea required={!managedHostDraft.id} rows={5} value={managedHostDraft.private_key} onChange={(event) => setManagedHostDraft((current) => ({ ...current, private_key: event.target.value }))} placeholder={managedHostDraft.id ? "留空则保留已保存私钥" : "粘贴 OpenSSH、PKCS#8 或 PEM 格式私钥"} spellCheck={false} /></label><label>私钥口令（可选）<input type="password" value={managedHostDraft.key_passphrase} onChange={(event) => setManagedHostDraft((current) => ({ ...current, key_passphrase: event.target.value }))} placeholder="未加密私钥可留空" autoComplete="off" /></label></>}
+              {managedHostDraft.platform === "windows" || managedHostDraft.auth_method === "password" ? <label>{managedHostDraft.platform === "windows" ? "RDP 密码（可选）" : "SSH 密码"}<span className="secret-input-wrap"><input required={managedHostDraft.platform === "linux" && !managedHostDraft.id} type={showManagedHostPassword ? "text" : "password"} value={managedHostDraft.password} onChange={(event) => setManagedHostDraft((current) => ({ ...current, password: event.target.value }))} placeholder={managedHostDraft.platform === "windows" ? "留空时由 Windows 远程桌面验证" : managedHostDraft.id ? "留空则保留已保存密码" : "首次添加必填"} autoComplete="new-password" /><button type="button" className="secret-eye" disabled={managedHostPasswordRevealing} title={managedHostPasswordRevealing ? "正在读取密码" : showManagedHostPassword ? "隐藏密码" : "显示密码"} aria-label={managedHostPasswordRevealing ? "正在读取密码" : showManagedHostPassword ? "隐藏密码" : "显示密码"} onClick={() => void toggleManagedHostPasswordVisibility()}>{managedHostPasswordRevealing ? <RefreshCw size={16} className="spin" /> : showManagedHostPassword ? <EyeOff size={17} /> : <Eye size={17} />}</button></span></label> : <><label>SSH 私钥<textarea required={!managedHostDraft.id} rows={5} value={managedHostDraft.private_key} onChange={(event) => setManagedHostDraft((current) => ({ ...current, private_key: event.target.value }))} placeholder={managedHostDraft.id ? "留空则保留已保存私钥" : "粘贴 OpenSSH、PKCS#8 或 PEM 格式私钥"} spellCheck={false} /></label><label>私钥口令（可选）<input type="password" value={managedHostDraft.key_passphrase} onChange={(event) => setManagedHostDraft((current) => ({ ...current, key_passphrase: event.target.value }))} placeholder="未加密私钥可留空" autoComplete="off" /></label></>}
               <div className="form-grid"><label>分组<input value={managedHostDraft.group_name} onChange={(event) => setManagedHostDraft((current) => ({ ...current, group_name: event.target.value }))} placeholder="生产 / 测试 / 个人" /></label><label>标签<input value={managedHostDraft.tags} onChange={(event) => setManagedHostDraft((current) => ({ ...current, tags: event.target.value }))} placeholder="web, nginx, cn" /></label></div>
               <label>备注<textarea rows={2} value={managedHostDraft.remark} onChange={(event) => setManagedHostDraft((current) => ({ ...current, remark: event.target.value }))} placeholder="可选" /></label>
               <div className="modal-actions"><button type="button" className="secondary" disabled={managedHostSaving} onClick={() => setManagedHostDialog(false)}>取消</button><button type="submit" className="layui-btn layui-btn-normal" disabled={managedHostSaving}>{managedHostSaving ? "保存中…" : managedHostDraft.id ? "保存修改" : "加入服务器管理"}</button></div>

@@ -559,9 +559,17 @@
   color: #f3f0ff !important;
 }
 .ide-theme .terminal-tab-select { height: 35px; padding-left: 9px; }
+.ide-theme .terminal-tab-select span { display: inline-block; min-width: 0; flex: 1 1 auto; overflow: hidden; color: #f0f0f0 !important; opacity: 1 !important; visibility: visible !important; text-overflow: ellipsis; white-space: nowrap; }
 .ide-theme .terminal-tab-select:hover { background: #3a3a3a !important; }
 .ide-theme .terminal-tab-close { width: 24px; height: 24px; color: var(--jb-subtle); }
 .ide-theme .terminal-tab-close:hover { background: #4a4a4a !important; color: #fff; }
+.ide-theme .terminal-tab-detach { display: grid; place-items: center; flex: 0 0 auto; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--jb-subtle); cursor: pointer; }
+.ide-theme .terminal-tab-detach:hover { background: #4a4a4a !important; color: #fff; }
+.ide-theme .terminal-tab-select { cursor: grab; }
+.ide-theme .terminal-tab-select:active { cursor: grabbing; }
+.ide-theme .terminal-tab.is-detaching { opacity: .55; }
+.ide-theme .favorite-resource-card.settings-open { position: relative; z-index: 20; overflow: visible; }
+.ide-theme .favorite-card-account > span.favorite-card-settings { overflow: visible; text-overflow: clip; white-space: normal; }
 .ide-theme .terminal-tabs > button {
   width: 30px;
   margin-left: 2px;
@@ -576,9 +584,77 @@
 .ide-theme .terminal-stage-empty h1 { color: var(--jb-text); font-size: 17px; font-weight: 500; }
 .ide-theme .terminal-stage-empty p { max-width: 390px; color: var(--jb-subtle); font-size: 12px; }
 .ide-theme .terminal-stage-empty .layui-btn { min-height: 30px; height: 30px; margin-top: 2px; }
+.ide-theme .terminal-stage { position: relative; }
+.ide-theme .terminal-stage.is-loading > :not(.terminal-stage-loading) { visibility: hidden; }
+.ide-theme .terminal-stage-loading { position: absolute; z-index: 2; inset: 0; display: grid; place-content: center; justify-items: center; gap: 10px; background: #181818; color: var(--jb-muted); }
+.ide-theme .terminal-stage-loading svg { color: var(--jb-accent); }
+.ide-theme .terminal-stage-loading strong { color: var(--jb-text); font-size: 15px; font-weight: 500; }
+.ide-theme .terminal-stage-loading span { color: var(--jb-subtle); font-size: 12px; }
+
+.ide-theme.detached-terminal-window .ide-topbar,
+.ide-theme.detached-terminal-window > aside,
+.ide-theme.detached-terminal-window > .app-sidebar-resizer { display: none; }
+.ide-theme.detached-terminal-window > main { width: 100%; min-height: 100vh; margin-top: 0; padding: 0; }
+.ide-theme.detached-terminal-window .managed-servers-page { height: 100vh; min-height: 100vh; margin: 0; }
+.ide-theme.detached-terminal-window .ide-topbar { display: flex; }
+.ide-theme.detached-terminal-window > main { margin-top: 32px; min-height: calc(100vh - 32px); height: calc(100vh - 32px); }
+.ide-theme.detached-terminal-window .ide-topbar-brand {
+  display: flex;
+  flex: 0 1 auto;
+  max-width: min(70vw, 720px);
+  padding-right: 10px;
+}
+.ide-theme.detached-terminal-window .ide-topbar-brand strong,
+.ide-theme.detached-terminal-window .ide-topbar-brand span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ide-theme.detached-terminal-window .ide-topbar-brand .detached-terminal-context {
+  color: var(--jb-muted);
+}
+.ide-theme.detached-terminal-window .ide-topbar-context { display: none; }
+.ide-theme.detached-terminal-window .ide-topbar-actions { margin-left: auto; min-width: 0; }
+.ide-theme.detached-terminal-window .ide-topbar .detached-ssh-actions { display: none !important; }
+.ide-theme.detached-terminal-window .detached-ssh-actions { display: flex; align-items: center; justify-content: flex-end; gap: 5px; min-width: 0; min-height: 36px; padding: 3px 8px; box-sizing: border-box; border-bottom: 1px solid var(--jb-border); background: #242424; }
+.ide-theme.detached-terminal-window .detached-ssh-actions .ssh-connected { flex: 0 0 auto; }
+.ide-theme.detached-terminal-window .detached-ssh-actions .ssh-terminal-theme { position: relative; display: inline-flex; flex: 0 0 auto; }
+.ide-theme.detached-terminal-window .detached-ssh-actions .ssh-terminal-theme-menu { top: calc(100% + 5px); right: 0; z-index: 30; }
+.ide-theme.detached-terminal-window .ide-window-controls {
+  align-self: stretch;
+  box-sizing: border-box;
+  height: 32px;
+  margin-left: 0;
+  margin-right: 8px;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.ide-theme.detached-terminal-window .ide-window-controls button {
+  box-sizing: border-box;
+  width: 42px;
+  height: 32px;
+}
+.ide-theme.detached-terminal-window .terminal-tabs { display: none; }
+.ide-theme.detached-terminal-window .terminal-session-shell > .ssh-terminal-meta { display: none !important; }
+.ide-theme.detached-terminal-window .terminal-session-shell > .ssh-terminal-meta { display: none !important; }
+.ide-theme.detached-terminal-window .terminal-session-shell .ssh-terminal-meta {
+  position: relative;
+  z-index: 3;
+  display: flex !important;
+  visibility: visible !important;
+  flex: 0 0 36px;
+  width: 100%;
+  min-height: 36px;
+}
 
 .ide-theme .terminal-session-shell { background: #181818 !important; }
 .ide-theme .ssh-terminal-meta {
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
   min-height: 36px;
   box-sizing: border-box;
   gap: 5px;
@@ -599,20 +675,29 @@
 .ide-theme .ssh-terminal-command,
 .ide-theme .ssh-clear-button,
 .ide-theme .ssh-disconnect-button {
-  min-width: 27px;
-  width: 27px;
-  height: 27px;
-  padding: 0;
+  box-sizing: border-box;
+  min-width: 46px;
+  width: auto;
+  height: 30px;
+  padding: 0 9px;
   border-color: var(--jb-border-strong) !important;
   border-radius: 3px !important;
   background: var(--jb-surface-3) !important;
-  color: var(--jb-muted) !important;
-  font-size: 11px;
+  color: #d6d6d6 !important;
+  font-size: 12px;
+  font-weight: 600;
 }
 .ide-theme .ssh-terminal-meta .ssh-clear-button { margin-left: auto; }
+.ide-theme .ssh-terminal-meta > span:first-child { min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ide-theme .ssh-terminal-meta > .ssh-connected,
+.ide-theme .ssh-terminal-meta > .ssh-terminal-command,
+.ide-theme .ssh-terminal-meta > .ssh-terminal-theme,
+.ide-theme .ssh-terminal-meta > .ssh-clear-button,
+.ide-theme .ssh-terminal-meta > .ssh-disconnect-button { flex: 0 0 auto; }
+.ide-theme .terminal-session-shell { min-width: 0; }
 .ide-theme .ssh-terminal-command:hover:not(:disabled),
 .ide-theme .ssh-clear-button:hover:not(:disabled) { border-color: #747474 !important; background: #404040 !important; color: #fff !important; }
-.ide-theme .ssh-disconnect-button { border-color: #794a50 !important; background: #3c292d !important; color: #e99aa0 !important; }
+.ide-theme .ssh-disconnect-button { border-color: #9a555d !important; background: #4a2e33 !important; color: #ffabb1 !important; }
 .ide-theme .ssh-disconnect-button:hover:not(:disabled) { border-color: #a96770 !important; background: #563237 !important; color: #fff !important; }
 .ide-theme .ssh-terminal-theme-menu {
   top: 32px;
@@ -2000,13 +2085,31 @@
   min-width: 0;
   height: 30px;
   padding: 0 8px !important;
-  border-color: var(--jb-border-strong) !important;
+  border: 1px solid var(--jb-border-strong) !important;
   border-radius: 3px !important;
   background: var(--jb-input) !important;
 }
 .ide-theme .favorites-page .favorite-search svg { width: 14px; height: 14px; color: var(--jb-subtle); }
-.ide-theme .favorites-page .favorite-search input { font-size: 11px; }
+.ide-theme .favorites-page .favorite-search input { display:block; width:100%; height:100% !important; min-height:0; margin:0 !important; padding:0 !important; font-size:11px; line-height:30px !important; border:0 !important; background:transparent !important; box-shadow:none !important; outline:0 !important; }
 .ide-theme .favorites-page .favorite-search input:focus { border: 0 !important; box-shadow: none !important; outline: 0 !important; }
+.ide-theme :where(.search, .managed-host-search, .favorite-search, .terminal-host-search, .esa-site-search, .oss-browser-search) > input {
+  display: block;
+  width: 100%;
+  height: 100% !important;
+  min-height: 0;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  outline: 0 !important;
+  line-height: 1.2 !important;
+}
+.ide-theme :where(.search, .managed-host-search, .favorite-search, .terminal-host-search, .esa-site-search, .oss-browser-search) > input:focus {
+  border: 0 !important;
+  box-shadow: none !important;
+  outline: 0 !important;
+}
 .ide-theme .favorites-page .favorite-toolbar > select {
   min-width: 0;
   width: 100%;
