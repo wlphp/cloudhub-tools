@@ -127,6 +127,10 @@ export type PanelConnectionDraft = {
   source_account_id?: number | null;
   source_asset_key?: string | null;
   remark: string;
+  ssh_port?: number;
+  ssh_username?: string;
+  ssh_password?: string;
+  ssh_password_saved?: boolean;
 };
 
 export type EsaTrendPoint = { time: string; value: number };

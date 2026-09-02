@@ -1,7 +1,7 @@
 import { readBody, send, sendUnsupportedInPreview } from "../core/http.mjs";
 
 export async function handleAccountRoutes(req, res, url, services) {
-  const { accounts, saveAccount, database } = services;
+  const { accounts, saveAccount, deleteAccount } = services;
 
   if (req.method === "GET" && url.pathname === "/api/accounts") {
     send(res, 200, accounts(url.searchParams.get("keyword") || "", false));
@@ -22,8 +22,8 @@ export async function handleAccountRoutes(req, res, url, services) {
       send(res, 400, { error: "账号 ID 无效" });
       return true;
     }
-    const result = database().prepare("DELETE FROM cloud_accounts WHERE id=?").run(id);
-    send(res, result.changes ? 200 : 404, result.changes ? { ok: true } : { error: "云账号不存在" });
+    const result = deleteAccount(id);
+    send(res, result ? 200 : 404, result || { error: "云账号不存在" });
     return true;
   }
   if (req.method === "GET" && url.pathname === "/api/account-secret") {
