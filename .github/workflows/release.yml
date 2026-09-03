@@ -71,11 +71,15 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: CloudHub Tools ${{ github.ref_name }}
           releaseBody: |
-            Desktop builds for Windows, macOS, and Linux.
+            ## 更新内容
 
-            macOS downloads are split by processor:
-            - Apple Silicon: M1, M2, M3, M4, and newer Macs.
-            - Intel: Intel-based Macs.
+            - 优化客户端更新流程与启动体验。
+            - 修复已知问题，提升程序稳定性。
+
+            ## 下载说明
+
+            提供 Windows、macOS 和 Linux 桌面版本。
+            macOS 下载包按处理器区分：Apple Silicon（M 系列）和 Intel。
           releaseDraft: false
           prerelease: false
           retryAttempts: 5
