@@ -615,11 +615,6 @@
 }
 .ide-theme.detached-terminal-window .ide-topbar-context { display: none; }
 .ide-theme.detached-terminal-window .ide-topbar-actions { margin-left: auto; min-width: 0; }
-.ide-theme.detached-terminal-window .ide-topbar .detached-ssh-actions { display: none !important; }
-.ide-theme.detached-terminal-window .detached-ssh-actions { display: flex; align-items: center; justify-content: flex-end; gap: 5px; min-width: 0; min-height: 36px; padding: 3px 8px; box-sizing: border-box; border-bottom: 1px solid var(--jb-border); background: #242424; }
-.ide-theme.detached-terminal-window .detached-ssh-actions .ssh-connected { flex: 0 0 auto; }
-.ide-theme.detached-terminal-window .detached-ssh-actions .ssh-terminal-theme { position: relative; display: inline-flex; flex: 0 0 auto; }
-.ide-theme.detached-terminal-window .detached-ssh-actions .ssh-terminal-theme-menu { top: calc(100% + 5px); right: 0; z-index: 30; }
 .ide-theme.detached-terminal-window .ide-window-controls {
   align-self: stretch;
   box-sizing: border-box;
@@ -638,17 +633,6 @@
   height: 32px;
 }
 .ide-theme.detached-terminal-window .terminal-tabs { display: none; }
-.ide-theme.detached-terminal-window .terminal-session-shell > .ssh-terminal-meta { display: none !important; }
-.ide-theme.detached-terminal-window .terminal-session-shell > .ssh-terminal-meta { display: none !important; }
-.ide-theme.detached-terminal-window .terminal-session-shell .ssh-terminal-meta {
-  position: relative;
-  z-index: 3;
-  display: flex !important;
-  visibility: visible !important;
-  flex: 0 0 36px;
-  width: 100%;
-  min-height: 36px;
-}
 
 .ide-theme .terminal-session-shell { background: #181818 !important; }
 .ide-theme .ssh-terminal-meta {
@@ -663,6 +647,12 @@
   background: #242424 !important;
   color: var(--jb-muted);
   font-size: 11px;
+}
+.ide-theme.detached-terminal-window .ssh-terminal-meta {
+  padding-right: 16px !important;
+}
+.ide-theme.detached-terminal-window .ssh-disconnect-button {
+  margin-right: 44px;
 }
 .ide-theme .ssh-connected {
   padding: 2px 6px;
@@ -2318,6 +2308,50 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* A detached terminal always keeps its monitoring/file pane beside the shell,
+   even when the shared collapsed-file-pane rule is active. */
+.ide-theme.detached-terminal-window .terminal-workbench .ssh-terminal-workspace {
+  grid-template-columns: minmax(0, 1fr) 8px minmax(280px, 360px) !important;
+  grid-template-rows: minmax(0, 1fr) !important;
+}
+.ide-theme.detached-terminal-window .terminal-workbench .ssh-terminal-workspace {
+  display: flex !important;
+  flex-direction: row;
+  width: 100%;
+  min-width: 0;
+}
+.ide-theme.detached-terminal-window .terminal-workbench .ssh-terminal-viewport {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+}
+.ide-theme.detached-terminal-window .terminal-workbench .ssh-file-resizer {
+  display: block;
+  flex: 0 0 8px;
+  width: 8px;
+}
+.ide-theme.detached-terminal-window .terminal-workbench .ssh-side-panel {
+  flex: 0 0 var(--ssh-file-pane-width, 230px);
+  width: var(--ssh-file-pane-width, 230px);
+  min-width: 220px;
+  max-width: calc(100vw - 240px);
+}
+.ide-theme.detached-terminal-window .terminal-workbench .ssh-side-panel.is-collapsed {
+  flex: 0 0 34px;
+  width: 34px;
+  min-width: 34px;
+}
+.ide-theme.detached-terminal-window .terminal-workbench .ssh-side-panel.is-collapsed .ssh-file-manager,
+.ide-theme.detached-terminal-window .terminal-workbench .ssh-side-panel.is-collapsed .ssh-monitor-panel {
+  display: none;
+}
+.ide-theme.detached-terminal-window .terminal-workbench.is-file-pane-collapsed .ssh-file-resizer {
+  display: block;
+}
+.ide-theme.detached-terminal-window .terminal-workbench.is-file-pane-collapsed .ssh-side-panel.is-files .ssh-file-manager {
+  display: flex;
 }
 .ide-theme .terminal-host-card-meta {
   display: flex;
