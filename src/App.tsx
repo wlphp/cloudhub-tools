@@ -81,7 +81,8 @@ import "./ide-theme.css";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { invoke, runningInTauri, webApi } from "./platform/api";
-import { accountsClient, resourcesClient, serversClient } from "./platform/clients";
+import { accountsClient, databaseClient, resourcesClient, serversClient } from "./platform/clients";
+import type { DatabaseImportPreview } from "./platform/clients/database";
 import {
   assetFavoriteKey,
   savedFavoriteAssetKeys,
@@ -295,6 +296,7 @@ function App() {
   const [verifyingAccount, setVerifyingAccount] = useState(false);
   const [draft, setDraft] = useState<Draft>(empty);
   const [status, setStatus] = useState("");
+  const [databaseImportPreview, setDatabaseImportPreview] = useState<DatabaseImportPreview | null>(null);
   const [active, setActive] = useState<{ account: Account; view: View; source: "cache" | "live" } | null>(
     null,
   );
@@ -978,6 +980,35 @@ function App() {
     } catch (error) {
       setStatus(`打开数据目录失败：${String(error)}`);
     }
+  }
+  async function exportDatabase() {
+    if (!runningInTauri) { setStatus("数据库迁移仅支持桌面客户端"); return; }
+    if (!(await requestConfirm("导出包包含本机全部数据和解密所需的密钥文件，任何持有导出包的人都可能读取其中的账号凭据。请仅通过安全介质传输。确定继续吗？"))) return;
+    try {
+      const path = await databaseClient.exportFile();
+      if (path) setStatus(`数据库已导出：${path}`);
+    } catch (error) { setStatus(`数据库导出失败：${String(error)}`); }
+  }
+  async function importDatabase() {
+    if (!runningInTauri) { setStatus("数据库迁移仅支持桌面客户端"); return; }
+    try {
+      setDatabaseImportPreview(await databaseClient.prepareImport());
+    } catch (error) { setStatus(`数据库导入失败：${String(error)}`); }
+  }
+  async function cancelDatabaseImport() {
+    const preview = databaseImportPreview;
+    setDatabaseImportPreview(null);
+    if (preview) { try { await databaseClient.cancelImport(preview.token); } catch (error) { setStatus(`取消导入失败：${String(error)}`); } }
+  }
+  async function confirmDatabaseImport() {
+    const preview = databaseImportPreview;
+    if (!preview) return;
+    try {
+      const message = await databaseClient.confirmImport(preview.token);
+      setDatabaseImportPreview(null);
+      setStatus(`${message}，应用即将刷新`);
+      window.setTimeout(() => window.location.reload(), 700);
+    } catch (error) { setStatus(`数据库导入失败：${String(error)}`); }
   }
   async function copyPanelAddress(panel: PanelConnection) {
     try {
@@ -4624,6 +4655,7 @@ function App() {
               <div className="settings-card"><div className="settings-icon purple"><Monitor size={22} /></div><div className="settings-copy"><strong>紧凑显示</strong><small>减少表格行高，适合小窗口查看</small></div><label className="setting-switch"><input type="checkbox" checked={compactMode} onChange={(event) => setCompactMode(event.target.checked)} /><span /></label></div>
               <div className="settings-card"><div className="settings-icon blue"><List size={22} /></div><div className="settings-copy"><strong>每页显示条数</strong><small>账号、资源和操作日志列表统一使用此分页大小</small></div><select className="settings-select" value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))}><option value={10}>10 条</option><option value={20}>20 条</option><option value={50}>50 条</option><option value={100}>100 条</option></select></div>
               <div className="settings-card"><div className="settings-icon purple"><Database size={22} /></div><div className="settings-copy"><strong>数据库位置</strong><small>系统应用数据目录 / CloudHubTools / cloudhub_tools.sqlite3</small></div><button className="secondary settings-link" onClick={() => void openDataDirectory()}><FolderOpen size={16} />打开目录</button></div>
+              <div className="settings-card"><div className="settings-icon amber"><Upload size={22} /></div><div className="settings-copy"><strong>数据库迁移</strong><small>导出或导入本机全部数据；迁移包包含敏感凭据，请妥善保管</small></div><div className="settings-update-actions"><button className="secondary settings-link" onClick={() => void exportDatabase()}><Download size={14} />导出全部</button><button className="primary-update-btn settings-link" onClick={() => void importDatabase()}><Upload size={14} />导入全部</button></div></div>
               <div className="settings-card"><div className="settings-icon amber"><Terminal size={22} /></div><div className="settings-copy"><strong>GitHub 开源仓库</strong><small>https://github.com/wlphp/cloudhub-tools</small></div><a className="secondary settings-link" href="https://github.com/wlphp/cloudhub-tools" target="_blank" rel="noreferrer">访问仓库 ↗</a></div>
               <div className={`settings-card${updateState.phase === "available" && updateState.notes ? " has-update-notes" : ""}`}>
                 <div className="settings-icon blue"><Download size={22} /></div>
@@ -4890,6 +4922,23 @@ function App() {
             <div className="app-confirm-icon"><AlertTriangle size={20} /></div>
             <div className="app-confirm-copy"><span className="eyebrow">PLEASE CONFIRM</span><h2 id="confirm-title">确认操作</h2><p id="confirm-message">{confirmRequest.message}</p></div>
             <div className="app-confirm-actions"><button type="button" className="secondary" autoFocus onClick={() => resolveConfirm(false)}>取消</button><button type="button" className="primary app-confirm-primary" onClick={() => resolveConfirm(true)}>确认</button></div>
+          </section>
+        </div>,
+        document.body,
+      )}
+      {databaseImportPreview && createPortal(
+        <div className="app-confirm-backdrop" onClick={() => void cancelDatabaseImport()}>
+          <section className="app-confirm-dialog database-import-dialog" role="alertdialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+            <div className="app-confirm-icon"><AlertTriangle size={20} /></div>
+            <div className="app-confirm-copy">
+              <span className="eyebrow">DATABASE IMPORT REVIEW</span>
+              <h2>确认导入本机数据库</h2>
+              <p>文件：{databaseImportPreview.packageName}<br />导出时间：{databaseImportPreview.exportedAt}<br />共发现 <strong>{databaseImportPreview.totalRecords}</strong> 条记录。确认后将替换当前数据库，原数据会自动备份。</p>
+              <div className="database-import-summary">{databaseImportPreview.categories.map((item) => <span key={item.label}><b>{item.count}</b>{item.label}</span>)}</div>
+              <div className="database-import-details"><strong>记录明细（已脱敏）</strong>{databaseImportPreview.details.map((item, index) => <div key={`${item}-${index}`}>{item}</div>)}</div>
+              {databaseImportPreview.conflicts.length > 0 && <div className="database-import-conflicts"><strong>重复/冲突预警（{databaseImportPreview.conflicts.length}）</strong>{databaseImportPreview.conflicts.map((item, index) => <div key={`${item}-${index}`}>{item}</div>)}</div>}
+            </div>
+            <div className="app-confirm-actions"><button type="button" className="secondary" autoFocus onClick={() => void cancelDatabaseImport()}>取消导入</button><button type="button" className="primary app-confirm-primary" onClick={() => void confirmDatabaseImport()}>确定导入</button></div>
           </section>
         </div>,
         document.body,
