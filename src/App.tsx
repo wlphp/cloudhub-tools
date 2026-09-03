@@ -47,6 +47,7 @@ import {
   MoreVertical,
   Monitor,
   List,
+  MapPin,
   Terminal,
   FileText,
   Plus,
@@ -66,8 +67,6 @@ import {
   Minimize2,
   Minus,
   Keyboard,
-  PanelRightClose,
-  PanelRightOpen,
   Palette,
 } from "lucide-react";
 import "./App.css";
@@ -210,6 +209,7 @@ const assetTypes = catalogAssetTypes;
 
 const bundledVersion = "0.1.25";
 const isDevelopmentBuild = import.meta.env.DEV;
+const skippedUpdateVersionStorageKey = "cloudhub-skipped-update-version";
 
 type UpdateState =
   | { phase: "idle" }
@@ -405,6 +405,8 @@ function App() {
   const [compactMode, setCompactMode] = useState(() => localStorage.getItem("aliyun-compact-mode") === "1");
   const [appVersion, setAppVersion] = useState(bundledVersion);
   const [updateState, setUpdateState] = useState<UpdateState>({ phase: "idle" });
+  const [updatePrompt, setUpdatePrompt] = useState<{ version: string; notes?: string } | null>(null);
+  const [skippedUpdateVersion, setSkippedUpdateVersion] = useState(() => localStorage.getItem(skippedUpdateVersionStorageKey) || "");
   const [logFilter, setLogFilter] = useState("");
   const [logTypeFilter, setLogTypeFilter] = useState("");
   const [resourceAccountId, setResourceAccountId] = useState<number | null>(null);
@@ -471,8 +473,8 @@ function App() {
   const [sshFileError, setSshFileError] = useState("");
   const [sshFileEditor, setSshFileEditor] = useState<{ path: string; content: string } | null>(null);
   const [sshFileSaving, setSshFileSaving] = useState(false);
-  const [sshFilePaneWidth, setSshFilePaneWidth] = useState(520);
-  const [sshFilePaneCollapsed, setSshFilePaneCollapsed] = useState(false);
+  const [sshFilePaneWidth, setSshFilePaneWidth] = useState(230);
+  const [detachedRightPanel, setDetachedRightPanel] = useState<"monitor" | "files" | null>(null);
   const [sshFileDragActive, setSshFileDragActive] = useState(false);
   const [appSidebarWidth, setAppSidebarWidth] = useState(() => Math.min(340, Math.max(190, Number(localStorage.getItem("cloudhub-app-sidebar-width") || "235"))));
   const [terminalHostSidebarWidth, setTerminalHostSidebarWidth] = useState(() => Math.min(420, Math.max(190, Number(localStorage.getItem("cloudhub-terminal-host-sidebar-width") || "250"))));
@@ -657,7 +659,15 @@ function App() {
       updateRef.current = update;
       if (previous && previous !== update) void previous.close();
       if (update) {
+        if (skippedUpdateVersion === update.version) {
+          updateRef.current = null;
+          void update.close();
+          setUpdateState({ phase: "idle" });
+          if (!quiet) setStatus(`已跳过版本 v${update.version}`);
+          return;
+        }
         setUpdateState({ phase: "available", version: update.version, notes: update.body });
+        if (!quiet) setUpdatePrompt({ version: update.version, notes: update.body });
         if (!quiet) setStatus(`已检查更新：当前 v${appVersion}，发现最新 v${update.version}`);
       } else {
         setUpdateState({ phase: "current" });
@@ -667,6 +677,18 @@ function App() {
       updateRef.current = null;
       setUpdateState(quiet ? { phase: "idle" } : { phase: "error", message: String(error) });
     }
+  }
+
+  function skipUpdateVersion(version: string) {
+    setSkippedUpdateVersion(version);
+    localStorage.setItem(skippedUpdateVersionStorageKey, version);
+    saveClientPreference(skippedUpdateVersionStorageKey, version);
+    setUpdatePrompt(null);
+    const update = updateRef.current;
+    updateRef.current = null;
+    if (update) void update.close();
+    setUpdateState({ phase: "idle" });
+    setStatus(`已跳过版本 v${version}`);
   }
 
   async function installUpdate() {
@@ -1292,7 +1314,6 @@ function App() {
       setSshFiles([]);
       setSshFileEditor(null);
       setSshFileError("");
-      setSshFilePaneCollapsed(true);
     }
     if (runningInTauri) {
       try { await invoke("ssh_disconnect", { sessionId: tab.sessionId }); } catch { /* session already closed */ }
@@ -1321,7 +1342,7 @@ function App() {
     setSshHost(host.host); setSshPort(port); setSshUsername(username); setSshPassword(""); setShowSshPassword(false);
     setSshPlatform("linux"); setSshAuthMethod(authMethod); setSshPrivateKey(""); setSshKeyPassphrase("");
     setSshSavePassword(false); setSshPasswordSaved(host.password_saved || host.private_key_saved);
-    sshPendingOutputRef.current = ""; setSshError(""); setSshFiles([]); setSshFilePath("/"); setSshFileError(""); setSshFileEditor(null); setSshFilePaneCollapsed(true);
+    sshPendingOutputRef.current = ""; setSshError(""); setSshFiles([]); setSshFilePath("/"); setSshFileError(""); setSshFileEditor(null);
     setSshConnecting(true);
     try {
       const result = await invoke<SshConnectResult>("ssh_connect", {
@@ -1345,6 +1366,7 @@ function App() {
       setTerminalTabs((current) => [...current.filter((item) => item.id !== tab.id), tab]);
       setActiveTerminalTabId(tab.id);
       setStatus(`已连接 ${host.name}`);
+      if (host.platform !== "windows") void probeManagedHost(host.id);
     } catch (error) {
       setStatus(`连接 ${host.name} 失败：${String(error)}`);
       setSshError(String(error));
@@ -1553,7 +1575,6 @@ function App() {
     setSshFiles([]);
     setSshFileEditor(null);
     setSshFileError("");
-    setSshFilePaneCollapsed(false);
     setSshFileDragActive(false);
     if (sessionId && runningInTauri) {
       try { await invoke("ssh_disconnect", { sessionId }); } catch { /* session already closed */ }
@@ -1718,22 +1739,26 @@ function App() {
   }
   function startSshFileResize(event: PointerEvent<HTMLDivElement>) {
     const workspace = sshWorkspaceRef.current;
-    if (!workspace || window.innerWidth <= 900) return;
+    if (!workspace || (!isDetachedTerminalWindow && window.innerWidth <= 900)) return;
     event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
     const initialX = event.clientX;
     const initialWidth = sshFilePaneWidth;
-    const maxWidth = Math.max(360, workspace.clientWidth - 360);
+    const minWidth = isDetachedTerminalWindow ? 220 : 360;
+    const maxWidth = Math.max(minWidth, workspace.clientWidth - (isDetachedTerminalWindow ? 260 : 360));
     const resize = (moveEvent: globalThis.PointerEvent) => {
-      setSshFilePaneWidth(Math.min(maxWidth, Math.max(360, initialWidth - (moveEvent.clientX - initialX))));
+      setSshFilePaneWidth(Math.min(maxWidth, Math.max(minWidth, initialWidth - (moveEvent.clientX - initialX))));
     };
     const finish = () => {
       window.removeEventListener("pointermove", resize);
       window.removeEventListener("pointerup", finish);
+      window.removeEventListener("pointercancel", finish);
       document.body.classList.remove("ssh-resizing");
     };
     document.body.classList.add("ssh-resizing");
     window.addEventListener("pointermove", resize);
     window.addEventListener("pointerup", finish, { once: true });
+    window.addEventListener("pointercancel", finish, { once: true });
   }
   function startAppSidebarResize(event: PointerEvent<HTMLDivElement>) {
     const shell = appShellRef.current;
@@ -2330,6 +2355,7 @@ function App() {
       if (preferences[cloudHubManagedHostOrderStorageKey] !== undefined) setManagedHostOrder(stringListFromValue(preferences[cloudHubManagedHostOrderStorageKey]));
       if (preferences[cloudHubManagedHostGroupOrderStorageKey] !== undefined) setManagedHostGroupOrder(stringListFromValue(preferences[cloudHubManagedHostGroupOrderStorageKey]));
       if (preferences[cloudHubTerminalThemeStorageKey] !== undefined && preferences[cloudHubTerminalThemeStorageKey] in terminalThemes) setTerminalThemeName(preferences[cloudHubTerminalThemeStorageKey] as TerminalThemeName);
+      if (preferences[skippedUpdateVersionStorageKey] !== undefined) setSkippedUpdateVersion(preferences[skippedUpdateVersionStorageKey]);
       if (preferences["aliyun-auto-refresh"] !== undefined) setAutoRefresh(preferences["aliyun-auto-refresh"] !== "0");
       if (preferences["aliyun-compact-mode"] !== undefined) setCompactMode(preferences["aliyun-compact-mode"] === "1");
       if (preferences["aliyun-panel-hide-ip"] !== undefined) setHidePanelIps(preferences["aliyun-panel-hide-ip"] === "1");
@@ -2365,6 +2391,7 @@ function App() {
   useEffect(() => { const value = JSON.stringify(managedHostOrder); localStorage.setItem(cloudHubManagedHostOrderStorageKey, value); saveClientPreference(cloudHubManagedHostOrderStorageKey, value); }, [managedHostOrder, clientPreferencesReady]);
   useEffect(() => { const value = JSON.stringify(managedHostGroupOrder); localStorage.setItem(cloudHubManagedHostGroupOrderStorageKey, value); saveClientPreference(cloudHubManagedHostGroupOrderStorageKey, value); }, [managedHostGroupOrder, clientPreferencesReady]);
   useEffect(() => { localStorage.setItem(cloudHubTerminalThemeStorageKey, terminalThemeName); saveClientPreference(cloudHubTerminalThemeStorageKey, terminalThemeName); }, [terminalThemeName, clientPreferencesReady]);
+  useEffect(() => { localStorage.setItem(skippedUpdateVersionStorageKey, skippedUpdateVersion); saveClientPreference(skippedUpdateVersionStorageKey, skippedUpdateVersion); }, [skippedUpdateVersion, clientPreferencesReady]);
   useEffect(() => { const value = String(operationLogClearedAt); localStorage.setItem("aliyun-operation-log-cleared-at", value); saveClientPreference("aliyun-operation-log-cleared-at", value); }, [operationLogClearedAt, clientPreferencesReady]);
   useEffect(() => {
     setSelectedAccountIds((current) => {
@@ -3462,6 +3489,28 @@ function App() {
     ? managedHosts.find((item) => item.id === detachedTerminalHostId)
     : undefined;
   const detachedTerminalIsLoading = isDetachedTerminalWindow && (managedHostsLoading || sshConnecting || (!sshSessionId && !sshError));
+  const detachedMonitorMetrics = detachedTerminalHost?.metrics || {};
+  const detachedMemoryMetrics = typeof detachedMonitorMetrics.memory === "object" && detachedMonitorMetrics.memory
+    ? detachedMonitorMetrics.memory as Record<string, unknown>
+    : {};
+  const detachedCpuMetrics = typeof detachedMonitorMetrics.cpu === "object" && detachedMonitorMetrics.cpu
+    ? detachedMonitorMetrics.cpu as Record<string, unknown>
+    : {};
+  const detachedNetworkMetrics = typeof detachedMonitorMetrics.network === "object" && detachedMonitorMetrics.network
+    ? detachedMonitorMetrics.network as Record<string, unknown>
+    : {};
+  const detachedDiskIoMetrics = typeof detachedMonitorMetrics.disk_io === "object" && detachedMonitorMetrics.disk_io
+    ? detachedMonitorMetrics.disk_io as Record<string, unknown>
+    : {};
+  const formatMonitorMemory = (value: unknown) => value === undefined ? "-" : `${Math.round(Number(value) / 1024 / 1024)}MB`;
+  const formatMonitorUptime = (value: unknown) => {
+    const text = String(value || "").replace(/^up\s+/i, "");
+    const days = text.match(/(\d+)\s+day/i)?.[1];
+    return days ? `${days}天` : (text || "未获取");
+  };
+  const detachedMonitorIp = String(detachedMonitorMetrics.ip || detachedTerminalHost?.host || sshHost || "-");
+  const detachedMonitorOs = String(detachedMonitorMetrics.os || "未探测");
+  const detachedMonitorOsMatch = detachedMonitorOs.match(/^(.*?)\s*\(([^)]+)\)$/);
   return (
     <div className={`app-shell ide-theme${isDetachedTerminalWindow ? " detached-terminal-window" : ""}`} ref={appShellRef} style={{ "--app-sidebar-width": `${appSidebarWidth}px` } as CSSProperties}>
       <a className="skip-link" href="#main-content">跳到主要内容</a>
@@ -3485,11 +3534,12 @@ function App() {
                 <img src="/cloudhub-logo.png" alt="云枢 Tools" />
               </div>
               <div>
-                <strong>
-                  云枢 Tools <span className="brand-version">v{appVersion}</span>
+                <div className="brand-heading">
+                  <strong>云枢 Tools</strong>
+                  <span className="brand-version">v{appVersion}</span>
                   {runningInTauri && updateState.phase === "available" && <button type="button" className="brand-update-button" aria-label={`发现新版本 v${updateState.version}`} title={`发现新版本 v${updateState.version}，点击更新`} onClick={() => void installUpdate()}><ArrowUpCircle size={16} /></button>}
-                  {isDevelopmentBuild ? <span className="brand-dev-badge">本地开发版</span> : null}
-                </strong>
+                </div>
+                {isDevelopmentBuild ? <span className="brand-dev-badge">本地开发版</span> : null}
                 <small>本地多云资源管家</small>
               </div>
             </div>
@@ -4442,7 +4492,7 @@ function App() {
         )}
         {section === "servers" && (
           <section className="managed-servers-page">
-            <div ref={terminalWorkbenchRef} className={`terminal-workbench${sshFilePaneCollapsed ? " is-file-pane-collapsed" : ""}${isDetachedTerminalWindow ? " is-detached-workbench" : ""}`} style={{ gridTemplateColumns: isDetachedTerminalWindow ? "1fr" : `${terminalHostSidebarWidth}px minmax(0, 1fr)`, "--terminal-host-sidebar-width": isDetachedTerminalWindow ? "0px" : `${terminalHostSidebarWidth}px` } as CSSProperties}>
+            <div ref={terminalWorkbenchRef} className={`terminal-workbench${isDetachedTerminalWindow ? " is-detached-workbench" : ""}`} style={{ gridTemplateColumns: isDetachedTerminalWindow ? "1fr" : `${terminalHostSidebarWidth}px minmax(0, 1fr)`, "--terminal-host-sidebar-width": isDetachedTerminalWindow ? "0px" : `${terminalHostSidebarWidth}px` } as CSSProperties}>
               {!isDetachedTerminalWindow && (
                 <>
                   <aside className="terminal-host-sidebar" aria-label="服务器列表">
@@ -4465,22 +4515,14 @@ function App() {
               )}
               <section className={`terminal-stage${detachedTerminalIsLoading ? " is-loading" : ""}`}>
                 {detachedTerminalIsLoading && <div className="terminal-stage-loading"><RefreshCw size={28} className="spin" /><strong>正在加载服务器…</strong><span>正在准备独立终端，请稍候</span></div>}
-                {isDetachedTerminalWindow && sshSessionId && <div className="detached-ssh-actions" aria-label="SSH 操作">
-                  <span className="ssh-connected">已连接</span>
-                  <button type="button" className="ssh-terminal-command" title="命令补全 (Tab)" aria-label="命令补全 (Tab)" onClick={completeSshCommand}><Keyboard size={16} /></button>
-                  <span className="ssh-terminal-theme"><button type="button" className="ssh-terminal-command" title="终端配色" aria-label="终端配色" aria-expanded={terminalThemeMenuOpen} onClick={() => setTerminalThemeMenuOpen((value) => !value)}><Palette size={16} /></button>{terminalThemeMenuOpen && <span className="ssh-terminal-theme-menu">{(Object.entries(terminalThemes) as [TerminalThemeName, typeof terminalThemes[TerminalThemeName]][]).map(([name, theme]) => <button type="button" className={terminalThemeName === name ? "active" : ""} key={name} onClick={() => { setTerminalThemeName(name); setTerminalThemeMenuOpen(false); }}>{theme.label}</button>)}</span>}</span>
-                  <button type="button" className="ssh-clear-button" onClick={() => sshTerminalRef.current?.clear()}>清屏</button>
-                  <button type="button" className="ssh-disconnect-button" onClick={() => void closeSshClient()}>断开</button>
-                </div>}
                 <div className="terminal-tabs" role="tablist" aria-label="SSH 终端标签">
                   {terminalTabs.map((tab) => {
                     const label = tab.target.managedHostId ? managedHosts.find((host) => host.id === tab.target.managedHostId)?.name || displayValue(tab.target.asset.payload.InstanceName || tab.target.asset.asset_key) : displayValue(tab.target.asset.payload.InstanceName || tab.target.asset.asset_key);
                     const activeTab = tab.id === activeTerminalTabId;
                     return <div className={`terminal-tab${activeTab ? " active" : ""}${detachingTerminalTabId === tab.id ? " is-detaching" : ""}`} key={tab.id} role="presentation"><button type="button" className="terminal-tab-select" role="tab" aria-selected={activeTab} title={`${label} · 拖出可分离窗口`} onPointerDown={(event) => startTerminalTabDrag(event, tab.id)} onPointerMove={(event) => moveTerminalTabDrag(event, tab)} onPointerUp={endTerminalTabDrag} onPointerCancel={endTerminalTabDrag} onClick={() => { if (terminalTabSuppressClickRef.current === tab.id) { terminalTabSuppressClickRef.current = null; return; } activateTerminalTab(tab); }}><Terminal size={15} /><span>{label}</span><i /></button><button type="button" className="terminal-tab-detach" title={`分离 ${label}`} aria-label={`分离 ${label}`} onClick={(event) => { event.stopPropagation(); void detachTerminalTab(tab); }}><ExternalLink size={13} /></button><button type="button" className="terminal-tab-close" title={`关闭 ${label}`} aria-label={`关闭 ${label}`} onClick={() => void closeTerminalTab(tab.id)}><X size={14} /></button></div>;
                   })}
-                  {sshSessionId && <button type="button" title={sshFilePaneCollapsed ? "展开文件管理" : "收起文件管理"} aria-label={sshFilePaneCollapsed ? "展开文件管理" : "收起文件管理"} onClick={() => setSshFilePaneCollapsed((value) => !value)}>{sshFilePaneCollapsed ? <PanelRightOpen size={16} /> : <PanelRightClose size={16} />}</button>}
                 </div>
-                {sshSessionId ? <div className="terminal-session-shell"><div className="ssh-terminal-meta"><span>{sshUsername}@{sshHost}:{sshPort}</span><span className="ssh-connected">已连接</span><button type="button" className="ssh-terminal-command" title="命令补全 (Tab)" aria-label="命令补全 (Tab)" onClick={completeSshCommand}><Keyboard size={16} /></button><span className="ssh-terminal-theme"><button type="button" className="ssh-terminal-command" title="终端配色" aria-label="终端配色" aria-expanded={terminalThemeMenuOpen} onClick={() => setTerminalThemeMenuOpen((value) => !value)}><Palette size={16} /></button>{terminalThemeMenuOpen && <span className="ssh-terminal-theme-menu">{(Object.entries(terminalThemes) as [TerminalThemeName, typeof terminalThemes[TerminalThemeName]][]).map(([name, theme]) => <button type="button" className={terminalThemeName === name ? "active" : ""} key={name} onClick={() => { setTerminalThemeName(name); setTerminalThemeMenuOpen(false); }}>{theme.label}</button>)}</span>}</span><button className="ssh-clear-button" onClick={() => sshTerminalRef.current?.clear()}>清屏</button><button className="ssh-disconnect-button" onClick={() => void closeSshClient()}>断开</button></div><div ref={sshWorkspaceRef} className="ssh-terminal-workspace" style={{ gridTemplateColumns: `minmax(360px, 1fr) 8px minmax(330px, ${sshFilePaneWidth}px)` }}><div className="ssh-terminal-viewport" ref={sshTerminalHostRef} aria-label="SSH 终端" /><div className="ssh-file-resizer" role="separator" aria-label="调整文件管理面板宽度" aria-orientation="vertical" onPointerDown={startSshFileResize} /> <aside className={`ssh-file-manager${sshFileDragActive ? " is-dragging" : ""}`} aria-label="远程文件管理" onDragEnter={(event) => { event.preventDefault(); setSshFileDragActive(true); }} onDragOver={(event) => event.preventDefault()} onDragLeave={(event) => { if (event.currentTarget === event.target) setSshFileDragActive(false); }} onDrop={(event) => { event.preventDefault(); setSshFileDragActive(false); void uploadSshFiles(event.dataTransfer.files); }}><div className="ssh-file-toolbar"><button type="button" title="返回上级目录" disabled={sshFilesLoading || sshFilePath === "/"} onClick={() => void loadSshFiles(parentSshPath(sshFilePath))}><ChevronLeft size={16} /></button><input className="ssh-file-path" value={sshFilePath} onChange={(event) => setSshFilePath(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void loadSshFiles(event.currentTarget.value); }} aria-label="远程目录路径" /><button type="button" title="刷新目录" disabled={sshFilesLoading} onClick={() => void loadSshFiles()}><RefreshCw size={15} className={sshFilesLoading ? "spin" : ""} /></button></div><div className="ssh-file-actions"><button type="button" title="上传文件" disabled={sshFilesLoading} onClick={() => sshUploadInputRef.current?.click()}><Upload size={15} />上传</button><button type="button" title="新建文件夹" disabled={sshFilesLoading} onClick={() => void makeSshDirectory()}><FolderPlus size={15} />新建</button><input ref={sshUploadInputRef} className="ssh-file-upload-input" type="file" multiple onChange={(event) => { const files = event.currentTarget.files; event.currentTarget.value = ""; if (files?.length) void uploadSshFiles(files); }} /></div>{sshFileEditor ? <div className="ssh-file-editor"><div className="ssh-file-editor-head"><span title={sshFileEditor.path}>{sshFileEditor.path}</span><button type="button" title="关闭编辑器" onClick={() => setSshFileEditor(null)}><X size={15} /></button></div><textarea value={sshFileEditor.content} spellCheck={false} onChange={(event) => setSshFileEditor((current) => current ? { ...current, content: event.target.value } : current)} /><div className="ssh-file-editor-actions"><button type="button" onClick={() => setSshFileEditor(null)}>关闭</button><button type="button" className="primary" disabled={sshFileSaving} onClick={() => void saveSshFile()}><Save size={15} />{sshFileSaving ? "保存中" : "保存"}</button></div></div> : <div className="ssh-file-list"><div className="ssh-file-list-head"><span>名称</span><span>大小</span><span>权限 / 所有者</span></div>{sshFiles.map((entry) => <div className="ssh-file-row" key={entry.path} onDoubleClick={() => void openSshFile(entry)}><button type="button" className="ssh-file-name" title={`${entry.isDir ? "进入目录" : "打开文本文件"}：${entry.name}`} onClick={() => void openSshFile(entry)}>{entry.isDir ? <FolderOpen size={16} /> : <FileCode2 size={16} />}<span>{entry.name}</span></button><span>{entry.isDir ? "文件夹" : sshFileSize(entry.size)}</span><span>{entry.mode}/{entry.owner}</span><div className="ssh-file-row-actions">{entry.isFile && <button type="button" className="ssh-file-download" title="下载到本机并定位文件" onClick={() => void downloadSshFile(entry)}><Download size={14} /><span>下载</span></button>}<button type="button" title="删除" className="danger" onClick={() => void deleteSshEntry(entry)}><Trash2 size={14} /></button></div></div>)}{!sshFilesLoading && sshFiles.length === 0 && <div className="ssh-file-empty">此目录为空</div>}{sshFilesLoading && <div className="ssh-file-empty">正在读取目录…</div>}</div>}{sshFileError && <div className="ssh-file-error">{sshFileError}</div>}</aside></div>{sshError && <div className="error-list ssh-error">{sshError}</div>}</div> : <div className="terminal-stage-empty"><Terminal size={54} /><h1>选择一台服务器开始连接</h1><p>从左侧服务器列表打开 SSH 终端，连接后可在右侧直接浏览和管理远程文件。</p><button className="layui-btn layui-btn-normal" onClick={() => openManagedHostDialog()}><Plus size={16} />添加服务器</button></div>}
+                {sshSessionId ? <div className="terminal-session-shell"><div className="ssh-terminal-meta"><span>{sshUsername}@{sshHost}:{sshPort}</span><span className="ssh-connected">已连接</span><button type="button" className="ssh-terminal-command" title="命令补全 (Tab)" aria-label="命令补全 (Tab)" onClick={completeSshCommand}><Keyboard size={16} /></button><span className="ssh-terminal-theme"><button type="button" className="ssh-terminal-command" title="终端配色" aria-label="终端配色" aria-expanded={terminalThemeMenuOpen} onClick={() => setTerminalThemeMenuOpen((value) => !value)}><Palette size={16} /></button>{terminalThemeMenuOpen && <span className="ssh-terminal-theme-menu">{(Object.entries(terminalThemes) as [TerminalThemeName, typeof terminalThemes[TerminalThemeName]][]).map(([name, theme]) => <button type="button" className={terminalThemeName === name ? "active" : ""} key={name} onClick={() => { setTerminalThemeName(name); setTerminalThemeMenuOpen(false); }}>{theme.label}</button>)}</span>}</span><button className="ssh-clear-button" onClick={() => sshTerminalRef.current?.clear()}>清屏</button><button className="ssh-disconnect-button" onClick={() => void closeSshClient()}>断开</button></div><div ref={sshWorkspaceRef} className="ssh-terminal-workspace" style={{ gridTemplateColumns: `minmax(360px, 1fr) 8px minmax(330px, ${sshFilePaneWidth}px)`, ["--ssh-file-pane-width" as string]: `${sshFilePaneWidth}px` }}><div className="ssh-terminal-viewport" ref={sshTerminalHostRef} aria-label="SSH 终端" /><div className={`ssh-file-resizer${isDetachedTerminalWindow && detachedRightPanel === null ? " is-collapsed" : ""}`} role="separator" aria-label="调整文件管理面板宽度" aria-orientation="vertical" onPointerDown={startSshFileResize} /> <div className={`ssh-side-panel${detachedRightPanel ? ` is-${detachedRightPanel}` : " is-collapsed"}`}><div className="ssh-side-tabs" role="tablist" aria-label="终端侧边栏"><button type="button" role="tab" aria-selected={detachedRightPanel === "monitor"} className={detachedRightPanel === "monitor" ? "active" : ""} onClick={() => setDetachedRightPanel((current) => current === "monitor" ? null : "monitor")}><Monitor size={14} />监控</button><button type="button" role="tab" aria-selected={detachedRightPanel === "files"} className={detachedRightPanel === "files" ? "active" : ""} onClick={() => setDetachedRightPanel((current) => current === "files" ? null : "files")}><FolderOpen size={14} />文件管理</button></div><aside className={`ssh-file-manager${sshFileDragActive ? " is-dragging" : ""}`} aria-label="远程文件管理" onDragEnter={(event) => { event.preventDefault(); setSshFileDragActive(true); }} onDragOver={(event) => event.preventDefault()} onDragLeave={(event) => { if (event.currentTarget === event.target) setSshFileDragActive(false); }} onDrop={(event) => { event.preventDefault(); setSshFileDragActive(false); void uploadSshFiles(event.dataTransfer.files); }}><div className="ssh-file-toolbar"><button type="button" title="返回上级目录" disabled={sshFilesLoading || sshFilePath === "/"} onClick={() => void loadSshFiles(parentSshPath(sshFilePath))}><ChevronLeft size={16} /></button><input className="ssh-file-path" value={sshFilePath} onChange={(event) => setSshFilePath(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void loadSshFiles(event.currentTarget.value); }} aria-label="远程目录路径" /><button type="button" title="刷新目录" disabled={sshFilesLoading} onClick={() => void loadSshFiles()}><RefreshCw size={15} className={sshFilesLoading ? "spin" : ""} /></button></div><div className="ssh-file-actions"><button type="button" title="上传文件" disabled={sshFilesLoading} onClick={() => sshUploadInputRef.current?.click()}><Upload size={15} />上传</button><button type="button" title="新建文件夹" disabled={sshFilesLoading} onClick={() => void makeSshDirectory()}><FolderPlus size={15} />新建</button><input ref={sshUploadInputRef} className="ssh-file-upload-input" type="file" multiple onChange={(event) => { const files = event.currentTarget.files; event.currentTarget.value = ""; if (files?.length) void uploadSshFiles(files); }} /></div>{sshFileEditor ? <div className="ssh-file-editor"><div className="ssh-file-editor-head"><span title={sshFileEditor.path}>{sshFileEditor.path}</span><button type="button" title="关闭编辑器" onClick={() => setSshFileEditor(null)}><X size={15} /></button></div><textarea value={sshFileEditor.content} spellCheck={false} onChange={(event) => setSshFileEditor((current) => current ? { ...current, content: event.target.value } : current)} /><div className="ssh-file-editor-actions"><button type="button" onClick={() => setSshFileEditor(null)}>关闭</button><button type="button" className="primary" disabled={sshFileSaving} onClick={() => void saveSshFile()}><Save size={15} />{sshFileSaving ? "保存中" : "保存"}</button></div></div> : <div className="ssh-file-list"><div className="ssh-file-list-head"><span>名称</span><span>大小</span><span>权限 / 所有者</span></div>{sshFiles.map((entry) => <div className="ssh-file-row" key={entry.path} onDoubleClick={() => void openSshFile(entry)}><button type="button" className="ssh-file-name" title={`${entry.isDir ? "进入目录" : "打开文本文件"}：${entry.name}`} onClick={() => void openSshFile(entry)}>{entry.isDir ? <FolderOpen size={16} /> : <FileCode2 size={16} />}<span>{entry.name}</span></button><span>{entry.isDir ? "文件夹" : sshFileSize(entry.size)}</span><span>{entry.mode}/{entry.owner}</span><div className="ssh-file-row-actions">{entry.isFile && <button type="button" className="ssh-file-download" title="下载到本机并定位文件" onClick={() => void downloadSshFile(entry)}><Download size={14} /><span>下载</span></button>}<button type="button" title="删除" className="danger" onClick={() => void deleteSshEntry(entry)}><Trash2 size={14} /></button></div></div>)}{!sshFilesLoading && sshFiles.length === 0 && <div className="ssh-file-empty">此目录为空</div>}{sshFilesLoading && <div className="ssh-file-empty">正在读取目录…</div>}</div>}{sshFileError && <div className="ssh-file-error">{sshFileError}</div>}</aside><div className="ssh-monitor-panel" aria-label="服务器监控"><div className="ssh-monitor-head"><strong>监控</strong></div><div className="ssh-monitor-card ssh-monitor-system"><div className="ssh-monitor-system-line"><span className="ssh-monitor-address"><MapPin size={12} />{detachedMonitorIp}</span><button type="button" className="ssh-monitor-copy" title="复制 IP 地址" aria-label="复制 IP 地址" onClick={() => void copyAssetIp(detachedMonitorIp)}><Copy size={12} /></button></div><strong>{detachedMonitorOsMatch?.[1] || detachedMonitorOs}</strong>{detachedMonitorOsMatch && <strong>({detachedMonitorOsMatch[2]})</strong>}<span>持续运行：{formatMonitorUptime(detachedMonitorMetrics.uptime)}</span><span>负载：{String(detachedMonitorMetrics.load || "-")}</span><span className="ssh-monitor-process-line"><span>进程数：{String(detachedMonitorMetrics.processes || "-")}</span><span>活跃：{String(detachedMonitorMetrics.active_processes || "-")}</span></span></div><div className="ssh-monitor-card"><h3>CPU　{String(detachedCpuMetrics.cores || "-")}核</h3><div className="ssh-monitor-inline-bar"><i><b style={{ width: `${Math.min(100, Math.max(0, Number(detachedCpuMetrics.usage || 0)))}%` }} /></i><span>{Number(detachedCpuMetrics.usage || 0).toFixed(2)}%</span></div><span>{String(detachedCpuMetrics.model || "-")}</span></div><div className="ssh-monitor-card"><h3>内存　{formatMonitorMemory(detachedMemoryMetrics.used)} / {formatMonitorMemory(detachedMemoryMetrics.total)}</h3><div className="ssh-monitor-inline-bar"><i><b style={{ width: `${detachedMemoryMetrics.total ? Math.min(100, Number(detachedMemoryMetrics.used || 0) / Number(detachedMemoryMetrics.total) * 100) : 0}%` }} /></i><span>{detachedMemoryMetrics.total ? (Number(detachedMemoryMetrics.used || 0) / Number(detachedMemoryMetrics.total) * 100).toFixed(2) : "0.00"}%</span></div><span>SWAP：{detachedMonitorMetrics.swap && typeof detachedMonitorMetrics.swap === "object" ? `${formatMonitorMemory((detachedMonitorMetrics.swap as Record<string, unknown>).used)} / ${formatMonitorMemory((detachedMonitorMetrics.swap as Record<string, unknown>).total)}` : "- / -"}</span></div><div className="ssh-monitor-card"><h3>网络IO</h3><div className="ssh-monitor-table-head"><span>速度</span><span>已用流量</span></div><div className="ssh-monitor-table-row"><span className="up">↑ {detachedNetworkMetrics.up_rate !== undefined ? formatBytes(Number(detachedNetworkMetrics.up_rate)) : "-"}</span><span>{detachedNetworkMetrics.up_total !== undefined ? formatBytes(Number(detachedNetworkMetrics.up_total)) : "-"}</span></div><div className="ssh-monitor-table-row"><span className="down">↓ {detachedNetworkMetrics.down_rate !== undefined ? formatBytes(Number(detachedNetworkMetrics.down_rate)) : "-"}</span><span>{detachedNetworkMetrics.down_total !== undefined ? formatBytes(Number(detachedNetworkMetrics.down_total)) : "-"}</span></div></div><div className="ssh-monitor-card"><h3>磁盘IO</h3><div className="ssh-monitor-table-head ssh-disk-io-head"><span>读</span><span>写</span><span>延迟　iops</span></div><div className="ssh-monitor-table-row ssh-disk-io-row"><span>读：{detachedDiskIoMetrics.read !== undefined ? formatBytes(Number(detachedDiskIoMetrics.read)) : "-"}</span><span>写：{detachedDiskIoMetrics.write !== undefined ? formatBytes(Number(detachedDiskIoMetrics.write)) : "-"}</span><span>{String(detachedDiskIoMetrics.latency || 0)}ms　{String(detachedDiskIoMetrics.iops || 0)}</span></div></div></div></div></div>{sshError && <div className="error-list ssh-error">{sshError}</div>}</div> : <div className="terminal-stage-empty"><Terminal size={54} /><h1>选择一台服务器开始连接</h1><p>从左侧服务器列表打开 SSH 终端，连接后可在右侧直接浏览和管理远程文件。</p><button className="layui-btn layui-btn-normal" onClick={() => openManagedHostDialog()}><Plus size={16} />添加服务器</button></div>}
               </section>
             </div>
           </section>
@@ -4678,6 +4720,21 @@ function App() {
               <div className="asset-sync-account">账号：{syncAccount.account_name}</div>
               {syncResult && <div className={`asset-sync-result ${syncResultLevel}`} role="status" aria-atomic="true"><strong>{syncResultLevel === "has-errors" ? "获取失败" : syncResultLevel === "warning" ? "获取完成（含提示）" : "获取成功并已保存到本地"}</strong><span>共保存 {syncResult.fetched} 项资产</span><div className="asset-result-counts">{syncTypes.map((type) => <span key={type}>{assetTypes.find(([value]) => value === type)?.[1] || type}：{syncResult.counts[type] ?? 0} 个</span>)}</div>{showOracleDatabasePermissionHint && <div className="asset-sync-guidance"><AlertTriangle size={16} /><div><strong>云数据库未获取</strong><span>当前 OCI 密钥缺少数据库读取权限。请在 OCI IAM 为用户或所属组授予目标资源组的 <code>read database-family</code>，或配置更精细的 DB System 只读策略后重新获取。</span></div></div>}{syncResult.errors.length > 0 && <div className="asset-sync-errors">{syncResult.errors.map((error, index) => <div key={`${error}-${index}`}>{error}</div>)}</div>}</div>}
               <div className="modal-actions"><button className="secondary" onClick={() => { setSyncAccount(null); setSyncResult(null); }}>{syncResult ? "关闭" : "取消"}</button><button className="primary" disabled={syncing || syncTypes.length === 0} onClick={() => void syncAssets(syncAccount)}>{syncing ? "获取中…" : supportsResourceSync(syncAccount) ? (syncResult ? "重新获取" : "开始获取并保存") : "查看接入状态"}</button></div>
+            </section>
+          </div>
+        )}
+        {updatePrompt && (
+          <div className="modal-backdrop update-modal-backdrop" onClick={() => setUpdatePrompt(null)}>
+            <section className="modal update-modal" onClick={(event) => event.stopPropagation()}>
+              <div className="modal-head">
+                <div><span className="eyebrow">CLIENT UPDATE</span><h2>发现新版本 v{updatePrompt.version}</h2></div>
+                <button type="button" className="close" title="稍后处理" onClick={() => setUpdatePrompt(null)}><X size={20} /></button>
+              </div>
+              <div className="update-modal-body">
+                <p>当前版本 v{appVersion}，是否现在下载并安装新版本？</p>
+                <div className="update-modal-notes"><strong>更新内容</strong><p>{updatePrompt.notes || "本次更新暂无详细说明。"}</p></div>
+              </div>
+              <div className="modal-actions"><button type="button" className="secondary" onClick={() => skipUpdateVersion(updatePrompt.version)}>跳过此版本</button><button type="button" className="primary" onClick={() => { setUpdatePrompt(null); void installUpdate(); }}><Download size={15} />立即更新</button></div>
             </section>
           </div>
         )}
