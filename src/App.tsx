@@ -210,7 +210,6 @@ const assetTypes = catalogAssetTypes;
 
 const bundledVersion = "0.1.27";
 const isDevelopmentBuild = import.meta.env.DEV;
-const skippedUpdateVersionStorageKey = "cloudhub-skipped-update-version";
 
 type UpdateState =
   | { phase: "idle" }
@@ -234,6 +233,15 @@ function displayValue(value: unknown): string {
     return values.length ? values.map((v) => displayValue(v)).join(", ") : "-";
   }
   return String(value);
+}
+
+function normalizeUpdateNotes(notes?: string): string | undefined {
+  const value = notes?.trim();
+  if (!value) return undefined;
+  if (value.startsWith("Desktop builds for Windows, macOS, and Linux.")) {
+    return "本次版本提供 Windows、macOS 和 Linux 桌面版本。\nmacOS 下载包按处理器区分：Apple Silicon（M 系列）和 Intel。";
+  }
+  return value;
 }
 function firstAddress(value: unknown): string {
   if (Array.isArray(value)) return firstAddress(value[0]);
@@ -407,8 +415,6 @@ function App() {
   const [compactMode, setCompactMode] = useState(() => localStorage.getItem("aliyun-compact-mode") === "1");
   const [appVersion, setAppVersion] = useState(bundledVersion);
   const [updateState, setUpdateState] = useState<UpdateState>({ phase: "idle" });
-  const [updatePrompt, setUpdatePrompt] = useState<{ version: string; notes?: string } | null>(null);
-  const [skippedUpdateVersion, setSkippedUpdateVersion] = useState(() => localStorage.getItem(skippedUpdateVersionStorageKey) || "");
   const [logFilter, setLogFilter] = useState("");
   const [logTypeFilter, setLogTypeFilter] = useState("");
   const [resourceAccountId, setResourceAccountId] = useState<number | null>(null);
@@ -661,15 +667,7 @@ function App() {
       updateRef.current = update;
       if (previous && previous !== update) void previous.close();
       if (update) {
-        if (skippedUpdateVersion === update.version) {
-          updateRef.current = null;
-          void update.close();
-          setUpdateState({ phase: "idle" });
-          if (!quiet) setStatus(`已跳过版本 v${update.version}`);
-          return;
-        }
-        setUpdateState({ phase: "available", version: update.version, notes: update.body });
-        if (!quiet) setUpdatePrompt({ version: update.version, notes: update.body });
+        setUpdateState({ phase: "available", version: update.version, notes: normalizeUpdateNotes(update.body) });
         if (!quiet) setStatus(`已检查更新：当前 v${appVersion}，发现最新 v${update.version}`);
       } else {
         setUpdateState({ phase: "current" });
@@ -679,18 +677,6 @@ function App() {
       updateRef.current = null;
       setUpdateState(quiet ? { phase: "idle" } : { phase: "error", message: String(error) });
     }
-  }
-
-  function skipUpdateVersion(version: string) {
-    setSkippedUpdateVersion(version);
-    localStorage.setItem(skippedUpdateVersionStorageKey, version);
-    saveClientPreference(skippedUpdateVersionStorageKey, version);
-    setUpdatePrompt(null);
-    const update = updateRef.current;
-    updateRef.current = null;
-    if (update) void update.close();
-    setUpdateState({ phase: "idle" });
-    setStatus(`已跳过版本 v${version}`);
   }
 
   async function installUpdate() {
@@ -2386,7 +2372,6 @@ function App() {
       if (preferences[cloudHubManagedHostOrderStorageKey] !== undefined) setManagedHostOrder(stringListFromValue(preferences[cloudHubManagedHostOrderStorageKey]));
       if (preferences[cloudHubManagedHostGroupOrderStorageKey] !== undefined) setManagedHostGroupOrder(stringListFromValue(preferences[cloudHubManagedHostGroupOrderStorageKey]));
       if (preferences[cloudHubTerminalThemeStorageKey] !== undefined && preferences[cloudHubTerminalThemeStorageKey] in terminalThemes) setTerminalThemeName(preferences[cloudHubTerminalThemeStorageKey] as TerminalThemeName);
-      if (preferences[skippedUpdateVersionStorageKey] !== undefined) setSkippedUpdateVersion(preferences[skippedUpdateVersionStorageKey]);
       if (preferences["aliyun-auto-refresh"] !== undefined) setAutoRefresh(preferences["aliyun-auto-refresh"] !== "0");
       if (preferences["aliyun-compact-mode"] !== undefined) setCompactMode(preferences["aliyun-compact-mode"] === "1");
       if (preferences["aliyun-panel-hide-ip"] !== undefined) setHidePanelIps(preferences["aliyun-panel-hide-ip"] === "1");
@@ -2422,7 +2407,6 @@ function App() {
   useEffect(() => { const value = JSON.stringify(managedHostOrder); localStorage.setItem(cloudHubManagedHostOrderStorageKey, value); saveClientPreference(cloudHubManagedHostOrderStorageKey, value); }, [managedHostOrder, clientPreferencesReady]);
   useEffect(() => { const value = JSON.stringify(managedHostGroupOrder); localStorage.setItem(cloudHubManagedHostGroupOrderStorageKey, value); saveClientPreference(cloudHubManagedHostGroupOrderStorageKey, value); }, [managedHostGroupOrder, clientPreferencesReady]);
   useEffect(() => { localStorage.setItem(cloudHubTerminalThemeStorageKey, terminalThemeName); saveClientPreference(cloudHubTerminalThemeStorageKey, terminalThemeName); }, [terminalThemeName, clientPreferencesReady]);
-  useEffect(() => { localStorage.setItem(skippedUpdateVersionStorageKey, skippedUpdateVersion); saveClientPreference(skippedUpdateVersionStorageKey, skippedUpdateVersion); }, [skippedUpdateVersion, clientPreferencesReady]);
   useEffect(() => { const value = String(operationLogClearedAt); localStorage.setItem("aliyun-operation-log-cleared-at", value); saveClientPreference("aliyun-operation-log-cleared-at", value); }, [operationLogClearedAt, clientPreferencesReady]);
   useEffect(() => {
     setSelectedAccountIds((current) => {
@@ -4752,21 +4736,6 @@ function App() {
               <div className="asset-sync-account">账号：{syncAccount.account_name}</div>
               {syncResult && <div className={`asset-sync-result ${syncResultLevel}`} role="status" aria-atomic="true"><strong>{syncResultLevel === "has-errors" ? "获取失败" : syncResultLevel === "warning" ? "获取完成（含提示）" : "获取成功并已保存到本地"}</strong><span>共保存 {syncResult.fetched} 项资产</span><div className="asset-result-counts">{syncTypes.map((type) => <span key={type}>{assetTypes.find(([value]) => value === type)?.[1] || type}：{syncResult.counts[type] ?? 0} 个</span>)}</div>{showOracleDatabasePermissionHint && <div className="asset-sync-guidance"><AlertTriangle size={16} /><div><strong>云数据库未获取</strong><span>当前 OCI 密钥缺少数据库读取权限。请在 OCI IAM 为用户或所属组授予目标资源组的 <code>read database-family</code>，或配置更精细的 DB System 只读策略后重新获取。</span></div></div>}{syncResult.errors.length > 0 && <div className="asset-sync-errors">{syncResult.errors.map((error, index) => <div key={`${error}-${index}`}>{error}</div>)}</div>}</div>}
               <div className="modal-actions"><button className="secondary" onClick={() => { setSyncAccount(null); setSyncResult(null); }}>{syncResult ? "关闭" : "取消"}</button><button className="primary" disabled={syncing || syncTypes.length === 0} onClick={() => void syncAssets(syncAccount)}>{syncing ? "获取中…" : supportsResourceSync(syncAccount) ? (syncResult ? "重新获取" : "开始获取并保存") : "查看接入状态"}</button></div>
-            </section>
-          </div>
-        )}
-        {updatePrompt && (
-          <div className="modal-backdrop update-modal-backdrop" onClick={() => setUpdatePrompt(null)}>
-            <section className="modal update-modal" onClick={(event) => event.stopPropagation()}>
-              <div className="modal-head">
-                <div><span className="eyebrow">CLIENT UPDATE</span><h2>发现新版本 v{updatePrompt.version}</h2></div>
-                <button type="button" className="close" title="稍后处理" onClick={() => setUpdatePrompt(null)}><X size={20} /></button>
-              </div>
-              <div className="update-modal-body">
-                <p>当前版本 v{appVersion}，是否现在下载并安装新版本？</p>
-                <div className="update-modal-notes"><strong>更新内容</strong><p>{updatePrompt.notes || "本次更新暂无详细说明。"}</p></div>
-              </div>
-              <div className="modal-actions"><button type="button" className="secondary" onClick={() => skipUpdateVersion(updatePrompt.version)}>跳过此版本</button><button type="button" className="primary" onClick={() => { setUpdatePrompt(null); void installUpdate(); }}><Download size={15} />立即更新</button></div>
             </section>
           </div>
         )}
