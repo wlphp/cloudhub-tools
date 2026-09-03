@@ -208,7 +208,7 @@ function syncAssetTypes(account: Account): ReadonlyArray<(typeof assetTypes)[num
 }
 const assetTypes = catalogAssetTypes;
 
-const bundledVersion = "0.1.26";
+const bundledVersion = "0.1.27";
 const isDevelopmentBuild = import.meta.env.DEV;
 const skippedUpdateVersionStorageKey = "cloudhub-skipped-update-version";
 
