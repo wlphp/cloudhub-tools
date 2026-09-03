@@ -17,6 +17,10 @@ fn crypto_key() -> Result<[u8; 32], String> {
     Ok(key)
 }
 
+pub fn crypto_key_bytes() -> Result<Vec<u8>, String> {
+    Ok(crypto_key()?.to_vec())
+}
+
 pub fn encrypt_secret(secret: &str) -> Result<String, String> {
     let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&crypto_key()?));
     let mut nonce = [0u8; 12];

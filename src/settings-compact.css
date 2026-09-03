@@ -20,3 +20,10 @@ html,body,#root{height:100%;overflow:hidden}.app-shell{height:100vh;min-height:0
 .domain-tool-modal{max-height:calc(100vh - 32px)!important}
 .domain-tool-modal .domain-tool-body{max-height:calc(100vh - 132px)!important;overflow-y:auto!important;overflow-x:hidden!important}
 .resource-modal-backdrop.nested-resource-modal,.domain-tool-backdrop{z-index:100!important}
+.database-import-dialog{width:min(720px,calc(100vw - 36px));max-height:min(780px,calc(100vh - 36px));overflow:auto}
+.database-import-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:14px 0}
+.database-import-summary span{padding:9px;border:1px solid var(--jb-border,#444);border-radius:6px;background:var(--jb-surface-2,#252525);font-size:12px;color:var(--jb-muted,#aaa)}
+.database-import-summary b{display:block;color:var(--jb-text,#eee);font-size:18px}
+.database-import-details,.database-import-conflicts{max-height:180px;margin-top:12px;padding:10px 12px;border:1px solid var(--jb-border,#444);border-radius:6px;background:#202020;font-size:12px;line-height:1.7;color:#bdbdbd;overflow:auto;white-space:pre-wrap}
+.database-import-details strong,.database-import-conflicts strong{display:block;margin-bottom:5px;color:#e6e6e6}
+.database-import-conflicts{border-color:#8b6235;background:#30271f;color:#e0bc8f}
