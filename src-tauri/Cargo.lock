@@ -685,7 +685,7 @@ dependencies = [
 
 [[package]]
 name = "cloudhub-tools"
-version = "0.1.25"
+version = "0.1.26"
 dependencies = [
  "aes-gcm 0.10.3",
  "base64 0.22.1",
