@@ -2,6 +2,7 @@ import { type FormEvent, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Maximize2, Minimize2, RefreshCw, X } from "lucide-react";
 import { serversClient } from "../../platform/clients";
+import { platformErrorMessage } from "../../platform/api";
 import type { Account } from "../../shared/types";
 
 type SecurityGroup = { SecurityGroupId: string; SecurityGroupName: string; Description: string; VpcId: string; NicType: string };
@@ -39,7 +40,7 @@ export function SecurityGroupDialog({ account, regionId, instanceId, onClose, on
         { id: account.id, regionId, instanceId, securityGroupId: securityGroupId || null },
       );
       setGroups(result.groups || []); setSelectedSecurityGroupId(result.selectedSecurityGroupId || ""); setRules(result.rules || []); setSgVersion(result.sgVersion);
-    } catch (reason) { setGroups([]); setRules([]); setError(String(reason)); }
+    } catch (reason) { setGroups([]); setRules([]); setError(platformErrorMessage(reason)); }
     finally { setLoading(false); }
   }
   useEffect(() => { void loadSecurityGroups(""); }, []);
@@ -57,7 +58,7 @@ export function SecurityGroupDialog({ account, regionId, instanceId, onClose, on
       const payload = { id: account.id, regionId, securityGroupId: selectedGroup.SecurityGroupId, ipProtocol: protocol, portRange: normalizedPortRange, sourceCidrIp: normalizedCidr, description: description.trim() || null, nicType: selectedGroup.NicType || null, sgVersion: sgVersion ?? null };
       await serversClient.mutateSecurityGroup(isTencent ? "tencent" : isBaidu ? "baidu" : "aliyun", "authorize", payload);
       setPortRange(""); setDescription(""); onNotice(`已开放 ${protocol.toUpperCase()} ${normalizedPortRange}`); await loadSecurityGroups(selectedGroup.SecurityGroupId);
-    } catch (reason) { setError(String(reason)); } finally { setSubmitting(false); }
+    } catch (reason) { setError(platformErrorMessage(reason)); } finally { setSubmitting(false); }
   }
 
   async function revokeRule(rule: SecurityGroupRule) {
@@ -69,7 +70,7 @@ export function SecurityGroupDialog({ account, regionId, instanceId, onClose, on
       const payload = { id: account.id, regionId, securityGroupId: selectedGroup.SecurityGroupId, ipProtocol: String(rule.IpProtocol || ""), portRange: String(rule.PortRange || ""), sourceCidrIp: rule.SourceCidrIp, policy: String(rule.Policy || "accept"), priority: Number(rule.Priority || 1), nicType: rule.NicType || selectedGroup.NicType || null, securityGroupRuleId: rule.SecurityGroupRuleId || null, sgVersion: sgVersion ?? null };
       await serversClient.mutateSecurityGroup(isTencent ? "tencent" : isBaidu ? "baidu" : "aliyun", "revoke", payload);
       onNotice(`已关闭 ${label}`); await loadSecurityGroups(selectedGroup.SecurityGroupId);
-    } catch (reason) { setError(String(reason)); } finally { setSubmitting(false); }
+    } catch (reason) { setError(platformErrorMessage(reason)); } finally { setSubmitting(false); }
   }
 
   return createPortal(<div className="modal-backdrop security-group-backdrop">
@@ -104,7 +105,7 @@ export function LightFirewallDialog({ account, regionId, instanceId, onClose, on
     try {
       const result = await serversClient.listLightFirewall<LightFirewallResponse>({ id: account.id, regionId, instanceId });
       setRules(result.rules || []); setFirewallVersion(result.firewallVersion);
-    } catch (reason) { setRules([]); setError(String(reason)); }
+    } catch (reason) { setRules([]); setError(platformErrorMessage(reason)); }
     finally { setLoading(false); }
   }
   useEffect(() => { void loadRules(); }, []);
@@ -123,7 +124,7 @@ export function LightFirewallDialog({ account, regionId, instanceId, onClose, on
       const payload = { id: account.id, regionId, instanceId, ipProtocol: protocol, portRange: normalizedPortRange, sourceCidrIp: normalizedCidr, description: description.trim() || null, firewallVersion: firewallVersion ?? null };
       await serversClient.mutateLightFirewall("create", payload);
       setPortRange(""); setDescription(""); onNotice(`已开放 ${protocol.toUpperCase()} ${normalizedPortRange}`); await loadRules();
-    } catch (reason) { setError(String(reason)); } finally { setSubmitting(false); }
+    } catch (reason) { setError(platformErrorMessage(reason)); } finally { setSubmitting(false); }
   }
 
   async function deleteRule(rule: LightFirewallRule) {
@@ -134,7 +135,7 @@ export function LightFirewallDialog({ account, regionId, instanceId, onClose, on
       const payload = { id: account.id, regionId, instanceId, ruleId: rule.RuleId || null, firewallRule: rule.FirewallRule || null, firewallVersion: firewallVersion ?? null };
       await serversClient.mutateLightFirewall("delete", payload);
       onNotice(`已关闭 ${label}`); await loadRules();
-    } catch (reason) { setError(String(reason)); } finally { setSubmitting(false); }
+    } catch (reason) { setError(platformErrorMessage(reason)); } finally { setSubmitting(false); }
   }
 
   return createPortal(<div className="modal-backdrop security-group-backdrop">
@@ -164,7 +165,7 @@ export function VultrFirewallDialog({ account, firewallGroupId, onClose, onConfi
     try {
       const result = await serversClient.listVultrFirewall<VultrFirewallResponse>({ id: account.id, firewallGroupId });
       setRules(result.rules || []);
-    } catch (reason) { setRules([]); setError(String(reason)); }
+    } catch (reason) { setRules([]); setError(platformErrorMessage(reason)); }
     finally { setLoading(false); }
   }
   useEffect(() => { void loadRules(); }, [firewallGroupId]);
@@ -183,7 +184,7 @@ export function VultrFirewallDialog({ account, firewallGroupId, onClose, onConfi
       const payload = { id: account.id, firewallGroupId, ipProtocol: protocol, port: normalizedPort, sourceCidrIp: normalizedCidr, description: description.trim() || null };
       await serversClient.mutateVultrFirewall("create", payload);
       setPort(""); setDescription(""); onNotice(`已开放 ${protocol.toUpperCase()} ${normalizedPort}`); await loadRules();
-    } catch (reason) { setError(String(reason)); } finally { setSubmitting(false); }
+    } catch (reason) { setError(platformErrorMessage(reason)); } finally { setSubmitting(false); }
   }
 
   async function deleteRule(rule: VultrFirewallRule) {
@@ -195,7 +196,7 @@ export function VultrFirewallDialog({ account, firewallGroupId, onClose, onConfi
       const payload = { id: account.id, firewallGroupId, ruleId: rule.RuleId };
       await serversClient.mutateVultrFirewall("delete", payload);
       onNotice(`已关闭 ${label}`); await loadRules();
-    } catch (reason) { setError(String(reason)); } finally { setSubmitting(false); }
+    } catch (reason) { setError(platformErrorMessage(reason)); } finally { setSubmitting(false); }
   }
 
   return createPortal(<div className="modal-backdrop security-group-backdrop">

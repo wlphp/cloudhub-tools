@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Monitor, RefreshCw, ShieldCheck, Terminal } from "lucide-react";
 import { serversClient } from "../../platform/clients";
+import { platformErrorMessage } from "../../platform/api";
 import type { Account } from "../../shared/types";
 import { displayValue } from "../../shared/utils/display";
 import { LightFirewallDialog } from "./SecurityDialogs";
@@ -43,7 +44,7 @@ export function SwasCard({
       onNotice(`轻量服务器${label}指令已提交`);
       onRefresh();
     } catch (error) {
-      onNotice(`轻量服务器${label}失败：${String(error)}`);
+      onNotice(`轻量服务器${label}失败：${platformErrorMessage(error)}`);
     } finally {
       setSubmitting(null);
     }

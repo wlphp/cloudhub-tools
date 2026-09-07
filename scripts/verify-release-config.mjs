@@ -24,6 +24,7 @@ for (const command of [
   "npm run build",
   "npm run verify:platform-contracts",
   "npm run verify:rust-boundary",
+  "npm run verify:resource-contracts",
   "node scripts/verify-web-api-security.mjs",
   "node scripts/verify-web-api-logs.mjs",
   "npm run test:ui",

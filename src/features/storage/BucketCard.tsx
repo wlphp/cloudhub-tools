@@ -4,6 +4,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { runningInTauri } from "../../platform/api";
 import { storageClient } from "../../platform/clients";
+import { platformErrorMessage } from "../../platform/api";
 import type { OssDetail, OssObjectListing, OssUploadSelection } from "../../platform/clients/storage";
 import type { Account } from "../../shared/types";
 import { displayValue } from "../../shared/utils/display";
@@ -86,7 +87,7 @@ export function BucketCard({
     try {
       return await storageClient.detail(account.id, bucketName, location);
     } catch (error) {
-      return { storage: 0, objectCount: 0, multipartUploadCount: 0, liveChannelCount: 0, monthTraffic: 0, monthRequests: 0, acl: String(item.Acl || "private"), cnames: [], cors: [], errors: [`存储桶详情读取失败：${String(error)}`] };
+      return { storage: 0, objectCount: 0, multipartUploadCount: 0, liveChannelCount: 0, monthTraffic: 0, monthRequests: 0, acl: String(item.Acl || "private"), cnames: [], cors: [], errors: [`存储桶详情读取失败：${platformErrorMessage(error)}`] };
     }
   }
   async function loadDetail() {
@@ -103,7 +104,7 @@ export function BucketCard({
       if (value.errors.length) setError(value.errors.join("；"));
     } catch (reason) {
       setDetail(null);
-      setError(String(reason));
+      setError(platformErrorMessage(reason));
     } finally {
       setDetailLoading(false);
     }
@@ -133,7 +134,7 @@ export function BucketCard({
       setSelectedObjectKeys(new Set());
     } catch (reason) {
       setObjectListing(null);
-      setError(String(reason));
+      setError(platformErrorMessage(reason));
     } finally {
       setObjectsLoading(false);
     }
@@ -153,7 +154,7 @@ export function BucketCard({
           if (value.errors.length) setError(value.errors.join("；"));
         }
       } catch (reason) {
-        if (!cancelled) setError(String(reason));
+        if (!cancelled) setError(platformErrorMessage(reason));
       } finally {
         if (!cancelled) setDetailLoading(false);
       }
@@ -183,7 +184,7 @@ export function BucketCard({
       setNotice("已设置为公共读");
       await loadDetail();
     } catch (reason) {
-      setNotice(`设置失败：${String(reason)}`);
+      setNotice(`设置失败：${platformErrorMessage(reason)}`);
     }
   }
   async function setCors() {
@@ -193,7 +194,7 @@ export function BucketCard({
       await storageClient.cors(account.id, bucketName, location, origins);
       setNotice("CORS 配置已保存");
       await loadDetail();
-    } catch (reason) { setNotice(`CORS 设置失败：${String(reason)}`); }
+    } catch (reason) { setNotice(`CORS 设置失败：${platformErrorMessage(reason)}`); }
   }
   async function createCnameToken() {
     if (runningInTauri) { setNotice("桌面客户端暂未接入 OSS 自定义域名配置，请使用 Web API 模式操作"); return; }
@@ -202,7 +203,7 @@ export function BucketCard({
       const result = await storageClient.cnameToken(account.id, bucketName, location, cnameValue);
       setCnameToken(result);
       setNotice("验证 Token 已生成，请按弹窗提示配置 TXT 记录");
-    } catch (reason) { setNotice(`获取 Token 失败：${String(reason)}`); } finally { setCnameLoading(false); }
+    } catch (reason) { setNotice(`获取 Token 失败：${platformErrorMessage(reason)}`); } finally { setCnameLoading(false); }
   }
   async function bindCname() {
     if (runningInTauri) { setNotice("桌面客户端暂未接入 OSS 自定义域名配置，请使用 Web API 模式操作"); return; }
@@ -211,7 +212,7 @@ export function BucketCard({
       await storageClient.bindCname(account.id, bucketName, location, cnameValue);
       setNotice("域名已绑定，请按提示添加 CNAME 解析");
       await loadDetail();
-    } catch (reason) { setNotice(`绑定失败：${String(reason)}`); } finally { setCnameLoading(false); }
+    } catch (reason) { setNotice(`绑定失败：${platformErrorMessage(reason)}`); } finally { setCnameLoading(false); }
   }
   async function deleteCname(domain: string) {
     if (!(await onConfirm(`确定删除自定义域名【${domain}】吗？`))) return;
@@ -220,7 +221,7 @@ export function BucketCard({
       await storageClient.deleteCname(account.id, bucketName, location, domain);
       setNotice("自定义域名已删除");
       await loadDetail();
-    } catch (reason) { setNotice(`删除失败：${String(reason)}`); }
+    } catch (reason) { setNotice(`删除失败：${platformErrorMessage(reason)}`); }
   }
   const acl = detail?.acl || String(item.Acl || "private");
   const cnameHost = cnameValue.split(".").length > 2 ? cnameValue.split(".")[0] : "@";
@@ -288,7 +289,7 @@ export function BucketCard({
         await loadObjects("files", objectPrefix);
       } else setObjectTransferMessage("已取消上传");
     } catch (reason) {
-      setError(`上传失败：${String(reason)}`);
+      setError(`上传失败：${platformErrorMessage(reason)}`);
       setObjectTransferMessage("上传未完成，请根据错误提示重试");
     } finally { setObjectTransfer(null); }
   }
@@ -308,7 +309,7 @@ export function BucketCard({
       setObjectTransferMessage(uploaded ? `已上传 ${uploaded} 个文件` : "已取消上传");
       if (uploaded) await loadObjects("files", objectPrefix);
     } catch (reason) {
-      setError(`拖拽上传失败：${String(reason)}`);
+      setError(`拖拽上传失败：${platformErrorMessage(reason)}`);
       setObjectTransferMessage("部分文件可能未完成，请根据错误提示重试");
     } finally { setObjectTransfer(null); }
   }
@@ -340,7 +341,7 @@ export function BucketCard({
       const target = await storageClient.download(account.id, bucketName, location, object.Key);
       setObjectTransferMessage(target ? `下载完成：${target}` : "已取消下载");
     } catch (reason) {
-      setError(`下载失败：${String(reason)}`);
+      setError(`下载失败：${platformErrorMessage(reason)}`);
       setObjectTransferMessage("下载未完成，请根据错误提示重试");
     } finally {
       setObjectTransfer(null);
@@ -357,7 +358,7 @@ export function BucketCard({
       if (!url) return;
       await openUrl(url);
       setObjectTransferMessage(`已打开在线查看：${object.name}`);
-    } catch (reason) { setError(`在线查看失败：${String(reason)}`); }
+    } catch (reason) { setError(`在线查看失败：${platformErrorMessage(reason)}`); }
   }
   async function copyObjectUrl(object: OssObject & { name: string }) {
     try {
@@ -366,7 +367,7 @@ export function BucketCard({
       if (!url) return;
       await navigator.clipboard.writeText(url);
       setObjectTransferMessage(`URL 已复制：${object.name}`);
-    } catch (reason) { setError(`复制 URL 失败：${String(reason)}`); }
+    } catch (reason) { setError(`复制 URL 失败：${platformErrorMessage(reason)}`); }
   }
   async function downloadSelectedObjects() {
     if (!selectedFileKeys.length || objectTransfer) return;
@@ -380,7 +381,7 @@ export function BucketCard({
       const targets = await storageClient.downloadMany(account.id, bucketName, location, selectedFileKeys);
       setObjectTransferMessage(targets ? `已下载 ${targets.length} 个文件` : "已取消批量下载");
     } catch (reason) {
-      setError(`批量下载失败：${String(reason)}`);
+      setError(`批量下载失败：${platformErrorMessage(reason)}`);
       setObjectTransferMessage("批量下载未完成，请根据错误提示重试");
     } finally { setObjectTransfer(null); }
   }

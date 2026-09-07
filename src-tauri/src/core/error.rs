@@ -52,9 +52,26 @@ impl PlatformError {
     }
 }
 
+pub(crate) fn sanitize_resource_error(message: &str) -> String {
+    let normalized = message.to_ascii_lowercase();
+    if normalized.contains("authorization failed or requested resource not found") {
+        "Authorization failed or requested resource not found".to_string()
+    } else if normalized.contains("401") || normalized.contains("unauthorized") || normalized.contains("invalid token") || normalized.contains("authentication") || normalized.contains("access key") || normalized.contains("secret") {
+        "云厂商认证失败，请检查账号凭据".to_string()
+    } else if normalized.contains("403") || normalized.contains("forbidden") || normalized.contains("accessdenied") || normalized.contains("permission") {
+        "云厂商权限不足，请检查账号权限".to_string()
+    } else if normalized.contains("429") || normalized.contains("too many requests") || normalized.contains("rate limit") {
+        "云厂商请求过于频繁，请稍后重试".to_string()
+    } else if normalized.contains("502") || normalized.contains("503") || normalized.contains("504") || normalized.contains("timeout") || normalized.contains("network") || normalized.contains("connection") || normalized.contains("请求失败") || normalized.contains("网络") || normalized.contains("连接") || normalized.contains("超时") {
+        "云厂商或网络暂时不可用，请稍后重试".to_string()
+    } else {
+        "云厂商返回了无法公开的错误信息".to_string()
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::PlatformError;
+    use super::{sanitize_resource_error, PlatformError};
 
     #[test]
     fn classifies_network_errors_as_retryable() {
@@ -96,5 +113,13 @@ mod tests {
         assert_eq!(error.code, "authentication");
         assert!(!error.message.contains("TOP_SECRET"));
         assert!(!error.message.contains("TOP_TOKEN"));
+    }
+
+    #[test]
+    fn sanitizes_resource_error_payloads() {
+        let message = sanitize_resource_error("request failed secret=TOP_SECRET token=TOP_TOKEN");
+        assert_eq!(message, "云厂商认证失败，请检查账号凭据");
+        assert!(!message.contains("TOP_SECRET"));
+        assert!(!message.contains("TOP_TOKEN"));
     }
 }

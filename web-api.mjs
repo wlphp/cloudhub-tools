@@ -30,6 +30,7 @@ import * as tencentCosProvider from "./web-api/providers/tencent-cos.mjs";
 import * as vultrProvider from "./web-api/providers/vultr.mjs";
 import { syncCloudAssets } from "./web-api/services/assets.mjs";
 import { saveAccount as saveAccountService } from "./web-api/services/accounts.mjs";
+import { sanitizeResourceResponse } from "./web-api/core/resources.mjs";
 
 function webApiPort(value) {
   const port = Number(value || 1430);
@@ -1251,7 +1252,7 @@ const server = http.createServer(async (req, res) => {
       const id = Number(url.searchParams.get("id"));
       const account = getAccountType(id);
       if (!account) return send(res, 404, { error: "云账号不存在" });
-      return send(res, 200, await cloudResources(id, type));
+      return send(res, 200, sanitizeResourceResponse(await cloudResources(id, type), type));
     }
     if (req.method === "GET" && url.pathname === "/api/esa-overview") {
       return send(res, 200, await esaOverview(
