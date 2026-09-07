@@ -18,7 +18,7 @@ jobs:
         include:
           - name: Windows x64
             platform: windows-2022
-            args: --target x86_64-pc-windows-msvc --bundles nsis
+            args: --target x86_64-pc-windows-msvc --bundles nsis,msi
           - name: macOS Intel
             platform: macos-15-intel
             args: --target x86_64-apple-darwin --bundles app,dmg
@@ -62,6 +62,33 @@ jobs:
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
 
+      - name: Verify updater signing secret
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo "TAURI_SIGNING_PRIVATE_KEY is required for signed updater artifacts."
+            exit 1
+          fi
+
+      - name: Run pre-release checks
+        shell: bash
+        run: |
+          npx playwright install chromium
+          npm run verify:release-config
+          npm run build
+          npm run verify:platform-contracts
+          npm run verify:rust-boundary
+          node scripts/verify-web-api-security.mjs
+          node scripts/verify-web-api-logs.mjs
+          npm run test:ui
+          node scripts/verify-format-panel.mjs
+          node scripts/verify-resources-pure.mjs
+          node --check web-api.mjs
+          cargo check --manifest-path src-tauri/Cargo.toml
+          cargo test --manifest-path src-tauri/Cargo.toml
+
       - name: Build and upload release assets
         uses: tauri-apps/tauri-action@v1
         env:
@@ -87,3 +114,7 @@ jobs:
           updaterJsonPreferNsis: true
           uploadUpdaterSignatures: true
           args: ${{ matrix.args }}
+
+      - name: Audit Windows bundle artifacts
+        if: runner.os == 'Windows'
+        run: npm run verify:bundle-artifacts -- --platform windows

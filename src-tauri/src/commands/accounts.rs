@@ -3,12 +3,13 @@ use crate::{
     ExportAccount, ImportAccount,
 };
 use crate::core::repositories::accounts as account_repository;
+use crate::core::error::PlatformResult;
 use chrono::Utc;
 use serde_json::Value;
 use std::path::PathBuf;
 
 #[tauri::command]
-pub(crate) fn export_accounts(account_ids: Option<Vec<i64>>) -> Result<Vec<ExportAccount>, String> {
+pub(crate) fn export_accounts(account_ids: Option<Vec<i64>>) -> PlatformResult<Vec<ExportAccount>> {
     let conn = open_db()?;
     let selected_ids = account_ids.filter(|ids| !ids.is_empty());
     let rows = account_repository::export_records(&conn, selected_ids.as_deref())?;
@@ -20,7 +21,7 @@ pub(crate) fn export_accounts(account_ids: Option<Vec<i64>>) -> Result<Vec<Expor
 }
 
 #[tauri::command]
-pub(crate) fn export_accounts_file(account_ids: Option<Vec<i64>>) -> Result<String, String> {
+pub(crate) fn export_accounts_file(account_ids: Option<Vec<i64>>) -> PlatformResult<String> {
     let accounts = export_accounts(account_ids)?;
     let filename = format!("cloudhub-tools-accounts-{}.json", Utc::now().format("%Y%m%d-%H%M%S"));
     let base = dirs::home_dir().unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
@@ -43,12 +44,12 @@ pub(crate) fn export_accounts_file(account_ids: Option<Vec<i64>>) -> Result<Stri
 }
 
 #[tauri::command]
-pub(crate) fn import_accounts(accounts: Vec<ImportAccount>) -> Result<usize, String> {
+pub(crate) fn import_accounts(accounts: Vec<ImportAccount>) -> PlatformResult<usize> {
     if accounts.is_empty() { return Err("导入文件中没有云账号".into()); }
     let mut imported = 0usize;
     for (index, account) in accounts.into_iter().enumerate() {
         if account.account_name.trim().is_empty() || account.access_key_id.trim().is_empty() || account.access_key_secret.trim().is_empty() {
-            return Err(format!("第 {} 条账号缺少账号名称、AccessKey ID 或 AccessKey Secret", index + 1));
+            return Err(format!("第 {} 条账号缺少账号名称、AccessKey ID 或 AccessKey Secret", index + 1).into());
         }
         let conn = open_db()?;
         let existing_id = account_repository::id_by_access_key(&conn, &account.access_key_id)?;
@@ -71,14 +72,14 @@ pub(crate) fn import_accounts(accounts: Vec<ImportAccount>) -> Result<usize, Str
 }
 
 #[tauri::command]
-pub(crate) fn list_accounts(keyword: Option<String>) -> Result<Vec<CloudAccount>, String> {
+pub(crate) fn list_accounts(keyword: Option<String>) -> PlatformResult<Vec<CloudAccount>> {
     let conn = open_db()?;
     let value = keyword.unwrap_or_default().trim().to_string();
-    account_repository::list(&conn, &value)
+    account_repository::list(&conn, &value).map_err(Into::into)
 }
 
 #[tauri::command]
-pub(crate) fn save_account(mut input: AccountInput) -> Result<CloudAccount, String> {
+pub(crate) fn save_account(mut input: AccountInput) -> PlatformResult<CloudAccount> {
     if input.account_name.trim().is_empty() || input.access_key_id.trim().is_empty() { return Err("账号名称和 AccessKey ID 不能为空".into()); }
     let conn = open_db()?; let now = Utc::now().timestamp_millis();
     if input.cloud_type == "oracle" {
@@ -96,8 +97,15 @@ pub(crate) fn save_account(mut input: AccountInput) -> Result<CloudAccount, Stri
     }
     let old_secret = input.id.map(|id| account_repository::secret_ciphertext(&conn, id)).transpose()?.flatten();
     let secret = match input.access_key_secret.as_ref().filter(|v| !v.trim().is_empty()) { Some(value) => encrypt_secret(value)?, None => old_secret.ok_or_else(|| "首次添加必须填写 AccessKey Secret".to_string())? };
-    account_repository::save(&conn, &input, &secret, now)
+    account_repository::save(&conn, &input, &secret, now).map_err(Into::into)
 }
 
 #[tauri::command]
-pub(crate) fn delete_account(id: i64) -> Result<(), String> { account_repository::delete(&open_db()?, id) }
+pub(crate) fn delete_account(id: i64) -> PlatformResult<()> { account_repository::delete(&open_db()?, id).map_err(Into::into) }
+
+#[tauri::command]
+pub(crate) fn reveal_account_secret(id: i64) -> PlatformResult<String> {
+    let conn = open_db()?;
+    let ciphertext = account_repository::secret_ciphertext(&conn, id)?.ok_or("读取账号 Secret 失败")?;
+    Ok(decrypt_secret(&ciphertext)?)
+}

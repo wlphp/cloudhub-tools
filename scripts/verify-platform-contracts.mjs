@@ -33,7 +33,7 @@ function declaresHttpRoute(source, method, routePath) {
 
 const contract = JSON.parse(await readFile(path.join(root, "contracts/platform-clients.json"), "utf8"));
 assert.equal(contract.version, 1);
-assert.deepEqual(contract.domains.map((domain) => domain.name), ["accounts", "resources", "servers"]);
+assert.deepEqual(contract.domains.map((domain) => domain.name), ["accounts", "resources", "servers", "logs", "preferences", "domains", "storage", "remote", "app"]);
 
 const clientSource = await joinedSource(await filesUnder(path.join(root, "src/platform/clients"), ".ts"));
 const rustSource = await joinedSource(await filesUnder(path.join(root, "src-tauri/src"), ".rs"));
@@ -47,6 +47,8 @@ const nodeSource = [
 ].join("\n");
 const componentFiles = [
   path.join(root, "src/App.tsx"),
+  ...await filesUnder(path.join(root, "src/features/domains"), ".tsx"),
+  ...await filesUnder(path.join(root, "src/features/storage"), ".tsx"),
   ...await filesUnder(path.join(root, "src/features/resources"), ".tsx"),
   ...await filesUnder(path.join(root, "src/features/servers"), ".tsx"),
 ];

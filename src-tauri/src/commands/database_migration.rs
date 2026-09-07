@@ -1,5 +1,6 @@
 use crate::core::storage::{data_dir, open_db};
 use crate::core::crypto::crypto_key_bytes;
+use crate::core::error::PlatformResult;
 use chrono::Utc;
 use rusqlite::Connection;
 use serde::Serialize;
@@ -133,7 +134,7 @@ fn build_preview(database_path: &Path, current_db: &Path, token: String, package
 }
 
 #[tauri::command]
-pub(crate) fn export_database_file(app: tauri::AppHandle) -> Result<Option<String>, String> {
+pub(crate) fn export_database_file(app: tauri::AppHandle) -> PlatformResult<Option<String>> {
     let data = data_dir()?;
     let key = crypto_key_bytes()?;
     let snapshot = data.join(format!(".cloudhub-export-{}.sqlite3", Uuid::new_v4()));
@@ -166,7 +167,7 @@ pub(crate) fn export_database_file(app: tauri::AppHandle) -> Result<Option<Strin
 }
 
 #[tauri::command]
-pub(crate) fn import_database_file(app: tauri::AppHandle) -> Result<Option<String>, String> {
+pub(crate) fn import_database_file(app: tauri::AppHandle) -> PlatformResult<Option<String>> {
     let Some(selected) = app.dialog().file().blocking_pick_file() else { return Ok(None) };
     let package_path = selected.into_path().map_err(|_| "当前平台返回了不支持的导入路径".to_string())?;
     let package = fs::read(&package_path).map_err(|error| format!("读取迁移包失败: {error}"))?;
@@ -211,7 +212,7 @@ pub(crate) fn import_database_file(app: tauri::AppHandle) -> Result<Option<Strin
         Ok(format!("已导入数据库，并保留导入前备份：{}", backup_db.to_string_lossy()))
     })();
     let _ = fs::remove_file(&import_db);
-    result.map(Some)
+    Ok(result.map(Some)?)
 }
 
 fn replace_prepared_database(import_db: &Path, key: &[u8]) -> Result<String, String> {
@@ -241,7 +242,7 @@ fn replace_prepared_database(import_db: &Path, key: &[u8]) -> Result<String, Str
 }
 
 #[tauri::command]
-pub(crate) fn prepare_database_import(app: tauri::AppHandle, state: tauri::State<'_, DatabaseImportStore>) -> Result<Option<ImportPreview>, String> {
+pub(crate) fn prepare_database_import(app: tauri::AppHandle, state: tauri::State<'_, DatabaseImportStore>) -> PlatformResult<Option<ImportPreview>> {
     let Some(selected) = app.dialog().file().blocking_pick_file() else { return Ok(None) };
     let package_path = selected.into_path().map_err(|_| "当前平台返回了不支持的导入路径".to_string())?;
     let (database, key, manifest) = parse_package(&package_path)?;
@@ -257,15 +258,15 @@ pub(crate) fn prepare_database_import(app: tauri::AppHandle, state: tauri::State
 }
 
 #[tauri::command]
-pub(crate) fn confirm_database_import(state: tauri::State<'_, DatabaseImportStore>, token: String) -> Result<String, String> {
+pub(crate) fn confirm_database_import(state: tauri::State<'_, DatabaseImportStore>, token: String) -> PlatformResult<String> {
     let prepared = state.sessions.lock().map_err(|_| "导入预览状态不可用".to_string())?.remove(&token).ok_or_else(|| "导入预览已失效，请重新选择文件".to_string())?;
     let result = replace_prepared_database(&prepared.database_path, &prepared.key);
     let _ = fs::remove_file(&prepared.database_path);
-    result
+    Ok(result?)
 }
 
 #[tauri::command]
-pub(crate) fn cancel_database_import(state: tauri::State<'_, DatabaseImportStore>, token: String) -> Result<(), String> {
+pub(crate) fn cancel_database_import(state: tauri::State<'_, DatabaseImportStore>, token: String) -> PlatformResult<()> {
     let prepared = state.sessions.lock().map_err(|_| "导入预览状态不可用".to_string())?.remove(&token).ok_or_else(|| "导入预览已失效".to_string())?;
-    fs::remove_file(&prepared.database_path).map_err(|error| format!("清理导入预览失败: {error}"))
+    Ok(fs::remove_file(&prepared.database_path).map_err(|error| format!("清理导入预览失败: {error}"))?)
 }

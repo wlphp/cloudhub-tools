@@ -2,7 +2,9 @@ import { useEffect, useState } from "react";
 import { ArrowUp, CheckSquare, Copy, Download, Eye, File, Folder, Home, Link2, Maximize2, Minimize2, RefreshCw, Search, Square, Upload, X } from "lucide-react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { invoke, runningInTauri, webApi } from "../../platform/api";
+import { runningInTauri } from "../../platform/api";
+import { storageClient } from "../../platform/clients";
+import type { OssDetail, OssObjectListing, OssUploadSelection } from "../../platform/clients/storage";
 import type { Account } from "../../shared/types";
 import { displayValue } from "../../shared/utils/display";
 import { cloudProvider } from "../cloud/catalog";
@@ -28,37 +30,11 @@ function isViewableObject(name: string): boolean {
   return /\.(avif|bmp|gif|jpe?g|png|svg|webp|html?|pdf|txt|csv|json|xml|md|mp3|m4a|ogg|wav|mp4|webm|mov)$/i.test(name);
 }
 
-type OssDetail = {
-  storage: number;
-  objectCount: number;
-  multipartUploadCount: number;
-  liveChannelCount: number;
-  monthTraffic: number;
-  monthRequests: number;
-  acl: string;
-  cnames: { Domain: string; Status?: string }[];
-  cors: { origin: string[]; method: string[]; header: string[] }[];
-  errors: string[];
-};
-
 type OssObject = {
   Key: string;
   LastModified: string;
   ETag: string;
   Size: string;
-};
-
-type OssObjectListing = {
-  objects: OssObject[];
-  prefixes: string[];
-  isTruncated: boolean;
-  nextMarker: string;
-};
-
-type OssUploadSelection = {
-  token: string;
-  name: string;
-  size: number;
 };
 
 export function BucketCard({
@@ -107,10 +83,8 @@ export function BucketCard({
   const intranetEndpoint = String(item.IntranetEndpoint || (bucketName && location && !isTencent && !isVolcengine && !isCtyun && !isHuawei && !isBaidu ? `${bucketName}.${location}-internal.aliyuncs.com` : "-"));
   const storageClassNames: Record<string, string> = { Standard: "标准存储", IA: "低频访问", Archive: "归档存储", ColdArchive: "冷归档存储", DeepColdArchive: "深度冷归档" };
   async function fetchDetail() {
-    if (!runningInTauri) return webApi<OssDetail>(`/api/oss-detail?id=${account.id}&bucket=${encodeURIComponent(bucketName)}&location=${encodeURIComponent(location)}`);
     try {
-      const acl = await invoke<string>("get_oss_acl", { id: account.id, bucket: bucketName, location });
-      return { storage: 0, objectCount: 0, multipartUploadCount: 0, liveChannelCount: 0, monthTraffic: 0, monthRequests: 0, acl, cnames: [], cors: [], errors: [] };
+      return await storageClient.detail(account.id, bucketName, location);
     } catch (error) {
       return { storage: 0, objectCount: 0, multipartUploadCount: 0, liveChannelCount: 0, monthTraffic: 0, monthRequests: 0, acl: String(item.Acl || "private"), cnames: [], cors: [], errors: [`存储桶详情读取失败：${String(error)}`] };
     }
@@ -148,11 +122,7 @@ export function BucketCard({
     setObjectDialog("files");
     try {
       setError("");
-      const listing = runningInTauri
-        ? await invoke<OssObjectListing>("list_oss_objects", { id: account.id, bucket: bucketName, location, prefix, marker })
-        : await webApi<OssObjectListing>(
-            `/api/oss-objects?id=${account.id}&bucket=${encodeURIComponent(bucketName)}&location=${encodeURIComponent(location)}&prefix=${encodeURIComponent(prefix)}&marker=${encodeURIComponent(marker)}`,
-          );
+      const listing = await storageClient.objects(account.id, bucketName, location, prefix, marker);
       setObjectListing(marker && objectListing ? {
         ...listing,
         objects: [...objectListing.objects, ...listing.objects],
@@ -209,8 +179,7 @@ export function BucketCard({
   async function setPublicRead() {
     if (!(await onConfirm(`确定要将存储桶【${bucketName}】设置为公共读吗？\n公共读权限允许任何人读取存储桶中的文件。`))) return;
     try {
-      if (runningInTauri) await invoke("set_oss_public_read", { id: account.id, bucket: bucketName, location });
-      else await webApi(`/api/oss-public-read?id=${account.id}&bucket=${encodeURIComponent(bucketName)}&location=${encodeURIComponent(location)}`, { method: "POST" });
+      await storageClient.publicRead(account.id, bucketName, location);
       setNotice("已设置为公共读");
       await loadDetail();
     } catch (reason) {
@@ -221,8 +190,7 @@ export function BucketCard({
     const origins = await onPrompt("允许来源（输入 * 表示允许所有来源）", "*");
     if (origins === null) return;
     try {
-      if (runningInTauri) await invoke("set_oss_cors", { id: account.id, bucket: bucketName, location, origins });
-      else await webApi(`/api/oss-cors?id=${account.id}&bucket=${encodeURIComponent(bucketName)}&location=${encodeURIComponent(location)}&origins=${encodeURIComponent(origins)}`, { method: "POST" });
+      await storageClient.cors(account.id, bucketName, location, origins);
       setNotice("CORS 配置已保存");
       await loadDetail();
     } catch (reason) { setNotice(`CORS 设置失败：${String(reason)}`); }
@@ -231,7 +199,7 @@ export function BucketCard({
     if (runningInTauri) { setNotice("桌面客户端暂未接入 OSS 自定义域名配置，请使用 Web API 模式操作"); return; }
     setCnameLoading(true);
     try {
-      const result = await webApi<Record<string, string>>(`/api/oss-cname-token?id=${account.id}&bucket=${encodeURIComponent(bucketName)}&location=${encodeURIComponent(location)}&domain=${encodeURIComponent(cnameValue)}`, { method: "POST" });
+      const result = await storageClient.cnameToken(account.id, bucketName, location, cnameValue);
       setCnameToken(result);
       setNotice("验证 Token 已生成，请按弹窗提示配置 TXT 记录");
     } catch (reason) { setNotice(`获取 Token 失败：${String(reason)}`); } finally { setCnameLoading(false); }
@@ -240,7 +208,7 @@ export function BucketCard({
     if (runningInTauri) { setNotice("桌面客户端暂未接入 OSS 自定义域名配置，请使用 Web API 模式操作"); return; }
     setCnameLoading(true);
     try {
-      await webApi(`/api/oss-cname?id=${account.id}&bucket=${encodeURIComponent(bucketName)}&location=${encodeURIComponent(location)}&domain=${encodeURIComponent(cnameValue)}`, { method: "POST" });
+      await storageClient.bindCname(account.id, bucketName, location, cnameValue);
       setNotice("域名已绑定，请按提示添加 CNAME 解析");
       await loadDetail();
     } catch (reason) { setNotice(`绑定失败：${String(reason)}`); } finally { setCnameLoading(false); }
@@ -249,7 +217,7 @@ export function BucketCard({
     if (!(await onConfirm(`确定删除自定义域名【${domain}】吗？`))) return;
     if (runningInTauri) { setNotice("桌面客户端暂未接入 OSS 自定义域名配置，请使用 Web API 模式操作"); return; }
     try {
-      await webApi(`/api/oss-cname?id=${account.id}&bucket=${encodeURIComponent(bucketName)}&location=${encodeURIComponent(location)}&domain=${encodeURIComponent(domain)}`, { method: "DELETE" });
+      await storageClient.deleteCname(account.id, bucketName, location, domain);
       setNotice("自定义域名已删除");
       await loadDetail();
     } catch (reason) { setNotice(`删除失败：${String(reason)}`); }
@@ -298,12 +266,12 @@ export function BucketCard({
     const exists = objectListing?.objects.some((object) => object.Key === objectKey) ?? false;
     const overwrite = exists ? await onConfirm(`对象【${objectKey}】已经存在。\n继续上传将覆盖原文件，确定继续吗？`) : false;
     if (exists && !overwrite) {
-      await invoke("discard_oss_upload_selection", { selectionToken: selection.token });
+      await storageClient.discardUpload(selection.token);
       return false;
     }
     setObjectTransfer({ kind: "upload", key: objectKey });
     setObjectTransferMessage(`正在上传 ${selection.name}（${formatBytes(selection.size)}）…`);
-    await invoke("upload_oss_object", { id: account.id, bucket: bucketName, location, objectKey, selectionToken: selection.token, overwrite });
+    await storageClient.upload(account.id, bucketName, location, objectKey, selection.token, overwrite);
     return true;
   }
   async function uploadObject() {
@@ -313,7 +281,7 @@ export function BucketCard({
       setError("");
       setObjectTransfer({ kind: "upload", key: "" });
       setObjectTransferMessage("请选择要上传的本机文件…");
-      const selection = await invoke<OssUploadSelection | null>("select_oss_upload_file", {});
+      const selection = await storageClient.selectUploadFile();
       if (!selection) { setObjectTransferMessage("已取消上传"); return; }
       if (await uploadSelection(selection)) {
         setObjectTransferMessage(`已上传到 oss://${bucketName}/${objectPrefix}${selection.name}`);
@@ -334,7 +302,7 @@ export function BucketCard({
       setError("");
       let uploaded = 0;
       for (const sourcePath of uniquePaths) {
-        const selection = await invoke<OssUploadSelection>("stage_oss_upload_file", { sourcePath });
+        const selection = await storageClient.stageUploadFile(sourcePath);
         if (await uploadSelection(selection)) uploaded += 1;
       }
       setObjectTransferMessage(uploaded ? `已上传 ${uploaded} 个文件` : "已取消上传");
@@ -369,7 +337,7 @@ export function BucketCard({
     setObjectTransferMessage(`请选择 ${object.name} 的下载位置…`);
     setError("");
     try {
-      const target = await invoke<string | null>("download_oss_object", { id: account.id, bucket: bucketName, location, objectKey: object.Key });
+      const target = await storageClient.download(account.id, bucketName, location, object.Key);
       setObjectTransferMessage(target ? `下载完成：${target}` : "已取消下载");
     } catch (reason) {
       setError(`下载失败：${String(reason)}`);
@@ -380,7 +348,7 @@ export function BucketCard({
   }
   async function getObjectUrl(object: OssObject & { name: string }) {
     if (!supportsObjectTransfer || !runningInTauri) { setObjectTransferMessage("在线查看和 URL 复制仅支持桌面客户端的阿里云 OSS"); return null; }
-    return invoke<string>("get_oss_object_url", { id: account.id, bucket: bucketName, location, objectKey: object.Key });
+    return storageClient.objectUrl(account.id, bucketName, location, object.Key);
   }
   async function viewObject(object: OssObject & { name: string }) {
     try {
@@ -409,7 +377,7 @@ export function BucketCard({
     setObjectTransferMessage(`正在准备下载 ${selectedFileKeys.length} 个文件，请选择保存目录…`);
     setError("");
     try {
-      const targets = await invoke<string[] | null>("download_oss_objects", { id: account.id, bucket: bucketName, location, objectKeys: selectedFileKeys });
+      const targets = await storageClient.downloadMany(account.id, bucketName, location, selectedFileKeys);
       setObjectTransferMessage(targets ? `已下载 ${targets.length} 个文件` : "已取消批量下载");
     } catch (reason) {
       setError(`批量下载失败：${String(reason)}`);

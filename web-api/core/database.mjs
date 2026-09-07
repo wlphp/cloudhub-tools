@@ -1,5 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { dbPath, ensureDataDir } from "./paths.mjs";
+import { pruneLogs, serializeLogValue } from "./logging.mjs";
 
 let sharedDatabase;
 
@@ -23,13 +24,16 @@ export function database() {
     id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER, action TEXT NOT NULL,
     result TEXT NOT NULL, message TEXT, created_at INTEGER NOT NULL
   )`);
+  db.exec("CREATE INDEX IF NOT EXISTS idx_api_logs_created_at ON api_logs(created_at DESC)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_operation_logs_created_at ON operation_logs(created_at DESC)");
   sharedDatabase = db;
   return sharedDatabase;
 }
 
 export function writeApiLog(accountId, endpoint, action, request, response, status, message = null) {
   database().prepare("INSERT INTO api_logs(account_id,endpoint,action,request_params,response_params,status,message,created_at) VALUES(?,?,?,?,?,?,?,?)")
-    .run(accountId, endpoint, action, JSON.stringify(request || {}), response == null ? null : JSON.stringify(response), status, message, Date.now());
+    .run(accountId, endpoint, action, serializeLogValue(request), response == null ? null : serializeLogValue(response), status, message, Date.now());
+  pruneLogs(database());
 }
 
 process.once("exit", () => {

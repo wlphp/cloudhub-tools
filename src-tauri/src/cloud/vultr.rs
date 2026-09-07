@@ -60,7 +60,6 @@ pub(crate) async fn vultr_mutation(id: i64, method: reqwest::Method, path: Strin
     Ok(data)
 }
 
-#[tauri::command]
 pub(crate) async fn vultr_instance_action(id: i64, instance_id: String, action: String) -> Result<Value, String> {
     if instance_id.trim().is_empty() { return Err("缺少 Vultr 实例 ID".into()); }
     let endpoint = match action.as_str() {
@@ -97,7 +96,6 @@ pub(crate) async fn vultr_instance_action(id: i64, instance_id: String, action: 
     Ok(data)
 }
 
-#[tauri::command]
 pub(crate) async fn vultr_instance_manage(id: i64, instance_id: String, action: String, value: Option<String>) -> Result<Value, String> {
     if instance_id.trim().is_empty() { return Err("缺少 Vultr 实例 ID".into()); }
     if account_cloud_type(id)? != "vultr" { return Err("当前账号不是 Vultr 账号".into()); }
@@ -180,7 +178,6 @@ pub(crate) fn vultr_firewall_rules(data: &Value) -> Vec<Value> {
     }).collect()
 }
 
-#[tauri::command]
 pub async fn list_vultr_firewall_rules(id: i64, firewall_group_id: String) -> Result<Value, String> {
     let firewall_group_id = firewall_group_id.trim();
     if firewall_group_id.is_empty() { return Err("缺少 Vultr 防火墙组 ID".into()); }
@@ -188,7 +185,6 @@ pub async fn list_vultr_firewall_rules(id: i64, firewall_group_id: String) -> Re
     Ok(json!({"rules": vultr_firewall_rules(&data)}))
 }
 
-#[tauri::command]
 pub async fn create_vultr_firewall_rule(id: i64, firewall_group_id: String, ip_protocol: String, port: String, source_cidr_ip: String, description: Option<String>) -> Result<Value, String> {
     let firewall_group_id = firewall_group_id.trim();
     if firewall_group_id.is_empty() { return Err("缺少 Vultr 防火墙组 ID".into()); }
@@ -196,7 +192,6 @@ pub async fn create_vultr_firewall_rule(id: i64, firewall_group_id: String, ip_p
     vultr_mutation(id, reqwest::Method::POST, format!("firewalls/{firewall_group_id}/rules"), payload).await
 }
 
-#[tauri::command]
 pub async fn delete_vultr_firewall_rule(id: i64, firewall_group_id: String, rule_id: String) -> Result<Value, String> {
     let firewall_group_id = firewall_group_id.trim();
     let rule_id = rule_id.trim();
@@ -345,7 +340,6 @@ pub(crate) async fn vultr_resource_items(id: i64, resource_type: &str) -> Resour
     }
 }
 
-#[tauri::command]
 pub async fn verify_vultr_account(id: i64) -> Result<Value, String> {
     let account = vultr_request(id, "account", &BTreeMap::new()).await?;
     let regions = vultr_pages(id, "regions", "regions").await?;

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Maximize2, Minimize2, RefreshCw, X } from "lucide-react";
 import { resourcesClient } from "../../platform/clients";
+import { platformErrorMessage } from "../../platform/api";
 import type { Account } from "../../shared/types";
 import { displayValue } from "../../shared/utils/display";
 
@@ -43,7 +44,7 @@ export function RdsCard({
       setMode(kind);
     } catch (error) {
       if (kind === "accounts") {
-        setAccountError(error instanceof Error ? error.message : "获取账号失败");
+        setAccountError(platformErrorMessage(error, "获取账号失败"));
       }
       setMode(kind);
     } finally {

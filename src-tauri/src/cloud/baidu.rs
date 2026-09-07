@@ -59,7 +59,6 @@ pub(crate) async fn resource_items(id: i64, resource_type: &str) -> ResourceResp
     ResourceResponse { resource_type: resource_type.into(), items, errors, fetched_at: now }
 }
 
-#[tauri::command]
 pub(crate) async fn verify_baidu_account(id: i64) -> Result<Value, String> { verify_account(id).await }
 
 pub(crate) async fn verify_account(id: i64) -> Result<Value, String> { let regions = regions(id)?; let first = regions.first().cloned().unwrap_or_else(|| "bj".into()); pages(id, &format!("bcc.{first}.baidubce.com"), "/v2/instance", &["instances", "instanceList"]).await?; Ok(json!({"provider":"baidu","verified":true,"region_count":regions.len(),"regions":regions,"default_region":first})) }
