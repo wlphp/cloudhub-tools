@@ -1,5 +1,6 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
+import { platformErrorMessage } from "../../platform/api";
 
 export type DnsRecordInput = {
   type: string;
@@ -57,11 +58,11 @@ export function DnsEditorDialog({ mode, row, preset, onCancel, onSubmit }: DnsEd
     try {
       await onSubmit({ type, rr: rr.trim(), value: normalizedValue, ttl, priority, line });
     } catch (error) {
-      const message = String(error);
-      setErrMsg(message);
-      if (/SignatureDoesNotMatch|signature is not matched/i.test(message)) {
+      const rawMessage = String(error);
+      setErrMsg(platformErrorMessage(error));
+      if (/SignatureDoesNotMatch|signature is not matched/i.test(rawMessage)) {
         setErrHint("请求签名校验失败。请确认本地 Web API 已重启并使用最新代码后再试。");
-      } else if (/Forbidden|AccessDenied|NoPermission/i.test(message)) {
+      } else if (/Forbidden|AccessDenied|NoPermission/i.test(rawMessage)) {
         setErrHint("当前 AccessKey 缺少 DNS 写权限。请在 RAM 中授予 AliyunDNSFullAccess，或至少授予对应的 alidns 写入权限。");
       }
     } finally {

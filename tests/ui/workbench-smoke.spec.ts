@@ -103,7 +103,7 @@ test("renders DNS and OSS tools from sanitized local-asset fixtures", async ({ p
   }));
 
   await page.goto("/");
-  await page.locator("button:visible").filter({ hasText: "资产" }).last().click();
+  await page.getByRole("button", { name: "资产管理" }).click();
   await expect(page.getByText("example.test", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("fixture-bucket", { exact: true }).first()).toBeVisible();
 

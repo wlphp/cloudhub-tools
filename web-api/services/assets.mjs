@@ -1,3 +1,5 @@
+import { safeProviderError, stableAssetKey } from "../core/resources.mjs";
+
 export async function syncCloudAssets(id, resourceTypes, { database, cloudResources }) {
   const account = database().prepare("SELECT cloud_type,enabled FROM cloud_accounts WHERE id=?").get(id);
   if (!account) throw new Error("云账号不存在");
@@ -13,10 +15,10 @@ export async function syncCloudAssets(id, resourceTypes, { database, cloudResour
   for (const type of types) {
     try {
       const response = await cloudResources(id, type);
-      errors.push(...(response.errors || []).map((error) => `${type}: ${error}`));
+      errors.push(...(response.errors || []).map((error) => `${type}: ${safeProviderError(error)}`));
       rows.push({ type, items: response.items || [], fetchedAt: Date.now() });
     } catch (error) {
-      errors.push(`${type}: ${error.message}`);
+      errors.push(`${type}: ${safeProviderError(error)}`);
       rows.push({ type, items: [], fetchedAt: Date.now() });
     }
   }
@@ -30,9 +32,8 @@ export async function syncCloudAssets(id, resourceTypes, { database, cloudResour
     for (const row of rows) {
       remove.run(id, row.type);
       counts[row.type] = row.items.length;
-      for (let index = 0; index < row.items.length; index += 1) {
-        const item = row.items[index];
-        const key = String(item.InstanceId || item.DBInstanceId || item.KVStoreInstanceId || item.AssetId || item.SiteId || item.DomainName || item.Name || item.BucketName || item.id || `${row.type}-${index}`);
+      for (const item of row.items) {
+        const key = stableAssetKey(row.type, item);
         insert.run(id, row.type, key, item._region_id || item.RegionId || null, JSON.stringify(item), row.fetchedAt);
         fetched += 1;
       }

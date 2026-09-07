@@ -19,6 +19,7 @@
     "verify:rust-boundary": "node scripts/verify-rust-command-boundary.mjs",
     "verify:release-config": "node scripts/verify-release-config.mjs",
     "verify:bundle-artifacts": "node scripts/verify-bundle-artifacts.mjs",
+    "verify:resource-contracts": "node scripts/verify-resource-contracts.mjs",
     "test:ui": "playwright test",
     "build": "tsc && vite build",
     "bundle:mac": "tauri build --target universal-apple-darwin",

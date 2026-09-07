@@ -1,6 +1,6 @@
 use crate::{account_cloud_type, account_credentials, asset_key, fetch_resource_with_retry, AssetSyncProgress, AssetSyncResult, AssetSyncStore, ResourceResponse};
 use crate::core::repositories::assets as asset_repository;
-use crate::core::error::PlatformResult;
+use crate::core::error::{sanitize_resource_error, PlatformResult};
 use serde_json::Value;
 use tauri::Emitter;
 use chrono::Utc;
@@ -66,7 +66,7 @@ async fn fetch_cloud_resource(
 #[tauri::command]
 pub(crate) async fn list_cloud_resources(id: i64, resource_type: String) -> PlatformResult<ResourceResponse> {
     let (access_key_id, access_key_secret) = account_credentials(id)?;
-    Ok(match account_cloud_type(id)?.as_str() {
+    let mut response = match account_cloud_type(id)?.as_str() {
         "aliyun" => crate::cloud::aliyun::resource_items(&resource_type, &access_key_id, &access_key_secret).await,
         "tencent" => crate::cloud::tencent::resource_items(id, &resource_type, &access_key_id, &access_key_secret).await,
         "volcengine" => crate::cloud::volc::resource_items(id, &resource_type, &access_key_id, &access_key_secret).await,
@@ -84,7 +84,9 @@ pub(crate) async fn list_cloud_resources(id: i64, resource_type: String) -> Plat
         "oracle" => crate::cloud::oracle::resource_items(id, &resource_type).await,
         "vultr" => crate::cloud::vultr::vultr_resource_items(id, &resource_type).await,
         _ => return Err("当前云类型资源 API 尚未接入".into()),
-    })
+    };
+    response.errors = response.errors.iter().map(|error| sanitize_resource_error(error)).collect();
+    Ok(response)
 }
 
 #[tauri::command]
@@ -115,7 +117,8 @@ pub(crate) async fn sync_cloud_assets(app: tauri::AppHandle, state: tauri::State
         while pending.len() >= MAX_CONCURRENT_RESOURCE_FETCHES {
             let result = pending.join_next().await.ok_or_else(|| "同步任务状态不可用".to_string())?
                 .map_err(|_| "同步任务状态不可用".to_string())??;
-            let (resource_type, response) = result;
+            let (resource_type, mut response) = result;
+            response.errors = response.errors.iter().map(|error| sanitize_resource_error(error)).collect();
             let completed = rows.len() + 1;
             if !response.errors.is_empty() { errors.extend(response.errors.clone().into_iter().map(|error| format!("{resource_type}: {error}"))); }
             let _ = app.emit("asset-sync-progress", AssetSyncProgress { account_id: id, completed, total, resource_type: resource_type.clone(), status: if response.errors.is_empty() { "completed" } else { "failed" }.into(), elapsed_ms: started_at.elapsed().as_millis() });
@@ -124,7 +127,8 @@ pub(crate) async fn sync_cloud_assets(app: tauri::AppHandle, state: tauri::State
         pending.spawn(fetch_cloud_resource(id, cloud_type.clone(), resource_type, access_key_id.clone(), access_key_secret.clone(), cancelled_accounts.clone()));
     }
     while let Some(result) = pending.join_next().await {
-        let (resource_type, response) = result.map_err(|_| "同步任务状态不可用".to_string())??;
+        let (resource_type, mut response) = result.map_err(|_| "同步任务状态不可用".to_string())??;
+        response.errors = response.errors.iter().map(|error| sanitize_resource_error(error)).collect();
         let completed = rows.len() + 1;
         if !response.errors.is_empty() { errors.extend(response.errors.clone().into_iter().map(|error| format!("{resource_type}: {error}"))); }
         let _ = app.emit("asset-sync-progress", AssetSyncProgress { account_id: id, completed, total, resource_type: resource_type.clone(), status: if response.errors.is_empty() { "completed" } else { "failed" }.into(), elapsed_ms: started_at.elapsed().as_millis() });

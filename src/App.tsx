@@ -9,16 +9,30 @@ import {
   formatEsaTime,
   columnLabel,
 } from "./shared/utils/format";
+import { displayValue, firstAddress, formatAssetDate, formatChineseDateTime, formatJson, remotePlatformFromPayload } from "./shared/utils/display";
 import { panelAddress, hiddenPanelAddress, panelCpuInfo, panelMemoryInfo, panelDiskInfo, panelDiskItems, panelNetworkInfo, panelLoadText } from "./features/panels/panelMetrics";
 import { resourceColumns } from "./features/resources/pure";
-import { fetchCachedResources, fetchCachedSummary } from "./features/resources/cache";
+import { fetchCachedSummary } from "./features/resources/cache";
+import { ResourceErrorList } from "./features/resources/ResourceErrorList";
+import { useAppUpdates } from "./features/app/useAppUpdates";
+import { useResourceWorkspace } from "./features/resources/useResourceWorkspace";
+import { accountGroups, filterAccounts } from "./features/accounts/pure";
+import {
+  cloudHubAssetDisplayNamesStorageKey,
+  cloudHubAssetNotesStorageKey,
+  cloudHubAssetOrderStorageKey,
+  cloudHubFavoriteAssetOrderStorageKey,
+  cloudHubFavoriteAssetsStorageKey,
+  cloudHubManagedHostGroupOrderStorageKey,
+  cloudHubManagedHostOrderStorageKey,
+  cloudHubTerminalThemeStorageKey,
+  terminalThemes,
+  type TerminalThemeName,
+} from "./features/app/constants";
 import { FormEvent, PointerEvent, Suspense, lazy, type CSSProperties, type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { getVersion } from "@tauri-apps/api/app";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
-import { relaunch } from "@tauri-apps/plugin-process";
-import { check, type Update } from "@tauri-apps/plugin-updater";
 import type { Terminal as XtermTerminal } from "@xterm/xterm";
 import {
   ArrowUp,
@@ -69,15 +83,6 @@ import {
   Keyboard,
   Palette,
 } from "lucide-react";
-import "./App.css";
-import "./summary.css";
-import "./server.css";
-import "./domain.css";
-import "./domain-tools.css";
-import "./local-assets.css";
-import "./settings-compact.css";
-import "./terminal-workbench.css";
-import "./ide-theme.css";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { runningInTauri } from "./platform/api";
@@ -120,7 +125,6 @@ import type {
   PanelConnection,
   PanelConnectionDraft,
   PromptRequest,
-  ResourceResponse,
   SshAuthMethod,
   SshFileEntry,
   SshTarget,
@@ -128,40 +132,6 @@ import type {
   View,
 } from "./shared/types";
 
-
-const cloudHubFavoriteAssetsStorageKey = "cloudhub-tools-favorite-assets";
-const cloudHubFavoriteAssetOrderStorageKey = "cloudhub-tools-favorite-asset-order";
-const cloudHubAssetNotesStorageKey = "cloudhub-tools-asset-notes";
-const cloudHubAssetOrderStorageKey = "cloudhub-tools-asset-order";
-const cloudHubAssetDisplayNamesStorageKey = "cloudhub-tools-asset-display-names";
-const cloudHubManagedHostOrderStorageKey = "cloudhub-tools-managed-host-order";
-const cloudHubManagedHostGroupOrderStorageKey = "cloudhub-tools-managed-host-group-order";
-const cloudHubTerminalThemeStorageKey = "cloudhub-tools-terminal-theme";
-
-const terminalThemes = {
-  dark: {
-    label: "深色",
-    background: "#000000", foreground: "#f5f5f5", cursor: "#f5f5f5", selectionBackground: "#295b91",
-    black: "#000000", brightBlack: "#8a8a8a", red: "#ff6b6b", brightRed: "#ff8b8b", green: "#61d095", brightGreen: "#7ff0b0", yellow: "#f6d365", brightYellow: "#ffe38c", blue: "#70b7ff", brightBlue: "#9dceff", magenta: "#d29cff", brightMagenta: "#e5bfff", cyan: "#66d9ef", brightCyan: "#9beaff", white: "#e6e6e6", brightWhite: "#ffffff",
-  },
-  blue: {
-    label: "蓝墨",
-    background: "#071523", foreground: "#dceeff", cursor: "#7fc8ff", selectionBackground: "#22527d",
-    black: "#071523", brightBlack: "#607d98", red: "#ff7788", brightRed: "#ff9dab", green: "#69dca5", brightGreen: "#9befc2", yellow: "#f4cf72", brightYellow: "#ffe39c", blue: "#6ab6ff", brightBlue: "#9ad2ff", magenta: "#d4a5ff", brightMagenta: "#e8c7ff", cyan: "#65d7e8", brightCyan: "#a7f0f7", white: "#c6dceb", brightWhite: "#ffffff",
-  },
-  green: {
-    label: "松绿",
-    background: "#081914", foreground: "#d5f2df", cursor: "#7ce6a4", selectionBackground: "#1e5741",
-    black: "#081914", brightBlack: "#668b7b", red: "#f07878", brightRed: "#ffaaaa", green: "#5fd492", brightGreen: "#8df1bb", yellow: "#e8c96a", brightYellow: "#ffe596", blue: "#68bfff", brightBlue: "#9bd5ff", magenta: "#d1a7ff", brightMagenta: "#e4c6ff", cyan: "#65d8c5", brightCyan: "#a4f4e5", white: "#cce4d5", brightWhite: "#ffffff",
-  },
-  amber: {
-    label: "暖琥珀",
-    background: "#1a1208", foreground: "#f8ead2", cursor: "#ffd080", selectionBackground: "#65451a",
-    black: "#1a1208", brightBlack: "#927957", red: "#ef7e72", brightRed: "#ffafa2", green: "#9ed27d", brightGreen: "#c6ef9e", yellow: "#f2c35f", brightYellow: "#ffe19a", blue: "#79b7ed", brightBlue: "#a9d5ff", magenta: "#d6a2ed", brightMagenta: "#eac5fb", cyan: "#6ed3c7", brightCyan: "#aaf0e6", white: "#e7d4b5", brightWhite: "#fff7e9",
-  },
-} as const;
-
-type TerminalThemeName = keyof typeof terminalThemes;
 
 const empty = emptyAccountDraft;
 const emptyManagedHost = emptyManagedHostDraft;
@@ -207,81 +177,6 @@ const assetTypes = catalogAssetTypes;
 const bundledVersion = "0.1.28";
 const isDevelopmentBuild = import.meta.env.DEV;
 
-type UpdateState =
-  | { phase: "idle" }
-  | { phase: "checking" }
-  | { phase: "available"; version: string; notes?: string }
-  | { phase: "downloading"; version: string; downloaded: number; total?: number }
-  | { phase: "ready"; version: string }
-  | { phase: "current" }
-  | { phase: "error"; message: string };
-
-function displayValue(value: unknown): string {
-  if (value === null || value === undefined || value === "") return "-";
-  if (Array.isArray(value))
-    return value.length
-      ? value.map((item) => displayValue(item)).join("、")
-      : "-";
-  if (typeof value === "object") {
-    const obj = value as Record<string, unknown>;
-    if ("IpAddress" in obj) return displayValue(obj.IpAddress);
-    const values = Object.values(obj).filter((v) => v !== null && v !== undefined && v !== "");
-    return values.length ? values.map((v) => displayValue(v)).join(", ") : "-";
-  }
-  return String(value);
-}
-
-function normalizeUpdateNotes(notes?: string): string | undefined {
-  const value = notes?.trim();
-  if (!value) return undefined;
-  if (value.startsWith("Desktop builds for Windows, macOS, and Linux.")) {
-    return "本次版本提供 Windows、macOS 和 Linux 桌面版本。\nmacOS 下载包按处理器区分：Apple Silicon（M 系列）和 Intel。";
-  }
-  return value;
-}
-function firstAddress(value: unknown): string {
-  if (Array.isArray(value)) return firstAddress(value[0]);
-  if (value && typeof value === "object") {
-    const record = value as Record<string, unknown>;
-    return firstAddress(record.IpAddress || record.Address || Object.values(record)[0]);
-  }
-  return String(value || "").trim();
-}
-function remotePlatformFromPayload(payload: Record<string, unknown>): "linux" | "windows" {
-  const system = [payload.OSName, payload.OSType, payload.ImageName, payload.ImageId, payload.Platform, payload.SystemType]
-    .map((value) => displayValue(value))
-    .join(" ");
-  return /windows|win(?:dows)?\s*(?:server)?/i.test(system) ? "windows" : "linux";
-}
-function formatJson(value: string | null | undefined): string {
-  if (!value) return "-";
-  try { return JSON.stringify(JSON.parse(value), null, 2); } catch { return value; }
-}
-function parseDateValue(value: unknown): Date {
-  if (typeof value === "number") {
-    const milliseconds = value < 100000000000 ? value * 1000 : value;
-    return new Date(milliseconds);
-  }
-  const text = String(value).trim();
-  if (/^\d+(\.\d+)?$/.test(text)) {
-    const numeric = Number(text);
-    return new Date(numeric < 100000000000 ? numeric * 1000 : numeric);
-  }
-  return new Date(text);
-}
-function formatAssetDate(value: unknown): string {
-  if (!value) return "未获取";
-  const date = parseDateValue(value);
-  if (Number.isNaN(date.getTime())) return String(value);
-  return date.toLocaleString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" });
-}
-function formatChineseDateTime(value: unknown): string {
-  if (!value) return "-";
-  const date = parseDateValue(value);
-  if (Number.isNaN(date.getTime())) return String(value);
-  const pad = (part: number) => String(part).padStart(2, "0");
-  return `${date.getFullYear()}年${pad(date.getMonth() + 1)}月${pad(date.getDate())}日 ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
-}
 const detachedTerminalHostId = (() => {
   const value = Number(new URLSearchParams(window.location.search).get("detachedTerminalHostId"));
   return Number.isInteger(value) && value > 0 ? value : null;
@@ -310,7 +205,7 @@ function App() {
     kind: "files" | "stat";
   } | null>(null);
   const [summary, setSummary] = useState<Record<string, unknown> | null>(null);
-  const [resources, setResources] = useState<ResourceResponse | null>(null);
+  const { resources, setResources, loadCachedResources } = useResourceWorkspace();
   const [loading, setLoading] = useState(false);
   const [moreId, setMoreId] = useState<number | null>(null);
   const [morePosition, setMorePosition] = useState<{ top: number; left: number } | null>(null);
@@ -409,8 +304,7 @@ function App() {
   const [operationLogClearedAt, setOperationLogClearedAt] = useState(() => Number(localStorage.getItem("aliyun-operation-log-cleared-at") || "0"));
   const [autoRefresh, setAutoRefresh] = useState(() => localStorage.getItem("aliyun-auto-refresh") !== "0");
   const [compactMode, setCompactMode] = useState(() => localStorage.getItem("aliyun-compact-mode") === "1");
-  const [appVersion, setAppVersion] = useState(bundledVersion);
-  const [updateState, setUpdateState] = useState<UpdateState>({ phase: "idle" });
+  const { appVersion, updateState, checkForUpdates, installUpdate } = useAppUpdates(bundledVersion, setStatus);
   const [logFilter, setLogFilter] = useState("");
   const [logTypeFilter, setLogTypeFilter] = useState("");
   const [resourceAccountId, setResourceAccountId] = useState<number | null>(null);
@@ -493,7 +387,6 @@ function App() {
   const terminalTabSuppressClickRef = useRef<string | null>(null);
   const sshUploadInputRef = useRef<HTMLInputElement | null>(null);
   const sshWorkspaceRef = useRef<HTMLDivElement | null>(null);
-  const updateRef = useRef<Update | null>(null);
 
   function requestConfirm(message: string) {
     return new Promise<boolean>((resolve) => setConfirmRequest({ message, resolve }));
@@ -650,56 +543,6 @@ function App() {
     const remaining = 320 - (Date.now() - startedAt);
     if (remaining > 0)
       await new Promise<void>((resolve) => window.setTimeout(resolve, remaining));
-  }
-
-  async function checkForUpdates(quiet = false) {
-    if (!runningInTauri) {
-      setUpdateState({ phase: "idle" });
-      return;
-    }
-    setUpdateState({ phase: "checking" });
-    try {
-      const update = await check();
-      const previous = updateRef.current;
-      updateRef.current = update;
-      if (previous && previous !== update) void previous.close();
-      if (update) {
-        setUpdateState({ phase: "available", version: update.version, notes: normalizeUpdateNotes(update.body) });
-        if (!quiet) setStatus(`已检查更新：当前 v${appVersion}，发现最新 v${update.version}`);
-      } else {
-        setUpdateState({ phase: "current" });
-        if (!quiet) setStatus(`已检查更新：当前 v${appVersion}，最新版本也是 v${appVersion}`);
-      }
-    } catch (error) {
-      updateRef.current = null;
-      setUpdateState(quiet ? { phase: "idle" } : { phase: "error", message: String(error) });
-    }
-  }
-
-  async function installUpdate() {
-    const update = updateRef.current;
-    if (!update) {
-      await checkForUpdates();
-      return;
-    }
-    let downloaded = 0;
-    let total: number | undefined;
-    setUpdateState({ phase: "downloading", version: update.version, downloaded, total });
-    try {
-      await update.downloadAndInstall((event) => {
-        if (event.event === "Started") {
-          total = event.data.contentLength;
-        } else if (event.event === "Progress") {
-          downloaded += event.data.chunkLength;
-        }
-        setUpdateState({ phase: "downloading", version: update.version, downloaded, total });
-      });
-      updateRef.current = null;
-      setUpdateState({ phase: "ready", version: update.version });
-      await relaunch();
-    } catch (error) {
-      setUpdateState({ phase: "error", message: `安装更新失败：${String(error)}` });
-    }
   }
 
   async function loadLocalAssets() {
@@ -1928,10 +1771,6 @@ function App() {
   const syncResultLevel = syncResult?.errors.length ? (syncResult.fetched > 0 ? "warning" : "has-errors") : "success";
   const showOracleDatabasePermissionHint = syncAccount?.cloud_type === "oracle" && Boolean(syncResult?.errors.some((error) => /rds:.*Authorization failed or requested resource not found/i.test(error)));
 
-    async function cachedResourceResponse(account: Account, view: Exclude<View, "summary">) {
-    return fetchCachedResources(account, view);
-  }
-
   async function cachedSummary(account: Account) {
     const result = await fetchCachedSummary(account);
     return result as unknown as Record<string, unknown>;
@@ -1962,7 +1801,7 @@ function App() {
     setResources(null);
     setLoading(true);
     try {
-      setResources(await cachedResourceResponse(account, view));
+      setResources(await loadCachedResources(account, view));
       setStatus(`${account.account_name} · ${labels[view]}（本地缓存）`);
     } catch (error) {
       setStatus(`读取本地缓存失败：${String(error)}`);
@@ -1998,7 +1837,7 @@ function App() {
     setLoading(true);
     try {
       const result = await resourcesClient.sync(account.id, [view]);
-      setResources(await cachedResourceResponse(account, view));
+      setResources(await loadCachedResources(account, view));
       setActive({ account, view, source: "live" });
       await loadLocalAssets();
       await loadApiLogs();
@@ -2021,7 +1860,7 @@ function App() {
     try {
       const syncResult = await resourcesClient.sync(account.id, ["esa"]);
       const overview = await resourcesClient.esaOverview(account.id, esaRange, esaSelectedSiteId || undefined);
-      setResources(await cachedResourceResponse(account, "esa"));
+      setResources(await loadCachedResources(account, "esa"));
       setEsaOverview(overview);
       setActive({ account, view: "esa", source: "live" });
       await loadLocalAssets();
@@ -2234,15 +2073,6 @@ function App() {
     void loadManagedHosts();
     void loadPanelConnections();
     void loadApiLogs();
-    if (runningInTauri) {
-      void getVersion().then(setAppVersion).catch(() => {});
-    }
-    void checkForUpdates(true);
-    return () => {
-      const update = updateRef.current;
-      updateRef.current = null;
-      if (update) void update.close();
-    };
   }, []);
   useEffect(() => {
     setSyncProgress(null);
@@ -2475,23 +2305,7 @@ function App() {
     [resources],
   );
   const visibleAccounts = useMemo(
-    () =>
-      accounts.filter((account) => {
-        const source =
-          filterField === "account_name"
-            ? account.account_name
-            : account.access_key_id;
-        const matchesKeyword =
-          !keyword.trim() ||
-          source.toLowerCase().includes(keyword.trim().toLowerCase());
-        const matchesGroup =
-          !groupFilter || (account.group_name || "") === groupFilter;
-        const matchesStatus =
-          statusFilter === "all" ||
-          (statusFilter === "1" ? account.enabled : !account.enabled);
-        const matchesCloud = !cloudFilter || account.cloud_type === cloudFilter;
-        return matchesKeyword && matchesGroup && matchesStatus && matchesCloud;
-      }),
+    () => filterAccounts(accounts, { keyword, field: filterField, group: groupFilter, status: statusFilter, cloudType: cloudFilter }),
     [accounts, keyword, filterField, groupFilter, statusFilter, cloudFilter],
   );
   const pagedAccounts = visibleAccounts.slice((accountPage - 1) * pageSize, accountPage * pageSize);
@@ -2513,17 +2327,7 @@ function App() {
       return next;
     });
   }
-  const groups = useMemo(
-    () =>
-      Array.from(
-        new Set(
-          accounts
-            .map((account) => account.group_name)
-            .filter(Boolean) as string[],
-        ),
-      ),
-    [accounts],
-  );
+  const groups = useMemo(() => accountGroups(accounts), [accounts]);
   const serverRegions = useMemo(() => {
     const regions = new Map<
       string,
@@ -2753,13 +2557,7 @@ function App() {
           </strong>
         </span>
       </div>
-      {(resources?.errors?.length ?? 0) > 0 && (
-        <div className="error-list">
-          {resources?.errors.map((error) => (
-            <div key={error}>部分地域读取失败：{error}</div>
-          ))}
-        </div>
-      )}
+      <ResourceErrorList errors={resources?.errors || []} regionLabel="部分地域读取失败" />
       {(resources?.items || []).length === 0 ? (
         <div className="detail-empty">
           <Cloud size={36} />
@@ -4269,13 +4067,7 @@ function App() {
                 domainPanel
               ) : (
                 <div>
-                  {(resources?.errors?.length ?? 0) > 0 && (
-                    <div className="error-list">
-                      {resources?.errors.map((error) => (
-                        <div key={error}>部分区域读取失败：{error}</div>
-                      ))}
-                    </div>
-                  )}
+                  <ResourceErrorList errors={resources?.errors || []} regionLabel="部分区域读取失败" />
                   {resources?.items?.length ? (
                     <div className="resource-table-wrap">
                       <table>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Copy, MoreHorizontal, RefreshCw, ShieldCheck, Terminal } from "lucide-react";
 import { serversClient } from "../../platform/clients";
+import { platformErrorMessage } from "../../platform/api";
 import type { Account, LocalAsset } from "../../shared/types";
 import { displayValue } from "../../shared/utils/display";
 import { cloudProvider } from "../cloud/catalog";
@@ -132,7 +133,7 @@ export function ServerCard({
       }
       onNotice(`服务器${label}指令已提交`);
       onStatus();
-    } catch (error) { onNotice(`服务器${label}失败：${String(error)}`); }
+    } catch (error) { onNotice(`服务器${label}失败：${platformErrorMessage(error)}`); }
   }
   async function reboot(forceReboot: boolean) {
     if (!(await onConfirm(`确认${forceReboot ? "强制" : "正常"}重启服务器“${String(item.InstanceName || item.InstanceId || "")}”？`))) return;
@@ -152,7 +153,7 @@ export function ServerCard({
       }
       onNotice("服务器重启指令已提交");
       onStatus();
-    } catch (error) { onNotice(`服务器重启失败：${String(error)}`); }
+    } catch (error) { onNotice(`服务器重启失败：${platformErrorMessage(error)}`); }
     finally { setRebooting(false); }
   }
   async function manageVultr(action: "snapshot" | "label" | "tags" | "enable_backups" | "disable_backups" | "enable_ddos" | "disable_ddos" | "enable_ipv6" | "firewall") {
@@ -191,7 +192,7 @@ export function ServerCard({
       await serversClient.vultrManage(payload);
       onNotice(`${labels[action]}指令已提交`);
       onStatus();
-    } catch (error) { onNotice(`${labels[action]}失败：${String(error)}`); }
+    } catch (error) { onNotice(`${labels[action]}失败：${platformErrorMessage(error)}`); }
     finally { setVultrManaging(false); }
   }
   return (
