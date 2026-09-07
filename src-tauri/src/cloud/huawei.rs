@@ -71,7 +71,7 @@ async fn obs_buckets(id: i64, region: &str) -> Result<Vec<Value>, String> {
     let body = response.text().await.map_err(|error| error.to_string())?;
     if !status.is_success() {
         let message = format!("OBS {status}: {}", { let value = xml_text(&body, "Message"); if value.is_empty() { xml_text(&body, "Code") } else { value } });
-        crate::write_api_log(&access_key_id, &host, "ListBuckets", &json!({}), Some(&json!({"body": body})), "失败", Some(&message));
+        crate::write_api_log(&access_key_id, &host, "ListBuckets", &json!({}), Some(&json!({"http_status": status.as_u16(), "response_bytes": body.len()})), "失败", Some(&message));
         return Err(message);
     }
     let buckets = xml_blocks(&body, "Bucket").into_iter().map(|bucket| {

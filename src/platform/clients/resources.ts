@@ -1,5 +1,5 @@
 import type { EsaOverview, LocalAsset } from "../../shared/types";
-import { invokeOrWeb, jsonRequest, queryPath } from "./base";
+import { invokeOrWeb, jsonRequest, nativeOnly, queryPath } from "./base";
 
 export type AssetSyncResult = {
   fetched: number;
@@ -25,6 +25,10 @@ export const resourcesClient = {
       path: "/api/sync-assets",
       init: jsonRequest("POST", { account_id: accountId, resource_types: resourceTypes }),
     });
+  },
+
+  cancelSync(accountId: number): Promise<void> {
+    return nativeOnly("cancel_cloud_asset_sync", { id: accountId });
   },
 
   summary(accountId: number): Promise<Record<string, unknown>> {

@@ -14,7 +14,7 @@ export function handleLocalRoutes(req, res, url, services) {
     if (!result.changes) return send(res, 404, { error: "本地资产记录不存在" });
     return send(res, 200, { ok: true });
   }
-  if (req.method === "GET" && url.pathname === "/api/api-logs") return send(res, 200, listApiLogs());
+  if (req.method === "GET" && url.pathname === "/api/api-logs") return send(res, 200, listApiLogs({ keyword: url.searchParams.get("keyword"), status: url.searchParams.get("status"), limit: url.searchParams.get("limit"), offset: url.searchParams.get("offset") }));
   if (req.method === "DELETE" && url.pathname === "/api/api-logs") return send(res, 200, { deleted: Number(clearApiLogs().changes || 0) });
   if (req.method === "DELETE" && url.pathname === "/api/operation-logs") return send(res, 200, { deleted: Number(clearOperationLogs().changes || 0) });
   return false;

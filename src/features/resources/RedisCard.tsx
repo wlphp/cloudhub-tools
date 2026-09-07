@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Maximize2, Minimize2, X } from "lucide-react";
 import { resourcesClient } from "../../platform/clients";
+import { platformErrorMessage } from "../../platform/api";
 import type { Account } from "../../shared/types";
 import { displayValue } from "../../shared/utils/display";
 
@@ -47,7 +48,7 @@ export function RedisCard({
       ));
     } catch (error) {
       setAccounts([]);
-      setAccountError(error instanceof Error ? error.message : "获取账号失败");
+        setAccountError(platformErrorMessage(error, "获取账号失败"));
     }
   }
   return (

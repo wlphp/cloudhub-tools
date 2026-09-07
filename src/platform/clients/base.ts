@@ -1,4 +1,4 @@
-import { invoke, runningInTauri, webApi } from "../api";
+import { invoke, normalizePlatformError, runningInTauri, webApi } from "../api";
 
 export type PreviewRequest = {
   path: string;
@@ -27,17 +27,29 @@ export async function invokeOrWeb<TResult>(
   args: Record<string, unknown> | undefined,
   preview: PreviewRequest | (() => PreviewRequest),
 ): Promise<TResult> {
-  if (runningInTauri) return invoke<TResult>(command, args);
-  const request = typeof preview === "function" ? preview() : preview;
-  return webApi<TResult>(request.path, request.init);
+  try {
+    if (runningInTauri) return await invoke<TResult>(command, args);
+    const request = typeof preview === "function" ? preview() : preview;
+    return await webApi<TResult>(request.path, request.init);
+  } catch (reason) {
+    throw normalizePlatformError(reason);
+  }
 }
 
 export async function nativeOnly<TResult>(command: string, args?: Record<string, unknown>): Promise<TResult> {
-  if (!runningInTauri) throw new Error("该功能仅在桌面端可用");
-  return invoke<TResult>(command, args);
+  if (!runningInTauri) throw normalizePlatformError(new Error("该功能仅在桌面端可用"));
+  try {
+    return await invoke<TResult>(command, args);
+  } catch (reason) {
+    throw normalizePlatformError(reason);
+  }
 }
 
 export async function previewOnly<TResult>(request: PreviewRequest): Promise<TResult> {
-  if (runningInTauri) throw new Error("该功能仅在浏览器预览中可用");
-  return webApi<TResult>(request.path, request.init);
+  if (runningInTauri) throw normalizePlatformError(new Error("该功能仅在浏览器预览中可用"));
+  try {
+    return await webApi<TResult>(request.path, request.init);
+  } catch (reason) {
+    throw normalizePlatformError(reason);
+  }
 }

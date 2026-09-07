@@ -12,14 +12,14 @@ import {
 import { panelAddress, hiddenPanelAddress, panelCpuInfo, panelMemoryInfo, panelDiskInfo, panelDiskItems, panelNetworkInfo, panelLoadText } from "./features/panels/panelMetrics";
 import { resourceColumns } from "./features/resources/pure";
 import { fetchCachedResources, fetchCachedSummary } from "./features/resources/cache";
-import { FormEvent, PointerEvent, type CSSProperties, type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, PointerEvent, Suspense, lazy, type CSSProperties, type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { getVersion } from "@tauri-apps/api/app";
+import { listen } from "@tauri-apps/api/event";
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import type { Terminal as XtermTerminal } from "@xterm/xterm";
-import "@xterm/xterm/css/xterm.css";
 import {
   ArrowUp,
   ArrowUpCircle,
@@ -80,8 +80,8 @@ import "./terminal-workbench.css";
 import "./ide-theme.css";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { invoke, runningInTauri, webApi } from "./platform/api";
-import { accountsClient, databaseClient, resourcesClient, serversClient } from "./platform/clients";
+import { runningInTauri } from "./platform/api";
+import { accountsClient, appClient, databaseClient, domainsClient, logsClient, preferencesClient, remoteClient, resourcesClient, serversClient } from "./platform/clients";
 import type { DatabaseImportPreview } from "./platform/clients/database";
 import {
   assetFavoriteKey,
@@ -106,7 +106,7 @@ import { FavoriteServerDetails, ServerCard } from "./features/servers/ServerCard
 import { SwasCard } from "./features/servers/SwasCard";
 import { RdsCard } from "./features/resources/RdsCard";
 import { RedisCard } from "./features/resources/RedisCard";
-import { BucketCard } from "./features/storage/BucketCard";
+const BucketCard = lazy(() => import("./features/storage/BucketCard").then((module) => ({ default: module.BucketCard })));
 import type {
   Account,
   ApiLog,
@@ -121,11 +121,7 @@ import type {
   PanelConnectionDraft,
   PromptRequest,
   ResourceResponse,
-  SavedRdpConnection,
-  SavedSshConnection,
   SshAuthMethod,
-  SshConnectResult,
-  SshDirectoryListing,
   SshFileEntry,
   SshTarget,
   TerminalWorkspaceTab,
@@ -429,6 +425,7 @@ function App() {
   const [syncTypes, setSyncTypes] = useState<string[]>(assetTypes.map(([value]) => value));
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<{ fetched: number; counts: Record<string, number>; errors: string[] } | null>(null);
+  const [syncProgress, setSyncProgress] = useState<{ accountId: number; completed: number; total: number; resourceType: string; status: string; elapsedMs?: number } | null>(null);
   const [pageSize, setPageSize] = useState(() => { const value = Number(localStorage.getItem("aliyun-page-size") || "10"); return [10, 20, 50, 100].includes(value) ? value : 10; });
   const [accountPage, setAccountPage] = useState(1);
   const [assetPage, setAssetPage] = useState(1);
@@ -568,7 +565,7 @@ function App() {
     let disposed = false;
     const read = async () => {
       try {
-        const output = await invoke<string>("ssh_read", { sessionId: sshSessionId });
+        const output = await remoteClient.readSsh(sshSessionId);
         if (!disposed && output) {
           setTerminalTabs((current) => current.map((tab) => tab.sessionId === sshSessionId
             ? { ...tab, output: `${tab.output}${output}`.slice(-160_000) }
@@ -591,7 +588,7 @@ function App() {
     let observer: ResizeObserver | null = null;
     let inputSubscription: { dispose: () => void } | null = null;
 
-    void Promise.all([import("@xterm/xterm"), import("@xterm/addon-fit")]).then(([xterm, addon]) => {
+    void Promise.all([import("@xterm/xterm"), import("@xterm/addon-fit"), import("@xterm/xterm/css/xterm.css")]).then(([xterm, addon]) => {
       if (disposed || !sshTerminalHostRef.current) return;
       terminal = new xterm.Terminal({
         cursorBlink: true,
@@ -612,11 +609,11 @@ function App() {
 
       const syncSize = () => {
         fitAddon.fit();
-        void invoke("ssh_resize", { sessionId: sshSessionId, cols: terminal?.cols, rows: terminal?.rows })
+        void remoteClient.resizeSsh(sshSessionId, terminal?.cols, terminal?.rows)
           .catch((error) => setSshError(`调整 SSH 终端大小失败：${String(error)}`));
       };
       inputSubscription = terminal.onData((data) => {
-        void invoke("ssh_write", { sessionId: sshSessionId, data })
+        void remoteClient.writeSsh(sshSessionId, data)
           .catch((error) => setSshError(`发送 SSH 输入失败：${String(error)}`));
       });
       observer = new ResizeObserver(syncSize);
@@ -719,7 +716,7 @@ function App() {
   }
   async function loadPanelConnections() {
     if (!runningInTauri) return;
-    try { setPanelConnections(await invoke<PanelConnection[]>("list_panel_connections")); }
+    try { setPanelConnections(await remoteClient.listPanels()); }
     catch (error) { setStatus(`读取面板管理列表失败：${String(error)}`); }
   }
   function openPanelDialog(panel?: PanelConnection) {
@@ -731,7 +728,7 @@ function App() {
     setPanelDraft(draft);
     setPanelDialog(true);
     if (panel?.source_account_id && panel.source_asset_key) {
-      void invoke<SavedSshConnection | null>("get_ssh_connection", { accountId: panel.source_account_id, assetKey: panel.source_asset_key })
+      void remoteClient.getSshConnection(panel.source_account_id, panel.source_asset_key)
         .then((saved) => {
           if (saved) {
             setPanelDraft((current) => ({
@@ -749,7 +746,7 @@ function App() {
     const ip = firstAddress(payload.PublicIpAddress || payload.PublicAddresses || payload.PublicIp || payload.InternetIp || payload.EipAddress);
     setPanelDraft({ ...emptyPanelConnectionDraft, name: String(payload.InstanceName || asset.asset_key), panel_url: ip ? `https://${ip}:8888` : "", sort_order: Math.max(-1, ...panelConnections.map((item) => item.sort_order ?? 0)) + 1, group_name: account.group_name || "", source_account_id: account.id, source_asset_key: asset.asset_key, remark: `来源：${account.account_name} / ${asset.resource_type}` });
     setPanelDialog(true);
-    void invoke<SavedSshConnection | null>("get_ssh_connection", { accountId: account.id, assetKey: asset.asset_key })
+    void remoteClient.getSshConnection(account.id, asset.asset_key)
       .then((saved) => {
         if (saved) {
           setPanelDraft((current) => ({
@@ -844,12 +841,11 @@ function App() {
     if (!runningInTauri) { setStatus("面板管理仅支持桌面客户端"); return; }
     setPanelSaving(true);
     try {
-      await invoke<PanelConnection>("save_panel_connection", { input: panelDraft });
+      await remoteClient.savePanel(panelDraft);
       if (panelDraft.source_account_id && panelDraft.source_asset_key && panelDraft.ssh_password) {
         const host = panelAddress(panelDraft.panel_url);
         try {
-          await invoke("ssh_connect", {
-            input: {
+          await remoteClient.connectSsh({
               accountId: panelDraft.source_account_id,
               assetKey: panelDraft.source_asset_key,
               host,
@@ -862,10 +858,9 @@ function App() {
               savePassword: true,
               cols: 80,
               rows: 24,
-            },
           }).then((res: unknown) => {
             const sid = (res as { sessionId?: string })?.sessionId;
-            if (sid) void invoke("ssh_disconnect", { sessionId: sid });
+            if (sid) void remoteClient.disconnectSsh(sid);
           });
         } catch { /* background credential validation */ }
       }
@@ -889,7 +884,7 @@ function App() {
     const order = new Map(orderedIds.map((id, index) => [id, index]));
     setPanelConnections((current) => [...current].sort((left, right) => (order.get(left.id) ?? Number.MAX_SAFE_INTEGER) - (order.get(right.id) ?? Number.MAX_SAFE_INTEGER)).map((panel, index) => ({ ...panel, sort_order: index })));
     try {
-      await invoke("update_panel_connection_order", { ids: orderedIds });
+      await remoteClient.updatePanelOrder(orderedIds);
     } catch (error) {
       setStatus(`保存面板排序失败：${String(error)}`);
       await loadPanelConnections();
@@ -927,7 +922,7 @@ function App() {
     try {
       for (const panel of panelConnections) {
         try {
-          const updated = await invoke<PanelConnection>("refresh_panel_connection", { id: panel.id });
+          const updated = await remoteClient.refreshPanel(panel.id);
           setPanelConnections((current) => current.map((item) => item.id === panel.id ? updated : item));
           if (updated.status === "online") online += 1; else offline += 1;
         } catch {
@@ -944,7 +939,7 @@ function App() {
     if (!runningInTauri || panelOpeningId !== null) return;
     setPanelOpeningId(panel.id);
     try {
-      const temporaryUrl = await invoke<string>("panel_temporary_login", { id: panel.id });
+      const temporaryUrl = await remoteClient.temporaryPanelLogin(panel.id);
       if (panelOpenMode === "copy") {
         await navigator.clipboard.writeText(temporaryUrl);
         setStatus(`${panel.name} 的临时面板 URL 已复制`);
@@ -961,7 +956,7 @@ function App() {
   async function openDataDirectory() {
     if (!runningInTauri) { setStatus("打开数据目录仅支持桌面客户端"); return; }
     try {
-      await invoke("open_app_data_directory");
+      await appClient.openDataDirectory();
       setStatus("已在文件资源管理器中打开数据目录");
     } catch (error) {
       setStatus(`打开数据目录失败：${String(error)}`);
@@ -1011,7 +1006,7 @@ function App() {
     setEditingPanelRemark(null);
     if (remark === draft.initial) return;
     try {
-      const updated = await invoke<PanelConnection>("update_panel_connection_remark", { id: panel.id, remark: remark || null });
+      const updated = await remoteClient.updatePanelRemark(panel.id, remark || null);
       setPanelConnections((current) => current.map((item) => item.id === updated.id ? updated : item));
       setStatus("面板备注已保存");
     } catch (error) { setStatus(`保存面板备注失败：${String(error)}`); }
@@ -1037,7 +1032,7 @@ function App() {
   }
   async function deletePanelConnection(panel: PanelConnection) {
     if (!(await requestConfirm(`确认移除面板“${panel.name}”吗？本机保存的 API 密钥也会删除。`))) return;
-    try { await invoke("delete_panel_connection", { id: panel.id }); setPanelConnections((current) => current.filter((item) => item.id !== panel.id)); setSelectedPanelIds((current) => { const next = new Set(current); next.delete(panel.id); return next; }); setStatus("面板已移除"); }
+    try { await remoteClient.deletePanel(panel.id); setPanelConnections((current) => current.filter((item) => item.id !== panel.id)); setSelectedPanelIds((current) => { const next = new Set(current); next.delete(panel.id); return next; }); setStatus("面板已移除"); }
     catch (error) { setStatus(`移除面板失败：${String(error)}`); }
   }
   function togglePanelSelection(id: number) {
@@ -1062,7 +1057,7 @@ function App() {
     const count = panelIds?.length || panelConnections.length;
     if (!(await requestConfirm(`导出文件会包含 ${count} 个面板的 API 密钥明文，请妥善保管。确定继续吗？`))) return;
     try {
-      const path = await invoke<string>("export_panel_connections_file", { panelIds });
+      const path = await remoteClient.exportPanels(panelIds);
       setStatus(`已导出 ${count} 个面板，明文文件已保存到：${path}`);
     } catch (error) { setStatus(`导出面板失败：${String(error)}`); }
   }
@@ -1072,7 +1067,7 @@ function App() {
       const parsed = JSON.parse(await file.text());
       const panels = Array.isArray(parsed) ? parsed : parsed.panels;
       if (!Array.isArray(panels) || !panels.length) throw new Error("文件中没有面板配置");
-      const count = await invoke<number>("import_panel_connections", { panels });
+      const count = await remoteClient.importPanels(panels);
       await loadPanelConnections();
       setSelectedPanelIds(new Set());
       setStatus(`已导入 ${count} 个面板`);
@@ -1098,8 +1093,8 @@ function App() {
       setManagedHostPasswordRevealing(true);
       try {
         const password = managedHostDraft.platform === "windows"
-          ? await invoke<string>("reveal_rdp_password", { targetKey: `managed:${managedHostDraft.id}` })
-          : await invoke<string>("reveal_ssh_password", { managedHostId: managedHostDraft.id });
+          ? await remoteClient.revealRdpPassword(`managed:${managedHostDraft.id}`)
+          : await remoteClient.revealSshPassword({ managedHostId: managedHostDraft.id });
         setManagedHostDraft((current) => ({ ...current, password }));
       } catch (error) {
         setStatus(`读取已保存密码失败：${String(error)}`);
@@ -1333,7 +1328,7 @@ function App() {
       setSshFileError("");
     }
     if (runningInTauri) {
-      try { await invoke("ssh_disconnect", { sessionId: tab.sessionId }); } catch { /* session already closed */ }
+      try { await remoteClient.disconnectSsh(tab.sessionId); } catch { /* session already closed */ }
     }
   }
   async function openManagedHostSsh(host: ManagedHost) {
@@ -1362,8 +1357,7 @@ function App() {
     sshPendingOutputRef.current = ""; setSshError(""); setSshFiles([]); setSshFilePath("/"); setSshFileError(""); setSshFileEditor(null);
     setSshConnecting(true);
     try {
-      const result = await invoke<SshConnectResult>("ssh_connect", {
-        input: {
+      const result = await remoteClient.connectSsh({
           managedHostId: host.id,
           host: host.host,
           port,
@@ -1375,7 +1369,6 @@ function App() {
           savePassword: false,
           cols: 112,
           rows: 30,
-        },
       });
       setSshTarget(target);
       setSshSessionId(result.sessionId);
@@ -1594,7 +1587,7 @@ function App() {
     setSshFileError("");
     setSshFileDragActive(false);
     if (sessionId && runningInTauri) {
-      try { await invoke("ssh_disconnect", { sessionId }); } catch { /* session already closed */ }
+      try { await remoteClient.disconnectSsh(sessionId); } catch { /* session already closed */ }
     }
   }
   function rdpTargetKey(target = sshTarget) {
@@ -1614,7 +1607,7 @@ function App() {
       setSshPasswordSaved(false);
       if (!sshTarget || sshTarget.direct || sshTarget.managedHostId) return;
       try {
-        const saved = await invoke<SavedSshConnection | null>("get_ssh_connection", { accountId: sshTarget.account.id, assetKey: sshTarget.asset.asset_key });
+        const saved = await remoteClient.getSshConnection(sshTarget.account.id, sshTarget.asset.asset_key);
         if (!saved) return;
         setSshHost(saved.host || sshHost);
         setSshPort(saved.port || 22);
@@ -1635,7 +1628,7 @@ function App() {
     const targetKey = rdpTargetKey();
     if (!targetKey) return;
     try {
-      const saved = await invoke<SavedRdpConnection | null>("get_rdp_connection", { targetKey });
+      const saved = await remoteClient.getRdpConnection(targetKey);
       if (!saved) return;
       setSshHost(saved.host || sshHost);
       setSshPort(saved.port || 3389);
@@ -1650,12 +1643,10 @@ function App() {
     setSshConnecting(true);
     setSshError("");
     try {
-      await invoke("launch_rdp_connection", {
-        input: {
+      await remoteClient.launchRdpConnection({
           targetKey: rdpTargetKey() || `direct:${Date.now()}`,
           host: sshHost.trim(), port: sshPort || 3389, username: sshUsername.trim(),
           password: sshPassword || null, savePassword: !sshTarget.direct && sshSavePassword,
-        },
       });
       setSshPassword("");
       setSshPasswordSaved(!sshTarget.direct && sshSavePassword && Boolean(sshPassword || sshPasswordSaved));
@@ -1673,8 +1664,7 @@ function App() {
     setSshConnecting(true);
     setSshError("");
     try {
-      const result = await invoke<SshConnectResult>("ssh_connect", {
-        input: {
+      const result = await remoteClient.connectSsh({
           ...(sshTarget.managedHostId ? { managedHostId: sshTarget.managedHostId } : sshTarget.direct ? { direct: true } : { accountId: sshTarget.account.id, assetKey: sshTarget.asset.asset_key }),
           host: sshHost.trim(),
           port: sshPort || 22,
@@ -1686,7 +1676,6 @@ function App() {
           savePassword: sshAuthMethod === "password" && !sshTarget.direct && sshSavePassword,
           cols: 112,
           rows: 30,
-        },
       });
       setSshSessionId(result.sessionId);
       if (section === "servers") {
@@ -1717,14 +1706,14 @@ function App() {
     if (sshAuthMethod === "private_key" && !sshPrivateKey.trim() && !sshPasswordSaved) { setSshError("请粘贴 SSH 私钥，或使用已保存私钥测试"); return; }
     setSshTesting(true); setSshError("");
     try {
-      await invoke("ssh_test_connection", { input: {
+      await remoteClient.testSsh({
         ...(sshTarget.managedHostId ? { managedHostId: sshTarget.managedHostId } : sshTarget.direct ? { direct: true } : { accountId: sshTarget.account.id, assetKey: sshTarget.asset.asset_key }),
         host: sshHost.trim(), port: sshPort || 22, username: sshUsername.trim(), authMethod: sshAuthMethod,
         password: sshAuthMethod === "password" ? sshPassword || null : null,
         privateKey: sshAuthMethod === "private_key" ? sshPrivateKey : null,
         keyPassphrase: sshAuthMethod === "private_key" ? sshKeyPassphrase || null : null,
         savePassword: false,
-      } });
+      });
       setStatus("SSH 测试连接成功");
     } catch (error) { setSshError(`测试连接失败：${String(error)}`); }
     finally { setSshTesting(false); }
@@ -1748,7 +1737,7 @@ function App() {
     setSshFilesLoading(true);
     setSshFileError("");
     try {
-      const result = await invoke<SshDirectoryListing>("ssh_list_files", { sessionId: sshSessionId, path });
+      const result = await remoteClient.listSshFiles(sshSessionId, path);
       setSshFilePath(result.path);
       setSshFiles(result.entries.sort((left, right) => Number(right.isDir) - Number(left.isDir) || left.name.localeCompare(right.name)));
     } catch (error) { setSshFileError(`读取远程目录失败：${String(error)}`); }
@@ -1815,14 +1804,14 @@ function App() {
     if (entry.isDir) { await loadSshFiles(entry.path); return; }
     if (!entry.isFile) { setSshFileError("暂不支持打开该类型的远程条目"); return; }
     setSshFileError("");
-    try { setSshFileEditor({ path: entry.path, content: await invoke<string>("ssh_read_text_file", { sessionId: sshSessionId, path: entry.path }) }); }
+    try { setSshFileEditor({ path: entry.path, content: await remoteClient.readSshTextFile(sshSessionId, entry.path) }); }
     catch (error) { setSshFileError(`打开文件失败：${String(error)}`); }
   }
   async function saveSshFile() {
     if (!sshFileEditor || !sshSessionId) return;
     setSshFileSaving(true);
     setSshFileError("");
-    try { await invoke("ssh_write_text_file", { sessionId: sshSessionId, path: sshFileEditor.path, content: sshFileEditor.content }); setStatus(`已保存远程文件：${sshFileEditor.path}`); }
+    try { await remoteClient.writeSshTextFile(sshSessionId, sshFileEditor.path, sshFileEditor.content); setStatus(`已保存远程文件：${sshFileEditor.path}`); }
     catch (error) { setSshFileError(`保存文件失败：${String(error)}`); }
     finally { setSshFileSaving(false); }
   }
@@ -1839,7 +1828,7 @@ function App() {
     try {
       for (const file of pendingFiles) {
         const contentBase64 = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result || "").split(",")[1] || ""); reader.onerror = () => reject(new Error("读取本地文件失败")); reader.readAsDataURL(file); });
-        await invoke("ssh_upload_file", { sessionId: sshSessionId, path: joinSshPath(sshFilePath, file.name), contentBase64 });
+        await remoteClient.uploadSshFile(sshSessionId, joinSshPath(sshFilePath, file.name), contentBase64);
       }
       await loadSshFiles(); setStatus(`已上传 ${pendingFiles.length} 个文件`);
     } catch (error) { setSshFileError(`上传文件失败：${String(error)}`); }
@@ -1847,7 +1836,7 @@ function App() {
   }
   function completeSshCommand() {
     if (!sshSessionId) return;
-    void invoke("ssh_write", { sessionId: sshSessionId, data: "\t" })
+    void remoteClient.writeSsh(sshSessionId, "\t")
       .catch((error) => setSshError(`发送命令补全失败：${String(error)}`));
     sshTerminalRef.current?.focus();
   }
@@ -1855,7 +1844,7 @@ function App() {
     if (!sshSessionId || !entry.isFile) return;
     setSshFileError("");
     try {
-      const path = await invoke<string>("ssh_download_file", { sessionId: sshSessionId, path: entry.path });
+      const path = await remoteClient.downloadSshFile(sshSessionId, entry.path);
       await revealItemInDir(path);
       setStatus(`已下载并在本机定位：${path}`);
     }
@@ -1865,12 +1854,12 @@ function App() {
     if (!sshSessionId) return;
     const name = await requestPrompt("新建文件夹名称");
     if (!name?.trim() || /[\\/\0]/.test(name)) { if (name) setSshFileError("文件夹名称不能包含 / 或 \\ "); return; }
-    try { await invoke("ssh_make_directory", { sessionId: sshSessionId, path: joinSshPath(sshFilePath, name.trim()) }); await loadSshFiles(); }
+    try { await remoteClient.makeSshDirectory(sshSessionId, joinSshPath(sshFilePath, name.trim())); await loadSshFiles(); }
     catch (error) { setSshFileError(`新建文件夹失败：${String(error)}`); }
   }
   async function deleteSshEntry(entry: SshFileEntry) {
     if (!sshSessionId || !(await requestConfirm(`确定删除${entry.isDir ? "文件夹及其全部内容" : "文件"}“${entry.name}”？此操作不可恢复。`))) return;
-    try { await invoke("ssh_delete_path", { sessionId: sshSessionId, path: entry.path }); if (sshFileEditor?.path === entry.path) setSshFileEditor(null); await loadSshFiles(); }
+    try { await remoteClient.deleteSshPath(sshSessionId, entry.path); if (sshFileEditor?.path === entry.path) setSshFileEditor(null); await loadSshFiles(); }
     catch (error) { setSshFileError(`删除失败：${String(error)}`); }
   }
   async function toggleSshPasswordVisibility() {
@@ -1882,8 +1871,8 @@ function App() {
       setSshPasswordRevealing(true);
       try {
         const password = sshPlatform === "windows"
-          ? await invoke<string>("reveal_rdp_password", { targetKey: rdpTargetKey() })
-          : await invoke<string>("reveal_ssh_password", sshTarget.managedHostId
+          ? await remoteClient.revealRdpPassword(rdpTargetKey())
+          : await remoteClient.revealSshPassword(sshTarget.managedHostId
             ? { managedHostId: sshTarget.managedHostId }
             : { accountId: sshTarget.account.id, assetKey: sshTarget.asset.asset_key });
         setSshPassword(password);
@@ -1899,15 +1888,14 @@ function App() {
   }
   async function loadApiLogs() {
     try {
-      setApiLogs(runningInTauri ? await invoke<ApiLog[]>("list_api_logs", {}) : await webApi<ApiLog[]>("/api/api-logs"));
+      setApiLogs(await logsClient.listApi());
     } catch (error) { setStatus(`读取 API 日志失败：${String(error)}`); }
   }
   async function clearLogs(kind: "api" | "operation") {
     const title = kind === "api" ? "API 日志" : "操作日志";
     if (!(await requestConfirm(`确定清空全部${title}吗？此操作不可恢复。`))) return;
     try {
-      if (runningInTauri) await invoke(kind === "api" ? "clear_api_logs" : "clear_operation_logs", {});
-      else await webApi(kind === "api" ? "/api/api-logs" : "/api/operation-logs", { method: "DELETE" });
+      await logsClient.clear(kind);
       if (kind === "api") setApiLogs([]);
       else { const clearedAt = Date.now(); setOperationLogClearedAt(clearedAt); localStorage.setItem("aliyun-operation-log-cleared-at", String(clearedAt)); }
       setStatus(`${title}已清空`);
@@ -1929,6 +1917,12 @@ function App() {
       await loadApiLogs();
     } catch (error) { setStatus(`资产获取失败：${String(error)}`); }
     finally { setSyncing(false); }
+  }
+  async function cancelSync(account: Account) {
+    try {
+      await resourcesClient.cancelSync(account.id);
+      setStatus(`${account.account_name} 资产同步已请求取消`);
+    } catch (error) { setStatus(`取消资产同步失败：${String(error)}`); }
   }
 
   const syncResultLevel = syncResult?.errors.length ? (syncResult.fetched > 0 ? "warning" : "has-errors") : "success";
@@ -2073,41 +2067,12 @@ function App() {
     setDomainToolError("");
     try {
       if (tool.kind === "whois") {
-        const data = runningInTauri
-          ? await invoke<string>("query_whois", {
-              id: tool.account.id,
-              domain: tool.domain,
-            })
-          : await webApi<string>(
-              `/api/whois?id=${tool.account.id}&domain=${encodeURIComponent(tool.domain)}`,
-            );
+        const data = await domainsClient.whois(tool.account.id, tool.domain);
         setDomainToolData({ text: data });
       } else {
-        const data = runningInTauri
-          ? await invoke<Record<string, unknown>>(
-              tool.kind === "dns" ? "list_dns_records" : "list_domain_logs",
-              tool.kind === "dns"
-                ? {
-                    id: tool.account.id,
-                    domain: tool.domain,
-                    recordType: domainToolType || null,
-                    keyword: domainToolFilter || null,
-                    pageNumber: domainToolPage,
-                    pageSize: domainToolPageSize,
-                  }
-                : {
-                    id: tool.account.id,
-                    domain: tool.domain,
-                    startDate: null,
-                    endDate: null,
-                    keyword: domainToolFilter || null,
-                    pageNumber: domainToolPage,
-                    pageSize: domainToolPageSize,
-                  },
-            )
-          : await webApi<Record<string, unknown>>(
-              `/api/${tool.kind === "dns" ? "dns-records" : "domain-logs"}?id=${tool.account.id}&domain=${encodeURIComponent(tool.domain)}&page=${domainToolPage}&pageSize=${domainToolPageSize}${domainToolFilter ? `&keyword=${encodeURIComponent(domainToolFilter)}` : ""}${tool.kind === "dns" && domainToolType ? `&type=${domainToolType}` : ""}`,
-            );
+        const data = tool.kind === "dns"
+          ? await domainsClient.records(tool.account.id, tool.domain, { recordType: domainToolType, keyword: domainToolFilter, page: domainToolPage, pageSize: domainToolPageSize })
+          : await domainsClient.logs(tool.account.id, tool.domain, domainToolFilter, domainToolPage, domainToolPageSize);
         setDomainToolData(data);
         const total = Number((data as Record<string, unknown>)?.total ?? 0);
         if (!Number.isNaN(total)) setDomainToolTotal(total);
@@ -2176,61 +2141,17 @@ function App() {
     if (!domainTool || domainTool.kind !== "dns") return;
     if (["tencent", "volcengine", "ctyun", "oracle", "huawei", "baidu", "ucloud", "aws", "jdcloud", "qingcloud", "ksyun", "azure", "gcp"].includes(domainTool.account.cloud_type)) throw new Error(`${cloudProvider(domainTool.account.cloud_type).label} DNS 解析当前仅支持只读查看`);
     const isEdit = dnsEditor?.mode === "edit" && dnsEditor.row;
-    if (runningInTauri) {
-      if (isEdit)
-        await invoke("update_dns_record", {
-          id: domainTool.account.id,
-          recordId: String(dnsEditor!.row!.RecordId),
-          recordType: input.type,
-          rr: input.rr,
-          value: input.value,
-          ttl: input.ttl,
-          priority: input.priority,
-          line: input.line,
-        });
-      else
-        await invoke("add_dns_record", {
-          id: domainTool.account.id,
-          domain: domainTool.domain,
-          recordType: input.type,
-          rr: input.rr,
-          value: input.value,
-          ttl: input.ttl,
-          priority: input.priority || undefined,
-          line: input.line,
-        });
-    } else {
-      if (isEdit)
-        await webApi("/api/dns-records", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            id: domainTool.account.id,
-            recordId: String(dnsEditor!.row!.RecordId),
-            recordType: input.type,
-            rr: input.rr,
-            value: input.value,
-            ttl: input.ttl,
-            priority: input.priority,
-            line: input.line,
-          }),
-        });
-      else
-        await webApi("/api/dns-records", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            id: domainTool.account.id,
-            domain: domainTool.domain,
-            recordType: input.type,
-            rr: input.rr,
-            value: input.value,
-            ttl: input.ttl,
-            priority: input.priority || undefined,
-            line: input.line,
-          }),
-        });
-    }
+    const payload = {
+      recordId: isEdit ? String(dnsEditor!.row!.RecordId) : undefined,
+      recordType: input.type,
+      rr: input.rr,
+      value: input.value,
+      ttl: input.ttl,
+      priority: isEdit ? input.priority : input.priority || undefined,
+      line: input.line,
+    };
+    if (isEdit) await domainsClient.update(domainTool.account.id, payload);
+    else await domainsClient.add(domainTool.account.id, domainTool.domain, payload);
     await loadDomainTool(domainTool);
     setStatus(isEdit ? "解析记录已更新" : "解析记录已添加");
     setDnsEditor(null);
@@ -2261,14 +2182,7 @@ function App() {
         ...(field === "Priority" ? { priority: Number(normalized) || 10 } : {}),
         ...(field === "Line" ? { line: normalized } : {}),
       };
-      if (runningInTauri)
-        await invoke("update_dns_record", payload);
-      else
-        await webApi("/api/dns-records", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
+      await domainsClient.update(domainTool.account.id, payload);
       await loadDomainTool(domainTool);
       setStatus(`${field} 已更新`);
     } catch (error) {
@@ -2291,34 +2205,10 @@ function App() {
       if (action === "edit") {
         setDnsEditor({ mode: "edit", row });
         return;
-      } else if (runningInTauri) {
-        await invoke(
-          action === "delete" ? "delete_dns_record" : "toggle_dns_record",
-          action === "delete"
-            ? { id: domainTool.account.id, recordId: String(row.RecordId) }
-            : {
-                id: domainTool.account.id,
-                recordId: String(row.RecordId),
-                status:
-                  String(row.Status).toUpperCase() === "ENABLE"
-                    ? "Disable"
-                    : "Enable",
-              },
-        );
-      } else {
-        await webApi("/api/dns-records", {
-          method: action === "delete" ? "DELETE" : "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            id: domainTool.account.id,
-            recordId: String(row.RecordId),
-            status:
-              String(row.Status).toUpperCase() === "ENABLE"
-                ? "Disable"
-                : "Enable",
-          }),
-        });
       }
+      const recordId = String(row.RecordId);
+      if (action === "delete") await domainsClient.remove(domainTool.account.id, recordId);
+      else await domainsClient.toggle(domainTool.account.id, recordId, String(row.Status).toUpperCase() === "ENABLE" ? "Disable" : "Enable");
       await loadDomainTool(domainTool);
       setStatus(action === "delete" ? "解析记录已删除" : "解析记录状态已更新");
     } catch (error) {
@@ -2355,6 +2245,16 @@ function App() {
     };
   }, []);
   useEffect(() => {
+    setSyncProgress(null);
+    if (!runningInTauri || !syncAccount) return;
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void listen<{ accountId: number; completed: number; total: number; resourceType: string; status: string; elapsedMs?: number }>("asset-sync-progress", (event) => {
+      if (!disposed && event.payload.accountId === syncAccount.id) setSyncProgress(event.payload);
+    }).then((cleanup) => { if (disposed) cleanup(); else unlisten = cleanup; });
+    return () => { disposed = true; unlisten?.(); };
+  }, [syncAccount?.id]);
+  useEffect(() => {
     if (!isDetachedTerminalWindow || detachedTerminalHostId === null || sshSessionId || terminalTabs.length) return;
     const host = managedHosts.find((item) => item.id === detachedTerminalHostId);
     if (host) void openManagedHostSsh(host);
@@ -2362,7 +2262,7 @@ function App() {
   useEffect(() => {
     if (!runningInTauri) return;
     let cancelled = false;
-    void invoke<Record<string, string>>("list_client_preferences").then((preferences) => {
+    void preferencesClient.list().then((preferences) => {
       if (cancelled) return;
       if (preferences[cloudHubFavoriteAssetsStorageKey] !== undefined) setFavoriteAssetKeys(stringListFromValue(preferences[cloudHubFavoriteAssetsStorageKey]));
       if (preferences[cloudHubFavoriteAssetOrderStorageKey] !== undefined) setFavoriteAssetOrder(stringListFromValue(preferences[cloudHubFavoriteAssetOrderStorageKey]));
@@ -2386,7 +2286,7 @@ function App() {
     return () => { cancelled = true; };
   }, []);
   function saveClientPreference(key: string, value: string) {
-    if (runningInTauri && clientPreferencesReady) void invoke("save_client_preference", { key, value }).catch(() => {});
+    if (runningInTauri && clientPreferencesReady) void preferencesClient.save(key, value).catch(() => {});
   }
   useEffect(() => { const value = autoRefresh ? "1" : "0"; localStorage.setItem("aliyun-auto-refresh", value); saveClientPreference("aliyun-auto-refresh", value); }, [autoRefresh, clientPreferencesReady]);
   useEffect(() => { const value = compactMode ? "1" : "0"; localStorage.setItem("aliyun-compact-mode", value); document.documentElement.classList.toggle("compact-mode", compactMode); saveClientPreference("aliyun-compact-mode", value); }, [compactMode, clientPreferencesReady]);
@@ -3052,17 +2952,19 @@ function App() {
         </div>
       ) : (
         <div className="oss-grid">
-          {resources!.items.map((item, index) => (
-            <BucketCard
-              account={active?.account!}
-              item={item}
-              key={String(item.Name || index)}
-              quickAction={ossQuickTool?.accountId === active?.account.id && ossQuickTool?.bucket === String(item.Name || "") ? ossQuickTool?.kind ?? null : null}
-              onQuickActionOpened={() => setOssQuickTool(null)}
-              onConfirm={requestConfirm}
-              onPrompt={requestPrompt}
-            />
-          ))}
+          <Suspense fallback={<div className="detail-empty">正在加载对象存储管理模块…</div>}>
+            {resources!.items.map((item, index) => (
+              <BucketCard
+                account={active?.account!}
+                item={item}
+                key={String(item.Name || index)}
+                quickAction={ossQuickTool?.accountId === active?.account.id && ossQuickTool?.bucket === String(item.Name || "") ? ossQuickTool?.kind ?? null : null}
+                onQuickActionOpened={() => setOssQuickTool(null)}
+                onConfirm={requestConfirm}
+                onPrompt={requestPrompt}
+              />
+            ))}
+          </Suspense>
         </div>
       )}
     </div>
@@ -4734,8 +4636,9 @@ function App() {
               <p className="security-tip">选择要从{cloudProvider(syncAccount.cloud_type).label}获取并保存到本地 SQLite 的资产类型。当前支持{providerSyncDescription(syncAccount.cloud_type)}。</p>
               <div className="asset-check-grid">{syncAssetTypes(syncAccount).map(([value, label]) => <label key={value} className="asset-check"><input type="checkbox" checked={syncTypes.includes(value)} onChange={(event) => setSyncTypes((current) => event.target.checked ? [...new Set([...current, value])] : current.filter((item) => item !== value))} /><span>{syncAccount.cloud_type === "tencent" && value === "ecs" ? "CVM服务器" : label}</span></label>)}</div>
               <div className="asset-sync-account">账号：{syncAccount.account_name}</div>
+              {syncing && syncProgress && <div className="asset-sync-account" role="status" aria-live="polite">进度：{syncProgress.completed} / {syncProgress.total}{syncProgress.resourceType ? ` · ${syncProgress.resourceType}` : ""}{typeof syncProgress.elapsedMs === "number" ? ` · ${Math.round(syncProgress.elapsedMs / 1000)}s` : ""}{syncProgress.status === "failed" ? " · 当前类型失败，继续处理" : ""}</div>}
               {syncResult && <div className={`asset-sync-result ${syncResultLevel}`} role="status" aria-atomic="true"><strong>{syncResultLevel === "has-errors" ? "获取失败" : syncResultLevel === "warning" ? "获取完成（含提示）" : "获取成功并已保存到本地"}</strong><span>共保存 {syncResult.fetched} 项资产</span><div className="asset-result-counts">{syncTypes.map((type) => <span key={type}>{assetTypes.find(([value]) => value === type)?.[1] || type}：{syncResult.counts[type] ?? 0} 个</span>)}</div>{showOracleDatabasePermissionHint && <div className="asset-sync-guidance"><AlertTriangle size={16} /><div><strong>云数据库未获取</strong><span>当前 OCI 密钥缺少数据库读取权限。请在 OCI IAM 为用户或所属组授予目标资源组的 <code>read database-family</code>，或配置更精细的 DB System 只读策略后重新获取。</span></div></div>}{syncResult.errors.length > 0 && <div className="asset-sync-errors">{syncResult.errors.map((error, index) => <div key={`${error}-${index}`}>{error}</div>)}</div>}</div>}
-              <div className="modal-actions"><button className="secondary" onClick={() => { setSyncAccount(null); setSyncResult(null); }}>{syncResult ? "关闭" : "取消"}</button><button className="primary" disabled={syncing || syncTypes.length === 0} onClick={() => void syncAssets(syncAccount)}>{syncing ? "获取中…" : supportsResourceSync(syncAccount) ? (syncResult ? "重新获取" : "开始获取并保存") : "查看接入状态"}</button></div>
+              <div className="modal-actions"><button className="secondary" onClick={() => { setSyncAccount(null); setSyncResult(null); }}>{syncResult ? "关闭" : "取消"}</button>{syncing && runningInTauri && <button className="secondary" onClick={() => void cancelSync(syncAccount)}>取消同步</button>}<button className="primary" disabled={syncing || syncTypes.length === 0} onClick={() => void syncAssets(syncAccount)}>{syncing ? "获取中…" : supportsResourceSync(syncAccount) ? (syncResult ? "重新获取" : "开始获取并保存") : "查看接入状态"}</button></div>
             </section>
           </div>
         )}

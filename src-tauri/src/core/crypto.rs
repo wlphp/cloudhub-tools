@@ -9,13 +9,26 @@ fn crypto_key() -> Result<[u8; 32], String> {
     let path = data_dir()?.join(".key");
     if path.exists() {
         let bytes = fs::read(&path).map_err(|error| error.to_string())?;
+        restrict_key_permissions(&path)?;
         return bytes.try_into().map_err(|_| "本地密钥无效".to_string());
     }
     let mut key = [0u8; 32];
     rand::thread_rng().fill_bytes(&mut key);
-    fs::write(path, key).map_err(|error| error.to_string())?;
+    fs::write(&path, key).map_err(|error| error.to_string())?;
+    restrict_key_permissions(&path)?;
     Ok(key)
 }
+
+#[cfg(unix)]
+fn restrict_key_permissions(path: &std::path::Path) -> Result<(), String> {
+    use std::os::unix::fs::PermissionsExt;
+    let mut permissions = fs::metadata(path).map_err(|error| error.to_string())?.permissions();
+    permissions.set_mode(0o600);
+    fs::set_permissions(path, permissions).map_err(|error| format!("设置本地密钥权限失败: {error}"))
+}
+
+#[cfg(not(unix))]
+fn restrict_key_permissions(_path: &std::path::Path) -> Result<(), String> { Ok(()) }
 
 pub fn crypto_key_bytes() -> Result<Vec<u8>, String> {
     Ok(crypto_key()?.to_vec())
