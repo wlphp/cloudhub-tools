@@ -155,6 +155,24 @@ export type LocalAsset = {
   fetched_at: number;
 };
 
+export type Certificate = {
+  id: number;
+  accountId: number;
+  provider: "letsencrypt" | "litessl" | string;
+  primaryDomain: string;
+  domains: string[];
+  status: string;
+  certificateUrl?: string | null;
+  serialNumber?: string | null;
+  issuer?: string | null;
+  notBefore?: number | null;
+  notAfter?: number | null;
+  dnsZone: string;
+  lastError?: string | null;
+  createdAt: number;
+  updatedAt: number;
+};
+
 export type ApiLog = {
   id: number;
   account_id?: number | null;

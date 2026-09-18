@@ -5,3 +5,4 @@ pub mod logs;
 pub mod assets;
 pub mod preferences;
 pub mod connections;
+pub mod certificates;

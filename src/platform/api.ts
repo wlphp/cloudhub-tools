@@ -14,7 +14,8 @@ export type PlatformErrorCode =
   | "network"
   | "not-found"
   | "conflict"
-  | "cancelled";
+  | "cancelled"
+  | "certificate";
 
 function publicPlatformMessage(code: PlatformErrorCode, rawMessage: string): string {
   if (code === "unsupported-in-preview") {
@@ -22,7 +23,12 @@ function publicPlatformMessage(code: PlatformErrorCode, rawMessage: string): str
       .replace(/(password|secret|token|access[_-]?key|private[_-]?key|authorization|signature)(\s*[:=]\s*)[^,;\s]+/gi, "$1$2[已隐藏]")
       .slice(0, 240);
   }
-  const messages: Record<Exclude<PlatformErrorCode, "unsupported-in-preview">, string> = {
+  if (code === "certificate") {
+    return rawMessage
+      .replace(/(password|secret|token|access[_-]?key|private[_-]?key|authorization|signature)(\s*[:=]\s*)[^,;\s]+/gi, "$1$2[已隐藏]")
+      .slice(0, 240);
+  }
+  const messages: Record<Exclude<PlatformErrorCode, "unsupported-in-preview" | "certificate">, string> = {
     unknown: "操作失败，请稍后重试",
     validation: "输入参数无效，请检查后重试",
     authentication: "认证失败，请检查凭据或登录状态",
@@ -67,7 +73,7 @@ export function normalizePlatformError(reason: unknown): PlatformError {
   }
   if (typeof reason === "object" && reason !== null && "code" in reason && "message" in reason) {
     const structured = reason as { code?: PlatformErrorCode; message?: string; retryable?: boolean };
-    const code = structured.code && ["unknown", "unsupported-in-preview", "validation", "authentication", "permission", "network", "not-found", "conflict", "cancelled"].includes(structured.code)
+    const code = structured.code && ["unknown", "unsupported-in-preview", "validation", "authentication", "permission", "network", "not-found", "conflict", "cancelled", "certificate"].includes(structured.code)
       ? structured.code : "unknown";
     return new PlatformError(String(structured.message), code, structured.retryable === true);
   }

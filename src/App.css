@@ -296,10 +296,11 @@ main{flex:1 1 auto;min-width:0;padding:36px 48px;max-width:none;margin:0;width:1
   --ui-focus: #8bdcff;
   --ui-radius: 6px;
   --ui-z-nav: 20;
-  --ui-z-dropdown: 30;
-  --ui-z-modal: 50;
-  --ui-z-toast: 70;
-  --ui-z-confirm: 80;
+  /* Keep overlays in one explicit stack: menus < dialogs < notices < confirmations. */
+  --ui-z-dropdown: 1000;
+  --ui-z-modal: 2000;
+  --ui-z-toast: 10000;
+  --ui-z-confirm: 11000;
 }
 
 body { background: var(--ui-bg); color: var(--ui-text); }
@@ -325,7 +326,7 @@ main { background: var(--ui-bg); }
 .mobile-nav-bar { z-index: var(--ui-z-nav); }
 .more-menu, .asset-more-menu, .vultr-manage-menu, .terminal-host-more-menu { z-index: var(--ui-z-dropdown); }
 .resource-modal-backdrop { z-index: var(--ui-z-modal); }
-.app-confirm-backdrop { z-index: var(--ui-z-confirm); }
+.app-confirm-backdrop { z-index: var(--ui-z-confirm) !important; isolation: isolate; }
 .table-wrap { overscroll-behavior-inline: contain; scrollbar-color: var(--ui-border-strong) var(--ui-surface-muted); }
 .table-wrap thead { position: sticky; top: 0; z-index: 1; }
 .mobile-nav-bar { display: none; }

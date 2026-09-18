@@ -2,7 +2,7 @@ use rusqlite::Connection;
 
 use super::paths::data_dir;
 
-const CURRENT_SCHEMA_VERSION: i64 = 3;
+const CURRENT_SCHEMA_VERSION: i64 = 4;
 
 fn migrate_connection(conn: &mut Connection) -> Result<(), String> {
     let version: i64 = conn
@@ -54,6 +54,11 @@ fn migrate_connection(conn: &mut Connection) -> Result<(), String> {
           CREATE INDEX IF NOT EXISTS idx_api_logs_created_at ON api_logs(created_at DESC);
           CREATE INDEX IF NOT EXISTS idx_operation_logs_created_at ON operation_logs(created_at DESC);")
             .map_err(|error| error.to_string())?;
+        transaction.pragma_update(None, "user_version", 3).map_err(|error| error.to_string())?;
+    }
+    if version < 4 {
+        transaction.execute_batch("CREATE TABLE IF NOT EXISTS certificates (id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER NOT NULL, provider TEXT NOT NULL, primary_domain TEXT NOT NULL, domains_json TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'issued', order_url TEXT, certificate_url TEXT, certificate_pem_ciphertext TEXT, private_key_ciphertext TEXT, serial_number TEXT, issuer TEXT, not_before INTEGER, not_after INTEGER, dns_zone TEXT NOT NULL, dns_record_ids_json TEXT NOT NULL DEFAULT '[]', last_error TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, FOREIGN KEY(account_id) REFERENCES cloud_accounts(id) ON DELETE CASCADE); CREATE INDEX IF NOT EXISTS idx_certificates_account ON certificates(account_id, updated_at DESC); CREATE INDEX IF NOT EXISTS idx_certificates_expiry ON certificates(not_after);")
+            .map_err(|error| error.to_string())?;
         transaction.pragma_update(None, "user_version", CURRENT_SCHEMA_VERSION).map_err(|error| error.to_string())?;
     }
     transaction.commit().map_err(|error| format!("提交 SQLite 迁移失败: {error}"))?;
@@ -72,7 +77,8 @@ pub fn open_db() -> Result<Connection, String> {
       CREATE TABLE IF NOT EXISTS managed_hosts (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, host TEXT NOT NULL, port INTEGER NOT NULL DEFAULT 22, username TEXT NOT NULL, password_ciphertext TEXT NOT NULL DEFAULT '', platform TEXT NOT NULL DEFAULT 'linux', auth_method TEXT NOT NULL DEFAULT 'password', private_key_ciphertext TEXT, key_passphrase_ciphertext TEXT, group_name TEXT, tags TEXT, source_account_id INTEGER, source_asset_key TEXT, host_key_fingerprint TEXT, status TEXT NOT NULL DEFAULT 'unknown', last_latency_ms INTEGER, metrics_json TEXT NOT NULL DEFAULT '{}', last_checked_at INTEGER, last_error TEXT, remark TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS panel_connections (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, panel_url TEXT NOT NULL UNIQUE, api_key_ciphertext TEXT NOT NULL, sort_order INTEGER NOT NULL DEFAULT 0, allow_insecure_tls INTEGER NOT NULL DEFAULT 0, group_name TEXT, source_account_id INTEGER, source_asset_key TEXT, status TEXT NOT NULL DEFAULT 'unknown', summary_json TEXT NOT NULL DEFAULT '{}', last_checked_at INTEGER, last_error TEXT, remark TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS operation_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER, action TEXT NOT NULL, result TEXT NOT NULL, message TEXT, created_at INTEGER NOT NULL);
-      CREATE TABLE IF NOT EXISTS client_preferences (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL);")
+      CREATE TABLE IF NOT EXISTS client_preferences (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS certificates (id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER NOT NULL, provider TEXT NOT NULL, primary_domain TEXT NOT NULL, domains_json TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'issued', order_url TEXT, certificate_url TEXT, certificate_pem_ciphertext TEXT, private_key_ciphertext TEXT, serial_number TEXT, issuer TEXT, not_before INTEGER, not_after INTEGER, dns_zone TEXT NOT NULL, dns_record_ids_json TEXT NOT NULL DEFAULT '[]', last_error TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, FOREIGN KEY(account_id) REFERENCES cloud_accounts(id) ON DELETE CASCADE); CREATE INDEX IF NOT EXISTS idx_certificates_account ON certificates(account_id, updated_at DESC); CREATE INDEX IF NOT EXISTS idx_certificates_expiry ON certificates(not_after);")
       .map_err(|error| format!("初始化 SQLite 表失败: {error}"))?;
 
     let mut conn = conn;
@@ -99,7 +105,7 @@ mod tests {
         let mut conn = conn;
         migrate_connection(&mut conn).unwrap();
         let version: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0)).unwrap();
-        assert_eq!(version, 3);
+        assert_eq!(version, 4);
         let managed_columns: Vec<String> = conn.prepare("PRAGMA table_info(managed_hosts)").unwrap().query_map([], |row| row.get(1)).unwrap().collect::<Result<_, _>>().unwrap();
         for column in ["platform", "auth_method", "private_key_ciphertext", "key_passphrase_ciphertext", "group_name", "tags", "source_account_id", "source_asset_key"] {
             assert!(managed_columns.iter().any(|value| value == column), "missing migrated column {column}");

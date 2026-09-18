@@ -17,6 +17,11 @@ test("loads the workbench shell without native credentials", async ({ page }) =>
   await expect(page.getByRole("heading", { name: "系统设置" })).toBeVisible();
   await page.getByRole("button", { name: /打开目录/ }).click();
   await expect(page.getByRole("status")).toContainText("打开数据目录仅支持桌面客户端");
+
+  await page.getByRole("button", { name: "HTTPS 证书" }).first().click();
+  await expect(page.getByRole("heading", { name: "HTTPS 证书" })).toBeVisible();
+  await expect(page.getByText("证书申请、密钥材料读取和删除仅支持桌面客户端")).toBeVisible();
+  await expect(page.getByRole("button", { name: "申请证书" })).toBeDisabled();
 });
 
 test("opens the cloud account form with required credential boundaries", async ({ page }) => {
