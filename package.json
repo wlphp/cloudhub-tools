@@ -1,7 +1,7 @@
 {
   "name": "cloudhub-tools",
   "private": true,
-  "version": "0.1.28",
+  "version": "0.1.29",
   "license": "SEE LICENSE IN LICENSE",
   "repository": {
     "type": "git",
