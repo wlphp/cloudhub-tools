@@ -3,15 +3,25 @@ import path from "node:path";
 
 const platform = process.argv[2] === "--platform" ? process.argv[3] : "";
 const version = JSON.parse(fs.readFileSync("package.json", "utf8")).version;
-const bundleRoot = path.resolve("src-tauri", "target", "release", "bundle");
+const targetRoot = path.resolve("src-tauri", "target");
+const bundleRoots = [path.join(targetRoot, "release", "bundle")];
+if (fs.existsSync(targetRoot)) {
+  for (const entry of fs.readdirSync(targetRoot, { withFileTypes: true })) {
+    if (entry.isDirectory() && entry.name !== "release" && entry.name !== "debug") {
+      bundleRoots.push(path.join(targetRoot, entry.name, "release", "bundle"));
+    }
+  }
+}
 const failures = [];
 
 function filesIn(relativePath, pattern) {
-  const directory = path.join(bundleRoot, relativePath);
-  if (!fs.existsSync(directory)) return [];
-  return fs.readdirSync(directory)
-    .filter((name) => pattern.test(name))
-    .map((name) => path.join(directory, name));
+  return bundleRoots.flatMap((bundleRoot) => {
+    const directory = path.join(bundleRoot, relativePath);
+    if (!fs.existsSync(directory)) return [];
+    return fs.readdirSync(directory)
+      .filter((name) => pattern.test(name))
+      .map((name) => path.join(directory, name));
+  });
 }
 
 if (platform !== "windows") failures.push("当前脚本只支持 --platform windows");
