@@ -60,6 +60,18 @@
       ]
     },
     {
+      "name": "certificates",
+      "operations": [
+        { "name": "list", "native": ["list_certificates"], "preview": [] },
+          { "name": "request", "native": ["request_certificate"], "preview": [] },
+          { "name": "cancel", "native": ["cancel_certificate_request"], "preview": [] },
+          { "name": "material", "native": ["get_certificate_material"], "preview": [] },
+          { "name": "preview", "native": ["get_certificate_preview"], "preview": [] },
+          { "name": "download", "native": ["export_certificate_material"], "preview": [] },
+        { "name": "remove", "native": ["delete_certificate"], "preview": [] }
+      ]
+    },
+    {
       "name": "storage",
       "operations": [
         { "name": "detail", "native": ["get_oss_acl"], "preview": [{ "method": "GET", "path": "/api/oss-detail" }] },

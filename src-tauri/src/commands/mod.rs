@@ -14,3 +14,4 @@ pub mod servers;
 pub mod ssh;
 pub mod providers;
 pub mod summary;
+pub mod certificates;

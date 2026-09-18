@@ -31,7 +31,7 @@ impl PlatformError {
             ("permission", false)
         } else if normalized.contains("密钥") || normalized.contains("凭据") || normalized.contains("认证") || normalized.contains("签名") || normalized.contains("access key") || normalized.contains("authentication") || normalized.contains("unauthorized") || normalized.contains("token") || normalized.contains("http 401") || normalized.contains("status 401") {
             ("authentication", false)
-        } else if normalized.contains("参数") || normalized.contains("格式") || normalized.contains("不能为空") || normalized.contains("无效") || normalized.contains("invalid") || normalized.contains("must be") {
+        } else if normalized.contains("参数") || normalized.contains("格式") || normalized.contains("不能为空") || normalized.contains("无效") || normalized.contains("invalid") || normalized.contains("must be") || normalized.contains("eab") || normalized.contains("dns 区域不属于当前账号") || normalized.contains("dns 验证未") || normalized.contains("证书品牌") {
             ("validation", false)
         } else if normalized.contains("超时") || normalized.contains("网络") || normalized.contains("连接") || normalized.contains("请求失败") || normalized.contains("timeout") || normalized.contains("network") || normalized.contains("connection") || normalized.contains("http 429") || normalized.contains("http 502") || normalized.contains("http 503") || normalized.contains("http 504") || normalized.contains("status 429") || normalized.contains("status 502") || normalized.contains("status 503") || normalized.contains("status 504") {
             ("network", true)
