@@ -13,6 +13,18 @@ export type Account = {
   updated_at: number;
 };
 
+export type FlowConnection = { id: number; name: string; edition: "central" | "region"; organizationId?: string | null; domain: string; tokenSaved: boolean; createdAt: number; updatedAt: number };
+export type FlowConnectionInput = { id?: number; name: string; edition: "central" | "region"; organizationId?: string | null; domain?: string | null; token?: string | null };
+export type FlowGroup = { groupId: string; groupName: string };
+export type FlowPipeline = { pipelineId: string; pipelineName: string; createTime?: number | null; latestStatus?: string | null };
+export type FlowRun = { pipelineRunId: string; startTime?: number | null; endTime?: number | null; status?: string | null; triggerMode?: number | null; creatorAccountId?: string | null };
+export type FlowStep = { stepIndex?: number | null; buildId?: number | null; name?: string | null; status?: string | null };
+export type FlowLogPage = { logs: string; more: boolean; nextOffset: number };
+export type FlowJob = { id?: string | null; name?: string | null; status?: string | null; startTime?: number | null; endTime?: number | null; steps: FlowStep[] };
+export type FlowStage = { name?: string | null; status?: string | null; startTime?: number | null; endTime?: number | null; jobs: FlowJob[] };
+export type FlowSource = { sourceType?: string | null; repository?: string | null; branch?: string | null; commitId?: string | null; commitMessage?: string | null };
+export type FlowRunDetail = { pipelineRunId: string; status?: string | null; startTime?: number | null; endTime?: number | null; triggerMode?: number | null; creatorAccountId?: string | null; creatorEmail?: string | null; sources: FlowSource[]; stages: FlowStage[] };
+
 export type Draft = {
   id?: number;
   account_name: string;

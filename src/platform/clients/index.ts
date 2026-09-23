@@ -9,3 +9,4 @@ export { storageClient } from "./storage";
 export { remoteClient } from "./remote";
 export { appClient } from "./app";
 export { certificatesClient } from "./certificates";
+export { flowClient } from "./flow";

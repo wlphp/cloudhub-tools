@@ -2,7 +2,7 @@ use rusqlite::Connection;
 
 use super::paths::data_dir;
 
-const CURRENT_SCHEMA_VERSION: i64 = 4;
+const CURRENT_SCHEMA_VERSION: i64 = 5;
 
 fn migrate_connection(conn: &mut Connection) -> Result<(), String> {
     let version: i64 = conn
@@ -61,6 +61,11 @@ fn migrate_connection(conn: &mut Connection) -> Result<(), String> {
             .map_err(|error| error.to_string())?;
         transaction.pragma_update(None, "user_version", CURRENT_SCHEMA_VERSION).map_err(|error| error.to_string())?;
     }
+    if version < 5 {
+        transaction.execute_batch("CREATE TABLE IF NOT EXISTS flow_connections (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, edition TEXT NOT NULL, organization_id TEXT, domain TEXT NOT NULL, token_ciphertext TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);")
+            .map_err(|error| error.to_string())?;
+        transaction.pragma_update(None, "user_version", CURRENT_SCHEMA_VERSION).map_err(|error| error.to_string())?;
+    }
     transaction.commit().map_err(|error| format!("提交 SQLite 迁移失败: {error}"))?;
 
     Ok(())
@@ -105,7 +110,7 @@ mod tests {
         let mut conn = conn;
         migrate_connection(&mut conn).unwrap();
         let version: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0)).unwrap();
-        assert_eq!(version, 4);
+        assert_eq!(version, 5);
         let managed_columns: Vec<String> = conn.prepare("PRAGMA table_info(managed_hosts)").unwrap().query_map([], |row| row.get(1)).unwrap().collect::<Result<_, _>>().unwrap();
         for column in ["platform", "auth_method", "private_key_ciphertext", "key_passphrase_ciphertext", "group_name", "tags", "source_account_id", "source_asset_key"] {
             assert!(managed_columns.iter().any(|value| value == column), "missing migrated column {column}");
