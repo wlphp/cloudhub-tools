@@ -54,6 +54,7 @@ import {
   FolderOpen,
   FolderPlus,
   Globe2,
+  GitBranch,
   GripVertical,
   Eye,
   EyeOff,
@@ -109,6 +110,7 @@ import {
 } from "./features/cloud/catalog";
 import { DnsEditorDialog } from "./features/domains/DnsEditorDialog";
 import { CertificatePanel } from "./features/certificates/CertificatePanel";
+import { FlowPanel } from "./features/flow/FlowPanel";
 import { FavoriteServerDetails, ServerCard } from "./features/servers/ServerCards";
 import { SwasCard } from "./features/servers/SwasCard";
 import { RdsCard } from "./features/resources/RdsCard";
@@ -252,7 +254,7 @@ function App() {
   const [esaSelectedSiteId, setEsaSelectedSiteId] = useState("");
   const [esaOverview, setEsaOverview] = useState<EsaOverview | null>(null);
   const [esaSiteKeyword, setEsaSiteKeyword] = useState("");
-  const [section, setSection] = useState<"accounts" | "resources" | "certificates" | "panels" | "servers" | "favorites" | "logs" | "api_logs" | "settings">(() => isDetachedTerminalWindow ? "servers" : "accounts");
+  const [section, setSection] = useState<"accounts" | "resources" | "certificates" | "flow" | "panels" | "servers" | "favorites" | "logs" | "api_logs" | "settings">(() => isDetachedTerminalWindow ? "servers" : "accounts");
   const [localAssets, setLocalAssets] = useState<LocalAsset[]>([]);
   const [panelConnections, setPanelConnections] = useState<PanelConnection[]>([]);
   const [panelDialog, setPanelDialog] = useState(false);
@@ -3273,6 +3275,10 @@ function App() {
                 <ShieldCheck size={18} />
                 HTTPS 证书
               </button>
+              <button type="button" className={section === "flow" ? "nav-active" : ""} aria-current={section === "flow" ? "page" : undefined} onClick={() => setSection("flow")}>
+                <GitBranch size={18} />
+                云效流水线
+              </button>
               <button type="button" className={section === "favorites" ? "nav-active" : ""} aria-current={section === "favorites" ? "page" : undefined} onClick={() => { setSection("favorites"); void loadLocalAssets(); }}>
                 <Star size={18} />
                 我的收藏
@@ -3308,6 +3314,7 @@ function App() {
             <button type="button" className={section === "accounts" ? "nav-active" : ""} aria-current={section === "accounts" ? "page" : undefined} onClick={() => setSection("accounts")}><Database size={16} /><span>账号</span></button>
             <button type="button" className={section === "resources" ? "nav-active" : ""} aria-current={section === "resources" ? "page" : undefined} onClick={() => { setSection("resources"); void loadLocalAssets(); }}><Server size={16} /><span>资产</span></button>
             <button type="button" className={section === "certificates" ? "nav-active" : ""} aria-current={section === "certificates" ? "page" : undefined} onClick={() => setSection("certificates")}><ShieldCheck size={16} /><span>证书</span></button>
+            <button type="button" className={section === "flow" ? "nav-active" : ""} aria-current={section === "flow" ? "page" : undefined} onClick={() => setSection("flow")}><GitBranch size={16} /><span>流水线</span></button>
             <button type="button" className={section === "favorites" ? "nav-active" : ""} aria-current={section === "favorites" ? "page" : undefined} onClick={() => { setSection("favorites"); void loadLocalAssets(); }}><Star size={16} /><span>收藏</span></button>
             <button type="button" className={section === "panels" ? "nav-active" : ""} aria-current={section === "panels" ? "page" : undefined} onClick={() => { setSection("panels"); void loadPanelConnections(); }}><Monitor size={16} /><span>面板</span></button>
             <button type="button" className={section === "servers" ? "nav-active" : ""} aria-current={section === "servers" ? "page" : undefined} onClick={() => { setSection("servers"); void loadManagedHosts(); }}><Terminal size={16} /><span>终端</span></button>
@@ -4312,6 +4319,7 @@ function App() {
           </section>
         )}
         {section === "certificates" && <CertificatePanel accounts={accounts} localAssets={localAssets} onStatus={setStatus} onConfirm={requestConfirm} />}
+        {section === "flow" && <FlowPanel />}
         {section === "logs" && (
           <section className="utility-page">
             <header><div><span className="eyebrow">AUDIT TRAIL</span><h1>操作日志</h1><p>记录本机账号和资产管理操作，日志只保存在当前设备。</p></div></header>

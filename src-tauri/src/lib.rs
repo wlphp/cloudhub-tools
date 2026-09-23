@@ -33,6 +33,7 @@ pub(crate) use commands::resources::{cancel_cloud_asset_sync, list_cloud_resourc
 pub(crate) use commands::servers::{authorize_aliyun_security_group_rule, authorize_baidu_security_group_rule, authorize_tencent_security_group_rule, create_light_firewall_rule, create_vultr_firewall_rule, cvm_instance_action, cvm_instance_reboot, delete_light_firewall_rule, delete_vultr_firewall_rule, esa_overview, instance_status, list_aliyun_security_groups, list_baidu_security_groups, list_instance_disks, list_light_firewall_rules, list_tencent_security_groups, list_vultr_firewall_rules, oracle_instance_action, reboot_instance, rename_server, revoke_aliyun_security_group_rule, revoke_baidu_security_group_rule, revoke_tencent_security_group_rule, start_instance, stop_instance, swas_instance_action, vultr_instance_action, vultr_instance_manage};
 pub(crate) use commands::ssh::{authenticate_ssh, launch_managed_host_rdp, launch_rdp_connection, ssh_connect, ssh_delete_path, ssh_disconnect, ssh_download_file, ssh_list_files, ssh_make_directory, ssh_read, ssh_read_text_file, ssh_resize, ssh_saved_connection, ssh_test_connection, ssh_upload_file, ssh_write, ssh_write_text_file};
 pub(crate) use commands::providers::{baidu_instance_action, verify_aws_account, verify_azure_account, verify_baidu_account, verify_ctyun_account, verify_gcp_account, verify_huawei_account, verify_jdcloud_account, verify_ksyun_account, verify_qingcloud_account, verify_qiniu_account, verify_ucloud_account, verify_vultr_account};
+pub(crate) use commands::flow::{delete_flow_connection, get_flow_job_log, get_flow_job_steps, get_flow_latest_run, get_flow_run, list_flow_connections, list_flow_groups, list_flow_pipelines, list_flow_runs, run_flow_pipeline, save_flow_connection, test_flow_connection};
 pub(crate) use commands::summary::cloud_account_summary;
 pub(crate) use commands::certificates::{cancel_certificate_request, delete_certificate, export_certificate_material, get_certificate_material, get_certificate_preview, list_certificates, request_certificate};
 mod cloud;
@@ -351,6 +352,54 @@ pub struct CloudAccount {
     pub access_key_id: String, pub credential_meta: Option<String>, pub region_id: Option<String>, pub sort_order: i64, pub enabled: bool, pub remark: Option<String>,
     pub created_at: i64, pub updated_at: i64,
 }
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct FlowConnection {
+    pub id: i64, pub name: String, pub edition: String, pub organization_id: Option<String>, pub domain: String,
+    pub token_saved: bool, pub created_at: i64, pub updated_at: i64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FlowConnectionInput {
+    pub id: Option<i64>, pub name: String, pub edition: String, pub organization_id: Option<String>, pub domain: Option<String>, pub token: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct FlowPipeline { pub pipeline_id: String, pub pipeline_name: String, pub create_time: Option<i64>, pub latest_status: Option<String> }
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct FlowGroup { pub group_id: String, pub group_name: String }
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct FlowRun { pub pipeline_run_id: String, pub start_time: Option<i64>, pub end_time: Option<i64>, pub status: Option<String>, pub trigger_mode: Option<i64>, pub creator_account_id: Option<String> }
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct FlowStep { pub step_index: Option<i64>, pub build_id: Option<i64>, pub name: Option<String>, pub status: Option<String> }
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct FlowLogPage { pub logs: String, pub more: bool, pub next_offset: i64 }
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct FlowJob { pub id: Option<String>, pub name: Option<String>, pub status: Option<String>, pub start_time: Option<i64>, pub end_time: Option<i64>, pub steps: Vec<FlowStep> }
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct FlowStage { pub name: Option<String>, pub status: Option<String>, pub start_time: Option<i64>, pub end_time: Option<i64>, pub jobs: Vec<FlowJob> }
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct FlowSource { pub source_type: Option<String>, pub repository: Option<String>, pub branch: Option<String>, pub commit_id: Option<String>, pub commit_message: Option<String> }
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct FlowRunDetail { pub pipeline_run_id: String, pub status: Option<String>, pub start_time: Option<i64>, pub end_time: Option<i64>, pub trigger_mode: Option<i64>, pub creator_account_id: Option<String>, pub creator_email: Option<String>, pub sources: Vec<FlowSource>, pub stages: Vec<FlowStage> }
 
 #[derive(Debug, Deserialize)]
 pub struct AccountInput {
@@ -697,7 +746,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![list_accounts, save_account, delete_account, app_data_path, open_app_data_directory, export_database_file, import_database_file, prepare_database_import, confirm_database_import, cancel_database_import, list_client_preferences, save_client_preference, reveal_account_secret, cloud_account_summary, list_cloud_resources, sync_cloud_assets, cancel_cloud_asset_sync, verify_vultr_account, verify_ctyun_account, verify_huawei_account, verify_baidu_account, verify_ucloud_account, verify_qiniu_account, verify_qingcloud_account, verify_ksyun_account, verify_aws_account, verify_azure_account, verify_gcp_account, verify_jdcloud_account, esa_overview, list_local_assets, delete_local_asset, list_managed_hosts, save_managed_host, delete_managed_host, probe_managed_host, export_managed_hosts_file, import_managed_hosts, list_panel_connections, update_panel_connection_order, save_panel_connection, refresh_panel_connection, panel_temporary_login, delete_panel_connection, update_panel_connection_remark, export_panel_connections_file, import_panel_connections, list_api_logs, clear_api_logs, clear_operation_logs, list_instance_disks, list_aliyun_security_groups, authorize_aliyun_security_group_rule, revoke_aliyun_security_group_rule, list_tencent_security_groups, authorize_tencent_security_group_rule, revoke_tencent_security_group_rule, list_baidu_security_groups, authorize_baidu_security_group_rule, revoke_baidu_security_group_rule, list_light_firewall_rules, create_light_firewall_rule, delete_light_firewall_rule, list_vultr_firewall_rules, create_vultr_firewall_rule, delete_vultr_firewall_rule, instance_status, reboot_instance, start_instance, stop_instance, vultr_instance_action, vultr_instance_manage, oracle_instance_action, cvm_instance_reboot, cvm_instance_action, baidu_instance_action, rename_server, swas_instance_action, list_dns_records, add_dns_record, update_dns_record, delete_dns_record, toggle_dns_record, list_domain_logs, query_whois, list_rds_databases, list_rds_accounts, list_redis_accounts, list_oss_objects, select_oss_upload_file, stage_oss_upload_file, discard_oss_upload_selection, upload_oss_object, download_oss_object, download_oss_objects, get_oss_object_url, get_oss_acl, set_oss_public_read, set_oss_cors, get_ssh_connection, reveal_ssh_password, delete_ssh_connection, get_rdp_connection, reveal_rdp_password, launch_rdp_connection, launch_managed_host_rdp, ssh_connect, ssh_test_connection, ssh_list_files, ssh_read_text_file, ssh_write_text_file, ssh_upload_file, ssh_download_file, ssh_make_directory, ssh_delete_path, ssh_read, ssh_write, ssh_resize, ssh_disconnect, export_accounts, export_accounts_file, import_accounts, list_certificates, request_certificate, cancel_certificate_request, get_certificate_material, get_certificate_preview, export_certificate_material, delete_certificate])
+        .invoke_handler(tauri::generate_handler![list_flow_connections, save_flow_connection, delete_flow_connection, test_flow_connection, list_flow_groups, list_flow_pipelines, list_flow_runs, get_flow_run, get_flow_latest_run, run_flow_pipeline, get_flow_job_steps, get_flow_job_log, list_accounts, save_account, delete_account, app_data_path, open_app_data_directory, export_database_file, import_database_file, prepare_database_import, confirm_database_import, cancel_database_import, list_client_preferences, save_client_preference, reveal_account_secret, cloud_account_summary, list_cloud_resources, sync_cloud_assets, cancel_cloud_asset_sync, verify_vultr_account, verify_ctyun_account, verify_huawei_account, verify_baidu_account, verify_ucloud_account, verify_qiniu_account, verify_qingcloud_account, verify_ksyun_account, verify_aws_account, verify_azure_account, verify_gcp_account, verify_jdcloud_account, esa_overview, list_local_assets, delete_local_asset, list_managed_hosts, save_managed_host, delete_managed_host, probe_managed_host, export_managed_hosts_file, import_managed_hosts, list_panel_connections, update_panel_connection_order, save_panel_connection, refresh_panel_connection, panel_temporary_login, delete_panel_connection, update_panel_connection_remark, export_panel_connections_file, import_panel_connections, list_api_logs, clear_api_logs, clear_operation_logs, list_instance_disks, list_aliyun_security_groups, authorize_aliyun_security_group_rule, revoke_aliyun_security_group_rule, list_tencent_security_groups, authorize_tencent_security_group_rule, revoke_tencent_security_group_rule, list_baidu_security_groups, authorize_baidu_security_group_rule, revoke_baidu_security_group_rule, list_light_firewall_rules, create_light_firewall_rule, delete_light_firewall_rule, list_vultr_firewall_rules, create_vultr_firewall_rule, delete_vultr_firewall_rule, instance_status, reboot_instance, start_instance, stop_instance, vultr_instance_action, vultr_instance_manage, oracle_instance_action, cvm_instance_reboot, cvm_instance_action, baidu_instance_action, rename_server, swas_instance_action, list_dns_records, add_dns_record, update_dns_record, delete_dns_record, toggle_dns_record, list_domain_logs, query_whois, list_rds_databases, list_rds_accounts, list_redis_accounts, list_oss_objects, select_oss_upload_file, stage_oss_upload_file, discard_oss_upload_selection, upload_oss_object, download_oss_object, download_oss_objects, get_oss_object_url, get_oss_acl, set_oss_public_read, set_oss_cors, get_ssh_connection, reveal_ssh_password, delete_ssh_connection, get_rdp_connection, reveal_rdp_password, launch_rdp_connection, launch_managed_host_rdp, ssh_connect, ssh_test_connection, ssh_list_files, ssh_read_text_file, ssh_write_text_file, ssh_upload_file, ssh_download_file, ssh_make_directory, ssh_delete_path, ssh_read, ssh_write, ssh_resize, ssh_disconnect, export_accounts, export_accounts_file, import_accounts, list_certificates, request_certificate, cancel_certificate_request, get_certificate_material, get_certificate_preview, export_certificate_material, delete_certificate])
         .run(tauri::generate_context!())
         .expect("error while running Tauri application");
 }
