@@ -89,6 +89,26 @@
 .engine-tag{display:inline-block;margin-left:10px;padding:3px 8px;border-radius:4px;font-size:11px;background:#0d2e4a;color:#43c8ff;border:1px solid #155676;font-weight:500}
 .rds-info{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;color:#b8cbe0;font-size:13px}
 .rds-info span{color:#6f8eae;margin-right:6px}
+.rds-endpoint-error{color:#e0ad63;overflow-wrap:anywhere}
+.rds-storage-field{display:flex;align-items:flex-start;gap:6px;min-width:0}
+.rds-storage-value{min-width:0;overflow-wrap:anywhere;color:#b8cbe0}
+.rds-refresh-button{display:inline-grid;place-items:center;flex:0 0 28px;width:28px;height:28px;margin:-4px 0 0 auto;padding:0;border:1px solid #315171;border-radius:5px;background:#10243a;color:#8fa7c3;cursor:pointer}
+.rds-refresh-button:hover:not(:disabled){border-color:#43c8ff;background:#12304a;color:#43c8ff}
+.rds-refresh-button:focus-visible{outline:2px solid #43c8ff;outline-offset:2px}
+.rds-refresh-button:disabled{opacity:.65;cursor:wait}
+.rds-address-field{grid-column:1/-1;display:grid;grid-template-columns:minmax(0,1fr);gap:7px;min-width:0}
+.rds-address-heading{display:flex;align-items:center;gap:8px;min-height:28px;color:#6f8eae}
+.rds-address-content{min-width:0}
+.rds-endpoint-list{margin:0;padding:8px 10px;border:1px solid #1e3555;border-radius:6px;background:#091a30}
+.rds-endpoint{display:grid;grid-template-columns:112px minmax(0,1fr) auto 28px;align-items:center;gap:8px;min-width:0;padding:3px 0}
+.rds-endpoint-kind{display:inline-flex;align-items:center;justify-content:center;min-height:22px;padding:1px 6px;border:1px solid #234565;border-radius:4px;background:#0d2037;color:#8fa7c3;font-size:11px;line-height:1.4;text-align:center}
+.rds-endpoint code,.rds-single-address{min-width:0;color:#c6d7e9;font:12px/1.5 Consolas,"SFMono-Regular",monospace;overflow-wrap:anywhere;white-space:normal}
+.rds-endpoint-port{padding:2px 6px;border-radius:4px;background:#10243a;color:#8fa7c3;font-size:11px;white-space:nowrap}
+.rds-endpoint-copy{display:inline-grid;place-items:center;width:28px;height:28px;padding:0;border:1px solid #315171;border-radius:5px;background:#10243a;color:#8fa7c3;cursor:pointer}
+.rds-endpoint-copy:hover{border-color:#43c8ff;background:#12304a;color:#43c8ff}
+.rds-endpoint-copy:focus-visible{outline:2px solid #43c8ff;outline-offset:2px}
+.rds-address-state{padding:8px 0;color:#7892af;font-size:12px}
+@media(max-width:600px){.rds-endpoint{grid-template-columns:90px minmax(0,1fr) 28px;gap:6px}.rds-endpoint-port{grid-column:2;grid-row:2;justify-self:start}.rds-endpoint-copy{grid-column:3;grid-row:1/3}}
 .db-list{margin-top:14px;padding:12px 14px;background:#091a30;color:#7892af;border-radius:7px;font-size:12px;border:1px solid #1e3555}
 .rds-actions{margin-top:14px;padding-top:14px;border-top:1px solid #1e3555;display:flex;gap:8px}
 .rds-actions .layui-btn{height:30px;border-radius:6px;padding:0 12px;font-size:12px;margin:0}

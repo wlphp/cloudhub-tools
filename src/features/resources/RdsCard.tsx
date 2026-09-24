@@ -1,6 +1,7 @@
-import { useState } from "react";
-import { Maximize2, Minimize2, RefreshCw, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Check, Copy, Maximize2, Minimize2, RefreshCw, X } from "lucide-react";
 import { resourcesClient } from "../../platform/clients";
+import type { RdsConnectionAddress, RdsStorageUsage } from "../../platform/clients/resources";
 import { platformErrorMessage } from "../../platform/api";
 import type { Account } from "../../shared/types";
 import { displayValue } from "../../shared/utils/display";
@@ -28,8 +29,60 @@ export function RdsCard({
   const [accountDialog, setAccountDialog] = useState(false);
   const [accountDialogMaximized, setAccountDialogMaximized] = useState(false);
   const [accountError, setAccountError] = useState("");
+  const [storageUsage, setStorageUsage] = useState<RdsStorageUsage | null>(null);
+  const [storageError, setStorageError] = useState("");
+  const [storageBusy, setStorageBusy] = useState(false);
+  const [connectionAddresses, setConnectionAddresses] = useState<RdsConnectionAddress[] | null>(null);
+  const [addressesError, setAddressesError] = useState("");
+  const [addressesBusy, setAddressesBusy] = useState(false);
+  const [copiedAddress, setCopiedAddress] = useState<string | null>(null);
+  const [copyError, setCopyError] = useState("");
   const regionId = String(item._region_id || item.RegionId || "");
   const canReadDetails = account.cloud_type === "aliyun" || account.cloud_type === "tencent";
+  const canReadStorage = account.cloud_type === "aliyun";
+  async function loadConnectionAddresses() {
+    setAddressesBusy(true);
+    setAddressesError("");
+    try {
+      setConnectionAddresses(await resourcesClient.rdsConnectionAddresses(account.id, regionId, String(item.DBInstanceId || "")));
+    } catch (error) {
+      setConnectionAddresses(null);
+      setAddressesError(platformErrorMessage(error, "获取连接地址失败"));
+    } finally {
+      setAddressesBusy(false);
+    }
+  }
+  async function loadStorageUsage() {
+    setStorageBusy(true);
+    setStorageError("");
+    try {
+      setStorageUsage(await resourcesClient.rdsStorageUsage(account.id, regionId, String(item.DBInstanceId || "")));
+    } catch (error) {
+      setStorageUsage(null);
+      setStorageError(platformErrorMessage(error, "获取数据库空间失败"));
+    } finally {
+      setStorageBusy(false);
+    }
+  }
+  async function copyConnectionAddress(address: RdsConnectionAddress) {
+    const value = address.port ? `${address.connectionString}:${address.port}` : address.connectionString;
+    const key = `${address.connectionString}:${address.port || ""}:${address.ipType || ""}`;
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopyError("");
+      setCopiedAddress(key);
+      window.setTimeout(() => setCopiedAddress((current) => current === key ? null : current), 1600);
+    } catch {
+      setCopiedAddress(null);
+      setCopyError("复制失败，请检查剪贴板权限后重试");
+    }
+  }
+  useEffect(() => {
+    if (canReadStorage) {
+      void loadStorageUsage();
+      void loadConnectionAddresses();
+    }
+  }, [account.id, canReadStorage, regionId, item.DBInstanceId]);
   async function load(kind: "db" | "accounts") {
     setBusy(true);
     if (kind === "accounts") setAccountError("");
@@ -77,13 +130,39 @@ export function RdsCard({
           <span>实例规格：</span>
           {displayValue(item.DBInstanceClass)}
         </div>
-        <div>
+        <div className="rds-storage-field">
           <span>存储空间：</span>
-          {displayValue(item.DBInstanceStorage)} GB
+          <span className="rds-storage-value">{canReadStorage
+            ? storageBusy ? "读取中…" : storageUsage
+              ? `总量 ${storageUsage.totalGb} GB，已用 ${(storageUsage.usedBytes / 1024 ** 3).toFixed(2)} GB，剩余 ${(storageUsage.remainingBytes / 1024 ** 3).toFixed(2)} GB`
+              : storageError || "暂无空间数据"
+            : `${displayValue(item.DBInstanceStorage)} GB`}</span>
+          {canReadStorage && <button className="rds-refresh-button" disabled={storageBusy} onClick={() => void loadStorageUsage()} title="刷新数据库空间" aria-label="刷新数据库空间"><RefreshCw size={14} className={storageBusy ? "spin" : undefined} /></button>}
         </div>
-        <div>
-          <span>连接地址：</span>
-          {displayValue(item.ConnectionString)}
+        <div className="rds-address-field">
+          <div className="rds-address-heading">
+            <span>连接地址</span>
+            {canReadStorage && <button className="rds-refresh-button" disabled={addressesBusy} onClick={() => void loadConnectionAddresses()} title="刷新全部连接地址" aria-label="刷新全部连接地址"><RefreshCw size={14} className={addressesBusy ? "spin" : undefined} /></button>}
+          </div>
+          <div className="rds-address-content">
+          {canReadStorage ? <>
+            {addressesBusy ? <div className="rds-address-state">正在读取连接地址…</div> : <div className="rds-endpoint-list">
+              {(connectionAddresses?.length ? connectionAddresses : item.ConnectionString ? [{ connectionString: String(item.ConnectionString), port: item.Port as string | number | null, ipType: null, connectionStringType: null }] : []).map((address) => (
+                <div className="rds-endpoint" key={`${address.connectionString}:${address.port || ""}:${address.ipType || ""}`}>
+                  <span className="rds-endpoint-kind">{[address.ipType === "Public" ? "外网" : ["Private", "Inner", "Intranet"].includes(address.ipType || "") ? "内网" : address.ipType, address.connectionStringType === "ReadWriteSplitting" ? "读写分离" : address.connectionStringType === "Normal" ? "普通" : address.connectionStringType].filter(Boolean).join(" · ") || "连接地址"}</span>
+                  <code title={address.connectionString}>{address.connectionString}</code>
+                  {address.port && <span className="rds-endpoint-port">端口 {address.port}</span>}
+                  <button type="button" className="rds-endpoint-copy" onClick={() => void copyConnectionAddress(address)} title={copiedAddress === `${address.connectionString}:${address.port || ""}:${address.ipType || ""}` ? "已复制（含端口）" : "复制连接地址（含端口）"} aria-label={`复制连接地址 ${address.connectionString}${address.port ? `，端口 ${address.port}` : ""}`}>
+                    {copiedAddress === `${address.connectionString}:${address.port || ""}:${address.ipType || ""}` ? <Check size={14} /> : <Copy size={14} />}
+                  </button>
+                </div>
+              ))}
+              {!connectionAddresses?.length && !item.ConnectionString && !addressesError && <div className="rds-address-state">暂无连接地址</div>}
+              {addressesError && <small className="rds-endpoint-error">其他连接地址未能获取：{addressesError}</small>}
+              {copyError && <small className="rds-endpoint-error" role="status">{copyError}</small>}
+            </div>}
+          </> : <code className="rds-single-address">{displayValue(item.ConnectionString)}</code>}
+          </div>
         </div>
         <div>
           <span>端口：</span>

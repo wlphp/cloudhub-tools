@@ -50,6 +50,16 @@ pub(crate) async fn list_rds_databases(id: i64, region_id: String, instance_id: 
 }
 
 #[tauri::command]
+pub(crate) async fn rds_storage_usage(id: i64, region_id: String, instance_id: String) -> PlatformResult<Value> {
+    crate::cloud::aliyun::rds_storage_usage(id, &region_id, &instance_id).await.map_err(Into::into)
+}
+
+#[tauri::command]
+pub(crate) async fn rds_connection_addresses(id: i64, region_id: String, instance_id: String) -> PlatformResult<Vec<Value>> {
+    crate::cloud::aliyun::rds_connection_addresses(id, &region_id, &instance_id).await.map_err(Into::into)
+}
+
+#[tauri::command]
 pub(crate) async fn list_rds_accounts(id: i64, region_id: String, instance_id: String) -> PlatformResult<Vec<Value>> {
     if account_cloud_type(id)? == "tencent" { return crate::cloud::tencent::list_rds_accounts(id, &region_id, &instance_id).await.map_err(Into::into); }
     crate::cloud::aliyun::list_rds_accounts(id, &region_id, &instance_id).await.map_err(Into::into)
