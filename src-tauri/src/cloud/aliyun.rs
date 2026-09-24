@@ -145,6 +145,52 @@ pub(crate) async fn list_rds_databases(id: i64, region_id: &str, instance_id: &s
     Ok(crate::array_at(&result, &["Databases", "Database"]).into_iter().cloned().collect())
 }
 
+pub(crate) async fn rds_storage_usage(id: i64, region_id: &str, instance_id: &str) -> Result<Value, String> {
+    if region_id.trim().is_empty() || instance_id.trim().is_empty() {
+        return Err("RDS 区域和实例 ID 不能为空".into());
+    }
+    if crate::account_cloud_type(id)? != "aliyun" { return Err("当前账号不是阿里云账号".into()); }
+    let (access_key_id, access_key_secret) = crate::account_credentials(id)?;
+    let result = request("rds.aliyuncs.com", "2014-08-15", "DescribeDBInstanceAttribute", crate::string_params(&[("RegionId", region_id.to_string()), ("DBInstanceId", instance_id.to_string())]), &access_key_id, &access_key_secret).await?;
+    let attribute = crate::array_at(&result, &["Items", "DBInstanceAttribute"]).into_iter().next()
+        .or_else(|| result.get("DBInstanceAttribute").and_then(Value::as_object).map(|_| &result["DBInstanceAttribute"]))
+        .ok_or_else(|| "阿里云未返回 RDS 实例空间信息".to_string())?;
+    let total_gb = attribute.get("DBInstanceStorage").and_then(Value::as_f64)
+        .or_else(|| attribute.get("DBInstanceStorage").and_then(Value::as_str).and_then(|value| value.parse::<f64>().ok()))
+        .ok_or_else(|| "阿里云未返回 RDS 总空间".to_string())?;
+    let used_bytes = attribute.get("DBInstanceDiskUsed").and_then(Value::as_f64)
+        .or_else(|| attribute.get("DBInstanceDiskUsed").and_then(Value::as_str).and_then(|value| value.parse::<f64>().ok()))
+        .ok_or_else(|| "阿里云未返回 RDS 已用空间".to_string())?;
+    if !total_gb.is_finite() || total_gb < 0.0 || !used_bytes.is_finite() || used_bytes < 0.0 {
+        return Err("阿里云返回了无效的 RDS 空间数据".into());
+    }
+    let total_bytes = total_gb * 1024_f64.powi(3);
+    Ok(json!({"totalGb": total_gb, "usedBytes": used_bytes, "remainingBytes": (total_bytes - used_bytes).max(0.0)}))
+}
+
+pub(crate) async fn rds_connection_addresses(id: i64, region_id: &str, instance_id: &str) -> Result<Vec<Value>, String> {
+    if region_id.trim().is_empty() || instance_id.trim().is_empty() {
+        return Err("RDS 区域和实例 ID 不能为空".into());
+    }
+    if crate::account_cloud_type(id)? != "aliyun" { return Err("当前账号不是阿里云账号".into()); }
+    let (access_key_id, access_key_secret) = crate::account_credentials(id)?;
+    let result = request("rds.aliyuncs.com", "2014-08-15", "DescribeDBInstanceNetInfo", crate::string_params(&[("DBInstanceId", instance_id.to_string())]), &access_key_id, &access_key_secret).await?;
+    let items = crate::array_at(&result, &["DBInstanceNetInfos", "DBInstanceNetInfo"]);
+    let items = if items.is_empty() { crate::array_at(&result, &["dBInstanceNetInfos", "dBInstanceNetInfo"]) } else { items };
+    let items = if items.is_empty() { crate::array_at(&result, &["DBInstanceNetInfos"]) } else { items };
+    let items = if items.is_empty() { crate::array_at(&result, &["dBInstanceNetInfos"]) } else { items };
+    Ok(items.into_iter().filter_map(|item| {
+        let address = item.get("ConnectionString").or_else(|| item.get("connectionString"))
+            .and_then(Value::as_str).filter(|value| !value.is_empty())?;
+        Some(json!({
+            "connectionString": address,
+            "port": item.get("Port").or_else(|| item.get("port")),
+            "ipType": item.get("IPType").or_else(|| item.get("iPType")),
+            "connectionStringType": item.get("ConnectionStringType").or_else(|| item.get("connectionStringType"))
+        }))
+    }).collect())
+}
+
 pub(crate) async fn list_rds_accounts(id: i64, region_id: &str, instance_id: &str) -> Result<Vec<Value>, String> {
     if crate::account_cloud_type(id)? != "aliyun" { return Err("当前账号不是阿里云账号".into()); }
     let (access_key_id, access_key_secret) = crate::account_credentials(id)?; let result = request("rds.aliyuncs.com", "2014-08-15", "DescribeAccounts", crate::string_params(&[("RegionId", region_id.to_string()), ("DBInstanceId", instance_id.to_string())]), &access_key_id, &access_key_secret).await?;

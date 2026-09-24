@@ -7,6 +7,19 @@ export type AssetSyncResult = {
   errors: string[];
 };
 
+export type RdsStorageUsage = {
+  totalGb: number;
+  usedBytes: number;
+  remainingBytes: number;
+};
+
+export type RdsConnectionAddress = {
+  connectionString: string;
+  port: number | string | null;
+  ipType: string | null;
+  connectionStringType: string | null;
+};
+
 export const resourcesClient = {
   listLocal(filters: { accountId?: number; resourceType?: string } = {}): Promise<LocalAsset[]> {
     return invokeOrWeb("list_local_assets", {
@@ -66,6 +79,14 @@ export const resourcesClient = {
         instance: instanceId,
       }),
     });
+  },
+
+  rdsStorageUsage(accountId: number, regionId: string, instanceId: string): Promise<RdsStorageUsage> {
+    return nativeOnly("rds_storage_usage", { id: accountId, regionId, instanceId });
+  },
+
+  rdsConnectionAddresses(accountId: number, regionId: string, instanceId: string): Promise<RdsConnectionAddress[]> {
+    return nativeOnly("rds_connection_addresses", { id: accountId, regionId, instanceId });
   },
 
   redisAccounts(accountId: number, regionId: string, instanceId: string): Promise<Record<string, unknown>[]> {
