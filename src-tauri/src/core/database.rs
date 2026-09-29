@@ -1,8 +1,8 @@
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 
 use super::paths::data_dir;
 
-const CURRENT_SCHEMA_VERSION: i64 = 5;
+const CURRENT_SCHEMA_VERSION: i64 = 8;
 
 fn migrate_connection(conn: &mut Connection) -> Result<(), String> {
     let version: i64 = conn
@@ -66,6 +66,40 @@ fn migrate_connection(conn: &mut Connection) -> Result<(), String> {
             .map_err(|error| error.to_string())?;
         transaction.pragma_update(None, "user_version", CURRENT_SCHEMA_VERSION).map_err(|error| error.to_string())?;
     }
+    if version < 6 {
+        transaction.execute_batch("CREATE TABLE IF NOT EXISTS frp_clients (managed_host_id INTEGER PRIMARY KEY, server_addr TEXT NOT NULL, server_port INTEGER NOT NULL, token_ciphertext TEXT, admin_user TEXT NOT NULL, admin_password_ciphertext TEXT NOT NULL, admin_port INTEGER NOT NULL, proxies_json TEXT NOT NULL DEFAULT '[]', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, FOREIGN KEY(managed_host_id) REFERENCES managed_hosts(id) ON DELETE CASCADE);")
+            .map_err(|error| error.to_string())?;
+        transaction.pragma_update(None, "user_version", CURRENT_SCHEMA_VERSION).map_err(|error| error.to_string())?;
+    }
+    if version < 7 {
+        transaction.execute_batch("CREATE TABLE IF NOT EXISTS frp_local_client (id INTEGER PRIMARY KEY CHECK(id = 1), server_addr TEXT NOT NULL, server_port INTEGER NOT NULL, token_ciphertext TEXT, admin_user TEXT NOT NULL, admin_password_ciphertext TEXT NOT NULL, admin_port INTEGER NOT NULL, proxies_json TEXT NOT NULL DEFAULT '[]', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL); INSERT OR IGNORE INTO frp_local_client(id, server_addr, server_port, token_ciphertext, admin_user, admin_password_ciphertext, admin_port, proxies_json, created_at, updated_at) SELECT 1, server_addr, server_port, token_ciphertext, admin_user, admin_password_ciphertext, admin_port, proxies_json, created_at, updated_at FROM frp_clients ORDER BY updated_at DESC LIMIT 1;")
+            .map_err(|error| error.to_string())?;
+        transaction.pragma_update(None, "user_version", CURRENT_SCHEMA_VERSION).map_err(|error| error.to_string())?;
+    }
+    if version < 8 {
+        transaction.execute_batch("CREATE TABLE IF NOT EXISTS frp_local_settings (id INTEGER PRIMARY KEY CHECK(id = 1), admin_user TEXT NOT NULL, admin_password_ciphertext TEXT NOT NULL, updated_at INTEGER NOT NULL);
+          CREATE TABLE IF NOT EXISTS frp_local_servers (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, server_addr TEXT NOT NULL, server_port INTEGER NOT NULL, token_ciphertext TEXT, admin_port INTEGER NOT NULL UNIQUE, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+          CREATE TABLE IF NOT EXISTS frp_local_proxies (id INTEGER PRIMARY KEY AUTOINCREMENT, server_id INTEGER NOT NULL, name TEXT NOT NULL, kind TEXT NOT NULL, local_ip TEXT NOT NULL, local_port INTEGER NOT NULL, remote_port INTEGER, custom_domain TEXT, enabled INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, FOREIGN KEY(server_id) REFERENCES frp_local_servers(id) ON DELETE CASCADE, UNIQUE(server_id, name));
+          CREATE INDEX IF NOT EXISTS idx_frp_local_proxies_server ON frp_local_proxies(server_id);
+          INSERT OR IGNORE INTO frp_local_settings(id,admin_user,admin_password_ciphertext,updated_at) SELECT 1,admin_user,admin_password_ciphertext,updated_at FROM frp_local_client WHERE id=1;
+          INSERT OR IGNORE INTO frp_local_servers(id,name,server_addr,server_port,token_ciphertext,admin_port,created_at,updated_at) SELECT 1,server_addr || ':' || server_port,server_addr,server_port,token_ciphertext,admin_port,created_at,updated_at FROM frp_local_client WHERE id=1;")
+            .map_err(|error| error.to_string())?;
+        let legacy: Option<(String, i64)> = transaction.query_row("SELECT proxies_json,updated_at FROM frp_local_client WHERE id=1", [], |row| Ok((row.get(0)?, row.get(1)?))).optional().map_err(|error| error.to_string())?;
+        if let Some((json, updated_at)) = legacy {
+            let proxies: Vec<serde_json::Value> = serde_json::from_str(&json).map_err(|error| format!("迁移 FRP 规则失败: {error}"))?;
+            for proxy in proxies {
+                let name = proxy.get("name").and_then(|v| v.as_str()).ok_or("旧 FRP 规则缺少名称")?;
+                let kind = proxy.get("kind").and_then(|v| v.as_str()).ok_or("旧 FRP 规则缺少类型")?;
+                let local_ip = proxy.get("localIp").and_then(|v| v.as_str()).ok_or("旧 FRP 规则缺少本地地址")?;
+                let local_port = proxy.get("localPort").and_then(|v| v.as_i64()).ok_or("旧 FRP 规则缺少本地端口")?;
+                let remote_port = proxy.get("remotePort").and_then(|v| v.as_i64());
+                let custom_domain = proxy.get("customDomain").and_then(|v| v.as_str());
+                let enabled = proxy.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true);
+                transaction.execute("INSERT OR IGNORE INTO frp_local_proxies(server_id,name,kind,local_ip,local_port,remote_port,custom_domain,enabled,created_at,updated_at) VALUES(1,?1,?2,?3,?4,?5,?6,?7,?8,?8)", rusqlite::params![name,kind,local_ip,local_port,remote_port,custom_domain,enabled,updated_at]).map_err(|error| error.to_string())?;
+            }
+        }
+        transaction.pragma_update(None, "user_version", CURRENT_SCHEMA_VERSION).map_err(|error| error.to_string())?;
+    }
     transaction.commit().map_err(|error| format!("提交 SQLite 迁移失败: {error}"))?;
 
     Ok(())
@@ -93,7 +127,7 @@ pub fn open_db() -> Result<Connection, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::migrate_connection;
+    use super::{migrate_connection, CURRENT_SCHEMA_VERSION};
     use rusqlite::Connection;
 
     #[test]
@@ -110,7 +144,9 @@ mod tests {
         let mut conn = conn;
         migrate_connection(&mut conn).unwrap();
         let version: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0)).unwrap();
-        assert_eq!(version, 5);
+        assert_eq!(version, CURRENT_SCHEMA_VERSION);
+        let frp_table: i64 = conn.query_row("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='frp_clients'", [], |row| row.get(0)).unwrap();
+        assert_eq!(frp_table, 1);
         let managed_columns: Vec<String> = conn.prepare("PRAGMA table_info(managed_hosts)").unwrap().query_map([], |row| row.get(1)).unwrap().collect::<Result<_, _>>().unwrap();
         for column in ["platform", "auth_method", "private_key_ciphertext", "key_passphrase_ciphertext", "group_name", "tags", "source_account_id", "source_asset_key"] {
             assert!(managed_columns.iter().any(|value| value == column), "missing migrated column {column}");

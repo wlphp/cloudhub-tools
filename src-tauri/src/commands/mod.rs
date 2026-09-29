@@ -16,3 +16,4 @@ pub mod providers;
 pub mod summary;
 pub mod certificates;
 pub mod flow;
+pub mod frp;
