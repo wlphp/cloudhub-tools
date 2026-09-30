@@ -2,8 +2,8 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { CircleAlert, ExternalLink, LoaderCircle, Network, Plus, RefreshCw, Save, Trash2, Server, Monitor, Play, Square, Settings2, Download, FileText, FolderOpen, Eye, EyeOff, Cable, ArrowRight, Pencil, X } from "lucide-react";
 import { frpClient } from "../../platform/clients";
-import type { FrpInstallProgress, FrpRelease } from "../../platform/clients/frp";
-import { runningInTauri } from "../../platform/api";
+import type { FrpInstallProgress, FrpRelease, FrpPortConflict, FrpPortOwner } from "../../platform/clients/frp";
+import { runningInTauri, normalizePlatformError } from "../../platform/api";
 import type { FrpGlobalSettingsInput, FrpProxy, FrpRuntime, FrpServer, FrpServerInput } from "../../shared/types";
 import "../flow/flow.css";
 import "./frp.css";
@@ -55,6 +55,9 @@ export function FrpPanel() {
   const [busy, setBusy] = useState("");
   const [feedback, setFeedback] = useState("");
   const [error, setError] = useState("");
+  const [portConflict, setPortConflict] = useState<FrpPortConflict | null>(null);
+  const selectedIdRef = useRef(selectedId);
+  selectedIdRef.current = selectedId;
 
   const selected = servers.find((server) => server.id === selectedId) ?? null;
   const selectedRuntime = runtime.find((state) => state.serverId === selectedId) ?? null;
@@ -139,18 +142,53 @@ export function FrpPanel() {
     if (!runningInTauri) return;
     let active = true;
     setLocalPaths(null);
+    setPortConflict(null);
     void frpClient.localPaths(selectedId).then((paths) => {
       if (active) setLocalPaths(paths);
     }).catch(() => { if (active) setError("读取本机 FRP 文件位置失败，请刷新页面重试"); });
     return () => { active = false; };
   }, [selectedId]);
 
-  const run = async (label: string, operation: () => Promise<void>) => {
+  const run = async (label: string, operation: () => Promise<void | false>) => {
     if (busy) return;
-    setBusy(label); setError(""); setFeedback("");
-    try { await operation(); setFeedback(`${label}完成`); }
-    catch (reason) { setError(`${label}失败：${String(reason)}`); try { setRuntime(await frpClient.runtime()); } catch { /* 保留原操作错误 */ } }
+    setBusy(label); setError(""); setFeedback(""); setPortConflict(null);
+    try { if (await operation() !== false) setFeedback(`${label}完成`); }
+    catch (reason) {
+      const failure = normalizePlatformError(reason);
+      setError(`${label}失败：${failure.message}`);
+      if (failure.code === "frp-port-conflict" && selectedId !== null) {
+        try {
+          const conflict = await frpClient.portConflict(selectedId);
+          if (selectedIdRef.current === selectedId) setPortConflict(conflict);
+        } catch { /* 保留明确的端口冲突提示 */ }
+      }
+      setLogsReload((value) => value + 1);
+      try { setRuntime(await frpClient.runtime()); } catch { /* 保留原操作错误 */ }
+    }
     finally { setBusy(""); }
+  };
+
+  const terminateStale = (owner: FrpPortOwner) => {
+    if (!portConflict || portConflict.serverId !== selectedId) return;
+    if (!window.confirm(`结束占用本机端口 ${portConflict.port} 的旧 frpc 进程（PID ${owner.pid}）？这会中断该旧进程的全部穿透规则。结束后可重新点击启动连接。`)) return;
+    const serverId = portConflict.serverId;
+    void run("结束旧 frpc 进程", async () => {
+      await frpClient.terminateStale(serverId, owner);
+      const conflict = await frpClient.portConflict(serverId);
+      if (selectedIdRef.current === serverId) setPortConflict(conflict.owners.length ? conflict : null);
+      setRuntime(await frpClient.runtime());
+      setLogsReload((value) => value + 1);
+    });
+  };
+
+  const selectTlsFile = (kind: "certificate" | "private-key") => {
+    const plugin = proxyDraft?.plugin;
+    if (!plugin) return;
+    void run(kind === "certificate" ? "选择证书文件" : "选择私钥文件", async () => {
+      const path = await frpClient.selectTlsFile(kind);
+      if (!path) return false;
+      setProxyDraft((current) => current?.plugin === plugin ? { ...current, plugin: { ...plugin, [kind === "certificate" ? "crtPath" : "keyPath"]: path } } : current);
+    });
   };
 
   const hidePassword = () => {
@@ -289,7 +327,10 @@ export function FrpPanel() {
     const name = proxyDraft.name.trim();
     if (!name) { setError("请填写穿透规则名称"); return; }
     if (serverDraft.proxies.some((proxy) => proxy.name === name && proxy.id !== editingProxyId)) { setError("当前服务端下规则名称不能重复"); return; }
-    const next = { ...proxyDraft, id: editingProxyId, serverId: selectedId, name, localIp: proxyDraft.localIp.trim(), customDomain: proxyDraft.kind === "http" || proxyDraft.kind === "https" ? proxyDraft.customDomain?.trim() || null : null, remotePort: proxyDraft.kind === "tcp" || proxyDraft.kind === "udp" ? proxyDraft.remotePort : null };
+    const webRule = proxyDraft.kind === "http" || proxyDraft.kind === "https";
+    const customDomains = webRule ? (proxyDraft.customDomain ?? "").split(/[,，\s]+/).filter(Boolean).map((domain) => domain.toLowerCase()) : [];
+    const plugin = proxyDraft.kind === "https" && proxyDraft.plugin ? { ...proxyDraft.plugin, localAddr: proxyDraft.plugin.localAddr.trim(), crtPath: proxyDraft.plugin.crtPath.trim(), keyPath: proxyDraft.plugin.keyPath.trim() } : null;
+    const next = { ...proxyDraft, id: editingProxyId, serverId: selectedId, name, localIp: proxyDraft.localIp.trim(), customDomain: customDomains[0] ?? null, customDomains, plugin, remotePort: webRule ? null : proxyDraft.remotePort };
     persistRules(editingProxyId ? serverDraft.proxies.map((proxy) => proxy.id === editingProxyId ? next : proxy) : [...serverDraft.proxies, next], () => {
       setProxyDraft(null); setEditingProxyId(null);
     });
@@ -325,6 +366,13 @@ export function FrpPanel() {
     <header className="flow-page-header"><div><span className="frp-eyebrow"><Network size={15} /> 网络服务</span><h1>内网穿透 <span className="frp-host-tag"><Monitor size={13} />当前电脑</span></h1><p>将本地服务连接到公网，集中管理 FRP 连接与穿透规则。</p></div>{runningInTauri && <div className="frp-actions"><button type="button" className="secondary" disabled={!!busy} onClick={refreshStatus}><RefreshCw size={15} />刷新状态</button><button type="button" className="primary" disabled={!!busy} onClick={addServer}><Plus size={15} />新增服务端</button></div>}</header>
     {!runningInTauri && <div className="flow-feedback error" role="status"><CircleAlert size={16} />内网穿透仅在桌面客户端可用。</div>}
     {error && <div className="flow-feedback error" role="alert"><CircleAlert size={16} />{error}</div>}
+    {portConflict && portConflict.serverId === selectedId && <div className="frp-card" role="status">
+      <strong>本机客户端面板端口 {portConflict.port} 被占用</strong>
+      {portConflict.owners.length ? portConflict.owners.map((owner) => <div className="frp-status-row" key={owner.pid}>
+        <span>PID {owner.pid} · {owner.canTerminate ? "当前连接的残留 frpc 进程" : "其他程序或仍由客户端管理的进程，请在对应程序中停止"}</span>
+        {owner.canTerminate && <button type="button" className="secondary" disabled={!!busy} onClick={() => terminateStale(owner)}><Square size={14} />结束旧 frpc 进程</button>}
+      </div>) : <p>占用进程已退出，可重新点击启动连接。</p>}
+    </div>}
     {feedback && <div className="flow-feedback success" role="status">{feedback}</div>}
     {runningInTauri && <>
       <div className="frp-overview"><span>frpc：<strong>{runtime[0]?.version ?? localPaths?.version ?? ((runtime[0]?.installed || localPaths?.installed) ? "已安装 · 版本未知" : localPaths ? "未安装" : "检查中")}</strong></span><span>运行连接：<strong>{runtime.filter((state) => state.running).length}/{servers.length}</strong></span><span>运行规则：<strong>{runtime.reduce((total, state) => total + state.proxies.filter((proxy) => proxy.status === "running").length, 0)}</strong></span><span>配置：<strong>{servers.some((server) => !runtime.find((state) => state.serverId === server.id)?.configCurrent) ? "有待应用更改" : "已同步"}</strong></span><span className="frp-install-note"><span>GitHub 官方下载 <ArrowRight size={12} aria-hidden="true" />SHA-256 校验<ArrowRight size={12} aria-hidden="true" />解压安装</span><small>自动匹配 Windows 架构 · 可选择稳定版本 · 保留已有配置</small></span><button type="button" className="secondary" onClick={() => void run("打开 FRP GitHub", () => openUrl("https://github.com/fatedier/frp"))}><ExternalLink size={14} />GitHub · fatedier/frp</button><button type="button" disabled={!!busy} aria-expanded={installerOpen} aria-controls="frp-installer" onClick={() => setInstallerOpen(!installerOpen)}><Download size={15} />安装 / 更新</button></div>
@@ -384,12 +432,12 @@ export function FrpPanel() {
               const status = !proxy.enabled ? "disabled" : draftDirty || !selectedRuntime?.configCurrent ? "pending" : state?.status === "running" ? "online" : state?.status === "error" ? "error" : "offline";
               const statusText = !proxy.enabled ? "停用" : status === "pending" ? "待应用" : status === "online" ? "运行中" : status === "error" ? "连接失败" : selectedRuntime?.running ? "未注册" : "未运行";
               const address = selected.serverAddr.includes(":") ? `[${selected.serverAddr}]` : selected.serverAddr;
-              const entry = proxy.kind === "tcp" || proxy.kind === "udp" ? proxy.remotePort ? `${address}:${proxy.remotePort}` : "—" : proxy.customDomain || "—";
+              const entry = proxy.kind === "tcp" || proxy.kind === "udp" ? proxy.remotePort ? `${address}:${proxy.remotePort}` : "—" : proxy.customDomains?.length ? proxy.customDomains.join(" / ") : proxy.customDomain || "—";
               const localAddress = proxy.localIp.includes(":") ? `[${proxy.localIp}]` : proxy.localIp;
               return <article className="frp-rule-row" role="listitem" key={proxy.id ?? proxy.name}>
-                <div className="frp-rule-identity"><span className="frp-rule-icon"><Cable size={19} aria-hidden="true" /></span><div><strong>{proxy.name}</strong><div className="frp-rule-meta"><span className="frp-rule-protocol">{proxy.kind.toUpperCase()}</span><span className={`frp-rule-state ${status}`}><span className="frp-rule-state-dot" aria-hidden="true" />{statusText}</span></div></div></div>
+                <div className="frp-rule-identity"><span className="frp-rule-icon"><Cable size={19} aria-hidden="true" /></span><div><strong>{proxy.name}</strong><div className="frp-rule-meta"><span className="frp-rule-protocol">{proxy.plugin ? "HTTPS → HTTP" : proxy.kind.toUpperCase()}</span><span className={`frp-rule-state ${status}`}><span className="frp-rule-state-dot" aria-hidden="true" />{statusText}</span></div></div></div>
                 <div className="frp-rule-route"><div><small>本地目标</small><code>{localAddress}:{proxy.localPort}</code></div><ArrowRight size={18} className="frp-rule-arrow" aria-hidden="true" /><div><small>公网入口</small><code>{entry}</code></div></div>
-                <div className="frp-rule-actions"><button type="button" className="secondary" disabled={!ruleUrl || !proxy.enabled || state?.status !== "running" || draftDirty || !selectedRuntime?.configCurrent || !!busy} aria-label={`打开规则 ${proxy.name}`} title={!ruleUrl ? "此规则无法用浏览器打开" : proxy.kind === "tcp" ? `通过 HTTP 打开 ${ruleUrl}，仅适用于网页服务` : `打开 ${ruleUrl}`} onClick={() => ruleUrl && void run("打开规则入口", () => openUrl(ruleUrl))}><ExternalLink size={14} />打开</button><button type="button" className="secondary" disabled={!!busy} onClick={() => { setProxyDraft({ ...proxy }); setEditingProxyId(proxy.id ?? null); }}><Pencil size={14} />编辑</button><button type="button" className="secondary" disabled={!!busy} title={`删除规则 ${proxy.name}`} aria-label={`删除规则 ${proxy.name}`} onClick={() => { if (window.confirm(`删除规则“${proxy.name}”？`)) persistRules(serverDraft.proxies.filter((item) => proxy.id ? item.id !== proxy.id : item.name !== proxy.name)); }}><Trash2 size={14} /></button></div>
+                <div className="frp-rule-actions"><button type="button" className="secondary" disabled={!ruleUrl || !proxy.enabled || state?.status !== "running" || draftDirty || !selectedRuntime?.configCurrent || !!busy} aria-label={`打开规则 ${proxy.name}`} title={!ruleUrl ? "此规则无法用浏览器打开" : proxy.kind === "tcp" ? `通过 HTTP 打开 ${ruleUrl}，仅适用于网页服务` : `打开 ${ruleUrl}`} onClick={() => ruleUrl && void run("打开规则入口", () => openUrl(ruleUrl))}><ExternalLink size={14} />打开</button><button type="button" className="secondary" disabled={!!busy} onClick={() => { setProxyDraft({ ...proxy, customDomain: proxy.customDomains?.length ? proxy.customDomains.join(", ") : proxy.customDomain }); setEditingProxyId(proxy.id ?? null); }}><Pencil size={14} />编辑</button><button type="button" className="secondary" disabled={!!busy} title={`删除规则 ${proxy.name}`} aria-label={`删除规则 ${proxy.name}`} onClick={() => { if (window.confirm(`删除规则“${proxy.name}”？`)) persistRules(serverDraft.proxies.filter((item) => proxy.id ? item.id !== proxy.id : item.name !== proxy.name)); }}><Trash2 size={14} /></button></div>
               </article>;
             })}{!serverDraft.proxies.length && <p className="frp-empty">此服务端暂无穿透规则。</p>}</div>
             <div className="frp-rules-bottom">
@@ -423,9 +471,19 @@ export function FrpPanel() {
     }}>
       <header className="frp-editor-header"><span className="frp-editor-icon"><Cable size={20} /></span><div><h2 id="frp-rule-editor-title">{editingProxyId ? "编辑穿透规则" : "新增穿透规则"}</h2><p>将本地服务映射到公网入口</p></div><button type="button" className="secondary" disabled={!!busy} aria-label="关闭规则编辑器" title="关闭" onClick={() => setProxyDraft(null)}><X size={17} /></button></header>
       <div className="frp-editor-body">
-        <div className="frp-form-grid frp-editor-basics"><label>规则名称<input autoFocus required value={proxyDraft.name} onChange={(event) => setProxyDraft({ ...proxyDraft, name: event.target.value })} placeholder="例如：本地开发站点" /></label><label>协议类型<select value={proxyDraft.kind} onChange={(event) => setProxyDraft({ ...proxyDraft, kind: event.target.value as FrpProxy["kind"], remotePort: null, customDomain: null })}><option value="tcp">TCP</option><option value="udp">UDP</option><option value="http">HTTP</option><option value="https">HTTPS</option></select></label></div>
+        <div className="frp-form-grid frp-editor-basics"><label>规则名称<input autoFocus required value={proxyDraft.name} onChange={(event) => setProxyDraft({ ...proxyDraft, name: event.target.value })} placeholder="例如：本地开发站点" /></label><label>协议类型<select value={proxyDraft.kind} onChange={(event) => setProxyDraft({ ...proxyDraft, kind: event.target.value as FrpProxy["kind"], remotePort: null, customDomain: null, customDomains: [], plugin: null })}><option value="tcp">TCP</option><option value="udp">UDP</option><option value="http">HTTP</option><option value="https">HTTPS</option></select></label></div>
         <section className="frp-editor-section"><h3><Monitor size={14} />本地目标</h3><div className="frp-form-grid frp-editor-address"><label>本地 IP / 域名<input required value={proxyDraft.localIp} onChange={(event) => setProxyDraft({ ...proxyDraft, localIp: event.target.value })} /></label><label>本地端口<input required type="number" min="1" max="65535" value={proxyDraft.localPort || ""} onChange={(event) => setProxyDraft({ ...proxyDraft, localPort: Number(event.target.value) })} /></label></div></section>
-        <section className="frp-editor-section"><h3><ExternalLink size={14} />公网入口</h3><div className="frp-form-grid frp-editor-address">{proxyDraft.kind === "tcp" || proxyDraft.kind === "udp" ? <label>服务端远端端口<input required type="number" min="1" max="65535" value={proxyDraft.remotePort || ""} onChange={(event) => setProxyDraft({ ...proxyDraft, remotePort: Number(event.target.value) })} /></label> : <label>访问域名<input required value={proxyDraft.customDomain || ""} onChange={(event) => setProxyDraft({ ...proxyDraft, customDomain: event.target.value })} placeholder="app.example.com" /></label>}<div className="frp-editor-server"><span>所属服务端</span><strong>{selected?.name}</strong><code>{selected?.serverAddr}</code></div></div></section>
+        <section className="frp-editor-section"><h3><ExternalLink size={14} />公网入口</h3><div className="frp-form-grid frp-editor-address">{proxyDraft.kind === "tcp" || proxyDraft.kind === "udp" ? <label>服务端远端端口<input required type="number" min="1" max="65535" value={proxyDraft.remotePort || ""} onChange={(event) => setProxyDraft({ ...proxyDraft, remotePort: Number(event.target.value) })} /></label> : <label>访问域名（可多个）<input required value={proxyDraft.customDomain || ""} onChange={(event) => setProxyDraft({ ...proxyDraft, customDomain: event.target.value })} placeholder="app.example.com, app2.example.com" /><small>多个域名用逗号或空格分隔，最多 20 个</small></label>}<div className="frp-editor-server"><span>所属服务端</span><strong>{selected?.name}</strong><code>{selected?.serverAddr}</code></div></div></section>
+        {proxyDraft.kind === "https" && <section className="frp-editor-section"><h3><Settings2 size={14} />HTTPS 处理</h3>
+          <div className="frp-form-grid frp-plugin-fields"><label>客户端插件<select value={proxyDraft.plugin?.type ?? "none"} onChange={(event) => setProxyDraft({ ...proxyDraft, plugin: event.target.value === "https2http" ? { type: "https2http", localAddr: `${proxyDraft.localIp.includes(":") ? `[${proxyDraft.localIp}]` : proxyDraft.localIp}:${proxyDraft.localPort || 80}`, crtPath: "", keyPath: "" } : null })}>
+            <option value="none">普通 HTTPS 转发</option><option value="https2http">HTTPS 转 HTTP（https2http）</option>
+          </select></label></div>
+          {proxyDraft.plugin && <><div className="frp-form-grid frp-plugin-fields">
+            <label>插件 HTTP 后端地址<input required value={proxyDraft.plugin.localAddr} onChange={(event) => setProxyDraft({ ...proxyDraft, plugin: { ...proxyDraft.plugin!, localAddr: event.target.value } })} placeholder="127.0.0.1:5012" /></label>
+            <label>证书文件路径（crtPath）<span className="frp-file-picker"><input required maxLength={4096} value={proxyDraft.plugin.crtPath} onChange={(event) => setProxyDraft({ ...proxyDraft, plugin: { ...proxyDraft.plugin!, crtPath: event.target.value } })} placeholder="C:\ssl\fullchain.pem" /><button type="button" className="secondary" disabled={!!busy} aria-label="选择证书文件" onClick={() => selectTlsFile("certificate")}><FolderOpen size={14} />选择文件</button></span></label>
+            <label>私钥文件路径（keyPath）<span className="frp-file-picker"><input required maxLength={4096} value={proxyDraft.plugin.keyPath} onChange={(event) => setProxyDraft({ ...proxyDraft, plugin: { ...proxyDraft.plugin!, keyPath: event.target.value } })} placeholder="C:\ssl\privkey.key" /><button type="button" className="secondary" disabled={!!busy} aria-label="选择私钥文件" onClick={() => selectTlsFile("private-key")}><FolderOpen size={14} />选择文件</button></span></label>
+          </div><p className="frp-logs-hint">填写运行 frpc 的当前电脑上可访问的绝对路径，仅保存文件路径。证书需覆盖上方全部域名；服务端需启用 HTTPS 入口。NAS 或其他主机的路径需先映射到本机。</p></>}
+        </section>}
         <label className="frp-checkbox frp-editor-enabled"><input type="checkbox" checked={proxyDraft.enabled} onChange={(event) => setProxyDraft({ ...proxyDraft, enabled: event.target.checked })} /><span>启用规则<small>保存后，应用服务端配置即可生效</small></span></label>
       </div>
       <footer><button type="button" className="secondary" disabled={!!busy} onClick={() => setProxyDraft(null)}>取消</button><button type="submit" className="primary" disabled={!!busy}><Save size={14} />{busy === "保存穿透规则" ? "保存中…" : "保存规则"}</button></footer>

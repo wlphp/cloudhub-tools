@@ -3,6 +3,8 @@ import { Channel } from "@tauri-apps/api/core";
 import type { FrpGlobalSettings, FrpGlobalSettingsInput, FrpRuntime, FrpServer, FrpServerInput } from "../../shared/types";
 
 export interface FrpRelease { version: string; architecture: string; releaseUrl: string; sha256: string }
+export interface FrpPortOwner { pid: number; canTerminate: boolean; startedAt: string }
+export interface FrpPortConflict { serverId: number; port: number; owners: FrpPortOwner[] }
 export interface FrpInstallProgress {
   stage: "metadata" | "downloading" | "verifying" | "extracting" | "checking" | "installing" | "complete" | "error";
   downloadedBytes: number;
@@ -10,6 +12,9 @@ export interface FrpInstallProgress {
 }
 
 export const frpClient = {
+  selectTlsFile(kind: "certificate" | "private-key"): Promise<string | null> { return nativeOnly("select_frp_tls_file", { kind }); },
+  portConflict(serverId: number): Promise<FrpPortConflict> { return nativeOnly("get_frp_port_conflict", { serverId }); },
+  terminateStale(serverId: number, owner: FrpPortOwner): Promise<void> { return nativeOnly("terminate_stale_frpc", { serverId, pid: owner.pid, startedAt: owner.startedAt }); },
   revealServerPanelPassword(serverId: number): Promise<string> { return nativeOnly("reveal_frp_server_panel_password", { serverId }); },
   openServerPanel(serverId: number): Promise<void> { return nativeOnly("open_frp_server_panel", { serverId }); },
   revealServerToken(serverId: number): Promise<string> { return nativeOnly("reveal_frp_server_token", { serverId }); },

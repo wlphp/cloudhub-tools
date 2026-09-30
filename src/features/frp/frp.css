@@ -92,6 +92,11 @@
 .frp-editor-section{margin-top:20px;padding-top:18px;border-top:1px solid var(--frp-border)}
 .frp-editor-section h3{display:flex;align-items:center;gap:7px;margin:0 0 12px;font-size:11px;font-weight:600;color:var(--frp-muted)}
 .frp-editor-section h3 svg{color:var(--frp-accent)}
+.frp-page .frp-rule-editor .frp-plugin-fields{grid-template-columns:minmax(0,1fr);margin-top:12px}
+.frp-file-picker{display:flex;align-items:center;gap:8px;min-width:0}
+.frp-file-picker input{flex:1;min-width:0;width:0}
+.frp-file-picker button{flex-shrink:0;white-space:nowrap}
+.frp-page .frp-rule-editor label small{color:var(--frp-muted);font-size:10px;line-height:1.5}
 .frp-editor-server{min-width:0;display:flex;flex-direction:column;justify-content:center;gap:5px;color:var(--frp-muted)}
 .frp-editor-server span{font-size:10px}
 .frp-editor-server strong{font-size:12px;font-weight:500;color:var(--frp-text);overflow-wrap:anywhere}

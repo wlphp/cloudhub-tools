@@ -2,7 +2,7 @@ use rusqlite::{Connection, OptionalExtension};
 
 use super::paths::data_dir;
 
-const CURRENT_SCHEMA_VERSION: i64 = 9;
+const CURRENT_SCHEMA_VERSION: i64 = 10;
 
 fn migrate_connection(conn: &mut Connection) -> Result<(), String> {
     let version: i64 = conn
@@ -106,6 +106,20 @@ fn migrate_connection(conn: &mut Connection) -> Result<(), String> {
         ensure_column("frp_local_servers", "panel_password_ciphertext", "TEXT")?;
         transaction.pragma_update(None, "user_version", 9).map_err(|error| error.to_string())?;
     }
+    if version < 10 {
+        ensure_column("frp_local_proxies", "custom_domains_json", "TEXT NOT NULL DEFAULT '[]'")?;
+        ensure_column("frp_local_proxies", "plugin_json", "TEXT")?;
+        let legacy = {
+            let mut statement = transaction.prepare("SELECT id,custom_domain FROM frp_local_proxies WHERE custom_domain IS NOT NULL AND custom_domain != ''").map_err(|error| error.to_string())?;
+            let rows = statement.query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))).map_err(|error| error.to_string())?;
+            rows.collect::<Result<Vec<_>, _>>().map_err(|error| error.to_string())?
+        };
+        for (id, domain) in legacy {
+            let json = serde_json::to_string(&vec![domain]).map_err(|_| "迁移 FRP 域名失败")?;
+            transaction.execute("UPDATE frp_local_proxies SET custom_domains_json=?1 WHERE id=?2", rusqlite::params![json, id]).map_err(|error| error.to_string())?;
+        }
+        transaction.pragma_update(None, "user_version", 10).map_err(|error| error.to_string())?;
+    }
     transaction.commit().map_err(|error| format!("提交 SQLite 迁移失败: {error}"))?;
 
     Ok(())
@@ -164,7 +178,7 @@ mod tests {
     #[test]
     fn upgrades_frp_server_notes_without_changing_existing_connection() {
         let mut conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch("CREATE TABLE frp_local_servers(id INTEGER PRIMARY KEY, name TEXT, token_ciphertext TEXT, admin_port INTEGER); INSERT INTO frp_local_servers VALUES(1,'fixture','encrypted-fixture',7400); PRAGMA user_version=8;").unwrap();
+        conn.execute_batch("CREATE TABLE frp_local_servers(id INTEGER PRIMARY KEY, name TEXT, token_ciphertext TEXT, admin_port INTEGER); CREATE TABLE frp_local_proxies(id INTEGER PRIMARY KEY, custom_domain TEXT); INSERT INTO frp_local_servers VALUES(1,'fixture','encrypted-fixture',7400); PRAGMA user_version=8;").unwrap();
         migrate_connection(&mut conn).unwrap();
         let row: (String, i64, Option<String>, Option<String>, Option<String>) = conn.query_row("SELECT token_ciphertext,admin_port,panel_url,panel_username,panel_password_ciphertext FROM frp_local_servers WHERE id=1", [], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?))).unwrap();
         assert_eq!(row, ("encrypted-fixture".into(),7400,None,None,None));
@@ -181,6 +195,22 @@ mod tests {
         let mut conn = conn;
         let error = migrate_connection(&mut conn).unwrap_err();
         assert!(error.contains("高于当前客户端支持的版本"));
+    }
+
+    #[test]
+    fn upgrades_frp_domains_and_plugin_fields_idempotently() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE frp_local_proxies(id INTEGER PRIMARY KEY,custom_domain TEXT); INSERT INTO frp_local_proxies VALUES(1,'legacy.example.test'),(2,NULL); PRAGMA user_version=9;").unwrap();
+        migrate_connection(&mut conn).unwrap();
+        let values: (String, Option<String>) = conn.query_row("SELECT custom_domains_json,plugin_json FROM frp_local_proxies WHERE id=1", [], |row| Ok((row.get(0)?,row.get(1)?))).unwrap();
+        assert_eq!(serde_json::from_str::<Vec<String>>(&values.0).unwrap(), vec!["legacy.example.test"]);
+        assert!(values.1.is_none());
+        conn.execute("UPDATE frp_local_proxies SET custom_domains_json=?1,plugin_json=?2 WHERE id=1", rusqlite::params!["[\"one.example.test\",\"two.example.test\"]", "{\"type\":\"https2http\"}"]).unwrap();
+        migrate_connection(&mut conn).unwrap();
+        let domains: String = conn.query_row("SELECT custom_domains_json FROM frp_local_proxies WHERE id=1", [], |row| row.get(0)).unwrap();
+        assert_eq!(serde_json::from_str::<Vec<String>>(&domains).unwrap().len(),2);
+        let empty: String = conn.query_row("SELECT custom_domains_json FROM frp_local_proxies WHERE id=2", [], |row| row.get(0)).unwrap();
+        assert_eq!(empty,"[]");
     }
 
     #[test]

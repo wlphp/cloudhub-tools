@@ -21,7 +21,9 @@ impl From<&str> for PlatformError {
 impl PlatformError {
     fn from_message(message: String) -> Self {
         let normalized = message.to_ascii_lowercase();
-        let (code, retryable) = if normalized.contains("取消") || normalized.contains("cancel") {
+        let (code, retryable) = if message == "本机 FRP 面板端口已被占用，请先停止旧连接或占用该端口的进程" {
+            ("frp-port-conflict", false)
+        } else if normalized.contains("取消") || normalized.contains("cancel") {
             ("cancelled", false)
         } else if normalized.contains("不存在") || normalized.contains("not found") {
             ("not-found", false)
@@ -39,6 +41,7 @@ impl PlatformError {
             ("unknown", false)
         };
         let public_message = match code {
+            "frp-port-conflict" => "本机 FRP 面板端口已被占用，请先停止旧连接或占用该端口的进程",
             "authentication" => "认证失败，请检查凭据或登录状态",
             "permission" => "权限不足，请检查当前账号权限",
             "network" => "网络或云服务暂时不可用，请稍后重试",
@@ -72,6 +75,14 @@ pub(crate) fn sanitize_resource_error(message: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{sanitize_resource_error, PlatformError};
+
+    #[test]
+    fn frp_port_conflict_is_not_a_retryable_network_error() {
+        let error = PlatformError::from("本机 FRP 面板端口已被占用，请先停止旧连接或占用该端口的进程");
+        assert_eq!(error.code, "frp-port-conflict");
+        assert!(!error.retryable);
+        assert!(error.message.contains("端口已被占用"));
+    }
 
     #[test]
     fn classifies_network_errors_as_retryable() {
