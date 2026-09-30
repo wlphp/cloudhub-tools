@@ -2,7 +2,7 @@ use rusqlite::{Connection, OptionalExtension};
 
 use super::paths::data_dir;
 
-const CURRENT_SCHEMA_VERSION: i64 = 8;
+const CURRENT_SCHEMA_VERSION: i64 = 9;
 
 fn migrate_connection(conn: &mut Connection) -> Result<(), String> {
     let version: i64 = conn
@@ -100,6 +100,12 @@ fn migrate_connection(conn: &mut Connection) -> Result<(), String> {
         }
         transaction.pragma_update(None, "user_version", CURRENT_SCHEMA_VERSION).map_err(|error| error.to_string())?;
     }
+    if version < 9 {
+        ensure_column("frp_local_servers", "panel_url", "TEXT")?;
+        ensure_column("frp_local_servers", "panel_username", "TEXT")?;
+        ensure_column("frp_local_servers", "panel_password_ciphertext", "TEXT")?;
+        transaction.pragma_update(None, "user_version", 9).map_err(|error| error.to_string())?;
+    }
     transaction.commit().map_err(|error| format!("提交 SQLite 迁移失败: {error}"))?;
 
     Ok(())
@@ -153,6 +159,19 @@ mod tests {
         }
         let index_count: i64 = conn.query_row("SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name IN ('idx_cloud_assets_account_type', 'idx_api_logs_created_at', 'idx_operation_logs_created_at')", [], |row| row.get(0)).unwrap();
         assert_eq!(index_count, 3);
+    }
+
+    #[test]
+    fn upgrades_frp_server_notes_without_changing_existing_connection() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE frp_local_servers(id INTEGER PRIMARY KEY, name TEXT, token_ciphertext TEXT, admin_port INTEGER); INSERT INTO frp_local_servers VALUES(1,'fixture','encrypted-fixture',7400); PRAGMA user_version=8;").unwrap();
+        migrate_connection(&mut conn).unwrap();
+        let row: (String, i64, Option<String>, Option<String>, Option<String>) = conn.query_row("SELECT token_ciphertext,admin_port,panel_url,panel_username,panel_password_ciphertext FROM frp_local_servers WHERE id=1", [], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?))).unwrap();
+        assert_eq!(row, ("encrypted-fixture".into(),7400,None,None,None));
+        conn.execute("UPDATE frp_local_servers SET panel_url='https://example.test/',panel_username='fixture',panel_password_ciphertext='encrypted-fixture' WHERE id=1", []).unwrap();
+        migrate_connection(&mut conn).unwrap();
+        let count: i64 = conn.query_row("SELECT COUNT(*) FROM frp_local_servers WHERE panel_password_ciphertext='encrypted-fixture' AND panel_url='https://example.test/'", [], |row| row.get(0)).unwrap();
+        assert_eq!(count,1);
     }
 
     #[test]

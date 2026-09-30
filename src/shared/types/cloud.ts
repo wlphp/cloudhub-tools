@@ -15,8 +15,8 @@ export type Account = {
 
 export type FlowConnection = { id: number; name: string; edition: "central" | "region"; organizationId?: string | null; domain: string; tokenSaved: boolean; createdAt: number; updatedAt: number };
 export type FrpProxy = { id?: number | null; serverId: number; name: string; kind: "tcp" | "udp" | "http" | "https"; localIp: string; localPort: number; remotePort?: number | null; customDomain?: string | null; enabled: boolean };
-export type FrpServer = { id: number; name: string; serverAddr: string; serverPort: number; tokenSaved: boolean; adminPort: number; proxies: FrpProxy[]; updatedAt: number };
-export type FrpServerInput = { id?: number | null; name: string; serverAddr: string; serverPort: number; token?: string | null; proxies: FrpProxy[] };
+export type FrpServer = { id: number; name: string; serverAddr: string; serverPort: number; tokenSaved: boolean; panelUrl: string | null; panelUsername: string | null; panelPasswordSaved: boolean; adminPort: number; proxies: FrpProxy[]; updatedAt: number };
+export type FrpServerInput = { id?: number | null; name: string; serverAddr: string; serverPort: number; token?: string | null; panelUrl?: string | null; panelUsername?: string | null; panelPassword?: string | null; proxies: FrpProxy[] };
 export type FrpGlobalSettings = { adminUser: string; adminPasswordSaved: boolean };
 export type FrpGlobalSettingsInput = { adminUser: string; adminPassword?: string | null };
 export type FrpProxyRuntime = { name: string; status: "running" | "wait" | "error" | string };
