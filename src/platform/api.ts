@@ -14,6 +14,7 @@ export type PlatformErrorCode =
   | "network"
   | "not-found"
   | "conflict"
+  | "frp-port-conflict"
   | "cancelled"
   | "certificate";
 
@@ -36,6 +37,7 @@ function publicPlatformMessage(code: PlatformErrorCode, rawMessage: string): str
     network: "网络或云服务暂时不可用，请稍后重试",
     "not-found": "目标资源不存在或已被移除",
     conflict: "操作冲突，请刷新后重试",
+    "frp-port-conflict": "本机 FRP 面板端口已被占用，请先停止旧连接或占用该端口的进程",
     cancelled: "操作已取消",
   };
   return messages[code];
@@ -73,7 +75,7 @@ export function normalizePlatformError(reason: unknown): PlatformError {
   }
   if (typeof reason === "object" && reason !== null && "code" in reason && "message" in reason) {
     const structured = reason as { code?: PlatformErrorCode; message?: string; retryable?: boolean };
-    const code = structured.code && ["unknown", "unsupported-in-preview", "validation", "authentication", "permission", "network", "not-found", "conflict", "cancelled", "certificate"].includes(structured.code)
+    const code = structured.code && ["unknown", "unsupported-in-preview", "validation", "authentication", "permission", "network", "not-found", "conflict", "frp-port-conflict", "cancelled", "certificate"].includes(structured.code)
       ? structured.code : "unknown";
     return new PlatformError(String(structured.message), code, structured.retryable === true);
   }

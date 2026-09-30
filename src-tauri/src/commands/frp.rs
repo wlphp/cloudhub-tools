@@ -5,6 +5,26 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{collections::{HashMap, HashSet, VecDeque}, ffi::OsStr, fs, io::Read, net::TcpListener, path::{Path, PathBuf}, process::{Child, Command, Stdio}, sync::{Arc, Mutex}, time::{Duration, Instant}};
 use tauri::{ipc::Channel, State};
+use tauri_plugin_dialog::DialogExt;
+
+#[tauri::command]
+pub(crate) async fn select_frp_tls_file(app: tauri::AppHandle, kind: String) -> PlatformResult<Option<String>> {
+    let (title, extensions) = match kind.as_str() {
+        "certificate" => ("选择 FRP HTTPS 证书文件", vec!["pem", "crt", "cer"]),
+        "private-key" => ("选择 FRP HTTPS 私钥文件", vec!["pem", "key"]),
+        _ => return Err("证书文件类型参数无效".into()),
+    };
+    tauri::async_runtime::spawn_blocking(move || -> Result<Option<String>, String> {
+        let Some(selected) = app.dialog().file().set_title(title).add_filter("PEM 文件", &extensions).blocking_pick_file() else { return Ok(None); };
+        let path = selected.into_path().map_err(|_| "不支持所选文件地址")?;
+        let value = path.to_str().filter(|value| valid_plugin_path(value)).ok_or("所选文件路径无效")?;
+        let metadata = path.metadata().map_err(|_| "读取所选文件信息失败")?;
+        if !metadata.is_file() || metadata.len() == 0 || metadata.len() > 2 * 1024 * 1024 { return Err("请选择不超过 2 MB 的非空证书或私钥文件，文件参数无效".into()); }
+        let _file = fs::File::open(&path).map_err(|_| "没有权限读取所选文件")?;
+        // 仅返回路径，文件内容由本机 frpc 使用，不传入前端或日志。
+        Ok(Some(value.to_string()))
+    }).await.map_err(|_| "选择证书文件任务失败")?.map_err(Into::into)
+}
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -98,6 +118,18 @@ const FIRST_PANEL_PORT: u16 = 7400;
 #[cfg(test)]
 mod release_tests {
     use super::*;
+
+    #[test]
+    fn occupied_panel_port_records_failure_before_spawn() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let buffer: FrpLogBuffer = Arc::new(Mutex::new(VecDeque::new()));
+        let error = check_panel_port(port, &buffer).unwrap_err();
+        assert!(error.contains("已被占用"));
+        assert!(buffer.lock().unwrap().back().unwrap().contains(&port.to_string()));
+        drop(listener);
+        assert!(check_panel_port(port, &buffer).is_ok());
+    }
 
     #[test]
     fn runtime_logs_redact_before_buffering_and_remain_bounded() {
@@ -308,7 +340,29 @@ pub(crate) struct FrpProxy {
     local_port: u16,
     remote_port: Option<u16>,
     custom_domain: Option<String>,
+    #[serde(default)]
+    custom_domains: Vec<String>,
+    #[serde(default)]
+    plugin: Option<FrpHttps2HttpPlugin>,
     enabled: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct FrpHttps2HttpPlugin {
+    #[serde(rename = "type")]
+    kind: String,
+    local_addr: String,
+    crt_path: String,
+    key_path: String,
+}
+
+impl FrpProxy {
+    fn domains(&self) -> Vec<String> {
+        if self.custom_domains.is_empty() {
+            self.custom_domain.iter().cloned().collect()
+        } else { self.custom_domains.clone() }
+    }
 }
 
 #[derive(Deserialize)]
@@ -412,9 +466,26 @@ pub(crate) fn save_frp_global_settings(input: FrpGlobalSettingsInput) -> Platfor
 
 fn load_proxies(server_id: i64) -> Result<Vec<FrpProxy>, String> {
     let db = open_db()?;
-    let mut statement = db.prepare("SELECT id,name,kind,local_ip,local_port,remote_port,custom_domain,enabled FROM frp_local_proxies WHERE server_id=?1 ORDER BY id").map_err(|error| error.to_string())?;
-    let result = statement.query_map([server_id], |row| Ok(FrpProxy { id: Some(row.get(0)?), server_id, name: row.get(1)?, kind: row.get(2)?, local_ip: row.get(3)?, local_port: row.get(4)?, remote_port: row.get(5)?, custom_domain: row.get(6)?, enabled: row.get(7)? })).map_err(|error| error.to_string())?.collect::<Result<Vec<_>, _>>().map_err(|error| error.to_string());
+    load_proxies_from(&db, server_id)
+}
+
+fn load_proxies_from(db: &rusqlite::Connection, server_id: i64) -> Result<Vec<FrpProxy>, String> {
+    let mut statement = db.prepare("SELECT id,name,kind,local_ip,local_port,remote_port,custom_domain,enabled,custom_domains_json,plugin_json FROM frp_local_proxies WHERE server_id=?1 ORDER BY id").map_err(|error| error.to_string())?;
+    let result = statement.query_map([server_id], |row| {
+        let domains_json: String = row.get(8)?;
+        let plugin_json: Option<String> = row.get(9)?;
+        let decode_error = |index, error| rusqlite::Error::FromSqlConversionFailure(index, rusqlite::types::Type::Text, Box::new(error));
+        Ok(FrpProxy { id: Some(row.get(0)?), server_id, name: row.get(1)?, kind: row.get(2)?, local_ip: row.get(3)?, local_port: row.get(4)?, remote_port: row.get(5)?, custom_domain: row.get(6)?, enabled: row.get(7)?, custom_domains: serde_json::from_str(&domains_json).map_err(|error| decode_error(8, error))?, plugin: plugin_json.map(|json| serde_json::from_str(&json).map_err(|error| decode_error(9, error))).transpose()? })
+    }).map_err(|error| error.to_string())?.collect::<Result<Vec<_>, _>>().map_err(|error| error.to_string());
     result
+}
+
+fn insert_proxy(tx: &rusqlite::Transaction<'_>, server_id: i64, proxy: &FrpProxy, now: i64) -> Result<(), String> {
+    let domains = proxy.domains();
+    let domains_json = serde_json::to_string(&domains).map_err(|_| "保存 FRP 域名失败")?;
+    let plugin_json = proxy.plugin.as_ref().map(serde_json::to_string).transpose().map_err(|_| "保存 FRP 插件失败")?;
+    tx.execute("INSERT INTO frp_local_proxies(server_id,name,kind,local_ip,local_port,remote_port,custom_domain,enabled,created_at,updated_at,custom_domains_json,plugin_json) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?9,?10,?11)",params![server_id,proxy.name,proxy.kind,proxy.local_ip.trim(),proxy.local_port,proxy.remote_port,domains.first(),proxy.enabled,now,domains_json,plugin_json]).map_err(|e|e.to_string())?;
+    Ok(())
 }
 
 fn load_server(server_id: i64) -> Result<Option<SavedServer>, String> {
@@ -468,6 +539,76 @@ mod server_panel_tests {
     }
 }
 
+#[cfg(test)]
+mod https2http_tests {
+    use super::*;
+
+    fn input() -> FrpServerInput {
+        serde_json::from_value(serde_json::json!({"name":"fixture","serverAddr":"example.test","serverPort":7000,"proxies":[{
+            "serverId":1,"name":"https_plugin","kind":"https","localIp":"127.0.0.1","localPort":5012,"enabled":true,
+            "customDomains":["one.example.test","two.example.test"],
+            "plugin":{"type":"https2http","localAddr":"127.0.0.1:5012","crtPath":"/fixture/fullchain.pem","keyPath":"/fixture/privkey.key"}
+        }]})).unwrap()
+    }
+
+    #[test]
+    fn renders_https2http_and_multiple_domains_without_changing_legacy_rules() {
+        let mut input = input();
+        validate_server(&input).unwrap();
+        let rendered = render_proxy_config(&input.proxies[0]).unwrap();
+        assert!(rendered.contains("customDomains = [\"one.example.test\",\"two.example.test\"]"));
+        assert!(rendered.contains("[proxies.plugin]\ntype = \"https2http\"\nlocalAddr = \"127.0.0.1:5012\""));
+        assert!(rendered.contains("keyPath = \"/fixture/privkey.key\""));
+        input.proxies[0].plugin = None;
+        input.proxies[0].custom_domains.clear();
+        input.proxies[0].custom_domain = Some("legacy.example.test".into());
+        validate_server(&input).unwrap();
+        let legacy = render_proxy_config(&input.proxies[0]).unwrap();
+        assert!(legacy.contains("customDomains = [\"legacy.example.test\"]"));
+        assert!(!legacy.contains("[proxies.plugin]"));
+    }
+
+    #[test]
+    fn persists_https2http_and_all_domains_in_sqlite() {
+        let mut db = rusqlite::Connection::open_in_memory().unwrap();
+        db.execute_batch("CREATE TABLE frp_local_proxies(id INTEGER PRIMARY KEY,server_id INTEGER,name TEXT,kind TEXT,local_ip TEXT,local_port INTEGER,remote_port INTEGER,custom_domain TEXT,enabled INTEGER,created_at INTEGER,updated_at INTEGER,custom_domains_json TEXT,plugin_json TEXT);").unwrap();
+        let input = input();
+        let tx = db.transaction().unwrap();
+        insert_proxy(&tx,1,&input.proxies[0],0).unwrap();
+        tx.commit().unwrap();
+        let loaded = load_proxies_from(&db,1).unwrap();
+        assert_eq!(loaded[0].custom_domains, input.proxies[0].custom_domains);
+        assert_eq!(loaded[0].plugin.as_ref().unwrap().local_addr,"127.0.0.1:5012");
+        assert_eq!(loaded[0].plugin.as_ref().unwrap().key_path,"/fixture/privkey.key");
+        assert_eq!(render_proxy_config(&loaded[0]).unwrap(),render_proxy_config(&input.proxies[0]).unwrap());
+    }
+
+    #[test]
+    fn installed_frpc_verifies_generated_https2http_config() {
+        let Some(binary) = std::env::var_os("CLOUDHUB_FRPC_TEST_BINARY") else { return; };
+        let input = input();
+        let path = std::env::temp_dir().join(format!("cloudhub-frp-https2http-{}.toml",uuid::Uuid::new_v4()));
+        let config = format!("serverAddr = \"127.0.0.1\"\nserverPort = 7000\n{}{}",render_proxy_config(&input.proxies[0]).unwrap(),render_proxy_config(&input.proxies[0]).unwrap().replace("https_plugin","second_plugin").replace("one.example.test","three.example.test").replace("two.example.test","four.example.test"));
+        fs::write(&path,config).unwrap();
+        let result = hidden_command(binary).args(["verify","-c"]).arg(&path).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status();
+        let _ = fs::remove_file(&path);
+        assert!(result.unwrap().success(),"本机 frpc 未接受生成的插件配置");
+    }
+
+    #[test]
+    fn rejects_wrong_plugin_protocol_duplicate_domains_and_unsafe_fields() {
+        let mut input = input();
+        input.proxies[0].kind = "http".into();
+        assert!(validate_server(&input).is_err());
+        input.proxies[0].kind = "https".into();
+        input.proxies[0].custom_domains.push("ONE.example.test".into());
+        assert!(validate_server(&input).is_err());
+        for value in ["http://127.0.0.1:80", "user@host:80", "127.0.0.1:0", "host:65536", "::1:80"] { assert!(!valid_plugin_address(value)); }
+        for value in ["127.0.0.1:5012", "backend.example.test:80", "[::1]:80"] { assert!(valid_plugin_address(value)); }
+        for value in ["", "relative.key", "/path\nkey", "-----BEGIN PRIVATE KEY-----"] { assert!(!valid_plugin_path(value)); }
+    }
+}
+
 #[tauri::command]
 pub(crate) fn reveal_frp_server_panel_password(server_id: i64) -> PlatformResult<String> {
     let value: Option<String> = open_db()?.query_row("SELECT panel_password_ciphertext FROM frp_local_servers WHERE id=?1", [server_id], |row| row.get(0)).optional().map_err(|_| "读取服务端面板密码失败".to_string())?.ok_or("FRP 服务端配置不存在")?;
@@ -493,13 +634,32 @@ fn validate_server(input: &FrpServerInput) -> Result<(), String> {
         if proxy.name.is_empty() || proxy.name.len() > 64 || !proxy.name.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"_.-".contains(&byte)) || !names.insert(&proxy.name) { return Err("穿透规则名称无效或重复".into()); }
         if !["tcp","udp","http","https"].contains(&proxy.kind.as_str()) || !valid_address(proxy.local_ip.trim()) || proxy.local_port == 0 { return Err("穿透规则类型或本地目标无效".into()); }
         if ["tcp","udp"].contains(&proxy.kind.as_str()) {
-            let port = proxy.remote_port.unwrap_or(0); if port == 0 || proxy.custom_domain.as_ref().is_some_and(|value| !value.is_empty()) || !ports.insert((proxy.kind.as_str(),port)) { return Err("TCP/UDP 远端端口无效或重复".into()); }
+            let port = proxy.remote_port.unwrap_or(0); if port == 0 || !proxy.domains().is_empty() || !ports.insert((proxy.kind.as_str(),port)) { return Err("TCP/UDP 远端端口无效或重复".into()); }
         } else {
-            let domain = proxy.custom_domain.as_deref().filter(|value| valid_hostname(value)).ok_or("HTTP/HTTPS 规则需要有效域名")?;
-            if proxy.remote_port.is_some() || !domains.insert((proxy.kind.as_str(),domain)) { return Err("HTTP/HTTPS 域名无效或重复".into()); }
+            let values = proxy.domains();
+            if values.is_empty() || values.len() > 20 || proxy.remote_port.is_some() { return Err("HTTP/HTTPS 规则需要 1 至 20 个有效域名".into()); }
+            for domain in values {
+                if !valid_hostname(&domain) || !domains.insert((proxy.kind.as_str(), domain.to_ascii_lowercase())) { return Err("HTTP/HTTPS 域名无效或重复".into()); }
+            }
+        }
+        if let Some(plugin) = &proxy.plugin {
+            if proxy.kind != "https" || plugin.kind != "https2http" || !valid_plugin_address(&plugin.local_addr) || !valid_plugin_path(&plugin.crt_path) || !valid_plugin_path(&plugin.key_path) {
+                return Err("HTTPS 转 HTTP 插件参数无效，请检查后端地址及证书、私钥文件路径".into());
+            }
         }
     }
     Ok(())
+}
+
+fn valid_plugin_address(value: &str) -> bool {
+    let Some((host, port)) = value.rsplit_once(':') else { return false; };
+    let host = if host.starts_with('[') && host.ends_with(']') { &host[1..host.len()-1] } else if host.contains(':') { return false; } else { host };
+    valid_address(host) && port.parse::<u16>().is_ok_and(|port| port > 0)
+}
+
+fn valid_plugin_path(value: &str) -> bool {
+    !value.is_empty() && value.len() <= 4096 && !value.chars().any(char::is_control) && !value.contains("-----BEGIN")
+        && (Path::new(value).is_absolute() || value.starts_with('/'))
 }
 
 fn panel_port_available(port: u16) -> bool { TcpListener::bind(("127.0.0.1",port)).is_ok() }
@@ -533,7 +693,7 @@ pub(crate) fn save_frp_server(input: FrpServerInput) -> PlatformResult<FrpServer
     };
     tx.execute("UPDATE frp_local_servers SET panel_url=?1,panel_username=?2,panel_password_ciphertext=?3 WHERE id=?4", params![panel_url,panel_username,panel_password,id]).map_err(|_| "保存服务端面板备注失败".to_string())?;
     tx.execute("DELETE FROM frp_local_proxies WHERE server_id=?1",[id]).map_err(|e|e.to_string())?;
-    for proxy in input.proxies { tx.execute("INSERT INTO frp_local_proxies(server_id,name,kind,local_ip,local_port,remote_port,custom_domain,enabled,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?9)",params![id,proxy.name,proxy.kind,proxy.local_ip.trim(),proxy.local_port,proxy.remote_port,proxy.custom_domain,proxy.enabled,now]).map_err(|e|e.to_string())?; }
+    for proxy in input.proxies { insert_proxy(&tx, id, &proxy, now)?; }
     tx.commit().map_err(|e|e.to_string())?;
     Ok(list_frp_servers()?.into_iter().find(|server|server.id==id).ok_or_else(||String::from("保存 FRP 服务端失败"))?)
 }
@@ -553,10 +713,20 @@ fn render_config(server:&SavedServer,global:&SavedGlobalSettings)->Result<String
     let mut config=format!("serverAddr = {}\nserverPort = {}\nauth.method = \"token\"\ntransport.tls.enable = true\nwebServer.addr = \"127.0.0.1\"\nwebServer.port = {}\nwebServer.user = {}\nwebServer.password = {}\n",toml_string(&server.server_addr)?,server.server_port,server.admin_port,toml_string(&global.admin_user)?,toml_string(&password)?);
     if let Some(ciphertext)=server.token_ciphertext.as_deref(){config.push_str(&format!("auth.token = {}\n",toml_string(&decrypt_secret(ciphertext)?)?));}
     for proxy in &server.proxies { if !proxy.enabled { continue; }
+        config.push_str(&render_proxy_config(proxy)?);
+    }
+    Ok(config)
+}
+
+fn render_proxy_config(proxy: &FrpProxy) -> Result<String, String> {
+        let mut config = String::new();
         config.push_str(&format!("\n[[proxies]]\nname = {}\ntype = {}\nenabled = true\nlocalIP = {}\nlocalPort = {}\n",toml_string(&proxy.name)?,toml_string(&proxy.kind)?,toml_string(&proxy.local_ip)?,proxy.local_port));
         if let Some(port)=proxy.remote_port {config.push_str(&format!("remotePort = {port}\n"));}
-        if let Some(domain)=proxy.custom_domain.as_deref(){config.push_str(&format!("customDomains = [{}]\n",toml_string(domain)?));}
-    }
+        let domains = proxy.domains();
+        if !domains.is_empty() { config.push_str(&format!("customDomains = {}\n", serde_json::to_string(&domains).map_err(|_| "FRP 域名参数无效")?)); }
+        if let Some(plugin) = &proxy.plugin {
+            config.push_str(&format!("\n[proxies.plugin]\ntype = \"https2http\"\nlocalAddr = {}\ncrtPath = {}\nkeyPath = {}\n", toml_string(&plugin.local_addr)?, toml_string(&plugin.crt_path)?, toml_string(&plugin.key_path)?));
+        }
     Ok(config)
 }
 fn frp_root()->Result<PathBuf,String>{let path=data_dir()?.join("frp");fs::create_dir_all(&path).map_err(|_|"创建本机 FRP 目录失败".to_string())?;Ok(path)}
@@ -615,9 +785,74 @@ processes.remove(&id);return Ok(false);}return Ok(true);}Ok(false)}
 fn stop_process(store:&FrpProcessStore,id:i64)->Result<(),String>{if let Some(mut child)=store.0.lock().map_err(|_|"FRP 进程状态不可用".to_string())?.remove(&id){let _=child.kill();let _=child.wait();
 if let Ok(logs) = store.1.lock() { if let Some(buffer) = logs.get(&id) { push_frp_log(buffer, "系统", "客户端连接已停止"); } }
 }Ok(())}
-fn start_process(store:&FrpProcessStore,id:i64)->Result<(),String>{if !binary_path()?.is_file(){return Err("请先安装本机 frpc".into());}let config=config_path(id)?;if !config.is_file(){return Err("请先应用该服务端的 FRP 配置".into());}if is_running(store,id)?{return Ok(());}let server=load_server(id)?.ok_or("FRP 服务端配置不存在")?;let listener=TcpListener::bind(("127.0.0.1",server.admin_port)).map_err(|_|format!("本机 FRP 面板端口 {} 已被占用，请先停止旧连接或占用该端口的进程",server.admin_port))?;drop(listener);let buffer: FrpLogBuffer = Arc::new(Mutex::new(VecDeque::new()));
+fn check_panel_port(port: u16, buffer: &FrpLogBuffer) -> Result<(), String> {
+    match TcpListener::bind(("127.0.0.1", port)) {
+        Ok(listener) => { drop(listener); Ok(()) }
+        Err(error) => {
+            let message = if error.kind() == std::io::ErrorKind::AddrInUse {
+                "本机 FRP 面板端口已被占用，请先停止旧连接或占用该端口的进程"
+            } else {
+                "无法绑定本机 FRP 面板端口，请检查本机端口保留设置或权限"
+            };
+            push_frp_log(buffer, "系统", &format!("面板端口 {port}：{message}"));
+            Err(message.into())
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct FrpPortOwner { pid: u32, can_terminate: bool, started_at: String }
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct FrpPortConflict { server_id: i64, port: u16, owners: Vec<FrpPortOwner> }
+
+fn port_process_command(server_id: i64, server: &SavedServer) -> Result<Command, String> {
+    if !cfg!(windows) { return Err("端口进程诊断当前仅支持 Windows".into()); }
+    let root = std::env::var_os("SystemRoot").ok_or("无法定位 Windows 系统目录")?;
+    let mut command = hidden_command(PathBuf::from(root).join("System32/WindowsPowerShell/v1.0/powershell.exe"));
+    command.args(["-NoProfile", "-NonInteractive", "-Command", include_str!("../../../scripts/frp-port-process.ps1")])
+        .env("CLOUDHUB_FRP_PORT", server.admin_port.to_string())
+        .env("CLOUDHUB_FRP_BINARY", binary_path()?)
+        .env("CLOUDHUB_FRP_CONFIG", config_path(server_id)?)
+        .stdin(Stdio::null()).stderr(Stdio::null());
+    Ok(command)
+}
+
+#[tauri::command]
+pub(crate) async fn get_frp_port_conflict(server_id: i64) -> PlatformResult<FrpPortConflict> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<FrpPortConflict, String> {
+        let server = load_server(server_id)?.ok_or("FRP 服务端配置不存在")?;
+        let output = port_process_command(server_id, &server)?.env("CLOUDHUB_FRP_MODE", "inspect").output().map_err(|_| "读取本机端口占用失败")?;
+        if !output.status.success() || output.stdout.len() > 16_384 { return Err("读取本机端口占用失败".into()); }
+        let owners = serde_json::from_slice(&output.stdout).map_err(|_| "解析本机端口占用失败")?;
+        Ok(FrpPortConflict { server_id, port: server.admin_port, owners })
+    }).await.map_err(|_| "端口诊断任务失败")?.map_err(Into::into)
+}
+
+#[tauri::command]
+pub(crate) async fn terminate_stale_frpc(store: State<'_, FrpProcessStore>, server_id: i64, pid: u32, started_at: String) -> PlatformResult<()> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        if pid == 0 || started_at.len() > 64 { return Err("进程参数无效".into()); }
+        if is_running(&store, server_id)? { return Err("当前连接已在运行，请使用停止连接操作".into()); }
+        let server = load_server(server_id)?.ok_or("FRP 服务端配置不存在")?;
+        let output = port_process_command(server_id, &server)?.env("CLOUDHUB_FRP_MODE", "terminate")
+            .env("CLOUDHUB_FRP_PID", pid.to_string()).env("CLOUDHUB_FRP_STARTED_AT", started_at)
+            .output().map_err(|_| "结束旧 frpc 进程失败")?;
+        if !output.status.success() { return Err("进程已改变或不属于当前连接的残留 frpc，请重新检查端口占用".into()); }
+        if let Ok(logs) = store.1.lock() { if let Some(buffer) = logs.get(&server_id) {
+            push_frp_log(buffer, "系统", &format!("已结束当前连接的旧 frpc 进程，PID：{pid}"));
+        } }
+        Ok(())
+    }).await.map_err(|_| "结束旧进程任务失败")?.map_err(Into::into)
+}
+
+fn start_process(store:&FrpProcessStore,id:i64)->Result<(),String>{if !binary_path()?.is_file(){return Err("请先安装本机 frpc".into());}let config=config_path(id)?;if !config.is_file(){return Err("请先应用该服务端的 FRP 配置".into());}if is_running(store,id)?{return Ok(());}let server=load_server(id)?.ok_or("FRP 服务端配置不存在")?;let buffer: FrpLogBuffer = Arc::new(Mutex::new(VecDeque::new()));
 let secrets = frp_log_secrets(&config, &server).ok().map(Arc::new);
 store.1.lock().map_err(|_| "FRP 日志状态不可用".to_string())?.insert(id, buffer.clone());
+check_panel_port(server.admin_port, &buffer)?;
 if secrets.is_none() { push_frp_log(&buffer, "系统", "无法安全读取脱敏配置，仅记录客户端生命周期"); }
 push_frp_log(&buffer, "系统", "正在启动本机 frpc");
 let capture = secrets.is_some();
