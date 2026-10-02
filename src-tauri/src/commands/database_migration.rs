@@ -14,6 +14,13 @@ const MAGIC: &[u8; 8] = b"CHDBMIG1";
 const FORMAT_VERSION: u32 = 1;
 const MAX_PACKAGE_BYTES: u64 = 4 * 1024 * 1024 * 1024;
 
+fn ensure_database_file_migration_supported() -> Result<(), String> {
+    #[cfg(mobile)]
+    { return Err("手机端不支持整库文件迁移；请使用口令加密的配置迁移包".into()); }
+    #[cfg(not(mobile))]
+    { Ok(()) }
+}
+
 #[derive(Default)]
 pub(crate) struct DatabaseImportStore { sessions: Mutex<HashMap<String, PreparedImport>> }
 
@@ -73,6 +80,33 @@ fn validate_database(path: &Path) -> Result<(), String> {
         if !exists { return Err(format!("导入数据库缺少必要数据表: {table}")); }
     }
     Ok(())
+}
+
+fn reset_imported_sync_identity(path: &Path) -> Result<(), String> {
+    let mut conn = Connection::open(path).map_err(|error| format!("打开导入数据库失败: {error}"))?;
+    let has_local_device: bool = conn.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='sync_local_device')", [], |row| row.get(0)).map_err(|error| error.to_string())?;
+    if !has_local_device { return Ok(()); }
+    let has_acknowledgements: bool = conn.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='sync_outbox_acknowledgements')", [], |row| row.get(0)).map_err(|error| error.to_string())?;
+    let has_inbox: bool = conn.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='sync_inbox')", [], |row| row.get(0)).map_err(|error| error.to_string())?;
+    let has_local_public_key: bool = conn.prepare("PRAGMA table_info(sync_local_device)").map_err(|error| error.to_string())?
+        .query_map([], |row| row.get::<_, String>(1)).map_err(|error| error.to_string())?
+        .collect::<Result<Vec<_>, _>>().map_err(|error| error.to_string())?.iter().any(|column| column == "public_key");
+
+    let transaction = conn.transaction().map_err(|error| format!("开启设备授权重置事务失败: {error}"))?;
+    transaction.execute("DELETE FROM sync_entity_versions", []).map_err(|error| error.to_string())?;
+    if has_inbox { transaction.execute("DELETE FROM sync_inbox", []).map_err(|error| error.to_string())?; }
+    if has_acknowledgements { transaction.execute("DELETE FROM sync_outbox_acknowledgements", []).map_err(|error| error.to_string())?; }
+    transaction.execute("DELETE FROM sync_devices", []).map_err(|error| error.to_string())?;
+    transaction.execute("DELETE FROM sync_outbox", []).map_err(|error| error.to_string())?;
+    transaction.execute("DELETE FROM sync_tombstones", []).map_err(|error| error.to_string())?;
+    transaction.execute("DELETE FROM sync_local_versions", []).map_err(|error| error.to_string())?;
+    if has_local_public_key {
+        transaction.execute("UPDATE sync_local_device SET device_id=?1,device_name='本机',created_at=?2,public_key=NULL WHERE id=1", rusqlite::params![Uuid::new_v4().to_string(), Utc::now().timestamp_millis()]).map_err(|error| error.to_string())?;
+    } else {
+        transaction.execute("UPDATE sync_local_device SET device_id=?1,device_name='本机',created_at=?2 WHERE id=1", rusqlite::params![Uuid::new_v4().to_string(), Utc::now().timestamp_millis()]).map_err(|error| error.to_string())?;
+    }
+    transaction.execute("DELETE FROM client_preferences WHERE key='sync.identity.signing_seed'", []).map_err(|error| error.to_string())?;
+    transaction.commit().map_err(|error| format!("提交设备授权重置失败: {error}"))
 }
 
 fn parse_package(package_path: &Path) -> Result<(Vec<u8>, Vec<u8>, serde_json::Value), String> {
@@ -135,6 +169,7 @@ fn build_preview(database_path: &Path, current_db: &Path, token: String, package
 
 #[tauri::command]
 pub(crate) fn export_database_file(app: tauri::AppHandle) -> PlatformResult<Option<String>> {
+    ensure_database_file_migration_supported()?;
     let data = data_dir()?;
     let key = crypto_key_bytes()?;
     let snapshot = data.join(format!(".cloudhub-export-{}.sqlite3", Uuid::new_v4()));
@@ -168,6 +203,7 @@ pub(crate) fn export_database_file(app: tauri::AppHandle) -> PlatformResult<Opti
 
 #[tauri::command]
 pub(crate) fn import_database_file(app: tauri::AppHandle) -> PlatformResult<Option<String>> {
+    ensure_database_file_migration_supported()?;
     let Some(selected) = app.dialog().file().blocking_pick_file() else { return Ok(None) };
     let package_path = selected.into_path().map_err(|_| "当前平台返回了不支持的导入路径".to_string())?;
     let package = fs::read(&package_path).map_err(|error| format!("读取迁移包失败: {error}"))?;
@@ -243,6 +279,7 @@ fn replace_prepared_database(import_db: &Path, key: &[u8]) -> Result<String, Str
 
 #[tauri::command]
 pub(crate) fn prepare_database_import(app: tauri::AppHandle, state: tauri::State<'_, DatabaseImportStore>) -> PlatformResult<Option<ImportPreview>> {
+    ensure_database_file_migration_supported()?;
     let Some(selected) = app.dialog().file().blocking_pick_file() else { return Ok(None) };
     let package_path = selected.into_path().map_err(|_| "当前平台返回了不支持的导入路径".to_string())?;
     let (database, key, manifest) = parse_package(&package_path)?;
@@ -251,14 +288,60 @@ pub(crate) fn prepare_database_import(app: tauri::AppHandle, state: tauri::State
     let database_path = data.join(format!(".cloudhub-import-preview-{token}.sqlite3"));
     fs::write(&database_path, database).map_err(|error| format!("准备导入预览失败: {error}"))?;
     validate_database(&database_path)?;
+    reset_imported_sync_identity(&database_path)?;
     let package_name = package_path.file_name().and_then(|value| value.to_str()).unwrap_or("迁移包").to_string();
     let preview = build_preview(&database_path, &data.join("cloudhub_tools.sqlite3"), token.clone(), package_name.clone(), manifest.get("exported_at").and_then(|value| value.as_str()).unwrap_or("未知").to_string())?;
     state.sessions.lock().map_err(|_| "导入预览状态不可用".to_string())?.insert(token, PreparedImport { database_path, key });
     Ok(Some(preview))
 }
 
+#[cfg(test)]
+mod tests {
+    use super::reset_imported_sync_identity;
+    use rusqlite::Connection;
+    use std::{fs, path::PathBuf};
+    use uuid::Uuid;
+
+    #[test]
+    fn database_import_rotates_device_identity_and_drops_old_trust() {
+        let path: PathBuf = std::env::temp_dir().join(format!("cloudhub-sync-import-{}.sqlite3", Uuid::new_v4()));
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch("CREATE TABLE sync_local_device(id INTEGER PRIMARY KEY,device_id TEXT,device_name TEXT,created_at INTEGER,public_key BLOB); CREATE TABLE sync_devices(device_id TEXT PRIMARY KEY); CREATE TABLE sync_entity_versions(peer_device_id TEXT,entity_type TEXT,entity_sync_id TEXT); CREATE TABLE sync_outbox(message_id TEXT); CREATE TABLE sync_outbox_acknowledgements(message_id TEXT,peer_device_id TEXT); CREATE TABLE sync_inbox(peer_device_id TEXT,message_id TEXT); CREATE TABLE sync_tombstones(entity_type TEXT,entity_sync_id TEXT); CREATE TABLE sync_local_versions(entity_type TEXT,entity_sync_id TEXT,counter INTEGER); CREATE TABLE cloud_accounts(id INTEGER PRIMARY KEY,sync_id TEXT); CREATE TABLE client_preferences(key TEXT PRIMARY KEY,value TEXT,updated_at INTEGER); INSERT INTO sync_local_device VALUES(1,'old-local','old-device',1,X'01'); INSERT INTO sync_devices VALUES('old-peer'); INSERT INTO sync_entity_versions VALUES('old-peer','cloud_account','account-1'); INSERT INTO sync_outbox VALUES('queued'); INSERT INTO sync_outbox_acknowledgements VALUES('queued','old-peer'); INSERT INTO sync_inbox VALUES('old-peer','received'); INSERT INTO sync_tombstones VALUES('cloud_account','deleted-account'); INSERT INTO sync_local_versions VALUES('cloud_account','account-1',4); INSERT INTO client_preferences VALUES('sync.identity.signing_seed','encrypted-seed',1); INSERT INTO cloud_accounts VALUES(1,'account-1');").unwrap();
+        drop(conn);
+
+        reset_imported_sync_identity(&path).unwrap();
+        let conn = Connection::open(&path).unwrap();
+        let (device_id, name): (String, String) = conn.query_row("SELECT device_id,device_name FROM sync_local_device WHERE id=1", [], |row| Ok((row.get(0)?,row.get(1)?))).unwrap();
+        assert_ne!(device_id, "old-local");
+        assert_eq!(name, "本机");
+        let public_key: Option<Vec<u8>> = conn.query_row("SELECT public_key FROM sync_local_device WHERE id=1", [], |row| row.get(0)).unwrap();
+        assert!(public_key.is_none());
+        let seed_pref: i64 = conn.query_row("SELECT COUNT(*) FROM client_preferences WHERE key='sync.identity.signing_seed'", [], |row| row.get(0)).unwrap();
+        assert_eq!(seed_pref, 0);
+        for table in ["sync_devices","sync_entity_versions","sync_outbox","sync_outbox_acknowledgements","sync_inbox","sync_tombstones","sync_local_versions"] {
+            let count: i64 = conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| row.get(0)).unwrap();
+            assert_eq!(count, 0, "{table} should not be cloned to the importing device");
+        }
+        let account_sync_id: String = conn.query_row("SELECT sync_id FROM cloud_accounts WHERE id=1", [], |row| row.get(0)).unwrap();
+        assert_eq!(account_sync_id, "account-1");
+        drop(conn);
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn legacy_database_without_sync_schema_is_unchanged() {
+        let path: PathBuf = std::env::temp_dir().join(format!("cloudhub-legacy-import-{}.sqlite3", Uuid::new_v4()));
+        Connection::open(&path).unwrap().execute_batch("CREATE TABLE cloud_accounts(id INTEGER PRIMARY KEY); INSERT INTO cloud_accounts VALUES(1);").unwrap();
+        reset_imported_sync_identity(&path).unwrap();
+        let count: i64 = Connection::open(&path).unwrap().query_row("SELECT COUNT(*) FROM cloud_accounts", [], |row| row.get(0)).unwrap();
+        assert_eq!(count, 1);
+        fs::remove_file(path).unwrap();
+    }
+}
+
 #[tauri::command]
 pub(crate) fn confirm_database_import(state: tauri::State<'_, DatabaseImportStore>, token: String) -> PlatformResult<String> {
+    ensure_database_file_migration_supported()?;
     let prepared = state.sessions.lock().map_err(|_| "导入预览状态不可用".to_string())?.remove(&token).ok_or_else(|| "导入预览已失效，请重新选择文件".to_string())?;
     let result = replace_prepared_database(&prepared.database_path, &prepared.key);
     let _ = fs::remove_file(&prepared.database_path);
@@ -267,6 +350,7 @@ pub(crate) fn confirm_database_import(state: tauri::State<'_, DatabaseImportStor
 
 #[tauri::command]
 pub(crate) fn cancel_database_import(state: tauri::State<'_, DatabaseImportStore>, token: String) -> PlatformResult<()> {
+    ensure_database_file_migration_supported()?;
     let prepared = state.sessions.lock().map_err(|_| "导入预览状态不可用".to_string())?.remove(&token).ok_or_else(|| "导入预览已失效".to_string())?;
     Ok(fs::remove_file(&prepared.database_path).map_err(|error| format!("清理导入预览失败: {error}"))?)
 }

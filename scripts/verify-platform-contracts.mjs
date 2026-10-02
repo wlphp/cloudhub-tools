@@ -38,9 +38,15 @@ assert.deepEqual(contract.domains.map((domain) => domain.name), ["accounts", "re
 const clientSource = await joinedSource(await filesUnder(path.join(root, "src/platform/clients"), ".ts"));
 const rustSource = await joinedSource(await filesUnder(path.join(root, "src-tauri/src"), ".rs"));
 const rustLibSource = await readFile(path.join(root, "src-tauri/src/lib.rs"), "utf8");
-const handlerMatch = rustLibSource.match(/\.invoke_handler\(tauri::generate_handler!\[([\s\S]*?)\]\)/);
-assert.ok(handlerMatch, "未找到 Tauri generate_handler! 注册表");
-const handlerSource = handlerMatch[1];
+const desktopHandlerMatch = rustLibSource.match(/#\[cfg\(desktop\)\]\s*let builder = builder\.invoke_handler\(tauri::generate_handler!\[([\s\S]*?)\]\)/);
+const mobileHandlerMatch = rustLibSource.match(/#\[cfg\(mobile\)\]\s*let builder = builder\.invoke_handler\(tauri::generate_handler!\[([\s\S]*?)\]\)/);
+assert.ok(desktopHandlerMatch, "未找到桌面 Tauri 命令注册表");
+assert.ok(mobileHandlerMatch, "未找到移动端 Tauri 命令注册表");
+const handlerSource = desktopHandlerMatch[1];
+const mobileHandlerCommands = mobileHandlerMatch[1].split(",").map((command) => command.trim()).filter(Boolean).sort();
+const expectedMobileCommands = [...contract.mobileCommands].sort();
+assert.equal(new Set(expectedMobileCommands).size, expectedMobileCommands.length, "mobileCommands 中存在重复项");
+assert.deepEqual(mobileHandlerCommands, expectedMobileCommands, "手机命令注册必须严格匹配移动端白名单");
 const nodeSource = [
   await readFile(path.join(root, "web-api.mjs"), "utf8"),
   await joinedSource(await filesUnder(path.join(root, "web-api"), ".mjs")),
@@ -84,8 +90,12 @@ for (const domain of contract.domains) {
 for (const command of commands) {
   assert.equal(componentSource.includes(`"${command}"`), false, `组件不得直接引用 Tauri 命令 ${command}`);
 }
+for (const command of expectedMobileCommands) {
+  assert.ok(clientSource.includes(`"${command}"`), `mobileCommands 中的 ${command} 未由客户端声明`);
+  assert.ok(rustSource.includes(command), `mobileCommands 中的 ${command} 未在 Rust 中实现`);
+}
 for (const previewPath of previewPaths) {
   assert.equal(componentSource.includes(previewPath), false, `组件不得直接引用 Web 路径 ${previewPath}`);
 }
 
-console.log(`Platform contract checks passed: ${contract.domains.length} domains, ${operationNames.size} operations, ${commands.size} commands, ${previewPaths.size} preview paths`);
+console.log(`Platform contract checks passed: ${contract.domains.length} domains, ${operationNames.size} operations, ${commands.size} desktop commands, ${expectedMobileCommands.length} mobile commands, ${previewPaths.size} preview paths`);

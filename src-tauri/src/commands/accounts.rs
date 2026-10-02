@@ -8,6 +8,15 @@ use chrono::Utc;
 use serde_json::Value;
 use std::path::PathBuf;
 
+fn validate_secret_reuse(existing: Option<(&str, &str)>, cloud_type: &str, access_key_id: &str, has_new_secret: bool) -> Result<(), String> {
+    if has_new_secret || existing.is_none() { return Ok(()); }
+    let (old_cloud_type, old_access_key_id) = existing.expect("checked above");
+    if old_cloud_type != cloud_type || old_access_key_id != access_key_id.trim() {
+        return Err("更改云厂商或 AccessKey ID 时必须填写新的 Secret".into());
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub(crate) fn export_accounts(account_ids: Option<Vec<i64>>) -> PlatformResult<Vec<ExportAccount>> {
     let conn = open_db()?;
@@ -95,6 +104,11 @@ pub(crate) fn save_account(mut input: AccountInput) -> PlatformResult<CloudAccou
         let meta: Value = serde_json::from_str(input.credential_meta.as_deref().unwrap_or("{}")).map_err(|_| "GCP 凭证信息格式无效".to_string())?;
         if meta.get("project_id").and_then(Value::as_str).is_none_or(|value| value.trim().is_empty()) { return Err("GCP 账号需要填写 Project ID".into()); }
     }
+    let existing = input.id.map(|id| {
+        Ok::<_, String>((account_repository::cloud_type(&conn, id)?, account_repository::credential_record(&conn, id)?.0))
+    }).transpose()?;
+    let has_new_secret = input.access_key_secret.as_ref().is_some_and(|value| !value.trim().is_empty());
+    validate_secret_reuse(existing.as_ref().map(|(cloud_type, access_key_id)| (cloud_type.as_str(), access_key_id.as_str())), &input.cloud_type, &input.access_key_id, has_new_secret)?;
     let old_secret = input.id.map(|id| account_repository::secret_ciphertext(&conn, id)).transpose()?.flatten();
     let secret = match input.access_key_secret.as_ref().filter(|v| !v.trim().is_empty()) { Some(value) => encrypt_secret(value)?, None => old_secret.ok_or_else(|| "首次添加必须填写 AccessKey Secret".to_string())? };
     account_repository::save(&conn, &input, &secret, now).map_err(Into::into)
@@ -108,4 +122,21 @@ pub(crate) fn reveal_account_secret(id: i64) -> PlatformResult<String> {
     let conn = open_db()?;
     let ciphertext = account_repository::secret_ciphertext(&conn, id)?.ok_or("读取账号 Secret 失败")?;
     Ok(decrypt_secret(&ciphertext)?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_secret_reuse;
+
+    #[test]
+    fn blank_secret_can_preserve_unchanged_identity() {
+        assert!(validate_secret_reuse(Some(("aliyun", "key-1")), "aliyun", "key-1", false).is_ok());
+    }
+
+    #[test]
+    fn changed_identity_requires_new_secret() {
+        assert!(validate_secret_reuse(Some(("aliyun", "key-1")), "aliyun", "key-2", false).is_err());
+        assert!(validate_secret_reuse(Some(("aliyun", "key-1")), "tencent", "key-1", false).is_err());
+        assert!(validate_secret_reuse(Some(("aliyun", "key-1")), "tencent", "key-2", true).is_ok());
+    }
 }

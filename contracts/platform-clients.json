@@ -1,5 +1,21 @@
 {
   "version": 1,
+  "mobileCommands": [
+    "list_accounts", "save_account", "delete_account",
+    "list_local_assets", "sync_cloud_assets",
+    "start_instance", "stop_instance", "reboot_instance", "cvm_instance_action",
+    "list_dns_records", "add_dns_record", "update_dns_record", "delete_dns_record", "toggle_dns_record",
+    "list_oss_objects", "list_rds_databases", "list_redis_accounts", "list_certificates",
+    "list_managed_hosts", "save_managed_host",
+    "list_panel_connections", "refresh_panel_connection", "open_panel_temporary_login", "save_panel_connection", "delete_panel_connection",
+    "ssh_connect", "ssh_read", "ssh_disconnect", "ssh_write",
+    "get_sync_device_identity", "list_sync_devices", "revoke_sync_device", "set_sync_device_share_scope", "list_pending_sync_acknowledgements",
+    "create_sync_account_bundle", "create_sync_delta_bundle", "save_sync_delta_bundle_file", "save_sync_acknowledgement_file",
+    "preview_sync_delta_bundle", "apply_sync_delta_bundle", "complete_sync_delta_push", "acknowledge_sync_delta",
+    "send_sync_delta_ack_lan", "start_sync_delta_receiver", "send_sync_delta_bundle_lan", "take_received_sync_delta",
+    "save_sync_account_bundle", "preview_sync_account_bundle", "import_sync_account_bundle", "start_sync_transfer",
+    "start_sync_delta_transfer", "cancel_sync_transfer", "approve_sync_transfer", "fetch_sync_transfer"
+  ],
   "domains": [
     {
       "name": "accounts",

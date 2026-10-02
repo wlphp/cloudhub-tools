@@ -12,6 +12,7 @@ export const remoteClient = {
   savePanel(input: unknown): Promise<PanelConnection> { return nativeOnly("save_panel_connection", { input }); },
   refreshPanel(id: number): Promise<PanelConnection> { return nativeOnly("refresh_panel_connection", { id }); },
   temporaryPanelLogin(id: number): Promise<string> { return nativeOnly("panel_temporary_login", { id }); },
+  openPanelTemporaryLogin(id: number): Promise<void> { return nativeOnly("open_panel_temporary_login", { id }); },
   deletePanel(id: number): Promise<void> { return nativeOnly("delete_panel_connection", { id }); },
   updatePanelOrder(ids: number[]): Promise<void> { return nativeOnly("update_panel_connection_order", { ids }); },
   updatePanelRemark(id: number, remark: string | null): Promise<PanelConnection> { return nativeOnly("update_panel_connection_remark", { id, remark }); },

@@ -1,0 +1,22 @@
+{
+  "build": {
+    "beforeDevCommand": "npm run dev:mobile",
+    "beforeBuildCommand": "npm run build:mobile"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "云枢 Tools · 手机云资源管理",
+        "width": 390,
+        "height": 844,
+        "decorations": false
+      }
+    ]
+  },
+  "bundle": {
+    "android": {
+      "minSdkVersion": 24
+    }
+  }
+}

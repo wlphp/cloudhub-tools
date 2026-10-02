@@ -2,7 +2,25 @@ use rusqlite::{Connection, OptionalExtension};
 
 use super::paths::data_dir;
 
-const CURRENT_SCHEMA_VERSION: i64 = 10;
+const CURRENT_SCHEMA_VERSION: i64 = 17;
+
+fn create_sync_triggers(transaction: &rusqlite::Transaction<'_>, table: &str, entity_type: &str, fields: &[&str]) -> Result<(), String> {
+    let changed_fields = fields.iter().map(|field| format!("OLD.{field} IS NOT NEW.{field}")).collect::<Vec<_>>().join(" OR ");
+    let sql = format!("CREATE TRIGGER IF NOT EXISTS {table}_sync_insert AFTER INSERT ON {table} WHEN NEW.sync_id IS NOT NULL AND NEW.sync_id!='' AND NOT EXISTS(SELECT 1 FROM sync_apply_guard WHERE id=1 AND applying=1) BEGIN
+      INSERT INTO sync_local_versions(entity_type,entity_sync_id,counter) VALUES('{entity_type}',NEW.sync_id,1) ON CONFLICT(entity_type,entity_sync_id) DO UPDATE SET counter=counter+1;
+      INSERT INTO sync_outbox(message_id,entity_type,entity_sync_id,operation,version_json,created_at) SELECT lower(hex(randomblob(4))||'-'||hex(randomblob(2))||'-4'||substr(hex(randomblob(2)),2)||'-'||substr('89ab',abs(random())%4+1,1)||substr(hex(randomblob(2)),2)||'-'||hex(randomblob(6))),'{entity_type}',NEW.sync_id,'upsert',printf('{{\"%s\":%d}}',device_id,counter),CAST(strftime('%s','now') AS INTEGER)*1000 FROM sync_local_device,sync_local_versions WHERE sync_local_device.id=1 AND sync_local_versions.entity_type='{entity_type}' AND sync_local_versions.entity_sync_id=NEW.sync_id;
+    END;
+    CREATE TRIGGER IF NOT EXISTS {table}_sync_update AFTER UPDATE ON {table} WHEN ({changed_fields}) AND NOT EXISTS(SELECT 1 FROM sync_apply_guard WHERE id=1 AND applying=1) BEGIN
+      INSERT INTO sync_local_versions(entity_type,entity_sync_id,counter) VALUES('{entity_type}',NEW.sync_id,1) ON CONFLICT(entity_type,entity_sync_id) DO UPDATE SET counter=counter+1;
+      INSERT INTO sync_outbox(message_id,entity_type,entity_sync_id,operation,version_json,created_at) SELECT lower(hex(randomblob(4))||'-'||hex(randomblob(2))||'-4'||substr(hex(randomblob(2)),2)||'-'||substr('89ab',abs(random())%4+1,1)||substr(hex(randomblob(2)),2)||'-'||hex(randomblob(6))),'{entity_type}',NEW.sync_id,'upsert',printf('{{\"%s\":%d}}',device_id,counter),CAST(strftime('%s','now') AS INTEGER)*1000 FROM sync_local_device,sync_local_versions WHERE sync_local_device.id=1 AND sync_local_versions.entity_type='{entity_type}' AND sync_local_versions.entity_sync_id=NEW.sync_id;
+    END;
+    CREATE TRIGGER IF NOT EXISTS {table}_sync_delete AFTER DELETE ON {table} WHEN OLD.sync_id IS NOT NULL AND OLD.sync_id!='' AND NOT EXISTS(SELECT 1 FROM sync_apply_guard WHERE id=1 AND applying=1) BEGIN
+      INSERT INTO sync_local_versions(entity_type,entity_sync_id,counter) VALUES('{entity_type}',OLD.sync_id,1) ON CONFLICT(entity_type,entity_sync_id) DO UPDATE SET counter=counter+1;
+      INSERT INTO sync_tombstones(entity_type,entity_sync_id,deleted_by_device_id,version_json,deleted_at) SELECT '{entity_type}',OLD.sync_id,device_id,printf('{{\"%s\":%d}}',device_id,counter),CAST(strftime('%s','now') AS INTEGER)*1000 FROM sync_local_device,sync_local_versions WHERE sync_local_device.id=1 AND sync_local_versions.entity_type='{entity_type}' AND sync_local_versions.entity_sync_id=OLD.sync_id ON CONFLICT(entity_type,entity_sync_id) DO UPDATE SET deleted_by_device_id=excluded.deleted_by_device_id,version_json=excluded.version_json,deleted_at=excluded.deleted_at;
+      INSERT INTO sync_outbox(message_id,entity_type,entity_sync_id,operation,version_json,created_at) SELECT lower(hex(randomblob(4))||'-'||hex(randomblob(2))||'-4'||substr(hex(randomblob(2)),2)||'-'||substr('89ab',abs(random())%4+1,1)||substr(hex(randomblob(2)),2)||'-'||hex(randomblob(6))),'{entity_type}',OLD.sync_id,'delete',printf('{{\"%s\":%d}}',device_id,counter),CAST(strftime('%s','now') AS INTEGER)*1000 FROM sync_local_device,sync_local_versions WHERE sync_local_device.id=1 AND sync_local_versions.entity_type='{entity_type}' AND sync_local_versions.entity_sync_id=OLD.sync_id;
+    END;");
+    transaction.execute_batch(&sql).map_err(|error| format!("创建 {entity_type} 同步变更触发器失败: {error}"))
+}
 
 fn migrate_connection(conn: &mut Connection) -> Result<(), String> {
     let version: i64 = conn
@@ -120,6 +138,85 @@ fn migrate_connection(conn: &mut Connection) -> Result<(), String> {
         }
         transaction.pragma_update(None, "user_version", 10).map_err(|error| error.to_string())?;
     }
+    if version < 11 {
+        ensure_column("cloud_accounts", "sync_id", "TEXT")?;
+        ensure_column("managed_hosts", "sync_id", "TEXT")?;
+        ensure_column("panel_connections", "sync_id", "TEXT")?;
+
+        for (table, id_column) in [("cloud_accounts", "id"), ("managed_hosts", "id"), ("panel_connections", "id")] {
+            let missing_ids = {
+                let mut statement = transaction.prepare(&format!("SELECT {id_column} FROM {table} WHERE sync_id IS NULL OR sync_id = ''")).map_err(|error| error.to_string())?;
+                let rows = statement.query_map([], |row| row.get::<_, i64>(0)).map_err(|error| error.to_string())?;
+                rows.collect::<Result<Vec<_>, _>>().map_err(|error| error.to_string())?
+            };
+            for local_id in missing_ids {
+                transaction.execute(&format!("UPDATE {table} SET sync_id=?1 WHERE {id_column}=?2"), rusqlite::params![uuid::Uuid::new_v4().to_string(), local_id]).map_err(|error| error.to_string())?;
+            }
+        }
+
+        transaction.execute_batch("CREATE UNIQUE INDEX IF NOT EXISTS idx_cloud_accounts_sync_id ON cloud_accounts(sync_id);
+          CREATE UNIQUE INDEX IF NOT EXISTS idx_managed_hosts_sync_id ON managed_hosts(sync_id);
+          CREATE UNIQUE INDEX IF NOT EXISTS idx_panel_connections_sync_id ON panel_connections(sync_id);
+          CREATE TABLE IF NOT EXISTS sync_devices (device_id TEXT PRIMARY KEY, device_name TEXT NOT NULL, public_key BLOB NOT NULL, status TEXT NOT NULL CHECK(status IN ('pending','trusted','revoked')), created_at INTEGER NOT NULL, approved_at INTEGER, revoked_at INTEGER, last_seen_at INTEGER);
+          CREATE TABLE IF NOT EXISTS sync_local_device (id INTEGER PRIMARY KEY CHECK(id=1), device_id TEXT NOT NULL UNIQUE, device_name TEXT NOT NULL, created_at INTEGER NOT NULL);
+          CREATE TABLE IF NOT EXISTS sync_local_versions (entity_type TEXT NOT NULL, entity_sync_id TEXT NOT NULL, counter INTEGER NOT NULL CHECK(counter>0), PRIMARY KEY(entity_type,entity_sync_id));
+          CREATE TABLE IF NOT EXISTS sync_entity_versions (peer_device_id TEXT NOT NULL, entity_type TEXT NOT NULL, entity_sync_id TEXT NOT NULL, remote_id TEXT, base_version_json TEXT NOT NULL DEFAULT '{}', current_version_json TEXT NOT NULL DEFAULT '{}', updated_at INTEGER NOT NULL, PRIMARY KEY(peer_device_id,entity_type,entity_sync_id), FOREIGN KEY(peer_device_id) REFERENCES sync_devices(device_id) ON DELETE CASCADE);
+          CREATE TABLE IF NOT EXISTS sync_tombstones (entity_type TEXT NOT NULL, entity_sync_id TEXT NOT NULL, deleted_by_device_id TEXT NOT NULL, version_json TEXT NOT NULL, deleted_at INTEGER NOT NULL, PRIMARY KEY(entity_type,entity_sync_id));
+          CREATE TABLE IF NOT EXISTS sync_outbox (sequence INTEGER PRIMARY KEY AUTOINCREMENT, message_id TEXT NOT NULL UNIQUE, entity_type TEXT NOT NULL, entity_sync_id TEXT NOT NULL, operation TEXT NOT NULL CHECK(operation IN ('upsert','delete')), version_json TEXT NOT NULL, created_at INTEGER NOT NULL, acknowledged_at INTEGER);
+          CREATE INDEX IF NOT EXISTS idx_sync_outbox_pending ON sync_outbox(acknowledged_at,sequence);
+          CREATE TRIGGER IF NOT EXISTS cloud_accounts_sync_id_after_insert AFTER INSERT ON cloud_accounts WHEN NEW.sync_id IS NULL OR NEW.sync_id='' BEGIN UPDATE cloud_accounts SET sync_id=lower(hex(randomblob(4))||'-'||hex(randomblob(2))||'-4'||substr(hex(randomblob(2)),2)||'-'||substr('89ab',abs(random())%4+1,1)||substr(hex(randomblob(2)),2)||'-'||hex(randomblob(6))) WHERE id=NEW.id; END;
+          CREATE TRIGGER IF NOT EXISTS managed_hosts_sync_id_after_insert AFTER INSERT ON managed_hosts WHEN NEW.sync_id IS NULL OR NEW.sync_id='' BEGIN UPDATE managed_hosts SET sync_id=lower(hex(randomblob(4))||'-'||hex(randomblob(2))||'-4'||substr(hex(randomblob(2)),2)||'-'||substr('89ab',abs(random())%4+1,1)||substr(hex(randomblob(2)),2)||'-'||hex(randomblob(6))) WHERE id=NEW.id; END;
+          CREATE TRIGGER IF NOT EXISTS panel_connections_sync_id_after_insert AFTER INSERT ON panel_connections WHEN NEW.sync_id IS NULL OR NEW.sync_id='' BEGIN UPDATE panel_connections SET sync_id=lower(hex(randomblob(4))||'-'||hex(randomblob(2))||'-4'||substr(hex(randomblob(2)),2)||'-'||substr('89ab',abs(random())%4+1,1)||substr(hex(randomblob(2)),2)||'-'||hex(randomblob(6))) WHERE id=NEW.id; END;")
+            .map_err(|error| error.to_string())?;
+        transaction.execute("INSERT OR IGNORE INTO sync_local_device(id,device_id,device_name,created_at) VALUES(1,?1,'本机',CAST(strftime('%s','now') AS INTEGER)*1000)", [uuid::Uuid::new_v4().to_string()]).map_err(|error| error.to_string())?;
+
+        create_sync_triggers(&transaction, "cloud_accounts", "cloud_account", &["account_name", "cloud_type", "group_name", "access_key_id", "secret_ciphertext", "credential_meta", "region_id", "sort_order", "enabled", "remark"])?;
+        create_sync_triggers(&transaction, "managed_hosts", "managed_host", &["name", "host", "port", "username", "password_ciphertext", "platform", "auth_method", "private_key_ciphertext", "key_passphrase_ciphertext", "group_name", "tags", "source_account_id", "source_asset_key", "host_key_fingerprint", "remark"])?;
+        create_sync_triggers(&transaction, "panel_connections", "panel_connection", &["name", "panel_url", "api_key_ciphertext", "sort_order", "allow_insecure_tls", "group_name", "source_account_id", "source_asset_key", "remark"])?;
+        transaction.pragma_update(None, "user_version", 11).map_err(|error| error.to_string())?;
+    }
+    if version < 12 {
+        transaction.execute_batch("CREATE TABLE IF NOT EXISTS sync_outbox_acknowledgements (message_id TEXT NOT NULL, peer_device_id TEXT NOT NULL, acknowledged_at INTEGER NOT NULL, PRIMARY KEY(message_id,peer_device_id), FOREIGN KEY(message_id) REFERENCES sync_outbox(message_id) ON DELETE CASCADE, FOREIGN KEY(peer_device_id) REFERENCES sync_devices(device_id) ON DELETE CASCADE);
+          CREATE INDEX IF NOT EXISTS idx_sync_outbox_ack_peer ON sync_outbox_acknowledgements(peer_device_id,acknowledged_at);")
+            .map_err(|error| error.to_string())?;
+        transaction.pragma_update(None, "user_version", 12).map_err(|error| error.to_string())?;
+    }
+    if version < 13 {
+        ensure_column("sync_local_device", "public_key", "BLOB")?;
+        transaction.pragma_update(None, "user_version", 13).map_err(|error| error.to_string())?;
+    }
+    if version < 14 {
+        transaction.execute_batch("CREATE TABLE IF NOT EXISTS sync_device_scope (peer_device_id TEXT NOT NULL, entity_type TEXT NOT NULL CHECK(entity_type IN ('cloud_account','managed_host','panel_connection')), entity_sync_id TEXT NOT NULL, granted_at INTEGER NOT NULL, PRIMARY KEY(peer_device_id,entity_type,entity_sync_id), FOREIGN KEY(peer_device_id) REFERENCES sync_devices(device_id) ON DELETE CASCADE);
+          CREATE INDEX IF NOT EXISTS idx_sync_device_scope_entity ON sync_device_scope(entity_type,entity_sync_id);").map_err(|error| error.to_string())?;
+        transaction.pragma_update(None, "user_version", 14).map_err(|error| error.to_string())?;
+    }
+    if version < 15 {
+        transaction.execute_batch("CREATE TABLE IF NOT EXISTS sync_apply_guard (id INTEGER PRIMARY KEY CHECK(id=1), applying INTEGER NOT NULL DEFAULT 0 CHECK(applying IN (0,1))); INSERT OR IGNORE INTO sync_apply_guard(id,applying) VALUES(1,0);
+          DROP TRIGGER IF EXISTS cloud_accounts_sync_insert; DROP TRIGGER IF EXISTS cloud_accounts_sync_update; DROP TRIGGER IF EXISTS cloud_accounts_sync_delete;
+          DROP TRIGGER IF EXISTS managed_hosts_sync_insert; DROP TRIGGER IF EXISTS managed_hosts_sync_update; DROP TRIGGER IF EXISTS managed_hosts_sync_delete;
+          DROP TRIGGER IF EXISTS panel_connections_sync_insert; DROP TRIGGER IF EXISTS panel_connections_sync_update; DROP TRIGGER IF EXISTS panel_connections_sync_delete;").map_err(|error| error.to_string())?;
+        create_sync_triggers(&transaction, "cloud_accounts", "cloud_account", &["account_name", "cloud_type", "group_name", "access_key_id", "secret_ciphertext", "credential_meta", "region_id", "sort_order", "enabled", "remark"])?;
+        create_sync_triggers(&transaction, "managed_hosts", "managed_host", &["name", "host", "port", "username", "password_ciphertext", "platform", "auth_method", "private_key_ciphertext", "key_passphrase_ciphertext", "group_name", "tags", "source_account_id", "source_asset_key", "host_key_fingerprint", "remark"])?;
+        create_sync_triggers(&transaction, "panel_connections", "panel_connection", &["name", "panel_url", "api_key_ciphertext", "sort_order", "allow_insecure_tls", "group_name", "source_account_id", "source_asset_key", "remark"])?;
+        transaction.pragma_update(None, "user_version", 15).map_err(|error| error.to_string())?;
+    }
+    if version < 16 {
+        transaction.execute_batch("CREATE TABLE IF NOT EXISTS sync_inbox (peer_device_id TEXT NOT NULL, message_id TEXT NOT NULL, sequence INTEGER NOT NULL, entity_type TEXT NOT NULL CHECK(entity_type IN ('cloud_account','managed_host','panel_connection')), entity_sync_id TEXT NOT NULL, operation TEXT NOT NULL CHECK(operation IN ('upsert','delete')), version_json TEXT NOT NULL, received_at INTEGER NOT NULL, PRIMARY KEY(peer_device_id,message_id), FOREIGN KEY(peer_device_id) REFERENCES sync_devices(device_id) ON DELETE CASCADE);
+          CREATE INDEX IF NOT EXISTS idx_sync_inbox_entity ON sync_inbox(peer_device_id,entity_type,entity_sync_id,sequence);").map_err(|error| error.to_string())?;
+        transaction.pragma_update(None, "user_version", 16).map_err(|error| error.to_string())?;
+    }
+    if version < 17 {
+        transaction.execute_batch("CREATE TABLE IF NOT EXISTS sync_pending_acknowledgements (
+            peer_device_id TEXT NOT NULL,
+            batch_key TEXT NOT NULL,
+            acknowledgement_json TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            PRIMARY KEY(peer_device_id,batch_key),
+            FOREIGN KEY(peer_device_id) REFERENCES sync_devices(device_id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_sync_pending_ack_created ON sync_pending_acknowledgements(created_at);").map_err(|error| error.to_string())?;
+        transaction.pragma_update(None, "user_version", 17).map_err(|error| error.to_string())?;
+    }
     transaction.commit().map_err(|error| format!("提交 SQLite 迁移失败: {error}"))?;
 
     Ok(())
@@ -165,6 +262,10 @@ mod tests {
         migrate_connection(&mut conn).unwrap();
         let version: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0)).unwrap();
         assert_eq!(version, CURRENT_SCHEMA_VERSION);
+        let pending_ack_table: i64 = conn.query_row("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='sync_pending_acknowledgements'", [], |row| row.get(0)).unwrap();
+        assert_eq!(pending_ack_table, 1, "schema migration must create durable pending acknowledgement storage");
+        let identity_columns: Vec<String> = conn.prepare("PRAGMA table_info(sync_local_device)").unwrap().query_map([], |row| row.get(1)).unwrap().collect::<Result<_, _>>().unwrap();
+        assert!(identity_columns.iter().any(|column| column == "public_key"));
         let frp_table: i64 = conn.query_row("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='frp_clients'", [], |row| row.get(0)).unwrap();
         assert_eq!(frp_table, 1);
         let managed_columns: Vec<String> = conn.prepare("PRAGMA table_info(managed_hosts)").unwrap().query_map([], |row| row.get(1)).unwrap().collect::<Result<_, _>>().unwrap();
@@ -178,7 +279,7 @@ mod tests {
     #[test]
     fn upgrades_frp_server_notes_without_changing_existing_connection() {
         let mut conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch("CREATE TABLE frp_local_servers(id INTEGER PRIMARY KEY, name TEXT, token_ciphertext TEXT, admin_port INTEGER); CREATE TABLE frp_local_proxies(id INTEGER PRIMARY KEY, custom_domain TEXT); INSERT INTO frp_local_servers VALUES(1,'fixture','encrypted-fixture',7400); PRAGMA user_version=8;").unwrap();
+        conn.execute_batch("CREATE TABLE cloud_accounts(id INTEGER PRIMARY KEY); CREATE TABLE managed_hosts(id INTEGER PRIMARY KEY); CREATE TABLE panel_connections(id INTEGER PRIMARY KEY); CREATE TABLE frp_local_servers(id INTEGER PRIMARY KEY, name TEXT, token_ciphertext TEXT, admin_port INTEGER); CREATE TABLE frp_local_proxies(id INTEGER PRIMARY KEY, custom_domain TEXT); INSERT INTO frp_local_servers VALUES(1,'fixture','encrypted-fixture',7400); PRAGMA user_version=8;").unwrap();
         migrate_connection(&mut conn).unwrap();
         let row: (String, i64, Option<String>, Option<String>, Option<String>) = conn.query_row("SELECT token_ciphertext,admin_port,panel_url,panel_username,panel_password_ciphertext FROM frp_local_servers WHERE id=1", [], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?))).unwrap();
         assert_eq!(row, ("encrypted-fixture".into(),7400,None,None,None));
@@ -200,7 +301,7 @@ mod tests {
     #[test]
     fn upgrades_frp_domains_and_plugin_fields_idempotently() {
         let mut conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch("CREATE TABLE frp_local_proxies(id INTEGER PRIMARY KEY,custom_domain TEXT); INSERT INTO frp_local_proxies VALUES(1,'legacy.example.test'),(2,NULL); PRAGMA user_version=9;").unwrap();
+        conn.execute_batch("CREATE TABLE cloud_accounts(id INTEGER PRIMARY KEY); CREATE TABLE managed_hosts(id INTEGER PRIMARY KEY); CREATE TABLE panel_connections(id INTEGER PRIMARY KEY); CREATE TABLE frp_local_proxies(id INTEGER PRIMARY KEY,custom_domain TEXT); INSERT INTO frp_local_proxies VALUES(1,'legacy.example.test'),(2,NULL); PRAGMA user_version=9;").unwrap();
         migrate_connection(&mut conn).unwrap();
         let values: (String, Option<String>) = conn.query_row("SELECT custom_domains_json,plugin_json FROM frp_local_proxies WHERE id=1", [], |row| Ok((row.get(0)?,row.get(1)?))).unwrap();
         assert_eq!(serde_json::from_str::<Vec<String>>(&values.0).unwrap(), vec!["legacy.example.test"]);
@@ -211,6 +312,62 @@ mod tests {
         assert_eq!(serde_json::from_str::<Vec<String>>(&domains).unwrap().len(),2);
         let empty: String = conn.query_row("SELECT custom_domains_json FROM frp_local_proxies WHERE id=2", [], |row| row.get(0)).unwrap();
         assert_eq!(empty,"[]");
+    }
+
+    #[test]
+    fn adds_stable_sync_ids_and_device_sync_metadata() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE cloud_accounts (id INTEGER PRIMARY KEY, sync_id TEXT, account_name TEXT, cloud_type TEXT, group_name TEXT, access_key_id TEXT, secret_ciphertext TEXT, credential_meta TEXT, region_id TEXT, sort_order INTEGER, enabled INTEGER, remark TEXT); CREATE TABLE managed_hosts (id INTEGER PRIMARY KEY, sync_id TEXT, name TEXT, host TEXT, port INTEGER, username TEXT, password_ciphertext TEXT, platform TEXT, auth_method TEXT, private_key_ciphertext TEXT, key_passphrase_ciphertext TEXT, group_name TEXT, tags TEXT, source_account_id INTEGER, source_asset_key TEXT, host_key_fingerprint TEXT, remark TEXT, status TEXT, last_latency_ms INTEGER, metrics_json TEXT, last_checked_at INTEGER, last_error TEXT); CREATE TABLE panel_connections (id INTEGER PRIMARY KEY, sync_id TEXT, name TEXT, panel_url TEXT, api_key_ciphertext TEXT, sort_order INTEGER, allow_insecure_tls INTEGER, group_name TEXT, source_account_id INTEGER, source_asset_key TEXT, remark TEXT, status TEXT, summary_json TEXT, last_checked_at INTEGER, last_error TEXT); INSERT INTO cloud_accounts(id,account_name) VALUES(1,'first'); INSERT INTO managed_hosts(id) VALUES(1); INSERT INTO panel_connections(id) VALUES(1); PRAGMA user_version=10;").unwrap();
+
+        migrate_connection(&mut conn).unwrap();
+        let old_ids: (String, String, String) = conn.query_row("SELECT (SELECT sync_id FROM cloud_accounts WHERE id=1),(SELECT sync_id FROM managed_hosts WHERE id=1),(SELECT sync_id FROM panel_connections WHERE id=1)", [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))).unwrap();
+        assert!(old_ids.0.len() == 36 && old_ids.1.len() == 36 && old_ids.2.len() == 36);
+
+        conn.execute("INSERT INTO cloud_accounts(id,sync_id,account_name) VALUES(2,'11111111-1111-4111-8111-111111111111','second')", []).unwrap();
+        conn.execute("INSERT INTO managed_hosts(id,sync_id,name,host) VALUES(2,'22222222-2222-4222-8222-222222222222','host','host.example.test')", []).unwrap();
+        conn.execute("INSERT INTO panel_connections(id,sync_id,name,panel_url,api_key_ciphertext) VALUES(2,'33333333-3333-4333-8333-333333333333','panel','https://panel.example.test','ciphertext')", []).unwrap();
+        let new_ids: (String, String, String) = conn.query_row("SELECT (SELECT sync_id FROM cloud_accounts WHERE id=2),(SELECT sync_id FROM managed_hosts WHERE id=2),(SELECT sync_id FROM panel_connections WHERE id=2)", [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))).unwrap();
+        assert!(new_ids.0.len() == 36 && new_ids.1.len() == 36 && new_ids.2.len() == 36);
+        assert_ne!(old_ids.0, new_ids.0);
+        assert_eq!(new_ids.0, "11111111-1111-4111-8111-111111111111");
+        let initial_outbox: (i64, String) = conn.query_row("SELECT COUNT(*),MAX(version_json) FROM sync_outbox WHERE entity_type='cloud_account' AND entity_sync_id=?1", [&new_ids.0], |row| Ok((row.get(0)?, row.get(1)?))).unwrap();
+        let local_device_id: String = conn.query_row("SELECT device_id FROM sync_local_device WHERE id=1", [], |row| row.get(0)).unwrap();
+        assert_eq!(initial_outbox, (1, format!(r#"{{"{local_device_id}":1}}"#)));
+        let host_outbox: i64 = conn.query_row("SELECT COUNT(*) FROM sync_outbox WHERE entity_type='managed_host' AND entity_sync_id=?1", [&new_ids.1], |row| row.get(0)).unwrap();
+        let panel_outbox: i64 = conn.query_row("SELECT COUNT(*) FROM sync_outbox WHERE entity_type='panel_connection' AND entity_sync_id=?1", [&new_ids.2], |row| row.get(0)).unwrap();
+        assert_eq!((host_outbox, panel_outbox), (1, 1));
+
+        conn.execute("UPDATE sync_apply_guard SET applying=1 WHERE id=1", []).unwrap();
+        conn.execute("UPDATE cloud_accounts SET account_name='received-from-peer' WHERE id=2", []).unwrap();
+        let guarded_outbox: i64 = conn.query_row("SELECT COUNT(*) FROM sync_outbox WHERE entity_type='cloud_account' AND entity_sync_id=?1", [&new_ids.0], |row| row.get(0)).unwrap();
+        assert_eq!(guarded_outbox, 1, "remote apply must not echo a local outbox event");
+        conn.execute("UPDATE sync_apply_guard SET applying=0 WHERE id=1", []).unwrap();
+
+        conn.execute("UPDATE cloud_accounts SET account_name='changed' WHERE id=2", []).unwrap();
+        let update_version: String = conn.query_row("SELECT version_json FROM sync_outbox WHERE entity_type='cloud_account' AND entity_sync_id=?1 ORDER BY sequence DESC LIMIT 1", [&new_ids.0], |row| row.get(0)).unwrap();
+        assert!(update_version.ends_with(":2}"));
+        conn.execute("DELETE FROM cloud_accounts WHERE id=2", []).unwrap();
+        let tombstone_count: i64 = conn.query_row("SELECT COUNT(*) FROM sync_tombstones WHERE entity_type='cloud_account' AND entity_sync_id=?1", [&new_ids.0], |row| row.get(0)).unwrap();
+        assert_eq!(tombstone_count, 1);
+
+        conn.execute("UPDATE managed_hosts SET status='online',last_latency_ms=10 WHERE id=2", []).unwrap();
+        let host_runtime_outbox: i64 = conn.query_row("SELECT COUNT(*) FROM sync_outbox WHERE entity_type='managed_host' AND entity_sync_id=?1", [&new_ids.1], |row| row.get(0)).unwrap();
+        assert_eq!(host_runtime_outbox, 1);
+        conn.execute("UPDATE managed_hosts SET host='new.example.test' WHERE id=2", []).unwrap();
+        conn.execute("UPDATE panel_connections SET summary_json='{}',status='online' WHERE id=2", []).unwrap();
+        let panel_runtime_outbox: i64 = conn.query_row("SELECT COUNT(*) FROM sync_outbox WHERE entity_type='panel_connection' AND entity_sync_id=?1", [&new_ids.2], |row| row.get(0)).unwrap();
+        assert_eq!(panel_runtime_outbox, 1);
+        conn.execute("UPDATE panel_connections SET api_key_ciphertext='new-ciphertext' WHERE id=2", []).unwrap();
+        conn.execute("DELETE FROM managed_hosts WHERE id=2", []).unwrap();
+        conn.execute("DELETE FROM panel_connections WHERE id=2", []).unwrap();
+        let other_tombstones: i64 = conn.query_row("SELECT COUNT(*) FROM sync_tombstones WHERE entity_sync_id IN (?1,?2)", rusqlite::params![new_ids.1,new_ids.2], |row| row.get(0)).unwrap();
+        assert_eq!(other_tombstones, 2);
+
+        migrate_connection(&mut conn).unwrap();
+        let stable_id: String = conn.query_row("SELECT sync_id FROM cloud_accounts WHERE id=1", [], |row| row.get(0)).unwrap();
+        assert_eq!(stable_id, old_ids.0);
+        let table_count: i64 = conn.query_row("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('sync_devices','sync_entity_versions','sync_tombstones','sync_outbox','sync_device_scope')", [], |row| row.get(0)).unwrap();
+        assert_eq!(table_count, 5);
     }
 
     #[test]

@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "mobile-main",
+  "description": "Mobile main window capability",
+  "platforms": ["android", "iOS"],
+  "windows": ["main"],
+  "permissions": ["core:default", "barcode-scanner:allow-scan", "barcode-scanner:allow-cancel"]
+}

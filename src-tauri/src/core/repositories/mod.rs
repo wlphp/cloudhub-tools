@@ -6,4 +6,5 @@ pub mod assets;
 pub mod preferences;
 pub mod connections;
 pub mod certificates;
+pub mod sync;
 pub mod flow_connections;

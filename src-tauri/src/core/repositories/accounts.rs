@@ -84,7 +84,7 @@ pub fn save(conn: &Connection, input: &AccountInput, secret_ciphertext: &str, no
             id
         }
         None => {
-            conn.execute("INSERT INTO cloud_accounts(account_name,cloud_type,group_name,access_key_id,secret_ciphertext,credential_meta,region_id,sort_order,enabled,remark,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?11)", params![input.account_name.trim(), input.cloud_type, input.group_name, input.access_key_id.trim(), secret_ciphertext, input.credential_meta, input.region_id, input.sort_order.unwrap_or(0), input.enabled as i64, input.remark, now]).map_err(|error| error.to_string())?;
+            conn.execute("INSERT INTO cloud_accounts(account_name,cloud_type,group_name,access_key_id,secret_ciphertext,credential_meta,region_id,sort_order,enabled,remark,created_at,updated_at,sync_id) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?11,?12)", params![input.account_name.trim(), input.cloud_type, input.group_name, input.access_key_id.trim(), secret_ciphertext, input.credential_meta, input.region_id, input.sort_order.unwrap_or(0), input.enabled as i64, input.remark, now, uuid::Uuid::new_v4().to_string()]).map_err(|error| error.to_string())?;
             conn.last_insert_rowid()
         }
     };

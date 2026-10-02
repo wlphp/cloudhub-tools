@@ -47,7 +47,7 @@ pub fn save(conn: &Connection, input: &crate::ManagedHostInput, name: &str, host
             id
         }
         None => {
-            conn.execute("INSERT INTO managed_hosts(name,host,port,username,platform,auth_method,password_ciphertext,private_key_ciphertext,key_passphrase_ciphertext,group_name,tags,source_account_id,source_asset_key,remark,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?15)", params![name,host,port,username,platform,auth_method,password_ciphertext,private_key_ciphertext,key_passphrase_ciphertext,input.group_name,input.tags,input.source_account_id,input.source_asset_key,input.remark,now]).map_err(|error| error.to_string())?;
+            conn.execute("INSERT INTO managed_hosts(name,host,port,username,platform,auth_method,password_ciphertext,private_key_ciphertext,key_passphrase_ciphertext,group_name,tags,source_account_id,source_asset_key,remark,created_at,updated_at,sync_id) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?15,?16)", params![name,host,port,username,platform,auth_method,password_ciphertext,private_key_ciphertext,key_passphrase_ciphertext,input.group_name,input.tags,input.source_account_id,input.source_asset_key,input.remark,now,uuid::Uuid::new_v4().to_string()]).map_err(|error| error.to_string())?;
             conn.last_insert_rowid()
         }
     };
@@ -81,7 +81,7 @@ pub fn mark_ssh_online(conn: &Connection, id: i64, host: &str, port: u16, userna
 }
 
 pub fn insert_from_ssh(conn: &Connection, name: &str, host: &str, port: u16, username: &str, password_ciphertext: &str, group_name: Option<&str>, account_id: i64, asset_key: &str, fingerprint: &str, now: i64) -> Result<(), String> {
-    conn.execute("INSERT INTO managed_hosts(name,host,port,username,password_ciphertext,group_name,source_account_id,source_asset_key,host_key_fingerprint,status,metrics_json,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,'online','{}',?10,?10)", params![name, host, port, username, password_ciphertext, group_name, account_id, asset_key, fingerprint, now]).map(|_| ()).map_err(|error| format!("保存终端管理服务器失败: {error}"))
+    conn.execute("INSERT INTO managed_hosts(name,host,port,username,password_ciphertext,group_name,source_account_id,source_asset_key,host_key_fingerprint,status,metrics_json,created_at,updated_at,sync_id) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,'online','{}',?10,?10,?11)", params![name, host, port, username, password_ciphertext, group_name, account_id, asset_key, fingerprint, now, uuid::Uuid::new_v4().to_string()]).map(|_| ()).map_err(|error| format!("保存终端管理服务器失败: {error}"))
 }
 
 pub fn id_by_endpoint(conn: &Connection, host: &str, port: u16, username: &str) -> Result<Option<i64>, String> {
@@ -93,7 +93,7 @@ pub fn import_update(conn: &Connection, id: i64, name: &str, platform: &str, aut
 }
 
 pub fn import_insert(conn: &Connection, name: &str, host: &str, port: u16, username: &str, platform: &str, auth_method: &str, password_ciphertext: &str, private_key_ciphertext: Option<&str>, key_passphrase_ciphertext: Option<&str>, group_name: Option<&str>, tags: Option<&str>, source_account_id: Option<i64>, source_asset_key: Option<&str>, remark: Option<&str>, now: i64) -> Result<(), String> {
-    conn.execute("INSERT INTO managed_hosts(name,host,port,username,platform,auth_method,password_ciphertext,private_key_ciphertext,key_passphrase_ciphertext,group_name,tags,source_account_id,source_asset_key,status,metrics_json,remark,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,'unknown','{}',?14,?15,?15)", params![name,host,port,username,platform,auth_method,password_ciphertext,private_key_ciphertext,key_passphrase_ciphertext,group_name,tags,source_account_id,source_asset_key,remark,now]).map(|_| ()).map_err(|error| error.to_string())
+    conn.execute("INSERT INTO managed_hosts(name,host,port,username,platform,auth_method,password_ciphertext,private_key_ciphertext,key_passphrase_ciphertext,group_name,tags,source_account_id,source_asset_key,status,metrics_json,remark,created_at,updated_at,sync_id) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,'unknown','{}',?14,?15,?15,?16)", params![name,host,port,username,platform,auth_method,password_ciphertext,private_key_ciphertext,key_passphrase_ciphertext,group_name,tags,source_account_id,source_asset_key,remark,now,uuid::Uuid::new_v4().to_string()]).map(|_| ()).map_err(|error| error.to_string())
 }
 
 pub struct ExportRow { pub name: String, pub host: String, pub port: u16, pub username: String, pub platform: String, pub auth_method: String, pub password_ciphertext: Option<String>, pub private_key_ciphertext: Option<String>, pub key_passphrase_ciphertext: Option<String>, pub group_name: Option<String>, pub tags: Option<String>, pub source_account_id: Option<i64>, pub source_asset_key: Option<String>, pub remark: Option<String> }
