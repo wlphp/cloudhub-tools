@@ -20,7 +20,9 @@ class SecureStorePlugin: Plugin {
     do {
       let args = try invoke.parseArgs(BackupPathArgs.self)
       let directory = URL(fileURLWithPath: args.path, isDirectory: true)
-      try directory.setResourceValue(true, forKey: .isExcludedFromBackupKey)
+      var resourceValues = URLResourceValues()
+      resourceValues.isExcludedFromBackup = true
+      try directory.setResourceValues(resourceValues)
       invoke.resolve([:])
     } catch {
       invoke.reject("无法设置本机数据备份边界")
