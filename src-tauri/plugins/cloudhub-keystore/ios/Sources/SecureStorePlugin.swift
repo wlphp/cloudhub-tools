@@ -19,7 +19,7 @@ class SecureStorePlugin: Plugin {
   @objc public func excludeDataFromBackup(_ invoke: Invoke) throws {
     do {
       let args = try invoke.parseArgs(BackupPathArgs.self)
-      let directory = URL(fileURLWithPath: args.path, isDirectory: true)
+      var directory = URL(fileURLWithPath: args.path, isDirectory: true)
       var resourceValues = URLResourceValues()
       resourceValues.isExcludedFromBackup = true
       try directory.setResourceValues(resourceValues)
