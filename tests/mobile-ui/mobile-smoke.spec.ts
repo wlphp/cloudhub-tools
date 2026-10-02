@@ -173,6 +173,69 @@ test("navigates mobile resource sections and preserves narrow layout", async ({ 
   await expectNoHorizontalOverflow(page);
 });
 
+test("keeps slower resource responses from replacing the newly selected account", async ({ page }) => {
+  const secondAccount = { ...account, id: 13, account_name: "secondary-fixture" };
+  let firstRequestStarted = false;
+  let secondRequestStarted = false;
+  let finishFirstRequest!: () => void;
+  let finishSecondRequest!: () => void;
+  const firstRequestGate = new Promise<void>((resolve) => { finishFirstRequest = resolve; });
+  const secondRequestGate = new Promise<void>((resolve) => { finishSecondRequest = resolve; });
+  await stubLocalApi(page, [account, secondAccount]);
+  await page.route("**/api/local-assets**", async (route) => {
+    const accountId = Number(new URL(route.request().url()).searchParams.get("account_id"));
+    if (accountId === 12) {
+      firstRequestStarted = true;
+      await firstRequestGate;
+      await route.fulfill({ json: [{ account_id: 12, resource_type: "ecs", asset_key: "i-first", region_id: "cn-hangzhou", payload: { instanceId: "i-first", instanceName: "first-account-server", status: "Running" }, fetched_at: 1_700_000_000 }] });
+      return;
+    }
+    secondRequestStarted = true;
+    await secondRequestGate;
+    await route.fulfill({ json: [{ account_id: 13, resource_type: "ecs", asset_key: "i-second", region_id: "us-west-1", payload: { instanceId: "i-second", instanceName: "second-account-server", status: "Running" }, fetched_at: 1_700_000_000 }] });
+  });
+  await page.goto("/");
+  await page.locator(".mobile-account-select").filter({ hasText: "mobile-fixture" }).click();
+  await expect.poll(() => firstRequestStarted).toBeTruthy();
+
+  await page.locator(".mobile-tab-bar").getByRole("button", { name: "账号" }).click();
+  await page.locator(".mobile-account-select").filter({ hasText: "secondary-fixture" }).click();
+  await expect(page.getByRole("heading", { name: "服务器" })).toBeVisible();
+  await expect.poll(() => secondRequestStarted).toBeTruthy();
+  await expect(page.getByText("first-account-server")).toHaveCount(0);
+
+  finishSecondRequest();
+  await expect(page.getByText("second-account-server")).toBeVisible();
+
+  finishFirstRequest();
+  await expect(page.getByText("first-account-server")).toHaveCount(0);
+  await expect(page.getByText("second-account-server")).toBeVisible();
+});
+
+test("releases resource loading state after navigating away from a pending read", async ({ page }) => {
+  let finishRequest!: () => void;
+  const requestGate = new Promise<void>((resolve) => { finishRequest = resolve; });
+  let requestStarted = false;
+  await stubLocalApi(page, [account]);
+  await page.route("**/api/local-assets**", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.get("resource_type") === "ecs") {
+      requestStarted = true;
+      await requestGate;
+      await route.fulfill({ json: [] });
+      return;
+    }
+    await route.fulfill({ json: [] });
+  });
+  await page.goto("/");
+  await page.locator(".mobile-account-select").click();
+  await expect.poll(() => requestStarted).toBeTruthy();
+  await page.locator(".mobile-tab-bar").getByRole("button", { name: "更多" }).click();
+  await expect(page.getByRole("heading", { name: "更多管理" })).toBeVisible();
+  await expect(page.locator(".mobile-header").getByRole("button", { name: "刷新" })).toBeEnabled();
+  finishRequest();
+});
+
 test("adds a panel locally and rejects non-root panel URLs before native save", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 720 });
   await stubLocalApi(page);

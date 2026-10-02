@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Activity, ArrowDownToLine, Cloud, Database, File, Folder, Globe2, Plus, Power, RefreshCw, RotateCw, Server, ShieldCheck, X, Trash2, MoreHorizontal, Award, Terminal, Pencil, ExternalLink, Monitor } from "lucide-react";
 import type { Account, Certificate, LocalAsset, ManagedHost, PanelConnection, PanelConnectionDraft } from "../shared/types";
 import { accountsClient, certificatesClient, domainsClient, remoteClient, resourcesClient, storageClient } from "../platform/clients";
@@ -71,6 +71,39 @@ export function MobileApp() {
   const [newAccountCloud, setNewAccountCloud] = useState("aliyun");
   const [notice, setNotice] = useState("");
   const selectedAccount = useMemo(() => accounts.find((account) => account.id === selectedAccountId) ?? null, [accounts, selectedAccountId]);
+  const currentResourceScope = useRef({ accountId: selectedAccountId, tab });
+  currentResourceScope.current = { accountId: selectedAccountId, tab };
+  const previousAccountId = useRef(selectedAccountId);
+  const resourceReadSequence = useRef(0);
+  const beginResourceRead = useCallback((resourceTab: MobileTab, accountId: number | null) => {
+    const sequence = ++resourceReadSequence.current;
+    return () => sequence === resourceReadSequence.current
+      && currentResourceScope.current.tab === resourceTab
+      && currentResourceScope.current.accountId === accountId;
+  }, []);
+
+  useEffect(() => {
+    const accountChanged = previousAccountId.current !== selectedAccountId;
+    previousAccountId.current = selectedAccountId;
+    resourceReadSequence.current += 1;
+    setLoading(false);
+    if (accountChanged) {
+      setServers([]);
+      setDomains([]);
+      setSelectedDomain(null);
+      setDnsRecords([]);
+      setBuckets([]);
+      setSelectedBucket(null);
+      setObjectListing(null);
+      setDatabaseAssets([]);
+      setSelectedDatabase(null);
+      setDatabaseDetails([]);
+      setRedisAssets([]);
+      setSelectedRedis(null);
+      setRedisAccounts([]);
+      setCertificates([]);
+    }
+  }, [selectedAccountId, tab]);
 
   const refreshAccounts = useCallback(async () => {
     setLoading(true);
@@ -87,16 +120,20 @@ export function MobileApp() {
   }, []);
 
   const refreshServers = useCallback(async (accountId: number) => {
+    const isCurrentRead = beginResourceRead("servers", accountId);
     setLoading(true);
     try {
-      setServers(await resourcesClient.listLocal({ accountId, resourceType: "ecs" }));
+      const result = await resourcesClient.listLocal({ accountId, resourceType: "ecs" });
+      if (!isCurrentRead()) return;
+      setServers(result);
       setNotice("");
     } catch (error) {
+      if (!isCurrentRead()) return;
       setNotice(error instanceof Error ? error.message : "读取本机缓存失败");
     } finally {
-      setLoading(false);
+      if (isCurrentRead()) setLoading(false);
     }
-  }, []);
+  }, [beginResourceRead]);
 
   useEffect(() => { void refreshAccounts(); }, [refreshAccounts]);
   useEffect(() => {
@@ -105,16 +142,20 @@ export function MobileApp() {
   }, [tab, selectedAccountId, refreshServers]);
 
   const refreshDomains = useCallback(async (accountId: number) => {
+    const isCurrentRead = beginResourceRead("domains", accountId);
     setLoading(true);
     try {
-      setDomains(await resourcesClient.listLocal({ accountId, resourceType: "domain" }));
+      const result = await resourcesClient.listLocal({ accountId, resourceType: "domain" });
+      if (!isCurrentRead()) return;
+      setDomains(result);
       setSelectedDomain(null);
       setDnsRecords([]);
       setNotice("");
     } catch (error) {
+      if (!isCurrentRead()) return;
       setNotice(error instanceof Error ? error.message : "读取域名缓存失败");
-    } finally { setLoading(false); }
-  }, []);
+    } finally { if (isCurrentRead()) setLoading(false); }
+  }, [beginResourceRead]);
 
   useEffect(() => {
     if (tab === "domains" && selectedAccountId !== null) void refreshDomains(selectedAccountId);
@@ -122,11 +163,16 @@ export function MobileApp() {
   }, [tab, selectedAccountId, refreshDomains]);
 
   const refreshBuckets = useCallback(async (accountId: number) => {
+    const isCurrentRead = beginResourceRead("storage", accountId);
     setLoading(true);
-    try { setBuckets(await resourcesClient.listLocal({ accountId, resourceType: "oss" })); setSelectedBucket(null); setObjectListing(null); setNotice(""); }
-    catch (error) { setNotice(error instanceof Error ? error.message : "读取存储桶失败"); }
-    finally { setLoading(false); }
-  }, []);
+    try {
+      const result = await resourcesClient.listLocal({ accountId, resourceType: "oss" });
+      if (!isCurrentRead()) return;
+      setBuckets(result); setSelectedBucket(null); setObjectListing(null); setNotice("");
+    }
+    catch (error) { if (isCurrentRead()) setNotice(error instanceof Error ? error.message : "读取存储桶失败"); }
+    finally { if (isCurrentRead()) setLoading(false); }
+  }, [beginResourceRead]);
 
   useEffect(() => {
     if (tab === "storage" && selectedAccountId !== null) void refreshBuckets(selectedAccountId);
@@ -134,11 +180,16 @@ export function MobileApp() {
   }, [tab, selectedAccountId, refreshBuckets]);
 
   const refreshDatabases = useCallback(async (accountId: number) => {
+    const isCurrentRead = beginResourceRead("databases", accountId);
     setLoading(true);
-    try { setDatabaseAssets(await resourcesClient.listLocal({ accountId, resourceType: "rds" })); setSelectedDatabase(null); setDatabaseDetails([]); setNotice(""); }
-    catch (error) { setNotice(error instanceof Error ? error.message : "读取数据库实例失败"); }
-    finally { setLoading(false); }
-  }, []);
+    try {
+      const result = await resourcesClient.listLocal({ accountId, resourceType: "rds" });
+      if (!isCurrentRead()) return;
+      setDatabaseAssets(result); setSelectedDatabase(null); setDatabaseDetails([]); setNotice("");
+    }
+    catch (error) { if (isCurrentRead()) setNotice(error instanceof Error ? error.message : "读取数据库实例失败"); }
+    finally { if (isCurrentRead()) setLoading(false); }
+  }, [beginResourceRead]);
 
   useEffect(() => {
     if (tab === "databases" && selectedAccountId !== null) void refreshDatabases(selectedAccountId);
@@ -146,11 +197,16 @@ export function MobileApp() {
   }, [tab, selectedAccountId, refreshDatabases]);
 
   const refreshRedis = useCallback(async (accountId: number) => {
+    const isCurrentRead = beginResourceRead("redis", accountId);
     setLoading(true);
-    try { setRedisAssets(await resourcesClient.listLocal({ accountId, resourceType: "redis" })); setSelectedRedis(null); setRedisAccounts([]); setNotice(""); }
-    catch (error) { setNotice(error instanceof Error ? error.message : "读取 Redis 实例失败"); }
-    finally { setLoading(false); }
-  }, []);
+    try {
+      const result = await resourcesClient.listLocal({ accountId, resourceType: "redis" });
+      if (!isCurrentRead()) return;
+      setRedisAssets(result); setSelectedRedis(null); setRedisAccounts([]); setNotice("");
+    }
+    catch (error) { if (isCurrentRead()) setNotice(error instanceof Error ? error.message : "读取 Redis 实例失败"); }
+    finally { if (isCurrentRead()) setLoading(false); }
+  }, [beginResourceRead]);
 
   useEffect(() => {
     if (tab === "redis" && selectedAccountId !== null) void refreshRedis(selectedAccountId);
@@ -163,10 +219,15 @@ export function MobileApp() {
     const instanceId = payloadText(instance.payload, ["InstanceId", "instanceId", "Id", "id"]);
     const regionId = instance.region_id || selectedAccount.region_id || "";
     if (instanceId === "—") { setNotice("Redis 实例缓存缺少实例 ID"); return; }
+    const isCurrentRead = beginResourceRead("redis", selectedAccount.id);
     setSelectedRedis(instance); setLoading(true);
-    try { setRedisAccounts(await resourcesClient.redisAccounts(selectedAccount.id, regionId, instanceId)); setNotice(""); }
-    catch (error) { setNotice(error instanceof Error ? error.message : "读取 Redis 账号失败"); }
-    finally { setLoading(false); }
+    try {
+      const result = await resourcesClient.redisAccounts(selectedAccount.id, regionId, instanceId);
+      if (!isCurrentRead()) return;
+      setRedisAccounts(result); setNotice("");
+    }
+    catch (error) { if (isCurrentRead()) setNotice(error instanceof Error ? error.message : "读取 Redis 账号失败"); }
+    finally { if (isCurrentRead()) setLoading(false); }
   }
 
   async function refreshRedisFromCloud() {
@@ -178,10 +239,16 @@ export function MobileApp() {
   }
 
   async function refreshCertificates() {
+    const accountId = selectedAccountId;
+    const isCurrentRead = beginResourceRead("certificates", accountId);
     setLoading(true);
-    try { setCertificates(await certificatesClient.list(selectedAccountId ?? undefined)); setNotice(""); }
-    catch (error) { setNotice(error instanceof Error ? error.message : "读取证书失败"); }
-    finally { setLoading(false); }
+    try {
+      const result = await certificatesClient.list(accountId ?? undefined);
+      if (!isCurrentRead()) return;
+      setCertificates(result); setNotice("");
+    }
+    catch (error) { if (isCurrentRead()) setNotice(error instanceof Error ? error.message : "读取证书失败"); }
+    finally { if (isCurrentRead()) setLoading(false); }
   }
 
   useEffect(() => {
@@ -307,10 +374,15 @@ export function MobileApp() {
     const instanceId = payloadText(payload, ["DBInstanceId", "InstanceId", "instanceId", "id"]);
     const regionId = instance.region_id || selectedAccount.region_id || "";
     if (instanceId === "—") { setNotice("数据库实例缓存缺少实例 ID"); return; }
+    const isCurrentRead = beginResourceRead("databases", selectedAccount.id);
     setSelectedDatabase(instance); setLoading(true);
-    try { setDatabaseDetails(await resourcesClient.rdsDetails("databases", selectedAccount.id, regionId, instanceId)); setNotice(""); }
-    catch (error) { setNotice(error instanceof Error ? error.message : "读取数据库清单失败"); }
-    finally { setLoading(false); }
+    try {
+      const result = await resourcesClient.rdsDetails("databases", selectedAccount.id, regionId, instanceId);
+      if (!isCurrentRead()) return;
+      setDatabaseDetails(result); setNotice("");
+    }
+    catch (error) { if (isCurrentRead()) setNotice(error instanceof Error ? error.message : "读取数据库清单失败"); }
+    finally { if (isCurrentRead()) setLoading(false); }
   }
 
   async function refreshDatabasesFromCloud() {
@@ -326,13 +398,15 @@ export function MobileApp() {
     const bucketName = payloadText(bucket.payload, ["Name", "Bucket", "name"]);
     const location = payloadText(bucket.payload, ["Location", "location", "Region"]);
     if (bucketName === "—" || location === "—") { setNotice("存储桶缓存缺少名称或地域"); return; }
+    const isCurrentRead = beginResourceRead("storage", selectedAccount.id);
     setSelectedBucket(bucket); setObjectPrefix(prefix); setLoading(true);
     try {
       const result = await storageClient.objects(selectedAccount.id, bucketName, location, prefix, marker);
+      if (!isCurrentRead()) return;
       setObjectListing(marker && objectListing ? { ...result, objects: [...objectListing.objects, ...result.objects], prefixes: [...objectListing.prefixes, ...result.prefixes] } : result);
       setNotice("");
-    } catch (error) { setNotice(error instanceof Error ? error.message : "读取对象列表失败"); }
-    finally { setLoading(false); }
+    } catch (error) { if (isCurrentRead()) setNotice(error instanceof Error ? error.message : "读取对象列表失败"); }
+    finally { if (isCurrentRead()) setLoading(false); }
   }
 
   async function refreshBucketsFromCloud() {
@@ -347,14 +421,16 @@ export function MobileApp() {
     if (!selectedAccount) return;
     const domain = payloadText(domainAsset.payload, ["DomainName", "domain", "domainName", "name"]);
     if (domain === "—") { setNotice("缓存中缺少域名名称，请先刷新云端数据"); return; }
+    const isCurrentRead = beginResourceRead("domains", selectedAccount.id);
     setSelectedDomain(domainAsset);
     setLoading(true);
     try {
       const response = await domainsClient.records(selectedAccount.id, domain, { page: 1, pageSize: 100 });
+      if (!isCurrentRead()) return;
       setDnsRecords(Array.isArray(response.items) ? response.items as Record<string, unknown>[] : []);
       setNotice("");
-    } catch (error) { setNotice(error instanceof Error ? error.message : "读取 DNS 记录失败"); }
-    finally { setLoading(false); }
+    } catch (error) { if (isCurrentRead()) setNotice(error instanceof Error ? error.message : "读取 DNS 记录失败"); }
+    finally { if (isCurrentRead()) setLoading(false); }
   }
 
   async function refreshDomainsFromCloud() {
