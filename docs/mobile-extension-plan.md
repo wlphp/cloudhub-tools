@@ -6,7 +6,7 @@
 
 ## 实施状态
 
-已在 `src/mobile/` 增加独立 React 手机界面和 Android/iOS Tauri 配置；目前已实现多云账号本地管理、部分云资源/DNS/SSH、桌面批准的 LAN 首次迁移，以及桌面/手机双向的签名口令加密增量文件交换、共享授权和冲突决策。移动目标使用独立 Tauri 命令注册表，仅暴露当前 54 个移动端操作；contract 检查会阻止桌面命令意外加入移动白名单。桌面与移动前端均构建成功，Android ARM64 Release unsigned APK 已构建。手机首次启动会先排除当前与旧数据目录的系统备份，再迁移 `.key`；系统密钥确认可读且进入内存后，清理已复制的旧 `.key` 和 SQLite 文件，未迁移文件保留。Rust 与 Android/iOS 原生密钥桥接现在会清理可控的短期编码、解码密钥缓冲。仓库新增 macOS iOS unsigned archive CI workflow，用于验证 Swift 插件与 iOS Rust/Xcode 构建；该 workflow 尚未在远程 macOS runner 实际运行。系统密钥库插件与迁移代码已加入，但 iOS 工程编译、Keystore/Keychain 生命周期和双平台真机验收仍未完成；双向 LAN 自动回执已接入；可选中继仍待实现，进度以 [手机端 App 任务记录](tasks/active/task-20261002003942-手机端app实施支持双平台.md) 为准。
+已在 `src/mobile/` 增加独立 React 手机界面和 Android/iOS Tauri 配置；实现多云账号本地管理、部分云资源/DNS/SSH、桌面批准的 LAN 首次迁移，以及桌面/手机双向签名加密增量同步、共享授权与冲突决策。移动目标使用独立 Tauri 命令注册表，仅开放 54 个移动命令；contract 检查会阻止桌面命令意外进入移动白名单。桌面与移动前端构建通过；Android ARM64 Release unsigned APK 与可调试 APK 均构建成功。Android Keystore 和 iOS Keychain 插件及旧 `.key` 迁移代码已实现；Android Gradle 和 macOS iOS archive 均已实际编译。iOS workflow run [37010869564](https://github.com/wlphp/cloudhub-tools/actions/runs/37010869564) 成功上传 `cloudhub-tools-ios-unsigned-xcarchive` artifact（10,240,586 bytes，未签名）。手机启动会排除当前与旧数据目录的系统备份，再迁移 `.key`；仅在系统密钥读取验证成功后清理已迁移的旧密钥与 SQLite 文件。双向 LAN 自动回执已接入。剩余验收包括 Android/iOS 真机上的密钥生命周期、软键盘、LAN 与 SSH；当前开发机没有连接 Android 设备，也没有 iPhone。可选中继尚未实现。详细进度见[手机端 App 任务记录](tasks/active/task-20261002003942-手机端app实施支持双平台.md)。
 
 ## 建议
 
@@ -25,9 +25,9 @@
 | 数据 | SQLite 与 core/crypto.rs 的 AES-GCM；密钥文件位于本地数据目录 | 没有现成跨设备同步；不能把数据库和 .key 文件直接当同步方案 |
 | 浏览器预览 | web-api.mjs 监听 127.0.0.1；src/platform/api.ts 固定请求本机 | 手机访问桌面网页后，其 localhost 指向手机，不能自动连接电脑 |
 | 预览安全 | web-api/core/security.mjs 主要检查 Origin/CORS | 不能把本地预览端口直接暴露成远程管理服务；需要独立身份和权限模型 |
-| 移动入口 | lib.rs 已有 mobile_entry_point 标记 | 不代表当前能编译运行；updater 注册未按桌面条件隔离，Cargo 依赖却限定桌面 |
+| 移动入口 | 已有独立 `src/mobile/` React 入口和 Android/iOS Tauri 工程；移动 invoke handler 使用单独 54 命令白名单，跨平台构建已通过 | 尚无真机验收；Android Release 为 unsigned APK，iOS 为 unsigned archive，正式分发仍需签名配置 |
 
-当前项目没有已验证的远程控制服务或移动构建。现有部分云厂商只提供读能力，手机端也应按厂商能力展示。
+当前选定路线为手机 App 独立直连云厂商，手机数据保存在本机并由系统密钥库保护；无需桌面或常在线管理节点即可管理云资源。同步只在用户授权后通过桌面/手机间的 LAN 或加密文件传输进行。现有部分云厂商只提供读能力，手机端按实际厂商 API 能力展示。
 
 ## 产品选择
 
@@ -45,6 +45,8 @@
 微信网络文档本次未成功读取，因此不在本方案承诺具体域名、类目、通知或审核资格。正式选小程序前需要用真实主体和部署域名验证。
 
 ## 三种执行模式
+
+本节的三种模式、能力矩阵和后续分阶段交付记录的是最初的备选架构分析，不是当前实施路线。用户已选择本机优先的独立 Android/iOS App；实施范围和验收结果以本文“实施状态”及手机端任务记录为准。
 
 ### 手机独立执行
 
@@ -126,4 +128,4 @@ App 原生直连路线需增加真实 Android/iOS 的 Rust 编译、插件与 SS
 - [Taro 文档](https://docs.taro.zone/docs/)：支持 React 开发模式，具体组件适配仍需验证。
 - [微信网络文档入口](https://developers.weixin.qq.com/miniprogram/dev/framework/ability/network.html)：本次无法成功读取，发布前重新核验。
 
-本次验证为源码盘点与官方文档核对。仅新增方案文档与任务记录，未修改业务代码，未执行桌面构建或移动真机测试。
+方案形成阶段的验证仅包括源码盘点与官方文档核对；当时未修改业务代码，也未执行桌面构建或移动真机测试。后续实施与验证结果以“实施状态”和手机端任务记录为准。
