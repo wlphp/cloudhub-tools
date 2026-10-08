@@ -9,6 +9,7 @@ import { handleLocalRoutes } from "./web-api/routes/local.mjs";
 import { listAccounts, deleteAccount, getAccountSecretRecord, getAccountType, getAccountRegion, getAccountTypeAndRegion, getAccountForUpdate, saveAccountRecord, importAccountRecords } from "./web-api/repositories/accounts.mjs";
 import { listAssets, deleteAsset, updateServerName } from "./web-api/repositories/assets.mjs";
 import { listApiLogs, clearApiLogs, clearOperationLogs } from "./web-api/repositories/logs.mjs";
+import { listManagedHosts, listPanelConnections } from "./web-api/repositories/local-connections.mjs";
 import { rpc, rpcEncode, resources as aliyunRpcResources } from "./web-api/providers/aliyun-rpc.mjs";
 import * as ctyunProvider from "./web-api/providers/ctyun.mjs";
 import * as qiniuProvider from "./web-api/providers/qiniu.mjs";
@@ -31,6 +32,7 @@ import * as vultrProvider from "./web-api/providers/vultr.mjs";
 import { syncCloudAssets } from "./web-api/services/assets.mjs";
 import { saveAccount as saveAccountService } from "./web-api/services/accounts.mjs";
 import { sanitizeResourceResponse } from "./web-api/core/resources.mjs";
+import { handleDatabaseMigrationRoutes } from "./web-api/core/database-migration.mjs";
 
 function webApiPort(value) {
   const port = Number(value || 1430);
@@ -39,6 +41,8 @@ function webApiPort(value) {
 
 const port = webApiPort(process.env.CLOUDHUB_TOOLS_WEB_API_PORT || process.env.ALIYUN_TOOLS_WEB_API_PORT);
 const allowedOrigins = allowedWebOrigins();
+let activeApiRequests = 0;
+let databaseImportActive = false;
 
 function oracleMeta(row) {
   let meta = {};
@@ -656,10 +660,25 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(204);
     return res.end();
   }
+  let requestTracked = false;
   try {
     const url = new URL(req.url, `http://localhost:${port}`);
+    if (databaseImportActive && url.pathname !== "/api/database-import/confirm") return send(res, 503, { error: "正在导入电脑备份，请稍后重试" });
+    activeApiRequests += 1;
+    requestTracked = true;
+    if (await handleDatabaseMigrationRoutes(req, res, url, send, {
+      enter: async () => {
+        databaseImportActive = true;
+        const deadline = Date.now() + 60_000;
+        while (activeApiRequests > 1) {
+          if (Date.now() >= deadline) { databaseImportActive = false; throw Object.assign(new Error("本机仍有操作正在进行，请稍后重试导入"), { statusCode: 409 }); }
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+      },
+      leave: () => { databaseImportActive = false; },
+    })) return;
     if (await handleAccountRoutes(req, res, url, { accounts: listAccounts, saveAccount, deleteAccount })) return;
-    if (handleLocalRoutes(req, res, url, { listAssets, deleteAsset, listApiLogs, clearApiLogs, clearOperationLogs })) return;
+    if (handleLocalRoutes(req, res, url, { listAssets, deleteAsset, listApiLogs, clearApiLogs, clearOperationLogs, listManagedHosts, listPanelConnections })) return;
     if (req.method === "POST" && url.pathname === "/api/sync-assets") {
       const payload = JSON.parse(await readBody(req));
       return send(res, 200, await syncCloudAssets(Number(payload.account_id), Array.isArray(payload.resource_types) ? payload.resource_types : [], { database, cloudResources }));
@@ -1424,8 +1443,11 @@ const server = http.createServer(async (req, res) => {
     }
     return send(res, 404, { error: "Not found" });
   } catch (error) {
+    if (res.headersSent || res.destroyed) return;
     const status = Number(error?.statusCode);
     return send(res, Number.isInteger(status) && status >= 400 && status < 600 ? status : 500, { error: String(error?.message || error) });
+  } finally {
+    if (requestTracked) activeApiRequests -= 1;
   }
 });
 server.listen(port, "127.0.0.1", () =>

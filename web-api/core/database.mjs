@@ -30,6 +30,12 @@ export function database() {
   return sharedDatabase;
 }
 
+export function closeDatabase() {
+  if (!sharedDatabase) return;
+  sharedDatabase.close();
+  sharedDatabase = undefined;
+}
+
 export function writeApiLog(accountId, endpoint, action, request, response, status, message = null) {
   database().prepare("INSERT INTO api_logs(account_id,endpoint,action,request_params,response_params,status,message,created_at) VALUES(?,?,?,?,?,?,?,?)")
     .run(accountId, endpoint, action, serializeLogValue(request), response == null ? null : serializeLogValue(response), status, message, Date.now());

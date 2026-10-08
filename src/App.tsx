@@ -86,6 +86,7 @@ import {
   Keyboard,
   Palette,
   ShieldCheck,
+  QrCode,
 } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
@@ -3460,8 +3461,8 @@ function App() {
               <Download size={14} />
               {selectedAccountIds.size ? `导出已勾选 (${selectedAccountIds.size})` : "导出全部"}
             </button>
-            <button type="button" className="layui-btn account-export-button" title="生成需要迁移口令才能解密的手机账号包" onClick={() => setShowSyncTransfer(true)}>
-              <ShieldCheck size={14} />迁移到手机
+            <button type="button" className="layui-btn account-export-button" title="打开手机扫码迁移和加密文件选项" onClick={() => setShowSyncTransfer(true)}>
+              <QrCode size={14} />手机扫码迁移
             </button>
             <label className="layui-btn layui-btn-import account-import-button" title="导入账号 JSON">
               导入
@@ -4362,7 +4363,7 @@ function App() {
               <div className="settings-card"><div className="settings-icon purple"><Monitor size={22} /></div><div className="settings-copy"><strong>紧凑显示</strong><small>减少表格行高，适合小窗口查看</small></div><label className="setting-switch"><input type="checkbox" checked={compactMode} onChange={(event) => setCompactMode(event.target.checked)} /><span /></label></div>
               <div className="settings-card"><div className="settings-icon blue"><List size={22} /></div><div className="settings-copy"><strong>每页显示条数</strong><small>账号、资源和操作日志列表统一使用此分页大小</small></div><select className="settings-select" value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))}><option value={10}>10 条</option><option value={20}>20 条</option><option value={50}>50 条</option><option value={100}>100 条</option></select></div>
               <div className="settings-card"><div className="settings-icon purple"><Database size={22} /></div><div className="settings-copy"><strong>数据库位置</strong><small>系统应用数据目录 / CloudHubTools / cloudhub_tools.sqlite3</small></div><button className="secondary settings-link" onClick={() => void openDataDirectory()}><FolderOpen size={16} />打开目录</button></div>
-              <div className="settings-card"><div className="settings-icon amber"><Upload size={22} /></div><div className="settings-copy"><strong>数据库迁移</strong><small>导出或导入本机全部数据；迁移包包含敏感凭据，请妥善保管</small></div><div className="settings-update-actions"><button className="secondary settings-link" onClick={() => void exportDatabase()}><Download size={14} />导出全部</button><button className="primary-update-btn settings-link" onClick={() => void importDatabase()}><Upload size={14} />导入全部</button></div></div>
+              <div className="settings-card"><div className="settings-icon amber"><Upload size={22} /></div><div className="settings-copy"><strong>数据库迁移</strong><small>整库备份可导出或导入；单独迁移到手机可扫码选择配置</small></div><div className="settings-update-actions"><button className="secondary settings-link" onClick={() => setShowSyncTransfer(true)}><QrCode size={14} />手机扫码迁移</button><button className="secondary settings-link" onClick={() => void exportDatabase()}><Download size={14} />导出全部</button><button className="primary-update-btn settings-link" onClick={() => void importDatabase()}><Upload size={14} />导入全部</button></div></div>
               <div className="settings-card"><div className="settings-icon amber"><Terminal size={22} /></div><div className="settings-copy"><strong>GitHub 开源仓库</strong><small>https://github.com/wlphp/cloudhub-tools</small></div><a className="secondary settings-link" href="https://github.com/wlphp/cloudhub-tools" target="_blank" rel="noreferrer">访问仓库 ↗</a></div>
               <div className={`settings-card${updateState.phase === "available" && updateState.notes ? " has-update-notes" : ""}`}>
                 <div className="settings-icon blue"><Download size={22} /></div>

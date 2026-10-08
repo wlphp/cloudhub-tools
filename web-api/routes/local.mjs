@@ -1,7 +1,13 @@
 import { send } from "../core/http.mjs";
 
 export function handleLocalRoutes(req, res, url, services) {
-  const { listAssets, deleteAsset, listApiLogs, clearApiLogs, clearOperationLogs } = services;
+  const { listAssets, deleteAsset, listApiLogs, clearApiLogs, clearOperationLogs, listManagedHosts, listPanelConnections } = services;
+  if (req.method === "GET" && url.pathname === "/api/managed-hosts") {
+    return send(res, 200, listManagedHosts());
+  }
+  if (req.method === "GET" && url.pathname === "/api/panel-connections") {
+    return send(res, 200, listPanelConnections());
+  }
   if (req.method === "GET" && url.pathname === "/api/local-assets") {
     return send(res, 200, listAssets(url.searchParams.has("account_id") ? Number(url.searchParams.get("account_id")) : null, url.searchParams.get("resource_type") || null));
   }

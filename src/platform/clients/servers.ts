@@ -46,7 +46,7 @@ function providerAction(provider: Exclude<CloudServerProvider, "aliyun">, payloa
 
 export const serversClient = {
   listManaged(): Promise<ManagedHost[]> {
-    return nativeOnly("list_managed_hosts");
+    return invokeOrWeb("list_managed_hosts", undefined, { path: "/api/managed-hosts" });
   },
   saveManaged(input: ManagedHostDraft): Promise<ManagedHost> {
     return nativeOnly("save_managed_host", { input });

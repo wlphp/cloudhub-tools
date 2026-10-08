@@ -29,10 +29,12 @@ pub(crate) struct SyncTransferStore {
     pending_push_approval: Arc<Mutex<Option<oneshot::Sender<bool>>>>,
     pending_push_ack: Arc<Mutex<Option<PendingSyncPushAck>>>,
     received_delta: Arc<Mutex<Option<SyncEnvelope>>>,
+    pending_qr_import: Mutex<Option<PendingQrImport>>,
 }
 
 struct PendingSyncApproval { sender: oneshot::Sender<bool>, client: VerifiedTransferClient, scope: Vec<(String, String)> }
 struct PendingSyncPushAck { source_device_id: String, envelope_hash: [u8; 32], expected_message_ids: Option<Vec<String>>, sender: oneshot::Sender<SyncDeltaApplyResult> }
+struct PendingQrImport { session_id: String, bundle: Zeroizing<SyncAccountBundle>, created_at: Instant }
 
 #[tauri::command]
 pub(crate) fn get_sync_device_identity(app: AppHandle) -> PlatformResult<LocalSyncIdentity> {
@@ -166,7 +168,7 @@ pub(crate) async fn send_sync_delta_ack_lan(app: AppHandle, pairing_url: String,
         return Err("同步回执批次大小或消息 ID 无效".into());
     }
     let mut url = parse_pairing_url(&pairing_url)?;
-    let (source_device_id, qr_public_key) = parse_pairing_source(&url)?;
+    let (source_device_id, qr_public_key, _) = parse_pairing_source(&url)?;
     if acknowledgement.source_device_id != source_device_id { return Err("回执来源与本次局域网会话不匹配".into()); }
     let local_identity = get_sync_device_identity(app)?;
     if acknowledgement.receiver_device_id != local_identity.device_id { return Err("回执接收设备与本机身份不匹配".into()); }
@@ -252,7 +254,8 @@ struct SyncTransferRequest {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct SyncTransferFetchResult {
-    envelope: SyncEnvelope,
+    session_id: String,
+    preview: SyncImportPreview,
     source_device_id: String,
     source_public_key_fingerprint: String,
 }
@@ -293,7 +296,7 @@ fn build_encrypted_bundle(account_ids: Vec<i64>, managed_host_ids: Vec<i64>, pan
 /// decrypted and serialized only in Rust; the command returns ciphertext.
 #[tauri::command]
 pub(crate) fn create_sync_delta_bundle(app: AppHandle, target_device_id: String, after_sequence: i64, limit: usize, passphrase: String) -> PlatformResult<SyncEnvelope> {
-    if passphrase.len() < 12 { return Err("同步口令至少需要 12 个 UTF-8 字节".into()); }
+    if passphrase.is_empty() { return Err("请输入同步口令".into()); }
     let passphrase = Zeroizing::new(passphrase);
     get_sync_device_identity(app.clone())?;
     let mut conn = open_db()?;
@@ -429,7 +432,7 @@ pub(crate) fn save_sync_account_bundle(
     passphrase: String,
     include_deletions: bool,
 ) -> PlatformResult<bool> {
-    if passphrase.len() < 12 { return Err("迁移口令至少需要 12 个 UTF-8 字节".into()); }
+    if passphrase.is_empty() { return Err("请输入迁移口令".into()); }
     let passphrase = Zeroizing::new(passphrase);
     let envelope = build_encrypted_bundle(account_ids, managed_host_ids, panel_ids, passphrase.as_str(), include_deletions)?;
     let filename = format!("cloudhub-mobile-transfer-{}.chsync.json", Utc::now().format("%Y%m%d-%H%M%S"));
@@ -456,7 +459,7 @@ pub(crate) fn save_sync_account_bundle(
 /// inside the native process and the user's two devices.
 #[tauri::command]
 pub(crate) async fn start_sync_transfer(
-    account_ids: Vec<i64>, managed_host_ids: Vec<i64>, panel_ids: Vec<i64>, passphrase: String,
+    account_ids: Vec<i64>, managed_host_ids: Vec<i64>, panel_ids: Vec<i64>,
     include_deletions: bool,
     store: State<'_, SyncTransferStore>,
     app: AppHandle,
@@ -464,13 +467,13 @@ pub(crate) async fn start_sync_transfer(
     if account_ids.len() + managed_host_ids.len() + panel_ids.len() == 0 && !include_deletions {
         return Err("至少选择一个配置后再开始传输".into());
     }
-    if passphrase.len() < 20 {
-        return Err("局域网二维码迁移口令至少需要 20 个 UTF-8 字节，建议使用随机口令".into());
-    }
-    let passphrase = Zeroizing::new(passphrase);
     let local_identity = get_sync_device_identity(app.clone())?;
     let share_scope = resolve_device_share_scope(&account_ids, &managed_host_ids, &panel_ids, include_deletions)?;
-    let envelope = build_encrypted_bundle(account_ids, managed_host_ids, panel_ids, passphrase.as_str(), include_deletions)?;
+    let mut transfer_key_bytes = [0u8; 32];
+    rand::thread_rng().fill_bytes(&mut transfer_key_bytes);
+    let transfer_key = Zeroizing::new(URL_SAFE_NO_PAD.encode(transfer_key_bytes));
+    transfer_key_bytes.fill(0);
+    let envelope = build_encrypted_bundle(account_ids, managed_host_ids, panel_ids, transfer_key.as_str(), include_deletions)?;
     let body = serde_json::to_vec(&envelope).map_err(|_| "同步包序列化失败")?;
     let ip = primary_lan_ipv4()?;
     let listener = TcpListener::bind((Ipv4Addr::UNSPECIFIED, 0)).await.map_err(|_| "无法开启局域网迁移服务")?;
@@ -494,7 +497,7 @@ pub(crate) async fn start_sync_transfer(
     let public_key: [u8; 32] = STANDARD.decode(&local_identity.public_key).map_err(|_| "本机同步公钥格式无效")?.try_into().map_err(|_| "本机同步公钥长度无效")?;
     let source_public_key = URL_SAFE_NO_PAD.encode(public_key);
     Ok(SyncTransferStartResult {
-        pairing_url: format!("http://{ip}:{port}/v1/transfer/{token}#{}.{}", local_identity.device_id, source_public_key),
+        pairing_url: format!("http://{ip}:{port}/v1/transfer/{token}#{}.{}.{}", local_identity.device_id, source_public_key, transfer_key.as_str()),
         source_device_id: local_identity.device_id,
         source_public_key_fingerprint: hex::encode(&sha2::Sha256::digest(public_key)[..8]),
     })
@@ -508,7 +511,7 @@ pub(crate) async fn start_sync_delta_transfer(
     target_device_id: String, passphrase: String, store: State<'_, SyncTransferStore>, app: AppHandle,
 ) -> PlatformResult<SyncTransferStartResult> {
     if Uuid::parse_str(&target_device_id).is_err() { return Err("目标设备 ID 格式无效".into()); }
-    if passphrase.len() < 20 { return Err("局域网增量传输口令至少需要 20 个 UTF-8 字节".into()); }
+    if passphrase.is_empty() { return Err("请输入增量同步口令".into()); }
     let envelope = create_sync_delta_bundle(app.clone(), target_device_id.clone(), 0, 100, passphrase)?;
     let body = serde_json::to_vec(&envelope).map_err(|_| "签名增量序列化失败")?;
     if body.len() > 15 * 1024 * 1024 { return Err("签名增量超过 15 MB 局域网传输上限".into()); }
@@ -593,7 +596,7 @@ pub(crate) async fn start_sync_delta_receiver(store: State<'_, SyncTransferStore
 pub(crate) async fn send_sync_delta_bundle_lan(app: AppHandle, pairing_url: String, client_code: String, passphrase: String, envelope: SyncEnvelope) -> PlatformResult<usize> {
     if client_code.len() != 6 || !client_code.bytes().all(|byte| byte.is_ascii_digit()) { return Err("本机校验码格式无效".into()); }
     let url = parse_pairing_url(&pairing_url)?;
-    let (target_device_id, target_public_key) = parse_pairing_source(&url)?;
+    let (target_device_id, target_public_key, _) = parse_pairing_source(&url)?;
     let identity = get_sync_device_identity(app.clone())?;
     let passphrase = Zeroizing::new(passphrase);
     let conn = open_db()?;
@@ -1149,12 +1152,13 @@ fn record_approved_sync_device_in(conn: &mut rusqlite::Connection, device_id: &s
 /// Fetches one pairing URL scanned from the desktop. Restrict destinations to
 /// RFC1918 IPv4, a high port and the fixed one-time route to prevent SSRF.
 #[tauri::command]
-pub(crate) async fn fetch_sync_transfer(app: AppHandle, pairing_url: String, client_code: String) -> PlatformResult<SyncTransferFetchResult> {
+pub(crate) async fn fetch_sync_transfer(app: AppHandle, pairing_url: String, client_code: String, store: State<'_, SyncTransferStore>) -> PlatformResult<SyncTransferFetchResult> {
     if client_code.len() != 6 || !client_code.bytes().all(|byte| byte.is_ascii_digit()) {
         return Err("本机校验码格式无效".into());
     }
     let url = parse_pairing_url(&pairing_url)?;
-    let (source_device_id, source_public_key) = parse_pairing_source(&url)?;
+    let (source_device_id, source_public_key, transfer_key) = parse_pairing_source(&url)?;
+    let transfer_key = transfer_key.ok_or("二维码缺少迁移密钥")?;
     let device_identity = get_sync_device_identity(app.clone())?;
     let seed = Zeroizing::new(load_sync_signing_seed(&app, &open_db()?)?.ok_or("本机同步身份密钥不可用")?);
     let token = url.path().strip_prefix("/v1/transfer/").ok_or("配对会话格式无效")?;
@@ -1165,17 +1169,40 @@ pub(crate) async fn fetch_sync_transfer(app: AppHandle, pairing_url: String, cli
         .header("x-cloudhub-device-id", &device_identity.device_id)
         .header("x-cloudhub-device-public-key", &device_identity.public_key)
         .header("x-cloudhub-device-signature", STANDARD.encode(signature))
-        .send().await.map_err(|_| "无法连接电脑，请确认两台设备处于同一局域网且电脑仍在等待")?;
-    if !response.status().is_success() { return Err("电脑端迁移会话已失效或二维码无效".into()); }
+        .send().await.map_err(|error| {
+            if error.is_timeout() {
+                "连接电脑迁移服务超时。请确认电脑仍显示本次二维码，并检查路由器是否开启设备隔离。"
+            } else if error.is_connect() {
+                "无法连接电脑迁移服务。请确认二维码仍有效，并检查电脑防火墙是否允许 CloudHub Tools 接受局域网连接。"
+            } else {
+                "手机请求电脑迁移服务失败，请重新生成二维码后重试。"
+            }
+        })?;
+    if !response.status().is_success() {
+        return Err(match response.status().as_u16() {
+            403 => "电脑端拒绝了本次迁移请求".into(),
+            404 => "二维码已过期或无效，请在电脑端重新生成".into(),
+            503 => "电脑端未能显示授权请求，请关闭并重新打开迁移面板".into(),
+            _ => "电脑端迁移服务未能完成请求，请重新生成二维码后重试".into(),
+        });
+    }
     let mut bytes = Vec::new();
     while let Some(chunk) = response.chunk().await.map_err(|_| "接收迁移包失败")? {
         if bytes.len() + chunk.len() > 15 * 1024 * 1024 { return Err("迁移包超过允许大小".into()); }
         bytes.extend_from_slice(&chunk);
     }
-    let envelope = serde_json::from_slice(&bytes).map_err(|_| "接收到的迁移包格式无效")?;
+    let envelope: SyncEnvelope = serde_json::from_slice(&bytes).map_err(|_| "接收到的迁移包格式无效")?;
+    let transfer_key = Zeroizing::new(transfer_key);
+    let bundle = Zeroizing::new(open_sync_payload::<SyncAccountBundle>(&envelope, transfer_key.as_str())?);
+    let preview = preview_sync_bundle(&bundle)?;
+    let mut session_bytes = [0u8; 32]; rand::thread_rng().fill_bytes(&mut session_bytes);
+    let session_id = URL_SAFE_NO_PAD.encode(session_bytes); session_bytes.fill(0);
+    let mut pending = store.pending_qr_import.lock().map_err(|_| "手机迁移预览状态不可用")?;
+    *pending = Some(PendingQrImport { session_id: session_id.clone(), bundle, created_at: Instant::now() });
     record_trusted_sync_peer(&source_device_id, &source_public_key)?;
     Ok(SyncTransferFetchResult {
-        envelope,
+        session_id,
+        preview,
         source_device_id,
         source_public_key_fingerprint: hex::encode(&sha2::Sha256::digest(source_public_key)[..8]),
     })
@@ -1217,15 +1244,23 @@ fn parse_pairing_url(pairing_url: &str) -> PlatformResult<reqwest::Url> {
         || !is_private_lan_ipv4(ip) || port < 1024 || token.len() != 43 || !token.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_') {
         return Err("配对地址、端口或会话校验无效".into());
     }
-    if !fragment.contains('.') || fragment.len() > 100 { return Err("配对二维码缺少电脑设备身份".into()); }
+    if !fragment.contains('.') || fragment.len() > 180 { return Err("配对二维码缺少电脑设备身份".into()); }
     Ok(url)
 }
 
-fn parse_pairing_source(url: &reqwest::Url) -> PlatformResult<(String, [u8; 32])> {
-    let (device_id, encoded_key) = url.fragment().and_then(|value| value.split_once('.')).ok_or("二维码缺少电脑设备身份")?;
+fn parse_pairing_source(url: &reqwest::Url) -> PlatformResult<(String, [u8; 32], Option<String>)> {
+    let mut parts = url.fragment().ok_or("二维码缺少电脑设备身份")?.split('.');
+    let device_id = parts.next().ok_or("二维码缺少电脑设备身份")?;
+    let encoded_key = parts.next().ok_or("二维码缺少电脑公钥")?;
+    let encoded_transfer_key = parts.next();
+    if parts.next().is_some() { return Err("二维码迁移参数无效".into()); }
     if Uuid::parse_str(device_id).is_err() { return Err("配对电脑设备 ID 格式无效".into()); }
     let public_key: [u8; 32] = URL_SAFE_NO_PAD.decode(encoded_key).map_err(|_| "配对电脑公钥格式无效")?.try_into().map_err(|_| "配对电脑公钥长度无效")?;
-    Ok((device_id.to_string(), public_key))
+    let transfer_key = encoded_transfer_key.map(|value| {
+        let key: [u8; 32] = URL_SAFE_NO_PAD.decode(value).map_err(|_| "二维码迁移密钥格式无效")?.try_into().map_err(|_| "二维码迁移密钥长度无效")?;
+        Ok::<String, String>(URL_SAFE_NO_PAD.encode(key))
+    }).transpose()?;
+    Ok((device_id.to_string(), public_key, transfer_key))
 }
 
 #[cfg(test)]
@@ -1276,13 +1311,15 @@ mod transfer_tests {
     #[test]
     fn pairing_urls_are_restricted_to_private_ipv4_and_the_one_time_route() {
         let source_key = URL_SAFE_NO_PAD.encode([7u8; 32]);
-        let source_fragment = format!("#aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.{source_key}");
+        let transfer_key = URL_SAFE_NO_PAD.encode([9u8; 32]);
+        let source_fragment = format!("#aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.{source_key}.{transfer_key}");
         let valid_url = format!("http://192.168.1.9:45678/v1/transfer/{TOKEN}{source_fragment}");
         assert!(parse_pairing_url(&valid_url).is_ok());
         let parsed = parse_pairing_url(&valid_url).unwrap();
-        let (source_id, parsed_key) = parse_pairing_source(&parsed).unwrap();
+        let (source_id, parsed_key, parsed_transfer_key) = parse_pairing_source(&parsed).unwrap();
         assert_eq!(source_id, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
         assert_eq!(parsed_key, [7u8; 32]);
+        assert_eq!(parsed_transfer_key, Some(URL_SAFE_NO_PAD.encode([9u8; 32])));
         for unsafe_url in [
             format!("http://8.8.8.8:45678/v1/transfer/{TOKEN}"),
             format!("http://127.0.0.1:45678/v1/transfer/{TOKEN}"),
@@ -1648,6 +1685,10 @@ struct SyncImportPanelPreview {
 pub(crate) fn preview_sync_account_bundle(envelope: SyncEnvelope, passphrase: String) -> PlatformResult<SyncImportPreview> {
     let passphrase = Zeroizing::new(passphrase);
     let bundle = Zeroizing::new(open_sync_payload::<SyncAccountBundle>(&envelope, passphrase.as_str())?);
+    preview_sync_bundle(&bundle)
+}
+
+fn preview_sync_bundle(bundle: &SyncAccountBundle) -> PlatformResult<SyncImportPreview> {
     let total = bundle.accounts.len() + bundle.managed_hosts.len() + bundle.panels.len() + bundle.deletions.len();
     if bundle.protocol_version != 1 || total == 0 || total > 100 { return Err("同步包版本或记录数量无效".into()); }
     let conn = open_db()?;
@@ -1668,6 +1709,62 @@ pub(crate) fn preview_sync_account_bundle(envelope: SyncEnvelope, passphrase: St
         deletions,
         conflicts,
     })
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct SyncTransferSelection {
+    account_sync_ids: Vec<String>,
+    managed_host_sync_ids: Vec<String>,
+    panel_sync_ids: Vec<String>,
+    include_deletions: bool,
+}
+
+#[tauri::command]
+pub(crate) fn confirm_sync_transfer_import(
+    session_id: String, selection: SyncTransferSelection, store: State<'_, SyncTransferStore>,
+) -> PlatformResult<SyncImportSummary> {
+    if session_id.len() != 43 || !session_id.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_') {
+        return Err("手机迁移会话无效，请重新扫码".into());
+    }
+    let pending = store.pending_qr_import.lock().map_err(|_| "手机迁移预览状态不可用")?.take()
+        .ok_or("手机迁移预览已失效，请重新扫码")?;
+    if pending.session_id != session_id || pending.created_at.elapsed() > Duration::from_secs(600) {
+        return Err("手机迁移预览已失效，请重新扫码".into());
+    }
+    let allowed_accounts = pending.bundle.accounts.iter().map(|item| item.sync_id.as_str()).collect::<std::collections::HashSet<_>>();
+    let allowed_hosts = pending.bundle.managed_hosts.iter().map(|item| item.sync_id.as_str()).collect::<std::collections::HashSet<_>>();
+    let allowed_panels = pending.bundle.panels.iter().map(|item| item.sync_id.as_str()).collect::<std::collections::HashSet<_>>();
+    fn valid_selection<'a>(selected: &'a [String], allowed: &std::collections::HashSet<&str>) -> bool {
+        let mut seen = std::collections::HashSet::new();
+        selected.len() <= 100 && selected.iter().all(|id| allowed.contains(id.as_str()) && seen.insert(id.as_str()))
+    }
+    if !valid_selection(&selection.account_sync_ids, &allowed_accounts)
+        || !valid_selection(&selection.managed_host_sync_ids, &allowed_hosts)
+        || !valid_selection(&selection.panel_sync_ids, &allowed_panels) {
+        return Err("手机选择了迁移包之外的配置".into());
+    }
+    let account_ids = selection.account_sync_ids.iter().map(String::as_str).collect::<std::collections::HashSet<_>>();
+    let host_ids = selection.managed_host_sync_ids.iter().map(String::as_str).collect::<std::collections::HashSet<_>>();
+    let panel_ids = selection.panel_sync_ids.iter().map(String::as_str).collect::<std::collections::HashSet<_>>();
+    let bundle = Zeroizing::new(SyncAccountBundle {
+        protocol_version: pending.bundle.protocol_version,
+        accounts: pending.bundle.accounts.iter().filter(|item| account_ids.contains(item.sync_id.as_str())).cloned().collect(),
+        managed_hosts: pending.bundle.managed_hosts.iter().filter(|item| host_ids.contains(item.sync_id.as_str())).cloned().collect(),
+        panels: pending.bundle.panels.iter().filter(|item| panel_ids.contains(item.sync_id.as_str())).cloned().collect(),
+        deletions: if selection.include_deletions { pending.bundle.deletions.clone() } else { Vec::new() },
+    });
+    let total = bundle.accounts.len() + bundle.managed_hosts.len() + bundle.panels.len() + bundle.deletions.len();
+    if total == 0 { return Err("至少选择一项配置后再导入".into()); }
+    let counts = import_account_bundle(&mut open_db()?, &bundle, Utc::now().timestamp_millis())?;
+    Ok(SyncImportSummary { accounts: bundle.accounts.len(), managed_hosts: bundle.managed_hosts.len(), panels: bundle.panels.len(), added: counts.added, updated: counts.updated, deleted: counts.deleted })
+}
+
+#[tauri::command]
+pub(crate) fn cancel_sync_transfer_import(session_id: String, store: State<'_, SyncTransferStore>) -> PlatformResult<()> {
+    let mut pending = store.pending_qr_import.lock().map_err(|_| "手机迁移预览状态不可用")?;
+    if pending.as_ref().is_some_and(|item| item.session_id == session_id) { pending.take(); }
+    Ok(())
 }
 
 /// Reviews an encrypted delta without exposing credentials or applying changes.

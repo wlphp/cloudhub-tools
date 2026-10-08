@@ -57,7 +57,8 @@ export type SyncDeltaConflict = { entityType: string; syncId: string; name: stri
 export type SyncDeltaReview = { protocolVersion: number; sourceDeviceId: string; targetDeviceId: string; fromSequence: number; throughSequence: number; changeCount: number; conflicts: SyncDeltaConflict[]; deletions: SyncDeletionPreview[] };
 export type SyncDeltaApplyResult = { sourceDeviceId: string; receiverDeviceId: string; messageIds: string[]; signature: string; added: number; updated: number; deleted: number };
 export type SyncTransferStartResult = { pairingUrl: string; sourceDeviceId: string; sourcePublicKeyFingerprint: string };
-export type SyncTransferFetchResult = { envelope: SyncEnvelope; sourceDeviceId: string; sourcePublicKeyFingerprint: string };
+export type SyncTransferFetchResult = { sessionId: string; preview: SyncImportPreview; sourceDeviceId: string; sourcePublicKeyFingerprint: string };
+export type SyncTransferSelection = { accountSyncIds: string[]; managedHostSyncIds: string[]; panelSyncIds: string[]; includeDeletions: boolean };
 export type SyncImportSummary = { accounts: number; managedHosts: number; panels: number; added: number; updated: number; deleted: number };
 
 export const accountsClient = {
@@ -187,8 +188,8 @@ export const accountsClient = {
     return nativeOnly("import_sync_account_bundle", { envelope, passphrase });
   },
 
-  startSyncTransfer(accountIds: number[], managedHostIds: number[], panelIds: number[], passphrase: string, includeDeletions: boolean): Promise<SyncTransferStartResult> {
-    return nativeOnly("start_sync_transfer", { accountIds, managedHostIds, panelIds, passphrase, includeDeletions });
+  startSyncTransfer(accountIds: number[], managedHostIds: number[], panelIds: number[], includeDeletions: boolean): Promise<SyncTransferStartResult> {
+    return nativeOnly("start_sync_transfer", { accountIds, managedHostIds, panelIds, includeDeletions });
   },
 
   startSyncDeltaTransfer(targetDeviceId: string, passphrase: string): Promise<SyncTransferStartResult> {
@@ -205,5 +206,13 @@ export const accountsClient = {
 
   fetchSyncTransfer(pairingUrl: string, clientCode: string): Promise<SyncTransferFetchResult> {
     return nativeOnly("fetch_sync_transfer", { pairingUrl, clientCode });
+  },
+
+  confirmQrSyncImport(sessionId: string, selection: SyncTransferSelection): Promise<SyncImportSummary> {
+    return nativeOnly("confirm_sync_transfer_import", { sessionId, selection });
+  },
+
+  cancelQrSyncImport(sessionId: string): Promise<void> {
+    return nativeOnly("cancel_sync_transfer_import", { sessionId });
   },
 };

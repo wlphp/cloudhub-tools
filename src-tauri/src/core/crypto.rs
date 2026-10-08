@@ -60,7 +60,7 @@ fn derive_transfer_key(passphrase: &[u8], salt: &[u8], iterations: u32) -> Resul
 }
 
 fn validate_transfer_passphrase(passphrase: &str) -> Result<(), String> {
-    if !(12..=1024).contains(&passphrase.len()) { return Err("同步口令长度必须为 12 到 1024 个 UTF-8 字节".into()); }
+    if passphrase.is_empty() || passphrase.len() > 1024 { return Err("请输入同步口令（最多 1024 个 UTF-8 字节）".into()); }
     Ok(())
 }
 

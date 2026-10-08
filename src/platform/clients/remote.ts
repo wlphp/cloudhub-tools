@@ -5,10 +5,10 @@ import type {
   SshConnectResult,
   SshDirectoryListing,
 } from "../../shared/types";
-import { nativeOnly } from "./base";
+import { invokeOrWeb, nativeOnly } from "./base";
 
 export const remoteClient = {
-  listPanels(): Promise<PanelConnection[]> { return nativeOnly("list_panel_connections"); },
+  listPanels(): Promise<PanelConnection[]> { return invokeOrWeb("list_panel_connections", undefined, { path: "/api/panel-connections" }); },
   savePanel(input: unknown): Promise<PanelConnection> { return nativeOnly("save_panel_connection", { input }); },
   refreshPanel(id: number): Promise<PanelConnection> { return nativeOnly("refresh_panel_connection", { id }); },
   temporaryPanelLogin(id: number): Promise<string> { return nativeOnly("panel_temporary_login", { id }); },

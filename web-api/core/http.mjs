@@ -1,4 +1,5 @@
 export function send(res, status, body) {
+  if (res.headersSent || res.writableEnded || res.destroyed || res._header !== null) return;
   const payload = JSON.stringify(body);
   res.writeHead(status, {
     "Content-Type": "application/json; charset=utf-8",
