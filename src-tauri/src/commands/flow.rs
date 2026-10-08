@@ -81,6 +81,29 @@ fn as_step_index(value: &Value, key: &str) -> Option<i64> {
         .or_else(|| item.as_bool().map(i64::from)))
 }
 
+fn find_string_field(value: &Value, keys: &[&str]) -> Option<String> {
+    match value {
+        Value::Object(fields) => {
+            for key in keys {
+                if let Some(found) = fields.get(*key).and_then(|item| item.as_str().map(str::to_string).or_else(|| item.as_i64().map(|number| number.to_string()))) {
+                    if !found.is_empty() { return Some(found); }
+                }
+            }
+            fields.values().find_map(|item| find_string_field(item, keys))
+        }
+        Value::Array(items) => items.iter().find_map(|item| find_string_field(item, keys)),
+        _ => None,
+    }
+}
+
+fn find_run_job<'a>(run: &'a Value, job_id: &str) -> Option<&'a Value> {
+    let run = run.get("pipelineRun").unwrap_or(run);
+    let stages = run.get("stages")?.as_array()?;
+    stages.iter().flat_map(|stage| {
+        stage.get("stageInfo").unwrap_or(stage).get("jobs").and_then(Value::as_array).into_iter().flatten()
+    }).find(|job| scalar_string(job, "id").as_deref() == Some(job_id))
+}
+
 fn checked_array(value: Value, label: &str) -> Result<Vec<Value>, String> {
     if let Some(items) = value.as_array() { return Ok(items.clone()); }
     for key in ["items", "result", "data", "pipelines", "runs", "groups"] {
@@ -268,5 +291,45 @@ pub(crate) async fn get_flow_job_log(connection_id: i64, pipeline_id: String, ru
     let logs = log.get("logs").or_else(|| log.get("content")).and_then(Value::as_str).ok_or("云效未返回任务日志")?.to_string();
     let more = log.get("more").and_then(Value::as_bool).unwrap_or(false);
     let next_offset = as_i64(log, "last").unwrap_or_else(|| offset.saturating_add(logs.len() as i64));
+    Ok(FlowLogPage { logs, more, next_offset })
+}
+
+#[tauri::command]
+pub(crate) async fn get_flow_job_run_log(connection_id: i64, pipeline_id: String, run_id: String, job_id: String) -> PlatformResult<FlowLogPage> {
+    if connection_id <= 0 { return Err("云效连接 ID 无效".into()); }
+    endpoint_id(&pipeline_id, "流水线 ID")?; endpoint_id(&run_id, "运行记录 ID")?; endpoint_id(&job_id, "任务 ID")?;
+    let (connection, token) = load_connection(connection_id)?;
+    let run = request(&connection, &token, Method::GET, &format!("pipelines/{pipeline_id}/runs/{run_id}"), &[], None).await?;
+    if let Some(job) = find_run_job(&run, &job_id) {
+        let result_value = job.get("result").and_then(Value::as_str).and_then(|result| serde_json::from_str::<Value>(result).ok());
+        let deploy_order_id = result_value.as_ref().and_then(|result| find_string_field(result, &["deployOrderId", "deploymentOrderId"]))
+            .or_else(|| find_string_field(job, &["deployOrderId", "deploymentOrderId"]));
+        if let Some(deploy_order_id) = deploy_order_id.filter(|value| endpoint_id(value, "部署单 ID").is_ok()) {
+            let order = request(&connection, &token, Method::GET, &format!("pipelines/{pipeline_id}/deploy/{deploy_order_id}"), &[], None).await?;
+            let order_payload = order.get("data").or_else(|| order.get("result")).unwrap_or(&order);
+            let order_payload = order_payload.get("deployOrder").unwrap_or(order_payload);
+            let machines = order_payload.pointer("/deployMachineInfo/deployMachines").and_then(Value::as_array).cloned().unwrap_or_default();
+            let mut logs = String::new();
+            for machine in machines.iter().take(50) {
+                let Some(machine_sn) = scalar_string(machine, "machineSn").filter(|value| endpoint_id(value, "机器 SN").is_ok()) else { continue; };
+                let label = scalar_string(machine, "ip").unwrap_or_else(|| machine_sn.clone());
+                let value = request(&connection, &token, Method::GET, &format!("pipelines/{pipeline_id}/deploy/{deploy_order_id}/machine/{machine_sn}/log"), &[], None).await?;
+                let payload = value.get("data").or_else(|| value.get("result")).unwrap_or(&value);
+                let machine_log = payload.get("deployMachineLog").unwrap_or(payload).get("deployLog").and_then(Value::as_str).unwrap_or_default();
+                if !machine_log.is_empty() {
+                    if !logs.is_empty() { logs.push_str("\n\n"); }
+                    logs.push_str(&format!("主机 {label}\n{machine_log}"));
+                }
+            }
+            if !logs.is_empty() {
+                return Ok(FlowLogPage { next_offset: logs.len() as i64, logs, more: false });
+            }
+        }
+    }
+    let value = request(&connection, &token, Method::GET, &format!("pipelines/{pipeline_id}/runs/{run_id}/job/{job_id}/log"), &[], None).await?;
+    let payload = value.get("data").or_else(|| value.get("result")).unwrap_or(&value);
+    let logs = payload.get("content").or_else(|| payload.get("logs")).and_then(Value::as_str).ok_or("云效未返回任务运行日志")?.to_string();
+    let more = payload.get("more").and_then(Value::as_bool).unwrap_or(false);
+    let next_offset = as_i64(payload, "last").unwrap_or(logs.len() as i64);
     Ok(FlowLogPage { logs, more, next_offset })
 }

@@ -57,7 +57,11 @@ impl PlatformError {
 
 pub(crate) fn sanitize_resource_error(message: &str) -> String {
     let normalized = message.to_ascii_lowercase();
-    if normalized.contains("authorization failed or requested resource not found") {
+    if message == "服务器查询超时，部分地域未完成；请在账号中填写服务器所在地域后重试" {
+        message.to_string()
+    } else if message == "账号地域配置无效" {
+        "账号地域配置无效，请检查账号设置中的默认地域".to_string()
+    } else if normalized.contains("authorization failed or requested resource not found") {
         "Authorization failed or requested resource not found".to_string()
     } else if normalized.contains("401") || normalized.contains("unauthorized") || normalized.contains("invalid token") || normalized.contains("authentication") || normalized.contains("access key") || normalized.contains("secret") {
         "云厂商认证失败，请检查账号凭据".to_string()

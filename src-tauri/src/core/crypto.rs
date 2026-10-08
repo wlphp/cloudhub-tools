@@ -133,7 +133,9 @@ static MOBILE_CRYPTO_KEY: OnceLock<[u8; 32]> = OnceLock::new();
 /// commands can access encrypted SQLite values.
 #[cfg(mobile)]
 pub fn initialize_mobile_key_store<R: tauri::Runtime, M: tauri::Manager<R>>(manager: &M) -> Result<(), String> {
-    let base = dirs::data_local_dir().ok_or_else(|| "无法获取本机应用数据目录".to_string())?;
+    let base = manager.path().app_local_data_dir()
+        .map_err(|_| "无法获取本机应用数据目录".to_string())?;
+    super::paths::initialize_app_local_data_base(base.clone())?;
     let current_data = base.join("CloudHubTools");
     let legacy_data = base.join("AliyunTools");
     fs::create_dir_all(&current_data).map_err(|_| "无法准备本机数据目录；本地数据保持不变".to_string())?;

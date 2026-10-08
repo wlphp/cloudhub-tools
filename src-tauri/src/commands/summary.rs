@@ -74,7 +74,7 @@ pub(crate) async fn cloud_account_summary(id: i64) -> PlatformResult<Value> {
             }
     }
     let total: f64 = array_at(&bill, &["Data", "Items", "Item"]).into_iter().filter_map(|item| item.get("PretaxAmount").and_then(|v| v.as_f64().or_else(|| v.as_str()?.parse().ok()))).sum(); summary["month_bill"] = json!(total);
-    for resource_type in ["ecs", "domain", "oss", "rds", "redis", "swas", "esa"] { let result = cloud::aliyun::resource_items(resource_type, &access_key_id, &access_key_secret).await; summary[&format!("{resource_type}_count")] = json!(result.items.len()); }
+    for resource_type in ["ecs", "domain", "oss", "rds", "redis", "swas", "esa"] { let result = cloud::aliyun::resource_items(id, resource_type, &access_key_id, &access_key_secret).await; summary[&format!("{resource_type}_count")] = json!(result.items.len()); }
     summary["dns_record_count"] = json!(array_at(&dns, &["Domains", "Domain"]).into_iter().filter_map(|item| item.get("RecordCount").and_then(Value::as_i64)).sum::<i64>());
     Ok(summary)
 }

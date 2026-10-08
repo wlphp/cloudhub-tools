@@ -1,8 +1,14 @@
 use rusqlite::{Connection, OptionalExtension};
+use std::sync::Mutex;
 
 use super::paths::data_dir;
 
 const CURRENT_SCHEMA_VERSION: i64 = 17;
+
+// Several desktop commands open the database concurrently during startup. Keep
+// schema setup and migrations serialized so simultaneous `CREATE ... IF NOT
+// EXISTS` / migration transactions do not fail with transient SQLite locks.
+static DATABASE_OPEN_LOCK: Mutex<()> = Mutex::new(());
 
 fn create_sync_triggers(transaction: &rusqlite::Transaction<'_>, table: &str, entity_type: &str, fields: &[&str]) -> Result<(), String> {
     let changed_fields = fields.iter().map(|field| format!("OLD.{field} IS NOT NEW.{field}")).collect::<Vec<_>>().join(" OR ");
@@ -223,8 +229,13 @@ fn migrate_connection(conn: &mut Connection) -> Result<(), String> {
 }
 
 pub fn open_db() -> Result<Connection, String> {
+    let _guard = DATABASE_OPEN_LOCK
+        .lock()
+        .map_err(|_| "SQLite 初始化锁不可用".to_string())?;
     let conn = Connection::open(data_dir()?.join("cloudhub_tools.sqlite3"))
         .map_err(|error| format!("打开 SQLite 失败: {error}"))?;
+    conn.busy_timeout(std::time::Duration::from_secs(5))
+        .map_err(|error| format!("配置 SQLite 锁等待失败: {error}"))?;
     conn.execute_batch("PRAGMA foreign_keys=ON;
       CREATE TABLE IF NOT EXISTS cloud_accounts (id INTEGER PRIMARY KEY AUTOINCREMENT, account_name TEXT NOT NULL, cloud_type TEXT NOT NULL DEFAULT 'aliyun', group_name TEXT, access_key_id TEXT NOT NULL, secret_ciphertext TEXT NOT NULL, region_id TEXT, sort_order INTEGER NOT NULL DEFAULT 0, credential_meta TEXT, enabled INTEGER NOT NULL DEFAULT 1, remark TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS cloud_assets (account_id INTEGER NOT NULL, resource_type TEXT NOT NULL, asset_key TEXT NOT NULL, region_id TEXT, payload_json TEXT NOT NULL, fetched_at INTEGER NOT NULL, PRIMARY KEY(account_id, resource_type, asset_key), FOREIGN KEY(account_id) REFERENCES cloud_accounts(id) ON DELETE CASCADE);

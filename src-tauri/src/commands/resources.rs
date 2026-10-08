@@ -57,7 +57,7 @@ async fn fetch_cloud_resource(
         else if cloud == "tencent" { crate::cloud::tencent::resource_items(id, &fetch_type, &access_key_id, &access_key_secret).await }
         else if cloud == "volcengine" { crate::cloud::volc::resource_items(id, &fetch_type, &access_key_id, &access_key_secret).await }
         else if cloud == "ctyun" { crate::cloud::ctyun::resource_items(id, &fetch_type, &access_key_id, &access_key_secret).await }
-        else if cloud == "aliyun" { crate::cloud::aliyun::resource_items(&fetch_type, &access_key_id, &access_key_secret).await }
+        else if cloud == "aliyun" { crate::cloud::aliyun::resource_items(id, &fetch_type, &access_key_id, &access_key_secret).await }
         else { ResourceResponse { resource_type: fetch_type.clone(), items: vec![], errors: vec!["当前云类型资源实时拉取尚未接入".into()], fetched_at: Utc::now().timestamp_millis() } }
     }, || cancelled_accounts.lock().map(|cancelled| cancelled.contains(&id)).unwrap_or(true)).await?;
     Ok((resource_type, response))
@@ -67,7 +67,7 @@ async fn fetch_cloud_resource(
 pub(crate) async fn list_cloud_resources(id: i64, resource_type: String) -> PlatformResult<ResourceResponse> {
     let (access_key_id, access_key_secret) = account_credentials(id)?;
     let mut response = match account_cloud_type(id)?.as_str() {
-        "aliyun" => crate::cloud::aliyun::resource_items(&resource_type, &access_key_id, &access_key_secret).await,
+        "aliyun" => crate::cloud::aliyun::resource_items(id, &resource_type, &access_key_id, &access_key_secret).await,
         "tencent" => crate::cloud::tencent::resource_items(id, &resource_type, &access_key_id, &access_key_secret).await,
         "volcengine" => crate::cloud::volc::resource_items(id, &resource_type, &access_key_id, &access_key_secret).await,
         "ctyun" => crate::cloud::ctyun::resource_items(id, &resource_type, &access_key_id, &access_key_secret).await,
@@ -136,14 +136,17 @@ pub(crate) async fn sync_cloud_assets(app: tauri::AppHandle, state: tauri::State
     }
     let mut conn = crate::open_db()?;
     let mut asset_rows = Vec::new();
+    let mut complete_types = Vec::new();
     for (resource_type, response) in rows {
+        // A failed or partial fetch must not erase previously cached resources.
+        if response.errors.is_empty() { complete_types.push(resource_type.clone()); }
         let item_count = response.items.len(); counts.insert(resource_type.clone(), item_count);
         for (index, item) in response.items.iter().enumerate() {
             let region = item.get("_region_id").and_then(Value::as_str).or_else(|| item.get("RegionId").and_then(Value::as_str)).map(str::to_string);
             asset_rows.push(asset_repository::AssetRow { resource_type: resource_type.clone(), asset_key: asset_key(&resource_type, item, index), region_id: region, payload_json: serde_json::to_string(item).map_err(|error| error.to_string())?, fetched_at: response.fetched_at });
         }
     }
-    let fetched = asset_repository::replace_for_account(&mut conn, id, &types, &asset_rows)?;
+    let fetched = asset_repository::replace_for_account(&mut conn, id, &complete_types, &asset_rows)?;
     state.cancelled_accounts.lock().map_err(|_| "同步状态不可用".to_string())?.remove(&id);
     Ok(AssetSyncResult { fetched, counts, errors, fetched_at: now })
 }

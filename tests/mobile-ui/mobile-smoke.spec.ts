@@ -37,6 +37,39 @@ async function expectNoHorizontalOverflow(page: Page) {
   expect(dimensions.document, JSON.stringify(dimensions.offenders)).toBeLessThanOrEqual(dimensions.viewport);
 }
 
+test("refreshes both server types and shows provider failures instead of false success", async ({ page }) => {
+  await stubLocalApi(page, [account]);
+  await page.route("**/api/local-assets**", (route) => route.fulfill({ json: [] }));
+  let release!: () => void;
+  const ready = new Promise<void>((resolve) => { release = resolve; });
+  await page.route("**/api/sync-assets", async (route) => {
+    expect(route.request().postDataJSON().resource_types).toEqual(["ecs", "swas"]);
+    await ready;
+    await route.fulfill({ json: { fetched: 0, counts: { ecs: 0, swas: 0 }, errors: ["云厂商权限不足，请检查账号权限"] } });
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: /mobile-fixture/ }).first().click();
+  await page.getByRole("button", { name: "云端刷新" }).click();
+  await expect(page.getByText("正在查询云端服务器")).toBeVisible();
+  await expect(page.getByText("暂无缓存的服务器")).toHaveCount(0);
+  release();
+  await expect(page.getByText(/刷新未完全成功.*云厂商权限不足/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "云端刷新" })).toBeEnabled();
+  await expect(page.getByText(/已从云厂商刷新/)).toHaveCount(0);
+});
+
+test("shows cached lightweight servers alongside ECS servers", async ({ page }) => {
+  await stubLocalApi(page, [account]);
+  await page.route("**/api/local-assets**", (route) => {
+    const kind = new URL(route.request().url()).searchParams.get("resource_type");
+    return route.fulfill({ json: [{ account_id: 12, resource_type: kind, asset_key: `${kind}-fixture`, region_id: "cn-hangzhou", payload: { InstanceId: `${kind}-fixture`, InstanceName: `${kind}-server` }, fetched_at: 1_700_000_000 }] });
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: /mobile-fixture/ }).first().click();
+  await expect(page.getByText("ecs-server", { exact: true })).toBeVisible();
+  await expect(page.getByText("swas-server", { exact: true })).toBeVisible();
+});
+
 test("fits the account form on a narrow phone viewport", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 360 });
   await stubLocalApi(page);
@@ -183,6 +216,10 @@ test("keeps slower resource responses from replacing the newly selected account"
   const secondRequestGate = new Promise<void>((resolve) => { finishSecondRequest = resolve; });
   await stubLocalApi(page, [account, secondAccount]);
   await page.route("**/api/local-assets**", async (route) => {
+    if (new URL(route.request().url()).searchParams.get("resource_type") === "swas") {
+      await route.fulfill({ json: [] });
+      return;
+    }
     const accountId = Number(new URL(route.request().url()).searchParams.get("account_id"));
     if (accountId === 12) {
       firstRequestStarted = true;

@@ -21,6 +21,18 @@ function payloadText(payload: Record<string, unknown>, keys: string[]): string {
   return "—";
 }
 
+function serverStatusClass(payload: Record<string, unknown>): string {
+  const status = payloadText(payload, ["InstanceStatus", "instanceStatus", "status", "Status"]).toLowerCase();
+  if (["running", "active", "运行中", "正常"].includes(status)) return "mobile-server-status is-running";
+  if (["stopped", "stop", "已停止", "停止"].includes(status)) return "mobile-server-status is-stopped";
+  return "mobile-server-status is-pending";
+}
+
+function fetchedAtLabel(timestamp: number): string {
+  const date = new Date(timestamp < 10_000_000_000 ? timestamp * 1000 : timestamp);
+  return Number.isNaN(date.getTime()) ? "时间未知" : date.toLocaleString();
+}
+
 function accountMetaValue(account: Account | null | undefined, key: string): string {
   if (!account?.credential_meta) return "";
   try {
@@ -123,7 +135,8 @@ export function MobileApp() {
     const isCurrentRead = beginResourceRead("servers", accountId);
     setLoading(true);
     try {
-      const result = await resourcesClient.listLocal({ accountId, resourceType: "ecs" });
+      const results = await Promise.all(["ecs", "swas"].map((resourceType) => resourcesClient.listLocal({ accountId, resourceType })));
+      const result = results.flat();
       if (!isCurrentRead()) return;
       setServers(result);
       setNotice("");
@@ -488,9 +501,12 @@ export function MobileApp() {
     setSyncing(true);
     setNotice("");
     try {
-      const result = await resourcesClient.sync(selectedAccount.id, ["ecs"]);
+      const resourceTypes = ["aliyun", "tencent"].includes(selectedAccount.cloud_type) ? ["ecs", "swas"] : ["ecs"];
+      const result = await resourcesClient.sync(selectedAccount.id, resourceTypes);
       await refreshServers(selectedAccount.id);
-      setNotice(`已从云厂商刷新 ${result.fetched} 项服务器数据`);
+      setNotice(result.errors.length
+        ? `刷新未完全成功，本次获取 ${result.fetched} 项服务器数据。${[...new Set(result.errors)].join("；")}`
+        : `已从云厂商刷新 ${result.fetched} 项服务器数据`);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "服务器同步失败");
     } finally {
@@ -509,7 +525,8 @@ export function MobileApp() {
     setNotice("");
     try {
       const payload = { id: server.account_id, regionId: server.region_id || selectedAccount.region_id || "", instanceId, action, forceStop: false };
-      if (selectedAccount.cloud_type === "aliyun") await serversClient.aliyunAction(payload);
+      if (server.resource_type === "swas") await serversClient.swasAction(payload);
+      else if (selectedAccount.cloud_type === "aliyun") await serversClient.aliyunAction(payload);
       else await serversClient.providerAction("tencent", payload);
       setNotice(`已提交${actionLabel}请求，云厂商状态可能需要片刻更新`);
       await refreshServers(server.account_id);
@@ -633,13 +650,14 @@ export function MobileApp() {
       </header>
 
       <section className="mobile-content">
+        {notice && <p className="mobile-notice" role="status">{notice}</p>}
         {tab === "accounts" ? <>
           <div className="mobile-page-title"><div><p>本机保险库</p><h1>云账号</h1></div><button type="button" className="mobile-primary" onClick={openAddAccount}><Plus size={17} />添加</button></div>
           <div className="mobile-security-note"><ShieldCheck size={18} /><span>凭据只保存在这台设备的本地加密数据库中。</span></div>
           {loading && accounts.length === 0 ? <div className="mobile-empty"><Activity className="mobile-spin" />正在读取本机账号…</div> : accounts.length === 0 ? <div className="mobile-empty"><Cloud size={30} /><strong>还没有云账号</strong><span>添加账号后，手机可以独立查询云资源。</span><button className="mobile-primary" type="button" onClick={openAddAccount}><Plus size={17} />添加云账号</button></div> : <div className="mobile-account-list">{accounts.map((account) => <article key={account.id} className={`mobile-account-card${selectedAccountId === account.id ? " selected" : ""}`}><button type="button" className="mobile-account-select" onClick={() => { setSelectedAccountId(account.id); setTab("servers"); }}><span className="mobile-provider-avatar">{cloudProvider(account.cloud_type).avatar}</span><span className="mobile-account-copy"><strong>{account.account_name}</strong><small>{cloudProvider(account.cloud_type).label} · {account.region_id || "默认地域"}</small></span><span className="mobile-account-arrow">›</span></button><button type="button" className="mobile-account-edit" aria-label={`编辑本机账号 ${account.account_name}`} title="编辑账号配置" onClick={() => openEditAccount(account)}><Pencil size={17} /></button><button type="button" className="mobile-account-delete" aria-label={`删除本机账号 ${account.account_name}`} title="删除此设备上的账号和数据" disabled={removingAccountId !== null} onClick={() => void removeAccount(account)}>{removingAccountId === account.id ? <RefreshCw size={17} className="mobile-spin" /> : <Trash2 size={17} />}</button></article>)}</div>}
         </> : tab === "servers" ? <>
           <div className="mobile-page-title"><div><p>{selectedAccount?.account_name ?? "云资源"}</p><h1>服务器</h1></div><button type="button" className="mobile-primary" disabled={!selectedAccount || syncing} onClick={() => void syncServers()}><ArrowDownToLine size={17} />{syncing ? "刷新中" : "云端刷新"}</button></div>
-          {!selectedAccount ? <div className="mobile-empty"><Cloud size={30} /><strong>先添加云账号</strong><button type="button" className="mobile-primary" onClick={() => setTab("accounts")}>查看账号</button></div> : servers.length === 0 && !loading ? <div className="mobile-empty"><Server size={30} /><strong>暂无缓存的服务器</strong><span>点击“云端刷新”从 {cloudProvider(selectedAccount.cloud_type).label} 查询。</span></div> : <div className="mobile-server-list">{servers.map((server) => { const key = `${server.account_id}:${server.asset_key}`; const busy = activeAction === key; return <article className="mobile-server-card" key={key}><div className="mobile-server-heading"><span className="mobile-server-dot" /><strong>{payloadText(server.payload, ["instanceName", "InstanceName", "name", "Name", "serverName"])}</strong></div><p>{payloadText(server.payload, ["instanceId", "InstanceId", "id", "Id"])}</p><div className="mobile-server-meta"><span>{server.region_id || "地域未知"}</span><span>{payloadText(server.payload, ["status", "Status", "instanceStatus"])}</span></div><small>缓存于 {new Date(server.fetched_at * 1000).toLocaleString()}</small>{["aliyun", "tencent"].includes(selectedAccount.cloud_type) && <div className="mobile-server-actions"><button type="button" disabled={busy || syncing} onClick={() => void runServerAction(server, "start")}><Power size={14} />启动</button><button type="button" disabled={busy || syncing} onClick={() => void runServerAction(server, "stop")}><Power size={14} />停止</button><button type="button" disabled={busy || syncing} onClick={() => void runServerAction(server, "reboot")}><RotateCw size={14} />重启</button>{busy && <span role="status">提交中…</span>}</div>}</article>; })}</div>}
+          {!selectedAccount ? <div className="mobile-empty"><Cloud size={30} /><strong>先添加云账号</strong><button type="button" className="mobile-primary" onClick={() => setTab("accounts")}>查看账号</button></div> : servers.length === 0 && (loading || syncing) ? <div className="mobile-empty" role="status"><RefreshCw size={30} className="mobile-spin" /><strong>{syncing ? "正在查询云端服务器" : "正在读取本机缓存"}</strong><span>正在查询云端资源，请稍候。</span></div> : servers.length === 0 ? <div className="mobile-empty"><Server size={30} /><strong>暂无缓存的服务器</strong><span>点击“云端刷新”从 {cloudProvider(selectedAccount.cloud_type).label} 查询。</span></div> : <div className="mobile-server-list">{servers.map((server) => { const key = `${server.account_id}:${server.asset_key}`; const busy = activeAction === key; return <article className="mobile-server-card" key={key}><div className="mobile-server-heading"><span className="mobile-server-dot" /><strong>{payloadText(server.payload, ["instanceName", "InstanceName", "name", "Name", "serverName"])}</strong></div><p>{payloadText(server.payload, ["instanceId", "InstanceId", "id", "Id"])}</p><div className="mobile-server-meta"><span>{server.resource_type === "swas" ? "轻量服务器" : "云服务器"} · {server.region_id || "地域未知"}</span><span className={serverStatusClass(server.payload)}>{payloadText(server.payload, ["InstanceStatus", "instanceStatus", "status", "Status"])}</span></div><small>缓存于 {fetchedAtLabel(server.fetched_at)}</small>{["aliyun", "tencent"].includes(selectedAccount.cloud_type) && <div className="mobile-server-actions"><button type="button" disabled={busy || syncing} onClick={() => void runServerAction(server, "start")}><Power size={14} />启动</button><button type="button" disabled={busy || syncing} onClick={() => void runServerAction(server, "stop")}><Power size={14} />停止</button><button type="button" disabled={busy || syncing} onClick={() => void runServerAction(server, "reboot")}><RotateCw size={14} />重启</button>{busy && <span role="status">提交中…</span>}</div>}</article>; })}</div>}
         </> : tab === "domains" ? <>
           <div className="mobile-page-title"><div><p>{selectedAccount?.account_name ?? "云资源"}</p><h1>域名与 DNS</h1></div><button type="button" className="mobile-primary" disabled={!selectedAccount || syncing} onClick={() => void refreshDomainsFromCloud()}><ArrowDownToLine size={17} />{syncing ? "刷新中" : "云端刷新"}</button></div>
           {!selectedAccount ? <div className="mobile-empty"><Globe2 size={30} /><strong>先添加云账号</strong><button type="button" className="mobile-primary" onClick={() => setTab("accounts")}>查看账号</button></div> : selectedDomain ? <>
@@ -679,20 +697,19 @@ export function MobileApp() {
         </> : tab === "sync" ? <SyncTransferPanel mode="mobile" accounts={accounts} managedHosts={managedHosts} panels={panelConnections} onClose={() => setTab("more")} onImported={() => { void refreshAccounts(); void refreshManagedHosts(); void refreshPanelConnections(); }} /> : <>
           <div className="mobile-page-title"><div><p>本机资源</p><h1>更多管理</h1></div></div>
           <div className="mobile-security-note"><ShieldCheck size={18} /><span>证书列表只显示元数据，不会在手机界面展开私钥。</span></div>
-          <div className="mobile-domain-list">
-            <button type="button" className="mobile-account-card" onClick={() => setTab("storage")}><span className="mobile-provider-avatar"><Folder size={20} /></span><span className="mobile-account-copy"><strong>对象存储</strong><small>桶、目录和对象列表</small></span><span className="mobile-account-arrow">›</span></button>
-            <button type="button" className="mobile-account-card" onClick={() => setTab("databases")}><span className="mobile-provider-avatar"><Database size={20} /></span><span className="mobile-account-copy"><strong>云数据库</strong><small>RDS 实例和数据库清单</small></span><span className="mobile-account-arrow">›</span></button>
-            <button type="button" className="mobile-account-card" onClick={() => setTab("redis")}><span className="mobile-provider-avatar"><Database size={20} /></span><span className="mobile-account-copy"><strong>Redis</strong><small>实例和账号列表</small></span><span className="mobile-account-arrow">›</span></button>
-            <button type="button" className="mobile-account-card" onClick={() => setTab("certificates")}><span className="mobile-provider-avatar"><Award size={20} /></span><span className="mobile-account-copy"><strong>证书管理</strong><small>查看证书状态和有效期</small></span><span className="mobile-account-arrow">›</span></button>
-            <button type="button" className="mobile-account-card" onClick={() => setTab("ssh")}><span className="mobile-provider-avatar"><Terminal size={20} /></span><span className="mobile-account-copy"><strong>SSH 终端</strong><small>连接本机已保存的托管主机</small></span><span className="mobile-account-arrow">›</span></button>
-            <button type="button" className="mobile-account-card" onClick={() => setTab("sync")}><span className="mobile-provider-avatar"><ShieldCheck size={20} /></span><span className="mobile-account-copy"><strong>从电脑迁移配置</strong><small>导入加密云账号与 SSH 主机配置</small></span><span className="mobile-account-arrow">›</span></button>
+          <div className="mobile-domain-list mobile-more-grid">
+            <button type="button" className="mobile-account-card" onClick={() => setTab("storage")}><span className="mobile-provider-avatar"><Folder size={20} /></span><span className="mobile-account-copy"><strong>对象存储</strong><small>桶与文件</small></span><span className="mobile-account-arrow">›</span></button>
+            <button type="button" className="mobile-account-card" onClick={() => setTab("databases")}><span className="mobile-provider-avatar"><Database size={20} /></span><span className="mobile-account-copy"><strong>云数据库</strong><small>RDS 实例</small></span><span className="mobile-account-arrow">›</span></button>
+            <button type="button" className="mobile-account-card" onClick={() => setTab("redis")}><span className="mobile-provider-avatar"><Database size={20} /></span><span className="mobile-account-copy"><strong>Redis</strong><small>实例与账号</small></span><span className="mobile-account-arrow">›</span></button>
+            <button type="button" className="mobile-account-card" onClick={() => setTab("certificates")}><span className="mobile-provider-avatar"><Award size={20} /></span><span className="mobile-account-copy"><strong>证书管理</strong><small>状态与有效期</small></span><span className="mobile-account-arrow">›</span></button>
+            <button type="button" className="mobile-account-card" onClick={() => setTab("ssh")}><span className="mobile-provider-avatar"><Terminal size={20} /></span><span className="mobile-account-copy"><strong>SSH 终端</strong><small>连接托管主机</small></span><span className="mobile-account-arrow">›</span></button>
+            <button type="button" className="mobile-account-card" onClick={() => setTab("sync")}><span className="mobile-provider-avatar"><ShieldCheck size={20} /></span><span className="mobile-account-copy"><strong>迁移配置</strong><small>从电脑导入加密配置</small></span><span className="mobile-account-arrow">›</span></button>
           </div>
           <section className="mobile-panel-section" aria-labelledby="mobile-panels-title">
             <div className="mobile-panel-section-heading"><h2 id="mobile-panels-title">运维面板</h2><div className="mobile-panel-heading-actions"><button type="button" className="mobile-icon-button" aria-label="添加面板" onClick={addPanel}><Plus size={18} /></button><button type="button" className="mobile-icon-button" aria-label="刷新面板列表" disabled={panelLoading} onClick={() => void refreshPanelConnections()}><RefreshCw size={17} className={panelLoading ? "mobile-spin" : ""} /></button></div></div>
             {panelLoading && panelConnections.length === 0 ? <div className="mobile-empty">正在读取面板配置…</div> : panelConnections.length === 0 ? <div className="mobile-empty"><Monitor size={28} /><strong>暂无已配置的面板</strong><span>可直接在手机添加面板，也可以从电脑迁移已有的加密配置。</span><button type="button" className="mobile-primary" onClick={addPanel}>添加运维面板</button><button type="button" className="mobile-domain-back" onClick={() => setTab("sync")}>从电脑迁移面板</button></div> : <div className="mobile-domain-list">{panelConnections.map((panel) => <article className="mobile-domain-card mobile-panel-card" key={panel.id}><div className="mobile-server-heading"><Monitor size={17} /><strong>{panel.name}</strong></div><p>{panel.panel_url}</p><div className="mobile-server-meta"><span>{panel.group_name || "未分组"}</span><span className={`mobile-panel-status ${panel.status === "online" ? "online" : panel.status === "offline" ? "offline" : "unknown"}`}>{panel.status === "online" ? "在线" : panel.status === "offline" ? "离线" : "未检查"}</span></div><small>{panel.api_key_saved ? "API 密钥已加密保存在本机" : "缺少面板 API 密钥"}</small><div className="mobile-panel-actions"><button type="button" disabled={panelActionId !== null} onClick={() => void refreshPanelStatus(panel)}><RefreshCw size={15} className={panelActionId === panel.id ? "mobile-spin" : ""} />刷新状态</button><button type="button" className="primary" disabled={panelActionId !== null || !panel.api_key_saved || panel.status === "offline"} onClick={() => void openPanel(panel)}><ExternalLink size={15} />{panelActionId === panel.id ? "处理中…" : "打开面板"}</button><button type="button" aria-label={`编辑面板 ${panel.name}`} disabled={panelActionId !== null} onClick={() => editPanel(panel)}><Pencil size={16} /></button><button type="button" className="danger" aria-label={`删除面板 ${panel.name}`} disabled={panelActionId !== null} onClick={() => void removePanel(panel)}><Trash2 size={16} /></button></div></article>)}</div>}
           </section>
         </>}
-        {notice && <p className="mobile-notice" role="status">{notice}</p>}
       </section>
 
       <nav className="mobile-tab-bar" aria-label="主导航"><button type="button" className={tab === "accounts" ? "active" : ""} onClick={() => setTab("accounts")}><Cloud size={19} /><span>账号</span></button><button type="button" className={tab === "servers" ? "active" : ""} onClick={() => setTab("servers")}><Server size={19} /><span>服务器</span></button><button type="button" className={tab === "domains" ? "active" : ""} onClick={() => setTab("domains")}><Globe2 size={19} /><span>域名</span></button><button type="button" className={tab === "more" || tab === "storage" || tab === "databases" || tab === "redis" || tab === "certificates" || tab === "ssh" || tab === "sync" ? "active" : ""} onClick={() => setTab("more")}><MoreHorizontal size={19} /><span>更多</span></button></nav>
