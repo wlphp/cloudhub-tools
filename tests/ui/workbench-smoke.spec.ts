@@ -41,6 +41,19 @@ test("opens the cloud account form with required credential boundaries", async (
   await expect(page.getByRole("heading", { name: "添加云账号" })).toBeHidden();
 });
 
+test("shows encrypted configuration import controls on desktop", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "迁移到手机" }).click();
+  await expect(page.getByRole("heading", { name: "生成手机迁移包" })).toBeVisible();
+  await expect(page.getByText("导入手机或其他设备的迁移包")).toBeVisible();
+  await page.locator('.sync-transfer-desktop input[type="file"][accept=".json,.chsync.json,application/json"]').setInputFiles({
+    name: "phone-export.chsync.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify({ version: 1, kdf: "PBKDF2-HMAC-SHA256", iterations: 210000, salt: "c2FsdA==", cipher: "AES-256-GCM", nonce: "bm9uY2U=", ciphertext: "Y2lwaGVydGV4dA==" })),
+  });
+  await expect(page.getByRole("alert")).toContainText("先输入生成迁移包时使用的口令");
+});
+
 test("opens the managed server form without attempting an SSH connection", async ({ page }) => {
   await page.goto("/");
 

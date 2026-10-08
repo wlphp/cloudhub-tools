@@ -6,6 +6,7 @@ use md5::{Digest, Md5};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use tauri_plugin_opener::OpenerExt;
 
 #[tauri::command]
 pub(crate) fn list_panel_connections() -> PlatformResult<Vec<PanelConnection>> { panel_repository::list(&open_db()?).map_err(Into::into) }
@@ -170,6 +171,18 @@ pub(crate) async fn panel_temporary_login(id: i64) -> PlatformResult<String> {
     let (panel, api_key) = load_panel_connection(id)?; let data = panel_api_request(&panel.panel_url, &api_key, "/config?action=get_tmp_token", panel.allow_insecure_tls).await?;
     let token = data.get("msg").or_else(|| data.get("token")).and_then(Value::as_str).filter(|value| !value.is_empty()).ok_or("面板未返回临时登录令牌")?;
     Ok(format!("{}/login?tmp_token={}", panel.panel_url, token))
+}
+
+/// Opens a short-lived panel login without returning its bearer token to the
+/// WebView. The URL is handed directly from Rust to the native opener plugin.
+#[tauri::command]
+pub(crate) async fn open_panel_temporary_login(app: tauri::AppHandle, id: i64) -> PlatformResult<()> {
+    let url = panel_temporary_login(id).await?;
+    let parsed = reqwest::Url::parse(&url).map_err(|_| "面板返回的临时登录地址无效".to_string())?;
+    if !matches!(parsed.scheme(), "http" | "https") || parsed.host().is_none() {
+        return Err("面板返回的临时登录地址无效".into());
+    }
+    app.opener().open_url(url, None::<&str>).map_err(|_| "无法打开面板临时登录页面".into())
 }
 
 #[tauri::command]

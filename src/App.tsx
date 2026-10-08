@@ -17,6 +17,7 @@ import { ResourceErrorList } from "./features/resources/ResourceErrorList";
 import { useAppUpdates } from "./features/app/useAppUpdates";
 import { useResourceWorkspace } from "./features/resources/useResourceWorkspace";
 import { accountGroups, filterAccounts } from "./features/accounts/pure";
+import { SyncTransferPanel } from "./features/accounts/SyncTransferPanel";
 import {
   cloudHubAssetDisplayNamesStorageKey,
   cloudHubAssetNotesStorageKey,
@@ -192,6 +193,7 @@ const isDetachedTerminalWindow = runningInTauri && detachedTerminalHostId !== nu
 function App() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [selectedAccountIds, setSelectedAccountIds] = useState<Set<number>>(() => new Set());
+  const [showSyncTransfer, setShowSyncTransfer] = useState(false);
   const [keyword, setKeyword] = useState("");
   const [dialog, setDialog] = useState(false);
   const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
@@ -3458,6 +3460,9 @@ function App() {
               <Download size={14} />
               {selectedAccountIds.size ? `导出已勾选 (${selectedAccountIds.size})` : "导出全部"}
             </button>
+            <button type="button" className="layui-btn account-export-button" title="生成需要迁移口令才能解密的手机账号包" onClick={() => setShowSyncTransfer(true)}>
+              <ShieldCheck size={14} />迁移到手机
+            </button>
             <label className="layui-btn layui-btn-import account-import-button" title="导入账号 JSON">
               导入
               <input
@@ -4611,6 +4616,12 @@ function App() {
             <div className="app-confirm-copy"><span className="eyebrow">PLEASE CONFIRM</span><h2 id="confirm-title">确认操作</h2><p id="confirm-message">{confirmRequest.message}</p></div>
             <div className="app-confirm-actions"><button type="button" className="secondary" autoFocus onClick={() => resolveConfirm(false)}>取消</button><button type="button" className="primary app-confirm-primary" onClick={() => resolveConfirm(true)}>确认</button></div>
           </section>
+        </div>,
+        document.body,
+      )}
+      {showSyncTransfer && createPortal(
+        <div className="sync-transfer-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowSyncTransfer(false); }}>
+          <SyncTransferPanel mode="desktop" accounts={accounts} managedHosts={managedHosts} panels={panelConnections} onClose={() => setShowSyncTransfer(false)} onImported={() => { void load(); void loadLocalAssets(); void loadManagedHosts(); void loadPanelConnections(); }} />
         </div>,
         document.body,
       )}

@@ -3,6 +3,7 @@ pub mod database;
 pub mod error;
 pub mod paths;
 pub mod repositories;
+pub mod sync_identity;
 
 // Compatibility facade for existing command code while the remaining repositories migrate.
 pub mod storage {

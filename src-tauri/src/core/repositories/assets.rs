@@ -59,3 +59,20 @@ pub fn replace_for_account(conn: &mut Connection, account_id: i64, resource_type
     transaction.commit().map_err(|error| error.to_string())?;
     Ok(fetched)
 }
+
+#[cfg(test)]
+mod sync_cache_tests {
+    use super::*;
+
+    #[test]
+    fn partial_sync_preserves_previous_rows_but_complete_sync_replaces_them() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE cloud_assets(account_id INTEGER, resource_type TEXT, asset_key TEXT, region_id TEXT, payload_json TEXT, fetched_at INTEGER, UNIQUE(account_id,resource_type,asset_key));").unwrap();
+        let row = |key: &str| AssetRow { resource_type: "ecs".into(), asset_key: key.into(), region_id: Some("cn-hangzhou".into()), payload_json: "{}".into(), fetched_at: 1 };
+        replace_for_account(&mut conn, 1, &["ecs".into()], &[row("previous")]).unwrap();
+        replace_for_account(&mut conn, 1, &[], &[row("new")]).unwrap();
+        assert_eq!(list(&conn, Some(1), Some("ecs")).unwrap().len(), 2);
+        replace_for_account(&mut conn, 1, &["ecs".into()], &[]).unwrap();
+        assert!(list(&conn, Some(1), Some("ecs")).unwrap().is_empty());
+    }
+}

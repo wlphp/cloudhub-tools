@@ -14,4 +14,5 @@ export const flowClient = {
   start(connectionId: number, pipelineId: string, paramsJson: string): Promise<string> { return nativeOnly("run_flow_pipeline", { connectionId, pipelineId, paramsJson: paramsJson || null }); },
   steps(connectionId: number, pipelineId: string, runId: string, jobId: string): Promise<FlowStep[]> { return nativeOnly("get_flow_job_steps", { connectionId, pipelineId, runId, jobId }); },
   log(connectionId: number, pipelineId: string, runId: string, jobId: string, stepIndex: number, buildId: number, offset: number, limit: number): Promise<FlowLogPage> { return nativeOnly("get_flow_job_log", { connectionId, pipelineId, runId, jobId, stepIndex, buildId, offset, limit }); },
+  jobLog(connectionId: number, pipelineId: string, runId: string, jobId: string): Promise<FlowLogPage> { return nativeOnly("get_flow_job_run_log", { connectionId, pipelineId, runId, jobId }); },
 };

@@ -1,0 +1,47 @@
+name: Mobile iOS build
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ios:
+    name: Build unsigned iOS archive
+    runs-on: macos-15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Rust iOS target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Generate the Xcode project
+        run: npx tauri ios init --ci
+
+      - name: Compile the iOS app without signing
+        run: npx tauri ios build --no-sign --archive-only
+
+      - name: Save the unsigned Xcode archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloudhub-tools-ios-unsigned-xcarchive
+          path: src-tauri/gen/apple/build/**/*.xcarchive
+          if-no-files-found: error
+          retention-days: 7

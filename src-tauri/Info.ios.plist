@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>NSCameraUsageDescription</key>
+  <string>用于扫描电脑端生成的一次性设备配对二维码。</string>
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>用于在同一局域网内接收用户主动开启的加密迁移包；传输会在成功一次或五分钟后自动关闭。</string>
+</dict>
+</plist>

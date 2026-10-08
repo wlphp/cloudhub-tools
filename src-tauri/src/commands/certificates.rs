@@ -116,6 +116,10 @@ fn certificate_error_message(error: &str) -> &'static str {
     let normalized = error.to_ascii_lowercase();
     if normalized.contains("取消") || normalized.contains("cancel") {
         "证书申请已取消，正在清理本次 DNS-01 TXT 记录"
+    } else if normalized.contains("域名与订单不一致") {
+        "证书签名请求的域名与订单不一致，请重新申请"
+    } else if normalized.contains("签发授权") {
+        "证书订单中的域名尚未获得签发授权，请重新申请"
     } else if normalized.contains("csr") || normalized.contains("证书签名请求") {
         "证书签名请求无效，正在检查证书域名与签名请求格式"
     } else if normalized.contains("订单尚未进入可签发") {
@@ -138,6 +142,8 @@ fn certificate_error_message(error: &str) -> &'static str {
         "证书品牌要求 EAB 配置，请检查 EAB KID 和 HMAC 密钥"
     } else if normalized.contains("当前账号") || normalized.contains("dns 区域不属于") {
         "DNS 区域不属于当前账号，或域名资产尚未同步"
+    } else if normalized.contains("尚未传播到公共 dns") {
+        "本次 TXT 尚未在公共 DNS 完成传播，请查看各解析器的查询结果后重试"
     } else if normalized.contains("dns 验证") || normalized.contains("dns-01") {
         "DNS-01 验证未通过，请检查 TXT 记录传播和 DNS 账号权限"
     } else if normalized.contains("http 401") || normalized.contains("http 403") {
@@ -203,7 +209,7 @@ fn make_csr(key: &RsaPrivateKey, domains: &[String]) -> Result<Vec<u8>, String> 
     let mut public_key_bit_string = vec![0]; public_key_bit_string.extend(public_key); let spki = der_seq(&[algorithm, der(0x03, &public_key_bit_string)]);
     let common_name = domains.first().ok_or("证书域名不能为空")?;
     let subject = der_seq(&[der_set(&[der_seq(&[der_oid(&[0x55, 0x04, 0x03]), der(0x0c, common_name.as_bytes())])])]);
-    let san_body = der_seq(&domains.iter().map(|domain| der(0x82, domain.trim_start_matches("*.").as_bytes())).collect::<Vec<_>>());
+    let san_body = der_seq(&domains.iter().map(|domain| der(0x82, domain.as_bytes())).collect::<Vec<_>>());
     let extension = der_seq(&[der_oid(&[0x55, 0x1d, 0x11]), der(0x04, &san_body)]);
     let extensions = der_seq(&[extension]);
     let extension_request = der_seq(&[der_oid(&[0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x09, 0x0e]), der_set(&[extensions])]);
@@ -289,7 +295,37 @@ fn dns_record_was_written(records: &Value, rr: &str, value: &str) -> bool {
     })
 }
 
+#[derive(Clone, Copy)]
 enum TxtVisibility { Visible, Missing, Unavailable }
+
+fn txt_response_visibility(payload: &Value, expected_values: &[String]) -> TxtVisibility {
+    match payload.get("Status").and_then(Value::as_u64) {
+        Some(0) => {},
+        Some(3) => return TxtVisibility::Missing,
+        _ => return TxtVisibility::Unavailable,
+    }
+    let values = payload.get("Answer").and_then(Value::as_array).into_iter().flatten()
+        .filter(|answer| answer.get("type").and_then(Value::as_i64) == Some(16))
+        .filter_map(|answer| answer.get("data").and_then(Value::as_str))
+        .map(normalize_txt_value)
+        .collect::<Vec<_>>();
+    if !expected_values.is_empty() && expected_values.iter().all(|expected| values.iter().any(|value| value == expected)) {
+        TxtVisibility::Visible
+    } else {
+        TxtVisibility::Missing
+    }
+}
+
+fn combined_txt_visibility(results: &[TxtVisibility]) -> TxtVisibility {
+    if results.iter().any(|result| matches!(result, TxtVisibility::Missing)) {
+        return TxtVisibility::Missing;
+    }
+    if results.iter().filter(|result| matches!(result, TxtVisibility::Visible)).count() >= 2 {
+        TxtVisibility::Visible
+    } else {
+        TxtVisibility::Unavailable
+    }
+}
 
 fn should_submit_after_unavailable_probe(attempt: usize) -> bool {
     attempt >= DNS_UNAVAILABLE_RETRY_ATTEMPTS
@@ -315,7 +351,11 @@ fn acme_problem_message(problem: &Value) -> &'static str {
 fn acme_request_error(status: reqwest::StatusCode, problem: &Value) -> String {
     let problem_type = problem.get("type").and_then(Value::as_str).unwrap_or("").to_ascii_lowercase();
     let detail = problem.get("detail").and_then(Value::as_str).unwrap_or("").to_ascii_lowercase();
-    if problem_type.contains("badcsr") {
+    if detail.contains("csr") && (detail.contains("identifiers") || detail.contains("names")) && (detail.contains("match") || detail.contains("differ")) {
+        "证书签名请求的域名与订单不一致，请重新申请".to_string()
+    } else if problem_type.contains("unauthorized") {
+        "证书订单中的域名尚未获得签发授权，请重新申请".to_string()
+    } else if problem_type.contains("badcsr") {
         "证书签名请求（CSR）无效".to_string()
     } else if problem_type.contains("ordernotready") {
         "证书订单尚未进入可签发状态".to_string()
@@ -357,27 +397,36 @@ async fn authorization_failure_message(
     Ok("证书服务拒绝了 DNS-01 验证，请检查权威 DNS 中的 TXT 记录".to_string())
 }
 
-async fn txt_records_visibility(client: &reqwest::Client, name: &str, expected_values: &[String]) -> TxtVisibility {
-    let mut resolver_responded = false;
-    for endpoint in [
-        format!("https://dns.alidns.com/resolve?name={name}&type=TXT"),
-        format!("https://dns.google/resolve?name={name}&type=TXT"),
-        format!("https://cloudflare-dns.com/dns-query?name={name}&type=TXT"),
+async fn txt_records_visibility(client: &reqwest::Client, name: &str, expected_values: &[String], app: &tauri::AppHandle, operation_id: &str) -> TxtVisibility {
+    let mut results = Vec::new();
+    for (label, endpoint) in [
+        ("阿里云公共 DNS", format!("https://dns.alidns.com/resolve?name={name}&type=TXT")),
+        ("腾讯云 DNSPod", format!("https://doh.pub/dns-query?name={name}&type=TXT")),
     ] {
         let response = match client.get(endpoint).timeout(Duration::from_secs(4)).header("accept", "application/dns-json").send().await {
             Ok(response) if response.status().is_success() => response,
-            _ => continue,
+            _ => {
+                emit_progress(app, operation_id, "dns-propagation", "info", &format!("{label}：查询不可用，将重试"));
+                results.push(TxtVisibility::Unavailable); continue;
+            },
         };
-        let payload = match response.json::<Value>().await { Ok(payload) => payload, Err(_) => continue };
-        resolver_responded = true;
-        let values = payload.get("Answer").and_then(Value::as_array).into_iter().flatten()
-            .filter(|answer| answer.get("type").and_then(Value::as_i64) == Some(16))
-            .filter_map(|answer| answer.get("data").and_then(Value::as_str))
-            .map(normalize_txt_value)
-            .collect::<Vec<_>>();
-        if expected_values.iter().all(|expected| values.iter().any(|value| value == expected)) { return TxtVisibility::Visible; }
+        let payload = match response.json::<Value>().await {
+            Ok(payload) => payload,
+            Err(_) => {
+                emit_progress(app, operation_id, "dns-propagation", "info", &format!("{label}：响应格式无效，将重试"));
+                results.push(TxtVisibility::Unavailable); continue;
+            }
+        };
+        let visibility = txt_response_visibility(&payload, expected_values);
+        let message = match visibility {
+            TxtVisibility::Visible => "已查到本次 TXT",
+            TxtVisibility::Missing => "尚未查到完整的本次 TXT",
+            TxtVisibility::Unavailable => "DNS 查询异常，将重试",
+        };
+        emit_progress(app, operation_id, "dns-propagation", "info", &format!("{label}：{message}"));
+        results.push(visibility);
     }
-    if resolver_responded { TxtVisibility::Missing } else { TxtVisibility::Unavailable }
+    combined_txt_visibility(&results)
 }
 
 fn der_tlv(data: &[u8], offset: usize) -> Option<(u8, usize, usize)> {
@@ -597,6 +646,7 @@ async fn request_certificate_inner(app: &tauri::AppHandle, state: &CertificateRe
         challenge_urls.push(challenge_url.to_string());
     }
     let mut propagated = false;
+    let mut visible_checks = 0;
     let mut unavailable_probe_attempts = 0;
     for attempt in 1..=DNS_PROPAGATION_ATTEMPTS {
         ensure_not_cancelled(state, operation_id)?;
@@ -604,24 +654,31 @@ async fn request_certificate_inner(app: &tauri::AppHandle, state: &CertificateRe
         let mut all_visible = true;
         let mut all_unavailable = true;
         for (dns_name, values) in &dns_values {
-            match txt_records_visibility(&client, dns_name, values).await {
+            match txt_records_visibility(&client, dns_name, values, app, operation_id).await {
                 TxtVisibility::Visible => { all_unavailable = false; }
                 TxtVisibility::Missing => { all_visible = false; all_unavailable = false; }
                 TxtVisibility::Unavailable => { all_visible = false; }
             }
         }
         if all_visible {
-            propagated = true;
-            break;
-        }
-        if all_unavailable {
-            unavailable_probe_attempts += 1;
-            if !should_submit_after_unavailable_probe(unavailable_probe_attempts) {
-                emit_progress(app, operation_id, "dns-propagation", "info", &format!("公共 DNS 探测服务不可达，等待 60 秒后重新探测（第 {unavailable_probe_attempts}/{DNS_UNAVAILABLE_RETRY_ATTEMPTS} 次）"));
+            visible_checks += 1;
+            if visible_checks == 1 {
+                emit_progress(app, operation_id, "dns-propagation", "info", "多个公共 DNS 已查到本次 TXT，等待 60 秒后复查，避免旧解析缓存影响验证");
                 wait_with_cancellation(state, operation_id, DNS_FALLBACK_SETTLE_SECONDS).await?;
                 continue;
             }
-            emit_progress(app, operation_id, "dns-propagation", "info", "公共 DNS 探测连续不可达，已完成 3 次等待；再等待 60 秒后交由证书服务验证");
+            propagated = true;
+            break;
+        }
+        visible_checks = 0;
+        if all_unavailable {
+            unavailable_probe_attempts += 1;
+            if !should_submit_after_unavailable_probe(unavailable_probe_attempts) {
+                emit_progress(app, operation_id, "dns-propagation", "info", &format!("公共 DNS 探测结果不足，等待 60 秒后重新探测（第 {unavailable_probe_attempts}/{DNS_UNAVAILABLE_RETRY_ATTEMPTS} 次）"));
+                wait_with_cancellation(state, operation_id, DNS_FALLBACK_SETTLE_SECONDS).await?;
+                continue;
+            }
+            emit_progress(app, operation_id, "dns-propagation", "info", "仍无法确认多个公共 DNS 的 TXT 传播，已完成 3 次等待；再等待 60 秒后交由证书服务验证");
             wait_with_cancellation(state, operation_id, DNS_FALLBACK_SETTLE_SECONDS).await?;
             propagated = true;
             break;
@@ -841,7 +898,21 @@ mod tests {
     }
 
     #[test]
+    fn preserves_wildcard_identifiers_in_csr_subject_alternative_names() {
+        let key = RsaPrivateKey::new(&mut OsRng, 2048).unwrap();
+        let csr = make_csr(&key, &["*.frp.example.com".into(), "example.com".into()]).unwrap();
+        // Check dNSName DER entries, rather than the commonName which already had '*.'.
+        let wildcard_dns_name = b"\x82\x11*.frp.example.com";
+        let ordinary_dns_name = b"\x82\x0bexample.com";
+        let stripped_dns_name = b"\x82\x0ffrp.example.com";
+        assert!(csr.windows(wildcard_dns_name.len()).any(|entry| entry == wildcard_dns_name));
+        assert!(csr.windows(ordinary_dns_name.len()).any(|entry| entry == ordinary_dns_name));
+        assert!(!csr.windows(stripped_dns_name.len()).any(|entry| entry == stripped_dns_name));
+    }
+
+    #[test]
     fn reduces_certificate_failures_to_safe_log_messages() {
+        assert_eq!(certificate_error_message("DNS 验证记录尚未传播到公共 DNS，请稍后重试"), "本次 TXT 尚未在公共 DNS 完成传播，请查看各解析器的查询结果后重试");
         assert_eq!(certificate_error_message("该证书品牌要求 EAB，请填写 EAB HMAC 密钥"), "证书品牌要求 EAB 配置，请检查 EAB KID 和 HMAC 密钥");
         let message = certificate_error_message("provider failed secret=TOP_SECRET token=TOP_TOKEN");
         assert!(!message.contains("TOP_SECRET"));
@@ -852,6 +923,31 @@ mod tests {
     fn normalizes_dns_over_https_txt_values() {
         assert_eq!(normalize_txt_value("\"challenge-token\""), "challenge-token");
         assert_eq!(normalize_txt_value("\"part-one\" \"part-two\""), "part-onepart-two");
+    }
+
+    #[test]
+    fn waits_when_resolvers_disagree_about_txt_propagation() {
+        use super::{combined_txt_visibility, TxtVisibility::*};
+        assert!(matches!(combined_txt_visibility(&[Visible, Missing, Missing]), Missing));
+        assert!(matches!(combined_txt_visibility(&[Visible, Visible, Missing]), Missing));
+        assert!(matches!(combined_txt_visibility(&[Visible, Unavailable, Unavailable]), Unavailable));
+        assert!(matches!(combined_txt_visibility(&[Visible, Visible, Unavailable]), Visible));
+        assert!(matches!(combined_txt_visibility(&[Visible, Visible, Visible]), Visible));
+    }
+
+    #[test]
+    fn distinguishes_txt_answers_from_aliases_and_dns_failures() {
+        use super::{txt_response_visibility, TxtVisibility::*};
+        let expected = vec!["fixture-challenge".to_string(), "second-fixture".to_string()];
+        let partial = serde_json::json!({"Status":0,"Answer":[{"type":16,"data":"\"fixture-challenge\""}]});
+        assert!(matches!(txt_response_visibility(&partial, &expected), Missing));
+        let complete = serde_json::json!({"Status":0,"Answer":[{"type":16,"data":"\"fixture-challenge\""},{"type":16,"data":"\"second-fixture\""}]});
+        assert!(matches!(txt_response_visibility(&complete, &expected), Visible));
+        let alias = serde_json::json!({"Status":0,"Answer":[{"type":5,"data":"cdn.example.test."}]});
+        assert!(matches!(txt_response_visibility(&alias, &expected), Missing));
+        assert!(matches!(txt_response_visibility(&serde_json::json!({"Status":2}), &expected), Unavailable));
+        assert!(matches!(txt_response_visibility(&serde_json::json!({"Status":3}), &expected), Missing));
+        assert!(matches!(txt_response_visibility(&serde_json::json!({}), &expected), Unavailable));
     }
 
     #[test]
@@ -903,6 +999,10 @@ mod tests {
 
     #[test]
     fn maps_finalize_problem_types_without_exposing_ca_details() {
+        let unauthorized = acme_request_error(reqwest::StatusCode::FORBIDDEN, &serde_json::json!({"type":"urn:ietf:params:acme:error:unauthorized", "detail":"fixture private response"}));
+        assert_eq!(certificate_error_message(&unauthorized), "证书订单中的域名尚未获得签发授权，请重新申请");
+        let mismatch = acme_request_error(reqwest::StatusCode::FORBIDDEN, &serde_json::json!({"type":"urn:ietf:params:acme:error:unauthorized", "detail":"CSR identifiers did not match order identifiers"}));
+        assert_eq!(certificate_error_message(&mismatch), "证书签名请求的域名与订单不一致，请重新申请");
         assert_eq!(acme_request_error(reqwest::StatusCode::BAD_REQUEST, &serde_json::json!({"type":"urn:ietf:params:acme:error:badCSR"})), "证书签名请求（CSR）无效");
         assert_eq!(acme_request_error(reqwest::StatusCode::BAD_REQUEST, &serde_json::json!({"type":"urn:ietf:params:acme:error:orderNotReady"})), "证书订单尚未进入可签发状态");
         assert_eq!(acme_request_error(reqwest::StatusCode::BAD_REQUEST, &serde_json::json!({"type":"urn:ietf:params:acme:error:malformed"})), "ACME malformed: 证书服务拒绝了签发请求格式");

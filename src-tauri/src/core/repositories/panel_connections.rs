@@ -46,7 +46,7 @@ pub fn import_update(conn: &Connection, id: i64, name: &str, ciphertext: &str, s
 }
 
 pub fn import_insert(conn: &Connection, name: &str, panel_url: &str, ciphertext: &str, sort_order: i64, allow_insecure_tls: bool, group_name: Option<&str>, source_account_id: Option<i64>, source_asset_key: Option<&str>, remark: Option<&str>, now: i64) -> Result<(), String> {
-    conn.execute("INSERT INTO panel_connections(name,panel_url,api_key_ciphertext,sort_order,allow_insecure_tls,group_name,source_account_id,source_asset_key,status,summary_json,remark,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,'unknown','{}',?9,?10,?10)", params![name,panel_url,ciphertext,sort_order,allow_insecure_tls as i64,group_name,source_account_id,source_asset_key,remark,now]).map(|_| ()).map_err(|error| error.to_string())
+    conn.execute("INSERT INTO panel_connections(name,panel_url,api_key_ciphertext,sort_order,allow_insecure_tls,group_name,source_account_id,source_asset_key,status,summary_json,remark,created_at,updated_at,sync_id) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,'unknown','{}',?9,?10,?10,?11)", params![name,panel_url,ciphertext,sort_order,allow_insecure_tls as i64,group_name,source_account_id,source_asset_key,remark,now,uuid::Uuid::new_v4().to_string()]).map(|_| ()).map_err(|error| error.to_string())
 }
 
 pub struct ExportRow { pub id: i64, pub name: String, pub panel_url: String, pub sort_order: i64, pub ciphertext: String, pub allow_insecure_tls: bool, pub group_name: Option<String>, pub source_account_id: Option<i64>, pub source_asset_key: Option<String>, pub remark: Option<String> }
@@ -64,7 +64,7 @@ pub fn save(conn: &Connection, input: &crate::PanelConnectionInput, name: &str, 
             id
         }
         None => {
-            conn.execute("INSERT INTO panel_connections(name,panel_url,api_key_ciphertext,sort_order,allow_insecure_tls,group_name,source_account_id,source_asset_key,status,summary_json,last_checked_at,remark,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,'online',?9,?10,?11,?10,?10)", params![name,panel_url,api_key_ciphertext,input.sort_order.max(0),input.allow_insecure_tls as i64,input.group_name,input.source_account_id,input.source_asset_key,summary_json,now,input.remark]).map_err(|error| error.to_string())?;
+            conn.execute("INSERT INTO panel_connections(name,panel_url,api_key_ciphertext,sort_order,allow_insecure_tls,group_name,source_account_id,source_asset_key,status,summary_json,last_checked_at,remark,created_at,updated_at,sync_id) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,'online',?9,?10,?11,?10,?10,?12)", params![name,panel_url,api_key_ciphertext,input.sort_order.max(0),input.allow_insecure_tls as i64,input.group_name,input.source_account_id,input.source_asset_key,summary_json,now,input.remark,uuid::Uuid::new_v4().to_string()]).map_err(|error| error.to_string())?;
             conn.last_insert_rowid()
         }
     };

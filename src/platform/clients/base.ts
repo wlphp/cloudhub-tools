@@ -37,7 +37,7 @@ export async function invokeOrWeb<TResult>(
 }
 
 export async function nativeOnly<TResult>(command: string, args?: Record<string, unknown>): Promise<TResult> {
-  if (!runningInTauri) throw normalizePlatformError(new Error("该功能仅在桌面端可用"));
+  if (!runningInTauri) throw normalizePlatformError(new Error("该功能仅支持 CloudHub 原生客户端"));
   try {
     return await invoke<TResult>(command, args);
   } catch (reason) {

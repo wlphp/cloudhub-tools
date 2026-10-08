@@ -291,18 +291,117 @@ pub(crate) async fn download_object(id: i64, bucket: &str, location: &str, key: 
 
 async fn esa_request(action: &str, params: std::collections::BTreeMap<String, String>, method: &str, access_key_id: &str, access_key_secret: &str) -> Result<Value, String> { let host = "esa.cn-hangzhou.aliyuncs.com"; let mut values = params.iter().map(|(key, value)| (encode(key), encode(value))).collect::<Vec<_>>(); values.sort(); let encoded_query = values.iter().map(|(key, value)| format!("{key}={value}")).collect::<Vec<_>>().join("&"); let payload_hash = format!("{:x}", Sha256::digest(b"")); let acs_date = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(); let nonce = Uuid::new_v4().to_string(); let mut headers = std::collections::BTreeMap::new(); headers.insert("host", host.to_string()); headers.insert("x-acs-action", action.to_string()); headers.insert("x-acs-content-sha256", payload_hash.clone()); headers.insert("x-acs-date", acs_date.clone()); headers.insert("x-acs-signature-nonce", nonce.clone()); headers.insert("x-acs-version", "2024-09-10".to_string()); let canonical_headers = headers.iter().map(|(key, value)| format!("{key}:{value}\n")).collect::<String>(); let signed_headers = headers.keys().cloned().collect::<Vec<_>>().join(";"); let method = method.to_uppercase(); let canonical_request = format!("{method}\n/\n{encoded_query}\n{canonical_headers}\n{signed_headers}\n{payload_hash}"); let string_to_sign = format!("ACS3-HMAC-SHA256\n{:x}", Sha256::digest(canonical_request.as_bytes())); let mut mac: Hmac<Sha256> = <Hmac<Sha256> as Mac>::new_from_slice(access_key_secret.as_bytes()).map_err(|error| error.to_string())?; mac.update(string_to_sign.as_bytes()); let authorization = format!("ACS3-HMAC-SHA256 Credential={access_key_id},SignedHeaders={signed_headers},Signature={}", hex::encode(mac.finalize().into_bytes())); let url = if encoded_query.is_empty() { format!("https://{host}/") } else { format!("https://{host}/?{encoded_query}") }; let client = reqwest::Client::new(); let builder = if method == "POST" { client.post(url) } else { client.get(url) }; let response = builder.header("host", host).header("x-acs-action", action).header("x-acs-content-sha256", payload_hash).header("x-acs-date", acs_date).header("x-acs-signature-nonce", nonce).header("x-acs-version", "2024-09-10").header("authorization", authorization).timeout(std::time::Duration::from_secs(25)).send().await.map_err(|error| format!("ESA 请求失败: {error}"))?; let status = response.status(); let data: Value = response.json().await.map_err(|error| format!("ESA 返回解析失败: {error}"))?; if !status.is_success() || data.get("Code").is_some() { let message = data.get("Message").and_then(Value::as_str).or_else(|| data.get("Code").and_then(Value::as_str)).unwrap_or("ESA API 返回错误"); crate::write_api_log(access_key_id, host, action, &json!(params), Some(&data), "失败", Some(message)); return Err(message.to_string()); } crate::write_api_log(access_key_id, host, action, &json!(params), Some(&data), "成功", None); Ok(data) }
 
-pub(crate) async fn resource_items(resource_type: &str, access_key_id: &str, access_key_secret: &str) -> ResourceResponse {
+fn server_regions(configured: Option<&str>) -> Result<Vec<(String, String)>, String> {
+    let mut regions = Vec::new();
+    for region in configured.unwrap_or("").split(|c: char| c == ',' || c == '，' || c.is_whitespace()).filter(|v| !v.is_empty()) {
+        if region.len() > 64 || !region.bytes().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-') {
+            return Err("账号地域配置无效".into());
+        }
+        if !regions.iter().any(|(id, _)| id == region) { regions.push((region.to_string(), region.to_string())); }
+    }
+    Ok(regions)
+}
+
+async fn server_items(
+    resource_type: &str, regions: Vec<(String, String)>, access_key_id: &str, access_key_secret: &str,
+) -> (Vec<Value>, Vec<String>) {
+    let mut remaining = regions.into_iter();
+    let mut pending = tokio::task::JoinSet::new();
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(75);
+    let mut items = Vec::new();
+    let mut errors = Vec::new();
+    loop {
+        while pending.len() < 4 {
+            let Some((region, name)) = remaining.next() else { break };
+            let kind = resource_type.to_string();
+            let key_id = access_key_id.to_string();
+            let secret = access_key_secret.to_string();
+            pending.spawn(async move {
+                let (service, version, action, path) = if kind == "swas" {
+                    ("swas", "2020-06-01", "ListInstances", vec!["Instances"])
+                } else {
+                    ("ecs", "2014-05-26", "DescribeInstances", vec!["Instances", "Instance"])
+                };
+                let endpoint = format!("{service}.{region}.aliyuncs.com");
+                let mut values = Vec::new();
+                let mut page = 1;
+                loop {
+                    let params = [("RegionId".into(), region.clone()), ("PageSize".into(), "100".into()), ("PageNumber".into(), page.to_string())].into_iter().collect();
+                    match request(&endpoint, version, action, params, &key_id, &secret).await {
+                        Ok(data) => {
+                            let batch = crate::array_at(&data, &path);
+                            let count = batch.len();
+                            for item in batch {
+                                let mut value = item.clone();
+                                if let Value::Object(object) = &mut value {
+                                    object.insert("_region_id".into(), json!(region));
+                                    object.insert("_region_name".into(), json!(name));
+                                }
+                                values.push(value);
+                            }
+                            let total = data.get("TotalCount").and_then(Value::as_u64);
+                            if count < 100 || total.is_some_and(|total| values.len() as u64 >= total) { break; }
+                            page += 1;
+                        }
+                        Err(error) => return (values, Some(format!("{region}: {error}"))),
+                    }
+                }
+                (values, None)
+            });
+        }
+        if pending.is_empty() { break; }
+        match tokio::time::timeout_at(deadline, pending.join_next()).await {
+            Ok(Some(Ok((values, error)))) => { items.extend(values); if let Some(error) = error { errors.push(error); } }
+            Ok(Some(Err(_))) => errors.push("服务器地域查询任务失败".into()),
+            Ok(None) => break,
+            Err(_) => { pending.abort_all(); errors.push("服务器查询超时，部分地域未完成；请在账号中填写服务器所在地域后重试".into()); break; }
+        }
+    }
+    (items, errors)
+}
+
+pub(crate) async fn resource_items(id: i64, resource_type: &str, access_key_id: &str, access_key_secret: &str) -> ResourceResponse {
     let now = Utc::now().timestamp_millis(); let mut items = Vec::new(); let mut errors = Vec::new();
     let regions = || async { let result = request("ecs.aliyuncs.com", "2014-05-26", "DescribeRegions", std::collections::BTreeMap::new(), access_key_id, access_key_secret).await?; Ok::<Vec<(String, String)>, String>(crate::array_at(&result, &["Regions", "Region"]).into_iter().filter_map(|v| Some((v.get("RegionId")?.as_str()?.to_string(), v.get("LocalName").and_then(Value::as_str).unwrap_or("").to_string()))).collect()) };
     match resource_type {
-        "ecs" => match regions().await { Ok(values) => for (region, name) in values { match request(&format!("ecs.{region}.aliyuncs.com"), "2014-05-26", "DescribeInstances", [("RegionId".into(), region.clone()), ("PageSize".into(), "100".into())].into_iter().collect(), access_key_id, access_key_secret).await { Ok(data) => for item in crate::array_at(&data, &["Instances", "Instance"]) { let mut value = item.clone(); if let Value::Object(object) = &mut value { object.insert("_region_id".into(), json!(region)); object.insert("_region_name".into(), json!(name)); } items.push(value); }, Err(e) => errors.push(format!("{region}: {e}")) } }, Err(e) => errors.push(e) },
+        "ecs" | "swas" => {
+            let configured = crate::open_db().and_then(|conn| crate::core::repositories::accounts::region_id(&conn, id));
+            let selected = match configured.and_then(|value| server_regions(value.as_deref())) {
+                Ok(values) if !values.is_empty() => Ok(values),
+                Ok(_) if resource_type == "swas" => Ok(["cn-hangzhou", "cn-shanghai", "cn-beijing", "cn-shenzhen", "cn-hongkong", "ap-southeast-1"].into_iter().map(|region| (region.into(), region.into())).collect()),
+                Ok(_) => regions().await,
+                Err(error) => Err(error),
+            };
+            match selected {
+                Ok(values) => { let result = server_items(resource_type, values, access_key_id, access_key_secret).await; items = result.0; errors = result.1; }
+                Err(error) => errors.push(error),
+            }
+        },
         "rds" => match regions().await { Ok(values) => for (region, name) in values { match request("rds.aliyuncs.com", "2014-08-15", "DescribeDBInstances", [("RegionId".into(), region.clone()), ("PageSize".into(), "100".into())].into_iter().collect(), access_key_id, access_key_secret).await { Ok(data) => for item in crate::array_at(&data, &["Items", "DBInstance"]) { let mut value = item.clone(); if let Value::Object(object) = &mut value { object.insert("_region_id".into(), json!(region)); object.insert("_region_name".into(), json!(name)); } items.push(value); }, Err(e) => errors.push(format!("{region}: {e}")) } }, Err(e) => errors.push(e) },
         "redis" => match regions().await { Ok(values) => for (region, name) in values { match request("r-kvstore.aliyuncs.com", "2015-01-01", "DescribeInstances", [("RegionId".into(), region.clone()), ("PageSize".into(), "100".into())].into_iter().collect(), access_key_id, access_key_secret).await { Ok(data) => for item in crate::array_at(&data, &["Instances", "KVStoreInstance"]) { let mut value = item.clone(); if let Value::Object(object) = &mut value { object.insert("_region_id".into(), json!(region)); object.insert("_region_name".into(), json!(name)); } items.push(value); }, Err(e) => errors.push(format!("{region}: {e}")) } }, Err(e) => errors.push(e) },
         "domain" => { let registration = request("domain.aliyuncs.com", "2018-01-29", "QueryDomainList", [("PageNum".into(), "1".into()), ("PageSize".into(), "100".into())].into_iter().collect(), access_key_id, access_key_secret).await; let dns = request("alidns.aliyuncs.com", "2015-01-09", "DescribeDomains", [("PageNumber".into(), "1".into()), ("PageSize".into(), "20".into())].into_iter().collect(), access_key_id, access_key_secret).await; let registration_failed = registration.is_err(); let dns_failed = dns.is_err(); let mut merged = std::collections::BTreeMap::new(); if let Ok(data) = registration { for item in crate::array_at(&data, &["Data", "Domain"]) { if let Some(name) = item.get("DomainName").and_then(Value::as_str) { merged.insert(name.to_lowercase(), item.clone()); } } } if let Ok(data) = dns { for item in crate::array_at(&data, &["Domains", "Domain"]) { if let Some(name) = item.get("DomainName").and_then(Value::as_str) { let entry = merged.entry(name.to_lowercase()).or_insert_with(|| json!({"DomainName": name})); if let (Some(target), Some(source)) = (entry.as_object_mut(), item.as_object()) { target.extend(source.clone()); target.insert("RecordCount".into(), item.get("RecordCount").cloned().unwrap_or(json!(0))); } } } } items.extend(merged.into_values()); if items.is_empty() && registration_failed && dns_failed { errors.push("域名注册和 DNS 接口均请求失败".into()); } },
-        "swas" => for region in ["cn-hangzhou", "cn-shanghai", "cn-beijing", "cn-shenzhen", "cn-hongkong", "ap-southeast-1"] { match request(&format!("swas.{region}.aliyuncs.com"), "2020-06-01", "ListInstances", [("RegionId".into(), region.into()), ("PageSize".into(), "100".into())].into_iter().collect(), access_key_id, access_key_secret).await { Ok(data) => items.extend(crate::array_at(&data, &["Instances"]).into_iter().cloned()), Err(e) => errors.push(format!("{region}: {e}")) } },
         "esa" => match esa_request("ListSites", [("PageNumber".into(), "1".into()), ("PageSize".into(), "100".into())].into_iter().collect(), "GET", access_key_id, access_key_secret).await { Ok(data) => items.extend(crate::array_at(&data, &["Sites"]).into_iter().cloned()), Err(e) => errors.push(e) },
         "oss" => match oss_buckets(access_key_id, access_key_secret).await { Ok(values) => items.extend(values), Err(e) => errors.push(e) },
         other => errors.push(format!("暂不支持资源类型: {other}")),
     }
     ResourceResponse { resource_type: resource_type.into(), items, errors, fetched_at: now }
+}
+
+#[cfg(test)]
+mod server_region_tests {
+    use super::server_regions;
+
+    #[test]
+    fn normalizes_configured_server_regions() {
+        assert!(server_regions(None).unwrap().is_empty());
+        let regions = server_regions(Some("cn-hangzhou，cn-shanghai cn-hangzhou")).unwrap();
+        assert_eq!(regions.len(), 2);
+        assert_eq!(regions[0].0, "cn-hangzhou");
+        assert_eq!(regions[1].0, "cn-shanghai");
+    }
+
+    #[test]
+    fn rejects_region_values_that_could_change_the_endpoint() {
+        assert!(server_regions(Some("cn-hangzhou.example/path")).is_err());
+    }
 }

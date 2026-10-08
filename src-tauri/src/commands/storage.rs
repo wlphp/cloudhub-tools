@@ -71,7 +71,7 @@ pub(crate) async fn download_oss_object(app: tauri::AppHandle, id: i64, bucket: 
 }
 
 #[tauri::command]
-pub(crate) async fn download_oss_objects(app: tauri::AppHandle, id: i64, bucket: String, location: String, object_keys: Vec<String>) -> PlatformResult<Option<Vec<String>>> {
+pub(crate) async fn download_oss_objects(_app: tauri::AppHandle, id: i64, bucket: String, location: String, object_keys: Vec<String>) -> PlatformResult<Option<Vec<String>>> {
     if account_cloud_type(id)? != "aliyun" { return Err("当前仅支持阿里云 OSS 文件下载".into()); }
     if object_keys.is_empty() { return Err("请至少选择一个文件".into()); }
     if object_keys.len() > 50 { return Err("单次最多下载 50 个文件".into()); }
@@ -81,16 +81,23 @@ pub(crate) async fn download_oss_objects(app: tauri::AppHandle, id: i64, bucket:
         let name = key.rsplit('/').find(|value| !value.is_empty()).unwrap_or("download").replace(['\\', '/', ':', '*', '?', '"', '<', '>', '|'], "_");
         if !names.insert(name.to_ascii_lowercase()) { return Err("所选文件存在同名目标，无法安全批量下载".into()); }
     }
-    let Some(folder) = app.dialog().file().blocking_pick_folder() else { return Ok(None) };
-    let folder_path = folder.into_path().map_err(|_| "当前平台返回了不支持的下载目录".to_string())?;
-    let mut paths = Vec::with_capacity(object_keys.len());
-    for key in object_keys {
-        let filename = key.rsplit('/').find(|value| !value.is_empty()).unwrap_or("download").replace(['\\', '/', ':', '*', '?', '"', '<', '>', '|'], "_");
-        let target = folder_path.join(filename);
-        crate::cloud::aliyun::download_object(id, &bucket, &location, &key, &target).await?;
-        paths.push(target.to_string_lossy().into_owned());
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    {
+        return Err("移动端暂不支持选择本地目录批量下载，请逐个下载对象".into());
     }
-    Ok(Some(paths))
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        let Some(folder) = _app.dialog().file().blocking_pick_folder() else { return Ok(None) };
+        let folder_path = folder.into_path().map_err(|_| "当前平台返回了不支持的下载目录".to_string())?;
+        let mut paths = Vec::with_capacity(object_keys.len());
+        for key in object_keys {
+            let filename = key.rsplit('/').find(|value| !value.is_empty()).unwrap_or("download").replace(['\\', '/', ':', '*', '?', '"', '<', '>', '|'], "_");
+            let target = folder_path.join(filename);
+            crate::cloud::aliyun::download_object(id, &bucket, &location, &key, &target).await?;
+            paths.push(target.to_string_lossy().into_owned());
+        }
+        Ok(Some(paths))
+    }
 }
 
 #[tauri::command]
