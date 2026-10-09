@@ -1,3 +1,4 @@
+import { SecretField } from "../../shared/SecretField";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Download, FileLock2, LockKeyhole, ShieldCheck, Upload, X } from "lucide-react";
 import { Format, openAppSettings, requestPermissions, scan } from "@tauri-apps/plugin-barcode-scanner";
@@ -49,8 +50,6 @@ export function SyncTransferPanel({ mode, accounts = [], managedHosts = [], pane
   const [selectedManagedHostIds, setSelectedManagedHostIds] = useState<Set<number>>(new Set());
   const [selectedPanelIds, setSelectedPanelIds] = useState<Set<number>>(new Set());
   const [desktopSelectionTab, setDesktopSelectionTab] = useState<"accounts" | "hosts" | "panels">("accounts");
-  const [passphrase, setPassphrase] = useState("");
-  const [envelope, setEnvelope] = useState<SyncEnvelope | null>(null);
   const [preview, setPreview] = useState<SyncImportPreview | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -61,7 +60,6 @@ export function SyncTransferPanel({ mode, accounts = [], managedHosts = [], pane
   const [pendingClientAddress, setPendingClientAddress] = useState("");
   const [pendingVerificationCode, setPendingVerificationCode] = useState("");
   const [pendingDeviceIdentity, setPendingDeviceIdentity] = useState("");
-  const [pairingCode, setPairingCode] = useState("");
   const [qrImportSessionId, setQrImportSessionId] = useState("");
   const [qrImportAccountIds, setQrImportAccountIds] = useState<Set<string>>(new Set());
   const [qrImportHostIds, setQrImportHostIds] = useState<Set<string>>(new Set());
@@ -75,7 +73,6 @@ export function SyncTransferPanel({ mode, accounts = [], managedHosts = [], pane
   const [deltaConflictChoices, setDeltaConflictChoices] = useState<Record<string, "incoming" | "local">>({});
   const [databasePreview, setDatabasePreview] = useState<DatabaseImportPreview | null>(null);
   const [cameraPermissionDenied, setCameraPermissionDenied] = useState(false);
-  const fileInput = useRef<HTMLInputElement>(null);
   const databaseFileInput = useRef<HTMLInputElement>(null);
   const deltaInput = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLElement | null>(null);
@@ -180,7 +177,7 @@ export function SyncTransferPanel({ mode, accounts = [], managedHosts = [], pane
   }
 
   async function scanComputerQr() {
-    setError(""); setNotice(""); setPreview(null); setEnvelope(null); setQrImportSessionId("");
+    setError(""); setNotice(""); setPreview(null); setQrImportSessionId("");
     setCameraPermissionDenied(false);
     setBusy(true);
     let stage = "请求相机权限";
@@ -194,7 +191,6 @@ export function SyncTransferPanel({ mode, accounts = [], managedHosts = [], pane
       const random = new Uint32Array(1);
       crypto.getRandomValues(random);
       const code = String(random[0] % 1_000_000).padStart(6, "0");
-      setPairingCode(code);
       stage = "读取二维码";
       const result = await scan({ windowed: false, formats: [Format.QRCode] });
       if (!result.content?.trim()) throw new Error("没有读取到有效二维码内容");
@@ -213,7 +209,7 @@ export function SyncTransferPanel({ mode, accounts = [], managedHosts = [], pane
       setNotice(`已安全接收电脑配置（指纹 ${received.sourcePublicKeyFingerprint}）。选择要导入的项目并确认；凭据仅在原生层解密和写入。`);
     } catch (cause) {
       setError(`${stage}失败：${transferErrorMessage(cause, "未知错误，请重新操作。")}`);
-    } finally { setBusy(false); setPairingCode(""); }
+    } finally { setBusy(false); }
   }
 
   async function openCameraPermissionSettings() {
@@ -235,25 +231,8 @@ export function SyncTransferPanel({ mode, accounts = [], managedHosts = [], pane
     finally { setBusy(false); }
   }
 
-  async function readBundle(file?: File) {
-    setError(""); setNotice(""); setPreview(null); setEnvelope(null); setDatabasePreview(null);
-    if (!file) return;
-    if (file.size > 15 * 1024 * 1024) { setError("迁移包超过 15 MB，已拒绝读取。"); return; }
-    try {
-      const parsed: unknown = JSON.parse(await file.text());
-      if (!isEnvelope(parsed)) throw new Error("文件格式不受支持，请选择 CloudHub 加密迁移包。");
-      setEnvelope(parsed);
-      const importPassword = passphrase;
-      if (!importPassword) { setError("文件已读取。请输入生成迁移包时使用的口令，再验证预览。"); return; }
-      await previewBundle(parsed, importPassword);
-    } catch (cause) {
-      setEnvelope(null);
-      setError(cause instanceof Error ? cause.message : String(cause));
-    } finally { setBusy(false); if (fileInput.current) fileInput.current.value = ""; }
-  }
-
   async function readDatabaseBackup(file?: File) {
-    setError(""); setNotice(""); setDatabasePreview(null); setPreview(null); setEnvelope(null);
+    setError(""); setNotice(""); setDatabasePreview(null); setPreview(null);
     if (!file) return;
     if (!file.name.toLowerCase().endsWith(".chdb")) { setError("请选择电脑导出的 .chdb 数据备份。"); return; }
     if (runningInTauri) { setError("整库备份导入目前需要使用手机浏览器预览版。"); return; }
@@ -289,18 +268,6 @@ export function SyncTransferPanel({ mode, accounts = [], managedHosts = [], pane
     catch { /* The server also removes expired previews. */ }
   }
 
-  async function previewBundle(bundle = envelope, password = passphrase) {
-    if (!bundle) return;
-    setError(""); setNotice(""); setBusy(true);
-    try {
-      if (!password) throw new Error("请输入迁移口令。");
-      setPreview(await accountsClient.previewSyncBundle(bundle, password));
-    } catch (cause) {
-      setPreview(null);
-      setError(cause instanceof Error ? cause.message : String(cause));
-    } finally { setBusy(false); }
-  }
-
   async function confirmImport() {
     if (!preview) return;
     if (mobile && qrImportSessionId) {
@@ -316,15 +283,6 @@ export function SyncTransferPanel({ mode, accounts = [], managedHosts = [], pane
       finally { setBusy(false); }
       return;
     }
-    if (!envelope) return;
-    setBusy(true); setError(""); setNotice("");
-    try {
-      const imported = await accountsClient.importSyncBundle(envelope, passphrase);
-      setNotice(`同步完成：新增 ${imported.added} 项，更新 ${imported.updated} 项（云账号 ${imported.accounts}、主机 ${imported.managedHosts}、面板 ${imported.panels}）。`);
-      setEnvelope(null); setPreview(null); setPassphrase(""); onImported?.();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    } finally { setBusy(false); }
   }
 
   async function cancelQrImportPreview() {
@@ -409,18 +367,6 @@ export function SyncTransferPanel({ mode, accounts = [], managedHosts = [], pane
         <button className="sync-transfer-primary" type="button" disabled={busy} onClick={() => void confirmDatabaseBackupImport()}><ShieldCheck size={17} aria-hidden="true" />{busy ? "正在导入…" : "确认替换并导入"}</button>
         <button className="sync-transfer-file" type="button" disabled={busy} onClick={() => void cancelDatabaseBackupImport()}>取消</button>
       </div>}
-      <details className="sync-transfer-advanced"><summary><strong>其他加密迁移方式</strong><small>导入 .chsync.json 文件，需要迁移口令</small></summary>
-      <div className="sync-transfer-advanced-content">
-      <label className="sync-transfer-field">迁移口令
-        <input type="password" value={passphrase} maxLength={1024} autoComplete="current-password" onChange={(event) => setPassphrase(event.target.value)} placeholder="输入电脑端设置的迁移口令" />
-      </label>
-      <label className="sync-transfer-file">
-        <Upload size={17} aria-hidden="true" /><span>选择电脑生成的 .chsync.json 文件</span>
-        <input ref={fileInput} type="file" accept=".json,.chsync.json,application/json" onChange={(event) => void readBundle(event.currentTarget.files?.[0])} disabled={busy} />
-      </label>
-      {envelope && !preview && <button className="sync-transfer-primary" type="button" disabled={busy || !passphrase} onClick={() => void previewBundle()}><ShieldCheck size={17} aria-hidden="true" />{busy ? "正在验证…" : "验证口令并预览配置"}</button>}
-      {busy && <p className="sync-transfer-status" role="status">{pairingCode ? <>本次请求校验码：<strong>{pairingCode}</strong>。请核对电脑显示相同号码后再批准。</> : "正在扫码、连接电脑或验证迁移包…"}</p>}
-      </div></details>
     </> : <>
       <p className="sync-transfer-intro">选择要迁移到手机的配置，然后扫码接收。传输会自动加密，无需迁移口令。</p>
       <div className="sync-transfer-desktop-selection">
@@ -460,7 +406,7 @@ export function SyncTransferPanel({ mode, accounts = [], managedHosts = [], pane
     {runningInTauri && mobile && <details className="sync-transfer-advanced"><summary><strong>接收签名增量</strong><small>仅在需要设备间增量同步时使用</small></summary><section className="sync-transfer-devices" aria-labelledby="sync-delta-receive-title">
       <h3 id="sync-delta-receive-title">接收并应用签名增量</h3>
       <p>{mobile ? "选择电脑生成的签名增量文件。手机会验证来源设备签名和本机冲突；确认后原子应用，并通过系统文件保存器生成回传电脑的签名回执。" : "选择手机或其他已授权设备生成的签名增量文件。桌面会验证设备签名和冲突；确认后原子应用并生成签名回执，发送设备导入回执后才会清除待发记录。"}</p>
-      <label className="sync-transfer-field">增量同步口令<input type="password" value={deltaPassphrase} maxLength={1024} autoComplete="current-password" onChange={(event) => setDeltaPassphrase(event.target.value)} placeholder="输入发送端设置的 增量同步口令" /></label>
+      <label className="sync-transfer-field">增量同步口令<SecretField secretLabel="同步口令" value={deltaPassphrase} maxLength={1024} autoComplete="current-password" onChange={(event) => setDeltaPassphrase(event.target.value)} placeholder="输入发送端设置的 增量同步口令" /></label>
       <label className="sync-transfer-file"><Upload size={17} aria-hidden="true" /><span>选择 .chdelta.json 增量文件</span><input ref={deltaInput} type="file" accept=".chdelta.json,.json,application/json" onChange={(event) => void readDelta(event.currentTarget.files?.[0])} disabled={busy} /></label>
       {deltaEnvelope && !deltaReview && <button className="sync-transfer-primary" type="button" disabled={busy || !deltaPassphrase} onClick={() => void previewReceivedDelta()}><ShieldCheck size={17} aria-hidden="true" />{busy ? "正在验证…" : "验证已接收的局域网增量"}</button>}
       {deltaReview && <section className="sync-transfer-preview" aria-live="polite">

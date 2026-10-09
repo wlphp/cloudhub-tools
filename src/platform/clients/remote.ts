@@ -8,6 +8,8 @@ import type {
 import { invokeOrWeb, nativeOnly } from "./base";
 
 export const remoteClient = {
+  revealPanelApiKey(id: number): Promise<string> { return nativeOnly("reveal_panel_api_key", { id }); },
+  revealManagedHostCredential(id: number, kind: "private_key" | "key_passphrase"): Promise<string> { return nativeOnly("reveal_managed_host_credential", { id, kind }); },
   listPanels(): Promise<PanelConnection[]> { return invokeOrWeb("list_panel_connections", undefined, { path: "/api/panel-connections" }); },
   savePanel(input: unknown): Promise<PanelConnection> { return nativeOnly("save_panel_connection", { input }); },
   refreshPanel(id: number): Promise<PanelConnection> { return nativeOnly("refresh_panel_connection", { id }); },

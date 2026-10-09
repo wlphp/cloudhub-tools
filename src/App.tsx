@@ -1,3 +1,4 @@
+import { SecretField } from "./shared/SecretField";
 import {
   displayDnsServers,
   formatMoney,
@@ -182,7 +183,7 @@ function syncAssetTypes(account: Account): ReadonlyArray<(typeof assetTypes)[num
 }
 const assetTypes = catalogAssetTypes;
 
-const bundledVersion = "0.1.38";
+const bundledVersion = "0.1.39";
 const isDevelopmentBuild = import.meta.env.DEV;
 
 const detachedTerminalHostId = (() => {
@@ -200,7 +201,6 @@ function App() {
   const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
   const [promptRequest, setPromptRequest] = useState<PromptRequest | null>(null);
   const [promptValue, setPromptValue] = useState("");
-  const [showSecret, setShowSecret] = useState(false);
   const [verifyingAccount, setVerifyingAccount] = useState(false);
   const [draft, setDraft] = useState<Draft>(empty);
   const [status, setStatus] = useState("");
@@ -2165,7 +2165,6 @@ function App() {
   function edit(account: Account) {
     let credentialMeta: { tenancy_ocid?: string; key_fingerprint?: string; tenant_id?: string; subscription_id?: string; project_id?: string } = {};
     try { credentialMeta = JSON.parse(account.credential_meta || "{}"); } catch { /* legacy account */ }
-    setShowSecret(false);
     setDraft({
       id: account.id,
       account_name: account.account_name,
@@ -3435,7 +3434,6 @@ function App() {
               aria-label="添加云账号"
               onClick={() => {
               setDraft(empty);
-                setShowSecret(false);
                 setDialog(true);
               }}
             >
@@ -4403,11 +4401,11 @@ function App() {
               <label>名称<input required value={panelDraft.name} onChange={(event) => setPanelDraft((current) => ({ ...current, name: event.target.value }))} placeholder="例如：生产网站面板" autoFocus /></label>
               <label>验证类型<div className="panel-auth-static"><span>API</span><small>使用面板设置中的 API 接口密钥</small></div></label>
               <label>面板 URL<input required type="url" value={panelDraft.panel_url} onChange={(event) => setPanelDraft((current) => ({ ...current, panel_url: event.target.value }))} placeholder="例如：https://192.168.1.2:8888" /></label>
-              <label>API 密钥<textarea required={!panelDraft.id} rows={2} value={panelDraft.api_key} onChange={(event) => setPanelDraft((current) => ({ ...current, api_key: event.target.value }))} placeholder={panelDraft.id ? "留空则保留已保存 API 密钥" : "粘贴面板 API 接口密钥"} autoComplete="off" /></label>
+              <label>API 密钥<SecretField key={panelDraft.id ?? "new"} secretLabel="API 密钥" reveal={panelDraft.id ? () => remoteClient.revealPanelApiKey(panelDraft.id!) : undefined} required={!panelDraft.id} value={panelDraft.api_key} onChange={(event) => setPanelDraft((current) => ({ ...current, api_key: event.target.value }))} placeholder={panelDraft.id ? "留空则保留已保存 API 密钥" : "粘贴面板 API 接口密钥"} autoComplete="off" /></label>
               <label className="panel-insecure-tls"><input type="checkbox" checked={panelDraft.allow_insecure_tls} onChange={(event) => setPanelDraft((current) => ({ ...current, allow_insecure_tls: event.target.checked }))} /><span><strong>允许不受信任 HTTPS 证书</strong><small>仅在面板使用确认可信的自签名证书时开启。</small></span></label>
               <div className="form-grid"><label>分组<input value={panelDraft.group_name} onChange={(event) => setPanelDraft((current) => ({ ...current, group_name: event.target.value }))} placeholder="生产 / 测试 / 个人" /></label><label>排序号<input type="number" min={0} value={panelDraft.sort_order} onChange={(event) => setPanelDraft((current) => ({ ...current, sort_order: Math.max(0, Number(event.target.value) || 0) }))} placeholder="数字越小越靠前" /></label></div>
               <div className="form-grid"><label>SSH 端口<input type="number" min={1} max={65535} value={panelDraft.ssh_port || 22} onChange={(event) => setPanelDraft((current) => ({ ...current, ssh_port: Number(event.target.value) || 22 }))} placeholder="22" /></label><label>SSH 用户名<input value={panelDraft.ssh_username || "root"} onChange={(event) => setPanelDraft((current) => ({ ...current, ssh_username: event.target.value }))} placeholder="root" /></label></div>
-              <label>SSH 登录密码（可选）<input type="password" value={panelDraft.ssh_password || ""} onChange={(event) => setPanelDraft((current) => ({ ...current, ssh_password: event.target.value }))} placeholder={panelDraft.ssh_password_saved ? "已保存密码，留空保持不变" : "填写后可在面板卡片一键直连 SSH 终端"} autoComplete="new-password" /></label>
+              <label>SSH 登录密码（可选）<SecretField key={panelDraft.id ?? "new"} secretLabel="SSH 密码" reveal={panelDraft.ssh_password_saved && panelDraft.source_account_id && panelDraft.source_asset_key ? () => remoteClient.revealSshPassword({ accountId: panelDraft.source_account_id, assetKey: panelDraft.source_asset_key }) : undefined} value={panelDraft.ssh_password || ""} onChange={(event) => setPanelDraft((current) => ({ ...current, ssh_password: event.target.value }))} placeholder={panelDraft.ssh_password_saved ? "已保存密码，留空保持不变" : "填写后可在面板卡片一键直连 SSH 终端"} autoComplete="new-password" /></label>
               <label>备注<input value={panelDraft.remark} onChange={(event) => setPanelDraft((current) => ({ ...current, remark: event.target.value }))} placeholder="可选" /></label>
               <ul className="panel-bind-steps"><li>填写面板 URL，例如 <code>https://192.168.1.2:8888</code>。</li><li>在宝塔或 aaPanel 的“面板设置 / API 接口”中启用 API。</li><li>把当前电脑的公网 IP 加到 API 白名单；没有固定 IP 时可按面板规则配置。</li><li>复制接口密钥到上方，保存时会即时验证连接。</li></ul>
               <div className="modal-actions"><button type="button" className="secondary" disabled={panelSaving} onClick={() => setPanelDialog(false)}>取消</button><button type="submit" className="layui-btn layui-btn-normal" disabled={panelSaving}>{panelSaving ? "验证并保存中…" : panelDraft.id ? "验证并保存" : "绑定面板"}</button></div>
@@ -4423,7 +4421,7 @@ function App() {
               <div className="managed-host-choice"><span>操作系统</span><div className="ssh-segmented"><button type="button" className={managedHostDraft.platform === "linux" ? "active" : ""} onClick={() => setManagedHostDraft((current) => ({ ...current, platform: "linux", auth_method: "password", port: current.port === 3389 ? 22 : current.port, username: current.username === "administrator" ? "root" : current.username }))}>Linux</button><button type="button" className={managedHostDraft.platform === "windows" ? "active" : ""} onClick={() => setManagedHostDraft((current) => ({ ...current, platform: "windows", auth_method: "password", port: current.port === 22 ? 3389 : current.port, username: current.username === "root" ? "administrator" : current.username }))}>Windows</button></div></div>
               <div className="form-grid"><label>主机 / IP<input required value={managedHostDraft.host} onChange={(event) => setManagedHostDraft((current) => ({ ...current, host: event.target.value }))} placeholder="203.0.113.10 或 server.example.com" /></label><label>{managedHostDraft.platform === "windows" ? "RDP 端口" : "SSH 端口"}<input required type="number" min={1} max={65535} value={managedHostDraft.port} onChange={(event) => setManagedHostDraft((current) => ({ ...current, port: Number(event.target.value) || (current.platform === "windows" ? 3389 : 22) }))} /></label><label>{managedHostDraft.platform === "windows" ? "RDP 用户名" : "SSH 用户名"}<input required value={managedHostDraft.username} onChange={(event) => setManagedHostDraft((current) => ({ ...current, username: event.target.value }))} placeholder={managedHostDraft.platform === "windows" ? "administrator" : "root"} /></label></div>
               {managedHostDraft.platform === "linux" && <div className="managed-host-choice"><span>验证方式</span><div className="ssh-segmented"><button type="button" className={managedHostDraft.auth_method === "password" ? "active" : ""} onClick={() => setManagedHostDraft((current) => ({ ...current, auth_method: "password" }))}>密码验证</button><button type="button" className={managedHostDraft.auth_method === "private_key" ? "active" : ""} onClick={() => setManagedHostDraft((current) => ({ ...current, auth_method: "private_key", password: "" }))}>私钥验证</button></div></div>}
-              {managedHostDraft.platform === "windows" || managedHostDraft.auth_method === "password" ? <label>{managedHostDraft.platform === "windows" ? "RDP 密码（可选）" : "SSH 密码"}<span className="secret-input-wrap"><input required={managedHostDraft.platform === "linux" && !managedHostDraft.id} type={showManagedHostPassword ? "text" : "password"} value={managedHostDraft.password} onChange={(event) => setManagedHostDraft((current) => ({ ...current, password: event.target.value }))} placeholder={managedHostDraft.platform === "windows" ? "留空时由 Windows 远程桌面验证" : managedHostDraft.id ? "留空则保留已保存密码" : "首次添加必填"} autoComplete="new-password" /><button type="button" className="secret-eye" disabled={managedHostPasswordRevealing} title={managedHostPasswordRevealing ? "正在读取密码" : showManagedHostPassword ? "隐藏密码" : "显示密码"} aria-label={managedHostPasswordRevealing ? "正在读取密码" : showManagedHostPassword ? "隐藏密码" : "显示密码"} onClick={() => void toggleManagedHostPasswordVisibility()}>{managedHostPasswordRevealing ? <RefreshCw size={16} className="spin" /> : showManagedHostPassword ? <EyeOff size={17} /> : <Eye size={17} />}</button></span></label> : <><label>SSH 私钥<textarea required={!managedHostDraft.id} rows={5} value={managedHostDraft.private_key} onChange={(event) => setManagedHostDraft((current) => ({ ...current, private_key: event.target.value }))} placeholder={managedHostDraft.id ? "留空则保留已保存私钥" : "粘贴 OpenSSH、PKCS#8 或 PEM 格式私钥"} spellCheck={false} /></label><label>私钥口令（可选）<input type="password" value={managedHostDraft.key_passphrase} onChange={(event) => setManagedHostDraft((current) => ({ ...current, key_passphrase: event.target.value }))} placeholder="未加密私钥可留空" autoComplete="off" /></label></>}
+              {managedHostDraft.platform === "windows" || managedHostDraft.auth_method === "password" ? <label>{managedHostDraft.platform === "windows" ? "RDP 密码（可选）" : "SSH 密码"}<span className="secret-input-wrap"><input required={managedHostDraft.platform === "linux" && !managedHostDraft.id} type={showManagedHostPassword ? "text" : "password"} value={managedHostDraft.password} onChange={(event) => setManagedHostDraft((current) => ({ ...current, password: event.target.value }))} placeholder={managedHostDraft.platform === "windows" ? "留空时由 Windows 远程桌面验证" : managedHostDraft.id ? "留空则保留已保存密码" : "首次添加必填"} autoComplete="new-password" /><button type="button" className="secret-eye" disabled={managedHostPasswordRevealing} title={managedHostPasswordRevealing ? "正在读取密码" : showManagedHostPassword ? "隐藏密码" : "显示密码"} aria-label={managedHostPasswordRevealing ? "正在读取密码" : showManagedHostPassword ? "隐藏密码" : "显示密码"} onClick={() => void toggleManagedHostPasswordVisibility()}>{managedHostPasswordRevealing ? <RefreshCw size={16} className="spin" /> : showManagedHostPassword ? <EyeOff size={17} /> : <Eye size={17} />}</button></span></label> : <><label>SSH 私钥<SecretField key={managedHostDraft.id ?? "new"} multiline secretLabel="SSH 私钥" reveal={managedHostDraft.id ? () => remoteClient.revealManagedHostCredential(managedHostDraft.id!, "private_key") : undefined} required={!managedHostDraft.id} rows={5} value={managedHostDraft.private_key} onChange={(event) => setManagedHostDraft((current) => ({ ...current, private_key: event.target.value }))} placeholder={managedHostDraft.id ? "留空则保留已保存私钥" : "粘贴 OpenSSH、PKCS#8 或 PEM 格式私钥"} spellCheck={false} /></label><label>私钥口令（可选）<SecretField key={managedHostDraft.id ?? "new"} secretLabel="私钥口令" reveal={managedHostDraft.id ? () => remoteClient.revealManagedHostCredential(managedHostDraft.id!, "key_passphrase") : undefined} value={managedHostDraft.key_passphrase} onChange={(event) => setManagedHostDraft((current) => ({ ...current, key_passphrase: event.target.value }))} placeholder="未加密私钥可留空" autoComplete="off" /></label></>}
               <div className="form-grid"><label>分组<input value={managedHostDraft.group_name} onChange={(event) => setManagedHostDraft((current) => ({ ...current, group_name: event.target.value }))} placeholder="生产 / 测试 / 个人" /></label><label>标签<input value={managedHostDraft.tags} onChange={(event) => setManagedHostDraft((current) => ({ ...current, tags: event.target.value }))} placeholder="web, nginx, cn" /></label></div>
               <label>备注<textarea rows={2} value={managedHostDraft.remark} onChange={(event) => setManagedHostDraft((current) => ({ ...current, remark: event.target.value }))} placeholder="可选" /></label>
               <div className="modal-actions"><button type="button" className="secondary" disabled={managedHostSaving} onClick={() => setManagedHostDialog(false)}>取消</button><button type="submit" className="layui-btn layui-btn-normal" disabled={managedHostSaving}>{managedHostSaving ? "保存中…" : managedHostDraft.id ? "保存修改" : "加入服务器管理"}</button></div>
@@ -4564,15 +4562,10 @@ function App() {
             {draft.cloud_type === "gcp" && <label>Project ID<input required value={draft.project_id} onChange={(e) => setDraft({ ...draft, project_id: e.target.value })} placeholder="Google Cloud project ID" /></label>}
             <label>
               {cloudProvider(draft.cloud_type).secretLabel}
-                <span className="secret-input-wrap"><input
-                  required={!draft.id}
-                  type={showSecret ? "text" : "password"}
-                  value={draft.access_key_secret}
-                  onChange={(e) =>
-                    setDraft({ ...draft, access_key_secret: e.target.value })
-                  }
-                  placeholder={draft.id ? "留空表示不修改" : `请输入 ${cloudProvider(draft.cloud_type).secretLabel}`}
-                />{draft.cloud_type !== "oracle" && <button type="button" className="secret-eye" aria-label={showSecret ? `隐藏 ${cloudProvider(draft.cloud_type).secretLabel}` : `显示 ${cloudProvider(draft.cloud_type).secretLabel}`} onClick={async () => { if (!showSecret && draft.id && !draft.access_key_secret) { try { const secret = await accountsClient.revealSecret(draft.id); setDraft((current) => ({ ...current, access_key_secret: secret })); } catch (error) { setStatus(`读取 Secret 失败：${String(error)}`); return; } } setShowSecret((value) => !value); }}>{showSecret ? <EyeOff size={17} /> : <Eye size={17} />}</button>}</span>
+                <SecretField key={`${draft.id ?? "new"}:${draft.cloud_type}`} secretLabel={cloudProvider(draft.cloud_type).secretLabel} reveal={draft.id ? () => accountsClient.revealSecret(draft.id!) : undefined}
+                  required={!draft.id} value={draft.access_key_secret}
+                  onChange={(e) => setDraft({ ...draft, access_key_secret: e.target.value })}
+                  placeholder={draft.id ? "留空表示不修改" : `请输入 ${cloudProvider(draft.cloud_type).secretLabel}`} />
             </label>
             <label>
               备注

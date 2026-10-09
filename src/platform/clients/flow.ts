@@ -2,6 +2,7 @@ import { nativeOnly } from "./base";
 import type { FlowConnection, FlowConnectionInput, FlowGroup, FlowLogPage, FlowPipeline, FlowRun, FlowRunDetail, FlowStep } from "../../shared/types";
 
 export const flowClient = {
+  revealToken(id: number): Promise<string> { return nativeOnly("reveal_flow_token", { id }); },
   connections(): Promise<FlowConnection[]> { return nativeOnly("list_flow_connections"); },
   saveConnection(input: FlowConnectionInput): Promise<FlowConnection> { return nativeOnly("save_flow_connection", { input }); },
   deleteConnection(id: number): Promise<void> { return nativeOnly("delete_flow_connection", { id }); },

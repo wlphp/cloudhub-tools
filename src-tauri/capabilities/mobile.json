@@ -6,6 +6,13 @@
   "windows": ["main"],
   "permissions": [
     "core:default",
+    "opener:allow-open-url",
+    {
+      "identifier": "opener:allow-default-urls",
+      "allow": [
+        { "url": "https://github.com/wlphp/cloudhub-tools/releases/latest" }
+      ]
+    },
     "barcode-scanner:allow-scan",
     "barcode-scanner:allow-cancel",
     "barcode-scanner:allow-request-permissions",

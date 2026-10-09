@@ -1,3 +1,4 @@
+import { SecretField } from "../../shared/SecretField";
 import { useEffect, useMemo, useState } from "react";
 import { Check, Copy, Download, Eye, Plus, RefreshCw, ShieldCheck, Trash2, X } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
@@ -481,9 +482,8 @@ export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm }:
                 </label>
                 <label>
                   EAB HMAC 密钥
-                  <input
+                  <SecretField secretLabel="EAB HMAC 密钥"
                     required
-                    type="password"
                     value={form.eabHmacKey}
                     onChange={(event) => setForm((current) => ({ ...current, eabHmacKey: event.target.value }))}
                     placeholder="LiteSSL 控制台提供的 Base64URL 密钥"

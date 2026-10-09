@@ -9,6 +9,13 @@ use std::path::PathBuf;
 use tauri_plugin_opener::OpenerExt;
 
 #[tauri::command]
+pub(crate) fn reveal_panel_api_key(id: i64) -> PlatformResult<String> {
+    if id <= 0 { return Err("无效的面板标识".into()); }
+    let (_, ciphertext) = panel_repository::load_with_secret(&open_db()?, id).map_err(|_| "读取面板密钥失败")?;
+    decrypt_secret(&ciphertext).map_err(|_| "解密面板密钥失败".into())
+}
+
+#[tauri::command]
 pub(crate) fn list_panel_connections() -> PlatformResult<Vec<PanelConnection>> { panel_repository::list(&open_db()?).map_err(Into::into) }
 
 #[tauri::command]

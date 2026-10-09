@@ -3,6 +3,17 @@ use crate::core::error::PlatformResult;
 use crate::{SavedRdpConnection, SavedSshConnection};
 
 #[tauri::command]
+pub(crate) fn reveal_managed_host_credential(id: i64, kind: String) -> PlatformResult<String> {
+    if id <= 0 { return Err("无效的主机标识".into()); }
+    if kind != "private_key" && kind != "key_passphrase" { return Err("不支持的凭据类型".into()); }
+    let (_, private_key, passphrase) = managed_host_repository::existing_secrets(&open_db()?, id)
+        .map_err(|_| "读取主机凭据失败")?.ok_or("主机不存在")?;
+    let ciphertext = if kind == "private_key" { private_key } else { passphrase };
+    let Some(ciphertext) = ciphertext.filter(|value| !value.is_empty()) else { return Ok(String::new()); };
+    decrypt_secret(&ciphertext).map_err(|_| "解密主机凭据失败".into())
+}
+
+#[tauri::command]
 pub(crate) fn get_ssh_connection(account_id: i64, asset_key: String) -> PlatformResult<Option<SavedSshConnection>> {
     Ok(crate::ssh_saved_connection(account_id, &asset_key)?.map(|saved| SavedSshConnection { host: saved.host, port: saved.port, username: saved.username, password_saved: saved.password_ciphertext.is_some_and(|value| !value.is_empty()) }))
 }

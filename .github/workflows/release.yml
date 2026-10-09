@@ -61,6 +61,8 @@ jobs:
 
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
 
       - name: Verify updater signing secret
         shell: bash
@@ -101,13 +103,16 @@ jobs:
           releaseBody: |
             ## 更新内容
 
-            - 优化客户端更新流程与启动体验。
-            - 修复已知问题，提升程序稳定性。
+            - 统一移动端账号、服务器、域名和更多页面界面。
+            - 改进资源缓存、账号左滑操作和面板监控自动刷新。
+            - 增加凭据显示切换与手机版本检查入口。
 
             ## 下载说明
 
             提供 Windows、macOS 和 Linux 桌面版本。
             macOS 下载包按处理器区分：Apple Silicon（M 系列）和 Intel。
+            Android ARM64 APK 使用现有本机测试证书签名，供直接安装使用。
+            iOS 提供未签名 Xcode 归档，需要在 Mac 上配置 Apple 签名后安装，不能直接作为 IPA 安装。
           releaseDraft: false
           prerelease: false
           retryAttempts: 5

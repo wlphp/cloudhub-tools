@@ -6,6 +6,13 @@ use std::time::Duration;
 
 const CENTRAL_DOMAIN: &str = "openapi-rdc.aliyuncs.com";
 
+#[tauri::command]
+pub(crate) fn reveal_flow_token(id: i64) -> PlatformResult<String> {
+    if id <= 0 { return Err("无效的云效连接标识".into()); }
+    let (_, ciphertext) = repository::load_token(&open_db()?, id).map_err(|_| "读取云效令牌失败")?;
+    decrypt_secret(&ciphertext).map_err(|_| "解密云效令牌失败".into())
+}
+
 fn public_error(status: StatusCode) -> String {
     match status {
         StatusCode::UNAUTHORIZED => "云效 PAT 无效或已过期".into(),

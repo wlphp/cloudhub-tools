@@ -1,0 +1,78 @@
+name: Release mobile apps
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  android:
+    name: Build Android ARM64 release APK
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK and NDK
+        run: sdkmanager "platforms;android-36" "build-tools;35.0.0" "ndk;27.2.12479018"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npm ci
+      - name: Build release APK for local signing
+        run: |
+          export NDK_HOME="$ANDROID_HOME/ndk/27.2.12479018"
+          npx tauri android init --ci
+          npx tauri android build --apk --target aarch64 --ci
+      - name: Save APK for signing on the release workstation
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloudhub-tools-android-arm64-unsigned-${{ github.ref_name }}
+          path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+  ios:
+    name: Release unsigned iOS Xcode archive
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npm ci
+      - run: npx tauri ios init --ci
+      - run: npx tauri ios build --no-sign --archive-only
+      - name: Package unsigned Xcode archive
+        shell: bash
+        run: |
+          archive=$(find src-tauri/gen/apple/build -type d -name '*.xcarchive' -print -quit)
+          test -n "$archive"
+          mkdir -p mobile-release
+          ditto -c -k --sequesterRsrc --keepParent "$archive" "mobile-release/CloudHub.Tools_${GITHUB_REF_NAME#v}_ios_unsigned_xcarchive.zip"
+      - name: Publish iOS archive to GitHub Releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" || gh release create "$GITHUB_REF_NAME" --title "CloudHub Tools $GITHUB_REF_NAME" --notes "Desktop, Android APK and unsigned iOS Xcode archive. iOS requires Apple signing before installation."
+          gh release upload "$GITHUB_REF_NAME" mobile-release/*.zip
