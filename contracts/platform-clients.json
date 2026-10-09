@@ -8,6 +8,7 @@
     "test_flow_connection",
     "list_flow_groups",
     "list_flow_pipelines",
+    "get_flow_pipeline_cache",
     "list_flow_runs",
     "get_flow_run",
     "get_flow_latest_run",
@@ -117,6 +118,175 @@
         { "name": "panels", "native": ["list_panel_connections", "save_panel_connection", "refresh_panel_connection", "panel_temporary_login", "delete_panel_connection", "update_panel_connection_order", "update_panel_connection_remark", "export_panel_connections_file", "import_panel_connections", "reveal_panel_api_key"], "preview": [] },
         { "name": "connections", "native": ["get_ssh_connection", "reveal_ssh_password", "get_rdp_connection", "reveal_rdp_password", "launch_rdp_connection", "launch_managed_host_rdp", "reveal_managed_host_credential"], "preview": [] },
         { "name": "ssh-terminal", "native": ["ssh_connect", "ssh_test_connection", "ssh_disconnect", "ssh_read", "ssh_write", "ssh_resize", "ssh_list_files", "ssh_read_text_file", "ssh_write_text_file", "ssh_upload_file", "ssh_download_file", "ssh_make_directory", "ssh_delete_path"], "preview": [] }
+      ]
+    },
+    {
+      "name": "flow",
+      "operations": [
+        { "name": "cached-pipelines", "native": ["get_flow_pipeline_cache"], "preview": [{ "method": "GET", "path": "/api/flow-pipeline-cache" }] },
+        {
+          "name": "connections",
+          "native": [
+            "list_flow_connections"
+          ],
+          "preview": [
+            {
+              "method": "GET",
+              "path": "/api/flow-connections"
+            }
+          ]
+        },
+        {
+          "name": "saveConnection",
+          "native": [
+            "save_flow_connection"
+          ],
+          "preview": [
+            {
+              "method": "POST",
+              "path": "/api/flow-connections"
+            }
+          ]
+        },
+        {
+          "name": "deleteConnection",
+          "native": [
+            "delete_flow_connection"
+          ],
+          "preview": [
+            {
+              "method": "DELETE",
+              "path": "/api/flow-connections"
+            }
+          ]
+        },
+        {
+          "name": "testConnection",
+          "native": [
+            "test_flow_connection"
+          ],
+          "preview": [
+            {
+              "method": "POST",
+              "path": "/api/flow-test"
+            }
+          ]
+        },
+        {
+          "name": "groups",
+          "native": [
+            "list_flow_groups"
+          ],
+          "preview": [
+            {
+              "method": "GET",
+              "path": "/api/flow-groups"
+            }
+          ]
+        },
+        {
+          "name": "pipelines",
+          "native": [
+            "list_flow_pipelines"
+          ],
+          "preview": [
+            {
+              "method": "GET",
+              "path": "/api/flow-pipelines"
+            }
+          ]
+        },
+        {
+          "name": "runs",
+          "native": [
+            "list_flow_runs"
+          ],
+          "preview": [
+            {
+              "method": "GET",
+              "path": "/api/flow-runs"
+            }
+          ]
+        },
+        {
+          "name": "run",
+          "native": [
+            "get_flow_run"
+          ],
+          "preview": [
+            {
+              "method": "GET",
+              "path": "/api/flow-run"
+            }
+          ]
+        },
+        {
+          "name": "latestRun",
+          "native": [
+            "get_flow_latest_run"
+          ],
+          "preview": [
+            {
+              "method": "GET",
+              "path": "/api/flow-latest-run"
+            }
+          ]
+        },
+        {
+          "name": "start",
+          "native": [
+            "run_flow_pipeline"
+          ],
+          "preview": [
+            {
+              "method": "POST",
+              "path": "/api/flow-run"
+            }
+          ]
+        },
+        {
+          "name": "steps",
+          "native": [
+            "get_flow_job_steps"
+          ],
+          "preview": [
+            {
+              "method": "GET",
+              "path": "/api/flow-steps"
+            }
+          ]
+        },
+        {
+          "name": "log",
+          "native": [
+            "get_flow_job_log"
+          ],
+          "preview": [
+            {
+              "method": "GET",
+              "path": "/api/flow-log"
+            }
+          ]
+        },
+        {
+          "name": "jobLog",
+          "native": [
+            "get_flow_job_run_log"
+          ],
+          "preview": [
+            {
+              "method": "GET",
+              "path": "/api/flow-job-log"
+            }
+          ]
+        },
+        {
+          "name": "reveal-token",
+          "native": [
+            "reveal_flow_token"
+          ],
+          "preview": []
+        }
       ]
     },
     {

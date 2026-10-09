@@ -156,9 +156,35 @@ pub(crate) async fn list_flow_groups(connection_id: i64) -> PlatformResult<Vec<F
     })).collect::<Result<Vec<_>, String>>().map_err(Into::into)
 }
 
+fn pipeline_cache_key(page: u32, per_page: u32, keyword: Option<&str>, group_id: Option<&str>) -> Result<String, String> {
+    if page == 0 || !(1..=30).contains(&per_page) { return Err("流水线分页参数无效".into()); }
+    let keyword = keyword.unwrap_or_default().trim();
+    let group = group_id.unwrap_or_default().trim();
+    if keyword.len() > 128 { return Err("搜索内容不能超过 128 个字符".into()); }
+    if !group.is_empty() && (group.len() > 20 || !group.chars().all(|c| c.is_ascii_digit())) { return Err("流水线分组 ID 格式无效".into()); }
+    serde_json::to_string(&json!([page,per_page,keyword,group])).map_err(|_| "流水线缓存参数无效".into())
+}
+
+#[tauri::command]
+pub(crate) fn get_flow_pipeline_cache(connection_id: i64, page: u32, per_page: u32, keyword: Option<String>, group_id: Option<String>) -> PlatformResult<crate::FlowPipelineCache> {
+    if connection_id <= 0 { return Err("云效连接 ID 无效".into()); }
+    let key = pipeline_cache_key(page, per_page, keyword.as_deref(), group_id.as_deref())?;
+    let conn = open_db()?;
+    repository::get(&conn, connection_id)?;
+    match repository::load_pipeline_cache(&conn, connection_id, &key)? {
+        Some((ciphertext, updated_at)) => {
+            let pipelines = serde_json::from_str(&decrypt_secret(&ciphertext)?).map_err(|_| "流水线缓存格式无效")?;
+            Ok(crate::FlowPipelineCache { pipelines, updated_at: Some(updated_at) })
+        },
+        None => Ok(crate::FlowPipelineCache { pipelines: vec![], updated_at: None }),
+    }
+}
+
 #[tauri::command]
 pub(crate) async fn list_flow_pipelines(connection_id: i64, page: u32, per_page: u32, keyword: Option<String>, group_id: Option<String>) -> PlatformResult<Vec<FlowPipeline>> {
     if connection_id <= 0 || page == 0 || !(1..=30).contains(&per_page) { return Err("流水线分页参数无效".into()); }
+    let keyword_for_cache = keyword.clone();
+    let group_for_cache = group_id.clone();
     let (connection, token) = load_connection(connection_id)?;
     let mut query = vec![("page", page.to_string()), ("perPage", per_page.to_string())];
     if let Some(keyword) = keyword.map(|value| value.trim().to_string()).filter(|value| !value.is_empty()) { if keyword.len() > 128 { return Err("搜索内容不能超过 128 个字符".into()); } query.push(("pipelineName", keyword)); }
@@ -168,11 +194,16 @@ pub(crate) async fn list_flow_pipelines(connection_id: i64, page: u32, per_page:
         "pipelineGroups/pipelines"
     } else { "pipelines" };
     let value = request(&connection, &token, Method::GET, path, &query, None).await?;
-    checked_array(value, "流水线列表")?.iter().map(|item| {
+    let items = checked_array(value, "流水线列表")?.iter().take(per_page as usize).map(|item| {
         let pipeline_id = scalar_string(item, "pipelineId").ok_or("云效流水线缺少 ID")?;
         let pipeline_name = scalar_string(item, "pipelineName").ok_or("云效流水线缺少名称")?;
-        Ok(FlowPipeline { pipeline_id, pipeline_name, create_time: as_i64(item, "createTime").or_else(|| as_i64(item, "gmtCreate")), latest_status: scalar_string(item, "status") })
-    }).collect::<Result<Vec<_>, String>>().map_err(Into::into)
+        endpoint_id(&pipeline_id, "流水线 ID")?;
+        Ok(FlowPipeline { pipeline_id: pipeline_id.replace(&token, "[已隐藏]"), pipeline_name: pipeline_name.replace(&token, "[已隐藏]"), create_time: as_i64(item, "createTime").or_else(|| as_i64(item, "gmtCreate")), latest_status: scalar_string(item, "status").map(|value| value.replace(&token, "[已隐藏]")) })
+    }).collect::<Result<Vec<_>, String>>()?;
+    let key = pipeline_cache_key(page, per_page, keyword_for_cache.as_deref(), group_for_cache.as_deref())?;
+    let ciphertext = encrypt_secret(&serde_json::to_string(&items).map_err(|_| "流水线缓存格式无效")?)?;
+    repository::save_pipeline_cache(&open_db()?, connection_id, &key, &ciphertext, connection.updated_at, chrono::Utc::now().timestamp_millis())?;
+    Ok(items)
 }
 
 fn endpoint_id<'a>(value: &'a str, name: &str) -> Result<&'a str, String> {

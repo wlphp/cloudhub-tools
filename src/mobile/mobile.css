@@ -762,6 +762,43 @@ button {
 .mobile-flow-page .flow-details-header button,.mobile-flow-page .flow-dialog .icon-button { min-width:36px; min-height:36px; }
 .mobile-flow-page :focus-visible,.mobile-update-buttons button:focus-visible { outline:2px solid var(--mobile-focus); outline-offset:2px; }
 
+.mobile-flow-page .flow-pipeline-panel { min-height:0; border:0; border-radius:0; background:transparent; }
+.mobile-flow-page .flow-panel-title { padding:4px 0 12px; border:0; }
+.mobile-flow-page .flow-panel-title h2 { display:flex; align-items:center; gap:6px; margin-bottom:4px; font-size:14px; }
+.mobile-flow-page .flow-panel-title .flow-count { display:inline-flex; padding:1px 6px; border-radius:5px; background:var(--mobile-raised); color:var(--mobile-muted); font-size:11px; font-weight:500; }
+.mobile-flow-page .flow-panel-title > div > span { font-size:11px; color:var(--mobile-muted); }
+.mobile-flow-page .flow-refresh-button { width:auto; height:36px; padding:0 10px; border-radius:7px; background:var(--mobile-surface); }
+.mobile-flow-page .flow-refresh-button span { font-size:12px; color:inherit; }
+.mobile-flow-page .flow-group-tabs { min-height:40px; padding:0; border:0; gap:6px; }
+.mobile-flow-page .flow-group-tabs button { min-height:36px; padding:0 12px; border:1px solid transparent; border-radius:7px; font-size:12px; }
+.mobile-flow-page .flow-group-tabs button.active { border-color:var(--mobile-border); background:var(--mobile-raised); color:var(--mobile-accent); }
+.mobile-flow-page .flow-list-toolbar { padding:10px 0 12px; border:0; }
+.mobile-flow-page .flow-search { margin:0; border-color:var(--mobile-border); background:var(--mobile-surface); border-radius:8px; }
+.mobile-flow-page .flow-mobile-cards { display:grid; gap:10px; }
+.mobile-flow-page .flow-mobile-card { min-width:0; padding:10px 12px 0; border:1px solid var(--mobile-border); border-radius:10px; background:var(--mobile-surface); }
+.mobile-flow-page .flow-mobile-card-heading { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:start; gap:8px; }
+.mobile-flow-page .flow-mobile-card .flow-name-button { display:flex; flex-direction:row; align-items:center; justify-content:flex-start; gap:8px; width:100%; min-width:0; min-height:44px; padding:0; border:0; background:transparent; color:var(--mobile-text); text-align:left; }
+.mobile-flow-page .flow-mobile-card .flow-name-button strong { min-width:0; font-size:14px; line-height:1.45; font-weight:600; white-space:normal; overflow-wrap:anywhere; }
+.mobile-flow-page .flow-card-symbol { display:grid; flex:0 0 30px; place-items:center; width:30px; height:30px; border-radius:8px; background:var(--mobile-raised); color:var(--mobile-accent); }
+.mobile-flow-page .flow-card-status { display:inline-flex; align-items:center; gap:4px; max-width:85px; margin-top:9px; padding:3px 6px; border-radius:5px; background:var(--mobile-raised); color:var(--mobile-muted); font-size:11px; line-height:1.4; overflow-wrap:anywhere; }
+.mobile-flow-page .flow-card-status svg { flex-shrink:0; }
+.mobile-flow-page .flow-card-status.success { background:#12352d; color:#80dbb4; }
+.mobile-flow-page .flow-card-status.fail,.mobile-flow-page .flow-card-status.failed { background:#36202b; color:#ffa0ac; }
+.mobile-flow-page .flow-card-status.running { background:#103345; color:#76d6fa; }
+.mobile-flow-page .flow-card-meta { display:flex; flex-wrap:wrap; gap:4px 12px; margin:3px 0 9px; color:var(--mobile-muted); font-size:11px; overflow-wrap:anywhere; }
+.mobile-flow-page .flow-card-stages { display:flex; flex-wrap:wrap; gap:5px 12px; margin-bottom:9px; }
+.mobile-flow-page .flow-card-stages > span { display:inline-flex; align-items:center; gap:5px; min-width:0; color:var(--mobile-text); font-size:12px; overflow-wrap:anywhere; }
+.mobile-flow-page .flow-card-stages small { color:var(--mobile-muted); font-size:11px; }
+.mobile-flow-page .flow-card-time { display:flex; align-items:center; flex-wrap:wrap; gap:4px 6px; margin-bottom:10px; color:var(--mobile-muted); font-size:11px; }
+.mobile-flow-page .flow-card-time > span:last-child:not(:first-of-type) { margin-left:auto; }
+.mobile-flow-page .flow-card-footer { display:flex; align-items:center; justify-content:flex-end; gap:8px; min-height:52px; border-top:1px solid var(--mobile-border); }
+.mobile-flow-page .flow-card-footer > span { flex:1; min-width:0; color:var(--mobile-muted); font-size:11px; overflow-wrap:anywhere; }
+.mobile-flow-page .flow-mobile-card .flow-row-actions { display:flex; flex:0 0 auto; gap:8px; }
+.mobile-flow-page .flow-mobile-card .flow-row-actions button { width:auto; height:36px; min-height:36px; padding:0 10px; border:1px solid var(--mobile-border); border-radius:6px; background:var(--mobile-raised); color:var(--mobile-text); font-size:12px; }
+.mobile-flow-page .flow-mobile-card .flow-row-actions button:first-child { border-color:#235269; background:#123044; color:var(--mobile-accent); }
+.mobile-flow-page .flow-mobile-card .flow-row-actions button:active { background:#204058; }
+.mobile-flow-page .flow-pagination { margin-top:12px; padding:0; border:0; }
+
 @media(max-width:559px) {
   .mobile-account-form {
     max-height: 88dvh;

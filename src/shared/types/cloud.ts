@@ -25,6 +25,7 @@ export type FrpRuntime = { serverId: number; installed: boolean; configPresent: 
 export type FlowConnectionInput = { id?: number; name: string; edition: "central" | "region"; organizationId?: string | null; domain?: string | null; token?: string | null };
 export type FlowGroup = { groupId: string; groupName: string };
 export type FlowPipeline = { pipelineId: string; pipelineName: string; createTime?: number | null; latestStatus?: string | null };
+export type FlowPipelineCache = { pipelines: FlowPipeline[]; updatedAt: number | null };
 export type FlowRun = { pipelineRunId: string; startTime?: number | null; endTime?: number | null; status?: string | null; triggerMode?: number | null; creatorAccountId?: string | null };
 export type FlowStep = { stepIndex?: number | null; buildId?: number | null; name?: string | null; status?: string | null };
 export type FlowLogPage = { logs: string; more: boolean; nextOffset: number };

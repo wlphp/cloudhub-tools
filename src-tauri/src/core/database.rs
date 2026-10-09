@@ -3,7 +3,7 @@ use std::sync::Mutex;
 
 use super::paths::data_dir;
 
-const CURRENT_SCHEMA_VERSION: i64 = 17;
+const CURRENT_SCHEMA_VERSION: i64 = 18;
 
 // Several desktop commands open the database concurrently during startup. Keep
 // schema setup and migrations serialized so simultaneous `CREATE ... IF NOT
@@ -223,6 +223,15 @@ fn migrate_connection(conn: &mut Connection) -> Result<(), String> {
         CREATE INDEX IF NOT EXISTS idx_sync_pending_ack_created ON sync_pending_acknowledgements(created_at);").map_err(|error| error.to_string())?;
         transaction.pragma_update(None, "user_version", 17).map_err(|error| error.to_string())?;
     }
+    if version < 18 {
+        transaction.execute_batch("CREATE TABLE IF NOT EXISTS flow_pipeline_cache (
+            connection_id INTEGER NOT NULL, query_key TEXT NOT NULL,
+            payload_ciphertext TEXT NOT NULL, updated_at INTEGER NOT NULL,
+            PRIMARY KEY(connection_id,query_key),
+            FOREIGN KEY(connection_id) REFERENCES flow_connections(id) ON DELETE CASCADE
+        );").map_err(|error| error.to_string())?;
+        transaction.pragma_update(None, "user_version", 18).map_err(|error| error.to_string())?;
+    }
     transaction.commit().map_err(|error| format!("提交 SQLite 迁移失败: {error}"))?;
 
     Ok(())
@@ -273,6 +282,8 @@ mod tests {
         migrate_connection(&mut conn).unwrap();
         let version: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0)).unwrap();
         assert_eq!(version, CURRENT_SCHEMA_VERSION);
+        let cache_table: i64 = conn.query_row("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='flow_pipeline_cache'", [], |row| row.get(0)).unwrap();
+        assert_eq!(cache_table, 1);
         let pending_ack_table: i64 = conn.query_row("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='sync_pending_acknowledgements'", [], |row| row.get(0)).unwrap();
         assert_eq!(pending_ack_table, 1, "schema migration must create durable pending acknowledgement storage");
         let identity_columns: Vec<String> = conn.prepare("PRAGMA table_info(sync_local_device)").unwrap().query_map([], |row| row.get(1)).unwrap().collect::<Result<_, _>>().unwrap();
