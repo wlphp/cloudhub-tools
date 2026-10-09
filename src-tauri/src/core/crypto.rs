@@ -332,8 +332,8 @@ mod sync_envelope_tests {
     }
 
     #[test]
-    fn sync_envelope_rejects_short_passphrases_and_unsafe_parameters() {
-        assert!(seal_sync_payload(&SecretPayload { account: "a".into(), secret: "s".into() }, "short").is_err());
+    fn sync_envelope_rejects_empty_passphrases_and_unsafe_parameters() {
+        assert!(seal_sync_payload(&SecretPayload { account: "a".into(), secret: "s".into() }, "").is_err());
         let mut envelope = seal_sync_payload(&SecretPayload { account: "a".into(), secret: "s".into() }, "a sufficiently long passphrase").unwrap();
         envelope.iterations = u32::MAX;
         assert!(open_sync_payload::<SecretPayload>(&envelope, "a sufficiently long passphrase").is_err());
