@@ -4,6 +4,15 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to build
+        required: true
+        type: string
+
+env:
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
 
 permissions:
   contents: write
@@ -14,6 +23,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.RELEASE_TAG }}
       - uses: actions/setup-node@v5
         with:
           node-version: 22
@@ -23,6 +34,8 @@ jobs:
           distribution: temurin
           java-version: "17"
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
       - name: Install Android SDK and NDK
         run: sdkmanager "platforms;android-36" "build-tools;35.0.0" "ndk;27.2.12479018"
       - uses: dtolnay/rust-toolchain@stable
@@ -40,7 +53,7 @@ jobs:
       - name: Save APK for signing on the release workstation
         uses: actions/upload-artifact@v4
         with:
-          name: cloudhub-tools-android-arm64-unsigned-${{ github.ref_name }}
+          name: cloudhub-tools-android-arm64-unsigned-${{ env.RELEASE_TAG }}
           path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
           if-no-files-found: error
           retention-days: 14
@@ -50,6 +63,8 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.RELEASE_TAG }}
       - uses: actions/setup-node@v5
         with:
           node-version: 22
@@ -69,10 +84,10 @@ jobs:
           archive=$(find src-tauri/gen/apple/build -type d -name '*.xcarchive' -print -quit)
           test -n "$archive"
           mkdir -p mobile-release
-          ditto -c -k --sequesterRsrc --keepParent "$archive" "mobile-release/CloudHub.Tools_${GITHUB_REF_NAME#v}_ios_unsigned_xcarchive.zip"
+          ditto -c -k --sequesterRsrc --keepParent "$archive" "mobile-release/CloudHub.Tools_${RELEASE_TAG#v}_ios_unsigned_xcarchive.zip"
       - name: Publish iOS archive to GitHub Releases
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release view "$GITHUB_REF_NAME" || gh release create "$GITHUB_REF_NAME" --title "CloudHub Tools $GITHUB_REF_NAME" --notes "Desktop, Android APK and unsigned iOS Xcode archive. iOS requires Apple signing before installation."
-          gh release upload "$GITHUB_REF_NAME" mobile-release/*.zip
+          gh release view "$RELEASE_TAG" || gh release create "$RELEASE_TAG" --title "CloudHub Tools $RELEASE_TAG" --notes "Desktop, Android APK and unsigned iOS Xcode archive. iOS requires Apple signing before installation."
+          gh release upload "$RELEASE_TAG" mobile-release/*.zip --clobber
