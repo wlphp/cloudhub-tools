@@ -1,5 +1,5 @@
-import { useState, type CSSProperties } from "react";
-import { Award, ChevronRight, Cloud, Database, Folder, Layers, Monitor, Search, Settings, Terminal } from "lucide-react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { Award, ChevronRight, Database, Folder, Layers, Monitor, Search, Settings, Terminal, X } from "lucide-react";
 
 type Destination = "storage" | "databases" | "redis" | "certificates" | "ssh" | "panels" | "settings";
 const features = [
@@ -14,17 +14,28 @@ const features = [
 
 export function MobileMorePage({ onNavigate }: { onNavigate: (tab: Destination) => void }) {
   const [search, setSearch] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchInput = useRef<HTMLInputElement>(null);
+  const searchButton = useRef<HTMLButtonElement>(null);
+  useEffect(() => { if (searchOpen) searchInput.current?.focus(); }, [searchOpen]);
+  const closeSearch = () => {
+    setSearch("");
+    setSearchOpen(false);
+    searchButton.current?.focus();
+  };
   const query = search.trim().toLocaleLowerCase();
   const matches = features.filter((feature) => `${feature.title} ${feature.description} ${feature.keywords}`.toLocaleLowerCase().includes(query));
   return <div className="mobile-more-page">
-    <section className="mobile-more-hero" aria-label="多云资源管理">
-      <div className="mobile-more-hero-copy"><p>一站式云资源管理工具</p><h1>高效 · 安全 · 稳定</h1><span>让您的云端资源管理更简单</span></div>
-      <div className="mobile-more-hero-art" aria-hidden="true"><span className="mobile-more-orbit" /><span className="mobile-more-server bottom" /><span className="mobile-more-server top" /><Cloud size={80} strokeWidth={1.3} /></div>
-    </section>
-    <div className="mobile-more-heading"><h2>全部功能</h2><label className="mobile-more-search"><Search size={18} aria-hidden="true" /><input type="search" aria-label="搜索全部功能" placeholder="搜索功能、文件、服务…" value={search} onChange={(event) => setSearch(event.currentTarget.value)} /></label></div>
+    <div className="mobile-more-titlebar">
+      <h1>更多管理</h1>
+      <button ref={searchButton} type="button" className="mobile-more-search-toggle" aria-label={searchOpen ? "关闭功能搜索" : "搜索功能"} aria-expanded={searchOpen} aria-controls="mobile-more-search-field" onClick={() => searchOpen ? closeSearch() : setSearchOpen(true)}>
+        {searchOpen ? <X size={17} aria-hidden="true" /> : <Search size={17} aria-hidden="true" />}
+      </button>
+    </div>
+    {searchOpen && <label className="mobile-more-search mobile-more-search-expanded"><Search size={16} aria-hidden="true" /><input ref={searchInput} id="mobile-more-search-field" type="search" aria-label="搜索全部功能" placeholder="搜索功能" value={search} onChange={(event) => setSearch(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); closeSearch(); } }} /></label>}
     <div className="mobile-more-feature-list" aria-label="功能入口">
       {matches.map(({ tab, title, description, icon: Icon, color, end }) => <button type="button" className="mobile-more-feature" key={tab} style={{ "--feature-color": color, "--feature-end": end } as CSSProperties} onClick={() => onNavigate(tab)}>
-        <span className="mobile-more-feature-icon"><Icon size={27} strokeWidth={1.9} aria-hidden="true" /></span>
+        <span className="mobile-more-feature-icon"><Icon size={20} strokeWidth={1.9} aria-hidden="true" /></span>
         <span className="mobile-more-feature-copy"><strong>{title}</strong><small>{description}</small></span>
         <ChevronRight size={20} className="mobile-more-feature-chevron" aria-hidden="true" />
       </button>)}

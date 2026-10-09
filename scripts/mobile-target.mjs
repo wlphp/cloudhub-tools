@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { createConnection } from "node:net";
+import { cpSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 
 const command = process.argv[2];
@@ -42,6 +43,16 @@ if (command !== "dev" && command !== "build") {
             stop(code ?? (signal ? 1 : 0));
           }
         });
+      }
+    }
+
+    if (command === "build") {
+      // Android init can retain the template launcher. Copy the maintained icon
+      // resources before packaging instead of editing generated manifests.
+      const androidResources = resolve("src-tauri/gen/android/app/src/main/res");
+      if (existsSync(androidResources)) {
+        cpSync(resolve("src-tauri/icons/android"), androidResources, { recursive: true });
+        console.log("Android 桌面图标已同步为 CloudHub 图标。");
       }
     }
 
