@@ -9,38 +9,17 @@ import { cloudProvider, cloudProviders, resourceLabels, syncAssetTypes } from ".
 import type { AccountSaveInput } from "../platform/clients/accounts";
 import { serversClient, type InstanceAction } from "../platform/clients/servers";
 import { SyncTransferPanel } from "../features/accounts/SyncTransferPanel";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import { runningInTauri } from "../platform/api";
 import { MobileResourceOverview } from "./MobileResourceOverview";
 import { MobilePanelMetrics } from "./MobilePanelMetrics";
 import { MobileMorePage } from "./MobileMorePage";
+import { useMobileUpdates } from "./useMobileUpdates";
+import { MobileUpdatePanel } from "./MobileUpdatePanel";
+import { FlowPanel } from "../features/flow/FlowPanel";
 import { MobileAccountSwipeCard } from "./MobileAccountSwipeCard";
 import { panelRefreshIntervals, useMobilePanelRefresh } from "./useMobilePanelRefresh";
 
-type MobileTab = "accounts" | "servers" | "domains" | "storage" | "databases" | "redis" | "certificates" | "ssh" | "panels" | "sync" | "settings" | "operationLogs" | "apiLogs" | "about" | "more";
-
-type MobileUpdateCheck =
-  | { phase: "idle" | "checking" }
-  | { phase: "available"; version: string }
-  | { phase: "current"; latestVersion: string; appAhead: boolean }
-  | { phase: "error"; message: string };
-
-const MOBILE_RELEASES_URL = "https://github.com/wlphp/cloudhub-tools/releases/latest";
-const MOBILE_LATEST_RELEASE_API = "https://api.github.com/repos/wlphp/cloudhub-tools/releases/latest";
-
-function compareVersions(current: string, latest: string): number | null {
-  const parse = (value: string) => {
-    const match = value.trim().match(/^v?(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/i);
-    return match ? match.slice(1, 4).map(Number) : null;
-  };
-  const currentParts = parse(current);
-  const latestParts = parse(latest);
-  if (!currentParts || !latestParts) return null;
-  for (let index = 0; index < 3; index += 1) {
-    if (currentParts[index] !== latestParts[index]) return currentParts[index] - latestParts[index];
-  }
-  return 0;
-}
+type MobileTab = "accounts" | "servers" | "domains" | "storage" | "databases" | "redis" | "certificates" | "ssh" | "panels" | "sync" | "settings" | "operationLogs" | "apiLogs" | "about" | "flow" | "more";
 
 function payloadText(payload: Record<string, unknown>, keys: string[]): string {
   for (const key of keys) {
@@ -103,7 +82,7 @@ export function MobileApp() {
   const [selectedRedis, setSelectedRedis] = useState<LocalAsset | null>(null);
   const [redisAccounts, setRedisAccounts] = useState<Record<string, unknown>[]>([]);
   const [certificates, setCertificates] = useState<Certificate[]>([]);
-  const [mobileUpdateCheck, setMobileUpdateCheck] = useState<MobileUpdateCheck>({ phase: "idle" });
+  const mobileUpdate = useMobileUpdates();
   const [operationLogAssets, setOperationLogAssets] = useState<LocalAsset[]>([]);
   const [apiLogs, setApiLogs] = useState<ApiLog[]>([]);
   const [operationLogsLoading, setOperationLogsLoading] = useState(false);
@@ -316,38 +295,6 @@ export function MobileApp() {
     catch (error) { setNotice(error instanceof Error ? error.message : "读取 SSH 主机失败"); }
     finally { setLoading(false); }
   }, []);
-
-  async function checkMobileUpdate() {
-    if (mobileUpdateCheck.phase === "checking") return;
-    setMobileUpdateCheck({ phase: "checking" });
-    try {
-      const response = await fetch(MOBILE_LATEST_RELEASE_API, {
-        headers: { Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" },
-      });
-      if (!response.ok) throw new Error("无法读取 GitHub 版本信息");
-      const release: unknown = await response.json();
-      if (!release || typeof release !== "object" || !("tag_name" in release) || typeof release.tag_name !== "string") {
-        throw new Error("GitHub 返回的版本信息无效");
-      }
-      const comparison = compareVersions(packageJson.version, release.tag_name);
-      if (comparison === null) throw new Error("无法识别版本号");
-      const latestVersion = release.tag_name.replace(/^v/i, "");
-      setMobileUpdateCheck(comparison < 0
-        ? { phase: "available", version: latestVersion }
-        : { phase: "current", latestVersion, appAhead: comparison > 0 });
-    } catch {
-      setMobileUpdateCheck({ phase: "error", message: "检查失败，请检查网络后重试。" });
-    }
-  }
-
-  async function openMobileReleases() {
-    try {
-      if (runningInTauri) await openUrl(MOBILE_RELEASES_URL);
-      else window.open(MOBILE_RELEASES_URL, "_blank", "noopener,noreferrer");
-    } catch {
-      setMobileUpdateCheck({ phase: "error", message: "无法打开 GitHub Releases，请稍后重试。" });
-    }
-  }
 
   const panelAutoRefresh = useMobilePanelRefresh(tab === "panels", panelLoading || panelActionId !== null || panelDraft !== null || panelSaving, panelConnections, setPanelConnections);
 
@@ -1046,6 +993,7 @@ export function MobileApp() {
       <section ref={mobileContentRef} className={resourceConfig ? "mobile-content mobile-resource-page" : "mobile-content"}>
         {(pullDistance > 0 || pullRefreshing) && <div className="mobile-pull-refresh" style={{ height: `${pullRefreshing ? 48 : Math.min(pullDistance, 72)}px` }} role="status" aria-live="polite"><RefreshCw size={16} className={pullRefreshing ? "mobile-spin" : ""} /><span>{pullRefreshing ? "正在刷新…" : pullDistance >= 64 ? "松开刷新" : "下拉刷新"}</span></div>}
         {notice && <p className="mobile-notice" role="status">{notice}</p>}
+        {mobileUpdate.info?.available && tab !== "about" && <button type="button" className="mobile-update-banner" onClick={() => setTab("about")}><ArrowDownToLine size={15} aria-hidden="true" />发现新版 v{mobileUpdate.info.version} · 查看更新</button>}
         {tab === "accounts" ? <>
           <div className="mobile-page-title"><h1>云账号</h1></div>
           <div className="mobile-account-overview">
@@ -1174,22 +1122,14 @@ export function MobileApp() {
           {resourcePageOverview}
           {apiLogsLoading && filteredApiLogs.length === 0 ? <div className="mobile-empty">正在读取 API 日志…</div> : filteredApiLogs.length === 0 ? <div className="mobile-empty"><Terminal size={30} /><strong>暂无 API 日志</strong><span>调用云资源接口后会在这里显示记录。</span></div> : <div className="mobile-domain-list">{filteredApiLogs.map((log) => <article className="mobile-domain-card mobile-log-card" key={log.id}><div className="mobile-server-heading"><Terminal size={17} /><strong>{log.action}</strong></div><p>{log.endpoint}</p><div className="mobile-server-meta"><span>{log.account_name || "未知账号"}</span><span className={log.status === "成功" ? "mobile-log-success" : "mobile-log-failure"}>{log.status}</span><time>{new Date(log.created_at).toLocaleString()}</time></div></article>)}</div>}
 
-        </> : tab === "about" ? <>
+        </> : tab === "flow" ? <FlowPanel mobile /> : tab === "about" ? <>
           <div className="mobile-page-title"><div><p>系统设置</p><h1>关于</h1></div></div>
           <section className="mobile-about-card"><span className="mobile-about-logo"><img src="/cloudhub-logo.png" alt="" /></span><strong>云枢 Tools</strong><span>本地多云资源管理</span><small>版本 {packageJson.version}</small></section>
-          <section className="mobile-about-update" aria-label="客户端更新">
-            <div className="mobile-about-update-copy">
-              <strong>检查更新</strong>
-              <small role="status" aria-live="polite">{mobileUpdateCheck.phase === "checking" ? "正在读取 GitHub 最新稳定版本…" : mobileUpdateCheck.phase === "available" ? `发现新版本 v${mobileUpdateCheck.version}` : mobileUpdateCheck.phase === "current" ? mobileUpdateCheck.appAhead ? `当前版本高于最新稳定版 v${mobileUpdateCheck.latestVersion}` : `当前已是最新稳定版本 v${mobileUpdateCheck.latestVersion}` : mobileUpdateCheck.phase === "error" ? mobileUpdateCheck.message : "手动检查 GitHub Releases 中的最新稳定版本。"}</small>
-            </div>
-            {mobileUpdateCheck.phase === "available"
-              ? <button type="button" className="mobile-primary" onClick={() => void openMobileReleases()}><ExternalLink size={16} />前往 GitHub Releases</button>
-              : <button type="button" className="mobile-primary" disabled={mobileUpdateCheck.phase === "checking"} onClick={() => void checkMobileUpdate()}><RefreshCw size={16} className={mobileUpdateCheck.phase === "checking" ? "mobile-spin" : ""} />{mobileUpdateCheck.phase === "checking" ? "检查中…" : mobileUpdateCheck.phase === "error" ? "重试检查" : "检查更新"}</button>}
-          </section>
+          <MobileUpdatePanel update={mobileUpdate} />
         </> : <MobileMorePage onNavigate={setTab} />}
       </section>
 
-      <nav className="mobile-tab-bar" aria-label="主导航"><button type="button" aria-current={tab === "accounts" ? "page" : undefined} className={tab === "accounts" ? "active" : ""} onClick={() => setTab("accounts")}><Cloud size={19} /><span>账号</span></button><button type="button" aria-current={tab === "servers" ? "page" : undefined} className={tab === "servers" ? "active" : ""} onClick={() => setTab("servers")}><Server size={19} /><span>服务器</span></button><button type="button" aria-current={tab === "domains" ? "page" : undefined} className={tab === "domains" ? "active" : ""} onClick={() => setTab("domains")}><Globe2 size={19} /><span>域名</span></button><button type="button" aria-current={tab === "more" || tab === "storage" || tab === "databases" || tab === "redis" || tab === "certificates" || tab === "ssh" || tab === "panels" || tab === "sync" || tab === "settings" || tab === "operationLogs" || tab === "apiLogs" || tab === "about" ? "page" : undefined} className={tab === "more" || tab === "storage" || tab === "databases" || tab === "redis" || tab === "certificates" || tab === "ssh" || tab === "panels" || tab === "sync" || tab === "settings" || tab === "operationLogs" || tab === "apiLogs" || tab === "about" ? "active" : ""} onClick={() => setTab("more")}><LayoutGrid size={19} /><span>更多</span></button></nav>
+      <nav className="mobile-tab-bar" aria-label="主导航"><button type="button" aria-current={tab === "accounts" ? "page" : undefined} className={tab === "accounts" ? "active" : ""} onClick={() => setTab("accounts")}><Cloud size={19} /><span>账号</span></button><button type="button" aria-current={tab === "servers" ? "page" : undefined} className={tab === "servers" ? "active" : ""} onClick={() => setTab("servers")}><Server size={19} /><span>服务器</span></button><button type="button" aria-current={tab === "domains" ? "page" : undefined} className={tab === "domains" ? "active" : ""} onClick={() => setTab("domains")}><Globe2 size={19} /><span>域名</span></button><button type="button" aria-current={tab === "more" || tab === "flow" || tab === "storage" || tab === "databases" || tab === "redis" || tab === "certificates" || tab === "ssh" || tab === "panels" || tab === "sync" || tab === "settings" || tab === "operationLogs" || tab === "apiLogs" || tab === "about" ? "page" : undefined} className={tab === "more" || tab === "flow" || tab === "storage" || tab === "databases" || tab === "redis" || tab === "certificates" || tab === "ssh" || tab === "panels" || tab === "sync" || tab === "settings" || tab === "operationLogs" || tab === "apiLogs" || tab === "about" ? "active" : ""} onClick={() => setTab("more")}><LayoutGrid size={19} /><span>更多</span></button></nav>
 
       {showAddAccount && <div className="mobile-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) { setShowAddAccount(false); setEditingAccount(null); } }}><form className="mobile-account-form" onSubmit={(event) => void saveAccount(event)}><div className="mobile-modal-heading"><div><small>凭据由 Rust 原生层加密保存</small><h2>{editingAccount ? "编辑云账号" : "添加云账号"}</h2></div><button className="mobile-icon-button" type="button" aria-label="关闭" onClick={() => { setShowAddAccount(false); setEditingAccount(null); }}><X size={20} /></button></div>
         <label>云厂商<select value={newAccountCloud} disabled={!!editingAccount} onChange={(event) => setNewAccountCloud(event.target.value)}>{cloudProviders.map((provider) => <option key={provider.value} value={provider.value}>{provider.label}</option>)}</select></label>

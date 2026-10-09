@@ -725,6 +725,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-barcode-scanner",
  "tauri-plugin-cloudhub-keystore",
+ "tauri-plugin-cloudhub-mobile-updater",
  "tauri-plugin-dialog",
  "tauri-plugin-fs",
  "tauri-plugin-opener",
@@ -5496,6 +5497,20 @@ dependencies = [
  "tauri-plugin",
  "thiserror 2.0.20",
  "zeroize",
+]
+
+[[package]]
+name = "tauri-plugin-cloudhub-mobile-updater"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tauri",
+ "tauri-plugin",
+ "tokio",
 ]
 
 [[package]]

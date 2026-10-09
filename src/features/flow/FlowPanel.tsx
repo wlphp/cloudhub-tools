@@ -14,7 +14,7 @@ const statusText = (value?: string | null) => ({ SUCCESS: "成功", FAIL: "失�
 const triggerText = (mode?: number | null) => ({ 1: "页面手动触发", 2: "定时触发", 3: "代码提交触发", 4: "POP API 触发", 5: "流水线触发", 6: "Webhook 触发" } as Record<number, string>)[mode || 0] || "—";
 type PipelineSummary = { runId?: string; status?: string | null; startTime?: number | null; endTime?: number | null; triggerMode?: number | null; creatorAccountId?: string | null; creatorEmail?: string | null; stages: Array<{ name: string; status?: string | null }> };
 
-export function FlowPanel() {
+export function FlowPanel({ mobile = false }: { mobile?: boolean }) {
   const [connections, setConnections] = useState<FlowConnection[]>([]);
   const [connectionId, setConnectionId] = useState<number | null>(null);
   const [pipelines, setPipelines] = useState<FlowPipeline[]>([]);
@@ -42,6 +42,7 @@ export function FlowPanel() {
   const [jobSteps, setJobSteps] = useState<Record<string, FlowStep[]>>({});
   const [jobLogs, setJobLogs] = useState<Record<string, { entries: Array<{ stepIndex: number; buildId: number; name: string; text: string; more: boolean; offset: number }> }>>({});
   const summaryRequest = useRef(0);
+  const pipelineRequest = useRef(0);
   const detailsDialogRef = useRef<HTMLElement | null>(null);
   const detailsCloseRef = useRef<HTMLButtonElement | null>(null);
   const detailsOpenerRef = useRef<HTMLElement | null>(null);
@@ -79,14 +80,18 @@ export function FlowPanel() {
 
   async function loadPipelines(nextPage = page, search = keyword) {
     if (!connectionId) return;
+    const request = ++pipelineRequest.current;
+    ++summaryRequest.current;
+    setSummaryLoading(false);
     setBusy("pipelines"); setError("");
     try {
       const items = await flowClient.pipelines(connectionId, nextPage, 30, search, activeGroupId);
+      if (request !== pipelineRequest.current) return;
       setPipelines(items); setPage(nextPage); setHasNext(items.length === 30);
       void loadPipelineSummaries(items, connectionId);
       if (selectedPipeline && !items.some((item) => item.pipelineId === selectedPipeline.pipelineId)) { setSelectedPipeline(null); setRuns([]); setRunDetail(null); }
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "读取流水线失败"); }
-    finally { setBusy(""); }
+    } catch (reason) { if (request === pipelineRequest.current) setError(reason instanceof Error ? reason.message : "读取流水线失败"); }
+    finally { if (request === pipelineRequest.current) setBusy(""); }
   }
 
   async function choosePipeline(pipeline: FlowPipeline): Promise<FlowRun[]> {
@@ -102,13 +107,13 @@ export function FlowPanel() {
     detailsOpenerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setDetailTab("latest"); setShowDetails(true);
     const history = await choosePipeline(pipeline);
-    if (history[0]) await chooseRun(history[0]);
+    if (history[0]) await chooseRun(history[0], pipeline);
   }
 
-  async function chooseRun(run: FlowRun) {
-    if (!connectionId || !selectedPipeline) return;
+  async function chooseRun(run: FlowRun, pipeline = selectedPipeline) {
+    if (!connectionId || !pipeline) return;
     setBusy("detail"); setError("");
-    try { setRunDetail(await flowClient.run(connectionId, selectedPipeline.pipelineId, run.pipelineRunId)); }
+    try { setRunDetail(await flowClient.run(connectionId, pipeline.pipelineId, run.pipelineRunId)); }
     catch (reason) { setError(reason instanceof Error ? reason.message : "读取运行详情失败"); }
     finally { setBusy(""); }
   }
@@ -141,18 +146,24 @@ export function FlowPanel() {
   }, [showDetails, showRun, showConnection, busy]);
   useEffect(() => {
     if (!connectionId) { setGroups([]); setActiveGroupId(null); setPipelines([]); setSelectedPipeline(null); setRuns([]); setRunDetail(null); return; }
+    let active = true;
     setActiveGroupId(null);
-    void flowClient.groups(connectionId).then(setGroups).catch((reason) => { setGroups([]); setError(reason instanceof Error ? reason.message : "读取流水线分组失败"); });
+    void flowClient.groups(connectionId).then((items) => { if (active) setGroups(items); }).catch((reason) => { if (active) { setGroups([]); setError(reason instanceof Error ? reason.message : "读取流水线分组失败"); } });
+    return () => { active = false; };
   }, [connectionId]);
-  useEffect(() => { if (connectionId) void loadPipelines(1, ""); }, [connectionId, activeGroupId]);
   useEffect(() => {
-    if (!connectionId || !selectedPipeline || !runDetail || runDetail.status !== "RUNNING") return;
+    if (connectionId) void loadPipelines(1, "");
+    return () => { ++pipelineRequest.current; ++summaryRequest.current; };
+  }, [connectionId, activeGroupId]);
+  useEffect(() => {
+    if (!showDetails || !connectionId || !selectedPipeline || !runDetail || runDetail.status !== "RUNNING") return;
     const timer = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
       void flowClient.run(connectionId, selectedPipeline.pipelineId, runDetail.pipelineRunId).then(setRunDetail).catch(() => undefined);
       void flowClient.runs(connectionId, selectedPipeline.pipelineId, 1, 20).then(setRuns).catch(() => undefined);
     }, 5000);
     return () => window.clearInterval(timer);
-  }, [connectionId, selectedPipeline?.pipelineId, runDetail?.pipelineRunId, runDetail?.status]);
+  }, [showDetails, connectionId, selectedPipeline?.pipelineId, runDetail?.pipelineRunId, runDetail?.status]);
 
   const currentConnection = useMemo(() => connections.find((item) => item.id === connectionId) ?? null, [connections, connectionId]);
 
@@ -261,7 +272,7 @@ export function FlowPanel() {
     finally { setBusy(""); }
   }
 
-  return <section className="flow-page">
+  return <section className={`flow-page${mobile ? " mobile-flow-page" : ""}`}>
     <header className="flow-page-header"><div><span className="eyebrow">YUNXIAO FLOW</span><h1>云效流水线</h1><p>浏览组织流水线、手动运行并跟踪阶段与任务日志。</p></div><div className="flow-toolbar-actions">
       <select aria-label="选择云效连接" value={connectionId ?? ""} onChange={(event) => setConnectionId(Number(event.target.value) || null)}><option value="">选择云效连接</option>{connections.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
       {currentConnection && <button className="secondary" disabled={busy !== ""} onClick={() => void verifyConnection()}><Activity size={15} />验证连接</button>}
@@ -270,7 +281,7 @@ export function FlowPanel() {
     </div></header>
     {message && <div className="flow-feedback success" role="status"><Check size={16} />{message}<button aria-label="关闭提示" onClick={() => setMessage("")}><X size={14} /></button></div>}
     {error && <div className="flow-feedback error" role="alert"><CircleAlert size={16} />{error}<button aria-label="关闭错误" onClick={() => setError("")}><X size={14} /></button></div>}
-    {!runningInTauri && <div className="flow-feedback error" role="status"><CircleAlert size={16} />云效流水线仅在桌面端可用；浏览器预览不会保存 PAT 或触发流水线。</div>}
+    {!runningInTauri && <div className="flow-feedback error" role="status"><CircleAlert size={16} />云效流水线需在桌面或手机 App 中使用；浏览器预览不会保存 PAT 或触发流水线。</div>}
     {!connections.length ? <div className="flow-empty"><Activity size={34} /><h2>先连接云效组织</h2><p>使用云效个人访问令牌（PAT）连接中心版或 Region 版组织。令牌只保存在本机加密存储中。</p><button disabled={!runningInTauri} onClick={() => { setDraft(emptyDraft); setShowConnection(true); }}><Plus size={15} />配置连接</button></div> : !currentConnection ? <div className="flow-empty">请选择云效连接。</div> : <div className="flow-workspace">
       <section className="panel flow-pipeline-panel"><div className="flow-panel-title"><div><h2>流水线</h2><span>{currentConnection.name} · {pipelines.length} 条当前页</span></div><button className="icon-button" aria-label="刷新流水线" title="刷新流水线" disabled={busy === "pipelines"} onClick={() => void loadPipelines(1)}>{busy === "pipelines" ? <LoaderCircle className="flow-spin" size={16} /> : <RefreshCw size={16} />}</button></div>
         <div className="flow-group-tabs" role="tablist" aria-label="流水线分组"><button type="button" role="tab" aria-selected={activeGroupId === null} className={activeGroupId === null ? "active" : ""} onClick={() => setActiveGroupId(null)}>全部</button>{groups.map((group) => <button type="button" role="tab" aria-selected={activeGroupId === group.groupId} className={activeGroupId === group.groupId ? "active" : ""} key={group.groupId} onClick={() => setActiveGroupId(group.groupId)}>{group.groupName}</button>)}</div>

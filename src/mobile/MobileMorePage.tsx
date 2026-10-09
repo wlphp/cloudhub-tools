@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
-import { Award, ChevronRight, Database, Folder, Layers, Monitor, Search, Settings, Terminal, X } from "lucide-react";
+import { Award, ChevronRight, Database, Folder, GitBranch, Layers, Monitor, Search, Settings, Terminal, X } from "lucide-react";
 
-type Destination = "storage" | "databases" | "redis" | "certificates" | "ssh" | "panels" | "settings";
+type Destination = "storage" | "databases" | "redis" | "certificates" | "ssh" | "panels" | "flow" | "settings";
 const features = [
   { tab: "storage", title: "对象存储", description: "桶与文件 · 统一管理 · 便捷高效", keywords: "OSS S3 文件", icon: Folder, color: "#287cff", end: "#233de9" },
   { tab: "databases", title: "云数据库", description: "RDS 实例 · 资源与账号管理", keywords: "数据库 database", icon: Database, color: "#a34aff", end: "#5827e9" },
@@ -9,6 +9,7 @@ const features = [
   { tab: "certificates", title: "证书管理", description: "证书与绑定 · 状态与有效期", keywords: "SSL HTTPS 到期", icon: Award, color: "#ffb63e", end: "#c66937" },
   { tab: "ssh", title: "SSH 终端", description: "连接管理 · 在线终端 · 快速登录", keywords: "主机 服务器 terminal", icon: Terminal, color: "#06c8ec", end: "#1672f2" },
   { tab: "panels", title: "运维面板", description: "集群管理 · 资源监控 · 运维操作", keywords: "宝塔 aaPanel CPU 内存", icon: Monitor, color: "#a145fc", end: "#4d2ce7" },
+  { tab: "flow", title: "云效流水线", description: "流水线运行 · 阶段状态 · 任务日志", keywords: "云效 阿里云 CI CD Flow 发布", icon: GitBranch, color: "#30b997", end: "#167c87" },
   { tab: "settings", title: "系统设置", description: "导入数据 · 日志管理 · 应用信息", keywords: "迁移 同步 关于 更新 日志", icon: Settings, color: "#0badcf", end: "#116aa6" },
 ] satisfies { tab: Destination; title: string; description: string; keywords: string; icon: typeof Folder; color: string; end: string }[];
 

@@ -696,6 +696,72 @@ button {
   }
 }
 
+.mobile-update-banner { display:flex; align-items:center; gap:8px; width:100%; margin-bottom:12px; padding:10px 12px; border:1px solid #31566b; border-radius:9px; background:#123044; color:#c7e8f7; font-size:12px; text-align:left; cursor:pointer; }
+.mobile-about-update { flex-direction:column; align-items:stretch; gap:12px; }
+.mobile-about-update-copy { display:grid; gap:6px; }
+.mobile-about-update-copy small { line-height:1.6; overflow-wrap:anywhere; }
+.mobile-update-buttons { display:flex; flex-wrap:wrap; gap:8px; }
+.mobile-update-buttons button { display:inline-flex; align-items:center; justify-content:center; gap:6px; width:auto; min-height:36px; padding:0 12px; border:1px solid #34566c; border-radius:7px; background:#15374c; color:#c7e8f7; font-size:12px; cursor:pointer; }
+.mobile-update-buttons button:disabled { opacity:.6; cursor:wait; }
+.mobile-about-update progress { width:100%; height:6px; accent-color:#5ecbb0; }
+.mobile-update-notes { color:var(--mobile-muted); font-size:12px; }
+.mobile-update-notes summary { padding:6px 0; cursor:pointer; }
+.mobile-update-notes p { max-height:240px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.6; }
+
+/* Mobile Flow keeps the native client, with cards and vertical stages for narrow screens. */
+.mobile-flow-page { padding:0; min-height:0; overflow:visible; }
+.mobile-flow-page .flow-page-header { align-items:stretch; gap:10px; margin-bottom:12px; }
+.mobile-flow-page .flow-page-header h1 { margin:0; font-size:18px; }
+.mobile-flow-page .flow-page-header .eyebrow,.mobile-flow-page .flow-page-header p { display:none; }
+.mobile-flow-page .flow-toolbar-actions { gap:8px; }
+.mobile-flow-page .flow-toolbar-actions select { width:100%; min-width:0; max-width:none; min-height:38px; padding:0 10px; border:1px solid #253449; border-radius:8px; background:#101e2e; color:#cbd9e7; font-size:16px; }
+.mobile-flow-page .flow-toolbar-actions button { min-height:36px; }
+.mobile-flow-page .flow-panel-title { padding:10px 12px; }
+.mobile-flow-page .flow-panel-title h2 { font-size:14px; }
+.mobile-flow-page .flow-group-tabs { min-height:44px; padding:0 8px; }
+.mobile-flow-page .flow-group-tabs button { min-height:40px; padding:0 10px; }
+.mobile-flow-page .flow-list-toolbar { padding:10px; }
+.mobile-flow-page .flow-search { width:100%; min-height:36px; }
+.mobile-flow-page .flow-search input { font-size:16px; width:0; }
+.mobile-flow-page .flow-search button { min-height:32px; }
+.mobile-flow-page .flow-table-scroll { overflow:visible; }
+.mobile-flow-page .flow-pipeline-table { display:block; min-width:0; width:100%; }
+.mobile-flow-page .flow-pipeline-table thead { display:none; }
+.mobile-flow-page .flow-pipeline-table tbody { display:grid; gap:8px; padding:0 10px 10px; }
+.mobile-flow-page .flow-pipeline-table tr { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:6px 10px; padding:12px; border:1px solid #253449; border-radius:9px; background:#101e2e; }
+.mobile-flow-page .flow-pipeline-table td { width:auto; min-width:0; padding:0; border:0; }
+.mobile-flow-page .flow-pipeline-table td:first-child { grid-column:1/-1; }
+.mobile-flow-page .flow-pipeline-table td:nth-child(3) { grid-column:1/-1; grid-row:3; }
+.mobile-flow-page .flow-pipeline-table td:nth-child(4),.mobile-flow-page .flow-pipeline-table td:nth-child(5) { grid-column:1/-1; }
+.mobile-flow-page .flow-name-button { width:100%; align-items:flex-start; text-align:left; min-height:44px; }
+.mobile-flow-page .flow-name-button strong { white-space:normal; overflow-wrap:anywhere; font-size:14px; line-height:1.5; }
+.mobile-flow-page .flow-stage-track { width:100%!important; margin:4px 0; }
+.mobile-flow-page .flow-trigger-info { flex-wrap:wrap; white-space:normal; }
+.mobile-flow-page .flow-pipeline-table td:nth-child(5) { color:#8198b0; font-size:11px; }
+.mobile-flow-page .flow-action-cell { grid-column:2; grid-row:2; }
+.mobile-flow-page .flow-row-actions { justify-content:flex-end; gap:8px; }
+.mobile-flow-page .flow-row-actions button { width:36px; height:36px; }
+.mobile-flow-page .flow-pagination { gap:8px; flex-wrap:wrap; }
+.mobile-flow-page .flow-pagination button { min-height:36px; }
+.mobile-flow-page .flow-feedback { align-items:flex-start; line-height:1.6; }
+.mobile-flow-page .flow-feedback svg { flex-shrink:0; }
+.mobile-flow-page .flow-empty { min-height:220px; padding:20px 12px; }
+.mobile-flow-page .flow-connection-footer { gap:10px; flex-wrap:wrap; }
+.mobile-flow-page .flow-dialog-backdrop { padding:10px; padding-top:max(10px,env(safe-area-inset-top)); padding-bottom:max(10px,env(safe-area-inset-bottom)); }
+.mobile-flow-page .flow-dialog { width:100%; max-height:90dvh; padding:14px; }
+.mobile-flow-page .flow-details-dialog { padding:0; }
+.mobile-flow-page .flow-dialog input,.mobile-flow-page .flow-dialog select,.mobile-flow-page .flow-dialog textarea { font-size:16px; min-height:40px; }
+.mobile-flow-page .flow-dialog header h2,.mobile-flow-page .flow-dialog header p { overflow-wrap:anywhere; }
+.mobile-flow-page .flow-dialog footer button { min-height:36px; }
+.mobile-flow-page .flow-modal-run-detail { grid-template-columns:minmax(0,1fr); overflow:visible; }
+.mobile-flow-page .flow-run-origin { padding:12px; grid-template-columns:repeat(2,minmax(0,1fr)); }
+.mobile-flow-page .flow-stage-lanes { flex-direction:column; min-height:0; padding:12px; overflow:visible; gap:12px; }
+.mobile-flow-page .flow-stage-lane { flex:0 0 auto; width:100%; min-width:0; padding:0; border:0; }
+.mobile-flow-page .flow-stage-lane-heading strong,.mobile-flow-page .flow-job-card-heading strong { white-space:normal; overflow-wrap:anywhere; }
+.mobile-flow-page .flow-job-card .flow-log-toggle { min-height:36px; padding:0 8px; }
+.mobile-flow-page .flow-details-header button,.mobile-flow-page .flow-dialog .icon-button { min-width:36px; min-height:36px; }
+.mobile-flow-page :focus-visible,.mobile-update-buttons button:focus-visible { outline:2px solid var(--mobile-focus); outline-offset:2px; }
+
 @media(max-width:559px) {
   .mobile-account-form {
     max-height: 88dvh;

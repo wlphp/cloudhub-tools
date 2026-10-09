@@ -32,7 +32,7 @@ for (const width of [320, 360, 375, 390, 430]) {
     expect(await server.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBeTruthy();
     await navigation.getByRole("button", { name: "域名", exact: true }).click();
     await expect(page.getByRole("heading", { name: "域名与 DNS", exact: true })).toBeVisible();
-    for (const name of ["对象存储", "云数据库", "Redis", "证书管理", "SSH 终端", "运维面板", "系统设置"]) {
+    for (const name of ["对象存储", "云数据库", "Redis", "证书管理", "SSH 终端", "运维面板", "云效流水线", "系统设置"]) {
       await navigation.getByRole("button", { name: "更多", exact: true }).click();
       await expect(page.getByRole("heading", { name: "更多管理", exact: true })).toBeVisible();
       await page.locator(".mobile-more-feature").filter({ hasText: name }).click();
@@ -73,7 +73,7 @@ for (const width of [320, 360, 375, 390, 430]) {
     await search.fill("Redis");
     await expect(page.locator(".mobile-more-feature")).toHaveCount(1);
     await search.press("Escape");
-    await expect(page.locator(".mobile-more-feature")).toHaveCount(7);
+    await expect(page.locator(".mobile-more-feature")).toHaveCount(8);
     await expect(page.getByRole("button", { name: "搜索功能", exact: true })).toBeFocused();
     if (width === 390) await page.screenshot({ path: "test-results/mobile-compact-more.png" });
   });
