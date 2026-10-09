@@ -1160,11 +1160,11 @@ body { background: var(--mobile-bg); color: var(--mobile-text); }
 .mobile-panel-network > span { display: inline-flex; align-items: center; gap: 3px; }
 .mobile-panel-network .is-up { color: #edbb65; }
 .mobile-panel-network .is-down { color: #72b8ff; }
-.mobile-panel-refresh-control { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px; margin: 0 0 16px; border: 1px solid var(--mobile-border); border-radius: 12px; background: var(--mobile-raised); }
+.mobile-panel-refresh-control { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; margin: 0 0 8px; border: 0; border-radius: 0; background: transparent; }
 .mobile-panel-refresh-control > div { min-width: 0; display: grid; gap: 4px; }
 .mobile-panel-refresh-control strong { font-size: 13px; color: var(--mobile-text); }
 .mobile-panel-refresh-control small { font-size: 11px; color: var(--mobile-muted); }
-.mobile-panel-refresh-control select { min-width: 92px; min-height: 44px; border: 1px solid var(--mobile-border); border-radius: 8px; padding: 0 10px; background: var(--mobile-bg); color: var(--mobile-text); }
+.mobile-panel-refresh-control select { min-width: 72px; min-height: 32px; border: 1px solid var(--mobile-border); border-radius: 6px; padding: 0 8px; background: var(--mobile-surface); color: var(--mobile-text); font-size: 12px; }
 .mobile-panel-refresh-control select:focus-visible { outline: 2px solid var(--mobile-focus); outline-offset: 2px; }
 .mobile-panel-more-disks { margin-top: 8px; }
 .mobile-panel-more-disks > summary { min-height: 44px; align-content: center; color: var(--mobile-accent-strong); font-size: 12px; cursor: pointer; }
@@ -1449,7 +1449,6 @@ body { background: var(--mobile-bg); color: var(--mobile-text); }
 .mobile-account-overview { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: stretch; gap: 9px; margin-bottom: 12px; }
 .mobile-account-stats { display: grid; min-width: 0; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .mobile-account-stats > div { display: flex; min-width: 0; min-height: 74px; align-items: center; gap: 9px; padding: 9px; border: 1px solid #226ba0; border-radius: 13px; background: linear-gradient(135deg, #123d65, #142c4e); }
-.mobile-account-stats > .account-stat-providers { border-color: #554cb5; background: linear-gradient(135deg, #2c2867, #222b59); }
 .mobile-account-stat-icon { display: grid; width: 38px; height: 38px; flex: 0 0 38px; place-items: center; border-radius: 50%; background: #1daed33d; color: #71e1ff; }
 .account-stat-providers .mobile-account-stat-icon { background: #8a6bff45; color: #c3aaff; }
 .mobile-account-stat-copy { display: flex; min-width: 0; flex-direction: column; gap: 1px; }
@@ -1531,7 +1530,6 @@ body { background: var(--mobile-bg); color: var(--mobile-text); }
 .mobile-domain-overview { display: block; margin-bottom: 14px; }
 .mobile-domain-stats { display: grid; min-width: 0; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .mobile-domain-stats > div { display: flex; min-width: 0; min-height: 76px; align-items: center; gap: 10px; padding: 9px; border: 1px solid #226ba0; border-radius: 14px; background: linear-gradient(135deg, #123d65, #142c4e); }
-.mobile-domain-stats > .domain-stat-accounts { border-color: #554cb5; background: linear-gradient(135deg, #2c2867, #222b59); }
 .mobile-domain-stats .mobile-account-stat-icon { width: 40px; height: 40px; flex-basis: 40px; border-radius: 13px; background: linear-gradient(145deg, #2da9ff, #1767f3); color: #e9f8ff; }
 .domain-stat-accounts .mobile-account-stat-icon { background: linear-gradient(145deg, #a45aff, #6829f5); }
 .mobile-domain-stats .mobile-account-stat-copy strong { color: #f5f8ff; font-size: 24px; }
@@ -1615,7 +1613,6 @@ body { background: var(--mobile-bg); color: var(--mobile-text); }
 }
 .mobile-server-stats { display: grid; min-width: 0; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .mobile-server-stats > div { display: flex; min-width: 0; min-height: 70px; align-items: center; gap: 9px; padding: 9px; border: 1px solid #226ba0; border-radius: 13px; background: linear-gradient(135deg, #123d65, #142c4e); }
-.mobile-server-stats > .server-stat-running { border-color: #554cb5; background: linear-gradient(135deg, #2c2867, #222b59); }
 .mobile-server-stats .mobile-account-stat-icon { width: 36px; height: 36px; flex-basis: 36px; }
 .server-stat-running .mobile-account-stat-icon { background: #8a6bff45; color: #c3aaff; }
 .mobile-server-stats .mobile-account-stat-copy strong { color: #f5f8ff; font-size: 20px; }
@@ -1806,4 +1803,265 @@ body { background: var(--mobile-bg); color: var(--mobile-text); }
  .mobile-header-actions { gap: 5px; }
  .mobile-header-actions .mobile-header-fetch { width: 44px; min-width: 44px; padding: 0; }
  .mobile-header-fetch > span { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+}
+
+/* Compact mobile layout. Keep touch targets independent of icon size. */
+.mobile-shell { --mobile-radius: 8px; background: var(--mobile-bg); }
+.mobile-header { min-height: 48px; margin: 0; padding: 4px 12px; gap: 8px; border: 0; border-bottom: 1px solid var(--mobile-border); border-radius: 0; background: var(--mobile-surface); box-shadow: none; backdrop-filter: none; }
+.mobile-brand { gap: 8px; }
+.mobile-brand-icon { width: 30px; height: 30px; flex-basis: 30px; padding: 0; border-radius: 7px; box-shadow: none; }
+.mobile-brand-icon img { border-radius: 6px; }
+.mobile-brand strong { font-size: 14px; }
+.mobile-brand small { font-size: 12px; margin-top: 1px; }
+.mobile-brand-version { font-size: 10px; }
+.mobile-header-actions { gap: 8px; }
+.mobile-header-actions .mobile-icon-button,
+.mobile-header-actions .mobile-header-fetch { width: 36px; min-width: 36px; min-height: 36px; flex-basis: 36px; padding: 0; border-radius: 7px; background: var(--mobile-raised); border-color: var(--mobile-border); box-shadow: none; }
+.mobile-header-fetch > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.mobile-content { padding: 10px 12px 12px; }
+.mobile-page-title { margin: 0 0 8px; gap: 8px; }
+.mobile-page-title h1 { font-size: 18px; line-height: 1.4; }
+.mobile-page-title p { margin-bottom: 2px; font-size: 12px; }
+.mobile-tab-bar { position: relative; left: auto; transform: none; bottom: auto; flex: 0 0 auto; width: 100%; min-height: 60px; margin: 0; padding: 4px 8px calc(4px + env(safe-area-inset-bottom, 0px)); gap: 8px; border: 0; border-top: 1px solid var(--mobile-border); border-radius: 0; background: var(--mobile-surface); box-shadow: none; backdrop-filter: none; }
+.mobile-tab-bar button { min-height: 48px; gap: 2px; padding: 3px; border-radius: 6px; font-size: 12px; }
+.mobile-tab-bar button svg { width: 20px; height: 20px; }
+.mobile-tab-bar button.active { background: var(--mobile-raised); border-color: var(--mobile-border); box-shadow: none; }
+.mobile-tab-bar button.active svg { filter: none; }
+.mobile-account-overview { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; }
+.mobile-account-stats,
+.mobile-domain-stats,
+.mobile-server-stats { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.mobile-account-stats > div,
+.mobile-domain-stats > div,
+.mobile-server-stats > div { display: flex; align-items: center; min-height: 32px; padding: 0; gap: 4px; border: 0; border-radius: 0; background: none; box-shadow: none; }
+.mobile-account-stats .mobile-account-stat-icon,
+.mobile-domain-stats .mobile-account-stat-icon,
+.mobile-server-stats .mobile-account-stat-icon { display: none; }
+.mobile-account-stat-copy { display: flex; flex-direction: row; align-items: baseline; gap: 5px; }
+.mobile-account-stats .mobile-account-stat-copy strong,
+.mobile-domain-stats .mobile-account-stat-copy strong,
+.mobile-server-stats .mobile-account-stat-copy strong { font-size: 16px; }
+.mobile-account-stats .mobile-account-stat-copy small,
+.mobile-domain-stats .mobile-account-stat-copy small,
+.mobile-server-stats .mobile-account-stat-copy small { font-size: 12px; }
+.mobile-domain-overview,
+.mobile-server-overview { margin-bottom: 8px; }
+.mobile-account-actions { margin-left: auto; }
+.mobile-security-note { margin: 0 0 8px; padding: 6px 8px; font-size: 12px; line-height: 1.4; border-radius: 6px; }
+.mobile-account-tools,
+.mobile-server-tools,
+.mobile-domain-tools,
+.mobile-resource-tools { gap: 8px; margin-bottom: 8px; }
+.mobile-account-search,
+.mobile-account-provider-filter,
+.mobile-server-tools .mobile-account-search,
+.mobile-server-tools .mobile-account-provider-filter,
+.mobile-domain-tools .mobile-account-search,
+.mobile-domain-tools .mobile-account-provider-filter { min-height: 34px; border-radius: 6px; }
+.mobile-account-search input,
+.mobile-account-provider-filter select,
+.mobile-more-search input { font-size: 14px; }
+.mobile-account-list,
+.mobile-server-list,
+.mobile-domain-list,
+.mobile-domain-resource-list,
+.mobile-more-feature-list { gap: 8px; }
+.mobile-account-card,
+.mobile-account-swipe-card { min-height: 56px; border-radius: 8px; background: var(--mobile-surface); box-shadow: none; }
+.mobile-account-swipe-main > .mobile-account-select { min-height: 56px; padding: 8px 10px; }
+.mobile-account-menu { min-width: 48px; flex-basis: 48px; min-height: 48px; }
+.mobile-account-swipe-card .mobile-provider-avatar,
+.mobile-server-featured-main > .mobile-provider-avatar,
+.mobile-domain-resource-card > .mobile-provider-avatar,
+.mobile-resource-list-card .mobile-provider-avatar { width: 28px; height: 28px; flex-basis: 28px; border-radius: 6px; font-size: 13px; }
+.mobile-account-swipe-card .mobile-account-copy strong { font-size: 14px; }
+.mobile-account-swipe-card .mobile-account-copy small { font-size: 12px; }
+.mobile-server-card-featured,
+.mobile-resource-page .mobile-domain-card,
+.mobile-resource-list-card { margin-top: 0; padding: 10px; border-radius: 8px; border-color: var(--mobile-border); background: var(--mobile-surface); box-shadow: none; }
+.mobile-domain-resource-card,
+.mobile-resource-list-card { min-height: 56px; gap: 8px; }
+.mobile-server-featured-main { gap: 8px; align-items: flex-start; }
+.mobile-server-featured-title { flex-wrap: wrap; gap: 4px 6px; }
+.mobile-server-featured-title strong,
+.mobile-domain-resource-title strong { white-space: normal; overflow-wrap: anywhere; font-size: 14px; }
+.mobile-server-featured-copy p { white-space: normal; overflow-wrap: anywhere; font-size: 12px; color: var(--mobile-muted); }
+.mobile-domain-resource-copy > small { font-size: 12px; color: var(--mobile-muted); white-space: normal; overflow-wrap: anywhere; }
+.mobile-server-status-pill,
+.mobile-resource-state { min-height: 22px; font-size: 12px; padding: 2px 6px; }
+.mobile-server-tabs { margin: 0 0 8px; }
+.mobile-server-tabs button { min-height: 32px; border-radius: 6px; font-size: 12px; gap: 5px; }
+.mobile-server-options { margin-top: 4px; }
+.mobile-server-options > summary,
+.mobile-server-metadata > summary { display: list-item; min-height: 32px; padding: 8px 0; font-size: 12px; color: var(--mobile-muted); cursor: pointer; }
+.mobile-server-options > summary:focus-visible,
+.mobile-server-metadata > summary:focus-visible { outline: 2px solid var(--mobile-focus); outline-offset: 2px; }
+.mobile-server-options .mobile-server-actions { margin-top: 0; padding-top: 8px; }
+.mobile-server-metadata > summary { padding: 8px 0; }
+.mobile-server-metadata span { display: block; font-size: 12px; overflow-wrap: anywhere; color: var(--mobile-muted); }
+.mobile-server-actions button,
+.mobile-primary,
+.mobile-icon-button,
+.mobile-panel-actions button { min-height: 48px; border-radius: 8px; }
+.mobile-server-meta { font-size: 12px; color: var(--mobile-muted); }
+.mobile-more-heading { margin: 8px 0; gap: 8px; }
+.mobile-more-heading h2 { font-size: 14px; }
+.mobile-more-feature { min-height: 56px; padding: 8px 10px; gap: 10px; border-radius: 8px; background: var(--mobile-surface); border-color: var(--mobile-border); }
+.mobile-more-feature::after { display: none; }
+.mobile-more-feature-icon { width: 28px; height: 28px; flex-basis: 28px; border-radius: 6px; box-shadow: none; }
+.mobile-more-feature-copy { gap: 2px; }
+.mobile-more-feature-copy strong { font-size: 14px; }
+.mobile-more-feature-copy small { font-size: 12px; color: var(--mobile-muted); }
+.mobile-account-form { padding: 12px; gap: 8px; }
+.mobile-account-form input,
+.mobile-account-form select,
+.mobile-account-form textarea { font-size: 16px; min-height: 48px; }
+.mobile-empty { min-height: 144px; padding: 16px 12px; border-radius: 8px; }
+.mobile-domain-card.mobile-panel-card { padding: 10px 10px 0; border-color: var(--mobile-border); border-radius: 9px; background: var(--mobile-surface); }
+.mobile-resource-page .mobile-panel-card-heading .mobile-server-heading > svg { width: 28px; height: 28px; flex-basis: 28px; padding: 5px; border: 0; border-radius: 6px; background: #202945; color: #aebcff; }
+.mobile-panel-card-heading .mobile-server-heading strong { font-size: 14px; font-weight: 550; }
+.mobile-panel-card-heading .mobile-panel-status { padding: 0; border: 0; border-radius: 0; background: transparent; font-size: 11px; gap: 4px; }
+.mobile-panel-card-heading .mobile-panel-status.online,
+.mobile-panel-card-heading .mobile-panel-status.offline { background: transparent; }
+.mobile-panel-card-heading .mobile-panel-status::before { width: 5px; height: 5px; }
+.mobile-panel-identity { display: block; margin-left: 38px; margin-top: 4px; }
+.mobile-panel-card .mobile-panel-url { margin: 0 0 4px; font-size: 11px; color: var(--mobile-muted); }
+.mobile-panel-card-meta { gap: 4px 10px; }
+.mobile-panel-card-meta > span,
+.mobile-panel-card-meta > small { padding: 0; border: 0; background: transparent; color: var(--mobile-muted); }
+.mobile-panel-actions { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 4px; padding: 8px 0 10px; border-color: var(--mobile-border); }
+.mobile-resource-page .mobile-panel-actions > button { position: relative; width: 100%; min-width: 0; min-height: 36px; height: 36px; padding: 0 4px; gap: 5px; border: 1px solid var(--mobile-border); background: var(--mobile-raised); font-size: 12px; border-radius: 7px; white-space: nowrap; }
+.mobile-panel-actions > button::before { content: ""; position: absolute; inset: -4px 0; }
+.mobile-panel-actions > button.primary { border-color: #34566c; background: #15374c; color: #c7e8f7; }
+.mobile-panel-actions > button.danger { border-color: #593943; background: #2b1d27; color: #ffadb3; }
+.mobile-panel-actions > button svg { width: 15px; height: 15px; }
+.mobile-panel-actions > button:hover:not(:disabled),
+.mobile-panel-actions > button:active:not(:disabled) { background: var(--mobile-raised); }
+.mobile-panel-traffic > div { padding: 8px; border-radius: 8px; grid-template-columns: 24px minmax(0, 1fr); gap: 4px; background: var(--mobile-raised); }
+.mobile-panel-traffic-icon { width: 24px; height: 24px; }
+.mobile-panel-traffic-icon > svg { width: 18px; height: 18px; }
+.mobile-panel-traffic dt,
+.mobile-panel-traffic dd { font-size: 12px; }
+.mobile-panel-metrics { gap: 8px; }
+.mobile-panel-metric { padding: 8px; border-radius: 8px; }
+@media (max-width: 360px) {
+  .mobile-content { padding-inline: 10px; }
+  .mobile-brand small { display: none; }
+  .mobile-brand-version { display: none; }
+  .mobile-panel-metrics { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Unified compact toolbars and quiet action hierarchy. */
+.mobile-account-tools,
+.mobile-server-tools,
+.mobile-domain-tools,
+.mobile-resource-tools { display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; gap: 0; padding: 2px; border: 1px solid #253449; border-radius: 9px; background: #0f1b2b; transition: border-color .16s ease; }
+.mobile-account-tools,
+.mobile-server-tools,
+.mobile-domain-tools,
+.mobile-resource-tools.has-filter { grid-template-columns: minmax(0, 1fr) minmax(88px, 27%); }
+.mobile-account-tools:focus-within,
+.mobile-server-tools:focus-within,
+.mobile-domain-tools:focus-within,
+.mobile-resource-tools:focus-within { border-color: #5594b6; }
+.mobile-account-tools .mobile-account-search,
+.mobile-server-tools .mobile-account-search,
+.mobile-domain-tools .mobile-account-search,
+.mobile-resource-tools .mobile-account-search,
+.mobile-account-tools .mobile-account-provider-filter,
+.mobile-server-tools .mobile-account-provider-filter,
+.mobile-domain-tools .mobile-account-provider-filter,
+.mobile-resource-tools .mobile-account-provider-filter { min-height: 32px; padding: 0 8px; gap: 6px; border: 0; border-radius: 6px; background: transparent; box-shadow: none; }
+.mobile-account-tools .mobile-account-provider-filter,
+.mobile-server-tools .mobile-account-provider-filter,
+.mobile-domain-tools .mobile-account-provider-filter,
+.mobile-resource-tools .mobile-account-provider-filter { position: relative; background: #172536; }
+.mobile-account-search svg,
+.mobile-account-provider-filter svg,
+.mobile-more-search svg { width: 14px; height: 14px; color: #8ba3ba; }
+.mobile-account-search input,
+.mobile-account-provider-filter select,
+.mobile-more-search input { font-size: 13px; line-height: 20px; }
+.mobile-account-search input::placeholder,
+.mobile-more-search input::placeholder { color: #92a6ba; }
+.mobile-account-provider-filter select { padding: 0; font-weight: 500; }
+.mobile-more-heading { gap: 12px; margin: 10px 0; }
+.mobile-more-heading h2 { font-size: 12px; color: var(--mobile-muted); font-weight: 500; }
+.mobile-more-heading h2::before { display: none; }
+.mobile-more-search { min-height: 34px; padding: 0 10px; gap: 7px; border: 1px solid #253449; border-radius: 8px; background: #0f1b2b; }
+.mobile-more-search input { padding: 6px 0; }
+.mobile-account-actions { gap: 8px; }
+.mobile-account-actions .mobile-primary { min-height: 32px; padding: 0 10px; gap: 5px; border: 1px solid #397493; border-radius: 7px; background: #153c51; color: #d2f0ff; font-size: 12px; font-weight: 550; box-shadow: inset 0 1px 0 #ffffff08; }
+.mobile-account-actions .mobile-primary:hover:not(:disabled) { background: #1c4a63; }
+.mobile-account-actions .mobile-icon-button { width: 32px; min-height: 32px; flex-basis: 32px; border: 1px solid #253449; border-radius: 7px; background: #101e2e; color: #aebfd1; }
+.mobile-account-actions svg { width: 14px; height: 14px; }
+.mobile-account-sort { min-height: 32px; padding: 0 4px; gap: 4px; font-size: 12px; color: var(--mobile-muted); }
+.mobile-account-sort svg { width: 13px; height: 13px; }
+.mobile-account-list-heading h2,
+.mobile-server-list-heading h2,
+.mobile-domain-list-heading h2 { font-size: 13px; font-weight: 550; }
+.mobile-account-list-heading h2 span,
+.mobile-server-list-heading h2 span,
+.mobile-domain-list-heading h2 span { display: inline-block; padding: 1px 5px; margin-left: 4px; border-radius: 4px; background: #18283a; font-size: 11px; color: #b5c8d9; }
+.mobile-server-tabs { gap: 3px; padding: 3px; border: 1px solid #253449; border-radius: 8px; background: #0c1725; }
+.mobile-server-tabs button { min-height: 28px; border: 1px solid transparent; border-radius: 5px; background: transparent; font-size: 12px; font-weight: 500; color: #9db0c5; }
+.mobile-server-tabs button.active { border-color: #354c62; background: #1b2c40; color: #e0edf8; box-shadow: 0 1px 3px #00000025; }
+.mobile-server-tabs button span { min-width: 17px; padding: 1px 4px; background: #0c1725; font-size: 10px; color: #9db0c5; }
+.mobile-server-tabs button.active span { background: #2b4259; color: #d5e9fa; }
+.mobile-security-note { padding: 4px 0; border: 0; background: transparent; color: #9cafc2; }
+.mobile-security-note svg { width: 14px; height: 14px; flex-shrink: 0; color: #75a5b4; }
+.mobile-account-swipe-hint { margin: 0 0 8px; line-height: 1.4; }
+.mobile-resource-page-actions .mobile-primary,
+.mobile-resource-page-actions .mobile-icon-button,
+.mobile-resource-clear { min-height: 32px; font-size: 12px; padding: 0 10px; border-radius: 7px; }
+.mobile-resource-page-actions { margin-bottom: 8px; }
+.mobile-header-actions svg { width: 17px; height: 17px; }
+.mobile-header-actions .mobile-icon-button,
+.mobile-header-actions .mobile-header-fetch { background: transparent; border-color: transparent; color: #a8bfd2; }
+.mobile-header-actions .mobile-icon-button:hover:not(:disabled),
+.mobile-header-actions .mobile-header-fetch:hover:not(:disabled) { background: #1b2b3f; }
+.mobile-server-options { margin-top: 2px; }
+.mobile-more-feature-list { gap: 0; border: 1px solid #253449; border-radius: 10px; background: #0f1c2c; overflow: hidden; }
+.mobile-more-feature { min-height: 58px; padding: 10px 12px; gap: 12px; border: 0; border-radius: 0; background: transparent; }
+.mobile-more-feature + .mobile-more-feature { border-top: 1px solid #203044; }
+.mobile-more-feature-icon { width: 28px; height: 28px; flex-basis: 28px; border: 0; border-radius: 7px; color: color-mix(in srgb, var(--feature-color) 65%, white); background: color-mix(in srgb, var(--feature-color) 15%, #0f1c2c); }
+.mobile-more-feature-icon svg { width: 18px; height: 18px; }
+.mobile-more-feature-copy strong { font-size: 13px; font-weight: 550; }
+.mobile-more-feature-copy small { color: #9cacc0; font-size: 12px; }
+.mobile-more-feature-chevron { width: 14px; height: 14px; color: #839bb2; }
+.mobile-more-feature:focus-visible { outline-offset: -3px; }
+.mobile-more-feature:hover { background: #162639; }
+.mobile-more-page { border: 1px solid #253449; border-radius: 12px; background: #0f1c2c; overflow: hidden; }
+.mobile-more-titlebar { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 48px; margin: 0; padding: 6px 12px; border-bottom: 1px solid #203044; }
+.mobile-more-titlebar h1 { margin: 0; color: var(--mobile-text); font-size: 15px; font-weight: 600; line-height: 1.4; letter-spacing: -.01em; }
+.mobile-more-search-toggle { display: grid; place-items: center; width: 32px; height: 32px; flex: 0 0 32px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: #b2c9dc; cursor: pointer; }
+.mobile-more-search-toggle:hover { background: #21344a; color: var(--mobile-text); }
+.mobile-more-search-toggle[aria-expanded="true"] { background: #15354b; color: #9edbfa; }
+.mobile-more-search-toggle:focus-visible { outline: 2px solid var(--mobile-focus); outline-offset: 2px; }
+.mobile-more-search-expanded { display: flex; width: calc(100% - 20px); margin: 10px; min-height: 36px; border-color: #3c6581; border-radius: 8px; background: #101e2e; }
+.mobile-more-search-expanded input { font-size: 16px; }
+.mobile-more-page .mobile-more-feature-list { border: 0; border-radius: 0; background: transparent; }
+.mobile-resource-inline-actions { margin: 0; }
+.mobile-resource-inline-actions .mobile-primary { min-height: 32px; gap: 4px; border: 1px solid #34566c; background: #15374c; color: #c7e8f7; font-weight: 500; }
+.mobile-resource-inline-actions .mobile-primary svg { width: 14px; height: 14px; }
+.mobile-ssh-host-list { display: grid; gap: 8px; }
+.mobile-ssh-host-row { display: flex; align-items: flex-start; gap: 10px; padding: 12px 10px; border: 1px solid #253449; border-radius: 9px; background: #0f1c2c; }
+.mobile-ssh-host-icon { display: grid; place-items: center; width: 30px; height: 30px; flex: 0 0 30px; border-radius: 7px; background: #202945; color: #aebcff; }
+.mobile-ssh-host-copy { min-width: 0; flex: 1; }
+.mobile-ssh-host-copy strong { display: block; font-size: 14px; line-height: 1.4; font-weight: 550; overflow-wrap: anywhere; }
+.mobile-ssh-host-copy p { margin: 4px 0 6px; font-family: ui-monospace, monospace; font-size: 11px; line-height: 1.5; color: #afc2d5; overflow-wrap: anywhere; }
+.mobile-ssh-host-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 9px; font-size: 11px; line-height: 1.4; color: #9aafc3; }
+.mobile-ssh-host-status { display: inline-flex; align-items: center; gap: 4px; }
+.mobile-ssh-host-status i { width: 5px; height: 5px; border-radius: 50%; background: #8296ab; }
+.mobile-ssh-host-status.is-online i { background: #5ecbb0; }
+.mobile-ssh-host-status.is-offline i { background: #e6a777; }
+.mobile-ssh-connect { flex: 0 0 auto; align-self: center; min-width: 44px; min-height: 32px; padding: 0 8px; border: 1px solid #34566c; border-radius: 6px; background: #15374c; color: #c7e8f7; font-size: 12px; cursor: pointer; }
+.mobile-ssh-connect:hover:not(:disabled) { background: #20465e; }
+.mobile-ssh-connect:disabled { color: #94a5b7; background: #152233; border-color: #28394c; cursor: default; }
+.mobile-ssh-connect:focus-visible { outline: 2px solid var(--mobile-focus); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) {
+  .mobile-account-tools,
+  .mobile-server-tools,
+  .mobile-domain-tools,
+  .mobile-resource-tools { transition: none; }
 }

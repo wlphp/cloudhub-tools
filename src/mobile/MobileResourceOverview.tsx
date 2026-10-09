@@ -1,4 +1,4 @@
-import { ArrowUpDown, Cloud, Filter, Search, type LucideIcon } from "lucide-react";
+import { ArrowUpDown, Filter, Search, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
 type Props = {
@@ -15,19 +15,17 @@ type Props = {
   onSort: () => void;
   filter?: ReactNode;
   actions?: ReactNode;
+  inlineActions?: boolean;
 };
 
-export function MobileResourceOverview({ title, description, icon: Icon, count, countLabel, secondaryCount, secondaryLabel, search, onSearch, ascending, onSort, filter, actions }: Props) {
+export function MobileResourceOverview({ title, count, countLabel, secondaryCount, secondaryLabel, search, onSearch, ascending, onSort, filter, actions, inlineActions }: Props) {
   return <>
-    <section className="mobile-domain-hero mobile-resource-hero" aria-label={`${title}资源库`}>
-      <div className="mobile-account-hero-copy"><p>本机资源管理</p><h1>{title}</h1><span>{description}</span></div>
-      <div className="mobile-account-hero-art" aria-hidden="true"><span className="mobile-account-orbit" /><Cloud className="mobile-account-hero-cloud" size={60} /><Icon className="mobile-domain-hero-globe" size={44} /></div>
-    </section>
+    <div className="mobile-page-title"><h1>{title}</h1>{inlineActions && actions && <div className="mobile-resource-page-actions mobile-resource-inline-actions">{actions}</div>}</div>
     <div className="mobile-domain-overview"><div className="mobile-domain-stats" aria-label={`${title}统计`}>
-      <div><span className="mobile-account-stat-icon"><Icon size={21} aria-hidden="true" /></span><span className="mobile-account-stat-copy"><strong>{count}</strong><small>{countLabel}</small></span></div>
-      <div className="domain-stat-accounts"><span className="mobile-account-stat-icon"><Cloud size={21} aria-hidden="true" /></span><span className="mobile-account-stat-copy"><strong>{secondaryCount}</strong><small>{secondaryLabel}</small></span></div>
+      <div><span className="mobile-account-stat-copy"><strong>{count}</strong><small>{countLabel}</small></span></div>
+      <div className="domain-stat-accounts"><span className="mobile-account-stat-copy"><strong>{secondaryCount}</strong><small>{secondaryLabel}</small></span></div>
     </div></div>
-    {actions && <div className="mobile-resource-page-actions">{actions}</div>}
+    {!inlineActions && actions && <div className="mobile-resource-page-actions">{actions}</div>}
     <div className={`mobile-resource-tools${filter ? " has-filter" : ""}`}>
       <label className="mobile-account-search"><Search size={18} aria-hidden="true" /><input type="search" aria-label={`搜索${title}`} placeholder={`搜索${title}名称 / 账号 / 状态…`} value={search} onChange={(event) => onSearch(event.currentTarget.value)} /></label>
       {filter && <label className="mobile-account-provider-filter"><Filter size={16} aria-hidden="true" />{filter}</label>}
