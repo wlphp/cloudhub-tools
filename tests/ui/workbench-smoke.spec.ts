@@ -41,17 +41,14 @@ test("opens the cloud account form with required credential boundaries", async (
   await expect(page.getByRole("heading", { name: "添加云账号" })).toBeHidden();
 });
 
-test("shows encrypted configuration import controls on desktop", async ({ page }) => {
+test("shows QR migration controls with native boundaries on desktop", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "迁移到手机" }).click();
-  await expect(page.getByRole("heading", { name: "生成手机迁移包" })).toBeVisible();
-  await expect(page.getByText("导入手机或其他设备的迁移包")).toBeVisible();
-  await page.locator('.sync-transfer-desktop input[type="file"][accept=".json,.chsync.json,application/json"]').setInputFiles({
-    name: "phone-export.chsync.json",
-    mimeType: "application/json",
-    buffer: Buffer.from(JSON.stringify({ version: 1, kdf: "PBKDF2-HMAC-SHA256", iterations: 210000, salt: "c2FsdA==", cipher: "AES-256-GCM", nonce: "bm9uY2U=", ciphertext: "Y2lwaGVydGV4dA==" })),
-  });
-  await expect(page.getByRole("alert")).toContainText("先输入生成迁移包时使用的口令");
+  await page.getByRole("button", { name: "手机扫码迁移", exact: true }).first().click();
+  await expect(page.getByRole("heading", { name: "迁移到手机" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: /云账号/ })).toBeVisible();
+  await expect(page.getByRole("tab", { name: /SSH 主机/ })).toBeVisible();
+  await expect(page.getByRole("tab", { name: /面板/ })).toBeVisible();
+  await expect(page.locator('.sync-transfer-desktop .sync-transfer-primary')).toBeDisabled();
 });
 
 test("opens the managed server form without attempting an SSH connection", async ({ page }) => {
@@ -67,7 +64,7 @@ test("opens the managed server form without attempting an SSH connection", async
   await expect(page.locator("form.modal input[type=\"password\"]")).toHaveAttribute("required", "");
 
   await page.getByRole("button", { name: "私钥验证" }).click();
-  await expect(page.getByLabel("SSH 私钥")).toHaveAttribute("required", "");
+  await expect(page.getByLabel("SSH 私钥", { exact: true })).toHaveAttribute("required", "");
   await page.getByRole("button", { name: "取消" }).click();
   await expect(page.getByRole("heading", { name: "添加服务器" })).toBeHidden();
 });
