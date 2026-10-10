@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "kdfParams": {
+    "memLimit": 8388608,
+    "opsLimit": 3,
+    "salt": "AAECAwQFBgcICQoLDA0ODw=="
+  },
+  "encryptedData": "KXCpxqrx/FkembtxA0MiMn2cBezJPlxU0tq/Cb+p+INBw2ewNuI8cBKtSv+8Xp9X6nGjWCwPcD3w5tSjUiYheY1Tqz87nwyLcvu9yOo7r4HylavV5k5+oDzNlYf7lre6IUPgT9eKGliWcB4myhbakOvgbG5pELMA0I5uTlie64L1vT8XMLpERKoW5otkKH1tXZ8gaC0=",
+  "encryptionNonce": "sAdMOvWQsYmTUoJAI6MM0m3rlAFTwlhz"
+}

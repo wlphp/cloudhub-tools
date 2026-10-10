@@ -6,6 +6,7 @@ import { readBody, send, sendError, sendUnsupportedInPreview } from "./web-api/c
 import { allowedWebOrigins, applyWebCors } from "./web-api/core/security.mjs";
 import { handleAccountRoutes } from "./web-api/routes/accounts.mjs";
 import { handleLocalRoutes } from "./web-api/routes/local.mjs";
+import { handleAuthenticatorRoute } from "./web-api/routes/authenticator.mjs";
 import { handleFlowRoutes } from "./web-api/routes/flow.mjs";
 import { listAccounts, deleteAccount, getAccountSecretRecord, getAccountType, getAccountRegion, getAccountTypeAndRegion, getAccountForUpdate, saveAccountRecord, importAccountRecords } from "./web-api/repositories/accounts.mjs";
 import { listAssets, deleteAsset, updateServerName } from "./web-api/repositories/assets.mjs";
@@ -680,6 +681,7 @@ const server = http.createServer(async (req, res) => {
     })) return;
     if (await handleAccountRoutes(req, res, url, { accounts: listAccounts, saveAccount, deleteAccount })) return;
     if (await handleFlowRoutes(req, res, url)) return;
+    if (await handleAuthenticatorRoute(req, res, url)) return;
     if (handleLocalRoutes(req, res, url, { listAssets, deleteAsset, listApiLogs, clearApiLogs, clearOperationLogs, listManagedHosts, listPanelConnections })) return;
     if (req.method === "POST" && url.pathname === "/api/sync-assets") {
       const payload = JSON.parse(await readBody(req));

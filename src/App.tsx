@@ -115,6 +115,7 @@ import {
 import { DnsEditorDialog } from "./features/domains/DnsEditorDialog";
 import { CertificatePanel } from "./features/certificates/CertificatePanel";
 import { FlowPanel } from "./features/flow/FlowPanel";
+import { AuthenticatorPanel } from "./features/authenticator/AuthenticatorPanel";
 import { FrpPanel } from "./features/frp/FrpPanel";
 import { FavoriteServerDetails, ServerCard } from "./features/servers/ServerCards";
 import { SwasCard } from "./features/servers/SwasCard";
@@ -259,7 +260,7 @@ function App() {
   const [esaSelectedSiteId, setEsaSelectedSiteId] = useState("");
   const [esaOverview, setEsaOverview] = useState<EsaOverview | null>(null);
   const [esaSiteKeyword, setEsaSiteKeyword] = useState("");
-  const [section, setSection] = useState<"accounts" | "resources" | "certificates" | "flow" | "frp" | "panels" | "servers" | "favorites" | "logs" | "api_logs" | "settings">(() => isDetachedTerminalWindow ? "servers" : "accounts");
+  const [section, setSection] = useState<"accounts" | "resources" | "certificates" | "authenticator" | "flow" | "frp" | "panels" | "servers" | "favorites" | "logs" | "api_logs" | "settings">(() => isDetachedTerminalWindow ? "servers" : "accounts");
   const [localAssets, setLocalAssets] = useState<LocalAsset[]>([]);
   const [panelConnections, setPanelConnections] = useState<PanelConnection[]>([]);
   const [panelDialog, setPanelDialog] = useState(false);
@@ -3279,6 +3280,10 @@ function App() {
                 <ShieldCheck size={18} />
                 HTTPS 证书
               </button>
+              <button type="button" className={section === "authenticator" ? "nav-active" : ""} aria-current={section === "authenticator" ? "page" : undefined} onClick={() => setSection("authenticator")}>
+                <ShieldCheck size={18} />
+                验证器
+              </button>
               <button type="button" className={section === "flow" ? "nav-active" : ""} aria-current={section === "flow" ? "page" : undefined} onClick={() => setSection("flow")}>
                 <GitBranch size={18} />
                 云效流水线
@@ -3322,6 +3327,7 @@ function App() {
             <button type="button" className={section === "accounts" ? "nav-active" : ""} aria-current={section === "accounts" ? "page" : undefined} onClick={() => setSection("accounts")}><Database size={16} /><span>账号</span></button>
             <button type="button" className={section === "resources" ? "nav-active" : ""} aria-current={section === "resources" ? "page" : undefined} onClick={() => { setSection("resources"); void loadLocalAssets(); }}><Server size={16} /><span>资产</span></button>
             <button type="button" className={section === "certificates" ? "nav-active" : ""} aria-current={section === "certificates" ? "page" : undefined} onClick={() => setSection("certificates")}><ShieldCheck size={16} /><span>证书</span></button>
+            <button type="button" className={section === "authenticator" ? "nav-active" : ""} aria-current={section === "authenticator" ? "page" : undefined} onClick={() => setSection("authenticator")}><ShieldCheck size={16} /><span>验证器</span></button>
             <button type="button" className={section === "flow" ? "nav-active" : ""} aria-current={section === "flow" ? "page" : undefined} onClick={() => setSection("flow")}><GitBranch size={16} /><span>流水线</span></button>
             <button type="button" className={section === "frp" ? "nav-active" : ""} aria-current={section === "frp" ? "page" : undefined} onClick={() => setSection("frp")}><Network size={16} /><span>穿透</span></button>
             <button type="button" className={section === "favorites" ? "nav-active" : ""} aria-current={section === "favorites" ? "page" : undefined} onClick={() => { setSection("favorites"); void loadLocalAssets(); }}><Star size={16} /><span>收藏</span></button>
@@ -4331,6 +4337,7 @@ function App() {
         )}
         {section === "certificates" && <CertificatePanel accounts={accounts} localAssets={localAssets} onStatus={setStatus} onConfirm={requestConfirm} />}
         {section === "flow" && <FlowPanel />}
+        {section === "authenticator" && <AuthenticatorPanel />}
         {section === "frp" && <FrpPanel />}
         {section === "logs" && (
           <section className="utility-page">

@@ -538,6 +538,13 @@ fn certificate_chain(pem: &str, primary_domain: &str, issuer: &str) -> Vec<Certi
 }
 
 #[tauri::command]
+pub(crate) fn list_certificate_summaries() -> PlatformResult<Vec<crate::core::repositories::certificate_sync::CertificateSummary>> {
+    // Fill legacy validity metadata natively before returning the public-only projection.
+    list_certificates(None)?;
+    Ok(crate::core::repositories::certificate_sync::list(&open_db()?)?)
+}
+
+#[tauri::command]
 pub(crate) fn list_certificates(account_id: Option<i64>) -> PlatformResult<Vec<CertificateListItem>> {
     let conn = open_db()?;
     let rows = certificate_repository::list(&conn, account_id)?;

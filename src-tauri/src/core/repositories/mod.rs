@@ -1,4 +1,6 @@
 pub mod accounts;
+pub mod authenticator;
+pub mod authenticator_sync;
 pub mod managed_hosts;
 pub mod panel_connections;
 pub mod logs;
@@ -6,5 +8,7 @@ pub mod assets;
 pub mod preferences;
 pub mod connections;
 pub mod certificates;
+pub mod certificate_sync;
 pub mod sync;
 pub mod flow_connections;
+pub mod flow_sync;

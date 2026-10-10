@@ -1,6 +1,12 @@
 import { send } from "../core/http.mjs";
+import { listCertificateSummaries } from "../repositories/certificates.mjs";
 
 export function handleLocalRoutes(req, res, url, services) {
+  if (url.pathname === "/api/certificate-summaries") {
+    if (req.method !== "GET") return send(res, 405, { error: "证书信息仅支持读取" });
+    if ([...url.searchParams].length) return send(res, 400, { error: "证书读取参数无效" });
+    return send(res, 200, (services.listCertificateSummaries ?? listCertificateSummaries)());
+  }
   const { listAssets, deleteAsset, listApiLogs, clearApiLogs, clearOperationLogs, listManagedHosts, listPanelConnections } = services;
   if (req.method === "GET" && url.pathname === "/api/managed-hosts") {
     return send(res, 200, listManagedHosts());

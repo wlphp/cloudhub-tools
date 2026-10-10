@@ -1,7 +1,11 @@
+import { AuthenticatorPanel } from "../features/authenticator/AuthenticatorPanel";
+import { MobileCertificateRequest } from "./MobileCertificateRequest";
+import { MobileCertificates } from "./MobileCertificates";
+import type { CertificateSummary } from "../platform/clients/certificates";
 import { SecretField } from "../shared/SecretField";
 import { useCallback, useEffect, useRef, useState, type Dispatch, type FormEvent, type SetStateAction } from "react";
 import { Activity, CloudDownload, LayoutGrid, ArrowDownToLine, ArrowUpDown, Cloud, Database, File, FileText, Filter, Folder, Globe2, Plus, Power, RefreshCw, RotateCw, Search, Server, ShieldCheck, X, Trash2, Award, Terminal, Pencil, ExternalLink, Monitor, Upload, Info } from "lucide-react";
-import type { Account, ApiLog, Certificate, LocalAsset, ManagedHost, PanelConnection, PanelConnectionDraft, TransferAccount } from "../shared/types";
+import type { Account, ApiLog, LocalAsset, ManagedHost, PanelConnection, PanelConnectionDraft, TransferAccount } from "../shared/types";
 import packageJson from "../../package.json";
 import { accountsClient, certificatesClient, domainsClient, logsClient, remoteClient, resourcesClient, storageClient } from "../platform/clients";
 import type { OssObjectListing } from "../platform/clients/storage";
@@ -19,7 +23,7 @@ import { FlowPanel } from "../features/flow/FlowPanel";
 import { MobileAccountSwipeCard } from "./MobileAccountSwipeCard";
 import { panelRefreshIntervals, useMobilePanelRefresh } from "./useMobilePanelRefresh";
 
-type MobileTab = "accounts" | "servers" | "domains" | "storage" | "databases" | "redis" | "certificates" | "ssh" | "panels" | "sync" | "settings" | "operationLogs" | "apiLogs" | "about" | "flow" | "more";
+type MobileTab = "accounts" | "servers" | "domains" | "storage" | "databases" | "redis" | "certificates" | "ssh" | "panels" | "sync" | "settings" | "operationLogs" | "apiLogs" | "about" | "flow" | "authenticator" | "more";
 
 function payloadText(payload: Record<string, unknown>, keys: string[]): string {
   for (const key of keys) {
@@ -81,7 +85,8 @@ export function MobileApp() {
   const [redisAssets, setRedisAssets] = useState<LocalAsset[]>([]);
   const [selectedRedis, setSelectedRedis] = useState<LocalAsset | null>(null);
   const [redisAccounts, setRedisAccounts] = useState<Record<string, unknown>[]>([]);
-  const [certificates, setCertificates] = useState<Certificate[]>([]);
+  const [showCertificateRequest, setShowCertificateRequest] = useState(false);
+  const [certificates, setCertificates] = useState<CertificateSummary[]>([]);
   const mobileUpdate = useMobileUpdates();
   const [operationLogAssets, setOperationLogAssets] = useState<LocalAsset[]>([]);
   const [apiLogs, setApiLogs] = useState<ApiLog[]>([]);
@@ -272,7 +277,7 @@ export function MobileApp() {
     const isCurrentRead = beginResourceRead("certificates", selectedAccountId);
     setLoading(true);
     try {
-      const result = await certificatesClient.list();
+      const result = await certificatesClient.summaries();
       if (!isCurrentRead()) return;
       setCertificates(result); setNotice("");
     }
@@ -929,7 +934,6 @@ export function MobileApp() {
   const filteredBuckets = filterNamed("storage", accountAssets(buckets), assetName, assetSearchText);
   const filteredDatabaseAssets = filterNamed("databases", accountAssets(databaseAssets), assetName, assetSearchText);
   const filteredRedisAssets = filterNamed("redis", accountAssets(redisAssets), assetName, assetSearchText);
-  const filteredCertificates = filterNamed("certificates", certificates.filter((certificate) => assetAccountFilterId === null || certificate.accountId === assetAccountFilterId), (certificate) => certificate.primaryDomain, (certificate) => [certificate.primaryDomain, ...certificate.domains, certificate.status, certificate.provider, certificate.issuer, accounts.find((account) => account.id === certificate.accountId)?.account_name].join(" "));
   const filteredHosts = filterNamed("ssh", managedHosts.filter((host) => !resourceStatus.ssh || host.status === resourceStatus.ssh), (host) => host.name, (host) => [host.name, host.host, host.username, host.platform, host.status].join(" "));
   const filteredPanels = filterNamed("panels", panelConnections.filter((panel) => !resourceStatus.panels || panel.status === resourceStatus.panels), (panel) => panel.name, (panel) => [panel.name, panel.panel_url, panel.group_name, panel.status].join(" "));
   const operationLogRows = operationLogAssets.flatMap((asset) => {
@@ -942,7 +946,7 @@ export function MobileApp() {
     storage: { title: "对象存储", description: "管理多云存储桶，浏览文件与目录", icon: Folder, count: filteredBuckets.length, unit: "存储桶", second: linkedResourceAccountCount(filteredBuckets), secondLabel: "关联账号", accounts: true },
     databases: { title: "云数据库", description: "查看数据库实例，管理多云数据资源", icon: Database, count: filteredDatabaseAssets.length, unit: "数据库实例", second: linkedResourceAccountCount(filteredDatabaseAssets), secondLabel: "关联账号", accounts: true },
     redis: { title: "Redis", description: "查看缓存实例与账号，掌握资源状态", icon: Database, count: filteredRedisAssets.length, unit: "Redis 实例", second: linkedResourceAccountCount(filteredRedisAssets), secondLabel: "关联账号", accounts: true },
-    certificates: { title: "证书管理", description: "查看域名证书、签发状态与有效期", icon: Award, count: filteredCertificates.length, unit: "证书", second: new Set(filteredCertificates.map((certificate) => certificate.accountId).filter((id) => accounts.some((account) => account.id === id))).size, secondLabel: "关联账号", accounts: true },
+    certificates: { title: "证书管理", description: "查看域名证书、签发状态与有效期", icon: Award, count: certificates.length, unit: "证书", second: certificates.filter((item) => item.notAfter && item.notAfter * 1000 > Date.now() && item.notAfter * 1000 <= Date.now() + 30 * 86400000).length, secondLabel: "即将到期", accounts: false },
     ssh: { title: "SSH 终端", description: "管理本机托管主机，安全连接远程终端", icon: Terminal, count: filteredHosts.length, unit: "托管主机", second: filteredHosts.filter((host) => host.password_saved || host.private_key_saved).length, secondLabel: "已存凭据", accounts: false },
     panels: { title: "运维面板", description: "统一管理已保存的面板与连接状态", icon: Monitor, count: filteredPanels.length, unit: "运维面板", second: filteredPanels.filter((panel) => panel.status === "online").length, secondLabel: "在线面板", accounts: false },
     operationLogs: { title: "操作日志", description: "查看本机资源管理记录，追踪操作历史", icon: FileText, count: filteredOperationLogs.length, unit: "操作记录", second: new Set(filteredOperationLogs.map((row) => row.account.id)).size, secondLabel: "关联账号", accounts: true },
@@ -959,7 +963,7 @@ export function MobileApp() {
   const unknownBuckets = buckets.filter((bucket) => accountForAsset(bucket) === null);
   const unknownDatabases = databaseAssets.filter((instance) => accountForAsset(instance) === null);
   const unknownRedisInstances = redisAssets.filter((instance) => accountForAsset(instance) === null);
-  const unknownCertificates = certificates.filter((certificate) => !accounts.some((account) => account.id === certificate.accountId));
+
   const accountProviderCount = new Set(accounts.map((account) => account.cloud_type)).size;
   const availableAccountProviders = [...new Set(accounts.map((account) => account.cloud_type))]
     .map((cloudType) => ({ value: cloudType, label: cloudProvider(cloudType).label }))
@@ -1085,9 +1089,7 @@ export function MobileApp() {
           </> : filteredRedisAssets.length === 0 && !loading ? <div className="mobile-empty"><Database size={30} /><strong>{redisAssets.length ? "该账号下暂无缓存的 Redis 实例" : "暂无缓存的 Redis 实例"}</strong><span>点击“拉取云端”汇总已接入账号的实例。</span></div> : <div className="mobile-domain-list">{filteredRedisAssets.map((instance) => { const owner = accountForAsset(instance); return <button className="mobile-account-card mobile-resource-list-card" key={`${instance.account_id}:${instance.asset_key}`} type="button" onClick={() => void loadRedisAccounts(instance)}><span className="mobile-provider-avatar" data-provider={owner?.cloud_type ?? "other"}><Database size={20} /></span><span className="mobile-account-copy"><span className="mobile-resource-card-title"><strong>{payloadText(instance.payload, ["InstanceName", "InstanceId", "instanceId", "Id"])}</strong>{owner && <span className="mobile-server-provider">{cloudProvider(owner.cloud_type).label}</span>}</span><small>{owner?.account_name ?? "未知账号"} · {instance.region_id} · {payloadText(instance.payload, ["InstanceStatus", "Status", "status"])} · 缓存于 {fetchedAtLabel(instance.fetched_at)}</small></span><span className="mobile-resource-state">已缓存</span><span className="mobile-account-arrow">›</span></button>; })}</div>}
 
         </> : tab === "certificates" ? <>
-          {resourcePageOverview}
-          {accounts.length > 0 && unknownCertificates.length > 0 && <button type="button" className="mobile-clean-unknown" disabled={loading || cleaningUnknownResource !== null} onClick={() => void removeUnknownRecords("certificates", "证书", certificates, (certificate) => !accounts.some((account) => account.id === certificate.accountId), (certificate) => String(certificate.id), (certificate) => certificatesClient.remove(certificate.id), setCertificates)}>{cleaningUnknownResource === "certificates" ? "正在移除…" : `移除未知账号证书（${unknownCertificates.length}）`}</button>}
-          {loading && filteredCertificates.length === 0 ? <div className="mobile-empty">正在读取证书…</div> : filteredCertificates.length === 0 ? <div className="mobile-empty"><Award size={30} /><strong>{certificates.length ? "该账号下暂无证书" : "暂无证书"}</strong><span>手机端暂提供证书状态查看；签发、下载与私钥查看仍保留在桌面端。</span></div> : <div className="mobile-domain-list">{filteredCertificates.map((certificate) => <article className="mobile-domain-card" key={certificate.id}><div className="mobile-server-heading"><Award size={17} /><strong>{certificate.primaryDomain}</strong></div><p>{certificate.domains.join(" · ")}</p><div className="mobile-server-meta"><span>{accounts.find((account) => account.id === certificate.accountId)?.account_name ?? "未知账号"}</span><span>{certificate.status} · {certificate.provider}</span></div><small className="mobile-cert-expiry">到期时间：{certificate.notAfter ? new Date(certificate.notAfter * 1000).toLocaleDateString() : "未知"}</small>{certificate.issuer && <small className="mobile-cert-expiry">签发者：{certificate.issuer}</small>}</article>)}</div>}
+          <MobileCertificates items={certificates} loading={loading} onSync={() => setTab("sync")} onRequest={() => setShowCertificateRequest(true)} />
 
         </> : tab === "ssh" ? <>
           {!sshSessionId && resourcePageOverview}
@@ -1122,15 +1124,16 @@ export function MobileApp() {
           {resourcePageOverview}
           {apiLogsLoading && filteredApiLogs.length === 0 ? <div className="mobile-empty">正在读取 API 日志…</div> : filteredApiLogs.length === 0 ? <div className="mobile-empty"><Terminal size={30} /><strong>暂无 API 日志</strong><span>调用云资源接口后会在这里显示记录。</span></div> : <div className="mobile-domain-list">{filteredApiLogs.map((log) => <article className="mobile-domain-card mobile-log-card" key={log.id}><div className="mobile-server-heading"><Terminal size={17} /><strong>{log.action}</strong></div><p>{log.endpoint}</p><div className="mobile-server-meta"><span>{log.account_name || "未知账号"}</span><span className={log.status === "成功" ? "mobile-log-success" : "mobile-log-failure"}>{log.status}</span><time>{new Date(log.created_at).toLocaleString()}</time></div></article>)}</div>}
 
-        </> : tab === "flow" ? <FlowPanel mobile /> : tab === "about" ? <>
+        </> : tab === "authenticator" ? <AuthenticatorPanel mobile /> : tab === "flow" ? <FlowPanel mobile /> : tab === "about" ? <>
           <div className="mobile-page-title"><div><p>系统设置</p><h1>关于</h1></div></div>
           <section className="mobile-about-card"><span className="mobile-about-logo"><img src="/cloudhub-logo.png" alt="" /></span><strong>云枢 Tools</strong><span>本地多云资源管理</span><small>版本 {packageJson.version}</small></section>
           <MobileUpdatePanel update={mobileUpdate} />
         </> : <MobileMorePage onNavigate={setTab} />}
       </section>
 
-      <nav className="mobile-tab-bar" aria-label="主导航"><button type="button" aria-current={tab === "accounts" ? "page" : undefined} className={tab === "accounts" ? "active" : ""} onClick={() => setTab("accounts")}><Cloud size={19} /><span>账号</span></button><button type="button" aria-current={tab === "servers" ? "page" : undefined} className={tab === "servers" ? "active" : ""} onClick={() => setTab("servers")}><Server size={19} /><span>服务器</span></button><button type="button" aria-current={tab === "domains" ? "page" : undefined} className={tab === "domains" ? "active" : ""} onClick={() => setTab("domains")}><Globe2 size={19} /><span>域名</span></button><button type="button" aria-current={tab === "more" || tab === "flow" || tab === "storage" || tab === "databases" || tab === "redis" || tab === "certificates" || tab === "ssh" || tab === "panels" || tab === "sync" || tab === "settings" || tab === "operationLogs" || tab === "apiLogs" || tab === "about" ? "page" : undefined} className={tab === "more" || tab === "flow" || tab === "storage" || tab === "databases" || tab === "redis" || tab === "certificates" || tab === "ssh" || tab === "panels" || tab === "sync" || tab === "settings" || tab === "operationLogs" || tab === "apiLogs" || tab === "about" ? "active" : ""} onClick={() => setTab("more")}><LayoutGrid size={19} /><span>更多</span></button></nav>
+      <nav className="mobile-tab-bar" aria-label="主导航"><button type="button" aria-current={tab === "accounts" ? "page" : undefined} className={tab === "accounts" ? "active" : ""} onClick={() => setTab("accounts")}><Cloud size={19} /><span>账号</span></button><button type="button" aria-current={tab === "servers" ? "page" : undefined} className={tab === "servers" ? "active" : ""} onClick={() => setTab("servers")}><Server size={19} /><span>服务器</span></button><button type="button" aria-current={tab === "domains" ? "page" : undefined} className={tab === "domains" ? "active" : ""} onClick={() => setTab("domains")}><Globe2 size={19} /><span>域名</span></button><button type="button" aria-current={tab === "more" || tab === "authenticator" || tab === "flow" || tab === "storage" || tab === "databases" || tab === "redis" || tab === "certificates" || tab === "ssh" || tab === "panels" || tab === "sync" || tab === "settings" || tab === "operationLogs" || tab === "apiLogs" || tab === "about" ? "page" : undefined} className={tab === "more" || tab === "authenticator" || tab === "flow" || tab === "storage" || tab === "databases" || tab === "redis" || tab === "certificates" || tab === "ssh" || tab === "panels" || tab === "sync" || tab === "settings" || tab === "operationLogs" || tab === "apiLogs" || tab === "about" ? "active" : ""} onClick={() => setTab("more")}><LayoutGrid size={19} /><span>更多</span></button></nav>
 
+      {showCertificateRequest && <MobileCertificateRequest accounts={accounts} onClose={() => setShowCertificateRequest(false)} onIssued={() => void refreshCertificates()} />}
       {showAddAccount && <div className="mobile-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) { setShowAddAccount(false); setEditingAccount(null); } }}><form className="mobile-account-form" onSubmit={(event) => void saveAccount(event)}><div className="mobile-modal-heading"><div><small>凭据由 Rust 原生层加密保存</small><h2>{editingAccount ? "编辑云账号" : "添加云账号"}</h2></div><button className="mobile-icon-button" type="button" aria-label="关闭" onClick={() => { setShowAddAccount(false); setEditingAccount(null); }}><X size={20} /></button></div>
         <label>云厂商<select value={newAccountCloud} disabled={!!editingAccount} onChange={(event) => setNewAccountCloud(event.target.value)}>{cloudProviders.map((provider) => <option key={provider.value} value={provider.value}>{provider.label}</option>)}</select></label>
         <label>账号名称<input name="accountName" required maxLength={80} autoComplete="organization" defaultValue={editingAccount?.account_name} placeholder="生产环境" /></label>
