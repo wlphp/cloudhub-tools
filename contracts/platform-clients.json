@@ -16,114 +16,767 @@
     "get_flow_job_steps",
     "get_flow_job_log",
     "get_flow_job_run_log",
-    "list_accounts", "save_account", "delete_account", "reveal_account_secret",
-    "list_local_assets", "sync_cloud_assets",
-    "start_instance", "stop_instance", "reboot_instance", "cvm_instance_action",
-    "list_dns_records", "add_dns_record", "update_dns_record", "delete_dns_record", "toggle_dns_record",
-    "list_oss_objects", "list_rds_databases", "list_redis_accounts", "list_certificates",
-    "list_managed_hosts", "save_managed_host",
-    "list_panel_connections", "refresh_panel_connection", "open_panel_temporary_login", "save_panel_connection", "delete_panel_connection", "reveal_panel_api_key",
-    "ssh_connect", "ssh_read", "ssh_disconnect", "ssh_write",
-    "get_sync_device_identity", "list_sync_devices", "revoke_sync_device", "set_sync_device_share_scope", "list_pending_sync_acknowledgements",
-    "create_sync_account_bundle", "create_sync_delta_bundle", "save_sync_delta_bundle_file", "save_sync_acknowledgement_file",
-    "preview_sync_delta_bundle", "apply_sync_delta_bundle", "complete_sync_delta_push", "acknowledge_sync_delta",
-    "send_sync_delta_ack_lan", "start_sync_delta_receiver", "send_sync_delta_bundle_lan", "take_received_sync_delta",
-    "save_sync_account_bundle", "preview_sync_account_bundle", "import_sync_account_bundle", "start_sync_transfer",
-    "start_sync_delta_transfer", "cancel_sync_transfer", "approve_sync_transfer", "fetch_sync_transfer", "confirm_sync_transfer_import", "cancel_sync_transfer_import"
+    "list_accounts",
+    "save_account",
+    "delete_account",
+    "reveal_account_secret",
+    "list_local_assets",
+    "sync_cloud_assets",
+    "start_instance",
+    "stop_instance",
+    "reboot_instance",
+    "cvm_instance_action",
+    "list_dns_records",
+    "add_dns_record",
+    "update_dns_record",
+    "delete_dns_record",
+    "toggle_dns_record",
+    "list_oss_objects",
+    "list_rds_databases",
+    "list_redis_accounts",
+    "list_certificates",
+    "list_certificate_summaries",
+    "request_certificate",
+    "cancel_certificate_request",
+    "list_managed_hosts",
+    "save_managed_host",
+    "list_panel_connections",
+    "refresh_panel_connection",
+    "open_panel_temporary_login",
+    "save_panel_connection",
+    "delete_panel_connection",
+    "reveal_panel_api_key",
+    "ssh_connect",
+    "ssh_read",
+    "ssh_disconnect",
+    "ssh_write",
+    "get_sync_device_identity",
+    "list_sync_devices",
+    "revoke_sync_device",
+    "set_sync_device_share_scope",
+    "list_pending_sync_acknowledgements",
+    "create_sync_account_bundle",
+    "create_sync_delta_bundle",
+    "save_sync_delta_bundle_file",
+    "save_sync_acknowledgement_file",
+    "preview_sync_delta_bundle",
+    "apply_sync_delta_bundle",
+    "complete_sync_delta_push",
+    "acknowledge_sync_delta",
+    "send_sync_delta_ack_lan",
+    "start_sync_delta_receiver",
+    "send_sync_delta_bundle_lan",
+    "take_received_sync_delta",
+    "save_sync_account_bundle",
+    "preview_sync_account_bundle",
+    "import_sync_account_bundle",
+    "start_sync_transfer",
+    "start_sync_delta_transfer",
+    "cancel_sync_transfer",
+    "approve_sync_transfer",
+    "fetch_sync_transfer",
+    "confirm_sync_transfer_import",
+    "cancel_sync_transfer_import",
+    "authenticator_status",
+    "authenticator_unlock",
+    "authenticator_lock",
+    "authenticator_list",
+    "authenticator_touch",
+    "authenticator_codes",
+    "authenticator_save",
+    "authenticator_remove",
+    "authenticator_advance",
+    "authenticator_copy",
+    "authenticator_prepare",
+    "authenticator_import",
+    "authenticator_cancel",
+    "authenticator_export"
   ],
   "domains": [
     {
       "name": "accounts",
       "operations": [
-        { "name": "list", "native": ["list_accounts"], "preview": [{ "method": "GET", "path": "/api/accounts" }] },
-        { "name": "save", "native": ["save_account"], "preview": [{ "method": "POST", "path": "/api/accounts" }] },
-        { "name": "verify", "native": ["verify_vultr_account", "verify_ctyun_account", "verify_huawei_account", "verify_baidu_account", "verify_ucloud_account", "verify_qiniu_account", "verify_aws_account", "verify_azure_account", "verify_gcp_account", "verify_jdcloud_account", "verify_qingcloud_account", "verify_ksyun_account"], "preview": [{ "method": "POST", "path": "/api/verify-account" }] },
-        { "name": "remove", "native": ["delete_account"], "preview": [{ "method": "DELETE", "path": "/api/accounts" }] },
-        { "name": "export", "native": ["export_accounts_file"], "preview": [{ "method": "GET", "path": "/api/export" }] },
-        { "name": "import", "native": ["import_accounts"], "preview": [{ "method": "POST", "path": "/api/import" }] },
-        { "name": "reveal-secret", "native": ["reveal_account_secret"], "preview": [{ "method": "GET", "path": "/api/account-secret", "errorKind": "unsupported-in-preview" }] }
+        {
+          "name": "list",
+          "native": [
+            "list_accounts"
+          ],
+          "preview": [
+            {
+              "method": "GET",
+              "path": "/api/accounts"
+            }
+          ]
+        },
+        {
+          "name": "save",
+          "native": [
+            "save_account"
+          ],
+          "preview": [
+            {
+              "method": "POST",
+              "path": "/api/accounts"
+            }
+          ]
+        },
+        {
+          "name": "verify",
+          "native": [
+            "verify_vultr_account",
+            "verify_ctyun_account",
+            "verify_huawei_account",
+            "verify_baidu_account",
+            "verify_ucloud_account",
+            "verify_qiniu_account",
+            "verify_aws_account",
+            "verify_azure_account",
+            "verify_gcp_account",
+            "verify_jdcloud_account",
+            "verify_qingcloud_account",
+            "verify_ksyun_account"
+          ],
+          "preview": [
+            {
+              "method": "POST",
+              "path": "/api/verify-account"
+            }
+          ]
+        },
+        {
+          "name": "remove",
+          "native": [
+            "delete_account"
+          ],
+          "preview": [
+            {
+              "method": "DELETE",
+              "path": "/api/accounts"
+            }
+          ]
+        },
+        {
+          "name": "export",
+          "native": [
+            "export_accounts_file"
+          ],
+          "preview": [
+            {
+              "method": "GET",
+              "path": "/api/export"
+            }
+          ]
+        },
+        {
+          "name": "import",
+          "native": [
+            "import_accounts"
+          ],
+          "preview": [
+            {
+              "method": "POST",
+              "path": "/api/import"
+            }
+          ]
+        },
+        {
+          "name": "reveal-secret",
+          "native": [
+            "reveal_account_secret"
+          ],
+          "preview": [
+            {
+              "method": "GET",
+              "path": "/api/account-secret",
+              "errorKind": "unsupported-in-preview"
+            }
+          ]
+        }
       ]
     },
     {
       "name": "resources",
       "operations": [
-        { "name": "list-local", "native": ["list_local_assets"], "preview": [{ "method": "GET", "path": "/api/local-assets" }] },
-        { "name": "sync", "native": ["sync_cloud_assets"], "preview": [{ "method": "POST", "path": "/api/sync-assets" }] },
-        { "name": "cancel-sync", "native": ["cancel_cloud_asset_sync"], "preview": [] },
-        { "name": "summary", "native": ["cloud_account_summary"], "preview": [{ "method": "GET", "path": "/api/cloud-summary" }] },
-        { "name": "esa-overview", "native": ["esa_overview"], "preview": [{ "method": "GET", "path": "/api/esa-overview" }] },
-        { "name": "remove-local", "native": ["delete_local_asset"], "preview": [{ "method": "DELETE", "path": "/api/local-assets" }] },
-        { "name": "rds-details", "native": ["list_rds_databases", "list_rds_accounts"], "preview": [{ "method": "GET", "path": "/api/rds-databases" }, { "method": "GET", "path": "/api/rds-accounts" }] },
-        { "name": "redis-accounts", "native": ["list_redis_accounts"], "preview": [{ "method": "GET", "path": "/api/redis-accounts" }] }
+        {
+          "name": "list-local",
+          "native": [
+            "list_local_assets"
+          ],
+          "preview": [
+            {
+              "method": "GET",
+              "path": "/api/local-assets"
+            }
+          ]
+        },
+        {
+          "name": "sync",
+          "native": [
+            "sync_cloud_assets"
+          ],
+          "preview": [
+            {
+              "method": "POST",
+              "path": "/api/sync-assets"
+            }
+          ]
+        },
+        {
+          "name": "cancel-sync",
+          "native": [
+            "cancel_cloud_asset_sync"
+          ],
+          "preview": []
+        },
+        {
+          "name": "summary",
+          "native": [
+            "cloud_account_summary"
+          ],
+          "preview": [
+            {
+              "method": "GET",
+              "path": "/api/cloud-summary"
+            }
+          ]
+        },
+        {
+          "name": "esa-overview",
+          "native": [
+            "esa_overview"
+          ],
+          "preview": [
+            {
+              "method": "GET",
+              "path": "/api/esa-overview"
+            }
+          ]
+        },
+        {
+          "name": "remove-local",
+          "native": [
+            "delete_local_asset"
+          ],
+          "preview": [
+            {
+              "method": "DELETE",
+              "path": "/api/local-assets"
+            }
+          ]
+        },
+        {
+          "name": "rds-details",
+          "native": [
+            "list_rds_databases",
+            "list_rds_accounts"
+          ],
+          "preview": [
+            {
+              "method": "GET",
+              "path": "/api/rds-databases"
+            },
+            {
+              "method": "GET",
+              "path": "/api/rds-accounts"
+            }
+          ]
+        },
+        {
+          "name": "redis-accounts",
+          "native": [
+            "list_redis_accounts"
+          ],
+          "preview": [
+            {
+              "method": "GET",
+              "path": "/api/redis-accounts"
+            }
+          ]
+        }
       ]
     },
     {
       "name": "servers",
       "operations": [
-        { "name": "managed-hosts", "native": ["list_managed_hosts", "save_managed_host", "probe_managed_host", "delete_managed_host", "export_managed_hosts_file", "import_managed_hosts", "launch_managed_host_rdp"], "preview": [] },
-        { "name": "instance-actions", "native": ["swas_instance_action", "cvm_instance_reboot", "cvm_instance_action", "oracle_instance_action", "baidu_instance_action", "vultr_instance_action", "reboot_instance", "start_instance", "stop_instance", "instance_status", "rename_server", "vultr_instance_manage"], "preview": [{ "method": "POST", "path": "/api/swas-action" }, { "method": "POST", "path": "/api/cvm-action" }, { "method": "POST", "path": "/api/oracle-instance-action" }, { "method": "POST", "path": "/api/bcc-action" }, { "method": "POST", "path": "/api/vultr-instance-action" }, { "method": "POST", "path": "/api/ecs-action" }, { "method": "POST", "path": "/api/server-name" }, { "method": "POST", "path": "/api/vultr-instance-manage" }] },
-        { "name": "instance-disks", "native": ["list_instance_disks"], "preview": [{ "method": "GET", "path": "/api/instance-disks" }] },
-        { "name": "security-groups", "native": ["list_aliyun_security_groups", "authorize_aliyun_security_group_rule", "revoke_aliyun_security_group_rule", "list_tencent_security_groups", "authorize_tencent_security_group_rule", "revoke_tencent_security_group_rule", "list_baidu_security_groups", "authorize_baidu_security_group_rule", "revoke_baidu_security_group_rule"], "preview": [{ "method": "GET", "path": "/api/aliyun-security-groups" }, { "method": "POST", "path": "/api/aliyun-security-group-rules" }, { "method": "GET", "path": "/api/tencent-security-groups" }, { "method": "POST", "path": "/api/tencent-security-group-rules" }, { "method": "GET", "path": "/api/baidu-security-groups" }, { "method": "POST", "path": "/api/baidu-security-group-rules" }] },
-        { "name": "light-firewall", "native": ["list_light_firewall_rules", "create_light_firewall_rule", "delete_light_firewall_rule"], "preview": [{ "method": "GET", "path": "/api/light-firewall-rules" }, { "method": "POST", "path": "/api/light-firewall-rules" }] },
-        { "name": "vultr-firewall", "native": ["list_vultr_firewall_rules", "create_vultr_firewall_rule", "delete_vultr_firewall_rule"], "preview": [{ "method": "GET", "path": "/api/vultr-firewall-rules" }, { "method": "POST", "path": "/api/vultr-firewall-rules" }] }
+        {
+          "name": "managed-hosts",
+          "native": [
+            "list_managed_hosts",
+            "save_managed_host",
+            "probe_managed_host",
+            "delete_managed_host",
+            "export_managed_hosts_file",
+            "import_managed_hosts",
+            "launch_managed_host_rdp"
+          ],
+          "preview": []
+        },
+        {
+          "name": "instance-actions",
+          "native": [
+            "swas_instance_action",
+            "cvm_instance_reboot",
+            "cvm_instance_action",
+            "oracle_instance_action",
+            "baidu_instance_action",
+            "vultr_instance_action",
+            "reboot_instance",
+            "start_instance",
+            "stop_instance",
+            "instance_status",
+            "rename_server",
+            "vultr_instance_manage"
+          ],
+          "preview": [
+            {
+              "method": "POST",
+              "path": "/api/swas-action"
+            },
+            {
+              "method": "POST",
+              "path": "/api/cvm-action"
+            },
+            {
+              "method": "POST",
+              "path": "/api/oracle-instance-action"
+            },
+            {
+              "method": "POST",
+              "path": "/api/bcc-action"
+            },
+            {
+              "method": "POST",
+              "path": "/api/vultr-instance-action"
+            },
+            {
+              "method": "POST",
+              "path": "/api/ecs-action"
+            },
+            {
+              "method": "POST",
+              "path": "/api/server-name"
+            },
+            {
+              "method": "POST",
+              "path": "/api/vultr-instance-manage"
+            }
+          ]
+        },
+        {
+          "name": "instance-disks",
+          "native": [
+            "list_instance_disks"
+          ],
+          "preview": [
+            {
+              "method": "GET",
+              "path": "/api/instance-disks"
+            }
+          ]
+        },
+        {
+          "name": "security-groups",
+          "native": [
+            "list_aliyun_security_groups",
+            "authorize_aliyun_security_group_rule",
+            "revoke_aliyun_security_group_rule",
+            "list_tencent_security_groups",
+            "authorize_tencent_security_group_rule",
+            "revoke_tencent_security_group_rule",
+            "list_baidu_security_groups",
+            "authorize_baidu_security_group_rule",
+            "revoke_baidu_security_group_rule"
+          ],
+          "preview": [
+            {
+              "method": "GET",
+              "path": "/api/aliyun-security-groups"
+            },
+            {
+              "method": "POST",
+              "path": "/api/aliyun-security-group-rules"
+            },
+            {
+              "method": "GET",
+              "path": "/api/tencent-security-groups"
+            },
+            {
+              "method": "POST",
+              "path": "/api/tencent-security-group-rules"
+            },
+            {
+              "method": "GET",
+              "path": "/api/baidu-security-groups"
+            },
+            {
+              "method": "POST",
+              "path": "/api/baidu-security-group-rules"
+            }
+          ]
+        },
+        {
+          "name": "light-firewall",
+          "native": [
+            "list_light_firewall_rules",
+            "create_light_firewall_rule",
+            "delete_light_firewall_rule"
+          ],
+          "preview": [
+            {
+              "method": "GET",
+              "path": "/api/light-firewall-rules"
+            },
+            {
+              "method": "POST",
+              "path": "/api/light-firewall-rules"
+            }
+          ]
+        },
+        {
+          "name": "vultr-firewall",
+          "native": [
+            "list_vultr_firewall_rules",
+            "create_vultr_firewall_rule",
+            "delete_vultr_firewall_rule"
+          ],
+          "preview": [
+            {
+              "method": "GET",
+              "path": "/api/vultr-firewall-rules"
+            },
+            {
+              "method": "POST",
+              "path": "/api/vultr-firewall-rules"
+            }
+          ]
+        }
       ]
     },
     {
       "name": "logs",
       "operations": [
-        { "name": "list-api", "native": ["list_api_logs"], "preview": [{ "method": "GET", "path": "/api/api-logs" }] },
-        { "name": "clear", "native": ["clear_api_logs", "clear_operation_logs"], "preview": [{ "method": "DELETE", "path": "/api/api-logs" }, { "method": "DELETE", "path": "/api/operation-logs" }] }
+        {
+          "name": "list-api",
+          "native": [
+            "list_api_logs"
+          ],
+          "preview": [
+            {
+              "method": "GET",
+              "path": "/api/api-logs"
+            }
+          ]
+        },
+        {
+          "name": "clear",
+          "native": [
+            "clear_api_logs",
+            "clear_operation_logs"
+          ],
+          "preview": [
+            {
+              "method": "DELETE",
+              "path": "/api/api-logs"
+            },
+            {
+              "method": "DELETE",
+              "path": "/api/operation-logs"
+            }
+          ]
+        }
       ]
     },
     {
       "name": "preferences",
       "operations": [
-        { "name": "list", "native": ["list_client_preferences"], "preview": [] },
-        { "name": "save", "native": ["save_client_preference"], "preview": [] }
+        {
+          "name": "list",
+          "native": [
+            "list_client_preferences"
+          ],
+          "preview": []
+        },
+        {
+          "name": "save",
+          "native": [
+            "save_client_preference"
+          ],
+          "preview": []
+        }
       ]
     },
     {
       "name": "domains",
       "operations": [
-        { "name": "whois", "native": ["query_whois"], "preview": [{ "method": "GET", "path": "/api/whois" }] },
-        { "name": "records", "native": ["list_dns_records", "add_dns_record", "update_dns_record", "delete_dns_record", "toggle_dns_record"], "preview": [{ "method": "GET", "path": "/api/dns-records" }, { "method": "POST", "path": "/api/dns-records" }, { "method": "PUT", "path": "/api/dns-records" }, { "method": "DELETE", "path": "/api/dns-records" }, { "method": "PATCH", "path": "/api/dns-records" }] },
-        { "name": "logs", "native": ["list_domain_logs"], "preview": [{ "method": "GET", "path": "/api/domain-logs" }] }
+        {
+          "name": "whois",
+          "native": [
+            "query_whois"
+          ],
+          "preview": [
+            {
+              "method": "GET",
+              "path": "/api/whois"
+            }
+          ]
+        },
+        {
+          "name": "records",
+          "native": [
+            "list_dns_records",
+            "add_dns_record",
+            "update_dns_record",
+            "delete_dns_record",
+            "toggle_dns_record"
+          ],
+          "preview": [
+            {
+              "method": "GET",
+              "path": "/api/dns-records"
+            },
+            {
+              "method": "POST",
+              "path": "/api/dns-records"
+            },
+            {
+              "method": "PUT",
+              "path": "/api/dns-records"
+            },
+            {
+              "method": "DELETE",
+              "path": "/api/dns-records"
+            },
+            {
+              "method": "PATCH",
+              "path": "/api/dns-records"
+            }
+          ]
+        },
+        {
+          "name": "logs",
+          "native": [
+            "list_domain_logs"
+          ],
+          "preview": [
+            {
+              "method": "GET",
+              "path": "/api/domain-logs"
+            }
+          ]
+        }
       ]
     },
     {
       "name": "certificates",
       "operations": [
-        { "name": "list", "native": ["list_certificates"], "preview": [] },
-          { "name": "request", "native": ["request_certificate"], "preview": [] },
-          { "name": "cancel", "native": ["cancel_certificate_request"], "preview": [] },
-          { "name": "material", "native": ["get_certificate_material"], "preview": [] },
-          { "name": "preview", "native": ["get_certificate_preview"], "preview": [] },
-          { "name": "download", "native": ["export_certificate_material"], "preview": [] },
-        { "name": "remove", "native": ["delete_certificate"], "preview": [] }
+        {
+          "name": "list",
+          "native": [
+            "list_certificates"
+          ],
+          "preview": []
+        },
+        {
+          "name": "summaries",
+          "native": [
+            "list_certificate_summaries"
+          ],
+          "preview": [
+            {
+              "method": "GET",
+              "path": "/api/certificate-summaries"
+            }
+          ]
+        },
+        {
+          "name": "request",
+          "native": [
+            "request_certificate"
+          ],
+          "preview": []
+        },
+        {
+          "name": "cancel",
+          "native": [
+            "cancel_certificate_request"
+          ],
+          "preview": []
+        },
+        {
+          "name": "material",
+          "native": [
+            "get_certificate_material"
+          ],
+          "preview": []
+        },
+        {
+          "name": "preview",
+          "native": [
+            "get_certificate_preview"
+          ],
+          "preview": []
+        },
+        {
+          "name": "download",
+          "native": [
+            "export_certificate_material"
+          ],
+          "preview": []
+        },
+        {
+          "name": "remove",
+          "native": [
+            "delete_certificate"
+          ],
+          "preview": []
+        }
       ]
     },
     {
       "name": "storage",
       "operations": [
-        { "name": "detail", "native": ["get_oss_acl"], "preview": [{ "method": "GET", "path": "/api/oss-detail" }] },
-        { "name": "objects", "native": ["list_oss_objects"], "preview": [{ "method": "GET", "path": "/api/oss-objects" }] },
-        { "name": "configuration", "native": ["set_oss_public_read", "set_oss_cors"], "preview": [{ "method": "POST", "path": "/api/oss-public-read" }, { "method": "POST", "path": "/api/oss-cors" }] },
-        { "name": "cname", "native": [], "preview": [{ "method": "POST", "path": "/api/oss-cname-token" }, { "method": "POST", "path": "/api/oss-cname" }, { "method": "DELETE", "path": "/api/oss-cname" }] },
-        { "name": "transfers", "native": ["select_oss_upload_file", "stage_oss_upload_file", "discard_oss_upload_selection", "upload_oss_object", "download_oss_object", "download_oss_objects", "get_oss_object_url"], "preview": [] }
+        {
+          "name": "detail",
+          "native": [
+            "get_oss_acl"
+          ],
+          "preview": [
+            {
+              "method": "GET",
+              "path": "/api/oss-detail"
+            }
+          ]
+        },
+        {
+          "name": "objects",
+          "native": [
+            "list_oss_objects"
+          ],
+          "preview": [
+            {
+              "method": "GET",
+              "path": "/api/oss-objects"
+            }
+          ]
+        },
+        {
+          "name": "configuration",
+          "native": [
+            "set_oss_public_read",
+            "set_oss_cors"
+          ],
+          "preview": [
+            {
+              "method": "POST",
+              "path": "/api/oss-public-read"
+            },
+            {
+              "method": "POST",
+              "path": "/api/oss-cors"
+            }
+          ]
+        },
+        {
+          "name": "cname",
+          "native": [],
+          "preview": [
+            {
+              "method": "POST",
+              "path": "/api/oss-cname-token"
+            },
+            {
+              "method": "POST",
+              "path": "/api/oss-cname"
+            },
+            {
+              "method": "DELETE",
+              "path": "/api/oss-cname"
+            }
+          ]
+        },
+        {
+          "name": "transfers",
+          "native": [
+            "select_oss_upload_file",
+            "stage_oss_upload_file",
+            "discard_oss_upload_selection",
+            "upload_oss_object",
+            "download_oss_object",
+            "download_oss_objects",
+            "get_oss_object_url"
+          ],
+          "preview": []
+        }
       ]
     },
     {
       "name": "remote",
       "operations": [
-        { "name": "panels", "native": ["list_panel_connections", "save_panel_connection", "refresh_panel_connection", "panel_temporary_login", "delete_panel_connection", "update_panel_connection_order", "update_panel_connection_remark", "export_panel_connections_file", "import_panel_connections", "reveal_panel_api_key"], "preview": [] },
-        { "name": "connections", "native": ["get_ssh_connection", "reveal_ssh_password", "get_rdp_connection", "reveal_rdp_password", "launch_rdp_connection", "launch_managed_host_rdp", "reveal_managed_host_credential"], "preview": [] },
-        { "name": "ssh-terminal", "native": ["ssh_connect", "ssh_test_connection", "ssh_disconnect", "ssh_read", "ssh_write", "ssh_resize", "ssh_list_files", "ssh_read_text_file", "ssh_write_text_file", "ssh_upload_file", "ssh_download_file", "ssh_make_directory", "ssh_delete_path"], "preview": [] }
+        {
+          "name": "panels",
+          "native": [
+            "list_panel_connections",
+            "save_panel_connection",
+            "refresh_panel_connection",
+            "panel_temporary_login",
+            "delete_panel_connection",
+            "update_panel_connection_order",
+            "update_panel_connection_remark",
+            "export_panel_connections_file",
+            "import_panel_connections",
+            "reveal_panel_api_key"
+          ],
+          "preview": []
+        },
+        {
+          "name": "connections",
+          "native": [
+            "get_ssh_connection",
+            "reveal_ssh_password",
+            "get_rdp_connection",
+            "reveal_rdp_password",
+            "launch_rdp_connection",
+            "launch_managed_host_rdp",
+            "reveal_managed_host_credential"
+          ],
+          "preview": []
+        },
+        {
+          "name": "ssh-terminal",
+          "native": [
+            "ssh_connect",
+            "ssh_test_connection",
+            "ssh_disconnect",
+            "ssh_read",
+            "ssh_write",
+            "ssh_resize",
+            "ssh_list_files",
+            "ssh_read_text_file",
+            "ssh_write_text_file",
+            "ssh_upload_file",
+            "ssh_download_file",
+            "ssh_make_directory",
+            "ssh_delete_path"
+          ],
+          "preview": []
+        }
       ]
     },
     {
       "name": "flow",
       "operations": [
-        { "name": "cached-pipelines", "native": ["get_flow_pipeline_cache"], "preview": [{ "method": "GET", "path": "/api/flow-pipeline-cache" }] },
+        {
+          "name": "cached-pipelines",
+          "native": [
+            "get_flow_pipeline_cache"
+          ],
+          "preview": [
+            {
+              "method": "GET",
+              "path": "/api/flow-pipeline-cache"
+            }
+          ]
+        },
         {
           "name": "connections",
           "native": [
@@ -290,9 +943,188 @@
       ]
     },
     {
+      "name": "authenticator",
+      "operations": [
+        {
+          "name": "status",
+          "native": [
+            "authenticator_status"
+          ],
+          "preview": [
+            {
+              "method": "POST",
+              "path": "/api/authenticator"
+            }
+          ]
+        },
+        {
+          "name": "unlock",
+          "native": [
+            "authenticator_unlock"
+          ],
+          "preview": [
+            {
+              "method": "POST",
+              "path": "/api/authenticator"
+            }
+          ]
+        },
+        {
+          "name": "lock",
+          "native": [
+            "authenticator_lock"
+          ],
+          "preview": [
+            {
+              "method": "POST",
+              "path": "/api/authenticator"
+            }
+          ]
+        },
+        {
+          "name": "list",
+          "native": [
+            "authenticator_list"
+          ],
+          "preview": [
+            {
+              "method": "POST",
+              "path": "/api/authenticator"
+            }
+          ]
+        },
+        {
+          "name": "touch",
+          "native": [
+            "authenticator_touch"
+          ],
+          "preview": [
+            {
+              "method": "POST",
+              "path": "/api/authenticator"
+            }
+          ]
+        },
+        {
+          "name": "codes",
+          "native": [
+            "authenticator_codes"
+          ],
+          "preview": [
+            {
+              "method": "POST",
+              "path": "/api/authenticator"
+            }
+          ]
+        },
+        {
+          "name": "save",
+          "native": [
+            "authenticator_save"
+          ],
+          "preview": [
+            {
+              "method": "POST",
+              "path": "/api/authenticator"
+            }
+          ]
+        },
+        {
+          "name": "remove",
+          "native": [
+            "authenticator_remove"
+          ],
+          "preview": [
+            {
+              "method": "POST",
+              "path": "/api/authenticator"
+            }
+          ]
+        },
+        {
+          "name": "advance",
+          "native": [
+            "authenticator_advance"
+          ],
+          "preview": [
+            {
+              "method": "POST",
+              "path": "/api/authenticator"
+            }
+          ]
+        },
+        {
+          "name": "copy",
+          "native": [
+            "authenticator_copy"
+          ],
+          "preview": [
+            {
+              "method": "POST",
+              "path": "/api/authenticator"
+            }
+          ]
+        },
+        {
+          "name": "prepare",
+          "native": [
+            "authenticator_prepare"
+          ],
+          "preview": [
+            {
+              "method": "POST",
+              "path": "/api/authenticator"
+            }
+          ]
+        },
+        {
+          "name": "import",
+          "native": [
+            "authenticator_import"
+          ],
+          "preview": [
+            {
+              "method": "POST",
+              "path": "/api/authenticator"
+            }
+          ]
+        },
+        {
+          "name": "cancel",
+          "native": [
+            "authenticator_cancel"
+          ],
+          "preview": [
+            {
+              "method": "POST",
+              "path": "/api/authenticator"
+            }
+          ]
+        },
+        {
+          "name": "export",
+          "native": [
+            "authenticator_export"
+          ],
+          "preview": [
+            {
+              "method": "POST",
+              "path": "/api/authenticator"
+            }
+          ]
+        }
+      ]
+    },
+    {
       "name": "app",
       "operations": [
-        { "name": "open-data-directory", "native": ["open_app_data_directory"], "preview": [] }
+        {
+          "name": "open-data-directory",
+          "native": [
+            "open_app_data_directory"
+          ],
+          "preview": []
+        }
       ]
     }
   ]

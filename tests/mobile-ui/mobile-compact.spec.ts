@@ -73,7 +73,8 @@ for (const width of [320, 360, 375, 390, 430]) {
     await search.fill("Redis");
     await expect(page.locator(".mobile-more-feature")).toHaveCount(1);
     await search.press("Escape");
-    await expect(page.locator(".mobile-more-feature")).toHaveCount(8);
+    await expect(page.locator(".mobile-more-feature")).toHaveCount(9);
+    await expect(page.locator(".mobile-more-feature").filter({ hasText: "验证器" })).toBeVisible();
     await expect(page.getByRole("button", { name: "搜索功能", exact: true })).toBeFocused();
     if (width === 390) await page.screenshot({ path: "test-results/mobile-compact-more.png" });
   });

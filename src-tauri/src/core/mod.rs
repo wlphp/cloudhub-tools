@@ -1,4 +1,5 @@
 pub mod crypto;
+pub mod authenticator;
 pub mod database;
 pub mod error;
 pub mod paths;

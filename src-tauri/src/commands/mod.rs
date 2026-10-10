@@ -1,4 +1,5 @@
 pub mod accounts;
+pub mod authenticator;
 pub mod preferences;
 pub mod logs;
 pub mod assets;

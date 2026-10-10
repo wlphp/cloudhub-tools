@@ -1,5 +1,9 @@
 use rusqlite::{params, Connection, OptionalExtension};
-use crate::FlowConnection;
+use crate::{FlowConnection, FlowConnectionInput};
+use reqwest::Url;
+use serde_json::json;
+
+const CENTRAL_DOMAIN: &str = "openapi-rdc.aliyuncs.com";
 
 fn row(row: &rusqlite::Row<'_>) -> rusqlite::Result<FlowConnection> {
     Ok(FlowConnection { id: row.get(0)?, name: row.get(1)?, edition: row.get(2)?, organization_id: row.get(3)?, domain: row.get(4)?, token_saved: row.get::<_, Option<String>>(5)?.is_some(), created_at: row.get(6)?, updated_at: row.get(7)? })
@@ -60,6 +64,44 @@ pub fn save_pipeline_cache(conn: &Connection, id: i64, key: &str, ciphertext: &s
         .map_err(|_| "保存流水线缓存失败")?;
     Ok(())
 }
+
+
+fn validate_domain(domain: &str) -> Result<String, String> {
+    let value = domain.trim();
+    let normalized = if value.contains("://") { value.to_string() } else { format!("https://{value}") };
+    let url = Url::parse(&normalized).map_err(|_| "云效接入点格式无效".to_string())?;
+    if url.scheme() != "https" || url.host_str().is_none() || url.username() != "" || url.password().is_some() || url.path() != "/" || url.query().is_some() || url.fragment().is_some() {
+        return Err("云效接入点必须是 HTTPS 域名，且不能包含路径或凭据".into());
+    }
+    let host = url.host_str().unwrap_or_default().to_ascii_lowercase();
+    if !host.ends_with(".aliyun.com") && !host.ends_with(".aliyuncs.com") { return Err("云效接入点必须使用阿里云官方域名".into()); }
+    Ok(url.origin().ascii_serialization().trim_end_matches('/').to_string())
+}
+
+pub(crate) fn validate_connection(input: &FlowConnectionInput) -> Result<(String, String, Option<String>, String), String> {
+    let name = input.name.trim();
+    if name.is_empty() || name.len() > 100 { return Err("连接名称不能为空且不能超过 100 个字符".into()); }
+    if !["central", "region"].contains(&input.edition.as_str()) { return Err("请选择有效的云效组织类型".into()); }
+    let organization_id = input.organization_id.as_deref().map(str::trim).filter(|value| !value.is_empty());
+    if input.edition == "central" && !organization_id.is_some_and(|value| value.len() <= 128 && value.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')) {
+        return Err("中心版组织 ID 格式无效".into());
+    }
+    if input.edition == "region" && organization_id.is_some() { return Err("Region 版无需填写组织 ID".into()); }
+    let domain = if input.edition == "central" { validate_domain(input.domain.as_deref().filter(|value| !value.trim().is_empty()).unwrap_or(CENTRAL_DOMAIN))? } else {
+        validate_domain(input.domain.as_deref().ok_or("Region 版必须填写云效接入域名")?)?
+    };
+    Ok((name.to_string(), input.edition.clone(), organization_id.map(str::to_string), domain))
+}
+
+pub(crate) fn pipeline_cache_key(page: u32, per_page: u32, keyword: Option<&str>, group_id: Option<&str>) -> Result<String, String> {
+    if page == 0 || !(1..=30).contains(&per_page) { return Err("流水线分页参数无效".into()); }
+    let keyword = keyword.unwrap_or_default().trim();
+    let group = group_id.unwrap_or_default().trim();
+    if keyword.len() > 128 { return Err("搜索内容不能超过 128 个字符".into()); }
+    if !group.is_empty() && (group.len() > 20 || !group.chars().all(|c| c.is_ascii_digit())) { return Err("流水线分组 ID 格式无效".into()); }
+    serde_json::to_string(&json!([page,per_page,keyword,group])).map_err(|_| "流水线缓存参数无效".into())
+}
+
 
 #[cfg(test)]
 mod tests {

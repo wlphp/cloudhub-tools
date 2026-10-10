@@ -16,9 +16,18 @@ export type PlatformErrorCode =
   | "conflict"
   | "frp-port-conflict"
   | "cancelled"
-  | "certificate";
+  | "certificate"
+  | "authenticator-error"
+  | "authenticator-locked";
 
 function publicPlatformMessage(code: PlatformErrorCode, rawMessage: string): string {
+  if (code === "authenticator-locked") return "验证器已锁定，请重新解锁";
+  if (code === "authenticator-error") {
+    return rawMessage
+      .replace(/otpauth:\/\/[^\s]+/gi, "[OTP 地址已隐藏]")
+      .replace(/(password|secret|token|access[_-]?key|private[_-]?key|authorization|signature)(\s*[:=]\s*)[^,;\s]+/gi, "$1$2[已隐藏]")
+      .slice(0, 240);
+  }
   if (code === "unsupported-in-preview") {
     return rawMessage
       .replace(/(password|secret|token|access[_-]?key|private[_-]?key|authorization|signature)(\s*[:=]\s*)[^,;\s]+/gi, "$1$2[已隐藏]")
@@ -29,7 +38,7 @@ function publicPlatformMessage(code: PlatformErrorCode, rawMessage: string): str
       .replace(/(password|secret|token|access[_-]?key|private[_-]?key|authorization|signature)(\s*[:=]\s*)[^,;\s]+/gi, "$1$2[已隐藏]")
       .slice(0, 240);
   }
-  const messages: Record<Exclude<PlatformErrorCode, "unsupported-in-preview" | "certificate">, string> = {
+  const messages: Record<Exclude<PlatformErrorCode, "unsupported-in-preview" | "certificate" | "authenticator-error" | "authenticator-locked">, string> = {
     unknown: "操作失败，请稍后重试",
     validation: "输入参数无效，请检查后重试",
     authentication: "认证失败，请检查凭据或登录状态",
@@ -75,7 +84,7 @@ export function normalizePlatformError(reason: unknown): PlatformError {
   }
   if (typeof reason === "object" && reason !== null && "code" in reason && "message" in reason) {
     const structured = reason as { code?: PlatformErrorCode; message?: string; retryable?: boolean };
-    const code = structured.code && ["unknown", "unsupported-in-preview", "validation", "authentication", "permission", "network", "not-found", "conflict", "frp-port-conflict", "cancelled", "certificate"].includes(structured.code)
+    const code = structured.code && ["unknown", "unsupported-in-preview", "validation", "authentication", "permission", "network", "not-found", "conflict", "frp-port-conflict", "cancelled", "certificate", "authenticator-error", "authenticator-locked"].includes(structured.code)
       ? structured.code : "unknown";
     return new PlatformError(String(structured.message), code, structured.retryable === true);
   }
@@ -122,6 +131,7 @@ export async function webApi<T>(path: string, init?: RequestInit): Promise<T> {
       throw buildUnsupported(payload);
     }
     if (!response.ok) {
+      if (payload?.code === "authenticator-error" || payload?.code === "authenticator-locked") throw new PlatformError(payload.error || "验证器操作失败", payload.code);
       throw new Error(payload.error || `Web API ${response.status}`);
     }
     return payload as T;

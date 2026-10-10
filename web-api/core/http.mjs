@@ -19,7 +19,7 @@ export function sendUnsupportedInPreview(res, feature, hint = "请在桌面端�
 
 const MAX_BODY_BYTES = 10 * 1024 * 1024;
 
-export function readBody(req) {
+export function readBody(req, maxBytes = MAX_BODY_BYTES) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     let totalBytes = 0;
@@ -33,7 +33,7 @@ export function readBody(req) {
       if (settled) return;
       const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
       totalBytes += buffer.length;
-      if (totalBytes > MAX_BODY_BYTES) {
+      if (totalBytes > maxBytes) {
         const error = new Error("请求过大");
         error.statusCode = 413;
         req.off("data", onData);

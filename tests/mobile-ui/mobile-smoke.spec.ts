@@ -48,14 +48,14 @@ test("refreshes both server types and shows provider failures instead of false s
     await route.fulfill({ json: { fetched: 0, counts: { ecs: 0, swas: 0 }, errors: ["云厂商权限不足，请检查账号权限"] } });
   });
   await page.goto("/");
-  await page.getByRole("button", { name: /mobile-fixture/ }).first().click();
-  await page.getByRole("button", { name: "云端刷新" }).click();
+  await page.locator(".mobile-tab-bar").getByRole("button", { name: "服务器", exact: true }).click();
+  await page.getByRole("button", { name: "拉取云端", exact: true }).click();
   await expect(page.getByText("正在查询云端服务器")).toBeVisible();
-  await expect(page.getByText("暂无缓存的服务器")).toHaveCount(0);
+  await expect(page.getByText("暂无普通服务器", { exact: true })).toHaveCount(0);
   release();
-  await expect(page.getByText(/刷新未完全成功.*云厂商权限不足/)).toBeVisible();
-  await expect(page.getByRole("button", { name: "云端刷新" })).toBeEnabled();
-  await expect(page.getByText(/已从云厂商刷新/)).toHaveCount(0);
+  await expect(page.getByText(/部分服务器刷新失败.*云厂商权限不足/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "拉取云端", exact: true })).toBeEnabled();
+  await expect(page.getByText(/已从 \d+ 个云账号刷新/)).toHaveCount(0);
 });
 
 test("shows cached lightweight servers alongside ECS servers", async ({ page }) => {
@@ -65,8 +65,9 @@ test("shows cached lightweight servers alongside ECS servers", async ({ page }) 
     return route.fulfill({ json: [{ account_id: 12, resource_type: kind, asset_key: `${kind}-fixture`, region_id: "cn-hangzhou", payload: { InstanceId: `${kind}-fixture`, InstanceName: `${kind}-server` }, fetched_at: 1_700_000_000 }] });
   });
   await page.goto("/");
-  await page.getByRole("button", { name: /mobile-fixture/ }).first().click();
+  await page.locator(".mobile-tab-bar").getByRole("button", { name: "服务器", exact: true }).click();
   await expect(page.getByText("ecs-server", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: /^轻量服务器/ }).click();
   await expect(page.getByText("swas-server", { exact: true })).toBeVisible();
 });
 
@@ -178,35 +179,29 @@ test("validates mobile DNS input before sending provider mutations", async ({ pa
 test("navigates mobile resource sections and preserves narrow layout", async ({ page }) => {
   await stubLocalApi(page, [account]);
   await page.goto("/");
-  await page.locator(".mobile-account-select").click();
-  await expect(page.getByRole("heading", { name: "服务器" })).toBeVisible();
+  await page.locator(".mobile-tab-bar").getByRole("button", { name: "服务器", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "云服务器", exact: true })).toBeVisible();
   await expect(page.getByText("mobile-server")).toBeVisible();
   await expectNoHorizontalOverflow(page);
 
   await page.getByRole("button", { name: "域名" }).click();
-  await expect(page.getByRole("heading", { name: "域名与 DNS" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "域名与 DNS", exact: true })).toBeVisible();
   await expectNoHorizontalOverflow(page);
 
   await page.getByRole("button", { name: "更多" }).click();
   await expect(page.getByRole("heading", { name: "更多管理" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "运维面板" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "从电脑迁移面板" })).toBeVisible();
-  await page.getByRole("button", { name: /从电脑迁移配置/ }).click();
+  await expect(page.locator(".mobile-more-feature").filter({ hasText: "运维面板" })).toBeVisible();
+  await page.locator(".mobile-more-feature").filter({ hasText: "系统设置" }).click();
+  await page.getByRole("button", { name: /导入数据/ }).click();
   await expect(page.getByRole("heading", { name: "导入电脑数据" })).toBeVisible();
-  const exportSection = page.locator(".sync-transfer-mobile-export");
-  await expect(exportSection.getByText("mobile-fixture")).toBeVisible();
-  await exportSection.getByRole("checkbox", { name: /mobile-fixture/ }).check();
-  await exportSection.getByRole("checkbox", { name: /包含源设备删除记录/ }).check();
-  await expect(exportSection.getByRole("button", { name: "请在手机 App 中导出" })).toBeDisabled();
-  const reverseSync = page.locator('[aria-labelledby="sync-mobile-send-title"]');
-  await expect(page.getByRole("heading", { name: "授权并发送手机配置到电脑" })).toBeVisible();
-  await expect(reverseSync.getByLabel("已信任的目标电脑")).toBeVisible();
-  await expect(reverseSync.getByRole("button", { name: "授权所选配置并更新共享范围" })).toBeDisabled();
-  await expect(reverseSync.getByRole("button", { name: "扫描桌面接收码并推送增量" })).toBeDisabled();
+  await expect(page.getByText(/当前浏览器预览不支持原生扫码/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "选择 .chdb 电脑备份文件", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "扫码从电脑迁移（免口令）", exact: true })).toHaveCount(0);
+  await expect(page.locator('[aria-labelledby="sync-mobile-send-title"]')).toHaveCount(0);
   await expectNoHorizontalOverflow(page);
 });
 
-test("keeps slower resource responses from replacing the newly selected account", async ({ page }) => {
+test("keeps a slower resource read from replacing the cache after returning to servers", async ({ page }) => {
   const secondAccount = { ...account, id: 13, account_name: "secondary-fixture" };
   let firstRequestStarted = false;
   let secondRequestStarted = false;
@@ -214,14 +209,14 @@ test("keeps slower resource responses from replacing the newly selected account"
   let finishSecondRequest!: () => void;
   const firstRequestGate = new Promise<void>((resolve) => { finishFirstRequest = resolve; });
   const secondRequestGate = new Promise<void>((resolve) => { finishSecondRequest = resolve; });
+  let reads = 0;
   await stubLocalApi(page, [account, secondAccount]);
   await page.route("**/api/local-assets**", async (route) => {
     if (new URL(route.request().url()).searchParams.get("resource_type") === "swas") {
       await route.fulfill({ json: [] });
       return;
     }
-    const accountId = Number(new URL(route.request().url()).searchParams.get("account_id"));
-    if (accountId === 12) {
+    if (++reads === 1) {
       firstRequestStarted = true;
       await firstRequestGate;
       await route.fulfill({ json: [{ account_id: 12, resource_type: "ecs", asset_key: "i-first", region_id: "cn-hangzhou", payload: { instanceId: "i-first", instanceName: "first-account-server", status: "Running" }, fetched_at: 1_700_000_000 }] });
@@ -232,12 +227,12 @@ test("keeps slower resource responses from replacing the newly selected account"
     await route.fulfill({ json: [{ account_id: 13, resource_type: "ecs", asset_key: "i-second", region_id: "us-west-1", payload: { instanceId: "i-second", instanceName: "second-account-server", status: "Running" }, fetched_at: 1_700_000_000 }] });
   });
   await page.goto("/");
-  await page.locator(".mobile-account-select").filter({ hasText: "mobile-fixture" }).click();
+  await page.locator(".mobile-tab-bar").getByRole("button", { name: "服务器", exact: true }).click();
   await expect.poll(() => firstRequestStarted).toBeTruthy();
 
   await page.locator(".mobile-tab-bar").getByRole("button", { name: "账号" }).click();
-  await page.locator(".mobile-account-select").filter({ hasText: "secondary-fixture" }).click();
-  await expect(page.getByRole("heading", { name: "服务器" })).toBeVisible();
+  await page.locator(".mobile-tab-bar").getByRole("button", { name: "服务器", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "云服务器", exact: true })).toBeVisible();
   await expect.poll(() => secondRequestStarted).toBeTruthy();
   await expect(page.getByText("first-account-server")).toHaveCount(0);
 
@@ -265,10 +260,12 @@ test("releases resource loading state after navigating away from a pending read"
     await route.fulfill({ json: [] });
   });
   await page.goto("/");
-  await page.locator(".mobile-account-select").click();
+  await page.locator(".mobile-tab-bar").getByRole("button", { name: "服务器", exact: true }).click();
   await expect.poll(() => requestStarted).toBeTruthy();
   await page.locator(".mobile-tab-bar").getByRole("button", { name: "更多" }).click();
   await expect(page.getByRole("heading", { name: "更多管理" })).toBeVisible();
+  await expect(page.locator(".mobile-header .mobile-spin")).toHaveCount(0);
+  await page.locator(".mobile-tab-bar").getByRole("button", { name: "账号", exact: true }).click();
   await expect(page.locator(".mobile-header").getByRole("button", { name: "刷新" })).toBeEnabled();
   finishRequest();
 });
@@ -278,15 +275,16 @@ test("adds a panel locally and rejects non-root panel URLs before native save", 
   await stubLocalApi(page);
   await page.goto("/");
   await page.getByRole("button", { name: "更多" }).click();
+  await page.locator(".mobile-more-feature").filter({ hasText: "运维面板" }).click();
   await page.getByRole("button", { name: "添加面板" }).click();
 
   const form = page.locator(".mobile-account-form");
   await expect(page.getByRole("heading", { name: "添加运维面板" })).toBeVisible();
-  await expect(form.getByLabel("API 密钥")).toHaveAttribute("type", "password");
-  await expect(form.getByLabel("API 密钥")).toHaveAttribute("required", "");
+  await expect(form.getByLabel("API 密钥", { exact: true })).toHaveAttribute("type", "password");
+  await expect(form.getByLabel("API 密钥", { exact: true })).toHaveAttribute("required", "");
   await form.getByLabel("面板名称").fill("生产面板");
   await form.getByLabel("面板根地址").fill("https://panel.example.com/admin");
-  await form.getByLabel("API 密钥").fill("secret-fixture");
+  await form.getByLabel("API 密钥", { exact: true }).fill("secret-fixture");
   await form.getByRole("button", { name: "验证并加密保存" }).click();
   await expect(page.getByRole("status")).toContainText("仅支持 http(s) 根地址");
   await expectNoHorizontalOverflow(page);

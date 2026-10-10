@@ -1,4 +1,5 @@
 export { accountsClient } from "./accounts";
+export { authenticatorClient } from "./authenticator";
 export { resourcesClient } from "./resources";
 export { serversClient } from "./servers";
 export { databaseClient } from "./database";

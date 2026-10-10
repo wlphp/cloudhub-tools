@@ -3,7 +3,7 @@ use std::sync::Mutex;
 
 use super::paths::data_dir;
 
-const CURRENT_SCHEMA_VERSION: i64 = 18;
+const CURRENT_SCHEMA_VERSION: i64 = 21;
 
 // Several desktop commands open the database concurrently during startup. Keep
 // schema setup and migrations serialized so simultaneous `CREATE ... IF NOT
@@ -231,6 +231,26 @@ fn migrate_connection(conn: &mut Connection) -> Result<(), String> {
             FOREIGN KEY(connection_id) REFERENCES flow_connections(id) ON DELETE CASCADE
         );").map_err(|error| error.to_string())?;
         transaction.pragma_update(None, "user_version", 18).map_err(|error| error.to_string())?;
+    }
+    if version < 19 {
+        transaction.execute_batch("CREATE TABLE IF NOT EXISTS flow_sync_identity (
+            connection_id INTEGER PRIMARY KEY, sync_id TEXT NOT NULL UNIQUE,
+            FOREIGN KEY(connection_id) REFERENCES flow_connections(id) ON DELETE CASCADE
+        );").map_err(|_| "创建云效同步身份表失败")?;
+        transaction.pragma_update(None, "user_version", 19).map_err(|error| error.to_string())?;
+    }
+    if version < 20 {
+        transaction.execute_batch("CREATE TABLE IF NOT EXISTS certificate_sync_identity (
+            certificate_id INTEGER PRIMARY KEY, sync_id TEXT NOT NULL UNIQUE,
+            FOREIGN KEY(certificate_id) REFERENCES certificates(id) ON DELETE CASCADE
+        ); CREATE TABLE IF NOT EXISTS certificate_snapshots (
+            sync_id TEXT PRIMARY KEY, metadata_json TEXT NOT NULL, synced_at INTEGER NOT NULL
+        );").map_err(|_| "创建证书同步表失败")?;
+        transaction.pragma_update(None, "user_version", 20).map_err(|error| error.to_string())?;
+    }
+    if version < 21 {
+        transaction.execute_batch(super::repositories::authenticator::SCHEMA).map_err(|_| "创建验证器密码库失败")?;
+        transaction.pragma_update(None, "user_version", 21).map_err(|_| "更新验证器数据库版本失败")?;
     }
     transaction.commit().map_err(|error| format!("提交 SQLite 迁移失败: {error}"))?;
 

@@ -45,6 +45,45 @@ fn snapshot_database(target: &Path) -> Result<(), String> {
         .map_err(|error| format!("创建 SQLite 快照失败: {error}"))
 }
 
+fn omit_authenticator_from_export(snapshot: &Path) -> Result<(), String> {
+    // OTP recovery is deliberately a separate password-protected export flow.
+    // Only modify the export copy, never the live database or rollback backup.
+    let conn = Connection::open(snapshot).map_err(|_| "无法准备验证器数据隔离")?;
+    conn.execute_batch("PRAGMA secure_delete=ON; DELETE FROM authenticator_entries; DELETE FROM authenticator_vault; VACUUM;")
+        .map_err(|_| "无法从整库导出中隔离验证器数据".into())
+}
+
+fn preserve_local_authenticator(incoming: &Path, current: &Path) -> Result<(), String> {
+    use crate::core::repositories::authenticator::{self, SCHEMA};
+    let mut destination = Connection::open(incoming).map_err(|_| "无法准备本机验证器保留")?;
+    destination.execute_batch(SCHEMA).map_err(|_| "无法准备验证器数据表")?;
+    let transaction = destination.transaction().map_err(|_| "无法开始验证器保留事务")?;
+    transaction.execute_batch("DELETE FROM authenticator_entries; DELETE FROM authenticator_vault;").map_err(|_| "无法隔离迁移包验证器")?;
+    if current.exists() {
+        let source = Connection::open(current).map_err(|_| "无法读取本机验证器")?;
+        let exists: bool = source.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='authenticator_vault' AND type='table')", [], |row| row.get(0)).map_err(|_| "无法检查本机验证器")?;
+        if exists {
+            if let Some(header) = authenticator::header(&source)? {
+                transaction.execute("INSERT INTO authenticator_vault(id,envelope_json) VALUES(1,?1)", [header]).map_err(|_| "无法保留验证器密码库")?;
+                let mut statement = source.prepare("SELECT id,ciphertext FROM authenticator_entries").map_err(|_| "无法读取本机验证码")?;
+                let rows = statement.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))).map_err(|_| "无法读取本机验证码")?;
+                for row in rows {
+                    let (id, ciphertext) = row.map_err(|_| "无法读取本机验证码")?;
+                    transaction.execute("INSERT INTO authenticator_entries(id,ciphertext) VALUES(?1,?2)", rusqlite::params![id,ciphertext]).map_err(|_| "无法保留本机验证码")?;
+                }
+            }
+        }
+    }
+    transaction.commit().map_err(|_| "无法提交验证器保留事务".into())
+}
+
+fn lock_authenticator_for_migration(app: &tauri::AppHandle) {
+    #[cfg(desktop)]
+    { use tauri::Manager; app.state::<crate::core::authenticator::vault::VaultStore>().lock(); }
+    #[cfg(mobile)]
+    let _ = app;
+}
+
 fn write_u32(output: &mut Vec<u8>, value: u32) { output.extend_from_slice(&value.to_le_bytes()); }
 fn write_u64(output: &mut Vec<u8>, value: u64) { output.extend_from_slice(&value.to_le_bytes()); }
 
@@ -143,7 +182,7 @@ fn build_preview(database_path: &Path, current_db: &Path, token: String, package
     let labels = [("cloud_accounts", "云账号"), ("cloud_assets", "云资产"), ("ssh_connections", "SSH 连接"), ("rdp_connections", "RDP 连接"), ("managed_hosts", "托管主机"), ("panel_connections", "面板连接"), ("operation_logs", "操作日志"), ("api_logs", "API 日志"), ("client_preferences", "客户端设置")];
     let mut categories = Vec::new(); let mut total_records = 0;
     for (table, label) in labels { let count = table_count(&imported, table)?; total_records += count; categories.push(ImportCategory { label: label.into(), count }); }
-    let mut details = Vec::new(); let mut incoming_keys = HashMap::new();
+    let mut details = vec!["验证器由独立备份管理：整库导入保留本机验证器，请在验证器页面迁移验证码。".into()]; let mut incoming_keys = HashMap::new();
     let mut stmt = imported.prepare("SELECT account_name, cloud_type, region_id, enabled, access_key_id FROM cloud_accounts ORDER BY id LIMIT 200").map_err(|error| format!("读取账号明细失败: {error}"))?;
     for row in stmt.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, Option<String>>(2)?, row.get::<_, i64>(3)?, row.get::<_, String>(4)?))).map_err(|error| format!("读取账号明细失败: {error}"))?.flatten() { let (name, cloud, region, enabled, key) = row; incoming_keys.insert(key, name.clone()); details.push(format!("云账号：{} · {} · {} · {}", name, cloud, region.unwrap_or_else(|| "未设置地域".into()), if enabled == 1 { "启用" } else { "停用" })); }
     let mut stmt = imported.prepare("SELECT name, host, port, platform, auth_method FROM managed_hosts ORDER BY id LIMIT 200").map_err(|error| format!("读取托管主机明细失败: {error}"))?;
@@ -175,6 +214,7 @@ pub(crate) fn export_database_file(app: tauri::AppHandle) -> PlatformResult<Opti
     let snapshot = data.join(format!(".cloudhub-export-{}.sqlite3", Uuid::new_v4()));
     let result = (|| {
         snapshot_database(&snapshot)?;
+        omit_authenticator_from_export(&snapshot)?;
         let database = fs::read(&snapshot).map_err(|error| format!("读取 SQLite 快照失败: {error}"))?;
         let manifest = serde_json::to_vec(&json!({
             "format": "cloudhub-tools-database-migration",
@@ -226,6 +266,8 @@ pub(crate) fn import_database_file(app: tauri::AppHandle) -> PlatformResult<Opti
     let result = (|| {
         validate_database(&import_db)?;
         let current_db = data.join("cloudhub_tools.sqlite3");
+        lock_authenticator_for_migration(&app);
+        preserve_local_authenticator(&import_db, &current_db)?;
         let current_key = data.join(".key");
         let stamp = Utc::now().format("%Y%m%d-%H%M%S");
         let backup_db = data.join(format!("cloudhub_tools.sqlite3.before-import-{stamp}-{}", &Uuid::new_v4().to_string()[..8]));
@@ -255,6 +297,7 @@ fn replace_prepared_database(import_db: &Path, key: &[u8]) -> Result<String, Str
     let data = data_dir()?;
     validate_database(import_db)?;
     let current_db = data.join("cloudhub_tools.sqlite3");
+    preserve_local_authenticator(import_db, &current_db)?;
     let current_key = data.join(".key");
     let stamp = Utc::now().format("%Y%m%d-%H%M%S");
     let backup_db = data.join(format!("cloudhub_tools.sqlite3.before-import-{stamp}-{}", &Uuid::new_v4().to_string()[..8]));
@@ -297,10 +340,40 @@ pub(crate) fn prepare_database_import(app: tauri::AppHandle, state: tauri::State
 
 #[cfg(test)]
 mod tests {
-    use super::reset_imported_sync_identity;
+    use super::{reset_imported_sync_identity, preserve_local_authenticator, omit_authenticator_from_export};
     use rusqlite::Connection;
     use std::{fs, path::PathBuf};
     use uuid::Uuid;
+
+    #[test]
+    fn authenticator_is_excluded_from_export_and_preserved_on_import() {
+        let current = std::env::temp_dir().join(format!("auth-current-{}.sqlite3", Uuid::new_v4()));
+        let incoming = std::env::temp_dir().join(format!("auth-incoming-{}.sqlite3", Uuid::new_v4()));
+        for (path, header, ciphertext) in [(&current, "local-encrypted-header", "local-encrypted-entry"), (&incoming, "incoming-encrypted-header", "incoming-encrypted-entry")] {
+            let connection = Connection::open(path).unwrap();
+            connection.execute_batch(crate::core::repositories::authenticator::SCHEMA).unwrap();
+            connection.execute("INSERT INTO authenticator_vault VALUES(1,?1)", [header]).unwrap();
+            connection.execute("INSERT INTO authenticator_entries VALUES('example',?1)", [ciphertext]).unwrap();
+        }
+        preserve_local_authenticator(&incoming, &current).unwrap();
+        let connection = Connection::open(&incoming).unwrap();
+        let header: String = connection.query_row("SELECT envelope_json FROM authenticator_vault", [], |r|r.get(0)).unwrap();
+        let entry: String = connection.query_row("SELECT ciphertext FROM authenticator_entries", [], |r|r.get(0)).unwrap();
+        assert_eq!(header, "local-encrypted-header");
+        assert_eq!(entry, "local-encrypted-entry");
+        drop(connection);
+        omit_authenticator_from_export(&incoming).unwrap();
+        let bytes = fs::read(&incoming).unwrap();
+        assert!(!bytes.windows(b"local-encrypted".len()).any(|v|v == b"local-encrypted"));
+        assert_eq!(Connection::open(&current).unwrap().query_row("SELECT COUNT(*) FROM authenticator_entries", [], |r|r.get::<_,i64>(0)).unwrap(), 1);
+        // An old migration file without OTP tables also retains the current vault.
+        fs::remove_file(&incoming).unwrap();
+        Connection::open(&incoming).unwrap().execute_batch("CREATE TABLE example(id INTEGER);").unwrap();
+        preserve_local_authenticator(&incoming, &current).unwrap();
+        assert_eq!(Connection::open(&incoming).unwrap().query_row("SELECT ciphertext FROM authenticator_entries", [], |r|r.get::<_,String>(0)).unwrap(), "local-encrypted-entry");
+        fs::remove_file(current).unwrap();
+        fs::remove_file(incoming).unwrap();
+    }
 
     #[test]
     fn database_import_rotates_device_identity_and_drops_old_trust() {
@@ -340,9 +413,10 @@ mod tests {
 }
 
 #[tauri::command]
-pub(crate) fn confirm_database_import(state: tauri::State<'_, DatabaseImportStore>, token: String) -> PlatformResult<String> {
+pub(crate) fn confirm_database_import(app: tauri::AppHandle, state: tauri::State<'_, DatabaseImportStore>, token: String) -> PlatformResult<String> {
     ensure_database_file_migration_supported()?;
     let prepared = state.sessions.lock().map_err(|_| "导入预览状态不可用".to_string())?.remove(&token).ok_or_else(|| "导入预览已失效，请重新选择文件".to_string())?;
+    lock_authenticator_for_migration(&app);
     let result = replace_prepared_database(&prepared.database_path, &prepared.key);
     let _ = fs::remove_file(&prepared.database_path);
     Ok(result?)

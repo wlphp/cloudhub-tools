@@ -1,11 +1,14 @@
+import { authenticatorClient, type AuthEntry } from "../../platform/clients/authenticator";
+import { certificatesClient, type CertificateSummary } from "../../platform/clients/certificates";
 import { SecretField } from "../../shared/SecretField";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Download, FileLock2, LockKeyhole, ShieldCheck, Upload, X } from "lucide-react";
 import { Format, openAppSettings, requestPermissions, scan } from "@tauri-apps/plugin-barcode-scanner";
 import { listen } from "@tauri-apps/api/event";
 import { QRCodeSVG } from "qrcode.react";
-import type { Account, ManagedHost, PanelConnection } from "../../shared/types";
+import type { Account, ManagedHost, PanelConnection, FlowConnection } from "../../shared/types";
 import { accountsClient, type SyncDeltaApplyResult, type SyncDeltaReview, type SyncDeltaConflictResolution, type SyncEnvelope, type SyncImportPreview } from "../../platform/clients/accounts";
+import { flowClient } from "../../platform/clients/flow";
 import { runningInTauri } from "../../platform/api";
 import { databaseClient, type DatabaseImportPreview } from "../../platform/clients/database";
 import "./sync-transfer.css";
@@ -49,7 +52,28 @@ export function SyncTransferPanel({ mode, accounts = [], managedHosts = [], pane
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [selectedManagedHostIds, setSelectedManagedHostIds] = useState<Set<number>>(new Set());
   const [selectedPanelIds, setSelectedPanelIds] = useState<Set<number>>(new Set());
-  const [desktopSelectionTab, setDesktopSelectionTab] = useState<"accounts" | "hosts" | "panels">("accounts");
+  const [desktopSelectionTab, setDesktopSelectionTab] = useState<"accounts" | "hosts" | "panels" | "flows" | "certificates" | "authenticators">("accounts");
+  const [authEntries, setAuthEntries] = useState<AuthEntry[]>([]);
+  const [selectedAuthIds, setSelectedAuthIds] = useState<Set<string>>(new Set());
+  const [qrImportAuthIds, setQrImportAuthIds] = useState<Set<string>>(new Set());
+  const [certificateSummaries, setCertificateSummaries] = useState<CertificateSummary[]>([]);
+  const [selectedCertificateIds, setSelectedCertificateIds] = useState<Set<number>>(new Set());
+  const [qrImportCertificateIds, setQrImportCertificateIds] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    if (mobile || !runningInTauri) return;
+    let active = true;
+    void authenticatorClient.status().then((status) => status.unlocked ? authenticatorClient.list() : []).then((items) => {
+      if (active) { setAuthEntries(items); setSelectedAuthIds(new Set(items.map((item) => item.id))); }
+    }).catch(() => { if (active) setError("读取验证器列表失败，请先打开验证器后重试。"); });
+    void certificatesClient.summaries().then((items) => {
+      if (!active) return;
+      setCertificateSummaries(items); setSelectedCertificateIds(new Set(items.map((item) => item.id)));
+    }).catch(() => { if (active) setError("读取证书列表失败，请重新打开迁移窗口。"); });
+    return () => { active = false; };
+  }, [mobile]);
+  const [flowConnections, setFlowConnections] = useState<FlowConnection[]>([]);
+  const [selectedFlowIds, setSelectedFlowIds] = useState<Set<number>>(new Set());
+  const [qrImportFlowIds, setQrImportFlowIds] = useState<Set<string>>(new Set());
   const [preview, setPreview] = useState<SyncImportPreview | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -84,16 +108,28 @@ export function SyncTransferPanel({ mode, accounts = [], managedHosts = [], pane
   const allHostsSelected = transferableHosts.length > 0 && selectedManagedHostIds.size === transferableHosts.length;
   const transferablePanels = panels.filter((panel) => panel.api_key_saved);
   const allPanelsSelected = transferablePanels.length > 0 && selectedPanelIds.size === transferablePanels.length;
+  const allFlowsSelected = flowConnections.length > 0 && selectedFlowIds.size === flowConnections.length;
   const selectedCount = useMemo(() => selectedIds.size, [selectedIds]);
   const selectedManagedHostCount = useMemo(() => selectedManagedHostIds.size, [selectedManagedHostIds]);
   const selectedPanelCount = useMemo(() => selectedPanelIds.size, [selectedPanelIds]);
   const unresolvedDeltaConflicts = deltaReview?.conflicts.some((item) => !item.resolvable || !deltaConflictChoices[`${item.entityType}:${item.syncId}`]) ?? false;
-  const hasQrImportSelection = qrImportAccountIds.size + qrImportHostIds.size + qrImportPanelIds.size > 0 || includeQrDeletions;
+  const hasQrImportSelection = qrImportAccountIds.size + qrImportHostIds.size + qrImportPanelIds.size + qrImportFlowIds.size + qrImportCertificateIds.size + qrImportAuthIds.size > 0 || includeQrDeletions;
   const selectedQrConflicts = preview?.conflicts.filter((item) => !qrImportSessionId || (
     item.entityType === "cloudAccount" ? qrImportAccountIds.has(item.syncId)
       : item.entityType === "managedHost" ? qrImportHostIds.has(item.syncId)
-        : qrImportPanelIds.has(item.syncId)
+        : item.entityType === "flowConnection" ? qrImportFlowIds.has(item.syncId) : qrImportPanelIds.has(item.syncId)
   )) ?? [];
+
+  useEffect(() => {
+    if (mobile || !runningInTauri) return;
+    let active = true;
+    void flowClient.connections().then((items) => {
+      if (!active) return;
+      const transferable = items.filter((item) => item.tokenSaved);
+      setFlowConnections(transferable); setSelectedFlowIds(new Set(transferable.map((item) => item.id)));
+    }).catch(() => { if (active) setError("无法读取云效连接，请关闭迁移窗口后重试。"); });
+    return () => { active = false; };
+  }, [mobile]);
 
   useEffect(() => {
     if (mobile || initializedAccountSelection.current || accounts.length === 0) return;
@@ -146,10 +182,10 @@ export function SyncTransferPanel({ mode, accounts = [], managedHosts = [], pane
 
   async function startQrTransfer() {
     setError(""); setNotice(""); setPairingUrl("");
-    if (!selectedIds.size && !selectedManagedHostIds.size && !selectedPanelIds.size) { setError("至少选择一个配置后再生成二维码。"); return; }
+    if (!selectedIds.size && !selectedManagedHostIds.size && !selectedPanelIds.size && !selectedFlowIds.size && !selectedCertificateIds.size && !selectedAuthIds.size) { setError("至少选择一个配置后再生成二维码。"); return; }
     setBusy(true);
     try {
-      const transfer = await accountsClient.startSyncTransfer([...selectedIds], [...selectedManagedHostIds], [...selectedPanelIds], false);
+      const transfer = await accountsClient.startSyncTransfer([...selectedIds], [...selectedManagedHostIds], [...selectedPanelIds], false, [...selectedFlowIds], [...selectedCertificateIds], [...selectedAuthIds]);
       setPairingUrl(transfer.pairingUrl);
       setPairingSourceDeviceId(transfer.sourceDeviceId);
       setPairingSourceFingerprint(transfer.sourcePublicKeyFingerprint);
@@ -200,9 +236,12 @@ export function SyncTransferPanel({ mode, accounts = [], managedHosts = [], pane
       stage = "验证并解密迁移数据";
       setQrImportSessionId(received.sessionId);
       setPreview(received.preview);
+      setQrImportAuthIds(new Set((received.preview.authenticators ?? []).map((item) => item.id)));
       setQrImportAccountIds(new Set(received.preview.accounts.map((item) => item.syncId)));
       setQrImportHostIds(new Set(received.preview.managedHosts.map((item) => item.syncId)));
       setQrImportPanelIds(new Set(received.preview.panels.map((item) => item.syncId)));
+      setQrImportFlowIds(new Set((received.preview.flowConnections ?? []).map((item) => item.syncId)));
+      setQrImportCertificateIds(new Set((received.preview.certificates ?? []).map((item) => item.syncId)));
       setIncludeQrDeletions(false);
       setPairingSourceDeviceId(received.sourceDeviceId);
       setPairingSourceFingerprint(received.sourcePublicKeyFingerprint);
@@ -271,13 +310,13 @@ export function SyncTransferPanel({ mode, accounts = [], managedHosts = [], pane
   async function confirmImport() {
     if (!preview) return;
     if (mobile && qrImportSessionId) {
-      if (!qrImportAccountIds.size && !qrImportHostIds.size && !qrImportPanelIds.size && !includeQrDeletions) { setError("至少选择一项配置后再导入。"); return; }
+      if (!qrImportAccountIds.size && !qrImportHostIds.size && !qrImportPanelIds.size && !qrImportFlowIds.size && !qrImportCertificateIds.size && !qrImportAuthIds.size && !includeQrDeletions) { setError("至少选择一项配置后再导入。"); return; }
       setBusy(true); setError(""); setNotice("");
       try {
         const imported = await accountsClient.confirmQrSyncImport(qrImportSessionId, {
-          accountSyncIds: [...qrImportAccountIds], managedHostSyncIds: [...qrImportHostIds], panelSyncIds: [...qrImportPanelIds], includeDeletions: includeQrDeletions,
+          accountSyncIds: [...qrImportAccountIds], managedHostSyncIds: [...qrImportHostIds], panelSyncIds: [...qrImportPanelIds], flowConnectionSyncIds: [...qrImportFlowIds], certificateSyncIds: [...qrImportCertificateIds], authenticatorIds: [...qrImportAuthIds], includeDeletions: includeQrDeletions,
         });
-        setNotice(`迁移完成：新增 ${imported.added} 项，更新 ${imported.updated} 项（云账号 ${imported.accounts}、主机 ${imported.managedHosts}、面板 ${imported.panels}）。`);
+        setNotice(`迁移完成：新增 ${imported.added} 项，更新 ${imported.updated} 项（云账号 ${imported.accounts}、主机 ${imported.managedHosts}、面板 ${imported.panels}、云效连接 ${imported.flowConnections ?? 0}、证书 ${imported.certificates ?? 0}、验证码 ${imported.authenticators ?? 0}）。`);
         setPreview(null); setQrImportSessionId(""); setIncludeQrDeletions(false); onImported?.();
       } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
       finally { setBusy(false); }
@@ -374,14 +413,20 @@ export function SyncTransferPanel({ mode, accounts = [], managedHosts = [], pane
           <button type="button" role="tab" id="sync-transfer-tab-accounts" aria-selected={desktopSelectionTab === "accounts"} aria-controls="sync-transfer-selection-panel" onClick={() => setDesktopSelectionTab("accounts")}>云账号 <span>{selectedCount}/{accounts.length}</span></button>
           <button type="button" role="tab" id="sync-transfer-tab-hosts" aria-selected={desktopSelectionTab === "hosts"} aria-controls="sync-transfer-selection-panel" onClick={() => setDesktopSelectionTab("hosts")}>SSH 主机 <span>{selectedManagedHostCount}/{transferableHosts.length}</span></button>
           <button type="button" role="tab" id="sync-transfer-tab-panels" aria-selected={desktopSelectionTab === "panels"} aria-controls="sync-transfer-selection-panel" onClick={() => setDesktopSelectionTab("panels")}>面板 <span>{selectedPanelCount}/{transferablePanels.length}</span></button>
+          <button type="button" role="tab" id="sync-transfer-tab-certificates" aria-selected={desktopSelectionTab === "certificates"} aria-controls="sync-transfer-selection-panel" onClick={() => setDesktopSelectionTab("certificates")}>证书 <span>{selectedCertificateIds.size}/{certificateSummaries.length}</span></button>
+          <button type="button" role="tab" id="sync-transfer-tab-flows" aria-selected={desktopSelectionTab === "flows"} aria-controls="sync-transfer-selection-panel" onClick={() => setDesktopSelectionTab("flows")}>流水线 <span>{selectedFlowIds.size}/{flowConnections.length}</span></button>
+          <button type="button" role="tab" id="sync-transfer-tab-authenticators" aria-selected={desktopSelectionTab === "authenticators"} aria-controls="sync-transfer-selection-panel" onClick={() => setDesktopSelectionTab("authenticators")}>验证器 <span>{selectedAuthIds.size}/{authEntries.length}</span></button>
         </div>
         <div className="sync-transfer-selection-toolbar">
-          <strong>{desktopSelectionTab === "accounts" ? "选择云账号" : desktopSelectionTab === "hosts" ? "选择 SSH 主机" : "选择面板"}</strong>
+          <strong>{desktopSelectionTab === "accounts" ? "选择云账号" : desktopSelectionTab === "hosts" ? "选择 SSH 主机" : desktopSelectionTab === "panels" ? "选择面板" : desktopSelectionTab === "certificates" ? "选择证书信息" : desktopSelectionTab === "authenticators" ? "选择验证码" : "选择云效连接"}</strong>
           <button type="button" onClick={() => {
             if (desktopSelectionTab === "accounts") setSelectedIds(allSelected ? new Set() : new Set(accounts.map((account) => account.id)));
             else if (desktopSelectionTab === "hosts") setSelectedManagedHostIds(allHostsSelected ? new Set() : new Set(transferableHosts.map((host) => host.id)));
+            else if (desktopSelectionTab === "certificates") setSelectedCertificateIds(selectedCertificateIds.size === certificateSummaries.length ? new Set() : new Set(certificateSummaries.map((item) => item.id)));
+            else if (desktopSelectionTab === "authenticators") setSelectedAuthIds(selectedAuthIds.size === authEntries.length ? new Set() : new Set(authEntries.map((item) => item.id)));
+            else if (desktopSelectionTab === "flows") setSelectedFlowIds(allFlowsSelected ? new Set() : new Set(flowConnections.map((item) => item.id)));
             else setSelectedPanelIds(allPanelsSelected ? new Set() : new Set(transferablePanels.map((panel) => panel.id)));
-          }}>{(desktopSelectionTab === "accounts" ? allSelected : desktopSelectionTab === "hosts" ? allHostsSelected : allPanelsSelected) ? "清空" : "全选"}</button>
+          }}>{(desktopSelectionTab === "accounts" ? allSelected : desktopSelectionTab === "hosts" ? allHostsSelected : desktopSelectionTab === "panels" ? allPanelsSelected : desktopSelectionTab === "certificates" ? certificateSummaries.length > 0 && selectedCertificateIds.size === certificateSummaries.length : desktopSelectionTab === "authenticators" ? authEntries.length > 0 && selectedAuthIds.size === authEntries.length : allFlowsSelected) ? "清空" : "全选"}</button>
         </div>
         <div className="sync-transfer-account-list" id="sync-transfer-selection-panel" role="tabpanel" aria-labelledby={`sync-transfer-tab-${desktopSelectionTab}`}>
           {desktopSelectionTab === "accounts" && accounts.map((account) => <label key={account.id} className="sync-transfer-account">
@@ -396,11 +441,23 @@ export function SyncTransferPanel({ mode, accounts = [], managedHosts = [], pane
             <input type="checkbox" checked={selectedPanelIds.has(panel.id)} onChange={() => setSelectedPanelIds((current) => { const next = new Set(current); if (next.has(panel.id)) next.delete(panel.id); else next.add(panel.id); return next; })} />
             <span><strong>{panel.name}</strong><small>{panel.panel_url}</small></span>
           </label>)}
+          {desktopSelectionTab === "certificates" && certificateSummaries.map((item) => <label key={item.id} className="sync-transfer-account">
+            <input type="checkbox" checked={selectedCertificateIds.has(item.id)} onChange={() => setSelectedCertificateIds((current) => { const next = new Set(current); if (next.has(item.id)) next.delete(item.id); else next.add(item.id); return next; })} />
+            <span><strong>{item.primaryDomain}</strong><small>{item.notAfter ? new Date(item.notAfter * 1000).toLocaleDateString() + " 到期" : "有效期待补全"} · 仅证书信息</small></span>
+          </label>)}
+          {desktopSelectionTab === "certificates" && certificateSummaries.length === 0 && <p className="sync-transfer-empty">当前没有可同步的证书</p>}
+          {desktopSelectionTab === "flows" && flowConnections.map((item) => <label key={item.id} className="sync-transfer-account">
+            <input type="checkbox" checked={selectedFlowIds.has(item.id)} onChange={() => setSelectedFlowIds((current) => { const next = new Set(current); if (next.has(item.id)) next.delete(item.id); else next.add(item.id); return next; })} />
+            <span><strong>{item.name}</strong><small>{item.edition === "central" ? "中心版" : "Region 版"}{item.organizationId ? ` · ${item.organizationId}` : ""} · 含令牌及已缓存流水线</small></span>
+          </label>)}
+          {desktopSelectionTab === "flows" && flowConnections.length === 0 && <p className="sync-transfer-empty">当前没有可迁移的云效连接</p>}
+          {desktopSelectionTab === "authenticators" && authEntries.map((item) => <label key={item.id} className="sync-transfer-account"><input type="checkbox" aria-label={`迁移验证码 ${item.issuer} ${item.account}`} checked={selectedAuthIds.has(item.id)} onChange={() => setSelectedAuthIds((current) => { const next = new Set(current); if (next.has(item.id)) next.delete(item.id); else next.add(item.id); return next; })} /><span><strong>{item.issuer || "未指定服务商"}</strong><small>{item.account} · {item.group || "未分组"}</small></span></label>)}
+          {desktopSelectionTab === "authenticators" && authEntries.length === 0 && <p className="sync-transfer-empty">暂无验证码，请先在验证器中添加或导入。</p>}
           {((desktopSelectionTab === "accounts" && accounts.length === 0) || (desktopSelectionTab === "hosts" && transferableHosts.length === 0) || (desktopSelectionTab === "panels" && transferablePanels.length === 0)) && <p className="sync-transfer-empty">当前没有可迁移的{desktopSelectionTab === "accounts" ? "云账号" : desktopSelectionTab === "hosts" ? "SSH 主机" : "面板"}</p>}
         </div>
-        <p className="sync-transfer-selection-summary">已选 {selectedCount + selectedManagedHostCount + selectedPanelCount} 项</p>
+        <p className="sync-transfer-selection-summary">已选 {selectedCount + selectedManagedHostCount + selectedPanelCount + selectedFlowIds.size + selectedCertificateIds.size + selectedAuthIds.size} 项</p>
       </div>
-      <button className="sync-transfer-primary sync-transfer-secondary" type="button" disabled={busy || !runningInTauri || !approvalListenerReady || !!pendingClientAddress || (!selectedIds.size && !selectedManagedHostIds.size && !selectedPanelIds.size)} onClick={() => void startQrTransfer()}><ShieldCheck size={17} aria-hidden="true" />{busy ? "正在开启…" : !approvalListenerReady ? "正在准备授权…" : "显示手机迁移二维码（免口令）"}</button>
+      <button className="sync-transfer-primary sync-transfer-secondary" type="button" disabled={busy || !runningInTauri || !approvalListenerReady || !!pendingClientAddress || (!selectedIds.size && !selectedManagedHostIds.size && !selectedPanelIds.size && !selectedFlowIds.size && !selectedCertificateIds.size && !selectedAuthIds.size)} onClick={() => void startQrTransfer()}><ShieldCheck size={17} aria-hidden="true" />{busy ? "正在开启…" : !approvalListenerReady ? "正在准备授权…" : "显示手机迁移二维码（免口令）"}</button>
       {pairingUrl && <div className="sync-transfer-pairing"><QRCodeSVG value={pairingUrl} size={220} level="M" title="一次性局域网迁移二维码" /><p>电脑身份：<code>{pairingSourceDeviceId}</code><br />公钥指纹：<code>{pairingSourceFingerprint}</code></p><p>二维码仅用于本次加密传输。手机扫码后会显示设备校验信息；电脑批准后才发送所选配置。</p>{pendingClientAddress && <div className="sync-transfer-approval" role="alert"><strong>手机请求接收配置</strong><span>局域网地址：{pendingClientAddress}</span><span>设备身份：<code>{pendingDeviceIdentity}</code></span><span>请求校验码：<strong>{pendingVerificationCode}</strong></span><small>请核对手机显示的校验码和设备指纹，再确认请求来自你手上的设备。</small><div><button type="button" disabled={busy} onClick={() => void decideQrRequest(false)}>拒绝</button><button type="button" disabled={busy} onClick={() => void decideQrRequest(true)}>批准并发送</button></div></div>}<button type="button" disabled={busy} onClick={() => void cancelQrTransfer()}>关闭二维码</button></div>}
     </>}
     {runningInTauri && mobile && <details className="sync-transfer-advanced"><summary><strong>接收签名增量</strong><small>仅在需要设备间增量同步时使用</small></summary><section className="sync-transfer-devices" aria-labelledby="sync-delta-receive-title">
@@ -422,11 +479,14 @@ export function SyncTransferPanel({ mode, accounts = [], managedHosts = [], pane
       {mobile && pendingAcknowledgements.length > 0 && <div className="sync-transfer-preview" role="status"><strong>有 {pendingAcknowledgements.length} 个签名回执待保存</strong><p>这些回执已保存在本机数据库。保存后通过系统分享功能交还电脑；发送设备收到回执前会保留待发送记录。</p><button className="sync-transfer-primary" type="button" disabled={busy} onClick={() => void retrySaveAcknowledgement()}><Download size={17} aria-hidden="true" />{busy ? "正在保存…" : "保存最早的签名回执"}</button></div>}
     </section></details>}
     {preview && <div className="sync-transfer-preview" aria-live="polite">
-      <h3>{qrImportSessionId ? `已选择 ${qrImportAccountIds.size} 个云账号、${qrImportHostIds.size} 台主机、${qrImportPanelIds.size} 个面板${includeQrDeletions ? `和 ${preview.deletions.filter((item) => item.willDelete).length} 条删除记录` : ""}` : `将处理 ${preview.accounts.length} 个云账号、${preview.managedHosts.length} 台托管主机、${preview.panels.length} 个面板和 ${preview.deletions.length} 条删除记录`}</h3>
+      <h3>{qrImportSessionId ? `已选择 ${qrImportAccountIds.size} 个云账号、${qrImportHostIds.size} 台主机、${qrImportPanelIds.size} 个面板、${qrImportFlowIds.size} 个云效连接、${qrImportCertificateIds.size} 个证书、${qrImportAuthIds.size} 个验证码${includeQrDeletions ? `和 ${preview.deletions.filter((item) => item.willDelete).length} 条删除记录` : ""}` : `将处理 ${preview.accounts.length} 个云账号、${preview.managedHosts.length} 台托管主机、${preview.panels.length} 个面板、${preview.flowConnections?.length ?? 0} 个云效连接、${preview.certificates?.length ?? 0} 个证书、${preview.authenticators?.length ?? 0} 个验证码和 ${preview.deletions.length} 条删除记录`}</h3>
       {qrImportSessionId && <p>勾选要导入到手机的配置；未勾选的项目不会写入手机。</p>}
       {!!preview.accounts.length && <ul>{preview.accounts.map((account) => <li key={account.syncId}>{qrImportSessionId && <input type="checkbox" aria-label={`导入云账号 ${account.accountName}`} checked={qrImportAccountIds.has(account.syncId)} onChange={() => setQrImportAccountIds((current) => { const next = new Set(current); if (next.has(account.syncId)) next.delete(account.syncId); else next.add(account.syncId); return next; })} />}<strong>{account.accountName}</strong><span>{account.cloudType}{account.regionId ? ` · ${account.regionId}` : ""}</span></li>)}</ul>}
       {!!preview.managedHosts.length && <ul>{preview.managedHosts.map((host) => <li key={host.syncId}>{qrImportSessionId && <input type="checkbox" aria-label={`导入 SSH 主机 ${host.name}`} checked={qrImportHostIds.has(host.syncId)} onChange={() => setQrImportHostIds((current) => { const next = new Set(current); if (next.has(host.syncId)) next.delete(host.syncId); else next.add(host.syncId); return next; })} />}<strong>{host.name}</strong><span>{host.username}@{host.host}:{host.port} · {host.authMethod === "private_key" ? "SSH 私钥" : "SSH 密码"}</span></li>)}</ul>}
       {!!preview.panels.length && <ul>{preview.panels.map((panel) => <li key={panel.syncId}>{qrImportSessionId && <input type="checkbox" aria-label={`导入面板 ${panel.name}`} checked={qrImportPanelIds.has(panel.syncId)} onChange={() => setQrImportPanelIds((current) => { const next = new Set(current); if (next.has(panel.syncId)) next.delete(panel.syncId); else next.add(panel.syncId); return next; })} />}<strong>{panel.name}</strong><span>{panel.panelUrl}{panel.allowInsecureTls ? " · 允许不受信任 HTTPS 证书" : ""}</span></li>)}</ul>}
+      {!!preview.certificates?.length && <ul>{preview.certificates.map((item) => <li key={item.syncId} className="sync-transfer-flow-record"><label>{qrImportSessionId && <input type="checkbox" aria-label={`导入证书 ${item.primaryDomain}`} checked={qrImportCertificateIds.has(item.syncId)} onChange={() => setQrImportCertificateIds((current) => { const next = new Set(current); if (next.has(item.syncId)) next.delete(item.syncId); else next.add(item.syncId); return next; })} />}<span><strong>{item.primaryDomain}</strong><small>证书信息 · {item.notAfter ? new Date(item.notAfter * 1000).toLocaleDateString() + " 到期" : "有效期待补全"} · 不含私钥</small></span></label></li>)}</ul>}
+      {!!preview.authenticators?.length && <ul>{preview.authenticators.map((item) => <li key={item.id} className="sync-transfer-flow-record"><label>{qrImportSessionId && <input type="checkbox" aria-label={`导入验证码 ${item.issuer} ${item.account}`} checked={qrImportAuthIds.has(item.id)} onChange={() => setQrImportAuthIds((current) => { const next = new Set(current); if (next.has(item.id)) next.delete(item.id); else next.add(item.id); return next; })} />}<span><strong>{item.issuer} · {item.account}</strong><small>验证器 · {item.group || "未分组"} · 密钥仅在原生进程中处理</small></span></label></li>)}</ul>}
+      {!!preview.flowConnections?.length && <ul>{preview.flowConnections.map((item) => <li key={item.syncId} className="sync-transfer-flow-record"><label>{qrImportSessionId && <input type="checkbox" aria-label={`导入云效连接 ${item.name}`} checked={qrImportFlowIds.has(item.syncId)} onChange={() => setQrImportFlowIds((current) => { const next = new Set(current); if (next.has(item.syncId)) next.delete(item.syncId); else next.add(item.syncId); return next; })} />}<span><strong>{item.name}</strong><small>云效 · {item.pipelineCount} 条已缓存流水线 · 含连接令牌</small></span></label></li>)}</ul>}
       {qrImportSessionId && !!preview.deletions.length && <label className="sync-transfer-deletions"><input type="checkbox" checked={includeQrDeletions} onChange={(event) => setIncludeQrDeletions(event.target.checked)} /><span><strong>同时应用 {preview.deletions.filter((item) => item.willDelete).length} 条删除记录</strong><small>取消勾选时只导入已选配置，不执行删除。</small></span></label>}
       {!!preview.deletions.length && <div className="sync-transfer-conflicts" role="alert"><strong>确认后将删除 {preview.deletions.filter((item) => item.willDelete).length} 项本机配置</strong><ul>{preview.deletions.map((item) => <li key={`${item.entityType}:${item.syncId}`}><span>{item.name}</span><small>{item.willDelete ? `删除${item.entityType === "cloud_account" ? "云账号" : item.entityType === "managed_host" ? "托管主机" : "面板"}` : "本机已不存在，不会产生变化"}</small></li>)}</ul></div>}
       {!!selectedQrConflicts.length && <div className="sync-transfer-conflicts" role="alert"><strong>发现 {selectedQrConflicts.length} 项与本机配置冲突</strong><ul>{selectedQrConflicts.map((conflict, index) => <li key={`${conflict.entityType}:${conflict.name}:${index}`}><span>{conflict.name}</span><small>{conflict.reason}</small></li>)}</ul></div>}

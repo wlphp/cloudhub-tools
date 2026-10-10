@@ -1,5 +1,8 @@
-import { nativeOnly } from "./base";
+import { nativeOnly, invokeOrWeb } from "./base";
 import type { Certificate } from "../../shared/types";
+
+export type CertificateMetadata = Pick<Certificate, "provider" | "primaryDomain" | "domains" | "status" | "issuer" | "serialNumber" | "notBefore" | "notAfter" | "updatedAt"> & { syncId: string };
+export type CertificateSummary = CertificateMetadata & { id: number };
 
 export type CertificateRequest = {
   accountId: number;
@@ -13,6 +16,9 @@ export type CertificateRequest = {
 };
 
 export const certificatesClient = {
+  summaries(): Promise<CertificateSummary[]> {
+    return invokeOrWeb("list_certificate_summaries", undefined, { path: "/api/certificate-summaries" });
+  },
   list(accountId?: number): Promise<Certificate[]> {
     return nativeOnly("list_certificates", { accountId: accountId ?? null });
   },

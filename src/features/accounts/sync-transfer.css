@@ -19,7 +19,7 @@
 .sync-transfer-desktop .sync-transfer-icon{border-radius:8px}
 .sync-transfer-desktop .sync-transfer-close{border-radius:7px}
 .sync-transfer-desktop-selection{margin-top:18px;padding:12px;border:1px solid #28445c;border-radius:10px;background:#091827}
-.sync-transfer-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;padding:4px;border:1px solid #203b53;border-radius:8px;background:#071421}
+.sync-transfer-tabs{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;padding:4px;border:1px solid #203b53;border-radius:8px;background:#071421}
 .sync-transfer-tabs button{min-width:0;min-height:40px;display:flex;align-items:center;justify-content:center;gap:6px;padding:0 8px;border:1px solid transparent;border-radius:6px;background:transparent;color:#9fb5c9;font:inherit;font-size:12px;font-weight:650;cursor:pointer}
 .sync-transfer-tabs button[aria-selected="true"]{border-color:#28678a;background:#123049;color:#9edfff}
 .sync-transfer-tabs button span{padding:2px 6px;border-radius:10px;background:#071421;color:#90a9bf;font-size:10px;font-variant-numeric:tabular-nums}
@@ -33,3 +33,6 @@
 .sync-transfer-desktop .sync-transfer-primary{border-radius:8px}
 .sync-transfer-desktop :is(button,input):focus-visible{outline:2px solid #7ec9e8;outline-offset:2px}
 .sync-transfer-advanced-content{padding:0 12px 12px}.sync-transfer-advanced-content>.sync-transfer-file,.sync-transfer-advanced-content>.sync-transfer-primary{margin-top:10px}.sync-transfer-preview>ul>li{display:flex;justify-content:space-between;gap:10px}
+
+.sync-transfer-preview>ul>li.sync-transfer-flow-record{display:block;padding:0}.sync-transfer-flow-record>label{min-height:56px;display:flex;align-items:center;gap:10px;padding:8px 0;cursor:pointer}.sync-transfer-flow-record input{width:18px;height:18px;margin:0;flex:none;accent-color:#24a5df}.sync-transfer-flow-record label>span{display:grid;gap:3px;min-width:0}.sync-transfer-flow-record strong{color:#eaf4fd;font-size:13px;overflow-wrap:anywhere}.sync-transfer-flow-record small{font-size:11px;overflow-wrap:anywhere}.sync-transfer-flow-record:focus-within{outline:2px solid #7ec9e8;outline-offset:2px}
+@media(max-width:480px){.sync-transfer-tabs{grid-template-columns:repeat(2,minmax(0,1fr))}}
