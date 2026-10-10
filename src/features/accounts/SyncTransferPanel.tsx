@@ -1,13 +1,12 @@
 import { authenticatorClient, type AuthEntry } from "../../platform/clients/authenticator";
 import { certificatesClient, type CertificateSummary } from "../../platform/clients/certificates";
-import { SecretField } from "../../shared/SecretField";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { Download, FileLock2, LockKeyhole, ShieldCheck, Upload, X } from "lucide-react";
+import { FileLock2, LockKeyhole, ShieldCheck, Upload, X } from "lucide-react";
 import { Format, openAppSettings, requestPermissions, scan } from "@tauri-apps/plugin-barcode-scanner";
 import { listen } from "@tauri-apps/api/event";
 import { QRCodeSVG } from "qrcode.react";
 import type { Account, ManagedHost, PanelConnection, FlowConnection } from "../../shared/types";
-import { accountsClient, type SyncDeltaApplyResult, type SyncDeltaReview, type SyncDeltaConflictResolution, type SyncEnvelope, type SyncImportPreview } from "../../platform/clients/accounts";
+import { accountsClient, type SyncImportPreview } from "../../platform/clients/accounts";
 import { flowClient } from "../../platform/clients/flow";
 import { runningInTauri } from "../../platform/api";
 import { databaseClient, type DatabaseImportPreview } from "../../platform/clients/database";
@@ -21,20 +20,6 @@ type Props = {
   onClose?: () => void;
   onImported?: () => void;
 };
-
-function isEnvelope(value: unknown): value is SyncEnvelope {
-  if (!value || typeof value !== "object") return false;
-  const item = value as Record<string, unknown>;
-  return item.version === 1 && item.kdf === "PBKDF2-HMAC-SHA256" && item.cipher === "AES-256-GCM"
-    && ["salt", "nonce", "ciphertext"].every((key) => typeof item[key] === "string");
-}
-
-function downloadJson(fileName: string, value: unknown) {
-  const href = URL.createObjectURL(new Blob([JSON.stringify(value, null, 2)], { type: "application/json" }));
-  const link = document.createElement("a");
-  link.href = href; link.download = fileName; document.body.append(link); link.click(); link.remove();
-  window.setTimeout(() => URL.revokeObjectURL(href), 1000);
-}
 
 function transferErrorMessage(cause: unknown, fallback: string) {
   if (cause instanceof Error && cause.message) return cause.message;
@@ -90,15 +75,9 @@ export function SyncTransferPanel({ mode, accounts = [], managedHosts = [], pane
   const [qrImportPanelIds, setQrImportPanelIds] = useState<Set<string>>(new Set());
   const [includeQrDeletions, setIncludeQrDeletions] = useState(false);
   const [approvalListenerReady, setApprovalListenerReady] = useState(false);
-  const [deltaPassphrase, setDeltaPassphrase] = useState("");
-  const [deltaEnvelope, setDeltaEnvelope] = useState<SyncEnvelope | null>(null);
-  const [deltaReview, setDeltaReview] = useState<SyncDeltaReview | null>(null);
-  const [pendingAcknowledgements, setPendingAcknowledgements] = useState<SyncDeltaApplyResult[]>([]);
-  const [deltaConflictChoices, setDeltaConflictChoices] = useState<Record<string, "incoming" | "local">>({});
   const [databasePreview, setDatabasePreview] = useState<DatabaseImportPreview | null>(null);
   const [cameraPermissionDenied, setCameraPermissionDenied] = useState(false);
   const databaseFileInput = useRef<HTMLInputElement>(null);
-  const deltaInput = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLElement | null>(null);
   const initializedAccountSelection = useRef(false);
   const initializedHostSelection = useRef(false);
@@ -112,7 +91,6 @@ export function SyncTransferPanel({ mode, accounts = [], managedHosts = [], pane
   const selectedCount = useMemo(() => selectedIds.size, [selectedIds]);
   const selectedManagedHostCount = useMemo(() => selectedManagedHostIds.size, [selectedManagedHostIds]);
   const selectedPanelCount = useMemo(() => selectedPanelIds.size, [selectedPanelIds]);
-  const unresolvedDeltaConflicts = deltaReview?.conflicts.some((item) => !item.resolvable || !deltaConflictChoices[`${item.entityType}:${item.syncId}`]) ?? false;
   const hasQrImportSelection = qrImportAccountIds.size + qrImportHostIds.size + qrImportPanelIds.size + qrImportFlowIds.size + qrImportCertificateIds.size + qrImportAuthIds.size > 0 || includeQrDeletions;
   const selectedQrConflicts = preview?.conflicts.filter((item) => !qrImportSessionId || (
     item.entityType === "cloudAccount" ? qrImportAccountIds.has(item.syncId)
@@ -150,9 +128,6 @@ export function SyncTransferPanel({ mode, accounts = [], managedHosts = [], pane
   useEffect(() => { if (!mobile) panelRef.current?.focus(); }, [mobile]);
   useEffect(() => () => { if (!mobile) void accountsClient.cancelSyncTransfer().catch(() => undefined); }, [mobile]);
   useEffect(() => () => { if (databasePreview && !runningInTauri) void databaseClient.cancelBrowserImport(databasePreview.token).catch(() => undefined); }, [databasePreview]);
-  useEffect(() => {
-    if (mobile && runningInTauri) void accountsClient.listPendingSyncAcknowledgements().then(setPendingAcknowledgements).catch((cause) => setError(cause instanceof Error ? cause.message : "无法读取待回传回执"));
-  }, [mobile]);
   useEffect(() => {
     if (mobile || !runningInTauri) return;
     let active = true;
@@ -258,18 +233,6 @@ export function SyncTransferPanel({ mode, accounts = [], managedHosts = [], pane
 
 
 
-  async function previewReceivedDelta() {
-    if (!deltaEnvelope) return;
-    if (!deltaPassphrase) { setError("请输入发送端设置的增量同步口令。"); return; }
-    setBusy(true); setError("");
-    try {
-      const review = await accountsClient.previewSyncDeltaBundle(deltaEnvelope, deltaPassphrase);
-      setDeltaReview(review); setDeltaConflictChoices({});
-      setNotice(`已验证设备签名 · ${review.changeCount} 条变更。检查冲突后再确认应用。`);
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "无法验证收到的增量"); }
-    finally { setBusy(false); }
-  }
-
   async function readDatabaseBackup(file?: File) {
     setError(""); setNotice(""); setDatabasePreview(null); setPreview(null);
     if (!file) return;
@@ -327,59 +290,6 @@ export function SyncTransferPanel({ mode, accounts = [], managedHosts = [], pane
   async function cancelQrImportPreview() {
     if (qrImportSessionId) await accountsClient.cancelQrSyncImport(qrImportSessionId).catch(() => undefined);
     setQrImportSessionId(""); setPreview(null); setIncludeQrDeletions(false);
-  }
-
-  async function readDelta(file?: File) {
-    setError(""); setNotice(""); setDeltaReview(null); setDeltaEnvelope(null); setDeltaConflictChoices({});
-    if (!file) return;
-    if (file.size > 15 * 1024 * 1024) { setError("增量包超过 15 MB，已拒绝读取。"); return; }
-    try {
-      const parsed: unknown = JSON.parse(await file.text());
-      if (!isEnvelope(parsed)) throw new Error("文件格式不受支持，请选择 CloudHub 增量同步包。");
-      if (!deltaPassphrase) { setError("先输入生成增量包时使用的 增量同步口令。"); return; }
-      setBusy(true);
-      const review = await accountsClient.previewSyncDeltaBundle(parsed, deltaPassphrase);
-      setDeltaEnvelope(parsed); setDeltaReview(review); setDeltaConflictChoices({});
-      setNotice(`已验证来源设备签名。批次 ${review.fromSequence}–${review.throughSequence}，包含 ${review.changeCount} 条变更。`);
-    } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
-    finally { setBusy(false); if (deltaInput.current) deltaInput.current.value = ""; }
-  }
-
-  async function applyDelta() {
-    if (!deltaEnvelope || !deltaReview || unresolvedDeltaConflicts) return;
-    setBusy(true); setError(""); setNotice("");
-    try {
-      const resolutions: SyncDeltaConflictResolution[] = deltaReview.conflicts.filter((item) => item.resolvable).map((item) => ({ entityType: item.entityType, syncId: item.syncId, choice: deltaConflictChoices[`${item.entityType}:${item.syncId}`] }));
-      const acknowledgement: SyncDeltaApplyResult = await accountsClient.applySyncDeltaBundle(deltaEnvelope, deltaPassphrase, resolutions);
-      setPendingAcknowledgements((current) => [acknowledgement, ...current.filter((item) => item.sourceDeviceId !== acknowledgement.sourceDeviceId || item.messageIds.join() !== acknowledgement.messageIds.join())]);
-      let acknowledgementSaved = false;
-      let acknowledgementSentOverLan = false;
-      if (mobile && runningInTauri) {
-        if (!acknowledgementSentOverLan) {
-          try { acknowledgementSaved = await accountsClient.saveSyncAcknowledgementFile(acknowledgement); }
-          catch (cause) { setError(cause instanceof Error ? cause.message : "增量已应用，但保存签名回执失败。可稍后重试保存回执。"); }
-        }
-      } else if (!acknowledgementSentOverLan) {
-        downloadJson(`cloudhub-ack-${new Date().toISOString().slice(0, 10)}.chack.json`, acknowledgement);
-        acknowledgementSaved = true;
-      }
-      if (acknowledgementSaved) setPendingAcknowledgements((current) => current.filter((item) => item.sourceDeviceId !== acknowledgement.sourceDeviceId || item.messageIds.join() !== acknowledgement.messageIds.join()));
-      setNotice(`增量已安全应用：新增 ${acknowledgement.added} 项、更新 ${acknowledgement.updated} 项、删除 ${acknowledgement.deleted} 项。${acknowledgementSentOverLan ? "签名回执已通过局域网传回电脑。" : acknowledgementSaved ? "签名回执已保存，请交还发送设备。" : "回执尚未保存，请使用下方按钮重试；保存前请勿关闭页面。"}`);
-      setDeltaEnvelope(null); setDeltaReview(null); setDeltaPassphrase(""); onImported?.();
-    } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
-    finally { setBusy(false); }
-  }
-
-  async function retrySaveAcknowledgement() {
-    if (!pendingAcknowledgements.length) return;
-    setBusy(true); setError("");
-    try {
-      const acknowledgement = pendingAcknowledgements[0];
-      const saved = await accountsClient.saveSyncAcknowledgementFile(acknowledgement);
-      if (saved) { setPendingAcknowledgements((current) => current.slice(1)); setNotice("签名回执已保存，请交还发送设备以确认同步消息。"); }
-      else setNotice("已取消保存；回执仍保留在当前页面，可再次保存。请勿关闭页面。");
-    } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
-    finally { setBusy(false); }
   }
 
   return <section ref={panelRef} tabIndex={mobile ? undefined : -1} role={mobile ? undefined : "dialog"} aria-modal={mobile ? undefined : true} onKeyDown={handleDialogKeyDown} className={`sync-transfer-panel ${mobile ? "sync-transfer-mobile" : "sync-transfer-desktop"}`} aria-labelledby="sync-transfer-title">
@@ -460,24 +370,6 @@ export function SyncTransferPanel({ mode, accounts = [], managedHosts = [], pane
       <button className="sync-transfer-primary sync-transfer-secondary" type="button" disabled={busy || !runningInTauri || !approvalListenerReady || !!pendingClientAddress || (!selectedIds.size && !selectedManagedHostIds.size && !selectedPanelIds.size && !selectedFlowIds.size && !selectedCertificateIds.size && !selectedAuthIds.size)} onClick={() => void startQrTransfer()}><ShieldCheck size={17} aria-hidden="true" />{busy ? "正在开启…" : !approvalListenerReady ? "正在准备授权…" : "显示手机迁移二维码（免口令）"}</button>
       {pairingUrl && <div className="sync-transfer-pairing"><QRCodeSVG value={pairingUrl} size={220} level="M" title="一次性局域网迁移二维码" /><p>电脑身份：<code>{pairingSourceDeviceId}</code><br />公钥指纹：<code>{pairingSourceFingerprint}</code></p><p>二维码仅用于本次加密传输。手机扫码后会显示设备校验信息；电脑批准后才发送所选配置。</p>{pendingClientAddress && <div className="sync-transfer-approval" role="alert"><strong>手机请求接收配置</strong><span>局域网地址：{pendingClientAddress}</span><span>设备身份：<code>{pendingDeviceIdentity}</code></span><span>请求校验码：<strong>{pendingVerificationCode}</strong></span><small>请核对手机显示的校验码和设备指纹，再确认请求来自你手上的设备。</small><div><button type="button" disabled={busy} onClick={() => void decideQrRequest(false)}>拒绝</button><button type="button" disabled={busy} onClick={() => void decideQrRequest(true)}>批准并发送</button></div></div>}<button type="button" disabled={busy} onClick={() => void cancelQrTransfer()}>关闭二维码</button></div>}
     </>}
-    {runningInTauri && mobile && <details className="sync-transfer-advanced"><summary><strong>接收签名增量</strong><small>仅在需要设备间增量同步时使用</small></summary><section className="sync-transfer-devices" aria-labelledby="sync-delta-receive-title">
-      <h3 id="sync-delta-receive-title">接收并应用签名增量</h3>
-      <p>{mobile ? "选择电脑生成的签名增量文件。手机会验证来源设备签名和本机冲突；确认后原子应用，并通过系统文件保存器生成回传电脑的签名回执。" : "选择手机或其他已授权设备生成的签名增量文件。桌面会验证设备签名和冲突；确认后原子应用并生成签名回执，发送设备导入回执后才会清除待发记录。"}</p>
-      <label className="sync-transfer-field">增量同步口令<SecretField secretLabel="同步口令" value={deltaPassphrase} maxLength={1024} autoComplete="current-password" onChange={(event) => setDeltaPassphrase(event.target.value)} placeholder="输入发送端设置的 增量同步口令" /></label>
-      <label className="sync-transfer-file"><Upload size={17} aria-hidden="true" /><span>选择 .chdelta.json 增量文件</span><input ref={deltaInput} type="file" accept=".chdelta.json,.json,application/json" onChange={(event) => void readDelta(event.currentTarget.files?.[0])} disabled={busy} /></label>
-      {deltaEnvelope && !deltaReview && <button className="sync-transfer-primary" type="button" disabled={busy || !deltaPassphrase} onClick={() => void previewReceivedDelta()}><ShieldCheck size={17} aria-hidden="true" />{busy ? "正在验证…" : "验证已接收的局域网增量"}</button>}
-      {deltaReview && <section className="sync-transfer-preview" aria-live="polite">
-        <h3>已验证设备签名 · {deltaReview.changeCount} 条变更</h3>
-        <p>来源设备 {deltaReview.sourceDeviceId} · 序号 {deltaReview.fromSequence}–{deltaReview.throughSequence}</p>
-        {!!deltaReview.deletions.length && <div className="sync-transfer-conflicts" role="alert"><strong>确认后将删除 {deltaReview.deletions.filter((item) => item.willDelete).length} 项本机配置</strong><ul>{deltaReview.deletions.map((item) => <li key={`${item.entityType}:${item.syncId}`}><span>{item.name}</span><small>{item.willDelete ? `删除 ${item.entityType}` : "本机已不存在"}</small></li>)}</ul></div>}
-        {!!deltaReview.conflicts.length && <div className="sync-transfer-conflicts" role="alert"><strong>处理 {deltaReview.conflicts.length} 项版本或配置冲突</strong><ul>{deltaReview.conflicts.map((item) => {
-          const key = `${item.entityType}:${item.syncId}`;
-          return <li key={key}><span>{item.name}</span><small>{item.reason}</small>{item.resolvable ? <label className="sync-transfer-conflict-choice">处理方式<select value={deltaConflictChoices[key] ?? ""} onChange={(event) => { const value = event.target.value; setDeltaConflictChoices((current) => { const next = { ...current }; if (value === "incoming" || value === "local") next[key] = value; else delete next[key]; return next; }); }}><option value="">请选择</option><option value="incoming">使用收到的版本</option><option value="local">保留本机版本</option></select></label> : <small>这是不同配置占用相同凭据或地址，需先手动整理配置，再重新导入。</small>}</li>;
-        })}</ul></div>}
-        <button className="sync-transfer-primary" type="button" disabled={busy || unresolvedDeltaConflicts} onClick={() => void applyDelta()}><ShieldCheck size={17} aria-hidden="true" />{busy ? "正在原子应用…" : "确认并应用增量"}</button>
-      </section>}
-      {mobile && pendingAcknowledgements.length > 0 && <div className="sync-transfer-preview" role="status"><strong>有 {pendingAcknowledgements.length} 个签名回执待保存</strong><p>这些回执已保存在本机数据库。保存后通过系统分享功能交还电脑；发送设备收到回执前会保留待发送记录。</p><button className="sync-transfer-primary" type="button" disabled={busy} onClick={() => void retrySaveAcknowledgement()}><Download size={17} aria-hidden="true" />{busy ? "正在保存…" : "保存最早的签名回执"}</button></div>}
-    </section></details>}
     {preview && <div className="sync-transfer-preview" aria-live="polite">
       <h3>{qrImportSessionId ? `已选择 ${qrImportAccountIds.size} 个云账号、${qrImportHostIds.size} 台主机、${qrImportPanelIds.size} 个面板、${qrImportFlowIds.size} 个云效连接、${qrImportCertificateIds.size} 个证书、${qrImportAuthIds.size} 个验证码${includeQrDeletions ? `和 ${preview.deletions.filter((item) => item.willDelete).length} 条删除记录` : ""}` : `将处理 ${preview.accounts.length} 个云账号、${preview.managedHosts.length} 台托管主机、${preview.panels.length} 个面板、${preview.flowConnections?.length ?? 0} 个云效连接、${preview.certificates?.length ?? 0} 个证书、${preview.authenticators?.length ?? 0} 个验证码和 ${preview.deletions.length} 条删除记录`}</h3>
       {qrImportSessionId && <p>勾选要导入到手机的配置；未勾选的项目不会写入手机。</p>}
