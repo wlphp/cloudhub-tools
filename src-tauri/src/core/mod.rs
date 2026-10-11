@@ -1,4 +1,6 @@
 pub mod crypto;
+#[cfg(desktop)]
+pub mod codex;
 pub mod authenticator;
 pub mod database;
 pub mod error;

@@ -1,4 +1,14 @@
 pub mod accounts;
+#[cfg(desktop)]
+pub mod codex;
+#[cfg(desktop)]
+pub mod codex_runtime;
+#[cfg(desktop)]
+pub mod codex_instances;
+#[cfg(desktop)]
+pub mod codex_backup;
+#[cfg(desktop)]
+pub mod codex_gateway;
 pub mod authenticator;
 pub mod preferences;
 pub mod logs;

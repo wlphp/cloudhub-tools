@@ -1,4 +1,6 @@
 pub mod accounts;
+#[cfg(desktop)]
+pub mod codex_accounts;
 pub mod authenticator;
 pub mod authenticator_sync;
 pub mod managed_hosts;

@@ -1,0 +1,476 @@
+use super::{codex::AUTH_WRITER, codex_runtime::CodexRuntimeStore};
+use crate::core::{
+    codex::{auth, profile},
+    error::PlatformResult,
+    paths::data_dir,
+    repositories::codex_accounts as repository,
+    storage::open_db,
+};
+use rusqlite::params;
+use serde::Serialize;
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    process::{Child, Command, Stdio},
+};
+use tauri::Manager;
+use tauri_plugin_dialog::DialogExt;
+
+pub(crate) struct ManagedInstance {
+    pub account_id: i64,
+    pub path: PathBuf,
+    pub child: Child,
+    #[cfg(windows)]
+    job: crate::core::codex::process::OwnedJob,
+}
+
+pub(crate) fn terminate(child: &mut Child) {
+    if child.try_wait().ok().flatten().is_some() {
+        return;
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let _ = Command::new("taskkill.exe")
+            .args(["/PID", &child.id().to_string(), "/T", "/F"])
+            .creation_flags(0x08000000)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+    #[cfg(unix)]
+    {
+        let _ = Command::new("kill")
+            .args(["-TERM", "--", &format!("-{}", child.id())])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+impl ManagedInstance {
+    fn stop(&mut self) {
+        #[cfg(windows)]
+        self.job.terminate();
+        terminate(&mut self.child);
+    }
+}
+impl Drop for ManagedInstance {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct InstanceSummary {
+    id: String,
+    account_id: i64,
+    name: String,
+    work_dir: String,
+    kind: String,
+    running: bool,
+    last_error: Option<String>,
+}
+
+fn instance_path(id: &str) -> Result<PathBuf, String> {
+    let id = uuid::Uuid::parse_str(id).map_err(|_| "Codex 实例标识无效")?;
+    let root = data_dir()?.join("codex-instances");
+    fs::create_dir_all(&root).map_err(|_| "创建 Codex 实例目录失败")?;
+    if fs::symlink_metadata(&root)
+        .map_err(|_| "检查 Codex 实例目录失败")?
+        .file_type()
+        .is_symlink()
+    {
+        return Err("Codex 实例目录不能是链接".into());
+    }
+    profile::private_permissions(&root, true)?;
+    let path = root.join(id.to_string());
+    if path.exists() {
+        if fs::symlink_metadata(&path)
+            .map_err(|_| "检查 Codex 实例失败")?
+            .file_type()
+            .is_symlink()
+            || !path.is_dir()
+        {
+            return Err("Codex 实例目录类型无效".into());
+        }
+    } else {
+        fs::create_dir(&path).map_err(|_| "创建 Codex 实例失败")?;
+    }
+    profile::private_permissions(&path, true)?;
+    Ok(path)
+}
+
+pub(crate) fn clear_account_projections(
+    conn: &rusqlite::Connection,
+    account_id: i64,
+) -> Result<(), String> {
+    let mut statement = conn
+        .prepare("SELECT id FROM codex_profiles WHERE account_id=?1")
+        .map_err(|_| "读取 Codex 实例失败")?;
+    let ids = statement
+        .query_map([account_id], |row| row.get::<_, String>(0))
+        .map_err(|_| "读取 Codex 实例失败")?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|_| "读取 Codex 实例失败")?;
+    for id in ids {
+        clear_projection(&id)?;
+    }
+    Ok(())
+}
+
+fn clear_projection(id: &str) -> Result<(), String> {
+    let id = uuid::Uuid::parse_str(id).map_err(|_| "Codex 实例标识无效")?;
+    let root = data_dir()?.join("codex-instances");
+    if !root.exists() {
+        return Ok(());
+    }
+    if fs::symlink_metadata(&root)
+        .map_err(|_| "检查 Codex 实例目录失败")?
+        .file_type()
+        .is_symlink()
+    {
+        return Err("Codex 实例目录不能是链接".into());
+    }
+    let path = root.join(id.to_string());
+    if !path.exists() {
+        return Ok(());
+    }
+    if fs::symlink_metadata(&path)
+        .map_err(|_| "检查 Codex 实例目录失败")?
+        .file_type()
+        .is_symlink()
+        || !path.is_dir()
+    {
+        return Err("Codex 实例目录类型无效".into());
+    }
+    let auth = path.join("auth.json");
+    match fs::symlink_metadata(&auth) {
+        Ok(meta) => {
+            if meta.file_type().is_symlink() || !meta.is_file() {
+                return Err("Codex 认证文件类型无效，未删除".into());
+            }
+            fs::remove_file(auth).map_err(|_| "删除实例登录凭据失败，请检查占用与权限".into())
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(_) => Err("检查实例登录凭据失败".into()),
+    }
+}
+
+#[tauri::command]
+pub(crate) async fn codex_delete_instance(
+    app: tauri::AppHandle,
+    id: String,
+) -> PlatformResult<Vec<InstanceSummary>> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<Vec<InstanceSummary>, String> {
+        let _writer = AUTH_WRITER.lock().map_err(|_| "Codex 账号操作不可用")?;
+        let store = app.state::<CodexRuntimeStore>();
+        if store
+            .instances
+            .lock()
+            .map_err(|_| "Codex 实例状态不可用")?
+            .contains_key(&id)
+        {
+            return Err("请先停止实例，再删除实例配置".into());
+        }
+        let conn = open_db()?;
+        let _: String = conn
+            .query_row("SELECT id FROM codex_profiles WHERE id=?1", [&id], |row| {
+                row.get(0)
+            })
+            .map_err(|_| "Codex 实例不存在")?;
+        clear_projection(&id)?;
+        conn.execute("DELETE FROM codex_profiles WHERE id=?1", [&id])
+            .map_err(|_| "删除 Codex 实例配置失败")?;
+        summaries(&store)
+    })
+    .await
+    .map_err(|_| "删除 Codex 实例任务失败")?
+    .map_err(Into::into)
+}
+
+fn sync_instance(account_id: i64, path: &Path) -> Result<(), String> {
+    let conn = open_db()?;
+    let account = repository::get(&conn, account_id)?;
+    let content = profile::read_auth(&path.join("auth.json"))?;
+    let imported = auth::parse_import(&content)?.remove(0);
+    let saved = auth::parse_import(&repository::credentials(&conn, account_id)?)?.remove(0);
+    if imported.identity != saved.identity {
+        return Err("实例已登录不同账号，请使用 JSON 导入，未覆盖原账号凭据".into());
+    }
+    repository::save_refresh(
+        &conn,
+        account_id,
+        account.updated_at,
+        &imported.auth_json,
+        None,
+        imported.plan.as_deref(),
+        None,
+    )
+}
+
+pub(crate) fn stop_all(store: &CodexRuntimeStore) {
+    if let Ok(_writer) = AUTH_WRITER.lock() {
+        if let Ok(mut instances) = store.instances.lock() {
+            for (_, mut instance) in instances.drain() {
+                instance.stop();
+                let _ = sync_instance(instance.account_id, &instance.path);
+            }
+        }
+    }
+}
+
+pub(crate) fn account_running(store: &CodexRuntimeStore, account_id: i64) -> Result<bool, String> {
+    let instance_running = store
+        .instances
+        .lock()
+        .map_err(|_| "Codex 实例状态不可用")?
+        .values()
+        .any(|v| v.account_id == account_id);
+    let gateway_running = store
+        .gateway
+        .lock()
+        .map_err(|_| "Codex 服务状态不可用")?
+        .as_ref()
+        .is_some_and(|v| v.contains(account_id));
+    let waking = store
+        .wakes
+        .lock()
+        .map_err(|_| "Codex 唤醒状态不可用")?
+        .contains(&account_id);
+    Ok(instance_running || gateway_running || waking)
+}
+
+pub(crate) fn ensure_idle(store: &CodexRuntimeStore) -> Result<(), String> {
+    if !store
+        .instances
+        .lock()
+        .map_err(|_| "Codex 实例状态不可用")?
+        .is_empty()
+    {
+        return Err("请先停止 Codex 实例，再执行数据库迁移或登录备份".into());
+    }
+    if store
+        .gateway
+        .lock()
+        .map_err(|_| "Codex 服务状态不可用")?
+        .as_ref()
+        .is_some_and(|v| v.summary().map_or(true, |s| s.running))
+    {
+        return Err("请先停止 Codex 本地服务，再执行数据库迁移或登录备份".into());
+    }
+    if !store
+        .wakes
+        .lock()
+        .map_err(|_| "Codex 唤醒状态不可用")?
+        .is_empty()
+    {
+        return Err("请等待 Codex 唤醒结束后，再执行数据库迁移或登录备份".into());
+    }
+    Ok(())
+}
+
+fn summaries(store: &CodexRuntimeStore) -> Result<Vec<InstanceSummary>, String> {
+    let conn = open_db()?;
+    let mut statement = conn
+        .prepare(
+            "SELECT id,account_id,name,work_dir,kind FROM codex_profiles ORDER BY created_at,id",
+        )
+        .map_err(|_| "读取 Codex 实例失败")?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok(InstanceSummary {
+                id: row.get(0)?,
+                account_id: row.get(1)?,
+                name: row.get(2)?,
+                work_dir: row.get(3)?,
+                kind: row.get(4)?,
+                running: false,
+                last_error: None,
+            })
+        })
+        .map_err(|_| "读取 Codex 实例失败")?;
+    let mut records = rows
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|_| "读取 Codex 实例失败")?;
+    let mut instances = store.instances.lock().map_err(|_| "Codex 实例状态不可用")?;
+    for record in &mut records {
+        let exited = if let Some(instance) = instances.get_mut(&record.id) {
+            instance
+                .child
+                .try_wait()
+                .map_err(|_| "查询 Codex 实例失败")?
+                .is_some()
+        } else {
+            false
+        };
+        if exited {
+            if let Some(mut instance) = instances.remove(&record.id) {
+                instance.stop();
+                record.last_error = sync_instance(instance.account_id, &instance.path).err();
+            }
+        }
+        record.running = instances.contains_key(&record.id);
+    }
+    Ok(records)
+}
+
+#[tauri::command]
+pub(crate) async fn codex_list_instances(
+    app: tauri::AppHandle,
+) -> PlatformResult<Vec<InstanceSummary>> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<Vec<InstanceSummary>, String> {
+        let _writer = AUTH_WRITER.lock().map_err(|_| "Codex 账号操作不可用")?;
+        summaries(&app.state::<CodexRuntimeStore>())
+    })
+    .await
+    .map_err(|_| "读取 Codex 实例任务失败")?
+    .map_err(Into::into)
+}
+
+#[tauri::command]
+pub(crate) async fn codex_create_instance(
+    app: tauri::AppHandle,
+    account_id: i64,
+    name: String,
+    kind: String,
+) -> PlatformResult<Option<Vec<InstanceSummary>>> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<Option<Vec<InstanceSummary>>,String> {
+        if name.trim().is_empty() || name.chars().count() > 80 || name.chars().any(char::is_control) { return Err("Codex 实例名称参数无效".into()); }
+        if !matches!(kind.as_str(),"cli"|"desktop"){return Err("Codex 实例类型无效".into());}
+        if kind=="desktop"&&crate::core::codex::desktop::installed().is_none(){return Err("未检测到支持隔离启动的 Codex 桌面客户端".into());}
+        let Some(selected) = app.dialog().file().set_title("选择 Codex 实例的项目目录").blocking_pick_folder() else { return Ok(None); };
+        let workspace = selected.into_path().map_err(|_| "项目目录路径无效")?.canonicalize().map_err(|_| "无法读取项目目录")?;
+        if !workspace.is_dir() || workspace.to_str().is_none() { return Err("请选择有效的项目目录".into()); }
+        let _writer = AUTH_WRITER.lock().map_err(|_| "Codex 账号操作不可用")?;
+        repository::get(&open_db()?,account_id)?;
+        let id = uuid::Uuid::new_v4().to_string();
+        open_db()?.execute("INSERT INTO codex_profiles(id,account_id,name,work_dir,created_at,kind) VALUES(?1,?2,?3,?4,?5,?6)",params![id,account_id,name.trim(),workspace.to_string_lossy().to_string(),chrono::Utc::now().timestamp_millis(),kind]).map_err(|_| "保存 Codex 实例失败")?;
+        summaries(&app.state::<CodexRuntimeStore>()).map(Some)
+    }).await.map_err(|_| "创建 Codex 实例任务失败")?.map_err(Into::into)
+}
+
+fn launch_terminal(cli: &Path, home: &Path, workspace: &Path, proxy:Option<&str>) -> Result<Child, String> {
+    #[cfg(windows)]
+    {
+        use base64::{engine::general_purpose::STANDARD, Engine};
+        use std::os::windows::process::CommandExt;
+        let encode = |path: &Path| STANDARD.encode(path.to_string_lossy().as_bytes());
+        // Paths are decoded as data, never embedded as executable shell syntax.
+        let script = format!("$env:CODEX_HOME=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{}')); Remove-Item Env:OPENAI_API_KEY,Env:CODEX_API_KEY,Env:CODEX_ACCESS_TOKEN -ErrorAction SilentlyContinue; $cli=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{}')); $workspace=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{}')); Set-Location -LiteralPath $workspace; & $cli",encode(home),encode(cli),encode(workspace));
+        let encoded = STANDARD.encode(
+            script
+                .encode_utf16()
+                .flat_map(u16::to_le_bytes)
+                .collect::<Vec<_>>(),
+        );
+        let mut terminal=Command::new("powershell.exe");
+        crate::core::codex::account_controls::apply_proxy(&mut terminal,proxy)?;
+        terminal.args([
+                "-NoLogo",
+                "-NoProfile",
+                "-NoExit",
+                "-EncodedCommand",
+                &encoded,
+            ])
+            .creation_flags(0x00000010)
+            .spawn()
+            .map_err(|_| "打开 Codex 实例终端失败".into())
+    }
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::process::CommandExt;
+        let mut terminal=Command::new("xterm");
+        crate::core::codex::account_controls::apply_proxy(&mut terminal,proxy)?;
+        terminal.arg("-e")
+            .arg(cli)
+            .env("CODEX_HOME", home)
+            .env_remove("OPENAI_API_KEY")
+            .env_remove("CODEX_API_KEY")
+            .env_remove("CODEX_ACCESS_TOKEN")
+            .current_dir(workspace)
+            .process_group(0)
+            .spawn()
+            .map_err(|_| "打开 Codex 实例终端失败，请安装 xterm".into())
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = (cli, home, workspace,proxy);
+        Err("macOS 独立终端启动适配尚未完成".into())
+    }
+}
+
+#[tauri::command]
+pub(crate) async fn codex_start_instance(
+    app: tauri::AppHandle,
+    id: String,
+) -> PlatformResult<Vec<InstanceSummary>> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<Vec<InstanceSummary>,String> {
+        let _writer = AUTH_WRITER.lock().map_err(|_| "Codex 账号操作不可用")?;
+        let conn = open_db()?;
+        let (account_id,work_dir,last_projection,kind): (i64,String,Option<String>,String) = conn.query_row("SELECT account_id,work_dir,auth_fingerprint,kind FROM codex_profiles WHERE id=?1",[&id],|row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?))).map_err(|_| "Codex 实例不存在")?;
+        let store = app.state::<CodexRuntimeStore>();
+        if store.closing.load(std::sync::atomic::Ordering::SeqCst){return Err("应用正在退出，未启动实例".into());}
+        if account_running(&store,account_id)? { return Err("该账号已有受管实例运行，请先停止，避免凭据刷新冲突".into()); }
+        let workspace = PathBuf::from(work_dir).canonicalize().map_err(|_| "项目目录不存在")?;
+        if !matches!(kind.as_str(),"cli"|"desktop"){return Err("Codex 实例类型无效".into());}
+        let path = instance_path(&id)?;
+        profile::ensure_file_storage(&path)?;
+        let mut stored_auth = repository::credentials(&conn,account_id)?;
+        let saved_identity=auth::parse_import(&stored_auth)?.remove(0).identity;
+        if profile::default_home().ok().and_then(|home|profile::read_auth(&home.join("auth.json")).ok()).and_then(|content|auth::parse_import(&content).ok()).is_some_and(|accounts|accounts.iter().any(|account|account.auth_mode=="chatgpt"&&account.identity==saved_identity)){
+            // A copied refresh grant can rotate after launch even when the default client
+            // was idle. Keep the default login out of that independent writer's scope.
+            return Err("该账号仍是默认 Codex 登录，请先切换默认账号，再启动此独立实例，避免登录续期互相覆盖".into());
+        }
+        let stored_fingerprint = profile::fingerprint(Some(&stored_auth));
+        if path.join("auth.json").exists() {
+            let instance_auth = profile::read_auth(&path.join("auth.json"))?;
+            let instance_fingerprint = profile::fingerprint(Some(&instance_auth));
+            if let Some(previous) = last_projection {
+                if instance_fingerprint != previous && instance_fingerprint != stored_fingerprint {
+                    if previous != stored_fingerprint { return Err("实例与账号凭据均已变更，请新建实例或先导入该实例 auth.json，未覆盖登录状态".into()); }
+                    sync_instance(account_id,&path)?;
+                    stored_auth = repository::credentials(&conn,account_id)?;
+                }
+            } else { return Err("实例目录已有登录数据，请创建新实例，未覆盖原文件".into()); }
+        }
+        profile::write_private(&path.join("auth.json"),&stored_auth)?;
+        conn.execute("UPDATE codex_profiles SET auth_fingerprint=?1 WHERE id=?2",params![profile::fingerprint(Some(&stored_auth)),id]).map_err(|_| "保存实例认证状态失败")?;
+        if !path.join("config.toml").exists() { profile::write_private(&path.join("config.toml"),"cli_auth_credentials_store = \"file\"\n[analytics]\nenabled = false\n")?; }
+        let proxy=crate::core::codex::account_controls::proxy(&conn,account_id)?;
+        let mut child = if kind=="desktop" {crate::core::codex::desktop::launch(&path,&workspace,proxy.as_deref())?}else{let cli=profile::cli_path().ok_or("未找到 Codex CLI，请先安装并加入 PATH")?;launch_terminal(&cli,&path,&workspace,proxy.as_deref())?};
+        #[cfg(windows)]
+        let job = match crate::core::codex::process::OwnedJob::attach(&child) { Ok(job) => job, Err(error) => { terminate(&mut child); return Err(error); } };
+        let instance = ManagedInstance { account_id,path,child, #[cfg(windows)] job };
+        store.instances.lock().map_err(|_| "Codex 实例状态不可用")?.insert(id,instance);
+        summaries(&store)
+    }).await.map_err(|_| "启动 Codex 实例任务失败")?.map_err(Into::into)
+}
+
+#[tauri::command]
+pub(crate) async fn codex_stop_instance(
+    app: tauri::AppHandle,
+    id: String,
+) -> PlatformResult<Vec<InstanceSummary>> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<Vec<InstanceSummary>, String> {
+        let _writer = AUTH_WRITER.lock().map_err(|_| "Codex 账号操作不可用")?;
+        let store = app.state::<CodexRuntimeStore>();
+        let instance = store
+            .instances
+            .lock()
+            .map_err(|_| "Codex 实例状态不可用")?
+            .remove(&id);
+        if let Some(mut instance) = instance {
+            instance.stop();
+            sync_instance(instance.account_id, &instance.path)?;
+        }
+        summaries(&store)
+    })
+    .await
+    .map_err(|_| "停止 Codex 实例任务失败")?
+    .map_err(Into::into)
+}

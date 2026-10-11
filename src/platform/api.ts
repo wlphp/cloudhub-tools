@@ -15,12 +15,28 @@ export type PlatformErrorCode =
   | "not-found"
   | "conflict"
   | "frp-port-conflict"
+  | "codex-account-busy"
+  | "codex-gateway-port-conflict"
+  | "codex-model-catalog"
   | "cancelled"
   | "certificate"
   | "authenticator-error"
   | "authenticator-locked";
 
 function publicPlatformMessage(code: PlatformErrorCode, rawMessage: string): string {
+  if (code === "codex-model-catalog") {
+    const safeMessages = [
+      "官方模型目录认证过期，请重新登录服务账号", "官方模型目录访问被拒绝，请检查服务账号权限",
+      "官方模型目录请求过于频繁，请稍后重试", "查询官方模型目录失败，请检查网络",
+      "官方模型目录响应格式不兼容", "当前服务账号未返回模型目录", "服务账号均在冷却中，请稍后重试",
+      "服务账号认证数据无效，请重新登录", "读取服务账号认证失败，请重新登录或刷新账号",
+      "读取服务账号认证任务失败", "未找到官方 Codex 客户端，无法查询模型目录",
+      "读取 Codex 客户端版本失败", "读取 Codex 客户端版本超时", "Codex 客户端版本无效",
+      "读取官方模型目录失败", "官方模型目录响应超过限制",
+    ];
+    return safeMessages.includes(rawMessage) || /^官方模型目录返回 HTTP [1-5]\d{2}$/.test(rawMessage)
+      ? rawMessage : "模型目录获取失败，请检查服务账号登录、权限与网络";
+  }
   if (code === "authenticator-locked") return "验证器已锁定，请重新解锁";
   if (code === "authenticator-error") {
     return rawMessage
@@ -38,7 +54,7 @@ function publicPlatformMessage(code: PlatformErrorCode, rawMessage: string): str
       .replace(/(password|secret|token|access[_-]?key|private[_-]?key|authorization|signature)(\s*[:=]\s*)[^,;\s]+/gi, "$1$2[已隐藏]")
       .slice(0, 240);
   }
-  const messages: Record<Exclude<PlatformErrorCode, "unsupported-in-preview" | "certificate" | "authenticator-error" | "authenticator-locked">, string> = {
+  const messages: Record<Exclude<PlatformErrorCode, "unsupported-in-preview" | "certificate" | "authenticator-error" | "authenticator-locked" | "codex-model-catalog">, string> = {
     unknown: "操作失败，请稍后重试",
     validation: "输入参数无效，请检查后重试",
     authentication: "认证失败，请检查凭据或登录状态",
@@ -47,6 +63,8 @@ function publicPlatformMessage(code: PlatformErrorCode, rawMessage: string): str
     "not-found": "目标资源不存在或已被移除",
     conflict: "操作冲突，请刷新后重试",
     "frp-port-conflict": "本机 FRP 面板端口已被占用，请先停止旧连接或占用该端口的进程",
+    "codex-account-busy": "所选账号已有 Codex 实例或服务运行，请先停止后再启动 API 服务",
+    "codex-gateway-port-conflict": "本地 API 端口已被占用，请换一个端口后重试",
     cancelled: "操作已取消",
   };
   return messages[code];
@@ -66,6 +84,8 @@ export class PlatformError extends Error {
 
 function classifyPlatformError(message: string): { code: PlatformErrorCode; retryable: boolean } {
   if (/仅在桌面端|仅在浏览器预览|unsupported-in-preview/i.test(message)) return { code: "unsupported-in-preview", retryable: false };
+  if (message.includes("所选账号已有实例或服务运行")) return { code: "codex-account-busy", retryable: false };
+  if (message.includes("本地 API 端口被占用") || message.includes("无法监听")) return { code: "codex-gateway-port-conflict", retryable: false };
   if (/取消|cancelled|canceled/i.test(message)) return { code: "cancelled", retryable: false };
   if (/不存在|not found|未找到/i.test(message)) return { code: "not-found", retryable: false };
   if (/冲突|已存在|conflict|duplicate/i.test(message)) return { code: "conflict", retryable: false };
@@ -84,7 +104,7 @@ export function normalizePlatformError(reason: unknown): PlatformError {
   }
   if (typeof reason === "object" && reason !== null && "code" in reason && "message" in reason) {
     const structured = reason as { code?: PlatformErrorCode; message?: string; retryable?: boolean };
-    const code = structured.code && ["unknown", "unsupported-in-preview", "validation", "authentication", "permission", "network", "not-found", "conflict", "frp-port-conflict", "cancelled", "certificate", "authenticator-error", "authenticator-locked"].includes(structured.code)
+    const code = structured.code && ["unknown", "unsupported-in-preview", "validation", "authentication", "permission", "network", "not-found", "conflict", "frp-port-conflict", "codex-account-busy", "codex-gateway-port-conflict", "codex-model-catalog", "cancelled", "certificate", "authenticator-error", "authenticator-locked"].includes(structured.code)
       ? structured.code : "unknown";
     return new PlatformError(String(structured.message), code, structured.retryable === true);
   }

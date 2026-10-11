@@ -23,6 +23,10 @@ impl PlatformError {
         let normalized = message.to_ascii_lowercase();
         let (code, retryable) = if message == "本机 FRP 面板端口已被占用，请先停止旧连接或占用该端口的进程" {
             ("frp-port-conflict", false)
+        } else if message.contains("所选账号已有实例或服务运行") {
+            ("codex-account-busy", false)
+        } else if message.contains("本地 API 端口被占用") || message.contains("无法监听") {
+            ("codex-gateway-port-conflict", false)
         } else if normalized.contains("取消") || normalized.contains("cancel") {
             ("cancelled", false)
         } else if normalized.contains("不存在") || normalized.contains("not found") {
@@ -42,6 +46,8 @@ impl PlatformError {
         };
         let public_message = match code {
             "frp-port-conflict" => "本机 FRP 面板端口已被占用，请先停止旧连接或占用该端口的进程",
+            "codex-account-busy" => "所选账号已有 Codex 实例或服务运行，请先停止后再启动 API 服务",
+            "codex-gateway-port-conflict" => "本地 API 端口已被占用，请换一个端口后重试",
             "authentication" => "认证失败，请检查凭据或登录状态",
             "permission" => "权限不足，请检查当前账号权限",
             "network" => "网络或云服务暂时不可用，请稍后重试",
@@ -107,6 +113,16 @@ mod tests {
         let error = PlatformError::from("同步任务已在运行".to_string());
         assert_eq!(error.code, "conflict");
         assert!(!error.retryable);
+    }
+
+    #[test]
+    fn explains_codex_gateway_start_conflicts_without_exposing_details() {
+        let account = PlatformError::from("所选账号已有实例或服务运行，请先停止");
+        assert_eq!(account.code, "codex-account-busy");
+        assert!(account.message.contains("先停止"));
+        let port = PlatformError::from("本地 API 端口被占用或无法监听，请选择其他端口");
+        assert_eq!(port.code, "codex-gateway-port-conflict");
+        assert!(port.message.contains("换一个端口"));
     }
 
     #[test]

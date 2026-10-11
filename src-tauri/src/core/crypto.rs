@@ -248,7 +248,12 @@ pub fn crypto_key_bytes() -> Result<Vec<u8>, String> {
 }
 
 pub fn encrypt_secret(secret: &str) -> Result<String, String> {
-    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&crypto_key()?));
+    encrypt_secret_with_key(secret, &crypto_key()?)
+}
+
+pub(crate) fn encrypt_secret_with_key(secret: &str, key: &[u8]) -> Result<String, String> {
+    if key.len() != 32 { return Err("本地加密密钥参数无效".into()); }
+    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(key));
     let mut nonce = [0u8; 12];
     rand::thread_rng().fill_bytes(&mut nonce);
     let encrypted = cipher.encrypt(Nonce::from_slice(&nonce), secret.as_bytes()).map_err(|_| "加密 Secret 失败".to_string())?;
@@ -258,9 +263,14 @@ pub fn encrypt_secret(secret: &str) -> Result<String, String> {
 }
 
 pub fn decrypt_secret(ciphertext: &str) -> Result<String, String> {
+    decrypt_secret_with_key(ciphertext, &crypto_key()?)
+}
+
+pub(crate) fn decrypt_secret_with_key(ciphertext: &str, key: &[u8]) -> Result<String, String> {
+    if key.len() != 32 { return Err("本地加密密钥参数无效".into()); }
     let packed = B64.decode(ciphertext).map_err(|error| format!("读取 Secret 失败: {error}"))?;
     if packed.len() < 12 { return Err("本地 Secret 数据损坏".into()); }
-    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&crypto_key()?));
+    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(key));
     let value = cipher.decrypt(Nonce::from_slice(&packed[..12]), &packed[12..]).map_err(|_| "解密 Secret 失败".to_string())?;
     String::from_utf8(value).map_err(|_| "Secret 编码无效".into())
 }

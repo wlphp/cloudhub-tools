@@ -3,7 +3,24 @@ use std::sync::Mutex;
 
 use super::paths::data_dir;
 
-const CURRENT_SCHEMA_VERSION: i64 = 21;
+const CURRENT_SCHEMA_VERSION: i64 = 27;
+pub const CODEX_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS codex_accounts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, identity TEXT NOT NULL UNIQUE,
+    label TEXT NOT NULL, email TEXT, account_id TEXT, auth_mode TEXT NOT NULL,
+    plan TEXT, note TEXT NOT NULL DEFAULT '', tags_json TEXT NOT NULL DEFAULT '[]',
+    auth_ciphertext TEXT NOT NULL, quota_json TEXT NOT NULL DEFAULT '{}',
+    last_error TEXT, updated_at INTEGER NOT NULL
+); CREATE TABLE IF NOT EXISTS codex_profile_backups (
+    profile_home TEXT PRIMARY KEY, auth_ciphertext TEXT, installed_fingerprint TEXT NOT NULL,
+    previous_fingerprint TEXT NOT NULL
+); CREATE TABLE IF NOT EXISTS codex_profiles (
+    id TEXT PRIMARY KEY, account_id INTEGER NOT NULL, name TEXT NOT NULL,
+    work_dir TEXT NOT NULL, created_at INTEGER NOT NULL, auth_fingerprint TEXT, kind TEXT NOT NULL DEFAULT 'cli',
+    FOREIGN KEY(account_id) REFERENCES codex_accounts(id) ON DELETE CASCADE
+); CREATE TABLE IF NOT EXISTS codex_gateway_config (
+    id INTEGER PRIMARY KEY CHECK(id=1), port INTEGER NOT NULL CHECK(port BETWEEN 1024 AND 65535),
+    key_ciphertext TEXT NOT NULL
+);CREATE TABLE IF NOT EXISTS codex_account_controls(account_id INTEGER PRIMARY KEY REFERENCES codex_accounts(id) ON DELETE CASCADE,proxy_url TEXT,benefits_json TEXT,reset_request_id TEXT);";
 
 // Several desktop commands open the database concurrently during startup. Keep
 // schema setup and migrations serialized so simultaneous `CREATE ... IF NOT
@@ -252,6 +269,32 @@ fn migrate_connection(conn: &mut Connection) -> Result<(), String> {
         transaction.execute_batch(super::repositories::authenticator::SCHEMA).map_err(|_| "创建验证器密码库失败")?;
         transaction.pragma_update(None, "user_version", 21).map_err(|_| "更新验证器数据库版本失败")?;
     }
+    if version < 22 {
+        transaction.execute_batch(CODEX_SCHEMA).map_err(|_| "创建 Codex 账号表失败")?;
+        transaction.pragma_update(None, "user_version", 22).map_err(|_| "更新 Codex 数据库版本失败")?;
+    }
+    if version < 23 {
+        transaction.execute_batch(CODEX_SCHEMA).map_err(|_| "创建 Codex 实例表失败")?;
+        ensure_column("codex_profiles", "auth_fingerprint", "TEXT")?;
+        transaction.pragma_update(None, "user_version", 23).map_err(|_| "更新 Codex 实例数据库版本失败")?;
+    }
+    if version < 24 {
+        transaction.execute_batch(CODEX_SCHEMA).map_err(|_| "创建 Codex 实例表失败")?;
+        ensure_column("codex_profiles", "kind", "TEXT NOT NULL DEFAULT 'cli'")?;
+        transaction.pragma_update(None,"user_version",24).map_err(|_|"更新 Codex 桌面实例数据库版本失败")?;
+    }
+    if version < 25 {
+        transaction.execute_batch(CODEX_SCHEMA).map_err(|_| "创建 Codex API 配置表失败")?;
+        transaction.pragma_update(None, "user_version", 25).map_err(|_| "更新 Codex API 配置数据库版本失败")?;
+    }
+    if version < 26 {
+        transaction.execute_batch(crate::core::codex::gateway_controls::SCHEMA).map_err(|_| "创建网关规则表失败")?;
+        transaction.pragma_update(None, "user_version", 26).map_err(|_| "更新网关规则数据库版本失败")?;
+    }
+    if version < 27 {
+        transaction.execute_batch(crate::core::codex::account_controls::SCHEMA).map_err(|_|"创建账号权益表失败")?;
+        transaction.pragma_update(None,"user_version",27).map_err(|_|"更新账号权益数据库版本失败")?;
+    }
     transaction.commit().map_err(|error| format!("提交 SQLite 迁移失败: {error}"))?;
 
     Ok(())
@@ -286,6 +329,54 @@ pub fn open_db() -> Result<Connection, String> {
 mod tests {
     use super::{migrate_connection, CURRENT_SCHEMA_VERSION};
     use rusqlite::Connection;
+
+    #[test]
+    fn upgrades_v26_with_account_controls_and_preserves_existing_accounts() {
+        let mut conn=Connection::open_in_memory().unwrap();
+        conn.execute_batch(super::CODEX_SCHEMA).unwrap();
+        conn.execute_batch("DROP TABLE codex_account_controls; INSERT INTO codex_accounts(identity,label,auth_mode,auth_ciphertext,updated_at) VALUES('fixture','fixture','chatgpt','fixture',0); PRAGMA user_version=26;").unwrap();
+        migrate_connection(&mut conn).unwrap();
+        crate::core::codex::account_controls::save_proxy(&conn,1,"http://127.0.0.1:7890").unwrap();
+        migrate_connection(&mut conn).unwrap();
+        let account=crate::core::repositories::codex_accounts::get(&conn,1).unwrap();
+        assert_eq!(account.label,"fixture");
+        assert_eq!(account.proxy_url.as_deref(),Some("http://127.0.0.1:7890/"));
+        let version:i64=conn.pragma_query_value(None,"user_version",|r|r.get(0)).unwrap();
+        assert_eq!(version,CURRENT_SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn upgrades_v25_with_gateway_preferences_without_replacing_service_credentials() {
+        let mut conn=Connection::open_in_memory().unwrap();
+        conn.execute_batch(super::CODEX_SCHEMA).unwrap();
+        conn.execute_batch("INSERT INTO codex_gateway_config(id,port,key_ciphertext) VALUES(1,58169,'test-only-ciphertext'); PRAGMA user_version=25;").unwrap();
+        migrate_connection(&mut conn).unwrap();
+        let settings=crate::core::codex::gateway_controls::GatewaySettings { logging_enabled:true, strategy:crate::core::codex::gateway_controls::RoutingStrategy::Ordered, cooldown_seconds:90 };
+        crate::core::codex::gateway_controls::save(&conn,&settings).unwrap();
+        migrate_connection(&mut conn).unwrap();
+        assert_eq!(crate::core::codex::gateway_controls::load(&conn).unwrap().strategy,settings.strategy);
+        assert_eq!(crate::core::codex::gateway_config::summary(&conn).unwrap(),Some(58169));
+        let cipher:String=conn.query_row("SELECT key_ciphertext FROM codex_gateway_config",[],|r|r.get(0)).unwrap();
+        assert_eq!(cipher,"test-only-ciphertext");
+    }
+
+    #[test]
+    fn upgrades_v24_without_gateway_config_and_preserves_saved_config() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(super::CODEX_SCHEMA).unwrap();
+        conn.execute_batch("DROP TABLE codex_gateway_config; PRAGMA user_version=24;").unwrap();
+        migrate_connection(&mut conn).unwrap();
+        assert_eq!(crate::core::codex::gateway_config::summary(&conn).unwrap(), None);
+        let version: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0)).unwrap();
+        assert_eq!(version, CURRENT_SCHEMA_VERSION);
+        conn.execute("INSERT INTO codex_gateway_config(id,port,key_ciphertext) VALUES(1,58169,'test-only-ciphertext')", []).unwrap();
+        // Existing installations with the table also upgrade without replacing it.
+        conn.pragma_update(None, "user_version", 24).unwrap();
+        migrate_connection(&mut conn).unwrap();
+        migrate_connection(&mut conn).unwrap();
+        let saved: (u16, String) = conn.query_row("SELECT port,key_ciphertext FROM codex_gateway_config WHERE id=1", [], |row| Ok((row.get(0)?, row.get(1)?))).unwrap();
+        assert_eq!(saved, (58169, "test-only-ciphertext".into()));
+    }
 
     #[test]
     fn migrates_legacy_schema_and_records_current_version() {
@@ -338,6 +429,22 @@ mod tests {
         let mut conn = conn;
         let error = migrate_connection(&mut conn).unwrap_err();
         assert!(error.contains("高于当前客户端支持的版本"));
+    }
+
+    #[test]
+    fn codex_migration_is_idempotent_and_has_no_sync_triggers() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.pragma_update(None, "user_version", 21).unwrap();
+        migrate_connection(&mut conn).unwrap();
+        conn.execute("INSERT INTO codex_accounts(identity,label,auth_mode,auth_ciphertext,updated_at) VALUES('identity','fixture','chatgpt','encrypted-fixture',1)", []).unwrap();
+        migrate_connection(&mut conn).unwrap();
+        let count: i64 = conn.query_row("SELECT COUNT(*) FROM codex_accounts", [], |row| row.get(0)).unwrap();
+        assert_eq!(count, 1);
+        let triggers: i64 = conn.query_row("SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND tbl_name LIKE 'codex_%'", [], |row| row.get(0)).unwrap();
+        assert_eq!(triggers, 0);
+        let columns: Vec<String> = conn.prepare("PRAGMA table_info(codex_accounts)").unwrap().query_map([], |row| row.get(1)).unwrap().collect::<Result<_, _>>().unwrap();
+        assert!(columns.contains(&"auth_ciphertext".to_string()));
+        assert!(!columns.contains(&"access_token".to_string()));
     }
 
     #[test]

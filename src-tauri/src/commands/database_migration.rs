@@ -49,8 +49,55 @@ fn omit_authenticator_from_export(snapshot: &Path) -> Result<(), String> {
     // OTP recovery is deliberately a separate password-protected export flow.
     // Only modify the export copy, never the live database or rollback backup.
     let conn = Connection::open(snapshot).map_err(|_| "无法准备验证器数据隔离")?;
-    conn.execute_batch("PRAGMA secure_delete=ON; DELETE FROM authenticator_entries; DELETE FROM authenticator_vault; VACUUM;")
-        .map_err(|_| "无法从整库导出中隔离验证器数据".into())
+    conn.execute_batch("PRAGMA secure_delete=ON; DELETE FROM authenticator_entries; DELETE FROM authenticator_vault;")
+        .map_err(|_| "无法从整库导出中隔离验证器数据")?;
+    for table in ["codex_profiles", "codex_account_controls", "codex_accounts", "codex_profile_backups", "codex_gateway_config"] {
+        if table_exists(&conn, table)? && table_count(&conn, table)? > 0 {
+            conn.execute(&format!("DELETE FROM {table}"), []).map_err(|_| "无法从整库导出中隔离 Codex 登录数据")?;
+        }
+    }
+    conn.execute_batch("VACUUM;").map_err(|_| "清理迁移包机密数据失败".into())
+}
+
+fn preserve_local_codex(incoming: &Path, current: &Path, current_key: &[u8], incoming_key: &[u8]) -> Result<(), String> {
+    use crate::core::crypto::{decrypt_secret_with_key, encrypt_secret_with_key};
+    let mut destination = Connection::open(incoming).map_err(|_| "无法准备本机 Codex 数据保留")?;
+    let source = if current.exists() { Some(Connection::open(current).map_err(|_| "无法读取本机 Codex 数据")?) } else { None };
+    let tx = destination.transaction().map_err(|_| "无法准备 Codex 数据事务")?;
+    // Only the staged incoming copy is rebuilt. Incoming Codex data is never authoritative,
+    // and its older profile schema must not prevent preserving newer local profile columns.
+    tx.execute_batch("DROP TABLE IF EXISTS codex_profiles; DROP TABLE IF EXISTS codex_accounts; DROP TABLE IF EXISTS codex_profile_backups; DROP TABLE IF EXISTS codex_gateway_config;").map_err(|_|"隔离迁移包 Codex 数据失败")?;
+    tx.execute_batch(crate::core::database::CODEX_SCHEMA).map_err(|_|"无法准备 Codex 数据表")?;
+    for (table, columns, secret_index) in [
+        ("codex_accounts", "id,identity,label,email,account_id,auth_mode,plan,note,tags_json,auth_ciphertext,quota_json,last_error,updated_at", Some(9usize)),
+        ("codex_profile_backups", "profile_home,auth_ciphertext,installed_fingerprint,previous_fingerprint", Some(1usize)),
+        ("codex_profiles", "id,account_id,name,work_dir,created_at,auth_fingerprint,kind", None),
+        ("codex_gateway_config", "id,port,key_ciphertext", Some(2usize)),
+    ] {
+        tx.execute(&format!("DELETE FROM {table}"), []).map_err(|_| "隔离迁移包 Codex 数据失败")?;
+        let Some(ref source) = source else { continue; };
+        if !table_exists(source, table)? || table_count(source, table)? == 0 { continue; }
+        let count = columns.split(',').count();
+        let selection=if table=="codex_profiles" {
+            let mut schema=source.prepare("PRAGMA table_info(codex_profiles)").map_err(|_|"读取本机 Codex 实例结构失败")?;
+            let present=schema.query_map([],|row|row.get::<_,String>(1)).map_err(|_|"读取本机 Codex 实例结构失败")?.collect::<rusqlite::Result<Vec<_>>>().map_err(|_|"读取本机 Codex 实例结构失败")?;
+            columns.split(',').map(|column|if !present.iter().any(|v|v==column)&&column=="kind"{"'cli'"}else if !present.iter().any(|v|v==column)&&column=="auth_fingerprint"{"NULL"}else{column}).collect::<Vec<_>>().join(",")
+        }else{columns.to_string()};
+        let mut statement = source.prepare(&format!("SELECT {selection} FROM {table}")).map_err(|_| "读取本机 Codex 数据失败")?;
+        let rows = statement.query_map([], |row| (0..count).map(|index| row.get::<_, rusqlite::types::Value>(index)).collect::<rusqlite::Result<Vec<_>>>()).map_err(|_| "读取本机 Codex 数据失败")?;
+        let placeholders = (1..=count).map(|i| format!("?{i}")).collect::<Vec<_>>().join(",");
+        for row in rows {
+            let mut values = row.map_err(|_| "读取本机 Codex 数据失败")?;
+            if let Some(secret_index) = secret_index {
+                if let rusqlite::types::Value::Text(ref ciphertext) = values[secret_index] {
+                    let secret = zeroize::Zeroizing::new(decrypt_secret_with_key(ciphertext, current_key).map_err(|_| "解密本机 Codex 数据失败")?);
+                    values[secret_index] = rusqlite::types::Value::Text(encrypt_secret_with_key(&secret, incoming_key).map_err(|_| "重新加密本机 Codex 数据失败")?);
+                }
+            }
+            tx.execute(&format!("INSERT INTO {table}({columns}) VALUES({placeholders})"), rusqlite::params_from_iter(values)).map_err(|_| "保留本机 Codex 数据失败")?;
+        }
+    }
+    tx.commit().map_err(|_| "提交本机 Codex 数据失败".into())
 }
 
 fn preserve_local_authenticator(incoming: &Path, current: &Path) -> Result<(), String> {
@@ -177,6 +224,10 @@ fn table_count(conn: &Connection, table: &str) -> Result<u64, String> {
     conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| row.get::<_, i64>(0)).map(|value| value.max(0) as u64).map_err(|error| format!("读取导入统计失败: {error}"))
 }
 
+fn table_exists(conn: &Connection, table: &str) -> Result<bool, String> {
+    conn.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1)", [table], |row| row.get(0)).map_err(|_| "检查迁移包数据表失败".into())
+}
+
 fn build_preview(database_path: &Path, current_db: &Path, token: String, package_name: String, exported_at: String) -> Result<ImportPreview, String> {
     let imported = Connection::open(database_path).map_err(|error| format!("打开导入数据库失败: {error}"))?;
     let labels = [("cloud_accounts", "云账号"), ("cloud_assets", "云资产"), ("ssh_connections", "SSH 连接"), ("rdp_connections", "RDP 连接"), ("managed_hosts", "托管主机"), ("panel_connections", "面板连接"), ("operation_logs", "操作日志"), ("api_logs", "API 日志"), ("client_preferences", "客户端设置")];
@@ -264,10 +315,15 @@ pub(crate) fn import_database_file(app: tauri::AppHandle) -> PlatformResult<Opti
     let import_db = data.join(format!(".cloudhub-import-{}.sqlite3", Uuid::new_v4()));
     fs::write(&import_db, database).map_err(|error| format!("准备导入数据库失败: {error}"))?;
     let result = (|| {
+        #[cfg(desktop)]
+        let _codex_writer = super::codex::AUTH_WRITER.lock().map_err(|_| "Codex 账号操作不可用")?;
+        #[cfg(desktop)]
+        { use tauri::Manager; super::codex_instances::ensure_idle(&app.state::<super::codex_runtime::CodexRuntimeStore>())?; }
         validate_database(&import_db)?;
         let current_db = data.join("cloudhub_tools.sqlite3");
         lock_authenticator_for_migration(&app);
         preserve_local_authenticator(&import_db, &current_db)?;
+        preserve_local_codex(&import_db, &current_db, &crypto_key_bytes()?, key)?;
         let current_key = data.join(".key");
         let stamp = Utc::now().format("%Y%m%d-%H%M%S");
         let backup_db = data.join(format!("cloudhub_tools.sqlite3.before-import-{stamp}-{}", &Uuid::new_v4().to_string()[..8]));
@@ -298,6 +354,7 @@ fn replace_prepared_database(import_db: &Path, key: &[u8]) -> Result<String, Str
     validate_database(import_db)?;
     let current_db = data.join("cloudhub_tools.sqlite3");
     preserve_local_authenticator(import_db, &current_db)?;
+    preserve_local_codex(import_db, &current_db, &crypto_key_bytes()?, key)?;
     let current_key = data.join(".key");
     let stamp = Utc::now().format("%Y%m%d-%H%M%S");
     let backup_db = data.join(format!("cloudhub_tools.sqlite3.before-import-{stamp}-{}", &Uuid::new_v4().to_string()[..8]));
@@ -340,7 +397,58 @@ pub(crate) fn prepare_database_import(app: tauri::AppHandle, state: tauri::State
 
 #[cfg(test)]
 mod tests {
-    use super::{reset_imported_sync_identity, preserve_local_authenticator, omit_authenticator_from_export};
+    use super::{reset_imported_sync_identity, preserve_local_authenticator, omit_authenticator_from_export, preserve_local_codex};
+
+    #[test]
+    fn codex_stays_local_and_is_reencrypted_when_database_key_changes() {
+        use crate::core::crypto::{encrypt_secret_with_key, decrypt_secret_with_key};
+        let root = std::env::temp_dir().join(format!("cloudhub-codex-migration-{}", Uuid::new_v4()));
+        fs::create_dir(&root).unwrap();
+        let current = root.join("current.sqlite3");
+        let incoming = root.join("incoming.sqlite3");
+        let old_key = [11u8;32];
+        let new_key = [12u8;32];
+        for (path, label, key) in [(&current,"local",&old_key),(&incoming,"incoming",&new_key)] {
+            let conn = Connection::open(path).unwrap();
+            conn.execute_batch(crate::core::database::CODEX_SCHEMA).unwrap();
+            conn.execute_batch(crate::core::repositories::authenticator::SCHEMA).unwrap();
+            let cipher = encrypt_secret_with_key("invalid-test-only", key).unwrap();
+            conn.execute("INSERT INTO codex_accounts(identity,label,auth_mode,auth_ciphertext,updated_at) VALUES('id',?1,'chatgpt',?2,1)", rusqlite::params![label,cipher]).unwrap();
+            conn.execute("INSERT INTO codex_profile_backups VALUES('test-home',?1,'after','before')", [&cipher]).unwrap();
+            conn.execute("INSERT INTO codex_gateway_config VALUES(1,58169,?1)", [&cipher]).unwrap();
+            conn.execute("INSERT INTO codex_profiles(id,account_id,name,work_dir,created_at,auth_fingerprint,kind) VALUES('test-profile',1,'fixture','fixture-project',1,'projection','desktop')", []).unwrap();
+            if path == &incoming {
+                conn.execute_batch("ALTER TABLE codex_profiles DROP COLUMN kind; ALTER TABLE codex_profiles DROP COLUMN auth_fingerprint;").unwrap();
+            }
+        }
+        preserve_local_codex(&incoming, &current, &old_key, &new_key).unwrap();
+        let conn = Connection::open(&incoming).unwrap();
+        let (label, cipher): (String,String) = conn.query_row("SELECT label,auth_ciphertext FROM codex_accounts", [], |row| Ok((row.get(0)?,row.get(1)?))).unwrap();
+        assert_eq!(label,"local");
+        let (port, gateway_cipher): (u16,String) = conn.query_row("SELECT port,key_ciphertext FROM codex_gateway_config", [], |row| Ok((row.get(0)?,row.get(1)?))).unwrap();
+        assert_eq!(port,58169);
+        assert_eq!(decrypt_secret_with_key(&gateway_cipher,&new_key).unwrap(),"invalid-test-only");
+        assert!(decrypt_secret_with_key(&gateway_cipher,&old_key).is_err());
+        assert_eq!(decrypt_secret_with_key(&cipher,&new_key).unwrap(),"invalid-test-only");
+        assert!(decrypt_secret_with_key(&cipher,&old_key).is_err());
+        let profile: (String,Option<String>) = conn.query_row("SELECT kind,auth_fingerprint FROM codex_profiles", [], |row| Ok((row.get(0)?,row.get(1)?))).unwrap();
+        assert_eq!(profile,("desktop".into(),Some("projection".into())));
+        drop(conn);
+        // Local profiles created before either column existed still survive a key migration.
+        Connection::open(&current).unwrap().execute_batch("ALTER TABLE codex_profiles DROP COLUMN kind; ALTER TABLE codex_profiles DROP COLUMN auth_fingerprint;").unwrap();
+        preserve_local_codex(&incoming, &current, &old_key, &new_key).unwrap();
+        let profile: (String,Option<String>) = Connection::open(&incoming).unwrap().query_row("SELECT kind,auth_fingerprint FROM codex_profiles", [], |row| Ok((row.get(0)?,row.get(1)?))).unwrap();
+        assert_eq!(profile,("cli".into(),None));
+        omit_authenticator_from_export(&incoming).unwrap();
+        let conn = Connection::open(&incoming).unwrap();
+        assert_eq!(conn.query_row("SELECT COUNT(*) FROM codex_accounts", [], |row| row.get::<_,i64>(0)).unwrap(),0);
+        assert_eq!(conn.query_row("SELECT COUNT(*) FROM codex_profile_backups", [], |row| row.get::<_,i64>(0)).unwrap(),0);
+        assert_eq!(conn.query_row("SELECT COUNT(*) FROM codex_profiles", [], |row| row.get::<_,i64>(0)).unwrap(),0);
+        assert_eq!(conn.query_row("SELECT COUNT(*) FROM codex_gateway_config", [], |row| row.get::<_,i64>(0)).unwrap(),0);
+        drop(conn);
+        assert_eq!(Connection::open(&current).unwrap().query_row("SELECT COUNT(*) FROM codex_accounts", [], |row| row.get::<_,i64>(0)).unwrap(),1);
+        fs::remove_dir_all(root).unwrap();
+    }
     use rusqlite::Connection;
     use std::{fs, path::PathBuf};
     use uuid::Uuid;
@@ -415,6 +523,10 @@ mod tests {
 #[tauri::command]
 pub(crate) fn confirm_database_import(app: tauri::AppHandle, state: tauri::State<'_, DatabaseImportStore>, token: String) -> PlatformResult<String> {
     ensure_database_file_migration_supported()?;
+    #[cfg(desktop)]
+    let _codex_writer = super::codex::AUTH_WRITER.lock().map_err(|_| "Codex 账号操作不可用")?;
+    #[cfg(desktop)]
+    { use tauri::Manager; super::codex_instances::ensure_idle(&app.state::<super::codex_runtime::CodexRuntimeStore>())?; }
     let prepared = state.sessions.lock().map_err(|_| "导入预览状态不可用".to_string())?.remove(&token).ok_or_else(|| "导入预览已失效，请重新选择文件".to_string())?;
     lock_authenticator_for_migration(&app);
     let result = replace_prepared_database(&prepared.database_path, &prepared.key);
