@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use rusqlite::{Connection, OptionalExtension, params};
 use std::collections::{HashMap, VecDeque};
 
-pub const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS codex_gateway_preferences(id INTEGER PRIMARY KEY CHECK(id=1),json TEXT NOT NULL);";
+pub const SCHEMA: &str = crate::core::database::CODEX_GATEWAY_PREFERENCES_SCHEMA;
 
 #[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Debug, Default)]
 #[serde(rename_all = "snake_case")]

@@ -4,6 +4,9 @@ use std::sync::Mutex;
 use super::paths::data_dir;
 
 const CURRENT_SCHEMA_VERSION: i64 = 27;
+// Schema is shared by desktop and mobile; migrations must not depend on desktop modules.
+pub const CODEX_GATEWAY_PREFERENCES_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS codex_gateway_preferences(id INTEGER PRIMARY KEY CHECK(id=1),json TEXT NOT NULL);";
+pub const CODEX_ACCOUNT_CONTROLS_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS codex_account_controls(account_id INTEGER PRIMARY KEY REFERENCES codex_accounts(id) ON DELETE CASCADE,proxy_url TEXT,benefits_json TEXT,reset_request_id TEXT);";
 pub const CODEX_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS codex_accounts (
     id INTEGER PRIMARY KEY AUTOINCREMENT, identity TEXT NOT NULL UNIQUE,
     label TEXT NOT NULL, email TEXT, account_id TEXT, auth_mode TEXT NOT NULL,
@@ -288,11 +291,11 @@ fn migrate_connection(conn: &mut Connection) -> Result<(), String> {
         transaction.pragma_update(None, "user_version", 25).map_err(|_| "更新 Codex API 配置数据库版本失败")?;
     }
     if version < 26 {
-        transaction.execute_batch(crate::core::codex::gateway_controls::SCHEMA).map_err(|_| "创建网关规则表失败")?;
+        transaction.execute_batch(CODEX_GATEWAY_PREFERENCES_SCHEMA).map_err(|_| "创建网关规则表失败")?;
         transaction.pragma_update(None, "user_version", 26).map_err(|_| "更新网关规则数据库版本失败")?;
     }
     if version < 27 {
-        transaction.execute_batch(crate::core::codex::account_controls::SCHEMA).map_err(|_|"创建账号权益表失败")?;
+        transaction.execute_batch(CODEX_ACCOUNT_CONTROLS_SCHEMA).map_err(|_|"创建账号权益表失败")?;
         transaction.pragma_update(None,"user_version",27).map_err(|_|"更新账号权益数据库版本失败")?;
     }
     transaction.commit().map_err(|error| format!("提交 SQLite 迁移失败: {error}"))?;
@@ -330,6 +333,7 @@ mod tests {
     use super::{migrate_connection, CURRENT_SCHEMA_VERSION};
     use rusqlite::Connection;
 
+    #[cfg(desktop)]
     #[test]
     fn upgrades_v26_with_account_controls_and_preserves_existing_accounts() {
         let mut conn=Connection::open_in_memory().unwrap();
@@ -345,6 +349,7 @@ mod tests {
         assert_eq!(version,CURRENT_SCHEMA_VERSION);
     }
 
+    #[cfg(desktop)]
     #[test]
     fn upgrades_v25_with_gateway_preferences_without_replacing_service_credentials() {
         let mut conn=Connection::open_in_memory().unwrap();
@@ -360,6 +365,7 @@ mod tests {
         assert_eq!(cipher,"test-only-ciphertext");
     }
 
+    #[cfg(desktop)]
     #[test]
     fn upgrades_v24_without_gateway_config_and_preserves_saved_config() {
         let mut conn = Connection::open_in_memory().unwrap();

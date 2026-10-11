@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::time::Duration;
 
-pub const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS codex_account_controls(account_id INTEGER PRIMARY KEY REFERENCES codex_accounts(id) ON DELETE CASCADE,proxy_url TEXT,benefits_json TEXT,reset_request_id TEXT);";
+pub const SCHEMA: &str = crate::core::database::CODEX_ACCOUNT_CONTROLS_SCHEMA;
 #[derive(Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all="camelCase", default)]
 pub struct Benefits {
