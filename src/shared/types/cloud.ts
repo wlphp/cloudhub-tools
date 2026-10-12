@@ -152,6 +152,7 @@ export type PanelConnectionDraft = {
   ssh_username?: string;
   ssh_password?: string;
   ssh_password_saved?: boolean;
+  ssh_managed_host_id?: number;
 };
 
 export type EsaTrendPoint = { time: string; value: number };
@@ -159,7 +160,7 @@ export type EsaTrendPoint = { time: string; value: number };
 export type EsaOverview = {
   traffic: number;
   requests: number;
-  defence_requests: number;
+  defence_requests: number | null;
   site_count: number;
   active_count: number;
   range_label: string;

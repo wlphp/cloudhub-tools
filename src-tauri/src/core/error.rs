@@ -20,6 +20,30 @@ impl From<&str> for PlatformError {
 
 impl PlatformError {
     fn from_message(message: String) -> Self {
+        // Exact authored diagnostics only: never forward arbitrary native error text.
+        if ["代理地址无效", "代理地址不能包含换行或控制字符", "代理地址不能超过 512 个字符",
+            "代理地址缺少协议，请填写 http://127.0.0.1:10808 这样的完整地址",
+            "请填写无账号密码的 HTTP/HTTPS 代理地址，例如 http://127.0.0.1:7890",
+            "请先停止该账号的服务或实例，再修改代理", "保存账号代理任务失败", "保存账号代理失败",
+            "读取本机代理配置失败，请手动填写代理地址", "本机代理配置超过读取限制"
+            , "请选择 1–1000 个有效账号后批量设置代理", "所选账号已不存在，请刷新列表后重试",
+            "所选账号中有服务、实例或唤醒任务运行，请先停止后批量设置代理；未修改任何账号",
+            "批量保存代理失败，未修改任何账号", "批量保存代理任务失败"
+        ].contains(&message.as_str()) {
+            return Self { kind: "platform-error", code: "codex-proxy", message, retryable: false };
+        }
+        if let Some((safe_message, retryable)) = safe_esa_query_error(&message) {
+            return Self { kind: "platform-error", code: "esa-query", message: safe_message, retryable };
+        }
+        if is_safe_esa_error(&message) {
+            let retryable = message.contains("超时")
+                || message.contains("稍后")
+                || message.contains("HTTP 429")
+                || message.contains("HTTP 502")
+                || message.contains("HTTP 503")
+                || message.contains("HTTP 504");
+            return Self { kind: "platform-error", code: "certificate", message, retryable };
+        }
         let normalized = message.to_ascii_lowercase();
         let (code, retryable) = if message == "本机 FRP 面板端口已被占用，请先停止旧连接或占用该端口的进程" {
             ("frp-port-conflict", false)
@@ -61,6 +85,66 @@ impl PlatformError {
     }
 }
 
+fn safe_esa_query_error(message: &str) -> Option<(String, bool)> {
+    let rest = message.strip_prefix("ESA 查询失败：")?;
+    let (action, details) = rest.split_once("（")?;
+    if !["ListSites", "DescribeSiteTimeSeriesData", "DescribeSiteWafTimeSeriesData"].contains(&action) { return None; }
+    let details = details.strip_suffix('）')?;
+    let retryable = match details {
+        "网络连接失败" => true,
+        "响应格式无效" => false,
+        _ => {
+            let (status, code) = details.strip_prefix("HTTP ")?.split_once("，错误代码 ")?;
+            if status.len() != 3 || !status.bytes().all(|byte| byte.is_ascii_digit()) { return None; }
+            if code.is_empty() || code.len() > 80 || !code.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-')) { return None; }
+            matches!(status, "429" | "502" | "503" | "504")
+        }
+    };
+    Some((message.to_string(), retryable))
+}
+
+fn is_safe_esa_error(message: &str) -> bool {
+    const AUTHORED: &[&str] = &[
+        "ESA：证书域名与 ESA 站点不匹配",
+        "ESA：证书与私钥不匹配或格式无效",
+        "ESA：ESA 自定义证书配额不足，请检查站点套餐",
+        "ESA：ESA 证书名称已存在，请刷新站点证书后重试",
+        "ESA：账号缺少 ESA 操作权限",
+        "ESA：ESA 正在处理请求或已限流，请稍后重试",
+        "ESA 请求失败，请检查账号权限、站点状态及请求参数后重试",
+        "ESA 网络请求失败或超时，请稍后刷新确认",
+        "ESA 返回读取失败",
+        "ESA 返回超出大小限制",
+        "ESA 返回格式无效",
+        "ESA 签名失败",
+        "ESA 请求不可用",
+        "ESA 请求方式无效",
+        "ESA 请求构建失败",
+        "ESA 账号或站点无效",
+        "ESA 未返回站点信息",
+        "ESA 返回的站点 ID 不匹配",
+        "ESA 站点域名无效",
+        "ESA 证书列表格式无效",
+        "ESA 已接收上传但未返回证书 ID，请刷新确认后重试",
+        "ESA 未返回挑战记录 ID，请检查站点 DNS 记录",
+    ];
+    if AUTHORED.contains(&message) {
+        return true;
+    }
+    if let Some(code) = message
+        .strip_prefix("ESA 返回错误代码 ")
+        .and_then(|value| value.strip_suffix("，请检查账号权限、站点状态及证书格式后重试"))
+    {
+        return !code.is_empty()
+            && code.len() <= 80
+            && code.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'));
+    }
+    message
+        .strip_prefix("ESA 请求返回 HTTP ")
+        .and_then(|value| value.strip_suffix("，请检查接口状态后重试"))
+        .is_some_and(|status| status.len() == 3 && status.bytes().all(|byte| byte.is_ascii_digit()))
+}
+
 pub(crate) fn sanitize_resource_error(message: &str) -> String {
     let normalized = message.to_ascii_lowercase();
     if message == "服务器查询超时，部分地域未完成；请在账号中填写服务器所在地域后重试" {
@@ -87,6 +171,15 @@ mod tests {
     use super::{sanitize_resource_error, PlatformError};
 
     #[test]
+    fn proxy_errors_preserve_authored_guidance_only() {
+        let error = PlatformError::from("请先停止该账号的服务或实例，再修改代理");
+        assert_eq!(error.code, "codex-proxy");
+        assert_eq!(error.message, "请先停止该账号的服务或实例，再修改代理");
+        let error = PlatformError::from("保存账号代理失败 token=test-secret");
+        assert!(!error.message.contains("test-secret"));
+    }
+
+    #[test]
     fn frp_port_conflict_is_not_a_retryable_network_error() {
         let error = PlatformError::from("本机 FRP 面板端口已被占用，请先停止旧连接或占用该端口的进程");
         assert_eq!(error.code, "frp-port-conflict");
@@ -106,6 +199,22 @@ mod tests {
         let error = PlatformError::from("AccessKey 凭据无效".to_string());
         assert_eq!(error.code, "authentication");
         assert!(!error.retryable);
+    }
+
+    #[test]
+    fn esa_query_errors_preserve_only_allowlisted_diagnostics() {
+        let error = PlatformError::from("ESA 查询失败：DescribeSiteTimeSeriesData（HTTP 403，错误代码 Forbidden）");
+        assert_eq!(error.code, "esa-query");
+        assert!(error.message.contains("HTTP 403"));
+        assert!(!error.retryable);
+
+        let error = PlatformError::from("ESA 查询失败：DescribeSiteWafTimeSeriesData（HTTP 503，错误代码 ServiceUnavailable）");
+        assert_eq!(error.code, "esa-query");
+        assert!(error.retryable);
+
+        let error = PlatformError::from("ESA 查询失败：DescribeSiteTimeSeriesData（HTTP 403，错误代码 token=secret）");
+        assert_eq!(error.code, "permission");
+        assert!(!error.message.contains("secret"));
     }
 
     #[test]
@@ -144,6 +253,21 @@ mod tests {
         assert_eq!(error.code, "authentication");
         assert!(!error.message.contains("TOP_SECRET"));
         assert!(!error.message.contains("TOP_TOKEN"));
+    }
+
+    #[test]
+    fn preserves_only_safe_esa_diagnostics() {
+        let error = PlatformError::from("ESA 返回错误代码 Certificate.BadFormat，请检查账号权限、站点状态及证书格式后重试");
+        assert_eq!(error.code, "certificate");
+        assert!(error.message.contains("Certificate.BadFormat"));
+
+        let hidden = PlatformError::from("ESA provider response token=TOP_SECRET");
+        assert_eq!(hidden.code, "authentication");
+        assert!(!hidden.message.contains("TOP_SECRET"));
+
+        let retryable = PlatformError::from("ESA 网络请求失败或超时，请稍后刷新确认");
+        assert_eq!(retryable.code, "certificate");
+        assert!(retryable.retryable);
     }
 
     #[test]

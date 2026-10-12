@@ -71,9 +71,9 @@ export function DnsEditorDialog({ mode, row, preset, onCancel, onSubmit }: DnsEd
   };
 
   return (
-    <div className="modal-backdrop dns-editor-backdrop" onClick={onCancel}>
-      <section className="modal dns-editor-modal" onClick={(event) => event.stopPropagation()}>
-        <div className="modal-head"><h2>{mode === "edit" ? "编辑解析记录" : "添加解析记录"}</h2><button className="close" onClick={onCancel}><X size={18} /></button></div>
+    <div className="modal-backdrop dns-editor-backdrop">
+      <section className="modal dns-editor-modal" role="dialog" aria-modal="true" aria-labelledby="dns-editor-title" onClick={(event) => event.stopPropagation()}>
+        <div className="modal-head"><h2 id="dns-editor-title">{mode === "edit" ? "编辑解析记录" : "添加解析记录"}</h2><button type="button" className="close" aria-label="关闭解析记录编辑" disabled={submitting} onClick={onCancel}><X size={18} /></button></div>
         <form onSubmit={handleSubmit}>
           <label>记录类型<select value={type} onChange={(event) => setType(event.target.value)}><option value="A">A</option><option value="AAAA">AAAA</option><option value="CNAME">CNAME</option><option value="MX">MX</option><option value="TXT">TXT</option><option value="NS">NS</option><option value="SRV">SRV</option><option value="CAA">CAA</option><option value="REDIRECT_URL">显性URL</option><option value="FORWARD_URL">隐性URL</option></select></label>
           <label>主机记录<input ref={rrRef} value={rr} onChange={(event) => setRr(event.target.value)} placeholder="如：www、@、mail" /></label>

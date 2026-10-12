@@ -569,6 +569,8 @@
     {
       "name": "certificates",
       "operations": [
+        { "name": "esa-context", "native": ["esa_certificate_context"], "preview": [] },
+        { "name": "esa-deploy", "native": ["esa_deploy_certificate"], "preview": [] },
         {
           "name": "list",
           "native": [
@@ -1119,13 +1121,13 @@
       "name": "codex",
       "operations": [
         { "name": "open-default", "native": ["codex_open_default"], "preview": [] },
-        { "name": "gateway", "native": ["codex_gateway_configure", "codex_gateway_log_detail", "codex_gateway_logs", "codex_gateway_clear_logs", "codex_gateway_models", "codex_gateway_state", "codex_gateway_start", "codex_gateway_stop", "codex_gateway_copy_key", "codex_wake_account"], "preview": [] },
-        { "name": "backup", "native": ["codex_export_backup", "codex_import_backup"], "preview": [] },
+        { "name": "gateway", "native": ["codex_gateway_configure", "codex_gateway_log_detail", "codex_gateway_logs", "codex_gateway_clear_logs", "codex_gateway_models", "codex_gateway_state", "codex_gateway_start", "codex_gateway_stop", "codex_gateway_copy_key", "codex_gateway_reveal_key", "codex_gateway_save_port", "codex_gateway_set_auto_start", "codex_gateway_save_pool", "codex_gateway_set_allow_lan", "codex_gateway_copy_share_config", "codex_gateway_lan_interfaces", "codex_wake_account"], "preview": [] },
+        { "name": "backup", "native": ["codex_export_accounts_file", "codex_export_backup", "codex_import_backup"], "preview": [] },
         { "name": "instances", "native": ["codex_list_instances", "codex_create_instance", "codex_start_instance", "codex_stop_instance", "codex_delete_instance"], "preview": [] },
-        { "name": "login", "native": ["codex_start_login", "codex_poll_login", "codex_cancel_login"], "preview": [] },
+        { "name": "login", "native": ["codex_start_login", "codex_open_login_url", "codex_copy_login_url", "codex_poll_login", "codex_cancel_login"], "preview": [] },
         { "name": "state", "native": ["codex_get_state"], "preview": [] },
         { "name": "import", "native": ["codex_import_local", "codex_import_file"], "preview": [] },
-        { "name": "metadata", "native": ["codex_save_metadata", "codex_save_proxy", "codex_refresh_benefits", "codex_consume_reset", "codex_delete_account"], "preview": [] },
+        { "name": "metadata", "native": ["codex_save_metadata", "codex_save_proxy", "codex_save_proxies", "codex_detect_proxies", "codex_remote_logs", "codex_remote_log_detail", "codex_remote_logs_configure", "codex_remote_logs_clear", "codex_refresh_benefits", "codex_consume_reset", "codex_delete_account"], "preview": [] },
         { "name": "quota", "native": ["codex_refresh_quota"], "preview": [] },
         { "name": "switch", "native": ["codex_prepare_switch", "codex_confirm_switch", "codex_restore_profile"], "preview": [] }
       ]

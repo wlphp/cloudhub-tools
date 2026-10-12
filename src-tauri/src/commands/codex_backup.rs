@@ -34,11 +34,90 @@ fn passphrase(value: String) -> Result<Zeroizing<String>, String> {
     Ok(value)
 }
 
+fn plain_accounts(auths: &[Zeroizing<String>]) -> Result<Zeroizing<String>, String> {
+    if auths.is_empty() || auths.len() > 100 {
+        return Err("请选择 1 至 100 个账号导出".into());
+    }
+    let mut encoded = Zeroizing::new(String::new());
+    if auths.len() > 1 {
+        encoded.push('[');
+    }
+    for (index, auth) in auths.iter().enumerate() {
+        let parsed = auth::parse_import(auth)?;
+        if parsed.len() != 1 {
+            return Err("导出账号认证格式无效".into());
+        }
+        if index > 0 {
+            encoded.push(',');
+        }
+        encoded.push_str(&parsed[0].auth_json);
+        if encoded.len() > 2 * 1024 * 1024 {
+            return Err("账号导出文件超出大小限制".into());
+        }
+    }
+    if auths.len() > 1 {
+        encoded.push(']');
+    }
+    if encoded.len() > 2 * 1024 * 1024 {
+        return Err("账号导出文件超出大小限制".into());
+    }
+    Ok(encoded)
+}
+
+#[tauri::command]
+pub(crate) async fn codex_export_accounts_file(
+    app: tauri::AppHandle,
+    account_id: Option<i64>,
+) -> PlatformResult<bool> {
+    if account_id.is_some_and(|id| id <= 0) {
+        return Err("导出账号无效".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || -> Result<bool, String> {
+        let Some(selected) = app
+            .dialog()
+            .file()
+            .set_title("保存 Codex 账号 JSON（包含登录凭据）")
+            .set_file_name("cloudhub-codex-accounts.json")
+            .add_filter("JSON", &["json"])
+            .blocking_save_file()
+        else {
+            return Ok(false);
+        };
+        let path = selected.into_path().map_err(|_| "账号导出路径无效")?;
+        let encoded = {
+            let _writer = AUTH_WRITER.lock().map_err(|_| "Codex 账号操作不可用")?;
+            super::codex_instances::ensure_idle(
+                &app.state::<super::codex_runtime::CodexRuntimeStore>(),
+            )?;
+            let conn = open_db()?;
+            let accounts = if let Some(id) = account_id {
+                vec![repository::get(&conn, id)?]
+            } else {
+                repository::list(&conn)?
+            };
+            let auths = accounts
+                .iter()
+                .map(|account| repository::credentials(&conn, account.id))
+                .collect::<Result<Vec<_>, _>>()?;
+            plain_accounts(&auths)?
+        };
+        profile::write_private(&path, &encoded)?;
+        Ok(true)
+    })
+    .await
+    .map_err(|_| "导出账号任务失败")?
+    .map_err(Into::into)
+}
+
 #[tauri::command]
 pub(crate) async fn codex_export_backup(
     app: tauri::AppHandle,
     password: String,
+    account_id: Option<i64>,
 ) -> PlatformResult<bool> {
+    if account_id.is_some_and(|id| id <= 0) {
+        return Err("备份账号无效".into());
+    }
     tauri::async_runtime::spawn_blocking(move || -> Result<bool, String> {
         let password = passphrase(password)?;
         let Some(selected) = app
@@ -57,7 +136,11 @@ pub(crate) async fn codex_export_backup(
                 &app.state::<super::codex_runtime::CodexRuntimeStore>(),
             )?;
             let conn = open_db()?;
-            let accounts = repository::list(&conn)?;
+            let accounts = if let Some(id) = account_id {
+                vec![repository::get(&conn, id)?]
+            } else {
+                repository::list(&conn)?
+            };
             if accounts.is_empty() || accounts.len() > 100 {
                 return Err("Codex 备份需要 1 至 100 个账号".into());
             }
@@ -139,6 +222,22 @@ fn validate(payload: &Backup) -> Result<Vec<auth::ImportedAccount>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn plain_exports_round_trip_as_single_auth_or_account_array() {
+        let auth = Zeroizing::new(r#"{"OPENAI_API_KEY":"test-only-api-key"}"#.to_string());
+        let single = plain_accounts(&[auth.clone()]).unwrap();
+        assert!(single.starts_with('{'));
+        assert_eq!(auth::parse_import(&single).unwrap().len(), 1);
+        let batch = plain_accounts(&[
+            auth.clone(),
+            Zeroizing::new(r#"{"OPENAI_API_KEY":"test-only-second-key"}"#.to_string()),
+        ])
+        .unwrap();
+        assert!(batch.starts_with('['));
+        assert_eq!(auth::parse_import(&batch).unwrap().len(), 2);
+        assert!(plain_accounts(&[]).is_err());
+        assert!(plain_accounts(&[Zeroizing::new("{}".into())]).is_err());
+    }
     #[test]
     fn backup_format_is_separate_from_other_sync_payloads() {
         let payload = Backup {

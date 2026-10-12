@@ -13,9 +13,20 @@ export type CertificateRequest = {
   eabKid?: string;
   eabHmacKey?: string;
   operationId?: string;
+  esaSiteId?: number;
 };
 
+export type EsaCertificateTarget = { accountId: number; siteId: number; siteName: string; accessType: string };
+export type EsaCertificateContext = { site: { siteId: number; siteName: string; accessType: string }; candidates: Array<{ id: number; domains: string[]; status: string; deployable: boolean; matchesSite: boolean; reason: string | null; notBefore: number | null; notAfter: number | null }>; remote: Array<{ id: string; name: string; status: string; domains: string[]; notAfter: string; kind: string }> };
+export type EsaCertificateDeployment = { remoteId: string; status: string; verified: boolean; message: string };
+
 export const certificatesClient = {
+  esaContext(accountId: number, siteId: number): Promise<EsaCertificateContext> {
+    return nativeOnly("esa_certificate_context", { accountId, siteId });
+  },
+  deployEsa(accountId: number, siteId: number, certificateId: number): Promise<EsaCertificateDeployment> {
+    return nativeOnly("esa_deploy_certificate", { accountId, siteId, certificateId });
+  },
   summaries(): Promise<CertificateSummary[]> {
     return invokeOrWeb("list_certificate_summaries", undefined, { path: "/api/certificate-summaries" });
   },

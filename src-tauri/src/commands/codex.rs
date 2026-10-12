@@ -32,6 +32,7 @@ pub(crate) struct CodexState {
     cli_available: bool,
     desktop_available: bool,
     can_open_default: bool,
+    supports_remote_logs: bool,
     profile_home: String,
     current_account_id: Option<i64>,
     can_restore: bool,
@@ -66,6 +67,7 @@ fn state() -> Result<CodexState, String> {
         cli_available: profile::cli_path().is_some(),
         desktop_available,
         can_open_default: desktop_available,
+        supports_remote_logs: true,
         profile_home: home.to_string_lossy().to_string(),
         current_account_id: current,
         can_restore,
@@ -224,6 +226,8 @@ pub(crate) async fn codex_refresh_quota(
         let external = default_auth.is_some();
         let monitored = default_auth.unwrap_or(original);
         let isolated = profile::TemporaryProfile::new(if external { "{}" } else { &monitored.auth_json })?;
+        let mut api_log=crate::core::codex::remote_logs::RemoteTrace::new(Some(id),"cli_rpc","account/rateLimits/read","官方 CLI 内部远端请求（HTTP 地址及请求头不可见）",account.proxy_url.as_deref());
+        api_log.request(&serde_json::json!({"rpcMethod":"account/rateLimits/read","params":{},"timeoutMs":30000,"headersAvailable":false,"note":"额度由官方 CLI 查询，无法采集其内部 HTTP 请求头、状态码或重试"}));
         let fetched = (|| {
             let mut server = rpc::AppServer::start_cancelled_proxy(&isolated.path,None,account.proxy_url.as_deref())?;
             if external {
@@ -233,9 +237,11 @@ pub(crate) async fn codex_refresh_quota(
             }
             let info = server.request("account/read", serde_json::json!({"refreshToken":!external}), Duration::from_secs(30))?;
             let limits = server.request("account/rateLimits/read", serde_json::json!({}), Duration::from_secs(30))?;
+            api_log.response(&limits);
             let plan = info.get("account").and_then(|v| v.get("planType")).and_then(serde_json::Value::as_str).filter(|v| v.len() <= 80).map(str::to_owned);
             Ok::<_, String>((rpc::parse_quota(&limits)?, plan))
         })();
+        api_log.finish(if fetched.is_ok(){"completed"}else{"cli_error"});
         let updated = if external { monitored.auth_json } else { profile::read_auth(&isolated.path.join("auth.json"))? };
         let imported = auth::parse_import(&updated)?.remove(0);
         if imported.identity != monitored.identity { return Err("Codex 刷新返回了不同账号，认证状态未保存".into()); }
@@ -554,8 +560,42 @@ mod recovery_tests {
 }
 
 #[tauri::command]
+pub(crate) fn codex_remote_logs() -> PlatformResult<crate::core::codex::remote_logs::LogState> { crate::core::codex::remote_logs::state().map_err(Into::into) }
+#[tauri::command]
+pub(crate) fn codex_remote_log_detail(id: String) -> PlatformResult<crate::core::codex::gateway_controls::CallDetail> { crate::core::codex::remote_logs::detail(&id).map_err(Into::into) }
+#[tauri::command]
+pub(crate) fn codex_remote_logs_configure(enabled: bool) -> PlatformResult<crate::core::codex::remote_logs::LogState> { crate::core::codex::remote_logs::configure(enabled).map_err(Into::into) }
+#[tauri::command]
+pub(crate) fn codex_remote_logs_clear() -> PlatformResult<crate::core::codex::remote_logs::LogState> { crate::core::codex::remote_logs::clear().map_err(Into::into) }
+
+#[tauri::command]
+pub(crate) async fn codex_detect_proxies() -> PlatformResult<Vec<crate::core::codex::proxy_detection::ProxyCandidate>> {
+    tauri::async_runtime::spawn_blocking(crate::core::codex::proxy_detection::detect)
+        .await.map_err(|_| "读取本机代理配置失败，请手动填写代理地址")?.map_err(Into::into)
+}
+
+#[tauri::command]
+pub(crate) async fn codex_save_proxies(app: tauri::AppHandle, ids: Vec<i64>, url: String) -> PlatformResult<Vec<CodexAccountSummary>> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<_, String> {
+        let _writer = AUTH_WRITER.lock().map_err(|_| "账号操作不可用")?;
+        crate::core::codex::account_controls::validate_proxy(&url)?;
+        if ids.is_empty() || ids.len() > 1000 || ids.iter().any(|id| *id <= 0) {
+            return Err("请选择 1–1000 个有效账号后批量设置代理".into());
+        }
+        let store = app.state::<super::codex_runtime::CodexRuntimeStore>();
+        for id in &ids {
+            if super::codex_instances::account_running(&store, *id)? {
+                return Err("所选账号中有服务、实例或唤醒任务运行，请先停止后批量设置代理；未修改任何账号".into());
+            }
+        }
+        crate::core::codex::account_controls::save_proxies(&mut open_db()?, &ids, &url)
+    }).await.map_err(|_| "批量保存代理任务失败")?.map_err(Into::into)
+}
+
+#[tauri::command]
 pub(crate) async fn codex_save_proxy(app:tauri::AppHandle,id:i64,url:String)->PlatformResult<CodexAccountSummary> {
     tauri::async_runtime::spawn_blocking(move || -> Result<_,String> {
+        crate::core::codex::account_controls::validate_proxy(&url)?;
         let _writer=AUTH_WRITER.lock().map_err(|_|"账号操作不可用")?;
         let conn=open_db()?; repository::get(&conn,id)?;
         if super::codex_instances::account_running(&app.state::<super::codex_runtime::CodexRuntimeStore>(),id)? {return Err("请先停止该账号的服务或实例，再修改代理".into());}
@@ -572,13 +612,13 @@ pub(crate) async fn codex_refresh_benefits(id:i64)->PlatformResult<CodexAccountS
         let (token,account,proxy)=gateway::credentials_locked(id,std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)))?;
         let account=account.ok_or("账号标识无效")?; let client=controls::client(proxy.as_deref())?;
         tauri::async_runtime::block_on(async {
-            match controls::request(&client,&token,&account,"accounts/check/v4-2023-04-27",None).await {
+            match controls::request(&client,&token,&account,id,proxy.as_deref(),"accounts/check/v4-2023-04-27",None).await {
                 Ok(value)=>{
                     let expiry=controls::parse_subscription(&value,&account);
                     if expiry.is_some_and(|time|time>chrono::Utc::now().timestamp()) {
                         summary.benefits.expires_at=expiry;summary.benefits.subscription_error=None;
                     } else {
-                        match controls::request(&client,&token,&account,"subscriptions",None).await {
+                        match controls::request(&client,&token,&account,id,proxy.as_deref(),"subscriptions",None).await {
                             Ok(value)=>{summary.benefits.expires_at=controls::parse_subscription(&value,&account).or(expiry);summary.benefits.subscription_error=None;},
                             Err(error)=>summary.benefits.subscription_error=Some(error),
                         }
@@ -586,7 +626,7 @@ pub(crate) async fn codex_refresh_benefits(id:i64)->PlatformResult<CodexAccountS
                 },
                 Err(error)=>summary.benefits.subscription_error=Some(error),
             }
-            match controls::request(&client,&token,&account,"wham/rate-limit-reset-credits",None).await.and_then(|value|controls::parse_credits(&value,chrono::Utc::now().timestamp())) {
+            match controls::request(&client,&token,&account,id,proxy.as_deref(),"wham/rate-limit-reset-credits",None).await.and_then(|value|controls::parse_credits(&value,chrono::Utc::now().timestamp())) {
                 Ok((count,expiry))=>{summary.benefits.reset_credits=Some(count);summary.benefits.reset_expires_at=expiry;summary.benefits.credits_error=None;},
                 Err(error)=>summary.benefits.credits_error=Some(error),
             }
@@ -607,11 +647,11 @@ pub(crate) async fn codex_consume_reset(app:tauri::AppHandle,id:i64)->PlatformRe
         let account=account.ok_or("账号标识无效")?; let client=controls::client(proxy.as_deref())?;
         let existing:Option<String>=rusqlite::OptionalExtension::optional(conn.query_row("SELECT reset_request_id FROM codex_account_controls WHERE account_id=?1",[id],|r|r.get::<_,Option<String>>(0))).map_err(|_|"读取重置请求标识失败")?.flatten();
         let request_id=existing.unwrap_or_else(||uuid::Uuid::new_v4().to_string());
-        let value=tauri::async_runtime::block_on(controls::request(&client,&token,&account,"wham/rate-limit-reset-credits",None))?;
+        let value=tauri::async_runtime::block_on(controls::request(&client,&token,&account,id,proxy.as_deref(),"wham/rate-limit-reset-credits",None))?;
         let (count,_)=controls::parse_credits(&value,chrono::Utc::now().timestamp())?;
         if count==0 {return Err("账号没有可用的主动重置次数".into());}
         conn.execute("INSERT INTO codex_account_controls(account_id,reset_request_id) VALUES(?1,?2) ON CONFLICT(account_id) DO UPDATE SET reset_request_id=excluded.reset_request_id",rusqlite::params![id,request_id]).map_err(|_|"保存重置请求标识失败")?;
-        tauri::async_runtime::block_on(controls::request(&client,&token,&account,"wham/rate-limit-reset-credits/consume",Some(&request_id)))?;
+        tauri::async_runtime::block_on(controls::request(&client,&token,&account,id,proxy.as_deref(),"wham/rate-limit-reset-credits/consume",Some(&request_id)))?;
         // Leave the request ID persisted if the result is uncertain; explicit retries reuse it.
         // Invalidate stale counts before the UI can offer another reset.
         let tx=conn.unchecked_transaction().map_err(|_|"重置已完成，但本地状态未更新，请刷新账号信息")?;

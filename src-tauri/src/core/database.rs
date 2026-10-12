@@ -3,7 +3,7 @@ use std::sync::Mutex;
 
 use super::paths::data_dir;
 
-const CURRENT_SCHEMA_VERSION: i64 = 27;
+const CURRENT_SCHEMA_VERSION: i64 = 31;
 // Schema is shared by desktop and mobile; migrations must not depend on desktop modules.
 pub const CODEX_GATEWAY_PREFERENCES_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS codex_gateway_preferences(id INTEGER PRIMARY KEY CHECK(id=1),json TEXT NOT NULL);";
 pub const CODEX_ACCOUNT_CONTROLS_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS codex_account_controls(account_id INTEGER PRIMARY KEY REFERENCES codex_accounts(id) ON DELETE CASCADE,proxy_url TEXT,benefits_json TEXT,reset_request_id TEXT);";
@@ -22,8 +22,9 @@ pub const CODEX_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS codex_accounts (
     FOREIGN KEY(account_id) REFERENCES codex_accounts(id) ON DELETE CASCADE
 ); CREATE TABLE IF NOT EXISTS codex_gateway_config (
     id INTEGER PRIMARY KEY CHECK(id=1), port INTEGER NOT NULL CHECK(port BETWEEN 1024 AND 65535),
-    key_ciphertext TEXT NOT NULL
-);CREATE TABLE IF NOT EXISTS codex_account_controls(account_id INTEGER PRIMARY KEY REFERENCES codex_accounts(id) ON DELETE CASCADE,proxy_url TEXT,benefits_json TEXT,reset_request_id TEXT);";
+    key_ciphertext TEXT NOT NULL, auto_start INTEGER NOT NULL DEFAULT 0,
+    account_ids_json TEXT NOT NULL DEFAULT '[]'
+ );CREATE TABLE IF NOT EXISTS codex_gateway_network(id INTEGER PRIMARY KEY CHECK(id=1),allow_lan INTEGER NOT NULL DEFAULT 0 CHECK(allow_lan IN (0,1)));CREATE TABLE IF NOT EXISTS codex_gateway_pool(id INTEGER PRIMARY KEY CHECK(id=1),account_ids_json TEXT NOT NULL);CREATE TABLE IF NOT EXISTS codex_account_controls(account_id INTEGER PRIMARY KEY REFERENCES codex_accounts(id) ON DELETE CASCADE,proxy_url TEXT,benefits_json TEXT,reset_request_id TEXT);";
 
 // Several desktop commands open the database concurrently during startup. Keep
 // schema setup and migrations serialized so simultaneous `CREATE ... IF NOT
@@ -298,6 +299,23 @@ fn migrate_connection(conn: &mut Connection) -> Result<(), String> {
         transaction.execute_batch(CODEX_ACCOUNT_CONTROLS_SCHEMA).map_err(|_|"创建账号权益表失败")?;
         transaction.pragma_update(None,"user_version",27).map_err(|_|"更新账号权益数据库版本失败")?;
     }
+    if version < 28 {
+        ensure_column("codex_gateway_config", "auto_start", "INTEGER NOT NULL DEFAULT 0")?;
+        ensure_column("codex_gateway_config", "account_ids_json", "TEXT NOT NULL DEFAULT '[]'")?;
+        transaction.pragma_update(None,"user_version",28).map_err(|_|"更新反代自动启动配置版本失败")?;
+    }
+    if version < 29 {
+        transaction.execute_batch("CREATE TABLE IF NOT EXISTS codex_gateway_pool(id INTEGER PRIMARY KEY CHECK(id=1),account_ids_json TEXT NOT NULL);").map_err(|_| "创建反代账号池配置失败")?;
+        transaction.pragma_update(None,"user_version",29).map_err(|_| "更新反代账号池配置版本失败")?;
+    }
+    if version < 30 {
+        transaction.execute_batch("CREATE TABLE IF NOT EXISTS codex_gateway_network(id INTEGER PRIMARY KEY CHECK(id=1),allow_lan INTEGER NOT NULL DEFAULT 0 CHECK(allow_lan IN (0,1)));").map_err(|_| "创建服务访问范围配置失败")?;
+        transaction.pragma_update(None,"user_version",30).map_err(|_| "更新服务访问范围版本失败")?;
+    }
+    if version < 31 {
+        transaction.execute_batch("CREATE TABLE IF NOT EXISTS esa_certificate_deployments(account_id INTEGER NOT NULL REFERENCES cloud_accounts(id) ON DELETE CASCADE,site_id INTEGER NOT NULL,certificate_id INTEGER NOT NULL REFERENCES certificates(id) ON DELETE CASCADE,remote_id TEXT NOT NULL,updated_at INTEGER NOT NULL,PRIMARY KEY(account_id,site_id,certificate_id));").map_err(|_| "创建 ESA 证书部署关联失败")?;
+        transaction.pragma_update(None,"user_version",31).map_err(|_| "更新 ESA 证书部署版本失败")?;
+    }
     transaction.commit().map_err(|error| format!("提交 SQLite 迁移失败: {error}"))?;
 
     Ok(())
@@ -331,8 +349,41 @@ pub fn open_db() -> Result<Connection, String> {
 #[cfg(test)]
 mod tests {
     use super::{migrate_connection, CURRENT_SCHEMA_VERSION};
+    #[test]
+    fn v29_adds_network_scope_without_exposing_existing_service() {
+        let mut conn=rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(super::CODEX_SCHEMA).unwrap();
+        conn.execute_batch("DROP TABLE codex_gateway_network; INSERT INTO codex_gateway_config(id,port,key_ciphertext,auto_start,account_ids_json) VALUES(1,58169,'test-only-ciphertext',1,'[1]'); PRAGMA user_version=29;").unwrap();
+        migrate_connection(&mut conn).unwrap();
+        assert!(!crate::core::codex::gateway_config::allow_lan(&conn).unwrap());
+        assert_eq!(crate::core::codex::gateway_config::startup(&conn).unwrap(),(true,vec![1]));
+    }
     use rusqlite::Connection;
 
+    #[test]
+    fn esa_deployment_links_survive_idempotent_migration() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE cloud_accounts(id INTEGER PRIMARY KEY); CREATE TABLE certificates(id INTEGER PRIMARY KEY); INSERT INTO cloud_accounts VALUES(7); INSERT INTO certificates VALUES(9); PRAGMA user_version=30;").unwrap();
+        migrate_connection(&mut conn).unwrap();
+        conn.execute("INSERT INTO esa_certificate_deployments(account_id,site_id,certificate_id,remote_id,updated_at) VALUES(7,123,9,'fixture-remote-id',1)", []).unwrap();
+        migrate_connection(&mut conn).unwrap();
+        assert_eq!(conn.query_row("SELECT remote_id FROM esa_certificate_deployments", [], |row| row.get::<_, String>(0)).unwrap(), "fixture-remote-id");
+        assert_eq!(conn.pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0)).unwrap(), super::CURRENT_SCHEMA_VERSION);
+    }
+    #[cfg(desktop)]
+    #[test]
+    fn upgrades_v27_without_enabling_gateway_autostart() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE codex_gateway_config(id INTEGER PRIMARY KEY,port INTEGER NOT NULL,key_ciphertext TEXT NOT NULL); INSERT INTO codex_gateway_config VALUES(1,58169,'test-only-ciphertext'); PRAGMA user_version=27;").unwrap();
+        migrate_connection(&mut conn).unwrap();
+        assert_eq!(crate::core::codex::gateway_config::startup(&conn).unwrap(), (false, vec![]));
+        crate::core::codex::gateway_config::save_startup(&conn, true, &[1, 2]).unwrap();
+        migrate_connection(&mut conn).unwrap();
+        assert_eq!(crate::core::codex::gateway_config::startup(&conn).unwrap(), (true, vec![1, 2]));
+        assert_eq!(crate::core::codex::gateway_config::summary(&conn).unwrap(), Some(58169));
+        let cipher: String = conn.query_row("SELECT key_ciphertext FROM codex_gateway_config", [], |row| row.get(0)).unwrap();
+        assert_eq!(cipher, "test-only-ciphertext");
+    }
     #[cfg(desktop)]
     #[test]
     fn upgrades_v26_with_account_controls_and_preserves_existing_accounts() {
@@ -474,6 +525,7 @@ mod tests {
         let mut conn = Connection::open_in_memory().unwrap();
         conn.execute_batch("CREATE TABLE cloud_accounts (id INTEGER PRIMARY KEY, sync_id TEXT, account_name TEXT, cloud_type TEXT, group_name TEXT, access_key_id TEXT, secret_ciphertext TEXT, credential_meta TEXT, region_id TEXT, sort_order INTEGER, enabled INTEGER, remark TEXT); CREATE TABLE managed_hosts (id INTEGER PRIMARY KEY, sync_id TEXT, name TEXT, host TEXT, port INTEGER, username TEXT, password_ciphertext TEXT, platform TEXT, auth_method TEXT, private_key_ciphertext TEXT, key_passphrase_ciphertext TEXT, group_name TEXT, tags TEXT, source_account_id INTEGER, source_asset_key TEXT, host_key_fingerprint TEXT, remark TEXT, status TEXT, last_latency_ms INTEGER, metrics_json TEXT, last_checked_at INTEGER, last_error TEXT); CREATE TABLE panel_connections (id INTEGER PRIMARY KEY, sync_id TEXT, name TEXT, panel_url TEXT, api_key_ciphertext TEXT, sort_order INTEGER, allow_insecure_tls INTEGER, group_name TEXT, source_account_id INTEGER, source_asset_key TEXT, remark TEXT, status TEXT, summary_json TEXT, last_checked_at INTEGER, last_error TEXT); INSERT INTO cloud_accounts(id,account_name) VALUES(1,'first'); INSERT INTO managed_hosts(id) VALUES(1); INSERT INTO panel_connections(id) VALUES(1); PRAGMA user_version=10;").unwrap();
 
+        conn.execute_batch("CREATE TABLE certificates(id INTEGER PRIMARY KEY);").unwrap();
         migrate_connection(&mut conn).unwrap();
         let old_ids: (String, String, String) = conn.query_row("SELECT (SELECT sync_id FROM cloud_accounts WHERE id=1),(SELECT sync_id FROM managed_hosts WHERE id=1),(SELECT sync_id FROM panel_connections WHERE id=1)", [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))).unwrap();
         assert!(old_ids.0.len() == 36 && old_ids.1.len() == 36 && old_ids.2.len() == 36);

@@ -18,12 +18,29 @@ export type PlatformErrorCode =
   | "codex-account-busy"
   | "codex-gateway-port-conflict"
   | "codex-model-catalog"
+  | "codex-proxy"
   | "cancelled"
   | "certificate"
+  | "esa-query"
   | "authenticator-error"
   | "authenticator-locked";
 
 function publicPlatformMessage(code: PlatformErrorCode, rawMessage: string): string {
+  if (code === "esa-query") {
+    return /^ESA 查询失败：(ListSites|DescribeSiteTimeSeriesData|DescribeSiteWafTimeSeriesData)（(?:网络连接失败|响应格式无效|HTTP [1-5]\d{2}，错误代码 [A-Za-z0-9._-]{1,80})）$/.test(rawMessage)
+      ? rawMessage : "ESA 实时数据获取失败，请检查账号权限和网络后重试";
+  }
+  if (code === "codex-proxy") {
+    return ["代理地址无效", "代理地址不能包含换行或控制字符", "代理地址不能超过 512 个字符",
+      "代理地址缺少协议，请填写 http://127.0.0.1:10808 这样的完整地址",
+      "请填写无账号密码的 HTTP/HTTPS 代理地址，例如 http://127.0.0.1:7890",
+      "请先停止该账号的服务或实例，再修改代理", "保存账号代理任务失败", "保存账号代理失败",
+      "读取本机代理配置失败，请手动填写代理地址", "本机代理配置超过读取限制",
+      "请选择 1–1000 个有效账号后批量设置代理", "所选账号已不存在，请刷新列表后重试",
+      "所选账号中有服务、实例或唤醒任务运行，请先停止后批量设置代理；未修改任何账号",
+      "批量保存代理失败，未修改任何账号", "批量保存代理任务失败"].includes(rawMessage)
+      ? rawMessage : "代理操作失败，请检查地址或手动填写";
+  }
   if (code === "codex-model-catalog") {
     const safeMessages = [
       "官方模型目录认证过期，请重新登录服务账号", "官方模型目录访问被拒绝，请检查服务账号权限",
@@ -54,7 +71,7 @@ function publicPlatformMessage(code: PlatformErrorCode, rawMessage: string): str
       .replace(/(password|secret|token|access[_-]?key|private[_-]?key|authorization|signature)(\s*[:=]\s*)[^,;\s]+/gi, "$1$2[已隐藏]")
       .slice(0, 240);
   }
-  const messages: Record<Exclude<PlatformErrorCode, "unsupported-in-preview" | "certificate" | "authenticator-error" | "authenticator-locked" | "codex-model-catalog">, string> = {
+  const messages: Record<Exclude<PlatformErrorCode, "unsupported-in-preview" | "certificate" | "esa-query" | "authenticator-error" | "authenticator-locked" | "codex-model-catalog" | "codex-proxy">, string> = {
     unknown: "操作失败，请稍后重试",
     validation: "输入参数无效，请检查后重试",
     authentication: "认证失败，请检查凭据或登录状态",
@@ -104,7 +121,7 @@ export function normalizePlatformError(reason: unknown): PlatformError {
   }
   if (typeof reason === "object" && reason !== null && "code" in reason && "message" in reason) {
     const structured = reason as { code?: PlatformErrorCode; message?: string; retryable?: boolean };
-    const code = structured.code && ["unknown", "unsupported-in-preview", "validation", "authentication", "permission", "network", "not-found", "conflict", "frp-port-conflict", "codex-account-busy", "codex-gateway-port-conflict", "codex-model-catalog", "cancelled", "certificate", "authenticator-error", "authenticator-locked"].includes(structured.code)
+    const code = structured.code && ["unknown", "unsupported-in-preview", "validation", "authentication", "permission", "network", "not-found", "conflict", "frp-port-conflict", "codex-account-busy", "codex-gateway-port-conflict", "codex-model-catalog", "codex-proxy", "cancelled", "certificate", "esa-query", "authenticator-error", "authenticator-locked"].includes(structured.code)
       ? structured.code : "unknown";
     return new PlatformError(String(structured.message), code, structured.retryable === true);
   }

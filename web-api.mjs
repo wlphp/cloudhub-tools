@@ -585,12 +585,35 @@ function esaRange(range) {
   } else if (range === "month") {
     start = new Date(today); start.setDate(start.getDate() - 29); label = "近 30 日";
   }
-  return { start, end, label, interval: range === "week" || range === "month" ? "86400" : "3600" };
+  return { start, end, label, interval: range === "month" ? "86400" : "3600" };
+}
+
+function esaFieldsParams(fields) {
+  const params = {};
+  fields.forEach(([fieldName, dimensions], fieldIndex) => {
+    const prefix = `Fields.${fieldIndex + 1}`;
+    params[`${prefix}.FieldName`] = fieldName;
+    dimensions.forEach((dimension, dimensionIndex) => {
+      params[`${prefix}.Dimension.${dimensionIndex + 1}`] = dimension;
+    });
+  });
+  return params;
 }
 
 function esaDetails(data, fieldName) {
   const row = arr(data, ["Data"]).find((item) => item.FieldName === fieldName);
   return row ? arr(row, ["DetailData"]) : [];
+}
+
+function esaSummaryValue(data, fieldName) {
+  const summary = arr(data, ["SummarizedData"]).find((item) => item.FieldName === fieldName);
+  return Number(summary?.Value ?? esaDetails(data, fieldName).reduce((total, detail) => total + (Number(detail.Value) || 0), 0)) || 0;
+}
+
+function esaWafBlockedRequests(data) {
+  return arr(data, ["SummarizedData"])
+    .filter((item) => item.FieldName === "Requests" && item.DimensionName === "Action" && String(item.DimensionValue || "").toLowerCase() === "block")
+    .reduce((total, item) => total + (Number(item.Value) || 0), 0);
 }
 
 async function esaOverview(id, range = "today", siteId = "") {
@@ -609,27 +632,21 @@ async function esaOverview(id, range = "today", siteId = "") {
   const sitesResult = await esaRequest(id, "ListSites", { SiteSearchType: "fuzzy", SiteName: "", PageNumber: "1", PageSize: "100" });
   const sites = arr(sitesResult, ["Sites"]);
   const period = esaRange(["today", "yesterday", "week", "month"].includes(range) ? range : "today");
-  const fields = JSON.stringify([
-    { FieldName: "Requests", Dimension: ["ALL"] },
-    { FieldName: "Traffic", Dimension: ["ALL"] },
-    { FieldName: "PageView", Dimension: ["ALL"] },
-  ]);
   const base = {
     StartTime: period.start.toISOString().replace(/\.\d{3}Z$/, "Z"),
     EndTime: period.end.toISOString().replace(/\.\d{3}Z$/, "Z"),
     Interval: period.interval,
   };
   const siteParam = siteId ? { SiteId: siteId } : {};
-  const [top, defence, trend] = await Promise.all([
-    esaRequest(id, "DescribeSiteTopData", { ...base, AnalysisType: "1", Fields: fields, ...siteParam }, "POST"),
-    esaRequest(id, "DescribeSiteStatisticsData", {
-      ...base,
-      Fields: JSON.stringify([{ FieldName: "Requests", Dimension: ["ALL"] }]),
-      Filter: JSON.stringify({ where: { and: [[{ key: "MitigationType", operator: "in", value: ["WafMitigated"] }]] } }),
-      ...siteParam,
-    }, "POST"),
-    esaRequest(id, "DescribeSiteStatisticsData", { ...base, Fields: fields, ...siteParam }, "POST"),
+  const [trendResult, wafResult] = await Promise.allSettled([
+    esaRequest(id, "DescribeSiteTimeSeriesData", { ...base, ...esaFieldsParams([
+      ["Requests", ["ALL"]], ["Traffic", ["ALL"]], ["PageView", ["ALL"]],
+    ]), ...siteParam }, "POST"),
+    esaRequest(id, "DescribeSiteWafTimeSeriesData", { ...base, ...esaFieldsParams([["Requests", ["Action"]]]), ...siteParam }, "POST"),
   ]);
+  if (trendResult.status === "rejected") throw trendResult.reason;
+  const trend = trendResult.value;
+  const waf = wafResult.status === "fulfilled" ? wafResult.value : null;
   const toNumber = (value) => Number(value || 0) || 0;
   const trendMap = { traffic: [], requests: [], page_view: [] };
   for (const [fieldName, key] of [["Traffic", "traffic"], ["Requests", "requests"], ["PageView", "page_view"]]) {
@@ -639,9 +656,9 @@ async function esaOverview(id, range = "today", siteId = "") {
     }));
   }
   return {
-    traffic: toNumber(esaDetails(top, "Traffic")[0]?.Value),
-    requests: toNumber(esaDetails(top, "Requests")[0]?.Value),
-    defence_requests: toNumber(esaDetails(defence, "Requests")[0]?.Value),
+    traffic: esaSummaryValue(trend, "Traffic"),
+    requests: esaSummaryValue(trend, "Requests"),
+    defence_requests: waf ? esaWafBlockedRequests(waf) : null,
     site_count: Number(sitesResult.TotalCount || sites.length),
     active_count: sites.filter((site) => String(site.Status || "").toLowerCase() === "active").length,
     range_label: period.label,

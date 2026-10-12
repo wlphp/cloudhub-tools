@@ -8,6 +8,101 @@ use crate::core::{
 use std::collections::HashSet;
 use tauri::Manager;
 
+fn startup_summary(conn: &rusqlite::Connection, store: &CodexRuntimeStore, summary: &mut GatewaySummary) -> Result<(), String> {
+    summary.allow_lan = crate::core::codex::gateway_config::allow_lan(conn)?;
+    if summary.allow_lan && summary.lan_address.is_none() {
+        summary.lan_address = summary.configured_port.and_then(crate::core::codex::gateway::lan_address);
+    }
+    let (enabled, ids) = crate::core::codex::gateway_config::startup(conn)?;
+    summary.auto_start = enabled;
+    summary.startup_account_ids = ids;
+    summary.startup_error = store.gateway_start_error.lock().map_err(|_| "反代启动状态不可用")?.clone();
+    Ok(())
+}
+
+pub(crate) fn auto_start(app: tauri::AppHandle) {
+    let result = (|| -> Result<(), String> {
+        let _writer = AUTH_WRITER.lock().map_err(|_| "自动启动配置不可用")?;
+        let store = app.state::<CodexRuntimeStore>();
+        let conn = open_db()?;
+        let (enabled, ids) = crate::core::codex::gateway_config::startup(&conn)?;
+        if !enabled || store.closing.load(std::sync::atomic::Ordering::SeqCst) { return Ok(()); }
+        if ids.is_empty() { return Err("自动启动未配置服务账号".into()); }
+        for id in &ids {
+            repository::get(&conn, *id).map_err(|_| "自动启动的服务账号已不存在")?;
+            if super::codex_instances::account_running(&store, *id)? { return Err("自动启动的服务账号已被占用".into()); }
+        }
+        let mut slot = store.gateway.lock().map_err(|_| "反代启动状态不可用")?;
+        if slot.is_some() { return Ok(()); }
+        let port = crate::core::codex::gateway_config::summary(&conn)?.ok_or("自动启动缺少已保存端口")?;
+        let key = crate::core::codex::gateway_config::key(&conn)?.ok_or("自动启动缺少已保存密钥")?;
+        let allow_lan = crate::core::codex::gateway_config::allow_lan(&conn)?;
+        let server = tauri::async_runtime::block_on(RunningGateway::start_with_network(port, ids, Some(key.to_string()), allow_lan))?;
+        server.configure(crate::core::codex::gateway_controls::load(&conn)?, repository::list(&conn)?)?;
+        if store.closing.load(std::sync::atomic::Ordering::SeqCst) { return Ok(()); }
+        *slot = Some(server);
+        Ok(())
+    })();
+    if let Err(error) = result {
+        let message = match error.as_str() {
+            "本地 API 端口被占用或无法监听，请选择其他端口" => "自动启动失败：服务端口被占用，请修改端口后启动",
+            "自动启动的服务账号已不存在" | "自动启动的服务账号已被占用" | "自动启动未配置服务账号" => "自动启动失败：请重新选择可用的服务账号",
+            _ => "自动启动失败：请检查已保存的配置，再手动启动服务",
+        };
+        if let Ok(mut state) = app.state::<CodexRuntimeStore>().gateway_start_error.lock() { *state = Some(message.into()); }
+    }
+}
+
+#[tauri::command]
+pub(crate) async fn codex_gateway_copy_share_config(app: tauri::AppHandle, ip: String) -> PlatformResult<()> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let interfaces=crate::core::codex::network::interfaces()?;
+        if !interfaces.iter().any(|v|v.ip==ip) {return Err("所选网络地址已不可用，请刷新网络列表".into());}
+        let store=app.state::<CodexRuntimeStore>();
+        let slot=store.gateway.lock().map_err(|_| "Codex 服务状态不可用")?;
+        slot.as_ref().ok_or("请先启动 API 服务")?.copy_share_config(&ip)
+    }).await.map_err(|_| "复制分享配置任务失败")?.map_err(Into::into)
+}
+
+#[tauri::command]
+pub(crate) async fn codex_gateway_lan_interfaces() -> PlatformResult<Vec<crate::core::codex::network::LanInterface>> {
+    tauri::async_runtime::spawn_blocking(crate::core::codex::network::interfaces).await.map_err(|_| "读取网络列表任务失败")?.map_err(Into::into)
+}
+
+#[tauri::command]
+pub(crate) fn codex_gateway_set_allow_lan(app: tauri::AppHandle, enabled: bool) -> PlatformResult<GatewaySummary> {
+    {
+        let _writer = AUTH_WRITER.lock().map_err(|_| "Codex 服务配置不可用")?;
+        crate::core::codex::gateway_config::save_allow_lan(&open_db()?, enabled)?;
+    }
+    codex_gateway_state(app)
+}
+
+#[tauri::command]
+pub(crate) fn codex_gateway_save_pool(app: tauri::AppHandle, account_ids: Vec<i64>) -> PlatformResult<GatewaySummary> {
+    {
+        let _writer = AUTH_WRITER.lock().map_err(|_| "Codex 账号操作不可用")?;
+        let store = app.state::<CodexRuntimeStore>();
+        let slot = store.gateway.lock().map_err(|_| "Codex 服务状态不可用")?;
+        if slot.as_ref().is_some_and(|server| server.summary().map_or(true, |s| s.running)) { return Err("请先停止服务，再修改账号池".into()); }
+        let conn = open_db()?;
+        for id in &account_ids { repository::get(&conn, *id)?; }
+        crate::core::codex::gateway_config::save_pool(&conn, &account_ids)?;
+    }
+    codex_gateway_state(app)
+}
+
+#[tauri::command]
+pub(crate) fn codex_gateway_set_auto_start(app: tauri::AppHandle, enabled: bool, account_ids: Vec<i64>) -> PlatformResult<GatewaySummary> {
+    {
+        let _writer = AUTH_WRITER.lock().map_err(|_| "Codex 账号操作不可用")?;
+        let conn = open_db()?;
+        if enabled { for id in &account_ids { repository::get(&conn, *id)?; } }
+        crate::core::codex::gateway_config::save_startup(&conn, enabled, &account_ids)?;
+    }
+    codex_gateway_state(app)
+}
+
 #[tauri::command]
 pub(crate) fn codex_gateway_state(app: tauri::AppHandle) -> PlatformResult<GatewaySummary> {
     let store = app.state::<CodexRuntimeStore>();
@@ -17,6 +112,7 @@ pub(crate) fn codex_gateway_state(app: tauri::AppHandle) -> PlatformResult<Gatew
         .unwrap_or_else(|| Ok(GatewaySummary::default()))?;
     let conn = open_db()?;
     summary.configured_port = crate::core::codex::gateway_config::summary(&conn)?;
+    startup_summary(&conn, &store, &mut summary)?;
     if slot.is_none() { summary.settings = crate::core::codex::gateway_controls::load(&conn)?; }
     Ok(summary)
 }
@@ -58,14 +154,14 @@ pub(crate) async fn codex_gateway_start(
         return Err("服务账号选择无效".into());
     }
     let service_key = service_key.map(zeroize::Zeroizing::new);
-    let (port, service_key) = tauri::async_runtime::spawn_blocking(move || -> Result<_, String> {
+    let (port, service_key, allow_lan) = tauri::async_runtime::spawn_blocking(move || -> Result<_, String> {
         let conn = open_db()?;
         let port = if port == 0 { crate::core::codex::gateway_config::summary(&conn)?.unwrap_or(0) } else { port };
         let key = if let Some(key) = service_key { Some(key) }
         else { crate::core::codex::gateway_config::key(&conn)? };
-        Ok((port, key))
+        Ok((port, key, crate::core::codex::gateway_config::allow_lan(&conn)?))
     }).await.map_err(|_| "读取本地 API 配置任务失败")??;
-    let server = RunningGateway::start_with_key(port, account_ids.clone(), service_key.map(|v| v.to_string())).await?;
+    let server = RunningGateway::start_with_network(port, account_ids.clone(), service_key.map(|v| v.to_string()), allow_lan).await?;
     tauri::async_runtime::spawn_blocking(move || -> Result<GatewaySummary, String> {
         let _writer = AUTH_WRITER.lock().map_err(|_| "Codex 账号操作不可用")?;
         let store = app.state::<CodexRuntimeStore>();
@@ -89,7 +185,12 @@ pub(crate) async fn codex_gateway_start(
         let conn = open_db()?;
         server.configure(crate::core::codex::gateway_controls::load(&conn)?, repository::list(&conn)?)?;
         let mut summary = server.summary()?;
-        summary.configured_port = Some(server.save_config(&conn)?);
+        let tx = conn.unchecked_transaction().map_err(|_| "保存反代配置失败")?;
+        summary.configured_port = Some(server.save_config(&tx)?);
+        crate::core::codex::gateway_config::save_pool(&tx, &account_ids)?;
+        tx.commit().map_err(|_| "保存反代配置失败")?;
+        *store.gateway_start_error.lock().map_err(|_| "反代启动状态不可用")? = None;
+        startup_summary(&conn, &store, &mut summary)?;
         *slot = Some(server);
         Ok(summary)
     })
@@ -142,6 +243,59 @@ pub(crate) fn codex_gateway_copy_key(app: tauri::AppHandle) -> PlatformResult<()
         .ok_or("本地服务未启动")?
         .copy_key()
         .map_err(Into::into)
+}
+
+#[tauri::command]
+pub(crate) fn codex_gateway_reveal_key(app: tauri::AppHandle) -> PlatformResult<String> {
+    let store = app.state::<CodexRuntimeStore>();
+    let slot = store.gateway.lock().map_err(|_| "Codex 服务状态不可用")?;
+    if let Some(server) = slot.as_ref() { return Ok(server.key_for_display()); }
+    crate::core::codex::gateway_config::key(&open_db()?)?
+        .map(|key| key.to_string()).ok_or_else(|| "尚未保存服务密钥，请先启动服务".into())
+}
+
+#[tauri::command]
+pub(crate) async fn codex_gateway_save_port(app: tauri::AppHandle, port: u16) -> PlatformResult<GatewaySummary> {
+    if port != 0 && port < 1024 { return Err("请选择 1024 以上的本地 API 端口，或 0 自动分配".into()); }
+    tauri::async_runtime::spawn_blocking(move || -> Result<GatewaySummary, String> {
+        let _writer = AUTH_WRITER.lock().map_err(|_| "Codex 账号操作不可用")?;
+        let store = app.state::<CodexRuntimeStore>();
+        if store.closing.load(std::sync::atomic::Ordering::SeqCst) { return Err("应用正在退出，未修改服务配置".into()); }
+        let mut slot = store.gateway.lock().map_err(|_| "Codex 服务状态不可用")?;
+        let conn = open_db()?;
+        let settings = crate::core::codex::gateway_controls::load(&conn)?;
+        let port = if port == 0 { crate::core::codex::gateway_config::summary(&conn)?.unwrap_or(0) } else { port };
+        if let Some(server) = slot.as_ref().filter(|server| server.summary().is_ok_and(|summary| summary.running)) {
+            if server.port()? == port {
+                let mut summary = server.summary()?;
+                summary.configured_port = Some(server.save_config(&conn)?);
+                startup_summary(&conn, &store, &mut summary)?;
+                return Ok(summary);
+            }
+            // Bind and persist the replacement before dropping the current service.
+            // Failures leave the old listener and encrypted configuration intact.
+            let replacement = tauri::async_runtime::block_on(server.replacement_on_port(port))?;
+            replacement.configure(settings, repository::list(&conn)?)?;
+            let mut summary = replacement.summary()?;
+            summary.configured_port = Some(replacement.save_config(&conn)?);
+            startup_summary(&conn, &store, &mut summary)?;
+            *slot = Some(replacement);
+            Ok(summary)
+        } else {
+            let listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port)).map_err(|_| "本地 API 端口被占用或无法监听，请选择其他端口")?;
+            let port = listener.local_addr().map_err(|_| "查询本地 API 地址失败")?.port();
+            let key = crate::core::codex::gateway_config::key(&conn)?.unwrap_or_else(|| {
+                use rand::RngCore;
+                let mut bytes = zeroize::Zeroizing::new([0u8; 32]);
+                rand::thread_rng().fill_bytes(&mut *bytes);
+                zeroize::Zeroizing::new(hex::encode(&*bytes))
+            });
+            crate::core::codex::gateway_config::save(&conn, port, &key)?;
+            let mut summary = GatewaySummary { configured_port: Some(port), settings, ..Default::default() };
+            startup_summary(&conn, &store, &mut summary)?;
+            Ok(summary)
+        }
+    }).await.map_err(|_| "保存服务端口任务失败")?.map_err(Into::into)
 }
 
 #[tauri::command]

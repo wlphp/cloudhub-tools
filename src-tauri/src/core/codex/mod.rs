@@ -1,4 +1,6 @@
 pub mod account_controls;
+pub mod proxy_detection;
+pub mod remote_logs;
 pub mod auth;
 pub mod desktop;
 pub mod gateway;
@@ -8,6 +10,7 @@ pub mod process;
 pub mod profile;
 pub mod rpc;
 pub mod responses;
+pub mod protocols;
 pub(crate) static AUTH_WRITER: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 use serde::{Deserialize, Serialize};
@@ -70,3 +73,5 @@ pub fn validate_metadata(input: &AccountMetadataInput) -> Result<(), String> {
     }
     Ok(())
 }
+
+pub mod network;

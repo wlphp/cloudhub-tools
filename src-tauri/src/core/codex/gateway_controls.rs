@@ -71,33 +71,56 @@ impl CallDetail {
     pub fn sanitize(&mut self, value: &serde_json::Value) -> serde_json::Value {
         fn visit(value: &serde_json::Value, field: &str, depth: usize, left: &mut usize, truncated: &mut bool) -> serde_json::Value {
             use serde_json::{Value, json};
-            if depth > 10 || *left == 0 { *truncated=true; return json!("[已截断]"); }
+            if depth > 32 || *left == 0 { *truncated=true; return json!("[已截断]"); }
             *left-=1;
-            if matches!(field,"arguments"|"metadata"|"instructions"|"description"|"name"|"properties"|"required"|"enum") { return json!("[内容已隐藏]"); }
+            let key = field.to_ascii_lowercase().replace(['_', '-', '.'], "");
+            if ["secret", "password", "passphrase", "privatekey", "authorization", "credential", "ciphertext"].iter().any(|part| key.contains(part))
+                || matches!(key.as_str(), "apikey" | "accesskey" | "accesstoken" | "refreshtoken" | "idtoken" | "token" | "cookie" | "setcookie" | "encryptedcontent") {
+                return json!("[凭据已隐藏]");
+            }
             match value {
                 Value::Object(fields) => {
-                    let allowed="model stream store input messages instructions tools tool_choice parallel_tool_calls reasoning effort summary max_output_tokens max_tokens temperature top_p text format type role content output arguments parameters strict name description required properties additionalProperties enum items response usage input_tokens output_tokens total_tokens input_tokens_details output_tokens_details cached_tokens reasoning_tokens status error code message delta sequence_number output_index content_index index choices finish_reason object created_at incomplete_details include truncation metadata";
-                    let mut result=serde_json::Map::new(); let mut hidden=0;
-                    for (key,v) in fields.iter().take(64) {
-                        if allowed.split(' ').any(|k| k==key) { result.insert(key.clone(),visit(v,key,depth+1,left,truncated)); } else { hidden+=1; }
+                    let mut result=serde_json::Map::new();
+                    for (key,v) in fields.iter().take(256) {
+                        result.insert(key.clone(),visit(v,key,depth+1,left,truncated));
                     }
-                    if hidden>0 { result.insert("_hidden_fields".into(),json!(hidden)); }
-                    if fields.len()>64 { *truncated=true; }
+                    if fields.len()>256 { *truncated=true; }
                     Value::Object(result)
                 }
-                Value::Array(items) => { if items.len()>32 { *truncated=true; } Value::Array(items.iter().take(32).map(|v|visit(v,field,depth+1,left,truncated)).collect()) }
+                Value::Array(items) => { if items.len()>256 { *truncated=true; } Value::Array(items.iter().take(256).map(|v|visit(v,field,depth+1,left,truncated)).collect()) }
                 Value::String(text) => {
-                    let control=matches!(field,"type"|"role"|"status"|"effort"|"summary"|"tool_choice"|"finish_reason"|"object"|"include"|"truncation") && matches!(text.as_str(),"user"|"assistant"|"system"|"developer"|"message"|"input_text"|"output_text"|"text"|"function"|"function_call"|"function_call_output"|"reasoning"|"completed"|"in_progress"|"failed"|"incomplete"|"low"|"medium"|"high"|"minimal"|"none"|"auto"|"required"|"stop"|"length"|"response"|"chat.completion"|"chat.completion.chunk"|"response.created"|"response.completed"|"response.failed"|"response.incomplete"|"response.output_text.delta"|"response.output_item.added"|"response.output_item.done"|"response.function_call_arguments.delta"|"response.function_call_arguments.done"|"error"|"reasoning.encrypted_content"|"json_schema"|"json_object"|"string"|"number"|"integer"|"boolean"|"array"|"object"|"null");
-                    let model=field=="model" && super::gateway::model_valid(text) && ["gpt-","o1","o3","o4"].iter().any(|prefix|text.starts_with(prefix));
-                    if control || model { json!(text) } else { json!(format!("[内容已隐藏，{} 字符]",text.chars().count())) }
+                    // Tool arguments are often JSON encoded inside a string.
+                    if field == "arguments" && text.len() <= 64 * 1024 {
+                        if let Ok(parsed) = serde_json::from_str::<Value>(text) {
+                            if parsed.is_object() || parsed.is_array() {
+                                return json!(visit(&parsed, "", depth+1, left, truncated).to_string());
+                            }
+                        }
+                    }
+                    let mut end = text.len().min(*left);
+                    while !text.is_char_boundary(end) { end -= 1; }
+                    *left = left.saturating_sub(end);
+                    if end < text.len() { *truncated=true; json!(format!("{}[已截断]", &text[..end])) } else { json!(text) }
                 }
-                Value::Number(_) if matches!(field,"max_output_tokens"|"max_tokens"|"temperature"|"top_p"|"input_tokens"|"output_tokens"|"total_tokens"|"cached_tokens"|"reasoning_tokens"|"sequence_number"|"output_index"|"content_index"|"index"|"created_at") => value.clone(),
-                Value::Bool(_) if matches!(field,"stream"|"store"|"strict"|"parallel_tool_calls"|"additionalProperties") => value.clone(),
-                Value::Null=>Value::Null,
-                _=>json!("[内容已隐藏]"),
+                _ => value.clone(),
             }
         }
-        visit(value,"",0,&mut 256,&mut self.truncated)
+        visit(value,"",0,&mut (64 * 1024),&mut self.truncated)
+    }
+    pub fn redact_secret(&mut self, secret: &str) {
+        if secret.is_empty() { return; }
+        fn visit(value: &mut serde_json::Value, secret: &str) {
+            match value {
+                serde_json::Value::String(text) => *text = text.replace(secret, "[凭据已隐藏]"),
+                serde_json::Value::Object(fields) => {
+                    let old = std::mem::take(fields);
+                    for (key, mut child) in old { visit(&mut child, secret); fields.insert(key.replace(secret, "[凭据已隐藏]"), child); }
+                }
+                serde_json::Value::Array(items) => { for item in items { visit(item, secret); } }
+                _ => {}
+            }
+        }
+        for value in self.request.iter_mut().chain(self.forwarded.iter_mut()).chain(self.response.iter_mut()).chain(self.events.iter_mut()) { visit(value, secret); }
     }
     pub fn event(&mut self, value: &serde_json::Value) {
         self.event_count+=1;
@@ -146,17 +169,36 @@ mod tests {
     #[test]
     fn diagnostic_structure_hides_credentials_and_bounds_events() {
         let mut detail=CallDetail::default();
-        let source=serde_json::json!({"authorization":"fake-secret","instructions":"fake-secret","input":[{"role":"user","content":[{"type":"input_text","text":"fake-secret"}]}],"arguments":{"input_tokens":12345},"metadata":{"private":"fake-secret"},"stream":true,"usage":{"input_tokens":12,"output_tokens":4}});
+        let source=serde_json::json!({"authorization":"test-only-credential","instructions":"Answer clearly","input":[{"role":"user","content":[{"type":"input_text","text":"Explain this code"}]}],"arguments":{"input_tokens":12345,"api_key":"test-only-credential"},"metadata":{"label":"debugging"},"stream":true,"usage":{"input_tokens":12,"output_tokens":4}});
         let clean=detail.sanitize(&source);
-        let text=clean.to_string(); assert!(!text.contains("fake-secret")); assert!(!text.contains("12345")); assert!(!text.contains("authorization"));
+        let text=clean.to_string(); assert!(!text.contains("test-only-credential"));
+        assert_eq!(clean["instructions"],"Answer clearly"); assert_eq!(clean["input"][0]["content"][0]["text"],"Explain this code");
+        assert_eq!(clean["arguments"]["input_tokens"],12345); assert_eq!(clean["metadata"]["label"],"debugging");
         assert_eq!(clean["stream"],true); assert_eq!(clean["usage"]["input_tokens"],12); assert_eq!(clean["input"][0]["role"],"user");
-        for _ in 0..100 { detail.event(&serde_json::json!({"type":"response.output_text.delta","delta":"fake-secret"})); }
+        for _ in 0..100 { detail.event(&serde_json::json!({"type":"response.output_text.delta","delta":"Here is the explanation"})); }
         detail.event(&serde_json::json!({"type":"response.completed","response":{"status":"completed"}}));
         assert_eq!(detail.events.len(),12); assert_eq!(detail.event_count,101); assert!(detail.truncated); assert_eq!(detail.events[11]["type"],"response.completed");
-        assert!(!serde_json::to_string(&detail).unwrap().contains("fake-secret"));
-        let mut oversized=serde_json::json!(null); for _ in 0..20 { oversized=serde_json::json!({"input":oversized}); }
+        assert_eq!(detail.events[0]["delta"],"Here is the explanation");
+        let mut oversized=serde_json::json!(null); for _ in 0..40 { oversized=serde_json::json!({"input":oversized}); }
         let _=detail.sanitize(&oversized); assert!(detail.truncated);
         let mut summary=entry(); summary.detail=detail; assert!(!serde_json::to_string(&summary).unwrap().contains("events"));
+    }
+    #[test]
+    fn diagnostic_preserves_tool_schema_and_redacts_encoded_credentials() {
+        let mut detail = CallDetail::default();
+        let source = serde_json::json!({"tools":[{"name":"lookup","parameters":{"properties":{"path":{"type":"string"}},"required":["path"]}}],"arguments":r#"{"path":"/example","password":"test-only-credential"}"#,"output":[{"text":"Found the file","custom_field":7}]});
+        let clean = detail.sanitize(&source);
+        assert_eq!(clean["tools"],source["tools"]);
+        assert_eq!(clean["output"],source["output"]);
+        assert!(!clean.to_string().contains("test-only-credential"));
+        let args: serde_json::Value = serde_json::from_str(clean["arguments"].as_str().unwrap()).unwrap();
+        assert_eq!(args["path"],"/example");
+        detail.request = Some(serde_json::json!({"text":"Echo test-only-credential here"}));
+        detail.redact_secret("test-only-credential");
+        assert_eq!(detail.request.unwrap()["text"],"Echo [凭据已隐藏] here");
+        let mut bounded = CallDetail::default();
+        let clean = bounded.sanitize(&serde_json::json!({"input":["中".repeat(40000),"x".repeat(64000)]}));
+        assert!(bounded.truncated); assert!(clean.to_string().len() < 66000);
     }
     #[test]
     fn diagnostic_memory_budget_evicts_and_clear_releases_bytes() {

@@ -113,6 +113,7 @@ import {
   syncAssetTypes as getSyncAssetTypes,
 } from "./features/cloud/catalog";
 import { DnsEditorDialog } from "./features/domains/DnsEditorDialog";
+import { EsaCertificateDialog } from "./features/certificates/EsaCertificateDialog";
 import { CertificatePanel } from "./features/certificates/CertificatePanel";
 import { FlowPanel } from "./features/flow/FlowPanel";
 import { AuthenticatorPanel } from "./features/authenticator/AuthenticatorPanel";
@@ -260,6 +261,7 @@ function App() {
   const [esaTrend, setEsaTrend] = useState<keyof EsaOverview["trend"]>("traffic");
   const [esaSelectedSiteId, setEsaSelectedSiteId] = useState("");
   const [esaOverview, setEsaOverview] = useState<EsaOverview | null>(null);
+  const [esaCertificateSite, setEsaCertificateSite] = useState<{ account: Account; siteId: number } | null>(null);
   const [esaSiteKeyword, setEsaSiteKeyword] = useState("");
   const [section, setSection] = useState<"accounts" | "resources" | "certificates" | "authenticator" | "flow" | "frp" | "codex" | "panels" | "servers" | "favorites" | "logs" | "api_logs" | "settings">(() => isDetachedTerminalWindow ? "servers" : "accounts");
   const [localAssets, setLocalAssets] = useState<LocalAsset[]>([]);
@@ -579,13 +581,22 @@ function App() {
       source_account_id: panel.source_account_id, source_asset_key: panel.source_asset_key, remark: panel.remark || "",
       ssh_port: 22, ssh_username: "root", ssh_password: "", ssh_password_saved: false,
     } : { ...emptyPanelConnectionDraft, sort_order: Math.max(-1, ...panelConnections.map((item) => item.sort_order ?? 0)) + 1 };
+    const linkedHost = panel && managedHosts.find((host) => panel.source_account_id && panel.source_asset_key
+      ? host.source_account_id === panel.source_account_id && host.source_asset_key === panel.source_asset_key
+      : !host.source_account_id && host.host === panelAddress(panel.panel_url));
+    if (linkedHost) {
+      draft.ssh_port = linkedHost.port;
+      draft.ssh_username = linkedHost.username;
+      draft.ssh_password_saved = linkedHost.password_saved;
+      draft.ssh_managed_host_id = linkedHost.id;
+    }
     setPanelDraft(draft);
     setPanelDialog(true);
-    if (panel?.source_account_id && panel.source_asset_key) {
+    if (!linkedHost && panel?.source_account_id && panel.source_asset_key) {
       void remoteClient.getSshConnection(panel.source_account_id, panel.source_asset_key)
         .then((saved) => {
           if (saved) {
-            setPanelDraft((current) => ({
+            setPanelDraft((current) => current.id !== panel.id ? current : ({
               ...current,
               ssh_port: saved.port || 22,
               ssh_username: saved.username || "root",
@@ -696,30 +707,34 @@ function App() {
     setPanelSaving(true);
     try {
       await remoteClient.savePanel(panelDraft);
-      if (panelDraft.source_account_id && panelDraft.source_asset_key && panelDraft.ssh_password) {
-        const host = panelAddress(panelDraft.panel_url);
-        try {
-          await remoteClient.connectSsh({
-              accountId: panelDraft.source_account_id,
-              assetKey: panelDraft.source_asset_key,
-              host,
-              port: panelDraft.ssh_port || 22,
-              username: panelDraft.ssh_username?.trim() || "root",
-              authMethod: "password",
-              password: panelDraft.ssh_password,
-              privateKey: null,
-              keyPassphrase: null,
-              savePassword: true,
-              cols: 80,
-              rows: 24,
-          }).then((res: unknown) => {
-            const sid = (res as { sessionId?: string })?.sessionId;
-            if (sid) void remoteClient.disconnectSsh(sid);
-          });
-        } catch { /* background credential validation */ }
+      if (panelDraft.ssh_password || (panelDraft.ssh_managed_host_id && panelDraft.ssh_password_saved)) {
+        const availableHosts = await serversClient.listManaged();
+        const linkedHost = availableHosts.find(host => host.id === panelDraft.ssh_managed_host_id)
+          ?? availableHosts.find(host => panelDraft.source_account_id && panelDraft.source_asset_key
+            ? host.source_account_id === panelDraft.source_account_id && host.source_asset_key === panelDraft.source_asset_key
+            : false)
+          ?? availableHosts.find(host => host.platform === "linux" && host.host === panelAddress(panelDraft.panel_url)
+            && host.port === (panelDraft.ssh_port || 22) && host.username === (panelDraft.ssh_username?.trim() || "root"));
+        const savedHost = await serversClient.saveManaged({
+          ...emptyManagedHost,
+          id: linkedHost?.id,
+          name: linkedHost?.name || panelDraft.name,
+          host: panelAddress(panelDraft.panel_url),
+          platform: "linux",
+          port: panelDraft.ssh_port || 22,
+          username: panelDraft.ssh_username?.trim() || "root",
+          password: panelDraft.ssh_password || "",
+          auth_method: panelDraft.ssh_password ? "password" : linkedHost?.auth_method === "private_key" ? "private_key" : "password",
+          group_name: linkedHost?.group_name || panelDraft.group_name,
+          tags: linkedHost?.tags || "",
+          source_account_id: linkedHost?.source_account_id ?? panelDraft.source_account_id,
+          source_asset_key: linkedHost?.source_asset_key ?? panelDraft.source_asset_key,
+          remark: linkedHost?.remark || `面板关联：${panelDraft.name}`,
+        });
+        setManagedHosts(current => [...current.filter(host => host.id !== savedHost.id), savedHost]);
       }
       await loadPanelConnections();
-      setPanelDialog(false); setStatus("面板验证成功，已加入面板管理");
+      setPanelDialog(false); setPanelDraft(emptyPanelConnectionDraft); setStatus(panelDraft.ssh_password || panelDraft.ssh_managed_host_id ? "面板验证成功，SSH 连接已同步到终端管理" : "面板验证成功，已加入面板管理");
     } catch (error) { setStatus(`绑定面板失败：${String(error)}`); }
     finally { setPanelSaving(false); }
   }
@@ -1876,7 +1891,7 @@ function App() {
       setActive({ account, view: "esa", source: "live" });
       await loadLocalAssets();
       await loadApiLogs();
-      setStatus(`${account.account_name} · 边缘安全加速实时数据已更新${syncResult.errors.length ? `，${syncResult.errors.length} 项失败` : ""}`);
+      setStatus(`${account.account_name} · 边缘安全加速实时数据已更新${overview.defence_requests === null ? "，WAF 统计暂不可用" : ""}${syncResult.errors.length ? `，${syncResult.errors.length} 项失败` : ""}`);
     } catch (error) {
       setStatus(`边缘安全加速实时拉取失败：${String(error)}`);
     } finally {
@@ -2825,7 +2840,7 @@ function App() {
         <div className="metric-grid">
           <div className="metric-card"><div className="label">边缘响应流量</div><div className="value">{esaOverview ? formatBytes(esaOverview.traffic) : "-"}</div><div className="hint">{esaOverview?.range_label || "本地缓存未包含统计"}</div></div>
           <div className="metric-card"><div className="label">总请求数</div><div className="value">{esaOverview ? formatMetric(esaOverview.requests) : "-"}</div><div className="hint">{esaOverview?.range_label || "本地缓存未包含统计"}</div></div>
-          <div className="metric-card"><div className="label">WAF 防护请求数</div><div className="value">{esaOverview ? formatMetric(esaOverview.defence_requests) : "-"}</div><div className="hint">已拦截的 WAF 请求</div></div>
+          <div className="metric-card"><div className="label">WAF 防护请求数</div><div className="value">{esaOverview?.defence_requests == null ? "-" : formatMetric(esaOverview.defence_requests)}</div><div className="hint">{esaOverview?.defence_requests == null ? "WAF 统计暂不可用" : "已拦截的 WAF 请求"}</div></div>
         </div>
         <div className="esa-chart-panel">
           <div className="esa-chart-head"><strong>{esaTrendOptions.find((item) => item.value === esaTrend)?.label}趋势</strong><div className="esa-trend-tabs">{esaTrendOptions.map((item) => <button key={item.value} className={esaTrend === item.value ? "active" : ""} onClick={() => setEsaTrend(item.value)}>{item.label}</button>)}</div></div>
@@ -2835,7 +2850,7 @@ function App() {
       </>}
       {esaTab === "sites" && <div className="esa-sites">
         <div className="esa-sites-toolbar"><div className="site-summary">本地缓存共 <b>{esaSites.length}</b> 个站点</div><label className="esa-site-search"><Search size={14} /><input value={esaSiteKeyword} onChange={(event) => setEsaSiteKeyword(event.target.value)} placeholder="搜索站点或站点 ID" /></label></div>
-        {esaVisibleSites.length ? <div className="resource-table-wrap"><table><thead><tr><th>站点</th><th>站点 ID</th><th>接入方式</th><th>覆盖范围</th><th>状态</th><th>套餐</th><th>操作</th></tr></thead><tbody>{esaVisibleSites.map((item, index) => <tr key={String(item.SiteId || index)}><td>{displayValue(item.SiteName || item.DomainName || item.Name)}</td><td><code>{displayValue(item.SiteId || item.Id)}</code></td><td>{displayValue(item.AccessType)}</td><td>{displayValue(item.Coverage || item.Region)}</td><td>{cloudStatusText(item.Status || item.SiteStatus)}</td><td>{displayValue(item.PlanName || item.Plan)}</td><td><button className="table-action" onClick={openEsaConsole}>控制台</button></td></tr>)}</tbody></table></div> : <div className="detail-empty"><Cloud size={34} />暂无匹配的边缘站点</div>}
+        {esaVisibleSites.length ? <div className="resource-table-wrap"><table><thead><tr><th>站点</th><th>站点 ID</th><th>接入方式</th><th>覆盖范围</th><th>状态</th><th>套餐</th><th>操作</th></tr></thead><tbody>{esaVisibleSites.map((item, index) => <tr key={String(item.SiteId || index)}><td>{displayValue(item.SiteName || item.DomainName || item.Name)}</td><td><code>{displayValue(item.SiteId || item.Id)}</code></td><td>{displayValue(item.AccessType)}</td><td>{displayValue(item.Coverage || item.Region)}</td><td>{cloudStatusText(item.Status || item.SiteStatus)}</td><td>{displayValue(item.PlanName || item.Plan)}</td><td><button className="table-action" onClick={openEsaConsole}>控制台</button>{active?.account.cloud_type === "aliyun" && <button className="table-action" disabled={!runningInTauri || !Number(item.SiteId || item.Id)} onClick={() => setEsaCertificateSite({ account: active.account, siteId: Number(item.SiteId || item.Id) })}>证书部署</button>}</td></tr>)}</tbody></table></div> : <div className="detail-empty"><Cloud size={34} />暂无匹配的边缘站点</div>}
       </div>}
       {esaTab === "functions" && <div className="function-panel"><h3>边缘函数和 Pages</h3><p>函数、Pages 项目及路由配置由云厂商边缘控制台统一管理。</p><button className="layui-btn" onClick={openEsaConsole}>打开边缘控制台</button></div>}
     </div>
@@ -4338,6 +4353,7 @@ function App() {
             </section>
           </section>
         )}
+        {esaCertificateSite && <EsaCertificateDialog key={`${esaCertificateSite.account.id}:${esaCertificateSite.siteId}`} account={esaCertificateSite.account} siteId={esaCertificateSite.siteId} accounts={accounts} localAssets={localAssets} onClose={() => setEsaCertificateSite(null)} onStatus={setStatus} onConfirm={requestConfirm} />}
         {section === "certificates" && <CertificatePanel accounts={accounts} localAssets={localAssets} onStatus={setStatus} onConfirm={requestConfirm} />}
         {section === "flow" && <FlowPanel />}
         {section === "codex" && <CodexPanel />}
@@ -4415,8 +4431,11 @@ function App() {
               <label>API 密钥<SecretField key={panelDraft.id ?? "new"} secretLabel="API 密钥" reveal={panelDraft.id ? () => remoteClient.revealPanelApiKey(panelDraft.id!) : undefined} required={!panelDraft.id} value={panelDraft.api_key} onChange={(event) => setPanelDraft((current) => ({ ...current, api_key: event.target.value }))} placeholder={panelDraft.id ? "留空则保留已保存 API 密钥" : "粘贴面板 API 接口密钥"} autoComplete="off" /></label>
               <label className="panel-insecure-tls"><input type="checkbox" checked={panelDraft.allow_insecure_tls} onChange={(event) => setPanelDraft((current) => ({ ...current, allow_insecure_tls: event.target.checked }))} /><span><strong>允许不受信任 HTTPS 证书</strong><small>仅在面板使用确认可信的自签名证书时开启。</small></span></label>
               <div className="form-grid"><label>分组<input value={panelDraft.group_name} onChange={(event) => setPanelDraft((current) => ({ ...current, group_name: event.target.value }))} placeholder="生产 / 测试 / 个人" /></label><label>排序号<input type="number" min={0} value={panelDraft.sort_order} onChange={(event) => setPanelDraft((current) => ({ ...current, sort_order: Math.max(0, Number(event.target.value) || 0) }))} placeholder="数字越小越靠前" /></label></div>
+              <fieldset className="panel-ssh-section" aria-describedby="panel-ssh-help"><legend>SSH 终端连接（可选）</legend>
+                <p id="panel-ssh-help">填写 SSH 密码后保存，会使用面板 URL 中的主机地址添加终端连接。已有相同主机、端口和用户名的连接会复用，不重复添加。密码加密保存；留空保留已有密码。</p>
               <div className="form-grid"><label>SSH 端口<input type="number" min={1} max={65535} value={panelDraft.ssh_port || 22} onChange={(event) => setPanelDraft((current) => ({ ...current, ssh_port: Number(event.target.value) || 22 }))} placeholder="22" /></label><label>SSH 用户名<input value={panelDraft.ssh_username || "root"} onChange={(event) => setPanelDraft((current) => ({ ...current, ssh_username: event.target.value }))} placeholder="root" /></label></div>
-              <label>SSH 登录密码（可选）<SecretField key={panelDraft.id ?? "new"} secretLabel="SSH 密码" reveal={panelDraft.ssh_password_saved && panelDraft.source_account_id && panelDraft.source_asset_key ? () => remoteClient.revealSshPassword({ accountId: panelDraft.source_account_id, assetKey: panelDraft.source_asset_key }) : undefined} value={panelDraft.ssh_password || ""} onChange={(event) => setPanelDraft((current) => ({ ...current, ssh_password: event.target.value }))} placeholder={panelDraft.ssh_password_saved ? "已保存密码，留空保持不变" : "填写后可在面板卡片一键直连 SSH 终端"} autoComplete="new-password" /></label>
+              <label>SSH 登录密码（可选）<SecretField key={panelDraft.id ?? "new"} secretLabel="SSH 密码" reveal={panelDraft.ssh_password_saved ? panelDraft.ssh_managed_host_id ? () => remoteClient.revealSshPassword({ managedHostId: panelDraft.ssh_managed_host_id }) : panelDraft.source_account_id && panelDraft.source_asset_key ? () => remoteClient.revealSshPassword({ accountId: panelDraft.source_account_id, assetKey: panelDraft.source_asset_key }) : undefined : undefined} value={panelDraft.ssh_password || ""} onChange={(event) => setPanelDraft((current) => ({ ...current, ssh_password: event.target.value }))} placeholder={panelDraft.ssh_password_saved ? "已保存密码，留空保持不变" : "填写后可在面板卡片一键直连 SSH 终端"} autoComplete="new-password" /></label>
+              </fieldset>
               <label>备注<input value={panelDraft.remark} onChange={(event) => setPanelDraft((current) => ({ ...current, remark: event.target.value }))} placeholder="可选" /></label>
               <ul className="panel-bind-steps"><li>填写面板 URL，例如 <code>https://192.168.1.2:8888</code>。</li><li>在宝塔或 aaPanel 的“面板设置 / API 接口”中启用 API。</li><li>把当前电脑的公网 IP 加到 API 白名单；没有固定 IP 时可按面板规则配置。</li><li>复制接口密钥到上方，保存时会即时验证连接。</li></ul>
               <div className="modal-actions"><button type="button" className="secondary" disabled={panelSaving} onClick={() => setPanelDialog(false)}>取消</button><button type="submit" className="layui-btn layui-btn-normal" disabled={panelSaving}>{panelSaving ? "验证并保存中…" : panelDraft.id ? "验证并保存" : "绑定面板"}</button></div>

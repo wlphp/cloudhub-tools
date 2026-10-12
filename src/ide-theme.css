@@ -1201,6 +1201,35 @@
   color: var(--jb-muted);
   font-size: 12px;
 }
+.modal-backdrop .panel-bind-modal .panel-ssh-section {
+  min-width: 0;
+  margin: 14px 16px 0;
+  padding: 10px 12px 12px;
+  border: 1px solid var(--jb-border);
+  border-radius: 4px;
+}
+.modal-backdrop .panel-bind-modal .panel-ssh-section legend {
+  padding: 0 5px;
+  color: var(--jb-text);
+  font-size: 12px;
+  font-weight: 600;
+}
+.modal-backdrop .panel-bind-modal .panel-ssh-section p {
+  margin: 0 0 10px;
+  color: var(--jb-subtle);
+  font-size: 11px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.modal-backdrop .panel-bind-modal .panel-ssh-section label {
+  min-width: 0;
+  color: var(--jb-muted);
+  font-size: 12px;
+}
+.modal-backdrop .panel-bind-modal .panel-ssh-section > label { margin-top: 10px; }
+@media (max-width: 480px) {
+  .modal-backdrop .panel-bind-modal .panel-ssh-section .form-grid { grid-template-columns: 1fr; }
+}
 .modal-backdrop .panel-bind-modal .panel-auth-static {
   height: 34px;
   margin-top: 6px;

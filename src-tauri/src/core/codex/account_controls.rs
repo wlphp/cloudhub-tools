@@ -18,9 +18,10 @@ pub fn proxy(conn: &Connection,id:i64)->Result<Option<String>,String> {
     conn.query_row("SELECT proxy_url FROM codex_account_controls WHERE account_id=?1",[id],|r|r.get(0)).optional().map(|v|v.flatten()).map_err(|_|"读取账号代理失败".into())
 }
 pub fn validate_proxy(raw:&str)->Result<Option<String>,String> {
-    if raw.chars().any(char::is_control) { return Err("代理地址无效".into()); }
+    if raw.chars().any(char::is_control) { return Err("代理地址不能包含换行或控制字符".into()); }
     let raw=raw.trim(); if raw.is_empty() { return Ok(None); }
-    if raw.len()>512 || raw.chars().any(char::is_control) { return Err("代理地址无效".into()); }
+    if raw.len()>512 { return Err("代理地址不能超过 512 个字符".into()); }
+    if !raw.contains("://") { return Err("代理地址缺少协议，请填写 http://127.0.0.1:10808 这样的完整地址".into()); }
     let url=reqwest::Url::parse(raw).map_err(|_|"代理地址无效")?;
     if !matches!(url.scheme(),"http"|"https") || url.host_str().is_none() || url.port()==Some(0) || !url.username().is_empty() || url.password().is_some() || url.query().is_some() || url.fragment().is_some() || url.path()!="/" {
         return Err("请填写无账号密码的 HTTP/HTTPS 代理地址，例如 http://127.0.0.1:7890".into());
@@ -30,6 +31,22 @@ pub fn validate_proxy(raw:&str)->Result<Option<String>,String> {
 pub fn save_proxy(conn:&Connection,id:i64,raw:&str)->Result<(),String> {
     let url=validate_proxy(raw)?;
     conn.execute("INSERT INTO codex_account_controls(account_id,proxy_url) VALUES(?1,?2) ON CONFLICT(account_id) DO UPDATE SET proxy_url=excluded.proxy_url",params![id,url]).map_err(|_|"保存账号代理失败")?; Ok(())
+}
+pub fn save_proxies(conn: &mut Connection, ids: &[i64], raw: &str) -> Result<Vec<super::CodexAccountSummary>, String> {
+    validate_proxy(raw)?;
+    if ids.is_empty() || ids.len() > 1000 || ids.iter().any(|id| *id <= 0) {
+        return Err("请选择 1–1000 个有效账号后批量设置代理".into());
+    }
+    let ids = ids.iter().copied().collect::<std::collections::BTreeSet<_>>();
+    let tx = conn.transaction().map_err(|_| "批量保存代理失败，未修改任何账号")?;
+    let mut accounts = Vec::new();
+    for id in ids {
+        crate::core::repositories::codex_accounts::get(&tx, id).map_err(|_| "所选账号已不存在，请刷新列表后重试")?;
+        save_proxy(&tx, id, raw).map_err(|_| "批量保存代理失败，未修改任何账号")?;
+        accounts.push(crate::core::repositories::codex_accounts::get(&tx, id)?);
+    }
+    tx.commit().map_err(|_| "批量保存代理失败，未修改任何账号")?;
+    Ok(accounts)
 }
 pub fn client(proxy: Option<&str>)->Result<reqwest::Client,String> {
     let mut builder=reqwest::Client::builder().connect_timeout(Duration::from_secs(10)).timeout(Duration::from_secs(180)).redirect(reqwest::redirect::Policy::none());
@@ -70,20 +87,53 @@ pub fn save_benefits(conn:&Connection,id:i64,benefits:&Benefits)->Result<(),Stri
     let raw=serde_json::to_string(benefits).map_err(|_|"账号权益格式无效")?;
     conn.execute("INSERT INTO codex_account_controls(account_id,benefits_json) VALUES(?1,?2) ON CONFLICT(account_id) DO UPDATE SET benefits_json=excluded.benefits_json",params![id,raw]).map_err(|_|"保存账号权益失败")?; Ok(())
 }
-pub async fn request(client:&reqwest::Client,token:&str,account:&str,path:&str,redeem:Option<&str>)->Result<Value,String> {
+pub async fn request(client:&reqwest::Client,token:&str,account:&str,id:i64,proxy:Option<&str>,path:&str,redeem:Option<&str>)->Result<Value,String> {
     let url=format!("https://chatgpt.com/backend-api/{path}");
     let mut request=if let Some(id)=redeem {client.post(url).json(&json!({"redeem_request_id":id}))}else{client.get(url)};
     request=request.bearer_auth(token).header("ChatGPT-Account-Id",account).header("Accept","application/json").header("Referer","https://chatgpt.com/").header("User-Agent","CloudHub-Tools/0.1").header("x-openai-target-path",format!("/backend-api/{path}")).header("x-openai-target-route",format!("/backend-api/{path}")).timeout(Duration::from_secs(30));
-    let mut response=request.send().await.map_err(|_|if redeem.is_some(){"重置结果未确认，请先刷新次数；再次操作将沿用同一请求标识"}else{"查询账号信息失败，请检查网络或代理"})?;
+    let (mut response, mut log)=super::remote_logs::send(client,request,Some(id),proxy,token).await.map_err(|_|if redeem.is_some(){"重置结果未确认，请先刷新次数；再次操作将沿用同一请求标识"}else{"查询账号信息失败，请检查网络或代理"})?;
     let status=response.status();
-    if !status.is_success() { return Err(match status.as_u16() {401|403=>"账号认证失效或无权限，请刷新认证后重试".into(),429=>"请求频率受限，请稍后重试".into(),code=>format!("账号信息接口返回 HTTP {code}")}); }
-    if redeem.is_some() {return Ok(Value::Null);}
+    if !status.is_success() {
+        let mut bytes=zeroize::Zeroizing::new(Vec::new());
+        if log.enabled() {
+        while let Ok(Some(chunk))=response.chunk().await {if bytes.len()+chunk.len()>65536 {log.finish("http_error_body_truncated");break;} bytes.extend_from_slice(&chunk);}
+        log.body(&bytes);
+        }
+        return Err(match status.as_u16() {401|403=>"账号认证失效或无权限，请刷新认证后重试".into(),429=>"请求频率受限，请稍后重试".into(),code=>format!("账号信息接口返回 HTTP {code}")}); }
+    if redeem.is_some() {
+        if log.enabled() {
+            let mut bytes=zeroize::Zeroizing::new(Vec::new());
+            while let Ok(Some(chunk))=response.chunk().await {if bytes.len()+chunk.len()>65536 {break;}bytes.extend_from_slice(&chunk);}
+            log.body(&bytes);
+        }
+        log.finish("completed");return Ok(Value::Null);
+    }
     let mut bytes=zeroize::Zeroizing::new(Vec::new());
-    while let Some(chunk)=response.chunk().await.map_err(|_|"账号信息响应中断")? {if bytes.len()+chunk.len()>1024*1024 {return Err("账号信息响应过大".into());} bytes.extend_from_slice(&chunk);}
-    serde_json::from_slice(&bytes).map_err(|_|"账号信息响应格式无效".into())
+    while let Some(chunk)=response.chunk().await.map_err(|_|{log.finish("body_error");"账号信息响应中断"})? {if bytes.len()+chunk.len()>1024*1024 {log.finish("body_too_large");return Err("账号信息响应过大".into());} bytes.extend_from_slice(&chunk);}
+    log.body(&bytes); log.finish("completed");
+    serde_json::from_slice(&bytes).map_err(|_|{log.finish("invalid_json");"账号信息响应格式无效".into()})
 }
 #[cfg(test)] mod tests {
  use super::*;
+ #[test] fn batch_proxy_updates_are_atomic_and_can_clear() {
+  let mut conn = Connection::open_in_memory().unwrap();
+  conn.execute_batch(crate::core::database::CODEX_SCHEMA).unwrap();
+  for id in [1,2] { conn.execute("INSERT INTO codex_accounts(id,identity,label,auth_mode,auth_ciphertext,updated_at) VALUES(?1,?2,'fixture','chatgpt','fixture',0)", params![id,format!("fixture-{id}")]).unwrap(); }
+  let result = save_proxies(&mut conn, &[1,2,2], "http://127.0.0.1:10808").unwrap();
+  assert_eq!(result.len(), 2);
+  assert_eq!(proxy(&conn, 2).unwrap().as_deref(), Some("http://127.0.0.1:10808/"));
+  assert!(save_proxies(&mut conn, &[1,999], "http://127.0.0.1:7890").is_err());
+  assert_eq!(proxy(&conn, 1).unwrap().as_deref(), Some("http://127.0.0.1:10808/"));
+  conn.execute_batch("CREATE TRIGGER reject_proxy BEFORE INSERT ON codex_account_controls WHEN NEW.account_id=2 BEGIN SELECT RAISE(ABORT,'fixture'); END;").unwrap();
+  assert!(save_proxies(&mut conn, &[1,2], "http://127.0.0.1:7890").is_err());
+  assert_eq!(proxy(&conn, 1).unwrap().as_deref(), Some("http://127.0.0.1:10808/"));
+  conn.execute_batch("DROP TRIGGER reject_proxy;").unwrap();
+  assert!(save_proxies(&mut conn, &[], "").is_err());
+  assert!(save_proxies(&mut conn, &[1,2], "127.0.0.1:7890").is_err());
+  save_proxies(&mut conn, &[1,2], "").unwrap();
+  assert_eq!(proxy(&conn, 1).unwrap(), None);
+  assert_eq!(proxy(&conn, 2).unwrap(), None);
+ }
  #[test] fn proxies_reject_credentials_paths_and_shell_data() {
   assert_eq!(validate_proxy(" http://127.0.0.1:7890 ").unwrap(),Some("http://127.0.0.1:7890/".into()));
   for value in ["http://user:fake@host:80","file:///x","socks5://host:9","http://host/path","http://host/?token=fake","http://host/\n"] { assert!(validate_proxy(value).is_err()); }

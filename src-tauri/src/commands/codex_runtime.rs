@@ -20,10 +20,12 @@ pub(crate) struct CodexRuntimeStore {
     pub gateway: Arc<Mutex<Option<crate::core::codex::gateway::RunningGateway>>>,
     pub wakes: Arc<Mutex<HashSet<i64>>>,
     pub closing: Arc<AtomicBool>,
+    pub gateway_start_error: Arc<Mutex<Option<String>>>,
 }
 
 pub(crate) struct PendingLogin {
     token: String,
+    auth_url: zeroize::Zeroizing<String>,
     // Server is dropped before its credential directory is removed.
     server: rpc::AppServer,
     profile: profile::TemporaryProfile,
@@ -57,6 +59,16 @@ impl CodexRuntimeStore {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct LoginStart {
     token: String,
+    auth_url: String,
+}
+
+fn validate_login_url(url: &str) -> Result<(), String> {
+    if url.len() >= 16_384 { return Err("Codex 返回的登录地址无效".into()); }
+    let parsed = reqwest::Url::parse(url).map_err(|_| "Codex 返回的登录地址无效")?;
+    if parsed.scheme() != "https" || !matches!(parsed.host_str(),Some("auth.openai.com"|"chatgpt.com")) || !parsed.username().is_empty() || parsed.password().is_some() || parsed.port_or_known_default() != Some(443) {
+        return Err("Codex 返回的登录地址不可信".into());
+    }
+    Ok(())
 }
 
 #[derive(Serialize)]
@@ -89,31 +101,47 @@ pub(crate) async fn codex_start_login(app: tauri::AppHandle) -> PlatformResult<L
             .and_then(serde_json::Value::as_str)
             .filter(|v| v.len() < 16_384)
             .ok_or("当前 Codex CLI 不支持浏览器登录，请更新 CLI")?;
-        let parsed = reqwest::Url::parse(url).map_err(|_| "Codex 返回的登录地址无效")?;
-        if parsed.scheme() != "https"
-            || !matches!(parsed.host_str(), Some("auth.openai.com" | "chatgpt.com"))
-            || !parsed.username().is_empty()
-            || parsed.password().is_some()
-        {
-            return Err("Codex 返回的登录地址不可信".into());
-        }
+        validate_login_url(url)?;
         let token = uuid::Uuid::new_v4().to_string();
         if store.closing.load(Ordering::SeqCst) {
             return Err("应用正在退出，已取消登录".into());
         }
-        tauri_plugin_opener::open_url(url, None::<&str>)
-            .map_err(|_| "无法打开 Codex 官方登录页面")?;
         *slot = Some(PendingLogin {
             token: token.clone(),
+            auth_url: zeroize::Zeroizing::new(url.to_string()),
             server,
             profile,
             expires: Instant::now() + Duration::from_secs(300),
         });
-        Ok(LoginStart { token })
+        Ok(LoginStart { token, auth_url: url.to_string() })
     })
     .await
     .map_err(|_| "启动 Codex 登录任务失败")?
     .map_err(Into::into)
+}
+
+#[tauri::command]
+pub(crate) async fn codex_copy_login_url(app: tauri::AppHandle, token: String) -> PlatformResult<()> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<(),String> {
+        let store=app.state::<CodexRuntimeStore>();
+        store.cleanup_expired();
+        let slot=store.login.lock().map_err(|_| "Codex 登录状态不可用")?;
+        let pending=slot.as_ref().filter(|login|login.token==token).ok_or("Codex 登录已取消或过期")?;
+        arboard::Clipboard::new().and_then(|mut clipboard|clipboard.set_text(pending.auth_url.to_string())).map_err(|_| "复制授权地址失败，请在地址框中手动复制".into())
+    }).await.map_err(|_| "复制授权地址任务失败")?.map_err(Into::into)
+}
+
+#[tauri::command]
+pub(crate) async fn codex_open_login_url(app: tauri::AppHandle, token: String) -> PlatformResult<()> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<(),String> {
+        let store=app.state::<CodexRuntimeStore>();
+        store.cleanup_expired();
+        if store.closing.load(Ordering::SeqCst) {return Err("应用正在退出".into());}
+        let slot=store.login.lock().map_err(|_| "Codex 登录状态不可用")?;
+        let pending=slot.as_ref().filter(|login|login.token==token).ok_or("Codex 登录已取消或过期")?;
+        validate_login_url(&pending.auth_url)?;
+        tauri_plugin_opener::open_url(pending.auth_url.as_str(),None::<&str>).map_err(|_| "无法打开浏览器，请复制授权地址手动打开".into())
+    }).await.map_err(|_| "打开登录页面任务失败")?.map_err(Into::into)
 }
 
 #[tauri::command]
@@ -180,4 +208,17 @@ pub(crate) async fn codex_cancel_login(app: tauri::AppHandle, token: String) -> 
     .await
     .map_err(|_| "取消 Codex 登录任务失败")?
     .map_err(Into::into)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_login_url;
+    #[test]
+    fn login_links_allow_only_official_https_hosts_without_echoing_values() {
+        assert!(validate_login_url("https://auth.openai.com/oauth/authorize?state=test-only-state").is_ok());
+        assert!(validate_login_url("https://chatgpt.com/auth/login").is_ok());
+        for url in ["http://auth.openai.com/", "https://auth.openai.com.untrusted.test/", "https://test-only-user:password@auth.openai.com/", "https://auth.openai.com:8443/", "file:///test-only-secret"] {
+            let error=validate_login_url(url).unwrap_err();assert!(!error.contains(url));
+        }
+    }
 }

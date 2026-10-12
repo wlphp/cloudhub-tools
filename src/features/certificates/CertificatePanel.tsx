@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Check, Copy, Download, Eye, Plus, RefreshCw, ShieldCheck, Trash2, X } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 import { certificatesClient } from "../../platform/clients";
+import type { EsaCertificateTarget } from "../../platform/clients/certificates";
 import { platformErrorMessage, runningInTauri } from "../../platform/api";
 import type { Account, Certificate, LocalAsset } from "../../shared/types";
 import "./certificates.css";
@@ -12,6 +13,9 @@ type Props = {
   localAssets: LocalAsset[];
   onStatus: (message: string) => void;
   onConfirm: (message: string) => Promise<boolean>;
+  requestTarget?: EsaCertificateTarget;
+  onIssued?: (certificate: Certificate) => void;
+  onRequestClosed?: () => void;
 };
 type CertificateLog = {
   level: "info" | "success" | "error";
@@ -35,6 +39,14 @@ const providerLabels: Record<string, string> = {
   letsencrypt: "Let's Encrypt",
   litessl: "LiteSSL",
 };
+const domainPresets = [
+  { label: "主域名 @", prefixes: [""] },
+  { label: "www", prefixes: ["www."] },
+  { label: "泛域名 *", prefixes: ["*."] },
+  { label: "@ + www", prefixes: ["", "www."] },
+  { label: "@ + *", prefixes: ["", "*."] },
+];
+const presetDomains = (zone: string, prefixes: string[]) => prefixes.map(prefix => `${prefix}${zone}`).join("\n");
 const emptyForm = {
   accountId: "",
   provider: "letsencrypt" as "letsencrypt" | "litessl",
@@ -60,7 +72,7 @@ function days(value?: number | null) {
   return value ? Math.ceil((value * 1000 - Date.now()) / 86400000) : null;
 }
 
-export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm }: Props) {
+export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm, requestTarget, onIssued, onRequestClosed }: Props) {
   const [rows, setRows] = useState<Certificate[]>([]);
   const [form, setForm] = useState(emptyForm);
   const [openForm, setOpenForm] = useState(false);
@@ -82,6 +94,7 @@ export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm }:
     () => accounts.filter((account) => account.cloud_type === "aliyun"),
     [accounts],
   );
+  const esaDns = requestTarget?.accessType === "NS";
   const accountDomainAssets = useMemo(
     () =>
       domainAssets.filter(
@@ -91,6 +104,7 @@ export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm }:
       ),
     [domainAssets, form.accountId, aliyunAccounts],
   );
+  const zoneNames = esaDns && requestTarget ? [requestTarget.siteName] : accountDomainAssets.map(assetDomain);
   const filtered = useMemo(
     () =>
       rows.filter((row) =>
@@ -123,20 +137,11 @@ export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm }:
     setError("");
   }
   function selectZone(zone: string) {
-    setForm((current) => ({
-      ...current,
-      dnsZone: zone,
-      primaryDomain:
-        current.primaryDomain === current.dnsZone ||
-        current.primaryDomain === `*.${current.dnsZone}`
-          ? current.primaryDomain
-          : zone,
-      domains:
-        current.domains === current.dnsZone ||
-        current.domains === `*.${current.dnsZone}`
-          ? zone
-          : current.domains,
-    }));
+    setForm((current) => {
+      const preset = domainPresets.find(item => presetDomains(current.dnsZone, item.prefixes) === current.domains.trim());
+      const domains = zone ? presetDomains(zone, preset?.prefixes ?? [""]) : "";
+      return { ...current, dnsZone: zone, domains, primaryDomain: domains.split("\n")[0] };
+    });
   }
 
   async function load() {
@@ -151,7 +156,11 @@ export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm }:
     }
   }
   useEffect(() => {
-    void load();
+    if (requestTarget) {
+      const matches = domainAssets.filter(asset => requestTarget.siteName === assetDomain(asset) || requestTarget.siteName.endsWith(`.${assetDomain(asset)}`)).sort((a, b) => assetDomain(b).length - assetDomain(a).length);
+      setForm({ ...emptyForm, accountId: String(esaDns ? requestTarget.accountId : matches[0]?.account_id ?? ""), dnsZone: esaDns ? requestTarget.siteName : matches[0] ? assetDomain(matches[0]) : "", domains: requestTarget.siteName, primaryDomain: requestTarget.siteName });
+      setOpenForm(true);
+    } else void load();
   }, []);
   useEffect(() => {
     if (!detail) {
@@ -195,6 +204,7 @@ export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm }:
   async function cancelRequest() {
     if (!activeOperationId) {
       setOpenForm(false);
+      onRequestClosed?.();
       return;
     }
     setCancelling(true);
@@ -220,10 +230,7 @@ export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm }:
       .filter(Boolean);
     if (
       !form.accountId ||
-      !accountDomainAssets.length ||
-      !accountDomainAssets.some(
-        (asset) => assetDomain(asset) === form.dnsZone.trim().toLowerCase(),
-      )
+      !zoneNames.includes(form.dnsZone.trim().toLowerCase())
     ) {
       setError("请选择当前 DNS 账号下已同步的域名资产");
       setLoading(false);
@@ -249,10 +256,12 @@ export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm }:
         eabHmacKey:
           form.provider === "litessl" ? form.eabHmacKey.trim() : undefined,
         operationId,
+        esaSiteId: esaDns ? requestTarget?.siteId : undefined,
       });
       setRows((current) => [saved, ...current]);
       setOpenForm(false);
       onStatus(`${saved.primaryDomain} 证书申请成功`);
+      onIssued?.(saved);
     } catch (reason) {
       const message = platformErrorMessage(reason, "证书申请失败");
       setError(message);
@@ -296,7 +305,8 @@ export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm }:
   }
 
   return (
-    <section className="certificate-page">
+    <section className={`certificate-page${requestTarget ? " ide-theme" : ""}`}>
+      {!requestTarget && <>
       <header>
         <div>
           <span className="eyebrow">HTTPS CERTIFICATES</span>
@@ -434,13 +444,14 @@ export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm }:
           </div>
         )}
       </section>
+      </>}
       {openForm && (
-        <div className="modal-backdrop">
+        <div className={`modal-backdrop${requestTarget ? " esa-certificate-request-backdrop" : ""}`}>
           <form className="detail-panel certificate-dialog" onSubmit={submit}>
             <div className="modal-head">
               <div>
                 <span className="eyebrow">DNS-01</span>
-                <h2>申请 HTTPS 证书</h2>
+                <h2>{requestTarget ? "申请证书并部署到 ESA" : "申请 HTTPS 证书"}</h2>
               </div>
               <button
                 type="button"
@@ -451,8 +462,7 @@ export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm }:
               </button>
             </div>
             <p className="certificate-hint">
-              域名和 DNS
-              区域只从当前账号已同步的域名资产中选择，避免把证书申请到其他账号的域名上。
+              {requestTarget ? `目标 ESA 站点：${requestTarget.siteName}。签发后先加密保存，再上传；上传失败可直接重试部署。${esaDns ? "本次使用 ESA DNS 写入 TXT 验证记录。" : "请选择域名权威 DNS 所在的阿里云账号，ESA 账号与 DNS 账号可以不同。"}` : "域名和 DNS 区域只从当前账号已同步的域名资产中选择，避免把证书申请到其他账号的域名上。"}
             </p>
             <label>
               证书品牌
@@ -496,20 +506,13 @@ export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm }:
               DNS 账号
               <select
                 required
+                disabled={esaDns}
                 value={form.accountId}
                 onChange={(event) => selectAccount(event.target.value)}
               >
                 <option value="">选择阿里云账号</option>
-                {aliyunAccounts.map((account) => (
-                  <option key={account.id} value={account.id}>
-                    {account.account_name}（
-                    {
-                      domainAssets.filter(
-                        (asset) => asset.account_id === account.id,
-                      ).length
-                    }{" "}
-                    个域名）
-                  </option>
+                {aliyunAccounts.filter(account => !esaDns || account.id === requestTarget?.accountId).map(account => (
+                  <option key={account.id} value={account.id}>{account.account_name}（{esaDns ? "ESA DNS" : `${domainAssets.filter(asset => asset.account_id === account.id).length} 个域名`}）</option>
                 ))}
               </select>
             </label>
@@ -517,44 +520,22 @@ export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm }:
               DNS 区域
               <select
                 required
+                disabled={esaDns}
                 value={form.dnsZone}
                 onChange={(event) => selectZone(event.target.value)}
               >
                 <option value="">选择当前账号下的域名</option>
-                {accountDomainAssets.map((asset) => (
-                  <option
-                    key={`${asset.account_id}:${asset.asset_key}`}
-                    value={assetDomain(asset)}
-                  >
-                    {assetDomain(asset)}
-                  </option>
-                ))}
+                {zoneNames.map(name => <option key={name} value={name}>{name}</option>)}
               </select>
             </label>
-            <label>
-              证书主域名（快捷填充）
-              <select
-                required
-                value={form.primaryDomain}
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    primaryDomain: event.target.value,
-                    domains: event.target.value,
-                  }))
-                }
-              >
-                <option value="">选择证书主域名</option>
-                {form.dnsZone && (
-                  <>
-                    <option value={form.dnsZone}>{form.dnsZone}</option>
-                    <option value={`*.${form.dnsZone}`}>
-                      *.{form.dnsZone}（通配符）
-                    </option>
-                  </>
-                )}
-              </select>
-            </label>
+            <div className="certificate-domain-presets" role="group" aria-label="证书域名快捷填充">
+              <span>快捷填充</span>
+              {domainPresets.map(preset => <button key={preset.label} type="button" disabled={!form.dnsZone || loading}
+                aria-pressed={!!form.dnsZone && form.domains.trim() === presetDomains(form.dnsZone, preset.prefixes)}
+                onClick={() => { const domains = presetDomains(form.dnsZone, preset.prefixes); setForm(current => ({ ...current, domains, primaryDomain: domains.split("\n")[0] })); }}
+                title={form.dnsZone ? presetDomains(form.dnsZone, preset.prefixes).replace(/\n/g, "、") : "请先选择 DNS 区域"}>{preset.label}</button>)}
+              <small>点击替换下方域名，可继续手动编辑。@ 表示主域名；泛域名 * 不包含主域名，需要两者请选择 @ + *。</small>
+            </div>
             <label>
               证书域名（每行或逗号分隔）
               <textarea
@@ -572,7 +553,7 @@ export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm }:
             </label>
             {!form.accountId ? (
               <div className="certificate-hint">请先选择 DNS 账号。</div>
-            ) : form.accountId && !accountDomainAssets.length ? (
+            ) : form.accountId && !zoneNames.length ? (
               <div className="form-error">
                 当前账号没有已同步的域名资产，请先在资产管理中同步域名。
               </div>
@@ -605,7 +586,7 @@ export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm }:
                 type="submit"
                 className="primary-update-btn"
                 disabled={
-                  loading || !form.accountId || !accountDomainAssets.length
+                  loading || !form.accountId || !zoneNames.length
                 }
               >
                 {loading ? "申请中，等待 DNS 验证…" : "开始申请"}

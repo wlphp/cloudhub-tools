@@ -19,6 +19,7 @@ use tokio::{
 };
 use zeroize::Zeroizing;
 use super::gateway_controls::{CallLog, CallDetail, Controls, GatewaySettings, RoutingStrategy};
+use super::protocols::{self, Protocol};
 
 const MAX_BODY: usize = 512 * 1024;
 // Official catalogs include model instructions and other metadata, so their
@@ -26,10 +27,30 @@ const MAX_BODY: usize = 512 * 1024;
 const MAX_CATALOG_BODY: usize = 8 * 1024 * 1024;
 const MAX_OUTPUT: usize = 16 * 1024 * 1024;
 
+pub(crate) fn lan_address(port: u16) -> Option<String> {
+    // Route selection only; UDP connect sends no packet.
+    let socket = std::net::UdpSocket::bind((std::net::Ipv4Addr::UNSPECIFIED,0)).ok()?;
+    socket.connect((std::net::Ipv4Addr::new(192,0,2,1),9)).ok()?;
+    let std::net::IpAddr::V4(ip)=socket.local_addr().ok()?.ip() else { return None; };
+    lan_url(ip,port)
+}
+fn lan_url(ip: std::net::Ipv4Addr, port: u16) -> Option<String> {
+    if !ip.is_private() || port==0 { return None; }
+    Some(format!("http://{ip}:{port}/v1"))
+}
+fn share_text(address: &str, key: &str) -> Zeroizing<String> {
+    Zeroizing::new(format!("Base URL: {address}\nAPI Key: {key}"))
+}
+
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GatewaySummary {
     pub running: bool,
+    pub allow_lan: bool,
+    pub listening_lan: bool,
+    pub supports_lan_access: bool,
+    pub lan_address: Option<String>,
+    pub supports_share_config: bool,
     pub address: Option<String>,
     pub account_ids: Vec<i64>,
     pub completed: u64,
@@ -40,12 +61,20 @@ pub struct GatewaySummary {
     pub supports_remote_models: bool,
     pub supports_persistent_config: bool,
     pub supports_function_tools: bool,
+    pub supports_config_save: bool,
+    pub supports_key_reveal: bool,
+    pub supports_auto_start: bool,
+    pub supports_pool_persistence: bool,
+    pub supports_multi_protocol: bool,
+    pub auto_start: bool,
+    pub startup_account_ids: Vec<i64>,
+    pub startup_error: Option<String>,
     pub configured_port: Option<u16>,
     pub settings: GatewaySettings,
 }
 impl Default for GatewaySummary {
     fn default() -> Self {
-        Self { running: false, address: None, account_ids: Vec::new(), completed: 0, failed: 0, active: 0, supports_custom_key: true, supports_models: true, supports_remote_models: true, supports_persistent_config: true, supports_function_tools: true, configured_port: None, settings: GatewaySettings::default() }
+        Self { lan_address: None, supports_share_config: true, allow_lan: false, listening_lan: false, supports_lan_access: true, running: false, address: None, account_ids: Vec::new(), completed: 0, failed: 0, active: 0, supports_custom_key: true, supports_models: true, supports_remote_models: true, supports_persistent_config: true, supports_function_tools: true, supports_config_save: true, supports_key_reveal: true, supports_auto_start: true, supports_pool_persistence: true, supports_multi_protocol: true, auto_start: false, startup_account_ids: Vec::new(), startup_error: None, configured_port: None, settings: GatewaySettings::default() }
     }
 }
 
@@ -74,6 +103,7 @@ pub struct RunningGateway {
     shared: Arc<Shared>,
     task: JoinHandle<()>,
     address: String,
+    allow_lan: bool,
 }
 impl Drop for RunningGateway {
     fn drop(&mut self) {
@@ -86,7 +116,11 @@ impl RunningGateway {
     pub async fn start(port: u16, pool: Vec<i64>) -> Result<Self, String> {
         Self::start_with_key(port, pool, None).await
     }
+    #[cfg(test)]
     pub async fn start_with_key(port: u16, pool: Vec<i64>, service_key: Option<String>) -> Result<Self, String> {
+        Self::start_with_network(port, pool, service_key, false).await
+    }
+    pub async fn start_with_network(port: u16, pool: Vec<i64>, service_key: Option<String>, allow_lan: bool) -> Result<Self, String> {
         let service_key = service_key.map(Zeroizing::new);
         if service_key.as_ref().is_some_and(|key| !(24..=256).contains(&key.len()) || !key.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte))) {
             return Err("服务密钥须为 24–256 位字母、数字或 . _ -，不能含空格".into());
@@ -94,7 +128,7 @@ impl RunningGateway {
         if pool.is_empty() || pool.len() > 100 || pool.iter().any(|id| *id <= 0) {
             return Err("请选择 1 至 100 个 Codex 服务账号".into());
         }
-        let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port))
+        let listener = TcpListener::bind((if allow_lan { std::net::Ipv4Addr::UNSPECIFIED } else { std::net::Ipv4Addr::LOCALHOST }, port))
             .await
             .map_err(|_| "本地 API 端口被占用或无法监听，请选择其他端口")?;
         let actual = listener.local_addr().map_err(|_| "查询本地 API 地址失败")?;
@@ -121,19 +155,21 @@ impl RunningGateway {
             test_endpoint: Mutex::new(None),
         });
         let state = shared.clone();
-        let host = actual.to_string();
+
         let task = tokio::spawn(async move {
             let mut workers = JoinSet::new();
             loop {
                 tokio::select! {
                     accepted=listener.accept() => {
                         let Ok((mut stream,peer)) = accepted else { break; };
-                        if !peer.ip().is_loopback() { continue; }
+                        if !allow_lan && !peer.ip().is_loopback() { continue; }
                         let Ok(permit) = state.slots.clone().try_acquire_owned() else {
                             // Do not block the admission loop on a slow reader.
                             drop(stream); continue;
                         };
-                        let worker = state.clone(); let host = host.clone();
+                        let worker = state.clone();
+                        let Ok(local) = stream.local_addr() else { continue; };
+                        let host = local.to_string();
                         workers.spawn(async move {
                             let _permit = permit;
                             let mut trace = RequestTrace::new(worker.clone());
@@ -148,7 +184,8 @@ impl RunningGateway {
         Ok(Self {
             shared,
             task,
-            address: format!("http://{actual}/v1"),
+            address: format!("http://127.0.0.1:{}/v1",actual.port()),
+            allow_lan,
         })
     }
     pub fn contains(&self, id: i64) -> bool {
@@ -161,6 +198,11 @@ impl RunningGateway {
             .lock()
             .map_err(|_| "Codex 服务状态不可用")?;
         Ok(GatewaySummary {
+            lan_address: if self.allow_lan { lan_address(self.port()?) } else { None },
+            supports_share_config: true,
+            allow_lan: self.allow_lan,
+            listening_lan: self.allow_lan,
+            supports_lan_access: true,
             running: !self.task.is_finished(),
             address: Some(self.address.clone()),
             account_ids: self.shared.pool.clone(),
@@ -172,6 +214,14 @@ impl RunningGateway {
             supports_remote_models: true,
             supports_persistent_config: true,
             supports_function_tools: true,
+            supports_config_save: true,
+            supports_key_reveal: true,
+            supports_auto_start: true,
+            supports_pool_persistence: true,
+            supports_multi_protocol: true,
+            auto_start: false,
+            startup_account_ids: Vec::new(),
+            startup_error: None,
             configured_port: None,
             settings: self.shared.controls.lock().map_err(|_| "网关规则不可用")?.settings.clone(),
         })
@@ -180,6 +230,21 @@ impl RunningGateway {
         arboard::Clipboard::new()
             .and_then(|mut clipboard| clipboard.set_text(self.shared.key.to_string()))
             .map_err(|_| "复制本地 API 密钥失败".into())
+    }
+    pub fn key_for_display(&self) -> String { self.shared.key.to_string() }
+    pub fn copy_share_config(&self, ip: &str) -> Result<(), String> {
+        if self.task.is_finished() || !self.allow_lan { return Err("请先启动服务并使局域网访问生效".into()); }
+        let ip=ip.parse::<std::net::Ipv4Addr>().map_err(|_| "局域网地址无效")?;
+        let address=lan_url(ip,self.port()?).ok_or("局域网地址无效")?;
+        let content=share_text(&address,self.shared.key.as_str());
+        arboard::Clipboard::new().and_then(|mut clipboard|clipboard.set_text(content.to_string())).map_err(|_| "复制分享配置失败".into())
+    }
+    pub fn port(&self) -> Result<u16, String> {
+        self.address.strip_prefix("http://127.0.0.1:").and_then(|v| v.strip_suffix("/v1")).and_then(|v| v.parse().ok()).ok_or("本地 API 地址无效".into())
+    }
+    pub async fn replacement_on_port(&self, port: u16) -> Result<Self, String> {
+        if port != 0 && port < 1024 { return Err("请选择 1024 以上的本地 API 端口，或 0 自动分配".into()); }
+        Self::start_with_network(port, self.shared.pool.clone(), Some(self.shared.key.to_string()), self.allow_lan).await
     }
     pub fn configure(&self, settings: GatewaySettings, accounts: Vec<super::CodexAccountSummary>) -> Result<(), String> {
         settings.validate()?;
@@ -227,11 +292,12 @@ struct Request {
 }
 struct RequestTrace {
     shared: Arc<Shared>, started: Instant, generation: Option<u64>, entry: CallLog,
+    secrets: Vec<Zeroizing<String>>,
 }
 impl RequestTrace {
     fn new(shared: Arc<Shared>) -> Self {
         let generation = shared.controls.lock().ok().and_then(|c| c.settings.logging_enabled.then_some(c.generation));
-        Self { shared, started: Instant::now(), generation, entry: CallLog { id: uuid::Uuid::new_v4().to_string(), timestamp: chrono::Utc::now().timestamp_millis(), endpoint: "unknown", model: None, account_id: None, status: 499, upstream_status: None, outcome: "cancelled", streaming: false, duration_ms: 0, input_tokens: None, output_tokens: None, detail: CallDetail::default(), detail_bytes: 0 } }
+        Self { shared, started: Instant::now(), generation, secrets: Vec::new(), entry: CallLog { id: uuid::Uuid::new_v4().to_string(), timestamp: chrono::Utc::now().timestamp_millis(), endpoint: "unknown", model: None, account_id: None, status: 499, upstream_status: None, outcome: "cancelled", streaming: false, duration_ms: 0, input_tokens: None, output_tokens: None, detail: CallDetail::default(), detail_bytes: 0 } }
     }
     fn result(&mut self, status: u16, outcome: &'static str) { self.entry.status = status; self.entry.outcome = outcome; if self.generation.is_some() && status>=400 { self.entry.detail.response=Some(json!({"status":status,"outcome":outcome})); } }
     fn capture(&mut self, field: &str, value: &Value) {
@@ -242,6 +308,8 @@ impl RequestTrace {
 }
 impl Drop for RequestTrace {
     fn drop(&mut self) {
+        self.entry.detail.redact_secret(self.shared.key.as_str());
+        for secret in &self.secrets { self.entry.detail.redact_secret(secret.as_str()); }
         self.entry.duration_ms = self.started.elapsed().as_millis().min(u64::MAX as u128) as u64;
         if let Ok(mut c) = self.shared.controls.lock() { c.record(self.generation, self.entry.clone()); }
     }
@@ -283,10 +351,26 @@ async fn read_request(stream: &mut TcpStream, host: &str, key: &str) -> Result<R
     let mut lines = text.split("\r\n");
     let mut start = lines.next().ok_or(400u16)?.split(' ');
     let method = start.next().ok_or(400u16)?;
-    let path = start.next().ok_or(400u16)?.to_string();
+    let raw_path = start.next().ok_or(400u16)?;
+    let (path, query) = raw_path.split_once('?').unwrap_or((raw_path, ""));
+    let path = path.to_string();
+    let gemini = protocols::gemini_path(&path).is_some();
+    let mut query_key = None;
+    let mut alt = false;
+    if !query.is_empty() {
+        if !gemini { return Err(400); }
+        for pair in query.split('&') {
+            let (name,value)=pair.split_once('=').ok_or(400u16)?;
+            match name {
+                "key" if query_key.is_none() => query_key=Some(value),
+                "alt" if !alt && value=="sse" && path.ends_with(":streamGenerateContent") => alt=true,
+                _=>return Err(400),
+            }
+        }
+    }
     let listing = method == "GET" && path == "/v1/models";
     if !listing && method != "POST" { return Err(405); }
-    if !listing && !matches!(path.as_str(), "/v1/responses" | "/v1/chat/completions") {
+    if !listing && !gemini && !matches!(path.as_str(), "/v1/responses" | "/v1/chat/completions" | "/v1/completions" | "/v1/messages") {
         return Err(404);
     }
     if start.next() != Some("HTTP/1.1") || start.next().is_some() {
@@ -311,13 +395,11 @@ async fn read_request(stream: &mut TcpStream, host: &str, key: &str) -> Result<R
     if headers.get("host").copied() != Some(host) {
         return Err(403);
     }
-    let bearer = headers
-        .get("authorization")
-        .and_then(|s| s.strip_prefix("Bearer "))
-        .ok_or(401u16)?;
-    if !authorized(bearer, key) {
-        return Err(401);
-    }
+    let mut credentials = Vec::new();
+    if let Some(auth)=headers.get("authorization") { credentials.push(auth.strip_prefix("Bearer ").ok_or(401u16)?); }
+    if path=="/v1/messages" {if let Some(auth)=headers.get("x-api-key"){credentials.push(*auth);}}
+    if gemini {if let Some(auth)=headers.get("x-goog-api-key"){credentials.push(*auth);} if let Some(auth)=query_key{credentials.push(auth);}}
+    if credentials.is_empty() || credentials.iter().any(|credential|!authorized(credential,key)) {return Err(401);}
     if listing {
         if headers.get("content-length").is_some_and(|value| *value != "0") || bytes.len() != end { return Err(400); }
         return Ok(Request { path, session: None, body: Zeroizing::new(Vec::new()) });
@@ -385,6 +467,10 @@ pub fn model_valid(model: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'-' | b'.' | b'_'))
 }
 fn payload(request: &Request) -> Result<(Value, bool, bool), String> {
+    if matches!(Protocol::for_path(&request.path),Protocol::Anthropic|Protocol::Gemini|Protocol::Completion) {
+        let (body,stream)=protocols::normalize(&request.path,&request.body)?;
+        return Ok((body,stream,false));
+    }
     let chat = request.path == "/v1/chat/completions";
     if !chat {
         let (body, streaming) = super::responses::normalize(&request.body)?;
@@ -595,6 +681,7 @@ async fn upstream(
     id: i64,
     mut body: Value,
     trace: Option<&mut RequestTrace>,
+    remote: &mut Option<super::remote_logs::RemoteTrace>,
 ) -> Result<reqwest::Response, (u16, String)> {
     struct Cancel(std::sync::Arc<std::sync::atomic::AtomicBool>);
     impl Drop for Cancel {
@@ -616,7 +703,10 @@ async fn upstream(
     } else {
         "https://api.openai.com/v1/responses"
     };
-    if let Some(trace)=trace { trace.capture("forwarded",&body); }
+    if let Some(trace)=trace {
+        if trace.generation.is_some() { trace.secrets.push(Zeroizing::new(token.to_string())); }
+        trace.capture("forwarded",&body);
+    }
     let mut request = client
         .post(endpoint)
         .bearer_auth(token.as_str())
@@ -627,7 +717,8 @@ async fn upstream(
             .header("ChatGPT-Account-Id", account)
             .header("originator", "cloudhub_tools");
     }
-    let mut response = request.send().await.map_err(|_| (502u16, "连接上游失败，请检查网络".into()))?;
+    let (mut response, log) = super::remote_logs::send(client,request,Some(id),proxy.as_deref(),&token).await.map_err(|_| (502u16, "连接上游失败，请检查网络".into()))?;
+    *remote=Some(log);
     if !response.status().is_success() {
         let status = response.status().as_u16();
         let mut bytes = Zeroizing::new(Vec::new());
@@ -635,6 +726,7 @@ async fn upstream(
             if bytes.len() + chunk.len() > 64 * 1024 { bytes.clear(); break; }
             bytes.extend_from_slice(&chunk);
         }
+        if let Some(log)=remote.as_mut(){log.body(&bytes);log.finish("http_error");}
         return Err(upstream_http_error(status, &bytes));
     }
     Ok(response)
@@ -657,6 +749,18 @@ async fn event(stream: &mut TcpStream, value: &Value) -> std::io::Result<()> {
     stream
         .write_all(format!("data: {}\n\n", value).as_bytes())
         .await
+}
+async fn protocol_reply(stream:&mut TcpStream,protocol:Protocol,status:u16,message:&str)->std::io::Result<()> {
+    if matches!(protocol,Protocol::Anthropic|Protocol::Gemini){json_reply(stream,status,&protocols::error(protocol,status,message)).await}
+    else{reply(stream,status,message).await}
+}
+async fn protocol_event(stream:&mut TcpStream,protocol:Protocol,value:&Value)->std::io::Result<()> {
+    if protocol==Protocol::Anthropic {
+        let kind=value["type"].as_str().unwrap_or("error");
+        let bytes=serde_json::to_vec(value).unwrap_or_default();
+        stream.write_all(format!("event: {kind}\ndata: ").as_bytes()).await?;
+        stream.write_all(&bytes).await?;stream.write_all(b"\n\n").await
+    }else{event(stream,value).await}
 }
 
 #[derive(Default)]
@@ -723,7 +827,7 @@ fn remote_catalog_ids(value: &Value, chatgpt: bool) -> Result<Vec<String>, Strin
     Ok(ids.into_iter().collect())
 }
 
-async fn fetch_catalog(client: &reqwest::Client, token: &str, account: Option<&str>, version: Option<&str>, test_url: Option<&str>) -> Result<Vec<String>, String> {
+async fn fetch_catalog(client: &reqwest::Client, token: &str, account: Option<&str>, version: Option<&str>, test_url: Option<&str>, context: Option<(i64, Option<&str>)>) -> Result<Vec<String>, String> {
     // Overrides exist only for isolated local tests; production always uses the
     // official HTTPS endpoint, with redirects disabled by the owning client.
     #[cfg(not(test))]
@@ -734,9 +838,15 @@ async fn fetch_catalog(client: &reqwest::Client, token: &str, account: Option<&s
         let version = version.ok_or("Codex 客户端版本无效")?;
         request = request.query(&[("client_version", version)]).header("ChatGPT-Account-Id", account).header("originator", "codex_cli_rs");
     }
-    let mut response = request.send().await.map_err(|_| "查询官方模型目录失败，请检查网络")?;
+    let (mut response, mut log) = super::remote_logs::send(client,request,context.map(|v|v.0),context.and_then(|v|v.1),token).await.map_err(|_| "查询官方模型目录失败，请检查网络")?;
     if !response.status().is_success() {
-        return Err(match response.status().as_u16() {
+        let status=response.status().as_u16();
+        let mut bytes=Zeroizing::new(Vec::new());
+        if log.enabled() {
+        while let Ok(Some(chunk))=response.chunk().await {if bytes.len()+chunk.len()>65536 {log.finish("http_error_body_truncated");break;}bytes.extend_from_slice(&chunk);}
+        log.body(&bytes);
+        }
+        return Err(match status {
             401 => "官方模型目录认证过期，请重新登录服务账号",
             403 => "官方模型目录访问被拒绝，请检查服务账号权限",
             429 => "官方模型目录请求过于频繁，请稍后重试",
@@ -744,12 +854,13 @@ async fn fetch_catalog(client: &reqwest::Client, token: &str, account: Option<&s
         }.into());
     }
     let mut bytes = Zeroizing::new(Vec::new());
-    while let Some(chunk) = response.chunk().await.map_err(|_| "读取模型目录失败")? {
-        if bytes.len() + chunk.len() > MAX_CATALOG_BODY { return Err("模型目录响应过大".into()); }
+    while let Some(chunk) = response.chunk().await.map_err(|_|{log.finish("body_error"); "读取模型目录失败"})? {
+        if bytes.len() + chunk.len() > MAX_CATALOG_BODY {log.finish("body_too_large"); return Err("模型目录响应过大".into()); }
         bytes.extend_from_slice(&chunk);
     }
-    let value = serde_json::from_slice(&bytes).map_err(|_| "模型目录响应无效")?;
-    remote_catalog_ids(&value, account.is_some())
+    log.body(&bytes); log.finish("completed");
+    let value = serde_json::from_slice(&bytes).map_err(|_|{log.finish("invalid_json"); "模型目录响应无效"})?;
+    remote_catalog_ids(&value, account.is_some()).map_err(|error|{log.finish("invalid_json");error})
 }
 
 async fn model_catalog(shared: &Shared) -> Result<Vec<String>, String> {
@@ -769,7 +880,7 @@ async fn model_catalog(shared: &Shared) -> Result<Vec<String>, String> {
         Some(tauri::async_runtime::spawn_blocking(profile::catalog_client_version).await.map_err(|_| "读取模型客户端版本失败")??)
     } else { None };
     let account_client=proxy.as_deref().map(|url|super::account_controls::client(Some(url))).transpose()?;
-    let ids = fetch_catalog(account_client.as_ref().unwrap_or(&shared.client), &token, account.as_deref(), version.as_deref(), None).await?;
+    let ids = fetch_catalog(account_client.as_ref().unwrap_or(&shared.client), &token, account.as_deref(), version.as_deref(), None, Some((id,proxy.as_deref()))).await?;
     if ids.is_empty() { return Err("当前账号未返回模型目录，请检查登录及权限".into()); }
     *cached = Some((Instant::now(), ids.clone()));
     Ok(ids)
@@ -812,7 +923,8 @@ async fn serve(stream: &mut TcpStream, host: &str, shared: &Shared, trace: &mut 
             return;
         }
     };
-    trace.entry.endpoint = match request.path.as_str() { "/v1/models" => "/v1/models", "/v1/responses" => "/v1/responses", "/v1/chat/completions" => "/v1/chat/completions", _ => "unsupported" };
+    let protocol=Protocol::for_path(&request.path);
+    trace.entry.endpoint = match request.path.as_str() { "/v1/models" => "/v1/models", "/v1/responses" => "/v1/responses", "/v1/chat/completions" => "/v1/chat/completions", "/v1/completions"=>"/v1/completions", "/v1/messages"=>"/v1/messages", _ if protocol==Protocol::Gemini=>"/v1beta/models/:generateContent", _ => "unsupported" };
     if request.path == "/v1/models" {
         match model_catalog(shared).await {
             Ok(ids) => { trace.result(200, "completed"); let data: Vec<Value> = ids.into_iter().map(|id| json!({"id":id,"object":"model","created":0,"owned_by":"openai"})).collect(); let _ = json_reply(stream, 200, &json!({"object":"list","data":data})).await; }
@@ -826,7 +938,7 @@ async fn serve(stream: &mut TcpStream, host: &str, shared: &Shared, trace: &mut 
         Err(message) => {
             trace.result(400, "validation_error");
             if trace.generation.is_some() { trace.entry.detail.response=Some(json!({"error":{"message":message}})); }
-            let _ = reply(stream, 400, &message).await;
+            let _ = protocol_reply(stream, protocol, 400, &message).await;
             return;
         }
     };
@@ -843,18 +955,19 @@ async fn serve(stream: &mut TcpStream, host: &str, shared: &Shared, trace: &mut 
         || body.get("input").and_then(Value::as_array).is_some_and(|items| items.iter().any(|item| matches!(item.get("type").and_then(Value::as_str), Some("function_call" | "function_call_output" | "reasoning"))));
     if shared.pool.len() > 1 && uses_tools && affinity.is_none() {
         trace.result(400, "affinity_required");
-        let _ = reply(stream, 400, "多账号工具会话必须提供 prompt_cache_key 或 X-CloudHub-Session，请固定会话或仅选择一个服务账号").await;
+        let _ = protocol_reply(stream,protocol,400, "多账号工具会话必须提供 prompt_cache_key 或 X-CloudHub-Session，请固定会话或仅选择一个服务账号").await;
         return;
     }
     let id = match route(shared, affinity.as_deref()) {
         Ok(v) => v,
         Err(message) => {
             trace.result(503, "no_available_account");
-            let _ = reply(stream, 503, &message).await;
+            let _ = protocol_reply(stream,protocol,503, &message).await;
             return;
         }
     };
     trace.entry.account_id = Some(id);
+    let mut remote=None;
     let forward = async {
         trace.capture("forwarded",&body);
         #[cfg(test)]
@@ -875,7 +988,7 @@ async fn serve(stream: &mut TcpStream, host: &str, shared: &Shared, trace: &mut 
                 };
             }
         }
-        upstream(&shared.client, id, body, Some(&mut *trace)).await
+        upstream(&shared.client, id, body, Some(&mut *trace), &mut remote).await
     };
     let mut closed = [0u8; 1];
     let forwarded =
@@ -894,7 +1007,7 @@ async fn serve(stream: &mut TcpStream, host: &str, shared: &Shared, trace: &mut 
                 ); }
             }
             if trace.generation.is_some() { trace.entry.detail.response=Some(json!({"error":{"message":message}})); }
-            let _ = reply(stream, code, &message)
+            let _ = protocol_reply(stream,protocol,code, &message)
             .await;
             return;
         }
@@ -902,6 +1015,7 @@ async fn serve(stream: &mut TcpStream, host: &str, shared: &Shared, trace: &mut 
     trace.entry.upstream_status = Some(200);
     if streaming && stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\nCache-Control: no-store\r\n\r\n").await.is_err() { return; }
     let response_id = format!("chatcmpl-{}", uuid::Uuid::new_v4());
+    let mut adapter=protocols::StreamAdapter::new(protocol,response_id.clone(),model.clone());
     let mut decoder = SseDecoder::default();
     let mut completed = None;
     let mut failed = false;
@@ -920,6 +1034,7 @@ async fn serve(stream: &mut TcpStream, host: &str, shared: &Shared, trace: &mut 
             }
         };
         for mut value in events {
+            if let Some(log)=remote.as_mut(){log.event(&value);}
             if trace.generation.is_some() { trace.entry.detail.event(&value); }
             let kind = value
                 .get("type")
@@ -934,9 +1049,14 @@ async fn serve(stream: &mut TcpStream, host: &str, shared: &Shared, trace: &mut 
                 break;
             }
             if kind == "response.completed" {
+                if matches!(protocol,Protocol::Anthropic|Protocol::Gemini) && !value.get("response").is_some_and(protocols::valid_output) {failed=true;break;}
                 completed = value.get("response").cloned();
             }
             if streaming {
+                if matches!(protocol,Protocol::Anthropic|Protocol::Gemini|Protocol::Completion) {
+                    for event_value in adapter.events(&value) {if protocol_event(stream,protocol,&event_value).await.is_err(){return;}}
+                    continue;
+                }
                 if chat {
                     if kind == "response.output_text.delta" {
                         value = json!({"id":response_id,"object":"chat.completion.chunk","model":model,"choices":[{"index":0,"delta":{"content":value["delta"]},"finish_reason":null}]});
@@ -965,6 +1085,7 @@ async fn serve(stream: &mut TcpStream, host: &str, shared: &Shared, trace: &mut 
             routes.completed += 1;
         }
     }
+    if let Some(log)=remote.as_mut(){log.finish(if failed || completed.is_none(){"stream_error"}else{"completed"});}
     trace.result(if failed && !streaming { 502 } else { 200 }, if failed { "stream_error" } else { "completed" });
     if let Some(value) = &completed {
         trace.capture("response",value);
@@ -974,16 +1095,19 @@ async fn serve(stream: &mut TcpStream, host: &str, shared: &Shared, trace: &mut 
     if failed {
         if trace.generation.is_some() { trace.entry.detail.response=Some(json!({"error":{"message":"上游流中断，请重试"}})); }
         if streaming {
-            let _=event(stream,&json!({"type":"error","error":{"message":"上游流中断，请重试","type":"cloudhub_gateway_error"}})).await;
+            if matches!(protocol,Protocol::Anthropic|Protocol::Gemini) {let _=protocol_event(stream,protocol,&protocols::error(protocol,502,"上游流中断，请重试")).await;}
+            else {let _=event(stream,&json!({"type":"error","error":{"message":"上游流中断，请重试","type":"cloudhub_gateway_error"}})).await;}
         } else {
-            let _ = reply(stream, 502, "上游流中断，请重试").await;
+            let _ = protocol_reply(stream,protocol,502, "上游流中断，请重试").await;
         }
     } else if streaming {
-        if chat {
+        if chat || protocol==Protocol::Completion {
             let _ = stream.write_all(b"data: [DONE]\n\n").await;
         }
     } else if let Some(value) = completed {
-        let value = if chat {
+        let value = if matches!(protocol,Protocol::Anthropic|Protocol::Gemini|Protocol::Completion) {
+            protocols::response(protocol,&value,&response_id,&model)
+        } else if chat {
             let text = value
                 .get("output")
                 .and_then(Value::as_array)
@@ -1012,11 +1136,13 @@ pub async fn wake(id: i64, model: String) -> Result<(), String> {
         .timeout(Duration::from_secs(90))
         .build()
         .map_err(|_| "初始化唤醒请求失败")?;
-    let mut response=upstream(&client,id,json!({"model":model,"instructions":"","input":[{"role":"user","content":[{"type":"input_text","text":"Reply with OK."}]}],"stream":true,"store":false,"tools":[]}),None).await.map_err(|_|"唤醒请求失败，请检查登录、模型权限或额度")?;
+    let mut remote=None;
+    let mut response=upstream(&client,id,json!({"model":model,"instructions":"","input":[{"role":"user","content":[{"type":"input_text","text":"Reply with OK."}]}],"stream":true,"store":false,"tools":[]}),None,&mut remote).await.map_err(|_|"唤醒请求失败，请检查登录、模型权限或额度")?;
     let mut decoder = SseDecoder::default();
     let mut completed = false;
     while let Some(chunk) = response.chunk().await.map_err(|_| "唤醒响应中断")? {
         for value in decoder.feed(&chunk)? {
+            if let Some(log)=remote.as_mut(){log.event(&value);}
             match value.get("type").and_then(Value::as_str) {
                 Some("response.completed") => completed = true,
                 Some("error" | "response.failed" | "response.incomplete") => {
@@ -1029,6 +1155,7 @@ pub async fn wake(id: i64, model: String) -> Result<(), String> {
             break;
         }
     }
+    if let Some(log)=remote.as_mut(){log.finish(if completed{"completed"}else{"stream_error"});}
     if !completed {
         return Err("唤醒请求未完成".into());
     }
@@ -1070,13 +1197,13 @@ mod tests {
         assert_eq!(route(&server.shared,None).unwrap(),1);
     }
     #[tokio::test]
-    async fn call_logs_record_safe_success_and_rejection_without_request_content() {
+    async fn call_logs_keep_content_in_details_and_credentials_out_of_logs() {
         let server = RunningGateway::start(0,vec![1]).await.unwrap();
         server.shared.controls.lock().unwrap().apply(GatewaySettings { logging_enabled:true,..Default::default() });
         let (endpoint,task)=fixture(format!("data: {}\n\n",json!({"type":"response.completed","response":{"status":"completed","output":[],"usage":{"input_tokens":3,"output_tokens":2}}})),200).await;
         *server.shared.test_endpoint.lock().unwrap()=Some(endpoint);
         let client=reqwest::Client::new();
-        let result=client.post(format!("{}/responses",server.address)).bearer_auth(server.shared.key.as_str()).json(&json!({"model":"gpt-test","input":"test-only-private-prompt","stream":false})).send().await.unwrap();
+        let result=client.post(format!("{}/responses",server.address)).bearer_auth(server.shared.key.as_str()).json(&json!({"model":"gpt-test","input":format!("test-only-private-prompt {}",server.shared.key.as_str()),"stream":false})).send().await.unwrap();
         assert_eq!(result.status(),200);let _=result.bytes().await.unwrap();task.await.unwrap();
         let rejected=client.post(format!("{}/responses",server.address)).bearer_auth("test-only-invalid-token").json(&json!({"model":"private-invalid-model","input":"private-content"})).send().await.unwrap();
         assert_eq!(rejected.status(),401);let _=rejected.bytes().await.unwrap();
@@ -1093,7 +1220,8 @@ mod tests {
         assert_eq!(detail.response.as_ref().unwrap()["usage"]["input_tokens"],3);
         assert_eq!(detail.event_count,1);
         let serialized=serde_json::to_string(&detail).unwrap();
-        for secret in ["test-only-private-prompt",server.shared.key.as_str()] { assert!(!serialized.contains(secret)); }
+        assert!(serialized.contains("test-only-private-prompt"));
+        assert!(!serialized.contains(server.shared.key.as_str()));
         assert!(server.log_detail("invalid").is_err());
         server.clear_logs().unwrap();assert!(server.logs().unwrap().is_empty());
         assert!(server.log_detail(&logs[1].id).is_err());
@@ -1293,17 +1421,17 @@ mod tests {
     async fn remote_catalog_does_not_replace_failed_upstream_with_bundled_ids() {
         let client = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).build().unwrap();
         let (url, task) = fixture(json!({"models":[{"slug":"remote-test","visibility":"list"},{"slug":"hidden-test","visibility":"hide"}]}).to_string(),200).await;
-        assert_eq!(fetch_catalog(&client,"test-only-token",Some("test-only-account"),Some("0.162.0"),Some(&url)).await.unwrap(),vec!["remote-test"]);
+        assert_eq!(fetch_catalog(&client,"test-only-token",Some("test-only-account"),Some("0.162.0"),Some(&url),None).await.unwrap(),vec!["remote-test"]);
         task.await.unwrap();
         for (body,status) in [("test-only-secret".to_string(),401),(json!({"data":[{"id":"bundled-test"}]}).to_string(),200)] {
             let (url,task) = fixture(body,status).await;
-            let error = fetch_catalog(&client,"test-only-token",Some("test-only-account"),Some("0.162.0"),Some(&url)).await.unwrap_err();
+            let error = fetch_catalog(&client,"test-only-token",Some("test-only-account"),Some("0.162.0"),Some(&url),None).await.unwrap_err();
             assert!(!error.contains("test-only-secret"));
             assert!(!error.contains("test-only-token"));
             task.await.unwrap();
         }
         let (url,task) = fixture(json!({"data":[{"id":"api-test"}]}).to_string(),200).await;
-        assert_eq!(fetch_catalog(&client,"test-only-key",None,None,Some(&url)).await.unwrap(),vec!["api-test"]);
+        assert_eq!(fetch_catalog(&client,"test-only-key",None,None,Some(&url),None).await.unwrap(),vec!["api-test"]);
         task.await.unwrap();
     }
     #[test]
@@ -1320,10 +1448,10 @@ mod tests {
         let client = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).build().unwrap();
         let body = json!({"models":[{"slug":"large-catalog-test","instructions":"x".repeat(MAX_BODY + 1)}]}).to_string();
         let (url, task) = fixture(body, 200).await;
-        assert_eq!(fetch_catalog(&client, "test-only-token", Some("test-only-account"), Some("0.162.0"), Some(&url)).await.unwrap(), vec!["large-catalog-test"]);
+        assert_eq!(fetch_catalog(&client, "test-only-token", Some("test-only-account"), Some("0.162.0"), Some(&url),None).await.unwrap(), vec!["large-catalog-test"]);
         task.await.unwrap();
         let (url, task) = fixture("x".repeat(MAX_CATALOG_BODY + 1), 200).await;
-        assert_eq!(fetch_catalog(&client, "test-only-token", Some("test-only-account"), Some("0.162.0"), Some(&url)).await.unwrap_err(), "模型目录响应过大");
+        assert_eq!(fetch_catalog(&client, "test-only-token", Some("test-only-account"), Some("0.162.0"), Some(&url),None).await.unwrap_err(), "模型目录响应过大");
         task.await.unwrap();
         let server = RunningGateway::start(0, vec![1]).await.unwrap();
         let host = server.address.strip_prefix("http://").unwrap().strip_suffix("/v1").unwrap();
@@ -1399,6 +1527,127 @@ mod tests {
         let query = server.models_query();
         drop(server);
         assert!(tokio::time::timeout(Duration::from_secs(1), query).await.unwrap().is_err());
+    }
+    #[tokio::test]
+    async fn port_replacement_preserves_key_and_pool_and_keeps_old_service_on_bind_failure() {
+        let old = RunningGateway::start(0, vec![1, 2]).await.unwrap();
+        let occupied = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+        let occupied_port = occupied.local_addr().unwrap().port();
+        assert!(old.replacement_on_port(80).await.is_err());
+        assert!(old.replacement_on_port(occupied_port).await.is_err());
+        assert!(old.summary().unwrap().running);
+        let key = Zeroizing::new(old.key_for_display());
+        let client = reqwest::Client::new();
+        let check = |address: String| client.post(format!("{address}/responses")).bearer_auth(key.as_str()).json(&json!({"model":"gpt-test","input":"hello","tools":[{}]})).send();
+        assert_eq!(check(old.address.clone()).await.unwrap().status(), 400);
+        let new = old.replacement_on_port(0).await.unwrap();
+        assert_ne!(new.port().unwrap(), old.port().unwrap());
+        assert_eq!(new.summary().unwrap().account_ids, vec![1, 2]);
+        assert_eq!(check(new.address.clone()).await.unwrap().status(), 400);
+        let summary = serde_json::to_string(&new.summary().unwrap()).unwrap();
+        assert!(!summary.contains(key.as_str()));
+        let old_port = old.port().unwrap();
+        drop(old);
+        tokio::task::yield_now().await;
+        let _released = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, old_port)).await.unwrap();
+        assert_eq!(check(new.address.clone()).await.unwrap().status(), 400);
+    }
+    #[tokio::test]
+    async fn multi_protocol_endpoints_convert_native_responses_and_enforce_protocol_auth() {
+        let server=RunningGateway::start(0,vec![1]).await.unwrap();
+        server.shared.controls.lock().unwrap().apply(GatewaySettings{logging_enabled:true,..Default::default()});
+        let client=reqwest::Client::new();let root=server.address.strip_suffix("/v1").unwrap();
+        let completed=json!({"type":"response.completed","response":{"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"你好"}]}],"usage":{"input_tokens":3,"output_tokens":2}}});
+        for (path,body,header,streaming) in [
+            ("/v1/messages",json!({"model":"gpt-test","max_tokens":100,"messages":[{"role":"user","content":"hello"}]}),"x-api-key",false),
+            ("/v1/messages",json!({"model":"gpt-test","max_tokens":100,"stream":true,"messages":[{"role":"user","content":"hello"}]}),"x-api-key",true),
+            ("/v1beta/models/gpt-test:generateContent",json!({"contents":[{"parts":[{"text":"hello"}]}]}),"x-goog-api-key",false),
+            ("/v1beta/models/gpt-test:streamGenerateContent?alt=sse",json!({"contents":[{"parts":[{"text":"hello"}]}]}),"x-goog-api-key",true),
+            ("/v1/completions",json!({"model":"gpt-test","prompt":"hello"}),"authorization",false),
+        ] {
+            let (endpoint,task)=fixture(format!("data: {completed}\n\n"),200).await;*server.shared.test_endpoint.lock().unwrap()=Some(endpoint);
+            let request=client.post(format!("{root}{path}")).json(&body);
+            let request=if header=="authorization" {request.bearer_auth(server.shared.key.as_str())}else{request.header(header,server.shared.key.as_str())};
+            let response=request.send().await.unwrap();assert_eq!(response.status(),200);let content=response.text().await.unwrap();assert!(content.contains("你好"));
+            if streaming && header=="x-api-key"{assert!(content.contains("event: message_start"));assert!(content.contains("event: message_stop"));}
+            if !streaming {let value:Value=serde_json::from_str(&content).unwrap();if header=="x-api-key"{assert_eq!(value["type"],"message");}if header=="x-goog-api-key"{assert_eq!(value["usageMetadata"]["totalTokenCount"],5);}}
+            task.await.unwrap();
+        }
+        let rejected=client.post(format!("{root}/v1/messages")).header("x-api-key","test-only-wrong").json(&json!({"model":"gpt-test"})).send().await.unwrap();assert_eq!(rejected.status(),401);
+        let invalid=client.post(format!("{root}/v1beta/models/gpt-test:generateContent")).header("x-goog-api-key",server.shared.key.as_str()).json(&json!({"contents":[{"parts":[{"inlineData":{}}]}]})).send().await.unwrap();assert_eq!(invalid.status(),400);assert_eq!(invalid.json::<Value>().await.unwrap()["error"]["status"],"INVALID_ARGUMENT");
+        let (endpoint,task)=fixture(format!("data: {completed}\n\n"),200).await;*server.shared.test_endpoint.lock().unwrap()=Some(endpoint);
+        let query=client.post(format!("{root}/v1beta/models/gpt-test:generateContent?key={}",server.shared.key.as_str())).json(&json!({"contents":[{"parts":[{"text":"hello"}]}]})).send().await.unwrap();assert_eq!(query.status(),200);let _=query.bytes().await.unwrap();task.await.unwrap();
+        tokio::task::yield_now().await;
+        let logs=server.logs().unwrap();assert!(logs.len()>=5);
+        assert!(!serde_json::to_string(&logs).unwrap().contains(server.shared.key.as_str()));
+    }
+    #[tokio::test]
+    async fn adapted_tools_preserve_account_affinity_and_stream_failures() {
+        let server = RunningGateway::start(0, vec![1, 2]).await.unwrap();
+        let root = server.address.strip_suffix("/v1").unwrap();
+        let client = reqwest::Client::new();
+        let call = json!({"type":"function_call","call_id":"call-test","name":"lookup","arguments":"{\"city\":\"Paris\"}"});
+        for (path, mut body, history) in [
+            ("/v1/messages", json!({"model":"gpt-test","max_tokens":100,"messages":[{"role":"user","content":"hello"}],"tools":[{"name":"lookup","input_schema":{"type":"object","properties":{"city":{"type":"string"}}}}]}), json!([{"role":"assistant","content":[{"type":"tool_use","id":"call-test","name":"lookup","input":{"city":"Paris"}}]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"call-test","content":"sunny"}]}])),
+            ("/v1beta/models/gpt-test:generateContent", json!({"contents":[{"role":"user","parts":[{"text":"hello"}]}],"tools":[{"functionDeclarations":[{"name":"lookup","parameters":{"type":"OBJECT","properties":{"city":{"type":"STRING"}}}}]}]}), json!([{"role":"model","parts":[{"functionCall":{"id":"call-test","name":"lookup","args":{"city":"Paris"}}}]},{"role":"user","parts":[{"functionResponse":{"id":"call-test","name":"lookup","response":{"weather":"sunny"}}}]}])),
+        ] {
+            let url = format!("{root}{path}");
+            let request = |body: &Value, session: bool| {
+                let request = client.post(&url).bearer_auth(server.shared.key.as_str()).json(body);
+                if session { request.header("X-CloudHub-Session", "protocol-fixture-session") } else { request }
+            };
+            assert_eq!(request(&body,false).send().await.unwrap().status(),400);
+            let completed=json!({"type":"response.completed","response":{"output":[call],"status":"completed"}});
+            let (endpoint,task)=fixture(format!("data: {completed}\n\n"),200).await;*server.shared.test_endpoint.lock().unwrap()=Some(endpoint);
+            let response=request(&body,true).send().await.unwrap();assert_eq!(response.status(),200);
+            let response=response.json::<Value>().await.unwrap();
+            if path=="/v1/messages" {assert_eq!(response["content"][0]["id"],"call-test");assert_eq!(response["stop_reason"],"tool_use");body["messages"]=history;}
+            else {assert_eq!(response["candidates"][0]["content"]["parts"][0]["functionCall"]["id"],"call-test");body["contents"]=history;}
+            task.await.unwrap();
+            let completed=json!({"type":"response.completed","response":{"output":[{"type":"message","content":[{"type":"output_text","text":"sunny"}]}],"status":"completed"}});
+            let (endpoint,task)=fixture(format!("data: {completed}\n\n"),200).await;*server.shared.test_endpoint.lock().unwrap()=Some(endpoint);
+            let response=request(&body,true).send().await.unwrap();assert_eq!(response.status(),200);assert!(response.text().await.unwrap().contains("sunny"));task.await.unwrap();
+        }
+        for (path,body) in [
+            ("/v1/messages",json!({"model":"gpt-test","max_tokens":100,"stream":true,"messages":[{"role":"user","content":"hello"}]})),
+            ("/v1beta/models/gpt-test:streamGenerateContent?alt=sse",json!({"contents":[{"parts":[{"text":"hello"}]}]})),
+        ] {
+            let failure=json!({"type":"response.failed","response":{"error":{"message":"test-only-provider-secret"}}});
+            let (endpoint,task)=fixture(format!("data: {failure}\n\n"),200).await;*server.shared.test_endpoint.lock().unwrap()=Some(endpoint);
+            let response=client.post(format!("{root}{path}")).bearer_auth(server.shared.key.as_str()).json(&body).send().await.unwrap();
+            assert_eq!(response.status(),200);let wire=response.text().await.unwrap();assert!(wire.contains("上游流中断"));assert!(!wire.contains("test-only-provider-secret"));assert!(!wire.contains("message_stop"));task.await.unwrap();
+        }
+        assert_eq!(server.summary().unwrap().failed,2);
+    }
+    #[tokio::test]
+    async fn lan_listener_preserves_auth_host_checks_and_port_replacements() {
+        let local = RunningGateway::start(0,vec![1]).await.unwrap();
+        assert!(!local.summary().unwrap().listening_lan);
+        assert!(local.copy_share_config("192.168.1.23").is_err());
+        let server = RunningGateway::start_with_network(0,vec![1],None,true).await.unwrap();
+        assert!(server.summary().unwrap().listening_lan);
+        assert!(TcpListener::bind((std::net::Ipv4Addr::UNSPECIFIED,server.port().unwrap())).await.is_err());
+        let client=reqwest::Client::new();
+        let url=format!("{}/responses",server.address);
+        let body=json!({"model":"gpt-test","input":"hello","tools":[{}]});
+        assert_eq!(client.post(&url).json(&body).send().await.unwrap().status(),401);
+        assert_eq!(client.post(&url).bearer_auth(server.shared.key.as_str()).json(&body).send().await.unwrap().status(),400);
+        assert_eq!(client.post(&url).bearer_auth(server.shared.key.as_str()).header("Host","untrusted.test").json(&body).send().await.unwrap().status(),403);
+        assert_eq!(client.post(&url).bearer_auth(server.shared.key.as_str()).header("Origin","http://untrusted.test").json(&body).send().await.unwrap().status(),403);
+        let replacement=server.replacement_on_port(0).await.unwrap();
+        assert!(replacement.summary().unwrap().listening_lan);
+        assert_eq!(replacement.shared.key.as_str(),server.shared.key.as_str());
+    }
+    #[test]
+    fn lan_urls_and_share_text_use_private_addresses_and_actual_service_key() {
+        let url=lan_url(std::net::Ipv4Addr::new(192,168,1,23),58169).unwrap();
+        assert_eq!(url,"http://192.168.1.23:58169/v1");
+        for ip in [std::net::Ipv4Addr::LOCALHOST,std::net::Ipv4Addr::UNSPECIFIED,std::net::Ipv4Addr::new(8,8,8,8)] { assert!(lan_url(ip,58169).is_none()); }
+        let fake_key=Zeroizing::new("test-only-".repeat(4));
+        let text=share_text(&url,&fake_key);
+        assert!(text.starts_with(&format!("Base URL: {url}\nAPI Key: ")));
+        assert!(text.ends_with(fake_key.as_str()));
+        assert!(GatewaySummary::default().lan_address.is_none());
     }
     #[tokio::test]
     async fn loopback_server_enforces_authorization_and_owns_its_port() {

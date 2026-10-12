@@ -34,6 +34,7 @@ pub(crate) struct CertificateRequestInput {
     pub eab_kid: Option<String>,
     pub eab_hmac_key: Option<String>,
     pub operation_id: Option<String>,
+    pub esa_site_id: Option<i64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -97,7 +98,7 @@ impl From<certificate_repository::CertificateRecord> for CertificateListItem {
     }
 }
 
-fn validate_domain(value: &str) -> bool {
+pub(crate) fn validate_domain(value: &str) -> bool {
     let value = value.trim().trim_start_matches("*.");
     value.len() <= 253 && value.contains('.') && value.split('.').all(|label| !label.is_empty() && label.len() <= 63 && label.as_bytes().first().is_some_and(|c| c.is_ascii_alphanumeric()) && label.as_bytes().last().is_some_and(|c| c.is_ascii_alphanumeric()) && label.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-'))
 }
@@ -573,7 +574,8 @@ pub(crate) async fn request_certificate(app: tauri::AppHandle, state: tauri::Sta
     let operation_id = input.operation_id.as_deref().filter(|value| !value.trim().is_empty()).unwrap_or("certificate-request");
     state.cancelled_operations.lock().map_err(|_| "证书申请取消状态不可用")?.remove(operation_id);
     emit_progress(&app, operation_id, "started", "info", "已开始创建证书申请");
-    let result = match request_certificate_inner(&app, &state, operation_id, &input).await {
+    let mut records = Vec::new();
+    let result = match request_certificate_inner(&app, &state, operation_id, &input, &mut records).await {
         Ok(certificate) => {
             emit_progress(&app, operation_id, "completed", "success", "证书已签发并加密保存到本地");
             Ok(certificate)
@@ -583,6 +585,11 @@ pub(crate) async fn request_certificate(app: tauri::AppHandle, state: tauri::Sta
             Err(certificate_platform_error(&error))
         }
     };
+    for id in &records {
+        let cleaned = if input.esa_site_id.is_some() { super::esa_certificates::delete_txt(input.account_id, id).await }
+            else { crate::cloud::aliyun::delete_dns_record(input.account_id, id).await.map(|_| ()) };
+        if cleaned.is_err() { emit_progress(&app, operation_id, "cleanup", "error", "本次 TXT 验证记录清理失败，请在 DNS 管理中检查"); }
+    }
     let _ = state.cancelled_operations.lock().map(|mut operations| operations.remove(operation_id));
     result
 }
@@ -595,7 +602,7 @@ pub(crate) fn cancel_certificate_request(state: tauri::State<'_, CertificateRequ
     Ok(())
 }
 
-async fn request_certificate_inner(app: &tauri::AppHandle, state: &CertificateRequestStore, operation_id: &str, input: &CertificateRequestInput) -> Result<CertificateListItem, String> {
+async fn request_certificate_inner(app: &tauri::AppHandle, state: &CertificateRequestStore, operation_id: &str, input: &CertificateRequestInput, records: &mut Vec<String>) -> Result<CertificateListItem, String> {
     ensure_not_cancelled(state, operation_id)?;
     let provider = input.provider.trim().to_ascii_lowercase(); let directory = directory_url(&provider)?;
     let selected_domain = input.primary_domain.trim().to_ascii_lowercase(); let dns_zone = input.dns_zone.trim().trim_end_matches('.').to_ascii_lowercase();
@@ -606,10 +613,14 @@ async fn request_certificate_inner(app: &tauri::AppHandle, state: &CertificateRe
     let cloud_type = {
         let conn = open_db()?;
         let cloud_type = account_repository::cloud_type(&conn, input.account_id)?;
-        if !certificate_repository::has_domain_zone(&conn, input.account_id, &dns_zone)? { return Err("该 DNS 区域不属于当前账号，或当前账号尚未同步该域名资产".into()); }
+        if input.esa_site_id.is_none() && !certificate_repository::has_domain_zone(&conn, input.account_id, &dns_zone)? { return Err("该 DNS 区域不属于当前账号，或当前账号尚未同步该域名资产".into()); }
         cloud_type
     };
     if cloud_type != "aliyun" { return Err("当前仅支持使用阿里云 DNS 自动写入验证记录；其他 DNS 可先手动配置后再接入".into()); }
+    if let Some(site_id) = input.esa_site_id {
+        let esa = super::esa_certificates::site(input.account_id, site_id).await?;
+        if esa.access_type != "NS" || esa.site_name != dns_zone { return Err("ESA DNS 验证仅支持当前账号下、与 DNS 区域一致的 NS 接入站点".into()); }
+    }
     emit_progress(app, operation_id, "preflight", "info", "账号与 DNS 区域校验通过");
     let client = reqwest::Client::builder().user_agent("CloudHub-Tools/0.1 ACME client").timeout(Duration::from_secs(30)).build().map_err(|error| error.to_string())?;
     emit_progress(app, operation_id, "directory", "info", "正在连接证书服务");
@@ -633,7 +644,7 @@ async fn request_certificate_inner(app: &tauri::AppHandle, state: &CertificateRe
     let (_, order_headers, order) = jws(&client, new_order, json!({"identifiers":identifiers}), &account_key, Some(&kid), &nonce).await?;
     let order_url = header_url(&order_headers, "location").ok(); let finalize_url = order.get("finalize").and_then(Value::as_str).ok_or("证书订单缺少 finalize 地址")?.to_string(); let authorization_urls = order.get("authorizations").and_then(Value::as_array).ok_or("证书服务未返回域名验证地址")?.iter().filter_map(Value::as_str).map(str::to_string).collect::<Vec<_>>();
     if authorization_urls.is_empty() { return Err("证书服务未返回域名验证地址".into()); }
-    let mut records = Vec::new(); let mut dns_values = BTreeMap::<String, Vec<String>>::new(); let mut challenge_urls = Vec::new(); let thumbprint = thumbprint(&account_key)?;
+    let mut dns_values = BTreeMap::<String, Vec<String>>::new(); let mut challenge_urls = Vec::new(); let thumbprint = thumbprint(&account_key)?;
     let issue_result = async {
     emit_progress(app, operation_id, "dns", "info", "正在写入 DNS-01 TXT 验证记录");
     for authorization_url in &authorization_urls {
@@ -645,10 +656,14 @@ async fn request_certificate_inner(app: &tauri::AppHandle, state: &CertificateRe
         let value = URL_SAFE_NO_PAD.encode(Sha256::digest(format!("{token}.{thumbprint}").as_bytes()));
         let (dns_name, dns_rr) = dns01_record_name(identifier, &dns_zone)?;
         emit_progress(app, operation_id, "dns", "info", &format!("正在写入 DNS-01 TXT 记录：{dns_name}"));
-        let response = crate::cloud::aliyun::add_dns_record(input.account_id, &dns_zone, "TXT", &dns_rr, &value, Some(600), None, None).await?;
-        let provider_records = crate::cloud::aliyun::list_dns_records(input.account_id, &dns_zone, Some("TXT".to_string()), Some(dns_rr.clone())).await?;
-        if !dns_record_was_written(&provider_records, &dns_rr, &value) { return Err("阿里云 DNS 未确认写入本次挑战记录".into()); }
-        if let Some(id) = record_id(&response) { records.push(id); }
+        if let Some(site_id) = input.esa_site_id {
+            records.push(super::esa_certificates::create_txt(input.account_id, site_id, &dns_name, &value).await?);
+        } else {
+            let response = crate::cloud::aliyun::add_dns_record(input.account_id, &dns_zone, "TXT", &dns_rr, &value, Some(600), None, None).await?;
+            if let Some(id) = record_id(&response) { records.push(id); }
+            let provider_records = crate::cloud::aliyun::list_dns_records(input.account_id, &dns_zone, Some("TXT".to_string()), Some(dns_rr.clone())).await?;
+            if !dns_record_was_written(&provider_records, &dns_rr, &value) { return Err("阿里云 DNS 未确认写入本次挑战记录".into()); }
+        }
         dns_values.entry(dns_name).or_default().push(value);
         challenge_urls.push(challenge_url.to_string());
     }
@@ -758,7 +773,7 @@ async fn request_certificate_inner(app: &tauri::AppHandle, state: &CertificateRe
     let saved = certificate_repository::insert(&conn, input.account_id, &provider, &primary_domain, &domains, "issued", order_url.as_deref(), Some(&certificate_url), Some(&encrypt_secret(&certificate_pem)?), Some(&encrypt_secret(&private_key_pem)?), None, Some(&provider), not_before, not_after, &dns_zone, &records, None, now)?;
     Ok(saved.into())
     }.await;
-    for id in records.iter() { let _ = crate::cloud::aliyun::delete_dns_record(input.account_id, id).await; }
+
     issue_result
 }
 
