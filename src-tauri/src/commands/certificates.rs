@@ -76,7 +76,7 @@ struct CertificateRequestProgress {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct CertificateListItem {
     pub id: i64,
-    pub account_id: i64,
+    pub account_id: Option<i64>,
     pub provider: String,
     pub primary_domain: String,
     pub domains: Vec<String>,
@@ -90,11 +90,14 @@ pub(crate) struct CertificateListItem {
     pub last_error: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
+    pub source_kind: String,
+    pub fingerprint: Option<String>,
+    pub source_sites: Vec<certificate_repository::CertificateSourceSite>,
 }
 
 impl From<certificate_repository::CertificateRecord> for CertificateListItem {
     fn from(value: certificate_repository::CertificateRecord) -> Self {
-        Self { id: value.id, account_id: value.account_id, provider: value.provider, primary_domain: value.primary_domain, domains: value.domains, status: value.status, certificate_url: value.certificate_url, serial_number: value.serial_number, issuer: value.issuer, not_before: value.not_before, not_after: value.not_after, dns_zone: value.dns_zone, last_error: value.last_error, created_at: value.created_at, updated_at: value.updated_at }
+        Self { id: value.id, account_id: value.account_id, provider: value.provider, primary_domain: value.primary_domain, domains: value.domains, status: value.status, certificate_url: value.certificate_url, serial_number: value.serial_number, issuer: value.issuer, not_before: value.not_before, not_after: value.not_after, dns_zone: value.dns_zone, last_error: value.last_error, created_at: value.created_at, updated_at: value.updated_at, source_kind: value.source_kind, fingerprint: value.fingerprint, source_sites: value.source_sites }
     }
 }
 
@@ -881,6 +884,19 @@ pub(crate) fn export_certificate_material(app: tauri::AppHandle, id: i64, primar
 
 #[tauri::command]
 pub(crate) fn delete_certificate(id: i64) -> PlatformResult<()> { certificate_repository::delete(&open_db()?, id).map_err(Into::into) }
+
+#[tauri::command]
+pub(crate) fn export_certificate_domains(app: tauri::AppHandle, title: String, domains: Vec<String>) -> PlatformResult<Option<String>> {
+    if domains.is_empty() || domains.len() > 10000 || domains.iter().any(|domain| domain.len() > 253 || domain.chars().any(|character| character.is_whitespace() || character.is_control()) || !(validate_domain(domain) || domain.parse::<std::net::IpAddr>().is_ok())) {
+        return Err("域名列表无效或超过导出数量限制".into());
+    }
+    let name: String = title.chars().take(80).map(|character| if character.is_ascii_alphanumeric() || character == '.' || character == '-' { character } else { '_' }).collect();
+    let filename = format!("{}_domains.txt", if name.is_empty() { "certificate" } else { &name });
+    let Some(selected) = app.dialog().file().set_file_name(filename).add_filter("域名列表", &["txt"]).blocking_save_file() else { return Ok(None) };
+    let target = selected.into_path().map_err(|_| "当前平台返回了不支持的保存地址".to_string())?;
+    fs::write(&target, format!("{}\r\n", domains.join("\r\n"))).map_err(|_| "保存域名列表失败".to_string())?;
+    Ok(Some(target.to_string_lossy().into_owned()))
+}
 
 #[cfg(test)]
 mod tests {

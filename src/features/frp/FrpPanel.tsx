@@ -1,3 +1,4 @@
+import { GatewayTunnel } from "../codex/GatewayTunnel";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { CircleAlert, ExternalLink, LoaderCircle, Network, Plus, RefreshCw, Save, Trash2, Server, Monitor, Play, Square, Settings2, Download, FileText, FolderOpen, Eye, EyeOff, Cable, ArrowRight, Pencil, X } from "lucide-react";
@@ -363,6 +364,7 @@ export function FrpPanel() {
   };
 
   return <section className="flow-page frp-page">
+    <GatewayTunnel monitorOnly />
     <header className="flow-page-header"><div><span className="frp-eyebrow"><Network size={15} /> 网络服务</span><h1>内网穿透 <span className="frp-host-tag"><Monitor size={13} />当前电脑</span></h1><p>将本地服务连接到公网，集中管理 FRP 连接与穿透规则。</p></div>{runningInTauri && <div className="frp-actions"><button type="button" className="secondary" disabled={!!busy} onClick={refreshStatus}><RefreshCw size={15} />刷新状态</button><button type="button" className="primary" disabled={!!busy} onClick={addServer}><Plus size={15} />新增服务端</button></div>}</header>
     {!runningInTauri && <div className="flow-feedback error" role="status"><CircleAlert size={16} />内网穿透仅在桌面客户端可用。</div>}
     {error && <div className="flow-feedback error" role="alert"><CircleAlert size={16} />{error}</div>}

@@ -1,5 +1,9 @@
 import { nativeOnly, invokeOrWeb } from "./base";
-import type { Certificate } from "../../shared/types";
+import type { Certificate, PanelConnection } from "../../shared/types";
+
+export type CertificateImportPreview = { token: string; candidates: Array<{ id: string; primaryDomain: string; domains: string[]; issuer: string; serialNumber: string; notBefore: number; notAfter: number; fingerprint: string; warnings: string[] }> };
+export type BaotaSiteCertificate = { id: number; panelId: number | null; panelName: string; siteId: number; siteName: string; siteRemark?: string | null; pendingRenewal?: boolean; siteDomains: string[]; certificateDomains: string[]; enabled: boolean; issuer: string | null; notAfter: number | null; fingerprint: string | null; certificateId: number | null; canRenew: boolean; canImport: boolean; capabilityReason: string; checkedAt: number; error: string | null };
+export type BaotaCertificateOperation = { renewed: boolean; deployed: boolean; message: string; site: BaotaSiteCertificate };
 
 export type CertificateMetadata = Pick<Certificate, "provider" | "primaryDomain" | "domains" | "status" | "issuer" | "serialNumber" | "notBefore" | "notAfter" | "updatedAt"> & { syncId: string };
 export type CertificateSummary = CertificateMetadata & { id: number };
@@ -21,6 +25,19 @@ export type EsaCertificateContext = { site: { siteId: number; siteName: string; 
 export type EsaCertificateDeployment = { remoteId: string; status: string; verified: boolean; message: string };
 
 export const certificatesClient = {
+  exportDomains(title: string, domains: string[]): Promise<string | null> { return nativeOnly("export_certificate_domains", { title, domains }); },
+  prepareText(certificate: string, privateKey: string): Promise<CertificateImportPreview> { return nativeOnly("prepare_certificate_import_text", { certificate, privateKey }); },
+  prepareFiles(paths: string[]): Promise<CertificateImportPreview> { return nativeOnly("prepare_certificate_import_files", { paths }); },
+  selectImportFiles(): Promise<CertificateImportPreview | null> { return nativeOnly("select_certificate_import_files"); },
+  confirmImport(token: string, candidateId: string): Promise<Certificate> { return nativeOnly("confirm_certificate_import", { token, candidateId }); },
+  cancelImport(token: string): Promise<void> { return nativeOnly("cancel_certificate_import", { token }); },
+  panels(): Promise<PanelConnection[]> { return nativeOnly("list_panel_connections"); },
+  baotaSites(panelId?: number): Promise<BaotaSiteCertificate[]> { return nativeOnly("list_baota_site_certificates", { panelId: panelId ?? null }); },
+  syncBaota(panelId: number): Promise<BaotaSiteCertificate[]> { return nativeOnly("sync_baota_site_certificates", { panelId }); },
+  importBaota(id: number): Promise<Certificate> { return nativeOnly("import_baota_site_certificate", { id }); },
+  confirmBaotaRetry(id: number): Promise<void> { return nativeOnly("confirm_baota_certificate_retry", { id }); },
+  renewBaota(id: number): Promise<BaotaCertificateOperation> { return nativeOnly("renew_baota_site_certificate", { id }); },
+  deployBaota(id: number, certificateId: number): Promise<BaotaCertificateOperation> { return nativeOnly("deploy_certificate_to_baota_site", { id, certificateId }); },
   esaContext(accountId: number, siteId: number): Promise<EsaCertificateContext> {
     return nativeOnly("esa_certificate_context", { accountId, siteId });
   },

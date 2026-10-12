@@ -186,7 +186,7 @@ function syncAssetTypes(account: Account): ReadonlyArray<(typeof assetTypes)[num
 }
 const assetTypes = catalogAssetTypes;
 
-const bundledVersion = "0.1.48";
+const bundledVersion = "0.1.49";
 const isDevelopmentBuild = import.meta.env.DEV;
 
 const detachedTerminalHostId = (() => {
@@ -261,6 +261,9 @@ function App() {
   const [esaTrend, setEsaTrend] = useState<keyof EsaOverview["trend"]>("traffic");
   const [esaSelectedSiteId, setEsaSelectedSiteId] = useState("");
   const [esaOverview, setEsaOverview] = useState<EsaOverview | null>(null);
+  const [esaOverviewError, setEsaOverviewError] = useState("");
+  const [esaOverviewLoading, setEsaOverviewLoading] = useState(false);
+  const esaRequestRef = useRef(0);
   const [esaCertificateSite, setEsaCertificateSite] = useState<{ account: Account; siteId: number } | null>(null);
   const [esaSiteKeyword, setEsaSiteKeyword] = useState("");
   const [section, setSection] = useState<"accounts" | "resources" | "certificates" | "authenticator" | "flow" | "frp" | "codex" | "panels" | "servers" | "favorites" | "logs" | "api_logs" | "settings">(() => isDetachedTerminalWindow ? "servers" : "accounts");
@@ -1824,6 +1827,13 @@ function App() {
     const startedAt = Date.now();
     setMoreId(null);
     setActive({ account, view, source: "cache" });
+    if (view === "esa") {
+      setEsaOverview(null);
+      setEsaOverviewError("");
+      setEsaSelectedSiteId("");
+      setResources(null);
+      return;
+    }
     setResources(null);
     setLoading(true);
     try {
@@ -1881,24 +1891,42 @@ function App() {
       setStatus(`${cloudProvider(account.cloud_type).label}的边缘安全加速实时拉取尚未接入`);
       return;
     }
-    const startedAt = Date.now();
-    setLoading(true);
+    const requestId = ++esaRequestRef.current;
+    setEsaOverviewError("");
+    setEsaOverviewLoading(true);
     try {
+      const cached = await loadCachedResources(account, "esa");
+      if (requestId !== esaRequestRef.current) return;
+      setResources(cached);
       const syncResult = await resourcesClient.sync(account.id, ["esa"]);
+      if (requestId !== esaRequestRef.current) return;
       const overview = await resourcesClient.esaOverview(account.id, esaRange, esaSelectedSiteId || undefined);
-      setResources(await loadCachedResources(account, "esa"));
+      const latest = await loadCachedResources(account, "esa");
+      if (requestId !== esaRequestRef.current) return;
+      setResources(latest);
       setEsaOverview(overview);
       setActive({ account, view: "esa", source: "live" });
       await loadLocalAssets();
       await loadApiLogs();
+      if (requestId !== esaRequestRef.current) return;
       setStatus(`${account.account_name} · 边缘安全加速实时数据已更新${overview.defence_requests === null ? "，WAF 统计暂不可用" : ""}${syncResult.errors.length ? `，${syncResult.errors.length} 项失败` : ""}`);
     } catch (error) {
-      setStatus(`边缘安全加速实时拉取失败：${String(error)}`);
+      if (requestId !== esaRequestRef.current) return;
+      const message = `边缘安全加速实时拉取失败：${String(error)}`;
+      setEsaOverviewError(message);
+      setStatus(message);
     } finally {
-      await keepLoadingVisible(startedAt);
-      setLoading(false);
+      if (requestId === esaRequestRef.current) setEsaOverviewLoading(false);
     }
   }
+
+  const esaAccountId = active?.view === "esa" ? active.account.id : null;
+  useEffect(() => {
+    if (active?.view !== "esa") return;
+    setEsaOverview(null);
+    void pullLatestEsaOverview(active.account);
+    return () => { ++esaRequestRef.current; };
+  }, [esaAccountId, esaRange, esaSelectedSiteId]);
 
   async function pullLatestSummary(account: Account) {
     if (!supportsResourceSync(account)) {
@@ -2826,25 +2854,26 @@ function App() {
         <button className={esaTab === "functions" ? "active" : ""} onClick={() => setEsaTab("functions")}>函数和 Pages</button>
       </div>
       <div className="esa-head">
-        <div><h3>边缘安全加速</h3><small>{active?.source === "live" && esaOverview ? "实时数据" : "本地站点缓存"}</small></div>
-        <button className="layui-btn layui-btn-primary" disabled={loading} onClick={() => active && void pullLatestEsaOverview(active.account)}>
-          <RefreshCw className={loading ? "spin" : undefined} size={14} />{loading ? "拉取中…" : "实时拉取"}
+        <div><h3>边缘安全加速</h3><small>{esaOverviewLoading ? "正在获取最新数据…" : esaOverview ? "实时数据" : "实时数据尚未获取"}</small></div>
+        <button className="layui-btn layui-btn-primary" disabled={esaOverviewLoading} onClick={() => active && void pullLatestEsaOverview(active.account)}>
+          <RefreshCw className={esaOverviewLoading ? "spin" : undefined} size={14} />{esaOverviewLoading ? "拉取中…" : "实时拉取"}
         </button>
       </div>
       {esaTab === "overview" && <>
+        {esaOverviewError && <div className="esa-overview-error" role="alert">{esaOverviewError}。可点击“实时拉取”重试。</div>}
         <div className="esa-overview-toolbar">
           <label>站点<select value={esaSelectedSiteId} onChange={(event) => { setEsaSelectedSiteId(event.target.value); setEsaOverview(null); }}><option value="">全部站点</option>{(esaOverview?.site_options || esaSites.map((site) => ({ id: String(site.SiteId || ""), name: displayValue(site.SiteName || site.DomainName || site.Name) }))).map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}</select></label>
           <div className="esa-range-tabs">{[["today", "今日"], ["yesterday", "昨日"], ["week", "近 7 日"], ["month", "近 30 日"]].map(([value, label]) => <button key={value} className={esaRange === value ? "active" : ""} onClick={() => { setEsaRange(value); setEsaOverview(null); }}>{label}</button>)}</div>
-          <span>{esaOverview ? `${esaOverview.range_label}实时统计` : "选择范围后点击实时拉取"}</span>
+          <span>{esaOverviewLoading ? "正在更新实时统计…" : esaOverview ? `${esaOverview.range_label}实时统计` : "自动获取实时统计"}</span>
         </div>
         <div className="metric-grid">
-          <div className="metric-card"><div className="label">边缘响应流量</div><div className="value">{esaOverview ? formatBytes(esaOverview.traffic) : "-"}</div><div className="hint">{esaOverview?.range_label || "本地缓存未包含统计"}</div></div>
-          <div className="metric-card"><div className="label">总请求数</div><div className="value">{esaOverview ? formatMetric(esaOverview.requests) : "-"}</div><div className="hint">{esaOverview?.range_label || "本地缓存未包含统计"}</div></div>
+          <div className="metric-card"><div className="label">边缘响应流量</div><div className="value">{esaOverview ? formatBytes(esaOverview.traffic) : "-"}</div><div className="hint">{esaOverview?.range_label || (esaOverviewLoading ? "正在获取最新统计…" : "统计暂未获取")}</div></div>
+          <div className="metric-card"><div className="label">总请求数</div><div className="value">{esaOverview ? formatMetric(esaOverview.requests) : "-"}</div><div className="hint">{esaOverview?.range_label || (esaOverviewLoading ? "正在获取最新统计…" : "统计暂未获取")}</div></div>
           <div className="metric-card"><div className="label">WAF 防护请求数</div><div className="value">{esaOverview?.defence_requests == null ? "-" : formatMetric(esaOverview.defence_requests)}</div><div className="hint">{esaOverview?.defence_requests == null ? "WAF 统计暂不可用" : "已拦截的 WAF 请求"}</div></div>
         </div>
         <div className="esa-chart-panel">
           <div className="esa-chart-head"><strong>{esaTrendOptions.find((item) => item.value === esaTrend)?.label}趋势</strong><div className="esa-trend-tabs">{esaTrendOptions.map((item) => <button key={item.value} className={esaTrend === item.value ? "active" : ""} onClick={() => setEsaTrend(item.value)}>{item.label}</button>)}</div></div>
-          {esaOverview ? <><svg className="esa-chart" viewBox="0 0 760 210" preserveAspectRatio="none" role="img" aria-label="ESA 趋势图"><line x1="36" x2="724" y1="172" y2="172" /><line x1="36" x2="724" y1="103" y2="103" /><line x1="36" x2="724" y1="34" y2="34" />{esaChartPath && <path className="esa-chart-line" d={esaChartPath} />}</svg><div className="esa-chart-axis"><span>{formatEsaTime(esaTrendPoints[0]?.time || "")}</span><span>{formatEsaTime(esaTrendPoints[Math.floor(esaTrendPoints.length / 2)]?.time || "")}</span><span>{formatEsaTime(esaTrendPoints[esaTrendPoints.length - 1]?.time || "")}</span></div></> : <div className="esa-chart-empty">实时拉取后显示趋势数据</div>}
+          {esaOverview ? <><svg className="esa-chart" viewBox="0 0 760 210" preserveAspectRatio="none" role="img" aria-label="ESA 趋势图"><line x1="36" x2="724" y1="172" y2="172" /><line x1="36" x2="724" y1="103" y2="103" /><line x1="36" x2="724" y1="34" y2="34" />{esaChartPath && <path className="esa-chart-line" d={esaChartPath} />}</svg><div className="esa-chart-axis"><span>{formatEsaTime(esaTrendPoints[0]?.time || "")}</span><span>{formatEsaTime(esaTrendPoints[Math.floor(esaTrendPoints.length / 2)]?.time || "")}</span><span>{formatEsaTime(esaTrendPoints[esaTrendPoints.length - 1]?.time || "")}</span></div></> : <div className="esa-chart-empty">{esaOverviewLoading ? "正在获取最新趋势…" : "趋势数据暂未获取"}</div>}
         </div>
         <div className="site-summary">已接入 <b>{esaOverview?.site_count ?? esaSites.length}</b> 个站点，其中 <b>{esaOverview?.active_count ?? esaSites.filter((item) => String(item.Status || "").toLowerCase() === "active").length}</b> 个已启用。</div>
       </>}
@@ -4082,6 +4111,7 @@ function App() {
                   <button
                     className="secondary"
                     onClick={() => active.view === "summary" ? void pullLatestSummary(active.account) : active.view === "esa" ? void pullLatestEsaOverview(active.account) : void pullLatestResources(active.account, active.view)}
+                    disabled={active.view === "esa" && esaOverviewLoading}
                   >
                     <RefreshCw size={15} />
                     实时拉取

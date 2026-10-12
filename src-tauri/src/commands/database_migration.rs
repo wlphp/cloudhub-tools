@@ -51,7 +51,7 @@ fn omit_authenticator_from_export(snapshot: &Path) -> Result<(), String> {
     let conn = Connection::open(snapshot).map_err(|_| "无法准备验证器数据隔离")?;
     conn.execute_batch("PRAGMA secure_delete=ON; DELETE FROM authenticator_entries; DELETE FROM authenticator_vault;")
         .map_err(|_| "无法从整库导出中隔离验证器数据")?;
-    for table in ["codex_profiles", "codex_account_controls", "codex_accounts", "codex_profile_backups", "codex_gateway_config", "codex_gateway_pool", "codex_gateway_network"] {
+    for table in ["codex_profiles", "codex_account_controls", "codex_accounts", "codex_profile_backups", "codex_gateway_config", "codex_gateway_pool", "codex_gateway_network", "codex_gateway_tunnel"] {
         if table_exists(&conn, table)? && table_count(&conn, table)? > 0 {
             conn.execute(&format!("DELETE FROM {table}"), []).map_err(|_| "无法从整库导出中隔离 Codex 登录数据")?;
         }
@@ -68,6 +68,7 @@ fn preserve_local_codex(incoming: &Path, current: &Path, current_key: &[u8], inc
     // and its older profile schema must not prevent preserving newer local profile columns.
     tx.execute_batch("DROP TABLE IF EXISTS codex_profiles; DROP TABLE IF EXISTS codex_accounts; DROP TABLE IF EXISTS codex_profile_backups; DROP TABLE IF EXISTS codex_gateway_config; DROP TABLE IF EXISTS codex_gateway_pool; DROP TABLE IF EXISTS codex_gateway_network;").map_err(|_|"隔离迁移包 Codex 数据失败")?;
     tx.execute_batch(crate::core::database::CODEX_SCHEMA).map_err(|_|"无法准备 Codex 数据表")?;
+    tx.execute_batch("DROP TABLE IF EXISTS codex_gateway_tunnel; CREATE TABLE codex_gateway_tunnel(id INTEGER PRIMARY KEY CHECK(id=1),json TEXT NOT NULL);").map_err(|_| "隔离穿透配置失败")?;
     for (table, columns, secret_index) in [
         ("codex_accounts", "id,identity,label,email,account_id,auth_mode,plan,note,tags_json,auth_ciphertext,quota_json,last_error,updated_at", Some(9usize)),
         ("codex_profile_backups", "profile_home,auth_ciphertext,installed_fingerprint,previous_fingerprint", Some(1usize)),
@@ -418,6 +419,7 @@ mod tests {
             conn.execute("INSERT INTO codex_accounts(identity,label,auth_mode,auth_ciphertext,updated_at) VALUES('id',?1,'chatgpt',?2,1)", rusqlite::params![label,cipher]).unwrap();
             conn.execute("INSERT INTO codex_profile_backups VALUES('test-home',?1,'after','before')", [&cipher]).unwrap();
             conn.execute("INSERT INTO codex_gateway_config(id,port,key_ciphertext) VALUES(1,58169,?1)", [&cipher]).unwrap();
+            conn.execute_batch("CREATE TABLE IF NOT EXISTS codex_gateway_tunnel(id INTEGER PRIMARY KEY,json TEXT NOT NULL); INSERT INTO codex_gateway_tunnel VALUES(1,'{\"enabled\":true}');").unwrap();
             conn.execute("INSERT INTO codex_profiles(id,account_id,name,work_dir,created_at,auth_fingerprint,kind) VALUES('test-profile',1,'fixture','fixture-project',1,'projection','desktop')", []).unwrap();
             if path == &incoming {
                 conn.execute_batch("ALTER TABLE codex_profiles DROP COLUMN kind; ALTER TABLE codex_profiles DROP COLUMN auth_fingerprint;").unwrap();
@@ -427,6 +429,7 @@ mod tests {
         let conn = Connection::open(&incoming).unwrap();
         let (label, cipher): (String,String) = conn.query_row("SELECT label,auth_ciphertext FROM codex_accounts", [], |row| Ok((row.get(0)?,row.get(1)?))).unwrap();
         assert_eq!(label,"local");
+        assert_eq!(conn.query_row("SELECT count(*) FROM codex_gateway_tunnel", [], |row| row.get::<_,i64>(0)).unwrap(), 0);
         let (port, gateway_cipher): (u16,String) = conn.query_row("SELECT port,key_ciphertext FROM codex_gateway_config", [], |row| Ok((row.get(0)?,row.get(1)?))).unwrap();
         assert_eq!(port,58169);
         assert_eq!(decrypt_secret_with_key(&gateway_cipher,&new_key).unwrap(),"invalid-test-only");

@@ -3,7 +3,7 @@ use std::sync::Mutex;
 
 use super::paths::data_dir;
 
-const CURRENT_SCHEMA_VERSION: i64 = 31;
+const CURRENT_SCHEMA_VERSION: i64 = 33;
 // Schema is shared by desktop and mobile; migrations must not depend on desktop modules.
 pub const CODEX_GATEWAY_PREFERENCES_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS codex_gateway_preferences(id INTEGER PRIMARY KEY CHECK(id=1),json TEXT NOT NULL);";
 pub const CODEX_ACCOUNT_CONTROLS_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS codex_account_controls(account_id INTEGER PRIMARY KEY REFERENCES codex_accounts(id) ON DELETE CASCADE,proxy_url TEXT,benefits_json TEXT,reset_request_id TEXT);";
@@ -50,6 +50,18 @@ fn create_sync_triggers(transaction: &rusqlite::Transaction<'_>, table: &str, en
 }
 
 fn migrate_connection(conn: &mut Connection) -> Result<(), String> {
+    let foreign_keys: bool = conn.pragma_query_value(None, "foreign_keys", |row| row.get(0)).map_err(|_| "读取数据库约束失败")?;
+    let legacy_alter: bool = conn.pragma_query_value(None, "legacy_alter_table", |row| row.get(0)).map_err(|_| "读取数据库迁移配置失败")?;
+    // Rebuild certificates without cascading into sync identities or deployments.
+    conn.pragma_update(None, "foreign_keys", false).map_err(|_| "准备证书迁移失败")?;
+    conn.pragma_update(None, "legacy_alter_table", true).map_err(|_| "准备证书表重建失败")?;
+    let result = migrate_connection_inner(conn);
+    conn.pragma_update(None, "legacy_alter_table", legacy_alter).map_err(|_| "恢复数据库迁移配置失败")?;
+    conn.pragma_update(None, "foreign_keys", foreign_keys).map_err(|_| "恢复数据库约束失败")?;
+    result
+}
+
+fn migrate_connection_inner(conn: &mut Connection) -> Result<(), String> {
     let version: i64 = conn
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .map_err(|error| format!("读取 SQLite schema 版本失败: {error}"))?;
@@ -316,6 +328,21 @@ fn migrate_connection(conn: &mut Connection) -> Result<(), String> {
         transaction.execute_batch("CREATE TABLE IF NOT EXISTS esa_certificate_deployments(account_id INTEGER NOT NULL REFERENCES cloud_accounts(id) ON DELETE CASCADE,site_id INTEGER NOT NULL,certificate_id INTEGER NOT NULL REFERENCES certificates(id) ON DELETE CASCADE,remote_id TEXT NOT NULL,updated_at INTEGER NOT NULL,PRIMARY KEY(account_id,site_id,certificate_id));").map_err(|_| "创建 ESA 证书部署关联失败")?;
         transaction.pragma_update(None,"user_version",31).map_err(|_| "更新 ESA 证书部署版本失败")?;
     }
+    if version < 32 {
+        transaction.execute_batch("CREATE TABLE IF NOT EXISTS certificates(id INTEGER PRIMARY KEY AUTOINCREMENT);").map_err(|_| "准备旧证书表失败")?;
+        let original_columns = columns("certificates")?;
+        transaction.execute_batch("CREATE TABLE certificates_v32 (id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER REFERENCES cloud_accounts(id) ON DELETE SET NULL, provider TEXT NOT NULL, primary_domain TEXT NOT NULL, domains_json TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'issued', order_url TEXT, certificate_url TEXT, certificate_pem_ciphertext TEXT, private_key_ciphertext TEXT, serial_number TEXT, issuer TEXT, not_before INTEGER, not_after INTEGER, dns_zone TEXT NOT NULL DEFAULT '', dns_record_ids_json TEXT NOT NULL DEFAULT '[]', last_error TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, source_kind TEXT NOT NULL DEFAULT 'acme' CHECK(source_kind IN ('acme','manual','baota')), fingerprint TEXT);").map_err(|_| "创建新证书存储失败")?;
+        let fields = [("id", "NULL"), ("account_id", "NULL"), ("provider", "''"), ("primary_domain", "''"), ("domains_json", "'[]'"), ("status", "'issued'"), ("order_url", "NULL"), ("certificate_url", "NULL"), ("certificate_pem_ciphertext", "NULL"), ("private_key_ciphertext", "NULL"), ("serial_number", "NULL"), ("issuer", "NULL"), ("not_before", "NULL"), ("not_after", "NULL"), ("dns_zone", "''"), ("dns_record_ids_json", "'[]'"), ("last_error", "NULL"), ("created_at", "0"), ("updated_at", "0"), ("source_kind", "'acme'"), ("fingerprint", "NULL")];
+        let names = fields.iter().map(|(name, _)| *name).collect::<Vec<_>>().join(",");
+        let values = fields.iter().map(|(name, default)| if original_columns.iter().any(|column| column == name) { *name } else { *default }).collect::<Vec<_>>().join(",");
+        transaction.execute_batch(&format!("INSERT INTO certificates_v32({names}) SELECT {values} FROM certificates; DROP TABLE certificates; ALTER TABLE certificates_v32 RENAME TO certificates; CREATE INDEX idx_certificates_account ON certificates(account_id,updated_at DESC); CREATE INDEX idx_certificates_expiry ON certificates(not_after); CREATE UNIQUE INDEX idx_certificates_fingerprint ON certificates(fingerprint) WHERE fingerprint IS NOT NULL;")).map_err(|error| format!("迁移现有证书失败: {error}"))?;
+        transaction.execute_batch("CREATE TABLE IF NOT EXISTS certificate_source_links(id INTEGER PRIMARY KEY AUTOINCREMENT,panel_id INTEGER REFERENCES panel_connections(id) ON DELETE SET NULL,site_id INTEGER NOT NULL,site_name TEXT NOT NULL,site_domains_json TEXT NOT NULL DEFAULT '[]',panel_name TEXT NOT NULL,certificate_id INTEGER REFERENCES certificates(id) ON DELETE SET NULL,order_index TEXT,ssl_hash TEXT,fingerprint TEXT,metadata_json TEXT NOT NULL DEFAULT '{}',last_checked_at INTEGER,last_error TEXT,UNIQUE(panel_id,site_id)); CREATE TABLE IF NOT EXISTS certificate_versions(id INTEGER PRIMARY KEY AUTOINCREMENT,certificate_id INTEGER NOT NULL REFERENCES certificates(id) ON DELETE CASCADE,fingerprint TEXT NOT NULL,certificate_pem_ciphertext TEXT NOT NULL,private_key_ciphertext TEXT NOT NULL,not_before INTEGER,not_after INTEGER,created_at INTEGER NOT NULL,UNIQUE(certificate_id,fingerprint));").map_err(|_| "创建证书来源与版本存储失败")?;
+        transaction.pragma_update(None,"user_version",32).map_err(|_| "更新证书存储版本失败")?;
+    }
+    if version < 33 {
+        transaction.execute_batch("CREATE TABLE IF NOT EXISTS codex_gateway_tunnel(id INTEGER PRIMARY KEY CHECK(id=1),json TEXT NOT NULL);").map_err(|_| "创建网关穿透配置失败")?;
+        transaction.pragma_update(None, "user_version", 33).map_err(|_| "更新网关穿透版本失败")?;
+    }
     transaction.commit().map_err(|error| format!("提交 SQLite 迁移失败: {error}"))?;
 
     Ok(())
@@ -350,6 +377,15 @@ pub fn open_db() -> Result<Connection, String> {
 mod tests {
     use super::{migrate_connection, CURRENT_SCHEMA_VERSION};
     #[test]
+    fn v32_adds_disabled_tunnel_without_changing_gateway_config() {
+        let mut conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(super::CODEX_SCHEMA).unwrap();
+        conn.execute_batch("INSERT INTO codex_gateway_config(id,port,key_ciphertext) VALUES(1,58169,'fixture-encrypted'); PRAGMA user_version=32;").unwrap();
+        migrate_connection(&mut conn).unwrap();
+        assert_eq!(conn.query_row("SELECT count(*) FROM codex_gateway_tunnel", [], |row| row.get::<_,i64>(0)).unwrap(), 0);
+        assert_eq!(crate::core::codex::gateway_config::summary(&conn).unwrap(), Some(58169));
+    }
+    #[test]
     fn v29_adds_network_scope_without_exposing_existing_service() {
         let mut conn=rusqlite::Connection::open_in_memory().unwrap();
         conn.execute_batch(super::CODEX_SCHEMA).unwrap();
@@ -369,6 +405,23 @@ mod tests {
         migrate_connection(&mut conn).unwrap();
         assert_eq!(conn.query_row("SELECT remote_id FROM esa_certificate_deployments", [], |row| row.get::<_, String>(0)).unwrap(), "fixture-remote-id");
         assert_eq!(conn.pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0)).unwrap(), super::CURRENT_SCHEMA_VERSION);
+    }
+    #[test]
+    fn certificate_sources_preserve_materials_and_references_without_cloud_ownership() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys=ON; CREATE TABLE cloud_accounts(id INTEGER PRIMARY KEY); CREATE TABLE panel_connections(id INTEGER PRIMARY KEY); INSERT INTO cloud_accounts VALUES(7); CREATE TABLE certificates(id INTEGER PRIMARY KEY,account_id INTEGER NOT NULL REFERENCES cloud_accounts(id) ON DELETE CASCADE,provider TEXT,primary_domain TEXT,domains_json TEXT,status TEXT,certificate_pem_ciphertext TEXT,private_key_ciphertext TEXT,dns_zone TEXT,created_at INTEGER,updated_at INTEGER); INSERT INTO certificates VALUES(9,7,'letsencrypt','example.test','[\"example.test\"]','issued','fixture-encrypted-cert','fixture-encrypted-key','example.test',1,2); CREATE TABLE certificate_sync_identity(certificate_id INTEGER PRIMARY KEY REFERENCES certificates(id) ON DELETE CASCADE,sync_id TEXT); INSERT INTO certificate_sync_identity VALUES(9,'fixture-sync-id'); CREATE TABLE esa_certificate_deployments(account_id INTEGER REFERENCES cloud_accounts(id),site_id INTEGER,certificate_id INTEGER REFERENCES certificates(id) ON DELETE CASCADE,remote_id TEXT,updated_at INTEGER); INSERT INTO esa_certificate_deployments VALUES(7,123,9,'fixture-remote-id',1); PRAGMA user_version=31;").unwrap();
+        migrate_connection(&mut conn).unwrap();
+        assert!(conn.pragma_query_value(None,"foreign_keys",|row| row.get::<_,bool>(0)).unwrap());
+        assert_eq!(conn.query_row("SELECT private_key_ciphertext FROM certificates WHERE id=9",[],|row| row.get::<_,String>(0)).unwrap(),"fixture-encrypted-key");
+        assert_eq!(conn.query_row("SELECT sync_id FROM certificate_sync_identity",[],|row| row.get::<_,String>(0)).unwrap(),"fixture-sync-id");
+        assert_eq!(conn.query_row("SELECT remote_id FROM esa_certificate_deployments",[],|row| row.get::<_,String>(0)).unwrap(),"fixture-remote-id");
+        conn.execute("INSERT INTO certificates(provider,primary_domain,domains_json,status,created_at,updated_at,source_kind) VALUES('manual','manual.test','[]','issued',1,1,'manual')",[]).unwrap();
+        conn.execute("DELETE FROM esa_certificate_deployments",[]).unwrap();
+        conn.execute("DELETE FROM cloud_accounts WHERE id=7",[]).unwrap();
+        assert_eq!(conn.query_row("SELECT COUNT(*) FROM certificates",[],|row| row.get::<_,i64>(0)).unwrap(),2);
+        assert!(conn.query_row("SELECT account_id FROM certificates WHERE id=9",[],|row| row.get::<_,Option<i64>>(0)).unwrap().is_none());
+        migrate_connection(&mut conn).unwrap();
+        assert_eq!(conn.query_row("SELECT COUNT(*) FROM pragma_foreign_key_check",[],|row| row.get::<_,i64>(0)).unwrap(),0);
     }
     #[cfg(desktop)]
     #[test]

@@ -21,6 +21,8 @@ async function fixture(page: Page, accessType: "NS" | "CNAME" = "NS") {
         calls.push({ command, args });
         if (command === "list_accounts") return accounts;
         if (command === "list_local_assets") return assets.filter(asset => !args.resourceType || asset.resource_type === args.resourceType);
+        if (command === "sync_cloud_assets") return { fetched: 1, counts: { esa: 1 }, errors: [] };
+        if (command === "esa_overview") return { traffic: 0, requests: 0, defence_requests: null, site_count: 1, active_count: 1, range_label: "今日", site_options: [{ id: "123", name: "example.test" }], trend: { traffic: [], requests: [], page_view: [] } };
         if (command === "esa_certificate_context") return context();
         if (command === "esa_deploy_certificate") { if (failDeploy) { failDeploy = false; throw new Error("Fixture ESA upload failed"); } return { remoteId: "fixture-remote", status: "OK", verified: true, message: "已上传到 ESA，证书状态正常" }; }
         if (command === "cancel_certificate_request") { cancelPending?.(new Error("已取消证书申请")); return; }

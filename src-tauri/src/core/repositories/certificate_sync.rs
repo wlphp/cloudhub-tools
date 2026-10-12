@@ -122,8 +122,8 @@ mod tests {
     use super::*;
     fn fixture() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch("CREATE TABLE certificates(id INTEGER PRIMARY KEY,account_id INTEGER,provider TEXT,primary_domain TEXT,domains_json TEXT,status TEXT,certificate_url TEXT,serial_number TEXT,issuer TEXT,not_before INTEGER,not_after INTEGER,dns_zone TEXT,last_error TEXT,created_at INTEGER,updated_at INTEGER);
-            CREATE TABLE certificate_sync_identity(certificate_id INTEGER PRIMARY KEY,sync_id TEXT UNIQUE);
+        conn.execute_batch("CREATE TABLE certificates(id INTEGER PRIMARY KEY,account_id INTEGER,provider TEXT,primary_domain TEXT,domains_json TEXT,status TEXT,certificate_url TEXT,serial_number TEXT,issuer TEXT,not_before INTEGER,not_after INTEGER,dns_zone TEXT,last_error TEXT,created_at INTEGER,updated_at INTEGER,source_kind TEXT NOT NULL DEFAULT 'acme',fingerprint TEXT);
+            CREATE TABLE certificate_source_links(id INTEGER PRIMARY KEY,panel_name TEXT,site_name TEXT,site_domains_json TEXT,certificate_id INTEGER); CREATE TABLE certificate_sync_identity(certificate_id INTEGER PRIMARY KEY,sync_id TEXT UNIQUE);
             CREATE TABLE certificate_snapshots(sync_id TEXT UNIQUE,metadata_json TEXT,synced_at INTEGER);").unwrap();
         conn
     }
