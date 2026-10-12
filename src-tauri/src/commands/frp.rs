@@ -239,6 +239,8 @@ mod release_tests {
 pub(crate) struct FrpProcessStore(Arc<Mutex<HashMap<i64, Child>>>, Arc<Mutex<HashMap<i64, FrpLogBuffer>>>);
 
 type FrpLogBuffer = Arc<Mutex<VecDeque<String>>>;
+#[cfg(desktop)]
+pub(crate) mod gateway_tunnel;
 const FRP_LOG_LINES: usize = 300;
 const FRP_LOG_LINE_BYTES: usize = 8192;
 
@@ -700,6 +702,13 @@ pub(crate) fn save_frp_server(input: FrpServerInput) -> PlatformResult<FrpServer
 
 #[tauri::command]
 pub(crate) fn delete_frp_server(store: State<'_,FrpProcessStore>, id:i64) -> PlatformResult<()> {
+    #[cfg(desktop)]
+    let _tunnel = gateway_tunnel::WRITER.lock().map_err(|_| "穿透配置不可用")?;
+    #[cfg(desktop)]
+    {
+        let tunnel = gateway_tunnel::load()?;
+        if tunnel.enabled && tunnel.server_id == Some(id) { return Err("请先关闭 API 服务的内网穿透，再删除此连接".into()); }
+    }
     stop_process(&store,id)?;
     let changed=open_db()?.execute("DELETE FROM frp_local_servers WHERE id=?1",[id]).map_err(|e|e.to_string())?;
     if changed==0 { return Err("FRP 服务端配置不存在".into()); }

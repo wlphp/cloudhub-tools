@@ -6,15 +6,11 @@ use chrono::{Duration, Local, TimeZone, Utc};
 use serde_json::{Value, json};
 
 fn esa_fields_params(fields: &[(&str, &[&str])]) -> std::collections::BTreeMap<String, String> {
-    let mut params = std::collections::BTreeMap::new();
-    for (field_index, (field_name, dimensions)) in fields.iter().enumerate() {
-        let field_prefix = format!("Fields.{}", field_index + 1);
-        params.insert(format!("{field_prefix}.FieldName"), (*field_name).to_string());
-        for (dimension_index, dimension) in dimensions.iter().enumerate() {
-            params.insert(format!("{field_prefix}.Dimension.{}", dimension_index + 1), (*dimension).to_string());
-        }
-    }
-    params
+    // ESA uses the SDK's JSON shrink encoding, not numbered RPC array keys.
+    let encoded = fields.iter().map(|(field_name, dimensions)| json!({
+        "FieldName": field_name, "Dimension": dimensions,
+    })).collect::<Vec<_>>();
+    std::collections::BTreeMap::from([("Fields".to_string(), json!(encoded).to_string())])
 }
 
 fn esa_summarized_value(data: &Value, field_name: &str) -> f64 {
@@ -243,12 +239,17 @@ mod esa_overview_tests {
     use serde_json::json;
 
     #[test]
-    fn encodes_esa_fields_as_rpc_array_parameters() {
+    fn encodes_esa_fields_as_sdk_json_query_parameter() {
         let params = esa_fields_params(&[("Requests", &["ALL"]), ("Traffic", &["ALL"])]);
-        assert_eq!(params.get("Fields.1.FieldName").map(String::as_str), Some("Requests"));
-        assert_eq!(params.get("Fields.1.Dimension.1").map(String::as_str), Some("ALL"));
-        assert_eq!(params.get("Fields.2.FieldName").map(String::as_str), Some("Traffic"));
-        assert!(!params.contains_key("Fields"));
+        let fields: serde_json::Value = serde_json::from_str(&params["Fields"]).unwrap();
+        assert_eq!(fields, json!([
+            {"FieldName": "Requests", "Dimension": ["ALL"]},
+            {"FieldName": "Traffic", "Dimension": ["ALL"]}
+        ]));
+        assert_eq!(params.len(), 1);
+        let waf = esa_fields_params(&[("Requests", &["Action"])]);
+        assert_eq!(serde_json::from_str::<serde_json::Value>(&waf["Fields"]).unwrap(),
+            json!([{"FieldName": "Requests", "Dimension": ["Action"]}]));
     }
 
     #[test]

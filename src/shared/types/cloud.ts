@@ -179,7 +179,10 @@ export type LocalAsset = {
 
 export type Certificate = {
   id: number;
-  accountId: number;
+  accountId: number | null;
+  sourceKind?: "acme" | "manual" | "baota";
+  fingerprint?: string | null;
+  sourceSites?: Array<{ id: number; panelName: string; siteName: string; siteDomains: string[] }>;
   provider: "letsencrypt" | "litessl" | string;
   primaryDomain: string;
   domains: string[];

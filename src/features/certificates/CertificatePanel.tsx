@@ -7,6 +7,9 @@ import type { EsaCertificateTarget } from "../../platform/clients/certificates";
 import { platformErrorMessage, runningInTauri } from "../../platform/api";
 import type { Account, Certificate, LocalAsset } from "../../shared/types";
 import "./certificates.css";
+import { CertificateImportDialog } from "./CertificateImportDialog";
+import { BaotaCertificateManager } from "./BaotaCertificateManager";
+import { CertificateDomains } from "./CertificateDomains";
 
 type Props = {
   accounts: Account[];
@@ -73,6 +76,8 @@ function days(value?: number | null) {
 }
 
 export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm, requestTarget, onIssued, onRequestClosed }: Props) {
+  const [sourceView, setSourceView] = useState<"local" | "baota">("local");
+  const [importOpen, setImportOpen] = useState(false);
   const [rows, setRows] = useState<Certificate[]>([]);
   const [form, setForm] = useState(emptyForm);
   const [openForm, setOpenForm] = useState(false);
@@ -312,24 +317,25 @@ export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm, r
           <span className="eyebrow">HTTPS CERTIFICATES</span>
           <h1>HTTPS 证书</h1>
           <p>
-            通过 DNS-01 验证申请和管理本机证书。私钥仅加密保存在本地数据库。
+            申请、导入和管理本机及宝塔站点证书。私钥仅加密保存在本地数据库。
           </p>
         </div>
-        <button
+        <div className="certificate-header-actions"><button className="secondary" disabled={!runningInTauri} onClick={() => setImportOpen(true)}><Plus size={15} />导入证书</button><button
           className="primary-update-btn"
           onClick={openRequest}
           disabled={!runningInTauri}
         >
           <Plus size={15} />
           申请证书
-        </button>
+        </button></div>
       </header>
       {!runningInTauri && (
         <div className="certificate-preview-warning">
           证书申请、密钥材料读取和删除仅支持桌面客户端，浏览器预览不会模拟成功。
         </div>
       )}
-      <section className="panel certificate-panel">
+      {!requestTarget && <div className="certificate-source-tabs"><button className={sourceView === "local" ? "active" : ""} onClick={() => setSourceView("local")}>本地证书</button><button className={sourceView === "baota" ? "active" : ""} disabled={!runningInTauri} onClick={() => setSourceView("baota")}>宝塔站点证书</button></div>}
+      {sourceView === "baota" ? <BaotaCertificateManager certificates={rows} onChanged={() => void load()} onConfirm={onConfirm} onStatus={onStatus} /> : <section className="panel certificate-panel">
         <div className="certificate-summary" aria-label="证书概览">
           <div><span>证书总数</span><strong>{rows.length}</strong><small>本地加密保存</small></div>
           <div><span>已签发</span><strong>{rows.filter((row) => row.status === "issued").length}</strong><small>可查看与下载</small></div>
@@ -359,7 +365,7 @@ export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm, r
               <thead>
                 <tr>
                   <th>域名</th>
-                  <th>品牌</th>
+                  <th>来源</th>
                   <th>签发者</th>
                   <th>有效期</th>
                   <th>状态</th>
@@ -373,11 +379,10 @@ export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm, r
                     <tr key={row.id}>
                       <td>
                         <strong>{row.primaryDomain}</strong>
-                        <small className="asset-subline">
-                          {row.domains.join(" · ")}
-                        </small>
+                        <CertificateDomains domains={row.domains} title={row.primaryDomain} />
+                        {row.sourceSites?.map(site => <div key={site.id}><small className="asset-subline">{site.panelName} · 站点 {site.siteName}</small><CertificateDomains domains={site.siteDomains} title={`${site.panelName} · ${site.siteName}`} /></div>)}
                       </td>
-                      <td>{providerLabels[row.provider] || row.provider}</td>
+                      <td><span className={`certificate-source-label source-${row.sourceKind || "acme"}`}>{row.sourceKind === "manual" || row.provider === "manual" ? "手动导入" : row.sourceKind === "baota" || row.provider === "baota" ? "宝塔导入" : "申请签发"}</span>{providerLabels[row.provider] && <small className="asset-subline">{providerLabels[row.provider]}</small>}</td>
                       <td>{row.issuer || "—"}</td>
                       <td>
                         <div>
@@ -440,11 +445,12 @@ export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm, r
           <div className="empty">
             <ShieldCheck size={42} />
             <h3>{loading ? "正在读取证书…" : "暂无证书"}</h3>
-            <p>点击“申请证书”，选择证书品牌并完成 DNS-01 验证。</p>
+            <p>可申请新证书，或导入已有证书与私钥。</p>
           </div>
         )}
-      </section>
+      </section>}
       </>}
+      {importOpen && <CertificateImportDialog onClose={() => setImportOpen(false)} onImported={() => { setImportOpen(false); void load(); onStatus("证书已导入本地加密库"); }} />}
       {openForm && (
         <div className={`modal-backdrop${requestTarget ? " esa-certificate-request-backdrop" : ""}`}>
           <form className="detail-panel certificate-dialog" onSubmit={submit}>

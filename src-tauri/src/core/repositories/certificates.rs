@@ -1,9 +1,13 @@
 use rusqlite::{params, Connection};
 
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all="camelCase")]
+pub struct CertificateSourceSite { pub id:i64,pub panel_name:String,pub site_name:String,pub site_domains:Vec<String> }
+
 #[derive(Debug, Clone)]
 pub struct CertificateRecord {
     pub id: i64,
-    pub account_id: i64,
+    pub account_id: Option<i64>,
     pub provider: String,
     pub primary_domain: String,
     pub domains: Vec<String>,
@@ -17,6 +21,9 @@ pub struct CertificateRecord {
     pub last_error: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
+    pub source_kind: String,
+    pub fingerprint: Option<String>,
+    pub source_sites: Vec<CertificateSourceSite>,
 }
 
 fn row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CertificateRecord> {
@@ -26,16 +33,20 @@ fn row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CertificateRecord> {
         domains: serde_json::from_str(&domains_json).unwrap_or_default(), status: row.get(5)?, certificate_url: row.get(6)?,
         serial_number: row.get(7)?, issuer: row.get(8)?, not_before: row.get(9)?, not_after: row.get(10)?, dns_zone: row.get(11)?,
         last_error: row.get(12)?, created_at: row.get(13)?, updated_at: row.get(14)?,
+        source_kind: row.get(15)?, fingerprint: row.get(16)?,
+        source_sites: vec![],
     })
 }
 
-const SELECT: &str = "SELECT id,account_id,provider,primary_domain,domains_json,status,certificate_url,serial_number,issuer,not_before,not_after,dns_zone,last_error,created_at,updated_at FROM certificates";
+const SELECT: &str = "SELECT id,account_id,provider,primary_domain,domains_json,status,certificate_url,serial_number,issuer,not_before,not_after,dns_zone,last_error,created_at,updated_at,source_kind,fingerprint FROM certificates";
 
 pub fn list(conn: &Connection, account_id: Option<i64>) -> Result<Vec<CertificateRecord>, String> {
     let sql = format!("{SELECT} WHERE (?1 IS NULL OR account_id=?1) ORDER BY updated_at DESC, id DESC");
     let mut statement = conn.prepare(&sql).map_err(|error| error.to_string())?;
     let rows = statement.query_map([account_id], row).map_err(|error| error.to_string())?;
-    rows.collect::<Result<Vec<_>, _>>().map_err(|error| error.to_string())
+    let mut result=rows.collect::<Result<Vec<_>, _>>().map_err(|error| error.to_string())?;
+    for item in &mut result { item.source_sites=source_sites(conn,item.id)?; }
+    Ok(result)
 }
 
 pub fn insert(
@@ -50,7 +61,14 @@ pub fn insert(
 
 pub fn get(conn: &Connection, id: i64) -> Result<CertificateRecord, String> {
     let sql = format!("{SELECT} WHERE id=?1");
-    conn.query_row(&sql, [id], row).map_err(|error| format!("读取证书记录失败: {error}"))
+    let mut item=conn.query_row(&sql, [id], row).map_err(|error| format!("读取证书记录失败: {error}"))?;
+    item.source_sites=source_sites(conn,id)?;Ok(item)
+}
+
+fn source_sites(conn:&Connection,id:i64)->Result<Vec<CertificateSourceSite>,String>{
+    let mut stmt=conn.prepare("SELECT id,panel_name,site_name,site_domains_json FROM certificate_source_links WHERE certificate_id=?1 ORDER BY panel_name,site_name").map_err(|_|"读取证书来源站点失败")?;
+    let rows=stmt.query_map([id],|row|Ok(CertificateSourceSite{id:row.get(0)?,panel_name:row.get(1)?,site_name:row.get(2)?,site_domains:serde_json::from_str(&row.get::<_,String>(3)?).unwrap_or_default()})).map_err(|_|"读取证书来源站点失败")?;
+    rows.collect::<Result<Vec<_>,_>>().map_err(|_|"读取证书来源站点失败".into())
 }
 
 pub fn secret_material(conn: &Connection, id: i64) -> Result<(String, String, Vec<String>), String> {

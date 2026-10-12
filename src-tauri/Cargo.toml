@@ -1,6 +1,6 @@
 [package]
 name = "cloudhub-tools"
-version = "0.1.48"
+version = "0.1.49"
 description = "本地阿里云资源管理客户端"
 authors = ["wanglei"]
 edition = "2021"
@@ -16,6 +16,9 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+
+[dev-dependencies]
+rcgen = "0.13"
 
 [dependencies]
 tauri = { version = "2", features = [] }
@@ -48,6 +51,10 @@ data-encoding = "2"
 hex = "0.4"
 percent-encoding = "2"
 rsa = { version = "0.9", features = ["pem"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+rustls-pemfile = "2"
+x509-parser = { version = "0.18", features = ["verify"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }
 russh = { version = "0.63", default-features = false, features = ["ring", "rsa"] }
 bytes = "1"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }

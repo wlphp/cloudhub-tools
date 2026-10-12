@@ -589,15 +589,7 @@ function esaRange(range) {
 }
 
 function esaFieldsParams(fields) {
-  const params = {};
-  fields.forEach(([fieldName, dimensions], fieldIndex) => {
-    const prefix = `Fields.${fieldIndex + 1}`;
-    params[`${prefix}.FieldName`] = fieldName;
-    dimensions.forEach((dimension, dimensionIndex) => {
-      params[`${prefix}.Dimension.${dimensionIndex + 1}`] = dimension;
-    });
-  });
-  return params;
+  return { Fields: JSON.stringify(fields.map(([FieldName, Dimension]) => ({ FieldName, Dimension }))) };
 }
 
 function esaDetails(data, fieldName) {

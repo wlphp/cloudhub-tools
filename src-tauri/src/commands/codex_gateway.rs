@@ -21,6 +21,7 @@ fn startup_summary(conn: &rusqlite::Connection, store: &CodexRuntimeStore, summa
 }
 
 pub(crate) fn auto_start(app: tauri::AppHandle) {
+    let _tunnel = super::frp::gateway_tunnel::WRITER.lock().ok();
     let result = (|| -> Result<(), String> {
         let _writer = AUTH_WRITER.lock().map_err(|_| "自动启动配置不可用")?;
         let store = app.state::<CodexRuntimeStore>();
@@ -51,6 +52,7 @@ pub(crate) fn auto_start(app: tauri::AppHandle) {
         };
         if let Ok(mut state) = app.state::<CodexRuntimeStore>().gateway_start_error.lock() { *state = Some(message.into()); }
     }
+    super::frp::gateway_tunnel::reconcile(&app);
 }
 
 #[tauri::command]
@@ -163,6 +165,7 @@ pub(crate) async fn codex_gateway_start(
     }).await.map_err(|_| "读取本地 API 配置任务失败")??;
     let server = RunningGateway::start_with_network(port, account_ids.clone(), service_key.map(|v| v.to_string()), allow_lan).await?;
     tauri::async_runtime::spawn_blocking(move || -> Result<GatewaySummary, String> {
+        let _tunnel = super::frp::gateway_tunnel::WRITER.lock().map_err(|_| "穿透状态不可用")?;
         let _writer = AUTH_WRITER.lock().map_err(|_| "Codex 账号操作不可用")?;
         let store = app.state::<CodexRuntimeStore>();
         if store.closing.load(std::sync::atomic::Ordering::SeqCst) {
@@ -192,6 +195,8 @@ pub(crate) async fn codex_gateway_start(
         *store.gateway_start_error.lock().map_err(|_| "反代启动状态不可用")? = None;
         startup_summary(&conn, &store, &mut summary)?;
         *slot = Some(server);
+        drop(slot);
+        super::frp::gateway_tunnel::reconcile(&app);
         Ok(summary)
     })
     .await
@@ -230,6 +235,8 @@ pub(crate) fn codex_gateway_clear_logs(app: tauri::AppHandle) -> PlatformResult<
 
 #[tauri::command]
 pub(crate) fn codex_gateway_stop(app: tauri::AppHandle) -> PlatformResult<GatewaySummary> {
+    let _tunnel = super::frp::gateway_tunnel::WRITER.lock().map_err(|_| "穿透状态不可用")?;
+    super::frp::gateway_tunnel::pause(&app)?;
     let store = app.state::<CodexRuntimeStore>();
     *store.gateway.lock().map_err(|_| "Codex 服务状态不可用")? = None;
     codex_gateway_state(app)
@@ -258,6 +265,7 @@ pub(crate) fn codex_gateway_reveal_key(app: tauri::AppHandle) -> PlatformResult<
 pub(crate) async fn codex_gateway_save_port(app: tauri::AppHandle, port: u16) -> PlatformResult<GatewaySummary> {
     if port != 0 && port < 1024 { return Err("请选择 1024 以上的本地 API 端口，或 0 自动分配".into()); }
     tauri::async_runtime::spawn_blocking(move || -> Result<GatewaySummary, String> {
+        let _tunnel = super::frp::gateway_tunnel::WRITER.lock().map_err(|_| "穿透状态不可用")?;
         let _writer = AUTH_WRITER.lock().map_err(|_| "Codex 账号操作不可用")?;
         let store = app.state::<CodexRuntimeStore>();
         if store.closing.load(std::sync::atomic::Ordering::SeqCst) { return Err("应用正在退出，未修改服务配置".into()); }
@@ -274,12 +282,19 @@ pub(crate) async fn codex_gateway_save_port(app: tauri::AppHandle, port: u16) ->
             }
             // Bind and persist the replacement before dropping the current service.
             // Failures leave the old listener and encrypted configuration intact.
-            let replacement = tauri::async_runtime::block_on(server.replacement_on_port(port))?;
-            replacement.configure(settings, repository::list(&conn)?)?;
-            let mut summary = replacement.summary()?;
-            summary.configured_port = Some(replacement.save_config(&conn)?);
-            startup_summary(&conn, &store, &mut summary)?;
+            super::frp::gateway_tunnel::pause(&app)?;
+            let replacement = match tauri::async_runtime::block_on(server.replacement_on_port(port)) { Ok(value) => value, Err(error) => { drop(slot); super::frp::gateway_tunnel::reconcile(&app); return Err(error); } };
+            let prepared = (|| -> Result<GatewaySummary, String> {
+                replacement.configure(settings, repository::list(&conn)?)?;
+                let mut summary = replacement.summary()?;
+                summary.configured_port = Some(replacement.save_config(&conn)?);
+                startup_summary(&conn, &store, &mut summary)?;
+                Ok(summary)
+            })();
+            let summary = match prepared { Ok(value) => value, Err(error) => { drop(replacement); drop(slot); super::frp::gateway_tunnel::reconcile(&app); return Err(error); } };
             *slot = Some(replacement);
+            drop(slot);
+            super::frp::gateway_tunnel::reconcile(&app);
             Ok(summary)
         } else {
             let listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port)).map_err(|_| "本地 API 端口被占用或无法监听，请选择其他端口")?;
