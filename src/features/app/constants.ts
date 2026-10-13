@@ -5,6 +5,8 @@ export const cloudHubAssetOrderStorageKey = "cloudhub-tools-asset-order";
 export const cloudHubAssetDisplayNamesStorageKey = "cloudhub-tools-asset-display-names";
 export const cloudHubManagedHostOrderStorageKey = "cloudhub-tools-managed-host-order";
 export const cloudHubManagedHostGroupOrderStorageKey = "cloudhub-tools-managed-host-group-order";
+export const cloudHubManagedHostCollapsedGroupsStorageKey = "cloudhub-tools-managed-host-collapsed-groups";
+export const cloudHubRecentManagedHostsCollapsedStorageKey = "cloudhub-tools-recent-managed-hosts-collapsed";
 export const cloudHubTerminalThemeStorageKey = "cloudhub-tools-terminal-theme";
 
 export const terminalThemes = {

@@ -452,7 +452,7 @@ export function BucketCard({
       {notice && <div className="bucket-notice">{notice}</div>}
       {error && <div className="bucket-inline-error">{error}</div>}
       {objectDialog && (
-        <div className="resource-modal-backdrop nested-resource-modal" onClick={() => { setObjectDialog(null); setObjectDialogMaximized(false); }}>
+        <div className="resource-modal-backdrop nested-resource-modal">
           <section className={`detail-panel resource-modal oss-object-dialog${objectDialogMaximized ? " is-maximized" : ""}`} onClick={(event) => event.stopPropagation()}>
             <div className="detail-toolbar">
               <div><span className="eyebrow">{bucketName}</span><h2>{objectDialog === "files" ? "文件列表" : "容量统计"}</h2></div>
@@ -510,7 +510,7 @@ export function BucketCard({
         </div>
       )}
       {cnameDialog && (
-        <div className="resource-modal-backdrop nested-resource-modal" onClick={() => setCnameDialog(false)}>
+        <div className="resource-modal-backdrop nested-resource-modal">
           <section className="detail-panel resource-modal oss-cname-dialog" onClick={(event) => event.stopPropagation()}>
             <div className="detail-toolbar"><div><span className="eyebrow">{bucketName}</span><h2>添加自定义域名</h2></div><button className="close-detail" onClick={() => setCnameDialog(false)}><X size={20} /></button></div>
             <label className="oss-cname-input"><span>域名</span><input value={cnameValue} onChange={(event) => { setCnameValue(event.target.value.trim()); setCnameToken(null); }} placeholder="例如 img.example.com" /></label>

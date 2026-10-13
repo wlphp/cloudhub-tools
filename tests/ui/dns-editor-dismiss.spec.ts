@@ -7,6 +7,9 @@ test("DNS editor keeps input when backdrop is clicked and closes explicitly", as
   await page.goto("/");
   await page.getByRole("button", { name: "资产管理", exact: true }).click();
   await page.getByRole("button", { name: "解析管理", exact: true }).click();
+  const manager = page.locator(".domain-tool-modal");
+  await page.locator(".domain-tool-backdrop").click({ position: { x: 5, y: 5 } });
+  await expect(manager).toBeVisible();
   await page.getByRole("button", { name: /添加记录/ }).click();
   const editor = page.getByRole("dialog", { name: "添加解析记录", exact: true });
   await editor.getByLabel("主机记录", { exact: true }).fill("www");
@@ -17,4 +20,8 @@ test("DNS editor keeps input when backdrop is clicked and closes explicitly", as
   await expect(editor.getByLabel("记录值", { exact: true })).toHaveValue("192.0.2.10");
   await editor.getByRole("button", { name: "关闭解析记录编辑", exact: true }).click();
   await expect(editor).toHaveCount(0);
+  await page.locator(".domain-tool-backdrop").click({ position: { x: 5, y: 5 } });
+  await expect(manager).toBeVisible();
+  await manager.locator(".close-detail").click();
+  await expect(manager).toHaveCount(0);
 });

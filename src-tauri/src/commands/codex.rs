@@ -564,7 +564,7 @@ pub(crate) fn codex_remote_logs() -> PlatformResult<crate::core::codex::remote_l
 #[tauri::command]
 pub(crate) fn codex_remote_log_detail(id: String) -> PlatformResult<crate::core::codex::gateway_controls::CallDetail> { crate::core::codex::remote_logs::detail(&id).map_err(Into::into) }
 #[tauri::command]
-pub(crate) fn codex_remote_logs_configure(enabled: bool) -> PlatformResult<crate::core::codex::remote_logs::LogState> { crate::core::codex::remote_logs::configure(enabled).map_err(Into::into) }
+pub(crate) fn codex_remote_logs_configure(enabled: bool) -> PlatformResult<crate::core::codex::remote_logs::LogState> { crate::core::codex::remote_logs::configure_saved(&open_db()?, enabled).map_err(Into::into) }
 #[tauri::command]
 pub(crate) fn codex_remote_logs_clear() -> PlatformResult<crate::core::codex::remote_logs::LogState> { crate::core::codex::remote_logs::clear().map_err(Into::into) }
 

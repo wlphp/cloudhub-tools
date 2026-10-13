@@ -25,3 +25,4 @@
 
 .flow-job-card .flow-log-retry{display:inline-grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:4px;background:transparent;color:#91a9c2;cursor:pointer}.flow-job-card .flow-log-retry:hover{background:#18314a;color:#d4e4f2}.flow-job-card .flow-log-retry:disabled{opacity:.55;cursor:wait}
 .flow-job-card .flow-log-toggle{margin-left:auto}
+.flow-recent-note{margin:0;padding:8px 16px;color:var(--ui-muted,#8fa7c3);font-size:12px;line-height:1.5;border-bottom:1px solid var(--ui-border,#20324b)}

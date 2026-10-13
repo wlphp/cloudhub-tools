@@ -131,7 +131,7 @@ export function RedisCard({
         </button>
       </div>}
       {accountDialog && (
-        <div className="resource-modal-backdrop nested-resource-modal" onClick={() => { setAccountDialog(false); setAccountDialogMaximized(false); }}>
+        <div className="resource-modal-backdrop nested-resource-modal">
           <section className={`detail-panel resource-modal account-dialog${accountDialogMaximized ? " is-maximized" : ""}`} onClick={(event) => event.stopPropagation()}>
             <div className="detail-toolbar">
               <div>

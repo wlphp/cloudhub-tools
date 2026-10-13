@@ -221,7 +221,6 @@ export function RdsCard({
       {accountDialog && (
         <div
           className="resource-modal-backdrop nested-resource-modal"
-          onClick={() => { setAccountDialog(false); setAccountDialogMaximized(false); }}
         >
           <section
             className={`detail-panel resource-modal account-dialog${accountDialogMaximized ? " is-maximized" : ""}`}

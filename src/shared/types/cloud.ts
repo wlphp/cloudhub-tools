@@ -242,6 +242,8 @@ export type TerminalWorkspaceTab = {
   username: string;
   sessionId: string;
   output: string;
+  authMethod?: SshAuthMethod;
+  credentialsSaved?: boolean;
 };
 
 export type SavedSshConnection = {

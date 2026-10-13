@@ -51,6 +51,12 @@ export const serversClient = {
   saveManaged(input: ManagedHostDraft): Promise<ManagedHost> {
     return nativeOnly("save_managed_host", { input });
   },
+  renameManagedGroup(sourceGroup: string, targetGroup: string): Promise<number> {
+    return nativeOnly("rename_managed_host_group", { sourceGroup, targetGroup });
+  },
+  deleteManagedGroup(group: string): Promise<number> {
+    return nativeOnly("delete_managed_host_group", { group });
+  },
   probeManaged(id: number): Promise<ManagedHost> {
     return nativeOnly("probe_managed_host", { id });
   },

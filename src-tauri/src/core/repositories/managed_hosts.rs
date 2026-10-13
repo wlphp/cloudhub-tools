@@ -29,6 +29,20 @@ pub fn delete(conn: &Connection, id: i64) -> Result<(), String> {
     conn.execute("DELETE FROM managed_hosts WHERE id=?1", [id]).map(|_| ()).map_err(|error| error.to_string())
 }
 
+pub fn rename_group(conn: &Connection, source: &str, target: &str, now: i64) -> Result<usize, String> {
+    conn.execute(
+        "UPDATE managed_hosts SET group_name=?1,updated_at=?2 WHERE COALESCE(NULLIF(group_name,''),'未分组')=?3",
+        params![target, now, source],
+    ).map_err(|error| error.to_string())
+}
+
+pub fn ungroup(conn: &Connection, group: &str, now: i64) -> Result<usize, String> {
+    conn.execute(
+        "UPDATE managed_hosts SET group_name=NULL,updated_at=?1 WHERE COALESCE(NULLIF(group_name,''),'未分组')=?2",
+        params![now, group],
+    ).map_err(|error| error.to_string())
+}
+
 pub fn saved_connection(conn: &Connection, id: i64) -> Result<Option<SavedSshCredentials>, String> {
     conn.query_row("SELECT host,port,username,platform,auth_method,password_ciphertext,private_key_ciphertext,key_passphrase_ciphertext,host_key_fingerprint FROM managed_hosts WHERE id=?1", [id], |row| Ok(SavedSshCredentials {
         host: row.get(0)?, port: row.get(1)?, username: row.get(2)?, platform: row.get(3)?, auth_method: row.get(4)?, password_ciphertext: row.get(5)?, private_key_ciphertext: row.get(6)?, key_passphrase_ciphertext: row.get(7)?, host_key_fingerprint: row.get(8)?,

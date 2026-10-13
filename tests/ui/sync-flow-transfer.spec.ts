@@ -21,6 +21,8 @@ test("desktop QR selection can transfer only Flow connections", async ({ page })
   });
   await page.goto("/");
   await page.getByRole("button", { name: "手机扫码迁移", exact: true }).first().click();
+  await page.locator(".sync-transfer-overlay").click({ position: { x: 5, y: 5 } });
+  await expect(page.getByRole("tab", { name: /流水线/ })).toBeVisible();
   await page.getByRole("tab", { name: /流水线/ }).click();
   await expect(page.getByText("含令牌及已缓存流水线", { exact: false }).first()).toBeVisible();
   await page.locator(".sync-transfer-account").filter({ hasText: "测试构建" }).getByRole("checkbox").uncheck();

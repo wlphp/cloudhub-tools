@@ -42,6 +42,13 @@ const providerLabels: Record<string, string> = {
   letsencrypt: "Let's Encrypt",
   litessl: "LiteSSL",
 };
+const sourceLabels = { acme: "申请签发", manual: "手动导入", baota: "宝塔导入" };
+type CertificateSource = keyof typeof sourceLabels;
+function certificateSource(row: Certificate): CertificateSource {
+  if (row.sourceKind === "manual" || row.provider === "manual") return "manual";
+  if (row.sourceKind === "baota" || row.provider === "baota") return "baota";
+  return "acme";
+}
 const domainPresets = [
   { label: "主域名 @", prefixes: [""] },
   { label: "www", prefixes: ["www."] },
@@ -91,6 +98,7 @@ export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm, r
   const [detailPreviewLoading, setDetailPreviewLoading] = useState(false);
   const [certificateCopied, setCertificateCopied] = useState(false);
   const [filter, setFilter] = useState("");
+  const [sourceFilter, setSourceFilter] = useState<CertificateSource | "all">("all");
   const domainAssets = useMemo(
     () => localAssets.filter((asset) => asset.resource_type === "domain"),
     [localAssets],
@@ -113,11 +121,12 @@ export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm, r
   const filtered = useMemo(
     () =>
       rows.filter((row) =>
-        `${row.primaryDomain} ${row.domains.join(" ")} ${row.issuer || ""}`
+        (sourceFilter === "all" || certificateSource(row) === sourceFilter) &&
+        `${row.primaryDomain} ${row.domains.join(" ")} ${row.issuer || ""} ${sourceLabels[certificateSource(row)]}`
           .toLowerCase()
           .includes(filter.trim().toLowerCase()),
       ),
-    [rows, filter],
+    [rows, filter, sourceFilter],
   );
 
   function assetDomain(asset: LocalAsset) {
@@ -344,10 +353,17 @@ export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm, r
         <div className="certificate-toolbar">
           <input
             aria-label="搜索证书"
-            placeholder="搜索域名或签发方"
+            placeholder="搜索域名、签发方或来源"
             value={filter}
             onChange={(event) => setFilter(event.target.value)}
           />
+          <label className="certificate-source-filter">
+            来源
+            <select aria-label="来源" value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value as CertificateSource | "all")}>
+              <option value="all">全部来源</option>
+              {Object.entries(sourceLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+          </label>
           <button
             className="secondary"
             onClick={() => void load()}
@@ -382,7 +398,7 @@ export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm, r
                         <CertificateDomains domains={row.domains} title={row.primaryDomain} />
                         {row.sourceSites?.map(site => <div key={site.id}><small className="asset-subline">{site.panelName} · 站点 {site.siteName}</small><CertificateDomains domains={site.siteDomains} title={`${site.panelName} · ${site.siteName}`} /></div>)}
                       </td>
-                      <td><span className={`certificate-source-label source-${row.sourceKind || "acme"}`}>{row.sourceKind === "manual" || row.provider === "manual" ? "手动导入" : row.sourceKind === "baota" || row.provider === "baota" ? "宝塔导入" : "申请签发"}</span>{providerLabels[row.provider] && <small className="asset-subline">{providerLabels[row.provider]}</small>}</td>
+                      <td><span className={`certificate-source-label source-${certificateSource(row)}`}>{sourceLabels[certificateSource(row)]}</span>{providerLabels[row.provider] && <small className="asset-subline">{providerLabels[row.provider]}</small>}</td>
                       <td>{row.issuer || "—"}</td>
                       <td>
                         <div>
@@ -444,8 +460,8 @@ export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm, r
         ) : (
           <div className="empty">
             <ShieldCheck size={42} />
-            <h3>{loading ? "正在读取证书…" : "暂无证书"}</h3>
-            <p>可申请新证书，或导入已有证书与私钥。</p>
+            <h3>{loading ? "正在读取证书…" : rows.length ? "没有匹配的证书" : "暂无证书"}</h3>
+            <p>{rows.length ? "请调整搜索关键词或来源筛选。" : "可申请新证书，或导入已有证书与私钥。"}</p>
           </div>
         )}
       </section>}

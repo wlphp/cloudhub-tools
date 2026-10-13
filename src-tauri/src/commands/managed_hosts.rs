@@ -13,6 +13,29 @@ pub(crate) fn list_managed_hosts() -> PlatformResult<Vec<ManagedHost>> { managed
 #[tauri::command]
 pub(crate) fn delete_managed_host(id: i64) -> PlatformResult<()> { managed_host_repository::delete(&open_db()?, id).map_err(Into::into) }
 
+#[tauri::command]
+pub(crate) fn rename_managed_host_group(source_group: String, target_group: String) -> PlatformResult<usize> {
+    let source = source_group.trim();
+    let target = target_group.trim();
+    if source.is_empty() || source.chars().count() > 80 || matches!(source, "最近" | "未分组") {
+        return Err("分组名称无效或不可编辑".into());
+    }
+    if target.is_empty() || target.chars().count() > 80 || target == "最近" {
+        return Err("新分组名称无效".into());
+    }
+    if source == target { return Ok(0); }
+    managed_host_repository::rename_group(&open_db()?, source, target, Utc::now().timestamp_millis()).map_err(Into::into)
+}
+
+#[tauri::command]
+pub(crate) fn delete_managed_host_group(group: String) -> PlatformResult<usize> {
+    let group = group.trim();
+    if group.is_empty() || group.chars().count() > 80 || matches!(group, "最近" | "未分组") {
+        return Err("分组名称无效或不可删除".into());
+    }
+    managed_host_repository::ungroup(&open_db()?, group, Utc::now().timestamp_millis()).map_err(Into::into)
+}
+
 
 #[tauri::command]
 pub(crate) fn export_managed_hosts_file() -> PlatformResult<String> {

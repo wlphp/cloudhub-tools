@@ -3,6 +3,13 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use std::{collections::VecDeque, sync::{Mutex, OnceLock}, time::Instant};
 use zeroize::Zeroizing;
+use rusqlite::{Connection, OptionalExtension};
+
+const ENABLED_KEY: &str = "codex.remote_logs.enabled";
+fn load_enabled(conn: &Connection) -> Result<bool, String> {
+    let value: Option<String> = conn.query_row("SELECT value FROM client_preferences WHERE key=?1", [ENABLED_KEY], |row| row.get(0)).optional().map_err(|_| "读取远端 API 日志设置失败")?;
+    Ok(value.as_deref() == Some("true"))
+}
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -18,6 +25,15 @@ pub struct LogState { pub enabled: bool, pub logs: Vec<RemoteLog> }
 #[derive(Default)]
 struct Store { enabled: bool, generation: u64, bytes: usize, logs: VecDeque<RemoteLog> }
 impl Store {
+    fn set_enabled(&mut self, enabled: bool) {
+        if self.enabled != enabled { self.generation += 1; }
+        self.enabled = enabled;
+    }
+    fn save_enabled(&mut self, conn: &Connection, enabled: bool) -> Result<(), String> {
+        crate::core::repositories::preferences::save(conn, ENABLED_KEY, if enabled { "true" } else { "false" }, chrono::Utc::now().timestamp_millis()).map_err(|_| "保存远端 API 日志设置失败")?;
+        self.set_enabled(enabled);
+        Ok(())
+    }
     fn push(&mut self, entry: RemoteLog) {
         while self.logs.len()>=500 || self.bytes+entry.bytes>8*1024*1024 {
             if let Some(old)=self.logs.pop_front(){self.bytes=self.bytes.saturating_sub(old.bytes);}else{break;}
@@ -31,8 +47,18 @@ pub fn state() -> Result<LogState, String> {
     let store = store().lock().map_err(|_| "远端 API 日志不可用")?;
     Ok(LogState { enabled: store.enabled, logs: store.logs.iter().rev().map(|log| { let mut summary=log.clone(); summary.detail=CallDetail::default(); summary }).collect() })
 }
-pub fn configure(enabled: bool) -> Result<LogState, String> {
-    { let mut store=store().lock().map_err(|_| "远端 API 日志不可用")?; if store.enabled != enabled { store.generation+=1; } store.enabled=enabled; }
+pub fn initialize(conn: &Connection) -> Result<(), String> {
+    let enabled = load_enabled(conn)?;
+    store().lock().map_err(|_| "远端 API 日志不可用")?.set_enabled(enabled);
+    Ok(())
+}
+pub fn configure_saved(conn: &Connection, enabled: bool) -> Result<LogState, String> {
+    store().lock().map_err(|_| "远端 API 日志不可用")?.save_enabled(conn, enabled)?;
+    state()
+}
+#[cfg(test)]
+fn configure(enabled: bool) -> Result<LogState, String> {
+    store().lock().map_err(|_| "远端 API 日志不可用")?.set_enabled(enabled);
     state()
 }
 pub fn clear() -> Result<LogState, String> {
@@ -122,6 +148,24 @@ pub async fn send(client: &reqwest::Client, builder: reqwest::RequestBuilder, id
 
 #[cfg(test)] mod tests {
     use super::*;
+    #[test] fn enabled_preference_survives_restart_and_failed_save_preserves_state() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE client_preferences(key TEXT PRIMARY KEY,value TEXT NOT NULL,updated_at INTEGER NOT NULL);").unwrap();
+        assert!(!load_enabled(&conn).unwrap());
+        let mut first = Store::default();
+        first.save_enabled(&conn, true).unwrap();
+        let mut restarted = Store::default();
+        restarted.set_enabled(load_enabled(&conn).unwrap());
+        assert!(restarted.enabled);
+        assert!(restarted.logs.is_empty());
+        restarted.save_enabled(&conn, false).unwrap();
+        assert!(!load_enabled(&conn).unwrap());
+        let broken = Connection::open_in_memory().unwrap();
+        assert!(restarted.save_enabled(&broken, true).is_err());
+        assert!(!restarted.enabled);
+        assert_eq!(restarted.generation, 2);
+        assert_eq!(conn.query_row("SELECT COUNT(*) FROM client_preferences", [], |row| row.get::<_, i64>(0)).unwrap(), 1);
+    }
     #[test] fn remote_headers_and_bodies_hide_credentials() {
         let mut map=reqwest::header::HeaderMap::new();
         map.insert("authorization","Bearer test-only-secret".parse().unwrap());map.insert("set-cookie","session=test-only-secret".parse().unwrap());map.insert("content-type","application/json".parse().unwrap());

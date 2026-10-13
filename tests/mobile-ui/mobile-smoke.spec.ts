@@ -80,6 +80,10 @@ test("fits the account form on a narrow phone viewport", async ({ page }) => {
   await expect(page.getByText("还没有云账号")).toBeVisible();
   await page.getByRole("button", { name: "添加云账号" }).click();
   await expect(page.getByRole("heading", { name: "添加云账号" })).toBeVisible();
+  await page.locator('input[name="accountName"]').fill("保留的账号名称");
+  await page.locator(".mobile-modal-backdrop").click({ position: { x: 2, y: 2 } });
+  await expect(page.getByRole("heading", { name: "添加云账号" })).toBeVisible();
+  await expect(page.locator('input[name="accountName"]')).toHaveValue("保留的账号名称");
   await expect(page.locator('input[name="accountName"]')).toHaveAttribute("required", "");
   await expect(page.locator('input[name="accessKeyId"]')).toHaveAttribute("required", "");
   await expect(page.locator('input[name="accessKeySecret"]')).toHaveAttribute("type", "password");

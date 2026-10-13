@@ -1,5 +1,48 @@
 import { test, expect, type Page } from "@playwright/test";
 
+test("local certificate source filter combines with search and supports legacy sources", async ({ page }) => {
+  await fixture(page, true);
+  await page.evaluate(() => {
+    const bridge = (window as any).__TAURI_INTERNALS__;
+    const invoke = bridge.invoke;
+    bridge.invoke = async (command: string, args: any) => {
+      const result = await invoke(command, args);
+      return command === "list_certificates" ? [...result, { ...result[0], id: 11, primaryDomain: "baota.test", domains: ["baota.test"], sourceKind: undefined, provider: "baota" }] : result;
+    };
+  });
+  await page.getByRole("button", { name: "刷新", exact: true }).click();
+  const source = page.getByLabel("来源", { exact: true });
+  const search = page.getByLabel("搜索证书", { exact: true });
+  const rows = page.locator(".certificate-panel tbody tr");
+  await expect(rows).toHaveCount(3);
+  for (const [kind, label] of [["manual", "手动导入"], ["baota", "宝塔导入"], ["acme", "申请签发"]]) {
+    await source.selectOption(kind);
+    await expect(rows).toHaveCount(1);
+    await expect(rows.locator(".certificate-source-label")).toHaveText(label);
+    await expect(page.locator(".certificate-count")).toHaveText("共 1 张");
+  }
+  await search.fill("baota.test");
+  await expect(rows).toHaveCount(0);
+  await expect(page.getByText("没有匹配的证书", { exact: true })).toBeVisible();
+  await source.selectOption("baota");
+  await expect(rows).toHaveCount(1);
+  await source.selectOption("all");
+  await search.fill("手动导入");
+  await expect(rows).toHaveCount(1);
+  await search.fill("");
+  await expect(rows).toHaveCount(3);
+  for (const width of [375, 768, 1024, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    expect(await source.evaluate(element => {
+      const control = element.getBoundingClientRect();
+      const toolbar = element.closest(".certificate-toolbar")!;
+      const bounds = toolbar.getBoundingClientRect();
+      return { width: window.innerWidth, left: control.left >= bounds.left, right: control.right <= bounds.right, overflow: toolbar.scrollWidth - toolbar.clientWidth };
+    })).toMatchObject({ width, left: true, right: true, overflow: 0 });
+  }
+  await page.locator(".certificate-toolbar").screenshot({ path: "test-results/certificate-source-filter.png" });
+});
+
 async function fixture(page: Page, manyDomains = false) {
   await page.addInitScript((manyDomains) => {
     const calls: { command: string; args: any }[] = [];
