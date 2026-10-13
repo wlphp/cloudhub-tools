@@ -1,4 +1,9 @@
 pub mod crypto;
+pub mod ai;
+pub mod ai_stream;
+pub mod ai_images;
+pub mod ai_models;
+pub mod ai_transfer;
 #[cfg(desktop)]
 pub mod codex;
 pub mod authenticator;

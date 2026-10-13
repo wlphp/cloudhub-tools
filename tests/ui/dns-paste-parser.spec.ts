@@ -1,6 +1,22 @@
 import { expect, test } from "@playwright/test";
 import { parseDnsPaste } from "../../src/features/domains/parseDnsPaste";
 import { normalizeDnsHost } from "../../src/features/domains/dnsHost";
+import { parseAiDnsCandidates } from "../../src/features/domains/aiDnsCandidates";
+
+test("DNS AI batch candidates are parsed locally and duplicate records are rejected explicitly", () => {
+  expect(parseAiDnsCandidates([
+    { type: "A", rr: "www", value: "192.0.2.10", ttl: 300 },
+    { type: "TXT", rr: "_dmarc", value: "v=DMARC1; p=none", ttl: 600 },
+  ], "example.test")).toEqual([
+    { type: "A", rr: "www", value: "192.0.2.10", ttl: 300 },
+    { type: "TXT", rr: "_dmarc", value: "v=DMARC1; p=none", ttl: 600 },
+  ]);
+  expect(() => parseAiDnsCandidates([
+    { type: "A", rr: "www", value: "192.0.2.10" },
+    { type: "A", rr: "www", value: "192.0.2.10" },
+  ], "example.test")).toThrow(/第 2 条与第 1 条候选重复/);
+  expect(() => parseAiDnsCandidates([{ type: "A", rr: "www", value: "999.0.0.1" }], "example.test")).toThrow(/第 1 条 AI DNS 候选无效/);
+});
 
 test("DNS shorthand infers addresses, targets and verification records", () => {
   expect(parseDnsPaste("www 192.168.3.2", "example.test")[0]).toMatchObject({ type: "A", rr: "www", value: "192.168.3.2" });

@@ -1,4 +1,6 @@
 pub mod accounts;
+pub mod ai;
+pub mod ai_transfer;
 #[cfg(desktop)]
 pub mod codex;
 #[cfg(desktop)]

@@ -1,6 +1,18 @@
 {
   "version": 1,
   "mobileCommands": [
+    "ai_list_profiles",
+    "ai_save_profile",
+    "ai_delete_profile",
+    "ai_preview",
+    "ai_run",
+    "ai_cancel",
+    "ai_export_config",
+    "ai_prepare_import",
+    "ai_confirm_import",
+    "ai_cancel_import",
+    "ai_list_models",
+    "ai_test_vision",
     "reveal_flow_token",
     "list_flow_connections",
     "save_flow_connection",
@@ -1130,6 +1142,15 @@
         { "name": "metadata", "native": ["codex_save_metadata", "codex_save_proxy", "codex_save_proxies", "codex_detect_proxies", "codex_remote_logs", "codex_remote_log_detail", "codex_remote_logs_configure", "codex_remote_logs_clear", "codex_refresh_benefits", "codex_consume_reset", "codex_delete_account"], "preview": [] },
         { "name": "quota", "native": ["codex_refresh_quota"], "preview": [] },
         { "name": "switch", "native": ["codex_prepare_switch", "codex_confirm_switch", "codex_restore_profile"], "preview": [] }
+      ]
+    },
+    {
+      "name": "ai",
+      "operations": [
+        { "name": "profiles", "native": ["ai_list_profiles", "ai_save_profile", "ai_delete_profile"], "preview": [] },
+        { "name": "assistance", "native": ["ai_preview", "ai_run", "ai_cancel"], "preview": [] },
+        { "name": "transfer", "native": ["ai_export_config", "ai_prepare_import", "ai_confirm_import", "ai_cancel_import"], "preview": [] },
+        { "name": "capabilities", "native": ["ai_list_models", "ai_test_vision"], "preview": [] }
       ]
     },
     {

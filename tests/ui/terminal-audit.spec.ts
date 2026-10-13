@@ -34,7 +34,11 @@ test("terminal audit records and replays without sending commands", async ({ pag
     let sessionCount = 0;
     (window as any).auditQueue = queue;
     (window as any).auditWrites = 0;
-    (window as any).__TAURI_INTERNALS__ = { transformCallback: () => 1, unregisterCallback: () => {}, invoke: async (command: string) => {
+    (window as any).auditAiRequests=[];
+    (window as any).__TAURI_INTERNALS__ = { transformCallback: () => 1, unregisterCallback: () => {}, invoke: async (command: string,args?:any) => {
+      if(command==="ai_list_profiles")return[{id:"11111111-1111-4111-8111-111111111111",name:"测试服务",protocol:"openai_chat",baseUrl:"https://example.test",model:"fixture",enabled:true,isDefault:true,updatedAt:1,hasKey:true,visionStatus:"unknown"}];
+      if(command==="ai_preview")return{text:args.text,removedLines:0};
+      if(command==="ai_run"){(window as any).auditAiRequests.push(args.input);return{requestId:args.input.requestId,draft:{summary:"录像输出说明",fields:{},items:[],warnings:[],evidence:[]}};}
       if (command === "list_managed_hosts") return [{ id: 1, name: "审计测试服务器", host: "192.0.2.10", platform: "linux", username: "operator", port: 22, group_name: "测试", status: "online", password_saved: true }];
       if (command === "list_client_preferences") return {};
       if (command === "authenticator_status") return { configured: false, unlocked: false };
@@ -77,6 +81,9 @@ test("terminal audit records and replays without sending commands", async ({ pag
   await expect(page.getByRole("tab", { name: "监控", exact: true })).toBeVisible();
   await expect(page.getByRole("tab", { name: "文件管理", exact: true })).toBeVisible();
   await panel.screenshot({ path: "test-results/terminal-audit-panel.png" });
+  await panel.getByLabel("录像回放输出",{exact:true}).evaluate(el=>{const range=document.createRange();const node=el.firstChild!;range.setStart(node,0);range.setEnd(node,"测试输出一".length);const selection=window.getSelection()!;selection.removeAllRanges();selection.addRange(range);});
+  await panel.getByRole("button",{name:"AI 分析选中录像输出",exact:true}).click();
+  const assistant=page.getByRole("dialog",{name:"AI 分析选中录像输出",exact:true});await expect(assistant.getByLabel("分析内容")).toHaveValue("测试输出一");await assistant.getByRole("button",{name:"检查发送内容"}).click();await assistant.getByRole("button",{name:"发送并分析"}).click();await expect(assistant.getByRole("heading",{name:"结果草稿"})).toBeVisible();expect(await page.evaluate(()=>(window as any).auditWrites)).toBe(0);expect((await page.evaluate(()=>(window as any).auditAiRequests))[0].text).not.toContain("测试输出二");await assistant.getByRole("button",{name:"关闭AI辅助"}).click();
   await panel.getByRole("button", { name: "开始录制", exact: true }).click();
   await page.getByRole("button", { name: "关闭 审计测试服务器", exact: true }).click();
   await expect(panel.getByRole("button", { name: "开始录制", exact: true })).toBeDisabled();

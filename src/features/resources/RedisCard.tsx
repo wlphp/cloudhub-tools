@@ -4,6 +4,8 @@ import { resourcesClient } from "../../platform/clients";
 import { platformErrorMessage } from "../../platform/api";
 import type { Account } from "../../shared/types";
 import { displayValue } from "../../shared/utils/display";
+import { AiAssistButton } from "../ai/AiAssistButton";
+import { redisAiSummary } from "./aiResourceSummary";
 
 function cloudStatusText(value: unknown): string {
   const status = String(value || "-");
@@ -116,6 +118,7 @@ export function RedisCard({
       <div className="memory-bar">
         内存容量：{displayValue(item.Capacity)} MB
       </div>
+      <div className="redis-actions"><AiAssistButton task="diagnose" title="AI 配置与容量建议" text={() => redisAiSummary(item)} /></div>
       {canReadDetails && <div className="redis-actions">
         <button className="layui-btn layui-btn-xs" onClick={onRefresh}>
           刷新状态

@@ -1,4 +1,5 @@
 import { SecretField } from "../../shared/SecretField";
+import { AiLogAnalysis } from "../ai/AiLogAnalysis";
 import { useEffect, useMemo, useState } from "react";
 import { Check, Copy, Download, Eye, Plus, RefreshCw, ShieldCheck, Trash2, X } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
@@ -10,6 +11,7 @@ import "./certificates.css";
 import { CertificateImportDialog } from "./CertificateImportDialog";
 import { BaotaCertificateManager } from "./BaotaCertificateManager";
 import { CertificateDomains } from "./CertificateDomains";
+import { AiAssistButton } from "../ai/AiAssistButton";
 
 type Props = {
   accounts: Account[];
@@ -573,6 +575,12 @@ export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm, r
                 placeholder="主域名\nwww.example.com"
               />
             </label>
+            <AiAssistButton
+              task="configuration"
+              title="AI 核对域名覆盖"
+              disabled={!form.domains.trim() || loading}
+              text={() => `请根据以下用户提供的证书申请域名列表，检查主域名与通配符覆盖关系、重复项、格式风险，以及目标站点是否可能被覆盖。只能给出解释和人工核对建议，不要声称已执行 DNS/ACME 检查或确认域名归属；通配符通常不覆盖根域名，不能把推测当作检测结果。\nDNS 区域：${form.dnsZone || "（未选择）"}\n申请域名（用户输入）：\n${form.domains}\n${requestTarget ? `部署目标站点：${requestTarget.siteName}` : "部署目标站点：（无）"}`}
+            />
             {!form.accountId ? (
               <div className="certificate-hint">请先选择 DNS 账号。</div>
             ) : form.accountId && !zoneNames.length ? (
@@ -581,6 +589,7 @@ export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm, r
               </div>
             ) : null}
             <section className="certificate-request-log" aria-live="polite" aria-label="证书申请日志">
+              <AiLogAnalysis scope=".certificate-request-log-body" title="AI 分析选中证书申请日志" />
               <div className="certificate-request-log-head">
                 <span>证书申请日志</span>
                 <small>{loading ? "实时输出中" : requestLogs.length ? "已完成" : "等待开始"}</small>

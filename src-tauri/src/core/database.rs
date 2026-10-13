@@ -3,7 +3,7 @@ use std::sync::Mutex;
 
 use super::paths::data_dir;
 
-const CURRENT_SCHEMA_VERSION: i64 = 33;
+const CURRENT_SCHEMA_VERSION: i64 = 35;
 // Schema is shared by desktop and mobile; migrations must not depend on desktop modules.
 pub const CODEX_GATEWAY_PREFERENCES_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS codex_gateway_preferences(id INTEGER PRIMARY KEY CHECK(id=1),json TEXT NOT NULL);";
 pub const CODEX_ACCOUNT_CONTROLS_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS codex_account_controls(account_id INTEGER PRIMARY KEY REFERENCES codex_accounts(id) ON DELETE CASCADE,proxy_url TEXT,benefits_json TEXT,reset_request_id TEXT);";
@@ -343,6 +343,14 @@ fn migrate_connection_inner(conn: &mut Connection) -> Result<(), String> {
         transaction.execute_batch("CREATE TABLE IF NOT EXISTS codex_gateway_tunnel(id INTEGER PRIMARY KEY CHECK(id=1),json TEXT NOT NULL);").map_err(|_| "创建网关穿透配置失败")?;
         transaction.pragma_update(None, "user_version", 33).map_err(|_| "更新网关穿透版本失败")?;
     }
+    if version < 34 {
+        transaction.execute_batch(super::repositories::ai::SCHEMA).map_err(|_| "创建AI配置表失败")?;
+        transaction.pragma_update(None,"user_version",34).map_err(|_|"更新AI数据库版本失败")?;
+    }
+    if version < 35 {
+        transaction.execute_batch(super::repositories::ai::CAPABILITIES_SCHEMA).map_err(|_|"创建AI能力状态表失败")?;
+        transaction.pragma_update(None,"user_version",35).map_err(|_|"更新AI能力数据库版本失败")?;
+    }
     transaction.commit().map_err(|error| format!("提交 SQLite 迁移失败: {error}"))?;
 
     Ok(())
@@ -376,6 +384,15 @@ pub fn open_db() -> Result<Connection, String> {
 #[cfg(test)]
 mod tests {
     use super::{migrate_connection, CURRENT_SCHEMA_VERSION};
+    #[test]
+    fn v33_adds_ai_profiles_and_repeated_migration_preserves_ciphertext() {
+        let mut conn=rusqlite::Connection::open_in_memory().unwrap();conn.execute_batch("PRAGMA user_version=33;").unwrap();
+        migrate_connection(&mut conn).unwrap();
+        conn.execute("INSERT INTO ai_profiles(id,name,protocol,base_url,model,key_ciphertext,updated_at) VALUES('fixture','fixture','claude','https://example.test','fixture','fixture-encrypted-key',1)",[]).unwrap();
+        migrate_connection(&mut conn).unwrap();
+        assert_eq!(conn.pragma_query_value(None,"user_version",|r|r.get::<_,i64>(0)).unwrap(),CURRENT_SCHEMA_VERSION);
+        assert_eq!(conn.query_row("SELECT key_ciphertext FROM ai_profiles",[],|r|r.get::<_,String>(0)).unwrap(),"fixture-encrypted-key");
+    }
     #[test]
     fn v32_adds_disabled_tunnel_without_changing_gateway_config() {
         let mut conn = rusqlite::Connection::open_in_memory().unwrap();

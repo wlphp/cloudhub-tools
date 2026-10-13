@@ -5,6 +5,8 @@ import type { RdsConnectionAddress, RdsStorageUsage } from "../../platform/clien
 import { platformErrorMessage } from "../../platform/api";
 import type { Account } from "../../shared/types";
 import { displayValue } from "../../shared/utils/display";
+import { AiAssistButton } from "../ai/AiAssistButton";
+import { rdsAiSummary } from "./aiResourceSummary";
 
 function cloudStatusText(value: unknown): string {
   const status = String(value || "-");
@@ -185,6 +187,7 @@ export function RdsCard({
           {displayValue(item.ExpireTime)}
         </div>
       </div>
+      <div className="rds-actions"><AiAssistButton task="diagnose" title="AI 配置与容量建议" text={() => rdsAiSummary(item, storageUsage ? storageUsage.usedBytes / 1024 ** 3 : null, storageUsage?.totalGb ?? null)} /></div>
       <div className="db-list">
         {!canReadDetails ? "当前仅同步数据库实例清单，库与账号详情暂未接入"
           : busy

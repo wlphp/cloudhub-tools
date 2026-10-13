@@ -9,6 +9,8 @@ import type { OssDetail, OssObjectListing, OssUploadSelection } from "../../plat
 import type { Account } from "../../shared/types";
 import { displayValue } from "../../shared/utils/display";
 import { cloudProvider } from "../cloud/catalog";
+import { AiAssistButton } from "../ai/AiAssistButton";
+import { ossAiSummary } from "../resources/aiResourceSummary";
 
 function formatBytes(value: unknown): string {
   let bytes = Number(value || 0);
@@ -427,6 +429,7 @@ export function BucketCard({
           <span>CORS 配置：{detail?.cors?.length ? detail.cors.map((rule, index) => <i className="bucket-cors" key={index} title={`来源：${rule.origin.join(", ")}\n方法：${rule.method.join(", ")}\nHeader：${rule.header.join(", ")}`}>{rule.origin.join(", ") || "*"}</i>) : "未配置"}</span>
         </>}
       </div>
+      {!isReadOnlyBucketProvider && <div className="bucket-actions"><AiAssistButton task="diagnose" title="AI 存储配置建议" text={() => ossAiSummary(item, runningInTauri ? null : detail)} disabled={detailLoading} /></div>}
       {!isVolcengine && !isCtyun && <div className="bucket-actions">
         <button
           className="layui-btn layui-btn-xs layui-btn-normal"

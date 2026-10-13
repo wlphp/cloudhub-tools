@@ -167,6 +167,10 @@ test("validates mobile DNS input before sending provider mutations", async ({ pa
   await page.getByRole("button", { name: /新增记录/ }).click();
 
   const form = page.locator(".mobile-account-form");
+  await form.getByRole("button", { name: "AI 识别 DNS 草稿" }).click();
+  const ai = page.getByRole("dialog", { name: "AI 识别 DNS 草稿" });
+  await expect(ai.getByText("请在桌面或手机原生客户端中使用 AI；当前可继续手动操作。")).toBeVisible();
+  await ai.getByRole("button", { name: "关闭AI辅助" }).click();
   await form.locator('select[name="recordType"]').selectOption("AAAA");
   await form.locator('input[name="rr"]').fill("api");
   await form.locator('input[name="value"]').fill("not-an-ipv6-address");

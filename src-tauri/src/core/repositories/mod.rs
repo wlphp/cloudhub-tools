@@ -1,4 +1,5 @@
 pub mod accounts;
+pub mod ai;
 #[cfg(desktop)]
 pub mod codex_accounts;
 pub mod authenticator;

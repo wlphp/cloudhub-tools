@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import { Pencil, Play, Plus, Send, Terminal, Trash2, X } from "lucide-react";
+import { AiAssistButton } from "../ai/AiAssistButton";
 
 export type TerminalQuickCommand = { id: string; name: string; command: string };
 
@@ -38,6 +39,7 @@ export function TerminalQuickCommands({ commands, connected, onChange, onInsert 
       <span><Terminal size={14} />点击“填入”写入当前终端</span>
       <button type="button" className="terminal-quick-add" disabled={commands.length >= 30} title={commands.length >= 30 ? "最多保存 30 条命令" : undefined} onClick={() => openEditor()}><Plus size={14} />添加命令</button>
     </div>
+    <AiAssistButton task="command" title="AI 生成命令" disabled={commands.length>=30} onApply={({fields})=>{const command=String(fields.command||"");if(!command.trim()||command.length>2000)throw new Error("请提供不超过2000字的命令草稿");setEditing({id:crypto.randomUUID(),name:"",command:""});setDraft({name:String(fields.name||"AI命令草稿").slice(0,80),command});}} />
     <div className="terminal-quick-list">
       {commands.map((item) => <article className="terminal-quick-card" key={item.id}>
         <div className="terminal-quick-copy"><strong title={item.name}>{item.name}</strong><code title={item.command}>{item.command}</code></div>

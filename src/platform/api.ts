@@ -7,6 +7,7 @@ export const invoke = tauriInvoke;
 
 export type PlatformErrorCode =
   | "unknown"
+  | "ai"
   | "unsupported-in-preview"
   | "validation"
   | "authentication"
@@ -26,6 +27,15 @@ export type PlatformErrorCode =
   | "authenticator-locked";
 
 function publicPlatformMessage(code: PlatformErrorCode, rawMessage: string): string {
+  if (code === "ai") {
+    if (/^AI服务拒绝请求（HTTP (400|404|422)）：(参数 (model|instructions|tools|tool_choice|input|reasoning|max_output_tokens|temperature|top_p|store|stream|include|service_tier|text|prompt_cache_key) 不兼容|模型不可用或模型参数不兼容|请求参数不受支持|指令参数不兼容|请求被拒绝)$/.test(rawMessage)) return rawMessage;
+    const safe = ["AI任务状态不可用", "AI请求标识无效", "请先填写或选择分析内容", "内容含疑似凭据，请先使用发送预览移除后再提交", "AI任务已在运行或并发已达上限", "AI请求已取消", "AI服务地址无效", "AI服务地址不能包含账号、密码、查询参数或片段", "AI服务须使用HTTPS；本地回环HTTP需明确开启", "AI协议无效", "模型名称只支持字母、数字、点、下划线、冒号及连字符", "AI配置字段或限额无效", "AI密钥格式无效", "最多保存20个AI服务配置", "首次添加须填写AI密钥", "AI服务已停用", "分析内容过长，请选择较短片段", "内容包含私钥或验证器凭据，请移除后再分析", "模型未完整返回结果，请缩短输入或调整输出上限", "模型响应未完成或被拒绝", "模型响应未完成或请求了未授权工具", "模型响应未完成或内容被拒绝", "模型返回了敏感内容，结果已拦截", "AI结果格式不合法，请重试或手动填写", "AI结果超过处理上限", "AI结果包含未允许的字段或无效值", "AI结果包含疑似凭据，结果已拦截", "AI请求超时，可重试或继续手动操作", "AI连接失败，请检查地址与网络", "AI认证失败，请检查密钥和权限", "AI服务限流或额度不足，请稍后重试", "AI服务发生重定向，请填写最终HTTPS地址", "AI协议、路径或模型不受支持，请检查配置", "AI服务暂不可用，请稍后重试", "AI响应超过大小限制", "AI服务返回无效响应", "AI结果为空，请重试或手动填写", "更改AI服务来源时须重新填写密钥"];
+    safe.push("启用AI服务须填写密钥", "请选择1～20个AI配置", "所选AI配置已变化，请刷新后重试", "AI迁移包类型、版本或数量无效", "AI迁移配置字段无效", "请选择迁移预览中的有效AI配置", "导入后AI配置将超过20个，请先整理配置", "导入AI配置失败，未写入任何配置", "AI配置文件超过大小限制", "AI配置文件格式无效", "AI迁移状态不可用", "请先关闭其他AI迁移预览", "AI迁移预览已过期，请重新选择文件", "保存AI迁移包失败", "导出AI配置失败", "读取AI迁移配置失败", "导出AI迁移任务失败", "读取AI迁移任务失败");
+    safe.push("AI配置已变更，请关闭辅助面板后重新打开", "AI服务拒绝请求（HTTP 400），请检查模型和请求参数", "AI接口不存在（HTTP 404），请检查服务地址和接口协议", "AI请求参数无效（HTTP 422），请检查模型和服务兼容性");
+    safe.push("AI流式事件超过大小限制", "AI流式文本编码无效", "AI流式结果超过大小限制", "AI流式事件数量超过限制", "AI流式响应未完整结束", "AI流式事件格式无效", "AI流式服务返回错误，请重试", "AI流式响应包含拒绝或未授权工具", "AI流式完成事件无效", "截图超过大小限制，请裁剪后重试", "截图格式无效，请使用PNG或JPEG图片", "截图数据无效", "截图格式与实际内容不一致", "截图尺寸无效", "截图尺寸须在1600像素以内，请裁剪或缩小", "无法解码截图", "截图包含二维码，请裁剪或遮挡后重试", "处理截图失败", "生成图像测试失败", "请先完成图像能力测试并确认截图已裁剪遮挡", "保存图像测试结果失败", "服务模型目录格式不兼容，可直接填写模型名称", "服务未返回可用模型名称，可直接填写", "查询AI模型失败，请检查服务和网络", "服务不支持模型查询或认证失败，可直接填写模型名称", "读取AI模型目录失败", "AI模型目录超过大小限制");
+    safe.push("模型名称格式无效；Gemini只接受单个模型标识", "模型响应包含未授权工具");
+    return safe.includes(rawMessage) ? rawMessage : "AI操作失败，请检查配置或继续手动操作";
+  }
   if (code === "esa-query") {
     return /^ESA 查询失败：(ListSites|DescribeSiteTimeSeriesData|DescribeSiteWafTimeSeriesData)（(?:网络连接失败|响应格式无效|HTTP [1-5]\d{2}，错误代码 [A-Za-z0-9._-]{1,80})）$/.test(rawMessage)
       ? rawMessage : "ESA 实时数据获取失败，请检查账号权限和网络后重试";
@@ -71,7 +81,7 @@ function publicPlatformMessage(code: PlatformErrorCode, rawMessage: string): str
       .replace(/(password|secret|token|access[_-]?key|private[_-]?key|authorization|signature)(\s*[:=]\s*)[^,;\s]+/gi, "$1$2[已隐藏]")
       .slice(0, 240);
   }
-  const messages: Record<Exclude<PlatformErrorCode, "unsupported-in-preview" | "certificate" | "esa-query" | "authenticator-error" | "authenticator-locked" | "codex-model-catalog" | "codex-proxy">, string> = {
+  const messages: Record<Exclude<PlatformErrorCode, "ai" | "unsupported-in-preview" | "certificate" | "esa-query" | "authenticator-error" | "authenticator-locked" | "codex-model-catalog" | "codex-proxy">, string> = {
     unknown: "操作失败，请稍后重试",
     validation: "输入参数无效，请检查后重试",
     authentication: "认证失败，请检查凭据或登录状态",
@@ -121,7 +131,7 @@ export function normalizePlatformError(reason: unknown): PlatformError {
   }
   if (typeof reason === "object" && reason !== null && "code" in reason && "message" in reason) {
     const structured = reason as { code?: PlatformErrorCode; message?: string; retryable?: boolean };
-    const code = structured.code && ["unknown", "unsupported-in-preview", "validation", "authentication", "permission", "network", "not-found", "conflict", "frp-port-conflict", "codex-account-busy", "codex-gateway-port-conflict", "codex-model-catalog", "codex-proxy", "cancelled", "certificate", "esa-query", "authenticator-error", "authenticator-locked"].includes(structured.code)
+    const code = structured.code && ["ai", "unknown", "unsupported-in-preview", "validation", "authentication", "permission", "network", "not-found", "conflict", "frp-port-conflict", "codex-account-busy", "codex-gateway-port-conflict", "codex-model-catalog", "codex-proxy", "cancelled", "certificate", "esa-query", "authenticator-error", "authenticator-locked"].includes(structured.code)
       ? structured.code : "unknown";
     return new PlatformError(String(structured.message), code, structured.retryable === true);
   }
