@@ -1,5 +1,5 @@
 import { useExportSelection } from "./shared/ExportSelection";
-import { DatabaseExportDialog } from "./features/accounts/DatabaseExportDialog";
+import { DataManagementPage } from "./features/accounts/DataManagementPage";
 import { DialogHeaderActions } from "./shared/DialogHeaderActions";
 import { useDialogDragging } from "./shared/useDialogDragging";
 import { GroupNameInput } from "./shared/GroupNameInput";
@@ -109,7 +109,6 @@ import {
   Minimize2,
   Minus,
   ShieldCheck,
-  QrCode,
 } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
@@ -212,7 +211,7 @@ function syncAssetTypes(account: Account): ReadonlyArray<(typeof assetTypes)[num
 }
 const assetTypes = catalogAssetTypes;
 
-const bundledVersion = "0.1.53";
+const bundledVersion = "0.1.54";
 const isDevelopmentBuild = import.meta.env.DEV;
 
 const detachedTerminalHostId = (() => {
@@ -224,7 +223,6 @@ const isDetachedTerminalWindow = runningInTauri && detachedTerminalHostId !== nu
 function App() {
   useDialogDragging();
   const exportSelection = useExportSelection();
-  const [showDatabaseExport, setShowDatabaseExport] = useState(false);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [selectedAccountIds, setSelectedAccountIds] = useState<Set<number>>(() => new Set());
   const [showSyncTransfer, setShowSyncTransfer] = useState(false);
@@ -295,7 +293,7 @@ function App() {
   const esaRequestRef = useRef(0);
   const [esaCertificateSite, setEsaCertificateSite] = useState<{ account: Account; siteId: number } | null>(null);
   const [esaSiteKeyword, setEsaSiteKeyword] = useState("");
-  const [section, setSection] = useState<"accounts" | "resources" | "certificates" | "authenticator" | "flow" | "frp" | "codex" | "panels" | "servers" | "favorites" | "logs" | "api_logs" | "settings">(() => isDetachedTerminalWindow ? "servers" : "accounts");
+  const [section, setSection] = useState<"accounts" | "resources" | "certificates" | "authenticator" | "flow" | "frp" | "codex" | "panels" | "servers" | "favorites" | "logs" | "api_logs" | "settings" | "data_management">(() => isDetachedTerminalWindow ? "servers" : "accounts");
   useEffect(() => { const open = () => setSection("settings"); window.addEventListener("cloudhub-ai-settings", open); return () => window.removeEventListener("cloudhub-ai-settings", open); }, []);
   const [localAssets, setLocalAssets] = useState<LocalAsset[]>([]);
   const [panelConnections, setPanelConnections] = useState<PanelConnection[]>([]);
@@ -358,7 +356,7 @@ function App() {
   const [operationLogClearedAt, setOperationLogClearedAt] = useState(() => Number(localStorage.getItem("aliyun-operation-log-cleared-at") || "0"));
   const [autoRefresh, setAutoRefresh] = useState(() => localStorage.getItem("aliyun-auto-refresh") !== "0");
   const [compactMode, setCompactMode] = useState(() => localStorage.getItem("aliyun-compact-mode") === "1");
-  const { appVersion, updateState, checkForUpdates, installUpdate } = useAppUpdates(bundledVersion, setStatus);
+  const { appVersion, isDevelopment, updateState, checkForUpdates, installUpdate } = useAppUpdates(bundledVersion, setStatus);
   const [logFilter, setLogFilter] = useState("");
   const [logTypeFilter, setLogTypeFilter] = useState("");
   const [resourceAccountId, setResourceAccountId] = useState<number | null>(null);
@@ -999,20 +997,6 @@ function App() {
     } catch (error) {
       setStatus(`打开数据目录失败：${String(error)}`);
     }
-  }
-  async function exportDatabase() {
-    if (!runningInTauri) { setStatus("数据库迁移仅支持桌面客户端"); return; }
-    if (!(await requestConfirm("导出包包含本机全部数据和解密所需的密钥文件，任何持有导出包的人都可能读取其中的账号凭据。请仅通过安全介质传输。确定继续吗？"))) return;
-    try {
-      const path = await databaseClient.exportFile();
-      if (path) setStatus(`数据库已导出：${path}`);
-    } catch (error) { setStatus(`数据库导出失败：${String(error)}`); }
-  }
-  async function importDatabase() {
-    if (!runningInTauri) { setStatus("数据库迁移仅支持桌面客户端"); return; }
-    try {
-      setDatabaseImportPreview(await databaseClient.prepareImport());
-    } catch (error) { setStatus(`数据库导入失败：${String(error)}`); }
   }
   async function cancelDatabaseImport() {
     const preview = databaseImportPreview;
@@ -3628,10 +3612,9 @@ function App() {
   return (
     <div className={`app-shell ide-theme${isDetachedTerminalWindow ? " detached-terminal-window" : ""}${appSidebarCollapsed ? " sidebar-collapsed" : ""}`} ref={appShellRef} style={{ "--app-sidebar-width": `${appSidebarCollapsed ? 64 : appSidebarWidth}px` } as CSSProperties}>
       {exportSelection.dialog}
-      {showDatabaseExport && <DatabaseExportDialog accounts={accounts} hosts={managedHosts} panels={panelConnections} onFullBackup={exportDatabase} onClose={() => setShowDatabaseExport(false)} />}
       <a className="skip-link" href="#main-content">跳到主要内容</a>
       <div className="ide-topbar" role="banner">
-        <div className="ide-topbar-brand" onMouseDown={handleTitlebarMouseDown} onDoubleClick={handleTitlebarDoubleClick}>{isDetachedTerminalWindow ? <><Terminal size={15} /><strong>{detachedTerminalHost?.name || "SSH 终端"}</strong><span>{detachedTerminalHost?.host || ""}</span>{detachedTerminalHost?.remark ? <span className="detached-terminal-context">备注：{detachedTerminalHost.remark}</span> : null}{detachedTerminalHost?.group_name ? <span className="detached-terminal-context">分组：{detachedTerminalHost.group_name}</span> : null}</> : <><Cloud size={15} /><strong>云枢 Tools</strong><span>本地多云资源管理</span></>}</div>
+        <div className="ide-topbar-brand" onMouseDown={handleTitlebarMouseDown} onDoubleClick={handleTitlebarDoubleClick}>{isDetachedTerminalWindow ? <><Terminal size={15} /><strong>{detachedTerminalHost?.name || "SSH 终端"}</strong><span>{detachedTerminalHost?.host || ""}</span>{detachedTerminalHost?.remark ? <span className="detached-terminal-context">备注：{detachedTerminalHost.remark}</span> : null}{detachedTerminalHost?.group_name ? <span className="detached-terminal-context">分组：{detachedTerminalHost.group_name}</span> : null}</> : <><Cloud size={15} /><strong>云枢 Tools{isDevelopment ? " · 开发版" : ""}</strong><span>本地多云资源管理</span></>}</div>
         <div className="ide-topbar-drag-region" aria-hidden="true" onMouseDown={handleTitlebarMouseDown} onDoubleClick={handleTitlebarDoubleClick} />
         <div className="ide-topbar-actions">
           <div className="ide-topbar-context"><span className="ide-topbar-dot" />LOCAL</div>
@@ -3652,7 +3635,7 @@ function App() {
               </div>
               <div>
                 <div className="brand-heading">
-                  <strong>云枢 Tools</strong>
+                  <strong>云枢 Tools{isDevelopment ? " · 开发版" : ""}</strong>
                   <span className="brand-version">v{appVersion}</span>
                   {runningInTauri && updateState.phase === "available" && <button type="button" className="brand-update-button" aria-label={`发现新版本 v${updateState.version}`} title={`发现新版本 v${updateState.version}，点击更新`} onClick={() => void installUpdate()}><ArrowUpCircle size={16} /></button>}
                 </div>
@@ -3830,19 +3813,6 @@ function App() {
             >
               分组管理
             </button>
-            <button
-              type="button"
-              className="layui-btn account-export-button"
-              title={selectedAccountIds.size ? `导出已勾选 ${selectedAccountIds.size} 个账号` : "选择账号导出"}
-              aria-label="导出账号"
-              onClick={() => void exportAccounts()}
-            >
-              <Download size={14} />
-              {selectedAccountIds.size ? `导出已勾选 (${selectedAccountIds.size})` : "选择导出"}
-            </button>
-            <button type="button" className="layui-btn account-export-button" title="打开手机扫码迁移和加密文件选项" onClick={() => setShowSyncTransfer(true)}>
-              <QrCode size={14} />手机扫码迁移
-            </button>
             <label className="layui-btn layui-btn-import account-import-button" title="导入账号 JSON">
               导入
               <input
@@ -3854,6 +3824,16 @@ function App() {
                 disabled={importing}
               />
             </label>
+            <button
+              type="button"
+              className="layui-btn account-export-button"
+              title={selectedAccountIds.size ? `导出已勾选 ${selectedAccountIds.size} 个账号` : "选择账号导出"}
+              aria-label="导出账号"
+              onClick={() => void exportAccounts()}
+            >
+              <Download size={14} />
+              {selectedAccountIds.size ? `导出已勾选 (${selectedAccountIds.size})` : "选择导出"}
+            </button>
           </div>
           {accounts.length === 0 ? (
             <div className="empty">
@@ -4748,6 +4728,7 @@ function App() {
             </div></section>
           </section>
         )}
+        {section === "data_management" && <DataManagementPage onBack={() => setSection("settings")} onPhoneMigration={() => setShowSyncTransfer(true)} canManageBackups={runningInTauri} onRestore={preview => setDatabaseImportPreview(preview)} onStatus={setStatus} />}
         {section === "settings" && (
           <section className="utility-page">
             <header><div><span className="eyebrow">LOCAL PREFERENCES</span><h1>系统设置</h1><p>管理本地客户端的显示和数据行为。</p></div></header>
@@ -4757,14 +4738,14 @@ function App() {
               <div className="settings-card"><div className="settings-icon cyan"><Cloud size={22} /></div><div className="settings-copy"><strong>自动刷新资产</strong><small>进入资源管理时读取本地缓存，不主动上传数据</small></div><label className="setting-switch"><input type="checkbox" checked={autoRefresh} onChange={(event) => setAutoRefresh(event.target.checked)} /><span /></label></div>
               <div className="settings-card"><div className="settings-icon purple"><Monitor size={22} /></div><div className="settings-copy"><strong>紧凑显示</strong><small>减少表格行高，适合小窗口查看</small></div><label className="setting-switch"><input type="checkbox" checked={compactMode} onChange={(event) => setCompactMode(event.target.checked)} /><span /></label></div>
               <div className="settings-card"><div className="settings-icon blue"><List size={22} /></div><div className="settings-copy"><strong>每页显示条数</strong><small>账号、资源和操作日志列表统一使用此分页大小</small></div><select className="settings-select" value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))}><option value={10}>10 条</option><option value={20}>20 条</option><option value={50}>50 条</option><option value={100}>100 条</option></select></div>
-              <div className="settings-card"><div className="settings-icon purple"><Database size={22} /></div><div className="settings-copy"><strong>数据库位置</strong><small>系统应用数据目录 / CloudHubTools / cloudhub_tools.sqlite3</small></div><button className="secondary settings-link" onClick={() => void openDataDirectory()}><FolderOpen size={16} />打开目录</button></div>
-              <div className="settings-card"><div className="settings-icon amber"><Upload size={22} /></div><div className="settings-copy"><strong>数据库迁移</strong><small>整库备份可导出或导入；单独迁移到手机可扫码选择配置</small></div><div className="settings-update-actions"><button className="secondary settings-link" onClick={() => setShowSyncTransfer(true)}><QrCode size={14} />手机扫码迁移</button><button className="secondary settings-link" onClick={() => setShowDatabaseExport(true)}><Download size={14} />选择导出</button><button className="primary-update-btn settings-link" onClick={() => void importDatabase()}><Upload size={14} />导入全部</button></div></div>
+              <div className="settings-card"><div className="settings-icon purple"><Database size={22} /></div><div className="settings-copy"><strong>数据库位置</strong><small>系统应用数据目录 / {isDevelopment ? "CloudHubTools-Dev" : "CloudHubTools"} / cloudhub_tools.sqlite3</small></div><button className="secondary settings-link" onClick={() => void openDataDirectory()}><FolderOpen size={16} />打开目录</button></div>
+              <button type="button" className="settings-card data-management-entry" onClick={() => setSection("data_management")}><div className="settings-icon amber"><Database size={22} /></div><div className="settings-copy"><strong>数据管理</strong><small>手机扫码迁移、完整数据备份与恢复</small></div><span className="secondary settings-link">打开数据管理</span></button>
               <div className="settings-card"><div className="settings-icon amber"><Terminal size={22} /></div><div className="settings-copy"><strong>GitHub 开源仓库</strong><small>https://github.com/wlphp/cloudhub-tools</small></div><a className="secondary settings-link" href="https://github.com/wlphp/cloudhub-tools" target="_blank" rel="noreferrer">访问仓库 ↗</a></div>
               <div className={`settings-card${updateState.phase === "available" && updateState.notes ? " has-update-notes" : ""}`}>
                 <div className="settings-icon blue"><Download size={22} /></div>
                 <div className="settings-copy">
                   <strong>客户端更新</strong>
-                  <small>{!runningInTauri ? `当前版本 v${appVersion}；自动更新仅在桌面客户端可用` : updateState.phase === "available" ? `当前 v${appVersion}，最新 v${updateState.version}${updateState.notes ? "，可下载并安装" : ""}` : updateState.phase === "downloading" ? `当前 v${appVersion}，正在下载 v${updateState.version}` : updateState.phase === "ready" ? `v${updateState.version} 已安装，正在重新启动` : updateState.phase === "current" ? `当前 v${appVersion} 已是最新版本` : updateState.phase === "error" ? `当前 v${appVersion}；${updateState.message}` : `当前版本 v${appVersion}，启动时会自动检查新版本`}</small>
+                  <small>{isDevelopment ? `开发版 v${appVersion} · 独立数据目录 · 正式版更新已禁用` : !runningInTauri ? `当前版本 v${appVersion}；自动更新仅在桌面客户端可用` : updateState.phase === "available" ? `当前 v${appVersion}，最新 v${updateState.version}${updateState.notes ? "，可下载并安装" : ""}` : updateState.phase === "downloading" ? `当前 v${appVersion}，正在下载 v${updateState.version}` : updateState.phase === "ready" ? `v${updateState.version} 已安装，正在重新启动` : updateState.phase === "current" ? `当前 v${appVersion} 已是最新版本` : updateState.phase === "error" ? `当前 v${appVersion}；${updateState.message}` : `当前版本 v${appVersion}，启动时会自动检查新版本`}</small>
                 </div>
                 <div className="settings-update-actions">
                   <a className="secondary settings-link" href="https://github.com/wlphp/cloudhub-tools/releases" target="_blank" rel="noreferrer" onClick={(e) => { if (runningInTauri) { e.preventDefault(); void openUrl("https://github.com/wlphp/cloudhub-tools/releases"); } }}>
@@ -4780,7 +4761,7 @@ function App() {
                   ) : runningInTauri && updateState.phase === "available" ? (
                     <button type="button" className="settings-link primary-update-btn" onClick={() => void installUpdate()}><Download size={14} />更新到 v{updateState.version}</button>
                   ) : runningInTauri ? (
-                    <button type="button" className="secondary settings-link" onClick={() => void checkForUpdates()}><RefreshCw size={14} />检查更新</button>
+                    <button type="button" className="secondary settings-link" disabled={isDevelopment} onClick={() => void checkForUpdates()}><RefreshCw size={14} />检查更新</button>
                   ) : (
                     <span className="setting-state">桌面端</span>
                   )}

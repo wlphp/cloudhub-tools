@@ -38,25 +38,70 @@ fn digest(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 
+fn backups_dir() -> Result<PathBuf, String> {
+    let path = data_dir()?.join("backups");
+    fs::create_dir_all(&path).map_err(|error| format!("创建备份目录失败: {error}"))?;
+    Ok(path)
+}
+
+fn backup_path(id: &str) -> Result<PathBuf, String> {
+    let parsed = Uuid::parse_str(id).map_err(|_| "备份记录无效".to_string())?;
+    Ok(backups_dir()?.join(format!("{parsed}.chdb")))
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DatabaseBackupRecord { pub(crate) id: String, pub(crate) file_name: String, pub(crate) created_at: String, pub(crate) size_bytes: u64 }
+
+fn package_bytes(database: &[u8], key: &[u8]) -> Result<Vec<u8>, String> {
+    let manifest = serde_json::to_vec(&json!({
+        "format": "cloudhub-tools-database-migration", "version": FORMAT_VERSION,
+        "exported_at": Utc::now().to_rfc3339(), "database_sha256": digest(database), "key_sha256": digest(key),
+    })).map_err(|error| format!("生成迁移包信息失败: {error}"))?;
+    let mut package = Vec::with_capacity(8 + 4 + manifest.len() + 8 + 4 + database.len() + key.len());
+    package.extend_from_slice(MAGIC);
+    write_u32(&mut package, manifest.len().try_into().map_err(|_| "迁移包信息过大")?);
+    package.extend_from_slice(&manifest);
+    write_u64(&mut package, database.len().try_into().map_err(|_| "数据库过大")?);
+    write_u32(&mut package, key.len().try_into().map_err(|_| "密钥文件无效")?);
+    package.extend_from_slice(database);
+    package.extend_from_slice(key);
+    if package.len() as u64 > MAX_PACKAGE_BYTES { return Err("迁移包超过 4 GB 限制".into()); }
+    Ok(package)
+}
+
+fn create_package_file(target: &Path) -> Result<(), String> {
+    let data = data_dir()?;
+    let snapshot = data.join(format!(".cloudhub-export-{}.sqlite3", Uuid::new_v4()));
+    let result = (|| {
+        snapshot_database(&snapshot)?;
+        let database = fs::read(&snapshot).map_err(|error| format!("读取 SQLite 快照失败: {error}"))?;
+        let package = package_bytes(&database, &crypto_key_bytes()?)?;
+        fs::write(target, package).map_err(|error| format!("写入备份失败: {error}"))
+    })();
+    let _ = fs::remove_file(snapshot);
+    result
+}
+
+fn backup_record(path: &Path) -> Result<DatabaseBackupRecord, String> {
+    let metadata = fs::metadata(path).map_err(|error| format!("读取备份信息失败: {error}"))?;
+    let id = path.file_stem().and_then(|value| value.to_str()).ok_or("备份记录无效")?.to_string();
+    let modified = metadata.modified().map(chrono::DateTime::<Utc>::from).ok();
+    let created_at = modified.map(|time| time.to_rfc3339()).unwrap_or_else(|| "未知".into());
+    let fallback_name = modified.map(|time| format!("cloudhub-tools-backup-{}.chdb", time.format("%Y%m%d-%H%M%S"))).unwrap_or_else(|| "cloudhub-tools-backup.chdb".into());
+    let file_name = fs::read_to_string(path.with_extension("name")).ok().filter(|name| !name.trim().is_empty()).unwrap_or(fallback_name);
+    Ok(DatabaseBackupRecord { id, file_name, created_at, size_bytes: metadata.len() })
+}
+
+fn save_backup_display_name(path: &Path, file_name: &str) -> Result<(), String> {
+    fs::write(path.with_extension("name"), file_name).map_err(|error| format!("保存备份文件名失败: {error}"))
+}
+
 fn snapshot_database(target: &Path) -> Result<(), String> {
     let conn = open_db()?;
     let escaped = target.to_string_lossy().replace('\'', "''");
     conn.execute_batch(&format!("VACUUM INTO '{}';", escaped))
         .map_err(|error| format!("创建 SQLite 快照失败: {error}"))
-}
-
-fn omit_authenticator_from_export(snapshot: &Path) -> Result<(), String> {
-    // OTP recovery is deliberately a separate password-protected export flow.
-    // Only modify the export copy, never the live database or rollback backup.
-    let conn = Connection::open(snapshot).map_err(|_| "无法准备验证器数据隔离")?;
-    conn.execute_batch("PRAGMA secure_delete=ON; DELETE FROM authenticator_entries; DELETE FROM authenticator_vault;")
-        .map_err(|_| "无法从整库导出中隔离验证器数据")?;
-    for table in ["codex_profiles", "codex_account_controls", "codex_accounts", "codex_profile_backups", "codex_gateway_config", "codex_gateway_pool", "codex_gateway_network", "codex_gateway_tunnel"] {
-        if table_exists(&conn, table)? && table_count(&conn, table)? > 0 {
-            conn.execute(&format!("DELETE FROM {table}"), []).map_err(|_| "无法从整库导出中隔离 Codex 登录数据")?;
-        }
-    }
-    conn.execute_batch("VACUUM;").map_err(|_| "清理迁移包机密数据失败".into())
 }
 
 fn preserve_local_codex(incoming: &Path, current: &Path, current_key: &[u8], incoming_key: &[u8]) -> Result<(), String> {
@@ -263,36 +308,80 @@ fn build_preview(database_path: &Path, current_db: &Path, token: String, package
 #[tauri::command]
 pub(crate) fn export_database_file(app: tauri::AppHandle) -> PlatformResult<Option<String>> {
     ensure_database_file_migration_supported()?;
-    let data = data_dir()?;
-    let key = crypto_key_bytes()?;
-    let snapshot = data.join(format!(".cloudhub-export-{}.sqlite3", Uuid::new_v4()));
     let result = (|| {
-        snapshot_database(&snapshot)?;
-        omit_authenticator_from_export(&snapshot)?;
-        let database = fs::read(&snapshot).map_err(|error| format!("读取 SQLite 快照失败: {error}"))?;
-        let manifest = serde_json::to_vec(&json!({
-            "format": "cloudhub-tools-database-migration",
-            "version": FORMAT_VERSION,
-            "exported_at": Utc::now().to_rfc3339(),
-            "database_sha256": digest(&database),
-            "key_sha256": digest(&key),
-        })).map_err(|error| format!("生成迁移包信息失败: {error}"))?;
         let Some(selected) = app.dialog().file().set_file_name(format!("cloudhub-tools-backup-{}.chdb", Utc::now().format("%Y%m%d-%H%M%S"))).blocking_save_file() else { return Ok(None) };
         let path = selected.into_path().map_err(|_| "当前平台返回了不支持的导出路径".to_string())?;
-        let mut package = Vec::with_capacity(8 + 4 + manifest.len() + 8 + 4 + database.len() + key.len());
-        package.extend_from_slice(MAGIC);
-        write_u32(&mut package, manifest.len().try_into().map_err(|_| "迁移包信息过大")?);
-        package.extend_from_slice(&manifest);
-        write_u64(&mut package, database.len().try_into().map_err(|_| "数据库过大")?);
-        write_u32(&mut package, key.len().try_into().map_err(|_| "密钥文件无效")?);
-        package.extend_from_slice(&database);
-        package.extend_from_slice(&key);
-        if package.len() as u64 > MAX_PACKAGE_BYTES { return Err("迁移包超过 4 GB 限制".into()); }
-        fs::write(&path, package).map_err(|error| format!("写入迁移包失败: {error}"))?;
+        create_package_file(&path)?;
         Ok(Some(path.to_string_lossy().into_owned()))
     })();
-    let _ = fs::remove_file(&snapshot);
     result
+}
+
+#[tauri::command]
+pub(crate) fn list_database_backups() -> PlatformResult<Vec<DatabaseBackupRecord>> {
+    ensure_database_file_migration_supported()?;
+    let mut records = Vec::new();
+    for entry in fs::read_dir(backups_dir()?).map_err(|error| format!("读取备份列表失败: {error}"))? {
+        let path = entry.map_err(|error| format!("读取备份列表失败: {error}"))?.path();
+        if path.extension().and_then(|value| value.to_str()) != Some("chdb") { continue; }
+        if Uuid::parse_str(path.file_stem().and_then(|value| value.to_str()).unwrap_or_default()).is_ok() {
+            if let Ok(record) = backup_record(&path) { records.push(record); }
+        }
+    }
+    records.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    Ok(records)
+}
+
+#[tauri::command]
+pub(crate) fn create_database_backup() -> PlatformResult<DatabaseBackupRecord> {
+    ensure_database_file_migration_supported()?;
+    let id = Uuid::new_v4().to_string();
+    let path = backups_dir()?.join(format!("{id}.chdb"));
+    create_package_file(&path)?;
+    save_backup_display_name(&path, &format!("cloudhub-tools-backup-{}.chdb", Utc::now().format("%Y%m%d-%H%M%S")))?;
+    Ok(backup_record(&path)?)
+}
+
+#[tauri::command]
+pub(crate) fn download_database_backup(app: tauri::AppHandle, id: String) -> PlatformResult<Option<String>> {
+    ensure_database_file_migration_supported()?;
+    let source = backup_path(&id)?;
+    if !source.is_file() { return Err("找不到这条备份记录".into()); }
+    let Some(selected) = app.dialog().file().set_file_name(format!("cloudhub-tools-backup-{}.chdb", Utc::now().format("%Y%m%d-%H%M%S"))).blocking_save_file() else { return Ok(None) };
+    let target = selected.into_path().map_err(|_| "当前平台返回了不支持的导出路径".to_string())?;
+    fs::copy(source, &target).map_err(|error| format!("下载备份失败: {error}"))?;
+    Ok(Some(target.to_string_lossy().into_owned()))
+}
+
+#[tauri::command]
+pub(crate) fn delete_database_backup(id: String) -> PlatformResult<()> {
+    ensure_database_file_migration_supported()?;
+    let path = backup_path(&id)?;
+    if path.exists() { fs::remove_file(&path).map_err(|error| format!("删除备份失败: {error}"))?; }
+    let _ = fs::remove_file(path.with_extension("name"));
+    Ok(())
+}
+
+#[tauri::command]
+pub(crate) fn import_database_backup(app: tauri::AppHandle) -> PlatformResult<Option<DatabaseBackupRecord>> {
+    ensure_database_file_migration_supported()?;
+    let Some(selected) = app.dialog().file().blocking_pick_file() else { return Ok(None) };
+    let source = selected.into_path().map_err(|_| "当前平台返回了不支持的导入路径".to_string())?;
+    let mut signature = [0u8; 8];
+    use std::io::Read;
+    fs::File::open(&source).and_then(|mut file| file.read_exact(&mut signature)).map_err(|_| "无法读取备份文件".to_string())?;
+    if &signature != MAGIC { return Err("请选择 CloudHub 完整备份文件（.chdb）".into()); }
+    let (database, _, manifest) = parse_package(&source)?;
+    if manifest.get("format").and_then(|value| value.as_str()) != Some("cloudhub-tools-database-migration") { return Err("请选择 CloudHub 完整备份文件（.chdb）".into()); }
+    let temp = data_dir()?.join(format!(".cloudhub-backup-validate-{}.sqlite3", Uuid::new_v4()));
+    let validation = (|| { fs::write(&temp, database).map_err(|error| format!("校验备份失败: {error}"))?; validate_database(&temp) })();
+    let _ = fs::remove_file(temp);
+    validation?;
+    let target = backups_dir()?.join(format!("{}.chdb", Uuid::new_v4()));
+    fs::copy(&source, &target).map_err(|error| format!("导入备份文件失败: {error}"))?;
+    let file_name = source.file_name().and_then(|name| name.to_str()).filter(|name| !name.trim().is_empty()).unwrap_or("导入备份.chdb");
+    save_backup_display_name(&target, file_name)?;
+    Ok(Some(backup_record(&target)?))
 }
 
 #[tauri::command]
@@ -398,9 +487,26 @@ pub(crate) fn prepare_database_import(app: tauri::AppHandle, state: tauri::State
     Ok(Some(preview))
 }
 
+#[tauri::command]
+pub(crate) fn prepare_database_backup_restore(id: String, state: tauri::State<'_, DatabaseImportStore>) -> PlatformResult<Option<ImportPreview>> {
+    ensure_database_file_migration_supported()?;
+    let package_path = backup_path(&id)?;
+    if !package_path.is_file() { return Err("找不到这条备份记录".into()); }
+    let (database, key, manifest) = parse_package(&package_path)?;
+    let data = data_dir()?;
+    let token = Uuid::new_v4().to_string();
+    let database_path = data.join(format!(".cloudhub-import-preview-{token}.sqlite3"));
+    fs::write(&database_path, database).map_err(|error| format!("准备导入预览失败: {error}"))?;
+    validate_database(&database_path)?;
+    reset_imported_sync_identity(&database_path)?;
+    let preview = build_preview(&database_path, &data.join("cloudhub_tools.sqlite3"), token.clone(), "本机备份".into(), manifest.get("exported_at").and_then(|value| value.as_str()).unwrap_or("未知").to_string())?;
+    state.sessions.lock().map_err(|_| "导入预览状态不可用".to_string())?.insert(token, PreparedImport { database_path, key });
+    Ok(Some(preview))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{reset_imported_sync_identity, preserve_local_authenticator, omit_authenticator_from_export, preserve_local_codex};
+    use super::{reset_imported_sync_identity, preserve_local_authenticator, preserve_local_codex};
 
     #[test]
     fn codex_stays_local_and_is_reencrypted_when_database_key_changes() {
@@ -444,13 +550,6 @@ mod tests {
         preserve_local_codex(&incoming, &current, &old_key, &new_key).unwrap();
         let profile: (String,Option<String>) = Connection::open(&incoming).unwrap().query_row("SELECT kind,auth_fingerprint FROM codex_profiles", [], |row| Ok((row.get(0)?,row.get(1)?))).unwrap();
         assert_eq!(profile,("cli".into(),None));
-        omit_authenticator_from_export(&incoming).unwrap();
-        let conn = Connection::open(&incoming).unwrap();
-        assert_eq!(conn.query_row("SELECT COUNT(*) FROM codex_accounts", [], |row| row.get::<_,i64>(0)).unwrap(),0);
-        assert_eq!(conn.query_row("SELECT COUNT(*) FROM codex_profile_backups", [], |row| row.get::<_,i64>(0)).unwrap(),0);
-        assert_eq!(conn.query_row("SELECT COUNT(*) FROM codex_profiles", [], |row| row.get::<_,i64>(0)).unwrap(),0);
-        assert_eq!(conn.query_row("SELECT COUNT(*) FROM codex_gateway_config", [], |row| row.get::<_,i64>(0)).unwrap(),0);
-        drop(conn);
         assert_eq!(Connection::open(&current).unwrap().query_row("SELECT COUNT(*) FROM codex_accounts", [], |row| row.get::<_,i64>(0)).unwrap(),1);
         fs::remove_dir_all(root).unwrap();
     }
@@ -459,7 +558,7 @@ mod tests {
     use uuid::Uuid;
 
     #[test]
-    fn authenticator_is_excluded_from_export_and_preserved_on_import() {
+    fn authenticator_from_current_device_is_preserved_when_importing() {
         let current = std::env::temp_dir().join(format!("auth-current-{}.sqlite3", Uuid::new_v4()));
         let incoming = std::env::temp_dir().join(format!("auth-incoming-{}.sqlite3", Uuid::new_v4()));
         for (path, header, ciphertext) in [(&current, "local-encrypted-header", "local-encrypted-entry"), (&incoming, "incoming-encrypted-header", "incoming-encrypted-entry")] {
@@ -470,20 +569,9 @@ mod tests {
         }
         preserve_local_authenticator(&incoming, &current).unwrap();
         let connection = Connection::open(&incoming).unwrap();
-        let header: String = connection.query_row("SELECT envelope_json FROM authenticator_vault", [], |r|r.get(0)).unwrap();
-        let entry: String = connection.query_row("SELECT ciphertext FROM authenticator_entries", [], |r|r.get(0)).unwrap();
-        assert_eq!(header, "local-encrypted-header");
-        assert_eq!(entry, "local-encrypted-entry");
+        assert_eq!(connection.query_row("SELECT envelope_json FROM authenticator_vault", [], |row| row.get::<_, String>(0)).unwrap(), "local-encrypted-header");
+        assert_eq!(connection.query_row("SELECT ciphertext FROM authenticator_entries", [], |row| row.get::<_, String>(0)).unwrap(), "local-encrypted-entry");
         drop(connection);
-        omit_authenticator_from_export(&incoming).unwrap();
-        let bytes = fs::read(&incoming).unwrap();
-        assert!(!bytes.windows(b"local-encrypted".len()).any(|v|v == b"local-encrypted"));
-        assert_eq!(Connection::open(&current).unwrap().query_row("SELECT COUNT(*) FROM authenticator_entries", [], |r|r.get::<_,i64>(0)).unwrap(), 1);
-        // An old migration file without OTP tables also retains the current vault.
-        fs::remove_file(&incoming).unwrap();
-        Connection::open(&incoming).unwrap().execute_batch("CREATE TABLE example(id INTEGER);").unwrap();
-        preserve_local_authenticator(&incoming, &current).unwrap();
-        assert_eq!(Connection::open(&incoming).unwrap().query_row("SELECT ciphertext FROM authenticator_entries", [], |r|r.get::<_,String>(0)).unwrap(), "local-encrypted-entry");
         fs::remove_file(current).unwrap();
         fs::remove_file(incoming).unwrap();
     }

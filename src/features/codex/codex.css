@@ -199,6 +199,8 @@
 .codex-dialog:not(.codex-dialog-form-layout) .codex-dialog-heading { display: grid; gap: 5px; min-width: 0; }
 .codex-dialog:not(.codex-dialog-form-layout) h2 { font-size: 21px; line-height: 1.35; }
 .codex-dialog-content { display: grid; flex: 1 1 auto; align-content: start; gap: 12px; min-height: 0; overflow: auto; padding: 20px 24px; }
+.codex-dialog-content > .codex-export-format { display: grid; gap: 6px; margin: 0; color: var(--jb-muted,#a4a4a4); font-size: 12px; }
+.codex-dialog-content > .codex-export-format select { width: 100%; min-height: 40px; padding: 8px 10px; border: 1px solid var(--jb-border-strong,#555); border-radius: 4px; background: var(--jb-input,#202020); color: var(--jb-text,#dedede); }
 .codex-dialog-content > p:first-child { margin-top: 0; }
 .codex-dialog-content > .codex-dialog-actions { position: sticky; bottom: -20px; z-index: 2; display: flex; flex: 0 0 auto; justify-content: flex-end; gap: 8px; margin: auto -24px -20px; padding: 14px 24px; border-top: 1px solid var(--jb-border, #3b3b3b); background: var(--jb-surface, #2b2b2b); }
 .codex-dialog-content > .codex-dialog-actions button { min-height: 44px; padding: 8px 14px; }

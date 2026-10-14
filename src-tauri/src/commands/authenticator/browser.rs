@@ -56,12 +56,11 @@ fn dispatch(store: &VaultStore, request: Request) -> Result<Value, String> {
             value(codes)
         }),
         "prepare" => {
-            let password = Zeroizing::new(field::<String>(&args, "password")?);
             let content = if let Some(image) = args.get("image").filter(|v| !v.is_null()) {
                 let bytes = Zeroizing::new(serde_json::from_value::<Vec<u8>>(image.clone()).map_err(|_| "图片参数无效")?); decode_qr(&bytes)?
             } else { Zeroizing::new(field::<String>(&args, "text")?) };
             if content.len() > MAX_FILE_BYTES { return Err("文件不能超过 10 MiB".into()); }
-            let parsed = formats::parse_file(&content, &password)?;
+            let parsed = formats::parse_file(&content)?;
             access(store, owner, true, |s, db| {
                 let mut seen = repository::load(db, &s.key)?; let mut items = vec![];
                 for entry in &parsed.entries {
@@ -78,12 +77,11 @@ fn dispatch(store: &VaultStore, request: Request) -> Result<Value, String> {
         "cancel" => access(store, owner, false, |s, _| { s.stage = None; Ok(Value::Null) }),
         "export" => access(store, owner, true, |s, db| {
             let ids: Vec<String> = field(&args, "ids")?; let format: String = field(&args, "format")?;
-            if ids.is_empty() || ids.len() > MAX_ENTRIES || !["cloudhub", "ente", "plain"].contains(&format.as_str()) { return Err("导出选择或格式无效".into()); }
-            if format == "plain" && !field::<bool>(&args, "acknowledgePlain")? { return Err("明文导出必须确认密钥泄露风险".into()); }
-            let password = Zeroizing::new(field::<String>(&args, "password")?);
+            if ids.is_empty() || ids.len() > MAX_ENTRIES || !["cloudhub", "plain"].contains(&format.as_str()) { return Err("导出选择或格式无效".into()); }
+            if !field::<bool>(&args, "acknowledgePlain")? { return Err("无口令导出必须确认密钥泄露风险".into()); }
             let entries = repository::selected(db, &s.key, &ids)?;
             if entries.len() != ids.iter().collect::<HashSet<_>>().len() { return Err("导出选择已失效".into()); }
-            let data = formats::export(&entries, &format, &password)?;
+            let data = formats::export(&entries, &format)?;
             Ok(json!({ "content": std::str::from_utf8(&data).map_err(|_| "导出编码失败")?, "filename": format!("cloudhub-auth-{}.{}", chrono::Utc::now().format("%Y%m%d-%H%M%S"), if format == "plain" { "txt" } else { "json" }) }))
         }),
         _ => Err("验证器操作无效".into()),

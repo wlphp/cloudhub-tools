@@ -11,7 +11,9 @@ test("phone migration defaults to 95 percent with fixed common header and footer
     }};
   });
   await page.setViewportSize({width:1440,height:900}); await page.goto("/");
-  await page.getByRole("button", {name:"手机扫码迁移",exact:true}).first().click();
+  await page.getByRole("button", {name:"系统设置",exact:true}).first().click();
+  await page.locator(".data-management-entry").click();
+  await page.getByRole("button", {name:"开始迁移",exact:true}).click();
   const panel = page.getByRole("dialog", {name:"迁移到手机",exact:true});
   await expect(panel.locator(".sync-transfer-account")).toHaveCount(40);
   for (const width of [375,768,1024,1440]) {
@@ -32,6 +34,6 @@ test("phone migration defaults to 95 percent with fixed common header and footer
   await panel.locator(".sync-transfer-body").evaluate(el=>{el.scrollTop=0;});
   await page.screenshot({path:"test-results/phone-migration-common-dialog.png"});
   await panel.getByRole("button", {name:"关闭迁移面板"}).click(); await expect(panel).toBeHidden();
-  await page.getByRole("button", {name:"手机扫码迁移",exact:true}).first().click();
+  await page.getByRole("button", {name:"开始迁移",exact:true}).click();
   expect((await panel.boundingBox())!.width).toBeCloseTo(1440*0.95,0);
 });

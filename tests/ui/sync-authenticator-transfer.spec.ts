@@ -14,7 +14,9 @@ test("desktop QR migration can contain selected authenticator entries only", asy
     } };
   });
   await page.goto("/");
-  await page.getByRole("button", { name: "手机扫码迁移", exact: true }).first().click();
+  await page.getByRole("button", { name: "系统设置", exact: true }).first().click();
+  await page.locator(".data-management-entry").click();
+  await page.getByRole("button", { name: "开始迁移", exact: true }).click();
   await page.getByRole("tab", { name: /验证器/ }).click();
   await page.getByRole("checkbox", { name: "迁移验证码 Example two@example.test" }).uncheck();
   await page.getByRole("button", { name: "显示手机迁移二维码（免口令）" }).click();

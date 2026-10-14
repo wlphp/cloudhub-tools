@@ -35,8 +35,8 @@ test("browser authenticator copies and imports/exports with browser file control
   await page.getByRole("button", { name: "确认导入", exact: true }).click();
   await page.getByLabel("选择 Example web@example.test").check();
   await page.getByRole("button", { name: "导出所选", exact: true }).click();
-  await page.getByLabel("导出密码", { exact: true }).fill("fixture-backup-password");
-  await page.getByLabel("确认导出密码", { exact: true }).fill("fixture-backup-password");
+  await expect(page.getByLabel("导出密码", { exact: true })).toHaveCount(0);
+  await page.getByLabel("我了解备份文件未加密，持有者可以生成验证码。").check();
   const downloaded = page.waitForEvent("download");
   await page.getByRole("button", { name: "选择位置并导出" }).click();
   expect((await downloaded).suggestedFilename()).toBe("fixture-backup.json");

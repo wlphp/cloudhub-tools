@@ -8,6 +8,7 @@ use rusqlite::{params, OptionalExtension};
 use serde::Serialize;
 use std::{
     fs,
+    io::Read,
     sync::Mutex,
     time::{Duration, Instant},
 };
@@ -137,20 +138,29 @@ pub(crate) async fn codex_import_local(app: tauri::AppHandle) -> PlatformResult<
 }
 
 #[tauri::command]
-pub(crate) async fn codex_import_file(app: tauri::AppHandle) -> PlatformResult<Option<CodexState>> {
+pub(crate) async fn codex_import_file(
+    app: tauri::AppHandle,
+    format: String,
+) -> PlatformResult<Option<CodexState>> {
     tauri::async_runtime::spawn_blocking(move || -> Result<Option<CodexState>, String> {
-        let Some(selected) = app
-            .dialog()
-            .file()
-            .set_title("导入 Codex 账号 JSON（包含登录凭据）")
-            .add_filter("JSON", &["json"])
-            .blocking_pick_file()
-        else {
+        if !matches!(
+            format.as_str(),
+            "cockpit_tools" | "auth_json" | "sub2api" | "cpa"
+        ) {
+            return Err("Codex 导入格式无效".into());
+        }
+        let zip_allowed = matches!(format.as_str(), "auth_json" | "cpa");
+        let dialog = app.dialog().file().set_title("导入 Codex 账号文件");
+        let dialog = if zip_allowed {
+            dialog.add_filter("JSON 或 ZIP", &["json", "zip"])
+        } else {
+            dialog.add_filter("JSON", &["json"])
+        };
+        let Some(selected) = dialog.blocking_pick_file() else {
             return Ok(None);
         };
         let path = selected.into_path().map_err(|_| "Codex 导入文件路径无效")?;
-        let content = profile::read_auth(&path)?;
-        let accounts = auth::parse_import(&content)?;
+        let accounts = parse_codex_import_file(&path, &format)?;
         let _writer = AUTH_WRITER.lock().map_err(|_| "Codex 账号操作不可用")?;
         import_accounts(&app, accounts)?;
         state().map(Some)
@@ -158,6 +168,143 @@ pub(crate) async fn codex_import_file(app: tauri::AppHandle) -> PlatformResult<O
     .await
     .map_err(|_| "导入 Codex 文件任务失败")?
     .map_err(Into::into)
+}
+
+fn normalize_import_value(value: &mut serde_json::Value, format: &str) -> Result<(), String> {
+    use serde_json::{json, Value};
+    if format == "sub2api" {
+        let entries = value
+            .get_mut("accounts")
+            .and_then(Value::as_array_mut)
+            .ok_or("Sub2API 文件缺少账号列表")?;
+        for entry in entries.iter_mut() {
+            let kind = entry.get("type").and_then(Value::as_str).unwrap_or("");
+            let credentials = entry.get("credentials").cloned().unwrap_or(Value::Null);
+            if kind == "apikey" {
+                let key = credentials
+                    .get("api_key")
+                    .and_then(Value::as_str)
+                    .ok_or("Sub2API API Key 凭据无效")?;
+                *entry = json!({"OPENAI_API_KEY":key});
+            } else if kind == "oauth" {
+                let mut tokens = json!({});
+                for name in ["access_token", "id_token", "refresh_token"] {
+                    if let Some(token) = credentials.get(name) {
+                        tokens[name] = token.clone();
+                    }
+                }
+                if let Some(account_id) = credentials.get("chatgpt_account_id") {
+                    tokens["account_id"] = account_id.clone();
+                }
+                *entry = json!({"tokens":tokens});
+            } else {
+                return Err("Sub2API 文件包含不支持的账号类型".into());
+            }
+        }
+    } else if format == "cpa" {
+        let normalize = |item: &mut Value| {
+            if item.get("tokens").is_none() && item.get("access_token").is_some() {
+                let mut tokens = json!({});
+                for name in ["access_token", "id_token", "refresh_token", "account_id"] {
+                    if let Some(token) = item.get(name) {
+                        tokens[name] = token.clone();
+                    }
+                }
+                let last_refresh = item.get("last_refresh").cloned();
+                *item = json!({"tokens":tokens});
+                if let Some(last_refresh) = last_refresh {
+                    item["last_refresh"] = last_refresh;
+                }
+            }
+        };
+        if let Some(items) = value.as_array_mut() {
+            for item in items {
+                normalize(item);
+            }
+        } else {
+            normalize(value);
+        }
+    }
+    Ok(())
+}
+
+fn parse_codex_import_file(
+    path: &std::path::Path,
+    format: &str,
+) -> Result<Vec<auth::ImportedAccount>, String> {
+    use std::io::Cursor;
+    use zeroize::Zeroizing;
+    let file_size = fs::metadata(path)
+        .map_err(|_| "读取 Codex 导入文件失败")?
+        .len();
+    if file_size == 0 || file_size > 4 * 1024 * 1024 {
+        return Err("请选择不超过 4 MB 的非空 Codex 文件".into());
+    }
+    let bytes = Zeroizing::new(fs::read(path).map_err(|_| "读取 Codex 导入文件失败")?);
+    if bytes.is_empty() || bytes.len() > 4 * 1024 * 1024 {
+        return Err("请选择不超过 4 MB 的非空 Codex 文件".into());
+    }
+    let is_zip = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .is_some_and(|value| value.eq_ignore_ascii_case("zip"));
+    if is_zip && !matches!(format, "auth_json" | "cpa") {
+        return Err("所选格式不支持 ZIP 文件".into());
+    }
+    if is_zip {
+        let mut archive = zip::ZipArchive::new(Cursor::new(bytes.as_slice()))
+            .map_err(|_| "Codex ZIP 文件无效")?;
+        if archive.len() == 0 || archive.len() > 100 {
+            return Err("ZIP 中的账号文件数量超出限制".into());
+        }
+        let mut values = Vec::new();
+        let mut total = 0usize;
+        for index in 0..archive.len() {
+            let file = archive.by_index(index).map_err(|_| "Codex ZIP 文件无效")?;
+            if file.is_dir() || !file.name().to_ascii_lowercase().ends_with(".json") {
+                continue;
+            }
+            let size = usize::try_from(file.size()).map_err(|_| "ZIP 文件超出大小限制")?;
+            total = total
+                .checked_add(size)
+                .filter(|size| *size <= 2 * 1024 * 1024)
+                .ok_or("ZIP 解压内容超出 2 MB 限制")?;
+            let mut content = Vec::with_capacity(size);
+            file.take(2 * 1024 * 1024 + 1)
+                .read_to_end(&mut content)
+                .map_err(|_| "读取 ZIP 中的账号文件失败")?;
+            if content.len() != size {
+                return Err("ZIP 中的账号文件大小无效".into());
+            }
+            let text = Zeroizing::new(
+                String::from_utf8(content).map_err(|_| "ZIP 中的账号文件不是 UTF-8")?,
+            );
+            let mut value: serde_json::Value =
+                serde_json::from_str(&text).map_err(|_| "ZIP 中的账号 JSON 无效")?;
+            normalize_import_value(&mut value, format)?;
+            let encoded = Zeroizing::new(value.to_string());
+            values.extend(auth::parse_import(&encoded)?);
+            if values.len() > 100 {
+                return Err("每次可导入 1 至 100 个 Codex 账号".into());
+            }
+        }
+        if values.is_empty() {
+            return Err("ZIP 中没有可导入的 JSON 账号文件".into());
+        }
+        Ok(values)
+    } else {
+        if bytes.len() > 2 * 1024 * 1024 {
+            return Err("JSON 文件不能超过 2 MB".into());
+        }
+        let text = Zeroizing::new(
+            String::from_utf8(bytes.to_vec()).map_err(|_| "Codex 导入文件不是 UTF-8")?,
+        );
+        let mut value: serde_json::Value =
+            serde_json::from_str(&text).map_err(|_| "Codex 导入文件不是有效 JSON")?;
+        normalize_import_value(&mut value, format)?;
+        let encoded = Zeroizing::new(value.to_string());
+        auth::parse_import(&encoded)
+    }
 }
 
 #[tauri::command]
@@ -434,6 +581,24 @@ mod recovery_tests {
     use crate::core::crypto::{decrypt_secret_with_key, encrypt_secret_with_key};
     use std::path::PathBuf;
 
+    #[test]
+    fn normalizes_sub2api_and_cpa_credentials_for_the_codex_importer() {
+        use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+        use serde_json::json;
+        let id_token = format!(
+            "fixture.{}.signature",
+            URL_SAFE_NO_PAD.encode(json!({"sub":"user-fixture","https://api.openai.com/auth":{"chatgpt_account_id":"account-fixture","chatgpt_user_id":"user-fixture"}}).to_string())
+        );
+        let oauth = json!({"access_token":"access-fixture","id_token":id_token.clone(),"refresh_token":"refresh-fixture","chatgpt_account_id":"account-fixture"});
+        let mut sub2api = json!({"accounts":[{"type":"oauth","credentials":oauth}]});
+        normalize_import_value(&mut sub2api, "sub2api").unwrap();
+        assert_eq!(auth::parse_import(&sub2api.to_string()).unwrap().len(), 1);
+
+        let mut cpa = json!({"access_token":"access-fixture","id_token":id_token,"refresh_token":"refresh-fixture","account_id":"account-fixture"});
+        normalize_import_value(&mut cpa, "cpa").unwrap();
+        assert_eq!(auth::parse_import(&cpa.to_string()).unwrap().len(), 1);
+    }
+
     struct Fixture {
         home: PathBuf,
         conn: rusqlite::Connection,
@@ -560,22 +725,42 @@ mod recovery_tests {
 }
 
 #[tauri::command]
-pub(crate) fn codex_remote_logs() -> PlatformResult<crate::core::codex::remote_logs::LogState> { crate::core::codex::remote_logs::state().map_err(Into::into) }
+pub(crate) fn codex_remote_logs() -> PlatformResult<crate::core::codex::remote_logs::LogState> {
+    crate::core::codex::remote_logs::state().map_err(Into::into)
+}
 #[tauri::command]
-pub(crate) fn codex_remote_log_detail(id: String) -> PlatformResult<crate::core::codex::gateway_controls::CallDetail> { crate::core::codex::remote_logs::detail(&id).map_err(Into::into) }
+pub(crate) fn codex_remote_log_detail(
+    id: String,
+) -> PlatformResult<crate::core::codex::gateway_controls::CallDetail> {
+    crate::core::codex::remote_logs::detail(&id).map_err(Into::into)
+}
 #[tauri::command]
-pub(crate) fn codex_remote_logs_configure(enabled: bool) -> PlatformResult<crate::core::codex::remote_logs::LogState> { crate::core::codex::remote_logs::configure_saved(&open_db()?, enabled).map_err(Into::into) }
+pub(crate) fn codex_remote_logs_configure(
+    enabled: bool,
+) -> PlatformResult<crate::core::codex::remote_logs::LogState> {
+    crate::core::codex::remote_logs::configure_saved(&open_db()?, enabled).map_err(Into::into)
+}
 #[tauri::command]
-pub(crate) fn codex_remote_logs_clear() -> PlatformResult<crate::core::codex::remote_logs::LogState> { crate::core::codex::remote_logs::clear().map_err(Into::into) }
-
-#[tauri::command]
-pub(crate) async fn codex_detect_proxies() -> PlatformResult<Vec<crate::core::codex::proxy_detection::ProxyCandidate>> {
-    tauri::async_runtime::spawn_blocking(crate::core::codex::proxy_detection::detect)
-        .await.map_err(|_| "读取本机代理配置失败，请手动填写代理地址")?.map_err(Into::into)
+pub(crate) fn codex_remote_logs_clear() -> PlatformResult<crate::core::codex::remote_logs::LogState>
+{
+    crate::core::codex::remote_logs::clear().map_err(Into::into)
 }
 
 #[tauri::command]
-pub(crate) async fn codex_save_proxies(app: tauri::AppHandle, ids: Vec<i64>, url: String) -> PlatformResult<Vec<CodexAccountSummary>> {
+pub(crate) async fn codex_detect_proxies(
+) -> PlatformResult<Vec<crate::core::codex::proxy_detection::ProxyCandidate>> {
+    tauri::async_runtime::spawn_blocking(crate::core::codex::proxy_detection::detect)
+        .await
+        .map_err(|_| "读取本机代理配置失败，请手动填写代理地址")?
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub(crate) async fn codex_save_proxies(
+    app: tauri::AppHandle,
+    ids: Vec<i64>,
+    url: String,
+) -> PlatformResult<Vec<CodexAccountSummary>> {
     tauri::async_runtime::spawn_blocking(move || -> Result<_, String> {
         let _writer = AUTH_WRITER.lock().map_err(|_| "账号操作不可用")?;
         crate::core::codex::account_controls::validate_proxy(&url)?;
@@ -585,58 +770,132 @@ pub(crate) async fn codex_save_proxies(app: tauri::AppHandle, ids: Vec<i64>, url
         let store = app.state::<super::codex_runtime::CodexRuntimeStore>();
         for id in &ids {
             if super::codex_instances::account_running(&store, *id)? {
-                return Err("所选账号中有服务、实例或唤醒任务运行，请先停止后批量设置代理；未修改任何账号".into());
+                return Err(
+                    "所选账号中有服务、实例或唤醒任务运行，请先停止后批量设置代理；未修改任何账号"
+                        .into(),
+                );
             }
         }
         crate::core::codex::account_controls::save_proxies(&mut open_db()?, &ids, &url)
-    }).await.map_err(|_| "批量保存代理任务失败")?.map_err(Into::into)
+    })
+    .await
+    .map_err(|_| "批量保存代理任务失败")?
+    .map_err(Into::into)
 }
 
 #[tauri::command]
-pub(crate) async fn codex_save_proxy(app:tauri::AppHandle,id:i64,url:String)->PlatformResult<CodexAccountSummary> {
-    tauri::async_runtime::spawn_blocking(move || -> Result<_,String> {
+pub(crate) async fn codex_save_proxy(
+    app: tauri::AppHandle,
+    id: i64,
+    url: String,
+) -> PlatformResult<CodexAccountSummary> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<_, String> {
         crate::core::codex::account_controls::validate_proxy(&url)?;
-        let _writer=AUTH_WRITER.lock().map_err(|_|"账号操作不可用")?;
-        let conn=open_db()?; repository::get(&conn,id)?;
-        if super::codex_instances::account_running(&app.state::<super::codex_runtime::CodexRuntimeStore>(),id)? {return Err("请先停止该账号的服务或实例，再修改代理".into());}
-        crate::core::codex::account_controls::save_proxy(&conn,id,&url)?; repository::get(&conn,id)
-    }).await.map_err(|_|"保存账号代理任务失败")?.map_err(Into::into)
+        let _writer = AUTH_WRITER.lock().map_err(|_| "账号操作不可用")?;
+        let conn = open_db()?;
+        repository::get(&conn, id)?;
+        if super::codex_instances::account_running(
+            &app.state::<super::codex_runtime::CodexRuntimeStore>(),
+            id,
+        )? {
+            return Err("请先停止该账号的服务或实例，再修改代理".into());
+        }
+        crate::core::codex::account_controls::save_proxy(&conn, id, &url)?;
+        repository::get(&conn, id)
+    })
+    .await
+    .map_err(|_| "保存账号代理任务失败")?
+    .map_err(Into::into)
 }
 #[tauri::command]
-pub(crate) async fn codex_refresh_benefits(id:i64)->PlatformResult<CodexAccountSummary> {
-    tauri::async_runtime::spawn_blocking(move || -> Result<_,String> {
-        use crate::core::codex::{account_controls as controls,gateway};
-        let _writer=AUTH_WRITER.lock().map_err(|_|"账号操作不可用")?;
-        let conn=open_db()?; let mut summary=repository::get(&conn,id)?;
-        if summary.auth_mode!="chatgpt" {return Err("API Key 账号无订阅权益".into());}
-        let (token,account,proxy)=gateway::credentials_locked(id,std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)))?;
-        let account=account.ok_or("账号标识无效")?; let client=controls::client(proxy.as_deref())?;
+pub(crate) async fn codex_refresh_benefits(id: i64) -> PlatformResult<CodexAccountSummary> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<_, String> {
+        use crate::core::codex::{account_controls as controls, gateway};
+        let _writer = AUTH_WRITER.lock().map_err(|_| "账号操作不可用")?;
+        let conn = open_db()?;
+        let mut summary = repository::get(&conn, id)?;
+        if summary.auth_mode != "chatgpt" {
+            return Err("API Key 账号无订阅权益".into());
+        }
+        let (token, account, proxy) = gateway::credentials_locked(
+            id,
+            std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        )?;
+        let account = account.ok_or("账号标识无效")?;
+        let client = controls::client(proxy.as_deref())?;
         tauri::async_runtime::block_on(async {
-            match controls::request(&client,&token,&account,id,proxy.as_deref(),"accounts/check/v4-2023-04-27",None).await {
-                Ok(value)=>{
-                    let expiry=controls::parse_subscription(&value,&account);
-                    if expiry.is_some_and(|time|time>chrono::Utc::now().timestamp()) {
-                        summary.benefits.expires_at=expiry;summary.benefits.subscription_error=None;
+            match controls::request(
+                &client,
+                &token,
+                &account,
+                id,
+                proxy.as_deref(),
+                "accounts/check/v4-2023-04-27",
+                None,
+            )
+            .await
+            {
+                Ok(value) => {
+                    let expiry = controls::parse_subscription(&value, &account);
+                    if expiry.is_some_and(|time| time > chrono::Utc::now().timestamp()) {
+                        summary.benefits.expires_at = expiry;
+                        summary.benefits.subscription_error = None;
                     } else {
-                        match controls::request(&client,&token,&account,id,proxy.as_deref(),"subscriptions",None).await {
-                            Ok(value)=>{summary.benefits.expires_at=controls::parse_subscription(&value,&account).or(expiry);summary.benefits.subscription_error=None;},
-                            Err(error)=>summary.benefits.subscription_error=Some(error),
+                        match controls::request(
+                            &client,
+                            &token,
+                            &account,
+                            id,
+                            proxy.as_deref(),
+                            "subscriptions",
+                            None,
+                        )
+                        .await
+                        {
+                            Ok(value) => {
+                                summary.benefits.expires_at =
+                                    controls::parse_subscription(&value, &account).or(expiry);
+                                summary.benefits.subscription_error = None;
+                            }
+                            Err(error) => summary.benefits.subscription_error = Some(error),
                         }
                     }
-                },
-                Err(error)=>summary.benefits.subscription_error=Some(error),
+                }
+                Err(error) => summary.benefits.subscription_error = Some(error),
             }
-            match controls::request(&client,&token,&account,id,proxy.as_deref(),"wham/rate-limit-reset-credits",None).await.and_then(|value|controls::parse_credits(&value,chrono::Utc::now().timestamp())) {
-                Ok((count,expiry))=>{summary.benefits.reset_credits=Some(count);summary.benefits.reset_expires_at=expiry;summary.benefits.credits_error=None;},
-                Err(error)=>summary.benefits.credits_error=Some(error),
+            match controls::request(
+                &client,
+                &token,
+                &account,
+                id,
+                proxy.as_deref(),
+                "wham/rate-limit-reset-credits",
+                None,
+            )
+            .await
+            .and_then(|value| controls::parse_credits(&value, chrono::Utc::now().timestamp()))
+            {
+                Ok((count, expiry)) => {
+                    summary.benefits.reset_credits = Some(count);
+                    summary.benefits.reset_expires_at = expiry;
+                    summary.benefits.credits_error = None;
+                }
+                Err(error) => summary.benefits.credits_error = Some(error),
             }
         });
-        summary.benefits.fetched_at=Some(chrono::Utc::now().timestamp_millis());
-        controls::save_benefits(&conn,id,&summary.benefits)?; repository::get(&conn,id)
-    }).await.map_err(|_|"刷新账号权益任务失败")?.map_err(Into::into)
+        summary.benefits.fetched_at = Some(chrono::Utc::now().timestamp_millis());
+        controls::save_benefits(&conn, id, &summary.benefits)?;
+        repository::get(&conn, id)
+    })
+    .await
+    .map_err(|_| "刷新账号权益任务失败")?
+    .map_err(Into::into)
 }
 #[tauri::command]
-pub(crate) async fn codex_consume_reset(app:tauri::AppHandle,id:i64)->PlatformResult<CodexAccountSummary> {
+pub(crate) async fn codex_consume_reset(
+    app: tauri::AppHandle,
+    id: i64,
+) -> PlatformResult<CodexAccountSummary> {
     tauri::async_runtime::spawn_blocking(move || -> Result<_,String> {
         use crate::core::codex::{account_controls as controls,gateway};
         let _writer=AUTH_WRITER.lock().map_err(|_|"账号操作不可用")?;

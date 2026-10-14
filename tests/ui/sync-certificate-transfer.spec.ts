@@ -13,7 +13,9 @@ test("desktop can generate a QR containing certificates only", async ({page}) =>
     }};
   });
   await page.goto("/");
-  await page.getByRole("button",{name:"手机扫码迁移",exact:true}).first().click();
+  await page.getByRole("button", { name: "系统设置", exact: true }).first().click();
+  await page.locator(".data-management-entry").click();
+  await page.getByRole("button", { name: "开始迁移", exact: true }).click();
   await page.getByRole("tab",{name:/证书/}).click();
   await expect(page.getByText("仅证书信息",{exact:false})).toBeVisible();
   await page.getByRole("button",{name:"显示手机迁移二维码（免口令）"}).click();

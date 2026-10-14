@@ -485,6 +485,12 @@ main { background: var(--ui-bg); }
 .ide-theme .pagination button:hover:not(:disabled), .ide-theme .pagination strong { border-color: var(--jb-accent); color: #fff; }
 .ide-theme .modal-backdrop, .ide-theme .resource-modal-backdrop, .ide-theme .app-confirm-backdrop { background: rgba(0,0,0,.62); backdrop-filter: blur(3px); }
 .ide-theme .modal, .ide-theme .resource-modal, .ide-theme .app-confirm-dialog { border-color: var(--jb-border-strong); border-radius: 5px; background: #2b2b2b; box-shadow: 0 22px 60px #000a; }
+.ide-theme .app-confirm-dialog > .app-confirm-actions { position: static; z-index: auto; display: flex; justify-content: flex-end; gap: 8px; margin: 20px 0 0; padding: 0; border: 0; background: transparent; box-shadow: none; }
+.ide-theme .app-confirm-dialog > .app-confirm-actions > button { box-sizing: border-box; min-width: 84px; height: 36px; min-height: 36px; padding: 0 14px; border-radius: 4px; box-shadow: none; font: inherit; }
+.ide-theme .app-confirm-dialog > .app-confirm-actions > .secondary { border: 1px solid var(--jb-border-strong); background: #383838; color: var(--jb-text); }
+.ide-theme .app-confirm-dialog > .app-confirm-actions > .primary { border: 1px solid #765ed5; background: #765ed5; color: #fff; }
+.ide-theme .app-confirm-dialog > .app-confirm-actions > .secondary:hover { border-color: #686868; background: #424242; color: #fff; }
+.ide-theme .app-confirm-dialog > .app-confirm-actions > .primary:hover { background: #8a72ea; }
 .ide-theme .modal-head, .ide-theme .resource-modal .detail-toolbar { background: #333; border-bottom-color: var(--jb-border); }
 .ide-theme .modal-actions { background: #292929; border-top-color: var(--jb-border); }
 .ide-theme .toast-notice { border-color: #6558a7; border-radius: 4px; background: #342e54; color: #eeeaff; box-shadow: 0 12px 32px #000a; }

@@ -152,9 +152,10 @@ test("Codex account filters, metadata, quota errors and confirmed switching", as
   await expect(page.getByRole("dialog", { name: "Codex 账号信息", exact: true })).toContainText("workspace-a");
   await page.getByRole("dialog", { name: "Codex 账号信息", exact: true }).getByRole("button", { name: "关闭", exact: true }).click();
   await aliceCard.getByRole("button", { name: "导出 alice@example.test JSON", exact: true }).click();
-  await expect(page.getByRole("dialog", { name: "导出 Codex 账号 JSON", exact: true })).toContainText("alice@example.test");
-  await expect(page.getByLabel("迁移口令", { exact: true })).toHaveCount(0);
-  await page.getByRole("button", { name: "选择保存文件", exact: true }).click();
+  const exportDialog = page.getByRole("dialog", { name: "导出 Codex 账号", exact: true });
+  await expect(exportDialog.getByLabel("导出格式")).toHaveValue("cockpit_tools");
+  await expect(exportDialog.getByLabel("导出密码", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "选择保存位置", exact: true }).click();
   expect(await page.evaluate(() => (window as unknown as { __codexCalls: {command:string;args:{accountId:number}}[] }).__codexCalls.find(call => call.command === "codex_export_accounts_file")?.args.accountId)).toBe(1);
   await aliceCard.getByRole("button", { name: "添加至 API 服务", exact: true }).click();
   await expect(aliceCard.getByRole("button", { name: "移除 API 服务", exact: true })).toBeEnabled();

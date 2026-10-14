@@ -98,6 +98,7 @@
 .ide-theme :where(.detail-toolbar, .modal-head, .resource-modal .detail-toolbar) { border-color: var(--jb-border) !important; background: var(--jb-surface-2) !important; }
 .ide-theme :where(.modal, .resource-modal, .dns-editor-modal, .app-confirm-dialog, .domain-tool-modal) { border-color: var(--jb-border-strong) !important; border-radius: 5px !important; background: var(--jb-surface) !important; box-shadow: 0 22px 60px #000a !important; }
 .ide-theme :where(.modal-actions, .app-confirm-actions) { border-color: var(--jb-border) !important; background: #292929 !important; }
+.ide-theme .backup-inline-confirm > .app-confirm-actions { border-color: transparent !important; background: transparent !important; }
 .ide-theme .managed-group-edit-fields label { color: var(--jb-muted); }
 .ide-theme .managed-group-edit-fields input { border-color: var(--jb-border-strong); border-radius: 3px; background: var(--jb-input); color: var(--jb-text); }
 .ide-theme .managed-group-edit-fields input:focus { border-color: var(--jb-accent); box-shadow: 0 0 0 2px var(--jb-accent-soft); }

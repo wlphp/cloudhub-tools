@@ -18,6 +18,13 @@
 .export-selection-list input[type=checkbox] { flex: 0 0 auto; width: 16px; height: 16px; }
 .export-selection-list span { min-width: 0; overflow-wrap: anywhere; }
 .export-selection-list small { display: block; color: var(--jb-muted,#aaa); }
+/* Codex dialog form labels default to a vertical grid; selection rows stay compact and inline. */
+.codex-dialog .export-selection-list label { display: flex; align-items: center; gap: 10px; min-height: 40px; box-sizing: border-box; margin: 0; padding: 8px 10px; border-bottom: 1px solid var(--jb-border,#3b3b3b); cursor: pointer; }
+.codex-dialog .export-selection-list label:last-child { border-bottom: 0; }
+.codex-dialog .export-selection-list label:hover { background: var(--jb-surface-2,#303030); }
+.codex-dialog .export-selection-list label:has(input:checked) { background: color-mix(in srgb,var(--jb-accent-soft,#3b3560) 30%,transparent); }
+.codex-dialog .export-selection-list input[type=checkbox] { display: block; flex: 0 0 16px; width: 16px; min-width: 16px; height: 16px; margin: 0; padding: 0; accent-color: var(--jb-accent,#9b8cff); }
+.codex-dialog .export-selection-list label > span { display: block; min-width: 0; line-height: 1.4; }
 .export-selection :focus-visible,.export-selection-dialog button:focus-visible { outline: 2px solid var(--jb-accent,#9b8cff); outline-offset: 2px; }
 
 /* Compact, stable picker used when choosing a subset of export items. */
@@ -89,7 +96,7 @@
 .export-selection-picker-dialog .export-selection-list label:last-child { border-bottom: 0; }
 .export-selection-picker-dialog .export-selection-list label:hover { background: var(--jb-surface-2,#303030); }
 .export-selection-picker-dialog .export-selection-list label:has(input:checked) { background: color-mix(in srgb,var(--jb-accent-soft,#3b3560) 42%,var(--jb-input,#202020)); }
-.export-selection-picker-dialog .export-selection-list input[type="checkbox"] { accent-color: var(--jb-accent,#9b8cff); }
+.export-selection-picker-dialog .export-selection-list input[type="checkbox"] { box-sizing:border-box; display:block; width:16px; min-width:16px; height:16px; flex:0 0 16px; margin:0; padding:0; accent-color:var(--jb-accent,#9b8cff); }
 .export-selection-picker-dialog .export-selection-list label > span { display: grid; gap: 3px; min-width: 0; }
 .export-selection-picker-dialog .export-selection-list small { color: var(--jb-muted,#aaa); font-size: 11px; }
 .export-selection-picker-dialog > footer {

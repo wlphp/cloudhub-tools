@@ -445,12 +445,10 @@ pub(crate) async fn authenticator_prepare(
     window: tauri::Window,
     app: tauri::AppHandle,
     state: State<'_, VaultStore>,
-    password: String,
     text: Option<String>,
     image: Option<Vec<u8>>,
     qr: bool,
 ) -> PlatformResult<Option<Preview>> {
-    let password = Zeroizing::new(password);
     let text = text.map(Zeroizing::new);
     let image = image.map(Zeroizing::new);
     let store = state.inner().clone();
@@ -493,7 +491,7 @@ pub(crate) async fn authenticator_prepare(
                 )
             }
         };
-        let parsed = formats::parse_file(&content, &password)?;
+        let parsed = formats::parse_file(&content)?;
         access(&store, &owner, true, |s, db| {
             let existing = repository::load(db, &s.key)?;
             let mut seen = existing.clone();
@@ -643,21 +641,19 @@ pub(crate) async fn authenticator_export(
     state: State<'_, VaultStore>,
     ids: Vec<String>,
     format: String,
-    password: String,
     acknowledge_plain: bool,
 ) -> PlatformResult<Option<String>> {
     let store = state.inner().clone();
     let owner = window.label().to_string();
-    let password = Zeroizing::new(password);
     work(move || {
         if ids.is_empty()
             || ids.len() > MAX_ENTRIES
-            || !["cloudhub", "ente", "plain"].contains(&format.as_str())
+            || !["cloudhub", "plain"].contains(&format.as_str())
         {
             return Err("导出选择或格式无效".into());
         }
-        if format == "plain" && !acknowledge_plain {
-            return Err("明文导出必须确认密钥泄露风险".into());
+        if !acknowledge_plain {
+            return Err("无口令导出必须确认密钥泄露风险".into());
         }
         access(&store, &owner, true, |s, _| {
             if s.header != vault::DEVICE_HEADER {
@@ -688,7 +684,7 @@ pub(crate) async fn authenticator_export(
             if entries.len() != ids.iter().collect::<HashSet<_>>().len() {
                 return Err("导出选择已失效，请刷新后重试".into());
             }
-            let data = formats::export(&entries, &format, &password)?;
+            let data = formats::export(&entries, &format)?;
             #[cfg(mobile)]
             {
                 use tauri_plugin_fs::FsExt;

@@ -33,18 +33,10 @@ struct Backup {
     version: u32,
     items: Vec<Entry>,
 }
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct BackupEnvelope {
-    format: String,
-    envelope: Envelope,
-}
 
 pub fn derive(password: &str, kdf: &Kdf) -> Result<Zeroizing<[u8; 32]>, String> {
-    // Serialize memory-hard work so concurrent imports cannot multiply the memory bound.
     static KDF_GATE: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let _guard = KDF_GATE.lock().map_err(|_| "密钥派生状态不可用")?;
-    // Ente/libsodium memLimit is bytes, Argon2 Params memory is KiB; p=1, v=19, output=32.
     if password.is_empty()
         || password.len() > 1024
         || !(8192..=536870912).contains(&kdf.mem_limit)
@@ -219,7 +211,7 @@ pub struct Parsed {
     pub errors: Vec<String>,
     pub format: String,
 }
-pub fn parse_file(content: &str, password: &str) -> Result<Parsed, String> {
+pub fn parse_file(content: &str) -> Result<Parsed, String> {
     if content.len() > MAX_FILE_BYTES {
         return Err("导入文件不能超过 10 MiB".into());
     }
@@ -229,34 +221,28 @@ pub fn parse_file(content: &str, password: &str) -> Result<Parsed, String> {
             serde_json::from_str(content).map_err(|_| "JSON 文件格式无效")?;
         if value.get("format").and_then(|v| v.as_str()) == Some("cloudhub-authenticator-encrypted")
         {
-            let wrapper: BackupEnvelope =
-                serde_json::from_value(value).map_err(|_| "CloudHub 备份格式无效")?;
-            let data = unseal(&wrapper.envelope, password)?;
-            let backup: Backup =
-                serde_json::from_slice(&data).map_err(|_| "CloudHub 备份内容无效")?;
-            if backup.format != "cloudhub-authenticator" || backup.version != 1 {
-                return Err("CloudHub 备份版本不受支持".into());
-            }
-            if backup.items.len() > MAX_ENTRIES {
-                return Err("导入条数超过 10000".into());
-            }
-            let mut entries = backup.items;
-            for entry in &mut entries {
-                entry.validate()?;
-            }
-            return Ok(Parsed {
-                entries,
-                errors: vec![],
-                format: "CloudHub 完整备份".into(),
-            });
+            return Err("旧版 CloudHub 加密备份无法直接导入，请先用原口令解密".into());
         }
-        let envelope: Envelope =
+        if value.get("encryptedData").is_some() {
+            return Err("Ente 加密文件无法直接导入，请先用原口令解密".into());
+        }
+        let backup: Backup =
             serde_json::from_value(value).map_err(|_| "不支持的导入文件格式".to_string())?;
-        let data = unseal(&envelope, password)?;
-        let text = std::str::from_utf8(&data).map_err(|_| "导入内容不是 UTF-8 文本")?;
-        let mut parsed = parse_lines(text)?;
-        parsed.format = "Ente 加密 v1".into();
-        Ok(parsed)
+        if backup.format != "cloudhub-authenticator" || backup.version != 1 {
+            return Err("CloudHub 备份版本不受支持".into());
+        }
+        if backup.items.len() > MAX_ENTRIES {
+            return Err("导入条数超过 10000".into());
+        }
+        let mut entries = backup.items;
+        for entry in &mut entries {
+            entry.validate()?;
+        }
+        Ok(Parsed {
+            entries,
+            errors: vec![],
+            format: "CloudHub 完整备份（无口令）".into(),
+        })
     } else {
         parse_lines(content)
     }
@@ -293,11 +279,7 @@ pub fn parse_lines(text: &str) -> Result<Parsed, String> {
         format: "Ente / OTP 明文".into(),
     })
 }
-pub fn export(
-    entries: &[Entry],
-    format: &str,
-    password: &str,
-) -> Result<Zeroizing<Vec<u8>>, String> {
+pub fn export(entries: &[Entry], format: &str) -> Result<Zeroizing<Vec<u8>>, String> {
     if entries.is_empty() {
         return Err("请选择需要导出的验证码".into());
     }
@@ -320,53 +302,22 @@ pub fn export(
     if format == "plain" {
         return Ok(data);
     }
-    if !["cloudhub", "ente"].contains(&format) {
+    if format != "cloudhub" {
         return Err("导出格式不受支持".into());
     }
-    if password.chars().count() < 8 {
-        return Err("导出密码至少 8 个字符".into());
-    }
-    let envelope = seal(&data, password)?;
-    let result = if format == "cloudhub" {
-        serde_json::to_vec_pretty(&BackupEnvelope {
-            format: "cloudhub-authenticator-encrypted".into(),
-            envelope,
-        })
-    } else {
-        serde_json::to_vec_pretty(&envelope)
-    };
-    let output = result.map_err(|_| "导出序列化失败")?;
-    if output.len() > MAX_FILE_BYTES {
-        return Err("备份文件超过 10 MiB，请分批选择导出".into());
-    }
-    Ok(Zeroizing::new(output))
+    Ok(data)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     #[test]
-    fn independent_libsodium_ente_vectors() {
+    fn encrypted_ente_fixtures_require_external_decryption() {
         for file in [
             include_str!("../../../../tests/fixtures/authenticator/ente-libsodium-final.json"),
             include_str!("../../../../tests/fixtures/authenticator/ente-libsodium-message.json"),
         ] {
-            let parsed = parse_file(file, "interop-test-passphrase").unwrap();
-            assert_eq!(parsed.entries.len(), 1);
-            assert_eq!(parsed.entries[0].account, "demo@example.test");
-            assert_eq!(
-                super::super::otp::generate(&parsed.entries[0], 1).unwrap(),
-                "287082"
-            );
-        }
-        // Optional path for a second implementation to decrypt the Rust-produced export.
-        if let Ok(path) = std::env::var("CLOUDHUB_AUTH_INTEROP_OUTPUT") {
-            let entry=parse_uri("otpauth://totp/Example:demo%40example.test?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&issuer=Example").unwrap();
-            std::fs::write(
-                path,
-                &*export(&[entry], "ente", "interop-test-passphrase").unwrap(),
-            )
-            .unwrap();
+            assert!(parse_file(file).err().unwrap().contains("原口令解密"));
         }
     }
     #[test]
@@ -380,7 +331,7 @@ mod tests {
         assert!(parse_uri("otpauth://totp/Test:a?secret=INVALID&secret=INVALID").is_err());
     }
     #[test]
-    fn encrypted_roundtrip_tamper_and_metadata() {
+    fn passwordless_roundtrip_preserves_metadata() {
         let mut entry = parse_uri(
             "otpauth://hotp/Test:demo?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&counter=17",
         )
@@ -388,24 +339,15 @@ mod tests {
         entry.group = "演示".into();
         entry.note = "示例备注".into();
         entry.pinned = true;
-        for format in ["ente", "cloudhub", "plain"] {
-            let data = export(&[entry.clone()], format, "test-passphrase").unwrap();
-            let parsed =
-                parse_file(std::str::from_utf8(&data).unwrap(), "test-passphrase").unwrap();
+        for format in ["cloudhub", "plain"] {
+            let data = export(&[entry.clone()], format).unwrap();
+            let parsed = parse_file(std::str::from_utf8(&data).unwrap()).unwrap();
             assert!(entry.same_seed(&parsed.entries[0]));
             assert_eq!(parsed.entries[0].counter, 17);
             if format == "cloudhub" {
                 assert_eq!(parsed.entries[0].group, entry.group);
                 assert!(parsed.entries[0].pinned);
             }
-            if format != "plain" {
-                assert!(parse_file(std::str::from_utf8(&data).unwrap(), "incorrect").is_err());
-            }
         }
-        let mut envelope = seal(b"example", "test-passphrase").unwrap();
-        envelope.encrypted_data.replace_range(..1, "A");
-        assert!(unseal(&envelope, "test-passphrase").is_err());
-        envelope.kdf_params.mem_limit = u32::MAX;
-        assert!(unseal(&envelope, "test-passphrase").is_err());
     }
 }

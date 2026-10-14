@@ -98,6 +98,13 @@
 .auth-dialog footer { display:flex; justify-content:flex-end; gap:8px; margin-top:18px; }
 .auth-dialog label.auth-checkbox { flex-direction:row; align-items:flex-start; gap:8px; line-height:1.6; }
 .auth-dialog .auth-checkbox input { flex:none; margin-top:2px; }
+.auth-dialog .export-selection-list { border:1px solid var(--jb-border,#414141); border-radius:5px; background:var(--jb-input,#202020); overflow:auto; overscroll-behavior:contain; }
+.auth-dialog .export-selection-list label { display:flex; flex-direction:row; align-items:center; justify-content:flex-start; box-sizing:border-box; width:100%; min-height:44px; gap:10px; margin:0; padding:8px 12px; border-bottom:1px solid var(--jb-border,#414141); line-height:1.4; cursor:pointer; }
+.auth-dialog .export-selection-list label:last-child { border-bottom:0; }
+.auth-dialog .export-selection-list label:hover { background:var(--jb-surface-2,#303030); }
+.auth-dialog .export-selection-list label:has(input:checked) { background:color-mix(in srgb,var(--jb-accent-soft,#3b3560) 42%,var(--jb-input,#202020)); }
+.auth-dialog .export-selection-list input[type="checkbox"] { flex:0 0 16px; width:16px; height:16px; margin:0; }
+.auth-dialog .export-selection-list label > span { flex:1; min-width:0; overflow-wrap:anywhere; text-align:left; }
 .auth-dialog.dialog-common-theme{padding:0;border-radius:6px;background:var(--jb-surface,#282828)}
 .auth-dialog.dialog-common-theme>header{margin:0;padding:14px 18px;background:var(--jb-surface-2,#303030);border-bottom:1px solid var(--jb-border,#414141)}
 .auth-dialog.dialog-common-theme> :not(header){margin-right:18px;margin-left:18px}

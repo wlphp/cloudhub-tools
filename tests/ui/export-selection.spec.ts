@@ -15,7 +15,8 @@ async function fixture(page: Page) {
       if (command === "list_panel_connections") return panels;
       if (command === "codex_get_state") return { accounts: [1, 2].map(id => ({ id, label: `Codex${id}`, authMode: "chatgpt", tags: [], note: "", quota: { fetchedAt: null, windows: [] }, lastError: null, updatedAt: 1 })), cliAvailable: true, desktopAvailable: true, currentAccountId: null, canRestore: false };
       if (command === "codex_gateway_state") return { running: false, accountIds: [], completed: 0, failed: 0, active: 0 };
-      if (["codex_export_accounts_file", "codex_export_backup"].includes(command)) return true;
+      if (command === "codex_export_accounts_file") return true;
+      if (command === "codex_import_file") return { accounts: [], cliAvailable: true, desktopAvailable: true, currentAccountId: null, canRestore: false };
       if (["export_accounts_file", "export_managed_hosts_file", "export_panel_connections_file"].includes(command)) return "C:/fixture/export.json";
       if (command === "save_sync_account_bundle") return true;
       if (command === "preview_sync_account_bundle") return { accounts: [{ accountName: "云账号1" }], managedHosts: [], panels: [], deletions: [], conflicts: [], protocolVersion: 1 };
@@ -80,28 +81,20 @@ test("server export supports select all, clear, search, escape and a precise sub
   await expect.poll(() => page.evaluate(() => (window as any).__exportCalls.find((call: any) => call.command === "export_managed_hosts_file")?.args.hostIds)).toEqual([2]);
 });
 
-test("settings selection exports encrypted configuration and previews its import", async ({ page }) => {
+test("settings exports the full database without a migration password", async ({ page }) => {
   await fixture(page);
   await page.getByRole("button", { name: "系统设置", exact: true }).first().click();
-  await page.getByRole("button", { name: "选择导出", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: "选择数据导出范围", exact: true });
-  await dialog.getByRole("checkbox", { name: "云账号 · 云账号1", exact: true }).check();
-  await dialog.getByLabel("迁移口令", { exact: true }).fill("public-fixture-passphrase");
-  await dialog.getByLabel("确认迁移口令", { exact: true }).fill("public-fixture-passphrase");
+  await page.locator(".data-management-entry").click();
+  await page.getByRole("button", { name: "打开备份与恢复", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "备份与恢复", exact: true });
+  await expect(dialog.getByLabel("迁移口令")).toHaveCount(0);
+  await expect(dialog).toContainText("完整备份包含本机敏感数据");
   await page.setViewportSize({ width: 375, height: 900 });
   expect(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
   await dialog.screenshot({ path: "test-results/export-selection-data.png" });
-  await dialog.getByRole("button", { name: "选择位置并导出", exact: true }).click();
-  await expect(dialog.getByRole("status")).toContainText("所选配置已导出");
-  const exported = await page.evaluate(() => (window as any).__exportCalls.find((call: any) => call.command === "save_sync_account_bundle").args);
-  expect(exported).toMatchObject({ accountIds: [1], managedHostIds: [], panelIds: [], includeDeletions: false });
-  await dialog.getByLabel("导出范围").selectOption("import");
-  await dialog.getByLabel("配置迁移文件", { exact: true }).setInputFiles({ name: "fixture.chsync.json", mimeType: "application/json", buffer: Buffer.from(JSON.stringify({ ciphertext: "public-fixture", salt: "public-fixture" })) });
-  await dialog.getByLabel("迁移口令", { exact: true }).fill("public-fixture-passphrase");
-  await dialog.getByRole("button", { name: "预览迁移文件", exact: true }).click();
-  await expect(dialog).toContainText("将新增或更新 1 个云账号");
-  await dialog.getByRole("button", { name: "确认导入配置", exact: true }).click();
-  await expect(dialog.getByRole("status")).toContainText("配置已导入");
+  await dialog.getByRole("button", { name: "关闭备份与恢复", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.locator(".data-management-page")).toBeVisible();
 });
 
 test("panel export follows page selection instead of exporting all panels", async ({ page }) => {
@@ -113,26 +106,34 @@ test("panel export follows page selection instead of exporting all panels", asyn
   await expect.poll(() => page.evaluate(() => (window as any).__exportCalls.find((call: any) => call.command === "export_panel_connections_file")?.args.panelIds)).toEqual([2]);
 });
 
-test("Codex JSON and encrypted backup honor the checked account subset", async ({ page }) => {
+test("Codex JSON export honors the checked account subset", async ({ page }) => {
   await fixture(page);
   await page.getByRole("button", { name: "Codex 管理", exact: true }).first().click();
   await page.getByLabel("选择 Codex2", { exact: true }).check();
   await page.getByRole("button", { name: "导出 JSON", exact: true }).click();
-  const json = page.getByRole("dialog", { name: "导出 Codex 账号 JSON", exact: true });
+  const json = page.getByRole("dialog", { name: "导出 Codex 账号", exact: true });
   await expect(json.getByRole("checkbox", { name: "Codex2", exact: true })).toBeChecked();
   await expect(json.getByRole("checkbox", { name: "Codex1", exact: true })).not.toBeChecked();
-  await json.getByRole("button", { name: "选择保存文件", exact: true }).click();
-  await page.getByRole("button", { name: "加密备份", exact: true }).click();
-  const backup = page.getByRole("dialog", { name: "加密备份 Codex 登录", exact: true });
-  await backup.getByLabel("迁移口令", { exact: true }).fill("public-fixture-passphrase");
-  await backup.getByLabel("确认迁移口令", { exact: true }).fill("public-fixture-passphrase");
-  await backup.getByRole("button", { name: "选择备份文件", exact: true }).click();
-  const calls = await page.evaluate(() => (window as any).__exportCalls.filter((call: any) => ["codex_export_accounts_file", "codex_export_backup"].includes(call.command)));
-  expect(calls).toHaveLength(2);
-  for (const call of calls) expect(call.args.accountIds).toEqual([2]);
+  await expect(json.getByLabel("导出格式").locator("option")).toHaveCount(4);
+  await json.getByLabel("导出格式").selectOption("auth_json");
+  await json.getByRole("button", { name: "选择保存位置", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).__exportCalls.find((call: any) => call.command === "codex_export_accounts_file")?.args.accountIds)).toEqual([2]);
+  await expect.poll(() => page.evaluate(() => (window as any).__exportCalls.find((call: any) => call.command === "codex_export_accounts_file")?.args.format)).toBe("auth_json");
   await page.getByLabel("选择 Codex2", { exact: true }).uncheck();
   await page.getByRole("button", { name: "导出 JSON", exact: true }).click();
-  await expect(json.getByRole("button", { name: "选择保存文件", exact: true })).toBeDisabled();
+  await expect(json.getByRole("button", { name: "选择保存位置", exact: true })).toBeDisabled();
   await json.getByRole("button", { name: "全选", exact: true }).click();
-  await expect(json.getByRole("button", { name: "选择保存文件", exact: true })).toBeEnabled();
+  await expect(json.getByRole("button", { name: "选择保存位置", exact: true })).toBeEnabled();
+});
+
+test("Codex import asks for the source format and forwards it", async ({ page }) => {
+  await fixture(page);
+  await page.getByRole("button", { name: "Codex 管理", exact: true }).first().click();
+  await page.getByRole("button", { name: "导入文件", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "导入 Codex 账号", exact: true });
+  await expect(dialog.getByLabel("导入格式").locator("option")).toHaveCount(4);
+  await dialog.getByLabel("导入格式").selectOption("sub2api");
+  await dialog.getByRole("button", { name: "选择文件", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).__exportCalls.find((call: any) => call.command === "codex_import_file")?.args.format)).toBe("sub2api");
+  await expect(dialog).toHaveCount(0);
 });

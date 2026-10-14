@@ -50,13 +50,10 @@ export function AuthenticatorPanel({ mobile = false }: { mobile?: boolean }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [draft, setDraft] = useState<AuthInput | null>(null);
   const [modal, setModal] = useState<"import" | "export" | "delete" | null>(null);
-  const [importPassword, setImportPassword] = useState("");
   const [uriText, setUriText] = useState("");
   const [preview, setPreview] = useState<AuthPreview | null>(null);
   const [choices, setChoices] = useState<Record<string, string>>({});
-  const [exportFormat, setExportFormat] = useState<"cloudhub" | "ente" | "plain">("cloudhub");
-  const [exportPassword, setExportPassword] = useState("");
-  const [exportRepeat, setExportRepeat] = useState("");
+  const [exportFormat, setExportFormat] = useState<"cloudhub" | "plain">("cloudhub");
   const [acknowledgePlain, setAcknowledgePlain] = useState(false);
   const [copied, setCopied] = useState("");
   const [copyNotice, setCopyNotice] = useState<{ text: string; failed: boolean } | null>(null);
@@ -71,7 +68,7 @@ export function AuthenticatorPanel({ mobile = false }: { mobile?: boolean }) {
   const clearSecrets = useCallback(() => {
     ++epoch.current; setUnlocked(false); setEntries([]); setCodes({}); setDraft(null); setModal(null);
     setPreview(null); setChoices({}); setSelected(new Set()); setPassword("");
-    setImportPassword(""); setUriText(""); setExportPassword(""); setExportRepeat("");
+    setUriText("");
     setCopied(""); setCopyNotice(null); if (copyTimer.current) clearTimeout(copyTimer.current);
   }, []);
   useEffect(() => {
@@ -196,13 +193,13 @@ export function AuthenticatorPanel({ mobile = false }: { mobile?: boolean }) {
   }
   function closeModal() {
     if (modal === "import") void client.cancel().catch(() => {});
-    setModal(null); setPreview(null); setChoices({}); setImportPassword(""); setUriText("");
-    setExportPassword(""); setExportRepeat(""); setAcknowledgePlain(false);
+    setModal(null); setPreview(null); setChoices({}); setUriText("");
+    setAcknowledgePlain(false);
   }
   async function prepare(qr: boolean, text?: string, image?: number[]) {
-    const value = importPassword; setImportPassword(""); setUriText("");
+    setUriText("");
     await action(async () => {
-      const data = await client.prepare({ password: value, qr, text, image });
+      const data = await client.prepare({ qr, text, image });
       if (data) { setPreview(data); setChoices(Object.fromEntries(data.items.map((item) => [item.entry.id, item.duplicateId ? "skip" : "add"]))); }
     });
   }
@@ -280,17 +277,17 @@ export function AuthenticatorPanel({ mobile = false }: { mobile?: boolean }) {
       {error && <p className="auth-error" role="alert">{error}</p>}</div><footer><button type="button" disabled={busy} onClick={() => setDraft(null)}>取消</button><button className="auth-primary" disabled={busy} type="submit">{busy ? "保存中…" : "保存"}</button></footer>
     </form></Modal>}
     {modal === "import" && <Modal title="导入验证码" busy={busy} close={closeModal}>
-      {!preview ? <><p>支持 Ente 明文 / 加密文件、CloudHub 加密备份及 OTP 二维码图片。先填写加密文件密码，再选择文件。</p><label>文件密码（明文和二维码留空）<input type="password" autoComplete="off" maxLength={1024} value={importPassword} onChange={(event) => setImportPassword(event.target.value)} /></label>
+      {!preview ? <><p>支持无口令 CloudHub 完整备份、Ente / OTP 明文文件及 OTP 二维码。旧版加密文件请先用原口令解密后再导入。</p>
         <div className="auth-import-buttons">{mobile && runningInTauri && <button disabled={busy} onClick={() => void scanOtp()}><Grid2X2 size={16} />扫描二维码</button>}<button disabled={busy} onClick={() => void prepare(false)}><Upload size={16} />选择导入文件</button><button disabled={busy} onClick={() => void prepare(true)}><Grid2X2 size={16} />选择二维码图片</button></div>
         <label>粘贴 OTP 地址或二维码图片<textarea autoComplete="off" maxLength={1048576} placeholder="otpauth://…（支持多行），也可在此粘贴图片" value={uriText} onPaste={(event) => void pasteImage(event)} onChange={(event) => setUriText(event.target.value)} /></label><button disabled={busy || !uriText.trim()} onClick={() => void prepare(false, uriText)}>解析粘贴内容</button><small>密钥只在原生进程解析；预览不显示密钥。</small></> : <>
         <p>{preview.format} · 有效 {preview.items.length} 项 · 无效 {preview.errors.length} 项</p><div className="auth-import-preview">{preview.items.map((item) => <div className="auth-import-row" key={item.entry.id}><div><strong>{item.entry.issuer} · {item.entry.account}</strong><span>{item.entry.kind.toUpperCase()} · {item.entry.algorithm} · {item.entry.digits} 位{item.entry.kind === "hotp" ? ` · 计数 ${item.entry.counter}` : ` · ${item.entry.period} 秒`}</span><small>{item.duplicateId ? "相同密钥和参数" : item.conflict ? "同名账户，密钥不同，将作为独立条目" : "新增"}{item.conflict && item.duplicateId ? " · 计数有差异" : ""}</small></div><select aria-label={`导入操作 ${item.entry.account}`} value={choices[item.entry.id]} onChange={(event) => setChoices({ ...choices, [item.entry.id]: event.target.value })}>{!item.duplicateId && <option value="add">新增</option>}<option value="skip">跳过</option>{item.duplicateId && <option value="update">更新重复项</option>}</select></div>)}</div>
         {preview.errors.length > 0 && <details><summary>查看无效条目（不会导入）</summary>{preview.errors.map((text, index) => <p key={index}>{text}</p>)}</details>}
         <footer><button disabled={busy} onClick={() => { setPreview(null); setChoices({}); void client.cancel(); }}>重新选择</button><button className="auth-primary" disabled={busy || !preview.items.length || !Object.values(choices).some((value) => value !== "skip")} onClick={() => void action(async () => { const result = await client.confirmImport(preview.token, preview.items.map((item) => ({ id: item.entry.id, action: choices[item.entry.id] || "skip" }))); closeModal(); await refresh(); setMessage(`导入完成：新增 ${result.added}，更新 ${result.updated}，跳过 ${result.skipped}`); })}>{busy ? "导入中…" : "确认导入"}</button></footer>
       </>}{error && <p className="auth-error" role="alert">{error}</p>}</Modal>}
-    {modal === "export" && <Modal title="导出验证码" busy={busy} close={closeModal}><form onSubmit={(event) => { event.preventDefault(); if (exportFormat !== "plain" && exportPassword !== exportRepeat) { setError("两次导出密码不一致"); return; } const input = { ids: exportIds, format: exportFormat, password: exportPassword, acknowledgePlain }; setExportPassword(""); setExportRepeat(""); void action(async () => { const path = await client.export(input); if (path) { closeModal(); setMessage(`已导出 ${input.ids.length} 项：${path}`); } }); }}>
-      <ExportChecklist items={entries.map(entry => ({ id: entry.id, label: [entry.issuer, entry.account].filter(Boolean).join(' · ') }))} selected={exportIds} disabled={busy} onChange={ids => setSelected(new Set(ids))} /><p>导出所选 {exportIds.length} 项。建议使用新文件名保存备份。</p><label>导出格式<select value={exportFormat} onChange={(event) => { setExportFormat(event.target.value as typeof exportFormat); setAcknowledgePlain(false); }}><option value="cloudhub">CloudHub 完整加密备份（推荐）</option><option value="ente">Ente 兼容加密文件</option><option value="plain">Ente / OTP 明文文件</option></select></label>
-      <p className="auth-hint">{exportFormat === "cloudhub" ? "保留验证码、分组、备注、置顶和排序，可在另一台设备导入。" : "兼容迁移保留 OTP 参数；CloudHub 分组、备注、置顶及排序不会保留。"}</p>
-      {exportFormat !== "plain" ? <div className="auth-form-grid"><label>导出密码<input required type="password" autoComplete="new-password" minLength={8} maxLength={1024} value={exportPassword} onChange={(event) => setExportPassword(event.target.value)} /></label><label>确认导出密码<input required type="password" autoComplete="new-password" minLength={8} maxLength={1024} value={exportRepeat} onChange={(event) => setExportRepeat(event.target.value)} /></label></div> : <label className="auth-checkbox auth-error"><input type="checkbox" required checked={acknowledgePlain} onChange={(event) => setAcknowledgePlain(event.target.checked)} />我了解明文文件包含长期 OTP 密钥，持有者可以生成验证码。</label>}
+    {modal === "export" && <Modal title="导出验证码" busy={busy} close={closeModal}><form onSubmit={(event) => { event.preventDefault(); const input = { ids: exportIds, format: exportFormat, acknowledgePlain }; void action(async () => { const path = await client.export(input); if (path) { closeModal(); setMessage(`已导出 ${input.ids.length} 项：${path}`); } }); }}>
+      <ExportChecklist items={entries.map(entry => ({ id: entry.id, label: [entry.issuer, entry.account].filter(Boolean).join(' · ') }))} selected={exportIds} disabled={busy} onChange={ids => setSelected(new Set(ids))} /><p>导出所选 {exportIds.length} 项。建议使用新文件名保存备份。</p><label>导出格式<select value={exportFormat} onChange={(event) => { setExportFormat(event.target.value as typeof exportFormat); setAcknowledgePlain(false); }}><option value="cloudhub">CloudHub 完整备份（无口令，推荐）</option><option value="plain">Ente / OTP 明文迁移文件</option></select></label>
+      <p className="auth-hint">{exportFormat === "cloudhub" ? "保留验证码、分组、备注、置顶和排序，可在另一台设备导入。" : "兼容迁移保留 OTP 参数；CloudHub 分组、备注、置顶及排序不会保留。"} 文件包含长期 OTP 密钥，请妥善保管。</p>
+      <label className="auth-checkbox auth-error"><input type="checkbox" required checked={acknowledgePlain} onChange={(event) => setAcknowledgePlain(event.target.checked)} />我了解备份文件未加密，持有者可以生成验证码。</label>
       {error && <p className="auth-error" role="alert">{error}</p>}<footer><button disabled={busy} type="button" onClick={closeModal}>取消</button><button disabled={busy || !exportIds.length} className="auth-primary" type="submit">{busy ? "导出中…" : "选择位置并导出"}</button></footer>
     </form></Modal>}
     {modal === "delete" && <Modal title="删除验证码" busy={busy} close={closeModal}><p>确定删除所选 {selected.size} 个验证码？删除后需通过备份或服务商重新配置恢复。</p>{error && <p role="alert" className="auth-error">{error}</p>}<footer><button disabled={busy} onClick={closeModal}>取消</button><button disabled={busy} className="auth-danger" onClick={() => void action(async () => { await client.remove([...selected]); closeModal(); await refresh(); setMessage("所选验证码已删除"); })}>确认删除</button></footer></Modal>}

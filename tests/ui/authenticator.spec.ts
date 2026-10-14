@@ -122,10 +122,10 @@ test("legacy vault requires its original password only for migration", async ({ 
   await expect(page.getByLabel("原主密码", { exact: true })).toHaveCount(0);
 });
 
-test("import previews conflicts and export requires explicit passwords", async ({ page }) => {
+test("import previews conflicts and export creates a no-password backup after risk acknowledgement", async ({ page }) => {
   await mockNative(page); await unlock(page);
   await page.getByRole("button", { name: "导入", exact: true }).click();
-  await page.getByLabel("文件密码（明文和二维码留空）").fill("fixture-backup-password");
+  await expect(page.getByLabel("文件密码（明文和二维码留空）")).toHaveCount(0);
   await page.getByRole("button", { name: "选择导入文件", exact: true }).click();
   await expect(page.getByLabel("导入操作 demo@example.test")).toHaveValue("skip");
   await expect(page.getByLabel("导入操作 new@example.test")).toHaveValue("add");
@@ -137,8 +137,8 @@ test("import previews conflicts and export requires explicit passwords", async (
   await page.getByRole("button", { name: "导出所选", exact: true }).click();
   await expect(page.getByRole("dialog")).toContainText("所选 1 项");
   await expect(page.getByLabel("再次输入主密码")).toHaveCount(0);
-  await page.getByLabel("导出密码", { exact: true }).fill("fixture-backup-password");
-  await page.getByLabel("确认导出密码", { exact: true }).fill("fixture-backup-password");
+  await expect(page.getByLabel("导出密码", { exact: true })).toHaveCount(0);
+  await page.getByLabel("我了解备份文件未加密，持有者可以生成验证码。").check();
   await page.getByRole("button", { name: "选择位置并导出" }).click();
   await expect(page.getByRole("status")).toContainText("已导出 1 项");
   const calls = await page.evaluate(() => (window as any).authCalls);

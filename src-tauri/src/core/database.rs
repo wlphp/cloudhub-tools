@@ -62,12 +62,7 @@ fn migrate_connection(conn: &mut Connection) -> Result<(), String> {
 }
 
 fn migrate_connection_inner(conn: &mut Connection) -> Result<(), String> {
-    let version: i64 = conn
-        .pragma_query_value(None, "user_version", |row| row.get(0))
-        .map_err(|error| format!("读取 SQLite schema 版本失败: {error}"))?;
-    if version > CURRENT_SCHEMA_VERSION {
-        return Err(format!("SQLite schema 版本 {version} 高于当前客户端支持的版本 {CURRENT_SCHEMA_VERSION}"));
-    }
+    let version = supported_schema_version(conn)?;
 
     let transaction = conn.transaction().map_err(|error| format!("开启 SQLite 迁移事务失败: {error}"))?;
     let columns = |table: &str| -> Result<Vec<String>, String> {
@@ -366,7 +361,33 @@ pub fn open_db() -> Result<Connection, String> {
     let _guard = DATABASE_OPEN_LOCK
         .lock()
         .map_err(|_| "SQLite 初始化锁不可用".to_string())?;
-    let conn = Connection::open(data_dir()?.join("cloudhub_tools.sqlite3"))
+    open_db_at(&data_dir()?.join("cloudhub_tools.sqlite3"))
+}
+
+fn supported_schema_version(conn: &Connection) -> Result<i64, String> {
+    let version: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0))
+        .map_err(|_| "读取 SQLite schema 版本失败".to_string())?;
+    if version > CURRENT_SCHEMA_VERSION {
+        return Err(format!("SQLite schema 版本 {version} 高于当前客户端支持的版本 {CURRENT_SCHEMA_VERSION}；请使用支持该数据库的新版客户端，勿修改数据库版本号"));
+    }
+    Ok(version)
+}
+
+// Read and snapshot existing files before any initialization DDL can change them.
+fn open_db_at(path: &std::path::Path) -> Result<Connection, String> {
+    if path.exists() {
+        let source = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .map_err(|_| "无法检查已有数据库；本地数据保持不变".to_string())?;
+        source.busy_timeout(std::time::Duration::from_secs(5)).map_err(|_| "配置数据库检查失败")?;
+        let version = supported_schema_version(&source)?;
+        #[cfg(not(mobile))]
+        if version < CURRENT_SCHEMA_VERSION {
+            snapshot_before_upgrade(&source, path, version)?;
+        }
+        #[cfg(mobile)]
+        let _ = version;
+    }
+    let conn = Connection::open(path)
         .map_err(|error| format!("打开 SQLite 失败: {error}"))?;
     conn.busy_timeout(std::time::Duration::from_secs(5))
         .map_err(|error| format!("配置 SQLite 锁等待失败: {error}"))?;
@@ -387,9 +408,109 @@ pub fn open_db() -> Result<Connection, String> {
     Ok(conn)
 }
 
+#[cfg(not(mobile))]
+fn snapshot_before_upgrade(source: &Connection, path: &std::path::Path, version: i64) -> Result<(), String> {
+    use std::fs;
+    let data = path.parent().ok_or("数据库目录无效")?;
+    let root = data.join("schema-backups");
+    fs::create_dir_all(&root).map_err(|_| "无法准备升级备份目录；数据库尚未升级")?;
+    let name = format!("schema-{version}-to-{CURRENT_SCHEMA_VERSION}-{}-{}", chrono::Utc::now().format("%Y%m%d-%H%M%S"), uuid::Uuid::new_v4());
+    let staging = root.join(format!(".incomplete-{name}"));
+    fs::create_dir(&staging).map_err(|_| "无法创建升级备份；数据库尚未升级")?;
+    let result = (|| -> Result<(), String> {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&staging, fs::Permissions::from_mode(0o700)).map_err(|_| "保护升级备份失败")?;
+        }
+        let snapshot = staging.join("cloudhub_tools.sqlite3");
+        source.execute("VACUUM INTO ?1", [snapshot.to_str().ok_or("升级备份路径无效")?])
+            .map_err(|_| "创建一致性数据库备份失败；数据库尚未升级")?;
+        for filename in [".key", ".authenticator.key"] {
+            let key = data.join(filename);
+            if key.exists() {
+                fs::copy(key, staging.join(filename)).map_err(|_| "备份本地密钥失败；数据库尚未升级")?;
+            }
+        }
+        let metadata = serde_json::json!({ "clientVersion": env!("CARGO_PKG_VERSION"), "schemaVersion": version, "targetSchemaVersion": CURRENT_SCHEMA_VERSION, "development": super::paths::desktop_development() });
+        fs::write(staging.join("metadata.json"), metadata.to_string()).map_err(|_| "写入升级备份信息失败")?;
+        fs::rename(&staging, root.join(name)).map_err(|_| "完成升级备份失败；数据库尚未升级")?;
+        Ok(())
+    })();
+    if result.is_err() {
+        for filename in ["cloudhub_tools.sqlite3", ".key", ".authenticator.key", "metadata.json"] {
+            let _ = fs::remove_file(staging.join(filename));
+        }
+        let _ = fs::remove_dir(&staging);
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::{migrate_connection, CURRENT_SCHEMA_VERSION};
+    use rusqlite::Connection;
+
+    #[test]
+    fn newer_database_is_rejected_before_initialization_writes() {
+        let root = std::env::temp_dir().join(format!("cloudhub-future-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&root).unwrap();
+        let path = root.join("cloudhub_tools.sqlite3");
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch("CREATE TABLE future_data(value TEXT); INSERT INTO future_data VALUES('fixture');").unwrap();
+        conn.pragma_update(None, "user_version", CURRENT_SCHEMA_VERSION + 1).unwrap();
+        drop(conn);
+        let before = std::fs::read(&path).unwrap();
+        assert!(super::open_db_at(&path).unwrap_err().contains("高于当前客户端"));
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        assert!(!root.join("schema-backups").exists());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(not(mobile))]
+    #[test]
+    fn upgrade_snapshot_preserves_wal_data_and_matching_keys() {
+        let root = std::env::temp_dir().join(format!("cloudhub-snapshot-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&root).unwrap();
+        let path = root.join("cloudhub_tools.sqlite3");
+        let original = super::open_db_at(&path).unwrap();
+        original.execute_batch("PRAGMA journal_mode=WAL; ALTER TABLE ai_profiles DROP COLUMN models_json; PRAGMA user_version=35; INSERT INTO ai_profiles(id,name,protocol,base_url,model,key_ciphertext,updated_at) VALUES('fixture','fixture','claude','https://example.test','fixture','fixture-cipher',1);").unwrap();
+        std::fs::write(root.join(".key"), [7u8; 32]).unwrap();
+        std::fs::write(root.join(".authenticator.key"), [8u8; 32]).unwrap();
+        let upgraded = super::open_db_at(&path).unwrap();
+        assert_eq!(super::supported_schema_version(&upgraded).unwrap(), CURRENT_SCHEMA_VERSION);
+        let backup = std::fs::read_dir(root.join("schema-backups")).unwrap().next().unwrap().unwrap().path();
+        let saved = Connection::open(backup.join("cloudhub_tools.sqlite3")).unwrap();
+        assert_eq!(super::supported_schema_version(&saved).unwrap(), 35);
+        let value: String = saved.query_row("SELECT key_ciphertext FROM ai_profiles WHERE id='fixture'", [], |r| r.get(0)).unwrap();
+        assert_eq!(value, "fixture-cipher");
+        assert!(saved.prepare("SELECT models_json FROM ai_profiles").is_err());
+        assert_eq!(std::fs::read(backup.join(".key")).unwrap(), [7u8; 32]);
+        assert_eq!(std::fs::read(backup.join(".authenticator.key")).unwrap(), [8u8; 32]);
+        drop(saved);
+        drop(upgraded);
+        drop(original);
+        let current = super::open_db_at(&path).unwrap();
+        assert_eq!(std::fs::read_dir(root.join("schema-backups")).unwrap().count(), 1);
+        drop(current);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(not(mobile))]
+    #[test]
+    fn backup_failure_leaves_database_unmodified() {
+        let root = std::env::temp_dir().join(format!("cloudhub-backup-failure-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&root).unwrap();
+        let path = root.join("cloudhub_tools.sqlite3");
+        let conn = super::open_db_at(&path).unwrap();
+        conn.execute_batch("ALTER TABLE ai_profiles DROP COLUMN models_json; PRAGMA user_version=35;").unwrap();
+        drop(conn);
+        std::fs::write(root.join("schema-backups"), b"fixture blocking file").unwrap();
+        let before = std::fs::read(&path).unwrap();
+        assert!(super::open_db_at(&path).unwrap_err().contains("数据库尚未升级"));
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        std::fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn v36_adds_models_without_changing_existing_credentials() {
         let mut conn = Connection::open_in_memory().unwrap();
@@ -429,8 +550,6 @@ mod tests {
         assert!(!crate::core::codex::gateway_config::allow_lan(&conn).unwrap());
         assert_eq!(crate::core::codex::gateway_config::startup(&conn).unwrap(),(true,vec![1]));
     }
-    use rusqlite::Connection;
-
     #[test]
     fn esa_deployment_links_survive_idempotent_migration() {
         let mut conn = Connection::open_in_memory().unwrap();

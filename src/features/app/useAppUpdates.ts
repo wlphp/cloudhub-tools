@@ -3,6 +3,7 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { useEffect, useRef, useState } from "react";
 import { platformErrorMessage, runningInTauri } from "../../platform/api";
+import { appClient } from "../../platform/clients/app";
 
 export type UpdateState =
   | { phase: "idle" | "checking" | "current" }
@@ -24,6 +25,12 @@ export function useAppUpdates(bundledVersion: string, onStatus: (message: string
   const [appVersion, setAppVersion] = useState(bundledVersion);
   const [updateState, setUpdateState] = useState<UpdateState>({ phase: "idle" });
   const updateRef = useRef<Update | null>(null);
+  const [isDevelopment, setIsDevelopment] = useState(false);
+  // Ask the native binary: a debug build can also load a production frontend.
+  const developmentRef = useRef<Promise<boolean> | null>(null);
+  function developmentBuild() {
+    return developmentRef.current ??= appClient.isDevelopment();
+  }
 
   async function checkForUpdates(quiet = false) {
     if (!runningInTauri) {
@@ -32,6 +39,11 @@ export function useAppUpdates(bundledVersion: string, onStatus: (message: string
     }
     setUpdateState({ phase: "checking" });
     try {
+      if (await developmentBuild()) {
+        setUpdateState({ phase: "idle" });
+        if (!quiet) onStatus("开发版使用独立数据，不安装正式版更新");
+        return;
+      }
       const update = await check();
       const previous = updateRef.current;
       updateRef.current = update;
@@ -50,6 +62,13 @@ export function useAppUpdates(bundledVersion: string, onStatus: (message: string
   }
 
   async function installUpdate() {
+    if (!runningInTauri) return;
+    try {
+      if (await developmentBuild()) return;
+    } catch (error) {
+      setUpdateState({ phase: "error", message: platformErrorMessage(error, "无法确认客户端更新渠道") });
+      return;
+    }
     const update = updateRef.current;
     if (!update) {
       await checkForUpdates();
@@ -73,7 +92,10 @@ export function useAppUpdates(bundledVersion: string, onStatus: (message: string
   }
 
   useEffect(() => {
-    if (runningInTauri) void getVersion().then(setAppVersion).catch(() => {});
+    if (runningInTauri) {
+      void getVersion().then(setAppVersion).catch(() => {});
+      void developmentBuild().then(setIsDevelopment).catch(() => {});
+    }
     void checkForUpdates(true);
     return () => {
       const update = updateRef.current;
@@ -82,5 +104,5 @@ export function useAppUpdates(bundledVersion: string, onStatus: (message: string
     };
   }, []);
 
-  return { appVersion, updateState, checkForUpdates, installUpdate };
+  return { appVersion, isDevelopment, updateState, checkForUpdates, installUpdate };
 }

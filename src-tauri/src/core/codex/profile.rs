@@ -144,6 +144,10 @@ pub fn private_permissions(path: &Path, directory: bool) -> Result<(), String> {
 }
 
 pub fn write_private(path: &Path, content: &str) -> Result<(), String> {
+    write_private_bytes(path, content.as_bytes())
+}
+
+pub fn write_private_bytes(path: &Path, content: &[u8]) -> Result<(), String> {
     let parent = path.parent().ok_or("Codex 文件路径无效")?;
     if fs::symlink_metadata(path).is_ok_and(|v| v.file_type().is_symlink() || !v.is_file()) {
         return Err("Codex 文件路径不能是链接或目录".into());
@@ -156,7 +160,7 @@ pub fn write_private(path: &Path, content: &str) -> Result<(), String> {
             .open(&temp)
             .map_err(|_| "创建 Codex 临时文件失败")?;
         private_permissions(&temp, false)?;
-        file.write_all(content.as_bytes())
+        file.write_all(content)
             .and_then(|_| file.sync_all())
             .map_err(|_| "写入 Codex 认证文件失败")?;
         drop(file);

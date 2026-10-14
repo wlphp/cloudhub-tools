@@ -12,6 +12,8 @@ export type DatabaseImportPreview = {
 
 export type BrowserDatabaseImportPreview = DatabaseImportPreview;
 
+export type DatabaseBackupRecord = { id: string; fileName: string; createdAt: string; sizeBytes: number };
+
 export const databaseClient = {
   exportFile(): Promise<string | null> {
     return nativeOnly<string | null>("export_database_file");
@@ -19,6 +21,12 @@ export const databaseClient = {
   prepareImport(): Promise<DatabaseImportPreview | null> {
     return nativeOnly<DatabaseImportPreview | null>("prepare_database_import");
   },
+  listBackups(): Promise<DatabaseBackupRecord[]> { return nativeOnly("list_database_backups"); },
+  createBackup(): Promise<DatabaseBackupRecord> { return nativeOnly("create_database_backup"); },
+  importBackup(): Promise<DatabaseBackupRecord | null> { return nativeOnly("import_database_backup"); },
+  downloadBackup(id: string): Promise<string | null> { return nativeOnly("download_database_backup", { id }); },
+  deleteBackup(id: string): Promise<void> { return nativeOnly("delete_database_backup", { id }); },
+  prepareBackupRestore(id: string): Promise<DatabaseImportPreview | null> { return nativeOnly("prepare_database_backup_restore", { id }); },
   prepareBrowserImport(file: File): Promise<BrowserDatabaseImportPreview> {
     const query = new URLSearchParams({ name: file.name });
     return previewOnly<BrowserDatabaseImportPreview>({

@@ -115,8 +115,8 @@ test("mobile authenticator follows Flow and copies all fields without moving car
   await expect(page.getByRole("status")).toContainText("新增 1，更新 0，跳过 1");
   await page.getByLabel("选择 OpenAI other@example.test").check();
   await page.getByRole("button", { name: "导出所选", exact: true }).click();
-  await page.getByLabel("导出密码", { exact: true }).fill("fixture-backup-password");
-  await page.getByLabel("确认导出密码", { exact: true }).fill("fixture-backup-password");
+  await expect(page.getByLabel("导出密码", { exact: true })).toHaveCount(0);
+  await page.getByRole("checkbox", { name: /我了解备份文件未加密/ }).check();
   await page.getByRole("button", { name: "选择位置并导出" }).click();
   await expect(page.getByRole("status")).toContainText("已导出 1 项");
   expect(await page.evaluate(() => (window as any).authCalls.find((item: any) => item.command === "authenticator_export").args.ids)).toEqual(["fixture-two"]);

@@ -52,7 +52,9 @@ test("opens the cloud account form with required credential boundaries", async (
 
 test("shows QR migration controls with native boundaries on desktop", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "手机扫码迁移", exact: true }).first().click();
+  await page.getByRole("button", { name: "系统设置", exact: true }).first().click();
+  await page.locator(".data-management-entry").click();
+  await page.getByRole("button", { name: "开始迁移", exact: true }).click();
   await expect(page.getByRole("heading", { name: "迁移到手机" })).toBeVisible();
   await expect(page.getByRole("tab", { name: /云账号/ })).toBeVisible();
   await expect(page.getByRole("tab", { name: /SSH 主机/ })).toBeVisible();

@@ -8,6 +8,7 @@ export interface CodexAccount {
   authMode: "chatgpt" | "apikey"; plan: string | null; note: string; tags: string[];
   quota: { windows: CodexQuotaWindow[]; fetchedAt: number | null }; lastError: string | null; updatedAt: number;
 }
+export type CodexExportFormat = "cockpit_tools" | "auth_json" | "sub2api" | "cpa";
 export interface CodexState { accounts: CodexAccount[]; cliAvailable: boolean; desktopAvailable: boolean; canOpenDefault?: boolean; supportsRemoteLogs?: boolean; profileHome: string; currentAccountId: number | null; canRestore: boolean }
 export interface CodexRemoteLog { id: string; timestamp: number; accountId: number | null; transport: string; method: string; url: string; status: number | null; outcome: string; durationMs: number; proxyMode: string; proxyUrl: string | null }
 export interface CodexRemoteLogState { enabled: boolean; logs: CodexRemoteLog[] }
@@ -46,9 +47,7 @@ export const codexClient = {
   setGatewayAllowLan(enabled: boolean): Promise<CodexGatewayState> { return nativeOnly("codex_gateway_set_allow_lan", { enabled }); },
   saveGatewayPool(accountIds: number[]): Promise<CodexGatewayState> { return nativeOnly("codex_gateway_save_pool", { accountIds }); },
   wakeAccount(id: number, model: string): Promise<void> { return nativeOnly("codex_wake_account", { id, model }); },
-  exportAccountsFile(accountId: number | null = null, accountIds: number[] | null = null): Promise<boolean> { return nativeOnly("codex_export_accounts_file", { accountId, accountIds }); },
-  exportBackup(password: string, accountId: number | null = null, accountIds: number[] | null = null): Promise<boolean> { return nativeOnly("codex_export_backup", { password, accountId, accountIds }); },
-  importBackup(password: string): Promise<boolean> { return nativeOnly("codex_import_backup", { password }); },
+  exportAccountsFile(accountId: number | null = null, accountIds: number[] | null = null, format: CodexExportFormat = "cockpit_tools"): Promise<boolean> { return nativeOnly("codex_export_accounts_file", { accountId, accountIds, format }); },
   instances(): Promise<CodexInstance[]> { return nativeOnly("codex_list_instances"); },
   createInstance(accountId: number, name: string, kind: "cli" | "desktop"): Promise<CodexInstance[] | null> { return nativeOnly("codex_create_instance", { accountId, name, kind }); },
   startInstance(id: string): Promise<CodexInstance[]> { return nativeOnly("codex_start_instance", { id }); },
@@ -61,7 +60,7 @@ export const codexClient = {
   cancelLogin(token: string): Promise<void> { return nativeOnly("codex_cancel_login", { token }); },
   state(): Promise<CodexState> { return nativeOnly("codex_get_state"); },
   importLocal(): Promise<CodexState> { return nativeOnly("codex_import_local"); },
-  importFile(): Promise<CodexState | null> { return nativeOnly("codex_import_file"); },
+  importFile(format: CodexExportFormat = "cockpit_tools"): Promise<CodexState | null> { return nativeOnly("codex_import_file", { format }); },
   saveMetadata(input: { id: number; label: string; note: string; tags: string[] }): Promise<CodexAccount> { return nativeOnly("codex_save_metadata", { input }); },
   deleteAccount(id: number): Promise<CodexState> { return nativeOnly("codex_delete_account", { id }); },
   refreshQuota(id: number): Promise<CodexAccount> { return nativeOnly("codex_refresh_quota", { id }); },
