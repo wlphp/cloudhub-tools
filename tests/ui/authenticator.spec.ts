@@ -33,7 +33,7 @@ async function mockNative(page: import("@playwright/test").Page, legacy = false)
     };
   }, legacy);
   await page.goto("/");
-  await page.getByRole("button", { name: "验证器", exact: true }).first().click();
+  await page.getByRole("button", { name: "身份验证器", exact: true }).first().click();
 }
 
 async function unlock(page: import("@playwright/test").Page) {
@@ -48,7 +48,7 @@ test("browser uses the local authenticator API", async ({ page }) => {
     return route.fulfill({ json: op === "status" ? { initialized: true, unlocked: true, passwordRequired: false } : [] });
   });
   await page.goto("/");
-  await page.getByRole("button", { name: "验证器", exact: true }).first().click();
+  await page.getByRole("button", { name: "身份验证器", exact: true }).first().click();
   await expect(page.getByRole("button", { name: "新增", exact: true })).toBeVisible();
   await expect(page.getByLabel("主密码", { exact: true })).toHaveCount(0);
 });
@@ -56,6 +56,21 @@ test("browser uses the local authenticator API", async ({ page }) => {
 test("opens without a master password, copy, HOTP, edit and reopen", async ({ page }) => {
   await mockNative(page);
   await unlock(page);
+  await page.getByRole("button", { name: "新增", exact: true }).click();
+  const addDialog = page.getByRole("dialog", { name: "新增验证码", exact: true });
+  await expect(addDialog).toHaveClass(/dialog-common-theme/);
+  const dialogChrome = await addDialog.evaluate(element => ({
+    background: getComputedStyle(element).backgroundColor,
+    header: getComputedStyle(element.querySelector("header")!).backgroundColor,
+    inset: element.querySelector("header")!.getBoundingClientRect().left - element.getBoundingClientRect().left,
+    field: getComputedStyle(element.querySelector("input")!).backgroundColor,
+  }));
+  expect(dialogChrome.background).toBe("rgb(40, 40, 40)");
+  expect(dialogChrome.header).toBe("rgb(48, 48, 48)");
+  expect(dialogChrome.field).toBe("rgb(32, 32, 32)");
+  expect(dialogChrome.inset).toBeLessThanOrEqual(1);
+  await page.screenshot({ path: "test-results/authenticator-add-dialog.png" });
+  await addDialog.getByRole("button", { name: "关闭对话框", exact: true }).click();
   const card = page.locator(".auth-card").first();
   const beforeCopy = await card.boundingBox();
   await page.getByRole("button", { name: "复制 demo@example.test 验证码" }).click();
@@ -78,6 +93,8 @@ test("opens without a master password, copy, HOTP, edit and reopen", async ({ pa
   await page.getByLabel("搜索验证码").fill("demo");
   await expect(page.locator(".auth-card")).toHaveCount(1);
   await page.getByRole("button", { name: "编辑 demo@example.test" }).click();
+  await expect(page.getByLabel("分组", {exact:true})).toHaveAttribute("placeholder", "选择已有分组或输入新分组");
+  await expect(page.locator('#auth-group-options option[value="演示"]')).toHaveCount(1);
   await page.getByRole("textbox", { name: "备注", exact: true }).fill("修改的演示备注");
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
@@ -87,7 +104,7 @@ test("opens without a master password, copy, HOTP, edit and reopen", async ({ pa
   await page.getByRole("button", { name: "取消", exact: true }).click();
   await expect(page.locator(".auth-card")).toHaveCount(1);
   await page.getByRole("button", { name: "账号管理", exact: true }).first().click();
-  await page.getByRole("button", { name: "验证器", exact: true }).first().click();
+  await page.getByRole("button", { name: "身份验证器", exact: true }).first().click();
   await unlock(page);
 });
 
@@ -100,7 +117,7 @@ test("legacy vault requires its original password only for migration", async ({ 
   await page.getByRole("button", { name: "迁移并打开", exact: true }).click();
   await unlock(page);
   await page.getByRole("button", { name: "账号管理", exact: true }).first().click();
-  await page.getByRole("button", { name: "验证器", exact: true }).first().click();
+  await page.getByRole("button", { name: "身份验证器", exact: true }).first().click();
   await unlock(page);
   await expect(page.getByLabel("原主密码", { exact: true })).toHaveCount(0);
 });

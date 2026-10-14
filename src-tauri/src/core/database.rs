@@ -3,7 +3,7 @@ use std::sync::Mutex;
 
 use super::paths::data_dir;
 
-const CURRENT_SCHEMA_VERSION: i64 = 35;
+const CURRENT_SCHEMA_VERSION: i64 = 36;
 // Schema is shared by desktop and mobile; migrations must not depend on desktop modules.
 pub const CODEX_GATEWAY_PREFERENCES_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS codex_gateway_preferences(id INTEGER PRIMARY KEY CHECK(id=1),json TEXT NOT NULL);";
 pub const CODEX_ACCOUNT_CONTROLS_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS codex_account_controls(account_id INTEGER PRIMARY KEY REFERENCES codex_accounts(id) ON DELETE CASCADE,proxy_url TEXT,benefits_json TEXT,reset_request_id TEXT);";
@@ -351,6 +351,12 @@ fn migrate_connection_inner(conn: &mut Connection) -> Result<(), String> {
         transaction.execute_batch(super::repositories::ai::CAPABILITIES_SCHEMA).map_err(|_|"创建AI能力状态表失败")?;
         transaction.pragma_update(None,"user_version",35).map_err(|_|"更新AI能力数据库版本失败")?;
     }
+    if version < 36 {
+        if !columns("ai_profiles")?.iter().any(|column| column == "models_json") {
+            transaction.execute_batch("ALTER TABLE ai_profiles ADD COLUMN models_json TEXT NOT NULL DEFAULT '[]';").map_err(|_| "创建AI多模型配置失败")?;
+        }
+        transaction.pragma_update(None, "user_version", 36).map_err(|_| "更新AI多模型版本失败")?;
+    }
     transaction.commit().map_err(|error| format!("提交 SQLite 迁移失败: {error}"))?;
 
     Ok(())
@@ -384,6 +390,18 @@ pub fn open_db() -> Result<Connection, String> {
 #[cfg(test)]
 mod tests {
     use super::{migrate_connection, CURRENT_SCHEMA_VERSION};
+    #[test]
+    fn v36_adds_models_without_changing_existing_credentials() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA user_version=33;").unwrap();
+        migrate_connection(&mut conn).unwrap();
+        conn.execute("INSERT INTO ai_profiles(id,name,protocol,base_url,model,key_ciphertext,updated_at) VALUES('fixture','fixture','claude','https://example.test','fixture','fixture-cipher',1)", []).unwrap();
+        conn.execute_batch("ALTER TABLE ai_profiles DROP COLUMN models_json; PRAGMA user_version=35;").unwrap();
+        migrate_connection(&mut conn).unwrap();
+        migrate_connection(&mut conn).unwrap();
+        let result: (String, String, String) = conn.query_row("SELECT model,key_ciphertext,models_json FROM ai_profiles WHERE id='fixture'", [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))).unwrap();
+        assert_eq!(result, ("fixture".into(), "fixture-cipher".into(), "[]".into()));
+    }
     #[test]
     fn v33_adds_ai_profiles_and_repeated_migration_preserves_ciphertext() {
         let mut conn=rusqlite::Connection::open_in_memory().unwrap();conn.execute_batch("PRAGMA user_version=33;").unwrap();

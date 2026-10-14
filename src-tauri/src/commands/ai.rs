@@ -16,8 +16,18 @@ fn error(message: String) -> PlatformError {
     }
 }
 #[tauri::command]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+pub(crate) async fn ai_read_image_file(source_path: String) -> PlatformResult<String> {
+    tauri::async_runtime::spawn_blocking(move || crate::core::ai_images::read_source_file(&source_path))
+        .await.map_err(|_| error("读取图片失败".into()))?.map_err(error)
+}
+#[tauri::command]
 pub(crate) fn ai_list_profiles() -> PlatformResult<Vec<Profile>> {
     repository::list(&open_db()?).map_err(error)
+}
+#[tauri::command]
+pub(crate) fn ai_reveal_key(id: String, expected_revision: i64) -> PlatformResult<String> {
+    repository::reveal_key(&open_db()?, &id, expected_revision).map(|key| key.to_string()).map_err(error)
 }
 #[tauri::command]
 pub(crate) fn ai_save_profile(
@@ -99,9 +109,16 @@ pub(crate) async fn ai_run(
         store: &store,
         id: input.request_id.clone(),
     };
-    let (profile, key) = repository::load(&open_db()?, &input.profile_id).map_err(error)?;
+    let (mut profile, key) = repository::load(&open_db()?, &input.profile_id).map_err(error)?;
     if profile.updated_at != input.expected_revision {
         return Err(error("AI配置已变更，请关闭辅助面板后重新打开".into()));
+    }
+    if let Some(model) = input.model {
+        if model != profile.model {
+            if !profile.models.contains(&model) { return Err(error("请使用已配置的模型ID".into())); }
+            if input.image.is_some() { return Err(error("请先将所选模型设为默认并完成图像测试".into())); }
+            profile.model = model;
+        }
     }
     let image = if let Some(image) = input.image {
         if !image.reviewed || profile.vision_status != "supported" {
@@ -166,13 +183,21 @@ fn service(input: &ServiceInput) -> PlatformResult<(Profile, zeroize::Zeroizing<
     }
     Ok((profile, key))
 }
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct ModelQueryInput {
+    request_id: String,
+    profile_id: Option<String>,
+    expected_revision: Option<i64>,
+    draft: Option<repository::ModelQueryConfig>,
+}
 #[tauri::command]
-pub(crate) async fn ai_list_models(
-    input: ServiceInput,
-    store: State<'_, RequestStore>,
-) -> PlatformResult<Vec<String>> {
-    let (_guard, mut receiver) = operation(&store, &input)?;
-    let (profile, key) = service(&input)?;
+pub(crate) async fn ai_list_models(input: ModelQueryInput, store: State<'_, RequestStore>) -> PlatformResult<Vec<String>> {
+    let operation_input = ServiceInput { request_id: input.request_id, profile_id: input.profile_id.clone().unwrap_or_default(), expected_revision: input.expected_revision.unwrap_or_default() };
+    let (_guard, mut receiver) = operation(&store, &operation_input)?;
+    let (profile, key) = if let Some(draft) = input.draft {
+        repository::query_configuration(&open_db()?, input.profile_id.as_deref(), input.expected_revision, draft).map_err(error)?
+    } else { service(&operation_input)? };
     tokio::select!{biased;_=receiver.changed()=>Err("AI请求已取消".into()),value=crate::core::ai_models::query(&profile,&key)=>value}.map_err(error)
 }
 #[derive(Serialize)]

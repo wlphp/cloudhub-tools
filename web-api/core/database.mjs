@@ -24,6 +24,20 @@ export function database() {
     id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER, action TEXT NOT NULL,
     result TEXT NOT NULL, message TEXT, created_at INTEGER NOT NULL
   )`);
+  db.exec(`CREATE TABLE IF NOT EXISTS ai_profiles(
+    id TEXT PRIMARY KEY,name TEXT NOT NULL,protocol TEXT NOT NULL,base_url TEXT NOT NULL,
+    model TEXT NOT NULL,models_json TEXT NOT NULL DEFAULT '[]',key_ciphertext TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,is_default INTEGER NOT NULL DEFAULT 0,
+    timeout_seconds INTEGER NOT NULL DEFAULT 60,max_output_tokens INTEGER NOT NULL DEFAULT 2048,
+    allow_loopback_http INTEGER NOT NULL DEFAULT 0,updated_at INTEGER NOT NULL
+  )`);
+  if (!db.prepare("PRAGMA table_info(ai_profiles)").all().some(column => column.name === "models_json")) db.exec("ALTER TABLE ai_profiles ADD COLUMN models_json TEXT NOT NULL DEFAULT '[]'");
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS ai_one_default ON ai_profiles(is_default) WHERE is_default=1");
+  db.exec(`CREATE TABLE IF NOT EXISTS ai_capabilities(
+    profile_id TEXT PRIMARY KEY REFERENCES ai_profiles(id) ON DELETE CASCADE,
+    config_revision INTEGER NOT NULL,vision_status TEXT NOT NULL CHECK(vision_status IN ('supported','unsupported')),
+    checked_at INTEGER NOT NULL
+  )`);
   db.exec("CREATE INDEX IF NOT EXISTS idx_api_logs_created_at ON api_logs(created_at DESC)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_operation_logs_created_at ON operation_logs(created_at DESC)");
   sharedDatabase = db;

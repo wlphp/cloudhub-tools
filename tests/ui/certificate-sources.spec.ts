@@ -172,6 +172,19 @@ test("manual certificate import clears pasted material and saves only after conf
   await fixture(page);
   await page.getByRole("button", { name: "导入证书", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "导入 HTTPS 证书" });
+  const dialogChrome = await dialog.evaluate(element => ({
+    background: getComputedStyle(element).backgroundColor,
+    header: getComputedStyle(element.querySelector("header")!).backgroundColor,
+    inset: element.querySelector("header")!.getBoundingClientRect().left - element.getBoundingClientRect().left,
+    padding: getComputedStyle(element).padding,
+    headerMargin: getComputedStyle(element.querySelector("header")!).margin,
+    drop: getComputedStyle(element.querySelector(".certificate-file-drop")!).backgroundColor,
+  }));
+  await page.screenshot({ path: "test-results/certificate-import-dialog.png" });
+  expect(dialogChrome.background).toBe("rgb(40, 40, 40)");
+  expect(dialogChrome.header).toBe("rgb(48, 48, 48)");
+  expect(dialogChrome.inset, JSON.stringify(dialogChrome)).toBeLessThanOrEqual(1);
+  expect(dialogChrome.drop).toBe("rgb(54, 54, 54)");
   await dialog.getByLabel("证书或完整证书链", { exact: true }).fill("fixture-certificate-input");
   await dialog.getByLabel("导入私钥", { exact: true }).fill("fixture-key-input");
   await dialog.getByRole("button", { name: "校验粘贴内容" }).click();
@@ -249,9 +262,13 @@ test("domain dialog supports fullscreen, filtered exports and cancelled saves", 
       return rect.width === window.innerWidth && rect.height === window.innerHeight && element.scrollWidth <= element.clientWidth;
     })).toBe(true);
   }
+  await expect(dialog.getByRole("button", { name: "导出", exact: true })).toBeDisabled();
+  await dialog.getByRole("button", { name: "全选", exact: true }).click();
   await dialog.getByRole("button", { name: "导出", exact: true }).click();
   await expect(dialog.getByRole("status")).toHaveText("已导出 22 个域名");
+  await dialog.getByRole("button", { name: "取消全选", exact: true }).click();
   await dialog.getByLabel("搜索完整域名列表").fill("domain19");
+  await dialog.getByRole("checkbox", { name: "domain19.site.test", exact: true }).check();
   await dialog.getByRole("button", { name: "导出", exact: true }).click();
   await expect(dialog.getByRole("status")).toHaveText("已导出 1 个域名");
   const calls = await page.evaluate(() => (window as any).__certificateCalls.filter((call: any) => call.command === "export_certificate_domains"));
@@ -260,6 +277,7 @@ test("domain dialog supports fullscreen, filtered exports and cancelled saves", 
   await page.evaluate(() => (window as any).__setDomainExportResult(null));
   await dialog.getByRole("button", { name: "导出", exact: true }).click();
   await expect(dialog.getByRole("status")).toHaveCount(0);
+  await dialog.getByRole("button", { name: "取消全选", exact: true }).click();
   await dialog.getByLabel("搜索完整域名列表").fill("absent-domain");
   await expect(dialog.getByRole("button", { name: "导出", exact: true })).toBeDisabled();
   await dialog.getByLabel("搜索完整域名列表").fill("");
@@ -289,10 +307,10 @@ test("large domain lists stay compact and source labels distinguish issued and i
   await expect(row).not.toContainText("domain19.site.test");
   await row.getByRole("button", { name: "查看 site.test 的全部域名（22 个）", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "site.test · 全部域名", exact: true });
-  await expect(dialog.locator("li")).toHaveCount(22);
+  await expect(dialog.getByRole("checkbox")).toHaveCount(22);
   await dialog.getByRole("textbox", { name: "搜索完整域名列表" }).fill("domain19");
-  await expect(dialog.locator("li")).toHaveCount(1);
-  await expect(dialog.locator("li")).toHaveText("domain19.site.test");
+  await expect(dialog.getByRole("checkbox")).toHaveCount(1);
+  await expect(dialog.getByRole("checkbox", { name: "domain19.site.test", exact: true })).toBeVisible();
   for (const width of [375, 768, 1024, 1440]) {
     await page.setViewportSize({ width, height: 1000 });
     expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);

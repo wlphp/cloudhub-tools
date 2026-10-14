@@ -83,7 +83,7 @@ pub fn validate(payload: &Payload) -> Result<(), String> {
         {
             return Err("AI迁移配置字段无效".into());
         }
-        ai::endpoint(&p.base_url, &p.protocol, &p.model, p.allow_loopback_http)?;
+        ai::normalize_models(&p.base_url, &p.protocol, &p.model, &p.models, p.allow_loopback_http)?;
     }
     Ok(())
 }
@@ -127,7 +127,10 @@ pub fn import(conn: &mut Connection, payload: &Payload, ids: &[String]) -> Resul
         }
         names.insert(name.clone());
         // Imported endpoints are always disabled until the user reviews and enables them.
-        tx.execute("INSERT INTO ai_profiles(id,name,protocol,base_url,model,key_ciphertext,enabled,is_default,timeout_seconds,max_output_tokens,allow_loopback_http,updated_at) VALUES(?1,?2,?3,?4,?5,'',0,0,?6,?7,?8,?9)",params![uuid::Uuid::new_v4().to_string(),name,p.protocol,p.base_url,p.model,p.timeout_seconds,p.max_output_tokens,p.allow_loopback_http,chrono::Utc::now().timestamp_millis()]).map_err(|_|"导入AI配置失败，未写入任何配置")?;
+        let id = uuid::Uuid::new_v4().to_string();
+        tx.execute("INSERT INTO ai_profiles(id,name,protocol,base_url,model,key_ciphertext,enabled,is_default,timeout_seconds,max_output_tokens,allow_loopback_http,updated_at) VALUES(?1,?2,?3,?4,?5,'',0,0,?6,?7,?8,?9)",params![id,name,p.protocol,p.base_url,p.model,p.timeout_seconds,p.max_output_tokens,p.allow_loopback_http,chrono::Utc::now().timestamp_millis()]).map_err(|_|"导入AI配置失败，未写入任何配置")?;
+        let models = ai::normalize_models(&p.base_url, &p.protocol, &p.model, &p.models, p.allow_loopback_http)?;
+        tx.execute("UPDATE ai_profiles SET models_json=?2 WHERE id=?1", params![id, serde_json::to_string(&models).map_err(|_| "模型配置无效")?]).map_err(|_| "导入AI配置失败，未写入任何配置")?;
     }
     tx.commit().map_err(|_| "导入AI配置失败，未写入任何配置")?;
     Ok(selected.len())
@@ -143,6 +146,7 @@ mod tests {
                 protocol: "claude".into(),
                 base_url: "https://example.test".into(),
                 model: "fixture".into(),
+                models: vec!["fixture".into(), "fixture-other".into()],
                 enabled: true,
                 is_default: true,
                 timeout_seconds: 60,
@@ -177,6 +181,7 @@ mod tests {
         );
         let rows = ai::list(&conn).unwrap();
         assert!(rows.iter().all(|p| !p.enabled && !p.is_default));
+        assert!(rows.iter().all(|p| p.models == vec!["fixture", "fixture-other"]));
         assert!(rows.iter().any(|p| !p.has_key));
         assert_eq!(conn.query_row("SELECT COUNT(*) FROM ai_profiles WHERE length(key_ciphertext)>0", [], |r| r.get::<_, usize>(0)).unwrap(), 0);
         assert_eq!(import(&mut conn, &opened, &ids).unwrap(), 2);

@@ -84,7 +84,7 @@ impl Task {
                 "remark",
             ],
             Self::Dns => &["type", "rr", "value", "ttl", "priority", "line"],
-            Self::Panel => &["name", "panel_url", "remark"],
+            Self::Panel => &["name", "panel_url", "group_name", "remark"],
             Self::Asset => &["name", "type", "url", "expires_at", "tags", "remark"],
             Self::Command => &["name", "command", "description"],
             Self::Search => &["query", "group", "resource_type", "expires_within_days"],
@@ -98,7 +98,7 @@ impl Task {
             Self::VisionTest => "读取图片从左到右的8个独立格子的颜色。fields.colors填写red或blue组成的8项英文列表，用逗号分隔；不要猜测。summary简短描述图片。",
             Self::Server => "提取托管服务器信息。单台服务器填写fields，多台服务器每台分别填写items；port为1至65535整数，platform只可linux或windows。仅输出有明确依据的名称、主机地址、端口、系统、用户名、分组、标签和备注；禁止输出密码、私钥、口令或其他认证凭据。",
             Self::Dns => "从说明中提取DNS记录，单条放fields，多条放items。只允许type、rr、value、ttl、priority、line字段；type须来自既有DNS记录类型；rr是主机记录前缀，未知值留空；ttl必须为正整数秒，MX priority为1至50整数，line只能是已支持的解析线路。不得猜测或省略未知值，不得输出命令、凭据或附加字段。",
-            Self::Panel => "提取面板名称和地址，不提取密钥。",
+            Self::Panel => "提取面板名称、地址、分组和备注；分组使用group_name字段，仅从输入中有依据的分组信息提取，没有依据留空，不根据云厂商猜测分组。不提取密钥。",
             Self::Frp => "生成FRP规则草稿，不生成认证信息、插件或私钥路径。name只含英文字母数字下划线点和连字符且最多64字节；kind只能tcp/udp/http/https；local_ip是本地IP或域名；端口是1至65535整数；tcp/udp使用remote_port，http/https使用custom_domain域名（无协议、路径、端口）。字段只填有明确依据的内容，warnings说明公网暴露风险；不保存、不启动。",
             Self::Asset => "整理资产或收藏信息，不猜测费用或到期时间。",
             Self::Command => {
@@ -120,6 +120,8 @@ pub struct RunInput {
     pub expected_revision: i64,
     pub request_id: String,
     pub profile_id: String,
+    #[serde(default)]
+    pub model: Option<String>,
     pub task: Task,
     pub text: String,
     #[serde(default)]
@@ -597,6 +599,16 @@ pub async fn request_with_options<F: FnMut(&str, usize) + Send>(
 mod tests {
     use super::*;
     #[test]
+    fn panel_group_is_allowed_but_credentials_are_rejected() {
+        let profile=profile("openai_chat");
+        let draft=json!({"summary":"测试面板分组","fields":{"name":"测试面板","group_name":"生产"},"items":[],"warnings":[],"evidence":[]});
+        let response=|draft:Value|json!({"choices":[{"finish_reason":"stop","message":{"content":draft.to_string()}}]});
+        let result=parse(&profile,&Task::Panel,&response(draft.clone()),"").unwrap();
+        assert_eq!(result.0.fields["group_name"],"生产");
+        let mut invalid=draft;invalid["fields"]["api_key"]=json!("test-only-secret");
+        assert!(parse(&profile,&Task::Panel,&response(invalid),"").is_err());
+    }
+    #[test]
     fn rejection_details_expose_only_known_parameter_names() {
         let safe = json!({"error":{"param":"max_output_tokens","message":"test-only-private-value"}});
         assert_eq!(rejection_detail(400, safe.to_string().as_bytes()).unwrap(), "AI服务拒绝请求（HTTP 400）：参数 max_output_tokens 不兼容");
@@ -842,6 +854,7 @@ mod tests {
             protocol: protocol.into(),
             base_url: "https://example.test".into(),
             model: "fixture".into(),
+            models: vec![],
             enabled: true,
             is_default: true,
             timeout_seconds: 5,

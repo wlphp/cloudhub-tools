@@ -2,6 +2,8 @@
 //! this module never invokes tools or interprets their arguments as commands.
 use serde_json::{json, Value};
 use std::collections::HashSet;
+use base64::{engine::general_purpose::STANDARD, Engine};
+use std::io::Cursor;
 
 const INVALID: &str = "Responses 请求参数无效";
 
@@ -20,13 +22,42 @@ fn name_valid(name: &str) -> bool {
     !name.is_empty() && name.len() <= 128
         && name.bytes().all(|c| c.is_ascii_alphanumeric() || b"._-".contains(&c))
 }
-fn text_parts(value: &Value, assistant: bool) -> Result<Value, String> {
+fn image_part(part: &Value) -> Result<Value, String> {
+    const ERROR: &str = "图片输入无效，请使用不超过2MB、1600像素的PNG、JPEG或WebP内嵌图片";
+    fields(part, &["type", "image_url", "detail"])?;
+    let url = string(part, "image_url", 2_800_000)?;
+    let (header, encoded) = url.split_once(',').ok_or(ERROR)?;
+    let format = match header {
+        "data:image/png;base64" => image::ImageFormat::Png,
+        "data:image/jpeg;base64" => image::ImageFormat::Jpeg,
+        "data:image/webp;base64" => image::ImageFormat::WebP,
+        _ => return Err(ERROR.into()),
+    };
+    let bytes = STANDARD.decode(encoded).map_err(|_| ERROR)?;
+    if bytes.len() > 2_097_152 { return Err(ERROR.into()); }
+    let reader = image::ImageReader::new(Cursor::new(bytes)).with_guessed_format().map_err(|_| ERROR)?;
+    if reader.format() != Some(format) { return Err(ERROR.into()); }
+    let (width, height) = reader.into_dimensions().map_err(|_| ERROR)?;
+    if width == 0 || height == 0 || width > 1600 || height > 1600 { return Err(ERROR.into()); }
+    if part.get("detail").is_some_and(|v| !matches!(v.as_str(), Some("auto" | "low" | "high"))) {
+        return Err(ERROR.into());
+    }
+    Ok(part.clone())
+}
+
+fn text_parts(value: &Value, role: &str) -> Result<Value, String> {
+    let assistant = role == "assistant";
     if let Some(text) = value.as_str() {
         return Ok(json!([{"type":if assistant {"output_text"} else {"input_text"},"text":text}]));
     }
     let parts = value.as_array().filter(|v| v.len() <= 100).ok_or("仅支持文本内容")?;
     let mut result = Vec::new();
     for part in parts {
+        if part.get("type").and_then(Value::as_str) == Some("input_image") {
+            if role != "user" { return Err("图片仅允许用于用户消息".into()); }
+            result.push(image_part(part)?);
+            continue;
+        }
         fields(part, &["type", "text", "annotations"])?;
         if !matches!(part.get("type").and_then(Value::as_str), Some("text" | "input_text" | "output_text"))
             || part.get("text").and_then(Value::as_str).is_none() {
@@ -118,7 +149,7 @@ pub fn normalize(bytes: &[u8]) -> Result<(Value, bool), String> {
                 fields(&row, &["type", "id", "status", "role", "content"])?;
                 let role = string(&row, "role", 16)?;
                 if !matches!(role, "user" | "assistant" | "system" | "developer") { return Err("消息角色无效".into()); }
-                let content = text_parts(row.get("content").ok_or(INVALID)?, role == "assistant")?;
+                let content = text_parts(row.get("content").ok_or(INVALID)?, role)?;
                 row = json!({"role":role,"content":content});
             }
             Some("function_call") => {
@@ -179,6 +210,36 @@ pub fn prepare_chatgpt(body: &mut Value) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn vision_input_survives_normalization_and_subscription_adaptation() {
+        let (image, _) = crate::core::ai_images::challenge().unwrap();
+        let part = json!({"type":"input_image","image_url":image.data_url,"detail":"high"});
+        let (mut value, _) = normalize_value(json!({"model":"gpt-test","input":[{"role":"user","content":[{"type":"input_text","text":"Read colors"},part.clone()]}]})).unwrap();
+        prepare_chatgpt(&mut value).unwrap();
+        assert_eq!(value["input"][0]["content"][1], part);
+        let mut detail = super::super::gateway_controls::CallDetail::default();
+        let logged = detail.sanitize(&value).to_string();
+        assert!(!logged.contains(&image.base64));
+        assert!(logged.contains("图片内容已隐藏"));
+    }
+    #[test]
+    fn invalid_images_and_non_user_images_are_rejected_without_echoing_data() {
+        let (image, _) = crate::core::ai_images::challenge().unwrap();
+        for part in [
+            json!({"type":"input_image","image_url":"https://private.test/image"}),
+            json!({"type":"input_image","image_url":"data:image/jpeg;base64,test-only-private"}),
+            json!({"type":"input_image","image_url":image.data_url,"detail":"invalid"}),
+            json!({"type":"input_image","image_url":image.data_url,"file_id":"private"}),
+            json!({"type":"input_image","image_url":image.data_url.replace("image/jpeg", "image/png")}),
+        ] {
+            let error = normalize_value(json!({"model":"gpt-test","input":[{"role":"user","content":[part]}]})).unwrap_err();
+            assert!(!error.contains("private"));
+            assert!(!error.contains(&image.base64));
+        }
+        for role in ["assistant", "system", "developer"] {
+            assert!(normalize_value(json!({"model":"gpt-test","input":[{"role":role,"content":[{"type":"input_image","image_url":image.data_url}]}]})).is_err());
+        }
+    }
     fn normalize_value(value: Value) -> Result<(Value, bool), String> { normalize(value.to_string().as_bytes()) }
     fn tool() -> Value { json!({"type":"function","name":"read_file","description":"Test only","parameters":{"type":"object","properties":{"path":{"type":"string"}}},"strict":false}) }
     #[test]

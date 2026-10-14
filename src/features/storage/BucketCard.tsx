@@ -1,3 +1,4 @@
+import { DialogHeaderActions } from "../../shared/DialogHeaderActions";
 import { useEffect, useState } from "react";
 import { ArrowUp, CheckSquare, Copy, Download, Eye, File, Folder, Home, Link2, Maximize2, Minimize2, RefreshCw, Search, Square, Upload, X } from "lucide-react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -515,7 +516,7 @@ export function BucketCard({
       {cnameDialog && (
         <div className="resource-modal-backdrop nested-resource-modal">
           <section className="detail-panel resource-modal oss-cname-dialog" onClick={(event) => event.stopPropagation()}>
-            <div className="detail-toolbar"><div><span className="eyebrow">{bucketName}</span><h2>添加自定义域名</h2></div><button className="close-detail" onClick={() => setCnameDialog(false)}><X size={20} /></button></div>
+            <div className="detail-toolbar"><div><span className="eyebrow">{bucketName}</span><h2>添加自定义域名</h2></div><DialogHeaderActions><button className="close-detail" onClick={() => setCnameDialog(false)}><X size={20} /></button></DialogHeaderActions></div>
             <label className="oss-cname-input"><span>域名</span><input value={cnameValue} onChange={(event) => { setCnameValue(event.target.value.trim()); setCnameToken(null); }} placeholder="例如 img.example.com" /></label>
             <div className="oss-cname-steps"><p>1. 获取验证 Token。</p><p>2. 在 DNS 服务商添加 TXT 记录验证域名。</p><p>3. DNS 生效后绑定域名，再添加 CNAME 记录。</p></div>
             {cnameToken && <div className="oss-cname-records"><strong>TXT 验证记录</strong><div><span>类型</span><code>TXT</code></div><div><span>主机记录</span><code>{tokenHost}</code></div><div><span>记录值</span><code>{cnameToken.token || "未返回 Token"}</code></div><strong>CNAME 解析记录</strong><div><span>类型</span><code>CNAME</code></div><div><span>主机记录</span><code>{cnameHost}</code></div><div><span>记录值</span><code>{endpoint}</code></div></div>}

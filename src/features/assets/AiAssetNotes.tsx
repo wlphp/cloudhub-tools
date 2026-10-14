@@ -1,3 +1,4 @@
+import { DialogHeaderActions } from "../../shared/DialogHeaderActions";
 import { useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AiAssistButton } from "../ai/AiAssistButton";
@@ -19,5 +20,5 @@ export function AiAssetNotes({ name, type, note, onSave }: { name: string; type:
       if(event.shiftKey && document.activeElement===first) {event.preventDefault();last.focus();}
       else if(!event.shiftKey && document.activeElement===last) {event.preventDefault();first.focus();}
     }
-  }}><h2>核对资产备注</h2><p>原有备注保留在前面。保存后仅更新本地备注，可继续编辑；云资源属性不会改变。</p><label>备注草稿<textarea autoFocus rows={10} maxLength={8192} value={draft} onChange={event=>setDraft(event.target.value)} /></label>{error&&<p role="alert">{error}</p>}<div className="ai-actions"><button type="button" onClick={close}>取消</button><button type="button" className="ai-primary" onClick={()=>{if(draft.length>8192){setError("备注超过8192字，请缩短后保存");return;}onSave(draft.trim());close();}}>保存备注</button></div></section></div>,document.body)}</div>;
+  }}><header><h2>核对资产备注</h2><DialogHeaderActions><button type="button" aria-label="关闭备注核对" onClick={close}>关闭</button></DialogHeaderActions></header><p>原有备注保留在前面。保存后仅更新本地备注，可继续编辑；云资源属性不会改变。</p><label>备注草稿<textarea autoFocus rows={10} maxLength={8192} value={draft} onChange={event=>setDraft(event.target.value)} /></label>{error&&<p role="alert">{error}</p>}<div className="ai-actions"><button type="button" onClick={close}>取消</button><button type="button" className="ai-primary" onClick={()=>{if(draft.length>8192){setError("备注超过8192字，请缩短后保存");return;}onSave(draft.trim());close();}}>保存备注</button></div></section></div>,document.body)}</div>;
 }

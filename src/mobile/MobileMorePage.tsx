@@ -10,7 +10,7 @@ const features = [
   { tab: "ssh", title: "SSH 终端", description: "连接管理 · 在线终端 · 快速登录", keywords: "主机 服务器 terminal", icon: Terminal, color: "#06c8ec", end: "#1672f2" },
   { tab: "panels", title: "运维面板", description: "集群管理 · 资源监控 · 运维操作", keywords: "宝塔 aaPanel CPU 内存", icon: Monitor, color: "#a145fc", end: "#4d2ce7" },
   { tab: "flow", title: "云效流水线", description: "流水线运行 · 阶段状态 · 任务日志", keywords: "云效 阿里云 CI CD Flow 发布", icon: GitBranch, color: "#30b997", end: "#167c87" },
-  { tab: "authenticator", title: "验证器", description: "动态验证码 · 分类复制 · 加密迁移", keywords: "OTP TOTP HOTP Steam Ente 二步验证", icon: ShieldCheck, color: "#9b8cff", end: "#6558a7" },
+  { tab: "authenticator", title: "身份验证器", description: "动态验证码 · 分类复制 · 加密迁移", keywords: "OTP TOTP HOTP Steam Ente 二步验证", icon: ShieldCheck, color: "#9b8cff", end: "#6558a7" },
   { tab: "settings", title: "系统设置", description: "导入数据 · 日志管理 · 应用信息", keywords: "迁移 同步 关于 更新 日志", icon: Settings, color: "#0badcf", end: "#116aa6" },
 ] satisfies { tab: Destination; title: string; description: string; keywords: string; icon: typeof Folder; color: string; end: string }[];
 

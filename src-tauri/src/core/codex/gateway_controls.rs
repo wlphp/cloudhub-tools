@@ -74,6 +74,9 @@ impl CallDetail {
             if depth > 32 || *left == 0 { *truncated=true; return json!("[已截断]"); }
             *left-=1;
             let key = field.to_ascii_lowercase().replace(['_', '-', '.'], "");
+            if key == "imageurl" || value.as_str().is_some_and(|text| text.starts_with("data:image/")) {
+                return json!("[图片内容已隐藏]");
+            }
             if ["secret", "password", "passphrase", "privatekey", "authorization", "credential", "ciphertext"].iter().any(|part| key.contains(part))
                 || matches!(key.as_str(), "apikey" | "accesskey" | "accesstoken" | "refreshtoken" | "idtoken" | "token" | "cookie" | "setcookie" | "encryptedcontent") {
                 return json!("[凭据已隐藏]");

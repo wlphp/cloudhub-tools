@@ -1,3 +1,4 @@
+import { DialogHeaderActions } from "../../shared/DialogHeaderActions";
 import { useEffect, useRef, useState } from "react";
 import { RefreshCw, X } from "lucide-react";
 import { codexClient, type CodexAccount } from "../../platform/clients/codex";
@@ -20,7 +21,7 @@ export function BatchProxyDialog({ accounts, busy, act, onSaved, onClose }: { ac
     finally { if (alive.current) setDetecting(false); }
   }
   return <dialog ref={dialog} className="codex-dialog" aria-label="批量设置代理" onCancel={event => { event.preventDefault(); if (!locked) onClose(); }}>
-    <header><h2>批量设置代理</h2><button type="button" disabled={locked} onClick={onClose} aria-label="关闭批量代理设置" title="关闭"><X size={16} /></button></header>
+    <header><h2>批量设置代理</h2><DialogHeaderActions><button type="button" disabled={locked} onClick={onClose} aria-label="关闭批量代理设置" title="关闭"><X size={16} /></button></DialogHeaderActions></header>
     <p>将统一设置当前列表内已选的 {accounts.length} 个账号。{!common && "所选账号当前代理不同，保存后统一替换。"}</p>
     <form onSubmit={event => {
       event.preventDefault(); if (locked) return;

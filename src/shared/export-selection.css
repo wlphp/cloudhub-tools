@@ -1,0 +1,118 @@
+.export-selection-dialog { width: min(540px,calc(100vw - 32px)); max-height: 85dvh; box-sizing: border-box; padding: 16px; color: var(--jb-text,#dedede); background: var(--jb-surface,#282828); border: 1px solid var(--jb-border-strong,#555); border-radius: 5px; overflow: auto; }
+.export-selection-dialog::backdrop { background: #0008; }
+.export-selection-dialog[open] { display: flex; flex-direction: column; }
+.export-selection-dialog > :is(header,footer) { flex-shrink: 0; }
+.export-selection-dialog > form { min-height: 0; overflow: auto; }
+.export-selection-dialog header,.export-selection-dialog footer,.export-selection-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.export-selection-dialog h2 { font-size: 16px; margin: 0; }
+.export-selection-dialog form > label { display: flex; flex-direction: column; gap: 5px; margin: 10px 0; }
+.export-selection-dialog :is(button,input,select) { box-sizing: border-box; color: inherit; background: var(--jb-input,#202020); border: 1px solid var(--jb-border-strong,#555); border-radius: 4px; padding: 7px 10px; }
+.export-selection-dialog button { cursor: pointer; }
+.export-selection-dialog button:disabled { opacity: .5; cursor: default; }
+.certificate-domains-dialog .export-selection { min-height: 0; overflow: auto; }
+.export-selection-dialog footer { justify-content: flex-end; margin-top: 16px; }
+.export-selection { margin: 12px 0; min-width: 0; }
+.export-selection > input { width: 100%; box-sizing: border-box; margin: 10px 0; }
+.export-selection-list { max-height: 36dvh; overflow: auto; }
+.export-selection-list label { display: flex; gap: 8px; align-items: center; padding: 8px 4px; }
+.export-selection-list input[type=checkbox] { flex: 0 0 auto; width: 16px; height: 16px; }
+.export-selection-list span { min-width: 0; overflow-wrap: anywhere; }
+.export-selection-list small { display: block; color: var(--jb-muted,#aaa); }
+.export-selection :focus-visible,.export-selection-dialog button:focus-visible { outline: 2px solid var(--jb-accent,#9b8cff); outline-offset: 2px; }
+
+/* Compact, stable picker used when choosing a subset of export items. */
+.export-selection-picker-dialog {
+  width: min(620px,calc(100vw - 32px));
+  max-height: min(760px,calc(100dvh - 40px));
+  height: max-content;
+  padding: 0;
+  overflow: hidden;
+  box-shadow: 0 20px 56px #0009;
+}
+.export-selection-picker-dialog > header {
+  min-height: 56px;
+  box-sizing: border-box;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--jb-border,#414141);
+  background: var(--jb-surface-2,#303030);
+}
+.export-selection-picker-dialog > header h2 { font-size: 16px; line-height: 1.4; }
+.export-selection-picker-dialog > .export-selection {
+  display: flex;
+  flex: 0 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  margin: 0;
+  padding: 14px 18px 0;
+}
+.export-selection-picker-dialog .export-selection-tools { flex-wrap: nowrap; }
+.export-selection-picker-dialog .export-selection-tools button,
+.export-selection-picker-dialog > footer button {
+  min-height: 32px;
+  padding: 0 11px;
+  white-space: nowrap;
+}
+.export-selection-picker-dialog .export-selection-tools > span { margin-left: 4px; color: var(--jb-muted,#aaa); font-size: 12px; white-space: nowrap; }
+.export-selection-picker-dialog .export-selection > input {
+  height: 36px;
+  flex: 0 0 36px;
+  margin: 10px 0;
+}
+.export-selection-picker-dialog .export-selection-list {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: min(48dvh,460px);
+  border: 1px solid var(--jb-border,#414141);
+  border-radius: 4px;
+  background: var(--jb-input,#202020);
+  overscroll-behavior: contain;
+}
+.export-selection-picker-dialog.dialog-size-expanded > .export-selection {
+  flex: 1 1 auto;
+}
+.export-selection-picker-dialog.dialog-size-expanded .export-selection-list {
+  flex: 1 1 auto;
+  max-height: none;
+}
+.export-selection-picker-dialog .export-selection-list label {
+  display: flex;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 52px;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--jb-border,#414141);
+  color: var(--jb-text,#dedede);
+  line-height: 1.35;
+  cursor: pointer;
+}
+.export-selection-picker-dialog .export-selection-list label:last-child { border-bottom: 0; }
+.export-selection-picker-dialog .export-selection-list label:hover { background: var(--jb-surface-2,#303030); }
+.export-selection-picker-dialog .export-selection-list label:has(input:checked) { background: color-mix(in srgb,var(--jb-accent-soft,#3b3560) 42%,var(--jb-input,#202020)); }
+.export-selection-picker-dialog .export-selection-list input[type="checkbox"] { accent-color: var(--jb-accent,#9b8cff); }
+.export-selection-picker-dialog .export-selection-list label > span { display: grid; gap: 3px; min-width: 0; }
+.export-selection-picker-dialog .export-selection-list small { color: var(--jb-muted,#aaa); font-size: 11px; }
+.export-selection-picker-dialog > footer {
+  min-height: 60px;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 12px 18px;
+  border-top: 1px solid var(--jb-border,#414141);
+  background: var(--jb-surface,#282828);
+}
+.export-selection-picker-dialog > footer button:last-child:not(:disabled) {
+  border-color: #806de0;
+  background: #765ed5;
+  color: #fff;
+}
+.export-selection-picker-dialog > footer button:last-child:hover:not(:disabled) { background: #806de0; }
+.export-selection-picker-dialog :is(header,footer) { flex-shrink: 0; }
+.export-selection-picker-dialog .dialog-header-actions .dialog-size-button { width: 32px; height: 32px; min-height: 32px; }
+.export-selection-picker-dialog .dialog-header-actions > button:last-child { display: grid; place-items: center; width: 32px; height: 32px; min-height: 32px; padding: 0; }
+@media(max-width:600px) {
+  .export-selection-picker-dialog { max-height: calc(100dvh - 24px); }
+  .export-selection-picker-dialog > header { padding-inline: 12px; }
+  .export-selection-picker-dialog > .export-selection { padding: 12px 12px 0; }
+  .export-selection-picker-dialog .export-selection-list { max-height: min(52dvh,460px); }
+  .export-selection-picker-dialog > footer { padding-inline: 12px; }
+}

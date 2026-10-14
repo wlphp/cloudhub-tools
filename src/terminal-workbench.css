@@ -304,7 +304,7 @@
   border: 0;
   background: transparent;
   color: #85a4bf;
-  cursor: grab;
+  cursor: move;
 }
 
 .terminal-host-group.is-dragging {
@@ -508,7 +508,7 @@
 }
 
 .terminal-host-card.is-sorting {
-  cursor: grab;
+  cursor: move;
 }
 
 .terminal-host-card.is-sorting.is-dragging {
@@ -530,7 +530,7 @@
   border: 0;
   background: transparent;
   color: #89a8c1;
-  cursor: grab;
+  cursor: move;
 }
 
 .terminal-host-card.is-sorting .terminal-host-card-main {

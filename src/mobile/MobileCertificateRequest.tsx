@@ -6,6 +6,7 @@ import { certificatesClient, type CertificateRequest } from "../platform/clients
 import { resourcesClient } from "../platform/clients/resources";
 import { platformErrorMessage, runningInTauri } from "../platform/api";
 import { SecretField } from "../shared/SecretField";
+import { DialogHeaderActions } from "../shared/DialogHeaderActions";
 import { certificateDomains, validateCertificateRequest } from "./certificate-request";
 import "./mobile-certificate-request.css";
 
@@ -118,7 +119,7 @@ export function MobileCertificateRequest({ accounts, onClose, onIssued }: { acco
   }
 
   return <div className="mobile-modal-backdrop mobile-cert-request-backdrop"><form ref={form} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="mobile-cert-request-title" className="mobile-cert-request" onSubmit={(event) => void submit(event)} onKeyDown={keyDown}>
-    <header><div><small>DNS-01 自动验证</small><h2 id="mobile-cert-request-title">申请证书</h2></div><button type="button" aria-label={busy ? "取消证书申请" : "关闭申请证书"} disabled={cancelling} onClick={() => void cancel()}><X size={19} /></button></header>
+    <header><h2 id="mobile-cert-request-title">申请证书</h2><DialogHeaderActions><button type="button" aria-label={busy ? "取消证书申请" : "关闭申请证书"} disabled={cancelling} onClick={() => void cancel()}><X size={19} /></button></DialogHeaderActions></header>
     {!runningInTauri && <p className="mobile-cert-request-hint">请在手机 App 中提交申请，浏览器可预览申请表单。</p>}
     <fieldset disabled={busy || reading || completed}>
       <label>证书品牌<select aria-label="证书品牌" value={provider} onChange={(event) => { setProvider(event.target.value as typeof provider); setEabKid(""); setEabHmacKey(""); }}><option value="letsencrypt">Let's Encrypt · 免费</option><option value="litessl">LiteSSL · EAB</option></select></label>

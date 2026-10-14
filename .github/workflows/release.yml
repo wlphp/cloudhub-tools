@@ -93,6 +93,7 @@ jobs:
           npm run verify:resource-contracts
           node scripts/verify-web-api-security.mjs
           node scripts/verify-web-api-logs.mjs
+          node scripts/verify-web-api-ai.mjs
           npm run test:ui
           node scripts/verify-format-panel.mjs
           node scripts/verify-resources-pure.mjs

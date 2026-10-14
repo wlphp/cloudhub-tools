@@ -1,3 +1,4 @@
+import { DialogHeaderActions } from "../../shared/DialogHeaderActions";
 import { GatewayTunnel } from "../codex/GatewayTunnel";
 import { AiLogAnalysis } from "../ai/AiLogAnalysis";
 import { AiAssistButton } from "../ai/AiAssistButton";
@@ -475,7 +476,7 @@ export function FrpPanel() {
         if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
       }
     }}>
-      <header className="frp-editor-header"><span className="frp-editor-icon"><Cable size={20} /></span><div><h2 id="frp-rule-editor-title">{editingProxyId ? "编辑穿透规则" : "新增穿透规则"}</h2><p>将本地服务映射到公网入口</p></div><button type="button" className="secondary" disabled={!!busy} aria-label="关闭规则编辑器" title="关闭" onClick={() => setProxyDraft(null)}><X size={17} /></button></header>
+      <header className="frp-editor-header"><span className="frp-editor-icon"><Cable size={20} /></span><div><h2 id="frp-rule-editor-title">{editingProxyId ? "编辑穿透规则" : "新增穿透规则"}</h2><p>将本地服务映射到公网入口</p></div><DialogHeaderActions><button type="button" className="secondary" disabled={!!busy} aria-label="关闭规则编辑器" title="关闭" onClick={() => setProxyDraft(null)}><X size={17} /></button></DialogHeaderActions></header>
       <div className="frp-editor-body">
         <AiAssistButton task="frp" title="AI 生成规则草稿" disabled={!!busy} current={{name:proxyDraft.name,kind:proxyDraft.kind,local_ip:proxyDraft.localIp,local_port:proxyDraft.localPort||null,remote_port:proxyDraft.remotePort??null,custom_domain:proxyDraft.customDomain||""}} onApply={result=>{const next=frpAiRule(proxyDraft,result.fields);setProxyDraft(next);}} />
         <div className="frp-form-grid frp-editor-basics"><label>规则名称<input autoFocus required value={proxyDraft.name} onChange={(event) => setProxyDraft({ ...proxyDraft, name: event.target.value })} placeholder="例如：本地开发站点" /></label><label>协议类型<select value={proxyDraft.kind} onChange={(event) => setProxyDraft({ ...proxyDraft, kind: event.target.value as FrpProxy["kind"], remotePort: null, customDomain: null, customDomains: [], plugin: null })}><option value="tcp">TCP</option><option value="udp">UDP</option><option value="http">HTTP</option><option value="https">HTTPS</option></select></label></div>

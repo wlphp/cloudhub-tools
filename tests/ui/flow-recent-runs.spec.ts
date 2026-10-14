@@ -22,6 +22,26 @@ test("recent runs sort across provider pages and retain search and group navigat
   });
   await page.goto("/");
   await page.getByRole("button", { name: "云效流水线", exact: true }).first().click();
+  await page.getByRole("button", { name: "添加连接", exact: true }).click();
+  const connectionDialog = page.locator(".flow-dialog");
+  await expect(connectionDialog).toHaveClass(/dialog-common-theme/);
+  const connectionColors = await connectionDialog.evaluate(element => {
+    const header = element.querySelector("header")!;
+    const input = element.querySelector("input")!;
+    return {
+      surface: getComputedStyle(element).backgroundColor,
+      border: getComputedStyle(element).borderColor,
+      header: getComputedStyle(header).backgroundColor,
+      input: getComputedStyle(input).backgroundColor,
+      headerInset: header.getBoundingClientRect().left - element.getBoundingClientRect().left,
+    };
+  });
+  expect(connectionColors.surface).toBe("rgb(40, 40, 40)");
+  expect(connectionColors.header).toBe("rgb(48, 48, 48)");
+  expect(connectionColors.input).toBe("rgb(32, 32, 32)");
+  expect(connectionColors.headerInset).toBeLessThanOrEqual(1);
+  await page.screenshot({ path: "test-results/flow-connection-dialog.png" });
+  await connectionDialog.getByRole("button", { name: "关闭", exact: true }).click();
   const rows = page.locator(".flow-pipeline-table tbody tr");
   await expect(rows).toHaveCount(30);
   await expect(rows.first()).toContainText("流水线 0");

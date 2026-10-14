@@ -16,7 +16,7 @@ test("browser authenticator copies and imports/exports with browser file control
     await route.fulfill({ json: results[body.op] ?? null });
   });
   await page.goto("/");
-  await page.getByRole("button", { name: "验证器", exact: true }).first().click();
+  await page.getByRole("button", { name: "身份验证器", exact: true }).first().click();
   const card = page.locator(".auth-card").first();
   await expect(page.getByRole("button", { name: "复制 web@example.test 验证码", exact: true })).toBeEnabled();
   const before = await card.boundingBox();

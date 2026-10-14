@@ -164,15 +164,15 @@ test("Codex account filters, metadata, quota errors and confirmed switching", as
   expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("fixtureGatewayPool") ?? "[]"))).toEqual([]);
   await page.locator(".codex-reference-grid").screenshot({ path: "test-results/codex-reference-account-board.png" });
   await page.getByRole("button", { name: "启动 Codex", exact: true }).click();
-  await expect(page.getByText("已请求打开默认 Codex 客户端", { exact: true })).toBeVisible();
+  await expect(page.locator(".codex-feedback").filter({hasText:"已请求打开默认 Codex 客户端"})).toBeVisible();
   expect(await page.evaluate(() => (window as unknown as { __codexCalls: { command: string }[] }).__codexCalls.filter((v) => v.command === "codex_open_default").length)).toBe(1);
   await page.getByRole("button", { name: "登录新账号", exact: true }).click();
   await expect(page.getByLabel("授权登录地址", { exact: true })).toHaveValue("https://auth.openai.com/oauth/authorize?state=test-only-state");
   expect(await page.evaluate(() => (window as unknown as { __codexCalls: {command:string}[] }).__codexCalls.filter(call=>call.command==="codex_open_login_url").length)).toBe(0);
   await page.getByRole("button", { name: "复制地址", exact: true }).click();
-  await expect(page.getByText("授权地址已复制，可在你选择的浏览器中打开", { exact: true })).toBeVisible();
+  await expect(page.locator(".codex-feedback").filter({hasText:"授权地址已复制，可在你选择的浏览器中打开"})).toBeVisible();
   await page.getByRole("button", { name: "打开浏览器", exact: true }).click();
-  await expect(page.getByText("官方登录完成，账号已加密保存", { exact: true })).toBeVisible();
+  await expect(page.locator(".codex-feedback").filter({hasText:"官方登录完成，账号已加密保存"})).toBeVisible();
   await expect(page.getByLabel("授权登录地址", { exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "登录新账号", exact: true }).click();
   await page.getByRole("button", { name: "取消登录", exact: true }).click();
@@ -195,7 +195,7 @@ test("Codex account filters, metadata, quota errors and confirmed switching", as
   await page.getByRole("button",{name:"清空选择",exact:true}).click();
   const benefitsBefore = await page.evaluate(()=>(window as unknown as {__codexCalls:{command:string}[]}).__codexCalls.filter(call=>call.command==="codex_refresh_benefits").length);
   await page.getByRole("button",{name:"刷新列表订阅权益",exact:true}).click();
-  await expect(page.getByText("已处理 1 / 1 个账号，订阅权益已更新",{exact:true})).toBeVisible();
+  await expect(page.locator(".codex-feedback").filter({hasText:"已处理 1 / 1 个账号，订阅权益已更新"})).toBeVisible();
   expect(await page.evaluate(()=>(window as unknown as {__codexCalls:{command:string;args:{id:number}}[]}).__codexCalls.filter(call=>call.command==="codex_refresh_benefits").slice(-1)[0].args.id)).toBe(1);
   await page.getByRole("button",{name:"清除筛选",exact:true}).click();
   await page.evaluate(() => { (window as unknown as {__holdBenefits:boolean}).__holdBenefits=true; });
@@ -204,7 +204,7 @@ test("Codex account filters, metadata, quota errors and confirmed switching", as
   await page.getByRole("button",{name:"停止后续刷新",exact:true}).click();
   await expect(page.getByRole("button",{name:"等待当前账号完成",exact:true})).toBeDisabled();
   await page.evaluate(() => { const control=window as unknown as {__holdBenefits:boolean;__releaseBenefits:()=>void};control.__holdBenefits=false;control.__releaseBenefits(); });
-  await expect(page.getByText("已停止后续刷新，已处理 1 / 2 个账号，订阅权益已更新",{exact:true})).toBeVisible();
+  await expect(page.locator(".codex-feedback").filter({hasText:"已停止后续刷新，已处理 1 / 2 个账号，订阅权益已更新"})).toBeVisible();
   expect(await page.evaluate(()=>(window as unknown as {__codexCalls:{command:string}[]}).__codexCalls.filter(call=>call.command==="codex_refresh_benefits").length)).toBe(benefitsBefore+2);
   expect(await page.evaluate(()=>(window as unknown as {__codexCalls:{command:string}[]}).__codexCalls.filter(call=>call.command==="codex_consume_reset").length)).toBe(0);
   await page.getByRole("button", { name: "编辑 alice@example.test 备注" }).click();

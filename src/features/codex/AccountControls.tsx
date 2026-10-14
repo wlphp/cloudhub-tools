@@ -1,8 +1,9 @@
+import { DialogHeaderActions } from "../../shared/DialogHeaderActions";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { CalendarDays, Edit3, RefreshCw, RotateCcw, Shield, X } from "lucide-react";
 import { codexClient, type CodexAccount } from "../../platform/clients/codex";
 
-export function AccountControls({ account, busy, act, onAccount, onEdit, headerAction, children }: { account: CodexAccount; busy: boolean; act: (name: string, run: () => Promise<void>) => Promise<void>; onAccount: (account: CodexAccount) => void; onEdit: () => void; headerAction?: ReactNode; children?: ReactNode }) {
+export function AccountControls({ account, busy, act, onAccount, onEdit, onNotice, headerAction, children }: { account: CodexAccount; busy: boolean; act: (name: string, run: () => Promise<void>) => Promise<void>; onAccount: (account: CodexAccount) => void; onEdit: () => void; onNotice?: (message: string) => void; headerAction?: ReactNode; children?: ReactNode }) {
   const [modal, setModal] = useState<"proxy" | "reset" | null>(null);
   const [url, setUrl] = useState("");
   const [error, setError] = useState("");
@@ -17,7 +18,7 @@ export function AccountControls({ account, busy, act, onAccount, onEdit, headerA
   const expires = benefits?.expiresAt;
   const remainingDays = expires == null ? null : Math.max(0, Math.ceil((expires * 1000 - Date.now()) / 86400000));
   const run = (name: string, action: () => Promise<void>) => act(name, async () => { setError(""); try { await action(); } catch (reason) { if (alive.current) setError(reason instanceof Error ? reason.message : "账号操作失败，请重试"); throw reason; } });
-  const refresh = () => run("刷新账号权益", async () => { const next = await codexClient.refreshBenefits(account.id); if (alive.current) onAccount(next); });
+  const refresh = () => run("刷新账号权益", async () => { const next = await codexClient.refreshBenefits(account.id); if (alive.current) { onAccount(next); onNotice?.(`${account.label} 的订阅权益已刷新`); } });
   const close = () => { if (!busy && !detecting) { setModal(null); setError(""); } };
   const detect = async () => {
     setDetecting(true); setError(""); setDetected(false); setProxies([]);
@@ -41,7 +42,7 @@ export function AccountControls({ account, busy, act, onAccount, onEdit, headerA
       {benefits?.creditsError && <small className="codex-card-error">重置次数查询失败：{benefits.creditsError}</small>}
     </div>}
     <dialog ref={dialog} className="codex-dialog" aria-label={modal === "proxy" ? "账号代理" : "主动重置额度"} onCancel={(event) => { event.preventDefault(); close(); }}>
-      <header><h2>{modal === "proxy" ? "账号代理" : "主动重置额度"}</h2><button disabled={busy || detecting} aria-label="关闭账号设置" title="关闭" onClick={close}><X size={16} /></button></header>
+      <header><h2>{modal === "proxy" ? "账号代理" : "主动重置额度"}</h2><DialogHeaderActions><button disabled={busy || detecting} aria-label="关闭账号设置" title="关闭" onClick={close}><X size={16} /></button></DialogHeaderActions></header>
       <p className="codex-account-dialog-label">{account.label}</p>
       {modal === "proxy" ? <form onSubmit={(event) => { event.preventDefault(); if (detecting) return; if (url.trim() && !url.includes("://")) { setError("代理地址缺少协议，请填写 http://127.0.0.1:10808 这样的完整地址"); return; } void run("保存账号代理", async () => { const next = await codexClient.saveProxy(account.id, url); if (alive.current) { onAccount(next); setModal(null); } }); }}>
         <label>HTTP/HTTPS 代理地址<input aria-label="账号代理地址" aria-describedby={`codex-proxy-help-${account.id}${error ? ` codex-proxy-error-${account.id}` : ""}`} aria-invalid={!!error} placeholder="http://127.0.0.1:7890" maxLength={512} value={url} disabled={busy || detecting} onChange={(event) => { setUrl(event.target.value); setError(""); }} /></label>

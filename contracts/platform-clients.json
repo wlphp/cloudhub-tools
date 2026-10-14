@@ -2,6 +2,7 @@
   "version": 1,
   "mobileCommands": [
     "ai_list_profiles",
+    "ai_reveal_key",
     "ai_save_profile",
     "ai_delete_profile",
     "ai_preview",
@@ -1147,10 +1148,10 @@
     {
       "name": "ai",
       "operations": [
-        { "name": "profiles", "native": ["ai_list_profiles", "ai_save_profile", "ai_delete_profile"], "preview": [] },
+        { "name": "profiles", "native": ["ai_list_profiles", "ai_save_profile", "ai_delete_profile", "ai_reveal_key"], "preview": [] },
         { "name": "assistance", "native": ["ai_preview", "ai_run", "ai_cancel"], "preview": [] },
         { "name": "transfer", "native": ["ai_export_config", "ai_prepare_import", "ai_confirm_import", "ai_cancel_import"], "preview": [] },
-        { "name": "capabilities", "native": ["ai_list_models", "ai_test_vision"], "preview": [] }
+        { "name": "capabilities", "native": ["ai_list_models", "ai_test_vision", "ai_read_image_file"], "preview": [] }
       ]
     },
     {

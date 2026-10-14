@@ -38,6 +38,7 @@ test("API tunnel is disabled by default and shares its managed state with FRP", 
   await expect(toggle).not.toBeChecked();
   await expect(panel.getByLabel("API 穿透公网域名")).toHaveCount(0);
   expect(await page.evaluate(() => (window as any).__tunnelCalls.filter((call: any) => call.command === "codex_tunnel_save").length)).toBe(0);
+  await panel.locator(".codex-tunnel-toggle").click();
   await toggle.check();
   await panel.getByLabel("API 穿透 frps 连接").selectOption("7");
   await panel.getByLabel("API 穿透公网域名").fill("api.example.test");
@@ -77,6 +78,7 @@ test("API tunnel is disabled by default and shares its managed state with FRP", 
   await panel.getByRole("button", { name: "重试穿透", exact: true }).click();
   await expect(panel.getByRole("alert")).toHaveCount(0);
   await page.getByRole("button", { name: "内网穿透", exact: true }).first().click();
+  await page.getByRole("region", { name: "Codex API 托管穿透", exact: true }).locator(".codex-tunnel-toggle").click();
   await expect(page.getByRole("region", { name: "Codex API 托管穿透", exact: true })).toContainText("https://api.example.test/v1");
   await page.getByRole("button", { name: "Codex 管理", exact: true }).first().click();
   await page.getByRole("tab", { name: "API 反代服务", exact: true }).click();

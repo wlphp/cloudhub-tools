@@ -21,7 +21,7 @@ use zeroize::Zeroizing;
 use super::gateway_controls::{CallLog, CallDetail, Controls, GatewaySettings, RoutingStrategy};
 use super::protocols::{self, Protocol};
 
-const MAX_BODY: usize = 512 * 1024;
+const MAX_BODY: usize = 4 * 1024 * 1024;
 // Official catalogs include model instructions and other metadata, so their
 // response budget is separate from the local text request budget.
 const MAX_CATALOG_BODY: usize = 8 * 1024 * 1024;
@@ -1195,6 +1195,40 @@ mod tests {
         let mut stale=quota(100.0);stale.fetched_at=Some(now-16*60*1000);
         server.shared.controls.lock().unwrap().quotas.insert(1,stale);
         assert_eq!(route(&server.shared,None).unwrap(),1);
+    }
+    #[tokio::test]
+    async fn vision_request_reaches_upstream_and_invalid_image_is_rejected() {
+        let server = RunningGateway::start(0,vec![1]).await.unwrap();
+        let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+        *server.shared.test_endpoint.lock().unwrap() = Some(format!("http://{}/responses", listener.local_addr().unwrap()));
+        let (image, _) = crate::core::ai_images::challenge().unwrap();
+        let expected = image.data_url.clone();
+        let task = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut bytes = Vec::new();
+            let (offset, length) = loop {
+                let mut chunk = [0u8; 4096];
+                let count = socket.read(&mut chunk).await.unwrap();
+                assert!(count > 0);
+                bytes.extend_from_slice(&chunk[..count]);
+                if let Some(offset) = bytes.windows(4).position(|v| v == b"\r\n\r\n") {
+                    let headers = String::from_utf8_lossy(&bytes[..offset]).to_ascii_lowercase();
+                    let length: usize = headers.lines().find_map(|line| line.strip_prefix("content-length:")).unwrap().trim().parse().unwrap();
+                    if bytes.len() >= offset + 4 + length { break (offset + 4, length); }
+                }
+            };
+            let value: Value = serde_json::from_slice(&bytes[offset..offset+length]).unwrap();
+            assert_eq!(value["input"][0]["content"][1]["image_url"], expected);
+            let body = format!("data: {}\n\n", json!({"type":"response.completed","response":{"status":"completed","output":[]}}));
+            socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).as_bytes()).await.unwrap();
+        });
+        let client = reqwest::Client::new();
+        for (url, status) in [(image.data_url,200), ("data:image/jpeg;base64,invalid".into(),400)] {
+            let result = client.post(format!("{}/responses",server.address)).bearer_auth(server.shared.key.as_str()).json(&json!({"model":"gpt-test","input":[{"role":"user","content":[{"type":"input_text","text":"Read colors"},{"type":"input_image","image_url":url}]}]})).send().await.unwrap();
+            assert_eq!(result.status().as_u16(),status);
+            let _ = result.bytes().await.unwrap();
+        }
+        task.await.unwrap();
     }
     #[tokio::test]
     async fn call_logs_keep_content_in_details_and_credentials_out_of_logs() {

@@ -34,6 +34,8 @@ function publicPlatformMessage(code: PlatformErrorCode, rawMessage: string): str
     safe.push("AI配置已变更，请关闭辅助面板后重新打开", "AI服务拒绝请求（HTTP 400），请检查模型和请求参数", "AI接口不存在（HTTP 404），请检查服务地址和接口协议", "AI请求参数无效（HTTP 422），请检查模型和服务兼容性");
     safe.push("AI流式事件超过大小限制", "AI流式文本编码无效", "AI流式结果超过大小限制", "AI流式事件数量超过限制", "AI流式响应未完整结束", "AI流式事件格式无效", "AI流式服务返回错误，请重试", "AI流式响应包含拒绝或未授权工具", "AI流式完成事件无效", "截图超过大小限制，请裁剪后重试", "截图格式无效，请使用PNG或JPEG图片", "截图数据无效", "截图格式与实际内容不一致", "截图尺寸无效", "截图尺寸须在1600像素以内，请裁剪或缩小", "无法解码截图", "截图包含二维码，请裁剪或遮挡后重试", "处理截图失败", "生成图像测试失败", "请先完成图像能力测试并确认截图已裁剪遮挡", "保存图像测试结果失败", "服务模型目录格式不兼容，可直接填写模型名称", "服务未返回可用模型名称，可直接填写", "查询AI模型失败，请检查服务和网络", "服务不支持模型查询或认证失败，可直接填写模型名称", "读取AI模型目录失败", "AI模型目录超过大小限制");
     safe.push("模型名称格式无效；Gemini只接受单个模型标识", "模型响应包含未授权工具");
+    safe.push("每个服务最多配置20个模型", "请使用已配置的模型ID", "请先将所选模型设为默认并完成图像测试", "AI配置不存在，请刷新设置");
+    safe.push("此服务尚未保存密钥", "AI配置标识无效");
     return safe.includes(rawMessage) ? rawMessage : "AI操作失败，请检查配置或继续手动操作";
   }
   if (code === "esa-query") {
@@ -178,7 +180,7 @@ export async function webApi<T>(path: string, init?: RequestInit): Promise<T> {
       throw buildUnsupported(payload);
     }
     if (!response.ok) {
-      if (payload?.code === "authenticator-error" || payload?.code === "authenticator-locked") throw new PlatformError(payload.error || "验证器操作失败", payload.code);
+      if (payload?.code === "authenticator-error" || payload?.code === "authenticator-locked" || payload?.code === "ai") throw new PlatformError(payload.error || "操作失败", payload.code);
       throw new Error(payload.error || `Web API ${response.status}`);
     }
     return payload as T;

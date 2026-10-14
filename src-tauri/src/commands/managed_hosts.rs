@@ -38,11 +38,13 @@ pub(crate) fn delete_managed_host_group(group: String) -> PlatformResult<usize> 
 
 
 #[tauri::command]
-pub(crate) fn export_managed_hosts_file() -> PlatformResult<String> {
+pub(crate) fn export_managed_hosts_file(host_ids: Vec<i64>) -> PlatformResult<String> {
     let conn = open_db()?;
+    if host_ids.is_empty() || host_ids.iter().any(|id| *id <= 0) { return Err("请选择有效的服务器导出".into()); }
     let rows = managed_host_repository::export_rows(&conn)?;
+    if host_ids.iter().any(|id| !rows.iter().any(|row| row.id == *id)) { return Err("所选服务器不存在，请刷新后重试".into()); }
     let mut hosts = Vec::new();
-    for row in rows {
+    for row in rows.into_iter().filter(|row| host_ids.contains(&row.id)) {
         let decrypt_optional = |value: Option<String>| value.filter(|item| !item.is_empty()).map(|item| decrypt_secret(&item)).transpose();
         hosts.push(ExportManagedHost { name: row.name, host: row.host, port: row.port, username: row.username, platform: row.platform, auth_method: row.auth_method, password: decrypt_optional(row.password_ciphertext)?, private_key: decrypt_optional(row.private_key_ciphertext)?, key_passphrase: decrypt_optional(row.key_passphrase_ciphertext)?, group_name: row.group_name, tags: row.tags, source_account_id: row.source_account_id, source_asset_key: row.source_asset_key, remark: row.remark });
     }

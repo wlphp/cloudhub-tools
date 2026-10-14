@@ -63,8 +63,8 @@ export const serversClient = {
   removeManaged(id: number): Promise<void> {
     return nativeOnly("delete_managed_host", { id });
   },
-  exportManaged(): Promise<string> {
-    return nativeOnly("export_managed_hosts_file");
+  exportManaged(hostIds: number[]): Promise<string> {
+    return nativeOnly("export_managed_hosts_file", { hostIds });
   },
   importManaged(hosts: unknown[]): Promise<number> {
     return nativeOnly("import_managed_hosts", { hosts });

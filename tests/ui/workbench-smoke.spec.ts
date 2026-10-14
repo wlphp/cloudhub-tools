@@ -24,6 +24,15 @@ test("loads the workbench shell without native credentials", async ({ page }) =>
   await expect(page.getByRole("button", { name: "申请证书" })).toBeDisabled();
 });
 
+test("account summary cards stay compact", async ({ page }) => {
+  await page.goto("/");
+  const stats = page.locator(".account-section .stats");
+  await expect(stats.locator(":scope > div")).toHaveCount(3);
+  for (const card of await stats.locator(":scope > div").all()) {
+    expect((await card.boundingBox())!.height).toBeLessThanOrEqual(72);
+  }
+});
+
 test("opens the cloud account form with required credential boundaries", async ({ page }) => {
   await page.goto("/");
 

@@ -1,3 +1,4 @@
+import { DialogHeaderActions } from "../../shared/DialogHeaderActions";
 import { createPortal } from "react-dom";
 import { useEffect, useRef, useState } from "react";
 import { RefreshCw, Upload, X } from "lucide-react";
@@ -61,7 +62,7 @@ export function EsaCertificateDialog({ account, siteId, accounts, localAssets, o
   return createPortal(<>
     {!requesting && <div className="modal-backdrop esa-certificate-backdrop ide-theme">
       <section role="dialog" aria-modal="true" aria-label={title} className="detail-panel certificate-dialog esa-certificate-dialog">
-        <div className="modal-head"><div><span className="eyebrow">ESA / HTTPS</span><h2>{title}</h2><p>{account.account_name} · 站点 ID {siteId}</p></div><button type="button" className="close" aria-label="关闭 ESA 证书" disabled={busy} onClick={onClose}><X size={18} /></button></div>
+        <div className="modal-head"><div><span className="eyebrow">ESA / HTTPS</span><h2>{title}</h2><p>{account.account_name} · 站点 ID {siteId}</p></div><DialogHeaderActions><button type="button" className="close" aria-label="关闭 ESA 证书" disabled={busy} onClick={onClose}><X size={18} /></button></DialogHeaderActions></div>
         {!runningInTauri && <p className="certificate-hint">证书部署仅支持桌面客户端。</p>}
         <div className="esa-certificate-body">
           <div className="esa-certificate-tools"><strong>ESA 当前证书</strong><button type="button" disabled={busy || !runningInTauri} onClick={() => void refresh()}><RefreshCw size={14} />刷新状态</button></div>

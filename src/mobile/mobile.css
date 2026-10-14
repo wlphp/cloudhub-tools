@@ -1868,11 +1868,11 @@ body { background: var(--mobile-bg); color: var(--mobile-text); }
 .mobile-account-menu { display: grid; place-items: center; flex: 0 0 44px; min-width: 44px; min-height: 44px; border: 0; padding: 0; background: transparent; color: var(--mobile-muted); cursor: pointer; }
 .mobile-account-menu:focus-visible { outline: 2px solid var(--mobile-focus); outline-offset: -4px; border-radius: 10px; }
 .mobile-account-swipe-card.is-dragging { scroll-snap-type: none; scroll-behavior: auto; }
-.mobile-account-swipe-card.is-dragging .mobile-account-select { cursor: grabbing; }
+.mobile-account-swipe-card.is-dragging .mobile-account-select { cursor: move; }
 .mobile-account-swipe-actions > button { border: 1px solid var(--mobile-border); border-radius: 9px; background: var(--mobile-surface); }
 
-.mobile-account-swipe-main > div.mobile-account-select { cursor: grab; }
-.mobile-account-swipe-card.is-dragging .mobile-account-swipe-main > div.mobile-account-select { cursor: grabbing; }
+.mobile-account-swipe-main > div.mobile-account-select { cursor: move; }
+.mobile-account-swipe-card.is-dragging .mobile-account-swipe-main > div.mobile-account-select { cursor: move; }
 
 /* Floating header and primary navigation */
 .mobile-header { min-height: 76px; margin: 6px 6px 0; padding: 12px 14px; gap: 10px; border: 1px solid #1b3655; border-radius: 18px; background: linear-gradient(115deg, #0b1d32ed, #0a1729f5); box-shadow: 0 8px 25px #020a192b, inset 0 1px 0 #ffffff06; backdrop-filter: blur(18px); }
@@ -2028,6 +2028,156 @@ body { background: var(--mobile-bg); color: var(--mobile-text); }
 .mobile-panel-card-heading .mobile-panel-status.offline { background: transparent; }
 .mobile-panel-card-heading .mobile-panel-status::before { width: 5px; height: 5px; }
 .mobile-panel-identity { display: block; margin-left: 38px; margin-top: 4px; }
+
+/* DNS editing uses a mobile sheet with its own scrollable body and persistent actions. */
+.mobile-dns-backdrop {
+  align-items: end;
+  padding: 0 12px 0;
+}
+.mobile-dns-form {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  width: min(560px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
+  min-width: 0;
+  min-height: min(420px, calc(100dvh - 12px));
+  max-height: min(92dvh, 900px);
+  box-sizing: border-box;
+  overflow: hidden;
+  padding: 0;
+  border-radius: 18px 18px 0 0;
+}
+.mobile-dns-heading {
+  position: relative;
+  top: auto;
+  min-width: 0;
+  margin: 0;
+  padding: 14px 16px 12px;
+  border-radius: 18px 18px 0 0;
+}
+.mobile-dns-heading > div { min-width: 0; }
+.mobile-dns-heading small { overflow-wrap: anywhere; }
+.mobile-dns-heading h2 { font-size: 18px; line-height: 1.3; }
+.mobile-dns-body {
+  min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 14px 16px 18px;
+}
+.mobile-dns-body > * { min-width: 0; max-width: 100%; }
+.mobile-dns-ai { margin-bottom: 14px; }
+.mobile-dns-form .mobile-dns-ai .ai-assist-button {
+  min-height: 44px;
+  padding: 0 12px;
+  border-color: var(--mobile-border);
+  border-radius: 8px;
+  background: var(--mobile-raised);
+  color: var(--mobile-text);
+  font-size: 14px;
+}
+.mobile-dns-form label {
+  min-width: 0;
+  margin: 0 0 12px;
+  gap: 6px;
+  font-size: 13px;
+}
+.mobile-dns-form input,
+.mobile-dns-form select {
+  width: 100%;
+  min-width: 0;
+  min-height: 48px;
+  box-sizing: border-box;
+  border-radius: 8px;
+  font-size: 16px;
+}
+.mobile-dns-host-shortcuts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+  margin: -4px 0 8px;
+}
+.mobile-dns-host-shortcuts button {
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 10px;
+  border: 1px solid var(--mobile-border);
+  border-radius: 8px;
+  background: var(--mobile-raised);
+  color: var(--mobile-text);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.mobile-dns-host-shortcuts button[aria-pressed="true"] {
+  border-color: var(--mobile-accent);
+  background: color-mix(in srgb, var(--mobile-accent) 14%, var(--mobile-surface));
+  color: var(--mobile-text);
+}
+.mobile-dns-host-shortcuts button:disabled { opacity: .55; }
+.mobile-dns-help,
+.mobile-dns-preview,
+.mobile-dns-error {
+  display: block;
+  margin: -4px 0 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.mobile-dns-help { color: var(--mobile-muted); }
+.mobile-dns-preview { color: var(--mobile-muted); }
+.mobile-dns-preview strong { color: var(--mobile-text); font-weight: 600; }
+.mobile-dns-error { color: #e58e98; }
+.mobile-dns-advanced { margin-top: 2px; border-top: 1px solid var(--mobile-border); }
+.mobile-dns-advanced > summary {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  color: var(--mobile-text);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.mobile-dns-advanced > summary:focus-visible { outline: 2px solid var(--mobile-focus); outline-offset: 2px; }
+.mobile-dns-advanced[open] { padding-bottom: 4px; }
+.mobile-dns-warning {
+  margin: 2px 0 0;
+  padding: 10px 11px;
+  border: 1px solid #6b5436;
+  border-radius: 8px;
+  background: #2a251d;
+  color: #e6c796;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.mobile-dns-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px 16px max(12px, env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--mobile-border);
+  background: var(--mobile-surface);
+}
+.mobile-dns-footer button { min-height: 48px; width: auto; margin: 0; }
+.mobile-dns-cancel {
+  flex: 0 0 auto;
+  padding: 0 16px;
+  border: 1px solid var(--mobile-border);
+  border-radius: 8px;
+  background: var(--mobile-raised);
+  color: var(--mobile-text);
+  font-size: 14px;
+}
+.mobile-dns-save { flex: 1 1 auto; }
+@media (orientation: landscape) and (max-height: 520px) {
+  .mobile-dns-backdrop { padding: 8px 12px; }
+  .mobile-dns-form { min-height: 0; max-height: calc(100dvh - 16px); border-radius: 12px; }
+  .mobile-dns-heading { border-radius: 12px 12px 0 0; }
+  .mobile-dns-body { padding-block: 10px; }
+}
 .mobile-panel-card .mobile-panel-url { margin: 0 0 4px; font-size: 11px; color: var(--mobile-muted); }
 .mobile-panel-card-meta { gap: 4px 10px; }
 .mobile-panel-card-meta > span,
@@ -2168,3 +2318,284 @@ body { background: var(--mobile-bg); color: var(--mobile-text); }
   .mobile-domain-tools,
   .mobile-resource-tools { transition: none; }
 }
+
+/* Mobile dialog contract: compact title bars, independently scrollable content,
+   visible actions, and the mobile surface tokens across feature-owned dialogs. */
+body:has(.mobile-shell) :is(dialog[open], [role="dialog"], .modal, .resource-modal, .mobile-account-form, .mobile-cert-request, .auth-dialog, .codex-dialog, .codex-log-dialog, .flow-dialog, .frp-modal, .ai-workbench, .ai-asset-note-dialog, .ai-config-dialog, .certificate-dialog, .certificate-source-dialog, .certificate-domains-dialog, .sync-transfer-qr-dialog, .export-selection-dialog, .security-group-modal, .terminal-quick-dialog, .managed-group-edit-dialog) {
+  --jb-surface: var(--mobile-surface);
+  --jb-surface-2: var(--mobile-raised);
+  --jb-surface-3: var(--mobile-raised);
+  --jb-input: var(--mobile-bg);
+  --jb-border: var(--mobile-border);
+  --jb-border-strong: var(--mobile-border);
+  --jb-text: var(--mobile-text);
+  --jb-muted: var(--mobile-muted);
+  --jb-accent: var(--mobile-accent);
+  box-sizing: border-box;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 20px);
+  border-color: var(--mobile-border);
+  border-radius: 12px;
+  background: var(--mobile-surface);
+  color: var(--mobile-text);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+body:has(.mobile-shell) :is(dialog[open], [role="dialog"], .modal, .resource-modal, .mobile-account-form, .mobile-cert-request, .auth-dialog, .codex-dialog, .codex-log-dialog, .flow-dialog, .frp-modal, .ai-workbench, .ai-asset-note-dialog, .ai-config-dialog, .certificate-dialog, .certificate-source-dialog, .certificate-domains-dialog, .sync-transfer-qr-dialog, .export-selection-dialog, .security-group-modal, .terminal-quick-dialog, .managed-group-edit-dialog) > :is(header, .modal-head, .mobile-modal-heading, .detail-toolbar, .terminal-quick-dialog-head, .terminal-connect-card-head, .frp-editor-header, .flow-details-header, .certificate-dialog-header, .auth-dialog-header, .sync-transfer-heading, .sync-transfer-qr-heading, .mobile-dns-heading) {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 6px 12px;
+  border-color: var(--mobile-border);
+  background: var(--mobile-raised);
+  color: var(--mobile-text);
+}
+
+body:has(.mobile-shell) :is(dialog[open], [role="dialog"], .modal, .resource-modal, .mobile-account-form, .mobile-cert-request, .auth-dialog, .codex-dialog, .codex-log-dialog, .flow-dialog, .frp-modal, .ai-workbench, .ai-asset-note-dialog, .ai-config-dialog, .certificate-dialog, .certificate-source-dialog, .certificate-domains-dialog, .sync-transfer-qr-dialog, .export-selection-dialog, .security-group-modal, .terminal-quick-dialog, .managed-group-edit-dialog) > :is(header, .modal-head, .mobile-modal-heading, .detail-toolbar, .terminal-quick-dialog-head, .terminal-connect-card-head, .frp-editor-header, .flow-details-header, .certificate-dialog-header, .auth-dialog-header, .sync-transfer-heading, .sync-transfer-qr-heading, .mobile-dns-heading) :is(h1, h2, h3, strong) {
+  position: static;
+  min-width: 0;
+  margin-block: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--mobile-text);
+  font-size: 17px;
+  line-height: 1.35;
+}
+
+body:has(.mobile-shell) :is(dialog[open], [role="dialog"], .modal, .resource-modal, .mobile-account-form, .mobile-cert-request, .auth-dialog, .codex-dialog, .codex-log-dialog, .flow-dialog, .frp-modal, .ai-workbench, .ai-asset-note-dialog, .ai-config-dialog, .certificate-dialog, .certificate-source-dialog, .certificate-domains-dialog, .sync-transfer-qr-dialog, .export-selection-dialog, .security-group-modal, .terminal-quick-dialog, .managed-group-edit-dialog) :is(header, .modal-head, .mobile-modal-heading, .detail-toolbar, .terminal-quick-dialog-head, .terminal-connect-card-head, .frp-editor-header, .flow-details-header, .certificate-dialog-header, .auth-dialog-header, .sync-transfer-heading, .sync-transfer-qr-heading, .mobile-dns-heading) :is(.dialog-header-actions > button, .mobile-icon-button, .close, .close-detail, button[aria-label*="关闭"], button[aria-label*="关闭" i]) {
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  min-height: 44px;
+  padding: 0;
+  border-radius: 8px;
+}
+
+body:has(.mobile-shell) :is(dialog[open], [role="dialog"], .modal, .resource-modal, .mobile-account-form, .mobile-cert-request, .auth-dialog, .codex-dialog, .codex-log-dialog, .flow-dialog, .frp-modal, .ai-workbench, .ai-asset-note-dialog, .ai-config-dialog, .certificate-dialog, .certificate-source-dialog, .certificate-domains-dialog, .sync-transfer-qr-dialog, .export-selection-dialog, .security-group-modal, .terminal-quick-dialog, .managed-group-edit-dialog) :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+  max-width: 100%;
+  border-color: var(--mobile-border);
+  border-radius: 8px;
+  background-color: var(--mobile-bg);
+  color: var(--mobile-text);
+}
+
+body:has(.mobile-shell) :is(dialog[open], [role="dialog"], .modal, .resource-modal, .mobile-account-form, .mobile-cert-request, .auth-dialog, .codex-dialog, .codex-log-dialog, .flow-dialog, .frp-modal, .ai-workbench, .ai-asset-note-dialog, .ai-config-dialog, .certificate-dialog, .certificate-source-dialog, .certificate-domains-dialog, .sync-transfer-qr-dialog, .export-selection-dialog, .security-group-modal, .terminal-quick-dialog, .managed-group-edit-dialog) :is(input:not([type="checkbox"]):not([type="radio"]), select) {
+  min-height: 44px;
+}
+
+body:has(.mobile-shell) :is(dialog[open], [role="dialog"], .modal, .resource-modal, .mobile-account-form, .mobile-cert-request, .auth-dialog, .codex-dialog, .codex-log-dialog, .flow-dialog, .frp-modal, .ai-workbench, .ai-asset-note-dialog, .ai-config-dialog, .certificate-dialog, .certificate-source-dialog, .certificate-domains-dialog, .sync-transfer-qr-dialog, .export-selection-dialog, .security-group-modal, .terminal-quick-dialog, .managed-group-edit-dialog) :is(footer, .modal-actions, .codex-dialog-actions, .ai-workbench-footer, .terminal-quick-dialog-actions, .mobile-dns-footer, .mobile-cert-request-footer), body:has(.mobile-shell) .ai-asset-note-dialog > .ai-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 4;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 14px calc(10px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--mobile-border);
+  border-color: var(--mobile-border);
+  background: var(--mobile-surface);
+  color: var(--mobile-text);
+  box-shadow: 0 -8px 16px color-mix(in srgb, var(--mobile-surface) 86%, transparent);
+}
+
+body:has(.mobile-shell) :is(dialog[open], [role="dialog"], .modal, .resource-modal, .mobile-account-form, .mobile-cert-request, .auth-dialog, .codex-dialog, .codex-log-dialog, .flow-dialog, .frp-modal, .ai-workbench, .ai-asset-note-dialog, .ai-config-dialog, .certificate-dialog, .certificate-source-dialog, .certificate-domains-dialog, .sync-transfer-qr-dialog, .export-selection-dialog, .security-group-modal, .terminal-quick-dialog, .managed-group-edit-dialog) :is(footer, .modal-actions, .codex-dialog-actions, .ai-workbench-footer, .terminal-quick-dialog-actions, .mobile-dns-footer, .mobile-cert-request-footer) button, body:has(.mobile-shell) .ai-asset-note-dialog > .ai-actions button {
+  min-height: 44px;
+  border-radius: 8px;
+  border-color: var(--mobile-border);
+}
+
+body:has(.mobile-shell) :is(dialog[open], [role="dialog"], .modal, .resource-modal, .mobile-account-form, .mobile-cert-request, .auth-dialog, .codex-dialog, .codex-log-dialog, .flow-dialog, .frp-modal, .ai-workbench, .ai-asset-note-dialog, .ai-config-dialog, .certificate-dialog, .certificate-source-dialog, .certificate-domains-dialog, .sync-transfer-qr-dialog, .export-selection-dialog, .security-group-modal, .terminal-quick-dialog, .managed-group-edit-dialog) :is(button.primary, button.auth-primary, button.ai-primary, button.mobile-primary, button.mobile-submit, button.layui-btn-normal, button[type="submit"]) {
+  border-color: var(--mobile-accent-strong);
+  border-radius: 8px;
+  background: var(--mobile-accent-strong);
+  color: #fff;
+}
+
+body:has(.mobile-shell) :is(dialog[open], [role="dialog"])::backdrop { background: #020810bd; backdrop-filter: blur(8px); }
+body:has(.mobile-shell) :is(.modal-backdrop, .resource-modal-backdrop, .ai-backdrop, .ai-config-backdrop, .flow-dialog-backdrop, .frp-modal-backdrop, .mobile-modal-backdrop, .mobile-cert-request-backdrop, .certificate-source-backdrop, .sync-transfer-qr-backdrop) {
+  padding-top: max(8px, env(safe-area-inset-top, 0px));
+  padding-bottom: max(8px, env(safe-area-inset-bottom, 0px));
+}
+
+body:has(.mobile-shell) .mobile-account-form:not(.mobile-dns-form) > .mobile-modal-heading {
+  top: 0;
+  height: 44px;
+  margin: -12px -12px 8px;
+  padding: 0 8px;
+  overflow: hidden;
+  border-radius: 12px 12px 0 0;
+}
+body:has(.mobile-shell) .mobile-account-form:not(.mobile-dns-form) > .mobile-modal-heading > div,
+body:has(.mobile-shell) .mobile-cert-request > header > div,
+body:has(.mobile-shell) .mobile-dns-heading > div {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+body:has(.mobile-shell) .mobile-account-form:not(.mobile-dns-form) > .mobile-modal-heading small,
+body:has(.mobile-shell) .mobile-cert-request > header small,
+body:has(.mobile-shell) .mobile-dns-heading small {
+  max-width: 45%;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+body:has(.mobile-shell) .mobile-account-form:not(.mobile-dns-form) > .mobile-modal-heading h2,
+body:has(.mobile-shell) .mobile-cert-request > header h2,
+body:has(.mobile-shell) .mobile-dns-heading h2 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+body:has(.mobile-shell) .mobile-account-form:not(.mobile-dns-form) .mobile-submit {
+  min-height: 48px;
+  min-width: 96px;
+  margin: 0;
+  box-shadow: none;
+}
+body:has(.mobile-shell) .mobile-account-form:not(.mobile-dns-form) > .mobile-modal-heading {
+  position: sticky;
+  top: -12px;
+  z-index: 5;
+  flex: 0 0 auto;
+  min-height: 56px;
+  margin: -12px -12px 0;
+  padding: 6px 12px;
+  border-radius: 12px 12px 0 0;
+  background: var(--mobile-raised);
+}
+body:has(.mobile-shell) .mobile-account-form:not(.mobile-dns-form) > .mobile-modal-heading h2 {
+  flex: 1;
+  font-size: 16px;
+}
+body:has(.mobile-shell) .mobile-account-form:not(.mobile-dns-form) > .mobile-form-actions {
+  position: sticky;
+  bottom: -12px;
+  z-index: 5;
+  display: flex;
+  flex: 0 0 auto;
+  justify-content: flex-end;
+  gap: 8px;
+  margin: 0 -12px -12px;
+  padding: 10px 12px max(10px, env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--mobile-border);
+  background: var(--mobile-surface);
+  box-shadow: 0 -8px 16px color-mix(in srgb, var(--mobile-surface) 86%, transparent);
+}
+body:has(.mobile-shell) .mobile-account-form:not(.mobile-dns-form) > .mobile-form-actions button {
+  min-height: 44px;
+  border-radius: 8px;
+}
+body:has(.mobile-shell) .mobile-account-form:not(.mobile-dns-form) > .mobile-form-actions .mobile-form-cancel {
+  min-width: 76px;
+  padding: 0 14px;
+  border: 1px solid var(--mobile-border);
+  background: var(--mobile-raised);
+  color: var(--mobile-text);
+  font: inherit;
+}
+
+/* Keep short mobile forms centered like the reference dialog instead of pinning them to the bottom. */
+body:has(.mobile-shell) :is(.mobile-modal-backdrop,.mobile-cert-request-backdrop) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: max(8px,env(safe-area-inset-top,0px)) 12px max(8px,env(safe-area-inset-bottom,0px));
+}
+
+body:has(.mobile-shell) :is(.mobile-account-form,.mobile-cert-request) {
+  width: min(100%,620px);
+  max-width: calc(100vw - 24px);
+  max-height: calc(100dvh - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px) - 16px);
+}
+
+body:has(.mobile-shell) :is(.app-confirm-dialog,.sync-transfer-panel) {
+  --jb-surface: var(--mobile-surface);
+  --jb-surface-2: var(--mobile-raised);
+  --jb-surface-3: var(--mobile-raised);
+  --jb-input: var(--mobile-bg);
+  --jb-border: var(--mobile-border);
+  --jb-border-strong: var(--mobile-border);
+  --jb-text: var(--mobile-text);
+  --jb-muted: var(--mobile-muted);
+  --jb-accent: var(--mobile-accent);
+  color: var(--mobile-text);
+  border-color: var(--mobile-border);
+  background: var(--mobile-surface);
+}
+
+/* Account card ellipsis opens an explicit action menu instead of scrolling the row. */
+.mobile-account-swipe-card {
+  position: relative;
+  display: block;
+  overflow: visible;
+  touch-action: auto;
+}
+.mobile-account-swipe-card.is-actions-open { z-index: 8; }
+.mobile-account-swipe-main {
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+  min-width: 0;
+}
+.mobile-account-swipe-main > .mobile-account-select {
+  width: auto;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.mobile-account-menu {
+  border: 1px solid transparent;
+  border-radius: 9px;
+  color: var(--mobile-muted);
+  touch-action: manipulation;
+}
+.mobile-account-menu[aria-expanded="true"] {
+  border-color: var(--mobile-border);
+  background: var(--mobile-raised);
+  color: var(--mobile-accent-strong);
+}
+.mobile-account-swipe-actions {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 6px;
+  z-index: 10;
+  display: grid;
+  width: min(196px, calc(100vw - 56px));
+  gap: 3px;
+  padding: 6px;
+  border: 1px solid var(--mobile-border);
+  border-radius: 11px;
+  background: var(--mobile-raised);
+  box-shadow: 0 12px 28px #0008;
+}
+.mobile-account-swipe-actions > button {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  min-height: 42px;
+  height: auto;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  font-size: 13px;
+  text-align: left;
+}
+.mobile-account-swipe-actions > button:focus-visible { outline: 2px solid var(--mobile-focus); outline-offset: -2px; }
+.mobile-account-swipe-actions > button:disabled { opacity: .5; }

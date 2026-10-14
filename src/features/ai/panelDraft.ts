@@ -1,8 +1,8 @@
 import type { AiFields } from "../../platform/clients/ai";
 
-export function panelAiFields(fields: AiFields): Partial<Record<"name" | "panel_url" | "remark", string>> {
-  const result: Partial<Record<"name" | "panel_url" | "remark", string>> = {};
-  for (const key of ["name", "panel_url", "remark"] as const) {
+export function panelAiFields(fields: AiFields): Partial<Record<"name" | "panel_url" | "group_name" | "remark", string>> {
+  const result: Partial<Record<"name" | "panel_url" | "group_name" | "remark", string>> = {};
+  for (const key of ["name", "panel_url", "group_name", "remark"] as const) {
     const value = fields[key];
     if (typeof value !== "string") continue;
     const text = value.trim();

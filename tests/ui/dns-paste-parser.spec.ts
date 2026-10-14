@@ -55,7 +55,7 @@ test("DNS paste handles labeled instructions, zone records and JSON without corr
   expect(() => parseDnsPaste("这是一段不含记录的说明")).toThrow(/未识别/);
 });
 
-test("DNS paste fills the editor locally and retains values when parsing fails", async ({ page }) => {
+test("DNS editor keeps AI entry and manual host controls without smart parsing", async ({ page }) => {
   let writes = 0;
   await page.route("**/api/accounts**", route => route.fulfill({ json: [{ id: 7, account_name: "Fixture DNS", cloud_type: "aliyun", access_key_id: "test-only-id", enabled: true, sort_order: 0, created_at: 1, updated_at: 1 }] }));
   await page.route("**/api/local-assets**", route => route.fulfill({ json: [{ account_id: 7, resource_type: "domain", asset_key: "example.test", payload: { DomainName: "example.test" }, fetched_at: 1 }] }));
@@ -65,32 +65,12 @@ test("DNS paste fills the editor locally and retains values when parsing fails",
   await page.getByRole("button", { name: "解析管理", exact: true }).click();
   await page.getByRole("button", { name: /添加记录/ }).click();
   const editor = page.getByRole("dialog", { name: "添加解析记录", exact: true });
-  const paste = editor.getByLabel("粘贴 DNS 记录或配置说明", { exact: true });
-  const parse = editor.getByRole("button", { name: "智能解析", exact: true });
-  await paste.fill("192.168.3.2\n127.0.0.1");
-  await parse.click();
-  await expect(editor.getByLabel("记录类型", { exact: true })).toHaveValue("A");
-  await expect(editor.getByLabel("主机记录", { exact: true })).toHaveValue("@");
-  await expect(editor.locator(".dns-parse-success")).toContainText("原文未提供主机，暂填根域名 @");
-  await editor.getByLabel("选择要填入的记录", { exact: true }).selectOption("1");
-  await expect(editor.getByLabel("记录值", { exact: true })).toHaveValue("127.0.0.1");
-  await editor.getByLabel("主机记录", { exact: true }).fill("api");
-  await paste.fill("2001:db8::1");
-  await parse.click();
-  await expect(editor.getByLabel("记录类型", { exact: true })).toHaveValue("AAAA");
-  await expect(editor.getByLabel("主机记录", { exact: true })).toHaveValue("api");
-  await expect(editor.locator(".dns-parse-success")).toContainText("沿用已填写的 api");
-  await paste.fill("主机记录: www.example.test\n记录类型: CNAME\n记录值: target.example.net\nTTL: 900");
-  await parse.click();
-  await expect(editor.getByLabel("主机记录", { exact: true })).toHaveValue("www");
-  await expect(editor.getByLabel("记录值", { exact: true })).toHaveValue("target.example.net");
-  await expect(editor.getByLabel("记录类型", { exact: true })).toHaveValue("CNAME");
-  await expect(editor.getByLabel("TTL", { exact: true })).toHaveValue("900");
-  await expect(editor.locator("#dns-value-help")).toContainText("不要加 http:// 或路径");
-  await paste.fill('@ 3600 IN MX 10 mx.example.test\n_acme-challenge IN TXT "first " "second"');
-  await parse.click();
-  await expect(editor.getByLabel("MX 优先级", { exact: true })).toHaveValue("10");
-  await editor.getByLabel("选择要填入的记录", { exact: true }).selectOption("1");
+  await expect(editor.locator("textarea")).toHaveCount(0);
+  await expect(editor.getByRole("button", { name: "智能解析", exact: true })).toHaveCount(0);
+  await expect(editor.getByRole("button", { name: "AI 智能填写", exact: true })).toBeVisible();
+  await editor.getByLabel("记录类型", { exact: true }).selectOption("TXT");
+  await expect(editor.locator(".ai-assist-button")).toHaveCount(1);
+  await editor.getByLabel("记录值", { exact: true }).fill("first second");
   await expect(editor.getByLabel("记录类型", { exact: true })).toHaveValue("TXT");
   await expect(editor.getByLabel("记录值", { exact: true })).toHaveValue("first second");
   const host = editor.getByLabel("主机记录", { exact: true });
@@ -115,9 +95,6 @@ test("DNS paste fills the editor locally and retains values when parsing fails",
   await editor.getByRole("button", { name: "网站 www", exact: true }).click();
   await expect(host).toHaveValue("www");
   await expect(editor.locator(".dns-host-error")).toHaveCount(0);
-  await paste.fill("无法识别的内容");
-  await parse.click();
-  await expect(editor.getByRole("alert")).toContainText("未识别");
   await expect(editor.getByLabel("记录值", { exact: true })).toHaveValue("first second");
   expect(writes).toBe(0);
   for (const width of [375, 768, 1024, 1440]) {
@@ -127,8 +104,6 @@ test("DNS paste fills the editor locally and retains values when parsing fails",
     expect(box!.width).toBeLessThanOrEqual(width);
     if (width === 1440) expect(box!.width).toBeGreaterThan(700);
   }
-  await paste.fill("主机记录: _acme-challenge\n记录类型: TXT\n记录值: 示例验证文本");
-  await parse.click();
   await editor.screenshot({ path: "test-results/dns-paste-editor.png" });
   await editor.getByRole("button", { name: "关闭解析记录编辑", exact: true }).click();
   await expect(editor).toHaveCount(0);

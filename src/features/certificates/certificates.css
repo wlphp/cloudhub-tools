@@ -2,6 +2,15 @@
 .certificate-header-actions,.certificate-source-tabs{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .certificate-source-tabs{margin-bottom:16px}.certificate-source-tabs button{padding:9px 14px;border:1px solid var(--jb-border,#3b3b3b);border-radius:4px;background:var(--jb-surface,#2b2b2b);color:var(--jb-text,#d7d7d7);cursor:pointer}.certificate-source-tabs button.active{border-color:var(--jb-accent,#9b8cff);background:var(--jb-accent-soft,#342e54)}
 .certificate-source-backdrop{z-index:10060}.certificate-source-dialog{width:min(660px,calc(100vw - 32px));max-height:calc(100dvh - 40px);overflow:auto}.certificate-source-body{padding:16px 20px;overflow-wrap:anywhere}.certificate-source-body form{display:grid;gap:12px}.certificate-source-body form label{margin:0}.certificate-source-body textarea{width:100%;box-sizing:border-box}.certificate-file-drop{display:flex;justify-content:center;align-items:center;gap:10px;width:100%;min-height:64px;margin-bottom:8px;border:1px dashed var(--jb-border-strong,#555)}.certificate-source-body>small{display:block;margin-bottom:16px;color:var(--jb-muted,#a4a4a4)}.certificate-import-preview{padding:12px;margin-top:14px;border:1px solid var(--jb-border,#3b3b3b);border-radius:4px}.certificate-import-preview label{margin:0}.certificate-import-preview p{font-size:12px;line-height:1.6;margin:7px 0}
+.modal-backdrop .certificate-source-dialog.dialog-common-theme{display:flex;flex-direction:column;padding:0!important;border-radius:6px;background:var(--jb-surface,#282828)}
+.certificate-source-dialog.dialog-common-theme>.modal-head{align-items:center;flex:0 0 auto;margin:0!important;padding:14px 18px;background:var(--jb-surface-2,#303030);border-bottom:1px solid var(--jb-border,#414141)}
+.certificate-source-dialog.dialog-common-theme>.certificate-source-body{flex:1;min-height:0;padding:16px 18px;overflow:auto}
+.certificate-source-dialog.dialog-common-theme .certificate-file-drop{min-height:54px;margin:0 0 8px;border-color:var(--jb-border-strong,#555);border-radius:4px;background:var(--jb-surface-3,#363636);color:var(--jb-text,#dedede)}
+.certificate-source-dialog.dialog-common-theme .certificate-source-body>small{margin-bottom:14px;color:var(--jb-muted,#aaa)}
+.certificate-source-dialog.dialog-common-theme .certificate-source-body form{gap:10px}
+.certificate-source-dialog.dialog-common-theme .certificate-source-body form>button.secondary{min-height:34px;justify-self:start;border-color:var(--jb-border-strong,#555);border-radius:4px;background:var(--jb-surface-3,#363636);color:var(--jb-text,#dedede)}
+.certificate-source-dialog.dialog-common-theme>.modal-actions{flex:0 0 auto;margin:0;padding:11px 18px;border-top:1px solid var(--jb-border,#414141);background:var(--jb-surface,#282828)}
+.certificate-source-dialog.dialog-common-theme>.modal-actions .primary{border-color:#6551b2;border-radius:4px;background:#7356c8;color:#fff}
 .certificate-source-note{padding:12px 18px;margin:0;font-size:12px;color:var(--jb-muted,#a4a4a4);overflow-wrap:anywhere}.certificate-deploy-picker{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:16px}.baota-certificate-manager .table-wrap table{min-width:820px;width:100%}.baota-certificate-manager table td{white-space:normal}.baota-certificate-manager .certificate-toolbar select,.certificate-deploy-picker select{min-height:32px;padding:0 8px;margin:0;max-width:100%}.baota-certificate-manager .certificate-actions{flex-wrap:wrap}
 @media(max-width:760px){.certificate-header-actions{width:100%}.certificate-source-dialog{max-height:calc(100dvh - 20px)}.baota-certificate-manager .certificate-toolbar{flex-wrap:wrap}.baota-certificate-manager .certificate-toolbar input{min-width:0;width:100%}}
 .certificate-page>header{display:flex;align-items:flex-start;justify-content:space-between;gap:24px;min-width:0;margin-bottom:24px}
@@ -70,3 +79,27 @@
 .certificate-expiry-summary{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 12px;border-bottom:1px solid var(--jb-border,#444);font-size:12px}.certificate-expiry-summary>span{display:inline-flex;align-items:center;gap:5px;color:var(--jb-muted,#a4a4a4)}.certificate-expiry-summary button{min-height:28px;padding:0 8px;margin:0;border:1px solid var(--jb-border,#555);border-radius:3px;background:transparent;color:inherit;font-size:12px;cursor:pointer}.certificate-expiry-summary button[aria-pressed=true]{border-color:var(--jb-accent,#9b8cff);background:var(--jb-selection,#39334e)}.certificate-expiry-summary small{margin-left:auto;color:var(--jb-muted,#a4a4a4)}.baota-certificate-manager .expiry-warning{color:var(--jb-warning,#f4c15f)}.baota-certificate-manager .expiry-danger{color:var(--jb-danger,#ff9a9f)}.baota-certificate-manager .certificate-expiry-label{display:flex;align-items:center;gap:4px}.certificate-expiry-label svg{flex:none}
 .baota-certificate-manager td .certificate-expiry-label.expiry-warning{color:var(--jb-warning,#f4c15f)!important}.baota-certificate-manager td .certificate-expiry-label.expiry-danger{color:var(--jb-danger,#ff9a9f)!important}
 .certificate-panel>.certificate-toolbar{flex-wrap:wrap}.certificate-source-filter{display:flex;align-items:center;gap:6px;margin:0;flex:none;font-size:12px;white-space:nowrap}.certificate-source-filter select{width:auto;min-width:104px;max-width:100%;padding:0 8px}
+
+/* Keep the certificate detail dialog within the desktop dark theme. */
+.certificate-detail-dialog .certificate-detail-summary{border-color:var(--jb-border,#3d3d3d);background:var(--jb-surface-2,#303030)}
+.certificate-detail-dialog .certificate-detail-summary span{color:var(--jb-muted,#aaa)}
+.certificate-detail-dialog .certificate-detail-summary strong{color:var(--jb-text,#dedede)}
+.certificate-detail-dialog .certificate-detail-summary>div:nth-child(1) strong{color:var(--jb-green,#63d7ad)}
+.certificate-detail-dialog .certificate-chain-section,.certificate-detail-dialog .certificate-san-section{border-color:var(--jb-border,#3d3d3d);background:var(--jb-surface-2,#303030)}
+.certificate-detail-dialog .certificate-chain-section h3,.certificate-detail-dialog .certificate-san-section h3{color:var(--jb-text,#dedede)}
+.certificate-detail-dialog .certificate-chain-section h3{color:var(--jb-blue,#5aa8ff)}
+.certificate-detail-dialog .certificate-chain-item{border-color:var(--jb-border,#3d3d3d);background:var(--jb-surface-3,#353535)}
+.certificate-detail-dialog .certificate-chain-item strong{color:var(--jb-text,#dedede)}
+.certificate-detail-dialog .certificate-chain-item small,.certificate-detail-dialog .certificate-chain-validity,.certificate-detail-dialog .certificate-chain-empty,.certificate-detail-dialog .certificate-san-section h3 small{color:var(--jb-muted,#aaa)}
+.certificate-detail-dialog .certificate-level{background:#39354c;color:#c9c0ff}
+.certificate-detail-dialog .certificate-san-list span{background:#39354c;color:#c9c0ff}
+.certificate-detail-dialog .certificate-san-list span:first-child{background:#514779;color:#eeeaff}
+.certificate-detail-dialog .certificate-code-panel{border-color:var(--jb-border,#3d3d3d);background:var(--jb-surface-2,#303030)}
+.certificate-detail-dialog .certificate-code-head{border-color:var(--jb-border,#3d3d3d);background:var(--jb-surface-3,#353535);color:var(--jb-text,#dedede)}
+.certificate-detail-dialog .certificate-code-head small{color:var(--jb-muted,#aaa)}
+.certificate-detail-dialog .certificate-copy-button{border-color:var(--jb-border-strong,#555);background:var(--jb-surface,#2b2b2b);color:var(--jb-text,#dedede)}
+.certificate-detail-dialog .certificate-copy-button:hover{border-color:var(--jb-accent,#9b8cff);background:#39354c;color:#eeeaff}
+.certificate-detail-dialog .certificate-code-panel pre,.certificate-detail-dialog .certificate-code-panel:first-child pre{background:var(--jb-input,#202020);color:#c7d5e6}
+.certificate-detail-dialog .certificate-export-box{border-color:var(--jb-border,#3d3d3d);background:var(--jb-surface-2,#303030)}
+.certificate-detail-dialog .certificate-export-box strong{color:var(--jb-text,#dedede)}
+.certificate-detail-dialog .certificate-export-box span{color:var(--jb-muted,#aaa)}
