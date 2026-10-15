@@ -79,7 +79,7 @@ test("AI rejection diagnostics preserve status and safe parameters without provi
   });
   await page.goto("/");
   await page.getByRole("button",{name:"系统设置",exact:true}).click();
-  await page.getByRole("button",{name:"展开",exact:true}).click();
+  await page.locator(".ai-settings").getByRole("button",{name:"展开",exact:true}).click();
   const button = page.locator(".ai-profile").first().getByRole("button",{name:"测试连接",exact:true});
   await button.click();
   await expect(page.getByRole("status")).toContainText("AI服务拒绝请求（HTTP 400）：参数 max_output_tokens 不兼容");
@@ -161,7 +161,7 @@ test("image composer accepts pasted screenshots and rejects invalid files withou
 
 test("model list and capability metadata do not leak into profile save payload", async ({page}) => {
   await nativeFixture(page);await page.goto("/");await page.getByRole("button",{name:"系统设置",exact:true}).click();
-  await page.getByRole("button",{name:"展开",exact:true}).click();
+  await page.locator(".ai-settings").getByRole("button",{name:"展开",exact:true}).click();
   await page.locator(".ai-profile").first().getByRole("button",{name:"编辑",exact:true}).click();
   const form=page.locator(".ai-config-form");await form.getByRole("button",{name:"获取模型列表"}).click();
   await expect(page.getByText("已获取 2 个模型名称，可下拉选择或直接填写")).toBeVisible();
@@ -280,6 +280,8 @@ async function nativeFixture(page: Page) {
     (window as any).nativeDragCallbacks={};
     (window as any).__TAURI_INTERNALS__ = { metadata:{currentWindow:{label:"main"},currentWebview:{label:"main"}}, transformCallback: (callback:(event:any)=>void) => {callbacks[++callbackId]=callback;return callbackId;}, unregisterCallback: (id:number) => {delete callbacks[id];}, invoke: async (command: string, args?: any) => {
       if(command==="plugin:event|listen"){(window as any).nativeDragCallbacks[args.event]=callbacks[args.handler];return args.handler;}
+      if (command === "pet_settings") return { enabled: false, monitoring: false, panels: false, certificates: true, servers: true, size: 160, roam: "edge", activity: 1, sound: false, reducedMotion: false, quiet: false, intervalSeconds: 300, expiryDays: 30, cpuThreshold: 90, diskThreshold: 90, keepInTray: false };
+      if (command === "pet_snapshot") return { alerts: [], checkedAt: 0, lastError: null };
       if(command==="ai_read_image_file"){(window as any).nativeImageReads.push(args.sourcePath);return (window as any).fixtureImageData;}
       if (command === "ai_list_profiles") return structuredClone(profiles);
       if (command === "ai_save_profile") {
@@ -435,7 +437,7 @@ test("browser preview enables AI configuration while retaining manual server ent
 
 test("AI transfer previews metadata, adds a disabled profile and keeps the existing service", async ({ page }) => {
   await nativeFixture(page); await page.goto("/"); await page.getByRole("button", { name: "系统设置", exact: true }).click();
-  await page.getByRole("button", { name: "展开", exact: true }).click();
+  await page.locator(".ai-settings").getByRole("button", { name: "展开", exact: true }).click();
   await page.getByText("AI配置文件迁移", { exact: true }).click();
   await expect(page.getByLabel("迁移口令")).toHaveCount(0);
   await expect(page.getByLabel("在加密迁移包中携带密钥")).toHaveCount(0);
@@ -459,13 +461,13 @@ test("AI transfer previews metadata, adds a disabled profile and keeps the exist
 
 test("AI settings collapse to a compact summary and adding a service expands the section", async ({ page }) => {
   await nativeFixture(page); await page.goto("/"); await page.getByRole("button", { name: "系统设置", exact: true }).click();
-  const toggle = page.getByRole("button", { name: "展开", exact: true });
+  const toggle = page.locator(".ai-settings").getByRole("button", { name: "展开", exact: true });
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
   await expect(page.locator("#ai-settings-content")).toBeHidden();
   await expect(page.getByText("1 项", { exact: true })).toBeVisible();
   await toggle.click();
   await expect(page.locator("#ai-settings-content")).toBeVisible();
-  await page.getByRole("button", { name: "收起", exact: true }).click();
+  await page.locator(".ai-settings").getByRole("button", { name: "收起", exact: true }).click();
   await expect(page.locator("#ai-settings-content")).toBeHidden();
   await page.getByRole("button", { name: "添加服务", exact: true }).click();
   await expect(page.locator("#ai-settings-content")).toBeVisible();
@@ -619,7 +621,7 @@ test("AI key eye reveals only on click, clears on hide and never resaves reveale
     };
   });
   await page.goto("/"); await page.getByRole("button", {name:"系统设置",exact:true}).click();
-  await page.getByRole("button", {name:"展开",exact:true}).click();
+  await page.locator(".ai-settings").getByRole("button", {name:"展开",exact:true}).click();
   await page.locator(".ai-profile").first().getByRole("button", {name:"编辑",exact:true}).click();
   const form = page.getByRole("dialog", {name:"编辑AI服务",exact:true});
   const input = form.getByLabel("API Key", {exact:true});
@@ -651,7 +653,7 @@ test("AI model queries and picker filtering preserve dialog geometry and body sc
       return original(command,args);
     };
   });
-  await page.goto("/"); await page.getByRole("button", {name:"系统设置",exact:true}).click(); await page.getByRole("button", {name:"展开",exact:true}).click();
+  await page.goto("/"); await page.getByRole("button", {name:"系统设置",exact:true}).click(); await page.locator(".ai-settings").getByRole("button", {name:"展开",exact:true}).click();
   await page.locator(".ai-profile").first().getByRole("button", {name:"编辑",exact:true}).click();
   const form = page.getByRole("dialog", {name:"编辑AI服务",exact:true});
   const geometry = () => form.evaluate(el => { const body = el.querySelector(".ai-config-dialog-body")!; const rect = el.getBoundingClientRect(); return {top:rect.top,height:rect.height,scroll:body.scrollTop,content:body.scrollHeight}; });

@@ -21,6 +21,17 @@ impl From<&str> for PlatformError {
 impl PlatformError {
     fn from_message(message: String) -> Self {
         // Exact authored diagnostics only: never forward arbitrary native error text.
+        if ["桌宠设置读取失败", "桌宠设置无效", "桌宠数据保存失败", "此窗口不支持桌宠操作",
+            "提醒记录读取失败", "提醒状态不可用", "无法关闭提醒", "无法显示桌面提醒",
+            "无法读取显示器", "未找到显示器", "无法读取桌宠窗口", "无法移动桌宠",
+            "无法关闭桌宠", "无法调整桌宠大小", "无法读取桌宠位置", "无法显示桌宠",
+            "无法创建桌宠窗口", "无法隐藏桌宠", "桌宠动画帧无效", "桌宠状态不可用",
+            "桌宠交互区域无效", "无法读取桌宠大小", "无法调整桌宠窗口", "桌宠移动距离无效",
+            "无效的桌宠入口", "提醒暂缓参数无效", "巡检正在执行，请稍后重试", "巡检状态不可用",
+            "提醒不存在", "请先开启运维预警", "手动巡检间隔至少一分钟"
+        ].contains(&message.as_str()) {
+            return Self { kind: "platform-error", code: "validation", message, retryable: false };
+        }
         if [
             "该发行版已安装，请从下方列表直接启动或管理",
             "WSL 命令未完成，请检查发行版、安装目录和 WSL 状态",

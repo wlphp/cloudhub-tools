@@ -22,6 +22,8 @@ type Props = {
   requestTarget?: EsaCertificateTarget;
   onIssued?: (certificate: Certificate) => void;
   onRequestClosed?: () => void;
+  alertTarget?: {key:string;request:number}|null;
+  onAlertTargetHandled?: ()=>void;
 };
 type CertificateLog = {
   level: "info" | "success" | "error";
@@ -85,7 +87,7 @@ function days(value?: number | null) {
   return value ? Math.ceil((value * 1000 - Date.now()) / 86400000) : null;
 }
 
-export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm, requestTarget, onIssued, onRequestClosed }: Props) {
+export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm, requestTarget, onIssued, onRequestClosed, alertTarget, onAlertTargetHandled }: Props) {
   const [sourceView, setSourceView] = useState<"local" | "baota">("local");
   const [importOpen, setImportOpen] = useState(false);
   const [rows, setRows] = useState<Certificate[]>([]);
@@ -102,6 +104,15 @@ export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm, r
   const [certificateCopied, setCertificateCopied] = useState(false);
   const [filter, setFilter] = useState("");
   const [sourceFilter, setSourceFilter] = useState<CertificateSource | "all">("all");
+  const [appliedAlert,setAppliedAlert]=useState(0);
+  useEffect(()=>{
+    if(!alertTarget || alertTarget.request===appliedAlert) return;
+    if(alertTarget.key.startsWith("site:")) { setSourceView("baota"); setAppliedAlert(alertTarget.request); }
+    else if(alertTarget.key.startsWith("cert:")) {
+      const target=rows.find(c=>c.id===Number(alertTarget.key.split(":")[1]));
+      if(target) {setSourceView("local");setSourceFilter("all");setFilter("");setDetail(target);setAppliedAlert(alertTarget.request);onAlertTargetHandled?.();}
+    }
+  },[alertTarget,appliedAlert,rows,onAlertTargetHandled]);
   const domainAssets = useMemo(
     () => localAssets.filter((asset) => asset.resource_type === "domain"),
     [localAssets],
@@ -347,7 +358,7 @@ export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm, r
         </div>
       )}
       {!requestTarget && <div className="certificate-source-tabs"><button className={sourceView === "local" ? "active" : ""} onClick={() => setSourceView("local")}>本地证书</button><button className={sourceView === "baota" ? "active" : ""} disabled={!runningInTauri} onClick={() => setSourceView("baota")}>宝塔站点证书</button></div>}
-      {sourceView === "baota" ? <BaotaCertificateManager certificates={rows} onChanged={() => void load()} onConfirm={onConfirm} onStatus={onStatus} /> : <section className="panel certificate-panel">
+      {sourceView === "baota" ? <BaotaCertificateManager certificates={rows} onChanged={() => void load()} onConfirm={onConfirm} onStatus={onStatus} alertTarget={alertTarget} onAlertTargetHandled={onAlertTargetHandled} /> : <section className="panel certificate-panel">
         <div className="certificate-summary" aria-label="证书概览">
           <div><span>证书总数</span><strong>{rows.length}</strong><small>本地加密保存</small></div>
           <div><span>已签发</span><strong>{rows.filter((row) => row.status === "issued").length}</strong><small>可查看与下载</small></div>

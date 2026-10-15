@@ -149,6 +149,42 @@ fn load_panel_connection(id: i64) -> Result<(PanelConnection, String), String> {
     Ok((panel, decrypt_secret(&ciphertext)?))
 }
 
+/// Read-only monitoring path. Do not retain or expose the environment response (it contains secrets).
+#[cfg(desktop)]
+async fn monitor_request(client: &reqwest::Client, panel: &PanelConnection, api_key: &str, action: &str) -> Result<Value, ()> {
+    let (request_time, request_token)=panel_sign(api_key);
+    let mut response=client.post(format!("{}/system?action={action}",panel.panel_url))
+        .form(&[("request_time",request_time),("request_token",request_token)])
+        .send().await.map_err(|_|())?;
+    if !response.status().is_success() || response.content_length().is_some_and(|n|n>2*1024*1024) { return Err(()); }
+    let mut bytes=zeroize::Zeroizing::new(Vec::new());
+    while let Some(chunk)=response.chunk().await.map_err(|_|())? {
+        if bytes.len()+chunk.len()>2*1024*1024 { return Err(()); }
+        bytes.extend_from_slice(&chunk);
+    }
+    let data:Value=serde_json::from_slice(&bytes).map_err(|_|())?;
+    if !data.is_object() || data.get("status").and_then(Value::as_bool)==Some(false) { return Err(()); }
+    Ok(data)
+}
+#[cfg(desktop)]
+pub(crate) async fn monitor_panel(id: i64) -> Result<(Value, Option<Vec<(String, bool)>>), ()> {
+    let (panel, api_key) = load_panel_connection(id).map_err(|_| ())?;
+    let api_key = zeroize::Zeroizing::new(api_key);
+    normalize_panel_url(&panel.panel_url).map_err(|_|())?;
+    let client=reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).timeout(std::time::Duration::from_secs(12))
+        .danger_accept_invalid_certs(panel.allow_insecure_tls).build().map_err(|_|())?;
+    let metrics = monitor_request(&client,&panel,&api_key,"GetNetWork").await?;
+    if !["cpu","mem","memory","disk"].iter().any(|key|metrics.get(*key).is_some()) { return Err(()); }
+    let services = monitor_request(&client,&panel,&api_key,"GetConcifInfo").await.ok().map(|data| {
+        ["web", "mysql", "redis", "memcached", "pure-ftpd"].iter().filter_map(|name| {
+            let service = data.get(*name)?;
+            if service.get("setup").and_then(Value::as_bool) != Some(true) { return None; }
+            service.get("status").and_then(Value::as_bool).map(|running| (name.to_string(), running))
+        }).collect()
+    });
+    Ok((panel_summary(&metrics), services))
+}
+
 #[tauri::command]
 pub(crate) async fn save_panel_connection(input: PanelConnectionInput) -> PlatformResult<PanelConnection> {
     let name = input.name.trim(); let panel_url = normalize_panel_url(&input.panel_url)?;

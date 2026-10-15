@@ -45,3 +45,5 @@ pub mod frp;
 pub mod sync;
 
 pub mod esa_certificates;
+#[cfg(desktop)]
+pub mod desktop_pet;

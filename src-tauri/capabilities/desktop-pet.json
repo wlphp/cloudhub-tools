@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "desktop-pet",
+  "description": "羊驼窗口只使用事件和自身拖动，不授予文件、外链或通用窗口创建权限",
+  "platforms": ["windows", "linux", "macOS"],
+  "windows": ["desktop-pet", "desktop-pet-alert"],
+  "permissions": ["core:event:default", "core:window:allow-start-dragging"]
+}

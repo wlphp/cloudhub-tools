@@ -38,7 +38,7 @@ assert.deepEqual(contract.domains.map((domain) => domain.name), ["accounts", "re
 const clientSource = await joinedSource(await filesUnder(path.join(root, "src/platform/clients"), ".ts"));
 const rustSource = await joinedSource(await filesUnder(path.join(root, "src-tauri/src"), ".rs"));
 const rustLibSource = await readFile(path.join(root, "src-tauri/src/lib.rs"), "utf8");
-const desktopHandlerMatch = rustLibSource.match(/#\[cfg\(desktop\)\]\s*let builder = builder\.invoke_handler\(tauri::generate_handler!\[([\s\S]*?)\]\)/);
+const desktopHandlerMatch = rustLibSource.match(/#\[cfg\(desktop\)\]\s*let builder = builder\.invoke_handler\((?:commands::desktop_pet::restricted\()?tauri::generate_handler!\[([\s\S]*?)\]\)\)?/);
 const mobileHandlerMatch = rustLibSource.match(/#\[cfg\(mobile\)\]\s*let builder = builder\.invoke_handler\(tauri::generate_handler!\[([\s\S]*?)\]\)/);
 assert.ok(desktopHandlerMatch, "未找到桌面 Tauri 命令注册表");
 assert.ok(mobileHandlerMatch, "未找到移动端 Tauri 命令注册表");
@@ -63,6 +63,7 @@ const componentFiles = [
   ...await filesUnder(path.join(root, "src/features/codex"), ".tsx"),
   ...await filesUnder(path.join(root, "src/features/ai"), ".tsx"),
   ...await filesUnder(path.join(root, "src/features/plugins"), ".tsx"),
+  ...await filesUnder(path.join(root, "src/features/desktop-pet"), ".tsx"),
 ];
 const componentSource = await joinedSource(componentFiles);
 

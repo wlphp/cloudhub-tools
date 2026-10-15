@@ -5,7 +5,7 @@ import { certificatesClient, type BaotaSiteCertificate } from "../../platform/cl
 import { platformErrorMessage } from "../../platform/api";
 import type { Certificate, PanelConnection } from "../../shared/types";
 
-export function BaotaCertificateManager({ certificates, onChanged, onConfirm, onStatus }: { certificates: Certificate[]; onChanged: () => void; onConfirm: (message: string) => Promise<boolean>; onStatus: (message: string) => void }) {
+export function BaotaCertificateManager({ certificates, onChanged, onConfirm, onStatus, alertTarget, onAlertTargetHandled }: { certificates: Certificate[]; onChanged: () => void; onConfirm: (message: string) => Promise<boolean>; onStatus: (message: string) => void; alertTarget?: {key:string;request:number}|null; onAlertTargetHandled?:()=>void }) {
   const [panels, setPanels] = useState<PanelConnection[]>([]);
   const [panel, setPanel] = useState("");
   const [sites, setSites] = useState<BaotaSiteCertificate[]>([]);
@@ -20,6 +20,13 @@ export function BaotaCertificateManager({ certificates, onChanged, onConfirm, on
   const [deploy, setDeploy] = useState<{ site: BaotaSiteCertificate; certificateId: string } | null>(null);
   const generation = useRef(0);
   const inFlight = useRef(false);
+  const appliedAlert=useRef(0);
+  useEffect(()=>{ if(alertTarget?.key.startsWith("site:")) setPanel(""); },[alertTarget?.request]);
+  useEffect(()=>{
+    if(!alertTarget || !alertTarget.key.startsWith("site:") || appliedAlert.current===alertTarget.request) return;
+    const target=sites.find(s=>s.id===Number(alertTarget.key.split(":")[1]));
+    if(target) { setPanel(""); setFilter(target.siteName); setHttpsFilter("all");setExpiryFilter("all");appliedAlert.current=alertTarget.request;onAlertTargetHandled?.(); }
+  },[alertTarget,sites,onAlertTargetHandled]);
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now() / 1000), 60000); return () => window.clearInterval(timer); }, []);
   useEffect(() => { void certificatesClient.panels().then(setPanels).catch(reason => setError(platformErrorMessage(reason))); return () => { ++generation.current; }; }, []);
   useEffect(() => { const request = ++generation.current; void certificatesClient.baotaSites(panel ? Number(panel) : undefined).then(rows => { if (request === generation.current) setSites(rows); }).catch(reason => { if (request === generation.current) setError(platformErrorMessage(reason)); }); }, [panel]);

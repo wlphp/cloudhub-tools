@@ -1,6 +1,6 @@
 [package]
 name = "cloudhub-tools"
-version = "0.1.55"
+version = "0.1.56"
 description = "本地阿里云资源管理客户端"
 authors = ["wanglei"]
 edition = "2021"
@@ -61,6 +61,7 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 rqrr = "0.10"
 
 [target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))'.dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-updater = "2.10.1"
 arboard = { version = "3", default-features = false }
 
@@ -68,3 +69,6 @@ arboard = { version = "3", default-features = false }
 tauri-plugin-barcode-scanner = "2.5.1"
 tauri-plugin-fs = "2"
 tauri-plugin-clipboard-manager = "2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+tauri = { version = "2", features = ["macos-private-api"] }

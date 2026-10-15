@@ -665,7 +665,8 @@
         {
           "name": "detail",
           "native": [
-            "get_oss_acl"
+            "get_oss_acl",
+            "get_oss_cnames"
           ],
           "preview": [
             {
@@ -705,7 +706,7 @@
         },
         {
           "name": "cname",
-          "native": [],
+          "native": ["create_oss_cname_token", "bind_oss_cname", "delete_oss_cname"],
           "preview": [
             {
               "method": "POST",
@@ -1305,6 +1306,11 @@
           "native": [
             "app_is_development"
           ],
+          "preview": []
+        },
+        {
+          "name": "desktop-pet",
+          "native": ["pet_settings", "pet_save_settings", "pet_snapshot", "pet_notice", "pet_dismiss", "pet_show", "pet_hide", "pet_layout", "pet_move", "pet_open", "pet_snooze", "pet_check", "pet_sprite", "pet_regions"],
           "preview": []
         },
         {

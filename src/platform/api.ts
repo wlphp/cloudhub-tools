@@ -6,6 +6,7 @@ export const runningInTauri =
 export const invoke = tauriInvoke;
 
 export type PlatformErrorCode =
+  | "oss-cname"
   | "local-plugin"
   | "unknown"
   | "ai"
@@ -30,6 +31,10 @@ export type PlatformErrorCode =
   | "wsl-dashboard";
 
 function publicPlatformMessage(code: PlatformErrorCode, rawMessage: string): string {
+  if (code === "oss-cname") {
+    const safe = ["请先获取验证 Token，并配置 TXT 记录；等待 DNS 生效后重试绑定", "权限不足，请检查账号的 OSS 自定义域名操作权限", "此域名已绑定其他存储桶，请先解除原绑定", "域名参数无效，请使用具体的完整域名", "请求被拒绝，请检查域名、地域和账号权限后重试", "OSS 未返回验证 Token，请重新获取", "OSS 自定义域名列表格式无效", "OSS 连接失败或超时，请检查网络后重试", "OSS 返回读取失败", "OSS 存储桶名称或地域无效，请刷新存储桶列表", "请输入有效的完整域名，例如 img.example.com", "普通 OSS 存储桶请填写具体域名，例如 img.example.com，不能填写泛域名 *.example.com"];
+    return safe.includes(rawMessage) ? rawMessage : "OSS 自定义域名操作失败，请检查账号和域名后重试";
+  }
   if (code === "hardware-info") {
     const safe = ["无法读取本机硬件信息", "读取本机硬件信息失败", "本机硬件信息格式无效", "硬件信息插件当前不支持此桌面平台", "导出的图片超过大小限制", "图片格式无效，请重新导出", "图片尺寸超过限制，请缩小后重试", "请使用 PNG 图片格式", "保存位置无效", "图片保存失败，请检查目录权限和磁盘空间", "无法读取当前 Wi-Fi 密码", "无法读取当前 Wi-Fi 密码，请确认已连接 Wi-Fi 且系统允许查看已保存密码", "请在 Windows 设置 > 隐私和安全性 > 位置中开启位置服务，并允许桌面应用访问位置后重试", "当前 Wi-Fi 没有可显示的已保存密码", "此平台暂不支持读取已保存的 Wi-Fi 密码", "读取当前 Wi-Fi 配置失败，请检查无线网络状态后重试", "未检测到已连接的 Wi-Fi 网络", "当前 Wi-Fi 没有可读取的已保存密码；企业认证网络可能不使用共享密码"];
     return safe.includes(rawMessage) ? rawMessage : "电脑信息操作失败，请重试";
@@ -104,7 +109,7 @@ function publicPlatformMessage(code: PlatformErrorCode, rawMessage: string): str
       .replace(/(password|secret|token|access[_-]?key|private[_-]?key|authorization|signature)(\s*[:=]\s*)[^,;\s]+/gi, "$1$2[已隐藏]")
       .slice(0, 240);
   }
-  const messages: Record<Exclude<PlatformErrorCode, "local-plugin" | "ai" | "unsupported-in-preview" | "certificate" | "esa-query" | "authenticator-error" | "authenticator-locked" | "hardware-info" | "wsl-dashboard" | "codex-model-catalog" | "codex-proxy">, string> = {
+  const messages: Record<Exclude<PlatformErrorCode, "oss-cname" | "local-plugin" | "ai" | "unsupported-in-preview" | "certificate" | "esa-query" | "authenticator-error" | "authenticator-locked" | "hardware-info" | "wsl-dashboard" | "codex-model-catalog" | "codex-proxy">, string> = {
     unknown: "操作失败，请稍后重试",
     validation: "输入参数无效，请检查后重试",
     authentication: "认证失败，请检查凭据或登录状态",
@@ -154,7 +159,7 @@ export function normalizePlatformError(reason: unknown): PlatformError {
   }
   if (typeof reason === "object" && reason !== null && "code" in reason && "message" in reason) {
     const structured = reason as { code?: PlatformErrorCode; message?: string; retryable?: boolean };
-    const code = structured.code && ["local-plugin", "ai", "unknown", "unsupported-in-preview", "validation", "authentication", "permission", "network", "not-found", "conflict", "frp-port-conflict", "codex-account-busy", "codex-gateway-port-conflict", "codex-model-catalog", "codex-proxy", "cancelled", "certificate", "esa-query", "authenticator-error", "authenticator-locked", "hardware-info", "wsl-dashboard"].includes(structured.code)
+    const code = structured.code && ["oss-cname", "local-plugin", "ai", "unknown", "unsupported-in-preview", "validation", "authentication", "permission", "network", "not-found", "conflict", "frp-port-conflict", "codex-account-busy", "codex-gateway-port-conflict", "codex-model-catalog", "codex-proxy", "cancelled", "certificate", "esa-query", "authenticator-error", "authenticator-locked", "hardware-info", "wsl-dashboard"].includes(structured.code)
       ? structured.code : "unknown";
     return new PlatformError(String(structured.message), code, structured.retryable === true);
   }

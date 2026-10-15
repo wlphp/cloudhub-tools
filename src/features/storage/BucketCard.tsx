@@ -74,6 +74,7 @@ export function BucketCard({
   const [cnameValue, setCnameValue] = useState("");
   const [cnameToken, setCnameToken] = useState<Record<string, string> | null>(null);
   const [cnameLoading, setCnameLoading] = useState(false);
+  const [cnameMessage, setCnameMessage] = useState("");
   const bucketName = String(item.Name || "");
   const location = String(item.Location || "");
   const isTencent = account.cloud_type === "tencent";
@@ -200,26 +201,29 @@ export function BucketCard({
     } catch (reason) { setNotice(`CORS 设置失败：${platformErrorMessage(reason)}`); }
   }
   async function createCnameToken() {
-    if (runningInTauri) { setNotice("桌面客户端暂未接入 OSS 自定义域名配置，请使用 Web API 模式操作"); return; }
+    if (!validateCname()) return;
     setCnameLoading(true);
+    setCnameMessage("");
+    setCnameToken(null);
     try {
       const result = await storageClient.cnameToken(account.id, bucketName, location, cnameValue);
+      if (!result.token) throw new Error("OSS 未返回验证 Token，请重新获取");
       setCnameToken(result);
-      setNotice("验证 Token 已生成，请按弹窗提示配置 TXT 记录");
-    } catch (reason) { setNotice(`获取 Token 失败：${platformErrorMessage(reason)}`); } finally { setCnameLoading(false); }
+      setCnameMessage("验证 Token 已生成，请配置下面的 TXT 记录，等待 DNS 生效后绑定域名。");
+    } catch (reason) { setCnameMessage(`获取 Token 失败：${platformErrorMessage(reason)}`); } finally { setCnameLoading(false); }
   }
   async function bindCname() {
-    if (runningInTauri) { setNotice("桌面客户端暂未接入 OSS 自定义域名配置，请使用 Web API 模式操作"); return; }
+    if (!validateCname()) return;
     setCnameLoading(true);
+    setCnameMessage("");
     try {
       await storageClient.bindCname(account.id, bucketName, location, cnameValue);
-      setNotice("域名已绑定，请按提示添加 CNAME 解析");
+      setCnameMessage("域名已绑定，请添加下面的 CNAME 解析记录。");
       await loadDetail();
-    } catch (reason) { setNotice(`绑定失败：${platformErrorMessage(reason)}`); } finally { setCnameLoading(false); }
+    } catch (reason) { setCnameMessage(`绑定失败：${platformErrorMessage(reason)}`); } finally { setCnameLoading(false); }
   }
   async function deleteCname(domain: string) {
     if (!(await onConfirm(`确定删除自定义域名【${domain}】吗？`))) return;
-    if (runningInTauri) { setNotice("桌面客户端暂未接入 OSS 自定义域名配置，请使用 Web API 模式操作"); return; }
     try {
       await storageClient.deleteCname(account.id, bucketName, location, domain);
       setNotice("自定义域名已删除");
@@ -227,8 +231,27 @@ export function BucketCard({
     } catch (reason) { setNotice(`删除失败：${platformErrorMessage(reason)}`); }
   }
   const acl = detail?.acl || String(item.Acl || "private");
-  const cnameHost = cnameValue.split(".").length > 2 ? cnameValue.split(".")[0] : "@";
-  const tokenHost = cnameValue.split(".").length > 2 ? `_dnsauth.${cnameValue.split(".")[0]}` : "_dnsauth";
+  function validateCname() {
+    if (cnameValue.includes("*")) {
+      setCnameMessage("普通 OSS 存储桶请填写具体域名，例如 img.example.com，不能填写泛域名 *.example.com。");
+      return false;
+    }
+    if (cnameValue.length > 253 || !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/i.test(cnameValue)) {
+      setCnameMessage("请输入有效的完整域名，例如 img.example.com。");
+      return false;
+    }
+    return true;
+  }
+  const cnameHost = cnameValue.toLowerCase();
+  const tokenHost = `_dnsauth.${cnameHost}`;
+  useEffect(() => {
+    if (!cnameDialog) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { event.stopImmediatePropagation(); setCnameDialog(false); }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [cnameDialog]);
   const filterText = objectFilter.trim().toLocaleLowerCase();
   const folderRows = (objectListing?.prefixes || [])
     .map((prefix) => ({ key: prefix, name: prefix.slice(objectPrefix.length).replace(/\/$/, ""), prefix }))
@@ -450,7 +473,7 @@ export function BucketCard({
         </button>
         {!isTencent && <button className="layui-btn layui-btn-xs layui-btn-warm" onClick={() => void setPublicRead()}>设置公共读</button>}
         {!isTencent && <button className="layui-btn layui-btn-xs layui-btn-danger" onClick={() => void setCors()}>设置跨域</button>}
-        {!isTencent && <button className="layui-btn layui-btn-xs bucket-cname-btn" onClick={() => { setCnameDialog(true); setCnameToken(null); }}>添加域名</button>}
+        {!isTencent && <button className="layui-btn layui-btn-xs bucket-cname-btn" onClick={() => { setCnameDialog(true); setCnameToken(null); setCnameMessage(""); }}>添加域名</button>}
         <button className="layui-btn layui-btn-xs layui-btn-primary" onClick={() => void copyEndpoint()}>复制域名</button>
       </div>}
       {notice && <div className="bucket-notice">{notice}</div>}
@@ -515,11 +538,13 @@ export function BucketCard({
       )}
       {cnameDialog && (
         <div className="resource-modal-backdrop nested-resource-modal">
-          <section className="detail-panel resource-modal oss-cname-dialog" onClick={(event) => event.stopPropagation()}>
-            <div className="detail-toolbar"><div><span className="eyebrow">{bucketName}</span><h2>添加自定义域名</h2></div><DialogHeaderActions><button className="close-detail" onClick={() => setCnameDialog(false)}><X size={20} /></button></DialogHeaderActions></div>
-            <label className="oss-cname-input"><span>域名</span><input value={cnameValue} onChange={(event) => { setCnameValue(event.target.value.trim()); setCnameToken(null); }} placeholder="例如 img.example.com" /></label>
+          <section role="dialog" aria-modal="true" aria-label="添加自定义域名" className="detail-panel resource-modal oss-cname-dialog" onClick={(event) => event.stopPropagation()}>
+            <div className="detail-toolbar"><div><span className="eyebrow">{bucketName}</span><h2>添加自定义域名</h2></div><DialogHeaderActions><button className="close-detail" aria-label="关闭自定义域名" onClick={() => setCnameDialog(false)}><X size={20} /></button></DialogHeaderActions></div>
+            <label className="oss-cname-input"><span>域名</span><input disabled={cnameLoading} value={cnameValue} onChange={(event) => { setCnameValue(event.target.value.trim()); setCnameToken(null); setCnameMessage(""); }} placeholder="例如 img.example.com" /></label>
             <div className="oss-cname-steps"><p>1. 获取验证 Token。</p><p>2. 在 DNS 服务商添加 TXT 记录验证域名。</p><p>3. DNS 生效后绑定域名，再添加 CNAME 记录。</p></div>
-            {cnameToken && <div className="oss-cname-records"><strong>TXT 验证记录</strong><div><span>类型</span><code>TXT</code></div><div><span>主机记录</span><code>{tokenHost}</code></div><div><span>记录值</span><code>{cnameToken.token || "未返回 Token"}</code></div><strong>CNAME 解析记录</strong><div><span>类型</span><code>CNAME</code></div><div><span>主机记录</span><code>{cnameHost}</code></div><div><span>记录值</span><code>{endpoint}</code></div></div>}
+            {cnameMessage && <div className="oss-cname-steps" role="status" aria-live="polite">{cnameMessage}</div>}
+            <p>填写具体域名，不支持 *.example.com。以下记录名为完整名称，在 DNS 控制台填写时请去掉当前 DNS 区域的后缀。</p>
+            {cnameToken && <div className="oss-cname-records"><strong>TXT 验证记录</strong><div><span>类型</span><code>TXT</code></div><div><span>完整记录名</span><code>{tokenHost}</code></div><div><span>记录值</span><code>{cnameToken.token || "未返回 Token"}</code></div><strong>CNAME 解析记录</strong><div><span>类型</span><code>CNAME</code></div><div><span>完整记录名</span><code>{cnameHost}</code></div><div><span>记录值</span><code>{endpoint}</code></div></div>}
             <div className="oss-cname-actions"><button className="layui-btn layui-btn-primary" disabled={!cnameValue || cnameLoading} onClick={() => void createCnameToken()}>{cnameLoading ? "处理中…" : "获取验证 Token"}</button><button className="layui-btn" disabled={!cnameValue || cnameLoading} onClick={() => void bindCname()}>绑定域名</button></div>
           </section>
         </div>

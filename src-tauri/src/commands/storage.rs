@@ -6,6 +6,33 @@ use serde_json::Value;
 use tauri_plugin_dialog::DialogExt;
 use uuid::Uuid;
 
+fn cname_error(message: String) -> crate::core::error::PlatformError {
+    crate::core::error::PlatformError { kind: "platform-error", code: "oss-cname", message, retryable: false }
+}
+
+#[tauri::command]
+pub(crate) async fn get_oss_cnames(id: i64, bucket: String, location: String) -> PlatformResult<Value> {
+    if account_cloud_type(id)? == "tencent" { return Ok(serde_json::json!([])); }
+    crate::cloud::aliyun_cname::list(id, &bucket, &location).await.map_err(cname_error)
+}
+
+#[tauri::command]
+pub(crate) async fn create_oss_cname_token(id: i64, bucket: String, location: String, domain: String) -> PlatformResult<Value> {
+    crate::cloud::aliyun_cname::mutate(id, &bucket, &location, "token", &domain).await.map_err(cname_error)
+}
+
+#[tauri::command]
+pub(crate) async fn bind_oss_cname(id: i64, bucket: String, location: String, domain: String) -> PlatformResult<()> {
+    crate::cloud::aliyun_cname::mutate(id, &bucket, &location, "bind", &domain).await.map_err(cname_error)?;
+    Ok(())
+}
+
+#[tauri::command]
+pub(crate) async fn delete_oss_cname(id: i64, bucket: String, location: String, domain: String) -> PlatformResult<()> {
+    crate::cloud::aliyun_cname::mutate(id, &bucket, &location, "delete", &domain).await.map_err(cname_error)?;
+    Ok(())
+}
+
 #[tauri::command]
 pub(crate) async fn list_oss_objects(id: i64, bucket: String, location: String, prefix: String, marker: String) -> PlatformResult<Value> {
     if account_cloud_type(id)? == "tencent" { return crate::cloud::tencent::list_objects(id, &bucket, &location, &prefix, &marker).await.map_err(Into::into); }

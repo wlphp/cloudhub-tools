@@ -1,6 +1,7 @@
 pub mod vultr;
 pub mod ctyun;
 pub mod aliyun;
+pub mod aliyun_cname;
 pub mod huawei;
 pub mod tencent;
 pub mod volc;

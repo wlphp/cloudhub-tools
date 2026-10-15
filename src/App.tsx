@@ -1,3 +1,4 @@
+import { PetSettingsPanel } from "./features/desktop-pet/PetSettingsPanel";
 import { useExportSelection } from "./shared/ExportSelection";
 import { OfficialPluginsPage } from "./features/plugins/OfficialPluginsPage";
 import { DataManagementPage } from "./features/accounts/DataManagementPage";
@@ -213,7 +214,7 @@ function syncAssetTypes(account: Account): ReadonlyArray<(typeof assetTypes)[num
 }
 const assetTypes = catalogAssetTypes;
 
-const bundledVersion = "0.1.55";
+const bundledVersion = "0.1.56";
 const isDevelopmentBuild = import.meta.env.DEV;
 
 const detachedTerminalHostId = (() => {
@@ -297,6 +298,7 @@ function App() {
   const [esaSiteKeyword, setEsaSiteKeyword] = useState("");
   const [section, setSection] = useState<"accounts" | "resources" | "certificates" | "authenticator" | "flow" | "frp" | "codex" | "panels" | "servers" | "favorites" | "logs" | "api_logs" | "settings" | "data_management" | "plugins">(() => isDetachedTerminalWindow ? "servers" : "accounts");
   useEffect(() => { const open = () => setSection("settings"); window.addEventListener("cloudhub-ai-settings", open); return () => window.removeEventListener("cloudhub-ai-settings", open); }, []);
+  const [petCertificateTarget,setPetCertificateTarget]=useState<{key:string;request:number}|null>(null);
   const [localAssets, setLocalAssets] = useState<LocalAsset[]>([]);
   const [panelConnections, setPanelConnections] = useState<PanelConnection[]>([]);
   const [panelDialog, setPanelDialog] = useState(false);
@@ -2572,6 +2574,23 @@ function App() {
     });
   }, [accounts]);
   useEffect(() => { setAccountPage(1); }, [keyword, filterField, groupFilter, statusFilter, cloudFilter]);
+  useEffect(() => {
+    if(!runningInTauri || isDetachedTerminalWindow) return;
+    const subscription=listen<{section:string;key:string|null}>("pet-open-section",event=>{
+      const {section:target,key}=event.payload;
+      if(!["panels","resources","certificates","settings"].includes(target)) return;
+      setSection(target as "panels"|"resources"|"certificates"|"settings");
+      if(!key) return;
+      if(target==="panels") { const panel=panelConnections.find(p=>p.id===Number(key.split(":")[1])); setPanelGroup(""); setPanelKeyword(panel?.name||""); }
+      if(target==="resources") {
+        const [,account,type,...ids]=key.split(":");
+        setResourceAccountId(Number(account)); setResourceTypeFilter(type); setAssetKeyword(ids.join(":"));
+        setAssetRegionFilter(""); setAssetStatusFilter(""); setAssetGroupFilter(""); setAssetExpiryDays(null);
+      }
+      if(target==="certificates") setPetCertificateTarget({key,request:Date.now()});
+    });
+    return ()=>{void subscription.then(fn=>fn());};
+  },[panelConnections,isDetachedTerminalWindow]);
   useEffect(() => { setAssetPage(1); }, [resourceAccountId, resourceTypeFilter, assetKeyword, assetRegionFilter, assetStatusFilter, assetGroupFilter, assetExpiryDays]);
   useEffect(() => { setFavoritePage(1); }, [favoriteTypeFilter, favoriteKeyword, favoriteRegionFilter]);
   useEffect(() => { setLogPage(1); }, [logFilter, logTypeFilter]);
@@ -4707,7 +4726,7 @@ function App() {
           </section>
         )}
         {esaCertificateSite && <EsaCertificateDialog key={`${esaCertificateSite.account.id}:${esaCertificateSite.siteId}`} account={esaCertificateSite.account} siteId={esaCertificateSite.siteId} accounts={accounts} localAssets={localAssets} onClose={() => setEsaCertificateSite(null)} onStatus={setStatus} onConfirm={requestConfirm} />}
-        {section === "certificates" && <CertificatePanel accounts={accounts} localAssets={localAssets} onStatus={setStatus} onConfirm={requestConfirm} />}
+        {section === "certificates" && <CertificatePanel accounts={accounts} localAssets={localAssets} onStatus={setStatus} onConfirm={requestConfirm} alertTarget={petCertificateTarget} onAlertTargetHandled={()=>setPetCertificateTarget(null)} />}
         {section === "flow" && <FlowPanel />}
         {section === "codex" && <CodexPanel />}
         {section === "authenticator" && <AuthenticatorPanel />}
@@ -4738,7 +4757,8 @@ function App() {
           <section className="utility-page">
             <header><div><span className="eyebrow">LOCAL PREFERENCES</span><h1>系统设置</h1><p>管理本地客户端的显示和数据行为。</p></div></header>
             <AiSettings />
-            <section className="settings-grid">
+            <PetSettingsPanel />
+<section className="settings-grid">
               <div className="settings-card"><div className="settings-icon blue"><Database size={22} /></div><div className="settings-copy"><strong>本地模式</strong><small>所有账号密钥和资产保存在本机 SQLite</small></div><span className="setting-state on">✓ 已启用</span></div>
               <div className="settings-card"><div className="settings-icon cyan"><Cloud size={22} /></div><div className="settings-copy"><strong>自动刷新资产</strong><small>进入资源管理时读取本地缓存，不主动上传数据</small></div><label className="setting-switch"><input type="checkbox" checked={autoRefresh} onChange={(event) => setAutoRefresh(event.target.checked)} /><span /></label></div>
               <div className="settings-card"><div className="settings-icon purple"><Monitor size={22} /></div><div className="settings-copy"><strong>紧凑显示</strong><small>减少表格行高，适合小窗口查看</small></div><label className="setting-switch"><input type="checkbox" checked={compactMode} onChange={(event) => setCompactMode(event.target.checked)} /><span /></label></div>

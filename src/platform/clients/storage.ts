@@ -1,4 +1,5 @@
 import { invokeOrWeb, nativeOnly, previewOnly, queryPath } from "./base";
+import { platformErrorMessage } from "../api";
 
 export type OssDetail = {
   storage: number;
@@ -28,9 +29,14 @@ const bucketQuery = (accountId: number, bucket: string, location: string, extra:
 export const storageClient = {
   detail(accountId: number, bucket: string, location: string): Promise<OssDetail> {
     if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) {
-      return nativeOnly<string>("get_oss_acl", { id: accountId, bucket, location }).then((acl) => ({
+      return Promise.allSettled([
+        nativeOnly<string>("get_oss_acl", { id: accountId, bucket, location }),
+        nativeOnly<OssDetail["cnames"]>("get_oss_cnames", { id: accountId, bucket, location }),
+      ]).then(([acl, cnames]) => ({
         storage: 0, objectCount: 0, multipartUploadCount: 0, liveChannelCount: 0,
-        monthTraffic: 0, monthRequests: 0, acl, cnames: [], cors: [], errors: [],
+        monthTraffic: 0, monthRequests: 0, acl: acl.status === "fulfilled" ? acl.value : "private",
+        cnames: cnames.status === "fulfilled" ? cnames.value : [], cors: [],
+        errors: [acl, cnames].flatMap(result => result.status === "rejected" ? [platformErrorMessage(result.reason)] : []),
       }));
     }
     return previewOnly({ path: queryPath("/api/oss-detail", { id: accountId, bucket, location }) });
@@ -55,15 +61,15 @@ export const storageClient = {
   },
 
   cnameToken(accountId: number, bucket: string, location: string, domain: string): Promise<Record<string, string>> {
-    return previewOnly({ path: queryPath("/api/oss-cname-token", { id: accountId, bucket, location, domain }), init: { method: "POST" } });
+    return invokeOrWeb("create_oss_cname_token", { id: accountId, bucket, location, domain }, { path: queryPath("/api/oss-cname-token", { id: accountId, bucket, location, domain }), init: { method: "POST" } });
   },
 
   bindCname(accountId: number, bucket: string, location: string, domain: string): Promise<void> {
-    return previewOnly({ path: queryPath("/api/oss-cname", { id: accountId, bucket, location, domain }), init: { method: "POST" } });
+    return invokeOrWeb("bind_oss_cname", { id: accountId, bucket, location, domain }, { path: queryPath("/api/oss-cname", { id: accountId, bucket, location, domain }), init: { method: "POST" } });
   },
 
   deleteCname(accountId: number, bucket: string, location: string, domain: string): Promise<void> {
-    return previewOnly({ path: queryPath("/api/oss-cname", { id: accountId, bucket, location, domain }), init: { method: "DELETE" } });
+    return invokeOrWeb("delete_oss_cname", { id: accountId, bucket, location, domain }, { path: queryPath("/api/oss-cname", { id: accountId, bucket, location, domain }), init: { method: "DELETE" } });
   },
 
   selectUploadFile(): Promise<OssUploadSelection | null> { return nativeOnly("select_oss_upload_file"); },
