@@ -1,4 +1,5 @@
 import { useExportSelection } from "./shared/ExportSelection";
+import { OfficialPluginsPage } from "./features/plugins/OfficialPluginsPage";
 import { DataManagementPage } from "./features/accounts/DataManagementPage";
 import { DialogHeaderActions } from "./shared/DialogHeaderActions";
 import { useDialogDragging } from "./shared/useDialogDragging";
@@ -57,6 +58,7 @@ import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import type { Terminal as XtermTerminal } from "@xterm/xterm";
 import {
   ArrowUp,
+  Grid2X2,
   ArrowUpCircle,
   ArrowDown,
   AlertTriangle,
@@ -293,7 +295,7 @@ function App() {
   const esaRequestRef = useRef(0);
   const [esaCertificateSite, setEsaCertificateSite] = useState<{ account: Account; siteId: number } | null>(null);
   const [esaSiteKeyword, setEsaSiteKeyword] = useState("");
-  const [section, setSection] = useState<"accounts" | "resources" | "certificates" | "authenticator" | "flow" | "frp" | "codex" | "panels" | "servers" | "favorites" | "logs" | "api_logs" | "settings" | "data_management">(() => isDetachedTerminalWindow ? "servers" : "accounts");
+  const [section, setSection] = useState<"accounts" | "resources" | "certificates" | "authenticator" | "flow" | "frp" | "codex" | "panels" | "servers" | "favorites" | "logs" | "api_logs" | "settings" | "data_management" | "plugins">(() => isDetachedTerminalWindow ? "servers" : "accounts");
   useEffect(() => { const open = () => setSection("settings"); window.addEventListener("cloudhub-ai-settings", open); return () => window.removeEventListener("cloudhub-ai-settings", open); }, []);
   const [localAssets, setLocalAssets] = useState<LocalAsset[]>([]);
   const [panelConnections, setPanelConnections] = useState<PanelConnection[]>([]);
@@ -3635,7 +3637,7 @@ function App() {
               </div>
               <div>
                 <div className="brand-heading">
-                  <strong>云枢 Tools{isDevelopment ? " · 开发版" : ""}</strong>
+                  <strong>云枢 Tools</strong>
                   <span className="brand-version">v{appVersion}</span>
                   {runningInTauri && updateState.phase === "available" && <button type="button" className="brand-update-button" aria-label={`发现新版本 v${updateState.version}`} title={`发现新版本 v${updateState.version}，点击更新`} onClick={() => void installUpdate()}><ArrowUpCircle size={16} /></button>}
                 </div>
@@ -3671,6 +3673,7 @@ function App() {
                 <FileText size={18} /><span className="app-nav-label">操作日志</span></button>
               <button type="button" className={section === "api_logs" ? "nav-active" : ""} aria-current={section === "api_logs" ? "page" : undefined} onClick={() => { setSection("api_logs"); void loadApiLogs(); }} aria-label="API日志" title="API日志">
                 <ScrollText size={18} /><span className="app-nav-label">API日志</span></button>
+              <button type="button" className={section === "plugins" ? "nav-active" : ""} aria-current={section === "plugins" ? "page" : undefined} onClick={() => setSection("plugins")} aria-label="软件商店" title="软件商店"><Grid2X2 size={18} /><span className="app-nav-label">软件商店</span></button>
               <button type="button" className={section === "settings" ? "nav-active" : ""} aria-current={section === "settings" ? "page" : undefined} onClick={() => setSection("settings")} aria-label="系统设置" title="系统设置">
                 <Settings size={18} /><span className="app-nav-label">系统设置</span></button>
             </nav>
@@ -3693,6 +3696,7 @@ function App() {
             <button type="button" className={section === "servers" ? "nav-active" : ""} aria-current={section === "servers" ? "page" : undefined} onClick={() => { setSection("servers"); void loadManagedHosts(); }}><Terminal size={16} /><span>终端</span></button>
             <button type="button" className={section === "logs" ? "nav-active" : ""} aria-current={section === "logs" ? "page" : undefined} onClick={() => setSection("logs")}><FileText size={16} /><span>操作日志</span></button>
             <button type="button" className={section === "api_logs" ? "nav-active" : ""} aria-current={section === "api_logs" ? "page" : undefined} onClick={() => { setSection("api_logs"); void loadApiLogs(); }}><Terminal size={16} /><span>API 日志</span></button>
+            <button type="button" className={section === "plugins" ? "nav-active" : ""} aria-current={section === "plugins" ? "page" : undefined} onClick={() => setSection("plugins")}><Grid2X2 size={16} /><span>软件商店</span></button>
             <button type="button" className={section === "settings" ? "nav-active" : ""} aria-current={section === "settings" ? "page" : undefined} onClick={() => setSection("settings")}><Settings size={16} /><span>设置</span></button>
           </div>
         </nav>
@@ -4729,6 +4733,7 @@ function App() {
           </section>
         )}
         {section === "data_management" && <DataManagementPage onBack={() => setSection("settings")} onPhoneMigration={() => setShowSyncTransfer(true)} canManageBackups={runningInTauri} onRestore={preview => setDatabaseImportPreview(preview)} onStatus={setStatus} />}
+        {section === "plugins" && <OfficialPluginsPage />}
         {section === "settings" && (
           <section className="utility-page">
             <header><div><span className="eyebrow">LOCAL PREFERENCES</span><h1>系统设置</h1><p>管理本地客户端的显示和数据行为。</p></div></header>

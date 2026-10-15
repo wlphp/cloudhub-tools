@@ -53,7 +53,7 @@ export function TerminalQuickCommands({ commands, connected, onChange, onInsert 
       </article>)}
       {commands.length === 0 && <div className="terminal-quick-empty"><Terminal size={25} /><strong>还没有常用命令</strong><span>把常用的安装或维护命令保存在这里</span><button type="button" onClick={() => openEditor()}><Plus size={14} />添加第一条命令</button></div>}
     </div>
-    {editing && createPortal(<div className="ide-theme terminal-quick-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setEditing(null); }}>
+    {editing && createPortal(<div className="ide-theme terminal-quick-backdrop">
       <form className="terminal-quick-dialog" role="dialog" aria-modal="true" aria-labelledby="terminal-quick-dialog-title" onSubmit={save} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); setEditing(null); } }}>
         <div className="terminal-quick-dialog-head"><strong id="terminal-quick-dialog-title">{commands.some((item) => item.id === editing.id) ? "编辑常用命令" : "添加常用命令"}</strong><DialogHeaderActions><button type="button" title="关闭" aria-label="关闭" onClick={() => setEditing(null)}><X size={16} /></button></DialogHeaderActions></div>
         <label>名称<input autoFocus maxLength={80} value={draft.name} onChange={(event) => setDraft((value) => ({ ...value, name: event.target.value }))} placeholder="例如：查看磁盘空间" /></label>

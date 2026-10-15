@@ -399,7 +399,7 @@ export function SyncTransferPanel({ mode, accounts = [], managedHosts = [], pane
     {!mobile && <footer className="modal-actions sync-transfer-footer"><small>已选 {selectedCount + selectedManagedHostCount + selectedPanelCount + selectedFlowIds.size + selectedCertificateIds.size + selectedAuthIds.size} 项</small><div>{onClose && <button className="secondary" type="button" onClick={onClose}>关闭</button>}
       <button className="sync-transfer-primary sync-transfer-secondary" type="button" disabled={busy || !runningInTauri || !approvalListenerReady || (!!pendingClientAddress && !pairingUrl) || (!pairingUrl && !selectedIds.size && !selectedManagedHostIds.size && !selectedPanelIds.size && !selectedFlowIds.size && !selectedCertificateIds.size && !selectedAuthIds.size)} onClick={() => pairingUrl ? setQrDialogOpen(true) : void startQrTransfer()}><ShieldCheck size={17} aria-hidden="true" />{busy ? "正在开启…" : !approvalListenerReady ? "正在准备授权…" : pairingUrl ? "重新显示迁移二维码" : "显示手机迁移二维码（免口令）"}</button></div></footer>}
 
-    {pairingUrl && qrDialogOpen && <div className="sync-transfer-qr-overlay" onMouseDown={event => { if (event.target === event.currentTarget) setQrDialogOpen(false); }}>
+    {pairingUrl && qrDialogOpen && <div className="sync-transfer-qr-overlay">
       <section className="sync-transfer-qr-dialog modal-form-layout dialog-common-theme" role="dialog" aria-modal="true" aria-labelledby="sync-transfer-qr-title">
         <header className="sync-transfer-qr-heading modal-head">
           <div><span>跨设备迁移</span><h2 id="sync-transfer-qr-title">手机迁移二维码</h2></div>

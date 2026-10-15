@@ -4,5 +4,7 @@
 <dict>
   <key>NSLocalNetworkUsageDescription</key>
   <string>用于在同一局域网内临时接收手机请求的加密迁移包；会话成功一次后或五分钟后自动关闭。</string>
+  <key>NSCameraUsageDescription</key>
+  <string>仅在你主动点击“检测摄像头”时检查摄像头是否可用；检测画面会立即关闭，不会录制或保存。</string>
 </dict>
 </plist>

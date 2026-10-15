@@ -1,0 +1,33 @@
+// 第一批官方插件随应用编译发布，版本与能力边界独立声明。
+// 尚未提供第三方代码加载、商店下载或动态安装能力。
+export const officialPlugins = [{
+  id: "cloudhub.wechat-multi",
+  name: "微信多开",
+  version: "0.1.0",
+  publisher: "CloudHub Tools",
+  description: "启动本机微信，按账号保存并恢复登录配置。",
+  category: "桌面工具",
+  distribution: "builtin",
+  platform: "windows",
+  permissions: ["检测微信安装位置", "检查微信进程和可见窗口", "启动本地微信客户端", "读取和恢复限定的微信登录配置文件", "在本地加密保存账号配置及恢复前备份"],
+}, {
+  id: "cloudhub.hardware-info",
+  name: "电脑信息",
+  version: "0.1.0",
+  publisher: "CloudHub Tools",
+  description: "查看本机硬件、网络、代理与电源信息，检测摄像头并按需显示当前 Wi-Fi 密码。",
+  category: "桌面工具",
+  distribution: "builtin",
+  platform: "desktop",
+  permissions: ["读取本机设备、网络与代理信息", "用户主动检测摄像头可用性", "用户主动请求时读取当前 Wi-Fi 已保存密码", "复制或导出用户选择的电脑信息（不含 Wi-Fi 密码）"],
+}, {
+  id: "cloudhub.wsl-dashboard",
+  name: "WSL 管理",
+  version: "0.1.0",
+  publisher: "CloudHub Tools",
+  description: "查看并管理本机 WSL 发行版，支持启动、停止、备份、设为默认及删除。",
+  category: "桌面工具",
+  distribution: "builtin",
+  platform: "windows",
+  permissions: ["读取本机 WSL 发行版名称、运行状态与版本", "按用户操作启动、停止或设置默认发行版", "将发行版导出为用户选择位置的 TAR 备份", "输入完整发行版名称并确认后永久删除发行版及其本地数据", "停止全部 WSL 虚拟机"],
+}] as const;

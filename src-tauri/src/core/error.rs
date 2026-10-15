@@ -21,6 +21,27 @@ impl From<&str> for PlatformError {
 impl PlatformError {
     fn from_message(message: String) -> Self {
         // Exact authored diagnostics only: never forward arbitrary native error text.
+        if [
+            "该发行版已安装，请从下方列表直接启动或管理",
+            "WSL 命令未完成，请检查发行版、安装目录和 WSL 状态",
+            "无法打开 WSL 终端，请确认 Windows Terminal 或 WSL 可用",
+            "请输入完整发行版名称以确认删除",
+            "该发行版已不存在，请刷新列表",
+            "WSL 服务内部错误（E_UNEXPECTED）。请保存工作并停止全部 WSL 后重试；仍失败时重启 Windows",
+            "无法确认发行版运行状态，请刷新列表",
+            "发行版启动进程已退出，请检查 Linux 环境后重试",
+            "WSL 操作任务失败，请重试",
+            "未能启动该发行版，请检查 WSL 安装和发行版环境",
+            "无法读取 WSL 在线目录，请检查网络连接后重试",
+            "WSL 在线目录为空，请重新加载目录",
+            "读取 WSL 在线目录任务失败，请重试",
+            "请选择本机 TAR 备份文件位置",
+            "WSL 备份文件未生成，请重试",
+            "无法保存 WSL 备份，请检查文件占用、目录权限和磁盘空间",
+            "备份 WSL 发行版任务失败，请重试",
+        ].contains(&message.as_str()) {
+            return Self { kind: "platform-error", code: "wsl-dashboard", message, retryable: false };
+        }
         if ["代理地址无效", "代理地址不能包含换行或控制字符", "代理地址不能超过 512 个字符",
             "代理地址缺少协议，请填写 http://127.0.0.1:10808 这样的完整地址",
             "请填写无账号密码的 HTTP/HTTPS 代理地址，例如 http://127.0.0.1:7890",

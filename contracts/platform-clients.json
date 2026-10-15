@@ -1317,6 +1317,26 @@
       ]
     },
     {
+      "name": "plugins",
+      "operations": [
+        {
+          "name": "wechat-multi",
+          "native": ["wechat_plugin_status", "wechat_plugin_select", "wechat_plugin_launch", "wechat_sessions_list", "wechat_sessions_select", "wechat_sessions_capture", "wechat_sessions_launch", "wechat_sessions_restore", "wechat_sessions_detect", "wechat_sessions_delete"],
+          "preview": []
+        },
+        {
+          "name": "computer-info",
+          "native": ["hardware_info_get", "hardware_wifi_password_reveal", "hardware_info_export_png"],
+          "preview": []
+        },
+        {
+          "name": "wsl-dashboard",
+          "native": ["wsl_dashboard_list", "wsl_dashboard_control", "wsl_dashboard_backup", "wsl_dashboard_shutdown", "wsl_dashboard_settings_get", "wsl_dashboard_save_settings", "wsl_dashboard_select_install_location", "wsl_dashboard_select_rootfs_file", "wsl_dashboard_import_rootfs", "wsl_dashboard_logs_get", "wsl_dashboard_logs_clear", "wsl_dashboard_install", "wsl_dashboard_clone", "wsl_dashboard_online_list", "wsl_dashboard_open_terminal", "wsl_dashboard_open_folder"],
+          "preview": []
+        }
+      ]
+    },
+    {
       "name": "database-migration",
       "operations": [
         {

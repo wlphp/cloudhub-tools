@@ -1,4 +1,14 @@
 pub mod accounts;
+#[cfg(desktop)]
+pub mod wechat_plugin;
+#[cfg(desktop)]
+pub mod wechat_sessions;
+#[cfg(desktop)]
+pub mod wechat_data_detection;
+#[cfg(desktop)]
+pub mod hardware_info;
+#[cfg(desktop)]
+pub mod wsl_dashboard;
 pub mod ai;
 pub mod ai_transfer;
 #[cfg(desktop)]

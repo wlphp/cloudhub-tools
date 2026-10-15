@@ -33,7 +33,7 @@ export function ServerAiCandidateReview({ items, existing, onFill, onClose }: Pr
     onClose();
   }
   const readyCount = candidates.filter(candidate => !candidate.errors.length && !candidate.duplicateOf).length;
-  return createPortal(<div className="ai-backdrop server-ai-review-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}><section ref={dialog} className="ai-asset-note-dialog ide-theme server-ai-review" role="dialog" aria-modal="true" aria-labelledby="server-ai-review-title">
+  return createPortal(<div className="ai-backdrop server-ai-review-backdrop"><section ref={dialog} className="ai-asset-note-dialog ide-theme server-ai-review" role="dialog" aria-modal="true" aria-labelledby="server-ai-review-title">
     <header><div><span className="eyebrow">SERVER CANDIDATES</span><h2 id="server-ai-review-title"><Server size={18} />审核服务器候选</h2></div><DialogHeaderActions><button type="button" aria-label="关闭候选审核" onClick={onClose}><X size={18} /></button></DialogHeaderActions></header>
     <p>逐条检查识别结果。填入只会更新服务器表单；登录密码、私钥和保存操作仍由你完成。</p>
     <div className="server-ai-review-list">{candidates.map((candidate, index) => {
