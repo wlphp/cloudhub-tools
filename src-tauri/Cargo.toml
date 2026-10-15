@@ -21,7 +21,7 @@ tauri-build = { version = "2", features = [] }
 rcgen = "0.13"
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["macos-private-api"] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-cloudhub-keystore = { path = "plugins/cloudhub-keystore" }
@@ -69,6 +69,3 @@ arboard = { version = "3", default-features = false }
 tauri-plugin-barcode-scanner = "2.5.1"
 tauri-plugin-fs = "2"
 tauri-plugin-clipboard-manager = "2"
-
-[target.'cfg(target_os = "macos")'.dependencies]
-tauri = { version = "2", features = ["macos-private-api"] }

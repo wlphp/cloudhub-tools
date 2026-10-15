@@ -12,6 +12,8 @@ pub mod error;
 pub mod paths;
 #[cfg(desktop)]
 pub mod pet_alerts;
+#[cfg(desktop)]
+pub mod pet_life;
 pub mod repositories;
 pub mod sync_identity;
 

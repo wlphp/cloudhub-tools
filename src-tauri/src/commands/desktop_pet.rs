@@ -1,7 +1,7 @@
 //! Desktop-only companion, bounded background monitoring and local preferences.
 use crate::core::{
     error::PlatformResult,
-    pet_alerts::{expiry_severity, reconcile, retire_missing, Alert},
+    pet_alerts::{expiry_severity, panel_access_alert, panel_metric_alert, severity_rank, reconcile, retire_missing, Alert},
     repositories::{assets, certificates, panel_connections, preferences},
     storage::open_db,
 };
@@ -27,8 +27,10 @@ const NOTICE_LABEL: &str = "desktop-pet-alert";
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct Settings {
     pub enabled: bool,
+    pub appearance: String,
     pub monitoring: bool,
     pub panels: bool,
+    pub panel_access: bool,
     pub certificates: bool,
     pub servers: bool,
     pub size: u32,
@@ -42,13 +44,16 @@ pub struct Settings {
     pub cpu_threshold: f64,
     pub disk_threshold: f64,
     pub keep_in_tray: bool,
+    pub life: crate::core::pet_life::LifeSettings,
 }
 impl Default for Settings {
     fn default() -> Self {
         Self {
             enabled: false,
+            appearance: "alpaca".into(),
             monitoring: false,
             panels: false,
+            panel_access: true,
             certificates: true,
             servers: true,
             size: 160,
@@ -62,12 +67,14 @@ impl Default for Settings {
             cpu_threshold: 90.,
             disk_threshold: 90.,
             keep_in_tray: false,
+            life: Default::default(),
         }
     }
 }
 impl Settings {
     fn validate(&self) -> Result<(), String> {
-        if !(100..=240).contains(&self.size)
+        self.life.validate()?;
+        if !["alpaca", "dog"].contains(&self.appearance.as_str()) || !(100..=240).contains(&self.size)
             || !["edge", "free", "still"].contains(&self.roam.as_str())
             || self.activity > 2
             || !(60..=3600).contains(&self.interval_seconds)
@@ -95,11 +102,13 @@ pub struct PetStore {
     pub expanded: AtomicBool,
     pub tray_ready: AtomicBool,
     pub size: AtomicU32,
-    pub sprite: Mutex<(u32, u32, bool)>,
+    pub sprite: Mutex<(u32, u32, bool, bool)>,
     pub regions: Mutex<Vec<[f64; 4]>>,
     pub notice: Mutex<Option<Alert>>,
     pub failures: Mutex<HashMap<String, u32>>,
     pub last_manual: Mutex<i64>,
+    pub life: Mutex<crate::core::pet_life::LifeState>,
+    pub life_checking: AtomicBool,
 }
 
 fn read_settings() -> Result<Settings, String> {
@@ -149,11 +158,19 @@ pub fn restricted<R: tauri::Runtime>(
                 "pet_move",
                 "pet_open",
                 "pet_snooze",
+                "pet_ignore",
                 "pet_check",
                 "pet_sprite",
                 "pet_regions",
                 "pet_notice",
                 "pet_dismiss",
+                "pet_chat_services",
+                "pet_chat",
+                "pet_chat_cancel",
+                "pet_chat_read_image",
+                "pet_life_state",
+                "pet_life_action",
+                "pet_life_weather",
             ]
             .contains(&invoke.message.command())
         {
@@ -167,6 +184,204 @@ pub fn restricted<R: tauri::Runtime>(
 pub fn pet_settings(window: tauri::WebviewWindow) -> PlatformResult<Settings> {
     caller(&window)?;
     Ok(read_settings()?)
+}
+
+const LIFE_HISTORY: &str = "desktop-pet-life-v1";
+fn update_life(app: &tauri::AppHandle, change: impl FnOnce(&mut crate::core::pet_life::LifeState) -> Result<(), String>) -> Result<crate::core::pet_life::LifeState, String> {
+    let store = app.state::<PetStore>();
+    let mut guard = store.life.lock().map_err(|_| "生活提醒状态不可用")?;
+    let mut next = guard.clone();
+    change(&mut next)?;
+    if next != *guard {
+        save_json(LIFE_HISTORY, &next)?;
+        *guard = next.clone();
+        let _ = app.emit("pet-life-changed", &next);
+    }
+    Ok(next)
+}
+#[tauri::command]
+pub fn pet_life_state(window: tauri::WebviewWindow, app: tauri::AppHandle) -> PlatformResult<crate::core::pet_life::LifeState> {
+    caller(&window)?;
+    Ok(app.state::<PetStore>().life.lock().map_err(|_| "生活提醒状态不可用")?.clone())
+}
+#[tauri::command]
+pub fn pet_life_action(window: tauri::WebviewWindow, app: tauri::AppHandle, id: String, action: String) -> PlatformResult<crate::core::pet_life::LifeState> {
+    caller(&window)?;
+    if id.len() > 100 { return Err("生活提醒参数无效".into()); }
+    let now = chrono::Utc::now().timestamp();
+    if action == "openWeather" {
+        use tauri_plugin_opener::OpenerExt;
+        let state = app.state::<PetStore>().life.lock().map_err(|_| "生活提醒状态不可用")?.clone();
+        let notice = state.notices.iter().find(|n| n.id == id && n.kind == "weather" && n.expires_at > now).ok_or("天气预警已过期")?;
+        // Construct the destination from the validated ID, never use a provider-supplied URL.
+        let key = notice.id.strip_prefix("weather:").filter(|s| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit() || b == b'_')).ok_or("天气预警地址无效")?;
+        app.opener().open_url(format!("https://www.nmc.cn/publish/alarm/{key}.html"), None::<&str>).map_err(|_| "无法打开天气预警原文")?;
+        return Ok(state);
+    }
+    let config = read_settings()?;
+    if !config.enabled || !config.life.enabled { return Err("请先启用桌宠与生活提醒".into()); }
+    Ok(update_life(&app, |state| {
+        if action == "testWater" {
+            if state.notices.iter().any(|n| n.kind == "water" && n.created_at > now - 60) { return Err("请稍等一分钟再试".into()); }
+            state.add(crate::core::pet_life::notice(format!("preview:{now}"), "water", "主人，该喝水啦！", "这是喝水提醒预览。喝几口水吧，我陪你活动一下。", now));
+            Ok(())
+        } else { state.action(&id, &action, now) }
+    })?)
+}
+async fn life_weather(app: &tauri::AppHandle, manual: bool) -> Result<crate::core::pet_life::LifeState, String> {
+    let config = read_settings()?;
+    if !config.life.enabled || !config.life.weather || config.life.province.is_empty() { return Err("请先配置地区并启用天气预警".into()); }
+    let store = app.state::<PetStore>();
+    if store.life_checking.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_err() { return Err("天气预警正在查询".into()); }
+    let result = async {
+        let now = chrono::Utc::now().timestamp();
+        update_life(app, |state| {
+            if manual && now - state.weather_attempt_at < 60 { return Err("天气预警查询间隔至少一分钟".into()); }
+            state.weather_attempt_at = now;
+            Ok(())
+        })?;
+        let fetched = tokio::time::timeout(Duration::from_secs(35), crate::core::pet_life::fetch_weather(&config.life, now)).await
+            .unwrap_or_else(|_| Err("天气预警查询超时，请稍后重试".into()));
+        let current = read_settings()?;
+        if !current.life.enabled || !current.life.weather || current.life.province != config.life.province || current.life.city != config.life.city {
+            return Err("地区设置已改变，请重新查询".into());
+        }
+        update_life(app, |state| {
+            match fetched {
+                Ok(notices) => {
+                    let ids: Vec<_> = notices.iter().map(|n| n.id.clone()).collect();
+                    for n in &mut state.notices { if n.kind == "weather" && !ids.contains(&n.id) { n.expires_at = now; } }
+                    for n in notices { state.add(n); }
+                    state.weather_checked_at = now; state.weather_error = None;
+                    state.region = format!("{}{}", config.life.province, config.life.city);
+                }
+                Err(error) => state.weather_error = Some(error),
+            }
+            Ok(())
+        })
+    }.await;
+    store.life_checking.store(false, Ordering::SeqCst);
+    result
+}
+#[tauri::command]
+pub async fn pet_life_weather(window: tauri::WebviewWindow, app: tauri::AppHandle) -> PlatformResult<crate::core::pet_life::LifeState> {
+    caller(&window)?;
+    Ok(life_weather(&app, true).await?)
+}
+
+async fn life_tick(app: &tauri::AppHandle) {
+    let Ok(config) = read_settings() else { return; };
+    let now = chrono::Utc::now().timestamp();
+    let Ok(state) = update_life(app, |state| {
+        let region = format!("{}{}", config.life.province, config.life.city);
+        if state.region != region {
+            state.notices.retain(|n| n.kind != "weather");
+            state.region = region; state.weather_checked_at = 0; state.weather_attempt_at = 0; state.weather_error = None;
+        }
+        crate::core::pet_life::tick(state, &config.life, now, config.quiet || !config.enabled);
+        Ok(())
+    }) else { return; };
+    if config.life.enabled && config.life.weather && !config.life.province.is_empty() && now - state.weather_attempt_at >= 900 {
+        let _ = life_weather(app, false).await;
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatService {
+    id: String,
+    name: String,
+    model: String,
+    revision: i64,
+    supports_images: bool,
+}
+fn chat_caller(window: &tauri::WebviewWindow) -> Result<(), String> {
+    if window.label() == LABEL { Ok(()) } else { Err("仅桌宠窗口支持聊天".into()) }
+}
+fn chat_error(message: String) -> crate::core::error::PlatformError {
+    crate::core::error::PlatformError { kind: "ai", code: "ai", message, retryable: false }
+}
+#[tauri::command]
+pub fn pet_chat_services(window: tauri::WebviewWindow) -> PlatformResult<Vec<ChatService>> {
+    chat_caller(&window)?;
+    Ok(crate::core::repositories::ai::list(&open_db()?)?.into_iter()
+        .filter(|p| p.enabled).map(|p| ChatService { id: p.id, name: p.name, model: p.model, revision: p.updated_at, supports_images: p.vision_status == "supported" }).collect())
+}
+#[tauri::command]
+pub async fn pet_chat_read_image(window: tauri::WebviewWindow, source_path: String) -> PlatformResult<String> {
+    chat_caller(&window)?;
+    tauri::async_runtime::spawn_blocking(move || crate::core::ai_images::read_source_file(&source_path))
+        .await.map_err(|_| chat_error("读取图片失败".into()))?.map_err(chat_error)
+}
+fn chat_image_allowed(status: &str, reviewed: bool) -> Result<(), String> {
+    if status != "supported" || !reviewed {
+        return Err("请先完成图像能力测试并确认截图已裁剪遮挡".into());
+    }
+    Ok(())
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ChatMessage { role: String, text: String }
+fn chat_context(messages: &[ChatMessage]) -> Result<String, String> {
+    if messages.is_empty() || messages.len() > 20 || messages.last().is_none_or(|m| m.role != "user") {
+        return Err("聊天记录无效或过长，请清空后重试".into());
+    }
+    for message in messages {
+        if !["user", "assistant"].contains(&message.role.as_str()) || message.text.trim().is_empty() || message.text.len() > 12000 {
+            return Err("聊天消息无效或过长".into());
+        }
+        let safe = crate::core::ai::preview(&message.text)?;
+        if safe.removed_lines > 0 { return Err("聊天内容含疑似凭据，请移除后再发送".into()); }
+    }
+    let text = messages.iter().map(|m| format!("{}：{}", if m.role == "user" { "用户" } else { "宠物" }, m.text)).collect::<Vec<_>>().join("\n\n");
+    if text.len() > 28000 { return Err("聊天记录过长，请清空后重试".into()); }
+    Ok(text)
+}
+struct ChatGuard<'a> { store: &'a crate::core::ai::RequestStore, id: String }
+impl Drop for ChatGuard<'_> {
+    fn drop(&mut self) { if let Ok(mut active) = self.store.active.lock() { active.remove(&self.id); } }
+}
+#[tauri::command]
+pub async fn pet_chat(
+    window: tauri::WebviewWindow,
+    store: tauri::State<'_, crate::core::ai::RequestStore>,
+    request_id: String,
+    profile_id: String,
+    revision: i64,
+    messages: Vec<ChatMessage>,
+    image: Option<crate::core::ai_images::ImageInput>,
+) -> PlatformResult<String> {
+    let result: Result<String, String> = async {
+    chat_caller(&window)?;
+    if uuid::Uuid::parse_str(&request_id).is_err() { return Err("聊天请求标识无效".into()); }
+    let text = format!("当前宠物形象：{}。\n\n{}", if read_settings()?.appearance == "dog" { "小狗" } else { "羊驼" }, chat_context(&messages)?);
+    let id = format!("pet:{request_id}");
+    let (sender, mut receiver) = tokio::sync::watch::channel(false);
+    store.begin(&id, &profile_id, sender)?;
+    let _guard = ChatGuard { store: &store, id };
+    let (profile, key) = crate::core::repositories::ai::load(&open_db()?, &profile_id)?;
+    if profile.updated_at != revision { return Err("AI配置已更新，请关闭聊天后重新打开".into()); }
+    let image = if let Some(image) = image {
+        chat_image_allowed(&profile.vision_status, image.reviewed)?;
+        Some(tauri::async_runtime::spawn_blocking(move || crate::core::ai_images::normalize(&image.data_url))
+            .await.map_err(|_| "处理截图失败".to_string())??)
+    } else { None };
+    let result = tokio::select! {
+        biased;
+        _ = receiver.changed() => Err("聊天已停止".to_string()),
+        result = crate::core::ai::request_with_options(&profile, &key, &crate::core::ai::Task::PetChat, &text, image.as_ref(), false, |_, _| {}) => result,
+    }?;
+    if result.0.summary.trim().is_empty() { return Err("回复为空，请重试".into()); }
+    Ok(result.0.summary)
+    }.await;
+    result.map_err(chat_error)
+}
+#[tauri::command]
+pub fn pet_chat_cancel(window: tauri::WebviewWindow, store: tauri::State<'_, crate::core::ai::RequestStore>, request_id: String) -> PlatformResult<()> {
+    chat_caller(&window)?;
+    if uuid::Uuid::parse_str(&request_id).is_err() { return Err("聊天请求标识无效".into()); }
+    store.cancel(&format!("pet:{request_id}")).map_err(chat_error)?;
+    Ok(())
 }
 #[tauri::command]
 pub fn pet_snapshot(window: tauri::WebviewWindow) -> PlatformResult<Snapshot> {
@@ -292,7 +507,7 @@ pub fn sync_window(app: &tauri::AppHandle) -> Result<(), String> {
             LABEL,
             tauri::WebviewUrl::App("index.html?desktopPet=1".into()),
         )
-        .title("CloudHub 羊驼")
+        .title("CloudHub 宠物")
         .inner_size(settings.size as f64 + 80., settings.size as f64 + 40.)
         .transparent(true)
         .background_color(tauri::webview::Color(0, 0, 0, 0))
@@ -325,6 +540,18 @@ pub async fn pet_save_settings(
         let _ = save_json(CONFIG, &previous);
         return Err(error.into());
     }
+    if previous.life != settings.life {
+        // A changed schedule must not replay a pending greeting from the previous configuration.
+        let _ = update_life(&app, |state| {
+            for notice in &mut state.notices { if notice.kind != "weather" { notice.acknowledged = true; } }
+            if previous.life.province != settings.life.province || previous.life.city != settings.life.city {
+                state.notices.retain(|n| n.kind != "weather");
+                state.region = format!("{}{}", settings.life.province, settings.life.city);
+                state.weather_checked_at = 0; state.weather_attempt_at = 0; state.weather_error = None;
+            }
+            Ok(())
+        });
+    }
     let _ = app.emit("pet-settings-changed", &settings);
     Ok(())
 }
@@ -350,15 +577,17 @@ pub fn pet_sprite(
     column: u32,
     row: u32,
     flipped: bool,
+    appearance: Option<String>,
 ) -> PlatformResult<()> {
     caller(&window)?;
-    if column > 5 || row > 3 {
+    let appearance = appearance.as_deref().unwrap_or("alpaca");
+    if column > 5 || row > 3 || !["alpaca", "dog"].contains(&appearance) {
         return Err("桌宠动画帧无效".into());
     }
     *app.state::<PetStore>()
         .sprite
         .lock()
-        .map_err(|_| "桌宠状态不可用")? = (column, row, flipped);
+        .map_err(|_| "桌宠状态不可用")? = (column, row, flipped, appearance == "dog");
     Ok(())
 }
 #[tauri::command]
@@ -387,6 +616,7 @@ pub fn pet_layout(
     window: tauri::WebviewWindow,
     app: tauri::AppHandle,
     expanded: bool,
+    enlarged: Option<bool>,
 ) -> PlatformResult<()> {
     caller(&window)?;
     let state = app.state::<PetStore>();
@@ -395,10 +625,19 @@ pub fn pet_layout(
         let s = read_settings()?;
         let old = w.outer_size().map_err(|_| "无法读取桌宠大小")?;
         let p = w.outer_position().map_err(|_| "无法读取桌宠位置")?;
-        w.set_size(tauri::LogicalSize::new(
-            if expanded { 360. } else { s.size as f64 + 80. },
-            if expanded { 480. } else { s.size as f64 + 40. },
-        ))
+        let (width, height): (f64, f64) = if expanded {
+            if enlarged.unwrap_or(false) { (520., 720.) } else { (360., 480.) }
+        } else {
+            (s.size as f64 + 80., s.size as f64 + 40.)
+        };
+        let monitor = w.current_monitor().map_err(|_| "无法读取桌宠显示器")?
+            .or(w.primary_monitor().map_err(|_| "无法读取主显示器")?);
+        let (width, height) = monitor.map(|m| {
+            let area = m.work_area();
+            (width.min(area.size.width as f64 / m.scale_factor()),
+             height.min(area.size.height as f64 / m.scale_factor()))
+        }).unwrap_or((width, height));
+        w.set_size(tauri::LogicalSize::new(width, height))
         .map_err(|_| "无法调整桌宠窗口")?;
         let new = w.outer_size().map_err(|_| "无法读取桌宠大小")?;
         position(
@@ -493,6 +732,28 @@ pub fn pet_snooze(
     Ok(())
 }
 
+#[tauri::command]
+pub fn pet_ignore(window: tauri::WebviewWindow, app: tauri::AppHandle, keys: Vec<String>, ignored: bool) -> PlatformResult<Snapshot> {
+    caller(&window)?;
+    if keys.is_empty() || keys.len() > 300 || keys.iter().any(|k| k.is_empty() || k.len() > 1024) {
+        return Err("提醒暂缓参数无效".into());
+    }
+    let store = app.state::<PetStore>();
+    if store.checking.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_err() {
+        return Err("巡检正在执行，请稍后重试".into());
+    }
+    let result = (|| -> Result<Snapshot, String> {
+        let mut state = snapshot()?;
+        if keys.iter().any(|key| !state.alerts.iter().any(|a| a.key == *key)) { return Err("提醒不存在".into()); }
+        crate::core::pet_alerts::set_ignored(&mut state.alerts, &keys, ignored);
+        save_json(HISTORY, &state)?;
+        let _ = app.emit("pet-alerts-changed", &state);
+        Ok(state)
+    })();
+    store.checking.store(false, Ordering::SeqCst);
+    Ok(result?)
+}
+
 fn date(value: &Value) -> Option<i64> {
     if let Some(n) = value
         .as_i64()
@@ -549,7 +810,7 @@ fn expiry(
                 source
             ),
             section,
-            severity,
+            if section == "certificates" { "emergency" } else { severity },
         ));
     }
 }
@@ -566,8 +827,14 @@ async fn inspect(app: &tauri::AppHandle, settings: &Settings) -> Result<(), Stri
     if !settings.servers {
         retire_missing(&mut state.alerts, "asset:", &[], now);
     }
-    if !settings.panels {
-        retire_missing(&mut state.alerts, "panel:", &[], now);
+    if !settings.panels || !settings.panel_access {
+        let retired: Vec<String> = state.alerts.iter().filter(|a| a.key.starts_with("panel:") &&
+            if a.key.ends_with(":connection") { !settings.panel_access } else { !settings.panels }
+        ).map(|a| a.key.clone()).collect();
+        for key in retired { retire_missing(&mut state.alerts, &key, &[], now); }
+        app.state::<PetStore>().failures.lock().map_err(|_| "巡检状态不可用")?.retain(|key, _| {
+            if key.ends_with(":connection") { settings.panel_access } else { settings.panels }
+        });
     }
     if settings.certificates {
         let rows = certificates::list(&open_db()?, None)?;
@@ -682,7 +949,7 @@ async fn inspect(app: &tauri::AppHandle, settings: &Settings) -> Result<(), Stri
             }
         }
     }
-    if settings.panels {
+    if settings.panels || settings.panel_access {
         let panels = panel_connections::list(&open_db()?)?;
         retire_missing(
             &mut state.alerts,
@@ -702,33 +969,33 @@ async fn inspect(app: &tauri::AppHandle, settings: &Settings) -> Result<(), Stri
             let connection = format!("panel:{}:connection", panel.id);
             match result {
                 Err(()) => {
+                    if !settings.panel_access { continue; }
                     let count = {
                         let mut counts = store.failures.lock().map_err(|_| "巡检状态不可用")?;
                         let n = counts.entry(connection.clone()).or_default();
                         *n = n.saturating_add(1);
                         *n
                     };
-                    if count >= 2 {
-                        candidates.push(Alert::candidate(connection,format!("{} 暂时无法检查",panel.name.chars().take(90).collect::<String>()),"连续连接失败；请检查本机网络、面板地址、权限与 API 白名单。尚不能判断服务器服务是否停止。".into(),"panels","warning"));
-                    }
+                    if let Some(alert) = panel_access_alert(panel.id, &panel.name, count) { candidates.push(alert); }
                 }
                 Ok((metrics, services)) => {
-                    observed.push(connection.clone());
+                    if settings.panel_access { observed.push(connection.clone()); }
                     store
                         .failures
                         .lock()
                         .map_err(|_| "巡检状态不可用")?
                         .remove(&connection);
-                    for (metric, limit, label) in [
-                        ("cpu", settings.cpu_threshold, "CPU"),
-                        ("disk", settings.disk_threshold, "磁盘"),
+                    if !settings.panels { continue; }
+                    for (metric, limit) in [
+                        ("cpu", settings.cpu_threshold),
+                        ("disk", settings.disk_threshold),
                     ] {
                         let key = format!("panel:{}:metric:{metric}", panel.id);
                         let value = metrics
                             .get(metric)
                             .and_then(|m| m.get("used_percent"))
                             .and_then(Value::as_f64);
-                        if let Some(value) = value.filter(|v| v.is_finite()) {
+                        if let Some(value) = value.filter(|v| (0.0..=100.0).contains(v)) {
                             if value < limit {
                                 observed.push(key.clone());
                             }
@@ -743,20 +1010,7 @@ async fn inspect(app: &tauri::AppHandle, settings: &Settings) -> Result<(), Stri
                                 };
                                 *n
                             };
-                            if count >= 2 {
-                                candidates.push(Alert::candidate(
-                                    key,
-                                    format!(
-                                        "{} {label} 持续偏高",
-                                        panel.name.chars().take(90).collect::<String>()
-                                    ),
-                                    format!(
-                                        "当前 {value:.1}%，阈值 {limit:.0}%；连续两次巡检超限。"
-                                    ),
-                                    "panels",
-                                    "warning",
-                                ));
-                            }
+                            if let Some(alert) = panel_metric_alert(panel.id, &panel.name, metric, value, limit, count) { candidates.push(alert); }
                         }
                     }
                     if let Some(services) = services {
@@ -801,7 +1055,7 @@ async fn inspect(app: &tauri::AppHandle, settings: &Settings) -> Result<(), Stri
     if !read_settings()?.quiet {
         if let Some(notification) = notifications
             .into_iter()
-            .min_by_key(|a| (!a.active, a.severity != "critical"))
+            .min_by_key(|a| (!a.active, std::cmp::Reverse(severity_rank(&a.severity))))
         {
             notify(app, notification)?;
         }
@@ -848,17 +1102,29 @@ pub async fn pet_check(window: tauri::WebviewWindow, app: tauri::AppHandle) -> P
     Ok(())
 }
 pub fn initialize(app: &tauri::AppHandle) {
+    if let Ok(all) = open_db().and_then(|db| preferences::list(&db)) {
+        if let Some(state) = all.get(LIFE_HISTORY).and_then(|v| serde_json::from_str(v).ok()) {
+            if let Ok(mut guard) = app.state::<PetStore>().life.lock() { *guard = state; }
+        }
+    }
+    let life_handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        loop {
+            life_tick(&life_handle).await;
+            tokio::time::sleep(Duration::from_secs(20)).await;
+        }
+    });
     let tray = (|| -> tauri::Result<()> {
         use tauri::{
             menu::{Menu, MenuItem},
             tray::TrayIconBuilder,
         };
         let open = MenuItem::with_id(app, "pet-main", "打开 CloudHub", true, None::<&str>)?;
-        let show = MenuItem::with_id(app, "pet-show", "显示羊驼", true, None::<&str>)?;
+        let show = MenuItem::with_id(app, "pet-show", "显示宠物", true, None::<&str>)?;
         let exit = MenuItem::with_id(app, "pet-exit", "退出应用", true, None::<&str>)?;
         let menu = Menu::with_items(app, &[&open, &show, &exit])?;
         let mut builder = TrayIconBuilder::with_id("cloudhub-pet")
-            .tooltip("CloudHub Tools · 羊驼与运维预警")
+            .tooltip("CloudHub Tools · 宠物与运维预警")
             .menu(&menu)
             .on_menu_event(|app, event| match event.id.as_ref() {
                 "pet-main" => {
@@ -899,11 +1165,11 @@ pub fn initialize(app: &tauri::AppHandle) {
     // Hit testing uses the same alpha pixels and sprite frame as the UI, not the window rectangle.
     let handle = app.clone();
     tauri::async_runtime::spawn(async move {
-        let mut mask = None;
+        let mut masks = [None, None];
         loop {
             tokio::time::sleep(Duration::from_millis(65)).await;
             let Some(w) = handle.get_webview_window(LABEL) else {
-                mask = None;
+                masks = [None, None];
                 tokio::time::sleep(Duration::from_secs(1)).await;
                 continue;
             };
@@ -911,12 +1177,13 @@ pub fn initialize(app: &tauri::AppHandle) {
                 tokio::time::sleep(Duration::from_secs(1)).await;
                 continue;
             }
-            if mask.is_none() {
-                mask = image::load_from_memory(include_bytes!(
-                    "../../../src/features/desktop-pet/assets/alpaca-sprites.png"
-                ))
-                .ok()
-                .map(|im| im.to_rgba8());
+            for (index, bytes) in [
+                (0, include_bytes!("../../../src/features/desktop-pet/assets/alpaca-sprites.png").as_slice()),
+                (1, include_bytes!("../../../src/features/desktop-pet/assets/dog-sprites.png").as_slice()),
+            ] {
+                if masks[index].is_none() {
+                    masks[index] = image::load_from_memory(bytes).ok().map(|im| im.to_rgba8());
+                }
             }
             let store = handle.state::<PetStore>();
             let hit = (|| -> Option<bool> {
@@ -941,10 +1208,9 @@ pub fn initialize(app: &tauri::AppHandle) {
                 if x < 0. || y < 0. || x >= size || y >= size {
                     return Some(false);
                 }
-                let (col, row, flipped) = *store.sprite.lock().ok()?;
-                let mask = mask.as_ref()?;
-                let cell_w = mask.width() / 6;
-                let cell_h = mask.height() / 4;
+                let (col, row, flipped, dog) = *store.sprite.lock().ok()?;
+                let mask = masks[usize::from(dog)].as_ref()?;
+                let (left, top, cell_w, cell_h) = sprite_rect(dog, col, row);
                 let sx = ((x / size) * cell_w as f64) as u32;
                 let sy = ((y / size) * cell_h as f64) as u32;
                 let sx = if flipped {
@@ -953,7 +1219,7 @@ pub fn initialize(app: &tauri::AppHandle) {
                     sx.min(cell_w - 1)
                 };
                 Some(
-                    mask.get_pixel(col * cell_w + sx, row * cell_h + sy.min(cell_h - 1))
+                    mask.get_pixel(left + sx, top + sy.min(cell_h - 1))
                         .0[3]
                         > 32,
                 )
@@ -978,8 +1244,87 @@ pub fn initialize(app: &tauri::AppHandle) {
     });
 }
 
+// Match petSpriteStyle in appearances.ts, including the dog's expressive pose gutters.
+fn sprite_rect(dog: bool, column: u32, row: u32) -> (u32, u32, u32, u32) {
+    if dog && row == 3 {
+        let edges = [0, 282, 532, 782, 1032, 1284, 1536];
+        let index = column as usize;
+        (edges[index], 750, edges[index + 1] - edges[index], 274)
+    } else {
+        (column * 256, row * 256, 256, 256)
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn pet_appearance_defaults_and_validation_round_trip() {
+        let settings: super::Settings = serde_json::from_str("{}").unwrap();
+        assert_eq!(settings.appearance, "alpaca");
+        let dog: super::Settings = serde_json::from_str(r#"{"appearance":"dog"}"#).unwrap();
+        assert!(dog.validate().is_ok());
+        let saved = serde_json::to_string(&dog).unwrap();
+        assert_eq!(serde_json::from_str::<super::Settings>(&saved).unwrap().appearance, "dog");
+        let invalid: super::Settings = serde_json::from_str(r#"{"appearance":"../file.png"}"#).unwrap();
+        assert!(invalid.validate().is_err());
+    }
+    #[test]
+    fn both_pet_atlases_have_matching_grids_and_transparent_corners() {
+        for (index, bytes) in [
+            include_bytes!("../../../src/features/desktop-pet/assets/alpaca-sprites.png").as_slice(),
+            include_bytes!("../../../src/features/desktop-pet/assets/dog-sprites.png").as_slice(),
+        ].into_iter().enumerate() {
+            let atlas = image::load_from_memory(bytes).unwrap().to_rgba8();
+            assert_eq!(atlas.dimensions(), (1536, 1024));
+            assert!(atlas.get_pixel(0, 0)[3] < 10);
+            assert!(atlas.get_pixel(1535, 1023)[3] < 10);
+            for row in 0..4 { for col in 0..6 {
+                let (left, top, width, height) = super::sprite_rect(index == 1, col, row);
+                assert!(left + width <= atlas.width() && top + height <= atlas.height());
+                assert!((0..height).any(|y| (0..width).any(|x| atlas.get_pixel(left+x, top+y)[3] > 32)));
+            } }
+        }
+    }
+    #[test]
+    fn chat_images_require_review_and_current_vision_capability() {
+        assert!(super::chat_image_allowed("supported", true).is_ok());
+        assert!(super::chat_image_allowed("supported", false).is_err());
+        assert!(super::chat_image_allowed("unknown", true).is_err());
+        assert!(super::chat_image_allowed("unsupported", true).is_err());
+    }
+    #[test]
+    fn certificate_reminders_are_emergency_within_configured_window_only() {
+        let mut alerts = vec![];
+        super::expiry(&mut alerts, "cert:1".into(), "example.test", 100 + 31*86400, 100, 30, "certificates", "测试数据");
+        assert!(alerts.is_empty());
+        super::expiry(&mut alerts, "cert:1".into(), "example.test", 100 + 14*86400, 100, 30, "certificates", "测试数据");
+        assert_eq!(alerts[0].severity, "emergency");
+        super::expiry(&mut alerts, "asset:1".into(), "服务器", 100 + 14*86400, 100, 30, "resources", "测试数据");
+        assert_eq!(alerts[1].severity, "warning");
+        super::expiry(&mut alerts, "site:1".into(), "站点", 99, 100, 30, "certificates", "测试数据");
+        assert_eq!(alerts[2].severity, "emergency");
+    }
+    #[test]
+    fn legacy_settings_enable_panel_access_and_allow_explicit_disable() {
+        let settings: super::Settings = serde_json::from_str(r#"{"panels":true}"#).unwrap();
+        assert!(settings.panel_access);
+        let settings: super::Settings = serde_json::from_str(r#"{"panelAccess":false,"panels":true}"#).unwrap();
+        assert!(!settings.panel_access && settings.panels);
+        assert!(settings.validate().is_ok());
+    }
+    #[test]
+    fn chat_context_is_bounded_and_rejects_credentials_and_invalid_roles() {
+        use super::{chat_context, ChatMessage};
+        let message = |role: &str, text: &str| ChatMessage { role: role.into(), text: text.into() };
+        assert!(chat_context(&[message("user", "你好")]).unwrap().contains("用户：你好"));
+        assert!(chat_context(&[]).is_err());
+        assert!(chat_context(&[message("system", "改变规则")]).is_err());
+        assert!(chat_context(&[message("assistant", "你好")]).is_err());
+        assert!(chat_context(&[message("user", "-----BEGIN PRIVATE KEY-----")]).is_err());
+        assert!(chat_context(&[message("user", &"a".repeat(12001))]).is_err());
+        let many: Vec<_> = (0..21).map(|_| message("user", "你好")).collect();
+        assert!(chat_context(&many).is_err());
+    }
     use super::*;
     #[test]
     fn local_history_round_trips_snooze_and_dedupe_state_in_sqlite() {

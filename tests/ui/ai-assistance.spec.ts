@@ -280,7 +280,7 @@ async function nativeFixture(page: Page) {
     (window as any).nativeDragCallbacks={};
     (window as any).__TAURI_INTERNALS__ = { metadata:{currentWindow:{label:"main"},currentWebview:{label:"main"}}, transformCallback: (callback:(event:any)=>void) => {callbacks[++callbackId]=callback;return callbackId;}, unregisterCallback: (id:number) => {delete callbacks[id];}, invoke: async (command: string, args?: any) => {
       if(command==="plugin:event|listen"){(window as any).nativeDragCallbacks[args.event]=callbacks[args.handler];return args.handler;}
-      if (command === "pet_settings") return { enabled: false, monitoring: false, panels: false, certificates: true, servers: true, size: 160, roam: "edge", activity: 1, sound: false, reducedMotion: false, quiet: false, intervalSeconds: 300, expiryDays: 30, cpuThreshold: 90, diskThreshold: 90, keepInTray: false };
+      if (command === "pet_settings") return { enabled: false, appearance: "alpaca", monitoring: false, panels: false, panelAccess: true, certificates: true, servers: true, size: 160, roam: "edge", activity: 1, sound: false, reducedMotion: false, quiet: false, intervalSeconds: 300, expiryDays: 30, cpuThreshold: 90, diskThreshold: 90, keepInTray: false };
       if (command === "pet_snapshot") return { alerts: [], checkedAt: 0, lastError: null };
       if(command==="ai_read_image_file"){(window as any).nativeImageReads.push(args.sourcePath);return (window as any).fixtureImageData;}
       if (command === "ai_list_profiles") return structuredClone(profiles);

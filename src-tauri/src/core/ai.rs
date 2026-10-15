@@ -67,6 +67,7 @@ pub enum Task {
     Configuration,
     Search,
     Frp,
+    PetChat,
 }
 impl Task {
     fn fields(&self) -> &'static [&'static str] {
@@ -89,11 +90,12 @@ impl Task {
             Self::Command => &["name", "command", "description"],
             Self::Search => &["query", "group", "resource_type", "expires_within_days"],
             Self::Frp => &["name", "kind", "local_ip", "local_port", "remote_port", "custom_domain"],
-            Self::Diagnose | Self::Configuration => &[],
+            Self::Diagnose | Self::Configuration | Self::PetChat => &[],
         }
     }
     fn instruction(&self) -> &'static str {
         match self {
+            Self::PetChat => "你是CloudHub的宠物伙伴，温和、自然、简洁地与用户用中文聊天，也能解答运维问题。输入包含当前宠物形象和按角色标记的对话历史，回应最后一条用户消息。将完整回复写入summary，其他字段留空。不声称读取本机数据或执行操作，不索要凭据。",
             Self::Connection => "这是连接测试，summary只填写连接正常。",
             Self::VisionTest => "读取图片从左到右的8个独立格子的颜色。fields.colors填写red或blue组成的8项英文列表，用逗号分隔；不要猜测。summary简短描述图片。",
             Self::Server => "提取托管服务器信息。单台服务器填写fields，多台服务器每台分别填写items；port为1至65535整数，platform只可linux或windows。仅输出有明确依据的名称、主机地址、端口、系统、用户名、分组、标签和备注；禁止输出密码、私钥、口令或其他认证凭据。",

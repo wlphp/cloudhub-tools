@@ -8,6 +8,15 @@ const packageJson = readJson("package.json");
 const tauriConfig = readJson("src-tauri/tauri.conf.json");
 const workflow = fs.readFileSync(".github/workflows/release.yml", "utf8");
 const failures = [];
+const cargoManifest = fs.readFileSync("src-tauri/Cargo.toml", "utf8");
+const commonDependencies = cargoManifest.split("[dependencies]")[1]?.split(/\r?\n\[/)[0] || "";
+const commonTauri = commonDependencies.match(/^tauri\s*=.*$/m)?.[0] || "";
+const macConfig = readJson("src-tauri/tauri.macos.conf.json");
+if (macConfig.app?.macOSPrivateApi || tauriConfig.app?.macOSPrivateApi) {
+  if (!tauriConfig.app?.macOSPrivateApi || !commonTauri.includes('"macos-private-api"')) {
+    failures.push("macOS 透明窗口配置必须与通用 tauri 依赖的 macos-private-api 特性一致，不能仅在 target 依赖中声明");
+  }
+}
 
 if (packageJson.version !== tauriConfig.version) {
   failures.push(`package.json version (${packageJson.version}) 与 Tauri version (${tauriConfig.version}) 不一致`);
