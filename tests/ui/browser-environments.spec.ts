@@ -201,6 +201,28 @@ test("浏览器启动失败时显示安全诊断信息而非通用错误", async
   await expect(dialog.getByRole("alert")).toHaveText("无法启动浏览器，请检查内核文件和系统权限");
 });
 
+test("列表、内核与回收站在不同宽度下保持布局边界", async ({ page }) => {
+  await fixture(page);
+  await page.evaluate(async () => {
+    const invoke = (window as any).__TAURI_INTERNALS__.invoke;
+    for (const name of ["日常工作环境", "兼容性测试环境", "较长名称的独立浏览器环境"]) {
+      await invoke("browser_save", { input: { id: null, config: { name, group: "测试分组", tags: "工作,测试", note: "仅用于界面回归", kernelVersion: "155.0.8059.84", startUrls: [], proxy: { kind: "direct", host: "", port: 8080, username: "" }, language: "zh-CN", timezone: "Asia/Shanghai", width: 1280, height: 900, geolocation: null, fingerprint: null, identity: "native" } } });
+    }
+  });
+  const dialog = page.getByRole("dialog", { name: "指纹浏览器", exact: true });
+  await dialog.getByRole("button", { name: "刷新浏览器环境", exact: true }).click();
+  await expect(dialog.locator("tbody tr")).toHaveCount(3);
+  for (const width of [375, 768, 1024, 1440]) {
+    await page.setViewportSize({ width, height: 1000 });
+    for (const [name, slug] of [["环境列表", "list"], ["内核管理", "kernel"], ["回收站", "trash"]]) {
+      await dialog.getByRole("button", { name, exact: true }).click();
+      expect(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+      expect(await dialog.locator(".browser-body").evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+      await dialog.screenshot({ path: `test-results/browser-${slug}-${width}.png` });
+    }
+  }
+});
+
 test("Cookie 查看弹层默认隐藏原始值，逐条揭示", async ({ page }) => {
   await fixture(page);
   const dialog = page.getByRole("dialog", { name: "指纹浏览器", exact: true });
@@ -219,6 +241,8 @@ test("Cookie 查看弹层默认隐藏原始值，逐条揭示", async ({ page })
   // modal backdrop, which is what the shared dialog pattern requires.
   await expect(page.locator(".cookie-view-backdrop")).toHaveCount(1);
   await expect(page.locator("body > .cookie-view-backdrop .cookie-view-dialog")).toHaveCount(1);
+  await page.locator(".cookie-view-backdrop").click({ position: { x: 2, y: 2 } });
+  await expect(inspector).toBeVisible();
   await expect(inspector).not.toContainText("secret-session-value");
   await inspector.getByRole("button", { name: "显示", exact: true }).click();
   await expect(inspector).toContainText("secret-session-value");
@@ -226,4 +250,12 @@ test("Cookie 查看弹层默认隐藏原始值，逐条揭示", async ({ page })
   await expect(inspector).not.toContainText("secret-session-value");
   await expect(inspector).toContainText("vipgl.lizengtong.com");
   await expect(inspector).toContainText("会话结束时");
+  for (const width of [375, 768, 1024, 1440]) {
+    await page.setViewportSize({ width, height: 1000 });
+    expect(await inspector.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+    await inspector.screenshot({ path: `test-results/browser-cookie-${width}.png` });
+  }
+  await page.keyboard.press("Escape");
+  await expect(inspector).toHaveCount(0);
+  await expect(row.getByRole("button", { name: "查看数据", exact: true })).toBeFocused();
 });

@@ -66,11 +66,106 @@
 .cookie-view-scroll { max-height: 55vh; overflow: auto; border: 1px solid var(--jb-border-strong); border-radius: 4px; }
 .cookie-view-scroll .browser-table { margin: 0; }
 .cookie-view-value { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-all; }
-.cookie-view-dialog td[data-label="值"] { display: flex; gap: 8px; align-items: flex-start; justify-content: space-between; }
+.cookie-value-cell { display: flex; gap: 8px; align-items: center; justify-content: space-between; min-width: 0; }
 .cookie-view-dialog td[data-label="值"] code, .cookie-view-dialog td[data-label="值"] span, .cookie-view-dialog td[data-label="值"] em { min-width: 0; }
 .cookie-view-dialog td[data-label="值"] em { color: var(--jb-muted); }
 .cookie-view-dialog > .modal-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .cookie-view-dialog > .modal-actions span { margin-right: auto; color: var(--jb-muted); }
 @media (max-width: 768px) {
-  .cookie-view-dialog td[data-label="值"] { flex-direction: column; }
+  .cookie-value-cell { flex-wrap: wrap; }
+}
+
+/* Keep the workbench controls independent of global form/button sizing. */
+.browser-dialog.browser-dialog { height: min(740px, calc(100dvh - 40px)); }
+.browser-dialog .browser-body { padding: 0 20px 20px; }
+.browser-dialog .browser-tabs { gap: 8px; margin: 0 0 18px; padding: 6px 0 0; border-color: var(--jb-border); }
+.browser-dialog .browser-tabs > button { flex: 0 1 auto; width: auto; min-height: 44px; margin: 0; padding: 0 16px; font-size: 13px; color: var(--jb-muted); background: transparent; box-shadow: none; }
+.browser-dialog .browser-tabs > button:is(.is-active,[aria-selected=true]) { color: var(--jb-accent); border-bottom-color: var(--jb-accent); background: color-mix(in srgb,var(--jb-accent) 6%,transparent); }
+.browser-dialog .browser-tabs > button:hover { color: var(--jb-text); }
+.browser-dialog .browser-toolbar { gap: 8px; margin: 0 0 14px; }
+.browser-dialog .browser-toolbar :is(button,select,input) { box-sizing: border-box; width: auto; height: 34px; min-height: 34px; margin: 0; padding: 0 10px; border: 1px solid var(--jb-border-strong); border-radius: 4px; font-size: 12px; }
+.browser-dialog .browser-toolbar button { background: var(--jb-surface-3); color: var(--jb-text); }
+.browser-dialog .browser-list-toolbar { flex-wrap: nowrap; }
+.browser-dialog .browser-search { box-sizing: border-box; height: 34px; min-width: 120px; max-width: 400px; flex: 1; gap: 8px; margin: 0; padding: 0 10px; border: 1px solid var(--jb-border-strong); border-radius: 4px; background: var(--jb-input); }
+.browser-dialog .browser-search input { flex: 1; width: 100%; min-width: 0; height: 30px; min-height: 30px; margin: 0 !important; padding: 0 !important; border: 0 !important; background: transparent !important; outline: none !important; box-shadow: none !important; }
+.browser-dialog .browser-search:focus-within { outline: 2px solid var(--jb-accent); outline-offset: 1px; }
+.browser-dialog .browser-list-toolbar > .primary { margin-left: auto; white-space: nowrap; }
+.browser-dialog .browser-list-toolbar > button[aria-label] { width: 34px; padding: 0; flex-shrink: 0; }
+.browser-dialog .browser-table-wrap { border: 1px solid var(--jb-border); border-radius: 4px; }
+.browser-dialog .browser-table-wrap:has(> .browser-empty) { border: 0; }
+.browser-dialog .browser-table { table-layout: fixed; font-size: 12px; }
+.browser-dialog .browser-table th { height: 36px; padding: 0 10px; background: var(--jb-surface-2); color: var(--jb-muted); font-size: 11px; font-weight: 500; }
+.browser-dialog .browser-table td { height: 58px; padding: 8px 10px; border-color: var(--jb-border); line-height: 1.5; }
+.browser-dialog .browser-table th:first-child { width: 30px; }
+.browser-dialog .browser-table th:nth-child(2) { width: 17%; }
+.browser-dialog .browser-table th:nth-child(3) { width: 12%; }
+.browser-dialog .browser-table th:nth-child(4) { width: 18%; }
+.browser-dialog .browser-table th:nth-child(5) { width: 15%; }
+.browser-dialog .browser-table th:nth-child(6) { width: 10%; }
+.browser-dialog .browser-table th:last-child { width: 218px; }
+.browser-dialog .browser-table input[type=checkbox] { width: 14px; height: 14px; margin: 0; accent-color: var(--jb-accent); }
+.browser-dialog .browser-table small { margin-top: 3px; color: var(--jb-muted); opacity: 1; font-size: 11px; }
+.browser-dialog .browser-table tbody tr:hover { background: color-mix(in srgb,var(--jb-text) 3%,transparent); }
+.browser-dialog .browser-row-actions { gap: 4px; }
+.browser-dialog .browser-row-actions button { width: auto; min-height: 30px; padding: 0 8px; border: 1px solid var(--jb-border-strong); border-radius: 4px; background: transparent; color: var(--jb-text); font-size: 12px; white-space: normal; }
+.browser-dialog .browser-row-actions .browser-icon-action { display: inline-grid; place-items: center; flex: 0 0 28px; width: 28px; height: 30px; padding: 0; border-color: transparent; color: var(--jb-muted); }
+.browser-dialog .browser-row-actions button:hover:not(:disabled) { color: var(--jb-accent); background: var(--jb-surface-3); border-color: var(--jb-border-strong); }
+.browser-state { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--jb-muted); }
+.browser-state::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+.browser-state.is-running { color: var(--jb-green,#7cbe91); }
+.browser-state.needs-recovery { color: var(--jb-yellow,#dbb66c); }
+.browser-dialog .browser-empty { min-height: 260px; gap: 10px; color: var(--jb-muted); }
+.browser-dialog .browser-empty strong { color: var(--jb-text); font-size: 14px; }
+.browser-dialog .browser-empty p { font-size: 12px; opacity: 1; }
+.browser-dialog .browser-notice { padding: 9px 12px; font-size: 12px; margin: 12px 0; }
+.browser-dialog .browser-kernel { box-sizing: border-box; max-width: 820px; padding: 6px 0 20px; }
+.browser-kernel-heading { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; padding: 0 0 18px; border-bottom: 1px solid var(--jb-border); }
+.browser-kernel-heading h3 { margin: 0 0 4px; font-size: 15px; }
+.browser-kernel-heading > div > span { color: var(--jb-muted); font-size: 12px; }
+.browser-kernel-heading > .browser-state { margin-left: auto; }
+.browser-dialog .browser-kernel > label { display: grid; grid-template-columns: 100px minmax(0,1fr); align-items: center; gap: 16px; font-size: 12px; }
+.browser-dialog .browser-kernel select { width: 100%; box-sizing: border-box; height: 36px; margin: 0; padding: 0 10px; font-size: 12px; }
+.browser-dialog .browser-kernel > h3 { margin: 24px 0 8px; font-size: 15px; }
+.browser-dialog .browser-kernel p { color: var(--jb-muted); font-size: 12px; margin: 8px 0; }
+.browser-dialog .browser-kernel dl { margin: 20px 0; padding: 16px 0; border-block: 1px solid var(--jb-border); grid-template-columns: 100px minmax(0,1fr); gap: 14px 16px; font-size: 12px; }
+.browser-dialog .browser-kernel dd { text-align: left; }
+.browser-dialog .browser-kernel dt { color: var(--jb-muted); }
+.browser-dialog .browser-kernel small { font-size: 11px; color: var(--jb-muted); opacity: 1; }
+.browser-dialog button:disabled { opacity: .45; cursor: not-allowed; }
+.browser-dialog :is(button,input,select,textarea):focus-visible,.cookie-view-dialog button:focus-visible { outline: 2px solid var(--jb-accent); outline-offset: 2px; }
+.cookie-view-dialog .cookie-view-scroll { max-height: 54vh; border-color: var(--jb-border); }
+.cookie-view-dialog .browser-table { table-layout: fixed; font-size: 12px; }
+.cookie-view-dialog .browser-table :is(th,td) { padding: 12px; border-color: var(--jb-border); }
+.cookie-view-dialog .browser-table th { position: sticky; top: 0; z-index: 1; background: var(--jb-surface-2); color: var(--jb-muted); font-size: 11px; font-weight: 500; }
+.cookie-view-dialog .browser-table th:nth-child(1) { width: 24%; }
+.cookie-view-dialog .browser-table th:nth-child(2) { width: 20%; }
+.cookie-view-dialog .browser-table th:nth-child(3) { width: 22%; }
+.cookie-view-dialog .browser-table th:nth-child(4) { width: 18%; }
+.cookie-view-dialog .browser-table code { color: var(--jb-text); font-size: 11px; overflow-wrap: anywhere; }
+.cookie-view-dialog .browser-table small { font-size: 11px; color: var(--jb-muted); opacity: 1; }
+.cookie-view-dialog .browser-table em { font-size: 11px; font-style: normal; }
+.cookie-value-cell button { display: inline-grid; place-items: center; width: 28px; height: 28px; flex-shrink: 0; padding: 0; border: 1px solid var(--jb-border); border-radius: 4px; background: var(--jb-surface-3); color: var(--jb-text); }
+.cookie-view-dialog .browser-notice { color: var(--jb-muted); font-size: 12px; background: var(--jb-surface-2); }
+@media (max-width: 1100px) and (min-width: 769px) {
+  .browser-dialog .browser-table th:last-child { width: 180px; }
+  .browser-dialog .browser-table th:nth-child(5) { width: 12%; }
+  .browser-dialog .browser-table :is(th,td) { padding-inline: 7px; }
+}
+@media (max-width: 768px) {
+  .browser-dialog .browser-body { padding: 0 12px 12px; }
+  .browser-dialog .browser-list-toolbar { flex-wrap: wrap; }
+  .browser-dialog .browser-search { flex-basis: 100%; max-width: none; height: 44px; }
+  .browser-dialog .browser-toolbar :is(button,select,input) { min-height: 44px; height: 44px; }
+  .browser-dialog .browser-search input { height: 40px; min-height: 40px; }
+  .browser-dialog .browser-list-toolbar > button[aria-label] { width: 44px; }
+  .browser-dialog .browser-tabs > button { padding-inline: 12px; }
+  .browser-dialog .browser-table td { height: auto; padding: 6px 12px; }
+  .browser-dialog .browser-table td[data-label]::before { font-size: 11px; color: var(--jb-muted); opacity: 1; }
+  .browser-dialog .browser-row-actions { display: flex; margin-top: 6px; }
+  .browser-dialog .browser-row-actions :is(button,.browser-icon-action) { min-width: 44px; min-height: 44px; height: 44px; flex-basis: auto; }
+  .browser-dialog .browser-kernel > label { grid-template-columns: minmax(0,1fr); gap: 8px; }
+  .browser-dialog .browser-empty { min-height: 220px; padding: 20px; }
+  .cookie-view-dialog .browser-table td { border: 0; }
+  .cookie-view-dialog .browser-table tr { border-color: var(--jb-border); }
+  .cookie-value-cell button { width: 44px; height: 44px; }
 }
