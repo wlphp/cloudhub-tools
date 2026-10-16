@@ -1,4 +1,5 @@
 import { DialogHeaderActions } from "../../shared/DialogHeaderActions";
+import { createPortal } from "react-dom";
 import { GatewayTunnel } from "../codex/GatewayTunnel";
 import { AiLogAnalysis } from "../ai/AiLogAnalysis";
 import { AiAssistButton } from "../ai/AiAssistButton";
@@ -467,7 +468,7 @@ export function FrpPanel() {
         </main>
       </div>
     </>}
-    {proxyDraft && <div className="frp-modal-backdrop"><form className="frp-modal frp-rule-editor" role="dialog" aria-modal="true" aria-labelledby="frp-rule-editor-title" onSubmit={saveProxy} onKeyDown={(event) => {
+    {proxyDraft && createPortal(<div className="frp-modal-backdrop"><form className="modal frp-modal modal-form-layout dialog-common-theme frp-rule-editor" role="dialog" aria-modal="true" aria-labelledby="frp-rule-editor-title" onSubmit={saveProxy} onKeyDown={(event) => {
       if (event.key === "Escape" && !busy) { event.stopPropagation(); setProxyDraft(null); }
       if (event.key === "Tab") {
         const controls = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled)'));
@@ -495,6 +496,6 @@ export function FrpPanel() {
         <label className="frp-checkbox frp-editor-enabled"><input type="checkbox" checked={proxyDraft.enabled} onChange={(event) => setProxyDraft({ ...proxyDraft, enabled: event.target.checked })} /><span>启用规则<small>保存后，应用服务端配置即可生效</small></span></label>
       </div>
       <footer><button type="button" className="secondary" disabled={!!busy} onClick={() => setProxyDraft(null)}>取消</button><button type="submit" className="primary" disabled={!!busy}><Save size={14} />{busy === "保存穿透规则" ? "保存中…" : "保存规则"}</button></footer>
-    </form></div>}
+    </form></div>, document.body)}
   </section>;
 }

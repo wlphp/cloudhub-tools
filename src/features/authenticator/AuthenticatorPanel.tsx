@@ -2,6 +2,7 @@ import { ExportChecklist } from "../../shared/ExportSelection";
 import { DialogHeaderActions } from "../../shared/DialogHeaderActions";
 import { GroupNameInput } from "../../shared/GroupNameInput";
 import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type FormEvent, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { Check, ChevronLeft, ChevronRight, Copy, Download, Edit3, Grid2X2, KeyRound, List, LockKeyhole, Plus, Search, ShieldCheck, Star, Trash2, Upload, X } from "lucide-react";
 import { authenticatorClient as client, type AuthCode, type AuthEntry, type AuthInput, type AuthPreview } from "../../platform/clients/authenticator";
 import { runningInTauri } from "../../platform/api";
@@ -26,9 +27,9 @@ function Modal({ title, children, close, busy, mobileForm = false }: { title: st
     return () => { dialog.current?.close(); opener?.focus(); };
   }, []);
 
-  return <dialog className={`auth-dialog${mobileForm ? " auth-dialog-mobile-form" : ""}`} ref={dialog} onCancel={(event) => { event.preventDefault(); if (!busy) close(); }} aria-label={title}>
+  return createPortal(<dialog className={`auth-dialog modal-form-layout dialog-common-theme${mobileForm ? " auth-dialog-mobile-form" : ""}`} ref={dialog} onCancel={(event) => { event.preventDefault(); if (!busy) close(); }} aria-label={title}>
     <header><h3>{title}</h3><DialogHeaderActions><button type="button" aria-label="关闭对话框" disabled={busy} onClick={close}><X size={18} /></button></DialogHeaderActions></header>{children}
-  </dialog>;
+  </dialog>, document.body);
 }
 
 export function AuthenticatorPanel({ mobile = false }: { mobile?: boolean }) {

@@ -538,7 +538,7 @@ export function BucketCard({
       )}
       {cnameDialog && (
         <div className="resource-modal-backdrop nested-resource-modal">
-          <section role="dialog" aria-modal="true" aria-label="添加自定义域名" className="detail-panel resource-modal oss-cname-dialog" onClick={(event) => event.stopPropagation()}>
+          <section role="dialog" aria-modal="true" aria-label="添加自定义域名" className="modal detail-panel resource-modal modal-form-layout dialog-common-theme oss-cname-dialog" onClick={(event) => event.stopPropagation()}>
             <div className="detail-toolbar"><div><span className="eyebrow">{bucketName}</span><h2>添加自定义域名</h2></div><DialogHeaderActions><button className="close-detail" aria-label="关闭自定义域名" onClick={() => setCnameDialog(false)}><X size={20} /></button></DialogHeaderActions></div>
             <label className="oss-cname-input"><span>域名</span><input disabled={cnameLoading} value={cnameValue} onChange={(event) => { setCnameValue(event.target.value.trim()); setCnameToken(null); setCnameMessage(""); }} placeholder="例如 img.example.com" /></label>
             <div className="oss-cname-steps"><p>1. 获取验证 Token。</p><p>2. 在 DNS 服务商添加 TXT 记录验证域名。</p><p>3. DNS 生效后绑定域名，再添加 CNAME 记录。</p></div>

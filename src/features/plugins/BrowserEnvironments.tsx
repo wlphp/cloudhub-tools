@@ -183,7 +183,7 @@ export function BrowserEnvironments({ open, onClose }: Props) {
     </section>
   </div>, document.body) : null;
   return <>{cookieDialog}{createPortal(<div className="modal-backdrop ide-theme">
-    <section ref={dialog} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="browser-title" className="modal modal-form-layout browser-dialog" onKeyDown={event => {
+    <section ref={dialog} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="browser-title" className="modal modal-form-layout dialog-common-theme browser-dialog" onKeyDown={event => {
       if (event.key !== "Tab") return;
       const controls = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button,input,textarea,select,[tabindex="0"]')).filter(el => !el.matches(":disabled") && el.getClientRects().length > 0);
       const first = controls[0], last = controls[controls.length - 1];

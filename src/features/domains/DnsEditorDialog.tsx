@@ -119,7 +119,7 @@ export function DnsEditorDialog({ mode, row, preset, domain = "", onCancel, onSu
 
   return (
     <div className="modal-backdrop dns-editor-backdrop">
-      <section className="modal dns-editor-modal modal-form-layout" role="dialog" aria-modal="true" aria-labelledby="dns-editor-title" onClick={(event) => event.stopPropagation()}>
+      <section className="modal dns-editor-modal modal-form-layout dialog-common-theme" role="dialog" aria-modal="true" aria-labelledby="dns-editor-title" onClick={(event) => event.stopPropagation()}>
         <div className="modal-head"><h2 id="dns-editor-title">{mode === "edit" ? "编辑解析记录" : "添加解析记录"}</h2><DialogHeaderActions><button type="button" className="close" aria-label="关闭解析记录编辑" disabled={submitting} onClick={onCancel}><X size={18} /></button></DialogHeaderActions></div>
         <form className="modal-form-content" onSubmit={handleSubmit}>
           <div className="modal-body">

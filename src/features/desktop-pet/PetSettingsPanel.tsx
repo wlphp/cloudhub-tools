@@ -1,5 +1,6 @@
 import { PetPortrait } from "./PetPortrait";
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Bell, Check, ChevronDown, PawPrint, RefreshCw, X } from "lucide-react";
 import { petAppearances } from "./appearances";
 import { PetLifeSettings } from "./PetLifeSettings";
@@ -93,11 +94,11 @@ export function PetSettingsPanel() {
       </div>
       <PetLifeSettings value={settings.life} onSave={changeLife} disabled={!ready || busy} petEnabled={settings.enabled} />
       <div className="pet-settings-footer"><span>{snapshot.checkedAt ? `最近检查：${new Date(snapshot.checkedAt * 1000).toLocaleString()}` : "尚未执行巡检"}{snapshot.lastError && <small className="pet-error">{snapshot.lastError}</small>}</span><button className="secondary" disabled={!ready || busy || !settings.monitoring} onClick={() => void work(client.check)}><RefreshCw size={14} />立即检查</button><button className="secondary" onClick={() => setHistory(true)}><Bell size={14} />提醒记录（{snapshot.alerts.filter(a => a.active && !a.ignored).length}）</button></div>
-      {history && <div className="modal-backdrop"><section ref={dialog} className="modal modal-form-layout pet-history" role="dialog" aria-modal="true" aria-label="运维提醒记录">
+      {history && createPortal(<div className="modal-backdrop"><section ref={dialog} className="modal modal-form-layout dialog-common-theme pet-history" role="dialog" aria-modal="true" aria-label="运维提醒记录">
         <header className="modal-head"><h2>运维提醒记录</h2><DialogHeaderActions><button type="button" className="close" title="关闭（Esc）" onClick={() => setHistory(false)} aria-label="关闭提醒记录"><X size={16} /></button></DialogHeaderActions></header>
         <div className="modal-body"><AlertList snapshot={snapshot} onSnooze={key => void work(() => client.snooze(key))} onIgnore={(keys, ignored) => void work(async () => { setSnapshot(await client.ignore(keys, ignored)); })} busy={busy} showIgnored /></div>
         <footer className="modal-actions"><button type="button" className="secondary" onClick={() => setHistory(false)}>关闭</button></footer>
-      </section></div>}
+      </section></div>, document.body)}
     </>}
     </div>}
   </section>;

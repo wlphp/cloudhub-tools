@@ -13,7 +13,7 @@ export function AiAssetNotes({ name, type, note, onSave }: { name: string; type:
     const candidate = assetNoteCandidate(result.fields);
     if (!candidate) throw new Error("请勾选需要整理的字段");
     setDraft([note.trim(), candidate].filter(Boolean).join("\n\n")); setError("");
-  }} />{draft !== null && createPortal(<div className="ai-backdrop"><section className="ai-asset-note-dialog ide-theme" role="dialog" aria-modal="true" aria-label="核对资产备注" onKeyDown={event => {
+  }} />{draft !== null && createPortal(<div className="ai-backdrop"><section className="modal ai-asset-note-dialog modal-form-layout dialog-common-theme ide-theme" role="dialog" aria-modal="true" aria-label="核对资产备注" onKeyDown={event => {
     if(event.key === "Escape") { event.stopPropagation(); close(); }
     if(event.key === "Tab") {
       const nodes=Array.from(event.currentTarget.querySelectorAll<HTMLElement>("textarea,button")); const first=nodes[0],last=nodes[nodes.length-1];

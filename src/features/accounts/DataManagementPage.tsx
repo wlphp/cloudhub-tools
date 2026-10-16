@@ -78,7 +78,7 @@ function BackupRestoreDialog({ onClose, onRestore, onStatus }: Pick<Props, "onRe
     finally { setBusy(false); }
   }
   return <>
-  <dialog ref={dialog} className="codex-dialog dialog-common-theme backup-restore-dialog" aria-label="备份与恢复" onCancel={event => { event.preventDefault(); if (!busy) onClose(); }}>
+  <dialog ref={dialog} className="codex-dialog modal-form-layout dialog-common-theme backup-restore-dialog" aria-label="备份与恢复" onCancel={event => { event.preventDefault(); if (!busy) onClose(); }}>
     <header><div className="codex-dialog-heading"><h2>备份与恢复</h2></div><DialogHeaderActions><button type="button" aria-label="关闭备份与恢复" title="关闭" onClick={onClose}><X size={17} /></button></DialogHeaderActions></header>
     <div className="codex-dialog-content backup-restore-content">
       <p className="backup-restore-note">完整备份包含本机敏感数据。恢复会替换普通数据库内容，并保留当前设备的 Codex 与验证器数据。</p>
@@ -88,7 +88,7 @@ function BackupRestoreDialog({ onClose, onRestore, onStatus }: Pick<Props, "onRe
       <div className="codex-dialog-actions"><button type="button" className="secondary" disabled={busy} onClick={onClose}>关闭</button></div>
     </div>
   </dialog>
-  {createPortal(<dialog ref={confirmDialog} className="app-confirm-dialog backup-inline-confirm" aria-modal="true" aria-labelledby="backup-confirm-title" onCancel={event => { event.preventDefault(); resolveConfirm(false); }}>
+  {createPortal(<dialog ref={confirmDialog} className="app-confirm-dialog modal-form-layout dialog-common-theme backup-inline-confirm" aria-modal="true" aria-labelledby="backup-confirm-title" onCancel={event => { event.preventDefault(); resolveConfirm(false); }}>
       <div className="app-confirm-copy"><span className="eyebrow">PLEASE CONFIRM</span><h2 id="backup-confirm-title">确认操作</h2><p>{confirmMessage}</p></div>
       <div className="app-confirm-actions"><button type="button" className="secondary" autoFocus onClick={() => resolveConfirm(false)}>取消</button><button type="button" className="primary app-confirm-primary" onClick={() => resolveConfirm(true)}>确认</button></div>
   </dialog>, document.querySelector(".ide-theme") ?? document.body)}

@@ -41,7 +41,7 @@ export function AccountControls({ account, busy, act, onAccount, onEdit, onNotic
       {benefits?.subscriptionError && <small className="codex-card-error">订阅查询失败：{benefits.subscriptionError}</small>}
       {benefits?.creditsError && <small className="codex-card-error">重置次数查询失败：{benefits.creditsError}</small>}
     </div>}
-    <dialog ref={dialog} className="codex-dialog" aria-label={modal === "proxy" ? "账号代理" : "主动重置额度"} onCancel={(event) => { event.preventDefault(); close(); }}>
+    <dialog ref={dialog} className="codex-dialog modal-form-layout dialog-common-theme" aria-label={modal === "proxy" ? "账号代理" : "主动重置额度"} onCancel={(event) => { event.preventDefault(); close(); }}>
       <header><h2>{modal === "proxy" ? "账号代理" : "主动重置额度"}</h2><DialogHeaderActions><button disabled={busy || detecting} aria-label="关闭账号设置" title="关闭" onClick={close}><X size={16} /></button></DialogHeaderActions></header>
       <p className="codex-account-dialog-label">{account.label}</p>
       {modal === "proxy" ? <form onSubmit={(event) => { event.preventDefault(); if (detecting) return; if (url.trim() && !url.includes("://")) { setError("代理地址缺少协议，请填写 http://127.0.0.1:10808 这样的完整地址"); return; } void run("保存账号代理", async () => { const next = await codexClient.saveProxy(account.id, url); if (alive.current) { onAccount(next); setModal(null); } }); }}>

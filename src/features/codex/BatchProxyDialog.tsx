@@ -20,7 +20,7 @@ export function BatchProxyDialog({ accounts, busy, act, onSaved, onClose }: { ac
     catch (reason) { if (alive.current) setError(reason instanceof Error ? reason.message : "读取本机代理配置失败，请手动填写代理地址"); }
     finally { if (alive.current) setDetecting(false); }
   }
-  return <dialog ref={dialog} className="codex-dialog" aria-label="批量设置代理" onCancel={event => { event.preventDefault(); if (!locked) onClose(); }}>
+  return <dialog ref={dialog} className="codex-dialog modal-form-layout dialog-common-theme" aria-label="批量设置代理" onCancel={event => { event.preventDefault(); if (!locked) onClose(); }}>
     <header><h2>批量设置代理</h2><DialogHeaderActions><button type="button" disabled={locked} onClick={onClose} aria-label="关闭批量代理设置" title="关闭"><X size={16} /></button></DialogHeaderActions></header>
     <p>将统一设置当前列表内已选的 {accounts.length} 个账号。{!common && "所选账号当前代理不同，保存后统一替换。"}</p>
     <form onSubmit={event => {

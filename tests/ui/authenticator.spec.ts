@@ -1,12 +1,13 @@
 import { expect, test } from "@playwright/test";
 
-async function mockNative(page: import("@playwright/test").Page, legacy = false) {
-  await page.addInitScript((legacyMode) => {
+async function mockNative(page: import("@playwright/test").Page, legacy = false, extraItems: unknown[] = []) {
+  await page.addInitScript(({ legacyMode, extraItems: seededItems }) => {
     let locked = legacyMode;
     let passwordRequired = legacyMode;
     let items = [
       { id: "fixture-totp", issuer: "Example", account: "demo@example.test", kind: "totp", algorithm: "SHA1", digits: 6, period: 30, counter: "0", group: "演示", note: "公开测试账户", pinned: false, order: 0 },
       { id: "fixture-hotp", issuer: "Counter", account: "counter@example.test", kind: "hotp", algorithm: "SHA1", digits: 6, period: 30, counter: "17", group: "", note: "", pinned: false, order: 1 },
+      ...seededItems,
     ];
     const calls: Array<{ command: string; args: any }> = [];
     (window as any).authCalls = calls;
@@ -31,7 +32,7 @@ async function mockNative(page: import("@playwright/test").Page, legacy = false)
         return [];
       },
     };
-  }, legacy);
+  }, { legacyMode: legacy, extraItems });
   await page.goto("/");
   await page.getByRole("button", { name: "身份验证器", exact: true }).first().click();
 }
@@ -167,15 +168,19 @@ test("provider categories count entries and filter without losing export selecti
 });
 
 test("desktop card and list stay within the viewport", async ({ page }) => {
-  await mockNative(page); await unlock(page);
-  for (const [account, issuer] of [["demo@example.test", "Google"], ["counter@example.test", "OpenAI"]]) {
+  await mockNative(page, false, [{ id: "fixture-github", issuer: "GitHub", account: "octocat@example.test", kind: "totp", algorithm: "SHA1", digits: 6, period: 30, counter: "0", group: "", note: "", pinned: false, order: 2 }]); await unlock(page);
+  for (const [account, issuer] of [["demo@example.test", "Microsoft"], ["counter@example.test", "Oracle"]]) {
     await page.getByRole("button", { name: `编辑 ${account}` }).click();
     await page.getByRole("textbox", { name: "服务商", exact: true }).fill(issuer);
     await page.getByRole("button", { name: "保存", exact: true }).click();
     await expect(page.getByRole("dialog")).toHaveCount(0);
   }
-  await expect(page.locator(".auth-provider-icon img")).toHaveCount(2);
-  await page.getByLabel("选择 Google demo@example.test").check();
+  await expect(page.locator(".auth-provider-icon img")).toHaveCount(3);
+  const categories = page.getByRole("group", { name: "服务商分类统计" });
+  for (const provider of ["Microsoft", "Oracle", "GitHub"]) {
+    await expect(categories.getByRole("button", { name: `${provider}，共 1 项` })).toBeVisible();
+  }
+  await page.getByLabel("选择 Microsoft demo@example.test").check();
   for (const width of [1024, 1440, 768, 375]) {
     await page.setViewportSize({ width, height: 850 });
     for (const layout of ["卡片视图", "列表视图"]) {

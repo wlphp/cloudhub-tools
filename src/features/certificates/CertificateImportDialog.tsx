@@ -45,7 +45,7 @@ export function CertificateImportDialog({ onClose, onImported }: { onClose: () =
     finally { busyRef.current = false; if (alive.current) setBusy(false); }
   }
   const candidate = preview?.candidates.find(item => item.id === selected);
-  return createPortal(<div className="modal-backdrop certificate-source-backdrop"><section className="modal certificate-source-dialog" role="dialog" aria-modal="true" aria-label="导入 HTTPS 证书">
+  return createPortal(<div className="modal-backdrop certificate-source-backdrop"><section className="modal certificate-source-dialog modal-form-layout dialog-common-theme" role="dialog" aria-modal="true" aria-label="导入 HTTPS 证书">
     <header className="modal-head"><h2>导入 HTTPS 证书</h2><DialogHeaderActions><button className="close" aria-label="关闭证书导入" onClick={onClose}><X size={18} /></button></DialogHeaderActions></header>
     <div className="certificate-source-body">
       <button className="certificate-file-drop secondary" disabled={busy} onClick={() => void prepare(() => certificatesClient.selectImportFiles())}><FileUp size={20} />选择证书与私钥，或拖放 ZIP 到此窗口</button>

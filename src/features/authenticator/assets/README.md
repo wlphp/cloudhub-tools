@@ -4,6 +4,9 @@
 
 - `google.svg`：Google Firebase UI 的彩色 G，保留原文件版权标记。来源：https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg
 - `openai.svg`：Simple Icons 13.21.0 的 OpenAI 图形，添加紫色填充以适配深色界面。来源：https://github.com/simple-icons/simple-icons/blob/13.21.0/icons/openai.svg
+- `microsoft.svg`：Microsoft 四色方块标识，用于本地服务商识别。
+- `oracle.svg`：Oracle 红色椭圆标识的本地简化图形，用于服务商识别。
+- `github.svg`：GitHub 猫形标识的本地图形，用于服务商识别。
 - Simple Icons 图形采用 CC0，完整声明保存在 `simple-icons-LICENSE.md`。品牌商标权归各品牌所有。
 
 只用于标识用户条目的服务商，不表示品牌背书。已检查 SVG 不含脚本、事件或外部资源引用。

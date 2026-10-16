@@ -349,7 +349,7 @@ export function HardwareInfoPlugin({ open, onClose, onOpened }: Props) {
   }
   if (!open) return null;
   return <>{createPortal(<div className="modal-backdrop ide-theme hardware-info-backdrop">
-    <section ref={dialogRef} className="modal-form-layout hardware-info-dialog" role="dialog" aria-modal="true" aria-labelledby="hardware-info-title" aria-busy={busy} tabIndex={-1} onKeyDown={event => {
+    <section ref={dialogRef} className="modal modal-form-layout dialog-common-theme hardware-info-dialog" role="dialog" aria-modal="true" aria-labelledby="hardware-info-title" aria-busy={busy} tabIndex={-1} onKeyDown={event => {
       if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); onClose(); }
       if (event.key !== "Tab") return;
       const controls = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex="0"]')).filter(element => element.getClientRects().length > 0);
@@ -429,7 +429,7 @@ export function HardwareInfoPlugin({ open, onClose, onOpened }: Props) {
     </section>
   </div>, document.body)}
     {cameraOpen && createPortal(<div className="modal-backdrop ide-theme computer-camera-backdrop">
-      <section ref={cameraDialogRef} className="modal modal-form-layout computer-camera-dialog" role="dialog" aria-modal="true" aria-labelledby="computer-camera-title" tabIndex={-1} onKeyDown={event => {
+      <section ref={cameraDialogRef} className="modal modal-form-layout dialog-common-theme computer-camera-dialog" role="dialog" aria-modal="true" aria-labelledby="computer-camera-title" tabIndex={-1} onKeyDown={event => {
         if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); stopCamera(); return; }
         if (event.key !== "Tab") return;
         const controls = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), [tabindex="0"]')).filter(element => element.getClientRects().length > 0);
@@ -448,7 +448,7 @@ export function HardwareInfoPlugin({ open, onClose, onOpened }: Props) {
       </section>
     </div>, document.body)}
     {wifiPassword && createPortal(<div className="modal-backdrop ide-theme wifi-password-backdrop">
-      <section ref={wifiDialogRef} className="modal modal-form-layout wifi-password-dialog" role="dialog" aria-modal="true" aria-labelledby="wifi-password-title" tabIndex={-1} onKeyDown={event => {
+      <section ref={wifiDialogRef} className="modal modal-form-layout dialog-common-theme wifi-password-dialog" role="dialog" aria-modal="true" aria-labelledby="wifi-password-title" tabIndex={-1} onKeyDown={event => {
         if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); hideWifiPassword(); return; }
         if (event.key !== "Tab") return;
         event.stopPropagation();

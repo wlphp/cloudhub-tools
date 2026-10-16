@@ -205,7 +205,7 @@ export function OfficialPluginsPage() {
       <div className="store-list-footer"><span>共 {visibleCount} 个应用</span><span>内置应用随 CloudHub Tools 更新</span></div>
     </section>
     {settingsOpen && createPortal(<div className="modal-backdrop ide-theme">
-      <section ref={settingsRef} tabIndex={-1} id="wechat-store-settings" role="dialog" aria-modal="true" className="modal-form-layout official-plugin-card wechat-settings-dialog" aria-labelledby="wechat-plugin-title" aria-busy={busy} onKeyDown={event => {
+      <section ref={settingsRef} tabIndex={-1} id="wechat-store-settings" role="dialog" aria-modal="true" className="modal modal-form-layout dialog-common-theme official-plugin-card wechat-settings-dialog" aria-labelledby="wechat-plugin-title" aria-busy={busy} onKeyDown={event => {
         if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setSettingsOpen(false); }
         if (event.key !== "Tab") return;
         const controls = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button, input, select, textarea, summary, [tabindex="0"]')).filter(element => element.matches(":not(:disabled)") && element.getClientRects().length > 0);

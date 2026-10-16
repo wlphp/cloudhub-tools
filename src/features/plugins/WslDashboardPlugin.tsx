@@ -226,7 +226,7 @@ export function WslDashboardPlugin({ open, enabled, onClose }: Props) {
 
   if (!open) return null;
   return createPortal(<div className="modal-backdrop ide-theme">
-    <section ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="wsl-dashboard-title" aria-busy={busy} className="modal-form-layout official-plugin-card wechat-settings-dialog" onKeyDown={event => {
+    <section ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="wsl-dashboard-title" aria-busy={busy} className="modal modal-form-layout dialog-common-theme official-plugin-card wechat-settings-dialog" onKeyDown={event => {
       if (event.key !== "Tab") return;
       const controls = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button, input, select, textarea, summary, [tabindex="0"]')).filter(element => element.matches(":not(:disabled)") && element.getClientRects().length > 0);
       const first = controls[0], last = controls[controls.length - 1];
