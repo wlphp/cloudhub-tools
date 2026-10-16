@@ -5,6 +5,7 @@ use crate::core::{
 };
 use tauri::{AppHandle, State};
 use tauri_plugin_dialog::DialogExt;
+use zeroize::Zeroizing;
 fn error(message: String) -> PlatformError {
     PlatformError {
         kind: "ai",
@@ -30,7 +31,7 @@ pub(crate) async fn ai_export_config(
         else {
             return Ok(false);
         };
-        let bytes = serde_json::to_vec(&payload).map_err(|_| "导出AI配置失败")?;
+        let bytes = Zeroizing::new(serde_json::to_vec(&payload).map_err(|_| "导出AI配置失败")?);
         #[cfg(mobile)]
         {
             use std::io::Write;
@@ -46,7 +47,7 @@ pub(crate) async fn ai_export_config(
         #[cfg(not(mobile))]
         {
             let path = selected.into_path().map_err(|_| "保存AI迁移包失败")?;
-            std::fs::write(path, bytes).map_err(|_| "保存AI迁移包失败")?;
+            std::fs::write(path, bytes.as_slice()).map_err(|_| "保存AI迁移包失败")?;
         }
         Ok(true)
     })
@@ -56,20 +57,31 @@ pub(crate) async fn ai_export_config(
 }
 #[tauri::command]
 pub(crate) async fn ai_prepare_import(
-    content: String,
+    app: AppHandle,
     store: State<'_, ImportStore>,
-) -> PlatformResult<Preview> {
-    if content.len() > 600_000 {
-        return Err(error("AI配置文件超过大小限制".into()));
-    }
-    let payload = tauri::async_runtime::spawn_blocking(move || -> Result<Payload, String> {
-        let payload: Payload = serde_json::from_str(&content).map_err(|_| "AI配置文件格式无效")?;
+) -> PlatformResult<Option<Preview>> {
+    let payload = tauri::async_runtime::spawn_blocking(move || -> Result<Option<Payload>, String> {
+        use std::io::Read;
+        let Some(selected) = app.dialog().file().add_filter("CloudHub AI配置", &["json"]).blocking_pick_file() else { return Ok(None); };
+        #[cfg(not(mobile))]
+        let file = std::fs::File::open(selected.into_path().map_err(|_| "所选文件地址不受支持")?).map_err(|_| "读取AI配置文件失败")?;
+        #[cfg(mobile)]
+        let file = {
+            use tauri_plugin_fs::FsExt;
+            let mut options = tauri_plugin_fs::OpenOptions::new(); options.read(true);
+            app.fs().open(selected, options).map_err(|_| "读取AI配置文件失败")?
+        };
+        let mut content = Zeroizing::new(Vec::new());
+        file.take(600_001).read_to_end(&mut content).map_err(|_| "读取AI配置文件失败")?;
+        if content.len() > 600_000 { return Err("AI配置文件超过大小限制".into()); }
+        let payload: Payload = serde_json::from_slice(&content).map_err(|_| "AI配置文件格式无效")?;
         ai_transfer::validate(&payload)?;
-        Ok(payload)
+        Ok(Some(payload))
     })
     .await
     .map_err(|_| error("读取AI迁移任务失败".into()))?
     .map_err(error)?;
+    let Some(payload) = payload else { return Ok(None); };
     let mut pending = store
         .pending
         .lock()
@@ -84,9 +96,11 @@ pub(crate) async fn ai_prepare_import(
         .iter()
         .map(|record| {
             let mut profile = record.profile.clone();
-            profile.has_key = false;
-            profile.enabled = false;
-            profile.is_default = false;
+            profile.has_key = record.api_key.as_ref().is_some_and(|key| !key.is_empty());
+            if payload.version == 2 {
+                profile.enabled = false;
+                profile.is_default = false;
+            }
             profile
         })
         .collect();
@@ -97,7 +111,7 @@ pub(crate) async fn ai_prepare_import(
             payload,
         },
     );
-    Ok(Preview { token, profiles })
+    Ok(Some(Preview { token, profiles }))
 }
 #[tauri::command]
 pub(crate) fn ai_confirm_import(

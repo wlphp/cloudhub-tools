@@ -1,5 +1,7 @@
 pub mod accounts;
 #[cfg(desktop)]
+pub mod browser;
+#[cfg(desktop)]
 pub mod wechat_plugin;
 #[cfg(desktop)]
 pub mod wechat_sessions;

@@ -16,6 +16,8 @@ use std::{
     time::Duration,
 };
 use tauri::{Emitter, Manager};
+mod docking;
+mod computer;
 
 const CONFIG: &str = "desktop-pet-config-v1";
 const HISTORY: &str = "desktop-pet-alerts-v1";
@@ -56,7 +58,7 @@ impl Default for Settings {
             panel_access: true,
             certificates: true,
             servers: true,
-            size: 160,
+            size: 120,
             roam: "edge".into(),
             activity: 1,
             sound: false,
@@ -74,7 +76,7 @@ impl Default for Settings {
 impl Settings {
     fn validate(&self) -> Result<(), String> {
         self.life.validate()?;
-        if !["alpaca", "dog"].contains(&self.appearance.as_str()) || !(100..=240).contains(&self.size)
+        if !["alpaca", "dog", "penguin", "fish"].contains(&self.appearance.as_str()) || !(80..=240).contains(&self.size)
             || !["edge", "free", "still"].contains(&self.roam.as_str())
             || self.activity > 2
             || !(60..=3600).contains(&self.interval_seconds)
@@ -100,9 +102,10 @@ pub struct Snapshot {
 pub struct PetStore {
     pub checking: AtomicBool,
     pub expanded: AtomicBool,
+    pub docked: Mutex<Option<(i32, i32)>>,
     pub tray_ready: AtomicBool,
     pub size: AtomicU32,
-    pub sprite: Mutex<(u32, u32, bool, bool)>,
+    pub sprite: Mutex<(u32, u32, bool, usize)>,
     pub regions: Mutex<Vec<[f64; 4]>>,
     pub notice: Mutex<Option<Alert>>,
     pub failures: Mutex<HashMap<String, u32>>,
@@ -157,6 +160,7 @@ pub fn restricted<R: tauri::Runtime>(
                 "pet_layout",
                 "pet_move",
                 "pet_open",
+                "pet_computer_action",
                 "pet_snooze",
                 "pet_ignore",
                 "pet_check",
@@ -184,6 +188,13 @@ pub fn restricted<R: tauri::Runtime>(
 pub fn pet_settings(window: tauri::WebviewWindow) -> PlatformResult<Settings> {
     caller(&window)?;
     Ok(read_settings()?)
+}
+
+#[tauri::command]
+pub async fn pet_computer_action(window: tauri::WebviewWindow, action: computer::ComputerAction) -> PlatformResult<()> {
+    if window.label() != LABEL { return Err("电脑快捷操作仅允许从桌宠窗口执行".into()); }
+    tauri::async_runtime::spawn_blocking(move || computer::run(action)).await
+        .map_err(|_| "电脑快捷操作执行失败")?.map_err(Into::into)
 }
 
 const LIFE_HISTORY: &str = "desktop-pet-life-v1";
@@ -354,7 +365,7 @@ pub async fn pet_chat(
     let result: Result<String, String> = async {
     chat_caller(&window)?;
     if uuid::Uuid::parse_str(&request_id).is_err() { return Err("聊天请求标识无效".into()); }
-    let text = format!("当前宠物形象：{}。\n\n{}", if read_settings()?.appearance == "dog" { "小狗" } else { "羊驼" }, chat_context(&messages)?);
+    let text = format!("当前宠物形象：{}。\n\n{}", match read_settings()?.appearance.as_str() { "dog" => "小狗（柯基）", "penguin" => "企鹅", "fish" => "大鱼（DeepSeek）", _ => "羊驼" }, chat_context(&messages)?);
     let id = format!("pet:{request_id}");
     let (sender, mut receiver) = tokio::sync::watch::channel(false);
     store.begin(&id, &profile_id, sender)?;
@@ -423,6 +434,7 @@ fn notify(app: &tauri::AppHandle, alert: Alert) -> Result<(), String> {
         .get_webview_window(LABEL)
         .is_some_and(|w| w.is_visible().unwrap_or(false))
     {
+        if let Some(w) = app.get_webview_window(LABEL) { undock(app, &w)?; }
         let _ = app.emit_to(LABEL, "pet-notification", alert);
     } else {
         if let Some(w) = app.get_webview_window(NOTICE_LABEL) {
@@ -456,21 +468,31 @@ pub fn wants_tray(app: &tauri::AppHandle) -> bool {
 
 fn position(window: &tauri::WebviewWindow, x: Option<i32>, y: Option<i32>) -> Result<(), String> {
     let monitors = window.available_monitors().map_err(|_| "无法读取显示器")?;
+    let size = window.outer_size().map_err(|_| "无法读取桌宠窗口")?;
     let selected = monitors
         .iter()
         .find(|m| {
             let a = m.work_area();
             x.zip(y).is_some_and(|(x, y)| {
-                x >= a.position.x
-                    && y >= a.position.y
-                    && x < a.position.x + a.size.width as i32
-                    && y < a.position.y + a.size.height as i32
+                let cx = x + size.width as i32 / 2;
+                let cy = y + size.height as i32 / 2;
+                cx >= a.position.x
+                    && cy >= a.position.y
+                    && cx < a.position.x + a.size.width as i32
+                    && cy < a.position.y + a.size.height as i32
             })
         })
+        .or_else(|| x.zip(y).and_then(|(x,y)| monitors.iter().min_by_key(|m| {
+            let a = m.work_area();
+            let cx = x as i64 + size.width as i64/2;
+            let cy = y as i64 + size.height as i64/2;
+            let dx = (a.position.x as i64-cx).max(0).max(cx-a.position.x as i64-a.size.width as i64);
+            let dy = (a.position.y as i64-cy).max(0).max(cy-a.position.y as i64-a.size.height as i64);
+            dx*dx+dy*dy
+        })))
         .or_else(|| monitors.first())
         .ok_or("未找到显示器")?;
     let area = selected.work_area();
-    let size = window.outer_size().map_err(|_| "无法读取桌宠窗口")?;
     let right = (area.position.x + area.size.width as i32 - size.width as i32).max(area.position.x);
     let bottom =
         (area.position.y + area.size.height as i32 - size.height as i32).max(area.position.y);
@@ -480,7 +502,61 @@ fn position(window: &tauri::WebviewWindow, x: Option<i32>, y: Option<i32>) -> Re
         .set_position(tauri::PhysicalPosition::new(x, y))
         .map_err(|_| "无法移动桌宠".into())
 }
+fn head_rect(appearance: usize) -> [u32; 4] {
+    static HEADS: std::sync::OnceLock<[[u32;4];4]> = std::sync::OnceLock::new();
+    HEADS.get_or_init(|| serde_json::from_str(include_str!("../../../src/features/desktop-pet/assets/pet-heads.json")).expect("bundled pet head bounds"))[appearance]
+}
+
+fn undock(app: &tauri::AppHandle, w: &tauri::WebviewWindow) -> Result<(), String> {
+    let store = app.state::<PetStore>();
+    let mut docked = store.docked.lock().map_err(|_| "桌宠贴边状态不可用")?;
+    if let Some((x,y)) = *docked {
+        let s = read_settings()?;
+        w.set_size(tauri::LogicalSize::new(s.size as f64+80.,s.size as f64+40.)).map_err(|_| "无法展开桌宠")?;
+        position(w,Some(x),Some(y))?;
+        *docked = None;
+        let _ = w.emit("pet-docked",false);
+    }
+    Ok(())
+}
+
+fn dock_after_drag(app: &tauri::AppHandle, w: &tauri::WebviewWindow) -> Result<(), String> {
+    let store = app.state::<PetStore>();
+    // Serialize with message-driven undocking and layout changes.
+    let mut docked = store.docked.lock().map_err(|_| "桌宠贴边状态不可用")?;
+    if docked.is_some() { return Ok(()); }
+    let Some(monitor) = w.current_monitor().map_err(|_| "无法读取显示器")?.or(w.primary_monitor().map_err(|_| "无法读取显示器")?) else { return Ok(()); };
+    let area = monitor.work_area();
+    let area = (area.position.x,area.position.y,area.size.width,area.size.height);
+    let raw = w.outer_position().map_err(|_| "无法读取桌宠位置")?;
+    let size = w.outer_size().map_err(|_| "无法读取桌宠大小")?;
+    let s = read_settings()?;
+    let scale = monitor.scale_factor();
+    let (avatar, avatar_size) = docking::avatar_bounds((raw.x,raw.y),size.height,s.size,scale);
+    let edge = docking::edge_at(avatar,avatar_size,area,(16.*scale) as i32);
+    position(w,Some(raw.x),Some(raw.y))?;
+    let Some(edge) = edge else { return Ok(()); };
+    let full = w.outer_position().map_err(|_| "无法读取桌宠位置")?;
+    let appearance = match s.appearance.as_str() { "dog"=>1,"penguin"=>2,"fish"=>3,_=>0 };
+    let [hx,hy,hw,hh] = head_rect(appearance);
+    let width = (s.size as f64 * hw as f64 / 256.).min(area.2 as f64 / scale);
+    let height = (s.size as f64 * hh as f64 / 256.).min(area.3 as f64 / scale);
+    w.set_size(tauri::LogicalSize::new(width,height)).map_err(|_| "无法收起桌宠")?;
+    let size = w.outer_size().map_err(|_| "无法读取桌宠大小")?;
+    let head = (avatar.0+(hx as f64/256.*s.size as f64*scale).round() as i32,avatar.1+(hy as f64/256.*s.size as f64*scale).round() as i32);
+    let (x,y) = docking::head_position(edge,head,(size.width,size.height),area);
+    if w.set_position(tauri::PhysicalPosition::new(x,y)).is_err() {
+        let _ = w.set_size(tauri::LogicalSize::new(s.size as f64+80.,s.size as f64+40.));
+        return Err("无法将桌宠收起到边缘".into());
+    }
+    *docked = Some((full.x,avatar.1-(28.*scale).round() as i32));
+    let _ = w.emit("pet-docked",true);
+    Ok(())
+}
+
 pub fn sync_window(app: &tauri::AppHandle) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window(LABEL) { undock(app,&w)?; }
+    else { *app.state::<PetStore>().docked.lock().map_err(|_| "桌宠贴边状态不可用")? = None; }
     let settings = read_settings()?;
     app.state::<PetStore>()
         .size
@@ -492,6 +568,7 @@ pub fn sync_window(app: &tauri::AppHandle) -> Result<(), String> {
         return Ok(());
     }
     if let Some(w) = app.get_webview_window(LABEL) {
+        w.set_maximizable(false).map_err(|_| "无法关闭桌宠系统最大化")?;
         w.set_size(tauri::LogicalSize::new(
             settings.size as f64 + 80.,
             settings.size as f64 + 40.,
@@ -514,6 +591,7 @@ pub fn sync_window(app: &tauri::AppHandle) -> Result<(), String> {
         .decorations(false)
         .shadow(false)
         .resizable(false)
+        .maximizable(false)
         .always_on_top(true)
         .skip_taskbar(true)
         .focused(false)
@@ -581,13 +659,13 @@ pub fn pet_sprite(
 ) -> PlatformResult<()> {
     caller(&window)?;
     let appearance = appearance.as_deref().unwrap_or("alpaca");
-    if column > 5 || row > 3 || !["alpaca", "dog"].contains(&appearance) {
+    if column > 5 || row > 3 || !["alpaca", "dog", "penguin", "fish"].contains(&appearance) {
         return Err("桌宠动画帧无效".into());
     }
     *app.state::<PetStore>()
         .sprite
         .lock()
-        .map_err(|_| "桌宠状态不可用")? = (column, row, flipped, appearance == "dog");
+        .map_err(|_| "桌宠状态不可用")? = (column, row, flipped, match appearance { "dog" => 1, "penguin" => 2, "fish" => 3, _ => 0 });
     Ok(())
 }
 #[tauri::command]
@@ -622,6 +700,8 @@ pub fn pet_layout(
     let state = app.state::<PetStore>();
     state.expanded.store(expanded, Ordering::SeqCst);
     if let Some(w) = app.get_webview_window(LABEL) {
+        if expanded { undock(&app,&w)?; }
+        else if state.docked.lock().map_err(|_| "桌宠贴边状态不可用")?.is_some() { let _ = w.emit("pet-docked",true); return Ok(()); }
         let s = read_settings()?;
         let old = w.outer_size().map_err(|_| "无法读取桌宠大小")?;
         let p = w.outer_position().map_err(|_| "无法读取桌宠位置")?;
@@ -649,20 +729,28 @@ pub fn pet_layout(
     Ok(())
 }
 #[tauri::command]
-pub fn pet_move(
+pub async fn pet_move(
     window: tauri::WebviewWindow,
     app: tauri::AppHandle,
     dx: i32,
     dy: i32,
     reset: bool,
     remember: bool,
+    dock: Option<bool>,
+    reveal: Option<bool>,
 ) -> PlatformResult<()> {
     caller(&window)?;
     if !(-100..=100).contains(&dx) || !(-100..=100).contains(&dy) {
         return Err("桌宠移动距离无效".into());
     }
+    if remember && !reset && !reveal.unwrap_or(false) {
+        docking::wait_for_drop().await?;
+    }
     if let Some(w) = app.get_webview_window(LABEL) {
-        if reset {
+        if reset || reveal.unwrap_or(false) { undock(&app,&w)?; }
+        else if app.state::<PetStore>().docked.lock().map_err(|_| "桌宠贴边状态不可用")?.is_some() { return Ok(()); }
+        if dock.unwrap_or(false) && !reset { dock_after_drag(&app,&w)?; }
+        else if reset {
             position(&w, None, None)?;
         } else {
             let p = w.outer_position().map_err(|_| "无法读取桌宠位置")?;
@@ -670,7 +758,8 @@ pub fn pet_move(
         }
         if remember {
             let p = w.outer_position().map_err(|_| "无法读取桌宠位置")?;
-            save_json(POSITION, &(p.x, p.y))?;
+            let docked = *app.state::<PetStore>().docked.lock().map_err(|_| "桌宠贴边状态不可用")?;
+            save_json(POSITION, &docked.unwrap_or((p.x,p.y)))?;
         }
     }
     Ok(())
@@ -1165,11 +1254,11 @@ pub fn initialize(app: &tauri::AppHandle) {
     // Hit testing uses the same alpha pixels and sprite frame as the UI, not the window rectangle.
     let handle = app.clone();
     tauri::async_runtime::spawn(async move {
-        let mut masks = [None, None];
+        let mut masks = [None, None, None, None];
         loop {
             tokio::time::sleep(Duration::from_millis(65)).await;
             let Some(w) = handle.get_webview_window(LABEL) else {
-                masks = [None, None];
+                masks = [None, None, None, None];
                 tokio::time::sleep(Duration::from_secs(1)).await;
                 continue;
             };
@@ -1180,6 +1269,8 @@ pub fn initialize(app: &tauri::AppHandle) {
             for (index, bytes) in [
                 (0, include_bytes!("../../../src/features/desktop-pet/assets/alpaca-sprites.png").as_slice()),
                 (1, include_bytes!("../../../src/features/desktop-pet/assets/dog-sprites.png").as_slice()),
+                (2, include_bytes!("../../../src/features/desktop-pet/assets/penguin-sprites.png").as_slice()),
+                (3, include_bytes!("../../../src/features/desktop-pet/assets/fish-sprites.png").as_slice()),
             ] {
                 if masks[index].is_none() {
                     masks[index] = image::load_from_memory(bytes).ok().map(|im| im.to_rgba8());
@@ -1202,15 +1293,25 @@ pub fn initialize(app: &tauri::AppHandle) {
                 {
                     return Some(true);
                 }
+                if store.docked.lock().ok()?.is_some() {
+                    let (_,_,_,appearance) = *store.sprite.lock().ok()?;
+                    let [left,top,width,height] = head_rect(appearance);
+                    let bounds = w.inner_size().ok()?;
+                    let (width_px,height_px) = (bounds.width as f64/scale,bounds.height as f64/scale);
+                    if cx < 0. || cy < 0. || cx >= width_px || cy >= height_px { return Some(false); }
+                    let sx = ((cx/width_px)*width as f64) as u32;
+                    let sy = ((cy/height_px)*height as f64) as u32;
+                    return Some(masks[appearance].as_ref()?.get_pixel(left+sx.min(width-1),top+sy.min(height-1))[3]>32);
+                }
                 let size = store.size.load(Ordering::SeqCst).max(1) as f64;
                 let x = (p.x - origin.x as f64) / scale - 40.;
                 let y = (p.y - origin.y as f64) / scale - (height - size - 12.);
                 if x < 0. || y < 0. || x >= size || y >= size {
                     return Some(false);
                 }
-                let (col, row, flipped, dog) = *store.sprite.lock().ok()?;
-                let mask = masks[usize::from(dog)].as_ref()?;
-                let (left, top, cell_w, cell_h) = sprite_rect(dog, col, row);
+                let (col, row, flipped, appearance) = *store.sprite.lock().ok()?;
+                let mask = masks[appearance].as_ref()?;
+                let (left, top, cell_w, cell_h) = sprite_rect(appearance, col, row);
                 let sx = ((x / size) * cell_w as f64) as u32;
                 let sy = ((y / size) * cell_h as f64) as u32;
                 let sx = if flipped {
@@ -1244,19 +1345,30 @@ pub fn initialize(app: &tauri::AppHandle) {
     });
 }
 
-// Match petSpriteStyle in appearances.ts, including the dog's expressive pose gutters.
-fn sprite_rect(dog: bool, column: u32, row: u32) -> (u32, u32, u32, u32) {
-    if dog && row == 3 {
-        let edges = [0, 282, 532, 782, 1032, 1284, 1536];
-        let index = column as usize;
-        (edges[index], 750, edges[index + 1] - edges[index], 274)
-    } else {
-        (column * 256, row * 256, 256, 256)
-    }
+// Both renderers read the same frame bounds, including character-specific gutters.
+fn sprite_rect(appearance: usize, column: u32, row: u32) -> (u32, u32, u32, u32) {
+    static DOG: std::sync::OnceLock<[[u32; 4]; 24]> = std::sync::OnceLock::new();
+    static FISH: std::sync::OnceLock<[[u32;4];24]> = std::sync::OnceLock::new();
+    static PENGUIN: std::sync::OnceLock<[[u32; 4]; 24]> = std::sync::OnceLock::new();
+    let frames = match appearance {
+        1 => DOG.get_or_init(|| serde_json::from_str(include_str!("../../../src/features/desktop-pet/assets/dog-frames.json")).expect("bundled corgi frame metadata")),
+        2 => PENGUIN.get_or_init(|| serde_json::from_str(include_str!("../../../src/features/desktop-pet/assets/penguin-frames.json")).expect("bundled penguin frame metadata")),
+        3 => FISH.get_or_init(|| serde_json::from_str(include_str!("../../../src/features/desktop-pet/assets/fish-frames.json")).expect("bundled fish frame metadata")),
+        _ => return (column * 256, row * 256, 256, 256),
+    };
+    let [left, top, width, height] = frames[(row * 6 + column) as usize];
+    (left, top, width, height)
 }
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn all_head_crops_stay_inside_the_standing_frame() {
+        for appearance in 0..4 {
+            let [x,y,width,height] = super::head_rect(appearance);
+            assert!(width>0 && height>0 && x+width<=256 && y+height<=256);
+        }
+    }
     #[test]
     fn pet_appearance_defaults_and_validation_round_trip() {
         let settings: super::Settings = serde_json::from_str("{}").unwrap();
@@ -1265,23 +1377,36 @@ mod tests {
         assert!(dog.validate().is_ok());
         let saved = serde_json::to_string(&dog).unwrap();
         assert_eq!(serde_json::from_str::<super::Settings>(&saved).unwrap().appearance, "dog");
+        let penguin: super::Settings = serde_json::from_str(r#"{"appearance":"penguin"}"#).unwrap();
+        assert!(penguin.validate().is_ok());
+        let saved = serde_json::to_string(&penguin).unwrap();
+        assert_eq!(serde_json::from_str::<super::Settings>(&saved).unwrap().appearance, "penguin");
         let invalid: super::Settings = serde_json::from_str(r#"{"appearance":"../file.png"}"#).unwrap();
+        let fish: super::Settings = serde_json::from_str(r#"{"appearance":"fish"}"#).unwrap();
+        assert!(fish.validate().is_ok());
+        assert_eq!(serde_json::from_str::<super::Settings>(&serde_json::to_string(&fish).unwrap()).unwrap().appearance,"fish");
         assert!(invalid.validate().is_err());
     }
     #[test]
-    fn both_pet_atlases_have_matching_grids_and_transparent_corners() {
+    fn all_pet_atlases_have_valid_frames_and_transparent_borders() {
         for (index, bytes) in [
             include_bytes!("../../../src/features/desktop-pet/assets/alpaca-sprites.png").as_slice(),
             include_bytes!("../../../src/features/desktop-pet/assets/dog-sprites.png").as_slice(),
+            include_bytes!("../../../src/features/desktop-pet/assets/penguin-sprites.png").as_slice(),
+            include_bytes!("../../../src/features/desktop-pet/assets/fish-sprites.png").as_slice(),
         ].into_iter().enumerate() {
             let atlas = image::load_from_memory(bytes).unwrap().to_rgba8();
             assert_eq!(atlas.dimensions(), (1536, 1024));
             assert!(atlas.get_pixel(0, 0)[3] < 10);
             assert!(atlas.get_pixel(1535, 1023)[3] < 10);
             for row in 0..4 { for col in 0..6 {
-                let (left, top, width, height) = super::sprite_rect(index == 1, col, row);
+                let (left, top, width, height) = super::sprite_rect(index, col, row);
                 assert!(left + width <= atlas.width() && top + height <= atlas.height());
                 assert!((0..height).any(|y| (0..width).any(|x| atlas.get_pixel(left+x, top+y)[3] > 32)));
+                if index > 0 {
+                    assert!((0..width).all(|x| atlas.get_pixel(left+x, top)[3] <= 32 && atlas.get_pixel(left+x, top+height-1)[3] <= 32), "pet frame touches another row");
+                    assert!((0..height).all(|y| atlas.get_pixel(left, top+y)[3] <= 32 && atlas.get_pixel(left+width-1, top+y)[3] <= 32), "pet frame touches another column");
+                }
             } }
         }
     }

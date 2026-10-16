@@ -3,7 +3,14 @@ use std::sync::Mutex;
 
 use super::paths::data_dir;
 
-const CURRENT_SCHEMA_VERSION: i64 = 36;
+const CURRENT_SCHEMA_VERSION: i64 = 37;
+// Migration 37 has already run on local databases. Keep its additive schema even
+// when the browser feature is absent; removing a feature must not erase migration history.
+const BROWSER_ENVIRONMENTS_V37_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS browser_environments (
+    id TEXT PRIMARY KEY, config_json TEXT NOT NULL, proxy_secret_ciphertext TEXT,
+    created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+    last_opened_at INTEGER, deleted_at INTEGER
+);";
 // Schema is shared by desktop and mobile; migrations must not depend on desktop modules.
 pub const CODEX_GATEWAY_PREFERENCES_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS codex_gateway_preferences(id INTEGER PRIMARY KEY CHECK(id=1),json TEXT NOT NULL);";
 pub const CODEX_ACCOUNT_CONTROLS_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS codex_account_controls(account_id INTEGER PRIMARY KEY REFERENCES codex_accounts(id) ON DELETE CASCADE,proxy_url TEXT,benefits_json TEXT,reset_request_id TEXT);";
@@ -352,6 +359,10 @@ fn migrate_connection_inner(conn: &mut Connection) -> Result<(), String> {
         }
         transaction.pragma_update(None, "user_version", 36).map_err(|_| "更新AI多模型版本失败")?;
     }
+    if version < 37 {
+        transaction.execute_batch(BROWSER_ENVIRONMENTS_V37_SCHEMA).map_err(|_| "保留浏览器环境历史存储失败")?;
+        transaction.pragma_update(None, "user_version", 37).map_err(|_| "更新历史数据库版本失败")?;
+    }
     transaction.commit().map_err(|error| format!("提交 SQLite 迁移失败: {error}"))?;
 
     Ok(())
@@ -450,6 +461,32 @@ fn snapshot_before_upgrade(source: &Connection, path: &std::path::Path, version:
 mod tests {
     use super::{migrate_connection, CURRENT_SCHEMA_VERSION};
     use rusqlite::Connection;
+
+    #[test]
+    fn retained_v37_migration_upgrades_v36_and_preserves_existing_data() {
+        let root = std::env::temp_dir().join(format!("cloudhub-retained-v37-{}",uuid::Uuid::new_v4()));
+        std::fs::create_dir(&root).unwrap();
+        let path = root.join("cloudhub_tools.sqlite3");
+        let original = super::open_db_at(&path).unwrap();
+        original.execute_batch("CREATE TABLE migration_fixture(value TEXT); INSERT INTO migration_fixture VALUES('preserve'); DROP TABLE browser_environments; PRAGMA user_version=36;").unwrap();
+        drop(original);
+        let upgraded = super::open_db_at(&path).unwrap();
+        assert_eq!(super::supported_schema_version(&upgraded).unwrap(),37);
+        assert_eq!(upgraded.query_row("SELECT value FROM migration_fixture",[],|r| r.get::<_,String>(0)).unwrap(),"preserve");
+        upgraded.execute("INSERT INTO browser_environments(id,config_json,created_at,updated_at) VALUES('fixture','{}',1,1)",[]).unwrap();
+        drop(upgraded);
+        let reopened = super::open_db_at(&path).unwrap();
+        assert_eq!(super::supported_schema_version(&reopened).unwrap(),37);
+        assert_eq!(reopened.query_row("SELECT config_json FROM browser_environments WHERE id='fixture'",[],|r| r.get::<_,String>(0)).unwrap(),"{}");
+        drop(reopened);
+        #[cfg(not(mobile))]
+        {
+            let backup = std::fs::read_dir(root.join("schema-backups")).unwrap().next().unwrap().unwrap().path();
+            let saved = Connection::open(backup.join("cloudhub_tools.sqlite3")).unwrap();
+            assert_eq!(super::supported_schema_version(&saved).unwrap(),36);
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn newer_database_is_rejected_before_initialization_writes() {

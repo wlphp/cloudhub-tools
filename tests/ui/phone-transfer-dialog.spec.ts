@@ -28,9 +28,9 @@ test("phone migration defaults to 95 percent with fixed common header and footer
     await expect(panel.getByRole("button", {name:"关闭迁移面板"})).toBeVisible();
     expect(await panel.evaluate(el=>getComputedStyle(el).backgroundColor)).toBe(await footer.evaluate(el=>getComputedStyle(el).backgroundColor));
   }
-  await panel.getByRole("button", {name:"缩小迁移弹层"}).click();
+  await panel.getByRole("button", {name:"缩小弹层"}).click();
   const small = await panel.boundingBox(); expect(small!.width).toBe(760); expect(small!.height).toBe(720);
-  await panel.getByRole("button", {name:"放大迁移弹层"}).click();
+  await panel.getByRole("button", {name:"最大化弹层"}).click();
   await panel.locator(".sync-transfer-body").evaluate(el=>{el.scrollTop=0;});
   await page.screenshot({path:"test-results/phone-migration-common-dialog.png"});
   await panel.getByRole("button", {name:"关闭迁移面板"}).click(); await expect(panel).toBeHidden();

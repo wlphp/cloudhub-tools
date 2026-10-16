@@ -39,6 +39,8 @@ pub struct SyncAccountBundle {
     pub certificates: Vec<super::certificate_sync::SyncCertificateRecord>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub authenticators: Vec<crate::core::authenticator::Entry>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ai_profiles: Vec<crate::core::ai_transfer::Record>,
 }
 
 /// A native-only snapshot of scoped outbox changes. The metadata remains
@@ -100,7 +102,7 @@ impl Zeroize for SyncAccountBundle {
         self.panels.zeroize();
         self.deletions.zeroize();
         self.flow_connections.zeroize(); self.certificates.zeroize();
-        self.authenticators.zeroize();
+        self.authenticators.zeroize(); self.ai_profiles.zeroize();
     }
 }
 
@@ -302,7 +304,7 @@ pub fn compare_version_vectors(incoming: &BTreeMap<String, u64>, current: &BTree
 /// Compares each entity's newest incoming version with the last merged vector
 /// and local edits. Concurrent or stale updates are surfaced for user review.
 pub fn preview_delta_version_conflicts(conn: &Connection, delta: &SyncDeltaBundle) -> Result<Vec<SyncBundleConflict>, String> {
-    if delta.protocol_version != 1 || (!delta.snapshot.flow_connections.is_empty() || !delta.snapshot.certificates.is_empty() || !delta.snapshot.authenticators.is_empty()) || Uuid::parse_str(&delta.source_device_id).is_err() || Uuid::parse_str(&delta.target_device_id).is_err()
+    if delta.protocol_version != 1 || (!delta.snapshot.flow_connections.is_empty() || !delta.snapshot.certificates.is_empty() || !delta.snapshot.authenticators.is_empty() || !delta.snapshot.ai_profiles.is_empty()) || Uuid::parse_str(&delta.source_device_id).is_err() || Uuid::parse_str(&delta.target_device_id).is_err()
         || delta.changes.is_empty() || delta.changes.len() > 100 {
         return Err("增量同步批次头部无效".into());
     }
@@ -556,7 +558,7 @@ fn build_account_bundle_from(conn: &Connection, account_sync_ids: &[String], man
     if accounts.is_empty() && managed_hosts.is_empty() && panels.is_empty() && deletions.is_empty() {
         return Err("请至少选择一个配置，或勾选并包含源设备的删除记录".into());
     }
-    Ok(SyncAccountBundle { protocol_version: 1, accounts, managed_hosts, panels, deletions, flow_connections: vec![], certificates: vec![], authenticators: vec![] })
+    Ok(SyncAccountBundle { protocol_version: 1, accounts, managed_hosts, panels, deletions, flow_connections: vec![], certificates: vec![], ai_profiles: vec![], authenticators: vec![] })
 }
 
 pub fn managed_host_sync_ids_by_local_ids(conn: &mut Connection, host_ids: &[i64]) -> Result<Vec<String>, String> {
@@ -615,13 +617,14 @@ where F: Fn(&str) -> Result<String, String> {
 
 fn import_account_bundle_with_encryptor_and_hook<F, H>(conn: &mut Connection, bundle: &SyncAccountBundle, now: i64, encrypt: F, allow_empty: bool, finalize: H) -> Result<SyncImportCounts, String>
 where F: Fn(&str) -> Result<String, String>, H: FnOnce(&rusqlite::Transaction<'_>) -> Result<(), String> {
-    let total = bundle.accounts.len() + bundle.managed_hosts.len() + bundle.panels.len() + bundle.deletions.len() + bundle.flow_connections.len() + bundle.certificates.len() + bundle.authenticators.len();
-    if !matches!(bundle.protocol_version, 1 | 2 | 3) || (bundle.protocol_version == 1 && (!bundle.flow_connections.is_empty() || !bundle.certificates.is_empty() || !bundle.authenticators.is_empty())) || (!allow_empty && total == 0) || total > 100 {
+    let total = bundle.accounts.len() + bundle.managed_hosts.len() + bundle.panels.len() + bundle.deletions.len() + bundle.flow_connections.len() + bundle.certificates.len() + bundle.authenticators.len() + bundle.ai_profiles.len();
+    if !matches!(bundle.protocol_version, 1 | 2 | 3 | 4) || (bundle.protocol_version == 1 && (!bundle.flow_connections.is_empty() || !bundle.certificates.is_empty() || !bundle.authenticators.is_empty())) || (!allow_empty && total == 0) || total > 100 {
         return Err("同步包版本或记录数量无效".into());
     }
     super::flow_sync::validate(&bundle.flow_connections)?;
     super::certificate_sync::validate(&bundle.certificates)?;
     super::authenticator_sync::validate(&bundle.authenticators)?;
+    crate::core::ai_transfer::validate_migration(&bundle.ai_profiles, bundle.protocol_version)?;
     if bundle.protocol_version < 3 && !bundle.authenticators.is_empty() { return Err("验证码迁移需要第三版协议".into()); }
     let mut entity_keys = HashSet::new();
     for account in &bundle.accounts { entity_keys.insert(("cloud_account", account.sync_id.as_str())); }
@@ -779,6 +782,11 @@ where F: Fn(&str) -> Result<String, String>, H: FnOnce(&rusqlite::Transaction<'_
     let (flow_added, flow_updated) = super::flow_sync::import(&transaction, &bundle.flow_connections, now, &encrypt)?;
     let (certificate_added, certificate_updated) = super::certificate_sync::import(&transaction, &bundle.certificates, now)?;
     if let Some(key) = authenticator_key { let (added, updated) = super::authenticator_sync::import(&transaction, &bundle.authenticators, &key)?; counts.added += added; counts.updated += updated; }
+    if !bundle.ai_profiles.is_empty() {
+        let payload = crate::core::ai_transfer::migration_payload(&bundle.ai_profiles);
+        let ids = payload.records.iter().map(|r| r.profile.id.clone()).collect::<Vec<_>>();
+        counts.added += crate::core::ai_transfer::import_into_with(&transaction, &payload, &ids, &encrypt)?;
+    }
     counts.added += certificate_added; counts.updated += certificate_updated;
     counts.added += flow_added;
     counts.updated += flow_updated;
@@ -1038,7 +1046,7 @@ mod tests {
         let mut delta = SyncDeltaBundle {
             protocol_version: 1, source_device_id: remote.into(), target_device_id: local.into(), from_sequence: 7, through_sequence: 7, signature: None,
             changes: vec![SyncDeltaChange { sequence: 7, message_id: message_id.into(), entity_type: "cloud_account".into(), entity_sync_id: entity.into(), operation: "upsert".into(), version_json: format!(r#"{{"{remote}":1}}"#), created_at: 100 }],
-            snapshot: SyncAccountBundle { protocol_version: 1, accounts: vec![SyncAccountRecord { sync_id: entity.into(), account_name: "mobile test".into(), cloud_type: "aliyun".into(), group_name: None, access_key_id: "unique-mobile-test".into(), access_key_secret: "test-secret-value".into(), credential_meta: None, region_id: None, sort_order: 0, enabled: true, remark: None }], managed_hosts: vec![], panels: vec![], flow_connections: vec![], certificates: vec![], authenticators: vec![], deletions: vec![] },
+            snapshot: SyncAccountBundle { protocol_version: 1, accounts: vec![SyncAccountRecord { sync_id: entity.into(), account_name: "mobile test".into(), cloud_type: "aliyun".into(), group_name: None, access_key_id: "unique-mobile-test".into(), access_key_secret: "test-secret-value".into(), credential_meta: None, region_id: None, sort_order: 0, enabled: true, remark: None }], managed_hosts: vec![], panels: vec![], flow_connections: vec![], certificates: vec![], ai_profiles: vec![], authenticators: vec![], deletions: vec![] },
         };
         let bytes = super::sync_delta_signing_bytes(&delta).unwrap();
         // A source signature binds source -> target.
@@ -1074,7 +1082,7 @@ mod tests {
         let mut delta = SyncDeltaBundle {
             protocol_version: 1, source_device_id: remote.into(), target_device_id: local.into(), from_sequence: 3, through_sequence: 3, signature: None,
             changes: vec![SyncDeltaChange { sequence: 3, message_id: message_id.into(), entity_type: "cloud_account".into(), entity_sync_id: entity.into(), operation: "upsert".into(), version_json: format!(r#"{{"{remote}":1}}"#), created_at: 100 }],
-            snapshot: SyncAccountBundle { protocol_version: 1, accounts: vec![SyncAccountRecord { sync_id: entity.into(), account_name: "incoming name".into(), cloud_type: "aliyun".into(), group_name: None, access_key_id: "new-access-id".into(), access_key_secret: "incoming-secret".into(), credential_meta: None, region_id: None, sort_order: 0, enabled: true, remark: None }], managed_hosts: vec![], panels: vec![], flow_connections: vec![], certificates: vec![], authenticators: vec![], deletions: vec![] },
+            snapshot: SyncAccountBundle { protocol_version: 1, accounts: vec![SyncAccountRecord { sync_id: entity.into(), account_name: "incoming name".into(), cloud_type: "aliyun".into(), group_name: None, access_key_id: "new-access-id".into(), access_key_secret: "incoming-secret".into(), credential_meta: None, region_id: None, sort_order: 0, enabled: true, remark: None }], managed_hosts: vec![], panels: vec![], flow_connections: vec![], certificates: vec![], ai_profiles: vec![], authenticators: vec![], deletions: vec![] },
         };
         let bytes = super::sync_delta_signing_bytes(&delta).unwrap();
         delta.signature = Some(STANDARD.encode(crate::core::sync_identity::sign_sync_delta(&seed, remote, local, &bytes).unwrap()));
@@ -1104,7 +1112,7 @@ mod tests {
         let delta = SyncDeltaBundle {
             protocol_version: 1, source_device_id: remote.into(), target_device_id: local.into(), from_sequence: 1, through_sequence: 1, signature: None,
             changes: vec![SyncDeltaChange { sequence: 1, message_id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd".into(), entity_type: "cloud_account".into(), entity_sync_id: entity.into(), operation: "delete".into(), version_json: format!(r#"{{"{remote}":2}}"#), created_at: 10 }],
-            snapshot: SyncAccountBundle { protocol_version: 1, accounts: vec![], managed_hosts: vec![], panels: vec![], flow_connections: vec![], certificates: vec![], authenticators: vec![], deletions: vec![super::SyncDeletionRecord { entity_type: "cloud_account".into(), sync_id: entity.into(), version_json: format!(r#"{{"{remote}":2}}"#), deleted_at: 10 }] },
+            snapshot: SyncAccountBundle { protocol_version: 1, accounts: vec![], managed_hosts: vec![], panels: vec![], flow_connections: vec![], certificates: vec![], ai_profiles: vec![], authenticators: vec![], deletions: vec![super::SyncDeletionRecord { entity_type: "cloud_account".into(), sync_id: entity.into(), version_json: format!(r#"{{"{remote}":2}}"#), deleted_at: 10 }] },
         };
         let conflicts = preview_delta_version_conflicts(&conn, &delta).unwrap();
         assert_eq!(conflicts.len(), 1);
@@ -1155,11 +1163,53 @@ mod tests {
     }
 
     #[test]
+    fn ai_only_migration_restores_state_and_rejects_old_protocol() {
+        let mut conn = config_fixture();
+        conn.execute_batch(crate::core::repositories::ai::SCHEMA).unwrap();
+        let mut bundle: SyncAccountBundle = serde_json::from_str(r#"{"protocolVersion":4,"accounts":[],"aiProfiles":[{"profile":{"id":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","name":"AI迁移","protocol":"claude","baseUrl":"https://example.test","model":"model-a","models":["model-a","model-b"],"enabled":true,"isDefault":true,"timeoutSeconds":60,"maxOutputTokens":512,"allowLoopbackHttp":false,"hasKey":true,"visionStatus":"supported"}}]}"#).unwrap();
+        let secret = zeroize::Zeroizing::new(Uuid::new_v4().to_string());
+        bundle.ai_profiles[0].api_key = Some(secret.to_string());
+        let key = [13u8; 32];
+        let counts = super::import_account_bundle_with_encryptor(&mut conn, &bundle, 10, |value| crate::core::crypto::encrypt_secret_with_key(value, &key)).unwrap();
+        assert_eq!(counts.added, 1);
+        let rows = crate::core::repositories::ai::list(&conn).unwrap();
+        assert!(rows[0].enabled && rows[0].is_default && rows[0].has_key);
+        assert_eq!(rows[0].models, vec!["model-a", "model-b"]);
+        assert_eq!(rows[0].vision_status, "supported");
+        let cipher: String = conn.query_row("SELECT key_ciphertext FROM ai_profiles", [], |r| r.get(0)).unwrap();
+        assert!(crate::core::crypto::decrypt_secret_with_key(&cipher, &key).unwrap() == secret.as_str());
+        assert!(!serde_json::to_string(&rows).unwrap().contains(secret.as_str()));
+        bundle.protocol_version = 3;
+        assert!(super::import_account_bundle_with_encryptor(&mut conn, &bundle, 10, |_| panic!()).is_err());
+        assert_eq!(crate::core::repositories::ai::list(&conn).unwrap().len(), 1);
+        let old: SyncAccountBundle = serde_json::from_str(r#"{"protocolVersion":1,"accounts":[]}"#).unwrap();
+        assert!(old.ai_profiles.is_empty());
+        assert!(!serde_json::to_string(&old).unwrap().contains("aiProfiles"));
+    }
+
+    #[test]
+    fn mixed_ai_migration_failure_rolls_back_other_configuration() {
+        let mut conn = config_fixture();
+        conn.execute_batch(crate::core::repositories::ai::SCHEMA).unwrap();
+        let mut bundle = super::build_account_bundle_from(&conn, &["11111111-1111-4111-8111-111111111111".into()], &[], &[], false).unwrap();
+        bundle.protocol_version = 4;
+        bundle.accounts[0].account_name = "must roll back".into();
+        let record = serde_json::from_str(r#"{"profile":{"id":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","name":"AI迁移","protocol":"claude","baseUrl":"https://example.test","model":"model-a","enabled":false,"isDefault":true,"timeoutSeconds":60,"maxOutputTokens":512,"allowLoopbackHttp":false,"hasKey":false}}"#).unwrap();
+        bundle.ai_profiles.push(record);
+        let before: String = conn.query_row("SELECT account_name FROM cloud_accounts WHERE id=42", [], |r| r.get(0)).unwrap();
+        let result = super::import_account_bundle_with_encryptor_and_hook(&mut conn, &bundle, 10, |_| Ok("opaque".into()), false, |_| Err("rollback".into()));
+        assert!(result.is_err());
+        let after: String = conn.query_row("SELECT account_name FROM cloud_accounts WHERE id=42", [], |r| r.get(0)).unwrap();
+        assert_eq!(before, after);
+        assert!(crate::core::repositories::ai::list(&conn).unwrap().is_empty());
+    }
+
+    #[test]
     fn certificate_only_bundle_imports_without_selecting_accounts_and_rejects_legacy_delta() {
         use super::super::certificate_sync::SyncCertificateRecord;
         let mut conn = config_fixture();
         conn.execute_batch("CREATE TABLE certificate_snapshots(sync_id TEXT PRIMARY KEY,metadata_json TEXT NOT NULL,synced_at INTEGER NOT NULL)").unwrap();
-        let mut bundle = SyncAccountBundle { protocol_version: 2, accounts: vec![], managed_hosts: vec![], panels: vec![], deletions: vec![], flow_connections: vec![], authenticators: vec![], certificates: vec![SyncCertificateRecord {
+        let mut bundle = SyncAccountBundle { protocol_version: 2, accounts: vec![], managed_hosts: vec![], panels: vec![], deletions: vec![], flow_connections: vec![], ai_profiles: vec![], authenticators: vec![], certificates: vec![SyncCertificateRecord {
             sync_id: Uuid::new_v4().to_string(), provider: "letsencrypt".into(), primary_domain:"example.com".into(), domains:vec!["example.com".into()], status:"issued".into(), issuer:None, serial_number:None, not_before:Some(100), not_after:Some(200), updated_at:1,
         }] };
         let before: i64 = conn.query_row("SELECT COUNT(*) FROM cloud_accounts",[],|r|r.get(0)).unwrap();
@@ -1195,7 +1245,7 @@ mod tests {
                 sync_id: "33333333-3333-4333-8333-333333333333".into(), name: "panel-copy".into(),
                 panel_url: "https://panel.example.test".into(), sort_order: 0, api_key: "DO-NOT-RETURN-PANEL-KEY".into(),
                 allow_insecure_tls: false, group_name: None, source_account_sync_id: None, source_asset_key: None, remark: None,
-            }], flow_connections: vec![], certificates: vec![], authenticators: vec![], deletions: vec![],
+            }], flow_connections: vec![], certificates: vec![], ai_profiles: vec![], authenticators: vec![], deletions: vec![],
         };
         let conflicts = super::find_bundle_conflicts(&conn, &bundle).unwrap();
         assert_eq!(conflicts.len(), 1);
@@ -1228,7 +1278,7 @@ mod tests {
                 sync_id: "33333333-3333-4333-8333-333333333333".into(), name: "panel-updated".into(),
                 panel_url: "https://new-panel.example.test".into(), sort_order: 0, api_key: "new-panel-key".into(),
                 allow_insecure_tls: false, group_name: None, source_account_sync_id: None, source_asset_key: None, remark: None,
-            }], flow_connections: vec![], certificates: vec![], authenticators: vec![], deletions: vec![],
+            }], flow_connections: vec![], certificates: vec![], ai_profiles: vec![], authenticators: vec![], deletions: vec![],
         };
         assert!(super::find_bundle_conflicts(&conn, &bundle).unwrap().is_empty());
         let counts = super::import_account_bundle_with_encryptor(&mut conn, &bundle, 99, |value| Ok(format!("cipher:{value}"))).unwrap();
@@ -1423,7 +1473,7 @@ mod tests {
         assert_eq!(preview.len(), 1);
         assert_eq!(preview[0].name, "web-1");
         assert!(preview[0].will_delete);
-        let bundle = SyncAccountBundle { protocol_version: 1, accounts: vec![], managed_hosts: vec![], panels: vec![], flow_connections: vec![], certificates: vec![], authenticators: vec![], deletions: vec![deletion] };
+        let bundle = SyncAccountBundle { protocol_version: 1, accounts: vec![], managed_hosts: vec![], panels: vec![], flow_connections: vec![], certificates: vec![], ai_profiles: vec![], authenticators: vec![], deletions: vec![deletion] };
         let counts = super::import_account_bundle_with_encryptor(&mut conn, &bundle, 101, |value| Ok(format!("cipher:{value}"))).unwrap();
         assert_eq!(counts.deleted, 1);
         let exists: bool = conn.query_row("SELECT EXISTS(SELECT 1 FROM managed_hosts WHERE sync_id='22222222-2222-4222-8222-222222222222')", [], |row| row.get(0)).unwrap();
@@ -1451,7 +1501,7 @@ mod tests {
             password: Some("encrypted-in-envelope".into()), private_key: None, key_passphrase: None, group_name: None, tags: None,
             source_account_sync_id: None, source_asset_key: None, remark: None,
         };
-        let invalid = SyncAccountBundle { protocol_version: 1, accounts: vec![], managed_hosts: vec![host.clone(), host], panels: vec![], flow_connections: vec![], certificates: vec![], authenticators: vec![], deletions: vec![] };
+        let invalid = SyncAccountBundle { protocol_version: 1, accounts: vec![], managed_hosts: vec![host.clone(), host], panels: vec![], flow_connections: vec![], certificates: vec![], ai_profiles: vec![], authenticators: vec![], deletions: vec![] };
         assert!(import_account_bundle(&mut conn, &invalid, 1).unwrap_err().contains("重复"));
         let legacy: SyncAccountBundle = serde_json::from_str(r#"{"protocolVersion":1,"accounts":[]}"#).unwrap();
         assert!(legacy.managed_hosts.is_empty());

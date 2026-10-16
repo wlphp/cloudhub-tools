@@ -8,6 +8,8 @@ pub mod ai_transfer;
 pub mod codex;
 pub mod authenticator;
 pub mod database;
+#[cfg(desktop)]
+pub mod browser;
 pub mod error;
 pub mod paths;
 #[cfg(desktop)]

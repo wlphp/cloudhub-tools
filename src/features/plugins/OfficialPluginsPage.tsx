@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { DialogHeaderActions } from "../../shared/DialogHeaderActions";
-import { Cpu, FolderOpen, MessageCircle, Play, RefreshCw, Search, Package, SquareTerminal, X } from "lucide-react";
+import { Cpu, FolderOpen, Globe, MessageCircle, Play, RefreshCw, Search, Package, SquareTerminal, X } from "lucide-react";
 import { runningInTauri } from "../../platform/api";
 import { pluginsClient, type WechatPluginStatus } from "../../platform/clients/plugins";
 import { officialPlugins } from "./registry";
@@ -12,6 +12,8 @@ import { WslDashboardPlugin } from "./WslDashboardPlugin";
 const plugin = officialPlugins[0];
 const hardwarePlugin = officialPlugins[1];
 const wslPlugin = officialPlugins[2];
+const browserPlugin = officialPlugins[3];
+const BrowserEnvironments = lazy(() => import("./BrowserEnvironments").then(module => ({ default: module.BrowserEnvironments })));
 const configKey = `${plugin.id}.config`;
 const hardwareEnabledKey = hardwarePlugin.id + ".enabled";
 const wslEnabledKey = wslPlugin.id + ".enabled";
@@ -47,6 +49,7 @@ export function OfficialPluginsPage() {
   });
   const [hardwareOpen, setHardwareOpen] = useState(false);
   const [wslOpen, setWslOpen] = useState(false);
+  const [browserOpen, setBrowserOpen] = useState(false);
   const [wslEnabled, setWslEnabled] = useState(() => { try { return localStorage.getItem(wslEnabledKey) !== "false"; } catch { return true; } });
   const [wslRecent, setWslRecent] = useState(() => { try { return localStorage.getItem(`${wslPlugin.id}.last-used`) !== null; } catch { return false; } });
   const supported = runningInTauri && status?.supported === true;
@@ -56,7 +59,8 @@ export function OfficialPluginsPage() {
   const visible = source === "官方应用" && matchesSearch && (category !== "已启用" || config.enabled);
   const visibleHardware = source === "官方应用" && matchesHardwareSearch && (category !== "已启用" || hardwareEnabled);
   const visibleWsl = source === "官方应用" && matchesWslSearch && (category !== "已启用" || wslEnabled);
-  const visibleCount = Number(visible) + Number(visibleHardware) + Number(visibleWsl);
+  const visibleBrowser = source === "官方应用" && `${browserPlugin.name} ${browserPlugin.description} Chromium Chrome 代理 浏览器`.toLowerCase().includes(keyword.trim().toLowerCase());
+  const visibleCount = Number(visible) + Number(visibleHardware) + Number(visibleWsl) + Number(visibleBrowser);
   const canLaunch = supported && config.enabled && !busy && !!(config.path || status?.detectedPath);
 
   useEffect(() => {
@@ -187,6 +191,15 @@ export function OfficialPluginsPage() {
           <td data-label="启用"><label className="store-switch"><input type="checkbox" aria-label="启用 WSL 管理插件" checked={wslEnabled} onChange={event => setWslEnabled(event.target.checked)} /><span aria-hidden="true" /></label></td>
           <td data-label="操作"><div className="store-row-actions"><button type="button" className="table-link" disabled={!wslEnabled} onClick={() => { setWslOpen(true); setWslRecent(true); try { localStorage.setItem(`${wslPlugin.id}.last-used`, String(Date.now())); } catch { /* 最近使用记录为可选 */ } }}>管理</button></div></td>
         </tr>}
+        {visibleBrowser && <tr>
+          <td data-label="软件名称"><div className="store-app-name"><Globe size={20} aria-hidden="true" /><div><strong>{browserPlugin.name}</strong><small>v{browserPlugin.version} · 官方</small></div></div></td>
+          <td data-label="开发商"><span className="store-publisher">官方</span><small>{browserPlugin.publisher}</small></td>
+          <td data-label="说明" className="store-description">{browserPlugin.description}<small>独立环境与基础参数；深层硬件指纹需定制内核。</small></td>
+          <td data-label="价格">免费</td><td data-label="平台">Windows x64</td>
+          <td data-label="状态"><span className="store-state"><i aria-hidden="true" />内核按需下载</span></td>
+          <td data-label="启用">已内置</td>
+          <td data-label="操作"><div className="store-row-actions"><button type="button" className="table-link" onClick={() => setBrowserOpen(true)}>管理</button></div></td>
+        </tr>}
       </tbody></table>
       {visibleCount === 0 && <div className="store-empty"><Package size={30} aria-hidden="true" /><h2>{source === "第三方应用" ? "暂无第三方应用" : "没有符合条件的应用"}</h2><p>{source === "官方应用" ? "尝试调整搜索词或切换应用分类。" : "当前先提供官方内置应用，后续上架的应用将在这里展示。"}</p><button type="button" className="secondary" onClick={() => { setSource("官方应用"); setCategory("全部"); setKeyword(""); }}>查看全部官方应用</button></div>}
       <div className="store-list-footer"><span>共 {visibleCount} 个应用</span><span>内置应用随 CloudHub Tools 更新</span></div>
@@ -245,6 +258,7 @@ export function OfficialPluginsPage() {
       try { localStorage.setItem(hardwarePlugin.id + ".last-used", String(Date.now())); } catch { /* 仅用于最近使用列表 */ }
     }} />
     <WslDashboardPlugin open={wslOpen} enabled={wslEnabled} onClose={() => setWslOpen(false)} />
+    {browserOpen && <Suspense fallback={null}><BrowserEnvironments open onClose={() => setBrowserOpen(false)} /></Suspense>}
     {(message || error) && createPortal(<div className="ide-theme"><div className="toast-notice store-notification" role={error ? "alert" : "status"} aria-live={error ? "assertive" : "polite"} aria-atomic="true"><span>{[message, error].filter(Boolean).join(" ")}</span><button type="button" aria-label="关闭操作提示" title="关闭提示" onClick={() => { setMessage(""); setError(""); }}><X size={14} aria-hidden="true" /></button></div></div>, document.body)}
   </section>;
 }

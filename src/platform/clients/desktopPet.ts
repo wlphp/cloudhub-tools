@@ -1,9 +1,10 @@
 import { nativeOnly } from "./base";
 import type { AiImage } from "./ai";
+export type PetComputerAction = "shutdown" | "restart" | "taskManager" | "lock" | "explorer";
 
 export interface PetSettings {
   life: PetLifeSettings;
-  appearance: "alpaca" | "dog";
+  appearance: "alpaca" | "dog" | "penguin" | "fish";
   enabled: boolean; monitoring: boolean; panels: boolean; panelAccess: boolean; certificates: boolean; servers: boolean;
   size: number; roam: "edge" | "free" | "still"; activity: number; sound: boolean; reducedMotion: boolean;
   quiet: boolean; intervalSeconds: number; expiryDays: number; cpuThreshold: number; diskThreshold: number; keepInTray: boolean;
@@ -45,7 +46,7 @@ export const defaultPetSettings: PetSettings = {
   life: defaultPetLife,
   appearance: "alpaca",
   enabled: false, monitoring: false, panels: false, panelAccess: true, certificates: true, servers: true,
-  size: 160, roam: "edge", activity: 1, sound: false, reducedMotion: false, quiet: false,
+  size: 120, roam: "edge", activity: 1, sound: false, reducedMotion: false, quiet: false,
   intervalSeconds: 300, expiryDays: 30, cpuThreshold: 90, diskThreshold: 90, keepInTray: false,
 };
 export const desktopPetClient = {
@@ -65,8 +66,10 @@ export const desktopPetClient = {
   layout: (expanded: boolean, enlarged = false) => nativeOnly<void>("pet_layout", { expanded, enlarged }),
   sprite: (column: number, row: number, flipped: boolean, appearance: PetSettings["appearance"] = "alpaca") => nativeOnly<void>("pet_sprite", { column, row, flipped, appearance }),
   regions: (regions: number[][]) => nativeOnly<void>("pet_regions", { regions }),
-  move: (dx: number, dy: number, reset = false, remember = false) => nativeOnly<void>("pet_move", { dx, dy, reset, remember }),
+  move: (dx: number, dy: number, reset = false, remember = false, dock = false) => nativeOnly<void>("pet_move", { dx, dy, reset, remember, dock }),
+  reveal: () => nativeOnly<void>("pet_move", { dx: 0, dy: 0, reset: false, remember: false, reveal: true }),
   open: (section: string, key?: string) => nativeOnly<void>("pet_open", { section, key: key ?? null }),
+  computerAction: (action: PetComputerAction) => nativeOnly<void>("pet_computer_action", { action }),
   snooze: (key: string, minutes = 60) => nativeOnly<void>("pet_snooze", { key, minutes }),
   ignore: (keys: string[], ignored = true) => nativeOnly<PetSnapshot>("pet_ignore", { keys, ignored }),
 };

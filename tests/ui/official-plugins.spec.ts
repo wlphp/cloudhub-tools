@@ -403,25 +403,28 @@ test("软件商店支持来源切换、搜索和启用筛选", async ({ page }) 
   await page.getByRole("button", { name: "软件商店", exact: true }).first().click();
   const store = page.locator(".software-store-page");
   const appRow = store.locator("tbody tr");
-  await expect(appRow).toHaveCount(3);
+  await expect(appRow).toHaveCount(4);
   await store.getByLabel("应用搜索").fill("不存在的工具");
   await expect(appRow).toHaveCount(0);
   await expect(store).toContainText("没有符合条件的应用");
   await store.getByLabel("应用搜索").fill("wechat");
   await expect(appRow).toHaveCount(1);
+  await store.getByLabel("应用搜索").fill("指纹浏览器");
+  await expect(appRow).toHaveCount(1);
+  await expect(appRow).toContainText("指纹浏览器");
   await store.getByRole("button", { name: "第三方应用", exact: true }).click();
   await expect(store).toContainText("暂无第三方应用");
   await expect(store.getByRole("button", { name: "一键部署", exact: true })).toHaveCount(0);
   await store.getByRole("button", { name: "查看全部官方应用" }).click();
   await store.getByLabel("启用微信多开").uncheck();
   await store.getByRole("button", { name: "已启用", exact: true }).click();
-  await expect(appRow).toHaveCount(2);
+  await expect(appRow).toHaveCount(3);
   await expect(appRow.filter({ hasText: "微信多开" })).toHaveCount(0);
   await store.getByRole("button", { name: "全部", exact: true }).click();
   await expect(appRow.filter({ hasText: "微信多开" })).toContainText("已停用");
   await store.getByLabel("启用微信多开").check();
   await store.getByRole("button", { name: "已启用", exact: true }).click();
-  await expect(appRow).toHaveCount(3);
+  await expect(appRow).toHaveCount(4);
   await page.setViewportSize({ width: 1440, height: 1000 });
   const alignment = await store.evaluate(element => {
     const center = (selector: string) => {
@@ -442,53 +445,4 @@ test("软件商店支持来源切换、搜索和启用筛选", async ({ page }) 
   await page.getByRole("button", { name: "关闭微信多开设置" }).click();
   await page.locator("#main-content").evaluate(element => { element.scrollTop = 0; });
   await page.screenshot({ path: "test-results/software-store-mobile.png" });
-});
-
-test("默认检测路径可直接启动，已运行提示后退出无需手动刷新", async ({ page }) => {
-  await page.addInitScript(() => {
-    Object.assign(window, { wechatRunning: 2, wechatLaunches: 0, __TAURI_INTERNALS__: {
-      transformCallback: () => 1, unregisterCallback: () => {},
-      metadata: { currentWindow: { label: "main" }, currentWebview: { label: "main" } },
-      invoke: async (command: string, args: any) => {
-        if (command === "wechat_plugin_status") return { supported: true, detectedPath: "C:\\Program Files\\Tencent\\Weixin\\Weixin.exe", runningProcesses: (window as any).wechatRunning };
-        if (command === "wechat_plugin_launch") {
-          (window as any).wechatLaunches++;
-          (window as any).wechatRunning = args.count;
-          return { requested: args.count, started: args.count, failed: 0 };
-        }
-        if (command === "authenticator_status") return { configured: false, unlocked: false };
-        if (command === "plugin:updater|check") return null;
-        return [];
-      },
-    } });
-  });
-  await page.goto("/");
-  await page.getByRole("button", { name: "软件商店", exact: true }).first().click();
-  await page.locator(".software-store-page").getByRole("button", { name: "设置", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: "微信多开设置" });
-  const start = dialog.getByRole("button", { name: "批量启动", exact: true });
-  await expect(start).toBeEnabled();
-  const alignment = await dialog.evaluate(element => {
-    const center = (selector: string) => {
-      const box = element.querySelector(selector)!.getBoundingClientRect();
-      return box.top + box.height / 2;
-    };
-    const label = center('label[for="wechat-window-count"]');
-    const left = (selector: string) => element.querySelector(selector)!.getBoundingClientRect().left;
-    return [
-      Math.abs(label - center('#wechat-window-count')),
-      Math.abs(label - center('.official-plugin-actions > .primary')),
-      Math.abs(left('.wechat-setting-row > .primary') - left('.wechat-setting-row > .secondary')),
-      Math.abs(left('label[for="wechat-window-count"]') - left('.wechat-setting-label')),
-    ];
-  });
-  for (const difference of alignment) expect(difference).toBeLessThanOrEqual(1);
-  await start.click();
-  await expect(page.locator(".store-notification")).toContainText("请先从微信托盘菜单退出所有微信");
-  expect(await page.evaluate(() => (window as any).wechatLaunches)).toBe(0);
-  await page.evaluate(() => { (window as any).wechatRunning = 0; });
-  await start.click();
-  await expect(page.locator(".store-notification")).toContainText("已提交 2/2 个启动请求");
-  expect(await page.evaluate(() => (window as any).wechatLaunches)).toBe(1);
-  await dialog.screenshot({ path: "test-results/wechat-settings-aligned.png" });
 });

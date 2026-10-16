@@ -215,7 +215,7 @@ test("baota certificates use site names for renewal and keep domains and panel c
   const confirm = page.locator(".app-confirm-dialog");
   await expect(confirm).toContainText("测试宝塔");
   await expect(confirm).toContainText("site.test");
-  await confirm.locator(".app-confirm-primary").click();
+  await confirm.locator(".app-confirm-actions .primary").click();
   await expect(page.locator(".baota-certificate-manager").getByRole("status")).toContainText("已续签并验证站点部署");
   const calls = await page.evaluate(() => (window as any).__certificateCalls);
   expect(calls.find((call: any) => call.command === "renew_baota_site_certificate").args).toEqual({ id: 12 });
@@ -228,11 +228,11 @@ test("unconfirmed renewal cannot repeat until the user checks the panel and resy
   await page.getByLabel("选择宝塔面板").selectOption("4");
   await page.evaluate(() => (window as any).__failRenew());
   await page.getByRole("button", { name: "续签站点 site.test", exact: true }).click();
-  await page.locator(".app-confirm-dialog .app-confirm-primary").click();
+  await page.locator(".app-confirm-dialog .app-confirm-actions .primary").click();
   await expect(page.getByRole("alert")).toContainText("结果待确认");
   await expect(page.getByRole("button", { name: "续签站点 site.test", exact: true })).toBeDisabled();
   await page.getByRole("button", { name: "核对后允许重试", exact: true }).click();
-  await page.locator(".app-confirm-dialog .app-confirm-primary").click();
+  await page.locator(".app-confirm-dialog .app-confirm-actions .primary").click();
   await expect(page.locator(".baota-certificate-manager").getByRole("status")).toContainText("重新获取站点证书");
   await expect(page.getByRole("button", { name: "续签站点 site.test", exact: true })).toBeDisabled();
   await page.getByRole("button", { name: "获取站点证书", exact: true }).click();

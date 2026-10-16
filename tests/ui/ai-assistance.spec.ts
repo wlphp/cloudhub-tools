@@ -291,8 +291,8 @@ async function nativeFixture(page: Page) {
         profiles = [...profiles.filter(p => p.id !== result.id), result]; return result;
       }
       if (command === "ai_delete_profile") { profiles = profiles.filter(p => p.id !== args.id); return; }
-      if (command === "ai_prepare_import") return { token: "test-only-import", profiles: [{ ...profiles[0], id: "33333333-3333-4333-8333-333333333333", name: "迁移服务", enabled: false, isDefault: false, hasKey: false }] };
-      if (command === "ai_confirm_import") { profiles.push({ ...profiles[0], id: "33333333-3333-4333-8333-333333333333", name: "迁移服务", enabled: false, isDefault: false, hasKey: false }); return 1; }
+      if (command === "ai_prepare_import") return { token: "test-only-import", profiles: [{ ...profiles[0], id: "33333333-3333-4333-8333-333333333333", name: "迁移服务", enabled: true, isDefault: true, hasKey: true }] };
+      if (command === "ai_confirm_import") { profiles.forEach(profile => { profile.isDefault = false; }); profiles.push({ ...profiles[0], id: "33333333-3333-4333-8333-333333333333", name: "迁移服务", enabled: true, isDefault: true, hasKey: true }); return 1; }
       if (command === "ai_export_config") return true;
       if (command === "ai_list_models") return ["fixture-model", "vendor/other-model"];
       if (command === "ai_test_vision") { profiles = profiles.map(p=>p.id===args.input.profileId ? {...p,visionStatus:"supported"}:p); return {passed:true,profile:structuredClone(profiles[0])}; }
@@ -435,13 +435,13 @@ test("browser preview enables AI configuration while retaining manual server ent
  await page.route("**/api/ai/profiles",route=>route.fulfill({json:[]}));await page.goto("/");await page.getByRole("button",{name:"系统设置",exact:true}).click();await expect(page.getByRole("button",{name:"添加服务",exact:true})).toBeEnabled();await page.getByRole("button",{name:"添加服务",exact:true}).click();await expect(page.getByRole("dialog",{name:"添加AI服务",exact:true})).toBeVisible();await page.keyboard.press("Escape");await page.getByRole("button",{name:"终端管理",exact:true}).click();await page.locator(".terminal-add-host").click();await page.locator(".managed-host-modal").getByLabel("服务器名称").fill("手动服务器");
 });
 
-test("AI transfer previews metadata, adds a disabled profile and keeps the existing service", async ({ page }) => {
+test("AI transfer restores configuration state and keeps the existing service", async ({ page }) => {
   await nativeFixture(page); await page.goto("/"); await page.getByRole("button", { name: "系统设置", exact: true }).click();
   await page.locator(".ai-settings").getByRole("button", { name: "展开", exact: true }).click();
   await page.getByText("AI配置文件迁移", { exact: true }).click();
   await expect(page.getByLabel("迁移口令")).toHaveCount(0);
   await expect(page.getByLabel("在加密迁移包中携带密钥")).toHaveCount(0);
-  await expect(page.getByText("导出的文件不包含 API 密钥", { exact: false })).toBeVisible();
+  await expect(page.getByText("导出的文件包含明文 API 密钥", { exact: false })).toBeVisible();
   for (const width of [375,768,1024,1440]) {
     await page.setViewportSize({width,height:900});
     const exportButton = await page.getByRole("button", {name:"导出配置文件",exact:true}).boundingBox();
@@ -449,13 +449,14 @@ test("AI transfer previews metadata, adds a disabled profile and keeps the exist
     expect(exportButton!.height).toBe(importButton!.height);
     expect(exportButton!.y).toBe(importButton!.y);
   }
-  await page.getByLabel("选择AI配置文件").setInputFiles({ name: "fixture.json", mimeType: "application/json", buffer: Buffer.from('{"ciphertext":"fixture"}') });
+  await page.getByRole("button", { name: "选择配置文件", exact: true }).click();
   await expect(page.getByRole("region", { name: "AI配置迁移预览" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "AI配置迁移预览" })).toContainText("包含密钥 · 已启用 · 默认配置");
   await expect(page.getByRole("heading", { name: "确认要新增的配置" })).toBeVisible();
   await expect(page.locator(".ai-profile")).toHaveCount(1);
   await page.getByRole("button", { name: "确认新增配置" }).click();
   await expect(page.locator(".ai-profile")).toHaveCount(2);
-  await expect(page.locator(".ai-profile").filter({ hasText: "迁移服务" })).toContainText("已停用");
+  await expect(page.locator(".ai-profile").filter({ hasText: "迁移服务" })).toContainText("默认");
   expect(await page.evaluate(() => (window as any).aiRequests)).toHaveLength(0);
 });
 

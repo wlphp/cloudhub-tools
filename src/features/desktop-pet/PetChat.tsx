@@ -1,3 +1,5 @@
+import { PetPortrait } from "./PetPortrait";
+import type { PetSettings } from "../../platform/clients/desktopPet";
 import { useEffect, useRef, useState } from "react";
 import { ImagePlus, Send, Square, Trash2, X, Image as ImageIcon } from "lucide-react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -6,7 +8,7 @@ import { platformErrorMessage, runningInTauri } from "../../platform/api";
 import type { AiImage } from "../../platform/clients/ai";
 import { AiImageEditor } from "../ai/AiImageEditor";
 
-export function PetChat() {
+export function PetChat({ appearance }: { appearance: PetSettings["appearance"] }) {
   const [services, setServices] = useState<PetChatService[]>([]);
   const [serviceId, setServiceId] = useState("");
   const [loaded, setLoaded] = useState(false);
@@ -88,8 +90,8 @@ export function PetChat() {
       {!services.length && <option value="">{loaded ? "尚未配置" : "读取中…"}</option>}{services.map(service => <option key={service.id} value={service.id}>{service.name} · {service.model}</option>)}
     </select></label>{visionReady && <span className="pet-chat-vision"><ImageIcon size={12} />可识图</span>}<button title="清空对话" aria-label="清空对话" disabled={busy || !messages.length || imageBusy} onClick={() => { setMessages([]); setError(""); }}><Trash2 size={14} /></button></div>
     <div className="pet-chat-log" ref={log} role="log" aria-label="与宠物的聊天记录" aria-live="polite">
-      {!messages.length && <div className="pet-chat-welcome"><span className="pet-chat-welcome-avatar" aria-hidden="true" /><strong>今天想聊点什么？</strong><p>聊聊日常，或发张图一起看看。</p>{loaded && !services.length && <button onClick={() => void client.open("settings").catch(e => setError(platformErrorMessage(e)))}>去设置 AI 服务</button>}</div>}
-      {messages.map((message, i) => <div key={i} className={`pet-chat-message ${message.role}`}><small>{message.role === "assistant" && <span className="pet-chat-avatar" aria-hidden="true" />}{message.role === "user" ? "你" : "宠物"}</small>{message.image && <img className="pet-chat-message-image" src={message.image} alt="本次消息附带的图片" />}<p>{message.text}</p></div>)}
+      {!messages.length && <div className="pet-chat-welcome"><PetPortrait appearance={appearance} pose="happy" className="pet-chat-welcome-avatar" /><strong>今天想聊点什么？</strong><p>聊聊日常，或发张图一起看看。</p>{loaded && !services.length && <button onClick={() => void client.open("settings").catch(e => setError(platformErrorMessage(e)))}>去设置 AI 服务</button>}</div>}
+      {messages.map((message, i) => <div key={i} className={`pet-chat-message ${message.role}`}><small>{message.role === "assistant" && <PetPortrait appearance={appearance} className="pet-chat-avatar" />}{message.role === "user" ? "你" : "宠物"}</small>{message.image && <img className="pet-chat-message-image" src={message.image} alt="本次消息附带的图片" />}<p>{message.text}</p></div>)}
       {busy && <p className="pet-chat-thinking" role="status">正在想…</p>}
     </div>
     {editingFile && <div className="pet-chat-image-editor"><AiImageEditor initialFile={editingFile} onCancel={() => { imageEpoch.current++; setEditingFile(null); }} onPrepared={prepared => { setImage(prepared); setEditingFile(null); input.current?.focus(); }} /></div>}
@@ -98,7 +100,7 @@ export function PetChat() {
     <form className="pet-chat-composer" onSubmit={e => { e.preventDefault(); void send(); }}>
       {image && <div className="pet-chat-image-preview"><img src={image.dataUrl} alt="待发送的处理后图片" /><span>已准备图片<small>随本条消息发送</small></span><button type="button" aria-label="移除待发送图片" title="移除图片" disabled={busy} onClick={() => setImage(null)}><X size={14} /></button></div>}
       <label className="pet-chat-input-label" htmlFor="pet-chat-input">和宠物说句话</label><textarea id="pet-chat-input" ref={input} rows={2} maxLength={2000} disabled={busy || !serviceId || imageBusy} value={text} onChange={e => setText(e.target.value)} placeholder={visionReady ? "说点什么，或粘贴一张图片…" : "说点什么…"} onPaste={e => { const file = Array.from(e.clipboardData.items).find(item => item.kind === "file" && item.type.startsWith("image/"))?.getAsFile(); if (file) { e.preventDefault(); addImage(file); } }} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); } }} />
-      <div className="pet-chat-compose-tools"><button type="button" className="pet-chat-add-image" disabled={busy || !visionReady || imageReading} title={visionReady ? "选择图片，也可粘贴或拖入 PNG / JPEG" : "请先在 AI 设置中完成图像能力测试"} onClick={() => fileInput.current?.click()}><ImagePlus size={16} />图片</button><small>Enter 发送 · Shift+Enter 换行</small>{busy ? <button type="button" className="pet-chat-send" onClick={e => { e.preventDefault(); void stop(); }}><Square size={12} />停止</button> : <button type="submit" className="pet-chat-send" disabled={(!text.trim() && !image) || !serviceId || imageBusy}><Send size={13} />发送</button>}</div>
+      <div className="pet-chat-compose-tools"><button type="button" className="pet-chat-add-image" disabled={busy || !visionReady || imageReading} title={visionReady ? "选择图片，也可粘贴或拖入 PNG / JPEG" : "请先在 AI 设置中完成图像能力测试"} onClick={() => fileInput.current?.click()}><ImagePlus size={16} />图片</button><small>Enter 发送 · Shift+Enter 换行</small>{busy ? <button type="button" className="primary pet-chat-send" onClick={e => { e.preventDefault(); void stop(); }}><Square size={12} />停止</button> : <button type="submit" className="primary pet-chat-send" disabled={(!text.trim() && !image) || !serviceId || imageBusy}><Send size={13} />发送</button>}</div>
       <input hidden ref={fileInput} type="file" accept="image/png,image/jpeg,.png,.jpg,.jpeg" aria-label="选择聊天图片" onChange={e => { const file = e.target.files?.[0]; e.target.value = ""; if (file) addImage(file); }} />
     </form>
     <div className="pet-chat-footer">仅发送本次对话和确认的图片{loaded && service && !visionReady && <button onClick={() => void client.open("settings").catch(e => setError(platformErrorMessage(e)))}>启用识图</button>}</div>

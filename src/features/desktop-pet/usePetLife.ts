@@ -9,6 +9,8 @@ export function usePetLife({ settings, blocked, visible, reduced, setPose, setDi
   const [state, setState] = useState<PetLifeState>(emptyPetLifeState);
   const [now, setNow] = useState(Date.now() / 1000);
   const [roaming, setRoaming] = useState(false);
+  const [hiddenNotices, setHiddenNotices] = useState(new Set<string>());
+  const stateRef = useRef(state); stateRef.current = state;
   const roamed = useRef(new Set<string>());
   const errorRef = useRef(onError); errorRef.current = onError;
   useEffect(() => {
@@ -20,7 +22,7 @@ export function usePetLife({ settings, blocked, visible, reduced, setPose, setDi
   }, []);
   const config = settings.life;
   const notice = !config?.enabled || !settings.enabled || settings.quiet || !visible || blocked ? null : state.notices
-    .filter(n => !n.acknowledged && n.dueAt <= now && n.expiresAt > now && (n.kind === "weather" ? config.weather : n.kind === "water" ? config.water || n.id.startsWith("preview:") : n.kind === "stretch" ? config.stretch : config.schedule))
+    .filter(n => !n.acknowledged && !hiddenNotices.has(`${n.id}:${n.dueAt}`) && n.dueAt <= now && n.expiresAt > now && (n.kind === "weather" ? config.weather : n.kind === "water" ? config.water || n.id.startsWith("preview:") : n.kind === "stretch" ? config.stretch : config.schedule))
     .sort((a, b) => b.level - a.level || a.dueAt - b.dueAt)[0] || null;
   useEffect(() => {
     if (!notice) return;
@@ -49,5 +51,5 @@ export function usePetLife({ settings, blocked, visible, reduced, setPose, setDi
     try { setState(await client.lifeAction(notice.id, kind)); setNow(Date.now() / 1000); }
     catch (e) { errorRef.current(e); }
   }
-  return { notice, action, roaming };
+  return { notice, action, roaming, suppressDueNotices: () => setHiddenNotices(new Set(stateRef.current.notices.filter(n => n.dueAt <= Date.now()/1000).map(n => `${n.id}:${n.dueAt}`))) };
 }

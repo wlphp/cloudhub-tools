@@ -33,7 +33,7 @@ export const aiClient = {
   testVision: (input:ServiceInput) => nativeOnly<{profile:AiProfile;passed:boolean}>("ai_test_vision", {input}),
   cancel: (requestId: string) => invokeOrWeb<void>("ai_cancel", { requestId }, { path: "/api/ai/cancel", init: jsonRequest("POST", { requestId }) }),
   exportConfig: (ids: string[]) => nativeOnly<boolean>("ai_export_config", { ids }),
-  prepareImport: (content: string) => nativeOnly<AiImportPreview>("ai_prepare_import", { content }),
+  prepareImport: () => nativeOnly<AiImportPreview | null>("ai_prepare_import"),
   confirmImport: (token: string, ids: string[]) => nativeOnly<number>("ai_confirm_import", { token, ids }),
   cancelImport: (token: string) => nativeOnly<void>("ai_cancel_import", { token }),
 };

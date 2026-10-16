@@ -1,3 +1,4 @@
+import { PetPortrait } from "./PetPortrait";
 import { useEffect, useRef, useState } from "react";
 import { Bell, Check, ChevronDown, PawPrint, RefreshCw, X } from "lucide-react";
 import { petAppearances } from "./appearances";
@@ -63,10 +64,10 @@ export function PetSettingsPanel() {
       {error && <p role="alert" className="pet-error">{error}</p>}
       <div className="pet-settings-columns">
         <article className="pet-control-card pet-companion-card">
-          <header><div><strong>桌宠陪伴</strong><small>点击宠物查看提醒，拖动可移动</small></div>{toggle("enabled", "启用桌宠")}</header>
+          <header><div><PetPortrait appearance={settings.appearance} className="pet-settings-portrait" /><strong>桌宠陪伴</strong><small>点击宠物查看提醒，拖动可移动</small></div>{toggle("enabled", "启用桌宠")}</header>
           <details className="pet-settings-disclosure"><summary>桌宠外观与行为</summary><div className="pet-settings-detail-grid">
             <label className="pet-option">宠物形象<select disabled={!ready || busy} value={settings.appearance} onChange={e => void change({ appearance: e.target.value as PetSettings["appearance"] })}>{Object.entries(petAppearances).map(([key, item]) => <option key={key} value={key}>{item.label}</option>)}</select></label>
-            <label className="pet-option">桌宠大小<select disabled={!ready || busy} value={settings.size} onChange={e => void change({ size: Number(e.target.value) })}><option value={120}>小</option><option value={160}>中</option><option value={200}>大</option></select></label>
+            <label className="pet-option">桌宠大小<select disabled={!ready || busy} value={settings.size} onChange={e => void change({ size: Number(e.target.value) })}><option value={80}>特小</option><option value={120}>小</option><option value={160}>中</option><option value={200}>大</option></select></label>
             <label className="pet-option">活动范围<select disabled={!ready || busy} value={settings.roam} onChange={e => void change({ roam: e.target.value as PetSettings["roam"] })}><option value="edge">沿屏幕下沿</option><option value="free">屏幕内漫游</option><option value="still">原地陪伴</option></select></label>
             <label className="pet-option">活跃程度<select disabled={!ready || busy} value={settings.activity} onChange={e => void change({ activity: Number(e.target.value) })}><option value={0}>安静</option><option value={1}>适中</option><option value={2}>活泼</option></select></label>
             {toggle("reducedMotion", "减少动态", "遵循系统减少动态设置", !settings.enabled)}
@@ -106,7 +107,7 @@ function isPetSettings(value: unknown): value is PetSettings {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const settings = value as Partial<PetSettings>;
   return ["enabled", "monitoring", "panels", "panelAccess", "certificates", "servers", "sound", "reducedMotion", "quiet", "keepInTray"].every(key => typeof settings[key as keyof PetSettings] === "boolean")
-    && ["alpaca", "dog"].includes(String(settings.appearance))
+    && ["alpaca", "dog", "penguin", "fish"].includes(String(settings.appearance))
     && typeof settings.size === "number" && ["edge", "free", "still"].includes(String(settings.roam))
     && typeof settings.activity === "number" && typeof settings.intervalSeconds === "number" && typeof settings.expiryDays === "number"
     && typeof settings.cpuThreshold === "number" && typeof settings.diskThreshold === "number";

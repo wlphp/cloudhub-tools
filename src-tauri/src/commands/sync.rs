@@ -272,16 +272,16 @@ pub(crate) struct SyncTransferStartResult {
 struct VerifiedTransferClient { verification_code: String, device_id: String, public_key: [u8; 32] }
 
 fn build_encrypted_bundle(account_ids: Vec<i64>, managed_host_ids: Vec<i64>, panel_ids: Vec<i64>, passphrase: &str, include_deletions: bool) -> PlatformResult<SyncEnvelope> {
-    build_encrypted_bundle_with_flows(account_ids, managed_host_ids, panel_ids, vec![], vec![], vec![], passphrase, include_deletions)
+    build_encrypted_bundle_with_flows(account_ids, managed_host_ids, panel_ids, vec![], vec![], vec![], vec![], passphrase, include_deletions)
 }
 
-fn build_encrypted_bundle_with_flows(account_ids: Vec<i64>, managed_host_ids: Vec<i64>, panel_ids: Vec<i64>, flow_connection_ids: Vec<i64>, certificate_ids: Vec<i64>, authenticator_ids: Vec<String>, passphrase: &str, include_deletions: bool) -> PlatformResult<SyncEnvelope> {
+fn build_encrypted_bundle_with_flows(account_ids: Vec<i64>, managed_host_ids: Vec<i64>, panel_ids: Vec<i64>, flow_connection_ids: Vec<i64>, certificate_ids: Vec<i64>, authenticator_ids: Vec<String>, ai_profile_ids: Vec<String>, passphrase: &str, include_deletions: bool) -> PlatformResult<SyncEnvelope> {
     let mut conn = open_db()?;
     let account_sync_ids = if account_ids.is_empty() { Vec::new() } else { account_sync_ids_by_local_ids(&mut conn, &account_ids)? };
     let managed_host_sync_ids = managed_host_sync_ids_by_local_ids(&mut conn, &managed_host_ids)?;
     let panel_sync_ids = panel_sync_ids_by_local_ids(&conn, &panel_ids)?;
-    let mut bundle = Zeroizing::new(if account_sync_ids.is_empty() && managed_host_sync_ids.is_empty() && panel_sync_ids.is_empty() && !include_deletions && (!flow_connection_ids.is_empty() || !certificate_ids.is_empty() || !authenticator_ids.is_empty()) {
-        SyncAccountBundle { protocol_version: 1, accounts: vec![], managed_hosts: vec![], panels: vec![], deletions: vec![], flow_connections: vec![], certificates: vec![], authenticators: vec![] }
+    let mut bundle = Zeroizing::new(if account_sync_ids.is_empty() && managed_host_sync_ids.is_empty() && panel_sync_ids.is_empty() && !include_deletions && (!flow_connection_ids.is_empty() || !certificate_ids.is_empty() || !authenticator_ids.is_empty() || !ai_profile_ids.is_empty()) {
+        SyncAccountBundle { protocol_version: 1, accounts: vec![], managed_hosts: vec![], panels: vec![], deletions: vec![], flow_connections: vec![], certificates: vec![], ai_profiles: vec![], authenticators: vec![] }
     } else { build_account_bundle(&mut conn, &account_sync_ids, &managed_host_sync_ids, &panel_sync_ids, include_deletions)? });
     bundle.flow_connections = crate::core::repositories::flow_sync::build(&mut conn, &flow_connection_ids)?;
     if !certificate_ids.is_empty() { crate::commands::certificates::list_certificates(None)?; }
@@ -289,7 +289,11 @@ fn build_encrypted_bundle_with_flows(account_ids: Vec<i64>, managed_host_ids: Ve
     if !bundle.flow_connections.is_empty() || !bundle.certificates.is_empty() { bundle.protocol_version = 2; }
     bundle.authenticators = crate::core::repositories::authenticator_sync::build(&conn, &authenticator_ids)?;
     if !bundle.authenticators.is_empty() { bundle.protocol_version = 3; }
-    if bundle.accounts.len() + bundle.managed_hosts.len() + bundle.panels.len() + bundle.deletions.len() + bundle.flow_connections.len() + bundle.certificates.len() + bundle.authenticators.len() > 100 {
+    if !ai_profile_ids.is_empty() {
+        bundle.ai_profiles = crate::core::ai_transfer::export(&conn, &ai_profile_ids)?.records;
+        bundle.protocol_version = 4;
+    }
+    if bundle.accounts.len() + bundle.managed_hosts.len() + bundle.panels.len() + bundle.deletions.len() + bundle.flow_connections.len() + bundle.certificates.len() + bundle.authenticators.len() + bundle.ai_profiles.len() > 100 {
         return Err("单次迁移最多支持 100 条配置".into());
     }
     for account in &mut bundle.accounts {
@@ -471,7 +475,7 @@ pub(crate) fn save_sync_account_bundle(
 /// inside the native process and the user's two devices.
 #[tauri::command]
 pub(crate) async fn start_sync_transfer(
-    account_ids: Vec<i64>, managed_host_ids: Vec<i64>, panel_ids: Vec<i64>, flow_connection_ids: Option<Vec<i64>>, certificate_ids: Option<Vec<i64>>, authenticator_ids: Option<Vec<String>>,
+    account_ids: Vec<i64>, managed_host_ids: Vec<i64>, panel_ids: Vec<i64>, flow_connection_ids: Option<Vec<i64>>, certificate_ids: Option<Vec<i64>>, authenticator_ids: Option<Vec<String>>, ai_profile_ids: Option<Vec<String>>,
     include_deletions: bool,
     store: State<'_, SyncTransferStore>,
     app: AppHandle,
@@ -479,7 +483,8 @@ pub(crate) async fn start_sync_transfer(
     let flow_connection_ids = flow_connection_ids.unwrap_or_default();
     let certificate_ids = certificate_ids.unwrap_or_default();
     let authenticator_ids = authenticator_ids.unwrap_or_default();
-    if account_ids.len() + managed_host_ids.len() + panel_ids.len() + flow_connection_ids.len() + certificate_ids.len() + authenticator_ids.len() == 0 && !include_deletions {
+    let ai_profile_ids = ai_profile_ids.unwrap_or_default();
+    if account_ids.len() + managed_host_ids.len() + panel_ids.len() + flow_connection_ids.len() + certificate_ids.len() + authenticator_ids.len() + ai_profile_ids.len() == 0 && !include_deletions {
         return Err("至少选择一个配置后再开始传输".into());
     }
     let local_identity = get_sync_device_identity(app.clone())?;
@@ -488,7 +493,7 @@ pub(crate) async fn start_sync_transfer(
     rand::thread_rng().fill_bytes(&mut transfer_key_bytes);
     let transfer_key = Zeroizing::new(URL_SAFE_NO_PAD.encode(transfer_key_bytes));
     transfer_key_bytes.fill(0);
-    let envelope = build_encrypted_bundle_with_flows(account_ids, managed_host_ids, panel_ids, flow_connection_ids, certificate_ids, authenticator_ids, transfer_key.as_str(), include_deletions)?;
+    let envelope = build_encrypted_bundle_with_flows(account_ids, managed_host_ids, panel_ids, flow_connection_ids, certificate_ids, authenticator_ids, ai_profile_ids, transfer_key.as_str(), include_deletions)?;
     let body = serde_json::to_vec(&envelope).map_err(|_| "同步包序列化失败")?;
     let ip = primary_lan_ipv4()?;
     let listener = TcpListener::bind((Ipv4Addr::UNSPECIFIED, 0)).await.map_err(|_| "无法开启局域网迁移服务")?;
@@ -1285,11 +1290,27 @@ mod transfer_tests {
     const TOKEN: &str = "aBcDef0123456789_aBcDef0123456789-aBcDef012";
 
     #[test]
+    fn ai_protocol_four_preserves_keys_only_inside_encrypted_envelope() {
+        let mut bundle: SyncAccountBundle = serde_json::from_str(r#"{"protocolVersion":4,"accounts":[],"aiProfiles":[{"profile":{"id":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","name":"AI迁移","protocol":"claude","baseUrl":"https://example.test","model":"model-a","enabled":true,"isDefault":true,"timeoutSeconds":60,"maxOutputTokens":512,"allowLoopbackHttp":false,"hasKey":true}}]}"#).unwrap();
+        bundle.ai_profiles[0].api_key = Some(uuid::Uuid::new_v4().to_string());
+        let secret = bundle.ai_profiles[0].api_key.as_deref().unwrap();
+        let envelope = seal_sync_payload(&bundle, "fixture-transfer-passphrase").unwrap();
+        let wire = serde_json::to_string(&envelope).unwrap();
+        assert!(!wire.contains(secret));
+        assert!(!wire.contains("apiKey"));
+        let restored = Zeroizing::new(open_sync_payload::<SyncAccountBundle>(&envelope, "fixture-transfer-passphrase").unwrap());
+        assert!(restored.ai_profiles[0].api_key.as_deref() == Some(secret));
+        assert!(restored.ai_profiles[0].profile.enabled && restored.ai_profiles[0].profile.is_default);
+        assert!(!serde_json::to_string(&restored.ai_profiles[0].profile).unwrap().contains(secret));
+        assert!(open_sync_payload::<SyncAccountBundle>(&envelope, "wrong-fixture-passphrase").is_err());
+    }
+
+    #[test]
     fn authenticator_protocol_three_is_encrypted_and_preview_omits_seed() {
         let entry = crate::core::authenticator::formats::parse_uri("otpauth://totp/Example:demo?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ").unwrap();
         let summary = serde_json::to_value(entry.summary()).unwrap();
         assert!(summary.get("secret").is_none());
-        let bundle = SyncAccountBundle { protocol_version: 3, accounts: vec![], managed_hosts: vec![], panels: vec![], deletions: vec![], flow_connections: vec![], certificates: vec![], authenticators: vec![entry] };
+        let bundle = SyncAccountBundle { protocol_version: 3, accounts: vec![], managed_hosts: vec![], panels: vec![], deletions: vec![], flow_connections: vec![], certificates: vec![], ai_profiles: vec![], authenticators: vec![entry] };
         let envelope = seal_sync_payload(&bundle, "fixture-transfer-passphrase").unwrap();
         let wire = serde_json::to_string(&envelope).unwrap();
         assert!(!wire.contains(&bundle.authenticators[0].secret));
@@ -1648,6 +1669,7 @@ pub(crate) struct SyncImportPreview {
     flow_connections: Vec<SyncImportFlowPreview>,
     certificates: Vec<crate::core::repositories::certificate_sync::SyncCertificateRecord>,
     authenticators: Vec<crate::core::authenticator::EntrySummary>,
+    ai_profiles: Vec<crate::core::repositories::ai::Profile>,
     deletions: Vec<SyncDeletionPreview>,
     conflicts: Vec<SyncBundleConflict>,
 }
@@ -1686,6 +1708,7 @@ pub(crate) struct SyncImportSummary {
     flow_connections: usize,
     certificates: usize,
     authenticators: usize,
+    ai_profiles: usize,
     added: usize,
     updated: usize,
     deleted: usize,
@@ -1736,12 +1759,13 @@ pub(crate) fn preview_sync_account_bundle(envelope: SyncEnvelope, passphrase: St
 }
 
 fn preview_sync_bundle(bundle: &SyncAccountBundle) -> PlatformResult<SyncImportPreview> {
-    let total = bundle.accounts.len() + bundle.managed_hosts.len() + bundle.panels.len() + bundle.deletions.len() + bundle.flow_connections.len() + bundle.certificates.len() + bundle.authenticators.len();
-    if !matches!(bundle.protocol_version, 1 | 2 | 3) || (bundle.protocol_version == 1 && (!bundle.flow_connections.is_empty() || !bundle.certificates.is_empty() || !bundle.authenticators.is_empty())) || total == 0 || total > 100 { return Err("同步包版本或记录数量无效".into()); }
+    let total = bundle.accounts.len() + bundle.managed_hosts.len() + bundle.panels.len() + bundle.deletions.len() + bundle.flow_connections.len() + bundle.certificates.len() + bundle.authenticators.len() + bundle.ai_profiles.len();
+    if !matches!(bundle.protocol_version, 1 | 2 | 3 | 4) || (bundle.protocol_version == 1 && (!bundle.flow_connections.is_empty() || !bundle.certificates.is_empty() || !bundle.authenticators.is_empty())) || total == 0 || total > 100 { return Err("同步包版本或记录数量无效".into()); }
     let conn = open_db()?;
     crate::core::repositories::flow_sync::validate(&bundle.flow_connections)?;
     crate::core::repositories::certificate_sync::validate(&bundle.certificates)?;
     crate::core::repositories::authenticator_sync::validate(&bundle.authenticators)?;
+    crate::core::ai_transfer::validate_migration(&bundle.ai_profiles, bundle.protocol_version)?;
     if bundle.protocol_version < 3 && !bundle.authenticators.is_empty() { return Err("验证码迁移需要第三版协议".into()); }
     let conflicts = find_bundle_conflicts(&conn, &bundle)?;
     let deletions = preview_bundle_deletions(&conn, &bundle.deletions)?;
@@ -1763,6 +1787,7 @@ fn preview_sync_bundle(bundle: &SyncAccountBundle) -> PlatformResult<SyncImportP
         }).collect(),
         certificates: bundle.certificates.clone(),
         authenticators: bundle.authenticators.iter().map(|item| item.summary()).collect(),
+        ai_profiles: bundle.ai_profiles.iter().map(|item| item.profile.clone()).collect(),
         deletions,
         conflicts,
     })
@@ -1780,6 +1805,8 @@ pub(crate) struct SyncTransferSelection {
     certificate_sync_ids: Vec<String>,
     #[serde(default)]
     authenticator_ids: Vec<String>,
+    #[serde(default)]
+    ai_profile_ids: Vec<String>,
     include_deletions: bool,
 }
 
@@ -1799,13 +1826,15 @@ pub(crate) fn confirm_sync_transfer_import(
     let allowed_hosts = pending.bundle.managed_hosts.iter().map(|item| item.sync_id.as_str()).collect::<std::collections::HashSet<_>>();
     let allowed_panels = pending.bundle.panels.iter().map(|item| item.sync_id.as_str()).collect::<std::collections::HashSet<_>>();
     let allowed_flows = pending.bundle.flow_connections.iter().map(|item| item.sync_id.as_str()).collect::<std::collections::HashSet<_>>();
+    let allowed_ai = pending.bundle.ai_profiles.iter().map(|item| item.profile.id.as_str()).collect::<std::collections::HashSet<_>>();
     let allowed_authenticators = pending.bundle.authenticators.iter().map(|item| item.id.as_str()).collect::<std::collections::HashSet<_>>();
     let allowed_certificates = pending.bundle.certificates.iter().map(|item| item.sync_id.as_str()).collect::<std::collections::HashSet<_>>();
     fn valid_selection<'a>(selected: &'a [String], allowed: &std::collections::HashSet<&str>) -> bool {
         let mut seen = std::collections::HashSet::new();
         selected.len() <= 100 && selected.iter().all(|id| allowed.contains(id.as_str()) && seen.insert(id.as_str()))
     }
-    if !valid_selection(&selection.authenticator_ids, &allowed_authenticators)
+    if !valid_selection(&selection.ai_profile_ids, &allowed_ai)
+        || !valid_selection(&selection.authenticator_ids, &allowed_authenticators)
         || !valid_selection(&selection.account_sync_ids, &allowed_accounts)
         || !valid_selection(&selection.managed_host_sync_ids, &allowed_hosts)
         || !valid_selection(&selection.panel_sync_ids, &allowed_panels)
@@ -1817,10 +1846,12 @@ pub(crate) fn confirm_sync_transfer_import(
     let host_ids = selection.managed_host_sync_ids.iter().map(String::as_str).collect::<std::collections::HashSet<_>>();
     let panel_ids = selection.panel_sync_ids.iter().map(String::as_str).collect::<std::collections::HashSet<_>>();
     let flow_ids = selection.flow_connection_sync_ids.iter().map(String::as_str).collect::<std::collections::HashSet<_>>();
+    let ai_ids = selection.ai_profile_ids.iter().map(String::as_str).collect::<std::collections::HashSet<_>>();
     let authenticator_ids = selection.authenticator_ids.iter().map(String::as_str).collect::<std::collections::HashSet<_>>();
     let certificate_ids = selection.certificate_sync_ids.iter().map(String::as_str).collect::<std::collections::HashSet<_>>();
     let bundle = Zeroizing::new(SyncAccountBundle {
         protocol_version: pending.bundle.protocol_version,
+        ai_profiles: pending.bundle.ai_profiles.iter().filter(|item| ai_ids.contains(item.profile.id.as_str())).cloned().collect(),
         authenticators: pending.bundle.authenticators.iter().filter(|item| authenticator_ids.contains(item.id.as_str())).cloned().collect(),
         certificates: pending.bundle.certificates.iter().filter(|item| certificate_ids.contains(item.sync_id.as_str())).cloned().collect(),
         accounts: pending.bundle.accounts.iter().filter(|item| account_ids.contains(item.sync_id.as_str())).cloned().collect(),
@@ -1829,10 +1860,10 @@ pub(crate) fn confirm_sync_transfer_import(
         flow_connections: pending.bundle.flow_connections.iter().filter(|item| flow_ids.contains(item.sync_id.as_str())).cloned().collect(),
         deletions: if selection.include_deletions { pending.bundle.deletions.clone() } else { Vec::new() },
     });
-    let total = bundle.accounts.len() + bundle.managed_hosts.len() + bundle.panels.len() + bundle.deletions.len() + bundle.flow_connections.len() + bundle.certificates.len() + bundle.authenticators.len();
+    let total = bundle.accounts.len() + bundle.managed_hosts.len() + bundle.panels.len() + bundle.deletions.len() + bundle.flow_connections.len() + bundle.certificates.len() + bundle.authenticators.len() + bundle.ai_profiles.len();
     if total == 0 { return Err("至少选择一项配置后再导入".into()); }
     let counts = import_account_bundle(&mut open_db()?, &bundle, Utc::now().timestamp_millis())?;
-    Ok(SyncImportSummary { accounts: bundle.accounts.len(), managed_hosts: bundle.managed_hosts.len(), panels: bundle.panels.len(), flow_connections: bundle.flow_connections.len(), certificates: bundle.certificates.len(), authenticators: bundle.authenticators.len(), added: counts.added, updated: counts.updated, deleted: counts.deleted })
+    Ok(SyncImportSummary { accounts: bundle.accounts.len(), managed_hosts: bundle.managed_hosts.len(), panels: bundle.panels.len(), flow_connections: bundle.flow_connections.len(), certificates: bundle.certificates.len(), authenticators: bundle.authenticators.len(), ai_profiles: bundle.ai_profiles.len(), added: counts.added, updated: counts.updated, deleted: counts.deleted })
 }
 
 #[tauri::command]
@@ -1924,7 +1955,7 @@ pub(crate) fn import_sync_account_bundle(envelope: SyncEnvelope, passphrase: Str
     let bundle = Zeroizing::new(open_sync_payload::<SyncAccountBundle>(&envelope, passphrase.as_str())?);
     let counts = import_account_bundle(&mut open_db()?, &bundle, Utc::now().timestamp_millis())?;
     Ok(SyncImportSummary {
-        accounts: bundle.accounts.len(), managed_hosts: bundle.managed_hosts.len(), panels: bundle.panels.len(), flow_connections: bundle.flow_connections.len(), certificates: bundle.certificates.len(), authenticators: bundle.authenticators.len(),
+        accounts: bundle.accounts.len(), managed_hosts: bundle.managed_hosts.len(), panels: bundle.panels.len(), flow_connections: bundle.flow_connections.len(), certificates: bundle.certificates.len(), authenticators: bundle.authenticators.len(), ai_profiles: bundle.ai_profiles.len(),
         added: counts.added, updated: counts.updated, deleted: counts.deleted,
     })
 }

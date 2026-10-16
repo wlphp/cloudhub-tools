@@ -706,7 +706,11 @@
         },
         {
           "name": "cname",
-          "native": ["create_oss_cname_token", "bind_oss_cname", "delete_oss_cname"],
+          "native": [
+            "create_oss_cname_token",
+            "bind_oss_cname",
+            "delete_oss_cname"
+          ],
           "preview": [
             {
               "method": "POST",
@@ -1310,7 +1314,23 @@
         },
         {
           "name": "desktop-pet",
-          "native": ["pet_settings", "pet_save_settings", "pet_snapshot", "pet_notice", "pet_dismiss", "pet_show", "pet_hide", "pet_layout", "pet_move", "pet_open", "pet_snooze", "pet_check", "pet_sprite", "pet_regions"],
+          "native": [
+            "pet_settings",
+            "pet_save_settings",
+            "pet_snapshot",
+            "pet_notice",
+            "pet_dismiss",
+            "pet_show",
+            "pet_hide",
+            "pet_layout",
+            "pet_move",
+            "pet_open",
+            "pet_computer_action",
+            "pet_snooze",
+            "pet_check",
+            "pet_sprite",
+            "pet_regions"
+          ],
           "preview": []
         },
         {
@@ -1327,17 +1347,68 @@
       "operations": [
         {
           "name": "wechat-multi",
-          "native": ["wechat_plugin_status", "wechat_plugin_select", "wechat_plugin_launch", "wechat_sessions_list", "wechat_sessions_select", "wechat_sessions_capture", "wechat_sessions_launch", "wechat_sessions_restore", "wechat_sessions_detect", "wechat_sessions_delete"],
+          "native": [
+            "wechat_plugin_status",
+            "wechat_plugin_select",
+            "wechat_plugin_launch",
+            "wechat_sessions_list",
+            "wechat_sessions_select",
+            "wechat_sessions_capture",
+            "wechat_sessions_launch",
+            "wechat_sessions_restore",
+            "wechat_sessions_detect",
+            "wechat_sessions_delete"
+          ],
           "preview": []
         },
         {
           "name": "computer-info",
-          "native": ["hardware_info_get", "hardware_wifi_password_reveal", "hardware_info_export_png"],
+          "native": [
+            "hardware_info_get",
+            "hardware_wifi_password_reveal",
+            "hardware_info_export_png"
+          ],
           "preview": []
         },
         {
           "name": "wsl-dashboard",
-          "native": ["wsl_dashboard_list", "wsl_dashboard_control", "wsl_dashboard_backup", "wsl_dashboard_shutdown", "wsl_dashboard_settings_get", "wsl_dashboard_save_settings", "wsl_dashboard_select_install_location", "wsl_dashboard_select_rootfs_file", "wsl_dashboard_import_rootfs", "wsl_dashboard_logs_get", "wsl_dashboard_logs_clear", "wsl_dashboard_install", "wsl_dashboard_clone", "wsl_dashboard_online_list", "wsl_dashboard_open_terminal", "wsl_dashboard_open_folder"],
+          "native": [
+            "wsl_dashboard_list",
+            "wsl_dashboard_control",
+            "wsl_dashboard_backup",
+            "wsl_dashboard_shutdown",
+            "wsl_dashboard_settings_get",
+            "wsl_dashboard_save_settings",
+            "wsl_dashboard_select_install_location",
+            "wsl_dashboard_select_rootfs_file",
+            "wsl_dashboard_import_rootfs",
+            "wsl_dashboard_logs_get",
+            "wsl_dashboard_logs_clear",
+            "wsl_dashboard_install",
+            "wsl_dashboard_clone",
+            "wsl_dashboard_online_list",
+            "wsl_dashboard_open_terminal",
+            "wsl_dashboard_open_folder"
+          ],
+          "preview": []
+        },
+        {
+          "name": "fingerprint-browser",
+          "native": [
+            "browser_snapshot",
+            "browser_save",
+            "browser_set_deleted",
+            "browser_launch",
+            "browser_stop",
+            "browser_install_kernel",
+            "browser_cancel_install",
+            "browser_import_kernel",
+            "browser_uninstall_kernel",
+            "browser_remove",
+            "browser_move_group",
+            "browser_cookie_file",
+            "browser_check_proxy"
+          ],
           "preview": []
         }
       ]

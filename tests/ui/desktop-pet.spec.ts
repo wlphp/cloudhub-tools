@@ -1,4 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
+import { readFileSync } from "node:fs";
+const fishFrames: number[][] = JSON.parse(readFileSync(new URL("../../src/features/desktop-pet/assets/fish-frames.json", import.meta.url), "utf8"));
+const penguinFrames: number[][] = JSON.parse(readFileSync(new URL("../../src/features/desktop-pet/assets/penguin-frames.json", import.meta.url), "utf8"));
+const dogFrames: number[][] = JSON.parse(readFileSync(new URL("../../src/features/desktop-pet/assets/dog-frames.json", import.meta.url), "utf8"));
 const defaultPetLife = { enabled: false, province: "", city: "", weather: false, schedule: true, workStart: "09:00", lunchStart: "12:00", lunchEnd: "13:30", workEnd: "18:00", leaveBefore: 10, ignoreHolidays: true, restDates: [] as string[], workDates: [] as string[], water: true, waterMinutes: 60, waterRoam: true, stretch: false, stretchMinutes: 90 };
 
 async function lifeNotice(page: Page, kind = "water", level = 0) {
@@ -88,7 +92,7 @@ test("reduced motion preserves water bubble and snooze without roaming", async (
 
 test("life weather waits for chat and ops messages and opens a native official detail action", async ({ page }) => {
   await fixture(page); await page.goto("/?desktopPet=1");
-  await page.getByRole("button", { name: "点击嘴巴，和宠物聊天", exact: true }).click();
+  await page.getByRole("button", { name: "双击嘴巴，和宠物聊天", exact: true }).dblclick();
   await lifeNotice(page, "weather", 3);
   const bubble = page.getByRole("status", { name: "宠物生活提醒" });
   await expect(bubble).not.toBeVisible();
@@ -122,6 +126,9 @@ async function fixture(page: Page, enabled = true) {
         if (command.startsWith("pet_") || command === "plugin:window|start_dragging") (window as any).petCalls.push({ command, args });
         if (command === "plugin:event|listen") { (events[args.event] ||= []).push(args.handler); return args.handler; }
         if (command === "pet_settings") return settings;
+        if (command === "pet_layout" && args.expanded) { (window as any).petEvent("pet-docked", false); return; }
+        if (command === "pet_move" && (args.reveal || args.reset)) { (window as any).petEvent("pet-docked", false); return; }
+        if (command === "pet_move" && args.dock && (window as any).holdPetDrop) return new Promise(resolve => { (window as any).finishPetDrop = () => { (window as any).petEvent("pet-docked",true); resolve(undefined); }; });
         if (command === "pet_life_state") return lifeState;
         if (command === "pet_life_weather") return lifeState;
         if (command === "pet_life_action") {
@@ -137,6 +144,7 @@ async function fixture(page: Page, enabled = true) {
           return "我在呢，有什么想和我聊的？";
         }
         if (command === "pet_chat_cancel") { (window as any).rejectPetChat?.("聊天已停止"); return; }
+        if (command === "pet_computer_action") { if ((window as any).failComputerAction) throw "系统操作失败"; return; }
         if (command === "list_panel_connections") return [{id:7,name:"测试面板",panel_url:"https://example.test:8888",status:"unknown",summary:{},sort_order:0,api_key_saved:false,allow_insecure_tls:false,last_checked_at:null,last_error:null}];
         if (command === "pet_notice") return { key: "cert:1", title: "证书即将到期", detail: "剩余 7 天", section: "certificates", active: true, severity: "critical" };
         if (command === "pet_snapshot") return petSnapshot;
@@ -155,6 +163,58 @@ async function fixture(page: Page, enabled = true) {
   }, { enabled, life: defaultPetLife });
 }
 
+test("edge head stays tucked on hover and wakes for a message or a deliberate drag", async ({ page }) => {
+  await fixture(page); await page.goto("/?desktopPet=1");
+  await expect(page.locator(".pet-avatar")).toBeVisible();
+  await page.evaluate(() => (window as any).petEvent("pet-docked", true));
+  await page.setViewportSize({ width: 104, height: 95 });
+  const head = page.getByRole("button", { name: "拖动头部，将桌宠从屏幕边缘拉出" });
+  await expect(head).toBeVisible();
+  await expect(page.locator(".pet-avatar")).toHaveCount(0);
+  await head.hover(); await page.waitForTimeout(300); await expect(head).toBeVisible();
+  await page.screenshot({ path: "test-results/pet-docked-head.png", omitBackground: true });
+  await page.evaluate(() => (window as any).petEvent("pet-notification", {key:"test",title:"新消息",detail:"应自动展开",active:true,severity:"warning",section:"panels",snoozedUntil:0}));
+  await page.setViewportSize({ width: 360, height: 480 });
+  await expect(head).toHaveCount(0);
+  await expect(page.getByRole("status", { name: "运维消息气泡" })).toBeVisible();
+  await page.getByRole("button", { name: "关闭消息气泡", exact: true }).click();
+  await expect(page.locator(".pet-avatar")).toBeVisible();
+  await page.evaluate(() => (window as any).petEvent("pet-docked", true));
+  await page.setViewportSize({ width: 104, height: 95 });
+  await expect(head).toBeVisible();
+  await page.mouse.move(45,35); await page.mouse.down(); await page.mouse.move(65,40); await page.mouse.up();
+  await expect(head).toHaveCount(0);
+  expect(await page.evaluate(() => (window as any).petCalls.some((c:any) => c.command === "pet_move" && c.args.reveal))).toBe(true);
+  await expect.poll(() => page.evaluate(() => (window as any).petCalls.some((c:any) => c.command === "pet_move" && c.args.dock && c.args.remember))).toBe(true);
+});
+
+test("drag waits for the native drop and hides existing panels without reopening them", async ({page}) => {
+  await fixture(page); await page.setViewportSize({width:360,height:480}); await page.goto("/?desktopPet=1");
+  const avatar=page.locator(".pet-avatar");await expect(avatar).toBeVisible();
+  await page.evaluate(()=>{(window as any).holdPetDrop=true;});
+  await avatar.click();await expect(page.getByRole("dialog")).toBeVisible();
+  await avatar.dispatchEvent("pointerdown",{button:0,screenX:80,screenY:400});
+  await avatar.dispatchEvent("pointermove",{button:0,screenX:95,screenY:400});
+  await expect.poll(()=>page.evaluate(()=>typeof (window as any).finishPetDrop)).toBe("function");
+  await avatar.dispatchEvent("pointerup",{button:0,screenX:95,screenY:400});
+  await page.evaluate(()=>(window as any).finishPetDrop());
+  await page.setViewportSize({width:104,height:95});
+  await expect(page.locator(".pet-docked-head")).toBeVisible();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect.poll(()=>page.evaluate(()=>(window as any).petCalls.filter((c:any)=>c.command==="pet_layout").at(-1)?.args.expanded)).toBe(false);
+  await page.evaluate(()=>(window as any).petEvent("pet-notification",{key:"new",title:"新的提醒",detail:"新消息唤醒",active:true,severity:"warning",section:"panels"}));
+  await expect(page.locator(".pet-docked-head")).toHaveCount(0);
+});
+
+test("a new life reminder reveals a docked pet", async ({ page }) => {
+  await fixture(page); await page.goto("/?desktopPet=1");
+  await expect(page.locator(".pet-avatar")).toBeVisible();
+  await page.evaluate(() => (window as any).petEvent("pet-docked", true));
+  await lifeNotice(page);
+  await expect(page.locator(".pet-docked-head")).toHaveCount(0);
+  await expect(page.getByRole("status", { name: "宠物生活提醒" })).toBeVisible();
+});
+
 test("pet has transparent canvas, explicit menu close and water interaction", async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 480 });
   await fixture(page); await page.goto("/?desktopPet=1");
@@ -166,7 +226,7 @@ test("pet has transparent canvas, explicit menu close and water interaction", as
   await avatar.click({ button: "right" });
   const menu = page.getByRole("dialog", { name: "宠物快捷菜单" });
   await expect(menu).toBeVisible();
-  await expect(menu.locator(".pet-menu button")).toHaveCount(8);
+  await expect(menu.locator(".pet-menu button")).toHaveCount(13);
   expect(await menu.evaluate(el => el.scrollHeight <= el.clientHeight)).toBe(true);
   await page.screenshot({ path: "test-results/alpaca-quick-menu.png", animations: "disabled", omitBackground: true });
   await page.mouse.click(350, 20);
@@ -206,7 +266,7 @@ test("alert speech bubble is clickable, dismissible and waits until chat closes"
   await page.mouse.click(350, 10); await expect(bubble).toBeVisible();
   await page.getByRole("button", { name: "关闭消息气泡", exact: true }).click();
   await expect(bubble).toHaveCount(0);
-  await page.getByRole("button", { name: "点击嘴巴，和宠物聊天" }).click();
+  await page.getByRole("button", { name: "双击嘴巴，和宠物聊天" }).dblclick();
   await notify();
   const chat = page.getByRole("dialog", { name: "和宠物聊天", exact: true });
   await expect(chat).toBeVisible(); await expect(bubble).toHaveCount(0);
@@ -221,10 +281,12 @@ test("alert speech bubble is clickable, dismissible and waits until chat closes"
   await notify(); await expect(bubble).toHaveCount(0);
 });
 
-test("mouth opens chat, sends bounded conversation and supports stop and close", async ({ page }) => {
+test("mouth requires double click, sends bounded conversation and supports stop and close", async ({ page }) => {
   await page.setViewportSize({ width: 520, height: 720 });
   await fixture(page); await page.goto("/?desktopPet=1");
-  await page.getByRole("button", { name: "点击嘴巴，和宠物聊天" }).click();
+  await page.getByRole("button", { name: "双击嘴巴，和宠物聊天" }).click();
+  await expect(page.getByRole("dialog", { name: "和宠物聊天", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "双击嘴巴，和宠物聊天" }).dblclick();
   const chat = page.getByRole("dialog", { name: "和宠物聊天", exact: true });
   await expect(chat).toBeVisible();
   const input = chat.getByLabel("和宠物说句话");
@@ -247,7 +309,7 @@ test("mouth opens chat, sends bounded conversation and supports stop and close",
 test("pet chat without a configured service offers settings instead of a fake reply", async ({ page }) => {
   await fixture(page); await page.goto("/?desktopPet=1");
   await page.evaluate(() => { (window as any).noPetChatService = true; });
-  await page.getByRole("button", { name: "点击嘴巴，和宠物聊天" }).click();
+  await page.getByRole("button", { name: "双击嘴巴，和宠物聊天" }).dblclick();
   await expect(page.getByLabel("和宠物说句话")).toBeDisabled();
   await page.getByRole("button", { name: "去设置 AI 服务" }).click();
   expect(await page.evaluate(() => (window as any).petCalls.find((c: any) => c.command === "pet_open").args.section)).toBe("settings");
@@ -258,7 +320,7 @@ test("pet chat without a configured service offers settings instead of a fake re
 test("pet chat images require preparation and send only the reviewed current image", async ({ page }) => {
   await page.setViewportSize({ width: 520, height: 720 });
   await fixture(page); await page.goto("/?desktopPet=1");
-  await page.getByRole("button", { name: "点击嘴巴，和宠物聊天" }).click();
+  await page.getByRole("button", { name: "双击嘴巴，和宠物聊天" }).dblclick();
   const chat = page.getByRole("dialog", { name: "和宠物聊天", exact: true });
   await expect(chat.getByRole("button", { name: "图片", exact: true })).toBeEnabled();
   await page.screenshot({ path: "test-results/alpaca-chat-refined.png", animations: "disabled", omitBackground: true });
@@ -299,7 +361,7 @@ test("pet chat images require preparation and send only the reviewed current ima
 test("pet chat accepts paste and native image drop, and preserves send blocking for invalid files", async ({ page }) => {
   await page.setViewportSize({ width: 520, height: 720 });
   await fixture(page); await page.goto("/?desktopPet=1");
-  await page.getByRole("button", { name: "点击嘴巴，和宠物聊天" }).click();
+  await page.getByRole("button", { name: "双击嘴巴，和宠物聊天" }).dblclick();
   const chat = page.getByRole("dialog", { name: "和宠物聊天", exact: true });
   const input = chat.getByLabel("和宠物说句话");
   await expect(input).toBeEnabled();
@@ -325,10 +387,45 @@ test("pet chat accepts paste and native image drop, and preserves send blocking 
 test("pet chat disables image attachment until the service has verified vision support", async ({ page }) => {
   await fixture(page); await page.goto("/?desktopPet=1");
   await page.evaluate(() => { (window as any).noPetVision = true; });
-  await page.getByRole("button", { name: "点击嘴巴，和宠物聊天" }).click();
+  await page.getByRole("button", { name: "双击嘴巴，和宠物聊天" }).dblclick();
   await expect(page.getByRole("button", { name: "图片", exact: true })).toBeDisabled();
   await expect(page.getByLabel("和宠物说句话")).toBeEnabled();
   await expect(page.getByRole("button", { name: "启用识图", exact: true })).toBeVisible();
+});
+
+test("computer shortcuts use fixed actions and require explicit power confirmation", async ({page}) => {
+  await page.setViewportSize({width:520,height:720});
+  await fixture(page);await page.goto("/?desktopPet=1");
+  await page.getByRole("button",{name:/^宠物：/}).click({button:"right"});
+  const menu=page.getByRole("dialog",{name:"宠物快捷菜单"});
+  for (const [name,action] of [["任务管理器","taskManager"],["文件资源管理器","explorer"],["锁定电脑","lock"]]) {
+    await menu.getByRole("button",{name,exact:true}).click();
+    await expect.poll(()=>page.evaluate(()=>(window as any).petCalls.filter((c:any)=>c.command==="pet_computer_action").at(-1)?.args.action)).toBe(action);
+  }
+  for (const [name,action,label] of [["关闭电脑","shutdown","确认关机"],["重启电脑","restart","确认重启"]]) {
+    const before=await page.evaluate(()=>(window as any).petCalls.filter((c:any)=>c.command==="pet_computer_action").length);
+    await menu.getByRole("button",{name,exact:true}).click();
+    const confirm=page.getByRole("alertdialog",{name,exact:true});
+    await expect(confirm).toBeVisible();await expect(confirm).toHaveClass(/dialog-common-theme/);
+    await page.mouse.click(2,2);await expect(confirm).toBeVisible();
+    await page.keyboard.press("Escape");await expect(confirm).toHaveCount(0);
+    expect(await page.evaluate(()=>(window as any).petCalls.filter((c:any)=>c.command==="pet_computer_action").length)).toBe(before);
+    await menu.getByRole("button",{name,exact:true}).click();
+    await confirm.getByRole("button",{name:"取消",exact:true}).click();
+    expect(await page.evaluate(()=>(window as any).petCalls.filter((c:any)=>c.command==="pet_computer_action").length)).toBe(before);
+    await menu.getByRole("button",{name,exact:true}).click();
+    await confirm.getByRole("button",{name:label,exact:true}).click();
+    await expect(confirm).toHaveCount(0);
+    await expect.poll(()=>page.evaluate(()=>(window as any).petCalls.filter((c:any)=>c.command==="pet_computer_action").at(-1)?.args.action)).toBe(action);
+  }
+  await page.evaluate(()=>{(window as any).failComputerAction=true;});
+  await menu.getByRole("button",{name:"关闭电脑",exact:true}).click();
+  const confirm=page.getByRole("alertdialog",{name:"关闭电脑",exact:true});
+  await confirm.getByRole("button",{name:"确认关机",exact:true}).click();
+  await expect(confirm.getByRole("alert")).toContainText("操作失败，请稍后重试");
+  await confirm.getByRole("button",{name:"取消",exact:true}).click();
+  await expect(menu).toBeVisible();
+  await page.screenshot({path:"test-results/pet-computer-shortcuts.png",omitBackground:true});
 });
 
 test("status list scrolls within a fixed panel and keeps actions accessible", async ({ page }) => {
@@ -353,6 +450,34 @@ test("status list scrolls within a fixed panel and keeps actions accessible", as
   await expect(panel.locator("footer")).toBeInViewport();
   await page.mouse.click(350, 5); await expect(panel).toBeVisible();
   await page.keyboard.press("Escape"); await expect(panel).toHaveCount(0);
+});
+
+for (const size of [80,120,160,200]) test(`long status list keeps titlebar inside the native window at size ${size}`, async ({page}) => {
+  await page.setViewportSize({width:360,height:480});
+  await fixture(page); await page.goto("/?desktopPet=1");
+  await expect(page.locator(".pet-avatar")).toBeVisible();
+  await page.evaluate(async size => {
+    const settings = await (window as any).__TAURI_INTERNALS__.invoke("pet_settings",{});
+    (window as any).petEvent("pet-settings-changed",{...settings,size});
+    (window as any).petEvent("pet-alerts-changed",{checkedAt:200,lastError:null,alerts:Array.from({length:20},(_,i)=>({key:`panel:${i}`,title:`测试面板 ${i} 面板访问异常`,detail:"连续两次无法通过配置的接口访问面板。请检查本机网络、面板地址、权限与 API 白名单。",section:"panels",severity:"emergency",active:true,updatedAt:200,snoozedUntil:0}))});
+  },size);
+  await page.getByRole("button",{name:/^宠物：/}).click();
+  const panel=page.getByRole("dialog",{name:"宠物运维状态"});
+  const close=panel.getByRole("button",{name:"关闭",exact:true});
+  for (const enlarged of [false,true,false]) {
+    await page.setViewportSize(enlarged ? {width:520,height:720} : {width:360,height:480});
+    await panel.locator(".pet-alert-list").evaluate(el=>{el.scrollTop=el.scrollHeight;});
+    await expect(panel.locator(":scope > header")).toBeInViewport({ratio:1});
+    await expect(close).toBeInViewport({ratio:1});
+    await expect(panel.locator("footer")).toBeInViewport({ratio:1});
+    const title=await panel.locator("header strong").boundingBox();
+    await page.mouse.move(title!.x+3,title!.y+3);await page.mouse.down();await page.mouse.up();
+    if (enlarged) await panel.getByRole("button",{name:"缩小弹层",exact:true}).click();
+    else await panel.getByRole("button",{name:"最大化弹层",exact:true}).click();
+  }
+  await page.screenshot({path:`test-results/pet-status-header-size-${size}.png`,omitBackground:true});
+  await close.click(); await expect(panel).toHaveCount(0);
+  expect(await page.evaluate(()=>(window as any).petCalls.some((c:any)=>c.command==="plugin:window|start_dragging"))).toBe(true);
 });
 
 test("alert status defaults to unresolved and recovered alerts remain available separately", async ({ page }) => {
@@ -469,21 +594,39 @@ test("panel access check is independently configurable", async ({ page }) => {
   expect(saved.panels).toBe(false);
 });
 
+for (const kind of ["status", "menu", "chat"] as const) test(`pet ${kind} uses the common dialog theme`, async ({ page }) => {
+  await page.setViewportSize({ width: 520, height: 720 });
+  await fixture(page); await page.goto("/?desktopPet=1");
+  const avatar = page.getByRole("button", { name: /^宠物：/ });
+  if (kind === "chat") await page.getByRole("button", { name: "双击嘴巴，和宠物聊天" }).dblclick();
+  else await avatar.click(kind === "menu" ? { button: "right" } : {});
+  const panel = page.getByRole("dialog");
+  await expect(panel).toHaveClass(/modal-form-layout/);
+  await expect(panel).toHaveClass(/dialog-common-theme/);
+  await expect(panel).toHaveCSS("background-color", "rgb(40, 40, 40)");
+  await expect(panel.locator(":scope > header")).toHaveCSS("background-color", "rgb(48, 48, 48)");
+  await expect(panel.locator(".dialog-header-actions")).toBeVisible();
+  if (kind === "status") await expect(panel.locator("footer")).toHaveCSS("background-color", "rgb(40, 40, 40)");
+  await page.screenshot({ path: `test-results/pet-common-${kind}.png`, animations: "disabled", omitBackground: true });
+  await page.keyboard.press("Escape");
+  await expect(panel).toHaveCount(0);
+});
+
 test("status titlebar drags the native window and supports enlarge restore and close", async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 480 });
   await fixture(page); await page.goto("/?desktopPet=1");
   await page.getByRole("button", { name: /^宠物：/ }).click();
   const panel = page.getByRole("dialog", { name: "宠物运维状态" });
-  await panel.getByRole("button", { name: "放大面板", exact: true }).click();
+  await panel.getByRole("button", { name: "最大化弹层", exact: true }).click();
   await expect.poll(() => page.evaluate(() => (window as any).petCalls.filter((c: any) => c.command === "pet_layout").at(-1)?.args)).toEqual({ expanded: true, enlarged: true });
   await page.setViewportSize({ width: 520, height: 720 });
-  await expect(panel.getByRole("button", { name: "还原面板", exact: true })).toBeVisible();
+  await expect(panel.getByRole("button", { name: "缩小弹层", exact: true })).toBeVisible();
   await page.screenshot({ path: "test-results/alpaca-status-enlarged.png", animations: "disabled", omitBackground: true });
   const title = await panel.locator("header strong").boundingBox();
   await page.mouse.move(title!.x + 10, title!.y + 8); await page.mouse.down(); await page.mouse.up();
   await expect.poll(() => page.evaluate(() => (window as any).petCalls.some((c: any) => c.command === "plugin:window|start_dragging"))).toBe(true);
   await expect.poll(() => page.evaluate(() => (window as any).petCalls.some((c: any) => c.command === "pet_move" && c.args.remember))).toBe(true);
-  await panel.getByRole("button", { name: "还原面板", exact: true }).click();
+  await panel.getByRole("button", { name: "缩小弹层", exact: true }).click();
   await expect.poll(() => page.evaluate(() => (window as any).petCalls.filter((c: any) => c.command === "pet_layout").at(-1)?.args)).toEqual({ expanded: true, enlarged: false });
   // Window control clicks must not initiate dragging.
   expect(await page.evaluate(() => (window as any).petCalls.filter((c: any) => c.command === "plugin:window|start_dragging").length)).toBe(1);
@@ -527,25 +670,71 @@ test("pet settings save dog appearance while retaining the alpaca option", async
   await expect(appearance).toHaveValue("dog");
   expect(await page.evaluate(() => (window as any).petCalls.filter((c: any) => c.command === "pet_save_settings").at(-1).args.settings.appearance)).toBe("dog");
   await expect(appearance.locator('option[value="alpaca"]')).toHaveText("羊驼");
+  await appearance.selectOption("penguin");
+  await expect(appearance).toHaveValue("penguin");
+  await expect(appearance.locator('option[value="penguin"]')).toHaveText("企鹅");
+  expect(await page.evaluate(() => (window as any).petCalls.filter((c: any) => c.command === "pet_save_settings").at(-1).args.settings.appearance)).toBe("penguin");
+  await expect(section.locator('.pet-settings-portrait')).toHaveAttribute("data-appearance", "penguin");
+  await appearance.selectOption("fish");
+  await expect(appearance).toHaveValue("fish");
+  await expect(appearance.locator('option[value="fish"]')).toHaveText("大鱼（DeepSeek）");
+  await expect(section.locator('.pet-settings-portrait')).toHaveAttribute("data-appearance","fish");
+  expect(await page.evaluate(() => (window as any).petCalls.filter((c:any)=>c.command==="pet_save_settings").at(-1).args.settings.appearance)).toBe("fish");
 });
 
-test("dog appearance updates the sprite, native hit mask metadata and chat avatar", async ({ page }) => {
+for (const appearance of ["dog", "penguin", "fish"] as const) test(`${appearance} appearance updates the sprite, native hit mask metadata and chat avatar`, async ({ page }) => {
   await page.setViewportSize({ width: 520, height: 720 });
   await fixture(page); await page.goto("/?desktopPet=1");
   await expect.poll(() => page.evaluate(() => (window as any).petCalls.some((c: any) => c.command === "pet_sprite"))).toBe(true);
-  await page.evaluate(async () => {
+  await page.evaluate(async appearance => {
     const settings = await (window as any).__TAURI_INTERNALS__.invoke("pet_settings", {});
-    const next = { ...settings, appearance: "dog" };
+    const next = { ...settings, appearance };
     await (window as any).__TAURI_INTERNALS__.invoke("pet_save_settings", { settings: next });
     (window as any).petEvent("pet-settings-changed", next);
-  });
-  await expect.poll(() => page.locator(".pet-sprite").evaluate(el => getComputedStyle(el).backgroundImage)).toContain("dog-sprites");
-  await expect.poll(() => page.evaluate(() => (window as any).petCalls.filter((c: any) => c.command === "pet_sprite").at(-1).args.appearance)).toBe("dog");
-  await page.screenshot({ path: "test-results/dog-desktop-pet.png", animations: "disabled" });
-  await page.getByRole("button", { name: "点击嘴巴，和宠物聊天", exact: true }).click();
+  }, appearance);
+  await expect.poll(() => page.locator(".pet-sprite").evaluate(el => getComputedStyle(el).backgroundImage)).toContain(`${appearance}-sprites`);
+  await expect.poll(() => page.evaluate(() => (window as any).petCalls.filter((c: any) => c.command === "pet_sprite").at(-1).args.appearance)).toBe(appearance);
+  await page.screenshot({ path: `test-results/${appearance}-desktop-pet.png`, animations: "disabled" });
+  await page.getByRole("button", { name: "双击嘴巴，和宠物聊天", exact: true }).dblclick();
   await expect(page.getByRole("dialog", { name: "和宠物聊天", exact: true })).toBeVisible();
-  expect(await page.locator(".pet-chat-welcome-avatar").evaluate(el => getComputedStyle(el).backgroundImage)).toContain("dog-sprites");
-  await page.screenshot({ path: "test-results/dog-chat.png", animations: "disabled" });
+  expect(await page.locator(".pet-chat-welcome-avatar").evaluate(el => getComputedStyle(el).backgroundImage)).toContain(`${appearance}-sprites`);
+  await page.screenshot({ path: `test-results/${appearance}-chat.png`, animations: "disabled" });
+  await page.keyboard.press("Escape");
+  for (const [action, pose] of [[appearance !== "dog" ? "坐着玩耍" : "趴着陪伴", "lie_down"], ["陪我工作", "work"], ["喷水玩一下", "spray"], ["休息一下", "sleep"], ["起来活动", "idle"], [appearance === "fish" ? "游动一会" : "散步一会", "walk"]]) {
+    await page.locator(".pet-avatar").click({ button: "right", position: { x: 8, y: 8 } });
+    await page.getByRole("dialog", { name: "宠物快捷菜单", exact: true }).getByRole("button", { name: action, exact: true }).click();
+    await page.mouse.move(500, 20);
+    await expect(page.locator(".pet-sprite")).toHaveClass(new RegExp(`pet-pose-${pose}`));
+  }
+  if (appearance !== "dog") {
+    await page.locator(".pet-avatar").click({ button: "right", position: { x: 8, y: 8 } });
+    await page.getByRole("button", { name: "飞行玩一下", exact: true }).click();
+    await expect(page.locator(".pet-sprite")).toHaveClass(/pet-pose-hanging/);
+  }
+  if (appearance === "fish") {
+    await page.evaluate(() => (window as any).petEvent("pet-docked",true));
+    await page.setViewportSize({width:75,height:68});
+    const head=page.locator(".pet-docked-head");
+    await expect(head).toBeVisible();
+    expect(await head.evaluate(el=>getComputedStyle(el).backgroundImage)).toContain("fish-sprites");
+    await page.screenshot({path:"test-results/fish-head.png",omitBackground:true});
+    await page.evaluate(() => (window as any).__TAURI_INTERNALS__.invoke("pet_move",{reveal:true}));
+  }
+  await page.setViewportSize({ width: 1200, height: 840 });
+  const image = await page.locator(".pet-sprite").evaluate(el => getComputedStyle(el).backgroundImage);
+  await page.evaluate(({ image, frames, appearance }) => {
+    const gallery = document.createElement("div");
+    gallery.style.cssText = "position:fixed;inset:0;z-index:99999;background:#282828;display:grid;grid-template-columns:repeat(6,1fr);gap:6px;padding:12px;color:#dedede";
+    const names = ["待机", "眨眼", appearance !== "dog" ? "招手" : "摇尾", "走路1", "走路2", appearance !== "dog" ? "玩耍/坐下" : "趴下", ...Array.from({ length: 6 }, (_, i) => `跑动${i + 1}`), ...Array.from({ length: 6 }, (_, i) => `喷水${i + 1}`), "睡眠", "开心", "好奇", appearance !== "dog" ? "飞行/提起" : "提起/攀爬", "工作", "担心/告警"];
+    frames.forEach(([x, y, w, h], i) => {
+      const item = document.createElement("div"); item.style.cssText = "display:flex;flex-direction:column;align-items:center;justify-content:center;background:#202020;border:1px solid #414141";
+      const sprite = document.createElement("span"); sprite.style.cssText = "display:block;width:160px;height:160px;background-repeat:no-repeat";
+      sprite.style.backgroundImage = image; sprite.style.backgroundSize = `${1536 / w * 100}% ${1024 / h * 100}%`; sprite.style.backgroundPosition = `${x / (1536 - w) * 100}% ${y / (1024 - h) * 100}%`;
+      const label = document.createElement("small"); label.textContent = names[i]; item.append(sprite, label); gallery.append(item);
+    });
+    document.body.append(gallery);
+  }, { image, frames: appearance === "fish" ? fishFrames : appearance === "penguin" ? penguinFrames : dogFrames, appearance });
+  await page.screenshot({ path: `test-results/${appearance === "dog" ? "corgi" : appearance}-all-frames.png`, animations: "disabled" });
 });
 
 test("settings keep monitoring independent and do not accept a failed enable", async ({ page }) => {
@@ -596,6 +785,10 @@ test("expanded pet settings stay compact and fit desktop and narrow widths", asy
 test("desktop notification remains usable when the companion is disabled", async ({ page }) => {
   await fixture(page,false); await page.setViewportSize({width:360,height:240}); await page.goto("/?desktopPetAlerts=1");
   await expect(page.getByRole("dialog",{name:"CloudHub 运维提醒"})).toBeVisible();
+  const notification = page.getByRole("dialog",{name:"CloudHub 运维提醒"});
+  await expect(notification).toHaveClass(/dialog-common-theme/);
+  await expect(notification).toHaveCSS("background-color", "rgb(40, 40, 40)");
+  await expect(notification.locator("header")).toHaveCSS("background-color", "rgb(48, 48, 48)");
   await expect(page.getByText("证书即将到期",{exact:true})).toBeVisible();
   await expect(page.locator(".pet-avatar")).toHaveCount(0);
   await page.getByRole("button",{name:"一小时后提醒"}).click();

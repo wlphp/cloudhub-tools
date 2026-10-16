@@ -1,3 +1,4 @@
+import { ConfirmDialog } from "./shared/ConfirmDialog";
 import { PetSettingsPanel } from "./features/desktop-pet/PetSettingsPanel";
 import { useExportSelection } from "./shared/ExportSelection";
 import { OfficialPluginsPage } from "./features/plugins/OfficialPluginsPage";
@@ -5072,16 +5073,7 @@ function App() {
         </div>,
         document.body,
       )}
-      {confirmRequest && createPortal(
-        <div className="app-confirm-backdrop">
-          <section className="app-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-message" onClick={(event) => event.stopPropagation()}>
-            <div className="app-confirm-icon"><AlertTriangle size={20} /></div>
-            <div className="app-confirm-copy"><span className="eyebrow">PLEASE CONFIRM</span><h2 id="confirm-title">确认操作</h2><p id="confirm-message">{confirmRequest.message}</p></div>
-            <div className="app-confirm-actions"><button type="button" className="secondary" autoFocus onClick={() => resolveConfirm(false)}>取消</button><button type="button" className="primary app-confirm-primary" onClick={() => resolveConfirm(true)}>确认</button></div>
-          </section>
-        </div>,
-        document.body,
-      )}
+      {confirmRequest && createPortal(<ConfirmDialog message={confirmRequest.message} onResolve={resolveConfirm} />, document.body)}
       {showSyncTransfer && createPortal(
         <div className="modal-backdrop sync-transfer-overlay">
           <SyncTransferPanel mode="desktop" accounts={accounts} managedHosts={managedHosts} panels={panelConnections} onClose={() => setShowSyncTransfer(false)} onImported={() => { void load(); void loadLocalAssets(); void loadManagedHosts(); void loadPanelConnections(); }} />

@@ -1,5 +1,5 @@
 // 第一批官方插件随应用编译发布，版本与能力边界独立声明。
-// 尚未提供第三方代码加载、商店下载或动态安装能力。
+// 浏览器内核为独立按需下载资源；不加载第三方插件代码。
 export const officialPlugins = [{
   id: "cloudhub.wechat-multi",
   name: "微信多开",
@@ -30,4 +30,14 @@ export const officialPlugins = [{
   distribution: "builtin",
   platform: "windows",
   permissions: ["读取本机 WSL 发行版名称、运行状态与版本", "按用户操作启动、停止或设置默认发行版", "将发行版导出为用户选择位置的 TAR 备份", "输入完整发行版名称并确认后永久删除发行版及其本地数据", "停止全部 WSL 虚拟机"],
+}, {
+  id: "cloudhub.fingerprint-browser",
+  name: "指纹浏览器",
+  version: "0.1.0",
+  publisher: "CloudHub Tools",
+  description: "管理独立浏览器环境、代理和登录资料，浏览器内核首次使用时下载。",
+  category: "桌面工具",
+  distribution: "builtin",
+  platform: "windows",
+  permissions: ["主动下载并校验官方浏览器内核", "读写本机独立浏览器资料", "按用户操作启动和关闭浏览器", "本地加密保存代理密码"],
 }] as const;
