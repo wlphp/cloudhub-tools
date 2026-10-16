@@ -234,6 +234,14 @@ test("Cookie 查看弹层默认隐藏原始值，逐条揭示", async ({ page })
   await dialog.getByRole("button", { name: "环境列表", exact: true }).click();
   const row = dialog.locator("tbody tr").filter({ hasText: "查看环境" });
   await row.getByRole("button", { name: "打开", exact: true }).click();
+  // Native reads can finish after disabling the trigger has already blurred it.
+  await page.evaluate(() => {
+    const original = (window as any).__TAURI_INTERNALS__.invoke;
+    (window as any).__TAURI_INTERNALS__.invoke = async (command: string, args: unknown) => {
+      if (command === "browser_cookie_list") await new Promise(resolve => setTimeout(resolve, 100));
+      return original(command, args);
+    };
+  });
   await row.getByRole("button", { name: "查看数据", exact: true }).click();
   const inspector = page.locator(".cookie-view-dialog");
   await expect(inspector).toBeVisible();
