@@ -1,4 +1,4 @@
-use crate::core::{browser::{self, kernel, model::{self, Environment, SaveEnvironment}, runtime::{BrowserState, Snapshot}}, error::PlatformResult};
+use crate::core::{browser::{self, cookies_offline::CookieView, kernel, model::{self, Environment, SaveEnvironment}, runtime::{BrowserState, Snapshot}}, error::PlatformResult};
 use tauri::State;
 
 #[tauri::command]
@@ -85,6 +85,25 @@ pub(crate) async fn browser_cookie_file(state: State<'_, BrowserState>, app: tau
     }
     Ok(true)
 }
+/// Read-only view of one environment's cookies for the data inspector dialog.
+/// A running environment is read through CDP so the values are exactly what the
+/// browser holds; a stopped one is read from its profile on disk and decrypted
+/// with the Windows user's DPAPI key. Values are returned to the renderer only
+/// because the operator explicitly opened the inspector, and they are never
+/// written to logs, operation records, exports or error messages.
+#[tauri::command]
+pub(crate) async fn browser_cookie_list(state: State<'_, BrowserState>, id: String) -> PlatformResult<Vec<CookieView>> {
+    browser::require_supported()?;
+    let _guard = state.operations.lock().await;
+    if state.is_running(&id)? {
+        let cookies = state.cookies(&id, None).await?;
+        let items = cookies["cookies"].as_array().cloned().unwrap_or_default();
+        if items.len() > 10_000 { return Err(browser::error("Cookie 数量超过查看限制")); }
+        return Ok(items.iter().map(CookieView::from_live).collect());
+    }
+    browser::cookies_offline::read(&id)
+}
+
 #[tauri::command]
 pub(crate) async fn browser_check_proxy(state: State<'_, BrowserState>, id: String) -> PlatformResult<String> {
     browser::require_supported()?;

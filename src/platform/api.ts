@@ -28,9 +28,15 @@ export type PlatformErrorCode =
   | "authenticator-error"
   | "authenticator-locked"
   | "hardware-info"
-  | "wsl-dashboard";
+  | "wsl-dashboard"
+  | "browser";
 
 function publicPlatformMessage(code: PlatformErrorCode, rawMessage: string): string {
+  if (code === "browser") {
+    return rawMessage
+      .replace(/(password|secret|token|access[_-]?key|private[_-]?key|authorization|signature)(\s*[:=]\s*)[^,;\s]+/gi, "$1$2[已隐藏]")
+      .slice(0, 240) || "浏览器环境操作失败，请重试";
+  }
   if (code === "oss-cname") {
     const safe = ["请先获取验证 Token，并配置 TXT 记录；等待 DNS 生效后重试绑定", "权限不足，请检查账号的 OSS 自定义域名操作权限", "此域名已绑定其他存储桶，请先解除原绑定", "域名参数无效，请使用具体的完整域名", "请求被拒绝，请检查域名、地域和账号权限后重试", "OSS 未返回验证 Token，请重新获取", "OSS 自定义域名列表格式无效", "OSS 连接失败或超时，请检查网络后重试", "OSS 返回读取失败", "OSS 存储桶名称或地域无效，请刷新存储桶列表", "请输入有效的完整域名，例如 img.example.com", "普通 OSS 存储桶请填写具体域名，例如 img.example.com，不能填写泛域名 *.example.com"];
     return safe.includes(rawMessage) ? rawMessage : "OSS 自定义域名操作失败，请检查账号和域名后重试";
@@ -111,7 +117,7 @@ function publicPlatformMessage(code: PlatformErrorCode, rawMessage: string): str
       .replace(/(password|secret|token|access[_-]?key|private[_-]?key|authorization|signature)(\s*[:=]\s*)[^,;\s]+/gi, "$1$2[已隐藏]")
       .slice(0, 240);
   }
-  const messages: Record<Exclude<PlatformErrorCode, "oss-cname" | "local-plugin" | "ai" | "unsupported-in-preview" | "certificate" | "esa-query" | "authenticator-error" | "authenticator-locked" | "hardware-info" | "wsl-dashboard" | "codex-model-catalog" | "codex-proxy">, string> = {
+  const messages: Record<Exclude<PlatformErrorCode, "oss-cname" | "local-plugin" | "ai" | "unsupported-in-preview" | "certificate" | "esa-query" | "authenticator-error" | "authenticator-locked" | "hardware-info" | "wsl-dashboard" | "codex-model-catalog" | "codex-proxy" | "browser">, string> = {
     unknown: "操作失败，请稍后重试",
     validation: "输入参数无效，请检查后重试",
     authentication: "认证失败，请检查凭据或登录状态",
@@ -161,7 +167,7 @@ export function normalizePlatformError(reason: unknown): PlatformError {
   }
   if (typeof reason === "object" && reason !== null && "code" in reason && "message" in reason) {
     const structured = reason as { code?: PlatformErrorCode; message?: string; retryable?: boolean };
-    const code = structured.code && ["oss-cname", "local-plugin", "ai", "unknown", "unsupported-in-preview", "validation", "authentication", "permission", "network", "not-found", "conflict", "frp-port-conflict", "codex-account-busy", "codex-gateway-port-conflict", "codex-model-catalog", "codex-proxy", "cancelled", "certificate", "esa-query", "authenticator-error", "authenticator-locked", "hardware-info", "wsl-dashboard"].includes(structured.code)
+    const code = structured.code && ["oss-cname", "local-plugin", "ai", "unknown", "unsupported-in-preview", "validation", "authentication", "permission", "network", "not-found", "conflict", "frp-port-conflict", "codex-account-busy", "codex-gateway-port-conflict", "codex-model-catalog", "codex-proxy", "cancelled", "certificate", "esa-query", "authenticator-error", "authenticator-locked", "hardware-info", "wsl-dashboard", "browser"].includes(structured.code)
       ? structured.code : "unknown";
     return new PlatformError(String(structured.message), code, structured.retryable === true);
   }

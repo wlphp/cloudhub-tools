@@ -61,9 +61,15 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 rqrr = "0.10"
 
 [target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))'.dependencies]
-tauri = { version = "2", features = ["tray-icon"] }
+tauri = { version = "2", features = ["macos-private-api", "tray-icon"] }
 tauri-plugin-updater = "2.10.1"
 arboard = { version = "3", default-features = false }
+
+# Chrome for Testing encrypts stored cookie values with DPAPI-protected AES-GCM
+# keys. Reading them offline requires only CryptUnprotectData, so the smallest
+# available feature set is enabled and no other Windows surface is pulled in.
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Security_Cryptography", "Win32_Foundation"] }
 
 [target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
 tauri-plugin-barcode-scanner = "2.5.1"

@@ -1,3 +1,12 @@
+/*
+ * Shared dialog base. Every overlay in the app must reuse these primitives
+ * instead of defining its own card: a `.modal-backdrop` (or
+ * `.app-confirm-backdrop`) wrapper portalled to `document.body`, then
+ * `.modal.modal-form-layout.dialog-common-theme` with
+ * `header.modal-head` + `div.modal-body` + `footer.modal-actions`.
+ * A dialog that is only a block inside the page body is an implementation error.
+ * See cloudhub-ui-ux for the full rule.
+ */
 .dialog-header-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex: 0 0 auto; margin-left: auto; }
 .shared-confirm-dialog.shared-confirm-dialog {display:flex;flex-direction:column;box-sizing:border-box;padding:0;width:min(440px,calc(100vw - 24px));max-height:calc(100dvh - 24px);overflow:hidden}
 .shared-confirm-dialog > header {display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--jb-border)}

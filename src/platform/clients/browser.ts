@@ -19,6 +19,11 @@ export interface BrowserKernel {
   downloaded: number; total: number; error: string | null;
 }
 export interface BrowserSnapshot { supported: boolean; kernel: BrowserKernel; kernels: BrowserKernel[]; environments: BrowserEnvironment[] }
+export interface BrowserCookie {
+  name: string; domain: string; path: string; value: string;
+  expires: number | null; secure: boolean; httpOnly: boolean; sameSite: string | null;
+  session: boolean; valueUnavailable: boolean;
+}
 export interface SaveBrowserEnvironment { id: string | null; config: BrowserConfig; proxyPassword: string | null }
 export const browserClient = {
   snapshot: () => nativeOnly<BrowserSnapshot>("browser_snapshot"),
@@ -33,5 +38,6 @@ export const browserClient = {
   remove: (id: string, confirmationName: string) => nativeOnly<void>("browser_remove", { id, confirmationName }),
   moveGroup: (ids: string[], group: string) => nativeOnly<void>("browser_move_group", { ids, group }),
   cookieFile: (id: string, exportFile: boolean) => nativeOnly<boolean>("browser_cookie_file", { id, export: exportFile }),
+  cookies: (id: string) => nativeOnly<BrowserCookie[]>("browser_cookie_list", { id }),
   checkProxy: (id: string) => nativeOnly<string>("browser_check_proxy", { id }),
 };

@@ -6,11 +6,19 @@ mod process;
 mod cdp;
 pub(crate) mod proxy;
 pub mod cookies;
+pub mod cookies_offline;
 
 use crate::core::error::{PlatformError, PlatformResult};
 use std::path::PathBuf;
 
 pub fn error(message: &'static str) -> PlatformError {
+    PlatformError { kind: "platform-error", code: "browser", message: message.into(), retryable: false }
+}
+
+/// Diagnostic variant for messages that carry runtime detail such as a CDP
+/// method name or Chromium error code. Callers must only pass browser-reported
+/// identifiers: never user input, page content, URLs or credentials.
+pub fn error_detail(message: &str) -> PlatformError {
     PlatformError { kind: "platform-error", code: "browser", message: message.into(), retryable: false }
 }
 

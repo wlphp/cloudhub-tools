@@ -857,6 +857,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "uuid",
+ "windows-sys 0.59.0",
  "x509-parser",
  "zeroize",
  "zip 2.4.2",

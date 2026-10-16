@@ -1,6 +1,6 @@
 //! Small, bounded CDP transport. No public debug port, arbitrary CDP commands or
 //! provider diagnostics are exposed to the renderer. Only our own child is used.
-use super::{error, model::EnvironmentConfig};
+use super::{error, error_detail, model::EnvironmentConfig};
 use crate::core::error::PlatformResult;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use rand::RngCore;
@@ -9,12 +9,35 @@ use sha1::{Digest, Sha1};
 use std::{collections::{HashMap, HashSet, VecDeque}, io::{Read, Write}, net::{SocketAddr, TcpStream}, time::Duration};
 
 const MAX_MESSAGE: usize = 4 * 1024 * 1024;
+/// Sentinel used internally so a vanished session can be told apart from a real
+/// configuration rejection without changing the public error type.
+const SESSION_GONE: &str = "浏览器目标已关闭";
+/// The CDP transport closed while a reply was outstanding. Chromium closes the
+/// frame for a destroyed session, and it also dies with the browser, so callers
+/// must decide with their own context whether this is a vanished target or a
+/// genuinely lost browser connection.
+const TRANSPORT_LOST: &str = "浏览器控制响应超时或已断开";
 pub struct Connection {
     stream: TcpStream,
     next: u64,
     events: VecDeque<Value>,
     identity: Option<Value>,
     probe_targets: HashSet<String>,
+}
+
+/// A target can be torn down between the `Target.attachedToTarget` event and our
+/// first command to its session. Chromium answers -32001 ("Session with given id
+/// not found.") for that race. It says nothing about the environment config, so it
+/// must not be treated as a rejected injection: doing so killed a healthy browser
+/// whenever a short-lived worker or a navigation target disappeared on its own.
+/// Why a session-scoped injection stopped. `TargetGone` is a benign race with the
+/// browser destroying a target; `Fatal` means the configuration itself was refused.
+enum SessionOutcome { TargetGone(String), Fatal(crate::core::error::PlatformError) }
+
+fn session_gone(value: &Value) -> bool {
+    value["error"]["code"] == -32001
+        || matches!(value["error"]["message"].as_str(),
+            Some("Session with given id not found.") | Some("No session with given id"))
 }
 impl Connection {
     fn native_identity_metadata(&mut self) -> PlatformResult<Value> {
@@ -43,6 +66,14 @@ impl Connection {
         let closed=self.call("Target.closeTarget",json!({"targetId":target}),None);
         // Discard only the probe target's queued attach event; its session is
         // closed and must never enter the user-environment configuration loop.
+        self.events.retain(|event|event["params"]["targetInfo"]["targetId"].as_str()!=Some(target.as_str()));
+        // A late attach event can arrive after the probe page is closed (the
+        // barrier in initialize drains it). Keeping the id here would let that
+        // event carry a dead session into configure_events, which would fail and
+        // make the worker kill a healthy browser. Forget it as soon as it closes.
+        self.probe_targets.remove(&target);
+        // Any attach event that raced ahead of the close still belongs to a
+        // session Chromium has already torn down, so drop it by id again.
         self.events.retain(|event|event["params"]["targetInfo"]["targetId"].as_str()!=Some(target.as_str()));
         match result {Ok(value)=>{if closed?["success"]!=true {return Err(error("无法关闭内核身份探测页"));}Ok(value)},Err(error)=>Err(error)}
     }
@@ -82,7 +113,7 @@ impl Connection {
     fn read_message(&mut self) -> PlatformResult<Value> {
         let mut data = Vec::new();
         loop {
-            let mut head = [0u8; 2]; self.stream.read_exact(&mut head).map_err(|_| error("浏览器控制响应超时或已断开"))?;
+            let mut head = [0u8; 2]; self.stream.read_exact(&mut head).map_err(|_| error(TRANSPORT_LOST))?;
             let opcode = head[0] & 15;
             if head[0] & 0x70 != 0 || head[1] & 0x80 != 0 { return Err(error("浏览器控制帧无效")); }
             let mut length = (head[1] & 127) as u64;
@@ -108,7 +139,11 @@ impl Connection {
         if let Some(session) = session { request["sessionId"] = json!(session); }
         self.send_frame(1, &serde_json::to_vec(&request).map_err(|_| error("浏览器控制参数无效"))?)?;
         for _ in 0..4096 {
-            let value = self.read_message()?;
+            let value = match self.read_message() {
+                Ok(value) => value,
+                Err(reason) if session.is_some() && reason.message == TRANSPORT_LOST => return Err(error(SESSION_GONE)),
+                Err(reason) => return Err(reason),
+            };
             if value["id"].as_u64() == Some(id) {
                 if value.get("error").is_some() {
                     // ICU overrides are renderer-wide. Another attached frame
@@ -121,7 +156,16 @@ impl Connection {
                         | ("Emulation.setTimezoneOverride",Some("Timezone override is already in effect"))
                     );
                     if already_applied { return Ok(json!({})); }
-                    return Err(error("浏览器不支持此环境配置，请检查时区和内核版本"));
+                    if session_gone(&value) { return Err(error(SESSION_GONE)); }
+                    // Keep the CDP method and Chromium's own code/message. Without
+                    // them a rejected injection is indistinguishable from a dead
+                    // session, and the worker would kill a healthy browser with no
+                    // trace of why. Only the method name, numeric code and the
+                    // browser's own short text are kept; no page data is included.
+                    let code = value["error"]["code"].as_i64().unwrap_or_default();
+                    let message = value["error"]["message"].as_str().unwrap_or_default();
+                    let detail = format!("{method} 被内核拒绝（{code}: {}）", message.chars().take(160).collect::<String>());
+                    return Err(error_detail(&detail));
                 }
                 return Ok(value["result"].clone());
             }
@@ -136,23 +180,51 @@ impl Connection {
             if event["params"]["targetInfo"]["targetId"].as_str().is_some_and(|id|self.probe_targets.contains(id)) {continue;}
             let Some(session) = event["params"]["sessionId"].as_str() else { continue; };
             let kind = event["params"]["targetInfo"]["type"].as_str().unwrap_or("");
-            if matches!(kind,"page"|"iframe"|"worker"|"shared_worker"|"service_worker") {
-                if let Some(identity)=self.identity.clone() { self.call("Emulation.setUserAgentOverride",identity,Some(session))?; }
-            }
-            if matches!(kind, "page" | "iframe") {
-                if !config.timezone.is_empty() { self.call("Emulation.setTimezoneOverride", json!({"timezoneId":config.timezone}), Some(session))?; }
-                self.call("Emulation.setLocaleOverride", json!({"locale":config.language}), Some(session))?;
-                let geolocation = config.geolocation.as_ref().map(|p| json!({"latitude":p.latitude,"longitude":p.longitude,"accuracy":p.accuracy})).unwrap_or(json!({}));
-                self.call("Emulation.setGeolocationOverride", geolocation, Some(session))?;
-                self.call("Target.setAutoAttach", json!({"autoAttach":true,"waitForDebuggerOnStart":true,"flatten":true}), Some(session))?;
-            }
-            self.call("Runtime.runIfWaitingForDebugger", json!({}), Some(session))?;
-            if let Some(target) = event["params"]["targetInfo"]["targetId"].as_str() {
-                if let Some(url) = urls.remove(target) { self.call("Page.navigate", json!({"url":url}), Some(session))?; }
+            // Some targets are torn down between the attach event and our first
+            // command to their session: short-lived workers, navigation targets and
+            // transient "other" targets all do this constantly while the user types.
+            // Chromium answers -32001 for that race. It says nothing about the
+            // environment configuration, so it skips the rest of this event instead
+            // of being escalated into a browser shutdown. Every other error is still
+            // fatal: a genuinely rejected injection must not be swallowed.
+            let outcome = self.apply_to_session(config, kind, session, &event, urls);
+            match outcome {
+                Ok(()) => {}
+                Err(SessionOutcome::TargetGone(method)) => {
+                    eprintln!("[browser] 目标已关闭，跳过注入（{kind}）: {method}");
+                }
+                Err(SessionOutcome::Fatal(reason)) => return Err(reason),
             }
         }
         Ok(())
     }
+
+    /// Applies every environment override to one attached session. Returns
+    /// `TargetGone` as soon as the target disappears, so the caller can drop the
+    /// event without treating a vanished target as a configuration failure.
+    fn apply_to_session(&mut self, config: &EnvironmentConfig, kind: &str, session: &str, event: &Value, urls: &mut HashMap<String, String>) -> Result<(), SessionOutcome> {
+        let apply = |this: &mut Self, method: &str, params: Value| -> Result<(), SessionOutcome> {
+            this.call(method, params, Some(session)).map(|_| ()).map_err(|reason| {
+                if reason.message == SESSION_GONE { SessionOutcome::TargetGone(method.to_string()) } else { SessionOutcome::Fatal(reason) }
+            })
+        };
+        if matches!(kind,"page"|"iframe"|"worker"|"shared_worker"|"service_worker") {
+            if let Some(identity)=self.identity.clone() { apply(self,"Emulation.setUserAgentOverride",identity)?; }
+        }
+        if matches!(kind, "page" | "iframe") {
+            if !config.timezone.is_empty() { apply(self,"Emulation.setTimezoneOverride", json!({"timezoneId":config.timezone}))?; }
+            apply(self,"Emulation.setLocaleOverride", json!({"locale":config.language}))?;
+            let geolocation = config.geolocation.as_ref().map(|p| json!({"latitude":p.latitude,"longitude":p.longitude,"accuracy":p.accuracy})).unwrap_or(json!({}));
+            apply(self,"Emulation.setGeolocationOverride", geolocation)?;
+            apply(self,"Target.setAutoAttach", json!({"autoAttach":true,"waitForDebuggerOnStart":true,"flatten":true}))?;
+        }
+        apply(self,"Runtime.runIfWaitingForDebugger", json!({}))?;
+        if let Some(target) = event["params"]["targetInfo"]["targetId"].as_str() {
+            if let Some(url) = urls.remove(target) { apply(self,"Page.navigate", json!({"url":url}))?; }
+        }
+        Ok(())
+    }
+
     pub fn initialize(&mut self, config: &EnvironmentConfig) -> PlatformResult<()> {
         if let Some(platform_version)=config.identity.platform_version() {
             let version=self.call("Browser.getVersion",json!({}),None)?;

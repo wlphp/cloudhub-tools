@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { ArrowLeft, Download, Globe, HardDrive, Monitor, Play, Plus, RefreshCw, RotateCcw, Search, Square, Trash2, X } from "lucide-react";
 import { DialogHeaderActions } from "../../shared/DialogHeaderActions";
 import { runningInTauri } from "../../platform/api";
-import { browserClient, type BrowserConfig, type BrowserEnvironment, type BrowserSnapshot } from "../../platform/clients/browser";
+import { browserClient, type BrowserConfig, type BrowserCookie, type BrowserEnvironment, type BrowserSnapshot } from "../../platform/clients/browser";
 import "./browser-environments.css";
 
 interface Props { open: boolean; onClose: () => void }
@@ -41,8 +41,10 @@ export function BrowserEnvironments({ open, onClose }: Props) {
   const [groupDraft, setGroupDraft] = useState("");
   const [proxyResults, setProxyResults] = useState<Record<string, string>>({});
   const [confirmation, setConfirmation] = useState<{ kind: "kernel" | "environment"; id?: string; name: string } | null>(null);
+  const [cookieView, setCookieView] = useState<{ name: string; items: BrowserCookie[]; revealed: Record<string, boolean> } | null>(null);
   const [confirmationName, setConfirmationName] = useState("");
   const confirmationRef = useRef(confirmation); confirmationRef.current = confirmation;
+  const cookieViewRef = useRef(cookieView); cookieViewRef.current = cookieView;
   const editorRef = useRef(editor); editorRef.current = editor;
   const closeRef = useRef(onClose); closeRef.current = onClose;
   const supported = runningInTauri && snapshot?.supported === true;
@@ -71,7 +73,8 @@ export function BrowserEnvironments({ open, onClose }: Props) {
     const escape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.preventDefault();
-      if (confirmationRef.current) setConfirmation(null);
+      if (cookieViewRef.current) setCookieView(null);
+      else if (confirmationRef.current) setConfirmation(null);
       else if (editorRef.current) { setEditor(null); setPassword(null); } else closeRef.current();
     };
     window.addEventListener("keydown", escape);
@@ -96,6 +99,12 @@ export function BrowserEnvironments({ open, onClose }: Props) {
     event.preventDefault(); if (!editor) return;
     const config = { ...editor.config, startUrls: urls.split(/\r?\n/).map(v => v.trim()).filter(Boolean) };
     await operate(async () => { await browserClient.save({ id: editor.id, config, proxyPassword: passwordDraft.current }); if (editor.id) setProxyResults(current => { const next = { ...current }; delete next[editor.id!]; return next; }); setEditor(null); setPassword(null); }, "环境已保存");
+  }
+  async function openCookies(environment: BrowserEnvironment) {
+    await operate(async () => {
+      const items = await browserClient.cookies(environment.id);
+      setCookieView({ name: environment.config.name, items, revealed: {} });
+    }, "已读取当前环境的 Cookie 数据");
   }
   async function install(offline = false) {
     if (installing) return;
@@ -129,7 +138,33 @@ export function BrowserEnvironments({ open, onClose }: Props) {
   }
   if (!open) return null;
   const config = editor?.config;
-  return createPortal(<div className="modal-backdrop ide-theme">
+  const cookieDialog = cookieView ? createPortal(<div className="modal-backdrop ide-theme cookie-view-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setCookieView(null); }}>
+    <section className="modal modal-form-layout dialog-common-theme cookie-view-dialog" role="dialog" aria-modal="true" aria-labelledby="cookie-view-title" aria-label="Cookie 原始数据" tabIndex={-1} onKeyDown={event => {
+      if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setCookieView(null); return; }
+      if (event.key !== "Tab") return;
+      const controls = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), [tabindex="0"]')).filter(element => element.getClientRects().length > 0);
+      const first = controls[0], last = controls[controls.length - 1];
+      if (!first || !last) { event.preventDefault(); event.currentTarget.focus(); }
+      else if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    }}>
+      <header className="modal-head"><Globe size={22} aria-hidden="true" /><div><h2 id="cookie-view-title">Cookie 原始数据</h2><p>{cookieView.name}</p></div><DialogHeaderActions><button type="button" className="icon-button" aria-label="关闭 Cookie 数据" title="关闭" onClick={() => setCookieView(null)}><X size={18} /></button></DialogHeaderActions></header>
+      <div className="modal-body cookie-view-body">
+        <p className="browser-notice" role="status">以下内容包含该环境的登录凭据，默认隐藏。点击「显示」逐条查看，请勿截图或分享。</p>
+        {cookieView.items.length === 0 ? <p role="status">当前环境还没有保存任何 Cookie。</p> : <div className="cookie-view-scroll"><table className="browser-table"><thead><tr><th>域名</th><th>名称</th><th>值</th><th>过期</th><th>标志</th></tr></thead><tbody>
+          {cookieView.items.map((cookie, index) => { const key = `${index}:${cookie.domain}:${cookie.name}`; const shown = cookieView.revealed[key] === true; return <tr key={key}>
+            <td data-label="域名">{cookie.domain}<small>{cookie.path}</small></td>
+            <td data-label="名称"><code>{cookie.name}</code></td>
+            <td data-label="值">{cookie.valueUnavailable ? <em>无法解密此条目</em> : shown ? <code className="cookie-view-value">{cookie.value}</code> : <span aria-hidden="true">••••••</span>}{!cookie.valueUnavailable && <button type="button" aria-expanded={shown} onClick={() => setCookieView(current => current ? { ...current, revealed: { ...current.revealed, [key]: !shown } } : current)}>{shown ? "隐藏" : "显示"}</button>}</td>
+            <td data-label="过期">{cookie.session ? "会话结束时" : cookie.expires ? new Date(cookie.expires * 1000).toLocaleString("zh-CN", { hour12: false }) : "—"}</td>
+            <td data-label="标志">{cookie.secure ? "Secure " : ""}{cookie.httpOnly ? "HttpOnly " : ""}{cookie.sameSite ?? ""}</td>
+          </tr>; })}
+        </tbody></table></div>}
+      </div>
+      <footer className="modal-actions"><span>共 {cookieView.items.length} 条</span><button type="button" className="secondary" onClick={() => setCookieView(current => current ? { ...current, revealed: {} } : current)}>全部隐藏</button><button type="button" className="primary" onClick={() => setCookieView(null)}>关闭</button></footer>
+    </section>
+  </div>, document.body) : null;
+  return <>{cookieDialog}{createPortal(<div className="modal-backdrop ide-theme">
     <section ref={dialog} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="browser-title" className="modal modal-form-layout browser-dialog" onKeyDown={event => {
       if (event.key !== "Tab") return;
       const controls = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button,input,textarea,select,[tabindex="0"]')).filter(el => !el.matches(":disabled") && el.getClientRects().length > 0);
@@ -197,11 +232,11 @@ export function BrowserEnvironments({ open, onClose }: Props) {
             <div className="browser-toolbar"><label className="browser-search"><Search size={15} aria-hidden="true" /><input aria-label="搜索浏览器环境" placeholder="搜索名称、分组、标签、备注" value={keyword} onChange={e => setKeyword(e.target.value)} /></label><select aria-label="筛选分组" value={group} onChange={e => setGroup(e.target.value)}><option value="">全部分组</option>{groups.map(value => <option key={value}>{value}</option>)}</select><button type="button" aria-label="刷新浏览器环境" title="刷新" disabled={busy} onClick={() => void refresh()}><RefreshCw size={15} /></button>{tab === "environments" && <button type="button" className="primary" disabled={!supported || busy} onClick={() => edit()}><Plus size={15} />新建环境</button>}</div>
             {tab === "environments" && !kernels.some(item => item.installed) && <p className="browser-notice">首次打开环境前需要安装浏览器内核。<button type="button" onClick={() => setTab("kernel")}>前往内核管理</button></p>}
             {selectedItems.length > 0 && <div className="browser-toolbar"><span>已选 {selectedItems.length} 个</span>{tab === "trash" ? <button type="button" disabled={busy} onClick={() => void batch("restore")}><RotateCcw size={14} />恢复</button> : <><button type="button" disabled={busy || selectedItems.some(item => !installedFor(item.config.kernelVersion))} onClick={() => void batch("launch")}><Play size={14} />打开</button><button type="button" disabled={busy} onClick={() => void batch("stop")}><Square size={14} />关闭</button><button type="button" disabled={busy || selectedItems.some(i => i.running)} onClick={() => void batch("trash")}><Trash2 size={14} />移入回收站</button><input aria-label="目标分组" placeholder="目标分组，留空为未分组" maxLength={60} value={groupDraft} onChange={e => setGroupDraft(e.target.value)} /><button type="button" disabled={busy || selectedItems.some(i => i.running)} onClick={() => void operate(() => browserClient.moveGroup(selectedItems.map(i => i.id), groupDraft), "选中环境已移动分组")}>移动分组</button></>}</div>}
-            <div className="browser-table-wrap"><table className="browser-table"><thead><tr><th><input type="checkbox" aria-label="选择全部环境" checked={items.length > 0 && items.every(i => selected.includes(i.id))} onChange={e => setSelected(e.target.checked ? items.map(i => i.id) : [])} /></th><th>环境名称</th><th>分组 / 标签</th><th>代理</th><th>最近打开</th><th>状态</th><th>操作</th></tr></thead><tbody>{items.map(item => <tr key={item.id}><td><input type="checkbox" aria-label={`选择 ${item.config.name}`} checked={selected.includes(item.id)} onChange={e => setSelected(current => e.target.checked ? [...current, item.id] : current.filter(id => id !== item.id))} /></td><td data-label="环境名称"><strong>{item.config.name}</strong><small>{item.config.note || "无备注"}</small></td><td data-label="分组 / 标签">{item.config.group || "未分组"}<small>{item.config.tags || "—"}</small></td><td data-label="代理">{item.config.proxy.kind === "direct" ? "直接连接" : `${item.config.proxy.host}:${item.config.proxy.port}`}<small>{proxyResults[item.id] || "出口 IP 未检测"}</small></td><td data-label="最近打开">{timestamp(item.lastOpenedAt)}</td><td data-label="状态">{item.recoveryRequired ? "遗留进程待关闭" : item.running ? "运行中" : item.deletedAt ? "回收站" : "已关闭"}</td><td data-label="操作"><div className="browser-row-actions">{tab === "trash" ? <><button type="button" disabled={busy} onClick={() => void operate(() => browserClient.setDeleted(item.id, false), "环境已恢复")}>恢复</button><button type="button" disabled={busy} onClick={() => confirmRemove(item)}>永久删除</button></> : <><button type="button" disabled={busy || !supported || !item.running && !installedFor(item.config.kernelVersion)} onClick={() => void operate(() => item.running ? browserClient.stop(item.id) : browserClient.launch(item.id), item.running ? "浏览器已关闭" : "浏览器已打开")}>{item.recoveryRequired ? "关闭遗留进程" : item.running ? "关闭" : "打开"}</button><button type="button" disabled={busy || item.running} onClick={() => edit(item)}>编辑</button><button type="button" disabled={busy || item.running} onClick={() => void operate(() => browserClient.setDeleted(item.id, true), "环境已移入回收站，资料保留")}>回收</button><button type="button" title="通过当前连接访问 ipify 检测出口 IP" disabled={busy || !supported} onClick={() => void operate(async () => { const ip = await browserClient.checkProxy(item.id); setProxyResults(current => ({ ...current, [item.id]: ip })); }, "出口 IP 检测完成")}>检测出口 IP</button>{item.running && <><button type="button" disabled={busy} onClick={() => void operate(async () => { await browserClient.cookieFile(item.id, false); }, "Cookie 文件操作已结束")}>导入 Cookie</button><button type="button" disabled={busy} onClick={() => void operate(async () => { await browserClient.cookieFile(item.id, true); }, "Cookie 文件操作已结束；导出文件包含登录资料，请妥善保管")}>导出 Cookie</button></>}</>}</div></td></tr>)}</tbody></table>{items.length === 0 && <div className="browser-empty"><Monitor size={32} aria-hidden="true" /><strong>{keyword || group ? "未找到匹配环境" : tab === "trash" ? "回收站为空" : "创建第一个浏览器环境"}</strong><p>{tab === "trash" ? "移入回收站的环境可以恢复，登录资料保留。" : "每个环境拥有独立的登录状态、代理及本地资料。"}</p></div>}</div>
+            <div className="browser-table-wrap"><table className="browser-table"><thead><tr><th><input type="checkbox" aria-label="选择全部环境" checked={items.length > 0 && items.every(i => selected.includes(i.id))} onChange={e => setSelected(e.target.checked ? items.map(i => i.id) : [])} /></th><th>环境名称</th><th>分组 / 标签</th><th>代理</th><th>最近打开</th><th>状态</th><th>操作</th></tr></thead><tbody>{items.map(item => <tr key={item.id}><td><input type="checkbox" aria-label={`选择 ${item.config.name}`} checked={selected.includes(item.id)} onChange={e => setSelected(current => e.target.checked ? [...current, item.id] : current.filter(id => id !== item.id))} /></td><td data-label="环境名称"><strong>{item.config.name}</strong><small>{item.config.note || "无备注"}</small></td><td data-label="分组 / 标签">{item.config.group || "未分组"}<small>{item.config.tags || "—"}</small></td><td data-label="代理">{item.config.proxy.kind === "direct" ? "直接连接" : `${item.config.proxy.host}:${item.config.proxy.port}`}<small>{proxyResults[item.id] || "出口 IP 未检测"}</small></td><td data-label="最近打开">{timestamp(item.lastOpenedAt)}</td><td data-label="状态">{item.recoveryRequired ? "遗留进程待关闭" : item.running ? "运行中" : item.deletedAt ? "回收站" : "已关闭"}</td><td data-label="操作"><div className="browser-row-actions">{tab === "trash" ? <><button type="button" disabled={busy} onClick={() => void operate(() => browserClient.setDeleted(item.id, false), "环境已恢复")}>恢复</button><button type="button" disabled={busy} onClick={() => confirmRemove(item)}>永久删除</button></> : <><button type="button" disabled={busy || !supported || !item.running && !installedFor(item.config.kernelVersion)} onClick={() => void operate(() => item.running ? browserClient.stop(item.id) : browserClient.launch(item.id), item.running ? "浏览器已关闭" : "浏览器已打开")}>{item.recoveryRequired ? "关闭遗留进程" : item.running ? "关闭" : "打开"}</button><button type="button" disabled={busy || item.running} onClick={() => edit(item)}>编辑</button><button type="button" disabled={busy || item.running} onClick={() => void operate(() => browserClient.setDeleted(item.id, true), "环境已移入回收站，资料保留")}>回收</button><button type="button" title="通过当前连接访问 ipify 检测出口 IP" disabled={busy || !supported} onClick={() => void operate(async () => { const ip = await browserClient.checkProxy(item.id); setProxyResults(current => ({ ...current, [item.id]: ip })); }, "出口 IP 检测完成")}>检测出口 IP</button><button type="button" disabled={busy || !supported} title="查看当前环境已保存的 Cookie 原始数据（运行中读取实时数据，已关闭时读取本地资料）" onClick={() => void openCookies(item)}>查看数据</button>{item.running && <><button type="button" disabled={busy} onClick={() => void operate(async () => { await browserClient.cookieFile(item.id, false); }, "Cookie 文件操作已结束")}>导入 Cookie</button><button type="button" disabled={busy} onClick={() => void operate(async () => { await browserClient.cookieFile(item.id, true); }, "Cookie 文件操作已结束；导出文件包含登录资料，请妥善保管")}>导出 Cookie</button></>}</>}</div></td></tr>)}</tbody></table>{items.length === 0 && <div className="browser-empty"><Monitor size={32} aria-hidden="true" /><strong>{keyword || group ? "未找到匹配环境" : tab === "trash" ? "回收站为空" : "创建第一个浏览器环境"}</strong><p>{tab === "trash" ? "移入回收站的环境可以恢复，登录资料保留。" : "每个环境拥有独立的登录状态、代理及本地资料。"}</p></div>}</div>
           </>}
         </>}
       </div>
       <footer className="modal-actions browser-footer"><span>{snapshot?.environments.filter(i => !i.deletedAt).length ?? 0} 个环境 · {snapshot?.environments.filter(i => i.running).length ?? 0} 个运行中</span>{editor ? <div className="browser-row-actions"><button type="button" disabled={busy} onClick={() => { setEditor(null); setPassword(null); }}>取消</button><button type="submit" form="browser-environment-form" className="primary" disabled={busy || !supported}>{busy ? "保存中…" : "保存环境"}</button></div> : <button type="button" onClick={onClose}>关闭</button>}</footer>
     </section>
-  </div>, document.body);
+  </div>, document.body)}</>;
 }

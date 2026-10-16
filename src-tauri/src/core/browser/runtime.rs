@@ -82,6 +82,7 @@ impl BrowserState {
         model::validate(&environment.config)?;
         if !kernel::installed(&environment.config.kernel_version) { return Err(error("请先下载并安装浏览器内核")); }
         let kernel_lease = super::kernel_lease(false,&environment.config.kernel_version)?;
+        kernel::prepare_for_launch(&environment.config.kernel_version)?;
         let config = environment.config;
         let relay = if config.proxy.kind != "direct" { Some(proxy::start(config.proxy.clone(), model::password(id)?).await?) } else { None };
         let dir = root()?.join("environments").join(id);
@@ -102,6 +103,15 @@ impl BrowserState {
         preferences["intl"]["accept_languages"] = serde_json::json!(config.language);
         if !preferences["webrtc"].is_object() { preferences["webrtc"]=serde_json::json!({}); }
         preferences["webrtc"]["ip_handling_policy"]=serde_json::json!("disable_non_proxied_udp");
+        // Chromium decides whether to persist session cookies and Local Storage
+        // from the previous shutdown's bookkeeping. A profile left at
+        // exit_type=Crashed (which is what any forced kill produces) makes the
+        // next start a crash recovery: session cookies are dropped and the
+        // environment appears to have lost its login. Only rewritten while the
+        // environment is stopped, which is exactly the launch path.
+        if !preferences["profile"].is_object() { preferences["profile"]=serde_json::json!({}); }
+        preferences["profile"]["exit_type"]=serde_json::json!("Normal");
+        preferences["profile"]["exited_cleanly"]=serde_json::json!(true);
         let temporary = default.join("CloudHubPreferences.tmp");
         fs::write(&temporary, serde_json::to_vec(&preferences).map_err(|_| error("浏览器偏好设置无效"))?).map_err(|_| error("无法保存浏览器偏好设置"))?;
         // Windows rename replaces files atomically via std's MoveFileEx implementation.
@@ -157,9 +167,26 @@ impl BrowserState {
                     Err(mpsc::RecvTimeoutError::Timeout) => {},
                 }
                 if worker_child.lock().map(|mut c| c.try_wait().ok().flatten().is_some()).unwrap_or(true) { break; }
-                if cdp.pump(&config).is_err() {
-                    // Environment configuration must stay applied. Do not leave a partially configured browser running.
-                    if let Ok(mut child) = worker_child.lock() { let _ = child.kill(); let _ = child.wait(); }
+                if let Err(reason) = cdp.pump(&config) {
+                    // Environment configuration must stay applied, so a browser that
+                    // can no longer be configured is closed rather than left running.
+                    // Record the reason first: silently killing here made a rejected
+                    // CDP injection look identical to a browser crash.
+                    eprintln!("[browser] 环境配置注入失败，已关闭内核: {}", reason.message);
+                    // Close through CDP first: Browser.close lets Chromium write
+                    // exit_type=Normal and flush cookies and Local Storage. Forcing
+                    // the process down instead left the profile marked as crashed,
+                    // which is what made stored logins vanish on the next launch.
+                    cdp.close();
+                    let deadline = Instant::now() + Duration::from_secs(5);
+                    loop {
+                        if worker_child.lock().map(|mut c| c.try_wait().ok().flatten().is_some()).unwrap_or(true) { break; }
+                        if Instant::now() >= deadline {
+                            if let Ok(mut child) = worker_child.lock() { let _ = child.kill(); let _ = child.wait(); }
+                            break;
+                        }
+                        std::thread::sleep(Duration::from_millis(100));
+                    }
                     break;
                 }
             }
@@ -184,7 +211,14 @@ impl BrowserState {
             loop {
                 let mut child = child.lock().map_err(|_| error("浏览器运行状态不可用"))?;
                 if child.try_wait().map_err(|_| error("无法检查浏览器进程"))?.is_some() { return Ok::<_,crate::core::error::PlatformError>(()); }
-                if Instant::now() >= deadline { child.kill().map_err(|_| error("无法关闭浏览器，请关闭对应浏览器窗口"))?; child.wait().map_err(|_| error("无法确认浏览器已关闭"))?; return Ok(()); }
+                if Instant::now() >= deadline {
+                    // Graceful CDP close has already run; a still-running process here
+                    // is unresponsive, so terminate it. This is the only forced kill
+                    // on the normal stop path.
+                    child.kill().map_err(|_| error("无法关闭浏览器，请关闭对应浏览器窗口"))?;
+                    child.wait().map_err(|_| error("无法确认浏览器已关闭"))?;
+                    return Ok(());
+                }
                 drop(child); std::thread::sleep(Duration::from_millis(100));
             }
         }).await.map_err(|_| error("浏览器关闭任务失败"))??;

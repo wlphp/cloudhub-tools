@@ -55,3 +55,22 @@
   .browser-table td small { display: inline; margin-left: 8px; }
   .browser-row-actions { display: inline-flex; flex-wrap: wrap; }
 }
+
+/* Cookie inspector. Values stay masked until the operator reveals one row, and
+   long values must scroll inside the dialog instead of widening the layout. */
+.cookie-view-dialog.cookie-view-dialog {
+  display: flex; flex-direction: column; box-sizing: border-box; padding: 0;
+  width: min(920px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); overflow: hidden;
+}
+.cookie-view-body.cookie-view-body { min-height: 0; overflow: auto; padding: 16px; }
+.cookie-view-scroll { max-height: 55vh; overflow: auto; border: 1px solid var(--jb-border-strong); border-radius: 4px; }
+.cookie-view-scroll .browser-table { margin: 0; }
+.cookie-view-value { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-all; }
+.cookie-view-dialog td[data-label="值"] { display: flex; gap: 8px; align-items: flex-start; justify-content: space-between; }
+.cookie-view-dialog td[data-label="值"] code, .cookie-view-dialog td[data-label="值"] span, .cookie-view-dialog td[data-label="值"] em { min-width: 0; }
+.cookie-view-dialog td[data-label="值"] em { color: var(--jb-muted); }
+.cookie-view-dialog > .modal-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.cookie-view-dialog > .modal-actions span { margin-right: auto; color: var(--jb-muted); }
+@media (max-width: 768px) {
+  .cookie-view-dialog td[data-label="值"] { flex-direction: column; }
+}

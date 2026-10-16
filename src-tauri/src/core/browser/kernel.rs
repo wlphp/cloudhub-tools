@@ -54,6 +54,53 @@ pub fn installed(version: &str) -> bool {
     installed_dir(version).ok().is_some_and(|p| p.join(executable_relative(version)).is_file()
         && fs::read_to_string(p.join("cloudhub-verified.sha256")).is_ok_and(|s| s == spec.sha256))
 }
+
+/// Chrome for Testing embeds a dependency on a versioned private assembly. The
+/// archive's external manifest omits its processor architecture, so Windows SxS
+/// cannot resolve it and CreateProcess fails before Chrome starts. Normalize only
+/// the known, pinned CfT manifest after archive SHA-256 verification.
+fn repair_cft_manifest(directory: &Path, version: &str) -> PlatformResult<()> {
+    let manifest = directory.join(format!("{version}.manifest"));
+    let contents = fs::read_to_string(&manifest).map_err(|_| error("浏览器内核清单缺失或无法读取"))?;
+    let expected_name = format!("name='{version}'");
+    let expected_version = format!("version='{version}'");
+    if !contents.contains(&expected_name) || !contents.contains(&expected_version)
+        || !contents.contains("file name='chrome_elf.dll'")
+    {
+        return Err(error("浏览器内核清单校验失败"));
+    }
+    // Chromium's dependency reference intentionally omits processorArchitecture;
+    // Windows treats a pinned "amd64" private manifest as a different identity.
+    let normalized = contents.replace(" processorArchitecture='amd64'", "");
+    if normalized == contents {
+        if contents.matches("type='win32'/>").count() != 1 {
+            return Err(error("浏览器内核清单格式不受支持"));
+        }
+        return Ok(());
+    }
+    if normalized.matches("type='win32'/>").count() != 1 {
+        return Err(error("浏览器内核清单格式不受支持"));
+    }
+    let temporary = directory.join(format!("{version}.manifest.{}.tmp", uuid::Uuid::new_v4()));
+    fs::write(&temporary, normalized).map_err(|_| error("无法修复浏览器内核清单"))?;
+    if fs::rename(&temporary, &manifest).is_err() {
+        let _ = fs::remove_file(&temporary);
+        return Err(error("无法保存浏览器内核清单修复"));
+    }
+    Ok(())
+}
+
+/// Migrate already-installed kernels only when their marker matches the pinned
+/// archive digest; new installs are normalized during extraction below.
+pub fn prepare_for_launch(version: &str) -> PlatformResult<()> {
+    if experimental(version) { return Ok(()); }
+    let selected = spec(version)?;
+    let directory = installed_dir(version)?;
+    let marker = fs::read_to_string(directory.join("cloudhub-verified.sha256"))
+        .map_err(|_| error("浏览器内核校验记录无效，请重新安装内核"))?;
+    if marker != selected.sha256 { return Err(error("浏览器内核校验记录无效，请重新安装内核")); }
+    repair_cft_manifest(&directory.join("chrome-win64"), version)
+}
 pub fn status(state: &KernelState, version: &str) -> PlatformResult<KernelStatus> {
     let selected=spec(version)?;
     let current=state.status.lock().map_err(|_|error("内核状态不可用"))?;
@@ -200,6 +247,7 @@ fn verify_extract(state: &KernelState, spec: &KernelSpec, staging: &Path) -> Pla
     }
     let executable = target.join(executable_relative(spec.version));
     if !executable.is_file() { return Err(error("内核包缺少浏览器程序")); }
+    if !experimental(spec.version) { repair_cft_manifest(&target.join("chrome-win64"), spec.version)?; }
     if experimental(spec.version) {
         let bytes = fs::read(&executable).map_err(|_|error("无法校验实验内核程序"))?;
         if hex::encode(Sha256::digest(bytes)) != "f49b0d6bc5a08857e34f951ddc456abc643283ae45ff330ee7c2c39cd75b4869" { return Err(error("实验内核程序校验失败")); }
@@ -217,6 +265,23 @@ fn trusted_download_redirect(url: &reqwest::Url) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn chrome_for_testing_manifest_matches_dependency_identity() {
+        let directory = std::env::temp_dir().join(format!("cloudhub-manifest-test-{}", uuid::Uuid::new_v4()));
+        fs::create_dir(&directory).unwrap();
+        let version = VERSION;
+        fs::write(directory.join(format!("{version}.manifest")), format!(
+            "<assembly>\n  <assemblyIdentity name='{version}' version='{version}' type='win32'/>\n  <file name='chrome_elf.dll'/>\n</assembly>"
+        )).unwrap();
+        repair_cft_manifest(&directory, version).unwrap();
+        let manifest = fs::read_to_string(directory.join(format!("{version}.manifest"))).unwrap();
+        assert!(manifest.contains("type='win32'/"));
+        assert!(!manifest.contains("processorArchitecture"));
+        repair_cft_manifest(&directory, version).unwrap();
+        assert_eq!(fs::read_to_string(directory.join(format!("{version}.manifest"))).unwrap(), manifest);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
     #[test]
     fn corrupt_archive_never_extracts() {
         let dir = std::env::temp_dir().join(format!("cloudhub-kernel-test-{}", uuid::Uuid::new_v4()));

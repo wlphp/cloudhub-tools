@@ -20,7 +20,8 @@ async function fixture(page: Page) {
           snapshot.environments = [...snapshot.environments.filter(i => i.id !== id), value]; return structuredClone(value);
         }
         if (command === "browser_install_kernel") { const kernel = snapshot.kernels.find(k => k.version === args.version)!; kernel.installed = true; kernel.phase = "ready"; return; }
-        if (command === "browser_launch") { const item = snapshot.environments.find(i => i.id === args.id); item.running = true; item.lastOpenedAt = Date.now(); return; }
+        if (command === "browser_launch") { if ((window as any).browserLaunchError) throw (window as any).browserLaunchError; const item = snapshot.environments.find(i => i.id === args.id); item.running = true; item.lastOpenedAt = Date.now(); return; }
+        if (command === "browser_cookie_list") return [{ name: "ASP.NET_SessionId", domain: "vipgl.lizengtong.com", path: "/", value: "secret-session-value", expires: null, secure: false, httpOnly: true, sameSite: null, session: true }];
         if (command === "browser_stop") { snapshot.environments.find(i => i.id === args.id).running = false; return; }
         if (command === "browser_set_deleted") { snapshot.environments.find(i => i.id === args.id).deletedAt = args.deleted ? Date.now() : null; return; }
         if (command === "browser_move_group") { snapshot.environments.filter(i => args.ids.includes(i.id)).forEach(i => { i.config.group = args.group; }); return; }
@@ -184,4 +185,45 @@ test("环境绑定所选内核，多版本安装卸载互不覆盖", async ({ pa
   const calls=await page.evaluate(()=>(window as any).browserCalls);
   expect(calls.filter((c:any)=>c.command==="browser_install_kernel").map((c:any)=>c.args.version)).toEqual(["155.0.8059.79","155.0.8059.84"]);
   expect(calls.find((c:any)=>c.command==="browser_uninstall_kernel").args.version).toBe("155.0.8059.84");
+});
+
+test("浏览器启动失败时显示安全诊断信息而非通用错误", async ({ page }) => {
+  await fixture(page);
+  const dialog = page.getByRole("dialog", { name: "指纹浏览器", exact: true });
+  await dialog.getByRole("button", { name: "新建环境", exact: true }).click();
+  await dialog.getByLabel("名称", { exact: true }).fill("诊断环境");
+  await dialog.getByRole("button", { name: "保存环境", exact: true }).click();
+  await dialog.getByRole("button", { name: "内核管理", exact: true }).click();
+  await dialog.getByRole("button", { name: "下载并安装", exact: true }).click();
+  await dialog.getByRole("button", { name: "环境列表", exact: true }).click();
+  await page.evaluate(() => { (window as any).browserLaunchError = { kind: "platform-error", code: "browser", message: "无法启动浏览器，请检查内核文件和系统权限", retryable: false }; });
+  await dialog.locator("tbody tr").filter({ hasText: "诊断环境" }).getByRole("button", { name: "打开", exact: true }).click();
+  await expect(dialog.getByRole("alert")).toHaveText("无法启动浏览器，请检查内核文件和系统权限");
+});
+
+test("Cookie 查看弹层默认隐藏原始值，逐条揭示", async ({ page }) => {
+  await fixture(page);
+  const dialog = page.getByRole("dialog", { name: "指纹浏览器", exact: true });
+  await dialog.getByRole("button", { name: "新建环境", exact: true }).click();
+  await dialog.getByLabel("名称", { exact: true }).fill("查看环境");
+  await dialog.getByRole("button", { name: "保存环境", exact: true }).click();
+  await dialog.getByRole("button", { name: "内核管理", exact: true }).click();
+  await dialog.getByRole("button", { name: "下载并安装", exact: true }).click();
+  await dialog.getByRole("button", { name: "环境列表", exact: true }).click();
+  const row = dialog.locator("tbody tr").filter({ hasText: "查看环境" });
+  await row.getByRole("button", { name: "打开", exact: true }).click();
+  await row.getByRole("button", { name: "查看数据", exact: true }).click();
+  const inspector = page.locator(".cookie-view-dialog");
+  await expect(inspector).toBeVisible();
+  // A real overlay, not an inline block: it mounts on document.body behind a
+  // modal backdrop, which is what the shared dialog pattern requires.
+  await expect(page.locator(".cookie-view-backdrop")).toHaveCount(1);
+  await expect(page.locator("body > .cookie-view-backdrop .cookie-view-dialog")).toHaveCount(1);
+  await expect(inspector).not.toContainText("secret-session-value");
+  await inspector.getByRole("button", { name: "显示", exact: true }).click();
+  await expect(inspector).toContainText("secret-session-value");
+  await inspector.getByRole("button", { name: "全部隐藏", exact: true }).click();
+  await expect(inspector).not.toContainText("secret-session-value");
+  await expect(inspector).toContainText("vipgl.lizengtong.com");
+  await expect(inspector).toContainText("会话结束时");
 });
