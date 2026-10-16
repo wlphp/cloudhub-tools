@@ -42,7 +42,7 @@ export function BrowserEnvironments({ open, onClose }: Props) {
   const [groupDraft, setGroupDraft] = useState("");
   const [proxyResults, setProxyResults] = useState<Record<string, string>>({});
   const [confirmation, setConfirmation] = useState<{ kind: "kernel" | "environment"; id?: string; name: string } | null>(null);
-  const [cookieView, setCookieView] = useState<{ name: string; items: BrowserCookie[]; revealed: Record<string, boolean> } | null>(null);
+  const [cookieView, setCookieView] = useState<{ environmentId: string; name: string; items: BrowserCookie[]; revealed: Record<string, boolean> } | null>(null);
   const [confirmationName, setConfirmationName] = useState("");
   const confirmationRef = useRef(confirmation); confirmationRef.current = confirmation;
   const cookieViewRef = useRef(cookieView); cookieViewRef.current = cookieView;
@@ -53,7 +53,13 @@ export function BrowserEnvironments({ open, onClose }: Props) {
     const parent = dialog.current;
     if (parent) parent.inert = true;
     cookieDialogRef.current?.focus();
-    return () => { if (parent) parent.inert = false; if (previousFocus?.isConnected) previousFocus.focus(); };
+    return () => {
+      if (parent) parent.inert = false;
+      const fallback = Array.from(document.querySelectorAll<HTMLElement>('.browser-table tbody tr'))
+        .find(row => row.textContent?.includes(cookieView?.name ?? ""))
+        ?.querySelector<HTMLElement>('button[aria-label="查看数据"]');
+      (previousFocus?.isConnected ? previousFocus : fallback)?.focus();
+    };
   }, [cookieViewOpen]);
   const editorRef = useRef(editor); editorRef.current = editor;
   const closeRef = useRef(onClose); closeRef.current = onClose;
@@ -113,7 +119,7 @@ export function BrowserEnvironments({ open, onClose }: Props) {
   async function openCookies(environment: BrowserEnvironment) {
     await operate(async () => {
       const items = await browserClient.cookies(environment.id);
-      setCookieView({ name: environment.config.name, items, revealed: {} });
+      setCookieView({ environmentId: environment.id, name: environment.config.name, items, revealed: {} });
     }, "已读取当前环境的 Cookie 数据");
   }
   async function install(offline = false) {
