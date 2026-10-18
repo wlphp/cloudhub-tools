@@ -29,7 +29,7 @@ fn row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CodexAccountSummary> {
 pub fn list(conn: &Connection) -> Result<Vec<CodexAccountSummary>, String> {
     let mut statement = conn
         .prepare(&format!(
-            "SELECT {COLUMNS} FROM codex_accounts ORDER BY label COLLATE NOCASE,id"
+            "SELECT {COLUMNS} FROM codex_accounts WHERE deleted_at IS NULL ORDER BY label COLLATE NOCASE,id"
         ))
         .map_err(|_| "读取 Codex 账号失败")?;
     let rows = statement
@@ -41,7 +41,7 @@ pub fn list(conn: &Connection) -> Result<Vec<CodexAccountSummary>, String> {
 
 pub fn get(conn: &Connection, id: i64) -> Result<CodexAccountSummary, String> {
     conn.query_row(
-        &format!("SELECT {COLUMNS} FROM codex_accounts WHERE id=?1"),
+        &format!("SELECT {COLUMNS} FROM codex_accounts WHERE id=?1 AND deleted_at IS NULL"),
         [id],
         row,
     )
@@ -51,7 +51,7 @@ pub fn get(conn: &Connection, id: i64) -> Result<CodexAccountSummary, String> {
 pub fn credentials(conn: &Connection, id: i64) -> Result<Zeroizing<String>, String> {
     let cipher: String = conn
         .query_row(
-            "SELECT auth_ciphertext FROM codex_accounts WHERE id=?1",
+            "SELECT auth_ciphertext FROM codex_accounts WHERE id=?1 AND deleted_at IS NULL",
             [id],
             |row| row.get(0),
         )

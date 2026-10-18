@@ -10,23 +10,23 @@ fn row(row: &rusqlite::Row<'_>) -> rusqlite::Result<FlowConnection> {
 }
 
 pub fn list(conn: &Connection) -> Result<Vec<FlowConnection>, String> {
-    let mut statement = conn.prepare("SELECT id,name,edition,organization_id,domain,token_ciphertext,created_at,updated_at FROM flow_connections ORDER BY name COLLATE NOCASE").map_err(|error| error.to_string())?;
+    let mut statement = conn.prepare("SELECT id,name,edition,organization_id,domain,token_ciphertext,created_at,updated_at FROM flow_connections WHERE deleted_at IS NULL ORDER BY name COLLATE NOCASE").map_err(|error| error.to_string())?;
     let rows = statement.query_map([], row).map_err(|error| error.to_string())?;
     rows.map(|item| item.map_err(|error| error.to_string())).collect()
 }
 
 pub fn get(conn: &Connection, id: i64) -> Result<FlowConnection, String> {
-    conn.query_row("SELECT id,name,edition,organization_id,domain,token_ciphertext,created_at,updated_at FROM flow_connections WHERE id=?1", [id], row).map_err(|_| "云效连接不存在".to_string())
+    conn.query_row("SELECT id,name,edition,organization_id,domain,token_ciphertext,created_at,updated_at FROM flow_connections WHERE id=?1 AND deleted_at IS NULL", [id], row).map_err(|_| "云效连接不存在".to_string())
 }
 
 pub fn load_token(conn: &Connection, id: i64) -> Result<(FlowConnection, String), String> {
     let connection = get(conn, id)?;
-    let ciphertext = conn.query_row("SELECT token_ciphertext FROM flow_connections WHERE id=?1", [id], |row| row.get(0)).map_err(|_| "云效连接不存在".to_string())?;
+    let ciphertext = conn.query_row("SELECT token_ciphertext FROM flow_connections WHERE id=?1 AND deleted_at IS NULL", [id], |row| row.get(0)).map_err(|_| "云效连接不存在".to_string())?;
     Ok((connection, ciphertext))
 }
 
 pub fn existing_token(conn: &Connection, id: i64) -> Result<Option<String>, String> {
-    conn.query_row("SELECT token_ciphertext FROM flow_connections WHERE id=?1", [id], |row| row.get(0)).optional().map_err(|error| error.to_string())
+    conn.query_row("SELECT token_ciphertext FROM flow_connections WHERE id=?1 AND deleted_at IS NULL", [id], |row| row.get(0)).optional().map_err(|error| error.to_string())
 }
 
 pub fn save(conn: &Connection, id: Option<i64>, name: &str, edition: &str, organization_id: Option<&str>, domain: &str, token_ciphertext: &str, now: i64) -> Result<FlowConnection, String> {
@@ -45,10 +45,17 @@ pub fn save(conn: &Connection, id: Option<i64>, name: &str, edition: &str, organ
     Ok(saved)
 }
 
-pub fn delete(conn: &Connection, id: i64) -> Result<(), String> {
+/// Moves the connection to the recycle bin and drops its pipeline cache; the
+/// cached rows are rebuilt on demand, so restoring the connection is lossless.
+pub fn delete(conn: &Connection, id: i64, now: i64) -> Result<(), String> {
     let transaction = conn.unchecked_transaction().map_err(|_| "删除云效连接失败")?;
+    let changed = super::trash::soft_delete(&transaction, "flow_connections", &[rusqlite::types::Value::Integer(id)], now)?;
+    if changed == 0 { return Err("云效连接不存在或已被删除".into()); }
     transaction.execute("DELETE FROM flow_pipeline_cache WHERE connection_id=?1", [id]).map_err(|_| "清理流水线缓存失败")?;
-    transaction.execute("DELETE FROM flow_connections WHERE id=?1", [id]).map_err(|_| "删除云效连接失败")?;
+    // Soft delete does not fire ON DELETE CASCADE, so the sync identity (and
+    // anything else keyed on the connection) has to be released explicitly.
+    // The table is absent in older databases and in focused unit fixtures.
+    let _ = transaction.execute("DELETE FROM flow_sync_identity WHERE connection_id=?1", [id]);
     transaction.commit().map_err(|_| "删除云效连接失败".into())
 }
 
@@ -58,8 +65,10 @@ pub fn load_pipeline_cache(conn: &Connection, id: i64, key: &str) -> Result<Opti
 }
 
 pub fn save_pipeline_cache(conn: &Connection, id: i64, key: &str, ciphertext: &str, expected_version: i64, now: i64) -> Result<(), String> {
+    // `deleted_at IS NULL` keeps a trashed connection from accumulating new
+    // cached pages while it sits in the recycle bin.
     conn.execute("INSERT INTO flow_pipeline_cache(connection_id,query_key,payload_ciphertext,updated_at)
-        SELECT ?1,?2,?3,?4 WHERE EXISTS(SELECT 1 FROM flow_connections WHERE id=?1 AND updated_at=?5)
+        SELECT ?1,?2,?3,?4 WHERE EXISTS(SELECT 1 FROM flow_connections WHERE id=?1 AND updated_at=?5 AND deleted_at IS NULL)
         ON CONFLICT(connection_id,query_key) DO UPDATE SET payload_ciphertext=excluded.payload_ciphertext,updated_at=excluded.updated_at", params![id,key,ciphertext,now,expected_version])
         .map_err(|_| "保存流水线缓存失败")?;
     Ok(())
@@ -110,7 +119,7 @@ mod tests {
     #[test]
     fn connection_edits_invalidate_cache_and_advance_version_even_with_same_clock() {
         let conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch("CREATE TABLE flow_connections(id INTEGER PRIMARY KEY,name TEXT,edition TEXT,organization_id TEXT,domain TEXT,token_ciphertext TEXT,created_at INTEGER,updated_at INTEGER);
+        conn.execute_batch("CREATE TABLE flow_connections(id INTEGER PRIMARY KEY,name TEXT,edition TEXT,organization_id TEXT,domain TEXT,token_ciphertext TEXT,created_at INTEGER,updated_at INTEGER,deleted_at INTEGER);
           CREATE TABLE flow_pipeline_cache(connection_id INTEGER,query_key TEXT,payload_ciphertext TEXT,updated_at INTEGER,PRIMARY KEY(connection_id,query_key));").unwrap();
         let saved = save(&conn, None, "fixture", "central", Some("org-test"), "https://openapi-rdc.aliyuncs.com", "opaque", 7).unwrap();
         save_pipeline_cache(&conn, saved.id, "page", "opaque-cache", 7, 10).unwrap();
@@ -124,7 +133,7 @@ mod tests {
     #[test]
     fn pipeline_cache_is_scoped_and_rejects_stale_connection_versions() {
         let conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch("CREATE TABLE flow_connections(id INTEGER PRIMARY KEY,updated_at INTEGER); INSERT INTO flow_connections VALUES(1,7),(2,9);
+        conn.execute_batch("CREATE TABLE flow_connections(id INTEGER PRIMARY KEY,name TEXT NOT NULL DEFAULT '',updated_at INTEGER,deleted_at INTEGER); INSERT INTO flow_connections(id,updated_at) VALUES(1,7),(2,9);
           CREATE TABLE flow_pipeline_cache(connection_id INTEGER,query_key TEXT,payload_ciphertext TEXT,updated_at INTEGER,PRIMARY KEY(connection_id,query_key));").unwrap();
         save_pipeline_cache(&conn, 1, "page-1", "opaque-cache", 7, 100).unwrap();
         assert_eq!(load_pipeline_cache(&conn, 1, "page-1").unwrap(), Some(("opaque-cache".into(),100)));
@@ -132,7 +141,7 @@ mod tests {
         assert_eq!(load_pipeline_cache(&conn, 1, "page-2").unwrap(), None);
         save_pipeline_cache(&conn, 1, "page-1", "stale-cache", 6, 200).unwrap();
         assert_eq!(load_pipeline_cache(&conn, 1, "page-1").unwrap(), Some(("opaque-cache".into(),100)));
-        delete(&conn, 1).unwrap();
+        delete(&conn, 1, 400).unwrap();
         assert_eq!(load_pipeline_cache(&conn, 1, "page-1").unwrap(), None);
         save_pipeline_cache(&conn, 1, "page-1", "late-cache", 7, 300).unwrap();
         assert_eq!(load_pipeline_cache(&conn, 1, "page-1").unwrap(), None);

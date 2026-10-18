@@ -1,5 +1,7 @@
 pub mod accounts;
 #[cfg(desktop)]
+pub mod claude_workbench;
+#[cfg(desktop)]
 pub mod browser;
 #[cfg(desktop)]
 pub mod wechat_plugin;
@@ -49,3 +51,7 @@ pub mod sync;
 pub mod esa_certificates;
 #[cfg(desktop)]
 pub mod desktop_pet;
+#[cfg(desktop)]
+pub mod notes;
+pub mod trash;
+pub mod claude_providers;

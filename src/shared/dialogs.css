@@ -8,6 +8,14 @@
  * See cloudhub-ui-ux for the full rule.
  */
 .dialog-header-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex: 0 0 auto; margin-left: auto; }
+.shared-content-dialog.shared-content-dialog { display: flex; flex-direction: column; box-sizing: border-box; width: min(1200px, calc(100vw - 32px)); max-width: calc(100vw - 32px); max-height: calc(100dvh - 32px); padding: 0; overflow: hidden; }
+.shared-content-dialog.shared-dialog-small { width: min(560px, calc(100vw - 32px)); }
+.shared-content-dialog > .modal-head { display: flex; align-items: center; gap: 10px; }
+.shared-content-dialog > .modal-head > div:not(.dialog-header-actions) { min-width: 0; }
+.shared-content-dialog > .modal-head h2 { margin: 0; font-size: 16px; overflow-wrap: anywhere; }
+.shared-content-dialog > .modal-head p { margin: 4px 0 0; font-size: 12px; color: var(--jb-muted); }
+.shared-content-dialog > .modal-body { min-width: 0; min-height: 0; padding: 16px; overflow: auto; }
+.shared-content-dialog > .modal-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 10px 12px; }
 .shared-confirm-dialog.shared-confirm-dialog {display:flex;flex-direction:column;box-sizing:border-box;padding:0;width:min(440px,calc(100vw - 24px));max-height:calc(100dvh - 24px);overflow:hidden}
 .shared-confirm-dialog > header {display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--jb-border)}
 .shared-confirm-dialog > header strong {display:flex;align-items:center;gap:8px;min-width:0}

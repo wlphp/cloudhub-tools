@@ -11,7 +11,7 @@ use std::{collections::HashMap, path::PathBuf, sync::{Arc, Mutex}, time::Instant
 pub(crate) fn list_managed_hosts() -> PlatformResult<Vec<ManagedHost>> { managed_host_repository::list(&open_db()?).map_err(Into::into) }
 
 #[tauri::command]
-pub(crate) fn delete_managed_host(id: i64) -> PlatformResult<()> { managed_host_repository::delete(&open_db()?, id).map_err(Into::into) }
+pub(crate) fn delete_managed_host(id: i64) -> PlatformResult<()> { managed_host_repository::delete(&open_db()?, id, chrono::Utc::now().timestamp_millis()).map_err(Into::into) }
 
 #[tauri::command]
 pub(crate) fn rename_managed_host_group(source_group: String, target_group: String) -> PlatformResult<usize> {

@@ -339,7 +339,7 @@ pub(crate) async fn codex_delete_account(
         let conn = open_db()?;
         super::codex_instances::clear_account_projections(&conn, id)?;
         if conn
-            .execute("DELETE FROM codex_accounts WHERE id=?1", [id])
+            .execute("UPDATE codex_accounts SET deleted_at=?2 WHERE id=?1 AND deleted_at IS NULL", rusqlite::params![id, chrono::Utc::now().timestamp_millis()])
             .map_err(|_| "删除 Codex 账号失败")?
             != 1
         {

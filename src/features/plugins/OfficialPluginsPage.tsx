@@ -1,19 +1,21 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { DialogHeaderActions } from "../../shared/DialogHeaderActions";
-import { Cpu, FolderOpen, Globe, MessageCircle, Play, RefreshCw, Search, Package, SquareTerminal, X } from "lucide-react";
+import { SharedDialog } from "../../shared/SharedDialog";
+import { Cpu, Globe, MessageCircle, NotebookPen, RefreshCw, Search, Package, Server, SlidersHorizontal, SquareTerminal, X } from "lucide-react";
 import { runningInTauri } from "../../platform/api";
 import { pluginsClient, type WechatPluginStatus } from "../../platform/clients/plugins";
 import { officialPlugins } from "./registry";
-import { WechatSessionSettings } from "./WechatSessionSettings";
-import { HardwareInfoPlugin } from "./HardwareInfoPlugin";
-import { WslDashboardPlugin } from "./WslDashboardPlugin";
+import { PluginApplication } from "./PluginApplication";
+import { PluginPresentationDialog } from "./PluginPresentationDialog";
+import { PluginPageHost } from "./PluginSurface";
+import { PluginPresentationProvider, usePluginPresentation, type PluginPresentation } from "./pluginPresentation";
 
 const plugin = officialPlugins[0];
 const hardwarePlugin = officialPlugins[1];
 const wslPlugin = officialPlugins[2];
 const browserPlugin = officialPlugins[3];
-const BrowserEnvironments = lazy(() => import("./BrowserEnvironments").then(module => ({ default: module.BrowserEnvironments })));
+const notesPlugin = officialPlugins[4];
+const claudePlugin = officialPlugins[5];
 const configKey = `${plugin.id}.config`;
 const hardwareEnabledKey = hardwarePlugin.id + ".enabled";
 const wslEnabledKey = wslPlugin.id + ".enabled";
@@ -26,7 +28,18 @@ function readConfig(): { enabled: boolean; path: string; count: number } {
   } catch { return { enabled: true, path: "", count: 2 }; }
 }
 
-export function OfficialPluginsPage() {
+/** 操作列里的设置入口，工具提示保留当前打开方式。 */
+function PresentationButton({ pluginId, onOpen }: { pluginId: string; onOpen: (id: string) => void }) {
+  const { get } = usePluginPresentation();
+  const current = get(pluginId);
+  const label = current.mode === "page" ? "页面" : current.size === "small" ? "小弹窗" : "大弹窗";
+  return <button type="button" className="table-link plugin-presentation-trigger" aria-label="设置" title={`设置，当前打开方式：${label}`} onClick={() => onOpen(pluginId)}>
+    <SlidersHorizontal size={13} aria-hidden="true" /><span className="plugin-presentation-label">设置</span>
+  </button>;
+}
+
+function OfficialPluginsStore() {
+  const { get } = usePluginPresentation();
   const [config, setConfig] = useState(readConfig);
   const [status, setStatus] = useState<WechatPluginStatus | null>(null);
   const [busy, setBusy] = useState(false);
@@ -36,8 +49,8 @@ export function OfficialPluginsPage() {
   const [source, setSource] = useState("官方应用");
   const [category, setCategory] = useState("全部");
   const [keyword, setKeyword] = useState("");
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const settingsRef = useRef<HTMLElement>(null);
+  const [activePlugin, setActivePlugin] = useState<{ id: string; presentation: PluginPresentation } | null>(null);
+  const returnPosition = useRef({ windowY: 0, mainY: 0, entry: null as HTMLElement | null });
   const [recent, setRecent] = useState(() => {
     try { return localStorage.getItem(`${plugin.id}.last-used`) !== null; } catch { return false; }
   });
@@ -47,9 +60,7 @@ export function OfficialPluginsPage() {
   const [hardwareEnabled, setHardwareEnabled] = useState(() => {
     try { return localStorage.getItem(hardwareEnabledKey) !== "false"; } catch { return true; }
   });
-  const [hardwareOpen, setHardwareOpen] = useState(false);
-  const [wslOpen, setWslOpen] = useState(false);
-  const [browserOpen, setBrowserOpen] = useState(false);
+  const [presentationFor, setPresentationFor] = useState<string | null>(null);
   const [wslEnabled, setWslEnabled] = useState(() => { try { return localStorage.getItem(wslEnabledKey) !== "false"; } catch { return true; } });
   const [wslRecent, setWslRecent] = useState(() => { try { return localStorage.getItem(`${wslPlugin.id}.last-used`) !== null; } catch { return false; } });
   const supported = runningInTauri && status?.supported === true;
@@ -60,8 +71,49 @@ export function OfficialPluginsPage() {
   const visibleHardware = source === "官方应用" && matchesHardwareSearch && (category !== "已启用" || hardwareEnabled);
   const visibleWsl = source === "官方应用" && matchesWslSearch && (category !== "已启用" || wslEnabled);
   const visibleBrowser = source === "官方应用" && `${browserPlugin.name} ${browserPlugin.description} Chromium Chrome 代理 浏览器`.toLowerCase().includes(keyword.trim().toLowerCase());
-  const visibleCount = Number(visible) + Number(visibleHardware) + Number(visibleWsl) + Number(visibleBrowser);
+  const visibleNotes = source === "官方应用" && `${notesPlugin.name} ${notesPlugin.description} 备忘 笔记 记录 分组 标签 检索 提醒`.toLowerCase().includes(keyword.trim().toLowerCase());
+  const visibleClaude = source === "官方应用" && `${claudePlugin.name} ${claudePlugin.description} Claude Code 供应商 API 切换 模型 映射`.toLowerCase().includes(keyword.trim().toLowerCase());
+  const visibleCount = Number(visible) + Number(visibleHardware) + Number(visibleWsl) + Number(visibleBrowser) + Number(visibleNotes) + (visibleClaude ? 1 : 0);
   const canLaunch = supported && config.enabled && !busy && !!(config.path || status?.detectedPath);
+
+  /** Capture the mode when opening so a mounted plugin never switches containers mid-edit. */
+  function openPlugin(pluginId: string) {
+    returnPosition.current = {
+      windowY: window.scrollY,
+      mainY: document.getElementById("main-content")?.scrollTop ?? 0,
+      entry: document.activeElement instanceof HTMLElement ? document.activeElement : null,
+    };
+    setActivePlugin({ id: pluginId, presentation: get(pluginId) });
+    switch (pluginId) {
+      case hardwarePlugin.id:
+        setHardwareRecent(true);
+        try { localStorage.setItem(hardwarePlugin.id + ".last-used", String(Date.now())); } catch { /* 仅用于最近使用列表 */ }
+        break;
+      case wslPlugin.id:
+        setWslRecent(true);
+        try { localStorage.setItem(`${wslPlugin.id}.last-used`, String(Date.now())); } catch { /* 最近使用记录为可选 */ }
+        break;
+      default:
+        break;
+    }
+  }
+
+  /** 关闭当前打开的插件，两种形态共用。 */
+  function closePlugin() {
+    const pluginId = activePlugin?.id;
+    const position = returnPosition.current;
+    setActivePlugin(null);
+    setConfig(readConfig());
+    if (runningInTauri) void operate(() => refresh());
+    window.requestAnimationFrame(() => {
+      const main = document.getElementById("main-content");
+      if (main) main.scrollTop = position.mainY;
+      window.scrollTo({ top: position.windowY, behavior: "instant" });
+      const entry = position.entry?.isConnected ? position.entry
+        : document.querySelector<HTMLElement>(`[data-plugin-entry="${CSS.escape(pluginId ?? "")}"]`);
+      entry?.focus({ preventScroll: true });
+    });
+  }
 
   useEffect(() => {
     if (!message && !error) return;
@@ -69,21 +121,9 @@ export function OfficialPluginsPage() {
     return () => window.clearTimeout(timer);
   }, [message, error]);
 
-  useEffect(() => {
-    if (!settingsOpen) return;
-    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const root = document.getElementById("root");
-    const wasInert = root?.inert ?? false;
-    if (root) root.inert = true;
-    settingsRef.current?.focus();
-    return () => {
-      if (root) root.inert = wasInert;
-      if (previousFocus?.isConnected) previousFocus.focus();
-    };
-  }, [settingsOpen]);
 
   useEffect(() => {
-    if (!settingsOpen || !runningInTauri) return;
+    if (activePlugin?.id !== plugin.id || !runningInTauri) return;
     let active = true;
     let checking = false;
     const checkStatus = async () => {
@@ -99,7 +139,7 @@ export function OfficialPluginsPage() {
     void checkStatus();
     window.addEventListener("focus", checkStatus);
     return () => { active = false; window.removeEventListener("focus", checkStatus); };
-  }, [settingsOpen]);
+  }, [activePlugin?.id]);
 
   async function operate(action: () => Promise<void>) {
     if (busyRef.current) return;
@@ -151,6 +191,12 @@ export function OfficialPluginsPage() {
     catch { setError("启动后未能刷新进程状态，请查看微信窗口后再操作。"); }
   }
 
+  const application = activePlugin && <PluginApplication pluginId={activePlugin.id} wslEnabled={wslEnabled} onNotify={activePlugin.presentation.mode === "modal" ? setMessage : undefined} onError={activePlugin.presentation.mode === "modal" ? setError : undefined} />;
+  const activeDefinition = officialPlugins.find(item => item.id === activePlugin?.id);
+  if (activePlugin?.presentation.mode === "page" && activeDefinition) {
+    return <PluginPageHost title={activeDefinition.name} onClose={closePlugin}>{application}</PluginPageHost>;
+  }
+
   return <section className="utility-page official-plugins-page software-store-page">
     <header><div className="store-heading"><span className="eyebrow">SOFTWARE STORE</span><div className="store-heading-line"><h1>软件商店</h1><span>官方工具免费内置 · 本地运行</span></div><p>集中管理 CloudHub Tools 应用与插件，内置工具随客户端更新。</p></div><span className="store-total">{officialPlugins.length} 个内置应用</span></header>
     <div className="store-tabs" role="group" aria-label="应用来源">{["官方应用", "第三方应用"].map(item => <button key={item} type="button" aria-pressed={source === item} className={source === item ? "is-active" : ""} onClick={() => setSource(item)}>{item}</button>)}</div>
@@ -159,7 +205,7 @@ export function OfficialPluginsPage() {
         <label htmlFor="store-search">应用搜索</label><div className="store-search-input"><Search size={15} aria-hidden="true" /><input id="store-search" type="search" value={keyword} onChange={event => setKeyword(event.target.value)} placeholder="搜索应用名称、开发商或说明" /></div>
         <button type="button" className="secondary store-refresh" disabled={!runningInTauri || busy} onClick={() => void operate(() => refresh())}><RefreshCw size={14} aria-hidden="true" />{busy ? "正在刷新…" : "刷新应用状态"}</button>
       </div>
-      <div className="store-filter-row"><span>最近使用</span>{recent && <button type="button" className="store-recent" onClick={() => { setSource("官方应用"); setCategory("全部"); setKeyword(""); setSettingsOpen(true); }}><MessageCircle size={14} aria-hidden="true" />微信多开</button>}{hardwareRecent && <button type="button" className="store-recent" onClick={() => { setSource("官方应用"); setCategory("全部"); setKeyword(""); setHardwareOpen(true); }}><Cpu size={14} aria-hidden="true" />电脑信息</button>}{wslRecent && <button type="button" className="store-recent" onClick={() => { setSource("官方应用"); setCategory("全部"); setKeyword(""); setWslOpen(true); }}><SquareTerminal size={14} aria-hidden="true" />WSL 管理</button>}{!recent && !hardwareRecent && !wslRecent && <small>暂无使用记录</small>}</div>
+      <div className="store-filter-row"><span>最近使用</span>{recent && <button type="button" className="store-recent" onClick={() => { setSource("官方应用"); setCategory("全部"); setKeyword(""); openPlugin(plugin.id); }}><MessageCircle size={14} aria-hidden="true" />微信多开</button>}{hardwareRecent && <button type="button" className="store-recent" onClick={() => { setSource("官方应用"); setCategory("全部"); setKeyword(""); openPlugin(hardwarePlugin.id); }}><Cpu size={14} aria-hidden="true" />电脑信息</button>}{wslRecent && <button type="button" className="store-recent" onClick={() => { setSource("官方应用"); setCategory("全部"); setKeyword(""); openPlugin(wslPlugin.id); }}><SquareTerminal size={14} aria-hidden="true" />WSL 管理</button>}{!recent && !hardwareRecent && !wslRecent && <small>暂无使用记录</small>}</div>
       <div className="store-filter-row"><span>应用分类</span><div className="store-categories" role="group" aria-label="应用分类">{["全部", "已内置", "已启用", "免费应用", "桌面工具"].map(item => <button type="button" key={item} aria-pressed={category === item} className={category === item ? "is-active" : ""} onClick={() => setCategory(item)}>{item}</button>)}</div></div>
       {!runningInTauri && <p className="store-platform-note" role="status">浏览器预览不支持启动本地软件，请在 Windows 桌面客户端使用。</p>}
       {runningInTauri && status && !status.supported && <p className="store-platform-note" role="status">微信多开插件仅支持 Windows 桌面端。</p>}
@@ -171,7 +217,7 @@ export function OfficialPluginsPage() {
           <td data-label="价格">免费</td><td data-label="平台">Windows</td>
           <td data-label="状态"><span className="store-state"><i aria-hidden="true" />{config.enabled ? "已内置" : "已停用"}</span></td>
           <td data-label="启用"><label className="store-switch"><input type="checkbox" aria-label="启用微信多开" checked={config.enabled} disabled={busy} onChange={event => setConfig(current => ({ ...current, enabled: event.target.checked }))} /><span aria-hidden="true" /></label></td>
-          <td data-label="操作"><div className="store-row-actions"><button type="button" className="table-link" aria-expanded={settingsOpen} aria-controls="wechat-store-settings" onClick={() => setSettingsOpen(open => !open)}>设置</button><button type="button" className="table-link" disabled={!canLaunch} onClick={() => void operate(launch)}>启动</button></div></td>
+          <td data-label="操作"><div className="store-row-actions"><PresentationButton pluginId={plugin.id} onOpen={setPresentationFor} /><button type="button" className="table-link" data-plugin-entry={plugin.id} aria-expanded={activePlugin?.id === plugin.id} onClick={() => openPlugin(plugin.id)}>管理</button><button type="button" className="table-link" disabled={!canLaunch} onClick={() => void operate(launch)}>启动</button></div></td>
         </tr>}
         {visibleHardware && <tr>
           <td data-label="软件名称"><div className="store-app-name"><Cpu size={20} aria-hidden="true" /><div><strong>{hardwarePlugin.name}</strong><small>v{hardwarePlugin.version} · 官方</small></div></div></td>
@@ -180,7 +226,7 @@ export function OfficialPluginsPage() {
           <td data-label="价格">免费</td><td data-label="平台">Windows / macOS / Linux</td>
           <td data-label="状态"><span className="store-state"><i aria-hidden="true" />{hardwareEnabled ? "已内置" : "已停用"}</span></td>
           <td data-label="启用"><label className="store-switch"><input type="checkbox" aria-label="启用电脑信息插件" checked={hardwareEnabled} disabled={busy} onChange={event => setHardwareEnabled(event.target.checked)} /><span aria-hidden="true" /></label></td>
-          <td data-label="操作"><div className="store-row-actions"><button type="button" className="table-link" disabled={!hardwareEnabled || !runningInTauri} onClick={() => setHardwareOpen(true)}>查看</button></div></td>
+          <td data-label="操作"><div className="store-row-actions"><PresentationButton pluginId={hardwarePlugin.id} onOpen={setPresentationFor} /><button type="button" className="table-link" data-plugin-entry={hardwarePlugin.id} disabled={!hardwareEnabled || !runningInTauri} onClick={() => openPlugin(hardwarePlugin.id)}>查看</button></div></td>
         </tr>}
         {visibleWsl && <tr>
           <td data-label="软件名称"><div className="store-app-name"><SquareTerminal size={20} aria-hidden="true" /><div><strong>{wslPlugin.name}</strong><small>v{wslPlugin.version} · 官方</small></div></div></td>
@@ -189,7 +235,7 @@ export function OfficialPluginsPage() {
           <td data-label="价格">免费</td><td data-label="平台">Windows / WSL</td>
           <td data-label="状态"><span className="store-state"><i aria-hidden="true" />{wslEnabled ? "已内置" : "已停用"}</span></td>
           <td data-label="启用"><label className="store-switch"><input type="checkbox" aria-label="启用 WSL 管理插件" checked={wslEnabled} onChange={event => setWslEnabled(event.target.checked)} /><span aria-hidden="true" /></label></td>
-          <td data-label="操作"><div className="store-row-actions"><button type="button" className="table-link" disabled={!wslEnabled} onClick={() => { setWslOpen(true); setWslRecent(true); try { localStorage.setItem(`${wslPlugin.id}.last-used`, String(Date.now())); } catch { /* 最近使用记录为可选 */ } }}>管理</button></div></td>
+          <td data-label="操作"><div className="store-row-actions"><PresentationButton pluginId={wslPlugin.id} onOpen={setPresentationFor} /><button type="button" className="table-link" data-plugin-entry={wslPlugin.id} disabled={!wslEnabled} onClick={() => openPlugin(wslPlugin.id)}>管理</button></div></td>
         </tr>}
         {visibleBrowser && <tr>
           <td data-label="软件名称"><div className="store-app-name"><Globe size={20} aria-hidden="true" /><div><strong>{browserPlugin.name}</strong><small>v{browserPlugin.version} · 官方</small></div></div></td>
@@ -198,67 +244,37 @@ export function OfficialPluginsPage() {
           <td data-label="价格">免费</td><td data-label="平台">Windows x64</td>
           <td data-label="状态"><span className="store-state"><i aria-hidden="true" />内核按需下载</span></td>
           <td data-label="启用">已内置</td>
-          <td data-label="操作"><div className="store-row-actions"><button type="button" className="table-link" onClick={() => setBrowserOpen(true)}>管理</button></div></td>
+          <td data-label="操作"><div className="store-row-actions"><PresentationButton pluginId={browserPlugin.id} onOpen={setPresentationFor} /><button type="button" className="table-link" data-plugin-entry={browserPlugin.id} onClick={() => openPlugin(browserPlugin.id)}>管理</button></div></td>
+        </tr>}
+        {visibleClaude && <tr>
+          <td data-label="软件名称"><div className="store-app-name"><Server size={20} aria-hidden="true" /><div><strong>{claudePlugin.name}</strong><small>v{claudePlugin.version} · 官方</small></div></div></td>
+          <td data-label="开发商"><span className="store-publisher">官方</span><small>{claudePlugin.publisher}</small></td>
+          <td data-label="说明" className="store-description">{claudePlugin.description}<small>API Key 本地加密保存；切换前自动备份配置，支持直连、路由与聚合。</small></td>
+          <td data-label="价格">免费</td><td data-label="平台">Windows / macOS / Linux</td>
+          <td data-label="状态"><span className="store-state"><i aria-hidden="true" />已内置</span></td>
+          <td data-label="启用">已内置</td>
+          <td data-label="操作"><div className="store-row-actions"><PresentationButton pluginId={claudePlugin.id} onOpen={setPresentationFor} /><button type="button" className="table-link" data-plugin-entry={claudePlugin.id} onClick={() => openPlugin(claudePlugin.id)}>管理</button></div></td>
+        </tr>}
+        {visibleNotes && <tr>
+          <td data-label="软件名称"><div className="store-app-name"><NotebookPen size={20} aria-hidden="true" /><div><strong>{notesPlugin.name}</strong><small>v{notesPlugin.version} · 官方</small></div></div></td>
+          <td data-label="开发商"><span className="store-publisher">官方</span><small>{notesPlugin.publisher}</small></td>
+          <td data-label="说明" className="store-description">{notesPlugin.description}<small>数据仅保存在本机，账号密码为明文存储，不做加密。</small></td>
+          <td data-label="价格">免费</td><td data-label="平台">Windows / macOS / Linux</td>
+          <td data-label="状态"><span className="store-state"><i aria-hidden="true" />已内置</span></td>
+          <td data-label="启用">已内置</td>
+          <td data-label="操作"><div className="store-row-actions"><PresentationButton pluginId={notesPlugin.id} onOpen={setPresentationFor} /><button type="button" className="table-link" data-plugin-entry={notesPlugin.id} onClick={() => openPlugin(notesPlugin.id)}>打开</button></div></td>
         </tr>}
       </tbody></table>
       {visibleCount === 0 && <div className="store-empty"><Package size={30} aria-hidden="true" /><h2>{source === "第三方应用" ? "暂无第三方应用" : "没有符合条件的应用"}</h2><p>{source === "官方应用" ? "尝试调整搜索词或切换应用分类。" : "当前先提供官方内置应用，后续上架的应用将在这里展示。"}</p><button type="button" className="secondary" onClick={() => { setSource("官方应用"); setCategory("全部"); setKeyword(""); }}>查看全部官方应用</button></div>}
       <div className="store-list-footer"><span>共 {visibleCount} 个应用</span><span>内置应用随 CloudHub Tools 更新</span></div>
     </section>
-    {settingsOpen && createPortal(<div className="modal-backdrop ide-theme">
-      <section ref={settingsRef} tabIndex={-1} id="wechat-store-settings" role="dialog" aria-modal="true" className="modal modal-form-layout dialog-common-theme official-plugin-card wechat-settings-dialog" aria-labelledby="wechat-plugin-title" aria-busy={busy} onKeyDown={event => {
-        if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setSettingsOpen(false); }
-        if (event.key !== "Tab") return;
-        const controls = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button, input, select, textarea, summary, [tabindex="0"]')).filter(element => element.matches(":not(:disabled)") && element.getClientRects().length > 0);
-        const first = controls[0], last = controls[controls.length - 1];
-        if (!first) { event.preventDefault(); event.currentTarget.focus(); }
-        else if (event.shiftKey && (document.activeElement === first || document.activeElement === event.currentTarget)) { event.preventDefault(); last.focus(); }
-        else if (!event.shiftKey && (document.activeElement === last || document.activeElement === event.currentTarget)) { event.preventDefault(); first.focus(); }
-      }}>
-      <header className="modal-head official-plugin-heading">
-        <MessageCircle size={24} aria-hidden="true" />
-        <div><h2 id="wechat-plugin-title">{plugin.name}设置</h2><p>{plugin.publisher} · v{plugin.version} · Windows · 实验性</p></div>
-        <DialogHeaderActions><button type="button" className="close" aria-label="关闭微信多开设置" onClick={() => setSettingsOpen(false)}><X size={16} aria-hidden="true" /></button></DialogHeaderActions>
-      </header>
-      <div className="modal-body">
-      <p>同时启动多个已安装的微信客户端，用于尝试登录不同账号。“官方”指 CloudHub Tools 出品。</p>
-      <label className="official-plugin-toggle"><input type="checkbox" aria-label="启用微信多开" checked={config.enabled} disabled={busy} onChange={event => setConfig(current => ({ ...current, enabled: event.target.checked }))} />启用插件</label>
-      {!runningInTauri && <p role="status">浏览器预览不支持启动本地软件，请在 Windows 桌面客户端使用。</p>}
-      {runningInTauri && status && !status.supported && <p role="status">微信多开插件仅支持 Windows 桌面端。</p>}
-      <p className="official-plugin-note">批量启动只重复打开当前配置，无法区分账号。需要不同头像时，请使用下方“账号登录配置”逐个恢复并启动；部分版本仍可能合并窗口。</p>
-      {!config.enabled && <p role="status">插件已停用，启用后可使用启动功能。</p>}
-      <fieldset disabled={!supported || !config.enabled || busy}>
-        <legend>微信启动设置</legend>
-        <label htmlFor="wechat-client-path">客户端路径</label>
-        <div className="official-plugin-path">
-          <input id="wechat-client-path" value={config.path || status?.detectedPath || ""} readOnly placeholder="选择 Weixin.exe 或 WeChat.exe" />
-          <button type="button" className="secondary" onClick={() => void operate(() => refresh(true))}><RefreshCw size={14} aria-hidden="true" />自动检测</button>
-          <button type="button" className="secondary" onClick={() => void operate(async () => {
-            const path = await pluginsClient.selectWechat();
-            if (path) setConfig(current => ({ ...current, path }));
-          })}><FolderOpen size={14} aria-hidden="true" />选择文件</button>
-        </div>
-        <div className="official-plugin-actions wechat-setting-row">
-          <label htmlFor="wechat-window-count">启动数量</label>
-          <select id="wechat-window-count" value={config.count} onChange={event => setConfig(current => ({ ...current, count: Number(event.target.value) }))}>{[2, 3, 4, 5].map(count => <option key={count} value={count}>{count} 个</option>)}</select>
-          <button type="button" className="primary" disabled={!canLaunch} onClick={() => void operate(launch)}><Play size={14} aria-hidden="true" />{busy ? "正在处理…" : "批量启动"}</button>
-        </div>
-      <div className="official-plugin-actions wechat-setting-row">
-        <span className="wechat-setting-label">运行状态</span>
-        <span className="wechat-process-count" title="统计包含微信辅助进程，不代表窗口或账号数量">{busy ? "检查中…" : status?.supported ? `${status.runningProcesses} 个进程` : "不可用"}</span>
-        <button type="button" className="secondary" disabled={!runningInTauri || busy} onClick={() => void operate(() => refresh())}><RefreshCw size={14} aria-hidden="true" />刷新状态</button>
-      </div>
-      </fieldset>
-      <WechatSessionSettings enabled={supported && config.enabled} busy={busy} path={config.path || status?.detectedPath || ""} operate={operate} notify={setMessage} />
-      {!busy && supported && !(config.path || status?.detectedPath) && <p>未找到微信客户端，请先点击“自动检测”或“选择文件”指定客户端路径。</p>}
-      <details><summary>插件权限与说明</summary><ul>{plugin.permissions.map(permission => <li key={permission}>{permission}</li>)}</ul><p>运行状态统计包含微信辅助进程，不代表账号数量。保存配置会读取限定的微信登录配置文件，恢复会写回这些文件；备份使用本机加密保存，不上传，也不在界面显示内容。不读取聊天数据库，不修改客户端程序，不自动结束微信进程。此方式不提供完整的独立聊天数据环境，兼容性需按微信版本实测。</p></details>
-      </div>
-    </section></div>, document.body)}
-    <HardwareInfoPlugin open={hardwareOpen} onClose={() => setHardwareOpen(false)} onOpened={() => {
-      setHardwareRecent(true);
-      try { localStorage.setItem(hardwarePlugin.id + ".last-used", String(Date.now())); } catch { /* 仅用于最近使用列表 */ }
-    }} />
-    <WslDashboardPlugin open={wslOpen} enabled={wslEnabled} onClose={() => setWslOpen(false)} />
-    {browserOpen && <Suspense fallback={null}><BrowserEnvironments open onClose={() => setBrowserOpen(false)} /></Suspense>}
+    {activePlugin && activeDefinition && <SharedDialog title={activePlugin.id === plugin.id ? "微信多开设置" : activeDefinition.name} size={activePlugin.presentation.size} className={`plugin-application-dialog plugin-modal-${activePlugin.presentation.size}`} onClose={closePlugin}>{application}</SharedDialog>}
+    {presentationFor && <PluginPresentationDialog targetId={presentationFor} onClose={() => setPresentationFor(null)} />}
     {(message || error) && createPortal(<div className="ide-theme"><div className="toast-notice store-notification" role={error ? "alert" : "status"} aria-live={error ? "assertive" : "polite"} aria-atomic="true"><span>{[message, error].filter(Boolean).join(" ")}</span><button type="button" aria-label="关闭操作提示" title="关闭提示" onClick={() => { setMessage(""); setError(""); }}><X size={14} aria-hidden="true" /></button></div></div>, document.body)}
   </section>;
+}
+
+/** 插件的打开方式存在本机设置里，因此整页包一层 Provider。 */
+export function OfficialPluginsPage() {
+  return <PluginPresentationProvider><OfficialPluginsStore /></PluginPresentationProvider>;
 }

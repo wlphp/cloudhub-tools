@@ -18,7 +18,7 @@ pub struct ExportRecord {
 }
 
 pub fn export_records(conn: &Connection, selected_ids: Option<&[i64]>) -> Result<Vec<ExportRecord>, String> {
-    let mut statement = conn.prepare("SELECT id,account_name,cloud_type,group_name,access_key_id,secret_ciphertext,credential_meta,region_id,sort_order,enabled,remark FROM cloud_accounts ORDER BY sort_order ASC, updated_at DESC").map_err(|error| error.to_string())?;
+    let mut statement = conn.prepare("SELECT id,account_name,cloud_type,group_name,access_key_id,secret_ciphertext,credential_meta,region_id,sort_order,enabled,remark FROM cloud_accounts WHERE deleted_at IS NULL ORDER BY sort_order ASC, updated_at DESC").map_err(|error| error.to_string())?;
     let rows = statement.query_map([], |row| Ok(ExportRecord {
         id: row.get(0)?, account_name: row.get(1)?, cloud_type: row.get(2)?, group_name: row.get(3)?, access_key_id: row.get(4)?, secret_ciphertext: row.get(5)?, credential_meta: row.get(6)?, region_id: row.get(7)?, sort_order: row.get(8)?, enabled: row.get::<_, i64>(9)? == 1, remark: row.get(10)?,
     })).map_err(|error| error.to_string())?;
@@ -88,9 +88,14 @@ pub fn save(conn: &Connection, input: &AccountInput, secret_ciphertext: &str, no
             conn.last_insert_rowid()
         }
     };
-    conn.query_row("SELECT id,account_name,cloud_type,group_name,access_key_id,credential_meta,region_id,sort_order,enabled,remark,created_at,updated_at FROM cloud_accounts WHERE id=?1", [id], row_account).map_err(|error| error.to_string())
+    conn.query_row("SELECT id,account_name,cloud_type,group_name,access_key_id,credential_meta,region_id,sort_order,enabled,remark,created_at,updated_at FROM cloud_accounts WHERE id=?1 AND deleted_at IS NULL", [id], row_account).map_err(|error| error.to_string())
 }
 
-pub fn delete(conn: &Connection, id: i64) -> Result<(), String> {
-    conn.execute("DELETE FROM cloud_accounts WHERE id=?1", [id]).map(|_| ()).map_err(|error| error.to_string())
+/// Moves the account to the recycle bin. Child rows (assets, SSH/RDP
+/// connections, certificates) stay attached and come back with it; purging is
+/// the only path that fires the real cascade.
+pub fn delete(conn: &Connection, id: i64, now: i64) -> Result<(), String> {
+    let changed = super::trash::soft_delete(conn, "cloud_accounts", &[rusqlite::types::Value::Integer(id)], now)?;
+    if changed == 0 { return Err("云账号不存在或已被删除".into()); }
+    Ok(())
 }

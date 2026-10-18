@@ -92,6 +92,7 @@ import {
   MoreVertical,
   Monitor,
   List,
+  NotebookPen,
   MapPin,
   Terminal,
   FileText,
@@ -146,6 +147,9 @@ import { EsaCertificateDialog } from "./features/certificates/EsaCertificateDial
 import { CertificatePanel } from "./features/certificates/CertificatePanel";
 import { FlowPanel } from "./features/flow/FlowPanel";
 import { AuthenticatorPanel } from "./features/authenticator/AuthenticatorPanel";
+import { NotesPanel } from "./features/notes/NotesPanel";
+import { RecycleBin } from "./shared/RecycleBin";
+import { useTrashActions, useTrashGroups } from "./shared/TrashPanel";
 import { FrpPanel } from "./features/frp/FrpPanel";
 import { CodexPanel } from "./features/codex/CodexPanel";
 import { FavoriteServerDetails, ServerCard } from "./features/servers/ServerCards";
@@ -224,8 +228,28 @@ const detachedTerminalHostId = (() => {
 })();
 const isDetachedTerminalWindow = runningInTauri && detachedTerminalHostId !== null;
 
+function readLocalStorage(key: string): string | null {
+  try { return window.localStorage.getItem(key); }
+  catch { return null; }
+}
+
 function App() {
+  const [showTrash, setShowTrash] = useState(false);
+  const [showTrashMaximized, setShowTrashMaximized] = useState(false);
+  const trashDialogRef = useRef<HTMLElement>(null);
   useDialogDragging();
+  const trashGroups = useTrashGroups();
+  const trashGroups_flat = trashGroups.snapshot?.groups ?? [];
+  const trashTotal = trashGroups_flat.reduce((sum, group) => sum + group.items.length, 0);
+  const trashActions = useTrashActions(trashGroups.reload, () => setShowTrash(false));
+  // The dialog owns Escape and Tab while it is open; focus moves into it so the
+  // keydown actually reaches the section instead of the page behind.
+  useEffect(() => {
+    if (!showTrash) return;
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    trashDialogRef.current?.focus();
+    return () => opener?.focus();
+  }, [showTrash]);
   const exportSelection = useExportSelection();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [selectedAccountIds, setSelectedAccountIds] = useState<Set<number>>(() => new Set());
@@ -297,7 +321,7 @@ function App() {
   const esaRequestRef = useRef(0);
   const [esaCertificateSite, setEsaCertificateSite] = useState<{ account: Account; siteId: number } | null>(null);
   const [esaSiteKeyword, setEsaSiteKeyword] = useState("");
-  const [section, setSection] = useState<"accounts" | "resources" | "certificates" | "authenticator" | "flow" | "frp" | "codex" | "panels" | "servers" | "favorites" | "logs" | "api_logs" | "settings" | "data_management" | "plugins">(() => isDetachedTerminalWindow ? "servers" : "accounts");
+  const [section, setSection] = useState<"accounts" | "resources" | "certificates" | "authenticator" | "flow" | "frp" | "codex" | "panels" | "servers" | "favorites" | "logs" | "api_logs" | "settings" | "data_management" | "plugins" | "notes">(() => isDetachedTerminalWindow ? "servers" : "accounts");
   useEffect(() => { const open = () => setSection("settings"); window.addEventListener("cloudhub-ai-settings", open); return () => window.removeEventListener("cloudhub-ai-settings", open); }, []);
   const [petCertificateTarget,setPetCertificateTarget]=useState<{key:string;request:number}|null>(null);
   const [localAssets, setLocalAssets] = useState<LocalAsset[]>([]);
@@ -316,10 +340,10 @@ function App() {
   const [selectedPanelIds, setSelectedPanelIds] = useState<Set<number>>(() => new Set());
   const [expandedPanelDisks, setExpandedPanelDisks] = useState<Set<number>>(() => new Set());
   const [panelImporting, setPanelImporting] = useState(false);
-  const [hidePanelIps, setHidePanelIps] = useState(() => localStorage.getItem("aliyun-panel-hide-ip") === "1");
-  const [panelOpenMode, setPanelOpenMode] = useState<"browser" | "copy">(() => localStorage.getItem("aliyun-panel-open-mode") === "copy" ? "copy" : "browser");
+  const [hidePanelIps, setHidePanelIps] = useState(() => readLocalStorage("aliyun-panel-hide-ip") === "1");
+  const [panelOpenMode, setPanelOpenMode] = useState<"browser" | "copy">(() => readLocalStorage("aliyun-panel-open-mode") === "copy" ? "copy" : "browser");
   const [panelRefreshSeconds, setPanelRefreshSeconds] = useState(() => {
-    const value = Number(localStorage.getItem("aliyun-panel-refresh-seconds") || "0");
+    const value = Number(readLocalStorage("aliyun-panel-refresh-seconds") || "0");
     return [0, 5, 10, 30, 60].includes(value) ? value : 0;
   });
   const panelRefreshInFlightRef = useRef(false);
@@ -338,16 +362,16 @@ function App() {
   const [managedHostLoadingId, setManagedHostLoadingId] = useState<number | null>(null);
   const [managedHostKeyword, setManagedHostKeyword] = useState("");
   const [managedHostGroup, setManagedHostGroup] = useState("");
-  const [managedHostOrder, setManagedHostOrder] = useState<string[]>(() => stringListFromValue(localStorage.getItem(cloudHubManagedHostOrderStorageKey) || undefined));
-  const [recentManagedHostIds, setRecentManagedHostIds] = useState<string[]>(() => stringListFromValue(localStorage.getItem("cloudhub-recent-managed-hosts") || undefined).slice(0, 10));
-  const [recentManagedHostsCollapsed, setRecentManagedHostsCollapsed] = useState(() => localStorage.getItem(cloudHubRecentManagedHostsCollapsedStorageKey) === "1");
-  const [managedHostGroupOrder, setManagedHostGroupOrder] = useState<string[]>(() => stringListFromValue(localStorage.getItem(cloudHubManagedHostGroupOrderStorageKey) || undefined));
+  const [managedHostOrder, setManagedHostOrder] = useState<string[]>(() => stringListFromValue(readLocalStorage(cloudHubManagedHostOrderStorageKey) || undefined));
+  const [recentManagedHostIds, setRecentManagedHostIds] = useState<string[]>(() => stringListFromValue(readLocalStorage("cloudhub-recent-managed-hosts") || undefined).slice(0, 10));
+  const [recentManagedHostsCollapsed, setRecentManagedHostsCollapsed] = useState(() => readLocalStorage(cloudHubRecentManagedHostsCollapsedStorageKey) === "1");
+  const [managedHostGroupOrder, setManagedHostGroupOrder] = useState<string[]>(() => stringListFromValue(readLocalStorage(cloudHubManagedHostGroupOrderStorageKey) || undefined));
   const [managedHostSorting, setManagedHostSorting] = useState(false);
   const [draggedManagedHostId, setDraggedManagedHostId] = useState<number | null>(null);
   const [draggedManagedHostGroup, setDraggedManagedHostGroup] = useState<string | null>(null);
   const [managedHostDropPosition, setManagedHostDropPosition] = useState<{ id: number; side: "before" | "after" } | null>(null);
   const [managedHostGroupDropPosition, setManagedHostGroupDropPosition] = useState<{ group: string; side: "before" | "after" } | null>(null);
-  const [collapsedManagedHostGroups, setCollapsedManagedHostGroups] = useState<Set<string>>(() => new Set(stringListFromValue(localStorage.getItem(cloudHubManagedHostCollapsedGroupsStorageKey) || undefined)));
+  const [collapsedManagedHostGroups, setCollapsedManagedHostGroups] = useState<Set<string>>(() => new Set(stringListFromValue(readLocalStorage(cloudHubManagedHostCollapsedGroupsStorageKey) || undefined)));
   const [managedHostMoreId, setManagedHostMoreId] = useState<number | null>(null);
   const [managedHostGroupMenu, setManagedHostGroupMenu] = useState<{ group: string; x: number; y: number } | null>(null);
   const [managedHostGroupEdit, setManagedHostGroupEdit] = useState<{ originalName: string; name: string; order: string } | null>(null);
@@ -358,9 +382,9 @@ function App() {
   const [apiLogs, setApiLogs] = useState<ApiLog[]>([]);
   const [apiLogDetail, setApiLogDetail] = useState<ApiLog | null>(null);
   const [assetDetail, setAssetDetail] = useState<{ asset: LocalAsset; account: Account } | null>(null);
-  const [operationLogClearedAt, setOperationLogClearedAt] = useState(() => Number(localStorage.getItem("aliyun-operation-log-cleared-at") || "0"));
-  const [autoRefresh, setAutoRefresh] = useState(() => localStorage.getItem("aliyun-auto-refresh") !== "0");
-  const [compactMode, setCompactMode] = useState(() => localStorage.getItem("aliyun-compact-mode") === "1");
+  const [operationLogClearedAt, setOperationLogClearedAt] = useState(() => Number(readLocalStorage("aliyun-operation-log-cleared-at") || "0"));
+  const [autoRefresh, setAutoRefresh] = useState(() => readLocalStorage("aliyun-auto-refresh") !== "0");
+  const [compactMode, setCompactMode] = useState(() => readLocalStorage("aliyun-compact-mode") === "1");
   const { appVersion, isDevelopment, updateState, checkForUpdates, installUpdate } = useAppUpdates(bundledVersion, setStatus);
   const [logFilter, setLogFilter] = useState("");
   const [logTypeFilter, setLogTypeFilter] = useState("");
@@ -379,16 +403,16 @@ function App() {
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<{ fetched: number; counts: Record<string, number>; errors: string[] } | null>(null);
   const [syncProgress, setSyncProgress] = useState<{ accountId: number; completed: number; total: number; resourceType: string; status: string; elapsedMs?: number } | null>(null);
-  const [pageSize, setPageSize] = useState(() => { const value = Number(localStorage.getItem("aliyun-page-size") || "10"); return [10, 20, 50, 100].includes(value) ? value : 10; });
+  const [pageSize, setPageSize] = useState(() => { const value = Number(readLocalStorage("aliyun-page-size") || "10"); return [10, 20, 50, 100].includes(value) ? value : 10; });
   const [accountPage, setAccountPage] = useState(1);
   const [assetPage, setAssetPage] = useState(1);
   const [favoritePage, setFavoritePage] = useState(1);
   const [editingAssetName, setEditingAssetName] = useState<{ key: string; value: string; initial: string } | null>(null);
   const [savingAssetName, setSavingAssetName] = useState<string | null>(null);
-  const [assetNotes, setAssetNotes] = useState<Record<string, string>>(() => stringRecordFromValue(localStorage.getItem(cloudHubAssetNotesStorageKey) || undefined));
-  const [assetOrder, setAssetOrder] = useState<string[]>(() => stringListFromValue(localStorage.getItem(cloudHubAssetOrderStorageKey) || undefined));
-  const [favoriteAssetOrder, setFavoriteAssetOrder] = useState<string[]>(() => stringListFromValue(localStorage.getItem(cloudHubFavoriteAssetOrderStorageKey) || undefined));
-  const [assetDisplayNames, setAssetDisplayNames] = useState<Record<string, string>>(() => stringRecordFromValue(localStorage.getItem(cloudHubAssetDisplayNamesStorageKey) || undefined));
+  const [assetNotes, setAssetNotes] = useState<Record<string, string>>(() => stringRecordFromValue(readLocalStorage(cloudHubAssetNotesStorageKey) || undefined));
+  const [assetOrder, setAssetOrder] = useState<string[]>(() => stringListFromValue(readLocalStorage(cloudHubAssetOrderStorageKey) || undefined));
+  const [favoriteAssetOrder, setFavoriteAssetOrder] = useState<string[]>(() => stringListFromValue(readLocalStorage(cloudHubFavoriteAssetOrderStorageKey) || undefined));
+  const [assetDisplayNames, setAssetDisplayNames] = useState<Record<string, string>>(() => stringRecordFromValue(readLocalStorage(cloudHubAssetDisplayNamesStorageKey) || undefined));
   const [editingAssetNote, setEditingAssetNote] = useState<{ key: string; value: string; initial: string } | null>(null);
   const [favoriteRefreshingKey, setFavoriteRefreshingKey] = useState<string | null>(null);
   const [draggedAssetKey, setDraggedAssetKey] = useState<string | null>(null);
@@ -415,7 +439,7 @@ function App() {
   const [sshPasswordSaved, setSshPasswordSaved] = useState(false);
   const [sshPasswordRevealing, setSshPasswordRevealing] = useState(false);
   const [terminalThemeName, setTerminalThemeName] = useState<TerminalThemeName>(() => {
-    const saved = localStorage.getItem(cloudHubTerminalThemeStorageKey);
+    const saved = readLocalStorage(cloudHubTerminalThemeStorageKey);
     return saved && saved in terminalThemes ? saved as TerminalThemeName : "dark";
   });
   const [terminalThemeMenuOpen, setTerminalThemeMenuOpen] = useState(false);
@@ -453,9 +477,9 @@ function App() {
     if (recording && recording.sessionId !== sshSessionId) { terminalAuditStore.current.stop("会话切换或断开", auditSecretsRef.current); setTerminalRecordings([...terminalAuditStore.current.recordings]); }
   }, [sshSessionId]);
   const [sshFileDragActive, setSshFileDragActive] = useState(false);
-  const [appSidebarWidth, setAppSidebarWidth] = useState(() => Math.min(340, Math.max(190, Number(localStorage.getItem("cloudhub-app-sidebar-width") || "235"))));
-  const [appSidebarCollapsed, setAppSidebarCollapsed] = useState(() => localStorage.getItem("cloudhub-app-sidebar-collapsed") === "1");
-  const [terminalHostSidebarWidth, setTerminalHostSidebarWidth] = useState(() => Math.min(420, Math.max(190, Number(localStorage.getItem("cloudhub-terminal-host-sidebar-width") || "250"))));
+  const [appSidebarWidth, setAppSidebarWidth] = useState(() => Math.min(340, Math.max(190, Number(readLocalStorage("cloudhub-app-sidebar-width") || "235"))));
+  const [appSidebarCollapsed, setAppSidebarCollapsed] = useState(() => readLocalStorage("cloudhub-app-sidebar-collapsed") === "1");
+  const [terminalHostSidebarWidth, setTerminalHostSidebarWidth] = useState(() => Math.min(420, Math.max(190, Number(readLocalStorage("cloudhub-terminal-host-sidebar-width") || "250"))));
   const [terminalQuickCommands, setTerminalQuickCommands] = useState<TerminalQuickCommand[]>([]);
   const [terminalSidebarView, setTerminalSidebarView] = useState<"hosts" | "commands">("hosts");
   const appShellRef = useRef<HTMLDivElement | null>(null);
@@ -1058,8 +1082,8 @@ function App() {
     finally { setFavoriteRefreshingKey(null); }
   }
   async function deletePanelConnection(panel: PanelConnection) {
-    if (!(await requestConfirm(`确认移除面板“${panel.name}”吗？本机保存的 API 密钥也会删除。`))) return;
-    try { await remoteClient.deletePanel(panel.id); setPanelConnections((current) => current.filter((item) => item.id !== panel.id)); setSelectedPanelIds((current) => { const next = new Set(current); next.delete(panel.id); return next; }); setStatus("面板已移除"); }
+    if (!(await requestConfirm(`确认移除面板“${panel.name}”吗？本机保存的 API 密钥也会一并移除。移除后可在系统设置的回收站恢复。`))) return;
+    try { await remoteClient.deletePanel(panel.id); setPanelConnections((current) => current.filter((item) => item.id !== panel.id)); setSelectedPanelIds((current) => { const next = new Set(current); next.delete(panel.id); return next; }); setStatus("面板已移到回收站，可在系统设置的回收站恢复"); }
     catch (error) { setStatus(`移除面板失败：${String(error)}`); }
   }
   function togglePanelSelection(id: number) {
@@ -1160,7 +1184,7 @@ function App() {
     finally { setManagedHostLoadingId(null); }
   }
   async function deleteManagedHost(host: ManagedHost) {
-    if (!(await requestConfirm(`确认从服务器管理中移除“${host.name}”吗？本机保存的连接凭据也会删除。`))) return;
+    if (!(await requestConfirm(`确认从服务器管理中移除“${host.name}”吗？本机保存的连接凭据也会一并移除。移除后可在系统设置的回收站恢复。`))) return;
     try { await serversClient.removeManaged(host.id); setManagedHosts((current) => current.filter((item) => item.id !== host.id)); setStatus("服务器已移除"); }
     catch (error) { setStatus(`移除服务器失败：${String(error)}`); }
   }
@@ -2579,8 +2603,8 @@ function App() {
     if(!runningInTauri || isDetachedTerminalWindow) return;
     const subscription=listen<{section:string;key:string|null}>("pet-open-section",event=>{
       const {section:target,key}=event.payload;
-      if(!["panels","resources","certificates","settings"].includes(target)) return;
-      setSection(target as "panels"|"resources"|"certificates"|"settings");
+      if(!["panels","resources","certificates","settings","notes"].includes(target)) return;
+      setSection(target as "panels"|"resources"|"certificates"|"settings"|"notes");
       if(!key) return;
       if(target==="panels") { const panel=panelConnections.find(p=>p.id===Number(key.split(":")[1])); setPanelGroup(""); setPanelKeyword(panel?.name||""); }
       if(target==="resources") {
@@ -2672,7 +2696,7 @@ function App() {
     } finally { setVerifyingAccount(false); }
   }
   async function remove(id: number) {
-    if (!(await requestConfirm("确定删除这个本地云账号吗？"))) return;
+    if (!(await requestConfirm("确定移除这个本地云账号吗？该账号下的资产、连接与证书会一并移除，可在系统设置的回收站恢复。"))) return;
     try {
       await accountsClient.remove(id);
       setStatus("账号已删除");
@@ -3694,6 +3718,7 @@ function App() {
               <button type="button" className={section === "api_logs" ? "nav-active" : ""} aria-current={section === "api_logs" ? "page" : undefined} onClick={() => { setSection("api_logs"); void loadApiLogs(); }} aria-label="API日志" title="API日志">
                 <ScrollText size={18} /><span className="app-nav-label">API日志</span></button>
               <button type="button" className={section === "plugins" ? "nav-active" : ""} aria-current={section === "plugins" ? "page" : undefined} onClick={() => setSection("plugins")} aria-label="软件商店" title="软件商店"><Grid2X2 size={18} /><span className="app-nav-label">软件商店</span></button>
+              <button type="button" className={section === "notes" ? "nav-active" : ""} aria-current={section === "notes" ? "page" : undefined} onClick={() => setSection("notes")} aria-label="备忘录" title="备忘录"><NotebookPen size={18} /><span className="app-nav-label">备忘录</span></button>
               <button type="button" className={section === "settings" ? "nav-active" : ""} aria-current={section === "settings" ? "page" : undefined} onClick={() => setSection("settings")} aria-label="系统设置" title="系统设置">
                 <Settings size={18} /><span className="app-nav-label">系统设置</span></button>
             </nav>
@@ -3717,6 +3742,7 @@ function App() {
             <button type="button" className={section === "logs" ? "nav-active" : ""} aria-current={section === "logs" ? "page" : undefined} onClick={() => setSection("logs")}><FileText size={16} /><span>操作日志</span></button>
             <button type="button" className={section === "api_logs" ? "nav-active" : ""} aria-current={section === "api_logs" ? "page" : undefined} onClick={() => { setSection("api_logs"); void loadApiLogs(); }}><Terminal size={16} /><span>API 日志</span></button>
             <button type="button" className={section === "plugins" ? "nav-active" : ""} aria-current={section === "plugins" ? "page" : undefined} onClick={() => setSection("plugins")}><Grid2X2 size={16} /><span>软件商店</span></button>
+            <button type="button" className={section === "notes" ? "nav-active" : ""} aria-current={section === "notes" ? "page" : undefined} onClick={() => setSection("notes")}><NotebookPen size={16} /><span>备忘录</span></button>
             <button type="button" className={section === "settings" ? "nav-active" : ""} aria-current={section === "settings" ? "page" : undefined} onClick={() => setSection("settings")}><Settings size={16} /><span>设置</span></button>
           </div>
         </nav>
@@ -4754,6 +4780,18 @@ function App() {
         )}
         {section === "data_management" && <DataManagementPage onBack={() => setSection("settings")} onPhoneMigration={() => setShowSyncTransfer(true)} canManageBackups={runningInTauri} onRestore={preview => setDatabaseImportPreview(preview)} onStatus={setStatus} />}
         {section === "plugins" && <OfficialPluginsPage />}
+        {section === "notes" && <NotesPanel />}
+        {showTrash && createPortal(<div className="modal-backdrop"><section className={`modal modal-form-layout dialog-common-theme trash-dialog${showTrashMaximized ? " dialog-size-expanded" : ""}`} role="dialog" aria-modal="true" aria-label="回收站" tabIndex={-1} ref={trashDialogRef} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setShowTrash(false); } }}>
+          <header className="modal-head"><Trash2 size={20} aria-hidden="true" /><div><h2>回收站</h2><p>删除的数据永久保留，可恢复或彻底删除</p></div><div className="dialog-header-actions"><button type="button" className="dialog-size-button" aria-label="最大化弹层" title="最大化" onClick={() => setShowTrashMaximized((value) => !value)}>{showTrashMaximized ? <Minimize2 size={16} aria-hidden="true" /> : <Maximize2 size={16} aria-hidden="true" />}</button><button type="button" className="close" aria-label="关闭回收站" onClick={() => setShowTrash(false)}><X size={18} aria-hidden="true" /></button></div></header>
+          <div className="modal-body trash-dialog-body">
+            {trashGroups.loading ? <p className="recycle-bin-empty">正在读取回收站…</p> : <RecycleBin kinds={trashGroups_flat.map((group) => ({ id: group.kind, label: group.label, items: group.items.map((item) => ({ id: String(item.id), title: item.title, deletedAt: item.deletedAt })) }))} actions={trashActions.actions} busy={trashActions.busy} onClose={() => setShowTrash(false)}
+              scrubDays={trashGroups.snapshot?.scrubDays}
+              scrubbedNow={trashGroups.snapshot?.scrubbedNow}
+              onScrubDaysChange={(days) => void trashActions.setScrubDays(days)}
+              onScrubNow={() => void trashActions.scrubNow()} />}
+            {trashActions.error && <p className="notes-error" role="alert">{trashActions.error}</p>}
+          </div>
+        </section></div>, document.body)}
         {section === "settings" && (
           <section className="utility-page">
             <header><div><span className="eyebrow">LOCAL PREFERENCES</span><h1>系统设置</h1><p>管理本地客户端的显示和数据行为。</p></div></header>
@@ -4765,6 +4803,7 @@ function App() {
               <div className="settings-card"><div className="settings-icon purple"><Monitor size={22} /></div><div className="settings-copy"><strong>紧凑显示</strong><small>减少表格行高，适合小窗口查看</small></div><label className="setting-switch"><input type="checkbox" checked={compactMode} onChange={(event) => setCompactMode(event.target.checked)} /><span /></label></div>
               <div className="settings-card"><div className="settings-icon blue"><List size={22} /></div><div className="settings-copy"><strong>每页显示条数</strong><small>账号、资源和操作日志列表统一使用此分页大小</small></div><select className="settings-select" value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))}><option value={10}>10 条</option><option value={20}>20 条</option><option value={50}>50 条</option><option value={100}>100 条</option></select></div>
               <div className="settings-card"><div className="settings-icon purple"><Database size={22} /></div><div className="settings-copy"><strong>数据库位置</strong><small>系统应用数据目录 / {isDevelopment ? "CloudHubTools-Dev" : "CloudHubTools"} / cloudhub_tools.sqlite3</small></div><button className="secondary settings-link" onClick={() => void openDataDirectory()}><FolderOpen size={16} />打开目录</button></div>
+              <button type="button" className="settings-card trash-entry" onClick={() => setShowTrash(true)}><div className="settings-icon purple"><Trash2 size={22} /></div><div className="settings-copy"><strong>回收站</strong><small>{trashGroups.loading ? "正在读取…" : trashTotal > 0 ? `${trashTotal} 项已删除数据，可恢复或彻底删除` : "删除的数据保留在这里，可随时恢复"}</small></div><span className="secondary settings-link">打开回收站</span></button>
               <button type="button" className="settings-card data-management-entry" onClick={() => setSection("data_management")}><div className="settings-icon amber"><Database size={22} /></div><div className="settings-copy"><strong>数据管理</strong><small>手机扫码迁移、完整数据备份与恢复</small></div><span className="secondary settings-link">打开数据管理</span></button>
               <div className="settings-card"><div className="settings-icon amber"><Terminal size={22} /></div><div className="settings-copy"><strong>GitHub 开源仓库</strong><small>https://github.com/wlphp/cloudhub-tools</small></div><a className="secondary settings-link" href="https://github.com/wlphp/cloudhub-tools" target="_blank" rel="noreferrer">访问仓库 ↗</a></div>
               <div className={`settings-card${updateState.phase === "available" && updateState.notes ? " has-update-notes" : ""}`}>

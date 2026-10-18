@@ -883,7 +883,7 @@ pub(crate) fn export_certificate_material(app: tauri::AppHandle, id: i64, primar
 }
 
 #[tauri::command]
-pub(crate) fn delete_certificate(id: i64) -> PlatformResult<()> { certificate_repository::delete(&open_db()?, id).map_err(Into::into) }
+pub(crate) fn delete_certificate(id: i64) -> PlatformResult<()> { certificate_repository::delete(&open_db()?, id, chrono::Utc::now().timestamp_millis()).map_err(Into::into) }
 
 #[tauri::command]
 pub(crate) fn export_certificate_domains(app: tauri::AppHandle, title: String, domains: Vec<String>) -> PlatformResult<Option<String>> {

@@ -425,7 +425,7 @@ pub fn pet_dismiss(window: tauri::WebviewWindow, app: tauri::AppHandle) -> Platf
     Ok(())
 }
 
-fn notify(app: &tauri::AppHandle, alert: Alert) -> Result<(), String> {
+pub fn notify(app: &tauri::AppHandle, alert: Alert) -> Result<(), String> {
     *app.state::<PetStore>()
         .notice
         .lock()
@@ -459,6 +459,13 @@ fn notify(app: &tauri::AppHandle, alert: Alert) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// Whether the pet itself is on screen. Reminders use it to decide between the
+/// pet bubble and the standalone alert window.
+pub fn visible(app: &tauri::AppHandle) -> bool {
+    app.get_webview_window(LABEL)
+        .is_some_and(|w| w.is_visible().unwrap_or(false))
 }
 
 pub fn wants_tray(app: &tauri::AppHandle) -> bool {
@@ -772,7 +779,7 @@ pub fn pet_open(
     key: Option<String>,
 ) -> PlatformResult<()> {
     caller(&window)?;
-    if !["panels", "resources", "certificates", "settings"].contains(&section.as_str()) {
+    if !["panels", "resources", "certificates", "settings", "notes"].contains(&section.as_str()) {
         return Err("无效的桌宠入口".into());
     }
     if let Some(ref key)=key { if key.len()>1024 || !snapshot()?.alerts.iter().any(|a|a.key==*key && a.section==section) { return Err("提醒不存在".into()); } }
@@ -1329,6 +1336,7 @@ pub fn initialize(app: &tauri::AppHandle) {
             let _ = w.set_ignore_cursor_events(!hit);
         }
     });
+    crate::commands::notes::start_reminder_loop(app);
     let handle = app.clone();
     tauri::async_runtime::spawn(async move {
         let mut last = 0;

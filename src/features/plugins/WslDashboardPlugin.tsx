@@ -1,12 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import { CircleStop, FolderOpen, MessageSquare, Play, Pause, RefreshCw, Save, SquareTerminal, Star, X, FileArchive, ScrollText, Settings2, House, Trash2, ChevronDown, ChevronUp } from "lucide-react";
-import { DialogHeaderActions } from "../../shared/DialogHeaderActions";
+import { CircleStop, FolderOpen, MessageSquare, Play, Pause, RefreshCw, Save, SquareTerminal, Star, FileArchive, ScrollText, Settings2, House, Trash2, ChevronDown, ChevronUp } from "lucide-react";
 import { WslDeleteConfirmation } from "./WslDeleteConfirmation";
 import { runningInTauri } from "../../platform/api";
 import { pluginsClient, type WslDistribution, type WslOnlineDistribution, type WslOperationLog } from "../../platform/clients/plugins";
 
-interface Props { open: boolean; enabled: boolean; onClose: () => void }
+interface Props { open: boolean; enabled: boolean }
 type Tab = "home" | "install" | "settings" | "logs";
 type InstallMode = "online" | "rootfs";
 const TABS: { id: Tab; label: string; Icon: typeof House }[] = [
@@ -46,7 +44,7 @@ function DistributionIcon({ name }: { name: string }) {
   return <svg className="wsl-system-icon is-linux" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="16" fill="#4b5563"/><path d="M11 21c-1-2 0-4 1-6V11a4 4 0 0 1 8 0v4c2 2 2 5 0 7-2 2-7 2-9-1z" fill="#fff"/><path d="M13 18h6M14 12h.1M18 12h.1" stroke="#4b5563" strokeWidth="1.5" strokeLinecap="round"/></svg>;
 }
 
-export function WslDashboardPlugin({ open, enabled, onClose }: Props) {
+export function WslDashboardPlugin({ open, enabled }: Props) {
   const [tab, setTab] = useState<Tab>("home");
   const [items, setItems] = useState<WslDistribution[]>([]);
   const [onlineItems, setOnlineItems] = useState<WslOnlineDistribution[]>([]);
@@ -56,8 +54,6 @@ export function WslDashboardPlugin({ open, enabled, onClose }: Props) {
   const [busy, setBusy] = useState(false);
   const [backingUp, setBackingUp] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<WslDistribution | null>(null);
-  const deleteTargetRef = useRef(deleteTarget);
-  deleteTargetRef.current = deleteTarget;
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [distribution, setDistribution] = useState("Ubuntu");
@@ -112,17 +108,6 @@ export function WslDashboardPlugin({ open, enabled, onClose }: Props) {
   useEffect(() => { if (open && runningInTauri && enabled) { void refresh(); void loadSettings(); void loadLogs(); } }, [open, enabled]);
   useEffect(() => { if (open && tab === "logs" && runningInTauri && enabled) void loadLogs(); }, [open, tab, enabled]);
   useEffect(() => { if (open && tab === "install" && runningInTauri && enabled) void loadOnlineList(); }, [open, tab, enabled]);
-  useEffect(() => {
-    if (!open) return;
-    const root = document.getElementById("root");
-    const wasInert = root?.inert ?? false;
-    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    if (root) root.inert = true;
-    dialogRef.current?.focus();
-    const keydown = (event: KeyboardEvent) => { if (event.key === "Escape") { if (deleteTargetRef.current) setDeleteTarget(null); else onClose(); } };
-    window.addEventListener("keydown", keydown);
-    return () => { window.removeEventListener("keydown", keydown); if (root) root.inert = wasInert; if (previousFocus?.isConnected) previousFocus.focus(); };
-  }, [open, onClose]);
 
   async function control(item: WslDistribution, action: "start" | "stop" | "default" | "unregister", confirmationName?: string) {
     if (busy) return;
@@ -225,18 +210,10 @@ export function WslDashboardPlugin({ open, enabled, onClose }: Props) {
   }
 
   if (!open) return null;
-  return createPortal(<div className="modal-backdrop ide-theme">
-    <section ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="wsl-dashboard-title" aria-busy={busy} className="modal modal-form-layout dialog-common-theme official-plugin-card wechat-settings-dialog" onKeyDown={event => {
-      if (event.key !== "Tab") return;
-      const controls = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button, input, select, textarea, summary, [tabindex="0"]')).filter(element => element.matches(":not(:disabled)") && element.getClientRects().length > 0);
-      const first = controls[0], last = controls[controls.length - 1];
-      if (!first) { event.preventDefault(); event.currentTarget.focus(); }
-      else if (event.shiftKey && (document.activeElement === first || document.activeElement === event.currentTarget)) { event.preventDefault(); last.focus(); }
-      else if (!event.shiftKey && (document.activeElement === last || document.activeElement === event.currentTarget)) { event.preventDefault(); first.focus(); }
-    }}>
-      <header className="modal-head official-plugin-heading"><SquareTerminal size={22} aria-hidden="true" /><div><h2 id="wsl-dashboard-title">WSL 管理</h2><p>CloudHub Tools · Windows · 本机运行</p></div><DialogHeaderActions><button type="button" className="close" aria-label="关闭 WSL 管理" onClick={onClose}><X size={16} aria-hidden="true" /></button></DialogHeaderActions></header>
+  return <div className="wsl-content">
+    <section ref={dialogRef} aria-label="WSL 管理内容" aria-busy={busy} className="plugin-content wechat-settings-dialog">
       <nav className="wsl-tabs" role="tablist" aria-label="WSL 管理页面">{TABS.map(({ id, label, Icon }) => <button key={id} type="button" role="tab" id={`wsl-tab-${id}`} aria-selected={tab === id} aria-controls={`wsl-panel-${id}`} className={tab === id ? "is-active" : ""} onClick={() => { setTab(id); setError(""); setMessage(""); }}><Icon size={15} aria-hidden="true" />{label}</button>)}</nav>
-      <div className="modal-body">
+      <div className="plugin-content-body">
         {!enabled && <p role="status">插件已停用，请回到软件列表启用后再管理发行版。</p>}
         {!runningInTauri && <p role="status">浏览器预览无法访问本机 WSL，请在 Windows 桌面客户端使用。</p>}
         {runningInTauri && <>
@@ -290,8 +267,7 @@ export function WslDashboardPlugin({ open, enabled, onClose }: Props) {
           <details><summary>插件权限与支持范围</summary><ul><li>仅在 Windows 桌面端管理本机 WSL；浏览器预览不提供原生 WSL 能力。</li><li>支持在线安装、本地 RootFS 导入、启动、停止、设为默认、终端、文件夹、备注、TAR 备份及删除；删除前须输入发行版名称确认。</li><li>迁移、VHDX 挂载、计划任务、端口转发、代理和 USB 管理尚未实现。</li></ul></details>
         </>}
       </div>
-      <div className="modal-actions"><button type="button" className="secondary" onClick={onClose}>关闭</button></div>
     </section>
-    {deleteTarget && <WslDeleteConfirmation key={deleteTarget.name} name={deleteTarget.name} parentRef={dialogRef} busy={busy} backingUp={backingUp} error={error} message={message} onCancel={() => setDeleteTarget(null)} onBackup={() => void backup(deleteTarget)} onConfirm={confirmationName => void control(deleteTarget, "unregister", confirmationName)} />}
-  </div>, document.body);
+    {deleteTarget && <WslDeleteConfirmation key={deleteTarget.name} name={deleteTarget.name} busy={busy} backingUp={backingUp} error={error} message={message} onCancel={() => setDeleteTarget(null)} onBackup={() => void backup(deleteTarget)} onConfirm={confirmationName => void control(deleteTarget, "unregister", confirmationName)} />}
+  </div>;
 }

@@ -3,7 +3,7 @@ use std::sync::Mutex;
 
 use super::paths::data_dir;
 
-const CURRENT_SCHEMA_VERSION: i64 = 37;
+const CURRENT_SCHEMA_VERSION: i64 = 42;
 // Migration 37 has already run on local databases. Keep its additive schema even
 // when the browser feature is absent; removing a feature must not erase migration history.
 const BROWSER_ENVIRONMENTS_V37_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS browser_environments (
@@ -19,7 +19,7 @@ pub const CODEX_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS codex_accounts (
     label TEXT NOT NULL, email TEXT, account_id TEXT, auth_mode TEXT NOT NULL,
     plan TEXT, note TEXT NOT NULL DEFAULT '', tags_json TEXT NOT NULL DEFAULT '[]',
     auth_ciphertext TEXT NOT NULL, quota_json TEXT NOT NULL DEFAULT '{}',
-    last_error TEXT, updated_at INTEGER NOT NULL
+    last_error TEXT, updated_at INTEGER NOT NULL, deleted_at INTEGER
 ); CREATE TABLE IF NOT EXISTS codex_profile_backups (
     profile_home TEXT PRIMARY KEY, auth_ciphertext TEXT, installed_fingerprint TEXT NOT NULL,
     previous_fingerprint TEXT NOT NULL
@@ -116,12 +116,12 @@ fn migrate_connection_inner(conn: &mut Connection) -> Result<(), String> {
         transaction.pragma_update(None, "user_version", 3).map_err(|error| error.to_string())?;
     }
     if version < 4 {
-        transaction.execute_batch("CREATE TABLE IF NOT EXISTS certificates (id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER NOT NULL, provider TEXT NOT NULL, primary_domain TEXT NOT NULL, domains_json TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'issued', order_url TEXT, certificate_url TEXT, certificate_pem_ciphertext TEXT, private_key_ciphertext TEXT, serial_number TEXT, issuer TEXT, not_before INTEGER, not_after INTEGER, dns_zone TEXT NOT NULL, dns_record_ids_json TEXT NOT NULL DEFAULT '[]', last_error TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, FOREIGN KEY(account_id) REFERENCES cloud_accounts(id) ON DELETE CASCADE); CREATE INDEX IF NOT EXISTS idx_certificates_account ON certificates(account_id, updated_at DESC); CREATE INDEX IF NOT EXISTS idx_certificates_expiry ON certificates(not_after);")
+        transaction.execute_batch("CREATE TABLE IF NOT EXISTS certificates (id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER NOT NULL, provider TEXT NOT NULL, primary_domain TEXT NOT NULL, domains_json TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'issued', order_url TEXT, certificate_url TEXT, certificate_pem_ciphertext TEXT, private_key_ciphertext TEXT, serial_number TEXT, issuer TEXT, not_before INTEGER, not_after INTEGER, dns_zone TEXT NOT NULL, dns_record_ids_json TEXT NOT NULL DEFAULT '[]', last_error TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, deleted_at INTEGER, FOREIGN KEY(account_id) REFERENCES cloud_accounts(id) ON DELETE CASCADE); CREATE INDEX IF NOT EXISTS idx_certificates_account ON certificates(account_id, updated_at DESC); CREATE INDEX IF NOT EXISTS idx_certificates_expiry ON certificates(not_after);")
             .map_err(|error| error.to_string())?;
         transaction.pragma_update(None, "user_version", CURRENT_SCHEMA_VERSION).map_err(|error| error.to_string())?;
     }
     if version < 5 {
-        transaction.execute_batch("CREATE TABLE IF NOT EXISTS flow_connections (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, edition TEXT NOT NULL, organization_id TEXT, domain TEXT NOT NULL, token_ciphertext TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);")
+        transaction.execute_batch("CREATE TABLE IF NOT EXISTS flow_connections (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, edition TEXT NOT NULL, organization_id TEXT, domain TEXT NOT NULL, token_ciphertext TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, deleted_at INTEGER);")
             .map_err(|error| error.to_string())?;
         transaction.pragma_update(None, "user_version", CURRENT_SCHEMA_VERSION).map_err(|error| error.to_string())?;
     }
@@ -363,6 +363,51 @@ fn migrate_connection_inner(conn: &mut Connection) -> Result<(), String> {
         transaction.execute_batch(BROWSER_ENVIRONMENTS_V37_SCHEMA).map_err(|_| "保留浏览器环境历史存储失败")?;
         transaction.pragma_update(None, "user_version", 37).map_err(|_| "更新历史数据库版本失败")?;
     }
+    if version < 38 {
+        transaction.execute_batch(super::repositories::notes::SCHEMA).map_err(|_| "创建备忘录存储失败")?;
+        transaction.pragma_update(None, "user_version", 38).map_err(|_| "更新备忘录数据库版本失败")?;
+    }
+    if version < 39 {
+        // Recycle bin: memo_notes gains a soft-delete column. ALTER TABLE has no
+        // IF NOT EXISTS, so it is guarded on the current column list.
+        if !columns("memo_notes")?.iter().any(|column| column == "deleted_at") {
+            transaction.execute_batch(super::repositories::notes::TRASH_SCHEMA).map_err(|_| "创建备忘录回收站字段失败")?;
+        }
+        transaction.execute_batch(super::repositories::notes::TRASH_INDEX_SCHEMA).map_err(|_| "创建备忘录回收站索引失败")?;
+        transaction.pragma_update(None, "user_version", 39).map_err(|_| "更新回收站数据库版本失败")?;
+    }
+    if version < 40 {
+        // Recycle bin for panels, SSH hosts and pipelines. ALTER TABLE has no
+        // IF NOT EXISTS, so each column is guarded on the current column list.
+        // A table that does not exist yet in this database is created by its
+        // own migration with the column already present, so it is skipped here.
+        for (table, _, _, _) in super::repositories::trash::RECYCLABLE {
+            let existing = columns(table)?;
+            if existing.is_empty() { continue; }
+            if !existing.iter().any(|column| column == "deleted_at") {
+                transaction.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN deleted_at INTEGER")).map_err(|_| "创建回收站字段失败")?;
+            }
+            transaction.execute_batch(&format!("CREATE INDEX IF NOT EXISTS idx_{table}_trash ON {table}(deleted_at, id)")).map_err(|_| "创建回收站索引失败")?;
+        }
+        transaction.pragma_update(None, "user_version", 40).map_err(|_| "更新统一回收站数据库版本失败")?;
+    }
+    if version < 41 {
+        // Extends the recycle bin to accounts, certificates, authenticator
+        // entries and Codex accounts. Same guarded ALTER as v40.
+        for (table, _, _, _) in super::repositories::trash::RECYCLABLE {
+            let existing = columns(table)?;
+            if existing.is_empty() { continue; }
+            if !existing.iter().any(|column| column == "deleted_at") {
+                transaction.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN deleted_at INTEGER")).map_err(|_| "创建回收站字段失败")?;
+            }
+            transaction.execute_batch(&format!("CREATE INDEX IF NOT EXISTS idx_{table}_trash ON {table}(deleted_at)")).map_err(|_| "创建回收站索引失败")?;
+        }
+        transaction.pragma_update(None, "user_version", 41).map_err(|_| "更新回收站覆盖范围版本失败")?;
+    }
+    if version < 42 {
+        transaction.execute_batch(super::repositories::claude_providers::SCHEMA).map_err(|_| "创建Claude Code供应商存储失败")?;
+        transaction.pragma_update(None, "user_version", 42).map_err(|_| "更新Claude供应商数据库版本失败")?;
+    }
     transaction.commit().map_err(|error| format!("提交 SQLite 迁移失败: {error}"))?;
 
     Ok(())
@@ -403,15 +448,15 @@ fn open_db_at(path: &std::path::Path) -> Result<Connection, String> {
     conn.busy_timeout(std::time::Duration::from_secs(5))
         .map_err(|error| format!("配置 SQLite 锁等待失败: {error}"))?;
     conn.execute_batch("PRAGMA foreign_keys=ON;
-      CREATE TABLE IF NOT EXISTS cloud_accounts (id INTEGER PRIMARY KEY AUTOINCREMENT, account_name TEXT NOT NULL, cloud_type TEXT NOT NULL DEFAULT 'aliyun', group_name TEXT, access_key_id TEXT NOT NULL, secret_ciphertext TEXT NOT NULL, region_id TEXT, sort_order INTEGER NOT NULL DEFAULT 0, credential_meta TEXT, enabled INTEGER NOT NULL DEFAULT 1, remark TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS cloud_accounts (id INTEGER PRIMARY KEY AUTOINCREMENT, account_name TEXT NOT NULL, cloud_type TEXT NOT NULL DEFAULT 'aliyun', group_name TEXT, access_key_id TEXT NOT NULL, secret_ciphertext TEXT NOT NULL, region_id TEXT, sort_order INTEGER NOT NULL DEFAULT 0, credential_meta TEXT, enabled INTEGER NOT NULL DEFAULT 1, remark TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, deleted_at INTEGER);
       CREATE TABLE IF NOT EXISTS cloud_assets (account_id INTEGER NOT NULL, resource_type TEXT NOT NULL, asset_key TEXT NOT NULL, region_id TEXT, payload_json TEXT NOT NULL, fetched_at INTEGER NOT NULL, PRIMARY KEY(account_id, resource_type, asset_key), FOREIGN KEY(account_id) REFERENCES cloud_accounts(id) ON DELETE CASCADE);
       CREATE TABLE IF NOT EXISTS ssh_connections (account_id INTEGER NOT NULL, asset_key TEXT NOT NULL, host TEXT NOT NULL, port INTEGER NOT NULL DEFAULT 22, username TEXT NOT NULL, password_ciphertext TEXT, host_key_fingerprint TEXT, updated_at INTEGER NOT NULL, PRIMARY KEY(account_id, asset_key), FOREIGN KEY(account_id) REFERENCES cloud_accounts(id) ON DELETE CASCADE);
       CREATE TABLE IF NOT EXISTS rdp_connections (target_key TEXT PRIMARY KEY, host TEXT NOT NULL, port INTEGER NOT NULL DEFAULT 3389, username TEXT NOT NULL, password_ciphertext TEXT, updated_at INTEGER NOT NULL);
-      CREATE TABLE IF NOT EXISTS managed_hosts (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, host TEXT NOT NULL, port INTEGER NOT NULL DEFAULT 22, username TEXT NOT NULL, password_ciphertext TEXT NOT NULL DEFAULT '', platform TEXT NOT NULL DEFAULT 'linux', auth_method TEXT NOT NULL DEFAULT 'password', private_key_ciphertext TEXT, key_passphrase_ciphertext TEXT, group_name TEXT, tags TEXT, source_account_id INTEGER, source_asset_key TEXT, host_key_fingerprint TEXT, status TEXT NOT NULL DEFAULT 'unknown', last_latency_ms INTEGER, metrics_json TEXT NOT NULL DEFAULT '{}', last_checked_at INTEGER, last_error TEXT, remark TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
-      CREATE TABLE IF NOT EXISTS panel_connections (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, panel_url TEXT NOT NULL UNIQUE, api_key_ciphertext TEXT NOT NULL, sort_order INTEGER NOT NULL DEFAULT 0, allow_insecure_tls INTEGER NOT NULL DEFAULT 0, group_name TEXT, source_account_id INTEGER, source_asset_key TEXT, status TEXT NOT NULL DEFAULT 'unknown', summary_json TEXT NOT NULL DEFAULT '{}', last_checked_at INTEGER, last_error TEXT, remark TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS managed_hosts (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, host TEXT NOT NULL, port INTEGER NOT NULL DEFAULT 22, username TEXT NOT NULL, password_ciphertext TEXT NOT NULL DEFAULT '', platform TEXT NOT NULL DEFAULT 'linux', auth_method TEXT NOT NULL DEFAULT 'password', private_key_ciphertext TEXT, key_passphrase_ciphertext TEXT, group_name TEXT, tags TEXT, source_account_id INTEGER, source_asset_key TEXT, host_key_fingerprint TEXT, status TEXT NOT NULL DEFAULT 'unknown', last_latency_ms INTEGER, metrics_json TEXT NOT NULL DEFAULT '{}', last_checked_at INTEGER, last_error TEXT, remark TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, deleted_at INTEGER);
+      CREATE TABLE IF NOT EXISTS panel_connections (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, panel_url TEXT NOT NULL UNIQUE, api_key_ciphertext TEXT NOT NULL, sort_order INTEGER NOT NULL DEFAULT 0, allow_insecure_tls INTEGER NOT NULL DEFAULT 0, group_name TEXT, source_account_id INTEGER, source_asset_key TEXT, status TEXT NOT NULL DEFAULT 'unknown', summary_json TEXT NOT NULL DEFAULT '{}', last_checked_at INTEGER, last_error TEXT, remark TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, deleted_at INTEGER);
       CREATE TABLE IF NOT EXISTS operation_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER, action TEXT NOT NULL, result TEXT NOT NULL, message TEXT, created_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS client_preferences (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL);
-      CREATE TABLE IF NOT EXISTS certificates (id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER NOT NULL, provider TEXT NOT NULL, primary_domain TEXT NOT NULL, domains_json TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'issued', order_url TEXT, certificate_url TEXT, certificate_pem_ciphertext TEXT, private_key_ciphertext TEXT, serial_number TEXT, issuer TEXT, not_before INTEGER, not_after INTEGER, dns_zone TEXT NOT NULL, dns_record_ids_json TEXT NOT NULL DEFAULT '[]', last_error TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, FOREIGN KEY(account_id) REFERENCES cloud_accounts(id) ON DELETE CASCADE); CREATE INDEX IF NOT EXISTS idx_certificates_account ON certificates(account_id, updated_at DESC); CREATE INDEX IF NOT EXISTS idx_certificates_expiry ON certificates(not_after);")
+      CREATE TABLE IF NOT EXISTS certificates (id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER NOT NULL, provider TEXT NOT NULL, primary_domain TEXT NOT NULL, domains_json TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'issued', order_url TEXT, certificate_url TEXT, certificate_pem_ciphertext TEXT, private_key_ciphertext TEXT, serial_number TEXT, issuer TEXT, not_before INTEGER, not_after INTEGER, dns_zone TEXT NOT NULL, dns_record_ids_json TEXT NOT NULL DEFAULT '[]', last_error TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, deleted_at INTEGER, FOREIGN KEY(account_id) REFERENCES cloud_accounts(id) ON DELETE CASCADE); CREATE INDEX IF NOT EXISTS idx_certificates_account ON certificates(account_id, updated_at DESC); CREATE INDEX IF NOT EXISTS idx_certificates_expiry ON certificates(not_after);")
       .map_err(|error| format!("初始化 SQLite 表失败: {error}"))?;
 
     let mut conn = conn;
@@ -471,12 +516,12 @@ mod tests {
         original.execute_batch("CREATE TABLE migration_fixture(value TEXT); INSERT INTO migration_fixture VALUES('preserve'); DROP TABLE browser_environments; PRAGMA user_version=36;").unwrap();
         drop(original);
         let upgraded = super::open_db_at(&path).unwrap();
-        assert_eq!(super::supported_schema_version(&upgraded).unwrap(),37);
+        assert_eq!(super::supported_schema_version(&upgraded).unwrap(),super::CURRENT_SCHEMA_VERSION);
         assert_eq!(upgraded.query_row("SELECT value FROM migration_fixture",[],|r| r.get::<_,String>(0)).unwrap(),"preserve");
         upgraded.execute("INSERT INTO browser_environments(id,config_json,created_at,updated_at) VALUES('fixture','{}',1,1)",[]).unwrap();
         drop(upgraded);
         let reopened = super::open_db_at(&path).unwrap();
-        assert_eq!(super::supported_schema_version(&reopened).unwrap(),37);
+        assert_eq!(super::supported_schema_version(&reopened).unwrap(),super::CURRENT_SCHEMA_VERSION);
         assert_eq!(reopened.query_row("SELECT config_json FROM browser_environments WHERE id='fixture'",[],|r| r.get::<_,String>(0)).unwrap(),"{}");
         drop(reopened);
         #[cfg(not(mobile))]
@@ -686,8 +731,8 @@ mod tests {
           CREATE TABLE cloud_assets (account_id INTEGER NOT NULL, resource_type TEXT NOT NULL, asset_key TEXT NOT NULL, region_id TEXT, payload_json TEXT NOT NULL, fetched_at INTEGER NOT NULL, PRIMARY KEY(account_id, resource_type, asset_key));
           CREATE TABLE ssh_connections (account_id INTEGER NOT NULL, asset_key TEXT NOT NULL, host TEXT NOT NULL, port INTEGER NOT NULL, username TEXT NOT NULL, password_ciphertext TEXT, host_key_fingerprint TEXT, updated_at INTEGER NOT NULL);
           CREATE TABLE rdp_connections (target_key TEXT PRIMARY KEY, host TEXT NOT NULL, port INTEGER NOT NULL, username TEXT NOT NULL, password_ciphertext TEXT, updated_at INTEGER NOT NULL);
-          CREATE TABLE managed_hosts (id INTEGER PRIMARY KEY, name TEXT NOT NULL, host TEXT NOT NULL, port INTEGER NOT NULL, username TEXT NOT NULL, password_ciphertext TEXT NOT NULL, host_key_fingerprint TEXT, status TEXT NOT NULL, last_latency_ms INTEGER, metrics_json TEXT NOT NULL, last_checked_at INTEGER, last_error TEXT, remark TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
-          CREATE TABLE panel_connections (id INTEGER PRIMARY KEY, name TEXT NOT NULL, panel_url TEXT NOT NULL UNIQUE, api_key_ciphertext TEXT NOT NULL, group_name TEXT, source_account_id INTEGER, source_asset_key TEXT, status TEXT NOT NULL, summary_json TEXT NOT NULL, last_checked_at INTEGER, last_error TEXT, remark TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+          CREATE TABLE managed_hosts (id INTEGER PRIMARY KEY, name TEXT NOT NULL, host TEXT NOT NULL, port INTEGER NOT NULL, username TEXT NOT NULL, password_ciphertext TEXT NOT NULL, host_key_fingerprint TEXT, status TEXT NOT NULL, last_latency_ms INTEGER, metrics_json TEXT NOT NULL, last_checked_at INTEGER, last_error TEXT, remark TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, deleted_at INTEGER);
+          CREATE TABLE panel_connections (id INTEGER PRIMARY KEY, name TEXT NOT NULL, panel_url TEXT NOT NULL UNIQUE, api_key_ciphertext TEXT NOT NULL, group_name TEXT, source_account_id INTEGER, source_asset_key TEXT, status TEXT NOT NULL, summary_json TEXT NOT NULL, last_checked_at INTEGER, last_error TEXT, remark TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, deleted_at INTEGER);
           CREATE TABLE operation_logs (id INTEGER PRIMARY KEY, account_id INTEGER, action TEXT NOT NULL, result TEXT NOT NULL, message TEXT, created_at INTEGER NOT NULL);
           CREATE TABLE client_preferences (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL);").unwrap();
         let mut conn = conn;

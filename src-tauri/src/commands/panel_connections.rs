@@ -25,7 +25,7 @@ pub(crate) fn update_panel_connection_order(ids: Vec<i64>) -> PlatformResult<()>
 }
 
 #[tauri::command]
-pub(crate) fn delete_panel_connection(id: i64) -> PlatformResult<()> { panel_repository::delete(&open_db()?, id).map_err(Into::into) }
+pub(crate) fn delete_panel_connection(id: i64) -> PlatformResult<()> { panel_repository::delete(&open_db()?, id, chrono::Utc::now().timestamp_millis()).map_err(Into::into) }
 
 #[tauri::command]
 pub(crate) fn update_panel_connection_remark(id: i64, remark: Option<String>) -> PlatformResult<PanelConnection> {

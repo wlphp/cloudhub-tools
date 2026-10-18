@@ -2,7 +2,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::{ManagedHost, SavedSshCredentials};
 
-pub const SELECT: &str = "SELECT id,name,host,port,username,platform,auth_method,group_name,tags,source_account_id,source_asset_key,password_ciphertext,private_key_ciphertext,key_passphrase_ciphertext,host_key_fingerprint,status,last_latency_ms,metrics_json,last_checked_at,last_error,remark,created_at,updated_at FROM managed_hosts";
+pub const SELECT: &str = "SELECT id,name,host,port,username,platform,auth_method,group_name,tags,source_account_id,source_asset_key,password_ciphertext,private_key_ciphertext,key_passphrase_ciphertext,host_key_fingerprint,status,last_latency_ms,metrics_json,last_checked_at,last_error,remark,created_at,updated_at FROM managed_hosts WHERE deleted_at IS NULL";
 
 fn row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ManagedHost> {
     let metrics: String = row.get(17)?;
@@ -22,11 +22,12 @@ pub fn list(conn: &Connection) -> Result<Vec<ManagedHost>, String> {
 }
 
 pub fn get(conn: &Connection, id: i64) -> Result<ManagedHost, String> {
-    conn.query_row(&format!("{SELECT} WHERE id=?1"), [id], row).map_err(|error| error.to_string())
+    conn.query_row(&format!("{SELECT} AND id=?1"), [id], row).map_err(|error| error.to_string())
 }
 
-pub fn delete(conn: &Connection, id: i64) -> Result<(), String> {
-    conn.execute("DELETE FROM managed_hosts WHERE id=?1", [id]).map(|_| ()).map_err(|error| error.to_string())
+/// Moves the host to the recycle bin; `trash::purge` is the only real delete.
+pub fn delete(conn: &Connection, id: i64, now: i64) -> Result<(), String> {
+    super::trash::soft_delete(conn, "managed_hosts", &[rusqlite::types::Value::Integer(id)], now).map(|_| ())
 }
 
 pub fn rename_group(conn: &Connection, source: &str, target: &str, now: i64) -> Result<usize, String> {
@@ -44,13 +45,13 @@ pub fn ungroup(conn: &Connection, group: &str, now: i64) -> Result<usize, String
 }
 
 pub fn saved_connection(conn: &Connection, id: i64) -> Result<Option<SavedSshCredentials>, String> {
-    conn.query_row("SELECT host,port,username,platform,auth_method,password_ciphertext,private_key_ciphertext,key_passphrase_ciphertext,host_key_fingerprint FROM managed_hosts WHERE id=?1", [id], |row| Ok(SavedSshCredentials {
+    conn.query_row("SELECT host,port,username,platform,auth_method,password_ciphertext,private_key_ciphertext,key_passphrase_ciphertext,host_key_fingerprint FROM managed_hosts WHERE id=?1 AND deleted_at IS NULL", [id], |row| Ok(SavedSshCredentials {
         host: row.get(0)?, port: row.get(1)?, username: row.get(2)?, platform: row.get(3)?, auth_method: row.get(4)?, password_ciphertext: row.get(5)?, private_key_ciphertext: row.get(6)?, key_passphrase_ciphertext: row.get(7)?, host_key_fingerprint: row.get(8)?,
     })).optional().map_err(|error| format!("读取受管服务器失败: {error}"))
 }
 
 pub fn existing_secrets(conn: &Connection, id: i64) -> Result<Option<(Option<String>, Option<String>, Option<String>)>, String> {
-    conn.query_row("SELECT password_ciphertext,private_key_ciphertext,key_passphrase_ciphertext FROM managed_hosts WHERE id=?1", [id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+    conn.query_row("SELECT password_ciphertext,private_key_ciphertext,key_passphrase_ciphertext FROM managed_hosts WHERE id=?1 AND deleted_at IS NULL", [id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
         .optional().map_err(|error| error.to_string())
 }
 
@@ -83,7 +84,7 @@ pub fn source_id(conn: &Connection, account_id: i64, asset_key: &str) -> Result<
 }
 
 pub fn password_ciphertext(conn: &Connection, id: i64) -> Result<Option<String>, String> {
-    conn.query_row("SELECT password_ciphertext FROM managed_hosts WHERE id=?1", [id], |row| row.get(0)).map_err(|error| format!("读取受管服务器 SSH 密码失败: {error}"))
+    conn.query_row("SELECT password_ciphertext FROM managed_hosts WHERE id=?1 AND deleted_at IS NULL", [id], |row| row.get(0)).map_err(|error| format!("读取受管服务器 SSH 密码失败: {error}"))
 }
 
 pub fn update_from_ssh(conn: &Connection, id: i64, host: &str, port: u16, username: &str, password_ciphertext: &str, fingerprint: &str, now: i64) -> Result<(), String> {

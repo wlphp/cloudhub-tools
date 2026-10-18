@@ -30,7 +30,7 @@ export const defaultPetLife: PetLifeSettings = {
 };
 export const emptyPetLifeState: PetLifeState = { notices: [], weatherCheckedAt: 0, weatherAttemptAt: 0, weatherError: null, region: "", calendarYear: 0, calendarSupported: false };
 export interface PetAlert {
-  key: string; title: string; detail: string; section: "panels" | "resources" | "certificates";
+  key: string; title: string; detail: string; section: "panels" | "resources" | "certificates" | "notes";
   severity: "emergency" | "critical" | "warning"; active: boolean; ignored?: boolean; firstSeen: number; updatedAt: number;
   snoozedUntil: number; notifiedAt: number; occurrences: number;
 }

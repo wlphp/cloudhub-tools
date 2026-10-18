@@ -39,6 +39,25 @@ export function database() {
     checked_at INTEGER NOT NULL
   )`);
   db.exec("CREATE INDEX IF NOT EXISTS idx_api_logs_created_at ON api_logs(created_at DESC)");
+  // 备忘录: plain local notes mirrored from src-tauri/src/core/repositories/notes.rs.
+  db.exec(`CREATE TABLE IF NOT EXISTS memo_groups (
+    name TEXT PRIMARY KEY, sort_order INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL
+  )`);
+  db.exec(`CREATE TABLE IF NOT EXISTS memo_notes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, body TEXT NOT NULL DEFAULT '',
+    group_name TEXT NOT NULL, tags_json TEXT NOT NULL DEFAULT '[]', account TEXT NOT NULL DEFAULT '',
+    password TEXT NOT NULL DEFAULT '', pinned INTEGER NOT NULL DEFAULT 0 CHECK(pinned IN (0,1)),
+    remind_at INTEGER, remind_repeat TEXT NOT NULL DEFAULT 'none' CHECK(remind_repeat IN ('none','daily','weekly','monthly')),
+    remind_done_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+    deleted_at INTEGER
+  )`);
+  db.exec(`CREATE TABLE IF NOT EXISTS memo_reminders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, note_id INTEGER NOT NULL REFERENCES memo_notes(id) ON DELETE CASCADE,
+    fire_at INTEGER NOT NULL, fired_at INTEGER, dismissed_at INTEGER
+  )`);
+  db.exec("CREATE INDEX IF NOT EXISTS idx_memo_notes_updated ON memo_notes(pinned DESC, updated_at DESC)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_memo_notes_trash ON memo_notes(deleted_at, id)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_memo_reminders_due ON memo_reminders(fired_at, fire_at)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_operation_logs_created_at ON operation_logs(created_at DESC)");
   sharedDatabase = db;
   return sharedDatabase;

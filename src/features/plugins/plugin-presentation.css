@@ -1,0 +1,110 @@
+/* Plugin presentation settings and normal application pages. */
+
+/* ---------- 操作列的入口按钮 ---------- */
+.plugin-presentation-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+.plugin-presentation-trigger .plugin-presentation-label {
+  font-size: 11px;
+  opacity: .85;
+}
+
+/* ---------- 设置弹层 ---------- */
+.plugin-presentation-dialog.modal-form-layout { width: min(560px, calc(100vw - 32px)); max-width: calc(100vw - 32px); }
+.plugin-presentation-dialog > .modal-head > svg { flex: 0 0 auto; color: var(--jb-accent, #9b8cff); }
+.plugin-presentation-dialog .modal-head h2 { margin: 0; font-size: 15px; font-weight: 600; }
+.plugin-presentation-dialog .modal-head p { margin: 3px 0 0; color: var(--jb-subtle, #858585); font-size: 11px; font-weight: 400; }
+.plugin-presentation-body { display: flex; flex-direction: column; gap: 14px; }
+.plugin-presentation-group { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 10px 12px 12px; border: 1px solid var(--jb-border, #3d3d3d); border-radius: 4px; background: var(--jb-surface-2, #303030); }
+.plugin-presentation-group legend { padding: 0 5px; color: var(--jb-muted, #aaa); font-size: 11.5px; }
+.plugin-presentation-group.is-disabled { opacity: .55; }
+
+.plugin-presentation-modes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.plugin-presentation-mode {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 4px;
+  padding: 10px 11px; border: 1px solid var(--jb-border-strong, #555); border-radius: 4px;
+  background: var(--jb-surface, #2b2b2b); color: var(--jb-text, #dedede);
+  font: inherit; text-align: left; cursor: pointer;
+}
+.plugin-presentation-mode:hover { border-color: var(--jb-accent, #9b8cff); }
+.plugin-presentation-mode.is-selected { border-color: #806de0; background: var(--jb-accent-soft, #3b3560); color: var(--jb-accent-strong, #b7aaff); }
+.plugin-presentation-mode svg { color: currentColor; }
+.plugin-presentation-mode strong { font-size: 12.5px; font-weight: 600; }
+.plugin-presentation-mode small { color: var(--jb-subtle, #858585); font-size: 10.5px; line-height: 1.5; }
+.plugin-presentation-mode.is-selected small { color: inherit; opacity: .85; }
+
+.plugin-presentation-sizes { display: flex; gap: 8px; }
+.plugin-presentation-size {
+  flex: 1 1 auto; min-height: 32px; padding: 0 12px;
+  border: 1px solid var(--jb-border-strong, #555); border-radius: 3px;
+  background: var(--jb-surface-3, #353535); color: var(--jb-text, #dedede);
+  font: inherit; font-size: 11.5px; cursor: pointer;
+}
+.plugin-presentation-size.is-selected { border-color: #806de0; background: var(--jb-accent-soft, #3b3560); color: var(--jb-accent-strong, #b7aaff); }
+.plugin-presentation-size:disabled { cursor: default; }
+.plugin-presentation-hint { color: var(--jb-subtle, #858585); font-size: 11px; line-height: 1.6; }
+.plugin-presentation-reset { margin-right: auto; }
+
+/* ---------- 页面模式宿主 ---------- */
+.plugin-page-host {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 18px 20px 24px;
+  color: var(--jb-text);
+  background: var(--jb-bg);
+}
+.plugin-page-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.plugin-page-head h1 { margin: 0; font-size: 21px; font-weight: 600; }
+.plugin-page-back { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; font-size: 12px; }
+.plugin-page-body { min-width: 0; }
+.plugin-content.plugin-content {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: 100%;
+  height: auto;
+  max-width: none;
+  max-height: none;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  overflow: visible;
+}
+.plugin-content-body { min-width: 0; }
+.plugin-content-toolbar { display: flex; justify-content: flex-end; margin-bottom: 10px; }
+.plugin-content-footer { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px; padding-top: 12px; border-top: 1px solid var(--jb-border); }
+.plugin-page-body .notes-panel,
+.plugin-application-dialog .notes-panel { height: auto; padding: 0; overflow: visible; background: transparent; }
+.plugin-page-body .notes-heading h1,
+.plugin-application-dialog .notes-heading h1 { display: none; }
+.plugin-page-body .claude-providers-dialog,
+.plugin-application-dialog .claude-providers-dialog { width: auto; max-width: none; height: auto; max-height: none; padding: 0; }
+.plugin-content.browser-dialog > .browser-body { padding: 0; }
+.shared-content-dialog.computer-camera-dialog { position: relative; left: auto; top: auto; transform: none; }
+.plugin-application-dialog .plugin-content.plugin-content { width: 100%; max-width: 100%; height: auto; max-height: none; border: 0; }
+.plugin-content :is(input, select, textarea) { box-sizing: border-box; max-width: 100%; }
+
+.plugin-application-dialog.shared-dialog-small { width: min(560px, calc(100vw - 32px)); }
+
+@media (max-width: 760px) {
+  .plugin-presentation-modes { grid-template-columns: 1fr; }
+  .plugin-presentation-reset { margin-right: 0; }
+  .plugin-presentation-label { display: none; }
+  .plugin-page-host { padding: 14px 12px 20px; }
+}

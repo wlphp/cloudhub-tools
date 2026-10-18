@@ -4,7 +4,7 @@ use crate::core::authenticator::vault::{decrypt_entry, encrypt_entry};
 use crate::core::authenticator::{Entry, MAX_ENTRIES};
 use rusqlite::{params, Connection, OptionalExtension};
 
-pub const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS authenticator_vault (id INTEGER PRIMARY KEY CHECK(id=1), envelope_json TEXT NOT NULL); CREATE TABLE IF NOT EXISTS authenticator_entries (id TEXT PRIMARY KEY, ciphertext TEXT NOT NULL);";
+pub const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS authenticator_vault (id INTEGER PRIMARY KEY CHECK(id=1), envelope_json TEXT NOT NULL); CREATE TABLE IF NOT EXISTS authenticator_entries (id TEXT PRIMARY KEY, name TEXT NOT NULL DEFAULT '', ciphertext TEXT NOT NULL, deleted_at INTEGER);";
 pub fn header(conn: &Connection) -> Result<Option<String>, String> {
     conn.query_row(
         "SELECT envelope_json FROM authenticator_vault WHERE id=1",
@@ -26,7 +26,7 @@ pub fn create(conn: &Connection, envelope: &Envelope) -> Result<String, String> 
 }
 pub fn load(conn: &Connection, key: &[u8; 32]) -> Result<Vec<Entry>, String> {
     let mut statement = conn
-        .prepare("SELECT id,ciphertext FROM authenticator_entries ORDER BY id LIMIT 10001")
+        .prepare("SELECT id,ciphertext FROM authenticator_entries WHERE deleted_at IS NULL ORDER BY id LIMIT 10001")
         .map_err(|_| "读取验证码失败")?;
     let rows = statement
         .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
@@ -50,7 +50,10 @@ pub fn load(conn: &Connection, key: &[u8; 32]) -> Result<Vec<Entry>, String> {
 }
 pub fn write(conn: &Connection, key: &[u8; 32], entry: &Entry) -> Result<(), String> {
     let ciphertext = encrypt_entry(key, entry)?;
-    conn.execute("INSERT INTO authenticator_entries(id,ciphertext) VALUES(?1,?2) ON CONFLICT(id) DO UPDATE SET ciphertext=excluded.ciphertext",params![entry.id,ciphertext]).map_err(|_| "保存验证码失败")?;
+    // `name` is a non-secret label so the recycle bin can list entries without
+    // unlocking the vault; the ciphertext stays the only credential source.
+    let label = [entry.issuer.trim(), entry.account.trim()].into_iter().filter(|part| !part.is_empty()).collect::<Vec<_>>().join(" · ");
+    conn.execute("INSERT INTO authenticator_entries(id,name,ciphertext) VALUES(?1,?2,?3) ON CONFLICT(id) DO UPDATE SET ciphertext=excluded.ciphertext,name=excluded.name",params![entry.id,label,ciphertext]).map_err(|_| "保存验证码失败")?;
     Ok(())
 }
 pub fn selected(conn: &Connection, key: &[u8; 32], ids: &[String]) -> Result<Vec<Entry>, String> {
@@ -58,7 +61,7 @@ pub fn selected(conn: &Connection, key: &[u8; 32], ids: &[String]) -> Result<Vec
         return Err("验证码选择数量过大".into());
     }
     let mut query = conn
-        .prepare_cached("SELECT ciphertext FROM authenticator_entries WHERE id=?1")
+        .prepare_cached("SELECT ciphertext FROM authenticator_entries WHERE id=?1 AND deleted_at IS NULL")
         .map_err(|_| "读取验证码失败")?;
     let mut entries = vec![];
     let mut seen = std::collections::HashSet::new();
@@ -81,9 +84,13 @@ pub fn remove(conn: &mut Connection, ids: &[String]) -> Result<(), String> {
         return Err("删除选择无效".into());
     }
     let tx = conn.transaction().map_err(|_| "无法开始删除事务")?;
+    let now = chrono::Utc::now().timestamp_millis();
     for id in ids {
         if tx
-            .execute("DELETE FROM authenticator_entries WHERE id=?1", [id])
+            .execute(
+                "UPDATE authenticator_entries SET deleted_at=?1 WHERE id=?2 AND deleted_at IS NULL",
+                rusqlite::params![now, id],
+            )
             .map_err(|_| "删除验证码失败")?
             != 1
         {

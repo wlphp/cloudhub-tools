@@ -3,7 +3,7 @@ use serde_json::json;
 
 use crate::PanelConnection;
 
-pub const SELECT: &str = "SELECT id,name,panel_url,sort_order,allow_insecure_tls,group_name,source_account_id,source_asset_key,api_key_ciphertext,status,summary_json,last_checked_at,last_error,remark,created_at,updated_at FROM panel_connections";
+pub const SELECT: &str = "SELECT id,name,panel_url,sort_order,allow_insecure_tls,group_name,source_account_id,source_asset_key,api_key_ciphertext,status,summary_json,last_checked_at,last_error,remark,created_at,updated_at FROM panel_connections WHERE deleted_at IS NULL";
 
 fn row(row: &rusqlite::Row<'_>) -> rusqlite::Result<PanelConnection> {
     let summary: String = row.get(10)?;
@@ -22,23 +22,23 @@ pub fn list(conn: &Connection) -> Result<Vec<PanelConnection>, String> {
 }
 
 pub fn get(conn: &Connection, id: i64) -> Result<PanelConnection, String> {
-    conn.query_row(&format!("{SELECT} WHERE id=?1"), [id], row).map_err(|_| "面板不存在".to_string())
+    conn.query_row(&format!("{SELECT} AND id=?1"), [id], row).map_err(|_| "面板不存在".to_string())
 }
 
 pub fn load_with_secret(conn: &Connection, id: i64) -> Result<(PanelConnection, String), String> {
     let panel = get(conn, id)?;
-    let ciphertext = conn.query_row("SELECT api_key_ciphertext FROM panel_connections WHERE id=?1", [id], |row| row.get(0))
+    let ciphertext = conn.query_row("SELECT api_key_ciphertext FROM panel_connections WHERE id=?1 AND deleted_at IS NULL", [id], |row| row.get(0))
         .map_err(|_| "面板不存在".to_string())?;
     Ok((panel, ciphertext))
 }
 
 pub fn existing_api_key(conn: &Connection, id: i64) -> Result<Option<String>, String> {
-    conn.query_row("SELECT api_key_ciphertext FROM panel_connections WHERE id=?1", [id], |row| row.get(0))
+    conn.query_row("SELECT api_key_ciphertext FROM panel_connections WHERE id=?1 AND deleted_at IS NULL", [id], |row| row.get(0))
         .optional().map_err(|error| error.to_string())
 }
 
 pub fn id_by_url(conn: &Connection, panel_url: &str) -> Result<Option<i64>, String> {
-    conn.query_row("SELECT id FROM panel_connections WHERE panel_url=?1", [panel_url], |row| row.get(0)).optional().map_err(|error| error.to_string())
+    conn.query_row("SELECT id FROM panel_connections WHERE panel_url=?1 AND deleted_at IS NULL", [panel_url], |row| row.get(0)).optional().map_err(|error| error.to_string())
 }
 
 pub fn import_update(conn: &Connection, id: i64, name: &str, ciphertext: &str, sort_order: i64, allow_insecure_tls: bool, group_name: Option<&str>, source_account_id: Option<i64>, source_asset_key: Option<&str>, remark: Option<&str>, now: i64) -> Result<(), String> {
@@ -90,8 +90,9 @@ pub fn update_order(conn: &mut Connection, ids: &[i64], now: i64) -> Result<(), 
     transaction.commit().map_err(|error| format!("保存面板排序失败: {error}"))
 }
 
-pub fn delete(conn: &Connection, id: i64) -> Result<(), String> {
-    conn.execute("DELETE FROM panel_connections WHERE id=?1", [id]).map(|_| ()).map_err(|error| error.to_string())
+/// Moves the panel to the recycle bin; `trash::purge` is the only real delete.
+pub fn delete(conn: &Connection, id: i64, now: i64) -> Result<(), String> {
+    super::trash::soft_delete(conn, "panel_connections", &[rusqlite::types::Value::Integer(id)], now).map(|_| ())
 }
 
 pub fn update_remark(conn: &Connection, id: i64, remark: Option<String>, now: i64) -> Result<PanelConnection, String> {
