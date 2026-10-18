@@ -3,7 +3,7 @@ import { DialogHeaderActions } from "../../shared/DialogHeaderActions";
 import { GroupNameInput } from "../../shared/GroupNameInput";
 import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type FormEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { Check, ChevronLeft, ChevronRight, Copy, Download, Edit3, Grid2X2, KeyRound, List, LockKeyhole, Plus, Search, ShieldCheck, Star, Trash2, Upload, X } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Copy, Download, Edit3, Eye, EyeOff, Grid2X2, KeyRound, List, LockKeyhole, Plus, Search, ShieldCheck, Star, Trash2, Upload, X } from "lucide-react";
 import { authenticatorClient as client, type AuthCode, type AuthEntry, type AuthInput, type AuthPreview } from "../../platform/clients/authenticator";
 import { runningInTauri } from "../../platform/api";
 import "./authenticator.css";
@@ -18,6 +18,20 @@ const issuerTone = (issuer: string) => {
   for (const character of issuerKey(issuer)) hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
   return `auth-tone-${hash % 6}`;
 };
+
+type AuthKind = AuthInput["kind"];
+type AuthAlgorithm = AuthInput["algorithm"];
+const DEFAULT_OTP_PARAMS = { kind: "totp" as AuthKind, algorithm: "SHA1" as AuthAlgorithm, digits: 6, period: 30 };
+// 主流服务商均按 RFC 6238 默认参数（SHA1 / 6 位 / 30 秒）签发 otpauth 地址；扫描或粘贴二维码时会自动带入真实参数。
+const matchesIssuer = (issuer: string, names: readonly string[]) => {
+  const value = issuer.trim().toLowerCase().replace(/\s+/g, " ");
+  return names.some((name) => value === name || value.startsWith(`${name} `) || value.endsWith(` ${name}`));
+};
+function otpPreset(issuer: string): string {
+  if (matchesIssuer(issuer, ["steam", "steam guard", "steamguard"])) return "Steam Guard（5 位字母数字，固定 SHA1 / 30 秒）";
+  if (matchesIssuer(issuer, ["google", "google.com", "gmail", "github", "github.com", "gh", "openai", "openai.com", "chatgpt", "microsoft", "microsoft.com", "microsoft account", "azure", "azure ad", "office365", "office 365", "outlook", "live", "oracle", "oracle.com", "oracle cloud", "oci", "apple", "apple id", "icloud", "amazon", "aws", "amazon web services", "cloudflare", "facebook", "meta", "x", "twitter", "discord", "slack", "dropbox", "gitlab", "bitbucket", "digitalocean", "aliyun", "alibaba cloud", "腾讯云", "腾讯", "tencent", "华为云", "huawei cloud", "heroku", "npm"])) return "主流服务商（Google、GitHub、OpenAI、Microsoft、Oracle 等）默认 SHA1 / 6 位 / 30 秒";
+  return "";
+}
 
 function Modal({ title, children, close, busy, mobileForm = false }: { title: string; children: ReactNode; close: () => void; busy: boolean; mobileForm?: boolean }) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -58,6 +72,21 @@ export function AuthenticatorPanel({ mobile = false }: { mobile?: boolean }) {
   const [acknowledgePlain, setAcknowledgePlain] = useState(false);
   const [copied, setCopied] = useState("");
   const [copyNotice, setCopyNotice] = useState<{ text: string; failed: boolean } | null>(null);
+  const [showDraftSecret, setShowDraftSecret] = useState(false);
+  const secretRevealTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hideDraftSecret = useCallback(() => {
+    if (secretRevealTimer.current) { clearTimeout(secretRevealTimer.current); secretRevealTimer.current = null; }
+    setShowDraftSecret(false);
+  }, []);
+  const toggleDraftSecret = useCallback(() => {
+    if (showDraftSecret) { hideDraftSecret(); return; }
+    if (secretRevealTimer.current) clearTimeout(secretRevealTimer.current);
+    setShowDraftSecret(true);
+    secretRevealTimer.current = setTimeout(() => { secretRevealTimer.current = null; setShowDraftSecret(false); }, 15_000);
+  }, [showDraftSecret, hideDraftSecret]);
+  useEffect(() => () => { if (secretRevealTimer.current) clearTimeout(secretRevealTimer.current); }, []);
+  const otpPresetHint = useMemo(() => draft ? otpPreset(draft.issuer) : "", [draft?.issuer]);
+  const otpParamsDiffer = !!draft && (draft.kind !== DEFAULT_OTP_PARAMS.kind || draft.algorithm !== DEFAULT_OTP_PARAMS.algorithm || draft.digits !== DEFAULT_OTP_PARAMS.digits || (draft.kind !== "hotp" && draft.period !== DEFAULT_OTP_PARAMS.period));
   const alive = useRef(true);
   const epoch = useRef(0);
   const activity = useRef(0);
@@ -71,7 +100,8 @@ export function AuthenticatorPanel({ mobile = false }: { mobile?: boolean }) {
     setPreview(null); setChoices({}); setSelected(new Set()); setPassword("");
     setUriText("");
     setCopied(""); setCopyNotice(null); if (copyTimer.current) clearTimeout(copyTimer.current);
-  }, []);
+    hideDraftSecret();
+  }, [hideDraftSecret]);
   useEffect(() => {
     alive.current = true;
     void openVault();
@@ -235,11 +265,11 @@ export function AuthenticatorPanel({ mobile = false }: { mobile?: boolean }) {
 
   return <section className={`auth-panel${mobile ? " auth-mobile" : ""}`} onPointerDown={touch} onKeyDown={touch}>
     {copyNotice && <div className="toast-notice auth-copy-toast" role={copyNotice.failed ? "alert" : "status"} aria-atomic="true">{!copyNotice.failed && <Check size={16} aria-hidden="true" />}<span>{copyNotice.text}</span></div>}
-    <header className="auth-header"><div><h2><ShieldCheck size={22} /> {mobile ? "身份验证器" : "验证器"}</h2><span>{entries.length} 个验证码 · 本地加密保存</span></div><div className="auth-actions">
-      <button disabled={busy} onClick={() => { setDraft(emptyDraft()); setError(""); }}><Plus size={16} /> 新增</button>
+    <div className="auth-header"><div><h2><ShieldCheck size={22} /> {mobile ? "身份验证器" : "验证器"}</h2><span>{entries.length} 个验证码 · 本地加密保存</span></div><div className="auth-actions">
+      <button disabled={busy} onClick={() => { hideDraftSecret(); setDraft(emptyDraft()); setError(""); }}><Plus size={16} /> 新增</button>
       <button disabled={busy} onClick={() => { setModal("import"); setError(""); }}><Upload size={16} /> 导入</button>
       <button disabled={busy || !entries.length} onClick={() => { setModal("export"); setError(""); }}><Download size={16} /> {selected.size ? `导出所选（${selected.size}）` : "选择导出"}</button>
-    </div></header>{alerts}
+    </div></div>{alerts}
     <div className="auth-toolbar"><div className="auth-search"><Search size={16} /><input aria-label="搜索验证码" placeholder="搜索服务商、账户或备注" value={search} onChange={(event) => setSearch(event.target.value)} /></div>
       <select aria-label="验证码排序" value={sort} onChange={(event) => setSort(event.target.value)}><option value="custom">自定义顺序</option><option value="name">按服务商名称</option></select>
       <div className="auth-view" role="group" aria-label="显示方式"><button aria-label="卡片视图" title="卡片视图" aria-pressed={layout === "grid"} onClick={() => setLayout("grid")}><Grid2X2 size={17} /></button><button aria-label="列表视图" title="列表视图" aria-pressed={layout === "list"} onClick={() => setLayout("list")}><List size={17} /></button></div>
@@ -255,7 +285,7 @@ export function AuthenticatorPanel({ mobile = false }: { mobile?: boolean }) {
       {visible.map((entry) => { const code = codes[entry.id]; return <article className={`auth-card ${code && code.remaining <= 5 && entry.kind !== "hotp" ? "auth-expiring" : ""}`} key={entry.id}>
         <div className="auth-card-heading"><div className="auth-card-top"><label><input aria-label={`选择 ${entry.issuer} ${entry.account}`} type="checkbox" checked={selected.has(entry.id)} onChange={(event) => setSelected((old) => { const next = new Set(old); event.target.checked ? next.add(entry.id) : next.delete(entry.id); return next; })} /></label><div className="auth-identity"><strong title={entry.issuer}>{entry.issuer || "未指定服务商"}</strong></div>
           <button className={entry.pinned ? "auth-pinned" : ""} aria-label={`${entry.pinned ? "取消置顶" : "置顶"} ${entry.account}`} disabled={busy} onClick={() => void action(async () => { await client.save({ ...entry, pinned: !entry.pinned }); await refresh(); })}><Star size={16} fill={entry.pinned ? "currentColor" : "none"} /></button>
-          <button aria-label={`编辑 ${entry.account}`} onClick={() => { setDraft({ ...entry, secret: "" }); setError(""); }}><Edit3 size={15} /></button>
+          <button aria-label={`编辑 ${entry.account}`} onClick={() => { hideDraftSecret(); setDraft({ ...entry, secret: "" }); setError(""); }}><Edit3 size={15} /></button>
           <ProviderIcon issuer={entry.issuer} />
         </div><div className="auth-account"><span>{entry.account || "未指定账户"}</span><button className="auth-copy-account" aria-label={`复制账号 ${entry.account}`} title="复制账号" disabled={busy || !entry.account} onClick={() => void copyCode(entry, "account")}>{copied === `${entry.id}:account` ? <Check size={14} /> : <Copy size={14} />}</button></div></div>
         <div className="auth-code-row"><button className="auth-code" aria-label={`复制 ${entry.account} 验证码`} title="复制当前验证码" disabled={busy || !code} onClick={() => void copyCode(entry)}>{displayCode(code?.current)}{copied === `${entry.id}:current` ? <Check size={15} /> : <Copy size={15} />}</button>
@@ -270,10 +300,17 @@ export function AuthenticatorPanel({ mobile = false }: { mobile?: boolean }) {
     {draft && <Modal title={draft.id ? "编辑验证码" : "新增验证码"} busy={busy} mobileForm={mobile} close={() => { setDraft(null); setError(""); }}><form className={mobile ? "auth-mobile-form" : undefined} onSubmit={(event) => { event.preventDefault(); const input = draft; setDraft({ ...draft, secret: "" }); void action(async () => { await client.save(input); setDraft(null); await refresh(); setMessage("验证码已保存"); }); }}>
       <div className={mobile ? "auth-mobile-form-body" : undefined}>
       <div className="auth-form-grid"><label>服务商<input maxLength={256} value={draft.issuer} onChange={(event) => setDraft({ ...draft, issuer: event.target.value })} /></label><label>账户<input maxLength={512} value={draft.account} onChange={(event) => setDraft({ ...draft, account: event.target.value })} /></label></div>
-      <label>OTP 密钥{draft.id && "（留空保留原密钥）"}<input type="password" autoComplete="off" required={!draft.id} maxLength={1024} value={draft.secret || ""} onChange={(event) => setDraft({ ...draft, secret: event.target.value })} /></label>
-      <div className="auth-form-grid"><label>类型<select value={draft.kind} onChange={(event) => { const kind = event.target.value as AuthInput["kind"]; setDraft({ ...draft, kind, digits: kind === "steam" ? 5 : 6, algorithm: "SHA1", period: 30 }); }}><option value="totp">TOTP（时间）</option><option value="hotp">HOTP（计数）</option><option value="steam">Steam</option></select></label><label>算法<select disabled={draft.kind === "steam"} value={draft.algorithm} onChange={(event) => setDraft({ ...draft, algorithm: event.target.value as AuthInput["algorithm"] })}>{["SHA1", "SHA256", "SHA512"].map((value) => <option key={value}>{value}</option>)}</select></label>
+      <label>OTP 密钥{draft.id && "（留空保留原密钥）"}<span className="auth-secret-wrap"><input type={showDraftSecret ? "text" : "password"} autoComplete="off" spellCheck={false} required={!draft.id} maxLength={1024} value={draft.secret || ""} onChange={(event) => setDraft({ ...draft, secret: event.target.value })} /><button type="button" className="auth-secret-eye" aria-label={showDraftSecret ? "隐藏 OTP 密钥" : "显示 OTP 密钥"} aria-pressed={showDraftSecret} title={showDraftSecret ? "隐藏密钥（15 秒后自动隐藏）" : "显示密钥"} onClick={toggleDraftSecret}>{showDraftSecret ? <EyeOff size={17} /> : <Eye size={17} />}</button></span></label>
+      {otpPresetHint && <p className="auth-hint auth-otp-preset">已识别：{otpPresetHint}。按默认参数保存即可；如服务商另有设置，以它给出的参数为准。</p>}
+      <div className="auth-form-grid"><label>类型<select value={draft.kind} onChange={(event) => { const kind = event.target.value as AuthInput["kind"]; setDraft({ ...draft, kind, digits: kind === "steam" ? 5 : 6, algorithm: "SHA1", period: 30 }); }}><option value="totp">TOTP（时间）</option><option value="hotp">HOTP（计数）</option><option value="steam">Steam</option></select></label><label>算法<select disabled={draft.kind === "steam"} value={draft.algorithm} onChange={(event) => setDraft({ ...draft, algorithm: event.target.value as AuthInput["algorithm"] })}>{["SHA1", "SHA256", "SHA512"].map((value) => <option key={value} value={value}>{value === "SHA1" ? "SHA1（默认）" : value}</option>)}</select></label>
       <label>位数<select disabled={draft.kind === "steam"} value={draft.digits} onChange={(event) => setDraft({ ...draft, digits: Number(event.target.value) })}>{(draft.kind === "steam" ? [5] : [6, 7, 8]).map((value) => <option key={value}>{value}</option>)}</select></label><label>{draft.kind === "hotp" ? "计数" : "周期（秒）"}<input type={draft.kind === "hotp" ? "text" : "number"} inputMode="numeric" pattern={draft.kind === "hotp" ? "[0-9]{1,20}" : undefined} min={1} max={3600} disabled={draft.kind === "steam"} value={draft.kind === "hotp" ? draft.counter : draft.period} onChange={(event) => setDraft({ ...draft, [draft.kind === "hotp" ? "counter" : "period"]: draft.kind === "hotp" ? event.target.value : Number(event.target.value) })} /></label>
       <label>分组<GroupNameInput groups={groups} maxLength={128} list="auth-group-options" value={draft.group} onChange={(event) => setDraft({ ...draft, group: event.target.value })} /></label><label>排序序号<input type="number" min={-2147483648} max={2147483647} value={draft.order} onChange={(event) => setDraft({ ...draft, order: Number(event.target.value) })} /></label></div>
+      <details className="auth-otp-tips"><summary>算法、位数和周期怎么填？</summary><div>
+        <p>这三项必须与服务商给出的参数完全一致，填错会持续生成无效验证码。加密算法（SHA1 / SHA256 / SHA512）、位数和周期由服务商在签发时决定，和账户类型无关，同一服务商不同账户也可能不同。</p>
+        <p>绝大多数服务商（Google、GitHub、OpenAI、Microsoft、Oracle、阿里云等）默认 <strong>SHA1 · 6 位 · 30 秒</strong>；Steam 固定为 5 位字母数字；个别企业或自建系统使用 8 位、60 秒或 SHA256 / SHA512。</p>
+        <p>建议扫描或粘贴服务商提供的 otpauth 二维码，CloudHub 会自动识别这些参数，无需手动填写。</p>
+        {otpParamsDiffer && <p className="auth-otp-warn">当前参数不是默认值，请确认服务商页面/二维码中的设置与之一致。</p>}
+      </div></details>
       <label>备注<textarea maxLength={4096} value={draft.note} onChange={(event) => setDraft({ ...draft, note: event.target.value })} /></label><label className="auth-checkbox"><input type="checkbox" checked={draft.pinned} onChange={(event) => setDraft({ ...draft, pinned: event.target.checked })} />置顶</label>
       {error && <p className="auth-error" role="alert">{error}</p>}</div><footer><button type="button" disabled={busy} onClick={() => setDraft(null)}>取消</button><button className="auth-primary" disabled={busy} type="submit">{busy ? "保存中…" : "保存"}</button></footer>
     </form></Modal>}
@@ -291,6 +328,6 @@ export function AuthenticatorPanel({ mobile = false }: { mobile?: boolean }) {
       <label className="auth-checkbox auth-error"><input type="checkbox" required checked={acknowledgePlain} onChange={(event) => setAcknowledgePlain(event.target.checked)} />我了解备份文件未加密，持有者可以生成验证码。</label>
       {error && <p className="auth-error" role="alert">{error}</p>}<footer><button disabled={busy} type="button" onClick={closeModal}>取消</button><button disabled={busy || !exportIds.length} className="auth-primary" type="submit">{busy ? "导出中…" : "选择位置并导出"}</button></footer>
     </form></Modal>}
-    {modal === "delete" && <Modal title="删除验证码" busy={busy} close={closeModal}><p>确定删除所选 {selected.size} 个验证码？删除后需通过备份或服务商重新配置恢复。</p>{error && <p role="alert" className="auth-error">{error}</p>}<footer><button disabled={busy} onClick={closeModal}>取消</button><button disabled={busy} className="auth-danger" onClick={() => void action(async () => { await client.remove([...selected]); closeModal(); await refresh(); setMessage("所选验证码已删除"); })}>确认删除</button></footer></Modal>}
+    {modal === "delete" && <Modal title="删除验证码" busy={busy} close={closeModal}><p>确定删除所选 {selected.size} 个验证码？删除后可在系统设置的回收站恢复。</p>{error && <p role="alert" className="auth-error">{error}</p>}<footer><button disabled={busy} onClick={closeModal}>取消</button><button disabled={busy} className="auth-danger" onClick={() => void action(async () => { await client.remove([...selected]); closeModal(); await refresh(); setMessage("所选验证码已删除"); })}>确认删除</button></footer></Modal>}
   </section>;
 }

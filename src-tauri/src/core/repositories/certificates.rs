@@ -38,10 +38,10 @@ fn row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CertificateRecord> {
     })
 }
 
-const SELECT: &str = "SELECT id,account_id,provider,primary_domain,domains_json,status,certificate_url,serial_number,issuer,not_before,not_after,dns_zone,last_error,created_at,updated_at,source_kind,fingerprint FROM certificates";
+const SELECT: &str = "SELECT id,account_id,provider,primary_domain,domains_json,status,certificate_url,serial_number,issuer,not_before,not_after,dns_zone,last_error,created_at,updated_at,source_kind,fingerprint FROM certificates WHERE deleted_at IS NULL";
 
 pub fn list(conn: &Connection, account_id: Option<i64>) -> Result<Vec<CertificateRecord>, String> {
-    let sql = format!("{SELECT} WHERE (?1 IS NULL OR account_id=?1) ORDER BY updated_at DESC, id DESC");
+    let sql = format!("{SELECT} AND (?1 IS NULL OR account_id=?1) ORDER BY updated_at DESC, id DESC");
     let mut statement = conn.prepare(&sql).map_err(|error| error.to_string())?;
     let rows = statement.query_map([account_id], row).map_err(|error| error.to_string())?;
     let mut result=rows.collect::<Result<Vec<_>, _>>().map_err(|error| error.to_string())?;
@@ -60,7 +60,7 @@ pub fn insert(
 }
 
 pub fn get(conn: &Connection, id: i64) -> Result<CertificateRecord, String> {
-    let sql = format!("{SELECT} WHERE id=?1");
+    let sql = format!("{SELECT} AND id=?1");
     let mut item=conn.query_row(&sql, [id], row).map_err(|error| format!("读取证书记录失败: {error}"))?;
     item.source_sites=source_sites(conn,id)?;Ok(item)
 }
@@ -72,7 +72,7 @@ fn source_sites(conn:&Connection,id:i64)->Result<Vec<CertificateSourceSite>,Stri
 }
 
 pub fn secret_material(conn: &Connection, id: i64) -> Result<(String, String, Vec<String>), String> {
-    conn.query_row("SELECT certificate_pem_ciphertext,private_key_ciphertext,dns_record_ids_json FROM certificates WHERE id=?1", [id], |row| Ok((row.get(0)?, row.get(1)?, serde_json::from_str::<Vec<String>>(&row.get::<_, String>(2)?).unwrap_or_default()))).map_err(|error| format!("读取证书密钥材料失败: {error}"))
+    conn.query_row("SELECT certificate_pem_ciphertext,private_key_ciphertext,dns_record_ids_json FROM certificates WHERE id=?1 AND deleted_at IS NULL", [id], |row| Ok((row.get(0)?, row.get(1)?, serde_json::from_str::<Vec<String>>(&row.get::<_, String>(2)?).unwrap_or_default()))).map_err(|error| format!("读取证书密钥材料失败: {error}"))
 }
 
 pub fn has_domain_zone(conn: &Connection, account_id: i64, dns_zone: &str) -> Result<bool, String> {
@@ -86,9 +86,11 @@ pub fn has_domain_zone(conn: &Connection, account_id: i64, dns_zone: &str) -> Re
     Ok(false)
 }
 
-pub fn delete(conn: &Connection, id: i64) -> Result<(), String> {
-    let deleted = conn.execute("DELETE FROM certificates WHERE id=?1", [id]).map_err(|error| error.to_string())?;
-    if deleted == 0 { return Err("证书记录不存在".into()); }
+/// Moves the certificate to the recycle bin. Deployments and versions stay
+/// linked so restoring brings the whole certificate back.
+pub fn delete(conn: &Connection, id: i64, now: i64) -> Result<(), String> {
+    let changed = super::trash::soft_delete(conn, "certificates", &[rusqlite::types::Value::Integer(id)], now).map_err(|error| error.to_string())?;
+    if changed == 0 { return Err("证书记录不存在".into()); }
     Ok(())
 }
 

@@ -3,6 +3,7 @@ import { expect, test } from "@playwright/test";
 test.describe("已保存配置批量启动", () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
+      localStorage.setItem("cloudhub.plugin-presentation", JSON.stringify({ "cloudhub.wechat-multi": { mode: "modal", size: "large" } }));
       const profiles = ["工作号", "个人号", "备用号"].map((label, i) => ({ id: `batch-${i}`, label, family: "微信 4.x", dataPath: "C:\\Data\\xwechat_files", createdAt: 1700000000 - i, recovery: false }));
       Object.assign(window, { batchCalls: [], batchActive: 0, batchPeak: 0, batchFail: "", batchRunning: 0, __TAURI_INTERNALS__: {
         transformCallback: () => 1, unregisterCallback: () => {},
@@ -31,7 +32,7 @@ test.describe("已保存配置批量启动", () => {
     });
     await page.goto("/");
     await page.getByRole("button", { name: "软件商店", exact: true }).first().click();
-    await page.locator(".software-store-page").getByRole("button", { name: "设置", exact: true }).click();
+    await page.locator(".software-store-page tbody tr", { hasText: "微信多开" }).getByRole("button", { name: "管理", exact: true }).click();
   });
 
   test("按列表串行准备兼容配置，整个过程禁用其他操作", async ({ page }) => {
@@ -109,6 +110,7 @@ test.describe("已保存配置批量启动", () => {
 
 test("删除旧配置需要确认，取消和失败保留记录，成功只移除目标", async ({ page }) => {
   await page.addInitScript(() => {
+    localStorage.setItem("cloudhub.plugin-presentation", JSON.stringify({ "cloudhub.wechat-multi": { mode: "modal", size: "large" } }));
     const items = ["个人号", "工作号"].map((label, index) => ({ id: `old-${index}`, label, family: "微信 3.x", dataPath: "C:\\Old\\WeChat Files", createdAt: 1700000000, recovery: false }));
     Object.assign(window, { deletedSessions: [], deleteFail: true, __TAURI_INTERNALS__: {
       transformCallback: () => 1, unregisterCallback: () => {},
@@ -129,7 +131,7 @@ test("删除旧配置需要确认，取消和失败保留记录，成功只移�
   });
   await page.goto("/");
   await page.getByRole("button", { name: "软件商店", exact: true }).first().click();
-  await page.locator(".software-store-page").getByRole("button", { name: "设置", exact: true }).click();
+  await page.locator(".software-store-page tbody tr", { hasText: "微信多开" }).getByRole("button", { name: "管理", exact: true }).click();
   const panel = page.getByRole("dialog", { name: "微信多开设置" });
   const remove = panel.getByRole("button", { name: "删除配置 个人号", exact: true });
   await expect(remove).toBeEnabled();
@@ -157,6 +159,7 @@ test("删除旧配置需要确认，取消和失败保留记录，成功只移�
 
 test("旧版配置显示版本并阻止交叉启动，保存失败时保留原配置", async ({ page }) => {
   await page.addInitScript(() => {
+    localStorage.setItem("cloudhub.plugin-presentation", JSON.stringify({ "cloudhub.wechat-multi": { mode: "modal", size: "large" } }));
     const calls: { command: string; args: any }[] = [];
     Object.assign(window, { familyCalls: calls, __TAURI_INTERNALS__: {
       transformCallback: () => 1, unregisterCallback: () => {},
@@ -176,7 +179,7 @@ test("旧版配置显示版本并阻止交叉启动，保存失败时保留原�
   });
   await page.goto("/");
   await page.getByRole("button", { name: "软件商店", exact: true }).first().click();
-  await page.locator(".software-store-page").getByRole("button", { name: "设置", exact: true }).click();
+  await page.locator(".software-store-page tbody tr", { hasText: "微信多开" }).getByRole("button", { name: "管理", exact: true }).click();
   const panel = page.getByRole("dialog", { name: "微信多开设置" });
   const row = panel.locator(".wechat-session-list li");
   await expect(row).toContainText("微信 3.x");
@@ -195,6 +198,7 @@ test("旧版配置显示版本并阻止交叉启动，保存失败时保留原�
 
 test("自动匹配数据目录，多个结果手动选择、单个自动填入、空结果保留原设置", async ({ page }) => {
   await page.addInitScript(() => {
+    localStorage.setItem("cloudhub.plugin-presentation", JSON.stringify({ "cloudhub.wechat-multi": { mode: "modal", size: "large" } }));
     Object.assign(window, { detectionMode: "multiple", detectionCalls: [], __TAURI_INTERNALS__: {
       transformCallback: () => 1, unregisterCallback: () => {},
       metadata: { currentWindow: { label: "main" }, currentWebview: { label: "main" } },
@@ -216,7 +220,7 @@ test("自动匹配数据目录，多个结果手动选择、单个自动填入�
   });
   await page.goto("/");
   await page.getByRole("button", { name: "软件商店", exact: true }).first().click();
-  await page.locator(".software-store-page").getByRole("button", { name: "设置", exact: true }).click();
+  await page.locator(".software-store-page tbody tr", { hasText: "微信多开" }).getByRole("button", { name: "管理", exact: true }).click();
   const panel = page.getByRole("dialog", { name: "微信多开设置" });
   const detect = panel.getByRole("button", { name: "自动检测数据目录" });
   const path = panel.getByLabel("微信数据根目录");
@@ -255,6 +259,7 @@ test("自动匹配数据目录，多个结果手动选择、单个自动填入�
 
 test("账号配置分别保存、按标识启动并恢复备份，提示使用右上角通知", async ({ page }) => {
   await page.addInitScript(() => {
+    localStorage.setItem("cloudhub.plugin-presentation", JSON.stringify({ "cloudhub.wechat-multi": { mode: "modal", size: "large" } }));
     const calls: { command: string; args: any }[] = [];
     const items: any[] = [];
     Object.assign(window, { sessionCalls: calls, sessionFail: false, __TAURI_INTERNALS__: {
@@ -285,7 +290,7 @@ test("账号配置分别保存、按标识启动并恢复备份，提示使用�
   });
   await page.goto("/");
   await page.getByRole("button", { name: "软件商店", exact: true }).first().click();
-  await page.locator(".software-store-page").getByRole("button", { name: "设置", exact: true }).click();
+  await page.locator(".software-store-page tbody tr", { hasText: "微信多开" }).getByRole("button", { name: "管理", exact: true }).click();
   const panel = page.getByRole("dialog", { name: "微信多开设置" });
   await panel.getByRole("button", { name: "选择数据目录" }).click();
   for (const name of ["工作号", "个人号"]) {
@@ -312,10 +317,11 @@ test("账号配置分别保存、按标识启动并恢复备份，提示使用�
 });
 
 test("浏览器预览禁用本地启动且插件页面适应不同宽度", async ({ page }) => {
+  await page.addInitScript(() => { localStorage.setItem("cloudhub.plugin-presentation", JSON.stringify({ "cloudhub.wechat-multi": { mode: "modal", size: "large" } })); });
   await page.route("http://127.0.0.1:1430/**", route => route.fulfill({ json: [] }));
   await page.goto("/");
   await page.getByRole("button", { name: "软件商店", exact: true }).first().click();
-  await page.locator(".software-store-page").getByRole("button", { name: "设置", exact: true }).click();
+  await page.locator(".software-store-page tbody tr", { hasText: "微信多开" }).getByRole("button", { name: "管理", exact: true }).click();
   const panel = page.getByRole("dialog", { name: "微信多开设置" });
   await expect(panel).toContainText("浏览器预览不支持启动本地软件");
   await expect(panel.getByRole("button", { name: "批量启动", exact: true })).toBeDisabled();
@@ -330,7 +336,7 @@ test("浏览器预览禁用本地启动且插件页面适应不同宽度", async
   await panel.getByRole("button", { name: "缩小弹层" }).click();
   await page.keyboard.press("Escape");
   await expect(panel).toHaveCount(0);
-  const settings = page.locator(".software-store-page").getByRole("button", { name: "设置", exact: true });
+  const settings = page.locator(".software-store-page tbody tr", { hasText: "微信多开" }).getByRole("button", { name: "管理", exact: true });
   await expect(settings).toBeFocused();
   await settings.click();
   await expect(panel).toBeVisible();
@@ -342,6 +348,7 @@ test("浏览器预览禁用本地启动且插件页面适应不同宽度", async
 
 test("微信插件传递启动参数、保留取消选择并防止重复启动", async ({ page }) => {
   await page.addInitScript(() => {
+    localStorage.setItem("cloudhub.plugin-presentation", JSON.stringify({ "cloudhub.wechat-multi": { mode: "modal", size: "large" } }));
     const calls: { command: string; args: any }[] = [];
     let running = 0;
     Object.assign(window, { pluginCalls: calls, __TAURI_INTERNALS__: {
@@ -363,7 +370,7 @@ test("微信插件传递启动参数、保留取消选择并防止重复启动",
   });
   await page.goto("/");
   await page.getByRole("button", { name: "软件商店", exact: true }).first().click();
-  await page.locator(".software-store-page").getByRole("button", { name: "设置", exact: true }).click();
+  await page.locator(".software-store-page tbody tr", { hasText: "微信多开" }).getByRole("button", { name: "管理", exact: true }).click();
   const panel = page.getByRole("dialog", { name: "微信多开设置" });
   await expect(panel.getByLabel("客户端路径")).toHaveValue("C:\\Program Files\\Tencent\\Weixin\\Weixin.exe");
   await panel.getByRole("button", { name: "选择文件" }).click();
@@ -398,12 +405,15 @@ test("微信插件传递启动参数、保留取消选择并防止重复启动",
 });
 
 test("软件商店支持来源切换、搜索和启用筛选", async ({ page }) => {
+  await page.addInitScript(() => { localStorage.setItem("cloudhub.plugin-presentation", JSON.stringify({ "cloudhub.wechat-multi": { mode: "modal", size: "large" } })); });
   await page.route("http://127.0.0.1:1430/**", route => route.fulfill({ json: [] }));
   await page.goto("/");
   await page.getByRole("button", { name: "软件商店", exact: true }).first().click();
   const store = page.locator(".software-store-page");
   const appRow = store.locator("tbody tr");
-  await expect(appRow).toHaveCount(4);
+  await expect(appRow).not.toHaveCount(0);
+  // 官方应用行数跟随注册表，避免新增内置插件时用例过期。
+  const officialCount = await appRow.count();
   await store.getByLabel("应用搜索").fill("不存在的工具");
   await expect(appRow).toHaveCount(0);
   await expect(store).toContainText("没有符合条件的应用");
@@ -418,13 +428,13 @@ test("软件商店支持来源切换、搜索和启用筛选", async ({ page }) 
   await store.getByRole("button", { name: "查看全部官方应用" }).click();
   await store.getByLabel("启用微信多开").uncheck();
   await store.getByRole("button", { name: "已启用", exact: true }).click();
-  await expect(appRow).toHaveCount(3);
+  await expect(appRow).toHaveCount(officialCount - 1);
   await expect(appRow.filter({ hasText: "微信多开" })).toHaveCount(0);
   await store.getByRole("button", { name: "全部", exact: true }).click();
   await expect(appRow.filter({ hasText: "微信多开" })).toContainText("已停用");
   await store.getByLabel("启用微信多开").check();
   await store.getByRole("button", { name: "已启用", exact: true }).click();
-  await expect(appRow).toHaveCount(4);
+  await expect(appRow).toHaveCount(officialCount);
   await page.setViewportSize({ width: 1440, height: 1000 });
   const alignment = await store.evaluate(element => {
     const center = (selector: string) => {
@@ -440,7 +450,7 @@ test("软件商店支持来源切换、搜索和启用筛选", async ({ page }) 
   expect(alignment.toggle).toBeLessThanOrEqual(1);
   await store.screenshot({ path: "test-results/software-store-desktop.png" });
   await page.setViewportSize({ width: 375, height: 900 });
-  await store.getByRole("button", { name: "设置", exact: true }).click();
+  await store.locator("tbody tr", { hasText: "微信多开" }).getByRole("button", { name: "管理", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "微信多开设置" }).getByLabel("客户端路径")).toBeVisible();
   await page.getByRole("button", { name: "关闭微信多开设置" }).click();
   await page.locator("#main-content").evaluate(element => { element.scrollTop = 0; });

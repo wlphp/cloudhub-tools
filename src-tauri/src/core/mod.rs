@@ -7,6 +7,13 @@ pub mod ai_transfer;
 #[cfg(desktop)]
 pub mod codex;
 pub mod authenticator;
+pub mod claude_providers;
+#[cfg(desktop)]
+pub mod claude_gateway;
+#[cfg(desktop)]
+pub mod claude_protocol;
+#[cfg(desktop)]
+pub mod claude_workspace;
 pub mod database;
 #[cfg(desktop)]
 pub mod browser;

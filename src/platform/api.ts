@@ -6,6 +6,7 @@ export const runningInTauri =
 export const invoke = tauriInvoke;
 
 export type PlatformErrorCode =
+  | "claude-workbench"
   | "oss-cname"
   | "local-plugin"
   | "unknown"
@@ -29,9 +30,15 @@ export type PlatformErrorCode =
   | "authenticator-locked"
   | "hardware-info"
   | "wsl-dashboard"
-  | "browser";
+  | "browser"
+  | "notes";
 
 function publicPlatformMessage(code: PlatformErrorCode, rawMessage: string): string {
+  if (code === "claude-workbench") {
+    return rawMessage
+      .replace(/(password|secret|token|access[_-]?key|private[_-]?key|authorization|signature)(\s*[:=]\s*)[^,;\s]+/gi, "$1$2[已隐藏]")
+      .slice(0, 240) || "Claude Code 操作失败，请重试";
+  }
   if (code === "browser") {
     return rawMessage
       .replace(/(password|secret|token|access[_-]?key|private[_-]?key|authorization|signature)(\s*[:=]\s*)[^,;\s]+/gi, "$1$2[已隐藏]")
@@ -100,6 +107,13 @@ function publicPlatformMessage(code: PlatformErrorCode, rawMessage: string): str
     return safeMessages.includes(rawMessage) || /^官方模型目录返回 HTTP [1-5]\d{2}$/.test(rawMessage)
       ? rawMessage : "模型目录获取失败，请检查服务账号登录、权限与网络";
   }
+  if (code === "notes") {
+    // The native layer and preview route only emit authored diagnostics; keep the
+    // text and scrub anything that looks like a pasted credential.
+    return rawMessage
+      .replace(/(password|secret|token|access[_-]?key|private[_-]?key|authorization|signature)(\s*[:=]\s*)[^,;\s]+/gi, "$1$2[已隐藏]")
+      .slice(0, 240) || "备忘录操作失败，请重试";
+  }
   if (code === "authenticator-locked") return "验证器已锁定，请重新解锁";
   if (code === "authenticator-error") {
     return rawMessage
@@ -117,7 +131,7 @@ function publicPlatformMessage(code: PlatformErrorCode, rawMessage: string): str
       .replace(/(password|secret|token|access[_-]?key|private[_-]?key|authorization|signature)(\s*[:=]\s*)[^,;\s]+/gi, "$1$2[已隐藏]")
       .slice(0, 240);
   }
-  const messages: Record<Exclude<PlatformErrorCode, "oss-cname" | "local-plugin" | "ai" | "unsupported-in-preview" | "certificate" | "esa-query" | "authenticator-error" | "authenticator-locked" | "hardware-info" | "wsl-dashboard" | "codex-model-catalog" | "codex-proxy" | "browser">, string> = {
+  const messages: Record<Exclude<PlatformErrorCode, "claude-workbench" | "oss-cname" | "local-plugin" | "ai" | "unsupported-in-preview" | "certificate" | "esa-query" | "authenticator-error" | "authenticator-locked" | "hardware-info" | "wsl-dashboard" | "codex-model-catalog" | "codex-proxy" | "browser" | "notes">, string> = {
     unknown: "操作失败，请稍后重试",
     validation: "输入参数无效，请检查后重试",
     authentication: "认证失败，请检查凭据或登录状态",
@@ -146,7 +160,7 @@ export class PlatformError extends Error {
 }
 
 function classifyPlatformError(message: string): { code: PlatformErrorCode; retryable: boolean } {
-  if (/仅在桌面端|仅在浏览器预览|unsupported-in-preview/i.test(message)) return { code: "unsupported-in-preview", retryable: false };
+  if (/仅在桌面端|仅在浏览器预览|仅支持 CloudHub 原生客户端|unsupported-in-preview/i.test(message)) return { code: "unsupported-in-preview", retryable: false };
   if (message.includes("所选账号已有实例或服务运行")) return { code: "codex-account-busy", retryable: false };
   if (message.includes("本地 API 端口被占用") || message.includes("无法监听")) return { code: "codex-gateway-port-conflict", retryable: false };
   if (/取消|cancelled|canceled/i.test(message)) return { code: "cancelled", retryable: false };
@@ -167,7 +181,7 @@ export function normalizePlatformError(reason: unknown): PlatformError {
   }
   if (typeof reason === "object" && reason !== null && "code" in reason && "message" in reason) {
     const structured = reason as { code?: PlatformErrorCode; message?: string; retryable?: boolean };
-    const code = structured.code && ["oss-cname", "local-plugin", "ai", "unknown", "unsupported-in-preview", "validation", "authentication", "permission", "network", "not-found", "conflict", "frp-port-conflict", "codex-account-busy", "codex-gateway-port-conflict", "codex-model-catalog", "codex-proxy", "cancelled", "certificate", "esa-query", "authenticator-error", "authenticator-locked", "hardware-info", "wsl-dashboard", "browser"].includes(structured.code)
+    const code = structured.code && ["claude-workbench", "oss-cname", "local-plugin", "ai", "unknown", "unsupported-in-preview", "validation", "authentication", "permission", "network", "not-found", "conflict", "frp-port-conflict", "codex-account-busy", "codex-gateway-port-conflict", "codex-model-catalog", "codex-proxy", "cancelled", "certificate", "esa-query", "authenticator-error", "authenticator-locked", "hardware-info", "wsl-dashboard", "browser", "notes"].includes(structured.code)
       ? structured.code : "unknown";
     return new PlatformError(String(structured.message), code, structured.retryable === true);
   }
@@ -214,7 +228,7 @@ export async function webApi<T>(path: string, init?: RequestInit): Promise<T> {
       throw buildUnsupported(payload);
     }
     if (!response.ok) {
-      if (payload?.code === "authenticator-error" || payload?.code === "authenticator-locked" || payload?.code === "ai") throw new PlatformError(payload.error || "操作失败", payload.code);
+      if (["authenticator-error", "authenticator-locked", "ai", "notes"].includes(payload?.code)) throw new PlatformError(payload.error || "操作失败", payload.code);
       throw new Error(payload.error || `Web API ${response.status}`);
     }
     return payload as T;

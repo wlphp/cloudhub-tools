@@ -1,11 +1,10 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { Camera, Copy, Cpu, Download, Eye, HardDrive, LayoutDashboard, Monitor, Network, RefreshCw, ShieldCheck, X } from "lucide-react";
-import { DialogHeaderActions } from "../../shared/DialogHeaderActions";
+import { SharedDialog } from "../../shared/SharedDialog";
 import { pluginsClient, type HardwareInfo, type WifiPasswordReveal } from "../../platform/clients/plugins";
 
-interface Props { open: boolean; onClose: () => void; onOpened: () => void }
+interface Props { open: boolean; onOpened: () => void }
 
 const infoPanels = [
   { id: "overview", label: "概览", icon: LayoutDashboard },
@@ -151,7 +150,7 @@ function renderImage(info: HardwareInfo) {
   return canvas.toDataURL("image/png");
 }
 
-export function HardwareInfoPlugin({ open, onClose, onOpened }: Props) {
+export function HardwareInfoPlugin({ open, onOpened }: Props) {
   const [info, setInfo] = useState<HardwareInfo | null>(() => readHardwareInfoCache());
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
@@ -163,26 +162,18 @@ export function HardwareInfoPlugin({ open, onClose, onOpened }: Props) {
   const [cameraState, setCameraState] = useState("");
   const [cameraBusy, setCameraBusy] = useState(false);
   const [cameraOpen, setCameraOpen] = useState(false);
-  const [cameraOffset, setCameraOffset] = useState({ x: 0, y: 0 });
   const [activePanel, setActivePanel] = useState<(typeof infoPanels)[number]["id"]>("overview");
   const wifiRequestRef = useRef(0);
   const infoRequestRef = useRef(0);
   const cameraRequestRef = useRef(0);
   const panelTabsRef = useRef<Array<HTMLButtonElement | null>>([]);
   const dialogRef = useRef<HTMLElement>(null);
-  const cameraDialogRef = useRef<HTMLElement>(null);
-  const wifiDialogRef = useRef<HTMLElement>(null);
   const wifiPasswordButtonRef = useRef<HTMLButtonElement>(null);
   const cameraReturnFocusRef = useRef<HTMLElement | null>(null);
   const cameraVideoRef = useRef<HTMLVideoElement>(null);
   const cameraStreamRef = useRef<MediaStream | null>(null);
-  const cameraDragRef = useRef<{ pointerId: number; startX: number; startY: number; left: number; top: number } | null>(null);
   const plainText = useMemo(() => info ? formatText(info) : "", [info]);
 
-  useEffect(() => {
-    if (!wifiPassword) return;
-    wifiDialogRef.current?.querySelector<HTMLElement>("button:not(:disabled)")?.focus();
-  }, [wifiPassword]);
   function hideWifiPassword() {
     setWifiPassword(null);
     setWifiCopied(false);
@@ -197,12 +188,17 @@ export function HardwareInfoPlugin({ open, onClose, onOpened }: Props) {
     setCameraBusy(false);
     requestAnimationFrame(() => { if (cameraReturnFocusRef.current?.isConnected) cameraReturnFocusRef.current.focus(); });
   }
-  useEffect(() => () => { cameraStreamRef.current?.getTracks().forEach(track => track.stop()); cameraStreamRef.current = null; }, []);
+  useEffect(() => () => {
+    cameraRequestRef.current += 1;
+    wifiRequestRef.current += 1;
+    infoRequestRef.current += 1;
+    cameraStreamRef.current?.getTracks().forEach(track => track.stop());
+    cameraStreamRef.current = null;
+  }, []);
   useEffect(() => {
     if (!cameraOpen || !cameraVideoRef.current || !cameraStreamRef.current) return;
     cameraVideoRef.current.srcObject = cameraStreamRef.current;
     void cameraVideoRef.current.play().catch(() => setCameraState("预览未能播放，请检查摄像头权限或设备状态。"));
-    cameraDialogRef.current?.querySelector<HTMLElement>("button:not(:disabled)")?.focus();
   }, [cameraOpen]);
 
   async function refresh() {
@@ -250,7 +246,6 @@ export function HardwareInfoPlugin({ open, onClose, onOpened }: Props) {
     if (!navigator.mediaDevices?.getUserMedia) { setCameraState("当前环境不支持摄像头预览。"); return; }
     if (cameraStreamRef.current) stopCamera();
     cameraReturnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    setCameraOffset({ x: 0, y: 0 });
     const requestId = ++cameraRequestRef.current;
     setCameraBusy(true); setCameraState("");
     try {
@@ -264,26 +259,6 @@ export function HardwareInfoPlugin({ open, onClose, onOpened }: Props) {
       const name = reason instanceof DOMException ? reason.name : "";
       if (requestId === cameraRequestRef.current && open) setCameraState(name === "NotAllowedError" || name === "SecurityError" ? "摄像头权限被拒绝。请在系统设置中允许 CloudHub Tools 使用摄像头后重试。" : name === "NotFoundError" ? "未检测到可用摄像头。" : name === "NotReadableError" ? "摄像头被其他应用占用，或设备暂不可用。" : "摄像头无法打开，请检查设备连接和系统权限。");
     } finally { if (requestId === cameraRequestRef.current) setCameraBusy(false); }
-  }
-  function beginCameraDrag(event: ReactPointerEvent<HTMLElement>) {
-    if (event.button !== 0 || (event.target instanceof Element && event.target.closest("button"))) return;
-    const bounds = cameraDialogRef.current?.getBoundingClientRect();
-    if (!bounds) return;
-    cameraDragRef.current = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, left: bounds.left, top: bounds.top };
-    event.currentTarget.setPointerCapture(event.pointerId);
-    event.preventDefault();
-  }
-  function continueCameraDrag(event: ReactPointerEvent<HTMLElement>) {
-    const drag = cameraDragRef.current;
-    const dialog = cameraDialogRef.current;
-    if (!drag || drag.pointerId !== event.pointerId || !dialog) return;
-    const bounds = dialog.getBoundingClientRect();
-    const left = Math.max(8, Math.min(Math.max(8, window.innerWidth - bounds.width - 8), drag.left + event.clientX - drag.startX));
-    const top = Math.max(8, Math.min(Math.max(8, window.innerHeight - bounds.height - 8), drag.top + event.clientY - drag.startY));
-    setCameraOffset({ x: left - (window.innerWidth - bounds.width) / 2, y: top - (window.innerHeight - bounds.height) / 2 });
-  }
-  function endCameraDrag(event: ReactPointerEvent<HTMLElement>) {
-    if (cameraDragRef.current?.pointerId === event.pointerId) cameraDragRef.current = null;
   }
   function handlePanelKeyDown(event: ReactKeyboardEvent<HTMLDivElement>, index: number) {
     let nextIndex = index;
@@ -309,24 +284,6 @@ export function HardwareInfoPlugin({ open, onClose, onOpened }: Props) {
     if (cached) { setInfo(cached); setBusy(false); setFailure(""); void refreshAutoUpdatedRows(); }
     else { setInfo(null); void refresh(); }
   }, [open]);
-  useEffect(() => {
-    if (!open) return;
-    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const root = document.getElementById("root");
-    const wasInert = root?.inert ?? false;
-    if (root) root.inert = true;
-    dialogRef.current?.querySelector<HTMLElement>("button:not(:disabled)")?.focus();
-    return () => {
-      if (root) root.inert = wasInert;
-      if (previousFocus?.isConnected) previousFocus.focus();
-    };
-  }, [open]);
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") { if (cameraOpen) stopCamera(); else if (wifiPassword) hideWifiPassword(); else onClose(); } };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose, cameraOpen, wifiPassword]);
 
   async function copyWifiPassword() {
     if (!wifiPassword) return;
@@ -348,25 +305,11 @@ export function HardwareInfoPlugin({ open, onClose, onOpened }: Props) {
     finally { setBusy(false); }
   }
   if (!open) return null;
-  return <>{createPortal(<div className="modal-backdrop ide-theme hardware-info-backdrop">
-    <section ref={dialogRef} className="modal modal-form-layout dialog-common-theme hardware-info-dialog" role="dialog" aria-modal="true" aria-labelledby="hardware-info-title" aria-busy={busy} tabIndex={-1} onKeyDown={event => {
-      if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); onClose(); }
-      if (event.key !== "Tab") return;
-      const controls = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex="0"]')).filter(element => element.getClientRects().length > 0);
-      const first = controls[0], last = controls[controls.length - 1];
-      if (!first) { event.preventDefault(); event.currentTarget.focus(); }
-      else if (event.shiftKey && (document.activeElement === first || document.activeElement === event.currentTarget)) { event.preventDefault(); last.focus(); }
-      else if (!event.shiftKey && (document.activeElement === last || document.activeElement === event.currentTarget)) { event.preventDefault(); first.focus(); }
-    }}>
-      <header className="modal-head hardware-info-dialog-head">
-        <Cpu size={22} aria-hidden="true" />
-        <div><h2 id="hardware-info-title">电脑信息</h2><p>本机采集 · 仅在此设备显示</p></div>
-        <DialogHeaderActions>
-          <button type="button" className="secondary hardware-info-refresh" onClick={() => void refresh()} disabled={busy} aria-label="刷新电脑信息"><RefreshCw size={15} aria-hidden="true" />刷新</button>
-          <button type="button" className="close" onClick={onClose} aria-label="关闭电脑信息"><X size={21} strokeWidth={2.25} aria-hidden="true" /></button>
-        </DialogHeaderActions>
-      </header>
-      <div className="modal-body hardware-info-body">
+  const shell = <section ref={dialogRef} className="plugin-content hardware-info-dialog" aria-label="电脑信息内容" aria-busy={busy}>
+      <div className="plugin-content-toolbar">
+        <button type="button" className="secondary hardware-info-refresh" onClick={() => void refresh()} disabled={busy} aria-label="刷新电脑信息"><RefreshCw size={15} aria-hidden="true" />刷新</button>
+      </div>
+      <div className="plugin-content-body hardware-info-body">
         <p className="hardware-info-cache-note" role="note">电脑信息会缓存在本设备本地；打开面板先显示缓存，并自动更新外接显示器、当前 Wi-Fi 和局域网 IP。点击右上角“刷新”会重新采集全部信息并更新缓存。{info?.updatedAt && <span> 最近一次完整采集：{info.updatedAt}</span>}</p>
         {failure && <p className="hardware-info-error" role="alert">{failure}</p>}
         {message && <p className="hardware-info-message" role="status">{message}</p>}
@@ -426,50 +369,19 @@ export function HardwareInfoPlugin({ open, onClose, onOpened }: Props) {
           </div>
         </>}
       </div>
-    </section>
-  </div>, document.body)}
-    {cameraOpen && createPortal(<div className="modal-backdrop ide-theme computer-camera-backdrop">
-      <section ref={cameraDialogRef} className="modal modal-form-layout dialog-common-theme computer-camera-dialog" role="dialog" aria-modal="true" aria-labelledby="computer-camera-title" tabIndex={-1} onKeyDown={event => {
-        if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); stopCamera(); return; }
-        if (event.key !== "Tab") return;
-        const controls = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), [tabindex="0"]')).filter(element => element.getClientRects().length > 0);
-        const first = controls[0], last = controls[controls.length - 1];
-        if (!first || !last) { event.preventDefault(); event.currentTarget.focus(); }
-        else if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
-        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
-      }} style={{ "--camera-offset-x": `${cameraOffset.x}px`, "--camera-offset-y": `${cameraOffset.y}px` } as CSSProperties}>
-        <header className="modal-head computer-camera-head" onPointerDown={beginCameraDrag} onPointerMove={continueCameraDrag} onPointerUp={endCameraDrag} onPointerCancel={endCameraDrag}>
-          <Camera size={22} aria-hidden="true" />
-          <div className="computer-camera-title"><h2 id="computer-camera-title">摄像头实时预览</h2><p>本机实时画面</p></div>
-          <DialogHeaderActions><button type="button" className="close" onClick={stopCamera} aria-label="关闭摄像头预览"><X size={20} aria-hidden="true" /></button></DialogHeaderActions>
-        </header>
-        <div className="modal-body computer-camera-preview"><video ref={cameraVideoRef} autoPlay playsInline muted aria-label="摄像头画面预览" /></div>
-        <div className="modal-actions computer-camera-actions"><small><ShieldCheck size={14} aria-hidden="true" />实时画面仅在本机显示，不录制、不保存。</small><button type="button" className="secondary" onClick={stopCamera}><X size={15} aria-hidden="true" />关闭预览</button></div>
-      </section>
-    </div>, document.body)}
-    {wifiPassword && createPortal(<div className="modal-backdrop ide-theme wifi-password-backdrop">
-      <section ref={wifiDialogRef} className="modal modal-form-layout dialog-common-theme wifi-password-dialog" role="dialog" aria-modal="true" aria-labelledby="wifi-password-title" tabIndex={-1} onKeyDown={event => {
-        if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); hideWifiPassword(); return; }
-        if (event.key !== "Tab") return;
-        event.stopPropagation();
-        const controls = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), [tabindex="0"]')).filter(element => element.getClientRects().length > 0);
-        const first = controls[0], last = controls[controls.length - 1];
-        if (!first || !last) { event.preventDefault(); event.currentTarget.focus(); }
-        else if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
-        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
-      }}>
-        <header className="modal-head wifi-password-head"><div><h2 id="wifi-password-title">{wifiPassword.ssid} 属性</h2><p>当前已保存的 Wi-Fi 网络</p></div>
-          <DialogHeaderActions><button type="button" className="close" onClick={hideWifiPassword} aria-label="关闭 Wi-Fi 密码"><X size={20} aria-hidden="true" /></button></DialogHeaderActions>
-        </header>
-        <div className="modal-body wifi-password-body">
+    </section>;
+  return <>{shell}
+    {cameraOpen && <SharedDialog title="摄像头实时预览" subtitle="本机实时画面" icon={<Camera size={22} aria-hidden="true" />} className="computer-camera-dialog" bodyClassName="computer-camera-preview" closeLabel="关闭摄像头预览" onClose={stopCamera}
+      footer={<><small><ShieldCheck size={14} aria-hidden="true" />实时画面仅在本机显示，不录制、不保存。</small><button type="button" className="secondary" onClick={stopCamera}><X size={15} aria-hidden="true" />关闭预览</button></>}>
+      <video ref={cameraVideoRef} autoPlay playsInline muted aria-label="摄像头画面预览" />
+    </SharedDialog>}
+    {wifiPassword && <SharedDialog title={`${wifiPassword.ssid} 属性`} subtitle="当前已保存的 Wi-Fi 网络" className="wifi-password-dialog" bodyClassName="wifi-password-body" size="small" closeLabel="关闭 Wi-Fi 密码" onClose={hideWifiPassword}
+      footer={<button type="button" className="secondary" onClick={hideWifiPassword}>关闭</button>}>
           <div className="wifi-password-value"><span>Wi-Fi 网络密码</span><code>{wifiPassword.password}</code><button type="button" className="secondary" onClick={() => void copyWifiPassword()}><Copy size={14} aria-hidden="true" />复制密码</button></div>
           <div className="wifi-password-qr"><strong>扫描以连接</strong><div><QRCodeSVG value={wifiQrPayload(wifiPassword.ssid, wifiPassword.password)} size={184} level="M" marginSize={2} title="Wi-Fi 连接二维码" /></div><small>使用手机相机扫描二维码即可加入此网络</small></div>
           {wifiCopied && <p className="wifi-password-copied" role="status">密码已复制到剪贴板</p>}
           {wifiError && <p className="hardware-info-error" role="alert">{wifiError}</p>}
           <small className="wifi-password-expiry">密码和二维码仅在本机显示；关闭弹窗后立即清除。</small>
-        </div>
-        <div className="modal-actions wifi-password-actions"><button type="button" className="secondary" onClick={hideWifiPassword}>关闭</button></div>
-      </section>
-    </div>, document.body)}
+    </SharedDialog>}
   </>;
 }

@@ -95,6 +95,7 @@ export function WechatSessionSettings({ enabled, busy, path, operate, notify }: 
         }
         completed++;
       }
+      if (batchStopped.current) throw new Error(`已停止后续启动，已${resultUnit} ${completed}/${queue.length} 个${quickIntervalMs === undefined ? "窗口" : "启动请求"}。关闭设置不会关闭已打开的微信。`);
       notify(quickIntervalMs === undefined ? `已准备 ${completed}/${queue.length} 个微信窗口，请核对各自头像后分别登录；窗口出现不代表登录成功。` : `已提交 ${completed}/${queue.length} 个快速启动请求，额外间隔 ${quickIntervalMs} 毫秒。请检查实际窗口及头像；请求提交不代表多开或登录成功。`);
     } finally {
       setBatchProgress(null);

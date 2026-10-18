@@ -40,4 +40,27 @@ export const officialPlugins = [{
   distribution: "builtin",
   platform: "windows",
   permissions: ["主动下载并校验官方浏览器内核", "读写本机独立浏览器资料", "按用户操作启动和关闭浏览器", "本地加密保存代理密码"],
+}, {
+  id: "cloudhub.notes",
+  name: "备忘录",
+  version: "0.1.0",
+  publisher: "CloudHub Tools",
+  description: "按公司、个人等分组建备忘录，支持代码、账号密码等标签、全文检索与到点桌面提醒。",
+  category: "桌面工具",
+  distribution: "builtin",
+  platform: "desktop",
+  // 按产品约定：笔记内容（含账号密码）明文保存在本机 SQLite，不做加密，也不设访问密码。
+  permissions: ["在本机 SQLite 数据库中保存笔记、分组和标签", "按标题、正文、账号和标签检索笔记", "到点通过桌宠或独立提醒窗口弹出备忘录提醒", "复用系统剪贴板复制用户选择的账号或密码"],
+}, {
+  id: "cloudhub.claude-providers",
+  name: "Claude Code 供应商",
+  version: "0.1.0",
+  publisher: "CloudHub Tools",
+  description: "管理 Claude Code 供应商，支持直连、路由、聚合，以及 MCP、提示词、技能与会话。",
+  category: "开发工具",
+  distribution: "builtin",
+  platform: "desktop",
+  // 供应商 API Key 本地加密保存；写入 Claude Code 配置前先备份，
+  // 且只改写连接与鉴权字段，hooks 等用户配置原样保留。
+  permissions: ["在本机 SQLite 数据库中加密保存供应商 API Key", "读写用户或所选项目的 Claude Code 配置（修改前备份）", "启动本机回环路由并按所选供应商转换请求协议", "连接用户配置的供应商地址以查询模型及转发请求", "管理 MCP 配置、CLAUDE.md、已安装技能和本地会话", "记录不含提示词与凭据的请求用量"],
 }] as const;

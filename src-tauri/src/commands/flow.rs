@@ -109,7 +109,7 @@ pub(crate) fn save_flow_connection(input: FlowConnectionInput) -> PlatformResult
 }
 
 #[tauri::command]
-pub(crate) fn delete_flow_connection(id: i64) -> PlatformResult<()> { if id <= 0 { return Err("云效连接 ID 无效".into()); } repository::delete(&open_db()?, id).map_err(Into::into) }
+pub(crate) fn delete_flow_connection(id: i64) -> PlatformResult<()> { if id <= 0 { return Err("云效连接 ID 无效".into()); } repository::delete(&open_db()?, id, chrono::Utc::now().timestamp_millis()).map_err(Into::into) }
 
 #[tauri::command]
 pub(crate) async fn test_flow_connection(id: i64) -> PlatformResult<()> {

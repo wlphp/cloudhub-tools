@@ -27,3 +27,25 @@ html,body,#root{height:100%;overflow:hidden}.app-shell{height:100vh;min-height:0
 .database-import-details,.database-import-conflicts{max-height:180px;margin-top:12px;padding:10px 12px;border:1px solid var(--jb-border,#444);border-radius:6px;background:#202020;font-size:12px;line-height:1.7;color:#bdbdbd;overflow:auto;white-space:pre-wrap}
 .database-import-details strong,.database-import-conflicts strong{display:block;margin-bottom:5px;color:#e6e6e6}
 .database-import-conflicts{border-color:#8b6235;background:#30271f;color:#e0bc8f}
+
+/* 全局回收站弹层：复用共享基座，仅补充宽屏与滚动布局 */
+.trash-dialog.modal-form-layout { width: min(860px, calc(100vw - 32px)); max-width: calc(100vw - 32px); }
+.trash-dialog-head > svg, .trash-dialog > .modal-head > svg { flex: 0 0 auto; color: var(--jb-accent); }
+.trash-dialog-body { padding: 0; }
+.trash-dialog-body .recycle-bin { max-height: none; }
+.trash-dialog-body .recycle-bin-group:last-of-type { border-bottom: 0; }
+@media (max-width: 760px) {
+  .trash-dialog.modal-form-layout { width: calc(100vw - 24px); max-width: calc(100vw - 24px); }
+  .trash-dialog-body .recycle-bin-item time { display: none; }
+  .trash-dialog-body .recycle-bin-group-actions button { min-height: 40px; }
+}
+
+/* 回收站入口卡片：与「数据管理」入口同为一整行的可点击卡片，
+   因此沿用同样的整行宽度、左对齐和悬停反馈，否则文字会居中。 */
+.settings-card.trash-entry {
+  width: 100%;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+}
+.settings-card.trash-entry:hover { border-color: #8056e8; background: #101d33; }

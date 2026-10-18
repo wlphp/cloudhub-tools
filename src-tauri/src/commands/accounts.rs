@@ -115,7 +115,7 @@ pub(crate) fn save_account(mut input: AccountInput) -> PlatformResult<CloudAccou
 }
 
 #[tauri::command]
-pub(crate) fn delete_account(id: i64) -> PlatformResult<()> { account_repository::delete(&open_db()?, id).map_err(Into::into) }
+pub(crate) fn delete_account(id: i64) -> PlatformResult<()> { account_repository::delete(&open_db()?, id, chrono::Utc::now().timestamp_millis()).map_err(Into::into) }
 
 #[tauri::command]
 pub(crate) fn reveal_account_secret(id: i64) -> PlatformResult<String> {

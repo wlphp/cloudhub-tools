@@ -20,6 +20,41 @@ impl From<&str> for PlatformError {
 
 impl PlatformError {
     fn from_message(message: String) -> Self {
+        if [
+            "路由端口被占用，请修改端口后重试", "请先回到直连，再修改监听端口",
+            "请选择已保存的供应商", "路由与聚合需要已填写密钥的供应商，官方订阅请使用直连",
+            "路由端口、超时、重试或熔断参数无效", "供应商名单包含重复或无效标识",
+            "聚合模式至少需要一个已配置的模型", "聚合默认供应商至少需要一个已配置的模型", "缺少接管恢复记录，配置未改写", "路由配置损坏", "路由状态不可用",
+            "接管备份损坏，配置未改写", "接管备份路径无效", "当前配置不是对象，无法恢复",
+            "当前 env 不是对象，无法恢复", "请先回到直连再切换项目", "请先回到直连再导入配置",
+            "该供应商仍在路由或聚合名单中，请先移除", "当前直连供应商不能删除，请先切换",
+            "此供应商需要协议转换，请在路由或聚合模式中使用", "此供应商需要协议转换，请使用路由或聚合",
+            "该供应商尚未填写 API Key，无法切换", "该供应商尚未填写 API Key",
+            "供应商请求地址无效", "请求地址必须为不含凭据、查询参数及片段的 HTTP(S) 地址",
+            "供应商名称不能为空", "供应商标识不能为空", "供应商不存在", "供应商配置损坏",
+            "供应商名称、标识、密钥或模型列表无效", "聚合模型 ID 不能为空、重复或超过长度限制", "供应商模型映射无效",
+            "扩展环境变量只接受非敏感字符串，请使用专用认证字段保存密钥",
+            "请先保存供应商请求地址与 API Key", "模型列表请求失败，请检查网络",
+            "模型列表请求被拒绝，请检查 API Key、地址或手动填写模型", "模型列表超过大小限制",
+            "模型列表格式无效", "上游未返回模型列表", "模型列表读取失败",
+            "Claude Code 配置不是合法 JSON，无法解析", "Claude Code 配置或 env 不是对象，配置未改写",
+            "Claude 配置或 env 必须是对象，配置未改写", "Claude 配置是链接或超过大小限制，未读取",
+            "不能改写链接配置文件", "没有可恢复的备份", "备份配置格式无效，未恢复",
+            "读取 Claude Code 配置失败", "写入 Claude Code 配置失败", "保存 Claude Code 配置失败",
+            "所选项目目录不可用，请重新选择", "项目目录不可用", "请选择项目文件夹",
+            "MCP 名称或配置无效", "MCP 命令或参数无效", "MCP 传输类型无效",
+            "MCP 环境变量或请求头无效", "mcpServers 必须是对象", "未找到停用的 MCP", "未找到 MCP",
+            "提示词名称、内容或数量无效", "提示词不存在",
+            "请先启用其他提示词或恢复 CLAUDE.md，再删除当前提示词",
+            "没有可恢复的文件备份", "文件备份无效", "Claude 文件不是合法 JSON，未改写",
+            "Claude 配置必须是对象，未改写", "工作台数据损坏", "保存工作台数据失败",
+            "同名技能已存在，请先卸载或改名", "同名技能已存在，无法覆盖",
+            "所选目录没有 SKILL.md", "技能文件数量或大小超过限制",
+            "技能包含链接，不能自动复制或移动", "技能文件夹名称无效", "技能目录不可用",
+            "会话标识无效", "会话不存在", "同名会话已存在", "配置正在使用",
+        ].contains(&message.as_str()) {
+            return Self { kind: "platform-error", code: "claude-workbench", message, retryable: false };
+        }
         // Exact authored diagnostics only: never forward arbitrary native error text.
         if ["桌宠设置读取失败", "桌宠设置无效", "桌宠数据保存失败", "此窗口不支持桌宠操作",
             "提醒记录读取失败", "提醒状态不可用", "无法关闭提醒", "无法显示桌面提醒",
@@ -31,6 +66,25 @@ impl PlatformError {
             "提醒不存在", "请先开启运维预警", "手动巡检间隔至少一分钟"
         ].contains(&message.as_str()) {
             return Self { kind: "platform-error", code: "validation", message, retryable: false };
+        }
+        if [
+            "此窗口不支持备忘录提醒", "备忘录任务执行失败", "备忘录状态不可用",
+            "无法打开备忘录",
+            "备忘录不存在或已被删除", "请选择要删除的备忘录", "无法开始删除备忘录",
+            "删除备忘录失败", "提交备忘录删除失败", "保存备忘录失败", "提交备忘录失败",
+            "无法开始保存备忘录", "读取备忘录失败", "标题不能为空",
+            "请选择或填写分组", "至少保留一个分组", "目标分组与要删除的分组相同",
+            "分组不存在或已被删除", "迁移备忘录分组失败", "删除备忘录分组失败",
+            "提交备忘录分组删除失败", "无法开始删除分组", "保存备忘录分组失败",
+            "读取备忘录分组失败", "初始化备忘录分组失败", "保存提醒失败",
+            "读取备忘录提醒失败", "无法开始处理提醒", "更新提醒状态失败", "提交提醒状态失败",
+            "无法开始完成提醒", "完成提醒失败", "提交提醒完成失败", "稍后提醒时间无效",
+            "无法开始稍后提醒", "稍后提醒失败", "提交稍后提醒失败", "提醒重复方式无效",
+            "提醒时间必须晚于当前时间", "提醒时间过远，最多提前十年"
+        ].contains(&message.as_str())
+            || notes_length_message(&message).is_some()
+        {
+            return Self { kind: "platform-error", code: "notes", message, retryable: false };
         }
         if [
             "该发行版已安装，请从下方列表直接启动或管理",
@@ -115,6 +169,25 @@ impl PlatformError {
         };
         Self { kind: "platform-error", code, message: public_message.to_string(), retryable }
     }
+}
+
+/// Matches only the fixed notes length diagnostics (`{label}过长，最多 {max} 个字符`),
+/// keeping the label and numeric limit inside the authored whitelist so no
+/// user text can be forwarded.
+fn notes_length_message(message: &str) -> Option<(&str, u32)> {
+    const LABELS: [(&str, u32); 6] = [
+        ("标题", 200),
+        ("正文", 200_000),
+        ("账号", 512),
+        ("密码", 2048),
+        ("分组名", 20),
+        ("标签", 16),
+    ];
+    LABELS.into_iter().find(|(label, max)| {
+        message.len() <= label.len() + 64
+            && message.starts_with(label)
+            && message.ends_with(&format!("过长，最多 {max} 个字符"))
+    })
 }
 
 fn safe_esa_query_error(message: &str) -> Option<(String, bool)> {
@@ -217,6 +290,17 @@ mod tests {
         assert_eq!(error.code, "frp-port-conflict");
         assert!(!error.retryable);
         assert!(error.message.contains("端口已被占用"));
+    }
+
+    #[test]
+    fn notes_errors_keep_authored_text_and_drop_user_input() {
+        assert_eq!(PlatformError::from("标题过长，最多 200 个字符").code, "notes");
+        assert_eq!(PlatformError::from("密码过长，最多 2048 个字符").code, "notes");
+        assert_eq!(PlatformError::from("备忘录不存在或已被删除").code, "notes");
+        // Arbitrary text, including a look-alike length message with user data, is not forwarded.
+        let error = PlatformError::from("标题过长，最多 200 个字符 secret-value");
+        assert_ne!(error.message, "标题过长，最多 200 个字符 secret-value");
+        assert!(!error.message.contains("secret-value"));
     }
 
     #[test]

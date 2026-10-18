@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { createPortal } from "react-dom";
-import { ArrowLeft, Download, Globe, HardDrive, Monitor, Play, Plus, RefreshCw, RotateCcw, Search, Square, Trash2, X, Pencil, Network, Database, Upload, Eye, EyeOff } from "lucide-react";
-import { DialogHeaderActions } from "../../shared/DialogHeaderActions";
+import { ArrowLeft, Download, HardDrive, Monitor, Play, Plus, RefreshCw, RotateCcw, Search, Square, Trash2, Pencil, Network, Database, Upload, Eye, EyeOff } from "lucide-react";
+import { SharedDialog } from "../../shared/SharedDialog";
 import { runningInTauri } from "../../platform/api";
 import { browserClient, type BrowserConfig, type BrowserCookie, type BrowserEnvironment, type BrowserSnapshot } from "../../platform/clients/browser";
 import "./browser-environments.css";
 
-interface Props { open: boolean; onClose: () => void }
+interface Props { open: boolean }
 type Tab = "environments" | "kernel" | "trash";
 type EditorTab = "basic" | "proxy" | "fingerprint";
 const PHASES: Record<string, string> = { idle: "未安装", downloading: "正在下载", verifying: "正在校验", extracting: "正在解压", ready: "已安装", cancelled: "已取消", failed: "安装失败" };
@@ -15,9 +14,8 @@ const mib = (value: number) => `${(value / 1024 / 1024).toFixed(1)} MiB`;
 const newSeed = () => crypto.getRandomValues(new Uint32Array(1))[0] || 1;
 const blankConfig = (version: string): BrowserConfig => ({ name: "", group: "", tags: "", note: "", kernelVersion: version, startUrls: [], proxy: { kind: "direct", host: "", port: 8080, username: "" }, language: "zh-CN", timezone: "Asia/Shanghai", width: 1280, height: 900, geolocation: null, fingerprint: null, identity: "native" });
 
-export function BrowserEnvironments({ open, onClose }: Props) {
+export function BrowserEnvironments({ open }: Props) {
   const dialog = useRef<HTMLElement>(null);
-  const cookieDialogRef = useRef<HTMLElement>(null);
   const cookieTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [snapshot, setSnapshot] = useState<BrowserSnapshot | null>(null);
   const [tab, setTab] = useState<Tab>("environments");
@@ -45,15 +43,12 @@ export function BrowserEnvironments({ open, onClose }: Props) {
   const [confirmation, setConfirmation] = useState<{ kind: "kernel" | "environment"; id?: string; name: string } | null>(null);
   const [cookieView, setCookieView] = useState<{ environmentId: string; name: string; items: BrowserCookie[]; revealed: Record<string, boolean> } | null>(null);
   const [confirmationName, setConfirmationName] = useState("");
-  const confirmationRef = useRef(confirmation); confirmationRef.current = confirmation;
-  const cookieViewRef = useRef(cookieView); cookieViewRef.current = cookieView;
   const cookieViewOpen = cookieView !== null;
   useEffect(() => {
     if (!cookieViewOpen) return;
     const previousFocus = cookieTriggerRef.current;
     const parent = dialog.current;
     if (parent) parent.inert = true;
-    cookieDialogRef.current?.focus();
     return () => {
       if (parent) parent.inert = false;
       const fallback = Array.from(parent?.querySelectorAll<HTMLButtonElement>('[data-cookie-environment-id]') ?? [])
@@ -61,8 +56,6 @@ export function BrowserEnvironments({ open, onClose }: Props) {
       (previousFocus?.isConnected ? previousFocus : fallback)?.focus();
     };
   }, [cookieViewOpen]);
-  const editorRef = useRef(editor); editorRef.current = editor;
-  const closeRef = useRef(onClose); closeRef.current = onClose;
   const supported = runningInTauri && snapshot?.supported === true;
   const kernels = snapshot?.kernels ?? (snapshot ? [snapshot.kernel] : []);
   const selectedKernel = kernels.find(item => item.version === kernelVersion) ?? snapshot?.kernel;
@@ -80,22 +73,7 @@ export function BrowserEnvironments({ open, onClose }: Props) {
     void refresh(); const timer = window.setInterval(() => void refresh(true), 1500);
     return () => window.clearInterval(timer);
   }, [open]);
-  useEffect(() => {
-    if (!open) return;
-    const root = document.getElementById("root"), inert = root?.inert ?? false;
-    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    if (root) root.inert = true;
-    dialog.current?.focus();
-    const escape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      if (cookieViewRef.current) setCookieView(null);
-      else if (confirmationRef.current) setConfirmation(null);
-      else if (editorRef.current) { setEditor(null); setPassword(null); } else closeRef.current();
-    };
-    window.addEventListener("keydown", escape);
-    return () => { window.removeEventListener("keydown", escape); setPassword(null); if (root) root.inert = inert; if (previousFocus?.isConnected) previousFocus.focus(); };
-  }, [open]);
+  useEffect(() => () => { passwordDraft.current = null; }, []);
 
   async function operate(action: () => Promise<void>, success: string) {
     if (busyRef.current) return;
@@ -156,18 +134,8 @@ export function BrowserEnvironments({ open, onClose }: Props) {
   }
   if (!open) return null;
   const config = editor?.config;
-  const cookieDialog = cookieView ? createPortal(<div className="modal-backdrop ide-theme cookie-view-backdrop">
-    <section ref={cookieDialogRef} className="modal modal-form-layout dialog-common-theme cookie-view-dialog" role="dialog" aria-modal="true" aria-labelledby="cookie-view-title" aria-label="Cookie 原始数据" tabIndex={-1} onKeyDown={event => {
-      if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setCookieView(null); return; }
-      if (event.key !== "Tab") return;
-      const controls = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), [tabindex="0"]')).filter(element => element.getClientRects().length > 0);
-      const first = controls[0], last = controls[controls.length - 1];
-      if (!first || !last) { event.preventDefault(); event.currentTarget.focus(); }
-      else if (event.shiftKey && (document.activeElement === first || document.activeElement === event.currentTarget)) { event.preventDefault(); last.focus(); }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
-    }}>
-      <header className="modal-head official-plugin-heading"><Database size={22} aria-hidden="true" /><div><h2 id="cookie-view-title">Cookie 原始数据</h2><p>{cookieView.name}</p></div><DialogHeaderActions><button type="button" className="icon-button" aria-label="关闭 Cookie 数据" title="关闭" onClick={() => setCookieView(null)}><X size={18} /></button></DialogHeaderActions></header>
-      <div className="modal-body cookie-view-body">
+  const cookieDialog = cookieView ? <SharedDialog title="Cookie 原始数据" subtitle={cookieView.name} icon={<Database size={22} aria-hidden="true" />} className="cookie-view-dialog" bodyClassName="cookie-view-body" closeLabel="关闭 Cookie 数据" onClose={() => setCookieView(null)}
+    footer={<><span>共 {cookieView.items.length} 条</span><button type="button" className="secondary" onClick={() => setCookieView(current => current ? { ...current, revealed: {} } : current)}>全部隐藏</button><button type="button" className="primary" onClick={() => setCookieView(null)}>关闭</button></>}>
         <p className="browser-notice" role="status">Cookie 值默认隐藏，包含登录凭据，请勿分享。</p>
         {cookieView.items.length === 0 ? <p role="status">当前环境还没有保存任何 Cookie。</p> : <div className="cookie-view-scroll"><table className="browser-table"><thead><tr><th>域名</th><th>名称</th><th>值</th><th>过期</th><th>标志</th></tr></thead><tbody>
           {cookieView.items.map((cookie, index) => { const key = `${index}:${cookie.domain}:${cookie.name}`; const shown = cookieView.revealed[key] === true; return <tr key={key}>
@@ -178,21 +146,16 @@ export function BrowserEnvironments({ open, onClose }: Props) {
             <td data-label="标志">{cookie.secure ? "Secure " : ""}{cookie.httpOnly ? "HttpOnly " : ""}{cookie.sameSite ?? ""}</td>
           </tr>; })}
         </tbody></table></div>}
-      </div>
-      <footer className="modal-actions"><span>共 {cookieView.items.length} 条</span><button type="button" className="secondary" onClick={() => setCookieView(current => current ? { ...current, revealed: {} } : current)}>全部隐藏</button><button type="button" className="primary" onClick={() => setCookieView(null)}>关闭</button></footer>
-    </section>
-  </div>, document.body) : null;
-  return <>{cookieDialog}{createPortal(<div className="modal-backdrop ide-theme">
-    <section ref={dialog} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="browser-title" className="modal modal-form-layout dialog-common-theme browser-dialog" onKeyDown={event => {
-      if (event.key !== "Tab") return;
-      const controls = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button,input,textarea,select,[tabindex="0"]')).filter(el => !el.matches(":disabled") && el.getClientRects().length > 0);
-      const first = controls[0], last = controls[controls.length - 1];
-      if (!first) { event.preventDefault(); event.currentTarget.focus(); }
-      else if (event.shiftKey && (document.activeElement === first || document.activeElement === event.currentTarget)) { event.preventDefault(); last.focus(); }
-      else if (!event.shiftKey && (document.activeElement === last || document.activeElement === event.currentTarget)) { event.preventDefault(); first.focus(); }
-    }}>
-      <header className="modal-head official-plugin-heading"><Globe size={22} aria-hidden="true" /><div><h2 id="browser-title">指纹浏览器</h2><p>本地环境管理</p></div><DialogHeaderActions><button type="button" className="icon-button" aria-label="关闭指纹浏览器" title="关闭" onClick={() => { setPassword(null); onClose(); }}><X size={18} /></button></DialogHeaderActions></header>
-      <div className="modal-body browser-body">
+    </SharedDialog> : null;
+  const mainShell = <section ref={dialog} aria-label="指纹浏览器内容" className="plugin-content browser-dialog" onKeyDown={event => {
+    if (event.key !== "Escape" || (!confirmation && !editor)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (busyRef.current) return;
+    if (confirmation) setConfirmation(null);
+    else { setEditor(null); setPassword(null); }
+  }}>
+      <div className="plugin-content-body browser-body">
         {!supported && <p className="browser-notice" role="status">{!runningInTauri ? "此功能需要 Windows x64 桌面客户端，浏览器预览不能下载或启动本机浏览器。" : snapshot ? "当前系统暂不支持浏览器环境，请使用 Windows x64 客户端。" : "正在读取本机浏览器环境…"}</p>}
         {error && <p className="browser-error" role="alert">{error}</p>}{message && <p className="browser-notice" role="status">{message}</p>}
         {confirmation && <section className="browser-confirm" aria-label="删除确认"><h3>{confirmation.kind === "kernel" ? `卸载浏览器内核 ${confirmation.name}` : `永久删除 ${confirmation.name}`}</h3><p>{confirmation.kind === "kernel" ? "卸载前需要关闭所有环境。环境配置、Cookie 和登录资料保留，可重新安装相同版本内核。" : "此操作将永久删除该环境的 Cookie、缓存及本地资料，无法恢复。请输入完整环境名称确认。"}</p>{confirmation.kind === "environment" && <label>确认环境名称<input aria-label="确认环境名称" value={confirmationName} onChange={e => setConfirmationName(e.target.value)} /></label>}<div className="browser-toolbar"><button type="button" disabled={busy} onClick={() => setConfirmation(null)}>取消删除</button><button type="button" disabled={busy || confirmation.kind === "environment" && confirmationName !== confirmation.name} onClick={() => void operate(async () => { if (confirmation.kind === "kernel") await browserClient.uninstallKernel(confirmation.name); else await browserClient.remove(confirmation.id!, confirmationName); setConfirmation(null); }, confirmation.kind === "kernel" ? "内核已卸载，环境资料保留" : "环境及本地资料已永久删除")}>确认{confirmation.kind === "kernel" ? "卸载内核" : "永久删除"}</button></div></section>}
@@ -254,7 +217,7 @@ export function BrowserEnvironments({ open, onClose }: Props) {
           </>}
         </>}
       </div>
-      <footer className="modal-actions browser-footer"><span>{snapshot?.environments.filter(i => !i.deletedAt).length ?? 0} 个环境 · {snapshot?.environments.filter(i => i.running).length ?? 0} 个运行中</span>{editor ? <div className="browser-row-actions"><button type="button" disabled={busy} onClick={() => { setEditor(null); setPassword(null); }}>取消</button><button type="submit" form="browser-environment-form" className="primary" disabled={busy || !supported}>{busy ? "保存中…" : "保存环境"}</button></div> : <button type="button" onClick={onClose}>关闭</button>}</footer>
-    </section>
-  </div>, document.body)}</>;
+      <footer className="plugin-content-footer browser-footer"><span>{snapshot?.environments.filter(i => !i.deletedAt).length ?? 0} 个环境 · {snapshot?.environments.filter(i => i.running).length ?? 0} 个运行中</span>{editor && <div className="browser-row-actions"><button type="button" disabled={busy} onClick={() => { setEditor(null); setPassword(null); }}>取消</button><button type="submit" form="browser-environment-form" className="primary" disabled={busy || !supported}>{busy ? "保存中…" : "保存环境"}</button></div>}</footer>
+    </section>;
+  return <>{cookieDialog}{mainShell}</>;
 }

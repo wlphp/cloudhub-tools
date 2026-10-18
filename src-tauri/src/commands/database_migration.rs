@@ -164,7 +164,7 @@ fn preserve_local_authenticator(incoming: &Path, current: &Path) -> Result<(), S
                 let rows = statement.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))).map_err(|_| "无法读取本机验证码")?;
                 for row in rows {
                     let (id, ciphertext) = row.map_err(|_| "无法读取本机验证码")?;
-                    transaction.execute("INSERT INTO authenticator_entries(id,ciphertext) VALUES(?1,?2)", rusqlite::params![id,ciphertext]).map_err(|_| "无法保留本机验证码")?;
+                    transaction.execute("INSERT INTO authenticator_entries(id,name,ciphertext) VALUES(?1,'',?2)", rusqlite::params![id,ciphertext]).map_err(|_| "无法保留本机验证码")?;
                 }
             }
         }
@@ -565,7 +565,7 @@ mod tests {
             let connection = Connection::open(path).unwrap();
             connection.execute_batch(crate::core::repositories::authenticator::SCHEMA).unwrap();
             connection.execute("INSERT INTO authenticator_vault VALUES(1,?1)", [header]).unwrap();
-            connection.execute("INSERT INTO authenticator_entries VALUES('example',?1)", [ciphertext]).unwrap();
+            connection.execute("INSERT INTO authenticator_entries(id,ciphertext) VALUES('example',?1)", [ciphertext]).unwrap();
         }
         preserve_local_authenticator(&incoming, &current).unwrap();
         let connection = Connection::open(&incoming).unwrap();

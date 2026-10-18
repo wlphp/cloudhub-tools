@@ -158,7 +158,7 @@ mod tests {
     fn fixture() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch("PRAGMA foreign_keys=ON;
-            CREATE TABLE flow_connections(id INTEGER PRIMARY KEY,name TEXT,edition TEXT,organization_id TEXT,domain TEXT,token_ciphertext TEXT,created_at INTEGER,updated_at INTEGER);
+            CREATE TABLE flow_connections(id INTEGER PRIMARY KEY,name TEXT,edition TEXT,organization_id TEXT,domain TEXT,token_ciphertext TEXT,created_at INTEGER,updated_at INTEGER,deleted_at INTEGER);
             CREATE TABLE flow_sync_identity(connection_id INTEGER PRIMARY KEY,sync_id TEXT UNIQUE,FOREIGN KEY(connection_id) REFERENCES flow_connections(id) ON DELETE CASCADE);
             CREATE TABLE flow_pipeline_cache(connection_id INTEGER,query_key TEXT,payload_ciphertext TEXT,updated_at INTEGER,PRIMARY KEY(connection_id,query_key),FOREIGN KEY(connection_id) REFERENCES flow_connections(id) ON DELETE CASCADE);").unwrap();
         conn
@@ -193,7 +193,7 @@ mod tests {
         assert!(cached.starts_with("target:"));
         assert_eq!(import(&target, &first, 30, |value| Ok(format!("target:{value}"))).unwrap(), (0,1));
         assert_eq!(target.query_row("SELECT COUNT(*) FROM flow_connections", [], |row| row.get::<_, i64>(0)).unwrap(), 2);
-        super::super::flow_connections::delete(&target, id).unwrap();
+        super::super::flow_connections::delete(&target, id, 40).unwrap();
         assert_eq!(target.query_row("SELECT COUNT(*) FROM flow_sync_identity WHERE connection_id=?1", [id], |row| row.get::<_, i64>(0)).unwrap(), 0);
     }
 

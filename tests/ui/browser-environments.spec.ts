@@ -1,5 +1,13 @@
 import { expect, test, type Page } from "@playwright/test";
 
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("cloudhub.plugin-presentation", JSON.stringify({
+      "cloudhub.fingerprint-browser": { mode: "modal", size: "large" },
+    }));
+  });
+});
+
 async function fixture(page: Page) {
   await page.addInitScript(() => {
     const recommended = { version: "155.0.8059.84", label: "推荐版本", recommended: true, experimental: false, installed: false, phase: "idle", downloaded: 0, total: 206114888, error: null };
@@ -247,9 +255,9 @@ test("Cookie 查看弹层默认隐藏原始值，逐条揭示", async ({ page })
   await expect(inspector).toBeVisible();
   // A real overlay, not an inline block: it mounts on document.body behind a
   // modal backdrop, which is what the shared dialog pattern requires.
-  await expect(page.locator(".cookie-view-backdrop")).toHaveCount(1);
-  await expect(page.locator("body > .cookie-view-backdrop .cookie-view-dialog")).toHaveCount(1);
-  await page.locator(".cookie-view-backdrop").click({ position: { x: 2, y: 2 } });
+  const backdrop = page.locator("body > .shared-dialog-backdrop").filter({ has: inspector });
+  await expect(backdrop).toHaveCount(1);
+  await backdrop.click({ position: { x: 2, y: 2 } });
   await expect(inspector).toBeVisible();
   await expect(inspector).not.toContainText("secret-session-value");
   await inspector.getByRole("button", { name: "显示", exact: true }).click();
