@@ -97,10 +97,10 @@ test("the store lists the Claude Code provider plugin and opens its manager", as
   await expect(page.getByRole("region", { name: "Claude Code 供应商 页面" }).getByRole("heading", { name: "Claude Code 供应商" })).toBeVisible();
   await expect(dialog).toContainText("Claude 官方");
   await expect(dialog).toContainText("DeepSeek");
-  // 当前生效的供应商有标记，其切换按钮被禁用。
+  // 当前供应商使用“使用中”状态，不展示可执行的切换按钮。
   const currentItem = dialog.locator(".claude-provider-item.is-current");
   await expect(currentItem).toContainText("DeepSeek");
-  await expect(currentItem.getByRole("button", { name: "切换" })).toBeDisabled();
+  await expect(currentItem.getByRole("button", { name: "使用中", exact: true })).toBeDisabled();
   // 没填 Key 的供应商给出可见提示。
   await expect(dialog).toContainText("缺少 Key");
 });
@@ -117,30 +117,24 @@ test("switching reports the change and closing keeps user configuration intact",
 
   // 备份恢复入口存在，且只影响 live 文件，不动供应商列表。
   await dialog.getByRole("button", { name: "恢复上一份" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "确认", exact: true }).click();
   await expect.poll(() => page.evaluate(() => (window as any).__claudeCalls)).toContain("restore");
 });
 
-test("switch and launch confirms before switching, then starts the selected provider", async ({ page }) => {
+test("switching to a configured provider updates the active selection", async ({ page }) => {
   await openStore(page, true);
   await page.locator(".software-store-page tbody tr", { hasText: "Claude Code 供应商" }).getByRole("button", { name: "管理" }).click();
-  const launch = page.getByRole("button", { name: "切换并启动 Claude 官方", exact: true });
-  await launch.click();
-  expect(await page.evaluate(() => (window as any).__claudeCalls)).toEqual([]);
-  await page.getByRole("alertdialog").getByRole("button", { name: "取消", exact: true }).click();
-  expect(await page.evaluate(() => (window as any).__claudeCalls)).toEqual([]);
-  await launch.click();
-  await page.getByRole("alertdialog").getByRole("button", { name: "确认", exact: true }).click();
-  await expect.poll(() => page.evaluate(() => (window as any).__claudeCalls)).toEqual(["switch:claude-official", "launch:claude-official"]);
-  await expect(page.getByRole("button", { name: "启动 DeepSeek", exact: true })).toBeDisabled();
+  await page.locator(".claude-provider-item", { hasText: "Claude 官方" }).getByRole("button", { name: "切换", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).__claudeCalls)).toContain("switch:claude-official");
+  await expect(page.locator(".claude-status")).toContainText("重启 Claude Code 后生效");
 });
 
 test("a failed switch does not launch Claude Code", async ({ page }) => {
   await openStore(page, true);
   await page.locator(".software-store-page tbody tr", { hasText: "Claude Code 供应商" }).getByRole("button", { name: "管理" }).click();
   await page.evaluate(() => { (window as any).__switchFails = true; });
-  await page.getByRole("button", { name: "切换并启动 Claude 官方", exact: true }).click();
-  await page.getByRole("alertdialog").getByRole("button", { name: "确认", exact: true }).click();
-  await expect(page.getByRole("alertdialog")).toContainText("操作失败");
+  await page.locator(".claude-provider-item", { hasText: "Claude 官方" }).getByRole("button", { name: "切换", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("操作失败");
   expect(await page.evaluate(() => (window as any).__claudeCalls)).toEqual(["switch:claude-official"]);
 });
 
@@ -149,6 +143,7 @@ test("the editor writes model mappings and rejects a blank address", async ({ pa
   await openStore(page);
   await page.locator(".software-store-page tbody tr", { hasText: "Claude Code 供应商" }).getByRole("button", { name: "管理" }).click();
   await page.locator(".claude-providers-dialog").getByRole("button", { name: "添加供应商" }).click();
+  await page.getByRole("dialog", { name: "添加供应商" }).getByRole("button", { name: /自定义配置/ }).click();
 
   const editor = page.locator(".claude-provider-dialog");
   await expect(editor).toBeVisible();
@@ -185,17 +180,17 @@ test("mode tabs only select a view and activation requires explicit confirmation
   await page.getByRole("tab", { name: "路由", exact: true }).click();
   expect(await page.evaluate(() => (window as any).__claudeCalls)).toEqual([]);
   await page.getByRole("button", { name: "开始路由" }).click();
-  const confirmation = page.getByRole("alertdialog");
-  await expect(confirmation).toBeVisible();
+  const setup = page.getByRole("dialog", { name: "让 Claude Code 使用路由模式？" });
+  await expect(setup).toBeVisible();
   await page.keyboard.press("Escape");
-  await expect(confirmation).toHaveCount(0);
+  await expect(setup).toHaveCount(0);
   expect(await page.evaluate(() => (window as any).__claudeCalls)).toEqual([]);
   await page.getByRole("button", { name: "开始路由" }).click();
-  await confirmation.getByRole("button", { name: "确认", exact: true }).click();
+  await page.getByRole("dialog", { name: "让 Claude Code 使用路由模式？" }).getByRole("button", { name: "开始路由", exact: true }).click();
   await expect(page.locator(".claude-mode-status")).toContainText("路由生效中");
   await expect.poll(() => page.evaluate(() => (window as any).__claudeCalls)).toContain("activate:route");
   await page.getByRole("button", { name: "回到直连" }).click();
-  await confirmation.getByRole("button", { name: "确认", exact: true }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "确认", exact: true }).click();
   await expect(page.locator(".claude-mode-status")).toContainText("直连生效中");
 });
 
@@ -204,9 +199,10 @@ test("activation errors stay in the shared confirmation and do not report succes
   await page.locator(".software-store-page tbody tr", { hasText: "Claude Code 供应商" }).getByRole("button", { name: "管理" }).click();
   await page.evaluate(() => { (window as any).__activationFails = true; });
   await page.getByRole("tab", { name: "聚合", exact: true }).click();
-  await page.getByRole("button", { name: "切换到聚合模式" }).click();
-  await page.getByRole("alertdialog").getByRole("button", { name: "确认", exact: true }).click();
-  await expect(page.getByRole("alertdialog")).toContainText("路由端口被占用");
+  await page.getByRole("button", { name: "启用聚合", exact: true }).click();
+  const setup = page.getByRole("dialog", { name: "让 Claude Code 使用聚合模式？" });
+  await setup.getByRole("button", { name: "切换到聚合模式", exact: true }).click();
+  await expect(setup.getByRole("alert")).toContainText("路由端口被占用");
   await expect(page.locator(".claude-mode-status")).toContainText("直连生效中");
 });
 
@@ -215,8 +211,8 @@ test("route queue changes preserve timeouts and do not activate routing", async 
   await page.locator(".software-store-page tbody tr", { hasText: "Claude Code 供应商" }).getByRole("button", { name: "管理" }).click();
   await page.getByRole("tab", { name: "路由", exact: true }).click();
   await page.locator(".claude-provider-item", { hasText: "Claude 官方" }).getByRole("button", { name: "加入队列" }).click();
-  await page.getByRole("checkbox", { name: "自动故障转移" }).check();
-  await expect(page.locator(".claude-queue")).toContainText("Claude 官方");
+  await page.getByRole("switch", { name: "自动故障转移" }).check();
+  await expect(page.locator(".claude-provider-item", { hasText: "Claude 官方" }).getByRole("button", { name: "移出队列" })).toBeVisible();
   const calls: string[] = await page.evaluate(() => (window as any).__claudeCalls);
   expect(calls.some(call => call.startsWith("activate:"))).toBe(false);
   const config = JSON.parse(calls.filter(call => call.startsWith("routing:")).pop()!.slice("routing:".length));
@@ -239,6 +235,7 @@ test("workspace navigation and shared settings render without layout overflow", 
   await page.keyboard.press("Escape");
   await page.getByRole("navigation", { name: "Claude Code 工作台" }).getByRole("button", { name: "配置", exact: true }).click();
   await expect(page.getByText("用户全局", { exact: true }).first()).toBeVisible();
+  await page.getByRole("tab", { name: "路由", exact: true }).click();
   await page.getByRole("button", { name: "路由设置", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "Claude Code 路由设置" })).toBeVisible();
   await expect(page.getByLabel("监听端口")).toHaveValue("15721");

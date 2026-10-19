@@ -813,7 +813,7 @@ dependencies = [
 
 [[package]]
 name = "cloudhub-tools"
-version = "0.1.64"
+version = "0.1.65"
 dependencies = [
  "aes 0.8.4",
  "aes-gcm 0.10.3",
