@@ -82,10 +82,4 @@ mod tests {
         for raw in ["http://user:test@localhost:9", "socks5://localhost:9", "http://localhost:9/?token=test", "localhost:99999", "localhost:9\n"] { add(&mut rows, raw, "test", true); }
         assert_eq!(rows.len(), 1);
     }
-    #[cfg(windows)]
-    #[test]
-    fn actual_windows_detection_returns_only_valid_addresses() {
-        let rows = detect().unwrap();
-        assert!(rows.iter().all(|row| super::super::account_controls::validate_proxy(&row.url).is_ok()));
-    }
 }

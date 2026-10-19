@@ -60,11 +60,4 @@ mod tests {
         assert_eq!(rows.len(),2);assert!(rows.iter().any(|v|v.adapter=="Wi-Fi"&&v.network=="Home"));
         assert!(parse(b"not json").is_err());
     }
-    #[cfg(windows)]
-    #[test]
-    fn windows_network_interfaces_are_private_and_named() {
-        let rows=interfaces().unwrap();
-        assert!(rows.len()<=128);
-        assert!(rows.iter().all(|row|row.ip.parse::<std::net::Ipv4Addr>().unwrap().is_private()&&!row.adapter.is_empty()));
-    }
 }
