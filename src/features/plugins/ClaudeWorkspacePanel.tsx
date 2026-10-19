@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Copy, Eye, FolderOpen, Pencil, Plus, RefreshCw, RotateCcw, Trash2, Upload } from "lucide-react";
 import { SharedDialog } from "../../shared/SharedDialog";
+import { HelpTooltip } from "../../shared/HelpTooltip";
 import { claudeWorkbenchClient as client, type ClaudePrompt, type ClaudeWorkspaceAction, type ClaudeWorkspaceState } from "../../platform/clients/claudeProviders";
 import { runningInTauri } from "../../platform/api";
 
@@ -142,7 +143,26 @@ export function ClaudeWorkspacePanel({ view, confirm, onScopeChanged }: { view: 
       {!trash && <button type="button" className="secondary claude-icon-button" title="复制恢复命令" aria-label={`复制恢复命令 ${session.id}`} onClick={() => void run(() => navigator.clipboard.writeText(`claude --resume ${session.id}`), "恢复命令已复制")}><Copy size={14} /></button>}
       <button type="button" className="secondary claude-icon-button" title={trash ? "恢复" : "删除"} aria-label={`${trash ? "恢复" : "删除"}会话 ${session.id}`} onClick={() => confirm(trash ? "恢复此会话？" : "将此会话移入回收站？", () => run(() => client.workspaceAction({ type: trash ? "restore_session" : "trash_session", key: session.key }), trash ? "会话已恢复" : "会话已移入回收站"))}>{trash ? <RotateCcw size={14} /> : <Trash2 size={14} />}</button>
     </div></li>)}</ul>}
-    {view === "config" && <div className="claude-work-config"><dl><dt>当前作用域</dt><dd>{state?.project || "用户全局"}</dd><dt>Claude Code 配置</dt><dd><code>{state?.settingsPath}</code></dd><dt>MCP 配置</dt><dd><code>{state?.mcpPath}</code></dd><dt>提示词文件</dt><dd><code>{state?.promptPath}</code></dd></dl>
+    {view === "config" && <div className="claude-work-config">
+      <div className="claude-config-options" aria-label="Claude Code 基础配置">
+        <div className="claude-config-option">
+          <div><div className="claude-config-label"><label htmlFor="claude-apply-plugin">应用到 Claude Code 插件</label><HelpTooltip label="插件适配说明">在配置目录的 config.json 中设置 primaryApiKey 兼容标记，不会复制 API Key。切换后请重启 Claude Code 插件。</HelpTooltip></div><small>让 IDE 插件使用已配置的第三方供应商</small></div>
+          <button id="claude-apply-plugin" type="button" className="claude-config-switch" role="switch" aria-label="应用到 Claude Code 插件" aria-checked={state?.pluginApplied ?? false} disabled={busy || !state || !runningInTauri} onClick={() => void run(() => client.workspaceAction({ type: "apply_plugin", enabled: !state?.pluginApplied }), "插件适配已更新，请重启插件")}><span /></button>
+        </div>
+        <div className="claude-config-option">
+          <div><div className="claude-config-label"><label htmlFor="claude-skip-onboarding">跳过 Claude Code 初次安装确认</label><HelpTooltip label="首次安装确认说明">设置 hasCompletedOnboarding 标记，跳过首次使用引导。不会跳过项目目录信任或工具执行权限确认。</HelpTooltip></div><small>使用第三方 API 时跳过首次使用引导</small></div>
+          <button id="claude-skip-onboarding" type="button" className="claude-config-switch" role="switch" aria-label="跳过 Claude Code 初次安装确认" aria-checked={state?.skipOnboarding ?? false} disabled={busy || !state || !runningInTauri} onClick={() => void run(() => client.workspaceAction({ type: "skip_onboarding", enabled: !state?.skipOnboarding }), "首次安装确认设置已更新")}><span /></button>
+        </div>
+        <div className="claude-config-directory">
+          <div className="claude-config-label"><label htmlFor="claude-config-directory">配置目录</label><HelpTooltip label="配置目录说明">指定本工具读写 Claude Code 用户配置的位置，不会迁移文件。项目作用域仍使用项目配置。外部启动的 Claude Code 需将 CLAUDE_CONFIG_DIR 设置为相同目录；本工具启动时会自动传入。</HelpTooltip></div>
+          <div className="claude-config-directory-control"><input id="claude-config-directory" readOnly value={state?.configDirectory ?? ""} placeholder="默认：用户目录下的 .claude" title={state?.configDirectory} />
+            <button type="button" className="secondary claude-icon-button" aria-label="选择配置目录" title="选择配置目录" disabled={busy || !runningInTauri} onClick={() => void run(async () => { await client.chooseConfigDirectory(); onScopeChanged(); }, "配置目录选择已结束")}><FolderOpen size={15} /></button>
+            <button type="button" className="secondary claude-icon-button" aria-label="恢复默认配置目录" title="恢复默认配置目录" disabled={busy || !runningInTauri || (state !== null && !state.customConfigDirectory)} onClick={() => void run(async () => { await client.chooseConfigDirectory(true); onScopeChanged(); }, "已恢复默认配置目录")}><RotateCcw size={15} /></button>
+          </div>
+          <small>{state?.customConfigDirectory ? "自定义目录 · 外部启动需同步设置 CLAUDE_CONFIG_DIR" : "默认目录 · 仅切换读写位置，不移动已有文件"}</small>
+        </div>
+      </div>
+      <dl><dt>当前作用域</dt><dd>{state?.project || "用户全局"}</dd><dt>Claude Code 配置</dt><dd><code>{state?.settingsPath}</code></dd><dt>MCP 配置</dt><dd><code>{state?.mcpPath}</code></dd><dt>提示词文件</dt><dd><code>{state?.promptPath}</code></dd></dl>
       <div className="claude-work-toolbar"><button type="button" className="secondary" disabled={busy} onClick={() => void run(async () => { await client.chooseProject(); onScopeChanged(); }, "项目作用域已更新")}><FolderOpen size={14} />选择项目</button><button type="button" className="secondary" disabled={busy || !state?.project} onClick={() => void run(async () => { await client.chooseProject(true); onScopeChanged(); }, "已切回用户全局")}><RotateCcw size={14} />用户全局</button></div>
       <h3>环境变量冲突</h3>{state?.environmentConflicts.length ? <ul>{state.environmentConflicts.map(name => <li key={name}><code>{name}</code></li>)}</ul> : <p>未检测到进程环境变量冲突</p>}
     </div>}

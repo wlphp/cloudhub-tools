@@ -362,7 +362,7 @@ mod tests {
             name: "MiniMax".into(),
             description: String::new(),
             website_url: String::new(),
-            base_url: "https://api.minimax.com/anthropic".into(),
+            base_url: "https://api.minimaxi.com/anthropic".into(),
             api_key: "sk-test".into(),
             api_key_field: ApiKeyField::AuthToken,
             api_format: ApiFormat::Anthropic,
@@ -418,7 +418,7 @@ mod tests {
         assert_eq!(out.document["language"], json!("简体中文"));
         assert_eq!(out.document["env"]["HTTP_PROXY"], json!("http://proxy"));
         // 旧的地址被换掉，不残留。
-        assert_eq!(out.document["env"]["ANTHROPIC_BASE_URL"], json!("https://api.minimax.com/anthropic"));
+        assert_eq!(out.document["env"]["ANTHROPIC_BASE_URL"], json!("https://api.minimaxi.com/anthropic"));
     }
 
     #[test]
@@ -495,7 +495,7 @@ mod tests {
     #[test]
     fn a_non_object_live_document_is_replaced_safely() {
         let out = apply_provider(&json!("not-an-object"), &provider());
-        assert_eq!(out.document["env"]["ANTHROPIC_BASE_URL"], json!("https://api.minimax.com/anthropic"));
+        assert_eq!(out.document["env"]["ANTHROPIC_BASE_URL"], json!("https://api.minimaxi.com/anthropic"));
     }
 
     #[test]

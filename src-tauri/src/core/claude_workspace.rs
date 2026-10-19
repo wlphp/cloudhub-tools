@@ -25,6 +25,7 @@ pub struct Session{pub key:String,pub id:String,pub title:String,pub project:Str
 #[derive(Serialize)]
 #[serde(rename_all="camelCase")]
 pub struct Snapshot{
+    pub config_directory:String,pub custom_config_directory:bool,pub plugin_applied:bool,pub skip_onboarding:bool,
     pub project:Option<String>,pub settings_path:String,pub mcp_path:String,pub prompt_path:String,
     pub mcp:Vec<Mcp>,pub prompts:Vec<Prompt>,pub active_prompt:Option<String>,pub skills:Vec<Skill>,
     pub sessions:Vec<Session>,pub environment_conflicts:Vec<String>,
@@ -41,7 +42,27 @@ pub fn set_project(path:Option<PathBuf>)->Result<(),String>{
     let value=if let Some(path)=path{let root=path.canonicalize().map_err(|_|"项目目录不可用")?;if !root.is_dir(){return Err("请选择项目文件夹".into());}root.to_string_lossy().to_string()}else{String::new()};
     set_pref(PROJECT,&value)
 }
-fn mcp_path()->Result<PathBuf,String>{Ok(if let Some(root)=project()?{root.join(".mcp.json")}else{repo::claude_home()?.parent().ok_or("用户目录不可用")?.join(".claude.json")})}
+fn global_config_path()->Result<PathBuf,String>{
+    let home=repo::claude_home()?;
+    Ok(if home==repo::default_claude_home()?{home.parent().ok_or("用户目录不可用")?.join(".claude.json")}else{home.join(".claude.json")})
+}
+fn mcp_path()->Result<PathBuf,String>{Ok(if let Some(root)=project()?{root.join(".mcp.json")}else{global_config_path()?})}
+pub fn set_config_directory(path:Option<PathBuf>)->Result<(),String>{
+    let value=if let Some(path)=path{
+        if !path.is_absolute(){return Err("请选择绝对路径的配置文件夹".into());}
+        let root=path.canonicalize().map_err(|_|"配置目录不可用")?;
+        if !root.is_dir(){return Err("请选择配置文件夹".into());}
+        if root==repo::default_claude_home()?.canonicalize().unwrap_or(repo::default_claude_home()?){String::new()}else{root.to_string_lossy().to_string()}
+    }else{String::new()};
+    let conn=open_db()?;
+    let tx=conn.unchecked_transaction().map_err(|_|"无法更新配置目录")?;
+    // Materialize the old marker before changing paths; never carry it to a different file.
+    if let Ok(old)=current_provider(&tx){set_current_provider(&tx,old.as_deref())?;}
+    tx.execute("INSERT INTO client_preferences(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at",params![repo::CONFIG_DIRECTORY,value,chrono::Utc::now().timestamp_millis()]).map_err(|_|"保存配置目录失败")?;
+    let key=current_key(&tx)?;
+    tx.execute("INSERT OR IGNORE INTO client_preferences(key,value,updated_at) VALUES(?1,'',?2)",params![key,chrono::Utc::now().timestamp_millis()]).map_err(|_|"更新配置作用域失败")?;
+    tx.commit().map_err(|_|"保存配置目录失败".to_string())
+}
 fn prompt_path()->Result<PathBuf,String>{Ok(if let Some(root)=project()?{root.join("CLAUDE.md")}else{repo::claude_home()?.join("CLAUDE.md")})}
 fn library()->Result<Library,String>{
     pref(&library_key()?)?.map(|cipher|serde_json::from_str(&decrypt_secret(&cipher)?).map_err(|_|"工作台数据损坏".into())).unwrap_or_else(||Ok(Library::default()))
@@ -52,17 +73,17 @@ fn project_in(conn:&rusqlite::Connection)->Result<Option<PathBuf>,String>{
     Ok(value.filter(|p|!p.is_empty()).map(PathBuf::from))
 }
 fn current_key(conn:&rusqlite::Connection)->Result<String,String>{
-    let path=if let Some(root)=project_in(conn)?{root.join(".claude/settings.local.json")}else{repo::claude_home()?.join("settings.json")};
+    let path=if let Some(root)=project_in(conn)?{root.join(".claude/settings.local.json")}else{repo::claude_home_in(conn)?.join("settings.json")};
     Ok(format!("claude.workbench.current.{}",backup_key(&path)))
 }
 pub fn current_provider(conn:&rusqlite::Connection)->Result<Option<String>,String>{
     let value:Option<String>=conn.query_row("SELECT value FROM client_preferences WHERE key=?1",[current_key(conn)?],|r|r.get(0)).optional().map_err(|_|"读取当前供应商失败")?;
     if let Some(value)=value{return Ok((!value.is_empty()).then_some(value));}
-    if project_in(conn)?.is_none(){repo::current_provider_id(conn)}else{Ok(None)}
+    if project_in(conn)?.is_none() && repo::claude_home_in(conn)?==repo::default_claude_home()?{repo::current_provider_id(conn)}else{Ok(None)}
 }
 pub fn set_current_provider(conn:&rusqlite::Connection,id:Option<&str>)->Result<(),String>{
     conn.execute("INSERT INTO client_preferences(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at",params![current_key(conn)?,id.unwrap_or(""),chrono::Utc::now().timestamp_millis()]).map_err(|_|"更新当前供应商失败")?;
-    if project_in(conn)?.is_none(){
+    if project_in(conn)?.is_none() && repo::claude_home_in(conn)?==repo::default_claude_home()?{
         if let Some(id)=id{repo::set_current(conn,id)?;}else{conn.execute("UPDATE claude_providers SET is_current=0",[]).map_err(|_|"更新当前供应商失败")?;}
     }
     Ok(())
@@ -90,6 +111,34 @@ fn write(path:&Path,bytes:&[u8],backup:bool)->Result<(),String>{
     fs::rename(&tmp,path).map_err(|_|"保存 Claude 文件失败")?;Ok(())
 }
 fn valid_name(name:&str)->bool{!name.is_empty()&&name.len()<=100&&name.bytes().all(|b|b.is_ascii_alphanumeric()||b"-_.".contains(&b))&&name!="."&&name!=".."}
+fn update_config_field(doc:&mut Value,key:&str,managed:&Value,enabled:bool,previous:Option<Value>)->Result<(),String>{
+    let object=doc.as_object_mut().ok_or("Claude 配置必须是对象，未改写")?;
+    if enabled{object.insert(key.into(),managed.clone());}
+    else if object.get(key)==Some(managed){
+        if let Some(value)=previous{object.insert(key.into(),value);}else{object.remove(key);}
+    }
+    Ok(())
+}
+fn toggle_config_field(path:&Path,key:&str,managed:Value,enabled:bool)->Result<(),String>{
+    let mut doc=read_json(path)?;
+    let marker=format!("{}.field.{key}",backup_key(path));
+    if enabled && doc.get(key)==Some(&managed){return Ok(());}
+    let previous=if enabled{
+        let record=json!({"previous":doc.get(key),"existed":doc.get(key).is_some()});
+        set_pref(&marker,&encrypt_secret(&record.to_string())?)?;
+        None
+    }else{
+        pref(&marker)?.filter(|v|!v.is_empty()).map(|cipher|->Result<Option<Value>,String>{
+            let record:Value=serde_json::from_str(&decrypt_secret(&cipher)?).map_err(|_|"原配置备份无效，未改写")?;
+            Ok((record["existed"]==json!(true)).then(||record["previous"].clone()))
+        }).transpose()?.flatten()
+    };
+    update_config_field(&mut doc,key,&managed,enabled,previous)?;
+    let bytes=serde_json::to_vec_pretty(&doc).map_err(|_|"Claude 配置序列化失败")?;
+    write(path,&bytes,true)?;
+    if !enabled{set_pref(&marker,"")?;}
+    Ok(())
+}
 fn server_summary(name:&str,v:&Value,enabled:bool)->Mcp{
     let url=v["url"].as_str().and_then(|s|reqwest::Url::parse(s).ok()).map(|mut u|{
         let _=u.set_username("");let _=u.set_password(None);u.set_query(None);u.set_fragment(None);u.to_string()
@@ -97,15 +146,20 @@ fn server_summary(name:&str,v:&Value,enabled:bool)->Mcp{
     Mcp{name:name.into(),enabled,transport:v["type"].as_str().unwrap_or("stdio").into(),command:v["command"].as_str().filter(|s|s.len()<240).unwrap_or("").into(),url,has_secrets:v["env"].as_object().is_some_and(|v|!v.is_empty())||v["headers"].as_object().is_some_and(|v|!v.is_empty())}
 }
 pub fn snapshot()->Result<Snapshot,String>{
+    let config_directory=repo::claude_home()?;
+    let plugin_applied=read_json(&config_directory.join("config.json"))?["primaryApiKey"]==json!("any");
+    let skip_onboarding=read_json(&global_config_path()?)?["hasCompletedOnboarding"]==json!(true);
     let library=library()?;let mcp_path=mcp_path()?;let doc=read_json(&mcp_path)?;
     let mut mcp:Vec<_>=doc["mcpServers"].as_object().into_iter().flatten().map(|(k,v)|server_summary(k,v,true)).collect();
     mcp.extend(library.disabled_mcp.iter().filter(|(k,_)|doc["mcpServers"].get(*k).is_none()).map(|(k,v)|server_summary(k,v,false)));mcp.sort_by(|a,b|a.name.cmp(&b.name));
     let conflicts=["ANTHROPIC_BASE_URL","ANTHROPIC_AUTH_TOKEN","ANTHROPIC_API_KEY","CLAUDE_CODE_OAUTH_TOKEN","CLAUDE_CODE_USE_BEDROCK","CLAUDE_CODE_USE_VERTEX"].into_iter().filter(|k|std::env::var(k).is_ok_and(|v|!v.is_empty())).map(String::from).collect();
-    Ok(Snapshot{project:project()?.map(|p|p.to_string_lossy().to_string()),settings_path:settings_path()?.to_string_lossy().to_string(),mcp_path:mcp_path.to_string_lossy().to_string(),prompt_path:prompt_path()?.to_string_lossy().to_string(),mcp,prompts:library.prompts,active_prompt:library.active_prompt,skills:skills()?,sessions:sessions()?,environment_conflicts:conflicts})
+    Ok(Snapshot{custom_config_directory:config_directory!=repo::default_claude_home()?,config_directory:config_directory.to_string_lossy().to_string(),plugin_applied,skip_onboarding,project:project()?.map(|p|p.to_string_lossy().to_string()),settings_path:settings_path()?.to_string_lossy().to_string(),mcp_path:mcp_path.to_string_lossy().to_string(),prompt_path:prompt_path()?.to_string_lossy().to_string(),mcp,prompts:library.prompts,active_prompt:library.active_prompt,skills:skills()?,sessions:sessions()?,environment_conflicts:conflicts})
 }
 #[derive(Deserialize)]
 #[serde(tag="type",rename_all="snake_case",deny_unknown_fields)]
 pub enum Action{
+    ApplyPlugin{enabled:bool},
+    SkipOnboarding{enabled:bool},
     SaveMcp{name:String,config:Value},
     ToggleMcp{name:String,enabled:bool},
     DeleteMcp{name:String},
@@ -119,8 +173,14 @@ pub enum Action{
     RestoreSession{key:String},
 }
 pub fn act(action:Action)->Result<(),String>{
+    match &action{
+        Action::ApplyPlugin{enabled}=>return toggle_config_field(&repo::claude_home()?.join("config.json"),"primaryApiKey",json!("any"),*enabled),
+        Action::SkipOnboarding{enabled}=>return toggle_config_field(&global_config_path()?,"hasCompletedOnboarding",json!(true),*enabled),
+        _=>{}
+    }
     let mut lib=library()?;
     match action{
+        Action::ApplyPlugin{..}|Action::SkipOnboarding{..}=>unreachable!(),
         Action::SaveMcp{name,mut config}=>{
             if !valid_name(&name)||!config.is_object()||config.to_string().len()>65536{return Err("MCP 名称或配置无效".into());}
             let kind=config["type"].as_str().unwrap_or("stdio");
@@ -297,6 +357,43 @@ pub fn session_preview(key:&str)->Result<String,String>{
 #[cfg(test)]
 mod tests{
     use super::*;
+    #[test]
+    fn config_toggles_preserve_unrelated_fields_and_restore_previous_value(){
+        let mut doc=json!({"theme":"dark","primaryApiKey":"previous-value","mcpServers":{}});
+        update_config_field(&mut doc,"primaryApiKey",&json!("any"),true,None).unwrap();
+        assert_eq!(doc["primaryApiKey"],"any");
+        assert_eq!(doc["theme"],"dark");
+        update_config_field(&mut doc,"primaryApiKey",&json!("any"),false,Some(json!("previous-value"))).unwrap();
+        assert_eq!(doc["primaryApiKey"],"previous-value");
+        assert!(doc["mcpServers"].is_object());
+        update_config_field(&mut doc,"hasCompletedOnboarding",&json!(true),true,None).unwrap();
+        update_config_field(&mut doc,"hasCompletedOnboarding",&json!(true),false,None).unwrap();
+        assert!(doc.get("hasCompletedOnboarding").is_none());
+        doc["primaryApiKey"]=json!("externally-changed");
+        update_config_field(&mut doc,"primaryApiKey",&json!("any"),false,Some(json!("previous-value"))).unwrap();
+        assert_eq!(doc["primaryApiKey"],"externally-changed");
+        assert!(update_config_field(&mut json!([]),"field",&json!(true),true,None).is_err());
+    }
+    #[test]
+    fn config_directory_markers_are_isolated_and_invalid_paths_rejected(){
+        let conn=rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(repo::SCHEMA).unwrap();
+        conn.execute_batch("CREATE TABLE client_preferences(key TEXT PRIMARY KEY,value TEXT NOT NULL,updated_at INTEGER NOT NULL); INSERT INTO claude_providers(id,name,settings_json,created_at,updated_at) VALUES('a','A','{}',0,0);").unwrap();
+        let default=repo::default_claude_home().unwrap();
+        set_current_provider(&conn,Some("a")).unwrap();
+        let directory=std::env::temp_dir().join(format!("cloudhub-config-test-{}",uuid::Uuid::new_v4()));
+        fs::create_dir(&directory).unwrap();
+        conn.execute("INSERT INTO client_preferences(key,value,updated_at) VALUES(?1,?2,0)",params![repo::CONFIG_DIRECTORY,directory.to_str().unwrap()]).unwrap();
+        assert_eq!(repo::claude_home_in(&conn).unwrap(),directory);
+        assert!(current_provider(&conn).unwrap().is_none());
+        set_current_provider(&conn,None).unwrap();
+        conn.execute("DELETE FROM client_preferences WHERE key=?1",[repo::CONFIG_DIRECTORY]).unwrap();
+        assert_eq!(repo::claude_home_in(&conn).unwrap(),default);
+        assert_eq!(current_provider(&conn).unwrap().as_deref(),Some("a"));
+        conn.execute("INSERT INTO client_preferences(key,value,updated_at) VALUES(?1,'relative/path',0)",[repo::CONFIG_DIRECTORY]).unwrap();
+        assert!(repo::claude_home_in(&conn).is_err());
+        fs::remove_dir(directory).unwrap();
+    }
     #[test]
     fn traversal_and_link_like_names_are_rejected(){for name in ["../a","a/b","a\\b",".","..",""]{assert!(!valid_name(name));}assert!(valid_name("my-skill"));}
     #[test]

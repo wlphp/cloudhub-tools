@@ -29,6 +29,26 @@ CREATE TABLE IF NOT EXISTS claude_provider_backups (
 const MAX_BACKUPS: i64 = 20;
 
 pub fn claude_home() -> Result<PathBuf, String> {
+    #[cfg(desktop)]
+    return claude_home_in(&crate::core::database::open_db()?);
+    #[cfg(not(desktop))]
+    default_claude_home()
+}
+
+pub const CONFIG_DIRECTORY: &str = "claude.workbench.config_directory";
+pub fn claude_home_in(conn: &Connection) -> Result<PathBuf, String> {
+    let value: Option<String> = conn.query_row("SELECT value FROM client_preferences WHERE key=?1", [CONFIG_DIRECTORY], |r| r.get(0)).optional().map_err(|_| "读取 Claude 配置目录失败")?;
+    match value.filter(|v| !v.is_empty()) {
+        Some(value) => {
+            let path = PathBuf::from(value);
+            if !path.is_absolute() || !path.is_dir() { return Err("Claude 配置目录不可用，请重新选择或恢复默认".into()); }
+            Ok(path)
+        }
+        None => default_claude_home(),
+    }
+}
+
+pub fn default_claude_home() -> Result<PathBuf, String> {
     let home = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
         .map_err(|_| "无法确定用户主目录".to_string())?;
@@ -311,7 +331,7 @@ pub fn presets() -> Vec<ClaudeProvider> {
         provider("deepseek", "DeepSeek", "https://platform.deepseek.com", "https://api.deepseek.com/anthropic", &[
             ("sonnet", "deepseek-chat"), ("opus", "deepseek-reasoner"), ("haiku", "deepseek-chat"),
         ]),
-        provider("minimax", "MiniMax", "https://platform.minimaxi.com", "https://api.minimax.com/anthropic", &[
+        provider("minimax", "MiniMax", "https://platform.minimaxi.com", "https://api.minimaxi.com/anthropic", &[
             ("sonnet", "MiniMax-M3"), ("opus", "MiniMax-M3.1-Flash-Preview"), ("haiku", "MiniMax-M2.7"),
         ]),
         provider("siliconflow", "SiliconFlow", "https://siliconflow.cn", "https://api.siliconflow.cn/anthropic", &[

@@ -44,6 +44,7 @@ export const DEFAULT_CLAUDE_ROUTING: ClaudeRoutingConfig = {
   retries: 2, timeoutSecs: 600, firstByteSecs: 90, idleSecs: 180, failureThreshold: 8, cooldownSecs: 90, logging: true,
 };
 export type ClaudeRequestLog = {
+  mode?: ClaudeMode | null;
   id: string; timestamp: number; providerId: string; model: string; actualModel: string; status: number;
   durationMs: number; inputTokens: number; outputTokens: number; cacheReadTokens: number;
 };
@@ -54,6 +55,7 @@ export type ClaudeRoutingState = {
 };
 export type ClaudePrompt = { id: string; name: string; content: string };
 export type ClaudeWorkspaceState = {
+  configDirectory: string; customConfigDirectory: boolean; pluginApplied: boolean; skipOnboarding: boolean;
   project: string | null; settingsPath: string; mcpPath: string; promptPath: string;
   mcp: { name: string; enabled: boolean; transport: string; command: string; url: string; hasSecrets: boolean }[];
   prompts: ClaudePrompt[]; activePrompt: string | null;
@@ -62,6 +64,7 @@ export type ClaudeWorkspaceState = {
   environmentConflicts: string[];
 };
 export type ClaudeWorkspaceAction =
+  | { type: "apply_plugin" | "skip_onboarding"; enabled: boolean }
   | { type: "save_mcp"; name: string; config: Record<string, unknown> }
   | { type: "toggle_mcp"; name: string; enabled: boolean }
   | { type: "delete_mcp"; name: string }
@@ -70,17 +73,25 @@ export type ClaudeWorkspaceAction =
   | { type: "restore_file"; kind: "mcp" | "prompt" }
   | { type: "trash_skill" | "restore_skill" | "trash_session" | "restore_session"; key: string };
 export const claudeWorkbenchClient = {
+  quota: (id: string) => nativeOnly<{ windows: { model: string; period: "5h" | "week"; remainingPercent: number; resetsAt: number | null }[]; queriedAt: number }>("claude_provider_action", { action: { type: "quota", id } }),
+  balance: (id: string) => nativeOnly<{ is_available: boolean; balance_infos: { currency: string; total_balance: string; granted_balance: string; topped_up_balance: string }[] }>("claude_provider_action", { action: { type: "balance", id } }),
+  cancelProviderImport: () => nativeOnly<void>("claude_provider_action", { action: { type: "cancel_import" } }),
+  prepareProviderImport: () => nativeOnly<{ token: string; providers: { index: number; name: string; baseUrl: string }[] } | null>("claude_provider_action", { action: { type: "prepare_import" } }),
+  importProviders: (token: string, indices: number[]) => nativeOnly<{ imported: number; skipped: number }>("claude_provider_action", { action: { type: "import_selected", token, indices } }),
+  exportProviders: (ids: string[]) => nativeOnly<boolean>("claude_provider_action", { action: { type: "export_selected", ids } }),
+  deleteProviders: (ids: string[]) => nativeOnly<{ deleted: number }>("claude_provider_action", { action: { type: "delete_selected", ids } }),
   state: () => nativeOnly<ClaudeRoutingState>("claude_routing_state"),
   saveRouting: (config: ClaudeRoutingConfig) => nativeOnly<void>("claude_routing_save", { config }),
   activate: (mode: ClaudeMode) => nativeOnly<void>("claude_routing_activate", { mode }),
   clearLogs: () => nativeOnly<void>("claude_routing_clear_logs"),
-  providerAction: (action: { type: "duplicate"; id: string } | { type: "move"; id: string; offset: number } | { type: "import_current" }) =>
+  providerAction: (action: { type: "duplicate"; id: string } | { type: "move"; id: string; offset: number } | { type: "import_current" | "open_config_directory" }) =>
     nativeOnly<void>("claude_provider_action", { action }),
   probe: (id: string) => nativeOnly<{ reachable: boolean; status: number | null; latencyMs: number }>("claude_provider_probe", { id }),
-  models: (id: string) => nativeOnly<ClaudeModelMapping[]>("claude_provider_models", { id }),
+  models: (id: string, draft?: ClaudeProviderInput) => nativeOnly<ClaudeModelMapping[]>("claude_provider_models", { id, draft }),
   workspace: () => nativeOnly<ClaudeWorkspaceState>("claude_workspace_state"),
   workspaceAction: (action: ClaudeWorkspaceAction) => nativeOnly<void>("claude_workspace_action", { action }),
   chooseProject: (clear = false) => nativeOnly<string | null>("claude_workspace_project", { clear }),
+  chooseConfigDirectory: (clear = false) => nativeOnly<string | null>("claude_workspace_project", { clear, configDirectory: true }),
   installSkill: () => nativeOnly<boolean>("claude_skill_install"),
   sessionPreview: (key: string) => nativeOnly<string>("claude_session_preview", { key }),
   /** 使用指定供应商的当前设置启动 Claude Code CLI（桌面端），浏览器预览下不可用。 */
@@ -117,4 +128,5 @@ export const claudeProvidersClient = {
   switchTo: (id: string) => invokeOrWeb<void>("claude_provider_switch", { id }, post("switch", { id })),
   restoreBackup: () => invokeOrWeb<void>("claude_provider_restore_backup", undefined, post("restore_backup")),
   currentSettings: () => invokeOrWeb<unknown>("claude_provider_current_settings", undefined, post("current_settings")),
+  previewSettings: () => nativeOnly<{ path: string; document: unknown }>("claude_provider_current_settings", { preview: true }),
 };

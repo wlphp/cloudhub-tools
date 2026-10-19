@@ -58,6 +58,8 @@ pub struct Health{pub failures:u32,pub open_until:Option<i64>}
 #[derive(Clone,Serialize,Deserialize)]
 #[serde(rename_all="camelCase")]
 pub struct Log{
+    #[serde(default)]
+    pub mode:Option<Mode>,
     pub id:String,pub timestamp:i64,pub provider_id:String,pub model:String,pub actual_model:String,
     pub status:u16,pub duration_ms:u64,pub input_tokens:u64,pub output_tokens:u64,pub cache_read_tokens:u64,
 }
@@ -135,7 +137,7 @@ fn catalog(c:&Config,providers:&[ClaudeProvider])->Vec<Value>{
     let mut result=Vec::new();
     for p in providers.iter().filter(|p|p.id==c.default_provider||c.members.contains(&p.id)){
         for m in models(p){
-            let id=format!("{}{}",aggregate_id(&p.id,&m.model),if m.supports_1m{"[1M]"}else{""});
+            let id=format!("{}{}",if p.id==c.default_provider{m.model.clone()}else{aggregate_id(&p.id,&m.model)},if m.supports_1m{"[1M]"}else{""});
             result.push(json!({"id":id,"display_name":if m.display_name.is_empty(){format!("{} · {}",p.name,m.model)}else{format!("{} · {}",p.name,m.display_name)},"type":"model","created_at":"2026-01-01T00:00:00Z"}));
         }
     }result
@@ -147,7 +149,7 @@ fn project_proxy(live:&Value,c:&Config,mode:Mode,providers:&[ClaudeProvider],por
     for role in ["sonnet","opus","haiku","fable"]{
         let mapping=target.models.get(role).cloned().unwrap_or(json!({}));
         let real=mapping["model"].as_str().unwrap_or(role);
-        shell.models.insert(role.into(),json!({"model":if mode==Mode::Aggregate{models(target).first().map(|m|aggregate_id(&target.id,&m.model)).unwrap_or(real.into())}else{format!("claude-{role}-5")},"displayName":mapping["displayName"].as_str().unwrap_or(real),"supports1m":if mode==Mode::Aggregate{models(target).first().is_some_and(|m|m.supports_1m)}else{mapping["supports1m"]==true}}));
+        shell.models.insert(role.into(),json!({"model":if mode==Mode::Aggregate{models(target).first().map(|m|m.model.clone()).unwrap_or(real.into())}else{format!("claude-{role}-5")},"displayName":mapping["displayName"].as_str().unwrap_or(real),"supports1m":if mode==Mode::Aggregate{models(target).first().is_some_and(|m|m.supports_1m)}else{mapping["supports1m"]==true}}));
     }
     let mut doc=model::apply_provider(live,&shell).document;
     if mode==Mode::Aggregate{
@@ -278,6 +280,13 @@ pub async fn change_project(path:Option<std::path::PathBuf>)->Result<(),String>{
     restore_locked()?;
     super::claude_workspace::set_project(path)
 }
+pub async fn change_config_directory(path:Option<std::path::PathBuf>)->Result<(),String>{
+    let guard=runtime().lock().await;
+    if guard.is_some(){return Err("请先回到直连再切换配置目录".into());}
+    let _writer=CONFIG_WRITER.lock().map_err(|_|"配置正在使用")?;
+    restore_locked()?;
+    super::claude_workspace::set_config_directory(path)
+}
 pub async fn in_use(id:&str)->bool{
     runtime().lock().await.as_ref().is_some_and(|r|r.shared.lock().is_ok_and(|s|s.config.route_provider==id||s.config.default_provider==id||s.config.members.iter().any(|p|p==id)||s.config.queue.iter().any(|p|p==id)))
 }
@@ -394,7 +403,7 @@ async fn serve(socket:&mut TcpStream,state:Arc<Mutex<Shared>>)->std::io::Result<
             if let Some(beta)=request.beta.as_ref(){req=req.header("anthropic-beta",beta);}
         }else if p.api_format==ApiFormat::Gemini{req=req.header("x-goog-api-key",&p.api_key);}else{req=req.bearer_auth(&p.api_key);}
         let result=tokio::time::timeout(Duration::from_secs(c.first_byte_secs),req.send()).await;
-        let mut log=Log{id:uuid::Uuid::new_v4().to_string(),timestamp:chrono::Utc::now().timestamp_millis(),provider_id:p.id.clone(),model:requested.into(),actual_model:actual.clone(),status:502,duration_ms:0,input_tokens:0,output_tokens:0,cache_read_tokens:0};
+        let mut log=Log{mode:Some(mode),id:uuid::Uuid::new_v4().to_string(),timestamp:chrono::Utc::now().timestamp_millis(),provider_id:p.id.clone(),model:requested.into(),actual_model:actual.clone(),status:502,duration_ms:0,input_tokens:0,output_tokens:0,cache_read_tokens:0};
         let response=match result{
             Ok(Ok(r)) if r.status().is_success()=>r,
             other=>{
@@ -482,6 +491,18 @@ async fn forward(socket:&mut TcpStream,mut response:reqwest::Response,format:Api
 #[cfg(test)]
 mod tests{
     use super::*;
+    #[test]
+    fn request_log_mode_preserves_history_and_legacy_unknown(){
+        let old=json!({"id":"example","timestamp":1,"providerId":"p","model":"m","actualModel":"m","status":200,"durationMs":1,"inputTokens":1,"outputTokens":1,"cacheReadTokens":0});
+        let mut log:Log=serde_json::from_value(old).unwrap();
+        assert!(log.mode.is_none());
+        for mode in [Mode::Route,Mode::Aggregate]{
+            log.mode=Some(mode);
+            let saved=serde_json::to_string(&log).unwrap();
+            let restored:Log=serde_json::from_str(&saved).unwrap();
+            assert!(restored.mode==Some(mode));
+        }
+    }
     fn provider()->ClaudeProvider{serde_json::from_value(json!({"id":"p","name":"Example","baseUrl":"https://example.test/v1","apiKey":"fixture","models":{"sonnet":{"model":"real-model"}}})).unwrap()}
     #[test]
     fn endpoint_does_not_duplicate_v1_or_messages(){
@@ -497,6 +518,18 @@ mod tests{
         assert_eq!(resolve(&s,&aggregate_id("p","real-model")).unwrap()[0].id,"p");
         assert!(resolve(&s,&aggregate_id("p","missing")).is_err());
         assert_eq!(mapped_model(&p,"claude-sonnet-5"),"real-model");
+    }
+    #[test]
+    fn aggregate_catalog_keeps_default_plain_and_members_prefixed(){
+        let p=provider();let mut member=provider();member.id="other".into();
+        let c=Config{default_provider:"p".into(),members:vec!["other".into()],failover:true,queue:vec!["other".into()],..Config::default()};
+        let entries=catalog(&c,&[p.clone(),member.clone()]);
+        assert_eq!(entries.len(),2);assert_eq!(entries[0]["id"],"real-model");
+        assert_eq!(entries[1]["id"],aggregate_id("other","real-model"));
+        let s=Shared{config:c,mode:Mode::Aggregate,providers:vec![p,member],health:HashMap::new(),logs:VecDeque::new(),active_provider:String::new(),auth:Zeroizing::new("fixture".into()),persist_logs:false};
+        assert_eq!(resolve(&s,"real-model").unwrap()[0].id,"p");
+        assert_eq!(resolve(&s,&aggregate_id("other","real-model")).unwrap()[0].id,"other");
+        assert_eq!(resolve(&s,"real-model").unwrap().len(),1);
     }
     #[tokio::test]
     async fn browser_requests_are_rejected(){
@@ -588,7 +621,7 @@ mod tests{
         let doc=project_proxy(&json!({"hooks":{"Stop":[]},"enabledPlugins":{"demo":true},"env":{"USER_OPTION":"yes"}}),&c,Mode::Aggregate,&[p],15721,"fixture").unwrap();
         assert!(doc["hooks"].is_object());assert_eq!(doc["enabledPlugins"]["demo"],true);assert_eq!(doc["env"]["USER_OPTION"],"yes");
         assert_eq!(doc["modelPicker"]["replaceBuiltInOptions"],true);
-        assert!(doc["modelPicker"]["options"][0]["model"].as_str().unwrap().starts_with("ccs-claude-"));
+        assert_eq!(doc["modelPicker"]["options"][0]["model"],"real-model");
         assert_eq!(doc["env"]["ANTHROPIC_AUTH_TOKEN"],"fixture");
     }
     #[test]

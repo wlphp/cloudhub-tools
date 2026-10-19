@@ -227,9 +227,13 @@ pub(crate) async fn claude_provider_restore_backup() -> PlatformResult<()> {
 
 /// 读取 live 配置里当前的连接信息，用于界面回显当前实际生效的供应商。
 #[tauri::command]
-pub(crate) async fn claude_provider_current_settings() -> PlatformResult<serde_json::Value> {
-    work(|| {
+pub(crate) async fn claude_provider_current_settings(preview: Option<bool>) -> PlatformResult<serde_json::Value> {
+    work(move || {
         let settings=repository::read_settings()?;
+        if preview == Some(true) {
+            // 用户主动打开的本地只读预览显示完整配置；不得记录此返回值。
+            return Ok(serde_json::json!({"path":repository::settings_path()?.to_string_lossy(),"document":settings}));
+        }
         let env=settings["env"].as_object();
         Ok(serde_json::json!({"baseUrl":env.and_then(|e|e.get("ANTHROPIC_BASE_URL")).and_then(|v|v.as_str()).unwrap_or(""),
             "models":env.map(model::models_from_env).unwrap_or_default()}))
