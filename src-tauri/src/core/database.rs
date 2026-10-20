@@ -410,7 +410,9 @@ fn migrate_connection_inner(conn: &mut Connection) -> Result<(), String> {
         transaction.pragma_update(None, "user_version", 42).map_err(|_| "更新Claude供应商数据库版本失败")?;
     }
     if version < 43 {
-        transaction.execute_batch("ALTER TABLE codex_accounts ADD COLUMN details_ciphertext TEXT;").map_err(|_| "创建账号资料存储失败")?;
+        transaction.execute_batch(CODEX_SCHEMA).map_err(|_| "创建 Codex 账号存储失败")?;
+        ensure_column("codex_accounts", "details_ciphertext", "TEXT")
+            .map_err(|_| "创建账号资料存储失败")?;
         transaction.pragma_update(None, "user_version", 43).map_err(|_| "更新账号资料数据库版本失败")?;
     }
     if version < 44 {
@@ -535,6 +537,21 @@ mod tests {
         crate::core::repositories::trash::scrub_expired(&conn, "codex_accounts", 2).unwrap();
         let details: Option<String> = conn.query_row("SELECT details_ciphertext FROM codex_accounts", [], |row| row.get(0)).unwrap();
         assert!(details.is_none() || details.as_deref() == Some(""));
+    }
+
+    #[test]
+    fn v43_migration_creates_missing_codex_accounts_and_is_idempotent() {
+        let mut conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.pragma_update(None, "user_version", 42).unwrap();
+
+        super::migrate_connection(&mut conn).unwrap();
+        super::migrate_connection(&mut conn).unwrap();
+
+        let columns: Vec<String> = conn.prepare("PRAGMA table_info(codex_accounts)").unwrap()
+            .query_map([], |row| row.get(1)).unwrap()
+            .collect::<Result<_, _>>().unwrap();
+        assert!(columns.contains(&"details_ciphertext".to_string()));
+        assert_eq!(conn.pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0)).unwrap(), CURRENT_SCHEMA_VERSION);
     }
     use super::{migrate_connection, CURRENT_SCHEMA_VERSION};
     use rusqlite::Connection;
