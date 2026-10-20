@@ -20,6 +20,12 @@ impl From<&str> for PlatformError {
 
 impl PlatformError {
     fn from_message(message: String) -> Self {
+        if ["请先停止实例再修改启动配置", "启动配置已被修改，请重新读取后再保存", "模型名称或上下文参数无效", "官方 CLI 无法保存启动配置，请检查版本或参数", "官方 CLI 无法读取启动配置，请检查版本", "检测到 Codex 客户端或 CLI 正在运行，请关闭后再切换或恢复默认登录", "关闭 Codex 客户端或 CLI 失败，请手动关闭后重试", "Codex 客户端仍在运行，请手动关闭后重试", "自动关闭 Codex 客户端或 CLI 目前仅支持 Windows，请手动关闭后重试", "请先停止 Codex 实例，再执行数据库迁移或登录备份", "请先停止 Codex 本地服务，再执行数据库迁移或登录备份", "请等待 Codex 唤醒结束后，再执行数据库迁移或登录备份", "未找到 Codex CLI，请先安装官方 CLI 并加入 PATH", "请先停止该账号的实例或 API 服务，再刷新 Token", "此账号没有可用的 Refresh Token，请重新授权或导入完整认证", "此账号由默认客户端管理，请在客户端续期后重新导入本机登录", "官方 CLI 刷新失败，请检查网络或重新授权", "请先停止目标实例和账号的服务，再切换实例账号"].contains(&message.as_str()) {
+            return Self { kind: "platform-error", code: "codex-launch", message, retryable: false };
+        }
+        if ["授权身份与原账号不一致，请使用原账号重新登录", "原账号已被删除，请重新添加账号", "重新授权的账号不存在或不支持官方登录"].contains(&message.as_str()) {
+            return Self { kind: "platform-error", code: "codex-login", message, retryable: false };
+        }
         if [
             "路由端口被占用，请修改端口后重试", "请先回到直连，再修改监听端口",
             "请选择已保存的供应商", "路由与聚合需要已填写密钥的供应商，官方订阅请使用直连",

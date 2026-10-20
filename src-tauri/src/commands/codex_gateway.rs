@@ -88,7 +88,7 @@ pub(crate) fn codex_gateway_save_pool(app: tauri::AppHandle, account_ids: Vec<i6
         let slot = store.gateway.lock().map_err(|_| "Codex 服务状态不可用")?;
         if slot.as_ref().is_some_and(|server| server.summary().map_or(true, |s| s.running)) { return Err("请先停止服务，再修改账号池".into()); }
         let conn = open_db()?;
-        for id in &account_ids { repository::get(&conn, *id)?; }
+        for id in &account_ids { repository::get(&conn, *id)?; crate::core::codex::auth::ensure_runtime_auth(&repository::credentials(&conn, *id)?)?; }
         crate::core::codex::gateway_config::save_pool(&conn, &account_ids)?;
     }
     codex_gateway_state(app)
@@ -99,7 +99,7 @@ pub(crate) fn codex_gateway_set_auto_start(app: tauri::AppHandle, enabled: bool,
     {
         let _writer = AUTH_WRITER.lock().map_err(|_| "Codex 账号操作不可用")?;
         let conn = open_db()?;
-        if enabled { for id in &account_ids { repository::get(&conn, *id)?; } }
+        if enabled { for id in &account_ids { repository::get(&conn, *id)?; crate::core::codex::auth::ensure_runtime_auth(&repository::credentials(&conn, *id)?)?; } }
         crate::core::codex::gateway_config::save_startup(&conn, enabled, &account_ids)?;
     }
     codex_gateway_state(app)
@@ -173,7 +173,7 @@ pub(crate) async fn codex_gateway_start(
         }
         // Validate ownership again under the same writer used by launch/import/delete.
         for id in &account_ids {
-            repository::get(&open_db()?, *id)?;
+            repository::get(&open_db()?, *id)?; crate::core::codex::auth::ensure_runtime_auth(&repository::credentials(&open_db()?, *id)?)?;
             if super::codex_instances::account_running(&store, *id)? {
                 return Err("所选账号已有实例或服务运行，请先停止".into());
             }
@@ -320,6 +320,19 @@ pub(crate) async fn codex_wake_account(
     model: String,
 ) -> PlatformResult<()> {
     // Users must explicitly confirm consumption in the UI; no timer or auto-wakeup.
+    run_account_test(app, id, model, "Reply with OK.".into(), "low".into()).await.map(|_| ())
+}
+
+#[tauri::command]
+pub(crate) async fn codex_test_account(
+    app: tauri::AppHandle, id: i64, model: String, prompt: String, effort: String,
+) -> PlatformResult<crate::core::codex::gateway::AccountTestResult> {
+    run_account_test(app, id, model, prompt, effort).await
+}
+
+async fn run_account_test(
+    app: tauri::AppHandle, id: i64, model: String, prompt: String, effort: String,
+) -> PlatformResult<crate::core::codex::gateway::AccountTestResult> {
     let store = app.state::<CodexRuntimeStore>();
     struct Lease {
         id: i64,
@@ -358,7 +371,7 @@ pub(crate) async fn codex_wake_account(
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         }
     };
-    let result = tokio::select! {result=crate::core::codex::gateway::wake(id,model)=>result,_=cancelled=>Err("应用退出，唤醒请求已取消".into())};
+    let result = tokio::select! {result=crate::core::codex::gateway::test_account(id,model,prompt,effort)=>result,_=cancelled=>Err("应用退出，模型请求已取消".into())};
     drop(lease);
     result.map_err(Into::into)
 }

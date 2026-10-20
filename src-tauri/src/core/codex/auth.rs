@@ -11,6 +11,8 @@ pub struct ImportedAccount {
     pub account_id: Option<String>,
     pub auth_mode: String,
     pub plan: Option<String>,
+    pub note: String,
+    pub tags: Vec<String>,
     pub auth_json: Zeroizing<String>,
 }
 
@@ -31,6 +33,60 @@ fn claims(token: &str) -> Value {
         .and_then(|s| URL_SAFE_NO_PAD.decode(s).ok())
         .and_then(|s| serde_json::from_slice(&s).ok())
         .unwrap_or(Value::Null)
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthMetadata {
+    pub is_web_session: bool,
+    pub login_provider: Option<String>,
+    pub workspace_name: Option<String>,
+    pub user_id: Option<String>,
+    pub access_expires_at: Option<i64>,
+    pub refresh_expires_at: Option<i64>,
+    pub id_expires_at: Option<i64>,
+    pub has_refresh_token: bool,
+}
+
+// JWT values are unverified display hints; this never returns credentials.
+pub fn metadata(content: &str) -> Result<AuthMetadata, String> {
+    let value: Value = serde_json::from_str(content).map_err(|_| "Codex 认证数据无效")?;
+    let access = claims(value.pointer("/tokens/access_token").and_then(Value::as_str).unwrap_or(""));
+    let refresh = claims(value.pointer("/tokens/refresh_token").and_then(Value::as_str).unwrap_or(""));
+    let id = claims(value.pointer("/tokens/id_token").and_then(Value::as_str).unwrap_or(""));
+    let expires = |value: &Value| value.get("exp").and_then(Value::as_i64).filter(|v| *v > 0 && *v <= 253402300799);
+    let user_id = [id.get("https://api.openai.com/auth"), access.get("https://api.openai.com/auth")]
+        .into_iter().flatten().find_map(|v| text(v, "chatgpt_user_id", 512).or_else(|| text(v, "user_id", 512)))
+        .or_else(|| text(&id, "sub", 512)).or_else(|| text(&access, "sub", 512));
+    let login_provider = text(&id, "auth_provider", 80).or_else(|| text(&access, "auth_provider", 80));
+    let account_id = value.pointer("/tokens/account_id").and_then(Value::as_str)
+        .or_else(|| access.pointer("/https:~1~1api.openai.com~1auth/chatgpt_account_id").and_then(Value::as_str));
+    let workspace_name = id.pointer("/https:~1~1api.openai.com~1auth/organizations").and_then(Value::as_array)
+        .and_then(|items| items.iter().find(|item| account_id.is_some_and(|account| item.get("id").and_then(Value::as_str) == Some(account)))
+            .or_else(|| items.iter().find(|item| item.get("is_default").and_then(Value::as_bool) == Some(true))).or_else(|| items.first()))
+        .and_then(|item| text(item, "title", 160).or_else(|| text(item, "name", 160)));
+    Ok(AuthMetadata { is_web_session: web_session(&value), login_provider, workspace_name, user_id, access_expires_at: expires(&access), refresh_expires_at: expires(&refresh), id_expires_at: expires(&id),
+        has_refresh_token: value.pointer("/tokens/refresh_token").and_then(Value::as_str).is_some_and(|v| !v.is_empty()) })
+}
+
+fn web_session(value: &Value) -> bool {
+    if value.get("token_source_mode").and_then(Value::as_str) == Some("chatgpt_web_session") { return true; }
+    if let Some(session)=value.get("session") {
+        if session.is_object() && (session.get("accessToken").is_some() || session.get("access_token").is_some()
+            || session.get("sessionToken").is_some() || session.get("user").is_some() || session.get("account").is_some()) { return true; }
+    }
+    let token = value.pointer("/tokens/access_token").or_else(|| value.get("accessToken")).or_else(|| value.get("access_token")).and_then(Value::as_str).unwrap_or("");
+    let payload = claims(token);
+    let scopes = payload.get("scope").and_then(Value::as_str).unwrap_or("");
+    // Existing imports lost their session wrapper. Identify the web audience only,
+    // never infer a web session merely from an absent refresh token.
+    payload.get("aud").is_some_and(|aud| aud.as_str() == Some("https://api.openai.com/v1") || aud.as_array().is_some_and(|items| items.iter().any(|v| v.as_str() == Some("https://api.openai.com/v1"))))
+        && scopes.split_whitespace().any(|scope| scope == "model.request")
+}
+
+pub fn ensure_runtime_auth(content: &str) -> Result<(), String> {
+    if metadata(content)?.is_web_session { return Err("Web Session 账号仅支持查看额度，无法切换、启动或用于 API 服务，请重新授权".into()); }
+    Ok(())
 }
 
 pub fn access_expiring(auth_json: &str) -> bool {
@@ -62,20 +118,20 @@ pub fn parse_account(value: &Value) -> Result<ImportedAccount, String> {
             Zeroizing::new(json!({"auth_mode":"apikey", "OPENAI_API_KEY":key}).to_string());
         return Ok(ImportedAccount {
             identity,
-            label: "API Key 账号".into(),
+            label: text(value, "account_name", 160).unwrap_or_else(|| "API Key 账号".into()),
             email: None,
             account_id: None,
             auth_mode: "apikey".into(),
             plan: None,
+            note: text(value, "note", 4000).unwrap_or_default(),
+            tags: import_tags(value),
             auth_json,
         });
     }
     let tokens = value.get("tokens").unwrap_or(value);
     let access = text(tokens, "access_token", 32_768).ok_or("Codex 文件缺少有效的登录凭据")?;
-    let id_token =
-        text(tokens, "id_token", 32_768).ok_or("Codex 文件缺少账号身份信息，请重新登录后导入")?;
-    let refresh = text(tokens, "refresh_token", 16_384)
-        .ok_or("Codex 文件缺少可续期的登录凭据，请重新登录后导入")?;
+    let id_token = text(tokens, "id_token", 32_768).unwrap_or_default();
+    let refresh = text(tokens, "refresh_token", 16_384).unwrap_or_default();
     let id_claims = claims(&id_token);
     let access_claims = claims(&access);
     let auth_claims = id_claims
@@ -87,8 +143,9 @@ pub fn parse_account(value: &Value) -> Result<ImportedAccount, String> {
         .ok_or("Codex 文件缺少账号标识")?;
     let user_id = text(auth_claims, "chatgpt_user_id", 512)
         .or_else(|| text(&id_claims, "sub", 512))
+        .or_else(|| text(&access_claims, "sub", 512))
         .ok_or("Codex 文件缺少用户标识")?;
-    let email = text(&id_claims, "email", 254).or_else(|| {
+    let email = text(&id_claims, "email", 254).or_else(|| text(&access_claims, "email", 254)).or_else(|| {
         id_claims
             .get("https://api.openai.com/profile")
             .and_then(|v| text(v, "email", 254))
@@ -98,18 +155,31 @@ pub fn parse_account(value: &Value) -> Result<ImportedAccount, String> {
         format!("chatgpt:{account_id}:{user_id}").as_bytes(),
     ));
     let mut auth = json!({"auth_mode":"chatgpt", "OPENAI_API_KEY":null, "tokens": {"access_token":access,"id_token":id_token,"refresh_token":refresh,"account_id":account_id}});
+    if web_session(value) { auth["token_source_mode"] = json!("chatgpt_web_session"); }
     if let Some(refreshed) = value.get("last_refresh").filter(|v| v.is_string()) {
         auth["last_refresh"] = refreshed.clone();
     }
     Ok(ImportedAccount {
         identity,
-        label: email.clone().unwrap_or_else(|| "ChatGPT 账号".into()),
+        label: text(value, "account_name", 160)
+            .unwrap_or_else(|| email.clone().unwrap_or_else(|| "ChatGPT 账号".into())),
         email,
         account_id: Some(account_id),
         auth_mode: "chatgpt".into(),
         plan,
+        note: text(value, "note", 4000).unwrap_or_default(),
+        tags: import_tags(value),
         auth_json: Zeroizing::new(auth.to_string()),
     })
+}
+
+fn import_tags(value: &Value) -> Vec<String> {
+    value.get("tags").and_then(Value::as_array).into_iter().flatten()
+        .filter_map(Value::as_str)
+        .filter(|tag| !tag.chars().any(char::is_control))
+        .map(str::trim)
+        .filter(|tag| !tag.is_empty() && tag.len() <= 80)
+        .take(32).map(str::to_owned).collect()
 }
 
 pub fn parse_import(content: &str) -> Result<Vec<ImportedAccount>, String> {
@@ -132,6 +202,23 @@ pub fn parse_import(content: &str) -> Result<Vec<ImportedAccount>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn metadata_only_exposes_bounded_identity_and_expiry_hints() {
+        let payload = URL_SAFE_NO_PAD.encode(json!({"sub":"user-display","exp":1893456000,"auth_provider":"google","https://api.openai.com/auth":{"organizations":[{"title":"测试工作区","is_default":true}]}}).to_string());
+        let token = format!("invalid.{payload}.invalid");
+        let output = metadata(&json!({"tokens":{"access_token":token,"id_token":token,"refresh_token":token}}).to_string()).unwrap();
+        assert_eq!(output.user_id.as_deref(), Some("user-display"));
+        assert_eq!(output.login_provider.as_deref(), Some("google"));
+        assert_eq!(output.workspace_name.as_deref(), Some("测试工作区"));
+        assert_eq!(output.access_expires_at, Some(1893456000));
+        assert_eq!(output.refresh_expires_at, Some(1893456000));
+        let serialized = serde_json::to_string(&output).unwrap();
+        assert!(!serialized.contains(&token));
+        assert!(!serialized.contains("invalid-fixture"));
+        assert!(metadata("{}").unwrap().access_expires_at.is_none());
+        assert!(metadata("{}").unwrap().refresh_expires_at.is_none());
+        assert!(!metadata("{}").unwrap().has_refresh_token);
+    }
     fn oauth(account: &str, user: &str) -> Value {
         let payload = URL_SAFE_NO_PAD.encode(json!({"sub":user,"email":"test@example.test","https://api.openai.com/auth":{"chatgpt_account_id":account,"chatgpt_user_id":user,"chatgpt_plan_type":"plus"}}).to_string());
         // Deliberately invalid synthetic credential assembled only for parser tests.
@@ -150,6 +237,17 @@ mod tests {
             parse_account(&oauth("org-a", "user-b")).unwrap().identity
         );
         assert_eq!(a.email.as_deref(), Some("test@example.test"));
+    }
+    #[test]
+    fn imports_cockpit_tools_display_metadata_with_safe_bounds() {
+        let mut value = oauth("org-a", "user-a");
+        value["account_name"] = json!("工作账号");
+        value["note"] = json!("日常使用");
+        value["tags"] = json!(["主力", "测试", "\nignored"]);
+        let account = parse_account(&value).unwrap();
+        assert_eq!(account.label, "工作账号");
+        assert_eq!(account.note, "日常使用");
+        assert_eq!(account.tags, vec!["主力", "测试"]);
     }
     #[test]
     fn rejects_partial_batches_and_oversize_without_echoing_input() {

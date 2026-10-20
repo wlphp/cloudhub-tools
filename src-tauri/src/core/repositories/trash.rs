@@ -50,7 +50,7 @@ pub const SECRET_COLUMNS: [(&str, &[&str]); 8] = [
     ("cloud_accounts", &["secret_ciphertext"]),
     ("certificates", &["certificate_pem_ciphertext", "private_key_ciphertext"]),
     ("authenticator_entries", &["ciphertext"]),
-    ("codex_accounts", &["auth_ciphertext"]),
+    ("codex_accounts", &["auth_ciphertext", "details_ciphertext"]),
 ];
 
 /// Credential columns for a table, validated against the allowlist.
@@ -82,14 +82,14 @@ pub fn scrub_expired(conn: &Connection, table: &str, cutoff: i64) -> Result<u64,
     }
     let assignments = columns
         .iter()
-        .map(|column| format!("{column}=NULL"))
+        .map(|column| if name == "codex_accounts" && *column == "auth_ciphertext" { format!("{column}=''") } else { format!("{column}=NULL") })
         .collect::<Vec<_>>()
         .join(",");
     let changed = conn
         .execute(
             &format!(
                 "UPDATE {name} SET {assignments} WHERE deleted_at IS NOT NULL AND deleted_at < ?1 AND ({guard})",
-                guard = columns.iter().map(|column| format!("{column} IS NOT NULL")).collect::<Vec<_>>().join(" OR ")
+                guard = columns.iter().map(|column| if name == "codex_accounts" && *column == "auth_ciphertext" { format!("{column} IS NOT NULL AND {column}<>''") } else { format!("{column} IS NOT NULL") }).collect::<Vec<_>>().join(" OR ")
             ),
             [cutoff],
         )

@@ -589,6 +589,7 @@ fn credentials(
     let _writer = super::AUTH_WRITER
         .lock()
         .map_err(|_| "Codex 账号操作不可用")?;
+    auth::ensure_runtime_auth(&repository::credentials(&open_db()?, id)?)?;
     credentials_locked(id,cancelled)
 }
 pub(crate) fn credentials_locked(id:i64,cancelled:Arc<std::sync::atomic::AtomicBool>)->Result<(Zeroizing<String>,Option<String>,Option<String>),String> {
@@ -598,6 +599,11 @@ pub(crate) fn credentials_locked(id:i64,cancelled:Arc<std::sync::atomic::AtomicB
     }
     let summary = repository::get(&conn, id)?;
     let saved = auth::parse_import(&repository::credentials(&conn, id)?)?.remove(0);
+    if summary.is_web_session {
+        let value: Value = serde_json::from_str(&saved.auth_json).map_err(|_| "Codex 认证数据无效")?;
+        let token = value.pointer("/tokens/access_token").and_then(Value::as_str).ok_or("缺少 Access Token")?;
+        return Ok((Zeroizing::new(token.to_owned()), saved.account_id, summary.proxy_url));
+    }
     let external = profile::default_home()
         .ok()
         .and_then(|home| profile::read_auth(&home.join("auth.json")).ok())
@@ -607,6 +613,10 @@ pub(crate) fn credentials_locked(id:i64,cancelled:Arc<std::sync::atomic::AtomicB
     let current = if let Some(external) = external {
         external
     } else if saved.auth_mode == "chatgpt" && auth::access_expiring(&saved.auth_json) {
+        let value: Value = serde_json::from_str(&saved.auth_json).map_err(|_| "Codex 认证数据无效")?;
+        if value.pointer("/tokens/refresh_token").and_then(Value::as_str).is_none_or(str::is_empty) {
+            return Err("Access Token 已过期或无法确认有效期，请重新导入有效 Token 或完整 auth.json".into());
+        }
         let isolated = profile::TemporaryProfile::new(&saved.auth_json)?;
         let result = (|| {
             let mut server = rpc::AppServer::start_cancelled_proxy(&isolated.path, Some(cancelled), summary.proxy_url.as_deref())?;
@@ -1127,24 +1137,64 @@ async fn serve(stream: &mut TcpStream, host: &str, shared: &Shared, trace: &mut 
     }
 }
 
-pub async fn wake(id: i64, model: String) -> Result<(), String> {
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountTestResult {
+    pub text: String,
+    pub duration_ms: u64,
+    pub input_tokens: Option<u64>,
+    pub output_tokens: Option<u64>,
+}
+
+pub async fn test_account(id: i64, model: String, prompt: String, effort: String) -> Result<AccountTestResult, String> {
     if !model_valid(&model) {
         return Err("唤醒模型名称无效".into());
     }
+    if prompt.trim().is_empty() || prompt.len() > 32_768 || !matches!(effort.as_str(), "low" | "medium" | "high") {
+        return Err("模型测试参数无效".into());
+    }
+    let started = Instant::now();
     let client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(90))
         .build()
         .map_err(|_| "初始化唤醒请求失败")?;
     let mut remote=None;
-    let mut response=upstream(&client,id,json!({"model":model,"instructions":"","input":[{"role":"user","content":[{"type":"input_text","text":"Reply with OK."}]}],"stream":true,"store":false,"tools":[]}),None,&mut remote).await.map_err(|_|"唤醒请求失败，请检查登录、模型权限或额度")?;
+    let mut response=upstream(&client,id,json!({"model":model,"instructions":"","reasoning":{"effort":effort},"input":[{"role":"user","content":[{"type":"input_text","text":prompt}]}],"stream":true,"store":false,"tools":[]}),None,&mut remote).await.map_err(|_|"模型请求失败，请检查登录、模型权限或额度")?;
     let mut decoder = SseDecoder::default();
     let mut completed = false;
+    let mut text = String::new();
+    let mut input_tokens = None;
+    let mut output_tokens = None;
     while let Some(chunk) = response.chunk().await.map_err(|_| "唤醒响应中断")? {
         for value in decoder.feed(&chunk)? {
             if let Some(log)=remote.as_mut(){log.event(&value);}
             match value.get("type").and_then(Value::as_str) {
-                Some("response.completed") => completed = true,
+                Some("response.output_text.delta") => {
+                    if let Some(delta) = value.get("delta").and_then(Value::as_str) {
+                        if text.len() + delta.len() > 512 * 1024 { return Err("模型输出超过 512 KB 限制".into()); }
+                        text.push_str(delta);
+                    }
+                }
+                Some("response.completed") => {
+                    completed = true;
+                    input_tokens = value.pointer("/response/usage/input_tokens").and_then(Value::as_u64);
+                    output_tokens = value.pointer("/response/usage/output_tokens").and_then(Value::as_u64);
+                    if text.is_empty() {
+                        if let Some(output) = value.pointer("/response/output").and_then(Value::as_array) {
+                            for item in output {
+                                if let Some(parts) = item.get("content").and_then(Value::as_array) {
+                                    for part in parts {
+                                        if let Some(content) = part.get("text").and_then(Value::as_str) {
+                                            if text.len() + content.len() > 512 * 1024 { return Err("模型输出超过 512 KB 限制".into()); }
+                                            text.push_str(content);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 Some("error" | "response.failed" | "response.incomplete") => {
                     return Err("唤醒请求被上游中断".into())
                 }
@@ -1159,12 +1209,19 @@ pub async fn wake(id: i64, model: String) -> Result<(), String> {
     if !completed {
         return Err("唤醒请求未完成".into());
     }
-    Ok(())
+    Ok(AccountTestResult { text, duration_ms: started.elapsed().as_millis().min(u64::MAX as u128) as u64, input_tokens, output_tokens })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn account_test_rejects_invalid_parameters_before_reading_credentials() {
+        assert!(test_account(0, "invalid model".into(), "fixture".into(), "medium".into()).await.is_err());
+        assert!(test_account(0, "fixture-model".into(), "".into(), "medium".into()).await.is_err());
+        assert!(test_account(0, "fixture-model".into(), "fixture".into(), "unknown".into()).await.is_err());
+        assert!(test_account(0, "fixture-model".into(), "x".repeat(32769), "medium".into()).await.is_err());
+    }
     #[tokio::test]
     async fn routing_rules_respect_quota_cooldown_and_existing_tool_sessions() {
         let server = RunningGateway::start(0, vec![1,2,3]).await.unwrap();

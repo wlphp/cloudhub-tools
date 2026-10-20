@@ -104,6 +104,76 @@ fn instance_path(id: &str) -> Result<PathBuf, String> {
     Ok(path)
 }
 
+#[derive(Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct LaunchConfig {
+    version: String,
+    model: Option<String>,
+    context_window: Option<i64>,
+    compact_limit: Option<i64>,
+}
+
+fn config_home(store: &CodexRuntimeStore, id: Option<&str>, writing: bool) -> Result<PathBuf, String> {
+    if let Some(id) = id {
+        let _: i64 = open_db()?.query_row("SELECT account_id FROM codex_profiles WHERE id=?1", [id], |row| row.get(0)).map_err(|_| "Codex 实例不存在")?;
+        if writing && store.instances.lock().map_err(|_| "Codex 实例状态不可用")?.contains_key(id) { return Err("请先停止实例再修改启动配置".into()); }
+        instance_path(id)
+    } else {
+        let home = profile::default_home()?;
+        if home.exists() && fs::symlink_metadata(&home).map_err(|_| "检查 Codex 目录失败")?.file_type().is_symlink() { return Err("默认 Codex 目录为链接，请使用独立实例".into()); }
+        if writing { profile::ensure_default_idle()?; }
+        Ok(home)
+    }
+}
+
+fn config_content(home: &Path) -> Result<Option<zeroize::Zeroizing<String>>, String> {
+    match fs::symlink_metadata(home.join("config.toml")) {
+        Ok(_) => profile::read_auth(&home.join("config.toml")).map(Some),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(_) => Err("读取 Codex 启动配置失败".into()),
+    }
+}
+
+#[tauri::command]
+pub(crate) async fn codex_launch_config(app: tauri::AppHandle, id: Option<String>, input: Option<LaunchConfig>) -> PlatformResult<LaunchConfig> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<LaunchConfig, String> {
+        use crate::core::codex::rpc;
+        use serde_json::json;
+        use std::time::Duration;
+        let _writer = AUTH_WRITER.lock().map_err(|_| "Codex 账号操作不可用")?;
+        let store = app.state::<CodexRuntimeStore>();
+        let home = config_home(&store, id.as_deref(), input.is_some())?;
+        let original = config_content(&home)?;
+        let version = profile::fingerprint(original.as_ref().map(|v| v.as_str()));
+        let isolated = profile::TemporaryProfile::new("{}")?;
+        if let Some(content) = &original { profile::write_private(&isolated.path.join("config.toml"), content)?; }
+        let mut server = rpc::AppServer::start(&isolated.path)?;
+        if let Some(input) = input {
+            if input.version != version { return Err("启动配置已被修改，请重新读取后再保存".into()); }
+            if input.model.as_ref().is_some_and(|v| v.is_empty() || v.len() > 160 || !v.chars().all(|c| c.is_ascii_alphanumeric() || "-._/:".contains(c)))
+                || input.context_window.is_some_and(|v| !(1024..=10_000_000).contains(&v))
+                || input.compact_limit.is_some_and(|v| v < 1024 || v > input.context_window.unwrap_or(10_000_000)) {
+                return Err("模型名称或上下文参数无效".into());
+            }
+            let edits = [("model", json!(input.model)), ("model_context_window", json!(input.context_window)), ("model_auto_compact_token_limit", json!(input.compact_limit))]
+                .into_iter().map(|(key, value)| json!({"keyPath":key,"value":value,"mergeStrategy":"replace"})).collect::<Vec<_>>();
+            server.request("config/batchWrite", json!({"edits":edits,"reloadUserConfig":false}), Duration::from_secs(20))
+                .map_err(|_| "官方 CLI 无法保存启动配置，请检查版本或参数")?;
+            let updated = profile::read_auth(&isolated.path.join("config.toml"))?;
+            if profile::fingerprint(config_content(&home)?.as_ref().map(|v| v.as_str())) != version { return Err("启动配置已被修改，请重新读取后再保存".into()); }
+            config_home(&store, id.as_deref(), true)?;
+            if !home.exists() { fs::create_dir_all(&home).map_err(|_| "创建 Codex 默认目录失败")?; profile::private_permissions(&home, true)?; }
+            profile::write_private(&home.join("config.toml"), &updated)?;
+        }
+        let response = server.request("config/read", json!({"includeLayers":false}), Duration::from_secs(20)).map_err(|_| "官方 CLI 无法读取启动配置，请检查版本")?;
+        let config = &response["config"];
+        Ok(LaunchConfig { version: profile::fingerprint(config_content(&home)?.as_ref().map(|v| v.as_str())),
+            model: config.get("model").and_then(serde_json::Value::as_str).filter(|v| v.len() <= 160 && v.chars().all(|c| c.is_ascii_alphanumeric() || "-._/:".contains(c))).map(str::to_owned),
+            context_window: config.get("model_context_window").and_then(serde_json::Value::as_i64),
+            compact_limit: config.get("model_auto_compact_token_limit").and_then(serde_json::Value::as_i64) })
+    }).await.map_err(|_| "读取 Codex 启动配置任务失败")?.map_err(Into::into)
+}
+
 pub(crate) fn clear_account_projections(
     conn: &rusqlite::Connection,
     account_id: i64,
@@ -195,6 +265,7 @@ pub(crate) async fn codex_delete_instance(
 fn sync_instance(account_id: i64, path: &Path) -> Result<(), String> {
     let conn = open_db()?;
     let account = repository::get(&conn, account_id)?;
+    auth::ensure_runtime_auth(&repository::credentials(&conn, account_id)?)?;
     let content = profile::read_auth(&path.join("auth.json"))?;
     let imported = auth::parse_import(&content)?.remove(0);
     let saved = auth::parse_import(&repository::credentials(&conn, account_id)?)?.remove(0);
@@ -210,6 +281,39 @@ fn sync_instance(account_id: i64, path: &Path) -> Result<(), String> {
         imported.plan.as_deref(),
         None,
     )
+}
+
+#[tauri::command]
+pub(crate) async fn codex_bind_instance(app: tauri::AppHandle, id: String, account_id: i64) -> PlatformResult<Vec<InstanceSummary>> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<Vec<InstanceSummary>, String> {
+        let _writer = AUTH_WRITER.lock().map_err(|_| "Codex 账号操作不可用")?;
+        let store = app.state::<CodexRuntimeStore>();
+        let conn = open_db()?;
+        let old: i64 = conn.query_row("SELECT account_id FROM codex_profiles WHERE id=?1", [&id], |row| row.get(0)).map_err(|_| "Codex 实例不存在")?;
+        if account_running(&store, old)? || account_running(&store, account_id)? {
+            return Err("请先停止目标实例和账号的服务，再切换实例账号".into());
+        }
+        repository::get(&conn, account_id)?;
+        if old != account_id {
+            let path = instance_path(&id)?;
+            // Preserve the old account's latest rotated grant before changing binding.
+            if path.join("auth.json").exists() {
+                let previous: Option<String> = conn.query_row("SELECT auth_fingerprint FROM codex_profiles WHERE id=?1", [&id], |row| row.get(0)).map_err(|_| "读取 Codex 实例失败")?;
+                let disk = profile::read_auth(&path.join("auth.json"))?;
+                let stored = repository::credentials(&conn, old)?;
+                let disk_hash = profile::fingerprint(Some(&disk));
+                let stored_hash = profile::fingerprint(Some(&stored));
+                let previous = previous.ok_or("实例目录已有登录数据，请创建新实例，未覆盖原文件")?;
+                if disk_hash != previous && disk_hash != stored_hash {
+                    if previous != stored_hash { return Err("实例与账号凭据均已变更，请新建实例或先导入该实例 auth.json，未覆盖登录状态".into()); }
+                    sync_instance(old, &path)?;
+                }
+            }
+            clear_projection(&id)?;
+            conn.execute("UPDATE codex_profiles SET account_id=?1,auth_fingerprint=NULL WHERE id=?2", params![account_id, id]).map_err(|_| "保存 Codex 实例失败")?;
+        }
+        summaries(&store)
+    }).await.map_err(|_| "切换 Codex 实例任务失败")?.map_err(Into::into)
 }
 
 pub(crate) fn stop_all(store: &CodexRuntimeStore) {
@@ -404,6 +508,19 @@ fn launch_terminal(cli: &Path, home: &Path, workspace: &Path, proxy:Option<&str>
 }
 
 #[tauri::command]
+pub(crate) async fn codex_open_default_cli() -> PlatformResult<()> {
+    tauri::async_runtime::spawn_blocking(|| -> Result<(), String> {
+        let _writer = AUTH_WRITER.lock().map_err(|_| "Codex 账号操作不可用")?;
+        let home = profile::default_home()?;
+        profile::ensure_file_storage(&home)?;
+        profile::ensure_default_idle()?;
+        let cli = profile::cli_path().ok_or("未找到 Codex CLI，请先安装官方 CLI 并加入 PATH")?;
+        let _child = launch_terminal(&cli, &home, &home, None)?;
+        Ok(())
+    }).await.map_err(|_| "打开 Codex 实例终端失败")?.map_err(Into::into)
+}
+
+#[tauri::command]
 pub(crate) async fn codex_start_instance(
     app: tauri::AppHandle,
     id: String,
@@ -420,6 +537,7 @@ pub(crate) async fn codex_start_instance(
         let path = instance_path(&id)?;
         profile::ensure_file_storage(&path)?;
         let mut stored_auth = repository::credentials(&conn,account_id)?;
+        auth::ensure_runtime_auth(&stored_auth)?;
         let saved_identity=auth::parse_import(&stored_auth)?.remove(0).identity;
         if profile::default_home().ok().and_then(|home|profile::read_auth(&home.join("auth.json")).ok()).and_then(|content|auth::parse_import(&content).ok()).is_some_and(|accounts|accounts.iter().any(|account|account.auth_mode=="chatgpt"&&account.identity==saved_identity)){
             // A copied refresh grant can rotate after launch even when the default client

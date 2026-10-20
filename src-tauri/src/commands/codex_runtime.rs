@@ -25,6 +25,7 @@ pub(crate) struct CodexRuntimeStore {
 
 pub(crate) struct PendingLogin {
     token: String,
+    expected_account: Option<(i64, String)>,
     auth_url: zeroize::Zeroizing<String>,
     // Server is dropped before its credential directory is removed.
     server: rpc::AppServer,
@@ -77,9 +78,21 @@ pub(crate) struct LoginPoll {
     status: &'static str,
 }
 
+fn validate_reauthorization(accounts: &[auth::ImportedAccount], expected: &str) -> Result<(), String> {
+    if accounts.len() != 1 || accounts[0].identity != expected {
+        return Err("授权身份与原账号不一致，请使用原账号重新登录".into());
+    }
+    Ok(())
+}
+
 #[tauri::command]
-pub(crate) async fn codex_start_login(app: tauri::AppHandle) -> PlatformResult<LoginStart> {
+pub(crate) async fn codex_start_login(app: tauri::AppHandle, account_id: Option<i64>) -> PlatformResult<LoginStart> {
     tauri::async_runtime::spawn_blocking(move || -> Result<LoginStart, String> {
+        let expected_account = account_id.map(|id| {
+            let conn = crate::core::storage::open_db()?;
+            conn.query_row("SELECT identity FROM codex_accounts WHERE id=?1 AND deleted_at IS NULL AND auth_mode='chatgpt'", [id], |row| row.get::<_, String>(0))
+                .map(|identity| (id, identity)).map_err(|_| "重新授权的账号不存在或不支持官方登录".to_string())
+        }).transpose()?;
         let store = app.state::<CodexRuntimeStore>();
         store.cleanup_expired();
         let mut slot = store.login.lock().map_err(|_| "Codex 登录状态不可用")?;
@@ -108,6 +121,7 @@ pub(crate) async fn codex_start_login(app: tauri::AppHandle) -> PlatformResult<L
         }
         *slot = Some(PendingLogin {
             token: token.clone(),
+            expected_account,
             auth_url: zeroize::Zeroizing::new(url.to_string()),
             server,
             profile,
@@ -168,6 +182,18 @@ pub(crate) async fn codex_poll_login(
             .ok()
             .and_then(|v| auth::parse_import(&v).ok());
         if let Some(accounts) = imported {
+            if let Some((id, identity)) = &pending.expected_account {
+                if let Err(error) = validate_reauthorization(&accounts, identity) {
+                    *slot = None;
+                    return Err(error);
+                }
+                let conn = crate::core::storage::open_db()?;
+                let current = conn.query_row("SELECT identity FROM codex_accounts WHERE id=?1 AND deleted_at IS NULL", [id], |row| row.get::<_, String>(0)).ok();
+                if current.as_deref() != Some(identity.as_str()) {
+                    *slot = None;
+                    return Err("原账号已被删除，请重新添加账号".into());
+                }
+            }
             super::codex::import_accounts(&app, accounts)?;
             *slot = None;
             return Ok(LoginPoll {
@@ -213,6 +239,14 @@ pub(crate) async fn codex_cancel_login(app: tauri::AppHandle, token: String) -> 
 #[cfg(test)]
 mod tests {
     use super::validate_login_url;
+    #[test]
+    fn reauthorization_rejects_other_identities_and_batches_before_importing() {
+        let account = |identity: &str| crate::core::codex::auth::ImportedAccount { identity: identity.into(), label: "fixture".into(), email: None, account_id: None, auth_mode: "chatgpt".into(), plan: None, note: String::new(), tags: vec![], auth_json: zeroize::Zeroizing::new("{}".into()) };
+        assert!(super::validate_reauthorization(&[account("expected")], "expected").is_ok());
+        assert!(super::validate_reauthorization(&[account("other")], "expected").is_err());
+        assert!(super::validate_reauthorization(&[], "expected").is_err());
+        assert!(super::validate_reauthorization(&[account("expected"), account("other")], "expected").is_err());
+    }
     #[test]
     fn login_links_allow_only_official_https_hosts_without_echoing_values() {
         assert!(validate_login_url("https://auth.openai.com/oauth/authorize?state=test-only-state").is_ok());

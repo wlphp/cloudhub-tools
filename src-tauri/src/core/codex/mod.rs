@@ -2,6 +2,7 @@ pub mod account_controls;
 pub mod proxy_detection;
 pub mod remote_logs;
 pub mod auth;
+pub mod token_import;
 pub mod desktop;
 pub mod gateway;
 pub mod gateway_config;
@@ -34,6 +35,10 @@ pub struct QuotaSnapshot {
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CodexAccountSummary {
+    pub is_web_session: bool,
+    pub user_id: Option<String>,
+    pub login_provider: Option<String>,
+    pub workspace_name: Option<String>,
     pub id: i64,
     pub label: String,
     pub email: Option<String>,
