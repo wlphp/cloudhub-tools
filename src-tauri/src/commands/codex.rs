@@ -18,6 +18,76 @@ use tauri_plugin_dialog::DialogExt;
 // Auth import/refresh/switch share one writer. It also bounds simultaneous CLI processes.
 pub(crate) use crate::core::codex::AUTH_WRITER;
 static SWITCH_TICKET: Mutex<Option<SwitchTicket>> = Mutex::new(None);
+struct RefreshLease { id: i64, active: std::sync::Arc<Mutex<std::collections::HashSet<i64>>> }
+impl Drop for RefreshLease { fn drop(&mut self) { if let Ok(mut active) = self.active.lock() { active.remove(&self.id); } } }
+// Caller holds AUTH_WRITER. Reserve this account before releasing the global
+// writer for remote I/O; instance launch, import and deletion honor this lease.
+fn refresh_lease(app: &tauri::AppHandle, id: i64) -> Result<RefreshLease, String> {
+    let store = app.state::<super::codex_runtime::CodexRuntimeStore>();
+    if super::codex_instances::account_running(&store, id)? { return Err("该账号有实例运行，请先停止实例再刷新，避免凭据更新冲突".into()); }
+    let active = store.wakes.clone();
+    active.lock().map_err(|_| "Codex 账号操作不可用")?.insert(id);
+    Ok(RefreshLease { id, active })
+}
+
+#[tauri::command]
+pub(crate) async fn codex_auth_metadata(id: i64) -> PlatformResult<auth::AuthMetadata> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<auth::AuthMetadata, String> {
+        let _writer = AUTH_WRITER.lock().map_err(|_| "Codex 账号操作不可用")?;
+        auth::metadata(&repository::credentials(&open_db()?, id)?)
+    }).await.map_err(|_| "读取 Codex 认证信息失败")?.map_err(Into::into)
+}
+
+#[tauri::command]
+pub(crate) async fn codex_force_refresh(app: tauri::AppHandle, id: i64) -> PlatformResult<auth::AuthMetadata> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<auth::AuthMetadata, String> {
+        let _writer = AUTH_WRITER.lock().map_err(|_| "Codex 账号操作不可用")?;
+        if super::codex_instances::account_running(&app.state::<super::codex_runtime::CodexRuntimeStore>(), id)? {
+            return Err("请先停止该账号的实例或 API 服务，再刷新 Token".into());
+        }
+        let conn = open_db()?;
+        let account = repository::get(&conn, id)?;
+        let saved = auth::parse_import(&repository::credentials(&conn, id)?)?.remove(0);
+        auth::ensure_runtime_auth(&saved.auth_json)?;
+        if saved.auth_mode != "chatgpt" || !auth::metadata(&saved.auth_json)?.has_refresh_token {
+            return Err("此账号没有可用的 Refresh Token，请重新授权或导入完整认证".into());
+        }
+        // The default client owns its rotating grant, including while idle.
+        // Refuse a second writer rather than invalidate the client's session.
+        if profile::default_home().ok().and_then(|home| profile::read_auth(&home.join("auth.json")).ok())
+            .and_then(|v| auth::parse_import(&v).ok()).is_some_and(|v| v.iter().any(|a| a.identity == saved.identity)) {
+            return Err("此账号由默认客户端管理，请在客户端续期后重新导入本机登录".into());
+        }
+        let isolated = profile::TemporaryProfile::new(&saved.auth_json)?;
+        let result = (|| {
+            let mut server = rpc::AppServer::start_cancelled_proxy(&isolated.path, None, account.proxy_url.as_deref())?;
+            server.request("account/read", serde_json::json!({"refreshToken":true}), Duration::from_secs(30))
+        })();
+        let updated = auth::parse_import(&profile::read_auth(&isolated.path.join("auth.json"))?)?.remove(0);
+        if updated.identity != saved.identity { return Err("Codex 刷新返回了不同账号，认证状态未保存".into()); }
+        let credentials_changed = updated.auth_json.as_str() != saved.auth_json.as_str();
+        let action = if result.is_ok() { "手动令牌续期成功" } else { "手动令牌续期失败" };
+        let mut attempt = serde_json::json!({
+            "transport":"官方 CLI RPC",
+            "status":null,
+            "outcome":if result.is_ok() {"completed"} else {"failed"},
+            "calls":[{"method":"account/read","params":{"refreshToken":true}}],
+            "response":{"credentialsChanged":credentials_changed,"tokenValues":"已省略"}
+        });
+        if let Err(error) = &result {
+            attempt["error"] = serde_json::Value::String(error.clone());
+        }
+        let details = serde_json::json!({"attempts":[attempt]});
+        // Persist rotated credentials even if the later RPC response failed.
+        if credentials_changed {
+            repository::save_refresh_action_with_details(&conn, id, account.updated_at, &updated.auth_json, None, updated.plan.as_deref(), None, action, Some(&details))?;
+        } else {
+            repository::record_event(&conn, id, "refresh", action, Some(&details))?;
+        }
+        result.map_err(|_| "官方 CLI 刷新失败，请检查网络或重新授权")?;
+        auth::metadata(&updated.auth_json)
+    }).await.map_err(|_| "刷新 Codex Token 任务失败")?.map_err(Into::into)
+}
 struct SwitchTicket {
     token: String,
     id: i64,
@@ -168,6 +238,19 @@ pub(crate) async fn codex_import_file(
     .await
     .map_err(|_| "导入 Codex 文件任务失败")?
     .map_err(Into::into)
+}
+
+#[tauri::command]
+pub(crate) async fn codex_import_text(app: tauri::AppHandle, content: String) -> PlatformResult<CodexState> {
+    let content = zeroize::Zeroizing::new(content);
+    tauri::async_runtime::spawn_blocking(move || -> Result<CodexState, String> {
+        let _writer = AUTH_WRITER.lock().map_err(|_| "Codex 账号操作不可用")?;
+        let accounts = crate::core::codex::token_import::parse(&content)?;
+        import_accounts(&app, accounts)?;
+        state()
+    }).await.map_err(|_| "导入 Codex Token 任务失败")?.map_err(|message| crate::core::error::PlatformError {
+        kind: "platform-error", code: "codex-import", message: crate::core::codex::token_import::public_error(&message).into(), retryable: false,
+    })
 }
 
 fn normalize_import_value(value: &mut serde_json::Value, format: &str) -> Result<(), String> {
@@ -360,7 +443,8 @@ pub(crate) async fn codex_refresh_quota(
     tauri::async_runtime::spawn_blocking(move || -> Result<CodexAccountSummary, String> {
         if id <= 0 { return Err("Codex 账号参数无效".into()); }
         let _writer = AUTH_WRITER.lock().map_err(|_| "Codex 账号操作不可用")?;
-        if super::codex_instances::account_running(&app.state::<super::codex_runtime::CodexRuntimeStore>(),id)? { return Err("该账号有实例运行，请先停止实例再刷新，避免凭据更新冲突".into()); }
+        let _lease = refresh_lease(&app, id)?;
+        drop(_writer);
         let conn = open_db()?;
         let account = repository::get(&conn, id)?;
         if account.auth_mode != "chatgpt" { return Err("API Key 账号不提供 ChatGPT 订阅额度".into()); }
@@ -375,26 +459,98 @@ pub(crate) async fn codex_refresh_quota(
         let isolated = profile::TemporaryProfile::new(if external { "{}" } else { &monitored.auth_json })?;
         let mut api_log=crate::core::codex::remote_logs::RemoteTrace::new(Some(id),"cli_rpc","account/rateLimits/read","官方 CLI 内部远端请求（HTTP 地址及请求头不可见）",account.proxy_url.as_deref());
         api_log.request(&serde_json::json!({"rpcMethod":"account/rateLimits/read","params":{},"timeoutMs":30000,"headersAvailable":false,"note":"额度由官方 CLI 查询，无法采集其内部 HTTP 请求头、状态码或重试"}));
+        let mut attempts = Vec::new();
         let fetched = (|| {
+            // Read-only quota endpoint used by the reference; CLI remains the fallback.
+            let mut direct_status = None;
+            let direct = (|| {
+                use crate::core::codex::account_controls as controls;
+                let credentials: serde_json::Value = serde_json::from_str(&monitored.auth_json).map_err(|_| "Codex 登录数据无效")?;
+                let token = credentials.pointer("/tokens/access_token").and_then(serde_json::Value::as_str).ok_or("缺少 Access Token")?;
+                let workspace = monitored.account_id.as_deref().ok_or("缺少工作区标识")?;
+                let client = controls::client(account.proxy_url.as_deref())?;
+                let value = tauri::async_runtime::block_on(controls::request(&client, token, workspace, id, account.proxy_url.as_deref(), "wham/usage", None))?;
+                direct_status = Some(200);
+                let quota = controls::parse_usage(&value, workspace)?;
+                let plan = value.get("plan_type").and_then(serde_json::Value::as_str).filter(|v| v.len() <= 80 && !v.chars().any(char::is_control)).map(str::to_owned);
+                Ok::<_, String>((quota, plan))
+            })();
+            let direct_error = match direct {
+                Ok((quota, plan)) => {
+                    attempts.push(serde_json::json!({
+                        "transport":"HTTP",
+                        "method":"GET",
+                        "path":"/backend-api/wham/usage",
+                        "request":{"query":null,"headers":"Authorization 与账号标识头已省略"},
+                        "status":200,
+                        "outcome":"completed",
+                        "response":{"quota":quota,"plan":plan}
+                    }));
+                    return Ok((quota, plan));
+                }
+                Err(error) => {
+                    let status = direct_status.or_else(|| error.split("HTTP ").nth(1).and_then(|value| value.get(..3)).and_then(|value| value.parse::<u16>().ok()).filter(|value| (100..=599).contains(value)));
+                    attempts.push(serde_json::json!({
+                        "transport":"HTTP",
+                        "method":"GET",
+                        "path":"/backend-api/wham/usage",
+                        "request":{"query":null,"headers":"Authorization 与账号标识头已省略"},
+                        "status":status,
+                        "outcome":"failed",
+                        "error":error
+                    }));
+                    error
+                }
+            };
+            let mut cli_calls = Vec::new();
+            let cli_result = (|| {
             let mut server = rpc::AppServer::start_cancelled_proxy(&isolated.path,None,account.proxy_url.as_deref())?;
             if external {
                 let credentials: serde_json::Value = serde_json::from_str(&monitored.auth_json).map_err(|_| "Codex 登录数据无效")?;
                 let access = credentials.pointer("/tokens/access_token").and_then(serde_json::Value::as_str).ok_or("Codex 登录数据无效")?;
+                cli_calls.push(serde_json::json!({"method":"account/login/start","params":{"type":"chatgptAuthTokens","accessToken":"[已隐藏]","chatgptAccountId":"[已隐藏]","chatgptPlanType":monitored.plan}}));
                 server.request("account/login/start", serde_json::json!({"type":"chatgptAuthTokens","accessToken":access,"chatgptAccountId":monitored.account_id,"chatgptPlanType":monitored.plan}), Duration::from_secs(20))?;
             }
+            cli_calls.push(serde_json::json!({"method":"account/read","params":{"refreshToken":!external}}));
             let info = server.request("account/read", serde_json::json!({"refreshToken":!external}), Duration::from_secs(30))?;
+            cli_calls.push(serde_json::json!({"method":"account/rateLimits/read","params":{}}));
             let limits = server.request("account/rateLimits/read", serde_json::json!({}), Duration::from_secs(30))?;
             api_log.response(&limits);
             let plan = info.get("account").and_then(|v| v.get("planType")).and_then(serde_json::Value::as_str).filter(|v| v.len() <= 80).map(str::to_owned);
-            Ok::<_, String>((rpc::parse_quota(&limits)?, plan))
+            let quota = rpc::parse_quota(&limits)?;
+            Ok::<_, String>((quota, plan))
+            })();
+            match cli_result {
+                Ok((quota, plan)) => {
+                    attempts.push(serde_json::json!({
+                        "transport":"官方 CLI RPC",
+                        "status":null,
+                        "outcome":"completed",
+                        "calls":cli_calls,
+                        "response":{"quota":quota,"plan":plan,"note":"仅记录解析后的额度字段；CLI 内部 HTTP 响应不可见"}
+                    }));
+                    Ok((quota, plan))
+                }
+                Err(cli_error) => {
+                    attempts.push(serde_json::json!({
+                        "transport":"官方 CLI RPC",
+                        "status":null,
+                        "outcome":"failed",
+                        "calls":cli_calls,
+                        "error":cli_error
+                    }));
+                    Err(format!("{direct_error}；CLI 查询失败：{cli_error}"))
+                }
+            }
         })();
         api_log.finish(if fetched.is_ok(){"completed"}else{"cli_error"});
+        let details = serde_json::json!({"attempts":attempts});
         let updated = if external { monitored.auth_json } else { profile::read_auth(&isolated.path.join("auth.json"))? };
         let imported = auth::parse_import(&updated)?.remove(0);
         if imported.identity != monitored.identity { return Err("Codex 刷新返回了不同账号，认证状态未保存".into()); }
         match fetched {
-            Ok((quota, plan)) => repository::save_refresh(&conn, id, account.updated_at, &imported.auth_json, Some(&quota), plan.as_deref(), None)?,
-            Err(error) => repository::save_refresh(&conn, id, account.updated_at, &imported.auth_json, None, None, Some(&error))?,
+            Ok((quota, plan)) => repository::save_refresh_action_with_details(&conn, id, account.updated_at, &imported.auth_json, Some(&quota), plan.as_deref(), None, "额度刷新成功", Some(&details))?,
+            Err(error) => repository::save_refresh_action_with_details(&conn, id, account.updated_at, &imported.auth_json, None, None, Some(&error), "额度刷新失败", Some(&details))?,
         }
         repository::get(&conn, id)
     }).await.map_err(|_| "刷新 Codex 额度任务失败")?.map_err(Into::into)
@@ -496,6 +652,7 @@ pub(crate) async fn codex_prepare_switch(
             return Err("该账号有实例运行，请先停止实例再切换默认账号".into());
         }
         let account = repository::get(&open_db()?, id)?;
+        auth::ensure_runtime_auth(&repository::credentials(&open_db()?, id)?)?;
         let home = switch_home()?;
         let previous = previous_auth(&home)?;
         let token = uuid::Uuid::new_v4().to_string();
@@ -515,6 +672,22 @@ pub(crate) async fn codex_prepare_switch(
     })
     .await
     .map_err(|_| "准备 Codex 切号任务失败")?
+    .map_err(Into::into)
+}
+
+#[tauri::command]
+pub(crate) async fn codex_close_default_processes(
+    app: tauri::AppHandle,
+) -> PlatformResult<()> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let _writer = AUTH_WRITER.lock().map_err(|_| "Codex 账号操作不可用")?;
+        super::codex_instances::ensure_idle(
+            &app.state::<super::codex_runtime::CodexRuntimeStore>(),
+        )?;
+        profile::close_default_processes()
+    })
+    .await
+    .map_err(|_| "关闭 Codex 客户端任务失败")?
     .map_err(Into::into)
 }
 
@@ -547,6 +720,7 @@ pub(crate) async fn codex_confirm_switch(
             return Err("Codex 登录状态已变更，未执行切号，请重新确认".into());
         }
         let auth = repository::credentials(&conn, ticket.id)?;
+        auth::ensure_runtime_auth(&auth)?;
         install_profile(
             &conn,
             &home,
@@ -808,19 +982,23 @@ pub(crate) async fn codex_save_proxy(
     .map_err(Into::into)
 }
 #[tauri::command]
-pub(crate) async fn codex_refresh_benefits(id: i64) -> PlatformResult<CodexAccountSummary> {
+pub(crate) async fn codex_refresh_benefits(app: tauri::AppHandle, id: i64) -> PlatformResult<CodexAccountSummary> {
     tauri::async_runtime::spawn_blocking(move || -> Result<_, String> {
         use crate::core::codex::{account_controls as controls, gateway};
         let _writer = AUTH_WRITER.lock().map_err(|_| "账号操作不可用")?;
+        let _lease = refresh_lease(&app, id)?;
         let conn = open_db()?;
         let mut summary = repository::get(&conn, id)?;
+        auth::ensure_runtime_auth(&repository::credentials(&conn,id)?)?;
         if summary.auth_mode != "chatgpt" {
             return Err("API Key 账号无订阅权益".into());
         }
+        drop(_writer);
         let (token, account, proxy) = gateway::credentials_locked(
             id,
             std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
         )?;
+
         let account = account.ok_or("账号标识无效")?;
         let client = controls::client(proxy.as_deref())?;
         tauri::async_runtime::block_on(async {
@@ -873,11 +1051,15 @@ pub(crate) async fn codex_refresh_benefits(id: i64) -> PlatformResult<CodexAccou
                 None,
             )
             .await
-            .and_then(|value| controls::parse_credits(&value, chrono::Utc::now().timestamp()))
+            .and_then(|value| {
+                let cards=controls::parse_reset_cards(&value,chrono::Utc::now().timestamp());
+                controls::parse_credits(&value, chrono::Utc::now().timestamp()).map(|parsed|(parsed,cards))
+            })
             {
-                Ok((count, expiry)) => {
+                Ok(((count, expiry),cards)) => {
                     summary.benefits.reset_credits = Some(count);
                     summary.benefits.reset_expires_at = expiry;
+                    summary.benefits.reset_cards = cards;
                     summary.benefits.credits_error = None;
                 }
                 Err(error) => summary.benefits.credits_error = Some(error),
@@ -900,6 +1082,7 @@ pub(crate) async fn codex_consume_reset(
         use crate::core::codex::{account_controls as controls,gateway};
         let _writer=AUTH_WRITER.lock().map_err(|_|"账号操作不可用")?;
         let conn=open_db()?; let summary=repository::get(&conn,id)?;
+        auth::ensure_runtime_auth(&repository::credentials(&conn,id)?)?;
         if summary.auth_mode!="chatgpt" {return Err("API Key 账号无法使用主动重置".into());}
         if super::codex_instances::account_running(&app.state::<super::codex_runtime::CodexRuntimeStore>(),id)? {return Err("请先停止该账号的服务或实例，再重置额度".into());}
         let (token,account,proxy)=gateway::credentials_locked(id,std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)))?;

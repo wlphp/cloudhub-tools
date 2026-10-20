@@ -1,5 +1,35 @@
 use super::{profile, QuotaSnapshot, QuotaWindow};
 use serde_json::{json, Value};
+
+// Extract only allowlisted diagnostics. Provider text may contain credentials.
+pub(crate) fn error_diagnostics(error: &Value) -> String {
+    let raw = error.to_string();
+    let lower = raw.to_ascii_lowercase();
+    let mut parts = Vec::new();
+    if let Some(code) = error.get("code").and_then(Value::as_i64) {
+        parts.push(format!("rpc_code={code}"));
+    }
+    if let Some(status) = [error.get("status"), error.get("status_code"), error.pointer("/data/status")].into_iter().flatten()
+        .filter_map(Value::as_u64).find(|status| (400..=599).contains(status)) {
+        parts.push(format!("HTTP {status}"));
+    }
+    for marker in ["http ", "status=", "status: ", "status code ", "status code: "] {
+        if let Some(start) = lower.find(marker) {
+            let digits: String = lower[start + marker.len()..].chars().take_while(char::is_ascii_digit).collect();
+            if let Ok(code @ 400..=599) = digits.parse::<u16>() {
+                parts.push(format!("HTTP {code}"));
+                break;
+            }
+        }
+    }
+    for code in ["invalid_refresh_token", "refresh_token_reused", "refresh_token_expired", "invalid_grant", "token_expired", "invalid_api_key", "insufficient_quota", "rate_limit_exceeded", "account_deactivated"] {
+        if lower.split(|c: char| !c.is_ascii_alphanumeric() && c != '_').any(|word| word == code) {
+            parts.push(format!("error_code={code}"));
+        }
+    }
+    parts.push(format!("error_bytes={}", raw.len()));
+    parts.join(", ")
+}
 use std::{
     collections::VecDeque,
     io::{BufRead, BufReader, Read, Write},
@@ -166,9 +196,8 @@ impl AppServer {
                 }
                 continue;
             }
-            if message.get("error").is_some() {
-                // Never return the CLI's raw error text, which can contain provider response data.
-                return Err("Codex 请求失败，请检查登录状态、额度与 CLI 版本后重试".into());
+            if let Some(error) = message.get("error") {
+                return Err(format!("Codex 请求失败；阶段：{method}；{}。请检查登录状态、额度与 CLI 版本后重试", error_diagnostics(error)));
             }
             return message
                 .get("result")
@@ -278,6 +307,16 @@ mod tests {
         let path = profile.path.clone();
         drop(profile);
         assert!(!path.exists());
+    }
+    #[test]
+    fn error_details_keep_codes_without_provider_secrets() {
+        let error = json!({"code":-32000,"message":"Token refresh failed: status=401 Unauthorized error_code=invalid_refresh_token access_token=test-only-secret"});
+        let detail = error_diagnostics(&error);
+        assert!(detail.contains("HTTP 401"));
+        assert!(detail.contains("invalid_refresh_token"));
+        assert!(detail.contains("rpc_code=-32000"));
+        assert!(!detail.contains("test-only-secret"));
+        assert!(!detail.contains("access_token"));
     }
     #[test]
     fn quota_uses_current_multiple_windows_and_legacy_fallback() {

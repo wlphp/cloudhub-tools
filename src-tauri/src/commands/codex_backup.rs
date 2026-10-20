@@ -403,6 +403,8 @@ mod tests {
     use super::*;
     fn summary(auth_mode: &str) -> crate::core::codex::CodexAccountSummary {
         crate::core::codex::CodexAccountSummary {
+            is_web_session: false,
+            user_id: None, login_provider: None, workspace_name: None,
             id: 1,
             label: "one@example.test".into(),
             email: Some("one@example.test".into()),

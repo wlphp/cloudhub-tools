@@ -3,7 +3,7 @@ use std::sync::Mutex;
 
 use super::paths::data_dir;
 
-const CURRENT_SCHEMA_VERSION: i64 = 42;
+const CURRENT_SCHEMA_VERSION: i64 = 45;
 // Migration 37 has already run on local databases. Keep its additive schema even
 // when the browser feature is absent; removing a feature must not erase migration history.
 const BROWSER_ENVIRONMENTS_V37_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS browser_environments (
@@ -14,6 +14,7 @@ const BROWSER_ENVIRONMENTS_V37_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS browse
 // Schema is shared by desktop and mobile; migrations must not depend on desktop modules.
 pub const CODEX_GATEWAY_PREFERENCES_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS codex_gateway_preferences(id INTEGER PRIMARY KEY CHECK(id=1),json TEXT NOT NULL);";
 pub const CODEX_ACCOUNT_CONTROLS_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS codex_account_controls(account_id INTEGER PRIMARY KEY REFERENCES codex_accounts(id) ON DELETE CASCADE,proxy_url TEXT,benefits_json TEXT,reset_request_id TEXT);";
+pub const CODEX_ACCOUNT_EVENTS_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS codex_account_events(id INTEGER PRIMARY KEY AUTOINCREMENT,account_id INTEGER NOT NULL REFERENCES codex_accounts(id) ON DELETE CASCADE,event_type TEXT NOT NULL,message TEXT NOT NULL,details_json TEXT,created_at INTEGER NOT NULL); CREATE INDEX IF NOT EXISTS idx_codex_account_events_account_time ON codex_account_events(account_id,created_at DESC,id DESC);";
 pub const CODEX_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS codex_accounts (
     id INTEGER PRIMARY KEY AUTOINCREMENT, identity TEXT NOT NULL UNIQUE,
     label TEXT NOT NULL, email TEXT, account_id TEXT, auth_mode TEXT NOT NULL,
@@ -408,6 +409,22 @@ fn migrate_connection_inner(conn: &mut Connection) -> Result<(), String> {
         transaction.execute_batch(super::repositories::claude_providers::SCHEMA).map_err(|_| "创建Claude Code供应商存储失败")?;
         transaction.pragma_update(None, "user_version", 42).map_err(|_| "更新Claude供应商数据库版本失败")?;
     }
+    if version < 43 {
+        transaction.execute_batch("ALTER TABLE codex_accounts ADD COLUMN details_ciphertext TEXT;").map_err(|_| "创建账号资料存储失败")?;
+        transaction.pragma_update(None, "user_version", 43).map_err(|_| "更新账号资料数据库版本失败")?;
+    }
+    if version < 44 {
+        transaction.execute_batch(CODEX_ACCOUNT_EVENTS_SCHEMA).map_err(|_| "创建 Codex 账号日志失败")?;
+        transaction.execute(
+            "INSERT INTO codex_account_events(account_id,event_type,message,created_at) SELECT id,'history_start','账号日志从此版本启用，此前的导入和凭据变更记录不可用',?1 FROM codex_accounts",
+            [chrono::Utc::now().timestamp_millis()],
+        ).map_err(|_| "初始化 Codex 账号日志失败")?;
+        transaction.pragma_update(None, "user_version", 44).map_err(|_| "更新 Codex 账号日志版本失败")?;
+    }
+    if version < 45 {
+        ensure_column("codex_account_events", "details_json", "TEXT")?;
+        transaction.pragma_update(None, "user_version", 45).map_err(|_| "更新 Codex 账号日志详情版本失败")?;
+    }
     transaction.commit().map_err(|error| format!("提交 SQLite 迁移失败: {error}"))?;
 
     Ok(())
@@ -504,6 +521,21 @@ fn snapshot_before_upgrade(source: &Connection, path: &std::path::Path, version:
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn upgrades_codex_private_details_and_keeps_ciphertext_scrubbable() {
+        let mut conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(super::CODEX_SCHEMA).unwrap();
+        conn.pragma_update(None, "user_version", 42).unwrap();
+        super::migrate_connection(&mut conn).unwrap();
+        let columns: Vec<String> = conn.prepare("PRAGMA table_info(codex_accounts)").unwrap().query_map([], |row| row.get(1)).unwrap().collect::<Result<_, _>>().unwrap();
+        assert!(columns.contains(&"details_ciphertext".to_string()));
+        assert!(!columns.contains(&"password".to_string()));
+        conn.execute("INSERT INTO codex_accounts(identity,label,auth_mode,auth_ciphertext,details_ciphertext,updated_at,deleted_at) VALUES('details-fixture','fixture','apikey','cipher-fixture','cipher-details-fixture',1,1)", []).unwrap();
+        super::migrate_connection(&mut conn).unwrap();
+        crate::core::repositories::trash::scrub_expired(&conn, "codex_accounts", 2).unwrap();
+        let details: Option<String> = conn.query_row("SELECT details_ciphertext FROM codex_accounts", [], |row| row.get(0)).unwrap();
+        assert!(details.is_none() || details.as_deref() == Some(""));
+    }
     use super::{migrate_connection, CURRENT_SCHEMA_VERSION};
     use rusqlite::Connection;
 
@@ -791,6 +823,21 @@ mod tests {
         let columns: Vec<String> = conn.prepare("PRAGMA table_info(codex_accounts)").unwrap().query_map([], |row| row.get(1)).unwrap().collect::<Result<_, _>>().unwrap();
         assert!(columns.contains(&"auth_ciphertext".to_string()));
         assert!(!columns.contains(&"access_token".to_string()));
+    }
+
+    #[test]
+    fn upgrades_codex_event_details_without_rewriting_existing_logs() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(super::CODEX_SCHEMA).unwrap();
+        conn.execute("INSERT INTO codex_accounts(identity,label,auth_mode,auth_ciphertext,updated_at) VALUES('log-fixture','fixture','chatgpt','cipher',1)", []).unwrap();
+        conn.execute_batch("CREATE TABLE codex_account_events(id INTEGER PRIMARY KEY AUTOINCREMENT,account_id INTEGER NOT NULL,event_type TEXT NOT NULL,message TEXT NOT NULL,created_at INTEGER NOT NULL); INSERT INTO codex_account_events(account_id,event_type,message,created_at) VALUES(1,'refresh','旧日志',10); PRAGMA user_version=44;").unwrap();
+
+        super::migrate_connection(&mut conn).unwrap();
+
+        let event: (String, Option<String>) = conn.query_row("SELECT message,details_json FROM codex_account_events WHERE id=1", [], |row| Ok((row.get(0)?, row.get(1)?))).unwrap();
+        assert_eq!(event, ("旧日志".into(), None));
+        conn.execute("UPDATE codex_account_events SET details_json=?1 WHERE id=1", [r#"{"attempts":[]}"#]).unwrap();
+        assert_eq!(super::supported_schema_version(&conn).unwrap(), super::CURRENT_SCHEMA_VERSION);
     }
 
     #[test]

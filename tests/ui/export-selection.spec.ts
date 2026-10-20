@@ -110,7 +110,7 @@ test("Codex JSON export honors the checked account subset", async ({ page }) => 
   await fixture(page);
   await page.getByRole("button", { name: "Codex 管理", exact: true }).first().click();
   await page.getByLabel("选择 Codex2", { exact: true }).check();
-  await page.getByRole("button", { name: "导出 JSON", exact: true }).click();
+  await page.getByRole("button", { name: "导出所选账号 JSON", exact: true }).click();
   const json = page.getByRole("dialog", { name: "导出 Codex 账号", exact: true });
   await expect(json.getByRole("checkbox", { name: "Codex2", exact: true })).toBeChecked();
   await expect(json.getByRole("checkbox", { name: "Codex1", exact: true })).not.toBeChecked();
@@ -120,7 +120,7 @@ test("Codex JSON export honors the checked account subset", async ({ page }) => 
   await expect.poll(() => page.evaluate(() => (window as any).__exportCalls.find((call: any) => call.command === "codex_export_accounts_file")?.args.accountIds)).toEqual([2]);
   await expect.poll(() => page.evaluate(() => (window as any).__exportCalls.find((call: any) => call.command === "codex_export_accounts_file")?.args.format)).toBe("auth_json");
   await page.getByLabel("选择 Codex2", { exact: true }).uncheck();
-  await page.getByRole("button", { name: "导出 JSON", exact: true }).click();
+  await page.getByRole("button", { name: "导出所选账号 JSON", exact: true }).click();
   await expect(json.getByRole("button", { name: "选择保存位置", exact: true })).toBeDisabled();
   await json.getByRole("button", { name: "全选", exact: true }).click();
   await expect(json.getByRole("button", { name: "选择保存位置", exact: true })).toBeEnabled();
@@ -129,7 +129,11 @@ test("Codex JSON export honors the checked account subset", async ({ page }) => 
 test("Codex import asks for the source format and forwards it", async ({ page }) => {
   await fixture(page);
   await page.getByRole("button", { name: "Codex 管理", exact: true }).first().click();
-  await page.getByRole("button", { name: "导入文件", exact: true }).click();
+  await page.getByRole("button", { name: "添加 Codex 账号", exact: true }).click();
+  const addDialog = page.getByRole("dialog", { name: "添加 Codex 账号", exact: true });
+  await addDialog.getByRole("tab", { name: "导入", exact: true }).click();
+  await addDialog.getByLabel("文件格式").selectOption("sub2api");
+  await addDialog.getByRole("button", { name: "选择文件并导入", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "导入 Codex 账号", exact: true });
   await expect(dialog.getByLabel("导入格式").locator("option")).toHaveCount(4);
   await dialog.getByLabel("导入格式").selectOption("sub2api");

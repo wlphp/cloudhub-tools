@@ -44,8 +44,22 @@ pub fn ensure_default_idle() -> Result<(), String> {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
-        // Only a boolean leaves PowerShell. No command line, environment or process path is read.
-        let output=Command::new("powershell.exe").args(["-NoLogo","-NoProfile","-NonInteractive","-Command","if (@(Get-Process -Name codex -ErrorAction SilentlyContinue).Count -gt 0 -or @(Get-Process -Name ChatGPT -ErrorAction SilentlyContinue | Where-Object { $_.Path -like '*OpenAI.Codex_*\\app\\ChatGPT.exe' }).Count -gt 0) { 'busy' } else { 'idle' }"]).creation_flags(0x08000000).output().map_err(|_|"无法确认 Codex 客户端运行状态")?;
+        let targets = default_process_target_paths()?;
+        let output = Command::new("powershell.exe")
+            .args([
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "$paths = @(ConvertFrom-Json -InputObject $env:CLOUDHUB_CODEX_TARGET_PATHS); $found = @(Get-CimInstance Win32_Process -Filter \"Name='codex.exe' OR Name='ChatGPT.exe'\" | Where-Object { $_.ExecutablePath -and ($paths -contains $_.ExecutablePath) }); if ($found.Count -gt 0) { 'busy' } else { 'idle' }",
+            ])
+            .env(
+                "CLOUDHUB_CODEX_TARGET_PATHS",
+                serde_json::to_string(&targets).map_err(|_| "无法确认 Codex 客户端运行状态")?,
+            )
+            .creation_flags(0x08000000)
+            .output()
+            .map_err(|_| "无法确认 Codex 客户端运行状态")?;
         if !output.status.success() {
             return Err("无法确认 Codex 客户端运行状态".into());
         }
@@ -72,6 +86,62 @@ pub fn ensure_default_idle() -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+#[cfg(windows)]
+fn default_process_target_paths() -> Result<Vec<String>, String> {
+    let current = std::env::current_exe()
+        .and_then(fs::canonicalize)
+        .map_err(|_| "无法确认云枢应用路径")?;
+    let mut paths = Vec::new();
+    for path in [cli_path(), super::desktop::installed()].into_iter().flatten() {
+        let Ok(path) = fs::canonicalize(path) else {
+            continue;
+        };
+        if path != current {
+            let path = path.to_string_lossy().into_owned();
+            if !paths.iter().any(|item: &String| item.eq_ignore_ascii_case(&path)) {
+                paths.push(path);
+            }
+        }
+    }
+    if paths.is_empty() {
+        return Err("未找到可安全识别的 Codex 客户端或 CLI 路径".into());
+    }
+    Ok(paths)
+}
+
+pub fn close_default_processes() -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let targets = default_process_target_paths()?;
+        let script = "$paths = @(ConvertFrom-Json -InputObject $env:CLOUDHUB_CODEX_TARGET_PATHS); $all = @(Get-CimInstance Win32_Process); $byId = @{}; foreach ($process in $all) { $byId[[int]$process.ProcessId] = $process }; $protected = @{}; $parent = [int]$env:CLOUDHUB_CODEX_CALLER_PID; while ($parent -gt 0 -and $byId.ContainsKey($parent)) { $protected[$parent] = $true; $parent = [int]$byId[$parent].ParentProcessId }; $targets = @($all | Where-Object { $_.ExecutablePath -and ($paths -contains $_.ExecutablePath) }); if (@($targets | Where-Object { $protected.ContainsKey([int]$_.ProcessId) }).Count -gt 0) { 'protected'; exit 0 }; try { foreach ($target in $targets) { Stop-Process -Id $target.ProcessId -Force -ErrorAction Stop }; Start-Sleep -Milliseconds 400; $remaining = @(Get-CimInstance Win32_Process -Filter \"Name='codex.exe' OR Name='ChatGPT.exe'\" | Where-Object { $_.ExecutablePath -and ($paths -contains $_.ExecutablePath) }); if ($remaining.Count -gt 0) { 'busy' } else { 'idle' } } catch { 'failed'; exit 2 }";
+        let output = Command::new("powershell.exe")
+            .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script])
+            .env(
+                "CLOUDHUB_CODEX_TARGET_PATHS",
+                serde_json::to_string(&targets).map_err(|_| "无法关闭 Codex 客户端或 CLI")?,
+            )
+            .env("CLOUDHUB_CODEX_CALLER_PID", std::process::id().to_string())
+            .creation_flags(0x08000000)
+            .output()
+            .map_err(|_| "无法关闭 Codex 客户端或 CLI")?;
+        if !output.status.success() {
+            return Err("关闭 Codex 客户端或 CLI 失败，请手动关闭后重试".into());
+        }
+        if output.stdout == b"protected\r\n" || output.stdout == b"protected\n" {
+            return Err("当前云枢由 Codex 启动，关闭 Codex 会同时退出云枢。请先从开始菜单单独启动云枢，再使用“关闭并重试”".into());
+        }
+        if output.stdout != b"idle\r\n" && output.stdout != b"idle\n" {
+            return Err("Codex 客户端仍在运行，请手动关闭后重试".into());
+        }
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        Err("自动关闭 Codex 客户端或 CLI 目前仅支持 Windows，请手动关闭后重试".into())
+    }
 }
 
 pub fn read_auth(path: &Path) -> Result<Zeroizing<String>, String> {
