@@ -160,7 +160,7 @@
 .codex-aggregate-section>header h2{display:flex;align-items:center;gap:7px;margin:0;font-size:15px;font-weight:600}
 .codex-aggregate-section>header span{color:var(--text-muted,#8b8f97);font-size:12px}
 .codex-aggregate-list{display:flex;flex-direction:column}
-.codex-aggregate-row{display:grid;grid-template-columns:minmax(140px,1fr) minmax(220px,2fr) minmax(160px,2fr) auto;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--border-color,#3a3d42)}
+.codex-aggregate-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr) minmax(0,2fr) auto;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--border-color,#3a3d42)}
 .codex-aggregate-row>div{min-width:0;overflow-wrap:anywhere;font-size:12px}
 .codex-aggregate-row>div:first-child{display:flex;flex-direction:column;gap:3px}
 .codex-aggregate-row>div:first-child span{color:var(--text-muted,#8b8f97)}
