@@ -12,6 +12,15 @@ pub mod profile;
 pub mod rpc;
 pub mod responses;
 pub mod protocols;
+pub mod providers;
+pub mod provider_config;
+pub mod provider_probe;
+pub mod provider_protocol;
+pub mod provider_gateway;
+pub mod provider_oauth;
+pub mod provider_usage;
+pub mod provider_import;
+pub mod provider_aggregate;
 pub(crate) static AUTH_WRITER: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 use serde::{Deserialize, Serialize};

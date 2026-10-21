@@ -152,6 +152,7 @@ import { RecycleBin } from "./shared/RecycleBin";
 import { useTrashActions, useTrashGroups } from "./shared/TrashPanel";
 import { FrpPanel } from "./features/frp/FrpPanel";
 import { CodexPanel } from "./features/codex/CodexPanel";
+import { ClaudeProvidersPlugin } from "./features/plugins/ClaudeProvidersPlugin";
 import { FavoriteServerDetails, ServerCard } from "./features/servers/ServerCards";
 import { SwasCard } from "./features/servers/SwasCard";
 import { RdsCard } from "./features/resources/RdsCard";
@@ -321,7 +322,7 @@ function App() {
   const esaRequestRef = useRef(0);
   const [esaCertificateSite, setEsaCertificateSite] = useState<{ account: Account; siteId: number } | null>(null);
   const [esaSiteKeyword, setEsaSiteKeyword] = useState("");
-  const [section, setSection] = useState<"accounts" | "resources" | "certificates" | "authenticator" | "flow" | "frp" | "codex" | "panels" | "servers" | "favorites" | "logs" | "api_logs" | "settings" | "data_management" | "plugins" | "notes">(() => isDetachedTerminalWindow ? "servers" : "accounts");
+  const [section, setSection] = useState<"accounts" | "resources" | "certificates" | "authenticator" | "flow" | "frp" | "codex" | "claude" | "panels" | "servers" | "favorites" | "logs" | "api_logs" | "settings" | "data_management" | "plugins" | "notes">(() => isDetachedTerminalWindow ? "servers" : "accounts");
   useEffect(() => { const open = () => setSection("settings"); window.addEventListener("cloudhub-ai-settings", open); return () => window.removeEventListener("cloudhub-ai-settings", open); }, []);
   const [petCertificateTarget,setPetCertificateTarget]=useState<{key:string;request:number}|null>(null);
   const [localAssets, setLocalAssets] = useState<LocalAsset[]>([]);
@@ -3707,9 +3708,12 @@ function App() {
               <button type="button" className={section === "authenticator" ? "nav-active" : ""} aria-current={section === "authenticator" ? "page" : undefined} onClick={() => setSection("authenticator")} aria-label="身份验证器" title="身份验证器">
                 <ShieldCheck size={18} /><span className="app-nav-label">身份验证器</span></button>
 
+              <button type="button" className={section === "claude" ? "nav-active" : ""} aria-current={section === "claude" ? "page" : undefined} onClick={() => setSection("claude")} aria-label="Claude 管理" title="Claude 管理"><FileCode2 size={18} /><span className="app-nav-label">Claude 管理</span></button>
               <button type="button" className={section === "codex" ? "nav-active" : ""} aria-current={section === "codex" ? "page" : undefined} onClick={() => setSection("codex")} aria-label="Codex 管理" title="Codex 管理"><FileCode2 size={18} /><span className="app-nav-label">Codex 管理</span></button>
               <button type="button" className={section === "frp" ? "nav-active" : ""} aria-current={section === "frp" ? "page" : undefined} onClick={() => setSection("frp")} aria-label="内网穿透" title="内网穿透">
                 <Network size={18} /><span className="app-nav-label">内网穿透</span></button>
+              <button type="button" className={section === "notes" ? "nav-active" : ""} aria-current={section === "notes" ? "page" : undefined} onClick={() => setSection("notes")} aria-label="备忘录" title="备忘录"><NotebookPen size={18} /><span className="app-nav-label">备忘录</span></button>
+              <button type="button" className={section === "plugins" ? "nav-active" : ""} aria-current={section === "plugins" ? "page" : undefined} onClick={() => setSection("plugins")} aria-label="软件商店" title="软件商店"><Grid2X2 size={18} /><span className="app-nav-label">软件商店</span></button>
 
 
 
@@ -3717,8 +3721,6 @@ function App() {
                 <FileText size={18} /><span className="app-nav-label">操作日志</span></button>
               <button type="button" className={section === "api_logs" ? "nav-active" : ""} aria-current={section === "api_logs" ? "page" : undefined} onClick={() => { setSection("api_logs"); void loadApiLogs(); }} aria-label="API日志" title="API日志">
                 <ScrollText size={18} /><span className="app-nav-label">API日志</span></button>
-              <button type="button" className={section === "plugins" ? "nav-active" : ""} aria-current={section === "plugins" ? "page" : undefined} onClick={() => setSection("plugins")} aria-label="软件商店" title="软件商店"><Grid2X2 size={18} /><span className="app-nav-label">软件商店</span></button>
-              <button type="button" className={section === "notes" ? "nav-active" : ""} aria-current={section === "notes" ? "page" : undefined} onClick={() => setSection("notes")} aria-label="备忘录" title="备忘录"><NotebookPen size={18} /><span className="app-nav-label">备忘录</span></button>
               <button type="button" className={section === "settings" ? "nav-active" : ""} aria-current={section === "settings" ? "page" : undefined} onClick={() => setSection("settings")} aria-label="系统设置" title="系统设置">
                 <Settings size={18} /><span className="app-nav-label">系统设置</span></button>
             </nav>
@@ -3734,15 +3736,16 @@ function App() {
             <button type="button" className={section === "certificates" ? "nav-active" : ""} aria-current={section === "certificates" ? "page" : undefined} onClick={() => setSection("certificates")}><ShieldCheck size={16} /><span>证书</span></button>
             <button type="button" className={section === "authenticator" ? "nav-active" : ""} aria-current={section === "authenticator" ? "page" : undefined} onClick={() => setSection("authenticator")}><ShieldCheck size={16} /><span>身份验证器</span></button>
             <button type="button" className={section === "flow" ? "nav-active" : ""} aria-current={section === "flow" ? "page" : undefined} onClick={() => setSection("flow")}><GitBranch size={16} /><span>流水线</span></button>
+            <button type="button" className={section === "claude" ? "nav-active" : ""} aria-current={section === "claude" ? "page" : undefined} onClick={() => setSection("claude")}><FileCode2 size={16} /><span>Claude 管理</span></button>
             <button type="button" className={section === "codex" ? "nav-active" : ""} aria-current={section === "codex" ? "page" : undefined} onClick={() => setSection("codex")}><FileCode2 size={16} /><span>Codex 管理</span></button>
             <button type="button" className={section === "frp" ? "nav-active" : ""} aria-current={section === "frp" ? "page" : undefined} onClick={() => setSection("frp")}><Network size={16} /><span>穿透</span></button>
+            <button type="button" className={section === "notes" ? "nav-active" : ""} aria-current={section === "notes" ? "page" : undefined} onClick={() => setSection("notes")}><NotebookPen size={16} /><span>备忘录</span></button>
+            <button type="button" className={section === "plugins" ? "nav-active" : ""} aria-current={section === "plugins" ? "page" : undefined} onClick={() => setSection("plugins")}><Grid2X2 size={16} /><span>软件商店</span></button>
             <button type="button" className={section === "favorites" ? "nav-active" : ""} aria-current={section === "favorites" ? "page" : undefined} onClick={() => { setSection("favorites"); void loadLocalAssets(); }}><Star size={16} /><span>收藏</span></button>
             <button type="button" className={section === "panels" ? "nav-active" : ""} aria-current={section === "panels" ? "page" : undefined} onClick={() => { setSection("panels"); void loadPanelConnections(); }}><Monitor size={16} /><span>面板</span></button>
             <button type="button" className={section === "servers" ? "nav-active" : ""} aria-current={section === "servers" ? "page" : undefined} onClick={() => { setSection("servers"); void loadManagedHosts(); }}><Terminal size={16} /><span>终端</span></button>
             <button type="button" className={section === "logs" ? "nav-active" : ""} aria-current={section === "logs" ? "page" : undefined} onClick={() => setSection("logs")}><FileText size={16} /><span>操作日志</span></button>
             <button type="button" className={section === "api_logs" ? "nav-active" : ""} aria-current={section === "api_logs" ? "page" : undefined} onClick={() => { setSection("api_logs"); void loadApiLogs(); }}><Terminal size={16} /><span>API 日志</span></button>
-            <button type="button" className={section === "plugins" ? "nav-active" : ""} aria-current={section === "plugins" ? "page" : undefined} onClick={() => setSection("plugins")}><Grid2X2 size={16} /><span>软件商店</span></button>
-            <button type="button" className={section === "notes" ? "nav-active" : ""} aria-current={section === "notes" ? "page" : undefined} onClick={() => setSection("notes")}><NotebookPen size={16} /><span>备忘录</span></button>
             <button type="button" className={section === "settings" ? "nav-active" : ""} aria-current={section === "settings" ? "page" : undefined} onClick={() => setSection("settings")}><Settings size={16} /><span>设置</span></button>
           </div>
         </nav>
@@ -4756,6 +4759,7 @@ function App() {
         {section === "certificates" && <CertificatePanel accounts={accounts} localAssets={localAssets} onStatus={setStatus} onConfirm={requestConfirm} alertTarget={petCertificateTarget} onAlertTargetHandled={()=>setPetCertificateTarget(null)} />}
         {section === "flow" && <FlowPanel />}
         {section === "codex" && <CodexPanel />}
+        {section === "claude" && <section className="utility-page"><header><div><span className="eyebrow">AI 工具</span><h1>Claude 管理</h1><p>管理 Claude Code 供应商、模型配置与本地路由。</p></div></header><div className="claude-providers-dialog"><ClaudeProvidersPlugin /></div></section>}
         {section === "authenticator" && <AuthenticatorPanel />}
         {section === "frp" && <FrpPanel />}
         {section === "logs" && (

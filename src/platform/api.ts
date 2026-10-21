@@ -8,6 +8,7 @@ export const invoke = tauriInvoke;
 export type PlatformErrorCode =
   | "codex-login"
   | "codex-launch"
+  | "codex-config"
   | "codex-import"
   | "claude-workbench"
   | "oss-cname"
@@ -37,6 +38,15 @@ export type PlatformErrorCode =
   | "notes";
 
 function publicPlatformMessage(code: PlatformErrorCode, rawMessage: string): string {
+  if (code === "codex-config") {
+    return [
+      "项目目录路径无效", "项目目录必须为绝对路径", "项目目录不存在", "请选择有效的项目目录",
+      "无法确定 Codex 用户目录", "CODEX_HOME 必须为绝对路径", "Codex 配置目录尚不存在",
+      "无法打开 Codex 配置目录", "Codex 账号操作不可用", "读取 Codex 配置任务失败",
+      "无法读取配置，请确认官方 Codex CLI 已安装且配置有效",
+      "官方 CLI 无法读取配置，请检查配置格式或 CLI 版本", "CLI 未返回有效配置",
+    ].includes(rawMessage) ? rawMessage : "读取 Codex 配置失败，请检查配置目录和 CLI 后重试";
+  }
   if (code === "codex-launch") return ["请先停止实例再修改启动配置", "启动配置已被修改，请重新读取后再保存", "模型名称或上下文参数无效", "官方 CLI 无法保存启动配置，请检查版本或参数", "官方 CLI 无法读取启动配置，请检查版本", "检测到 Codex 客户端或 CLI 正在运行，请关闭后再切换或恢复默认登录", "关闭 Codex 客户端或 CLI 失败，请手动关闭后重试", "Codex 客户端仍在运行，请手动关闭后重试", "自动关闭 Codex 客户端或 CLI 目前仅支持 Windows，请手动关闭后重试", "请先停止 Codex 实例，再执行数据库迁移或登录备份", "请先停止 Codex 本地服务，再执行数据库迁移或登录备份", "请等待 Codex 唤醒结束后，再执行数据库迁移或登录备份", "未找到 Codex CLI，请先安装官方 CLI 并加入 PATH", "请先停止该账号的实例或 API 服务，再刷新 Token", "此账号没有可用的 Refresh Token，请重新授权或导入完整认证", "此账号由默认客户端管理，请在客户端续期后重新导入本机登录", "官方 CLI 刷新失败，请检查网络或重新授权", "请先停止目标实例和账号的服务，再切换实例账号"].includes(rawMessage) ? rawMessage : "启动配置操作失败，请重试";
   if (code === "codex-login") return ["授权身份与原账号不一致，请使用原账号重新登录", "原账号已被删除，请重新添加账号", "重新授权的账号不存在或不支持官方登录"].includes(rawMessage) ? rawMessage : "重新授权失败，请重试";
   if (code === "codex-import") {
@@ -144,7 +154,7 @@ function publicPlatformMessage(code: PlatformErrorCode, rawMessage: string): str
       .replace(/(password|secret|token|access[_-]?key|private[_-]?key|authorization|signature)(\s*[:=]\s*)[^,;\s]+/gi, "$1$2[已隐藏]")
       .slice(0, 240);
   }
-  const messages: Record<Exclude<PlatformErrorCode, "codex-launch" | "codex-login" | "codex-import" | "claude-workbench" | "oss-cname" | "local-plugin" | "ai" | "unsupported-in-preview" | "certificate" | "esa-query" | "authenticator-error" | "authenticator-locked" | "hardware-info" | "wsl-dashboard" | "codex-model-catalog" | "codex-proxy" | "browser" | "notes">, string> = {
+  const messages: Record<Exclude<PlatformErrorCode, "codex-config" | "codex-launch" | "codex-login" | "codex-import" | "claude-workbench" | "oss-cname" | "local-plugin" | "ai" | "unsupported-in-preview" | "certificate" | "esa-query" | "authenticator-error" | "authenticator-locked" | "hardware-info" | "wsl-dashboard" | "codex-model-catalog" | "codex-proxy" | "browser" | "notes">, string> = {
     unknown: "操作失败，请稍后重试",
     validation: "输入参数无效，请检查后重试",
     authentication: "认证失败，请检查凭据或登录状态",
@@ -194,7 +204,7 @@ export function normalizePlatformError(reason: unknown): PlatformError {
   }
   if (typeof reason === "object" && reason !== null && "code" in reason && "message" in reason) {
     const structured = reason as { code?: PlatformErrorCode; message?: string; retryable?: boolean };
-    const code = structured.code && ["codex-launch", "codex-login", "codex-import", "claude-workbench", "oss-cname", "local-plugin", "ai", "unknown", "unsupported-in-preview", "validation", "authentication", "permission", "network", "not-found", "conflict", "frp-port-conflict", "codex-account-busy", "codex-gateway-port-conflict", "codex-model-catalog", "codex-proxy", "cancelled", "certificate", "esa-query", "authenticator-error", "authenticator-locked", "hardware-info", "wsl-dashboard", "browser", "notes"].includes(structured.code)
+    const code = structured.code && ["codex-config", "codex-launch", "codex-login", "codex-import", "claude-workbench", "oss-cname", "local-plugin", "ai", "unknown", "unsupported-in-preview", "validation", "authentication", "permission", "network", "not-found", "conflict", "frp-port-conflict", "codex-account-busy", "codex-gateway-port-conflict", "codex-model-catalog", "codex-proxy", "cancelled", "certificate", "esa-query", "authenticator-error", "authenticator-locked", "hardware-info", "wsl-dashboard", "browser", "notes"].includes(structured.code)
       ? structured.code : "unknown";
     return new PlatformError(String(structured.message), code, structured.retryable === true);
   }

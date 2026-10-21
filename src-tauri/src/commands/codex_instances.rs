@@ -113,7 +113,7 @@ pub(crate) struct LaunchConfig {
     compact_limit: Option<i64>,
 }
 
-fn config_home(store: &CodexRuntimeStore, id: Option<&str>, writing: bool) -> Result<PathBuf, String> {
+pub(crate) fn config_home(store: &CodexRuntimeStore, id: Option<&str>, writing: bool) -> Result<PathBuf, String> {
     if let Some(id) = id {
         let _: i64 = open_db()?.query_row("SELECT account_id FROM codex_profiles WHERE id=?1", [id], |row| row.get(0)).map_err(|_| "Codex 实例不存在")?;
         if writing && store.instances.lock().map_err(|_| "Codex 实例状态不可用")?.contains_key(id) { return Err("请先停止实例再修改启动配置".into()); }
@@ -143,6 +143,7 @@ pub(crate) async fn codex_launch_config(app: tauri::AppHandle, id: Option<String
         let _writer = AUTH_WRITER.lock().map_err(|_| "Codex 账号操作不可用")?;
         let store = app.state::<CodexRuntimeStore>();
         let home = config_home(&store, id.as_deref(), input.is_some())?;
+        if input.is_some() { crate::core::codex::providers::ensure_home_unbound(&open_db()?, &home)?; }
         let original = config_content(&home)?;
         let version = profile::fingerprint(original.as_ref().map(|v| v.as_str()));
         let isolated = profile::TemporaryProfile::new("{}")?;
@@ -252,6 +253,7 @@ pub(crate) async fn codex_delete_instance(
                 row.get(0)
             })
             .map_err(|_| "Codex 实例不存在")?;
+        crate::core::codex::providers::ensure_home_unbound(&conn, &instance_path(&id)?)?;
         clear_projection(&id)?;
         conn.execute("DELETE FROM codex_profiles WHERE id=?1", [&id])
             .map_err(|_| "删除 Codex 实例配置失败")?;
@@ -263,6 +265,7 @@ pub(crate) async fn codex_delete_instance(
 }
 
 fn sync_instance(account_id: i64, path: &Path) -> Result<(), String> {
+    if crate::core::codex::provider_oauth::sync(path)? {return Ok(());}
     let conn = open_db()?;
     let account = repository::get(&conn, account_id)?;
     auth::ensure_runtime_auth(&repository::credentials(&conn, account_id)?)?;
@@ -290,6 +293,8 @@ pub(crate) async fn codex_bind_instance(app: tauri::AppHandle, id: String, accou
         let store = app.state::<CodexRuntimeStore>();
         let conn = open_db()?;
         let old: i64 = conn.query_row("SELECT account_id FROM codex_profiles WHERE id=?1", [&id], |row| row.get(0)).map_err(|_| "Codex 实例不存在")?;
+        crate::core::codex::providers::ensure_home_unbound(&conn,&instance_path(&id)?)?;
+        if crate::core::codex::providers::is_provider_account(&conn,account_id)? {return Err("请通过模型供应商启动预览应用此账号".into());}
         if account_running(&store, old)? || account_running(&store, account_id)? {
             return Err("请先停止目标实例和账号的服务，再切换实例账号".into());
         }
@@ -328,6 +333,7 @@ pub(crate) fn stop_all(store: &CodexRuntimeStore) {
 }
 
 pub(crate) fn account_running(store: &CodexRuntimeStore, account_id: i64) -> Result<bool, String> {
+    if crate::core::codex::provider_oauth::bound(&open_db()?,account_id)? {return Ok(true);}
     let instance_running = store
         .instances
         .lock()
@@ -349,6 +355,9 @@ pub(crate) fn account_running(store: &CodexRuntimeStore, account_id: i64) -> Res
 }
 
 pub(crate) fn ensure_idle(store: &CodexRuntimeStore) -> Result<(), String> {
+    let conn=open_db()?;
+    let provider_active:bool=conn.query_row("SELECT EXISTS(SELECT 1 FROM codex_provider_config_backups)",[],|r|r.get(0)).map_err(|_| "读取供应商配置状态失败")?;
+    if provider_active {return Err("请先恢复所有供应商目标的配置与登录，再执行此操作".into());}
     if !store
         .instances
         .lock()
@@ -508,12 +517,14 @@ fn launch_terminal(cli: &Path, home: &Path, workspace: &Path, proxy:Option<&str>
 }
 
 #[tauri::command]
-pub(crate) async fn codex_open_default_cli() -> PlatformResult<()> {
-    tauri::async_runtime::spawn_blocking(|| -> Result<(), String> {
+pub(crate) async fn codex_open_default_cli(app:tauri::AppHandle) -> PlatformResult<()> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
         let _writer = AUTH_WRITER.lock().map_err(|_| "Codex 账号操作不可用")?;
         let home = profile::default_home()?;
         profile::ensure_file_storage(&home)?;
         profile::ensure_default_idle()?;
+        super::codex_providers::ensure_gateway(&app.state::<CodexRuntimeStore>(),&home)?;
+        crate::core::codex::provider_oauth::sync(&home)?;
         let cli = profile::cli_path().ok_or("未找到 Codex CLI，请先安装官方 CLI 并加入 PATH")?;
         let _child = launch_terminal(&cli, &home, &home, None)?;
         Ok(())
@@ -536,7 +547,16 @@ pub(crate) async fn codex_start_instance(
         if !matches!(kind.as_str(),"cli"|"desktop"){return Err("Codex 实例类型无效".into());}
         let path = instance_path(&id)?;
         profile::ensure_file_storage(&path)?;
-        let mut stored_auth = repository::credentials(&conn,account_id)?;
+        super::codex_providers::ensure_gateway(&store,&path)?;
+        if crate::core::codex::providers::is_provider_account(&conn,account_id)? {
+            let matches:bool=conn.query_row("SELECT EXISTS(SELECT 1 FROM codex_provider_bindings WHERE home=?1 AND account_id=?2 AND instance_id=?3)",params![path.to_string_lossy(),account_id,id],|r|r.get(0)).map_err(|_| "读取供应商绑定失败")?;
+            if !matches {return Err("请通过模型供应商启动预览应用此账号".into());}
+        }
+        let mut stored_auth = crate::core::codex::provider_oauth::credentials(&conn,&path)?.unwrap_or(repository::credentials(&conn,account_id)?);
+        if crate::core::codex::provider_oauth::owner(&conn,&path)?.is_some() {
+            crate::core::codex::provider_oauth::sync(&path)?;
+            stored_auth=crate::core::codex::provider_oauth::credentials(&conn,&path)?.ok_or("供应商 OAuth 账号不可用")?;
+        }
         auth::ensure_runtime_auth(&stored_auth)?;
         let saved_identity=auth::parse_import(&stored_auth)?.remove(0).identity;
         if profile::default_home().ok().and_then(|home|profile::read_auth(&home.join("auth.json")).ok()).and_then(|content|auth::parse_import(&content).ok()).is_some_and(|accounts|accounts.iter().any(|account|account.auth_mode=="chatgpt"&&account.identity==saved_identity)){
@@ -552,7 +572,7 @@ pub(crate) async fn codex_start_instance(
                 if instance_fingerprint != previous && instance_fingerprint != stored_fingerprint {
                     if previous != stored_fingerprint { return Err("实例与账号凭据均已变更，请新建实例或先导入该实例 auth.json，未覆盖登录状态".into()); }
                     sync_instance(account_id,&path)?;
-                    stored_auth = repository::credentials(&conn,account_id)?;
+                    stored_auth = crate::core::codex::provider_oauth::credentials(&conn,&path)?.unwrap_or(repository::credentials(&conn,account_id)?);
                 }
             } else { return Err("实例目录已有登录数据，请创建新实例，未覆盖原文件".into()); }
         }

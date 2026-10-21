@@ -6,7 +6,7 @@ import { ConfirmDialog } from "../../shared/ConfirmDialog";
 import { RecycleBin } from "../../shared/RecycleBin";
 import { trashClient, type TrashSnapshot } from "../../platform/clients/trash";
 
-export function OverviewDialog({ title, busy, onClose, children, eyebrow, layout, className = "", footer, footerLayout = "actions", dismissWhileBusy = false }: { title: string; busy: boolean; onClose: () => void; children: ReactNode; eyebrow?: string; layout?: "form"; className?: string; footer?: ReactNode; footerLayout?: "actions" | "stacked"; dismissWhileBusy?: boolean }) {
+export function OverviewDialog({ title, busy, onClose, children, eyebrow, description, headerActions, layout, className = "", footer, footerLayout = "actions", dismissWhileBusy = false }: { title: string; busy: boolean; onClose: () => void; children: ReactNode; eyebrow?: string; description?: string; headerActions?: ReactNode; layout?: "form"; className?: string; footer?: ReactNode; footerLayout?: "actions" | "stacked"; dismissWhileBusy?: boolean }) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
@@ -15,7 +15,7 @@ export function OverviewDialog({ title, busy, onClose, children, eyebrow, layout
     return () => { dialog?.close(); previous?.focus(); };
   }, []);
   return createPortal(<dialog ref={ref} className={`codex-dialog modal-form-layout dialog-common-theme ${className}${layout === "form" ? " codex-dialog-form-layout" : ""}`} aria-label={title} aria-busy={busy} onCancel={event => { event.preventDefault(); if (!busy || dismissWhileBusy) onClose(); }}>
-    <header className="modal-head"><div className="codex-dialog-heading">{eyebrow && <span className="codex-dialog-eyebrow">{eyebrow}</span>}<h2>{title}</h2></div><DialogHeaderActions><button type="button" disabled={busy && !dismissWhileBusy} onClick={onClose} aria-label="关闭对话框" title="关闭"><X size={17} /></button></DialogHeaderActions></header>
+    <header className="modal-head"><div className="codex-dialog-heading">{eyebrow && <span className="codex-dialog-eyebrow">{eyebrow}</span>}<h2>{title}</h2>{description && <p>{description}</p>}</div><DialogHeaderActions>{headerActions}<button type="button" disabled={busy && !dismissWhileBusy} onClick={onClose} aria-label="关闭对话框" title="关闭"><X size={17} /></button></DialogHeaderActions></header>
     <div className={layout === "form" ? "codex-dialog-form-body modal-body" : "codex-dialog-content modal-body"}>{children}</div>
     {footer && <footer className={"modal-actions " + (footerLayout === "stacked" ? "codex-launch-footer" : "codex-overview-dialog-actions")}>{footer}</footer>}
   </dialog>, document.body);

@@ -148,6 +148,160 @@ fn preserve_local_codex(incoming: &Path, current: &Path, current_key: &[u8], inc
     tx.commit().map_err(|_| "提交本机 Codex 数据失败".into())
 }
 
+fn preserve_local_codex_providers(
+    incoming: &Path,
+    current: &Path,
+    current_key: &[u8],
+    incoming_key: &[u8],
+) -> Result<(), String> {
+    use crate::core::crypto::{decrypt_secret_with_key, encrypt_secret_with_key};
+    let mut destination = Connection::open(incoming).map_err(|_| "无法准备本机供应商数据保留")?;
+    let source = if current.exists() {
+        Some(Connection::open(current).map_err(|_| "无法读取本机供应商数据")?)
+    } else {
+        None
+    };
+    let tx = destination
+        .transaction()
+        .map_err(|_| "无法准备供应商数据事务")?;
+    tx.execute_batch(crate::core::database::CODEX_PROVIDERS_SCHEMA)
+        .map_err(|_| "无法准备供应商数据表")?;
+    tx.execute_batch(crate::core::database::CODEX_PROVIDER_AGGREGATES_SCHEMA)
+        .map_err(|_| "无法准备供应商聚合数据表")?;
+    for (table, column, definition) in [
+        (
+            "codex_model_providers",
+            "settings_json",
+            "TEXT NOT NULL DEFAULT '{}'",
+        ),
+        (
+            "codex_provider_keys",
+            "settings_json",
+            "TEXT NOT NULL DEFAULT '{}'",
+        ),
+    ] {
+        let exists: bool = tx
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM pragma_table_info(?1) WHERE name=?2)",
+                rusqlite::params![table, column],
+                |row| row.get(0),
+            )
+            .map_err(|_| "检查供应商数据结构失败")?;
+        if !exists {
+            tx.execute_batch(&format!(
+                "ALTER TABLE {table} ADD COLUMN {column} {definition}"
+            ))
+            .map_err(|_| "升级供应商数据结构失败")?;
+        }
+    }
+    tx.execute_batch(
+        "CREATE TABLE IF NOT EXISTS codex_provider_config_backups(home TEXT PRIMARY KEY,content_ciphertext TEXT NOT NULL,installed_config TEXT NOT NULL,installed_auth TEXT NOT NULL);
+         CREATE TABLE IF NOT EXISTS codex_provider_bindings(home TEXT PRIMARY KEY,provider_id TEXT NOT NULL,key_id TEXT NOT NULL,account_id INTEGER NOT NULL,previous_account_id INTEGER,instance_id TEXT);
+         CREATE TABLE IF NOT EXISTS codex_provider_accounts(account_id INTEGER PRIMARY KEY,provider_id TEXT NOT NULL,key_id TEXT NOT NULL);
+         CREATE TABLE IF NOT EXISTS codex_provider_gateways(home TEXT PRIMARY KEY,port INTEGER NOT NULL,key_ciphertext TEXT NOT NULL,provider_id TEXT NOT NULL,key_id TEXT NOT NULL,models_json TEXT NOT NULL);
+         CREATE TABLE IF NOT EXISTS codex_provider_oauth(home TEXT PRIMARY KEY,account_id INTEGER NOT NULL UNIQUE,auth_fingerprint TEXT NOT NULL);",
+    ).map_err(|_| "无法准备供应商运行状态表")?;
+
+    for table in [
+        "codex_provider_bindings",
+        "codex_provider_accounts",
+        "codex_provider_gateways",
+        "codex_provider_oauth",
+        "codex_provider_config_backups",
+        "codex_provider_aggregate_members",
+        "codex_provider_aggregates",
+        "codex_provider_keys",
+        "codex_model_providers",
+    ] {
+        tx.execute(&format!("DELETE FROM {table}"), [])
+            .map_err(|_| "隔离迁移包供应商数据失败")?;
+    }
+    let tables = [
+        (
+            "codex_model_providers",
+            "id,name,base_url,wire_api,models_json,note,version,settings_json",
+            None,
+        ),
+        (
+            "codex_provider_keys",
+            "id,provider_id,name,ciphertext,settings_json",
+            Some(3usize),
+        ),
+        ("codex_provider_aggregates", "id,name,strategy,version", None),
+        (
+            "codex_provider_aggregate_members",
+            "aggregate_id,position,provider_id,key_id,weight",
+            None,
+        ),
+        (
+            "codex_provider_config_backups",
+            "home,content_ciphertext,installed_config,installed_auth",
+            Some(1usize),
+        ),
+        (
+            "codex_provider_gateways",
+            "home,port,key_ciphertext,provider_id,key_id,models_json",
+            Some(2usize),
+        ),
+        (
+            "codex_provider_bindings",
+            "home,provider_id,key_id,account_id,previous_account_id,instance_id",
+            None,
+        ),
+        (
+            "codex_provider_accounts",
+            "account_id,provider_id,key_id",
+            None,
+        ),
+        (
+            "codex_provider_oauth",
+            "home,account_id,auth_fingerprint",
+            None,
+        ),
+    ];
+    for (table, columns, secret_index) in tables {
+        let Some(ref source) = source else { continue };
+        if !table_exists(source, table)? || table_count(source, table)? == 0 {
+            continue;
+        }
+        let count = columns.split(',').count();
+        let mut statement = source
+            .prepare(&format!("SELECT {columns} FROM {table}"))
+            .map_err(|_| "读取本机供应商数据失败")?;
+        let rows = statement
+            .query_map([], |row| {
+                (0..count)
+                    .map(|index| row.get::<_, rusqlite::types::Value>(index))
+                    .collect::<rusqlite::Result<Vec<_>>>()
+            })
+            .map_err(|_| "读取本机供应商数据失败")?;
+        let placeholders = (1..=count)
+            .map(|i| format!("?{i}"))
+            .collect::<Vec<_>>()
+            .join(",");
+        for row in rows {
+            let mut values = row.map_err(|_| "读取本机供应商数据失败")?;
+            if let Some(index) = secret_index {
+                if let rusqlite::types::Value::Text(ciphertext) = &values[index] {
+                    let secret = zeroize::Zeroizing::new(
+                        decrypt_secret_with_key(ciphertext, current_key)
+                            .map_err(|_| "解密本机供应商数据失败")?,
+                    );
+                    values[index] = rusqlite::types::Value::Text(
+                        encrypt_secret_with_key(&secret, incoming_key)
+                            .map_err(|_| "重新加密本机供应商数据失败")?,
+                    );
+                }
+            }
+            tx.execute(
+                &format!("INSERT INTO {table}({columns}) VALUES({placeholders})"),
+                rusqlite::params_from_iter(values),
+            )
+            .map_err(|_| "保留本机供应商数据失败")?;
+        }
+    }
+    tx.commit().map_err(|_| "提交本机供应商数据失败".into())
+}
 fn preserve_local_authenticator(incoming: &Path, current: &Path) -> Result<(), String> {
     use crate::core::repositories::authenticator::{self, SCHEMA};
     let mut destination = Connection::open(incoming).map_err(|_| "无法准备本机验证器保留")?;
@@ -416,6 +570,7 @@ pub(crate) fn import_database_file(app: tauri::AppHandle) -> PlatformResult<Opti
         lock_authenticator_for_migration(&app);
         preserve_local_authenticator(&import_db, &current_db)?;
         preserve_local_codex(&import_db, &current_db, &crypto_key_bytes()?, key)?;
+        preserve_local_codex_providers(&import_db, &current_db, &crypto_key_bytes()?, key)?;
         let current_key = data.join(".key");
         let stamp = Utc::now().format("%Y%m%d-%H%M%S");
         let backup_db = data.join(format!("cloudhub_tools.sqlite3.before-import-{stamp}-{}", &Uuid::new_v4().to_string()[..8]));
@@ -447,6 +602,7 @@ fn replace_prepared_database(import_db: &Path, key: &[u8]) -> Result<String, Str
     let current_db = data.join("cloudhub_tools.sqlite3");
     preserve_local_authenticator(import_db, &current_db)?;
     preserve_local_codex(import_db, &current_db, &crypto_key_bytes()?, key)?;
+    preserve_local_codex_providers(import_db, &current_db, &crypto_key_bytes()?, key)?;
     let current_key = data.join(".key");
     let stamp = Utc::now().format("%Y%m%d-%H%M%S");
     let backup_db = data.join(format!("cloudhub_tools.sqlite3.before-import-{stamp}-{}", &Uuid::new_v4().to_string()[..8]));
@@ -506,7 +662,13 @@ pub(crate) fn prepare_database_backup_restore(id: String, state: tauri::State<'_
 
 #[cfg(test)]
 mod tests {
-    use super::{reset_imported_sync_identity, preserve_local_authenticator, preserve_local_codex};
+    use super::{
+        preserve_local_authenticator, preserve_local_codex, preserve_local_codex_providers,
+        reset_imported_sync_identity,
+    };
+    use rusqlite::Connection;
+    use std::{fs, path::PathBuf};
+    use uuid::Uuid;
 
     #[test]
     fn codex_stays_local_and_is_reencrypted_when_database_key_changes() {
@@ -553,10 +715,148 @@ mod tests {
         assert_eq!(Connection::open(&current).unwrap().query_row("SELECT COUNT(*) FROM codex_accounts", [], |row| row.get::<_,i64>(0)).unwrap(),1);
         fs::remove_dir_all(root).unwrap();
     }
-    use rusqlite::Connection;
-    use std::{fs, path::PathBuf};
-    use uuid::Uuid;
+    #[test]
+    fn provider_credentials_and_local_runtime_state_survive_database_import() {
+        use crate::core::crypto::{decrypt_secret_with_key, encrypt_secret_with_key};
+        let root =
+            std::env::temp_dir().join(format!("cloudhub-provider-migration-{}", Uuid::new_v4()));
+        fs::create_dir(&root).unwrap();
+        let current = root.join("current.sqlite3");
+        let incoming = root.join("incoming.sqlite3");
+        let old_key = [31u8; 32];
+        let new_key = [32u8; 32];
+        for (path, id, name, secret, key) in [
+            (
+                &current,
+                "local-provider",
+                "本机供应商",
+                "local-secret",
+                &old_key,
+            ),
+            (
+                &incoming,
+                "incoming-provider",
+                "迁移包供应商",
+                "incoming-secret",
+                &new_key,
+            ),
+        ] {
+            let conn = Connection::open(path).unwrap();
+            conn.execute_batch(crate::core::database::CODEX_PROVIDERS_SCHEMA)
+                .unwrap();
+            conn.execute_batch(crate::core::database::CODEX_PROVIDER_AGGREGATES_SCHEMA)
+                .unwrap();
+            conn.execute_batch("ALTER TABLE codex_model_providers ADD COLUMN settings_json TEXT NOT NULL DEFAULT '{}'; ALTER TABLE codex_provider_keys ADD COLUMN settings_json TEXT NOT NULL DEFAULT '{}';").unwrap();
+            conn.execute_batch("CREATE TABLE codex_provider_config_backups(home TEXT PRIMARY KEY,content_ciphertext TEXT NOT NULL,installed_config TEXT NOT NULL,installed_auth TEXT NOT NULL); CREATE TABLE codex_provider_bindings(home TEXT PRIMARY KEY,provider_id TEXT NOT NULL,key_id TEXT NOT NULL,account_id INTEGER NOT NULL,previous_account_id INTEGER,instance_id TEXT); CREATE TABLE codex_provider_accounts(account_id INTEGER PRIMARY KEY,provider_id TEXT NOT NULL,key_id TEXT NOT NULL); CREATE TABLE codex_provider_gateways(home TEXT PRIMARY KEY,port INTEGER NOT NULL,key_ciphertext TEXT NOT NULL,provider_id TEXT NOT NULL,key_id TEXT NOT NULL,models_json TEXT NOT NULL); CREATE TABLE codex_provider_oauth(home TEXT PRIMARY KEY,account_id INTEGER NOT NULL UNIQUE,auth_fingerprint TEXT NOT NULL);").unwrap();
+            conn.execute("INSERT INTO codex_model_providers VALUES(?1,?2,'https://example.com/v1','responses','[\"model-a\"]','',1,'{}')", rusqlite::params![id, name]).unwrap();
+            let aggregate_id = if id == "local-provider" {
+                "local-aggregate"
+            } else {
+                "incoming-aggregate"
+            };
+            conn.execute(
+                "INSERT INTO codex_provider_aggregates VALUES(?1,?2,'failover',1)",
+                rusqlite::params![aggregate_id, format!("{name} 聚合")],
+            )
+            .unwrap();
+            let key_cipher = encrypt_secret_with_key(secret, key).unwrap();
+            conn.execute(
+                "INSERT INTO codex_provider_keys VALUES('key-a',?1,'primary',?2,'{}')",
+                rusqlite::params![id, key_cipher],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO codex_provider_aggregate_members VALUES(?1,0,?2,'key-a',3)",
+                rusqlite::params![aggregate_id, id],
+            )
+            .unwrap();
+            let backup_cipher = encrypt_secret_with_key("recovery-snapshot", key).unwrap();
+            conn.execute("INSERT INTO codex_provider_config_backups VALUES('fixture-home',?1,'config-fingerprint','auth-fingerprint')", [&backup_cipher]).unwrap();
+            let gateway_cipher = encrypt_secret_with_key("loopback-client-key", key).unwrap();
+            conn.execute("INSERT INTO codex_provider_gateways VALUES('fixture-home',58169,?1,?2,'key-a','[\"model-a\"]')", rusqlite::params![gateway_cipher,id]).unwrap();
+            conn.execute("INSERT INTO codex_provider_bindings VALUES('fixture-home',?1,'key-a',7,6,'instance-a')", [id]).unwrap();
+            conn.execute(
+                "INSERT INTO codex_provider_accounts VALUES(7,?1,'key-a')",
+                [id],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO codex_provider_oauth VALUES('fixture-home',8,'oauth-fingerprint')",
+                [],
+            )
+            .unwrap();
+        }
 
+        preserve_local_codex_providers(&incoming, &current, &old_key, &new_key).unwrap();
+        let conn = Connection::open(&incoming).unwrap();
+        assert_eq!(
+            conn.query_row("SELECT id FROM codex_model_providers", [], |row| row
+                .get::<_, String>(0))
+                .unwrap(),
+            "local-provider"
+        );
+        assert_eq!(
+            conn.query_row("SELECT name FROM codex_model_providers", [], |row| row
+                .get::<_, String>(
+                0
+            ))
+            .unwrap(),
+            "本机供应商"
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT id FROM codex_provider_aggregates",
+                [],
+                |row| row.get::<_, String>(0)
+            )
+            .unwrap(),
+            "local-aggregate"
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT provider_id || ':' || key_id || ':' || weight FROM codex_provider_aggregate_members",
+                [],
+                |row| row.get::<_, String>(0)
+            )
+            .unwrap(),
+            "local-provider:key-a:3"
+        );
+        for (query, expected) in [
+            ("SELECT ciphertext FROM codex_provider_keys", "local-secret"),
+            (
+                "SELECT content_ciphertext FROM codex_provider_config_backups",
+                "recovery-snapshot",
+            ),
+            (
+                "SELECT key_ciphertext FROM codex_provider_gateways",
+                "loopback-client-key",
+            ),
+        ] {
+            let cipher: String = conn.query_row(query, [], |row| row.get(0)).unwrap();
+            assert_eq!(
+                decrypt_secret_with_key(&cipher, &new_key).unwrap(),
+                expected
+            );
+            assert!(decrypt_secret_with_key(&cipher, &old_key).is_err());
+        }
+        assert_eq!(
+            conn.query_row(
+                "SELECT provider_id FROM codex_provider_bindings",
+                [],
+                |row| row.get::<_, String>(0)
+            )
+            .unwrap(),
+            "local-provider"
+        );
+        assert_eq!(
+            conn.query_row("SELECT account_id FROM codex_provider_oauth", [], |row| row
+                .get::<_, i64>(0))
+                .unwrap(),
+            8
+        );
+        drop(conn);
+        fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn authenticator_from_current_device_is_preserved_when_importing() {
         let current = std::env::temp_dir().join(format!("auth-current-{}.sqlite3", Uuid::new_v4()));

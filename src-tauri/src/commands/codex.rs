@@ -187,6 +187,8 @@ pub(crate) async fn codex_open_default(app: tauri::AppHandle) -> PlatformResult<
         if store.closing.load(std::sync::atomic::Ordering::SeqCst) {
             return Err("应用正在退出，未打开 Codex".into());
         }
+        super::codex_providers::ensure_gateway(&store,&profile::default_home()?)?;
+        crate::core::codex::provider_oauth::sync(&profile::default_home()?)?;
         crate::core::codex::desktop::launch_default()
     })
     .await
@@ -420,6 +422,7 @@ pub(crate) async fn codex_delete_account(
             return Err("该账号有实例运行，请先停止实例再删除".into());
         }
         let conn = open_db()?;
+        crate::core::codex::providers::ensure_account_unbound(&conn, id)?;
         super::codex_instances::clear_account_projections(&conn, id)?;
         if conn
             .execute("UPDATE codex_accounts SET deleted_at=?2 WHERE id=?1 AND deleted_at IS NULL", rusqlite::params![id, chrono::Utc::now().timestamp_millis()])
@@ -652,8 +655,10 @@ pub(crate) async fn codex_prepare_switch(
             return Err("该账号有实例运行，请先停止实例再切换默认账号".into());
         }
         let account = repository::get(&open_db()?, id)?;
+        if crate::core::codex::providers::is_provider_account(&open_db()?,id)? {return Err("请通过模型供应商启动预览应用此账号".into());}
         auth::ensure_runtime_auth(&repository::credentials(&open_db()?, id)?)?;
         let home = switch_home()?;
+        crate::core::codex::providers::ensure_home_unbound(&open_db()?,&home)?;
         let previous = previous_auth(&home)?;
         let token = uuid::Uuid::new_v4().to_string();
         *SWITCH_TICKET.lock().map_err(|_| "Codex 切号状态不可用")? = Some(SwitchTicket {
@@ -714,7 +719,11 @@ pub(crate) async fn codex_confirm_switch(
         if repository::get(&conn, ticket.id)?.updated_at != ticket.version {
             return Err("Codex 账号已变更，请重新确认切号".into());
         }
+        if crate::core::codex::providers::is_provider_account(&conn, ticket.id)? {
+            return Err("请通过模型供应商启动预览应用此账号".into());
+        }
         let home = switch_home()?;
+        crate::core::codex::providers::ensure_home_unbound(&conn,&home)?;
         let previous = previous_auth(&home)?;
         if profile::fingerprint(previous.as_deref().map(|s| s.as_str())) != ticket.fingerprint {
             return Err("Codex 登录状态已变更，未执行切号，请重新确认".into());
@@ -741,6 +750,7 @@ pub(crate) async fn codex_restore_profile() -> PlatformResult<CodexState> {
         let _writer = AUTH_WRITER.lock().map_err(|_| "Codex 账号操作不可用")?;
         let home = switch_home()?;
         let conn = open_db()?;
+        crate::core::codex::providers::ensure_home_unbound(&conn,&home)?;
         restore_profile(&conn, &home, decrypt_secret)?;
         state()
     })

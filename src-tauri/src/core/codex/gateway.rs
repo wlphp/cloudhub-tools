@@ -285,10 +285,10 @@ impl RunningGateway {
     }
 }
 
-struct Request {
-    path: String,
+pub(crate) struct Request {
+    pub path: String,
     session: Option<String>,
-    body: Zeroizing<Vec<u8>>,
+    pub body: Zeroizing<Vec<u8>>,
 }
 struct RequestTrace {
     shared: Arc<Shared>, started: Instant, generation: Option<u64>, entry: CallLog,
@@ -325,7 +325,7 @@ fn authorized(actual: &str, expected: &str) -> bool {
     difference == 0
 }
 
-async fn read_request(stream: &mut TcpStream, host: &str, key: &str) -> Result<Request, u16> {
+pub(crate) async fn read_request(stream: &mut TcpStream, host: &str, key: &str) -> Result<Request, u16> {
     let mut bytes = Zeroizing::new(Vec::new());
     let end = loop {
         if let Some(at) = bytes.windows(4).position(|v| v == b"\r\n\r\n") {
@@ -594,6 +594,8 @@ fn credentials(
 }
 pub(crate) fn credentials_locked(id:i64,cancelled:Arc<std::sync::atomic::AtomicBool>)->Result<(Zeroizing<String>,Option<String>,Option<String>),String> {
     let conn = open_db()?;
+    if super::providers::is_provider_account(&conn,id)? {return Err("第三方供应商账号不能使用官方账号通道".into());}
+    if super::provider_oauth::bound(&conn,id)? {return Err("此 OAuth 账号由供应商目标独占，请先恢复配置".into());}
     if cancelled.load(std::sync::atomic::Ordering::SeqCst) {
         return Err("Codex 请求已取消".into());
     }
@@ -774,12 +776,13 @@ async fn protocol_event(stream:&mut TcpStream,protocol:Protocol,value:&Value)->s
 }
 
 #[derive(Default)]
-struct SseDecoder {
+pub(crate) struct SseDecoder {
     buffer: Vec<u8>,
     total: usize,
 }
 impl SseDecoder {
-    fn feed(&mut self, chunk: &[u8]) -> Result<Vec<Value>, String> {
+    pub(crate) fn is_complete(&self)->bool {self.buffer.iter().all(|b|b.is_ascii_whitespace())}
+    pub(crate) fn feed(&mut self, chunk: &[u8]) -> Result<Vec<Value>, String> {
         self.total += chunk.len();
         if self.total > MAX_OUTPUT || self.buffer.len() + chunk.len() > 1024 * 1024 {
             return Err("上游流超出限制".into());

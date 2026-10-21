@@ -119,5 +119,18 @@ export function LaunchPreviewDialog({ account, state, instances, gateway, onClos
     <p className="codex-launch-path"><Terminal size={13} />{selected?.workDir ?? state.profileHome}</p>
     {busy && <p role="status">正在{busy}…</p>}{notice && <p role="status" className="codex-feedback">{notice}</p>}{error && <p role="alert" className="codex-card-error">{error}</p>}
     <p className="codex-launch-caption">Token 日期来自本机凭据中的身份声明，仅作为状态提示。</p>
+    <details className="codex-launch-help">
+      <summary>启动原理</summary>
+      <div className="codex-launch-help-content">
+        <p><strong>默认实例：先切换登录，再启动官方客户端。</strong>例如当前 Codex 登录的是账号 A，在这里选择账号 B 后点击“切换并启动”：</p>
+        <ol>
+          <li>检查默认 Codex 是否正在运行；如正在运行，会提示确认关闭后继续，进行中的任务可能中断。</li>
+          <li>将原有登录信息加密备份，再把账号 B 的登录信息写入默认配置目录的 <code>auth.json</code>。</li>
+          <li>打开官方 Codex 客户端，让它读取账号 B 的登录信息。原有 <code>config.toml</code> 和会话数据保留，模型与接口地址仍按配置读取。</li>
+        </ol>
+        <p><strong>按钮区别：</strong>“切换”只更换登录信息；“切换并启动”还会打开目标客户端；“CLI 启动”会切换账号并打开命令行客户端。</p>
+        <p><strong>独立实例：</strong>选择已有独立实例时，会将所选账号绑定到该实例。各实例使用独立的登录、配置目录，桌面实例还使用独立的窗口数据目录，可分别启动不同账号；默认实例共用一套登录信息。</p>
+      </div>
+    </details>
   </OverviewDialog>;
 }

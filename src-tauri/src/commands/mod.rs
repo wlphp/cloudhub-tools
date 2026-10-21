@@ -18,6 +18,10 @@ pub mod ai_transfer;
 #[cfg(desktop)]
 pub mod codex;
 #[cfg(desktop)]
+pub mod codex_config;
+#[cfg(desktop)]
+pub mod codex_providers;
+#[cfg(desktop)]
 pub mod codex_details;
 #[cfg(desktop)]
 pub mod codex_runtime;

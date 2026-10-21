@@ -18,6 +18,8 @@ pub(crate) struct CodexRuntimeStore {
     pub login: Arc<Mutex<Option<PendingLogin>>>,
     pub instances: Arc<Mutex<HashMap<String, super::codex_instances::ManagedInstance>>>,
     pub gateway: Arc<Mutex<Option<crate::core::codex::gateway::RunningGateway>>>,
+    pub provider_gateways: Arc<Mutex<HashMap<String, crate::core::codex::provider_gateway::ProviderGateway>>>,
+    pub provider_import: Arc<Mutex<Option<crate::core::codex::provider_import::ImportDraft>>>,
     pub wakes: Arc<Mutex<HashSet<i64>>>,
     pub closing: Arc<AtomicBool>,
     pub gateway_start_error: Arc<Mutex<Option<String>>>,
@@ -35,6 +37,7 @@ pub(crate) struct PendingLogin {
 
 impl CodexRuntimeStore {
     pub fn cleanup_expired(&self) {
+        if let Ok(mut draft)=self.provider_import.try_lock(){if draft.as_ref().is_some_and(|v|v.expires<=Instant::now()){*draft=None;}}
         if let Ok(mut pending) = self.login.try_lock() {
             if pending
                 .as_ref()
@@ -49,6 +52,8 @@ impl CodexRuntimeStore {
         if let Ok(mut gateway) = self.gateway.lock() {
             *gateway = None;
         }
+        if let Ok(mut gateways)=self.provider_gateways.lock(){gateways.clear();}
+        if let Ok(mut draft)=self.provider_import.lock(){*draft=None;}
         if let Ok(mut pending) = self.login.lock() {
             *pending = None;
         }

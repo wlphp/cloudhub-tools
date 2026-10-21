@@ -3,7 +3,10 @@ use std::sync::Mutex;
 
 use super::paths::data_dir;
 
-const CURRENT_SCHEMA_VERSION: i64 = 45;
+const CURRENT_SCHEMA_VERSION: i64 = 53;
+pub const CODEX_PROVIDERS_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS codex_model_providers(id TEXT PRIMARY KEY,name TEXT NOT NULL,base_url TEXT NOT NULL,wire_api TEXT NOT NULL,models_json TEXT NOT NULL,note TEXT NOT NULL,version INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS codex_provider_keys(id TEXT PRIMARY KEY,provider_id TEXT NOT NULL REFERENCES codex_model_providers(id) ON DELETE CASCADE,name TEXT NOT NULL,ciphertext TEXT NOT NULL,UNIQUE(provider_id,name));";
+pub const CODEX_PROVIDER_BACKUPS_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS codex_provider_config_backups(home TEXT PRIMARY KEY,content_ciphertext TEXT NOT NULL,installed_config TEXT NOT NULL,installed_auth TEXT NOT NULL);";
+pub const CODEX_PROVIDER_AGGREGATES_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS codex_provider_aggregates(id TEXT PRIMARY KEY,name TEXT NOT NULL,strategy TEXT NOT NULL,version INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS codex_provider_aggregate_members(aggregate_id TEXT NOT NULL,position INTEGER NOT NULL,provider_id TEXT NOT NULL,key_id TEXT NOT NULL,weight INTEGER NOT NULL,PRIMARY KEY(aggregate_id,position),UNIQUE(aggregate_id,provider_id,key_id));";
 // Migration 37 has already run on local databases. Keep its additive schema even
 // when the browser feature is absent; removing a feature must not erase migration history.
 const BROWSER_ENVIRONMENTS_V37_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS browser_environments (
@@ -427,6 +430,39 @@ fn migrate_connection_inner(conn: &mut Connection) -> Result<(), String> {
         ensure_column("codex_account_events", "details_json", "TEXT")?;
         transaction.pragma_update(None, "user_version", 45).map_err(|_| "更新 Codex 账号日志详情版本失败")?;
     }
+    if version < 46 {
+        transaction.execute_batch(CODEX_PROVIDERS_SCHEMA).map_err(|_| "创建 Codex 供应商数据表失败")?;
+        transaction.pragma_update(None, "user_version", 46).map_err(|_| "保存 Codex 供应商迁移版本失败")?;
+    }
+    if version < 47 {
+        transaction.execute_batch(CODEX_PROVIDER_BACKUPS_SCHEMA).map_err(|_| "创建 Codex 供应商恢复表失败")?;
+        transaction.pragma_update(None, "user_version", 47).map_err(|_| "保存 Codex 供应商恢复版本失败")?;
+    }
+    if version < 48 {
+        transaction.execute_batch("CREATE TABLE IF NOT EXISTS codex_provider_bindings(home TEXT PRIMARY KEY,provider_id TEXT NOT NULL,key_id TEXT NOT NULL,account_id INTEGER NOT NULL,previous_account_id INTEGER,instance_id TEXT);").map_err(|_| "创建供应商绑定表失败")?;
+        transaction.pragma_update(None, "user_version", 48).map_err(|_| "保存供应商绑定版本失败")?;
+    }
+    if version < 49 {
+        transaction.execute_batch("CREATE TABLE IF NOT EXISTS codex_provider_accounts(account_id INTEGER PRIMARY KEY,provider_id TEXT NOT NULL,key_id TEXT NOT NULL);").map_err(|_| "创建供应商账号关联表失败")?;
+        transaction.pragma_update(None, "user_version", 49).map_err(|_| "保存供应商账号关联版本失败")?;
+    }
+    if version < 50 {
+        ensure_column("codex_model_providers", "settings_json", "TEXT NOT NULL DEFAULT '{}'")?;
+        ensure_column("codex_provider_keys", "settings_json", "TEXT NOT NULL DEFAULT '{}'")?;
+        transaction.pragma_update(None, "user_version", 50).map_err(|_| "保存供应商模型设置版本失败")?;
+    }
+    if version < 51 {
+        transaction.execute_batch("CREATE TABLE IF NOT EXISTS codex_provider_gateways(home TEXT PRIMARY KEY,port INTEGER NOT NULL,key_ciphertext TEXT NOT NULL,provider_id TEXT NOT NULL,key_id TEXT NOT NULL,models_json TEXT NOT NULL);").map_err(|_| "创建供应商网关设置失败")?;
+        transaction.pragma_update(None, "user_version", 51).map_err(|_| "保存供应商网关版本失败")?;
+    }
+    if version < 52 {
+        transaction.execute_batch("CREATE TABLE IF NOT EXISTS codex_provider_oauth(home TEXT PRIMARY KEY,account_id INTEGER NOT NULL UNIQUE,auth_fingerprint TEXT NOT NULL);").map_err(|_| "创建供应商 OAuth 绑定失败")?;
+        transaction.pragma_update(None, "user_version", 52).map_err(|_| "保存供应商 OAuth 版本失败")?;
+    }
+    if version < 53 {
+        transaction.execute_batch(CODEX_PROVIDER_AGGREGATES_SCHEMA).map_err(|_| "创建供应商聚合配置失败")?;
+        transaction.pragma_update(None, "user_version", 53).map_err(|_| "保存供应商聚合版本失败")?;
+    }
     transaction.commit().map_err(|error| format!("提交 SQLite 迁移失败: {error}"))?;
 
     Ok(())
@@ -840,6 +876,22 @@ mod tests {
         let columns: Vec<String> = conn.prepare("PRAGMA table_info(codex_accounts)").unwrap().query_map([], |row| row.get(1)).unwrap().collect::<Result<_, _>>().unwrap();
         assert!(columns.contains(&"auth_ciphertext".to_string()));
         assert!(!columns.contains(&"access_token".to_string()));
+    }
+
+    #[test]
+    fn provider_migration_preserves_existing_accounts_and_encrypted_keys() {
+        let mut conn=Connection::open_in_memory().unwrap();
+        conn.execute_batch(super::CODEX_SCHEMA).unwrap();
+        conn.execute_batch("PRAGMA user_version=45; INSERT INTO codex_accounts(identity,label,auth_mode,auth_ciphertext,updated_at) VALUES('existing','existing','apikey','opaque-cipher',1);").unwrap();
+        migrate_connection(&mut conn).unwrap();
+        conn.execute("INSERT INTO codex_model_providers(id,name,base_url,wire_api,models_json,note,version) VALUES('p','provider','https://example.com/v1','responses','[\"model\"]','',1)",[]).unwrap();
+        conn.execute("INSERT INTO codex_provider_keys(id,provider_id,name,ciphertext) VALUES('k','p','primary','opaque-provider-cipher')",[]).unwrap();
+        migrate_connection(&mut conn).unwrap();
+        assert_eq!(conn.query_row("SELECT auth_ciphertext FROM codex_accounts",[],|r|r.get::<_,String>(0)).unwrap(),"opaque-cipher");
+        assert_eq!(conn.query_row("SELECT ciphertext FROM codex_provider_keys",[],|r|r.get::<_,String>(0)).unwrap(),"opaque-provider-cipher");
+        assert_eq!(conn.query_row("SELECT settings_json FROM codex_provider_keys",[],|r|r.get::<_,String>(0)).unwrap(),"{}");
+        assert_eq!(conn.pragma_query_value(None,"user_version",|r|r.get::<_,i64>(0)).unwrap(),CURRENT_SCHEMA_VERSION);
+        assert_eq!(conn.query_row("SELECT COUNT(*) FROM codex_provider_gateways",[],|r|r.get::<_,i64>(0)).unwrap(),0);
     }
 
     #[test]
