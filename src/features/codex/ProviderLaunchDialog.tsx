@@ -115,7 +115,7 @@ export function ProviderLaunchDialog({ target: launchTarget, switchEnabled, onEn
       <section className="codex-provider-form codex-provider-launch-fields" aria-label="启动设置">
       <label>目标实例<select disabled={busy} value={target} onChange={e => { setPreview(null); setLoading(true); setAppliedSelection(null); setTarget(e.target.value); }}><option value="">默认 Codex 桌面客户端</option>{instances.map(v => <option key={v.id} value={v.id} disabled={v.running}>{v.name}{v.running ? "（运行中）" : ""}</option>)}</select></label>
       {provider && <label>匹配密钥<select disabled={busy} value={keyId} onChange={e => { setKeyId(e.target.value); if (!effectiveModels(provider, e.target.value).includes(model)) setModel(defaultModel(provider, e.target.value)); }}>{provider.keys.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}</select></label>}
-      <label>模型<select disabled={busy} value={model} onChange={e => {
+      <label>模型<select aria-label="模型" disabled={busy} value={model} onChange={e => {
         const nextModel = e.target.value;
         setModel(nextModel);
         if (provider) {
