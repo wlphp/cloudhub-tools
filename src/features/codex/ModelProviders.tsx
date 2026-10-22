@@ -258,7 +258,7 @@ export function ModelProviders({ onChanged }: { onChanged?: () => void }) {
           <button title="刷新供应商" aria-label="刷新供应商" disabled={busy || loading} onClick={() => void refresh()}><RefreshCw size={15} /></button>
           <button disabled={busy} onClick={() => edit()}><Plus size={15} />添加供应商</button>
           <button disabled={busy || loading || items.filter(v => v.wireApi === "chat_completions").reduce((count, v) => count + v.keys.length, 0) < 2} onClick={() => { setError(""); setAggregateEditing(freshAggregate()); }}><Plus size={15} />添加聚合供应商</button>
-          <button title="从第三方导入" aria-label="从第三方导入" disabled={busy} onClick={() => setImporting(true)}><Upload size={15} />从第三方导入</button>
+          <button title="导入供应商" aria-label="导入供应商" disabled={busy} onClick={() => setImporting(true)}><Upload size={15} />导入供应商</button>
           <button disabled={busy || !items.length} onClick={() => setExporting(checkedProviders.length ? checkedProviders : [])}><Download size={15} />导出全部</button>
           <button disabled={busy || !checkedProviders.length} onClick={() => setExporting(checkedProviders)}><CheckSquare size={15} />导出选中（{checkedProviders.length}）</button>
         </div>

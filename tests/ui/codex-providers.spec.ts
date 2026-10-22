@@ -124,7 +124,7 @@ test("model provider management, masked editing and configuration recovery", asy
   await usage.getByRole("button", { name: "查询额度", exact: true }).click();
   await expect(usage.getByText("12.3 CNY", { exact: true })).toBeVisible();
   await page.keyboard.press("Escape");
-  await page.getByRole("button", { name: "从第三方导入", exact: true }).click();
+  await page.getByRole("button", { name: "导入供应商", exact: true }).click();
   const importing = page.getByRole("dialog", { name: "导入模型供应商", exact: true });
   await importing.getByRole("button", { name: "选择 JSON 文件", exact: true }).click();
   await expect(importing.getByText("待导入", { exact: true })).toBeVisible();

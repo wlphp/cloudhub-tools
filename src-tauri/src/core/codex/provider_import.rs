@@ -67,7 +67,7 @@ pub fn prepare(conn:&Connection,text:&str)->Result<(ImportDraft,ImportSummary),S
     let existing=providers::list(conn)?;
     let mut inputs=SensitiveRows(Vec::new());let mut summaries=Vec::new();let mut seen=std::collections::HashSet::new();
     let mut warnings=vec!["实例、OAuth 绑定及补丁设置不迁移；导入不会应用配置或启动客户端"];
-    for value in values {
+    for (index,value) in values.iter().enumerate() {
         let wire=string(value,if cpp{"protocol"}else{"wireApi"});
         let wire=match wire.as_str(){"responses"=>"responses","chatCompletions"|"chat_completions"=>"chat_completions",_=>return Err("导入协议缺失或不支持，未导入任何供应商".into())};
         if cpp && matches!(value["relayMode"].as_str(),Some("official"|"aggregate")) {return Err("请仅导入第三方 API 配置；官方和聚合配置不能按普通供应商导入".into());}
@@ -92,10 +92,11 @@ pub fn prepare(conn:&Connection,text:&str)->Result<(ImportDraft,ImportSummary),S
             if !warnings.contains(&"逐模型上下文和视觉能力元数据未迁移，请导入后核对") {warnings.push("逐模型上下文和视觉能力元数据未迁移，请导入后核对");}
         }
         let input=ProviderInput{id:None,version:None,name:string(value,"name"),base_url:string(value,if cpp{"upstreamBaseUrl"}else{"baseUrl"}).trim_end_matches('/').to_owned(),wire_api:wire.into(),models,note:String::new(),keys:std::mem::take(&mut keys.0),settings};
-        if providers::validate(&input).is_err() {
+        if let Err(reason)=providers::validate(&input) {
+            let label=if input.name.trim().is_empty(){format!("第 {} 个",index+1)}else{format!("「{}」",input.name.trim())};
             let mut input=input;
             for key in &mut input.keys {key.secret.zeroize();}
-            return Err("导入配置包含无效地址、模型、密钥或上下文设置，未导入任何供应商".into());
+            return Err(format!("供应商{label}无法导入：{reason}。未导入任何供应商"));
         }
         let url=reqwest::Url::parse(&input.base_url).map_err(|_| "供应商地址无效")?;
         // 第三方配置里的回环地址通常意味着"本地代理"，不是真实上游，必须拒绝。
@@ -218,6 +219,54 @@ mod tests {
         assert_eq!(stored.keys[0].settings.models,vec!["model-a"]);
     }
 
+    #[test]
+    fn own_export_round_trips_realistic_multi_provider_shapes() {
+        use crate::core::crypto::encrypt_secret_with_key;
+        let mut db=database();
+        // Mirrors a real export: a provider with a default model and a key-scoped model list,
+        // a second provider inheriting its models, and a copy that duplicates the first by
+        // base_url+wire_api (must be folded into the file, not imported twice).
+        let doc=json!({"format":super::super::provider_export::FORMAT,"version":1,"providers":[
+            {"name":"nightcc","baseUrl":"https://cc.example.com/v1","wireApi":"responses",
+             "models":["23","MiniMax-M3","glm-5.3"],"note":"","settings":{"models":[],"modelsScoped":false,"defaultModel":"MiniMax-M3","contextWindow":null,"compactLimit":null},
+             "keys":[{"name":"默认密钥","secret":"sk-a","settings":{"models":["23","MiniMax-M3","glm-5.3"],"modelsScoped":true,"defaultModel":null,"contextWindow":null,"compactLimit":null}}]},
+            {"name":"sensenova","baseUrl":"https://token.example.com/v1","wireApi":"responses",
+             "models":["deepseek-v4.1-flash","kimi-k3"],"note":"","settings":{"models":[],"modelsScoped":false,"defaultModel":null,"contextWindow":null,"compactLimit":null},
+             "keys":[{"name":"默认密钥","secret":"sk-b","settings":{"models":[],"modelsScoped":false,"defaultModel":null,"contextWindow":null,"compactLimit":null}}]},
+            {"name":"nightcc（副本）","baseUrl":"https://cc.example.com/v1","wireApi":"responses",
+             "models":["23","MiniMax-M3","glm-5.3"],"note":"","settings":{"models":[],"modelsScoped":false,"defaultModel":"MiniMax-M3","contextWindow":null,"compactLimit":null},
+             "keys":[{"name":"默认密钥","secret":"sk-c","settings":{"models":["23","MiniMax-M3","glm-5.3"],"modelsScoped":true,"defaultModel":null,"contextWindow":null,"compactLimit":null}}]}
+        ]});
+        let (draft,summary)=prepare(&db,&doc.to_string()).unwrap();
+        assert_eq!(summary.providers.len(),3);
+        assert!(summary.providers[2].duplicate,"copy sharing base_url+wire_api must be folded as duplicate");
+        assert_eq!(draft.rows.len(),2);
+        let nightcc=draft.rows.iter().find(|r|r.name=="nightcc").unwrap();
+        assert_eq!(nightcc.settings.default_model.as_deref(),Some("MiniMax-M3"));
+        assert_eq!(nightcc.keys[0].settings.models.len(),3);
+        confirm_encrypted(&mut db,&draft,|v|encrypt_secret_with_key(v,&[7;32])).unwrap();
+        let stored=providers::list(&db).unwrap();
+        assert_eq!(stored.len(),2);
+        let nightcc=stored.iter().find(|p|p.name=="nightcc").unwrap();
+        assert_eq!(nightcc.models,vec!["23","MiniMax-M3","glm-5.3"]);
+        assert_eq!(nightcc.keys.len(),1);
+    }
+    #[test]
+    fn import_error_names_the_offending_provider_and_reason() {
+        let db=database();
+        // defaultModel not present in the provider's model list must fail with a precise message.
+        let doc=json!([{"name":"broken","baseUrl":"https://example.com/v1","wireApi":"responses","modelCatalog":["model-a"],"apiKeys":[{"name":"primary","apiKey":"sk-x"}]}]);
+        // The Cockpit array shape carries models under modelCatalog; craft an own-format doc with a bad default model instead.
+        let own=json!({"format":super::super::provider_export::FORMAT,"version":1,"providers":[
+            {"name":"broken","baseUrl":"https://example.com/v1","wireApi":"responses","models":["model-a"],"note":"",
+             "settings":{"models":[],"modelsScoped":false,"defaultModel":"not-a-model","contextWindow":null,"compactLimit":null},
+             "keys":[{"name":"primary","secret":"sk-x","settings":{"models":[],"modelsScoped":false,"defaultModel":null,"contextWindow":null,"compactLimit":null}}]}
+        ]});
+        let _ = doc;
+        let error=match prepare(&db,&own.to_string()){ Ok(_)=>panic!("broken default model must not import"),Err(e)=>e };
+        assert!(error.contains("broken"),"error must name the provider: {error}");
+        assert!(error.contains("默认模型")||error.contains("上下文"),"error must state the reason: {error}");
+    }
     #[test]
     fn confirmed_import_encrypts_keys_and_rolls_back_the_entire_batch() {
         use crate::core::crypto::{decrypt_secret_with_key,encrypt_secret_with_key};
