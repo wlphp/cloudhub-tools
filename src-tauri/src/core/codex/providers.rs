@@ -67,15 +67,13 @@ pub struct Provider {
 
 pub fn validate(input: &ProviderInput) -> Result<(), String> {
     let url = reqwest::Url::parse(&input.base_url).map_err(|_| "供应商地址无效")?;
-    if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none()
+    let local_http = url.scheme() == "http" && super::provider_probe::loopback(&url);
+    if (url.scheme() != "https" && !local_http) || url.host_str().is_none()
         || !url.username().is_empty() || url.password().is_some() || url.query().is_some() || url.fragment().is_some()
         || input.base_url.len()>2048 { return Err("供应商地址无效".into()); }
-    if url.scheme()=="http" && !matches!(url.host_str(),Some("localhost" | "127.0.0.1" | "[::1]")) {
-        return Err("非本机供应商必须使用 HTTPS".into());
-    }
     if input.name.trim().is_empty() || input.name.len()>100 || input.name.chars().any(char::is_control) || input.note.len()>2000
         || !matches!(input.wire_api.as_str(), "responses" | "chat_completions")
-        || input.models.is_empty() || input.models.len()>200 || input.keys.is_empty() || input.keys.len()>50
+        || input.models.len()>200 || input.keys.is_empty() || input.keys.len()>50
         || input.models.iter().any(|v| v.is_empty() || v.len()>160 || !v.chars().all(|c| c.is_ascii_alphanumeric() || "-._/:".contains(c))) {
         return Err("供应商名称、协议、模型或密钥数量无效".into());
     }
@@ -110,7 +108,6 @@ pub fn list(conn: &Connection) -> Result<Vec<Provider>, String> {
 }
 
 pub fn save(conn: &mut Connection, input: ProviderInput) -> Result<Vec<Provider>, String> {
-    if let Some(id)=&input.id { ensure_unbound(conn,id)?; }
     save_encrypted(conn,input, encrypt_secret)
 }
 
@@ -154,11 +151,6 @@ pub fn duplicate(conn: &mut Connection, source_id: &str, version: i64) -> Result
     list(conn)
 }
 
-fn ensure_unbound(conn:&Connection,id:&str)->Result<(),String> {
-    let bound:bool=conn.query_row("SELECT EXISTS(SELECT 1 FROM codex_provider_bindings WHERE provider_id=?1) OR EXISTS(SELECT 1 FROM codex_provider_aggregate_members WHERE provider_id=?1)",[id],|r|r.get(0)).map_err(|_| "读取供应商绑定失败")?;
-    if bound {Err("请先解除此供应商的聚合成员关系或恢复实例配置，再编辑或删除".into())} else {Ok(())}
-}
-
 pub fn is_provider_account(conn:&Connection,id:i64)->Result<bool,String> {
     conn.query_row("SELECT EXISTS(SELECT 1 FROM codex_provider_accounts WHERE account_id=?1)",[id],|r|r.get(0)).map_err(|_| "读取供应商账号关联失败".into())
 }
@@ -178,7 +170,6 @@ fn save_encrypted(conn: &mut Connection,input:ProviderInput,encrypt:impl Fn(&str
     validate(&input)?;
     let id=input.id.clone().unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     let tx=conn.transaction().map_err(|_| "保存供应商失败")?;
-    if input.id.is_some() { clear_managed_accounts(&tx,&id)?; }
     let mut keys=Vec::new();
     for key in &input.keys {
         let key_id=key.id.clone().unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
@@ -188,6 +179,7 @@ fn save_encrypted(conn: &mut Connection,input:ProviderInput,encrypt:impl Fn(&str
         let cipher=match &key.secret { Some(secret)=>encrypt(secret.trim()).map_err(|_| "加密供应商密钥失败")?,None=>old.ok_or("新密钥不能为空")? };
         keys.push((key_id,key.name.trim().to_owned(),cipher,serde_json::to_string(&key.settings).map_err(|_| "模型参数无效")?));
     }
+    ensure_aggregate_keys_kept(&tx,&id,&keys)?;
     let models=serde_json::to_string(&input.models).map_err(|_| "模型参数无效")?;
     let settings=serde_json::to_string(&input.settings).map_err(|_| "模型参数无效")?;
     if input.id.is_some() {
@@ -198,17 +190,41 @@ fn save_encrypted(conn: &mut Connection,input:ProviderInput,encrypt:impl Fn(&str
     tx.execute("DELETE FROM codex_provider_keys WHERE provider_id=?1",[&id]).map_err(|_| "保存供应商密钥失败")?;
     tx.execute("UPDATE codex_model_providers SET settings_json=?1 WHERE id=?2",params![settings,id]).map_err(|_| "保存供应商模型设置失败")?;
     for (key_id,name,cipher,settings) in keys { tx.execute("INSERT INTO codex_provider_keys(id,provider_id,name,ciphertext,settings_json) VALUES(?1,?2,?3,?4,?5)",params![key_id,id,name,cipher,settings]).map_err(|_| "保存供应商密钥失败")?; }
+    // 上面的守卫已保证被引用的成员行不会被本次保存删掉，这里只清理历史遗留的悬空行。
+    tx.execute("DELETE FROM codex_provider_aggregate_members WHERE provider_id=?1 AND key_id NOT IN (SELECT id FROM codex_provider_keys WHERE provider_id=?1)",[&id]).map_err(|_| "同步聚合供应商成员失败")?;
     tx.commit().map_err(|_| "保存供应商失败")?;
     list(conn)
 }
 
 pub fn remove(conn:&Connection,id:&str,version:i64)->Result<Vec<Provider>,String> {
-    ensure_unbound(conn,id)?;
+    ensure_not_aggregate_member(conn,id)?;
     let tx=conn.unchecked_transaction().map_err(|_| "删除供应商失败")?;
     clear_managed_accounts(&tx,id)?;
+    tx.execute("DELETE FROM codex_provider_bindings WHERE provider_id=?1",[&id]).map_err(|_| "清理供应商绑定失败")?;
+    // 请求日志包含该供应商的明文参数与响应，随供应商一起删除。
+    tx.execute("DELETE FROM codex_provider_request_logs WHERE provider_id=?1",[&id]).map_err(|_| "清理供应商请求日志失败")?;
     if tx.execute("DELETE FROM codex_model_providers WHERE id=?1 AND version=?2",params![id,version]).map_err(|_| "删除供应商失败")? !=1 {return Err("供应商已被修改，请刷新后重试".into());}
     tx.commit().map_err(|_| "删除供应商失败")?;
     list(conn)
+}
+
+/// 聚合成员必须先退出聚合。直接删除会连同成员与权重一起消失，用户搭建的
+/// 聚合配置会被静默破坏，因此这里必须由用户显式先解绑。
+fn ensure_not_aggregate_member(conn:&Connection,id:&str)->Result<(),String> {
+    let member:bool=conn.query_row("SELECT EXISTS(SELECT 1 FROM codex_provider_aggregate_members WHERE provider_id=?1)",[id],|r|r.get(0)).map_err(|_| "读取供应商绑定失败")?;
+    if member {Err("请先从聚合供应商中移除此供应商，再删除".into())} else {Ok(())}
+}
+
+/// 保存会整表重写该供应商的密钥。被聚合供应商引用的密钥若在本次保存中被移除，
+/// 成员行与权重就会跟着消失，因此与删除整家供应商时一样，必须由用户先解绑。
+fn ensure_aggregate_keys_kept(conn:&Connection,id:&str,kept:&[(String,String,String,String)])->Result<(),String> {
+    let mut stmt=conn.prepare("SELECT key_id FROM codex_provider_aggregate_members WHERE provider_id=?1").map_err(|_| "读取聚合供应商成员失败")?;
+    let referenced=stmt.query_map([id],|row|row.get::<_,String>(0)).map_err(|_| "读取聚合供应商成员失败")?.collect::<Result<Vec<_>,_>>().map_err(|_| "读取聚合供应商成员失败")?;
+    drop(stmt);
+    if referenced.iter().any(|key_id|!kept.iter().any(|(kept_id,..)|kept_id==key_id)) {
+        return Err("该密钥仍被聚合供应商引用，请先从聚合供应商中移除此密钥".into());
+    }
+    Ok(())
 }
 
 fn clear_managed_accounts(conn:&Connection,id:&str)->Result<(),String> {
@@ -236,6 +252,9 @@ mod tests {
         v=input(); v.models=vec!["bad\nmodel".into()]; assert!(validate(&v).is_err());
         v=input(); v.settings.context_window=Some(4096); v.settings.compact_limit=Some(8192); assert!(validate(&v).is_err());
         v=input(); v.settings.default_model=Some("missing".into()); assert!(validate(&v).is_err());
+        v=input(); v.models=vec![]; assert!(validate(&v).is_ok());
+        v=input(); v.base_url="http://example.com/v1".into(); assert!(validate(&v).is_err());
+        v=input(); v.base_url="http://127.0.0.1:8080/v1".into(); assert!(validate(&v).is_ok());
         v=input(); v.keys[0].settings.models=vec!["key-model".into()]; v.keys[0].settings.default_model=Some("key-model".into()); assert!(validate(&v).is_ok());
         v.settings.default_model=Some("model-test".into()); v.keys[0].settings.default_model=None;
         assert!(validate(&v).is_ok());
@@ -264,7 +283,7 @@ mod tests {
     }
     #[test]
     fn encrypted_atomic_updates_keep_secrets_out_of_summary() {
-        let mut db=Connection::open_in_memory().unwrap(); db.execute_batch("PRAGMA foreign_keys=ON; CREATE TABLE codex_provider_bindings(provider_id TEXT); CREATE TABLE codex_provider_accounts(account_id INTEGER,provider_id TEXT); CREATE TABLE codex_profiles(account_id INTEGER); CREATE TABLE codex_accounts(id INTEGER);").unwrap(); db.execute_batch(SCHEMA).unwrap(); db.execute_batch(crate::core::database::CODEX_PROVIDER_AGGREGATES_SCHEMA).unwrap();
+        let mut db=Connection::open_in_memory().unwrap(); db.execute_batch("PRAGMA foreign_keys=ON; CREATE TABLE codex_provider_bindings(provider_id TEXT); CREATE TABLE codex_provider_accounts(account_id INTEGER,provider_id TEXT); CREATE TABLE codex_profiles(account_id INTEGER); CREATE TABLE codex_accounts(id INTEGER);").unwrap(); db.execute_batch(SCHEMA).unwrap(); db.execute_batch(crate::core::database::CODEX_PROVIDER_AGGREGATES_SCHEMA).unwrap(); db.execute_batch(crate::core::database::CODEX_PROVIDER_LOGS_SCHEMA).unwrap();
         db.execute_batch("ALTER TABLE codex_model_providers ADD COLUMN settings_json TEXT NOT NULL DEFAULT '{}'; ALTER TABLE codex_provider_keys ADD COLUMN settings_json TEXT NOT NULL DEFAULT '{}';").unwrap();
         let source=input(); let secret=source.keys[0].secret.clone().unwrap();
         let encrypt=|v:&str|crate::core::crypto::encrypt_secret_with_key(v,&[19;32]);
@@ -285,6 +304,7 @@ mod tests {
         db.execute_batch("PRAGMA foreign_keys=ON; CREATE TABLE codex_provider_bindings(provider_id TEXT); CREATE TABLE codex_provider_accounts(account_id INTEGER,provider_id TEXT); CREATE TABLE codex_profiles(account_id INTEGER); CREATE TABLE codex_accounts(id INTEGER);").unwrap();
         db.execute_batch(SCHEMA).unwrap();
         db.execute_batch(crate::core::database::CODEX_PROVIDER_AGGREGATES_SCHEMA).unwrap();
+        db.execute_batch(crate::core::database::CODEX_PROVIDER_LOGS_SCHEMA).unwrap();
         db.execute_batch("ALTER TABLE codex_model_providers ADD COLUMN settings_json TEXT NOT NULL DEFAULT '{}'; ALTER TABLE codex_provider_keys ADD COLUMN settings_json TEXT NOT NULL DEFAULT '{}';").unwrap();
         let mut source=input();
         source.settings.default_model=Some("model-test".into());
@@ -292,7 +312,7 @@ mod tests {
         source.keys.push(ProviderKeyInput{id:None,name:"Secondary".into(),secret:Some(uuid::Uuid::new_v4().to_string()),settings:ModelSettings{models:vec!["key-model".into()],models_scoped:true,default_model:Some("key-model".into()),context_window:Some(16384),compact_limit:Some(8192),..Default::default()}});
         let saved=save_encrypted(&mut db,source,|v|crate::core::crypto::encrypt_secret_with_key(v,&[19;32])).unwrap().remove(0);
         drop(db);
-        let db=Connection::open(path).unwrap();
+        let mut db=Connection::open(path).unwrap();
         db.execute_batch("PRAGMA foreign_keys=ON;").unwrap();
         let persisted=list(&db).unwrap().remove(0);
         assert_eq!(serde_json::to_value(&saved).unwrap(),serde_json::to_value(&persisted).unwrap());
@@ -303,12 +323,17 @@ mod tests {
         assert_eq!(secondary.context_window,Some(16384));
         assert_eq!(secondary.compact_limit,Some(8192));
         db.execute("INSERT INTO codex_provider_bindings VALUES(?1)",[&persisted.id]).unwrap();
-        assert!(remove(&db,&persisted.id,persisted.version).is_err());
-        db.execute("DELETE FROM codex_provider_bindings",[]).unwrap();
-        db.execute("INSERT INTO codex_provider_aggregates(id,name,strategy,version) VALUES('fixture','Fixture','failover',1)",[]).unwrap();
         db.execute("INSERT INTO codex_provider_aggregate_members(aggregate_id,provider_id,key_id,weight,position) VALUES('fixture',?1,?2,1,0)",params![persisted.id,persisted.keys[0].id]).unwrap();
-        assert!(remove(&db,&persisted.id,persisted.version).is_err());
-        assert_eq!(list(&db).unwrap()[0].keys.len(),2);
+        let mut update=input(); update.id=Some(persisted.id.clone()); update.version=Some(persisted.version); update.keys[0].id=Some(persisted.keys[1].id.clone()); update.keys[0].secret=None;
+        // 被聚合引用的密钥不能随保存一起消失，成员行与权重必须由用户显式移除。
+        assert!(save_encrypted(&mut db,update.clone(),|v|crate::core::crypto::encrypt_secret_with_key(v,&[19;32])).is_err());
+        assert_eq!(db.query_row("SELECT COUNT(*) FROM codex_provider_aggregate_members WHERE provider_id=?1",[&persisted.id],|r|r.get::<_,i64>(0)).unwrap(),1);
+        assert_eq!(db.query_row("SELECT COUNT(*) FROM codex_provider_keys WHERE provider_id=?1",[&persisted.id],|r|r.get::<_,i64>(0)).unwrap(),2);
+        db.execute("DELETE FROM codex_provider_aggregate_members",[]).unwrap();
+        save_encrypted(&mut db,update,|v|crate::core::crypto::encrypt_secret_with_key(v,&[19;32])).unwrap();
+        let current_version:i64=db.query_row("SELECT version FROM codex_model_providers WHERE id=?1",[&persisted.id],|r|r.get(0)).unwrap();
+        remove(&db,&persisted.id,current_version).unwrap();
+        assert!(list(&db).unwrap().is_empty());
     }
     #[test]
     fn scoped_key_catalogs_are_independent_and_empty_catalog_does_not_inherit() {

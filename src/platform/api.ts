@@ -26,6 +26,7 @@ export type PlatformErrorCode =
   | "codex-account-busy"
   | "codex-gateway-port-conflict"
   | "codex-model-catalog"
+  | "codex-provider"
   | "codex-proxy"
   | "cancelled"
   | "certificate"
@@ -106,6 +107,12 @@ function publicPlatformMessage(code: PlatformErrorCode, rawMessage: string): str
     return /^ESA 查询失败：(ListSites|DescribeSiteTimeSeriesData|DescribeSiteWafTimeSeriesData)（(?:网络连接失败|响应格式无效|HTTP [1-5]\d{2}，错误代码 [A-Za-z0-9._-]{1,80})）$/.test(rawMessage)
       ? rawMessage : "ESA 实时数据获取失败，请检查账号权限和网络后重试";
   }
+  if (code === "codex-provider") {
+    // The native provider layer forwards only exact, authored diagnostics
+    // (see CODEX_PROVIDER_MESSAGES in src-tauri/src/core/error.rs), so the
+    // message is already vetted and safe to show as is.
+    return rawMessage || "模型供应商操作失败，请刷新后重试";
+  }
   if (code === "codex-proxy") {
     return ["代理地址无效", "代理地址不能包含换行或控制字符", "代理地址不能超过 512 个字符",
       "代理地址缺少协议，请填写 http://127.0.0.1:10808 这样的完整地址",
@@ -154,7 +161,7 @@ function publicPlatformMessage(code: PlatformErrorCode, rawMessage: string): str
       .replace(/(password|secret|token|access[_-]?key|private[_-]?key|authorization|signature)(\s*[:=]\s*)[^,;\s]+/gi, "$1$2[已隐藏]")
       .slice(0, 240);
   }
-  const messages: Record<Exclude<PlatformErrorCode, "codex-config" | "codex-launch" | "codex-login" | "codex-import" | "claude-workbench" | "oss-cname" | "local-plugin" | "ai" | "unsupported-in-preview" | "certificate" | "esa-query" | "authenticator-error" | "authenticator-locked" | "hardware-info" | "wsl-dashboard" | "codex-model-catalog" | "codex-proxy" | "browser" | "notes">, string> = {
+  const messages: Record<Exclude<PlatformErrorCode, "codex-config" | "codex-launch" | "codex-login" | "codex-import" | "claude-workbench" | "oss-cname" | "local-plugin" | "ai" | "unsupported-in-preview" | "certificate" | "esa-query" | "authenticator-error" | "authenticator-locked" | "hardware-info" | "wsl-dashboard" | "codex-model-catalog" | "codex-provider" | "codex-proxy" | "browser" | "notes">, string> = {
     unknown: "操作失败，请稍后重试",
     validation: "输入参数无效，请检查后重试",
     authentication: "认证失败，请检查凭据或登录状态",
@@ -204,7 +211,7 @@ export function normalizePlatformError(reason: unknown): PlatformError {
   }
   if (typeof reason === "object" && reason !== null && "code" in reason && "message" in reason) {
     const structured = reason as { code?: PlatformErrorCode; message?: string; retryable?: boolean };
-    const code = structured.code && ["codex-config", "codex-launch", "codex-login", "codex-import", "claude-workbench", "oss-cname", "local-plugin", "ai", "unknown", "unsupported-in-preview", "validation", "authentication", "permission", "network", "not-found", "conflict", "frp-port-conflict", "codex-account-busy", "codex-gateway-port-conflict", "codex-model-catalog", "codex-proxy", "cancelled", "certificate", "esa-query", "authenticator-error", "authenticator-locked", "hardware-info", "wsl-dashboard", "browser", "notes"].includes(structured.code)
+    const code = structured.code && ["codex-config", "codex-launch", "codex-login", "codex-import", "claude-workbench", "oss-cname", "local-plugin", "ai", "unknown", "unsupported-in-preview", "validation", "authentication", "permission", "network", "not-found", "conflict", "frp-port-conflict", "codex-account-busy", "codex-gateway-port-conflict", "codex-model-catalog", "codex-provider", "codex-proxy", "cancelled", "certificate", "esa-query", "authenticator-error", "authenticator-locked", "hardware-info", "wsl-dashboard", "browser", "notes"].includes(structured.code)
       ? structured.code : "unknown";
     return new PlatformError(String(structured.message), code, structured.retryable === true);
   }

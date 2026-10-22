@@ -25,18 +25,33 @@ fn authorization_value(adapter:&str,key:&str)->Result<reqwest::header::HeaderVal
 fn endpoint_path(adapter:&str)->&'static str {
     match adapter {"deepseek"=>"/user/balance","minimax"=>"/v1/token_plan/remains","zhipu"=>"/api/monitor/usage/quota/limit",_=>"/api/usage/token/"}
 }
-fn quota_url(base:&str,adapter:&str)->Result<reqwest::Url,String> {
-    let mut url=provider_probe::endpoint(base,"models")?;
+/// 额度接口候选地址。新版中转部署同时存在站点根路径与相对 base 两种形态，
+/// 依次尝试直到有一个返回可解析的额度。
+fn quota_urls(base:&str,adapter:&str)->Result<Vec<reqwest::Url>,String> {
+    let base_url=provider_probe::endpoint(base,"models")?;
     if adapter=="minimax" {
-        let origin=match url.host_str() {
+        let origin=match base_url.host_str() {
             Some("api.minimaxi.com"|"www.minimaxi.com")=>"https://www.minimaxi.com",
             Some("api.minimax.io"|"www.minimax.io")=>"https://www.minimax.io",
             _=>return Err("MiniMax 额度查询仅支持官方地址".into()),
         };
-        return reqwest::Url::parse(&format!("{origin}{}",endpoint_path(adapter))).map_err(|_| "额度接口地址无效".into());
+        return reqwest::Url::parse(&format!("{origin}{}",endpoint_path(adapter))).map(|url|vec![url]).map_err(|_| "额度接口地址无效".into());
     }
-    url.set_path(endpoint_path(adapter));
-    Ok(url)
+    if adapter=="new_api" {
+        let mut root=base_url.clone();root.set_path("/api/usage/token/");
+        let mut relative=base_url.clone();
+        // The probe endpoint appends "/models"; the relative usage path keeps
+        // the configured base path instead.
+        let path=relative.path();
+        let base_path=path.strip_suffix("/models").unwrap_or(path);
+        relative.set_path(&format!("{}/usage",base_path.trim_end_matches('/')));
+        return Ok(vec![root,relative]);
+    }
+    let mut url=base_url;url.set_path(endpoint_path(adapter));
+    Ok(vec![url])
+}
+fn quota_url(base:&str,adapter:&str)->Result<reqwest::Url,String> {
+    quota_urls(base,adapter)?.into_iter().next().ok_or_else(|| "额度接口地址无效".into())
 }
 
 fn parse(adapter:&str,body:&Value)->Result<Vec<UsageWindow>,String> {
@@ -85,11 +100,23 @@ fn parse(adapter:&str,body:&Value)->Result<Vec<UsageWindow>,String> {
         "new_api"=>{
             // Only explicit display amounts are supported; raw quota units have
             // deployment-specific conversion factors and must not become currency.
-            let row=&payload(body)["display"];let remaining=nonnegative(&row["remaining"]).ok_or_else(unknown)?;
-            let unit=row["unit"].as_str().filter(|v|matches!(*v,"USD"|"CNY"|"tokens"|"TOKEN"|"TOKENS")).ok_or_else(unknown)?;
-            let total=nonnegative(&row["total"]);
-            if total.is_some_and(|total|total<remaining){return Err(unknown());}
-            windows.push(UsageWindow{name:"额度余额",remaining,total,unit:unit.into(),resets_at:None});
+            let p=payload(body);
+            if let Some(row)=p.get("display") {
+                let remaining=nonnegative(&row["remaining"]).ok_or_else(unknown)?;
+                let unit=row["unit"].as_str().filter(|v|matches!(*v,"USD"|"CNY"|"tokens"|"TOKEN"|"TOKENS")).ok_or_else(unknown)?;
+                let total=nonnegative(&row["total"]);
+                if total.is_some_and(|total|total<remaining){return Err(unknown());}
+                windows.push(UsageWindow{name:"额度余额",remaining,total,unit:unit.into(),resets_at:None});
+            } else {
+                // Deployments that report the account balance without an explicit
+                // currency keep a neutral unit instead of claiming a currency.
+                let remaining=nonnegative(&p["balance"]).ok_or_else(unknown)?;
+                let total=nonnegative(&p["total"]);
+                if total.is_some_and(|total|total<remaining){return Err(unknown());}
+                let unit=p["unit"].as_str().or_else(||p["currency"].as_str())
+                    .filter(|v|matches!(*v,"USD"|"CNY"|"EUR"|"JPY"|"tokens"|"TOKEN"|"TOKENS")).unwrap_or("余额");
+                windows.push(UsageWindow{name:"账户余额",remaining,total,unit:unit.into(),resets_at:None});
+            }
         }
         _=>return Err("此供应商暂不支持额度查询".into()),
     }
@@ -98,22 +125,52 @@ fn parse(adapter:&str,body:&Value)->Result<Vec<UsageWindow>,String> {
 }
 
 pub async fn query(base:&str,key:&str,requested:&str)->Result<Usage,String> {
-    let validated=provider_probe::endpoint(base,"models")?;
+    query_logged(base,key,requested).await.0
+}
+
+/// 查询额度，并返回每次上游请求的明文快照，供请求日志记录。
+pub async fn query_logged(base:&str,key:&str,requested:&str)->(Result<Usage,String>,Vec<super::provider_logs::Exchange>) {
+    let mut exchanges=Vec::new();
+    let validated=match provider_probe::endpoint(base,"models") {Ok(value)=>value,Err(error)=>return (Err(error),exchanges)};
     let host=validated.host_str().unwrap_or("");
     let adapter=match (requested,host) {
         ("auto","api.deepseek.com")=>"deepseek",
         ("auto","api.minimaxi.com"|"www.minimaxi.com"|"api.minimax.io"|"www.minimax.io")=>"minimax",
         ("auto","open.bigmodel.cn"|"api.z.ai")=>"zhipu",
         ("new_api",_)=>"new_api",
-        _=>return Err("此供应商暂不支持额度查询".into()),
+        _=>return (Err("此供应商暂不支持额度查询".into()),exchanges),
     };
-    if adapter!="new_api" && validated.scheme()!="https" {return Err("非本机供应商必须使用 HTTPS".into());}
-    let url=quota_url(base,adapter)?;
-    let authorization=authorization_value(adapter,key)?;
-    let response=provider_probe::client()?.get(url).header(reqwest::header::AUTHORIZATION,authorization).send().await.map_err(|_| "额度查询网络失败或超时")?;
-    if !response.status().is_success(){return Err("额度接口拒绝请求，请检查密钥与适配类型".into());}
-    let body=provider_probe::bounded_json(response).await.map_err(|_| "额度响应无法识别，当前额度未知")?;
-    Ok(Usage{adapter:adapter.into(),fetched_at:chrono::Utc::now().timestamp_millis(),windows:parse(adapter,&body)?})
+    let urls=match quota_urls(base,adapter) {Ok(value)=>value,Err(error)=>return (Err(error),exchanges)};
+    let authorization=match authorization_value(adapter,key) {Ok(value)=>value,Err(error)=>return (Err(error),exchanges)};
+    let client=match provider_probe::client() {Ok(value)=>value,Err(error)=>return (Err(error),exchanges)};
+    let mut failure:Option<String>=None;
+    for url in urls {
+        let start=std::time::Instant::now();
+        let mut exchange=super::provider_logs::Exchange{method:"GET".into(),url:url.to_string(),..Default::default()};
+        let response=match client.get(url.clone()).header(reqwest::header::AUTHORIZATION,authorization.clone()).send().await {
+            Ok(value)=>value,
+            Err(_)=>{
+                exchange.error=Some("额度查询网络失败或超时".into());
+                exchange.elapsed_ms=start.elapsed().as_millis() as u64;
+                exchanges.push(exchange);
+                failure=Some("额度查询网络失败或超时".into());
+                continue;
+            }
+        };
+        let success=response.status().is_success();
+        exchange.status=Some(response.status().as_u16());
+        let text=match provider_probe::bounded_text(response).await {Ok(value)=>value,Err(_)=>String::new()};
+        exchange.response_body=text.clone();
+        exchange.elapsed_ms=start.elapsed().as_millis() as u64;
+        exchanges.push(exchange);
+        if !success{failure=Some("额度接口拒绝请求，请检查密钥与适配类型".into());continue;}
+        let body=match serde_json::from_str::<Value>(&text) {Ok(value)=>value,Err(_)=>{failure=Some("额度响应无法识别，当前额度未知".into());continue;}};
+        match parse(adapter,&body) {
+            Ok(windows)=>return (Ok(Usage{adapter:adapter.into(),fetched_at:chrono::Utc::now().timestamp_millis(),windows}),exchanges),
+            Err(error)=>failure=Some(error),
+        }
+    }
+    (Err(failure.unwrap_or_else(|| "额度接口地址无效".into())),exchanges)
 }
 
 #[cfg(test)]
@@ -167,6 +224,8 @@ mod tests {
 
     #[test]
     fn quota_authentication_matches_vendor_header_contracts() {
+        assert!(quota_url("http://example.com/v1","new_api").is_err());
+        assert!(quota_url("http://127.0.0.1:3300/v1","new_api").is_ok());
         assert_eq!(authorization_value("zhipu","fixture-key").unwrap().to_str().unwrap(),"fixture-key");
         assert_eq!(authorization_value("deepseek","fixture-key").unwrap().to_str().unwrap(),"Bearer fixture-key");
         assert!(authorization_value("zhipu","fixture-key\nInjected: yes").is_err());
@@ -175,6 +234,24 @@ mod tests {
         assert_eq!(quota_url("https://api.minimaxi.com/v1","minimax").unwrap().as_str(),"https://www.minimaxi.com/v1/token_plan/remains");
         assert_eq!(quota_url("https://api.minimax.io/v1","minimax").unwrap().as_str(),"https://www.minimax.io/v1/token_plan/remains");
         assert!(quota_url("https://custom.example/v1","minimax").is_err());
+    }
+
+    #[test]
+    fn new_api_accepts_deployment_balance_without_claiming_a_currency() {
+        let windows=parse("new_api",&json!({"balance":1825.73498247,"daily_usage":[]})).unwrap();
+        assert_eq!(windows[0].remaining,1825.73498247);assert_eq!(windows[0].unit,"余额");assert_eq!(windows[0].name,"账户余额");
+        let windows=parse("new_api",&json!({"balance":12,"total":20,"currency":"USD"})).unwrap();
+        assert_eq!(windows[0].unit,"USD");assert_eq!(windows[0].total,Some(20.0));
+        assert!(parse("new_api",&json!({"balance":-1})).is_err());
+        assert!(parse("new_api",&json!({"balance":5,"total":1})).is_err());
+        assert!(parse("new_api",&json!({"daily_usage":[]})).is_err());
+    }
+
+    #[test]
+    fn new_api_tries_the_site_root_and_the_relative_usage_endpoint() {
+        let urls=quota_urls("http://127.0.0.1:3300/v1","new_api").unwrap();
+        assert_eq!(urls[0].as_str(),"http://127.0.0.1:3300/api/usage/token/");
+        assert_eq!(urls[1].as_str(),"http://127.0.0.1:3300/v1/usage");
     }
 
     #[tokio::test]

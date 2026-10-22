@@ -15,6 +15,9 @@ pub struct ProbeResult {
     pub elapsed_ms: u64,
     pub status: Option<u16>,
     pub error: Option<&'static str>,
+    /// 上游是否接受 Codex 客户端实际发送的 input_text 输入项。部分上游的
+    /// Responses 实现只支持 message 形态，Codex 直连时会报输入类型不支持。
+    pub codex_input: bool,
 }
 
 pub fn model_valid(value: &str) -> bool {
@@ -22,14 +25,22 @@ pub fn model_valid(value: &str) -> bool {
         && value.bytes().all(|b| b.is_ascii_alphanumeric() || b"-._/:".contains(&b))
 }
 
+/// 回环主机。`Url` 会把 IPv4 规范化成点分十进制，但 IPv6 的 `host_str()` 带方括号，
+/// 直接匹配 `"::1"` 会漏判，因此先去掉括号再比较。各调用点统一走这里，避免放宽。
+pub fn loopback(url: &Url) -> bool {
+    let Some(host) = url.host_str() else { return false };
+    matches!(
+        host.trim_start_matches('[').trim_end_matches(']'),
+        "localhost" | "127.0.0.1" | "::1" | "0:0:0:0:0:0:0:1"
+    )
+}
+
 pub fn endpoint(base: &str, path: &str) -> Result<Url, String> {
     let mut url = Url::parse(base).map_err(|_| "供应商地址无效")?;
-    if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none()
+    let local_http = url.scheme() == "http" && loopback(&url);
+    if (url.scheme() != "https" && !local_http) || url.host_str().is_none()
         || !url.username().is_empty() || url.password().is_some() || url.query().is_some() || url.fragment().is_some() {
         return Err("供应商地址无效".into());
-    }
-    if url.scheme() == "http" && !matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "[::1]")) {
-        return Err("非本机供应商必须使用 HTTPS".into());
     }
     url.set_path(&format!("{}/{}", url.path().trim_end_matches('/'), path));
     Ok(url)
@@ -51,6 +62,17 @@ pub async fn bounded_json(mut response: reqwest::Response) -> Result<Value, &'st
     serde_json::from_slice(&bytes).map_err(|_| "invalid_response")
 }
 
+/// 读取上游返回的明文文本，用于写入请求日志。
+pub async fn bounded_text(mut response: reqwest::Response) -> Result<String, &'static str> {
+    if response.content_length().is_some_and(|n| n > LIMIT as u64) { return Err("response_too_large"); }
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|_| "network")? {
+        if bytes.len() + chunk.len() > LIMIT { return Err("response_too_large"); }
+        bytes.extend_from_slice(&chunk);
+    }
+    String::from_utf8(bytes).map_err(|_| "invalid_response")
+}
+
 fn parse_models(body: &Value, credential: &str) -> Result<Vec<String>, &'static str> {
     let rows = body.get("data").and_then(Value::as_array).ok_or("invalid_response")?;
     if rows.len() > 10000 { return Err("response_too_large"); }
@@ -61,51 +83,89 @@ fn parse_models(body: &Value, credential: &str) -> Result<Vec<String>, &'static 
 }
 
 pub async fn run(base: &str, wire_api: &str, credential: &str, model: Option<&str>) -> Result<ProbeResult, String> {
+    run_exchange(base, wire_api, credential, model).await.map(|(result, _)| result)
+}
+
+/// 执行一次供应商请求，同时返回可用于写入请求日志的明文快照。
+pub async fn run_exchange(base: &str, wire_api: &str, credential: &str, model: Option<&str>) -> Result<(ProbeResult, super::provider_logs::Exchange), String> {
     let _permit = REQUESTS.try_acquire().map_err(|_| "供应商请求繁忙，请稍后重试")?;
     let start = Instant::now();
     let client = client()?;
-    let request = if let Some(model) = model {
+    let (method, url, payload) = if let Some(model) = model {
         if !model_valid(model) { return Err("模型 ID 无效".into()); }
         match wire_api {
-            "responses" => client.post(endpoint(base, "responses")?).json(&json!({"model":model,"input":"Reply OK.","stream":false,"store":false,"max_output_tokens":16})),
-            "chat_completions" => client.post(endpoint(base, "chat/completions")?).json(&json!({"model":model,"messages":[{"role":"user","content":"Reply OK."}],"stream":false,"max_tokens":16})),
+            "responses" => ("POST", endpoint(base, "responses")?, json!({"model":model,"input":[{"type":"input_text","text":"Reply OK."}],"stream":false,"store":false,"max_output_tokens":16})),
+            "chat_completions" => ("POST", endpoint(base, "chat/completions")?, json!({"model":model,"messages":[{"role":"user","content":"Reply OK."}],"stream":false,"max_tokens":16})),
             _ => return Err("供应商协议无效".into()),
         }
-    } else { client.get(endpoint(base, "models")?) };
-    let mut result = ProbeResult { models: vec![], generated: false, elapsed_ms: 0, status: None, error: None };
+    } else { ("GET", endpoint(base, "models")?, json!({})) };
+    let request = if method == "GET" { client.get(url.clone()) } else { client.post(url.clone()).json(&payload) };
+    let mut result = ProbeResult { models: vec![], generated: false, elapsed_ms: 0, status: None, error: None, codex_input: true };
+    let mut exchange = super::provider_logs::Exchange {
+        method: method.to_owned(),
+        url: url.to_string(),
+        request_body: if method == "GET" { String::new() } else { payload.to_string() },
+        ..Default::default()
+    };
     match request.bearer_auth(credential).send().await {
-        Err(_) => result.error = Some("network"),
+        Err(_) => { result.error = Some("network"); exchange.error = Some("网络请求失败或超时".into()); }
         Ok(response) => {
             result.status = Some(response.status().as_u16());
-            if !response.status().is_success() { result.error = Some("http"); }
-            else {
-                match bounded_json(response).await {
-                    Err(error) => result.error = Some(error),
-                    Ok(body) if model.is_none() => match parse_models(&body, credential) { Ok(models) => result.models = models, Err(error) => result.error = Some(error) },
-                    Ok(body) => {
-                        let output_limited = if wire_api == "responses" {
-                            body["status"] == "incomplete" && body["incomplete_details"]["reason"] == "max_output_tokens"
-                        } else {
-                            body["choices"].as_array().is_some_and(|rows| rows.iter().any(|row| row["finish_reason"] == "length"))
-                        };
-                        if output_limited {
-                            result.error = Some("output_limit");
-                            result.elapsed_ms = start.elapsed().as_millis() as u64;
-                            return Ok(result);
+            exchange.status = result.status;
+            if !response.status().is_success() {
+                result.error = Some("http");
+                let text = match bounded_text(response).await {
+                    Ok(text) => text,
+                    Err(error) => { exchange.error = Some(error.to_owned()); String::new() }
+                };
+                exchange.response_body = text.clone();
+                // 上游明确表示不认识 Codex 使用的输入项类型时，标记为不兼容。
+                if wire_api == "responses" && result.status == Some(400) {
+                    if let Ok(body) = serde_json::from_str::<Value>(&text) {
+                        let message = body["error"]["message"].as_str().unwrap_or_default();
+                        if message.contains("input item") || message.contains("input.0.type") {
+                            result.error = Some("unsupported_input");
+                            result.codex_input = false;
                         }
-                        result.generated = if wire_api == "responses" {
-                            body["status"] == "completed" && body["output"].as_array().is_some_and(|items| items.iter().any(|item|
-                                item["type"] == "message" && item["content"].as_array().is_some_and(|parts| parts.iter().any(|part|
-                                    part["type"] == "output_text" && part["text"].as_str().is_some_and(|text| !text.trim().is_empty())))))
-                        } else { body["choices"].as_array().is_some_and(|rows| rows.iter().any(|row| row["message"]["content"].as_str().is_some_and(|v| !v.trim().is_empty()) || row["message"]["tool_calls"].as_array().is_some_and(|calls| calls.iter().any(|call|call["function"]["name"].as_str().is_some_and(|name|!name.trim().is_empty()) && call["function"]["arguments"].as_str().is_some())))) };
-                        if !result.generated { result.error = Some("invalid_response"); }
+                    }
+                }
+            }
+            else {
+                match bounded_text(response).await {
+                    Err(error) => { result.error = Some(error); exchange.error = Some(error.to_owned()); }
+                    Ok(text) => {
+                        exchange.response_body = text.clone();
+                        match serde_json::from_str::<Value>(&text) {
+                            Err(_) => result.error = Some("invalid_response"),
+                            Ok(body) if model.is_none() => match parse_models(&body, credential) { Ok(models) => result.models = models, Err(error) => result.error = Some(error) },
+                            Ok(body) => {
+                                let output_limited = if wire_api == "responses" {
+                                    body["status"] == "incomplete" && body["incomplete_details"]["reason"] == "max_output_tokens"
+                                } else {
+                                    body["choices"].as_array().is_some_and(|rows| rows.iter().any(|row| row["finish_reason"] == "length"))
+                                };
+                                if output_limited {
+                                    result.error = Some("output_limit");
+                                    result.elapsed_ms = start.elapsed().as_millis() as u64;
+                                    exchange.elapsed_ms = result.elapsed_ms;
+                                    return Ok((result, exchange));
+                                }
+                                result.generated = if wire_api == "responses" {
+                                    body["status"] == "completed" && body["output"].as_array().is_some_and(|items| items.iter().any(|item|
+                                        item["type"] == "message" && item["content"].as_array().is_some_and(|parts| parts.iter().any(|part|
+                                            part["type"] == "output_text" && part["text"].as_str().is_some_and(|text| !text.trim().is_empty())))))
+                                } else { body["choices"].as_array().is_some_and(|rows| rows.iter().any(|row| row["message"]["content"].as_str().is_some_and(|v| !v.trim().is_empty()) || row["message"]["tool_calls"].as_array().is_some_and(|calls| calls.iter().any(|call|call["function"]["name"].as_str().is_some_and(|name|!name.trim().is_empty()) && call["function"]["arguments"].as_str().is_some())))) };
+                                if !result.generated { result.error = Some("invalid_response"); }
+                            }
+                        }
                     }
                 }
             }
         }
     }
     result.elapsed_ms = start.elapsed().as_millis() as u64;
-    Ok(result)
+    exchange.elapsed_ms = result.elapsed_ms;
+    Ok((result, exchange))
 }
 
 #[cfg(test)]
@@ -113,7 +173,20 @@ mod tests {
     use super::*;
     #[test]
     fn strict_endpoints_and_untrusted_catalogs() {
+        // Plain HTTP is restricted to loopback hosts.
         assert!(endpoint("http://example.com/v1", "models").is_err());
+        assert!(endpoint("http://localhost/v1", "models").is_ok());
+        assert!(endpoint("http://127.0.0.1:8080/v1", "models").is_ok());
+        assert!(endpoint("http://127.5.5.5/v1", "models").is_err());
+        // IPv6 回环的等价写法都必须识别为回环，host_str 会带方括号。
+        for base in ["http://[::1]:3300/v1","http://[0:0:0:0:0:0:0:1]/v1"] {
+            assert!(endpoint(base, "models").is_ok(),"{base}");
+        }
+        for base in ["http://[2001:db8::1]/v1","http://[::ffff:127.0.0.1]/v1"] {
+            assert!(endpoint(base, "models").is_err(),"{base}");
+        }
+        assert!(endpoint("http://127.1/v1", "models").is_ok());
+        assert!(endpoint("ftp://example.com/v1", "models").is_err());
         assert!(endpoint("https://user:pass@example.com/v1", "models").is_err());
         assert_eq!(endpoint("http://127.0.0.1:1234/v1/", "models").unwrap().path(), "/v1/models");
         let secret = uuid::Uuid::new_v4().to_string();
@@ -158,7 +231,7 @@ mod tests {
                 let request:Value=serde_json::from_slice(&bytes[end..]).unwrap();
                 assert_eq!(request["model"],"model-a");
                 assert_eq!(request["stream"],false);
-                if path=="responses" {assert_eq!(request["store"],false);assert_eq!(request["max_output_tokens"],16);}
+                if path=="responses" {assert_eq!(request["store"],false);assert_eq!(request["max_output_tokens"],16);assert_eq!(request["input"][0]["type"],"input_text");}
                 else {assert_eq!(request["max_tokens"],16);}
                 let response=response.to_string();
                 socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{response}",response.len()).as_bytes()).await.unwrap();
@@ -177,8 +250,32 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn local_probe_does_not_follow_redirect_or_return_error_body() {
+    async fn responses_probe_reports_upstreams_without_codex_input_support() {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener=tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address=listener.local_addr().unwrap();
+        let secret=uuid::Uuid::new_v4().to_string();
+        let server=tokio::spawn(async move {
+            let (mut socket,_)=listener.accept().await.unwrap();
+            let mut buffer=[0;4096];
+            let _=socket.read(&mut buffer).await.unwrap();
+            let body=json!({"error":{"message":"unsupported input item type","type":"invalid_request_error","param":"input.0.type"}}).to_string();
+            socket.write_all(format!("HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).as_bytes()).await.unwrap();
+        });
+        let result=run(&format!("http://{address}/v1"),"responses",&secret,Some("model-a")).await.unwrap();
+        assert_eq!(result.status,Some(400));
+        assert_eq!(result.error,Some("unsupported_input"));
+        assert!(!result.codex_input);
+        assert!(!result.generated);
+        // 上游原文不得进入结果。
+        let summary=serde_json::to_string(&result).unwrap();
+        assert!(!summary.contains("unsupported input item type"));
+        assert!(!summary.contains(&secret));
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn local_probe_does_not_follow_redirect_or_return_error_body() {        use tokio::io::{AsyncReadExt, AsyncWriteExt};
         let listener=tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url=format!("http://{}/v1",listener.local_addr().unwrap());
         let secret=uuid::Uuid::new_v4().to_string();

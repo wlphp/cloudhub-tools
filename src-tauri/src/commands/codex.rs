@@ -180,8 +180,8 @@ pub(crate) async fn codex_get_state() -> PlatformResult<CodexState> {
 }
 
 #[tauri::command]
-pub(crate) async fn codex_open_default(app: tauri::AppHandle) -> PlatformResult<()> {
-    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+pub(crate) async fn codex_open_default(app: tauri::AppHandle) -> PlatformResult<String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<String, String> {
         let _writer = AUTH_WRITER.lock().map_err(|_| "Codex 账号操作不可用")?;
         let store = app.state::<super::codex_runtime::CodexRuntimeStore>();
         if store.closing.load(std::sync::atomic::Ordering::SeqCst) {

@@ -45,12 +45,24 @@ pub struct ImportRow {pub name:String,pub base_url:String,pub wire_api:String,pu
 
 fn string(value:&Value,key:&str)->String {value[key].as_str().unwrap_or("").to_owned()}
 fn strings(value:&Value)->Vec<String> {value.as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect()}
+/// 读取导出的模型设置，缺失的字段保持默认。
+fn settings_of(value:&Value)->ModelSettings {
+    ModelSettings{
+        models:strings(&value["models"]),
+        models_scoped:value["modelsScoped"].as_bool().unwrap_or(true),
+        default_model:value["defaultModel"].as_str().map(str::to_owned),
+        context_window:value["contextWindow"].as_i64(),
+        compact_limit:value["compactLimit"].as_i64(),
+    }
+}
 
 pub fn prepare(conn:&Connection,text:&str)->Result<(ImportDraft,ImportSummary),String> {
     if text.is_empty()||text.len()>2*1024*1024{return Err("供应商导入文件须为不超过 2 MB 的 JSON".into());}
     let root=SensitiveValue(serde_json::from_str(text).map_err(|_| "供应商导入文件不是有效 JSON")?);
     let cpp=root.get("relayProfiles").is_some();
-    let values=if cpp{root["relayProfiles"].as_array()}else{root.as_array()}.ok_or("请选择 Cockpit 供应商数组或 CodexPlusPlus 设置 JSON")?;
+    // 本应用导出的明文文件也支持导入，密钥按原值读取。
+    let own=super::provider_export::providers_of(&root).is_some();
+    let values=if cpp{root["relayProfiles"].as_array()}else if own{root["providers"].as_array()}else{root.as_array()}.ok_or("请选择 Cockpit 供应商数组、CodexPlusPlus 设置 JSON 或本应用导出的配置文件")?;
     if values.is_empty()||values.len()>100{return Err("每次可导入 1 至 100 个供应商".into());}
     let existing=providers::list(conn)?;
     let mut inputs=SensitiveRows(Vec::new());let mut summaries=Vec::new();let mut seen=std::collections::HashSet::new();
@@ -59,25 +71,37 @@ pub fn prepare(conn:&Connection,text:&str)->Result<(ImportDraft,ImportSummary),S
         let wire=string(value,if cpp{"protocol"}else{"wireApi"});
         let wire=match wire.as_str(){"responses"=>"responses","chatCompletions"|"chat_completions"=>"chat_completions",_=>return Err("导入协议缺失或不支持，未导入任何供应商".into())};
         if cpp && matches!(value["relayMode"].as_str(),Some("official"|"aggregate")) {return Err("请仅导入第三方 API 配置；官方和聚合配置不能按普通供应商导入".into());}
-        let models=if cpp{string(value,"modelList").split(|c|c=='\n'||c==','||c=='\r').map(str::trim).filter(|v|!v.is_empty()).map(str::to_owned).collect()}else{strings(&value["modelCatalog"])};
+        let models=if own{strings(&value["models"])}else if cpp{string(value,"modelList").split(|c|c=='\n'||c==','||c=='\r').map(str::trim).filter(|v|!v.is_empty()).map(str::to_owned).collect()}else{strings(&value["modelCatalog"])};
         let mut keys=SensitiveKeys(Vec::new());
-        for key in value["apiKeys"].as_array().ok_or("导入供应商缺少密钥列表")? {
-            let overrides=if cpp{vec![]}else{strings(&key["modelCatalog"])};
-            keys.0.push(ProviderKeyInput{id:None,name:string(key,"name"),secret:Some(string(key,"apiKey")),settings:ModelSettings{models:overrides,..Default::default()}});
+        if own {
+            for key in value["keys"].as_array().ok_or("导入供应商缺少密钥列表")? {
+                let secret=string(key,"secret");
+                if secret.is_empty(){return Err("导入配置缺少密钥内容，未导入任何供应商".into());}
+                keys.0.push(ProviderKeyInput{id:None,name:string(key,"name"),secret:Some(secret),settings:settings_of(&key["settings"])});
+            }
+        } else {
+            for key in value["apiKeys"].as_array().ok_or("导入供应商缺少密钥列表")? {
+                let overrides=if cpp{vec![]}else{strings(&key["modelCatalog"])};
+                keys.0.push(ProviderKeyInput{id:None,name:string(key,"name"),secret:Some(string(key,"apiKey")),settings:ModelSettings{models:overrides,..Default::default()}});
+            }
         }
         let context=if cpp{value["contextWindow"].as_str().filter(|s|!s.trim().is_empty()).map(|s|s.parse::<i64>().map_err(|_| "导入上下文窗口无效")).transpose()?}else{None};
         let compact=if cpp{value["autoCompactLimit"].as_str().filter(|s|!s.trim().is_empty()).map(|s|s.parse::<i64>().map_err(|_| "导入压缩阈值无效")).transpose()?}else{None};
+        let settings=if own{settings_of(&value["settings"])}else{ModelSettings{context_window:context,compact_limit:compact,..Default::default()}};
         if value.get("modelContextWindows").is_some() || value.get("modelWindows").is_some() || value.get("supportsVision").is_some() {
             if !warnings.contains(&"逐模型上下文和视觉能力元数据未迁移，请导入后核对") {warnings.push("逐模型上下文和视觉能力元数据未迁移，请导入后核对");}
         }
-        let input=ProviderInput{id:None,version:None,name:string(value,"name"),base_url:string(value,if cpp{"upstreamBaseUrl"}else{"baseUrl"}).trim_end_matches('/').to_owned(),wire_api:wire.into(),models,note:String::new(),keys:std::mem::take(&mut keys.0),settings:ModelSettings{context_window:context,compact_limit:compact,..Default::default()}};
+        let input=ProviderInput{id:None,version:None,name:string(value,"name"),base_url:string(value,if cpp{"upstreamBaseUrl"}else{"baseUrl"}).trim_end_matches('/').to_owned(),wire_api:wire.into(),models,note:String::new(),keys:std::mem::take(&mut keys.0),settings};
         if providers::validate(&input).is_err() {
             let mut input=input;
             for key in &mut input.keys {key.secret.zeroize();}
             return Err("导入配置包含无效地址、模型、密钥或上下文设置，未导入任何供应商".into());
         }
         let url=reqwest::Url::parse(&input.base_url).map_err(|_| "供应商地址无效")?;
-        if matches!(url.host_str(),Some("localhost"|"127.0.0.1"|"[::1]")) {
+        // 第三方配置里的回环地址通常意味着"本地代理"，不是真实上游，必须拒绝。
+        // 本应用自己的导出文件则不同：本地供应商是用户在本机显式创建的合法配置，
+        // 导出再导入属于正常往返，不能因此被拒。
+        if !own&&super::provider_probe::loopback(&url) {
             let mut input=input;
             for key in &mut input.keys {key.secret.zeroize();}
             return Err("导入地址指向本地代理，请改为真实上游地址后导入".into());
@@ -155,9 +179,48 @@ mod tests {
         let db=database();let key=uuid::Uuid::new_v4().to_string();
         let mut row=json!({"name":"fixture","baseUrl":"http://127.0.0.1:58169/v1","wireApi":"responses","modelCatalog":["model-a"],"apiKeys":[{"name":"primary","apiKey":key}]});
         assert!(prepare(&db,&json!([row.clone()]).to_string()).is_err());
+        row["baseUrl"]=json!("http://[::1]:58169/v1");
+        assert!(prepare(&db,&json!([row.clone()]).to_string()).is_err());
+        row["baseUrl"]=json!("https://localhost/v1");
+        assert!(prepare(&db,&json!([row.clone()]).to_string()).is_err());
+        row["baseUrl"]=json!("http://example.com/v1");
+        assert!(prepare(&db,&json!([row.clone()]).to_string()).is_err());
         row["baseUrl"]=json!("https://example.com/v1");
         let (draft,summary)=prepare(&db,&json!([row.clone(),row.clone()]).to_string()).unwrap();assert_eq!(draft.rows.len(),1);assert!(summary.providers[1].duplicate);
         row["wireApi"]=json!("anthropic_messages");assert!(prepare(&db,&json!([row]).to_string()).is_err());
+    }
+
+    #[test]
+    fn own_exports_round_trip_local_providers_that_import_rejects_from_third_party_files() {
+        use crate::core::crypto::{decrypt_secret_with_key,encrypt_secret_with_key};
+        let mut db=database();
+        let secret=uuid::Uuid::new_v4().to_string();
+        // 本机显式创建的回环供应商。第三方格式导入会拒绝它，本应用自己的导出必须能还原。
+        let source=json!({
+            "format":super::super::provider_export::FORMAT,"version":1,
+            "providers":[{
+                "name":"local","baseUrl":"http://127.0.0.1:58169/v1","wireApi":"responses",
+                "models":["model-a"],"note":"","settings":{"models":["model-a"],"modelsScoped":true},
+                "keys":[{"name":"primary","secret":secret,"settings":{"models":["model-a"],"modelsScoped":true}}]
+            }]
+        });
+        let (draft,summary)=prepare(&db,&source.to_string()).unwrap();
+        assert_eq!(draft.rows.len(),1);
+        assert_eq!(draft.rows[0].base_url,"http://127.0.0.1:58169/v1");
+        assert_eq!(draft.rows[0].keys.len(),1);
+        assert_eq!(draft.rows[0].keys[0].secret.as_deref(),Some(secret.as_str()));
+        assert!(!summary.providers[0].duplicate);
+        confirm_encrypted(&mut db,&draft,|value|encrypt_secret_with_key(value,&[13;32])).unwrap();
+        let stored=providers::list(&db).unwrap().remove(0);
+        assert_eq!(stored.base_url,"http://127.0.0.1:58169/v1");
+        assert_eq!(stored.keys.len(),1);
+        // 导出→导入→再导出必须得到同一份配置，闭环不能因回环地址被截断。
+        let exported=super::super::provider_export::export(&db,Some(&[stored.id.clone()])).unwrap();
+        let root:Value=serde_json::from_str(exported.as_str()).unwrap();
+        let rows=super::super::provider_export::providers_of(&root).unwrap();
+        assert_eq!(rows.len(),1);
+        assert_eq!(rows[0]["baseUrl"],json!("http://127.0.0.1:58169/v1"));
+        assert_eq!(rows[0]["keys"][0]["secret"],json!(secret));
     }
 
     #[test]

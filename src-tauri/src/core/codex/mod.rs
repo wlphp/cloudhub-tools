@@ -20,6 +20,8 @@ pub mod provider_gateway;
 pub mod provider_oauth;
 pub mod provider_usage;
 pub mod provider_import;
+pub mod provider_export;
+pub mod provider_logs;
 pub mod provider_aggregate;
 pub(crate) static AUTH_WRITER: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
