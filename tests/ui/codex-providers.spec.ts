@@ -47,6 +47,7 @@ test("model provider management, masked editing and configuration recovery", asy
           return { models: args.model ? [] : ["model-c"], generated: !!args.model, elapsedMs: 250, status: 200, error: null };
         }
         if (command === "codex_provider_usage") return { adapter: "deepseek", fetchedAt: Date.now(), windows: [{ name: "余额", remaining: 12.3, total: null, unit: "CNY", resetsAt: null }] };
+        if (command === "codex_provider_reveal_key") return `revealed-${args.keyId}`;
         if (command === "codex_provider_import") {
           if (args.action === "prepare") return { token: "import-fixture", providers: [{ name: "imported", baseUrl: "https://example.org/v1", wireApi: "responses", models: ["model-a"], keyCount: 1, duplicate: false }], warnings: ["实例和 OAuth 绑定不迁移"] };
           if (args.action === "confirm" && localStorage.getItem("reject-provider-import")) throw { message: "供应商目录已变更，请重新预览导入" };
@@ -193,7 +194,12 @@ test("model provider management, masked editing and configuration recovery", asy
     await expect(savedSecretToggles.nth(index)).toBeEnabled();
   }
   await savedSecretToggles.first().click();
-  await expect(editing.getByText("已保存的密钥不会回显；输入新密钥后可查看。", { exact: true })).toBeVisible();
+  await expect(secretInputs.first()).toHaveValue("revealed-key-0");
+  await expect(secretInputs.first()).toHaveAttribute("type", "text");
+  await expect(editing.getByRole("button", { name: "隐藏密钥", exact: true })).toHaveCount(1);
+  await expect(editing.getByRole("button", { name: "复制密钥", exact: true })).toHaveCount(1);
+  await editing.getByRole("button", { name: "隐藏密钥", exact: true }).click();
+  await expect(secretInputs.first()).toHaveAttribute("type", "password");
   const fetchAllSavedKeys = editing.getByRole("button", { name: "获取所有密钥模型", exact: true });
   await fetchAllSavedKeys.click();
   await expect(editing.getByRole("status")).toHaveText("已查询 2/2 个密钥，发现 2 个模型");
