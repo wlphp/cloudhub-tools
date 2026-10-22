@@ -63,6 +63,18 @@ fn catalog_template(home:&Path)->Option<serde_json::Value> {
     None
 }
 
+/// 以内置默认值为底、现有目录条目为覆盖层合并。旧版本目录可能缺少新客户端要求的
+/// 字段，整条拷贝会把缺失一并带到新目录，导致客户端拒绝加载整个文件。
+fn merge_defaults(fallback:&serde_json::Value,template:&serde_json::Value)->serde_json::Value {
+    let mut merged=fallback.clone();
+    if let (Some(merged),Some(template))=(merged.as_object_mut(),template.as_object()) {
+        for (key,value) in template {
+            merged.insert(key.clone(),value.clone());
+        }
+    }
+    merged
+}
+
 /// 生成供应商模型目录，条目与供应商的模型一致。
 pub fn build_catalog(settings:&super::providers::ModelSettings,template:Option<serde_json::Value>)->serde_json::Value {
     let fallback=json!({
@@ -87,12 +99,13 @@ pub fn build_catalog(settings:&super::providers::ModelSettings,template:Option<s
         "supports_search_tool":true,
         "support_verbosity":true,
         "tool_mode":"code_mode_only",
+        "truncation_policy":{"limit":10000,"mode":"tokens"},
         "visibility":"list"
     });
     let context=settings.context_window.unwrap_or(200_000).max(4_096);
     let compact=settings.compact_limit.unwrap_or_else(||context.saturating_mul(4)/5);
     let models=settings.models.iter().enumerate().map(|(index,id)|{
-        let mut entry=template.clone().unwrap_or_else(||fallback.clone());
+        let mut entry=template.as_ref().map(|value|merge_defaults(&fallback,value)).unwrap_or_else(||fallback.clone());
         entry["slug"]=json!(id);
         entry["display_name"]=json!(id);
         entry["description"]=json!(id);
@@ -470,6 +483,7 @@ mod tests {
         assert_eq!(models[0]["display_name"],json!("model-a"));
         assert_eq!(models[0]["context_window"],json!(65536));
         assert!(models[0].get("supported_reasoning_levels").is_some());
+        assert_eq!(models[0]["truncation_policy"],json!({"limit":10000,"mode":"tokens"}));
         remove_catalog(&temp.path);
         assert!(!temp.path.join(CATALOG_FILE).exists());
     }
@@ -485,6 +499,25 @@ mod tests {
         assert_eq!(entry["slug"],json!("vendor-model"));
         assert_eq!(entry["base_instructions"],json!("keep me"));
         assert_eq!(entry["supported_reasoning_levels"][0]["effort"],json!("low"));
+    }
+    #[test]
+    fn provider_catalog_backfills_fields_missing_from_an_older_template() {
+        let temp=profile::TemporaryProfile::new("{}").unwrap();
+        profile::write_private(&temp.path.join("cockpit-model-catalog.json"),&json!({"models":[{"slug":"gpt-5.6-sol","context_window":272000}]}).to_string()).unwrap();
+        let settings=super::super::providers::ModelSettings{models:vec!["vendor-model".into()],..Default::default()};
+        install_catalog(&temp.path,&settings).unwrap();
+        let text=profile::read_auth(&temp.path.join(CATALOG_FILE)).unwrap();
+        let catalog:serde_json::Value=serde_json::from_str(text.as_str()).unwrap();
+        let entry=&catalog["models"][0];
+        assert_eq!(entry["truncation_policy"],json!({"limit":10000,"mode":"tokens"}));
+        assert_eq!(entry["shell_type"],json!("shell_command"));
+        assert_eq!(entry["context_window"],json!(200000));
+    }
+    #[test]
+    fn provider_catalog_ignores_a_template_that_is_not_a_model_object() {
+        let catalog=build_catalog(&super::super::providers::ModelSettings{models:vec!["model-a".into()],..Default::default()},Some(json!("gpt-5.6-sol")));
+        assert_eq!(catalog["models"][0]["slug"],json!("model-a"));
+        assert_eq!(catalog["models"][0]["truncation_policy"],json!({"limit":10000,"mode":"tokens"}));
     }
     #[test]
     fn restore_returns_a_user_owned_catalog_and_removes_only_ours() {
