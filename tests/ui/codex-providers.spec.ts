@@ -131,7 +131,8 @@ test("model provider management, masked editing and configuration recovery", asy
   await page.evaluate(() => localStorage.setItem("reject-provider-import", "1"));
   await importing.getByRole("button", { name: "确认导入", exact: true }).click();
   await expect(importing.getByRole("alert")).toHaveText("供应商目录已变更，请重新预览导入");
-  await expect(importing.getByRole("button", { name: "确认导入", exact: true })).toBeDisabled();
+  // 确认失败后后端已消费预览令牌，必须重新预览，不能再次确认同一批供应商。
+  await expect(importing.getByRole("button", { name: "确认导入", exact: true })).toHaveCount(0);
   await expect(importing.getByText("待导入", { exact: true })).toHaveCount(0);
   await page.evaluate(() => localStorage.removeItem("reject-provider-import"));
   await importing.getByRole("button", { name: "选择 JSON 文件", exact: true }).click();

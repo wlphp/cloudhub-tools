@@ -1,11 +1,12 @@
 use crate::core::{codex::providers::{self, Provider, ProviderInput}, error::PlatformResult, storage::open_db};
 use crate::core::codex::{profile, provider_config::{self, ConfigPreview}};
 use tauri::Manager;
+use zeroize::Zeroize;
 use rusqlite::OptionalExtension;
 use tauri_plugin_dialog::DialogExt;
 
 #[tauri::command]
-pub(crate) async fn codex_provider_import(app:tauri::AppHandle,action:String,token:Option<String>)->PlatformResult<Option<crate::core::codex::provider_import::ImportSummary>> {
+pub(crate) async fn codex_provider_import(app:tauri::AppHandle,action:String,token:Option<String>,text:Option<String>)->PlatformResult<Option<crate::core::codex::provider_import::ImportSummary>> {
     tauri::async_runtime::spawn_blocking(move || -> Result<_,String> {
         use crate::core::codex::provider_import;
         let store=app.state::<super::codex_runtime::CodexRuntimeStore>();store.cleanup_expired();
@@ -21,6 +22,15 @@ pub(crate) async fn codex_provider_import(app:tauri::AppHandle,action:String,tok
             };
             provider_import::confirm(&mut open_db()?,&draft)?;return Ok(None);
         }
+        if action=="prepare_text" {
+            // 粘贴导入：内容只在本机读取，读取后立即丢弃原文。
+            let source=text.ok_or("请粘贴要导入的 JSON 内容")?;
+            let mut source=zeroize::Zeroizing::new(source);
+            if source.len()>2*1024*1024 { return Err("供应商导入文件须为不超过 2 MB 的 JSON".into()); }
+            let (draft,summary)=provider_import::prepare(&open_db()?,&source)?;
+            source.zeroize();
+            *store.provider_import.lock().map_err(|_| "导入状态不可用")?=Some(draft);return Ok(Some(summary));
+        }
         if action!="prepare" {return Err("供应商导入操作无效".into());}
         let Some(file)=app.dialog().file().add_filter("供应商 JSON",&["json"]).blocking_pick_file() else{return Ok(None);};
         let path=file.into_path().map_err(|_| "导入文件路径无效")?;
@@ -31,6 +41,19 @@ pub(crate) async fn codex_provider_import(app:tauri::AppHandle,action:String,tok
         let (draft,summary)=provider_import::prepare(&open_db()?,&text)?;
         *store.provider_import.lock().map_err(|_| "导入状态不可用")?=Some(draft);Ok(Some(summary))
     }).await.map_err(|_| "供应商导入任务失败")?.map_err(Into::into)
+}
+
+/// 导出供应商配置为明文 JSON。文件包含 API Key 明文，由用户显式选择后写入。
+#[tauri::command]
+pub(crate) async fn codex_provider_export(app:tauri::AppHandle,ids:Option<Vec<String>>)->PlatformResult<String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<String,String> {
+        let text=crate::core::codex::provider_export::export(&open_db()?,ids.as_deref())?;
+        let Some(file)=app.dialog().file().set_file_name("cloudhub-providers.json").add_filter("供应商 JSON",&["json"]).blocking_save_file() else{return Ok(String::new());};
+        let path=file.into_path().map_err(|_| "导出文件路径无效")?;
+        // 明文密钥不得写入链接、共享目录或留下半截文件，复用实例配置的私有写入。
+        crate::core::codex::profile::write_private(&path,text.as_str()).map_err(|_| "写入导出文件失败")?;
+        Ok(format!("已导出到 {}",path.to_string_lossy()))
+    }).await.map_err(|_| "导出供应商任务失败")?.map_err(Into::into)
 }
 
 #[derive(serde::Deserialize)]
@@ -65,7 +88,10 @@ fn resolve_apply_route(conn:&rusqlite::Connection,input:&ApplyProvider)->Result<
         for member in &aggregate.members {
             let provider=providers.iter().find(|v|v.id==member.provider_id).ok_or("聚合成员供应商不存在")?;
             let credential=providers::credential(conn,&member.provider_id,&member.key_id)?;
-            members.push((member.key_id.clone(),provider.base_url.clone(),credential,member.models.clone(),member.weight));
+            members.push(crate::core::codex::provider_gateway::GatewayMember{
+                key_id:member.key_id.clone(),provider_id:Some(member.provider_id.clone()),
+                base:provider.base_url.clone(),credential,models:member.models.clone(),weight:member.weight,
+            });
         }
         let gateway=tauri::async_runtime::block_on(crate::core::codex::provider_gateway::ProviderGateway::start_aggregate(
             0,members,local_key.clone(),aggregate.strategy,
@@ -93,7 +119,7 @@ fn resolve_apply_route(conn:&rusqlite::Connection,input:&ApplyProvider)->Result<
     let upstream=providers::credential(conn,&provider.id,&input.key_id)?;
     let gateway=if provider.wire_api=="chat_completions" {
         Some(tauri::async_runtime::block_on(crate::core::codex::provider_gateway::ProviderGateway::start(
-            0,provider.base_url.clone(),upstream.clone(),local_key.clone(),settings.models.clone(),
+            0,Some(provider.id.clone()),provider.base_url.clone(),upstream.clone(),local_key.clone(),settings.models.clone(),
         ))?)
     } else {None};
     let (base_url,auth_key)=if let Some(gateway)=&gateway {
@@ -119,18 +145,52 @@ pub(crate) async fn codex_provider_usage(provider_id:String,key_id:String,versio
         let provider=providers::list(&conn)?.into_iter().find(|v|v.id==provider_id&&v.version==version).ok_or("供应商已被修改，请刷新后重试")?;
         let key=providers::credential(&conn,&provider_id,&key_id)?;Ok((provider,key))
     }).await.map_err(|_| "读取供应商额度参数失败")??;
-    crate::core::codex::provider_usage::query(&provider.base_url,&key,&adapter).await.map_err(Into::into)
+    let (result,exchanges)=crate::core::codex::provider_usage::query_logged(&provider.base_url,&key,&adapter).await;
+    let secret=zeroize::Zeroizing::new(key.to_string());
+    let owner=provider.id.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        if let Ok(conn)=open_db() {
+            for exchange in exchanges {let _=crate::core::codex::provider_logs::record(&conn,&owner,"usage",&exchange,Some(secret.as_str()));}
+        }
+    }).await.ok();
+    result.map_err(Into::into)
+}
+
+/// 读取供应商的请求日志（明文，密钥已脱敏）。
+#[tauri::command]
+pub(crate) async fn codex_provider_logs(provider_id:String,limit:Option<i64>)->PlatformResult<Vec<crate::core::codex::provider_logs::RequestLog>> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<_,String> {
+        crate::core::codex::provider_logs::list(&open_db()?,&provider_id,limit.unwrap_or(50) as usize)
+    }).await.map_err(|_| "读取供应商请求日志失败")?.map_err(Into::into)
+}
+
+/// 清空供应商的请求日志。
+#[tauri::command]
+pub(crate) async fn codex_provider_logs_clear(provider_id:String)->PlatformResult<usize> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<usize,String> {
+        crate::core::codex::provider_logs::clear(&open_db()?,&provider_id)
+    }).await.map_err(|_| "清空供应商请求日志失败")?.map_err(Into::into)
 }
 
 #[tauri::command]
 pub(crate) async fn codex_provider_models(input: ModelCatalogInput) -> PlatformResult<crate::core::codex::provider_probe::ProbeResult> {
+    let provider_id=input.provider_id.clone();
     let (base,key)=tauri::async_runtime::spawn_blocking(move || resolve_model_catalog(input,|provider_id,key_id,version| {
         let conn=open_db()?;
         let provider=providers::list(&conn)?.into_iter().find(|v|v.id==provider_id && v.version==version).ok_or("供应商已被修改，请刷新后重试")?;
         if !provider.keys.iter().any(|key|key.id==key_id) {return Err("密钥已被修改，请刷新后重试".into());}
         providers::credential(&conn,provider_id,key_id)
     })).await.map_err(|_| "读取供应商请求参数失败")??;
-    crate::core::codex::provider_probe::run(&base,"responses",&key,None).await.map_err(Into::into)
+    let (result,exchange)=crate::core::codex::provider_probe::run_exchange(&base,"responses",&key,None).await.map_err(|error| crate::core::error::PlatformError::from(error))?;
+    if let Some(provider_id)=provider_id {
+        let exchange=exchange.clone();
+        // 脱敏必须用实际发出的凭据。对已保存的供应商来说入参 secret 恒为空，
+        // 用它脱敏等于不脱敏，上游错误正文里的明文密钥会直接入库。
+        let _=tauri::async_runtime::spawn_blocking(move || -> Result<(),String> {
+            crate::core::codex::provider_logs::record(&open_db()?,&provider_id,"model_catalog",&exchange,Some(key.as_str()))
+        }).await;
+    }
+    Ok(result)
 }
 
 #[derive(serde::Deserialize)]
@@ -173,16 +233,23 @@ fn resolve_model_catalog(
 
 #[tauri::command]
 pub(crate) async fn codex_provider_probe(provider_id:String,key_id:String,version:i64,model:Option<String>) -> PlatformResult<crate::core::codex::provider_probe::ProbeResult> {
-    let requested_model=model.clone();
+    let validated_model=model.clone();
     let (provider,key)=tauri::async_runtime::spawn_blocking(move || -> Result<_,String> {
         let conn=open_db()?;
         let provider=providers::list(&conn)?.into_iter().find(|v|v.id==provider_id && v.version==version).ok_or("供应商已被修改，请刷新后重试")?;
         let settings=providers::effective_settings(&provider,provider.keys.iter().find(|v|v.id==key_id).ok_or("供应商密钥不存在")?);
-        if model.as_ref().is_some_and(|v|!settings.models.contains(v)) {return Err("模型不在供应商目录中".into());}
+        if validated_model.as_ref().is_some_and(|v|!settings.models.contains(v)) {return Err("模型不在供应商目录中".into());}
         let key=providers::credential(&conn,&provider_id,&key_id)?;
         Ok((provider,key))
     }).await.map_err(|_| "读取供应商请求参数失败")??;
-    crate::core::codex::provider_probe::run(&provider.base_url,&provider.wire_api,&key,requested_model.as_deref()).await.map_err(Into::into)
+    let (result,exchange)=crate::core::codex::provider_probe::run_exchange(&provider.base_url,&provider.wire_api,&key,model.as_deref()).await.map_err(|error| crate::core::error::PlatformError::from(error))?;
+    let exchange=exchange.clone();
+    let secret=zeroize::Zeroizing::new(key.to_string());
+    let provider_id=provider.id.clone();
+    let _=tauri::async_runtime::spawn_blocking(move || -> Result<(),String> {
+        crate::core::codex::provider_logs::record(&open_db()?,&provider_id,"probe",&exchange,Some(secret.as_str()))
+    }).await;
+    Ok(result)
 }
 
 #[tauri::command]
@@ -237,6 +304,12 @@ pub(crate) async fn codex_provider_apply(app:tauri::AppHandle,id:Option<String>,
         if provider_config::preview(&conn,&home)?.version!=input.version {return Err("目标配置已变更，请重新预览".into());}
         let cipher=crate::core::storage::encrypt_secret(&api_auth).map_err(|_| "加密供应商账号失败")?;
         provider_config::install(&conn,&home,&input.version,&config,&auth)?;
+        // 客户端的模型选择器读取模型目录文件，必须与配置一起写入。写入前配置备份
+        // 已经记录该文件的归属，失败或恢复时都能还原用户原有内容。
+        if let Err(error)=provider_config::install_catalog(&home,&route.settings) {
+            provider_config::restore(&conn,&home)?;
+            return Err(error.into());
+        }
         let bound=(|| -> Result<(),String> {
             let tx=conn.transaction().map_err(|_| "保存供应商绑定失败")?;
             tx.execute("INSERT INTO codex_accounts(identity,label,auth_mode,auth_ciphertext,updated_at) VALUES(?1,?2,'apikey',?3,?4) ON CONFLICT(identity) DO UPDATE SET label=excluded.label,auth_ciphertext=excluded.auth_ciphertext,deleted_at=NULL,last_error=NULL,updated_at=MAX(codex_accounts.updated_at+1,excluded.updated_at)",rusqlite::params![identity,label,cipher,chrono::Utc::now().timestamp_millis()]).map_err(|_| "保存供应商账号失败")?;
@@ -260,14 +333,18 @@ pub(crate) async fn codex_provider_apply(app:tauri::AppHandle,id:Option<String>,
 }
 
 #[tauri::command]
-pub(crate) async fn codex_provider_restore(app:tauri::AppHandle,id:Option<String>)->PlatformResult<ConfigPreview> {
+pub(crate) async fn codex_provider_restore(app:tauri::AppHandle,id:Option<String>,force:Option<bool>)->PlatformResult<ConfigPreview> {
     tauri::async_runtime::spawn_blocking(move || -> Result<ConfigPreview,String> {
         let _writer=super::codex::AUTH_WRITER.lock().map_err(|_| "Codex 账号操作不可用")?;
         let store=app.state::<super::codex_runtime::CodexRuntimeStore>();
         let home=super::codex_instances::config_home(&store,id.as_deref(),true)?;
         let mut conn=open_db()?;
+        let force=force.unwrap_or(false);
+        // 外部修改检查必须先于任何写操作。OAuth 续期会改写备份里的认证快照，
+        // 因此这里只校验 config.toml，认证一侧由续期与恢复各自的严格校验把关。
+        if !force {provider_config::assert_config_restorable(&conn,&home)?;}
         if !provider_config::original_auth_restored(&conn,&home)? {crate::core::codex::provider_oauth::sync(&home)?;}
-        provider_config::restore_files(&conn,&home)?;
+        if force {provider_config::restore_files_forced(&conn,&home)?;} else {provider_config::restore_files(&conn,&home)?;}
         let tx=conn.transaction().map_err(|_| "恢复实例账号失败")?;
         if let Some(id)=&id {
             let old:Option<i64>=tx.query_row("SELECT previous_account_id FROM codex_provider_bindings WHERE home=?1",[home.to_string_lossy().as_ref()],|r|r.get(0)).optional().map_err(|_| "读取供应商绑定失败")?.flatten();
@@ -302,7 +379,7 @@ pub(crate) fn ensure_gateway(store:&super::codex_runtime::CodexRuntimeStore,home
         for member in &aggregate.members {
             let provider=providers.iter().find(|v|v.id==member.provider_id).ok_or("聚合成员供应商不存在")?;
             let key=providers::credential(&conn,&member.provider_id,&member.key_id)?;
-            members.push((member.key_id.clone(),provider.base_url.clone(),key,member.models.clone(),member.weight));
+            members.push(crate::core::codex::provider_gateway::GatewayMember{key_id:member.key_id.clone(),provider_id:Some(member.provider_id.clone()),base:provider.base_url.clone(),credential:key,models:member.models.clone(),weight:member.weight});
         }
         if serde_json::from_str::<Vec<String>>(&models).map_err(|_| "聚合网关模型目录无效")?!=aggregate.models {
             return Err("聚合网关模型目录已变更，请恢复配置后重新应用".into());
@@ -314,7 +391,7 @@ pub(crate) fn ensure_gateway(store:&super::codex_runtime::CodexRuntimeStore,home
     let provider=providers::list(&conn)?.into_iter().find(|v|v.id==provider_id && v.wire_api=="chat_completions").ok_or("供应商网关配置失效，请恢复配置后重新应用")?;
     let key=providers::credential(&conn,&provider_id,&key_id)?;
     let models:Vec<String>=serde_json::from_str(&models).map_err(|_| "供应商网关模型无效")?;
-    let gateway=tauri::async_runtime::block_on(crate::core::codex::provider_gateway::ProviderGateway::start(port,provider.base_url,key,local,models))?;
+    let gateway=tauri::async_runtime::block_on(crate::core::codex::provider_gateway::ProviderGateway::start(port,Some(provider_id.clone()),provider.base_url,key,local,models))?;
     gateways.insert(home.to_string_lossy().into_owned(),gateway);
     Ok(())
 }
@@ -356,6 +433,25 @@ pub(crate) async fn codex_provider_remove(id: String, version: i64) -> PlatformR
     tauri::async_runtime::spawn_blocking(move || { let _writer=super::codex::AUTH_WRITER.lock().map_err(|_| "Codex 账号操作不可用")?; providers::remove(&open_db()?, &id, version) }).await.map_err(|_| "删除供应商任务失败")?.map_err(Into::into)
 }
 
+/// 读取已保存的密钥，供用户在编辑页显式查看。密钥只返回给调用界面，
+/// 不写入日志、备份或供应商列表。
+#[tauri::command]
+pub(crate) async fn codex_provider_reveal_key(provider_id: String, key_id: String, version: i64) -> PlatformResult<String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<String, String> {
+        let conn = open_db()?;
+        let provider = providers::list(&conn)?.into_iter()
+            .find(|v| v.id == provider_id && v.version == version)
+            .ok_or("供应商已被修改，请刷新后重试")?;
+        if !provider.keys.iter().any(|v| v.id == key_id) {
+            return Err("供应商密钥不存在".into());
+        }
+        Ok(providers::credential(&conn, &provider_id, &key_id)?.to_string())
+    })
+    .await
+    .map_err(|_| "读取供应商密钥任务失败")?
+    .map_err(Into::into)
+}
+
 #[tauri::command]
 pub(crate) async fn codex_provider_aggregate_list() -> PlatformResult<Vec<crate::core::codex::provider_aggregate::Aggregate>> {
     tauri::async_runtime::spawn_blocking(|| crate::core::codex::provider_aggregate::list(&open_db()?))
@@ -383,6 +479,29 @@ mod tests {
     use super::*;
 
     #[test]
+    fn provider_edits_and_deletion_no_longer_block_on_references() {
+        let mut conn=rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(crate::core::database::CODEX_PROVIDERS_SCHEMA).unwrap();
+        conn.execute_batch("ALTER TABLE codex_model_providers ADD COLUMN settings_json TEXT NOT NULL DEFAULT '{}'; ALTER TABLE codex_provider_keys ADD COLUMN settings_json TEXT NOT NULL DEFAULT '{}'; CREATE TABLE codex_provider_bindings(home TEXT PRIMARY KEY,provider_id TEXT NOT NULL,key_id TEXT NOT NULL,account_id INTEGER NOT NULL,previous_account_id INTEGER,instance_id TEXT); CREATE TABLE codex_provider_accounts(account_id INTEGER,provider_id TEXT); CREATE TABLE codex_profiles(account_id INTEGER); CREATE TABLE codex_accounts(id INTEGER);").unwrap();
+        conn.execute_batch(crate::core::database::CODEX_PROVIDER_AGGREGATES_SCHEMA).unwrap();
+        conn.execute_batch(crate::core::database::CODEX_PROVIDER_LOGS_SCHEMA).unwrap();
+        let provider_id=uuid::Uuid::new_v4().to_string();
+        let key_id=uuid::Uuid::new_v4().to_string();
+        conn.execute("INSERT INTO codex_model_providers(id,name,base_url,wire_api,models_json,note,version) VALUES(?1,'Bound','https://example.com/v1','responses','[\"model-test\"]','',1)",[&provider_id]).unwrap();
+        conn.execute("INSERT INTO codex_provider_keys(id,provider_id,name,ciphertext) VALUES(?1,?2,'Primary','fixture')",[&key_id,&provider_id]).unwrap();
+        conn.execute("INSERT INTO codex_provider_bindings(home,provider_id,key_id,account_id) VALUES('C:\\fixture',?1,?2,1)",[&provider_id,&key_id]).unwrap();
+        conn.execute("INSERT INTO codex_provider_request_logs VALUES('log-fixture',?1,'probe','POST','https://example.com/v1','{}',200,'{}',NULL,1,1,'')",[&provider_id]).unwrap();
+        let input=crate::core::codex::providers::ProviderInput{id:Some(provider_id.clone()),version:Some(1),name:"Bound".into(),base_url:"https://example.com/v1".into(),wire_api:"responses".into(),models:vec!["model-test".into()],note:String::new(),settings:Default::default(),keys:vec![crate::core::codex::providers::ProviderKeyInput{id:Some(key_id.clone()),name:"Primary".into(),secret:None,settings:Default::default()}]};
+        assert!(providers::save(&mut conn,input).is_ok());
+        assert_eq!(conn.query_row("SELECT COUNT(*) FROM codex_provider_bindings",[],|r|r.get::<_,i64>(0)).unwrap(),1);
+        let version:i64=conn.query_row("SELECT version FROM codex_model_providers WHERE id=?1",[&provider_id],|r|r.get(0)).unwrap();
+        assert!(providers::remove(&conn,&provider_id,version).unwrap().is_empty());
+        assert_eq!(conn.query_row("SELECT COUNT(*) FROM codex_provider_bindings",[],|r|r.get::<_,i64>(0)).unwrap(),0);
+        // 请求日志保存了该供应商的明文参数与响应，必须随供应商一起删除。
+        assert_eq!(conn.query_row("SELECT COUNT(*) FROM codex_provider_request_logs",[],|r|r.get::<_,i64>(0)).unwrap(),0);
+    }
+
+    #[test]
     fn model_catalog_accepts_unsaved_credentials_without_reading_storage() {
         let input=ModelCatalogInput{base_url:"https://example.com/v1".into(),provider_id:None,key_id:None,version:None,secret:Some("invalid-fixture-key".into())};
         let (base,key)=resolve_model_catalog(input,|_,_,_|panic!("draft must not read saved credentials")).unwrap();
@@ -406,7 +525,6 @@ mod tests {
     #[test]
     fn model_catalog_rejects_invalid_addresses_and_credentials_before_loading() {
         for (base,secret) in [
-            ("http://example.com/v1",Some("fixture")),
             ("https://user:pass@example.com/v1",Some("fixture")),
             ("https://example.com/v1?token=fixture",Some("fixture")),
             ("https://example.com/v1",Some("fixture\nheader")),
@@ -415,6 +533,15 @@ mod tests {
         ] {
             let input=ModelCatalogInput{base_url:base.into(),provider_id:None,key_id:None,version:None,secret:secret.map(str::to_owned)};
             assert!(resolve_model_catalog(input,|_,_,_|panic!("invalid input must not load credentials")).is_err());
+        }
+        // 明文 HTTP 仅允许回环地址，公网供应商必须使用 HTTPS。
+        for base in ["http://example.com/v1","http://example.com:8080/v1"] {
+            let input=ModelCatalogInput{base_url:base.into(),provider_id:None,key_id:None,version:None,secret:Some("fixture".into())};
+            assert!(resolve_model_catalog(input,|_,_,_|panic!("rejected input must not load credentials")).is_err(),"{base}");
+        }
+        for base in ["https://example.com/v1","http://127.0.0.1:3300/v1","http://[::1]:3300/v1","http://localhost:3300/v1"] {
+            let input=ModelCatalogInput{base_url:base.into(),provider_id:None,key_id:None,version:None,secret:Some("fixture".into())};
+            assert!(resolve_model_catalog(input,|_,_,_|panic!("valid input must not load credentials")).is_ok(),"{base}");
         }
     }
 

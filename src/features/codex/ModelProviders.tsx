@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Plus, Pencil, Copy, Trash2, RefreshCw, Search, Server, Play, FlaskConical, Gauge, Upload, Layers, GripVertical } from "lucide-react";
+import { Plus, Pencil, Copy, Trash2, RefreshCw, Search, Server, Play, FlaskConical, Gauge, Upload, Download, FileText, CheckSquare, Layers, GripVertical } from "lucide-react";
 import { ProviderEditorPage, providerEditorInput } from "./ProviderEditorPage";
 import { ProviderImportDialog } from "./ProviderImportDialog";
 import { ProviderUsageDialog } from "./ProviderUsageDialog";
 import { ProviderProbeDialog } from "./ProviderProbeDialog";
 import { ProviderLaunchDialog, type ProviderLaunchTarget } from "./ProviderLaunchDialog";
-import { codexProviders, type CodexProvider, type ProviderInput, type ProviderAggregate, type ProviderAggregateInput } from "../../platform/clients/codex-providers";
+import { codexProviders, type CodexProvider, type ProviderRequestLog, type ProviderInput, type ProviderAggregate, type ProviderAggregateInput } from "../../platform/clients/codex-providers";
 import { OverviewDialog } from "./OverviewDialogs";
 import { ConfirmDialog } from "../../shared/ConfirmDialog";
 import { preferencesClient } from "../../platform/clients/preferences";
@@ -49,8 +49,18 @@ export function ModelProviders({ onChanged }: { onChanged?: () => void }) {
   const [probing, setProbing] = useState<CodexProvider | null>(null);
   const [usage, setUsage] = useState<CodexProvider | null>(null);
   const [importing, setImporting] = useState(false);
+  const [checkedProviders, setCheckedProviders] = useState<string[]>([]);
+  const [logsProvider, setLogsProvider] = useState<CodexProvider | null>(null);
+  const [logs, setLogs] = useState<ProviderRequestLog[]>([]);
+  const [logsBusy, setLogsBusy] = useState(false);
+  const [logsError, setLogsError] = useState("");
+  const [copiedLogId, setCopiedLogId] = useState<string | null>(null);
+  const [clearLogsConfirm, setClearLogsConfirm] = useState(false);
   const [aggregateEditing, setAggregateEditing] = useState<ProviderAggregateInput | null>(null);
   const [aggregateRemoving, setAggregateRemoving] = useState<ProviderAggregate | null>(null);
+  // undefined 表示未打开确认框；空数组表示导出全部供应商。
+  const [exporting, setExporting] = useState<string[] | undefined>(undefined);
+  const [notice, setNotice] = useState("");
   const alive = useRef(true);
   const pending = useRef(false);
   const providerOrderRef = useRef<string[]>([]);
@@ -198,6 +208,38 @@ export function ModelProviders({ onChanged }: { onChanged?: () => void }) {
     finally { pending.current = false; if (alive.current) { setBusy(false); setFetchingModels(false); } }
   }
   const visible = items.filter(v => (protocol === "all" || v.wireApi === protocol) && (v.name + " " + v.baseUrl + " " + v.models.join(" ")).toLocaleLowerCase().includes(query.toLocaleLowerCase()));
+  async function exportProviders(ids?: string[]) {
+    try { const result = await codexProviders.export(ids); if (result) setNotice(result); } catch (e) { setError(e instanceof Error ? e.message : "导出供应商失败"); }
+  }
+  async function refreshLogs(provider = logsProvider) {
+    if (!provider || logsBusy) return;
+    setLogsBusy(true); setLogsError("");
+    try { setLogs(await codexProviders.logs(provider.id)); }
+    catch (e) { setLogsError(e instanceof Error ? e.message : "读取请求日志失败"); }
+    finally { setLogsBusy(false); }
+  }
+  async function openLogs(provider: CodexProvider) {
+    setLogsProvider(provider); setLogs([]); setLogsError("");
+    await refreshLogs(provider);
+  }
+  async function clearLogs() {
+    if (!logsProvider || logsBusy) return;
+    setLogsBusy(true); setLogsError("");
+    try {
+      await codexProviders.clearLogs(logsProvider.id);
+      setClearLogsConfirm(false);
+      setLogs(await codexProviders.logs(logsProvider.id));
+    } catch (e) { setLogsError(e instanceof Error ? e.message : "清空请求日志失败"); }
+    finally { setLogsBusy(false); }
+  }
+  async function copyLog(log: ProviderRequestLog) {
+    const text = [`时间：${new Date(log.createdAt).toLocaleString()}`, `来源：${log.source}`, `请求参数：${log.clientRequestBody || "（未记录）"}`, `上游请求：${log.method} ${log.url}`, `上游参数：${log.requestBody || "（未发送上游请求）"}`, `状态 / 耗时：${log.status ?? "—"} · ${log.elapsedMs} ms`, `返回参数：${log.responseBody}`, ...(log.error ? [`错误：${log.error}`] : [])].join("\n\n");
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedLogId(log.id);
+      window.setTimeout(() => setCopiedLogId(current => current === log.id ? null : current), 1800);
+    } catch { setLogsError("复制日志失败，请检查剪贴板权限"); }
+  }
 
   return <div className="codex-providers" aria-busy={loading || busy || preferencesLoading}>
     <section className="codex-provider-list-panel" aria-labelledby="codex-provider-list-heading">
@@ -217,14 +259,19 @@ export function ModelProviders({ onChanged }: { onChanged?: () => void }) {
           <button disabled={busy} onClick={() => edit()}><Plus size={15} />添加供应商</button>
           <button disabled={busy || loading || items.filter(v => v.wireApi === "chat_completions").reduce((count, v) => count + v.keys.length, 0) < 2} onClick={() => { setError(""); setAggregateEditing(freshAggregate()); }}><Plus size={15} />添加聚合供应商</button>
           <button title="从第三方导入" aria-label="从第三方导入" disabled={busy} onClick={() => setImporting(true)}><Upload size={15} />从第三方导入</button>
+          <button disabled={busy || !items.length} onClick={() => setExporting(checkedProviders.length ? checkedProviders : [])}><Download size={15} />导出全部</button>
+          <button disabled={busy || !checkedProviders.length} onClick={() => setExporting(checkedProviders)}><CheckSquare size={15} />导出选中（{checkedProviders.length}）</button>
         </div>
       </div>
+      {exporting !== undefined && createPortal(<ConfirmDialog title="导出供应商配置" message={"导出文件包含所选供应商的明文 API Key，任何能读取该文件的人都可以直接使用这些密钥。请确认已了解风险，并妥善保管导出文件。"} confirmLabel="仍然导出" busy={busy} error={error} onResolve={yes => { if (yes) { setError(""); void exportProviders(exporting); } setExporting(undefined); }} />, document.body)}
       {error && !editing && !removing && <p role="alert" className="codex-card-error">{error}</p>}
+      {notice && !error && <p role="status" className="codex-card-error">{notice}</p>}
       {loading ? <p role="status">正在读取供应商...</p> : !visible.length ? <div className="codex-empty"><Server size={30} /><h2>{items.length ? "没有匹配的供应商" : "暂无模型供应商"}</h2><button onClick={() => edit()}><Plus size={15} />添加供应商</button></div> : <div className="codex-provider-list" aria-label="模型供应商">
         {visible.map(v => {
           const selected = selectedProviderId === v.id;
           return <article className={`codex-provider-row${selected ? " is-selected" : ""}${draggingProviderId && draggingProviderId !== v.id ? " is-drop-target" : ""}`} key={v.id} aria-label={"模型供应商 " + v.name} onDragOver={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }} onDrop={event => { event.preventDefault(); const source = event.dataTransfer.getData("text/plain") || draggingProviderId; if (source) reorderProvider(source, v.id); setDraggingProviderId(null); }} onDragEnd={() => setDraggingProviderId(null)}>
             <button type="button" className="codex-provider-reorder-handle" title="拖动排序，或使用上下方向键" aria-label={`排序 ${v.name}，按上下方向键调整位置`} disabled={busy} draggable={!busy} onKeyDown={event => { if (event.key === "ArrowUp" || event.key === "ArrowDown") { event.preventDefault(); moveProvider(v.id, event.key === "ArrowUp" ? -1 : 1); } }} onDragStart={event => { setDraggingProviderId(v.id); event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", v.id); }}><GripVertical size={17} /></button>
+            <input type="checkbox" aria-label={`选择导出 ${v.name}`} checked={checkedProviders.includes(v.id)} disabled={busy} onChange={event => setCheckedProviders(current => event.target.checked ? [...new Set([...current, v.id])] : current.filter(id => id !== v.id))} />
             <div className="codex-provider-row-info" role="button" tabIndex={0} aria-pressed={selected} onClick={() => setSelectedProviderId(v.id)} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedProviderId(v.id); } }}>
               <span className="codex-provider-avatar" aria-hidden="true">{v.name.trim().slice(0, 1).toLocaleUpperCase() || <Server size={17} />}</span>
               <span className="codex-provider-row-copy"><strong>{v.name}</strong><span>{v.wireApi === "responses" ? "Responses API" : "Chat Completions"} · {v.baseUrl} · {v.keys.length} 个密钥 · {v.models.length} 个模型</span></span>
@@ -232,6 +279,7 @@ export function ModelProviders({ onChanged }: { onChanged?: () => void }) {
             <div className="codex-provider-row-actions" role="group" aria-label={`${v.name} 操作`}>
               <button title="查询额度" aria-label={`查询额度 ${v.name}`} disabled={busy} onClick={() => setUsage(v)}><Gauge size={15} /></button>
               <button title="模型测试" aria-label={`模型测试 ${v.name}`} disabled={busy} onClick={() => setProbing(v)}><FlaskConical size={15} /></button>
+              <button title="请求日志" aria-label={`请求日志 ${v.name}`} disabled={busy} onClick={() => void openLogs(v)}><FileText size={15} /></button>
               <button title="启动预览" aria-label={`启动预览 ${v.name}`} disabled={busy} onClick={() => { setSelectedProviderId(v.id); setLaunching({ kind: "provider", value: v }); }}><Play size={15} /></button>
               <button title="编辑供应商" aria-label={`编辑 ${v.name}`} disabled={busy} onClick={() => { setSelectedProviderId(v.id); edit(v); }}><Pencil size={15} /></button>
               <button type="button" title="复制供应商" aria-label={`复制 ${v.name}`} disabled={busy} onClick={() => void run(() => codexProviders.duplicate(v.id, v.version))}><Copy size={15} /></button>
@@ -256,6 +304,8 @@ export function ModelProviders({ onChanged }: { onChanged?: () => void }) {
     {probing && <ProviderProbeDialog provider={probing} onClose={() => setProbing(null)} onSaved={updateProviderList} />}
     {usage && <ProviderUsageDialog provider={usage} onClose={() => setUsage(null)} />}
     {importing && <ProviderImportDialog onClose={() => setImporting(false)} onSaved={updateProviderList} />}
+    {logsProvider && <OverviewDialog title={`${logsProvider.name} · 请求日志`} layout="form" busy={logsBusy} onClose={() => setLogsProvider(null)} className="codex-provider-logs-dialog" headerActions={<button type="button" title="刷新请求日志" aria-label="刷新请求日志" disabled={logsBusy} onClick={() => void refreshLogs()}><RefreshCw size={15} className={logsBusy ? "codex-refresh-spinning" : ""} /></button>} footer={<><button disabled={logsBusy} onClick={() => setLogsProvider(null)}>关闭</button><button disabled={logsBusy || !logs.length} onClick={() => setClearLogsConfirm(true)}><Trash2 size={14} />清空日志</button></>}><div className="codex-provider-results">{logsError && <p role="alert" className="codex-card-error">{logsError}</p>}{logsBusy ? <p>正在读取请求日志…</p> : !logs.length ? <p>暂无请求日志</p> : <table><thead><tr><th>时间</th><th>来源</th><th>请求</th><th>状态 / 耗时</th><th>返回 / 错误</th><th>操作</th></tr></thead><tbody>{logs.map(log => <tr key={log.id}><td>{new Date(log.createdAt).toLocaleString()}</td><td>{log.source}</td><td><code>{log.method} {log.url}</code><pre><strong>Codex 上送参数</strong>{log.clientRequestBody || "（未记录）"}</pre><pre><strong>上游转换参数</strong>{log.requestBody || "（未发送上游请求）"}</pre></td><td>{log.status ?? "—"} · {log.elapsedMs} ms</td><td><pre>{log.responseBody}</pre>{log.error && <p role="alert">{log.error}</p>}</td><td><button type="button" className="codex-provider-log-copy" title="复制此条日志" aria-label={`复制 ${new Date(log.createdAt).toLocaleString()} 请求日志`} onClick={() => void copyLog(log)}><Copy size={14} />{copiedLogId === log.id ? "已复制" : "复制"}</button></td></tr>)}</tbody></table>}</div></OverviewDialog>}
+    {clearLogsConfirm && logsProvider && createPortal(<ConfirmDialog title="清空请求日志" message={`确定清空“${logsProvider.name}”的全部请求日志？此操作不可撤销。`} confirmLabel="清空日志" busy={logsBusy} error={logsError} onResolve={yes => yes ? void clearLogs() : setClearLogsConfirm(false)} />, document.querySelector<HTMLDialogElement>('dialog[aria-label$="请求日志"]') ?? document.body)}
     {removing && createPortal(<ConfirmDialog title="删除模型供应商" message={"删除“" + removing.name + "”及其保存的全部密钥？"} confirmLabel="删除" busy={busy} error={error} onResolve={yes => yes ? void run(() => codexProviders.remove(removing.id, removing.version), true) : setRemoving(null)} />, document.body)}
     {aggregateRemoving && createPortal(<ConfirmDialog title="删除聚合供应商" message={"删除“" + aggregateRemoving.name + "”的聚合配置？成员供应商及密钥不会删除。"} confirmLabel="删除" busy={busy} error={error} onResolve={yes => yes ? void runAggregate(() => codexProviders.aggregateRemove(aggregateRemoving.id, aggregateRemoving.version), true) : setAggregateRemoving(null)} />, document.body)}
   </div>;

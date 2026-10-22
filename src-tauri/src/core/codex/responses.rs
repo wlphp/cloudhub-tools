@@ -70,6 +70,8 @@ fn text_parts(value: &Value, role: &str) -> Result<Value, String> {
 
 pub fn normalize(bytes: &[u8]) -> Result<(Value, bool), String> {
     let mut body: Value = serde_json::from_slice(bytes).map_err(|_| INVALID)?;
+    // Codex 客户端附带的遥测/关联元数据不参与模型请求语义，不应转发给供应商。
+    if let Some(object) = body.as_object_mut() { object.remove("client_metadata"); }
     fields(&body, &["model", "input", "instructions", "stream", "store", "tools", "tool_choice",
         "parallel_tool_calls", "reasoning", "include", "max_output_tokens", "temperature", "top_p",
         "text", "prompt_cache_key", "service_tier", "metadata", "truncation"])?;
@@ -91,6 +93,10 @@ pub fn normalize(bytes: &[u8]) -> Result<(Value, bool), String> {
         let values = metadata.as_object().filter(|v| v.len() <= 16).ok_or(INVALID)?;
         if values.iter().any(|(key, value)| key.len() > 64 || value.as_str().is_none_or(|v| v.len() > 512)) { return Err(INVALID.into()); }
     }
+    if let Some(reasoning) = body.get_mut("reasoning").and_then(Value::as_object_mut) {
+        // Codex 客户端扩展字段，不属于上游 Responses reasoning 参数。
+        reasoning.remove("context");
+    }
     if let Some(reasoning) = body.get("reasoning") {
         fields(reasoning, &["effort", "summary"])?;
         if reasoning.get("effort").is_some_and(|v| !matches!(v.as_str(), Some("none" | "minimal" | "low" | "medium" | "high" | "xhigh")))
@@ -100,6 +106,8 @@ pub fn normalize(bytes: &[u8]) -> Result<(Value, bool), String> {
         let values = include.as_array().filter(|v| v.len() <= 8).ok_or(INVALID)?;
         if values.iter().any(|v| v.as_str() != Some("reasoning.encrypted_content")) { return Err("不支持所请求的附加输出".into()); }
     }
+    let text_is_string = body.get("text").is_some_and(Value::is_string);
+    if text_is_string { body.as_object_mut().ok_or(INVALID)?.remove("text"); }
     if let Some(text) = body.get("text") {
         fields(text, &["format", "verbosity"])?;
         if text.get("verbosity").is_some_and(|v| !matches!(v.as_str(), Some("low" | "medium" | "high"))) { return Err(INVALID.into()); }
@@ -145,6 +153,18 @@ pub fn normalize(bytes: &[u8]) -> Result<(Value, bool), String> {
     let mut outputs = HashSet::new();
     for mut row in rows {
         match row.get("type").and_then(Value::as_str) {
+            // Codex 客户端把首条用户消息直接写成顶层 input_text 条目，
+            // 官方 Responses 允许这种简写，部分上游只接受 message 形态。
+            Some("input_text") | Some("text") => {
+                fields(&row, &["type", "text"])?;
+                let text = string(&row, "text", 512 * 1024)?;
+                row = json!({"role":"user","content":[{"type":"input_text","text":text}]});
+            }
+            Some("output_text") | Some("refusal") => {
+                fields(&row, &["type", "text"])?;
+                let text = string(&row, "text", 512 * 1024)?;
+                row = json!({"role":"assistant","content":[{"type":"output_text","text":text}]});
+            }
             None | Some("message") => {
                 fields(&row, &["type", "id", "status", "role", "content"])?;
                 let role = string(&row, "role", 16)?;
@@ -176,7 +196,15 @@ pub fn normalize(bytes: &[u8]) -> Result<(Value, bool), String> {
                 }
                 row.as_object_mut().ok_or(INVALID)?.remove("status");
             }
-            _ => return Err("不支持此 Responses 输入类型".into()),
+            Some("additional_tools") => {
+                // Codex 扩展元数据，不是模型对话内容；仅在其为数组时忽略。
+                if !row.get("additional_tools").is_none_or(Value::is_array) {
+                    return Err("Responses additional_tools 格式无效".into());
+                }
+                continue;
+            }
+            Some(other) => return Err(format!("不支持此 Responses 输入类型：{}", other.chars().take(64).collect::<String>())),
+            None => return Err("Responses 输入项缺少类型".into()),
         }
         normalized.push(row);
     }
@@ -241,6 +269,45 @@ mod tests {
         }
     }
     fn normalize_value(value: Value) -> Result<(Value, bool), String> { normalize(value.to_string().as_bytes()) }
+    #[test]
+    fn codex_client_metadata_is_dropped_but_unknown_fields_are_rejected() {
+        let marker = "private-client-correlation-marker";
+        let (value, _) = normalize_value(json!({
+            "model":"gpt-test",
+            "input":"hello",
+            "client_metadata":{"session_id":marker,"installation_id":"private-install-marker"},
+            "reasoning":{"context":"all_turns","effort":"medium","summary":"detailed"},
+            "text":"plain text format"
+        })).unwrap();
+        assert!(value.get("client_metadata").is_none());
+        assert!(value.get("reasoning").unwrap().get("context").is_none());
+        assert!(value.get("text").is_none());
+        assert!(!value.to_string().contains(marker));
+        assert!(normalize_value(json!({"model":"gpt-test","input":"hello","unsupported_marker":true})).is_err());
+    }
+    #[test]
+    fn codex_additional_tools_metadata_is_ignored_but_not_forwarded() {
+        let (value, _) = normalize_value(json!({
+            "model":"gpt-test",
+            "input":[{"type":"additional_tools","additional_tools":[{"name":"local_search"}]}]
+        })).unwrap();
+        assert!(value["input"].as_array().unwrap().is_empty());
+        assert!(!value.to_string().contains("additional_tools"));
+        assert!(normalize_value(json!({"model":"gpt-test","input":[{"type":"additional_tools","additional_tools":"invalid"}]})).is_err());
+    }
+
+    #[test]
+    fn codex_style_top_level_input_text_becomes_a_user_message() {
+        // Codex 客户端首条消息使用顶层 input_text 条目，必须能规范成用户消息。
+        let (value, _) = normalize_value(json!({"model":"gpt-test","input":[{"type":"input_text","text":"hello"}]})).unwrap();
+        assert_eq!(value["input"][0]["role"],"user");
+        assert_eq!(value["input"][0]["content"][0]["type"],"input_text");
+        assert_eq!(value["input"][0]["content"][0]["text"],"hello");
+        let (value, _) = normalize_value(json!({"model":"gpt-test","input":[{"type":"text","text":"hello"}]})).unwrap();
+        assert_eq!(value["input"][0]["role"],"user");
+        // 不认识的顶层类型仍然拒绝。
+        assert!(normalize_value(json!({"model":"gpt-test","input":[{"type":"unknown","text":"hello"}]})).is_err());
+    }
     fn tool() -> Value { json!({"type":"function","name":"read_file","description":"Test only","parameters":{"type":"object","properties":{"path":{"type":"string"}}},"strict":false}) }
     #[test]
     fn claude_controls_and_tools_survive_and_subscription_body_is_adapted() {

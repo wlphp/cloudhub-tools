@@ -90,20 +90,159 @@ fn default_command(executable: &Path, home: &Path) -> Command {
     command
 }
 
-pub fn launch_default() -> Result<(), String> {
+/// The command line used to open the default client, without any credential.
+pub fn default_command_line(executable: &Path, home: &Path) -> String {
+    format!(
+        "\"{}\"（环境变量 CODEX_HOME={}）",
+        executable.display(),
+        home.display()
+    )
+}
+
+/// The desktop client keeps a single running instance: a second process only
+/// hands the request over and exits at once, so spawning alone never shows a
+/// window to the user. Bring the window that is already running back to front.
+#[cfg(windows)]
+fn focus_running_client(executable: &Path) -> Option<u32> {
+    use std::os::windows::ffi::OsStringExt;
+    use windows_sys::Win32::{
+        Foundation::{CloseHandle, HWND, LPARAM, RECT, TRUE},
+        System::Threading::{
+            AttachThreadInput, GetCurrentThreadId, OpenProcess, QueryFullProcessImageNameW,
+            PROCESS_QUERY_LIMITED_INFORMATION,
+        },
+        UI::WindowsAndMessaging::{
+            EnumWindows, GetForegroundWindow, GetWindowRect, GetWindowThreadProcessId, IsIconic,
+            IsWindowVisible, SetForegroundWindow, ShowWindow, SW_RESTORE,
+        },
+    };
+
+    struct Search {
+        executable: String,
+        window: HWND,
+        pid: u32,
+        area: i64,
+    }
+    unsafe extern "system" fn collect(window: HWND, data: LPARAM) -> i32 {
+        let search = unsafe { &mut *(data as *mut Search) };
+        let mut pid = 0u32;
+        unsafe { GetWindowThreadProcessId(window, &mut pid) };
+        if pid == 0 || unsafe { IsWindowVisible(window) } == 0 {
+            return TRUE;
+        }
+        if let Some(path) = process_image(pid) {
+            if !path.eq_ignore_ascii_case(&search.executable) {
+                return TRUE;
+            }
+            // The client may own several windows, so the main one is the
+            // largest visible window of the process.
+            let mut rect = RECT {
+                left: 0,
+                top: 0,
+                right: 0,
+                bottom: 0,
+            };
+            let area = if unsafe { GetWindowRect(window, &mut rect) } != 0 {
+                ((rect.right - rect.left).max(0) as i64) * ((rect.bottom - rect.top).max(0) as i64)
+            } else {
+                0
+            };
+            if search.window.is_null() || area > search.area {
+                search.window = window;
+                search.pid = pid;
+                search.area = area;
+            }
+        }
+        TRUE
+    }
+    /// The image path of a process, used to match the official client only.
+    fn process_image(pid: u32) -> Option<String> {
+        unsafe {
+            let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+            if handle.is_null() {
+                return None;
+            }
+            let mut buffer = [0u16; 1024];
+            let mut size = buffer.len() as u32;
+            let ok = QueryFullProcessImageNameW(handle, 0, buffer.as_mut_ptr(), &mut size);
+            CloseHandle(handle);
+            if ok == 0 {
+                return None;
+            }
+            Some(
+                std::ffi::OsString::from_wide(&buffer[..size as usize])
+                    .to_string_lossy()
+                    .into_owned(),
+            )
+        }
+    }
+
+    let mut search = Search {
+        executable: executable.to_string_lossy().into_owned(),
+        window: std::ptr::null_mut(),
+        pid: 0,
+        area: 0,
+    };
+    unsafe { EnumWindows(Some(collect), &mut search as *mut Search as LPARAM) };
+    if search.window.is_null() {
+        return None;
+    }
+    unsafe {
+        if IsIconic(search.window) != 0 {
+            ShowWindow(search.window, SW_RESTORE);
+        }
+        // A background process may not take the foreground on its own, so the
+        // input queues are attached for the duration of the request.
+        let foreground = GetForegroundWindow();
+        let current = GetCurrentThreadId();
+        let target = GetWindowThreadProcessId(search.window, std::ptr::null_mut());
+        let owner = GetWindowThreadProcessId(foreground, std::ptr::null_mut());
+        AttachThreadInput(current, owner, TRUE);
+        AttachThreadInput(current, target, TRUE);
+        SetForegroundWindow(search.window);
+        AttachThreadInput(current, target, 0);
+        AttachThreadInput(current, owner, 0);
+    }
+    Some(search.pid)
+}
+
+#[cfg(not(windows))]
+fn focus_running_client(_executable: &Path) -> Option<u32> {
+    None
+}
+
+pub fn launch_default() -> Result<String, String> {
     let executable = installed().ok_or("未检测到 Codex 桌面客户端，请先安装")?;
     let home = super::profile::default_home()?;
+    let command_line = default_command_line(&executable, &home);
     // The default client belongs to the user and must outlive this management app.
     // Do not place it in a managed-instance job or replace its auth/configuration.
+    if let Some(pid) = focus_running_client(&executable) {
+        let message = format!("已激活运行中的 Codex 窗口（进程 {pid}）：{command_line}");
+        eprintln!("[codex] {message}");
+        return Ok(message);
+    }
+    eprintln!("[codex] 执行启动命令：{command_line}");
     default_command(&executable, &home)
         .spawn()
         .map_err(|_| "打开默认 Codex 桌面客户端失败")?;
-    Ok(())
+    Ok(format!("已执行启动命令：{command_line}"))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "activates the official Codex desktop window of the current user"]
+    fn running_client_window_is_found_and_raised() {
+        let Some(executable) = installed() else {
+            panic!("official Codex desktop must be installed");
+        };
+        let pid = focus_running_client(&executable);
+        println!("focused window pid: {pid:?}");
+        assert!(pid.is_some(), "the running client window must be found");
+    }
     #[test]
     fn default_launch_does_not_inherit_an_isolated_window_or_api_credentials() {
         let home = std::env::temp_dir().join("fixture default home");

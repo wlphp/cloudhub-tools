@@ -3,7 +3,8 @@ use std::sync::Mutex;
 
 use super::paths::data_dir;
 
-const CURRENT_SCHEMA_VERSION: i64 = 53;
+const CURRENT_SCHEMA_VERSION: i64 = 55;
+pub const CODEX_PROVIDER_LOGS_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS codex_provider_request_logs(id TEXT PRIMARY KEY,provider_id TEXT NOT NULL,source TEXT NOT NULL,method TEXT NOT NULL,url TEXT NOT NULL,request_body TEXT NOT NULL,status INTEGER,response_body TEXT NOT NULL,error TEXT,elapsed_ms INTEGER NOT NULL,created_at INTEGER NOT NULL,client_request_body TEXT NOT NULL DEFAULT ''); CREATE INDEX IF NOT EXISTS codex_provider_request_logs_provider ON codex_provider_request_logs(provider_id,created_at DESC);";
 pub const CODEX_PROVIDERS_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS codex_model_providers(id TEXT PRIMARY KEY,name TEXT NOT NULL,base_url TEXT NOT NULL,wire_api TEXT NOT NULL,models_json TEXT NOT NULL,note TEXT NOT NULL,version INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS codex_provider_keys(id TEXT PRIMARY KEY,provider_id TEXT NOT NULL REFERENCES codex_model_providers(id) ON DELETE CASCADE,name TEXT NOT NULL,ciphertext TEXT NOT NULL,UNIQUE(provider_id,name));";
 pub const CODEX_PROVIDER_BACKUPS_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS codex_provider_config_backups(home TEXT PRIMARY KEY,content_ciphertext TEXT NOT NULL,installed_config TEXT NOT NULL,installed_auth TEXT NOT NULL);";
 pub const CODEX_PROVIDER_AGGREGATES_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS codex_provider_aggregates(id TEXT PRIMARY KEY,name TEXT NOT NULL,strategy TEXT NOT NULL,version INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS codex_provider_aggregate_members(aggregate_id TEXT NOT NULL,position INTEGER NOT NULL,provider_id TEXT NOT NULL,key_id TEXT NOT NULL,weight INTEGER NOT NULL,PRIMARY KEY(aggregate_id,position),UNIQUE(aggregate_id,provider_id,key_id));";
@@ -462,6 +463,14 @@ fn migrate_connection_inner(conn: &mut Connection) -> Result<(), String> {
     if version < 53 {
         transaction.execute_batch(CODEX_PROVIDER_AGGREGATES_SCHEMA).map_err(|_| "创建供应商聚合配置失败")?;
         transaction.pragma_update(None, "user_version", 53).map_err(|_| "保存供应商聚合版本失败")?;
+    }
+    if version < 54 {
+        transaction.execute_batch(CODEX_PROVIDER_LOGS_SCHEMA).map_err(|_| "创建供应商请求日志表失败")?;
+        transaction.pragma_update(None, "user_version", 54).map_err(|_| "保存供应商请求日志版本失败")?;
+    }
+    if version < 55 {
+        ensure_column("codex_provider_request_logs", "client_request_body", "TEXT NOT NULL DEFAULT ''")?;
+        transaction.pragma_update(None, "user_version", 55).map_err(|_| "保存供应商请求日志原始参数版本失败")?;
     }
     transaction.commit().map_err(|error| format!("提交 SQLite 迁移失败: {error}"))?;
 

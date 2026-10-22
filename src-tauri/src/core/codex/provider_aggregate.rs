@@ -409,6 +409,7 @@ mod tests {
         conn.execute_batch(crate::core::database::CODEX_PROVIDERS_SCHEMA).unwrap();
         conn.execute_batch("ALTER TABLE codex_model_providers ADD COLUMN settings_json TEXT NOT NULL DEFAULT '{}'; ALTER TABLE codex_provider_keys ADD COLUMN settings_json TEXT NOT NULL DEFAULT '{}';").unwrap();
         conn.execute_batch(crate::core::database::CODEX_PROVIDER_AGGREGATES_SCHEMA).unwrap();
+        conn.execute_batch(crate::core::database::CODEX_PROVIDER_LOGS_SCHEMA).unwrap();
         conn.execute_batch("CREATE TABLE codex_provider_bindings(home TEXT,provider_id TEXT); CREATE TABLE codex_provider_accounts(account_id INTEGER,provider_id TEXT,key_id TEXT); CREATE TABLE codex_profiles(account_id INTEGER); CREATE TABLE codex_accounts(id INTEGER);").unwrap();
         let ids = (0..2).map(|_| uuid::Uuid::new_v4().to_string()).collect::<Vec<_>>();
         let key_ids = (0..2).map(|_| uuid::Uuid::new_v4().to_string()).collect::<Vec<_>>();

@@ -5,7 +5,9 @@ import { codexProviders, effectiveModels, defaultModel, type CodexProvider, type
 
 type Row = { id: number; key: string; model: string; state: "queued" | "running" | "done" | "stopped"; result?: ProviderProbeResult; error?: string };
 type DiscoveredModel = { keyId: string; model: string };
-const errors = { network: "网络错误或超时", http: "请求被拒绝", invalid_response: "响应格式不匹配", response_too_large: "响应超过大小限制", output_limit: "已达到短测试生成上限，未验证完整回答" };
+const errors = { network: "网络错误或超时", http: "请求被拒绝", invalid_response: "响应格式不匹配", response_too_large: "响应超过大小限制", output_limit: "已达到短测试生成上限，未验证完整回答", unsupported_input: "该上游的 Responses 接口不接受 Codex 使用的输入格式" };
+// Codex 直连失败时，改用 Chat Completions 协议由本机网关转换。
+const incompatible = "该上游的 Responses 接口不支持 Codex 客户端发送的输入项，Codex 直连会报“输入类型不支持”。请把协议改为 Chat Completions，由本机网关转换为 Chat Completions 请求。";
 
 export function ProviderProbeDialog({ provider, onClose, onSaved }: { provider: CodexProvider; onClose: () => void; onSaved: (values: CodexProvider[]) => void }) {
   const [keys, setKeys] = useState([provider.keys[0]?.id ?? ""]);
@@ -79,6 +81,7 @@ export function ProviderProbeDialog({ provider, onClose, onSaved }: { provider: 
       <fieldset disabled={busy || saving}><legend>测试模型</legend><div className="codex-provider-options">{availableModels.map(v => <label key={v}><input type="checkbox" checked={models.includes(v)} onChange={() => setModels(toggle(models, v))} />{v}</label>)}</div></fieldset>
       <label className="codex-provider-consent"><input type="checkbox" disabled={busy || saving} checked={consent} onChange={e => setConsent(e.target.checked)} />我同意发送实际生成请求，可能消耗供应商额度</label>
       {error && <p role="alert" className="codex-card-error">{error}</p>}
+      {rows.some(row => row.result && row.result.codexInput === false) && <p role="status" className="codex-card-error">{incompatible}</p>}
       {!!rows.length && <div className="codex-provider-results" role="region" aria-label="模型测试结果"><table><thead><tr><th>密钥</th><th>模型</th><th>结果</th><th>耗时</th></tr></thead><tbody>{rows.map(row => <tr key={row.id}><td>{provider.keys.find(v => v.id === row.key)?.name}</td><td>{row.model || "模型目录"}</td><td>{row.state === "queued" ? "排队中" : row.state === "running" ? "请求中" : row.state === "stopped" ? "已停止" : row.error || (row.result?.error ? errors[row.result.error] + (row.result.status ? " (HTTP " + row.result.status + ")" : "") : row.result?.generated ? "生成成功" : "已获取 " + row.result?.models.length + " 个模型")}</td><td>{row.result ? row.result.elapsedMs + " ms" : "-"}</td></tr>)}</tbody></table></div>}
       {!!discovered.length && <fieldset disabled={busy || saving}><legend>发现的模型</legend><div className="codex-provider-options">{discovered.map(value => {
         const selection = `${value.keyId}\u0000${value.model}`;

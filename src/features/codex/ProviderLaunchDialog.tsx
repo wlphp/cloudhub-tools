@@ -83,7 +83,7 @@ export function ProviderLaunchDialog({ target: launchTarget, switchEnabled, onEn
       if (start) {
         setPhase("正在启动 Codex…");
         try { await launch(); }
-        catch { if (alive.current) setError("配置已应用，但启动失败；点击“启动 Codex”重试，或恢复配置与登录"); }
+        catch (e) { if (alive.current) setError(`配置已应用，但启动失败：${e instanceof Error ? e.message : "未知启动错误"}；可重试启动，或恢复配置与登录`); }
       }
     } catch (e) {
       if (alive.current) setError(`${restored && !restore ? "已先恢复原配置，应用新配置时失败；请刷新预览确认状态。" : ""}${e instanceof Error ? e.message : "操作失败"}`);
@@ -91,16 +91,33 @@ export function ProviderLaunchDialog({ target: launchTarget, switchEnabled, onEn
     finally { pending.current = false; if (alive.current) { setBusy(false); setPhase(""); } }
   }
   async function launch() {
-    if (target) await codexClient.startInstance(target);
-    else await codexClient.openDefault();
-    if (alive.current) setNotice("供应商配置已应用，已请求启动 Codex");
+    if (target) {
+      await codexClient.startInstance(target);
+      if (alive.current) setNotice("供应商配置已应用，已请求启动 Codex");
+      return;
+    }
+    const result = await codexClient.openDefault();
+    if (alive.current) setNotice(`供应商配置已应用。${result}`);
   }
   async function startApplied() {
     if (pending.current || loading || !configured) return;
     pending.current = true; setBusy(true); setError(""); setNotice(""); setPhase("正在启动 Codex…");
     try { await launch(); }
-    catch { if (alive.current) setError("启动失败，当前配置已保留，可重试启动或恢复配置与登录"); }
+    catch (e) { if (alive.current) setError(`启动失败，当前配置已保留：${e instanceof Error ? e.message : "未知启动错误"}；可重试启动或恢复配置与登录`); }
     finally { pending.current = false; if (alive.current) { setBusy(false); setPhase(""); } }
+  }
+  // 目标配置被外部改动时，普通恢复会拒绝覆盖；用户可显式选择强制恢复。
+  async function forceRestore() {
+    if (pending.current || loading) return;
+    pending.current = true; setBusy(true); setError(""); setNotice(""); setPhase("正在强制恢复原配置与登录…");
+    try {
+      const current = await codexProviders.restore(target || null, true);
+      if (!alive.current) return;
+      setPreview(current); setAppliedSelection(null);
+      setNotice("已强制恢复应用前的配置与登录，外部修改已被覆盖");
+    } catch (e) {
+      if (alive.current) setError(e instanceof Error ? e.message : "强制恢复失败");
+    } finally { pending.current = false; if (alive.current) { setBusy(false); setPhase(""); } }
   }
   const disabled = busy || loading || !preview;
   const applyLabel = configured ? "配置已应用" : !switchEnabled ? "启用并应用" : preview?.hasBackup ? "恢复并应用" : "应用配置";
@@ -125,7 +142,7 @@ export function ProviderLaunchDialog({ target: launchTarget, switchEnabled, onEn
       }}>{availableModels.map(value => {
         const candidates = provider ? keysForModel(provider, value) : [];
         return <option key={value} value={value}>{value}{candidates.length ? ` · ${candidates.map(key => key.name).join("、")}` : ""}</option>;
-      })}</select>{provider && <small role="status">匹配：{modelKeys.map(key => key.name).join("、") || "无"} · 使用：{matchedKey?.name ?? "无"}</small>}</label>
+      })}</select>{provider && !availableModels.length && <small role="status">该供应商没有模型目录，请先在供应商编辑中补充配置模型或密钥模型目录后再应用。</small>}{provider && <small role="status">匹配：{modelKeys.map(key => key.name).join("、") || "无"} · 使用：{matchedKey?.name ?? "无"}</small>}</label>
       {provider && <label>OAuth 登录身份<select disabled={busy} value={oauthId} onChange={e => setOauthId(e.target.value)}><option value="">不绑定 · 纯 API 模式</option>{accounts.map(v => <option key={v.id} value={v.id}>{v.label}</option>)}</select></label>}
       </section>
       <section className="codex-provider-launch-summary" aria-label="配置摘要">
@@ -145,7 +162,7 @@ export function ProviderLaunchDialog({ target: launchTarget, switchEnabled, onEn
         {provider && oauthId && <p>OAuth 账号由目标实例独占，登录续期由官方客户端处理；推理使用供应商凭据。</p>}
         {(aggregate || provider?.wireApi !== "responses") && <p>通过本机网关转换 Responses 协议，使用期间请保持 CloudHub 运行。</p>}
       </div></div>
-      {phase && <p role="status">{phase}</p>}{notice && <p role="status">{notice}</p>}{error && <div className="codex-provider-launch-error"><p role="alert" className="codex-card-error">{error}</p><button type="button" disabled={busy || loading} onClick={() => { setPreview(null); setLoading(true); setAppliedSelection(null); setPreviewRevision(value => value + 1); }}>刷新预览</button></div>}
+      {phase && <p role="status">{phase}</p>}{notice && <p role="status">{notice}</p>}{error && <div className="codex-provider-launch-error"><p role="alert" className="codex-card-error">{error}</p>{error.includes("外部修改") && <button type="button" disabled={busy || loading} onClick={() => void forceRestore()}>强制恢复</button>}<button type="button" disabled={busy || loading} onClick={() => { setPreview(null); setLoading(true); setAppliedSelection(null); setPreviewRevision(value => value + 1); }}>刷新预览</button></div>}
     </div>
   </OverviewDialog>;
 }

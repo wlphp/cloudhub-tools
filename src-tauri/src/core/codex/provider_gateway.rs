@@ -1,14 +1,17 @@
 //! Loopback-only, per-profile Responses bridge with independent client credentials.
-use super::{gateway::{read_request, SseDecoder}, provider_aggregate::{self, Member, Selector, Strategy}, provider_probe, provider_protocol::{self, ChatStream}};
+use super::{gateway::{read_request, SseDecoder}, provider_aggregate::{self, Member, Selector, Strategy}, provider_logs, provider_probe, provider_protocol::{self, ChatStream}};
 use serde_json::{json, Value};
-use std::{sync::Arc, time::Duration};
+use std::{sync::Arc, time::{Duration,Instant}};
 use tokio::{io::{AsyncReadExt,AsyncWriteExt}, net::{TcpListener,TcpStream}, sync::Semaphore, task::{JoinHandle,JoinSet}};
 use zeroize::Zeroizing;
 
 pub struct ProviderGateway { task:JoinHandle<()>, pub port:u16 }
 impl Drop for ProviderGateway {fn drop(&mut self){self.task.abort();}}
-struct Upstream { base:String, credential:Zeroizing<String> }
+struct Upstream { base:String, credential:Zeroizing<String>, provider_id:Option<String> }
 struct Route {host:String,upstreams:Vec<Upstream>,local:Zeroizing<String>,models:Vec<String>,selector:Selector,client:reqwest::Client}
+
+/// 网关的单个上游成员。provider_id 用于把请求写入对应供应商的请求日志。
+pub struct GatewayMember {pub key_id:String,pub provider_id:Option<String>,pub base:String,pub credential:Zeroizing<String>,pub models:Vec<String>,pub weight:u32}
 
 async fn wait_for_client_disconnect(stream:&mut TcpStream) {
     let mut discarded=[0u8;1024];
@@ -35,17 +38,36 @@ async fn serve(stream:&mut TcpStream,route:&Route)->Result<(),String> {
     if request.path=="/v1/models" {return reply(stream,200,&json!({"object":"list","data":route.models.iter().map(|id|json!({"id":id,"object":"model","owned_by":"provider"})).collect::<Vec<_>>()})).await;}
     if request.path!="/v1/responses" {return reply(stream,404,&json!({"error":{"message":"此端点仅支持 Responses 客户端"}})).await;}
     let (body,streaming)=match provider_protocol::request(&request.body,&route.models) {
-        Ok(v)=>v,Err(_)=>return reply(stream,400,&json!({"error":{"message":"请求包含不受支持的模型、内容或字段","type":"invalid_request_error"}})).await,
+        Ok(v)=>v,
+        Err(error)=>{
+            // Keep the client-facing response generic, but record the authored
+            // validation reason and redacted request shape for local diagnosis.
+            if let Some(upstream)=route.upstreams.first() {
+                let upstream_url=provider_probe::endpoint(&upstream.base,"chat/completions").map(|url|url.to_string()).unwrap_or_else(|_|"[上游地址无效]".into());
+                let exchange=provider_logs::Exchange {
+                    method:"POST".into(),url:upstream_url,
+                    client_request_body:String::from_utf8_lossy(request.body.as_slice()).into_owned(),
+                    status:Some(400),
+                    response_body:json!({"error":{"message":"请求包含不受支持的模型、内容或字段","type":"invalid_request_error"}}).to_string(),
+                    error:Some(format!("未发送上游请求；本地校验失败：{error}")),..Default::default()
+                };
+                log_exchange(&upstream.provider_id,&upstream.credential,&exchange);
+            }
+            return reply(stream,400,&json!({"error":{"message":"请求包含不受支持的模型、内容或字段","type":"invalid_request_error"}})).await;
+        },
     };
     let model=body["model"].as_str().ok_or("模型无效")?;
     let candidates=match route.selector.plan(model) {
         Ok(v)=>v,Err(_)=>return reply(stream,400,&json!({"error":{"message":"模型不在聚合成员目录中","type":"invalid_request_error"}})).await,
     };
     let mut response=None;
+    let mut pending:Option<(Option<String>,Zeroizing<String>,provider_logs::Exchange)>=None;
     for (position,index) in candidates.iter().enumerate() {
         let upstream=&route.upstreams[*index];
-        let request=route.client.post(provider_probe::endpoint(&upstream.base,"chat/completions")?)
-            .bearer_auth(upstream.credential.as_str()).json(&body).send();
+        let url=provider_probe::endpoint(&upstream.base,"chat/completions")?;
+        let started=Instant::now();
+        let mut exchange=provider_logs::Exchange{method:"POST".into(),url:url.to_string(),request_body:body.to_string(),client_request_body:String::from_utf8_lossy(request.body.as_slice()).into_owned(),..Default::default()};
+        let request=route.client.post(url).bearer_auth(upstream.credential.as_str()).json(&body).send();
         tokio::pin!(request);
         let result=tokio::select! {
             biased;
@@ -54,37 +76,73 @@ async fn serve(stream:&mut TcpStream,route:&Route)->Result<(),String> {
         };
         let current=match result {
             Ok(v)=>v,
-            Err(_)=>return reply(stream,502,&json!({"error":{"message":"供应商网络请求失败或超时；未重放请求","type":"provider_error"}})).await,
+            Err(_)=>{
+                exchange.error=Some("供应商网络请求失败或超时".into());
+                exchange.elapsed_ms=started.elapsed().as_millis() as u64;
+                log_exchange(&upstream.provider_id,&upstream.credential,&exchange);
+                return reply(stream,502,&json!({"error":{"message":"供应商网络请求失败或超时；未重放请求","type":"provider_error"}})).await;
+            }
         };
+        exchange.status=Some(current.status().as_u16());
         if provider_aggregate::safe_to_retry(current.status().as_u16(),false) && position+1<candidates.len() {
+            exchange.response_body=provider_probe::bounded_text(current).await.unwrap_or_default();
+            exchange.error=Some("上游限流，已切换到下一个成员".into());
+            exchange.elapsed_ms=started.elapsed().as_millis() as u64;
+            log_exchange(&upstream.provider_id,&upstream.credential,&exchange);
             route.selector.record_rate_limit(model,*index)?;
             continue;
         }
         if !current.status().is_success() {
-            let status=if current.status().as_u16()==429 {429} else {502};
+            exchange.response_body=provider_probe::bounded_text(current).await.unwrap_or_default();
+            exchange.error=Some("供应商拒绝请求".into());
+            exchange.elapsed_ms=started.elapsed().as_millis() as u64;
+            log_exchange(&upstream.provider_id,&upstream.credential,&exchange);
+            let status=if exchange.status==Some(429) {429} else {502};
             let message=if status==429 {"聚合成员均明确返回限流，未重放其他错误"} else {"供应商拒绝请求；未重放请求"};
             return reply(stream,status,&json!({"error":{"message":message,"type":"provider_error"}})).await;
         }
+        exchange.elapsed_ms=started.elapsed().as_millis() as u64;
+        pending=Some((upstream.provider_id.clone(),upstream.credential.clone(),exchange));
         route.selector.record_success(model,*index)?;
         response=Some(current);
         break;
     }
     let mut response=response.ok_or("没有可用的聚合成员")?;
+    let (provider_id,credential,mut exchange)=pending.ok_or("没有可用的聚合成员")?;
     if !streaming {
-        let value=tokio::select! {
+        let text=tokio::select! {
             biased;
             _=wait_for_client_disconnect(stream)=>return Ok(()),
-            value=provider_probe::bounded_json(response)=>value,
+            value=provider_probe::bounded_text(response)=>value,
         };
-        let response=value.map_err(str::to_owned).and_then(|value|ChatStream::from_completion(&value,model));
-        return match response {Ok(response)=>reply(stream,200,&response).await,Err(_)=>reply(stream,502,&json!({"error":{"message":"供应商响应无法转换为 Responses","type":"provider_error"}})).await};
+        let converted=match text {
+            Ok(text)=>{
+                exchange.response_body=text.clone();
+                serde_json::from_str::<Value>(&text).ok().and_then(|value|ChatStream::from_completion(&value,model).ok())
+            }
+            Err(error)=>{
+                exchange.error=Some(error.to_owned());
+                None
+            }
+        };
+        return match converted {
+            Some(response)=>{log_exchange(&provider_id,&credential,&exchange);reply(stream,200,&response).await}
+            None=>{
+                exchange.error.get_or_insert_with(||"供应商响应无法转换为 Responses".into());
+                log_exchange(&provider_id,&credential,&exchange);
+                reply(stream,502,&json!({"error":{"message":"供应商响应无法转换为 Responses","type":"provider_error"}})).await
+            }
+        };
     }
     if response.headers().get(reqwest::header::CONTENT_TYPE).and_then(|v|v.to_str().ok()).is_none_or(|v|!v.starts_with("text/event-stream")) {
+        exchange.error=Some("供应商没有返回流式响应".into());
+        log_exchange(&provider_id,&credential,&exchange);
         return reply(stream,502,&json!({"error":{"message":"供应商没有返回流式响应"}})).await;
     }
     stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n").await.map_err(|_| "客户端已断开")?;
     let mut decoder=SseDecoder::default();let mut adapter=ChatStream::new(model);
     for value in adapter.start(){event(stream,&value).await?;}
+    let mut raw=String::new();
     let result=async {
         loop {
             let chunk=tokio::select! {
@@ -93,6 +151,7 @@ async fn serve(stream:&mut TcpStream,route:&Route)->Result<(),String> {
                 chunk=response.chunk()=>chunk.map_err(|_| "供应商流已中断")?,
             };
             let Some(chunk)=chunk else { break };
+            if raw.len()<64*1024 {raw.push_str(&String::from_utf8_lossy(&chunk));}
             for value in decoder.feed(&chunk)? {
                 for mapped in adapter.feed(&value)? {event(stream,&mapped).await?;}
             }
@@ -101,26 +160,39 @@ async fn serve(stream:&mut TcpStream,route:&Route)->Result<(),String> {
         for value in adapter.finish()? {event(stream,&value).await?;}
         Ok::<_,String>(())
     }.await;
-    if result.is_err(){event(stream,&json!({"type":"response.failed","response":{"id":adapter.response("failed")["id"],"object":"response","status":"failed","error":{"code":"provider_stream_failed","message":"供应商流未正常完成；未重放请求"}}})).await?;}
+    exchange.response_body=raw;
+    if result.is_err(){
+        exchange.error=Some("供应商流未正常完成".into());
+        event(stream,&json!({"type":"response.failed","response":{"id":adapter.response("failed")["id"],"object":"response","status":"failed","error":{"code":"provider_stream_failed","message":"供应商流未正常完成；未重放请求"}}})).await?;
+    }
+    log_exchange(&provider_id,&credential,&exchange);
     Ok(())
 }
 
+/// 把上游请求写入对应供应商的请求日志。未关联供应商时不记录。
+fn log_exchange(provider_id:&Option<String>,credential:&Zeroizing<String>,exchange:&provider_logs::Exchange) {
+    let Some(provider_id)=provider_id.clone() else{return;};
+    provider_logs::record_async(provider_id,"gateway",exchange.clone(),Some(credential.to_string()));
+}
+
 impl ProviderGateway {
-    pub async fn start(port:u16,base:String,upstream:Zeroizing<String>,local:Zeroizing<String>,models:Vec<String>)->Result<Self,String> {
-        Self::start_aggregate(port,vec![(uuid::Uuid::new_v4().to_string(),base,upstream,models,1)],local,Strategy::Failover).await
+    /// 启动单供应商网关。provider_id 关联到请求日志，未关联时不写入日志。
+    pub async fn start(port:u16,provider_id:Option<String>,base:String,upstream:Zeroizing<String>,local:Zeroizing<String>,models:Vec<String>)->Result<Self,String> {
+        Self::start_aggregate(port,vec![GatewayMember{key_id:uuid::Uuid::new_v4().to_string(),provider_id,base,credential:upstream,models,weight:1}],local,Strategy::Failover).await
     }
 
-    pub async fn start_aggregate(port:u16,members:Vec<(String,String,Zeroizing<String>,Vec<String>,u32)>,local:Zeroizing<String>,strategy:Strategy)->Result<Self,String> {
+    pub async fn start_aggregate(port:u16,members:Vec<GatewayMember>,local:Zeroizing<String>,strategy:Strategy)->Result<Self,String> {
         if members.is_empty() || members.len()>50 || local.len()<24{return Err("供应商网关配置无效".into());}
         let mut models=Vec::new();
         let mut upstreams=Vec::new();
         let mut selectors=Vec::new();
-        for (key_id,base,credential,catalog,weight) in members {
+        for member in members {
+            let GatewayMember{key_id,provider_id,base,credential,models:catalog,weight}=member;
             provider_probe::endpoint(&base,"chat/completions")?;
             if catalog.is_empty() || catalog.len()>200 || catalog.iter().any(|v|!provider_probe::model_valid(v)){return Err("聚合供应商模型目录无效".into());}
             for model in &catalog {if !models.contains(model){models.push(model.clone());}}
             selectors.push(Member{key_id,models:catalog,weight});
-            upstreams.push(Upstream{base,credential});
+            upstreams.push(Upstream{base,credential,provider_id});
         }
         if models.is_empty() || models.len()>200{return Err("聚合供应商模型数量无效".into());}
         let selector=Selector::new(strategy,selectors)?;
@@ -180,8 +252,8 @@ mod tests {
 
     async fn aggregate_bridge(first:SocketAddr,second:SocketAddr,local:String)->ProviderGateway {
         ProviderGateway::start_aggregate(0,vec![
-            ("key-a".into(),format!("http://{first}/v1"),Zeroizing::new("upstream-a".into()),vec!["model-a".into()],1),
-            ("key-b".into(),format!("http://{second}/v1"),Zeroizing::new("upstream-b".into()),vec!["model-a".into()],1),
+            GatewayMember{key_id:"key-a".into(),provider_id:None,base:format!("http://{first}/v1"),credential:Zeroizing::new("upstream-a".into()),models:vec!["model-a".into()],weight:1},
+            GatewayMember{key_id:"key-b".into(),provider_id:None,base:format!("http://{second}/v1"),credential:Zeroizing::new("upstream-b".into()),models:vec!["model-a".into()],weight:1},
         ],Zeroizing::new(local),Strategy::Failover).await.unwrap()
     }
 
@@ -196,11 +268,33 @@ mod tests {
             let body=json!({"choices":[{"message":{"role":"assistant","content":"OK"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":1}}).to_string();
             socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",body.len(),body).as_bytes()).await.unwrap();
         });
-        let bridge=ProviderGateway::start(0,format!("http://{address}/v1"),Zeroizing::new(upstream_key),Zeroizing::new(local.clone()),vec!["model-a".into()]).await.unwrap();
+        let bridge=ProviderGateway::start(0,None,format!("http://{address}/v1"),Zeroizing::new(upstream_key),Zeroizing::new(local.clone()),vec!["model-a".into()]).await.unwrap();
         let client=provider_probe::client().unwrap();let url=format!("http://127.0.0.1:{}/v1/responses",bridge.port);
         let denied=client.post(&url).bearer_auth("incorrect").json(&json!({"model":"model-a","input":"hello"})).send().await.unwrap();assert_eq!(denied.status(),401);
         let result:Value=client.post(&url).bearer_auth(local).json(&json!({"model":"model-a","input":"hello","stream":false,"store":false})).send().await.unwrap().json().await.unwrap();
         assert_eq!(result["status"],"completed");assert_eq!(result["output"][0]["content"][0]["text"],"OK");server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn bridge_accepts_codex_style_top_level_input_text() {
+        // Codex 客户端首条消息是顶层 input_text 条目，中转必须能转换后发给上游。
+        let upstream=TcpListener::bind("127.0.0.1:0").await.unwrap();let address=upstream.local_addr().unwrap();
+        let server=tokio::spawn(async move {
+            let (mut socket,_)=upstream.accept().await.unwrap();
+            let mut bytes=vec![0;16384];let count=socket.read(&mut bytes).await.unwrap();
+            let request=String::from_utf8_lossy(&bytes[..count]);
+            assert!(request.contains("\"messages\""));
+            assert!(!request.contains("input_text"));
+            let body=json!({"choices":[{"message":{"role":"assistant","content":"OK"},"finish_reason":"stop"}]}).to_string();
+            socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",body.len(),body).as_bytes()).await.unwrap();
+        });
+        let local=uuid::Uuid::new_v4().to_string();
+        let bridge=ProviderGateway::start(0,None,format!("http://{address}/v1"),Zeroizing::new(uuid::Uuid::new_v4().to_string()),Zeroizing::new(local.clone()),vec!["model-a".into()]).await.unwrap();
+        let client=provider_probe::client().unwrap();
+        let result:Value=client.post(format!("http://127.0.0.1:{}/v1/responses",bridge.port)).bearer_auth(local)
+            .json(&json!({"model":"model-a","input":[{"type":"input_text","text":"hello"}],"stream":false,"store":false})).send().await.unwrap().json().await.unwrap();
+        assert_eq!(result["status"],"completed");assert_eq!(result["output"][0]["content"][0]["text"],"OK");
+        server.await.unwrap();
     }
 
     #[tokio::test]
@@ -213,7 +307,7 @@ mod tests {
             let address=upstream.local_addr().unwrap();
             let server=tokio::spawn(mock_response(upstream,200,body));
             let local=uuid::Uuid::new_v4().to_string();
-            let bridge=ProviderGateway::start(0,format!("http://{address}/v1"),Zeroizing::new(uuid::Uuid::new_v4().to_string()),Zeroizing::new(local.clone()),vec!["model-a".into()]).await.unwrap();
+            let bridge=ProviderGateway::start(0,None,format!("http://{address}/v1"),Zeroizing::new(uuid::Uuid::new_v4().to_string()),Zeroizing::new(local.clone()),vec!["model-a".into()]).await.unwrap();
             let response=provider_probe::client().unwrap().post(format!("http://127.0.0.1:{}/v1/responses",bridge.port)).bearer_auth(local)
                 .json(&json!({"model":"model-a","input":"hello","stream":false,"store":false})).send().await.unwrap();
             assert_eq!(response.status().as_u16(),status);
@@ -244,7 +338,7 @@ mod tests {
                 }
             }
         });
-        let bridge=ProviderGateway::start(0,format!("http://{address}/v1"),Zeroizing::new(uuid::Uuid::new_v4().to_string()),Zeroizing::new(local.clone()),vec!["model-a".into()]).await.unwrap();
+        let bridge=ProviderGateway::start(0,None,format!("http://{address}/v1"),Zeroizing::new(uuid::Uuid::new_v4().to_string()),Zeroizing::new(local.clone()),vec!["model-a".into()]).await.unwrap();
         let url=format!("http://127.0.0.1:{}/v1/responses",bridge.port);
         let client=provider_probe::client().unwrap();
         let first=client.post(&url).bearer_auth(&local).json(&json!({"model":"model-a","input":"hello","stream":true,"store":false})).send().await.unwrap().text().await.unwrap();
@@ -279,8 +373,8 @@ mod tests {
             }
             let local=uuid::Uuid::new_v4().to_string();
             let bridge=ProviderGateway::start_aggregate(0,vec![
-                ("key-a".into(),format!("http://{first_address}/v1"),Zeroizing::new("upstream-a".into()),vec!["shared".into(),"only-a".into()],2),
-                ("key-b".into(),format!("http://{second_address}/v1"),Zeroizing::new("upstream-b".into()),vec!["shared".into()],1),
+                GatewayMember{key_id:"key-a".into(),provider_id:None,base:format!("http://{first_address}/v1"),credential:Zeroizing::new("upstream-a".into()),models:vec!["shared".into(),"only-a".into()],weight:2},
+                GatewayMember{key_id:"key-b".into(),provider_id:None,base:format!("http://{second_address}/v1"),credential:Zeroizing::new("upstream-b".into()),models:vec!["shared".into()],weight:1},
             ],Zeroizing::new(local.clone()),strategy).await.unwrap();
             let client=provider_probe::client().unwrap();
             let mut selected=Vec::new();
@@ -367,7 +461,7 @@ mod tests {
             tokio::time::timeout(Duration::from_secs(2),socket.read(&mut byte)).await.unwrap().unwrap()==0
         });
         let local=uuid::Uuid::new_v4().to_string();
-        let bridge=ProviderGateway::start(0,format!("http://{upstream_address}/v1"),Zeroizing::new("upstream-key".into()),Zeroizing::new(local.clone()),vec!["model-a".into()]).await.unwrap();
+        let bridge=ProviderGateway::start(0,None,format!("http://{upstream_address}/v1"),Zeroizing::new("upstream-key".into()),Zeroizing::new(local.clone()),vec!["model-a".into()]).await.unwrap();
         let mut client=TcpStream::connect(("127.0.0.1",bridge.port)).await.unwrap();
         let body=json!({"model":"model-a","input":"hello","store":false}).to_string();
         client.write_all(format!("POST /v1/responses HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nAuthorization: Bearer {local}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",bridge.port,body.len()).as_bytes()).await.unwrap();

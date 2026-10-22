@@ -58,7 +58,7 @@ export const codexClient = {
   gatewayLogDetail(id: string): Promise<CodexCallDetail> { return nativeOnly("codex_gateway_log_detail", { id }); },
   gatewayLogs(): Promise<CodexCallLog[]> { return nativeOnly("codex_gateway_logs"); },
   clearGatewayLogs(): Promise<void> { return nativeOnly("codex_gateway_clear_logs"); },
-  openDefault(): Promise<void> { return nativeOnly("codex_open_default"); },
+  openDefault(): Promise<string> { return nativeOnly("codex_open_default"); },
   gatewayModels(): Promise<string[]> { return nativeOnly("codex_gateway_models"); },
   gatewayState(): Promise<CodexGatewayState> { return nativeOnly("codex_gateway_state"); },
   startGateway(port: number, accountIds: number[], serviceKey: string | null = null): Promise<CodexGatewayState> { return nativeOnly("codex_gateway_start", { port, accountIds, serviceKey }); },
