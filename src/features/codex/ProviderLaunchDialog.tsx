@@ -153,9 +153,10 @@ export function ProviderLaunchDialog({ target: launchTarget, switchEnabled, onEn
           <div><dt>配置目录</dt><dd><code>{preview?.path ?? (loading ? "正在读取…" : "不可用")}</code></dd></div>
         </dl>
       </section>
-      {(!switchEnabled || preview?.hasBackup) && <div className="codex-provider-launch-warning" role="status"><CircleAlert size={16} aria-hidden="true" /><div>
+      {(!switchEnabled || preview?.hasBackup || preview?.catalogStale) && <div className="codex-provider-launch-warning" role="status"><CircleAlert size={16} aria-hidden="true" /><div>
         {!switchEnabled && <p>配置切换已关闭。“启用并应用”会启用此设置并写入配置；“启用并启动”还会启动 Codex。</p>}
         {preview?.hasBackup && <p>{configured ? "当前选择已应用，可直接启动 Codex，或恢复应用前的配置与登录。" : "目标已有供应商备份。应用时将先恢复原配置，再备份并应用当前选择。"}</p>}
+        {preview?.catalogStale && <p>模型目录由旧版本生成或已被外部修改，客户端可能拒绝加载。重新应用配置即可按当前字段重建。</p>}
       </div></div>}
       <div className="codex-provider-launch-note"><ShieldCheck size={16} aria-hidden="true" /><div>
         <p>应用后更新 config.toml 与 auth.json，原配置和登录凭据会在本机加密备份，支持恢复。</p>

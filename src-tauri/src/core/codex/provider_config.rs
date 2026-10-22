@@ -21,7 +21,7 @@ struct Snapshot {
 impl Drop for Snapshot {fn drop(&mut self){self.config.zeroize();self.auth.zeroize();}}
 #[derive(Serialize)]
 #[serde(rename_all="camelCase")]
-pub struct ConfigPreview { pub version: String, pub path: String, pub has_backup: bool }
+pub struct ConfigPreview { pub version: String, pub path: String, pub has_backup: bool, pub catalog_stale: bool }
 
 fn read_optional(home:&Path,name:&str)->Result<Option<Zeroizing<String>>,String> {
     match fs::symlink_metadata(home.join(name)) {
@@ -44,7 +44,7 @@ fn fingerprints(home:&Path)->Result<(String,String),String> {
 pub fn preview(conn:&Connection,home:&Path)->Result<ConfigPreview,String> {
     let (config,auth)=fingerprints(home)?;
     let has_backup=conn.query_row("SELECT EXISTS(SELECT 1 FROM codex_provider_config_backups WHERE home=?1)",[home.to_string_lossy().as_ref()],|r|r.get(0)).map_err(|_| "读取供应商备份失败")?;
-    Ok(ConfigPreview{version:format!("{config}:{auth}"),path:home.to_string_lossy().into_owned(),has_backup})
+    Ok(ConfigPreview{version:format!("{config}:{auth}"),path:home.to_string_lossy().into_owned(),has_backup,catalog_stale:super::model_catalog::needs_rebuild(&home.join(CATALOG_FILE))})
 }
 
 /// 供应商模型目录文件。客户端的模型选择器只展示该文件中的模型，因此应用
@@ -64,42 +64,22 @@ fn catalog_template(home:&Path)->Option<serde_json::Value> {
 }
 
 /// 生成供应商模型目录，条目与供应商的模型一致。
-pub fn build_catalog(settings:&super::providers::ModelSettings,template:Option<serde_json::Value>)->serde_json::Value {
-    let fallback=json!({
-        "apply_patch_tool_type":"freeform",
-        "auto_compact_token_limit":160000,
-        "context_window":200000,
-        "default_reasoning_level":"medium",
-        "default_reasoning_summary":"none",
-        "default_verbosity":"low",
-        "description":"",
-        "display_name":"",
-        "input_modalities":["text","image"],
-        "max_context_window":200000,
-        "prefer_websockets":true,
-        "shell_type":"shell_command",
-        "slug":"",
-        "supported_in_api":true,
-        "supported_reasoning_levels":[{"description":"Fast responses with lighter reasoning","effort":"low"},{"description":"Balances speed and cost","effort":"medium"},{"description":"Deepest reasoning","effort":"high"}],
-        "supports_parallel_tool_calls":true,
-        "supports_reasoning_summaries":true,
-        "supports_reasoning_summary_parameter":true,
-        "supports_search_tool":true,
-        "support_verbosity":true,
-        "tool_mode":"code_mode_only",
-        "visibility":"list"
-    });
+pub fn build_catalog(settings:&super::providers::ModelSettings,overlay:Option<serde_json::Value>)->serde_json::Value {
     let context=settings.context_window.unwrap_or(200_000).max(4_096);
     let compact=settings.compact_limit.unwrap_or_else(||context.saturating_mul(4)/5);
     let models=settings.models.iter().enumerate().map(|(index,id)|{
-        let mut entry=template.clone().unwrap_or_else(||fallback.clone());
+        let (mut entry,official)=super::model_catalog::template(id);
+        if let Some(overlay)=overlay.as_ref() {
+            entry=super::model_catalog::merge_defaults(&entry,overlay);
+        }
+        if !official {super::model_catalog::strip_official_capabilities(&mut entry)}
         entry["slug"]=json!(id);
         entry["display_name"]=json!(id);
         entry["description"]=json!(id);
         entry["context_window"]=json!(context);
         entry["max_context_window"]=json!(context);
         entry["auto_compact_token_limit"]=json!(compact);
-        entry["priority"]=json!(index as i64);
+        entry["priority"]=json!(1000+index as i64);
         entry
     }).collect::<Vec<_>>();
     json!({"models":models})
@@ -108,8 +88,12 @@ pub fn build_catalog(settings:&super::providers::ModelSettings,template:Option<s
 /// 写入供应商模型目录并让配置指向它。
 pub fn install_catalog(home:&Path,settings:&super::providers::ModelSettings)->Result<(),String> {
     let catalog=build_catalog(settings,catalog_template(home));
+    super::model_catalog::validate(&catalog)?;
     let text=serde_json::to_string(&catalog).map_err(|_| "生成供应商模型目录失败")?;
-    profile::write_private(&home.join(CATALOG_FILE),&text)
+    let path=home.join(CATALOG_FILE);
+    profile::write_private(&path,&text)?;
+    super::model_catalog::write_meta(&path,&text);
+    Ok(())
 }
 
 /// 恢复原配置时移除本应用写入的模型目录。
@@ -120,6 +104,7 @@ pub fn remove_catalog(home:&Path) {
             let _=fs::remove_file(&path);
         }
     }
+    let _=fs::remove_file(home.join("cloudhub-model-catalog.meta.json"));
 }
 
 /// 记录安装前模型目录的归属。文件不存在、无法读取或不是普通文件时都不会被删除。
@@ -141,7 +126,12 @@ fn restore_catalog(home:&Path,catalog:Option<&CatalogBackup>)->Result<(),String>
     match catalog {
         None=>Ok(()),
         Some(catalog) if catalog.exists=>match catalog.content.as_deref() {
-            Some(text)=>profile::write_private(&home.join(CATALOG_FILE),text),
+            Some(text)=>{
+                let restored=profile::write_private(&home.join(CATALOG_FILE),text);
+                // 还原的是用户原文件，不再是本应用的产出，版本戳必须一并清掉。
+                let _=fs::remove_file(home.join("cloudhub-model-catalog.meta.json"));
+                restored
+            }
             None=>Ok(()),
         },
         Some(_)=>{remove_catalog(home);Ok(())},
@@ -470,8 +460,12 @@ mod tests {
         assert_eq!(models[0]["display_name"],json!("model-a"));
         assert_eq!(models[0]["context_window"],json!(65536));
         assert!(models[0].get("supported_reasoning_levels").is_some());
+        assert_eq!(models[0]["truncation_policy"],json!({"limit":10000,"mode":"tokens"}));
+        crate::core::codex::model_catalog::validate(&catalog).unwrap();
+        assert!(!crate::core::codex::model_catalog::needs_rebuild(&temp.path.join(CATALOG_FILE)));
         remove_catalog(&temp.path);
         assert!(!temp.path.join(CATALOG_FILE).exists());
+        assert!(!temp.path.join("cloudhub-model-catalog.meta.json").exists());
     }
     #[test]
     fn provider_catalog_keeps_every_field_of_an_existing_catalog() {
@@ -485,6 +479,25 @@ mod tests {
         assert_eq!(entry["slug"],json!("vendor-model"));
         assert_eq!(entry["base_instructions"],json!("keep me"));
         assert_eq!(entry["supported_reasoning_levels"][0]["effort"],json!("low"));
+    }
+    #[test]
+    fn provider_catalog_backfills_fields_missing_from_an_older_template() {
+        let temp=profile::TemporaryProfile::new("{}").unwrap();
+        profile::write_private(&temp.path.join("cockpit-model-catalog.json"),&json!({"models":[{"slug":"gpt-5.6-sol","context_window":272000}]}).to_string()).unwrap();
+        let settings=super::super::providers::ModelSettings{models:vec!["vendor-model".into()],..Default::default()};
+        install_catalog(&temp.path,&settings).unwrap();
+        let text=profile::read_auth(&temp.path.join(CATALOG_FILE)).unwrap();
+        let catalog:serde_json::Value=serde_json::from_str(text.as_str()).unwrap();
+        let entry=&catalog["models"][0];
+        assert_eq!(entry["truncation_policy"],json!({"limit":10000,"mode":"tokens"}));
+        assert_eq!(entry["shell_type"],json!("shell_command"));
+        assert_eq!(entry["context_window"],json!(200000));
+    }
+    #[test]
+    fn provider_catalog_ignores_a_template_that_is_not_a_model_object() {
+        let catalog=build_catalog(&super::super::providers::ModelSettings{models:vec!["model-a".into()],..Default::default()},Some(json!("gpt-5.6-sol")));
+        assert_eq!(catalog["models"][0]["slug"],json!("model-a"));
+        assert_eq!(catalog["models"][0]["truncation_policy"],json!({"limit":10000,"mode":"tokens"}));
     }
     #[test]
     fn restore_returns_a_user_owned_catalog_and_removes_only_ours() {

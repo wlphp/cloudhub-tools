@@ -14,6 +14,7 @@ pub mod responses;
 pub mod protocols;
 pub mod providers;
 pub mod provider_config;
+pub mod model_catalog;
 pub mod provider_probe;
 pub mod provider_protocol;
 pub mod provider_gateway;
