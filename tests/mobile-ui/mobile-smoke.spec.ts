@@ -58,6 +58,41 @@ test("refreshes both server types and shows provider failures instead of false s
   await expect(page.getByText(/已从 \d+ 个云账号刷新/)).toHaveCount(0);
 });
 
+test("server actions match power state and use the shared confirmation", async ({ page }) => {
+  await stubLocalApi(page, [account]);
+  await page.goto("/");
+  await page.locator(".mobile-tab-bar").getByRole("button", { name: "服务器", exact: true }).click();
+  const card = page.locator(".mobile-server-card-featured").first();
+  await card.getByText("详情与操作").click();
+  await expect(card.getByRole("button", { name: "启动" })).toBeDisabled();
+  await expect(card.getByRole("button", { name: "停止" })).toBeEnabled();
+  await expect(card.getByRole("button", { name: "重启" })).toBeEnabled();
+  await card.getByRole("button", { name: "停止" }).click();
+  const confirmation = page.getByRole("alertdialog", { name: "确认服务器操作" });
+  await expect(confirmation).toContainText("停止服务器");
+  await confirmation.getByRole("button", { name: "取消" }).click();
+  await expect(confirmation).toHaveCount(0);
+});
+
+test("stopped and unknown server states do not offer invalid operations", async ({ page }) => {
+  await stubLocalApi(page, [account]);
+  await page.route("**/api/local-assets**", route => route.fulfill({ json: new URL(route.request().url()).searchParams.get("resource_type") === "swas" ? [] : [
+    { account_id: 12, resource_type: "ecs", asset_key: "stopped", region_id: "cn-hangzhou", payload: { instanceId: "stopped", instanceName: "stopped-server", status: "Stopped" }, fetched_at: 1_700_000_000 },
+    { account_id: 12, resource_type: "ecs", asset_key: "pending", region_id: "cn-hangzhou", payload: { instanceId: "pending", instanceName: "pending-server", status: "Starting" }, fetched_at: 1_700_000_000 },
+  ] }));
+  await page.goto("/");
+  await page.locator(".mobile-tab-bar").getByRole("button", { name: "服务器", exact: true }).click();
+  const stopped = page.locator(".mobile-server-card-featured", { hasText: "stopped-server" });
+  await stopped.getByText("详情与操作").click();
+  await expect(stopped.getByRole("button", { name: "启动" })).toBeEnabled();
+  await expect(stopped.getByRole("button", { name: "停止" })).toBeDisabled();
+  await expect(stopped.getByRole("button", { name: "重启" })).toBeDisabled();
+  const pending = page.locator(".mobile-server-card-featured", { hasText: "pending-server" });
+  await pending.getByText("详情与操作").click();
+  await expect(pending.getByText("状态待确认，请刷新")).toBeVisible();
+  for (const action of ["启动", "停止", "重启"]) await expect(pending.getByRole("button", { name: action })).toBeDisabled();
+});
+
 test("shows cached lightweight servers alongside ECS servers", async ({ page }) => {
   await stubLocalApi(page, [account]);
   await page.route("**/api/local-assets**", (route) => {

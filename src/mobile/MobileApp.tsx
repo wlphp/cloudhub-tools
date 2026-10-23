@@ -11,6 +11,7 @@ import { MobileCertificateRequest } from "./MobileCertificateRequest";
 import { MobileCertificates } from "./MobileCertificates";
 import type { CertificateSummary } from "../platform/clients/certificates";
 import { SecretField } from "../shared/SecretField";
+import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { useCallback, useEffect, useRef, useState, type Dispatch, type FormEvent, type SetStateAction } from "react";
 import { Activity, CloudDownload, LayoutGrid, ArrowDownToLine, ArrowUpDown, Cloud, Database, File, FileText, Filter, Folder, Globe2, Plus, Power, RefreshCw, RotateCw, Search, Server, ShieldCheck, X, Trash2, Award, Terminal, Pencil, ExternalLink, Monitor, Upload, Info } from "lucide-react";
 import type { Account, ApiLog, LocalAsset, ManagedHost, PanelConnection, PanelConnectionDraft, TransferAccount } from "../shared/types";
@@ -44,11 +45,15 @@ function payloadText(payload: Record<string, unknown>, keys: string[]): string {
   return "—";
 }
 
-function serverStatusClass(payload: Record<string, unknown>): string {
+function serverPowerState(payload: Record<string, unknown>): "running" | "stopped" | "pending" {
   const status = payloadText(payload, ["InstanceStatus", "instanceStatus", "status", "Status"]).toLowerCase();
-  if (["running", "active", "运行中", "正常"].includes(status)) return "mobile-server-status is-running";
-  if (["stopped", "stop", "已停止", "停止"].includes(status)) return "mobile-server-status is-stopped";
-  return "mobile-server-status is-pending";
+  if (["running", "active", "运行中", "正常"].includes(status)) return "running";
+  if (["stopped", "stop", "已停止", "停止"].includes(status)) return "stopped";
+  return "pending";
+}
+
+function serverStatusClass(payload: Record<string, unknown>): string {
+  return `mobile-server-status is-${serverPowerState(payload)}`;
 }
 
 function fetchedAtLabel(timestamp: number): string {
@@ -100,6 +105,7 @@ export function MobileApp() {
   const [serverSortAscending, setServerSortAscending] = useState(true);
   const [servers, setServers] = useState<LocalAsset[]>([]);
   const [serverKind, setServerKind] = useState<"ecs" | "swas">("ecs");
+  const [serverActionConfirmation, setServerActionConfirmation] = useState<{ server: LocalAsset; action: InstanceAction } | null>(null);
   const [domains, setDomains] = useState<LocalAsset[]>([]);
   const [domainSearch, setDomainSearch] = useState("");
   const [domainSortAscending, setDomainSortAscending] = useState(true);
@@ -686,10 +692,11 @@ export function MobileApp() {
   async function runServerAction(server: LocalAsset, action: InstanceAction) {
     const account = accountForAsset(server);
     if (!account || !["aliyun", "tencent"].includes(account.cloud_type)) return;
+    const power = serverPowerState(server.payload);
+    if (power === "pending" || action === "start" && power !== "stopped" || action !== "start" && power !== "running") return;
     const instanceId = payloadText(server.payload, ["instanceId", "InstanceId", "id", "Id"]);
-    const name = payloadText(server.payload, ["instanceName", "InstanceName", "name", "Name", "serverName"]);
     const actionLabel = action === "reboot" ? "重启" : action === "start" ? "启动" : "停止";
-    if (instanceId === "—" || !window.confirm(`确认${actionLabel}服务器“${name}”吗？`)) return;
+    if (instanceId === "—") return;
     const key = `${server.account_id}:${server.asset_key}`;
     setActiveAction(key);
     setNotice("");
@@ -1104,7 +1111,18 @@ export function MobileApp() {
             <button type="button" aria-pressed={serverKind === "swas"} className={serverKind === "swas" ? "active" : ""} onClick={() => setServerKind("swas")}>轻量服务器 <span>{lightServerCount}</span></button>
           </div>
           <div className="mobile-server-list-heading"><h2>云服务器列表 <span>{visibleServers.length}</span></h2><button type="button" className="mobile-account-sort" aria-label={`按名称${serverSortAscending ? "升序" : "降序"}排列`} onClick={() => setServerSortAscending((ascending) => !ascending)}><ArrowUpDown size={16} />{serverSortAscending ? "按名称" : "名称倒序"}</button></div>
-          {accounts.length === 0 ? <div className="mobile-empty"><Cloud size={30} /><strong>先添加云账号</strong><button type="button" className="mobile-primary" onClick={() => setTab("accounts")}>查看账号</button></div> : servers.length === 0 && (loading || syncing) ? <div className="mobile-empty" role="status"><RefreshCw size={30} className="mobile-spin" /><strong>{syncing ? "正在查询云端服务器" : "正在读取本机缓存"}</strong><span>正在查询云端资源，请稍候。</span></div> : visibleServers.length === 0 ? <div className="mobile-empty"><Server size={30} /><strong>{serverSearch ? "没有匹配的服务器" : `暂无${serverKind === "ecs" ? "普通" : "轻量"}服务器`}</strong><span>{serverSearch ? "试试其他关键词或清除搜索条件。" : filteredServers.length ? "切换上方标签查看另一类服务器。" : servers.length && assetAccountFilterId !== null ? "该账号下暂无缓存服务器。" : "点击“拉取云端”同步已接入账号的服务器。"}</span>{(serverSearch || assetAccountFilterId !== null) && <button className="mobile-primary" type="button" onClick={() => { setServerSearch(""); setAssetAccountFilterId(null); }}>清除筛选</button>}</div> : <div className="mobile-server-list">{visibleServers.map((server) => { const key = `${server.account_id}:${server.asset_key}`; const busy = activeAction === key; const owner = accountForAsset(server); const status = payloadText(server.payload, ["InstanceStatus", "instanceStatus", "status", "Status"]); return <article className="mobile-server-card mobile-server-card-featured" key={key}><div className="mobile-server-featured-main"><span className="mobile-provider-avatar" data-provider={owner?.cloud_type ?? "other"}>{owner ? cloudProvider(owner.cloud_type).avatar : <Server size={21} />}</span><div className="mobile-server-featured-copy"><div className="mobile-server-featured-title"><strong title={payloadText(server.payload, ["instanceName", "InstanceName", "name", "Name", "serverName"])}>{payloadText(server.payload, ["instanceName", "InstanceName", "name", "Name", "serverName"])}</strong>{owner && <span className="mobile-server-provider">{cloudProvider(owner.cloud_type).label}</span>}</div><p>{owner?.account_name ?? "未知账号"} · {server.region_id || "地域未知"}</p></div><span className={`${serverStatusClass(server.payload)} mobile-server-status-pill`}><i aria-hidden="true" />{status}</span></div><details className="mobile-server-options"><summary>详情与操作</summary><div className="mobile-server-metadata"><span>{payloadText(server.payload, ["instanceId", "InstanceId", "id", "Id"])} · {server.resource_type === "swas" ? "轻量服务器" : "云服务器"} · 缓存于 {fetchedAtLabel(server.fetched_at)}</span></div>{owner && ["aliyun", "tencent"].includes(owner.cloud_type) && <div className="mobile-server-actions"><button type="button" disabled={busy || syncing} onClick={() => void runServerAction(server, "start")}><Power size={14} />启动</button><button type="button" disabled={busy || syncing} onClick={() => void runServerAction(server, "stop")}><Power size={14} />停止</button><button type="button" disabled={busy || syncing} onClick={() => void runServerAction(server, "reboot")}><RotateCw size={14} />重启</button>{busy && <span role="status">提交中…</span>}</div>}</details></article>; })}</div>}
+          {accounts.length === 0 ? <div className="mobile-empty"><Cloud size={30} /><strong>先添加云账号</strong><button type="button" className="mobile-primary" onClick={() => setTab("accounts")}>查看账号</button></div> : servers.length === 0 && (loading || syncing) ? <div className="mobile-empty" role="status"><RefreshCw size={30} className="mobile-spin" /><strong>{syncing ? "正在查询云端服务器" : "正在读取本机缓存"}</strong><span>正在查询云端资源，请稍候。</span></div> : visibleServers.length === 0 ? <div className="mobile-empty"><Server size={30} /><strong>{serverSearch ? "没有匹配的服务器" : `暂无${serverKind === "ecs" ? "普通" : "轻量"}服务器`}</strong><span>{serverSearch ? "试试其他关键词或清除搜索条件。" : filteredServers.length ? "切换上方标签查看另一类服务器。" : servers.length && assetAccountFilterId !== null ? "该账号下暂无缓存服务器。" : "点击“拉取云端”同步已接入账号的服务器。"}</span>{(serverSearch || assetAccountFilterId !== null) && <button className="mobile-primary" type="button" onClick={() => { setServerSearch(""); setAssetAccountFilterId(null); }}>清除筛选</button>}</div> : <div className="mobile-server-list">{visibleServers.map((server) => {
+            const key = `${server.account_id}:${server.asset_key}`;
+            const busy = activeAction === key;
+            const owner = accountForAsset(server);
+            const status = payloadText(server.payload, ["InstanceStatus", "instanceStatus", "status", "Status"]);
+            const power = serverPowerState(server.payload);
+            const unavailable = busy || syncing || activeAction !== null;
+            return <article className="mobile-server-card mobile-server-card-featured" key={key}>
+              <div className="mobile-server-featured-main"><span className="mobile-provider-avatar" data-provider={owner?.cloud_type ?? "other"}>{owner ? cloudProvider(owner.cloud_type).avatar : <Server size={21} />}</span><div className="mobile-server-featured-copy"><div className="mobile-server-featured-title"><strong title={payloadText(server.payload, ["instanceName", "InstanceName", "name", "Name", "serverName"])}>{payloadText(server.payload, ["instanceName", "InstanceName", "name", "Name", "serverName"])}</strong>{owner && <span className="mobile-server-provider">{cloudProvider(owner.cloud_type).label}</span>}</div><p>{owner?.account_name ?? "未知账号"} · {server.region_id || "地域未知"}</p></div><span className={`${serverStatusClass(server.payload)} mobile-server-status-pill`}><i aria-hidden="true" />{status}</span></div>
+              <details className="mobile-server-options"><summary>详情与操作</summary><div className="mobile-server-metadata"><span>{payloadText(server.payload, ["instanceId", "InstanceId", "id", "Id"])} · {server.resource_type === "swas" ? "轻量服务器" : "云服务器"} · 缓存于 {fetchedAtLabel(server.fetched_at)}</span></div>{owner && ["aliyun", "tencent"].includes(owner.cloud_type) && <div className="mobile-server-actions"><button type="button" disabled={unavailable || power !== "stopped"} onClick={() => setServerActionConfirmation({ server, action: "start" })}><Power size={14} />启动</button><button type="button" disabled={unavailable || power !== "running"} onClick={() => setServerActionConfirmation({ server, action: "stop" })}><Power size={14} />停止</button><button type="button" disabled={unavailable || power !== "running"} onClick={() => setServerActionConfirmation({ server, action: "reboot" })}><RotateCw size={14} />重启</button>{power === "pending" && <span role="status">状态待确认，请刷新</span>}{busy && <span role="status">提交中…</span>}</div>}</details>
+            </article>;
+          })}</div>}
         </> : tab === "domains" ? <>
           {!selectedDomain && <>
             <div className="mobile-page-title"><h1>域名与 DNS</h1></div>
@@ -1233,6 +1251,11 @@ export function MobileApp() {
         </div>
         <div className="mobile-dns-footer"><button className="mobile-dns-cancel" type="button" disabled={dnsSaving} onClick={() => setDnsEditor(undefined)}>取消</button><button className="mobile-primary mobile-dns-save" type="submit" disabled={dnsSaving}><ShieldCheck size={17} />{dnsSaving ? "正在保存…" : "保存记录"}</button></div>
       </form></div>}
+      {serverActionConfirmation && <ConfirmDialog title="确认服务器操作" message={`确认${serverActionConfirmation.action === "reboot" ? "重启" : serverActionConfirmation.action === "start" ? "启动" : "停止"}服务器“${payloadText(serverActionConfirmation.server.payload, ["instanceName", "InstanceName", "name", "Name", "serverName"])}”吗？`} confirmLabel="确认操作" onResolve={confirmed => {
+        const target = serverActionConfirmation;
+        setServerActionConfirmation(null);
+        if (confirmed) void runServerAction(target.server, target.action);
+      }} />}
     </main>
   );
 }

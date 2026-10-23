@@ -375,7 +375,6 @@ export function NotesPanel({ openSignal = 0 }: NotesPanelProps) {
         actions={{
           restore: async (_kind, ids) => { if (!await act(() => notesClient.restore(ids.map(Number)), "恢复备忘录失败", "已恢复备忘录")) throw new Error("恢复备忘录失败，请重试"); },
           purge: async (_kind, ids) => { if (!await act(() => notesClient.purge(ids.map(Number)), "彻底删除失败", "已彻底删除")) throw new Error("彻底删除失败，请重试"); },
-          confirmPurge: () => window.confirm("彻底删除后无法恢复，确定继续吗？"),
           // Restoring is the terminal action here, so the bin closes itself.
           onRestored: () => setShowTrash(false),
         }}

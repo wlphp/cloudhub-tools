@@ -2898,7 +2898,8 @@
   line-height: 1.35;
   white-space: nowrap;
 }
-.ide-theme > .app-main-sidebar{position:relative;box-sizing:border-box;padding-top:38px;overflow:hidden;transition:width 240ms cubic-bezier(.22,1,.36,1),flex-basis 240ms cubic-bezier(.22,1,.36,1),padding 240ms cubic-bezier(.22,1,.36,1)}
+.ide-theme > .app-main-sidebar{position:relative;box-sizing:border-box;height:calc(100dvh - 32px);min-height:0;padding-top:38px;overflow:hidden;transition:width 240ms cubic-bezier(.22,1,.36,1),flex-basis 240ms cubic-bezier(.22,1,.36,1),padding 240ms cubic-bezier(.22,1,.36,1)}
+.ide-theme > .app-main-sidebar nav{min-height:0;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;scrollbar-color:var(--jb-border-strong) transparent}
 .ide-theme .app-sidebar-toggle{position:absolute;top:3px;right:3px;z-index:11;display:flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:1px solid transparent;border-radius:4px;background:var(--jb-sidebar);color:var(--jb-muted);cursor:pointer}
 .ide-theme .app-sidebar-toggle:hover{background:var(--jb-selection);color:var(--jb-text);border-color:var(--jb-border)}
 .ide-theme > .app-main-sidebar .brand{height:64px;min-height:64px;flex:none;overflow:hidden;transition:gap 160ms ease}

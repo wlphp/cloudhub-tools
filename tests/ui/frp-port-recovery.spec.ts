@@ -48,11 +48,13 @@ for (const recoverable of [true, false]) {
       await expect(terminate).toHaveCount(0);
       return;
     }
-    page.once("dialog", (dialog) => dialog.dismiss());
     await terminate.click();
+    const confirmation = page.getByRole("alertdialog", { name: "结束旧 frpc 进程" });
+    await expect(confirmation).toContainText("PID 12345");
+    await confirmation.getByRole("button", { name: "取消" }).click();
     expect(await page.evaluate(() => (window as unknown as { __frpTerminateCalls: () => number }).__frpTerminateCalls())).toBe(0);
-    page.once("dialog", (dialog) => dialog.accept());
     await terminate.click();
+    await confirmation.getByRole("button", { name: "确认操作" }).click();
     await expect(page.getByText("结束旧 frpc 进程完成", { exact: true })).toBeVisible();
     expect(await page.evaluate(() => (window as unknown as { __frpTerminateCalls: () => number }).__frpTerminateCalls())).toBe(1);
     await expect(terminate).toHaveCount(0);

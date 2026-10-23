@@ -1,5 +1,6 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { RotateCcw, Search, Trash2, TriangleAlert } from "lucide-react";
+import { ConfirmDialog } from "./ConfirmDialog";
 
 /** Credential retention options offered in the settings panel. */
 export const SCRUB_DAY_OPTIONS = [
@@ -27,8 +28,6 @@ export type TrashItem = {
 export type TrashActions = {
   restore: (kindId: string, ids: string[]) => Promise<void>;
   purge: (kindId: string, ids: string[]) => Promise<void>;
-  /** Optional confirmation before irreversible purge; omit when not required. */
-  confirmPurge?: (kindId: string, count: number) => boolean;
   /** Called after a successful restore so the host can close the panel. */
   onRestored?: (kindId: string, count: number) => void;
 };
@@ -65,6 +64,7 @@ export function RecycleBin({ kinds, actions, busy, onClose, scrubDays, onScrubDa
   const [error, setError] = useState("");
   const [keyword, setKeyword] = useState("");
   const [working, setWorking] = useState(false);
+  const [pendingPurge, setPendingPurge] = useState<{ kindId: string; ids: string[] } | null>(null);
   const disabled = busy || working;
   const total = kinds.reduce((sum, kind) => sum + kind.items.length, 0);
 
@@ -77,11 +77,7 @@ export function RecycleBin({ kinds, actions, busy, onClose, scrubDays, onScrubDa
   const selectedCount = groups.reduce((sum, kind) => sum + kind.items.filter(item => selected[kind.id]?.has(item.id)).length, 0);
   const allSelected = visibleCount > 0 && selectedCount === visibleCount;
 
-  const run = async (kindId: string, mode: "restore" | "purge") => {
-    if (disabled) return;
-    const ids = groups.find(kind => kind.id === kindId)?.items.filter(item => selected[kindId]?.has(item.id)).map(item => item.id) ?? [];
-    if (ids.length === 0) return;
-    if (mode === "purge" && actions.confirmPurge && !actions.confirmPurge(kindId, ids.length)) return;
+  const execute = async (kindId: string, ids: string[], mode: "restore" | "purge") => {
     setError("");
     setWorking(true);
     try {
@@ -97,6 +93,14 @@ export function RecycleBin({ kinds, actions, busy, onClose, scrubDays, onScrubDa
     } finally {
       setWorking(false);
     }
+  };
+
+  const run = (kindId: string, mode: "restore" | "purge") => {
+    if (disabled) return;
+    const ids = groups.find(kind => kind.id === kindId)?.items.filter(item => selected[kindId]?.has(item.id)).map(item => item.id) ?? [];
+    if (!ids.length) return;
+    if (mode === "purge") setPendingPurge({ kindId, ids });
+    else void execute(kindId, ids, mode);
   };
 
   const toggle = (kindId: string, id: string) => setSelected(current => {
@@ -176,5 +180,10 @@ export function RecycleBin({ kinds, actions, busy, onClose, scrubDays, onScrubDa
     <footer className="recycle-bin-foot">
       <button type="button" className="secondary" onClick={onClose}>关闭</button>
     </footer>
+    {pendingPurge && <ConfirmDialog title="彻底删除回收站数据" message={`彻底删除 ${pendingPurge.ids.length} 项后无法恢复，确定继续吗？`} confirmLabel="彻底删除" busy={disabled} onResolve={confirmed => {
+      const target = pendingPurge;
+      setPendingPurge(null);
+      if (confirmed) void execute(target.kindId, target.ids, "purge");
+    }} />}
   </div>;
 }

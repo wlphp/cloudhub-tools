@@ -125,11 +125,34 @@ test("purging asks for confirmation because it cannot be undone", async ({ page 
   const bin = page.locator("body > .modal-backdrop .recycle-bin");
   const hosts = bin.locator(".recycle-bin-group", { hasText: "SSH 主机" });
   await hosts.getByLabel("选择 旧测试机").check();
-  // Declining the confirmation leaves the rows in place.
-  page.once("dialog", dialog => dialog.dismiss());
+  // Declining the shared confirmation leaves the rows in place.
   await hosts.getByRole("button", { name: /^彻底删除/ }).click();
+  const confirmation = page.getByRole("alertdialog", { name: "彻底删除回收站数据" });
+  await expect(confirmation).toBeVisible();
+  await expect(page.locator("body > .modal-backdrop")).toHaveCount(2);
+  await confirmation.getByRole("button", { name: "取消" }).click();
+  await expect(confirmation).toHaveCount(0);
   await expect(bin).toBeVisible();
   await expect(bin).toContainText("旧测试机");
+});
+
+test("short desktop windows can scroll the sidebar to the settings entry", async ({ page }) => {
+  await page.setViewportSize({ width: 768, height: 700 });
+  await openSettings(page);
+  const sidebar = page.locator(".app-main-sidebar");
+  const nav = sidebar.locator("nav");
+  await nav.evaluate(element => { element.scrollTop = 0; });
+  await expect.poll(() => nav.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true);
+  await nav.hover();
+  await page.mouse.wheel(0, 600);
+  await expect.poll(() => nav.evaluate(element => element.scrollTop)).toBeGreaterThan(0);
+  const settings = sidebar.getByRole("button", { name: "系统设置" });
+  const visible = await settings.evaluate(element => {
+    const button = element.getBoundingClientRect();
+    const viewport = element.closest("nav")!.getBoundingClientRect();
+    return button.top >= viewport.top && button.bottom <= viewport.bottom;
+  });
+  expect(visible).toBe(true);
 });
 
 // 375px renders the mobile shell, which has no 系统设置 entry; the recycle bin

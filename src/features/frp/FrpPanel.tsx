@@ -1,4 +1,5 @@
 import { SharedDialog } from "../../shared/SharedDialog";
+import { ConfirmDialog } from "../../shared/ConfirmDialog";
 import { GatewayTunnel } from "../codex/GatewayTunnel";
 import { AiLogAnalysis } from "../ai/AiLogAnalysis";
 import { AiAssistButton } from "../ai/AiAssistButton";
@@ -60,6 +61,7 @@ export function FrpPanel() {
   const [busy, setBusy] = useState("");
   const [feedback, setFeedback] = useState("");
   const [error, setError] = useState("");
+  const [confirmation, setConfirmation] = useState<{ title: string; message: string; onConfirm: () => void } | null>(null);
   const [portConflict, setPortConflict] = useState<FrpPortConflict | null>(null);
   const selectedIdRef = useRef(selectedId);
   selectedIdRef.current = selectedId;
@@ -175,15 +177,17 @@ export function FrpPanel() {
 
   const terminateStale = (owner: FrpPortOwner) => {
     if (!portConflict || portConflict.serverId !== selectedId) return;
-    if (!window.confirm(`结束占用本机端口 ${portConflict.port} 的旧 frpc 进程（PID ${owner.pid}）？这会中断该旧进程的全部穿透规则。结束后可重新点击启动连接。`)) return;
     const serverId = portConflict.serverId;
-    void run("结束旧 frpc 进程", async () => {
-      await frpClient.terminateStale(serverId, owner);
-      const conflict = await frpClient.portConflict(serverId);
-      if (selectedIdRef.current === serverId) setPortConflict(conflict.owners.length ? conflict : null);
-      setRuntime(await frpClient.runtime());
-      setLogsReload((value) => value + 1);
-    });
+    setConfirmation({ title: "结束旧 frpc 进程", message: `结束占用本机端口 ${portConflict.port} 的旧 frpc 进程（PID ${owner.pid}）？这会中断该旧进程的全部穿透规则。结束后可重新点击启动连接。`, onConfirm: () => {
+      if (selectedIdRef.current !== serverId) return;
+      void run("结束旧 frpc 进程", async () => {
+        await frpClient.terminateStale(serverId, owner);
+        const conflict = await frpClient.portConflict(serverId);
+        if (selectedIdRef.current === serverId) setPortConflict(conflict.owners.length ? conflict : null);
+        setRuntime(await frpClient.runtime());
+        setLogsReload((value) => value + 1);
+      });
+    } });
   };
 
   const selectTlsFile = (kind: "certificate" | "private-key") => {
@@ -363,8 +367,29 @@ export function FrpPanel() {
 
   const deleteServer = () => {
     if (!selected) return;
-    if (!window.confirm(`删除服务端“${selected.name}”及其全部 ${selected.proxies.length} 条本机规则？这会停止对应的本机 frpc 连接。`)) return;
-    void run("删除服务端", async () => { await frpClient.deleteServer(selected.id); const loaded = await refresh(false); const next = loaded.nextServers[0]; if (next) { setSelectedId(next.id); setServerDraft(asServerInput(next)); } else { setSelectedId(null); setServerDraft(null); } });
+    const target = selected;
+    setConfirmation({ title: "删除 FRP 服务端", message: `删除服务端“${target.name}”及其全部 ${target.proxies.length} 条本机规则？这会停止对应的本机 frpc 连接。`, onConfirm: () => {
+      void run("删除服务端", async () => { await frpClient.deleteServer(target.id); const loaded = await refresh(false); const next = loaded.nextServers[0]; if (next) { setSelectedId(next.id); setServerDraft(asServerInput(next)); } else { setSelectedId(null); setServerDraft(null); } });
+    } });
+  };
+
+  const stopServer = () => {
+    if (!selected) return;
+    const target = selected;
+    setConfirmation({ title: "停止 FRP 连接", message: `停止“${target.name}”连接及其全部穿透规则？`, onConfirm: () => {
+      if (selectedIdRef.current !== target.id) return;
+      control("stop");
+    } });
+  };
+
+  const deleteRule = (proxy: FrpProxy) => {
+    if (!serverDraft || !selected) return;
+    const serverId = selected.id;
+    const remaining = serverDraft.proxies.filter((item) => proxy.id ? item.id !== proxy.id : item.name !== proxy.name);
+    setConfirmation({ title: "删除穿透规则", message: `删除规则“${proxy.name}”？`, onConfirm: () => {
+      if (selectedIdRef.current !== serverId) return;
+      persistRules(remaining);
+    } });
   };
 
   return <section className="flow-page frp-page">
@@ -413,7 +438,7 @@ export function FrpPanel() {
         <aside className="frp-server-list" aria-label="FRP 服务端列表"><div className="frp-list-heading"><h2>服务端</h2><button type="button" className="secondary" aria-label="新增服务端" title="新增服务端" onClick={addServer}><Plus size={15} /></button></div><input className="frp-server-search" aria-label="搜索服务端" placeholder="搜索服务端…" value={serverQuery} onChange={(event) => setServerQuery(event.target.value)} />{servers.filter((server) => server.name.toLowerCase().includes(serverQuery.toLowerCase())).map((server) => { const state = runtime.find((item) => item.serverId === server.id); return <button type="button" key={server.id} className={`frp-server-item${selectedId === server.id ? " active" : ""}`} onClick={() => { setSelectedId(server.id); setActiveTab("rules"); editServer(server); setProxyDraft(null); }}><span className={`frp-dot ${state?.connected ? "online" : state?.running ? "pending" : "offline"}`} /><span className="frp-server-label"><strong>{server.name}</strong><small>{server.serverAddr}:{server.serverPort}</small></span><span className="frp-rule-count">{server.proxies.length}</span></button>; })}{!servers.length && !serverDraft && <p className="frp-empty">添加第一个 FRP 服务端。</p>}</aside>
         <main className="frp-server-content">
           <div className="frp-workspace-heading"><div><Server size={22} /><div><h2>{selected?.name || "新增服务端"}</h2><p>{selected ? `${selected.serverAddr}:${selected.serverPort} · 本机面板 :${selected.adminPort}` : "添加服务端，开始配置本地连接"}</p></div></div><button type="button" className="secondary" onClick={() => setActiveTab("connection")}><Settings2 size={15} />配置连接</button></div>
-          {selected && <div className="frp-card frp-connection-card"><div className="frp-status-row"><span>进程：<strong>{selectedRuntime?.running ? "运行中" : "未运行"}</strong></span><span>代理：<strong>{selectedRuntime?.connected ? "有规则运行中" : selectedRuntime?.running ? "无规则运行" : "未连接"}</strong></span><span>配置：<strong>{selectedRuntime?.configCurrent ? "已应用" : selectedRuntime?.configPresent ? "待应用" : "未应用"}</strong></span></div><div className="frp-actions"><button type="button" className="primary" title={connectionActionHint} disabled={!selectedRuntime?.installed || draftDirty || connectionReady || !!busy} onClick={() => connectionNeedsApply ? apply() : control("start")}><Play size={14} />{connectionActionLabel}</button><button type="button" className="secondary" disabled={!selectedRuntime?.running || !!busy} onClick={() => control("restart")}>重启</button><button type="button" className="secondary" disabled={!selectedRuntime?.running || !!busy} onClick={() => { if (window.confirm(`停止“${selected.name}”连接及其全部穿透规则？`)) control("stop"); }}><Square size={14} />停止</button><button type="button" className="secondary" disabled={!selectedRuntime?.running || !!busy} onClick={openPanel}><ExternalLink size={15} />客户端面板</button></div></div>}
+          {selected && <div className="frp-card frp-connection-card"><div className="frp-status-row"><span>进程：<strong>{selectedRuntime?.running ? "运行中" : "未运行"}</strong></span><span>代理：<strong>{selectedRuntime?.connected ? "有规则运行中" : selectedRuntime?.running ? "无规则运行" : "未连接"}</strong></span><span>配置：<strong>{selectedRuntime?.configCurrent ? "已应用" : selectedRuntime?.configPresent ? "待应用" : "未应用"}</strong></span></div><div className="frp-actions"><button type="button" className="primary" title={connectionActionHint} disabled={!selectedRuntime?.installed || draftDirty || connectionReady || !!busy} onClick={() => connectionNeedsApply ? apply() : control("start")}><Play size={14} />{connectionActionLabel}</button><button type="button" className="secondary" disabled={!selectedRuntime?.running || !!busy} onClick={() => control("restart")}>重启</button><button type="button" className="secondary" disabled={!selectedRuntime?.running || !!busy} onClick={stopServer}><Square size={14} />停止</button><button type="button" className="secondary" disabled={!selectedRuntime?.running || !!busy} onClick={openPanel}><ExternalLink size={15} />客户端面板</button></div></div>}
           <nav className="frp-tabs" aria-label="连接详情">{[{id:"rules", label:"穿透规则"}, {id:"connection", label:"连接配置"}, {id:"logs", label:"客户端运行日志"}].map((tab) => <button type="button" key={tab.id} className={activeTab === tab.id ? "active" : ""} aria-current={activeTab === tab.id ? "page" : undefined} onClick={() => setActiveTab(tab.id)}>{tab.label}{tab.id === "rules" && <span>{serverDraft?.proxies.length ?? 0}</span>}</button>)}</nav>
           {selected && activeTab === "logs" && <section className="frp-card frp-logs-card" aria-label="客户端运行日志">
             <div className="frp-card-heading"><div><h2>客户端运行日志 · {selected.name}</h2><p className="frp-logs-hint">最近一次连接的最近 300 条日志 · 仅保留在本次应用会话 · 已过滤凭据信息</p></div><div className="frp-log-controls"><label><input type="checkbox" checked={logsAutoRefresh} onChange={(event) => setLogsAutoRefresh(event.target.checked)} />自动刷新</label><label><input type="checkbox" checked={logsFollow} onChange={(event) => setLogsFollow(event.target.checked)} />跟随最新</label><button type="button" className="secondary" disabled={logsLoading} onClick={() => setLogsReload((value) => value + 1)}><RefreshCw size={14} />刷新日志</button></div></div>
@@ -444,7 +469,7 @@ export function FrpPanel() {
               return <article className="frp-rule-row" role="listitem" key={proxy.id ?? proxy.name}>
                 <div className="frp-rule-identity"><span className="frp-rule-icon"><Cable size={19} aria-hidden="true" /></span><div><strong>{proxy.name}</strong><div className="frp-rule-meta"><span className="frp-rule-protocol">{proxy.plugin ? "HTTPS → HTTP" : proxy.kind.toUpperCase()}</span><span className={`frp-rule-state ${status}`}><span className="frp-rule-state-dot" aria-hidden="true" />{statusText}</span></div></div></div>
                 <div className="frp-rule-route"><div><small>本地目标</small><code>{localAddress}:{proxy.localPort}</code></div><ArrowRight size={18} className="frp-rule-arrow" aria-hidden="true" /><div><small>公网入口</small><code>{entry}</code></div></div>
-                <div className="frp-rule-actions"><button type="button" className="secondary" disabled={!ruleUrl || !proxy.enabled || state?.status !== "running" || draftDirty || !selectedRuntime?.configCurrent || !!busy} aria-label={`打开规则 ${proxy.name}`} title={!ruleUrl ? "此规则无法用浏览器打开" : proxy.kind === "tcp" ? `通过 HTTP 打开 ${ruleUrl}，仅适用于网页服务` : `打开 ${ruleUrl}`} onClick={() => ruleUrl && void run("打开规则入口", () => openUrl(ruleUrl))}><ExternalLink size={14} />打开</button><button type="button" className="secondary" disabled={!!busy} onClick={() => { setProxyDraft({ ...proxy, customDomain: proxy.customDomains?.length ? proxy.customDomains.join(", ") : proxy.customDomain }); setEditingProxyId(proxy.id ?? null); }}><Pencil size={14} />编辑</button><button type="button" className="secondary" disabled={!!busy} title={`删除规则 ${proxy.name}`} aria-label={`删除规则 ${proxy.name}`} onClick={() => { if (window.confirm(`删除规则“${proxy.name}”？`)) persistRules(serverDraft.proxies.filter((item) => proxy.id ? item.id !== proxy.id : item.name !== proxy.name)); }}><Trash2 size={14} /></button></div>
+                <div className="frp-rule-actions"><button type="button" className="secondary" disabled={!ruleUrl || !proxy.enabled || state?.status !== "running" || draftDirty || !selectedRuntime?.configCurrent || !!busy} aria-label={`打开规则 ${proxy.name}`} title={!ruleUrl ? "此规则无法用浏览器打开" : proxy.kind === "tcp" ? `通过 HTTP 打开 ${ruleUrl}，仅适用于网页服务` : `打开 ${ruleUrl}`} onClick={() => ruleUrl && void run("打开规则入口", () => openUrl(ruleUrl))}><ExternalLink size={14} />打开</button><button type="button" className="secondary" disabled={!!busy} onClick={() => { setProxyDraft({ ...proxy, customDomain: proxy.customDomains?.length ? proxy.customDomains.join(", ") : proxy.customDomain }); setEditingProxyId(proxy.id ?? null); }}><Pencil size={14} />编辑</button><button type="button" className="secondary" disabled={!!busy} title={`删除规则 ${proxy.name}`} aria-label={`删除规则 ${proxy.name}`} onClick={() => deleteRule(proxy)}><Trash2 size={14} /></button></div>
               </article>;
             })}{!serverDraft.proxies.length && <p className="frp-empty">此服务端暂无穿透规则。</p>}</div>
             <div className="frp-rules-bottom">
@@ -467,6 +492,11 @@ export function FrpPanel() {
         </main>
       </div>
     </>}
+    {confirmation && <ConfirmDialog title={confirmation.title} message={confirmation.message} confirmLabel="确认操作" busy={!!busy} onResolve={confirmed => {
+      const target = confirmation;
+      setConfirmation(null);
+      if (confirmed) target.onConfirm();
+    }} />}
     {proxyDraft && <SharedDialog title={editingProxyId ? "编辑穿透规则" : "新增穿透规则"} subtitle="将本地服务映射到公网入口" icon={<Cable size={20} />} className="frp-modal frp-rule-editor" bodyClassName="frp-editor-body" closeLabel="关闭规则编辑器" onClose={() => setProxyDraft(null)} closeDisabled={!!busy} onSubmit={saveProxy} footer={<><button type="button" className="secondary" disabled={!!busy} onClick={() => setProxyDraft(null)}>取消</button><button type="submit" className="primary" disabled={!!busy}><Save size={14} />{busy === "保存穿透规则" ? "保存中…" : "保存规则"}</button></>}>
         <AiAssistButton task="frp" title="AI 生成规则草稿" disabled={!!busy} current={{name:proxyDraft.name,kind:proxyDraft.kind,local_ip:proxyDraft.localIp,local_port:proxyDraft.localPort||null,remote_port:proxyDraft.remotePort??null,custom_domain:proxyDraft.customDomain||""}} onApply={result=>{const next=frpAiRule(proxyDraft,result.fields);setProxyDraft(next);}} />
         <div className="frp-form-grid frp-editor-basics"><label>规则名称<input autoFocus required value={proxyDraft.name} onChange={(event) => setProxyDraft({ ...proxyDraft, name: event.target.value })} placeholder="例如：本地开发站点" /></label><label>协议类型<select value={proxyDraft.kind} onChange={(event) => setProxyDraft({ ...proxyDraft, kind: event.target.value as FrpProxy["kind"], remotePort: null, customDomain: null, customDomains: [], plugin: null })}><option value="tcp">TCP</option><option value="udp">UDP</option><option value="http">HTTP</option><option value="https">HTTPS</option></select></label></div>

@@ -55,7 +55,6 @@ export function useTrashActions(reload: () => Promise<void>, onDone?: () => void
       restore: async (kind, ids) => { if (!await run(() => trashClient.restore(kind, ids), "恢复失败")) throw new Error("恢复失败，请重试"); },
       purge: async (kind, ids) => { if (!await run(() => trashClient.purge(kind, ids), "彻底删除失败")) throw new Error("彻底删除失败，请重试"); },
       onRestored: () => onDone?.(),
-      confirmPurge: (_kind, count) => window.confirm(`彻底删除 ${count} 项后无法恢复，确定继续吗？`),
     },
   };
 }
