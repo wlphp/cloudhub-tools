@@ -293,12 +293,14 @@ pub(crate) async fn codex_bind_instance(app: tauri::AppHandle, id: String, accou
         let store = app.state::<CodexRuntimeStore>();
         let conn = open_db()?;
         let old: i64 = conn.query_row("SELECT account_id FROM codex_profiles WHERE id=?1", [&id], |row| row.get(0)).map_err(|_| "Codex 实例不存在")?;
-        crate::core::codex::providers::ensure_home_unbound(&conn,&instance_path(&id)?)?;
         if crate::core::codex::providers::is_provider_account(&conn,account_id)? {return Err("请通过模型供应商启动预览应用此账号".into());}
         if account_running(&store, old)? || account_running(&store, account_id)? {
             return Err("请先停止目标实例和账号的服务，再切换实例账号".into());
         }
         repository::get(&conn, account_id)?;
+        auth::ensure_runtime_auth(&repository::credentials(&conn, account_id)?)?;
+        super::codex_providers::restore_before_account_switch(&store, Some(&id))?;
+        let old: i64 = conn.query_row("SELECT account_id FROM codex_profiles WHERE id=?1", [&id], |row| row.get(0)).map_err(|_| "Codex 实例不存在")?;
         if old != account_id {
             let path = instance_path(&id)?;
             // Preserve the old account's latest rotated grant before changing binding.
@@ -362,6 +364,10 @@ pub(crate) fn ensure_idle(store: &CodexRuntimeStore) -> Result<(), String> {
     let conn=open_db()?;
     let provider_active:bool=conn.query_row("SELECT EXISTS(SELECT 1 FROM codex_provider_config_backups)",[],|r|r.get(0)).map_err(|_| "读取供应商配置状态失败")?;
     if provider_active {return Err("请先恢复所有供应商目标的配置与登录，再执行此操作".into());}
+    ensure_runtime_idle(store)
+}
+
+pub(crate) fn ensure_runtime_idle(store: &CodexRuntimeStore) -> Result<(), String> {
     if !store
         .instances
         .lock()

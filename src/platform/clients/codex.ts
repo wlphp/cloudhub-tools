@@ -26,7 +26,7 @@ export interface CodexAccountEvent { id: number; accountId: number; eventType: s
 export interface CodexAccountDetails { email: string; password: string; twoFactor: string; mailUrl: string; phone: string; note: string }
 export interface CodexAccountDetailView { details: CodexAccountDetails; version: number; auth: CodexAuthMetadata; availableSecrets: string[]; lastRefresh: string | null }
 export interface CodexLaunchConfig { version: string; model: string | null; contextWindow: number | null; compactLimit: number | null }
-export interface CodexConfigSource { path: string; workspace: string | null; exists: boolean; authExists: boolean; preview: Record<string, string | number | boolean | null> | null; configPreview: Record<string, unknown> | null; authPath: string; authPreview: Record<string, unknown> | null }
+export interface CodexConfigSource { path: string; workspace: string | null; exists: boolean; authExists: boolean; preview: Record<string, string | number | boolean | null> | null; configPreview: Record<string, unknown> | null; authPath: string; authPreview: Record<string, unknown> | null; catalogPath: string; catalogPreview: Record<string, unknown> | null }
 export interface CodexInstance { id: string; accountId: number; name: string; workDir: string; kind: "cli" | "desktop"; running: boolean; lastError: string | null }
 export interface CodexGatewaySettings { loggingEnabled: boolean; strategy: "round_robin" | "quota_first" | "ordered"; cooldownSeconds: number }
 export interface CodexCallDetail { request: unknown; forwarded: unknown; response: unknown; events: unknown[]; eventCount: number; truncated: boolean }
@@ -34,7 +34,7 @@ export interface CodexCallLog { id: string; timestamp: number; endpoint: string;
 export interface CodexGatewayState { lanAddress?: string | null; supportsShareConfig?: boolean; allowLan?: boolean; listeningLan?: boolean; supportsLanAccess?: boolean; settings?: CodexGatewaySettings; running: boolean; address: string | null; accountIds: number[]; completed: number; failed: number; active: number; supportsCustomKey?: boolean; supportsModels?: boolean; supportsRemoteModels?: boolean; supportsPersistentConfig?: boolean; supportsFunctionTools?: boolean; supportsMultiProtocol?: boolean; supportsConfigSave?: boolean; supportsKeyReveal?: boolean; supportsAutoStart?: boolean; supportsPoolPersistence?: boolean; autoStart?: boolean; startupAccountIds?: number[]; startupError?: string | null; configuredPort?: number | null }
 
 export const codexClient = {
-  configSource(action: "state" | "select_project" | "open_directory" | "preview" | "preview_config" | "reveal_config" | "preview_auth" | "reveal_auth", workspace: string | null = null): Promise<CodexConfigSource | null> { return nativeOnly("codex_config_source", { action, workspace }); },
+  configSource(action: "state" | "select_project" | "open_directory" | "preview" | "preview_config" | "reveal_config" | "preview_auth" | "reveal_auth" | "preview_catalog" | "reveal_catalog", workspace: string | null = null): Promise<CodexConfigSource | null> { return nativeOnly("codex_config_source", { action, workspace }); },
   accountDetails(id: number): Promise<CodexAccountDetailView> { return nativeOnly("codex_account_details", { id }); },
   accountEvents(id: number): Promise<CodexAccountEvent[]> { return nativeOnly("codex_account_events", { id }); },
   saveAccountDetails(id: number, version: number, input: CodexAccountDetails): Promise<void> { return nativeOnly("codex_save_account_details", { id, version, input }); },

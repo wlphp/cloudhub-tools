@@ -203,7 +203,7 @@
 .claude-hint-icon:hover { color: var(--jb-accent, #9b8cff); }
 .claude-models { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 10px 12px 12px; border: 1px solid var(--jb-border, #3d3d3d); border-radius: 4px; background: var(--jb-surface-2, #303030); }
 .claude-models legend { padding: 0 5px; color: var(--jb-muted, #aaa); font-size: 11.5px; display: inline-flex; align-items: center; gap: 4px; }
-.claude-models-toolbar { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-bottom: 6px; }
+.claude-models-toolbar { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-bottom: 0; }
 .claude-models-toolbar > * { flex: 0 0 auto; }
 .claude-models-toolbar > .claude-picker-search,
 .claude-models-toolbar > input[type="search"] { flex: 1 1 200px; min-width: 0; }
@@ -214,7 +214,7 @@
    .claude-check 默认无高度，行内只塞了 14px checkbox + 文字，低于 28px。 */
 .claude-models-toolbar .claude-check { height: 28px; padding: 0 9px; border: 1px solid var(--jb-border-strong, #555); border-radius: 3px; background: var(--jb-surface-3, #353535); color: var(--jb-muted, #aaa); font-size: 11px; cursor: pointer; }
 .claude-models-toolbar .claude-check:hover { color: var(--jb-text, #dedede); }
-.claude-models-toolbar-message { color: var(--jb-subtle, #858585); font-size: 11px; }
+.claude-models-toolbar-message { margin: 0; color: var(--jb-subtle, #858585); font-size: 11px; line-height: 1.4; }
 .claude-model-grid-head { display: grid; grid-template-columns: 74px minmax(0, 1fr) minmax(0, 1.4fr) 48px; gap: 7px; padding: 0 4px; color: var(--jb-subtle, #858585); font-size: 10.5px; }
 .claude-model-row { display: grid; grid-template-columns: 74px minmax(0, 1fr) minmax(0, 1.4fr) 48px; gap: 7px; align-items: center; }
 .claude-model-row input { height: 30px; min-height: 30px; margin: 0; padding: 0 8px; box-sizing: border-box; width: 100%; min-width: 0; }

@@ -6,7 +6,7 @@ use tauri_plugin_dialog::DialogExt;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum ConfigAction { State, SelectProject, OpenDirectory, Preview, PreviewConfig, RevealConfig, PreviewAuth, RevealAuth }
+pub(crate) enum ConfigAction { State, SelectProject, OpenDirectory, Preview, PreviewConfig, RevealConfig, PreviewAuth, RevealAuth, PreviewCatalog, RevealCatalog }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -19,6 +19,8 @@ pub(crate) struct ConfigSource {
     config_preview: Option<Value>,
     auth_path: String,
     auth_preview: Option<Value>,
+    catalog_path: String,
+    catalog_preview: Option<Value>,
 }
 
 #[tauri::command]
@@ -43,6 +45,7 @@ pub(crate) async fn codex_config_source(
         let path = directory.join("config.toml");
         // Authentication always belongs to CODEX_HOME, including project views.
         let auth_path = home.join("auth.json");
+        let catalog_path = home.join(crate::core::codex::provider_config::CATALOG_FILE);
         let auth_exists = fs::symlink_metadata(&auth_path).is_ok();
         if matches!(action, ConfigAction::OpenDirectory) {
             // Opening a missing config directory must not create project files.
@@ -98,6 +101,20 @@ pub(crate) async fn codex_config_source(
                 }
             }
         } else { None };
+        let catalog_preview = if matches!(action, ConfigAction::PreviewCatalog | ConfigAction::RevealCatalog) {
+            let _writer = super::codex::AUTH_WRITER.lock().map_err(|_| "Codex 配置操作不可用")?;
+            match fs::symlink_metadata(&catalog_path) {
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+                Err(_) => return Err("无法读取模型目录文件状态".into()),
+                Ok(_) => {
+                    let content = profile::read_auth(&catalog_path).map_err(|_| "无法安全读取模型目录，请检查文件权限、类型及大小")?;
+                    let mut value: Value = serde_json::from_str(&content).map_err(|_| "模型目录 JSON 格式无效，无法预览")?;
+                    value.as_object().ok_or("模型目录必须为 JSON 对象")?;
+                    if !matches!(action, ConfigAction::RevealCatalog) { mask_config(&mut value, false); }
+                    Some(value)
+                }
+            }
+        } else { None };
         Ok(Some(ConfigSource {
             path: path.to_string_lossy().into_owned(),
             workspace: workspace.map(|path| path.to_string_lossy().into_owned()),
@@ -107,6 +124,8 @@ pub(crate) async fn codex_config_source(
             config_preview,
             auth_path: auth_path.to_string_lossy().into_owned(),
             auth_preview,
+            catalog_path: catalog_path.to_string_lossy().into_owned(),
+            catalog_preview,
         }))
     }).await.map_err(|_| config_error("读取 Codex 配置任务失败".into()))?.map_err(config_error)
 }

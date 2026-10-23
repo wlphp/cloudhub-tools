@@ -13,10 +13,19 @@
 .codex-config-bar button:focus-visible{outline:2px solid var(--jb-accent,#9b8cff);outline-offset:2px}
 .codex-config-preview-path{display:block;overflow-wrap:anywhere;font-size:12px}
 .codex-config-preview { width:min(820px,calc(100vw - 32px)); }
-.codex-config-preview-tabs { display:flex; gap:8px; margin-bottom:14px; }
+.codex-config-preview-tabs { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px; }
 .codex-dialog .codex-config-preview-tabs>button[aria-selected=true] { border-color:var(--jb-accent,#9b8cff); background:color-mix(in srgb,var(--jb-accent,#9b8cff) 15%,var(--jb-surface,#2b2b2b)); }
 .codex-config-preview [role=tabpanel] { min-height:180px; outline-offset:3px; }
 .codex-config-preview pre{max-height:55vh;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;padding:12px;background:var(--jb-bg,#202020);border:1px solid var(--jb-border,#3b3b3b);border-radius:4px;font-size:12px}
+.codex-catalog-preview { display:grid; gap:16px; margin-top:16px; min-width:0; }
+.codex-catalog-preview h3 { margin:0 0 10px; font-size:13px; }
+.codex-catalog-models { display:grid; gap:8px; margin:0; padding:0; list-style:none; }
+.codex-catalog-models>li { display:grid; gap:6px; min-width:0; padding:10px 12px; border:1px solid var(--jb-border); border-radius:4px; background:var(--jb-input); overflow-wrap:anywhere; font-size:12px; }
+.codex-catalog-models>li>code { color:var(--jb-accent); }
+.codex-catalog-models dl { display:flex; flex-wrap:wrap; gap:8px 20px; margin:0; }
+.codex-catalog-models dl>div { display:flex; flex-wrap:wrap; gap:6px; }
+.codex-catalog-models dt { color:var(--jb-muted); }
+.codex-catalog-models dd { margin:0; }
 @media(max-width:768px){.codex-config-source{flex-basis:100%}.codex-config-scope{flex-basis:100%}}
 .codex-api-model-row{display:flex;align-items:center;gap:8px;min-width:0}.codex-api-model-row input{flex:1;min-width:0}.codex-api-model-row button{flex-shrink:0}.codex-api-field>label{margin:0;padding-top:9px;color:var(--jb-muted,#a4a4a4);font-size:12px}.codex-api-model-row+select{margin-top:7px}
 @media(max-width:520px){.codex-api-model-row{flex-wrap:wrap}.codex-api-model-row input{flex-basis:100%}.codex-api-field>label{padding-top:0}}

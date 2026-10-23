@@ -668,11 +668,15 @@ pub(crate) async fn codex_prepare_switch(
         )? {
             return Err("该账号有实例运行，请先停止实例再切换默认账号".into());
         }
-        let account = repository::get(&open_db()?, id)?;
+        repository::get(&open_db()?, id)?;
         if crate::core::codex::providers::is_provider_account(&open_db()?,id)? {return Err("请通过模型供应商启动预览应用此账号".into());}
         auth::ensure_runtime_auth(&repository::credentials(&open_db()?, id)?)?;
         let home = switch_home()?;
-        crate::core::codex::providers::ensure_home_unbound(&open_db()?,&home)?;
+        super::codex_providers::restore_before_account_switch(
+            &app.state::<super::codex_runtime::CodexRuntimeStore>(), None,
+        )?;
+        // Restoring may persist a rotated OAuth grant and advance the account version.
+        let account = repository::get(&open_db()?, id)?;
         let previous = previous_auth(&home)?;
         let token = uuid::Uuid::new_v4().to_string();
         *SWITCH_TICKET.lock().map_err(|_| "Codex 切号状态不可用")? = Some(SwitchTicket {
@@ -700,7 +704,7 @@ pub(crate) async fn codex_close_default_processes(
 ) -> PlatformResult<()> {
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
         let _writer = AUTH_WRITER.lock().map_err(|_| "Codex 账号操作不可用")?;
-        super::codex_instances::ensure_idle(
+        super::codex_instances::ensure_runtime_idle(
             &app.state::<super::codex_runtime::CodexRuntimeStore>(),
         )?;
         profile::close_default_processes()

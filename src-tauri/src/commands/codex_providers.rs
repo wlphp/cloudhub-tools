@@ -352,8 +352,13 @@ pub(crate) async fn codex_provider_restore(app:tauri::AppHandle,id:Option<String
         let _writer=super::codex::AUTH_WRITER.lock().map_err(|_| "Codex 账号操作不可用")?;
         let store=app.state::<super::codex_runtime::CodexRuntimeStore>();
         let home=super::codex_instances::config_home(&store,id.as_deref(),true)?;
+        restore_target(&store, &home, id.as_deref(), force.unwrap_or(false))
+    }).await.map_err(|_| "恢复供应商配置任务失败")?.map_err(Into::into)
+}
+
+// Caller holds AUTH_WRITER and has verified that the target is stopped.
+fn restore_target(store:&super::codex_runtime::CodexRuntimeStore,home:&std::path::Path,id:Option<&str>,force:bool)->Result<ConfigPreview,String> {
         let mut conn=open_db()?;
-        let force=force.unwrap_or(false);
         // 外部修改检查必须先于任何写操作。OAuth 续期会改写备份里的认证快照，
         // 因此这里只校验 config.toml，认证一侧由续期与恢复各自的严格校验把关。
         if !force {provider_config::assert_config_restorable(&conn,&home)?;}
@@ -374,7 +379,14 @@ pub(crate) async fn codex_provider_restore(app:tauri::AppHandle,id:Option<String
         tx.commit().map_err(|_| "保存供应商恢复结果失败")?;
         store.provider_gateways.lock().map_err(|_| "供应商网关状态不可用")?.remove(home.to_string_lossy().as_ref());
         provider_config::preview(&conn,&home)
-    }).await.map_err(|_| "恢复供应商配置任务失败")?.map_err(Into::into)
+}
+
+pub(crate) fn restore_before_account_switch(store:&super::codex_runtime::CodexRuntimeStore,id:Option<&str>)->Result<(),String> {
+    let home=super::codex_instances::config_home(store,id,true)?;
+    if provider_config::managed_preview(&open_db()?,&home)?.has_backup {
+        restore_target(store,&home,id,false)?;
+    }
+    Ok(())
 }
 
 pub(crate) fn ensure_gateway(store:&super::codex_runtime::CodexRuntimeStore,home:&std::path::Path)->Result<(),String> {

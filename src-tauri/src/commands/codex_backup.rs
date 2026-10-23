@@ -7,7 +7,6 @@ use crate::core::{
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use std::io::Write;
-use tauri::Manager;
 use tauri_plugin_dialog::DialogExt;
 use zeroize::{Zeroize, Zeroizing};
 use zip::{write::SimpleFileOptions, ZipWriter};
@@ -363,9 +362,7 @@ pub(crate) async fn codex_export_accounts_file(
         let path = selected.into_path().map_err(|_| "账号导出路径无效")?;
         let encoded = {
             let _writer = AUTH_WRITER.lock().map_err(|_| "Codex 账号操作不可用")?;
-            super::codex_instances::ensure_idle(
-                &app.state::<super::codex_runtime::CodexRuntimeStore>(),
-            )?;
+            // Export a consistent snapshot of stored credentials without changing live client state.
             let conn = open_db()?;
             let accounts = if let Some(ids) = &account_ids {
                 if ids.is_empty() || ids.len() > 100 || ids.iter().any(|id| *id <= 0) {

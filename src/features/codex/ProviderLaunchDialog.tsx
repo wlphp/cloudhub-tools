@@ -132,10 +132,10 @@ export function ProviderLaunchDialog({ target: launchTarget, switchEnabled, onEn
   const applyLabel = configured ? "已切换" : !switchEnabled ? "启用并切换" : "切换";
   const launchLabel = configured ? "启动 Codex" : !switchEnabled ? "启用、切换并启动" : "切换并启动";
   return <OverviewDialog title={title + " · 启动预览"} busy={busy} onClose={onClose} layout="form" className="codex-provider-launch-dialog" footer={<>
-    <button disabled={busy} onClick={onClose}>关闭</button>
-    <button disabled={disabled || !preview?.hasBackup} onClick={() => void execute(true)}><RotateCcw size={14} />恢复配置与登录</button>
-    <button disabled={disabled || !validSelection || configured || preview?.recoveryPending} onClick={() => void execute(false)}>{applyLabel}</button>
-    <button className="codex-dialog-primary" disabled={disabled || !validSelection || preview?.recoveryPending} onClick={() => void (configured ? startApplied() : execute(false, true))}><Play size={14} />{busy ? "处理中…" : launchLabel}</button>
+    <button title="关闭启动预览；已应用的配置和登录状态会保留，不会自动恢复。" disabled={busy} onClick={onClose}>关闭</button>
+    <button title={preview?.hasBackup ? "将目标实例的配置和登录信息恢复为首次切换前的备份；恢复后需重新启动客户端读取。" : "暂无可恢复的备份；首次切换供应商配置时会自动创建加密备份。"} disabled={disabled || !preview?.hasBackup} onClick={() => void execute(true)}><RotateCcw size={14} />恢复配置与登录</button>
+    <button title={configured ? "当前选择已应用到目标实例，无需重复切换；可点击“启动 Codex”打开客户端。" : `${!switchEnabled ? "先启用配置切换，再" : ""}备份并将所选供应商、密钥、模型和登录设置应用到目标实例，不启动客户端。`} disabled={disabled || !validSelection || configured || preview?.recoveryPending} onClick={() => void execute(false)}>{applyLabel}</button>
+    <button title={configured ? "检查已应用的配置是否仍与当前选择一致，然后启动目标客户端。" : `${!switchEnabled ? "先启用配置切换，再" : ""}备份并应用当前选择，然后${target ? "启动所选独立实例" : "打开默认 Codex 桌面客户端"}。`} className="codex-dialog-primary" disabled={disabled || !validSelection || preview?.recoveryPending} onClick={() => void (configured ? startApplied() : execute(false, true))}><Play size={14} />{busy ? "处理中…" : launchLabel}</button>
   </>}>
     <div className="codex-provider-launch-content">
       <section className="codex-provider-form codex-provider-launch-fields" aria-label="启动设置">
@@ -172,6 +172,21 @@ export function ProviderLaunchDialog({ target: launchTarget, switchEnabled, onEn
         {provider && oauthId && <p>OAuth 账号由目标实例独占，登录续期由官方客户端处理；推理使用供应商凭据。</p>}
         {(aggregate || provider?.wireApi !== "responses") && <p>通过本机网关转换 Responses 协议，使用期间请保持 CloudHub 运行。</p>}
       </div></div>
+      <details className="codex-provider-launch-help">
+        <summary>启动原理</summary>
+        <div className="codex-provider-launch-help-content">
+          <p><strong>这一步做什么：</strong>先把供应商配置应用到目标实例，再按你的选择启动 Codex；默认实例和独立实例使用各自的配置目录。</p>
+          <ol>
+            <li>如果尚未启用配置切换，先启用该设置；随后把当前配置和登录信息加密备份到本机。</li>
+            <li>把选中的供应商、密钥、模型和可选 OAuth 身份写入目标实例的 <code>config.toml</code> 与 <code>auth.json</code>。</li>
+            <li>点击“切换”只应用配置；点击“切换并启动”或“启动 Codex”会继续打开默认客户端或启动选中的独立实例。</li>
+          </ol>
+          <p><strong>模型列表如何注入：</strong>应用配置时，CloudHub 根据所选密钥的有效模型目录（聚合模式使用聚合模型列表），在目标配置目录生成 <code>cloudhub-model-catalog.json</code>，为每个模型填入模型 ID、显示名称、上下文窗口等客户端所需字段。随后在 <code>config.toml</code> 中写入 <code>model_catalog_json = "cloudhub-model-catalog.json"</code>，让 Codex 启动时加载这份本地目录；<code>model</code> 则设为上方选中的默认模型。修改模型列表后，需要重新应用配置并重启客户端。目录用于展示和选择模型，实际可用性仍由上游接口与密钥权限决定。</p>
+          <p><strong>请求路径：</strong>Responses API 直接使用供应商协议；Chat Completions 或聚合配置会经过 CloudHub 本机网关转换，因此使用期间需要保持 CloudHub 运行。</p>
+          {provider && oauthId && <p><strong>OAuth：</strong>OAuth 只负责目标实例的官方登录身份和续期，实际推理请求仍使用上面选择的供应商密钥。</p>}
+          <p><strong>恢复：</strong>“恢复配置与登录”会使用首次切换前的加密备份回退，避免误操作后丢失原有配置。</p>
+        </div>
+      </details>
       {phase && <p role="status">{phase}</p>}{notice && <p role="status">{notice}</p>}{error && <div className="codex-provider-launch-error"><p role="alert" className="codex-card-error">{error}</p>{error.includes("外部修改") && <button type="button" disabled={busy || loading} onClick={() => void forceRestore()}>强制恢复</button>}<button type="button" disabled={busy || loading} onClick={() => { setPreview(null); setLoading(true); setPreviewRevision(value => value + 1); }}>刷新预览</button></div>}
     </div>
   </OverviewDialog>;
