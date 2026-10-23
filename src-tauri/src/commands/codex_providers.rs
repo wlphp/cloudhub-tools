@@ -534,14 +534,15 @@ mod tests {
             let input=ModelCatalogInput{base_url:base.into(),provider_id:None,key_id:None,version:None,secret:secret.map(str::to_owned)};
             assert!(resolve_model_catalog(input,|_,_,_|panic!("invalid input must not load credentials")).is_err());
         }
-        // 明文 HTTP 仅允许回环地址，公网供应商必须使用 HTTPS。
-        for base in ["http://example.com/v1","http://example.com:8080/v1"] {
-            let input=ModelCatalogInput{base_url:base.into(),provider_id:None,key_id:None,version:None,secret:Some("fixture".into())};
-            assert!(resolve_model_catalog(input,|_,_,_|panic!("rejected input must not load credentials")).is_err(),"{base}");
-        }
-        for base in ["https://example.com/v1","http://127.0.0.1:3300/v1","http://[::1]:3300/v1","http://localhost:3300/v1"] {
+        // 明文 HTTP 一律放行：上游地址由用户显式填写，界面负责提示传输风险。
+        for base in ["https://example.com/v1","http://example.com/v1","http://example.com:8080/v1","http://127.0.0.1:3300/v1","http://[::1]:3300/v1","http://localhost:3300/v1"] {
             let input=ModelCatalogInput{base_url:base.into(),provider_id:None,key_id:None,version:None,secret:Some("fixture".into())};
             assert!(resolve_model_catalog(input,|_,_,_|panic!("valid input must not load credentials")).is_ok(),"{base}");
+        }
+        // 仍然拒绝无法解析成 URL 的地址。
+        for base in ["example.com/v1","ftp://example.com/v1"] {
+            let input=ModelCatalogInput{base_url:base.into(),provider_id:None,key_id:None,version:None,secret:Some("fixture".into())};
+            assert!(resolve_model_catalog(input,|_,_,_|panic!("rejected input must not load credentials")).is_err(),"{base}");
         }
     }
 

@@ -346,21 +346,47 @@ impl PlatformError {
         } else {
             ("unknown", false)
         };
-        let public_message = match code {
-            "frp-port-conflict" => "本机 FRP 面板端口已被占用，请先停止旧连接或占用该端口的进程",
-            "codex-account-busy" => "所选账号已有 Codex 实例或服务运行，请先停止后再启动 API 服务",
-            "codex-gateway-port-conflict" => "本地 API 端口已被占用，请换一个端口后重试",
-            "authentication" => "认证失败，请检查凭据或登录状态",
-            "permission" => "权限不足，请检查当前账号权限",
-            "network" => "网络或云服务暂时不可用，请稍后重试",
-            "not-found" => "目标资源不存在或已被移除",
-            "conflict" => "操作冲突，请刷新后重试",
-            "cancelled" => "操作已取消",
-            "validation" => "输入参数无效，请检查后重试",
-            _ => "操作失败，请稍后重试",
-        };
-        Self { kind: "platform-error", code, message: public_message.to_string(), retryable }
+        // 本地优先工具：失败原因必须能直接告诉用户。这里只做错误分类供前端判断
+        // 是否可重试，不再把原始原因替换成通用文案——通用提示会让用户无法判断
+        // 到底哪里出错，只能反复重试。原文照传，但夹带的凭据形状片段会被替换掉。
+        Self { kind: "platform-error", code, message: redact_inline_credentials(&message), retryable }
     }
+}
+
+/// 透传失败原因的同时，把文案里夹带的凭据形状片段替换掉：只删值不删上下文，
+/// 用户仍能看到「保存代理失败 token=…」，截图或录屏也不会把密钥带走。
+fn redact_inline_credentials(message:&str)->String {
+    static KEYS:&[&str]=&["secret=","token=","password=","passwd=","api_key=","apikey=","access_key=","secret_key=","authorization=","bearer "];
+    // 等长的小写副本：非 ASCII 字符原样保留，索引才能与原文直接对齐。
+    let lower=message.chars().map(|c|if c.is_ascii(){c.to_ascii_lowercase()}else{c}).collect::<String>();
+    let mut spans:Vec<(usize,usize)>=Vec::new();
+    for key in KEYS {
+        let mut from=0;
+        while let Some(offset)=lower.get(from..).and_then(|rest|rest.find(key)) {
+            let start=from+offset+key.len();
+            let end=lower.get(start..).and_then(|rest|rest.find(char::is_whitespace)).map(|value|start+value).unwrap_or(message.len());
+            if end>start {spans.push((start,end));}
+            from=start;
+        }
+    }
+    if spans.is_empty() {return message.to_string()}
+    spans.sort_unstable();
+    let mut merged:Vec<(usize,usize)>=Vec::new();
+    for (start,end) in spans {
+        match merged.last_mut() {
+            Some(last) if start<=last.1=>last.1=last.1.max(end),
+            _=>merged.push((start,end)),
+        }
+    }
+    let mut out=String::with_capacity(message.len());
+    let mut cursor=0;
+    for (start,end) in merged {
+        out.push_str(&message.get(cursor..start).unwrap_or_default());
+        out.push_str("[已隐藏]");
+        cursor=end;
+    }
+    out.push_str(&message.get(cursor..).unwrap_or_default());
+    out
 }
 
 /// Matches only the fixed notes length diagnostics (`{label}过长，最多 {max} 个字符`),
@@ -489,10 +515,10 @@ mod tests {
         assert_eq!(PlatformError::from("标题过长，最多 200 个字符").code, "notes");
         assert_eq!(PlatformError::from("密码过长，最多 2048 个字符").code, "notes");
         assert_eq!(PlatformError::from("备忘录不存在或已被删除").code, "notes");
-        // Arbitrary text, including a look-alike length message with user data, is not forwarded.
-        let error = PlatformError::from("标题过长，最多 200 个字符 secret-value");
-        assert_ne!(error.message, "标题过长，最多 200 个字符 secret-value");
+        // 原文照传，但夹带的凭据形状片段会被替换掉。
+        let error = PlatformError::from("标题过长，最多 200 个字符 token=secret-value");
         assert!(!error.message.contains("secret-value"));
+        assert!(error.message.starts_with("标题过长，最多 200 个字符"));
     }
 
     #[test]
@@ -539,7 +565,8 @@ mod tests {
         assert!(account.message.contains("先停止"));
         let port = PlatformError::from("本地 API 端口被占用或无法监听，请选择其他端口");
         assert_eq!(port.code, "codex-gateway-port-conflict");
-        assert!(port.message.contains("换一个端口"));
+        // 保留原文：换成「换一个端口」这类通用提示只会让用户猜不出真实冲突。
+        assert!(port.message.contains("端口被占用"));
     }
 
     #[test]

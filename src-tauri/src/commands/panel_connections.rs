@@ -1,5 +1,5 @@
 use crate::core::{repositories::panel_connections as panel_repository, storage::open_db};
-use crate::core::error::PlatformResult;
+use crate::core::error::{PlatformError, PlatformResult};
 use crate::{decrypt_secret, encrypt_secret, ExportPanelConnection, ImportPanelConnection, PanelConnection, PanelConnectionInput};
 use chrono::Utc;
 use md5::{Digest, Md5};
@@ -36,8 +36,12 @@ pub(crate) fn update_panel_connection_remark(id: i64, remark: Option<String>) ->
 fn normalize_panel_url(value: &str) -> Result<String, String> {
     let url = value.trim().trim_end_matches('/');
     if !(url.starts_with("http://") || url.starts_with("https://")) { return Err("面板 URL 必须以 http:// 或 https:// 开头".into()); }
-    let host = &url[url.find("://").unwrap_or(0) + 3..];
-    if host.is_empty() || host.contains('/') || host.contains('?') || host.contains('#') { return Err("请填写面板根地址，例如 https://192.168.1.2:8888".into()); }
+    let rest = &url[url.find("://").unwrap_or(0) + 3..];
+    if rest.split(['/', '?', '#']).next().unwrap_or_default().is_empty() { return Err("面板 URL 缺少主机地址，例如 https://192.168.1.2:8888".into()); }
+    // 宝塔/aPanel 普遍带面板入口路径（https://host:port/7687963a），这类地址照单全收：
+    // 后续 API 路径是拼在这个基址后面的，砍掉入口路径反而连不上。只挡掉 ? 和 #——
+    // 它们留在基址里会把追加的 API 路径整段截断，得到的 URL 必然是坏的。
+    if rest.contains('?') || rest.contains('#') { return Err("面板 URL 不能包含 ? 或 #；只保留协议、主机和路径".into()); }
     Ok(url.to_string())
 }
 
@@ -192,9 +196,15 @@ pub(crate) async fn save_panel_connection(input: PanelConnectionInput) -> Platfo
     let existing = input.id.map(|id| panel_repository::existing_api_key(&open_db()?, id)).transpose()?.flatten();
     let api_key_ciphertext = match input.api_key.as_deref().map(str::trim).filter(|value| !value.is_empty()) { Some(key) => encrypt_secret(key)?, None => existing.ok_or_else(|| "首次绑定需要填写面板 API 密钥".to_string())? };
     let api_key = decrypt_secret(&api_key_ciphertext)?;
-    let data = panel_api_request(&panel_url, &api_key, "/system?action=GetNetWork", input.allow_insecure_tls).await?;
-    let summary = panel_summary(&data); let now = Utc::now().timestamp_millis(); let conn = open_db()?;
-    Ok(panel_repository::save(&conn, &input, name, &panel_url, &api_key_ciphertext, &serde_json::to_string(&summary).map_err(|e| e.to_string())?, now)?)
+    // 保存前实时调一次面板 API 验证连通性。失败不再直接拦死：原因交回界面让用户决定，
+    // 确认「仍要保存」后带 force 重新提交，面板照常入库，只是标记为未验证。
+    let (summary, unverified) = match panel_api_request(&panel_url, &api_key, "/system?action=GetNetWork", input.allow_insecure_tls).await {
+        Ok(data) => (panel_summary(&data), None),
+        Err(reason) if input.force == Some(true) => (json!({}), Some(reason)),
+        Err(reason) => return Err(PlatformError { kind: "platform-error", code: "panel-probe", message: reason, retryable: false }),
+    };
+    let now = Utc::now().timestamp_millis(); let conn = open_db()?;
+    Ok(panel_repository::save(&conn, &input, name, &panel_url, &api_key_ciphertext, &serde_json::to_string(&summary).map_err(|e| e.to_string())?, unverified.as_deref(), now)?)
 }
 
 #[tauri::command]
@@ -275,4 +285,31 @@ pub(crate) fn import_panel_connections(panels: Vec<ImportPanelConnection>) -> Pl
         imported += 1;
     }
     Ok(imported)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_panel_url;
+
+    #[test]
+    fn keeps_panel_entrance_paths_intact() {
+        // 宝塔/aPanel 的面板入口路径要原样留在基址里，否则拼出来的 API 地址是错的。
+        assert_eq!(normalize_panel_url("https://49.7.209.1:10430/7687963a").unwrap(), "https://49.7.209.1:10430/7687963a");
+        assert_eq!(normalize_panel_url("https://49.7.209.1:10430/7687963a/").unwrap(), "https://49.7.209.1:10430/7687963a");
+        assert_eq!(normalize_panel_url("http://192.168.1.2:8888/a/b/c").unwrap(), "http://192.168.1.2:8888/a/b/c");
+        // 没有入口路径的裸地址同样要能存。
+        assert_eq!(normalize_panel_url("https://192.168.1.2:8888").unwrap(), "https://192.168.1.2:8888");
+        assert_eq!(normalize_panel_url(" http://panel.example.com/ ").unwrap(), "http://panel.example.com");
+        assert_eq!(normalize_panel_url("https://[2001:db8::1]:8888/entrance").unwrap(), "https://[2001:db8::1]:8888/entrance");
+    }
+
+    #[test]
+    fn rejects_only_input_that_cannot_build_an_api_url() {
+        // 追加 API 路径时 ? 和 # 会把后面的内容整段截断，这两种必须挡住并说清原因。
+        assert!(normalize_panel_url("https://host/entry?x=1").is_err());
+        assert!(normalize_panel_url("https://host/entry#frag").is_err());
+        assert!(normalize_panel_url("ftp://host/entry").is_err());
+        assert!(normalize_panel_url("panel.example.com/entry").is_err());
+        assert!(normalize_panel_url("https:///entry").is_err());
+    }
 }

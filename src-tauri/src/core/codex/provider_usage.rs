@@ -224,7 +224,7 @@ mod tests {
 
     #[test]
     fn quota_authentication_matches_vendor_header_contracts() {
-        assert!(quota_url("http://example.com/v1","new_api").is_err());
+        assert!(quota_url("http://example.com/v1","new_api").is_ok());
         assert!(quota_url("http://127.0.0.1:3300/v1","new_api").is_ok());
         assert_eq!(authorization_value("zhipu","fixture-key").unwrap().to_str().unwrap(),"fixture-key");
         assert_eq!(authorization_value("deepseek","fixture-key").unwrap().to_str().unwrap(),"Bearer fixture-key");

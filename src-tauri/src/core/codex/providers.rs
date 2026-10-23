@@ -67,8 +67,8 @@ pub struct Provider {
 
 pub fn validate(input: &ProviderInput) -> Result<(), String> {
     let url = reqwest::Url::parse(&input.base_url).map_err(|_| "供应商地址无效")?;
-    let local_http = url.scheme() == "http" && super::provider_probe::loopback(&url);
-    if (url.scheme() != "https" && !local_http) || url.host_str().is_none()
+    // 与探测层保持一致：http 与 https 都允许填写，不对上游协议做限制。
+    if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none()
         || !url.username().is_empty() || url.password().is_some() || url.query().is_some() || url.fragment().is_some()
         || input.base_url.len()>2048 { return Err("供应商地址无效".into()); }
     if input.name.trim().is_empty() || input.name.len()>100 || input.name.chars().any(char::is_control) || input.note.len()>2000
@@ -253,7 +253,7 @@ mod tests {
         v=input(); v.settings.context_window=Some(4096); v.settings.compact_limit=Some(8192); assert!(validate(&v).is_err());
         v=input(); v.settings.default_model=Some("missing".into()); assert!(validate(&v).is_err());
         v=input(); v.models=vec![]; assert!(validate(&v).is_ok());
-        v=input(); v.base_url="http://example.com/v1".into(); assert!(validate(&v).is_err());
+        v=input(); v.base_url="http://example.com/v1".into(); assert!(validate(&v).is_ok());
         v=input(); v.base_url="http://127.0.0.1:8080/v1".into(); assert!(validate(&v).is_ok());
         v=input(); v.keys[0].settings.models=vec!["key-model".into()]; v.keys[0].settings.default_model=Some("key-model".into()); assert!(validate(&v).is_ok());
         v.settings.default_model=Some("model-test".into()); v.keys[0].settings.default_model=None;

@@ -80,9 +80,11 @@
 .codex-provider-editor .codex-provider-target { display:grid; gap:5px; min-width:0; font-size:13px; font-weight:500; }
 .codex-provider-editor .codex-provider-target>div { display:flex; align-items:center; gap:8px; box-sizing:border-box; min-height:40px; padding:10px 12px; border:1px solid var(--jb-border,#3b3b3b); border-radius:6px; }
 .codex-provider-editor .codex-provider-target svg { color:var(--jb-accent,#7869df); flex:none; }
-.codex-provider-editor .codex-provider-copy-field { display:grid; grid-template-columns:minmax(0,1fr) 40px; align-items:end; gap:8px; min-width:0; }
-.codex-provider-editor .codex-provider-copy-field>label { min-width:0; }
-.codex-provider-editor .codex-provider-copy-field>button { width:40px; height:40px; min-height:40px; padding:0; margin:0 0 1px; }
+.codex-provider-editor .codex-provider-copy-field { display:grid; grid-template-columns:minmax(0,1fr) 40px; align-items:start; gap:8px; min-width:0; }
+/* 明文 HTTP 提示会加在输入框下面，用 end 对齐会让复制按钮跟着掉下去。改成与
+   密钥行的删除按钮同一套算式：标签行高 20px + 间距 5px，按钮顶边对齐输入框。 */
+.codex-provider-editor .codex-provider-copy-field>label { min-width:0; line-height:20px; }
+.codex-provider-editor .codex-provider-copy-field>button { width:40px; height:40px; min-height:40px; padding:0; margin:25px 0 0; }
 .codex-provider-editor .codex-provider-more { margin-top:4px; }
 .codex-provider-mode-note { display:grid; gap:5px; padding-top:23px; font-size:13px; }
 .codex-provider-more { min-width:0; }

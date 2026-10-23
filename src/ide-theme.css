@@ -1067,7 +1067,16 @@
 .ide-theme .ssh-terminal-theme-menu button { height: 28px; border-radius: 2px; color: var(--jb-muted); font-size: 11px; }
 .ide-theme .ssh-terminal-theme-menu button:hover,
 .ide-theme .ssh-terminal-theme-menu button.active { background: var(--jb-accent-soft) !important; color: #f3f0ff; }
-.ide-theme .ssh-terminal-viewport { padding: 10px 12px 28px; background: #000 !important; }
+.ide-theme .ssh-terminal-viewport { padding: 10px 12px 12px; background: #000 !important; }
+/* 终端底部命令栏：颜色跟随 IDE 主题变量，深色外壳下仍保持可见 */
+.ide-theme .ssh-terminal-pane { background: #000 !important; }
+.ide-theme .ssh-terminal-input-bar { background: var(--jb-surface) !important; border-top-color: var(--jb-border) !important; }
+.ide-theme .ssh-terminal-input-icon { color: var(--jb-accent) !important; }
+.ide-theme .ssh-terminal-input-bar input { background: var(--jb-surface-2) !important; border-color: var(--jb-border-strong) !important; color: var(--jb-text) !important; }
+.ide-theme .ssh-terminal-input-bar input::placeholder { color: var(--jb-muted) !important; }
+.ide-theme .ssh-terminal-input-bar input:focus { border-color: var(--jb-accent) !important; }
+.ide-theme .ssh-terminal-input-bar button { background: var(--jb-surface-2) !important; border-color: var(--jb-border-strong) !important; color: var(--jb-text) !important; }
+.ide-theme .ssh-terminal-input-bar button:not(:disabled):hover { background: var(--jb-surface-3) !important; border-color: var(--jb-accent) !important; color: #fff !important; }
 .ide-theme .ssh-file-manager { border-left-color: var(--jb-border) !important; background: #242424 !important; color: var(--jb-muted); }
 .ide-theme .ssh-file-toolbar,
 .ide-theme .ssh-file-actions { border-bottom-color: var(--jb-border) !important; background: var(--jb-surface-2) !important; }
@@ -2779,7 +2788,7 @@
   width: 100%;
   min-width: 0;
 }
-.ide-theme.detached-terminal-window .terminal-workbench .ssh-terminal-viewport {
+.ide-theme.detached-terminal-window .terminal-workbench .ssh-terminal-pane {
   flex: 1 1 auto;
   width: auto;
   min-width: 0;

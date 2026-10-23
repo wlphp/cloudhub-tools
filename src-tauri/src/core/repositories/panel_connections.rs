@@ -57,14 +57,17 @@ pub fn export_rows(conn: &Connection) -> Result<Vec<ExportRow>, String> {
     rows.map(|row| row.map_err(|error| error.to_string())).collect()
 }
 
-pub fn save(conn: &Connection, input: &crate::PanelConnectionInput, name: &str, panel_url: &str, api_key_ciphertext: &str, summary_json: &str, now: i64) -> Result<PanelConnection, String> {
+pub fn save(conn: &Connection, input: &crate::PanelConnectionInput, name: &str, panel_url: &str, api_key_ciphertext: &str, summary_json: &str, unverified_error: Option<&str>, now: i64) -> Result<PanelConnection, String> {
+    // 强制保存（用户确认过验证失败）的面板按未验证入库：状态落 offline 并记下原因，
+    // 卡片上立刻看得出这份配置还没通过验证，不假装在线。
+    let status = if unverified_error.is_some() { "offline" } else { "online" };
     let id = match input.id {
         Some(id) => {
-            conn.execute("UPDATE panel_connections SET name=?1,panel_url=?2,api_key_ciphertext=?3,sort_order=?4,allow_insecure_tls=?5,group_name=?6,source_account_id=?7,source_asset_key=?8,status='online',summary_json=?9,last_checked_at=?10,last_error=NULL,remark=?11,updated_at=?10 WHERE id=?12", params![name,panel_url,api_key_ciphertext,input.sort_order.max(0),input.allow_insecure_tls as i64,input.group_name,input.source_account_id,input.source_asset_key,summary_json,now,input.remark,id]).map_err(|error| error.to_string())?;
+            conn.execute("UPDATE panel_connections SET name=?1,panel_url=?2,api_key_ciphertext=?3,sort_order=?4,allow_insecure_tls=?5,group_name=?6,source_account_id=?7,source_asset_key=?8,status=?9,summary_json=?10,last_checked_at=?11,last_error=?12,remark=?13,updated_at=?11 WHERE id=?14", params![name,panel_url,api_key_ciphertext,input.sort_order.max(0),input.allow_insecure_tls as i64,input.group_name,input.source_account_id,input.source_asset_key,status,summary_json,now,unverified_error,input.remark,id]).map_err(|error| error.to_string())?;
             id
         }
         None => {
-            conn.execute("INSERT INTO panel_connections(name,panel_url,api_key_ciphertext,sort_order,allow_insecure_tls,group_name,source_account_id,source_asset_key,status,summary_json,last_checked_at,remark,created_at,updated_at,sync_id) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,'online',?9,?10,?11,?10,?10,?12)", params![name,panel_url,api_key_ciphertext,input.sort_order.max(0),input.allow_insecure_tls as i64,input.group_name,input.source_account_id,input.source_asset_key,summary_json,now,input.remark,uuid::Uuid::new_v4().to_string()]).map_err(|error| error.to_string())?;
+            conn.execute("INSERT INTO panel_connections(name,panel_url,api_key_ciphertext,sort_order,allow_insecure_tls,group_name,source_account_id,source_asset_key,status,summary_json,last_checked_at,last_error,remark,created_at,updated_at,sync_id) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?11,?11,?14)", params![name,panel_url,api_key_ciphertext,input.sort_order.max(0),input.allow_insecure_tls as i64,input.group_name,input.source_account_id,input.source_asset_key,status,summary_json,now,unverified_error,input.remark,uuid::Uuid::new_v4().to_string()]).map_err(|error| error.to_string())?;
             conn.last_insert_rowid()
         }
     };
@@ -98,4 +101,58 @@ pub fn delete(conn: &Connection, id: i64, now: i64) -> Result<(), String> {
 pub fn update_remark(conn: &Connection, id: i64, remark: Option<String>, now: i64) -> Result<PanelConnection, String> {
     conn.execute("UPDATE panel_connections SET remark=?1,updated_at=?2 WHERE id=?3", params![remark, now, id]).map_err(|error| error.to_string())?;
     get(conn, id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // 只取面板自己用到的列，与 database.rs 的建表语句保持一致；sync_id 由迁移补上，
+    // 这里一并建出来，save 的 INSERT 才不会因为缺列而报错。
+    const TEST_SCHEMA: &str = "CREATE TABLE panel_connections (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, panel_url TEXT NOT NULL UNIQUE, api_key_ciphertext TEXT NOT NULL, sort_order INTEGER NOT NULL DEFAULT 0, allow_insecure_tls INTEGER NOT NULL DEFAULT 0, group_name TEXT, source_account_id INTEGER, source_asset_key TEXT, status TEXT NOT NULL DEFAULT 'unknown', summary_json TEXT NOT NULL DEFAULT '{}', last_checked_at INTEGER, last_error TEXT, remark TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, deleted_at INTEGER, sync_id TEXT);";
+
+    fn input(id: Option<i64>) -> crate::PanelConnectionInput {
+        crate::PanelConnectionInput {
+            id,
+            name: "示例面板".into(),
+            panel_url: "https://panel.example.test".into(),
+            sort_order: 0,
+            api_key: None,
+            allow_insecure_tls: false,
+            group_name: None,
+            source_account_id: None,
+            source_asset_key: None,
+            remark: None,
+            force: None,
+        }
+    }
+
+    #[test]
+    fn forced_save_is_stored_as_unverified_with_its_reason() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(TEST_SCHEMA).unwrap();
+        let reason = "面板请求失败：HTTP 404 Not Found";
+        let saved = save(&conn, &input(None), "示例面板", "https://panel.example.test", "cipher", "{}", Some(reason), 100).unwrap();
+        // 验证没过但用户确认过要保存：面板照常进列表，状态必须是 offline 而不是假装在线。
+        assert_eq!(saved.status, "offline");
+        assert_eq!(saved.last_error.as_deref(), Some(reason));
+        assert!(saved.api_key_saved);
+    }
+
+    #[test]
+    fn a_later_verified_save_clears_the_previous_reason() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(TEST_SCHEMA).unwrap();
+        let first = save(&conn, &input(None), "示例面板", "https://panel.example.test", "cipher", "{}", Some("面板请求失败：HTTP 404 Not Found"), 100).unwrap();
+        assert_eq!(first.status, "offline");
+
+        // 修好 URL 后再存一次：状态回到 online，上一轮的原因不能留在卡片上误导排查。
+        let mut update = input(Some(first.id));
+        update.remark = Some("强制保存过".into());
+        let retried = save(&conn, &update, "示例面板", "https://panel.example.test", "cipher", r#"{"version":"1.0"}"#, None, 200).unwrap();
+        assert_eq!(retried.status, "online");
+        assert!(retried.last_error.is_none());
+        assert_eq!(retried.remark.as_deref(), Some("强制保存过"));
+        assert_eq!(retried.updated_at, 200);
+    }
 }

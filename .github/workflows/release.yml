@@ -33,36 +33,19 @@ jobs:
           - name: macOS Apple Silicon
             platform: macos-latest
             args: --target aarch64-apple-darwin --bundles app,dmg
-          - name: Linux x64
-            platform: ubuntu-24.04
-            args: --target x86_64-unknown-linux-gnu
     runs-on: ${{ matrix.platform }}
 
     steps:
       - name: Check out source
         uses: actions/checkout@v5
+        with:
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
-
-      - name: Install Linux dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            build-essential \
-            curl \
-            wget \
-            file \
-            libxdo-dev \
-            libssl-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            patchelf
 
       - name: Install frontend dependencies
         run: npm ci
@@ -82,7 +65,8 @@ jobs:
             exit 1
           fi
 
-      - name: Run pre-release checks
+      - name: Run shared pre-release checks
+        if: runner.os == 'Windows'
         shell: bash
         run: |
           npx playwright install chromium
@@ -98,6 +82,10 @@ jobs:
           node scripts/verify-format-panel.mjs
           node scripts/verify-resources-pure.mjs
           node --check web-api.mjs
+
+      - name: Check and test Rust on each desktop platform
+        shell: bash
+        run: |
           cargo check --manifest-path src-tauri/Cargo.toml
           cargo test --manifest-path src-tauri/Cargo.toml
 
@@ -112,15 +100,14 @@ jobs:
           releaseBody: |
             ## 更新内容
 
-            - 新增 Claude Code 供应商管理、直连/路由/聚合模式及工作区配置。
-            - 新增本地备忘录、分组和提醒，并支持从桌面宠物进入备忘录。
-            - 新增统一回收站，支持已删除资源恢复、永久删除和凭据清理。
-            - 统一插件页面与弹层打开方式，优化公共对话框和身份验证器界面。
-            - 修复移动端命令注册边界，桌面与 Android、iOS 使用同一版本与提交。
+            - 改进 Codex 供应商导入、模型目录及探测错误提示。
+            - 改进面板入口地址处理，支持连接验证失败后确认保存。
+            - 优化界面布局、面板指标和错误信息展示。
+            - 精简发布平台与重复检查，统一 Windows、macOS、Android 和 iOS 版本。
 
             ## 下载说明
 
-            提供 Windows、macOS 和 Linux 桌面版本。
+            提供 Windows、macOS 桌面版本，以及 Android 和 iOS 手机端产物。
             macOS 下载包按处理器区分：Apple Silicon（M 系列）和 Intel。
             Android ARM64 APK 使用现有本机测试证书签名，供直接安装使用。
             iOS 提供未签名 Xcode 归档，需要在 Mac 上配置 Apple 签名后安装，不能直接作为 IPA 安装。

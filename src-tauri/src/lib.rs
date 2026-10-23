@@ -329,6 +329,8 @@ struct PanelConnectionInput {
     source_account_id: Option<i64>,
     source_asset_key: Option<String>,
     remark: Option<String>,
+    /// 用户看到验证失败提示后选择「仍要保存」时置 true，跳过面板 API 连通性拦截。
+    force: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

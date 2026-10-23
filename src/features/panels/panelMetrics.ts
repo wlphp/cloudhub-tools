@@ -18,6 +18,19 @@ export function panelAddress(value: string): string {
   }
 }
 
+/** 只保留协议、主机和端口，丢掉面板入口路径。
+ *  宝塔/aPanel 的面板地址常带入口（https://host:port/7687963a），而 API 接口挂在
+ *  入口之后，填根地址才连得上。仅在用户主动点提取按钮时调用，保存内容原样保留。 */
+export function panelRootAddress(value: string): string {
+  const trimmed = value.trim();
+  try {
+    const url = new URL(trimmed);
+    return url.host ? `${url.protocol}//${url.host}` : trimmed;
+  } catch {
+    return trimmed.split(/[/?#]/)[0] || trimmed;
+  }
+}
+
 export function hiddenPanelAddress(value: string): string {
   const address = panelAddress(value);
   if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(address)) {

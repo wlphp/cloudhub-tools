@@ -42,8 +42,11 @@ for (const command of [
 ]) {
   if (!workflow.includes(command)) failures.push(`发布 workflow 缺少门禁：${command}`);
 }
-for (const platform of ["windows-2022", "macos-15-intel", "macos-latest", "ubuntu-24.04"]) {
+for (const platform of ["windows-2022", "macos-15-intel", "macos-latest"]) {
   if (!workflow.includes(platform)) failures.push(`发布 workflow 缺少平台：${platform}`);
+}
+if (/name:\s*Linux|--target x86_64-unknown-linux-gnu/.test(workflow)) {
+  failures.push("发布范围暂不包含 Linux，请移除 Linux 桌面构建任务");
 }
 if (!workflow.includes("tauri-apps/tauri-action@v1")) failures.push("发布 workflow 缺少 Tauri 打包动作");
 if (!workflow.includes("--bundles nsis,msi")) failures.push("Windows 发布 workflow 必须同时生成 NSIS 和 MSI");

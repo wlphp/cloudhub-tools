@@ -214,5 +214,20 @@ function ProviderSecretField({ disabled, hasSavedValue, value, onChange, reveal 
       setLoading(false);
     }
   }
-  return <div className="codex-provider-secret-group"><label htmlFor={id}>密钥</label><div className="codex-provider-secret-field"><input id={id} type={visible ? "text" : "password"} autoComplete="new-password" disabled={disabled || loading} placeholder={hasSavedValue ? "留空保留已保存密钥" : "API Key"} value={shown} onChange={event => { setSaved(""); setNotice(""); onChange(event.target.value); }} /><div className="codex-provider-secret-actions"><button type="button" className="codex-provider-secret-toggle" title={visible ? "隐藏密钥" : "显示密钥"} aria-label={visible ? "隐藏密钥" : "显示密钥"} aria-pressed={visible} disabled={disabled || loading} onClick={() => void toggle()}>{loading ? <LoaderCircle size={15} className="codex-refresh-spinning" /> : visible ? <EyeOff size={15} /> : <Eye size={15} />}</button>{visible && shown && <button type="button" className="codex-provider-secret-copy" title="复制密钥" aria-label="复制密钥" disabled={disabled} onClick={() => void navigator.clipboard.writeText(shown).catch(() => setNotice("复制失败，请检查剪贴板权限"))}><Copy size={15} /></button>}</div></div>{notice && <p className="codex-provider-secret-message">{notice}</p>}</div>;
+  // 复制不要求先点眼睛：输入框里有值就直接复制，已保存的密钥则先读取再复制，
+  // 用户为了拿一次密钥不必先把凭据显示在屏幕上。
+  async function copySecret() {
+    setNotice("");
+    const put = async (secret: string) => {
+      try { await navigator.clipboard.writeText(secret); setNotice("密钥已复制到剪贴板"); }
+      catch { setNotice("复制失败，请检查剪贴板权限"); }
+    };
+    if (shown) { await put(shown); return; }
+    if (!reveal) { setNotice(hasSavedValue ? "已保存的密钥不会回显；输入新密钥后可复制。" : "请先填写密钥。"); return; }
+    setLoading(true);
+    try { await put(await reveal()); }
+    catch (error) { setNotice(error instanceof Error ? error.message : "读取已保存的密钥失败"); }
+    finally { setLoading(false); }
+  }
+  return <div className="codex-provider-secret-group"><label htmlFor={id}>密钥</label><div className="codex-provider-secret-field"><input id={id} type={visible ? "text" : "password"} autoComplete="new-password" disabled={disabled || loading} placeholder={hasSavedValue ? "留空保留已保存密钥" : "API Key"} value={shown} onChange={event => { setSaved(""); setNotice(""); onChange(event.target.value); }} /><div className="codex-provider-secret-actions"><button type="button" className="codex-provider-secret-toggle" title={visible ? "隐藏密钥" : "显示密钥"} aria-label={visible ? "隐藏密钥" : "显示密钥"} aria-pressed={visible} disabled={disabled || loading} onClick={() => void toggle()}>{loading ? <LoaderCircle size={15} className="codex-refresh-spinning" /> : visible ? <EyeOff size={15} /> : <Eye size={15} />}</button><button type="button" className="codex-provider-secret-copy" title="复制密钥" aria-label="复制密钥" disabled={disabled || loading} onClick={() => void copySecret()}><Copy size={15} /></button></div></div>{notice && <p className="codex-provider-secret-message">{notice}</p>}</div>;
 }

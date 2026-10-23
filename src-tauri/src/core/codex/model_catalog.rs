@@ -53,32 +53,37 @@ fn official_fields()->Vec<String> {
     fields
 }
 
-/// 字段齐全的通用模板。
+/// 用其余官方条目补齐指定条目缺失的字段。
 ///
-/// 不同官方条目声明的字段并不一致（例如 `effective_context_window_percent` 只有
-/// 部分条目有），只拿单条当模板仍会漏掉客户端已经要求的字段。这里以指定模板
-/// 条目的取值为底，用其余官方条目补齐它没有的字段。
-fn schema_complete_template()->Value {
+/// 不同官方条目声明的字段并不一致：内置快照里没有一条是字段齐全的，最完整的
+/// 条目也少 `knowledge_cutoff` 与 `max_completion_tokens`。客户端拒收缺字段的
+/// 目录，所以无论条目命中与否，都必须先补齐再交给落盘校验。
+fn schema_complete(mut entry:Value)->Value {
     let entries=client_catalog()["models"].as_array().cloned().unwrap_or_default();
-    let mut merged=find_entry(TEMPLATE_SLUG).or_else(||entries.first().cloned()).unwrap_or_else(||json!({}));
-    if let Some(object)=merged.as_object_mut() {
-        for entry in entries.iter().filter(|entry|entry.as_object().is_some()) {
-            for (key,value) in entry.as_object().expect("已过滤非对象条目") {
+    if let Some(object)=entry.as_object_mut() {
+        for other in entries.iter().filter(|item|item.as_object().is_some()) {
+            for (key,value) in other.as_object().expect("已过滤非对象条目") {
                 if !object.contains_key(key) {
                     object.insert(key.clone(),value.clone());
                 }
             }
         }
     }
-    merged
+    entry
 }
 
-/// 取模型条目的模板。命中官方条目时原样返回，供应商模型回落到官方模板并标记
-/// 为非官方，交由调用方剥离官方模型特有的能力声明。
+/// 字段齐全的通用模板。
+fn schema_complete_template()->Value {
+    let entries=client_catalog()["models"].as_array().cloned().unwrap_or_default();
+    schema_complete(find_entry(TEMPLATE_SLUG).or_else(||entries.first().cloned()).unwrap_or_else(||json!({})))
+}
+
+/// 取模型条目的模板。命中官方条目时保留它自己的取值并补齐缺失字段，供应商模型
+/// 回落到官方模板并标记为非官方，交由调用方剥离官方模型特有的能力声明。
 pub fn template(model_id:&str)->(Value,bool) {
-    if let Some(entry)=find_entry(model_id) {return(entry,true)}
-    // 供应商条目一律使用字段齐全的通用模板：单条官方条目也可能缺少其它条目
-    // 已经声明的字段，那样生成的目录仍会被客户端拒绝。
+    // 命中官方条目也要补齐：单条官方条目缺少其它条目已经声明的字段是常态，
+    // 原样返回会让「应用配置」必然卡在落盘校验上。
+    if let Some(entry)=find_entry(model_id) {return(schema_complete(entry),true)}
     (schema_complete_template(),false)
 }
 

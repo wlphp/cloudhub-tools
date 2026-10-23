@@ -37,8 +37,9 @@ pub fn loopback(url: &Url) -> bool {
 
 pub fn endpoint(base: &str, path: &str) -> Result<Url, String> {
     let mut url = Url::parse(base).map_err(|_| "供应商地址无效")?;
-    let local_http = url.scheme() == "http" && loopback(&url);
-    if (url.scheme() != "https" && !local_http) || url.host_str().is_none()
+    // 上游地址由用户显式填写：http 与 https 一律放行，明文传输风险由界面提示承担，
+    // 这里不做协议白名单。仍保留解析必需项与 URL 夹带凭据的防护。
+    if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none()
         || !url.username().is_empty() || url.password().is_some() || url.query().is_some() || url.fragment().is_some() {
         return Err("供应商地址无效".into());
     }
@@ -173,17 +174,17 @@ mod tests {
     use super::*;
     #[test]
     fn strict_endpoints_and_untrusted_catalogs() {
-        // Plain HTTP is restricted to loopback hosts.
-        assert!(endpoint("http://example.com/v1", "models").is_err());
+        // 明文 HTTP 不再限制主机，任意上游地址都可以填写。
+        assert!(endpoint("http://example.com/v1", "models").is_ok());
         assert!(endpoint("http://localhost/v1", "models").is_ok());
         assert!(endpoint("http://127.0.0.1:8080/v1", "models").is_ok());
-        assert!(endpoint("http://127.5.5.5/v1", "models").is_err());
-        // IPv6 回环的等价写法都必须识别为回环，host_str 会带方括号。
+        assert!(endpoint("http://127.5.5.5/v1", "models").is_ok());
+        // IPv6 回环的等价写法仍然可用，host_str 带方括号。
         for base in ["http://[::1]:3300/v1","http://[0:0:0:0:0:0:0:1]/v1"] {
             assert!(endpoint(base, "models").is_ok(),"{base}");
         }
         for base in ["http://[2001:db8::1]/v1","http://[::ffff:127.0.0.1]/v1"] {
-            assert!(endpoint(base, "models").is_err(),"{base}");
+            assert!(endpoint(base, "models").is_ok(),"{base}");
         }
         assert!(endpoint("http://127.1/v1", "models").is_ok());
         assert!(endpoint("ftp://example.com/v1", "models").is_err());

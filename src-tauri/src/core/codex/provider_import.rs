@@ -185,7 +185,8 @@ mod tests {
         row["baseUrl"]=json!("https://localhost/v1");
         assert!(prepare(&db,&json!([row.clone()]).to_string()).is_err());
         row["baseUrl"]=json!("http://example.com/v1");
-        assert!(prepare(&db,&json!([row.clone()]).to_string()).is_err());
+        // 公网明文 HTTP 不再拒绝：拒绝的是把第三方配置指向本机回环代理。
+        assert!(prepare(&db,&json!([row.clone()]).to_string()).is_ok());
         row["baseUrl"]=json!("https://example.com/v1");
         let (draft,summary)=prepare(&db,&json!([row.clone(),row.clone()]).to_string()).unwrap();assert_eq!(draft.rows.len(),1);assert!(summary.providers[1].duplicate);
         row["wireApi"]=json!("anthropic_messages");assert!(prepare(&db,&json!([row]).to_string()).is_err());
