@@ -25,15 +25,17 @@ export function ProviderLaunchDialog({ target: launchTarget, switchEnabled, onEn
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [phase, setPhase] = useState("");
-  const [appliedSelection, setAppliedSelection] = useState<string | null>(null);
   const [previewRevision, setPreviewRevision] = useState(0);
   const pending = useRef(false);
   const alive = useRef(true);
   const availableModels = provider ? [...new Set(provider.keys.flatMap(key => effectiveModels(provider, key.id)))] : models;
   const modelKeys = provider && model ? keysForModel(provider, model) : [];
   const matchedKey = provider?.keys.find(key => key.id === keyId);
-  const selection = JSON.stringify([target, keyId, model, oauthId]);
-  const configured = appliedSelection === selection && !!preview?.hasBackup;
+  function matchesSelection(current: ProviderConfigPreview) {
+    const applied = current.applied;
+    return !!applied && current.hasBackup && !current.recoveryPending && !current.catalogStale && applied.providerId === (aggregate ? `aggregate:${aggregate.id}` : provider!.id) && applied.providerVersion === launchTarget.value.version && applied.keyId === keyId && applied.model === model && (applied.oauthAccountId ?? null) === (provider && oauthId ? Number(oauthId) : null);
+  }
+  const configured = !!preview && matchesSelection(preview);
   const validSelection = availableModels.includes(model) && (!provider || modelKeys.some(key => key.id === keyId));
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   useEffect(() => { let cancelled = false; void codexClient.instances().then(v => { if (!cancelled) setInstances(v); }).catch(() => { if (!cancelled) setError("读取实例失败"); }); return () => { cancelled = true; }; }, []);
@@ -51,19 +53,17 @@ export function ProviderLaunchDialog({ target: launchTarget, switchEnabled, onEn
   async function execute(restore: boolean, start = false) {
     if (pending.current || loading || !preview || (restore ? !preview.hasBackup : !validSelection)) return;
     pending.current = true; setBusy(true); setError(""); setNotice("");
-    let restored = false;
     try {
       let current = preview;
       if (!restore && !switchEnabled) {
         setPhase("正在启用配置切换…");
         if (!await onEnableSwitch()) throw new Error("启用配置切换失败，未修改目标配置，请重试");
       }
-      if (restore || current.hasBackup) {
+      if (restore) {
         setPhase("正在恢复原配置与登录…");
         current = await codexProviders.restore(target || null);
-        restored = true;
         if (!alive.current) return;
-        setPreview(current); setAppliedSelection(null);
+        setPreview(current);
       }
       if (restore) {
         setNotice("已恢复应用前的配置与登录");
@@ -79,14 +79,18 @@ export function ProviderLaunchDialog({ target: launchTarget, switchEnabled, onEn
         oauthAccountId: provider && oauthId ? Number(oauthId) : null,
       });
       if (!alive.current) return;
-      setPreview(next); setAppliedSelection(selection); setNotice("供应商配置已应用，原配置与登录已备份");
+      setPreview(next); setNotice("供应商配置已切换，原配置与登录已备份");
       if (start) {
         setPhase("正在启动 Codex…");
         try { await launch(); }
         catch (e) { if (alive.current) setError(`配置已应用，但启动失败：${e instanceof Error ? e.message : "未知启动错误"}；可重试启动，或恢复配置与登录`); }
       }
     } catch (e) {
-      if (alive.current) setError(`${restored && !restore ? "已先恢复原配置，应用新配置时失败；请刷新预览确认状态。" : ""}${e instanceof Error ? e.message : "操作失败"}`);
+      if (alive.current) {
+        setError(e instanceof Error ? e.message : "操作失败");
+        try { const current = await codexProviders.preview(target || null); if (alive.current) setPreview(current); }
+        catch { if (alive.current) setPreview(null); }
+      }
     }
     finally { pending.current = false; if (alive.current) { setBusy(false); setPhase(""); } }
   }
@@ -102,7 +106,12 @@ export function ProviderLaunchDialog({ target: launchTarget, switchEnabled, onEn
   async function startApplied() {
     if (pending.current || loading || !configured) return;
     pending.current = true; setBusy(true); setError(""); setNotice(""); setPhase("正在启动 Codex…");
-    try { await launch(); }
+    try {
+      const current = await codexProviders.preview(target || null);
+      if (alive.current) setPreview(current);
+      if (!matchesSelection(current) || current.version !== preview?.version) throw new Error("目标配置已变更，请确认预览后重新切换");
+      await launch();
+    }
     catch (e) { if (alive.current) setError(`启动失败，当前配置已保留：${e instanceof Error ? e.message : "未知启动错误"}；可重试启动或恢复配置与登录`); }
     finally { pending.current = false; if (alive.current) { setBusy(false); setPhase(""); } }
   }
@@ -113,24 +122,24 @@ export function ProviderLaunchDialog({ target: launchTarget, switchEnabled, onEn
     try {
       const current = await codexProviders.restore(target || null, true);
       if (!alive.current) return;
-      setPreview(current); setAppliedSelection(null);
+      setPreview(current);
       setNotice("已强制恢复应用前的配置与登录，外部修改已被覆盖");
     } catch (e) {
       if (alive.current) setError(e instanceof Error ? e.message : "强制恢复失败");
     } finally { pending.current = false; if (alive.current) { setBusy(false); setPhase(""); } }
   }
   const disabled = busy || loading || !preview;
-  const applyLabel = configured ? "配置已应用" : !switchEnabled ? "启用并应用" : preview?.hasBackup ? "恢复并应用" : "应用配置";
-  const launchLabel = configured ? "启动 Codex" : !switchEnabled ? "启用并启动" : preview?.hasBackup ? "切换并启动" : "应用并启动";
+  const applyLabel = configured ? "已切换" : !switchEnabled ? "启用并切换" : "切换";
+  const launchLabel = configured ? "启动 Codex" : !switchEnabled ? "启用、切换并启动" : "切换并启动";
   return <OverviewDialog title={title + " · 启动预览"} busy={busy} onClose={onClose} layout="form" className="codex-provider-launch-dialog" footer={<>
     <button disabled={busy} onClick={onClose}>关闭</button>
     <button disabled={disabled || !preview?.hasBackup} onClick={() => void execute(true)}><RotateCcw size={14} />恢复配置与登录</button>
-    <button disabled={disabled || !validSelection || configured} onClick={() => void execute(false)}>{applyLabel}</button>
-    <button className="codex-dialog-primary" disabled={disabled || !validSelection} onClick={() => void (configured ? startApplied() : execute(false, true))}><Play size={14} />{busy ? "处理中…" : launchLabel}</button>
+    <button disabled={disabled || !validSelection || configured || preview?.recoveryPending} onClick={() => void execute(false)}>{applyLabel}</button>
+    <button className="codex-dialog-primary" disabled={disabled || !validSelection || preview?.recoveryPending} onClick={() => void (configured ? startApplied() : execute(false, true))}><Play size={14} />{busy ? "处理中…" : launchLabel}</button>
   </>}>
     <div className="codex-provider-launch-content">
       <section className="codex-provider-form codex-provider-launch-fields" aria-label="启动设置">
-      <label>目标实例<select disabled={busy} value={target} onChange={e => { setPreview(null); setLoading(true); setAppliedSelection(null); setTarget(e.target.value); }}><option value="">默认 Codex 桌面客户端</option>{instances.map(v => <option key={v.id} value={v.id} disabled={v.running}>{v.name}{v.running ? "（运行中）" : ""}</option>)}</select></label>
+      <label>目标实例<select disabled={busy} value={target} onChange={e => { setPreview(null); setLoading(true); setTarget(e.target.value); }}><option value="">默认 Codex 桌面客户端</option>{instances.map(v => <option key={v.id} value={v.id} disabled={v.running}>{v.name}{v.running ? "（运行中）" : ""}</option>)}</select></label>
       {provider && <label>匹配密钥<select disabled={busy} value={keyId} onChange={e => { setKeyId(e.target.value); if (!effectiveModels(provider, e.target.value).includes(model)) setModel(defaultModel(provider, e.target.value)); }}>{provider.keys.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}</select></label>}
       <label>模型<select aria-label="模型" disabled={busy} value={model} onChange={e => {
         const nextModel = e.target.value;
@@ -154,8 +163,8 @@ export function ProviderLaunchDialog({ target: launchTarget, switchEnabled, onEn
         </dl>
       </section>
       {(!switchEnabled || preview?.hasBackup || preview?.catalogStale) && <div className="codex-provider-launch-warning" role="status"><CircleAlert size={16} aria-hidden="true" /><div>
-        {!switchEnabled && <p>配置切换已关闭。“启用并应用”会启用此设置并写入配置；“启用并启动”还会启动 Codex。</p>}
-        {preview?.hasBackup && <p>{configured ? "当前选择已应用，可直接启动 Codex，或恢复应用前的配置与登录。" : "目标已有供应商备份。应用时将先恢复原配置，再备份并应用当前选择。"}</p>}
+        {!switchEnabled && <p>配置切换已关闭。“启用并切换”会启用此设置并写入配置；“启用、切换并启动”还会启动 Codex。</p>}
+        {preview?.hasBackup && <p>{preview.recoveryPending ? "上次切换未完成，请先恢复配置与登录。" : configured ? "当前选择已切换，可直接启动 Codex，或恢复应用前的配置与登录。" : "切换将保留首次切换前的备份；失败时尝试回退到本次切换前的配置。"}</p>}
         {preview?.catalogStale && <p>模型目录由旧版本生成或已被外部修改，客户端可能拒绝加载。重新应用配置即可按当前字段重建。</p>}
       </div></div>}
       <div className="codex-provider-launch-note"><ShieldCheck size={16} aria-hidden="true" /><div>
@@ -163,7 +172,7 @@ export function ProviderLaunchDialog({ target: launchTarget, switchEnabled, onEn
         {provider && oauthId && <p>OAuth 账号由目标实例独占，登录续期由官方客户端处理；推理使用供应商凭据。</p>}
         {(aggregate || provider?.wireApi !== "responses") && <p>通过本机网关转换 Responses 协议，使用期间请保持 CloudHub 运行。</p>}
       </div></div>
-      {phase && <p role="status">{phase}</p>}{notice && <p role="status">{notice}</p>}{error && <div className="codex-provider-launch-error"><p role="alert" className="codex-card-error">{error}</p>{error.includes("外部修改") && <button type="button" disabled={busy || loading} onClick={() => void forceRestore()}>强制恢复</button>}<button type="button" disabled={busy || loading} onClick={() => { setPreview(null); setLoading(true); setAppliedSelection(null); setPreviewRevision(value => value + 1); }}>刷新预览</button></div>}
+      {phase && <p role="status">{phase}</p>}{notice && <p role="status">{notice}</p>}{error && <div className="codex-provider-launch-error"><p role="alert" className="codex-card-error">{error}</p>{error.includes("外部修改") && <button type="button" disabled={busy || loading} onClick={() => void forceRestore()}>强制恢复</button>}<button type="button" disabled={busy || loading} onClick={() => { setPreview(null); setLoading(true); setPreviewRevision(value => value + 1); }}>刷新预览</button></div>}
     </div>
   </OverviewDialog>;
 }

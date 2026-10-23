@@ -813,7 +813,7 @@ dependencies = [
 
 [[package]]
 name = "cloudhub-tools"
-version = "0.1.77"
+version = "0.1.78"
 dependencies = [
  "aes 0.8.4",
  "aes-gcm 0.10.3",
@@ -856,6 +856,7 @@ dependencies = [
  "tauri-plugin-updater",
  "tokio",
  "tokio-util",
+ "toml_edit 0.20.2",
  "uuid",
  "windows-sys 0.59.0",
  "x509-parser",

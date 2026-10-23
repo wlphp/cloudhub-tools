@@ -4,6 +4,9 @@ test("model provider management, masked editing and configuration recovery", asy
   await page.addInitScript(() => {
     let providers: Record<string, unknown>[] = [];
     let backup = false;
+    let applied: Record<string, unknown> | null = null;
+    let configVersion = "v1";
+    const configPreview = () => ({ version: configVersion, path: "C:/fixture", hasBackup: backup, applied, recoveryPending: false, catalogStale: false });
     let activeProbeRequests = 0;
     let maxProbeRequests = 0;
     let probeCalls = 0;
@@ -60,9 +63,10 @@ test("model provider management, masked editing and configuration recovery", asy
           return providers;
         }
         if (command === "codex_provider_remove") { providers = []; return providers; }
-        if (command === "codex_provider_preview") return { version: "v1", path: "C:/fixture", hasBackup: backup };
-        if (command === "codex_provider_apply") { backup = true; localStorage.setItem("last-provider-apply", JSON.stringify(args.input)); return { version: "v2", path: "C:/fixture", hasBackup: backup }; }
-        if (command === "codex_provider_restore") { backup = false; return { version: "v1", path: "C:/fixture", hasBackup: backup }; }
+        if (command === "codex_provider_preview") return localStorage.getItem("external-config-edit") ? { ...configPreview(), version: "external", applied: null } : configPreview();
+        if (command === "codex_provider_apply") { backup = true; applied = args.input as Record<string, unknown>; configVersion = "v2"; localStorage.setItem("last-provider-apply", JSON.stringify(args.input)); return configPreview(); }
+        if (command === "codex_provider_restore") { backup = false; applied = null; configVersion = "v1"; localStorage.setItem("provider-restore-called", "true"); return configPreview(); }
+        if (command === "codex_open_default") { localStorage.setItem("provider-launch-called", "true"); throw new Error("fixture startup failure"); }
         if (command === "app_is_development") return true;
         if (command === "plugin:app|version") return "0.1.45";
         if (command === "plugin:updater|check") return null;
@@ -259,9 +263,24 @@ test("model provider management, masked editing and configuration recovery", asy
   await launch.getByRole("combobox", { name: "模型", exact: true }).selectOption({ label: "secondary-model · secondary" });
   await expect(launch.getByRole("combobox", { name: "匹配密钥", exact: true })).toHaveValue("key-1");
   await expect(launch.getByText("匹配：secondary · 使用：secondary", { exact: true })).toBeVisible();
-  await launch.getByRole("button", { name: "应用配置", exact: true }).click();
-  await expect(launch.getByRole("button", { name: "配置已应用", exact: true })).toBeDisabled();
+  await launch.getByRole("button", { name: "切换", exact: true }).click();
+  await expect(launch.getByRole("button", { name: "已切换", exact: true })).toBeDisabled();
   await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("last-provider-apply") ?? "{}"))).toMatchObject({ keyId: "key-1", model: "secondary-model" });
+  // 连续切换由后端处理，前端不能先恢复首次备份。
+  await launch.getByRole("combobox", { name: "模型", exact: true }).selectOption({ label: "model-c · 默认密钥" });
+  await launch.getByRole("button", { name: "切换并启动", exact: true }).click();
+  await expect(launch.getByRole("alert")).toContainText("配置已应用，但启动失败");
+  expect(await page.evaluate(() => localStorage.getItem("provider-restore-called"))).toBeNull();
+  await expect(launch.getByRole("button", { name: "启动 Codex", exact: true })).toBeEnabled();
+  await page.keyboard.press("Escape");
+  await card.getByRole("button", { name: "启动预览 Example Provider" }).click();
+  await launch.getByRole("combobox", { name: "模型", exact: true }).selectOption({ label: "model-c · 默认密钥" });
+  await expect(launch.getByRole("button", { name: "已切换", exact: true })).toBeDisabled();
+  await page.evaluate(() => { localStorage.removeItem("provider-launch-called"); localStorage.setItem("external-config-edit", "true"); });
+  await launch.getByRole("button", { name: "启动 Codex", exact: true }).click();
+  await expect(launch.getByRole("alert")).toContainText("目标配置已变更");
+  expect(await page.evaluate(() => localStorage.getItem("provider-launch-called"))).toBeNull();
+  await page.evaluate(() => localStorage.removeItem("external-config-edit"));
   await launch.getByRole("button", { name: "恢复配置与登录", exact: true }).click();
   await expect(launch.getByText("已恢复应用前的配置与登录", { exact: true })).toBeVisible();
   await page.keyboard.press("Escape");
@@ -293,7 +312,7 @@ test("model provider management, masked editing and configuration recovery", asy
     expect(await aggregateLaunch.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
   }
   await page.setViewportSize({ width: 1440, height: 900 });
-  await aggregateLaunch.getByRole("button", { name: "应用配置", exact: true }).click();
+  await aggregateLaunch.getByRole("button", { name: "切换", exact: true }).click();
   await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("last-provider-apply") ?? "{}"))).toEqual({
     providerId: "aggregate:aggregate-a", providerVersion: 1, keyId: "aggregate", model: "model-a", version: "v1", oauthAccountId: null,
   });

@@ -334,6 +334,10 @@ pub(crate) fn stop_all(store: &CodexRuntimeStore) {
 
 pub(crate) fn account_running(store: &CodexRuntimeStore, account_id: i64) -> Result<bool, String> {
     if crate::core::codex::provider_oauth::bound(&open_db()?,account_id)? {return Ok(true);}
+    runtime_account_running(store,account_id)
+}
+
+pub(crate) fn runtime_account_running(store: &CodexRuntimeStore, account_id: i64) -> Result<bool, String> {
     let instance_running = store
         .instances
         .lock()

@@ -258,7 +258,14 @@ pub(crate) async fn codex_provider_preview(app:tauri::AppHandle,id:Option<String
         let _writer=super::codex::AUTH_WRITER.lock().map_err(|_| "Codex 账号操作不可用")?;
         let store=app.state::<super::codex_runtime::CodexRuntimeStore>();
         let home=super::codex_instances::config_home(&store,id.as_deref(),false)?;
-        provider_config::preview(&open_db()?,&home)
+        let conn=open_db()?;
+        let mut preview=provider_config::managed_preview(&conn,&home)?;
+        if !preview.recovery_pending && crate::core::codex::provider_oauth::sync(&home).is_err() {
+            // 认证冲突仍须允许查看目标和恢复入口，实际切换/启动会返回具体错误。
+            preview.applied=None;
+            return Ok(preview);
+        }
+        provider_config::managed_preview(&conn,&home)
     }).await.map_err(|_| "读取供应商配置任务失败")?.map_err(Into::into)
 }
 
@@ -272,12 +279,14 @@ pub(crate) async fn codex_provider_apply(app:tauri::AppHandle,id:Option<String>,
         let mut conn=open_db()?;
         let preview=provider_config::preview(&conn,&home)?;
         if preview.version!=input.version {return Err("目标配置已变更，请重新预览".into());}
-        if preview.has_backup {return Err("请先恢复上次供应商配置，再切换供应商".into());}
+        if provider_config::managed_preview(&conn,&home)?.recovery_pending {return Err("上次切换未完成，请先恢复配置与登录".into());}
+        if preview.has_backup {crate::core::codex::provider_oauth::sync(&home)?;}
         let route=resolve_apply_route(&conn,&input)?;
         let api_auth=zeroize::Zeroizing::new(serde_json::json!({"auth_mode":"apikey","OPENAI_API_KEY":route.auth_key.as_str()}).to_string());
         let oauth_auth=if let Some(oauth_id)=input.oauth_account_id {
             if route.provider.is_none() {return Err("聚合配置暂不支持 OAuth 绑定".into());}
-            if super::codex_instances::account_running(&store,oauth_id)? {return Err("OAuth 账号已被其他实例、服务或供应商占用".into());}
+            let owns=crate::core::codex::provider_oauth::owner(&conn,&home)?==Some(oauth_id);
+            if (owns && super::codex_instances::runtime_account_running(&store,oauth_id)?) || (!owns && super::codex_instances::account_running(&store,oauth_id)?) {return Err("OAuth 账号已被其他实例、服务或供应商占用".into());}
             let content=crate::core::repositories::codex_accounts::credentials(&conn,oauth_id)?;
             let identity=crate::core::codex::provider_oauth::validate(&content)?;
             if id.is_some() && profile::default_home().ok().and_then(|home|profile::read_auth(&home.join("auth.json")).ok()).and_then(|s|crate::core::codex::provider_oauth::validate(&s).ok()).is_some_and(|v|v==identity) {
@@ -303,11 +312,11 @@ pub(crate) async fn codex_provider_apply(app:tauri::AppHandle,id:Option<String>,
         let previous_account_id=if let Some(id)=&id {Some(conn.query_row("SELECT account_id FROM codex_profiles WHERE id=?1",[id],|r|r.get::<_,i64>(0)).map_err(|_| "Codex 实例不存在")?)} else {None};
         if provider_config::preview(&conn,&home)?.version!=input.version {return Err("目标配置已变更，请重新预览".into());}
         let cipher=crate::core::storage::encrypt_secret(&api_auth).map_err(|_| "加密供应商账号失败")?;
-        provider_config::install(&conn,&home,&input.version,&config,&auth)?;
+        let recovery=provider_config::begin_switch(&conn,&home,&input.version,&config,&auth,provider_config::AppliedSelection{provider_id:route.owner_id.clone(),key_id:route.key_id.clone(),provider_version:input.provider_version.unwrap_or_else(||route.provider.as_ref().map_or(0,|p|p.version)),model:input.model.clone(),oauth_account_id:input.oauth_account_id})?;
         // 客户端的模型选择器读取模型目录文件，必须与配置一起写入。写入前配置备份
         // 已经记录该文件的归属，失败或恢复时都能还原用户原有内容。
-        if let Err(error)=provider_config::install_catalog(&home,&route.settings) {
-            provider_config::restore(&conn,&home)?;
+        if let Err(error)=provider_config::write_switch(&home,&config,&auth).and_then(|_|provider_config::install_catalog(&home,&route.settings)) {
+            provider_config::rollback_switch(&conn,&home,&recovery)?;
             return Err(error.into());
         }
         let bound=(|| -> Result<(),String> {
@@ -315,7 +324,9 @@ pub(crate) async fn codex_provider_apply(app:tauri::AppHandle,id:Option<String>,
             tx.execute("INSERT INTO codex_accounts(identity,label,auth_mode,auth_ciphertext,updated_at) VALUES(?1,?2,'apikey',?3,?4) ON CONFLICT(identity) DO UPDATE SET label=excluded.label,auth_ciphertext=excluded.auth_ciphertext,deleted_at=NULL,last_error=NULL,updated_at=MAX(codex_accounts.updated_at+1,excluded.updated_at)",rusqlite::params![identity,label,cipher,chrono::Utc::now().timestamp_millis()]).map_err(|_| "保存供应商账号失败")?;
             let account_id:i64=tx.query_row("SELECT id FROM codex_accounts WHERE identity=?1",[&identity],|r|r.get(0)).map_err(|_| "供应商账号不可用")?;
             tx.execute("INSERT INTO codex_provider_accounts VALUES(?1,?2,?3) ON CONFLICT(account_id) DO UPDATE SET provider_id=excluded.provider_id,key_id=excluded.key_id",rusqlite::params![account_id,route.owner_id,route.key_id]).map_err(|_| "保存供应商账号关联失败")?;
-            tx.execute("INSERT INTO codex_provider_bindings VALUES(?1,?2,?3,?4,?5,?6)",rusqlite::params![home.to_string_lossy(),route.owner_id,route.key_id,account_id,previous_account_id,id]).map_err(|_| "保存供应商绑定失败")?;
+            tx.execute("INSERT INTO codex_provider_bindings VALUES(?1,?2,?3,?4,?5,?6) ON CONFLICT(home) DO UPDATE SET provider_id=excluded.provider_id,key_id=excluded.key_id,account_id=excluded.account_id",rusqlite::params![home.to_string_lossy(),route.owner_id,route.key_id,account_id,previous_account_id,id]).map_err(|_| "保存供应商绑定失败")?;
+            tx.execute("DELETE FROM codex_provider_oauth WHERE home=?1",[home.to_string_lossy().as_ref()]).map_err(|_| "清理供应商 OAuth 归属失败")?;
+            tx.execute("DELETE FROM codex_provider_gateways WHERE home=?1",[home.to_string_lossy().as_ref()]).map_err(|_| "清理供应商网关设置失败")?;
             if let Some(oauth_id)=input.oauth_account_id {
                 tx.execute("INSERT INTO codex_provider_oauth VALUES(?1,?2,?3)",rusqlite::params![home.to_string_lossy(),oauth_id,profile::fingerprint(Some(auth))]).map_err(|_| "保存供应商 OAuth 归属失败")?;
             }
@@ -324,11 +335,14 @@ pub(crate) async fn codex_provider_apply(app:tauri::AppHandle,id:Option<String>,
                 tx.execute("INSERT INTO codex_provider_gateways VALUES(?1,?2,?3,?4,?5,?6)",rusqlite::params![home.to_string_lossy(),gateway.port,cipher,route.owner_id,route.key_id,route.models_json]).map_err(|_| "保存供应商网关失败")?;
             }
             if let Some(id)=&id { tx.execute("UPDATE codex_profiles SET account_id=?1,auth_fingerprint=?2 WHERE id=?3",rusqlite::params![account_id,profile::fingerprint(Some(&auth)),id]).map_err(|_| "保存供应商实例绑定失败")?; }
+            provider_config::finish_switch(&tx,&home)?;
             tx.commit().map_err(|_| "保存供应商绑定失败".to_string())
         })();
-        if let Err(error)=bound { provider_config::restore(&conn,&home)?;return Err(error); }
-        if let Some(gateway)=route.gateway {store.provider_gateways.lock().map_err(|_| "供应商网关状态不可用")?.insert(home.to_string_lossy().into_owned(),gateway);}
-        provider_config::preview(&conn,&home)
+        if let Err(error)=bound { provider_config::rollback_switch(&conn,&home,&recovery)?;return Err(error); }
+        let mut gateways=store.provider_gateways.lock().map_err(|_| "供应商网关状态不可用")?;
+        gateways.remove(home.to_string_lossy().as_ref());
+        if let Some(gateway)=route.gateway {gateways.insert(home.to_string_lossy().into_owned(),gateway);}
+        provider_config::managed_preview(&conn,&home)
     }).await.map_err(|_| "应用供应商配置任务失败")?.map_err(Into::into)
 }
 
@@ -343,7 +357,7 @@ pub(crate) async fn codex_provider_restore(app:tauri::AppHandle,id:Option<String
         // 外部修改检查必须先于任何写操作。OAuth 续期会改写备份里的认证快照，
         // 因此这里只校验 config.toml，认证一侧由续期与恢复各自的严格校验把关。
         if !force {provider_config::assert_config_restorable(&conn,&home)?;}
-        if !provider_config::original_auth_restored(&conn,&home)? {crate::core::codex::provider_oauth::sync(&home)?;}
+        if !provider_config::managed_preview(&conn,&home)?.recovery_pending && !provider_config::original_auth_restored(&conn,&home)? {crate::core::codex::provider_oauth::sync(&home)?;}
         if force {provider_config::restore_files_forced(&conn,&home)?;} else {provider_config::restore_files(&conn,&home)?;}
         let tx=conn.transaction().map_err(|_| "恢复实例账号失败")?;
         if let Some(id)=&id {
@@ -366,6 +380,13 @@ pub(crate) async fn codex_provider_restore(app:tauri::AppHandle,id:Option<String
 pub(crate) fn ensure_gateway(store:&super::codex_runtime::CodexRuntimeStore,home:&std::path::Path)->Result<(),String> {
     if store.closing.load(std::sync::atomic::Ordering::SeqCst) {return Err("应用正在退出，未启动供应商网关".into());}
     let conn=open_db()?;
+    let preview=provider_config::managed_preview(&conn,home)?;
+    if preview.recovery_pending {return Err("上次供应商切换未完成，请先恢复配置与登录".into());}
+    if preview.has_backup {
+        provider_config::assert_config_restorable(&conn,home)?;
+        crate::core::codex::provider_oauth::sync(home)?;
+        provider_config::assert_managed_current(&conn,home)?;
+    }
     let row:Option<(u16,String,String,String,String)>=conn.query_row("SELECT port,key_ciphertext,provider_id,key_id,models_json FROM codex_provider_gateways WHERE home=?1",[home.to_string_lossy().as_ref()],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?))).optional().map_err(|_| "读取供应商网关设置失败")?;
     let Some((port,cipher,provider_id,key_id,models))=row else{return Ok(());};
     let mut gateways=store.provider_gateways.lock().map_err(|_| "供应商网关状态不可用")?;
