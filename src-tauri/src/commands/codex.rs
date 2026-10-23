@@ -150,7 +150,15 @@ pub(crate) fn import_accounts(
     app: &tauri::AppHandle,
     accounts: Vec<auth::ImportedAccount>,
 ) -> Result<(), String> {
-    let mut conn = open_db()?;
+    import_accounts_with_force(app, accounts, false)
+}
+
+fn import_accounts_with_force(
+    app: &tauri::AppHandle,
+    accounts: Vec<auth::ImportedAccount>,
+    force: bool,
+) -> Result<(), String> {
+    let mut conn = open_db().map_err(|_| "无法打开本地账号数据库，请检查数据目录权限、数据库占用或客户端版本")?;
     let store = app.state::<super::codex_runtime::CodexRuntimeStore>();
     for account in &accounts {
         let id: Option<i64> = conn
@@ -162,7 +170,7 @@ pub(crate) fn import_accounts(
             .optional()
             .map_err(|_| "查询 Codex 账号失败")?;
         if let Some(id) = id {
-            if super::codex_instances::account_running(&store, id)? {
+            if !force && super::codex_instances::account_running(&store, id)? {
                 return Err("导入包含运行中实例的账号，请先停止实例，未保存任何账号".into());
             }
         }
@@ -243,13 +251,19 @@ pub(crate) async fn codex_import_file(
 }
 
 #[tauri::command]
-pub(crate) async fn codex_import_text(app: tauri::AppHandle, content: String) -> PlatformResult<CodexState> {
+pub(crate) async fn codex_import_text(app: tauri::AppHandle, content: String, force: Option<bool>) -> PlatformResult<CodexState> {
     let content = zeroize::Zeroizing::new(content);
     tauri::async_runtime::spawn_blocking(move || -> Result<CodexState, String> {
         let _writer = AUTH_WRITER.lock().map_err(|_| "Codex 账号操作不可用")?;
-        let accounts = crate::core::codex::token_import::parse(&content)?;
-        import_accounts(&app, accounts)?;
-        state()
+        let force = force.unwrap_or(false);
+        let accounts = if force { crate::core::codex::token_import::parse_with_force(&content, true)? }
+            else { crate::core::codex::token_import::parse(&content)? };
+        import_accounts_with_force(&app, accounts, force).map_err(|message| {
+            if message == "导入包含运行中实例的账号，请先停止实例，未保存任何账号" {
+                "导入账号正在被实例、API 服务或供应商使用，普通导入已取消；可停止相关服务后重试，或选择强制导入".to_string()
+            } else { message }
+        })?;
+        state().map_err(|_| "账号凭据已保存，但刷新账号列表失败，请重新打开账号页面查看".to_string())
     }).await.map_err(|_| "导入 Codex Token 任务失败")?.map_err(|message| crate::core::error::PlatformError {
         kind: "platform-error", code: "codex-import", message: crate::core::codex::token_import::public_error(&message).into(), retryable: false,
     })

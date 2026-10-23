@@ -86,7 +86,7 @@ export const codexClient = {
   cancelLogin(token: string): Promise<void> { return nativeOnly("codex_cancel_login", { token }); },
   state(): Promise<CodexState> { return nativeOnly("codex_get_state"); },
   importLocal(): Promise<CodexState> { return nativeOnly("codex_import_local"); },
-  importText(content: string): Promise<CodexState> { return nativeOnly("codex_import_text", { content }); },
+  importText(content: string, force = false): Promise<CodexState> { return nativeOnly("codex_import_text", { content, force }); },
   importFile(format: CodexExportFormat = "cockpit_tools"): Promise<CodexState | null> { return nativeOnly("codex_import_file", { format }); },
   saveMetadata(input: { id: number; label: string; note: string; tags: string[] }): Promise<CodexAccount> { return nativeOnly("codex_save_metadata", { input }); },
   deleteAccount(id: number): Promise<CodexState> { return nativeOnly("codex_delete_account", { id }); },

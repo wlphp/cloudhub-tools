@@ -15,16 +15,16 @@ const methods: { id: AddMethod; label: string; Icon: typeof Monitor }[] = [
 export function AddAccountDialog({ busy, error, canOpenDefault, onClose, onOfficialLogin, onOAuth, onImportLocal, onImportText, onImportFile }: {
   busy: boolean; error: string; canOpenDefault: boolean; onClose: () => void;
   onOfficialLogin: () => void; onOAuth: () => void; onImportLocal: () => void;
-  onImportText: (content: string) => Promise<boolean>; onImportFile: (format: CodexExportFormat) => void;
+  onImportText: (content: string, force?: boolean) => Promise<boolean>; onImportFile: (format: CodexExportFormat) => void;
 }) {
   const [method, setMethod] = useState<AddMethod>("official");
   const [content, setContent] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [format, setFormat] = useState<CodexExportFormat>("cockpit_tools");
 
-  async function importContent(value: string) {
+  async function importContent(value: string, force = false) {
     if (!value.trim() || busy) return;
-    if (await onImportText(value)) { setContent(""); setApiKey(""); }
+    if (await onImportText(value, force)) { setContent(""); setApiKey(""); }
   }
 
   return <OverviewDialog title="添加 Codex 账号" busy={busy} onClose={onClose} className="codex-add-account-dialog" footer={<button type="button" onClick={onClose} disabled={busy}>关闭</button>}>
@@ -46,6 +46,8 @@ export function AddAccountDialog({ busy, error, canOpenDefault, onClose, onOffic
         <p>粘贴官方 Token、auth.json、session JSON 或兼容的账号 JSON。凭据只在本机加密保存。</p>
         <label>Token / JSON 内容<textarea value={content} rows={8} maxLength={2 * 1024 * 1024} disabled={busy} autoComplete="off" autoCapitalize="off" spellCheck={false} placeholder="粘贴 Token 或账号 JSON" onChange={event => setContent(event.target.value)} /></label>
         <button type="button" className="codex-add-primary codex-add-wide" disabled={busy || !content.trim()} onClick={() => void importContent(content)}><Upload size={15} />导入账号</button>
+        <p id="codex-force-import-help">强制导入会直接保存现有凭据，跳过在线换取和身份完整性检查，并允许更新运行中账号。运行中实例可能回写旧凭据；保存成功不代表凭据可用，缺少 Refresh Token 时无法自动续期。</p>
+        <button type="button" disabled={busy || !content.trim()} aria-describedby="codex-force-import-help" onClick={() => void importContent(content, true)}>强制导入</button>
       </>}
       {method === "apikey" && <>
         <p>添加 OpenAI API Key 账号。Key 会在本机加密保存；该账号按 API 使用量计费，不提供 ChatGPT 订阅额度。</p>

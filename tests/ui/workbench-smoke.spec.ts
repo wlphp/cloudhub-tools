@@ -140,7 +140,7 @@ test("renders DNS and OSS tools from sanitized local-asset fixtures", async ({ p
   await page.getByRole("button", { name: "查询" }).click();
   await expect(page.getByRole("button", { name: "查询" })).toBeEnabled();
   await page.getByRole("button", { name: "查询" }).click();
-  await expect(page.locator(".domain-tool-modal .error-list")).toContainText("操作失败，请稍后重试");
+  await expect(page.locator(".domain-tool-modal .error-list")).toContainText("provider failed secret=[已隐藏] token=[已隐藏]");
   await expect(page.getByText("TOP_SECRET", { exact: true })).toBeHidden();
   await expect(page.getByText("TOP_TOKEN", { exact: true })).toBeHidden();
   await page.locator(".close-detail").click();

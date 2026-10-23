@@ -197,7 +197,7 @@ test("model provider management, masked editing and configuration recovery", asy
   await expect(secretInputs.first()).toHaveValue("revealed-key-0");
   await expect(secretInputs.first()).toHaveAttribute("type", "text");
   await expect(editing.getByRole("button", { name: "隐藏密钥", exact: true })).toHaveCount(1);
-  await expect(editing.getByRole("button", { name: "复制密钥", exact: true })).toHaveCount(1);
+  await expect(editing.getByRole("button", { name: "复制密钥", exact: true })).toHaveCount(2);
   await editing.getByRole("button", { name: "隐藏密钥", exact: true }).click();
   await expect(secretInputs.first()).toHaveAttribute("type", "password");
   const fetchAllSavedKeys = editing.getByRole("button", { name: "获取所有密钥模型", exact: true });

@@ -59,7 +59,7 @@ test("life settings retain a rejected draft and explain unsupported holiday year
   await section.getByLabel("上班时间", { exact: true }).fill("08:30");
   await page.evaluate(() => { (window as any).failPetSave = true; (window as any).petEvent("pet-life-changed", { notices: [], calendarYear: 2027, calendarSupported: false }); });
   await section.getByRole("button", { name: "保存生活提醒" }).click();
-  await expect(section.getByText("操作失败，请稍后重试", { exact: true })).toBeVisible();
+  await expect(section.getByText("设置保存失败", { exact: true })).toBeVisible();
   await expect(section.getByLabel("上班时间", { exact: true })).toHaveValue("08:30");
   await expect(section.getByText(/尚未内置 2027 年法定日历/)).toBeVisible();
 });
@@ -422,7 +422,7 @@ test("computer shortcuts use fixed actions and require explicit power confirmati
   await menu.getByRole("button",{name:"关闭电脑",exact:true}).click();
   const confirm=page.getByRole("alertdialog",{name:"关闭电脑",exact:true});
   await confirm.getByRole("button",{name:"确认关机",exact:true}).click();
-  await expect(confirm.getByRole("alert")).toContainText("操作失败，请稍后重试");
+  await expect(confirm.getByRole("alert")).toContainText("系统操作失败");
   await confirm.getByRole("button",{name:"取消",exact:true}).click();
   await expect(menu).toBeVisible();
   await page.screenshot({path:"test-results/pet-computer-shortcuts.png",omitBackground:true});

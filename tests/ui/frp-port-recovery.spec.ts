@@ -17,7 +17,7 @@ for (const recoverable of [true, false]) {
             if (command === "get_frp_global_settings") return { adminUser: "admin", adminPasswordSaved: true };
             if (command === "get_frpc_runtime") return [state];
             if (command === "get_frp_local_paths") return { installed: true, version: "0.71.0", binaryPath: "frpc.exe", configPath: "frpc.toml" };
-            if (command === "control_frpc") throw { kind: "platform-error", code: "frp-port-conflict", message: "ignored raw text", retryable: false };
+            if (command === "control_frpc") throw { kind: "platform-error", code: "frp-port-conflict", message: "本机 FRP 面板端口已被占用", retryable: false };
             if (command === "get_frp_port_conflict") return { serverId: 1, port: 7400, owners: terminated ? [] : [{ pid: 12345, canTerminate, startedAt: "2026-09-30T00:00:00.0000000Z" }] };
             if (command === "terminate_stale_frpc") { terminateCalls++; terminated = true; return; }
             if (command === "get_frpc_logs") return ["面板端口 7400 已被占用"];

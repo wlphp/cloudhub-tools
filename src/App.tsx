@@ -222,7 +222,7 @@ function syncAssetTypes(account: Account): ReadonlyArray<(typeof assetTypes)[num
 }
 const assetTypes = catalogAssetTypes;
 
-const bundledVersion = "0.1.76";
+const bundledVersion = "0.1.77";
 const isDevelopmentBuild = import.meta.env.DEV;
 
 const detachedTerminalHostId = (() => {
@@ -4878,7 +4878,7 @@ function App() {
               <AiAssistButton task="panel" title="AI 识别面板信息" disabled={panelSaving} current={{name:panelDraft.name,panel_url:panelDraft.panel_url,group_name:panelDraft.group_name,remark:panelDraft.remark}} onApply={result=>{const fields=panelAiFields(result.fields);setPanelDraft(current=>({...current,...fields}));}} />
               <label>名称<input required value={panelDraft.name} onChange={(event) => setPanelDraft((current) => ({ ...current, name: event.target.value }))} placeholder="例如：生产网站面板" autoFocus /></label>
               <label>验证类型<div className="panel-auth-static"><span>API</span><small>使用面板设置中的 API 接口密钥</small></div></label>
-              <label>面板 URL<span className="panel-url-field"><input required type="url" value={panelDraft.panel_url} onChange={(event) => setPanelDraft((current) => ({ ...current, panel_url: event.target.value }))} placeholder="例如：https://192.168.1.2:8888" /><button type="button" title="只保留协议、主机和端口" aria-label="提取面板根地址" disabled={!panelDraft.panel_url} onClick={() => setPanelDraft((current) => ({ ...current, panel_url: panelRootAddress(current.panel_url) }))}><Scissors size={15} />提取</button></span></label>
+              <label>面板 URL<span className="panel-url-field"><input aria-label="面板 URL" required type="url" value={panelDraft.panel_url} onChange={(event) => setPanelDraft((current) => ({ ...current, panel_url: event.target.value }))} placeholder="例如：https://192.168.1.2:8888" /><button type="button" title="只保留协议、主机和端口" aria-label="提取面板根地址" disabled={!panelDraft.panel_url} onClick={() => setPanelDraft((current) => ({ ...current, panel_url: panelRootAddress(current.panel_url) }))}><Scissors size={15} />提取</button></span></label>
               <label>API 密钥<SecretField key={panelDraft.id ?? "new"} secretLabel="API 密钥" reveal={panelDraft.id ? () => remoteClient.revealPanelApiKey(panelDraft.id!) : undefined} required={!panelDraft.id} value={panelDraft.api_key} onChange={(event) => setPanelDraft((current) => ({ ...current, api_key: event.target.value }))} placeholder={panelDraft.id ? "留空则保留已保存 API 密钥" : "粘贴面板 API 接口密钥"} autoComplete="off" /></label>
               <label className="panel-insecure-tls"><input type="checkbox" checked={panelDraft.allow_insecure_tls} onChange={(event) => setPanelDraft((current) => ({ ...current, allow_insecure_tls: event.target.checked }))} /><span><strong>允许不受信任 HTTPS 证书</strong><small>仅在面板使用确认可信的自签名证书时开启。</small></span></label>
               <div className="form-grid"><label>分组<GroupNameInput groups={panelGroups} value={panelDraft.group_name} onChange={(event) => setPanelDraft((current) => ({ ...current, group_name: event.target.value }))} /></label><label>排序号<input type="number" min={0} value={panelDraft.sort_order} onChange={(event) => setPanelDraft((current) => ({ ...current, sort_order: Math.max(0, Number(event.target.value) || 0) }))} placeholder="数字越小越靠前" /></label></div>

@@ -220,7 +220,7 @@ test("Codex account filters, metadata, quota errors and confirmed switching", as
   await page.mouse.click(2, 2);
   await expect(tokenDialog).toBeVisible();
   await tokenDialog.getByRole("button", { name: "导入账号", exact: true }).click();
-  await expect(tokenDialog.getByRole("alert")).toHaveText("导入失败，请检查凭据格式、网络或账号运行状态后重试");
+  await expect(tokenDialog.getByRole("alert")).toHaveText("输入的 JSON 格式无效，请检查后重试");
   await expect(tokenInput).toHaveValue("invalid-input");
   for (const width of [375, 768, 1024, 1440]) {
     await page.setViewportSize({ width, height: 900 });
@@ -581,7 +581,7 @@ test("Codex account filters, metadata, quota errors and confirmed switching", as
   await expect(page.getByRole("button", { name: "停止服务", exact: true })).toBeEnabled();
   await page.getByLabel("服务端口", { exact: true }).fill("58171");
   await page.getByRole("button", { name: "保存", exact: true }).click();
-  await expect(page.getByRole("alert")).toContainText("端口已被占用");
+  await expect(page.getByRole("alert")).toContainText("本地 API 端口被占用或无法监听");
   await expect(page.locator(".codex-gateway").getByText("http://127.0.0.1:58170/v1", { exact: true })).toBeVisible();
   await page.getByLabel("服务端口", { exact: true }).fill("58169");
   await page.getByRole("button", { name: "保存", exact: true }).click();
@@ -789,7 +789,7 @@ test("Codex account filters, metadata, quota errors and confirmed switching", as
   await expect(page.getByRole("dialog", { name: "账号代理", exact: true }).getByRole("alert")).toHaveText("读取本机代理配置失败，请手动填写代理地址");
   await page.evaluate(() => { (window as unknown as { __proxyMode: string }).__proxyMode = "unsafe"; });
   await page.getByRole("button", { name: "检测本机代理", exact: true }).click();
-  await expect(page.getByRole("dialog", { name: "账号代理", exact: true }).getByRole("alert")).toHaveText("代理操作失败，请检查地址或手动填写");
+  await expect(page.getByRole("dialog", { name: "账号代理", exact: true }).getByRole("alert")).toHaveText("upstream token=[已隐藏]");
   await page.getByLabel("账号代理地址", { exact: true }).fill("http://127.0.0.1:7890/");
   await page.getByRole("button", { name: "保存代理", exact: true }).click();
   await expect(page.getByRole("button", { name: "配置 Alice 工作账号 代理", exact: true })).toHaveText("代理已设");

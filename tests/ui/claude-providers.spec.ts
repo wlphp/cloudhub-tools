@@ -134,7 +134,7 @@ test("a failed switch does not launch Claude Code", async ({ page }) => {
   await page.locator(".software-store-page tbody tr", { hasText: "Claude Code 供应商" }).getByRole("button", { name: "管理" }).click();
   await page.evaluate(() => { (window as any).__switchFails = true; });
   await page.locator(".claude-provider-item", { hasText: "Claude 官方" }).getByRole("button", { name: "切换", exact: true }).click();
-  await expect(page.getByRole("alert")).toContainText("操作失败");
+  await expect(page.getByRole("alert")).toContainText("配置文件不可写");
   expect(await page.evaluate(() => (window as any).__claudeCalls)).toEqual(["switch:claude-official"]);
 });
 
