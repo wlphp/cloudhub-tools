@@ -1,14 +1,14 @@
 import { aiClient, type AiProfile } from "../../platform/clients/ai";
 import { authenticatorClient, type AuthEntry } from "../../platform/clients/authenticator";
 import { certificatesClient, type CertificateSummary } from "../../platform/clients/certificates";
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FileLock2, LockKeyhole, ShieldCheck, Upload, X } from "lucide-react";
 import { Format, openAppSettings, requestPermissions, scan } from "@tauri-apps/plugin-barcode-scanner";
 import { listen } from "@tauri-apps/api/event";
 import { QRCodeSVG } from "qrcode.react";
 import type { Account, ManagedHost, PanelConnection, FlowConnection } from "../../shared/types";
 import { accountsClient, type SyncImportPreview } from "../../platform/clients/accounts";
-import { DialogHeaderActions } from "../../shared/DialogHeaderActions";
+import { SharedDialog } from "../../shared/SharedDialog";
 import { flowClient } from "../../platform/clients/flow";
 import { runningInTauri } from "../../platform/api";
 import { databaseClient, type DatabaseImportPreview } from "../../platform/clients/database";
@@ -87,7 +87,6 @@ export function SyncTransferPanel({ mode, accounts = [], managedHosts = [], pane
   const [databasePreview, setDatabasePreview] = useState<DatabaseImportPreview | null>(null);
   const [cameraPermissionDenied, setCameraPermissionDenied] = useState(false);
   const databaseFileInput = useRef<HTMLInputElement>(null);
-  const panelRef = useRef<HTMLElement | null>(null);
   const initializedAccountSelection = useRef(false);
   const initializedHostSelection = useRef(false);
   const initializedPanelSelection = useRef(false);
@@ -134,7 +133,6 @@ export function SyncTransferPanel({ mode, accounts = [], managedHosts = [], pane
     setSelectedPanelIds(new Set(transferablePanels.map((panel) => panel.id)));
   }, [mobile, transferablePanels]);
 
-  useEffect(() => { if (!mobile) panelRef.current?.focus(); }, [mobile]);
   useEffect(() => () => { if (!mobile) void accountsClient.cancelSyncTransfer().catch(() => undefined); }, [mobile]);
   useEffect(() => () => { if (databasePreview && !runningInTauri) void databaseClient.cancelBrowserImport(databasePreview.token).catch(() => undefined); }, [databasePreview]);
   useEffect(() => {
@@ -152,18 +150,6 @@ export function SyncTransferPanel({ mode, accounts = [], managedHosts = [], pane
     }).catch(() => setError("无法监听手机迁移授权请求，请关闭并重新打开迁移面板。"));
     return () => { active = false; unlisten?.(); setApprovalListenerReady(false); };
   }, [mobile]);
-
-  function handleDialogKeyDown(event: KeyboardEvent<HTMLElement>) {
-    if (event.key === "Escape" && qrDialogOpen) { event.preventDefault(); setQrDialogOpen(false); return; }
-    if (event.key === "Escape" && onClose) { event.preventDefault(); onClose(); return; }
-    if (mobile || event.key !== "Tab" || !panelRef.current) return;
-    const focusable = [...panelRef.current.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),[tabindex]:not([tabindex="-1"])')]
-      .filter((element) => element.tabIndex >= 0 && element.offsetParent !== null);
-    const first = focusable[0]; const last = focusable[focusable.length - 1];
-    if (!first || !last) return;
-    if (event.shiftKey && (document.activeElement === first || document.activeElement === panelRef.current)) { event.preventDefault(); last.focus(); }
-    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
-  }
 
   async function startQrTransfer() {
     setError(""); setNotice(""); setPairingUrl("");
@@ -304,12 +290,14 @@ export function SyncTransferPanel({ mode, accounts = [], managedHosts = [], pane
     setQrImportSessionId(""); setPreview(null); setIncludeQrDeletions(false);
   }
 
-  return <section ref={panelRef} tabIndex={mobile ? undefined : -1} role={mobile ? undefined : "dialog"} aria-modal={mobile ? undefined : true} onKeyDown={handleDialogKeyDown} className={`sync-transfer-panel ${mobile ? "sync-transfer-mobile" : "sync-transfer-desktop modal modal-form-layout ide-theme dialog-common-theme"}`} aria-labelledby="sync-transfer-title">
-    <header className={`sync-transfer-heading${mobile ? "" : " modal-head"}`}>
+  const footer = <><small>已选 {selectedCount + selectedManagedHostCount + selectedPanelCount + selectedFlowIds.size + selectedCertificateIds.size + selectedAuthIds.size + selectedAiIds.size} 项</small><div>{onClose && <button className="secondary" type="button" onClick={onClose}>关闭</button>}
+    <button className="primary sync-transfer-primary" type="button" disabled={busy || !runningInTauri || !approvalListenerReady || (!!pendingClientAddress && !pairingUrl) || (!pairingUrl && !selectedIds.size && !selectedManagedHostIds.size && !selectedPanelIds.size && !selectedFlowIds.size && !selectedCertificateIds.size && !selectedAuthIds.size && !selectedAiIds.size)} onClick={() => pairingUrl ? setQrDialogOpen(true) : void startQrTransfer()}><ShieldCheck size={17} aria-hidden="true" />{busy ? "正在开启…" : !approvalListenerReady ? "正在准备授权…" : pairingUrl ? "重新显示迁移二维码" : "显示手机迁移二维码（免口令）"}</button></div></>;
+  const content = <>
+    {mobile && <header className="sync-transfer-heading">
       <div className="sync-transfer-icon"><FileLock2 size={19} aria-hidden="true" /></div>
       <div><p>跨设备迁移</p><h2 id="sync-transfer-title">{mobile ? "导入电脑数据" : "迁移到手机"}</h2></div>
-      {mobile ? onClose && <button type="button" className="sync-transfer-close" aria-label="返回更多管理" onClick={onClose}><X size={18} /></button> : <DialogHeaderActions defaultExpanded>{onClose && <button type="button" className="sync-transfer-close close" aria-label="关闭迁移面板" onClick={onClose}><X size={18} /></button>}</DialogHeaderActions>}
-    </header>
+      {onClose && <button type="button" className="sync-transfer-close" aria-label="返回更多管理" onClick={onClose}><X size={18} /></button>}
+    </header>}
 
     <div className="sync-transfer-body">
     {mobile ? <>
@@ -409,28 +397,13 @@ export function SyncTransferPanel({ mode, accounts = [], managedHosts = [], pane
     {notice && <p className="sync-transfer-status" role="status">{notice}</p>}
     <div className="sync-transfer-safety"><LockKeyhole size={15} aria-hidden="true" /><span>{mobile ? "秘密只在原生层解密/加密；请勿把迁移文件和口令放在同一位置。" : "迁移二维码仅本次有效，手机请求需经电脑批准后才会发送数据。"}</span></div>
     </div>
-    {!mobile && <footer className="modal-actions sync-transfer-footer"><small>已选 {selectedCount + selectedManagedHostCount + selectedPanelCount + selectedFlowIds.size + selectedCertificateIds.size + selectedAuthIds.size + selectedAiIds.size} 项</small><div>{onClose && <button className="secondary" type="button" onClick={onClose}>关闭</button>}
-      <button className="primary sync-transfer-primary" type="button" disabled={busy || !runningInTauri || !approvalListenerReady || (!!pendingClientAddress && !pairingUrl) || (!pairingUrl && !selectedIds.size && !selectedManagedHostIds.size && !selectedPanelIds.size && !selectedFlowIds.size && !selectedCertificateIds.size && !selectedAuthIds.size && !selectedAiIds.size)} onClick={() => pairingUrl ? setQrDialogOpen(true) : void startQrTransfer()}><ShieldCheck size={17} aria-hidden="true" />{busy ? "正在开启…" : !approvalListenerReady ? "正在准备授权…" : pairingUrl ? "重新显示迁移二维码" : "显示手机迁移二维码（免口令）"}</button></div></footer>}
-
-    {pairingUrl && qrDialogOpen && <div className="sync-transfer-qr-overlay">
-      <section className="sync-transfer-qr-dialog modal-form-layout dialog-common-theme" role="dialog" aria-modal="true" aria-labelledby="sync-transfer-qr-title">
-        <header className="sync-transfer-qr-heading modal-head">
-          <div><span>跨设备迁移</span><h2 id="sync-transfer-qr-title">手机迁移二维码</h2></div>
-          <DialogHeaderActions><button type="button" className="sync-transfer-close" aria-label="关闭二维码弹层" onClick={() => setQrDialogOpen(false)}><X size={18} /></button></DialogHeaderActions>
-        </header>
-        <div className="modal-body sync-transfer-qr-body">
+    {pairingUrl && qrDialogOpen && <SharedDialog title="手机迁移二维码" eyebrow="跨设备迁移" size="small" className="sync-transfer-qr-dialog" bodyClassName="sync-transfer-qr-body" closeLabel="关闭二维码弹层" onClose={() => setQrDialogOpen(false)} footerClassName="sync-transfer-qr-actions" footer={<><button type="button" className="secondary" onClick={() => setQrDialogOpen(false)}>暂时关闭</button><button type="button" className="danger" disabled={busy} onClick={() => void cancelQrTransfer()}>取消本次迁移</button></>}>
           <p className="sync-transfer-qr-hint">使用手机扫码接收本次选择的配置。二维码仅本次有效，5 分钟后失效。</p>
           <div className="sync-transfer-qr-frame"><QRCodeSVG value={pairingUrl} size={220} level="M" title="一次性局域网迁移二维码" /></div>
           <div className="sync-transfer-qr-identities"><span>电脑身份 <code>{pairingSourceDeviceId}</code></span><span>公钥指纹 <code>{pairingSourceFingerprint}</code></span></div>
           <p className="sync-transfer-qr-hint">手机扫码后会显示设备校验信息；请在电脑核对后批准，才会发送所选配置。</p>
           {pendingClientAddress && <div className="sync-transfer-approval" role="alert"><strong>手机请求接收配置</strong><span>局域网地址：{pendingClientAddress}</span><span>设备身份：<code>{pendingDeviceIdentity}</code></span><span>请求校验码：<strong>{pendingVerificationCode}</strong></span><small>请核对手机显示的校验码和设备指纹，再确认请求来自你手上的设备。</small><div><button type="button" disabled={busy} onClick={() => void decideQrRequest(false)}>拒绝</button><button type="button" disabled={busy} onClick={() => void decideQrRequest(true)}>批准并发送</button></div></div>}
-        </div>
-        <footer className="modal-actions sync-transfer-qr-actions">
-          <button type="button" className="secondary" onClick={() => setQrDialogOpen(false)}>暂时关闭</button>
-          <button type="button" className="danger" disabled={busy} onClick={() => void cancelQrTransfer()}>取消本次迁移</button>
-        </footer>
-      </section>
-    </div>}
-
-  </section>;
+    </SharedDialog>}
+  </>;
+  return mobile ? <section className="sync-transfer-panel sync-transfer-mobile" aria-labelledby="sync-transfer-title">{content}</section> : <SharedDialog title="迁移到手机" eyebrow="跨设备迁移" icon={<FileLock2 size={19} aria-hidden="true" />} className="sync-transfer-panel sync-transfer-desktop ide-theme" bodyClassName="sync-transfer-dialog-body" closeLabel="关闭迁移面板" defaultExpanded onClose={() => onClose?.()} footerClassName="sync-transfer-footer" footer={footer}>{content}</SharedDialog>;
 }

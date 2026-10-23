@@ -1,7 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import { X } from "lucide-react";
-import { DialogHeaderActions } from "./DialogHeaderActions";
+import { SharedDialog } from "./SharedDialog";
 import "./export-selection.css";
 
 export type ExportItem = { id: string; label: string; detail?: string };
@@ -18,10 +16,8 @@ export function ExportChecklist({ items, selected, onChange, disabled = false, s
 }
 
 function SelectionDialog({ title, items, finish }: { title: string; items: ExportItem[]; finish: (ids: string[] | null) => void }) {
-  const dialog = useRef<HTMLDialogElement>(null);
   const [selected, setSelected] = useState<string[]>([]);
-  useEffect(() => { dialog.current?.showModal(); return () => dialog.current?.close(); }, []);
-  return createPortal(<dialog ref={dialog} className="export-selection-dialog export-selection-picker-dialog modal-form-layout dialog-common-theme" aria-label={title} onCancel={event => { event.preventDefault(); finish(null); }}><header><h2>{title}</h2><DialogHeaderActions><button type="button" className="secondary" aria-label="关闭导出选择" title="关闭" onClick={() => finish(null)}><X size={17} /></button></DialogHeaderActions></header><ExportChecklist items={items} selected={selected} onChange={setSelected} /><footer><button type="button" className="secondary" onClick={() => finish(null)}>取消</button><button type="button" className="primary" disabled={!selected.length} onClick={() => finish(selected)}>导出所选（{selected.length}）</button></footer></dialog>, document.body);
+  return <SharedDialog title={title} size="small" className="export-selection-dialog export-selection-picker-dialog" closeLabel="关闭导出选择" onClose={() => finish(null)} footer={<><button type="button" className="secondary" onClick={() => finish(null)}>取消</button><button type="button" className="primary" disabled={!selected.length} onClick={() => finish(selected)}>导出所选（{selected.length}）</button></>}><ExportChecklist items={items} selected={selected} onChange={setSelected} /></SharedDialog>;
 }
 
 export function useExportSelection() {

@@ -205,8 +205,8 @@ test("Codex account filters, metadata, quota errors and confirmed switching", as
   await page.getByRole("button", { name: "回收站", exact: true }).click();
   const recycle = page.getByRole("dialog", { name: "Codex 账号回收站", exact: true });
   await recycle.getByLabel("选择 second@example.test", { exact: true }).check();
-  await recycle.getByRole("button", { name: "恢复 (1)", exact: true }).click();
-  await expect(recycle.getByText("暂无已删除的数据", { exact: true })).toBeVisible();
+  await recycle.getByRole("button", { name: "批量恢复 (1)", exact: true }).click();
+  await expect(recycle.getByText("删除的云账号、面板、证书和备忘录会出现在这里，可随时恢复。", { exact: true })).toBeVisible();
   await recycle.getByRole("button", { name: "关闭对话框", exact: true }).click();
   await expect(page.getByRole("article")).toHaveCount(2);
   await page.getByRole("button", { name: "添加 Codex 账号", exact: true }).click();
@@ -501,10 +501,10 @@ test("Codex account filters, metadata, quota errors and confirmed switching", as
   await expect(page.getByRole("group", { name: "API 反代服务账号" })).toBeHidden();
   await page.getByRole("button", { name: "服务账号池", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "服务账号池", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "最大化服务账号池", exact: true }).click();
-  await expect(page.getByRole("dialog", { name: "服务账号池", exact: true })).toHaveClass(/is-maximized/);
-  await page.getByRole("button", { name: "还原服务账号池", exact: true }).click();
-  await expect(page.getByRole("dialog", { name: "服务账号池", exact: true })).not.toHaveClass(/is-maximized/);
+  await page.getByRole("button", { name: "最大化弹层", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "服务账号池", exact: true })).toHaveClass(/dialog-size-expanded/);
+  await page.getByRole("button", { name: "缩小弹层", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "服务账号池", exact: true })).not.toHaveClass(/dialog-size-expanded/);
   await page.getByRole("button", { name: "全选账号", exact: true }).click();
   await page.getByRole("button", { name: "完成", exact: true }).click();
   await expect(page.getByRole("button", { name: "启动反代服务", exact: true })).toBeEnabled();
@@ -600,13 +600,13 @@ test("Codex account filters, metadata, quota errors and confirmed switching", as
   await expect(page.getByText("70% 剩余（缓存）", { exact: false })).toBeVisible();
   await expect(page.getByRole("group", { name: "API 反代服务账号" }).getByLabel("Alice 工作账号", { exact: true })).toBeDisabled();
   await expect(page.getByRole("button", { name: "全选账号", exact: true })).toBeDisabled();
-  await page.getByRole("button", { name: "最大化服务账号池", exact: true }).click();
+  await page.getByRole("button", { name: "最大化弹层", exact: true }).click();
   for (const width of [375, 768, 1024, 1440]) {
     await page.setViewportSize({ width, height: 1000 });
     expect(await page.locator(".codex-pool-dialog").evaluate(element => { const rect = element.getBoundingClientRect(); return rect.right <= innerWidth && rect.left >= 0 && rect.top >= 0 && rect.bottom <= innerHeight && element.scrollWidth <= element.clientWidth; })).toBe(true);
     await page.screenshot({ path: `test-results/codex-pool-dialog-${width}.png` });
   }
-  await page.getByRole("button", { name: "还原服务账号池", exact: true }).click();
+  await page.getByRole("button", { name: "缩小弹层", exact: true }).click();
   await page.getByRole("button", { name: "关闭服务账号池", exact: true }).click();
   await page.getByLabel("账号选择规则", { exact: true }).selectOption("quota_first");
   await page.getByLabel("失败冷却秒数", { exact: true }).fill("0");
@@ -622,14 +622,14 @@ test("Codex account filters, metadata, quota errors and confirmed switching", as
   await page.getByRole("button", { name: "刷新日志", exact: true }).click();
   await expect(page.getByRole("region", { name: "调用日志列表", exact: true })).toContainText("200 / 200");
   await expect(page.getByRole("region", { name: "调用日志列表", exact: true })).toContainText("输入 12 / 输出 4");
-  await page.getByRole("button", { name: "放大调用日志", exact: true }).click();
-  await expect(page.getByRole("dialog", { name: "调用日志", exact: true })).toHaveClass(/codex-log-expanded/);
-  await page.getByRole("button", { name: "还原调用日志", exact: true }).click();
+  await page.getByRole("button", { name: "最大化弹层", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "调用日志", exact: true })).toHaveClass(/dialog-size-expanded/);
+  await page.getByRole("button", { name: "缩小弹层", exact: true }).click();
   await page.getByRole("button", { name: "查看调用 log-fixture 详情", exact: true }).click();
   const detailDialog = page.getByRole("dialog", { name: "调用详情", exact: true });
   await expect(detailDialog).toBeVisible();
-  await page.getByRole("button", { name: "放大调用详情", exact: true }).click();
-  await expect(detailDialog).toHaveClass(/codex-log-expanded/);
+  await detailDialog.getByRole("button", { name: "最大化弹层", exact: true }).click();
+  await expect(detailDialog).toHaveClass(/dialog-size-expanded/);
   await expect(page.getByLabel("客户端上送参数", { exact: true })).toContainText('"max_output_tokens": 100');
   await expect(page.getByLabel("网关上送参数（转换后）", { exact: true })).toContainText('"store": false');
   await expect(page.getByLabel("返回参数", { exact: true })).toContainText('"output_tokens": 4');
@@ -641,7 +641,7 @@ test("Codex account filters, metadata, quota errors and confirmed switching", as
     expect(await detailDialog.evaluate((element) => { const rect = element.getBoundingClientRect(); return rect.left >= 0 && rect.right <= window.innerWidth + 1 && rect.bottom <= window.innerHeight + 1 && element.scrollWidth <= element.clientWidth; })).toBe(true);
     await page.screenshot({ path: `test-results/codex-gateway-monitoring-${width}.png` });
   }
-  await page.getByRole("button", { name: "还原调用详情", exact: true }).click();
+  await detailDialog.getByRole("button", { name: "缩小弹层", exact: true }).click();
   await page.keyboard.press("Escape");
   await expect(detailDialog).toBeHidden();
   await expect(page.getByRole("dialog", { name: "调用日志", exact: true })).toBeVisible();
@@ -731,8 +731,8 @@ test("Codex account filters, metadata, quota errors and confirmed switching", as
     expect(await remoteDetail.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);
   }
   await page.screenshot({path:"test-results/codex-remote-log-detail.png"});
-  await remoteDetail.getByRole("button",{name:"放大远端详情"}).click();
-  await remoteDetail.getByRole("button",{name:"还原远端详情"}).click();
+  await remoteDetail.getByRole("button",{name:"最大化弹层"}).click();
+  await remoteDetail.getByRole("button",{name:"缩小弹层"}).click();
   await remoteDetail.getByRole("button",{name:"关闭远端详情"}).click();
   await page.screenshot({path:"test-results/codex-remote-logs.png"});
   await remoteDialog.getByRole("button",{name:"清空日志",exact:true}).click();

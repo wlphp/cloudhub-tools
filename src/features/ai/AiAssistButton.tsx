@@ -1,7 +1,6 @@
-import { DialogHeaderActions } from "../../shared/DialogHeaderActions";
-import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
-import { createPortal } from "react-dom";
-import { Bot, X } from "lucide-react";
+import { SharedDialog } from "../../shared/SharedDialog";
+import { useEffect, useRef, useState } from "react";
+import { Bot } from "lucide-react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { aiClient, type AiDraft, type AiFields, type AiPreview, type AiProfile, type AiReply, type AiTask, type AiImage,type AiProgress } from "../../platform/clients/ai";
 import { AiImageEditor } from "./AiImageEditor";
@@ -18,8 +17,7 @@ function Workbench({task,title="AI 辅助",current,onApply,onApplyItems,initialT
   const [profiles,setProfiles]=useState<AiProfile[]>([]),[profileId,setProfileId]=useState("");
   const [text,setText]=useState(initialText),[preview,setPreview]=useState<AiPreview|null>(null),[reply,setReply]=useState<AiReply|null>(null);
   const [fields,setFields]=useState<AiFields>({}),[selected,setSelected]=useState<Record<string,boolean>>({}),[selectedItems,setSelectedItems]=useState<boolean[]>([]),[item,setItem]=useState(0);
-  const [busy,setBusy]=useState(false),[error,setError]=useState("");const alive=useRef(true),request=useRef<string|null>(null),panel=useRef<HTMLElement>(null);
-  const panelDrag=useRef<{startX:number;startY:number;left:number;top:number}|null>(null);
+  const [busy,setBusy]=useState(false),[error,setError]=useState("");const alive=useRef(true),request=useRef<string|null>(null);
   const [image,setImage]=useState<AiImage|null>(null),[imageEditor,setImageEditor]=useState(false),[pendingImage,setPendingImage]=useState<File|null>(null),[progress,setProgress]=useState<AiProgress|null>(null);
   const imageInput=useRef<HTMLInputElement>(null),textInput=useRef<HTMLTextAreaElement>(null);
   const [imageDropActive,setImageDropActive]=useState(false);
@@ -33,20 +31,7 @@ function Workbench({task,title="AI 辅助",current,onApply,onApplyItems,initialT
     if(!["image/png","image/jpeg"].includes(file.type)){setError("请选择PNG或JPEG图片。");return;}
     setPendingImage(file);setImageEditor(true);setImage(null);setPreview(null);setReply(null);setError("");
   }
-  useEffect(()=>{
-    const handle=(event:KeyboardEvent)=>{
-      if(!panel.current?.isConnected)return;
-      if(event.key==="Escape"){event.preventDefault();event.stopImmediatePropagation();onClose();}
-    };
-    window.addEventListener("keydown",handle,true);return()=>window.removeEventListener("keydown",handle,true);
-  },[onClose]);
-  useEffect(()=>{
-    const move=(event:globalThis.MouseEvent)=>{const active=panelDrag.current;if(!active||!panel.current)return;const bounds=panel.current.getBoundingClientRect();const left=Math.min(Math.max(8,active.left+event.clientX-active.startX),Math.max(8,window.innerWidth-Math.min(bounds.width,window.innerWidth)-8));const top=Math.min(Math.max(8,active.top+event.clientY-active.startY),Math.max(8,window.innerHeight-Math.min(bounds.height,window.innerHeight)-8));panel.current.style.left=`${left}px`;panel.current.style.top=`${top}px`;};
-    const end=()=>{panelDrag.current=null;};
-    window.addEventListener("mousemove",move,true);window.addEventListener("mouseup",end,true);
-    return()=>{window.removeEventListener("mousemove",move,true);window.removeEventListener("mouseup",end,true);};
-  },[]);
-  useEffect(()=>{alive.current=true;void aiClient.list().then(list=>{if(alive.current){setProfiles(list);setProfileId(list.find(p=>p.enabled&&p.isDefault)?.id||list.find(p=>p.enabled)?.id||"");}}).catch(e=>{if(alive.current)setError(String(e));});panel.current?.querySelector<HTMLButtonElement>("button")?.focus();return()=>{alive.current=false;if(request.current)void aiClient.cancel(request.current).catch(()=>{});};},[]);
+  useEffect(()=>{alive.current=true;void aiClient.list().then(list=>{if(alive.current){setProfiles(list);setProfileId(list.find(p=>p.enabled&&p.isDefault)?.id||list.find(p=>p.enabled)?.id||"");}}).catch(e=>{if(alive.current)setError(String(e));});return()=>{alive.current=false;if(request.current)void aiClient.cancel(request.current).catch(()=>{});};},[]);
   useEffect(()=>{
     if(!runningInTauri)return;
     let disposed=false;
@@ -71,10 +56,7 @@ function Workbench({task,title="AI 辅助",current,onApply,onApplyItems,initialT
   function choose(next:AiFields){setFields({...next});setSelected(Object.fromEntries(Object.entries(next).map(([key,value])=>[key,value!==null&&(!current?.[key]||current[key]===value)])));}
   async function run(){if(!profile||(!text.trim()&&!image))return;setBusy(true);setError("");setReply(null);setProgress(null);const id=crypto.randomUUID();request.current=id;try{const safe=await aiClient.preview(text);if(!alive.current||request.current!==id)return;setText(safe.text);setPreview(safe);const next=await aiClient.run({requestId:id,profileId,expectedRevision:profile.updatedAt,task,text:safe.text,streaming,model: model || profile.model,...(image?{image}:{})},update=>{if(alive.current&&request.current===id&&update.requestId===id)setProgress(update);});if(alive.current&&request.current===id){setReply(next);setItem(0);setSelectedItems(next.draft.items.map(()=>true));choose(Object.keys(next.draft.fields).length?next.draft.fields:next.draft.items[0]||{});}}catch(e){if(alive.current&&request.current===id)setError(String(e));}finally{if(request.current===id)request.current=null;if(alive.current)setBusy(false);}}
   async function apply(){if(!reply||(!onApply&&!onApplyItems))return;setBusy(true);setError("");try{if(onApplyItems&&(task==="server"||task==="dns")&&reply.draft.items.length){const chosen=reply.draft.items.filter((_,index)=>selectedItems[index]);if(!chosen.length)throw new Error("请先选择要填入的候选。");await onApplyItems(chosen);}else if(onApply){const picked=Object.fromEntries(Object.entries(fields).filter(([key,value])=>selected[key]&&value!==null));await onApply({...reply.draft,fields:picked,items:[]});}if(alive.current)onClose();}catch(e){if(alive.current)setError(String(e));}finally{if(alive.current)setBusy(false);}}
-  function beginPanelDrag(event:ReactMouseEvent<HTMLElement>){if(window.innerWidth<=600||event.button!==0||!(event.target instanceof Element)||event.target.closest("button,a,input,select,textarea,[role='button']"))return;const element=panel.current;if(!element)return;const bounds=element.getBoundingClientRect();panelDrag.current={startX:event.clientX,startY:event.clientY,left:bounds.left,top:bounds.top};element.style.position="fixed";element.style.margin="0";element.style.transform="none";element.style.left=`${bounds.left}px`;element.style.top=`${bounds.top}px`;element.style.right="auto";element.style.bottom="auto";event.preventDefault();}
-  return createPortal(<div className="ai-backdrop"><aside ref={panel} className="modal ai-workbench ai-assist-workbench modal-form-layout dialog-common-theme ide-theme" role="dialog" aria-labelledby="ai-workbench-title">
-    <header title="拖动标题栏可移动此面板" onMouseDown={beginPanelDrag}><h2 id="ai-workbench-title"><Bot size={19} aria-hidden="true" />{title}</h2><DialogHeaderActions><button type="button" aria-label="关闭AI辅助" onClick={onClose}><X size={18}/></button></DialogHeaderActions></header>
-    <div className="ai-workbench-body">{<>
+  return <SharedDialog title={title} icon={<Bot size={19} aria-hidden="true" />} className="ai-workbench ai-assist-workbench" bodyClassName="ai-workbench-body" closeLabel="关闭AI辅助" onClose={onClose} footerClassName="ai-workbench-footer" footer={<><button type="button" onClick={onClose}>关闭</button>{reply&&<button type="button" onClick={()=>void navigator.clipboard.writeText(JSON.stringify({...reply.draft,fields},null,2)).catch(()=>setError("复制失败，请选择文本手动复制"))}>复制结果</button>}{reply&&(onApply||onApplyItems)&&<button type="button" className="ai-primary" disabled={busy||!(onApplyItems&&(task==="server"||task==="dns")&&reply.draft.items.length?selectedItems.some(Boolean):Object.values(selected).some(Boolean))} onClick={()=>void apply()}>{onApplyItems&&task==="server"&&reply.draft.items.length?"审核并填入选中候选":onApplyItems&&task==="dns"&&reply.draft.items.length?"审核并填入选中记录":"应用勾选字段"}</button>}</>}>
       <div className={`ai-model-selectors${(profile?.models?.length || 0) > 1 ? " has-two-fields" : ""}`}>
         <label>本次使用的服务<select value={profileId} disabled={busy} onChange={e=>{setProfileId(e.target.value);setReply(null);setPreview(null);setImage(null);setImageEditor(false);}}><option value="">请选择已启用的服务</option>{profiles.filter(p=>p.enabled).map(p=><option key={p.id} value={p.id}>{p.name} · {p.model}</option>)}</select></label>
         {(profile?.models?.length || 0) > 1 && <label>本次使用的模型<select disabled={busy} value={model} onChange={e => { setModel(e.target.value); setReply(null); setPreview(null); setImage(null); setImageEditor(false); }}>{profile!.models!.map(id => <option key={id} value={id}>{id}{id === profile!.model ? "（默认）" : ""}</option>)}</select></label>}
@@ -95,7 +77,5 @@ function Workbench({task,title="AI 辅助",current,onApply,onApplyItems,initialT
         {reply.draft.items.length>0&&onApplyItems&&(task==="server"||task==="dns")?<section className="ai-server-candidate-list" aria-label={task==="dns"?"DNS记录候选预览":"服务器候选预览"}><h4>识别到 {reply.draft.items.length} 条{task==="dns"?"DNS记录":"服务器候选"}</h4><p>{task==="dns"?"勾选后进行本地DNS规则解析并填入编辑器；仍需逐条核对和保存。":"勾选后进入重复项与字段审核；此处不会保存服务器或凭据。"}</p>{reply.draft.items.map((record,index)=><label className="ai-server-candidate" key={index}><input type="checkbox" checked={!!selectedItems[index]} disabled={busy} onChange={event=>setSelectedItems(selectedItems.map((checked,i)=>i===index?event.target.checked:checked))}/><span><strong>{index+1}. {task==="dns"?`${String(record.rr||"@")} · ${String(record.type||"未知类型")}`:String(record.name||"未命名服务器")}</strong><small>{task==="dns"?`${String(record.value||"缺少记录值")}${record.ttl!=null?` · TTL ${record.ttl}`:""}`:`${String(record.host||"缺少主机")} : ${String(record.port||"?")} · ${String(record.platform||"未知系统")} · ${String(record.username||"缺少用户名")}`}</small></span></label>)}</section>:reply.draft.items.length>0&&!(onApplyItems&&(task==="server"||task==="dns"))&&<label>选择要填写的记录<select value={item} disabled={busy} onChange={e=>{const index=Number(e.target.value);setItem(index);choose(reply.draft.items[index]);}}>{reply.draft.items.map((record,index)=><option key={index} value={index}>{index+1}. {String(record.name||record.rr||record.host||record.type||"记录")}</option>)}</select></label>}
         {!(onApplyItems&&(task==="server"||task==="dns")&&reply.draft.items.length)&&<>{!!Object.keys(fields).length&&<button type="button" onClick={()=>setSelected(Object.fromEntries(Object.entries(fields).map(([key,value])=>[key,value!==null])))}>勾选全部字段</button>}<div className="ai-result-fields">{Object.entries(fields).map(([key,value])=><label key={key}><span className="ai-field-title"><input type="checkbox" checked={!!selected[key]} disabled={value===null||busy} onChange={e=>setSelected({...selected,[key]:e.target.checked})}/>{labels[key]||key}</span><input disabled={busy} value={value??""} onChange={e=>setFields({...fields,[key]:typeof value==="number"?(e.target.value===""?null:Number(e.target.value)):e.target.value})}/>{current?.[key]!=null&&current[key]!==""&&<small>当前：{String(current[key])}；勾选后应用此字段</small>}</label>)}</div></>}<p>输入 {reply.inputTokens??"未知"} / 输出 {reply.outputTokens??"未知"} Token</p>
       </section>}
-    </>}</div>
-    <footer className="ai-workbench-footer"><button type="button" onClick={onClose}>关闭</button>{reply&&<button type="button" onClick={()=>void navigator.clipboard.writeText(JSON.stringify({...reply.draft,fields},null,2)).catch(()=>setError("复制失败，请选择文本手动复制"))}>复制结果</button>}{reply&&(onApply||onApplyItems)&&<button type="button" className="ai-primary" disabled={busy||!(onApplyItems&&(task==="server"||task==="dns")&&reply.draft.items.length?selectedItems.some(Boolean):Object.values(selected).some(Boolean))} onClick={()=>void apply()}>{onApplyItems&&task==="server"&&reply.draft.items.length?"审核并填入选中候选":onApplyItems&&task==="dns"&&reply.draft.items.length?"审核并填入选中记录":"应用勾选字段"}</button>}</footer>
-  </aside></div>,document.body);
+  </SharedDialog>;
 }

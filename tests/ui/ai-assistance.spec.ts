@@ -510,7 +510,7 @@ test("AI service dialog keeps actions visible, traps focus and preserves edits o
   const dialog=page.getByRole("dialog",{name:"添加AI服务",exact:true});
   await expect(dialog.getByLabel("配置名称")).toBeFocused();
   await dialog.getByLabel("配置名称").fill("保留草稿");
-  await page.locator(".ai-config-backdrop").click({position:{x:1,y:1}});
+  await page.locator(".shared-dialog-backdrop").filter({has:dialog}).click({position:{x:1,y:1}});
   await expect(dialog.getByLabel("配置名称")).toHaveValue("保留草稿");
   await dialog.getByRole("button",{name:"保存配置",exact:true}).focus();await page.keyboard.press("Tab");
   await expect(dialog.getByRole("button",{name:"最大化弹层",exact:true})).toBeFocused();

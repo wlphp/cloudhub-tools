@@ -1,6 +1,6 @@
-import { DialogHeaderActions } from "../../shared/DialogHeaderActions";
+import { SharedDialog } from "../../shared/SharedDialog";
 import { useEffect, useRef, useState } from "react";
-import { RefreshCw, X } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { codexClient, type CodexAccount } from "../../platform/clients/codex";
 
 export function BatchProxyDialog({ accounts, busy, act, onSaved, onClose }: { accounts: CodexAccount[]; busy: boolean; act: (name: string, run: () => Promise<void>) => Promise<void>; onSaved: (accounts: CodexAccount[]) => void; onClose: () => void }) {
@@ -10,9 +10,8 @@ export function BatchProxyDialog({ accounts, busy, act, onSaved, onClose }: { ac
   const [proxies, setProxies] = useState<{ url: string; source: string; enabled: boolean }[]>([]);
   const [detected, setDetected] = useState(false);
   const [detecting, setDetecting] = useState(false);
-  const dialog = useRef<HTMLDialogElement>(null);
   const alive = useRef(true);
-  useEffect(() => { alive.current = true; const node = dialog.current; node?.showModal(); return () => { alive.current = false; node?.close(); }; }, []);
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const locked = busy || detecting;
   async function detect() {
     setDetecting(true); setError(""); setDetected(false); setProxies([]);
@@ -20,8 +19,7 @@ export function BatchProxyDialog({ accounts, busy, act, onSaved, onClose }: { ac
     catch (reason) { if (alive.current) setError(reason instanceof Error ? reason.message : "读取本机代理配置失败，请手动填写代理地址"); }
     finally { if (alive.current) setDetecting(false); }
   }
-  return <dialog ref={dialog} className="codex-dialog modal-form-layout dialog-common-theme" aria-label="批量设置代理" onCancel={event => { event.preventDefault(); if (!locked) onClose(); }}>
-    <header><h2>批量设置代理</h2><DialogHeaderActions><button type="button" disabled={locked} onClick={onClose} aria-label="关闭批量代理设置" title="关闭"><X size={16} /></button></DialogHeaderActions></header>
+  return <SharedDialog title="批量设置代理" className="codex-dialog" closeLabel="关闭批量代理设置" closeDisabled={locked} onClose={onClose}>
     <p>将统一设置当前列表内已选的 {accounts.length} 个账号。{!common && "所选账号当前代理不同，保存后统一替换。"}</p>
     <form onSubmit={event => {
       event.preventDefault(); if (locked) return;
@@ -39,5 +37,5 @@ export function BatchProxyDialog({ accounts, busy, act, onSaved, onClose }: { ac
       <p id="codex-batch-proxy-help">留空会清除这 {accounts.length} 个账号的代理，恢复沿用系统网络。仅支持无账号密码的 HTTP/HTTPS 代理。请先停止所选账号的服务、实例及唤醒任务；任一账号不可修改时整批不保存。</p>
       <div className="codex-dialog-actions"><button type="button" disabled={locked} onClick={onClose}>取消</button><button disabled={locked || !accounts.length}>{url.trim() ? `保存到 ${accounts.length} 个账号` : `清除 ${accounts.length} 个账号代理`}</button></div>
     </form>
-  </dialog>;
+  </SharedDialog>;
 }

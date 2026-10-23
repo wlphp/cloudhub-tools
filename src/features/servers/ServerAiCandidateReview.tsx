@@ -1,7 +1,5 @@
-import { DialogHeaderActions } from "../../shared/DialogHeaderActions";
-import { useEffect, useRef } from "react";
-import { createPortal } from "react-dom";
-import { AlertTriangle, CheckCircle2, Server, X } from "lucide-react";
+import { SharedDialog } from "../../shared/SharedDialog";
+import { AlertTriangle, CheckCircle2, Server } from "lucide-react";
 import type { AiFields } from "../../platform/clients/ai";
 import type { ManagedHost } from "../../shared/types";
 import { reviewServerAiCandidates, type ServerAiCandidate } from "./serverAiCandidates";
@@ -12,29 +10,13 @@ const shownFields = [["name", "名称"], ["host", "主机"], ["port", "端口"],
 
 export function ServerAiCandidateReview({ items, existing, onFill, onClose }: Props) {
   const candidates = reviewServerAiCandidates(items, existing);
-  const dialog = useRef<HTMLElement>(null);
-  useEffect(() => {
-    dialog.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
-    const keydown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") { event.preventDefault(); onClose(); }
-      if (event.key === "Tab" && dialog.current) {
-        const nodes = Array.from(dialog.current.querySelectorAll<HTMLElement>('button:not(:disabled),[tabindex="0"]'));
-        const first = nodes[0], last = nodes[nodes.length - 1];
-        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
-        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
-      }
-    };
-    window.addEventListener("keydown", keydown, true);
-    return () => window.removeEventListener("keydown", keydown, true);
-  }, [onClose]);
   function fill(candidate: ServerAiCandidate) {
     if (candidate.errors.length || candidate.duplicateOf) return;
     onFill(candidate.fields);
     onClose();
   }
   const readyCount = candidates.filter(candidate => !candidate.errors.length && !candidate.duplicateOf).length;
-  return createPortal(<div className="ai-backdrop server-ai-review-backdrop"><section ref={dialog} className="modal ai-asset-note-dialog modal-form-layout dialog-common-theme ide-theme server-ai-review" role="dialog" aria-modal="true" aria-labelledby="server-ai-review-title">
-    <header><div><span className="eyebrow">SERVER CANDIDATES</span><h2 id="server-ai-review-title"><Server size={18} />审核服务器候选</h2></div><DialogHeaderActions><button type="button" aria-label="关闭候选审核" onClick={onClose}><X size={18} /></button></DialogHeaderActions></header>
+  return <SharedDialog title="审核服务器候选" eyebrow="SERVER CANDIDATES" icon={<Server size={18} />} className="ai-asset-note-dialog server-ai-review" closeLabel="关闭候选审核" onClose={onClose} footer={<><span role="status">{readyCount} / {candidates.length} 条可填入</span><button type="button" onClick={onClose}>关闭</button></>}>
     <p>逐条检查识别结果。填入只会更新服务器表单；登录密码、私钥和保存操作仍由你完成。</p>
     <div className="server-ai-review-list">{candidates.map((candidate, index) => {
       const blocked = candidate.errors.length > 0 || !!candidate.duplicateOf;
@@ -46,6 +28,5 @@ export function ServerAiCandidateReview({ items, existing, onFill, onClose }: Pr
         <button type="button" className="ai-primary" disabled={blocked} onClick={() => fill(candidate)}>填入此服务器表单</button>
       </article>;
     })}</div>
-    <footer><span role="status">{readyCount} / {candidates.length} 条可填入</span><button type="button" onClick={onClose}>关闭</button></footer>
-  </section></div>, document.body);
+  </SharedDialog>;
 }

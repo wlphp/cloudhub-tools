@@ -71,11 +71,12 @@ export function RoutingSettings({ config, mode, running, onClose, onSave }: { co
 }
 
 export function ModeBar({
-  view, state, currentName, activeName, providers = [], scopeLabel, addressFallback, onView, onActivate, onSettings, onFailover, disabled,
+  view, state, currentName, directConfigurationIssue, activeName, providers = [], scopeLabel, addressFallback, onView, onActivate, onSettings, onFailover, disabled,
 }: {
   view: ClaudeMode; state: ClaudeRoutingState;
   /** 直连模式下显示的当前供应商名。 */
   currentName?: string;
+  directConfigurationIssue?: boolean;
   activeName?: string;
   providers?: ClaudeProviderSummary[];
   /** 作用域标签，如 "用户全局" / "项目 ~/work/foo"。路由与聚合下显示在尾段。 */
@@ -91,7 +92,7 @@ export function ModeBar({
   const modeLabel = CLAUDE_MODES.find(mode => mode.id === state.mode)?.label ?? "直连";
   const status = (() => {
     if (state.mode === "direct") {
-      const segments = ["直连生效中", "直连连接", currentName?.trim() || "未选择供应商"];
+      const segments = [directConfigurationIssue ? "直连配置待核对" : "直连生效中", "直连连接", currentName?.trim() || "未选择供应商"];
       return segments.join(" · ");
     }
     const segments = [`${modeLabel}生效中`, state.address || addressFallback || ""];
@@ -109,7 +110,7 @@ export function ModeBar({
     <div role="tablist" aria-label="Claude Code 连接模式" className="claude-mode-tabs">{CLAUDE_MODES.map(mode => {
       const Icon = mode.icon;
       return <button type="button" role="tab" key={mode.id} aria-selected={view === mode.id} onClick={() => onView(mode.id)}>
-        <Icon size={15} aria-hidden="true" />{mode.label}{state.mode === mode.id && <i className="claude-live-dot" aria-label="生效中" />}
+        <Icon size={15} aria-hidden="true" />{mode.label}{state.mode === mode.id && !(mode.id === "direct" && directConfigurationIssue) && <i className="claude-live-dot" aria-label="生效中" />}
       </button>;
     })}</div>
     <HelpTooltip label="连接模式的区别">

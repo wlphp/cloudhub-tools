@@ -1,7 +1,7 @@
-import { DialogHeaderActions } from "../../shared/DialogHeaderActions";
+import { SharedDialog } from "../../shared/SharedDialog";
 import { GatewayTunnel } from "./GatewayTunnel";
 import { useEffect, useRef, useState } from "react";
-import { Activity, AlertTriangle, Boxes, CheckCircle2, Gem, Globe, Clock3, Copy, Eye, EyeOff, Info, Link2, Maximize2, Minimize2, Play, Power, RefreshCw, Save, Server, Settings, Square, ScrollText, Users, X, XCircle } from "lucide-react";
+import { Activity, AlertTriangle, Boxes, CheckCircle2, Gem, Globe, Clock3, Copy, Eye, EyeOff, Info, Link2, Play, Power, RefreshCw, Save, Server, Settings, Square, ScrollText, Users, XCircle } from "lucide-react";
 import { codexClient, type CodexAccount, type CodexGatewayState } from "../../platform/clients/codex";
 
 import { GatewayMonitoring, PoolQuota } from "./GatewayMonitoring";
@@ -11,8 +11,6 @@ const recommendedModels = ["gpt-6.1-sol", "gpt-6-astra", "gpt-6-sol", "gpt-6-lun
 
 export function CodexGateway({ accounts, disabled, onStateChange, externalPool, onLanUrlChange, actionRequest }: { accounts: CodexAccount[]; disabled: boolean; onStateChange?: (state: CodexGatewayState) => void; externalPool?: number[]; onLanUrlChange?: (url: string | null) => void; actionRequest?: {id: number; kind: "pool" | "logs" | "start" | "stop" | "config"} }) {
   const [poolOpen, setPoolOpen] = useState(false);
-  const [poolMaximized, setPoolMaximized] = useState(false);
-  const poolDialog = useRef<HTMLDialogElement>(null);
   const [logsOpen, setLogsOpen] = useState(false);
   const [updatedAt, setUpdatedAt] = useState<number | null>(null);
   const [state, setState] = useState<CodexGatewayState | null>(null);
@@ -35,7 +33,6 @@ export function CodexGateway({ accounts, disabled, onStateChange, externalPool, 
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [confirmation, setConfirmation] = useState<"start" | "stop" | "wake" | null>(null);
-  const dialog = useRef<HTMLDialogElement>(null);
   const alive = useRef(true);
   const operation = useRef(false);
   const portInitialized = useRef(false);
@@ -87,8 +84,6 @@ export function CodexGateway({ accounts, disabled, onStateChange, externalPool, 
     void read(); const timer = window.setInterval(() => void read(), 3000);
     return () => { alive.current = false; window.clearInterval(timer); };
   }, []);
-  useEffect(() => { if (poolOpen) poolDialog.current?.showModal(); else poolDialog.current?.close(); }, [poolOpen]);
-  useEffect(() => { if (confirmation) dialog.current?.showModal(); else dialog.current?.close(); }, [confirmation]);
   async function act(run: () => Promise<void>) {
     if (operation.current) return;
     stateRevision.current++;
@@ -167,14 +162,11 @@ export function CodexGateway({ accounts, disabled, onStateChange, externalPool, 
     <GatewayMonitoring logsOpen={logsOpen} onClose={() => setLogsOpen(false)} accounts={accounts} state={state} locked={locked} act={act} onState={setState} />
       <details className="codex-config-note"><summary>调用说明</summary><div className="codex-service-note"><Info size={21} aria-hidden="true" /><div><p>请求使用服务账号的订阅额度或 API 账单。{state?.supportsFunctionTools ? "Responses 支持文本、函数工具及流式输出；工具由客户端执行，网关不执行本机工具。暂不支持图片或托管工具。" : "支持文本请求及流式输出，不执行本机工具。"}</p><p>统计来自当前服务进程，ChatGPT 订阅端点可能随官方客户端变化。</p></div></div></details></section>
     </div>
-    <dialog ref={poolDialog} className={`codex-dialog modal-form-layout dialog-common-theme codex-pool-dialog${poolMaximized ? " is-maximized" : ""}`} aria-labelledby="codex-pool-title" onCancel={() => setPoolOpen(false)} onClose={() => setPoolOpen(false)}>
-      <header><h2 id="codex-pool-title">服务账号池</h2><div className="codex-pool-window-actions"><button aria-label={poolMaximized ? "还原服务账号池" : "最大化服务账号池"} title={poolMaximized ? "还原" : "最大化"} aria-pressed={poolMaximized} onClick={() => setPoolMaximized(value => !value)}>{poolMaximized ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button><button aria-label="关闭服务账号池" title="关闭服务账号池" onClick={() => setPoolOpen(false)}><X size={16} /></button></div></header>
-      <div className="codex-pool-dialog-body">
+    {poolOpen && <SharedDialog title="服务账号池" className="codex-dialog codex-pool-dialog" bodyClassName="codex-pool-dialog-body" onClose={() => setPoolOpen(false)} footer={<button onClick={() => setPoolOpen(false)}>完成</button>}>
     <section className="codex-api-card"><div className="codex-api-section-heading"><h3>账号选择 <span className="codex-badge">{activeIds.length} 个账号</span></h3><div className="codex-actions"><button disabled={locked || running || !accounts.length || !state?.supportsPoolPersistence} onClick={() => updatePool(ids.length === accounts.length ? new Set() : new Set(accounts.map((account) => account.id)))}>{ids.length === accounts.length && accounts.length ? "清空选择" : "全选账号"}</button><button disabled={locked || !ids.length || !/^[A-Za-z0-9._-]{1,100}$/.test(model)} onClick={() => setConfirmation("wake")}><Power size={14} />唤醒所选账号</button></div></div><p className="codex-api-description">{state?.supportsPoolPersistence ? "账号勾选后立即保存，停止服务和重启应用后保留；修改账号池需先停止服务。" : "更新原生版本后可选择并固定保存服务账号池。"}唤醒会发送模型请求并消耗额度。</p>
       <div className="codex-service-pool" role="group" aria-label="API 反代服务账号">{accounts.map((account) => <label key={account.id}><input type="checkbox" aria-label={account.label} checked={!account.isWebSession && activeIds.includes(account.id)} disabled={locked || running || !state?.supportsPoolPersistence || !!account.isWebSession} title={account.isWebSession ? "Web Session 账号仅支持查看额度，不能加入 API 服务" : undefined} onChange={() => { const next = new Set(pool); next.has(account.id) ? next.delete(account.id) : next.add(account.id); updatePool(next); }} /><PoolQuota account={account} /></label>)}</div>{!accounts.length && <p className="codex-api-description">请先在账号总览添加账号。</p>}
     </section>
-      </div><div className="codex-dialog-actions"><button onClick={() => setPoolOpen(false)}>完成</button></div>
-    </dialog>
+    </SharedDialog>}
 
     <section className="codex-api-card codex-protocol-section codex-multi-protocol">
       <div className="codex-protocol-heading"><h3><Link2 size={19} aria-hidden="true" />多协议支持</h3><p className="codex-api-description">统一服务地址和密钥，按不同客户端协议接入；调用当前服务账号可用的模型。</p><small>模型目录：GET /v1/models · 实际调用权限以上游为准</small></div>
@@ -188,7 +180,7 @@ export function CodexGateway({ accounts, disabled, onStateChange, externalPool, 
       })}</div>
       <p className="codex-api-description">协议转换不提供额外的 Claude / Gemini 模型权限。暂不支持图片、托管工具或 thinking；多账号函数工具会话须提供 X-CloudHub-Session，或只选择一个服务账号。</p>
     </section>
-    <dialog ref={dialog} className="codex-dialog modal-form-layout dialog-common-theme" aria-label={confirmation === "start" ? "启动API 反代服务" : confirmation === "stop" ? "停止API 反代服务" : "唤醒 Codex 账号"} onCancel={(event) => { event.preventDefault(); if (!busy) setConfirmation(null); }}><header><h2>{confirmation === "start" ? "启动API 反代服务" : confirmation === "stop" ? "停止API 反代服务" : "唤醒 Codex 账号"}</h2><DialogHeaderActions><button disabled={busy} aria-label="关闭服务对话框" onClick={() => setConfirmation(null)}><X size={16} /></button></DialogHeaderActions></header><p>{confirmation === "start" ? "外部本机客户端持有服务密钥后，可以通过所选账号发起请求并消耗额度。服务账号不能同时启动受管 CLI 实例。" : confirmation === "stop" ? state?.supportsPersistentConfig ? "停止服务将取消正在传输的请求；已保存的密钥和端口将在下次启动时沿用。" : "停止服务将取消正在传输的请求，当前旧原生版本的服务密钥随即失效。" : `向 ${ids.length} 个账号各发送一次简短请求，模型为 ${model}。这可能消耗额度或产生 API 费用，不会增加可用额度，也不改变官方重置时间。`}</p>{error && <p role="alert" className="codex-card-error">{error}</p>}<div className="codex-dialog-actions"><button disabled={busy} onClick={() => setConfirmation(null)}>取消</button><button disabled={busy} onClick={() => void act(async () => {
+    {confirmation && <SharedDialog title={confirmation === "start" ? "启动API 反代服务" : confirmation === "stop" ? "停止API 反代服务" : "唤醒 Codex 账号"} size="small" className="codex-dialog" closeLabel="关闭服务对话框" closeDisabled={busy} onClose={() => setConfirmation(null)}><p>{confirmation === "start" ? "外部本机客户端持有服务密钥后，可以通过所选账号发起请求并消耗额度。服务账号不能同时启动受管 CLI 实例。" : confirmation === "stop" ? state?.supportsPersistentConfig ? "停止服务将取消正在传输的请求；已保存的密钥和端口将在下次启动时沿用。" : "停止服务将取消正在传输的请求，当前旧原生版本的服务密钥随即失效。" : `向 ${ids.length} 个账号各发送一次简短请求，模型为 ${model}。这可能消耗额度或产生 API 费用，不会增加可用额度，也不改变官方重置时间。`}</p>{error && <p role="alert" className="codex-card-error">{error}</p>}<div className="codex-dialog-actions"><button disabled={busy} onClick={() => setConfirmation(null)}>取消</button><button disabled={busy} onClick={() => void act(async () => {
       if (confirmation === "start") {
         if (!canStart) throw new Error("请检查账号选择、端口和服务密钥");
         const serviceKey = state?.supportsCustomKey ? serviceKeyInput.current?.value || null : null;
@@ -199,6 +191,6 @@ export function CodexGateway({ accounts, disabled, onStateChange, externalPool, 
       else if (confirmation === "stop") { const next = await codexClient.stopGateway(); if (alive.current) setState(next); }
       else { let failed = 0; for (const id of ids) { if (!alive.current) break; try { await codexClient.wakeAccount(id, model); } catch { failed++; } } if (alive.current) setMessage(`已处理 ${ids.length} 个账号${failed ? `，${failed} 个唤醒失败，请检查登录或模型权限` : "，唤醒请求完成"}`); }
       if (alive.current) setConfirmation(null);
-    })}>{busy ? "处理中…" : "确认操作"}</button></div></dialog>
+    })}>{busy ? "处理中…" : "确认操作"}</button></div></SharedDialog>}
   </section>;
 }

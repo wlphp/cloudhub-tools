@@ -92,7 +92,7 @@ test("page mode uses the main area and returns focus to the store", async ({ pag
     { name: "电脑信息", action: "查看", id: "cloudhub.hardware-info", content: ".hardware-info-dialog" },
     { name: "WSL 管理", action: "管理", id: "cloudhub.wsl-dashboard", content: ".wechat-settings-dialog" },
     { name: "指纹浏览器", action: "管理", id: "cloudhub.fingerprint-browser", content: ".browser-dialog" },
-    { name: "Claude Code 供应商", action: "管理", id: "cloudhub.claude-providers", content: ".claude-providers" },
+    { name: "Claude 管理", action: "管理", id: "cloudhub.claude-providers", content: ".claude-providers" },
     { name: "备忘录", action: "打开", id: "cloudhub.notes", content: ".notes-panel" },
   ];
   for (const item of cases) {
@@ -218,7 +218,7 @@ const plugins = [
   { name: "电脑信息", action: "查看", title: "电脑信息", content: ".hardware-info-dialog" },
   { name: "WSL 管理", action: "管理", title: "WSL 管理", content: ".wsl-tabs" },
   { name: "指纹浏览器", action: "管理", title: "指纹浏览器", content: ".browser-dialog" },
-  { name: "Claude Code 供应商", action: "管理", title: "Claude Code 供应商", content: ".claude-providers" },
+  { name: "Claude 管理", action: "管理", title: "Claude 管理", content: ".claude-providers" },
   { name: "备忘录", action: "打开", title: "备忘录", content: ".notes-panel" },
 ];
 
@@ -287,7 +287,7 @@ test("page navigation preserves store filters and leaves the sidebar reachable",
   await expect(page.locator(".plugin-page-host")).toHaveCount(0);
 });
 
-for (const name of ["备忘录", "Claude Code 供应商"]) {
+for (const name of ["备忘录", "Claude 管理"]) {
   test(`${name} nested editor closes one layer at a time`, async ({ page }) => {
     await openStore(page);
     const row = page.locator(".software-store-page tbody tr", { hasText: name });

@@ -44,7 +44,8 @@
   background: var(--jb-surface-2,#303030);
 }
 .export-selection-picker-dialog > header h2 { font-size: 16px; line-height: 1.4; }
-.export-selection-picker-dialog > .export-selection {
+.export-selection-picker-dialog > .modal-body { display: flex; flex-direction: column; min-height: 0; }
+.export-selection-picker-dialog .export-selection {
   display: flex;
   flex: 0 1 auto;
   flex-direction: column;
@@ -74,7 +75,8 @@
   background: var(--jb-input,#202020);
   overscroll-behavior: contain;
 }
-.export-selection-picker-dialog.dialog-size-expanded > .export-selection {
+.export-selection-picker-dialog.dialog-size-expanded > .modal-body,
+.export-selection-picker-dialog.dialog-size-expanded .export-selection {
   flex: 1 1 auto;
 }
 .export-selection-picker-dialog.dialog-size-expanded .export-selection-list {

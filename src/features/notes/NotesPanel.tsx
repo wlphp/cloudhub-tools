@@ -284,13 +284,14 @@ export function NotesPanel({ openSignal = 0 }: NotesPanelProps) {
   }, [notes, keyword, group]);
 
   async function act(action: () => Promise<unknown>, failure: string, done?: string) {
-    if (busy) return;
+    if (busy) return false;
     setBusy(true);
     try {
       await action();
       if (done) setMessage(done);
       await load(true);
-    } catch (reason) { setError(reason instanceof Error ? reason.message : failure); }
+      return true;
+    } catch (reason) { setError(reason instanceof Error ? reason.message : failure); return false; }
     finally { setBusy(false); }
   }
 
@@ -372,8 +373,8 @@ export function NotesPanel({ openSignal = 0 }: NotesPanelProps) {
         busy={busy}
         kinds={[{ id: "notes", label: "备忘录", items: trashed.map(note => ({ id: String(note.id), title: note.title, detail: note.group, deletedAt: note.deletedAt ?? note.updatedAt })) } satisfies TrashKind]}
         actions={{
-          restore: async (_kind, ids) => { await act(() => notesClient.restore(ids.map(Number)), "恢复备忘录失败", "已恢复备忘录"); },
-          purge: async (_kind, ids) => { await act(() => notesClient.purge(ids.map(Number)), "彻底删除失败", "已彻底删除"); },
+          restore: async (_kind, ids) => { if (!await act(() => notesClient.restore(ids.map(Number)), "恢复备忘录失败", "已恢复备忘录")) throw new Error("恢复备忘录失败，请重试"); },
+          purge: async (_kind, ids) => { if (!await act(() => notesClient.purge(ids.map(Number)), "彻底删除失败", "已彻底删除")) throw new Error("彻底删除失败，请重试"); },
           confirmPurge: () => window.confirm("彻底删除后无法恢复，确定继续吗？"),
           // Restoring is the terminal action here, so the bin closes itself.
           onRestored: () => setShowTrash(false),

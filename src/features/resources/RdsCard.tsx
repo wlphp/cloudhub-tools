@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Check, Copy, Maximize2, Minimize2, RefreshCw, X } from "lucide-react";
+import { Check, Copy, RefreshCw } from "lucide-react";
+import { SharedDialog } from "../../shared/SharedDialog";
 import { resourcesClient } from "../../platform/clients";
 import type { RdsConnectionAddress, RdsStorageUsage } from "../../platform/clients/resources";
 import { platformErrorMessage } from "../../platform/api";
@@ -29,7 +30,6 @@ export function RdsCard({
   const [mode, setMode] = useState<"db" | "accounts" | null>(null);
   const [busy, setBusy] = useState(false);
   const [accountDialog, setAccountDialog] = useState(false);
-  const [accountDialogMaximized, setAccountDialogMaximized] = useState(false);
   const [accountError, setAccountError] = useState("");
   const [storageUsage, setStorageUsage] = useState<RdsStorageUsage | null>(null);
   const [storageError, setStorageError] = useState("");
@@ -222,38 +222,7 @@ export function RdsCard({
         </button>
       </div>}
       {accountDialog && (
-        <div
-          className="resource-modal-backdrop nested-resource-modal"
-        >
-          <section
-            className={`detail-panel resource-modal account-dialog${accountDialogMaximized ? " is-maximized" : ""}`}
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="detail-toolbar">
-              <div>
-                <span className="eyebrow">
-                  {displayValue(item.DBInstanceDescription || item.DBInstanceId)}
-                </span>
-                <h2>账号管理</h2>
-              </div>
-              <div className="detail-toolbar-actions">
-                <button
-                  className="secondary"
-                  title={accountDialogMaximized ? "还原窗口" : "放大到全屏"}
-                  onClick={() => setAccountDialogMaximized((value) => !value)}
-                >
-                  {accountDialogMaximized ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
-                  {accountDialogMaximized ? "还原" : "放大"}
-                </button>
-                <button className="layui-btn" disabled={busy} onClick={() => void load("accounts")}>
-                  <RefreshCw className={busy ? "spin" : undefined} size={13} />
-                  {busy ? "读取中…" : "刷新"}
-                </button>
-                <button className="close-detail" onClick={() => { setAccountDialog(false); setAccountDialogMaximized(false); }}>
-                  <X size={20} />
-                </button>
-              </div>
-            </div>
+        <SharedDialog title="账号管理" eyebrow={displayValue(item.DBInstanceDescription || item.DBInstanceId)} className="resource-modal account-dialog" backdropClassName="resource-modal-backdrop" onClose={() => setAccountDialog(false)} headerActions={<button className="secondary" disabled={busy} onClick={() => void load("accounts")}><RefreshCw className={busy ? "spin" : undefined} size={13} />{busy ? "读取中…" : "刷新"}</button>}>
             {accountError && <div className="error-list">{accountError}</div>}
             <div className="resource-table-wrap account-table-wrap">
               {busy ? (
@@ -283,8 +252,7 @@ export function RdsCard({
                 <div className="detail-empty">暂无数据库账号</div>
               )}
             </div>
-          </section>
-        </div>
+        </SharedDialog>
       )}
     </article>
   );

@@ -98,6 +98,8 @@
 .ai-assist-workbench .ai-model-selectors { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px 12px; min-width: 0; }
 .ai-assist-workbench .ai-model-selectors.has-two-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .ai-assist-workbench .ai-model-selectors > label { min-width: 0; }
+.shared-content-dialog.ai-workbench { position: relative; inset: auto; transform: none; flex: 0 1 auto; width: min(640px, 100%); height: min(760px, calc(100dvh - 32px)); margin: 0; padding: 0; gap: 0; }
+.shared-content-dialog.ai-workbench > .modal-head { justify-content: flex-start; }
 @media(max-width:600px) { .ai-assist-workbench .ai-model-selectors.has-two-fields { grid-template-columns: minmax(0, 1fr); } }
 
 /* On phones, profile details must keep the full card width; actions sit below them. */

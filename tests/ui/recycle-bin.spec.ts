@@ -24,7 +24,14 @@ async function openSettings(page: Page) {
         if (command === "trash_list") return { groups: seed, scrubDays: 30, scrubbedNow: 0 };
         if (command === "trash_set_scrub_days") return args?.days ?? 30;
         if (command === "trash_scrub_now") return 0;
-        if (command === "trash_restore" || command === "trash_purge" || command === "trash_empty") return 1;
+        if (command === "trash_restore") {
+          const calls = (window as any).__restoreCalls ??= [];
+          calls.push(args);
+          if ((window as any).__restoreFailKind === args.kind) throw new Error("恢复失败");
+          for (const group of seed as any[]) if (group.kind === args.kind) group.items = group.items.filter((item: any) => !args.ids.includes(item.id));
+          return args.ids.length;
+        }
+        if (command === "trash_purge" || command === "trash_empty") return 1;
         return [];
       },
     };
@@ -86,8 +93,28 @@ test("restoring from the settings bin closes the dialog and reloads the list", a
   const bin = page.locator("body > .modal-backdrop .recycle-bin");
   const panels = bin.locator(".recycle-bin-group", { hasText: "面板连接" });
   await panels.getByLabel("选择 生产运维面板").check();
-  await panels.getByRole("button", { name: /^恢复/ }).click();
+  await panels.getByRole("button", { name: /^批量恢复/ }).click();
   await expect(page.locator(".recycle-bin")).toHaveCount(0);
+});
+
+test("all selected types restore together and a failed group remains selected for retry", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openSettings(page);
+  await page.getByRole("button", { name: /回收站/ }).first().click();
+  const bin = page.locator(".recycle-bin");
+  await bin.getByLabel("全选当前结果").check();
+  await page.evaluate(() => { (window as any).__restoreFailKind = "managed_hosts"; });
+  await bin.getByRole("button", { name: /^恢复所有选中项/ }).click();
+  await expect(bin.getByRole("alert")).toContainText("批量恢复未全部完成");
+  await expect(bin.getByLabel("选择 生产运维面板")).toHaveCount(0);
+  await expect(bin.getByLabel("选择 旧测试机")).toBeChecked();
+  await expect(bin.getByLabel("选择 GitHub · octocat")).toBeChecked();
+  await page.evaluate(() => { (window as any).__restoreFailKind = null; });
+  await bin.getByRole("button", { name: /^恢复所有选中项/ }).click();
+  await expect(bin).toHaveCount(0);
+  const calls = await page.evaluate(() => (window as any).__restoreCalls);
+  expect(calls.filter((call: any) => call.kind === "panel_connections")).toHaveLength(1);
+  expect(calls.at(-1)).toEqual({ kind: "authenticator_entries", ids: ["key-abc"] });
 });
 
 test("purging asks for confirmation because it cannot be undone", async ({ page }) => {

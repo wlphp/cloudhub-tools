@@ -1,8 +1,8 @@
-import { DialogHeaderActions } from "../../shared/DialogHeaderActions";
+import { SharedDialog } from "../../shared/SharedDialog";
 import { SecretField } from "../../shared/SecretField";
 import { AiLogAnalysis } from "../ai/AiLogAnalysis";
 import { useEffect, useMemo, useState } from "react";
-import { Check, Copy, Download, Eye, Plus, RefreshCw, ShieldCheck, Trash2, X } from "lucide-react";
+import { Check, Copy, Download, Eye, Plus, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 import { certificatesClient } from "../../platform/clients";
 import type { EsaCertificateTarget } from "../../platform/clients/certificates";
@@ -482,22 +482,7 @@ export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm, r
       </>}
       {importOpen && <CertificateImportDialog onClose={() => setImportOpen(false)} onImported={() => { setImportOpen(false); void load(); onStatus("证书已导入本地加密库"); }} />}
       {openForm && (
-        <div className={`modal-backdrop${requestTarget ? " esa-certificate-request-backdrop" : ""}`}>
-          <form className="detail-panel certificate-dialog modal-form-layout" onSubmit={submit}>
-            <div className="modal-head">
-              <div>
-                <span className="eyebrow">DNS-01</span>
-                <h2>{requestTarget ? "申请证书并部署到 ESA" : "申请 HTTPS 证书"}</h2>
-              </div>
-              <DialogHeaderActions><button
-                type="button"
-                className="icon-button"
-                onClick={() => void cancelRequest()}
-              >
-                <X size={18} />
-              </button></DialogHeaderActions>
-            </div>
-            <div className="modal-body">
+        <SharedDialog title={requestTarget ? "申请证书并部署到 ESA" : "申请 HTTPS 证书"} eyebrow="DNS-01" className="certificate-dialog" backdropClassName={requestTarget ? "esa-certificate-request-backdrop" : ""} onSubmit={submit} onClose={() => void cancelRequest()} closeDisabled={cancelling} footer={<><button type="button" className="secondary" onClick={() => void cancelRequest()} disabled={cancelling}>{cancelling ? "正在取消…" : "取消"}</button><button type="submit" className="primary" disabled={loading || !form.accountId || !zoneNames.length}>{loading ? "申请中，等待 DNS 验证…" : "开始申请"}</button></>}>
             <p className="certificate-hint">
               {requestTarget ? `目标 ESA 站点：${requestTarget.siteName}。签发后先加密保存，再上传；上传失败可直接重试部署。${esaDns ? "本次使用 ESA DNS 写入 TXT 验证记录。" : "请选择域名权威 DNS 所在的阿里云账号，ESA 账号与 DNS 账号可以不同。"}` : "域名和 DNS 区域只从当前账号已同步的域名资产中选择，避免把证书申请到其他账号的域名上。"}
             </p>
@@ -617,46 +602,10 @@ export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm, r
               </div>
             </section>
             {error && <div className="form-error">{error}</div>}
-            </div>
-            <div className="modal-actions">
-              <button
-                type="button"
-                className="secondary"
-                onClick={() => void cancelRequest()}
-                disabled={cancelling}
-              >
-                {cancelling ? "正在取消…" : "取消"}
-              </button>
-              <button
-                type="submit"
-                className="primary-update-btn"
-                disabled={
-                  loading || !form.accountId || !zoneNames.length
-                }
-              >
-                {loading ? "申请中，等待 DNS 验证…" : "开始申请"}
-              </button>
-            </div>
-          </form>
-        </div>
+        </SharedDialog>
       )}
       {detail && (
-        <div className="modal-backdrop certificate-modal-backdrop">
-          <div className="detail-panel certificate-dialog certificate-detail-dialog modal-form-layout">
-            <div className="modal-head">
-              <div>
-                <span className="eyebrow">CERTIFICATE DETAILS</span>
-                <h2>{detail.primaryDomain}</h2>
-              </div>
-              <DialogHeaderActions><button
-                type="button"
-                className="icon-button"
-                onClick={() => setDetail(null)}
-              >
-                <X size={18} />
-              </button></DialogHeaderActions>
-            </div>
-            <div className="modal-body">
+        <SharedDialog title={detail.primaryDomain} eyebrow="CERTIFICATE DETAILS" className="certificate-dialog certificate-detail-dialog" backdropClassName="certificate-modal-backdrop" onClose={() => setDetail(null)} footer={<button type="button" className="secondary" onClick={() => setDetail(null)}>关闭</button>}>
             <div className="certificate-detail-summary">
               <div>
                 <span>证书分类</span>
@@ -752,18 +701,7 @@ export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm, r
                 </button>
               </div>
             </div>
-            </div>
-            <div className="modal-actions">
-              <button
-                type="button"
-                className="secondary"
-                onClick={() => setDetail(null)}
-              >
-                关闭
-              </button>
-            </div>
-          </div>
-        </div>
+        </SharedDialog>
       )}
     </section>
   );

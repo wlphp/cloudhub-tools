@@ -46,6 +46,7 @@
 .sync-transfer-desktop.modal.ide-theme .sync-transfer-close { width: 32px; height: 32px; border-radius: 4px; background: var(--jb-surface-3); color: var(--jb-text); border-color: var(--jb-border-strong); }
 .sync-transfer-desktop .sync-transfer-body { flex: 1; min-height: 0; overflow-y: auto; padding: 16px; scrollbar-gutter: stable; overscroll-behavior: contain; }
 .sync-transfer-mobile .sync-transfer-body { display: contents; }
+.shared-content-dialog > .sync-transfer-dialog-body { flex: 1; min-height: 0; padding: 0; }
 .sync-transfer-desktop.modal.ide-theme .sync-transfer-intro { color: var(--jb-muted); margin-bottom: 12px; }
 .sync-transfer-desktop.modal.ide-theme :is(.sync-transfer-desktop-selection,.sync-transfer-preview,.sync-transfer-account-list) { background: var(--jb-input); border-color: var(--jb-border); border-radius: 4px; }
 .sync-transfer-desktop.modal.ide-theme .sync-transfer-desktop-selection { margin-top: 0; padding: 12px; }

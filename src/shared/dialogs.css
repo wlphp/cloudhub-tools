@@ -8,13 +8,30 @@
  * See cloudhub-ui-ux for the full rule.
  */
 .dialog-header-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex: 0 0 auto; margin-left: auto; }
+@media (min-width: 761px) {
+  .dialog-common-theme .dialog-header-actions > button.secondary {
+    box-sizing: border-box;
+    height: 32px;
+    min-height: 32px;
+    padding: 0 10px;
+    gap: 6px;
+    font-size: 12px;
+    line-height: 1;
+  }
+}
 .shared-content-dialog.shared-content-dialog { display: flex; flex-direction: column; box-sizing: border-box; width: min(1200px, calc(100vw - 32px)); max-width: calc(100vw - 32px); max-height: calc(100dvh - 32px); padding: 0; overflow: hidden; }
 .shared-content-dialog.shared-dialog-small { width: min(560px, calc(100vw - 32px)); }
 .shared-content-dialog > .modal-head { display: flex; align-items: center; gap: 10px; }
 .shared-content-dialog > .modal-head > div:not(.dialog-header-actions) { min-width: 0; }
 .shared-content-dialog > .modal-head h2 { margin: 0; font-size: 16px; overflow-wrap: anywhere; }
 .shared-content-dialog > .modal-head p { margin: 4px 0 0; font-size: 12px; color: var(--jb-muted); }
+.shared-content-dialog > .modal-head > .shared-dialog-heading { display: flex; flex: 1 1 auto; flex-direction: column; align-items: flex-start; justify-content: center; gap: 3px; text-align: left; }
+.shared-content-dialog > .modal-head > .shared-dialog-heading > .eyebrow { display: block; margin: 0; line-height: 1.3; letter-spacing: .04em; overflow-wrap: anywhere; }
+.shared-content-dialog > .modal-head > .shared-dialog-heading > h2 { margin: 0; padding: 0; line-height: 1.35; }
+.shared-content-dialog > .modal-head > .shared-dialog-heading > p { margin: 0; }
 .shared-content-dialog > .modal-body { min-width: 0; min-height: 0; padding: 16px; overflow: auto; }
+.shared-content-dialog > .modal-form-content { flex: 1 1 auto; min-width: 0; }
+.shared-content-dialog > .modal-form-content > .modal-body { flex: 1 1 auto; min-width: 0; }
 .shared-content-dialog > .modal-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 10px 12px; }
 .shared-confirm-dialog.shared-confirm-dialog {display:flex;flex-direction:column;box-sizing:border-box;padding:0;width:min(440px,calc(100vw - 24px));max-height:calc(100dvh - 24px);overflow:hidden}
 .shared-confirm-dialog > header {display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--jb-border)}
@@ -27,7 +44,7 @@
 .dialog-header-actions .dialog-size-button { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; min-height: 32px; padding: 6px; border: 1px solid var(--jb-border-strong,#555); border-radius: 4px; color: var(--jb-text,#dedede); background: var(--jb-surface-3,#363636); cursor: pointer; }
 .dialog-header-actions :focus-visible { outline: 2px solid var(--jb-accent,#9b8cff); outline-offset: 2px; }
 .dialog-size-expanded.dialog-size-expanded.dialog-size-expanded { position: fixed !important; inset: 2.5dvh 2.5vw !important; width: 95vw !important; height: 95dvh !important; max-width: 95vw !important; max-height: 95dvh !important; min-width: 0 !important; margin: 0 !important; transform: none !important; box-sizing: border-box; overflow: auto; }
-.dialog-common-theme.dialog-common-theme { --jb-surface: #282828; --jb-surface-2: #303030; --jb-surface-3: #363636; --jb-input: #202020; --jb-border: #414141; --jb-border-strong: #555; --jb-text: #dedede; --jb-muted: #aaa; --jb-accent: #9b8cff; color: var(--jb-text); background: var(--jb-surface); border-color: var(--jb-border-strong); border-radius: 5px; }
+.dialog-common-theme.dialog-common-theme { color: var(--jb-text); background: var(--jb-surface); border-color: var(--jb-border-strong); border-radius: 5px; }
 .dialog-common-theme.dialog-common-theme > :is(header,.modal-head,.detail-toolbar) { position: sticky; top: 0; z-index: 3; flex-shrink: 0; background: var(--jb-surface-2); border-color: var(--jb-border); }
 .dialog-common-theme.dialog-common-theme > :is(footer,.modal-actions) { position: sticky; bottom: 0; z-index: 2; flex-shrink: 0; background: var(--jb-surface); border-color: var(--jb-border); }
 .dialog-common-theme :is(input:not([type="checkbox"]):not([type="radio"]),select,textarea) { border-color: var(--jb-border-strong); background-color: var(--jb-input); color: var(--jb-text); }
@@ -45,18 +62,48 @@
 .resource-modal-backdrop :is(.server-summary,.rds-address-content,.rds-endpoint-list,.rds-single-address) { background: var(--jb-input,#202020) !important; color: var(--jb-text,#dedede); border-color: var(--jb-border,#414141) !important; border-radius: 4px !important; }
 .resource-modal-backdrop .detail-toolbar .detail-toolbar-actions > button { background: var(--jb-surface-3,#363636) !important; border-color: var(--jb-border-strong,#555) !important; color: var(--jb-text,#dedede) !important; border-radius: 4px; }
 .resource-modal-backdrop .detail-toolbar .eyebrow { color: var(--jb-accent,#9b8cff); }
+.resource-modal-backdrop :is(.server-header,.server-actions,.swas-header,.redis-header,.rds-header,.bucket-header,.domain-header) { border-color: var(--jb-border,#414141); }
+.resource-modal-backdrop :is(.swas-info,.redis-info,.rds-info,.bucket-info,.server-info > div) { color: var(--jb-text,#dedede); }
+.resource-modal-backdrop :is(.swas-info,.redis-info,.rds-info,.bucket-info) span { color: var(--jb-muted,#aaa); }
+
+/* Object browser surfaces follow the shared dialog palette, including folder rows. */
+.oss-object-dialog .oss-browser { color: var(--jb-text); background: var(--jb-surface); }
+.oss-object-dialog :is(.oss-browser-address,.oss-browser-search) { border-color: var(--jb-border-strong); background: var(--jb-input); color: var(--jb-text); }
+.oss-object-dialog :is(.oss-browser-address span,.oss-object-kind) { color: var(--jb-muted); }
+.oss-object-dialog .oss-browser-address button { color: var(--jb-accent); }
+.oss-object-dialog .oss-browser-search input { color: var(--jb-text); }
+.oss-object-dialog .oss-browser-search:focus-within { border-color: var(--jb-accent); }
+.oss-object-dialog :is(.oss-browser-nav button,.oss-browser-icon,.oss-browser-command,.oss-object-action,.oss-download-button) { border-color: var(--jb-border-strong); background: var(--jb-surface-3); color: var(--jb-text); box-shadow: none; }
+.oss-object-dialog :is(.oss-browser-nav button,.oss-browser-icon,.oss-browser-command,.oss-object-action,.oss-download-button):hover:not(:disabled) { border-color: var(--jb-accent); background: var(--jb-accent-soft); color: var(--jb-text); transform: none; }
+.oss-object-dialog .oss-upload-command { border-color: var(--jb-accent); background: var(--jb-accent-soft); color: var(--jb-text); }
+.oss-object-dialog :is(.oss-drop-zone,.oss-transfer-status) { border-color: var(--jb-border-strong); background: var(--jb-surface); color: var(--jb-muted); }
+.oss-object-dialog .oss-drop-zone svg { color: var(--jb-muted); }
+.oss-object-dialog .oss-drop-zone.is-drag-over { border-color: var(--jb-accent); background: var(--jb-accent-soft); color: var(--jb-text); }
+.oss-object-dialog .oss-transfer-status.is-active { color: var(--jb-text); }
+.oss-object-dialog .oss-object-table tbody tr td { background: var(--jb-surface) !important; color: var(--jb-muted) !important; border-color: var(--jb-border) !important; }
+.oss-object-dialog .oss-object-table tbody tr:hover td { background: var(--jb-surface-3) !important; }
+.oss-object-dialog :is(.oss-object-name,.oss-object-file) { color: var(--jb-text); }
+.oss-object-dialog .oss-object-name:hover { color: var(--jb-accent); }
+.oss-object-dialog .oss-object-file svg { color: var(--jb-muted); }
+.oss-object-dialog .oss-object-check input { accent-color: var(--jb-accent); }
+.oss-object-dialog .oss-browser-more { border-color: var(--jb-border); }
+.oss-object-dialog :is(.oss-browser button,.oss-object-check input):focus-visible { outline: 2px solid var(--jb-accent); outline-offset: 2px; }
 
 /* Shared visual contract for every dialog in the desktop and browser builds. */
 :is(.modal,.resource-modal,.codex-dialog,.codex-log-dialog,.flow-dialog,.frp-modal,.ai-workbench,.ai-config-dialog,.ai-asset-note-dialog,.app-confirm-dialog,.auth-dialog,.sync-transfer-panel,.sync-transfer-qr-dialog,.certificate-dialog,.certificate-source-dialog,.certificate-domains-dialog,.export-selection-dialog,.security-group-modal,.dns-editor-modal,.terminal-quick-dialog,.terminal-connect-card,.managed-group-edit-dialog,.mobile-account-form,.mobile-dns-form,.mobile-cert-request,.database-import-dialog,[role="dialog"],dialog) {
-  --jb-surface: #101c2c;
-  --jb-surface-2: #17283b;
-  --jb-surface-3: #1b2b40;
-  --jb-input: #0b1423;
-  --jb-border: #263f59;
-  --jb-border-strong: #304b67;
-  --jb-text: #e2ebf5;
-  --jb-muted: #9db0c4;
-  --jb-accent: #70c9f0;
+  --jb-surface: #282828;
+  --jb-bg: #242424;
+  --jb-surface-2: #303030;
+  --jb-surface-3: #363636;
+  --jb-input: #202020;
+  --jb-border: #414141;
+  --jb-border-strong: #555;
+  --jb-text: #dedede;
+  --jb-muted: #aaa;
+  --jb-subtle: #aaa;
+  --jb-accent: #9b8cff;
+  --jb-accent-soft: #9b8cff24;
+  --jb-accent-strong: #7356c8;
   color: var(--jb-text);
   border-color: var(--jb-border);
   background: var(--jb-surface);
@@ -110,15 +157,6 @@
     padding: max(8px,env(safe-area-inset-top,0px)) 12px max(8px,env(safe-area-inset-bottom,0px));
   }
   :is(dialog[open],[role="dialog"],.modal,.resource-modal,.app-confirm-dialog,.auth-dialog,.codex-dialog,.codex-log-dialog,.flow-dialog,.frp-modal,.ai-workbench,.ai-config-dialog,.ai-asset-note-dialog,.certificate-dialog,.certificate-source-dialog,.certificate-domains-dialog,.sync-transfer-qr-dialog,.export-selection-dialog,.security-group-modal,.terminal-quick-dialog,.terminal-connect-card,.managed-group-edit-dialog) {
-    --jb-surface:#101c2c;
-    --jb-surface-2:#17283b;
-    --jb-surface-3:#1b2b40;
-    --jb-input:#0b1423;
-    --jb-border:#263f59;
-    --jb-border-strong:#304b67;
-    --jb-text:#e2ebf5;
-    --jb-muted:#9db0c4;
-    --jb-accent:#70c9f0;
     box-sizing:border-box;
     max-width:calc(100vw - 24px);
     max-height:calc(100dvh - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px) - 20px);
@@ -175,29 +213,29 @@
     padding:10px 14px calc(10px + env(safe-area-inset-bottom,0px));
     border-top:1px solid var(--jb-border);
     background:var(--jb-surface);
-    box-shadow:0 -8px 16px #101c2cd9;
+    box-shadow:0 -8px 16px color-mix(in srgb,var(--jb-surface) 86%,transparent);
   }
   :is(dialog[open],[role="dialog"],.modal,.resource-modal,.app-confirm-dialog,.auth-dialog,.codex-dialog,.codex-log-dialog,.flow-dialog,.frp-modal,.ai-workbench,.ai-config-dialog,.ai-asset-note-dialog,.certificate-dialog,.certificate-source-dialog,.certificate-domains-dialog,.sync-transfer-qr-dialog,.export-selection-dialog,.security-group-modal,.terminal-quick-dialog,.terminal-connect-card,.managed-group-edit-dialog) :is(footer,.modal-actions,.app-confirm-actions,.codex-dialog-actions,.ai-workbench-footer,.terminal-quick-dialog-actions,.mobile-dns-footer,.mobile-cert-request-footer) button, .ai-asset-note-dialog > .ai-actions button {
     min-height:44px;
     border-radius:8px;
   }
   :is(dialog[open],[role="dialog"],.modal,.resource-modal,.app-confirm-dialog,.auth-dialog,.codex-dialog,.codex-log-dialog,.flow-dialog,.frp-modal,.ai-workbench,.ai-config-dialog,.ai-asset-note-dialog,.certificate-dialog,.certificate-source-dialog,.certificate-domains-dialog,.sync-transfer-qr-dialog,.export-selection-dialog,.security-group-modal,.terminal-quick-dialog,.managed-group-edit-dialog) :is(button.primary,button.auth-primary,button.ai-primary,button.mobile-primary,button.mobile-submit,button.layui-btn-normal,button[type="submit"]) {
-    border-color:#58b8df;
+    border-color:#6551b2;
     border-radius:8px;
-    background:#58b8df;
-    color:#082032;
+    background:#7356c8;
+    color:#fff;
   }
   :is(dialog[open],[role="dialog"])::backdrop { background:#020810bd; backdrop-filter:blur(8px); }
   :is(.modal,.resource-modal,.app-confirm-dialog,.auth-dialog,.codex-dialog,.codex-log-dialog,.flow-dialog,.frp-modal,.ai-workbench,.ai-config-dialog,.ai-asset-note-dialog,.certificate-dialog,.certificate-source-dialog,.certificate-domains-dialog,.sync-transfer-qr-dialog,.export-selection-dialog,.security-group-modal,.terminal-quick-dialog,.terminal-connect-card,.managed-group-edit-dialog).dialog-common-theme :is(button.primary,button.auth-primary,button.ai-primary,button.mobile-primary,button.mobile-submit,button.layui-btn-normal,button[type="submit"]) {
-    border-color:#58b8df !important;
+    border-color:#6551b2 !important;
     border-radius:8px !important;
-    background:#58b8df !important;
-    color:#082032 !important;
+    background:#7356c8 !important;
+    color:#fff !important;
   }
   :is(.modal,.resource-modal,.app-confirm-dialog,.auth-dialog,.codex-dialog,.codex-log-dialog,.flow-dialog,.frp-modal,.ai-workbench,.ai-config-dialog,.ai-asset-note-dialog,.certificate-dialog,.certificate-source-dialog,.certificate-domains-dialog,.sync-transfer-qr-dialog,.export-selection-dialog,.security-group-modal,.terminal-quick-dialog,.terminal-connect-card,.managed-group-edit-dialog).dialog-common-theme :is(button.secondary,button.close) {
-    border-color:#304b67 !important;
+    border-color:var(--jb-border-strong) !important;
     border-radius:8px !important;
-    background:#1b2b40 !important;
-    color:#e2ebf5 !important;
+    background:var(--jb-surface-3) !important;
+    color:var(--jb-text) !important;
   }
 }

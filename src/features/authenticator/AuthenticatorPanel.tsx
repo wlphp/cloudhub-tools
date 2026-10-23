@@ -1,9 +1,8 @@
 import { ExportChecklist } from "../../shared/ExportSelection";
-import { DialogHeaderActions } from "../../shared/DialogHeaderActions";
+import { SharedDialog } from "../../shared/SharedDialog";
 import { GroupNameInput } from "../../shared/GroupNameInput";
 import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type FormEvent, type ReactNode } from "react";
-import { createPortal } from "react-dom";
-import { Check, ChevronLeft, ChevronRight, Copy, Download, Edit3, Eye, EyeOff, Grid2X2, KeyRound, List, LockKeyhole, Plus, Search, ShieldCheck, Star, Trash2, Upload, X } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Copy, Download, Edit3, Eye, EyeOff, Grid2X2, KeyRound, List, LockKeyhole, Plus, Search, ShieldCheck, Star, Trash2, Upload } from "lucide-react";
 import { authenticatorClient as client, type AuthCode, type AuthEntry, type AuthInput, type AuthPreview } from "../../platform/clients/authenticator";
 import { runningInTauri } from "../../platform/api";
 import "./authenticator.css";
@@ -34,16 +33,7 @@ function otpPreset(issuer: string): string {
 }
 
 function Modal({ title, children, close, busy, mobileForm = false }: { title: string; children: ReactNode; close: () => void; busy: boolean; mobileForm?: boolean }) {
-  const dialog = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
-    const opener = document.activeElement as HTMLElement | null;
-    dialog.current?.showModal();
-    return () => { dialog.current?.close(); opener?.focus(); };
-  }, []);
-
-  return createPortal(<dialog className={`auth-dialog modal-form-layout dialog-common-theme${mobileForm ? " auth-dialog-mobile-form" : ""}`} ref={dialog} onCancel={(event) => { event.preventDefault(); if (!busy) close(); }} aria-label={title}>
-    <header><h3>{title}</h3><DialogHeaderActions><button type="button" aria-label="关闭对话框" disabled={busy} onClick={close}><X size={18} /></button></DialogHeaderActions></header>{children}
-  </dialog>, document.body);
+  return <SharedDialog title={title} size="small" className={`auth-dialog${mobileForm ? " auth-dialog-mobile-form" : ""}`} closeLabel="关闭对话框" closeDisabled={busy} busy={busy} onClose={close}>{children}</SharedDialog>;
 }
 
 export function AuthenticatorPanel({ mobile = false }: { mobile?: boolean }) {

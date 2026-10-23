@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, type FormEventHandler, type ReactNode } from "react";
+import { useEffect, useId, useRef, type FormEventHandler, type PointerEventHandler, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { DialogHeaderActions } from "./DialogHeaderActions";
@@ -7,21 +7,31 @@ const focusable = 'button:not(:disabled), a[href], input:not(:disabled), select:
 const isolation = new WeakMap<HTMLElement, { original: boolean; owners: Set<symbol> }>();
 
 /** Shared shell; dragging and sizing use the existing app primitives. */
-export function SharedDialog({ title, subtitle, icon, children, footer, onClose, className = "", bodyClassName = "", size = "large", closeLabel, showResize = true, closeDisabled = false, role = "dialog", onSubmit }: {
+export function SharedDialog({ title, subtitle, eyebrow, icon, children, footer, headerActions, onClose, className = "", bodyClassName = "", footerClassName = "", backdropClassName = "", size = "large", closeLabel, showResize = true, defaultExpanded = false, closeDisabled = false, busy = false, role = "dialog", onSubmit, noValidate = false, initialFocus, onHeaderPointerDown, describedBy }: {
   title: string;
   subtitle?: string;
+  eyebrow?: string;
   icon?: ReactNode;
   children: ReactNode;
   footer?: ReactNode;
+  headerActions?: ReactNode;
   onClose: () => void;
   className?: string;
   bodyClassName?: string;
+  footerClassName?: string;
+  backdropClassName?: string;
   size?: "small" | "large";
   closeLabel?: string;
   showResize?: boolean;
+  defaultExpanded?: boolean;
   closeDisabled?: boolean;
+  busy?: boolean;
   role?: "dialog" | "alertdialog";
   onSubmit?: FormEventHandler<HTMLFormElement>;
+  noValidate?: boolean;
+  initialFocus?: string;
+  onHeaderPointerDown?: PointerEventHandler<HTMLElement>;
+  describedBy?: string;
 }) {
   const id = useId();
   const dialog = useRef<HTMLElement>(null);
@@ -42,7 +52,9 @@ export function SharedDialog({ title, subtitle, icon, children, footer, onClose,
       element.inert = true;
     });
     if (backdrop.current) backdrop.current.style.zIndex = String(Math.max(10000, ...background.map(element => Number.parseInt(getComputedStyle(element).zIndex, 10) || 0)) + 1);
-    dialog.current?.focus();
+    const initial = initialFocus ? dialog.current?.querySelector<HTMLElement>(initialFocus) : null;
+    if (initial) initial.focus();
+    else if (!dialog.current?.contains(document.activeElement)) dialog.current?.focus();
 
     const keydown = (event: KeyboardEvent) => {
       const current = dialog.current;
@@ -82,18 +94,19 @@ export function SharedDialog({ title, subtitle, icon, children, footer, onClose,
     };
   }, []);
 
-  const content = <><div className={`modal-body ${bodyClassName}`}>{children}</div>{footer && <footer className="modal-actions">{footer}</footer>}</>;
+  const content = <><div className={`modal-body ${bodyClassName}`}>{children}</div>{footer && <footer className={`modal-actions ${footerClassName}`}>{footer}</footer>}</>;
   return createPortal(
-    <div ref={backdrop} className="modal-backdrop ide-theme shared-dialog-backdrop">
-      <section ref={dialog} className={`modal modal-form-layout dialog-common-theme shared-content-dialog shared-dialog-${size} ${className}`} role={role} aria-modal="true" aria-labelledby={`${id}-title`} tabIndex={-1}>
-        <header className="modal-head">
+    <div ref={backdrop} className={`modal-backdrop ide-theme shared-dialog-backdrop ${backdropClassName}`}>
+      <section ref={dialog} className={`modal modal-form-layout dialog-common-theme shared-content-dialog shared-dialog-${size} ${className}`} role={role} aria-modal="true" aria-busy={busy} aria-labelledby={`${id}-title`} aria-describedby={describedBy} tabIndex={-1}>
+        <header className="modal-head" onPointerDown={onHeaderPointerDown}>
           {icon}
-          <div><h2 id={`${id}-title`}>{title}</h2>{subtitle && <p>{subtitle}</p>}</div>
-          <DialogHeaderActions showResize={showResize}>
+          <div className="shared-dialog-heading">{eyebrow && <span className="eyebrow">{eyebrow}</span>}<h2 id={`${id}-title`}>{title}</h2>{subtitle && <p>{subtitle}</p>}</div>
+          <DialogHeaderActions showResize={showResize} defaultExpanded={defaultExpanded}>
+            {headerActions}
             <button type="button" className="close" disabled={closeDisabled} aria-label={closeLabel ?? `关闭${title}`} title="关闭" onClick={onClose}><X size={18} aria-hidden="true" /></button>
           </DialogHeaderActions>
         </header>
-        {onSubmit ? <form className="modal-form-content" onSubmit={onSubmit}>{content}</form> : content}
+        {onSubmit ? <form className="modal-form-content" noValidate={noValidate} onSubmit={onSubmit}>{content}</form> : content}
       </section>
     </div>,
     document.body,

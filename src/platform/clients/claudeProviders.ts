@@ -112,6 +112,8 @@ export type ClaudeProviderList = {
   settingsPath: string;
   settingsExists: boolean;
   hasBackup: boolean;
+  /** 仅原生核对；浏览器预览不提供真实文件匹配状态。 */
+  configurationStatus?: "matched" | "changed" | "missing" | "unreadable" | null;
 };
 
 const post = (op: string, args: Record<string, unknown> = {}) => ({

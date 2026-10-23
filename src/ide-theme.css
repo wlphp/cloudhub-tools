@@ -28,6 +28,10 @@
 .store-platform-note { color: var(--jb-muted); font-size: 12px; margin: 18px 0 14px; line-height: 1.7; }
 .store-catalog .store-table { width: 100%; min-width: 0; border-collapse: collapse; table-layout: auto; font-size: 12px; background: transparent; }
 .store-table-caption { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.store-navigation-hint { color: var(--jb-muted); font-size: 11px; margin: 12px 0; }
+.ide-theme .store-order-input { width: 64px; min-width: 0; margin: 0; padding: 4px 6px; }
+.ide-theme .store-order-value { display: inline-block; width: 64px; padding: 4px 6px; cursor: text; box-sizing: border-box; }
+.ide-theme .store-order-value:focus-visible { outline: 2px solid var(--jb-accent); outline-offset: 2px; }
 .store-catalog .store-table th, .store-catalog .store-table td { text-align: left; padding: 14px 10px; border: 0; border-bottom: 1px solid var(--jb-border); color: var(--jb-text); background: transparent; line-height: 1.6; overflow-wrap: anywhere; }
 .store-catalog .store-table th { font-weight: 400; white-space: nowrap; color: var(--jb-muted); background: var(--jb-surface-2); padding-top: 10px; padding-bottom: 10px; }
 .store-table td > small, .store-app-name small, .store-description small { display: block; color: var(--jb-muted); font-size: 11px; margin-top: 3px; }
@@ -64,7 +68,7 @@
 .wechat-settings-dialog > .modal-body { min-height: 0; overflow: auto; padding: 16px; }
 .wechat-settings-dialog .official-plugin-toggle { justify-content: flex-start; margin: 10px 0; }
 @media (max-width: 600px) { .wechat-settings-dialog .modal-head .close { width: 44px; height: 44px; min-height: 44px; } }
-@media (max-width: 1100px) {
+@media (max-width: 1350px) {
   .store-catalog .store-table thead { display: none; }
   .store-catalog .store-table, .store-catalog .store-table tbody { display: block; }
   .store-catalog .store-table tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border: 1px solid var(--jb-border); border-radius: 4px; }
@@ -601,11 +605,13 @@
 .modal-backdrop,
 .resource-modal-backdrop,
 .terminal-connect-backdrop {
-  z-index: 90 !important;
   color: var(--jb-text);
   background: rgba(0, 0, 0, .62) !important;
   backdrop-filter: blur(3px);
 }
+.modal-backdrop:not(.shared-dialog-backdrop),
+.resource-modal-backdrop:not(.shared-dialog-backdrop),
+.terminal-connect-backdrop { z-index: 90 !important; }
 .modal-backdrop .modal,
 .resource-modal-backdrop .resource-modal,
 .resource-modal-backdrop .nested-resource-modal,

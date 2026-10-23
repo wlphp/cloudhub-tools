@@ -1,6 +1,6 @@
-import { DialogHeaderActions } from "../../shared/DialogHeaderActions";
+import { SharedDialog } from "../../shared/SharedDialog";
 import { useEffect, useState } from "react";
-import { ArrowUp, CheckSquare, Copy, Download, Eye, File, Folder, Home, Link2, Maximize2, Minimize2, RefreshCw, Search, Square, Upload, X } from "lucide-react";
+import { ArrowUp, CheckSquare, Copy, Download, Eye, File, Folder, Home, Link2, RefreshCw, Search, Square, Upload, X } from "lucide-react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { runningInTauri } from "../../platform/api";
@@ -58,7 +58,6 @@ export function BucketCard({
 }) {
   const [objectListing, setObjectListing] = useState<OssObjectListing | null>(null);
   const [objectDialog, setObjectDialog] = useState<"files" | "stat" | null>(null);
-  const [objectDialogMaximized, setObjectDialogMaximized] = useState(false);
   const [objectPrefix, setObjectPrefix] = useState("");
   const [objectFilter, setObjectFilter] = useState("");
   const [selectedObjectKeys, setSelectedObjectKeys] = useState<Set<string>>(() => new Set());
@@ -479,22 +478,7 @@ export function BucketCard({
       {notice && <div className="bucket-notice">{notice}</div>}
       {error && <div className="bucket-inline-error">{error}</div>}
       {objectDialog && (
-        <div className="resource-modal-backdrop nested-resource-modal">
-          <section className={`detail-panel resource-modal oss-object-dialog${objectDialogMaximized ? " is-maximized" : ""}`} onClick={(event) => event.stopPropagation()}>
-            <div className="detail-toolbar">
-              <div><span className="eyebrow">{bucketName}</span><h2>{objectDialog === "files" ? "文件列表" : "容量统计"}</h2></div>
-              <div className="detail-toolbar-actions">
-                <button
-                  className="secondary"
-                  title={objectDialogMaximized ? "还原窗口" : "放大到全屏"}
-                  onClick={() => setObjectDialogMaximized((value) => !value)}
-                >
-                  {objectDialogMaximized ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
-                  {objectDialogMaximized ? "还原" : "放大"}
-                </button>
-                <button className="close-detail" aria-label="关闭文件列表" title="关闭" onClick={() => { setObjectDialog(null); setObjectDialogMaximized(false); }}><X size={20} /></button>
-              </div>
-            </div>
+        <SharedDialog title={objectDialog === "files" ? "文件列表" : "容量统计"} eyebrow={bucketName} className="resource-modal oss-object-dialog" backdropClassName="resource-modal-backdrop" closeLabel="关闭文件列表" onClose={() => setObjectDialog(null)}>
             {error && <div className="error-list">{error}</div>}
             {objectDialog === "stat" ? (
               <div className="oss-stat-grid">
@@ -533,21 +517,17 @@ export function BucketCard({
                 </div>
               </div>
             )}
-          </section>
-        </div>
+        </SharedDialog>
       )}
       {cnameDialog && (
-        <div className="resource-modal-backdrop nested-resource-modal">
-          <section role="dialog" aria-modal="true" aria-label="添加自定义域名" className="modal detail-panel resource-modal modal-form-layout dialog-common-theme oss-cname-dialog" onClick={(event) => event.stopPropagation()}>
-            <div className="detail-toolbar"><div><span className="eyebrow">{bucketName}</span><h2>添加自定义域名</h2></div><DialogHeaderActions><button className="close-detail" aria-label="关闭自定义域名" onClick={() => setCnameDialog(false)}><X size={20} /></button></DialogHeaderActions></div>
+        <SharedDialog title="添加自定义域名" eyebrow={bucketName} className="resource-modal oss-cname-dialog" backdropClassName="resource-modal-backdrop" closeLabel="关闭自定义域名" onClose={() => setCnameDialog(false)}>
             <label className="oss-cname-input"><span>域名</span><input disabled={cnameLoading} value={cnameValue} onChange={(event) => { setCnameValue(event.target.value.trim()); setCnameToken(null); setCnameMessage(""); }} placeholder="例如 img.example.com" /></label>
             <div className="oss-cname-steps"><p>1. 获取验证 Token。</p><p>2. 在 DNS 服务商添加 TXT 记录验证域名。</p><p>3. DNS 生效后绑定域名，再添加 CNAME 记录。</p></div>
             {cnameMessage && <div className="oss-cname-steps" role="status" aria-live="polite">{cnameMessage}</div>}
             <p>填写具体域名，不支持 *.example.com。以下记录名为完整名称，在 DNS 控制台填写时请去掉当前 DNS 区域的后缀。</p>
             {cnameToken && <div className="oss-cname-records"><strong>TXT 验证记录</strong><div><span>类型</span><code>TXT</code></div><div><span>完整记录名</span><code>{tokenHost}</code></div><div><span>记录值</span><code>{cnameToken.token || "未返回 Token"}</code></div><strong>CNAME 解析记录</strong><div><span>类型</span><code>CNAME</code></div><div><span>完整记录名</span><code>{cnameHost}</code></div><div><span>记录值</span><code>{endpoint}</code></div></div>}
             <div className="oss-cname-actions"><button className="layui-btn layui-btn-primary" disabled={!cnameValue || cnameLoading} onClick={() => void createCnameToken()}>{cnameLoading ? "处理中…" : "获取验证 Token"}</button><button className="layui-btn" disabled={!cnameValue || cnameLoading} onClick={() => void bindCname()}>绑定域名</button></div>
-          </section>
-        </div>
+        </SharedDialog>
       )}
     </article>
   );

@@ -9,6 +9,8 @@ import { PluginApplication } from "./PluginApplication";
 import { PluginPresentationDialog } from "./PluginPresentationDialog";
 import { PluginPageHost } from "./PluginSurface";
 import { PluginPresentationProvider, usePluginPresentation, type PluginPresentation } from "./pluginPresentation";
+import { applicationCatalog, applicationPreference, sortedApplications, type ApplicationDefinition, type ApplicationSection } from "./applicationCatalog";
+import type { ApplicationPreferenceState } from "./useApplicationPreferences";
 
 const plugin = officialPlugins[0];
 const hardwarePlugin = officialPlugins[1];
@@ -38,7 +40,35 @@ function PresentationButton({ pluginId, onOpen }: { pluginId: string; onOpen: (i
   </button>;
 }
 
-function OfficialPluginsStore() {
+type StoreProps = { initialPluginId?: string; applicationSettings: ApplicationPreferenceState; onOpenSection: (section: ApplicationSection) => void; onReturnCatalog: () => void };
+
+function OrderCell({ app, settings }: { app: ApplicationDefinition; settings: ApplicationPreferenceState }) {
+  const order = applicationPreference(app, settings.preferences).order;
+  const [draft, setDraft] = useState(String(order));
+  const [editing, setEditing] = useState(false);
+  const cancelled = useRef(false);
+  useEffect(() => setDraft(String(order)), [order, settings.saving]);
+  const beginEditing = () => {
+    if (!settings.ready || settings.saving) return;
+    cancelled.current = false;
+    setDraft(String(order));
+    setEditing(true);
+  };
+  const commit = () => {
+    if (cancelled.current) return;
+    setEditing(false);
+    const next = Number(draft);
+    if (!draft.trim() || !Number.isInteger(next) || next < 0 || next > 9999) { setDraft(String(order)); return; }
+    if (next !== order) void settings.update(app.id, { order: next });
+  };
+  return <td data-label="排序号">{editing ? <input autoFocus onFocus={event => event.currentTarget.select()} className="store-order-input" type="number" min={0} max={9999} step={1} aria-label={`${app.name}排序号`} value={draft} disabled={!settings.ready || settings.saving} onChange={event => setDraft(event.target.value)} onBlur={commit} onKeyDown={event => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); cancelled.current = true; setDraft(String(order)); setEditing(false); } }} /> : <span className="store-order-value" role="button" tabIndex={0} aria-label={`编辑${app.name}排序号`} aria-disabled={!settings.ready || settings.saving} title="双击修改排序号，或按 Enter / F2 编辑" onDoubleClick={beginEditing} onKeyDown={event => { if (["Enter", "F2", " "].includes(event.key)) { event.preventDefault(); beginEditing(); } }}>{order}</span>}</td>;
+}
+
+function SidebarCell({ app, settings }: { app: ApplicationDefinition; settings: ApplicationPreferenceState }) {
+  return <td data-label="左侧菜单显示"><label className="store-switch"><input type="checkbox" aria-label={`左侧菜单显示${app.name}`} checked={applicationPreference(app, settings.preferences).sidebar} disabled={!settings.ready || settings.saving} onChange={event => void settings.update(app.id, { sidebar: event.target.checked })} /><span aria-hidden="true" /></label></td>;
+}
+
+function OfficialPluginsStore({ initialPluginId, applicationSettings, onOpenSection, onReturnCatalog }: StoreProps) {
   const { get } = usePluginPresentation();
   const [config, setConfig] = useState(readConfig);
   const [status, setStatus] = useState<WechatPluginStatus | null>(null);
@@ -49,7 +79,7 @@ function OfficialPluginsStore() {
   const [source, setSource] = useState("官方应用");
   const [category, setCategory] = useState("全部");
   const [keyword, setKeyword] = useState("");
-  const [activePlugin, setActivePlugin] = useState<{ id: string; presentation: PluginPresentation } | null>(null);
+  const [activePlugin, setActivePlugin] = useState<{ id: string; presentation: PluginPresentation } | null>(() => initialPluginId ? { id: initialPluginId, presentation: get(initialPluginId) } : null);
   const returnPosition = useRef({ windowY: 0, mainY: 0, entry: null as HTMLElement | null });
   const [recent, setRecent] = useState(() => {
     try { return localStorage.getItem(`${plugin.id}.last-used`) !== null; } catch { return false; }
@@ -64,20 +94,18 @@ function OfficialPluginsStore() {
   const [wslEnabled, setWslEnabled] = useState(() => { try { return localStorage.getItem(wslEnabledKey) !== "false"; } catch { return true; } });
   const [wslRecent, setWslRecent] = useState(() => { try { return localStorage.getItem(`${wslPlugin.id}.last-used`) !== null; } catch { return false; } });
   const supported = runningInTauri && status?.supported === true;
-  const matchesSearch = `${plugin.name} ${plugin.publisher} ${plugin.description} 微信 WeChat Weixin Windows`.toLowerCase().includes(keyword.trim().toLowerCase());
-  const matchesHardwareSearch = `${hardwarePlugin.name} ${hardwarePlugin.publisher} ${hardwarePlugin.description} 硬件 设备 系统 CPU 显卡`.toLowerCase().includes(keyword.trim().toLowerCase());
-  const matchesWslSearch = `${wslPlugin.name} ${wslPlugin.publisher} ${wslPlugin.description} WSL Linux Ubuntu Debian 发行版`.toLowerCase().includes(keyword.trim().toLowerCase());
-  const visible = source === "官方应用" && matchesSearch && (category !== "已启用" || config.enabled);
-  const visibleHardware = source === "官方应用" && matchesHardwareSearch && (category !== "已启用" || hardwareEnabled);
-  const visibleWsl = source === "官方应用" && matchesWslSearch && (category !== "已启用" || wslEnabled);
-  const visibleBrowser = source === "官方应用" && `${browserPlugin.name} ${browserPlugin.description} Chromium Chrome 代理 浏览器`.toLowerCase().includes(keyword.trim().toLowerCase());
-  const visibleNotes = source === "官方应用" && `${notesPlugin.name} ${notesPlugin.description} 备忘 笔记 记录 分组 标签 检索 提醒`.toLowerCase().includes(keyword.trim().toLowerCase());
-  const visibleClaude = source === "官方应用" && `${claudePlugin.name} ${claudePlugin.description} Claude Code 供应商 API 切换 模型 映射`.toLowerCase().includes(keyword.trim().toLowerCase());
-  const visibleCount = Number(visible) + Number(visibleHardware) + Number(visibleWsl) + Number(visibleBrowser) + Number(visibleNotes) + (visibleClaude ? 1 : 0);
+  const enabled = (id: string) => id === plugin.id ? config.enabled : id === hardwarePlugin.id ? hardwareEnabled : id === wslPlugin.id ? wslEnabled : true;
+  const applications = sortedApplications(applicationSettings.preferences).filter(app => source === "官方应用"
+    && `${app.name} ${app.publisher} ${app.description} ${app.keywords ?? ""}`.toLowerCase().includes(keyword.trim().toLowerCase())
+    && (category !== "已启用" || enabled(app.id)) && (category !== "桌面工具" || app.category === "桌面工具"));
+  const visibleCount = applications.length;
   const canLaunch = supported && config.enabled && !busy && !!(config.path || status?.detectedPath);
 
   /** Capture the mode when opening so a mounted plugin never switches containers mid-edit. */
   function openPlugin(pluginId: string) {
+    const app = applicationCatalog.find(item => item.id === pluginId);
+    // Existing plugins retain their page/modal preference; newly catalogued modules use their owning page.
+    if (app?.section && pluginId !== notesPlugin.id && pluginId !== claudePlugin.id) { onOpenSection(app.section); return; }
     returnPosition.current = {
       windowY: window.scrollY,
       mainY: document.getElementById("main-content")?.scrollTop ?? 0,
@@ -103,6 +131,7 @@ function OfficialPluginsStore() {
     const pluginId = activePlugin?.id;
     const position = returnPosition.current;
     setActivePlugin(null);
+    if (initialPluginId) onReturnCatalog();
     setConfig(readConfig());
     if (runningInTauri) void operate(() => refresh());
     window.requestAnimationFrame(() => {
@@ -191,7 +220,9 @@ function OfficialPluginsStore() {
     catch { setError("启动后未能刷新进程状态，请查看微信窗口后再操作。"); }
   }
 
-  const application = activePlugin && <PluginApplication pluginId={activePlugin.id} wslEnabled={wslEnabled} onNotify={activePlugin.presentation.mode === "modal" ? setMessage : undefined} onError={activePlugin.presentation.mode === "modal" ? setError : undefined} />;
+  const application = activePlugin && (activePlugin.id === hardwarePlugin.id && (!hardwareEnabled || !runningInTauri)
+    ? <p role="status">电脑信息当前已停用或运行环境不支持，请返回软件商店检查启用状态，并在桌面客户端使用。</p>
+    : <PluginApplication pluginId={activePlugin.id} wslEnabled={wslEnabled} onNotify={activePlugin.presentation.mode === "modal" ? setMessage : undefined} onError={activePlugin.presentation.mode === "modal" ? setError : undefined} />);
   const activeDefinition = officialPlugins.find(item => item.id === activePlugin?.id);
   if (activePlugin?.presentation.mode === "page" && activeDefinition) {
     return <PluginPageHost title={activeDefinition.name} onClose={closePlugin}>{application}</PluginPageHost>;
@@ -209,61 +240,90 @@ function OfficialPluginsStore() {
       <div className="store-filter-row"><span>应用分类</span><div className="store-categories" role="group" aria-label="应用分类">{["全部", "已内置", "已启用", "免费应用", "桌面工具"].map(item => <button type="button" key={item} aria-pressed={category === item} className={category === item ? "is-active" : ""} onClick={() => setCategory(item)}>{item}</button>)}</div></div>
       {!runningInTauri && <p className="store-platform-note" role="status">浏览器预览不支持启动本地软件，请在 Windows 桌面客户端使用。</p>}
       {runningInTauri && status && !status.supported && <p className="store-platform-note" role="status">微信多开插件仅支持 Windows 桌面端。</p>}
-      <table className="store-table"><caption className="store-table-caption">应用列表</caption><thead><tr><th scope="col">软件名称</th><th scope="col">开发商</th><th scope="col">说明</th><th scope="col">价格</th><th scope="col">平台</th><th scope="col">状态</th><th scope="col">启用</th><th scope="col">操作</th></tr></thead><tbody>
-        {visible && <tr>
+      {applicationSettings.error && <p className="notes-error" role="alert">{applicationSettings.error}{!applicationSettings.ready && <button type="button" className="table-link" onClick={applicationSettings.retry}>重试读取</button>}</p>}
+      <p className="store-navigation-hint">排序号越小越靠前，双击数字修改，失焦或按 Enter 保存，Escape 取消。隐藏菜单后仍可从商店打开，不会停止后台任务。</p>
+      <table className="store-table"><caption className="store-table-caption">应用列表</caption><thead><tr><th scope="col">排序号</th><th scope="col">软件名称</th><th scope="col">开发商</th><th scope="col">说明</th><th scope="col">价格</th><th scope="col">平台</th><th scope="col">状态</th><th scope="col">启用</th><th scope="col">左侧菜单显示</th><th scope="col">操作</th></tr></thead><tbody>
+        {applications.map(app => {
+        const orderCell = <OrderCell app={app} settings={applicationSettings} />;
+        const sidebarCell = <SidebarCell app={app} settings={applicationSettings} />;
+        if (app.id === plugin.id) return <tr key={app.id}>
+          {orderCell}
           <td data-label="软件名称"><div className="store-app-name"><MessageCircle size={20} aria-hidden="true" /><div><strong>{plugin.name}</strong><small>v{plugin.version} · 实验性</small></div></div></td>
           <td data-label="开发商"><span className="store-publisher">官方</span><small>{plugin.publisher}</small></td>
           <td data-label="说明" className="store-description">{plugin.description}<small>需安装微信客户端，多开效果取决于微信版本。</small></td>
           <td data-label="价格">免费</td><td data-label="平台">Windows</td>
           <td data-label="状态"><span className="store-state"><i aria-hidden="true" />{config.enabled ? "已内置" : "已停用"}</span></td>
           <td data-label="启用"><label className="store-switch"><input type="checkbox" aria-label="启用微信多开" checked={config.enabled} disabled={busy} onChange={event => setConfig(current => ({ ...current, enabled: event.target.checked }))} /><span aria-hidden="true" /></label></td>
+          {sidebarCell}
           <td data-label="操作"><div className="store-row-actions"><PresentationButton pluginId={plugin.id} onOpen={setPresentationFor} /><button type="button" className="table-link" data-plugin-entry={plugin.id} aria-expanded={activePlugin?.id === plugin.id} onClick={() => openPlugin(plugin.id)}>管理</button><button type="button" className="table-link" disabled={!canLaunch} onClick={() => void operate(launch)}>启动</button></div></td>
-        </tr>}
-        {visibleHardware && <tr>
+        </tr>;
+        if (app.id === hardwarePlugin.id) return <tr key={app.id}>
+          {orderCell}
           <td data-label="软件名称"><div className="store-app-name"><Cpu size={20} aria-hidden="true" /><div><strong>{hardwarePlugin.name}</strong><small>v{hardwarePlugin.version} · 官方</small></div></div></td>
           <td data-label="开发商"><span className="store-publisher">官方</span><small>{hardwarePlugin.publisher}</small></td>
           <td data-label="说明" className="store-description">{hardwarePlugin.description}<small>本机读取；Wi-Fi 密码仅临时显示且不进入复制或导出。</small></td>
           <td data-label="价格">免费</td><td data-label="平台">Windows / macOS / Linux</td>
           <td data-label="状态"><span className="store-state"><i aria-hidden="true" />{hardwareEnabled ? "已内置" : "已停用"}</span></td>
           <td data-label="启用"><label className="store-switch"><input type="checkbox" aria-label="启用电脑信息插件" checked={hardwareEnabled} disabled={busy} onChange={event => setHardwareEnabled(event.target.checked)} /><span aria-hidden="true" /></label></td>
+          {sidebarCell}
           <td data-label="操作"><div className="store-row-actions"><PresentationButton pluginId={hardwarePlugin.id} onOpen={setPresentationFor} /><button type="button" className="table-link" data-plugin-entry={hardwarePlugin.id} disabled={!hardwareEnabled || !runningInTauri} onClick={() => openPlugin(hardwarePlugin.id)}>查看</button></div></td>
-        </tr>}
-        {visibleWsl && <tr>
+        </tr>;
+        if (app.id === wslPlugin.id) return <tr key={app.id}>
+          {orderCell}
           <td data-label="软件名称"><div className="store-app-name"><SquareTerminal size={20} aria-hidden="true" /><div><strong>{wslPlugin.name}</strong><small>v{wslPlugin.version} · 官方</small></div></div></td>
           <td data-label="开发商"><span className="store-publisher">官方</span><small>{wslPlugin.publisher}</small></td>
           <td data-label="说明" className="store-description">{wslPlugin.description}<small>仅限 Windows 桌面端；删除操作会永久删除发行版数据。</small></td>
           <td data-label="价格">免费</td><td data-label="平台">Windows / WSL</td>
           <td data-label="状态"><span className="store-state"><i aria-hidden="true" />{wslEnabled ? "已内置" : "已停用"}</span></td>
           <td data-label="启用"><label className="store-switch"><input type="checkbox" aria-label="启用 WSL 管理插件" checked={wslEnabled} onChange={event => setWslEnabled(event.target.checked)} /><span aria-hidden="true" /></label></td>
+          {sidebarCell}
           <td data-label="操作"><div className="store-row-actions"><PresentationButton pluginId={wslPlugin.id} onOpen={setPresentationFor} /><button type="button" className="table-link" data-plugin-entry={wslPlugin.id} disabled={!wslEnabled} onClick={() => openPlugin(wslPlugin.id)}>管理</button></div></td>
-        </tr>}
-        {visibleBrowser && <tr>
+        </tr>;
+        if (app.id === browserPlugin.id) return <tr key={app.id}>
+          {orderCell}
           <td data-label="软件名称"><div className="store-app-name"><Globe size={20} aria-hidden="true" /><div><strong>{browserPlugin.name}</strong><small>v{browserPlugin.version} · 官方</small></div></div></td>
           <td data-label="开发商"><span className="store-publisher">官方</span><small>{browserPlugin.publisher}</small></td>
           <td data-label="说明" className="store-description">{browserPlugin.description}<small>独立环境与基础参数；深层硬件指纹需定制内核。</small></td>
           <td data-label="价格">免费</td><td data-label="平台">Windows x64</td>
           <td data-label="状态"><span className="store-state"><i aria-hidden="true" />内核按需下载</span></td>
           <td data-label="启用">已内置</td>
+          {sidebarCell}
           <td data-label="操作"><div className="store-row-actions"><PresentationButton pluginId={browserPlugin.id} onOpen={setPresentationFor} /><button type="button" className="table-link" data-plugin-entry={browserPlugin.id} onClick={() => openPlugin(browserPlugin.id)}>管理</button></div></td>
-        </tr>}
-        {visibleClaude && <tr>
+        </tr>;
+        if (app.id === claudePlugin.id) return <tr key={app.id}>
+          {orderCell}
           <td data-label="软件名称"><div className="store-app-name"><Server size={20} aria-hidden="true" /><div><strong>{claudePlugin.name}</strong><small>v{claudePlugin.version} · 官方</small></div></div></td>
           <td data-label="开发商"><span className="store-publisher">官方</span><small>{claudePlugin.publisher}</small></td>
           <td data-label="说明" className="store-description">{claudePlugin.description}<small>API Key 本地加密保存；切换前自动备份配置，支持直连、路由与聚合。</small></td>
           <td data-label="价格">免费</td><td data-label="平台">Windows / macOS / Linux</td>
           <td data-label="状态"><span className="store-state"><i aria-hidden="true" />已内置</span></td>
           <td data-label="启用">已内置</td>
+          {sidebarCell}
           <td data-label="操作"><div className="store-row-actions"><PresentationButton pluginId={claudePlugin.id} onOpen={setPresentationFor} /><button type="button" className="table-link" data-plugin-entry={claudePlugin.id} onClick={() => openPlugin(claudePlugin.id)}>管理</button></div></td>
-        </tr>}
-        {visibleNotes && <tr>
+        </tr>;
+        if (app.id === notesPlugin.id) return <tr key={app.id}>
+          {orderCell}
           <td data-label="软件名称"><div className="store-app-name"><NotebookPen size={20} aria-hidden="true" /><div><strong>{notesPlugin.name}</strong><small>v{notesPlugin.version} · 官方</small></div></div></td>
           <td data-label="开发商"><span className="store-publisher">官方</span><small>{notesPlugin.publisher}</small></td>
           <td data-label="说明" className="store-description">{notesPlugin.description}<small>数据仅保存在本机，账号密码为明文存储，不做加密。</small></td>
           <td data-label="价格">免费</td><td data-label="平台">Windows / macOS / Linux</td>
           <td data-label="状态"><span className="store-state"><i aria-hidden="true" />已内置</span></td>
           <td data-label="启用">已内置</td>
+          {sidebarCell}
           <td data-label="操作"><div className="store-row-actions"><PresentationButton pluginId={notesPlugin.id} onOpen={setPresentationFor} /><button type="button" className="table-link" data-plugin-entry={notesPlugin.id} onClick={() => openPlugin(notesPlugin.id)}>打开</button></div></td>
-        </tr>}
+        </tr>;
+        const Icon = app.icon;
+        return <tr key={app.id}>
+          {orderCell}
+          <td data-label="软件名称"><div className="store-app-name"><Icon size={20} aria-hidden="true" /><div><strong>{app.name}</strong><small>v{app.version} · 官方</small></div></div></td>
+          <td data-label="开发商"><span className="store-publisher">官方</span><small>{app.publisher}</small></td>
+          <td data-label="说明" className="store-description">{app.description}</td>
+          <td data-label="价格">免费</td><td data-label="平台">Windows / macOS / Linux</td>
+          <td data-label="状态"><span className="store-state"><i aria-hidden="true" />已内置</span></td><td data-label="启用">已内置</td>
+          {sidebarCell}
+          <td data-label="操作"><button type="button" className="table-link" data-plugin-entry={app.id} onClick={() => openPlugin(app.id)}>打开</button></td>
+        </tr>;
+        })}
       </tbody></table>
       {visibleCount === 0 && <div className="store-empty"><Package size={30} aria-hidden="true" /><h2>{source === "第三方应用" ? "暂无第三方应用" : "没有符合条件的应用"}</h2><p>{source === "官方应用" ? "尝试调整搜索词或切换应用分类。" : "当前先提供官方内置应用，后续上架的应用将在这里展示。"}</p><button type="button" className="secondary" onClick={() => { setSource("官方应用"); setCategory("全部"); setKeyword(""); }}>查看全部官方应用</button></div>}
       <div className="store-list-footer"><span>共 {visibleCount} 个应用</span><span>内置应用随 CloudHub Tools 更新</span></div>
@@ -275,6 +335,6 @@ function OfficialPluginsStore() {
 }
 
 /** 插件的打开方式存在本机设置里，因此整页包一层 Provider。 */
-export function OfficialPluginsPage() {
-  return <PluginPresentationProvider><OfficialPluginsStore /></PluginPresentationProvider>;
+export function OfficialPluginsPage(props: StoreProps) {
+  return <PluginPresentationProvider><OfficialPluginsStore {...props} /></PluginPresentationProvider>;
 }

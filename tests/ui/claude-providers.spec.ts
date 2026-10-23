@@ -5,10 +5,10 @@ const PROVIDERS = [
   { id: "deepseek", name: "DeepSeek", description: "", websiteUrl: "https://platform.deepseek.com", baseUrl: "https://api.deepseek.com/anthropic", keyConfigured: false, apiKeyField: "auth_token", apiFormat: "anthropic", isFullUrl: true, models: { sonnet: { model: "deepseek-chat" } }, extraEnv: {}, isCurrent: true },
 ];
 
-async function openStore(page: Page, workbench = false) {
+async function openStore(page: Page, workbench = false, configuredCurrent = false) {
   await page.addInitScript((seed: unknown) => {
     const calls: string[] = [];
-    const fixture = seed as { providers: unknown; workbench: boolean };
+    const fixture = seed as { providers: typeof PROVIDERS; workbench: boolean; configuredCurrent: boolean };
     const routing = { mode: "direct", running: false, address: null as string | null, config: {
       port: 15721, routeProvider: "claude-official", defaultProvider: "claude-official", members: [] as string[],
       failover: false, queue: [] as string[], retries: 2, timeoutSecs: 600, firstByteSecs: 90, idleSecs: 180, failureThreshold: 8, cooldownSecs: 90, logging: true,
@@ -21,7 +21,8 @@ async function openStore(page: Page, workbench = false) {
         if (command === "authenticator_status") return { configured: false, unlocked: false };
         if (command === "list_client_preferences") return {};
         if (command === "ai_list_profiles") return [{ id: "f", name: "T", protocol: "openai_chat", model: "m", enabled: true, isDefault: true, visionStatus: "supported" }];
-        if (command === "claude_provider_list") return { providers: fixture.providers, currentId: "deepseek", settingsPath: "/home/test/.claude/settings.json", settingsExists: true, hasBackup: true };
+        if (command === "claude_provider_list") return { providers: fixture.providers.map(provider => ({ ...provider, keyConfigured: provider.isCurrent && fixture.configuredCurrent ? true : provider.keyConfigured })), currentId: "deepseek", settingsPath: "/home/test/.claude/settings.json", settingsExists: true, hasBackup: true, configurationStatus: (window as any).__configurationStatus ?? "matched" };
+        if (command === "claude_provider_action" && args?.action?.type === "balance") return { is_available: true, balance_infos: [] };
         if (fixture.workbench && command === "claude_routing_state") return structuredClone(routing);
         if (command === "claude_routing_save") { calls.push(`routing:${JSON.stringify(args.config)}`); routing.config = args.config; return null; }
         if (command === "claude_routing_activate") {
@@ -34,6 +35,7 @@ async function openStore(page: Page, workbench = false) {
         if (command === "claude_provider_switch") {
           calls.push(`switch:${args?.id}`);
           if ((window as any).__switchFails) throw { code: "claude-provider", message: "配置文件不可写", retryable: false };
+          (window as any).__configurationStatus = "matched";
           return null;
         }
         if (command === "claude_launch_cli") { calls.push(`launch:${args?.id}`); return null; }
@@ -43,7 +45,7 @@ async function openStore(page: Page, workbench = false) {
         return [];
       },
     };
-  }, { providers: PROVIDERS, workbench });
+  }, { providers: PROVIDERS, workbench, configuredCurrent });
   await page.goto("/");
   await page.getByRole("button", { name: "软件商店", exact: true }).first().click();
 }
@@ -94,7 +96,7 @@ test("the store lists the Claude Code provider plugin and opens its manager", as
 
   const dialog = page.locator(".claude-providers-dialog");
   await expect(dialog).toBeVisible();
-  await expect(page.getByRole("region", { name: "Claude Code 供应商 页面" }).getByRole("heading", { name: "Claude Code 供应商" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Claude 管理 页面" }).getByRole("heading", { name: "Claude 管理" })).toBeVisible();
   await expect(dialog).toContainText("Claude 官方");
   await expect(dialog).toContainText("DeepSeek");
   // 当前供应商使用“使用中”状态，不展示可执行的切换按钮。
@@ -103,6 +105,41 @@ test("the store lists the Claude Code provider plugin and opens its manager", as
   await expect(currentItem.getByRole("button", { name: "使用中", exact: true })).toBeDisabled();
   // 没填 Key 的供应商给出可见提示。
   await expect(dialog).toContainText("缺少 Key");
+});
+
+test("external configuration changes are detected on focus and can be switched back", async ({ page }) => {
+  await openStore(page, true, true);
+  await page.locator(".software-store-page tbody tr", { hasText: "Claude Code 供应商" }).getByRole("button", { name: "管理" }).click();
+  const current = page.locator(".claude-provider-item.is-current");
+  await expect(current.getByRole("button", { name: "使用中", exact: true })).toBeDisabled();
+  await page.evaluate(() => { (window as any).__configurationStatus = "changed"; window.dispatchEvent(new Event("focus")); });
+  await expect(current).toContainText("配置不一致");
+  await expect(page.locator(".claude-mode-status")).toContainText("直连配置待核对");
+  expect(await page.evaluate(() => (window as any).__claudeCalls)).toEqual([]);
+  await page.evaluate(() => { (window as any).__switchFails = true; });
+  await current.getByRole("button", { name: "切换回来", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("配置文件不可写");
+  await expect(current).toContainText("配置不一致");
+  await page.evaluate(() => { (window as any).__switchFails = false; });
+  await current.getByRole("button", { name: "切换回来", exact: true }).click();
+  await expect(current.getByRole("button", { name: "使用中", exact: true })).toBeDisabled();
+  expect(await page.evaluate(() => (window as any).__claudeCalls)).toEqual(["switch:deepseek", "switch:deepseek"]);
+});
+
+test("unreadable configuration stays read only and routing does not raise a direct-channel warning", async ({ page }) => {
+  await openStore(page, true);
+  await page.evaluate(() => { (window as any).__configurationStatus = "unreadable"; });
+  await page.locator(".software-store-page tbody tr", { hasText: "Claude Code 供应商" }).getByRole("button", { name: "管理" }).click();
+  const current = page.locator(".claude-provider-item.is-current");
+  await expect(current).toContainText("无法读取或解析");
+  await expect(current.getByRole("button", { name: "无法核对", exact: true })).toBeDisabled();
+  expect(await page.evaluate(() => (window as any).__claudeCalls)).toEqual([]);
+  await page.evaluate(() => { (window as any).__configurationStatus = "changed"; });
+  await page.getByRole("tab", { name: "路由", exact: true }).click();
+  await page.getByRole("button", { name: "开始路由" }).click();
+  await page.getByRole("dialog", { name: "让 Claude Code 使用路由模式？" }).getByRole("button", { name: "开始路由", exact: true }).click();
+  await page.getByRole("tab", { name: "直连", exact: true }).click();
+  await expect(page.locator(".claude-configuration-warning")).toHaveCount(0);
 });
 
 test("switching reports the change and closing keeps user configuration intact", async ({ page }) => {

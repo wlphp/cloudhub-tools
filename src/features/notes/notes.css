@@ -43,10 +43,6 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 7px 8px;
-  border: 1px solid var(--jb-border, #3b3b3b);
-  border-radius: 4px;
-  background: var(--jb-surface-2, #333);
 }
 .notes-search {
   display: flex;
@@ -61,17 +57,26 @@
   color: var(--jb-subtle, #7d7d7d);
 }
 .notes-search:focus-within { border-color: var(--jb-accent, #9b8cff); box-shadow: 0 0 0 2px #9b8cff26; }
-.notes-search input {
+.ide-theme .notes-search input,
+.ide-theme .recycle-bin-search input {
   flex: 1 1 auto;
   min-width: 0;
+  width: 0;
   height: 28px;
+  margin: 0;
   padding: 0;
-  border: 0;
-  background: transparent;
+  border: 0 !important;
+  background: transparent !important;
   color: var(--jb-text, #d7d7d7);
   font-size: 12px;
 }
-.notes-search input:focus { box-shadow: none; }
+.ide-theme .notes-search input:focus,
+.ide-theme .recycle-bin-search input:focus {
+  /* The wrapper supplies the focus indicator, including keyboard focus. */
+  border: 0 !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
 .notes-result-count { flex: 0 0 auto; color: var(--jb-subtle, #7d7d7d); font-size: 11px; font-variant-numeric: tabular-nums; }
 
 .notes-filter-bar { display: flex; flex-direction: column; gap: 6px; }
@@ -242,6 +247,12 @@
 .recycle-bin-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; padding: 12px 16px 10px; border-bottom: 1px solid var(--jb-border); }
 .recycle-bin-head strong { font-size: 13px; font-weight: 600; }
 .recycle-bin-head span { color: var(--jb-subtle); font-size: 11.5px; }
+.recycle-bin-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 12px 16px 0; }
+.recycle-bin-search { display: flex; align-items: center; gap: 8px; flex: 1 1 220px; min-width: 0; margin: 0; padding: 0 8px; border: 1px solid var(--jb-border-strong); border-radius: 3px; background: var(--jb-input); color: var(--jb-muted); }
+.recycle-bin-search:focus-within { border-color: var(--jb-accent); box-shadow: 0 0 0 2px var(--jb-accent-soft); }
+.recycle-bin-select-all { display: inline-flex; align-items: center; gap: 6px; margin: 0; font-size: 12px; cursor: pointer; }
+.recycle-bin-select-all input { flex: 0 0 auto; width: 14px; height: 14px; margin: 0; padding: 0; accent-color: var(--jb-accent); }
+.recycle-bin-selection { color: var(--jb-subtle); font-size: 11px; }
 .recycle-bin-empty { margin: 0; padding: 40px 16px; color: var(--jb-subtle); font-size: 12px; text-align: center; }
 .recycle-bin .notes-error { margin: 10px 16px 0; }
 .recycle-bin-group { padding: 12px 16px; border-bottom: 1px solid var(--jb-border); }

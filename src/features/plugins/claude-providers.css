@@ -47,6 +47,7 @@
 .claude-aggregate-notes p + p { margin-top: 8px; }
 .claude-more-actions button, .claude-more-actions a { display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; min-height: 34px; }
 .claude-provider-title input[type="checkbox"] { flex-shrink: 0; }
+.claude-configuration-warning { margin: 5px 0; color: var(--jb-warning, #e5b567); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
 .claude-import-row { display: flex; align-items: center; gap: 8px; padding: 10px 0; overflow-wrap: anywhere; }
 .claude-import-row span { min-width: 0; }
 .claude-import-row small { display: block; color: var(--jb-muted, #aaa); }

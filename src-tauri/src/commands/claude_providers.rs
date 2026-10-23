@@ -55,6 +55,48 @@ pub struct ClaudeProviderList {
     pub settings_path: String,
     pub settings_exists: bool,
     pub has_backup: bool,
+    /// 只返回状态，不返回配置差异或凭据。无已选供应商时为空。
+    pub configuration_status: Option<ConfigurationStatus>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum ConfigurationStatus { Matched, Changed, Missing, Unreadable }
+
+fn configuration_status(path: &std::path::Path, provider: &model::ClaudeProvider) -> ConfigurationStatus {
+    // try_exists 区分缺失与无权限，不能把不可读取当成空文件。
+    match path.try_exists() {
+        Ok(false) => return ConfigurationStatus::Missing,
+        Err(_) => return ConfigurationStatus::Unreadable,
+        Ok(true) => {}
+    }
+    let Ok(live) = repository::read_settings_at(path) else { return ConfigurationStatus::Unreadable; };
+    let mut target = provider.clone();
+    target.extra_env.remove(repository::IS_CURRENT_MARKER);
+    if model::settings_match_provider(&live, &target) { ConfigurationStatus::Matched } else { ConfigurationStatus::Changed }
+}
+
+#[cfg(test)]
+mod configuration_tests {
+    use super::*;
+
+    #[test]
+    fn configuration_status_handles_missing_invalid_and_changed_files() {
+        let root = std::env::temp_dir().join(format!("cloudhub-configuration-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("settings.json");
+        let provider: model::ClaudeProvider = serde_json::from_value(serde_json::json!({"id":"fixture","name":"fixture","apiKey":"","officialLogin":true})).unwrap();
+        assert_eq!(configuration_status(&path, &provider), ConfigurationStatus::Missing);
+        std::fs::write(&path, "invalid JSON").unwrap();
+        assert_eq!(configuration_status(&path, &provider), ConfigurationStatus::Unreadable);
+        std::fs::write(&path, r#"{"env":{}}"#).unwrap();
+        assert_eq!(configuration_status(&path, &provider), ConfigurationStatus::Matched);
+        std::fs::write(&path, r#"{"env":{"ANTHROPIC_BASE_URL":"https://example.test"}}"#).unwrap();
+        assert_eq!(configuration_status(&path, &provider), ConfigurationStatus::Changed);
+        assert_eq!(serde_json::to_value(configuration_status(&path, &provider)).unwrap(), "changed");
+        std::fs::remove_file(&path).unwrap();
+        std::fs::remove_dir(&root).unwrap();
+    }
 }
 
 fn to_summary(provider: &model::ClaudeProvider) -> ClaudeProviderSummary {
@@ -104,14 +146,17 @@ pub(crate) async fn claude_provider_list() -> PlatformResult<ClaudeProviderList>
         let current_id=crate::core::claude_workspace::current_provider(&conn)?;
         #[cfg(not(desktop))]
         let current_id=repository::current_provider_id(&conn)?;
-        let providers = repository::list_providers(&conn)?.iter().map(|p|{let mut summary=to_summary(p);summary.is_current=current_id.as_deref()==Some(&p.id);summary}).collect();
+        let stored = repository::list_providers(&conn)?;
+        let providers = stored.iter().map(|p|{let mut summary=to_summary(p);summary.is_current=current_id.as_deref()==Some(&p.id);summary}).collect();
         let path = repository::settings_path()?;
+        let configuration_status = stored.iter().find(|p| current_id.as_deref() == Some(&p.id)).map(|p| configuration_status(&path, p));
         Ok(ClaudeProviderList {
             providers,
             current_id,
             settings_path: path.to_string_lossy().to_string(),
             settings_exists: path.exists(),
             has_backup: repository::latest_backup(&conn)?.is_some(),
+            configuration_status,
         })
     })
     .await

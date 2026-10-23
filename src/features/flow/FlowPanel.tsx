@@ -1,5 +1,4 @@
-import { DialogHeaderActions } from "../../shared/DialogHeaderActions";
-import { createPortal } from "react-dom";
+import { SharedDialog } from "../../shared/SharedDialog";
 import { SecretField } from "../../shared/SecretField";
 import { AiLogAnalysis } from "../ai/AiLogAnalysis";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
@@ -48,9 +47,6 @@ export function FlowPanel({ mobile = false }: { mobile?: boolean }) {
   const [jobLogs, setJobLogs] = useState<Record<string, { entries: Array<{ stepIndex: number; buildId: number; name: string; text: string; more: boolean; offset: number }> }>>({});
   const summaryRequest = useRef(0);
   const pipelineRequest = useRef(0);
-  const detailsDialogRef = useRef<HTMLElement | null>(null);
-  const detailsCloseRef = useRef<HTMLButtonElement | null>(null);
-  const detailsOpenerRef = useRef<HTMLElement | null>(null);
   const connectionVersion = connections.find((item) => item.id === connectionId)?.updatedAt;
   const recentPipelines = useMemo(() => pipelines
     .filter((item) => { const start = pipelineSummaries[item.pipelineId]?.startTime; return typeof start === "number" && Number.isFinite(start) && start > 0; })
@@ -140,7 +136,6 @@ export function FlowPanel({ mobile = false }: { mobile?: boolean }) {
   }
 
   async function viewPipelineDetails(pipeline: FlowPipeline) {
-    detailsOpenerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setDetailTab("latest"); setShowDetails(true);
     const history = await choosePipeline(pipeline);
     if (history[0]) await chooseRun(history[0], pipeline);
@@ -156,30 +151,6 @@ export function FlowPanel({ mobile = false }: { mobile?: boolean }) {
 
   useEffect(() => { void loadConnections(); }, []);
   useEffect(() => { const timer = window.setInterval(() => setClockNow(Date.now()), 60_000); return () => window.clearInterval(timer); }, []);
-  useEffect(() => {
-    if (showDetails) { detailsCloseRef.current?.focus(); return; }
-    detailsOpenerRef.current?.focus();
-    detailsOpenerRef.current = null;
-  }, [showDetails]);
-  useEffect(() => {
-    if (!showDetails && !showRun && !showConnection) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Tab" && showDetails && detailsDialogRef.current) {
-        const focusable = detailsDialogRef.current.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])');
-        const first = focusable[0];
-        const last = focusable[focusable.length - 1];
-        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
-        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
-        return;
-      }
-      if (event.key !== "Escape") return;
-      if (showDetails) setShowDetails(false);
-      else if (showRun && busy !== "run") setShowRun(false);
-      else if (showConnection && !busy) setShowConnection(false);
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [showDetails, showRun, showConnection, busy]);
   useEffect(() => {
     if (!connectionId) { setGroups([]); setActiveGroupId(null); setPipelines([]); setCacheUpdatedAt(null); setSelectedPipeline(null); setRuns([]); setRunDetail(null); return; }
     let active = true;
@@ -340,20 +311,19 @@ export function FlowPanel({ mobile = false }: { mobile?: boolean }) {
       </section>
     </div>}
     {currentConnection && <div className="flow-connection-footer"><span><Check size={14} />PAT 已加密保存在本机</span><button className="text-danger" onClick={() => void removeConnection(currentConnection)}><Trash2 size={14} />移除此连接</button></div>}
-    {showConnection && createPortal(<div className="flow-dialog-backdrop"><form className="modal flow-dialog modal-form-layout dialog-common-theme" onSubmit={(event) => void saveConnection(event)}><header><div><h2>{draft.id ? "编辑云效连接" : "连接云效 Flow"}</h2><p>个人访问令牌加密保存，留空可保留原令牌。</p></div><DialogHeaderActions><button type="button" className="icon-button" aria-label="关闭" onClick={() => setShowConnection(false)}><X size={17} /></button></DialogHeaderActions></header>
+    {showConnection && <SharedDialog title={draft.id ? "编辑云效连接" : "连接云效 Flow"} subtitle="个人访问令牌加密保存，留空可保留原令牌。" className="flow-dialog" onSubmit={(event) => void saveConnection(event)} onClose={() => setShowConnection(false)} closeDisabled={busy === "save"} footer={<><button type="button" className="secondary" disabled={busy === "save"} onClick={() => setShowConnection(false)}>取消</button><button type="submit" className="primary" disabled={busy === "save"}>{busy === "save" ? <LoaderCircle className="flow-spin" size={15} /> : <Check size={15} />}{busy === "save" ? "保存中…" : "保存并验证"}</button></>}>
       <label>连接名称<input autoFocus required maxLength={100} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} placeholder="例如：公司研发组织" /></label>
       <label>组织版本<select value={draft.edition} onChange={(event) => setDraft({ ...draft, edition: event.target.value as "central" | "region", domain: event.target.value === "central" ? "openapi-rdc.aliyuncs.com" : "" })}><option value="central">中心版</option><option value="region">Region 版</option></select></label>
       {draft.edition === "central" ? <label>组织 ID<input required value={draft.organizationId || ""} onChange={(event) => setDraft({ ...draft, organizationId: event.target.value })} placeholder="云效组织 ID" /></label> : <label>接入域名<input required value={draft.domain || ""} onChange={(event) => setDraft({ ...draft, domain: event.target.value })} placeholder="例如：devops.aliyun.com" /><small>只填写 HTTPS 域名，不含路径。</small></label>}
       <label>个人访问令牌（PAT）<SecretField key={draft.id ?? "new"} secretLabel="个人访问令牌" reveal={draft.id && runningInTauri ? () => flowClient.revealToken(draft.id!) : undefined} autoComplete="new-password" required={!draft.id} value={draft.token || ""} onChange={(event) => setDraft({ ...draft, token: event.target.value })} placeholder={draft.id ? "留空以保留原令牌" : "粘贴云效 PAT"} /></label>
-      <footer><button type="button" className="secondary" disabled={busy === "save"} onClick={() => setShowConnection(false)}>取消</button><button type="submit" disabled={busy === "save"}>{busy === "save" ? <LoaderCircle className="flow-spin" size={15} /> : <Check size={15} />}{busy === "save" ? "保存中…" : "保存并验证"}</button></footer>
-    </form></div>, document.body)}
-    {showDetails && selectedPipeline && createPortal(<div className="flow-dialog-backdrop flow-details-backdrop"><section ref={detailsDialogRef} className="modal flow-dialog flow-details-dialog modal-form-layout dialog-common-theme" role="dialog" aria-modal="true" aria-labelledby="flow-detail-title"><header className="flow-details-header"><div><span className="eyebrow">PIPELINE RUN</span><h2 id="flow-detail-title">{selectedPipeline.pipelineName}</h2><p>流水线 ID {selectedPipeline.pipelineId}{runDetail ? ` · 运行 #${runDetail.pipelineRunId}` : ""}</p></div><DialogHeaderActions><button ref={detailsCloseRef} type="button" className="icon-button" aria-label="关闭详情" onClick={() => setShowDetails(false)}><X size={17} /></button></DialogHeaderActions></header>
+    </SharedDialog>}
+    {showDetails && selectedPipeline && <SharedDialog title={selectedPipeline.pipelineName} eyebrow="PIPELINE RUN" subtitle={`流水线 ID ${selectedPipeline.pipelineId}${runDetail ? ` · 运行 #${runDetail.pipelineRunId}` : ""}`} className="flow-dialog flow-details-dialog" closeLabel="关闭详情" onClose={() => setShowDetails(false)}>
       <AiLogAnalysis scope=".flow-details-dialog .flow-job-log pre" title="AI 分析选中流水线日志" secrets={[draft.token || ""]} />
       <div className="flow-detail-overview"><div><span>运行状态</span><strong className={`flow-status ${(runDetail?.status || "").toLowerCase()}`}>{runDetail ? statusText(runDetail.status) : "—"}</strong></div><div><span>触发信息</span><strong>{triggerText(runDetail?.triggerMode)}</strong><small>{runDetail?.creatorEmail || (runDetail?.creatorAccountId ? `账号 ID：${runDetail.creatorAccountId}` : "—")}</small></div><div><span>开始时间</span><strong>{timeText(runDetail?.startTime)}</strong></div><div><span>结束时间</span><strong>{timeText(runDetail?.endTime)}</strong></div><div><span>持续时间</span><strong>{durationText(runDetail?.startTime, runDetail?.endTime, clockNow)}</strong></div></div>
       <nav className="flow-detail-tabs" aria-label="运行详情视图"><button type="button" className={detailTab === "latest" ? "active" : ""} aria-current={detailTab === "latest" ? "page" : undefined} onClick={() => setDetailTab("latest")}>最近运行</button><button type="button" className={detailTab === "history" ? "active" : ""} aria-current={detailTab === "history" ? "page" : undefined} onClick={() => setDetailTab("history")}>运行历史</button></nav>
       <div className={`flow-details-content ${detailTab}`}>{detailTab === "history" && <aside className="flow-history-list" aria-label="运行历史">{runs.map((run) => <button type="button" key={run.pipelineRunId} className={runDetail?.pipelineRunId === run.pipelineRunId ? "selected" : ""} onClick={() => void chooseRun(run)}><span className={`flow-status-dot ${(run.status || "").toLowerCase()}`} /><strong>#{run.pipelineRunId}</strong><span className={`flow-status ${(run.status || "").toLowerCase()}`}>{statusText(run.status)}</span><time>{timeText(run.startTime)}</time></button>)}{busy === "runs" && <div className="flow-inline-loading"><LoaderCircle className="flow-spin" size={16} />读取运行历史…</div>}{!runs.length && busy !== "runs" && <p className="flow-list-empty">暂无运行记录</p>}</aside>}
       {busy === "detail" && !runDetail ? <div className="flow-inline-loading"><LoaderCircle className="flow-spin" size={18} />加载运行详情…</div> : !runDetail ? <div className="flow-empty compact"><Activity size={28} /><h2>暂无运行详情</h2><p>这条流水线还没有可显示的运行记录。</p></div> : <div className="flow-modal-run-detail"><aside className="flow-run-origin"><div className="flow-run-origin-heading"><span className="flow-source-icon"><GitBranch size={16} /></span><strong>流水线源 · {runDetail.sources.length || 1}</strong></div><article className="flow-source-card"><div className="flow-source-title"><span className="flow-source-mark"><GitBranch size={14} /></span><strong title={runDetail.sources[0]?.repository || selectedPipeline.pipelineName}>{runDetail.sources[0]?.repository || selectedPipeline.pipelineName}</strong></div><div><GitBranch size={13} /><span>{runDetail.sources[0]?.branch || "分支信息不可用"}</span></div><div><GitCommitHorizontal size={13} /><span>{runDetail.sources[0]?.commitId || "—"}</span></div><div><FileText size={13} /><span>{runDetail.sources[0]?.commitMessage || runDetail.sources[0]?.sourceType || "提交信息不可用"}</span></div></article><div className="flow-source-meta"><span>流水线</span><strong>{selectedPipeline.pipelineName}</strong></div><div className="flow-source-meta"><span>运行编号</span><strong>#{runDetail.pipelineRunId}</strong></div><div className="flow-source-meta"><span>触发账号</span><strong>{runDetail.creatorEmail || (runDetail.creatorAccountId ? `账号 ID：${runDetail.creatorAccountId}` : "—")}</strong></div></aside><div className="flow-stage-lanes">{runDetail.stages.map((stage, stageIndex) => <section className={`flow-stage-lane ${(stage.status || "").toLowerCase()}`} key={`${stage.name}-${stageIndex}`}><header className="flow-stage-lane-heading"><strong>{stage.name || `阶段 ${stageIndex + 1}`}</strong><span className={`flow-status ${(stage.status || "").toLowerCase()}`}>{statusText(stage.status)}</span></header>{stage.jobs.map((job, jobIndex) => { const key = `${runDetail.pipelineRunId}:${job.id || jobIndex}`; const logState = jobLogs[key]; return <article className={`flow-job-card ${(job.status || "").toLowerCase()}`} key={key}><div className="flow-job-card-heading"><span className={`flow-status-dot ${(job.status || "").toLowerCase()}`} /><strong>{job.name || `任务 ${jobIndex + 1}`}</strong></div><div className="flow-job-card-meta"><span>{durationText(job.startTime, job.endTime, clockNow)}</span>{job.id && <button type="button" className="flow-log-toggle" disabled={busy === `log:${key}`} onClick={() => void toggleJobLog(job)}><FileText size={13} />{busy === `log:${key}` ? "读取中…" : expandedJobs.has(key) ? "收起日志" : "日志"}</button>}{expandedJobs.has(key) && !logState?.entries.some((entry) => entry.text.length > 0 || entry.more) && <button type="button" className="flow-log-retry" aria-label="重新获取任务日志" title="重新获取日志" disabled={busy === `log:${key}`} onClick={() => void fetchJobLog(job, key)}><RefreshCw size={13} /></button>}</div>{expandedJobs.has(key) && <div className="flow-job-log">{busy === `log:${key}` && <div className="flow-inline-loading"><LoaderCircle className="flow-spin" size={15} />加载步骤和日志…</div>}{jobSteps[key] && !jobSteps[key].some((step) => step.stepIndex != null && step.buildId != null) && !logState?.entries.some((entry) => entry.text.length > 0) && <p className="flow-log-empty">{jobSteps[key].length === 0 ? "云效返回了空的步骤列表；任务结束后可点击右侧刷新按钮重试。" : "云效步骤缺少编号或构建 ID，无法请求日志；可点击右侧刷新按钮重试。"}</p>}{logState?.entries.map((entry) => entry.text || entry.more ? <section className="flow-log-entry" key={`${entry.stepIndex}-${entry.buildId}`}><strong>{entry.name}</strong><pre>{entry.text || "等待后续日志…"}</pre></section> : null)}{logState && logState.entries.length > 0 && !logState.entries.some((entry) => entry.text.length > 0 || entry.more) && <p className="flow-log-empty">云效当前没有返回日志内容；点击右侧刷新按钮可再次查询。</p>}{logState?.entries.some((entry) => entry.more) && <button className="secondary" disabled={busy !== ""} onClick={() => void loadMoreLog(job)}>继续加载日志</button>}</div>}</article>;})}{!stage.jobs.length && <p className="flow-stage-empty">该阶段没有返回任务。</p>}</section>)}{!runDetail.stages.length && <p className="flow-list-empty">云效没有返回阶段详情。</p>}</div></div>}
-      </div></section></div>, document.body)}
-    {showRun && selectedPipeline && createPortal(<div className="flow-dialog-backdrop"><form className="modal flow-dialog flow-run-dialog modal-form-layout dialog-common-theme" onSubmit={(event) => void runPipeline(event)}><header><div><h2>运行流水线</h2><p>目标：{selectedPipeline.pipelineName}（{selectedPipeline.pipelineId}）</p></div><DialogHeaderActions><button type="button" className="icon-button" aria-label="关闭" onClick={() => setShowRun(false)}><X size={17} /></button></DialogHeaderActions></header><label>运行参数（JSON）<textarea spellCheck={false} value={paramsJson} onChange={(event) => setParamsJson(event.target.value)} rows={8} /><small>使用云效运行参数格式，例如环境变量 `{"{"}"envs":{"{"}"key":"value"{"}"}{"}"}`。留空则使用流水线默认值。</small></label><div className="flow-run-warning">确认后将立即在云效中创建一次真实运行。</div><footer><button type="button" className="secondary" disabled={busy === "run"} onClick={() => setShowRun(false)}>取消</button><button type="submit" disabled={busy === "run"}>{busy === "run" ? <LoaderCircle className="flow-spin" size={15} /> : <Play size={15} />}{busy === "run" ? "正在触发…" : "确认运行"}</button></footer></form></div>, document.body)}
+      </div></SharedDialog>}
+    {showRun && selectedPipeline && <SharedDialog title="运行流水线" subtitle={`目标：${selectedPipeline.pipelineName}（${selectedPipeline.pipelineId}）`} className="flow-dialog flow-run-dialog" onSubmit={(event) => void runPipeline(event)} onClose={() => setShowRun(false)} closeDisabled={busy === "run"} footer={<><button type="button" className="secondary" disabled={busy === "run"} onClick={() => setShowRun(false)}>取消</button><button type="submit" className="primary" disabled={busy === "run"}>{busy === "run" ? <LoaderCircle className="flow-spin" size={15} /> : <Play size={15} />}{busy === "run" ? "正在触发…" : "确认运行"}</button></>}><label>运行参数（JSON）<textarea spellCheck={false} value={paramsJson} onChange={(event) => setParamsJson(event.target.value)} rows={8} /><small>使用云效运行参数格式，例如环境变量 `{"{"}"envs":{"{"}"key":"value"{"}"}{"}"}`。留空则使用流水线默认值。</small></label><div className="flow-run-warning">确认后将立即在云效中创建一次真实运行。</div></SharedDialog>}
   </section>;
 }

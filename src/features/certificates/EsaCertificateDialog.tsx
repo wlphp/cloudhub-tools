@@ -1,7 +1,6 @@
-import { DialogHeaderActions } from "../../shared/DialogHeaderActions";
-import { createPortal } from "react-dom";
+import { SharedDialog } from "../../shared/SharedDialog";
 import { useEffect, useRef, useState } from "react";
-import { RefreshCw, Upload, X } from "lucide-react";
+import { RefreshCw, Upload } from "lucide-react";
 import { runningInTauri, platformErrorMessage } from "../../platform/api";
 import { certificatesClient, type EsaCertificateContext, type EsaCertificateDeployment } from "../../platform/clients/certificates";
 import type { Account, LocalAsset } from "../../shared/types";
@@ -59,10 +58,8 @@ export function EsaCertificateDialog({ account, siteId, accounts, localAssets, o
     finally { operation.current = false; if (alive.current) setBusy(false); }
   }
   const title = context ? `${context.site.siteName} · ESA 证书` : "ESA 站点证书";
-  return createPortal(<>
-    {!requesting && <div className="modal-backdrop esa-certificate-backdrop ide-theme">
-      <section role="dialog" aria-modal="true" aria-label={title} className="modal detail-panel certificate-dialog modal-form-layout dialog-common-theme esa-certificate-dialog">
-        <div className="modal-head"><div><span className="eyebrow">ESA / HTTPS</span><h2>{title}</h2><p>{account.account_name} · 站点 ID {siteId}</p></div><DialogHeaderActions><button type="button" className="close" aria-label="关闭 ESA 证书" disabled={busy} onClick={onClose}><X size={18} /></button></DialogHeaderActions></div>
+  return <>
+    {!requesting && <SharedDialog title={title} eyebrow="ESA / HTTPS" subtitle={`${account.account_name} · 站点 ID ${siteId}`} className="certificate-dialog esa-certificate-dialog" closeLabel="关闭 ESA 证书" closeDisabled={busy} onClose={onClose} footer={<><button type="button" className="secondary" disabled={busy} onClick={onClose}>关闭</button><button type="button" className="secondary" disabled={busy || !context || !runningInTauri} onClick={() => { setError(""); setRequesting(true); }}>申请并部署</button><button type="button" className="primary" disabled={busy || !selectedCandidate?.deployable || !context || !runningInTauri} onClick={() => void deploy(Number(selected))}><Upload size={14} />{busy ? "处理中…" : result ? "重新部署" : error ? "重试部署" : "部署已有证书"}</button></>}>
         {!runningInTauri && <p className="certificate-hint">证书部署仅支持桌面客户端。</p>}
         <div className="esa-certificate-body">
           <div className="esa-certificate-tools"><strong>ESA 当前证书</strong><button type="button" disabled={busy || !runningInTauri} onClick={() => void refresh()}><RefreshCw size={14} />刷新状态</button></div>
@@ -85,11 +82,9 @@ export function EsaCertificateDialog({ account, siteId, accounts, localAssets, o
           {result && <p role="status" className="security-tip">{result.message}</p>}
           {error && <p role="alert" className="form-error">{error}</p>}
         </div>
-        <div className="modal-actions"><button type="button" className="secondary" disabled={busy} onClick={onClose}>关闭</button><button type="button" className="secondary" disabled={busy || !context || !runningInTauri} onClick={() => { setError(""); setRequesting(true); }}>申请并部署</button><button type="button" className="primary" disabled={busy || !selectedCandidate?.deployable || !context || !runningInTauri} onClick={() => void deploy(Number(selected))}><Upload size={14} />{busy ? "处理中…" : result ? "重新部署" : error ? "重试部署" : "部署已有证书"}</button></div>
-      </section>
-    </div>}
+    </SharedDialog>}
     {requesting && context && <CertificatePanel accounts={accounts} localAssets={localAssets} onStatus={onStatus} onConfirm={onConfirm}
       requestTarget={{ accountId: account.id, ...context.site }} onRequestClosed={() => setRequesting(false)}
       onIssued={certificate => { setContext(current => current ? { ...current, candidates: [{ id: certificate.id, domains: certificate.domains, status: "issued", deployable: true, matchesSite: true, reason: null, notBefore: null, notAfter: certificate.notAfter ?? null }, ...current.candidates.filter(item => item.id !== certificate.id)] } : current); setSelected(String(certificate.id)); setRequesting(false); void deploy(certificate.id); }} />}
-  </>, document.body);
+  </>;
 }

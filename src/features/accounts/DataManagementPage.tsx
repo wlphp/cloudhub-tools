@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import { ArrowLeft, Database, Download, HardDriveDownload, RefreshCw, RotateCcw, Trash2, Upload, X } from "lucide-react";
+import { ArrowLeft, Database, Download, HardDriveDownload, RefreshCw, RotateCcw, Trash2, Upload } from "lucide-react";
 import { databaseClient, type DatabaseBackupRecord, type DatabaseImportPreview } from "../../platform/clients/database";
-import { DialogHeaderActions } from "../../shared/DialogHeaderActions";
+import { SharedDialog } from "../../shared/SharedDialog";
+import { ConfirmDialog } from "../../shared/ConfirmDialog";
 
 type Props = {
   onBack: () => void;
@@ -27,21 +27,18 @@ export function DataManagementPage({ onBack, onPhoneMigration, canManageBackups,
 }
 
 function BackupRestoreDialog({ onClose, onRestore, onStatus }: Pick<Props, "onRestore" | "onStatus"> & { onClose: () => void }) {
-  const dialog = useRef<HTMLDialogElement>(null);
-  const confirmDialog = useRef<HTMLDialogElement>(null);
   const confirmResolver = useRef<((confirmed: boolean) => void) | null>(null);
   const [records, setRecords] = useState<DatabaseBackupRecord[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [confirmMessage, setConfirmMessage] = useState("");
-  useEffect(() => { dialog.current?.showModal(); void refresh(); return () => dialog.current?.close(); }, []);
+  useEffect(() => { void refresh(); return () => { confirmResolver.current?.(false); }; }, []);
   function askConfirm(message: string) {
     setConfirmMessage(message);
-    confirmDialog.current?.showModal();
     return new Promise<boolean>(resolve => { confirmResolver.current = resolve; });
   }
   function resolveConfirm(confirmed: boolean) {
-    confirmDialog.current?.close();
+    setConfirmMessage("");
     confirmResolver.current?.(confirmed);
     confirmResolver.current = null;
   }
@@ -78,19 +75,12 @@ function BackupRestoreDialog({ onClose, onRestore, onStatus }: Pick<Props, "onRe
     finally { setBusy(false); }
   }
   return <>
-  <dialog ref={dialog} className="codex-dialog modal-form-layout dialog-common-theme backup-restore-dialog" aria-label="备份与恢复" onCancel={event => { event.preventDefault(); if (!busy) onClose(); }}>
-    <header><div className="codex-dialog-heading"><h2>备份与恢复</h2></div><DialogHeaderActions><button type="button" aria-label="关闭备份与恢复" title="关闭" onClick={onClose}><X size={17} /></button></DialogHeaderActions></header>
-    <div className="codex-dialog-content backup-restore-content">
+  <SharedDialog title="备份与恢复" className="codex-dialog backup-restore-dialog" bodyClassName="codex-dialog-content backup-restore-content" closeDisabled={busy} onClose={onClose} footer={<button type="button" className="secondary" disabled={busy} onClick={onClose}>关闭</button>}>
       <p className="backup-restore-note">完整备份包含本机敏感数据。恢复会替换普通数据库内容，并保留当前设备的 Codex 与验证器数据。</p>
       <div className="backup-restore-toolbar"><strong>本机备份</strong><div><button type="button" className="secondary" disabled={busy} onClick={() => void importBackup()}><Upload size={14} />导入备份</button><button type="button" className="primary" disabled={busy} onClick={() => void create()}><HardDriveDownload size={14} />立即备份</button><button type="button" className="secondary icon-button" aria-label="刷新备份列表" disabled={busy} onClick={() => void refresh()}><RefreshCw size={14} /></button></div></div>
       {error && <p className="backup-restore-error" role="alert">{error}</p>}
       <div className="backup-restore-list">{records.length ? records.map(record => <article className="backup-record" key={record.id}><div><strong className="backup-record-name" title={record.fileName}>{record.fileName}</strong><small>{new Date(record.createdAt).toLocaleString()} · {sizeText(record.sizeBytes)}</small></div><div className="backup-record-actions"><button type="button" className="secondary" aria-label="下载备份" title="下载" onClick={() => void download(record)}><Download size={14} /></button><button type="button" className="secondary" aria-label="删除备份" title="删除" onClick={() => void remove(record)}><Trash2 size={14} /></button><button type="button" className="secondary" disabled={busy} onClick={() => void restore(record)}><RotateCcw size={14} />恢复</button></div></article>) : <div className="backup-empty"><Database size={24} /><span>还没有备份记录</span></div>}</div>
-      <div className="codex-dialog-actions"><button type="button" className="secondary" disabled={busy} onClick={onClose}>关闭</button></div>
-    </div>
-  </dialog>
-  {createPortal(<dialog ref={confirmDialog} className="app-confirm-dialog modal-form-layout dialog-common-theme backup-inline-confirm" aria-modal="true" aria-labelledby="backup-confirm-title" onCancel={event => { event.preventDefault(); resolveConfirm(false); }}>
-      <div className="app-confirm-copy"><span className="eyebrow">PLEASE CONFIRM</span><h2 id="backup-confirm-title">确认操作</h2><p>{confirmMessage}</p></div>
-      <div className="app-confirm-actions"><button type="button" className="secondary" autoFocus onClick={() => resolveConfirm(false)}>取消</button><button type="button" className="primary app-confirm-primary" onClick={() => resolveConfirm(true)}>确认</button></div>
-  </dialog>, document.querySelector(".ide-theme") ?? document.body)}
+  </SharedDialog>
+  {confirmMessage && <ConfirmDialog message={confirmMessage} onResolve={resolveConfirm} />}
   </>;
 }

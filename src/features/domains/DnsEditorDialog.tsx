@@ -1,6 +1,5 @@
-import { DialogHeaderActions } from "../../shared/DialogHeaderActions";
+import { SharedDialog } from "../../shared/SharedDialog";
 import { type FormEvent, useEffect, useRef, useState } from "react";
-import { X } from "lucide-react";
 import { platformErrorMessage } from "../../platform/api";
 import { parseDnsPaste, type ParsedDnsRecord } from "./parseDnsPaste";
 import { parseAiDnsCandidates } from "./aiDnsCandidates";
@@ -118,11 +117,7 @@ export function DnsEditorDialog({ mode, row, preset, domain = "", onCancel, onSu
   };
 
   return (
-    <div className="modal-backdrop dns-editor-backdrop">
-      <section className="modal dns-editor-modal modal-form-layout dialog-common-theme" role="dialog" aria-modal="true" aria-labelledby="dns-editor-title" onClick={(event) => event.stopPropagation()}>
-        <div className="modal-head"><h2 id="dns-editor-title">{mode === "edit" ? "编辑解析记录" : "添加解析记录"}</h2><DialogHeaderActions><button type="button" className="close" aria-label="关闭解析记录编辑" disabled={submitting} onClick={onCancel}><X size={18} /></button></DialogHeaderActions></div>
-        <form className="modal-form-content" onSubmit={handleSubmit}>
-          <div className="modal-body">
+    <SharedDialog className="dns-editor-modal" size="small" title={mode === "edit" ? "编辑解析记录" : "添加解析记录"} closeLabel="关闭解析记录编辑" onClose={onCancel} closeDisabled={submitting} onSubmit={handleSubmit} footer={<><button type="button" className="secondary" onClick={onCancel} disabled={submitting}>取消</button><button type="submit" className="primary" disabled={submitting}>{submitting ? "提交中…" : "确定"}</button></>}>
             <div className="dns-ai-actions">
             <AiAssistButton task="dns" title="AI 智能填写" current={{type,rr,value,ttl,priority,line}} disabled={submitting} onApplyItems={applyAiRecords} onApply={({fields}) => { const records=parseDnsPaste(JSON.stringify({type,rr,value,ttl,priority,line,...fields}),domain); if(!records.length)throw new Error("未得到有效DNS记录，请核对字段"); applyParsed(records[0],rr||"@"); setParsed([]); }} />
             </div>
@@ -142,10 +137,6 @@ export function DnsEditorDialog({ mode, row, preset, domain = "", onCancel, onSu
           </div>
           {type === "MX" && <label>MX 优先级<input type="number" min={1} max={50} value={priority} onChange={(event) => setPriority(Number(event.target.value))} /></label>}
           {errMsg && <div className="error-list" style={{ margin: "14px 0 0" }}><div style={{ marginBottom: errHint ? 6 : 0 }}>{errMsg}</div>{errHint && <div style={{ color: "#ffd479", fontSize: "11px" }}>提示：{errHint}</div>}</div>}
-          </div>
-          <div className="modal-actions"><button type="button" className="layui-btn layui-btn-primary" onClick={onCancel} disabled={submitting}>取消</button><button type="submit" className="layui-btn layui-btn-normal" disabled={submitting}>{submitting ? "提交中…" : "确定"}</button></div>
-        </form>
-      </section>
-    </div>
+    </SharedDialog>
   );
 }

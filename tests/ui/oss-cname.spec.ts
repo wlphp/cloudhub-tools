@@ -34,7 +34,7 @@ for (const width of [375, 768, 1024, 1440]) {
     await page.goto("/");
     await page.getByRole("button", { name: "资产管理", exact: true }).click();
     await page.getByRole("button", { name: "文件列表", exact: true }).click();
-    await page.locator(".oss-object-dialog .close-detail").click();
+    await page.locator(".oss-object-dialog").getByRole("button", { name: /^关闭/ }).click();
     await page.getByRole("button", { name: "添加域名", exact: true }).click();
     await page.setViewportSize({ width, height: 900 });
     const dialog = page.getByRole("dialog", { name: "添加自定义域名", exact: true });

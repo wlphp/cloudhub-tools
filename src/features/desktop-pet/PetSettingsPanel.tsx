@@ -1,10 +1,9 @@
 import { PetPortrait } from "./PetPortrait";
-import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import { Bell, Check, ChevronDown, PawPrint, RefreshCw, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Bell, Check, ChevronDown, PawPrint, RefreshCw } from "lucide-react";
 import { petAppearances } from "./appearances";
 import { PetLifeSettings } from "./PetLifeSettings";
-import { DialogHeaderActions } from "../../shared/DialogHeaderActions";
+import { SharedDialog } from "../../shared/SharedDialog";
 import { listen } from "@tauri-apps/api/event";
 import { runningInTauri, platformErrorMessage } from "../../platform/api";
 import { defaultPetSettings, defaultPetLife, petSeverityLabel, sortPetAlerts, desktopPetClient as client, type PetSettings, type PetSnapshot } from "../../platform/clients/desktopPet";
@@ -18,7 +17,6 @@ export function PetSettingsPanel() {
   const [error, setError] = useState("");
   const [expanded, setExpanded] = useState(false);
   const [history, setHistory] = useState(false);
-  const dialog = useRef<HTMLElement>(null);
   useEffect(() => {
     if (!runningInTauri) return;
     let disposed = false;
@@ -30,21 +28,6 @@ export function PetSettingsPanel() {
     const events = [listen<PetSettings>("pet-settings-changed", e => { if (!disposed) setSettings(e.payload); }), listen<PetSnapshot>("pet-alerts-changed", e => { if (!disposed) setSnapshot(e.payload); })];
     return () => { disposed = true; events.forEach(p => void p.then(unlisten => unlisten())); };
   }, []);
-  useEffect(() => {
-    if (!history) return;
-    const previous=document.activeElement as HTMLElement | null;
-    dialog.current?.querySelector<HTMLButtonElement>("button")?.focus();
-    const key=(e:KeyboardEvent)=>{
-      if(e.key==="Escape") { e.stopPropagation(); setHistory(false); }
-      if(e.key==="Tab") {
-        const controls=[...dialog.current?.querySelectorAll<HTMLElement>('button:not(:disabled),[href],input:not(:disabled),select:not(:disabled),[tabindex="0"]')||[]];
-        const first=controls[0],last=controls[controls.length-1];
-        if(e.shiftKey && document.activeElement===first) {e.preventDefault();last?.focus();}
-        else if(!e.shiftKey && document.activeElement===last) {e.preventDefault();first?.focus();}
-      }
-    };
-    window.addEventListener("keydown",key); return ()=>{window.removeEventListener("keydown",key);previous?.focus();};
-  }, [history]);
   async function work(action: () => Promise<void>) { setBusy(true); setError(""); try { await action(); } catch (e) { setError(platformErrorMessage(e)); } finally { setBusy(false); } }
   async function change(patch: Partial<PetSettings>) { const next = { ...settings, ...patch }; await work(async () => { await client.save(next); setSettings(next); }); }
   async function changeLife(life: PetSettings["life"]) {
@@ -94,11 +77,7 @@ export function PetSettingsPanel() {
       </div>
       <PetLifeSettings value={settings.life} onSave={changeLife} disabled={!ready || busy} petEnabled={settings.enabled} />
       <div className="pet-settings-footer"><span>{snapshot.checkedAt ? `最近检查：${new Date(snapshot.checkedAt * 1000).toLocaleString()}` : "尚未执行巡检"}{snapshot.lastError && <small className="pet-error">{snapshot.lastError}</small>}</span><button className="secondary" disabled={!ready || busy || !settings.monitoring} onClick={() => void work(client.check)}><RefreshCw size={14} />立即检查</button><button className="secondary" onClick={() => setHistory(true)}><Bell size={14} />提醒记录（{snapshot.alerts.filter(a => a.active && !a.ignored).length}）</button></div>
-      {history && createPortal(<div className="modal-backdrop"><section ref={dialog} className="modal modal-form-layout dialog-common-theme pet-history" role="dialog" aria-modal="true" aria-label="运维提醒记录">
-        <header className="modal-head"><h2>运维提醒记录</h2><DialogHeaderActions><button type="button" className="close" title="关闭（Esc）" onClick={() => setHistory(false)} aria-label="关闭提醒记录"><X size={16} /></button></DialogHeaderActions></header>
-        <div className="modal-body"><AlertList snapshot={snapshot} onSnooze={key => void work(() => client.snooze(key))} onIgnore={(keys, ignored) => void work(async () => { setSnapshot(await client.ignore(keys, ignored)); })} busy={busy} showIgnored /></div>
-        <footer className="modal-actions"><button type="button" className="secondary" onClick={() => setHistory(false)}>关闭</button></footer>
-      </section></div>, document.body)}
+      {history && <SharedDialog title="运维提醒记录" className="pet-history" closeLabel="关闭提醒记录" onClose={() => setHistory(false)} footer={<button type="button" className="secondary" onClick={() => setHistory(false)}>关闭</button>}><AlertList snapshot={snapshot} onSnooze={key => void work(() => client.snooze(key))} onIgnore={(keys, ignored) => void work(async () => { setSnapshot(await client.ignore(keys, ignored)); })} busy={busy} showIgnored /></SharedDialog>}
     </>}
     </div>}
   </section>;

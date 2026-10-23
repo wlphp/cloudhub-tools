@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Maximize2, Minimize2, X } from "lucide-react";
+import { SharedDialog } from "../../shared/SharedDialog";
 import { resourcesClient } from "../../platform/clients";
 import { platformErrorMessage } from "../../platform/api";
 import type { Account } from "../../shared/types";
@@ -36,7 +36,6 @@ export function RedisCard({
 }) {
   const [accounts, setAccounts] = useState<Record<string, unknown>[]>([]);
   const [accountDialog, setAccountDialog] = useState(false);
-  const [accountDialogMaximized, setAccountDialogMaximized] = useState(false);
   const [accountError, setAccountError] = useState("");
   const canReadDetails = account.cloud_type === "aliyun" || account.cloud_type === "tencent";
   async function loadAccounts() {
@@ -134,26 +133,7 @@ export function RedisCard({
         </button>
       </div>}
       {accountDialog && (
-        <div className="resource-modal-backdrop nested-resource-modal">
-          <section className={`detail-panel resource-modal account-dialog${accountDialogMaximized ? " is-maximized" : ""}`} onClick={(event) => event.stopPropagation()}>
-            <div className="detail-toolbar">
-              <div>
-                <span className="eyebrow">{displayValue(item.InstanceName || item.InstanceId)}</span>
-                <h2>账号列表</h2>
-              </div>
-              <div className="detail-toolbar-actions">
-                <button
-                  className="secondary"
-                  title={accountDialogMaximized ? "还原窗口" : "放大到全屏"}
-                  onClick={() => setAccountDialogMaximized((value) => !value)}
-                >
-                  {accountDialogMaximized ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
-                  {accountDialogMaximized ? "还原" : "放大"}
-                </button>
-                <button className="layui-btn" onClick={() => void loadAccounts()}>刷新</button>
-                <button className="close-detail" onClick={() => { setAccountDialog(false); setAccountDialogMaximized(false); }}><X size={20} /></button>
-              </div>
-            </div>
+        <SharedDialog title="账号列表" eyebrow={displayValue(item.InstanceName || item.InstanceId)} className="resource-modal account-dialog" backdropClassName="resource-modal-backdrop" onClose={() => setAccountDialog(false)} headerActions={<button className="secondary" onClick={() => void loadAccounts()}>刷新</button>}>
             {accountError && <div className="error-list">{accountError}</div>}
             <div className="resource-table-wrap account-table-wrap">
               {accounts.length ? (
@@ -168,8 +148,7 @@ export function RedisCard({
                 </table>
               ) : <div className="detail-empty">{accountError ? "获取账号失败" : "暂无账号信息"}</div>}
             </div>
-          </section>
-        </div>
+        </SharedDialog>
       )}
     </article>
   );

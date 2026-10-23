@@ -15,7 +15,7 @@ test("quick command add buttons open the editor", async ({ page }) => {
 
   await page.getByRole("button", { name: "添加命令", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "添加常用命令" })).toBeVisible();
-  await page.getByRole("button", { name: "关闭", exact: true }).click();
+  await page.getByRole("dialog", { name: "添加常用命令" }).getByRole("button", { name: /^关闭/ }).click();
 
   await page.getByRole("button", { name: "添加第一条命令", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "添加常用命令" })).toBeVisible();

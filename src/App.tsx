@@ -1,9 +1,11 @@
 import { ConfirmDialog } from "./shared/ConfirmDialog";
+import { SharedDialog } from "./shared/SharedDialog";
 import { PetSettingsPanel } from "./features/desktop-pet/PetSettingsPanel";
 import { useExportSelection } from "./shared/ExportSelection";
 import { OfficialPluginsPage } from "./features/plugins/OfficialPluginsPage";
+import { applicationPreference, sortedApplications, type ApplicationDefinition } from "./features/plugins/applicationCatalog";
+import { useApplicationPreferences } from "./features/plugins/useApplicationPreferences";
 import { DataManagementPage } from "./features/accounts/DataManagementPage";
-import { DialogHeaderActions } from "./shared/DialogHeaderActions";
 import { useDialogDragging } from "./shared/useDialogDragging";
 import { GroupNameInput } from "./shared/GroupNameInput";
 import { HostPlatformIcon } from "./features/servers/HostPlatformIcon";
@@ -111,8 +113,6 @@ import {
   Upload,
   UserRound,
   X,
-  Maximize2,
-  Minimize2,
   Minus,
   ShieldCheck,
   CornerDownLeft,
@@ -237,22 +237,14 @@ function readLocalStorage(key: string): string | null {
 }
 
 function App() {
+  const applicationSettings = useApplicationPreferences();
+  const [storeApplicationId, setStoreApplicationId] = useState<string | undefined>();
   const [showTrash, setShowTrash] = useState(false);
-  const [showTrashMaximized, setShowTrashMaximized] = useState(false);
-  const trashDialogRef = useRef<HTMLElement>(null);
   useDialogDragging();
   const trashGroups = useTrashGroups();
   const trashGroups_flat = trashGroups.snapshot?.groups ?? [];
   const trashTotal = trashGroups_flat.reduce((sum, group) => sum + group.items.length, 0);
   const trashActions = useTrashActions(trashGroups.reload, () => setShowTrash(false));
-  // The dialog owns Escape and Tab while it is open; focus moves into it so the
-  // keydown actually reaches the section instead of the page behind.
-  useEffect(() => {
-    if (!showTrash) return;
-    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    trashDialogRef.current?.focus();
-    return () => opener?.focus();
-  }, [showTrash]);
   const exportSelection = useExportSelection();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [selectedAccountIds, setSelectedAccountIds] = useState<Set<number>>(() => new Set());
@@ -304,8 +296,6 @@ function App() {
   const [domainToolPage, setDomainToolPage] = useState(1);
   const [domainToolPageSize] = useState(20);
   const [domainToolTotal, setDomainToolTotal] = useState(0);
-  const [domainToolMaximized, setDomainToolMaximized] = useState(true);
-  const [activeMaximized, setActiveMaximized] = useState(false);
   const [dnsEditor, setDnsEditor] = useState<{
     mode: "add" | "edit" | "quick";
     row?: Record<string, unknown>;
@@ -325,6 +315,10 @@ function App() {
   const [esaCertificateSite, setEsaCertificateSite] = useState<{ account: Account; siteId: number } | null>(null);
   const [esaSiteKeyword, setEsaSiteKeyword] = useState("");
   const [section, setSection] = useState<"accounts" | "resources" | "certificates" | "authenticator" | "flow" | "frp" | "codex" | "claude" | "panels" | "servers" | "favorites" | "logs" | "api_logs" | "settings" | "data_management" | "plugins" | "notes">(() => isDetachedTerminalWindow ? "servers" : "accounts");
+  function openCatalogApplication(app: ApplicationDefinition) {
+    if (app.section) setSection(app.section);
+    else { setStoreApplicationId(app.id); setSection("plugins"); }
+  }
   useEffect(() => { const open = () => setSection("settings"); window.addEventListener("cloudhub-ai-settings", open); return () => window.removeEventListener("cloudhub-ai-settings", open); }, []);
   const [petCertificateTarget,setPetCertificateTarget]=useState<{key:string;request:number}|null>(null);
   const [localAssets, setLocalAssets] = useState<LocalAsset[]>([]);
@@ -534,19 +528,6 @@ function App() {
     event.preventDefault();
     void performWindowAction("toggleMaximize");
   }
-
-  useEffect(() => {
-    if (!confirmRequest && !promptRequest && !managedHostGroupEdit) return;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      if (confirmRequest) resolveConfirm(false);
-      else if (promptRequest) resolvePrompt(null);
-      else setManagedHostGroupEdit(null);
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [confirmRequest, promptRequest, managedHostGroupEdit]);
 
   useEffect(() => {
     if (panelMenuId === null && managedHostMoreId === null && assetMoreKey === null) return;
@@ -2797,7 +2778,7 @@ function App() {
     await openCachedView(account, "oss");
   }
   const activeTitle = active
-    ? `【${active.account.account_name}】${active.view === "summary" ? "账号汇总" : labels[active.view]}`
+    ? (active.view === "summary" ? "账号汇总" : labels[active.view])
     : "";
   const tableColumns = useMemo(
     () => resourceColumns(resources?.items ?? []),
@@ -3473,7 +3454,7 @@ function App() {
                       account: active?.account!,
                       domain: String(item.DomainName || ""),
                     };
-                    setDomainToolMaximized(true); setDomainTool(tool);
+                    setDomainTool(tool);
                     void loadDomainTool(tool);
                   }}
                 >
@@ -3487,7 +3468,7 @@ function App() {
                       account: active?.account!,
                       domain: String(item.DomainName || ""),
                     };
-                    setDomainToolMaximized(true); setDomainTool(tool);
+                    setDomainTool(tool);
                     void loadDomainTool(tool);
                   }}
                 >
@@ -3501,7 +3482,7 @@ function App() {
                       account: active?.account!,
                       domain: String(item.DomainName || ""),
                     };
-                    setDomainToolMaximized(true); setDomainTool(tool);
+                    setDomainTool(tool);
                     void loadDomainTool(tool);
                   }}
                 >
@@ -3583,7 +3564,7 @@ function App() {
       account,
       domain: String(payload.DomainName || payload.Name || asset.asset_key),
     };
-    setDomainToolMaximized(true); setDomainTool(tool);
+    setDomainTool(tool);
     void loadDomainTool(tool);
   };
   const toggleAssetFavorite = (asset: LocalAsset) => {
@@ -3730,19 +3711,12 @@ function App() {
                 <Monitor size={18} /><span className="app-nav-label">面板管理</span></button>
               <button type="button" className={section === "servers" ? "nav-active" : ""} aria-current={section === "servers" ? "page" : undefined} onClick={() => { setSection("servers"); void loadManagedHosts(); }} aria-label="终端管理" title="终端管理">
                 <Terminal size={18} /><span className="app-nav-label">终端管理</span></button>
-              <button type="button" className={section === "flow" ? "nav-active" : ""} aria-current={section === "flow" ? "page" : undefined} onClick={() => setSection("flow")} aria-label="云效流水线" title="云效流水线">
-                <GitBranch size={18} /><span className="app-nav-label">云效流水线</span></button>
-              <button type="button" className={section === "certificates" ? "nav-active" : ""} aria-current={section === "certificates" ? "page" : undefined} onClick={() => setSection("certificates")} aria-label="HTTPS 证书" title="HTTPS 证书">
-                <ShieldCheck size={18} /><span className="app-nav-label">HTTPS 证书</span></button>
-              <button type="button" className={section === "authenticator" ? "nav-active" : ""} aria-current={section === "authenticator" ? "page" : undefined} onClick={() => setSection("authenticator")} aria-label="身份验证器" title="身份验证器">
-                <ShieldCheck size={18} /><span className="app-nav-label">身份验证器</span></button>
-
-              <button type="button" className={section === "claude" ? "nav-active" : ""} aria-current={section === "claude" ? "page" : undefined} onClick={() => setSection("claude")} aria-label="Claude 管理" title="Claude 管理"><FileCode2 size={18} /><span className="app-nav-label">Claude 管理</span></button>
-              <button type="button" className={section === "codex" ? "nav-active" : ""} aria-current={section === "codex" ? "page" : undefined} onClick={() => setSection("codex")} aria-label="Codex 管理" title="Codex 管理"><FileCode2 size={18} /><span className="app-nav-label">Codex 管理</span></button>
-              <button type="button" className={section === "frp" ? "nav-active" : ""} aria-current={section === "frp" ? "page" : undefined} onClick={() => setSection("frp")} aria-label="内网穿透" title="内网穿透">
-                <Network size={18} /><span className="app-nav-label">内网穿透</span></button>
-              <button type="button" className={section === "notes" ? "nav-active" : ""} aria-current={section === "notes" ? "page" : undefined} onClick={() => setSection("notes")} aria-label="备忘录" title="备忘录"><NotebookPen size={18} /><span className="app-nav-label">备忘录</span></button>
-              <button type="button" className={section === "plugins" ? "nav-active" : ""} aria-current={section === "plugins" ? "page" : undefined} onClick={() => setSection("plugins")} aria-label="软件商店" title="软件商店"><Grid2X2 size={18} /><span className="app-nav-label">软件商店</span></button>
+              {sortedApplications(applicationSettings.preferences).filter(app => applicationPreference(app, applicationSettings.preferences).sidebar).map(app => {
+                const Icon = app.icon;
+                const active = app.section ? section === app.section : section === "plugins" && storeApplicationId === app.id;
+                return <button key={app.id} type="button" className={active ? "nav-active" : ""} aria-current={active ? "page" : undefined} aria-label={app.name} title={app.name} data-application-id={app.id} onClick={() => openCatalogApplication(app)}><Icon size={18} aria-hidden="true" /><span className="app-nav-label">{app.name}</span></button>;
+              })}
+              <button type="button" className={section === "plugins" && !storeApplicationId ? "nav-active" : ""} aria-current={section === "plugins" && !storeApplicationId ? "page" : undefined} onClick={() => { setStoreApplicationId(undefined); setSection("plugins"); }} aria-label="软件商店" title="软件商店"><Grid2X2 size={18} /><span className="app-nav-label">软件商店</span></button>
 
 
 
@@ -4109,36 +4083,16 @@ function App() {
           )}
           <div className="pagination"><span>共 {visibleAccounts.length} 条记录</span><button disabled={accountPage <= 1} onClick={() => setAccountPage((value) => Math.max(1, value - 1))}>‹</button><strong>{accountPage}</strong><button disabled={accountPage >= Math.max(1, Math.ceil(visibleAccounts.length / pageSize))} onClick={() => setAccountPage((value) => value + 1)}>›</button></div>
         </section>
-        {domainTool && createPortal(
-          <div
-            className="resource-modal-backdrop domain-tool-backdrop"
-          >
-            <section
-              className={`detail-panel resource-modal domain-tool-modal${domainToolMaximized ? " is-maximized" : ""}`}
-              onClick={(event) => event.stopPropagation()}
-            >
-              <div className="detail-toolbar">
-                <div>
-                  <span className="eyebrow">
-                    {domainTool.account.account_name}
-                  </span>
-                  <h2>
-                    {domainTool.kind === "dns"
-                      ? `【${domainTool.domain}】解析管理`
-                      : domainTool.kind === "logs"
-                        ? `【${domainTool.domain}】操作日志`
-                        : `【${domainTool.domain}】WHOIS`}
-                  </h2>
-                </div>
-                <div className="detail-toolbar-actions">
-                  <button
-                    className="secondary"
-                    title={domainToolMaximized ? "还原窗口" : "放大到全屏"}
-                    onClick={() => setDomainToolMaximized((value) => !value)}
-                  >
-                    {domainToolMaximized ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
-                    {domainToolMaximized ? "还原" : "放大"}
-                  </button>
+        {domainTool && <SharedDialog
+          key={`${domainTool.account.id}:${domainTool.domain}:${domainTool.kind}`}
+          className="resource-modal domain-tool-modal"
+          backdropClassName="resource-modal-backdrop"
+          bodyClassName="domain-tool-body"
+          eyebrow={domainTool.account.account_name}
+          title={domainTool.kind === "dns" ? `【${domainTool.domain}】解析管理` : domainTool.kind === "logs" ? `【${domainTool.domain}】操作日志` : `【${domainTool.domain}】WHOIS`}
+          defaultExpanded
+          onClose={() => setDomainTool(null)}
+          headerActions={
                   <button
                     className="secondary"
                     disabled={domainToolLoading}
@@ -4147,15 +4101,8 @@ function App() {
                     <RefreshCw className={domainToolLoading ? "spin" : undefined} size={15} />
                     {domainToolLoading ? "拉取中…" : "实时拉取"}
                   </button>
-                  <button
-                    className="close-detail"
-                    onClick={() => { setDomainTool(null); setDomainToolMaximized(true); }}
-                  >
-                    <X size={18} />
-                  </button>
-                </div>
-              </div>
-              <div className="domain-tool-body">
+          }
+        >
                 {domainTool.kind !== "whois" && (
                   <div className="domain-tool-filter">
                     {domainTool.kind === "dns" && (
@@ -4460,11 +4407,8 @@ function App() {
                       </span>
                     </div>
                   ))}
-              </div>
-            </section>
-          </div>
-        , document.body)}
-        {dnsEditor && createPortal(
+        </SharedDialog>}
+        {dnsEditor && (
           <DnsEditorDialog
             preset={dnsEditor.preset}
             row={dnsEditor.row}
@@ -4472,31 +4416,17 @@ function App() {
             domain={domainTool?.domain}
             onCancel={() => setDnsEditor(null)}
             onSubmit={submitDnsEditor}
-          />,
-          document.body,
+          />
         )}
-        {active && createPortal(
-          <div
-            className="resource-modal-backdrop"
-          >
-            <section
-              className={`detail-panel resource-modal${activeMaximized ? " is-maximized" : ""}`}
-              onClick={(event) => event.stopPropagation()}
-            >
-              <div className="detail-toolbar">
-                <div>
-                  <span className="eyebrow">{active.account.account_name}</span>
-                  <h2>{activeTitle}</h2>
-                </div>
-                <div className="detail-toolbar-actions">
-                  <button
-                    className="secondary"
-                    title={activeMaximized ? "还原窗口" : "放大到全屏"}
-                    onClick={() => setActiveMaximized((value) => !value)}
-                  >
-                    {activeMaximized ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
-                    {activeMaximized ? "还原" : "放大"}
-                  </button>
+        {active && <SharedDialog
+          key={`${active.account.id}:${active.view}`}
+          className="resource-modal"
+          bodyClassName="resource-dialog-body"
+          backdropClassName="resource-modal-backdrop"
+          eyebrow={active.account.account_name}
+          title={activeTitle}
+          onClose={() => setActive(null)}
+          headerActions={
                   <button
                     className="secondary"
                     onClick={() => active.view === "summary" ? void pullLatestSummary(active.account) : active.view === "esa" ? void pullLatestEsaOverview(active.account) : void pullLatestResources(active.account, active.view)}
@@ -4505,14 +4435,8 @@ function App() {
                     <RefreshCw size={15} />
                     实时拉取
                   </button>
-                  <button
-                    className="close-detail"
-                    onClick={() => { setActive(null); setActiveMaximized(false); }}
-                  >
-                    <X size={18} />
-                  </button>
-                </div>
-              </div>
+          }
+        >
               {loading ? (
                 <div className="loading-overlay">
                   <span className="loading-text">加载中…</span>
@@ -4565,9 +4489,7 @@ function App() {
                   )}
                 </div>
               )}
-            </section>
-          </div>
-        , document.body)}
+        </SharedDialog>}
         </div>
         {section === "favorites" && (
           <section className="favorites-page">
@@ -4716,14 +4638,10 @@ function App() {
           </section>
         )}
         {section === "servers" && sshTarget && !sshSessionId && (
-          <div className="terminal-connect-backdrop">
-            <form className="terminal-connect-card" onSubmit={(event) => { event.preventDefault(); void connectSshClient(); }}>
-              <div className="terminal-connect-card-head"><div><span className="eyebrow">{sshPlatform === "windows" ? "REMOTE DESKTOP" : "SSH CONNECTION"}</span><h2><Terminal size={18} />连接 {displayValue(sshTarget.asset.payload.InstanceName || sshTarget.asset.asset_key)}</h2></div><DialogHeaderActions><button type="button" className="close" title="关闭连接" onClick={() => void closeSshClient()}><X size={19} /></button></DialogHeaderActions></div>
+          <SharedDialog title={`连接 ${displayValue(sshTarget.asset.payload.InstanceName || sshTarget.asset.asset_key)}`} eyebrow={sshPlatform === "windows" ? "REMOTE DESKTOP" : "SSH CONNECTION"} icon={<Terminal size={18} />} className="terminal-connect-card" closeLabel="关闭连接" onClose={() => void closeSshClient()} onSubmit={(event) => { event.preventDefault(); void connectSshClient(); }} footerClassName="terminal-connect-actions" footer={<>{sshPlatform === "linux" ? <button type="button" className="secondary" disabled={sshTesting || sshConnecting} onClick={() => void testSshConnection()}>{sshTesting ? "测试中…" : "测试连接"}</button> : <span />}<button type="button" className="secondary" onClick={() => void closeSshClient()}>取消</button><button type="submit" className="primary" disabled={sshTesting || sshConnecting}>{sshConnecting ? (sshPlatform === "windows" ? "启动中…" : "连接中…") : sshPlatform === "windows" ? "打开远程桌面" : "连接"}</button></>}>
               <div className="terminal-connect-fields"><div className="ssh-choice-row ssh-platform-row"><span>操作系统</span><div className="ssh-segmented"><button type="button" className={sshPlatform === "linux" ? "active" : ""} onClick={() => void setRemotePlatform("linux")}>Linux</button><button type="button" className={sshPlatform === "windows" ? "active" : ""} onClick={() => void setRemotePlatform("windows")}>Windows</button></div></div><label>主机<input value={sshHost} onChange={(event) => setSshHost(event.target.value)} placeholder="公网 IP 或域名" autoFocus /></label><label>{sshPlatform === "windows" ? "RDP 端口" : "SSH 端口"}<input type="number" min={1} max={65535} value={sshPort} onChange={(event) => setSshPort(Number(event.target.value) || (sshPlatform === "windows" ? 3389 : 22))} /></label><label className="terminal-connect-user">{sshPlatform === "windows" ? "RDP 用户名" : "SSH 用户名"}<input value={sshUsername} onChange={(event) => setSshUsername(event.target.value)} placeholder={sshPlatform === "windows" ? "administrator" : "root"} /></label><label className="terminal-connect-password">{sshPlatform === "windows" ? "密码（可选）" : "密码"}<span className="ssh-password-wrap"><input type={showSshPassword ? "text" : "password"} value={sshPassword} onChange={(event) => setSshPassword(event.target.value)} placeholder={sshPlatform === "windows" ? (sshPasswordSaved ? "已保存本地记录" : "由 Windows 远程桌面验证") : (sshPasswordSaved ? "已保存密码，可直接连接" : "请输入 SSH 密码")} autoComplete="current-password" /><button type="button" className="ssh-password-toggle" disabled={sshPasswordRevealing} title={sshPasswordRevealing ? "正在读取密码" : showSshPassword ? "隐藏密码" : sshPasswordSaved ? "读取当前保存密码" : "显示密码"} aria-label={sshPasswordRevealing ? "正在读取密码" : showSshPassword ? "隐藏密码" : sshPasswordSaved ? "读取当前保存密码" : "显示密码"} onClick={() => void toggleSshPasswordVisibility()}>{sshPasswordRevealing ? <RefreshCw size={16} className="spin" /> : showSshPassword ? <EyeOff size={17} /> : <Eye size={17} />}</button></span></label></div>
               {sshError && <div className="error-list ssh-error">{sshError}</div>}
-              <div className="terminal-connect-actions">{sshPlatform === "linux" ? <button type="button" className="secondary" disabled={sshTesting || sshConnecting} onClick={() => void testSshConnection()}>{sshTesting ? "测试中…" : "测试连接"}</button> : <span />}<button type="button" className="secondary" onClick={() => void closeSshClient()}>取消</button><button type="submit" className="layui-btn layui-btn-normal" disabled={sshTesting || sshConnecting}>{sshConnecting ? (sshPlatform === "windows" ? "启动中…" : "连接中…") : sshPlatform === "windows" ? "打开远程桌面" : "连接"}</button></div>
-            </form>
-          </div>
+          </SharedDialog>
         )}
         {section === "resources" && (
           <section className="local-resource-page">
@@ -4812,19 +4730,16 @@ function App() {
           </section>
         )}
         {section === "data_management" && <DataManagementPage onBack={() => setSection("settings")} onPhoneMigration={() => setShowSyncTransfer(true)} canManageBackups={runningInTauri} onRestore={preview => setDatabaseImportPreview(preview)} onStatus={setStatus} />}
-        {section === "plugins" && <OfficialPluginsPage />}
+        {section === "plugins" && <OfficialPluginsPage key={storeApplicationId ?? "catalog"} initialPluginId={storeApplicationId} applicationSettings={applicationSettings} onOpenSection={target => setSection(target)} onReturnCatalog={() => setStoreApplicationId(undefined)} />}
         {section === "notes" && <NotesPanel />}
-        {showTrash && createPortal(<div className="modal-backdrop"><section className={`modal modal-form-layout dialog-common-theme trash-dialog${showTrashMaximized ? " dialog-size-expanded" : ""}`} role="dialog" aria-modal="true" aria-label="回收站" tabIndex={-1} ref={trashDialogRef} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setShowTrash(false); } }}>
-          <header className="modal-head"><Trash2 size={20} aria-hidden="true" /><div><h2>回收站</h2><p>删除的数据永久保留，可恢复或彻底删除</p></div><div className="dialog-header-actions"><button type="button" className="dialog-size-button" aria-label="最大化弹层" title="最大化" onClick={() => setShowTrashMaximized((value) => !value)}>{showTrashMaximized ? <Minimize2 size={16} aria-hidden="true" /> : <Maximize2 size={16} aria-hidden="true" />}</button><button type="button" className="close" aria-label="关闭回收站" onClick={() => setShowTrash(false)}><X size={18} aria-hidden="true" /></button></div></header>
-          <div className="modal-body trash-dialog-body">
+        {showTrash && <SharedDialog title="回收站" subtitle="删除的数据永久保留，可恢复或彻底删除" icon={<Trash2 size={20} aria-hidden="true" />} className="trash-dialog" bodyClassName="trash-dialog-body" onClose={() => setShowTrash(false)}>
             {trashGroups.loading ? <p className="recycle-bin-empty">正在读取回收站…</p> : <RecycleBin kinds={trashGroups_flat.map((group) => ({ id: group.kind, label: group.label, items: group.items.map((item) => ({ id: String(item.id), title: item.title, deletedAt: item.deletedAt })) }))} actions={trashActions.actions} busy={trashActions.busy} onClose={() => setShowTrash(false)}
               scrubDays={trashGroups.snapshot?.scrubDays}
               scrubbedNow={trashGroups.snapshot?.scrubbedNow}
               onScrubDaysChange={(days) => void trashActions.setScrubDays(days)}
               onScrubNow={() => void trashActions.scrubNow()} />}
             {trashActions.error && <p className="notes-error" role="alert">{trashActions.error}</p>}
-          </div>
-        </section></div>, document.body)}
+        </SharedDialog>}
         {section === "settings" && (
           <section className="utility-page">
             <header><div><span className="eyebrow">LOCAL PREFERENCES</span><h1>系统设置</h1><p>管理本地客户端的显示和数据行为。</p></div></header>
@@ -4870,10 +4785,7 @@ function App() {
           </section>
         )}
         {panelDialog && (
-          <div className="modal-backdrop">
-            <form className="modal panel-bind-modal modal-form-layout" onSubmit={savePanelConnection} onClick={(event) => event.stopPropagation()}>
-              <div className="modal-head"><div><span className="eyebrow">BT / AAPANEL API</span><h2>{panelDraft.id ? "编辑面板" : "添加面板"}</h2></div><DialogHeaderActions><button type="button" className="close" aria-label="关闭面板配置" disabled={panelSaving} onClick={() => setPanelDialog(false)}><X size={20} /></button></DialogHeaderActions></div>
-              <div className="modal-body">
+          <SharedDialog title={panelDraft.id ? "编辑面板" : "添加面板"} eyebrow="BT / AAPANEL API" className="panel-bind-modal" onSubmit={savePanelConnection} onClose={() => setPanelDialog(false)} closeLabel="关闭面板配置" closeDisabled={panelSaving} footer={<><button type="button" className="secondary" disabled={panelSaving} onClick={() => setPanelDialog(false)}>取消</button><button type="submit" className="primary" disabled={panelSaving}>{panelSaving ? "验证并保存中…" : panelDraft.id ? "验证并保存" : "绑定面板"}</button></>}>
               <p className="security-tip">通过面板 API 验证并绑定。API 密钥将使用本机密钥加密保存，不会显示在面板列表中。</p>
               <AiAssistButton task="panel" title="AI 识别面板信息" disabled={panelSaving} current={{name:panelDraft.name,panel_url:panelDraft.panel_url,group_name:panelDraft.group_name,remark:panelDraft.remark}} onApply={result=>{const fields=panelAiFields(result.fields);setPanelDraft(current=>({...current,...fields}));}} />
               <label>名称<input required value={panelDraft.name} onChange={(event) => setPanelDraft((current) => ({ ...current, name: event.target.value }))} placeholder="例如：生产网站面板" autoFocus /></label>
@@ -4889,16 +4801,10 @@ function App() {
               </fieldset>
               <label>备注<input value={panelDraft.remark} onChange={(event) => setPanelDraft((current) => ({ ...current, remark: event.target.value }))} placeholder="可选" /></label>
               <ul className="panel-bind-steps"><li>填写面板 URL，例如 <code>https://192.168.1.2:8888</code>；地址后面带面板入口路径时，点输入框右侧的「提取」只保留协议、主机和端口。</li><li>在宝塔或 aaPanel 的“面板设置 / API 接口”中启用 API。</li><li>把当前电脑的公网 IP 加到 API 白名单；没有固定 IP 时可按面板规则配置。</li><li>复制接口密钥到上方，保存时会即时验证连接。</li></ul>
-              </div>
-              <div className="modal-actions"><button type="button" className="secondary" disabled={panelSaving} onClick={() => setPanelDialog(false)}>取消</button><button type="submit" className="layui-btn layui-btn-normal" disabled={panelSaving}>{panelSaving ? "验证并保存中…" : panelDraft.id ? "验证并保存" : "绑定面板"}</button></div>
-            </form>
-          </div>
+          </SharedDialog>
         )}
         {managedHostDialog && (
-          <div className="modal-backdrop">
-            <form className="modal managed-host-modal modal-form-layout" onSubmit={saveManagedHost} onClick={(event) => event.stopPropagation()}>
-              <div className="modal-head"><div><span className="eyebrow">MANAGED SERVER</span><h2>{managedHostDraft.id ? "编辑服务器" : "添加服务器"}</h2></div><DialogHeaderActions><button type="button" className="close" aria-label="关闭服务器配置" disabled={managedHostSaving} onClick={() => setManagedHostDialog(false)}><X size={20} /></button></DialogHeaderActions></div>
-              <div className="modal-body">
+          <SharedDialog title={managedHostDraft.id ? "编辑服务器" : "添加服务器"} eyebrow="MANAGED SERVER" className="managed-host-modal" onSubmit={saveManagedHost} onClose={() => setManagedHostDialog(false)} closeLabel="关闭服务器配置" closeDisabled={managedHostSaving} footer={<><button type="button" className="secondary" disabled={managedHostSaving} onClick={() => setManagedHostDialog(false)}>取消</button><button type="submit" className="primary" disabled={managedHostSaving}>{managedHostSaving ? "保存中…" : managedHostDraft.id ? "保存修改" : "加入服务器管理"}</button></>}>
               <AiAssistButton task="server" title="AI 识别填写" disabled={managedHostSaving} current={{name:managedHostDraft.name,host:managedHostDraft.host,port:managedHostDraft.port,platform:managedHostDraft.platform,username:managedHostDraft.username,group_name:managedHostDraft.group_name,tags:managedHostDraft.tags,remark:managedHostDraft.remark}} onApplyItems={!managedHostDraft.id ? items => setServerAiCandidates(items) : undefined} onApply={({fields}) => {
                 if(fields.port!=null && (!Number.isInteger(Number(fields.port)) || Number(fields.port)<1 || Number(fields.port)>65535)) throw new Error("端口须为1～65535的整数");
                 if(fields.platform!=null && fields.platform!=="linux" && fields.platform!=="windows") throw new Error("操作系统须为linux或windows");
@@ -4912,77 +4818,41 @@ function App() {
               {managedHostDraft.platform === "windows" || managedHostDraft.auth_method === "password" ? <label>{managedHostDraft.platform === "windows" ? "RDP 密码（可选）" : "SSH 密码"}<span className="secret-input-wrap"><input required={managedHostDraft.platform === "linux" && !managedHostDraft.id} type={showManagedHostPassword ? "text" : "password"} value={managedHostDraft.password} onChange={(event) => setManagedHostDraft((current) => ({ ...current, password: event.target.value }))} placeholder={managedHostDraft.platform === "windows" ? "留空时由 Windows 远程桌面验证" : managedHostDraft.id ? "留空则保留已保存密码" : "首次添加必填"} autoComplete="new-password" /><button type="button" className="secret-eye" disabled={managedHostPasswordRevealing} title={managedHostPasswordRevealing ? "正在读取密码" : showManagedHostPassword ? "隐藏密码" : "显示密码"} aria-label={managedHostPasswordRevealing ? "正在读取密码" : showManagedHostPassword ? "隐藏密码" : "显示密码"} onClick={() => void toggleManagedHostPasswordVisibility()}>{managedHostPasswordRevealing ? <RefreshCw size={16} className="spin" /> : showManagedHostPassword ? <EyeOff size={17} /> : <Eye size={17} />}</button></span></label> : <><label>SSH 私钥<SecretField key={managedHostDraft.id ?? "new"} multiline secretLabel="SSH 私钥" reveal={managedHostDraft.id ? () => remoteClient.revealManagedHostCredential(managedHostDraft.id!, "private_key") : undefined} required={!managedHostDraft.id} rows={5} value={managedHostDraft.private_key} onChange={(event) => setManagedHostDraft((current) => ({ ...current, private_key: event.target.value }))} placeholder={managedHostDraft.id ? "留空则保留已保存私钥" : "粘贴 OpenSSH、PKCS#8 或 PEM 格式私钥"} spellCheck={false} /></label><label>私钥口令（可选）<SecretField key={managedHostDraft.id ?? "new"} secretLabel="私钥口令" reveal={managedHostDraft.id ? () => remoteClient.revealManagedHostCredential(managedHostDraft.id!, "key_passphrase") : undefined} value={managedHostDraft.key_passphrase} onChange={(event) => setManagedHostDraft((current) => ({ ...current, key_passphrase: event.target.value }))} placeholder="未加密私钥可留空" autoComplete="off" /></label></>}
               <div className="form-grid"><label>分组<GroupNameInput groups={managedHostGroups} list="managed-host-group-options" aria-label="分组，可选择或输入新分组" autoComplete="off" value={managedHostDraft.group_name} onChange={(event) => setManagedHostDraft((current) => ({ ...current, group_name: event.target.value }))} placeholder="选择已有分组或输入新分组" /></label><label>标签<input value={managedHostDraft.tags} onChange={(event) => setManagedHostDraft((current) => ({ ...current, tags: event.target.value }))} placeholder="web, nginx, cn" /></label></div>
               <label>备注<textarea rows={2} value={managedHostDraft.remark} onChange={(event) => setManagedHostDraft((current) => ({ ...current, remark: event.target.value }))} placeholder="可选" /></label>
-              </div>
-              <div className="modal-actions"><button type="button" className="secondary" disabled={managedHostSaving} onClick={() => setManagedHostDialog(false)}>取消</button><button type="submit" className="layui-btn layui-btn-normal" disabled={managedHostSaving}>{managedHostSaving ? "保存中…" : managedHostDraft.id ? "保存修改" : "加入服务器管理"}</button></div>
-            </form>
-          </div>
+          </SharedDialog>
         )}
         {serverAiCandidates && <ServerAiCandidateReview items={serverAiCandidates} existing={managedHosts} onClose={() => setServerAiCandidates(null)} onFill={fields => {
           setManagedHostDraft(current => ({ ...current, ...Object.fromEntries(Object.entries(fields).filter(([key, value]) => ["name", "host", "username", "group_name", "tags", "remark"].includes(key) && value != null).map(([key, value]) => [key, String(value)])), ...(fields.port != null ? { port: Number(fields.port) } : {}), ...(fields.platform === "linux" || fields.platform === "windows" ? { platform: fields.platform } : {}) }));
         }} />}
         {apiLogDetail && (
-          <div className="modal-backdrop">
-            <section className="modal api-log-detail-modal modal-form-layout" onClick={(event) => event.stopPropagation()}>
-              <div className="modal-head"><div><span className="eyebrow">API DETAIL</span><h2>API 调用详情</h2></div><DialogHeaderActions><button className="close" onClick={() => setApiLogDetail(null)}><X size={20} /></button></DialogHeaderActions></div>
-              <div className="modal-body">
+          <SharedDialog title="API 调用详情" eyebrow="API DETAIL" className="api-log-detail-modal" onClose={() => setApiLogDetail(null)}>
               <AiLogAnalysis scope=".api-log-detail-modal .api-log-section pre,.api-log-detail-modal .api-log-message" title="AI 分析选中API日志" />
               <div className="api-log-meta"><span>账号：{apiLogDetail.account_name || "未知账号"}</span><span>接口：{apiLogDetail.endpoint}</span><span>操作：{apiLogDetail.action}</span><span>时间：{new Date(apiLogDetail.created_at).toLocaleString()}</span><span className={apiLogDetail.status === "成功" ? "log-success" : "log-failure"}>状态：{apiLogDetail.status}</span></div>
               <div className="api-log-section"><h3>上送参数</h3><pre>{formatJson(apiLogDetail.request_params)}</pre></div>
               <div className="api-log-section"><h3>返回参数</h3><pre>{formatJson(apiLogDetail.response_params)}</pre></div>
               {apiLogDetail.message && <div className="api-log-message">错误信息：{apiLogDetail.message}</div>}
-                          </div>
-</section>
-          </div>
+          </SharedDialog>
         )}
         {assetDetail && (
-          <div className="modal-backdrop">
-            <section className="modal asset-detail-modal modal-form-layout" onClick={(event) => event.stopPropagation()}>
-              <div className="modal-head"><div><span className="eyebrow">SERVER DETAIL</span><h2>{displayValue(assetDetail.asset.payload.InstanceName || assetDetail.asset.asset_key)}</h2></div><DialogHeaderActions><button className="close" title="关闭详情" onClick={() => setAssetDetail(null)}><X size={20} /></button></DialogHeaderActions></div>
-              <div className="modal-body">
+          <SharedDialog title={displayValue(assetDetail.asset.payload.InstanceName || assetDetail.asset.asset_key)} eyebrow="SERVER DETAIL" className="asset-detail-modal" closeLabel="关闭详情" onClose={() => setAssetDetail(null)} footer={<button className="secondary" onClick={() => setAssetDetail(null)}>关闭</button>}>
               <div className="asset-detail-meta"><span className={`avatar cloud-avatar ${assetDetail.account.cloud_type}`}>{cloudProvider(assetDetail.account.cloud_type).avatar}</span><span>{assetDetail.account.account_name}</span><span>{assetTypes.find(([value]) => value === assetDetail.asset.resource_type)?.[1] || assetDetail.asset.resource_type}</span><span>{assetDetail.asset.region_id || String(assetDetail.asset.payload.RegionId || assetDetail.asset.payload.Location || "未标注地域")}</span></div>
               <div className="asset-detail-list">{Object.entries(assetDetail.asset.payload).filter(([key]) => !key.startsWith("_")).map(([key, value]) => <div key={key}><span>{columnLabel(key)}</span><strong title={displayValue(value)}>{displayValue(value)}</strong></div>)}</div>
-              </div>
-              <div className="modal-actions"><button className="secondary" onClick={() => setAssetDetail(null)}>关闭</button></div>
-            </section>
-          </div>
+          </SharedDialog>
         )}
         {syncAccount && (
-          <div className="modal-backdrop">
-            <section className="modal asset-sync-modal modal-form-layout">
-              <div className="modal-head"><div><span className="eyebrow">LOCAL SYNC</span><h2>获取账号资产</h2></div><DialogHeaderActions><button className="close" onClick={() => setSyncAccount(null)}><X size={20} /></button></DialogHeaderActions></div>
-              <div className="modal-body">
+          <SharedDialog title="获取账号资产" eyebrow="LOCAL SYNC" className="asset-sync-modal" onClose={() => setSyncAccount(null)} footer={<><button className="secondary" onClick={() => { setSyncAccount(null); setSyncResult(null); }}>{syncResult ? "关闭" : "取消"}</button>{syncing && runningInTauri && <button className="secondary" onClick={() => void cancelSync(syncAccount)}>取消同步</button>}<button className="primary" disabled={syncing || syncTypes.length === 0} onClick={() => void syncAssets(syncAccount)}>{syncing ? "获取中…" : supportsResourceSync(syncAccount) ? (syncResult ? "重新获取" : "开始获取并保存") : "查看接入状态"}</button></>}>
               <p className="security-tip">选择要从{cloudProvider(syncAccount.cloud_type).label}获取并保存到本地 SQLite 的资产类型。当前支持{providerSyncDescription(syncAccount.cloud_type)}。</p>
               <div className="asset-check-grid">{syncAssetTypes(syncAccount).map(([value, label]) => <label key={value} className="asset-check"><input type="checkbox" checked={syncTypes.includes(value)} onChange={(event) => setSyncTypes((current) => event.target.checked ? [...new Set([...current, value])] : current.filter((item) => item !== value))} /><span>{syncAccount.cloud_type === "tencent" && value === "ecs" ? "CVM服务器" : label}</span></label>)}</div>
               <div className="asset-sync-account">账号：{syncAccount.account_name}</div>
               {syncing && syncProgress && <div className="asset-sync-account" role="status" aria-live="polite">进度：{syncProgress.completed} / {syncProgress.total}{syncProgress.resourceType ? ` · ${syncProgress.resourceType}` : ""}{typeof syncProgress.elapsedMs === "number" ? ` · ${Math.round(syncProgress.elapsedMs / 1000)}s` : ""}{syncProgress.status === "failed" ? " · 当前类型失败，继续处理" : ""}</div>}
               {syncResult && <div className={`asset-sync-result ${syncResultLevel}`} role="status" aria-atomic="true"><strong>{syncResultLevel === "has-errors" ? "获取失败" : syncResultLevel === "warning" ? "获取完成（含提示）" : "获取成功并已保存到本地"}</strong><span>共保存 {syncResult.fetched} 项资产</span><div className="asset-result-counts">{syncTypes.map((type) => <span key={type}>{assetTypes.find(([value]) => value === type)?.[1] || type}：{syncResult.counts[type] ?? 0} 个</span>)}</div>{showOracleDatabasePermissionHint && <div className="asset-sync-guidance"><AlertTriangle size={16} /><div><strong>云数据库未获取</strong><span>当前 OCI 密钥缺少数据库读取权限。请在 OCI IAM 为用户或所属组授予目标资源组的 <code>read database-family</code>，或配置更精细的 DB System 只读策略后重新获取。</span></div></div>}{syncResult.errors.length > 0 && <div className="asset-sync-errors">{syncResult.errors.map((error, index) => <div key={`${error}-${index}`}>{error}</div>)}</div>}</div>}
-              </div>
-              <div className="modal-actions"><button className="secondary" onClick={() => { setSyncAccount(null); setSyncResult(null); }}>{syncResult ? "关闭" : "取消"}</button>{syncing && runningInTauri && <button className="secondary" onClick={() => void cancelSync(syncAccount)}>取消同步</button>}<button className="primary" disabled={syncing || syncTypes.length === 0} onClick={() => void syncAssets(syncAccount)}>{syncing ? "获取中…" : supportsResourceSync(syncAccount) ? (syncResult ? "重新获取" : "开始获取并保存") : "查看接入状态"}</button></div>
-            </section>
-          </div>
+          </SharedDialog>
         )}
         <footer>
           <span />
         </footer>
       </main>
       {dialog && (
-        <div className="modal-backdrop">
-          <form className="modal modal-form-layout" onSubmit={save}>
-            <div className="modal-head">
-              <div>
-                <span className="eyebrow">ACCOUNT</span>
-                <h2>{draft.id ? "编辑云账号" : "添加云账号"}</h2>
-              </div>
-              <DialogHeaderActions><button
-                type="button"
-                className="close"
-                aria-label="关闭云账号配置"
-                onClick={() => setDialog(false)}
-              >
-                <X size={20} />
-              </button></DialogHeaderActions>
-            </div>
-            <div className="modal-body">
+        <SharedDialog title={draft.id ? "编辑云账号" : "添加云账号"} eyebrow="ACCOUNT" onSubmit={save} closeLabel="关闭云账号配置" onClose={() => setDialog(false)} footer={<><button type="button" className="secondary" onClick={() => setDialog(false)}>取消</button><button className="primary" type="submit">保存账号</button>{draft.id && ["vultr", "ctyun", "huawei", "baidu", "jdcloud", "ucloud", "qingcloud", "ksyun", "qiniu", "aws", "azure", "gcp"].includes(draft.cloud_type) && <button className="secondary" type="button" disabled={verifyingAccount} onClick={() => void verifyCloudAccount()}>{verifyingAccount ? "验证中…" : "验证账号"}</button>}</>}>
             <p className="security-tip account-key-tip">
               <span>{cloudProvider(draft.cloud_type).secretLabel} 会加密保存在本机。当前支持{providerSyncDescription(draft.cloud_type)}。</span>
               {draft.cloud_type === "aliyun" && <a href="https://ram.console.aliyun.com/profile/access-keys?userCode=jdeqlgm5" target="_blank" rel="noreferrer">获取阿里云 AccessKey ↗</a>}
@@ -5085,24 +4955,7 @@ function App() {
               />
               <span>启用此账号</span>
             </label>
-            </div>
-            <div className="modal-actions">
-              <button
-                type="button"
-                className="secondary"
-                onClick={() => setDialog(false)}
-              >
-                取消
-              </button>
-              <button className="primary" type="submit">
-                保存账号
-              </button>
-              {draft.id && ["vultr", "ctyun", "huawei", "baidu", "jdcloud", "ucloud", "qingcloud", "ksyun", "qiniu", "aws", "azure", "gcp"].includes(draft.cloud_type) && <button className="secondary" type="button" disabled={verifyingAccount} onClick={() => void verifyCloudAccount()}>
-                {verifyingAccount ? "验证中…" : "验证账号"}
-              </button>}
-            </div>
-          </form>
-        </div>
+        </SharedDialog>
       )}
       {managedHostGroupMenu && createPortal(<div className="terminal-group-context-menu" role="menu" aria-label={`${managedHostGroupMenu.group} 分组操作`} style={{ left: managedHostGroupMenu.x, top: managedHostGroupMenu.y }}>
         <button type="button" role="menuitem" autoFocus onClick={() => openManagedHostGroupEdit(managedHostGroupMenu.group)}>编辑</button>
@@ -5127,58 +4980,22 @@ function App() {
           <button type="button" onClick={() => duplicateTerminalTab(tab)}>复制会话</button>
         </div>;
       })(), document.body)}
-      {managedHostGroupEdit && createPortal(
-        <div className="app-confirm-backdrop">
-          <form className="app-confirm-dialog app-prompt-dialog managed-group-edit-dialog" role="dialog" aria-modal="true" aria-labelledby="managed-group-edit-title" onSubmit={(event) => void saveManagedHostGroupEdit(event)} onClick={(event) => event.stopPropagation()}>
-            <div className="app-confirm-icon"><Settings size={20} /></div>
-            <div className="app-confirm-copy">
-              <span className="eyebrow">EDIT SERVER GROUP</span>
-              <h2 id="managed-group-edit-title">编辑分组</h2>
+      {managedHostGroupEdit && <SharedDialog title="编辑分组" eyebrow="EDIT SERVER GROUP" icon={<Settings size={20} />} size="small" className="managed-group-edit-dialog" onSubmit={(event) => void saveManagedHostGroupEdit(event)} onClose={() => setManagedHostGroupEdit(null)} footer={<><button type="button" className="secondary" onClick={() => setManagedHostGroupEdit(null)}>取消</button><button type="submit" className="primary">保存</button></>}>
               <div className="managed-group-edit-fields">
                 <label>分组名称<input aria-label="分组名称" value={managedHostGroupEdit.name} autoFocus maxLength={80} required onChange={(event) => setManagedHostGroupEdit((current) => current ? { ...current, name: event.target.value } : current)} /></label>
                 <label>排序号<input aria-label="排序号" type="number" min={1} max={Math.max(1, managedHostGroups.length)} step={1} value={managedHostGroupEdit.order} required aria-describedby="managed-group-order-help" onChange={(event) => setManagedHostGroupEdit((current) => current ? { ...current, order: event.target.value } : current)} /></label>
                 <p id="managed-group-order-help">数字越小越靠前，1 为最前；拖动分组仍可调整顺序。</p>
               </div>
-            </div>
-            <div className="app-confirm-actions"><button type="button" className="secondary" onClick={() => setManagedHostGroupEdit(null)}>取消</button><button type="submit" className="primary app-confirm-primary">保存</button></div>
-          </form>
-        </div>,
-        document.body,
-      )}
-      {confirmRequest && createPortal(<ConfirmDialog message={confirmRequest.message} title={confirmRequest.title} confirmLabel={confirmRequest.confirmLabel} onResolve={resolveConfirm} />, document.body)}
-      {showSyncTransfer && createPortal(
-        <div className="modal-backdrop sync-transfer-overlay">
-          <SyncTransferPanel mode="desktop" accounts={accounts} managedHosts={managedHosts} panels={panelConnections} onClose={() => setShowSyncTransfer(false)} onImported={() => { void load(); void loadLocalAssets(); void loadManagedHosts(); void loadPanelConnections(); }} />
-        </div>,
-        document.body,
-      )}
-      {databaseImportPreview && createPortal(
-        <div className="app-confirm-backdrop">
-          <section className="app-confirm-dialog database-import-dialog" role="alertdialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
-            <div className="app-confirm-icon"><AlertTriangle size={20} /></div>
-            <div className="app-confirm-copy">
-              <span className="eyebrow">DATABASE IMPORT REVIEW</span>
-              <h2>确认导入本机数据库</h2>
+      </SharedDialog>}
+      {confirmRequest && <ConfirmDialog message={confirmRequest.message} title={confirmRequest.title} confirmLabel={confirmRequest.confirmLabel} onResolve={resolveConfirm} />}
+      {showSyncTransfer && <SyncTransferPanel mode="desktop" accounts={accounts} managedHosts={managedHosts} panels={panelConnections} onClose={() => setShowSyncTransfer(false)} onImported={() => { void load(); void loadLocalAssets(); void loadManagedHosts(); void loadPanelConnections(); }} />}
+      {databaseImportPreview && <SharedDialog title="确认导入本机数据库" eyebrow="DATABASE IMPORT REVIEW" icon={<AlertTriangle size={20} />} role="alertdialog" className="database-import-dialog" onClose={() => void cancelDatabaseImport()} initialFocus="button[data-cancel]" footer={<><button type="button" className="secondary" data-cancel onClick={() => void cancelDatabaseImport()}>取消导入</button><button type="button" className="primary" onClick={() => void confirmDatabaseImport()}>确定导入</button></>}>
               <p>文件：{databaseImportPreview.packageName}<br />导出时间：{databaseImportPreview.exportedAt}<br />共发现 <strong>{databaseImportPreview.totalRecords}</strong> 条记录。确认后将替换当前数据库，原数据会自动备份。</p>
               <div className="database-import-summary">{databaseImportPreview.categories.map((item) => <span key={item.label}><b>{item.count}</b>{item.label}</span>)}</div>
               <div className="database-import-details"><strong>记录明细（已脱敏）</strong>{databaseImportPreview.details.map((item, index) => <div key={`${item}-${index}`}>{item}</div>)}</div>
               {databaseImportPreview.conflicts.length > 0 && <div className="database-import-conflicts"><strong>重复/冲突预警（{databaseImportPreview.conflicts.length}）</strong>{databaseImportPreview.conflicts.map((item, index) => <div key={`${item}-${index}`}>{item}</div>)}</div>}
-            </div>
-            <div className="app-confirm-actions"><button type="button" className="secondary" autoFocus onClick={() => void cancelDatabaseImport()}>取消导入</button><button type="button" className="primary app-confirm-primary" onClick={() => void confirmDatabaseImport()}>确定导入</button></div>
-          </section>
-        </div>,
-        document.body,
-      )}
-      {promptRequest && createPortal(
-        <div className="app-confirm-backdrop">
-          <form className="app-confirm-dialog app-prompt-dialog" role="dialog" aria-modal="true" aria-labelledby="prompt-title" aria-describedby="prompt-message" onSubmit={(event) => { event.preventDefault(); resolvePrompt(promptValue); }} onClick={(event) => event.stopPropagation()}>
-            <div className="app-confirm-icon"><AlertTriangle size={20} /></div>
-            <div className="app-confirm-copy"><span className="eyebrow">INPUT REQUIRED</span><h2 id="prompt-title">请输入内容</h2><p id="prompt-message">{promptRequest.message}</p><input aria-label="需要输入的内容" value={promptValue} autoFocus onChange={(event) => setPromptValue(event.target.value)} /></div>
-            <div className="app-confirm-actions"><button type="button" className="secondary" onClick={() => resolvePrompt(null)}>取消</button><button type="submit" className="primary app-confirm-primary">确定</button></div>
-          </form>
-        </div>,
-        document.body,
-      )}
+      </SharedDialog>}
+      {promptRequest && <SharedDialog title="请输入内容" eyebrow="INPUT REQUIRED" icon={<AlertTriangle size={20} />} size="small" describedBy="prompt-message" onSubmit={(event) => { event.preventDefault(); resolvePrompt(promptValue); }} onClose={() => resolvePrompt(null)} footer={<><button type="button" className="secondary" onClick={() => resolvePrompt(null)}>取消</button><button type="submit" className="primary">确定</button></>}><p id="prompt-message">{promptRequest.message}</p><input aria-label="需要输入的内容" value={promptValue} autoFocus onChange={(event) => setPromptValue(event.target.value)} /></SharedDialog>}
     </div>
   );
 }

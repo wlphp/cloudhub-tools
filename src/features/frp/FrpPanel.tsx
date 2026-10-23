@@ -1,5 +1,4 @@
-import { DialogHeaderActions } from "../../shared/DialogHeaderActions";
-import { createPortal } from "react-dom";
+import { SharedDialog } from "../../shared/SharedDialog";
 import { GatewayTunnel } from "../codex/GatewayTunnel";
 import { AiLogAnalysis } from "../ai/AiLogAnalysis";
 import { AiAssistButton } from "../ai/AiAssistButton";
@@ -468,17 +467,7 @@ export function FrpPanel() {
         </main>
       </div>
     </>}
-    {proxyDraft && createPortal(<div className="frp-modal-backdrop"><form className="modal frp-modal modal-form-layout dialog-common-theme frp-rule-editor" role="dialog" aria-modal="true" aria-labelledby="frp-rule-editor-title" onSubmit={saveProxy} onKeyDown={(event) => {
-      if (event.key === "Escape" && !busy) { event.stopPropagation(); setProxyDraft(null); }
-      if (event.key === "Tab") {
-        const controls = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled)'));
-        const first = controls[0], last = controls[controls.length - 1];
-        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
-        if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
-      }
-    }}>
-      <header className="frp-editor-header"><span className="frp-editor-icon"><Cable size={20} /></span><div><h2 id="frp-rule-editor-title">{editingProxyId ? "编辑穿透规则" : "新增穿透规则"}</h2><p>将本地服务映射到公网入口</p></div><DialogHeaderActions><button type="button" className="secondary" disabled={!!busy} aria-label="关闭规则编辑器" title="关闭" onClick={() => setProxyDraft(null)}><X size={17} /></button></DialogHeaderActions></header>
-      <div className="frp-editor-body">
+    {proxyDraft && <SharedDialog title={editingProxyId ? "编辑穿透规则" : "新增穿透规则"} subtitle="将本地服务映射到公网入口" icon={<Cable size={20} />} className="frp-modal frp-rule-editor" bodyClassName="frp-editor-body" closeLabel="关闭规则编辑器" onClose={() => setProxyDraft(null)} closeDisabled={!!busy} onSubmit={saveProxy} footer={<><button type="button" className="secondary" disabled={!!busy} onClick={() => setProxyDraft(null)}>取消</button><button type="submit" className="primary" disabled={!!busy}><Save size={14} />{busy === "保存穿透规则" ? "保存中…" : "保存规则"}</button></>}>
         <AiAssistButton task="frp" title="AI 生成规则草稿" disabled={!!busy} current={{name:proxyDraft.name,kind:proxyDraft.kind,local_ip:proxyDraft.localIp,local_port:proxyDraft.localPort||null,remote_port:proxyDraft.remotePort??null,custom_domain:proxyDraft.customDomain||""}} onApply={result=>{const next=frpAiRule(proxyDraft,result.fields);setProxyDraft(next);}} />
         <div className="frp-form-grid frp-editor-basics"><label>规则名称<input autoFocus required value={proxyDraft.name} onChange={(event) => setProxyDraft({ ...proxyDraft, name: event.target.value })} placeholder="例如：本地开发站点" /></label><label>协议类型<select value={proxyDraft.kind} onChange={(event) => setProxyDraft({ ...proxyDraft, kind: event.target.value as FrpProxy["kind"], remotePort: null, customDomain: null, customDomains: [], plugin: null })}><option value="tcp">TCP</option><option value="udp">UDP</option><option value="http">HTTP</option><option value="https">HTTPS</option></select></label></div>
         <section className="frp-editor-section"><h3><Monitor size={14} />本地目标</h3><div className="frp-form-grid frp-editor-address"><label>本地 IP / 域名<input required value={proxyDraft.localIp} onChange={(event) => setProxyDraft({ ...proxyDraft, localIp: event.target.value })} /></label><label>本地端口<input required type="number" min="1" max="65535" value={proxyDraft.localPort || ""} onChange={(event) => setProxyDraft({ ...proxyDraft, localPort: Number(event.target.value) })} /></label></div></section>
@@ -494,8 +483,6 @@ export function FrpPanel() {
           </div><p className="frp-logs-hint">填写运行 frpc 的当前电脑上可访问的绝对路径，仅保存文件路径。证书需覆盖上方全部域名；服务端需启用 HTTPS 入口。NAS 或其他主机的路径需先映射到本机。</p></>}
         </section>}
         <label className="frp-checkbox frp-editor-enabled"><input type="checkbox" checked={proxyDraft.enabled} onChange={(event) => setProxyDraft({ ...proxyDraft, enabled: event.target.checked })} /><span>启用规则<small>保存后，应用服务端配置即可生效</small></span></label>
-      </div>
-      <footer><button type="button" className="secondary" disabled={!!busy} onClick={() => setProxyDraft(null)}>取消</button><button type="submit" className="primary" disabled={!!busy}><Save size={14} />{busy === "保存穿透规则" ? "保存中…" : "保存规则"}</button></footer>
-    </form></div>, document.body)}
+    </SharedDialog>}
   </section>;
 }

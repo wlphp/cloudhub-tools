@@ -23,7 +23,7 @@ test("desktop migration selects AI configurations with native-only keys", async 
   await page.getByRole("button", { name: "全选", exact: true }).click();
   await page.getByRole("checkbox", { name: "迁移AI配置 two", exact: true }).uncheck();
   await page.getByRole("button", { name: "显示手机迁移二维码（免口令）" }).click();
-  await expect(page.getByText(/电脑正在等待手机扫码/)).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "手机迁移二维码", exact: true })).toBeVisible();
   const args = await page.evaluate(() => (window as any).aiMigrationCalls.find((call: any) => call.command === "start_sync_transfer").args);
   expect(args.aiProfileIds).toEqual(["one"]);
   expect(args.accountIds).toEqual([]);

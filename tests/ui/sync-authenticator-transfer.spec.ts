@@ -20,7 +20,7 @@ test("desktop QR migration can contain selected authenticator entries only", asy
   await page.getByRole("tab", { name: /验证器/ }).click();
   await page.getByRole("checkbox", { name: "迁移验证码 Example two@example.test" }).uncheck();
   await page.getByRole("button", { name: "显示手机迁移二维码（免口令）" }).click();
-  await expect(page.getByText(/电脑正在等待手机扫码/)).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "手机迁移二维码", exact: true })).toBeVisible();
   const args = await page.evaluate(() => (window as any).authMigrationCalls.find((call: any) => call.command === "start_sync_transfer").args);
   expect(args.authenticatorIds).toEqual(["one"]);
   expect(args.accountIds).toEqual([]);

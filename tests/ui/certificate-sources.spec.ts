@@ -212,10 +212,10 @@ test("baota certificates use site names for renewal and keep domains and panel c
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.locator(".certificate-page").screenshot({ path: "test-results/certificate-compact-header.png" });
   await page.getByRole("button", { name: "续签站点 site.test", exact: true }).click();
-  const confirm = page.locator(".app-confirm-dialog");
+  const confirm = page.getByRole("alertdialog");
   await expect(confirm).toContainText("测试宝塔");
   await expect(confirm).toContainText("site.test");
-  await confirm.locator(".app-confirm-actions .primary").click();
+  await confirm.locator(".modal-actions .primary").click();
   await expect(page.locator(".baota-certificate-manager").getByRole("status")).toContainText("已续签并验证站点部署");
   const calls = await page.evaluate(() => (window as any).__certificateCalls);
   expect(calls.find((call: any) => call.command === "renew_baota_site_certificate").args).toEqual({ id: 12 });
@@ -228,11 +228,11 @@ test("unconfirmed renewal cannot repeat until the user checks the panel and resy
   await page.getByLabel("选择宝塔面板").selectOption("4");
   await page.evaluate(() => (window as any).__failRenew());
   await page.getByRole("button", { name: "续签站点 site.test", exact: true }).click();
-  await page.locator(".app-confirm-dialog .app-confirm-actions .primary").click();
+  await page.getByRole("alertdialog").locator(".modal-actions .primary").click();
   await expect(page.getByRole("alert")).toContainText("结果待确认");
   await expect(page.getByRole("button", { name: "续签站点 site.test", exact: true })).toBeDisabled();
   await page.getByRole("button", { name: "核对后允许重试", exact: true }).click();
-  await page.locator(".app-confirm-dialog .app-confirm-actions .primary").click();
+  await page.getByRole("alertdialog").locator(".modal-actions .primary").click();
   await expect(page.locator(".baota-certificate-manager").getByRole("status")).toContainText("重新获取站点证书");
   await expect(page.getByRole("button", { name: "续签站点 site.test", exact: true })).toBeDisabled();
   await page.getByRole("button", { name: "获取站点证书", exact: true }).click();
@@ -254,12 +254,12 @@ test("domain dialog supports fullscreen, filtered exports and cancelled saves", 
   await fixture(page, true);
   await page.locator(".certificate-panel tbody tr").first().getByRole("button", { name: "查看 site.test 的全部域名（22 个）", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "site.test · 全部域名", exact: true });
-  await dialog.getByRole("button", { name: "全屏查看域名" }).click();
+  await dialog.getByRole("button", { name: "最大化弹层" }).click();
   for (const width of [375, 768, 1024, 1440]) {
     await page.setViewportSize({ width, height: 900 });
     expect(await dialog.evaluate(element => {
       const rect = element.getBoundingClientRect();
-      return rect.width === window.innerWidth && rect.height === window.innerHeight && element.scrollWidth <= element.clientWidth;
+      return Math.abs(rect.width - window.innerWidth * .95) < 1 && Math.abs(rect.height - window.innerHeight * .95) < 1 && element.scrollWidth <= element.clientWidth;
     })).toBe(true);
   }
   await expect(dialog.getByRole("button", { name: "导出", exact: true })).toBeDisabled();
@@ -282,8 +282,8 @@ test("domain dialog supports fullscreen, filtered exports and cancelled saves", 
   await expect(dialog.getByRole("button", { name: "导出", exact: true })).toBeDisabled();
   await dialog.getByLabel("搜索完整域名列表").fill("");
   await dialog.screenshot({ path: "test-results/certificate-domains-fullscreen.png" });
-  await dialog.getByRole("button", { name: "退出全屏" }).click();
-  await expect(dialog).not.toHaveClass(/is-fullscreen/);
+  await dialog.getByRole("button", { name: "缩小弹层" }).click();
+  await expect(dialog).not.toHaveClass(/dialog-size-expanded/);
   await page.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);
 });

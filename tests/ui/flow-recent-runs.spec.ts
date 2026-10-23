@@ -41,7 +41,7 @@ test("recent runs sort across provider pages and retain search and group navigat
   expect(connectionColors.input).toBe("rgb(32, 32, 32)");
   expect(connectionColors.headerInset).toBeLessThanOrEqual(1);
   await page.screenshot({ path: "test-results/flow-connection-dialog.png" });
-  await connectionDialog.getByRole("button", { name: "关闭", exact: true }).click();
+  await connectionDialog.getByRole("button", { name: /^关闭/ }).click();
   const rows = page.locator(".flow-pipeline-table tbody tr");
   await expect(rows).toHaveCount(30);
   await expect(rows.first()).toContainText("流水线 0");

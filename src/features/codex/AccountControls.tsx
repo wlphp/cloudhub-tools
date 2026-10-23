@@ -1,8 +1,7 @@
 import { RefreshFailure } from "./RefreshFailure";
-import { DialogHeaderActions } from "../../shared/DialogHeaderActions";
-import { createPortal } from "react-dom";
+import { SharedDialog } from "../../shared/SharedDialog";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { CalendarDays, Edit3, RefreshCw, Shield, X } from "lucide-react";
+import { CalendarDays, Edit3, RefreshCw, Shield } from "lucide-react";
 import { codexClient, type CodexAccount } from "../../platform/clients/codex";
 
 export function AccountControls({ account, busy, act, onAccount, onEdit, onNotice, headerAction, children, onRefreshBenefits, refreshing = false }: { account: CodexAccount; busy: boolean; act: (name: string, run: () => Promise<void>) => Promise<void>; onAccount: (account: CodexAccount) => void; onEdit: () => void; onNotice?: (message: string) => void; headerAction?: ReactNode; children?: ReactNode; refreshing?: boolean; onRefreshBenefits?: () => Promise<void> }) {
@@ -14,10 +13,8 @@ export function AccountControls({ account, busy, act, onAccount, onEdit, onNotic
   const [detected, setDetected] = useState(false);
   const [subscriptionExpanded, setSubscriptionExpanded] = useState(false);
   useEffect(() => { setSubscriptionExpanded(false); }, [account.id, refreshing]);
-  const dialog = useRef<HTMLDialogElement>(null);
   const alive = useRef(true);
   useEffect(() => { alive.current=true; return () => { alive.current=false; }; }, []);
-  useEffect(() => { if (modal) dialog.current?.showModal(); else dialog.current?.close(); }, [modal]);
   const benefits = account.benefits;
   const expires = benefits?.expiresAt;
   const remainingDays = expires == null ? null : Math.max(0, Math.ceil((expires * 1000 - Date.now()) / 86400000));
@@ -52,8 +49,7 @@ export function AccountControls({ account, busy, act, onAccount, onEdit, onNotic
       </>}
       </details>}
     </div>}
-    {createPortal(<dialog ref={dialog} className={`codex-dialog modal-form-layout dialog-common-theme${modal === "reset" ? " codex-reset-dialog" : ""}`} aria-label={modal === "proxy" ? "账号代理" : "主动重置额度"} onCancel={(event) => { event.preventDefault(); close(); }}>
-      <header><h2>{modal === "proxy" ? "账号代理" : "主动重置额度"}</h2><DialogHeaderActions><button disabled={busy || detecting} aria-label="关闭账号设置" title="关闭" onClick={close}><X size={16} /></button></DialogHeaderActions></header>
+    {modal && <SharedDialog title={modal === "proxy" ? "账号代理" : "主动重置额度"} className={`codex-dialog${modal === "reset" ? " codex-reset-dialog" : ""}`} closeLabel="关闭账号设置" closeDisabled={busy || detecting} onClose={close}>
       <p className="codex-account-dialog-label">{account.label}</p>
       {modal === "proxy" ? <form onSubmit={(event) => { event.preventDefault(); if (detecting) return; if (url.trim() && !url.includes("://")) { setError("代理地址缺少协议，请填写 http://127.0.0.1:10808 这样的完整地址"); return; } void run("保存账号代理", async () => { const next = await codexClient.saveProxy(account.id, url); if (alive.current) { onAccount(next); setModal(null); } }); }}>
         <label>HTTP/HTTPS 代理地址<input aria-label="账号代理地址" aria-describedby={`codex-proxy-help-${account.id}${error ? ` codex-proxy-error-${account.id}` : ""}`} aria-invalid={!!error} placeholder="http://127.0.0.1:7890" maxLength={512} value={url} disabled={busy || detecting} onChange={(event) => { setUrl(event.target.value); setError(""); }} /></label>
@@ -83,6 +79,6 @@ export function AccountControls({ account, busy, act, onAccount, onEdit, onNotic
         </div>
         <div className="codex-dialog-actions"><button disabled={busy} title={refreshing ? "此账号正在刷新，请稍候" : "刷新订阅有效期和剩余重置次数"} aria-busy={refreshing} onClick={() => void refresh()}>刷新次数</button><button disabled={busy} onClick={close}>取消</button><button disabled={busy || !benefits?.resetCredits || !!benefits.creditsError} onClick={() => void run("主动重置额度", async () => { const next=await codexClient.consumeReset(account.id); if (alive.current) { onAccount(next); setModal(null); } })}>按官方规则重置</button></div>
       </>}
-    </dialog>, document.body)}
+    </SharedDialog>}
   </>;
 }

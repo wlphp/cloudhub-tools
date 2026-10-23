@@ -266,6 +266,18 @@ pub fn apply_provider(live: &Value, provider: &ClaudeProvider) -> MergeOutcome {
     MergeOutcome { document: doc, written_exclusive }
 }
 
+/// 只比较供应商拥有的字段。hooks、插件及其他用户设置不影响渠道状态；
+/// 凭据只在本机内存中比较，调用方不得返回差异值。
+pub fn settings_match_provider(live: &Value, provider: &ClaudeProvider) -> bool {
+    let expected = apply_provider(live, provider).document;
+    let incoming = provider_env(provider);
+    let managed_env = |doc: &Value| -> Map<String, Value> {
+        env_of(doc).into_iter().filter(|(key, _)| is_floor_env(key) || incoming.contains_key(key)).collect()
+    };
+    managed_env(live) == managed_env(&expected)
+        && FLOOR_TOP.iter().all(|key| live.get(*key) == expected.get(*key))
+}
+
 /// 从供应商配置生成要写入 `env` 的键值。
 ///
 /// `ANTHROPIC_DEFAULT_<ROLE>_MODEL` 写上游真实模型名，`_MODEL_NAME` 写菜单显示名——
@@ -355,6 +367,34 @@ pub fn models_from_env(env: &Map<String, Value>) -> Map<String, Value> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn configuration_matching_ignores_user_settings_but_detects_channel_changes() {
+        let p = provider();
+        let mut live = apply_provider(&json!({"hooks": {}, "enabledPlugins": {"example": true}}), &p).document;
+        assert!(settings_match_provider(&live, &p));
+        live["hooks"] = json!({"Stop": []});
+        live["env"]["CLAUDE_CODE_USE_POWERSHELL_TOOL"] = json!("1");
+        assert!(settings_match_provider(&live, &p));
+        for key in ["ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_DEFAULT_SONNET_MODEL"] {
+            let mut modified = live.clone();
+            modified["env"].as_object_mut().unwrap().remove(key);
+            assert!(!settings_match_provider(&modified, &p));
+        }
+        live["env"]["CLAUDE_CODE_USE_BEDROCK"] = json!("1");
+        assert!(!settings_match_provider(&live, &p));
+    }
+
+    #[test]
+    fn official_configuration_detects_foreign_channel_without_writing() {
+        let mut p = provider();
+        p.official_login = true;
+        let live = json!({"hooks": {"Stop": []}});
+        assert!(settings_match_provider(&live, &p));
+        let changed = json!({"env": {"ANTHROPIC_BASE_URL": "https://example.test"}});
+        assert!(!settings_match_provider(&changed, &p));
+        assert!(changed["env"].get("ANTHROPIC_BASE_URL").is_some());
+    }
 
     fn provider() -> ClaudeProvider {
         ClaudeProvider {

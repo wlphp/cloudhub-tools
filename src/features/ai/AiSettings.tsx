@@ -1,7 +1,6 @@
-import { DialogHeaderActions } from "../../shared/DialogHeaderActions";
+import { SharedDialog } from "../../shared/SharedDialog";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { createPortal } from "react-dom";
-import { Bot, ChevronDown, Eye, EyeOff, Plus, Save, Trash2, X } from "lucide-react";
+import { Bot, ChevronDown, Eye, EyeOff, Plus, Save, Trash2 } from "lucide-react";
 import { aiClient, type AiProfile, type AiProfileInput, type AiProtocol } from "../../platform/clients/ai";
 import { runningInTauri } from "../../platform/api";
 import "./ai.css";
@@ -31,11 +30,9 @@ export function AiSettings() {
   const alive = useRef(true);
   const request = useRef<string | null>(null);
   const saveFeedback = useRef<HTMLParagraphElement | null>(null);
-  const editor = useRef<HTMLFormElement | null>(null);
   const opener = useRef<HTMLElement | null>(null);
   const busyRef = useRef(busy);
   busyRef.current = busy;
-  const editing = draft !== null;
   const enabledCount = profiles.filter(profile => profile.enabled).length;
   const visionCount = profiles.filter(profile => profile.visionStatus === "supported").length;
   const defaultProfile = profiles.find(profile => profile.isDefault);
@@ -60,25 +57,6 @@ export function AiSettings() {
     finally { if (alive.current && keyRequest.current === token) setRevealing(false); }
   }
   function closeEditor() { if (!busyRef.current) { clearKeyDisplay(); setDraft(null); setModels([]); setMessage(""); } }
-  useEffect(() => {
-    if (!editing) return;
-    editor.current?.querySelector<HTMLInputElement>("input")?.focus();
-    const handle = (event: KeyboardEvent) => {
-      const dialogs = document.querySelectorAll('[role="dialog"][aria-modal="true"]');
-      if (dialogs[dialogs.length - 1] !== editor.current) return;
-      if (event.key === "Escape" && editor.current?.querySelector(".ai-model-options")) return;
-      if (event.key === "Escape") { event.preventDefault(); event.stopImmediatePropagation(); closeEditor(); }
-      if (event.key !== "Tab") return;
-      const controls = Array.from(editor.current?.querySelectorAll<HTMLElement>("button,input,select,textarea,summary,[tabindex]") || []).filter(el => el.tabIndex >= 0 && !el.matches(":disabled") && el.getClientRects().length > 0);
-      const first = controls[0], last = controls[controls.length - 1];
-      if (!first) { event.preventDefault(); return; }
-      if (!editor.current?.contains(document.activeElement) || (!event.shiftKey && document.activeElement === last) || (event.shiftKey && document.activeElement === first)) {
-        event.preventDefault(); (event.shiftKey ? last : first).focus();
-      }
-    };
-    window.addEventListener("keydown", handle, true);
-    return () => { window.removeEventListener("keydown", handle, true); if (opener.current?.isConnected) opener.current.focus(); };
-  }, [editing]);
   async function reload() { const list = await aiClient.list(); if (alive.current) setProfiles(list); }
   useEffect(() => {
     alive.current = true;
@@ -151,10 +129,8 @@ export function AiSettings() {
         <div className="ai-actions"><button type="button" disabled={busy} onClick={() => edit(profile)}>编辑</button><button type="button" disabled={busy || !profile.enabled} title="固定无敏感样例，测试可能产生调用费用" onClick={() => void test(profile)}>测试连接</button>{runningInTauri && <button type="button" disabled={busy || !profile.enabled} title="发送本机生成的不含敏感信息的测试图，可能产生调用费用" onClick={()=>void testVision(profile)}>测试图像</button>}<button type="button" disabled={busy} aria-label={`删除AI服务 ${profile.name}`} onClick={() => setDeleting(profile.id)}><Trash2 size={15} /></button></div>
         {deleting === profile.id && <div className="ai-delete-confirm"><span>删除服务和密钥？正在进行的调用将取消。</span><button type="button" disabled={busy} onClick={() => void action(async () => { await aiClient.remove(profile.id); if (alive.current) { setDeleting(null); if (draft?.id === profile.id) setDraft(null); await reload(); } })}>确认删除</button><button type="button" disabled={busy} onClick={() => setDeleting(null)}>取消</button></div>}
       </article>)}</div>
-      {draft && createPortal(<div className="ai-config-backdrop"><form ref={editor} className="modal ai-config-form ai-config-dialog ai-workbench modal-form-layout dialog-common-theme ide-theme" role="dialog" aria-modal="true" aria-labelledby="ai-config-dialog-title" noValidate onSubmit={event => void save(event)}>
-        <header><h2 id="ai-config-dialog-title">{draft.id ? "编辑AI服务" : "添加AI服务"}</h2><DialogHeaderActions><button type="button" disabled={busy} aria-label="取消编辑AI服务" onClick={closeEditor}><X size={16} /></button></DialogHeaderActions></header>
-        <div className="ai-config-dialog-body">
-        <label>配置名称<input required maxLength={120} value={draft.name} onChange={e => setDraft({ ...draft, name: e.target.value })} placeholder="例如：我的运维模型" /></label>
+      {draft && <SharedDialog title={draft.id ? "编辑AI服务" : "添加AI服务"} className="ai-config-form ai-config-dialog ai-workbench" bodyClassName="ai-config-dialog-body" noValidate onSubmit={event => void save(event)} onClose={closeEditor} closeLabel="取消编辑AI服务" closeDisabled={busy} footerClassName="ai-actions ai-workbench-footer" footer={<><button type="button" disabled={busy} onClick={closeEditor}>取消</button><button type="submit" className="ai-primary" disabled={busy}><Save size={15} />{busy ? "处理中…" : "保存配置"}</button></>}>
+        <label>配置名称<input autoFocus required maxLength={120} value={draft.name} onChange={e => setDraft({ ...draft, name: e.target.value })} placeholder="例如：我的运维模型" /></label>
         <label>接口协议<select disabled={busy} value={draft.protocol} onChange={e => { const next = protocols.find(p => p.value === e.target.value)!; setModels([]); setDraft({ ...draft, protocol: next.value, baseUrl: protocols.some(p => p.url === draft.baseUrl) ? next.url : draft.baseUrl }); }}>{protocols.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}</select></label>
         <label>服务地址<input disabled={busy} required maxLength={512} value={draft.baseUrl} onChange={e => { setModels([]); setDraft({ ...draft, baseUrl: e.target.value }); }} placeholder="HTTPS地址，可包含网关路径前缀" /></label>
         <div className="ai-key-field"><label htmlFor="ai-api-key">API Key</label><div className="ai-key-input"><input id="ai-api-key" disabled={busy || revealing} type={keyVisible ? "text" : "password"} autoComplete="new-password" spellCheck={false} required={!draft.id || (draft.enabled && !profiles.find(p=>p.id===draft.id)?.hasKey)} maxLength={4096} value={draft.apiKey || revealedKey} onChange={e => { keyRequest.current++; setRevealedKey(""); setDraft({ ...draft, apiKey: e.target.value }); }} placeholder={draft.id ? "留空保留已保存密钥；未携带密钥的导入配置需补填" : "本地加密保存"} /><button type="button" disabled={busy || revealing} aria-label={keyVisible ? "隐藏 API Key" : "查看 API Key"} aria-pressed={keyVisible} title={revealing ? "正在读取…" : keyVisible ? "隐藏密钥" : "查看密钥"} onClick={() => void toggleKey()}>{keyVisible ? <EyeOff size={17} aria-hidden="true" /> : <Eye size={17} aria-hidden="true" />}</button></div></div>
@@ -172,9 +148,7 @@ export function AiSettings() {
         <details><summary>高级设置</summary><div className="ai-form-columns"><label>请求超时（秒）<input type="number" required min={5} max={180} value={draft.timeoutSeconds} onChange={e => setDraft({ ...draft, timeoutSeconds: Number(e.target.value) })} /></label><label>最大输出 Token<input type="number" required min={128} max={8192} value={draft.maxOutputTokens} onChange={e => setDraft({ ...draft, maxOutputTokens: Number(e.target.value) })} /></label></div><label className="ai-checkbox"><input type="checkbox" checked={draft.allowLoopbackHttp} onChange={e => setDraft({ ...draft, allowLoopbackHttp: e.target.checked })} />允许本机回环 HTTP 服务（例如本地模型网关）</label></details>
         <p>密钥仅在点击查看时显示，30秒后自动隐藏，不写入调用日志。保存后可用固定样例测试；第三方服务可能仅支持部分协议能力。</p>
         <p className={`ai-feedback ai-config-status${message ? "" : " is-empty"}`} role={message ? "status" : undefined} tabIndex={-1} ref={saveFeedback}>{message || "\u00a0"}</p>
-        </div>
-        <footer className="ai-actions ai-workbench-footer"><button type="button" disabled={busy} onClick={closeEditor}>取消</button><button type="submit" className="ai-primary" disabled={busy}><Save size={15} />{busy ? "处理中…" : "保存配置"}</button></footer>
-      </form></div>, document.body)}
+      </SharedDialog>}
       {busy && request.current && <button type="button" onClick={() => void aiClient.cancel(request.current!).catch(error => setMessage(String(error)))}>取消测试</button>}
       {runningInTauri && <AiConfigTransfer profiles={profiles} onImported={reload}/>}
     </>

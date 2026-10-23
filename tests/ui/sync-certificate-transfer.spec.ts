@@ -19,7 +19,7 @@ test("desktop can generate a QR containing certificates only", async ({page}) =>
   await page.getByRole("tab",{name:/证书/}).click();
   await expect(page.getByText("仅证书信息",{exact:false})).toBeVisible();
   await page.getByRole("button",{name:"显示手机迁移二维码（免口令）"}).click();
-  await expect(page.getByText(/电脑正在等待手机扫码/)).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "手机迁移二维码", exact: true })).toBeVisible();
   const args=await page.evaluate(()=>(window as any).certificateCalls.find((call:any)=>call.command==="start_sync_transfer").args);
   expect(args.certificateIds).toEqual([7]);
   expect(args.accountIds).toEqual([]);

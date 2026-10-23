@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from "react";
-import { RotateCcw, Trash2, TriangleAlert } from "lucide-react";
+import { RotateCcw, Search, Trash2, TriangleAlert } from "lucide-react";
 
 /** Credential retention options offered in the settings panel. */
 export const SCRUB_DAY_OPTIONS = [
@@ -63,15 +63,27 @@ export function RecycleBin({ kinds, actions, busy, onClose, scrubDays, onScrubDa
 }) {
   const [selected, setSelected] = useState<Record<string, Set<string>>>({});
   const [error, setError] = useState("");
+  const [keyword, setKeyword] = useState("");
+  const [working, setWorking] = useState(false);
+  const disabled = busy || working;
   const total = kinds.reduce((sum, kind) => sum + kind.items.length, 0);
 
-  const groups = useMemo(() => kinds.filter(kind => kind.items.length > 0), [kinds]);
+  const groups = useMemo(() => {
+    const query = keyword.trim().toLocaleLowerCase();
+    return kinds.map(kind => ({ ...kind, items: kind.items.filter(item =>
+      `${kind.label} ${item.title} ${item.detail ?? ""}`.toLocaleLowerCase().includes(query)) })).filter(kind => kind.items.length > 0);
+  }, [kinds, keyword]);
+  const visibleCount = groups.reduce((sum, kind) => sum + kind.items.length, 0);
+  const selectedCount = groups.reduce((sum, kind) => sum + kind.items.filter(item => selected[kind.id]?.has(item.id)).length, 0);
+  const allSelected = visibleCount > 0 && selectedCount === visibleCount;
 
   const run = async (kindId: string, mode: "restore" | "purge") => {
-    const ids = [...(selected[kindId] ?? [])];
+    if (disabled) return;
+    const ids = groups.find(kind => kind.id === kindId)?.items.filter(item => selected[kindId]?.has(item.id)).map(item => item.id) ?? [];
     if (ids.length === 0) return;
     if (mode === "purge" && actions.confirmPurge && !actions.confirmPurge(kindId, ids.length)) return;
     setError("");
+    setWorking(true);
     try {
       if (mode === "restore") {
         await actions.restore(kindId, ids);
@@ -82,6 +94,8 @@ export function RecycleBin({ kinds, actions, busy, onClose, scrubDays, onScrubDa
       setSelected(current => ({ ...current, [kindId]: new Set() }));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : mode === "restore" ? "恢复失败" : "彻底删除失败");
+    } finally {
+      setWorking(false);
     }
   };
 
@@ -91,27 +105,51 @@ export function RecycleBin({ kinds, actions, busy, onClose, scrubDays, onScrubDa
     return { ...current, [kindId]: next };
   });
 
+  const restoreSelected = async () => {
+    if (disabled || selectedCount === 0) return;
+    const batches = groups.map(kind => ({ kindId: kind.id, ids: kind.items.filter(item => selected[kind.id]?.has(item.id)).map(item => item.id) })).filter(batch => batch.ids.length > 0);
+    setError("");
+    setWorking(true);
+    try {
+      for (const batch of batches) {
+        await actions.restore(batch.kindId, batch.ids);
+        setSelected(current => ({ ...current, [batch.kindId]: new Set() }));
+      }
+      actions.onRestored?.(batches[0].kindId, batches.reduce((sum, batch) => sum + batch.ids.length, 0));
+    } catch {
+      setError("批量恢复未全部完成，已恢复的项目无需重复操作，剩余选中项目可重试。");
+    } finally {
+      setWorking(false);
+    }
+  };
+
   return <div className="recycle-bin">
     <div className="recycle-bin-head">
       <strong>回收站</strong>
       <span>{total === 0 ? "暂无已删除的数据" : `${total} 项已删除数据 · 永久保留，手动清空`}</span>
     </div>
+    {total > 0 && <div className="recycle-bin-toolbar">
+      <label className="recycle-bin-search"><Search size={14} aria-hidden="true" /><input type="search" aria-label="检索回收站" placeholder="检索名称、分组或类型" value={keyword} disabled={disabled} onChange={event => { setKeyword(event.target.value); setSelected({}); }} /></label>
+      <label className="recycle-bin-select-all"><input type="checkbox" checked={allSelected} ref={element => { if (element) element.indeterminate = selectedCount > 0 && !allSelected; }} disabled={disabled || visibleCount === 0} onChange={() => setSelected(allSelected ? {} : Object.fromEntries(groups.map(kind => [kind.id, new Set(kind.items.map(item => item.id))])))} />全选当前结果</label>
+      <span className="recycle-bin-selection" role="status">{visibleCount} 项 · 已选 {selectedCount} 项</span>
+      {kinds.filter(kind => kind.items.length > 0).length > 1 && <button type="button" className="secondary" disabled={disabled || selectedCount === 0} onClick={() => void restoreSelected()}><RotateCcw size={13} aria-hidden="true" />恢复所有选中项{selectedCount > 0 ? ` (${selectedCount})` : ""}</button>}
+    </div>}
     {error && <p className="notes-error" role="alert">{error}</p>}
-    {groups.length === 0 ? <p className="recycle-bin-empty">删除的云账号、面板、证书和备忘录会出现在这里，可随时恢复。</p> : groups.map(kind => {
-      const chosen = selected[kind.id] ?? new Set<string>();
+    {groups.length === 0 ? <p className="recycle-bin-empty">{total > 0 ? "没有匹配的已删除数据，请调整检索条件。" : "删除的云账号、面板、证书和备忘录会出现在这里，可随时恢复。"}</p> : groups.map(kind => {
+      const chosen = new Set(kind.items.filter(item => selected[kind.id]?.has(item.id)).map(item => item.id));
       const all = kind.items.length;
       return <section key={kind.id} className="recycle-bin-group">
         <header>
           <span className="recycle-bin-kind">{KIND_ICONS[kind.id]}{kind.label}<small>{all}</small></span>
           <span className="recycle-bin-group-actions">
-            <button type="button" className="secondary" disabled={busy || chosen.size === 0} onClick={() => void run(kind.id, "restore")}><RotateCcw size={13} aria-hidden="true" />恢复{chosen.size > 0 ? ` (${chosen.size})` : ""}</button>
-            <button type="button" className="secondary notes-danger" disabled={busy || chosen.size === 0} onClick={() => void run(kind.id, "purge")}><TriangleAlert size={13} aria-hidden="true" />彻底删除{chosen.size > 0 ? ` (${chosen.size})` : ""}</button>
+            <button type="button" className="secondary" disabled={disabled || chosen.size === 0} onClick={() => void run(kind.id, "restore")}><RotateCcw size={13} aria-hidden="true" />批量恢复{chosen.size > 0 ? ` (${chosen.size})` : ""}</button>
+            <button type="button" className="secondary notes-danger" disabled={disabled || chosen.size === 0} onClick={() => void run(kind.id, "purge")}><TriangleAlert size={13} aria-hidden="true" />彻底删除{chosen.size > 0 ? ` (${chosen.size})` : ""}</button>
           </span>
         </header>
         <ul>
           {kind.items.map(item => <li key={item.id}>
             <label className="recycle-bin-item">
-              <input type="checkbox" checked={chosen.has(item.id)} onChange={() => toggle(kind.id, item.id)} aria-label={`选择 ${item.title}`} />
+              <input type="checkbox" checked={chosen.has(item.id)} disabled={disabled} onChange={() => toggle(kind.id, item.id)} aria-label={`选择 ${item.title}`} />
               <span className="recycle-bin-item-copy">
                 <strong>{item.title}</strong>
                 {item.detail && <small>{item.detail}</small>}
