@@ -159,6 +159,7 @@ import {
   supportsResourceSync as accountSupportsResourceSync,
   syncAssetTypes as getSyncAssetTypes,
 } from "./features/cloud/catalog";
+import { CloudAvatar, ProviderLogo, hasProviderLogo } from "./features/cloud/ProviderLogo";
 import { DnsEditorDialog } from "./features/domains/DnsEditorDialog";
 import { DnsHostLink } from "./features/domains/DnsHostLink";
 import { TerminalAuditStore, type TerminalRecording } from "./features/servers/terminalAudit";
@@ -4083,7 +4084,8 @@ function App() {
                       <td className="account-select"><input aria-label={`选择账号 ${account.account_name}`} type="checkbox" checked={selectedAccountIds.has(account.id)} onChange={() => toggleAccountSelection(account.id)} /></td>
                       <td>
                         <div className="account-cloud-credential">
-                          <span className={`cloud-type cloud-type-text ${account.cloud_type}`}>
+                          <span className={`cloud-type cloud-type-text ${account.cloud_type}${hasProviderLogo(account.cloud_type) ? " has-logo" : ""}`}>
+                            <ProviderLogo cloudType={account.cloud_type} className={`cloud-type-logo ${account.cloud_type}`} />
                             {cloudProvider(account.cloud_type).label}
                           </span>
                           <code>
@@ -4095,7 +4097,7 @@ function App() {
                       </td>
                       <td>
                         <div className="account-name">
-                          <span className={`avatar cloud-avatar ${account.cloud_type}`}>{cloudProvider(account.cloud_type).avatar}</span>
+                          <CloudAvatar cloudType={account.cloud_type} />
                           <div>
                             <strong>{account.account_name}</strong>
                             <small>{new Date(account.created_at).toLocaleString("zh-CN")}</small>
@@ -4677,7 +4679,7 @@ function App() {
                       ? [["地域", region], ["存储类型", displayValue(payload.StorageClass)], ["创建时间", formatAssetDate(payload.CreationDate || payload.CreationTime)]]
                       : [["地域", region], ["版本 / 引擎", displayValue(payload.EngineVersion || payload.Engine || payload.Version)], ["到期时间", formatAssetDate(expiry)]];
                 return <article className={`favorite-resource-card${draggedFavoriteKey === assetKey ? " is-favorite-dragging" : ""}${assetMoreKey === assetKey ? " settings-open" : ""}`} key={assetKey} data-favorite-asset-key={assetKey}>
-                  <div className="favorite-card-account"><button type="button" className="favorite-card-drag-handle" aria-label={`拖动排序 ${title}`} title="拖动排序" onPointerDown={(event) => startFavoriteCardDrag(event, assetKey)}><GripVertical size={16} /></button><span className={`avatar cloud-avatar ${account?.cloud_type || "other"}`}>{cloudProvider(account?.cloud_type || "other").avatar}</span><span>{account?.account_name || `账号 ${asset.account_id}`}</span>{isServer && account && renderServerAssetSettings(asset, account)}</div>
+                  <div className="favorite-card-account"><button type="button" className="favorite-card-drag-handle" aria-label={`拖动排序 ${title}`} title="拖动排序" onPointerDown={(event) => startFavoriteCardDrag(event, assetKey)}><GripVertical size={16} /></button><CloudAvatar cloudType={account?.cloud_type || "other"} /><span>{account?.account_name || `账号 ${asset.account_id}`}</span>{isServer && account && renderServerAssetSettings(asset, account)}</div>
                   <div className="favorite-card-note"><span>备注</span>{editingAssetNote?.key === assetKey ? <input value={editingAssetNote.value} autoFocus onChange={(event) => setEditingAssetNote((current) => current?.key === assetKey ? { ...current, value: event.target.value } : current)} onBlur={() => saveAssetNote(assetKey)} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") setEditingAssetNote(null); }} aria-label="资产备注" placeholder="添加备注" /> : <button type="button" className={assetNote ? "has-note" : ""} onClick={() => setEditingAssetNote({ key: assetKey, value: assetNote, initial: assetNote })}>{assetNote || "添加备注"}</button>}<AiAssetNotes name={title} type={asset.resource_type} note={assetNote} onSave={value=>setAssetNotes(current=>({...current,[assetKey]:value}))}/></div>
                   <div className="favorite-card-head"><div><h2 title={title}>{title}</h2><small>{asset.asset_key}</small></div><button type="button" className="asset-favorite-button is-favorite" title="取消收藏" aria-label="取消收藏" onClick={() => toggleAssetFavorite(asset)}><BookmarkCheck size={18} /></button></div>
                   {isServer && account
@@ -4843,7 +4845,7 @@ function App() {
                       editingAssetName?.key === assetRowKey ? <input className="asset-name-editor" value={editingAssetName.value} autoFocus disabled={savingAssetName === assetRowKey} onChange={(event) => setEditingAssetName((current) => current?.key === assetRowKey ? { ...current, value: event.target.value } : current)} onBlur={() => void saveServerName(asset, account, assetRowKey)} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") setEditingAssetName(null); }} aria-label="服务器名称" /> : <button type="button" className="asset-name-edit-button" title="点击修改服务器名称" onClick={() => setEditingAssetName({ key: assetRowKey, value: serverName === "-" ? "" : serverName, initial: serverName === "-" ? "" : serverName })}><strong>{serverName}</strong></button>
                     ) : <strong>{displayValue(payload.InstanceName || payload.DBInstanceDescription || payload.SiteName || payload.DomainName || payload.Name || asset.asset_key)}</strong>}<button type="button" className={`asset-favorite-button asset-name-favorite ${favoriteAssetKeys.includes(assetFavoriteKey(asset)) ? "is-favorite" : ""}`} title={favoriteAssetKeys.includes(assetFavoriteKey(asset)) ? "取消收藏" : "收藏资源"} aria-label={favoriteAssetKeys.includes(assetFavoriteKey(asset)) ? "取消收藏" : "收藏资源"} onClick={() => toggleAssetFavorite(asset)}>{favoriteAssetKeys.includes(assetFavoriteKey(asset)) ? <BookmarkCheck size={14} /> : <Bookmark size={14} />}</button></div><small className="asset-subline">{asset.asset_key}</small></div></td>
                     <td>{formatAssetDate(expiry)}</td>
-                    <td><div className="asset-account-name"><span className={`avatar cloud-avatar ${account?.cloud_type || "other"}`}>{cloudProvider(account?.cloud_type || "other").avatar}</span><strong>{account?.account_name || `账号 ${asset.account_id}`}</strong></div><small className="asset-subline">{cloudProvider(account?.cloud_type || "other").label} · {maskedKey}</small><small className="asset-subline">{account?.group_name || "未分组"}</small></td>
+                    <td><div className="asset-account-name"><CloudAvatar cloudType={account?.cloud_type || "other"} /><strong>{account?.account_name || `账号 ${asset.account_id}`}</strong></div><small className="asset-subline">{cloudProvider(account?.cloud_type || "other").label} · {maskedKey}</small><small className="asset-subline">{account?.group_name || "未分组"}</small></td>
                     <td>{displayValue(asset.region_id || payload.RegionId || payload.Location)}</td>
                     <td>{cloudStatusText(payload.Status || payload.InstanceStatus || payload.DBInstanceStatus || payload.DomainStatus)}</td>
                     <td className="asset-actions-cell">{domainActions || ossActions || serverActions || <span className="asset-action-muted">—</span>}</td>
@@ -5068,7 +5070,7 @@ function App() {
         )}
         {assetDetail && (
           <SharedDialog title={displayValue(assetDetail.asset.payload.InstanceName || assetDetail.asset.asset_key)} eyebrow="SERVER DETAIL" className="asset-detail-modal" closeLabel="关闭详情" onClose={() => setAssetDetail(null)} footer={<button className="secondary" onClick={() => setAssetDetail(null)}>关闭</button>}>
-              <div className="asset-detail-meta"><span className={`avatar cloud-avatar ${assetDetail.account.cloud_type}`}>{cloudProvider(assetDetail.account.cloud_type).avatar}</span><span>{assetDetail.account.account_name}</span><span>{assetTypes.find(([value]) => value === assetDetail.asset.resource_type)?.[1] || assetDetail.asset.resource_type}</span><span>{assetDetail.asset.region_id || String(assetDetail.asset.payload.RegionId || assetDetail.asset.payload.Location || "未标注地域")}</span></div>
+              <div className="asset-detail-meta"><CloudAvatar cloudType={assetDetail.account.cloud_type} /><span>{assetDetail.account.account_name}</span><span>{assetTypes.find(([value]) => value === assetDetail.asset.resource_type)?.[1] || assetDetail.asset.resource_type}</span><span>{assetDetail.asset.region_id || String(assetDetail.asset.payload.RegionId || assetDetail.asset.payload.Location || "未标注地域")}</span></div>
               <div className="asset-detail-list">{Object.entries(assetDetail.asset.payload).filter(([key]) => !key.startsWith("_")).map(([key, value]) => <div key={key}><span>{columnLabel(key)}</span><strong title={displayValue(value)}>{displayValue(value)}</strong></div>)}</div>
           </SharedDialog>
         )}

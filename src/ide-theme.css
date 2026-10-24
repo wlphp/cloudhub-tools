@@ -1811,6 +1811,9 @@
   background: var(--jb-accent);
   vertical-align: 1px;
 }
+.ide-theme .account-section .cloud-type-text.has-logo::before {
+  display: none;
+}
 .ide-theme .account-section .status-switch {
   min-height: 25px;
   padding: 2px 7px;
