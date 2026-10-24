@@ -25,6 +25,7 @@
     "authenticator_export",
     "authenticator_import",
     "authenticator_list",
+    "authenticator_reveal_secret",
     "authenticator_lock",
     "authenticator_prepare",
     "authenticator_remove",
@@ -989,6 +990,11 @@
     {
       "name": "authenticator",
       "operations": [
+        {
+          "name": "revealSecret",
+          "native": ["authenticator_reveal_secret"],
+          "preview": []
+        },
         {
           "name": "status",
           "native": [

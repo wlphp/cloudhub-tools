@@ -183,6 +183,26 @@ pub(crate) async fn authenticator_touch(
     let owner = window.label().to_string();
     work(move || access(&store, &owner, true, |_, _| Ok(()))).await
 }
+
+fn reveal_secret(db: &rusqlite::Connection, key: &[u8; 32], id: &str) -> Result<String, String> {
+    if uuid::Uuid::parse_str(id).is_err() {
+        return Err("验证码标识无效".into());
+    }
+    let entries = repository::selected(db, key, &[id.to_string()])?;
+    entries.first().map(|entry| entry.secret.clone()).ok_or_else(|| "验证码不存在".into())
+}
+
+#[tauri::command]
+pub(crate) async fn authenticator_reveal_secret(
+    window: tauri::Window,
+    state: State<'_, VaultStore>,
+    id: String,
+) -> PlatformResult<String> {
+    let store = state.inner().clone();
+    let owner = window.label().to_string();
+    work(move || access(&store, &owner, true, |s, db| reveal_secret(db, &s.key, &id))).await
+}
+
 #[tauri::command]
 pub(crate) async fn authenticator_codes(
     window: tauri::Window,
@@ -722,6 +742,21 @@ pub(crate) async fn authenticator_export(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn reveal_only_selected_active_secret() {
+        let mut db = rusqlite::Connection::open_in_memory().unwrap();
+        db.execute_batch(repository::SCHEMA).unwrap();
+        let key = [8u8; 32];
+        let entry = formats::parse_uri("otpauth://totp/Example:demo?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ").unwrap();
+        repository::write(&db, &key, &entry).unwrap();
+        assert_eq!(reveal_secret(&db, &key, &entry.id).unwrap(), entry.secret);
+        assert!(reveal_secret(&db, &[9u8; 32], &entry.id).is_err());
+        assert_eq!(reveal_secret(&db, &key, "invalid").unwrap_err(), "验证码标识无效");
+        assert_eq!(reveal_secret(&db, &key, &uuid::Uuid::new_v4().to_string()).unwrap_err(), "验证码不存在");
+        repository::remove(&mut db, &[entry.id.clone()]).unwrap();
+        assert_eq!(reveal_secret(&db, &key, &entry.id).unwrap_err(), "验证码不存在");
+    }
+
     #[test]
     fn import_rolls_back_on_duplicates_and_hotp_regression() {
         let mut db = rusqlite::Connection::open_in_memory().unwrap();

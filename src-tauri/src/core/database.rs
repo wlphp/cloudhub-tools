@@ -3,7 +3,7 @@ use std::sync::Mutex;
 
 use super::paths::data_dir;
 
-const CURRENT_SCHEMA_VERSION: i64 = 55;
+const CURRENT_SCHEMA_VERSION: i64 = 56;
 pub const CODEX_PROVIDER_LOGS_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS codex_provider_request_logs(id TEXT PRIMARY KEY,provider_id TEXT NOT NULL,source TEXT NOT NULL,method TEXT NOT NULL,url TEXT NOT NULL,request_body TEXT NOT NULL,status INTEGER,response_body TEXT NOT NULL,error TEXT,elapsed_ms INTEGER NOT NULL,created_at INTEGER NOT NULL,client_request_body TEXT NOT NULL DEFAULT ''); CREATE INDEX IF NOT EXISTS codex_provider_request_logs_provider ON codex_provider_request_logs(provider_id,created_at DESC);";
 pub const CODEX_PROVIDERS_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS codex_model_providers(id TEXT PRIMARY KEY,name TEXT NOT NULL,base_url TEXT NOT NULL,wire_api TEXT NOT NULL,models_json TEXT NOT NULL,note TEXT NOT NULL,version INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS codex_provider_keys(id TEXT PRIMARY KEY,provider_id TEXT NOT NULL REFERENCES codex_model_providers(id) ON DELETE CASCADE,name TEXT NOT NULL,ciphertext TEXT NOT NULL,UNIQUE(provider_id,name));";
 pub const CODEX_PROVIDER_BACKUPS_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS codex_provider_config_backups(home TEXT PRIMARY KEY,content_ciphertext TEXT NOT NULL,installed_config TEXT NOT NULL,installed_auth TEXT NOT NULL);";
@@ -472,6 +472,15 @@ fn migrate_connection_inner(conn: &mut Connection) -> Result<(), String> {
         ensure_column("codex_provider_request_logs", "client_request_body", "TEXT NOT NULL DEFAULT ''")?;
         transaction.pragma_update(None, "user_version", 55).map_err(|_| "保存供应商请求日志原始参数版本失败")?;
     }
+    if version < 56 {
+        // CREATE TABLE IF NOT EXISTS cannot add the recycle-bin label to older vaults.
+        transaction.execute_batch(super::repositories::authenticator::SCHEMA)
+            .map_err(|_| "创建验证器密码库失败")?;
+        ensure_column("authenticator_entries", "name", "TEXT NOT NULL DEFAULT ''")
+            .map_err(|_| "升级验证码名称字段失败")?;
+        transaction.pragma_update(None, "user_version", 56)
+            .map_err(|_| "更新验证器数据库版本失败")?;
+    }
     transaction.commit().map_err(|error| format!("提交 SQLite 迁移失败: {error}"))?;
 
     Ok(())
@@ -568,6 +577,28 @@ fn snapshot_before_upgrade(source: &Connection, path: &std::path::Path, version:
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn upgrades_legacy_authenticator_and_allows_import() {
+        use crate::core::authenticator::formats::parse_uri;
+        use crate::core::repositories::authenticator as repository;
+
+        let mut conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE authenticator_entries(id TEXT PRIMARY KEY, ciphertext TEXT NOT NULL, deleted_at INTEGER); PRAGMA user_version=55;").unwrap();
+        let key = [8u8; 32];
+        let existing = parse_uri("otpauth://totp/Example:existing?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ").unwrap();
+        let ciphertext = crate::core::authenticator::vault::encrypt_entry(&key, &existing).unwrap();
+        conn.execute("INSERT INTO authenticator_entries(id,ciphertext) VALUES(?1,?2)", rusqlite::params![existing.id, ciphertext]).unwrap();
+
+        super::migrate_connection(&mut conn).unwrap();
+        let imported = parse_uri("otpauth://totp/MSFT%3Ademo%40example.test?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&issuer=Microsoft&codeDisplay=%7B%22pinned%22%3Afalse%7D").unwrap();
+        repository::write(&conn, &key, &imported).unwrap();
+        super::migrate_connection(&mut conn).unwrap();
+        assert_eq!(repository::load(&conn, &key).unwrap().len(), 2);
+        let preserved: String = conn.query_row("SELECT ciphertext FROM authenticator_entries WHERE id=?1", [&existing.id], |row| row.get(0)).unwrap();
+        assert_eq!(preserved, ciphertext);
+        assert!(repository::load(&conn, &[9u8; 32]).is_err());
+    }
+
     #[test]
     fn upgrades_codex_private_details_and_keeps_ciphertext_scrubbable() {
         let mut conn = rusqlite::Connection::open_in_memory().unwrap();

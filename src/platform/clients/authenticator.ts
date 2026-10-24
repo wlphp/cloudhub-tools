@@ -19,6 +19,7 @@ export const authenticatorClient = {
   unlock: (password: string, create: boolean) => request<void>("authenticator_unlock", { password, create }),
   lock: () => request<void>("authenticator_lock"),
   list: () => request<AuthEntry[]>("authenticator_list"),
+  revealSecret: (id: string) => nativeOnly<string>("authenticator_reveal_secret", { id }),
   touch: () => request<void>("authenticator_touch"),
   codes: (ids: string[]) => request<AuthCode[]>("authenticator_codes", { ids }),
   save: (input: AuthInput) => request<void>("authenticator_save", { input }),

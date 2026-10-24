@@ -63,18 +63,48 @@ export function AuthenticatorPanel({ mobile = false }: { mobile?: boolean }) {
   const [copied, setCopied] = useState("");
   const [copyNotice, setCopyNotice] = useState<{ text: string; failed: boolean } | null>(null);
   const [showDraftSecret, setShowDraftSecret] = useState(false);
+  const [savedSecret, setSavedSecret] = useState("");
+  const [revealingSecret, setRevealingSecret] = useState(false);
+  const secretRequest = useRef(0);
   const secretRevealTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hideDraftSecret = useCallback(() => {
+    ++secretRequest.current;
     if (secretRevealTimer.current) { clearTimeout(secretRevealTimer.current); secretRevealTimer.current = null; }
     setShowDraftSecret(false);
+    setSavedSecret("");
+    setRevealingSecret(false);
   }, []);
-  const toggleDraftSecret = useCallback(() => {
+  const toggleDraftSecret = useCallback(async () => {
     if (showDraftSecret) { hideDraftSecret(); return; }
-    if (secretRevealTimer.current) clearTimeout(secretRevealTimer.current);
-    setShowDraftSecret(true);
-    secretRevealTimer.current = setTimeout(() => { secretRevealTimer.current = null; setShowDraftSecret(false); }, 15_000);
-  }, [showDraftSecret, hideDraftSecret]);
-  useEffect(() => () => { if (secretRevealTimer.current) clearTimeout(secretRevealTimer.current); }, []);
+    if (!draft || revealingSecret) return;
+    const request = ++secretRequest.current;
+    setError("");
+    try {
+      if (draft.id && !draft.secret) {
+        setRevealingSecret(true);
+        const secret = await client.revealSecret(draft.id);
+        if (request !== secretRequest.current) return;
+        setSavedSecret(secret);
+      }
+      if (request !== secretRequest.current) return;
+      setShowDraftSecret(true);
+      secretRevealTimer.current = setTimeout(hideDraftSecret, 15_000);
+    } catch {
+      if (request === secretRequest.current) setError(runningInTauri ? "读取已保存密钥失败，请确认密码库已解锁后重试" : "查询已保存密钥仅支持 CloudHub 原生客户端");
+    } finally {
+      if (request === secretRequest.current) setRevealingSecret(false);
+    }
+  }, [draft, revealingSecret, showDraftSecret, hideDraftSecret]);
+  useEffect(() => {
+    hideDraftSecret();
+    return () => { ++secretRequest.current; if (secretRevealTimer.current) clearTimeout(secretRevealTimer.current); };
+  }, [draft?.id, hideDraftSecret]);
+  useEffect(() => {
+    const hideWhenBackground = () => { if (document.visibilityState === "hidden") hideDraftSecret(); };
+    window.addEventListener("blur", hideDraftSecret);
+    document.addEventListener("visibilitychange", hideWhenBackground);
+    return () => { window.removeEventListener("blur", hideDraftSecret); document.removeEventListener("visibilitychange", hideWhenBackground); };
+  }, [hideDraftSecret]);
   const otpPresetHint = useMemo(() => draft ? otpPreset(draft.issuer) : "", [draft?.issuer]);
   const otpParamsDiffer = !!draft && (draft.kind !== DEFAULT_OTP_PARAMS.kind || draft.algorithm !== DEFAULT_OTP_PARAMS.algorithm || draft.digits !== DEFAULT_OTP_PARAMS.digits || (draft.kind !== "hotp" && draft.period !== DEFAULT_OTP_PARAMS.period));
   const alive = useRef(true);
@@ -287,10 +317,11 @@ export function AuthenticatorPanel({ mobile = false }: { mobile?: boolean }) {
     </div>}
     {pageCount > 1 && <div className="auth-pagination"><button aria-label="上一页" disabled={safePage <= 1} onClick={() => setPage(safePage - 1)}><ChevronLeft size={16} /></button><span>第 {safePage} / {pageCount} 页 · {filtered.length} 项</span><button aria-label="下一页" disabled={safePage >= pageCount} onClick={() => setPage(safePage + 1)}><ChevronRight size={16} /></button></div>}
 
-    {draft && <Modal title={draft.id ? "编辑验证码" : "新增验证码"} busy={busy} mobileForm={mobile} close={() => { setDraft(null); setError(""); }}><form className={mobile ? "auth-mobile-form" : undefined} onSubmit={(event) => { event.preventDefault(); const input = draft; setDraft({ ...draft, secret: "" }); void action(async () => { await client.save(input); setDraft(null); await refresh(); setMessage("验证码已保存"); }); }}>
+    {draft && <Modal title={draft.id ? "编辑验证码" : "新增验证码"} busy={busy} mobileForm={mobile} close={() => { hideDraftSecret(); setDraft(null); setError(""); }}><form className={mobile ? "auth-mobile-form" : undefined} onSubmit={(event) => { event.preventDefault(); const input = draft; hideDraftSecret(); setDraft({ ...draft, secret: "" }); void action(async () => { await client.save(input); setDraft(null); await refresh(); setMessage("验证码已保存"); }); }}>
       <div className={mobile ? "auth-mobile-form-body" : undefined}>
       <div className="auth-form-grid"><label>服务商<input maxLength={256} value={draft.issuer} onChange={(event) => setDraft({ ...draft, issuer: event.target.value })} /></label><label>账户<input maxLength={512} value={draft.account} onChange={(event) => setDraft({ ...draft, account: event.target.value })} /></label></div>
-      <label>OTP 密钥{draft.id && "（留空保留原密钥）"}<span className="auth-secret-wrap"><input type={showDraftSecret ? "text" : "password"} autoComplete="off" spellCheck={false} required={!draft.id} maxLength={1024} value={draft.secret || ""} onChange={(event) => setDraft({ ...draft, secret: event.target.value })} /><button type="button" className="auth-secret-eye" aria-label={showDraftSecret ? "隐藏 OTP 密钥" : "显示 OTP 密钥"} aria-pressed={showDraftSecret} title={showDraftSecret ? "隐藏密钥（15 秒后自动隐藏）" : "显示密钥"} onClick={toggleDraftSecret}>{showDraftSecret ? <EyeOff size={17} /> : <Eye size={17} />}</button></span></label>
+      <label>OTP 密钥{draft.id && "（留空保留原密钥）"}<span className="auth-secret-wrap"><input type={showDraftSecret ? "text" : "password"} autoComplete="off" spellCheck={false} required={!draft.id} maxLength={1024} value={savedSecret || draft.secret || ""} readOnly={!!savedSecret || revealingSecret} onChange={(event) => { setSavedSecret(""); setDraft({ ...draft, secret: event.target.value }); }} /><button type="button" className="auth-secret-eye" disabled={revealingSecret} aria-busy={revealingSecret} aria-label={showDraftSecret ? "隐藏 OTP 密钥" : "显示 OTP 密钥"} aria-pressed={showDraftSecret} title={showDraftSecret ? "隐藏密钥（15 秒后自动清除）" : draft.id && !draft.secret ? "查询已保存密钥" : "显示密钥"} onClick={() => void toggleDraftSecret()}>{showDraftSecret ? <EyeOff size={17} /> : <Eye size={17} />}</button></span></label>
+      {draft.id && <small>{revealingSecret ? "正在读取已保存密钥…" : savedSecret ? "已保存密钥只读显示，15 秒后自动清除；隐藏后可输入新密钥。" : "点击眼睛可查询已保存密钥；输入新密钥会在保存后替换原密钥。"}</small>}
       {otpPresetHint && <p className="auth-hint auth-otp-preset">已识别：{otpPresetHint}。按默认参数保存即可；如服务商另有设置，以它给出的参数为准。</p>}
       <div className="auth-form-grid"><label>类型<select value={draft.kind} onChange={(event) => { const kind = event.target.value as AuthInput["kind"]; setDraft({ ...draft, kind, digits: kind === "steam" ? 5 : 6, algorithm: "SHA1", period: 30 }); }}><option value="totp">TOTP（时间）</option><option value="hotp">HOTP（计数）</option><option value="steam">Steam</option></select></label><label>算法<select disabled={draft.kind === "steam"} value={draft.algorithm} onChange={(event) => setDraft({ ...draft, algorithm: event.target.value as AuthInput["algorithm"] })}>{["SHA1", "SHA256", "SHA512"].map((value) => <option key={value} value={value}>{value === "SHA1" ? "SHA1（默认）" : value}</option>)}</select></label>
       <label>位数<select disabled={draft.kind === "steam"} value={draft.digits} onChange={(event) => setDraft({ ...draft, digits: Number(event.target.value) })}>{(draft.kind === "steam" ? [5] : [6, 7, 8]).map((value) => <option key={value}>{value}</option>)}</select></label><label>{draft.kind === "hotp" ? "计数" : "周期（秒）"}<input type={draft.kind === "hotp" ? "text" : "number"} inputMode="numeric" pattern={draft.kind === "hotp" ? "[0-9]{1,20}" : undefined} min={1} max={3600} disabled={draft.kind === "steam"} value={draft.kind === "hotp" ? draft.counter : draft.period} onChange={(event) => setDraft({ ...draft, [draft.kind === "hotp" ? "counter" : "period"]: draft.kind === "hotp" ? event.target.value : Number(event.target.value) })} /></label>

@@ -20,6 +20,11 @@ async function mockNative(page: import("@playwright/test").Page, legacy = false,
         if (command === "authenticator_lock") { locked = true; return null; }
         if (command.startsWith("authenticator_") && locked) throw { kind: "platform-error", code: "authenticator-locked", message: "验证器已锁定，请重新解锁" };
         if (command === "authenticator_list") return items;
+        if (command === "authenticator_reveal_secret") {
+          if ((window as any).failSecretReveal) throw { kind: "platform-error", code: "authenticator-error", message: "验证码不存在" };
+          if ((window as any).deferSecretReveal) return new Promise(resolve => { (window as any).finishSecretReveal = () => resolve("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"); });
+          return "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
+        }
         if (command === "authenticator_codes") return items.filter((item) => args.ids.includes(item.id)).map((item) => ({ id: item.id, current: "287082", next: item.kind === "hotp" ? null : "359152", remaining: 17, period: 30, counter: item.counter }));
         if (command === "authenticator_prepare") return { token: "fixture-stage", format: "Ente 加密 v1", errors: ["第 3 行：OTP 数字参数无效"], items: [{ entry: { ...items[0], id: "incoming-duplicate" }, duplicateId: "fixture-totp", conflict: false }, { entry: { ...items[0], id: "incoming-new", account: "new@example.test" }, duplicateId: null, conflict: false }] };
         if (command === "authenticator_import") return { added: 1, updated: 0, skipped: 1 };
@@ -42,6 +47,47 @@ async function unlock(page: import("@playwright/test").Page) {
   await expect(page.getByLabel("主密码", { exact: true })).toHaveCount(0);
 }
 
+test("saved secret is queried on demand, cleared on timeout, and never saved as an edit", async ({ page }) => {
+  await mockNative(page); await unlock(page);
+  await page.getByRole("button", { name: "编辑 demo@example.test", exact: true }).click();
+  const secret = page.getByLabel("OTP 密钥（留空保留原密钥）", { exact: true });
+  await expect(secret).toHaveValue("");
+  expect(await page.evaluate(() => (window as any).authCalls.filter((call: any) => call.command === "authenticator_reveal_secret").length)).toBe(0);
+  await page.clock.install();
+  await page.getByRole("button", { name: "显示 OTP 密钥", exact: true }).click();
+  await expect(secret).toHaveValue("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ");
+  await expect(secret).toHaveAttribute("readonly", "");
+  await page.clock.fastForward(15_001);
+  await expect(secret).toHaveValue("");
+  await page.getByRole("button", { name: "显示 OTP 密钥", exact: true }).click();
+  await expect(secret).not.toHaveValue("");
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  const calls = await page.evaluate(() => (window as any).authCalls);
+  expect(calls.find((call: any) => call.command === "authenticator_save").args.input.secret).toBe("");
+  expect(calls.filter((call: any) => call.command === "authenticator_reveal_secret").map((call: any) => call.args)).toEqual([{ id: "fixture-totp" }, { id: "fixture-totp" }]);
+});
+
+test("secret reveal clears on background and ignores a response after closing", async ({ page }) => {
+  await mockNative(page); await unlock(page);
+  await page.getByRole("button", { name: "编辑 demo@example.test", exact: true }).click();
+  const secret = page.getByLabel("OTP 密钥（留空保留原密钥）", { exact: true });
+  await page.getByRole("button", { name: "显示 OTP 密钥", exact: true }).click();
+  await expect(secret).not.toHaveValue("");
+  await page.evaluate(() => window.dispatchEvent(new Event("blur")));
+  await expect(secret).toHaveValue("");
+  await page.evaluate(() => { (window as any).deferSecretReveal = true; });
+  await page.getByRole("button", { name: "显示 OTP 密钥", exact: true }).click();
+  await expect(page.getByRole("button", { name: "显示 OTP 密钥", exact: true })).toBeDisabled();
+  await page.getByRole("button", { name: "关闭对话框", exact: true }).click();
+  await page.evaluate(() => (window as any).finishSecretReveal());
+  await page.getByRole("button", { name: "编辑 counter@example.test", exact: true }).click();
+  await expect(secret).toHaveValue("");
+  await page.evaluate(() => { (window as any).deferSecretReveal = false; (window as any).failSecretReveal = true; });
+  await page.getByRole("button", { name: "显示 OTP 密钥", exact: true }).click();
+  await expect(page.getByText("读取已保存密钥失败，请确认密码库已解锁后重试", { exact: true })).toBeVisible();
+  await expect(secret).toHaveValue("");
+});
+
 test("browser uses the local authenticator API", async ({ page }) => {
   await page.route("**/api/**", (route) => route.fulfill({ json: [] }));
   await page.route("**/api/authenticator", route => {
@@ -52,6 +98,23 @@ test("browser uses the local authenticator API", async ({ page }) => {
   await page.getByRole("button", { name: "身份验证器", exact: true }).first().click();
   await expect(page.getByRole("button", { name: "新增", exact: true })).toBeVisible();
   await expect(page.getByLabel("主密码", { exact: true })).toHaveCount(0);
+});
+
+test("browser cannot request a saved secret through the local API", async ({ page }) => {
+  const operations: string[] = [];
+  await page.route("**/api/**", route => route.fulfill({ json: [] }));
+  await page.route("**/api/authenticator", route => {
+    const { op } = route.request().postDataJSON(); operations.push(op);
+    const entry = { id: "fixture-totp", issuer: "Example", account: "demo@example.test", kind: "totp", algorithm: "SHA1", digits: 6, period: 30, counter: "0", group: "", note: "", pinned: false, order: 0 };
+    return route.fulfill({ json: op === "status" ? { initialized: true, unlocked: true, passwordRequired: false } : op === "list" ? [entry] : [] });
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "身份验证器", exact: true }).first().click();
+  await page.getByRole("button", { name: "编辑 demo@example.test", exact: true }).click();
+  await page.getByRole("button", { name: "显示 OTP 密钥", exact: true }).click();
+  await expect(page.getByText("查询已保存密钥仅支持 CloudHub 原生客户端", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("OTP 密钥（留空保留原密钥）", { exact: true })).toHaveValue("");
+  expect(operations).not.toContain("reveal_secret");
 });
 
 test("opens without a master password, copy, HOTP, edit and reopen", async ({ page }) => {
