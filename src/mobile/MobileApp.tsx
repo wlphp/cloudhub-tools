@@ -13,7 +13,7 @@ import type { CertificateSummary } from "../platform/clients/certificates";
 import { SecretField } from "../shared/SecretField";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { useCallback, useEffect, useRef, useState, type Dispatch, type FormEvent, type SetStateAction } from "react";
-import { Activity, CloudDownload, LayoutGrid, ArrowDownToLine, ArrowUpDown, Cloud, Database, File, FileText, Filter, Folder, Globe2, Plus, Power, RefreshCw, RotateCw, Search, Server, ShieldCheck, X, Trash2, Award, Terminal, Pencil, ExternalLink, Monitor, Upload, Info } from "lucide-react";
+import { Activity, CloudDownload, LayoutGrid, ArrowDownToLine, ArrowUpDown, ChevronDown, Cloud, Database, File, FileText, Filter, Folder, Globe2, Plus, Power, RefreshCw, RotateCw, Search, Server, ShieldCheck, X, Trash2, Award, Terminal, Pencil, ExternalLink, Monitor, Upload, Info } from "lucide-react";
 import type { Account, ApiLog, LocalAsset, ManagedHost, PanelConnection, PanelConnectionDraft, TransferAccount } from "../shared/types";
 import packageJson from "../../package.json";
 import { accountsClient, certificatesClient, domainsClient, logsClient, remoteClient, resourcesClient, storageClient } from "../platform/clients";
@@ -104,7 +104,9 @@ export function MobileApp() {
   const [serverSearch, setServerSearch] = useState("");
   const [serverSortAscending, setServerSortAscending] = useState(true);
   const [servers, setServers] = useState<LocalAsset[]>([]);
-  const [serverKind, setServerKind] = useState<"ecs" | "swas">("ecs");
+  const [serverKind, setServerKind] = useState<"all" | "ecs" | "swas">("all");
+  const [serverAccountFilterIds, setServerAccountFilterIds] = useState<number[]>([]);
+  const [serverAccountFilterOpen, setServerAccountFilterOpen] = useState(false);
   const [serverActionConfirmation, setServerActionConfirmation] = useState<{ server: LocalAsset; action: InstanceAction } | null>(null);
   const [domains, setDomains] = useState<LocalAsset[]>([]);
   const [domainSearch, setDomainSearch] = useState("");
@@ -946,7 +948,7 @@ export function MobileApp() {
     };
   }, []);
 
-  const accountFilteredServers = servers.filter((server) => assetAccountFilterId === null || server.account_id === assetAccountFilterId);
+  const accountFilteredServers = servers.filter((server) => serverAccountFilterIds.length === 0 || serverAccountFilterIds.includes(server.account_id));
   const filteredServers = accountFilteredServers.filter((server) => {
     const owner = accountForAsset(server);
     const searchable = [
@@ -961,7 +963,7 @@ export function MobileApp() {
     return searchable.includes(serverSearch.trim().toLocaleLowerCase());
   });
   const unknownServers = servers.filter((server) => accountForAsset(server) === null);
-  const visibleServers = filteredServers.filter((server) => server.resource_type === serverKind).sort((left, right) => {
+  const visibleServers = filteredServers.filter((server) => serverKind === "all" || server.resource_type === serverKind).sort((left, right) => {
     const leftName = payloadText(left.payload, ["instanceName", "InstanceName", "name", "Name", "serverName"]);
     const rightName = payloadText(right.payload, ["instanceName", "InstanceName", "name", "Name", "serverName"]);
     const order = leftName.localeCompare(rightName, "zh-CN", { numeric: true, sensitivity: "base" });
@@ -970,6 +972,8 @@ export function MobileApp() {
   const standardServerCount = filteredServers.filter((server) => server.resource_type === "ecs").length;
   const lightServerCount = filteredServers.filter((server) => server.resource_type === "swas").length;
   const runningServerCount = filteredServers.filter((server) => serverStatusClass(server.payload).includes("is-running")).length;
+  const serverAccountFilterAll = accounts.length > 0 && serverAccountFilterIds.length === accounts.length;
+  const serverAccountFilterLabel = serverAccountFilterIds.length === 0 ? "全部账号" : serverAccountFilterIds.length === 1 ? accounts.find((account) => account.id === serverAccountFilterIds[0])?.account_name || "已选 1 个账号" : `已选 ${serverAccountFilterIds.length} 个账号`;
   const filteredDomains = domains.filter((domain) => {
     if (assetAccountFilterId !== null && domain.account_id !== assetAccountFilterId) return false;
     const owner = accountForAsset(domain);
@@ -1104,14 +1108,16 @@ export function MobileApp() {
           <div className="mobile-page-title"><h1>云服务器</h1></div>
           <div className="mobile-server-overview"><div className="mobile-server-stats" aria-label="服务器统计"><div className="server-stat-total"><span className="mobile-account-stat-icon"><Server size={21} /></span><span className="mobile-account-stat-copy"><strong>{filteredServers.length}</strong><small>服务器</small></span></div><div className="server-stat-running"><span className="mobile-account-stat-icon"><Activity size={21} /></span><span className="mobile-account-stat-copy"><strong>{runningServerCount}</strong><small>运行中</small></span></div></div></div>
           <div className="mobile-security-note"><ShieldCheck size={18} /><span>云服务器数据保存在本机，账号凭据由加密数据库保护。</span></div>
-          {accounts.length > 0 && <div className="mobile-server-tools"><label className="mobile-account-search"><Search size={18} aria-hidden="true" /><input aria-label="搜索云服务器" value={serverSearch} onChange={(event) => setServerSearch(event.currentTarget.value)} placeholder="搜索云厂商 / 服务器名称 / 地域…" /></label><label className="mobile-account-provider-filter"><Filter size={16} aria-hidden="true" /><select aria-label="按云账号筛选服务器" value={assetAccountFilterId ?? ""} onChange={(event) => setAssetAccountFilterId(event.currentTarget.value ? Number(event.currentTarget.value) : null)}><option value="">全部账号</option>{accounts.map((account) => <option key={account.id} value={account.id}>{account.account_name}</option>)}</select></label></div>}
-          {accounts.length > 0 && unknownServers.length > 0 && <button type="button" className="mobile-clean-unknown" disabled={loading || syncing || cleaningUnknownResource !== null} onClick={() => void removeUnknownRecords("servers", "服务器", servers, (server) => accountForAsset(server) === null, (server) => `${server.account_id}:${server.resource_type}:${server.asset_key}`, resourcesClient.removeLocal, setServers)}>{cleaningUnknownResource === "servers" ? "正在移除…" : `移除未知账号服务器（${unknownServers.length}）`}</button>}
           <div className="mobile-server-tabs" role="group" aria-label="筛选服务器类型">
-            <button type="button" aria-pressed={serverKind === "ecs"} className={serverKind === "ecs" ? "active" : ""} onClick={() => setServerKind("ecs")}>普通服务器 <span>{standardServerCount}</span></button>
-            <button type="button" aria-pressed={serverKind === "swas"} className={serverKind === "swas" ? "active" : ""} onClick={() => setServerKind("swas")}>轻量服务器 <span>{lightServerCount}</span></button>
+            <button type="button" aria-pressed={serverKind === "all"} className={serverKind === "all" ? "active" : ""} onClick={() => setServerKind("all")}>全部 <span>({filteredServers.length})</span></button>
+            <button type="button" aria-pressed={serverKind === "ecs"} className={serverKind === "ecs" ? "active" : ""} onClick={() => setServerKind("ecs")}>云服务器 <span>({standardServerCount})</span></button>
+            <button type="button" aria-pressed={serverKind === "swas"} className={serverKind === "swas" ? "active" : ""} onClick={() => setServerKind("swas")}>轻量服务器 <span>({lightServerCount})</span></button>
           </div>
+          {accounts.length > 0 && <div className="mobile-server-tools"><label className="mobile-account-search"><Search size={18} aria-hidden="true" /><input aria-label="搜索云服务器" value={serverSearch} onChange={(event) => setServerSearch(event.currentTarget.value)} placeholder="搜索云厂商 / 服务器名称 / 地域…" /></label><button type="button" className={`mobile-account-filter-toggle${serverAccountFilterOpen ? " is-open" : ""}${serverAccountFilterIds.length ? " has-selection" : ""}`} aria-label="按云账号筛选服务器" aria-expanded={serverAccountFilterOpen} onClick={() => setServerAccountFilterOpen((open) => !open)}><Filter size={16} aria-hidden="true" /><span>{serverAccountFilterLabel}</span><ChevronDown size={15} aria-hidden="true" className="mobile-account-filter-chevron" /></button></div>}
+          {accounts.length > 0 && serverAccountFilterOpen && <div className="mobile-account-filter-card"><label className="mobile-account-filter-head"><input ref={(element) => { if (element) element.indeterminate = serverAccountFilterIds.length > 0 && !serverAccountFilterAll; }} type="checkbox" aria-label="全选账号" checked={serverAccountFilterAll} onChange={() => setServerAccountFilterIds(serverAccountFilterAll ? [] : accounts.map((account) => account.id))} /><span>账号名称</span></label><div className="mobile-account-filter-list">{accounts.map((account) => <label key={account.id} className="mobile-account-filter-row"><input type="checkbox" aria-label={`筛选账号 ${account.account_name}`} checked={serverAccountFilterIds.includes(account.id)} onChange={() => setServerAccountFilterIds((ids) => ids.includes(account.id) ? ids.filter((id) => id !== account.id) : [...ids, account.id])} /><span className="mobile-provider-avatar" data-provider={account.cloud_type} aria-hidden="true">{cloudProvider(account.cloud_type).avatar}</span><span className="mobile-account-filter-name">{account.account_name}</span></label>)}</div></div>}
+          {accounts.length > 0 && unknownServers.length > 0 && <button type="button" className="mobile-clean-unknown" disabled={loading || syncing || cleaningUnknownResource !== null} onClick={() => void removeUnknownRecords("servers", "服务器", servers, (server) => accountForAsset(server) === null, (server) => `${server.account_id}:${server.resource_type}:${server.asset_key}`, resourcesClient.removeLocal, setServers)}>{cleaningUnknownResource === "servers" ? "正在移除…" : `移除未知账号服务器（${unknownServers.length}）`}</button>}
           <div className="mobile-server-list-heading"><h2>云服务器列表 <span>{visibleServers.length}</span></h2><button type="button" className="mobile-account-sort" aria-label={`按名称${serverSortAscending ? "升序" : "降序"}排列`} onClick={() => setServerSortAscending((ascending) => !ascending)}><ArrowUpDown size={16} />{serverSortAscending ? "按名称" : "名称倒序"}</button></div>
-          {accounts.length === 0 ? <div className="mobile-empty"><Cloud size={30} /><strong>先添加云账号</strong><button type="button" className="mobile-primary" onClick={() => setTab("accounts")}>查看账号</button></div> : servers.length === 0 && (loading || syncing) ? <div className="mobile-empty" role="status"><RefreshCw size={30} className="mobile-spin" /><strong>{syncing ? "正在查询云端服务器" : "正在读取本机缓存"}</strong><span>正在查询云端资源，请稍候。</span></div> : visibleServers.length === 0 ? <div className="mobile-empty"><Server size={30} /><strong>{serverSearch ? "没有匹配的服务器" : `暂无${serverKind === "ecs" ? "普通" : "轻量"}服务器`}</strong><span>{serverSearch ? "试试其他关键词或清除搜索条件。" : filteredServers.length ? "切换上方标签查看另一类服务器。" : servers.length && assetAccountFilterId !== null ? "该账号下暂无缓存服务器。" : "点击“拉取云端”同步已接入账号的服务器。"}</span>{(serverSearch || assetAccountFilterId !== null) && <button className="mobile-primary" type="button" onClick={() => { setServerSearch(""); setAssetAccountFilterId(null); }}>清除筛选</button>}</div> : <div className="mobile-server-list">{visibleServers.map((server) => {
+          {accounts.length === 0 ? <div className="mobile-empty"><Cloud size={30} /><strong>先添加云账号</strong><button type="button" className="mobile-primary" onClick={() => setTab("accounts")}>查看账号</button></div> : servers.length === 0 && (loading || syncing) ? <div className="mobile-empty" role="status"><RefreshCw size={30} className="mobile-spin" /><strong>{syncing ? "正在查询云端服务器" : "正在读取本机缓存"}</strong><span>正在查询云端资源，请稍候。</span></div> : visibleServers.length === 0 ? <div className="mobile-empty"><Server size={30} /><strong>{serverSearch ? "没有匹配的服务器" : `暂无${serverKind === "ecs" ? "普通" : serverKind === "swas" ? "轻量" : ""}服务器`}</strong><span>{serverSearch ? "试试其他关键词或清除搜索条件。" : filteredServers.length ? "切换上方标签查看另一类服务器。" : servers.length && serverAccountFilterIds.length > 0 ? "所选账号下暂无缓存服务器。" : "点击“拉取云端”同步已接入账号的服务器。"}</span>{(serverSearch || serverAccountFilterIds.length > 0) && <button className="mobile-primary" type="button" onClick={() => { setServerSearch(""); setServerAccountFilterIds([]); }}>清除筛选</button>}</div> : <div className="mobile-server-list">{visibleServers.map((server) => {
             const key = `${server.account_id}:${server.asset_key}`;
             const busy = activeAction === key;
             const owner = accountForAsset(server);

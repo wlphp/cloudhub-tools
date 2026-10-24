@@ -1139,10 +1139,11 @@ body { background: var(--mobile-bg); color: var(--mobile-text); }
 .mobile-account-swipe-actions { width: 156px; flex: 0 0 156px; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 0 6px; background: var(--mobile-raised); scroll-snap-align: end; }
 .mobile-account-swipe-actions > button { width: 44px; height: 44px; flex: 0 0 44px; padding: 0; }
 .mobile-account-swipe-actions > button:focus-visible { outline: 2px solid var(--mobile-focus); outline-offset: 2px; }
-.mobile-server-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: -5px 0 14px; }
-.mobile-server-tabs button { min-width: 0; min-height: 46px; display: flex; align-items: center; justify-content: center; gap: 7px; padding: 0 8px; border: 1px solid var(--mobile-border); border-radius: 10px; background: var(--mobile-surface); color: var(--mobile-muted); font-size: 13px; font-weight: 600; }
-.mobile-server-tabs button.active { border-color: var(--mobile-accent); background: var(--mobile-raised); color: var(--mobile-accent-strong); }
-.mobile-server-tabs button span { min-width: 20px; padding: 2px 5px; border-radius: 999px; background: var(--mobile-bg); color: inherit; font-size: 11px; line-height: 1.2; }
+.mobile-server-tabs { display: flex; gap: 20px; align-items: center; border-bottom: 1px solid var(--mobile-border); margin: 0 0 10px; padding: 0 4px; }
+.mobile-server-tabs button { position: relative; min-width: 0; min-height: 40px; display: flex; align-items: center; gap: 3px; padding: 0 2px; border: 0; background: transparent; color: var(--mobile-muted); font-size: 14px; font-weight: 600; }
+.mobile-server-tabs button span { min-width: 0; padding: 0; border-radius: 0; background: transparent; color: var(--mobile-subtle); font-size: 12px; font-weight: 500; }
+.mobile-server-tabs button.active { background: transparent; color: var(--mobile-text); }
+.mobile-server-tabs button.active::after { content: ""; position: absolute; right: 0; bottom: -1px; left: 0; height: 2px; border-radius: 999px; background: var(--mobile-accent); }
 .mobile-server-tabs button:focus-visible { outline: 2px solid var(--mobile-focus); outline-offset: 2px; }
 .mobile-account-filter { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 10px; margin: -5px 0 10px; color: var(--mobile-muted); font-size: 12px; }
 .mobile-account-filter select { width: 100%; min-width: 0; min-height: 44px; padding: 0 12px; border: 1px solid var(--mobile-border); border-radius: 10px; background: var(--mobile-surface); color: var(--mobile-text); font: inherit; }
@@ -1571,6 +1572,40 @@ body { background: var(--mobile-bg); color: var(--mobile-text); }
 .mobile-account-provider-filter { gap: 6px; padding-inline: 9px; }
 .mobile-account-provider-filter select { appearance: none; cursor: pointer; }
 .mobile-account-provider-filter option { background: #1d1d1d; color: #e6e6e6; }
+.mobile-account-filter-toggle { display: flex; min-width: 0; min-height: 48px; align-items: center; gap: 7px; padding: 0 12px; border: 1px solid #2e2e2e; border-radius: 12px; background: #1d1d1d; color: #a0a0a0; font-size: 13px; cursor: pointer; }
+.mobile-account-filter-toggle > span { min-width: 0; flex: 1; overflow: hidden; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.mobile-account-filter-toggle > svg:first-child { flex: 0 0 auto; color: #ea580c; }
+.mobile-account-filter-toggle .mobile-account-filter-chevron { flex: 0 0 auto; color: #a0a0a0; transition: transform 0.15s ease; }
+.mobile-account-filter-toggle.is-open .mobile-account-filter-chevron { transform: rotate(180deg); }
+.mobile-account-filter-toggle.has-selection { border-color: #6b3a17; color: #e6e6e6; }
+.mobile-account-filter-card { margin: 0 0 12px; border: 1px solid #2e2e2e; border-radius: 12px; background: #1d1d1d; overflow: hidden; }
+.mobile-account-filter-head { display: flex; align-items: center; gap: 12px; padding: 11px 14px; border-bottom: 1px solid #262626; color: #a0a0a0; font-size: 13px; cursor: pointer; }
+.mobile-account-filter-list { max-height: 300px; overflow-y: auto; }
+.mobile-account-filter-row { display: flex; align-items: center; gap: 12px; padding: 10px 14px; color: #e6e6e6; font-size: 14px; cursor: pointer; }
+.mobile-account-filter-row:active { background: #242424; }
+.mobile-account-filter-row .mobile-account-filter-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mobile-account-filter-card input[type="checkbox"] { appearance: none; width: 18px; height: 18px; flex: 0 0 18px; margin: 0; border: 1.5px solid #404040; border-radius: 5px; background: transparent; display: grid; place-items: center; cursor: pointer; }
+.mobile-account-filter-card input[type="checkbox"]:checked { border-color: #ea580c; background: #ea580c; }
+.mobile-account-filter-card input[type="checkbox"]:checked::before { content: ""; width: 9px; height: 5px; margin-top: -2px; border-left: 2px solid #fff; border-bottom: 2px solid #fff; transform: rotate(-45deg); }
+.mobile-account-filter-card input[type="checkbox"]:indeterminate { border-color: #ea580c; }
+.mobile-account-filter-card input[type="checkbox"]:indeterminate::before { content: ""; width: 9px; height: 2px; background: #ea580c; }
+.mobile-account-filter-card .mobile-provider-avatar { width: 26px; height: 26px; flex-basis: 26px; border: 0; border-radius: 7px; background: linear-gradient(145deg, #236093, #1d416f); color: #fff; font-size: 12px; font-weight: 700; }
+.mobile-account-filter-card .mobile-provider-avatar[data-provider="aliyun"] { background: linear-gradient(145deg, #ff982f, #ed6b22); }
+.mobile-account-filter-card .mobile-provider-avatar[data-provider="tencent"] { background: linear-gradient(145deg, #358cff, #1464e8); }
+.mobile-account-filter-card .mobile-provider-avatar[data-provider="volcengine"] { background: linear-gradient(145deg, #ff783e, #e44732); }
+.mobile-account-filter-card .mobile-provider-avatar[data-provider="oracle"] { background: linear-gradient(145deg, #f45353, #bd2028); }
+.mobile-account-filter-card .mobile-provider-avatar[data-provider="jdcloud"] { background: linear-gradient(145deg, #ff5b62, #e52d3b); }
+.mobile-account-filter-card .mobile-provider-avatar[data-provider="vultr"] { background: linear-gradient(145deg, #4a9bff, #3166e9); }
+.mobile-account-filter-card .mobile-provider-avatar[data-provider="aws"] { background: linear-gradient(145deg, #e9ad33, #d97716); }
+.mobile-account-filter-card .mobile-provider-avatar[data-provider="gcp"] { background: linear-gradient(145deg, #4285f4, #3274d9); }
+.mobile-account-filter-card .mobile-provider-avatar[data-provider="azure"] { background: linear-gradient(145deg, #2497fb, #096bd7); }
+.mobile-account-filter-card .mobile-provider-avatar[data-provider="huawei"] { background: linear-gradient(145deg, #fa5252, #c72e3b); }
+.mobile-account-filter-card .mobile-provider-avatar[data-provider="baidu"] { background: linear-gradient(145deg, #4a91ff, #2864d8); }
+.mobile-account-filter-card .mobile-provider-avatar[data-provider="ctyun"] { background: linear-gradient(145deg, #4f9dff, #2d65d2); }
+.mobile-account-filter-card .mobile-provider-avatar[data-provider="ucloud"] { background: linear-gradient(145deg, #37a9ff, #2675df); }
+.mobile-account-filter-card .mobile-provider-avatar[data-provider="qiniu"] { background: linear-gradient(145deg, #30b9ac, #168b85); }
+.mobile-account-filter-card .mobile-provider-avatar[data-provider="qingcloud"] { background: linear-gradient(145deg, #6b8fff, #4d63dc); }
+.mobile-account-filter-card .mobile-provider-avatar[data-provider="ksyun"] { background: linear-gradient(145deg, #38a8df, #2376bd); }
 .mobile-account-list-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 1px 2px; }
 .mobile-account-list-heading h2 { margin: 0; color: var(--mobile-text); font-size: 16px; font-weight: 680; }
 .mobile-account-list-heading h2 span { margin-left: 5px; color: var(--mobile-muted); font-size: 12px; font-weight: 550; }
@@ -1722,7 +1757,8 @@ body { background: var(--mobile-bg); color: var(--mobile-text); }
 .mobile-server-stats .mobile-account-stat-copy small { color: #e6e6e6; font-size: 10px; }
 .mobile-server-tools { display: grid; grid-template-columns: minmax(0, 1fr) minmax(106px, 34%); gap: 8px; margin: 0 0 13px; }
 .mobile-server-tools .mobile-account-search,
-.mobile-server-tools .mobile-account-provider-filter { min-height: 46px; }
+.mobile-server-tools .mobile-account-provider-filter,
+.mobile-server-tools .mobile-account-filter-toggle { min-height: 46px; }
 .mobile-server-tabs { margin: 0 0 8px; }
 .mobile-server-list-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 1px 2px; }
 .mobile-server-list-heading h2 { margin: 0; color: var(--mobile-text); font-size: 16px; font-weight: 680; }
@@ -1957,8 +1993,10 @@ body { background: var(--mobile-bg); color: var(--mobile-text); }
 .mobile-resource-tools { gap: 8px; margin-bottom: 8px; }
 .mobile-account-search,
 .mobile-account-provider-filter,
+.mobile-account-filter-toggle,
 .mobile-server-tools .mobile-account-search,
 .mobile-server-tools .mobile-account-provider-filter,
+.mobile-server-tools .mobile-account-filter-toggle,
 .mobile-domain-tools .mobile-account-search,
 .mobile-domain-tools .mobile-account-provider-filter { min-height: 34px; border-radius: 6px; }
 .mobile-account-search input,
@@ -2213,6 +2251,8 @@ body { background: var(--mobile-bg); color: var(--mobile-text); }
 .mobile-server-tools,
 .mobile-domain-tools,
 .mobile-resource-tools.has-filter { grid-template-columns: minmax(0, 1fr) minmax(88px, 27%); }
+.mobile-server-tools,
+.mobile-server-tools.has-filter { grid-template-columns: minmax(0, 1fr) minmax(112px, 33%); }
 .mobile-account-tools:focus-within,
 .mobile-server-tools:focus-within,
 .mobile-domain-tools:focus-within,
@@ -2228,7 +2268,10 @@ body { background: var(--mobile-bg); color: var(--mobile-text); }
 .mobile-account-tools .mobile-account-provider-filter,
 .mobile-server-tools .mobile-account-provider-filter,
 .mobile-domain-tools .mobile-account-provider-filter,
-.mobile-resource-tools .mobile-account-provider-filter { position: relative; background: #1d1d1d; }
+.mobile-resource-tools .mobile-account-provider-filter,
+.mobile-server-tools .mobile-account-filter-toggle { position: relative; background: #1d1d1d; }
+.mobile-server-tools .mobile-account-filter-toggle { min-height: 32px; padding: 0 8px; gap: 6px; border: 0; border-radius: 6px; box-shadow: none; font-size: 13px; }
+.mobile-server-tools .mobile-account-filter-toggle svg { width: 14px; height: 14px; }
 .mobile-account-search svg,
 .mobile-account-provider-filter svg,
 .mobile-more-search svg { width: 14px; height: 14px; color: #a0a0a0; }
