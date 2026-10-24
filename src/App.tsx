@@ -159,7 +159,7 @@ import {
   supportsResourceSync as accountSupportsResourceSync,
   syncAssetTypes as getSyncAssetTypes,
 } from "./features/cloud/catalog";
-import { CloudAvatar, ProviderLogo, hasProviderLogo } from "./features/cloud/ProviderLogo";
+import { CloudAvatar } from "./features/cloud/ProviderLogo";
 import { DnsEditorDialog } from "./features/domains/DnsEditorDialog";
 import { DnsHostLink } from "./features/domains/DnsHostLink";
 import { TerminalAuditStore, type TerminalRecording } from "./features/servers/terminalAudit";
@@ -227,6 +227,10 @@ const accountResourceActionLabels: Record<AccountResourceType, string> = {
 
 function cloudProvider(value: string) {
   return getCloudProvider(value);
+}
+
+function maskAccessKeyId(accessKeyId: string) {
+  return accessKeyId.length > 10 ? `${accessKeyId.slice(0, 6)}****${accessKeyId.slice(-4)}` : accessKeyId || "-";
 }
 
 function supportsResourceSync(account: Account) {
@@ -351,7 +355,9 @@ function App() {
   >("account_name");
   const [groupFilter, setGroupFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("1");
-  const [cloudFilter, setCloudFilter] = useState("");
+  const [cloudFilterTypes, setCloudFilterTypes] = useState<string[]>([]);
+  const [providerFilterOpen, setProviderFilterOpen] = useState(false);
+  const [providerFilterPosition, setProviderFilterPosition] = useState<{ top: number; left: number } | null>(null);
   const [domainKeyword, setDomainKeyword] = useState("");
   const [domainKeywordDraft, setDomainKeywordDraft] = useState("");
   const [domainSearchLoading, setDomainSearchLoading] = useState(false);
@@ -2758,7 +2764,29 @@ function App() {
       return next.size === current.size ? current : next;
     });
   }, [accounts]);
-  useEffect(() => { setAccountPage(1); }, [keyword, filterField, groupFilter, statusFilter, cloudFilter]);
+  useEffect(() => { setAccountPage(1); }, [keyword, filterField, groupFilter, statusFilter, cloudFilterTypes]);
+  useEffect(() => {
+    if (!providerFilterOpen) return;
+    const close = (event: globalThis.MouseEvent) => {
+      const target = event.target as HTMLElement;
+      if (!target.closest(".provider-filter-wrap")) {
+        setProviderFilterOpen(false);
+        setProviderFilterPosition(null);
+      }
+    };
+    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setProviderFilterOpen(false);
+        setProviderFilterPosition(null);
+      }
+    };
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [providerFilterOpen]);
   useEffect(() => {
     if(!runningInTauri || isDetachedTerminalWindow) return;
     const subscription=listen<{section:string;key:string|null}>("pet-open-section",event=>{
@@ -2934,12 +2962,37 @@ function App() {
     [resources],
   );
   const visibleAccounts = useMemo(
-    () => filterAccounts(accounts, { keyword, field: filterField, group: groupFilter, status: statusFilter, cloudType: cloudFilter }),
-    [accounts, keyword, filterField, groupFilter, statusFilter, cloudFilter],
+    () => filterAccounts(accounts, { keyword, field: filterField, group: groupFilter, status: statusFilter, cloudTypes: cloudFilterTypes }),
+    [accounts, keyword, filterField, groupFilter, statusFilter, cloudFilterTypes],
   );
   const pagedAccounts = visibleAccounts.slice((accountPage - 1) * pageSize, accountPage * pageSize);
   const pagedAccountIds = pagedAccounts.map((account) => account.id);
   const allPagedAccountsSelected = pagedAccountIds.length > 0 && pagedAccountIds.every((id) => selectedAccountIds.has(id));
+  const providerFilterOptions = useMemo<{ value: string; label: string; count: number }[]>(() => {
+    const counts = new Map<string, number>();
+    for (const account of accounts) counts.set(account.cloud_type, (counts.get(account.cloud_type) || 0) + 1);
+    const options: { value: string; label: string; count: number }[] = catalogCloudProviders
+      .filter((provider) => counts.has(provider.value))
+      .map((provider) => ({ value: provider.value, label: provider.label, count: counts.get(provider.value) || 0 }));
+    if (counts.has("other")) options.push({ value: "other", label: "未接入云（历史账号）", count: counts.get("other") || 0 });
+    return options;
+  }, [accounts]);
+  const providerFilterAll = providerFilterOptions.length > 0 && cloudFilterTypes.length === providerFilterOptions.length;
+  const providerFilterLabel = cloudFilterTypes.length === 0
+    ? "全部"
+    : cloudFilterTypes.length === 1
+      ? (providerFilterOptions.find((option) => option.value === cloudFilterTypes[0])?.label ?? "已选 1 类")
+      : `已选 ${cloudFilterTypes.length} 类`;
+  function toggleProviderFilterOpen(event: MouseEvent<HTMLButtonElement>) {
+    if (providerFilterOpen) {
+      setProviderFilterOpen(false);
+      setProviderFilterPosition(null);
+      return;
+    }
+    const rect = event.currentTarget.getBoundingClientRect();
+    setProviderFilterPosition({ top: rect.bottom + 6, left: Math.max(8, Math.min(rect.left, window.innerWidth - 272)) });
+    setProviderFilterOpen(true);
+  }
   function toggleAccountSelection(id: number) {
     setSelectedAccountIds((current) => {
       const next = new Set(current);
@@ -3979,16 +4032,52 @@ function App() {
               <option value="all">全部</option>
             </select>
             <label>云类型：</label>
-            <select
-              className="account-cloud-filter"
-              aria-label="按云类型筛选"
-              value={cloudFilter}
-              onChange={(e) => setCloudFilter(e.target.value)}
-            >
-              <option value="">全部</option>
-              {cloudProviders.map((provider) => <option key={provider.value} value={provider.value}>{provider.label}</option>)}
-              {accounts.some((account) => account.cloud_type === "other") && <option value="other">未接入云（历史账号）</option>}
-            </select>
+            <div className="provider-filter-wrap">
+              <button
+                type="button"
+                className={`account-provider-filter-toggle${providerFilterOpen ? " is-open" : ""}${cloudFilterTypes.length ? " has-selection" : ""}`}
+                aria-label="按云类型筛选"
+                aria-expanded={providerFilterOpen}
+                onClick={toggleProviderFilterOpen}
+              >
+                <span>{providerFilterLabel}</span>
+                <ChevronDown size={14} aria-hidden="true" />
+              </button>
+              {providerFilterOpen && (
+                <div
+                  className="account-provider-filter-menu"
+                  role="group"
+                  aria-label="按云类型筛选账号"
+                  style={providerFilterPosition ? { position: "fixed", top: providerFilterPosition.top, left: providerFilterPosition.left, right: "auto" } : undefined}
+                >
+                  <label className="account-provider-filter-head">
+                    <input
+                      ref={(element) => { if (element) element.indeterminate = cloudFilterTypes.length > 0 && !providerFilterAll; }}
+                      type="checkbox"
+                      aria-label="全选云类型"
+                      checked={providerFilterAll}
+                      onChange={() => setCloudFilterTypes(providerFilterAll ? [] : providerFilterOptions.map((option) => option.value))}
+                    />
+                    <span>云类型</span>
+                  </label>
+                  <div className="account-provider-filter-list">
+                    {providerFilterOptions.map((option) => (
+                      <label key={option.value} className="account-provider-filter-row">
+                        <input
+                          type="checkbox"
+                          aria-label={`筛选云类型 ${option.label}`}
+                          checked={cloudFilterTypes.includes(option.value)}
+                          onChange={() => setCloudFilterTypes((types) => types.includes(option.value) ? types.filter((type) => type !== option.value) : [...types, option.value])}
+                        />
+                        <CloudAvatar cloudType={option.value} />
+                        <span className="account-provider-filter-name">{option.label}</span>
+                        <small>{option.count}</small>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
             <button
               type="button"
               className="layui-btn layui-btn-search account-search-button"
@@ -4066,8 +4155,7 @@ function App() {
                 <thead>
                   <tr>
                     <th className="account-select"><input aria-label="全选当前页账号" type="checkbox" checked={allPagedAccountsSelected} onChange={togglePagedAccountSelection} /></th>
-                    <th>云类型 / AccessKeyId</th>
-                    <th>账号名称 / 添加时间</th>
+                    <th>账号</th>
                     <th>分组</th>
                     <th>备注</th>
                     <th>状态</th>
@@ -4083,24 +4171,17 @@ function App() {
                     return <tr key={account.id}>
                       <td className="account-select"><input aria-label={`选择账号 ${account.account_name}`} type="checkbox" checked={selectedAccountIds.has(account.id)} onChange={() => toggleAccountSelection(account.id)} /></td>
                       <td>
-                        <div className="account-cloud-credential">
-                          <span className={`cloud-type cloud-type-text ${account.cloud_type}${hasProviderLogo(account.cloud_type) ? " has-logo" : ""}`}>
-                            <ProviderLogo cloudType={account.cloud_type} className={`cloud-type-logo ${account.cloud_type}`} />
-                            {cloudProvider(account.cloud_type).label}
-                          </span>
-                          <code>
-                            {account.access_key_id.length > 10
-                              ? `${account.access_key_id.slice(0, 6)}****${account.access_key_id.slice(-4)}`
-                              : account.access_key_id}
-                          </code>
-                        </div>
-                      </td>
-                      <td>
                         <div className="account-name">
                           <CloudAvatar cloudType={account.cloud_type} />
-                          <div>
+                          <div className="account-name-copy">
                             <strong>{account.account_name}</strong>
-                            <small>{new Date(account.created_at).toLocaleString("zh-CN")}</small>
+                            <small className="account-name-meta">
+                              <span>{cloudProvider(account.cloud_type).label}</span>
+                              <span aria-hidden="true">·</span>
+                              <code>{maskAccessKeyId(account.access_key_id)}</code>
+                              <span aria-hidden="true">·</span>
+                              <span>{new Date(account.created_at).toLocaleString("zh-CN")}</span>
+                            </small>
                           </div>
                         </div>
                       </td>

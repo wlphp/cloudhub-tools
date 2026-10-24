@@ -9,7 +9,7 @@ export function filterAccounts(
     field: AccountFilterField;
     group: string;
     status: string;
-    cloudType: string;
+    cloudTypes: string[];
   },
 ): Account[] {
   const keyword = options.keyword.trim().toLowerCase();
@@ -18,7 +18,7 @@ export function filterAccounts(
     const matchesKeyword = !keyword || source.toLowerCase().includes(keyword);
     const matchesGroup = !options.group || (account.group_name || "") === options.group;
     const matchesStatus = options.status === "all" || (options.status === "1" ? account.enabled : !account.enabled);
-    const matchesCloud = !options.cloudType || account.cloud_type === options.cloudType;
+    const matchesCloud = options.cloudTypes.length === 0 || options.cloudTypes.includes(account.cloud_type);
     return matchesKeyword && matchesGroup && matchesStatus && matchesCloud;
   });
 }
