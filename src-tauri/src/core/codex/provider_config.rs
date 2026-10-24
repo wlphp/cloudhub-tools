@@ -78,13 +78,6 @@ fn managed_preview_with(conn:&Connection,home:&Path,decrypt:impl Fn(&str)->Resul
     result.applied=applied;result.recovery_pending=recovery_pending;Ok(result)
 }
 
-pub fn assert_managed_current(conn:&Connection,home:&Path)->Result<(),String> {
-    if let Some(row)=backup_row(conn,home)? {
-        if preview(conn,home)?.version!=format!("{}:{}",row.config,row.auth) {return Err("目标配置已被外部修改，请重新预览，未启动".into());}
-    }
-    Ok(())
-}
-
 fn backup_row(conn:&Connection,home:&Path)->Result<Option<BackupRow>,String> {
     conn.query_row("SELECT content_ciphertext,installed_config,installed_auth FROM codex_provider_config_backups WHERE home=?1",[home.to_string_lossy().as_ref()],|r|Ok(BackupRow{cipher:r.get(0)?,config:r.get(1)?,auth:r.get(2)?})).optional().map_err(|_| "读取供应商备份失败".into())
 }
@@ -288,7 +281,6 @@ fn begin_switch_with(conn:&Connection,home:&Path,version:&str,config:&str,auth:&
     let mut original=if let Some(row)=&backup {
         let original=decode_snapshot(&row.cipher,&decrypt)?;
         if original.pending.is_some() {return Err("上次切换未完成，请先恢复配置与登录".into());}
-        if version!=format!("{}:{}",row.config,row.auth) {return Err("目标配置已被外部修改，未切换".into());}
         original
     } else {snapshot(home)?};
     let prior=snapshot(home)?;
@@ -369,13 +361,10 @@ pub fn restore(conn:&Connection,home:&Path)->Result<(),String> {
     Ok(())
 }
 
+/// 恢复总是以首次切换前的加密备份覆盖当前文件；期间的外部修改（包括官方客户端
+/// 重写配置）不做保留。凭据轮换由 `provider_oauth::sync` 在恢复前并入备份。
 pub fn restore_files(conn:&Connection,home:&Path)->Result<(),String> {
     restore_decrypted(conn,home,decrypt_secret)
-}
-
-/// 强制恢复：忽略目标配置被外部修改的事实，用加密备份覆盖当前文件。
-pub fn restore_files_forced(conn:&Connection,home:&Path)->Result<(),String> {
-    restore_decrypted_with(conn,home,decrypt_secret,true)
 }
 
 pub fn original_auth_restored(conn:&Connection,home:&Path)->Result<bool,String> {
@@ -407,53 +396,13 @@ pub(super) fn record_oauth_rotation_encrypted(conn:&Connection,home:&Path,previo
     Ok(())
 }
 fn restore_decrypted(conn:&Connection,home:&Path,decrypt:impl Fn(&str)->Result<String,String>)->Result<(),String> {
-    restore_decrypted_with(conn,home,decrypt,false)
-}
-/// Accept either half of an interrupted install/restore, but never an external edit.
-fn config_edit_check(home:&Path,installed:&str,snapshot_config:Option<&str>)->Result<(),String> {
-    let current=config_fingerprint(read_optional(home,"config.toml")?.as_deref().map(|s|s.as_str()));
-    if current!=installed && current!=config_fingerprint(snapshot_config) {return Err("目标配置已被外部修改，未恢复".into());}
-    Ok(())
-}
-fn restore_decrypted_with(conn:&Connection,home:&Path,decrypt:impl Fn(&str)->Result<String,String>,force:bool)->Result<(),String> {
-    let row:Option<(String,String,String)>=conn.query_row("SELECT content_ciphertext,installed_config,installed_auth FROM codex_provider_config_backups WHERE home=?1",[home.to_string_lossy().as_ref()],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional().map_err(|_| "读取供应商备份失败")?;
-    let (cipher,config,auth)=row.ok_or("没有供应商配置备份")?;
+    let cipher:String=conn.query_row("SELECT content_ciphertext FROM codex_provider_config_backups WHERE home=?1",[home.to_string_lossy().as_ref()],|r|r.get(0)).optional().map_err(|_| "读取供应商备份失败")?.ok_or("没有供应商配置备份")?;
     let text=Zeroizing::new(decrypt(&cipher).map_err(|_| "解密供应商备份失败")?);
     let snapshot:Snapshot=serde_json::from_str(&text).map_err(|_| "供应商备份损坏")?;
-    if !force {
-        // A forced restore is an explicit user decision to drop such an edit.
-        check_snapshot_config(home,&config,&snapshot)?;
-        let current=fingerprints(home)?;
-        let old=profile::fingerprint(snapshot.auth.as_deref());
-        let prior=snapshot.pending.as_ref().map(|p|profile::fingerprint(p.prior.auth.as_deref()));
-        if current.1!=auth && current.1!=old && prior.as_ref()!=Some(&current.1) {return Err("目标配置已被外部修改，未恢复".into());}
-    }
     write_optional(home,"config.toml",snapshot.config.as_deref())?;
     write_optional(home,"auth.json",snapshot.auth.as_deref())?;
     restore_catalog(home,snapshot.catalog.as_ref())?;
     Ok(())
-}
-
-/// 恢复前的只读校验：**仅**确认 config.toml 没有被外部改动，不涉及 auth.json。
-/// OAuth 续期会改写备份快照中的认证内容，认证一侧由续期与恢复各自的严格校验把关。
-/// 恢复流程必须先跑完这个校验再做任何写操作，否则校验失败后仍会改动其它状态。
-pub fn assert_config_restorable(conn:&Connection,home:&Path)->Result<(),String> {
-    assert_config_restorable_with(conn,home,decrypt_secret)
-}
-fn assert_config_restorable_with(conn:&Connection,home:&Path,decrypt:impl Fn(&str)->Result<String,String>)->Result<(),String> {
-    let row:Option<(String,String)>=conn.query_row("SELECT content_ciphertext,installed_config FROM codex_provider_config_backups WHERE home=?1",[home.to_string_lossy().as_ref()],|r|Ok((r.get(0)?,r.get(1)?))).optional().map_err(|_| "读取供应商备份失败")?;
-    let (cipher,config)=row.ok_or("没有供应商配置备份")?;
-    let text=Zeroizing::new(decrypt(&cipher).map_err(|_| "解密供应商备份失败")?);
-    let snapshot:Snapshot=serde_json::from_str(&text).map_err(|_| "供应商备份损坏")?;
-    check_snapshot_config(home,&config,&snapshot)
-}
-
-fn check_snapshot_config(home:&Path,installed:&str,snapshot:&Snapshot)->Result<(),String> {
-    if let Some(pending)=&snapshot.pending {
-        let current=fingerprints(home)?.0;
-        if current==config_fingerprint(pending.prior.config.as_deref()) {return Ok(());}
-    }
-    config_edit_check(home,installed,snapshot.config.as_deref())
 }
 
 #[cfg(test)]
@@ -487,7 +436,6 @@ mod tests {
         begin_switch_with(&db,&temp.path,&a_version,b,"{\"fixture\":true}",test_selection("b"),decrypt,encrypt).unwrap();
         profile::write_private(&temp.path.join("config.toml"),b).unwrap();
         assert!(begin_switch_with(&db,&temp.path,&preview(&db,&temp.path).unwrap().version,b,"{}",test_selection("b"),decrypt,encrypt).is_err());
-        assert_config_restorable_with(&db,&temp.path,decrypt).unwrap();
         restore_decrypted(&db,&temp.path,decrypt).unwrap();
         assert_eq!(preview(&db,&temp.path).unwrap().version,original);
     }
@@ -500,11 +448,11 @@ mod tests {
         let before=preview(&db,&temp.path).unwrap().version;
         let recovery=begin_switch_with(&db,&temp.path,&before,"model = 'a'","{}",test_selection("a"),decrypt,encrypt).unwrap();
         profile::write_private(&temp.path.join("config.toml"),"model = 'external'").unwrap();
+        // 回滚是故障路径的自动补偿，仍拒绝覆盖外部编辑。
         assert!(rollback_switch(&db,&temp.path,&recovery).is_err());
-        assert!(assert_managed_current(&db,&temp.path).is_err());
         let state=managed_preview_with(&db,&temp.path,decrypt).unwrap();assert!(state.recovery_pending);assert!(state.applied.is_none());
-        assert!(assert_config_restorable_with(&db,&temp.path,decrypt).is_err());
-        restore_decrypted_with(&db,&temp.path,decrypt,true).unwrap();
+        // 显式恢复由用户发起，直接以首次切换前的备份覆盖外部编辑。
+        restore_decrypted(&db,&temp.path,decrypt).unwrap();
         assert_eq!(preview(&db,&temp.path).unwrap().version,before);
     }
     #[test]
@@ -660,7 +608,7 @@ mod tests {
         }
     }
     #[test]
-    fn encrypted_recovery_handles_conflicts_and_partial_restores() {
+    fn encrypted_recovery_restores_repeatedly_and_overwrites_external_edits() {
         let temp=profile::TemporaryProfile::new("{}").unwrap();
         let db=Connection::open_in_memory().unwrap(); db.execute_batch(crate::core::database::CODEX_PROVIDER_BACKUPS_SCHEMA).unwrap();
         profile::write_private(&temp.path.join("config.toml"),"model = \"old\"\n").unwrap();
@@ -671,8 +619,6 @@ mod tests {
         install_encrypted(&db,&temp.path,&previous.version,"model = \"new\"\n","{}",encrypt).unwrap();
         let cipher:String=db.query_row("SELECT content_ciphertext FROM codex_provider_config_backups",[],|r|r.get(0)).unwrap(); assert!(!cipher.contains("old"));
         profile::write_private(&temp.path.join("config.toml"),"model = \"external\"\n").unwrap();
-        assert!(restore_decrypted(&db,&temp.path,decrypt).is_err());
-        profile::write_private(&temp.path.join("config.toml"),"model = \"old\"\n").unwrap();
         restore_decrypted(&db,&temp.path,decrypt).unwrap();
         assert_eq!(preview(&db,&temp.path).unwrap().version,previous.version);
         restore_decrypted(&db,&temp.path,decrypt).unwrap();
@@ -770,7 +716,7 @@ mod tests {
         assert!(temp.path.join(CATALOG_FILE).exists());
     }
     #[test]
-    fn restorable_check_rejects_external_edits_before_any_write() {
+    fn restore_overwrites_external_edits_with_the_backup() {
         let temp=profile::TemporaryProfile::new("{}").unwrap();
         let original=profile::read_auth(&temp.path.join("config.toml")).unwrap().to_string();
         let db=Connection::open_in_memory().unwrap();
@@ -779,16 +725,11 @@ mod tests {
         let encrypt=|v:&str|crate::core::crypto::encrypt_secret_with_key(v,&[23;32]);
         let decrypt=|v:&str|crate::core::crypto::decrypt_secret_with_key(v,&[23;32]);
         install_encrypted(&db,&temp.path,&before.version,"model = \"provider\"\n","{}",encrypt).unwrap();
-        assert!(assert_config_restorable_with(&db,&temp.path,decrypt).is_ok());
         profile::write_private(&temp.path.join("config.toml"),"model = \"external\"\n").unwrap();
-        assert_eq!(assert_config_restorable_with(&db,&temp.path,decrypt).unwrap_err(),"目标配置已被外部修改，未恢复");
-        // 校验失败不得改写任何文件，外部编辑保持原样。
-        assert!(profile::read_auth(&temp.path.join("config.toml")).unwrap().as_str()=="model = \"external\"\n");
-        assert!(restore_decrypted(&db,&temp.path,decrypt).is_err());
-        assert!(profile::read_auth(&temp.path.join("config.toml")).unwrap().as_str()=="model = \"external\"\n");
-        // 强制恢复是用户显式决定，仍然覆盖外部编辑。
-        restore_decrypted_with(&db,&temp.path,decrypt,true).unwrap();
+        // 恢复以首次切换前的备份为准，外部编辑不保留。
+        restore_decrypted(&db,&temp.path,decrypt).unwrap();
         assert!(profile::read_auth(&temp.path.join("config.toml")).unwrap().as_str()==original.as_str());
+        assert_eq!(preview(&db,&temp.path).unwrap().version,before.version);
     }
     #[test]
     fn catalog_key_ignores_multiline_strings_and_table_scoped_keys() {

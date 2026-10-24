@@ -115,19 +115,8 @@ export function ProviderLaunchDialog({ target: launchTarget, switchEnabled, onEn
     catch (e) { if (alive.current) setError(`启动失败，当前配置已保留：${e instanceof Error ? e.message : "未知启动错误"}；可重试启动或恢复配置与登录`); }
     finally { pending.current = false; if (alive.current) { setBusy(false); setPhase(""); } }
   }
-  // 目标配置被外部改动时，普通恢复会拒绝覆盖；用户可显式选择强制恢复。
-  async function forceRestore() {
-    if (pending.current || loading) return;
-    pending.current = true; setBusy(true); setError(""); setNotice(""); setPhase("正在强制恢复原配置与登录…");
-    try {
-      const current = await codexProviders.restore(target || null, true);
-      if (!alive.current) return;
-      setPreview(current);
-      setNotice("已强制恢复应用前的配置与登录，外部修改已被覆盖");
-    } catch (e) {
-      if (alive.current) setError(e instanceof Error ? e.message : "强制恢复失败");
-    } finally { pending.current = false; if (alive.current) { setBusy(false); setPhase(""); } }
-  }
+  // 供应商切换失败回滚被外部修改阻断时，提供一键恢复入口；恢复总是以备份覆盖当前配置。
+  const restoreBlocked = error.includes("外部修改");
   const disabled = busy || loading || !preview;
   const applyLabel = configured ? "已切换" : !switchEnabled ? "启用并切换" : "切换";
   const launchLabel = configured ? "启动 Codex" : !switchEnabled ? "启用、切换并启动" : "切换并启动";
@@ -187,7 +176,7 @@ export function ProviderLaunchDialog({ target: launchTarget, switchEnabled, onEn
           <p><strong>恢复：</strong>“恢复配置与登录”会使用首次切换前的加密备份回退，避免误操作后丢失原有配置。</p>
         </div>
       </details>
-      {phase && <p role="status">{phase}</p>}{notice && <p role="status">{notice}</p>}{error && <div className="codex-provider-launch-error"><p role="alert" className="codex-card-error">{error}</p>{error.includes("外部修改") && <button type="button" disabled={busy || loading} onClick={() => void forceRestore()}>强制恢复</button>}<button type="button" disabled={busy || loading} onClick={() => { setPreview(null); setLoading(true); setPreviewRevision(value => value + 1); }}>刷新预览</button></div>}
+      {phase && <p role="status">{phase}</p>}{notice && <p role="status">{notice}</p>}{error && <div className="codex-provider-launch-error"><p role="alert" className="codex-card-error">{error}</p>{restoreBlocked && <button type="button" disabled={busy || loading} onClick={() => void execute(true)}>恢复配置与登录</button>}<button type="button" disabled={busy || loading} onClick={() => { setPreview(null); setLoading(true); setPreviewRevision(value => value + 1); }}>刷新预览</button></div>}
     </div>
   </OverviewDialog>;
 }

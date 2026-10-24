@@ -347,23 +347,22 @@ pub(crate) async fn codex_provider_apply(app:tauri::AppHandle,id:Option<String>,
 }
 
 #[tauri::command]
-pub(crate) async fn codex_provider_restore(app:tauri::AppHandle,id:Option<String>,force:Option<bool>)->PlatformResult<ConfigPreview> {
+pub(crate) async fn codex_provider_restore(app:tauri::AppHandle,id:Option<String>)->PlatformResult<ConfigPreview> {
     tauri::async_runtime::spawn_blocking(move || -> Result<ConfigPreview,String> {
         let _writer=super::codex::AUTH_WRITER.lock().map_err(|_| "Codex 账号操作不可用")?;
         let store=app.state::<super::codex_runtime::CodexRuntimeStore>();
         let home=super::codex_instances::config_home(&store,id.as_deref(),true)?;
-        restore_target(&store, &home, id.as_deref(), force.unwrap_or(false))
+        restore_target(&store, &home, id.as_deref())
     }).await.map_err(|_| "恢复供应商配置任务失败")?.map_err(Into::into)
 }
 
 // Caller holds AUTH_WRITER and has verified that the target is stopped.
-fn restore_target(store:&super::codex_runtime::CodexRuntimeStore,home:&std::path::Path,id:Option<&str>,force:bool)->Result<ConfigPreview,String> {
+fn restore_target(store:&super::codex_runtime::CodexRuntimeStore,home:&std::path::Path,id:Option<&str>)->Result<ConfigPreview,String> {
         let mut conn=open_db()?;
-        // 外部修改检查必须先于任何写操作。OAuth 续期会改写备份里的认证快照，
-        // 因此这里只校验 config.toml，认证一侧由续期与恢复各自的严格校验把关。
-        if !force {provider_config::assert_config_restorable(&conn,&home)?;}
+        // 恢复总是以首次切换前的加密备份覆盖当前配置，外部修改不做保留。
+        // OAuth 续期会改写备份里的认证快照，恢复前先同步，避免恢复到过期登录。
         if !provider_config::managed_preview(&conn,&home)?.recovery_pending && !provider_config::original_auth_restored(&conn,&home)? {crate::core::codex::provider_oauth::sync(&home)?;}
-        if force {provider_config::restore_files_forced(&conn,&home)?;} else {provider_config::restore_files(&conn,&home)?;}
+        provider_config::restore_files(&conn,&home)?;
         let tx=conn.transaction().map_err(|_| "恢复实例账号失败")?;
         if let Some(id)=&id {
             let old:Option<i64>=tx.query_row("SELECT previous_account_id FROM codex_provider_bindings WHERE home=?1",[home.to_string_lossy().as_ref()],|r|r.get(0)).optional().map_err(|_| "读取供应商绑定失败")?.flatten();
@@ -384,7 +383,7 @@ fn restore_target(store:&super::codex_runtime::CodexRuntimeStore,home:&std::path
 pub(crate) fn restore_before_account_switch(store:&super::codex_runtime::CodexRuntimeStore,id:Option<&str>)->Result<(),String> {
     let home=super::codex_instances::config_home(store,id,true)?;
     if provider_config::managed_preview(&open_db()?,&home)?.has_backup {
-        restore_target(store,&home,id,false)?;
+        restore_target(store,&home,id)?;
     }
     Ok(())
 }
@@ -395,9 +394,7 @@ pub(crate) fn ensure_gateway(store:&super::codex_runtime::CodexRuntimeStore,home
     let preview=provider_config::managed_preview(&conn,home)?;
     if preview.recovery_pending {return Err("上次供应商切换未完成，请先恢复配置与登录".into());}
     if preview.has_backup {
-        provider_config::assert_config_restorable(&conn,home)?;
         crate::core::codex::provider_oauth::sync(home)?;
-        provider_config::assert_managed_current(&conn,home)?;
     }
     let row:Option<(u16,String,String,String,String)>=conn.query_row("SELECT port,key_ciphertext,provider_id,key_id,models_json FROM codex_provider_gateways WHERE home=?1",[home.to_string_lossy().as_ref()],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?))).optional().map_err(|_| "读取供应商网关设置失败")?;
     let Some((port,cipher,provider_id,key_id,models))=row else{return Ok(());};

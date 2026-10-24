@@ -65,7 +65,7 @@ export const codexProviders = {
   probe: (providerId: string, keyId: string, version: number, model: string | null): Promise<ProviderProbeResult> => nativeOnly("codex_provider_probe", { providerId, keyId, version, model }),
   preview: (id: string | null): Promise<ProviderConfigPreview> => nativeOnly("codex_provider_preview", { id }),
   apply: (id: string | null, input: ApplyProvider): Promise<ProviderConfigPreview> => nativeOnly("codex_provider_apply", { id, input }),
-  restore: (id: string | null, force = false): Promise<ProviderConfigPreview> => nativeOnly("codex_provider_restore", { id, force }),
+  restore: (id: string | null): Promise<ProviderConfigPreview> => nativeOnly("codex_provider_restore", { id }),
   revealKey: (providerId: string, keyId: string, version: number): Promise<string> => nativeOnly("codex_provider_reveal_key", { providerId, keyId, version }),
   list: (): Promise<CodexProvider[]> => nativeOnly("codex_provider_list"),
   save: (input: ProviderInput): Promise<CodexProvider[]> => nativeOnly("codex_provider_save", { input }),
