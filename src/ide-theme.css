@@ -395,13 +395,13 @@
 .ide-theme :where(tbody tr:hover td, .local-assets-panel tr:hover td, .esa-sites tr:hover td) { background: var(--jb-border) !important; }
 .ide-theme :where(.account-name strong, .asset-name-primary strong, .favorite-card-head h2, .server-display-name, .server-card strong, .swas-card strong, .rds-card strong, .redis-card strong, .bucket-card strong, .panel-row-address strong, .settings-card strong) { color: var(--jb-text) !important; }
 .ide-theme :where(.account-name small, .asset-subline, .favorite-card-head small, .favorite-card-details span, .server-info span, .settings-card small, .log-row small, .log-row time) { color: var(--jb-subtle) !important; }
-.ide-theme code { color: var(--jb-blue) !important; font-family: "JetBrains Mono", Consolas, monospace; }
+.ide-theme code { color: var(--jb-accent-strong) !important; font-family: "JetBrains Mono", Consolas, monospace; }
 
 /* Account/resource summaries */
 .ide-theme :where(.stats > div, .asset-summary-card, .summary-card, .summary-balance-item, .summary-consume-item, .summary-resource-item, .metric-card, .panel-connection-summary) { border-color: var(--jb-border) !important; border-radius: 4px !important; background: var(--jb-surface) !important; box-shadow: none !important; }
 .ide-theme :where(.stats > div)::before { width: 2px !important; border-radius: 0 !important; background: var(--jb-accent) !important; }
 .ide-theme :where(.stats > div:nth-child(2))::before { background: var(--jb-green) !important; }
-.ide-theme :where(.stats > div:nth-child(3))::before { background: var(--jb-blue) !important; }
+.ide-theme :where(.stats > div:nth-child(3))::before { background: var(--jb-accent) !important; }
 .ide-theme :where(.stats span, .stats small, .asset-summary-card span, .asset-summary-card small, .summary-card span, .summary-balance-item span, .summary-consume-item span, .summary-resource-item span, .metric-card .label) { color: var(--jb-subtle) !important; }
 .ide-theme :where(.stats strong, .asset-summary-card strong, .summary-card strong, .summary-balance-item strong, .summary-consume-item strong, .summary-resource-item strong, .metric-card .value) { color: var(--jb-text) !important; }
 .ide-theme :where(.asset-summary-card:hover, .asset-summary-card.active) { border-color: var(--jb-accent) !important; background: var(--jb-accent-soft) !important; transform: none !important; }
@@ -441,7 +441,7 @@
 
 /* Logs/settings/domain tools */
 .ide-theme :where(.log-head, .utility-page .log-head) { border-color: var(--jb-border) !important; color: var(--jb-muted) !important; }
-.ide-theme .log-type { border-color: var(--jb-border-strong) !important; border-radius: 3px; background: var(--jb-surface-3) !important; color: var(--jb-blue) !important; }
+.ide-theme .log-type { border-color: var(--jb-border-strong) !important; border-radius: 3px; background: var(--jb-surface-3) !important; color: var(--jb-accent-strong) !important; }
 .ide-theme .log-success, .ide-theme .setting-state.on, .ide-theme .dns-status.on { border: 1px solid #2e8669 !important; border-radius: 3px !important; background: #234b3f !important; color: var(--jb-green) !important; }
 .ide-theme :where(.settings-grid, .settings-card) { gap: 10px; }
 .ide-theme .settings-card { padding: 15px 16px !important; }
@@ -449,8 +449,8 @@
 .ide-theme .setting-switch input:checked + span { background: var(--jb-accent); }
 .ide-theme :where(.esa-tabs button, .esa-range-tabs button) { border-color: var(--jb-border) !important; background: var(--jb-surface-3) !important; color: var(--jb-muted) !important; }
 .ide-theme :where(.esa-tabs button.active, .esa-range-tabs button.active) { border-color: var(--jb-accent) !important; background: var(--jb-accent-soft) !important; color: var(--jb-accent-soft) !important; }
-.ide-theme .table-link { color: var(--jb-blue) !important; }
-.ide-theme .table-link:hover { color: var(--jb-blue) !important; }
+.ide-theme .table-link { color: var(--jb-accent-strong) !important; }
+.ide-theme .table-link:hover { color: var(--jb-accent-strong) !important; }
 
 @media (max-width: 900px) {
   .ide-theme :where(.favorite-card-grid, .settings-grid) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -1480,7 +1480,7 @@
   box-shadow: none;
 }
 .ide-theme .panel-network-rate.up { color: var(--jb-yellow); }
-.ide-theme .panel-network-rate.down { color: var(--jb-blue); }
+.ide-theme .panel-network-rate.down { color: var(--jb-accent-strong); }
 .ide-theme .panel-disk-toggle {
   width: 18px;
   height: 18px;
@@ -1655,7 +1655,7 @@
   line-height: 1.65;
 }
 .modal-backdrop .panel-bind-modal .panel-bind-steps code {
-  color: var(--jb-blue);
+  color: var(--jb-accent-strong);
 }
 .modal-backdrop .panel-bind-modal .modal-actions {
   position: sticky;
@@ -1808,7 +1808,7 @@
   height: 5px;
   margin-right: 5px;
   border-radius: 50%;
-  background: var(--jb-blue);
+  background: var(--jb-accent);
   vertical-align: 1px;
 }
 .ide-theme .account-section .status-switch {
@@ -2749,8 +2749,8 @@
 .ide-theme .utility-page .settings-select { height: 30px; min-width: 82px; padding: 0 8px; border-radius: 3px !important; font-size: 11px; }
 .ide-theme .utility-page .settings-link { height: 30px; min-height: 30px; padding: 0 9px; border-radius: 3px !important; font-size: 11px; }
 .ide-theme .utility-page .settings-update-actions { display: inline-flex; align-items: center; justify-content: flex-end; gap: 6px; min-width: auto; }
-.ide-theme .utility-page .primary-update-btn { height: 30px; min-height: 30px; padding: 0 10px; border: 1px solid var(--jb-blue) !important; border-radius: 3px !important; background: var(--jb-blue) !important; color: var(--jb-text) !important; font-size: 11px; font-weight: 500; display: inline-flex; align-items: center; gap: 5px; cursor: pointer; box-shadow: none !important; }
-.ide-theme .utility-page .primary-update-btn:hover:not(:disabled) { border-color: var(--jb-blue) !important; background: var(--jb-blue) !important; color: var(--jb-text) !important; }
+.ide-theme .utility-page .primary-update-btn { height: 30px; min-height: 30px; padding: 0 10px; border: 1px solid var(--jb-accent) !important; border-radius: 3px !important; background: var(--jb-accent) !important; color: var(--jb-text) !important; font-size: 11px; font-weight: 500; display: inline-flex; align-items: center; gap: 5px; cursor: pointer; box-shadow: none !important; }
+.ide-theme .utility-page .primary-update-btn:hover:not(:disabled) { border-color: var(--jb-accent) !important; background: var(--jb-accent) !important; color: var(--jb-text) !important; }
 .ide-theme .utility-page .primary-update-btn:disabled { opacity: 0.72; cursor: wait; }
 
 @media (max-width: 900px) {

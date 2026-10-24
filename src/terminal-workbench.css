@@ -376,7 +376,7 @@
   padding: 10px 12px;
   border: 0;
   background: transparent;
-  color: var(--jb-blue);
+  color: var(--jb-text);
   cursor: pointer;
   text-align: left;
 }
@@ -432,7 +432,7 @@
 }
 
 .terminal-host-card-copy strong {
-  color: var(--jb-blue);
+  color: var(--jb-text);
   font-size: 15px;
   font-weight: 600;
 }
