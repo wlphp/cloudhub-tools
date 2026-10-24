@@ -47,7 +47,9 @@ echo Starting CloudHub Tools desktop development window...
 echo Close this console or press Ctrl+C to stop the development server.
 echo.
 
-npm run tauri dev
+rem 开发版使用独立 identifier，避免与生产版共用同一个 WebView2 用户数据目录
+rem (%LOCALAPPDATA%\com.wanglei.cloudhub.tools\EBWebView) 导致后者启动即崩溃。
+npm run tauri dev -- --config src-tauri/tauri.dev.conf.json
 set "EXIT_CODE=%ERRORLEVEL%"
 
 if not "%EXIT_CODE%"=="0" (

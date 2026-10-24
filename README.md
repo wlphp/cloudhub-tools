@@ -93,10 +93,10 @@
 
 ### Windows
 
-双击 `run-windows-dev.cmd`，或在 PowerShell 中运行：
+双击 `run-desktop-dev.bat`，或在 PowerShell 中运行：
 
 ```powershell
-./run-windows-dev.cmd
+./run-desktop-dev.bat
 ```
 
 首次启动需要编译 Rust 依赖。前端开发服务默认运行在 `http://127.0.0.1:1420`；账号加密存储、SSH 和本机数据库等功能需要通过 Tauri 桌面客户端使用。
