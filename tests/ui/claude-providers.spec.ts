@@ -52,7 +52,7 @@ async function openStore(page: Page, workbench = false, configuredCurrent = fals
 
 test("MCP JSON import previews a server and writes only after saving", async ({ page }) => {
   await openStore(page, true);
-  await page.locator(".software-store-page tbody tr", { hasText: "Claude Code 供应商" }).getByRole("button", { name: "管理" }).click();
+  await page.locator(".software-store-page tbody tr", { hasText: "Claude Code 供应商" }).getByRole("button", { name: "管理", exact: true }).click();
   await page.getByRole("navigation", { name: "Claude Code 工作台" }).getByRole("button", { name: "MCP", exact: true }).click();
   await page.getByRole("button", { name: "添加服务器" }).click();
   const editor = page.getByRole("dialog", { name: "添加 MCP 服务器" });
@@ -70,7 +70,7 @@ test("MCP JSON import previews a server and writes only after saving", async ({ 
 
 test("MCP JSON import rejects multiple servers and invalid arguments without modifying the form", async ({ page }) => {
   await openStore(page, true);
-  await page.locator(".software-store-page tbody tr", { hasText: "Claude Code 供应商" }).getByRole("button", { name: "管理" }).click();
+  await page.locator(".software-store-page tbody tr", { hasText: "Claude Code 供应商" }).getByRole("button", { name: "管理", exact: true }).click();
   await page.getByRole("navigation", { name: "Claude Code 工作台" }).getByRole("button", { name: "MCP", exact: true }).click();
   await page.getByRole("button", { name: "添加服务器" }).click();
   const editor = page.getByRole("dialog", { name: "添加 MCP 服务器" });
@@ -92,7 +92,7 @@ test("the store lists the Claude Code provider plugin and opens its manager", as
   const row = page.locator(".software-store-page tbody tr", { hasText: "Claude Code 供应商" });
   await expect(row).toBeVisible();
   await expect(row).toContainText("切换前自动备份配置");
-  await row.getByRole("button", { name: "管理" }).click();
+  await row.getByRole("button", { name: "管理", exact: true }).click();
 
   const dialog = page.locator(".claude-providers-dialog");
   await expect(dialog).toBeVisible();
@@ -109,7 +109,7 @@ test("the store lists the Claude Code provider plugin and opens its manager", as
 
 test("external configuration changes are detected on focus and can be switched back", async ({ page }) => {
   await openStore(page, true, true);
-  await page.locator(".software-store-page tbody tr", { hasText: "Claude Code 供应商" }).getByRole("button", { name: "管理" }).click();
+  await page.locator(".software-store-page tbody tr", { hasText: "Claude Code 供应商" }).getByRole("button", { name: "管理", exact: true }).click();
   const current = page.locator(".claude-provider-item.is-current");
   await expect(current.getByRole("button", { name: "使用中", exact: true })).toBeDisabled();
   await page.evaluate(() => { (window as any).__configurationStatus = "changed"; window.dispatchEvent(new Event("focus")); });
@@ -129,7 +129,7 @@ test("external configuration changes are detected on focus and can be switched b
 test("unreadable configuration stays read only and routing does not raise a direct-channel warning", async ({ page }) => {
   await openStore(page, true);
   await page.evaluate(() => { (window as any).__configurationStatus = "unreadable"; });
-  await page.locator(".software-store-page tbody tr", { hasText: "Claude Code 供应商" }).getByRole("button", { name: "管理" }).click();
+  await page.locator(".software-store-page tbody tr", { hasText: "Claude Code 供应商" }).getByRole("button", { name: "管理", exact: true }).click();
   const current = page.locator(".claude-provider-item.is-current");
   await expect(current).toContainText("无法读取或解析");
   await expect(current.getByRole("button", { name: "无法核对", exact: true })).toBeDisabled();
@@ -145,7 +145,7 @@ test("unreadable configuration stays read only and routing does not raise a dire
 test("switching reports the change and closing keeps user configuration intact", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await openStore(page);
-  await page.locator(".software-store-page tbody tr", { hasText: "Claude Code 供应商" }).getByRole("button", { name: "管理" }).click();
+  await page.locator(".software-store-page tbody tr", { hasText: "Claude Code 供应商" }).getByRole("button", { name: "管理", exact: true }).click();
 
   const dialog = page.locator(".claude-providers-dialog");
   await dialog.locator(".claude-provider-item", { hasText: "Claude 官方" }).getByRole("button", { name: "切换", exact: true }).click();
@@ -160,7 +160,7 @@ test("switching reports the change and closing keeps user configuration intact",
 
 test("switching to a configured provider updates the active selection", async ({ page }) => {
   await openStore(page, true);
-  await page.locator(".software-store-page tbody tr", { hasText: "Claude Code 供应商" }).getByRole("button", { name: "管理" }).click();
+  await page.locator(".software-store-page tbody tr", { hasText: "Claude Code 供应商" }).getByRole("button", { name: "管理", exact: true }).click();
   await page.locator(".claude-provider-item", { hasText: "Claude 官方" }).getByRole("button", { name: "切换", exact: true }).click();
   await expect.poll(() => page.evaluate(() => (window as any).__claudeCalls)).toContain("switch:claude-official");
   await expect(page.locator(".claude-status")).toContainText("重启 Claude Code 后生效");
@@ -168,7 +168,7 @@ test("switching to a configured provider updates the active selection", async ({
 
 test("a failed switch does not launch Claude Code", async ({ page }) => {
   await openStore(page, true);
-  await page.locator(".software-store-page tbody tr", { hasText: "Claude Code 供应商" }).getByRole("button", { name: "管理" }).click();
+  await page.locator(".software-store-page tbody tr", { hasText: "Claude Code 供应商" }).getByRole("button", { name: "管理", exact: true }).click();
   await page.evaluate(() => { (window as any).__switchFails = true; });
   await page.locator(".claude-provider-item", { hasText: "Claude 官方" }).getByRole("button", { name: "切换", exact: true }).click();
   await expect(page.getByRole("alert")).toContainText("配置文件不可写");
@@ -178,7 +178,7 @@ test("a failed switch does not launch Claude Code", async ({ page }) => {
 test("the editor writes model mappings and rejects a blank address", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await openStore(page);
-  await page.locator(".software-store-page tbody tr", { hasText: "Claude Code 供应商" }).getByRole("button", { name: "管理" }).click();
+  await page.locator(".software-store-page tbody tr", { hasText: "Claude Code 供应商" }).getByRole("button", { name: "管理", exact: true }).click();
   await page.locator(".claude-providers-dialog").getByRole("button", { name: "添加供应商" }).click();
   await page.getByRole("dialog", { name: "添加供应商" }).getByRole("button", { name: /自定义配置/ }).click();
 
@@ -201,7 +201,7 @@ for (const width of [375, 768, 1024, 1440]) {
   test(`provider manager stays within ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await openStore(page);
-    await page.locator(".software-store-page tbody tr", { hasText: "Claude Code 供应商" }).getByRole("button", { name: "管理" }).click();
+    await page.locator(".software-store-page tbody tr", { hasText: "Claude Code 供应商" }).getByRole("button", { name: "管理", exact: true }).click();
     const dialog = page.locator(".claude-providers-dialog");
     await expect(dialog).toBeVisible();
     const box = await dialog.boundingBox();
@@ -213,7 +213,7 @@ for (const width of [375, 768, 1024, 1440]) {
 
 test("mode tabs only select a view and activation requires explicit confirmation", async ({ page }) => {
   await openStore(page, true);
-  await page.locator(".software-store-page tbody tr", { hasText: "Claude Code 供应商" }).getByRole("button", { name: "管理" }).click();
+  await page.locator(".software-store-page tbody tr", { hasText: "Claude Code 供应商" }).getByRole("button", { name: "管理", exact: true }).click();
   await page.getByRole("tab", { name: "路由", exact: true }).click();
   expect(await page.evaluate(() => (window as any).__claudeCalls)).toEqual([]);
   await page.getByRole("button", { name: "开始路由" }).click();
@@ -233,7 +233,7 @@ test("mode tabs only select a view and activation requires explicit confirmation
 
 test("activation errors stay in the shared confirmation and do not report success", async ({ page }) => {
   await openStore(page, true);
-  await page.locator(".software-store-page tbody tr", { hasText: "Claude Code 供应商" }).getByRole("button", { name: "管理" }).click();
+  await page.locator(".software-store-page tbody tr", { hasText: "Claude Code 供应商" }).getByRole("button", { name: "管理", exact: true }).click();
   await page.evaluate(() => { (window as any).__activationFails = true; });
   await page.getByRole("tab", { name: "聚合", exact: true }).click();
   await page.getByRole("button", { name: "启用聚合", exact: true }).click();
@@ -245,7 +245,7 @@ test("activation errors stay in the shared confirmation and do not report succes
 
 test("route queue changes preserve timeouts and do not activate routing", async ({ page }) => {
   await openStore(page, true);
-  await page.locator(".software-store-page tbody tr", { hasText: "Claude Code 供应商" }).getByRole("button", { name: "管理" }).click();
+  await page.locator(".software-store-page tbody tr", { hasText: "Claude Code 供应商" }).getByRole("button", { name: "管理", exact: true }).click();
   await page.getByRole("tab", { name: "路由", exact: true }).click();
   await page.locator(".claude-provider-item", { hasText: "Claude 官方" }).getByRole("button", { name: "加入队列" }).click();
   await page.getByRole("switch", { name: "自动故障转移" }).check();
@@ -259,7 +259,7 @@ test("route queue changes preserve timeouts and do not activate routing", async 
 test("workspace navigation and shared settings render without layout overflow", async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await openStore(page, true);
-  await page.locator(".software-store-page tbody tr", { hasText: "Claude Code 供应商" }).getByRole("button", { name: "管理" }).click();
+  await page.locator(".software-store-page tbody tr", { hasText: "Claude Code 供应商" }).getByRole("button", { name: "管理", exact: true }).click();
   expect((await page.locator(".claude-work-tabs").boundingBox())!.height).toBeLessThan(60);
   await page.screenshot({ path: testInfo.outputPath("claude-workbench.png") });
   await page.getByRole("navigation", { name: "Claude Code 工作台" }).getByRole("button", { name: "MCP", exact: true }).click();

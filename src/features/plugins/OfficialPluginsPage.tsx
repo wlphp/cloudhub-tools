@@ -330,7 +330,7 @@ function OfficialPluginsStore({ initialPluginId, applicationSettings, onOpenSect
     </section>
     {activePlugin && activeDefinition && <SharedDialog title={activePlugin.id === plugin.id ? "微信多开设置" : activeDefinition.name} size={activePlugin.presentation.size} className={`plugin-application-dialog plugin-modal-${activePlugin.presentation.size}`} onClose={closePlugin}>{application}</SharedDialog>}
     {presentationFor && <PluginPresentationDialog targetId={presentationFor} onClose={() => setPresentationFor(null)} />}
-    {(message || error) && createPortal(<div className="ide-theme"><div className="toast-notice store-notification" role={error ? "alert" : "status"} aria-live={error ? "assertive" : "polite"} aria-atomic="true"><span>{[message, error].filter(Boolean).join(" ")}</span><button type="button" aria-label="关闭操作提示" title="关闭提示" onClick={() => { setMessage(""); setError(""); }}><X size={14} aria-hidden="true" /></button></div></div>, document.body)}
+    {(message || error) && createPortal(<div className="ide-theme store-notification-layer"><div className="toast-notice store-notification" role={error ? "alert" : "status"} aria-live={error ? "assertive" : "polite"} aria-atomic="true"><span>{[message, error].filter(Boolean).join(" ")}</span><button type="button" aria-label="关闭操作提示" title="关闭提示" onClick={() => { setMessage(""); setError(""); }}><X size={14} aria-hidden="true" /></button></div></div>, document.body)}
   </section>;
 }
 

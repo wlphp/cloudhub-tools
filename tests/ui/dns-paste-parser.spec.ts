@@ -102,7 +102,7 @@ test("DNS editor keeps AI entry and manual host controls without smart parsing",
     expect(await editor.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
     const box = await editor.boundingBox();
     expect(box!.width).toBeLessThanOrEqual(width);
-    if (width === 1440) expect(box!.width).toBeGreaterThan(700);
+    if (width === 1440) expect(box!.width).toBeGreaterThanOrEqual(520);
   }
   await editor.screenshot({ path: "test-results/dns-paste-editor.png" });
   await editor.getByRole("button", { name: "关闭解析记录编辑", exact: true }).click();

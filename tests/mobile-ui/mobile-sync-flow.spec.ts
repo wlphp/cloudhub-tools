@@ -35,7 +35,7 @@ test("QR import reviews Flow caches, handles permission and network failures, an
   await scan.click();
   await expect(page.getByRole("alert")).toContainText("相机权限未开启");
   await scan.click();
-  await expect(page.getByRole("alert")).toContainText("网络或云服务暂时不可用");
+  await expect(page.getByRole("alert")).toContainText("网络连接失败，请重新扫码");
   await scan.click();
   await expect(page.getByText("云效 · 8 条已缓存流水线 · 含连接令牌", { exact: true })).toBeVisible();
   const confirm = page.getByRole("button", { name: "确认导入所选配置" });

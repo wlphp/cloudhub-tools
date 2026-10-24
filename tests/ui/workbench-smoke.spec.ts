@@ -43,7 +43,7 @@ test("opens the cloud account form with required credential boundaries", async (
 
   await expect(page.getByLabel("账号名称")).toHaveAttribute("required", "");
   await expect(page.getByLabel("AccessKey ID")).toHaveAttribute("required", "");
-  await expect(page.locator("form.modal input[type=\"password\"]")).toHaveAttribute("required", "");
+  await expect(page.getByRole("dialog", { name: "添加云账号" }).locator('input[type="password"]')).toHaveAttribute("required", "");
   await expect(page.getByRole("button", { name: "保存账号" })).toBeVisible();
 
   await page.getByRole("button", { name: "取消" }).click();
@@ -72,7 +72,7 @@ test("opens the managed server form without attempting an SSH connection", async
   await expect(page.getByRole("heading", { name: "添加服务器" })).toBeVisible();
   await expect(page.getByLabel("主机 / IP")).toHaveAttribute("required", "");
   await expect(page.getByLabel("SSH 用户名")).toHaveAttribute("required", "");
-  await expect(page.locator("form.modal input[type=\"password\"]")).toHaveAttribute("required", "");
+  await expect(page.getByRole("dialog", { name: "添加服务器" }).locator('input[type="password"]')).toHaveAttribute("required", "");
 
   await page.getByRole("button", { name: "私钥验证" }).click();
   await expect(page.getByLabel("SSH 私钥", { exact: true })).toHaveAttribute("required", "");
@@ -143,7 +143,7 @@ test("renders DNS and OSS tools from sanitized local-asset fixtures", async ({ p
   await expect(page.locator(".domain-tool-modal .error-list")).toContainText("provider failed secret=[已隐藏] token=[已隐藏]");
   await expect(page.getByText("TOP_SECRET", { exact: true })).toBeHidden();
   await expect(page.getByText("TOP_TOKEN", { exact: true })).toBeHidden();
-  await page.locator(".close-detail").click();
+  await page.getByRole("dialog", { name: "【example.test】解析管理" }).getByRole("button", { name: "关闭【example.test】解析管理" }).click();
 
   await page.getByRole("button", { name: "文件列表" }).click();
   await expect(page.getByRole("heading", { name: "文件列表" })).toBeVisible();

@@ -80,7 +80,7 @@ test("model provider management, masked editing and configuration recovery", asy
   await page.getByRole("tab", { name: "模型供应商", exact: true }).click();
   await expect(page.getByRole("button", { name: "添加聚合供应商", exact: true })).toBeDisabled();
   await page.getByRole("button", { name: "添加供应商", exact: true }).first().click();
-  const editor = page.locator('dialog.codex-provider-editor-dialog');
+  const editor = page.getByRole("dialog").filter({ has: page.locator(".codex-provider-editor-models") });
   const fetchAllModels = editor.getByRole("button", { name: "获取所有密钥模型", exact: true });
   await expect(fetchAllModels).toBeDisabled();
   await editor.getByLabel("名称", { exact: true }).fill("Example Provider");
@@ -187,7 +187,7 @@ test("model provider management, masked editing and configuration recovery", asy
   await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("provider-probe-stats") ?? "{}"))).toEqual({ calls: 9, max: 3, active: 0 });
   await page.keyboard.press("Escape");
   await card.getByRole("button", { name: "编辑 Example Provider", exact: true }).click();
-  const editing = page.locator('dialog.codex-provider-editor-dialog');
+  const editing = page.getByRole("dialog").filter({ has: page.locator(".codex-provider-editor-models") });
   const secretInputs = editing.getByLabel("密钥", { exact: true });
   const savedSecretToggles = editing.getByRole("button", { name: "显示密钥", exact: true });
   await expect(secretInputs).toHaveCount(2);

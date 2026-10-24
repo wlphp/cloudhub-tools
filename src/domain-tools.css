@@ -64,7 +64,7 @@
 .site-summary b{color:#43c8ff;margin:0 4px}
 .esa-overview-toolbar{min-height:32px;align-items:center}
 .esa-overview-toolbar label{display:flex;align-items:center;gap:7px;height:32px;line-height:32px;white-space:nowrap;margin:0}
-.esa-overview-toolbar select{box-sizing:border-box;height:32px;line-height:30px}
+.esa-reference .esa-overview-toolbar label select{box-sizing:border-box;height:32px;margin:0;padding:0 10px;line-height:30px}
 .esa-overview-toolbar>span{display:flex;align-items:center;min-height:32px;line-height:1.4}
 .esa-range-tabs{display:flex;align-items:center}
 .esa-range-tabs button{height:32px;padding:0 11px;border:1px solid #234565;background:#091629;color:#8fa7c3;cursor:pointer;margin-left:-1px}

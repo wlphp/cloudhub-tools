@@ -86,7 +86,7 @@ test("LiteSSL uses transient EAB fields and clears them after a failed request",
   await page.getByLabel("EAB HMAC 密钥",{exact:true}).fill("Zml4dHVyZQ");
   await page.evaluate(()=>(window as any).certificateFixture.failRequest=true);
   await page.getByRole("button",{name:"开始申请",exact:true}).click();
-  await expect(page.getByRole("alert")).toContainText("权限不足");
+  await expect(page.getByRole("alert")).toContainText("fixture denied");
   const input = await page.evaluate(()=>(window as any).certificateFixture.calls.find((call:any)=>call.command==="request_certificate").args.input);
   expect(input).toMatchObject({provider:"litessl",eabKid:"fixture-kid",eabHmacKey:"Zml4dHVyZQ"});
   await expect(page.getByLabel("EAB KID",{exact:true})).toHaveValue("");
@@ -103,15 +103,15 @@ test("phone rejects cross-zone input, handles offline and permission errors, and
   await page.getByRole("button",{name:"主域名",exact:true}).click();
   await page.evaluate(()=>(window as any).certificateFixture.failSync=true);
   await page.getByRole("button",{name:"拉取域名",exact:true}).click();
-  await expect(page.getByRole("alert")).toContainText("网络或云服务暂时不可用");
+  await expect(page.getByRole("alert")).toContainText("fixture offline");
   await page.evaluate(()=>(window as any).certificateFixture.failRequest=true);
   await page.getByRole("button",{name:"开始申请",exact:true}).click();
-  await expect(page.getByRole("alert")).toContainText("权限不足");
+  await expect(page.getByRole("alert")).toContainText("fixture denied");
   await page.evaluate(()=>(window as any).certificateFixture.failRequest=false);
   await page.getByRole("button",{name:"开始申请",exact:true}).click();
   await expect(page.getByRole("log")).toContainText("等待公共 DNS 验证");
   await page.getByRole("button",{name:"取消申请",exact:true}).click();
-  await expect(page.getByRole("alert")).toContainText("操作已取消");
+  await expect(page.getByRole("alert")).toContainText("已取消并清理验证记录");
   const calls = await page.evaluate(()=>(window as any).certificateFixture.calls);
   expect(calls.find((call:any)=>call.command==="cancel_certificate_request").args.operationId).toBe(calls.filter((call:any)=>call.command==="request_certificate").at(-1).args.input.operationId);
   await expect(page.getByLabel("DNS 账号",{exact:true})).toBeEnabled();

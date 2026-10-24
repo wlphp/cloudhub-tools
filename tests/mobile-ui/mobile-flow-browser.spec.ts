@@ -75,7 +75,7 @@ for (const width of [320, 375, 430]) {
     expect(starts).toBe(1);
     testStatus = 403;
     await page.getByRole("button", { name: "验证连接", exact: true }).click();
-    await expect(page.getByRole("alert")).toContainText("权限不足");
+    await expect(page.getByRole("alert")).toContainText("云效账号无权访问此组织或流水线");
     page.once("dialog", (dialog) => dialog.accept());
     await page.getByRole("button", { name: "移除此连接", exact: true }).click();
     await expect(page.getByRole("button", { name: "配置连接", exact: true })).toBeEnabled();

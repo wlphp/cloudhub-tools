@@ -21,7 +21,7 @@ test("phone migration defaults to 95 percent with fixed common header and footer
     const bounds = await panel.boundingBox();
     expect(bounds!.width).toBeCloseTo(width*0.95,0); expect(bounds!.height).toBeCloseTo(900*0.95,0);
     expect(await panel.evaluate(el=>el.scrollWidth <= el.clientWidth)).toBe(true);
-    const header = panel.locator(".sync-transfer-heading"), footer = panel.locator(".sync-transfer-footer");
+    const header = panel.locator(":scope > .modal-head"), footer = panel.locator(":scope > .sync-transfer-footer");
     const initialHead = await header.boundingBox(), initialFoot = await footer.boundingBox();
     await panel.locator(".sync-transfer-body").evaluate(el=>{el.scrollTop=el.scrollHeight;});
     expect(await header.boundingBox()).toEqual(initialHead); expect(await footer.boundingBox()).toEqual(initialFoot);

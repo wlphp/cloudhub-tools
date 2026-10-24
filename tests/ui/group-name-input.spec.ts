@@ -15,7 +15,7 @@ test("account and panel groups suggest local groups and accept new names", async
   });
   await page.goto("/");
   await page.getByRole("button", { name: "添加云账号", exact: true }).click();
-  const account = page.locator("form.modal");
+  const account = page.getByRole("dialog", { name: "添加云账号" });
   const accountGroup = account.getByLabel("分组", { exact: true });
   await expect(accountGroup).toHaveAttribute("placeholder", "选择已有分组或输入新分组");
   await expect.poll(() => accountGroup.evaluate((el: HTMLInputElement) => Array.from(el.list!.options, option => option.value))).toEqual(["账号生产"]);
