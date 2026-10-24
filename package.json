@@ -1,7 +1,7 @@
 {
   "name": "cloudhub-tools",
   "private": true,
-  "version": "0.1.84",
+  "version": "0.1.85",
   "license": "SEE LICENSE IN LICENSE",
   "repository": {
     "type": "git",
@@ -30,6 +30,7 @@
     "bundle:mac:x64": "tauri build --target x86_64-apple-darwin",
     "preview": "vite preview",
     "tauri": "tauri",
+    "tauri:dev": "tauri dev --config src-tauri/tauri.dev.conf.json",
     "tauri:android": "tauri android",
     "tauri:ios": "tauri ios"
   },
