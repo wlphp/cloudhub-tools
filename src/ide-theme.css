@@ -2225,16 +2225,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.ide-theme .account-section .account-resources-cell .resource-actions > .more-wrap .more-trigger {
-  width: auto;
-  height: auto;
-  min-width: 0;
-  padding: 5px 7px;
-}
-.ide-theme .account-section .account-resources-cell .resource-actions > .more-wrap .more-menu {
-  right: 0;
-  max-width: 190px;
-}
 .ide-theme .account-section .account-resource-muted { color: var(--jb-subtle); }
 
 .ide-theme .local-resource-page .local-assets-panel th.asset-actions-column,
@@ -2336,13 +2326,13 @@
   .ide-theme .account-section .table-wrap td:nth-child(5) { width: 70px; }
   .ide-theme .account-section .table-wrap th.account-resources-column,
   .ide-theme .account-section .table-wrap td.account-resources-cell {
-    width: 210px !important;
-    min-width: 210px;
+    width: 240px !important;
+    min-width: 240px;
   }
   .ide-theme .account-section .table-wrap th.account-actions-column,
   .ide-theme .account-section .table-wrap td.account-actions-cell {
-    width: 230px !important;
-    min-width: 230px;
+    width: 250px !important;
+    min-width: 250px;
   }
   .ide-theme .account-section :where(.account-resources-cell, .account-actions-cell) .resource-actions {
     flex-wrap: wrap;

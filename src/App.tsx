@@ -103,7 +103,6 @@ import {
   Eye,
   EyeOff,
   LayoutGrid,
-  MoreHorizontal,
   MoreVertical,
   Monitor,
   List,
@@ -4227,42 +4226,6 @@ function App() {
                           >
                             {accountResourceActionLabels[resourceType]}
                           </button>)}
-                          {moreResourceActions.length > 0 && <span className={`more-wrap ${moreId === account.id ? "more-open" : ""}`}>
-                            <button
-                              type="button"
-                              className="action-text more-trigger"
-                              title="更多资产类型"
-                              aria-label={`更多 ${account.account_name} 资产操作`}
-                              onClick={(event) => {
-                                if (moreId === account.id) {
-                                  setMoreId(null);
-                                  setMorePosition(null);
-                                  return;
-                                }
-                                const rect = event.currentTarget.getBoundingClientRect();
-                                const menuHeight = Math.min(280, 14 + moreResourceActions.length * 38);
-                                const top = rect.bottom + menuHeight > window.innerHeight ? Math.max(8, rect.top - menuHeight - 6) : rect.bottom + 6;
-                                setMoreId(account.id);
-                                setMorePosition({ top, left: Math.max(8, Math.min(window.innerWidth - 182, rect.right - 174)) });
-                              }}
-                            >
-                              <MoreHorizontal size={17} />
-                            </button>
-                            {moreId === account.id && (
-                              <div className="more-menu" style={morePosition ? { position: "fixed", top: morePosition.top, left: morePosition.left, right: "auto" } : undefined}>
-                                {moreResourceActions.map(({ resourceType, count }) => (
-                                  <button
-                                    key={resourceType}
-                                    title={`查看${accountResourceActionLabels[resourceType]}资产（已获取 ${count} 项）`}
-                                    aria-label={`查看 ${account.account_name} ${accountResourceActionLabels[resourceType]}资产，已获取 ${count} 项`}
-                                    onClick={() => openAccountResource(account, resourceType)}
-                                  >
-                                    {accountResourceActionLabels[resourceType]}
-                                  </button>
-                                ))}
-                              </div>
-                            )}
-                          </span>}
                         </div> : <span className="account-resource-muted">—</span>}
                       </td>
                       <td className="account-actions-cell">
@@ -4299,6 +4262,42 @@ function App() {
                           >
                             修改
                           </button>
+                          {moreResourceActions.length > 0 && <span className={`more-wrap ${moreId === account.id ? "more-open" : ""}`}>
+                            <button
+                              type="button"
+                              className="action-text more-trigger"
+                              title="更多资产类型"
+                              aria-label={`更多 ${account.account_name} 资产操作`}
+                              onClick={(event) => {
+                                if (moreId === account.id) {
+                                  setMoreId(null);
+                                  setMorePosition(null);
+                                  return;
+                                }
+                                const rect = event.currentTarget.getBoundingClientRect();
+                                const menuHeight = Math.min(280, 14 + moreResourceActions.length * 38);
+                                const top = rect.bottom + menuHeight > window.innerHeight ? Math.max(8, rect.top - menuHeight - 6) : rect.bottom + 6;
+                                setMoreId(account.id);
+                                setMorePosition({ top, left: Math.max(8, Math.min(window.innerWidth - 182, rect.right - 174)) });
+                              }}
+                            >
+                              更多
+                            </button>
+                            {moreId === account.id && (
+                              <div className="more-menu" style={morePosition ? { position: "fixed", top: morePosition.top, left: morePosition.left, right: "auto" } : undefined}>
+                                {moreResourceActions.map(({ resourceType, count }) => (
+                                  <button
+                                    key={resourceType}
+                                    title={`查看${accountResourceActionLabels[resourceType]}资产（已获取 ${count} 项）`}
+                                    aria-label={`查看 ${account.account_name} ${accountResourceActionLabels[resourceType]}资产，已获取 ${count} 项`}
+                                    onClick={() => openAccountResource(account, resourceType)}
+                                  >
+                                    {accountResourceActionLabels[resourceType]}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </span>}
                           <button
                             type="button"
                             className="action-text danger"
