@@ -426,7 +426,7 @@ export function FrpPanel() {
 
       <details className="frp-files-disclosure">
         <summary>本机文件与运行说明</summary>
-      <p className="frp-hint">每个服务端独立运行 frpc。关闭云枢 Tools 后，所有本机连接都会停止。</p>
+      <p className="frp-hint">每个服务端独立运行 frpc。关闭云枢工具箱后，所有本机连接都会停止。</p>
       <section className="frp-local-files" aria-label="本机 FRP 文件位置">
         <div className="frp-file-row"><span>frpc 安装位置</span><code>{localPaths?.binaryPath ?? "读取中…"}</code><button type="button" className="secondary" disabled={!localPaths || !!busy} onClick={() => void run("打开安装目录", () => frpClient.openInstallDirectory())}><FolderOpen size={15} />打开安装目录</button></div>
         <div className="frp-file-row"><span>当前配置文件</span><code>{localPaths?.configPath ?? (selectedId ? "读取中…" : "保存服务端并应用配置后生成")}</code><button type="button" className="secondary" disabled={!selected || !selectedRuntime?.configPresent || !localPaths?.configPath || !!busy} onClick={() => selected && void run("打开配置文件", () => frpClient.openConfig(selected.id))}><FileText size={15} />打开配置文件</button></div>

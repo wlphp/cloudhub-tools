@@ -868,7 +868,7 @@ pub fn run() {
                 commands::desktop_pet::initialize(app.handle());
                 if core::paths::desktop_development() {
                     if let Some(window) = app.get_webview_window("main") {
-                        window.set_title("云枢 Tools · 开发版 · 独立数据")?;
+                        window.set_title("云枢工具箱 · 开发版 · 独立数据")?;
                     }
                 }
                 core::codex::remote_logs::initialize(&open_db().map_err(std::io::Error::other)?).map_err(std::io::Error::other)?;

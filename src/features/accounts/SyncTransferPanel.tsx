@@ -193,7 +193,7 @@ export function SyncTransferPanel({ mode, accounts = [], managedHosts = [], pane
       const permission = await requestPermissions();
       if (permission !== "granted") {
         setCameraPermissionDenied(true);
-        setError("相机权限未开启，无法扫码。请允许 CloudHub Tools 使用相机后重试。");
+        setError("相机权限未开启，无法扫码。请允许云枢工具箱使用相机后重试。");
         return;
       }
       const random = new Uint32Array(1);

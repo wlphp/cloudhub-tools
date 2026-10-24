@@ -1193,7 +1193,7 @@ pub(crate) async fn fetch_sync_transfer(app: AppHandle, pairing_url: String, cli
             if error.is_timeout() {
                 "连接电脑迁移服务超时。请确认电脑仍显示本次二维码，并检查路由器是否开启设备隔离。"
             } else if error.is_connect() {
-                "无法连接电脑迁移服务。请确认二维码仍有效，并检查电脑防火墙是否允许 CloudHub Tools 接受局域网连接。"
+                "无法连接电脑迁移服务。请确认二维码仍有效，并检查电脑防火墙是否允许云枢工具箱接受局域网连接。"
             } else {
                 "手机请求电脑迁移服务失败，请重新生成二维码后重试。"
             }

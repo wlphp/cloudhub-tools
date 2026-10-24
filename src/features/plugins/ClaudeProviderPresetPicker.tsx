@@ -30,7 +30,7 @@ export function ClaudeProviderPresetPicker({ onClose, onSelect, onCustom }: { on
         </button>)}</div>
         {!groups.length && <p role="status" className="claude-config-help">没有匹配的厂商，请换个关键词，或选择上方“自定义配置”。</p>}
       </>}
-      <p className="claude-config-help">CloudHub Tools 内置厂商预设。默认模型需以账户实际权限为准，保存前均可修改。不包含尚未接入的第三方账号登录。</p>
+      <p className="claude-config-help">云枢工具箱内置厂商预设。默认模型需以账户实际权限为准，保存前均可修改。不包含尚未接入的第三方账号登录。</p>
     </div>
   </SharedDialog>;
 }

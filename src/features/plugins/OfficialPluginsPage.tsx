@@ -229,7 +229,7 @@ function OfficialPluginsStore({ initialPluginId, applicationSettings, onOpenSect
   }
 
   return <section className="utility-page official-plugins-page software-store-page">
-    <header><div className="store-heading"><span className="eyebrow">SOFTWARE STORE</span><div className="store-heading-line"><h1>软件商店</h1><span>官方工具免费内置 · 本地运行</span></div><p>集中管理 CloudHub Tools 应用与插件，内置工具随客户端更新。</p></div><span className="store-total">{officialPlugins.length} 个内置应用</span></header>
+    <header><div className="store-heading"><span className="eyebrow">SOFTWARE STORE</span><div className="store-heading-line"><h1>软件商店</h1><span>官方工具免费内置 · 本地运行</span></div><p>集中管理云枢工具箱应用与插件，内置工具随客户端更新。</p></div><span className="store-total">{officialPlugins.length} 个内置应用</span></header>
     <div className="store-tabs" role="group" aria-label="应用来源">{["官方应用", "第三方应用"].map(item => <button key={item} type="button" aria-pressed={source === item} className={source === item ? "is-active" : ""} onClick={() => setSource(item)}>{item}</button>)}</div>
     <section className="panel store-catalog" aria-label="软件列表" aria-busy={busy}>
       <div className="store-search-row">
@@ -326,7 +326,7 @@ function OfficialPluginsStore({ initialPluginId, applicationSettings, onOpenSect
         })}
       </tbody></table>
       {visibleCount === 0 && <div className="store-empty"><Package size={30} aria-hidden="true" /><h2>{source === "第三方应用" ? "暂无第三方应用" : "没有符合条件的应用"}</h2><p>{source === "官方应用" ? "尝试调整搜索词或切换应用分类。" : "当前先提供官方内置应用，后续上架的应用将在这里展示。"}</p><button type="button" className="secondary" onClick={() => { setSource("官方应用"); setCategory("全部"); setKeyword(""); }}>查看全部官方应用</button></div>}
-      <div className="store-list-footer"><span>共 {visibleCount} 个应用</span><span>内置应用随 CloudHub Tools 更新</span></div>
+      <div className="store-list-footer"><span>共 {visibleCount} 个应用</span><span>内置应用随云枢工具箱更新</span></div>
     </section>
     {activePlugin && activeDefinition && <SharedDialog title={activePlugin.id === plugin.id ? "微信多开设置" : activeDefinition.name} size={activePlugin.presentation.size} className={`plugin-application-dialog plugin-modal-${activePlugin.presentation.size}`} onClose={closePlugin}>{application}</SharedDialog>}
     {presentationFor && <PluginPresentationDialog targetId={presentationFor} onClose={() => setPresentationFor(null)} />}

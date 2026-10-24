@@ -1215,12 +1215,12 @@ pub fn initialize(app: &tauri::AppHandle) {
             menu::{Menu, MenuItem},
             tray::TrayIconBuilder,
         };
-        let open = MenuItem::with_id(app, "pet-main", "打开 CloudHub", true, None::<&str>)?;
+        let open = MenuItem::with_id(app, "pet-main", "打开云枢工具箱", true, None::<&str>)?;
         let show = MenuItem::with_id(app, "pet-show", "显示宠物", true, None::<&str>)?;
         let exit = MenuItem::with_id(app, "pet-exit", "退出应用", true, None::<&str>)?;
         let menu = Menu::with_items(app, &[&open, &show, &exit])?;
         let mut builder = TrayIconBuilder::with_id("cloudhub-pet")
-            .tooltip("CloudHub Tools · 宠物与运维预警")
+            .tooltip("云枢工具箱 · 宠物与运维预警")
             .menu(&menu)
             .on_menu_event(|app, event| match event.id.as_ref() {
                 "pet-main" => {

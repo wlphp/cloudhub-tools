@@ -78,7 +78,7 @@ const en: Record<string, string> = {
   "下载中…": "Downloading…",
   "检查中…": "Checking…",
   "正在重启…": "Restarting…",
-  "如果 云枢 Tools 帮到了你，请在 GitHub 点个 Star，这对我们意义重大": "If CloudHub Tools helps you, please star us on GitHub — it means a lot!",
+  "如果 云枢工具箱 帮到了你，请在 GitHub 点个 Star，这对我们意义重大": "If CloudHub Tools helps you, please star us on GitHub — it means a lot!",
   "去点 Star": "Star on GitHub",
   // 手机端下载弹层
   "手机端 App": "Mobile App",

@@ -146,7 +146,7 @@ function renderImage(info: HardwareInfo) {
   });
   ctx.fillStyle = "#aab8d0";
   ctx.font = "14px 'Microsoft YaHei', sans-serif";
-  ctx.fillText("由 CloudHub Tools 电脑信息插件生成 · 不含序列号、MAC 地址或 Wi-Fi 密码", 72, height - 34);
+  ctx.fillText("由云枢工具箱电脑信息插件生成 · 不含序列号、MAC 地址或 Wi-Fi 密码", 72, height - 34);
   return canvas.toDataURL("image/png");
 }
 
@@ -257,7 +257,7 @@ export function HardwareInfoPlugin({ open, onOpened }: Props) {
       } else stream.getTracks().forEach(track => track.stop());
     } catch (reason) {
       const name = reason instanceof DOMException ? reason.name : "";
-      if (requestId === cameraRequestRef.current && open) setCameraState(name === "NotAllowedError" || name === "SecurityError" ? "摄像头权限被拒绝。请在系统设置中允许 CloudHub Tools 使用摄像头后重试。" : name === "NotFoundError" ? "未检测到可用摄像头。" : name === "NotReadableError" ? "摄像头被其他应用占用，或设备暂不可用。" : "摄像头无法打开，请检查设备连接和系统权限。");
+      if (requestId === cameraRequestRef.current && open) setCameraState(name === "NotAllowedError" || name === "SecurityError" ? "摄像头权限被拒绝。请在系统设置中允许云枢工具箱使用摄像头后重试。" : name === "NotFoundError" ? "未检测到可用摄像头。" : name === "NotReadableError" ? "摄像头被其他应用占用，或设备暂不可用。" : "摄像头无法打开，请检查设备连接和系统权限。");
     } finally { if (requestId === cameraRequestRef.current) setCameraBusy(false); }
   }
   function handlePanelKeyDown(event: ReactKeyboardEvent<HTMLDivElement>, index: number) {

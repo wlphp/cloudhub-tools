@@ -3819,7 +3819,7 @@ function App() {
       {exportSelection.dialog}
       <a className="skip-link" href="#main-content">跳到主要内容</a>
       <div className="ide-topbar" role="banner">
-        <div className="ide-topbar-brand" onMouseDown={handleTitlebarMouseDown} onDoubleClick={handleTitlebarDoubleClick}>{isDetachedTerminalWindow ? <><Terminal size={15} /><strong>{detachedTerminalHost?.name || "SSH 终端"}</strong><span>{detachedTerminalHost?.host || ""}</span>{detachedTerminalHost?.remark ? <span className="detached-terminal-context">备注：{detachedTerminalHost.remark}</span> : null}{detachedTerminalHost?.group_name ? <span className="detached-terminal-context">分组：{detachedTerminalHost.group_name}</span> : null}</> : <><Cloud size={15} /><strong>云枢 Tools</strong></>}</div>
+        <div className="ide-topbar-brand" onMouseDown={handleTitlebarMouseDown} onDoubleClick={handleTitlebarDoubleClick}>{isDetachedTerminalWindow ? <><Terminal size={15} /><strong>{detachedTerminalHost?.name || "SSH 终端"}</strong><span>{detachedTerminalHost?.host || ""}</span>{detachedTerminalHost?.remark ? <span className="detached-terminal-context">备注：{detachedTerminalHost.remark}</span> : null}{detachedTerminalHost?.group_name ? <span className="detached-terminal-context">分组：{detachedTerminalHost.group_name}</span> : null}</> : <><Cloud size={15} /><strong>云枢工具箱</strong></>}</div>
         <div className="ide-topbar-drag-region" aria-hidden="true" onMouseDown={handleTitlebarMouseDown} onDoubleClick={handleTitlebarDoubleClick} />
         <div className="ide-topbar-actions">
           <div className="ide-topbar-context">{isDevelopmentBuild ? <span className="brand-dev-badge">本地开发版</span> : null}<span className="brand-version">v{appVersion}</span></div>
@@ -3836,11 +3836,11 @@ function App() {
             <button type="button" className="app-sidebar-toggle" aria-label={appSidebarCollapsed ? "展开主导航" : "收缩主导航"} title={appSidebarCollapsed ? "展开主导航" : "收缩主导航"} aria-expanded={!appSidebarCollapsed} aria-controls="app-main-navigation" disabled={!clientPreferencesReady} onClick={() => setAppSidebarCollapsed(value => !value)}>{appSidebarCollapsed ? <PanelLeftOpen size={16} aria-hidden="true" /> : <PanelLeftClose size={16} aria-hidden="true" />}</button>
             <div className="brand">
               <div className="brand-mark">
-                <img src="/cloudhub-logo.png" alt="云枢 Tools" />
+                <img src="/cloudhub-logo.png" alt="云枢工具箱" />
               </div>
               <div>
                 <div className="brand-heading">
-                  <strong>云枢 Tools</strong>
+                  <strong>云枢工具箱</strong>
                   {runningInTauri && updateState.phase === "available" && <button type="button" className="brand-update-button" aria-label={`发现新版本 v${updateState.version}`} title={`发现新版本 v${updateState.version}，点击更新`} onClick={() => void installUpdate()}><ArrowUpCircle size={16} /></button>}
                 </div>
                 <small>{t("本地多云资源管家")}</small>
@@ -4981,11 +4981,11 @@ function App() {
             {settingsTab === "ai" && <AiSettings embedded />}
             {settingsTab === "pet" && <PetSettingsPanel embedded />}
             {settingsTab === "about" && (
-              <section className="about-card" aria-label="关于云枢 Tools">
+              <section className="about-card" aria-label="关于云枢工具箱">
                 <div className="about-card-head">
                   <img src="/cloudhub-logo.png" alt="" aria-hidden="true" />
                   <div className="about-card-title">
-                    <strong>云枢 Tools</strong>
+                    <strong>云枢工具箱</strong>
                     <small>{t("版本")} v{appVersion}</small>
                   </div>
                   {runningInTauri && updateState.phase === "available" ? (
@@ -5009,7 +5009,7 @@ function App() {
                 {!aboutStarDismissed && (
                   <div className="about-card-star" role="note">
                     <Star size={16} aria-hidden="true" />
-                    <p>{t("如果 云枢 Tools 帮到了你，请在 GitHub 点个 Star，这对我们意义重大")}</p>
+                    <p>{t("如果 云枢工具箱 帮到了你，请在 GitHub 点个 Star，这对我们意义重大")}</p>
                     <a className="secondary" href="https://github.com/wlphp/cloudhub-tools" target="_blank" rel="noreferrer" onClick={(e) => { if (runningInTauri) { e.preventDefault(); void openUrl("https://github.com/wlphp/cloudhub-tools"); } }}><Star size={13} aria-hidden="true" />{t("去点 Star")}</a>
                     <button type="button" className="about-star-close" aria-label="关闭 Star 提示" onClick={() => { setAboutStarDismissed(true); try { localStorage.setItem(cloudHubAboutStarDismissedStorageKey, "1"); } catch { /* 存储不可用时仅本次会话隐藏 */ } }}><X size={15} /></button>
                   </div>

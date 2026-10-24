@@ -1048,7 +1048,7 @@ export function MobileApp() {
   return (
     <main className="mobile-shell">
       <header className="mobile-header">
-        <div className="mobile-brand"><span className="mobile-brand-icon"><img src="/cloudhub-logo.png" alt="" /></span><div><div className="mobile-brand-title"><strong>云枢 Tools</strong><span className="mobile-brand-version">v{packageJson.version}</span></div><small>本地多云资源管理</small></div></div>
+        <div className="mobile-brand"><span className="mobile-brand-icon"><img src="/cloudhub-logo.png" alt="" /></span><div><div className="mobile-brand-title"><strong>云枢工具箱</strong><span className="mobile-brand-version">v{packageJson.version}</span></div><small>本地多云资源管理</small></div></div>
         <div className="mobile-header-actions">
           {(tab === "accounts" || tab === "servers" || tab === "domains" || tab === "more" || resourceConfig) && (tab !== "domains" || !selectedDomain) && (tab !== "storage" || !selectedBucket) && (tab !== "databases" || !selectedDatabase) && (tab !== "redis" || !selectedRedis) && (tab !== "ssh" || !sshSessionId) && <button className="mobile-icon-button mobile-header-search" type="button" aria-label="搜索当前页面" title="搜索当前页面" onClick={() => {
             const field = mobileContentRef.current?.querySelector<HTMLInputElement>('input[aria-label^="搜索"]');
@@ -1192,7 +1192,7 @@ export function MobileApp() {
             <button type="button" className="mobile-account-card" onClick={() => setTab("operationLogs")}><span className="mobile-provider-avatar"><FileText size={20} /></span><span className="mobile-account-copy"><strong>操作日志</strong><small>查看本机资源管理记录</small></span><span className="mobile-account-arrow">›</span></button>
             <button type="button" className="mobile-account-card" onClick={() => setTab("apiLogs")}><span className="mobile-provider-avatar"><Terminal size={20} /></span><span className="mobile-account-copy"><strong>API 日志</strong><small>查看接口调用状态</small></span><span className="mobile-account-arrow">›</span></button>
             <a className="mobile-account-card mobile-settings-link" href="https://github.com/wlphp/cloudhub-tools" target="_blank" rel="noreferrer"><span className="mobile-provider-avatar"><ExternalLink size={20} /></span><span className="mobile-account-copy"><strong>GitHub 开源仓库</strong><small>github.com/wlphp/cloudhub-tools</small></span><span className="mobile-account-arrow" aria-hidden="true">›</span></a>
-            <button type="button" className="mobile-account-card" onClick={() => setTab("about")}><span className="mobile-provider-avatar"><Info size={20} /></span><span className="mobile-account-copy"><strong>关于</strong><small>云枢 Tools · v{packageJson.version}</small></span><span className="mobile-account-arrow">›</span></button>
+            <button type="button" className="mobile-account-card" onClick={() => setTab("about")}><span className="mobile-provider-avatar"><Info size={20} /></span><span className="mobile-account-copy"><strong>关于</strong><small>云枢工具箱 · v{packageJson.version}</small></span><span className="mobile-account-arrow">›</span></button>
           </div>
         </> : tab === "operationLogs" ? <>
           {resourcePageOverview}
@@ -1204,7 +1204,7 @@ export function MobileApp() {
 
         </> : tab === "authenticator" ? <AuthenticatorPanel mobile /> : tab === "flow" ? <FlowPanel mobile /> : tab === "about" ? <>
           <div className="mobile-page-title"><div><p>系统设置</p><h1>关于</h1></div></div>
-          <section className="mobile-about-card"><span className="mobile-about-logo"><img src="/cloudhub-logo.png" alt="" /></span><strong>云枢 Tools</strong><span>本地多云资源管理</span><small>版本 {packageJson.version}</small></section>
+          <section className="mobile-about-card"><span className="mobile-about-logo"><img src="/cloudhub-logo.png" alt="" /></span><strong>云枢工具箱</strong><span>本地多云资源管理</span><small>版本 {packageJson.version}</small></section>
           <MobileUpdatePanel update={mobileUpdate} />
         </> : <MobileMorePage onNavigate={setTab} />}
       </section>
