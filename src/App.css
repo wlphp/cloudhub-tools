@@ -418,8 +418,7 @@ main { background: var(--ui-bg); }
 .ide-theme .ide-topbar-drag-region { align-self: stretch; flex: 1 1 auto; min-width: 20px; cursor: move; }
 .ide-theme .ide-topbar-brand strong { color: #e0e0e0; font-size: 11px; font-weight: 600; }
 .ide-theme .ide-topbar-brand span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--jb-subtle); }
-.ide-theme .ide-topbar-context { letter-spacing: .08em; font-size: 10px; }
-.ide-theme .ide-topbar-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--jb-success); box-shadow: 0 0 0 2px #63d7ad22; }
+.ide-theme .ide-topbar-context { color: var(--jb-subtle); font-size: 10px; white-space: nowrap; }
 .ide-theme .ide-window-controls { display: flex; align-items: stretch; height: 32px; margin-left: 8px; }
 .ide-theme .ide-window-controls button { display: grid; place-items: center; width: 44px; height: 32px; padding: 0; border: 0; border-radius: 0; background: transparent; color: #a8a8a8; cursor: pointer; }
 .ide-theme .ide-window-controls button:hover { background: #3a3a3a; color: #f0f0f0; }
@@ -431,9 +430,9 @@ main { background: var(--ui-bg); }
 .ide-theme .brand-heading { display: flex; align-items: center; min-width: 0; gap: 5px; }
 .ide-theme .brand-heading strong { display: block; min-width: 0; }
 .ide-theme .brand strong { color: #e5e5e5; font-size: 14px; letter-spacing: 0; }
-.ide-theme .brand small, .ide-theme .brand-version { color: var(--jb-subtle); font-size: 10px; }
+.ide-theme .brand small, .ide-theme .brand-version { color: var(--jb-subtle); font-size: 10px; margin-left: 0; }
 .ide-theme .brand-update-button{display:inline-grid;flex:0 0 auto;place-items:center;width:22px;height:22px;margin-left:0;padding:0;border:1px solid #5d9ee2;border-radius:50%;background:#173d68;color:#8dccff;cursor:pointer;box-shadow:0 0 0 2px #4aa7ed1c;animation:brand-update-pulse 1.8s ease-in-out infinite}.ide-theme .brand-update-button:hover{border-color:#8dd5ff;background:#20598c;color:#fff;transform:translateY(-1px)}.ide-theme .brand-update-button:focus-visible{outline:2px solid #8dd5ff;outline-offset:2px}@keyframes brand-update-pulse{0%,100%{box-shadow:0 0 0 2px #4aa7ed1c}50%{box-shadow:0 0 0 5px #4aa7ed26}}
-.ide-theme .brand-dev-badge { display: block; width: max-content; margin-left: 0; margin-bottom: 3px; border-color: #5a4e9c; color: var(--jb-accent-strong); background: #342e54; }
+.ide-theme .brand-dev-badge { margin: 0; border-color: #5a4e9c; color: var(--jb-accent-strong); background: #342e54; }
 .ide-theme .brand small { display: block; }
 .ide-theme nav button { min-height: 38px; margin-bottom: 2px; padding: 0 10px; border-radius: 4px; gap: 10px; color: var(--jb-muted); font-size: 13px; }
 .ide-theme nav button svg { color: #898989; }
