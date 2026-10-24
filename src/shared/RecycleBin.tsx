@@ -52,7 +52,8 @@ export function RecycleBin({ kinds, actions, busy, onClose, scrubDays, onScrubDa
   kinds: TrashKind[];
   actions: TrashActions;
   busy: boolean;
-  onClose: () => void;
+  /** Provided by dialog hosts; inline embeds render without a close button. */
+  onClose?: () => void;
   /** Credential retention in days; `0` keeps them forever. */
   scrubDays?: number;
   onScrubDaysChange?: (days: number) => void;
@@ -177,9 +178,9 @@ export function RecycleBin({ kinds, actions, busy, onClose, scrubDays, onScrubDa
       </div>
       {scrubbedNow ? <p className="recycle-bin-scrub-note" role="status">本次打开时已清理 {scrubbedNow} 项过期密钥。</p> : null}
     </section>}
-    <footer className="recycle-bin-foot">
+    {onClose && <footer className="recycle-bin-foot">
       <button type="button" className="secondary" onClick={onClose}>关闭</button>
-    </footer>
+    </footer>}
     {pendingPurge && <ConfirmDialog title="彻底删除回收站数据" message={`彻底删除 ${pendingPurge.ids.length} 项后无法恢复，确定继续吗？`} confirmLabel="彻底删除" busy={disabled} onResolve={confirmed => {
       const target = pendingPurge;
       setPendingPurge(null);

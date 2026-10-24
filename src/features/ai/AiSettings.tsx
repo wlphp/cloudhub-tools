@@ -15,9 +15,9 @@ const protocols: { value: AiProtocol; label: string; url: string }[] = [
 ];
 const initial = (): AiProfileInput => ({ name: "", protocol: "openai_chat", baseUrl: protocols[0].url, model: "", models: [""], apiKey: "", enabled: true, isDefault: true, timeoutSeconds: 60, maxOutputTokens: 2048, allowLoopbackHttp: false });
 
-export function AiSettings() {
+export function AiSettings({ embedded = false }: { embedded?: boolean }) {
   const [profiles, setProfiles] = useState<AiProfile[]>([]);
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(embedded);
   const [draft, setDraft] = useState<AiProfileInput | null>(null);
   const [keyVisible, setKeyVisible] = useState(false);
   const [revealedKey, setRevealedKey] = useState("");
@@ -119,7 +119,7 @@ export function AiSettings() {
       <div className="ai-config-summary" role="group" aria-label="AI 服务概览">
         {profiles.length ? <><div className="ai-summary-stats"><span>启用 <strong>{enabledCount} / {profiles.length}</strong></span><span>图像测试通过 <strong>{visionCount}</strong></span><span className="ai-summary-default" title={defaultProfile?.name}>默认：{defaultProfile ? `${defaultProfile.name}${defaultProfile.enabled ? "" : "（已停用）"}` : "未设置"}</span></div><div className="ai-summary-channels">{profiles.map(profile => <span className={`ai-summary-channel${profile.enabled ? "" : " is-disabled"}`} key={profile.id} title={`${profile.name} · ${protocols.find(p => p.value === profile.protocol)?.label || profile.protocol}${profile.enabled ? "" : " · 已停用"}`}><span>{profile.name}</span><small>{protocols.find(p => p.value === profile.protocol)?.label || profile.protocol}{!profile.enabled && " · 已停用"}</small></span>)}</div></> : <p>尚未添加服务，可在手机网页配置并使用 AI 辅助。</p>}
       </div>
-      <div className="ai-settings-controls"><button className="ai-settings-toggle" type="button" aria-expanded={expanded} aria-controls="ai-settings-content" onClick={() => setExpanded(value => !value)}><ChevronDown size={15} aria-hidden="true" />{expanded ? "收起" : "展开"}</button><button type="button" disabled={busy} onClick={() => { opener.current = document.activeElement as HTMLElement; setExpanded(true); clearKeyDisplay(); setDraft(initial()); setModels([]); setDeleting(null); setMessage(""); }}><Plus size={15} />添加服务</button></div></header>
+      <div className="ai-settings-controls">{!embedded && <button className="ai-settings-toggle" type="button" aria-expanded={expanded} aria-controls="ai-settings-content" onClick={() => setExpanded(value => !value)}><ChevronDown size={15} aria-hidden="true" />{expanded ? "收起" : "展开"}</button>}<button type="button" disabled={busy} onClick={() => { opener.current = document.activeElement as HTMLElement; setExpanded(true); clearKeyDisplay(); setDraft(initial()); setModels([]); setDeleting(null); setMessage(""); }}><Plus size={15} />添加服务</button></div></header>
     <div id="ai-settings-content" hidden={!expanded}>
     <>
       {message && !draft && <p className="ai-feedback" role="status" tabIndex={-1} ref={saveFeedback}>{message}</p>}

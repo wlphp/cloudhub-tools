@@ -18,15 +18,15 @@ use tauri_plugin_dialog::DialogExt;
 // Auth import/refresh/switch share one writer. It also bounds simultaneous CLI processes.
 pub(crate) use crate::core::codex::AUTH_WRITER;
 static SWITCH_TICKET: Mutex<Option<SwitchTicket>> = Mutex::new(None);
-struct RefreshLease { id: i64, active: std::sync::Arc<Mutex<std::collections::HashSet<i64>>> }
+struct RefreshLease { id: i64, active: std::sync::Arc<Mutex<std::collections::HashMap<i64, &'static str>>> }
 impl Drop for RefreshLease { fn drop(&mut self) { if let Ok(mut active) = self.active.lock() { active.remove(&self.id); } } }
 // Caller holds AUTH_WRITER. Reserve this account before releasing the global
 // writer for remote I/O; instance launch, import and deletion honor this lease.
-fn refresh_lease(app: &tauri::AppHandle, id: i64) -> Result<RefreshLease, String> {
+fn refresh_lease(app: &tauri::AppHandle, id: i64, operation: &'static str) -> Result<RefreshLease, String> {
     let store = app.state::<super::codex_runtime::CodexRuntimeStore>();
-    if super::codex_instances::account_running(&store, id)? { return Err("该账号有实例运行，请先停止实例再刷新，避免凭据更新冲突".into()); }
+    if super::codex_instances::account_running(&store, id)? { return Err(super::codex_instances::account_busy_error(&store, id, "刷新登录凭据")?); }
     let active = store.wakes.clone();
-    active.lock().map_err(|_| "Codex 账号操作不可用")?.insert(id);
+    active.lock().map_err(|_| "Codex 账号操作不可用")?.insert(id, operation);
     Ok(RefreshLease { id, active })
 }
 
@@ -43,7 +43,7 @@ pub(crate) async fn codex_force_refresh(app: tauri::AppHandle, id: i64) -> Platf
     tauri::async_runtime::spawn_blocking(move || -> Result<auth::AuthMetadata, String> {
         let _writer = AUTH_WRITER.lock().map_err(|_| "Codex 账号操作不可用")?;
         if super::codex_instances::account_running(&app.state::<super::codex_runtime::CodexRuntimeStore>(), id)? {
-            return Err("请先停止该账号的实例或 API 服务，再刷新 Token".into());
+            return Err(super::codex_instances::account_busy_error(&app.state::<super::codex_runtime::CodexRuntimeStore>(), id, "刷新 Token")?);
         }
         let conn = open_db()?;
         let account = repository::get(&conn, id)?;
@@ -56,7 +56,7 @@ pub(crate) async fn codex_force_refresh(app: tauri::AppHandle, id: i64) -> Platf
         // Refuse a second writer rather than invalidate the client's session.
         if profile::default_home().ok().and_then(|home| profile::read_auth(&home.join("auth.json")).ok())
             .and_then(|v| auth::parse_import(&v).ok()).is_some_and(|v| v.iter().any(|a| a.identity == saved.identity)) {
-            return Err("此账号由默认客户端管理，请在客户端续期后重新导入本机登录".into());
+            return Err(format!("无法刷新 Token：此账号由默认 Codex 客户端管理（配置目录：{}），请在该客户端续期后重新导入本机登录", profile::default_home()?.display()));
         }
         let isolated = profile::TemporaryProfile::new(&saved.auth_json)?;
         let result = (|| {
@@ -433,7 +433,7 @@ pub(crate) async fn codex_delete_account(
             &app.state::<super::codex_runtime::CodexRuntimeStore>(),
             id,
         )? {
-            return Err("该账号有实例运行，请先停止实例再删除".into());
+            return Err(super::codex_instances::account_busy_error(&app.state::<super::codex_runtime::CodexRuntimeStore>(), id, "删除账号")?);
         }
         let conn = open_db()?;
         crate::core::codex::providers::ensure_account_unbound(&conn, id)?;
@@ -460,18 +460,31 @@ pub(crate) async fn codex_refresh_quota(
     tauri::async_runtime::spawn_blocking(move || -> Result<CodexAccountSummary, String> {
         if id <= 0 { return Err("Codex 账号参数无效".into()); }
         let _writer = AUTH_WRITER.lock().map_err(|_| "Codex 账号操作不可用")?;
-        let _lease = refresh_lease(&app, id)?;
+        // A running credential owner may keep serving requests while we monitor
+        // quota. Only an idle account may lease its rotating grant to our CLI.
+        let usage = super::codex_instances::account_usage(&app.state::<super::codex_runtime::CodexRuntimeStore>(), id)?;
+        let running = !usage.is_empty();
+        let _lease = if running { None } else { Some(refresh_lease(&app, id, "额度刷新")?) };
         drop(_writer);
         let conn = open_db()?;
         let account = repository::get(&conn, id)?;
         if account.auth_mode != "chatgpt" { return Err("API Key 账号不提供 ChatGPT 订阅额度".into()); }
         if account.quota.fetched_at.is_some_and(|time| chrono::Utc::now().timestamp_millis() - time < 30_000) { return Err("额度刚刚刷新，请在 30 秒后重试".into()); }
         let auth_json = repository::credentials(&conn, id)?;
-        let original = auth::parse_import(&auth_json)?.remove(0);
+        let mut original = auth::parse_import(&auth_json)?.remove(0);
+        if running {
+            if let Some(current) = super::codex_instances::monitoring_auth(&app.state::<super::codex_runtime::CodexRuntimeStore>(), id, &original.identity)? {
+                original = current;
+            }
+        }
         // A default client's refresh token belongs to that client. Use only its latest
         // access token for monitoring, so our temporary CLI cannot rotate its login away.
         let default_auth = profile::default_home().ok().and_then(|home| profile::read_auth(&home.join("auth.json")).ok()).and_then(|content| auth::parse_import(&content).ok()).and_then(|mut accounts| accounts.pop()).filter(|v| v.identity == original.identity);
-        let external = default_auth.is_some();
+        let mut owners = usage;
+        if default_auth.is_some() {
+            owners.push(format!("默认 Codex 客户端（配置目录：{}，由该客户端续期后重试）", profile::default_home()?.display()));
+        }
+        let external = !owners.is_empty();
         let monitored = default_auth.unwrap_or(original);
         let isolated = profile::TemporaryProfile::new(if external { "{}" } else { &monitored.auth_json })?;
         let mut api_log=crate::core::codex::remote_logs::RemoteTrace::new(Some(id),"cli_rpc","account/rateLimits/read","官方 CLI 内部远端请求（HTTP 地址及请求头不可见）",account.proxy_url.as_deref());
@@ -556,13 +569,28 @@ pub(crate) async fn codex_refresh_quota(
                         "calls":cli_calls,
                         "error":cli_error
                     }));
-                    Err(format!("{direct_error}；CLI 查询失败：{cli_error}"))
+                    let hint = if external {
+                        format!("；本次仅查询额度，未续期登录。凭据占用来源：{}。如认证过期，请由上述来源续期后重试，或解除占用后刷新 Token", owners.join("；"))
+                    } else { String::new() };
+                    Err(format!("{direct_error}；CLI 查询失败：{cli_error}{hint}"))
                 }
             }
         })();
         api_log.finish(if fetched.is_ok(){"completed"}else{"cli_error"});
         let details = serde_json::json!({"attempts":attempts});
-        let updated = if external { monitored.auth_json } else { profile::read_auth(&isolated.path.join("auth.json"))? };
+        if external {
+            // Never write a borrowed credential snapshot back: the owner may
+            // have rotated it while the read-only network request was in flight.
+            // Serialize the cache write with token writers too: updated_at is
+            // their CAS version, so changing it mid-rotation would reject save.
+            let _writer = AUTH_WRITER.lock().map_err(|_| "Codex 账号操作不可用")?;
+            match fetched {
+                Ok((quota, plan)) => repository::save_quota_observation(&conn, id, Some(&quota), plan.as_deref(), None, Some(&details))?,
+                Err(error) => repository::save_quota_observation(&conn, id, None, None, Some(&error), Some(&details))?,
+            }
+            return repository::get(&conn, id);
+        }
+        let updated = profile::read_auth(&isolated.path.join("auth.json"))?;
         let imported = auth::parse_import(&updated)?.remove(0);
         if imported.identity != monitored.identity { return Err("Codex 刷新返回了不同账号，认证状态未保存".into()); }
         match fetched {
@@ -666,7 +694,7 @@ pub(crate) async fn codex_prepare_switch(
             &app.state::<super::codex_runtime::CodexRuntimeStore>(),
             id,
         )? {
-            return Err("该账号有实例运行，请先停止实例再切换默认账号".into());
+            return Err(super::codex_instances::account_busy_error(&app.state::<super::codex_runtime::CodexRuntimeStore>(), id, "切换默认账号")?);
         }
         repository::get(&open_db()?, id)?;
         if crate::core::codex::providers::is_provider_account(&open_db()?,id)? {return Err("请通过模型供应商启动预览应用此账号".into());}
@@ -732,7 +760,7 @@ pub(crate) async fn codex_confirm_switch(
             &app.state::<super::codex_runtime::CodexRuntimeStore>(),
             ticket.id,
         )? {
-            return Err("该账号有实例运行，未执行切换，请先停止实例".into());
+            return Err(super::codex_instances::account_busy_error(&app.state::<super::codex_runtime::CodexRuntimeStore>(), ticket.id, "切换默认账号")?);
         }
         if repository::get(&conn, ticket.id)?.updated_at != ticket.version {
             return Err("Codex 账号已变更，请重新确认切号".into());
@@ -972,10 +1000,7 @@ pub(crate) async fn codex_save_proxies(
         let store = app.state::<super::codex_runtime::CodexRuntimeStore>();
         for id in &ids {
             if super::codex_instances::account_running(&store, *id)? {
-                return Err(
-                    "所选账号中有服务、实例或唤醒任务运行，请先停止后批量设置代理；未修改任何账号"
-                        .into(),
-                );
+                return Err(super::codex_instances::account_busy_error(&store, *id, "批量设置代理（未修改任何账号）")?);
             }
         }
         crate::core::codex::account_controls::save_proxies(&mut open_db()?, &ids, &url)
@@ -1000,7 +1025,7 @@ pub(crate) async fn codex_save_proxy(
             &app.state::<super::codex_runtime::CodexRuntimeStore>(),
             id,
         )? {
-            return Err("请先停止该账号的服务或实例，再修改代理".into());
+            return Err(super::codex_instances::account_busy_error(&app.state::<super::codex_runtime::CodexRuntimeStore>(), id, "修改代理")?);
         }
         crate::core::codex::account_controls::save_proxy(&conn, id, &url)?;
         repository::get(&conn, id)
@@ -1014,7 +1039,7 @@ pub(crate) async fn codex_refresh_benefits(app: tauri::AppHandle, id: i64) -> Pl
     tauri::async_runtime::spawn_blocking(move || -> Result<_, String> {
         use crate::core::codex::{account_controls as controls, gateway};
         let _writer = AUTH_WRITER.lock().map_err(|_| "账号操作不可用")?;
-        let _lease = refresh_lease(&app, id)?;
+        let _lease = refresh_lease(&app, id, "订阅权益刷新")?;
         let conn = open_db()?;
         let mut summary = repository::get(&conn, id)?;
         auth::ensure_runtime_auth(&repository::credentials(&conn,id)?)?;
@@ -1112,7 +1137,7 @@ pub(crate) async fn codex_consume_reset(
         let conn=open_db()?; let summary=repository::get(&conn,id)?;
         auth::ensure_runtime_auth(&repository::credentials(&conn,id)?)?;
         if summary.auth_mode!="chatgpt" {return Err("API Key 账号无法使用主动重置".into());}
-        if super::codex_instances::account_running(&app.state::<super::codex_runtime::CodexRuntimeStore>(),id)? {return Err("请先停止该账号的服务或实例，再重置额度".into());}
+        if super::codex_instances::account_running(&app.state::<super::codex_runtime::CodexRuntimeStore>(),id)? {return Err(super::codex_instances::account_busy_error(&app.state::<super::codex_runtime::CodexRuntimeStore>(), id, "重置额度")?);}
         let (token,account,proxy)=gateway::credentials_locked(id,std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)))?;
         let account=account.ok_or("账号标识无效")?; let client=controls::client(proxy.as_deref())?;
         let existing:Option<String>=rusqlite::OptionalExtension::optional(conn.query_row("SELECT reset_request_id FROM codex_account_controls WHERE account_id=?1",[id],|r|r.get::<_,Option<String>>(0))).map_err(|_|"读取重置请求标识失败")?.flatten();

@@ -4,7 +4,7 @@ use crate::core::{
 };
 use serde::Serialize;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex,
@@ -20,7 +20,7 @@ pub(crate) struct CodexRuntimeStore {
     pub gateway: Arc<Mutex<Option<crate::core::codex::gateway::RunningGateway>>>,
     pub provider_gateways: Arc<Mutex<HashMap<String, crate::core::codex::provider_gateway::ProviderGateway>>>,
     pub provider_import: Arc<Mutex<Option<crate::core::codex::provider_import::ImportDraft>>>,
-    pub wakes: Arc<Mutex<HashSet<i64>>>,
+    pub wakes: Arc<Mutex<HashMap<i64, &'static str>>>,
     pub closing: Arc<AtomicBool>,
     pub gateway_start_error: Arc<Mutex<Option<String>>>,
 }

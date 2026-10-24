@@ -294,8 +294,10 @@ pub(crate) async fn codex_bind_instance(app: tauri::AppHandle, id: String, accou
         let conn = open_db()?;
         let old: i64 = conn.query_row("SELECT account_id FROM codex_profiles WHERE id=?1", [&id], |row| row.get(0)).map_err(|_| "Codex 实例不存在")?;
         if crate::core::codex::providers::is_provider_account(&conn,account_id)? {return Err("请通过模型供应商启动预览应用此账号".into());}
-        if account_running(&store, old)? || account_running(&store, account_id)? {
-            return Err("请先停止目标实例和账号的服务，再切换实例账号".into());
+        for account in [old, account_id] {
+            if account_running(&store, account)? {
+                return Err(account_busy_error(&store, account, "切换实例账号")?);
+            }
         }
         repository::get(&conn, account_id)?;
         auth::ensure_runtime_auth(&repository::credentials(&conn, account_id)?)?;
@@ -339,6 +341,83 @@ pub(crate) fn account_running(store: &CodexRuntimeStore, account_id: i64) -> Res
     runtime_account_running(store,account_id)
 }
 
+pub(crate) fn account_usage(store: &CodexRuntimeStore, account_id: i64) -> Result<Vec<String>, String> {
+    let conn = open_db()?;
+    account_usage_with_conn(&conn, store, account_id)
+}
+
+fn account_usage_with_conn(conn: &rusqlite::Connection, store: &CodexRuntimeStore, account_id: i64) -> Result<Vec<String>, String> {
+    let mut sources = Vec::new();
+    let mut statement = conn.prepare("SELECT home FROM codex_provider_oauth WHERE account_id=?1 ORDER BY home")
+        .map_err(|_| "读取供应商 OAuth 归属失败")?;
+    let homes = statement.query_map([account_id], |row| row.get::<_, String>(0))
+        .map_err(|_| "读取供应商 OAuth 归属失败")?;
+    for home in homes {
+        sources.push(format!("供应商 OAuth 配置（{}，需恢复该目标的配置与登录以解除绑定）", home.map_err(|_| "读取供应商 OAuth 归属失败")?));
+    }
+    let instances = store.instances.lock().map_err(|_| "Codex 实例状态不可用")?;
+    let mut running = instances.iter().filter(|(_, instance)| instance.account_id == account_id).collect::<Vec<_>>();
+    running.sort_by_key(|(id, _)| *id);
+    for (id, instance) in running {
+        let name: String = conn.query_row("SELECT name FROM codex_profiles WHERE id=?1", [id], |row| row.get(0))
+            .map_err(|_| "读取 Codex 实例名称失败")?;
+        sources.push(format!("运行实例「{name}」（ID：{id}，PID：{}，需停止该实例）", instance.child.id()));
+    }
+    drop(instances);
+    if let Some(gateway) = store.gateway.lock().map_err(|_| "Codex 服务状态不可用")?.as_ref().filter(|gateway| gateway.contains(account_id)) {
+        sources.push(format!("API 服务（本机端口 {} 的服务账号池，需停止该服务或从账号池移除此账号）", gateway.port()?));
+    }
+    if let Some(operation) = store.wakes.lock().map_err(|_| "Codex 账号操作状态不可用")?.get(&account_id) {
+        sources.push(format!("{operation}正在执行（需等待本次操作结束）"));
+    }
+    Ok(sources)
+}
+
+pub(crate) fn account_busy_error(store: &CodexRuntimeStore, account_id: i64, action: &str) -> Result<String, String> {
+    Ok(format!("无法{action}：账号 {account_id} 的占用来源：{}", account_usage(store, account_id)?.join("；")))
+}
+
+// Borrow the owner's latest access token without syncing or changing its login.
+pub(crate) fn monitoring_auth(store: &CodexRuntimeStore, account_id: i64, identity: &str) -> Result<Option<auth::ImportedAccount>, String> {
+    let mut paths: Vec<PathBuf> = store.instances.lock().map_err(|_| "Codex 实例状态不可用")?
+        .values().filter(|instance| instance.account_id == account_id).map(|instance| instance.path.clone()).collect();
+    let conn = open_db()?;
+    let mut statement = conn.prepare("SELECT home FROM codex_provider_oauth WHERE account_id=?1")
+        .map_err(|_| "读取供应商 OAuth 归属失败")?;
+    let homes = statement.query_map([account_id], |row| row.get::<_, String>(0)).map_err(|_| "读取供应商 OAuth 归属失败")?;
+    for home in homes { paths.push(PathBuf::from(home.map_err(|_| "读取供应商 OAuth 归属失败")?)); }
+    paths.sort();
+    paths.dedup();
+    if let Some(path) = paths.first() {
+        let current = auth::parse_import(&profile::read_auth(&path.join("auth.json"))?)?.remove(0);
+        if current.identity != identity { return Err(format!("额度查询未执行：凭据所属目录 {} 已登录其他账号，请检查该实例或供应商配置", path.display())); }
+        return Ok(Some(current));
+    }
+    Ok(None)
+}
+
+#[cfg(test)]
+mod quota_usage_tests {
+    use super::*;
+
+    #[test]
+    fn quota_usage_identifies_bound_home_and_exact_inflight_operation() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE codex_provider_oauth(home TEXT,account_id INTEGER); INSERT INTO codex_provider_oauth VALUES('fixture-provider-home',7);").unwrap();
+        let store = CodexRuntimeStore::default();
+        store.wakes.lock().unwrap().insert(7, "订阅权益刷新");
+        let sources = account_usage_with_conn(&conn, &store, 7).unwrap();
+        assert_eq!(sources.len(), 2);
+        assert!(sources[0].contains("fixture-provider-home"));
+        assert!(sources[0].contains("恢复该目标"));
+        assert!(sources[1].contains("订阅权益刷新正在执行"));
+        assert!(!sources.iter().any(|source| source.contains("运行实例")));
+        assert!(account_usage_with_conn(&conn, &store, 8).unwrap().is_empty());
+        store.wakes.lock().unwrap().remove(&7);
+        assert_eq!(account_usage_with_conn(&conn, &store, 7).unwrap().len(), 1);
+    }
+}
+
 pub(crate) fn runtime_account_running(store: &CodexRuntimeStore, account_id: i64) -> Result<bool, String> {
     let instance_running = store
         .instances
@@ -356,7 +435,7 @@ pub(crate) fn runtime_account_running(store: &CodexRuntimeStore, account_id: i64
         .wakes
         .lock()
         .map_err(|_| "Codex 唤醒状态不可用")?
-        .contains(&account_id);
+        .contains_key(&account_id);
     Ok(instance_running || gateway_running || waking)
 }
 
@@ -552,7 +631,7 @@ pub(crate) async fn codex_start_instance(
         let (account_id,work_dir,last_projection,kind): (i64,String,Option<String>,String) = conn.query_row("SELECT account_id,work_dir,auth_fingerprint,kind FROM codex_profiles WHERE id=?1",[&id],|row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?))).map_err(|_| "Codex 实例不存在")?;
         let store = app.state::<CodexRuntimeStore>();
         if store.closing.load(std::sync::atomic::Ordering::SeqCst){return Err("应用正在退出，未启动实例".into());}
-        if account_running(&store,account_id)? { return Err("该账号已有受管实例运行，请先停止，避免凭据刷新冲突".into()); }
+        if account_running(&store,account_id)? { return Err(account_busy_error(&store, account_id, "启动独立实例")?); }
         let workspace = PathBuf::from(work_dir).canonicalize().map_err(|_| "项目目录不存在")?;
         if !matches!(kind.as_str(),"cli"|"desktop"){return Err("Codex 实例类型无效".into());}
         let path = instance_path(&id)?;

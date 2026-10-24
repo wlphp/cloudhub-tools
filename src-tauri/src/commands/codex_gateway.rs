@@ -336,7 +336,7 @@ async fn run_account_test(
     let store = app.state::<CodexRuntimeStore>();
     struct Lease {
         id: i64,
-        wakes: std::sync::Arc<std::sync::Mutex<HashSet<i64>>>,
+        wakes: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<i64, &'static str>>>,
     }
     impl Drop for Lease {
         fn drop(&mut self) {
@@ -351,13 +351,13 @@ async fn run_account_test(
             return Err("应用正在退出".into());
         }
         if super::codex_instances::account_running(&store, id)? {
-            return Err("该账号已有实例、服务或唤醒请求运行，请等待结束".into());
+            return Err(super::codex_instances::account_busy_error(&store, id, "测试/唤醒账号")?.into());
         }
         store
             .wakes
             .lock()
             .map_err(|_| "Codex 唤醒状态不可用")?
-            .insert(id);
+            .insert(id, "模型测试/唤醒请求");
         Lease {
             id,
             wakes: store.wakes.clone(),

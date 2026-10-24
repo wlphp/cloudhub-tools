@@ -27,6 +27,9 @@ export default defineConfig(async () => ({
     watch: {
       // 3. tell Vite to ignore watching `src-tauri`
       ignored: ["**/src-tauri/**"],
+      // 4. Windows 上 chokidar 事件偶发丢失导致热更新漏推，改用轮询确保可靠
+      usePolling: true,
+      interval: 300,
     },
   },
 }));

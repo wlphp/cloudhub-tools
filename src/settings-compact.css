@@ -3,12 +3,9 @@
 .utility-page .settings-icon{width:44px;height:44px}
 .utility-page .settings-copy strong{font-size:16px}
 .utility-page .settings-copy small{margin-top:5px;font-size:12px}
-.utility-page .setting-state.on{padding:6px 11px}
 .utility-page .settings-select{height:40px;min-width:96px;padding:0 11px}
 .utility-page .settings-link{padding:8px 12px}
-.utility-page .settings-update-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;min-width:auto}
 .utility-page .primary-update-btn{padding:8px 12px;border-radius:6px;font-size:13px}
-.utility-page .settings-card.has-update-notes{grid-template-columns:48px minmax(0,1fr) auto;row-gap:12px}.utility-page .settings-update-notes{grid-column:1/-1;padding:11px 13px;border:1px solid #394b67;border-radius:7px;background:#111f32;color:#b8cde2;font-size:12px;line-height:1.55}.utility-page .settings-update-notes strong{display:block;margin-bottom:5px;color:#d9ebff;font-size:12px}.utility-page .settings-update-notes p{max-height:130px;margin:0;overflow:auto;color:#9fb6cd;white-space:pre-wrap;overflow-wrap:anywhere}
 .utility-page .setting-switch span{width:52px;height:28px}
 .utility-page .setting-switch span:after{width:20px;height:20px;left:4px;top:4px}
 .utility-page .setting-switch input:checked+span:after{left:28px}
@@ -28,6 +25,15 @@ html,body,#root{height:100%;overflow:hidden}.app-shell{height:100vh;min-height:0
 .database-import-details strong,.database-import-conflicts strong{display:block;margin-bottom:5px;color:#e6e6e6}
 .database-import-conflicts{border-color:#8b6235;background:#30271f;color:#e0bc8f}
 
+/* 系统设置页签栏：沿用软件商店 store-tabs 的视觉变量与高亮方式 */
+.settings-tabs{display:flex;gap:6px;margin:0 0 16px;padding:0 12px;border:1px solid var(--jb-border);border-radius:5px;background:var(--jb-surface);overflow-x:auto}
+.settings-tabs button{display:flex;align-items:center;gap:8px;padding:13px 16px;background:transparent;color:var(--jb-muted);border:0;border-bottom:2px solid transparent;border-radius:0;cursor:pointer;font:inherit;font-size:13px;white-space:nowrap}
+.settings-tabs button.is-active{color:var(--jb-accent);border-bottom-color:var(--jb-accent);background:var(--jb-accent-soft)}
+.settings-tabs button:focus-visible{outline:2px solid var(--jb-accent);outline-offset:-2px}
+
+/* 页签内容：设置项整行排布 */
+.utility-page .settings-grid.settings-list{grid-template-columns:minmax(0,1fr)}
+
 /* 全局回收站弹层：复用共享基座，仅补充宽屏与滚动布局 */
 .trash-dialog.modal-form-layout { width: min(860px, calc(100vw - 32px)); max-width: calc(100vw - 32px); }
 .trash-dialog-head > svg, .trash-dialog > .modal-head > svg { flex: 0 0 auto; color: var(--jb-accent); }
@@ -40,8 +46,7 @@ html,body,#root{height:100%;overflow:hidden}.app-shell{height:100vh;min-height:0
   .trash-dialog-body .recycle-bin-group-actions button { min-height: 40px; }
 }
 
-/* 回收站入口卡片：与「数据管理」入口同为一整行的可点击卡片，
-   因此沿用同样的整行宽度、左对齐和悬停反馈，否则文字会居中。 */
+/* 回收站入口卡片：整行可点击卡片，沿用左对齐和悬停反馈 */
 .settings-card.trash-entry {
   width: 100%;
   text-align: left;
@@ -49,3 +54,52 @@ html,body,#root{height:100%;overflow:hidden}.app-shell{height:100vh;min-height:0
   cursor: pointer;
 }
 .settings-card.trash-entry:hover { border-color: #8056e8; background: #101d33; }
+
+/* 关于页签：应用信息卡（图标+版本+更新按钮 / 状态行 / 链接行 / Star 提示条） */
+.about-card{display:grid;border:1px solid var(--jb-border);border-radius:10px;background:var(--jb-surface);overflow:hidden}
+.about-card-head{display:flex;align-items:center;gap:14px;padding:16px 20px}
+.about-card-head img{width:46px;height:46px;border-radius:10px;flex:none}
+.about-card-title{min-width:0;flex:1}
+.about-card-title strong{display:block;font-size:17px}
+.about-card-title small{display:block;margin-top:4px;color:var(--jb-muted);font-size:12.5px}
+.about-card-head button{flex:none}
+.about-card-status{margin:0;padding:14px 20px;border-top:1px solid var(--jb-border);font-size:13px;color:var(--jb-muted)}
+.about-card-notes{padding:12px 20px 14px;border-top:1px solid var(--jb-border)}
+.about-card-notes strong{display:block;margin-bottom:5px;font-size:12px}
+.about-card-notes p{margin:0;max-height:130px;overflow:auto;font-size:12px;line-height:1.55;color:var(--jb-muted);white-space:pre-wrap;overflow-wrap:anywhere}
+.about-card-links{display:flex;flex-wrap:wrap;gap:8px;padding:14px 20px;border-top:1px solid var(--jb-border)}
+.about-card-links a{display:inline-flex;align-items:center;gap:6px;text-decoration:none}
+.about-card-star{display:flex;align-items:center;gap:10px;padding:13px 20px;border-top:1px solid var(--jb-border);background:rgba(245,166,35,.08);color:#f0b35c}
+.about-card-star p{flex:1;min-width:0;margin:0;font-size:13px}
+.about-card-star a{flex:none}
+.about-star-close{display:grid;place-items:center;width:28px;height:28px;background:transparent;border:0;border-radius:6px;color:inherit;cursor:pointer}
+.about-star-close:hover{background:rgba(255,255,255,.08)}
+.about-star-close:focus-visible{outline:2px solid #f0b35c;outline-offset:1px}
+
+/* 手机端下载弹层：左栏扫码下载，右栏安装包说明；二维码底色保持浅色以便扫描 */
+.mobile-download-dialog.modal-form-layout{width:min(720px,calc(100vw - 32px))}
+.mobile-download-grid{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:14px}
+.mobile-download-card{display:grid;gap:12px;align-content:start;padding:16px;border:1px solid var(--jb-border);border-radius:10px;background:var(--jb-surface-2,rgba(255,255,255,.03))}
+.mobile-download-card>header{display:flex;align-items:flex-start;gap:9px;text-align:left;justify-content:flex-start}
+.mobile-download-card>header>div{flex:1;min-width:0}
+.mobile-download-card>header svg{flex:none;margin-top:2px;color:var(--jb-accent)}
+.mobile-download-card strong{display:block;font-size:13.5px;color:var(--jb-text)}
+.mobile-download-card p{margin:3px 0 0;color:var(--jb-muted);font-size:12px;line-height:1.6}
+.mobile-download-qr{display:grid;place-items:center;width:fit-content;margin:0 auto;padding:10px;border:1px solid var(--jb-border);border-radius:12px;background:#f4f6f8}
+.mobile-download-qr svg{display:block}
+.mobile-download-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border:1px solid var(--jb-border);border-radius:8px;background:var(--jb-input)}
+.mobile-download-row strong{font-size:12.5px}
+.mobile-download-row small{display:block;margin-top:2px;color:var(--jb-muted);font-size:11.5px}
+.mobile-download-row button{flex:none;display:inline-flex;align-items:center;gap:6px}
+.mobile-download-platform{display:grid;gap:6px;padding:12px;border:1px solid var(--jb-border);border-radius:8px;background:var(--jb-input)}
+.mobile-download-platform-head{display:flex;align-items:center;gap:8px}
+.mobile-download-platform-head svg{flex:none;color:var(--jb-accent)}
+.mobile-download-platform-head strong{font-size:13px}
+.mobile-download-platform p{margin:0;color:var(--jb-muted);font-size:12px;line-height:1.6}
+.mobile-download-platform a{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;color:#73c9ff;text-decoration:none;justify-self:start}
+.mobile-download-platform a:hover{text-decoration:underline}
+.mobile-download-footer-button{display:flex;align-items:center;justify-content:center;gap:7px;width:100%;padding:10px;border:1px solid var(--jb-border);border-radius:8px;background:transparent;color:var(--jb-text);font:inherit;font-size:13px;cursor:pointer}
+.mobile-download-footer-button:hover{border-color:var(--jb-accent);color:var(--jb-accent)}
+@media(max-width:720px){.mobile-download-grid{grid-template-columns:1fr}}
+
+

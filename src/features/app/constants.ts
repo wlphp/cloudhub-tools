@@ -8,6 +8,10 @@ export const cloudHubManagedHostGroupOrderStorageKey = "cloudhub-tools-managed-h
 export const cloudHubManagedHostCollapsedGroupsStorageKey = "cloudhub-tools-managed-host-collapsed-groups";
 export const cloudHubRecentManagedHostsCollapsedStorageKey = "cloudhub-tools-recent-managed-hosts-collapsed";
 export const cloudHubTerminalThemeStorageKey = "cloudhub-tools-terminal-theme";
+export const cloudHubAboutStarDismissedStorageKey = "cloudhub-tools-about-star-dismissed";
+export const cloudHubUiZoomStorageKey = "cloudhub-tools-ui-zoom";
+export const cloudHubUiThemeStorageKey = "cloudhub-tools-ui-theme";
+export const cloudHubUiLanguageStorageKey = "cloudhub-tools-ui-language";
 
 export const terminalThemes = {
   dark: {

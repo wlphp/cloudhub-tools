@@ -7,6 +7,12 @@ pub(crate) fn app_is_development() -> bool {
     crate::core::paths::desktop_development()
 }
 
+/// 彻底退出应用：绕过托盘驻留，直接结束进程。
+#[tauri::command]
+pub(crate) fn app_exit(app: tauri::AppHandle) {
+    app.exit(0);
+}
+
 #[tauri::command]
 pub(crate) fn app_data_path() -> PlatformResult<String> {
     Ok(resolved_data_directory()?.to_string_lossy().to_string())

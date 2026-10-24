@@ -9,13 +9,13 @@ import { runningInTauri, platformErrorMessage } from "../../platform/api";
 import { defaultPetSettings, defaultPetLife, petSeverityLabel, sortPetAlerts, desktopPetClient as client, type PetSettings, type PetSnapshot } from "../../platform/clients/desktopPet";
 import "./desktop-pet.css";
 
-export function PetSettingsPanel() {
+export function PetSettingsPanel({ embedded = false }: { embedded?: boolean }) {
   const [settings, setSettings] = useState<PetSettings>(defaultPetSettings);
   const [snapshot, setSnapshot] = useState<PetSnapshot>({ alerts: [], checkedAt: 0, lastError: null });
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(embedded);
   const [history, setHistory] = useState(false);
   useEffect(() => {
     if (!runningInTauri) return;
@@ -42,7 +42,7 @@ export function PetSettingsPanel() {
       <span className={settings.enabled ? "is-on" : "is-off"}><i aria-hidden="true" />桌宠 {settings.enabled ? "已启用" : "已关闭"}</span>
       <span className={settings.monitoring ? "is-on" : "is-off"}><i aria-hidden="true" />运维预警 {settings.monitoring ? "已启用" : "已关闭"}</span>
       {snapshot.alerts.some(alert => alert.active && !alert.ignored) && <span className="pet-summary-alert">{snapshot.alerts.filter(alert => alert.active && !alert.ignored).length} 项待处理</span>}
-    </div><button className="pet-settings-expand" aria-expanded={expanded} aria-controls="pet-settings-content" onClick={() => setExpanded(value => !value)}>{expanded ? "收起" : "展开"}<ChevronDown size={15} /></button></div>
+    </div>{!embedded && <button className="pet-settings-expand" aria-expanded={expanded} aria-controls="pet-settings-content" onClick={() => setExpanded(value => !value)}>{expanded ? "收起" : "展开"}<ChevronDown size={15} /></button>}</div>
     {expanded && <div id="pet-settings-content">
     {!runningInTauri ? <p>桌宠、后台巡检和托盘驻留仅支持桌面应用，浏览器预览不可用。</p> : <>
       {error && <p role="alert" className="pet-error">{error}</p>}

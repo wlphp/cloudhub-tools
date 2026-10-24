@@ -38,13 +38,18 @@ import { resourceColumns } from "./features/resources/pure";
 import { fetchCachedSummary } from "./features/resources/cache";
 import { ResourceErrorList } from "./features/resources/ResourceErrorList";
 import { useAppUpdates } from "./features/app/useAppUpdates";
+import { translateUiText } from "./i18n/ui-strings";
 import { useResourceWorkspace } from "./features/resources/useResourceWorkspace";
 import { accountGroups, filterAccounts } from "./features/accounts/pure";
 import { SyncTransferPanel } from "./features/accounts/SyncTransferPanel";
 import {
   cloudHubAssetDisplayNamesStorageKey,
   cloudHubAssetNotesStorageKey,
+  cloudHubAboutStarDismissedStorageKey,
   cloudHubAssetOrderStorageKey,
+  cloudHubUiZoomStorageKey,
+  cloudHubUiThemeStorageKey,
+  cloudHubUiLanguageStorageKey,
   cloudHubFavoriteAssetOrderStorageKey,
   cloudHubFavoriteAssetsStorageKey,
   cloudHubManagedHostCollapsedGroupsStorageKey,
@@ -55,7 +60,7 @@ import {
   terminalThemes,
   type TerminalThemeName,
 } from "./features/app/constants";
-import { FormEvent, PointerEvent, Suspense, lazy, type CSSProperties, type MouseEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, PointerEvent, Suspense, lazy, type CSSProperties, type MouseEvent, type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
@@ -67,18 +72,23 @@ import {
   ArrowUpCircle,
   ArrowDown,
   AlertTriangle,
+  Apple,
   Bookmark,
   BookmarkCheck,
+  Bot,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   History,
+  Info,
   PanelLeftClose,
   PanelLeftOpen,
   Palette,
   ChevronUp,
+  Check,
   Cloud,
   Copy,
+  Crown,
   ExternalLink,
   Database,
   Download,
@@ -87,16 +97,20 @@ import {
   FolderPlus,
   Globe2,
   GitBranch,
+  Gift,
   Network,
   GripVertical,
   Eye,
   EyeOff,
+  LayoutGrid,
   MoreHorizontal,
   MoreVertical,
   Monitor,
   List,
+  LogOut,
   NotebookPen,
   MapPin,
+  PawPrint,
   Terminal,
   FileText,
   Plus,
@@ -107,17 +121,22 @@ import {
   ScrollText,
   Server,
   Settings,
+  SlidersHorizontal,
   Square,
   Star,
   Trash2,
   Upload,
   UserRound,
   X,
+  ZoomIn,
   Minus,
   ShieldCheck,
+  Smartphone,
   CornerDownLeft,
 } from "lucide-react";
+import { QRCodeSVG } from "qrcode.react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { runningInTauri } from "./platform/api";
 import { accountsClient, appClient, databaseClient, domainsClient, logsClient, preferencesClient, remoteClient, resourcesClient, serversClient } from "./platform/clients";
@@ -236,9 +255,63 @@ function readLocalStorage(key: string): string | null {
   catch { return null; }
 }
 
+type SettingsTab = "general" | "data" | "ai" | "pet" | "about";
+
+const settingsTabs: { id: SettingsTab; label: string; icon: typeof SlidersHorizontal }[] = [
+  { id: "general", label: "通用设置", icon: SlidersHorizontal },
+  { id: "data", label: "数据管理", icon: Database },
+  { id: "ai", label: "AI 接入", icon: Bot },
+  { id: "pet", label: "宠物管理", icon: PawPrint },
+  { id: "about", label: "关于", icon: Info },
+];
+
+const cloudHubRepoUrl = "https://github.com/wlphp/cloudhub-tools";
+const cloudHubReleasesUrl = "https://github.com/wlphp/cloudhub-tools/releases";
+
+/** 侧边栏随机身份：头像与昵称均为本地展示用，每次启动随机。 */
+const sidebarAvatars = [
+  { emoji: "🐱", gradient: "linear-gradient(135deg,#5b8def,#8f6bff)" },
+  { emoji: "🦊", gradient: "linear-gradient(135deg,#ff9966,#ff5e62)" },
+  { emoji: "🐼", gradient: "linear-gradient(135deg,#4facfe,#00f2fe)" },
+  { emoji: "🐸", gradient: "linear-gradient(135deg,#43e97b,#38f9d7)" },
+  { emoji: "🦄", gradient: "linear-gradient(135deg,#a18cd1,#fbc2eb)" },
+  { emoji: "🐯", gradient: "linear-gradient(135deg,#f6d365,#fda085)" },
+  { emoji: "🐳", gradient: "linear-gradient(135deg,#667eea,#764ba2)" },
+  { emoji: "🐰", gradient: "linear-gradient(135deg,#89f7fe,#66a6ff)" },
+  { emoji: "🦁", gradient: "linear-gradient(135deg,#f77062,#fe5196)" },
+  { emoji: "🐙", gradient: "linear-gradient(135deg,#30cfd0,#330867)" },
+];
+const sidebarNames = ["豆豆", "煤球", "团子", "布丁", "年糕", "汤圆", "糯米", "芝麻", "奶盖", "花卷", "薯条", "可乐", "雪球", "麻薯", "果冻", "椰奶"];
+function pickRandomSidebarIdentity() {
+  const avatar = sidebarAvatars[Math.floor(Math.random() * sidebarAvatars.length)];
+  const name = sidebarNames[Math.floor(Math.random() * sidebarNames.length)];
+  return { emoji: avatar.emoji, gradient: avatar.gradient, name, id: String(Math.floor(1000 + Math.random() * 9000)) };
+}
+
+/** 身份菜单里带子菜单的界面设置项：悬停或聚焦时向右侧弹出选项浮层。 */
+function IdentityMenuItem({ icon: Icon, label, children }: { icon: typeof Globe2; label: string; children: ReactNode }) {
+  return <div className="identity-submenu-wrap">
+    <button type="button" role="menuitem" aria-haspopup="menu"><Icon size={15} aria-hidden="true" />{label}<ChevronRight size={14} aria-hidden="true" className="identity-menu-chevron" /></button>
+    <div className="identity-submenu" role="menu">{children}</div>
+  </div>;
+}
+
 function App() {
   const applicationSettings = useApplicationPreferences();
   const [storeApplicationId, setStoreApplicationId] = useState<string | undefined>();
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>("general");
+  const [aboutStarDismissed, setAboutStarDismissed] = useState(() => localStorage.getItem(cloudHubAboutStarDismissedStorageKey) === "1");
+  const [sidebarIdentity] = useState(() => pickRandomSidebarIdentity());
+  const [showMobileDownload, setShowMobileDownload] = useState(false);
+  const [showIdentityMenu, setShowIdentityMenu] = useState(false);
+  const [identityMenuPos, setIdentityMenuPos] = useState({ left: 12, bottom: 64 });
+  const [uiZoom, setUiZoom] = useState(() => {
+    const stored = Number(localStorage.getItem(cloudHubUiZoomStorageKey));
+    return Number.isFinite(stored) && stored >= 50 && stored <= 200 ? stored : 100;
+  });
+  const [uiLanguage, setUiLanguage] = useState<"en" | "zh-CN">("zh-CN");
+  const t = (text: string) => translateUiText(uiLanguage, text);
+  const [uiTheme, setUiTheme] = useState<"light" | "dark">(() => localStorage.getItem(cloudHubUiThemeStorageKey) === "light" ? "light" : "dark");
   const [showTrash, setShowTrash] = useState(false);
   useDialogDragging();
   const trashGroups = useTrashGroups();
@@ -314,7 +387,7 @@ function App() {
   const esaRequestRef = useRef(0);
   const [esaCertificateSite, setEsaCertificateSite] = useState<{ account: Account; siteId: number } | null>(null);
   const [esaSiteKeyword, setEsaSiteKeyword] = useState("");
-  const [section, setSection] = useState<"accounts" | "resources" | "certificates" | "authenticator" | "flow" | "frp" | "codex" | "claude" | "panels" | "servers" | "favorites" | "logs" | "api_logs" | "settings" | "data_management" | "plugins" | "notes">(() => isDetachedTerminalWindow ? "servers" : "accounts");
+  const [section, setSection] = useState<"accounts" | "resources" | "certificates" | "authenticator" | "flow" | "frp" | "codex" | "claude" | "panels" | "servers" | "favorites" | "logs" | "api_logs" | "settings" | "plugins" | "notes">(() => isDetachedTerminalWindow ? "servers" : "accounts");
   function openCatalogApplication(app: ApplicationDefinition) {
     if (app.section) setSection(app.section);
     else { setStoreApplicationId(app.id); setSection("plugins"); }
@@ -522,6 +595,81 @@ function App() {
     if (event.detail !== 1) return;
     void getCurrentWindow().startDragging();
   }
+
+  function toggleIdentityMenu(event: MouseEvent<HTMLElement>) {
+    const rect = event.currentTarget.getBoundingClientRect();
+    setIdentityMenuPos({ left: Math.max(10, Math.round(rect.left)), bottom: Math.max(10, Math.round(window.innerHeight - rect.top + 8)) });
+    setShowIdentityMenu(value => !value);
+  }
+
+  function openIdentityLink(target: string) {
+    setShowIdentityMenu(false);
+    openExternalLink(target);
+  }
+
+  function openExternalLink(target: string) {
+    if (runningInTauri) void openUrl(target).catch(error => setStatus(`打开链接失败：${String(error)}`));
+    else window.open(target, "_blank", "noreferrer");
+  }
+
+  async function copyMobileDownloadLink() {
+    try { await navigator.clipboard.writeText(cloudHubReleasesUrl); setStatus("下载链接已复制"); }
+    catch { setStatus("复制下载链接失败，请手动打开仓库页面"); }
+  }
+
+  async function copyIdentityId() {
+    try { await navigator.clipboard.writeText(sidebarIdentity.id); setStatus("身份ID已复制"); }
+    catch { setStatus("复制身份ID失败，请手动记录"); }
+  }
+
+  function stepIdentityZoom(direction: 1 | -1) {
+    setUiZoom(value => Math.min(150, Math.max(70, value + direction * 10)));
+  }
+
+  useEffect(() => {
+    if (runningInTauri) {
+      // 原生缩放：视口单位随缩放正确适配，避免 CSS zoom 导致的布局错位
+      void getCurrentWebview().setZoom(uiZoom / 100).catch(error => setStatus(`界面缩放失败：${String(error)}`));
+    } else {
+      document.documentElement.style.zoom = uiZoom === 100 ? "" : `${uiZoom}%`;
+    }
+    try { localStorage.setItem(cloudHubUiZoomStorageKey, String(uiZoom)); } catch { /* 存储不可用时仅本次会话生效 */ }
+  }, [uiZoom]);
+
+  useEffect(() => {
+    document.body.classList.toggle("theme-light", uiTheme === "light");
+    try { localStorage.setItem(cloudHubUiThemeStorageKey, uiTheme); } catch { /* 存储不可用时仅本次会话生效 */ }
+  }, [uiTheme]);
+
+  useEffect(() => {
+    try { localStorage.setItem(cloudHubUiLanguageStorageKey, uiLanguage); } catch { /* 存储不可用时仅本次会话生效 */ }
+  }, [uiLanguage]);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (!event.ctrlKey || event.altKey || event.shiftKey) return;
+      const target = event.target;
+      if (target instanceof Element && target.closest("input, textarea, [contenteditable='true'], .xterm")) return;
+      if (event.key === "+" || event.key === "=") { event.preventDefault(); stepIdentityZoom(1); }
+      else if (event.key === "-") { event.preventDefault(); stepIdentityZoom(-1); }
+      else if (event.key === "0") { event.preventDefault(); setUiZoom(100); }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
+
+  async function exitApplication() {
+    setShowIdentityMenu(false);
+    try { await appClient.exitApp(); }
+    catch (error) { setStatus(`退出失败：${String(error)}`); }
+  }
+
+  useEffect(() => {
+    if (!showIdentityMenu) return;
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setShowIdentityMenu(false); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [showIdentityMenu]);
 
   function handleTitlebarDoubleClick(event: MouseEvent<HTMLDivElement>) {
     if (!runningInTauri || event.button !== 0) return;
@@ -3667,7 +3815,7 @@ function App() {
   const detachedMonitorOs = String(detachedMonitorMetrics.os || "未探测");
   const detachedMonitorOsMatch = detachedMonitorOs.match(/^(.*?)\s*\(([^)]+)\)$/);
   return (
-    <div className={`app-shell ide-theme${isDetachedTerminalWindow ? " detached-terminal-window" : ""}${appSidebarCollapsed ? " sidebar-collapsed" : ""}`} ref={appShellRef} style={{ "--app-sidebar-width": `${appSidebarCollapsed ? 64 : appSidebarWidth}px` } as CSSProperties}>
+    <div className={`app-shell ide-theme${isDetachedTerminalWindow ? " detached-terminal-window" : ""}${appSidebarCollapsed ? " sidebar-collapsed" : ""}${uiTheme === "light" ? " theme-light" : ""}`} ref={appShellRef} style={{ "--app-sidebar-width": `${appSidebarCollapsed ? 64 : appSidebarWidth}px` } as CSSProperties}>
       {exportSelection.dialog}
       <a className="skip-link" href="#main-content">跳到主要内容</a>
       <div className="ide-topbar" role="banner">
@@ -3697,36 +3845,42 @@ function App() {
                   {runningInTauri && updateState.phase === "available" && <button type="button" className="brand-update-button" aria-label={`发现新版本 v${updateState.version}`} title={`发现新版本 v${updateState.version}，点击更新`} onClick={() => void installUpdate()}><ArrowUpCircle size={16} /></button>}
                 </div>
                 {isDevelopmentBuild ? <span className="brand-dev-badge">本地开发版</span> : null}
-                <small>本地多云资源管家</small>
+                <small>{t("本地多云资源管家")}</small>
               </div>
             </div>
             <nav id="app-main-navigation" aria-label="主导航">
-              <button type="button" className={section === "accounts" ? "nav-active" : ""} aria-current={section === "accounts" ? "page" : undefined} onClick={() => setSection("accounts")} aria-label="账号管理" title="账号管理">
-                <Database size={18} /><span className="app-nav-label">账号管理</span></button>
-              <button type="button" className={section === "resources" ? "nav-active" : ""} aria-current={section === "resources" ? "page" : undefined} onClick={() => { setSection("resources"); void loadLocalAssets(); }} aria-label="资产管理" title="资产管理">
-                <Server size={18} /><span className="app-nav-label">资产管理</span></button>
-              <button type="button" className={section === "favorites" ? "nav-active" : ""} aria-current={section === "favorites" ? "page" : undefined} onClick={() => { setSection("favorites"); void loadLocalAssets(); }} aria-label="我的收藏" title="我的收藏">
-                <Star size={18} /><span className="app-nav-label">我的收藏</span></button>
-              <button type="button" className={section === "panels" ? "nav-active" : ""} aria-current={section === "panels" ? "page" : undefined} onClick={() => { setSection("panels"); void loadPanelConnections(); }} aria-label="面板管理" title="面板管理">
-                <Monitor size={18} /><span className="app-nav-label">面板管理</span></button>
-              <button type="button" className={section === "servers" ? "nav-active" : ""} aria-current={section === "servers" ? "page" : undefined} onClick={() => { setSection("servers"); void loadManagedHosts(); }} aria-label="终端管理" title="终端管理">
-                <Terminal size={18} /><span className="app-nav-label">终端管理</span></button>
+              <button type="button" className={section === "accounts" ? "nav-active" : ""} aria-current={section === "accounts" ? "page" : undefined} onClick={() => setSection("accounts")} aria-label={t("账号管理")} title={t("账号管理")}>
+                <Database size={18} /><span className="app-nav-label">{t("账号管理")}</span></button>
+              <button type="button" className={section === "resources" ? "nav-active" : ""} aria-current={section === "resources" ? "page" : undefined} onClick={() => { setSection("resources"); void loadLocalAssets(); }} aria-label={t("资产管理")} title={t("资产管理")}>
+                <Server size={18} /><span className="app-nav-label">{t("资产管理")}</span></button>
+              <button type="button" className={section === "favorites" ? "nav-active" : ""} aria-current={section === "favorites" ? "page" : undefined} onClick={() => { setSection("favorites"); void loadLocalAssets(); }} aria-label={t("我的收藏")} title={t("我的收藏")}>
+                <Star size={18} /><span className="app-nav-label">{t("我的收藏")}</span></button>
+              <button type="button" className={section === "panels" ? "nav-active" : ""} aria-current={section === "panels" ? "page" : undefined} onClick={() => { setSection("panels"); void loadPanelConnections(); }} aria-label={t("面板管理")} title={t("面板管理")}>
+                <Monitor size={18} /><span className="app-nav-label">{t("面板管理")}</span></button>
+              <button type="button" className={section === "servers" ? "nav-active" : ""} aria-current={section === "servers" ? "page" : undefined} onClick={() => { setSection("servers"); void loadManagedHosts(); }} aria-label={t("终端管理")} title={t("终端管理")}>
+                <Terminal size={18} /><span className="app-nav-label">{t("终端管理")}</span></button>
               {sortedApplications(applicationSettings.preferences).filter(app => applicationPreference(app, applicationSettings.preferences).sidebar).map(app => {
                 const Icon = app.icon;
                 const active = app.section ? section === app.section : section === "plugins" && storeApplicationId === app.id;
-                return <button key={app.id} type="button" className={active ? "nav-active" : ""} aria-current={active ? "page" : undefined} aria-label={app.name} title={app.name} data-application-id={app.id} onClick={() => openCatalogApplication(app)}><Icon size={18} aria-hidden="true" /><span className="app-nav-label">{app.name}</span></button>;
+                return <button key={app.id} type="button" className={active ? "nav-active" : ""} aria-current={active ? "page" : undefined} aria-label={t(app.name)} title={t(app.name)} data-application-id={app.id} onClick={() => openCatalogApplication(app)}><Icon size={18} aria-hidden="true" /><span className="app-nav-label">{t(app.name)}</span></button>;
               })}
-              <button type="button" className={section === "plugins" && !storeApplicationId ? "nav-active" : ""} aria-current={section === "plugins" && !storeApplicationId ? "page" : undefined} onClick={() => { setStoreApplicationId(undefined); setSection("plugins"); }} aria-label="软件商店" title="软件商店"><Grid2X2 size={18} /><span className="app-nav-label">软件商店</span></button>
+              <button type="button" className={section === "plugins" && !storeApplicationId ? "nav-active" : ""} aria-current={section === "plugins" && !storeApplicationId ? "page" : undefined} onClick={() => { setStoreApplicationId(undefined); setSection("plugins"); }} aria-label={t("软件商店")} title={t("软件商店")}><Grid2X2 size={18} aria-hidden="true" /><span className="app-nav-label">{t("软件商店")}</span></button>
 
 
 
-              <button type="button" className={section === "logs" ? "nav-active" : ""} aria-current={section === "logs" ? "page" : undefined} onClick={() => setSection("logs")} aria-label="操作日志" title="操作日志">
-                <FileText size={18} /><span className="app-nav-label">操作日志</span></button>
-              <button type="button" className={section === "api_logs" ? "nav-active" : ""} aria-current={section === "api_logs" ? "page" : undefined} onClick={() => { setSection("api_logs"); void loadApiLogs(); }} aria-label="API日志" title="API日志">
-                <ScrollText size={18} /><span className="app-nav-label">API日志</span></button>
-              <button type="button" className={section === "settings" ? "nav-active" : ""} aria-current={section === "settings" ? "page" : undefined} onClick={() => setSection("settings")} aria-label="系统设置" title="系统设置">
-                <Settings size={18} /><span className="app-nav-label">系统设置</span></button>
+              <button type="button" className={section === "logs" ? "nav-active" : ""} aria-current={section === "logs" ? "page" : undefined} onClick={() => setSection("logs")} aria-label={t("操作日志")} title={t("操作日志")}>
+                <FileText size={18} /><span className="app-nav-label">{t("操作日志")}</span></button>
+              <button type="button" className={section === "api_logs" ? "nav-active" : ""} aria-current={section === "api_logs" ? "page" : undefined} onClick={() => { setSection("api_logs"); void loadApiLogs(); }} aria-label={t("API日志")} title={t("API日志")}>
+                <ScrollText size={18} /><span className="app-nav-label">{t("API日志")}</span></button>
             </nav>
+            <div className="app-sidebar-footer">
+              <button type="button" className="app-sidebar-identity" title="身份信息与菜单" aria-haspopup="menu" aria-expanded={showIdentityMenu} onClick={toggleIdentityMenu}>
+                <span className="app-sidebar-avatar" style={{ background: sidebarIdentity.gradient }} aria-hidden="true">{sidebarIdentity.emoji}</span>
+                <span className="app-nav-label">{sidebarIdentity.name}</span>
+              </button>
+              <button type="button" aria-label={t("手机端下载")} title={t("手机端下载")} onClick={() => setShowMobileDownload(true)}><Smartphone size={16} aria-hidden="true" /></button>
+              <button type="button" className={section === "settings" ? "nav-active" : ""} aria-current={section === "settings" ? "page" : undefined} aria-label={t("系统设置")} title={t("系统设置")} onClick={() => setSection("settings")}><Settings size={16} aria-hidden="true" /></button>
+            </div>
           </aside>
           {!appSidebarCollapsed && <div className="app-sidebar-resizer" role="separator" aria-label="调整主导航宽度" aria-orientation="vertical" onPointerDown={startAppSidebarResize} />}
         </>
@@ -4729,7 +4883,6 @@ function App() {
             </div></section>
           </section>
         )}
-        {section === "data_management" && <DataManagementPage onBack={() => setSection("settings")} onPhoneMigration={() => setShowSyncTransfer(true)} canManageBackups={runningInTauri} onRestore={preview => setDatabaseImportPreview(preview)} onStatus={setStatus} />}
         {section === "plugins" && <OfficialPluginsPage key={storeApplicationId ?? "catalog"} initialPluginId={storeApplicationId} applicationSettings={applicationSettings} onOpenSection={target => setSection(target)} onReturnCatalog={() => setStoreApplicationId(undefined)} />}
         {section === "notes" && <NotesPanel />}
         {showTrash && <SharedDialog title="回收站" subtitle="删除的数据永久保留，可恢复或彻底删除" icon={<Trash2 size={20} aria-hidden="true" />} className="trash-dialog" bodyClassName="trash-dialog-body" onClose={() => setShowTrash(false)}>
@@ -4740,48 +4893,131 @@ function App() {
               onScrubNow={() => void trashActions.scrubNow()} />}
             {trashActions.error && <p className="notes-error" role="alert">{trashActions.error}</p>}
         </SharedDialog>}
+        {showMobileDownload && <SharedDialog title={t("手机端 App")} subtitle={t("扫码或在手机上打开仓库，即可下载手机端安装包。")} icon={<Smartphone size={20} aria-hidden="true" />} className="mobile-download-dialog" onClose={() => setShowMobileDownload(false)}>
+            <div className="mobile-download-grid">
+              <section className="mobile-download-card">
+                <header><Smartphone size={15} aria-hidden="true" /><div><strong>{t("手机扫码下载")}</strong><p>{t("用手机相机扫码，直达 GitHub Releases 下载页。")}</p></div></header>
+                <div className="mobile-download-qr"><QRCodeSVG value={cloudHubReleasesUrl} size={196} level="M" title="GitHub Releases 下载二维码" /></div>
+                <div className="mobile-download-row">
+                  <div><strong>{t("无法扫码？")}</strong><small>{t("复制链接后在手机浏览器中打开。")}</small></div>
+                  <button type="button" className="secondary" onClick={() => void copyMobileDownloadLink()}><Copy size={14} aria-hidden="true" />{t("复制链接")}</button>
+                </div>
+              </section>
+              <section className="mobile-download-card">
+                <header><Download size={15} aria-hidden="true" /><div><strong>{t("安装包说明")}</strong><p>{t("安装包不内置分发，均通过 GitHub Releases 提供。")}</p></div></header>
+                <article className="mobile-download-platform">
+                  <div className="mobile-download-platform-head"><Smartphone size={16} aria-hidden="true" /><strong>Android</strong></div>
+                  <p>{t("提供 Android ARM64 安装包（APK），在 Releases 中下载最新版本后直接安装。")}</p>
+                  <a href={cloudHubReleasesUrl} target="_blank" rel="noreferrer" onClick={(e) => { if (runningInTauri) { e.preventDefault(); openExternalLink(cloudHubReleasesUrl); } }}><ExternalLink size={13} aria-hidden="true" />{t("去 Releases 下载")}</a>
+                </article>
+                <article className="mobile-download-platform">
+                  <div className="mobile-download-platform-head"><Apple size={16} aria-hidden="true" /><strong>iOS</strong></div>
+                  <p>{t("提供未签名 Xcode 归档，不能直接作为 IPA 安装，需自行签名后侧载使用。")}</p>
+                  <a href={cloudHubReleasesUrl} target="_blank" rel="noreferrer" onClick={(e) => { if (runningInTauri) { e.preventDefault(); openExternalLink(cloudHubReleasesUrl); } }}><ExternalLink size={13} aria-hidden="true" />{t("去 Releases 下载")}</a>
+                </article>
+                <button type="button" className="mobile-download-footer-button" onClick={() => openExternalLink(cloudHubRepoUrl)}><Globe2 size={14} aria-hidden="true" />{t("前往 GitHub 仓库")}</button>
+              </section>
+            </div>
+        </SharedDialog>}
+        {showIdentityMenu && createPortal(
+          <div className="identity-menu-backdrop" onPointerDown={() => setShowIdentityMenu(false)}>
+            <div className="identity-menu" role="menu" aria-label={t("身份菜单")} style={{ left: identityMenuPos.left, bottom: identityMenuPos.bottom }} onPointerDown={event => event.stopPropagation()}>
+              <div className="identity-menu-head">
+                <span className="app-sidebar-avatar" style={{ background: sidebarIdentity.gradient }} aria-hidden="true">{sidebarIdentity.emoji}</span>
+                <div className="identity-menu-title">
+                  <strong>{sidebarIdentity.name}</strong>
+                  <small>ID: {sidebarIdentity.id}<button type="button" aria-label={t("复制身份ID")} title={t("复制身份ID")} onClick={() => void copyIdentityId()}><Copy size={12} aria-hidden="true" /></button></small>
+                </div>
+              </div>
+              <div className="identity-menu-group">
+                <IdentityMenuItem icon={Globe2} label={t("界面语言")}>
+                  <button type="button" role="menuitemcheckbox" aria-checked="false" onClick={() => setUiLanguage("zh-CN")}><span>{t("系统默认")}</span></button>
+                  <button type="button" role="menuitemcheckbox" aria-checked={uiLanguage === "en"} onClick={() => { setUiLanguage("en"); setStatus("English 界面翻译开发中，当前界面暂仍显示中文"); }}><span>English</span>{uiLanguage === "en" && <Check size={13} aria-hidden="true" className="identity-check" />}</button>
+                  <button type="button" role="menuitemcheckbox" aria-checked={uiLanguage === "zh-CN"} onClick={() => setUiLanguage("zh-CN")}><span>中文简体</span>{uiLanguage === "zh-CN" && <Check size={13} aria-hidden="true" className="identity-check" />}</button>
+                </IdentityMenuItem>
+                <IdentityMenuItem icon={Palette} label={t("界面主题")}>
+                  <button type="button" role="menuitemcheckbox" aria-checked="false" onClick={() => setUiTheme("dark")}><span>{t("系统默认")}</span></button>
+                  <button type="button" role="menuitemcheckbox" aria-checked={uiTheme === "dark"} onClick={() => setUiTheme("dark")}><span>{t("深色主题")}</span>{uiTheme === "dark" && <Check size={13} aria-hidden="true" className="identity-check" />}</button>
+                  <button type="button" role="menuitemcheckbox" aria-checked={uiTheme === "light"} onClick={() => { setUiTheme("light"); setStatus("浅色主题开发中，当前界面暂仍为深色"); }}><span>{t("浅色主题")}</span>{uiTheme === "light" && <Check size={13} aria-hidden="true" className="identity-check" />}</button>
+                </IdentityMenuItem>
+                <IdentityMenuItem icon={LayoutGrid} label={t("界面模式")}>
+                  <button type="button" role="menuitemcheckbox" aria-checked={!compactMode} onClick={() => setCompactMode(false)}><span>{t("办公模式")}</span>{!compactMode && <Check size={13} aria-hidden="true" className="identity-check" />}</button>
+                  <button type="button" role="menuitemcheckbox" aria-checked={compactMode} onClick={() => setCompactMode(true)}><span>{t("编程模式")}</span>{compactMode && <Check size={13} aria-hidden="true" className="identity-check" />}</button>
+                </IdentityMenuItem>
+                <IdentityMenuItem icon={ZoomIn} label={t("界面缩放")}>
+                  <button type="button" role="menuitem" onClick={() => stepIdentityZoom(1)}><span>{t("放大")}</span><small className="identity-shortcut">Ctrl++</small></button>
+                  <button type="button" role="menuitem" onClick={() => stepIdentityZoom(-1)}><span>{t("缩小")}</span><small className="identity-shortcut">Ctrl+-</small></button>
+                  <button type="button" role="menuitem" onClick={() => setUiZoom(100)}><span>{t("实际大小")}</span><small className="identity-shortcut">Ctrl+0</small></button>
+                </IdentityMenuItem>
+              </div>
+              <div className="identity-menu-group">
+                <button type="button" role="menuitem" onClick={() => openIdentityLink(cloudHubRepoUrl)}><Globe2 size={15} aria-hidden="true" />{t("访问官网")}</button>
+                <button type="button" role="menuitem" onClick={() => openIdentityLink(cloudHubRepoUrl)}><Crown size={15} aria-hidden="true" />{t("开通VIP")}</button>
+                <button type="button" role="menuitem" onClick={() => openIdentityLink(cloudHubRepoUrl)}><Gift size={15} aria-hidden="true" />{t("邀请好友")}</button>
+              </div>
+              {runningInTauri && <div className="identity-menu-group">
+                <button type="button" role="menuitem" onClick={() => void exitApplication()}><LogOut size={15} aria-hidden="true" />{t("退出")}</button>
+              </div>}
+            </div>
+          </div>, document.body)}
         {section === "settings" && (
           <section className="utility-page">
-            <header><div><span className="eyebrow">LOCAL PREFERENCES</span><h1>系统设置</h1><p>管理本地客户端的显示和数据行为。</p></div></header>
-            <AiSettings />
-            <PetSettingsPanel />
-<section className="settings-grid">
-              <div className="settings-card"><div className="settings-icon blue"><Database size={22} /></div><div className="settings-copy"><strong>本地模式</strong><small>所有账号密钥和资产保存在本机 SQLite</small></div><span className="setting-state on">✓ 已启用</span></div>
-              <div className="settings-card"><div className="settings-icon cyan"><Cloud size={22} /></div><div className="settings-copy"><strong>自动刷新资产</strong><small>进入资源管理时读取本地缓存，不主动上传数据</small></div><label className="setting-switch"><input type="checkbox" checked={autoRefresh} onChange={(event) => setAutoRefresh(event.target.checked)} /><span /></label></div>
-              <div className="settings-card"><div className="settings-icon purple"><Monitor size={22} /></div><div className="settings-copy"><strong>紧凑显示</strong><small>减少表格行高，适合小窗口查看</small></div><label className="setting-switch"><input type="checkbox" checked={compactMode} onChange={(event) => setCompactMode(event.target.checked)} /><span /></label></div>
-              <div className="settings-card"><div className="settings-icon blue"><List size={22} /></div><div className="settings-copy"><strong>每页显示条数</strong><small>账号、资源和操作日志列表统一使用此分页大小</small></div><select className="settings-select" value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))}><option value={10}>10 条</option><option value={20}>20 条</option><option value={50}>50 条</option><option value={100}>100 条</option></select></div>
-              <div className="settings-card"><div className="settings-icon purple"><Database size={22} /></div><div className="settings-copy"><strong>数据库位置</strong><small>系统应用数据目录 / {isDevelopment ? "CloudHubTools-Dev" : "CloudHubTools"} / cloudhub_tools.sqlite3</small></div><button className="secondary settings-link" onClick={() => void openDataDirectory()}><FolderOpen size={16} />打开目录</button></div>
+            <header><div><span className="eyebrow">LOCAL PREFERENCES</span><h1>{t("系统设置")}</h1><p>{t("管理本地客户端的各项配置，让使用更高效，更便捷。")}</p></div></header>
+            <div className="settings-tabs" role="tablist" aria-label={t("设置分类")}>
+              {settingsTabs.map(tab => <button key={tab.id} type="button" role="tab" aria-selected={settingsTab === tab.id} className={settingsTab === tab.id ? "is-active" : ""} onClick={() => setSettingsTab(tab.id)}><tab.icon size={16} aria-hidden="true" />{t(tab.label)}</button>)}
+            </div>
+            {settingsTab === "general" && (
+              <section className="settings-grid settings-list">
+              <div className="settings-card"><div className="settings-icon cyan"><Cloud size={22} /></div><div className="settings-copy"><strong>{t("自动刷新资产")}</strong><small>{t("进入资源管理时读取本地缓存，不主动上传数据")}</small></div><label className="setting-switch"><input type="checkbox" checked={autoRefresh} onChange={(event) => setAutoRefresh(event.target.checked)} /><span /></label></div>
+              <div className="settings-card"><div className="settings-icon purple"><Monitor size={22} /></div><div className="settings-copy"><strong>{t("紧凑显示")}</strong><small>{t("减少表格行高，适合小窗口查看")}</small></div><label className="setting-switch"><input type="checkbox" checked={compactMode} onChange={(event) => setCompactMode(event.target.checked)} /><span /></label></div>
+              <div className="settings-card"><div className="settings-icon blue"><List size={22} /></div><div className="settings-copy"><strong>{t("每页显示条数")}</strong><small>{t("账号、资源和操作日志列表统一使用此分页大小")}</small></div><select className="settings-select" value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))}><option value={10}>10 {t("条")}</option><option value={20}>20 {t("条")}</option><option value={50}>50 {t("条")}</option><option value={100}>100 {t("条")}</option></select></div>
+              </section>
+            )}
+            {settingsTab === "data" && (
+              <section className="settings-grid settings-list">
+              <div className="settings-card"><div className="settings-icon purple"><Database size={22} /></div><div className="settings-copy"><strong>{t("数据库位置")}</strong><small>{t("系统应用数据目录 / ")}{isDevelopment ? "CloudHubTools-Dev" : "CloudHubTools"} / cloudhub_tools.sqlite3</small></div><button className="secondary settings-link" onClick={() => void openDataDirectory()}><FolderOpen size={16} />{t("打开目录")}</button></div>
+                <DataManagementPage language={uiLanguage} onPhoneMigration={() => setShowSyncTransfer(true)} canManageBackups={runningInTauri} onRestore={preview => setDatabaseImportPreview(preview)} onStatus={setStatus} />
               <button type="button" className="settings-card trash-entry" onClick={() => setShowTrash(true)}><div className="settings-icon purple"><Trash2 size={22} /></div><div className="settings-copy"><strong>回收站</strong><small>{trashGroups.loading ? "正在读取…" : trashTotal > 0 ? `${trashTotal} 项已删除数据，可恢复或彻底删除` : "删除的数据保留在这里，可随时恢复"}</small></div><span className="secondary settings-link">打开回收站</span></button>
-              <button type="button" className="settings-card data-management-entry" onClick={() => setSection("data_management")}><div className="settings-icon amber"><Database size={22} /></div><div className="settings-copy"><strong>数据管理</strong><small>手机扫码迁移、完整数据备份与恢复</small></div><span className="secondary settings-link">打开数据管理</span></button>
-              <div className="settings-card"><div className="settings-icon amber"><Terminal size={22} /></div><div className="settings-copy"><strong>GitHub 开源仓库</strong><small>https://github.com/wlphp/cloudhub-tools</small></div><a className="secondary settings-link" href="https://github.com/wlphp/cloudhub-tools" target="_blank" rel="noreferrer">访问仓库 ↗</a></div>
-              <div className={`settings-card${updateState.phase === "available" && updateState.notes ? " has-update-notes" : ""}`}>
-                <div className="settings-icon blue"><Download size={22} /></div>
-                <div className="settings-copy">
-                  <strong>客户端更新</strong>
-                  <small>{isDevelopment ? `开发版 v${appVersion} · 独立数据目录 · 正式版更新已禁用` : !runningInTauri ? `当前版本 v${appVersion}；自动更新仅在桌面客户端可用` : updateState.phase === "available" ? `当前 v${appVersion}，最新 v${updateState.version}${updateState.notes ? "，可下载并安装" : ""}` : updateState.phase === "downloading" ? `当前 v${appVersion}，正在下载 v${updateState.version}` : updateState.phase === "ready" ? `v${updateState.version} 已安装，正在重新启动` : updateState.phase === "current" ? `当前 v${appVersion} 已是最新版本` : updateState.phase === "error" ? `当前 v${appVersion}；${updateState.message}` : `当前版本 v${appVersion}，启动时会自动检查新版本`}</small>
-                </div>
-                <div className="settings-update-actions">
-                  <a className="secondary settings-link" href="https://github.com/wlphp/cloudhub-tools/releases" target="_blank" rel="noreferrer" onClick={(e) => { if (runningInTauri) { e.preventDefault(); void openUrl("https://github.com/wlphp/cloudhub-tools/releases"); } }}>
-                    <ExternalLink size={14} />
-                    更新日志
-                  </a>
-                  {runningInTauri && updateState.phase === "downloading" ? (
-                    <button type="button" className="settings-link primary-update-btn" disabled><Download size={14} />{updateState.total ? `下载中 ${Math.min(100, Math.round((updateState.downloaded / updateState.total) * 100))}%` : "下载中…"}</button>
+              </section>
+            )}
+            {settingsTab === "ai" && <AiSettings embedded />}
+            {settingsTab === "pet" && <PetSettingsPanel embedded />}
+            {settingsTab === "about" && (
+              <section className="about-card" aria-label="关于云枢 Tools">
+                <div className="about-card-head">
+                  <img src="/cloudhub-logo.png" alt="" aria-hidden="true" />
+                  <div className="about-card-title">
+                    <strong>云枢 Tools</strong>
+                    <small>{t("版本")} v{appVersion}</small>
+                  </div>
+                  {runningInTauri && updateState.phase === "available" ? (
+                    <button type="button" className="primary-update-btn" onClick={() => void installUpdate()}><Download size={14} />更新到 v{updateState.version}</button>
+                  ) : runningInTauri && updateState.phase === "downloading" ? (
+                    <button type="button" className="primary-update-btn" disabled><Download size={14} />{updateState.total ? `下载中 ${Math.min(100, Math.round((updateState.downloaded / updateState.total) * 100))}%` : "下载中…"}</button>
                   ) : runningInTauri && updateState.phase === "checking" ? (
-                    <button type="button" className="secondary settings-link" disabled><RefreshCw size={14} className="spin" />检查中…</button>
+                    <button type="button" className="secondary" disabled><RefreshCw size={14} className="spin" />检查中…</button>
                   ) : runningInTauri && updateState.phase === "ready" ? (
-                    <button type="button" className="settings-link primary-update-btn" disabled><RefreshCw size={14} className="spin" />正在重启…</button>
-                  ) : runningInTauri && updateState.phase === "available" ? (
-                    <button type="button" className="settings-link primary-update-btn" onClick={() => void installUpdate()}><Download size={14} />更新到 v{updateState.version}</button>
+                    <button type="button" className="primary-update-btn" disabled><RefreshCw size={14} className="spin" />正在重启…</button>
                   ) : runningInTauri ? (
-                    <button type="button" className="secondary settings-link" disabled={isDevelopment} onClick={() => void checkForUpdates()}><RefreshCw size={14} />检查更新</button>
-                  ) : (
-                    <span className="setting-state">桌面端</span>
-                  )}
+                    <button type="button" className="secondary" disabled={isDevelopment} onClick={() => void checkForUpdates()}><RefreshCw size={14} />检查更新</button>
+                  ) : null}
                 </div>
-                {updateState.phase === "available" && updateState.notes && <div className="settings-update-notes"><strong>更新内容</strong><p>{updateState.notes}</p></div>}
-              </div>
-            </section>
+                <p className="about-card-status">{isDevelopment ? `开发版 v${appVersion} · 独立数据目录 · 正式版更新已禁用` : !runningInTauri ? `当前版本 v${appVersion} · 自动更新仅在桌面客户端可用` : updateState.phase === "available" ? `检测到新版本：v${updateState.version}${updateState.notes ? "，可下载并安装" : ""}` : updateState.phase === "downloading" ? `正在下载 v${updateState.version}` : updateState.phase === "ready" ? `v${updateState.version} 已安装，正在重新启动` : updateState.phase === "current" ? `当前版本 v${appVersion} 已是最新版本` : updateState.phase === "error" ? `检查更新失败：${updateState.message}` : `当前版本 v${appVersion}，启动时会自动检查新版本`}</p>
+                {updateState.phase === "available" && updateState.notes && <div className="about-card-notes"><strong>{t("更新内容")}</strong><p>{updateState.notes}</p></div>}
+                <div className="about-card-links">
+                  <a className="secondary" href="https://github.com/wlphp/cloudhub-tools" target="_blank" rel="noreferrer" onClick={(e) => { if (runningInTauri) { e.preventDefault(); void openUrl("https://github.com/wlphp/cloudhub-tools"); } }}><Globe2 size={14} />{t("开源仓库")}</a>
+                  <a className="secondary" href="https://github.com/wlphp/cloudhub-tools/releases" target="_blank" rel="noreferrer" onClick={(e) => { if (runningInTauri) { e.preventDefault(); void openUrl("https://github.com/wlphp/cloudhub-tools/releases"); } }}><ExternalLink size={14} />{t("更新日志")}</a>
+                </div>
+                {!aboutStarDismissed && (
+                  <div className="about-card-star" role="note">
+                    <Star size={16} aria-hidden="true" />
+                    <p>{t("如果 云枢 Tools 帮到了你，请在 GitHub 点个 Star，这对我们意义重大")}</p>
+                    <a className="secondary" href="https://github.com/wlphp/cloudhub-tools" target="_blank" rel="noreferrer" onClick={(e) => { if (runningInTauri) { e.preventDefault(); void openUrl("https://github.com/wlphp/cloudhub-tools"); } }}><Star size={13} aria-hidden="true" />{t("去点 Star")}</a>
+                    <button type="button" className="about-star-close" aria-label="关闭 Star 提示" onClick={() => { setAboutStarDismissed(true); try { localStorage.setItem(cloudHubAboutStarDismissedStorageKey, "1"); } catch { /* 存储不可用时仅本次会话隐藏 */ } }}><X size={15} /></button>
+                  </div>
+                )}
+              </section>
+            )}
           </section>
         )}
         {panelDialog && (

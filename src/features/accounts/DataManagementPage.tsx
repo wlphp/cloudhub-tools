@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, Database, Download, HardDriveDownload, RefreshCw, RotateCcw, Trash2, Upload } from "lucide-react";
+import { Database, Download, HardDriveDownload, RefreshCw, RotateCcw, Trash2, Upload } from "lucide-react";
 import { databaseClient, type DatabaseBackupRecord, type DatabaseImportPreview } from "../../platform/clients/database";
 import { SharedDialog } from "../../shared/SharedDialog";
 import { ConfirmDialog } from "../../shared/ConfirmDialog";
+import { translateUiText, type UiLanguage } from "../../i18n/ui-strings";
 
 type Props = {
-  onBack: () => void;
+  language: UiLanguage;
   onPhoneMigration: () => void;
   canManageBackups: boolean;
   onRestore: (preview: DatabaseImportPreview) => void;
@@ -14,16 +15,14 @@ type Props = {
 
 const sizeText = (bytes: number) => bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 
-export function DataManagementPage({ onBack, onPhoneMigration, canManageBackups, onRestore, onStatus }: Props) {
+export function DataManagementPage({ language, onPhoneMigration, canManageBackups, onRestore, onStatus }: Props) {
+  const t = (text: string) => translateUiText(language, text);
   const [backupOpen, setBackupOpen] = useState(false);
-  return <section className="utility-page data-management-page">
-    <header><div><span className="eyebrow">LOCAL DATA</span><h1>数据管理</h1><p>迁移本机数据，或创建完整备份并在需要时恢复。</p></div><button className="secondary" onClick={onBack}><ArrowLeft size={15} />返回系统设置</button></header>
-    <section className="data-management-actions">
-      <article className="panel data-management-action"><div className="settings-icon purple"><Upload size={22} /></div><div><h2>手机扫码迁移</h2><p>通过扫码在设备间选择并迁移数据。</p></div><button className="secondary" onClick={onPhoneMigration}>开始迁移</button></article>
-      <article className="panel data-management-action"><div className="settings-icon blue"><Database size={22} /></div><div><h2>备份与恢复</h2><p>{canManageBackups ? "管理本机完整数据库备份；恢复前可查看数据概况。" : "完整数据库备份仅在桌面客户端中可用。"}</p></div><button className="primary-update-btn" disabled={!canManageBackups} onClick={() => setBackupOpen(true)}>打开备份与恢复</button></article>
-    </section>
+  return <>
+    <div className="settings-card"><div className="settings-icon purple"><Upload size={22} /></div><div className="settings-copy"><strong>{t("手机扫码迁移")}</strong><small>{t("通过扫码在设备间选择并迁移数据。")}</small></div><button type="button" className="secondary settings-link" onClick={onPhoneMigration}>{t("开始迁移")}</button></div>
+    <div className="settings-card"><div className="settings-icon blue"><Database size={22} /></div><div className="settings-copy"><strong>{t("备份与恢复")}</strong><small>{canManageBackups ? t("管理本机完整数据库备份；恢复前可查看数据概况。") : t("完整数据库备份仅在桌面客户端中可用。")}</small></div><button type="button" className="primary-update-btn" disabled={!canManageBackups} onClick={() => setBackupOpen(true)}>{t("打开备份与恢复")}</button></div>
     {backupOpen && <BackupRestoreDialog onClose={() => setBackupOpen(false)} onRestore={onRestore} onStatus={onStatus} />}
-  </section>;
+  </>;
 }
 
 function BackupRestoreDialog({ onClose, onRestore, onStatus }: Pick<Props, "onRestore" | "onStatus"> & { onClose: () => void }) {

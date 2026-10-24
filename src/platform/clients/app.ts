@@ -7,4 +7,7 @@ export const appClient = {
   openDataDirectory(): Promise<void> {
     return nativeOnly("open_app_data_directory");
   },
+  exitApp(): Promise<void> {
+    return nativeOnly("app_exit");
+  },
 };

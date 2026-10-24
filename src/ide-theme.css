@@ -2900,7 +2900,7 @@
   white-space: nowrap;
 }
 .ide-theme > .app-main-sidebar{position:relative;box-sizing:border-box;height:calc(100dvh - 32px);min-height:0;padding-top:38px;overflow:hidden;transition:width 240ms cubic-bezier(.22,1,.36,1),flex-basis 240ms cubic-bezier(.22,1,.36,1),padding 240ms cubic-bezier(.22,1,.36,1)}
-.ide-theme > .app-main-sidebar nav{min-height:0;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;scrollbar-color:var(--jb-border-strong) transparent}
+.ide-theme > .app-main-sidebar nav{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;scrollbar-color:var(--jb-border-strong) transparent}
 .ide-theme .app-sidebar-toggle{position:absolute;top:3px;right:3px;z-index:11;display:flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:1px solid transparent;border-radius:4px;background:var(--jb-sidebar);color:var(--jb-muted);cursor:pointer}
 .ide-theme .app-sidebar-toggle:hover{background:var(--jb-selection);color:var(--jb-text);border-color:var(--jb-border)}
 .ide-theme > .app-main-sidebar .brand{height:64px;min-height:64px;flex:none;overflow:hidden;transition:gap 160ms ease}
@@ -2916,6 +2916,71 @@
 .ide-theme > .app-main-sidebar nav button svg{flex:none}
 body.pane-resizing .ide-theme > .app-main-sidebar{transition:none}
 @media(prefers-reduced-motion:reduce){.ide-theme > .app-main-sidebar,.ide-theme > .app-main-sidebar .brand,.ide-theme > .app-main-sidebar .brand>div:last-child,.ide-theme > .app-main-sidebar nav button,.ide-theme > .app-main-sidebar .app-nav-label{transition:none;transform:none}}
+.ide-theme > .app-main-sidebar .app-sidebar-footer{flex:none;display:flex;align-items:center;gap:6px;margin:8px 4px 0;padding:10px 6px 2px;border-top:1px solid var(--jb-border)}
+.ide-theme > .app-main-sidebar .app-sidebar-footer .app-sidebar-identity{display:flex;align-items:center;gap:10px;min-width:0;flex:1;height:auto;width:auto;padding:0;border:0;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.ide-theme > .app-main-sidebar .app-sidebar-avatar{flex:none;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font-size:16px;line-height:1;user-select:none}
+.ide-theme > .app-main-sidebar .app-sidebar-footer .app-nav-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;color:var(--jb-text)}
+.ide-theme > .app-main-sidebar .app-sidebar-footer button{flex:none;display:grid;place-items:center;width:30px;height:30px;padding:0;border:0;border-radius:8px;background:transparent;color:var(--jb-muted);cursor:pointer}
+.ide-theme > .app-main-sidebar .app-sidebar-footer button:hover{background:var(--jb-surface-2,rgba(255,255,255,.06));color:var(--jb-text)}
+.ide-theme > .app-main-sidebar .app-sidebar-footer button.nav-active{background:var(--jb-accent-soft);color:var(--jb-accent)}
+.ide-theme > .app-main-sidebar .app-sidebar-footer button:focus-visible{outline:2px solid var(--jb-accent);outline-offset:1px}
+.ide-theme.sidebar-collapsed > .app-main-sidebar .app-sidebar-footer{flex-direction:column;justify-content:center;gap:6px;padding:10px 0 2px}
+.ide-theme.sidebar-collapsed > .app-main-sidebar .app-sidebar-footer .app-nav-label{display:none}
+.ide-theme.sidebar-collapsed > .app-main-sidebar .app-sidebar-identity{flex:none;min-height:30px}
+
+/* 身份菜单：头像/昵称点击后从左下角向上弹出的操作菜单 */
+.identity-menu-backdrop{position:fixed;z-index:10060;inset:0}
+.identity-menu{position:fixed;display:grid;gap:2px;width:200px;padding:6px;border:1px solid var(--jb-border);border-radius:10px;background:var(--jb-surface);box-shadow:0 14px 44px #0008}
+.identity-menu-head{display:flex;align-items:center;gap:11px;margin-bottom:4px;padding:13px 10px 11px;border-bottom:1px solid var(--jb-border)}
+.identity-menu .app-sidebar-avatar{flex:none;width:38px;height:38px;border-radius:50%;display:grid;place-items:center;font-size:19px;line-height:1;user-select:none}
+.identity-menu-title{display:grid;gap:3px;min-width:0;flex:1;text-align:left}
+.identity-menu-title strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;color:var(--jb-text)}
+.identity-menu-title small{display:flex;align-items:center;gap:5px;color:var(--jb-muted);font-size:11.5px}
+.identity-menu-title small button{flex:none;display:grid;place-items:center;width:20px;height:20px;padding:0;border:0;border-radius:4px;background:transparent;color:var(--jb-muted);cursor:pointer}
+.identity-menu-title small button:hover{background:var(--jb-surface-2,rgba(255,255,255,.06));color:var(--jb-text)}
+.identity-menu-group{display:grid;gap:2px}
+.identity-menu-group+.identity-menu-group{margin-top:4px;padding-top:4px;border-top:1px solid var(--jb-border)}
+.identity-menu button[role=menuitem]{display:flex;align-items:center;gap:10px;width:100%;padding:9px 10px;border:0;border-radius:7px;background:transparent;color:var(--jb-text);font:inherit;font-size:13px;text-align:left;cursor:pointer}
+.identity-menu button[role=menuitem]:hover{background:var(--jb-accent-soft)}
+.identity-menu button[role=menuitem] svg{flex:none;color:var(--jb-muted)}
+.identity-menu button[role=menuitem]:focus-visible{outline:2px solid var(--jb-accent);outline-offset:-1px}
+
+/* 身份菜单的界面设置子菜单：悬停主项时向右侧弹出浮层 */
+.identity-submenu-wrap{position:relative;display:grid}
+.identity-submenu-wrap>[role=menuitem] .identity-menu-chevron{margin-left:auto;color:var(--jb-muted)}
+.identity-submenu{position:absolute;left:calc(100% + 10px);top:-10px;z-index:1;display:grid;gap:2px;min-width:150px;padding:6px;border:1px solid var(--jb-border);border-radius:10px;background:var(--jb-surface);box-shadow:0 14px 44px #0008;visibility:hidden;opacity:0;transform:translateX(6px);transition:opacity .12s ease,transform .12s ease,visibility 0s linear .15s}
+.identity-submenu::before{content:"";position:absolute;top:-10px;bottom:0;left:-12px;width:12px}
+.identity-submenu-wrap:hover .identity-submenu,.identity-submenu-wrap:focus-within .identity-submenu{visibility:visible;opacity:1;transform:none;transition:0s}
+.identity-submenu button{display:flex;align-items:center;gap:8px;width:100%;padding:8px 10px;border:0;border-radius:7px;background:transparent;color:var(--jb-muted);font:inherit;font-size:12.5px;text-align:left;cursor:pointer;white-space:nowrap}
+.identity-submenu button:hover{background:var(--jb-accent-soft);color:var(--jb-text)}
+.identity-submenu button span{flex:1;min-width:0;text-align:left}
+.identity-submenu .identity-check{flex:none;color:var(--jb-accent)}
+.identity-submenu .identity-shortcut{flex:none;margin-left:auto;color:var(--jb-muted);font-size:11px}
+
+/* 浅色主题：body.theme-light 作用域覆盖 JetBrains 变量，body 级弹层与身份菜单同步变亮 */
+body.theme-light :where(.ide-theme,.identity-menu){
+  --jb-bg:#f6f7f9;--jb-sidebar:#eef0f3;--jb-surface:#ffffff;--jb-surface-2:#f4f5f7;--jb-surface-3:#ececef;--jb-input:#ffffff;
+  --jb-border:#dfe2e7;--jb-border-strong:#c6cad2;
+  --jb-text:#1f242b;--jb-muted:#5d646f;--jb-subtle:#8b929d;
+  --jb-accent:#6553e0;--jb-accent-strong:#5443d6;--jb-accent-soft:#e9e6ff;
+  --jb-blue:#1774d6;--jb-green:#12967a;--jb-yellow:#a8731f;--jb-red:#d2454f;
+  --jb-success:#12967a;--jb-warning:#a8731f;--jb-danger:#d2454f;
+  color-scheme:light;
+}
+body.theme-light .ide-theme{background:var(--jb-bg)}
+body.theme-light{background:#eef0f4}
+body.theme-light .ide-theme :where(.modal-actions,.app-confirm-actions){background:var(--jb-surface-2)!important}
+body.theme-light .ide-theme :where(.security-group-note,.error-list,.bucket-detail-box,.memory-bar,.db-list,.whois-result){background:var(--jb-surface-2)!important}
+body.theme-light .ide-theme .ssh-terminal-meta{background:var(--jb-surface-2)!important}
+body.theme-light .ide-theme .log-success,body.theme-light .ide-theme .setting-state.on,body.theme-light .ide-theme .dns-status.on{border-color:#bfe6d9!important;background:#e7f7f1!important}
+body.theme-light .ide-theme .summary-reference{background:var(--jb-surface)!important}
+body.theme-light .ide-theme .summary-block-section{background:var(--jb-surface-2)!important}
+body.theme-light .ide-theme :where(.summary-balance-item,.summary-consume-item,.summary-resource-item){border-color:var(--jb-border)!important;background:var(--jb-surface-2)!important}
+body.theme-light .ide-theme .security-tip{border-color:#cdd7e2!important;background:#eef2f7!important;color:#4a5b6e!important}
+body.theme-light .ide-theme .loading-overlay{background:var(--jb-surface-2)!important}
+body.theme-light .ide-theme :where(input,select,textarea)::placeholder{color:#9aa1ab!important}
+body.theme-light .modal-backdrop,body.theme-light .resource-modal-backdrop,body.theme-light .app-confirm-backdrop{background:rgba(15,23,42,.35)!important}
+.identity-submenu button:focus-visible{outline:2px solid var(--jb-accent);outline-offset:-1px}
 .ide-theme .terminal-host-tree{padding:4px 6px 10px}
 .ide-theme .terminal-host-group{margin:2px 0 0}
 .ide-theme .terminal-host-group-head{min-height:24px;height:24px;padding:0;background:transparent!important}
@@ -3211,3 +3276,27 @@ body.pane-resizing .ide-theme > .app-main-sidebar{transition:none}
 .ide-theme .wechat-detected-paths > select { width: 100%; min-width: 0; }
 .ide-theme .wechat-detected-paths > small { overflow-wrap: anywhere; }
 .wsl-distro-actions{display:flex;justify-content:flex-end;flex-wrap:wrap;gap:6px}.wsl-distro-actions button{min-height:34px;padding-inline:8px}.ide-theme .wsl-distro-actions button.wsl-action-start{border-color:#3b9d78!important;background:#267a5f!important;color:#fff!important;font-weight:700}.ide-theme .wsl-distro-actions button.wsl-action-start:hover:not(:disabled){border-color:#64d5a8!important;background:#32936f!important}.ide-theme .wsl-distro-actions button.wsl-action-stop{border-color:#a85f6b!important;background:#78414a!important;color:#fff!important;font-weight:700}.ide-theme .wsl-distro-actions button.wsl-action-stop:hover:not(:disabled){border-color:#d88792!important;background:#914d58!important}.wsl-distro-remark{grid-column:1/-1;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:8px}.wsl-distro-remark label{margin:0}.wsl-distro-remark input{min-width:0;height:34px;min-height:34px;margin:0}.wsl-online-list-error{color:var(--jb-muted);font-size:12px}@media(max-width:700px){.wsl-distro-actions{justify-content:flex-start}.wsl-distro-remark{grid-template-columns:minmax(0,1fr)}.wsl-distro-remark label{margin-bottom:-4px}}
+
+/* 浅色主题：App.css 深色白字规则的定点覆盖 */
+body.theme-light .ide-theme{color:var(--jb-text)}
+body.theme-light .ide-theme header h1{color:var(--jb-text)!important}
+body.theme-light .ide-theme .stats strong{color:var(--jb-text)!important}
+body.theme-light .ide-theme .stats span,body.theme-light .ide-theme .stats small{color:var(--jb-muted)!important}
+body.theme-light .ide-theme .empty h3{color:var(--jb-text)!important}
+body.theme-light .ide-theme .empty{color:var(--jb-muted)!important}
+body.theme-light .ide-theme .pagination{background:var(--jb-surface)!important;border-color:var(--jb-border)!important}
+body.theme-light .ide-theme .pagination button,body.theme-light .ide-theme .pagination strong{background:var(--jb-surface-2)!important;border-color:var(--jb-border)!important;color:var(--jb-text)!important}
+body.theme-light .ide-theme nav button{color:var(--jb-muted)!important}
+body.theme-light .ide-theme nav button.nav-active{background:var(--jb-accent-soft)!important;color:var(--jb-accent)!important}
+body.theme-light .ide-theme .brand strong{color:var(--jb-text)!important}
+body.theme-light .ide-theme .brand small,body.theme-light .ide-theme .brand-version,body.theme-light .ide-theme .brand-dev-badge{color:var(--jb-subtle)!important}
+body.theme-light .ide-theme .table-wrap th{background:var(--jb-surface-2)!important;color:var(--jb-muted)!important}
+body.theme-light .ide-theme .table-wrap td{color:var(--jb-text)!important;border-color:var(--jb-border)!important}
+body.theme-light .ide-theme .table-wrap tr:hover td{background:var(--jb-surface-2)!important}
+body.theme-light .ide-theme .account-name strong{color:var(--jb-text)!important}
+body.theme-light .ide-theme .account-name small{color:var(--jb-muted)!important}
+body.theme-light .ide-theme .toolbar,body.theme-light .ide-theme .layui-toolbar{border-color:var(--jb-border)!important;background:var(--jb-surface)!important}
+body.theme-light .ide-theme .search{border-color:var(--jb-border)!important;background:var(--jb-input)!important;color:var(--jb-subtle)!important}
+body.theme-light .ide-theme .more-menu{background:var(--jb-surface)!important;border-color:var(--jb-border)!important}
+body.theme-light .ide-theme .more-menu button{color:var(--jb-text)!important}
+body.theme-light .ide-theme .more-menu button:hover{background:var(--jb-surface-2)!important;color:var(--jb-accent)!important}

@@ -203,6 +203,27 @@ pub fn save_refresh(
     save_refresh_with_encrypt(conn, id, expected, auth, quota, plan, error, None, encrypt_secret)
 }
 
+// Monitoring must not overwrite credentials rotated by an active client or
+// gateway. Update only the observation, atomically with its audit event.
+pub fn save_quota_observation(
+    conn: &Connection,
+    id: i64,
+    quota: Option<&QuotaSnapshot>,
+    plan: Option<&str>,
+    error: Option<&str>,
+    details: Option<&serde_json::Value>,
+) -> Result<(), String> {
+    let quota = quota.map(serde_json::to_string).transpose().map_err(|_| "保存 Codex 额度失败")?;
+    let tx = conn.unchecked_transaction().map_err(|_| "保存 Codex 额度失败")?;
+    let changed = tx.execute(
+        "UPDATE codex_accounts SET quota_json=COALESCE(?1,quota_json),plan=COALESCE(?2,plan),last_error=?3,updated_at=MAX(updated_at+1,?4) WHERE id=?5 AND deleted_at IS NULL AND auth_mode='chatgpt'",
+        params![quota, plan, error, chrono::Utc::now().timestamp_millis(), id],
+    ).map_err(|_| "保存 Codex 额度失败")?;
+    if changed != 1 { return Err("Codex 账号已变更，请重新刷新".into()); }
+    append_event(&tx, id, "refresh", if error.is_some() { "额度刷新失败" } else { "额度刷新成功" }, details)?;
+    tx.commit().map_err(|_| "保存 Codex 额度失败".into())
+}
+
 pub fn save_refresh_action_with_details(
     conn: &Connection,
     id: i64,
@@ -374,6 +395,54 @@ mod tests {
         .is_err());
         assert_eq!(get(&conn, account.id).unwrap().label, "新名称");
     }
+    #[test]
+    fn quota_observation_preserves_rotated_credentials_and_concurrent_metadata() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(CODEX_SCHEMA).unwrap();
+        conn.execute_batch(crate::core::database::CODEX_ACCOUNT_EVENTS_SCHEMA).unwrap();
+        // Simulate an owner rotating credentials and an edit made while the
+        // monitoring request is in flight; observation owns neither field.
+        let rotated = encrypt("invalid-rotated-auth-fixture").unwrap();
+        conn.execute("INSERT INTO codex_accounts(id,identity,label,auth_mode,auth_ciphertext,updated_at) VALUES(1,'observation-fixture','并发修改名称','chatgpt',?1,20)", [&rotated]).unwrap();
+        let quota = QuotaSnapshot { windows: vec![], fetched_at: Some(100) };
+        let details = serde_json::json!({"transport":"HTTP","status":200});
+        save_quota_observation(&conn, 1, Some(&quota), Some("plus"), None, Some(&details)).unwrap();
+        let (cipher, label, cached, version): (String, String, String, i64) = conn.query_row(
+            "SELECT auth_ciphertext,label,quota_json,updated_at FROM codex_accounts WHERE id=1", [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        ).unwrap();
+        assert_eq!(cipher, rotated);
+        assert_eq!(label, "并发修改名称");
+        assert!(version > 20);
+        assert_eq!(serde_json::from_str::<QuotaSnapshot>(&cached).unwrap().fetched_at, Some(100));
+        let records = events(&conn, 1).unwrap();
+        assert_eq!(records[0].message, "额度刷新成功");
+        assert_eq!(records[0].details, Some(details));
+        save_quota_observation(&conn, 1, None, None, Some("HTTP 401；API 服务（本机端口 52987）"), None).unwrap();
+        let current = get(&conn, 1).unwrap();
+        assert_eq!(current.quota.fetched_at, Some(100));
+        assert_eq!(current.plan.as_deref(), Some("plus"));
+        assert!(current.last_error.unwrap().contains("52987"));
+        assert_eq!(events(&conn, 1).unwrap()[0].message, "额度刷新失败");
+        let saved: String = conn.query_row("SELECT auth_ciphertext FROM codex_accounts WHERE id=1", [], |row| row.get(0)).unwrap();
+        assert_eq!(saved, rotated);
+    }
+
+    #[test]
+    fn quota_observation_rolls_back_on_audit_failure_and_rejects_deleted_accounts() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(CODEX_SCHEMA).unwrap();
+        conn.execute_batch(crate::core::database::CODEX_ACCOUNT_EVENTS_SCHEMA).unwrap();
+        conn.execute_batch("INSERT INTO codex_accounts(id,identity,label,auth_mode,auth_ciphertext,updated_at) VALUES(1,'observation-fixture','测试','chatgpt','invalid-fixture',20); CREATE TRIGGER reject_observation_log BEFORE INSERT ON codex_account_events BEGIN SELECT RAISE(ABORT,'fixture'); END;").unwrap();
+        assert!(save_quota_observation(&conn, 1, None, Some("plus"), None, None).is_err());
+        let current = get(&conn, 1).unwrap();
+        assert_eq!(current.updated_at, 20);
+        assert!(current.plan.is_none());
+        conn.execute_batch("DROP TRIGGER reject_observation_log; UPDATE codex_accounts SET deleted_at=1 WHERE id=1;").unwrap();
+        assert!(save_quota_observation(&conn, 1, None, Some("plus"), None, None).is_err());
+        assert!(events(&conn, 1).unwrap().is_empty());
+    }
+
     #[test]
     fn credential_change_events_name_changed_token_fields_without_values() {
         let before = r#"{"tokens":{"access_token":"test-only-access-a","refresh_token":"test-only-refresh"}}"#;
