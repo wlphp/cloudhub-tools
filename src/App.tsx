@@ -3822,7 +3822,7 @@ function App() {
         <div className="ide-topbar-brand" onMouseDown={handleTitlebarMouseDown} onDoubleClick={handleTitlebarDoubleClick}>{isDetachedTerminalWindow ? <><Terminal size={15} /><strong>{detachedTerminalHost?.name || "SSH 终端"}</strong><span>{detachedTerminalHost?.host || ""}</span>{detachedTerminalHost?.remark ? <span className="detached-terminal-context">备注：{detachedTerminalHost.remark}</span> : null}{detachedTerminalHost?.group_name ? <span className="detached-terminal-context">分组：{detachedTerminalHost.group_name}</span> : null}</> : <><Cloud size={15} /><strong>云枢 Tools{isDevelopment ? " · 开发版" : ""}</strong><span>本地多云资源管理</span></>}</div>
         <div className="ide-topbar-drag-region" aria-hidden="true" onMouseDown={handleTitlebarMouseDown} onDoubleClick={handleTitlebarDoubleClick} />
         <div className="ide-topbar-actions">
-          <div className="ide-topbar-context">{isDevelopmentBuild ? <span className="brand-dev-badge">本地开发版</span> : null}<span className="brand-version">v{appVersion}</span></div>
+          <div className="ide-topbar-context">{isDevelopmentBuild ? <span className="brand-dev-badge">本地开发版</span> : null}</div>
           {runningInTauri && <div className="ide-window-controls" aria-label="窗口控制">
             <button type="button" aria-label="最小化窗口" title="最小化" onClick={() => void performWindowAction("minimize")}><Minus size={14} /></button>
             <button type="button" aria-label="最大化或还原窗口" title="最大化或还原" onClick={() => void performWindowAction("toggleMaximize")}><Square size={12} /></button>

@@ -3289,7 +3289,7 @@ body.theme-light .ide-theme .pagination button,body.theme-light .ide-theme .pagi
 body.theme-light .ide-theme nav button{color:var(--jb-muted)!important}
 body.theme-light .ide-theme nav button.nav-active{background:var(--jb-accent-soft)!important;color:var(--jb-accent)!important}
 body.theme-light .ide-theme .brand strong{color:var(--jb-text)!important}
-body.theme-light .ide-theme .brand small,body.theme-light .ide-theme .brand-version,body.theme-light .ide-theme .brand-dev-badge{color:var(--jb-subtle)!important}
+body.theme-light .ide-theme .brand small,body.theme-light .ide-theme .brand-dev-badge{color:var(--jb-subtle)!important}
 body.theme-light .ide-theme .table-wrap th{background:var(--jb-surface-2)!important;color:var(--jb-muted)!important}
 body.theme-light .ide-theme .table-wrap td{color:var(--jb-text)!important;border-color:var(--jb-border)!important}
 body.theme-light .ide-theme .table-wrap tr:hover td{background:var(--jb-surface-2)!important}
