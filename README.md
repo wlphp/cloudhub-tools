@@ -7,11 +7,21 @@
 - **桌面端**：Windows x64、macOS（Apple Silicon / Intel）
 - **手机端**：Android ARM64（APK）、iOS（未签名 Xcode 归档，需自行签名侧载）
 
-本项目不依赖 PHP 或远程管理服务；账号凭证、同步资产和操作记录默认保存在当前设备。当前发布渠道暂不提供 Linux 安装包。
+账号凭证、同步资产和操作记录默认保存在当前设备。当前发布渠道暂不提供 Linux 安装包。
+
+## 界面预览
+
+| 账号管理 | 资产管理 |
+| --- | --- |
+| ![账号管理](docs/screenshots/accounts.png) | ![资产管理](docs/screenshots/resources.png) |
+| **面板管理** | **终端管理** |
+| ![面板管理](docs/screenshots/panels.png) | ![终端管理](docs/screenshots/terminal.png) |
+| **软件商店** | **Claude 管理** |
+| ![软件商店](docs/screenshots/store.png) | ![Claude 管理](docs/screenshots/claude.png) |
 
 ## 核心功能
 
-- **多云账号管理**：维护账号、分组、默认地域和启用状态，支持凭证加密保存与部分云账号连通性验证；账号列表按厂商展示品牌图标，并支持带品牌图标的多选筛选。
+- **多云账号管理**：维护账号、分组、默认地域和启用状态，支持凭证加密保存与部分云账号连通性验证；账号列表按厂商展示品牌图标，并支持多选筛选。
 - **资源同步与汇总**：按账号选择资源类型同步到本地 SQLite；可按云厂商、地域、资源类型、状态和关键字筛选，并收藏常用资源。
 - **云资源管理**：覆盖服务器、域名、对象存储、云数据库、Redis、轻量应用服务器及边缘安全加速等常用资产；部分资源支持改名、启动、停止、重启或强制重启。
 - **域名与 DNS**：查看域名解析记录、操作日志和 WHOIS；在已支持写入的云厂商中可添加、编辑、启停和删除解析记录。
@@ -45,7 +55,7 @@
 
 ## 手机端
 
-手机 App 与桌面端使用同一版本号发布，覆盖账号管理、云服务器、域名解析、对象存储、云数据库、Redis、证书、SSH、面板与日志查询。桌面端可通过侧边栏「手机端下载」扫码或跳转 Releases 获取安装包；Android 提供可直接安装的 ARM64 APK，iOS 提供未签名 Xcode 归档，需自行签名后侧载。
+手机 App 与桌面端同版本发布，覆盖账号管理、云服务器、域名解析、对象存储、云数据库、Redis、证书、SSH、面板与日志查询。桌面端可通过侧边栏「手机端下载」扫码或跳转 Releases 获取安装包。
 
 ## 已接入云服务商
 
@@ -91,41 +101,21 @@
 
 首次启动需要编译 Rust 依赖。前端开发服务默认运行在 `http://127.0.0.1:1420`；账号加密存储、SSH 和本机数据库等功能需要通过 Tauri 桌面客户端使用。
 
-桌面调试构建（`tauri dev`、Cargo debug profile）使用独立的 `CloudHubTools-Dev` 数据目录，正式 release 构建继续使用 `CloudHubTools`。Windows 下两者均位于 `%LOCALAPPDATA%`。开发版首次启动为空库，不自动读取正式版或旧 `AliyunTools` 目录的数据库与密钥；需要测试数据时可通过现有导出/导入功能显式迁移。开发版窗口显示“开发版”，禁用正式版更新及网关自动启动；手动启动网关时仍需选择未占用的端口。
+桌面调试构建使用独立的 `CloudHubTools-Dev` 数据目录（不读取正式版数据），开发版窗口显示“开发版”并禁用正式版更新与网关自动启动；需要测试数据时可通过导出/导入功能显式迁移。
 
-在 Windows 应用包（MSIX）环境中启动时，系统可能将本地应用数据重定向到包的 `LocalCache/Local` 目录。“打开目录”会解析实际磁盘位置后交给资源管理器，避免传入仅当前进程可见的虚拟路径。
-
-桌面端升级已有数据库 schema 前，会在当前数据目录的 `schema-backups/` 下保存一致性 SQLite 快照、配套的本地密钥（若存在）和版本信息。备份失败时停止升级。备份含敏感数据，应与原数据目录一样保护；恢复时须关闭客户端，并成套恢复数据库和对应密钥。遇到高于客户端支持的 schema 时，在初始化写入前拒绝打开，应使用兼容的新客户端，不要直接修改 `user_version`。
-
-已在本机执行过的 schema 迁移必须保留，即使对应功能撤回或被禁用。版本 37 的 `browser_environments` 是这类历史兼容表：保留表和数据并不启用浏览器功能，也不把数据库降回 36。未知的更高版本仍拒绝打开；新迁移继续使用更大的版本号，不能复用历史编号。
+桌面端升级数据库 schema 前，会自动在数据目录的 `schema-backups/` 下保存数据库快照与配套密钥；遇到高于当前客户端支持的 schema 版本时会拒绝打开，请使用兼容的新客户端，不要手动修改 `user_version`。
 
 ### 前端开发预览
 
 ```powershell
 npm install
-npm run dev
+npm run web:api   # 一个终端启动本地 API，默认端口 1430
+npm run dev       # 另一个终端启动前端
 ```
 
-浏览器预览需要同时启动本地 API：
+修改端口时，API 进程使用 `CLOUDHUB_TOOLS_WEB_API_PORT`，前端进程使用 `VITE_CLOUDHUB_TOOLS_WEB_API_PORT`，两者必须设为相同值。
 
-```powershell
-npm run web:api
-```
-
-默认端口为 `1430`。修改端口时，API 进程使用 `CLOUDHUB_TOOLS_WEB_API_PORT`，前端构建或开发进程使用 `VITE_CLOUDHUB_TOOLS_WEB_API_PORT`，两者必须设为相同值。例如：
-
-```powershell
-$env:CLOUDHUB_TOOLS_WEB_API_PORT = "1431"
-$env:VITE_CLOUDHUB_TOOLS_WEB_API_PORT = "1431"
-npm run web:api
-```
-
-在另一个终端使用相同的 `VITE_CLOUDHUB_TOOLS_WEB_API_PORT` 运行 `npm run dev`。
-
-本地 API 默认只允许来自 `http://127.0.0.1:1420` 与
-`http://localhost:1420` 的浏览器请求。若 Vite 使用其他本机地址，可在启动 API 前通过
-逗号分隔的 `CLOUDHUB_TOOLS_WEB_ALLOWED_ORIGINS` 显式配置允许来源。浏览器预览不提供
-账号 Secret 明文读取或密钥导出，这些敏感操作仅能在 Tauri 桌面端执行。
+本地 API 默认只允许来自 `http://127.0.0.1:1420` 与 `http://localhost:1420` 的浏览器请求；其他本机地址可通过逗号分隔的 `CLOUDHUB_TOOLS_WEB_ALLOWED_ORIGINS` 配置。浏览器预览不提供账号 Secret 明文读取或密钥导出，这些敏感操作仅能在 Tauri 桌面端执行。
 
 ### 手机端开发
 
@@ -144,8 +134,7 @@ npm install
 npm run tauri build
 ```
 
-安装包将生成到 `src-tauri\target\release\bundle\`。Windows 默认生成 NSIS 安装器和 MSI：MSI 同时生成英文和简体中文版本
-`CloudHub Tools_<版本>_x64_en-US.msi` 与 `CloudHub Tools_<版本>_x64_zh-CN.msi`。
+安装包将生成到 `src-tauri\target\release\bundle\`。Windows 默认生成 NSIS 安装器和 MSI（MSI 同时生成英文和简体中文版本）。
 
 ### 构建 macOS 安装包
 
@@ -168,18 +157,14 @@ npm run bundle:mac:x64
 
 ### GitHub Release
 
-推送形如 `v0.1.3` 的版本标签会自动创建 GitHub Release，并上传以下安装包：
+推送形如 `v0.1.84` 的版本标签会自动创建 GitHub Release，并上传以下安装包：
 
 - Windows x64（NSIS 与 MSI）
 - macOS Apple Silicon（M 系列芯片）和 macOS Intel
 - Android ARM64 APK（使用已有签名证书签名后上传）
 - iOS 未签名 Xcode 归档（不能直接作为 IPA 安装，需自行签名侧载）
 
-macOS 发布包按芯片类型拆分，避免通用包的额外下载体积。Apple Silicon 对应 M1、M2、M3、M4 及后续芯片；Intel Mac 请选择 Intel 包。
-
-从 `v0.1.3` 开始，已安装的桌面客户端会在启动时检查新版本，也可以在“系统设置”中手动检查、下载并安装更新。首次升级到 `v0.1.3` 仍需要从 Release 页面手动下载安装包。
-
-维护发布流程需要在 GitHub Actions Secrets 中配置 `TAURI_SIGNING_PRIVATE_KEY`，用于签名更新包；私钥仅保存在发布者安全的本机或密钥管理服务中，不能提交到仓库。
+已安装的桌面客户端会在启动时检查新版本，也可以在“系统设置”中手动检查、下载并安装更新。维护发布流程需要在 GitHub Actions Secrets 中配置 `TAURI_SIGNING_PRIVATE_KEY` 签名更新包，私钥不能提交到仓库。
 
 ## 技术栈
 
