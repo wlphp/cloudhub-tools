@@ -123,7 +123,7 @@
 .quick-add-label{color:var(--jb-muted);font-size:13px;margin-right:4px}
 .quick-add-btn{height:30px;padding:0 14px;border-radius:7px;background:var(--jb-surface-2);color:var(--jb-accent-strong);border:1px solid var(--jb-surface-2);font-size:12px;cursor:pointer;transition:all .15s}
 .quick-add-btn:hover{background:var(--jb-surface-2);color:var(--jb-accent-strong);border-color:var(--jb-accent-strong)}
-.domain-tool-count{margin-left:auto;color:var(--jb-muted);font-size:13px}
+.domain-tool-count{margin-left:auto;padding:3px 9px;border-radius:10px;background:var(--jb-surface-2);color:var(--jb-muted);font-size:12px;white-space:nowrap}
 .dns-table-wrap table{width:100%;min-width:0;table-layout:fixed;border-collapse:separate;border-spacing:0}
 .dns-table-wrap th,.dns-table-wrap td{padding:14px 14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dns-table-wrap th:nth-child(1),.dns-table-wrap td:nth-child(1){width:132px;text-align:center}
@@ -173,17 +173,21 @@
 .dns-field-help,.dns-paste-actions small{display:block;margin-top:6px;color:var(--jb-muted,var(--jb-muted));font-size:12px;line-height:1.5;overflow-wrap:anywhere}
 .dns-parse-error,.dns-parse-success{margin:10px 0 0;font-size:12px;line-height:1.5;overflow-wrap:anywhere}.dns-parse-error{color:var(--jb-danger,var(--jb-red))}.dns-parse-success{color:var(--jb-success,#50d5a0)}
 @media(max-width:600px){.dns-editor-modal{padding:16px;max-width:calc(100vw - 20px);width:calc(100vw - 20px)}.dns-paste-panel{padding:10px}.dns-paste-actions{align-items:stretch;flex-direction:column}.dns-editor-modal .form-grid{grid-template-columns:1fr;gap:14px}}
-.dns-pagination{display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:14px 4px 6px;color:var(--jb-muted);font-size:13px}
-.dns-pagination span{margin-right:6px}
-.dns-pagination button{width:30px;height:30px;border-radius:7px;border:1px solid var(--jb-border);background:var(--jb-surface-2);color:var(--jb-muted);cursor:pointer;font:inherit}
-.dns-pagination button:hover:not(:disabled){border-color:var(--jb-accent-strong);color:var(--jb-accent-strong)}
-.dns-pagination button:disabled{opacity:.45;cursor:not-allowed}
-.dns-pagination strong{display:inline-grid;place-items:center;min-width:30px;height:30px;border-radius:7px;background:var(--jb-surface-2);color:var(--jb-accent-strong);border:1px solid var(--jb-surface-2);font-size:13px;font-weight:600}
-.dns-action-btn{height:26px;min-width:48px;padding:0 12px;border-radius:6px;border:0;font-size:12px;cursor:pointer;color:var(--jb-text);transition:filter .15s;white-space:nowrap;flex-shrink:0}
-.dns-action-btn:hover{filter:brightness(1.15)}
-.dns-action-btn.edit{background:#1c8a4e}
-.dns-action-btn.warn{background:#c98a1f}
-.dns-action-btn.danger{background:#c93e3e}
+.domain-tool-body .dns-pagination{padding:12px 0 2px;border-top:0}
+.dns-action-btn{height:26px;min-width:48px;padding:0 12px;border-radius:6px;border:1px solid transparent;font-size:12px;cursor:pointer;transition:border-color .15s,background .15s;white-space:nowrap;flex-shrink:0}
+.dns-action-btn:hover{filter:none;border-color:currentColor}
+.dns-action-btn.edit{color:var(--jb-green,#5ec98f);background:color-mix(in srgb,var(--jb-green,#5ec98f) 13%,var(--jb-surface-2,#242424))}
+.dns-action-btn.warn{color:var(--jb-yellow,#e5b567);background:color-mix(in srgb,var(--jb-yellow,#e5b567) 13%,var(--jb-surface-2,#242424))}
+.dns-action-btn.danger{color:var(--jb-red,#ff8d8d);background:color-mix(in srgb,var(--jb-red,#ff8d8d) 13%,var(--jb-surface-2,#242424))}
 .dns-host-shortcuts{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}.dns-editor-modal .dns-host-shortcuts button{min-height:28px;margin:0;padding:3px 9px;border:1px solid var(--jb-border,var(--jb-surface-2));border-radius:4px;background:var(--jb-bg,var(--jb-bg));color:var(--jb-text,var(--jb-text));font-size:12px;cursor:pointer}.dns-editor-modal .dns-host-shortcuts button[aria-pressed=true]{border-color:var(--jb-accent,var(--jb-accent));background:var(--jb-selection,var(--jb-accent-soft))}.dns-editor-modal .dns-host-shortcuts button:disabled{opacity:.5;cursor:not-allowed}.dns-host-preview,.dns-host-notice,.dns-host-error{display:block;margin-top:6px;font-size:12px;line-height:1.5;overflow-wrap:anywhere}.dns-host-preview{color:var(--jb-muted,var(--jb-muted))}.dns-host-preview strong{color:var(--jb-text,var(--jb-text));font-weight:500}.dns-host-notice{color:var(--jb-success,#50d5a0)}.dns-host-error{color:var(--jb-danger,var(--jb-red))}
 .dns-host-cell{display:inline-flex;align-items:center;gap:8px}.dns-browser-link{display:inline-flex;align-items:center;justify-content:center;flex:none;width:26px;height:26px;margin:0;padding:0;border:1px solid transparent;border-radius:4px;background:transparent;color:var(--jb-muted,var(--jb-muted));cursor:pointer;text-decoration:none}.dns-browser-link:hover{border-color:var(--jb-border,var(--jb-surface-2));color:var(--jb-accent,var(--jb-accent));background:var(--jb-selection,var(--jb-accent-soft))}.dns-browser-link:focus-visible{outline:2px solid var(--jb-accent,var(--jb-accent));outline-offset:2px}.dns-browser-link:disabled{opacity:.35;cursor:not-allowed}
 .dns-editor-modal .dns-ai-actions{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
+
+/* 浅色主题：解析管理弹窗的类型标签、状态药丸与资源状态徽章跟随变亮。 */
+body.theme-light .ide-theme .dns-type-mx{background:#fbf2da;color:#8a6a1c;border-color:#e0c375}
+body.theme-light .ide-theme .dns-type-ns{background:#dcf2e9;color:#0d7a55;border-color:#9ed9cf}
+body.theme-light .ide-theme .dns-status.on{color:#0d7a55;background:#dcf2e9;border:1px solid #9ed9cf}
+body.theme-light .ide-theme .dns-status.on .dns-status-dot{background:#12967a;box-shadow:none}
+body.theme-light .ide-theme .dns-status.off{color:#b3424c;background:#fbe4e6;border:1px solid #e8a7b0}
+body.theme-light .ide-theme .dns-status.off .dns-status-dot{background:#d2454f;box-shadow:none}
+body.theme-light .ide-theme :is(.swas-status,.redis-status,.rds-status){color:#0d7a55;background:#dcf2e9;border:1px solid #9ed9cf}

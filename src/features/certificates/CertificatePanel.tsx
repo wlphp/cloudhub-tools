@@ -1,5 +1,6 @@
 import { SharedDialog } from "../../shared/SharedDialog";
 import { SecretField } from "../../shared/SecretField";
+import { PaginationBar } from "../../shared/PaginationBar";
 import { AiLogAnalysis } from "../ai/AiLogAnalysis";
 import { useEffect, useMemo, useState } from "react";
 import { Check, Copy, Download, Eye, Plus, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
@@ -104,6 +105,8 @@ export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm, r
   const [certificateCopied, setCertificateCopied] = useState(false);
   const [filter, setFilter] = useState("");
   const [sourceFilter, setSourceFilter] = useState<CertificateSource | "all">("all");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [appliedAlert,setAppliedAlert]=useState(0);
   useEffect(()=>{
     if(!alertTarget || alertTarget.request===appliedAlert) return;
@@ -142,6 +145,10 @@ export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm, r
       ),
     [rows, filter, sourceFilter],
   );
+  useEffect(() => { setPage(1); }, [filter, sourceFilter, rows.length]);
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const safePage = Math.min(page, pageCount);
+  const pagedRows = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
 
   function assetDomain(asset: LocalAsset) {
     return String(asset.payload?.DomainName || asset.asset_key || "")
@@ -403,7 +410,7 @@ export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm, r
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((row) => {
+                {pagedRows.map((row) => {
                   const remaining = days(row.notAfter);
                   return (
                     <tr key={row.id}>
@@ -478,6 +485,7 @@ export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm, r
             <p>{rows.length ? "请调整搜索关键词或来源筛选。" : "可申请新证书，或导入已有证书与私钥。"}</p>
           </div>
         )}
+        {filtered.length > 0 && <PaginationBar page={safePage} pageSize={pageSize} total={filtered.length} onPageChange={setPage} onPageSizeChange={(size) => { setPageSize(size); setPage(1); }} />}
       </section>}
       </>}
       {importOpen && <CertificateImportDialog onClose={() => setImportOpen(false)} onImported={() => { setImportOpen(false); void load(); onStatus("证书已导入本地加密库"); }} />}

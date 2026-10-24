@@ -21,6 +21,8 @@ export interface CodexState { accounts: CodexAccount[]; cliAvailable: boolean; d
 export interface CodexRemoteLog { id: string; timestamp: number; accountId: number | null; transport: string; method: string; url: string; status: number | null; outcome: string; durationMs: number; proxyMode: string; proxyUrl: string | null }
 export interface CodexRemoteLogState { enabled: boolean; logs: CodexRemoteLog[] }
 export interface CodexSwitchPreview { token: string; accountLabel: string; profileHome: string; hasPreviousAuth: boolean }
+export interface CodexSwitchResult extends CodexState { removedOverrides?: string | null }
+export interface CodexInstanceBindResult { instances: CodexInstance[]; removedOverrides?: string | null }
 export interface CodexAuthMetadata { userId: string | null; accessExpiresAt: number | null; refreshExpiresAt: number | null; idExpiresAt: number | null; hasRefreshToken: boolean; isWebSession?: boolean }
 export interface CodexAccountEvent { id: number; accountId: number; eventType: string; message: string; details: unknown | null; createdAt: number }
 export interface CodexAccountDetails { email: string; password: string; twoFactor: string; mailUrl: string; phone: string; note: string }
@@ -44,7 +46,7 @@ export const codexClient = {
   launchConfig(id: string | null, input: CodexLaunchConfig | null = null): Promise<CodexLaunchConfig> { return nativeOnly("codex_launch_config", { id, input }); },
   authMetadata(id: number): Promise<CodexAuthMetadata> { return nativeOnly("codex_auth_metadata", { id }); },
   forceRefresh(id: number): Promise<CodexAuthMetadata> { return nativeOnly("codex_force_refresh", { id }); },
-  bindInstance(id: string, accountId: number): Promise<CodexInstance[]> { return nativeOnly("codex_bind_instance", { id, accountId }); },
+  bindInstance(id: string, accountId: number): Promise<CodexInstanceBindResult> { return nativeOnly("codex_bind_instance", { id, accountId }); },
   remoteLogs(): Promise<CodexRemoteLogState> { return nativeOnly("codex_remote_logs"); },
   remoteLogDetail(id: string): Promise<CodexCallDetail> { return nativeOnly("codex_remote_log_detail", { id }); },
   configureRemoteLogs(enabled: boolean): Promise<CodexRemoteLogState> { return nativeOnly("codex_remote_logs_configure", { enabled }); },
@@ -92,6 +94,6 @@ export const codexClient = {
   deleteAccount(id: number): Promise<CodexState> { return nativeOnly("codex_delete_account", { id }); },
   refreshQuota(id: number): Promise<CodexAccount> { return nativeOnly("codex_refresh_quota", { id }); },
   prepareSwitch(id: number): Promise<CodexSwitchPreview> { return nativeOnly("codex_prepare_switch", { id }); },
-  confirmSwitch(token: string): Promise<CodexState> { return nativeOnly("codex_confirm_switch", { token }); },
+  confirmSwitch(token: string): Promise<CodexSwitchResult> { return nativeOnly("codex_confirm_switch", { token }); },
   restoreProfile(): Promise<CodexState> { return nativeOnly("codex_restore_profile"); },
 };

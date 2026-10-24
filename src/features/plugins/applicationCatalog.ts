@@ -1,12 +1,12 @@
-import { Cpu, FileCode2, GitBranch, Globe, MessageCircle, Network, NotebookPen, ShieldCheck, SquareTerminal } from "lucide-react";
+import { Bot, Cpu, FileCode2, GitBranch, Globe, Lock, MessageCircle, Network, NotebookPen, ShieldCheck, SquareTerminal } from "lucide-react";
 import { officialPlugins } from "./registry";
 
 export type ApplicationSection = "flow" | "certificates" | "authenticator" | "claude" | "codex" | "frp" | "notes";
 const navigation: Record<string, { section?: ApplicationSection; order: number; sidebar: boolean; icon: typeof Cpu; keywords?: string }> = {
   "cloudhub.flow": { section: "flow", order: 10, sidebar: true, icon: GitBranch },
-  "cloudhub.certificates": { section: "certificates", order: 20, sidebar: true, icon: ShieldCheck },
+  "cloudhub.certificates": { section: "certificates", order: 20, sidebar: true, icon: Lock },
   "cloudhub.authenticator": { section: "authenticator", order: 30, sidebar: true, icon: ShieldCheck },
-  "cloudhub.claude-providers": { section: "claude", order: 40, sidebar: true, icon: FileCode2, keywords: "Claude Code 供应商 API 切换 模型 映射" },
+  "cloudhub.claude-providers": { section: "claude", order: 40, sidebar: true, icon: Bot, keywords: "Claude Code 供应商 API 切换 模型 映射" },
   "cloudhub.codex": { section: "codex", order: 50, sidebar: true, icon: FileCode2 },
   "cloudhub.frp": { section: "frp", order: 60, sidebar: true, icon: Network },
   "cloudhub.notes": { section: "notes", order: 70, sidebar: true, icon: NotebookPen, keywords: "备忘 笔记 记录 分组 标签 检索 提醒" },

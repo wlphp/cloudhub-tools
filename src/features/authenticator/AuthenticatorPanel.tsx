@@ -2,7 +2,8 @@ import { ExportChecklist } from "../../shared/ExportSelection";
 import { SharedDialog } from "../../shared/SharedDialog";
 import { GroupNameInput } from "../../shared/GroupNameInput";
 import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type FormEvent, type ReactNode } from "react";
-import { Check, ChevronLeft, ChevronRight, Copy, Download, Edit3, Eye, EyeOff, Grid2X2, KeyRound, List, LockKeyhole, Plus, Search, ShieldCheck, Star, Trash2, Upload } from "lucide-react";
+import { Check, Copy, Download, Edit3, Eye, EyeOff, Grid2X2, KeyRound, List, LockKeyhole, Plus, Search, ShieldCheck, Star, Trash2, Upload } from "lucide-react";
+import { PaginationBar, PAGE_SIZE_OPTIONS } from "../../shared/PaginationBar";
 import { authenticatorClient as client, type AuthCode, type AuthEntry, type AuthInput, type AuthPreview } from "../../platform/clients/authenticator";
 import { runningInTauri } from "../../platform/api";
 import "./authenticator.css";
@@ -52,6 +53,7 @@ export function AuthenticatorPanel({ mobile = false }: { mobile?: boolean }) {
   const [layout, setLayout] = useState<"grid" | "list">("grid");
   const [sort, setSort] = useState("custom");
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(100);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [draft, setDraft] = useState<AuthInput | null>(null);
   const [modal, setModal] = useState<"import" | "export" | "delete" | null>(null);
@@ -172,9 +174,9 @@ export function AuthenticatorPanel({ mobile = false }: { mobile?: boolean }) {
       .sort((a, b) => Number(b.pinned) - Number(a.pinned) || (sort === "name" ? a.issuer.localeCompare(b.issuer) || a.account.localeCompare(b.account) : a.order - b.order));
   }, [entries, category, group, search, sort]);
   useEffect(() => { setPage(1); }, [category, group, search, sort]);
-  const pageCount = Math.max(1, Math.ceil(filtered.length / 100));
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage = Math.min(page, pageCount);
-  const visible = filtered.slice((safePage - 1) * 100, safePage * 100);
+  const visible = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
   const visibleIds = visible.map((entry) => entry.id).join(",");
   useEffect(() => {
     if (!unlocked) return;
@@ -315,7 +317,7 @@ export function AuthenticatorPanel({ mobile = false }: { mobile?: boolean }) {
         {entry.kind !== "hotp" && <div className="auth-progress" role="progressbar" aria-label={`${entry.account} 剩余时间`} aria-valuemin={0} aria-valuemax={entry.period} aria-valuenow={code?.remaining ?? 0}><i style={{ transform: `scaleX(${code ? code.remaining / code.period : 0})` }} /></div>}
       </article>; })}
     </div>}
-    {pageCount > 1 && <div className="auth-pagination"><button aria-label="上一页" disabled={safePage <= 1} onClick={() => setPage(safePage - 1)}><ChevronLeft size={16} /></button><span>第 {safePage} / {pageCount} 页 · {filtered.length} 项</span><button aria-label="下一页" disabled={safePage >= pageCount} onClick={() => setPage(safePage + 1)}><ChevronRight size={16} /></button></div>}
+    {filtered.length > 0 && <PaginationBar className="auth-pagination" page={safePage} pageSize={pageSize} total={filtered.length} onPageChange={setPage} onPageSizeChange={(size) => { setPageSize(size); setPage(1); }} pageSizeOptions={[...PAGE_SIZE_OPTIONS, 100]} />}
 
     {draft && <Modal title={draft.id ? "编辑验证码" : "新增验证码"} busy={busy} mobileForm={mobile} close={() => { hideDraftSecret(); setDraft(null); setError(""); }}><form className={mobile ? "auth-mobile-form" : undefined} onSubmit={(event) => { event.preventDefault(); const input = draft; hideDraftSecret(); setDraft({ ...draft, secret: "" }); void action(async () => { await client.save(input); setDraft(null); await refresh(); setMessage("验证码已保存"); }); }}>
       <div className={mobile ? "auth-mobile-form-body" : undefined}>

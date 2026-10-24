@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { SharedDialog } from "../../shared/SharedDialog";
-import { Cpu, Globe, MessageCircle, NotebookPen, RefreshCw, Search, Package, Server, SlidersHorizontal, SquareTerminal, X } from "lucide-react";
+import { Cpu, Globe, MessageCircle, NotebookPen, RefreshCw, Search, Package, SlidersHorizontal, SquareTerminal, X } from "lucide-react";
 import { runningInTauri } from "../../platform/api";
 import { pluginsClient, type WechatPluginStatus } from "../../platform/clients/plugins";
 import { officialPlugins } from "./registry";
@@ -246,6 +246,7 @@ function OfficialPluginsStore({ initialPluginId, applicationSettings, onOpenSect
         {applications.map(app => {
         const orderCell = <OrderCell app={app} settings={applicationSettings} />;
         const sidebarCell = <SidebarCell app={app} settings={applicationSettings} />;
+        const Icon = app.icon;
         if (app.id === plugin.id) return <tr key={app.id}>
           {orderCell}
           <td data-label="软件名称"><div className="store-app-name"><MessageCircle size={20} aria-hidden="true" /><div><strong>{plugin.name}</strong><small>v{plugin.version} · 实验性</small></div></div></td>
@@ -292,7 +293,7 @@ function OfficialPluginsStore({ initialPluginId, applicationSettings, onOpenSect
         </tr>;
         if (app.id === claudePlugin.id) return <tr key={app.id}>
           {orderCell}
-          <td data-label="软件名称"><div className="store-app-name"><Server size={20} aria-hidden="true" /><div><strong>{claudePlugin.name}</strong><small>v{claudePlugin.version} · 官方</small></div></div></td>
+          <td data-label="软件名称"><div className="store-app-name"><Icon size={20} aria-hidden="true" /><div><strong>{claudePlugin.name}</strong><small>v{claudePlugin.version} · 官方</small></div></div></td>
           <td data-label="开发商"><span className="store-publisher">官方</span><small>{claudePlugin.publisher}</small></td>
           <td data-label="说明" className="store-description">{claudePlugin.description}<small>API Key 本地加密保存；切换前自动备份配置，支持直连、路由与聚合。</small></td>
           <td data-label="价格">免费</td><td data-label="平台">Windows / macOS / Linux</td>
@@ -312,7 +313,6 @@ function OfficialPluginsStore({ initialPluginId, applicationSettings, onOpenSect
           {sidebarCell}
           <td data-label="操作"><div className="store-row-actions"><PresentationButton pluginId={notesPlugin.id} onOpen={setPresentationFor} /><button type="button" className="table-link" data-plugin-entry={notesPlugin.id} onClick={() => openPlugin(notesPlugin.id)}>打开</button></div></td>
         </tr>;
-        const Icon = app.icon;
         return <tr key={app.id}>
           {orderCell}
           <td data-label="软件名称"><div className="store-app-name"><Icon size={20} aria-hidden="true" /><div><strong>{app.name}</strong><small>v{app.version} · 官方</small></div></div></td>

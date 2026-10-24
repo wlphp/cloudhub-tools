@@ -32,3 +32,9 @@
 .server-reference .layui-btn-primary{background:var(--jb-surface-2);color:var(--jb-muted);border:1px solid var(--jb-surface-2)}
 .server-reference .layui-btn-primary:hover{background:var(--jb-surface-2);color:var(--jb-text)}
 .force-reboot-toggle{color:var(--jb-muted)}
+
+/* 浅色主题：服务器状态芯片与安全组提示跟随变亮。 */
+body.theme-light .ide-theme .status-running{background:#dcf2e9;color:#0d7a55;border-color:#9ed9cf}
+body.theme-light .ide-theme .status-stopped{background:#fbe4e6;color:#b3424c;border-color:#e8a7b0}
+body.theme-light .ide-theme .status-other{background:#fbf2da;color:#8a6a1c;border-color:#e0c375}
+body.theme-light .ide-theme .security-group-note{border-color:#e0c375;background:#fbf2da;color:#6f5410}

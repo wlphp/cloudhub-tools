@@ -603,6 +603,18 @@ button {
   white-space: nowrap;
 }
 
+.mobile-server-heading .mobile-panel-cloud {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 5px;
+  font-size: 10px;
+  font-weight: 700;
+}
+
 .mobile-server-card > p,
 .mobile-domain-card > p {
   margin: 11px 0;
@@ -741,8 +753,6 @@ button {
 .mobile-flow-page .flow-action-cell { grid-column:2; grid-row:2; }
 .mobile-flow-page .flow-row-actions { justify-content:flex-end; gap:8px; }
 .mobile-flow-page .flow-row-actions button { width:36px; height:36px; }
-.mobile-flow-page .flow-pagination { gap:8px; flex-wrap:wrap; }
-.mobile-flow-page .flow-pagination button { min-height:36px; }
 .mobile-flow-page .flow-feedback { align-items:flex-start; line-height:1.6; }
 .mobile-flow-page .flow-feedback svg { flex-shrink:0; }
 .mobile-flow-page .flow-empty { min-height:220px; padding:20px 12px; }
@@ -797,7 +807,6 @@ button {
 .mobile-flow-page .flow-mobile-card .flow-row-actions button { width:auto; height:36px; min-height:36px; padding:0 10px; border:1px solid var(--mobile-border); border-radius:6px; background:var(--mobile-raised); color:var(--mobile-text); font-size:12px; }
 .mobile-flow-page .flow-mobile-card .flow-row-actions button:first-child { border-color:#2e2e2e; background:#1d1d1d; color:var(--mobile-accent); }
 .mobile-flow-page .flow-mobile-card .flow-row-actions button:active { background:#242424; }
-.mobile-flow-page .flow-pagination { margin-top:12px; padding:0; border:0; }
 
 @media(max-width:559px) {
   .mobile-account-form {

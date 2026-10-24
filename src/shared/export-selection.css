@@ -9,6 +9,10 @@
 .export-selection-dialog :is(button,input,select) { box-sizing: border-box; color: inherit; background: var(--jb-input,var(--jb-input)); border: 1px solid var(--jb-border-strong,var(--jb-border-strong)); border-radius: 4px; padding: 7px 10px; }
 .export-selection-dialog button { cursor: pointer; }
 .export-selection-dialog button:disabled { opacity: .5; cursor: default; }
+/* ExportChecklist 基础控件样式跟随组件根节点，嵌入任意弹层都保持一致。 */
+.export-selection :is(button,input) { box-sizing: border-box; color: inherit; background: var(--jb-input,var(--jb-input)); border: 1px solid var(--jb-border-strong,var(--jb-border-strong)); border-radius: 4px; padding: 7px 10px; }
+.export-selection button { cursor: pointer; }
+.export-selection button:disabled { opacity: .5; cursor: default; }
 .certificate-domains-dialog .export-selection { min-height: 0; overflow: auto; }
 .export-selection-dialog footer { justify-content: flex-end; margin-top: 16px; }
 .export-selection { margin: 12px 0; min-width: 0; }
@@ -53,20 +57,20 @@
   margin: 0;
   padding: 14px 18px 0;
 }
-.export-selection-picker-dialog .export-selection-tools { flex-wrap: nowrap; }
-.export-selection-picker-dialog .export-selection-tools button,
+:is(.export-selection-picker-dialog,.certificate-domains-dialog) .export-selection-tools { flex-wrap: nowrap; }
+:is(.export-selection-picker-dialog,.certificate-domains-dialog) .export-selection-tools button,
 .export-selection-picker-dialog > footer button {
   min-height: 32px;
   padding: 0 11px;
   white-space: nowrap;
 }
-.export-selection-picker-dialog .export-selection-tools > span { margin-left: 4px; color: var(--jb-muted,var(--jb-muted)); font-size: 12px; white-space: nowrap; }
+:is(.export-selection-picker-dialog,.certificate-domains-dialog) .export-selection-tools > span { margin-left: 4px; color: var(--jb-muted,var(--jb-muted)); font-size: 12px; white-space: nowrap; }
 .export-selection-picker-dialog .export-selection > input {
   height: 36px;
   flex: 0 0 36px;
   margin: 10px 0;
 }
-.export-selection-picker-dialog .export-selection-list {
+:is(.export-selection-picker-dialog,.certificate-domains-dialog) .export-selection-list {
   flex: 0 1 auto;
   min-height: 0;
   max-height: min(48dvh,460px);
@@ -83,11 +87,11 @@
   flex: 1 1 auto;
   max-height: none;
 }
-.export-selection-picker-dialog .export-selection-list label {
+:is(.export-selection-picker-dialog,.certificate-domains-dialog) .export-selection-list label {
   display: flex;
   box-sizing: border-box;
   width: 100%;
-  min-height: 52px;
+  min-height: 44px;
   gap: 10px;
   padding: 8px 12px;
   border-bottom: 1px solid var(--jb-border,var(--jb-surface-3));
@@ -95,12 +99,12 @@
   line-height: 1.35;
   cursor: pointer;
 }
-.export-selection-picker-dialog .export-selection-list label:last-child { border-bottom: 0; }
-.export-selection-picker-dialog .export-selection-list label:hover { background: var(--jb-surface-2,var(--jb-surface-3)); }
-.export-selection-picker-dialog .export-selection-list label:has(input:checked) { background: color-mix(in srgb,var(--jb-accent-soft,var(--jb-accent-soft)) 42%,var(--jb-input,var(--jb-input))); }
-.export-selection-picker-dialog .export-selection-list input[type="checkbox"] { box-sizing:border-box; display:block; width:16px; min-width:16px; height:16px; flex:0 0 16px; margin:0; padding:0; accent-color:var(--jb-accent,var(--jb-accent)); }
-.export-selection-picker-dialog .export-selection-list label > span { display: grid; gap: 3px; min-width: 0; }
-.export-selection-picker-dialog .export-selection-list small { color: var(--jb-muted,var(--jb-muted)); font-size: 11px; }
+:is(.export-selection-picker-dialog,.certificate-domains-dialog) .export-selection-list label:last-child { border-bottom: 0; }
+:is(.export-selection-picker-dialog,.certificate-domains-dialog) .export-selection-list label:hover { background: var(--jb-surface-2,var(--jb-surface-3)); }
+:is(.export-selection-picker-dialog,.certificate-domains-dialog) .export-selection-list label:has(input:checked) { background: color-mix(in srgb,var(--jb-accent-soft,var(--jb-accent-soft)) 42%,var(--jb-input,var(--jb-input))); }
+:is(.export-selection-picker-dialog,.certificate-domains-dialog) .export-selection-list input[type="checkbox"] { box-sizing:border-box; display:block; width:16px; min-width:16px; height:16px; flex:0 0 16px; margin:0; padding:0; accent-color:var(--jb-accent,var(--jb-accent)); }
+:is(.export-selection-picker-dialog,.certificate-domains-dialog) .export-selection-list label > span { display: grid; gap: 3px; min-width: 0; align-content: center; }
+:is(.export-selection-picker-dialog,.certificate-domains-dialog) .export-selection-list small { color: var(--jb-muted,var(--jb-muted)); font-size: 11px; }
 .export-selection-picker-dialog > footer {
   min-height: 60px;
   box-sizing: border-box;

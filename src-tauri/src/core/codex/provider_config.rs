@@ -266,6 +266,32 @@ fn set_value(table:&mut dyn toml_edit::TableLike,key:&str,mut next:Item)->Result
     table.insert(key,next);Ok(())
 }
 
+/// 第三方工具（如 Cockpit Tools）会通过顶层 model_provider 把客户端指向本地或
+/// 远程中转，并注入 model_catalog_json 让模型选择器显示中转的自有模型，auth.json
+/// 的官方登录与按账号的官方模型列表都会失效。切回官方账号启动时移除这些引用键，
+/// 以及在接管状态下选出的默认 model，让客户端回到官方目录；供应商表与目录文件
+/// 原样保留。返回被移除项的摘要供界面提示，无接管时返回 None。
+pub fn clear_third_party_overrides(home:&Path)->Result<Option<String>,String> {
+    let Some(source)=read_optional(home,"config.toml")? else {return Ok(None);};
+    let mut document=source.as_str().parse::<Document>().map_err(|_| "Codex config.toml 格式无效，无法恢复官方直连")?;
+    let provider_item=document.as_table_mut().remove("model_provider");
+    let provider=provider_item.as_ref().and_then(|item|item.as_str()).map(str::to_owned);
+    // 官方内置供应商与无法识别的非字符串值不属于第三方接管，写回时原样保留。
+    let provider_foreign=provider.as_deref().is_some_and(|value|value!="openai");
+    let catalog=document.as_table_mut().remove("model_catalog_json").is_some();
+    let hijacked=provider_foreign||catalog;
+    let model=if hijacked {document.as_table_mut().remove("model").and_then(|item|item.as_str().map(str::to_owned))} else {None};
+    let mut parts=Vec::new();
+    if let Some(value)=provider.filter(|_|provider_foreign) {parts.push(format!("model_provider = {value}"));}
+    if catalog {parts.push("第三方模型目录".into());}
+    if model.is_some() {parts.push("第三方默认模型".into());}
+    if parts.is_empty() {return Ok(None);}
+    // 官方或无法识别的 model_provider 不属于接管，写回时保留原键。
+    if let Some(item)=provider_item.filter(|_|!provider_foreign) {document.as_table_mut().insert("model_provider",item);}
+    profile::write_private(&home.join("config.toml"),&document.to_string())?;
+    Ok(Some(parts.join("、")))
+}
+
 fn write_optional(home:&Path,name:&str,value:Option<&str>)->Result<(),String> {
     if let Some(value)=value {profile::write_private(&home.join(name),value)}
     else {match fs::symlink_metadata(home.join(name)) {Ok(m) if m.is_file() && !m.file_type().is_symlink()=>fs::remove_file(home.join(name)).map_err(|_| "恢复供应商配置失败".into()),Err(e) if e.kind()==std::io::ErrorKind::NotFound=>Ok(()),_=>Err("恢复供应商配置失败".into())}}
@@ -409,6 +435,52 @@ fn restore_decrypted(conn:&Connection,home:&Path,decrypt:impl Fn(&str)->Result<S
 mod tests {
     use super::*;
     fn test_selection(model:&str)->AppliedSelection {AppliedSelection{provider_id:"fixture".into(),key_id:"fixture".into(),provider_version:1,model:model.into(),oauth_account_id:None}}
+    #[test]
+    fn clearing_third_party_overrides_restores_official_routing() {
+        let temp=profile::TemporaryProfile::new("{}").unwrap();
+        profile::write_private(&temp.path.join("config.toml"),"model = \"gpt-6-sol\"\nmodel_provider = \"codex_local_access\"\nmodel_reasoning_effort = \"medium\"\nmodel_catalog_json = \"cockpit-model-catalog.json\"\n\n[model_providers.codex_local_access]\nbase_url = \"http://localhost:65031/v1\"\n").unwrap();
+        let removed=clear_third_party_overrides(&temp.path).unwrap();
+        assert_eq!(removed.as_deref(),Some("model_provider = codex_local_access、第三方模型目录、第三方默认模型"));
+        let text=profile::read_auth(&temp.path.join("config.toml")).unwrap();
+        assert!(!text.contains("model_provider ="));
+        assert!(!text.contains("model_catalog_json"));
+        assert!(!text.contains("model = \"gpt-6-sol\""));
+        // 供应商表与其余配置原样保留。
+        assert!(text.contains("[model_providers.codex_local_access]"));
+        assert!(text.contains("model_reasoning_effort = \"medium\""));
+        assert_eq!(clear_third_party_overrides(&temp.path).unwrap(),None);
+    }
+    #[test]
+    fn clearing_keeps_official_provider_and_clean_configs_untouched() {
+        let temp=profile::TemporaryProfile::new("{}").unwrap();
+        profile::write_private(&temp.path.join("config.toml"),"model_provider = \"openai\"\nmodel = \"gpt-5.2\"\n").unwrap();
+        assert_eq!(clear_third_party_overrides(&temp.path).unwrap(),None);
+        assert_eq!(profile::read_auth(&temp.path.join("config.toml")).unwrap().as_str(),"model_provider = \"openai\"\nmodel = \"gpt-5.2\"\n");
+        let plain=profile::TemporaryProfile::new("{}").unwrap();
+        assert_eq!(clear_third_party_overrides(&plain.path).unwrap(),None);
+        assert_eq!(profile::read_auth(&plain.path.join("config.toml")).unwrap().as_str(),"cli_auth_credentials_store = \"file\"\n[analytics]\nenabled = false\n");
+        let invalid=profile::TemporaryProfile::new("{}").unwrap();
+        profile::write_private(&invalid.path.join("config.toml"),"model_provider = 3\n").unwrap();
+        assert_eq!(clear_third_party_overrides(&invalid.path).unwrap(),None);
+        assert_eq!(profile::read_auth(&invalid.path.join("config.toml")).unwrap().as_str(),"model_provider = 3\n");
+    }
+    #[test]
+    fn catalog_hijack_clears_model_but_keeps_official_provider_key() {
+        let temp=profile::TemporaryProfile::new("{}").unwrap();
+        profile::write_private(&temp.path.join("config.toml"),"model_provider = \"openai\"\nmodel = \"gpt-6-sol\"\nmodel_catalog_json = \"cockpit-model-catalog.json\"\n").unwrap();
+        let removed=clear_third_party_overrides(&temp.path).unwrap();
+        assert_eq!(removed.as_deref(),Some("第三方模型目录、第三方默认模型"));
+        let text=profile::read_auth(&temp.path.join("config.toml")).unwrap();
+        assert!(text.contains("model_provider = \"openai\""));
+        assert!(!text.contains("model_catalog_json"));
+        assert!(!text.contains("model = \"gpt-6-sol\""));
+    }
+    #[test]
+    fn clearing_reports_invalid_toml_instead_of_silently_keeping_hijack() {
+        let temp=profile::TemporaryProfile::new("{}").unwrap();
+        profile::write_private(&temp.path.join("config.toml"),"model_provider = [\n").unwrap();
+        assert!(clear_third_party_overrides(&temp.path).is_err());
+    }
     #[test]
     fn repeated_switch_failure_and_crash_preserve_original_restore_point() {
         let encrypt=|v:&str|crate::core::crypto::encrypt_secret_with_key(v,&[23;32]);

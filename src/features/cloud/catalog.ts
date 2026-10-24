@@ -81,6 +81,30 @@ export function cloudProvider(value: string) {
   return cloudProviders.find((provider) => provider.value === value) || legacyOtherCloudProvider;
 }
 
+const cloudTypeTextMatchers: ReadonlyArray<readonly [string, RegExp]> = [
+  ["aliyun", /阿里云|阿里|aliyun|alibaba/i],
+  ["tencent", /腾讯云|腾讯|tencent|qcloud/i],
+  ["huawei", /华为云|华为|huawei/i],
+  ["volcengine", /火山引擎|火山|volcengine/i],
+  ["ctyun", /天翼云|天翼|电信云|ctyun/i],
+  ["baidu", /百度智能云|百度云|百度|baidu/i],
+  ["jdcloud", /京东云|京东|jdcloud/i],
+  ["ucloud", /\bucloud\b/i],
+  ["qingcloud", /青云|qingcloud/i],
+  ["ksyun", /金山云|ksyun/i],
+  ["qiniu", /七牛云|七牛|qiniu/i],
+  ["aws", /\baws\b|amazon|亚马逊/i],
+  ["azure", /\bazure\b|微软云|microsoft/i],
+  ["gcp", /\bgcp\b|谷歌云|google\s*cloud/i],
+  ["oracle", /\boracle\b|\boci\b|甲骨文/i],
+  ["vultr", /\bvultr\b/i],
+];
+
+/** 从面板名称、备注等自由文本中猜测云厂商，仅用于展示提示；识别不到时返回 undefined。 */
+export function matchCloudTypeFromText(text: string) {
+  return cloudTypeTextMatchers.find(([, pattern]) => pattern.test(text || ""))?.[0];
+}
+
 export const assetTypes = [
   ["ecs", "服务器"], ["domain", "域名"], ["oss", "对象存储"], ["rds", "云数据库"], ["redis", "Redis"], ["swas", "轻量应用服务器"], ["esa", "边缘安全加速"], ["block", "块存储"], ["network", "私有网络"], ["firewall", "防火墙"], ["ip", "保留 IP"], ["loadbalancer", "负载均衡"], ["snapshot", "快照"], ["kubernetes", "Kubernetes"],
 ] as const;

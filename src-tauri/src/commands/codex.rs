@@ -610,6 +610,15 @@ pub(crate) struct SwitchPreview {
     has_previous_auth: bool,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SwitchResult {
+    #[serde(flatten)]
+    state: CodexState,
+    // 切号时从 config.toml 移除的第三方接管摘要，供界面提示官方直连与官方模型列表已恢复。
+    removed_overrides: Option<String>,
+}
+
 fn switch_home() -> Result<std::path::PathBuf, String> {
     let home = profile::default_home()?;
     if home.exists()
@@ -746,8 +755,8 @@ pub(crate) async fn codex_close_default_processes(
 pub(crate) async fn codex_confirm_switch(
     app: tauri::AppHandle,
     token: String,
-) -> PlatformResult<CodexState> {
-    tauri::async_runtime::spawn_blocking(move || -> Result<CodexState, String> {
+) -> PlatformResult<SwitchResult> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<SwitchResult, String> {
         let _writer = AUTH_WRITER.lock().map_err(|_| "Codex 账号操作不可用")?;
         let ticket = SWITCH_TICKET
             .lock()
@@ -774,6 +783,8 @@ pub(crate) async fn codex_confirm_switch(
         if profile::fingerprint(previous.as_deref().map(|s| s.as_str())) != ticket.fingerprint {
             return Err("Codex 登录状态已变更，未执行切号，请重新确认".into());
         }
+        // 在写入登录前清理第三方接管，config 无效时直接失败，不产生半切换状态。
+        let removed_overrides = crate::core::codex::provider_config::clear_third_party_overrides(&home)?;
         let auth = repository::credentials(&conn, ticket.id)?;
         auth::ensure_runtime_auth(&auth)?;
         install_profile(
@@ -783,7 +794,7 @@ pub(crate) async fn codex_confirm_switch(
             previous.as_deref().map(|s| s.as_str()),
             encrypt_secret,
         )?;
-        state()
+        Ok(SwitchResult { state: state()?, removed_overrides })
     })
     .await
     .map_err(|_| "执行 Codex 切号任务失败")?

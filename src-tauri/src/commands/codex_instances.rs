@@ -75,6 +75,14 @@ pub(crate) struct InstanceSummary {
     last_error: Option<String>,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct InstanceBindResult {
+    instances: Vec<InstanceSummary>,
+    // 绑定时从实例 config.toml 移除的第三方接管摘要，供界面提示官方直连与官方模型列表已恢复。
+    removed_overrides: Option<String>,
+}
+
 fn instance_path(id: &str) -> Result<PathBuf, String> {
     let id = uuid::Uuid::parse_str(id).map_err(|_| "Codex 实例标识无效")?;
     let root = data_dir()?.join("codex-instances");
@@ -287,8 +295,8 @@ fn sync_instance(account_id: i64, path: &Path) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub(crate) async fn codex_bind_instance(app: tauri::AppHandle, id: String, account_id: i64) -> PlatformResult<Vec<InstanceSummary>> {
-    tauri::async_runtime::spawn_blocking(move || -> Result<Vec<InstanceSummary>, String> {
+pub(crate) async fn codex_bind_instance(app: tauri::AppHandle, id: String, account_id: i64) -> PlatformResult<InstanceBindResult> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<InstanceBindResult, String> {
         let _writer = AUTH_WRITER.lock().map_err(|_| "Codex 账号操作不可用")?;
         let store = app.state::<CodexRuntimeStore>();
         let conn = open_db()?;
@@ -302,6 +310,8 @@ pub(crate) async fn codex_bind_instance(app: tauri::AppHandle, id: String, accou
         repository::get(&conn, account_id)?;
         auth::ensure_runtime_auth(&repository::credentials(&conn, account_id)?)?;
         super::codex_providers::restore_before_account_switch(&store, Some(&id))?;
+        // 与默认切号一致：账号绑定到实例即恢复官方直连与官方模型列表。
+        let removed_overrides = crate::core::codex::provider_config::clear_third_party_overrides(&instance_path(&id)?)?;
         let old: i64 = conn.query_row("SELECT account_id FROM codex_profiles WHERE id=?1", [&id], |row| row.get(0)).map_err(|_| "Codex 实例不存在")?;
         if old != account_id {
             let path = instance_path(&id)?;
@@ -321,7 +331,8 @@ pub(crate) async fn codex_bind_instance(app: tauri::AppHandle, id: String, accou
             clear_projection(&id)?;
             conn.execute("UPDATE codex_profiles SET account_id=?1,auth_fingerprint=NULL WHERE id=?2", params![account_id, id]).map_err(|_| "保存 Codex 实例失败")?;
         }
-        summaries(&store)
+        let instances = summaries(&store)?;
+        Ok(InstanceBindResult { instances, removed_overrides })
     }).await.map_err(|_| "切换 Codex 实例任务失败")?.map_err(Into::into)
 }
 

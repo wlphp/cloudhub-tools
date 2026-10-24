@@ -21,3 +21,10 @@
 .audit-succeed{background:#0a2e25;color:#50d5a0;border:1px solid #1a5e4a}.audit-auditing{background:#3a2a1a;color:#ffb86b;border:1px solid #6e4f30}.audit-nonaudit{background:var(--jb-surface-2);color:var(--jb-muted);border:1px solid var(--jb-surface-2)}
 .expire-warning{color:#ffb86b;font-weight:600}.expire-danger{color:#ff6b6b;font-weight:600}
 .domain-empty{text-align:center;padding:80px 20px}.domain-empty p{margin-top:14px;color:var(--jb-muted)}
+
+/* 浅色主题：域名状态与到期徽章跟随变亮。 */
+body.theme-light .ide-theme .dns-other{background:#fbe4e6;color:#b3424c;border-color:#e8a7b0}
+body.theme-light .ide-theme .audit-succeed{background:#dcf2e9;color:#0d7a55;border-color:#9ed9cf}
+body.theme-light .ide-theme .audit-auditing{background:#fbf2da;color:#8a6a1c;border-color:#e0c375}
+body.theme-light .ide-theme .expire-warning{color:#8a6a1c}
+body.theme-light .ide-theme .expire-danger{color:#b3424c}

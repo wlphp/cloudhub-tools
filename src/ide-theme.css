@@ -409,7 +409,7 @@
 /* Favorites: cards become IDEA tool-window items, not marketing cards. */
 .ide-theme .favorite-toolbar { margin-bottom: 14px !important; }
 .ide-theme .favorite-type-tabs button { height: 30px; border-color: var(--jb-border-strong); border-radius: 3px; background: var(--jb-surface-3); color: var(--jb-muted); }
-.ide-theme .favorite-type-tabs button:hover, .ide-theme .favorite-type-tabs button.active { border-color: var(--jb-accent); background: var(--jb-accent-soft); color: var(--jb-accent-soft); }
+.ide-theme .favorite-type-tabs button:hover, .ide-theme .favorite-type-tabs button.active { border-color: var(--jb-accent-strong); background: var(--jb-surface-2); color: var(--jb-accent-strong); }
 .ide-theme .favorite-resource-card { min-height: 240px; padding: 14px; }
 .ide-theme .favorite-resource-card:hover { border-color: var(--jb-border-strong) !important; }
 .ide-theme :where(.favorite-resource-type, .favorite-status) { border: 1px solid var(--jb-border-strong); border-radius: 3px; background: var(--jb-surface-3); color: var(--jb-muted); }
@@ -434,7 +434,7 @@
 .ide-theme :where(.panel-connection-card, .managed-server-card) { padding: 14px !important; }
 .ide-theme :where(.panel-connection-card:hover, .managed-server-card:hover, .server-card:hover, .swas-card:hover, .rds-card:hover, .redis-card:hover, .bucket-card:hover) { border-color: var(--jb-border-strong) !important; }
 .ide-theme :where(.terminal-tabs, .terminal-tab, .terminal-host-actions, .terminal-group-title, .terminal-host-group-head) { background: var(--jb-surface-2) !important; border-color: var(--jb-border) !important; }
-.ide-theme .terminal-tab.active { background: var(--jb-accent-soft) !important; color: var(--jb-accent-soft) !important; }
+.ide-theme .terminal-tab.active { background: var(--jb-accent-soft) !important; color: var(--jb-accent-strong) !important; }
 .ide-theme :where(.terminal-host-row.active, .terminal-host-group-head.active) { background: var(--jb-accent-soft) !important; box-shadow: inset 2px 0 var(--jb-accent) !important; }
 .ide-theme .terminal-stage-empty { background: var(--jb-input) !important; }
 .ide-theme .ssh-terminal-meta { background: var(--jb-surface) !important; border-color: var(--jb-border) !important; }
@@ -448,7 +448,7 @@
 .ide-theme .setting-switch span { border-radius: 10px; background: var(--jb-border-strong); }
 .ide-theme .setting-switch input:checked + span { background: var(--jb-accent); }
 .ide-theme :where(.esa-tabs button, .esa-range-tabs button) { border-color: var(--jb-border) !important; background: var(--jb-surface-3) !important; color: var(--jb-muted) !important; }
-.ide-theme :where(.esa-tabs button.active, .esa-range-tabs button.active) { border-color: var(--jb-accent) !important; background: var(--jb-accent-soft) !important; color: var(--jb-accent-soft) !important; }
+.ide-theme :where(.esa-tabs button.active, .esa-range-tabs button.active) { border-color: var(--jb-accent) !important; background: var(--jb-accent-soft) !important; color: var(--jb-accent-strong) !important; }
 .ide-theme .table-link { color: var(--jb-accent-strong) !important; }
 .ide-theme .table-link:hover { color: var(--jb-accent-strong) !important; }
 
@@ -2479,9 +2479,9 @@
 }
 .ide-theme .favorites-page .favorite-type-tabs button:hover,
 .ide-theme .favorites-page .favorite-type-tabs button.active {
-  border-color: var(--jb-accent) !important;
-  background: var(--jb-accent-soft) !important;
-  color: var(--jb-accent-soft) !important;
+  border-color: var(--jb-accent-strong) !important;
+  background: var(--jb-surface-2) !important;
+  color: var(--jb-accent-strong) !important;
 }
 .ide-theme .favorites-page .favorite-search {
   box-sizing: border-box;
@@ -3231,8 +3231,6 @@ body.theme-light .ide-theme .stats strong{color:var(--jb-text)!important}
 body.theme-light .ide-theme .stats span,body.theme-light .ide-theme .stats small{color:var(--jb-muted)!important}
 body.theme-light .ide-theme .empty h3{color:var(--jb-text)!important}
 body.theme-light .ide-theme .empty{color:var(--jb-muted)!important}
-body.theme-light .ide-theme .pagination{background:var(--jb-surface)!important;border-color:var(--jb-border)!important}
-body.theme-light .ide-theme .pagination button,body.theme-light .ide-theme .pagination strong{background:var(--jb-surface-2)!important;border-color:var(--jb-border)!important;color:var(--jb-text)!important}
 body.theme-light .ide-theme nav button{color:var(--jb-muted)!important}
 body.theme-light .ide-theme nav button.nav-active{background:var(--jb-accent-soft)!important;color:var(--jb-accent)!important}
 body.theme-light .ide-theme .brand strong{color:var(--jb-text)!important}
@@ -3247,3 +3245,9 @@ body.theme-light .ide-theme .search{border-color:var(--jb-border)!important;back
 body.theme-light .ide-theme .more-menu{background:var(--jb-surface)!important;border-color:var(--jb-border)!important}
 body.theme-light .ide-theme .more-menu button{color:var(--jb-text)!important}
 body.theme-light .ide-theme .more-menu button:hover{background:var(--jb-surface-2)!important;color:var(--jb-accent)!important}
+
+/* IDE 主题的紧凑服务器行：厂商徽标与平台图标并排显示，避免叠加压住图形。 */
+.ide-theme .terminal-host-platform{display:inline-flex;flex:0 0 auto;width:auto;column-gap:2px;align-items:center}
+.ide-theme .terminal-host-platform i{left:14px;right:auto}
+.ide-theme .terminal-host-cloud{position:static;width:13px;height:13px;border:1px solid var(--jb-sidebar);border-radius:4px;font-size:8px}
+.ide-theme .terminal-host-cloud svg{width:9px;height:9px}

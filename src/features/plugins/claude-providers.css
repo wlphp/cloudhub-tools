@@ -113,7 +113,7 @@
   .claude-list-toolbar .claude-providers-actions { margin-left: 0; }
   .claude-provider-main > .claude-provider-meta { margin-left: 0; }
 }
-.claude-provider-item.is-current { border-color: var(--jb-accent); background: color-mix(in srgb, var(--jb-accent-soft, var(--jb-accent-soft)) 40%, var(--jb-surface, var(--jb-surface))); }
+.claude-provider-item.is-current { border-color: var(--jb-accent); background: var(--jb-surface-2, var(--jb-surface)); box-shadow: inset 3px 0 0 var(--jb-accent); }
 .claude-provider-main { display: flex; flex-direction: column; gap: 5px; min-width: 0; flex: 1 1 320px; }
 .claude-provider-title { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
 .claude-provider-title strong { font-size: 13.5px; font-weight: 600; }

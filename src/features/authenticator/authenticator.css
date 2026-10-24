@@ -14,7 +14,7 @@
 .auth-mobile .auth-header h2 { font-size:20px !important; }
 .auth-header > div > span { display:block; margin-top:4px; color:var(--jb-subtle, var(--jb-muted)) !important; font-size:12px; }
 .auth-panel h3 { margin: 12px 0; }
-.auth-header,.auth-actions,.auth-toolbar,.auth-view,.auth-selection,.auth-pagination { display:flex; align-items:center; gap:10px; }
+.auth-header,.auth-actions,.auth-toolbar,.auth-view,.auth-selection { display:flex; align-items:center; gap:10px; }
 .auth-header { justify-content:space-between; flex-wrap:wrap; align-items:flex-start; margin-bottom:16px; }
 .auth-header > div > span,.auth-account,.auth-next > span,.auth-card-footer,.auth-hint,.auth-unlock p,.auth-empty p { color:var(--jb-muted, var(--jb-muted)); font-size:12px; }
 .auth-panel button,.auth-dialog button { display:inline-flex; align-items:center; justify-content:center; gap:6px; border:1px solid var(--jb-border,var(--jb-surface-3)); background:var(--jb-surface,var(--jb-surface)); color:inherit; border-radius:5px; padding:7px 10px; cursor:pointer; font:inherit; font-size:12px; }
@@ -82,7 +82,7 @@
 .auth-list { display:flex; flex-direction:column; }
 .auth-list .auth-card { display:grid; grid-template-columns:minmax(230px,1.2fr) minmax(260px,1fr) minmax(100px,.6fr); align-items:center; gap:16px; }
 .auth-list .auth-code-row { margin:6px 0; }
-.auth-pagination { justify-content:center; margin:20px 0; font-size:12px; }
+.auth-pagination { margin:20px 0; }
 .auth-empty { display:flex; align-items:center; flex-direction:column; text-align:center; padding:64px 16px 56px; color:var(--jb-subtle,var(--jb-muted)); }
 .auth-empty > svg { margin-bottom:10px; color:var(--jb-border-strong,var(--jb-border-strong)); }
 .auth-empty h3 { margin:0 0 6px; color:var(--jb-text,var(--jb-text)); font-size:15px; font-weight:600; }
