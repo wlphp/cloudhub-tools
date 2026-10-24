@@ -41,30 +41,30 @@
 .shared-confirm-dialog > footer.app-confirm-actions {display:flex;justify-content:flex-end;gap:8px;margin:0;padding:10px 12px}
 :is(.modal,.resource-modal,.codex-dialog,.flow-dialog,.certificate-dialog,.modal-form-layout,.ai-config-dialog,.ai-asset-note-dialog,.app-confirm-dialog,.auth-dialog,.sync-transfer-panel,.terminal-quick-dialog,.terminal-connect-card,.dns-editor-modal,.security-group-modal,[role=dialog],dialog) > :is(header,.modal-head,.detail-toolbar,.terminal-quick-dialog-head,.terminal-connect-card-head,.frp-editor-header,.flow-details-header,.certificate-dialog-header,.auth-dialog-header) { cursor: move; }
 :is(.modal,.resource-modal,.codex-dialog,.flow-dialog,.certificate-dialog,.modal-form-layout,.ai-config-dialog,.ai-asset-note-dialog,.app-confirm-dialog,.auth-dialog,.sync-transfer-panel,.terminal-quick-dialog,.terminal-connect-card,.dns-editor-modal,.security-group-modal,[role=dialog],dialog) > :is(header,.modal-head,.detail-toolbar,.terminal-quick-dialog-head,.terminal-connect-card-head,.frp-editor-header,.flow-details-header,.certificate-dialog-header,.auth-dialog-header).dialog-dragging-header { cursor: move; }
-.dialog-header-actions .dialog-size-button { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; min-height: 32px; padding: 6px; border: 1px solid var(--jb-border-strong,#555); border-radius: 4px; color: var(--jb-text,#dedede); background: var(--jb-surface-3,#363636); cursor: pointer; }
-.dialog-header-actions :focus-visible { outline: 2px solid var(--jb-accent,#9b8cff); outline-offset: 2px; }
+.dialog-header-actions .dialog-size-button { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; min-height: 32px; padding: 6px; border: 1px solid var(--jb-border-strong,var(--jb-border-strong)); border-radius: 4px; color: var(--jb-text,var(--jb-text)); background: var(--jb-surface-3,var(--jb-surface-3)); cursor: pointer; }
+.dialog-header-actions :focus-visible { outline: 2px solid var(--jb-accent,var(--jb-accent)); outline-offset: 2px; }
 .dialog-size-expanded.dialog-size-expanded.dialog-size-expanded { position: fixed !important; inset: 2.5dvh 2.5vw !important; width: 95vw !important; height: 95dvh !important; max-width: 95vw !important; max-height: 95dvh !important; min-width: 0 !important; margin: 0 !important; transform: none !important; box-sizing: border-box; overflow: auto; }
 .dialog-common-theme.dialog-common-theme { color: var(--jb-text); background: var(--jb-surface); border-color: var(--jb-border-strong); border-radius: 5px; }
 .dialog-common-theme.dialog-common-theme > :is(header,.modal-head,.detail-toolbar) { position: sticky; top: 0; z-index: 3; flex-shrink: 0; background: var(--jb-surface-2); border-color: var(--jb-border); }
 .dialog-common-theme.dialog-common-theme > :is(footer,.modal-actions) { position: sticky; bottom: 0; z-index: 2; flex-shrink: 0; background: var(--jb-surface); border-color: var(--jb-border); }
 .dialog-common-theme :is(input:not([type="checkbox"]):not([type="radio"]),select,textarea) { border-color: var(--jb-border-strong); background-color: var(--jb-input); color: var(--jb-text); }
 .dialog-common-theme :is(input:not([type="checkbox"]):not([type="radio"]),select,textarea):focus-visible { border-color: var(--jb-accent); outline: 2px solid color-mix(in srgb,var(--jb-accent) 28%,transparent); outline-offset: 1px; }
-.dialog-common-theme :is(input,select,textarea)::placeholder { color: #858585; }
+.dialog-common-theme :is(input,select,textarea)::placeholder { color: var(--jb-muted); }
 .dialog-common-theme :is(button,.secondary):focus-visible { outline: 2px solid var(--jb-accent); outline-offset: 2px; }
 .dialog-common-theme.dialog-common-theme label { color: var(--jb-muted); }
 .dialog-common-theme.dialog-common-theme :is(.secondary,.close) { border-color: var(--jb-border-strong) !important; border-radius: 4px; background: var(--jb-surface-3) !important; color: var(--jb-text) !important; }
-.dialog-common-theme.dialog-common-theme .primary { border-color: #6551b2 !important; border-radius: 4px; background: #7356c8 !important; color: #fff !important; }
+.dialog-common-theme.dialog-common-theme .primary { border-color: var(--jb-accent-soft) !important; border-radius: 4px; background: var(--jb-accent) !important; color: var(--jb-text) !important; }
 .dialog-size-expanded.modal-form-layout > .modal-body { flex: 1; min-height: 0; overflow: auto; }
 .dialog-size-expanded.ai-workbench > .ai-workbench-body { flex: 1; min-height: 0; }
 @media(max-width:600px) { .dialog-header-actions .dialog-size-button { width: 44px; height: 44px; min-height: 44px; } }
 .dialog-common-theme > .terminal-quick-dialog-head { position: sticky; top: 0; z-index: 3; background: var(--jb-surface-2); }
 .dialog-common-theme > .terminal-quick-dialog-actions { position: sticky; bottom: 0; background: var(--jb-surface); }
-.resource-modal-backdrop :is(.server-summary,.rds-address-content,.rds-endpoint-list,.rds-single-address) { background: var(--jb-input,#202020) !important; color: var(--jb-text,#dedede); border-color: var(--jb-border,#414141) !important; border-radius: 4px !important; }
-.resource-modal-backdrop .detail-toolbar .detail-toolbar-actions > button { background: var(--jb-surface-3,#363636) !important; border-color: var(--jb-border-strong,#555) !important; color: var(--jb-text,#dedede) !important; border-radius: 4px; }
-.resource-modal-backdrop .detail-toolbar .eyebrow { color: var(--jb-accent,#9b8cff); }
-.resource-modal-backdrop :is(.server-header,.server-actions,.swas-header,.redis-header,.rds-header,.bucket-header,.domain-header) { border-color: var(--jb-border,#414141); }
-.resource-modal-backdrop :is(.swas-info,.redis-info,.rds-info,.bucket-info,.server-info > div) { color: var(--jb-text,#dedede); }
-.resource-modal-backdrop :is(.swas-info,.redis-info,.rds-info,.bucket-info) span { color: var(--jb-muted,#aaa); }
+.resource-modal-backdrop :is(.server-summary,.rds-address-content,.rds-endpoint-list,.rds-single-address) { background: var(--jb-input,var(--jb-input)) !important; color: var(--jb-text,var(--jb-text)); border-color: var(--jb-border,var(--jb-surface-3)) !important; border-radius: 4px !important; }
+.resource-modal-backdrop .detail-toolbar .detail-toolbar-actions > button { background: var(--jb-surface-3,var(--jb-surface-3)) !important; border-color: var(--jb-border-strong,var(--jb-border-strong)) !important; color: var(--jb-text,var(--jb-text)) !important; border-radius: 4px; }
+.resource-modal-backdrop .detail-toolbar .eyebrow { color: var(--jb-accent,var(--jb-accent)); }
+.resource-modal-backdrop :is(.server-header,.server-actions,.swas-header,.redis-header,.rds-header,.bucket-header,.domain-header) { border-color: var(--jb-border,var(--jb-surface-3)); }
+.resource-modal-backdrop :is(.swas-info,.redis-info,.rds-info,.bucket-info,.server-info > div) { color: var(--jb-text,var(--jb-text)); }
+.resource-modal-backdrop :is(.swas-info,.redis-info,.rds-info,.bucket-info) span { color: var(--jb-muted,var(--jb-muted)); }
 
 /* Object browser surfaces follow the shared dialog palette, including folder rows. */
 .oss-object-dialog .oss-browser { color: var(--jb-text); background: var(--jb-surface); }
@@ -91,22 +91,33 @@
 
 /* Shared visual contract for every dialog in the desktop and browser builds. */
 :is(.modal,.resource-modal,.codex-dialog,.codex-log-dialog,.flow-dialog,.frp-modal,.ai-workbench,.ai-config-dialog,.ai-asset-note-dialog,.app-confirm-dialog,.auth-dialog,.sync-transfer-panel,.sync-transfer-qr-dialog,.certificate-dialog,.certificate-source-dialog,.certificate-domains-dialog,.export-selection-dialog,.security-group-modal,.dns-editor-modal,.terminal-quick-dialog,.terminal-connect-card,.managed-group-edit-dialog,.mobile-account-form,.mobile-dns-form,.mobile-cert-request,.database-import-dialog,[role="dialog"],dialog) {
-  --jb-surface: #282828;
-  --jb-bg: #242424;
-  --jb-surface-2: #303030;
-  --jb-surface-3: #363636;
-  --jb-input: #202020;
-  --jb-border: #414141;
-  --jb-border-strong: #555;
-  --jb-text: #dedede;
-  --jb-muted: #aaa;
-  --jb-subtle: #aaa;
-  --jb-accent: #9b8cff;
-  --jb-accent-soft: #9b8cff24;
-  --jb-accent-strong: #7356c8;
+  --jb-surface: #1d1d1d;
+  --jb-bg: #1d1d1d;
+  --jb-surface-2: #242424;
+  --jb-surface-3: #2c2c2c;
+  --jb-input: #1a1a1a;
+  --jb-border: #2e2e2e;
+  --jb-border-strong: #404040;
+  --jb-text: #e6e6e6;
+  --jb-muted: #a0a0a0;
+  --jb-subtle: #a0a0a0;
+  --jb-accent: #ea580c;
+  --jb-accent-soft: rgba(234,88,12,.14);
+  --jb-accent-strong: #ff9357;
   color: var(--jb-text);
   border-color: var(--jb-border);
   background: var(--jb-surface);
+}
+
+/* 浅色主题：弹层与弹窗 portal 同步变亮 */
+body.theme-light :is(.modal,.resource-modal,.codex-dialog,.codex-log-dialog,.flow-dialog,.frp-modal,.ai-workbench,.ai-config-dialog,.ai-asset-note-dialog,.app-confirm-dialog,.auth-dialog,.sync-transfer-panel,.sync-transfer-qr-dialog,.certificate-dialog,.certificate-source-dialog,.certificate-domains-dialog,.export-selection-dialog,.security-group-modal,.dns-editor-modal,.terminal-quick-dialog,.terminal-connect-card,.managed-group-edit-dialog,.mobile-account-form,.mobile-dns-form,.mobile-cert-request,.database-import-dialog,[role="dialog"],dialog) {
+  --jb-bg:#f7f7f8;--jb-sidebar:#f0f0f1;--jb-surface:#ffffff;--jb-surface-2:#f3f3f4;--jb-surface-3:#eaeaea;--jb-input:#ffffff;
+  --jb-border:#e4e4e5;--jb-border-strong:#cfcfd2;
+  --jb-text:#1d1d1f;--jb-muted:#67676c;--jb-subtle:#97979c;
+  --jb-accent:#ea580c;--jb-accent-strong:#d14e08;--jb-accent-soft:#fdeadd;
+  --jb-blue:#1774d6;--jb-green:#12967a;--jb-yellow:#a8731f;--jb-red:#d2454f;
+  --jb-success:#12967a;--jb-warning:#a8731f;--jb-danger:#d2454f;
+  color-scheme: light;
 }
 
 :is(.modal,.resource-modal,.codex-dialog,.codex-log-dialog,.flow-dialog,.frp-modal,.ai-workbench,.ai-config-dialog,.ai-asset-note-dialog,.app-confirm-dialog,.auth-dialog,.sync-transfer-panel,.sync-transfer-qr-dialog,.certificate-dialog,.certificate-source-dialog,.certificate-domains-dialog,.export-selection-dialog,.security-group-modal,.dns-editor-modal,.terminal-quick-dialog,.terminal-connect-card,.managed-group-edit-dialog,.mobile-account-form,.mobile-dns-form,.mobile-cert-request,.database-import-dialog,[role="dialog"],dialog) > :is(header,.modal-head,.mobile-modal-heading,.detail-toolbar,.terminal-quick-dialog-head,.terminal-connect-card-head,.frp-editor-header,.flow-details-header,.certificate-dialog-header,.auth-dialog-header,.sync-transfer-heading,.sync-transfer-qr-heading,.mobile-dns-heading) {
@@ -220,17 +231,17 @@
     border-radius:8px;
   }
   :is(dialog[open],[role="dialog"],.modal,.resource-modal,.app-confirm-dialog,.auth-dialog,.codex-dialog,.codex-log-dialog,.flow-dialog,.frp-modal,.ai-workbench,.ai-config-dialog,.ai-asset-note-dialog,.certificate-dialog,.certificate-source-dialog,.certificate-domains-dialog,.sync-transfer-qr-dialog,.export-selection-dialog,.security-group-modal,.terminal-quick-dialog,.managed-group-edit-dialog) :is(button.primary,button.auth-primary,button.ai-primary,button.mobile-primary,button.mobile-submit,button.layui-btn-normal,button[type="submit"]) {
-    border-color:#6551b2;
+    border-color:var(--jb-accent-soft);
     border-radius:8px;
-    background:#7356c8;
-    color:#fff;
+    background:var(--jb-accent);
+    color:var(--jb-text);
   }
-  :is(dialog[open],[role="dialog"])::backdrop { background:#020810bd; backdrop-filter:blur(8px); }
+  :is(dialog[open],[role="dialog"])::backdrop { background:rgba(2,8,16,0.74); backdrop-filter:blur(8px); }
   :is(.modal,.resource-modal,.app-confirm-dialog,.auth-dialog,.codex-dialog,.codex-log-dialog,.flow-dialog,.frp-modal,.ai-workbench,.ai-config-dialog,.ai-asset-note-dialog,.certificate-dialog,.certificate-source-dialog,.certificate-domains-dialog,.sync-transfer-qr-dialog,.export-selection-dialog,.security-group-modal,.terminal-quick-dialog,.terminal-connect-card,.managed-group-edit-dialog).dialog-common-theme :is(button.primary,button.auth-primary,button.ai-primary,button.mobile-primary,button.mobile-submit,button.layui-btn-normal,button[type="submit"]) {
-    border-color:#6551b2 !important;
+    border-color:var(--jb-accent-soft) !important;
     border-radius:8px !important;
-    background:#7356c8 !important;
-    color:#fff !important;
+    background:var(--jb-accent) !important;
+    color:var(--jb-text) !important;
   }
   :is(.modal,.resource-modal,.app-confirm-dialog,.auth-dialog,.codex-dialog,.codex-log-dialog,.flow-dialog,.frp-modal,.ai-workbench,.ai-config-dialog,.ai-asset-note-dialog,.certificate-dialog,.certificate-source-dialog,.certificate-domains-dialog,.sync-transfer-qr-dialog,.export-selection-dialog,.security-group-modal,.terminal-quick-dialog,.terminal-connect-card,.managed-group-edit-dialog).dialog-common-theme :is(button.secondary,button.close) {
     border-color:var(--jb-border-strong) !important;

@@ -14,38 +14,38 @@
 
 /* ---------- 设置弹层 ---------- */
 .plugin-presentation-dialog.modal-form-layout { width: min(560px, calc(100vw - 32px)); max-width: calc(100vw - 32px); }
-.plugin-presentation-dialog > .modal-head > svg { flex: 0 0 auto; color: var(--jb-accent, #9b8cff); }
+.plugin-presentation-dialog > .modal-head > svg { flex: 0 0 auto; color: var(--jb-accent, var(--jb-accent)); }
 .plugin-presentation-dialog .modal-head h2 { margin: 0; font-size: 15px; font-weight: 600; }
-.plugin-presentation-dialog .modal-head p { margin: 3px 0 0; color: var(--jb-subtle, #858585); font-size: 11px; font-weight: 400; }
+.plugin-presentation-dialog .modal-head p { margin: 3px 0 0; color: var(--jb-subtle, var(--jb-muted)); font-size: 11px; font-weight: 400; }
 .plugin-presentation-body { display: flex; flex-direction: column; gap: 14px; }
-.plugin-presentation-group { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 10px 12px 12px; border: 1px solid var(--jb-border, #3d3d3d); border-radius: 4px; background: var(--jb-surface-2, #303030); }
-.plugin-presentation-group legend { padding: 0 5px; color: var(--jb-muted, #aaa); font-size: 11.5px; }
+.plugin-presentation-group { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 10px 12px 12px; border: 1px solid var(--jb-border, var(--jb-surface-3)); border-radius: 4px; background: var(--jb-surface-2, var(--jb-surface-3)); }
+.plugin-presentation-group legend { padding: 0 5px; color: var(--jb-muted, var(--jb-muted)); font-size: 11.5px; }
 .plugin-presentation-group.is-disabled { opacity: .55; }
 
 .plugin-presentation-modes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .plugin-presentation-mode {
   display: flex; flex-direction: column; align-items: flex-start; gap: 4px;
-  padding: 10px 11px; border: 1px solid var(--jb-border-strong, #555); border-radius: 4px;
-  background: var(--jb-surface, #2b2b2b); color: var(--jb-text, #dedede);
+  padding: 10px 11px; border: 1px solid var(--jb-border-strong, var(--jb-border-strong)); border-radius: 4px;
+  background: var(--jb-surface, var(--jb-surface)); color: var(--jb-text, var(--jb-text));
   font: inherit; text-align: left; cursor: pointer;
 }
-.plugin-presentation-mode:hover { border-color: var(--jb-accent, #9b8cff); }
-.plugin-presentation-mode.is-selected { border-color: #806de0; background: var(--jb-accent-soft, #3b3560); color: var(--jb-accent-strong, #b7aaff); }
+.plugin-presentation-mode:hover { border-color: var(--jb-accent, var(--jb-accent)); }
+.plugin-presentation-mode.is-selected { border-color: var(--jb-accent); background: var(--jb-accent-soft, var(--jb-accent-soft)); color: var(--jb-accent-strong, var(--jb-accent-strong)); }
 .plugin-presentation-mode svg { color: currentColor; }
 .plugin-presentation-mode strong { font-size: 12.5px; font-weight: 600; }
-.plugin-presentation-mode small { color: var(--jb-subtle, #858585); font-size: 10.5px; line-height: 1.5; }
+.plugin-presentation-mode small { color: var(--jb-subtle, var(--jb-muted)); font-size: 10.5px; line-height: 1.5; }
 .plugin-presentation-mode.is-selected small { color: inherit; opacity: .85; }
 
 .plugin-presentation-sizes { display: flex; gap: 8px; }
 .plugin-presentation-size {
   flex: 1 1 auto; min-height: 32px; padding: 0 12px;
-  border: 1px solid var(--jb-border-strong, #555); border-radius: 3px;
-  background: var(--jb-surface-3, #353535); color: var(--jb-text, #dedede);
+  border: 1px solid var(--jb-border-strong, var(--jb-border-strong)); border-radius: 3px;
+  background: var(--jb-surface-3, var(--jb-surface-3)); color: var(--jb-text, var(--jb-text));
   font: inherit; font-size: 11.5px; cursor: pointer;
 }
-.plugin-presentation-size.is-selected { border-color: #806de0; background: var(--jb-accent-soft, #3b3560); color: var(--jb-accent-strong, #b7aaff); }
+.plugin-presentation-size.is-selected { border-color: var(--jb-accent); background: var(--jb-accent-soft, var(--jb-accent-soft)); color: var(--jb-accent-strong, var(--jb-accent-strong)); }
 .plugin-presentation-size:disabled { cursor: default; }
-.plugin-presentation-hint { color: var(--jb-subtle, #858585); font-size: 11px; line-height: 1.6; }
+.plugin-presentation-hint { color: var(--jb-subtle, var(--jb-muted)); font-size: 11px; line-height: 1.6; }
 .plugin-presentation-reset { margin-right: auto; }
 
 /* ---------- 页面模式宿主 ---------- */

@@ -3819,7 +3819,7 @@ function App() {
       {exportSelection.dialog}
       <a className="skip-link" href="#main-content">跳到主要内容</a>
       <div className="ide-topbar" role="banner">
-        <div className="ide-topbar-brand" onMouseDown={handleTitlebarMouseDown} onDoubleClick={handleTitlebarDoubleClick}>{isDetachedTerminalWindow ? <><Terminal size={15} /><strong>{detachedTerminalHost?.name || "SSH 终端"}</strong><span>{detachedTerminalHost?.host || ""}</span>{detachedTerminalHost?.remark ? <span className="detached-terminal-context">备注：{detachedTerminalHost.remark}</span> : null}{detachedTerminalHost?.group_name ? <span className="detached-terminal-context">分组：{detachedTerminalHost.group_name}</span> : null}</> : <><Cloud size={15} /><strong>云枢 Tools{isDevelopment ? <span className="ide-topbar-dev-tag"> · 开发版</span> : null}</strong><span>本地多云资源管理</span></>}</div>
+        <div className="ide-topbar-brand" onMouseDown={handleTitlebarMouseDown} onDoubleClick={handleTitlebarDoubleClick}>{isDetachedTerminalWindow ? <><Terminal size={15} /><strong>{detachedTerminalHost?.name || "SSH 终端"}</strong><span>{detachedTerminalHost?.host || ""}</span>{detachedTerminalHost?.remark ? <span className="detached-terminal-context">备注：{detachedTerminalHost.remark}</span> : null}{detachedTerminalHost?.group_name ? <span className="detached-terminal-context">分组：{detachedTerminalHost.group_name}</span> : null}</> : <><Cloud size={15} /><strong>云枢 Tools</strong></>}</div>
         <div className="ide-topbar-drag-region" aria-hidden="true" onMouseDown={handleTitlebarMouseDown} onDoubleClick={handleTitlebarDoubleClick} />
         <div className="ide-topbar-actions">
           <div className="ide-topbar-context">{isDevelopmentBuild ? <span className="brand-dev-badge">本地开发版</span> : null}<span className="brand-version">v{appVersion}</span></div>
@@ -4936,7 +4936,7 @@ function App() {
                 <IdentityMenuItem icon={Palette} label={t("界面主题")}>
                   <button type="button" role="menuitemcheckbox" aria-checked="false" onClick={() => setUiTheme("dark")}><span>{t("系统默认")}</span></button>
                   <button type="button" role="menuitemcheckbox" aria-checked={uiTheme === "dark"} onClick={() => setUiTheme("dark")}><span>{t("深色主题")}</span>{uiTheme === "dark" && <Check size={13} aria-hidden="true" className="identity-check" />}</button>
-                  <button type="button" role="menuitemcheckbox" aria-checked={uiTheme === "light"} onClick={() => { setUiTheme("light"); setStatus("浅色主题开发中，当前界面暂仍为深色"); }}><span>{t("浅色主题")}</span>{uiTheme === "light" && <Check size={13} aria-hidden="true" className="identity-check" />}</button>
+                  <button type="button" role="menuitemcheckbox" aria-checked={uiTheme === "light"} onClick={() => setUiTheme("light")}><span>{t("浅色主题")}</span>{uiTheme === "light" && <Check size={13} aria-hidden="true" className="identity-check" />}</button>
                 </IdentityMenuItem>
                 <IdentityMenuItem icon={LayoutGrid} label={t("界面模式")}>
                   <button type="button" role="menuitemcheckbox" aria-checked={!compactMode} onClick={() => setCompactMode(false)}><span>{t("办公模式")}</span>{!compactMode && <Check size={13} aria-hidden="true" className="identity-check" />}</button>
