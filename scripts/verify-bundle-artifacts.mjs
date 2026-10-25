@@ -25,11 +25,10 @@ function filesIn(relativePath, pattern) {
 }
 
 if (platform !== "windows") failures.push("当前脚本只支持 --platform windows");
+// WiX（MSI）打包在 CI 上因 WixTools314 light.exe 无法运行已停用（v0.1.87 起 Windows 仅产出 NSIS），审计只校验 NSIS。
 const nsis = filesIn("nsis", /\.exe$/i).filter((file) => path.basename(file).includes(version));
-const msi = filesIn("msi", /\.msi$/i).filter((file) => path.basename(file).includes(version));
 if (nsis.length < 1) failures.push(`未找到版本 ${version} 的 NSIS 安装包`);
-if (msi.length < 2) failures.push(`未找到版本 ${version} 的两个 MSI 语言包`);
-for (const file of [...nsis, ...msi]) {
+for (const file of nsis) {
   if (fs.statSync(file).size <= 0) failures.push(`安装包为空：${file}`);
 }
 
@@ -38,5 +37,5 @@ if (failures.length) {
   for (const failure of failures) console.error(`- ${failure}`);
   process.exitCode = 1;
 } else {
-  console.log(`Bundle artifact checks passed: ${nsis.length} NSIS, ${msi.length} MSI for v${version}`);
+  console.log(`Bundle artifact checks passed: ${nsis.length} NSIS for v${version}`);
 }
