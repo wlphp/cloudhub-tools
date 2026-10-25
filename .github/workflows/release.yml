@@ -65,6 +65,13 @@ jobs:
             exit 1
           fi
 
+      - name: Enable .NET Framework 3.5 for WiX
+        if: runner.os == 'Windows'
+        shell: powershell
+        # WiX 3.x 的 light.exe 依赖 .NET Framework 3.5，windows-2022 跑动机默认未启用，
+        # 缺失时 tauri build 在 MSI 打包阶段报 failed to run WixTools314\light.exe（v0.1.86）
+        run: Enable-WindowsOptionalFeature -Online -FeatureName NetFx3 -All -NoRestart | Out-Null
+
       - name: Run shared pre-release checks
         if: runner.os == 'Windows'
         shell: bash
