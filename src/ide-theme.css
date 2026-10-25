@@ -445,6 +445,10 @@
 .ide-theme :where(.security-group-note, .error-list, .bucket-detail-box, .memory-bar, .db-list, .whois-result) { border-color: var(--jb-border) !important; border-radius: 3px !important; background: var(--jb-surface) !important; color: var(--jb-muted) !important; }
 /* WHOIS 文本卡片左右出血，与上方 20px 的正文内边距联动；文字与头部 16px 对齐。 */
 .ide-theme .domain-tool-body .whois-result { margin: 0 -20px; padding: 16px; }
+/* 解析管理/操作日志的工具栏与表格同样出血，文字与头部 16px 对齐。 */
+.ide-theme .domain-tool-body .domain-tool-toolbar { margin: 0 -20px 14px; padding: 9px 16px; border-radius: 0; }
+.ide-theme .domain-tool-body .dns-table-wrap,
+.ide-theme .domain-tool-body .domain-audit-table-wrap { margin: 0 -20px; padding: 14px 16px; }
 .ide-theme :where(.security-group-rule, .log-row, .panel-monitor-row, .terminal-host-row) { border-color: var(--jb-surface-3) !important; background: var(--jb-surface) !important; }
 
 /* Panels and terminal workbench */

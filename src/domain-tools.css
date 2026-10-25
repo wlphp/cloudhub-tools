@@ -21,6 +21,9 @@
 .table-link{border:0;background:transparent;color:var(--jb-accent-strong);cursor:pointer;margin-right:12px;font-size:12px;padding:4px 6px}
 .table-link:hover{color:var(--jb-accent-strong)}.table-link.danger{color:#ff8a8a}.table-link.danger:hover{color:#ffb0b0}
 .domain-tool-body .resource-table-wrap{margin:0}
+/* 工具栏与表格左右出血到弹窗边缘，控件/文字与头部左缘同线（基础层 body 22px、头部 20px）。 */
+.domain-tool-body .domain-tool-toolbar{margin:0 -22px 14px;padding:9px 20px;border:0;border-bottom:1px solid var(--jb-border);border-radius:0}
+.domain-tool-body .dns-table-wrap,.domain-tool-body .domain-audit-table-wrap{margin:0 -22px;padding:14px 20px}
 .domain-tool-body table{width:100%}
 .domain-tool-body td{max-width:360px;word-break:break-word;color:var(--jb-muted);border-bottom:1px solid var(--jb-border)}
 .domain-tool-body th{background:var(--jb-surface-2);color:var(--jb-muted);border-bottom:1px solid var(--jb-border)}
