@@ -495,8 +495,9 @@
   gap: 8px;
   min-width: 0;
   padding: 9px 10px;
+  flex-wrap: wrap;
 }
-.ide-theme .panel-toolbar-primary { flex-wrap: nowrap; }
+.ide-theme .panel-toolbar-primary { flex-wrap: wrap; }
 .ide-theme .panel-toolbar-secondary {
   min-height: 43px;
   border-top: 1px solid var(--jb-border);
@@ -970,9 +971,9 @@
   background: var(--jb-input) !important;
   color: var(--jb-subtle) !important;
 }
-.ide-theme .terminal-stage-empty .terminal-empty-art { width: min(300px, 60vw); height: auto; margin-bottom: 12px; }
+.ide-theme .terminal-stage-empty .terminal-empty-art { width: min(300px, 100%); height: auto; margin-bottom: 12px; }
 .ide-theme .terminal-stage-empty h1 { color: var(--jb-text); font-size: 18px; font-weight: 600; margin-bottom: 10px; }
-.ide-theme .terminal-stage-empty p { max-width: 400px; color: var(--jb-subtle); font-size: 12px; margin-bottom: 22px; }
+.ide-theme .terminal-stage-empty p { max-width: min(400px, 100%); color: var(--jb-subtle); font-size: 12px; margin-bottom: 22px; }
 .ide-theme .terminal-stage-empty .layui-btn { min-height: 34px; height: 34px; margin-top: 0; }
 .ide-theme .terminal-stage { position: relative; }
 .ide-theme .terminal-stage.is-loading > :not(.terminal-stage-loading) { visibility: hidden; }
@@ -1370,7 +1371,8 @@
   background: var(--jb-surface) !important;
 }
 .ide-theme .panel-monitor-table {
-  min-width: 1030px;
+  /* 卡片网格铺满容器即可，固定 min-width 会在非全屏窗口被裁剪 */
+  min-width: 0;
 }
 .ide-theme .panel-monitor-table-head {
   min-height: 40px;
@@ -1701,7 +1703,6 @@
   .ide-theme .panel-toolbar-primary .managed-host-search { flex-basis: 100%; }
   .ide-theme .panel-toolbar-secondary { flex-wrap: wrap; }
   .ide-theme .panel-toolbar-secondary .panel-sort-button { margin-left: 0; }
-  .ide-theme .panel-monitor-table { min-width: 920px; }
 }
 @media (max-width: 650px) {
   .ide-theme .panel-management-page > header { display: block; }
@@ -3384,3 +3385,63 @@ body.theme-light .ide-theme .more-menu button:hover{background:var(--jb-surface-
 body.theme-light .modal-backdrop .panel-bind-modal .panel-insecure-tls { border-color: #e3cf9a; background: #fbf4e0; color: #8a6a1c; }
 body.theme-light .modal-backdrop .panel-bind-modal .panel-insecure-tls small { color: #a3906a; }
 body.theme-light .modal-backdrop .panel-bind-modal .panel-insecure-tls input { accent-color: #d19b2f; }
+
+/* ===== 非全屏窗口自适应加固 =====
+   窗口未最大化（或系统缩放/网页缩放较大）时，内容区宽度可能低于桌面布局假设。
+   这里统一处理：工具栏允许换行、日志列表改为容器内横向滚动、
+   账号表在更窄的容器下进一步压缩固定列宽，避免内容被 overflow:hidden 裁剪。 */
+
+/* 资产、日志、证书等工具栏：内容放不下时换行，而不是溢出裁剪 */
+.ide-theme :where(.asset-list-toolbar, .log-toolbar, .certificate-toolbar, .summary-source-toolbar) {
+  flex-wrap: wrap;
+}
+.ide-theme :where(.asset-list-toolbar, .log-toolbar) > input {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
+/* 操作日志 / API 日志：工具栏从固定五列网格回退为可换行布局 */
+@media (max-width: 1100px) {
+  .ide-theme .utility-page .utility-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+  }
+  .ide-theme .utility-page .utility-toolbar input,
+  .ide-theme .utility-page .utility-toolbar select {
+    flex: 1 1 170px;
+    width: auto;
+  }
+  .ide-theme .utility-page .utility-toolbar button {
+    flex: 0 0 auto;
+  }
+}
+
+/* API 日志行比普通日志多三列，非全屏窗口下在卡片内横向滚动，保证列完整可达 */
+.utility-page .log-list {
+  overflow-x: auto;
+}
+.utility-page .log-head.api-log-head,
+.utility-page .log-row.api-log-row {
+  min-width: 860px;
+}
+@media (max-width: 800px) {
+  /* 与普通日志一致收起为单列摘要，无需横向滚动 */
+  .utility-page .log-head.api-log-head,
+  .utility-page .log-row.api-log-row {
+    min-width: 0;
+  }
+}
+
+/* 账号表：容器更窄时（小窗口 + 宽侧栏）进一步压缩资源/操作列宽，避免整表横向滚动 */
+@container (max-width: 880px) {
+  .ide-theme .account-section .table-wrap th.account-resources-column,
+  .ide-theme .account-section .table-wrap td.account-resources-cell {
+    width: 150px !important;
+    min-width: 150px;
+  }
+  .ide-theme .account-section .table-wrap th.account-actions-column,
+  .ide-theme .account-section .table-wrap td.account-actions-cell {
+    width: 168px !important;
+    min-width: 168px;
+  }
+}

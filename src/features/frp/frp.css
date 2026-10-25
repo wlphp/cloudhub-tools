@@ -180,8 +180,8 @@
 .frp-page .frp-logs-hint{margin:8px 0 0;font-size:11px;line-height:1.6;color:var(--frp-muted)}
 .frp-logs-error{font-size:12px;color:var(--jb-red,var(--jb-red))}
 .frp-logs-card .frp-card-heading{flex-wrap:wrap;align-items:center}
-.frp-page .frp-tabs{flex-direction:row;flex-wrap:nowrap}
-.frp-page .frp-tabs button{flex:1;min-width:0;width:auto;white-space:normal}
+.frp-page .frp-tabs{flex-direction:row;flex-wrap:nowrap;overflow-x:auto}
+.frp-page .frp-tabs button{flex:1 0 auto;min-width:0;width:auto;white-space:nowrap}
 .frp-remote-panel-settings{border-top:1px solid var(--frp-border);margin-top:24px;padding-top:20px}
 .frp-remote-panel-settings .frp-card-heading{flex-wrap:wrap;gap:12px}
 .frp-remote-panel-settings .frp-card-heading p{color:var(--frp-muted);font-size:12px;margin:6px 0 0}
