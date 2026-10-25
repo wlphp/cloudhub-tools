@@ -5021,7 +5021,7 @@ function App() {
             </div></section>
           </section>
         )}
-        {section === "plugins" && <OfficialPluginsPage key={storeApplicationId ?? "catalog"} initialPluginId={storeApplicationId} applicationSettings={applicationSettings} onOpenSection={target => setSection(target)} onReturnCatalog={() => setStoreApplicationId(undefined)} />}
+        {section === "plugins" && <OfficialPluginsPage key={storeApplicationId ?? "catalog"} initialPluginId={storeApplicationId} forceInitialPageMode={storeApplicationId !== undefined} applicationSettings={applicationSettings} onOpenSection={target => setSection(target)} onReturnCatalog={() => setStoreApplicationId(undefined)} />}
         {section === "notes" && <NotesPanel />}
         {showTrash && <SharedDialog title="回收站" subtitle="删除的数据永久保留，可恢复或彻底删除" icon={<Trash2 size={20} aria-hidden="true" />} className="trash-dialog" bodyClassName="trash-dialog-body" onClose={() => setShowTrash(false)}>
             {trashGroups.loading ? <p className="recycle-bin-empty">正在读取回收站…</p> : <RecycleBin kinds={trashGroups_flat.map((group) => ({ id: group.kind, label: group.label, items: group.items.map((item) => ({ id: String(item.id), title: item.title, deletedAt: item.deletedAt })) }))} actions={trashActions.actions} busy={trashActions.busy} onClose={() => setShowTrash(false)}

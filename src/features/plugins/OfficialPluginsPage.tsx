@@ -41,7 +41,7 @@ function PresentationButton({ pluginId, onOpen }: { pluginId: string; onOpen: (i
   </button>;
 }
 
-type StoreProps = { initialPluginId?: string; applicationSettings: ApplicationPreferenceState; onOpenSection: (section: ApplicationSection) => void; onReturnCatalog: () => void };
+type StoreProps = { initialPluginId?: string; forceInitialPageMode?: boolean; applicationSettings: ApplicationPreferenceState; onOpenSection: (section: ApplicationSection) => void; onReturnCatalog: () => void };
 
 function OrderCell({ app, settings }: { app: ApplicationDefinition; settings: ApplicationPreferenceState }) {
   const order = applicationPreference(app, settings.preferences).order;
@@ -69,7 +69,7 @@ function SidebarCell({ app, settings }: { app: ApplicationDefinition; settings: 
   return <td data-label="左侧菜单显示"><label className="store-switch"><input type="checkbox" aria-label={`左侧菜单显示${app.name}`} checked={applicationPreference(app, settings.preferences).sidebar} disabled={!settings.ready || settings.saving} onChange={event => void settings.update(app.id, { sidebar: event.target.checked })} /><span aria-hidden="true" /></label></td>;
 }
 
-function OfficialPluginsStore({ initialPluginId, applicationSettings, onOpenSection, onReturnCatalog }: StoreProps) {
+function OfficialPluginsStore({ initialPluginId, forceInitialPageMode, applicationSettings, onOpenSection, onReturnCatalog }: StoreProps) {
   const { get } = usePluginPresentation();
   const [config, setConfig] = useState(readConfig);
   const [status, setStatus] = useState<WechatPluginStatus | null>(null);
@@ -80,7 +80,12 @@ function OfficialPluginsStore({ initialPluginId, applicationSettings, onOpenSect
   const [source, setSource] = useState("官方应用");
   const [category, setCategory] = useState("全部");
   const [keyword, setKeyword] = useState("");
-  const [activePlugin, setActivePlugin] = useState<{ id: string; presentation: PluginPresentation } | null>(() => initialPluginId ? { id: initialPluginId, presentation: get(initialPluginId) } : null);
+  const [activePlugin, setActivePlugin] = useState<{ id: string; presentation: PluginPresentation } | null>(() => {
+    if (!initialPluginId) return null;
+    const stored = get(initialPluginId);
+    // 从左侧菜单进入的应用始终整页打开；弹层设置只在商店列表内打开时生效。
+    return { id: initialPluginId, presentation: forceInitialPageMode ? { ...stored, mode: "page" } : stored };
+  });
   const returnPosition = useRef({ windowY: 0, mainY: 0, entry: null as HTMLElement | null });
   const [recent, setRecent] = useState(() => {
     try { return localStorage.getItem(`${plugin.id}.last-used`) !== null; } catch { return false; }
