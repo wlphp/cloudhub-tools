@@ -37,8 +37,7 @@ for (const command of [
   "node scripts/verify-web-api-security.mjs",
   "node scripts/verify-web-api-logs.mjs",
   "npm run test:ui",
-  "cargo check --manifest-path src-tauri/Cargo.toml",
-  "cargo test --manifest-path src-tauri/Cargo.toml",
+  // cargo check / cargo test 已随发布提速（0434314）移出 CI，改为发布前在本地门禁执行
 ]) {
   if (!workflow.includes(command)) failures.push(`发布 workflow 缺少门禁：${command}`);
 }
