@@ -2433,6 +2433,39 @@
 
 /* 浅色主题：实心强调按钮统一白字（深色文字在橙底上发闷） */
 body.theme-light :where(.primary, .primary-update-btn, .app-confirm-primary, .resource-actions .action-text:not(.danger), .layui-btn-normal, .panel-toolbar-add) { color: #ffffff !important; }
+/* 浅色主题：实心橙色主按钮统一亮橙纯色 + 白字（仅浅色系列，对齐统一主按钮参考样式） */
+body.theme-light .ide-theme .account-section .layui-toolbar .account-add-button,
+body.theme-light .ide-theme .account-section .resource-actions .teal {
+  border-color: #f97316 !important;
+  background: #f97316 !important;
+  color: #ffffff !important;
+}
+body.theme-light .ide-theme .account-section .layui-toolbar .account-add-button:hover:not(:disabled),
+body.theme-light .ide-theme .account-section .resource-actions .teal:hover:not(:disabled) {
+  border-color: #ea580c !important;
+  background: #ea580c !important;
+  color: #ffffff !important;
+}
+body.theme-light .ide-theme :where(.primary, .primary-update-btn, .app-confirm-primary, .layui-btn-normal, .panel-toolbar-add, .terminal-add-host, .pagination-page-number):not(:disabled) {
+  border-color: #f97316 !important;
+  background: #f97316 !important;
+  color: #ffffff !important;
+}
+body.theme-light .ide-theme :where(.primary, .primary-update-btn, .app-confirm-primary, .layui-btn-normal, .panel-toolbar-add, .terminal-add-host, .pagination-page-number):not(:disabled):hover {
+  border-color: #ea580c !important;
+  background: #ea580c !important;
+  color: #ffffff !important;
+}
+body.theme-light :where(.modal-backdrop, .resource-modal-backdrop, .app-confirm-backdrop, .terminal-connect-backdrop) :where(.primary, .app-confirm-primary, .layui-btn-normal, .pagination-page-number):not(:disabled) {
+  border-color: #f97316 !important;
+  background: #f97316 !important;
+  color: #ffffff !important;
+}
+body.theme-light :where(.modal-backdrop, .resource-modal-backdrop, .app-confirm-backdrop, .terminal-connect-backdrop) :where(.primary, .app-confirm-primary, .layui-btn-normal, .pagination-page-number):not(:disabled):hover {
+  border-color: #ea580c !important;
+  background: #ea580c !important;
+  color: #ffffff !important;
+}
 
 /* 浅色主题：portal 弹层里的危险操作按钮改用浅红淡底 */
 body.theme-light .resource-modal-backdrop .server-reference .server-actions .layui-btn-danger {
