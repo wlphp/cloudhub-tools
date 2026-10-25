@@ -516,11 +516,20 @@ fn head_rect(appearance: usize) -> [u32; 4] {
 
 fn undock(app: &tauri::AppHandle, w: &tauri::WebviewWindow) -> Result<(), String> {
     let store = app.state::<PetStore>();
+    // Serialize with message-driven undocking and layout changes.
     let mut docked = store.docked.lock().map_err(|_| "桌宠贴边状态不可用")?;
-    if let Some((x,y)) = *docked {
+    if docked.is_some() {
         let s = read_settings()?;
+        let appearance = match s.appearance.as_str() { "dog"=>1,"penguin"=>2,"fish"=>3,_=>0 };
+        let [hx,hy,_,_] = head_rect(appearance);
+        let scale = w.scale_factor().map_err(|_| "无法读取桌宠缩放")?;
+        // 贴边时窗口就是头部本身。展开时让头部停留在当前屏幕位置，
+        // 宠物看起来从边缘原地展开，而不是瞬移回停靠前的位置。
+        let raw = w.outer_position().map_err(|_| "无法读取桌宠位置")?;
+        let head_left = 40. * scale + hx as f64 / 256. * s.size as f64 * scale;
+        let head_top = 28. * scale + hy as f64 / 256. * s.size as f64 * scale;
         w.set_size(tauri::LogicalSize::new(s.size as f64+80.,s.size as f64+40.)).map_err(|_| "无法展开桌宠")?;
-        position(w,Some(x),Some(y))?;
+        position(w,Some((raw.x as f64 - head_left).round() as i32),Some((raw.y as f64 - head_top).round() as i32))?;
         *docked = None;
         let _ = w.emit("pet-docked",false);
     }
@@ -767,6 +776,13 @@ pub async fn pet_move(
             let p = w.outer_position().map_err(|_| "无法读取桌宠位置")?;
             let docked = *app.state::<PetStore>().docked.lock().map_err(|_| "桌宠贴边状态不可用")?;
             save_json(POSITION, &docked.unwrap_or((p.x,p.y)))?;
+            // 透明 WebView2 窗口移动后可能残留旧帧（拖动残影）。一次 1 逻辑像素的
+            // 尺寸往返强制合成器重新呈现，清除残影。
+            let size = w.outer_size().map_err(|_| "无法读取桌宠大小")?;
+            let scale = w.scale_factor().map_err(|_| "无法读取桌宠缩放")?;
+            let logical = (size.width as f64 / scale, size.height as f64 / scale);
+            let _ = w.set_size(tauri::LogicalSize::new(logical.0 + 1., logical.1));
+            let _ = w.set_size(tauri::LogicalSize::new(logical.0, logical.1));
         }
     }
     Ok(())
@@ -1262,6 +1278,9 @@ pub fn initialize(app: &tauri::AppHandle) {
     let handle = app.clone();
     tauri::async_runtime::spawn(async move {
         let mut masks = [None, None, None, None];
+        // Repeated set_ignore_cursor_events calls churn the compositor style and
+        // leave ghost trails on the transparent window; only apply actual changes.
+        let mut ignoring: Option<bool> = None;
         loop {
             tokio::time::sleep(Duration::from_millis(65)).await;
             let Some(w) = handle.get_webview_window(LABEL) else {
@@ -1300,6 +1319,12 @@ pub fn initialize(app: &tauri::AppHandle) {
                 {
                     return Some(true);
                 }
+                if docking::primary_pressed() {
+                    // 拖拽进行中不能退回点击穿透：逐像素判定会把手势打断在精灵的透明缝隙上。
+                    let bounds = w.inner_size().ok()?;
+                    let (width_px, height_px) = (bounds.width as f64/scale, bounds.height as f64/scale);
+                    return Some(cx >= 0. && cy >= 0. && cx < width_px && cy < height_px);
+                }
                 if store.docked.lock().ok()?.is_some() {
                     let (_,_,_,appearance) = *store.sprite.lock().ok()?;
                     let [left,top,width,height] = head_rect(appearance);
@@ -1333,7 +1358,10 @@ pub fn initialize(app: &tauri::AppHandle) {
                 )
             })()
             .unwrap_or(true);
-            let _ = w.set_ignore_cursor_events(!hit);
+            if ignoring != Some(!hit) {
+                let _ = w.set_ignore_cursor_events(!hit);
+                ignoring = Some(!hit);
+            }
         }
     });
     crate::commands::notes::start_reminder_loop(app);

@@ -61,12 +61,16 @@
 }
 .plugin-page-head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 16px;
   flex-wrap: wrap;
 }
+/* 正文自带一层水平内边距的插件（电脑信息）：标题行同步缩进对齐 */
+.plugin-page-host:has(.hardware-info-body) .plugin-page-head { padding: 0 20px; }
 .plugin-page-head h1 { margin: 0; font-size: 21px; font-weight: 600; }
+@media (max-width: 600px) { .plugin-page-host:has(.hardware-info-body) .plugin-page-head { padding: 0 14px; } }
+.plugin-page-head-extra { display: flex; flex: 1 1 auto; align-items: center; gap: 10px; min-width: 0; }
 .plugin-page-back { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; font-size: 12px; }
 .plugin-page-body { min-width: 0; }
 .plugin-content.plugin-content {
@@ -108,3 +112,12 @@
   .plugin-presentation-label { display: none; }
   .plugin-page-host { padding: 14px 12px 20px; }
 }
+
+/* 标题行内的插件工具按钮：紧凑尺寸，与页面标题垂直居中对齐 */
+.ide-theme .plugin-page-head-extra .hardware-info-refresh,
+.plugin-page-head-extra .hardware-info-refresh { height: 30px; min-height: 30px; padding: 0 11px; gap: 5px; font-size: 12px; border-radius: 5px; }
+.plugin-page-head-extra .hardware-info-updated { font-size: 12px; line-height: 30px; }
+
+/* 插件页面按钮：紧凑尺寸（页面内所有主要/次要按钮） */
+.plugin-page-host :is(.primary, .secondary, .icon-button) { min-height: 32px; height: 32px; padding: 0 12px; font-size: 12px; gap: 6px; }
+.plugin-page-host :is(.primary, .secondary, .icon-button) svg { width: 14px; height: 14px; }

@@ -12,13 +12,14 @@ import { MobileCertificates } from "./MobileCertificates";
 import type { CertificateSummary } from "../platform/clients/certificates";
 import { SecretField } from "../shared/SecretField";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
-import { useCallback, useEffect, useRef, useState, type Dispatch, type FormEvent, type SetStateAction } from "react";
-import { Activity, CloudDownload, LayoutGrid, ArrowDownToLine, ArrowUpDown, ChevronDown, Cloud, Database, File, FileText, Filter, Folder, Globe2, Plus, Power, RefreshCw, RotateCw, Search, Server, ShieldCheck, X, Trash2, Award, Terminal, Pencil, ExternalLink, Monitor, Upload, Info } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, type Dispatch, type FormEvent, type PointerEvent as ReactPointerEvent, type SetStateAction } from "react";
+import { Activity, ArrowLeft, CloudDownload, LayoutGrid, ArrowDownToLine, ArrowUpDown, ChevronDown, Cloud, Database, File, FileText, Filter, Folder, Globe2, Plus, Power, RefreshCw, RotateCw, Search, Server, ShieldCheck, SunMoon, X, Trash2, Award, Terminal, Pencil, ExternalLink, Monitor, Upload, Info } from "lucide-react";
 import type { Account, ApiLog, LocalAsset, ManagedHost, PanelConnection, PanelConnectionDraft, TransferAccount } from "../shared/types";
 import packageJson from "../../package.json";
 import { accountsClient, certificatesClient, domainsClient, logsClient, remoteClient, resourcesClient, storageClient } from "../platform/clients";
 import type { OssObjectListing } from "../platform/clients/storage";
 import { cloudProvider, cloudProviders, matchCloudTypeFromText, resourceLabels, syncAssetTypes } from "../features/cloud/catalog";
+import { cloudHubBackFabPositionStorageKey, cloudHubUiThemeStorageKey } from "../features/app/constants";
 import type { AccountSaveInput } from "../platform/clients/accounts";
 import { serversClient, type InstanceAction } from "../platform/clients/servers";
 import { SyncTransferPanel } from "../features/accounts/SyncTransferPanel";
@@ -100,6 +101,14 @@ function panelCloudType(panel: PanelConnection, accounts: Account[]) {
 
 export function MobileApp() {
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [uiTheme, setUiTheme] = useState<"light" | "dark">(() => localStorage.getItem(cloudHubUiThemeStorageKey) === "light" ? "light" : "dark");
+  useEffect(() => {
+    document.body.classList.toggle("theme-light", uiTheme === "light");
+    let themeColorMeta = document.head.querySelector('meta[name="theme-color"]');
+    if (!themeColorMeta) { themeColorMeta = document.createElement("meta"); themeColorMeta.setAttribute("name", "theme-color"); document.head.appendChild(themeColorMeta); }
+    themeColorMeta.setAttribute("content", uiTheme === "light" ? "#f7f7f8" : "#121212");
+    try { localStorage.setItem(cloudHubUiThemeStorageKey, uiTheme); } catch { /* 存储不可用时仅本次会话生效 */ }
+  }, [uiTheme]);
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
   const [accountSearch, setAccountSearch] = useState("");
   const [accountProviderFilter, setAccountProviderFilter] = useState("");
@@ -1053,8 +1062,84 @@ export function MobileApp() {
     })
     .sort((left, right) => (left.account_name.localeCompare(right.account_name, "zh-CN", { numeric: true, sensitivity: "base" })) * (accountSortAscending ? 1 : -1));
 
+  const isSubPageTab = tab !== "accounts" && tab !== "servers" && tab !== "domains" && tab !== "more";
+  const backAction = (() => {
+    if (tab === "domains" && selectedDomain) return { label: "返回域名列表", onClick: () => { setSelectedDomain(null); setDnsRecords([]); } };
+    if (tab === "storage" && selectedBucket) return {
+      label: objectPrefix ? "返回上一级目录" : "返回存储桶列表",
+      onClick: () => {
+        if (objectPrefix) {
+          const parts = objectPrefix.replace(/\/$/, "").split("/");
+          parts.pop();
+          void browseBucket(selectedBucket, parts.length ? `${parts.join("/")}/` : "");
+        } else { setSelectedBucket(null); setObjectListing(null); }
+      },
+    };
+    if (tab === "databases" && selectedDatabase) return { label: "返回实例列表", onClick: () => { setSelectedDatabase(null); setDatabaseDetails([]); } };
+    if (tab === "redis" && selectedRedis) return { label: "返回实例列表", onClick: () => { setSelectedRedis(null); setRedisAccounts([]); } };
+    if (isSubPageTab) return { label: "返回更多", onClick: () => setTab("more") };
+    return null;
+  })();
+
+  const [backFabPos, setBackFabPos] = useState<{ right: number; bottom: number } | null>(() => {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(cloudHubBackFabPositionStorageKey) || "null");
+      return typeof parsed?.right === "number" && typeof parsed?.bottom === "number" ? parsed : null;
+    } catch { return null; }
+  });
+  const backFabPosRef = useRef(backFabPos);
+  const backFabDragRef = useRef<{ pointerId: number; timer: number; grabOffsetX: number; grabOffsetY: number; dragging: boolean } | null>(null);
+  const suppressBackFabClickRef = useRef(false);
+  const startBackFabDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (!event.isPrimary || backFabDragRef.current) return;
+    const button = event.currentTarget;
+    const shellRect = button.closest(".mobile-shell")?.getBoundingClientRect();
+    if (!shellRect) return;
+    const buttonRect = button.getBoundingClientRect();
+    const drag = {
+      pointerId: event.pointerId,
+      timer: 0,
+      grabOffsetX: event.clientX - buttonRect.left,
+      grabOffsetY: event.clientY - buttonRect.top,
+      dragging: false,
+    };
+    drag.timer = window.setTimeout(() => {
+      drag.dragging = true;
+      suppressBackFabClickRef.current = true;
+      button.classList.add("is-dragging");
+      try { button.setPointerCapture(drag.pointerId); } catch { /* 指针可能已释放 */ }
+    }, 350);
+    backFabDragRef.current = drag;
+  };
+  const dragBackFab = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const drag = backFabDragRef.current;
+    if (!drag?.dragging || event.pointerId !== drag.pointerId) return;
+    const shellRect = document.querySelector(".mobile-shell")?.getBoundingClientRect();
+    if (!shellRect) return;
+    const size = 46;
+    const left = Math.min(Math.max(event.clientX - drag.grabOffsetX - shellRect.left, 8), shellRect.width - size - 8);
+    const top = Math.min(Math.max(event.clientY - drag.grabOffsetY - shellRect.top, 8), shellRect.height - size - 8);
+    const pos = { right: Math.round(shellRect.width - size - left), bottom: Math.round(shellRect.height - size - top) };
+    backFabPosRef.current = pos;
+    setBackFabPos(pos);
+  };
+  const endBackFabDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const drag = backFabDragRef.current;
+    if (!drag || event.pointerId !== drag.pointerId) return;
+    window.clearTimeout(drag.timer);
+    backFabDragRef.current = null;
+    if (!drag.dragging) return;
+    event.currentTarget.classList.remove("is-dragging");
+    try { localStorage.setItem(cloudHubBackFabPositionStorageKey, JSON.stringify(backFabPosRef.current)); } catch { /* 存储不可用时仅本次会话生效 */ }
+  };
+  const clickBackFab = () => {
+    if (suppressBackFabClickRef.current) { suppressBackFabClickRef.current = false; return; }
+    if (!backAction) return;
+    backAction.onClick();
+  };
+
   return (
-    <main className="mobile-shell">
+    <main className={"mobile-shell" + (backAction ? " mobile-subpage" : "")}>
       <header className="mobile-header">
         <div className="mobile-brand"><span className="mobile-brand-icon"><img src="/cloudhub-logo.png" alt="" /></span><div><div className="mobile-brand-title"><strong>云枢工具箱</strong><span className="mobile-brand-version">v{packageJson.version}</span></div><small>本地多云资源管理</small></div></div>
         <div className="mobile-header-actions">
@@ -1142,7 +1227,6 @@ export function MobileApp() {
             <div className="mobile-domain-list-heading"><h2>域名与 DNS 列表 <span>{filteredDomains.length}</span></h2><button type="button" className="mobile-account-sort" aria-label={`按名称${domainSortAscending ? "升序" : "降序"}排列`} onClick={() => setDomainSortAscending((ascending) => !ascending)}><ArrowUpDown size={16} />{domainSortAscending ? "按名称" : "名称倒序"}</button></div>
           </>}
           {accounts.length === 0 ? <div className="mobile-empty"><Globe2 size={30} /><strong>先添加云账号</strong><button type="button" className="mobile-primary" onClick={() => setTab("accounts")}>查看账号</button></div> : selectedDomain ? <>
-            <button type="button" className="mobile-domain-back" onClick={() => { setSelectedDomain(null); setDnsRecords([]); }}>‹ 返回域名列表</button>
             <div className="mobile-domain-heading"><div><h2 className="mobile-domain-name">{payloadText(selectedDomain.payload, ["DomainName", "domain", "domainName", "name"])}</h2><small>{selectedDomainAccount?.account_name ?? "未知账号"}</small></div>{selectedDomainAccount?.cloud_type === "aliyun" && <button className="mobile-primary" type="button" onClick={() => openDnsEditor(null)}><Plus size={16} />新增记录</button>}</div>
             {loading && dnsRecords.length === 0 ? <div className="mobile-empty">正在读取 DNS 记录…</div> : dnsRecords.length === 0 ? <div className="mobile-empty"><strong>暂无 DNS 记录</strong></div> : <div className="mobile-domain-list">{dnsRecords.map((row, index) => <article className="mobile-domain-card" key={String(row.RecordId ?? index)}><div className="mobile-server-heading"><span className="mobile-domain-type">{String(row.Type ?? "DNS")}</span><strong>{String(row.RR ?? "@")}</strong></div><p>{String(row.Value ?? "—")}</p><div className="mobile-server-meta"><span>TTL {String(row.TTL ?? "—")}</span><span>{String(row.Status ?? "未知")}</span></div>{selectedDomainAccount?.cloud_type === "aliyun" && <div className="mobile-server-actions"><button type="button" onClick={() => openDnsEditor(row)}>编辑</button><button type="button" onClick={() => void changeDnsRecord(row, "toggle")}>{String(row.Status).toUpperCase() === "ENABLE" ? "暂停" : "启用"}</button><button type="button" aria-label={`删除 ${String(row.RR ?? "")} 记录`} onClick={() => void changeDnsRecord(row, "delete")}><Trash2 size={15} />删除</button></div>}</article>)}</div>}
           </> : loading && domains.length === 0 ? <div className="mobile-empty" role="status"><Activity className="mobile-spin" /><strong>正在读取本机域名缓存</strong></div> : filteredDomains.length === 0 ? <div className="mobile-empty"><Globe2 size={30} /><strong>{domainSearch || assetAccountFilterId !== null ? "没有匹配的域名" : domains.length ? "该账号下暂无缓存的域名" : "暂无缓存的域名"}</strong><span>{domainSearch || assetAccountFilterId !== null ? "试试其他关键词或清除筛选条件。" : "点击“拉取云端”汇总已接入账号的域名。"}</span>{(domainSearch || assetAccountFilterId !== null) && <button className="mobile-primary" type="button" onClick={() => { setDomainSearch(""); setAssetAccountFilterId(null); }}>清除筛选</button>}</div> : <div className="mobile-domain-list mobile-domain-resource-list">{filteredDomains.map((domain) => { const key = `${domain.account_id}:${domain.asset_key}`; const owner = accountForAsset(domain); const domainName = payloadText(domain.payload, ["DomainName", "domain", "domainName", "name"]); return <button className="mobile-server-card mobile-server-card-featured mobile-domain-resource-card" key={key} type="button" onClick={() => void loadDns(domain)}><span className="mobile-provider-avatar" data-provider={owner?.cloud_type ?? "other"}><Globe2 size={21} /></span><span className="mobile-domain-resource-copy"><span className="mobile-domain-resource-title"><strong title={domainName}>{domainName}</strong>{owner && <span className="mobile-server-provider">{cloudProvider(owner.cloud_type).label}</span>}</span><small>{owner?.account_name ?? "未知账号"} · 点击查看解析记录 · {fetchedAtLabel(domain.fetched_at)}</small></span><span className="mobile-server-status-pill is-running mobile-domain-cached"><i aria-hidden="true" />已缓存</span><span className="mobile-account-arrow">›</span></button>; })}</div>}
@@ -1150,7 +1234,6 @@ export function MobileApp() {
           {!selectedBucket && resourcePageOverview}
           {accounts.length > 0 && unknownBuckets.length > 0 && <button type="button" className="mobile-clean-unknown" disabled={loading || syncing || cleaningUnknownResource !== null} onClick={() => void removeUnknownRecords("storage", "存储桶", buckets, (bucket) => accountForAsset(bucket) === null, (bucket) => `${bucket.account_id}:${bucket.resource_type}:${bucket.asset_key}`, resourcesClient.removeLocal, setBuckets)}>{cleaningUnknownResource === "storage" ? "正在移除…" : `移除未知账号存储桶（${unknownBuckets.length}）`}</button>}
           {accounts.length === 0 ? <div className="mobile-empty"><Folder size={30} /><strong>先添加云账号</strong></div> : selectedBucket ? <>
-            <button type="button" className="mobile-domain-back" onClick={() => { if (objectPrefix) { const parts = objectPrefix.replace(/\/$/, "").split("/"); parts.pop(); void browseBucket(selectedBucket, parts.length ? `${parts.join("/")}/` : ""); } else { setSelectedBucket(null); setObjectListing(null); } }}>‹ {objectPrefix ? "上一级目录" : "存储桶列表"}</button>
             <h2 className="mobile-domain-name">{payloadText(selectedBucket.payload, ["Name", "Bucket", "name"])}</h2><small>{selectedBucketAccount?.account_name ?? "未知账号"}</small>
             {objectPrefix && <p className="mobile-object-prefix">/{objectPrefix}</p>}
             {objectListing && <div className="mobile-domain-list">{objectListing.prefixes.map((prefix) => <button type="button" className="mobile-object-row" key={prefix} onClick={() => void browseBucket(selectedBucket, prefix)}><Folder size={19} /><span>{prefix.slice(objectPrefix.length)}</span><b>›</b></button>)}{objectListing.objects.map((object) => <article className="mobile-object-row" key={object.Key}><File size={18} /><span><strong>{object.Key.slice(objectPrefix.length)}</strong><small>{Number(object.Size).toLocaleString()} bytes · {object.LastModified ? new Date(object.LastModified).toLocaleDateString() : ""}</small></span></article>)}</div>}
@@ -1161,7 +1244,6 @@ export function MobileApp() {
           {!selectedDatabase && resourcePageOverview}
           {accounts.length > 0 && unknownDatabases.length > 0 && <button type="button" className="mobile-clean-unknown" disabled={loading || syncing || cleaningUnknownResource !== null} onClick={() => void removeUnknownRecords("databases", "数据库实例", databaseAssets, (instance) => accountForAsset(instance) === null, (instance) => `${instance.account_id}:${instance.resource_type}:${instance.asset_key}`, resourcesClient.removeLocal, setDatabaseAssets)}>{cleaningUnknownResource === "databases" ? "正在移除…" : `移除未知账号数据库实例（${unknownDatabases.length}）`}</button>}
           {accounts.length === 0 ? <div className="mobile-empty"><Database size={30} /><strong>先添加云账号</strong></div> : selectedDatabase ? <>
-            <button type="button" className="mobile-domain-back" onClick={() => { setSelectedDatabase(null); setDatabaseDetails([]); }}>‹ 返回实例列表</button>
             <h2 className="mobile-domain-name">{payloadText(selectedDatabase.payload, ["DBInstanceDescription", "DBInstanceId", "InstanceName", "name"])}</h2><small>{selectedDatabaseAccount?.account_name ?? "未知账号"}</small>
             {loading && databaseDetails.length === 0 ? <div className="mobile-empty">正在读取数据库…</div> : databaseDetails.length === 0 ? <div className="mobile-empty"><strong>没有返回数据库清单</strong><span>当前云账号或实例可能不支持此查询。</span></div> : <div className="mobile-domain-list">{databaseDetails.map((item, index) => <article className="mobile-domain-card" key={String(item.DBName ?? item.AccountName ?? index)}><div className="mobile-server-heading"><Database size={17} /><strong>{String(item.DBName ?? item.AccountName ?? item.Name ?? "数据库")}</strong></div><p>{String(item.CharacterSetName ?? item.AccountDescription ?? item.Description ?? "")}</p><div className="mobile-server-meta"><span>{String(item.DBStatus ?? item.AccountStatus ?? "")}</span><span>{String(item.DBInstanceId ?? "")}</span></div></article>)}</div>}
           </> : filteredDatabaseAssets.length === 0 && !loading ? <div className="mobile-empty"><Database size={30} /><strong>{databaseAssets.length ? "该账号下暂无缓存的数据库实例" : "暂无缓存的数据库实例"}</strong><span>点击“拉取云端”汇总已接入账号的实例。</span></div> : <div className="mobile-domain-list">{filteredDatabaseAssets.map((instance) => { const owner = accountForAsset(instance); return <button className="mobile-account-card mobile-resource-list-card" key={`${instance.account_id}:${instance.asset_key}`} type="button" onClick={() => void loadDatabaseDetails(instance)}><span className="mobile-provider-avatar" data-provider={owner?.cloud_type ?? "other"}><Database size={20} /></span><span className="mobile-account-copy"><span className="mobile-resource-card-title"><strong>{payloadText(instance.payload, ["DBInstanceDescription", "DBInstanceId", "InstanceName", "name"])}</strong>{owner && <span className="mobile-server-provider">{cloudProvider(owner.cloud_type).label}</span>}</span><small>{owner?.account_name ?? "未知账号"} · {instance.region_id} · {payloadText(instance.payload, ["DBInstanceStatus", "InstanceStatus", "status"])} · 缓存于 {fetchedAtLabel(instance.fetched_at)}</small></span><span className="mobile-resource-state">已缓存</span><span className="mobile-account-arrow">›</span></button>; })}</div>}
@@ -1170,7 +1252,6 @@ export function MobileApp() {
           {!selectedRedis && resourcePageOverview}
           {accounts.length > 0 && unknownRedisInstances.length > 0 && <button type="button" className="mobile-clean-unknown" disabled={loading || syncing || cleaningUnknownResource !== null} onClick={() => void removeUnknownRecords("redis", "Redis 实例", redisAssets, (instance) => accountForAsset(instance) === null, (instance) => `${instance.account_id}:${instance.resource_type}:${instance.asset_key}`, resourcesClient.removeLocal, setRedisAssets)}>{cleaningUnknownResource === "redis" ? "正在移除…" : `移除未知账号 Redis 实例（${unknownRedisInstances.length}）`}</button>}
           {accounts.length === 0 ? <div className="mobile-empty"><Database size={30} /><strong>先添加云账号</strong></div> : selectedRedis ? <>
-            <button type="button" className="mobile-domain-back" onClick={() => { setSelectedRedis(null); setRedisAccounts([]); }}>‹ 返回实例列表</button>
             <h2 className="mobile-domain-name">{payloadText(selectedRedis.payload, ["InstanceName", "InstanceId", "instanceId", "Id"])}</h2><small>{selectedRedisAccount?.account_name ?? "未知账号"}</small>
             {loading && redisAccounts.length === 0 ? <div className="mobile-empty">正在读取 Redis 账号…</div> : redisAccounts.length === 0 ? <div className="mobile-empty"><strong>没有返回账号信息</strong><span>实例可能没有自定义账号，或当前凭据缺少读取权限。</span></div> : <div className="mobile-domain-list">{redisAccounts.map((item, index) => <article className="mobile-domain-card" key={String(item.AccountName ?? index)}><div className="mobile-server-heading"><Database size={17} /><strong>{String(item.AccountName ?? "默认账号")}</strong></div><div className="mobile-server-meta"><span>{String(item.AccountType ?? "")}</span><span>{String(item.AccountStatus ?? "")}</span></div>{typeof item.AccountDescription === "string" && item.AccountDescription && <p>{item.AccountDescription}</p>}</article>)}</div>}
           </> : filteredRedisAssets.length === 0 && !loading ? <div className="mobile-empty"><Database size={30} /><strong>{redisAssets.length ? "该账号下暂无缓存的 Redis 实例" : "暂无缓存的 Redis 实例"}</strong><span>点击“拉取云端”汇总已接入账号的实例。</span></div> : <div className="mobile-domain-list">{filteredRedisAssets.map((instance) => { const owner = accountForAsset(instance); return <button className="mobile-account-card mobile-resource-list-card" key={`${instance.account_id}:${instance.asset_key}`} type="button" onClick={() => void loadRedisAccounts(instance)}><span className="mobile-provider-avatar" data-provider={owner?.cloud_type ?? "other"}><Database size={20} /></span><span className="mobile-account-copy"><span className="mobile-resource-card-title"><strong>{payloadText(instance.payload, ["InstanceName", "InstanceId", "instanceId", "Id"])}</strong>{owner && <span className="mobile-server-provider">{cloudProvider(owner.cloud_type).label}</span>}</span><small>{owner?.account_name ?? "未知账号"} · {instance.region_id} · {payloadText(instance.payload, ["InstanceStatus", "Status", "status"])} · 缓存于 {fetchedAtLabel(instance.fetched_at)}</small></span><span className="mobile-resource-state">已缓存</span><span className="mobile-account-arrow">›</span></button>; })}</div>}
@@ -1198,6 +1279,7 @@ export function MobileApp() {
           <div className="mobile-page-title"><div><p>本机客户端</p><h1>系统设置</h1></div></div>
           <AiSettings />
           <div className="mobile-domain-list mobile-more-list">
+            <div className="mobile-account-card mobile-theme-card"><span className="mobile-provider-avatar"><SunMoon size={20} /></span><span className="mobile-account-copy"><strong>外观主题</strong><small>切换深色或浅色界面</small></span><div className="mobile-theme-toggle" role="radiogroup" aria-label="外观主题"><button type="button" role="radio" aria-checked={uiTheme === "dark"} className={uiTheme === "dark" ? "active" : ""} onClick={() => setUiTheme("dark")}>深色</button><button type="button" role="radio" aria-checked={uiTheme === "light"} className={uiTheme === "light" ? "active" : ""} onClick={() => setUiTheme("light")}>浅色</button></div></div>
             <button type="button" className="mobile-account-card" onClick={() => setTab("sync")}><span className="mobile-provider-avatar"><ShieldCheck size={20} /></span><span className="mobile-account-copy"><strong>导入数据</strong><small>导入电脑端加密配置</small></span><span className="mobile-account-arrow">›</span></button>
             <button type="button" className="mobile-account-card" onClick={() => setTab("operationLogs")}><span className="mobile-provider-avatar"><FileText size={20} /></span><span className="mobile-account-copy"><strong>操作日志</strong><small>查看本机资源管理记录</small></span><span className="mobile-account-arrow">›</span></button>
             <button type="button" className="mobile-account-card" onClick={() => setTab("apiLogs")}><span className="mobile-provider-avatar"><Terminal size={20} /></span><span className="mobile-account-copy"><strong>API 日志</strong><small>查看接口调用状态</small></span><span className="mobile-account-arrow">›</span></button>
@@ -1221,6 +1303,7 @@ export function MobileApp() {
 
       <nav className="mobile-tab-bar" aria-label="主导航"><button type="button" aria-current={tab === "accounts" ? "page" : undefined} className={tab === "accounts" ? "active" : ""} onClick={() => setTab("accounts")}><Cloud size={19} /><span>账号</span></button><button type="button" aria-current={tab === "servers" ? "page" : undefined} className={tab === "servers" ? "active" : ""} onClick={() => setTab("servers")}><Server size={19} /><span>服务器</span></button><button type="button" aria-current={tab === "domains" ? "page" : undefined} className={tab === "domains" ? "active" : ""} onClick={() => setTab("domains")}><Globe2 size={19} /><span>域名</span></button><button type="button" aria-current={tab === "more" || tab === "authenticator" || tab === "flow" || tab === "storage" || tab === "databases" || tab === "redis" || tab === "certificates" || tab === "ssh" || tab === "panels" || tab === "sync" || tab === "settings" || tab === "operationLogs" || tab === "apiLogs" || tab === "about" ? "page" : undefined} className={tab === "more" || tab === "authenticator" || tab === "flow" || tab === "storage" || tab === "databases" || tab === "redis" || tab === "certificates" || tab === "ssh" || tab === "panels" || tab === "sync" || tab === "settings" || tab === "operationLogs" || tab === "apiLogs" || tab === "about" ? "active" : ""} onClick={() => setTab("more")}><LayoutGrid size={19} /><span>更多</span></button></nav>
 
+      {backAction && <button type="button" className="mobile-back-fab" aria-label={backAction.label} title={backAction.label} style={backFabPos ? { left: "auto", top: "auto", right: Math.max(8, Math.min(backFabPos.right, Math.min(window.innerWidth, 720) - 62)), bottom: Math.max(8, Math.min(backFabPos.bottom, window.innerHeight - 114)) } : undefined} onPointerDown={startBackFabDrag} onPointerMove={dragBackFab} onPointerUp={endBackFabDrag} onPointerCancel={endBackFabDrag} onContextMenu={(event) => { if (backFabDragRef.current?.dragging) event.preventDefault(); }} onClick={clickBackFab}><ArrowLeft size={20} /></button>}
       {showCertificateRequest && <MobileCertificateRequest accounts={accounts} onClose={() => setShowCertificateRequest(false)} onIssued={() => void refreshCertificates()} />}
       {showAddAccount && <div className="mobile-modal-backdrop" role="presentation"><form className="mobile-account-form" onSubmit={(event) => void saveAccount(event)}><div className="mobile-modal-heading"><h2>{editingAccount ? "编辑云账号" : "添加云账号"}</h2><DialogHeaderActions><button className="mobile-icon-button" type="button" aria-label="关闭" onClick={() => { setShowAddAccount(false); setEditingAccount(null); }}><X size={20} /></button></DialogHeaderActions></div>
         <label>云厂商<select value={newAccountCloud} disabled={!!editingAccount} onChange={(event) => setNewAccountCloud(event.target.value)}>{cloudProviders.map((provider) => <option key={provider.value} value={provider.value}>{provider.label}</option>)}</select></label>

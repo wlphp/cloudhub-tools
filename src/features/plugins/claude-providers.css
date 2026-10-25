@@ -374,3 +374,25 @@
   .claude-catalog-row { grid-template-columns: 30px minmax(0, 1fr) 45px 30px; }
   .claude-catalog-row input[aria-label^="模型名称"] { grid-column: 2; grid-row: 2; }
 }
+
+/* 浅色主题：供应商状态徽章的深色底改用浅色淡底 */
+body.theme-light .ide-theme .claude-tag.is-current { border-color: #e0c375; background: #fbf2da; color: #8a6a1c; }
+body.theme-light .ide-theme .claude-tag.is-warning { border-color: #e8a7b0; background: #fbe4e6; color: #b3424c; }
+body.theme-light .ide-theme .claude-status.is-error { border-color: #e8a7b0; background: #fbe4e6; color: #b3424c; }
+body.theme-light .ide-theme .claude-error { border-color: #e8a7b0; background: #fbe4e6; color: #b3424c; }
+body.theme-light .ide-theme .claude-icon-button.is-danger:not(:disabled):hover { border-color: #d98894; background: #f9e0e4; color: #992e38; }
+
+/* 供应商行紧凑化（对齐 Codex 供应商列表样式） */
+.claude-provider-item{gap:10px;padding:7px 10px}
+.claude-provider-title{gap:7px}
+.claude-provider-title strong{font-size:13px}
+.claude-provider-main>.claude-provider-url{margin-top:1px}
+.claude-provider-meta{margin-top:3px;gap:5px}
+.claude-model-chip{max-width:210px}
+.claude-provider-stats{gap:8px}
+.claude-provider-stats>:is(.claude-balance,.claude-provider-usage,.claude-provider-quota){min-height:26px;padding:2px 8px}
+.claude-balance{gap:5px;font-size:11px}
+.claude-balance-value{font-size:12px}
+.claude-provider-actions{gap:6px;justify-content:flex-end}
+.claude-provider-actions .secondary{min-height:28px;height:28px;padding:0 8px}
+.claude-provider-actions .claude-icon-button{width:28px;min-width:28px;padding:0}

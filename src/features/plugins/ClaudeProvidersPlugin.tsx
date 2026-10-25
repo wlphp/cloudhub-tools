@@ -1,7 +1,8 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ArrowDown, ArrowUp, Check, Copy, Download, ExternalLink, FolderOpen, HelpCircle, ListChecks, Loader2, Minus, Pencil, Plus, RotateCcw, Search, Server, Star, Trash2, Wand2, Wifi } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, Copy, Download, ExternalLink, FolderOpen, HelpCircle, ListChecks, Loader2, Minus, MoreHorizontal, Pencil, Plus, RotateCcw, Search, Server, Star, Trash2, Wand2, Wifi } from "lucide-react";
 import { SharedDialog } from "../../shared/SharedDialog";
+import { MoreMenu } from "../../shared/MoreMenu";
 import { ConfirmDialog } from "../../shared/ConfirmDialog";
 import { SecretField } from "../../shared/SecretField";
 import { claudeProvidersClient, claudeWorkbenchClient, DEFAULT_CLAUDE_ROUTING, type ClaudeMode, type ClaudeRoutingState, type ClaudeRoutingConfig, type ClaudeModelMapping, type ClaudeApiFormat, type ClaudeApiKeyField, type ClaudeProviderInput, type ClaudeProviderSummary, type ClaudeProviderList, type ClaudeWorkspaceState } from "../../platform/clients/claudeProviders";
@@ -574,7 +575,6 @@ export function ClaudeProvidersPlugin() {
   const [routeTarget, setRouteTarget] = useState("");
   const [routeStartBusy, setRouteStartBusy] = useState(false);
   const [routeStartError, setRouteStartError] = useState("");
-  const [moreProviderId, setMoreProviderId] = useState<string | null>(null);
   const [quotaProviderId, setQuotaProviderId] = useState<string | null>(null);
   const [selectedProviders, setSelectedProviders] = useState<Set<string>>(new Set());
   const [importPreview, setImportPreview] = useState<Awaited<ReturnType<typeof claudeWorkbenchClient.prepareProviderImport>>>(null);
@@ -846,7 +846,6 @@ export function ClaudeProvidersPlugin() {
             </div>}
           </div>
           <div className="claude-provider-actions">
-            {supportsQuota(item) && <button type="button" className="secondary" disabled={Boolean(busyId)} onClick={() => { setQuotaProviderId(item.id); if (!quotas[item.id]?.loading) void refreshQuota(item.id); }}>查询剩余额度</button>}
             {quotaProviderId === item.id && <SharedDialog title={item.name + " · 剩余额度"} subtitle="来自供应商官方接口，与本地请求统计无关。" className="claude-providers claude-quota-dialog" size="small" onClose={() => setQuotaProviderId(null)} footer={<><button type="button" className="secondary" disabled={quotas[item.id]?.loading} onClick={() => void refreshQuota(item.id)}>{quotas[item.id]?.loading ? <Loader2 className="is-spin" size={14} aria-hidden="true" /> : <RotateCcw size={14} aria-hidden="true" />}{quotas[item.id]?.loading ? "查询中…" : "刷新额度"}</button><button type="button" className="secondary" onClick={() => setQuotaProviderId(null)}>关闭</button></>}>
             <div className="claude-provider-quota" aria-busy={Boolean(quotas[item.id]?.loading)}>
               {!quotas[item.id]?.data && <span className="claude-quota-status" role="status">{quotas[item.id]?.loading ? "查询中…" : quotas[item.id]?.error || "待查询"}</span>}
@@ -861,7 +860,7 @@ export function ClaudeProvidersPlugin() {
                 <span className="claude-stat-caption">更新于 {new Date(quotas[item.id].data!.queriedAt).toLocaleTimeString()}</span>
               </>}
             </div></SharedDialog>}
-            {viewMode === "direct" && <button type="button" className="secondary" title={needsRouting ? "此供应商需要路由或聚合模式" : !item.keyConfigured && !item.officialLogin ? "请先填写 API Key" : configurationStatus === "unreadable" && isCurrent ? "请检查配置文件后刷新" : "备份当前配置并应用此渠道，保留 hooks 和插件等设置"} disabled={Boolean(busyId) || (isCurrent && !routing.running && !canSwitchBack) || needsRouting || (!item.keyConfigured && !item.officialLogin)} onClick={() => void run(item.id, () => claudeProvidersClient.switchTo(item.id), `已切换到 ${item.name}，重启 Claude Code 后生效`)}><Check size={13} aria-hidden="true" />{canSwitchBack ? "切换回来" : isCurrent && !routing.running ? configurationIssue ? "无法核对" : "使用中" : "切换"}</button>}
+            {viewMode === "direct" && <button type="button" className="secondary claude-icon-button" title={needsRouting ? "此供应商需要路由或聚合模式" : !item.keyConfigured && !item.officialLogin ? "请先填写 API Key" : configurationStatus === "unreadable" && isCurrent ? "请检查配置文件后刷新" : canSwitchBack ? "切换回来：备份当前配置并应用此渠道" : isCurrent && !routing.running && !configurationIssue ? "使用中" : "切换：备份当前配置并应用此渠道，保留 hooks 和插件等设置"} aria-label={item.name + " " + (canSwitchBack ? "切换回来" : isCurrent && !routing.running ? configurationIssue ? "无法核对" : "使用中" : "切换")} disabled={Boolean(busyId) || (isCurrent && !routing.running && !canSwitchBack) || needsRouting || (!item.keyConfigured && !item.officialLogin)} onClick={() => void run(item.id, () => claudeProvidersClient.switchTo(item.id), `已切换到 ${item.name}，重启 Claude Code 后生效`)}><Check size={14} aria-hidden="true" /></button>}
             {viewMode === "route" && <>
               <button type="button" className="secondary" title={inQueue ? "移出路由队列；启用故障转移时至少保留一家" : "加入路由队列"} disabled={Boolean(busyId) || (!inQueue && (item.officialLogin || !item.keyConfigured)) || (inQueue && config.failover && config.queue.length === 1)} onClick={() => toggleQueue(item.id)}><ListChecks size={13} aria-hidden="true" />{inQueue ? "移出队列" : "加入队列"}</button>
               {inQueue && <><button type="button" className="secondary claude-icon-button" aria-label={"提高 " + item.name + " 的优先级"} title="上移" disabled={Boolean(busyId) || queueIndex === 0} onClick={() => moveQueue(item.id, -1)}><ArrowUp size={13} aria-hidden="true" /></button><button type="button" className="secondary claude-icon-button" aria-label={"降低 " + item.name + " 的优先级"} title="下移" disabled={Boolean(busyId) || queueIndex === config.queue.length - 1} onClick={() => moveQueue(item.id, 1)}><ArrowDown size={13} aria-hidden="true" /></button></>}
@@ -870,18 +869,23 @@ export function ClaudeProvidersPlugin() {
             {viewMode === "aggregate" && <>
               {group === 0 ? <span className="claude-aggregate-default-status"><span className="claude-live-dot" aria-hidden="true" />{routing.running && routing.mode === "aggregate" ? "当前默认" : "切换后默认"}</span> : <button type="button" className="secondary claude-icon-button" aria-label={(group === 1 ? "从聚合移除 " : "添加到聚合 ") + item.name} title={item.officialLogin ? "官方订阅仅支持直连" : !item.keyConfigured ? "请先配置 API Key" : !providerModelCount(item) ? "请先配置模型列表" : group === 1 ? "移出聚合" : "添加到聚合"} disabled={Boolean(busyId) || (group !== 1 && (item.officialLogin || !item.keyConfigured || !providerModelCount(item)))} onClick={() => void run(item.id, () => saveConfig({ ...config, defaultProvider: aggregateDefault, members: group === 1 ? config.members.filter(id => id !== item.id) : [...config.members, item.id] }), "已更新聚合名单")}>{group === 1 ? <Minus size={16} aria-hidden="true" /> : <Plus size={16} aria-hidden="true" />}</button>}
             </>}
-            <button type="button" className="secondary" title={"编辑 " + item.name} aria-label={`编辑 ${item.name}`} onClick={() => setEditing(toInput(item))}><Pencil size={13} aria-hidden="true" />编辑</button>
-            <button type="button" className="secondary" title={item.name + " · 更多操作"} aria-label={item.name + " · 更多操作"} onClick={()=>setMoreProviderId(item.id)}>更多 ⋯</button>
-            {moreProviderId===item.id && <SharedDialog title={item.name + " · 更多操作"} size="small" onClose={()=>setMoreProviderId(null)} footer={<button type="button" className="secondary" onClick={()=>setMoreProviderId(null)}>关闭</button>}>
-<div className="claude-more-actions">
-            {viewMode === "aggregate" && group !== 0 && <button type="button" className="secondary" disabled={Boolean(busyId) || item.officialLogin || !item.keyConfigured || !providerModelCount(item)} onClick={() => void run(item.id, () => saveConfig({ ...config, defaultProvider: item.id, members: [...new Set([...config.members.filter(id => id !== item.id), ...(aggregateDefault ? [aggregateDefault] : [])])] }), "已更新聚合默认供应商")}><Star size={13} aria-hidden="true" />设为默认</button>}
-            <button type="button" className="secondary" disabled={Boolean(busyId)} onClick={() => void run(item.id, () => claudeWorkbenchClient.providerAction({ type: "duplicate", id: item.id }), "已复制供应商")}><Copy size={13} />复制供应商</button>
-            <button type="button" className="claude-icon-button" aria-label={`检测 ${item.name}`} title="连接检测" disabled={Boolean(busyId)} onClick={() => void run(item.id, async () => { const result = await claudeWorkbenchClient.probe(item.id); if (!result.reachable) throw new Error("无法连接供应商地址"); setMessage(`连接成功，${result.latencyMs} ms，HTTP ${result.status}`); }, "")}><Wifi size={13} />检测连接</button>
-            <button type="button" className="claude-icon-button" aria-label={`上移 ${item.name}`} title="上移供应商" disabled={Boolean(busyId) || providers[0]?.id === item.id} onClick={() => void run(item.id, () => claudeWorkbenchClient.providerAction({ type: "move", id: item.id, offset: -1 }), "已更新排序")}><ArrowUp size={13} />上移</button>
-            <button type="button" className="claude-icon-button" aria-label={`下移 ${item.name}`} title="下移供应商" disabled={Boolean(busyId) || providers[providers.length - 1]?.id === item.id} onClick={() => void run(item.id, () => claudeWorkbenchClient.providerAction({ type: "move", id: item.id, offset: 1 }), "已更新排序")}><ArrowDown size={13} />下移</button>
-            {item.websiteUrl && /^https?:\/\//i.test(item.websiteUrl) && <a className="secondary claude-icon-button" href={item.websiteUrl} target="_blank" rel="noreferrer" aria-label={`打开 ${item.name} 官网`} title="打开官网"><ExternalLink size={13} aria-hidden="true" />打开官网</a>}
-            <button type="button" className="secondary claude-icon-button is-danger" aria-label={`删除 ${item.name}`} title="删除供应商" disabled={Boolean(busyId) || isCurrent} onClick={() => confirm(`确定删除供应商“${item.name}”吗？`, async () => { await claudeProvidersClient.remove(item.id); await load(); })}><Trash2 size={13} aria-hidden="true" />删除供应商</button>
-            </div></SharedDialog>}
+            <button type="button" className="secondary claude-icon-button" title={"编辑 " + item.name} aria-label={`编辑 ${item.name}`} onClick={() => setEditing(toInput(item))}><Pencil size={14} aria-hidden="true" /></button>
+            <MoreMenu
+              trigger={<MoreHorizontal size={14} aria-hidden="true" />}
+              triggerClassName="secondary claude-icon-button"
+              triggerTitle={item.name + " · 更多操作"}
+              triggerAriaLabel={item.name + " · 更多操作"}
+              items={[
+                ...(supportsQuota(item) ? [{ id: "quota", label: "查询剩余额度", icon: <RotateCcw size={13} aria-hidden="true" />, disabled: Boolean(busyId), onSelect: () => { setQuotaProviderId(item.id); if (!quotas[item.id]?.loading) void refreshQuota(item.id); } }] : []),
+                ...(viewMode === "aggregate" && group !== 0 ? [{ id: "default", label: "设为默认", icon: <Star size={13} aria-hidden="true" />, disabled: Boolean(busyId) || item.officialLogin || !item.keyConfigured || !providerModelCount(item), onSelect: () => void run(item.id, () => saveConfig({ ...config, defaultProvider: item.id, members: [...new Set([...config.members.filter(id => id !== item.id), ...(aggregateDefault ? [aggregateDefault] : [])])] }), "已更新聚合默认供应商") }] : []),
+                { id: "duplicate", label: "复制供应商", icon: <Copy size={13} aria-hidden="true" />, disabled: Boolean(busyId), onSelect: () => void run(item.id, () => claudeWorkbenchClient.providerAction({ type: "duplicate", id: item.id }), "已复制供应商") },
+                { id: "probe", label: "检测连接", icon: <Wifi size={13} aria-hidden="true" />, disabled: Boolean(busyId), onSelect: () => void run(item.id, async () => { const result = await claudeWorkbenchClient.probe(item.id); if (!result.reachable) throw new Error("无法连接供应商地址"); setMessage(`连接成功，${result.latencyMs} ms，HTTP ${result.status}`); }, "") },
+                { id: "up", label: "上移", icon: <ArrowUp size={13} aria-hidden="true" />, disabled: Boolean(busyId) || providers[0]?.id === item.id, onSelect: () => void run(item.id, () => claudeWorkbenchClient.providerAction({ type: "move", id: item.id, offset: -1 }), "已更新排序") },
+                { id: "down", label: "下移", icon: <ArrowDown size={13} aria-hidden="true" />, disabled: Boolean(busyId) || providers[providers.length - 1]?.id === item.id, onSelect: () => void run(item.id, () => claudeWorkbenchClient.providerAction({ type: "move", id: item.id, offset: 1 }), "已更新排序") },
+                ...(item.websiteUrl && /^https?:\/\//i.test(item.websiteUrl) ? [{ id: "site", label: "打开官网", icon: <ExternalLink size={13} aria-hidden="true" />, onSelect: () => window.open(item.websiteUrl, "_blank", "noreferrer") }] : []),
+                { id: "remove", label: "删除供应商", icon: <Trash2 size={13} aria-hidden="true" />, danger: true, disabled: Boolean(busyId) || isCurrent, onSelect: () => confirm(`确定删除供应商“${item.name}”吗？`, async () => { await claudeProvidersClient.remove(item.id); await load(); }) },
+              ]}
+            />
           </div>
         </li></Fragment>;
       })}

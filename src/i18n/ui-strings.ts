@@ -38,7 +38,12 @@ const en: Record<string, string> = {
   "开通VIP": "Get VIP",
   "邀请好友": "Invite Friends",
   "退出": "Exit",
-  "复制身份ID": "Copy ID",
+  "未登录": "Not signed in",
+  "登录": "Sign In",
+  "账号系统维护中": "Account system under maintenance",
+  "登录功能维护中": "Sign-in is under maintenance",
+  "云账号体系即将上线，当前为本地模式，所有数据仍保存在本机。": "The cloud account system is coming soon. Local mode stays active and all data remains on this device.",
+  "我知道了": "Got it",
   "关闭 Star 提示": "Dismiss Star tip",
   "手机端下载": "Mobile App",
   // 设置页

@@ -296,3 +296,14 @@
 @media (max-width: 760px) {
   .recycle-bin-scrub-actions select, .recycle-bin-scrub-actions button { min-height: 40px; flex: 1 1 auto; }
 }
+
+/* 回收站列表紧凑化：分隔线行式布局，危险按钮跟随主题 */
+.recycle-bin-group ul { gap: 0; }
+.recycle-bin-item { padding: 7px 8px; border: 0; border-bottom: 1px solid var(--jb-border); border-radius: 0; background: transparent; }
+.recycle-bin-group ul li:last-child .recycle-bin-item { border-bottom: 0; }
+.recycle-bin-item:hover { background: var(--jb-surface-2); border-color: var(--jb-border); }
+.recycle-bin-item-copy { flex-direction: row; align-items: baseline; gap: 8px; }
+.recycle-bin-item-copy strong { font-size: 12.5px; }
+.recycle-bin-item-copy small { flex: 1 1 auto; min-width: 0; }
+.recycle-bin-group-actions .notes-danger:not(:disabled) { border-color: color-mix(in srgb, var(--jb-danger) 45%, transparent); background: color-mix(in srgb, var(--jb-danger) 10%, transparent); color: var(--jb-danger); }
+.recycle-bin-group-actions .notes-danger:not(:disabled):hover { border-color: var(--jb-danger); background: color-mix(in srgb, var(--jb-danger) 18%, transparent); }

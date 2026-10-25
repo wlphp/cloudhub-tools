@@ -849,3 +849,8 @@
 .codex-error-detail-dialog .codex-error-reauthorize > button { background: var(--jb-accent,#9b8cff); border-color: var(--jb-accent,#9b8cff); color: var(--jb-on-accent,#fff); }
 .codex-error-detail-dialog > .modal-head h2 { font-size: 16px; }
 .codex-error-detail-dialog .codex-dialog-content { padding: 20px; }
+
+/* 浅色主题：反代服务开关（未选中灰轨白钮，选中橙轨白钮） */
+body.theme-light .codex-gateway .codex-auto-start-toggle input { background: var(--jb-border-strong, #cfcfd2); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .05); }
+body.theme-light .codex-gateway .codex-auto-start-toggle input:before { background: #ffffff; box-shadow: 0 1px 2px rgba(0, 0, 0, .22); }
+body.theme-light .codex-gateway .codex-auto-start-toggle input:checked { background: var(--api-accent, var(--jb-accent)); }

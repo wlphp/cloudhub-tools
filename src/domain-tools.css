@@ -7,18 +7,30 @@
 .domain-tool-modal.is-maximized .dns-table-wrap{flex:1;overflow:auto}
 .rds-reference,.redis-reference,.oss-reference,.swas-reference,.esa-reference{background:var(--jb-bg);color:var(--jb-text);padding:24px 28px;flex:1;overflow:auto}
 .detail-empty{color:var(--jb-muted);background:transparent}
-.domain-tool-actions{display:flex;align-items:center;gap:10px;margin-bottom:16px;color:var(--jb-muted);flex-wrap:wrap}
-.dns-add-btn{margin-left:6px}
-.domain-tool-filter{display:flex;gap:10px;align-items:center;margin-bottom:16px}
-.domain-tool-filter input,.domain-tool-filter select{height:34px;border:1px solid var(--jb-border-strong);padding:0 12px;background:var(--jb-bg);color:var(--jb-text);border-radius:7px;font:inherit;outline:none}
-.domain-tool-filter input:focus,.domain-tool-filter select:focus{border-color:var(--jb-accent-strong)}
-.domain-tool-filter input{width:220px}
+.dns-add-btn{margin-left:4px}
+.domain-tool-toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:14px;padding:9px 12px;border:1px solid var(--jb-border);border-radius:8px;background:var(--jb-surface-2)}
+.domain-tool-toolbar input,.domain-tool-toolbar select{height:32px;border:1px solid var(--jb-border-strong);padding:0 10px;background:var(--jb-bg);color:var(--jb-text);border-radius:6px;font:inherit;outline:none}
+.domain-tool-toolbar input{width:200px}
+.domain-tool-toolbar input:focus,.domain-tool-toolbar select:focus{border-color:var(--jb-accent-strong)}
+.domain-tool-toolbar .layui-btn{height:30px}
+.domain-tool-quick{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .table-link{border:0;background:transparent;color:var(--jb-accent-strong);cursor:pointer;margin-right:12px;font-size:12px;padding:4px 6px}
 .table-link:hover{color:var(--jb-accent-strong)}.table-link.danger{color:#ff8a8a}.table-link.danger:hover{color:#ffb0b0}
 .domain-tool-body .resource-table-wrap{margin:0}
 .domain-tool-body table{width:100%}
 .domain-tool-body td{max-width:360px;word-break:break-word;color:var(--jb-muted);border-bottom:1px solid var(--jb-border)}
 .domain-tool-body th{background:var(--jb-surface-2);color:var(--jb-muted);border-bottom:1px solid var(--jb-border)}
+/* 操作日志视图：时间等宽、操作类型徽章化、正文深色 */
+.domain-audit-table-wrap th:first-child,.domain-audit-table-wrap td:first-child{white-space:nowrap}
+.domain-audit-table-wrap td:nth-child(3){color:var(--jb-text);line-height:1.55}
+.domain-audit-table-wrap tbody tr:hover td{background:var(--jb-surface-2)}
+.domain-log-time{font:11.5px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:nowrap}
+.domain-log-action{display:inline-block;min-width:38px;text-align:center;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;white-space:nowrap}
+.domain-log-action.is-add{color:var(--jb-success);background:color-mix(in srgb,var(--jb-success) 14%,transparent)}
+.domain-log-action.is-del{color:var(--jb-danger);background:color-mix(in srgb,var(--jb-danger) 14%,transparent)}
+.domain-log-action.is-other{color:var(--jb-muted);background:var(--jb-surface-3)}
+.domain-log-ip{font:11.5px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace}
+.domain-log-message{overflow-wrap:anywhere}
 .whois-result{margin:0;padding:22px;border-radius:8px;background:var(--jb-bg);color:var(--jb-muted);font:13px/1.8 Consolas,monospace;white-space:pre-wrap;min-height:320px;border:1px solid var(--jb-border)}
 .swas-grid{display:grid;gap:14px}
 .swas-card{background:linear-gradient(145deg,var(--jb-bg),var(--jb-bg));border:1px solid var(--jb-border);border-radius:10px;padding:18px;transition:border-color .15s}

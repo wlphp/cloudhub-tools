@@ -38,6 +38,7 @@ export function PetWindow() {
   const [sleeping, setSleeping] = useState(false);
   const [hover, setHover] = useState(false);
   const [visible, setVisible] = useState(true);
+  const [protest, setProtest] = useState(false);
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
   const visibleRef = useRef(true);
@@ -45,6 +46,7 @@ export function PetWindow() {
   const [systemReduced, setSystemReduced] = useState(matchMedia("(prefers-reduced-motion: reduce)").matches);
   const drag = useRef<{ x: number; y: number; moved: boolean } | null>(null);
   const actionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reduced = settings.reducedMotion || systemReduced;
   const stopLifePose = useCallback(() => setPose(p => (p === "run" || p === "walk") ? "idle" : p), []);
   const life = usePetLife({ settings, blocked: dragging || panel !== null || notice !== null || hover || sleeping, visible, reduced, setPose, setDirection, stopPose: stopLifePose, onError: e => setError(platformErrorMessage(e)) });
@@ -58,7 +60,7 @@ export function PetWindow() {
     const subscriptions = [listen<boolean>("pet-docked", e => { setDocked(e.payload); if (e.payload) { setPanel(null); setNotice(null); setNoticeExpanded(false); setEnlarged(false); life.suppressDueNotices(); setHover(false); setSleeping(false); setPose("idle"); setDirection(1); if (actionTimer.current) clearTimeout(actionTimer.current); } }), listen<boolean>("pet-visibility", e => { setVisible(e.payload); if (!e.payload) { setPanel(null); setNotice(null); setPose("idle"); } }), listen<PetSettings>("pet-settings-changed", e => setSettings(e.payload)), listen<PetSnapshot>("pet-alerts-changed", e => setSnapshot({ ...e.payload, alerts: sortPetAlerts(e.payload.alerts) })), listen<PetAlert>("pet-notification", e => { if (visibleRef.current && !settingsRef.current.quiet) { setNoticeExpanded(false); if(actionTimer.current) clearTimeout(actionTimer.current); setNotice(e.payload); setPose(e.payload.active ? "alert" : "happy"); } })];
     const media = matchMedia("(prefers-reduced-motion: reduce)");
     const change = () => setSystemReduced(media.matches); media.addEventListener("change", change);
-    return () => { disposed = true; media.removeEventListener("change", change); subscriptions.forEach(p => void p.then(fn => fn())); if (actionTimer.current) clearTimeout(actionTimer.current); document.documentElement.classList.remove("pet-window-page"); };
+    return () => { disposed = true; media.removeEventListener("change", change); subscriptions.forEach(p => void p.then(fn => fn())); if (actionTimer.current) clearTimeout(actionTimer.current); if (holdTimer.current) clearTimeout(holdTimer.current); document.documentElement.classList.remove("pet-window-page"); };
   }, []);
   useEffect(() => { if (settings.quiet) { setNotice(null); setNoticeExpanded(false); } }, [settings.quiet]);
   const panelOpen = panel !== null || notice !== null || life.notice !== null;
@@ -71,9 +73,9 @@ export function PetWindow() {
     };
     const observer=new ResizeObserver(update); observer.observe(document.body); document.querySelectorAll(".app-confirm-backdrop,.pet-floating-card,.pet-speech-bubble,.pet-inline-error").forEach(el=>observer.observe(el));
     update(); return () => observer.disconnect();
-  }, [panel, notice, noticeExpanded, snapshot, error, life.notice, docked, computerConfirm]);
+  }, [panel, notice, noticeExpanded, snapshot, error, life.notice, docked, computerConfirm, protest]);
   useEffect(() => {
-    const key = (e: KeyboardEvent) => { if (e.key === "Escape") { setPanel(null); setNotice(null); setNoticeExpanded(false); setEnlarged(false); setPose(sleeping ? "sleep" : "idle"); } };
+    const key = (e: KeyboardEvent) => { if (e.key === "Escape") { setPanel(null); setNotice(null); setNoticeExpanded(false); setEnlarged(false); setProtest(false); setPose(sleeping ? "sleep" : "idle"); } };
     window.addEventListener("keydown", key); return () => window.removeEventListener("keydown", key);
   }, [sleeping]);
   useEffect(() => {
@@ -130,6 +132,8 @@ export function PetWindow() {
     void work(async () => { await getCurrentWindow().startDragging(); await client.move(0, 0, false, true); });
   }
   async function dragAvatar(reveal = false) {
+    if (holdTimer.current) clearTimeout(holdTimer.current);
+    setProtest(false);
     setDragging(true);
     await work(async () => {
       if (reveal) { await client.reveal(); setDocked(false); }
@@ -148,6 +152,7 @@ export function PetWindow() {
   </main>;
   return <main className={`pet-stage ${reduced ? "pet-reduced" : ""}`} style={{ "--pet-size": `${settings.size}px`, "--pet-sprite-image": `url("${(petAppearances[settings.appearance] || petAppearances.alpaca).sprite}")` } as React.CSSProperties}>
     {life.notice && <PetLifeBubble notice={life.notice} action={life.action} roaming={life.roaming} appearance={settings.appearance} />}
+    {!panel && !notice && !life.notice && protest && <div className="pet-speech-bubble pet-protest" role="status" aria-label="宠物在抗议被抓住">坏人，快放开我！放开我！</div>}
     {!panel && notice && !noticeExpanded && <div className={`pet-speech-bubble ${notice.active ? notice.severity : "recovered"}`} role="status" aria-label="运维消息气泡">
       <button className="pet-speech-open" onClick={() => setNoticeExpanded(true)} aria-label={`查看运维消息：${notice.title}`}>
         <span className="pet-speech-caption"><PetPortrait appearance={settings.appearance} pose={notice.active ? "alert" : "happy"} /><Bell size={13} aria-hidden="true" />{notice.active ? notice.severity === "emergency" ? "超级严重，请尽快处理" : "有件事想提醒你" : "好消息，状态恢复了"}</span>
@@ -185,10 +190,10 @@ export function PetWindow() {
     <div className="pet-avatar-wrap" onMouseEnter={() => { setHover(true); if (pose === "idle") setPose("curious"); }} onMouseLeave={() => { setHover(false); if (pose === "curious") setPose("idle"); }}>
       <button className="pet-avatar" aria-label="宠物：点击查看状态，右键打开菜单，拖动可移动" title="点击查看状态 · 右键菜单 · 拖动移动"
         onContextMenu={e => { e.preventDefault(); setPanel("menu"); setPose("idle"); }}
-        onPointerDown={e => { if (e.button !== 0) return; drag.current = { x: e.screenX, y: e.screenY, moved: false }; }}
-        onPointerMove={e => { const start = drag.current; if (start && !start.moved && Math.hypot(e.screenX-start.x,e.screenY-start.y)>5) { start.moved = true; setPose("hanging"); void dragAvatar(); } }}
-        onPointerUp={() => { const d=drag.current; drag.current=null; if (d && !d.moved) { setPanel("status"); perform("happy",650); } }}
-        onPointerCancel={() => { drag.current=null; setPose("idle"); }}
+        onPointerDown={e => { if (e.button !== 0) return; drag.current = { x: e.screenX, y: e.screenY, moved: false }; e.currentTarget.setPointerCapture(e.pointerId); if (holdTimer.current) clearTimeout(holdTimer.current); holdTimer.current = setTimeout(() => { if (drag.current && !drag.current.moved) setProtest(true); }, 700); }}
+        onPointerMove={e => { const start = drag.current; if (start && !start.moved && Math.hypot(e.screenX-start.x,e.screenY-start.y)>5) { start.moved = true; if (holdTimer.current) clearTimeout(holdTimer.current); setProtest(false); setPose("hanging"); void dragAvatar(); } }}
+        onPointerUp={() => { if (holdTimer.current) clearTimeout(holdTimer.current); setProtest(false); const d=drag.current; drag.current=null; if (d && !d.moved) { setPanel("status"); perform("happy",650); } }}
+        onPointerCancel={() => { if (holdTimer.current) clearTimeout(holdTimer.current); setProtest(false); drag.current=null; setPose("idle"); }}
         onClick={e => { if (e.detail === 0) setPanel("status"); }}>
         <span className={`pet-sprite pet-pose-${pose}`} style={{ ...petSpriteStyle(settings.appearance, column, row), transform: `scaleX(${direction})` }} />
       </button>

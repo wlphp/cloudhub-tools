@@ -21,6 +21,8 @@
 }
 .shared-content-dialog.shared-content-dialog { display: flex; flex-direction: column; box-sizing: border-box; width: min(1200px, calc(100vw - 32px)); max-width: calc(100vw - 32px); max-height: calc(100dvh - 32px); padding: 0; overflow: hidden; }
 .shared-content-dialog.shared-dialog-small { width: min(560px, calc(100vw - 32px)); }
+.login-maintenance-dialog > .modal-body .empty { padding: 30px 20px 24px; }
+.login-maintenance-dialog > .modal-body .empty p { margin-bottom: 0; }
 .shared-content-dialog > .modal-head { display: flex; align-items: center; gap: 10px; }
 .shared-content-dialog > .modal-head > div:not(.dialog-header-actions) { min-width: 0; }
 .shared-content-dialog > .modal-head h2 { margin: 0; font-size: 16px; overflow-wrap: anywhere; }

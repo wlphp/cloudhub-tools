@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { createPortal } from "react-dom";
 import { QRCodeSVG } from "qrcode.react";
 import { Camera, Copy, Cpu, Download, Eye, HardDrive, LayoutDashboard, Monitor, Network, RefreshCw, ShieldCheck, X } from "lucide-react";
 import { SharedDialog } from "../../shared/SharedDialog";
 import { pluginsClient, type HardwareInfo, type WifiPasswordReveal } from "../../platform/clients/plugins";
+import { PLUGIN_PAGE_HEAD_EXTRA_ID } from "./PluginSurface";
 
 interface Props { open: boolean; onOpened: () => void }
 
@@ -163,6 +165,8 @@ export function HardwareInfoPlugin({ open, onOpened }: Props) {
   const [cameraBusy, setCameraBusy] = useState(false);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [activePanel, setActivePanel] = useState<(typeof infoPanels)[number]["id"]>("overview");
+  const [headExtraTarget, setHeadExtraTarget] = useState<HTMLElement | null>(null);
+  useEffect(() => { setHeadExtraTarget(document.getElementById(PLUGIN_PAGE_HEAD_EXTRA_ID)); }, []);
   const wifiRequestRef = useRef(0);
   const infoRequestRef = useRef(0);
   const cameraRequestRef = useRef(0);
@@ -306,11 +310,12 @@ export function HardwareInfoPlugin({ open, onOpened }: Props) {
   }
   if (!open) return null;
   const shell = <section ref={dialogRef} className="plugin-content hardware-info-dialog" aria-label="电脑信息内容" aria-busy={busy}>
-      <div className="plugin-content-toolbar">
+      {headExtraTarget && createPortal(<>
         <button type="button" className="secondary hardware-info-refresh" onClick={() => void refresh()} disabled={busy} aria-label="刷新电脑信息"><RefreshCw size={15} aria-hidden="true" />刷新</button>
-      </div>
+        {info?.updatedAt && <span className="hardware-info-updated" role="status">最近一次完整采集：{info.updatedAt}</span>}
+      </>, headExtraTarget)}
       <div className="plugin-content-body hardware-info-body">
-        <p className="hardware-info-cache-note" role="note">电脑信息会缓存在本设备本地；打开面板先显示缓存，并自动更新外接显示器、当前 Wi-Fi 和局域网 IP。点击右上角“刷新”会重新采集全部信息并更新缓存。{info?.updatedAt && <span> 最近一次完整采集：{info.updatedAt}</span>}</p>
+        <p className="hardware-info-cache-note" role="note">电脑信息会缓存在本设备本地；打开面板先显示缓存，并自动更新外接显示器、当前 Wi-Fi 和局域网 IP。点击上方“刷新”会重新采集全部信息并更新缓存。</p>
         {failure && <p className="hardware-info-error" role="alert">{failure}</p>}
         {message && <p className="hardware-info-message" role="status">{message}</p>}
         {busy && !info ? <p role="status">正在读取本机电脑信息…</p> : info && <>

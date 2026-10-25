@@ -6,8 +6,10 @@ pub fn avatar_bounds(p: (i32,i32), window_height: u32, pet_size: u32, scale: f64
     ((p.0+(40.*scale).round() as i32,p.1+window_height as i32-size as i32-(12.*scale).round() as i32),(size,size))
 }
 
-/// Windows starts caption dragging asynchronously. Its IPC acknowledgement is not a drop event.
-pub async fn wait_for_drop() -> Result<(), String> {
+/// Whether the primary mouse button is currently pressed, honoring the
+/// swapped-button setting. Non-Windows targets have no global query and
+/// always report released.
+pub fn primary_pressed() -> bool {
     #[cfg(target_os = "windows")]
     {
         #[link(name = "user32")]
@@ -16,7 +18,17 @@ pub async fn wait_for_drop() -> Result<(), String> {
             fn GetSystemMetrics(index: i32) -> i32;
         }
         let primary = if unsafe { GetSystemMetrics(23) } != 0 { 0x02 } else { 0x01 };
-        wait_until_released(|| unsafe { GetAsyncKeyState(primary) } < 0).await?;
+        return unsafe { GetAsyncKeyState(primary) } < 0;
+    }
+    #[cfg(not(target_os = "windows"))]
+    false
+}
+
+/// Windows starts caption dragging asynchronously. Its IPC acknowledgement is not a drop event.
+pub async fn wait_for_drop() -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        wait_until_released(primary_pressed).await?;
     }
     Ok(())
 }

@@ -112,6 +112,8 @@
 .hardware-info-body { overflow-x: hidden; overflow-y: auto; padding: 20px; }
 .hardware-info-cache-note { margin: 0 0 12px; padding: 9px 11px; border-left: 3px solid var(--jb-accent); border-radius: 3px; background: var(--jb-surface-2); color: var(--jb-muted); font-size: 12px; line-height: 1.6; }
 .hardware-info-cache-note span { display: inline-block; margin-left: 4px; color: var(--jb-text); }
+.hardware-info-dialog .plugin-content-toolbar { justify-content: flex-start; align-items: center; gap: 10px; }
+.hardware-info-updated { color: var(--jb-muted); font-size: 12px; }
 .hardware-info-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .hardware-info-summary article { min-width: 0; padding: 14px; border: 1px solid var(--jb-border); border-radius: 6px; background: var(--jb-surface-2); }
 .hardware-info-summary article span { display: flex; align-items: center; gap: 7px; color: var(--jb-muted); font-size: 12px; }
@@ -385,6 +387,20 @@
 }
 .ide-theme :where(.toolbar, .layui-toolbar, .asset-list-toolbar, .utility-toolbar, .favorite-toolbar, .managed-server-toolbar, .panel-management-toolbar) { padding: 10px 12px !important; }
 .ide-theme :where(.resource-account-switcher, .favorite-search, .search, .esa-site-search, .terminal-host-search) { border-color: var(--jb-border-strong) !important; border-radius: 3px !important; background: var(--jb-input) !important; color: var(--jb-muted) !important; }
+/* 包裹式搜索框：边框由外层容器承担，内层输入框不再叠加边框形成双框 */
+.ide-theme :where(.auth-search, .search, .favorite-search, .esa-site-search, .terminal-host-search) :where(input) {
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+.ide-theme :where(.auth-search, .search, .favorite-search, .esa-site-search, .terminal-host-search) :where(input):focus {
+  border: 0 !important;
+  box-shadow: none !important;
+}
+.ide-theme :where(.auth-search, .search, .favorite-search, .esa-site-search, .terminal-host-search):focus-within {
+  border-color: var(--jb-accent) !important;
+  box-shadow: 0 0 0 2px rgba(234,88,12,.15) !important;
+}
 .ide-theme :where(.resource-account-switcher, .favorite-toolbar) { box-shadow: none !important; }
 .ide-theme :where(.local-resource-page .resource-account-switcher select, .resource-account-switcher select) { min-width: 260px; height: 34px; }
 
@@ -954,10 +970,10 @@
   background: var(--jb-input) !important;
   color: var(--jb-subtle) !important;
 }
-.ide-theme .terminal-stage-empty > svg { width: 42px; height: 42px; color: var(--jb-subtle) !important; }
-.ide-theme .terminal-stage-empty h1 { color: var(--jb-text); font-size: 17px; font-weight: 500; }
-.ide-theme .terminal-stage-empty p { max-width: 390px; color: var(--jb-subtle); font-size: 12px; }
-.ide-theme .terminal-stage-empty .layui-btn { min-height: 30px; height: 30px; margin-top: 2px; }
+.ide-theme .terminal-stage-empty .terminal-empty-art { width: min(300px, 60vw); height: auto; margin-bottom: 12px; }
+.ide-theme .terminal-stage-empty h1 { color: var(--jb-text); font-size: 18px; font-weight: 600; margin-bottom: 10px; }
+.ide-theme .terminal-stage-empty p { max-width: 400px; color: var(--jb-subtle); font-size: 12px; margin-bottom: 22px; }
+.ide-theme .terminal-stage-empty .layui-btn { min-height: 34px; height: 34px; margin-top: 0; }
 .ide-theme .terminal-stage { position: relative; }
 .ide-theme .terminal-stage.is-loading > :not(.terminal-stage-loading) { visibility: hidden; }
 .ide-theme .terminal-stage-loading { position: absolute; z-index: 2; inset: 0; display: grid; place-content: center; justify-items: center; gap: 10px; background: var(--jb-input); color: var(--jb-muted); }
@@ -1073,8 +1089,8 @@
 }
 .ide-theme .ssh-terminal-theme-menu button { height: 28px; border-radius: 2px; color: var(--jb-muted); font-size: 11px; }
 .ide-theme .ssh-terminal-theme-menu button:hover,
-.ide-theme .ssh-terminal-theme-menu button.active { background: var(--jb-accent-soft) !important; color: var(--jb-accent-soft); }
-.ide-theme .ssh-terminal-viewport { padding: 10px 12px 12px; background: var(--jb-bg) !important; }
+.ide-theme .ssh-terminal-theme-menu button.active { background: var(--jb-accent-soft) !important; color: var(--jb-accent-strong); }
+.ide-theme .ssh-terminal-viewport { padding: 16px 12px 16px 16px; }
 /* 终端底部命令栏：颜色跟随 IDE 主题变量，深色外壳下仍保持可见 */
 .ide-theme .ssh-terminal-pane { background: var(--jb-bg) !important; }
 .ide-theme .ssh-terminal-input-bar { background: var(--jb-surface) !important; border-top-color: var(--jb-border) !important; }
@@ -1476,8 +1492,16 @@
 }
 .ide-theme .panel-resource-metric i b,
 .ide-theme .panel-disk-volume i b {
-  background: var(--jb-accent);
+  background: var(--jb-green);
   box-shadow: none;
+}
+.ide-theme .panel-resource-metric i b.is-warning,
+.ide-theme .panel-disk-volume i b.is-warning {
+  background: var(--jb-warning);
+}
+.ide-theme .panel-resource-metric i b.is-critical,
+.ide-theme .panel-disk-volume i b.is-critical {
+  background: var(--jb-danger);
 }
 .ide-theme .panel-network-rate.up { color: var(--jb-yellow); }
 .ide-theme .panel-network-rate.down { color: var(--jb-accent-strong); }
@@ -1957,6 +1981,10 @@
 .ide-theme .local-resource-page .asset-list-toolbar select {
   min-width: 118px;
 }
+.ide-theme .local-resource-page .asset-list-toolbar .resource-account-select { flex: 0 0 190px; width: 190px; min-width: 0; }
+.ide-theme .local-resource-page .asset-list-toolbar .ai-assist-button { height: 30px !important; min-height: 30px !important; padding: 0 9px !important; font-size: 12px !important; white-space: nowrap; flex: 0 0 auto; }
+.ide-theme .local-resource-page .asset-list-toolbar .asset-expiry-input { flex: 0 0 84px; min-width: 84px; }
+.ide-theme .local-resource-page .asset-list-toolbar .asset-filter-clear { height: 30px; padding: 0 9px; border-radius: 3px; font-size: 12px; }
 .ide-theme .local-resource-page .local-assets-panel table {
   min-width: 1060px;
 }
@@ -2401,6 +2429,26 @@
   border-color: #9b5c66 !important;
   background: #5a3038 !important;
   color: #f3b8b8 !important;
+}
+
+/* 浅色主题：实心强调按钮统一白字（深色文字在橙底上发闷） */
+body.theme-light :where(.primary, .primary-update-btn, .app-confirm-primary, .resource-actions .action-text:not(.danger), .layui-btn-normal, .panel-toolbar-add) { color: #ffffff !important; }
+
+/* 浅色主题：portal 弹层里的危险操作按钮改用浅红淡底 */
+body.theme-light .resource-modal-backdrop .server-reference .server-actions .layui-btn-danger {
+  border-color: #efc3c8 !important;
+  background: #f9e9eb !important;
+  color: #b3424c !important;
+}
+body.theme-light .resource-modal-backdrop .server-reference .server-actions .layui-btn-danger:hover:not(:disabled) {
+  border-color: #d98894 !important;
+  background: #f9e0e4 !important;
+  color: #992e38 !important;
+}
+body.theme-light :where(.modal-backdrop, .resource-modal-backdrop, .terminal-connect-backdrop) .layui-btn-danger {
+  border-color: #efc3c8 !important;
+  background: #f9e9eb !important;
+  color: #b3424c !important;
 }
 
 @media (max-width: 650px) {
@@ -2875,11 +2923,12 @@ body.pane-resizing .ide-theme > .app-main-sidebar{transition:none}
 .identity-menu{position:fixed;display:grid;gap:2px;width:200px;padding:6px;border:1px solid var(--jb-border);border-radius:10px;background:var(--jb-surface)}
 .identity-menu-head{display:flex;align-items:center;gap:11px;margin-bottom:4px;padding:13px 10px 11px;border-bottom:1px solid var(--jb-border)}
 .identity-menu .app-sidebar-avatar{flex:none;width:38px;height:38px;border-radius:50%;display:grid;place-items:center;font-size:19px;line-height:1;user-select:none}
+.app-sidebar-avatar-anon{background:var(--jb-surface-3);color:var(--jb-muted)}
 .identity-menu-title{display:grid;gap:3px;min-width:0;flex:1;text-align:left}
 .identity-menu-title strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;color:var(--jb-text)}
-.identity-menu-title small{display:flex;align-items:center;gap:5px;color:var(--jb-muted);font-size:11.5px}
-.identity-menu-title small button{flex:none;display:grid;place-items:center;width:20px;height:20px;padding:0;border:0;border-radius:4px;background:transparent;color:var(--jb-muted);cursor:pointer}
-.identity-menu-title small button:hover{background:var(--jb-surface-2,rgba(255,255,255,.06));color:var(--jb-text)}
+.identity-login-button{flex:none;min-height:26px;padding:0 12px;border:1px solid var(--jb-accent-soft);border-radius:6px;background:var(--jb-accent);color:var(--jb-text);font-size:12px;font-weight:600;cursor:pointer}
+.identity-login-button:hover{border-color:var(--jb-accent-strong);background:var(--jb-accent-strong)}
+.identity-login-button:focus-visible{outline:2px solid var(--jb-accent);outline-offset:1px}
 .identity-menu-group{display:grid;gap:2px}
 .identity-menu-group+.identity-menu-group{margin-top:4px;padding-top:4px;border-top:1px solid var(--jb-border)}
 .identity-menu button[role=menuitem]{display:flex;align-items:center;gap:10px;width:100%;padding:9px 10px;border:0;border-radius:7px;background:transparent;color:var(--jb-text);font:inherit;font-size:13px;text-align:left;cursor:pointer}
@@ -2911,6 +2960,20 @@ body.theme-light :where(.ide-theme,.identity-menu){
 }
 body.theme-light .ide-theme{background:var(--jb-bg)}
 body.theme-light{background:#f0f0f1}
+/* 浅色主题：--jb-* / --ui-* 令牌在 body 级跟随变亮，portal 到 body 的弹层与 flow 等模块不再拿到深色值 */
+body.theme-light{
+  --jb-bg:#f7f7f8;--jb-sidebar:#f0f0f1;--jb-surface:#ffffff;--jb-surface-2:#f3f3f4;--jb-surface-3:#eaeaea;--jb-input:#ffffff;
+  --jb-border:#e4e4e5;--jb-border-strong:#cfcfd2;
+  --jb-text:#1d1d1f;--jb-muted:#67676c;--jb-subtle:#97979c;
+  --jb-accent:#ea580c;--jb-accent-strong:#d14e08;--jb-accent-soft:#fdeadd;
+  --jb-blue:#1774d6;--jb-green:#12967a;--jb-yellow:#a8731f;--jb-red:#d2454f;
+  --jb-success:#12967a;--jb-warning:#a8731f;--jb-danger:#d2454f;
+  --ui-bg:#f7f7f8;--ui-surface:#ffffff;--ui-surface-raised:#f3f3f4;--ui-surface-muted:#f0f0f1;--ui-panel:#ffffff;
+  --ui-border:#e4e4e5;--ui-border-strong:#cfcfd2;
+  --ui-text:#1d1d1f;--ui-text-muted:#67676c;--ui-text-subtle:#67676c;--ui-muted:#67676c;
+  --ui-accent:#ea580c;--ui-accent-strong:#d14e08;--ui-focus:#d14e08;
+  --ui-success:#12967a;--ui-warning:#a8731f;--ui-danger:#d2454f;
+}
 body.theme-light .ide-theme :where(.modal-actions,.app-confirm-actions){background:var(--jb-surface-2)!important}
 body.theme-light .ide-theme :where(.security-group-note,.error-list,.bucket-detail-box,.memory-bar,.db-list,.whois-result){background:var(--jb-surface-2)!important}
 body.theme-light .ide-theme .ssh-terminal-meta{background:var(--jb-surface-2)!important}
@@ -2925,8 +2988,33 @@ body.theme-light .modal-backdrop,body.theme-light .resource-modal-backdrop,body.
 /* 浅色主题：语义徽章与危险按钮改用浅色淡底 */
 body.theme-light .ide-theme .status-switch.checked{border-color:#bfe6d9!important;background:#e7f7f1!important;color:var(--jb-success)!important}
 body.theme-light .ide-theme .account-section .resource-actions .danger{border-color:#f0c5c9!important;background:#fbeaec!important;color:var(--jb-danger)!important}
-body.theme-light .ide-theme :where(.layui-btn-danger,.resource-actions .danger,.asset-force-reboot-button,.asset-cache-delete-button){border-color:#efc3c8!important;background:#f9e9eb!important;color:var(--jb-danger)!important}
+body.theme-light .ide-theme :where(.layui-btn-danger,.resource-actions .danger,.asset-force-reboot-button,.asset-cache-delete-button,.dns-action-btn.danger,.ssh-disconnect-button){border-color:#efc3c8!important;background:#f9e9eb!important;color:var(--jb-danger)!important}
+body.theme-light .ide-theme :where(.ssh-disconnect-button):hover:not(:disabled){border-color:#e5a3ab!important;background:#f5dadd!important;color:#a83242!important}
+body.theme-light .ide-theme :where(.layui-btn-warm,.resource-actions .orange,.clear-log-button){border-color:#ecd3a0!important;background:#fdf3dd!important;color:#9a6b12!important}
+body.theme-light .ide-theme :where(.layui-btn-warm,.resource-actions .orange,.clear-log-button):hover:not(:disabled){border-color:#d9b96e!important;background:#fae8bf!important;color:#7c5207!important}
+body.theme-light .ide-theme .resource-modal-backdrop .server-reference .server-actions .layui-btn-danger{border-color:#efc3c8!important;background:#f9e9eb!important;color:var(--jb-danger)!important}
+body.theme-light .ide-theme .resource-modal-backdrop .server-reference .server-actions .layui-btn-danger:hover:not(:disabled){border-color:#e5a3ab!important;background:#f5dadd!important;color:#a83242!important}
+body.theme-light .ide-theme .account-section .resource-actions :where(.danger,.action-text.danger){border-color:#efc3c8!important;background:#f9e9eb!important;color:var(--jb-danger)!important}
+body.theme-light .ide-theme .account-section .resource-actions :where(.danger,.action-text.danger):hover:not(:disabled){border-color:#e5a3ab!important;background:#f5dadd!important;color:#a83242!important}
+body.theme-light .ide-theme .local-resource-page .asset-action-buttons :where(.asset-force-reboot-button,.asset-cache-delete-button){border-color:#efc3c8!important;background:#f9e9eb!important;color:var(--jb-danger)!important}
+body.theme-light .ide-theme .local-resource-page .asset-action-buttons :where(.asset-force-reboot-button,.asset-cache-delete-button):hover:not(:disabled){border-color:#e5a3ab!important;background:#f5dadd!important;color:#a83242!important}
+body.theme-light .ide-theme .utility-page .clear-log-button{border-color:#ecd3a0!important;background:#fdf3dd!important;color:#9a6b12!important}
+body.theme-light .ide-theme .utility-page .clear-log-button:hover:not(:disabled){border-color:#d9b96e!important;background:#fae8bf!important;color:#7c5207!important}
+body.theme-light .ide-theme .utility-page :where(.log-success,.setting-state.on,.dns-status.on,.ssh-connected){border-color:#bfe6d9!important;background:#e7f7f1!important;color:var(--jb-success)!important}
+body.theme-light .ide-theme .utility-page .log-failure{border-color:#f0c5c9!important;background:#fbeaec!important;color:var(--jb-danger)!important}
+body.theme-light .ide-theme .wsl-distro-actions button.wsl-action-stop{border-color:#efc3c8!important;background:#f9e9eb!important;color:var(--jb-danger)!important}
+body.theme-light .ide-theme .wsl-distro-actions button.wsl-action-stop:hover:not(:disabled){border-color:#e5a3ab!important;background:#f5dadd!important;color:#a83242!important}
+body.theme-light .app-confirm-icon{border-color:#f0d9a8!important;background:#fdf3dd!important;color:#b45309!important}
 body.theme-light .ide-theme :where(.log-failure,.ssh-file-error,.terminal-host-card-state.offline){border-color:#f0c5c9!important;background:#fbeaec!important;color:var(--jb-danger)!important}
+/* 浅色主题：面板管理的重启/删除按钮与指标条改用浅色配色，避免深色块压在浅色卡片上 */
+body.theme-light .ide-theme .panel-reboot-button{border-color:#e7d3a8!important;background:#fdf3dd!important;color:#9a6b12!important}
+body.theme-light .ide-theme .panel-reboot-button:hover:not(:disabled){border-color:#d9b96e!important;background:#fae8bf!important;color:#7c5207!important}
+body.theme-light .ide-theme .panel-delete-button{border-color:#efc3c8!important;background:#f9e9eb!important;color:var(--jb-danger)!important}
+body.theme-light .ide-theme .panel-delete-button:hover:not(:disabled){border-color:#e5a3ab!important;background:#f5dadd!important;color:#a83242!important}
+body.theme-light .ide-theme .panel-resource-metric i b.is-warning,
+body.theme-light .ide-theme .panel-disk-volume i b.is-warning{background:#f59e0b!important}
+body.theme-light .ide-theme .panel-resource-metric i b.is-critical,
+body.theme-light .ide-theme .panel-disk-volume i b.is-critical{background:#e5484d!important}
 .identity-submenu button:focus-visible{outline:2px solid var(--jb-accent);outline-offset:-1px}
 .ide-theme .terminal-host-tree{padding:4px 6px 10px}
 .ide-theme .terminal-host-group{margin:2px 0 0}
@@ -3051,6 +3139,7 @@ body.theme-light .ide-theme :where(.log-failure,.ssh-file-error,.terminal-host-c
   padding: 16px;
   scroll-padding-block: 16px;
 }
+.modal-form-layout > .modal-form-content > .modal-body > :is(label, .form-grid, .security-tip, .managed-host-choice, .panel-ssh-section, .panel-bind-steps, .panel-insecure-tls, .asset-check-grid, .asset-sync-account, .api-log-meta, .api-log-section, .api-log-message),
 .modal-form-layout > .modal-body > :is(label, .form-grid, .security-tip, .managed-host-choice, .panel-ssh-section, .panel-bind-steps, .panel-insecure-tls, .asset-check-grid, .asset-sync-account, .api-log-meta, .api-log-section, .api-log-message) {
   margin-left: 0 !important;
   margin-right: 0 !important;
@@ -3251,3 +3340,14 @@ body.theme-light .ide-theme .more-menu button:hover{background:var(--jb-surface-
 .ide-theme .terminal-host-platform i{left:14px;right:auto}
 .ide-theme .terminal-host-cloud{position:static;width:13px;height:13px;border:1px solid var(--jb-sidebar);border-radius:4px;font-size:8px}
 .ide-theme .terminal-host-cloud svg{width:9px;height:9px}
+.ide-theme .ai-resource-filters .resource-filter-fields .resource-account-select { width: 220px; }
+.store-list-footer span:only-child { margin-left: auto; }
+.ai-log-analysis { display: flex; align-items: center; gap: 10px; min-width: 0; flex-wrap: wrap; }
+.ai-log-analysis .ai-assist-button { height: 28px; min-height: 28px; padding: 0 9px; font-size: 12px; gap: 5px; flex: 0 0 auto; }
+.ai-log-analysis .ai-assist-button svg { width: 13px; height: 13px; }
+.ai-log-analysis small { font-size: 11px; color: var(--jb-subtle); }
+
+/* 浅色主题：面板绑定弹窗的 HTTPS 警示条改用浅色暖黄 */
+body.theme-light .modal-backdrop .panel-bind-modal .panel-insecure-tls { border-color: #e3cf9a; background: #fbf4e0; color: #8a6a1c; }
+body.theme-light .modal-backdrop .panel-bind-modal .panel-insecure-tls small { color: #a3906a; }
+body.theme-light .modal-backdrop .panel-bind-modal .panel-insecure-tls input { accent-color: #d19b2f; }

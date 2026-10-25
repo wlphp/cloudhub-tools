@@ -40,3 +40,15 @@
 .flow-job-card .flow-log-retry{display:inline-grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:4px;background:transparent;color:var(--jb-muted);cursor:pointer}.flow-job-card .flow-log-retry:hover{background:var(--jb-surface-2);color:var(--jb-text)}.flow-job-card .flow-log-retry:disabled{opacity:.55;cursor:wait}
 .flow-job-card .flow-log-toggle{margin-left:auto}
 .flow-recent-note{margin:0;padding:8px 16px;color:var(--ui-muted,var(--jb-muted));font-size:12px;line-height:1.5;border-bottom:1px solid var(--ui-border,var(--jb-surface-2))}
+
+/* 页头连接操作组：统一高度、圆角与对齐 */
+.flow-page-header{align-items:center}
+.flow-toolbar-actions select{height:34px}
+.flow-page .flow-toolbar-actions .secondary{height:34px;min-height:34px;padding:0 12px;border-radius:6px}
+.flow-toolbar-actions .primary{height:34px;min-height:34px;padding:0 14px;border-radius:6px}
+.flow-toolbar-actions .icon-button{width:34px;height:34px;min-width:34px;border-radius:6px}
+
+/* 标题行内嵌搜索：紧凑并与刷新按钮同行 */
+.flow-panel-title{align-items:center}
+.flow-panel-title .flow-list-toolbar{margin:0 0 0 auto}
+.flow-panel-title .flow-search{margin:0;width:min(300px,42vw)}

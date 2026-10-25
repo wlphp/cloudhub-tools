@@ -57,10 +57,10 @@ html.pet-window-page,html.pet-window-page body,html.pet-window-page #root{backgr
 .pet-settings-section .pet-option>span{min-width:0;line-height:1.5}
 .pet-settings-section .pet-option small{margin:2px 0 0;font-size:11px;font-weight:400;line-height:1.4;color:var(--jb-muted,var(--jb-muted))}
 .pet-settings-section .pet-option select{flex:0 0 124px;width:124px;min-width:0;max-width:124px;height:30px;padding:3px 7px;border:1px solid var(--jb-border-strong,#555);border-radius:4px;background:var(--jb-input,var(--jb-surface));color:var(--jb-text,var(--jb-text));font:inherit}
-.pet-settings-section .pet-option input[type=checkbox]{appearance:none;position:relative;flex:0 0 28px;width:28px;height:16px;margin:0;padding:0;border:1px solid var(--jb-border-strong,var(--jb-subtle));border-radius:9px!important;background:var(--jb-input,var(--jb-surface));cursor:pointer;box-shadow:none}
-.pet-settings-section .pet-option input[type=checkbox]::after{content:"";position:absolute;top:2px;left:2px;width:10px;height:10px;border-radius:50%;background:var(--jb-muted,var(--jb-muted))}
+.pet-settings-section .pet-option input[type=checkbox]{appearance:none;position:relative;flex:0 0 32px;width:32px;height:18px;margin:0;padding:0;border:1px solid var(--jb-border-strong,var(--jb-subtle));border-radius:10px!important;background:var(--jb-surface-3,var(--jb-surface));cursor:pointer;box-shadow:none;transition:background .15s,border-color .15s}
+.pet-settings-section .pet-option input[type=checkbox]::after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;background:var(--jb-muted,var(--jb-muted));transition:left .15s ease,background .15s ease}
 .pet-settings-section .pet-option input[type=checkbox]:checked{background:var(--jb-accent,var(--jb-blue))!important;border-color:var(--jb-accent,var(--jb-blue))!important}
-.pet-settings-section .pet-option input[type=checkbox]:checked::after{left:14px;background:var(--jb-text,#fff)}
+.pet-settings-section .pet-option input[type=checkbox]:checked::after{left:16px;background:#fff}
 .pet-settings-section .pet-option input:disabled,.pet-settings-section .pet-option select:disabled{opacity:.45;cursor:default}
 .pet-settings-section .pet-option :focus-visible{outline:2px solid var(--jb-accent,var(--jb-blue));outline-offset:3px}
 .pet-settings-section .pet-control-card>header>.pet-option{justify-content:flex-start;gap:12px;min-height:28px;padding:0;color:var(--jb-muted,var(--jb-muted))}
@@ -193,6 +193,7 @@ html.pet-window-page,html.pet-window-page body,html.pet-window-page #root{backgr
 .pet-chat .ai-image-editor:focus-visible{outline:2px solid var(--jb-blue);outline-offset:-2px}
 @media(max-width:400px){.pet-chat-compose-tools>small{font-size:9px}.pet-chat-vision{display:none}}
 .pet-speech-bubble{position:absolute;left:12px;right:12px;bottom:calc(var(--pet-size) + 22px);border:1px solid #72624d;border-radius:14px;background:#2c2926;color:#eee6dc;box-shadow:0 6px 20px #0004}
+.pet-stage .pet-speech-bubble.pet-protest{pointer-events:none;display:block;padding:10px 12px;text-align:center;font-weight:600;letter-spacing:.5px}
 .pet-speech-bubble::after{content:"";position:absolute;left:68px;bottom:-7px;width:12px;height:12px;transform:rotate(45deg);background:inherit;border-right:1px solid #72624d;border-bottom:1px solid #72624d;pointer-events:none}
 .pet-speech-bubble.critical{border-color:#86565c;background:#30272c}.pet-speech-bubble.critical::after{border-color:#86565c}
 .pet-speech-bubble.recovered{border-color:#517466;background:#252f2b}.pet-speech-bubble.recovered::after{border-color:#517466}

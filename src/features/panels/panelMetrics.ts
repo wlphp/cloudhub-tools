@@ -176,6 +176,14 @@ export function panelDiskInfo(value: unknown): PanelDiskInfo {
   return panelDiskItems(value)[0] || { path: "-", detail: "-", percent: null };
 }
 
+/** 指标条语义分色阈值：低于 60% 正常，60%-85% 预警，85% 及以上告急。 */
+export function panelMetricLevel(percent: number | null): "is-ok" | "is-warning" | "is-critical" {
+  if (percent === null) return "is-ok";
+  if (percent >= 85) return "is-critical";
+  if (percent >= 60) return "is-warning";
+  return "is-ok";
+}
+
 export function panelNetworkInfo(value: unknown): { up: string; down: string } {
   const record = panelMetricRecord(value);
   const directUp = panelMetricField(value, ["up", "upload"]);

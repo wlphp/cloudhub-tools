@@ -12,6 +12,7 @@ export const cloudHubAboutStarDismissedStorageKey = "cloudhub-tools-about-star-d
 export const cloudHubUiZoomStorageKey = "cloudhub-tools-ui-zoom";
 export const cloudHubUiThemeStorageKey = "cloudhub-tools-ui-theme";
 export const cloudHubUiLanguageStorageKey = "cloudhub-tools-ui-language";
+export const cloudHubBackFabPositionStorageKey = "cloudhub-tools-back-fab-position";
 
 export const terminalThemes = {
   dark: {
