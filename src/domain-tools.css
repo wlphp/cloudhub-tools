@@ -3,6 +3,10 @@
 .resource-modal-backdrop.domain-tool-backdrop{padding:.5dvh .5vw;box-sizing:border-box}
 .resource-modal-backdrop .domain-tool-modal.is-maximized{width:99vw!important;max-width:99vw!important;max-height:99dvh!important;height:99dvh!important}
 .domain-tool-body{padding:18px 22px;overflow:auto;min-height:240px;background:var(--jb-bg);color:var(--jb-text)}
+/* 标题以全角【开头：悬挂半个字宽，让括号墨迹与眉标左缘对齐。 */
+.domain-tool-modal .shared-dialog-heading h2{text-indent:-.5em}
+/* WHOIS 文本卡片左右出血到弹窗边缘，文字与头部 20px 内边距对齐（随 body 的 22px 联动）。 */
+.domain-tool-body .whois-result{margin:0 -22px;padding:16px 20px;border:0;border-block:1px solid var(--jb-border);border-radius:0}
 .domain-tool-modal.is-maximized .domain-tool-body{flex:1;display:flex;flex-direction:column;min-height:0;max-height:none!important}
 .domain-tool-modal.is-maximized .dns-table-wrap{flex:1;overflow:auto}
 .rds-reference,.redis-reference,.oss-reference,.swas-reference,.esa-reference{background:var(--jb-bg);color:var(--jb-text);padding:24px 28px;flex:1;overflow:auto}
