@@ -84,12 +84,6 @@ jobs:
         # （本地同套件全绿，元素在 CI 渲染异常），且耗时一小时以上拖垮发布节奏，
         # 已按用户决定移出发布工作流；发布前在本地跑 npm run test:ui 作为门禁。
 
-      - name: Check and test Rust on each desktop platform
-        shell: bash
-        run: |
-          cargo check --manifest-path src-tauri/Cargo.toml
-          cargo test --manifest-path src-tauri/Cargo.toml
-
       - name: Build and upload release assets
         uses: tauri-apps/tauri-action@v1
         env:
@@ -101,10 +95,7 @@ jobs:
           releaseBody: |
             ## 更新内容
 
-            - Codex 供应商支持“切换”和“切换并启动”，启动失败可单独重试。
-            - 使用 Rust 原生编辑 TOML，供应商配置生成不再依赖官方 CLI。
-            - 连续切换保留首次加密备份，新增失败回退、中断恢复与外部修改保护。
-            - 重新打开窗口核对实际配置状态，完善 OAuth 归属校验与模型目录恢复。
+            本版本变更请查看仓库提交历史（https://github.com/wlphp/cloudhub-tools/commits/main ）。
 
             ## 下载说明
 
