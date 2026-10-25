@@ -596,7 +596,7 @@ body.theme-light .ide-theme .error-list{color:#b3424c;background:#fceef0;border:
 
 /* 页头统计：标题右侧紧凑统计块（云账号 / 资源管理 / 我的收藏） */
 .page-header-stats{display:flex;align-items:flex-end;justify-content:space-between;gap:18px 24px;flex-wrap:wrap}
-.page-header-stats .header-stat-panel{display:flex;flex-direction:column;align-items:flex-end;gap:8px;min-width:0}
+.page-header-stats .header-stat-panel{display:flex;flex-direction:column;align-items:flex-end;gap:8px;min-width:0;margin-left:auto}
 .page-header-stats .header-stat-tiles{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
 .page-header-stats .header-stat-tile{display:flex;align-items:baseline;gap:6px;padding:6px 12px;border:1px solid var(--jb-border);border-radius:8px;background:var(--jb-surface)}
 .page-header-stats .header-stat-tile span{color:var(--jb-muted);font-size:11px}
@@ -609,6 +609,8 @@ body.theme-light .ide-theme .error-list{color:#b3424c;background:#fceef0;border:
 button.header-stat-chip{cursor:pointer}
 button.header-stat-chip:hover{border-color:var(--jb-accent);color:var(--jb-accent-strong)}
 button.header-stat-chip.active{border-color:var(--jb-accent);background:var(--jb-accent-soft);color:var(--jb-accent-strong)}
+/* 窄屏（手机端）换行后统计块仍保持左对齐，沿用移动端既有外观 */
+@media(max-width:680px){.page-header-stats .header-stat-panel{margin-left:0}}
 
 /* 统一「更多」下拉菜单（对齐面板管理配置菜单的样式） */
 .shared-more-wrap{position:relative;display:inline-flex}
