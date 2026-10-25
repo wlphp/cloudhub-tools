@@ -26,7 +26,9 @@ jobs:
         include:
           - name: Windows x64
             platform: windows-2022
-            args: --target x86_64-pc-windows-msvc --bundles nsis,msi
+            # WiX 3.x 的 light.exe 在 CI 上依赖 .NET Framework 3.5 重启后才生效，
+            # 启用步骤无法挽救（v0.1.86/v0.1.89 两次复现），Windows 固定只发 NSIS
+            args: --target x86_64-pc-windows-msvc --bundles nsis
           - name: macOS Intel
             platform: macos-15-intel
             args: --target x86_64-apple-darwin --bundles app,dmg
@@ -64,13 +66,6 @@ jobs:
             echo "TAURI_SIGNING_PRIVATE_KEY is required for signed updater artifacts."
             exit 1
           fi
-
-      - name: Enable .NET Framework 3.5 for WiX
-        if: runner.os == 'Windows'
-        shell: powershell
-        # WiX 3.x 的 light.exe 依赖 .NET Framework 3.5，windows-2022 跑动机默认未启用，
-        # 缺失时 tauri build 在 MSI 打包阶段报 failed to run WixTools314\light.exe（v0.1.86）
-        run: Enable-WindowsOptionalFeature -Online -FeatureName NetFx3 -All -NoRestart | Out-Null
 
       - name: Run shared pre-release checks
         if: runner.os == 'Windows'

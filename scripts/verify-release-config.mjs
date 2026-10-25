@@ -48,7 +48,8 @@ if (/name:\s*Linux|--target x86_64-unknown-linux-gnu/.test(workflow)) {
   failures.push("发布范围暂不包含 Linux，请移除 Linux 桌面构建任务");
 }
 if (!workflow.includes("tauri-apps/tauri-action@v1")) failures.push("发布 workflow 缺少 Tauri 打包动作");
-if (!workflow.includes("--bundles nsis,msi")) failures.push("Windows 发布 workflow 必须同时生成 NSIS 和 MSI");
+if (!workflow.includes("--bundles nsis")) failures.push("Windows 发布 workflow 必须生成 NSIS 安装包");
+if (workflow.includes(",msi") || workflow.includes("msi,")) failures.push("CI 无法稳定打包 MSI（WiX light.exe 需 .NET 3.5 重启生效），Windows 仅保留 NSIS");
 if (!workflow.includes("TAURI_SIGNING_PRIVATE_KEY is required for signed updater artifacts.")) failures.push("发布 workflow 缺少更新器签名 Secret 预检");
 if (!workflow.includes("npm run verify:bundle-artifacts -- --platform windows")) failures.push("发布 workflow 缺少 Windows 安装包产物审计");
 
