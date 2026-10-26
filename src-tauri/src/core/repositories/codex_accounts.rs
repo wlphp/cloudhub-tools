@@ -153,7 +153,7 @@ fn import_with_encrypt(
             |row| Ok((row.get(0)?,row.get(1)?)),
         ).optional().map_err(|_| "查询 Codex 账号失败")?;
         let tags = serde_json::to_string(&account.tags).map_err(|_| "标签参数无效")?;
-        tx.execute("INSERT INTO codex_accounts(identity,label,email,account_id,auth_mode,plan,note,tags_json,auth_ciphertext,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10) ON CONFLICT(identity) DO UPDATE SET email=excluded.email,account_id=excluded.account_id,plan=excluded.plan,auth_ciphertext=excluded.auth_ciphertext,last_error=NULL,updated_at=MAX(codex_accounts.updated_at+1,excluded.updated_at)", params![account.identity, account.label, account.email, account.account_id, account.auth_mode, account.plan, account.note, tags, cipher, chrono::Utc::now().timestamp_millis()]).map_err(|_| "保存 Codex 账号失败")?;
+        tx.execute("INSERT INTO codex_accounts(identity,label,email,account_id,auth_mode,plan,note,tags_json,auth_ciphertext,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10) ON CONFLICT(identity) DO UPDATE SET email=excluded.email,account_id=excluded.account_id,plan=excluded.plan,label=CASE WHEN excluded.label LIKE '%@%' AND (codex_accounts.label NOT LIKE '%@%' OR codex_accounts.label = 'ChatGPT 账号') THEN excluded.label ELSE codex_accounts.label END,auth_ciphertext=excluded.auth_ciphertext,last_error=NULL,updated_at=MAX(codex_accounts.updated_at+1,excluded.updated_at)", params![account.identity, account.label, account.email, account.account_id, account.auth_mode, account.plan, account.note, tags, cipher, chrono::Utc::now().timestamp_millis()]).map_err(|_| "保存 Codex 账号失败")?;
         let account_id: i64 = tx.query_row("SELECT id FROM codex_accounts WHERE identity=?1", [&account.identity], |row| row.get(0)).map_err(|_| "读取 Codex 账号失败")?;
         let (message, changes, is_new) = if let Some((_, previous_cipher)) = previous {
             let prior = decrypt(&previous_cipher);
@@ -272,7 +272,19 @@ fn save_refresh_with_encrypt_and_details(
         .map(serde_json::to_string)
         .transpose()
         .map_err(|_| "保存 Codex 额度失败")?;
-    let changed = conn.execute("UPDATE codex_accounts SET auth_ciphertext=?1,quota_json=COALESCE(?2,quota_json),plan=COALESCE(?3,plan),last_error=?4,updated_at=MAX(updated_at+1,?5) WHERE id=?6 AND updated_at=?7", params![cipher, quota, plan, error, chrono::Utc::now().timestamp_millis(), id, expected]).map_err(|_| "保存 Codex 额度失败")?;
+    let (corrected_account_id, corrected_email) = if let Ok(mut accounts) = crate::core::codex::auth::parse_import(auth) {
+        if let Some(account) = accounts.pop() {
+            (account.account_id, account.email)
+        } else {
+            (None, None)
+        }
+    } else {
+        (None, None)
+    };
+    let changed = conn.execute(
+        "UPDATE codex_accounts SET auth_ciphertext=?1,quota_json=COALESCE(?2,quota_json),plan=COALESCE(?3,plan),account_id=CASE WHEN ?8 IS NOT NULL AND ?8 NOT LIKE 'user-%' THEN ?8 ELSE account_id END,email=COALESCE(?9,email),last_error=?4,updated_at=MAX(updated_at+1,?5) WHERE id=?6 AND updated_at=?7",
+        params![cipher, quota, plan, error, chrono::Utc::now().timestamp_millis(), id, expected, corrected_account_id, corrected_email],
+    ).map_err(|_| "保存 Codex 额度失败")?;
     if changed != 1 {
         return Err("Codex 账号已变更，请重新刷新".into());
     }

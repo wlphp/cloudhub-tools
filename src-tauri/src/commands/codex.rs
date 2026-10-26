@@ -49,21 +49,45 @@ pub(crate) async fn codex_force_refresh(app: tauri::AppHandle, id: i64) -> Platf
         let account = repository::get(&conn, id)?;
         let saved = auth::parse_import(&repository::credentials(&conn, id)?)?.remove(0);
         auth::ensure_runtime_auth(&saved.auth_json)?;
-        if saved.auth_mode != "chatgpt" || !auth::metadata(&saved.auth_json)?.has_refresh_token {
+        let default_home = profile::default_home()?;
+        let default_auth = match fs::symlink_metadata(default_home.join("auth.json")) {
+            Ok(_) => Some(auth::parse_import(&profile::read_auth(&default_home.join("auth.json"))?)?.remove(0)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(_) => return Err("检查 Codex 认证文件失败".into()),
+        }.filter(|current| current.identity == saved.identity);
+        let source = default_auth.as_ref().unwrap_or(&saved);
+        auth::ensure_runtime_auth(&source.auth_json)?;
+        // Import a grant already rotated by the owner before considering a new
+        // refresh. Reading its snapshot is safe even while the client is running.
+        if let Some(current) = &default_auth {
+            if current.auth_json.as_str() != saved.auth_json.as_str() && !auth::access_expiring(&current.auth_json) {
+                repository::save_refresh_action_with_details(&conn, id, account.updated_at, &current.auth_json, None, current.plan.as_deref(), None, "已同步默认客户端最新登录", None)?;
+                return auth::metadata(&current.auth_json);
+            }
+        }
+        if source.auth_mode != "chatgpt" || !auth::metadata(&source.auth_json)?.has_refresh_token {
             return Err("此账号没有可用的 Refresh Token，请重新授权或导入完整认证".into());
         }
-        // The default client owns its rotating grant, including while idle.
-        // Refuse a second writer rather than invalidate the client's session.
-        if profile::default_home().ok().and_then(|home| profile::read_auth(&home.join("auth.json")).ok())
-            .and_then(|v| auth::parse_import(&v).ok()).is_some_and(|v| v.iter().any(|a| a.identity == saved.identity)) {
-            return Err(format!("无法刷新 Token：此账号由默认 Codex 客户端管理（配置目录：{}），请在该客户端续期后重新导入本机登录", profile::default_home()?.display()));
-        }
-        let isolated = profile::TemporaryProfile::new(&saved.auth_json)?;
+        // An idle default profile can be refreshed by its official CLI in place.
+        // Never fork its rotating grant into a temporary profile: that leaves the
+        // desktop client holding an invalid refresh token on its next launch.
+        let isolated = if default_auth.is_some() {
+            profile::ensure_file_storage(&default_home)?;
+            profile::ensure_default_idle()?;
+            let current = auth::parse_import(&profile::read_auth(&default_home.join("auth.json"))?)?.remove(0);
+            if current.auth_json.as_str() != source.auth_json.as_str() {
+                return Err("默认 Codex 登录已变更，请重新刷新".into());
+            }
+            None
+        } else {
+            Some(profile::TemporaryProfile::new(&saved.auth_json)?)
+        };
+        let refresh_home = isolated.as_ref().map(|profile| profile.path.as_path()).unwrap_or(&default_home);
         let result = (|| {
-            let mut server = rpc::AppServer::start_cancelled_proxy(&isolated.path, None, account.proxy_url.as_deref())?;
+            let mut server = rpc::AppServer::start_cancelled_proxy(refresh_home, None, account.proxy_url.as_deref())?;
             server.request("account/read", serde_json::json!({"refreshToken":true}), Duration::from_secs(30))
         })();
-        let updated = auth::parse_import(&profile::read_auth(&isolated.path.join("auth.json"))?)?.remove(0);
+        let updated = auth::parse_import(&profile::read_auth(&refresh_home.join("auth.json"))?)?.remove(0);
         if updated.identity != saved.identity { return Err("Codex 刷新返回了不同账号，认证状态未保存".into()); }
         let credentials_changed = updated.auth_json.as_str() != saved.auth_json.as_str();
         let action = if result.is_ok() { "手动令牌续期成功" } else { "手动令牌续期失败" };
@@ -1053,7 +1077,6 @@ pub(crate) async fn codex_refresh_benefits(app: tauri::AppHandle, id: i64) -> Pl
         let _lease = refresh_lease(&app, id, "订阅权益刷新")?;
         let conn = open_db()?;
         let mut summary = repository::get(&conn, id)?;
-        auth::ensure_runtime_auth(&repository::credentials(&conn,id)?)?;
         if summary.auth_mode != "chatgpt" {
             return Err("API Key 账号无订阅权益".into());
         }
@@ -1146,7 +1169,6 @@ pub(crate) async fn codex_consume_reset(
         use crate::core::codex::{account_controls as controls,gateway};
         let _writer=AUTH_WRITER.lock().map_err(|_|"账号操作不可用")?;
         let conn=open_db()?; let summary=repository::get(&conn,id)?;
-        auth::ensure_runtime_auth(&repository::credentials(&conn,id)?)?;
         if summary.auth_mode!="chatgpt" {return Err("API Key 账号无法使用主动重置".into());}
         if super::codex_instances::account_running(&app.state::<super::codex_runtime::CodexRuntimeStore>(),id)? {return Err(super::codex_instances::account_busy_error(&app.state::<super::codex_runtime::CodexRuntimeStore>(), id, "重置额度")?);}
         let (token,account,proxy)=gateway::credentials_locked(id,std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)))?;

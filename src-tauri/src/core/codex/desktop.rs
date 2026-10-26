@@ -28,9 +28,15 @@ pub fn installed() -> Option<PathBuf> {
     }
     #[cfg(target_os = "macos")]
     {
-        let app = PathBuf::from("/Applications/Codex.app/Contents/MacOS/Codex");
-        if app.is_file() {
-            return Some(app);
+        let mut roots = vec![PathBuf::from("/Applications")];
+        if let Some(home) = dirs::home_dir() {
+            roots.push(home.join("Applications"));
+        }
+        for root in roots {
+            let app = root.join("Codex.app/Contents/MacOS/Codex");
+            if app.is_file() {
+                return Some(app);
+            }
         }
     }
     None

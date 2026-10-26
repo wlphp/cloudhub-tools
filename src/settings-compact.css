@@ -34,6 +34,71 @@ html,body,#root{height:100%;overflow:hidden}.app-shell{height:100vh;min-height:0
 /* 页签内容：设置项整行排布 */
 .utility-page .settings-grid.settings-list{grid-template-columns:minmax(0,1fr)}
 
+/* 数据管理：目录栏与直接导入导出操作，沿用设置页主题。 */
+.data-settings-section{min-width:0;margin-bottom:4px}
+.data-settings-section h2{margin:2px 0 10px;color:var(--jb-text);font-size:14px;font-weight:600}
+.data-settings-panel{min-width:0;padding:18px 20px;border:1px solid var(--jb-border);border-radius:10px;background:var(--jb-surface)}
+.data-settings-panel label,.data-settings-panel h3{display:block;margin:0 0 10px;color:var(--jb-text);font-size:13px;font-weight:600}
+.data-settings-panel p{margin:8px 0 0;color:var(--jb-muted);font-size:12px;line-height:1.7;overflow-wrap:anywhere}
+.data-settings-path{display:grid;grid-template-columns:minmax(0,1fr) 34px 34px;gap:8px}
+.data-settings-path input{min-width:0;width:100%;height:34px;box-sizing:border-box;padding:0 10px;border:1px solid var(--jb-border-strong);border-radius:6px;background:var(--jb-input);color:var(--jb-text);font:12px/1.5 Consolas,monospace}
+.data-settings-path button{display:grid;place-items:center;min-width:0;height:34px;padding:0;border-radius:6px}
+.data-settings-toolbar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;margin-top:16px}
+.data-settings-transfer{display:flex;flex-wrap:wrap;gap:8px}
+.ide-theme .utility-page .data-settings-transfer button,.ide-theme .utility-page .data-settings-backup>button{display:inline-flex;align-items:center;justify-content:center;width:auto;height:34px;min-height:34px;gap:7px;padding:0 12px;font-size:13px;white-space:nowrap}
+.data-settings-section button:disabled{opacity:.5;cursor:not-allowed}
+.data-settings-section :is(button,input,select,summary):focus-visible{outline:2px solid var(--jb-accent);outline-offset:2px}
+.data-settings-error{margin:0;color:var(--jb-text);font-size:12px;line-height:1.6}
+.data-settings-import-mode{display:flex!important;flex-wrap:wrap;align-items:center;gap:10px;margin:0!important}
+.data-settings-import-mode select{min-width:0;max-width:100%;height:34px;padding:0 10px;border:1px solid var(--jb-border-strong);border-radius:5px;background:var(--jb-input);color:var(--jb-text);font:inherit;font-weight:400}
+.data-settings-heading{display:flex;flex-wrap:wrap;align-items:center;gap:9px}
+.data-settings-heading h3{margin:0}
+.data-settings-badge{display:inline-flex;align-items:center;gap:4px;padding:2px 6px;border:1px solid var(--jb-border);border-radius:4px;color:var(--jb-muted);font-size:11px;line-height:16px}
+.data-settings-notes{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+.data-settings-panel .data-settings-warning{display:flex;align-items:center;gap:6px;margin:0}
+.data-settings-warning svg{flex-shrink:0}
+.data-settings-scope{min-width:0;color:var(--jb-muted);font-size:12px;line-height:1.7}
+.data-settings-scope summary{width:fit-content;margin-left:0;cursor:pointer;border-radius:3px}
+.data-settings-scope summary:hover{color:var(--jb-text)}
+.data-settings-backup{display:flex;flex-wrap:wrap;align-items:center;gap:12px 20px;margin-top:18px;padding-top:18px;border-top:1px solid var(--jb-border)}
+.data-settings-backup>div{flex:1 1 280px;min-width:0}
+.data-settings-backup h3{margin-bottom:0}
+.data-settings-backup>button{display:inline-flex;align-items:center;justify-content:center;gap:8px;flex-shrink:0}
+.cloud-sync-form{display:flex;flex-direction:column;gap:12px;margin-top:18px}
+.data-settings-panel .cloud-sync-field{display:flex;flex-direction:column;gap:6px;min-width:0;margin:0;font-size:12px;font-weight:500}
+.cloud-sync-form>.cloud-sync-field{display:grid;grid-template-columns:136px minmax(0,1fr);align-items:center;gap:12px}
+.cloud-sync-field :is(input,select){box-sizing:border-box;width:100%;min-width:0;height:34px;padding:0 10px;border:1px solid var(--jb-border-strong);border-radius:6px;background:var(--jb-input);color:var(--jb-text);font:inherit;font-weight:400}
+.cloud-sync-field input::placeholder{color:var(--jb-muted)}
+.cloud-sync-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.cloud-sync-options{display:flex;flex-direction:column;gap:14px;padding:14px 0;border-top:1px solid var(--jb-border)}
+.data-settings-panel .cloud-sync-option{display:flex;align-items:flex-start;gap:9px;margin:0;font-size:12px;font-weight:500;cursor:pointer}
+.cloud-sync-option input{flex:0 0 auto;width:15px;height:15px;margin:2px 0 0;accent-color:var(--jb-accent)}
+.cloud-sync-option span{min-width:0;line-height:1.6}
+.cloud-sync-option small{display:block;margin-top:2px;color:var(--jb-muted);font-size:12px;font-weight:400;line-height:1.65;overflow-wrap:anywhere}
+.data-settings-panel .cloud-sync-hint{margin:0}
+.cloud-sync-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.ide-theme .utility-page .cloud-sync-actions button{display:inline-flex;align-items:center;justify-content:center;gap:7px;width:auto;height:34px;min-height:34px;padding:0 12px;border-radius:6px;font-size:12px;white-space:nowrap}
+.cloud-sync-transfer{margin-top:16px;padding-top:16px;border-top:1px solid var(--jb-border)}
+.ide-theme .utility-page .cloud-sync-toggle{display:inline-flex;align-items:center;gap:8px;width:auto;min-height:32px;margin:0;padding:4px 6px;border:0;border-radius:4px;background:transparent;color:inherit;font:inherit;cursor:pointer;box-shadow:none}
+.ide-theme .utility-page .cloud-sync-toggle:hover{background:var(--jb-hover);transform:none}
+.ide-theme .utility-page .cloud-sync-toggle:active{transform:none}
+.ide-theme .utility-page .cloud-sync-toggle:focus-visible{outline:2px solid var(--jb-accent-strong);outline-offset:2px}
+.cloud-sync-heading{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.ide-theme .utility-page .cloud-sync-heading .cloud-sync-toggle{margin-left:auto;flex-shrink:0;font-size:12px;font-weight:400}
+.cloud-sync-toggle span{color:var(--jb-muted);font-size:12px;font-weight:400}
+.cloud-sync-section input:disabled,.cloud-sync-section select:disabled{opacity:.6;cursor:not-allowed}
+@media(max-width:600px){.cloud-sync-grid{grid-template-columns:minmax(0,1fr)}.cloud-sync-form>.cloud-sync-field{display:flex;gap:6px;align-items:stretch}.cloud-sync-actions button{flex:1 1 auto}}
+.data-transfer-dialog p{font-size:13px;line-height:1.7;color:var(--jb-muted);overflow-wrap:anywhere}
+.data-transfer-dialog fieldset{min-width:0;margin:12px 0;padding:12px;border:1px solid var(--jb-border);border-radius:6px;color:var(--jb-text)}
+.data-transfer-check{display:flex;align-items:flex-start;gap:8px;margin:8px 0;color:var(--jb-text);font-size:13px;line-height:1.6}
+.data-transfer-check input{flex:0 0 auto;width:15px;height:15px;margin:3px 0}
+.data-transfer-field{display:grid;gap:6px;margin-top:12px;color:var(--jb-text);font-size:13px}
+.data-transfer-field input{box-sizing:border-box;min-width:0;width:100%;height:36px;padding:6px 10px;border:1px solid var(--jb-border-strong);border-radius:5px;background:var(--jb-input);color:var(--jb-text);font:inherit}
+.data-transfer-dialog input:focus-visible{outline:2px solid var(--jb-accent);outline-offset:2px}
+.backup-record-actions{flex-wrap:wrap;flex-shrink:0}
+.backup-record>div:first-child{min-width:0}
+@media(max-width:600px){.data-settings-panel{padding:14px}.data-settings-scope summary{margin-left:0}.data-settings-transfer{margin-left:auto}}
+
 /* 全局回收站弹层：复用共享基座，仅补充宽屏与滚动布局 */
 .trash-dialog.modal-form-layout { width: min(860px, calc(100vw - 32px)); max-width: calc(100vw - 32px); }
 .trash-dialog-head > svg, .trash-dialog > .modal-head > svg { flex: 0 0 auto; color: var(--jb-accent); }

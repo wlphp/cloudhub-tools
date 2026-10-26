@@ -6,7 +6,7 @@ import { AiAssistButton } from "../ai/AiAssistButton";
 import { frpAiRule } from "./aiRuleDraft";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { CircleAlert, ExternalLink, LoaderCircle, Network, Plus, RefreshCw, Save, Trash2, Server, Monitor, Play, Square, Settings2, Download, FileText, FolderOpen, Eye, EyeOff, Cable, ArrowRight, Pencil, X } from "lucide-react";
+import { CircleAlert, ExternalLink, LoaderCircle, Network, Plus, RefreshCw, Save, Trash2, Server, Monitor, Play, Square, Settings2, Download, FileText, FolderOpen, Eye, EyeOff, Cable, ArrowRight, Pencil, X, ChevronDown, ChevronUp } from "lucide-react";
 import { frpClient } from "../../platform/clients";
 import type { FrpInstallProgress, FrpRelease, FrpPortConflict, FrpPortOwner } from "../../platform/clients/frp";
 import { runningInTauri, normalizePlatformError } from "../../platform/api";
@@ -40,7 +40,7 @@ export function FrpPanel() {
   const [editingProxyId, setEditingProxyId] = useState<number | null>(null);
   const [runtime, setRuntime] = useState<FrpRuntime[]>([]);
   const [localPaths, setLocalPaths] = useState<{ binaryPath: string; configPath: string | null; installed: boolean; version: string | null } | null>(null);
-  const [installerOpen, setInstallerOpen] = useState(false);
+  const [clientPanelOpen, setClientPanelOpen] = useState(false);
   const [releases, setReleases] = useState<FrpRelease[]>([]);
   const [installVersion, setInstallVersion] = useState("");
   const [releasesLoading, setReleasesLoading] = useState(false);
@@ -48,7 +48,6 @@ export function FrpPanel() {
   const [releaseReload, setReleaseReload] = useState(0);
   const [installProgress, setInstallProgress] = useState<FrpInstallProgress | null>(null);
   const installGeneration = useRef(0);
-  const [globalSettingsOpen, setGlobalSettingsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("rules");
   const [serverQuery, setServerQuery] = useState("");
   const [logSnapshot, setLogSnapshot] = useState<{ serverId: number; lines: string[] } | null>(null);
@@ -78,6 +77,9 @@ export function FrpPanel() {
   const anyRunning = runtime.some((state) => state.running);
   const downloadPercent = installProgress?.totalBytes ? Math.min(100, Math.floor(installProgress.downloadedBytes / installProgress.totalBytes * 100)) : null;
   const logLines = logSnapshot?.serverId === selectedId ? logSnapshot.lines : [];
+  const frpcInstalled = runtime.some((state) => state.installed) || !!localPaths?.installed;
+  const frpcVersion = runtime.find((state) => state.version)?.version ?? localPaths?.version ?? (frpcInstalled ? "已安装 · 版本未知" : localPaths ? "未安装" : "检查中");
+  const configPending = servers.some((server) => !runtime.find((state) => state.serverId === server.id)?.configCurrent);
 
   useEffect(() => {
     if (!runningInTauri || activeTab !== "logs" || selectedId === null) return;
@@ -109,7 +111,7 @@ export function FrpPanel() {
   useEffect(() => { setInstallProgress(null); }, [installVersion]);
 
   useEffect(() => {
-    if (!installerOpen || !runningInTauri) return;
+    if (!clientPanelOpen || !runningInTauri) return;
     let active = true;
     setReleasesLoading(true); setReleasesError("");
     void frpClient.releases().then((items) => {
@@ -119,7 +121,7 @@ export function FrpPanel() {
     }).catch((reason) => { if (active) setReleasesError(String(reason)); })
       .finally(() => { if (active) setReleasesLoading(false); });
     return () => { active = false; };
-  }, [installerOpen, releaseReload]);
+  }, [clientPanelOpen, releaseReload]);
 
   const refresh = async (preserveSelection = true) => {
     const [nextServers, nextSettings, nextRuntime] = await Promise.all([frpClient.servers(), frpClient.settings(), frpClient.runtime()]);
@@ -209,7 +211,7 @@ export function FrpPanel() {
   useEffect(() => {
     hidePassword();
     return () => { revealGeneration.current += 1; };
-  }, [globalSettingsOpen]);
+  }, [clientPanelOpen]);
 
   useEffect(() => {
     if (!passwordVisible) return;
@@ -393,11 +395,11 @@ export function FrpPanel() {
   };
 
   return <section className="flow-page frp-page">
-    <GatewayTunnel monitorOnly />
     <header className="flow-page-header"><div><span className="frp-eyebrow"><Network size={15} /> 网络服务</span><h1>内网穿透 <span className="frp-host-tag"><Monitor size={13} />当前电脑</span></h1><p>将本地服务连接到公网，集中管理 FRP 连接与穿透规则。</p></div>{runningInTauri && <div className="frp-actions"><button type="button" className="secondary" disabled={!!busy} onClick={refreshStatus}><RefreshCw size={15} />刷新状态</button><button type="button" className="primary" disabled={!!busy} onClick={addServer}><Plus size={15} />新增服务端</button></div>}</header>
+    <GatewayTunnel monitorOnly />
     {!runningInTauri && <div className="flow-feedback error" role="status"><CircleAlert size={16} />内网穿透仅在桌面客户端可用。</div>}
     {error && <div className="flow-feedback error" role="alert"><CircleAlert size={16} />{error}</div>}
-    {portConflict && portConflict.serverId === selectedId && <div className="frp-card" role="status">
+    {portConflict && portConflict.serverId === selectedId && <div className="frp-card frp-conflict-card" role="status">
       <strong>本机客户端面板端口 {portConflict.port} 被占用</strong>
       {portConflict.owners.length ? portConflict.owners.map((owner) => <div className="frp-status-row" key={owner.pid}>
         <span>PID {owner.pid} · {owner.canTerminate ? "当前连接的残留 frpc 进程" : "其他程序或仍由客户端管理的进程，请在对应程序中停止"}</span>
@@ -406,12 +408,13 @@ export function FrpPanel() {
     </div>}
     {feedback && <div className="flow-feedback success" role="status">{feedback}</div>}
     {runningInTauri && <>
-      <div className="frp-overview"><span>frpc：<strong>{runtime[0]?.version ?? localPaths?.version ?? ((runtime[0]?.installed || localPaths?.installed) ? "已安装 · 版本未知" : localPaths ? "未安装" : "检查中")}</strong></span><span>运行连接：<strong>{runtime.filter((state) => state.running).length}/{servers.length}</strong></span><span>运行规则：<strong>{runtime.reduce((total, state) => total + state.proxies.filter((proxy) => proxy.status === "running").length, 0)}</strong></span><span>配置：<strong>{servers.some((server) => !runtime.find((state) => state.serverId === server.id)?.configCurrent) ? "有待应用更改" : "已同步"}</strong></span><span className="frp-install-note"><span>GitHub 官方下载 <ArrowRight size={12} aria-hidden="true" />SHA-256 校验<ArrowRight size={12} aria-hidden="true" />解压安装</span><small>自动匹配 Windows 架构 · 可选择稳定版本 · 保留已有配置</small></span><button type="button" className="secondary" onClick={() => void run("打开 FRP GitHub", () => openUrl("https://github.com/fatedier/frp"))}><ExternalLink size={14} />GitHub · fatedier/frp</button><button type="button" disabled={!!busy} aria-expanded={installerOpen} aria-controls="frp-installer" onClick={() => setInstallerOpen(!installerOpen)}><Download size={15} />安装 / 更新</button></div>
-      {installerOpen && <section id="frp-installer" className="frp-local-files frp-installer" aria-label="FRP 客户端安装" aria-busy={releasesLoading || busy === "安装客户端"}>
-        <div className="frp-card-heading"><h2>安装 FRP 客户端</h2><button type="button" className="secondary" disabled={!!busy} onClick={() => setInstallerOpen(false)} aria-label="收起安装设置"><X size={15} /></button></div>
+      <div className="frp-overview" role="status"><span>frpc：<strong>{frpcVersion}</strong></span><span>运行连接：<strong>{runtime.filter((state) => state.running).length}/{servers.length}</strong></span><span>运行规则：<strong>{runtime.reduce((total, state) => total + state.proxies.filter((proxy) => proxy.status === "running").length, 0)}</strong></span><span>配置：<strong>{configPending ? "有待应用更改" : "已同步"}</strong></span><button type="button" className={frpcInstalled ? "secondary" : "primary"} disabled={!!busy} aria-expanded={clientPanelOpen} aria-controls="frp-client-panel" onClick={() => setClientPanelOpen(!clientPanelOpen)}><Download size={14} />{frpcInstalled ? "客户端管理" : "安装客户端"}{clientPanelOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</button></div>
+      {!passwordSaved && !busy && <div className="frp-setup-hint" role="status"><span>首次连接前，请设置本机客户端面板账号。</span><button type="button" className="secondary" onClick={() => { setClientPanelOpen(true); window.requestAnimationFrame(() => document.getElementById("frp-global-settings")?.scrollIntoView({ block: "center" })); }}><Settings2 size={14} />设置面板账号</button></div>}
+      {clientPanelOpen && <section id="frp-client-panel" className="frp-client-panel" aria-label="FRP 客户端管理" aria-busy={releasesLoading || busy === "安装客户端"}>
+        <section className="frp-client-section" aria-label="安装 FRP 客户端">
+        <div className="frp-card-heading"><h2>安装 FRP 客户端</h2><button type="button" className="secondary" disabled={!!busy} onClick={() => setClientPanelOpen(false)} aria-label="收起客户端管理"><X size={15} /></button></div>
         <div className="frp-install-options"><label>安装版本<select value={installVersion} disabled={releasesLoading || !!busy || !!releasesError} onChange={(event) => setInstallVersion(event.target.value)}>{!releases.length && <option value="">{releasesLoading ? "正在读取官方版本…" : "暂无可用版本"}</option>}{releases.map((release, index) => <option key={release.version} value={release.version}>v{release.version}{index === 0 ? " · 最新可安装稳定版" : ""}</option>)}</select></label><div className="frp-install-package"><span>安装包</span><code>{installRelease ? `frp_${installRelease.version}_windows_${installRelease.architecture}.zip` : "自动匹配当前 Windows 架构"}</code><button type="button" className="secondary" disabled={!installRelease || !!busy} onClick={() => installRelease && void run("打开版本说明", () => openUrl(installRelease.releaseUrl))}><ExternalLink size={14} />版本说明</button></div></div>
         {installDownloadUrl && <div className="frp-install-download"><span>下载地址</span><a href={installDownloadUrl} aria-disabled={!!busy} onClick={(event) => { event.preventDefault(); if (!busy) void run("打开官方下载链接", () => openUrl(installDownloadUrl)); }}>{installDownloadUrl}<ExternalLink size={13} aria-hidden="true" /></a></div>}
-        <div className="frp-file-row"><span>安装位置</span><code>{localPaths?.binaryPath ?? "读取中…"}</code><button type="button" className="secondary" disabled={!localPaths || !!busy} onClick={() => void run("打开安装目录", () => frpClient.openInstallDirectory())}><FolderOpen size={15} />打开安装目录</button></div>
         <p>从 fatedier/frp 官方 Releases 下载，按官方 SHA-256 校验后解压。替换前备份旧程序并检查已有配置兼容性；安装失败恢复旧程序，服务端配置与账号保持不变。列表包含近期 30 个发布中适合本机且提供校验信息的稳定版本。</p>
         {releasesLoading && <p role="status">正在获取 GitHub 官方版本信息…</p>}
         {releasesError && <p role="alert" className="frp-install-error">{releasesError}</p>}
@@ -421,24 +424,100 @@ export function FrpPanel() {
           {installProgress.stage !== "error" && <progress aria-label={installProgress.stage === "downloading" ? "FRP 安装包下载进度" : "FRP 安装进度"} max={100} value={installProgress.stage === "complete" ? 100 : installProgress.stage === "downloading" ? downloadPercent ?? undefined : undefined} />}
           <small>{installProgress.stage === "downloading" ? "正在从 GitHub 官方下载，网络较慢时请稍候。" : installProgress.stage === "error" ? "查看页面上方的错误提示，重试将重新下载安装包。" : installProgress.stage === "complete" ? "客户端已安装，可应用配置并启动连接。" : installProgress.stage === "metadata" ? "正在读取所选版本的官方安装包与校验信息。" : "下载完成后继续校验和安装，全部完成后才会提示成功。"}</small>
         </div>}
-        <div className="frp-form-footer"><button type="button" className="secondary" disabled={releasesLoading || !!busy} onClick={() => setReleaseReload((value) => value + 1)}><RefreshCw size={14} />刷新版本</button><button type="button" className="primary" disabled={!installRelease || releasesLoading || !!releasesError || anyRunning || !!busy} onClick={installClient}>{busy === "安装客户端" ? <LoaderCircle size={15} className="flow-spin" /> : <Download size={15} />}{busy === "安装客户端" ? (installProgress ? installStages[installProgress.stage] + "…" : "准备安装…") : `安装${installRelease ? ` v${installRelease.version}` : "所选版本"}`}</button></div>
+        <div className="frp-form-footer"><button type="button" className="secondary" onClick={() => void run("打开 FRP GitHub", () => openUrl("https://github.com/fatedier/frp"))}><ExternalLink size={14} />GitHub · fatedier/frp</button><button type="button" className="secondary" disabled={releasesLoading || !!busy} onClick={() => setReleaseReload((value) => value + 1)}><RefreshCw size={14} />刷新版本</button><button type="button" className="primary" disabled={!installRelease || releasesLoading || !!releasesError || anyRunning || !!busy} onClick={installClient}>{busy === "安装客户端" ? <LoaderCircle size={15} className="flow-spin" /> : <Download size={15} />}{busy === "安装客户端" ? (installProgress ? installStages[installProgress.stage] + "…" : "准备安装…") : `安装${installRelease ? ` v${installRelease.version}` : "所选版本"}`}</button></div>
+        </section>
+        <section className="frp-client-section" aria-label="本机 FRP 文件位置">
+          <div className="frp-card-heading"><h2>本机文件</h2></div>
+          <div className="frp-file-row"><span>frpc 安装位置</span><code>{localPaths?.binaryPath ?? "读取中…"}</code><button type="button" className="secondary" disabled={!localPaths || !!busy} onClick={() => void run("打开安装目录", () => frpClient.openInstallDirectory())}><FolderOpen size={15} />打开安装目录</button></div>
+          <div className="frp-file-row"><span>当前配置文件</span><code>{localPaths?.configPath ?? (selectedId ? "读取中…" : "保存服务端并应用配置后生成")}</code><button type="button" className="secondary" disabled={!selected || !selectedRuntime?.configPresent || !localPaths?.configPath || !!busy} onClick={() => selected && void run("打开配置文件", () => frpClient.openConfig(selected.id))}><FileText size={15} />打开配置文件</button></div>
+          <p>每个服务端独立运行 frpc，并使用独立配置文件；首次应用配置后生成。手动修改后需重启连接生效，页面再次应用配置会覆盖手动修改。关闭云枢工具箱后，所有本机连接都会停止。文件含认证信息，请勿分享。</p>
+        </section>
+        <form id="frp-global-settings" className="frp-client-section" onSubmit={saveGlobal}>
+          <div className="frp-card-heading"><h2>全局 frp 客户端面板设置</h2><span>适用于所有 FRP 服务端，面板仅监听本机 127.0.0.1</span></div>
+          <div className="frp-form-grid frp-global-grid"><label>面板账号<input required value={globalSettings.adminUser} onChange={(event) => setGlobalSettings({ ...globalSettings, adminUser: event.target.value })} /></label><label>面板密码<span className="frp-password-field"><input type={passwordVisible ? "text" : "password"} autoComplete="new-password" required={!passwordSaved} value={passwordVisible && !globalSettings.adminPassword ? revealedPassword : globalSettings.adminPassword ?? ""} onChange={(event) => { revealGeneration.current += 1; setRevealedPassword(""); setGlobalSettings({ ...globalSettings, adminPassword: event.target.value }); }} placeholder={passwordSaved ? "已保存，留空保持不变" : "首次设置必填"} /><button type="button" disabled={!!busy} aria-label={passwordVisible ? "隐藏面板密码" : "查看面板密码"} title={passwordVisible ? "隐藏面板密码" : "查看面板密码"} aria-pressed={passwordVisible} onClick={togglePassword}>{passwordVisible ? <EyeOff size={16} /> : <Eye size={16} />}</button></span></label><div className="frp-form-footer"><button type="button" className="secondary" disabled={!selected || !selectedRuntime?.running || !!busy} title={selected ? `打开“${selected.name}”的客户端面板，需先启动连接` : "请先选择并启动服务端连接"} onClick={openPanel}><ExternalLink size={15} />打开客户端面板</button><button type="submit" disabled={!!busy}><Save size={15} />保存全局账号</button></div></div>
+          <p className="frp-global-panel-hint">{selected ? `客户端面板对应当前选中的服务端：${selected.name}，需先启动连接。` : "选择并启动一个服务端连接后，即可打开对应的客户端面板。"}</p>
+        </form>
       </section>}
-
-      <details className="frp-files-disclosure">
-        <summary>本机文件与运行说明</summary>
-      <p className="frp-hint">每个服务端独立运行 frpc。关闭云枢工具箱后，所有本机连接都会停止。</p>
-      <section className="frp-local-files" aria-label="本机 FRP 文件位置">
-        <div className="frp-file-row"><span>frpc 安装位置</span><code>{localPaths?.binaryPath ?? "读取中…"}</code><button type="button" className="secondary" disabled={!localPaths || !!busy} onClick={() => void run("打开安装目录", () => frpClient.openInstallDirectory())}><FolderOpen size={15} />打开安装目录</button></div>
-        <div className="frp-file-row"><span>当前配置文件</span><code>{localPaths?.configPath ?? (selectedId ? "读取中…" : "保存服务端并应用配置后生成")}</code><button type="button" className="secondary" disabled={!selected || !selectedRuntime?.configPresent || !localPaths?.configPath || !!busy} onClick={() => selected && void run("打开配置文件", () => frpClient.openConfig(selected.id))}><FileText size={15} />打开配置文件</button></div>
-        <p>每个服务端使用独立配置文件；首次应用配置后生成。手动修改后需重启连接生效，页面再次应用配置会覆盖手动修改。文件含认证信息，请勿分享。</p>
-      </section>
-      </details>
-      <details className="frp-files-disclosure frp-global-disclosure" onToggle={(event) => { const open = event.currentTarget.open; setGlobalSettingsOpen(open); if (!open) hidePassword(); }}><summary>全局frp客户端面板设置</summary><form id="frp-global-settings" className="frp-card frp-global-settings" onSubmit={saveGlobal}><div className="frp-card-heading"><h2>全局frp客户端面板设置</h2><span>适用于所有 FRP 服务端，面板仅监听本机 127.0.0.1</span></div><div className="frp-form-grid frp-global-grid"><label>面板账号<input required value={globalSettings.adminUser} onChange={(event) => setGlobalSettings({ ...globalSettings, adminUser: event.target.value })} /></label><label>面板密码<span className="frp-password-field"><input type={passwordVisible ? "text" : "password"} autoComplete="new-password" required={!passwordSaved} value={passwordVisible && !globalSettings.adminPassword ? revealedPassword : globalSettings.adminPassword ?? ""} onChange={(event) => { revealGeneration.current += 1; setRevealedPassword(""); setGlobalSettings({ ...globalSettings, adminPassword: event.target.value }); }} placeholder={passwordSaved ? "已保存，留空保持不变" : "首次设置必填"} /><button type="button" disabled={!!busy} aria-label={passwordVisible ? "隐藏面板密码" : "查看面板密码"} title={passwordVisible ? "隐藏面板密码" : "查看面板密码"} aria-pressed={passwordVisible} onClick={togglePassword}>{passwordVisible ? <EyeOff size={16} /> : <Eye size={16} />}</button></span></label><div className="frp-form-footer"><button type="button" className="secondary" disabled={!selected || !selectedRuntime?.running || !!busy} title={selected ? `打开“${selected.name}”的客户端面板，需先启动连接` : "请先选择并启动服务端连接"} onClick={openPanel}><ExternalLink size={15} />打开客户端面板</button><button type="submit" disabled={!!busy}><Save size={15} />保存全局账号</button></div></div><p className="frp-global-panel-hint">{selected ? `客户端面板对应当前选中的服务端：${selected.name}，需先启动连接。` : "选择并启动一个服务端连接后，即可打开对应的客户端面板。"}</p></form></details>
       <div className="frp-server-layout">
-        <aside className="frp-server-list" aria-label="FRP 服务端列表"><div className="frp-list-heading"><h2>服务端</h2><button type="button" className="secondary" aria-label="新增服务端" title="新增服务端" onClick={addServer}><Plus size={15} /></button></div><input className="frp-server-search" aria-label="搜索服务端" placeholder="搜索服务端…" value={serverQuery} onChange={(event) => setServerQuery(event.target.value)} />{servers.filter((server) => server.name.toLowerCase().includes(serverQuery.toLowerCase())).map((server) => { const state = runtime.find((item) => item.serverId === server.id); return <button type="button" key={server.id} className={`frp-server-item${selectedId === server.id ? " active" : ""}`} onClick={() => { setSelectedId(server.id); setActiveTab("rules"); editServer(server); setProxyDraft(null); }}><span className={`frp-dot ${state?.connected ? "online" : state?.running ? "pending" : "offline"}`} /><span className="frp-server-label"><strong>{server.name}</strong><small>{server.serverAddr}:{server.serverPort}</small></span><span className="frp-rule-count">{server.proxies.length}</span></button>; })}{!servers.length && !serverDraft && <p className="frp-empty">添加第一个 FRP 服务端。</p>}</aside>
-        <main className="frp-server-content">
-          <div className="frp-workspace-heading"><div><Server size={22} /><div><h2>{selected?.name || "新增服务端"}</h2><p>{selected ? `${selected.serverAddr}:${selected.serverPort} · 本机面板 :${selected.adminPort}` : "添加服务端，开始配置本地连接"}</p></div></div><button type="button" className="secondary" onClick={() => setActiveTab("connection")}><Settings2 size={15} />配置连接</button></div>
-          {selected && <div className="frp-card frp-connection-card"><div className="frp-status-row"><span>进程：<strong>{selectedRuntime?.running ? "运行中" : "未运行"}</strong></span><span>代理：<strong>{selectedRuntime?.connected ? "有规则运行中" : selectedRuntime?.running ? "无规则运行" : "未连接"}</strong></span><span>配置：<strong>{selectedRuntime?.configCurrent ? "已应用" : selectedRuntime?.configPresent ? "待应用" : "未应用"}</strong></span></div><div className="frp-actions"><button type="button" className="primary" title={connectionActionHint} disabled={!selectedRuntime?.installed || draftDirty || connectionReady || !!busy} onClick={() => connectionNeedsApply ? apply() : control("start")}><Play size={14} />{connectionActionLabel}</button><button type="button" className="secondary" disabled={!selectedRuntime?.running || !!busy} onClick={() => control("restart")}>重启</button><button type="button" className="secondary" disabled={!selectedRuntime?.running || !!busy} onClick={stopServer}><Square size={14} />停止</button><button type="button" className="secondary" disabled={!selectedRuntime?.running || !!busy} onClick={openPanel}><ExternalLink size={15} />客户端面板</button></div></div>}
+        <header className="frp-server-topbar" aria-label="FRP 服务端选择">
+          <div className="frp-server-topbar-header">
+            <div className="frp-server-topbar-title">
+              <Server size={16} />
+              <span>服务端列表</span>
+              <span className="frp-server-total-badge">{servers.length}</span>
+            </div>
+            <div className="frp-server-topbar-actions">
+              <input
+                className="frp-server-search"
+                aria-label="搜索服务端"
+                placeholder="搜索服务端…"
+                value={serverQuery}
+                onChange={(event) => setServerQuery(event.target.value)}
+              />
+              <button
+                type="button"
+                className="secondary frp-add-server-btn"
+                aria-label="新增服务端"
+                title="新增服务端"
+                onClick={addServer}
+              >
+                <Plus size={14} />
+                <span>新增服务端</span>
+              </button>
+            </div>
+          </div>
+          <div className="frp-server-cards-scroller" role="tablist" aria-label="服务端项">
+            {servers
+              .filter((server) => server.name.toLowerCase().includes(serverQuery.toLowerCase()))
+              .map((server) => {
+                const state = runtime.find((item) => item.serverId === server.id);
+                const isSelected = selectedId === server.id;
+                return (
+                  <button
+                    type="button"
+                    key={server.id}
+                    role="tab"
+                    aria-selected={isSelected}
+                    className={`frp-server-pill${isSelected ? " active" : ""}`}
+                    onClick={() => {
+                      setSelectedId(server.id);
+                      setActiveTab("rules");
+                      editServer(server);
+                      setProxyDraft(null);
+                    }}
+                  >
+                    <span
+                      className={`frp-dot ${state?.connected ? "online" : state?.running ? "pending" : "offline"}`}
+                      aria-hidden="true"
+                    />
+                    <div className="frp-server-pill-info">
+                      <strong title={server.name}>{server.name}</strong>
+                      <small title={`${server.serverAddr}:${server.serverPort}`}>
+                        {server.serverAddr}:{server.serverPort}
+                      </small>
+                    </div>
+                    <span className="frp-rule-count" title={`${server.proxies.length} 条规则`}>
+                      {server.proxies.length}
+                    </span>
+                  </button>
+                );
+              })}
+            {!servers.length && !serverDraft && (
+              <p className="frp-empty">暂无服务端，请点击右侧“新增服务端”开始配置。</p>
+            )}
+          </div>
+        </header>
+        <div className="frp-server-content">
+          <div className="frp-workspace-heading">
+            <div className="frp-workspace-id"><Server size={22} /><div><h2>{selected?.name || "新增服务端"}</h2><p>{selected ? `${selected.serverAddr}:${selected.serverPort} · 本机面板 :${selected.adminPort}` : "添加服务端，开始配置本地连接"}</p></div></div>
+            {selected && <div className="frp-workspace-status"><span className="frp-chip"><span className={`frp-dot ${selectedRuntime?.running ? "online" : "offline"}`} aria-hidden="true" />进程<strong>{selectedRuntime?.running ? "运行中" : "未运行"}</strong></span><span className="frp-chip">代理<strong>{selectedRuntime?.connected ? "有规则运行中" : selectedRuntime?.running ? "无规则运行" : "未连接"}</strong></span><span className="frp-chip">配置<strong>{selectedRuntime?.configCurrent ? "已应用" : selectedRuntime?.configPresent ? "待应用" : "未应用"}</strong></span></div>}
+            <div className="frp-workspace-actions">{selected && <>
+              <button type="button" className="primary" title={connectionActionHint} disabled={!selectedRuntime?.installed || draftDirty || connectionReady || !!busy} onClick={() => connectionNeedsApply ? apply() : control("start")}><Play size={14} />{connectionActionLabel}</button>
+              <button type="button" className="secondary" disabled={!selectedRuntime?.running || !!busy} onClick={() => control("restart")}>重启</button>
+              <button type="button" className="secondary" disabled={!selectedRuntime?.running || !!busy} onClick={stopServer}><Square size={14} />停止</button>
+              <button type="button" className="secondary" disabled={!selectedRuntime?.running || !!busy} onClick={openPanel}><ExternalLink size={15} />客户端面板</button>
+            </>}</div>
+          </div>
           <nav className="frp-tabs" aria-label="连接详情">{[{id:"rules", label:"穿透规则"}, {id:"connection", label:"连接配置"}, {id:"logs", label:"客户端运行日志"}].map((tab) => <button type="button" key={tab.id} className={activeTab === tab.id ? "active" : ""} aria-current={activeTab === tab.id ? "page" : undefined} onClick={() => setActiveTab(tab.id)}>{tab.label}{tab.id === "rules" && <span>{serverDraft?.proxies.length ?? 0}</span>}</button>)}</nav>
           {selected && activeTab === "logs" && <section className="frp-card frp-logs-card" aria-label="客户端运行日志">
             <div className="frp-card-heading"><div><h2>客户端运行日志 · {selected.name}</h2><p className="frp-logs-hint">最近一次连接的最近 300 条日志 · 仅保留在本次应用会话 · 已过滤凭据信息</p></div><div className="frp-log-controls"><label><input type="checkbox" checked={logsAutoRefresh} onChange={(event) => setLogsAutoRefresh(event.target.checked)} />自动刷新</label><label><input type="checkbox" checked={logsFollow} onChange={(event) => setLogsFollow(event.target.checked)} />跟随最新</label><button type="button" className="secondary" disabled={logsLoading} onClick={() => setLogsReload((value) => value + 1)}><RefreshCw size={14} />刷新日志</button></div></div>
@@ -472,7 +551,7 @@ export function FrpPanel() {
                 <div className="frp-rule-actions"><button type="button" className="secondary" disabled={!ruleUrl || !proxy.enabled || state?.status !== "running" || draftDirty || !selectedRuntime?.configCurrent || !!busy} aria-label={`打开规则 ${proxy.name}`} title={!ruleUrl ? "此规则无法用浏览器打开" : proxy.kind === "tcp" ? `通过 HTTP 打开 ${ruleUrl}，仅适用于网页服务` : `打开 ${ruleUrl}`} onClick={() => ruleUrl && void run("打开规则入口", () => openUrl(ruleUrl))}><ExternalLink size={14} />打开</button><button type="button" className="secondary" disabled={!!busy} onClick={() => { setProxyDraft({ ...proxy, customDomain: proxy.customDomains?.length ? proxy.customDomains.join(", ") : proxy.customDomain }); setEditingProxyId(proxy.id ?? null); }}><Pencil size={14} />编辑</button><button type="button" className="secondary" disabled={!!busy} title={`删除规则 ${proxy.name}`} aria-label={`删除规则 ${proxy.name}`} onClick={() => deleteRule(proxy)}><Trash2 size={14} /></button></div>
               </article>;
             })}{!serverDraft.proxies.length && <p className="frp-empty">此服务端暂无穿透规则。</p>}</div>
-            <div className="frp-rules-bottom">
+            {!serverDraft.proxies.length ? <div className="frp-rules-bottom">
               <figure className="frp-traffic-flow" aria-label="请求流量：公网访问者到 FRP 服务端，经隧道到本机 frpc，再到本地服务；响应按原路返回">
                 <figcaption>流量如何到达本地服务</figcaption>
                 <div className="frp-traffic-nodes">
@@ -486,10 +565,10 @@ export function FrpPanel() {
                 </div>
                 <p>frpc 主动连接服务端建立隧道；请求按上图转发，响应沿原路返回。上方规则展示的是本地目标与公网入口的映射关系。</p>
               </figure>
-            </div></section></>}
+            </div> : <p className="frp-traffic-inline">流量路径：公网访问者<ArrowRight size={12} aria-hidden="true" />FRP 服务端<ArrowRight size={12} aria-hidden="true" />本机 frpc<ArrowRight size={12} aria-hidden="true" />本地服务 · 响应按原路返回</p>}</section></>}
           </>}
           {!serverDraft && <div className="frp-empty-state"><Network size={32} /><h2>添加你的第一个服务端</h2><p>配置 FRP 服务端后，即可创建穿透规则。</p><button type="button" className="primary" onClick={addServer}><Plus size={15} />新增服务端</button></div>}
-        </main>
+        </div>
       </div>
     </>}
     {confirmation && <ConfirmDialog title={confirmation.title} message={confirmation.message} confirmLabel="确认操作" busy={!!busy} onResolve={confirmed => {
@@ -497,7 +576,7 @@ export function FrpPanel() {
       setConfirmation(null);
       if (confirmed) target.onConfirm();
     }} />}
-    {proxyDraft && <SharedDialog title={editingProxyId ? "编辑穿透规则" : "新增穿透规则"} subtitle="将本地服务映射到公网入口" icon={<Cable size={20} />} className="frp-modal frp-rule-editor" bodyClassName="frp-editor-body" closeLabel="关闭规则编辑器" onClose={() => setProxyDraft(null)} closeDisabled={!!busy} onSubmit={saveProxy} footer={<><button type="button" className="secondary" disabled={!!busy} onClick={() => setProxyDraft(null)}>取消</button><button type="submit" className="primary" disabled={!!busy}><Save size={14} />{busy === "保存穿透规则" ? "保存中…" : "保存规则"}</button></>}>
+    {proxyDraft && <SharedDialog size="small" title={editingProxyId ? "编辑穿透规则" : "新增穿透规则"} subtitle="将本地服务映射到公网入口" icon={<Cable size={20} />} className="frp-modal frp-rule-editor" bodyClassName="frp-editor-body" closeLabel="关闭规则编辑器" onClose={() => setProxyDraft(null)} closeDisabled={!!busy} onSubmit={saveProxy} footer={<><button type="button" className="secondary" disabled={!!busy} onClick={() => setProxyDraft(null)}>取消</button><button type="submit" className="primary" disabled={!!busy}><Save size={14} />{busy === "保存穿透规则" ? "保存中…" : "保存规则"}</button></>}>
         <AiAssistButton task="frp" title="AI 生成规则草稿" disabled={!!busy} current={{name:proxyDraft.name,kind:proxyDraft.kind,local_ip:proxyDraft.localIp,local_port:proxyDraft.localPort||null,remote_port:proxyDraft.remotePort??null,custom_domain:proxyDraft.customDomain||""}} onApply={result=>{const next=frpAiRule(proxyDraft,result.fields);setProxyDraft(next);}} />
         <div className="frp-form-grid frp-editor-basics"><label>规则名称<input autoFocus required value={proxyDraft.name} onChange={(event) => setProxyDraft({ ...proxyDraft, name: event.target.value })} placeholder="例如：本地开发站点" /></label><label>协议类型<select value={proxyDraft.kind} onChange={(event) => setProxyDraft({ ...proxyDraft, kind: event.target.value as FrpProxy["kind"], remotePort: null, customDomain: null, customDomains: [], plugin: null })}><option value="tcp">TCP</option><option value="udp">UDP</option><option value="http">HTTP</option><option value="https">HTTPS</option></select></label></div>
         <section className="frp-editor-section"><h3><Monitor size={14} />本地目标</h3><div className="frp-form-grid frp-editor-address"><label>本地 IP / 域名<input required value={proxyDraft.localIp} onChange={(event) => setProxyDraft({ ...proxyDraft, localIp: event.target.value })} /></label><label>本地端口<input required type="number" min="1" max="65535" value={proxyDraft.localPort || ""} onChange={(event) => setProxyDraft({ ...proxyDraft, localPort: Number(event.target.value) })} /></label></div></section>

@@ -19,7 +19,7 @@ import packageJson from "../../package.json";
 import { accountsClient, certificatesClient, domainsClient, logsClient, remoteClient, resourcesClient, storageClient } from "../platform/clients";
 import type { OssObjectListing } from "../platform/clients/storage";
 import { cloudProvider, cloudProviders, matchCloudTypeFromText, resourceLabels, syncAssetTypes } from "../features/cloud/catalog";
-import { cloudHubBackFabPositionStorageKey, cloudHubUiThemeStorageKey } from "../features/app/constants";
+import { cloudHubBackFabPositionStorageKey, cloudHubUiThemeStorageKey, readUiTheme } from "../features/app/constants";
 import type { AccountSaveInput } from "../platform/clients/accounts";
 import { serversClient, type InstanceAction } from "../platform/clients/servers";
 import { SyncTransferPanel } from "../features/accounts/SyncTransferPanel";
@@ -101,7 +101,7 @@ function panelCloudType(panel: PanelConnection, accounts: Account[]) {
 
 export function MobileApp() {
   const [accounts, setAccounts] = useState<Account[]>([]);
-  const [uiTheme, setUiTheme] = useState<"light" | "dark">(() => localStorage.getItem(cloudHubUiThemeStorageKey) === "light" ? "light" : "dark");
+  const [uiTheme, setUiTheme] = useState<"light" | "dark">(readUiTheme);
   useEffect(() => {
     document.body.classList.toggle("theme-light", uiTheme === "light");
     let themeColorMeta = document.head.querySelector('meta[name="theme-color"]');

@@ -132,7 +132,7 @@ pub fn live_filter(table: &str) -> Result<&'static str, String> {
 }
 
 /// Binds ids as parameters after validating them against the table's key kind.
-fn bind_ids(table: &str, kind: KeyKind, ids: &[Value]) -> Result<Vec<Value>, String> {
+fn bind_ids(_table: &str, kind: KeyKind, ids: &[Value]) -> Result<Vec<Value>, String> {
     if ids.is_empty() {
         return Err("请选择要操作的记录".into());
     }
@@ -192,7 +192,7 @@ pub fn purge(conn: &Connection, table: &str, ids: &[Value]) -> Result<u64, Strin
 
 /// Every trashed id in a table, used by the "empty the bin" command.
 pub fn trashed_ids(conn: &Connection, table: &str) -> Result<Vec<Value>, String> {
-    let (table, _, _, column) = table_entry(table)?;
+    let (table, _, _, _column) = table_entry(table)?;
     let mut statement = conn
         .prepare(&format!("SELECT id FROM {table} WHERE deleted_at IS NOT NULL"))
         .map_err(|error| error.to_string())?;

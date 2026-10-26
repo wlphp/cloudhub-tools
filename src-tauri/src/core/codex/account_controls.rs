@@ -89,8 +89,10 @@ pub fn parse_subscription(value:&Value,account_id:&str)->Option<i64> {
     timestamp(value.get("active_until").or_else(||value.get("expires_at")))
 }
 pub fn parse_usage(value: &Value, account: &str) -> Result<super::QuotaSnapshot, String> {
-    if value.get("account_id").and_then(Value::as_str).is_some_and(|id| id != account) {
-        return Err("额度接口返回了不同工作区，未保存数据".into());
+    if let Some(returned_account) = value.get("account_id").and_then(Value::as_str) {
+        if !account.is_empty() && !account.starts_with("user-") && returned_account != account {
+            return Err("额度接口返回了不同工作区，未保存数据".into());
+        }
     }
     let limits = value.get("rate_limit").ok_or("额度接口未返回窗口数据")?;
     let mut windows = Vec::new();

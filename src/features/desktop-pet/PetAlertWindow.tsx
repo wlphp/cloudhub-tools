@@ -7,9 +7,11 @@ import { listen } from "@tauri-apps/api/event";
 import { defaultPetSettings, type PetSettings, petSeverityLabel, desktopPetClient as client, type PetAlert, type PetSnapshot } from "../../platform/clients/desktopPet";
 import { notesClient } from "../../platform/clients/notes";
 import { platformErrorMessage } from "../../platform/api";
+import { usePetWindowTheme } from "./usePetWindowTheme";
 import "./desktop-pet.css";
 
 export function PetAlertWindow() {
+  usePetWindowTheme();
   const [alert, setAlert] = useState<PetAlert | null>(null);
   const [appearance, setAppearance] = useState<PetSettings["appearance"]>(defaultPetSettings.appearance);
   const [error, setError] = useState("");

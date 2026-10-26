@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use rusqlite::{params, Connection};
 
 pub fn list(conn: &Connection) -> Result<BTreeMap<String, String>, String> {
-    let mut statement = conn.prepare("SELECT key, value FROM client_preferences").map_err(|error| error.to_string())?;
+    let mut statement = conn.prepare("SELECT key, value FROM client_preferences WHERE key NOT LIKE 'cloud.sync.%'").map_err(|error| error.to_string())?;
     let rows = statement.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))).map_err(|error| error.to_string())?;
     rows.map(|row| row.map_err(|error| error.to_string())).collect()
 }

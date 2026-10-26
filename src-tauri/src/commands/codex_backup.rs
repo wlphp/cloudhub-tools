@@ -395,6 +395,43 @@ pub(crate) async fn codex_export_accounts_file(
     .map_err(Into::into)
 }
 
+#[tauri::command]
+pub(crate) async fn codex_export_accounts_text(
+    account_id: Option<i64>,
+    account_ids: Option<Vec<i64>>,
+    format: String,
+) -> PlatformResult<String> {
+    let format = CodexExportFormat::parse(&format)?;
+    if account_id.is_some_and(|id| id <= 0) {
+        return Err("导出账号无效".into());
+    }
+    if format.multi_file() && account_id.is_none() && account_ids.as_ref().is_none_or(|ids| ids.len() > 1) {
+        return Err("此格式的多账号导出需要 ZIP 文件，请使用文件导出".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || -> Result<String, String> {
+        let _writer = AUTH_WRITER.lock().map_err(|_| "Codex 账号操作不可用")?;
+        let conn = open_db()?;
+        let accounts = if let Some(ids) = &account_ids {
+            if ids.is_empty() || ids.len() > 100 || ids.iter().any(|id| *id <= 0) {
+                return Err("请选择 1 至 100 个有效账号导出".into());
+            }
+            let mut unique = std::collections::HashSet::new();
+            ids.iter().filter(|id| unique.insert(**id))
+                .map(|id| repository::get(&conn, *id)).collect::<Result<Vec<_>, _>>()?
+        } else if let Some(id) = account_id {
+            vec![repository::get(&conn, id)?]
+        } else {
+            repository::list(&conn)?
+        };
+        let auths = accounts.iter().map(|account| repository::credentials(&conn, account.id))
+            .collect::<Result<Vec<_>, _>>()?;
+        match build_export_file(&auths, &accounts, format)? {
+            ExportFile::Json(encoded) => Ok(encoded.to_string()),
+            ExportFile::Zip(_) => Err("此格式的多账号导出需要 ZIP 文件，请使用文件导出".into()),
+        }
+    }).await.map_err(|_| "账号文本导出任务失败")?.map_err(Into::into)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

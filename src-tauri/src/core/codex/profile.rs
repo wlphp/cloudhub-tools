@@ -285,6 +285,12 @@ impl Drop for TemporaryProfile {
 }
 
 pub fn cli_path() -> Option<PathBuf> {
+    // Finder-launched apps do not inherit the terminal's Homebrew/npm PATH.
+    // Prefer the desktop client's native binary, which also needs no Node runtime.
+    #[cfg(target_os = "macos")]
+    if let Some(cli) = super::desktop::installed().and_then(|app| macos_bundled_cli(&app)) {
+        return Some(cli);
+    }
     let names: &[&str] = if cfg!(windows) {
         &["codex.exe"]
     } else {
@@ -293,17 +299,76 @@ pub fn cli_path() -> Option<PathBuf> {
     let on_path = std::env::var_os("PATH").and_then(|paths| {
         std::env::split_paths(&paths)
             .flat_map(|dir| names.iter().map(move |name| dir.join(name)))
-            .find(|path| path.is_file())
+            .find(|path| executable_file(path))
     });
     if on_path.is_some() {
+        #[cfg(target_os = "macos")]
+        return on_path.map(macos_native_cli);
+        #[cfg(not(target_os = "macos"))]
         return on_path;
     }
     #[cfg(windows)]
     {
         return super::desktop::installed().and_then(|app| bundled_cli(&app));
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        macos_cli_candidates(dirs::home_dir().as_deref())
+            .into_iter().find(|path| executable_file(path)).map(macos_native_cli)
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     None
+}
+
+fn executable_file(path: &Path) -> bool {
+    if !path.is_file() { return false; }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        return fs::metadata(path).is_ok_and(|meta| meta.permissions().mode() & 0o111 != 0);
+    }
+    #[cfg(not(unix))]
+    true
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn macos_bundled_cli(app: &Path) -> Option<PathBuf> {
+    let cli = app.parent()?.parent()?.join("Resources/codex");
+    executable_file(&cli).then_some(cli)
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn macos_cli_candidates(home: Option<&Path>) -> Vec<PathBuf> {
+    let mut paths = vec![PathBuf::from("/opt/homebrew/bin/codex"), PathBuf::from("/usr/local/bin/codex")];
+    if let Some(home) = home {
+        for directory in [".local/bin", ".cargo/bin", ".volta/bin", ".npm-global/bin", ".nvm/current/bin", ".local/share/mise/shims", ".asdf/shims"] {
+            paths.push(home.join(directory).join("codex"));
+        }
+        // Discover nvm installations without executing shell startup scripts.
+        if let Ok(entries) = fs::read_dir(home.join(".nvm/versions/node")) {
+            let mut versions: Vec<_> = entries.take(64).filter_map(Result::ok).map(|entry| entry.path()).collect();
+            versions.sort();
+            versions.reverse();
+            paths.extend(versions.into_iter().map(|version| version.join("bin/codex")));
+        }
+    }
+    paths
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn macos_native_cli(launcher: PathBuf) -> PathBuf {
+    // npm's launcher uses /usr/bin/env node, which is also absent from Finder's
+    // PATH. Use its packaged native binary for both old and optional-dep layouts.
+    let Some(package) = fs::canonicalize(&launcher).ok().and_then(|path| path.parent()?.parent().map(Path::to_path_buf)) else { return launcher; };
+    for (target, dependency) in [("aarch64-apple-darwin", "codex-darwin-arm64"), ("x86_64-apple-darwin", "codex-darwin-x64")] {
+        if (cfg!(target_arch = "aarch64") && target != "aarch64-apple-darwin") || (cfg!(target_arch = "x86_64") && target != "x86_64-apple-darwin") { continue; }
+        let relative = PathBuf::from("vendor").join(target).join("codex/codex");
+        for root in [Some(package.clone()), Some(package.join("node_modules/@openai").join(dependency)), package.parent().map(|parent| parent.join(dependency))].into_iter().flatten() {
+            let binary = root.join(&relative);
+            if executable_file(&binary) { return binary; }
+        }
+    }
+    launcher
 }
 
 /// Use the installed desktop client's real version for its model catalog; never
@@ -350,6 +415,71 @@ fn bundled_cli(desktop_executable: &Path) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    struct DiscoveryFixture(PathBuf);
+    impl DiscoveryFixture {
+        fn new() -> Self {
+            let root = std::env::temp_dir().join(format!("cloudhub-macos-cli-{}", uuid::Uuid::new_v4()));
+            fs::create_dir(&root).unwrap();
+            Self(root)
+        }
+        fn executable(&self, relative: &str) -> PathBuf {
+            let path = self.0.join(relative);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(&path, b"discovery fixture only; never executed").unwrap();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
+            }
+            path
+        }
+    }
+    impl Drop for DiscoveryFixture {
+        fn drop(&mut self) { let _ = fs::remove_dir_all(&self.0); }
+    }
+    #[test]
+    fn macos_discovers_app_bundle_outside_terminal_path() {
+        let f = DiscoveryFixture::new();
+        let app = f.0.join("Codex.app/Contents/MacOS/Codex");
+        assert!(macos_bundled_cli(&app).is_none());
+        fs::create_dir_all(f.0.join("Codex.app/Contents/Resources/codex")).unwrap();
+        assert!(macos_bundled_cli(&app).is_none());
+        fs::remove_dir(f.0.join("Codex.app/Contents/Resources/codex")).unwrap();
+        let cli = f.executable("Codex.app/Contents/Resources/codex");
+        assert_eq!(macos_bundled_cli(&app), Some(cli));
+    }
+    #[test]
+    fn macos_discovers_homebrew_user_and_nvm_installations() {
+        let f = DiscoveryFixture::new();
+        let cli = f.executable(".nvm/versions/node/v22.0.0/bin/codex");
+        let paths = macos_cli_candidates(Some(&f.0));
+        assert!(paths.contains(&PathBuf::from("/opt/homebrew/bin/codex")));
+        assert!(paths.contains(&PathBuf::from("/usr/local/bin/codex")));
+        assert!(paths.contains(&f.0.join(".local/bin/codex")));
+        assert!(paths.contains(&cli));
+    }
+    #[test]
+    fn macos_npm_uses_native_binary_without_node_on_path() {
+        let f = DiscoveryFixture::new();
+        let launcher = f.executable("node_modules/@openai/codex/bin/codex.js");
+        let target = if cfg!(target_arch = "aarch64") { "aarch64-apple-darwin" } else { "x86_64-apple-darwin" };
+        let binary = f.executable(&format!("node_modules/@openai/codex/vendor/{target}/codex/codex"));
+        assert_eq!(macos_native_cli(launcher.clone()), fs::canonicalize(binary).unwrap());
+        let dependency = if cfg!(target_arch = "aarch64") { "codex-darwin-arm64" } else { "codex-darwin-x64" };
+        fs::remove_dir_all(f.0.join("node_modules/@openai/codex/vendor")).unwrap();
+        let binary = f.executable(&format!("node_modules/@openai/{dependency}/vendor/{target}/codex/codex"));
+        assert_eq!(macos_native_cli(launcher), fs::canonicalize(binary).unwrap());
+    }
+    #[cfg(unix)]
+    #[test]
+    fn macos_rejects_non_executable_cli() {
+        let f = DiscoveryFixture::new();
+        let cli = f.0.join("codex");
+        fs::write(&cli, b"not executable").unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&cli, fs::Permissions::from_mode(0o600)).unwrap();
+        assert!(!executable_file(&cli));
+    }
     #[test]
     #[ignore = "requires an installed official Codex client; reads only its version"]
     fn model_catalog_uses_installed_client_version_without_credentials() {

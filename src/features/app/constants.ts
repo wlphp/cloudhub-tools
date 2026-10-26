@@ -11,6 +11,10 @@ export const cloudHubTerminalThemeStorageKey = "cloudhub-tools-terminal-theme";
 export const cloudHubAboutStarDismissedStorageKey = "cloudhub-tools-about-star-dismissed";
 export const cloudHubUiZoomStorageKey = "cloudhub-tools-ui-zoom";
 export const cloudHubUiThemeStorageKey = "cloudhub-tools-ui-theme";
+export function readUiTheme(): "light" | "dark" {
+  try { return localStorage.getItem(cloudHubUiThemeStorageKey) === "dark" ? "dark" : "light"; }
+  catch { return "light"; }
+}
 export const cloudHubUiLanguageStorageKey = "cloudhub-tools-ui-language";
 export const cloudHubBackFabPositionStorageKey = "cloudhub-tools-back-fab-position";
 

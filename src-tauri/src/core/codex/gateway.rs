@@ -589,7 +589,6 @@ fn credentials(
     let _writer = super::AUTH_WRITER
         .lock()
         .map_err(|_| "Codex 账号操作不可用")?;
-    auth::ensure_runtime_auth(&repository::credentials(&open_db()?, id)?)?;
     credentials_locked(id,cancelled)
 }
 pub(crate) fn credentials_locked(id:i64,cancelled:Arc<std::sync::atomic::AtomicBool>)->Result<(Zeroizing<String>,Option<String>,Option<String>),String> {

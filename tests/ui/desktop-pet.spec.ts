@@ -163,12 +163,62 @@ async function fixture(page: Page, enabled = true) {
   }, { enabled, life: defaultPetLife });
 }
 
+test("four dock directions stay transparent and support click and keyboard reveal", async ({ page }) => {
+  await fixture(page); await page.goto("/?desktopPet=1");
+  await expect(page.locator(".pet-avatar")).toBeVisible();
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  for (const edge of ["left", "right", "top", "bottom"]) {
+    await page.evaluate(edge => {
+      (window as any).petEvent("pet-dock-edge", edge);
+      (window as any).petEvent("pet-docked", true);
+    }, edge);
+    await page.setViewportSize(edge === "top" || edge === "bottom" ? { width: 24, height: 64 } : { width: 64, height: 24 });
+    await expect(page.locator(".pet-docked-stage")).toHaveAttribute("data-edge", edge);
+    const head = page.getByRole("button", { name: "拉出宠物", exact: true });
+    await expect(head.locator("svg")).toBeVisible();
+    await expect(head).toHaveCSS("background-image", "none");
+    const angle = { left: "-90deg", right: "90deg", top: "0deg", bottom: "180deg" }[edge];
+    expect(await page.locator(".pet-dock-rope").evaluate(el => getComputedStyle(el).transform)).not.toBe("none");
+    if (angle !== "0deg") expect(await head.evaluate(el => getComputedStyle(el).getPropertyValue("--pet-rope-angle").trim())).toBe(angle);
+    await expect(head).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    await expect(head).toHaveCSS("animation-name", "none");
+    await expect(page.locator("html")).toHaveCSS("color-scheme", "normal");
+    await page.screenshot({ path: `test-results/pet-dock-${edge}.png`, omitBackground: true });
+    if (edge === "top") { await head.focus(); await page.keyboard.press("Enter"); }
+    else await head.click();
+    await expect(head).toHaveCount(0);
+    await page.setViewportSize({ width: 360, height: 480 });
+  }
+});
+
+test("top dock opens its notification and panel below the pet", async ({ page }) => {
+  await fixture(page); await page.goto("/?desktopPet=1");
+  await expect(page.locator(".pet-avatar")).toBeVisible();
+  await page.evaluate(() => {
+    (window as any).petEvent("pet-dock-edge", "top");
+    (window as any).petEvent("pet-docked", true);
+    (window as any).petEvent("pet-notification", {key:"top-test",title:"顶部提醒",detail:"向下展开",active:true,severity:"warning",section:"panels"});
+  });
+  await page.setViewportSize({ width: 360, height: 480 });
+  const bubble = page.getByRole("status", { name: "运维消息气泡" });
+  await expect(bubble).toBeVisible();
+  const avatar = await page.locator(".pet-avatar").boundingBox();
+  expect((await bubble.boundingBox())!.y).toBeGreaterThan(avatar!.y + avatar!.height);
+  await page.getByRole("button", { name: "查看运维消息：顶部提醒" }).click();
+  const panel = page.locator(".pet-floating-card");
+  await expect(panel).toBeVisible();
+  const bounds = (await panel.boundingBox())!;
+  expect(bounds.y).toBeGreaterThan(avatar!.y + avatar!.height);
+  expect(bounds.y + bounds.height).toBeLessThanOrEqual(480);
+  await page.screenshot({ path: "test-results/pet-top-notification.png" });
+});
+
 test("edge head stays tucked on hover and wakes for a message or a deliberate drag", async ({ page }) => {
   await fixture(page); await page.goto("/?desktopPet=1");
   await expect(page.locator(".pet-avatar")).toBeVisible();
   await page.evaluate(() => (window as any).petEvent("pet-docked", true));
   await page.setViewportSize({ width: 104, height: 95 });
-  const head = page.getByRole("button", { name: "拖动头部，将桌宠从屏幕边缘拉出" });
+  const head = page.getByRole("button", { name: "拉出宠物", exact: true });
   await expect(head).toBeVisible();
   await expect(page.locator(".pet-avatar")).toHaveCount(0);
   await head.hover(); await page.waitForTimeout(300); await expect(head).toBeVisible();
@@ -199,11 +249,11 @@ test("drag waits for the native drop and hides existing panels without reopening
   await avatar.dispatchEvent("pointerup",{button:0,screenX:95,screenY:400});
   await page.evaluate(()=>(window as any).finishPetDrop());
   await page.setViewportSize({width:104,height:95});
-  await expect(page.locator(".pet-docked-head")).toBeVisible();
+  await expect(page.locator(".pet-dock-handle")).toBeVisible();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect.poll(()=>page.evaluate(()=>(window as any).petCalls.filter((c:any)=>c.command==="pet_layout").at(-1)?.args.expanded)).toBe(false);
   await page.evaluate(()=>(window as any).petEvent("pet-notification",{key:"new",title:"新的提醒",detail:"新消息唤醒",active:true,severity:"warning",section:"panels"}));
-  await expect(page.locator(".pet-docked-head")).toHaveCount(0);
+  await expect(page.locator(".pet-dock-handle")).toHaveCount(0);
 });
 
 test("a new life reminder reveals a docked pet", async ({ page }) => {
@@ -211,7 +261,7 @@ test("a new life reminder reveals a docked pet", async ({ page }) => {
   await expect(page.locator(".pet-avatar")).toBeVisible();
   await page.evaluate(() => (window as any).petEvent("pet-docked", true));
   await lifeNotice(page);
-  await expect(page.locator(".pet-docked-head")).toHaveCount(0);
+  await expect(page.locator(".pet-dock-handle")).toHaveCount(0);
   await expect(page.getByRole("status", { name: "宠物生活提醒" })).toBeVisible();
 });
 
@@ -236,6 +286,38 @@ test("pet has transparent canvas, explicit menu close and water interaction", as
   await expect(page.getByRole("dialog")).toHaveCount(0);
   expect(await page.evaluate(() => (window as any).petCalls.some((c: any) => c.command === "pet_regions"))).toBe(true);
   await page.screenshot({ path: "test-results/alpaca-spray.png", animations: "disabled", omitBackground: true });
+});
+
+test("status panel and reminder items use readable light surfaces", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("cloudhub-tools-ui-theme", "light"));
+  await fixture(page); await page.goto("/?desktopPet=1");
+  await expect(page.getByRole("button", { name: /^宠物：/ })).toBeVisible();
+  await page.evaluate(() => (window as any).petEvent("pet-alerts-changed", { checkedAt: 100, lastError: null, alerts: [{ key: "panel:1", title: "生产面板访问异常", detail: "连续两次无法通过配置的接口访问面板。请检查本机网络、面板地址、权限与 API 白名单。", section: "panels", severity: "emergency", active: true, ignored: false, updatedAt: 100, snoozedUntil: 0 }] }));
+  await page.locator(".pet-avatar").click();
+  const panel = page.getByRole("dialog", { name: "宠物运维状态" });
+  await expect(panel).toBeVisible();
+  await expect(panel).toHaveCSS("background-color", "rgb(255, 255, 255)");
+  await expect(panel).toHaveCSS("color", "rgb(29, 29, 31)");
+  await expect(panel.locator(":scope > header")).toHaveCSS("background-color", "rgb(243, 243, 244)");
+  await expect(panel.locator(".pet-alert-item")).toHaveCSS("background-color", "rgb(255, 244, 243)");
+  await expect(panel.locator(".pet-alert-item p")).toHaveCSS("color", "rgb(103, 103, 108)");
+  await expect(panel.locator("footer")).toHaveCSS("background-color", "rgb(255, 255, 255)");
+});
+
+
+test("detached pet uses the saved light theme without duplicating sprite frames", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("cloudhub-tools-ui-theme", "light"));
+  await fixture(page); await page.goto("/?desktopPet=1");
+  await expect.poll(() => page.locator("body").evaluate(el => el.classList.contains("theme-light"))).toBe(true);
+  await page.locator(".pet-avatar").click({ button: "right" });
+  const menu = page.getByRole("dialog", { name: "宠物快捷菜单" });
+  await expect(menu).toBeVisible();
+  expect(await menu.evaluate(el => getComputedStyle(el).backgroundColor)).toBe("rgb(255, 255, 255)");
+  const sprite = page.locator(".pet-sprite");
+  await expect(sprite).toHaveCount(1);
+  expect(await sprite.evaluate(el => getComputedStyle(el).backgroundRepeat)).toBe("no-repeat");
+  expect(await sprite.evaluate(el => getComputedStyle(el).backgroundImage.startsWith("url("))).toBe(true);
+  await page.screenshot({ path: "test-results/alpaca-light-quick-menu.png", animations: "disabled", omitBackground: true });
 });
 
 test("alerts interrupt play and offer snooze and real section navigation", async ({ page }) => {
@@ -594,22 +676,98 @@ test("panel access check is independently configurable", async ({ page }) => {
   expect(saved.panels).toBe(false);
 });
 
-for (const kind of ["status", "menu", "chat"] as const) test(`pet ${kind} uses the common dialog theme`, async ({ page }) => {
+for (const theme of ["dark", "light"] as const) for (const kind of ["status", "menu", "chat"] as const) test(`pet ${kind} uses the common dialog theme in ${theme} mode`, async ({ page }) => {
   await page.setViewportSize({ width: 520, height: 720 });
-  await fixture(page); await page.goto("/?desktopPet=1");
+  await fixture(page);
+  await page.addInitScript(theme => localStorage.setItem("cloudhub-tools-ui-theme", theme), theme);
+  await page.goto("/?desktopPet=1");
   const avatar = page.getByRole("button", { name: /^宠物：/ });
   if (kind === "chat") await page.getByRole("button", { name: "双击嘴巴，和宠物聊天" }).dblclick();
   else await avatar.click(kind === "menu" ? { button: "right" } : {});
   const panel = page.getByRole("dialog");
   await expect(panel).toHaveClass(/modal-form-layout/);
   await expect(panel).toHaveClass(/dialog-common-theme/);
-  await expect(panel).toHaveCSS("background-color", "rgb(40, 40, 40)");
-  await expect(panel.locator(":scope > header")).toHaveCSS("background-color", "rgb(48, 48, 48)");
+  await expect(panel).toHaveCSS("background-color", theme === "light" ? "rgb(255, 255, 255)" : "rgb(29, 29, 29)");
+  await expect(panel.locator(":scope > header")).toHaveCSS("background-color", theme === "light" ? "rgb(243, 243, 244)" : "rgb(36, 36, 36)");
+  await expect(panel).toHaveCSS("color", theme === "light" ? "rgb(29, 29, 31)" : "rgb(230, 230, 230)");
+  await expect(page.locator("html")).toHaveCSS("color-scheme", "normal");
+  await expect(page.locator("body")).toHaveClass(theme === "light" ? /theme-light/ : /^(?!.*theme-light)/);
+  await expect(page.locator("body")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   await expect(panel.locator(".dialog-header-actions")).toBeVisible();
-  if (kind === "status") await expect(panel.locator("footer")).toHaveCSS("background-color", "rgb(40, 40, 40)");
-  await page.screenshot({ path: `test-results/pet-common-${kind}.png`, animations: "disabled", omitBackground: true });
+  if (kind === "status") await expect(panel.locator("footer")).toHaveCSS("background-color", theme === "light" ? "rgb(255, 255, 255)" : "rgb(29, 29, 29)");
+  await page.screenshot({ path: `test-results/pet-common-${kind}-${theme}.png`, animations: "disabled", omitBackground: true });
   await page.keyboard.press("Escape");
   await expect(panel).toHaveCount(0);
+});
+
+test("pet windows follow cross-window theme storage changes and keep bubbles readable", async ({ page, context }) => {
+  await fixture(page); await page.goto("/?desktopPet=1");
+  await expect(page.locator(".pet-avatar")).toBeVisible();
+  // A real same-origin storage event, rather than a synthetic event on the pet page.
+  const preferences = await context.newPage();
+  await preferences.goto("/?desktopPetAlerts=1");
+  const notification = preferences.getByRole("dialog", { name: "CloudHub 运维提醒" });
+  await expect(notification).toBeVisible();
+  for (const theme of ["light", "dark", "light"] as const) {
+    await preferences.evaluate(theme => localStorage.setItem("cloudhub-tools-ui-theme", theme), theme);
+    await expect(page.locator("html")).toHaveCSS("color-scheme", "normal");
+    await expect.poll(() => page.locator("body").evaluate(el => el.classList.contains("theme-light"))).toBe(theme === "light");
+    await page.evaluate(() => (window as any).petEvent("pet-notification", { key: "theme", title: "主题回归提醒", detail: "检查消息文字与背景", active: true, severity: "emergency", section: "panels" }));
+    const bubble = page.getByRole("status", { name: "运维消息气泡" });
+    await expect(bubble).toBeVisible();
+    await expect(bubble).toHaveCSS("color", theme === "light" ? "rgb(29, 29, 31)" : "rgb(230, 230, 230)");
+    await expect(bubble.locator(".pet-speech-detail")).toHaveCSS("color", theme === "light" ? "rgb(103, 103, 108)" : "rgb(160, 160, 160)");
+    await expect(page.locator("body")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    await page.getByRole("button", { name: "关闭消息气泡", exact: true }).click();
+  }
+  // The independent notification also reads the persisted preference at startup.
+  await preferences.reload();
+  await expect(notification).toHaveCSS("background-color", "rgb(255, 255, 255)");
+  await expect(notification.locator("header")).toHaveCSS("background-color", "rgb(243, 243, 244)");
+  await page.evaluate(() => localStorage.removeItem("cloudhub-tools-ui-theme"));
+  await expect(notification).toHaveCSS("background-color", "rgb(255, 255, 255)");
+  await page.evaluate(() => { window.dispatchEvent(new Event("focus")); });
+  await expect(page.locator("html")).toHaveCSS("color-scheme", "normal");
+  await preferences.close();
+});
+
+test("alpaca frames contain no detached neighbouring-pose fragments", async ({ page }) => {
+  await fixture(page); await page.goto("/?desktopPet=1");
+  const sprite = page.locator(".pet-sprite");
+  await expect(sprite).toBeVisible();
+  for (const selector of [".pet-avatar-wrap", ".pet-avatar", ".pet-sprite"]) {
+    await expect(page.locator(selector)).toHaveCSS("filter", "none");
+    await expect(page.locator(selector)).toHaveCSS("box-shadow", "none");
+  }
+  const fragments = await sprite.evaluate(async el => {
+    const image = new Image();
+    image.src = getComputedStyle(el).backgroundImage.slice(5, -2);
+    await image.decode();
+    const canvas = document.createElement("canvas"); canvas.width = 1536; canvas.height = 1024;
+    const ctx = canvas.getContext("2d")!; ctx.drawImage(image, 0, 0);
+    const fragments: { frame: number; pixels: number }[] = [];
+    for (let frame = 0; frame < 24; frame++) {
+      const data = ctx.getImageData(frame % 6 * 256, Math.floor(frame / 6) * 256, 256, 256).data;
+      const seen = new Uint8Array(256 * 256); const components: number[] = [];
+      for (let pixel = 0; pixel < seen.length; pixel++) {
+        if (seen[pixel] || data[pixel * 4 + 3] <= 32) continue;
+        const queue = [pixel]; seen[pixel] = 1;
+        for (let i = 0; i < queue.length; i++) {
+          const p = queue[i]; const x = p % 256; const y = Math.floor(p / 256);
+          for (const n of [x > 0 ? p - 1 : -1, x < 255 ? p + 1 : -1, y > 0 ? p - 256 : -1, y < 255 ? p + 256 : -1]) {
+            if (n >= 0 && !seen[n] && data[n * 4 + 3] > 32) { seen[n] = 1; queue.push(n); }
+          }
+        }
+        components.push(queue.length);
+      }
+      components.sort((a, b) => b - a);
+      for (const pixels of components.slice(1)) if (pixels >= 8) fragments.push({ frame, pixels });
+    }
+    return fragments;
+  });
+  expect(fragments).toEqual([]);
+  await expect(sprite).toHaveCSS("background-size", "600% 400%");
+  await expect(sprite).toHaveCSS("background-repeat", "no-repeat");
 });
 
 test("status titlebar drags the native window and supports enlarge restore and close", async ({ page }) => {
@@ -714,9 +872,10 @@ for (const appearance of ["dog", "penguin", "fish"] as const) test(`${appearance
   if (appearance === "fish") {
     await page.evaluate(() => (window as any).petEvent("pet-docked",true));
     await page.setViewportSize({width:75,height:68});
-    const head=page.locator(".pet-docked-head");
+    const head=page.locator(".pet-dock-handle");
     await expect(head).toBeVisible();
-    expect(await head.evaluate(el=>getComputedStyle(el).backgroundImage)).toContain("fish-sprites");
+    await expect(head.locator("svg")).toBeVisible();
+    await expect(head).toHaveCSS("background-image", "none");
     await page.screenshot({path:"test-results/fish-head.png",omitBackground:true});
     await page.evaluate(() => (window as any).__TAURI_INTERNALS__.invoke("pet_move",{reveal:true}));
   }
@@ -787,8 +946,8 @@ test("desktop notification remains usable when the companion is disabled", async
   await expect(page.getByRole("dialog",{name:"CloudHub 运维提醒"})).toBeVisible();
   const notification = page.getByRole("dialog",{name:"CloudHub 运维提醒"});
   await expect(notification).toHaveClass(/dialog-common-theme/);
-  await expect(notification).toHaveCSS("background-color", "rgb(40, 40, 40)");
-  await expect(notification.locator("header")).toHaveCSS("background-color", "rgb(48, 48, 48)");
+  await expect(notification).toHaveCSS("background-color", "rgb(255, 255, 255)");
+  await expect(notification.locator("header")).toHaveCSS("background-color", "rgb(243, 243, 244)");
   await expect(page.getByText("证书即将到期",{exact:true})).toBeVisible();
   await expect(page.locator(".pet-avatar")).toHaveCount(0);
   await page.getByRole("button",{name:"一小时后提醒"}).click();

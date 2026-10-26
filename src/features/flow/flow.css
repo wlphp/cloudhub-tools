@@ -52,3 +52,32 @@
 .flow-panel-title{align-items:center}
 .flow-panel-title .flow-list-toolbar{margin:0 0 0 auto}
 .flow-panel-title .flow-search{margin:0;width:min(300px,42vw)}
+
+/* 运行确认沿用公共弹窗，参数按需展开。 */
+.flow-run-dialog .flow-run-target{display:flex;align-items:center;gap:12px;padding:14px;border:1px solid var(--jb-border);border-radius:7px;background:var(--jb-surface-2)}
+.flow-run-target-icon{display:grid;place-items:center;flex:0 0 36px;width:36px;height:36px;border-radius:7px;background:var(--jb-surface);color:var(--jb-accent-strong)}
+.flow-run-target>div{display:flex;flex-direction:column;gap:5px;min-width:0}
+.flow-run-target strong{font-size:14px;line-height:1.5;overflow-wrap:anywhere;color:var(--jb-text)}
+.flow-run-target span:not(.flow-run-target-icon){font-size:12px;line-height:1.5;color:var(--jb-muted);overflow-wrap:anywhere}
+.flow-run-default{margin:12px 0 18px;color:var(--jb-muted);font-size:12px;line-height:1.6}
+.flow-run-advanced{border:1px solid var(--jb-border);border-radius:6px;overflow:hidden}
+.flow-run-advanced summary{padding:12px;cursor:pointer;color:var(--jb-text);font-size:12px;line-height:1.5}
+.flow-run-advanced summary>span{margin-left:8px;color:var(--jb-muted);font-size:11px}
+.flow-run-advanced summary:hover{background:var(--jb-surface-2)}
+.flow-run-advanced summary:focus-visible{outline:2px solid var(--jb-accent-strong);outline-offset:-2px}
+.flow-run-advanced[open] summary{border-bottom:1px solid var(--jb-border)}
+.flow-run-advanced label{display:flex;flex-direction:column;gap:8px;padding:12px;color:var(--jb-muted);font-size:12px}
+.flow-run-dialog .flow-run-advanced textarea{box-sizing:border-box;min-height:120px;max-height:280px;line-height:1.6;font-size:12px}
+.flow-run-advanced small{font-size:11px;line-height:1.6}
+.flow-run-advanced code{font-size:11px;overflow-wrap:anywhere;color:var(--jb-muted)}
+.flow-run-notice{display:flex;align-items:flex-start;gap:7px;margin-top:16px;padding:0;color:var(--jb-muted);font-size:12px;line-height:1.6}
+.flow-run-notice>svg{flex-shrink:0;margin-top:2px}
+
+/* 状态提示使用主题色轻染，避免浅色页面出现深色横条。 */
+.flow-feedback.success{--flow-feedback-tone:var(--jb-green)}
+.flow-feedback.error{--flow-feedback-tone:var(--jb-red)}
+.flow-feedback:is(.success,.error){border-color:color-mix(in srgb,var(--flow-feedback-tone) 24%,var(--jb-border));background:color-mix(in srgb,var(--flow-feedback-tone) 6%,var(--jb-surface));color:color-mix(in srgb,var(--flow-feedback-tone) 78%,var(--jb-text));border-radius:6px;line-height:1.6;overflow-wrap:anywhere}
+.flow-feedback>svg{flex-shrink:0}
+.flow-feedback button{flex-shrink:0;min-width:26px;min-height:26px;border-radius:4px}
+.flow-feedback button:hover{background:color-mix(in srgb,var(--flow-feedback-tone) 10%,transparent)}
+.flow-feedback button:focus-visible{outline:2px solid var(--jb-accent-strong);outline-offset:2px}

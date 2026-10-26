@@ -102,7 +102,8 @@ pub struct Snapshot {
 pub struct PetStore {
     pub checking: AtomicBool,
     pub expanded: AtomicBool,
-    pub docked: Mutex<Option<(i32, i32)>>,
+    pub top_anchored: AtomicBool,
+    pub docked: Mutex<Option<(i32, i32, docking::Edge)>>,
     pub tray_ready: AtomicBool,
     pub size: AtomicU32,
     pub sprite: Mutex<(u32, u32, bool, usize)>,
@@ -503,12 +504,21 @@ fn position(window: &tauri::WebviewWindow, x: Option<i32>, y: Option<i32>) -> Re
     let right = (area.position.x + area.size.width as i32 - size.width as i32).max(area.position.x);
     let bottom =
         (area.position.y + area.size.height as i32 - size.height as i32).max(area.position.y);
-    let x = x.unwrap_or(right - 40).clamp(area.position.x, right);
-    let y = y.unwrap_or(bottom).clamp(area.position.y, bottom);
+    let mut x = x.unwrap_or(right - 40);
+    let mut y = y.unwrap_or(bottom);
+    let store = window.state::<PetStore>();
+    let pet_size = store.size.load(Ordering::SeqCst);
+    if !store.expanded.load(Ordering::SeqCst) && size.height >= ((pet_size as f64 + 39.) * selected.scale_factor()).round() as u32 {
+        (x,y) = docking::avatar_position((x,y), (size.width,size.height), store.size.load(Ordering::SeqCst), selected.scale_factor(), (area.position.x,area.position.y,area.size.width,area.size.height));
+    } else {
+        x = x.clamp(area.position.x, right);
+        y = y.clamp(area.position.y, bottom);
+    }
     window
         .set_position(tauri::PhysicalPosition::new(x, y))
         .map_err(|_| "无法移动桌宠".into())
 }
+#[cfg(test)]
 fn head_rect(appearance: usize) -> [u32; 4] {
     static HEADS: std::sync::OnceLock<[[u32;4];4]> = std::sync::OnceLock::new();
     HEADS.get_or_init(|| serde_json::from_str(include_str!("../../../src/features/desktop-pet/assets/pet-heads.json")).expect("bundled pet head bounds"))[appearance]
@@ -518,18 +528,16 @@ fn undock(app: &tauri::AppHandle, w: &tauri::WebviewWindow) -> Result<(), String
     let store = app.state::<PetStore>();
     // Serialize with message-driven undocking and layout changes.
     let mut docked = store.docked.lock().map_err(|_| "桌宠贴边状态不可用")?;
-    if docked.is_some() {
+    if let Some((_,_,edge)) = *docked {
         let s = read_settings()?;
-        let appearance = match s.appearance.as_str() { "dog"=>1,"penguin"=>2,"fish"=>3,_=>0 };
-        let [hx,hy,_,_] = head_rect(appearance);
         let scale = w.scale_factor().map_err(|_| "无法读取桌宠缩放")?;
-        // 贴边时窗口就是头部本身。展开时让头部停留在当前屏幕位置，
-        // 宠物看起来从边缘原地展开，而不是瞬移回停靠前的位置。
+        // Reveal beside the current rope, including after moving between monitors.
         let raw = w.outer_position().map_err(|_| "无法读取桌宠位置")?;
-        let head_left = 40. * scale + hx as f64 / 256. * s.size as f64 * scale;
-        let head_top = 28. * scale + hy as f64 / 256. * s.size as f64 * scale;
+        let (width,height) = docking::handle_size(edge);
+        let avatar_left = (width / 2. - s.size as f64 / 2. - 40.) * scale;
+        let avatar_top = (height / 2. - s.size as f64 / 2. - 28.) * scale;
         w.set_size(tauri::LogicalSize::new(s.size as f64+80.,s.size as f64+40.)).map_err(|_| "无法展开桌宠")?;
-        position(w,Some((raw.x as f64 - head_left).round() as i32),Some((raw.y as f64 - head_top).round() as i32))?;
+        position(w,Some((raw.x as f64 + avatar_left).round() as i32),Some((raw.y as f64 + avatar_top).round() as i32))?;
         *docked = None;
         let _ = w.emit("pet-docked",false);
     }
@@ -548,24 +556,28 @@ fn dock_after_drag(app: &tauri::AppHandle, w: &tauri::WebviewWindow) -> Result<(
     let size = w.outer_size().map_err(|_| "无法读取桌宠大小")?;
     let s = read_settings()?;
     let scale = monitor.scale_factor();
-    let (avatar, avatar_size) = docking::avatar_bounds((raw.x,raw.y),size.height,s.size,scale);
-    let edge = docking::edge_at(avatar,avatar_size,area,(16.*scale) as i32);
+    let (mut avatar, avatar_size) = docking::avatar_bounds((raw.x,raw.y),size.height,s.size,scale);
+    if store.top_anchored.load(Ordering::SeqCst) && store.expanded.load(Ordering::SeqCst) { avatar.1 = raw.y + (28.*scale).round() as i32; }
+    let edge = docking::edge_at(avatar,avatar_size,area,(24.*scale) as i32)
+        // Caption dragging may keep the native window on screen. Its 28px
+        // transparent top margin must not prevent the pet from reaching Top.
+        .or_else(|| (raw.y <= area.1 + (24.*scale) as i32).then_some(docking::Edge::Top));
     position(w,Some(raw.x),Some(raw.y))?;
     let Some(edge) = edge else { return Ok(()); };
+    store.top_anchored.store(edge == docking::Edge::Top, Ordering::SeqCst);
     let full = w.outer_position().map_err(|_| "无法读取桌宠位置")?;
-    let appearance = match s.appearance.as_str() { "dog"=>1,"penguin"=>2,"fish"=>3,_=>0 };
-    let [hx,hy,hw,hh] = head_rect(appearance);
-    let width = (s.size as f64 * hw as f64 / 256.).min(area.2 as f64 / scale);
-    let height = (s.size as f64 * hh as f64 / 256.).min(area.3 as f64 / scale);
+    let (width,height) = docking::handle_size(edge);
+    let (width,height) = (width.min(area.2 as f64 / scale),height.min(area.3 as f64 / scale));
     w.set_size(tauri::LogicalSize::new(width,height)).map_err(|_| "无法收起桌宠")?;
     let size = w.outer_size().map_err(|_| "无法读取桌宠大小")?;
-    let head = (avatar.0+(hx as f64/256.*s.size as f64*scale).round() as i32,avatar.1+(hy as f64/256.*s.size as f64*scale).round() as i32);
-    let (x,y) = docking::head_position(edge,head,(size.width,size.height),area);
+    let anchor = (avatar.0 + (avatar_size.0 as i32-size.width as i32)/2,avatar.1 + (avatar_size.1 as i32-size.height as i32)/2);
+    let (x,y) = docking::head_position(edge,anchor,(size.width,size.height),area);
     if w.set_position(tauri::PhysicalPosition::new(x,y)).is_err() {
         let _ = w.set_size(tauri::LogicalSize::new(s.size as f64+80.,s.size as f64+40.));
         return Err("无法将桌宠收起到边缘".into());
     }
-    *docked = Some((full.x,avatar.1-(28.*scale).round() as i32));
+    *docked = Some((full.x,avatar.1-(28.*scale).round() as i32,edge));
+    let _ = w.emit("pet-dock-edge",edge);
     let _ = w.emit("pet-docked",true);
     Ok(())
 }
@@ -717,7 +729,7 @@ pub fn pet_layout(
     state.expanded.store(expanded, Ordering::SeqCst);
     if let Some(w) = app.get_webview_window(LABEL) {
         if expanded { undock(&app,&w)?; }
-        else if state.docked.lock().map_err(|_| "桌宠贴边状态不可用")?.is_some() { let _ = w.emit("pet-docked",true); return Ok(()); }
+        else if let Some((_,_,edge)) = *state.docked.lock().map_err(|_| "桌宠贴边状态不可用")? { let _ = w.emit("pet-dock-edge",edge); let _ = w.emit("pet-docked",true); return Ok(()); }
         let s = read_settings()?;
         let old = w.outer_size().map_err(|_| "无法读取桌宠大小")?;
         let p = w.outer_position().map_err(|_| "无法读取桌宠位置")?;
@@ -739,7 +751,7 @@ pub fn pet_layout(
         position(
             &w,
             Some(p.x),
-            Some(p.y + old.height as i32 - new.height as i32),
+            Some(if state.top_anchored.load(Ordering::SeqCst) { p.y } else { p.y + old.height as i32 - new.height as i32 }),
         )?;
     }
     Ok(())
@@ -775,14 +787,16 @@ pub async fn pet_move(
         if remember {
             let p = w.outer_position().map_err(|_| "无法读取桌宠位置")?;
             let docked = *app.state::<PetStore>().docked.lock().map_err(|_| "桌宠贴边状态不可用")?;
-            save_json(POSITION, &docked.unwrap_or((p.x,p.y)))?;
-            // 透明 WebView2 窗口移动后可能残留旧帧（拖动残影）。一次 1 逻辑像素的
-            // 尺寸往返强制合成器重新呈现，清除残影。
+            save_json(POSITION, &docked.map(|(x,y,_)| (x,y)).unwrap_or((p.x,p.y)))?;
+            // Transparent WebView2 windows can retain the previous frame after moving.
+            // Let the compositor present the resize nudge before restoring the frame.
             let size = w.outer_size().map_err(|_| "无法读取桌宠大小")?;
             let scale = w.scale_factor().map_err(|_| "无法读取桌宠缩放")?;
             let logical = (size.width as f64 / scale, size.height as f64 / scale);
             let _ = w.set_size(tauri::LogicalSize::new(logical.0 + 1., logical.1));
+            tokio::time::sleep(Duration::from_millis(20)).await;
             let _ = w.set_size(tauri::LogicalSize::new(logical.0, logical.1));
+            tokio::time::sleep(Duration::from_millis(20)).await;
         }
     }
     Ok(())
@@ -1326,18 +1340,15 @@ pub fn initialize(app: &tauri::AppHandle) {
                     return Some(cx >= 0. && cy >= 0. && cx < width_px && cy < height_px);
                 }
                 if store.docked.lock().ok()?.is_some() {
-                    let (_,_,_,appearance) = *store.sprite.lock().ok()?;
-                    let [left,top,width,height] = head_rect(appearance);
                     let bounds = w.inner_size().ok()?;
                     let (width_px,height_px) = (bounds.width as f64/scale,bounds.height as f64/scale);
-                    if cx < 0. || cy < 0. || cx >= width_px || cy >= height_px { return Some(false); }
-                    let sx = ((cx/width_px)*width as f64) as u32;
-                    let sy = ((cy/height_px)*height as f64) as u32;
-                    return Some(masks[appearance].as_ref()?.get_pixel(left+sx.min(width-1),top+sy.min(height-1))[3]>32);
+                    // Include the loop's hole and a small margin in the pull target.
+                    return Some(cx >= 0. && cy >= 0. && cx < width_px && cy < height_px);
                 }
                 let size = store.size.load(Ordering::SeqCst).max(1) as f64;
                 let x = (p.x - origin.x as f64) / scale - 40.;
-                let y = (p.y - origin.y as f64) / scale - (height - size - 12.);
+                let avatar_top = if store.top_anchored.load(Ordering::SeqCst) && store.expanded.load(Ordering::SeqCst) { 28. } else { height - size - 12. };
+                let y = (p.y - origin.y as f64) / scale - avatar_top;
                 if x < 0. || y < 0. || x >= size || y >= size {
                     return Some(false);
                 }

@@ -26,7 +26,14 @@ fn field(value: &Value, names: &[&str], max: usize) -> Option<String> {
         .map(str::trim).filter(|v| !v.is_empty() && v.len() <= max && !v.chars().any(char::is_control)).map(str::to_owned))
 }
 
-fn normalize(value: &Value) -> Result<Value, String> {
+fn session_hint(value: &Value, keys: &[&str], max: usize) -> Option<String> {
+    let session = value.get("session").unwrap_or(&Value::Null);
+    let user = value.get("user").or_else(|| session.get("user")).unwrap_or(&Value::Null);
+    let account = value.get("account").or_else(|| session.get("account")).unwrap_or(&Value::Null);
+    [value, session, user, account].into_iter().find_map(|source| field(source, keys, max))
+}
+
+pub(super) fn normalize(value: &Value) -> Result<Value, String> {
     if let Some(raw) = value.as_str() {
         let raw = raw.trim().strip_prefix("Bearer ").unwrap_or(raw.trim());
         if raw.starts_with("rt-") || raw.starts_with("rt_") { return Ok(json!({"tokens":{"refresh_token":raw}})); }
@@ -37,26 +44,97 @@ fn normalize(value: &Value) -> Result<Value, String> {
     if value.get("OPENAI_API_KEY").is_some_and(Value::is_string) || value.get("openai_api_key").is_some_and(Value::is_string) {
         return Ok(value.clone());
     }
-    let tokens = value.get("tokens").or_else(|| value.get("credentials")).unwrap_or(value);
+    let tokens = value.get("tokens").or_else(|| value.get("credentials")).or_else(|| value.get("session")).unwrap_or(value);
     if value.get("type").and_then(Value::as_str) == Some("apikey") {
         return Ok(json!({"OPENAI_API_KEY":field(tokens, &["api_key"], 16_384).ok_or("API Key 凭据无效")?}));
     }
+    let session = value.get("session").unwrap_or(&Value::Null);
+    let user = value.get("user").or_else(|| session.get("user")).unwrap_or(&Value::Null);
+    let account = value.get("account").or_else(|| session.get("account")).unwrap_or(&Value::Null);
     let mut output = json!({"tokens":{}});
     for name in ["last_refresh", "account_name", "email", "note", "tags"] {
         if let Some(value) = value.get(name) { output[name] = value.clone(); }
     }
+    let sources = [value, session, user, account];
+    for (name, aliases, max) in [
+        ("email", &["email", "emailAddress"][..], 254),
+        ("account_name", &["account_name", "accountName", "alias"][..], 160),
+    ] {
+        if output.get(name).is_none_or(|current| !current.is_string() || current.as_str().is_none_or(str::is_empty)) {
+            if let Some(hint) = sources.into_iter().find_map(|source| field(source, aliases, max)) { output[name] = Value::String(hint); }
+        }
+    }
+    if let Some(user_name) = sources.into_iter().find_map(|source| field(source, &["name", "displayName", "username"], 160)) {
+        output["session_user_name"] = Value::String(user_name);
+    }
+    if let Some(user_id) = user.get("id").and_then(Value::as_str)
+        .or_else(|| user.get("user_id").and_then(Value::as_str))
+        .or_else(|| user.get("userId").and_then(Value::as_str))
+        .map(str::to_owned)
+        .or_else(|| field(value, &["chatgpt_user_id", "user_id", "userId"], 512))
+    {
+        output["session_user_id"] = Value::String(user_id);
+    }
+    if let Some(account_id) = account.get("id").and_then(Value::as_str)
+        .or_else(|| account.get("account_id").and_then(Value::as_str))
+        .or_else(|| account.get("accountId").and_then(Value::as_str))
+        .map(str::to_owned)
+        .or_else(|| field(value, &["chatgpt_account_id", "account_id", "accountId"], 512))
+        .filter(|v| !v.starts_with("user-"))
+    {
+        output["session_account_id"] = Value::String(account_id);
+    }
+    if let Some(provider) = sources.into_iter().find_map(|source| field(source, &["auth_provider", "authProvider", "login_provider", "loginProvider"], 80)) {
+        output["session_auth_provider"] = Value::String(provider);
+    }
+    if let Some(plan) = sources.into_iter().find_map(|source| field(source, &["chatgpt_plan_type", "plan_type", "planType", "plan"], 80)) {
+        output["session_plan"] = Value::String(plan);
+    }
+    if let Some(workspace) = sources.into_iter().find_map(|source| field(source, &["workspace_name", "workspaceName", "organization_name", "organizationName"], 160)) {
+        output["session_workspace_name"] = Value::String(workspace);
+    }
     if value.get("token_source_mode").and_then(Value::as_str) == Some("chatgpt_web_session")
+        || value.get("user").is_some() || value.get("account").is_some() || value.get("session").is_some()
         || ((value.get("accessToken").is_some() || value.get("access_token").is_some())
             && ["user", "account", "expires", "sessionToken", "authProvider"].iter().any(|key| value.get(key).is_some())) {
         output["token_source_mode"] = json!("chatgpt_web_session");
     }
+    let session_account_id = output.get("session_account_id").and_then(Value::as_str).filter(|v| !v.starts_with("user-")).map(str::to_owned);
     for (target, names, max) in [
         ("access_token", vec!["access_token", "accessToken"], 32_768),
         ("id_token", vec!["id_token", "idToken"], 32_768),
         ("refresh_token", vec!["refresh_token", "refreshToken"], 16_384),
         ("account_id", vec!["account_id", "accountId", "chatgpt_account_id"], 512),
     ] {
-        if let Some(text) = field(tokens, &names, max) { output["tokens"][target] = Value::String(text); }
+        let found = field(tokens, &names, max).or_else(|| {
+            if target == "account_id" {
+                account.get("id").and_then(Value::as_str).map(str::trim).filter(|v| !v.is_empty() && !v.starts_with("user-")).map(str::to_owned)
+                    .or_else(|| field(account, &["account_id", "accountId", "chatgpt_account_id"], max).filter(|v| !v.starts_with("user-")))
+                    .or_else(|| field(value, &["account_id", "accountId", "chatgpt_account_id"], max).filter(|v| !v.starts_with("user-")))
+            } else {
+                sources.into_iter().find_map(|source| field(source, &names, max))
+            }
+        });
+        if let Some(text) = found {
+            if target != "account_id" || !text.starts_with("user-") {
+                output["tokens"][target] = Value::String(text);
+            }
+        }
+    }
+    if output.pointer("/tokens/account_id").is_none() {
+        if let Some(account_id) = session_account_id.as_ref() { output["tokens"]["account_id"] = Value::String(account_id.clone()); }
+    }
+    if let Some(user_id) = output.get("session_user_id").and_then(Value::as_str) {
+        output["tokens"]["session_user_id"] = Value::String(user_id.into());
+    }
+    if let Some(provider) = output.get("session_auth_provider").and_then(Value::as_str) {
+        output["tokens"]["session_auth_provider"] = Value::String(provider.into());
+    }
+    if let Some(plan) = output.get("session_plan").and_then(Value::as_str) {
+        output["tokens"]["session_plan"] = Value::String(plan.into());
+    }
+    if let Some(workspace) = output.get("session_workspace_name").and_then(Value::as_str) {
+        output["tokens"]["session_workspace_name"] = Value::String(workspace.into());
     }
     if output["tokens"].as_object().is_none_or(|v| v.is_empty()) { return Err("JSON 中未找到有效的 Token 凭据".into()); }
     Ok(output)
@@ -146,6 +224,61 @@ mod tests {
     use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
     fn access() -> String {
         format!("invalid.{}.invalid", URL_SAFE_NO_PAD.encode(json!({"sub":"test-user","exp":4102444800i64,"https://api.openai.com/auth":{"chatgpt_account_id":"test-account","chatgpt_user_id":"test-user"}}).to_string()))
+    }
+    #[test]
+    fn imports_web_session_metadata_from_nested_objects() {
+        let token = format!("invalid.{}.invalid", URL_SAFE_NO_PAD.encode(json!({
+            "aud":"https://api.openai.com/v1", "scope":"model.request", "exp":4102444800i64,
+        }).to_string()));
+        let input = json!({
+            "accessToken":token,
+            "user":{"id":"fixture-user-id","email":"fixture@example.test","authProvider":"google"},
+            "account":{"id":"fixture-account-id","planType":"plus","workspaceName":"Personal"},
+        });
+        let normalized = normalize(&input).unwrap();
+        let account = auth::parse_account(&normalized).unwrap();
+        assert_eq!(account.label, "fixture@example.test");
+        assert_eq!(account.email.as_deref(), Some("fixture@example.test"));
+        assert_eq!(account.account_id.as_deref(), Some("fixture-account-id"));
+        assert_eq!(account.plan.as_deref(), Some("plus"));
+        let metadata = auth::metadata(&account.auth_json).unwrap();
+        assert!(metadata.is_web_session);
+        assert_eq!(metadata.user_id.as_deref(), Some("fixture-user-id"));
+        assert_eq!(metadata.login_provider.as_deref(), Some("google"));
+        assert_eq!(metadata.workspace_name.as_deref(), Some("Personal"));
+        let stored: Value = serde_json::from_str(&account.auth_json).unwrap();
+        assert!(stored.get("user").is_none());
+        assert!(stored.get("account").is_none());
+    }
+    #[test]
+    fn prefers_email_over_personal_user_name_and_extracts_chatgpt_account_id() {
+        let token = format!("invalid.{}.invalid", URL_SAFE_NO_PAD.encode(json!({
+            "aud":"https://api.openai.com/v1",
+            "scope":"model.request",
+            "exp":4102444800i64,
+            "https://api.openai.com/auth": {
+                "chatgpt_account_id": "fixture-org-uuid",
+                "chatgpt_user_id": "user-fixture-user-id"
+            },
+            "https://api.openai.com/profile": {
+                "email": "kenneth@example.test",
+                "name": "Kenneth Wilson"
+            }
+        }).to_string()));
+        let input = json!({
+            "accessToken": token,
+            "user": {
+                "id": "user-fixture-user-id",
+                "name": "Kenneth Wilson",
+                "email": "kenneth@example.test",
+                "authProvider": "openai"
+            }
+        });
+        let normalized = normalize(&input).unwrap();
+        let account = auth::parse_account(&normalized).unwrap();
+        assert_eq!(account.label, "kenneth@example.test");
+        assert_eq!(account.email.as_deref(), Some("kenneth@example.test"));
+        assert_eq!(account.account_id.as_deref(), Some("fixture-org-uuid"));
     }
     #[test]
     fn accepts_access_session_and_nested_exports_with_stable_identity() {

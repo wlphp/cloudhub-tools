@@ -92,7 +92,7 @@ export function CodexGateway({ accounts, disabled, onStateChange, externalPool, 
     catch (reason) { if (alive.current) setError(reason instanceof Error ? reason.message : "本地 API 操作失败"); }
     finally { operation.current = false; if (alive.current) setBusy(false); }
   }
-  const ids = accounts.filter((account) => pool.has(account.id) && !account.isWebSession).map((account) => account.id);
+  const ids = accounts.filter((account) => pool.has(account.id)).map((account) => account.id);
   const locked = busy || disabled;
   const running = !!state?.running;
   const networkPending = running && !!state?.allowLan !== !!state?.listeningLan;
@@ -102,7 +102,7 @@ export function CodexGateway({ accounts, disabled, onStateChange, externalPool, 
   const lanPort = listenPort ?? state?.configuredPort;
   const selectedLanUrl = selectedNetwork && lanPort ? `http://${selectedNetwork.ip}:${lanPort}/v1` : null;
   useEffect(() => { onLanUrlChange?.(selectedLanUrl); }, [selectedLanUrl, onLanUrlChange]);
-  const activeIds = running ? state.accountIds.filter(id => !accounts.find(account => account.id === id)?.isWebSession) : ids;
+  const activeIds = running ? state.accountIds : ids;
   useEffect(() => {
     if (!actionRequest) return;
     if (actionRequest.kind === "pool") setPoolOpen(true);
@@ -114,7 +114,7 @@ export function CodexGateway({ accounts, disabled, onStateChange, externalPool, 
   const canStart = !locked && !running && ids.length > 0 && !portInvalid && !keyInvalid;
   const baseUrl = state?.address ?? "<BASE_URL>";
   function updatePool(selected: Set<number>) {
-    const accountIds = accounts.filter(account => selected.has(account.id) && !account.isWebSession).map(account => account.id);
+    const accountIds = accounts.filter(account => selected.has(account.id)).map(account => account.id);
     void act(async () => {
       const next = await codexClient.saveGatewayPool(accountIds);
       if (alive.current) { setPool(new Set(next.startupAccountIds ?? accountIds)); poolInitialized.current = true; setState(next); setMessage("服务账号池已保存，重启应用后保留"); }
@@ -164,7 +164,7 @@ export function CodexGateway({ accounts, disabled, onStateChange, externalPool, 
     </div>
     {poolOpen && <SharedDialog title="服务账号池" className="codex-dialog codex-pool-dialog" bodyClassName="codex-pool-dialog-body" onClose={() => setPoolOpen(false)} footer={<button onClick={() => setPoolOpen(false)}>完成</button>}>
     <section className="codex-api-card"><div className="codex-api-section-heading"><h3>账号选择 <span className="codex-badge">{activeIds.length} 个账号</span></h3><div className="codex-actions"><button disabled={locked || running || !accounts.length || !state?.supportsPoolPersistence} onClick={() => updatePool(ids.length === accounts.length ? new Set() : new Set(accounts.map((account) => account.id)))}>{ids.length === accounts.length && accounts.length ? "清空选择" : "全选账号"}</button><button disabled={locked || !ids.length || !/^[A-Za-z0-9._-]{1,100}$/.test(model)} onClick={() => setConfirmation("wake")}><Power size={14} />唤醒所选账号</button></div></div><p className="codex-api-description">{state?.supportsPoolPersistence ? "账号勾选后立即保存，停止服务和重启应用后保留；修改账号池需先停止服务。" : "更新原生版本后可选择并固定保存服务账号池。"}唤醒会发送模型请求并消耗额度。</p>
-      <div className="codex-service-pool" role="group" aria-label="API 反代服务账号">{accounts.map((account) => <label key={account.id}><input type="checkbox" aria-label={account.label} checked={!account.isWebSession && activeIds.includes(account.id)} disabled={locked || running || !state?.supportsPoolPersistence || !!account.isWebSession} title={account.isWebSession ? "Web Session 账号仅支持查看额度，不能加入 API 服务" : undefined} onChange={() => { const next = new Set(pool); next.has(account.id) ? next.delete(account.id) : next.add(account.id); updatePool(next); }} /><PoolQuota account={account} /></label>)}</div>{!accounts.length && <p className="codex-api-description">请先在账号总览添加账号。</p>}
+      <div className="codex-service-pool" role="group" aria-label="API 反代服务账号">{accounts.map((account) => <label key={account.id}><input type="checkbox" aria-label={account.label} checked={activeIds.includes(account.id)} disabled={locked || running || !state?.supportsPoolPersistence} onChange={() => { const next = new Set(pool); next.has(account.id) ? next.delete(account.id) : next.add(account.id); updatePool(next); }} /><PoolQuota account={account} /></label>)}</div>{!accounts.length && <p className="codex-api-description">请先在账号总览添加账号。</p>}
     </section>
     </SharedDialog>}
 

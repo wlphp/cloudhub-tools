@@ -33,6 +33,7 @@ pub mod codex_backup;
 pub mod codex_gateway;
 pub mod authenticator;
 pub mod preferences;
+pub mod cloud_sync;
 pub mod logs;
 pub mod assets;
 pub mod managed_hosts;

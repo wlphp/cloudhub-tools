@@ -76,6 +76,7 @@ export const codexClient = {
   wakeAccount(id: number, model: string): Promise<void> { return nativeOnly("codex_wake_account", { id, model }); },
   testAccount(id: number, model: string, prompt: string, effort: string): Promise<{ text: string; durationMs: number; inputTokens: number | null; outputTokens: number | null }> { return nativeOnly("codex_test_account", { id, model, prompt, effort }); },
   exportAccountsFile(accountId: number | null = null, accountIds: number[] | null = null, format: CodexExportFormat = "cockpit_tools"): Promise<boolean> { return nativeOnly("codex_export_accounts_file", { accountId, accountIds, format }); },
+  exportAccountsText(accountId: number | null = null, accountIds: number[] | null = null, format: CodexExportFormat = "cockpit_tools"): Promise<string> { return nativeOnly("codex_export_accounts_text", { accountId, accountIds, format }); },
   instances(): Promise<CodexInstance[]> { return nativeOnly("codex_list_instances"); },
   createInstance(accountId: number, name: string, kind: "cli" | "desktop"): Promise<CodexInstance[] | null> { return nativeOnly("codex_create_instance", { accountId, name, kind }); },
   startInstance(id: string): Promise<CodexInstance[]> { return nativeOnly("codex_start_instance", { id }); },

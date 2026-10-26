@@ -55,16 +55,39 @@ pub fn metadata(content: &str) -> Result<AuthMetadata, String> {
     let refresh = claims(value.pointer("/tokens/refresh_token").and_then(Value::as_str).unwrap_or(""));
     let id = claims(value.pointer("/tokens/id_token").and_then(Value::as_str).unwrap_or(""));
     let expires = |value: &Value| value.get("exp").and_then(Value::as_i64).filter(|v| *v > 0 && *v <= 253402300799);
-    let user_id = [id.get("https://api.openai.com/auth"), access.get("https://api.openai.com/auth")]
-        .into_iter().flatten().find_map(|v| text(v, "chatgpt_user_id", 512).or_else(|| text(v, "user_id", 512)))
+    let user_id = text(&value, "session_user_id", 512)
+        .or_else(|| value.pointer("/tokens/session_user_id").and_then(Value::as_str).filter(|v| !v.is_empty() && v.len() <= 512 && !v.chars().any(char::is_control)).map(str::to_owned))
+        .or_else(|| value.get("user").and_then(|item| text(item, "id", 512).or_else(|| text(item, "user_id", 512))))
+        .or_else(|| [id.get("https://api.openai.com/auth"), access.get("https://api.openai.com/auth")]
+            .into_iter().flatten().find_map(|v| text(v, "chatgpt_user_id", 512).or_else(|| text(v, "user_id", 512))))
         .or_else(|| text(&id, "sub", 512)).or_else(|| text(&access, "sub", 512));
-    let login_provider = text(&id, "auth_provider", 80).or_else(|| text(&access, "auth_provider", 80));
-    let account_id = value.pointer("/tokens/account_id").and_then(Value::as_str)
-        .or_else(|| access.pointer("/https:~1~1api.openai.com~1auth/chatgpt_account_id").and_then(Value::as_str));
-    let workspace_name = id.pointer("/https:~1~1api.openai.com~1auth/organizations").and_then(Value::as_array)
-        .and_then(|items| items.iter().find(|item| account_id.is_some_and(|account| item.get("id").and_then(Value::as_str) == Some(account)))
-            .or_else(|| items.iter().find(|item| item.get("is_default").and_then(Value::as_bool) == Some(true))).or_else(|| items.first()))
-        .and_then(|item| text(item, "title", 160).or_else(|| text(item, "name", 160)));
+    let login_provider = text(&value, "session_auth_provider", 80)
+        .or_else(|| value.pointer("/tokens/session_auth_provider").and_then(Value::as_str).filter(|v| !v.is_empty() && v.len() <= 80 && !v.chars().any(char::is_control)).map(str::to_owned))
+        .or_else(|| value.get("user").and_then(|item| text(item, "authProvider", 80).or_else(|| text(item, "auth_provider", 80))))
+        .or_else(|| text(&id, "auth_provider", 80)).or_else(|| text(&access, "auth_provider", 80));
+    let account_id = access.pointer("/https:~1~1api.openai.com~1auth/chatgpt_account_id").and_then(Value::as_str).map(str::to_owned)
+        .or_else(|| id.pointer("/https:~1~1api.openai.com~1auth/chatgpt_account_id").and_then(Value::as_str).map(str::to_owned))
+        .or_else(|| text(&value, "session_account_id", 512).filter(|v| !v.starts_with("user-")))
+        .or_else(|| value.pointer("/tokens/session_account_id").and_then(Value::as_str).filter(|v| !v.is_empty() && v.len() <= 512 && !v.starts_with("user-") && !v.chars().any(char::is_control)).map(str::to_owned))
+        .or_else(|| value.pointer("/tokens/account_id").and_then(Value::as_str).filter(|v| !v.is_empty() && v.len() <= 512 && !v.starts_with("user-") && !v.chars().any(char::is_control)).map(str::to_owned))
+        .or_else(|| value.get("account").and_then(|item| text(item, "id", 512)).filter(|v| !v.starts_with("user-")));
+    let workspace_name = text(&value, "session_workspace_name", 160)
+        .or_else(|| value.pointer("/tokens/session_workspace_name").and_then(Value::as_str).filter(|v| !v.is_empty() && v.len() <= 160 && !v.chars().any(char::is_control)).map(str::to_owned))
+        .or_else(|| value.get("account").and_then(|item| text(item, "workspaceName", 160).or_else(|| text(item, "workspace_name", 160))))
+        .or_else(|| id.pointer("/https:~1~1api.openai.com~1auth/organizations").and_then(Value::as_array)
+            .and_then(|items| items.iter().find(|item| account_id.as_ref().is_some_and(|account| item.get("id").and_then(Value::as_str) == Some(account.as_str())))
+                .or_else(|| items.iter().find(|item| item.get("is_default").and_then(Value::as_bool) == Some(true))).or_else(|| items.first()))
+            .and_then(|item| text(item, "title", 160).or_else(|| text(item, "name", 160))));
+    let _email = text(&id, "email", 254)
+        .or_else(|| text(&access, "email", 254))
+        .or_else(|| id.get("https://api.openai.com/profile").and_then(|v| text(v, "email", 254)))
+        .or_else(|| access.get("https://api.openai.com/profile").and_then(|v| text(v, "email", 254)))
+        .or_else(|| value.pointer("/tokens/email").and_then(Value::as_str).filter(|v| !v.is_empty() && v.len() <= 254 && !v.chars().any(char::is_control)).map(str::to_owned))
+        .or_else(|| value.get("email").and_then(Value::as_str).filter(|v| !v.is_empty() && v.len() <= 254 && !v.chars().any(char::is_control)).map(str::to_owned));
+    let _plan = text(&value, "session_plan", 80)
+        .or_else(|| value.pointer("/tokens/session_plan").and_then(Value::as_str).filter(|v| !v.is_empty() && v.len() <= 80 && !v.chars().any(char::is_control)).map(str::to_owned))
+        .or_else(|| id.pointer("/https:~1~1api.openai.com~1auth/chatgpt_plan_type").and_then(Value::as_str).map(str::to_owned))
+        .or_else(|| access.pointer("/https:~1~1api.openai.com~1auth/chatgpt_plan_type").and_then(Value::as_str).map(str::to_owned));
     Ok(AuthMetadata { is_web_session: web_session(&value), login_provider, workspace_name, user_id, access_expires_at: expires(&access), refresh_expires_at: expires(&refresh), id_expires_at: expires(&id),
         has_refresh_token: value.pointer("/tokens/refresh_token").and_then(Value::as_str).is_some_and(|v| !v.is_empty()) })
 }
@@ -138,23 +161,41 @@ pub fn parse_account(value: &Value) -> Result<ImportedAccount, String> {
         .get("https://api.openai.com/auth")
         .or_else(|| access_claims.get("https://api.openai.com/auth"))
         .unwrap_or(&Value::Null);
-    let account_id = text(tokens, "account_id", 512)
-        .or_else(|| text(auth_claims, "chatgpt_account_id", 512))
+    let account_id = text(auth_claims, "chatgpt_account_id", 512)
+        .or_else(|| text(tokens, "account_id", 512).filter(|id| !id.starts_with("user-")))
+        .or_else(|| text(tokens, "session_account_id", 512).filter(|id| !id.starts_with("user-")))
+        .or_else(|| text(value, "session_account_id", 512).filter(|id| !id.starts_with("user-")))
+        .or_else(|| value.get("account").and_then(|account| text(account, "id", 512).or_else(|| text(account, "account_id", 512)).or_else(|| text(account, "accountId", 512))).filter(|id| !id.starts_with("user-")))
+        .or_else(|| text(tokens, "account_id", 512))
         .ok_or("Codex 文件缺少账号标识")?;
     let user_id = text(auth_claims, "chatgpt_user_id", 512)
+        .or_else(|| text(tokens, "session_user_id", 512))
+        .or_else(|| text(value, "session_user_id", 512))
+        .or_else(|| value.get("user").and_then(|user| text(user, "id", 512).or_else(|| text(user, "user_id", 512))))
         .or_else(|| text(&id_claims, "sub", 512))
         .or_else(|| text(&access_claims, "sub", 512))
         .ok_or("Codex 文件缺少用户标识")?;
-    let email = text(&id_claims, "email", 254).or_else(|| text(&access_claims, "email", 254)).or_else(|| {
-        id_claims
-            .get("https://api.openai.com/profile")
-            .and_then(|v| text(v, "email", 254))
-    });
-    let plan = text(auth_claims, "chatgpt_plan_type", 80);
+    let email = text(&id_claims, "email", 254)
+        .or_else(|| text(&access_claims, "email", 254))
+        .or_else(|| id_claims.get("https://api.openai.com/profile").and_then(|v| text(v, "email", 254)))
+        .or_else(|| access_claims.get("https://api.openai.com/profile").and_then(|v| text(v, "email", 254)))
+        .or_else(|| text(value, "email", 254))
+        .or_else(|| value.get("user").and_then(|user| text(user, "email", 254)))
+        .or_else(|| value.get("account").and_then(|user| text(user, "email", 254)));
+    let plan = text(auth_claims, "chatgpt_plan_type", 80)
+        .or_else(|| text(value, "session_plan", 80))
+        .or_else(|| text(tokens, "session_plan", 80))
+        .or_else(|| value.get("account").and_then(|account| text(account, "plan", 80).or_else(|| text(account, "planType", 80))));
     let identity = hex::encode(Sha256::digest(
         format!("chatgpt:{account_id}:{user_id}").as_bytes(),
     ));
     let mut auth = json!({"auth_mode":"chatgpt", "OPENAI_API_KEY":null, "tokens": {"access_token":access,"id_token":id_token,"refresh_token":refresh,"account_id":account_id}});
+    for name in ["session_user_id", "session_auth_provider", "session_workspace_name", "session_plan"] {
+        let display_hint = value.get(name).or_else(|| tokens.get(name))
+            .filter(|v| v.as_str().is_some_and(|text| !text.is_empty() && text.len() <= 512 && !text.chars().any(char::is_control)));
+        if let Some(hint) = display_hint { auth[name] = hint.clone(); }
+    }
+    auth["session_account_id"] = json!(account_id);
     if web_session(value) { auth["token_source_mode"] = json!("chatgpt_web_session"); }
     if let Some(refreshed) = value.get("last_refresh").filter(|v| v.is_string()) {
         auth["last_refresh"] = refreshed.clone();
@@ -162,7 +203,8 @@ pub fn parse_account(value: &Value) -> Result<ImportedAccount, String> {
     Ok(ImportedAccount {
         identity,
         label: text(value, "account_name", 160)
-            .unwrap_or_else(|| email.clone().unwrap_or_else(|| "ChatGPT 账号".into())),
+            .or_else(|| email.clone())
+            .unwrap_or_else(|| "ChatGPT 账号".into()),
         email,
         account_id: Some(account_id),
         auth_mode: "chatgpt".into(),
@@ -196,7 +238,14 @@ pub fn parse_import(content: &str) -> Result<Vec<ImportedAccount>, String> {
     if values.is_empty() || values.len() > 100 {
         return Err("每次可导入 1 至 100 个 Codex 账号".into());
     }
-    values.iter().map(parse_account).collect()
+    values.iter().map(|entry| {
+        if entry.get("user").is_some() || entry.get("account").is_some() || entry.get("session").is_some() {
+            let normalized = super::token_import::normalize(entry)?;
+            parse_account(&normalized)
+        } else {
+            parse_account(entry)
+        }
+    }).collect()
 }
 
 #[cfg(test)]

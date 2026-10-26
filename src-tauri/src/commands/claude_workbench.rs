@@ -77,7 +77,9 @@ pub async fn claude_provider_action(app:tauri::AppHandle,action:ProviderAction)-
                 tx.commit().map_err(|_|"保存排序失败")?;
             }
             ProviderAction::ImportCurrent=>{
-                let live=repo::read_settings()?;let env=live["env"].as_object().cloned().unwrap_or_default();
+                let path=repo::settings_path()?;
+                if !path.is_file(){return Err("尚未找到本机 Claude Code 配置，请先登录 Claude Code 或选择正确的配置目录".into());}
+                let live=repo::read_settings_at(&path)?;let env=live["env"].as_object().cloned().unwrap_or_default();
                 let base=env.get("ANTHROPIC_BASE_URL").and_then(Value::as_str).unwrap_or("");
                 if base.starts_with("http://127.0.0.1:")&&["ANTHROPIC_AUTH_TOKEN","ANTHROPIC_API_KEY"].iter().any(|key|env.get(*key).and_then(Value::as_str).is_some_and(|s|s=="PROXY_MANAGED"||s.starts_with("cloudhub-local-"))){return Err("请先回到直连再导入配置".into());}
                 let key=env.get("ANTHROPIC_API_KEY").or_else(||env.get("ANTHROPIC_AUTH_TOKEN")).and_then(Value::as_str).unwrap_or("");

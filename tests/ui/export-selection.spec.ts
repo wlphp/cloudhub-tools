@@ -16,6 +16,7 @@ async function fixture(page: Page) {
       if (command === "codex_get_state") return { accounts: [1, 2].map(id => ({ id, label: `Codex${id}`, authMode: "chatgpt", tags: [], note: "", quota: { fetchedAt: null, windows: [] }, lastError: null, updatedAt: 1 })), cliAvailable: true, desktopAvailable: true, currentAccountId: null, canRestore: false };
       if (command === "codex_gateway_state") return { running: false, accountIds: [], completed: 0, failed: 0, active: 0 };
       if (command === "codex_export_accounts_file") return true;
+      if (command === "codex_export_accounts_text") return '{"type":"codex","tokens":{"access_token":"fixture-only"}}';
       if (command === "codex_import_file") return { accounts: [], cliAvailable: true, desktopAvailable: true, currentAccountId: null, canRestore: false };
       if (["export_accounts_file", "export_managed_hosts_file", "export_panel_connections_file"].includes(command)) return "C:/fixture/export.json";
       if (command === "save_sync_account_bundle") return true;
@@ -115,6 +116,10 @@ test("Codex JSON export honors the checked account subset", async ({ page }) => 
   await expect(json.getByRole("checkbox", { name: "Codex2", exact: true })).toBeChecked();
   await expect(json.getByRole("checkbox", { name: "Codex1", exact: true })).not.toBeChecked();
   await expect(json.getByLabel("导出格式").locator("option")).toHaveCount(4);
+  await json.getByRole("button", { name: "生成文本", exact: true }).click();
+  await expect(json.getByLabel("导出账号 JSON 内容")).toHaveValue(/fixture-only/);
+  await json.getByLabel("导出账号 JSON 内容").focus();
+  await expect(json.getByLabel("导出账号 JSON 内容")).toBeFocused();
   await json.getByLabel("导出格式").selectOption("auth_json");
   await json.getByRole("button", { name: "选择保存位置", exact: true }).click();
   await expect.poll(() => page.evaluate(() => (window as any).__exportCalls.find((call: any) => call.command === "codex_export_accounts_file")?.args.accountIds)).toEqual([2]);

@@ -124,7 +124,11 @@ test("Codex account filters, metadata, quota errors and confirmed switching", as
           if (command === "codex_account_details") return { details: JSON.parse(sessionStorage.getItem("fixtureDetails") || '{"email":"alice@example.test","password":"","twoFactor":"","mailUrl":"","phone":"","note":""}'), version: 1, auth: { userId: "fixture-user", accessExpiresAt: 1893456000, idExpiresAt: 1893456000, hasRefreshToken: true }, availableSecrets: ["access_token", "refresh_token", "id_token"], lastRefresh: null };
           if (command === "codex_account_secret") return (args as { copy?: boolean }).copy ? null : "invalid-fixture-display";
           if (command === "codex_save_account_details") { sessionStorage.setItem("fixtureDetails", JSON.stringify(args.input)); return; }
-          if (command === "codex_auth_metadata" || command === "codex_force_refresh") return { userId: "user-fixture", accessExpiresAt: 1893456000, idExpiresAt: 1893456000, hasRefreshToken: true };
+          if (command === "codex_auth_metadata" || command === "codex_force_refresh") {
+            const control = window as unknown as { __holdBenefits: boolean; __releaseBenefits: () => void };
+            if (command === "codex_force_refresh" && control.__holdBenefits) await new Promise<void>(resolve => { control.__releaseBenefits = resolve; });
+            return { userId: "user-fixture", accessExpiresAt: 1893456000, idExpiresAt: 1893456000, hasRefreshToken: true };
+          }
           if (command === "codex_launch_config") return { version: "fixture-version", model: "fixture-model", contextWindow: 200000, compactLimit: 180000 };
           if (command === "codex_bind_instance") return instances;
           if (command === "codex_list_instances") return instances;
@@ -429,15 +433,17 @@ test("Codex account filters, metadata, quota errors and confirmed switching", as
   await page.getByRole("button", { name: "启动预览 Alice 工作账号", exact: true }).click();
   const launch = page.getByRole("dialog", { name: "Codex 启动预览", exact: true });
   await expect(launch).toBeVisible();
-  await expect(launch.getByText(/“切换并启动”将打开Codex 桌面客户端；“CLI 启动”才会打开命令行客户端/)).toBeVisible();
+  await expect(launch.getByText(/把所选账号的官方凭据写入目标实例的/)).toBeVisible();
   await expect(launch.getByText("user-fixture", { exact: true })).toBeVisible();
   await expect(launch.getByLabel("目标实例", { exact: true })).toHaveValue("");
-  await launch.getByRole("button", { name: "配置上下文", exact: true }).click();
+  const contextButton = launch.getByRole("button", { name: "配置上下文", exact: true });
+  await expect(contextButton).toBeEnabled();
+  await contextButton.dispatchEvent("click");
   await launch.getByLabel("上下文窗口", { exact: true }).fill("100000");
   await launch.getByLabel("自动压缩阈值", { exact: true }).fill("90000");
   await launch.getByRole("button", { name: "保存配置", exact: true }).click();
   await expect(launch.getByRole("group", { name: "上下文配置" })).toHaveCount(0);
-  await launch.getByRole("button", { name: "刷新", exact: true }).click();
+  await launch.getByRole("button", { name: /刷新/ }).first().click();
   await expect(launch.getByText("官方 CLI 已完成认证刷新检查")).toBeVisible();
   for (const width of [375, 768, 1024, 1440]) {
     await page.setViewportSize({ width, height: 900 });
@@ -459,7 +465,7 @@ test("Codex account filters, metadata, quota errors and confirmed switching", as
   for (const closeMethod of ["header", "footer", "escape"]) {
     await page.getByRole("button", { name: "启动预览 Alice 工作账号", exact: true }).click();
     await page.evaluate(() => Object.assign(window, { __holdBenefits: true }));
-    await launch.getByRole("button", { name: "订阅到期", exact: true }).click();
+    await launch.getByRole("button", { name: "刷新 Token", exact: true }).click();
     await expect(launch).toHaveAttribute("aria-busy", "true");
     if (closeMethod === "header") await launch.getByRole("button", { name: "关闭对话框", exact: true }).click();
     else if (closeMethod === "footer") await launch.getByRole("button", { name: "关闭", exact: true }).click();
@@ -809,7 +815,7 @@ test("Codex account filters, metadata, quota errors and confirmed switching", as
   expect(await page.evaluate(() => (window as unknown as { __codexCalls: {command:string}[] }).__codexCalls.filter(call=>call.command==="codex_consume_reset").length)).toBe(0);
   await page.getByRole("button", { name: "查看 Alice 工作账号 重置次数", exact: true }).click();
   await page.getByRole("button", { name: "按官方规则重置", exact: true }).click();
-  await expect(page.getByRole("button", { name: "查看 Alice 工作账号 重置次数", exact: true })).toHaveText("重置 0");
+  await expect(page.getByRole("button", { name: "查看 Alice 工作账号 重置次数", exact: true })).toHaveText("重置 未获取");
   expect(await page.evaluate(() => (window as unknown as { __codexCalls: {command:string}[] }).__codexCalls.filter(call=>call.command==="codex_consume_reset").length)).toBe(1);
   for (const width of [375,768,1024,1440]) { await page.setViewportSize({width,height:1000}); expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true); await page.screenshot({path:`test-results/codex-account-controls-${width}.png`}); }
   await page.getByRole("tab", { name: "应用多开", exact: true }).click();

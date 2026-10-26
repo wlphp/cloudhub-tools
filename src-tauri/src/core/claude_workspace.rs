@@ -34,7 +34,7 @@ fn pref(key:&str)->Result<Option<String>,String>{open_db()?.query_row("SELECT va
 fn set_pref(key:&str,value:&str)->Result<(),String>{
     open_db()?.execute("INSERT INTO client_preferences(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at",params![key,value,chrono::Utc::now().timestamp_millis()]).map_err(|_|"保存工作台数据失败")?;Ok(())
 }
-pub fn project()->Result<Option<PathBuf>,String>{pref(PROJECT)?.filter(|s|!s.is_empty()).map(|s|{
+pub fn project()->Result<Option<PathBuf>,String>{pref(PROJECT)?.filter(|s|!s.is_empty() && !repo::foreign_path(s)).map(|s|{
     let path=PathBuf::from(s);if !path.is_absolute()||!path.is_dir(){Err("所选项目目录不可用，请重新选择".into())}else{Ok(path)}
 }).transpose()}
 pub fn settings_path()->Result<PathBuf,String>{Ok(if let Some(root)=project()?{root.join(".claude/settings.local.json")}else{repo::claude_home()?.join("settings.json")})}
@@ -44,7 +44,7 @@ pub fn set_project(path:Option<PathBuf>)->Result<(),String>{
 }
 fn global_config_path()->Result<PathBuf,String>{
     let home=repo::claude_home()?;
-    Ok(if home==repo::default_claude_home()?{home.parent().ok_or("用户目录不可用")?.join(".claude.json")}else{home.join(".claude.json")})
+    Ok(if home==repo::standard_claude_home()?{home.parent().ok_or("用户目录不可用")?.join(".claude.json")}else{home.join(".claude.json")})
 }
 fn mcp_path()->Result<PathBuf,String>{Ok(if let Some(root)=project()?{root.join(".mcp.json")}else{global_config_path()?})}
 pub fn set_config_directory(path:Option<PathBuf>)->Result<(),String>{
@@ -70,7 +70,7 @@ fn library()->Result<Library,String>{
 fn library_key()->Result<String,String>{Ok(format!("{LIBRARY}.{}",backup_key(&mcp_path()?)))}
 fn project_in(conn:&rusqlite::Connection)->Result<Option<PathBuf>,String>{
     let value:Option<String>=conn.query_row("SELECT value FROM client_preferences WHERE key=?1",[PROJECT],|r|r.get(0)).optional().map_err(|_|"读取工作台数据失败")?;
-    Ok(value.filter(|p|!p.is_empty()).map(PathBuf::from))
+    Ok(value.filter(|p|!p.is_empty() && !repo::foreign_path(p)).map(PathBuf::from))
 }
 fn current_key(conn:&rusqlite::Connection)->Result<String,String>{
     let path=if let Some(root)=project_in(conn)?{root.join(".claude/settings.local.json")}else{repo::claude_home_in(conn)?.join("settings.json")};
@@ -403,13 +403,24 @@ mod tests{
         assert!(!value.contains("fixture-password"));assert!(!value.contains("fixture-query"));
     }
     #[test]
+    fn migrated_project_uses_same_global_scope_for_paths_and_provider_markers(){
+        let conn=rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE client_preferences(key TEXT PRIMARY KEY,value TEXT NOT NULL,updated_at INTEGER NOT NULL);").unwrap();
+        let foreign=if cfg!(windows){"/Users/fixture/project"}else{r"C:\Users\fixture\project"};
+        conn.execute("INSERT INTO client_preferences(key,value,updated_at) VALUES(?1,?2,0)",params![PROJECT,foreign]).unwrap();
+        assert!(project_in(&conn).unwrap().is_none());
+        let expected=format!("claude.workbench.current.{}",backup_key(&repo::claude_home_in(&conn).unwrap().join("settings.json")));
+        assert_eq!(current_key(&conn).unwrap(),expected);
+    }
+    #[test]
     fn current_provider_markers_are_isolated_by_project(){
         let conn=rusqlite::Connection::open_in_memory().unwrap();
         conn.execute_batch(repo::SCHEMA).unwrap();
         conn.execute_batch("CREATE TABLE client_preferences(key TEXT PRIMARY KEY,value TEXT NOT NULL,updated_at INTEGER NOT NULL);
           INSERT INTO claude_providers(id,name,settings_json,created_at,updated_at) VALUES('a','A','{}',0,0),('b','B','{}',0,0);").unwrap();
         set_current_provider(&conn,Some("a")).unwrap();
-        conn.execute("INSERT INTO client_preferences(key,value,updated_at) VALUES(?1,'E:/fixture/project',0)",[PROJECT]).unwrap();
+        let project=std::env::temp_dir().join(format!("cloudhub-marker-test-{}",uuid::Uuid::new_v4()));
+        conn.execute("INSERT INTO client_preferences(key,value,updated_at) VALUES(?1,?2,0)",params![PROJECT,project.to_string_lossy().as_ref()]).unwrap();
         assert!(current_provider(&conn).unwrap().is_none());
         set_current_provider(&conn,Some("b")).unwrap();assert_eq!(current_provider(&conn).unwrap().as_deref(),Some("b"));
         conn.execute("DELETE FROM client_preferences WHERE key=?1",[PROJECT]).unwrap();

@@ -1,5 +1,19 @@
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Edge { Left, Right, Top, Bottom }
+
+pub fn handle_size(edge: Edge) -> (f64,f64) {
+    match edge { Edge::Top | Edge::Bottom => (24.,64.), Edge::Left | Edge::Right => (64.,24.) }
+}
+
+/// Clamp the visible avatar, allowing the transparent window margins off screen.
+pub fn avatar_position(p: (i32,i32), window: (u32,u32), pet_size: u32, scale: f64, area: (i32,i32,u32,u32)) -> (i32,i32) {
+    let (avatar, size) = avatar_bounds(p, window.1, pet_size, scale);
+    let left = p.0 - avatar.0 + area.0;
+    let top = p.1 - avatar.1 + area.1;
+    (p.0.clamp(left, (left + area.2 as i32 - size.0 as i32).max(left)),
+     p.1.clamp(top, (top + area.3 as i32 - size.1 as i32).max(top)))
+}
 
 pub fn avatar_bounds(p: (i32,i32), window_height: u32, pet_size: u32, scale: f64) -> ((i32,i32),(u32,u32)) {
     let size = (pet_size as f64 * scale).round() as u32;
@@ -64,6 +78,17 @@ pub fn head_position(edge: Edge, p: (i32,i32), size: (u32,u32), area: (i32,i32,u
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn rope_windows_are_narrow_and_face_inward_on_every_edge() {
+        for edge in [Edge::Top,Edge::Bottom] { assert_eq!(handle_size(edge),(24.,64.)); }
+        for edge in [Edge::Left,Edge::Right] { assert_eq!(handle_size(edge),(64.,24.)); }
+    }
+    #[test]
+    fn transparent_margins_do_not_block_top_and_left_or_hide_the_avatar() {
+        assert_eq!(avatar_position((-400,-400),(200,160),120,1.,(0,0,1920,1040)),(-40,-28));
+        assert_eq!(avatar_position((4000,4000),(200,160),120,1.,(0,0,1920,1040)),(1760,892));
+        assert_eq!(avatar_position((-4000,-400),(300,240),120,1.5,(-1920,0,1920,1560)),(-1980,-42));
+    }
     #[tokio::test]
     async fn drag_acknowledgement_does_not_finish_until_the_button_is_released() {
         let mut samples = [true,true,false].into_iter();

@@ -493,6 +493,11 @@ pub fn open_db() -> Result<Connection, String> {
     open_db_at(&data_dir()?.join("cloudhub_tools.sqlite3"))
 }
 
+#[cfg(test)]
+pub(crate) fn open_transfer_test_db(path: &std::path::Path) -> Result<Connection, String> {
+    open_db_at(path)
+}
+
 fn supported_schema_version(conn: &Connection) -> Result<i64, String> {
     let version: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0))
         .map_err(|_| "读取 SQLite schema 版本失败".to_string())?;

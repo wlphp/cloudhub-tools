@@ -38,7 +38,7 @@ pub fn claude_home() -> Result<PathBuf, String> {
 pub const CONFIG_DIRECTORY: &str = "claude.workbench.config_directory";
 pub fn claude_home_in(conn: &Connection) -> Result<PathBuf, String> {
     let value: Option<String> = conn.query_row("SELECT value FROM client_preferences WHERE key=?1", [CONFIG_DIRECTORY], |r| r.get(0)).optional().map_err(|_| "读取 Claude 配置目录失败")?;
-    match value.filter(|v| !v.is_empty()) {
+    match value.filter(|v| !v.is_empty() && !foreign_path(v)) {
         Some(value) => {
             let path = PathBuf::from(value);
             if !path.is_absolute() || !path.is_dir() { return Err("Claude 配置目录不可用，请重新选择或恢复默认".into()); }
@@ -49,10 +49,36 @@ pub fn claude_home_in(conn: &Connection) -> Result<PathBuf, String> {
 }
 
 pub fn default_claude_home() -> Result<PathBuf, String> {
-    let home = std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .map_err(|_| "无法确定用户主目录".to_string())?;
-    Ok(Path::new(&home).join(".claude"))
+    resolve_claude_home(std::env::var_os("CLAUDE_CONFIG_DIR"), dirs::home_dir())
+}
+
+pub fn standard_claude_home() -> Result<PathBuf, String> {
+    resolve_claude_home(None, dirs::home_dir())
+}
+
+fn resolve_claude_home(config: Option<std::ffi::OsString>, home: Option<PathBuf>) -> Result<PathBuf, String> {
+    if let Some(value) = config.filter(|value| !value.is_empty()) {
+        let path = PathBuf::from(value);
+        if !path.is_absolute() || foreign_path(&path.to_string_lossy()) {
+            return Err("CLAUDE_CONFIG_DIR 必须为本机绝对路径，请修正环境变量".into());
+        }
+        return Ok(path);
+    }
+    let home = home.filter(|path| path.is_absolute() && !foreign_path(&path.to_string_lossy()))
+        .ok_or("无法确定本机用户主目录")?;
+    Ok(home.join(".claude"))
+}
+
+/// Database preferences can come from another OS. Do not interpret Windows
+/// drive paths as relative Unix filenames, or Unix roots as Windows paths.
+pub(crate) fn foreign_path(value: &str) -> bool {
+    if cfg!(windows) {
+        value.starts_with('/') && !value.starts_with("//")
+    } else {
+        let bytes = value.as_bytes();
+        (bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':')
+            || value.starts_with("\\\\")
+    }
 }
 
 pub fn settings_path() -> Result<PathBuf, String> {
@@ -355,6 +381,31 @@ pub fn presets() -> Vec<ClaudeProvider> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn claude_paths_follow_native_home_and_config_environment() {
+        let home = std::env::temp_dir().join("cloudhub-home-fixture");
+        assert_eq!(resolve_claude_home(None, Some(home.clone())).unwrap(), home.join(".claude"));
+        let custom = home.join("custom-claude");
+        assert_eq!(resolve_claude_home(Some(custom.clone().into_os_string()), Some(home.clone())).unwrap(), custom);
+        assert_eq!(resolve_claude_home(Some("".into()), Some(home.clone())).unwrap(), home.join(".claude"));
+        assert!(resolve_claude_home(Some("relative/config".into()), Some(home)).is_err());
+        assert!(resolve_claude_home(None, Some(PathBuf::from("relative-home"))).is_err());
+        assert!(resolve_claude_home(None, None).is_err());
+    }
+
+    #[test]
+    fn claude_migrated_config_path_falls_back_without_changing_preference() {
+        let conn = db();
+        conn.execute_batch("CREATE TABLE client_preferences(key TEXT PRIMARY KEY,value TEXT NOT NULL);").unwrap();
+        let foreign = if cfg!(windows) { "/Users/fixture/.claude" } else { r"C:\Users\fixture\.claude" };
+        assert!(foreign_path(foreign));
+        conn.execute("INSERT INTO client_preferences(key,value) VALUES(?1,?2)", params![CONFIG_DIRECTORY, foreign]).unwrap();
+        assert_eq!(claude_home_in(&conn).unwrap(), default_claude_home().unwrap());
+        let saved: String = conn.query_row("SELECT value FROM client_preferences WHERE key=?1", [CONFIG_DIRECTORY], |r| r.get(0)).unwrap();
+        assert_eq!(saved, foreign);
+        assert!(resolve_claude_home(Some(foreign.into()), dirs::home_dir()).is_err());
+    }
 
     fn db() -> Connection {
         let conn = Connection::open_in_memory().unwrap();

@@ -50,6 +50,7 @@ import {
   cloudHubAssetOrderStorageKey,
   cloudHubUiZoomStorageKey,
   cloudHubUiThemeStorageKey,
+  readUiTheme,
   cloudHubUiLanguageStorageKey,
   cloudHubFavoriteAssetOrderStorageKey,
   cloudHubFavoriteAssetsStorageKey,
@@ -247,7 +248,7 @@ function syncAssetTypes(account: Account): ReadonlyArray<(typeof assetTypes)[num
 }
 const assetTypes = catalogAssetTypes;
 
-const bundledVersion = "0.1.91";
+const bundledVersion = "0.1.92";
 const isDevelopmentBuild = import.meta.env.DEV;
 
 const detachedTerminalHostId = (() => {
@@ -297,7 +298,7 @@ function App() {
   });
   const [uiLanguage, setUiLanguage] = useState<"en" | "zh-CN">("zh-CN");
   const t = (text: string) => translateUiText(uiLanguage, text);
-  const [uiTheme, setUiTheme] = useState<"light" | "dark">(() => localStorage.getItem(cloudHubUiThemeStorageKey) === "light" ? "light" : "dark");
+  const [uiTheme, setUiTheme] = useState<"light" | "dark">(readUiTheme);
   const [showTrash, setShowTrash] = useState(false);
   useDialogDragging();
   const trashGroups = useTrashGroups();
@@ -317,6 +318,7 @@ function App() {
   const [draft, setDraft] = useState<Draft>(empty);
   const [status, setStatus] = useState("");
   const [databaseImportPreview, setDatabaseImportPreview] = useState<DatabaseImportPreview | null>(null);
+  const [databaseImportBusy, setDatabaseImportBusy] = useState(false);
   const [active, setActive] = useState<{ account: Account; view: View; source: "cache" | "live" } | null>(
     null,
   );
@@ -1188,19 +1190,22 @@ function App() {
     }
   }
   async function cancelDatabaseImport() {
+    if (databaseImportBusy) return;
     const preview = databaseImportPreview;
     setDatabaseImportPreview(null);
     if (preview) { try { await databaseClient.cancelImport(preview.token); } catch (error) { setStatus(`取消导入失败：${String(error)}`); } }
   }
   async function confirmDatabaseImport() {
     const preview = databaseImportPreview;
-    if (!preview) return;
+    if (!preview || databaseImportBusy) return;
+    setDatabaseImportBusy(true);
     try {
       const message = await databaseClient.confirmImport(preview.token);
       setDatabaseImportPreview(null);
       setStatus(`${message}，应用即将刷新`);
       window.setTimeout(() => window.location.reload(), 700);
     } catch (error) { setStatus(`数据库导入失败：${String(error)}`); }
+    finally { setDatabaseImportBusy(false); }
   }
   async function copyPanelAddress(panel: PanelConnection) {
     try {
@@ -5120,8 +5125,7 @@ function App() {
             )}
             {settingsTab === "data" && (
               <section className="settings-grid settings-list">
-              <div className="settings-card"><div className="settings-icon purple"><Database size={22} /></div><div className="settings-copy"><strong>{t("数据库位置")}</strong><small>{t("系统应用数据目录 / ")}{isDevelopment ? "CloudHubTools-Dev" : "CloudHubTools"} / cloudhub_tools.sqlite3</small></div><button className="secondary settings-link" onClick={() => void openDataDirectory()}><FolderOpen size={16} />{t("打开目录")}</button></div>
-                <DataManagementPage language={uiLanguage} onPhoneMigration={() => setShowSyncTransfer(true)} canManageBackups={runningInTauri} onRestore={preview => setDatabaseImportPreview(preview)} onStatus={setStatus} />
+                <DataManagementPage language={uiLanguage} onOpenDirectory={openDataDirectory} onPhoneMigration={() => setShowSyncTransfer(true)} canManageBackups={runningInTauri} onRestore={preview => setDatabaseImportPreview(preview)} onStatus={setStatus} />
               <button type="button" className="settings-card trash-entry" onClick={() => setShowTrash(true)}><div className="settings-icon purple"><Trash2 size={22} /></div><div className="settings-copy"><strong>回收站</strong><small>{trashGroups.loading ? "正在读取…" : trashTotal > 0 ? `${trashTotal} 项已删除数据，可恢复或彻底删除` : "删除的数据保留在这里，可随时恢复"}</small></div><span className="secondary settings-link">打开回收站</span></button>
               </section>
             )}
@@ -5370,8 +5374,8 @@ function App() {
       </SharedDialog>}
       {confirmRequest && <ConfirmDialog message={confirmRequest.message} title={confirmRequest.title} confirmLabel={confirmRequest.confirmLabel} onResolve={resolveConfirm} />}
       {showSyncTransfer && <SyncTransferPanel mode="desktop" accounts={accounts} managedHosts={managedHosts} panels={panelConnections} onClose={() => setShowSyncTransfer(false)} onImported={() => { void load(); void loadLocalAssets(); void loadManagedHosts(); void loadPanelConnections(); }} />}
-      {databaseImportPreview && <SharedDialog title="确认导入本机数据库" eyebrow="DATABASE IMPORT REVIEW" icon={<AlertTriangle size={20} />} role="alertdialog" className="database-import-dialog" onClose={() => void cancelDatabaseImport()} initialFocus="button[data-cancel]" footer={<><button type="button" className="secondary" data-cancel onClick={() => void cancelDatabaseImport()}>取消导入</button><button type="button" className="primary" onClick={() => void confirmDatabaseImport()}>确定导入</button></>}>
-              <p>文件：{databaseImportPreview.packageName}<br />导出时间：{databaseImportPreview.exportedAt}<br />共发现 <strong>{databaseImportPreview.totalRecords}</strong> 条记录。确认后将替换当前数据库，原数据会自动备份。</p>
+      {databaseImportPreview && <SharedDialog title={databaseImportPreview.importMode === "merge" || databaseImportPreview.importMode === "overwrite" ? "确认导入 SQL" : "确认恢复本机数据库"} eyebrow="DATABASE IMPORT REVIEW" icon={<AlertTriangle size={20} />} role="alertdialog" className="database-import-dialog" busy={databaseImportBusy} closeDisabled={databaseImportBusy} onClose={() => void cancelDatabaseImport()} initialFocus="button[data-cancel]" footer={<><button type="button" className="secondary" data-cancel disabled={databaseImportBusy} onClick={() => void cancelDatabaseImport()}>取消导入</button><button type="button" className="primary" disabled={databaseImportBusy} onClick={() => void confirmDatabaseImport()}>{databaseImportBusy ? "正在导入…" : "确定导入"}</button></>}>
+              <p>文件：{databaseImportPreview.packageName}<br />导出时间：{databaseImportPreview.exportedAt}<br />共发现 <strong>{databaseImportPreview.totalRecords}</strong> 条记录。{databaseImportPreview.importMode === "merge" ? "确认后合并数据，跳过重复记录，保留现有其他数据。" : databaseImportPreview.importMode === "overwrite" ? "确认后合并数据，覆盖重复记录，保留现有其他数据。" : "确认后将替换普通数据库内容，并保留本机 Codex 与验证器。"}导入前会保留本机恢复快照。</p>
               <div className="database-import-summary">{databaseImportPreview.categories.map((item) => <span key={item.label}><b>{item.count}</b>{item.label}</span>)}</div>
               <div className="database-import-details"><strong>记录明细（已脱敏）</strong>{databaseImportPreview.details.map((item, index) => <div key={`${item}-${index}`}>{item}</div>)}</div>
               {databaseImportPreview.conflicts.length > 0 && <div className="database-import-conflicts"><strong>重复/冲突预警（{databaseImportPreview.conflicts.length}）</strong>{databaseImportPreview.conflicts.map((item, index) => <div key={`${item}-${index}`}>{item}</div>)}</div>}

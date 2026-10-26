@@ -1,28 +1,35 @@
 import { ConfirmDialog } from "../../shared/ConfirmDialog";
 import { createPortal } from "react-dom";
 import type { PetComputerAction } from "../../platform/clients/desktopPet";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Bell, Droplets, Home, Moon, Move, Settings, X, EyeOff, MessageCircle, Footprints, Briefcase, Heart, Plane, Power, RotateCw, MonitorCog, LockKeyhole, FolderOpen } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { defaultPetSettings, sortPetAlerts, desktopPetClient as client, type PetSettings, type PetSnapshot, type PetAlert } from "../../platform/clients/desktopPet";
 import { platformErrorMessage } from "../../platform/api";
-import { petAppearances, petSpriteStyle, petFrameFor, petHeadStyle, type PetPose } from "./appearances";
+import { petAppearances, petSpriteStyle, petFrameFor, type PetPose } from "./appearances";
 import { PetPortrait } from "./PetPortrait";
 import { DialogHeaderActions } from "../../shared/DialogHeaderActions";
 import { PetChat } from "./PetChat";
 import { usePetLife } from "./usePetLife";
 import { PetLifeBubble } from "./PetLifeBubble";
 import { AlertList } from "./PetSettingsPanel";
+import { usePetWindowTheme } from "./usePetWindowTheme";
 import "./desktop-pet.css";
 
 type Pose = PetPose;
 
 export function PetWindow() {
+  usePetWindowTheme();
+  useLayoutEffect(() => {
+    document.documentElement.classList.add("pet-window-page");
+    return () => document.documentElement.classList.remove("pet-window-page");
+  }, []);
   const [computerConfirm, setComputerConfirm] = useState<"shutdown" | "restart" | null>(null);
   const [computerBusy, setComputerBusy] = useState(false);
   const computerPending = useRef(false);
   const [docked, setDocked] = useState(false);
+  const [dockEdge, setDockEdge] = useState<"left" | "right" | "top" | "bottom">("right");
   const [dragging, setDragging] = useState(false);
   const [settings, setSettings] = useState<PetSettings>(defaultPetSettings);
   const [snapshot, setSnapshot] = useState<PetSnapshot>({ alerts: [], checkedAt: 0, lastError: null });
@@ -56,11 +63,12 @@ export function PetWindow() {
   useEffect(() => {
     document.documentElement.classList.add("pet-window-page");
     let disposed = false;
+    const edgeSubscription = listen<"left" | "right" | "top" | "bottom">("pet-dock-edge", e => setDockEdge(e.payload));
     void Promise.all([client.settings(), client.snapshot()]).then(([s,a]) => { if (!disposed) { setSettings(s); setSnapshot({ ...a, alerts: sortPetAlerts(a.alerts) }); setReady(true); if (s.monitoring && !s.quiet) setNotice(sortPetAlerts(a.alerts).find(alert => alert.active && !alert.ignored && alert.snoozedUntil <= Date.now()/1000) || null); } }).catch(e => setError(platformErrorMessage(e)));
     const subscriptions = [listen<boolean>("pet-docked", e => { setDocked(e.payload); if (e.payload) { setPanel(null); setNotice(null); setNoticeExpanded(false); setEnlarged(false); life.suppressDueNotices(); setHover(false); setSleeping(false); setPose("idle"); setDirection(1); if (actionTimer.current) clearTimeout(actionTimer.current); } }), listen<boolean>("pet-visibility", e => { setVisible(e.payload); if (!e.payload) { setPanel(null); setNotice(null); setPose("idle"); } }), listen<PetSettings>("pet-settings-changed", e => setSettings(e.payload)), listen<PetSnapshot>("pet-alerts-changed", e => setSnapshot({ ...e.payload, alerts: sortPetAlerts(e.payload.alerts) })), listen<PetAlert>("pet-notification", e => { if (visibleRef.current && !settingsRef.current.quiet) { setNoticeExpanded(false); if(actionTimer.current) clearTimeout(actionTimer.current); setNotice(e.payload); setPose(e.payload.active ? "alert" : "happy"); } })];
     const media = matchMedia("(prefers-reduced-motion: reduce)");
     const change = () => setSystemReduced(media.matches); media.addEventListener("change", change);
-    return () => { disposed = true; media.removeEventListener("change", change); subscriptions.forEach(p => void p.then(fn => fn())); if (actionTimer.current) clearTimeout(actionTimer.current); if (holdTimer.current) clearTimeout(holdTimer.current); document.documentElement.classList.remove("pet-window-page"); };
+    return () => { disposed = true; void edgeSubscription.then(fn => fn()); media.removeEventListener("change", change); subscriptions.forEach(p => void p.then(fn => fn())); if (actionTimer.current) clearTimeout(actionTimer.current); if (holdTimer.current) clearTimeout(holdTimer.current); document.documentElement.classList.remove("pet-window-page"); };
   }, []);
   useEffect(() => { if (settings.quiet) { setNotice(null); setNoticeExpanded(false); } }, [settings.quiet]);
   const panelOpen = panel !== null || notice !== null || life.notice !== null;
@@ -144,13 +152,21 @@ export function PetWindow() {
     drag.current = null;
     setDragging(false); setPose("idle");
   }
-  if (docked) return <main className="pet-stage pet-docked-stage" data-docked="true">
-    <button className="pet-docked-head" style={petHeadStyle(settings.appearance)} aria-label="拖动头部，将桌宠从屏幕边缘拉出" title="拖动头部拉出桌宠；新消息会自动弹出"
+  if (docked) return <main className={`pet-stage pet-docked-stage ${reduced ? "pet-reduced" : ""}`} data-docked="true" data-edge={dockEdge}>
+    <button className="pet-dock-handle" aria-label="拉出宠物" title="点击绳环拉出宠物，也可以按住拖动"
+      onClick={() => { if (!drag.current?.moved && !dragging) void work(() => client.reveal()); }}
       onPointerDown={e => { if (e.button !== 0) return; drag.current = { x: e.screenX, y: e.screenY, moved: false }; e.currentTarget.setPointerCapture(e.pointerId); }}
       onPointerMove={e => { const start=drag.current; if (start && !start.moved && Math.hypot(e.screenX-start.x,e.screenY-start.y)>5) { start.moved=true; void dragAvatar(true); } }}
-      onPointerUp={() => { drag.current=null; }} onPointerCancel={() => { drag.current=null; }} />
+      onPointerUp={() => { if (!drag.current?.moved) drag.current=null; }} onPointerCancel={() => { drag.current=null; }}>
+      <svg className="pet-dock-rope" viewBox="0 0 24 64" aria-hidden="true" fill="none">
+        <path className="pet-rope-outline" d="M12 -3V33M12 33C8 33 5 39 5 46C5 53 8 57 12 57C16 57 19 53 19 46C19 39 16 33 12 33Z" />
+        <path className="pet-rope-cord" d="M12 -3V33M12 33C8 33 5 39 5 46C5 53 8 57 12 57C16 57 19 53 19 46C19 39 16 33 12 33Z" />
+        <path className="pet-rope-thread" d="M12 0V31M12 35C9 35 7 40 7 46C7 51 9 55 12 55" />
+        <path className="pet-rope-knot" d="M9 30L15 32M9 33L15 35" />
+      </svg>
+    </button>
   </main>;
-  return <main className={`pet-stage ${reduced ? "pet-reduced" : ""}`} style={{ "--pet-size": `${settings.size}px`, "--pet-sprite-image": `url("${(petAppearances[settings.appearance] || petAppearances.alpaca).sprite}")` } as React.CSSProperties}>
+  return <main className={`pet-stage ${dockEdge === "top" && panelOpen ? "pet-top-stage" : ""} ${reduced ? "pet-reduced" : ""}`} style={{ "--pet-size": `${settings.size}px`, "--pet-sprite-image": `url("${(petAppearances[settings.appearance] || petAppearances.alpaca).sprite}")` } as React.CSSProperties}>
     {life.notice && <PetLifeBubble notice={life.notice} action={life.action} roaming={life.roaming} appearance={settings.appearance} />}
     {!panel && !notice && !life.notice && protest && <div className="pet-speech-bubble pet-protest" role="status" aria-label="宠物在抗议被抓住">坏人，快放开我！放开我！</div>}
     {!panel && notice && !noticeExpanded && <div className={`pet-speech-bubble ${notice.active ? notice.severity : "recovered"}`} role="status" aria-label="运维消息气泡">

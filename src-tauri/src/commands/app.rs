@@ -62,8 +62,16 @@ fn shell_directory_path(path: &std::path::Path) -> std::path::PathBuf {
 }
 
 #[tauri::command]
-pub(crate) fn open_app_data_directory() -> PlatformResult<()> {
-    let path = resolved_data_directory()?;
+pub(crate) fn open_app_data_directory(directory: Option<String>) -> PlatformResult<()> {
+    let mut path = resolved_data_directory()?;
+    match directory.as_deref() {
+        None => {},
+        Some("backups") => {
+            path.push("backups");
+            if !path.is_dir() { return Err("备份目录不存在".into()); }
+        },
+        Some(_) => return Err("不支持打开此数据目录".into()),
+    }
     tauri_plugin_opener::open_path(&path, None::<&str>)
         .map_err(|_| "无法打开数据目录".to_string())?;
     Ok(())

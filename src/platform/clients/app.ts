@@ -1,6 +1,9 @@
 import { nativeOnly } from "./base";
 
 export const appClient = {
+  dataPath(): Promise<string> {
+    return nativeOnly("app_data_path");
+  },
   isDevelopment(): Promise<boolean> {
     return nativeOnly("app_is_development");
   },

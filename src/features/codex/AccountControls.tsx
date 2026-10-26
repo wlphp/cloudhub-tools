@@ -29,16 +29,16 @@ export function AccountControls({ account, busy, act, onAccount, onEdit, onNotic
   };
   return <>
     <div className="codex-account-controls">
-      <span className="codex-account-kind">{account.isWebSession ? "Web Session · 仅支持查看额度" : account.authMode === "chatgpt" ? "Team Name：" + ((account.workspaceName?.toLowerCase() === "personal" ? "个人账户" : account.workspaceName) || (["team", "business", "enterprise", "edu"].includes(account.plan?.toLowerCase() ?? "") ? "团队名称未获取" : "个人账户")) : "API Key 账号"}</span>
+      <span className="codex-account-kind">{account.isWebSession ? "Web Session" : account.authMode === "chatgpt" ? "Team Name：" + ((account.workspaceName?.toLowerCase() === "personal" ? "个人账户" : account.workspaceName) || (["team", "business", "enterprise", "edu"].includes(account.plan?.toLowerCase() ?? "") ? "团队名称未获取" : "个人账户")) : "API Key 账号"}</span>
       <div className="codex-account-action-row">
       {headerAction}
-      <button disabled={busy} aria-label={`编辑 ${account.label} 备注`} onClick={onEdit}><Edit3 size={13} />{account.note ? "改备注" : "加备注"}</button>{account.authMode === "chatgpt" && !account.isWebSession && <button className="codex-reset-chip" disabled={busy} aria-label={`查看 ${account.label} 重置次数`} onClick={() => { setError(""); setModal("reset"); }}><RefreshCw size={12} />重置 {benefits?.resetCredits ?? 0}</button>}
+      <button disabled={busy} aria-label={`编辑 ${account.label} 备注`} onClick={onEdit}><Edit3 size={13} />{account.note ? "改备注" : "加备注"}</button>{account.authMode === "chatgpt" && <button className="codex-reset-chip" disabled={busy} aria-label={`查看 ${account.label} 重置次数`} onClick={() => { setError(""); setModal("reset"); }}><RefreshCw size={12} />重置 {benefits?.resetCredits ?? "未获取"}</button>}
       <button disabled={busy} aria-label={`配置 ${account.label} 代理`} title={account.proxyUrl ? `已配置：${account.proxyUrl}` : "沿用系统网络设置"} onClick={() => { setUrl(account.proxyUrl ?? ""); setError(""); setProxies([]); setDetected(false); setModal("proxy"); }}><Shield size={13} />{account.proxyUrl ? "代理已设" : "代理"}</button>
       </div>
     </div>
 
     {children}
-    {account.authMode === "chatgpt" && !account.isWebSession && <div className={`codex-subscription${expires && remainingDays! > 0 ? " is-active" : ""}`}>
+    {account.authMode === "chatgpt" && <div className={`codex-subscription${expires && remainingDays! > 0 ? " is-active" : ""}`}>
       <div><CalendarDays size={14} /><strong>{remainingDays == null ? "未获取订阅信息" : remainingDays === 0 ? "订阅已到期" : `订阅有效期 ${remainingDays} 天`}</strong><button disabled={busy} aria-label={`刷新 ${account.label} 订阅与重置次数`} title={refreshing ? "此账号正在刷新，请稍候" : "刷新订阅有效期和剩余重置次数"} aria-busy={refreshing} onClick={() => void refresh()}><RefreshCw className={refreshing ? "codex-refresh-spinning" : undefined} size={13} />{refreshing ? "刷新中…" : "刷新"}</button></div>
       {(expires != null || benefits?.fetchedAt || benefits?.subscriptionError || benefits?.creditsError) && <details className="codex-benefit-details" open={subscriptionExpanded} onToggle={event => setSubscriptionExpanded(event.currentTarget.open)}><summary>{expires != null && benefits?.subscriptionError ? "查看订阅详情 · 上次缓存" : "查看订阅详情"}</summary>
       {subscriptionExpanded && <>

@@ -204,7 +204,6 @@ pub fn normalize(bytes: &[u8]) -> Result<(Value, bool), String> {
                 continue;
             }
             Some(other) => return Err(format!("不支持此 Responses 输入类型：{}", other.chars().take(64).collect::<String>())),
-            None => return Err("Responses 输入项缺少类型".into()),
         }
         normalized.push(row);
     }
