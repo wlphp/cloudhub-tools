@@ -20,6 +20,8 @@ pub mod browser;
 pub mod error;
 pub mod paths;
 #[cfg(desktop)]
+pub mod network;
+#[cfg(desktop)]
 pub mod pet_alerts;
 #[cfg(desktop)]
 pub mod pet_life;

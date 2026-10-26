@@ -7,6 +7,7 @@ import { OfficialPluginsPage } from "./features/plugins/OfficialPluginsPage";
 import { applicationPreference, sortedApplications, type ApplicationDefinition } from "./features/plugins/applicationCatalog";
 import { useApplicationPreferences } from "./features/plugins/useApplicationPreferences";
 import { DataManagementPage } from "./features/accounts/DataManagementPage";
+import { NetworkSettingsPage } from "./features/settings/NetworkSettingsPage";
 import { useDialogDragging } from "./shared/useDialogDragging";
 import { GroupNameInput } from "./shared/GroupNameInput";
 import { HostPlatformIcon } from "./features/servers/HostPlatformIcon";
@@ -248,7 +249,7 @@ function syncAssetTypes(account: Account): ReadonlyArray<(typeof assetTypes)[num
 }
 const assetTypes = catalogAssetTypes;
 
-const bundledVersion = "0.1.92";
+const bundledVersion = "0.1.93";
 const isDevelopmentBuild = import.meta.env.DEV;
 
 const detachedTerminalHostId = (() => {
@@ -262,15 +263,28 @@ function readLocalStorage(key: string): string | null {
   catch { return null; }
 }
 
-type SettingsTab = "general" | "data" | "ai" | "pet" | "about";
+type SettingsTab = "general" | "network" | "data" | "ai" | "pet" | "about";
 
 const settingsTabs: { id: SettingsTab; label: string; icon: typeof SlidersHorizontal }[] = [
   { id: "general", label: "通用设置", icon: SlidersHorizontal },
+  { id: "network", label: "网络", icon: Network },
   { id: "data", label: "数据管理", icon: Database },
   { id: "ai", label: "AI 接入", icon: Bot },
   { id: "pet", label: "宠物管理", icon: PawPrint },
   { id: "about", label: "关于", icon: Info },
 ];
+
+function apiLogProxyLabel(requestParams: string): string {
+  try {
+    const value: unknown = JSON.parse(requestParams);
+    if (!value || typeof value !== "object" || !("_network" in value)) return "代理路径：未记录";
+    const route = (value as { _network?: { used?: boolean; mode?: string; url?: string | null } })._network;
+    if (route?.mode === "unknown") return "代理路径：当前平台未确认";
+    if (!route?.used) return "代理路径：未配置应用代理（系统代理/VPN 仍可能生效）";
+    const source = route.mode === "account" ? "账号代理" : route.mode === "global" ? "全局代理" : route.mode === "system" ? "环境代理" : "代理";
+    return `${source}：${route.url || "地址未记录"}（配置路径）`;
+  } catch { return "代理路径：未记录"; }
+}
 
 const cloudHubRepoUrl = "https://github.com/wlphp/cloudhub-tools";
 const cloudHubReleasesUrl = "https://github.com/wlphp/cloudhub-tools/releases";
@@ -5018,9 +5032,9 @@ function App() {
         )}
         {section === "api_logs" && (
           <section className="utility-page">
-            <header><div><span className="eyebrow">API ACTIVITY</span><h1>API日志</h1><p>记录本机客户端发起的云 API 请求与结果。</p></div></header>
+            <header><div><span className="eyebrow">API ACTIVITY</span><h1>API日志</h1><p>记录本机客户端发起的云 API 请求与结果；代理项显示选中的配置路径，NO_PROXY、系统代理或 VPN 仍可能影响实际链路。</p></div></header>
             <section className="panel utility-panel"><div className="utility-toolbar log-toolbar"><input value={logFilter} onChange={(event) => setLogFilter(event.target.value)} placeholder="搜索账号、接口或操作" />{accounts.length > 0 && <select aria-label="按账号筛选" title="按账号筛选" value={apiLogAccountId ?? ""} onChange={(event) => { setApiLogAccountId(event.target.value ? Number(event.target.value) : null); setApiLogPage(1); }}><option value="">全部账号</option>{accounts.map((account) => <option key={account.id} value={account.id}>{account.account_name}</option>)}</select>}<button className="secondary" onClick={() => { setLogFilter(""); setApiLogAccountId(null); setApiLogPage(1); }}>重置</button><button className="clear-log-button" onClick={() => void clearLogs("api")}>清空日志</button></div><div className="log-list"><div className="log-head api-log-head"><span aria-hidden="true" /><span>API操作</span><span>接口</span><span>操作时间</span><span>状态</span><span>详情</span></div>
-              {pagedApiLogs.map((log) => { const apiLogCloudType = accounts.find((item) => item.id === log.account_id)?.cloud_type || matchCloudTypeFromText(log.account_name || ""); return <div className="log-row api-log-row" key={log.id}><span className={`log-dot ${log.status === "成功" ? "" : "error"}`} /><div><strong>{log.action}</strong><small>{apiLogCloudType && <span className="log-row-cloud" aria-hidden="true" title={`云厂商：${getCloudProvider(apiLogCloudType).label}`}><CloudAvatar cloudType={apiLogCloudType} /></span>}{log.account_name || "未知账号"} · {log.endpoint}</small></div><span className="log-type api">{log.endpoint}</span><time>{new Date(log.created_at).toLocaleString()}</time><span className={log.status === "成功" ? "log-success" : "log-failure"}>{log.status}</span><button className="log-detail-button" onClick={() => setApiLogDetail(log)}>查看详情</button></div>; })}
+              {pagedApiLogs.map((log) => { const apiLogCloudType = accounts.find((item) => item.id === log.account_id)?.cloud_type || matchCloudTypeFromText(log.account_name || ""); return <div className="log-row api-log-row" key={log.id}><span className={`log-dot ${log.status === "成功" ? "" : "error"}`} /><div><strong>{log.action}</strong><small>{apiLogCloudType && <span className="log-row-cloud" aria-hidden="true" title={`云厂商：${getCloudProvider(apiLogCloudType).label}`}><CloudAvatar cloudType={apiLogCloudType} /></span>}{log.account_name || "未知账号"} · {log.endpoint}</small><small className="api-log-proxy-route">{apiLogProxyLabel(log.request_params)}</small></div><span className="log-type api">{log.endpoint}</span><time>{new Date(log.created_at).toLocaleString()}</time><span className={log.status === "成功" ? "log-success" : "log-failure"}>{log.status}</span><button className="log-detail-button" onClick={() => setApiLogDetail(log)}>查看详情</button></div>; })}
               {!filteredApiLogs.length && <div className="empty"><Terminal size={38} /><h3>暂无 API 日志</h3><p>调用云厂商接口后会在这里显示记录。</p></div>}
               {filteredApiLogs.length > 0 && <PaginationBar page={apiLogPage} pageSize={pageSize} total={filteredApiLogs.length} onPageChange={setApiLogPage} onPageSizeChange={setPageSize} />}
             </div></section>
@@ -5123,6 +5137,7 @@ function App() {
               <div className="settings-card"><div className="settings-icon blue"><List size={22} /></div><div className="settings-copy"><strong>{t("每页显示条数")}</strong><small>{t("账号、资源和操作日志列表统一使用此分页大小")}</small></div><select className="settings-select" value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))}>{PAGE_SIZE_OPTIONS.map((value) => <option key={value} value={value}>{value} {t("条")}</option>)}</select></div>
               </section>
             )}
+            {settingsTab === "network" && <NetworkSettingsPage />}
             {settingsTab === "data" && (
               <section className="settings-grid settings-list">
                 <DataManagementPage language={uiLanguage} onOpenDirectory={openDataDirectory} onPhoneMigration={() => setShowSyncTransfer(true)} canManageBackups={runningInTauri} onRestore={preview => setDatabaseImportPreview(preview)} onStatus={setStatus} />
@@ -5211,7 +5226,7 @@ function App() {
         {apiLogDetail && (
           <SharedDialog title="API 调用详情" eyebrow="API DETAIL" className="api-log-detail-modal" onClose={() => setApiLogDetail(null)}>
               <AiLogAnalysis scope=".api-log-detail-modal .api-log-section pre,.api-log-detail-modal .api-log-message" title="AI 分析选中API日志" />
-              <div className="api-log-meta"><span>账号：{apiLogDetail.account_name || "未知账号"}</span><span>接口：{apiLogDetail.endpoint}</span><span>操作：{apiLogDetail.action}</span><span>时间：{new Date(apiLogDetail.created_at).toLocaleString()}</span><span className={apiLogDetail.status === "成功" ? "log-success" : "log-failure"}>状态：{apiLogDetail.status}</span></div>
+              <div className="api-log-meta"><span>账号：{apiLogDetail.account_name || "未知账号"}</span><span>接口：{apiLogDetail.endpoint}</span><span>操作：{apiLogDetail.action}</span><span>时间：{new Date(apiLogDetail.created_at).toLocaleString()}</span><span className={apiLogDetail.status === "成功" ? "log-success" : "log-failure"}>状态：{apiLogDetail.status}</span><span className="api-log-proxy-route">{apiLogProxyLabel(apiLogDetail.request_params)}</span></div>
               <div className="api-log-section"><h3>上送参数</h3><pre>{formatJson(apiLogDetail.request_params)}</pre></div>
               <div className="api-log-section"><h3>返回参数</h3><pre>{formatJson(apiLogDetail.response_params)}</pre></div>
               {apiLogDetail.message && <div className="api-log-message">错误信息：{apiLogDetail.message}</div>}

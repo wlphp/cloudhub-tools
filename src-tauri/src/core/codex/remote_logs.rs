@@ -16,7 +16,7 @@ fn load_enabled(conn: &Connection) -> Result<bool, String> {
 pub struct RemoteLog {
     pub id: String, pub timestamp: i64, pub account_id: Option<i64>, pub transport: String,
     pub method: String, pub url: String, pub status: Option<u16>, pub outcome: String,
-    pub duration_ms: u64, pub proxy_mode: String, pub proxy_url: Option<String>,
+    pub duration_ms: u64, pub proxy_mode: String, pub proxy_url: Option<String>, pub proxy_name: Option<String>,
     #[serde(skip)] pub detail: CallDetail,
     #[serde(skip)] bytes: usize,
 }
@@ -74,7 +74,8 @@ impl RemoteTrace {
     pub fn enabled(&self) -> bool { self.generation.is_some() }
     pub fn new(id: Option<i64>, transport: &str, method: &str, url: &str, proxy: Option<&str>) -> Self {
         let generation=store().lock().ok().filter(|store|store.enabled).map(|store|store.generation);
-        Self { entry: RemoteLog { id: uuid::Uuid::new_v4().to_string(), timestamp: chrono::Utc::now().timestamp_millis(), account_id:id, transport:transport.into(), method:method.into(), url:url.into(), status:None, outcome:"cancelled".into(), duration_ms:0, proxy_mode:if proxy.is_some(){"account"}else{"system"}.into(), proxy_url:proxy.and_then(|url|super::account_controls::validate_proxy(url).ok().flatten()), detail:CallDetail::default(), bytes:0 }, start:Instant::now(), generation, secrets:Vec::new() }
+        let route = crate::core::network::route_for_account(proxy);
+        Self { entry: RemoteLog { id: uuid::Uuid::new_v4().to_string(), timestamp: chrono::Utc::now().timestamp_millis(), account_id:id, transport:transport.into(), method:method.into(), url:url.into(), status:None, outcome:"cancelled".into(), duration_ms:0, proxy_mode:route.mode, proxy_url:route.url, proxy_name:route.name, detail:CallDetail::default(), bytes:0 }, start:Instant::now(), generation, secrets:Vec::new() }
     }
     pub fn secret(&mut self, secret: &str) { if self.generation.is_some() && !secret.is_empty() { self.secrets.push(Zeroizing::new(secret.into())); } }
     fn clean(&mut self, value: &Value) -> Value {
@@ -139,7 +140,7 @@ pub async fn send(client: &reqwest::Client, builder: reqwest::RequestBuilder, id
     let mut trace=RemoteTrace::new(id,"http",request.method().as_str(),request.url().as_str(),proxy);
     trace.secret(token);
     let body=request.body().and_then(|body|body.as_bytes()).and_then(|bytes|serde_json::from_slice::<Value>(bytes).ok());
-    trace.request(&json!({"headers":headers(request.headers()),"body":body,"query":request.url().query(),"proxyMode":trace.entry.proxy_mode,"proxyUrl":trace.entry.proxy_url,"timeoutMs":request.timeout().map(|duration|duration.as_millis()),"networkNote":"记录配置路径；系统网络是否经过环境代理、NO_PROXY、系统代理或 VPN，由网络栈决定"}));
+    trace.request(&json!({"headers":headers(request.headers()),"body":body,"query":request.url().query(),"proxyMode":trace.entry.proxy_mode,"proxyName":trace.entry.proxy_name,"proxyUrl":trace.entry.proxy_url,"timeoutMs":request.timeout().map(|duration|duration.as_millis()),"networkNote":"记录配置路径；系统网络是否经过环境代理、NO_PROXY、系统代理或 VPN，由网络栈决定"}));
     match client.execute(request).await {
         Ok(response) => {trace.entry.status=Some(response.status().as_u16());trace.response(&json!({"headers":headers(response.headers()),"httpVersion":format!("{:?}",response.version())}));trace.finish(if response.status().is_success(){"body_pending"}else{"http_error"});Ok((response,trace))},
         Err(error) => {trace.finish(if error.is_timeout(){"timeout"}else if error.is_connect(){"connect_error"}else{"request_error"});trace.response(&json!({"errorCategory":trace.entry.outcome}));Err(error)}

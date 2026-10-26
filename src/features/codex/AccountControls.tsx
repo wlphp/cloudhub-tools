@@ -32,7 +32,7 @@ export function AccountControls({ account, busy, act, onAccount, onEdit, onNotic
       <span className="codex-account-kind">{account.isWebSession ? "Web Session" : account.authMode === "chatgpt" ? "Team Name：" + ((account.workspaceName?.toLowerCase() === "personal" ? "个人账户" : account.workspaceName) || (["team", "business", "enterprise", "edu"].includes(account.plan?.toLowerCase() ?? "") ? "团队名称未获取" : "个人账户")) : "API Key 账号"}</span>
       <div className="codex-account-action-row">
       {headerAction}
-      <button disabled={busy} aria-label={`编辑 ${account.label} 备注`} onClick={onEdit}><Edit3 size={13} />{account.note ? "改备注" : "加备注"}</button>{account.authMode === "chatgpt" && <button className="codex-reset-chip" disabled={busy} aria-label={`查看 ${account.label} 重置次数`} onClick={() => { setError(""); setModal("reset"); }}><RefreshCw size={12} />重置 {benefits?.resetCredits ?? "未获取"}</button>}
+      <button disabled={busy} aria-label={`编辑 ${account.label} 备注`} onClick={onEdit}><Edit3 size={13} />{account.note ? "改备注" : "加备注"}</button>{account.authMode === "chatgpt" && benefits?.resetCredits != null && <button className="codex-reset-chip" disabled={busy} aria-label={`查看 ${account.label} 重置次数`} onClick={() => { setError(""); setModal("reset"); }}><RefreshCw size={12} />重置 {benefits.resetCredits}</button>}
       <button disabled={busy} aria-label={`配置 ${account.label} 代理`} title={account.proxyUrl ? `已配置：${account.proxyUrl}` : "沿用系统网络设置"} onClick={() => { setUrl(account.proxyUrl ?? ""); setError(""); setProxies([]); setDetected(false); setModal("proxy"); }}><Shield size={13} />{account.proxyUrl ? "代理已设" : "代理"}</button>
       </div>
     </div>

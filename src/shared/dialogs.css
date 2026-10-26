@@ -91,6 +91,21 @@
 .oss-object-dialog .oss-browser-more { border-color: var(--jb-border); }
 .oss-object-dialog :is(.oss-browser button,.oss-object-check input):focus-visible { outline: 2px solid var(--jb-accent); outline-offset: 2px; }
 
+/* SharedDialog also powers native mobile settings forms; keep the common shell
+   usable in the mobile bundle, which intentionally does not load App.css. */
+body:has(.mobile-shell) .shared-dialog-backdrop { position: fixed; inset: 0; z-index: 120; display: grid; place-items: center; padding: max(14px,env(safe-area-inset-top,0px)) 12px max(14px,env(safe-area-inset-bottom,0px)); background: #050b12b8; backdrop-filter: blur(5px); }
+body:has(.mobile-shell) .network-proxy-dialog { --jb-bg: var(--mobile-surface); --jb-surface: var(--mobile-surface); --jb-surface-2: var(--mobile-raised); --jb-surface-3: var(--mobile-raised); --jb-input: var(--mobile-bg); --jb-text: var(--mobile-text); --jb-muted: var(--mobile-muted); --jb-border: var(--mobile-border); --jb-border-strong: var(--mobile-border); --jb-accent: var(--mobile-accent); --jb-accent-strong: var(--mobile-accent-strong); width: min(560px,calc(100vw - 24px)); max-width: calc(100vw - 24px); max-height: calc(100dvh - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px) - 28px); border: 1px solid var(--mobile-border); border-radius: 16px; background: var(--mobile-surface); color: var(--mobile-text); box-shadow: 0 24px 64px #0008; }
+body:has(.mobile-shell) .network-proxy-dialog > .modal-head { display: flex; min-height: 58px; align-items: center; padding: 12px 14px; border-bottom: 1px solid var(--mobile-border); background: var(--mobile-raised); }
+body:has(.mobile-shell) .network-proxy-dialog > .modal-body { display: grid; gap: 12px; padding: 14px; overflow-y: auto; }
+body:has(.mobile-shell) .network-proxy-dialog > .modal-actions { padding: 10px 14px max(10px,env(safe-area-inset-bottom,0px)); border-top: 1px solid var(--mobile-border); background: var(--mobile-surface); }
+body:has(.mobile-shell) .network-proxy-dialog .network-proxy-credentials { display: grid; grid-template-columns: 1fr; gap: 12px; margin: 0; }
+body:has(.mobile-shell) .network-proxy-dialog .network-proxy-credentials label { display: grid; gap: 6px; margin: 0; color: var(--mobile-muted); font-size: 13px; }
+body:has(.mobile-shell) .network-proxy-dialog .network-proxy-credentials input { width: 100%; min-width: 0; height: 46px; margin: 0; padding: 0 12px; border: 1px solid var(--mobile-border); border-radius: 10px; background: var(--mobile-bg); color: var(--mobile-text); }
+body:has(.mobile-shell) .network-proxy-dialog .network-pool-hint { margin: 0; color: var(--mobile-muted); font-size: 12px; line-height: 1.55; }
+body:has(.mobile-shell) .network-proxy-dialog .modal-actions button { min-height: 46px; padding-inline: 14px; border-radius: 10px; }
+body.theme-light:has(.mobile-shell) .shared-dialog-backdrop { background: #17203380; }
+body.theme-light:has(.mobile-shell) .network-proxy-dialog { --jb-bg: var(--mobile-surface); --jb-surface: var(--mobile-surface); --jb-surface-2: var(--mobile-raised); --jb-surface-3: var(--mobile-raised); --jb-input: var(--mobile-bg); --jb-text: var(--mobile-text); --jb-muted: var(--mobile-muted); --jb-border: var(--mobile-border); --jb-border-strong: var(--mobile-border); --jb-accent: var(--mobile-accent); --jb-accent-strong: var(--mobile-accent-strong); }
+
 /* Shared visual contract for every dialog in the desktop and browser builds. */
 :is(.modal,.resource-modal,.codex-dialog,.codex-log-dialog,.flow-dialog,.frp-modal,.ai-workbench,.ai-config-dialog,.ai-asset-note-dialog,.app-confirm-dialog,.auth-dialog,.sync-transfer-panel,.sync-transfer-qr-dialog,.certificate-dialog,.certificate-source-dialog,.certificate-domains-dialog,.export-selection-dialog,.security-group-modal,.dns-editor-modal,.terminal-quick-dialog,.terminal-connect-card,.managed-group-edit-dialog,.mobile-account-form,.mobile-dns-form,.mobile-cert-request,.database-import-dialog,[role="dialog"],dialog) {
   --jb-surface: #1d1d1d;

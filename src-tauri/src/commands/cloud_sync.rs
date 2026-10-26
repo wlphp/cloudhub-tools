@@ -258,14 +258,9 @@ fn merge_input(mut input: Config, saved: Option<&Config>) -> Result<Config, Stri
 }
 
 fn supported() -> Result<(), String> {
-    #[cfg(mobile)]
-    {
-        return Err("云端数据库备份仅在桌面客户端中可用".into());
-    }
-    #[cfg(not(mobile))]
-    {
-        Ok(())
-    }
+    // Cloud backup operations are explicit user actions and are available on
+    // mobile too. Background auto-upload remains desktop-only.
+    Ok(())
 }
 
 #[tauri::command]

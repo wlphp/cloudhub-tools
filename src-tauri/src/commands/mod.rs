@@ -33,6 +33,8 @@ pub mod codex_backup;
 pub mod codex_gateway;
 pub mod authenticator;
 pub mod preferences;
+#[cfg(desktop)]
+pub mod network;
 pub mod cloud_sync;
 pub mod logs;
 pub mod assets;

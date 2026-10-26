@@ -2718,3 +2718,51 @@ body.theme-light .mobile-back-fab { box-shadow: 0 6px 18px #1f293730; }
 .mobile-back-fab { touch-action: none; user-select: none; -webkit-touch-callout: none; transition: box-shadow .15s ease, transform .15s ease; }
 .mobile-back-fab.is-dragging { z-index: 40; transform: scale(1.1); opacity: .95; box-shadow: 0 12px 28px #00000066; cursor: grabbing; }
 body.theme-light .mobile-back-fab.is-dragging { box-shadow: 0 12px 28px #1f29373d; }
+
+/* Mobile adaptation of the desktop global proxy pool. */
+.mobile-network-settings { display: grid; gap: 14px; min-width: 0; }
+.mobile-network-settings .network-settings-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.mobile-network-settings .network-settings-heading > div { min-width: 0; }
+.mobile-network-settings .network-settings-heading h2 { display: flex; align-items: center; gap: 8px; margin: 4px 0 6px; color: var(--mobile-text); font-size: 18px; }
+.mobile-network-settings .network-settings-heading h2 svg { flex: none; color: var(--mobile-accent); }
+.mobile-network-settings .network-settings-heading p,
+.mobile-network-settings .network-priority-card p { margin: 0; color: var(--mobile-muted); font-size: 13px; line-height: 1.6; }
+.mobile-network-settings .network-settings-heading > button { flex: none; min-height: 44px; padding: 0 12px; }
+.mobile-network-settings .network-settings-card,
+.mobile-network-settings .network-priority-card { min-width: 0; padding: 15px; border: 1px solid var(--mobile-border); border-radius: 14px; background: var(--mobile-surface); }
+.mobile-network-settings .network-pool-toolbar { display: grid; gap: 12px; }
+.mobile-network-settings .network-proxy-toggle { display: flex; align-items: flex-start; gap: 11px; margin: 0; color: var(--mobile-text); }
+.mobile-network-settings .network-proxy-toggle input { width: 20px; height: 20px; flex: none; margin: 1px 0 0; accent-color: var(--mobile-accent); }
+.mobile-network-settings .network-proxy-toggle span { display: grid; gap: 5px; }
+.mobile-network-settings .network-proxy-toggle small { color: var(--mobile-muted); font-size: 12px; line-height: 1.5; }
+.mobile-network-settings .network-pool-toolbar > button { width: 100%; min-height: 46px; }
+.mobile-network-settings .network-pool-empty { margin-top: 12px; padding: 16px 12px; border: 1px dashed var(--mobile-border); border-radius: 11px; color: var(--mobile-muted); font-size: 13px; line-height: 1.5; text-align: center; }
+.mobile-network-settings .network-pool-list { display: grid; gap: 10px; margin-top: 14px; }
+.mobile-network-settings .network-pool-item { display: grid; gap: 10px; min-width: 0; padding: 13px; border: 1px solid var(--mobile-border); border-radius: 12px; background: var(--mobile-bg); }
+.mobile-network-settings .network-pool-item.is-selected { border-color: var(--mobile-accent); box-shadow: inset 0 0 0 1px color-mix(in srgb,var(--mobile-accent) 22%,transparent); }
+.mobile-network-settings .network-pool-choice { display: flex; align-items: flex-start; gap: 11px; min-width: 0; cursor: pointer; }
+.mobile-network-settings .network-pool-choice input { width: 20px; height: 20px; flex: none; margin: 2px 0 0; accent-color: var(--mobile-accent); }
+.mobile-network-settings .network-pool-details { display: grid; gap: 5px; min-width: 0; }
+.mobile-network-settings .network-pool-details strong { color: var(--mobile-text); font-size: 15px; overflow-wrap: anywhere; }
+.mobile-network-settings .network-pool-details span { color: var(--mobile-muted); font-size: 13px; overflow-wrap: anywhere; }
+.mobile-network-settings .network-pool-details small { color: var(--mobile-muted); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.mobile-network-settings .network-pool-item-actions { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 8px; }
+.mobile-network-settings .network-pool-item-actions button { min-width: 0; min-height: 44px; padding: 0 8px; }
+.mobile-network-settings .network-proxy-actions { display: flex; justify-content: stretch; margin-top: 14px; padding-top: 13px; border-top: 1px solid var(--mobile-border); }
+.mobile-network-settings .network-proxy-actions button { width: 100%; min-height: 48px; }
+.mobile-network-settings .network-priority-card h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; color: var(--mobile-text); font-size: 15px; }
+.mobile-network-settings .network-priority-card h3 svg { color: var(--mobile-accent); }
+.mobile-network-settings .network-priority-card ol { display: grid; gap: 10px; margin: 0 0 14px; padding-left: 22px; color: var(--mobile-muted); font-size: 13px; line-height: 1.6; }
+.mobile-network-settings .network-priority-card li strong { color: var(--mobile-text); }
+.mobile-network-settings .network-settings-notice,
+.mobile-network-settings .network-settings-error { margin: 0; padding: 12px; border: 1px solid var(--mobile-border); border-radius: 10px; color: var(--mobile-muted); font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.mobile-network-settings .network-settings-error { border-color: #a9434e; color: #ffaaa2; }
+.network-toast-notice { position: fixed; z-index: 1200; top: calc(env(safe-area-inset-top,0px) + 12px); right: max(12px,env(safe-area-inset-right,0px)); left: max(12px,env(safe-area-inset-left,0px)); width: max-content; max-width: calc(100vw - 24px); margin: 0 auto; padding: 12px 14px; border: 1px solid var(--mobile-border); border-radius: 12px; background: var(--mobile-raised); color: var(--mobile-text); box-shadow: 0 8px 28px #0005; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+body.theme-light .mobile-network-settings .network-settings-card,
+body.theme-light .mobile-network-settings .network-priority-card { background: var(--mobile-surface); }
+@media (min-width: 560px) {
+  .mobile-network-settings .network-pool-toolbar { grid-template-columns: minmax(0,1fr) auto; align-items: center; }
+  .mobile-network-settings .network-pool-toolbar > button { width: auto; min-width: 140px; }
+  .mobile-network-settings .network-pool-item { grid-template-columns: minmax(0,1fr) auto; align-items: center; }
+  .mobile-network-settings .network-pool-item-actions { display: flex; }
+}

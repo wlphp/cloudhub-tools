@@ -12,6 +12,7 @@ import { SharedDialog } from "../../shared/SharedDialog";
 import { flowClient } from "../../platform/clients/flow";
 import { runningInTauri } from "../../platform/api";
 import { databaseClient, type DatabaseImportPreview } from "../../platform/clients/database";
+import { CloudSyncSection } from "./CloudSyncSection";
 import "./sync-transfer.css";
 
 type Props = {
@@ -250,6 +251,13 @@ export function SyncTransferPanel({ mode, accounts = [], managedHosts = [], pane
     if (!databasePreview) return;
     setBusy(true); setError(""); setNotice("");
     try {
+      if (runningInTauri) {
+        await databaseClient.confirmImport(databasePreview.token);
+        setDatabasePreview(null);
+        setNotice("数据已恢复，正在重新载入手机数据…");
+        window.setTimeout(() => window.location.reload(), 900);
+        return;
+      }
       const result = await databaseClient.confirmBrowserImport(databasePreview.token);
       setDatabasePreview(null);
       setNotice(`${result.message}。正在重新载入手机数据…`);
@@ -264,7 +272,7 @@ export function SyncTransferPanel({ mode, accounts = [], managedHosts = [], pane
     if (!databasePreview) return;
     const token = databasePreview.token;
     setDatabasePreview(null);
-    try { await databaseClient.cancelBrowserImport(token); }
+    try { if (runningInTauri) await databaseClient.cancelImport(token); else await databaseClient.cancelBrowserImport(token); }
     catch { /* The server also removes expired previews. */ }
   }
 
@@ -313,10 +321,13 @@ export function SyncTransferPanel({ mode, accounts = [], managedHosts = [], pane
         <h3>备份内容：{databasePreview.packageName}</h3>
         <p>导出时间：{databasePreview.exportedAt} · 共 {databasePreview.totalRecords} 条记录</p>
         <ul>{databasePreview.categories.filter((item) => item.count > 0).map((item) => <li key={item.label}><strong>{item.label}</strong><span>{item.count} 条</span></li>)}</ul>
+        {databasePreview.details.length > 0 && <p>{databasePreview.details[0]}</p>}
+        {databasePreview.conflicts.length > 0 && <p role="status">发现 {databasePreview.conflicts.length} 条重复项，整库恢复会替换普通业务数据。</p>}
         <p>确认后会以电脑备份完整替换手机数据库。手机当前数据会自动留存为导入前备份。</p>
         <button className="sync-transfer-primary" type="button" disabled={busy} onClick={() => void confirmDatabaseBackupImport()}><ShieldCheck size={17} aria-hidden="true" />{busy ? "正在导入…" : "确认替换并导入"}</button>
         <button className="sync-transfer-file" type="button" disabled={busy} onClick={() => void cancelDatabaseBackupImport()}>取消</button>
       </div>}
+      <CloudSyncSection available={runningInTauri} mobile onRestore={(nextPreview) => { setDatabasePreview(nextPreview); setError(""); setNotice("云备份校验通过。请检查内容，确认后才会替换手机数据。"); }} />
     </> : <>
       <p className="sync-transfer-intro">选择要迁移到手机的配置，然后扫码接收。传输会自动加密，无需迁移口令。</p>
       <div className="sync-transfer-desktop-selection">

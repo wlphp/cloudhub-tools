@@ -495,8 +495,18 @@ pub struct ImportAccount {
 
 fn write_api_log(access_key_id: &str, endpoint: &str, action: &str, request_params: &Value, response: Option<&Value>, status: &str, message: Option<&str>) {
     if let Ok(conn) = open_db() {
-        let _ = log_repository::write_api(&conn, access_key_id, endpoint, action, request_params, response, status, message, Utc::now().timestamp_millis());
+        let mut params = request_params.clone();
+        if !params.is_object() { params = serde_json::json!({"payload": params}); }
+        if let Some(object) = params.as_object_mut() { object.insert("_network".into(), api_log_proxy_route()); }
+        let _ = log_repository::write_api(&conn, access_key_id, endpoint, action, &params, response, status, message, Utc::now().timestamp_millis());
     }
+}
+
+fn api_log_proxy_route() -> Value {
+    #[cfg(desktop)]
+    { serde_json::to_value(core::network::current_route()).unwrap_or_else(|_| serde_json::json!({"used": false, "mode": "unknown", "url": null})) }
+    #[cfg(mobile)]
+    { serde_json::json!({"used": false, "mode": "unknown", "url": null}) }
 }
 
 fn account_credentials(id: i64) -> Result<(String, String), String> {
@@ -862,6 +872,9 @@ pub fn run() {
     let builder = builder.setup(|app| {
             #[cfg(mobile)]
             core::crypto::initialize_mobile_key_store(app).map_err(|message| std::io::Error::other(message))?;
+            if let Ok(conn) = open_db() {
+                if core::network::initialize(&conn).is_err() { eprintln!("全局代理配置加载失败，将使用系统默认网络设置"); }
+            }
             #[cfg(desktop)]
             {
                 use tauri::Manager;
@@ -905,11 +918,13 @@ pub fn run() {
             Ok(())
         });
     #[cfg(mobile)]
-    let builder = builder.invoke_handler(tauri::generate_handler![ai_list_models,ai_test_vision, ai_export_config,ai_prepare_import,ai_confirm_import,ai_cancel_import, ai_list_profiles, ai_reveal_key,ai_save_profile,ai_delete_profile,ai_preview,ai_run,ai_cancel, authenticator_reveal_secret,authenticator_status, authenticator_unlock, authenticator_lock, authenticator_list, authenticator_touch, authenticator_codes, authenticator_save, authenticator_remove, authenticator_advance, authenticator_copy, authenticator_prepare, authenticator_import, authenticator_cancel, authenticator_export, reveal_flow_token, list_flow_connections, save_flow_connection, delete_flow_connection, test_flow_connection, list_flow_groups, list_flow_pipelines, get_flow_pipeline_cache, list_flow_runs, get_flow_run, get_flow_latest_run, run_flow_pipeline, get_flow_job_steps, get_flow_job_log, get_flow_job_run_log, list_accounts, save_account, delete_account, reveal_account_secret, list_local_assets, sync_cloud_assets, start_instance, stop_instance, reboot_instance, cvm_instance_action, list_dns_records, add_dns_record, update_dns_record, delete_dns_record, toggle_dns_record, list_oss_objects, trash_list, trash_restore, trash_purge, trash_empty, trash_set_scrub_days, trash_scrub_now, claude_provider_list, claude_provider_save, claude_provider_delete, claude_provider_switch, claude_provider_restore_backup, claude_provider_current_settings, list_rds_databases, list_redis_accounts, list_certificates, list_certificate_summaries, request_certificate, cancel_certificate_request, list_managed_hosts, save_managed_host, list_panel_connections, reveal_panel_api_key, refresh_panel_connection, open_panel_temporary_login, save_panel_connection, delete_panel_connection, ssh_connect, ssh_read, ssh_disconnect, ssh_write, get_sync_device_identity, list_sync_devices, revoke_sync_device, set_sync_device_share_scope, list_pending_sync_acknowledgements, create_sync_account_bundle, create_sync_delta_bundle, save_sync_delta_bundle_file, save_sync_acknowledgement_file, preview_sync_delta_bundle, apply_sync_delta_bundle, complete_sync_delta_push, acknowledge_sync_delta, send_sync_delta_ack_lan, start_sync_delta_receiver, send_sync_delta_bundle_lan, take_received_sync_delta, save_sync_account_bundle, preview_sync_account_bundle, import_sync_account_bundle, start_sync_transfer, start_sync_delta_transfer, cancel_sync_transfer, approve_sync_transfer, fetch_sync_transfer, confirm_sync_transfer_import, cancel_sync_transfer_import]);
+    let builder = builder.invoke_handler(tauri::generate_handler![commands::network::network_proxy_get, commands::network::network_proxy_save, commands::network::network_proxy_test, ai_list_models,ai_test_vision, ai_export_config,ai_prepare_import,ai_confirm_import,ai_cancel_import, ai_list_profiles, ai_reveal_key,ai_save_profile,ai_delete_profile,ai_preview,ai_run,ai_cancel, authenticator_reveal_secret,authenticator_status, authenticator_unlock, authenticator_lock, authenticator_list, authenticator_touch, authenticator_codes, authenticator_save, authenticator_remove, authenticator_advance, authenticator_copy, authenticator_prepare, authenticator_import, authenticator_cancel, authenticator_export, reveal_flow_token, list_flow_connections, save_flow_connection, delete_flow_connection, test_flow_connection, list_flow_groups, list_flow_pipelines, get_flow_pipeline_cache, list_flow_runs, get_flow_run, get_flow_latest_run, run_flow_pipeline, get_flow_job_steps, get_flow_job_log, get_flow_job_run_log, list_accounts, save_account, delete_account, reveal_account_secret, list_local_assets, sync_cloud_assets, start_instance, stop_instance, reboot_instance, cvm_instance_action, list_dns_records, add_dns_record, update_dns_record, delete_dns_record, toggle_dns_record, list_oss_objects, trash_list, trash_restore, trash_purge, trash_empty, trash_set_scrub_days, trash_scrub_now, claude_provider_list, claude_provider_save, claude_provider_delete, claude_provider_switch, claude_provider_restore_backup, claude_provider_current_settings, list_rds_databases, list_redis_accounts, list_certificates, list_certificate_summaries, request_certificate, cancel_certificate_request, list_managed_hosts, save_managed_host, list_panel_connections, reveal_panel_api_key, refresh_panel_connection, open_panel_temporary_login, save_panel_connection, delete_panel_connection, ssh_connect, ssh_read, ssh_disconnect, ssh_write, get_sync_device_identity, list_sync_devices, revoke_sync_device, set_sync_device_share_scope, list_pending_sync_acknowledgements, create_sync_account_bundle, create_sync_delta_bundle, save_sync_delta_bundle_file, save_sync_acknowledgement_file, preview_sync_delta_bundle, apply_sync_delta_bundle, complete_sync_delta_push, acknowledge_sync_delta, send_sync_delta_ack_lan, start_sync_delta_receiver, send_sync_delta_bundle_lan, take_received_sync_delta, save_sync_account_bundle, preview_sync_account_bundle, import_sync_account_bundle, start_sync_transfer, start_sync_delta_transfer, cancel_sync_transfer, approve_sync_transfer, fetch_sync_transfer, confirm_sync_transfer_import, cancel_sync_transfer_import]);
     #[cfg(desktop)]
     let builder = builder.manage(core::browser::runtime::BrowserState::default());
     #[cfg(desktop)]
     let builder = builder.invoke_handler(commands::desktop_pet::restricted(tauri::generate_handler![
+        commands::network::network_proxy_get, commands::network::network_proxy_save,
+        commands::network::network_proxy_test, commands::network::network_proxy_detect,
         commands::cloud_sync::cloud_sync_state, commands::cloud_sync::cloud_sync_save,
         commands::cloud_sync::cloud_sync_test, commands::cloud_sync::cloud_sync_upload,
         commands::cloud_sync::cloud_sync_download,

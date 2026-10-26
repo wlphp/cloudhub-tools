@@ -17,7 +17,7 @@ const editable = (view: CloudSyncView): CloudSyncConfig => {
 };
 const timeText = (value: string | null) => value ? new Date(value).toLocaleString() : "尚无记录";
 
-export function CloudSyncSection({ available, onRestore }: { available: boolean; onRestore: (preview: DatabaseImportPreview) => void }) {
+export function CloudSyncSection({ available, onRestore, mobile = false }: { available: boolean; onRestore: (preview: DatabaseImportPreview) => void; mobile?: boolean }) {
   const id = useId();
   const [expanded, setExpanded] = useState(false);
   const [config, setConfig] = useState<CloudSyncConfig>(defaults);
@@ -79,7 +79,7 @@ export function CloudSyncSection({ available, onRestore }: { available: boolean;
     <div className="data-settings-panel cloud-sync-panel" aria-busy={!!busy || !!saved?.status.busy}>
       <div className="data-settings-heading cloud-sync-heading"><Cloud size={17} aria-hidden="true" /><h3>云端备份</h3><span className="data-settings-badge">{saved?.status.busy ? "同步中" : saved?.status.paused ? "自动上传已暂停" : dirty ? "待保存" : "已配置"}</span><button type="button" className="cloud-sync-toggle" aria-expanded={expanded} aria-controls={`${id}-panel`} onClick={() => setExpanded(current => !current)}><span>{expanded ? "收起" : "展开"}</span>{expanded ? <ChevronDown size={16} aria-hidden="true" /> : <ChevronRight size={16} aria-hidden="true" />}</button></div>
       <p>通过 WebDAV 或 S3 兼容存储在设备间传递 CloudHub 数据库备份。</p>
-      {!available && <p role="status">云同步仅在桌面客户端中可用，浏览器预览不连接远端存储。</p>}
+      {!available && <p role="status">云同步仅在原生客户端中可用，浏览器预览不连接远端存储。</p>}
       {!expanded && <p className="cloud-sync-hint">展开后填写连接配置、上传或下载数据。</p>}
       <div id={`${id}-panel`} hidden={!expanded}>
       <div className="cloud-sync-form">
@@ -96,7 +96,8 @@ export function CloudSyncSection({ available, onRestore }: { available: boolean;
         <div className="cloud-sync-grid">{field("remoteRoot", "远程根目录", "cloudhub-sync")}{field("profile", "同步配置名", "default")}</div>
         <p className="cloud-sync-hint">同一组设备使用相同目录和配置名。上传替换该位置的备份，不自动合并记录。</p>
         <div className="cloud-sync-options">
-          <label className="cloud-sync-option"><input type="checkbox" role="switch" checked={config.autoSync} disabled={disabled} onChange={event => update("autoSync", event.target.checked)} /><span>自动上传<small>应用运行时，业务数据变化后延迟上传；发现远端版本变化会停止覆盖。</small></span></label>
+          {!mobile && <label className="cloud-sync-option"><input type="checkbox" role="switch" checked={config.autoSync} disabled={disabled} onChange={event => update("autoSync", event.target.checked)} /><span>自动上传<small>应用运行时，业务数据变化后延迟上传；发现远端版本变化会停止覆盖。</small></span></label>}
+          {mobile && <p className="cloud-sync-hint">手机端支持手动测试、上传和下载；自动上传目前仅由桌面端后台执行。</p>}
           <label className="cloud-sync-option"><input type="checkbox" checked={config.passwordProtected} disabled={disabled} onChange={event => update("passwordProtected", event.target.checked)} /><span>使用密码保护云备份<small>默认不加密码：敏感字段保持加密，包内包含恢复 key，持有文件即可恢复。启用后，数据库和 key 一起加密。</small></span></label>
           {config.passwordProtected && field("backupPassword", "备份密码", saved?.config.hasBackupPassword ? "已保存，留空保留；另一台设备需填写同一密码" : "至少 8 个字符，下载恢复时也需要", true)}
           <label className="cloud-sync-option"><input type="checkbox" checked={config.allowInsecure} disabled={disabled} onChange={event => update("allowInsecure", event.target.checked)} /><span>允许 HTTP<small>仅用于可信内网，HTTP 不保护传输中的账号和备份。</small></span></label>
