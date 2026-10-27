@@ -151,6 +151,8 @@ pub(crate) async fn codex_launch_config(app: tauri::AppHandle, id: Option<String
         let _writer = AUTH_WRITER.lock().map_err(|_| "Codex 账号操作不可用")?;
         let store = app.state::<CodexRuntimeStore>();
         let home = config_home(&store, id.as_deref(), input.is_some())?;
+        let _target = if input.is_some() { Some(crate::core::codex::target_lock::TargetLock::acquire(&home)?) } else { None };
+        if input.is_some() { crate::core::codex::config_history::ensure_ready(&open_db()?, &home)?; }
         if input.is_some() { crate::core::codex::providers::ensure_home_unbound(&open_db()?, &home)?; }
         let original = config_content(&home)?;
         let version = profile::fingerprint(original.as_ref().map(|v| v.as_str()));
@@ -215,6 +217,7 @@ fn clear_projection(id: &str) -> Result<(), String> {
         return Err("Codex 实例目录不能是链接".into());
     }
     let path = root.join(id.to_string());
+    let _target=crate::core::codex::target_lock::TargetLock::acquire(&path)?;
     if !path.exists() {
         return Ok(());
     }
@@ -273,7 +276,11 @@ pub(crate) async fn codex_delete_instance(
 }
 
 fn sync_instance(account_id: i64, path: &Path) -> Result<(), String> {
-    if crate::core::codex::provider_oauth::sync(path)? {return Ok(());}
+    let _target=crate::core::codex::target_lock::TargetLock::acquire(path)?;
+    sync_instance_locked(account_id,path)
+}
+fn sync_instance_locked(account_id: i64, path: &Path) -> Result<(), String> {
+    if crate::core::codex::provider_oauth::sync_locked(path)? {return Ok(());}
     let conn = open_db()?;
     let account = repository::get(&conn, account_id)?;
     auth::ensure_runtime_auth(&repository::credentials(&conn, account_id)?)?;
@@ -299,22 +306,22 @@ pub(crate) async fn codex_bind_instance(app: tauri::AppHandle, id: String, accou
     tauri::async_runtime::spawn_blocking(move || -> Result<InstanceBindResult, String> {
         let _writer = AUTH_WRITER.lock().map_err(|_| "Codex 账号操作不可用")?;
         let store = app.state::<CodexRuntimeStore>();
-        let conn = open_db()?;
+        let mut conn = open_db()?;
+        let path=config_home(&store,Some(&id),true)?;
+        let _target=crate::core::codex::target_lock::TargetLock::acquire(&path)?;
+        crate::core::codex::config_history::ensure_ready(&conn,&path)?;
         let old: i64 = conn.query_row("SELECT account_id FROM codex_profiles WHERE id=?1", [&id], |row| row.get(0)).map_err(|_| "Codex 实例不存在")?;
         if crate::core::codex::providers::is_provider_account(&conn,account_id)? {return Err("请通过模型供应商启动预览应用此账号".into());}
         for account in [old, account_id] {
-            if account_running(&store, account)? {
+            if account_running_except_target(&store, account,&path)? {
                 return Err(account_busy_error(&store, account, "切换实例账号")?);
             }
         }
         repository::get(&conn, account_id)?;
         auth::ensure_runtime_auth(&repository::credentials(&conn, account_id)?)?;
-        super::codex_providers::restore_before_account_switch(&store, Some(&id))?;
-        // 与默认切号一致：账号绑定到实例即恢复官方直连与官方模型列表。
-        let removed_overrides = crate::core::codex::provider_config::clear_third_party_overrides(&instance_path(&id)?)?;
-        let old: i64 = conn.query_row("SELECT account_id FROM codex_profiles WHERE id=?1", [&id], |row| row.get(0)).map_err(|_| "Codex 实例不存在")?;
-        if old != account_id {
-            let path = instance_path(&id)?;
+        crate::core::codex::config_history::migrate_legacy(&conn)?;
+        crate::core::codex::provider_oauth::sync_before_replace(&conn,&path)?;
+        if old != account_id && crate::core::codex::provider_oauth::owner(&conn,&path)?.is_none() && !crate::core::codex::providers::is_provider_account(&conn,old)? {
             // Preserve the old account's latest rotated grant before changing binding.
             if path.join("auth.json").exists() {
                 let previous: Option<String> = conn.query_row("SELECT auth_fingerprint FROM codex_profiles WHERE id=?1", [&id], |row| row.get(0)).map_err(|_| "读取 Codex 实例失败")?;
@@ -325,12 +332,22 @@ pub(crate) async fn codex_bind_instance(app: tauri::AppHandle, id: String, accou
                 let previous = previous.ok_or("实例目录已有登录数据，请创建新实例，未覆盖原文件")?;
                 if disk_hash != previous && disk_hash != stored_hash {
                     if previous != stored_hash { return Err("实例与账号凭据均已变更，请新建实例或先导入该实例 auth.json，未覆盖登录状态".into()); }
-                    sync_instance(old, &path)?;
+                    // A stale provider projection is explicitly superseded below;
+                    // an ordinary instance still requires a matching identity.
+                    if crate::core::codex::provider_oauth::owner(&conn,&path)?.is_none() {sync_instance_locked(old, &path)?;}
                 }
             }
-            clear_projection(&id)?;
-            conn.execute("UPDATE codex_profiles SET account_id=?1,auth_fingerprint=NULL WHERE id=?2", params![account_id, id]).map_err(|_| "保存 Codex 实例失败")?;
         }
+        let operation_version=crate::core::codex::config_history::version(&conn,&path,Some(&id))?;
+        let (config,removed_overrides)=crate::core::codex::provider_config::official_config(&path)?;
+        let auth=repository::credentials(&conn,account_id)?;
+        let intended=vec![crate::core::codex::config_history::SavedFile{name:"config.toml".into(),content:config.map(|s|s.to_string())},crate::core::codex::config_history::SavedFile{name:"auth.json".into(),content:Some(auth.to_string())}];
+        crate::core::codex::config_history::execute_checked(&mut conn,&path,Some(&id),"instance",Some(&operation_version),intended,|tx|{
+            crate::core::codex::config_history::clear_bindings(tx,&path)?;
+            tx.execute("UPDATE codex_profiles SET account_id=?1,auth_fingerprint=?2 WHERE id=?3",params![account_id,profile::fingerprint(Some(&auth)),id]).map_err(|_| "保存 Codex 实例失败")?;
+            Ok(())
+        })?;
+        store.provider_gateways.lock().map_err(|_| "供应商网关状态不可用")?.remove(path.to_string_lossy().as_ref());
         let instances = summaries(&store)?;
         Ok(InstanceBindResult { instances, removed_overrides })
     }).await.map_err(|_| "切换 Codex 实例任务失败")?.map_err(Into::into)
@@ -350,6 +367,12 @@ pub(crate) fn stop_all(store: &CodexRuntimeStore) {
 pub(crate) fn account_running(store: &CodexRuntimeStore, account_id: i64) -> Result<bool, String> {
     if crate::core::codex::provider_oauth::bound(&open_db()?,account_id)? {return Ok(true);}
     runtime_account_running(store,account_id)
+}
+
+pub(crate) fn account_running_except_target(store:&CodexRuntimeStore,account_id:i64,home:&Path)->Result<bool,String> {
+    let conn=open_db()?;
+    let other:bool=conn.query_row("SELECT EXISTS(SELECT 1 FROM codex_provider_oauth WHERE account_id=?1 AND home!=?2)",params![account_id,home.to_string_lossy()],|r|r.get(0)).map_err(|_| "读取供应商 OAuth 归属失败")?;
+    Ok(other||runtime_account_running(store,account_id)?)
 }
 
 pub(crate) fn account_usage(store: &CodexRuntimeStore, account_id: i64) -> Result<Vec<String>, String> {
@@ -623,8 +646,9 @@ pub(crate) async fn codex_open_default_cli(app:tauri::AppHandle) -> PlatformResu
         let home = profile::default_home()?;
         profile::ensure_file_storage(&home)?;
         profile::ensure_default_idle()?;
-        super::codex_providers::ensure_gateway(&app.state::<CodexRuntimeStore>(),&home)?;
-        crate::core::codex::provider_oauth::sync(&home)?;
+        let _target=crate::core::codex::target_lock::TargetLock::acquire(&home)?;
+        super::codex_providers::ensure_gateway_locked(&app.state::<CodexRuntimeStore>(),&home)?;
+        crate::core::codex::provider_oauth::sync_locked(&home)?;
         let cli = profile::cli_path().ok_or("未找到 Codex CLI，请先安装官方 CLI 并加入 PATH")?;
         let _child = launch_terminal(&cli, &home, &home, None)?;
         Ok(())
@@ -646,15 +670,17 @@ pub(crate) async fn codex_start_instance(
         let workspace = PathBuf::from(work_dir).canonicalize().map_err(|_| "项目目录不存在")?;
         if !matches!(kind.as_str(),"cli"|"desktop"){return Err("Codex 实例类型无效".into());}
         let path = instance_path(&id)?;
+        let _target=crate::core::codex::target_lock::TargetLock::acquire(&path)?;
         profile::ensure_file_storage(&path)?;
-        super::codex_providers::ensure_gateway(&store,&path)?;
+        crate::core::codex::config_history::ensure_ready(&conn,&path)?;
+        super::codex_providers::ensure_gateway_locked(&store,&path)?;
         if crate::core::codex::providers::is_provider_account(&conn,account_id)? {
             let matches:bool=conn.query_row("SELECT EXISTS(SELECT 1 FROM codex_provider_bindings WHERE home=?1 AND account_id=?2 AND instance_id=?3)",params![path.to_string_lossy(),account_id,id],|r|r.get(0)).map_err(|_| "读取供应商绑定失败")?;
             if !matches {return Err("请通过模型供应商启动预览应用此账号".into());}
         }
         let mut stored_auth = crate::core::codex::provider_oauth::credentials(&conn,&path)?.unwrap_or(repository::credentials(&conn,account_id)?);
         if crate::core::codex::provider_oauth::owner(&conn,&path)?.is_some() {
-            crate::core::codex::provider_oauth::sync(&path)?;
+            crate::core::codex::provider_oauth::sync_locked(&path)?;
             stored_auth=crate::core::codex::provider_oauth::credentials(&conn,&path)?.ok_or("供应商 OAuth 账号不可用")?;
         }
         auth::ensure_runtime_auth(&stored_auth)?;
@@ -671,7 +697,7 @@ pub(crate) async fn codex_start_instance(
             if let Some(previous) = last_projection {
                 if instance_fingerprint != previous && instance_fingerprint != stored_fingerprint {
                     if previous != stored_fingerprint { return Err("实例与账号凭据均已变更，请新建实例或先导入该实例 auth.json，未覆盖登录状态".into()); }
-                    sync_instance(account_id,&path)?;
+                    sync_instance_locked(account_id,&path)?;
                     stored_auth = crate::core::codex::provider_oauth::credentials(&conn,&path)?.unwrap_or(repository::credentials(&conn,account_id)?);
                 }
             } else { return Err("实例目录已有登录数据，请创建新实例，未覆盖原文件".into()); }

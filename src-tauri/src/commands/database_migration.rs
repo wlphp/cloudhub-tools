@@ -230,8 +230,9 @@ fn preserve_local_codex(incoming: &Path, current: &Path, current_key: &[u8], inc
     let tx = destination.transaction().map_err(|_| "无法准备 Codex 数据事务")?;
     // Only the staged incoming copy is rebuilt. Incoming Codex data is never authoritative,
     // and its older profile schema must not prevent preserving newer local profile columns.
-    tx.execute_batch("DROP TABLE IF EXISTS codex_profiles; DROP TABLE IF EXISTS codex_accounts; DROP TABLE IF EXISTS codex_profile_backups; DROP TABLE IF EXISTS codex_gateway_config; DROP TABLE IF EXISTS codex_gateway_pool; DROP TABLE IF EXISTS codex_gateway_network;").map_err(|_|"隔离迁移包 Codex 数据失败")?;
+    tx.execute_batch("DROP TABLE IF EXISTS codex_profiles; DROP TABLE IF EXISTS codex_accounts; DROP TABLE IF EXISTS codex_profile_backups; DROP TABLE IF EXISTS codex_gateway_config; DROP TABLE IF EXISTS codex_gateway_pool; DROP TABLE IF EXISTS codex_gateway_network; DROP TABLE IF EXISTS codex_config_operations; DROP TABLE IF EXISTS codex_config_history;").map_err(|_|"隔离迁移包 Codex 数据失败")?;
     tx.execute_batch(crate::core::database::CODEX_SCHEMA).map_err(|_|"无法准备 Codex 数据表")?;
+    tx.execute_batch(crate::core::database::CODEX_CONFIG_HISTORY_SCHEMA).map_err(|_|"无法准备 Codex 备份历史")?;
     tx.execute_batch("DROP TABLE IF EXISTS codex_gateway_tunnel; CREATE TABLE codex_gateway_tunnel(id INTEGER PRIMARY KEY CHECK(id=1),json TEXT NOT NULL);").map_err(|_| "隔离穿透配置失败")?;
     for (table, columns, secret_index) in [
         ("codex_accounts", "id,identity,label,email,account_id,auth_mode,plan,note,tags_json,auth_ciphertext,quota_json,last_error,updated_at", Some(9usize)),
@@ -240,6 +241,8 @@ fn preserve_local_codex(incoming: &Path, current: &Path, current_key: &[u8], inc
         ("codex_gateway_config", "id,port,key_ciphertext,auto_start,account_ids_json", Some(2usize)),
         ("codex_gateway_pool", "id,account_ids_json", None),
         ("codex_gateway_network", "id,allow_lan", None),
+        ("codex_config_history", "id,home,instance_id,created_at,migrated_at,source,mode,summary,complete,pinned,legacy_key,content_ciphertext", Some(11usize)),
+        ("codex_config_operations", "home,snapshot_id,content_ciphertext", Some(2usize)),
     ] {
         tx.execute(&format!("DELETE FROM {table}"), []).map_err(|_| "隔离迁移包 Codex 数据失败")?;
         let Some(ref source) = source else { continue; };
@@ -872,8 +875,11 @@ mod tests {
         for (path, label, key) in [(&current,"local",&old_key),(&incoming,"incoming",&new_key)] {
             let conn = Connection::open(path).unwrap();
             conn.execute_batch(crate::core::database::CODEX_SCHEMA).unwrap();
+            conn.execute_batch(crate::core::database::CODEX_CONFIG_HISTORY_SCHEMA).unwrap();
             conn.execute_batch(crate::core::repositories::authenticator::SCHEMA).unwrap();
             let cipher = encrypt_secret_with_key("invalid-test-only", key).unwrap();
+            conn.execute("INSERT INTO codex_config_history VALUES(?1,'fixture-home',NULL,123,NULL,'manual','fixture','fixture',1,1,NULL,?2)",rusqlite::params![label,cipher]).unwrap();
+            conn.execute("INSERT INTO codex_config_operations VALUES('fixture-home',?1,?2)",rusqlite::params![label,cipher]).unwrap();
             conn.execute("INSERT INTO codex_accounts(identity,label,auth_mode,auth_ciphertext,updated_at) VALUES('id',?1,'chatgpt',?2,1)", rusqlite::params![label,cipher]).unwrap();
             conn.execute("INSERT INTO codex_profile_backups VALUES('test-home',?1,'after','before')", [&cipher]).unwrap();
             conn.execute("INSERT INTO codex_gateway_config(id,port,key_ciphertext) VALUES(1,58169,?1)", [&cipher]).unwrap();
@@ -887,6 +893,12 @@ mod tests {
         let conn = Connection::open(&incoming).unwrap();
         let (label, cipher): (String,String) = conn.query_row("SELECT label,auth_ciphertext FROM codex_accounts", [], |row| Ok((row.get(0)?,row.get(1)?))).unwrap();
         assert_eq!(label,"local");
+        for table in ["codex_config_history", "codex_config_operations"] {
+            let cipher:String=conn.query_row(&format!("SELECT content_ciphertext FROM {table}"),[],|r|r.get(0)).unwrap();
+            assert_eq!(decrypt_secret_with_key(&cipher,&new_key).unwrap(),"invalid-test-only");
+            assert!(decrypt_secret_with_key(&cipher,&old_key).is_err());
+        }
+        assert_eq!(conn.query_row("SELECT id FROM codex_config_history",[],|r|r.get::<_,String>(0)).unwrap(),"local");
         assert_eq!(conn.query_row("SELECT count(*) FROM codex_gateway_tunnel", [], |row| row.get::<_,i64>(0)).unwrap(), 0);
         let (port, gateway_cipher): (u16,String) = conn.query_row("SELECT port,key_ciphertext FROM codex_gateway_config", [], |row| Ok((row.get(0)?,row.get(1)?))).unwrap();
         assert_eq!(port,58169);

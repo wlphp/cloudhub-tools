@@ -19,6 +19,8 @@ pub mod provider_probe;
 pub mod provider_protocol;
 pub mod provider_gateway;
 pub mod provider_oauth;
+pub mod config_history;
+pub mod target_lock;
 pub mod provider_usage;
 pub mod provider_import;
 pub mod provider_export;

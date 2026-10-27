@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Play, RotateCcw, ShieldCheck, CircleAlert } from "lucide-react";
 import { OverviewDialog } from "./OverviewDialogs";
+import { ConfigHistoryDialog } from "./ConfigHistoryDialog";
 import { codexProviders, defaultModel, effectiveModels, keysForModel, type CodexProvider, type ProviderAggregate, type ProviderConfigPreview } from "../../platform/clients/codex-providers";
 import { codexClient, type CodexInstance, type CodexAccount } from "../../platform/clients/codex";
 
@@ -8,7 +9,7 @@ export type ProviderLaunchTarget =
   | { kind: "provider"; value: CodexProvider }
   | { kind: "aggregate"; value: ProviderAggregate };
 
-export function ProviderLaunchDialog({ target: launchTarget, switchEnabled, onEnableSwitch, onClose }: { target: ProviderLaunchTarget; switchEnabled: boolean; onEnableSwitch: () => Promise<boolean>; onClose: () => void }) {
+export function ProviderLaunchDialog({ target: launchTarget, privacy = false, switchEnabled, onEnableSwitch, onClose }: { target: ProviderLaunchTarget; privacy?: boolean; switchEnabled: boolean; onEnableSwitch: () => Promise<boolean>; onClose: () => void }) {
   const aggregate = launchTarget.kind === "aggregate" ? launchTarget.value : null;
   const provider = launchTarget.kind === "provider" ? launchTarget.value : null;
   const title = aggregate?.name ?? provider!.name;
@@ -26,6 +27,7 @@ export function ProviderLaunchDialog({ target: launchTarget, switchEnabled, onEn
   const [notice, setNotice] = useState("");
   const [phase, setPhase] = useState("");
   const [previewRevision, setPreviewRevision] = useState(0);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const pending = useRef(false);
   const alive = useRef(true);
   const availableModels = provider ? [...new Set(provider.keys.flatMap(key => effectiveModels(provider, key.id)))] : models;
@@ -50,24 +52,14 @@ export function ProviderLaunchDialog({ target: launchTarget, switchEnabled, onEn
     void codexProviders.preview(target || null).then(v => { if (!cancelled) setPreview(v); }).catch(e => { if (!cancelled) setError(e instanceof Error ? e.message : "读取配置预览失败"); }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [target, previewRevision]);
-  async function execute(restore: boolean, start = false) {
-    if (pending.current || loading || !preview || (restore ? !preview.hasBackup : !validSelection)) return;
+  async function execute(start = false) {
+    if (pending.current || loading || !preview || !validSelection) return;
     pending.current = true; setBusy(true); setError(""); setNotice("");
     try {
-      let current = preview;
-      if (!restore && !switchEnabled) {
+      const current = preview;
+      if (!switchEnabled) {
         setPhase("正在启用配置切换…");
         if (!await onEnableSwitch()) throw new Error("启用配置切换失败，未修改目标配置，请重试");
-      }
-      if (restore) {
-        setPhase("正在恢复原配置与登录…");
-        current = await codexProviders.restore(target || null);
-        if (!alive.current) return;
-        setPreview(current);
-      }
-      if (restore) {
-        setNotice("已恢复应用前的配置与登录");
-        return;
       }
       setPhase("正在备份并应用供应商配置…");
       const next = await codexProviders.apply(target || null, {
@@ -115,16 +107,16 @@ export function ProviderLaunchDialog({ target: launchTarget, switchEnabled, onEn
     catch (e) { if (alive.current) setError(`启动失败，当前配置已保留：${e instanceof Error ? e.message : "未知启动错误"}；可重试启动或恢复配置与登录`); }
     finally { pending.current = false; if (alive.current) { setBusy(false); setPhase(""); } }
   }
-  // 供应商切换失败回滚被外部修改阻断时，提供一键恢复入口；恢复总是以备份覆盖当前配置。
+  // 外部修改阻断补偿时，打开公共历史处理未完成操作。
   const restoreBlocked = error.includes("外部修改");
   const disabled = busy || loading || !preview;
   const applyLabel = configured ? "已切换" : !switchEnabled ? "启用并切换" : "切换";
   const launchLabel = configured ? "启动 Codex" : !switchEnabled ? "启用、切换并启动" : "切换并启动";
-  return <OverviewDialog title={title + " · 启动预览"} busy={busy} onClose={onClose} layout="form" className="codex-provider-launch-dialog" footer={<>
+  return <><OverviewDialog title={title + " · 启动预览"} busy={busy} onClose={onClose} layout="form" className="codex-provider-launch-dialog" footer={<>
     <button title="关闭启动预览；已应用的配置和登录状态会保留，不会自动恢复。" disabled={busy} onClick={onClose}>关闭</button>
-    <button title={preview?.hasBackup ? "将目标实例的配置和登录信息恢复为首次切换前的备份；恢复后需重新启动客户端读取。" : "暂无可恢复的备份；首次切换供应商配置时会自动创建加密备份。"} disabled={disabled || !preview?.hasBackup} onClick={() => void execute(true)}><RotateCcw size={14} />恢复配置与登录</button>
-    <button title={configured ? "当前选择已应用到目标实例，无需重复切换；可点击“启动 Codex”打开客户端。" : `${!switchEnabled ? "先启用配置切换，再" : ""}备份并将所选供应商、密钥、模型和登录设置应用到目标实例，不启动客户端。`} disabled={disabled || !validSelection || configured || preview?.recoveryPending} onClick={() => void execute(false)}>{applyLabel}</button>
-    <button title={configured ? "检查已应用的配置是否仍与当前选择一致，然后启动目标客户端。" : `${!switchEnabled ? "先启用配置切换，再" : ""}备份并应用当前选择，然后${target ? "启动所选独立实例" : "打开默认 Codex 桌面客户端"}。`} className="codex-dialog-primary" disabled={disabled || !validSelection || preview?.recoveryPending} onClick={() => void (configured ? startApplied() : execute(false, true))}><Play size={14} />{busy ? "处理中…" : launchLabel}</button>
+    <button title="打开当前目标的统一备份历史，按备份时间选择恢复" disabled={busy || loading} onClick={() => setHistoryOpen(true)}><RotateCcw size={14} />备份与恢复</button>
+    <button title={configured ? "当前选择已应用到目标实例，无需重复切换；可点击“启动 Codex”打开客户端。" : `${!switchEnabled ? "先启用配置切换，再" : ""}备份并将所选供应商、密钥、模型和登录设置应用到目标实例，不启动客户端。`} disabled={disabled || !validSelection || configured || preview?.recoveryPending} onClick={() => void execute()}>{applyLabel}</button>
+    <button title={configured ? "检查已应用的配置是否仍与当前选择一致，然后启动目标客户端。" : `${!switchEnabled ? "先启用配置切换，再" : ""}备份并应用当前选择，然后${target ? "启动所选独立实例" : "打开默认 Codex 桌面客户端"}。`} className="codex-dialog-primary" disabled={disabled || !validSelection || preview?.recoveryPending} onClick={() => void (configured ? startApplied() : execute(true))}><Play size={14} />{busy ? "处理中…" : launchLabel}</button>
   </>}>
     <div className="codex-provider-launch-content">
       <section className="codex-provider-form codex-provider-launch-fields" aria-label="启动设置">
@@ -153,9 +145,10 @@ export function ProviderLaunchDialog({ target: launchTarget, switchEnabled, onEn
       </section>
       {(!switchEnabled || preview?.hasBackup || preview?.catalogStale) && <div className="codex-provider-launch-warning" role="status"><CircleAlert size={16} aria-hidden="true" /><div>
         {!switchEnabled && <p>配置切换已关闭。“启用并切换”会启用此设置并写入配置；“启用、切换并启动”还会启动 Codex。</p>}
-        {preview?.hasBackup && <p>{preview.recoveryPending ? "上次切换未完成，请先恢复配置与登录。" : configured ? "当前选择已切换，可直接启动 Codex，或恢复应用前的配置与登录。" : "切换将保留首次切换前的备份；失败时尝试回退到本次切换前的配置。"}</p>}
+        {preview?.hasBackup && <p>{preview.recoveryPending ? "上次切换未完成，请在备份与恢复中处理。" : configured ? "当前选择已切换，可直接启动 Codex，或从统一备份历史恢复。" : "每次切换前都会保存完整备份；失败时尝试回退到本次切换前的配置。"}</p>}
         {preview?.catalogStale && <p>模型目录由旧版本生成或已被外部修改，客户端可能拒绝加载。重新应用配置即可按当前字段重建。</p>}
       </div></div>}
+      {preview?.conflict && <p role="status" className="codex-provider-launch-warning">{preview.conflict}</p>}
       <div className="codex-provider-launch-note"><ShieldCheck size={16} aria-hidden="true" /><div>
         <p>应用后更新 config.toml 与 auth.json，原配置和登录凭据会在本机加密备份，支持恢复。</p>
         {provider && oauthId && <p>OAuth 账号由目标实例独占，登录续期由官方客户端处理；推理使用供应商凭据。</p>}
@@ -173,10 +166,10 @@ export function ProviderLaunchDialog({ target: launchTarget, switchEnabled, onEn
           <p><strong>模型列表如何注入：</strong>应用配置时，CloudHub 根据所选密钥的有效模型目录（聚合模式使用聚合模型列表），在目标配置目录生成 <code>cloudhub-model-catalog.json</code>，为每个模型填入模型 ID、显示名称、上下文窗口等客户端所需字段。随后在 <code>config.toml</code> 中写入 <code>model_catalog_json = "cloudhub-model-catalog.json"</code>，让 Codex 启动时加载这份本地目录；<code>model</code> 则设为上方选中的默认模型。修改模型列表后，需要重新应用配置并重启客户端。目录用于展示和选择模型，实际可用性仍由上游接口与密钥权限决定。</p>
           <p><strong>请求路径：</strong>Responses API 直接使用供应商协议；Chat Completions 或聚合配置会经过 CloudHub 本机网关转换，因此使用期间需要保持 CloudHub 运行。</p>
           {provider && oauthId && <p><strong>OAuth：</strong>OAuth 只负责目标实例的官方登录身份和续期，实际推理请求仍使用上面选择的供应商密钥。</p>}
-          <p><strong>恢复：</strong>“恢复配置与登录”会使用首次切换前的加密备份回退，避免误操作后丢失原有配置。</p>
+          <p><strong>恢复：</strong>“备份与恢复”可按备份时间选择记录；账号与供应商切换使用同一份历史。恢复前会再次备份当前状态。</p>
         </div>
       </details>
-      {phase && <p role="status">{phase}</p>}{notice && <p role="status">{notice}</p>}{error && <div className="codex-provider-launch-error"><p role="alert" className="codex-card-error">{error}</p>{restoreBlocked && <button type="button" disabled={busy || loading} onClick={() => void execute(true)}>恢复配置与登录</button>}<button type="button" disabled={busy || loading} onClick={() => { setPreview(null); setLoading(true); setPreviewRevision(value => value + 1); }}>刷新预览</button></div>}
+      {phase && <p role="status">{phase}</p>}{notice && <p role="status">{notice}</p>}{error && <div className="codex-provider-launch-error"><p role="alert" className="codex-card-error">{error}</p>{restoreBlocked && <button type="button" disabled={busy || loading} onClick={() => setHistoryOpen(true)}>备份与恢复</button>}<button type="button" disabled={busy || loading} onClick={() => { setPreview(null); setLoading(true); setPreviewRevision(value => value + 1); }}>刷新预览</button></div>}
     </div>
-  </OverviewDialog>;
+  </OverviewDialog>{historyOpen && <ConfigHistoryDialog privacy={privacy} initialTarget={target || null} onClose={() => setHistoryOpen(false)} onChanged={async () => { const current = await codexProviders.preview(target || null); const next = await codexClient.instances(); if (alive.current) { setPreview(current); setInstances(next); } }} />}</>;
 }

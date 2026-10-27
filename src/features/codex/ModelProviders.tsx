@@ -28,7 +28,7 @@ function sortProviders(providers: CodexProvider[], order: string[]) {
   return [...providers].sort((left, right) => (positions.get(left.id) ?? Number.MAX_SAFE_INTEGER) - (positions.get(right.id) ?? Number.MAX_SAFE_INTEGER));
 }
 
-export function ModelProviders({ onChanged }: { onChanged?: () => void }) {
+export function ModelProviders({ onChanged, privacy = false }: { onChanged?: () => void; privacy?: boolean }) {
   const [items, setItems] = useState<CodexProvider[]>([]);
   const [aggregates, setAggregates] = useState<ProviderAggregate[]>([]);
   const [loading, setLoading] = useState(true);
@@ -300,7 +300,7 @@ export function ModelProviders({ onChanged }: { onChanged?: () => void }) {
     </section>
     {editing && <ProviderEditorPage value={editing} busy={busy} fetchingModels={fetchingModels} catalogMessage={catalogMessage} error={error} onChange={setEditing} onKeysChange={updateKeys} onFetchModels={() => void fetchModels()} onSave={() => void run(() => codexProviders.save(providerEditorInput(editing)), true)} onClose={() => { setEditing(null); setError(""); }} />}
     {aggregateEditing && <AggregateDialog value={aggregateEditing} providers={items.filter(v => v.wireApi === "chat_completions")} busy={busy} onClose={() => setAggregateEditing(null)} onChange={setAggregateEditing} onSave={() => void runAggregate(() => codexProviders.aggregateSave(aggregateEditing), true)} error={error} />}
-    {launching && <ProviderLaunchDialog target={launching} switchEnabled={switchEnabled} onEnableSwitch={() => setProviderSwitchEnabled(true)} onClose={() => { setLaunching(null); onChanged?.(); }} />}
+    {launching && <ProviderLaunchDialog target={launching} privacy={privacy} switchEnabled={switchEnabled} onEnableSwitch={() => setProviderSwitchEnabled(true)} onClose={() => { setLaunching(null); onChanged?.(); }} />}
     {probing && <ProviderProbeDialog provider={probing} onClose={() => setProbing(null)} onSaved={updateProviderList} />}
     {usage && <ProviderUsageDialog provider={usage} onClose={() => setUsage(null)} />}
     {importing && <ProviderImportDialog onClose={() => setImporting(false)} onSaved={updateProviderList} />}

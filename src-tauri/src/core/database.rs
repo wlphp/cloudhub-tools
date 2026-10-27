@@ -3,7 +3,9 @@ use std::sync::Mutex;
 
 use super::paths::data_dir;
 
-const CURRENT_SCHEMA_VERSION: i64 = 56;
+const CURRENT_SCHEMA_VERSION: i64 = 57;
+// Local credential history is deliberately excluded from device synchronization.
+pub const CODEX_CONFIG_HISTORY_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS codex_config_history(id TEXT PRIMARY KEY,home TEXT NOT NULL,instance_id TEXT,created_at INTEGER,migrated_at INTEGER,source TEXT NOT NULL,mode TEXT NOT NULL,summary TEXT NOT NULL,complete INTEGER NOT NULL,pinned INTEGER NOT NULL,legacy_key TEXT UNIQUE,content_ciphertext TEXT NOT NULL); CREATE INDEX IF NOT EXISTS codex_config_history_home ON codex_config_history(home,created_at DESC,id DESC); CREATE TABLE IF NOT EXISTS codex_config_operations(home TEXT PRIMARY KEY,snapshot_id TEXT NOT NULL,content_ciphertext TEXT NOT NULL);";
 pub const CODEX_PROVIDER_LOGS_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS codex_provider_request_logs(id TEXT PRIMARY KEY,provider_id TEXT NOT NULL,source TEXT NOT NULL,method TEXT NOT NULL,url TEXT NOT NULL,request_body TEXT NOT NULL,status INTEGER,response_body TEXT NOT NULL,error TEXT,elapsed_ms INTEGER NOT NULL,created_at INTEGER NOT NULL,client_request_body TEXT NOT NULL DEFAULT ''); CREATE INDEX IF NOT EXISTS codex_provider_request_logs_provider ON codex_provider_request_logs(provider_id,created_at DESC);";
 pub const CODEX_PROVIDERS_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS codex_model_providers(id TEXT PRIMARY KEY,name TEXT NOT NULL,base_url TEXT NOT NULL,wire_api TEXT NOT NULL,models_json TEXT NOT NULL,note TEXT NOT NULL,version INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS codex_provider_keys(id TEXT PRIMARY KEY,provider_id TEXT NOT NULL REFERENCES codex_model_providers(id) ON DELETE CASCADE,name TEXT NOT NULL,ciphertext TEXT NOT NULL,UNIQUE(provider_id,name));";
 pub const CODEX_PROVIDER_BACKUPS_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS codex_provider_config_backups(home TEXT PRIMARY KEY,content_ciphertext TEXT NOT NULL,installed_config TEXT NOT NULL,installed_auth TEXT NOT NULL);";
@@ -480,6 +482,10 @@ fn migrate_connection_inner(conn: &mut Connection) -> Result<(), String> {
             .map_err(|_| "升级验证码名称字段失败")?;
         transaction.pragma_update(None, "user_version", 56)
             .map_err(|_| "更新验证器数据库版本失败")?;
+    }
+    if version < 57 {
+        transaction.execute_batch(CODEX_CONFIG_HISTORY_SCHEMA).map_err(|_| "创建 Codex 备份历史失败")?;
+        transaction.pragma_update(None, "user_version", 57).map_err(|_| "保存 Codex 备份历史版本失败")?;
     }
     transaction.commit().map_err(|error| format!("提交 SQLite 迁移失败: {error}"))?;
 

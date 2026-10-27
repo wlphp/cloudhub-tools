@@ -6,6 +6,8 @@ test("model provider management, masked editing and configuration recovery", asy
     let backup = false;
     let applied: Record<string, unknown> | null = null;
     let configVersion = "v1";
+    const history: { id: string; home: string; instanceId: null; createdAt: number; migratedAt: null; source: string; mode: string; summary: string; complete: boolean; pinned: boolean; pending: boolean }[] = [];
+    const historyState = () => ({ entries: [...history].reverse(), targets: [{ id: null, name: "默认 Codex 客户端", home: "C:/fixture", version: configVersion, pending: false }] });
     const configPreview = () => ({ version: configVersion, path: "C:/fixture", hasBackup: backup, applied, recoveryPending: false, catalogStale: false });
     let activeProbeRequests = 0;
     let maxProbeRequests = 0;
@@ -64,8 +66,12 @@ test("model provider management, masked editing and configuration recovery", asy
         }
         if (command === "codex_provider_remove") { providers = []; return providers; }
         if (command === "codex_provider_preview") return localStorage.getItem("external-config-edit") ? { ...configPreview(), version: "external", applied: null } : configPreview();
-        if (command === "codex_provider_apply") { backup = true; applied = args.input as Record<string, unknown>; configVersion = "v2"; localStorage.setItem("last-provider-apply", JSON.stringify(args.input)); return configPreview(); }
-        if (command === "codex_provider_restore") { backup = false; applied = null; configVersion = "v1"; localStorage.setItem("provider-restore-called", "true"); return configPreview(); }
+        if (command === "codex_provider_apply") { history.push({ id: `history-${history.length}`, home: "C:/fixture", instanceId: null, createdAt: Date.now(), migratedAt: null, source: "provider", mode: "官方 API Key", summary: "配置、登录与绑定", complete: true, pinned: false, pending: false }); backup = true; applied = args.input as Record<string, unknown>; configVersion = "v2"; localStorage.setItem("last-provider-apply", JSON.stringify(args.input)); return configPreview(); }
+        if (command === "codex_history_list") return historyState();
+        if (command === "codex_history_action") {
+          if (args.action === "restore") { history.push({ ...history[0], id: `history-${history.length}`, source: "restore", createdAt: Date.now() }); backup = false; applied = null; configVersion = "v1"; localStorage.setItem("provider-restore-called", "true"); }
+          return historyState();
+        }
         if (command === "codex_open_default") { localStorage.setItem("provider-launch-called", "true"); throw new Error("fixture startup failure"); }
         if (command === "app_is_development") return true;
         if (command === "plugin:app|version") return "0.1.45";
@@ -281,8 +287,13 @@ test("model provider management, masked editing and configuration recovery", asy
   await expect(launch.getByRole("alert")).toContainText("目标配置已变更");
   expect(await page.evaluate(() => localStorage.getItem("provider-launch-called"))).toBeNull();
   await page.evaluate(() => localStorage.removeItem("external-config-edit"));
-  await launch.getByRole("button", { name: "恢复配置与登录", exact: true }).click();
-  await expect(launch.getByText("已恢复应用前的配置与登录", { exact: true })).toBeVisible();
+  await launch.getByRole("button", { name: "备份与恢复", exact: true }).click();
+  const historyDialog = page.getByRole("dialog", { name: "Codex 备份与恢复", exact: true });
+  await expect(historyDialog.getByRole("combobox", { name: "备份目标", exact: true })).toHaveValue("default");
+  await historyDialog.getByRole("button", { name: "恢复", exact: true }).last().click();
+  await page.getByRole("alertdialog", { name: "恢复所选 Codex 备份" }).getByRole("button", { name: "确认恢复", exact: true }).click();
+  await expect(historyDialog.getByText(/已恢复所选备份/)).toBeVisible();
+  await historyDialog.getByRole("button", { name: "关闭", exact: true }).click();
   await page.keyboard.press("Escape");
   await card.getByRole("button", { name: "编辑 Example Provider", exact: true }).click();
   await editing.getByRole("combobox", { name: "接入模式", exact: true }).selectOption("chat_completions");
@@ -316,7 +327,11 @@ test("model provider management, masked editing and configuration recovery", asy
   await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("last-provider-apply") ?? "{}"))).toEqual({
     providerId: "aggregate:aggregate-a", providerVersion: 1, keyId: "aggregate", model: "model-a", version: "v1", oauthAccountId: null,
   });
-  await aggregateLaunch.getByRole("button", { name: "恢复配置与登录", exact: true }).click();
+  await aggregateLaunch.getByRole("button", { name: "备份与恢复", exact: true }).click();
+  await historyDialog.getByRole("button", { name: "恢复", exact: true }).last().click();
+  await page.getByRole("alertdialog", { name: "恢复所选 Codex 备份" }).getByRole("button", { name: "确认恢复", exact: true }).click();
+  await expect(historyDialog.getByText(/已恢复所选备份/)).toBeVisible();
+  await historyDialog.getByRole("button", { name: "关闭", exact: true }).click();
   await page.keyboard.press("Escape");
   const aggregateSection = page.getByRole("region", { name: "聚合供应商", exact: true });
   for (const width of [375, 768, 1024, 1440]) {

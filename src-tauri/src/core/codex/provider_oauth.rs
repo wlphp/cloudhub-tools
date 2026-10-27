@@ -37,7 +37,39 @@ fn should_save_refresh(prior:&str,disk:&str,saved:&str)->Result<bool,String> {
 }
 
 pub fn sync(home:&Path)->Result<bool,String> {
+    let _target=super::target_lock::TargetLock::acquire(home)?;
+    sync_locked(home)
+}
+
+pub const STALE_PROJECTION:&str="目标登录与旧 OAuth 绑定不一致，可重新应用所选配置或从备份历史恢复";
+
+/// Read-only classification. Storage and decryption failures remain real errors.
+pub fn projection_current(conn:&Connection,home:&Path)->Result<bool,String> {
+    projection_with_store(conn,home,repository::credentials)
+}
+fn projection_with_store(conn:&Connection,home:&Path,load:impl Fn(&Connection,i64)->Result<Zeroizing<String>,String>)->Result<bool,String> {
+    let Some(id)=owner(conn,home)? else{return Ok(true)};
+    let saved=load(conn,id)?;
+    let identity=validate(&saved)?;
+    let disk=match std::fs::symlink_metadata(home.join("auth.json")) {
+        Ok(_)=>profile::read_text(&home.join("auth.json"))?,
+        Err(e) if e.kind()==std::io::ErrorKind::NotFound=>return Ok(false),
+        Err(_)=>return Err("读取供应商 OAuth 投影失败".into()),
+    };
+    Ok(validate(&disk).ok().as_deref()==Some(identity.as_str()))
+}
+
+/// Explicit replacement may supersede a stale projection, but still reconciles
+/// legitimate rotations of the same owner. Never suppress database/crypto errors.
+pub fn sync_before_replace(conn:&Connection,home:&Path)->Result<(),String> {
+    if projection_current(conn,home)? {sync_locked(home)?;}
+    Ok(())
+}
+
+pub fn sync_locked(home:&Path)->Result<bool,String> {
     let mut conn=open_db()?;
+    super::config_history::ensure_ready(&conn,home)?;
+    if !projection_current(&conn,home)? {return Err(STALE_PROJECTION.into());}
     sync_with_store(&mut conn,home,
         |conn,id|Ok((repository::credentials(conn,id)?,repository::get(conn,id)?.updated_at)),
         |conn,id,version,auth|repository::save_refresh(conn,id,version,auth,None,None,None),
@@ -110,6 +142,22 @@ mod tests {
     }
     fn state(conn:&Connection)->(String,i64,String,String,String) {
         conn.query_row("SELECT a.auth_ciphertext,a.updated_at,o.auth_fingerprint,b.content_ciphertext,b.installed_auth FROM fixture_accounts a CROSS JOIN codex_provider_oauth o CROSS JOIN codex_provider_config_backups b",[],|row|Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?))).unwrap()
+    }
+
+    #[test]
+    fn stale_oauth_projection_allows_explicit_api_replacement_without_saving_old_owner() {
+        let (temp,conn,_)=fixture();
+        let before=state(&conn);
+        profile::write_private(&temp.path.join("auth.json"), &json!({"auth_mode":"apikey","OPENAI_API_KEY":uuid::Uuid::new_v4().to_string()}).to_string()).unwrap();
+        assert!(!projection_with_store(&conn,&temp.path,|c,id|load(c,id).map(|v|v.0)).unwrap());
+        assert_eq!(state(&conn),before);
+        let failure=projection_with_store(&conn,&temp.path,|_,_|Err("fixture decrypt failed".into()));
+        assert_eq!(failure.unwrap_err(),"fixture decrypt failed");
+        profile::write_private(&temp.path.join("auth.json"),&fixture_auth("different-fixture-owner")).unwrap();
+        assert!(!projection_with_store(&conn,&temp.path,|c,id|load(c,id).map(|v|v.0)).unwrap());
+        profile::write_private(&temp.path.join("auth.json"),"").unwrap();
+        assert!(!projection_with_store(&conn,&temp.path,|c,id|load(c,id).map(|v|v.0)).unwrap());
+        assert_eq!(state(&conn),before);
     }
 
     #[test]

@@ -4,9 +4,8 @@ import { codexClient, type CodexConfigSource } from "../../platform/clients/code
 import { platformErrorMessage } from "../../platform/api";
 import { OverviewDialog } from "./OverviewDialogs";
 
-export function ConfigToolbar({ busy, canRestore, onRestore }: {
+export function ConfigToolbar({ busy, onRestore }: {
   busy: boolean;
-  canRestore: boolean;
   onRestore: () => void;
 }) {
   const [source, setSource] = useState<CodexConfigSource | null>(null);
@@ -46,7 +45,7 @@ export function ConfigToolbar({ busy, canRestore, onRestore }: {
       </div>
       <span className="codex-config-scope" title={source?.workspace ?? "用户全局"}><FolderOpen size={14} aria-hidden="true" />{source?.workspace ? `项目 ${source.workspace}` : "用户全局"}</span>
       <div className="codex-config-actions">
-        {canRestore && <button type="button" disabled={locked} onClick={onRestore} title="恢复切换账号前备份的全局 auth.json"><RotateCcw size={13} aria-hidden="true" />恢复登录备份</button>}
+        <button type="button" disabled={locked} onClick={onRestore} title="查看账号与供应商切换的统一备份历史，按时间选择恢复"><RotateCcw size={13} aria-hidden="true" />备份与恢复</button>
         <button type="button" disabled={locked || !source} onClick={() => void run("open_directory")} title={source && !source.exists ? "配置目录尚未创建时打开项目或用户目录" : "打开当前配置文件所在目录"}><FolderOpen size={13} aria-hidden="true" />打开配置目录</button>
         <button type="button" disabled={locked} onClick={() => void run("select_project")}>选择项目</button>
         <button type="button" disabled={locked || !source?.workspace} onClick={() => void run("state", null)}>不使用项目</button>

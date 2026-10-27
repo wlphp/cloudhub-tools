@@ -2,9 +2,11 @@ use crate::core::{
     codex::{auth, profile, rpc, AccountMetadataInput, CodexAccountSummary},
     error::PlatformResult,
     repositories::codex_accounts as repository,
-    storage::{decrypt_secret, encrypt_secret, open_db},
+    storage::{decrypt_secret, open_db},
 };
-use rusqlite::{params, OptionalExtension};
+use rusqlite::OptionalExtension;
+#[cfg(test)]
+use rusqlite::params;
 use serde::Serialize;
 use std::{
     fs,
@@ -661,12 +663,13 @@ fn switch_home() -> Result<std::path::PathBuf, String> {
 fn previous_auth(home: &std::path::Path) -> Result<Option<zeroize::Zeroizing<String>>, String> {
     let path = home.join("auth.json");
     match fs::symlink_metadata(&path) {
-        Ok(_) => profile::read_auth(&path).map(Some),
+        Ok(_) => profile::read_text(&path).map(Some),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(_) => Err("检查 Codex 认证文件失败".into()),
     }
 }
 
+#[cfg(test)]
 fn install_profile(
     conn: &rusqlite::Connection,
     home: &std::path::Path,
@@ -723,20 +726,18 @@ pub(crate) async fn codex_prepare_switch(
 ) -> PlatformResult<SwitchPreview> {
     tauri::async_runtime::spawn_blocking(move || -> Result<SwitchPreview, String> {
         let _writer = AUTH_WRITER.lock().map_err(|_| "Codex 账号操作不可用")?;
-        if super::codex_instances::account_running(
+        let home = switch_home()?;
+        if super::codex_instances::account_running_except_target(
             &app.state::<super::codex_runtime::CodexRuntimeStore>(),
-            id,
+            id,&home,
         )? {
             return Err(super::codex_instances::account_busy_error(&app.state::<super::codex_runtime::CodexRuntimeStore>(), id, "切换默认账号")?);
         }
         repository::get(&open_db()?, id)?;
         if crate::core::codex::providers::is_provider_account(&open_db()?,id)? {return Err("请通过模型供应商启动预览应用此账号".into());}
         auth::ensure_runtime_auth(&repository::credentials(&open_db()?, id)?)?;
-        let home = switch_home()?;
-        super::codex_providers::restore_before_account_switch(
-            &app.state::<super::codex_runtime::CodexRuntimeStore>(), None,
-        )?;
-        // Restoring may persist a rotated OAuth grant and advance the account version.
+        // Preparing a confirmation must not mutate the target or its bindings.
+        crate::core::codex::config_history::ensure_ready(&open_db()?,&home)?;
         let account = repository::get(&open_db()?, id)?;
         let previous = previous_auth(&home)?;
         let token = uuid::Uuid::new_v4().to_string();
@@ -744,7 +745,7 @@ pub(crate) async fn codex_prepare_switch(
             token: token.clone(),
             id,
             version: account.updated_at,
-            fingerprint: profile::fingerprint(previous.as_deref().map(|s| s.as_str())),
+            fingerprint: crate::core::codex::config_history::version(&open_db()?,&home,None)?,
             expires: Instant::now() + Duration::from_secs(90),
         });
         Ok(SwitchPreview {
@@ -788,10 +789,12 @@ pub(crate) async fn codex_confirm_switch(
             .take()
             .filter(|v| v.token == token && v.expires > Instant::now())
             .ok_or("切号确认已过期，请重新选择账号")?;
-        let conn = open_db()?;
-        if super::codex_instances::account_running(
+        let mut conn = open_db()?;
+        let home = switch_home()?;
+        let _target=crate::core::codex::target_lock::TargetLock::acquire(&home)?;
+        if super::codex_instances::account_running_except_target(
             &app.state::<super::codex_runtime::CodexRuntimeStore>(),
-            ticket.id,
+            ticket.id,&home,
         )? {
             return Err(super::codex_instances::account_busy_error(&app.state::<super::codex_runtime::CodexRuntimeStore>(), ticket.id, "切换默认账号")?);
         }
@@ -801,23 +804,18 @@ pub(crate) async fn codex_confirm_switch(
         if crate::core::codex::providers::is_provider_account(&conn, ticket.id)? {
             return Err("请通过模型供应商启动预览应用此账号".into());
         }
-        let home = switch_home()?;
-        crate::core::codex::providers::ensure_home_unbound(&conn,&home)?;
-        let previous = previous_auth(&home)?;
-        if profile::fingerprint(previous.as_deref().map(|s| s.as_str())) != ticket.fingerprint {
+        if crate::core::codex::config_history::version(&conn,&home,None)? != ticket.fingerprint {
             return Err("Codex 登录状态已变更，未执行切号，请重新确认".into());
         }
-        // 在写入登录前清理第三方接管，config 无效时直接失败，不产生半切换状态。
-        let removed_overrides = crate::core::codex::provider_config::clear_third_party_overrides(&home)?;
+        crate::core::codex::config_history::migrate_legacy(&conn)?;
+        crate::core::codex::provider_oauth::sync_before_replace(&conn,&home)?;
+        let operation_version=crate::core::codex::config_history::version(&conn,&home,None)?;
+        let (config,removed_overrides) = crate::core::codex::provider_config::official_config(&home)?;
         let auth = repository::credentials(&conn, ticket.id)?;
         auth::ensure_runtime_auth(&auth)?;
-        install_profile(
-            &conn,
-            &home,
-            &auth,
-            previous.as_deref().map(|s| s.as_str()),
-            encrypt_secret,
-        )?;
+        let intended=vec![crate::core::codex::config_history::SavedFile{name:"config.toml".into(),content:config.map(|s|s.to_string())},crate::core::codex::config_history::SavedFile{name:"auth.json".into(),content:Some(auth.to_string())}];
+        crate::core::codex::config_history::execute_checked(&mut conn,&home,None,"account",Some(&operation_version),intended,|tx|crate::core::codex::config_history::clear_bindings(tx,&home))?;
+        app.state::<super::codex_runtime::CodexRuntimeStore>().provider_gateways.lock().map_err(|_| "供应商网关状态不可用")?.remove(home.to_string_lossy().as_ref());
         Ok(SwitchResult { state: state()?, removed_overrides })
     })
     .await
@@ -830,6 +828,7 @@ pub(crate) async fn codex_restore_profile() -> PlatformResult<CodexState> {
     tauri::async_runtime::spawn_blocking(|| -> Result<CodexState, String> {
         let _writer = AUTH_WRITER.lock().map_err(|_| "Codex 账号操作不可用")?;
         let home = switch_home()?;
+        let _target=crate::core::codex::target_lock::TargetLock::acquire(&home)?;
         let conn = open_db()?;
         crate::core::codex::providers::ensure_home_unbound(&conn,&home)?;
         restore_profile(&conn, &home, decrypt_secret)?;

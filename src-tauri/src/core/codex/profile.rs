@@ -25,7 +25,7 @@ pub fn default_home() -> Result<PathBuf, String> {
 pub fn ensure_file_storage(home: &Path) -> Result<(), String> {
     let config = home.join("config.toml");
     if config.exists() {
-        let content = read_auth(&config)?;
+        let content = read_text(&config)?;
         for line in content.lines() {
             let line = line.split('#').next().unwrap_or("");
             if let Some((key, value)) = line.split_once('=') {
@@ -145,11 +145,20 @@ pub fn close_default_processes() -> Result<(), String> {
 }
 
 pub fn read_auth(path: &Path) -> Result<Zeroizing<String>, String> {
+    let content = read_text(path)?;
+    if content.is_empty() {
+        return Err("Codex 认证文件类型或大小无效".into());
+    }
+    Ok(content)
+}
+
+/// Configuration and recovery must preserve an existing empty file as distinct
+/// from an absent file. Credential consumers still use the stricter read_auth.
+pub fn read_text(path: &Path) -> Result<Zeroizing<String>, String> {
     let meta = fs::symlink_metadata(path)
         .map_err(|_| "Codex 认证文件不存在；系统凭据库模式请在受管实例中重新登录")?;
     if !meta.is_file()
         || meta.file_type().is_symlink()
-        || meta.len() == 0
         || meta.len() > MAX_AUTH_BYTES
     {
         return Err("Codex 认证文件类型或大小无效".into());

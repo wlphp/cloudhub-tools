@@ -134,15 +134,19 @@ fn digest(content:&str)->String {
 
 /// 目录落盘成功后写版本戳。版本戳只用于判断产出是否陈旧，写失败不牵连目录本身。
 pub fn write_meta(catalog:&Path,content:&str) {
+    if let Ok(text)=meta_content(content) {
+        let _=super::profile::write_private(&meta_path(catalog),&text);
+    }
+}
+
+pub fn meta_content(content:&str)->Result<String,String> {
     let meta=CatalogMeta{
         generator:GENERATOR_VERSION,
         app_version:env!("CARGO_PKG_VERSION").to_string(),
         catalog_hash:digest(content),
         written_at:chrono::Utc::now().timestamp_millis()
     };
-    if let Ok(text)=serde_json::to_string_pretty(&meta) {
-        let _=super::profile::write_private(&meta_path(catalog),&text);
-    }
+    serde_json::to_string_pretty(&meta).map_err(|_| "生成供应商模型目录失败".into())
 }
 
 /// 目录由旧版生成器产出时返回 true。版本戳缺失也算陈旧：无法证明它包含当前

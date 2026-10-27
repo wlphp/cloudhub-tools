@@ -727,7 +727,7 @@ test("Codex account filters, metadata, quota errors and confirmed switching", as
   await expect(remoteDialog).toBeVisible();
   await expect(remoteDialog.getByRole("checkbox",{name:"记录远端 API 日志"})).not.toBeChecked();
   await remoteDialog.getByRole("checkbox",{name:"记录远端 API 日志"}).check();
-  await expect(remoteDialog.getByText("账号代理：http://127.0.0.1:10808/",{exact:true})).toBeVisible();
+  await expect(remoteDialog.getByText("账号代理：http://127.0.0.1:10808/（配置路径）",{exact:true})).toBeVisible();
   await remoteDialog.getByRole("button",{name:"查看远端日志 remote-fixture"}).click();
   const remoteDetail=page.getByRole("dialog",{name:"远端 API 调用详情",exact:true});
   await expect(remoteDetail.getByLabel("发送参数与请求头")).toContainText("[凭据或身份已隐藏]");
@@ -815,7 +815,7 @@ test("Codex account filters, metadata, quota errors and confirmed switching", as
   expect(await page.evaluate(() => (window as unknown as { __codexCalls: {command:string}[] }).__codexCalls.filter(call=>call.command==="codex_consume_reset").length)).toBe(0);
   await page.getByRole("button", { name: "查看 Alice 工作账号 重置次数", exact: true }).click();
   await page.getByRole("button", { name: "按官方规则重置", exact: true }).click();
-  await expect(page.getByRole("button", { name: "查看 Alice 工作账号 重置次数", exact: true })).toHaveText("重置 未获取");
+  await expect(page.getByRole("button", { name: "查看 Alice 工作账号 重置次数", exact: true })).toHaveCount(0);
   expect(await page.evaluate(() => (window as unknown as { __codexCalls: {command:string}[] }).__codexCalls.filter(call=>call.command==="codex_consume_reset").length)).toBe(1);
   for (const width of [375,768,1024,1440]) { await page.setViewportSize({width,height:1000}); expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true); await page.screenshot({path:`test-results/codex-account-controls-${width}.png`}); }
   await page.getByRole("tab", { name: "应用多开", exact: true }).click();

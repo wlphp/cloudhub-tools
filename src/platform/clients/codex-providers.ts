@@ -36,7 +36,7 @@ export function defaultModel(provider: CodexProvider, keyId: string) {
   const preferred = [key?.settings?.defaultModel, provider.settings?.defaultModel].find(value => value && models.includes(value));
   return preferred ?? models[0] ?? "";
 }
-export interface ProviderConfigPreview { version: string; path: string; hasBackup: boolean; catalogStale: boolean; recoveryPending: boolean; applied: { providerId: string; keyId: string; providerVersion: number; model: string; oauthAccountId: number | null } | null }
+export interface ProviderConfigPreview { version: string; path: string; hasBackup: boolean; catalogStale: boolean; recoveryPending: boolean; conflict?: string | null; applied: { providerId: string; keyId: string; providerVersion: number; model: string; oauthAccountId: number | null } | null }
 export interface ApplyProvider { providerId: string; keyId: string; providerVersion: number; model: string; version: string; oauthAccountId?: number | null }
 export interface ProviderProbeResult { models: string[]; generated: boolean; elapsedMs: number; status: number | null; error: "network" | "http" | "invalid_response" | "response_too_large" | "output_limit" | "unsupported_input" | null; codexInput: boolean }
 export interface ProviderModelCatalogInput { baseUrl: string; providerId: string | null; keyId: string | null; version: number | null; secret: string | null }

@@ -26,7 +26,7 @@ struct Snapshot {
 impl Drop for Snapshot {fn drop(&mut self){self.config.zeroize();self.auth.zeroize();}}
 #[derive(Serialize)]
 #[serde(rename_all="camelCase")]
-pub struct ConfigPreview { pub version: String, pub path: String, pub has_backup: bool, pub catalog_stale: bool, pub applied: Option<AppliedSelection>, pub recovery_pending: bool }
+pub struct ConfigPreview { pub version: String, pub path: String, pub has_backup: bool, pub catalog_stale: bool, pub applied: Option<AppliedSelection>, pub recovery_pending: bool, pub conflict: Option<String> }
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all="camelCase")]
@@ -40,7 +40,7 @@ pub struct SwitchRecovery { prior:Snapshot, backup:Option<BackupRow>, #[serde(de
 
 fn read_optional(home:&Path,name:&str)->Result<Option<Zeroizing<String>>,String> {
     match fs::symlink_metadata(home.join(name)) {
-        Ok(_)=>profile::read_auth(&home.join(name)).map(Some),
+        Ok(_)=>profile::read_text(&home.join(name)).map(Some),
         Err(e) if e.kind()==std::io::ErrorKind::NotFound=>Ok(None),
         Err(_)=>Err("读取供应商目标配置失败".into()),
     }
@@ -60,7 +60,7 @@ pub fn preview(conn:&Connection,home:&Path)->Result<ConfigPreview,String> {
     let (config,auth)=fingerprints(home)?;
     let backup=backup_row(conn,home)?;
     let catalog_stale=super::model_catalog::needs_rebuild(&home.join(CATALOG_FILE));
-    Ok(ConfigPreview{version:format!("{config}:{auth}"),path:home.to_string_lossy().into_owned(),has_backup:backup.is_some(),catalog_stale,applied:None,recovery_pending:false})
+    Ok(ConfigPreview{version:format!("{config}:{auth}"),path:home.to_string_lossy().into_owned(),has_backup:backup.is_some(),catalog_stale,applied:None,recovery_pending:false,conflict:None})
 }
 
 pub fn managed_preview(conn:&Connection,home:&Path)->Result<ConfigPreview,String> {
@@ -135,6 +135,28 @@ pub fn install_catalog(home:&Path,settings:&super::providers::ModelSettings)->Re
     let path=home.join(CATALOG_FILE);
     profile::write_private(&path,&text)?;
     super::model_catalog::write_meta(&path,&text);
+    Ok(())
+}
+
+pub fn catalog_files(home:&Path,settings:&super::providers::ModelSettings)->Result<Vec<super::config_history::SavedFile>,String> {
+    let catalog=build_catalog(settings,catalog_template(home));
+    super::model_catalog::validate(&catalog)?;
+    let text=serde_json::to_string(&catalog).map_err(|_| "生成供应商模型目录失败")?;
+    let meta=super::model_catalog::meta_content(&text)?;
+    Ok(vec![super::config_history::SavedFile{name:CATALOG_FILE.into(),content:Some(text)},super::config_history::SavedFile{name:"cloudhub-model-catalog.meta.json".into(),content:Some(meta)}])
+}
+
+/// Save the managed selection in the same transaction as the new bindings. The
+/// unified operation journal now owns compensation, while this row tracks ownership.
+pub fn record_applied(conn:&Connection,home:&Path,prior:&[super::config_history::SavedFile],selection:AppliedSelection)->Result<(),String> {
+    let mut original=if let Some(row)=backup_row(conn,home)? {decode_snapshot(&row.cipher,decrypt_secret)?} else {
+        let get=|name:&str|prior.iter().find(|f|f.name==name).and_then(|f|f.content.clone());
+        Snapshot{config:get("config.toml"),auth:get("auth.json"),catalog:Some(CatalogBackup{exists:get(CATALOG_FILE).is_some(),content:get(CATALOG_FILE)}),selection:None,pending:None}
+    };
+    original.selection=Some(selection);original.pending=None;
+    let text=Zeroizing::new(serde_json::to_string(&original).map_err(|_| "保存供应商恢复记录失败")?);
+    let (config,auth)=fingerprints(home)?;
+    conn.execute("INSERT INTO codex_provider_config_backups VALUES(?1,?2,?3,?4) ON CONFLICT(home) DO UPDATE SET content_ciphertext=excluded.content_ciphertext,installed_config=excluded.installed_config,installed_auth=excluded.installed_auth",params![home.to_string_lossy(),encrypt_secret(&text)?,config,auth]).map_err(|_| "保存供应商恢复记录失败")?;
     Ok(())
 }
 
@@ -272,7 +294,13 @@ fn set_value(table:&mut dyn toml_edit::TableLike,key:&str,mut next:Item)->Result
 /// 以及在接管状态下选出的默认 model，让客户端回到官方目录；供应商表与目录文件
 /// 原样保留。返回被移除项的摘要供界面提示，无接管时返回 None。
 pub fn clear_third_party_overrides(home:&Path)->Result<Option<String>,String> {
-    let Some(source)=read_optional(home,"config.toml")? else {return Ok(None);};
+    let (config,summary)=official_config(home)?;
+    if summary.is_some() {if let Some(config)=config {profile::write_private(&home.join("config.toml"),&config)?;}}
+    Ok(summary)
+}
+
+pub fn official_config(home:&Path)->Result<(Option<Zeroizing<String>>,Option<String>),String> {
+    let Some(source)=read_optional(home,"config.toml")? else {return Ok((None,None));};
     let mut document=source.as_str().parse::<Document>().map_err(|_| "Codex config.toml 格式无效，无法恢复官方直连")?;
     let provider_item=document.as_table_mut().remove("model_provider");
     let provider=provider_item.as_ref().and_then(|item|item.as_str()).map(str::to_owned);
@@ -285,11 +313,10 @@ pub fn clear_third_party_overrides(home:&Path)->Result<Option<String>,String> {
     if let Some(value)=provider.filter(|_|provider_foreign) {parts.push(format!("model_provider = {value}"));}
     if catalog {parts.push("第三方模型目录".into());}
     if model.is_some() {parts.push("第三方默认模型".into());}
-    if parts.is_empty() {return Ok(None);}
+    if parts.is_empty() {return Ok((Some(source),None));}
     // 官方或无法识别的 model_provider 不属于接管，写回时保留原键。
     if let Some(item)=provider_item.filter(|_|!provider_foreign) {document.as_table_mut().insert("model_provider",item);}
-    profile::write_private(&home.join("config.toml"),&document.to_string())?;
-    Ok(Some(parts.join("、")))
+    Ok((Some(Zeroizing::new(document.to_string())),Some(parts.join("、"))))
 }
 
 fn write_optional(home:&Path,name:&str,value:Option<&str>)->Result<(),String> {

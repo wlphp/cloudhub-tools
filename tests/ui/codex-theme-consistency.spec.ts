@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 const INSTALL_SCRIPT = () => {
+  localStorage.setItem("cloudhub-tools-ui-theme", "dark");
   (window as any).__TAURI_INTERNALS__ = {
     metadata: { currentWindow: { label: "main" }, currentWebview: { label: "main" } },
     transformCallback: () => 1, unregisterCallback: () => {},
@@ -29,8 +30,11 @@ test("codex gateway keeps the neutral IDE surface instead of a private blue pale
   await page.goto("/");
   await page.locator("main").waitFor();
 
-  const token = await page.evaluate(() => getComputedStyle(document.querySelector(".ide-theme")!).getPropertyValue("--jb-surface").trim());
-  const expected = token ? `rgb(${parseInt(token.slice(1, 3), 16)}, ${parseInt(token.slice(3, 5), 16)}, ${parseInt(token.slice(5, 7), 16)})` : "rgb(43, 43, 43)";
+  const tokens = await page.evaluate(() => {
+    const style = getComputedStyle(document.querySelector(".ide-theme")!);
+    return { surface: style.getPropertyValue("--jb-surface").trim(), background: style.getPropertyValue("--jb-bg").trim() };
+  });
+  const rgb = (token: string) => `rgb(${parseInt(token.slice(1, 3), 16)}, ${parseInt(token.slice(3, 5), 16)}, ${parseInt(token.slice(5, 7), 16)})`;
 
   await page.getByRole("button", { name: "Codex 管理", exact: true }).first().click();
   // The gateway cards live in the API 反代服务 tab, not the default 账号总览 tab.
@@ -52,7 +56,7 @@ test("codex gateway keeps the neutral IDE surface instead of a private blue pale
     };
   });
 
-  expect(surfaces.main).toBe("rgb(31, 31, 31)");
+  expect(surfaces.main).toBe(rgb(tokens.background));
   for (const [name, value] of Object.entries(surfaces)) {
     if (!value || name === "main") continue;
     // Blue-tinted mixes land near rgb(31, 38, 49); neutral surfaces keep r === g === b.
@@ -60,5 +64,5 @@ test("codex gateway keeps the neutral IDE surface instead of a private blue pale
     expect(Math.abs(r - g), `${name} ${value} 的红绿通道应一致`).toBeLessThanOrEqual(2);
     expect(Math.abs(g - b), `${name} ${value} 的绿蓝通道应一致`).toBeLessThanOrEqual(2);
   }
-  expect(surfaces.card).toBe(expected);
+  expect(surfaces.card).toBe(rgb(tokens.surface));
 });

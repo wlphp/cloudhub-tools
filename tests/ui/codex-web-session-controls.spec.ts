@@ -46,8 +46,9 @@ test("Web Session accounts expose benefits, reset and API pool controls", async 
   await page.goto("/");
   await page.getByRole("button", { name: "Codex 管理", exact: true }).first().click();
   const card = page.getByRole("article", { name: "Codex 账号 web-session@example.test", exact: true });
-  await expect(card.getByRole("button", { name: "查看 web-session@example.test 重置次数" })).toHaveText("重置 未获取");
+  await expect(card.getByRole("button", { name: "查看 web-session@example.test 重置次数" })).toHaveCount(0);
   await card.getByRole("button", { name: "刷新 web-session@example.test 额度" }).click();
+  await card.getByRole("button", { name: "刷新 web-session@example.test 订阅与重置次数" }).click();
   await expect(card.getByRole("button", { name: "查看 web-session@example.test 重置次数" })).toHaveText("重置 2");
   await expect(card.getByRole("button", { name: "添加至 API 服务" })).toBeVisible();
   await card.getByRole("button", { name: "查看 web-session@example.test 重置次数" }).click();
