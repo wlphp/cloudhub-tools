@@ -70,6 +70,14 @@ async function fixture(page: Page, manyDomains = false) {
         if (command === "confirm_certificate_import") { imported = true; return certificate; }
         if (command === "list_panel_connections") return panels;
         if (command === "list_baota_site_certificates" ) return sites;
+        if (command === "remove_baota_site_domain") {
+          if ((window as any).__failDomainRemove) throw { code: "network", message: "移除失败，请核对宝塔绑定" };
+          const target = sites.find(item => item.id === args.id);
+          if (!target) throw { code: "validation", message: "站点不存在" };
+          if (target.siteDomains.length <= 1) throw { code: "validation", message: "站点至少保留一个域名" };
+          target.siteDomains = target.siteDomains.filter(domain => domain !== args.domain);
+          return { ...target };
+        }
         if (command === "confirm_baota_certificate_retry") { Object.assign(site, { pendingRenewal: false, canRenew: false }); return; }
         if (command === "sync_baota_site_certificates") { if (args.panelId === failedPanel) throw { code: "network", message: "面板连接失败" }; site.canRenew = true; return [site]; }
         if (command === "renew_baota_site_certificate" && failRenew) { Object.assign(site, { pendingRenewal: true, canRenew: false }); throw { code: "certificate", message: "面板操作结果待确认，请先刷新站点确认结果，再决定是否重试", retryable: false }; }
@@ -88,15 +96,20 @@ async function fixture(page: Page, manyDomains = false) {
 for (const fail of [false, true]) test(`all panels synchronize without a selection and continue after failures (${fail})`, async ({ page }) => {
   await fixture(page);
   await page.evaluate(fail => (window as any).__addSyncPanels(fail), fail);
-  await page.getByRole("button", { name: "宝塔站点证书", exact: true }).click();
+  await page.getByRole("button", { name: "宝塔站点管理", exact: true }).click();
   await expect(page.getByLabel("选择宝塔面板")).toHaveValue("");
-  const button = page.getByRole("button", { name: "获取站点证书", exact: true });
+  const button = page.getByRole("button", { name: "获取站点", exact: true });
   await expect(button).toBeEnabled();
   await button.click();
-  await expect(page.locator(".baota-certificate-manager").getByRole("status")).toContainText(fail ? "2/3 个面板成功" : "3/3 个面板成功");
+  await expect(page.locator(".baota-certificate-manager").getByRole("status", { includeHidden: true })).toContainText(fail ? "2/3 个面板成功" : "3/3 个面板成功");
   const calls = await page.evaluate(() => (window as any).__certificateCalls.filter((call: any) => call.command === "sync_baota_site_certificates"));
   expect(calls.map((call: any) => call.args.panelId)).toEqual([4, 5, 6]);
-  if (fail) await expect(page.getByRole("alert")).toContainText("第二面板");
+  if (fail) {
+    const errors = page.getByRole("dialog", { name: "站点拉取失败详情", exact: true });
+    await expect(errors.locator("li")).toContainText("第二面板");
+    await errors.getByRole("button", { name: "关闭", exact: true }).click();
+    await expect(page.getByRole("alert")).toContainText("1 个面板拉取失败");
+  }
   await expect(page.locator(".baota-certificate-manager tbody")).toContainText("site.test");
   await page.getByLabel("选择宝塔面板").selectOption("6");
   await button.click();
@@ -105,14 +118,362 @@ for (const fail of [false, true]) test(`all panels synchronize without a selecti
   expect(ids).toEqual([4, 5, 6, 6]);
 });
 
-test("baota HTTPS filter defaults to certificates and combines with text search", async ({ page }) => {
+test("sync failures open separate rows with actionable guidance and can be reopened", async ({ page }) => {
   await fixture(page);
-  await page.getByRole("button", { name: "宝塔站点证书", exact: true }).click();
+  await page.evaluate(() => {
+    (window as any).__addSyncPanels(false);
+    const bridge = (window as any).__TAURI_INTERNALS__;
+    const invoke = bridge.invoke;
+    bridge.invoke = async (command: string, args: any) => {
+      if (command === "sync_baota_site_certificates") throw { code: "network", message: args.panelId === 4
+        ? "当前面板地址不是 HTTPS，站点管理需要 HTTPS 连接"
+        : args.panelId === 5 ? "站点名称不符合当前域名校验规则（站点 ID：21）"
+        : "无法建立宝塔连接，可能为地址或端口不可达、DNS 解析失败或 TLS 握手失败" };
+      return invoke(command, args);
+    };
+  });
+  await page.getByRole("button", { name: "宝塔站点管理", exact: true }).click();
+  await page.getByRole("button", { name: "获取站点", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "站点拉取失败详情", exact: true });
+  await expect(dialog.locator("li")).toHaveCount(3);
+  await expect(dialog.locator("li").nth(0)).toContainText("此选项不能用于 HTTP 地址");
+  await expect(dialog.locator("li").nth(1)).toContainText("与 HTTPS 无关");
+  await expect(dialog.locator("li").nth(2)).toContainText("TLS 配置");
+  for (const width of [375, 768, 1024, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+  }
+  await dialog.screenshot({ path: "test-results/baota-sync-failures.png" });
+  await page.locator(".shared-dialog-backdrop").click({ position: { x: 2, y: 2 } });
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await page.getByRole("button", { name: "查看失败详情（3）", exact: true }).click();
+  await expect(dialog.locator("li")).toHaveCount(3);
+  await dialog.getByRole("button", { name: "关闭", exact: true }).click();
+  await expect(page.locator(".baota-certificate-manager tbody tr")).toHaveCount(3);
+});
+
+test("combined site domain list removes only the confirmed site binding through native API", async ({ page }) => {
+  await fixture(page);
+  await page.evaluate(() => {
+    const bridge = (window as any).__TAURI_INTERNALS__;
+    const invoke = bridge.invoke;
+    bridge.invoke = async (command: string, args: any) => {
+      const result = await invoke(command, args);
+      return command === "list_baota_site_certificates" ? result.map((site: any) => site.id === 13 ? { ...site, siteDomains: ["plain.test", "www.site.test"] } : site) : result;
+    };
+  });
+  await page.getByRole("button", { name: "宝塔站点管理", exact: true }).click();
+  await page.getByRole("button", { name: "站点域名（5）", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "当前条件下的站点域名", exact: true });
+  const remove = dialog.getByRole("button", { name: "移除 site.test 的域名 www.site.test", exact: true });
+  await remove.click();
+  const confirm = page.getByRole("alertdialog", { name: "移除站点域名", exact: true });
+  await expect(confirm).toContainText("面板 测试宝塔 的站点 site.test");
+  await confirm.getByRole("button", { name: "取消", exact: true }).click();
+  expect(await page.evaluate(() => (window as any).__certificateCalls.filter((call: any) => call.command === "remove_baota_site_domain"))).toHaveLength(0);
+  await page.evaluate(() => { (window as any).__failDomainRemove = true; });
+  await remove.click();
+  await confirm.getByRole("button", { name: "确认移除", exact: true }).click();
+  await expect(dialog.getByRole("alert")).toContainText("移除失败");
+  await expect(remove).toBeEnabled();
+  await page.evaluate(() => { (window as any).__failDomainRemove = false; });
+  await remove.click();
+  await confirm.getByRole("button", { name: "确认移除", exact: true }).click();
+  await expect(remove).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: "移除 plain.test 的域名 www.site.test", exact: true })).toBeEnabled();
+  await expect(dialog.getByRole("button", { name: "移除 site.test 的域名 site.test", exact: true })).toBeDisabled();
+  await expect(dialog.locator("tbody tr")).toHaveCount(4);
+  for (const width of [375, 768, 1024, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+    await expect(dialog.getByRole("button", { name: "移除 plain.test 的域名 www.site.test", exact: true })).toBeInViewport();
+  }
+  await dialog.screenshot({ path: "test-results/baota-domain-remove-list.png" });
+  expect(await page.evaluate(() => (window as any).__certificateCalls.filter((call: any) => call.command === "remove_baota_site_domain").map((call: any) => call.args))).toEqual([{ id: 12, domain: "www.site.test" }, { id: 12, domain: "www.site.test" }]);
+  await dialog.getByRole("button", { name: "关闭", exact: true }).click();
+  await expect(page.getByRole("button", { name: "站点域名（4）", exact: true })).toBeVisible();
+});
+
+test("site domain removal confirms native write and preserves failed binding", async ({ page }) => {
+  await fixture(page);
+  await page.getByRole("button", { name: "宝塔站点管理", exact: true }).click();
+  await page.getByRole("button", { name: "查看 site.test 的全部域名（2 个）", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "site.test · 全部域名", exact: true });
+  for (const width of [375, 768, 1024, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    const positions = await dialog.locator(".export-selection-row").evaluateAll(rows => rows.map(row => { const r = row.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, left: r.left }; }));
+    expect(positions[1].top).toBeGreaterThanOrEqual(positions[0].bottom);
+    expect(positions[1].left).toBe(positions[0].left);
+  }
+  const remove = dialog.getByRole("button", { name: "移除域名 www.site.test", exact: true });
+  await remove.click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "取消", exact: true }).click();
+  expect(await page.evaluate(() => (window as any).__certificateCalls.filter((c: any) => c.command === "remove_baota_site_domain"))).toHaveLength(0);
+  await page.evaluate(() => { (window as any).__failDomainRemove = true; });
+  await remove.click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "确认移除", exact: true }).click();
+  await expect(dialog.getByRole("status")).toContainText("移除失败");
+  await expect(remove).toBeEnabled();
+  await page.evaluate(() => { (window as any).__failDomainRemove = false; });
+  await remove.click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "确认移除", exact: true }).click();
+  await expect(remove).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: "移除域名 site.test", exact: true })).toBeDisabled();
+  await expect(dialog).toContainText("全部域名 · 1 个");
+  expect(await page.evaluate(() => (window as any).__certificateCalls.filter((c: any) => c.command === "remove_baota_site_domain").map((c: any) => c.args))).toEqual([{ id: 12, domain: "www.site.test" }, { id: 12, domain: "www.site.test" }]);
+});
+
+test("site domain batch removal protects the last binding and requires confirmation", async ({ page }) => {
+  await fixture(page);
+  await page.getByRole("button", { name: "宝塔站点管理", exact: true }).click();
+  await page.getByRole("button", { name: /^站点域名（\d+）$/ }).click();
+  const dialog = page.getByRole("dialog", { name: "当前条件下的站点域名", exact: true });
+  await dialog.getByLabel("全选当前筛选范围的可移除域名", { exact: true }).check();
+  await dialog.getByRole("button", { name: "批量移除（2）", exact: true }).click();
+  await expect(dialog.getByRole("alert")).toContainText("至少取消勾选一个域名");
+  await expect(page.getByRole("alertdialog")).toHaveCount(0);
+  await dialog.getByLabel("选择 site.test 的域名 site.test", { exact: true }).uncheck();
+  await dialog.getByRole("button", { name: "批量移除（1）", exact: true }).click();
+  const confirm = page.getByRole("alertdialog", { name: "批量移除站点域名", exact: true });
+  await expect(confirm).toContainText("www.site.test");
+  await confirm.getByRole("button", { name: "取消", exact: true }).click();
+  expect(await page.evaluate(() => (window as any).__certificateCalls.filter((call: any) => call.command === "remove_baota_site_domain"))).toHaveLength(0);
+  await dialog.getByRole("button", { name: "批量移除（1）", exact: true }).click();
+  await confirm.getByRole("button", { name: "确认移除 1 个域名", exact: true }).click();
+  await expect(dialog.getByRole("status")).toContainText("成功 1 个，失败 0 个");
+  await expect(dialog.getByLabel("选择 site.test 的域名 www.site.test", { exact: true })).toHaveCount(0);
+  await expect(dialog.getByLabel("选择 site.test 的域名 site.test", { exact: true })).toBeDisabled();
+  expect(await page.evaluate(() => (window as any).__certificateCalls.filter((call: any) => call.command === "remove_baota_site_domain").map((call: any) => call.args))).toEqual([{ id: 12, domain: "www.site.test" }]);
+});
+
+test("site domain batch removal isolates shared domains and reports partial failures", async ({ page }) => {
+  await fixture(page);
+  await page.evaluate(() => {
+    const bridge = (window as any).__TAURI_INTERNALS__;
+    const invoke = bridge.invoke;
+    bridge.invoke = async (command: string, args: any) => {
+      if (command === "remove_baota_site_domain" && args.id === 13) {
+        (window as any).__certificateCalls.push({ command, args });
+        throw { code: "network", message: "测试面板连接失败，请核对绑定" };
+      }
+      const result = await invoke(command, args);
+      if (command === "list_baota_site_certificates") {
+        const target = result.find((site: any) => site.id === 13);
+        target.siteDomains = ["plain.test", "www.site.test"];
+      }
+      return result;
+    };
+  });
+  await page.getByRole("button", { name: "宝塔站点管理", exact: true }).click();
+  await page.getByRole("button", { name: /^站点域名（\d+）$/ }).click();
+  const dialog = page.getByRole("dialog", { name: "当前条件下的站点域名", exact: true });
+  await dialog.getByLabel("模糊搜索站点域名").fill("www.site.test");
+  await dialog.getByLabel("全选当前筛选范围的可移除域名", { exact: true }).check();
+  await dialog.getByRole("button", { name: "批量移除（2）", exact: true }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "确认移除 2 个域名", exact: true }).click();
+  await expect(dialog.getByRole("status")).toContainText("成功 1 个，失败 1 个");
+  await expect(dialog.getByRole("alert")).toContainText("www.site.test · plain.test：测试面板连接失败");
+  await expect(dialog.getByLabel("选择 site.test 的域名 www.site.test", { exact: true })).toHaveCount(0);
+  await expect(dialog.getByLabel("选择 plain.test 的域名 www.site.test", { exact: true })).toBeChecked();
+  expect(await page.evaluate(() => (window as any).__certificateCalls.filter((call: any) => call.command === "remove_baota_site_domain").map((call: any) => call.args))).toEqual([{ id: 13, domain: "www.site.test" }, { id: 12, domain: "www.site.test" }]);
+});
+
+test("site domain batch selection is restricted to the current filters", async ({ page }) => {
+  await fixture(page);
+  await page.getByRole("button", { name: "宝塔站点管理", exact: true }).click();
+  await page.getByRole("button", { name: /^站点域名（\d+）$/ }).click();
+  const dialog = page.getByRole("dialog", { name: "当前条件下的站点域名", exact: true });
+  await dialog.getByLabel("选择 site.test 的域名 www.site.test", { exact: true }).check();
+  await dialog.getByLabel("搜索所属站点").fill("plain.test");
+  await expect(dialog.getByText("已选 0 个", { exact: true })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "批量移除（0）", exact: true })).toBeDisabled();
+  await dialog.getByLabel("搜索所属站点").fill("");
+  await expect(dialog.getByLabel("选择 site.test 的域名 www.site.test", { exact: true })).not.toBeChecked();
+});
+
+async function siteDomainsFixture(page: Page, extraRoots = 0) {
+  await fixture(page);
+  await page.evaluate((extraRoots) => {
+    const bridge = (window as any).__TAURI_INTERNALS__;
+    const invoke = bridge.invoke;
+    bridge.invoke = async (command: string, args: any) => {
+      const result = await invoke(command, args);
+      if (command !== "list_baota_site_certificates") return result;
+      return Array.from({ length: 13 }, (_, index) => ({ ...result[0], id: 100 + index, siteId: 100 + index, siteName: `site${index}.test`, siteRemark: index === 11 ? "最后一个正式站点" : "测试站点", siteDomains: index === 0
+        ? ["*.example.com", "api.example.com", "api.example.com", "app.example.co.uk", "www.city.kawasaki.jp", "foo.bar.ck", "www.ck", "a.foo.github.io", "b.bar.github.io", "127.0.0.1", "www.食狮.公司.cn"]
+        : [`child${index}.example.com`, ...(index === 1 ? Array.from({ length: extraRoots }, (_, root) => `app.project${String(root + 1).padStart(3, "0")}.com`) : [])], fingerprint: index === 12 ? null : "fixture", certificateDomains: index === 12 ? [] : ["example.com"], notAfter: index === 12 ? null : 2000000000 }));
+    };
+  }, extraRoots);
+  await page.getByRole("button", { name: "宝塔站点管理", exact: true }).click();
+  await page.getByLabel("是否有 HTTPS 证书").selectOption("yes");
+}
+
+test("site domain dialog covers all filtered pages and supports site and domain searches", async ({ page }) => {
+  await siteDomainsFixture(page);
+  await expect(page.locator(".baota-certificate-manager tbody tr")).toHaveCount(10);
+  await expect(page.getByRole("button", { name: "站点域名（21）", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: /^站点域名（\d+）$/ }).click();
+  const dialog = page.getByRole("dialog", { name: "当前条件下的站点域名", exact: true });
+  await expect(dialog).toContainText("共 12 个站点");
+  await expect(dialog.locator("tbody")).toContainText("child11.example.com");
+  await expect(dialog.locator("tbody")).not.toContainText("child12.example.com");
+  await expect(dialog.locator("tbody tr").filter({ hasText: "api.example.com" })).toHaveCount(1);
+  await dialog.getByLabel("搜索所属站点").fill("最后一个正式");
+  await expect(dialog.locator("tbody tr")).toHaveCount(1);
+  await expect(dialog.locator("tbody")).toContainText("child11.example.com");
+  await dialog.getByLabel("模糊搜索站点域名").fill("no-match");
+  await expect(dialog.getByText("没有匹配的域名", { exact: true })).toBeVisible();
+  await dialog.getByLabel("搜索所属站点").fill("");
+  await dialog.getByLabel("模糊搜索站点域名").fill("");
+  for (const name of ["模糊搜索站点域名", "搜索所属站点"]) {
+    const input = dialog.getByLabel(name);
+    await input.focus();
+    expect(await input.evaluate(element => {
+      const style = getComputedStyle(element);
+      return { border: style.borderTopWidth, shadow: style.boxShadow, outline: style.outlineStyle };
+    })).toEqual({ border: "0px", shadow: "none", outline: "none" });
+    expect(await input.evaluate(element => getComputedStyle(element.parentElement!).outlineStyle)).toBe("solid");
+  }
+  for (const width of [375, 768, 1024, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    expect(await dialog.evaluate(element => element.scrollWidth - element.clientWidth)).toBe(0);
+    const columns = await dialog.locator("thead th").evaluateAll(elements => elements.map(element => ({ text: element.textContent, width: getComputedStyle(element).width, left: element.getBoundingClientRect().left, right: element.getBoundingClientRect().right, display: getComputedStyle(element).display })));
+    expect(columns.at(-1)!.right, JSON.stringify(columns)).toBeLessThanOrEqual(width);
+    const copyBounds = await dialog.locator("tbody tr").first().getByRole("button", { name: /^复制域名 / }).evaluate(element => {
+      const cell = element.closest("td")!;
+      return { button: element.getBoundingClientRect().right, cell: cell.getBoundingClientRect().right };
+    });
+    expect(copyBounds.button).toBeLessThanOrEqual(copyBounds.cell);
+    await expect(dialog.getByRole("button", { name: "汇总主域名", exact: true })).toBeInViewport();
+  }
+  await dialog.screenshot({ path: "test-results/baota-site-domain-list.png" });
+  expect(await dialog.locator("tbody tr").first().evaluate(element => element.getBoundingClientRect().height)).toBeLessThanOrEqual(48);
+  await dialog.locator(".table-wrap").evaluate(element => { element.scrollTop = element.scrollHeight; });
+  await expect(dialog.getByRole("columnheader", { name: "操作", exact: true })).toBeInViewport();
+  await expect(dialog.getByLabel("每页条数")).toBeInViewport();
+  await expect(dialog.getByLabel("模糊搜索站点域名")).toBeInViewport();
+  await page.locator("body > .shared-dialog-backdrop").click({ position: { x: 2, y: 2 } });
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await page.getByLabel("是否有 HTTPS 证书").selectOption("no");
+  await expect(page.getByRole("button", { name: "站点域名（1）", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: /^站点域名（\d+）$/ }).click();
+  await expect(dialog.locator("tbody tr")).toHaveCount(1);
+  await expect(dialog.locator("tbody")).toContainText("child12.example.com");
+});
+
+test("main domain summary handles suffix rules, private suffixes, search and multiple exclusions", async ({ page, context }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await siteDomainsFixture(page);
+  await page.getByRole("button", { name: /^站点域名（\d+）$/ }).click();
+  const list = page.getByRole("dialog", { name: "当前条件下的站点域名", exact: true });
+  await list.getByRole("button", { name: "汇总主域名", exact: true }).click();
+  const summary = page.getByRole("dialog", { name: "汇总主域名", exact: true });
+  await expect(summary.locator("tbody tr td:nth-child(2)")).toHaveText(["bar.github.io", "city.kawasaki.jp", "example.co.uk", "example.com", "foo.bar.ck", "foo.github.io", "www.ck", "xn--85x722f.xn--55qx5d.cn"]);
+  await summary.getByLabel("模糊搜索主域名").fill("example");
+  await expect(summary.locator("tbody tr")).toHaveCount(2);
+  await summary.getByLabel("排除多个主域名").fill("example.com，example.co.uk\nfoo.github.io");
+  await expect(summary.getByText("没有匹配的主域名", { exact: true })).toBeVisible();
+  await summary.getByLabel("模糊搜索主域名").fill("");
+  await expect(summary.locator("tbody tr")).toHaveCount(5);
+  await summary.getByRole("button", { name: "复制结果", exact: true }).click();
+  await expect(summary.getByRole("status")).toHaveText("已复制主域名");
+  expect((await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n/g, "\n")).toBe("bar.github.io\ncity.kawasaki.jp\nfoo.bar.ck\nwww.ck\nxn--85x722f.xn--55qx5d.cn");
+  await summary.getByRole("button", { name: "加入排除 foo.bar.ck", exact: true }).click();
+  await expect(summary.getByLabel("排除多个主域名")).toHaveValue("example.com，example.co.uk\nfoo.github.io\nfoo.bar.ck");
+  await expect(summary.getByLabel("排除多个主域名")).toBeFocused();
+  await expect(summary.locator("tbody tr")).toHaveCount(4);
+  await summary.getByRole("button", { name: "复制结果", exact: true }).click();
+  expect((await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n/g, "\n")).not.toContain("foo.bar.ck");
+  await summary.getByLabel("排除多个主域名").fill("example.com，example.co.uk\nfoo.github.io");
+  await expect(summary.locator("tbody tr")).toHaveCount(5);
+  for (const width of [375, 768, 1024, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    expect(await summary.evaluate(element => element.scrollWidth - element.clientWidth)).toBe(0);
+    await expect(summary.getByRole("button", { name: "复制主域名 bar.github.io", exact: true })).toBeInViewport();
+    await expect(summary.getByLabel("排除多个主域名")).toBeInViewport();
+    const exclude = summary.getByRole("button", { name: "加入排除 bar.github.io", exact: true });
+    await expect(exclude).toBeInViewport();
+    expect(await exclude.evaluate(element => element.getBoundingClientRect().right <= element.closest("td")!.getBoundingClientRect().right)).toBe(true);
+  }
+  expect((await summary.boundingBox())!.width).toBeLessThanOrEqual(860);
+  expect(await summary.locator("tbody tr").first().evaluate(element => element.getBoundingClientRect().height)).toBeLessThanOrEqual(40);
+  await summary.screenshot({ path: "test-results/baota-main-domain-summary.png" });
+  await summary.getByRole("button", { name: "最大化弹层", exact: true }).click();
+  await expect(summary).toHaveClass(/dialog-size-expanded/);
+  await page.keyboard.press("Escape");
+  await expect(summary).toHaveCount(0);
+  await expect(list).toBeVisible();
+  await expect(list.getByRole("button", { name: "汇总主域名", exact: true })).toBeFocused();
+  await list.getByLabel("搜索所属站点").fill("site11.test");
+  await list.getByRole("button", { name: "汇总主域名", exact: true }).click();
+  await expect(summary.locator("tbody tr td:nth-child(2)")).toHaveText(["example.com"]);
+});
+
+test("main domain summary keeps filters and pagination visible with many roots", async ({ page }) => {
+  await siteDomainsFixture(page, 70);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.getByRole("button", { name: /^站点域名（\d+）$/ }).click();
+  await page.getByRole("button", { name: "汇总主域名", exact: true }).click();
+  const summary = page.getByRole("dialog", { name: "汇总主域名", exact: true });
+  await expect(summary.locator("tbody tr")).toHaveCount(60);
+  await summary.screenshot({ path: "test-results/baota-main-domain-summary-many.png" });
+  await summary.locator(".table-wrap").evaluate(element => { element.scrollTop = element.scrollHeight; });
+  await expect(summary.getByLabel("模糊搜索主域名")).toBeInViewport();
+  await expect(summary.getByRole("columnheader", { name: "主域名", exact: true })).toBeInViewport();
+  await expect(summary.getByLabel("每页条数")).toBeInViewport();
+});
+
+test("baota sort preserves the fetched panel order through filtering and refresh", async ({ page }) => {
+  await fixture(page);
+  await page.evaluate(() => {
+    const bridge = (window as any).__TAURI_INTERNALS__;
+    const invoke = bridge.invoke;
+    bridge.invoke = async (command: string, args: any) => {
+      const result = await invoke(command, args);
+      if (command !== "list_baota_site_certificates") return result;
+      return result.map((site: any, index: number) => ({ ...site, panelOrder: [2, 0, 1][index] }));
+    };
+  });
+  await page.getByRole("button", { name: "宝塔站点管理", exact: true }).click();
+  const manager = page.locator(".baota-certificate-manager");
+  const names = manager.locator("tbody tr td:first-child strong");
+  const sort = manager.getByRole("button", { name: "宝塔排序", exact: true });
+  await page.getByLabel("是否有 HTTPS 证书").selectOption("yes");
+  await expect(sort).toHaveAttribute("aria-pressed", "true");
+  await expect(sort.locator("xpath=..").getByRole("button").first()).toHaveText("宝塔排序");
+  await expect(names).toHaveText(["expired.test", "site.test"]);
+  await page.getByLabel("是否有 HTTPS 证书").selectOption("all");
+  await expect(names).toHaveText(["plain.test", "expired.test", "site.test"]);
+  await manager.getByRole("button", { name: "获取站点", exact: true }).click();
+  await expect(manager.getByRole("status")).toContainText("已更新");
+  await expect(names).toHaveText(["plain.test", "expired.test", "site.test"]);
+  await manager.getByRole("button", { name: "名称排序", exact: true }).click();
+  await expect(names).toHaveText(["site.test", "plain.test", "expired.test"]);
+  for (const width of [375, 768, 1024, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expect(sort).toBeInViewport();
+    expect(await sort.evaluate(element => {
+      const row = element.parentElement!;
+      return row.scrollWidth - row.clientWidth;
+    })).toBe(0);
+  }
+});
+
+test("baota HTTPS filter defaults to all sites and combines with text search", async ({ page }) => {
+  await fixture(page);
+  await page.getByRole("button", { name: "宝塔站点管理", exact: true }).click();
   const filter = page.getByLabel("是否有 HTTPS 证书");
   const rows = page.locator(".baota-certificate-manager tbody tr");
-  await expect(filter).toHaveValue("yes");
+  await expect(filter).toHaveValue("all");
+  await expect(rows).toHaveCount(3);
+  await expect(rows).toContainText(["expired.test", "plain.test", "site.test"]);
+  await filter.selectOption("yes");
   await expect(rows).toHaveCount(2);
-  await expect(rows).toContainText(["site.test", "expired.test"]);
+  await expect(rows).toContainText(["expired.test", "site.test"]);
   await filter.selectOption("no");
   await expect(rows).toHaveCount(1);
   await expect(rows).toContainText("plain.test");
@@ -139,7 +500,8 @@ test("baota expiry warnings cover thresholds, unknown dates and combined filters
   await page.clock.setFixedTime(new Date("2026-10-12T00:00:00Z"));
   await fixture(page);
   await page.evaluate(() => (window as any).__addExpiryFixtures());
-  await page.getByRole("button", { name: "宝塔站点证书", exact: true }).click();
+  await page.getByRole("button", { name: "宝塔站点管理", exact: true }).click();
+  await page.getByLabel("是否有 HTTPS 证书").selectOption("yes");
   const manager = page.locator(".baota-certificate-manager");
   const rows = manager.locator("tbody tr");
   await expect(rows).toHaveCount(7);
@@ -163,7 +525,7 @@ test("baota expiry warnings cover thresholds, unknown dates and combined filters
   await page.getByLabel("搜索宝塔站点").fill("");
   for (const width of [375, 768, 1024, 1440]) {
     await page.setViewportSize({ width, height: 1000 });
-    expect(await manager.locator(".certificate-expiry-summary").evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+    expect(await manager.getByLabel("宝塔证书到期预警").evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
   }
   await manager.screenshot({ path: "test-results/baota-expiry-warning.png" });
 });
@@ -204,9 +566,9 @@ test("manual certificate import clears pasted material and saves only after conf
 
 test("baota certificates use site names for renewal and keep domains and panel context", async ({ page }) => {
   await fixture(page);
-  await page.getByRole("button", { name: "宝塔站点证书", exact: true }).click();
+  await page.getByRole("button", { name: "宝塔站点管理", exact: true }).click();
   await page.getByLabel("选择宝塔面板").selectOption("4");
-  await page.getByRole("button", { name: "获取站点证书", exact: true }).click();
+  await page.getByRole("button", { name: "获取站点", exact: true }).click();
   await expect(page.locator(".baota-certificate-manager tbody")).toContainText("测试宝塔");
   await expect(page.locator(".baota-certificate-manager tbody")).toContainText("www.site.test");
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -224,7 +586,7 @@ test("baota certificates use site names for renewal and keep domains and panel c
 
 test("unconfirmed renewal cannot repeat until the user checks the panel and resynchronizes", async ({ page }) => {
   await fixture(page);
-  await page.getByRole("button", { name: "宝塔站点证书", exact: true }).click();
+  await page.getByRole("button", { name: "宝塔站点管理", exact: true }).click();
   await page.getByLabel("选择宝塔面板").selectOption("4");
   await page.evaluate(() => (window as any).__failRenew());
   await page.getByRole("button", { name: "续签站点 site.test", exact: true }).click();
@@ -233,9 +595,9 @@ test("unconfirmed renewal cannot repeat until the user checks the panel and resy
   await expect(page.getByRole("button", { name: "续签站点 site.test", exact: true })).toBeDisabled();
   await page.getByRole("button", { name: "核对后允许重试", exact: true }).click();
   await page.getByRole("alertdialog").locator(".modal-actions .primary").click();
-  await expect(page.locator(".baota-certificate-manager").getByRole("status")).toContainText("重新获取站点证书");
+  await expect(page.locator(".baota-certificate-manager").getByRole("status")).toContainText("重新获取站点");
   await expect(page.getByRole("button", { name: "续签站点 site.test", exact: true })).toBeDisabled();
-  await page.getByRole("button", { name: "获取站点证书", exact: true }).click();
+  await page.getByRole("button", { name: "获取站点", exact: true }).click();
   await expect(page.getByRole("button", { name: "续签站点 site.test", exact: true })).toBeEnabled();
 });
 

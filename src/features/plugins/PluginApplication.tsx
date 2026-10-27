@@ -4,15 +4,17 @@ import { WslDashboardPlugin } from "./WslDashboardPlugin";
 import { WechatPluginSettings } from "./WechatPluginSettings";
 import { ClaudeProvidersPlugin } from "./ClaudeProvidersPlugin";
 import { NotesPanel } from "../notes/NotesPanel";
+import { LanDevicesPlugin } from "./LanDevicesPlugin";
 
 const BrowserEnvironments = lazy(() => import("./BrowserEnvironments").then(module => ({ default: module.BrowserEnvironments })));
 
 /** Page and dialog containers share the same business UI. */
-export function PluginApplication({ pluginId, wslEnabled, onNotify, onError }: {
+export function PluginApplication({ pluginId, wslEnabled, onNotify, onError, onLanConnect }: {
   pluginId: string;
   wslEnabled: boolean;
   onNotify?: (message: string) => void;
   onError?: (message: string) => void;
+  onLanConnect?: (ip: string, platform: "linux" | "windows", name: string) => void;
 }) {
   switch (pluginId) {
     case "cloudhub.wechat-multi": return <WechatPluginSettings onNotify={onNotify} onError={onError} />;
@@ -21,6 +23,7 @@ export function PluginApplication({ pluginId, wslEnabled, onNotify, onError }: {
     case "cloudhub.fingerprint-browser": return <Suspense fallback={<p role="status">正在加载浏览器环境…</p>}><BrowserEnvironments open /></Suspense>;
     case "cloudhub.claude-providers": return <div className="claude-providers-dialog"><ClaudeProvidersPlugin /></div>;
     case "cloudhub.notes": return <NotesPanel />;
+    case "cloudhub.lan-devices": return <LanDevicesPlugin onConnect={onLanConnect} />;
     default: return null;
   }
 }

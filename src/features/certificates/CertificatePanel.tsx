@@ -364,7 +364,7 @@ export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm, r
           证书申请、密钥材料读取和删除仅支持桌面客户端，浏览器预览不会模拟成功。
         </div>
       )}
-      {!requestTarget && <div className="certificate-source-tabs"><button className={sourceView === "local" ? "active" : ""} onClick={() => setSourceView("local")}>本地证书</button><button className={sourceView === "baota" ? "active" : ""} disabled={!runningInTauri} onClick={() => setSourceView("baota")}>宝塔站点证书</button></div>}
+      {!requestTarget && <div className="certificate-source-tabs"><button className={sourceView === "local" ? "active" : ""} onClick={() => setSourceView("local")}>本地证书</button><button className={sourceView === "baota" ? "active" : ""} disabled={!runningInTauri} onClick={() => setSourceView("baota")}>宝塔站点管理</button></div>}
       {sourceView === "baota" ? <BaotaCertificateManager certificates={rows} onChanged={() => void load()} onConfirm={onConfirm} onStatus={onStatus} alertTarget={alertTarget} onAlertTargetHandled={onAlertTargetHandled} /> : <section className="panel certificate-panel">
         <div className="certificate-summary" aria-label="证书概览">
           <div><span>证书总数</span><strong>{rows.length}</strong><small>本地加密保存</small></div>

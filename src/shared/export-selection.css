@@ -130,8 +130,11 @@
   .export-selection-picker-dialog > footer { padding-inline: 12px; }
 }
 
-/* 域名选择弹窗：多列网格 + 分页 */
-.certificate-domains-dialog .export-selection-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 0 18px; align-content: start; max-height: 48dvh; }
+/* 域名选择弹窗：单行列表 + 分页 */
+.certificate-domains-dialog .export-selection-list { display: grid; grid-template-columns: minmax(0,1fr); gap: 0; align-content: start; max-height: 48dvh; }
+.certificate-domains-dialog .export-selection-row { display:flex;align-items:center;gap:12px;padding-right:10px;border-bottom:1px solid var(--jb-border);min-width:0; }
+.certificate-domains-dialog .export-selection-row > label { flex:1;min-width:0;border-bottom:0; }
+.certificate-domains-dialog .certificate-domain-remove { flex:none;min-height:28px;padding:3px 8px;color:var(--jb-red);font-size:12px; }
 .certificate-domains-dialog .export-selection-list label { border-bottom: 1px solid var(--jb-border, var(--jb-surface-3)); padding: 6px 6px; }
 .certificate-domains-dialog .export-selection-list label:hover { background: var(--jb-surface-2, var(--jb-surface-3)); }
 .certificate-domains-dialog .export-selection-list label > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

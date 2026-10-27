@@ -1,0 +1,172 @@
+.lan-devices { min-width: 0; color: var(--jb-text); font-size: 13px; container-type: inline-size; }
+.lan-devices button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; }
+.lan-intro { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 16px; }
+.lan-intro > svg { color: var(--jb-accent); flex-shrink: 0; }
+.lan-intro p { margin: 5px 0 0; color: var(--jb-muted); }
+.lan-scan-form, .lan-toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+.lan-scan-form { background: var(--jb-surface-2); border: 1px solid var(--jb-border); border-radius: 5px; padding: 14px; }
+.lan-scan-form label, .lan-toolbar label, .lan-edit label { display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: 1 1 220px; }
+.lan-scan-form .lan-ports { flex-basis: 290px; }
+.lan-devices input, .lan-devices select, .lan-devices textarea { width: 100%; min-width: 0; box-sizing: border-box; }
+.lan-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.lan-muted { color: var(--jb-muted); line-height: 1.7; overflow-wrap: anywhere; margin: 12px 0; }
+.lan-error { color: var(--jb-red, var(--jb-text)); overflow-wrap: anywhere; }
+.lan-progress { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin: 12px 0; }
+.lan-progress progress { flex: 1 1 180px; height: 8px; accent-color: var(--jb-accent); }
+.lan-toolbar { margin: 14px 0; }
+.lan-table-wrap { min-width: 0; }
+.lan-table { border-collapse: collapse; width: 100%; font-size: 12px; table-layout: fixed; }
+.lan-table th, .lan-table td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--jb-border); overflow-wrap: anywhere; vertical-align: top; }
+.lan-table th { color: var(--jb-muted); background: var(--jb-surface-2); font-weight: 500; }
+.lan-table th:first-child { width: 24%; }
+.lan-table small { display: block; color: var(--jb-muted); margin-top: 4px; line-height: 1.5; }
+.lan-table .table-link { padding: 2px 0; min-height: 26px; font-size: 12px; }
+.lan-empty { padding: 24px 10px; text-align: center; color: var(--jb-muted); }
+.lan-history { display: grid; gap: 8px; }
+.lan-history > button { text-align: left; justify-content: space-between; flex-wrap: wrap; padding: 12px; }
+.lan-history > button span { overflow-wrap: anywhere; }
+.lan-details { display: grid; grid-template-columns: 68px minmax(0, 1fr); gap: 10px 12px; margin: 0; }
+.lan-details dt { color: var(--jb-muted); }
+.lan-details dd { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.lan-edit { display: grid; gap: 14px; }
+.lan-edit label { flex-basis: auto; }
+.lan-edit .lan-checkbox { flex-direction: row; align-items: center; }
+.lan-edit .lan-checkbox input { width: auto; }
+.lan-history-devices { padding-left: 20px; line-height: 1.8; overflow-wrap: anywhere; }
+.lan-devices :is(button, input, select, textarea):focus-visible { outline: 2px solid var(--jb-accent); outline-offset: 2px; }
+@media (max-width: 1024px) {
+  .lan-table, .lan-table tbody { display: block; }
+  .lan-table thead { display: none; }
+  .lan-table tr { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); border: 1px solid var(--jb-border); border-radius: 4px; margin-bottom: 10px; }
+  .lan-table td { display: block; min-width: 0; }
+  .lan-table td::before { content: attr(data-label); display: block; font-size: 11px; color: var(--jb-muted); margin-bottom: 5px; }
+}
+@media (max-width: 540px) {
+  .lan-table tr { grid-template-columns: minmax(0, 1fr); }
+  .lan-scan-form { padding: 10px; }
+  .lan-scan-form > label, .lan-toolbar > label { flex-basis: 100%; }
+  .lan-actions > button { min-height: 36px; }
+  .lan-devices .store-tabs { padding: 0; }
+  .lan-devices .store-tabs button { padding: 10px; }
+}
+
+/* Keep scanner controls independent of inherited modal/store form spacing. */
+.lan-devices.lan-devices label { margin: 0; }
+.lan-devices.lan-devices :is(input, select) { box-sizing: border-box; min-width: 0; height: 34px; margin: 0; padding: 0 10px; border: 1px solid var(--jb-border-strong); border-radius: 5px; background: var(--jb-input); color: var(--jb-text); font: inherit; }
+.lan-devices.lan-devices button { min-height: 32px; border-radius: 5px; font-size: 12px; }
+.lan-devices.lan-devices button:disabled { opacity: .45; cursor: not-allowed; }
+.lan-intro { align-items: center; margin-bottom: 14px; }
+.lan-intro > svg { box-sizing: content-box; padding: 10px; border: 1px solid var(--jb-border); border-radius: 8px; background: var(--jb-surface-2); }
+.lan-intro strong { font-size: 14px; font-weight: 600; }
+.lan-intro p { margin-top: 4px; font-size: 12px; }
+.lan-scan-form { display: grid; grid-template-columns: minmax(150px, 1.2fr) minmax(145px, 1fr) minmax(180px, 1.4fr) auto; gap: 12px; background: var(--jb-surface); border-radius: 7px; }
+.lan-scan-form label, .lan-toolbar label { gap: 7px; color: var(--jb-muted); font-size: 12px; }
+.lan-scan-form > .lan-actions { flex-wrap: nowrap; gap: 6px; }
+.lan-devices.lan-devices .lan-scan-form button { height: 34px; padding: 0 10px; white-space: nowrap; }
+.lan-devices.lan-devices .lan-scan-form button[type=submit] { background: var(--jb-accent-soft); border: 1px solid var(--jb-accent); color: var(--jb-text); font-weight: 600; }
+.lan-devices.lan-devices .lan-scan-form button[type=submit]:not(:disabled):hover { background: var(--jb-surface-3); }
+.lan-muted { font-size: 11px; margin: 8px 0; }
+.lan-progress { padding: 8px 12px; border: 1px solid var(--jb-border); border-radius: 5px; color: var(--jb-muted); background: var(--jb-surface-2); font-size: 12px; }
+.lan-progress progress { max-width: 300px; height: 5px; }
+.lan-tabs { display: flex; gap: 22px; margin-top: 16px; border-bottom: 1px solid var(--jb-border); }
+.lan-devices.lan-devices .lan-tabs button { flex: 0 0 auto; width: auto; min-height: 39px; margin: 0; padding: 0 2px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: var(--jb-muted); box-shadow: none; }
+.lan-devices.lan-devices .lan-tabs button.is-active { color: var(--jb-text); border-bottom-color: var(--jb-accent); font-weight: 600; }
+.lan-devices.lan-devices .lan-tabs button:hover { color: var(--jb-text); }
+.lan-toolbar { gap: 10px; margin: 12px 0; }
+.lan-toolbar label:first-child { flex: 1 1 240px; max-width: 360px; }
+.lan-toolbar label:nth-child(2) { flex: 0 1 170px; }
+.lan-toolbar > .lan-actions { margin-left: auto; gap: 6px; }
+.lan-devices.lan-devices .lan-toolbar button { padding: 0 10px; }
+.lan-table-wrap { border: 1px solid var(--jb-border); border-radius: 6px; overflow: hidden; }
+.lan-table th, .lan-table td { padding: 12px; line-height: 1.5; }
+.lan-table th { padding-top: 8px; padding-bottom: 8px; font-size: 11px; }
+.lan-table th:nth-child(1) { width: 23%; }
+.lan-table th:nth-child(2) { width: 18%; }
+.lan-table th:nth-child(3) { width: 14%; }
+.lan-table th:nth-child(4) { width: 18%; }
+.lan-table th:nth-child(5) { width: 12%; }
+.lan-table th:nth-child(6) { width: 15%; }
+.lan-table tbody tr:last-child td { border-bottom: 0; }
+.lan-table tbody tr:hover { background: var(--jb-surface-2); }
+.lan-table strong { display: flex; gap: 4px; align-items: center; font-weight: 600; }
+.lan-table strong > svg { flex-shrink: 0; color: var(--jb-accent); }
+.lan-table small { margin-top: 3px; font-size: 11px; }
+.lan-mac { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 10px !important; }
+.lan-table .lan-os.has-os { color: var(--jb-text); }
+.lan-evidence { margin: 0; padding-left: 18px; line-height: 1.8; }
+.lan-state { color: var(--jb-muted); }
+.lan-state i { display: inline-block; width: 6px; height: 6px; margin-right: 5px; border-radius: 50%; background: var(--jb-subtle); vertical-align: middle; }
+.lan-state.is-seen { color: var(--jb-success); }
+.lan-state.is-seen i { background: var(--jb-success); }
+.lan-services { display: flex; flex-wrap: wrap; gap: 4px; }
+.lan-services > span { display: inline-flex; gap: 5px; padding: 2px 6px; border: 1px solid var(--jb-border); border-radius: 4px; background: var(--jb-surface-2); font-size: 10px; }
+.lan-services em { font-style: normal; color: var(--jb-muted); }
+.lan-empty { display: grid; justify-items: center; gap: 10px; padding: 32px 12px; }
+.lan-empty p { margin: 0; }
+.lan-table .lan-actions { gap: 3px 10px; }
+.lan-devices.lan-devices .lan-table .table-link { min-height: 26px; padding: 1px 0; font-size: 11px; background: transparent; }
+.lan-devices.lan-devices .lan-table .table-link:first-child { padding: 1px 8px; border: 1px solid var(--jb-border-strong); color: var(--jb-text); }
+.lan-help { margin-top: 12px; color: var(--jb-muted); font-size: 11px; line-height: 1.7; }
+.lan-help summary { cursor: pointer; width: fit-content; }
+.lan-help p { margin: 8px 0 0; max-width: 900px; }
+.lan-devices summary:focus-visible { outline: 2px solid var(--jb-accent); outline-offset: 2px; }
+@container (max-width: 1080px) {
+  .lan-scan-form { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .lan-scan-form > .lan-actions { justify-content: flex-end; }
+}
+@container (max-width: 740px) {
+  .lan-table, .lan-table tbody { display: block; }
+  .lan-table thead { display: none; }
+  .lan-table-wrap { border: 0; }
+  .lan-table tr { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); border: 1px solid var(--jb-border); border-radius: 5px; margin-bottom: 10px; }
+  .lan-table td { display: block; min-width: 0; border: 0; }
+  .lan-table td::before { content: attr(data-label); display: block; font-size: 11px; color: var(--jb-muted); margin-bottom: 5px; }
+  .lan-toolbar > .lan-actions { margin-left: 0; }
+}
+@container (max-width: 440px) {
+  .lan-scan-form, .lan-table tr { grid-template-columns: minmax(0, 1fr); }
+  .lan-scan-form > .lan-actions { justify-content: flex-start; flex-wrap: wrap; }
+  .lan-toolbar label:first-child { max-width: none; flex-basis: 100%; }
+}
+
+/* SharedDialog is portalled outside the scanner; scope its content explicitly. */
+.shared-content-dialog.lan-device-dialog { width: min(760px, calc(100vw - 32px)); font-size: 12px; }
+.lan-device-dialog > .modal-body { display: flex; flex-direction: column; gap: 20px; padding: 20px; }
+.lan-device-summary { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.lan-device-symbol { display: grid; place-items: center; flex: 0 0 46px; height: 46px; border: 1px solid var(--jb-border); border-radius: 7px; background: var(--jb-surface-2); color: var(--jb-accent); }
+.lan-device-summary > div { flex: 1; min-width: 0; }
+.lan-device-summary strong { display: block; font-size: 18px; font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
+.lan-device-address { display: block; margin-top: 4px; color: var(--jb-muted); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+.lan-device-summary > svg { color: var(--jb-accent); flex-shrink: 0; }
+.lan-device-columns { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 24px; }
+.lan-device-columns > section + section { padding-left: 24px; border-left: 1px solid var(--jb-border); }
+.lan-device-section { min-width: 0; }
+.lan-device-dialog .lan-device-section h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; color: var(--jb-text); font-size: 12px; font-weight: 600; }
+.lan-device-section h3 > span { color: var(--jb-muted); font-weight: 400; }
+.lan-device-dialog .lan-details { line-height: 1.6; }
+.lan-device-mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+.lan-device-os { display: inline-block; max-width: 100%; box-sizing: border-box; padding: 5px 8px; border-radius: 4px; background: var(--jb-surface-2); color: var(--jb-muted); overflow-wrap: anywhere; }
+.lan-device-os.has-os { color: var(--jb-text); background: var(--jb-accent-soft); }
+.lan-device-dialog .lan-device-hint { margin: 10px 0 0; color: var(--jb-muted); font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
+.lan-device-services, .lan-device-evidence, .lan-device-notes { border-top: 1px solid var(--jb-border); padding-top: 16px; }
+.lan-device-port-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.lan-device-port-list > span { display: inline-flex; align-items: center; gap: 12px; padding: 7px 10px; border: 1px solid var(--jb-border); border-radius: 4px; background: var(--jb-surface-2); }
+.lan-device-port-list strong { font-size: 12px; font-weight: 500; }
+.lan-device-port-list code { color: var(--jb-muted); font-size: 11px; }
+.lan-device-dialog .lan-device-port-list > p { margin: 0; }
+.lan-device-services .lan-actions:not(:empty) { margin-top: 12px; }
+.lan-device-dialog .lan-actions button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; width: auto; min-height: 30px; padding: 4px 10px; border: 1px solid var(--jb-border-strong); border-radius: 4px; background: var(--jb-surface); color: var(--jb-text); font-size: 12px; }
+.lan-device-dialog .lan-actions button:hover { background: var(--jb-surface-2); border-color: var(--jb-accent); }
+.lan-device-dialog .lan-evidence { padding: 0; margin: 0; list-style: none; color: var(--jb-muted); font-size: 12px; line-height: 1.7; }
+.lan-device-evidence li { padding-left: 12px; position: relative; overflow-wrap: anywhere; }
+.lan-device-evidence li + li { margin-top: 5px; }
+.lan-device-evidence li::before { content: ""; position: absolute; top: .7em; left: 0; width: 4px; height: 4px; border-radius: 50%; background: var(--jb-subtle); }
+.lan-device-notes p { margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; }
+.lan-device-dialog .lan-device-updated { margin: 0; color: var(--jb-muted); font-size: 11px; }
+.lan-device-dialog > .modal-actions > button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; width: auto; min-height: 32px; font-size: 12px; }
+@media (max-width: 600px) {
+  .lan-device-columns { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .lan-device-columns > section + section { border-left: 0; border-top: 1px solid var(--jb-border); padding: 16px 0 0; }
+  .lan-device-dialog > .modal-body { gap: 16px; padding: 16px; }
+  .lan-device-summary strong { font-size: 16px; }
+}

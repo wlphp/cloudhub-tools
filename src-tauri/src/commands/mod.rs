@@ -1,4 +1,5 @@
 pub mod accounts;
+pub mod ip_location;
 #[cfg(desktop)]
 pub mod claude_workbench;
 #[cfg(desktop)]
@@ -64,3 +65,5 @@ pub mod desktop_pet;
 pub mod notes;
 pub mod trash;
 pub mod claude_providers;
+#[cfg(desktop)]
+pub mod lan;

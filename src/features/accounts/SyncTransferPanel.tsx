@@ -17,6 +17,7 @@ import "./sync-transfer.css";
 
 type Props = {
   mode: "desktop" | "mobile";
+  mobilePage?: boolean;
   accounts?: Account[];
   managedHosts?: ManagedHost[];
   panels?: PanelConnection[];
@@ -35,7 +36,7 @@ function transferErrorMessage(cause: unknown, fallback: string) {
   return fallback;
 }
 
-export function SyncTransferPanel({ mode, accounts = [], managedHosts = [], panels = [], onClose, onImported }: Props) {
+export function SyncTransferPanel({ mode, mobilePage = false, accounts = [], managedHosts = [], panels = [], onClose, onImported }: Props) {
   const mobile = mode === "mobile";
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [selectedManagedHostIds, setSelectedManagedHostIds] = useState<Set<number>>(new Set());
@@ -86,6 +87,7 @@ export function SyncTransferPanel({ mode, accounts = [], managedHosts = [], pane
   const [includeQrDeletions, setIncludeQrDeletions] = useState(false);
   const [approvalListenerReady, setApprovalListenerReady] = useState(false);
   const [databasePreview, setDatabasePreview] = useState<DatabaseImportPreview | null>(null);
+  const [backupPassword, setBackupPassword] = useState("");
   const [cameraPermissionDenied, setCameraPermissionDenied] = useState(false);
   const databaseFileInput = useRef<HTMLInputElement>(null);
   const initializedAccountSelection = useRef(false);
@@ -234,9 +236,22 @@ export function SyncTransferPanel({ mode, accounts = [], managedHosts = [], pane
 
   async function readDatabaseBackup(file?: File) {
     setError(""); setNotice(""); setDatabasePreview(null); setPreview(null);
+    if (runningInTauri) {
+      setBusy(true);
+      try {
+        const result = await databaseClient.prepareBackupImport(backupPassword || undefined);
+        if (result) {
+          setDatabasePreview(result);
+          setBackupPassword("");
+          setNotice("文件校验通过。确认后将用电脑数据替换手机当前数据。");
+        }
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : "无法读取电脑备份");
+      } finally { setBusy(false); }
+      return;
+    }
     if (!file) return;
     if (!file.name.toLowerCase().endsWith(".chdb")) { setError("请选择电脑导出的 .chdb 数据备份。"); return; }
-    if (runningInTauri) { setError("整库备份导入目前需要使用手机浏览器预览版。"); return; }
     setBusy(true);
     try {
       const result = await databaseClient.prepareBrowserImport(file);
@@ -272,6 +287,7 @@ export function SyncTransferPanel({ mode, accounts = [], managedHosts = [], pane
     if (!databasePreview) return;
     const token = databasePreview.token;
     setDatabasePreview(null);
+    setBackupPassword("");
     try { if (runningInTauri) await databaseClient.cancelImport(token); else await databaseClient.cancelBrowserImport(token); }
     catch { /* The server also removes expired previews. */ }
   }
@@ -301,7 +317,7 @@ export function SyncTransferPanel({ mode, accounts = [], managedHosts = [], pane
   const footer = <><small>已选 {selectedCount + selectedManagedHostCount + selectedPanelCount + selectedFlowIds.size + selectedCertificateIds.size + selectedAuthIds.size + selectedAiIds.size} 项</small><div>{onClose && <button className="secondary" type="button" onClick={onClose}>关闭</button>}
     <button className="primary sync-transfer-primary" type="button" disabled={busy || !runningInTauri || !approvalListenerReady || (!!pendingClientAddress && !pairingUrl) || (!pairingUrl && !selectedIds.size && !selectedManagedHostIds.size && !selectedPanelIds.size && !selectedFlowIds.size && !selectedCertificateIds.size && !selectedAuthIds.size && !selectedAiIds.size)} onClick={() => pairingUrl ? setQrDialogOpen(true) : void startQrTransfer()}><ShieldCheck size={17} aria-hidden="true" />{busy ? "正在开启…" : !approvalListenerReady ? "正在准备授权…" : pairingUrl ? "重新显示迁移二维码" : "显示手机迁移二维码（免口令）"}</button></div></>;
   const content = <>
-    {mobile && <header className="sync-transfer-heading">
+    {mobile && !mobilePage && <header className="sync-transfer-heading">
       <div className="sync-transfer-icon"><FileLock2 size={19} aria-hidden="true" /></div>
       <div><p>跨设备迁移</p><h2 id="sync-transfer-title">{mobile ? "导入电脑数据" : "迁移到手机"}</h2></div>
       {onClose && <button type="button" className="sync-transfer-close" aria-label="返回更多管理" onClick={onClose}><X size={18} /></button>}
@@ -312,11 +328,14 @@ export function SyncTransferPanel({ mode, accounts = [], managedHosts = [], pane
       <p className="sync-transfer-intro">电脑和手机在同一局域网时，可扫码选择性迁移；也可导入电脑导出的整库备份。</p>
       {runningInTauri ? <button className="sync-transfer-primary" type="button" disabled={busy} onClick={() => void scanComputerQr()}><Upload size={17} aria-hidden="true" />{busy ? "正在扫码并连接电脑…" : "扫码从电脑迁移（免口令）"}</button> : <p className="sync-transfer-status">扫码迁移需要在手机 App 中使用；当前浏览器预览不支持原生扫码。</p>}
       <h3 className="sync-transfer-mobile-import-title">导入电脑备份</h3>
-      <label className="sync-transfer-file">
+      {runningInTauri && <label className="sync-transfer-backup-password">备份密码（可选）<input type="password" autoComplete="off" value={backupPassword} onChange={(event) => setBackupPassword(event.target.value)} disabled={busy} placeholder="留空表示未加密备份" /></label>}
+      {runningInTauri ? <button className="sync-transfer-file" type="button" onClick={() => void readDatabaseBackup()} disabled={busy}>
+        <Upload size={17} aria-hidden="true" /><span>{busy ? "正在校验备份…" : "选择 .chdb 电脑备份文件"}</span>
+      </button> : <label className="sync-transfer-file">
         <Upload size={17} aria-hidden="true" /><span>{busy ? "正在校验备份…" : "选择 .chdb 电脑备份文件"}</span>
         <input ref={databaseFileInput} type="file" accept=".chdb,application/octet-stream" onChange={(event) => void readDatabaseBackup(event.currentTarget.files?.[0])} disabled={busy} />
-      </label>
-      <div className="sync-transfer-safety" role="note"><LockKeyhole size={15} aria-hidden="true" /><span>.chdb 包含完整数据库和解密密钥，无需口令。请只导入可信文件；确认后会替换手机现有数据，并自动保留导入前备份。</span></div>
+      </label>}
+      <div className="sync-transfer-safety" role="note"><LockKeyhole size={15} aria-hidden="true" /><span>{runningInTauri ? ".chdb 支持未加密备份和密码备份；密码备份请输入创建时设置的密码，密码不会保存。请只导入可信文件；确认后会替换手机现有数据，并自动保留导入前备份。" : ".chdb 未加密备份可在浏览器预览中导入；密码备份请使用手机 App 导入。请只导入可信文件；确认后会替换手机现有数据，并自动保留导入前备份。"}</span></div>
       {databasePreview && <div className="sync-transfer-preview" aria-live="polite">
         <h3>备份内容：{databasePreview.packageName}</h3>
         <p>导出时间：{databasePreview.exportedAt} · 共 {databasePreview.totalRecords} 条记录</p>
@@ -416,5 +435,5 @@ export function SyncTransferPanel({ mode, accounts = [], managedHosts = [], pane
           {pendingClientAddress && <div className="sync-transfer-approval" role="alert"><strong>手机请求接收配置</strong><span>局域网地址：{pendingClientAddress}</span><span>设备身份：<code>{pendingDeviceIdentity}</code></span><span>请求校验码：<strong>{pendingVerificationCode}</strong></span><small>请核对手机显示的校验码和设备指纹，再确认请求来自你手上的设备。</small><div><button type="button" disabled={busy} onClick={() => void decideQrRequest(false)}>拒绝</button><button type="button" disabled={busy} onClick={() => void decideQrRequest(true)}>批准并发送</button></div></div>}
     </SharedDialog>}
   </>;
-  return mobile ? <section className="sync-transfer-panel sync-transfer-mobile" aria-labelledby="sync-transfer-title">{content}</section> : <SharedDialog title="迁移到手机" eyebrow="跨设备迁移" icon={<FileLock2 size={19} aria-hidden="true" />} className="sync-transfer-panel sync-transfer-desktop ide-theme" bodyClassName="sync-transfer-dialog-body" closeLabel="关闭迁移面板" defaultExpanded onClose={() => onClose?.()} footerClassName="sync-transfer-footer" footer={footer}>{content}</SharedDialog>;
+  return mobile ? <section className={`sync-transfer-panel sync-transfer-mobile${mobilePage ? " sync-transfer-mobile-page" : ""}`} aria-labelledby="sync-transfer-title">{content}</section> : <SharedDialog title="迁移到手机" eyebrow="跨设备迁移" icon={<FileLock2 size={19} aria-hidden="true" />} className="sync-transfer-panel sync-transfer-desktop ide-theme" bodyClassName="sync-transfer-dialog-body" closeLabel="关闭迁移面板" defaultExpanded onClose={() => onClose?.()} footerClassName="sync-transfer-footer" footer={footer}>{content}</SharedDialog>;
 }

@@ -1,21 +1,25 @@
 /* 通用分页条：上一页/当前页/下一页 + 跳页 + 总数 + 每页条数。
    控件规则统一挂在 .pagination-bar 作用域下，避免各面板对 button/input/select 的全局规则覆盖尺寸。 */
-.pagination-bar{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px 16px;border-top:1px solid var(--jb-border);color:var(--jb-muted);font-size:12px}
+.pagination-bar{display:flex;align-items:center;flex-wrap:wrap;gap:6px;padding:12px 16px;border-top:1px solid var(--jb-border);color:var(--jb-muted);font-size:12px}
 .pagination-bar button{font:inherit}
-.pagination-bar .pagination-nav{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;min-height:0;flex:0 0 auto;padding:0;border:1px solid var(--jb-border-strong);border-radius:6px;background:var(--jb-bg);color:var(--jb-text);cursor:pointer;gap:0}
-.pagination-bar .pagination-nav:hover:not(:disabled){border-color:var(--jb-accent-strong);color:var(--jb-accent-strong)}
-.pagination-bar .pagination-nav:disabled{opacity:.4;cursor:not-allowed}
-.pagination-bar .pagination-page-number{display:inline-flex;align-items:center;justify-content:center;min-width:30px;height:30px;padding:0 6px;border-radius:6px;background:var(--jb-accent);color:#fff;font-weight:600;white-space:nowrap}
-.pagination-bar .pagination-jump{display:inline-flex;align-items:center;gap:6px}
-.pagination-bar .pagination-jump .pagination-jump-input{box-sizing:border-box;width:46px;min-width:0;height:30px;padding:0 4px;border:1px solid var(--jb-border-strong);border-radius:6px;background:var(--jb-bg);color:var(--jb-text);text-align:center;font:inherit;font-size:12px}
-.pagination-bar .pagination-jump .pagination-jump-input:focus{outline:none;border-color:var(--jb-accent);box-shadow:0 0 0 3px rgba(234,88,12,.15)}
-.pagination-bar .pagination-jump-confirm{height:30px;min-height:0;padding:0 12px;border:1px solid var(--jb-border-strong);border-radius:6px;background:var(--jb-surface-2);color:var(--jb-text);font-size:12px;cursor:pointer;white-space:nowrap}
+.pagination-bar .pagination-nav{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;min-height:0;flex:0 0 auto;padding:0;border:0;border-radius:5px;background:transparent;color:var(--jb-text);cursor:pointer;gap:0}
+.pagination-bar .pagination-nav:hover:not(:disabled),.pagination-bar .pagination-page-number:hover:not(:disabled){background:var(--jb-surface-2);color:var(--jb-accent-strong)}
+.pagination-bar .pagination-nav:disabled{opacity:.35;cursor:not-allowed}
+.pagination-bar .pagination-pages{display:inline-flex;align-items:center;gap:2px}
+.pagination-bar .pagination-page-number{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;min-width:22px;width:22px;height:22px;min-height:0;padding:0;border:0;border-radius:3px;background:transparent;color:#111;font:inherit;line-height:1;cursor:pointer;white-space:nowrap}
+.pagination-bar .pagination-page-number:hover:not(:disabled){background:var(--jb-surface-2)}
+.pagination-bar .pagination-page-number.is-current,.pagination-bar .pagination-page-number.is-current:disabled{background:#14b8a6;color:#fff;font-weight:600;cursor:default}
+.pagination-bar .pagination-ellipsis{display:inline-flex;align-items:center;justify-content:center;width:18px;height:28px;color:var(--jb-muted)}
+.pagination-bar .pagination-jump{display:inline-flex;align-items:center;gap:5px}
+.pagination-bar .pagination-jump .pagination-jump-input{box-sizing:border-box;width:42px;min-width:0;height:26px;padding:0 4px;border:1px solid var(--jb-border);border-radius:3px;background:var(--jb-bg);color:var(--jb-text);text-align:center;font:inherit;font-size:12px}
+.pagination-bar .pagination-jump .pagination-jump-input:focus{outline:none;border-color:var(--jb-accent);box-shadow:0 0 0 2px rgba(234,88,12,.12)}
+.pagination-bar .pagination-jump-confirm{height:26px;min-height:0;padding:0 9px;border:1px solid var(--jb-border);border-radius:3px;background:var(--jb-bg);color:var(--jb-text);font-size:12px;cursor:pointer;white-space:nowrap}
 .pagination-bar .pagination-jump-confirm:hover:not(:disabled){border-color:var(--jb-accent-strong);color:var(--jb-accent-strong)}
 .pagination-bar .pagination-jump-confirm:disabled,.pagination-bar .pagination-jump .pagination-jump-input:disabled,.pagination-bar .pagination-size:disabled{opacity:.4;cursor:not-allowed}
 .pagination-bar .pagination-total{white-space:nowrap}
-.pagination-bar .pagination-size{box-sizing:border-box;width:auto;min-width:0;height:30px;min-height:0;padding:0 6px;border:1px solid var(--jb-border-strong);border-radius:6px;background:var(--jb-bg);color:var(--jb-text);font:inherit;font-size:12px;cursor:pointer}
+.pagination-bar .pagination-size{box-sizing:border-box;width:auto;min-width:0;height:26px;min-height:0;padding:0 5px;border:1px solid var(--jb-border);border-radius:3px;background:var(--jb-bg);color:var(--jb-text);font:inherit;font-size:12px;cursor:pointer}
 .pagination-bar button:focus-visible,.pagination-bar input:focus-visible,.pagination-bar select:focus-visible{outline:2px solid var(--jb-accent-strong);outline-offset:2px}
 /* 卡片流页面（动态口令、收藏）下方是卡片网格而非表格，去掉分隔线并按各自面板习惯排布 */
 .pagination-bar.auth-pagination{border-top:0;justify-content:center}
 .pagination-bar.favorite-pagination{border-top:0}
-@media (max-width:650px){.pagination-bar{padding:10px 12px}.pagination-bar .pagination-nav{width:34px}.pagination-bar .pagination-nav,.pagination-bar .pagination-jump .pagination-jump-input,.pagination-bar .pagination-jump-confirm,.pagination-bar .pagination-size{height:34px}}
+@media (max-width:650px){.pagination-bar{padding:10px 12px;gap:4px}.pagination-bar .pagination-nav{width:30px}.pagination-bar .pagination-nav,.pagination-bar .pagination-jump .pagination-jump-input,.pagination-bar .pagination-jump-confirm,.pagination-bar .pagination-size{height:30px}}

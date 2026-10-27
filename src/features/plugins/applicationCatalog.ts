@@ -14,6 +14,7 @@ const navigation: Record<string, { section?: ApplicationSection; order: number; 
   "cloudhub.hardware-info": { order: 90, sidebar: false, icon: Cpu, keywords: "硬件 设备 系统 CPU 显卡" },
   "cloudhub.wsl-dashboard": { order: 100, sidebar: false, icon: SquareTerminal, keywords: "WSL Linux Ubuntu Debian 发行版" },
   "cloudhub.fingerprint-browser": { order: 110, sidebar: false, icon: Globe, keywords: "Chromium Chrome 代理 浏览器" },
+  "cloudhub.lan-devices": { order: 120, sidebar: false, icon: Network, keywords: "局域网 扫描 IP MAC NAS 打印机 端口 LAN" },
 };
 export const applicationCatalog = officialPlugins.map(definition => ({ ...definition, ...navigation[definition.id] }));
 export type ApplicationDefinition = typeof applicationCatalog[number];

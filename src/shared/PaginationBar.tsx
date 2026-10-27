@@ -29,6 +29,13 @@ export function PaginationBar({ page, pageSize, total, hasNext, onPageChange, on
   const pageCount = total === undefined ? null : Math.max(1, Math.ceil(total / pageSize));
   const prevDisabled = disabled || page <= 1;
   const nextDisabled = disabled || (pageCount !== null ? page >= pageCount : hasNext === false);
+  const pageNumbers = pageCount === null ? [] : pageCount <= 5
+    ? Array.from({ length: pageCount }, (_, index) => index + 1)
+    : page <= 2
+      ? [1, 2, 3, "ellipsis-end" as const, pageCount]
+      : page >= pageCount - 1
+        ? [1, "ellipsis-start" as const, pageCount - 2, pageCount - 1, pageCount]
+        : [1, "ellipsis-start" as const, page - 1, page, page + 1, "ellipsis-end" as const, pageCount];
   function applyJump() {
     if (pageCount === null) return;
     const target = Number.parseInt(jumpDraft, 10);
@@ -40,7 +47,9 @@ export function PaginationBar({ page, pageSize, total, hasNext, onPageChange, on
   return (
     <div className={`pagination-bar${className ? ` ${className}` : ""}`}>
       <button type="button" className="pagination-nav" aria-label="上一页" disabled={prevDisabled} onClick={() => onPageChange(page - 1)}><ChevronLeft size={15} /></button>
-      <span className="pagination-page-number" aria-current="page">{page}</span>
+      {pageCount !== null ? <nav className="pagination-pages" aria-label="分页">{pageNumbers.map((item) => typeof item === "number"
+        ? <button key={item} type="button" className={`pagination-page-number${item === page ? " is-current" : ""}`} aria-current={item === page ? "page" : undefined} aria-label={`第 ${item} 页`} disabled={disabled || item === page} onClick={() => onPageChange(item)}>{item}</button>
+        : <span key={item} className="pagination-ellipsis" aria-hidden="true">…</span>)}</nav> : <span className="pagination-page-number is-current" aria-current="page">{page}</span>}
       <button type="button" className="pagination-nav" aria-label="下一页" disabled={nextDisabled} onClick={() => onPageChange(page + 1)}><ChevronRight size={15} /></button>
       {pageCount !== null && (
         <span className="pagination-jump">

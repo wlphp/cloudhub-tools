@@ -41,7 +41,7 @@ function PresentationButton({ pluginId, onOpen }: { pluginId: string; onOpen: (i
   </button>;
 }
 
-type StoreProps = { initialPluginId?: string; forceInitialPageMode?: boolean; applicationSettings: ApplicationPreferenceState; onOpenSection: (section: ApplicationSection) => void; onReturnCatalog: () => void };
+type StoreProps = { initialPluginId?: string; forceInitialPageMode?: boolean; applicationSettings: ApplicationPreferenceState; onOpenSection: (section: ApplicationSection) => void; onReturnCatalog: () => void; onLanConnect?: (ip: string, platform: "linux" | "windows", name: string) => void };
 
 function OrderCell({ app, settings }: { app: ApplicationDefinition; settings: ApplicationPreferenceState }) {
   const order = applicationPreference(app, settings.preferences).order;
@@ -69,7 +69,7 @@ function SidebarCell({ app, settings }: { app: ApplicationDefinition; settings: 
   return <td data-label="左侧菜单显示"><label className="store-switch"><input type="checkbox" aria-label={`左侧菜单显示${app.name}`} checked={applicationPreference(app, settings.preferences).sidebar} disabled={!settings.ready || settings.saving} onChange={event => void settings.update(app.id, { sidebar: event.target.checked })} /><span aria-hidden="true" /></label></td>;
 }
 
-function OfficialPluginsStore({ initialPluginId, forceInitialPageMode, applicationSettings, onOpenSection, onReturnCatalog }: StoreProps) {
+function OfficialPluginsStore({ initialPluginId, forceInitialPageMode, applicationSettings, onOpenSection, onReturnCatalog, onLanConnect }: StoreProps) {
   const { get } = usePluginPresentation();
   const [config, setConfig] = useState(readConfig);
   const [status, setStatus] = useState<WechatPluginStatus | null>(null);
@@ -232,7 +232,7 @@ function OfficialPluginsStore({ initialPluginId, forceInitialPageMode, applicati
 
   const application = activePlugin && (activePlugin.id === hardwarePlugin.id && (!hardwareEnabled || !runningInTauri)
     ? <p role="status">电脑信息当前已停用或运行环境不支持，请返回软件商店检查启用状态，并在桌面客户端使用。</p>
-    : <PluginApplication pluginId={activePlugin.id} wslEnabled={wslEnabled} onNotify={activePlugin.presentation.mode === "modal" ? setMessage : undefined} onError={activePlugin.presentation.mode === "modal" ? setError : undefined} />);
+    : <PluginApplication pluginId={activePlugin.id} wslEnabled={wslEnabled} onLanConnect={onLanConnect ? (ip, platform, name) => { closePlugin(); onLanConnect(ip, platform, name); } : undefined} onNotify={activePlugin.presentation.mode === "modal" ? setMessage : undefined} onError={activePlugin.presentation.mode === "modal" ? setError : undefined} />);
   const activeDefinition = officialPlugins.find(item => item.id === activePlugin?.id);
   if (activePlugin?.presentation.mode === "page" && activeDefinition) {
     return <PluginPageHost title={activeDefinition.name} onClose={closePlugin}>{application}</PluginPageHost>;
@@ -327,10 +327,10 @@ function OfficialPluginsStore({ initialPluginId, forceInitialPageMode, applicati
           <td data-label="软件名称"><div className="store-app-name"><Icon size={20} aria-hidden="true" /><div><strong>{app.name}</strong><small>v{app.version} · 官方</small></div></div></td>
           <td data-label="开发商"><span className="store-publisher">官方</span><small>{app.publisher}</small></td>
           <td data-label="说明" className="store-description">{app.description}</td>
-          <td data-label="价格">免费</td><td data-label="平台">Windows / macOS / Linux</td>
+          <td data-label="价格">免费</td><td data-label="平台">{app.id === "cloudhub.lan-devices" ? "Windows / macOS" : "Windows / macOS / Linux"}</td>
           <td data-label="状态"><span className="store-state"><i aria-hidden="true" />已内置</span></td><td data-label="启用">已内置</td>
           {sidebarCell}
-          <td data-label="操作"><button type="button" className="table-link" data-plugin-entry={app.id} onClick={() => openPlugin(app.id)}>打开</button></td>
+          <td data-label="操作"><div className="store-row-actions">{app.id === "cloudhub.lan-devices" && <PresentationButton pluginId={app.id} onOpen={setPresentationFor} />}<button type="button" className="table-link" data-plugin-entry={app.id} onClick={() => openPlugin(app.id)}>打开</button></div></td>
         </tr>;
         })}
       </tbody></table>

@@ -2,7 +2,7 @@ import { nativeOnly, invokeOrWeb } from "./base";
 import type { Certificate, PanelConnection } from "../../shared/types";
 
 export type CertificateImportPreview = { token: string; candidates: Array<{ id: string; primaryDomain: string; domains: string[]; issuer: string; serialNumber: string; notBefore: number; notAfter: number; fingerprint: string; warnings: string[] }> };
-export type BaotaSiteCertificate = { id: number; panelId: number | null; panelName: string; siteId: number; siteName: string; siteRemark?: string | null; pendingRenewal?: boolean; siteDomains: string[]; certificateDomains: string[]; enabled: boolean; issuer: string | null; notAfter: number | null; fingerprint: string | null; certificateId: number | null; canRenew: boolean; canImport: boolean; capabilityReason: string; checkedAt: number; error: string | null };
+export type BaotaSiteCertificate = { id: number; panelId: number | null; panelName: string; siteId: number; siteName: string; serverIp?: string | null; panelOrder?: number | null; siteRemark?: string | null; pendingRenewal?: boolean; siteDomains: string[]; certificateDomains: string[]; enabled: boolean; issuer: string | null; notAfter: number | null; fingerprint: string | null; certificateId: number | null; canRenew: boolean; canImport: boolean; capabilityReason: string; checkedAt: number; error: string | null };
 export type BaotaCertificateOperation = { renewed: boolean; deployed: boolean; message: string; site: BaotaSiteCertificate };
 
 export type CertificateMetadata = Pick<Certificate, "provider" | "primaryDomain" | "domains" | "status" | "issuer" | "serialNumber" | "notBefore" | "notAfter" | "updatedAt"> & { syncId: string };
@@ -34,6 +34,8 @@ export const certificatesClient = {
   panels(): Promise<PanelConnection[]> { return nativeOnly("list_panel_connections"); },
   baotaSites(panelId?: number): Promise<BaotaSiteCertificate[]> { return nativeOnly("list_baota_site_certificates", { panelId: panelId ?? null }); },
   syncBaota(panelId: number): Promise<BaotaSiteCertificate[]> { return nativeOnly("sync_baota_site_certificates", { panelId }); },
+  removeBaotaDomain(id: number, domain: string): Promise<BaotaSiteCertificate> { return nativeOnly("remove_baota_site_domain", { id, domain }); },
+  resolveBaotaDomain(domain: string): Promise<string[]> { return nativeOnly("resolve_baota_site_domain", { domain }); },
   importBaota(id: number): Promise<Certificate> { return nativeOnly("import_baota_site_certificate", { id }); },
   confirmBaotaRetry(id: number): Promise<void> { return nativeOnly("confirm_baota_certificate_retry", { id }); },
   renewBaota(id: number): Promise<BaotaCertificateOperation> { return nativeOnly("renew_baota_site_certificate", { id }); },

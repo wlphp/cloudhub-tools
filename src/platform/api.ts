@@ -74,6 +74,7 @@ function publicPlatformMessage(code: PlatformErrorCode, rawMessage: string): str
     .replace(CREDENTIAL_SHAPE, "$1$2[已隐藏]")
     .replace(BEARER_CREDENTIAL, "$1[已隐藏]")
     .trim();
+  if (/^(failed to fetch|network request failed)$/i.test(text)) return "本地服务未连接，请启动移动端调试服务后重试";
   return text.slice(0, MAX_ERROR_LENGTH) || EMPTY_MESSAGE_FALLBACK[code] || "操作失败：后端未返回具体原因";
 }
 

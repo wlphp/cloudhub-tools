@@ -1,0 +1,701 @@
+2026-10-25T15:56:15.2870150Z Current runner version: '2.338.0'
+2026-10-25T15:56:15.2909870Z ##[group]Runner Image Provisioner
+2026-10-25T15:56:15.2911360Z Hosted Compute Agent
+2026-10-25T15:56:15.2912330Z Version: 20260828.587
+2026-10-25T15:56:15.2913430Z Commit: abac92662cab4cc7352de4f9f9d2e2419aad9c29
+2026-10-25T15:56:15.2914670Z Build Date: 2026-08-28T16:44:25Z
+2026-10-25T15:56:15.2915850Z Worker ID: {0979a8c0-338f-4f4b-ab27-537e6959addb}
+2026-10-25T15:56:15.2917060Z Azure Region: westus
+2026-10-25T15:56:15.2918010Z ##[endgroup]
+2026-10-25T15:56:15.2920370Z ##[group]Operating System
+2026-10-25T15:56:15.2921560Z macOS
+2026-10-25T15:56:15.2922400Z 15.7.9
+2026-10-25T15:56:15.2923250Z 24G830
+2026-10-25T15:56:15.2924120Z ##[endgroup]
+2026-10-25T15:56:15.2925030Z ##[group]Runner Image
+2026-10-25T15:56:15.2926030Z Image: macos-15-arm64
+2026-10-25T15:56:15.2927020Z Version: 20260907.0337.1
+2026-10-25T15:56:15.2929290Z Included Software: https://github.com/actions/runner-images/blob/macos-15-arm64/20260907.0337/images/macos/macos-15-arm64-Readme.md
+2026-10-25T15:56:15.2932150Z Image Release: https://github.com/actions/runner-images/releases/tag/macos-15-arm64%2F20260907.0337
+2026-10-25T15:56:15.2934470Z ##[endgroup]
+2026-10-25T15:56:15.2935350Z ##[group]GITHUB_TOKEN Permissions
+2026-10-25T15:56:15.2937200Z Contents: write
+2026-10-25T15:56:15.2937580Z Metadata: read
+2026-10-25T15:56:15.2937950Z ##[endgroup]
+2026-10-25T15:56:15.2939870Z Secret source: Actions
+2026-10-25T15:56:15.2940500Z Cache mode: write
+2026-10-25T15:56:15.2940960Z Prepare workflow directory
+2026-10-25T15:56:15.3331930Z Prepare all required actions
+2026-10-25T15:56:15.3385860Z Getting action download info
+2026-10-25T15:56:15.6085600Z Download action repository 'actions/checkout@v5' (SHA:fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09)
+2026-10-25T15:56:15.8654650Z Download action repository 'actions/setup-node@v5' (SHA:a0853c24544627f65ddf259abe73b1d18a591444)
+2026-10-25T15:56:15.9908470Z Download action repository 'dtolnay/rust-toolchain@stable' (SHA:b725eda525362e7cf34af9a7243cac1e3f01a7ec)
+2026-10-25T15:56:16.2838520Z Download action repository 'Swatinem/rust-cache@v2' (SHA:d1527c8f67ef9af357290475d4af4b0fab8f12e0)
+2026-10-25T15:56:16.8296780Z Complete job name: Release unsigned iOS Xcode archive
+2026-10-25T15:56:16.8829310Z ##[group]Run actions/checkout@v5
+2026-10-25T15:56:16.8829920Z with:
+2026-10-25T15:56:16.8830240Z   ref: v0.1.90
+2026-10-25T15:56:16.8830580Z   repository: wlphp/cloudhub-tools
+2026-10-25T15:56:16.8833200Z   token: ***
+2026-10-25T15:56:16.8833520Z   ssh-strict: true
+2026-10-25T15:56:16.8833830Z   ssh-user: git
+2026-10-25T15:56:16.8834170Z   persist-credentials: true
+2026-10-25T15:56:16.8834520Z   clean: true
+2026-10-25T15:56:16.8834850Z   sparse-checkout-cone-mode: true
+2026-10-25T15:56:16.8835230Z   fetch-depth: 1
+2026-10-25T15:56:16.8835550Z   fetch-tags: false
+2026-10-25T15:56:16.8835880Z   show-progress: true
+2026-10-25T15:56:16.8836210Z   lfs: false
+2026-10-25T15:56:16.8836510Z   submodules: false
+2026-10-25T15:56:16.8836840Z   set-safe-directory: true
+2026-10-25T15:56:16.8837310Z   allow-unsafe-pr-checkout: false
+2026-10-25T15:56:16.8837830Z env:
+2026-10-25T15:56:16.8838140Z   RELEASE_TAG: v0.1.90
+2026-10-25T15:56:16.8838470Z ##[endgroup]
+2026-10-25T15:56:17.2845820Z Syncing repository: wlphp/cloudhub-tools
+2026-10-25T15:56:17.2847620Z ##[group]Getting Git version info
+2026-10-25T15:56:17.2848280Z Working directory is '/Users/runner/work/cloudhub-tools/cloudhub-tools'
+2026-10-25T15:56:17.2849270Z [command]/opt/homebrew/bin/git version
+2026-10-25T15:56:17.3381150Z git version 2.55.0
+2026-10-25T15:56:17.3400170Z ##[endgroup]
+2026-10-25T15:56:17.3414400Z Copying '/Users/runner/.gitconfig' to '/Users/runner/work/_temp/827c0fbe-5b01-499e-bf46-2a8e7067c1e4/.gitconfig'
+2026-10-25T15:56:17.3418120Z Temporarily overriding HOME='/Users/runner/work/_temp/827c0fbe-5b01-499e-bf46-2a8e7067c1e4' before making global git config changes
+2026-10-25T15:56:17.3422280Z Adding repository directory to the temporary git global config as a safe directory
+2026-10-25T15:56:17.3423380Z [command]/opt/homebrew/bin/git config --global --add safe.directory /Users/runner/work/cloudhub-tools/cloudhub-tools
+2026-10-25T15:56:17.3547510Z Deleting the contents of '/Users/runner/work/cloudhub-tools/cloudhub-tools'
+2026-10-25T15:56:17.3549880Z ##[group]Initializing the repository
+2026-10-25T15:56:17.3552990Z [command]/opt/homebrew/bin/git init /Users/runner/work/cloudhub-tools/cloudhub-tools
+2026-10-25T15:56:17.4555160Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-10-25T15:56:17.4556450Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-10-25T15:56:17.4557450Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-10-25T15:56:17.4564010Z hint: call:
+2026-10-25T15:56:17.4565190Z hint:
+2026-10-25T15:56:17.4566530Z hint: 	git config --global init.defaultBranch <name>
+2026-10-25T15:56:17.4567980Z hint:
+2026-10-25T15:56:17.4576500Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-10-25T15:56:17.4577330Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-10-25T15:56:17.4577940Z hint:
+2026-10-25T15:56:17.4595860Z hint: 	git branch -m <name>
+2026-10-25T15:56:17.4596710Z hint:
+2026-10-25T15:56:17.4597250Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-10-25T15:56:17.4598380Z Initialized empty Git repository in /Users/runner/work/cloudhub-tools/cloudhub-tools/.git/
+2026-10-25T15:56:17.4604380Z [command]/opt/homebrew/bin/git remote add origin https://github.com/wlphp/cloudhub-tools
+2026-10-25T15:56:17.4700150Z ##[endgroup]
+2026-10-25T15:56:17.4702370Z ##[group]Disabling automatic garbage collection
+2026-10-25T15:56:17.4714340Z [command]/opt/homebrew/bin/git config --local gc.auto 0
+2026-10-25T15:56:17.4801300Z ##[endgroup]
+2026-10-25T15:56:17.4802060Z ##[group]Setting up auth
+2026-10-25T15:56:17.4806960Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-10-25T15:56:17.4875100Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-10-25T15:56:17.6129810Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-10-25T15:56:17.6194290Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-10-25T15:56:17.7239410Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-10-25T15:56:17.7310450Z [command]/opt/homebrew/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-10-25T15:56:17.8169380Z [command]/opt/homebrew/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-10-25T15:56:17.8245210Z ##[endgroup]
+2026-10-25T15:56:17.8251270Z ##[group]Fetching the repository
+2026-10-25T15:56:17.8259880Z [command]/opt/homebrew/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +refs/heads/v0.1.90*:refs/remotes/origin/v0.1.90* +refs/tags/v0.1.90*:refs/tags/v0.1.90*
+2026-10-25T15:56:19.2363960Z From https://github.com/wlphp/cloudhub-tools
+2026-10-25T15:56:19.2366040Z  * [new tag]         v0.1.90    -> v0.1.90
+2026-10-25T15:56:19.2370660Z ##[endgroup]
+2026-10-25T15:56:19.2372620Z ##[group]Determining the checkout info
+2026-10-25T15:56:19.2374520Z [command]/opt/homebrew/bin/git branch --list --remote origin/v0.1.90
+2026-10-25T15:56:19.2460750Z [command]/opt/homebrew/bin/git tag --list v0.1.90
+2026-10-25T15:56:19.2536030Z v0.1.90
+2026-10-25T15:56:19.2540600Z ##[endgroup]
+2026-10-25T15:56:19.2543510Z [command]/opt/homebrew/bin/git sparse-checkout disable
+2026-10-25T15:56:19.2629300Z [command]/opt/homebrew/bin/git config --local --unset-all extensions.worktreeConfig
+2026-10-25T15:56:19.2693990Z ##[group]Checking out the ref
+2026-10-25T15:56:19.2696180Z [command]/opt/homebrew/bin/git checkout --progress --force refs/tags/v0.1.90
+2026-10-25T15:56:19.3913240Z HEAD is now at dd08fa5 发布 v0.1.90 版本
+2026-10-25T15:56:19.3928970Z ##[endgroup]
+2026-10-25T15:56:19.4032380Z [command]/opt/homebrew/bin/git log -1 --format=%H
+2026-10-25T15:56:19.4116130Z dd08fa5f703df85782f9d8b4eff4f5e31973c746
+2026-10-25T15:56:19.4352020Z ##[group]Run actions/setup-node@v5
+2026-10-25T15:56:19.4352740Z with:
+2026-10-25T15:56:19.4353270Z   node-version: 22
+2026-10-25T15:56:19.4353860Z   cache: npm
+2026-10-25T15:56:19.4354380Z   always-auth: false
+2026-10-25T15:56:19.4354970Z   check-latest: false
+2026-10-25T15:56:19.4357700Z   token: ***
+2026-10-25T15:56:19.4358290Z   package-manager-cache: true
+2026-10-25T15:56:19.4358910Z env:
+2026-10-25T15:56:19.4359430Z   RELEASE_TAG: v0.1.90
+2026-10-25T15:56:19.4360020Z ##[endgroup]
+2026-10-25T15:56:19.6069610Z (node:2503) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-10-25T15:56:19.6181090Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-10-25T15:56:19.6280320Z Found in cache @ /Users/runner/hostedtoolcache/node/22.23.2/arm64
+2026-10-25T15:56:19.6301100Z ##[group]Environment details
+2026-10-25T15:56:20.3237550Z node: v22.23.2
+2026-10-25T15:56:20.3247480Z npm: 10.9.8
+2026-10-25T15:56:20.3249040Z yarn: 1.22.22
+2026-10-25T15:56:20.3251330Z ##[endgroup]
+2026-10-25T15:56:20.3286270Z [command]/Users/runner/hostedtoolcache/node/22.23.2/arm64/bin/npm config get cache
+2026-10-25T15:56:20.6164530Z /Users/runner/.npm
+2026-10-25T15:56:20.8082650Z npm cache is not found
+2026-10-25T15:56:20.8324950Z ##[group]Run dtolnay/rust-toolchain@stable
+2026-10-25T15:56:20.8325220Z with:
+2026-10-25T15:56:20.8325380Z   targets: aarch64-apple-ios
+2026-10-25T15:56:20.8325590Z   toolchain: stable
+2026-10-25T15:56:20.8325740Z env:
+2026-10-25T15:56:20.8325920Z   RELEASE_TAG: v0.1.90
+2026-10-25T15:56:20.8326090Z ##[endgroup]
+2026-10-25T15:56:20.8387270Z ##[start-action display=Parse toolchain version;id=__dtolnay_rust-toolchain.parse]
+2026-10-25T15:56:20.8437500Z ##[group]Run if [[ -z $toolchain ]]; then
+2026-10-25T15:56:20.8437810Z [36;1mif [[ -z $toolchain ]]; then[0m
+2026-10-25T15:56:20.8438250Z [36;1m  # GitHub does not enforce `required: true` inputs itself. https://github.com/actions/runner/issues/1070[0m
+2026-10-25T15:56:20.8438720Z [36;1m  echo "'toolchain' is a required input" >&2[0m
+2026-10-25T15:56:20.8438970Z [36;1m  exit 1[0m
+2026-10-25T15:56:20.8439250Z [36;1melif [[ $toolchain =~ ^stable' '[0-9]+' '(year|month|week|day)s?' 'ago$ ]]; then[0m
+2026-10-25T15:56:20.8439650Z [36;1m  if [[ macOS == macOS ]]; then[0m
+2026-10-25T15:56:20.8440080Z [36;1m    echo "toolchain=1.$((($(date -v-$(sed 's/stable \([0-9]*\) \(.\).*/\1\2/' <<< $toolchain) +%s)/60/60/24-16569)/7/6))" >> $GITHUB_OUTPUT[0m
+2026-10-25T15:56:20.8440590Z [36;1m  else[0m
+2026-10-25T15:56:20.8440920Z [36;1m    echo "toolchain=1.$((($(date --date "${toolchain#stable }" +%s)/60/60/24-16569)/7/6))" >> $GITHUB_OUTPUT[0m
+2026-10-25T15:56:20.8441350Z [36;1m  fi[0m
+2026-10-25T15:56:20.8441600Z [36;1melif [[ $toolchain =~ ^stable' 'minus' '[0-9]+' 'releases?$ ]]; then[0m
+2026-10-25T15:56:20.8442110Z [36;1m  echo "toolchain=1.$((($(date +%s)/60/60/24-16569)/7/6-${toolchain//[^0-9]/}))" >> $GITHUB_OUTPUT[0m
+2026-10-25T15:56:20.8442490Z [36;1melif [[ $toolchain =~ ^1\.[0-9]+$ ]]; then[0m
+2026-10-25T15:56:20.8442930Z [36;1m  echo "toolchain=1.$((i=${toolchain#1.}, c=($(date +%s)/60/60/24-16569)/7/6, i+9*i*(10*i<=c)+90*i*(100*i<=c)))" >> $GITHUB_OUTPUT[0m
+2026-10-25T15:56:20.8443330Z [36;1melse[0m
+2026-10-25T15:56:20.8443490Z [36;1m  delimiter=EOF[0m
+2026-10-25T15:56:20.8443730Z [36;1m  while [[ $toolchain == *$delimiter* ]]; do delimiter+=_; done[0m
+2026-10-25T15:56:20.8444140Z [36;1m  printf 'toolchain<<%s\n%s\n%s\n' "$delimiter" "$toolchain" "$delimiter" >> $GITHUB_OUTPUT[0m
+2026-10-25T15:56:20.8445050Z [36;1mfi[0m
+2026-10-25T15:56:20.8499890Z shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+2026-10-25T15:56:20.8500160Z env:
+2026-10-25T15:56:20.8500310Z   RELEASE_TAG: v0.1.90
+2026-10-25T15:56:20.8500470Z   toolchain: stable
+2026-10-25T15:56:20.8500690Z ##[endgroup]
+2026-10-25T15:56:20.8858530Z ##[end-action id=__dtolnay_rust-toolchain.parse;outcome=success;conclusion=success;duration_ms=47]
+2026-10-25T15:56:20.8862140Z ##[start-action display=Set $CARGO_HOME;id=__dtolnay_rust-toolchain.__run]
+2026-10-25T15:56:20.8931550Z ##[group]Run echo CARGO_HOME=${CARGO_HOME:-"$HOME/.cargo"} >> $GITHUB_ENV
+2026-10-25T15:56:20.8931960Z [36;1mecho CARGO_HOME=${CARGO_HOME:-"$HOME/.cargo"} >> $GITHUB_ENV[0m
+2026-10-25T15:56:20.8968860Z shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+2026-10-25T15:56:20.8969230Z env:
+2026-10-25T15:56:20.8969380Z   RELEASE_TAG: v0.1.90
+2026-10-25T15:56:20.8969580Z ##[endgroup]
+2026-10-25T15:56:20.9312670Z ##[end-action id=__dtolnay_rust-toolchain.__run;outcome=success;conclusion=success;duration_ms=44]
+2026-10-25T15:56:20.9314830Z ##[start-action display=Install rustup if needed;id=__dtolnay_rust-toolchain.__run_2]
+2026-10-25T15:56:20.9338160Z ##[group]Run if ! command -v rustup &>/dev/null; then
+2026-10-25T15:56:20.9338470Z [36;1mif ! command -v rustup &>/dev/null; then[0m
+2026-10-25T15:56:20.9339110Z [36;1m  curl --proto '=https' --tlsv1.2 --retry 10 --retry-connrefused --location --silent --show-error --fail https://sh.rustup.rs | sh -s -- --default-toolchain none -y[0m
+2026-10-25T15:56:20.9339740Z [36;1m  echo "$CARGO_HOME/bin" >> $GITHUB_PATH[0m
+2026-10-25T15:56:20.9340020Z [36;1mfi[0m
+2026-10-25T15:56:20.9371950Z shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+2026-10-25T15:56:20.9372240Z env:
+2026-10-25T15:56:20.9372400Z   RELEASE_TAG: v0.1.90
+2026-10-25T15:56:20.9372580Z   CARGO_HOME: /Users/runner/.cargo
+2026-10-25T15:56:20.9372800Z ##[endgroup]
+2026-10-25T15:56:20.9764200Z ##[end-action id=__dtolnay_rust-toolchain.__run_2;outcome=success;conclusion=success;duration_ms=44]
+2026-10-25T15:56:20.9766580Z ##[start-action display=Install rustup if needed on windows;id=__dtolnay_rust-toolchain.__run_3]
+2026-10-25T15:56:20.9772530Z ##[end-action id=__dtolnay_rust-toolchain.__run_3;outcome=skipped;conclusion=skipped;duration_ms=0]
+2026-10-25T15:56:20.9782260Z ##[start-action display=rustup toolchain install stable;id=__dtolnay_rust-toolchain.__run_4]
+2026-10-25T15:56:20.9829990Z ##[group]Run set -f  # split targets and components on commas and whitespace, without glob expansion
+2026-10-25T15:56:20.9831540Z [36;1mset -f  # split targets and components on commas and whitespace, without glob expansion[0m
+2026-10-25T15:56:20.9832520Z [36;1mflags=()[0m
+2026-10-25T15:56:20.9833160Z [36;1mfor t in ${targets//,/ }; do flags+=(--target "$t"); done[0m
+2026-10-25T15:56:20.9834070Z [36;1mfor c in ${components//,/ }; do flags+=(--component "$c"); done[0m
+2026-10-25T15:56:20.9835160Z [36;1mif [[ $toolchain == nightly && -n $components ]]; then flags+=(--allow-downgrade); fi[0m
+2026-10-25T15:56:20.9836120Z [36;1mlog=$(mktemp)[0m
+2026-10-25T15:56:20.9836620Z [36;1mtrap 'rm -f "$log"' EXIT[0m
+2026-10-25T15:56:20.9837230Z [36;1mfor attempt in 1 2 3 4 5; do[0m
+2026-10-25T15:56:20.9838470Z [36;1m  if rustup toolchain install "$toolchain" "${flags[@]}" --profile minimal --no-self-update --force-non-host 2>&1 | tee "$log"; then[0m
+2026-10-25T15:56:20.9839700Z [36;1m    break[0m
+2026-10-25T15:56:20.9840140Z [36;1m  else[0m
+2026-10-25T15:56:20.9840590Z [36;1m    status=$?[0m
+2026-10-25T15:56:20.9841080Z [36;1m  fi[0m
+2026-10-25T15:56:20.9841700Z [36;1m  if [[ $attempt == 5 ]] || ! grep -Fq 'checksum failed for ' "$log" \[0m
+2026-10-25T15:56:20.9842950Z [36;1m      || ! grep -Fq 'this is likely due to an ongoing update of the official release server' "$log"; then[0m
+2026-10-25T15:56:20.9843990Z [36;1m    exit "$status"[0m
+2026-10-25T15:56:20.9844480Z [36;1m  fi[0m
+2026-10-25T15:56:20.9845290Z [36;1m  echo "Retrying rustup toolchain install in 30 seconds (retry $attempt of 4)" >&2[0m
+2026-10-25T15:56:20.9847730Z [36;1m  sleep 30[0m
+2026-10-25T15:56:20.9848340Z [36;1mdone[0m
+2026-10-25T15:56:20.9901930Z shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+2026-10-25T15:56:20.9902260Z env:
+2026-10-25T15:56:20.9902420Z   RELEASE_TAG: v0.1.90
+2026-10-25T15:56:20.9902630Z   CARGO_HOME: /Users/runner/.cargo
+2026-10-25T15:56:20.9902830Z   toolchain: stable
+2026-10-25T15:56:20.9903060Z   targets: aarch64-apple-ios
+2026-10-25T15:56:20.9903250Z   components:
+2026-10-25T15:56:20.9903420Z   RUSTUP_PERMIT_COPY_RENAME: 1
+2026-10-25T15:56:20.9903620Z ##[endgroup]
+2026-10-25T15:56:21.4198600Z info: syncing channel updates for stable-aarch64-apple-darwin
+2026-10-25T15:56:21.6655580Z info: latest update on 2026-10-15 for version 1.99.1 (58cf8f9c3 2026-10-13)
+2026-10-25T15:56:21.6885150Z info: removing previous version of component clippy
+2026-10-25T15:56:21.6930130Z info: removing previous version of component rustfmt
+2026-10-25T15:56:21.6966750Z info: removing previous version of component cargo
+2026-10-25T15:56:21.7073980Z info: removing previous version of component rust-std
+2026-10-25T15:56:21.7268520Z info: removing previous version of component rustc
+2026-10-25T15:56:21.7396590Z info: downloading 6 components
+2026-10-25T15:56:31.1379230Z
+2026-10-25T15:56:31.1762290Z   stable-aarch64-apple-darwin updated - rustc 1.99.1 (58cf8f9c3 2026-10-13) (from rustc 1.98.1 (48a229cea 2026-09-01))
+2026-10-25T15:56:31.1763590Z
+2026-10-25T15:56:31.1764250Z info: self-update is disabled for this build of rustup
+2026-10-25T15:56:31.1767590Z info: any updates to rustup will need to be fetched with your system package manager
+2026-10-25T15:56:31.2628560Z ##[end-action id=__dtolnay_rust-toolchain.__run_4;outcome=success;conclusion=success;duration_ms=10278]
+2026-10-25T15:56:31.2652870Z ##[start-action display=rustup default stable;id=__dtolnay_rust-toolchain.__run_5]
+2026-10-25T15:56:31.2680970Z ##[group]Run rustup default "$toolchain" --force-non-host
+2026-10-25T15:56:31.2681520Z [36;1mrustup default "$toolchain" --force-non-host[0m
+2026-10-25T15:56:31.2735680Z shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+2026-10-25T15:56:31.2736050Z env:
+2026-10-25T15:56:31.2736270Z   RELEASE_TAG: v0.1.90
+2026-10-25T15:56:31.2736590Z   CARGO_HOME: /Users/runner/.cargo
+2026-10-25T15:56:31.2736840Z   toolchain: stable
+2026-10-25T15:56:31.2737110Z ##[endgroup]
+2026-10-25T15:56:31.3820030Z info: using existing install for stable-aarch64-apple-darwin
+2026-10-25T15:56:31.3857540Z info: default toolchain set to stable-aarch64-apple-darwin
+2026-10-25T15:56:31.3857970Z
+2026-10-25T15:56:31.4047580Z   stable-aarch64-apple-darwin unchanged - rustc 1.99.1 (58cf8f9c3 2026-10-13)
+2026-10-25T15:56:31.4051920Z
+2026-10-25T15:56:31.4059100Z ##[end-action id=__dtolnay_rust-toolchain.__run_5;outcome=success;conclusion=success;duration_ms=140]
+2026-10-25T15:56:31.4062890Z ##[start-action display=Create cachekey;id=__dtolnay_rust-toolchain.rustc-version]
+2026-10-25T15:56:31.4090320Z ##[group]Run DATE=$(rustc +"$toolchain" --version --verbose | sed -ne 's/^commit-date: \(20[0-9][0-9]\)-\([01][0-9]\)-\([0-3][0-9]\)$/\1\2\3/p')
+2026-10-25T15:56:31.4091310Z [36;1mDATE=$(rustc +"$toolchain" --version --verbose | sed -ne 's/^commit-date: \(20[0-9][0-9]\)-\([01][0-9]\)-\([0-3][0-9]\)$/\1\2\3/p')[0m
+2026-10-25T15:56:31.4092040Z [36;1mHASH=$(rustc +"$toolchain" --version --verbose | sed -ne 's/^commit-hash: //p')[0m
+2026-10-25T15:56:31.4092670Z [36;1mecho "cachekey=$(echo $DATE$HASH | head -c12)" >> $GITHUB_OUTPUT[0m
+2026-10-25T15:56:31.4127310Z shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+2026-10-25T15:56:31.4127800Z env:
+2026-10-25T15:56:31.4128160Z   RELEASE_TAG: v0.1.90
+2026-10-25T15:56:31.4128530Z   CARGO_HOME: /Users/runner/.cargo
+2026-10-25T15:56:31.4128850Z   toolchain: stable
+2026-10-25T15:56:31.4129150Z ##[endgroup]
+2026-10-25T15:56:31.5613620Z ##[end-action id=__dtolnay_rust-toolchain.rustc-version;outcome=success;conclusion=success;duration_ms=154]
+2026-10-25T15:56:31.5616410Z ##[start-action display=Disable incremental compilation;id=__dtolnay_rust-toolchain.__run_6]
+2026-10-25T15:56:31.5638600Z ##[group]Run if [ -z "${CARGO_INCREMENTAL+set}" ]; then
+2026-10-25T15:56:31.5639010Z [36;1mif [ -z "${CARGO_INCREMENTAL+set}" ]; then[0m
+2026-10-25T15:56:31.5639410Z [36;1m  echo CARGO_INCREMENTAL=0 >> $GITHUB_ENV[0m
+2026-10-25T15:56:31.5639740Z [36;1mfi[0m
+2026-10-25T15:56:31.5674410Z shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+2026-10-25T15:56:31.5674840Z env:
+2026-10-25T15:56:31.5675060Z   RELEASE_TAG: v0.1.90
+2026-10-25T15:56:31.5675410Z   CARGO_HOME: /Users/runner/.cargo
+2026-10-25T15:56:31.5675700Z ##[endgroup]
+2026-10-25T15:56:31.6208710Z ##[end-action id=__dtolnay_rust-toolchain.__run_6;outcome=success;conclusion=success;duration_ms=59]
+2026-10-25T15:56:31.6211320Z ##[start-action display=Enable colors in Cargo output;id=__dtolnay_rust-toolchain.__run_7]
+2026-10-25T15:56:31.6230890Z ##[group]Run if [ -z "${CARGO_TERM_COLOR+set}" ]; then
+2026-10-25T15:56:31.6231230Z [36;1mif [ -z "${CARGO_TERM_COLOR+set}" ]; then[0m
+2026-10-25T15:56:31.6231540Z [36;1m  echo CARGO_TERM_COLOR=always >> $GITHUB_ENV[0m
+2026-10-25T15:56:31.6231860Z [36;1mfi[0m
+2026-10-25T15:56:31.6266470Z shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+2026-10-25T15:56:31.6266760Z env:
+2026-10-25T15:56:31.6266910Z   RELEASE_TAG: v0.1.90
+2026-10-25T15:56:31.6267090Z   CARGO_HOME: /Users/runner/.cargo
+2026-10-25T15:56:31.6267320Z   CARGO_INCREMENTAL: 0
+2026-10-25T15:56:31.6267480Z ##[endgroup]
+2026-10-25T15:56:31.6609360Z ##[end-action id=__dtolnay_rust-toolchain.__run_7;outcome=success;conclusion=success;duration_ms=39]
+2026-10-25T15:56:31.6613130Z ##[start-action display=Enable Cargo sparse registry;id=__dtolnay_rust-toolchain.__run_8]
+2026-10-25T15:56:31.6630240Z ##[group]Run # implemented in 1.66, stabilized in 1.68, made default in 1.70
+2026-10-25T15:56:31.6630680Z [36;1m# implemented in 1.66, stabilized in 1.68, made default in 1.70[0m
+2026-10-25T15:56:31.6631280Z [36;1mif [ -z "${CARGO_REGISTRIES_CRATES_IO_PROTOCOL+set}" -o -f "/Users/runner/work/_temp"/.implicit_cargo_registries_crates_io_protocol ]; then[0m
+2026-10-25T15:56:31.6631970Z [36;1m  if rustc +"$toolchain" --version --verbose | grep -q '^release: 1\.6[89]\.'; then[0m
+2026-10-25T15:56:31.6632470Z [36;1m    touch "/Users/runner/work/_temp"/.implicit_cargo_registries_crates_io_protocol || true[0m
+2026-10-25T15:56:31.6632960Z [36;1m    echo CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse >> $GITHUB_ENV[0m
+2026-10-25T15:56:31.6633410Z [36;1m  elif rustc +"$toolchain" --version --verbose | grep -q '^release: 1\.6[67]\.'; then[0m
+2026-10-25T15:56:31.6633920Z [36;1m    touch "/Users/runner/work/_temp"/.implicit_cargo_registries_crates_io_protocol || true[0m
+2026-10-25T15:56:31.6634370Z [36;1m    echo CARGO_REGISTRIES_CRATES_IO_PROTOCOL=git >> $GITHUB_ENV[0m
+2026-10-25T15:56:31.6634650Z [36;1m  fi[0m
+2026-10-25T15:56:31.6634800Z [36;1mfi[0m
+2026-10-25T15:56:31.6671270Z shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+2026-10-25T15:56:31.6671630Z env:
+2026-10-25T15:56:31.6671810Z   RELEASE_TAG: v0.1.90
+2026-10-25T15:56:31.6672040Z   CARGO_HOME: /Users/runner/.cargo
+2026-10-25T15:56:31.6672240Z   CARGO_INCREMENTAL: 0
+2026-10-25T15:56:31.6672430Z   CARGO_TERM_COLOR: always
+2026-10-25T15:56:31.6672600Z   toolchain: stable
+2026-10-25T15:56:31.6672770Z ##[endgroup]
+2026-10-25T15:56:31.7866260Z ##[end-action id=__dtolnay_rust-toolchain.__run_8;outcome=success;conclusion=success;duration_ms=125]
+2026-10-25T15:56:31.7869600Z ##[start-action display=Work around spurious network errors in curl 8.0;id=__dtolnay_rust-toolchain.__run_9]
+2026-10-25T15:56:31.7888820Z ##[group]Run # https://rust-lang.zulipchat.com/#narrow/stream/246057-t-cargo/topic/timeout.20investigation
+2026-10-25T15:56:31.7889460Z [36;1m# https://rust-lang.zulipchat.com/#narrow/stream/246057-t-cargo/topic/timeout.20investigation[0m
+2026-10-25T15:56:31.7889990Z [36;1mif rustc +"$toolchain" --version --verbose | grep -q '^release: 1\.7[01]\.'; then[0m
+2026-10-25T15:56:31.7890400Z [36;1m  echo CARGO_HTTP_MULTIPLEXING=false >> $GITHUB_ENV[0m
+2026-10-25T15:56:31.7890910Z [36;1mfi[0m
+2026-10-25T15:56:31.7923570Z shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+2026-10-25T15:56:31.7923850Z env:
+2026-10-25T15:56:31.7924010Z   RELEASE_TAG: v0.1.90
+2026-10-25T15:56:31.7924190Z   CARGO_HOME: /Users/runner/.cargo
+2026-10-25T15:56:31.7924400Z   CARGO_INCREMENTAL: 0
+2026-10-25T15:56:31.7924580Z   CARGO_TERM_COLOR: always
+2026-10-25T15:56:31.7924760Z   toolchain: stable
+2026-10-25T15:56:31.7924920Z ##[endgroup]
+2026-10-25T15:56:31.8609490Z ##[end-action id=__dtolnay_rust-toolchain.__run_9;outcome=success;conclusion=success;duration_ms=73]
+2026-10-25T15:56:31.8613420Z ##[start-action display=rustc +stable --version --verbose;id=__dtolnay_rust-toolchain.__run_10]
+2026-10-25T15:56:31.8638960Z ##[group]Run rustc +"$toolchain" --version --verbose
+2026-10-25T15:56:31.8639280Z [36;1mrustc +"$toolchain" --version --verbose[0m
+2026-10-25T15:56:31.8673920Z shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+2026-10-25T15:56:31.8674270Z env:
+2026-10-25T15:56:31.8674420Z   RELEASE_TAG: v0.1.90
+2026-10-25T15:56:31.8674600Z   CARGO_HOME: /Users/runner/.cargo
+2026-10-25T15:56:31.8674820Z   CARGO_INCREMENTAL: 0
+2026-10-25T15:56:31.8675030Z   CARGO_TERM_COLOR: always
+2026-10-25T15:56:31.8675260Z   toolchain: stable
+2026-10-25T15:56:31.8675460Z ##[endgroup]
+2026-10-25T15:56:31.9320540Z rustc 1.99.1 (58cf8f9c3 2026-10-13)
+2026-10-25T15:56:31.9321470Z binary: rustc
+2026-10-25T15:56:31.9322320Z commit-hash: 58cf8f9c35b355199727627d07ae34a4e2846d67
+2026-10-25T15:56:31.9323050Z commit-date: 2026-10-13
+2026-10-25T15:56:31.9323630Z host: aarch64-apple-darwin
+2026-10-25T15:56:31.9324330Z release: 1.99.1
+2026-10-25T15:56:31.9325810Z LLVM version: 23.1.1
+2026-10-25T15:56:31.9338040Z ##[end-action id=__dtolnay_rust-toolchain.__run_10;outcome=success;conclusion=success;duration_ms=72]
+2026-10-25T15:56:31.9425530Z ##[group]Run Swatinem/rust-cache@v2
+2026-10-25T15:56:31.9425760Z with:
+2026-10-25T15:56:31.9425930Z   workspaces: src-tauri
+2026-10-25T15:56:31.9426160Z   prefix-key: v0-rust
+2026-10-25T15:56:31.9426340Z   add-job-id-key: true
+2026-10-25T15:56:31.9426530Z   add-rust-environment-hash-key: true
+2026-10-25T15:56:31.9426760Z   cache-targets: true
+2026-10-25T15:56:31.9426930Z   cache-all-crates: false
+2026-10-25T15:56:31.9427140Z   cache-workspace-crates: false
+2026-10-25T15:56:31.9427390Z   save-if: true
+2026-10-25T15:56:31.9428260Z   cache-provider: github
+2026-10-25T15:56:31.9429040Z   cache-bin: true
+2026-10-25T15:56:31.9429480Z   lookup-only: false
+2026-10-25T15:56:31.9429950Z   cmd-format: {0}
+2026-10-25T15:56:31.9430690Z env:
+2026-10-25T15:56:31.9431120Z   RELEASE_TAG: v0.1.90
+2026-10-25T15:56:31.9431600Z   CARGO_HOME: /Users/runner/.cargo
+2026-10-25T15:56:31.9432160Z   CARGO_INCREMENTAL: 0
+2026-10-25T15:56:31.9432620Z   CARGO_TERM_COLOR: always
+2026-10-25T15:56:31.9433220Z ##[endgroup]
+2026-10-25T15:56:32.6066970Z ##[group]Cache Configuration
+2026-10-25T15:56:32.6070320Z Cache Provider:
+2026-10-25T15:56:32.6070750Z     github
+2026-10-25T15:56:32.6071100Z Workspaces:
+2026-10-25T15:56:32.6079990Z     /Users/runner/work/cloudhub-tools/cloudhub-tools/src-tauri
+2026-10-25T15:56:32.6080810Z Cache Paths:
+2026-10-25T15:56:32.6081360Z     /Users/runner/.cargo/bin
+2026-10-25T15:56:32.6082090Z     /Users/runner/.cargo/.crates.toml
+2026-10-25T15:56:32.6082780Z     /Users/runner/.cargo/.crates2.json
+2026-10-25T15:56:32.6083570Z     /Users/runner/.cargo/registry
+2026-10-25T15:56:32.6084440Z     /Users/runner/.cargo/git
+2026-10-25T15:56:32.6085330Z     /Users/runner/work/cloudhub-tools/cloudhub-tools/src-tauri/target
+2026-10-25T15:56:32.6086140Z Restore Key:
+2026-10-25T15:56:32.6086760Z     v0-rust-ios-Darwin-arm64-fc985acc
+2026-10-25T15:56:32.6087320Z Cache Key:
+2026-10-25T15:56:32.6106990Z     v0-rust-ios-Darwin-arm64-fc985acc-4bcc93a6
+2026-10-25T15:56:32.6107770Z .. Prefix:
+2026-10-25T15:56:32.6108320Z   - v0-rust-ios-Darwin-arm64
+2026-10-25T15:56:32.6108900Z .. Environment considered:
+2026-10-25T15:56:32.6109430Z   - Rust Versions:
+2026-10-25T15:56:32.6111180Z     - 1.99.1 aarch64-apple-darwin 58cf8f9c35b355199727627d07ae34a4e2846d67
+2026-10-25T15:56:32.6111940Z   - CARGO_HOME
+2026-10-25T15:56:32.6112370Z   - CARGO_INCREMENTAL
+2026-10-25T15:56:32.6112850Z   - CARGO_TERM_COLOR
+2026-10-25T15:56:32.6113390Z .. Lockfiles considered:
+2026-10-25T15:56:32.6114260Z   - /Users/runner/work/cloudhub-tools/cloudhub-tools/src-tauri/Cargo.lock
+2026-10-25T15:56:32.6115490Z   - /Users/runner/work/cloudhub-tools/cloudhub-tools/src-tauri/Cargo.toml
+2026-10-25T15:56:32.6116730Z ##[endgroup]
+2026-10-25T15:56:32.6117030Z
+2026-10-25T15:56:32.6117290Z ... Restoring cache ...
+2026-10-25T15:56:32.7745100Z No cache found.
+2026-10-25T15:56:32.7793170Z ##[group]Run npm ci
+2026-10-25T15:56:32.7793420Z [36;1mnpm ci[0m
+2026-10-25T15:56:32.7829460Z shell: /bin/bash -e {0}
+2026-10-25T15:56:32.7829720Z env:
+2026-10-25T15:56:32.7829880Z   RELEASE_TAG: v0.1.90
+2026-10-25T15:56:32.7830090Z   CARGO_HOME: /Users/runner/.cargo
+2026-10-25T15:56:32.7830300Z   CARGO_INCREMENTAL: 0
+2026-10-25T15:56:32.7830500Z   CARGO_TERM_COLOR: always
+2026-10-25T15:56:32.7830710Z   CACHE_ON_FAILURE: false
+2026-10-25T15:56:32.7830890Z ##[endgroup]
+2026-10-25T15:56:37.0529720Z
+2026-10-25T15:56:37.0530870Z added 84 packages, and audited 85 packages in 4s
+2026-10-25T15:56:37.0531460Z
+2026-10-25T15:56:37.0531850Z 11 packages are looking for funding
+2026-10-25T15:56:37.0532480Z   run `npm fund` for details
+2026-10-25T15:56:37.0626070Z
+2026-10-25T15:56:37.0626580Z 2 high severity vulnerabilities
+2026-10-25T15:56:37.0626820Z
+2026-10-25T15:56:37.0626960Z To address all issues, run:
+2026-10-25T15:56:37.0627230Z   npm audit fix
+2026-10-25T15:56:37.0627320Z
+2026-10-25T15:56:37.0627620Z Run `npm audit` for details.
+2026-10-25T15:56:37.1454950Z ##[group]Run npx tauri ios init --ci
+2026-10-25T15:56:37.1455290Z [36;1mnpx tauri ios init --ci[0m
+2026-10-25T15:56:37.1493770Z shell: /bin/bash -e {0}
+2026-10-25T15:56:37.1493990Z env:
+2026-10-25T15:56:37.1494190Z   RELEASE_TAG: v0.1.90
+2026-10-25T15:56:37.1494480Z   CARGO_HOME: /Users/runner/.cargo
+2026-10-25T15:56:37.1494700Z   CARGO_INCREMENTAL: 0
+2026-10-25T15:56:37.1494870Z   CARGO_TERM_COLOR: always
+2026-10-25T15:56:37.1495090Z   CACHE_ON_FAILURE: false
+2026-10-25T15:56:37.1495340Z ##[endgroup]
+2026-10-25T15:56:37.7731880Z         Warn No code signing certificates found. You must add one and set the certificate development team ID on the `bundle > iOS > developmentTeam` config value or the `APPLE_DEVELOPMENT_TEAM` environment variable. To list the available certificates, run `tauri info`.
+2026-10-25T15:56:37.8181850Z         Info Installing iOS Rust targets...
+2026-10-25T15:56:37.8182220Z         Info Installing target aarch64-apple-ios-sim
+2026-10-25T15:56:37.8857430Z info: downloading component rust-std
+2026-10-25T15:56:40.6833440Z         Info Installing target x86_64-apple-ios
+2026-10-25T15:56:40.7374210Z info: downloading component rust-std
+2026-10-25T15:56:43.6124420Z         Info package `xcodegen` not found
+2026-10-25T15:56:43.6226710Z         Info Installing `xcodegen` with brew...
+2026-10-25T15:56:46.2651650Z [34m==>[0m [1mWould reinstall 1 formula:[0m
+2026-10-25T15:56:46.2768420Z xcodegen
+2026-10-25T15:56:46.2855480Z [34m==>[0m [1mDownloading https://ghcr.io/v2/homebrew/core/xcodegen/manifests/2.46.0-1[0m
+2026-10-25T15:56:46.6542150Z [32m==>[0m [1mFetching downloads for: [32mxcodegen[39m[0m
+2026-10-25T15:56:47.0857020Z ✔︎ Bottle xcodegen (2.46.0)
+2026-10-25T15:56:47.0860520Z [32m==>[0m [1mReinstalling [32mxcodegen[39m [0m
+2026-10-25T15:56:47.1301670Z [34m==>[0m [1mPouring xcodegen--2.46.0.arm64_sequoia.bottle.1.tar.gz[0m
+2026-10-25T15:56:47.2665770Z 🍺  /opt/homebrew/Cellar/xcodegen/2.46.0: 38 files, 7.5MB
+2026-10-25T15:56:47.2907070Z         Info package `libimobiledevice` not found
+2026-10-25T15:56:47.2908300Z         Info Installing `libimobiledevice` with brew...
+2026-10-25T15:56:48.2144470Z [34m==>[0m [1mWould reinstall 1 formula:[0m
+2026-10-25T15:56:48.2144970Z libimobiledevice
+2026-10-25T15:56:48.2157670Z [34m==>[0m [1mDownloading https://ghcr.io/v2/homebrew/core/libimobiledevice/manifests/1.4.0[0m
+2026-10-25T15:56:48.6480500Z [34m==>[0m [1mWould install 4 dependencies for libimobiledevice:[0m
+2026-10-25T15:56:48.6481460Z libplist
+2026-10-25T15:56:48.6482120Z libimobiledevice-glue
+2026-10-25T15:56:48.6482670Z libtatsu
+2026-10-25T15:56:48.6483170Z libusbmuxd
+2026-10-25T15:56:48.7550720Z [32m==>[0m [1mFetching downloads for: [32mlibimobiledevice[39m[0m
+2026-10-25T15:56:49.0618340Z ✔︎ Bottle Manifest libplist (2.7.0)
+2026-10-25T15:56:49.0731960Z ✔︎ Bottle Manifest libimobiledevice-glue (1.3.2)
+2026-10-25T15:56:49.1017400Z ✔︎ Bottle libimobiledevice (1.4.0)
+2026-10-25T15:56:49.1019150Z ✔︎ Bottle libplist (2.7.0)
+2026-10-25T15:56:49.1019700Z ✔︎ Bottle Manifest libtatsu (1.0.5)
+2026-10-25T15:56:49.1055480Z ✔︎ Bottle libimobiledevice-glue (1.3.2)
+2026-10-25T15:56:49.3374830Z ✔︎ Bottle libtatsu (1.0.5)
+2026-10-25T15:56:49.3475680Z ✔︎ Bottle Manifest libusbmuxd (2.1.1)
+2026-10-25T15:56:49.4766380Z ✔︎ Bottle libusbmuxd (2.1.1)
+2026-10-25T15:56:49.4773800Z [32m==>[0m [1mReinstalling [32mlibimobiledevice[39m [0m
+2026-10-25T15:56:49.4973320Z [32m==>[0m [1mInstalling dependencies for libimobiledevice:[0m [32mlibplist[39m, [32mlibimobiledevice-glue[39m, [32mlibtatsu[39m and [32mlibusbmuxd[39m[0m
+2026-10-25T15:56:49.4975140Z [32m==>[0m [1mInstalling libimobiledevice dependency: [32mlibplist[39m[0m
+2026-10-25T15:56:49.5029480Z [34m==>[0m [1mPouring libplist--2.7.0.arm64_sequoia.bottle.tar.gz[0m
+2026-10-25T15:56:49.6196300Z 🍺  /opt/homebrew/Cellar/libplist/2.7.0: 32 files, 604.1KB
+2026-10-25T15:56:49.6198650Z [32m==>[0m [1mInstalling libimobiledevice dependency: [32mlibimobiledevice-glue[39m[0m
+2026-10-25T15:56:49.6582670Z [34m==>[0m [1mPouring libimobiledevice-glue--1.3.2.arm64_sequoia.bottle.tar.gz[0m
+2026-10-25T15:56:49.6833030Z 🍺  /opt/homebrew/Cellar/libimobiledevice-glue/1.3.2: 21 files, 233.4KB
+2026-10-25T15:56:49.6835030Z [32m==>[0m [1mInstalling libimobiledevice dependency: [32mlibtatsu[39m[0m
+2026-10-25T15:56:49.6960600Z [34m==>[0m [1mPouring libtatsu--1.0.5.arm64_sequoia.bottle.tar.gz[0m
+2026-10-25T15:56:49.7256010Z 🍺  /opt/homebrew/Cellar/libtatsu/1.0.5: 12 files, 160.0KB
+2026-10-25T15:56:49.7262590Z [32m==>[0m [1mInstalling libimobiledevice dependency: [32mlibusbmuxd[39m[0m
+2026-10-25T15:56:49.7457330Z [34m==>[0m [1mPouring libusbmuxd--2.1.1.arm64_sequoia.bottle.tar.gz[0m
+2026-10-25T15:56:49.7797540Z 🍺  /opt/homebrew/Cellar/libusbmuxd/2.1.1: 17 files, 244.7KB
+2026-10-25T15:56:49.7799530Z [32m==>[0m [1mInstalling [32mlibimobiledevice[39m[0m
+2026-10-25T15:56:49.7801640Z [34m==>[0m [1mPouring libimobiledevice--1.4.0.arm64_sequoia.bottle.tar.gz[0m
+2026-10-25T15:56:49.9114130Z 🍺  /opt/homebrew/Cellar/libimobiledevice/1.4.0: 82 files, 2.2MB
+2026-10-25T15:56:49.9368750Z /opt/homebrew/lib/ruby/gems/3.3.0/bin/pod
+2026-10-25T15:57:01.6276820Z         Info "/Users/runner/work/cloudhub-tools/cloudhub-tools/src-tauri" relative to "/Users/runner/work/cloudhub-tools/cloudhub-tools/src-tauri/gen/apple" is "../../"
+2026-10-25T15:57:01.6278400Z Apple dependencies are up to date
+2026-10-25T15:57:01.6418970Z Generating Xcode project...
+2026-10-25T15:57:01.6798770Z ⚙️  Generating plists...
+2026-10-25T15:57:01.6809080Z ⚙️  Generating project...
+2026-10-25T15:57:01.7137670Z ⚙️  Writing project...
+2026-10-25T15:57:01.7261630Z Created project at /Users/runner/work/cloudhub-tools/cloudhub-tools/src-tauri/gen/apple/cloudhub-tools.xcodeproj
+2026-10-25T15:57:01.7289270Z victory: Project generated successfully!
+2026-10-25T15:57:01.7289910Z     Make cool apps! 🌻 🐕 🎉
+2026-10-25T15:57:01.7742140Z ##[group]Run npx tauri ios build --no-sign --archive-only
+2026-10-25T15:57:01.7742940Z [36;1mnpx tauri ios build --no-sign --archive-only[0m
+2026-10-25T15:57:01.7800870Z shell: /bin/bash -e {0}
+2026-10-25T15:57:01.7801140Z env:
+2026-10-25T15:57:01.7801450Z   RELEASE_TAG: v0.1.90
+2026-10-25T15:57:01.7801690Z   CARGO_HOME: /Users/runner/.cargo
+2026-10-25T15:57:01.7802010Z   CARGO_INCREMENTAL: 0
+2026-10-25T15:57:01.7802980Z   CARGO_TERM_COLOR: always
+2026-10-25T15:57:01.7803350Z   CACHE_ON_FAILURE: false
+2026-10-25T15:57:01.7803710Z ##[endgroup]
+2026-10-25T15:57:02.3551270Z         Warn No code signing certificates found. You must add one and set the certificate development team ID on the `bundle > iOS > developmentTeam` config value or the `APPLE_DEVELOPMENT_TEAM` environment variable. To list the available certificates, run `tauri info`.
+2026-10-25T15:57:27.9013390Z         Info Looking up installed tauri packages to check mismatched versions...
+2026-10-25T15:57:28.7099550Z      Running beforeBuildCommand `npm run build:mobile`
+2026-10-25T15:57:28.8864400Z
+2026-10-25T15:57:28.8965050Z > cloudhub-tools@0.1.90 build:mobile
+2026-10-25T15:57:28.9066580Z > node scripts/mobile-target.mjs build
+2026-10-25T15:57:28.9167770Z
+2026-10-25T15:57:29.3163440Z [36mvite v7.3.6 [32mbuilding client environment for production...[36m[39m
+2026-10-25T15:57:29.3761290Z transforming...
+2026-10-25T15:57:31.4783100Z [32m✓[39m 1667 modules transformed.
+2026-10-25T15:57:31.6078910Z rendering chunks...
+2026-10-25T15:57:31.8024760Z computing gzip size...
+2026-10-25T15:57:31.8277260Z [2mdist/[22m[32mindex.html                [39m[1m[2m  0.45 kB[22m[1m[22m[2m │ gzip:   0.34 kB[22m
+2026-10-25T15:57:31.8278900Z [2mdist/[22m[2massets/[22m[35mmain-DKwmkA7V.css  [39m[1m[2m274.43 kB[22m[1m[22m[2m │ gzip:  39.35 kB[22m
+2026-10-25T15:57:31.8280050Z [33m
+2026-10-25T15:57:31.8280720Z [2mdist/[22m[2massets/[22m[36mindex-Dcs0cJ0b.js  [39m[1m[2m  2.00 kB[22m[1m[22m[2m │ gzip:   1.03 kB[22m
+2026-10-25T15:57:31.8281850Z (!) Some chunks are larger than 500 kB after minification. Consider:
+2026-10-25T15:57:31.8282750Z [2mdist/[22m[2massets/[22m[36mmain-CTz4a1in.js   [39m[1m[33m554.08 kB[39m[22m[2m │ gzip: 169.48 kB[22m
+2026-10-25T15:57:31.8295870Z - Using dynamic import() to code-split the application
+2026-10-25T15:57:31.8296560Z [32m✓ built in 2.49s[39m
+2026-10-25T15:57:31.8297640Z - Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+2026-10-25T15:57:31.8298810Z - Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.[39m
+2026-10-25T15:57:34.7307810Z Setting version of project cloudhub-tools to:
+2026-10-25T15:57:34.7308170Z     0.1.90.
+2026-10-25T15:57:34.7308330Z
+2026-10-25T15:57:34.7608390Z Also setting CFBundleVersion key (assuming it exists)
+2026-10-25T15:57:34.7609280Z
+2026-10-25T15:57:34.7919070Z Updating CFBundleVersion in Info.plist(s)...
+2026-10-25T15:57:34.7919960Z
+2026-10-25T15:57:34.8241940Z Updated CFBundleVersion in "cloudhub-tools.xcodeproj/../cloudhub-tools_iOS/Info.plist" to 0.1.90
+2026-10-25T15:57:34.8242530Z
+2026-10-25T15:57:34.8242660Z
+2026-10-25T15:57:36.5828120Z --- xcodebuild: WARNING: Using the first of multiple matching destinations:
+2026-10-25T15:57:36.5851780Z { platform:iOS, id:dvtdevice-DVTiPhonePlaceholder-iphoneos:placeholder, name:Any iOS Device }
+2026-10-25T15:57:36.5853640Z { platform:macOS, arch:arm64, variant:Designed for [iPad,iPhone], id:e18e1e12e0bffab9c5ffd827a29e8ce655b3881a, name:My Mac }
+2026-10-25T15:57:36.5855890Z { platform:iOS Simulator, id:dvtdevice-DVTiOSDeviceSimulatorPlaceholder-iphonesimulator:placeholder, name:Any iOS Simulator Device }
+2026-10-25T15:57:36.5858240Z { platform:visionOS Simulator, arch:arm64, variant:Designed for [iPad,iPhone], id:EFC27B51-A1AC-4C44-A0CE-43F84B5F0B68, OS:2.3, name:Apple Vision Pro }
+2026-10-25T15:57:36.5868370Z { platform:visionOS Simulator, arch:arm64, variant:Designed for [iPad,iPhone], id:136F9422-A9E1-4C19-88AF-45BB818E37BB, OS:2.4, name:Apple Vision Pro }
+2026-10-25T15:57:36.5869850Z { platform:visionOS Simulator, arch:arm64, variant:Designed for [iPad,iPhone], id:0C5BF083-23A9-419B-9CBD-8E2AA7E26265, OS:2.5, name:Apple Vision Pro }
+2026-10-25T15:57:36.5871120Z { platform:visionOS Simulator, arch:arm64, variant:Designed for [iPad,iPhone], id:EB17C5F7-7C10-47FF-9344-F550DB0D244F, OS:26.1, name:Apple Vision Pro }
+2026-10-25T15:57:36.5878410Z { platform:visionOS Simulator, arch:arm64, variant:Designed for [iPad,iPhone], id:62E72748-B3EC-4F87-AAD9-DE47D54B7B63, OS:26.2, name:Apple Vision Pro }
+2026-10-25T15:57:36.5879940Z { platform:iOS Simulator, arch:arm64, id:B7718686-AA2A-4157-8E04-7FA4AE6F7BD0, OS:18.5, name:iPad (10th generation) }
+2026-10-25T15:57:36.5880910Z { platform:iOS Simulator, arch:arm64, id:FF8C8404-A040-4C69-BE4F-258FA2571EA2, OS:18.6, name:iPad (10th generation) }
+2026-10-25T15:57:36.5881920Z { platform:iOS Simulator, arch:arm64, id:5A7C2682-DC41-42B4-A065-6477314C6107, OS:26.0.1, name:iPad (10th generation) }
+2026-10-25T15:57:36.5882820Z { platform:iOS Simulator, arch:arm64, id:388BAFD3-DA76-4ACF-AB96-CB8111ABF99E, OS:26.1, name:iPad (10th generation) }
+2026-10-25T15:57:36.5883970Z { platform:iOS Simulator, arch:arm64, id:AC7BF8FD-BAB0-4374-A4F7-52ABA082B92E, OS:26.2, name:iPad (10th generation) }
+2026-10-25T15:57:36.5885250Z { platform:iOS Simulator, arch:arm64, id:7222C0FB-7BCD-457A-AD32-76C948D2602F, OS:18.5, name:iPad (A16) }
+2026-10-25T15:57:36.5886290Z { platform:iOS Simulator, arch:arm64, id:458323E3-9E85-4764-B868-F02CE9C4ADF0, OS:18.6, name:iPad (A16) }
+2026-10-25T15:57:36.5887220Z { platform:iOS Simulator, arch:arm64, id:3869DFDE-0197-4B91-915D-90B3D279FE15, OS:26.0.1, name:iPad (A16) }
+2026-10-25T15:57:36.5888060Z { platform:iOS Simulator, arch:arm64, id:BAD1706E-E13F-444D-B19F-C7A451E7774A, OS:26.1, name:iPad (A16) }
+2026-10-25T15:57:36.5888980Z { platform:iOS Simulator, arch:arm64, id:E1D34F4A-69A6-4E07-8C9F-D5E775E2A416, OS:26.2, name:iPad (A16) }
+2026-10-25T15:57:36.5889900Z { platform:iOS Simulator, arch:arm64, id:FB985C96-A632-42FC-A064-57F80EA1A0AF, OS:18.5, name:iPad Air 11-inch (M2) }
+2026-10-25T15:57:36.5891430Z { platform:iOS Simulator, arch:arm64, id:6CE4BAD1-E547-4D95-B130-FBCDCE49282B, OS:18.6, name:iPad Air 11-inch (M2) }
+2026-10-25T15:57:36.5892410Z { platform:iOS Simulator, arch:arm64, id:5DCA7372-1294-4245-AADE-E9938CC9119F, OS:26.0.1, name:iPad Air 11-inch (M2) }
+2026-10-25T15:57:36.5893300Z { platform:iOS Simulator, arch:arm64, id:B5D41CE2-3444-4312-8351-5A2B58E90C26, OS:26.1, name:iPad Air 11-inch (M2) }
+2026-10-25T15:57:36.5894370Z { platform:iOS Simulator, arch:arm64, id:28EB6DDD-01F7-42F7-B1FF-56CC398818EB, OS:26.2, name:iPad Air 11-inch (M2) }
+2026-10-25T15:57:36.5895360Z { platform:iOS Simulator, arch:arm64, id:238ABD15-A231-49EB-9A8E-2A18835D05E4, OS:18.5, name:iPad Air 11-inch (M3) }
+2026-10-25T15:57:36.5896220Z { platform:iOS Simulator, arch:arm64, id:A1F6F219-8660-4BC0-B7E9-17BEE98456F5, OS:18.6, name:iPad Air 11-inch (M3) }
+2026-10-25T15:57:36.5897200Z { platform:iOS Simulator, arch:arm64, id:244E1618-3993-4A44-B213-FA496A601843, OS:26.0.1, name:iPad Air 11-inch (M3) }
+2026-10-25T15:57:36.5898070Z { platform:iOS Simulator, arch:arm64, id:5DE60B78-C540-4CAE-BF3B-D31601C7ABBB, OS:26.1, name:iPad Air 11-inch (M3) }
+2026-10-25T15:57:36.5899250Z { platform:iOS Simulator, arch:arm64, id:EF008AE9-B743-4A49-A8AD-A27FD9CCAE52, OS:26.2, name:iPad Air 11-inch (M3) }
+2026-10-25T15:57:36.5900300Z { platform:iOS Simulator, arch:arm64, id:DEC44A2A-1119-4A2D-89C9-0A7E48485C1E, OS:18.5, name:iPad Air 13-inch (M2) }
+2026-10-25T15:57:36.5901190Z { platform:iOS Simulator, arch:arm64, id:6AF871A0-5FC9-4DA0-92D3-D60A3F3986E0, OS:18.6, name:iPad Air 13-inch (M2) }
+2026-10-25T15:57:36.5902210Z { platform:iOS Simulator, arch:arm64, id:DC7ED953-B711-4AC8-A414-A7008BA50DAD, OS:26.0.1, name:iPad Air 13-inch (M2) }
+2026-10-25T15:57:36.5903230Z { platform:iOS Simulator, arch:arm64, id:D3B307C6-3981-42AF-9708-E15A72BECF2D, OS:26.1, name:iPad Air 13-inch (M2) }
+2026-10-25T15:57:36.5904730Z { platform:iOS Simulator, arch:arm64, id:6235A74F-E996-4A4A-B5B9-91A8A87F50EE, OS:26.2, name:iPad Air 13-inch (M2) }
+2026-10-25T15:57:36.5905670Z { platform:iOS Simulator, arch:arm64, id:9747906A-4708-4563-B8B9-1FE571CEA8C5, OS:18.5, name:iPad Air 13-inch (M3) }
+2026-10-25T15:57:36.5907730Z { platform:iOS Simulator, arch:arm64, id:24D6FA4F-CB44-41E0-B6E8-91374A95E4CA, OS:18.6, name:iPad Air 13-inch (M3) }
+2026-10-25T15:57:36.5957090Z { platform:iOS Simulator, arch:arm64, id:1262447B-91B2-4C0C-90E8-36537D183683, OS:26.0.1, name:iPad Air 13-inch (M3) }
+2026-10-25T15:57:36.5961580Z { platform:iOS Simulator, arch:arm64, id:40C16C1A-5BA0-41C6-99A5-355F9CBACD9F, OS:26.1, name:iPad Air 13-inch (M3) }
+2026-10-25T15:57:36.5963570Z { platform:iOS Simulator, arch:arm64, id:8C025F3C-2545-40A5-AC87-FF534DB84D42, OS:26.2, name:iPad Air 13-inch (M3) }
+2026-10-25T15:57:36.6038070Z { platform:iOS Simulator, arch:arm64, id:2EDB2671-090C-4988-822E-421879ECE84C, OS:18.5, name:iPad Pro 11-inch (M4) }
+2026-10-25T15:57:36.6039220Z { platform:iOS Simulator, arch:arm64, id:41C766F4-A950-4049-81B8-1B578B5804D8, OS:18.6, name:iPad Pro 11-inch (M4) }
+2026-10-25T15:57:36.6040150Z { platform:iOS Simulator, arch:arm64, id:CE25E477-AAC4-469F-9343-301D5ABCD9BC, OS:26.0.1, name:iPad Pro 11-inch (M4) }
+2026-10-25T15:57:36.6041150Z { platform:iOS Simulator, arch:arm64, id:38A0995A-759F-417D-ACED-70D43D6DBB82, OS:26.1, name:iPad Pro 11-inch (M4) }
+2026-10-25T15:57:36.6042180Z { platform:iOS Simulator, arch:arm64, id:FABE5896-BAF4-4220-8AFE-C1E31625D4DC, OS:26.2, name:iPad Pro 11-inch (M4) }
+2026-10-25T15:57:36.6043550Z { platform:iOS Simulator, arch:arm64, id:07E2DE8A-D138-4013-A250-9EDE31AAB9DE, OS:26.0.1, name:iPad Pro 11-inch (M5) }
+2026-10-25T15:57:36.6044780Z { platform:iOS Simulator, arch:arm64, id:165A6108-1D5C-4AFB-94C8-64E25DA3E7B5, OS:26.1, name:iPad Pro 11-inch (M5) }
+2026-10-25T15:57:36.6045590Z { platform:iOS Simulator, arch:arm64, id:93F8D73D-86A4-455D-8E33-EFA55B5760E4, OS:26.2, name:iPad Pro 11-inch (M5) }
+2026-10-25T15:57:36.6046390Z { platform:iOS Simulator, arch:arm64, id:AFBB202F-0F39-4DD8-8C47-DAB97D7D9DF2, OS:18.5, name:iPad Pro 13-inch (M4) }
+2026-10-25T15:57:36.6047360Z { platform:iOS Simulator, arch:arm64, id:DD335931-190E-4075-B666-91C698C0CDEC, OS:18.6, name:iPad Pro 13-inch (M4) }
+2026-10-25T15:57:36.6048160Z { platform:iOS Simulator, arch:arm64, id:1A4FA0DD-F5CE-49FF-A6E2-1CAC22BE4C80, OS:26.0.1, name:iPad Pro 13-inch (M4) }
+2026-10-25T15:57:36.6084430Z { platform:iOS Simulator, arch:arm64, id:380AF256-AA90-49F1-BC8E-618736C734CB, OS:26.1, name:iPad Pro 13-inch (M4) }
+2026-10-25T15:57:36.6085410Z { platform:iOS Simulator, arch:arm64, id:5A602664-A209-462C-9B02-6E51FACDFED6, OS:26.2, name:iPad Pro 13-inch (M4) }
+2026-10-25T15:57:36.6086660Z { platform:iOS Simulator, arch:arm64, id:7EBB23D5-64E2-4DDB-B24F-86C16A07ED26, OS:26.0.1, name:iPad Pro 13-inch (M5) }
+2026-10-25T15:57:36.6087610Z { platform:iOS Simulator, arch:arm64, id:B673CC61-F30B-479A-9672-FA680127EE1F, OS:26.1, name:iPad Pro 13-inch (M5) }
+2026-10-25T15:57:36.6088690Z { platform:iOS Simulator, arch:arm64, id:0DE52589-6E0B-47D4-B4A7-7E4E3D9C1049, OS:26.2, name:iPad Pro 13-inch (M5) }
+2026-10-25T15:57:36.6089760Z { platform:iOS Simulator, arch:arm64, id:773C1AA1-17A9-4EC1-8BE5-D4BB00DF3AC1, OS:18.5, name:iPad mini (A17 Pro) }
+2026-10-25T15:57:36.6090830Z { platform:iOS Simulator, arch:arm64, id:417FB14E-FFC0-4FB1-B6D6-BA85C2FFC3D5, OS:18.6, name:iPad mini (A17 Pro) }
+2026-10-25T15:57:36.6093580Z { platform:iOS Simulator, arch:arm64, id:B12E6DD0-E867-4D26-BFBA-2BD9C3D55DBD, OS:26.0.1, name:iPad mini (A17 Pro) }
+2026-10-25T15:57:36.6095290Z { platform:iOS Simulator, arch:arm64, id:CFF66741-12D5-44BF-BABB-29622D014BE2, OS:26.1, name:iPad mini (A17 Pro) }
+2026-10-25T15:57:36.6097670Z { platform:iOS Simulator, arch:arm64, id:9D9BF050-F6F5-4D32-84C0-4B7AC57F63EF, OS:26.2, name:iPad mini (A17 Pro) }
+2026-10-25T15:57:36.6101030Z { platform:iOS Simulator, arch:arm64, id:F0E646EF-4792-4F36-B48B-EC89B3A6B73B, OS:18.5, name:iPhone 16 }
+2026-10-25T15:57:36.6103510Z { platform:iOS Simulator, arch:arm64, id:02010C24-263D-445A-8934-74FE019F15CA, OS:18.6, name:iPhone 16 }
+2026-10-25T15:57:36.6105300Z { platform:iOS Simulator, arch:arm64, id:2D9C6CF6-FA7D-4D87-84C4-D5FA503F22B9, OS:26.0.1, name:iPhone 16 }
+2026-10-25T15:57:36.6106810Z { platform:iOS Simulator, arch:arm64, id:6D9FD9BD-F027-4EE5-83A6-BC98ED2603B0, OS:26.1, name:iPhone 16 }
+2026-10-25T15:57:36.6109000Z { platform:iOS Simulator, arch:arm64, id:2911FD29-A09E-4A81-BEA7-99A616FB7FC8, OS:26.2, name:iPhone 16 }
+2026-10-25T15:57:36.6116690Z { platform:iOS Simulator, arch:arm64, id:183F93DA-9B72-40B1-AD0E-287526E4E9D5, OS:18.5, name:iPhone 16 Plus }
+2026-10-25T15:57:36.6119250Z { platform:iOS Simulator, arch:arm64, id:102FCD1A-4F6B-4B15-ABA9-774BC75ADB11, OS:18.6, name:iPhone 16 Plus }
+2026-10-25T15:57:36.6121970Z { platform:iOS Simulator, arch:arm64, id:2EE15100-41A2-4790-893A-050FC5FE5AA8, OS:26.0.1, name:iPhone 16 Plus }
+2026-10-25T15:57:36.6124360Z { platform:iOS Simulator, arch:arm64, id:C1337AE6-D82D-4C09-B0BA-4437460B306E, OS:26.1, name:iPhone 16 Plus }
+2026-10-25T15:57:36.6126460Z { platform:iOS Simulator, arch:arm64, id:CFF67BF1-533D-480D-9A76-F1EADAD339C7, OS:26.2, name:iPhone 16 Plus }
+2026-10-25T15:57:36.6128870Z { platform:iOS Simulator, arch:arm64, id:DC4CD8B3-4457-4153-9087-A0D7A2F9BFD9, OS:18.5, name:iPhone 16 Pro }
+2026-10-25T15:57:36.6130960Z { platform:iOS Simulator, arch:arm64, id:7FF9581C-A82C-472C-B005-492B077D1038, OS:18.6, name:iPhone 16 Pro }
+2026-10-25T15:57:36.6133270Z { platform:iOS Simulator, arch:arm64, id:3C00406B-9DB5-4106-B5FD-132C84BF188A, OS:26.0.1, name:iPhone 16 Pro }
+2026-10-25T15:57:36.6135340Z { platform:iOS Simulator, arch:arm64, id:3F7F71D8-9EE4-4B63-84A8-6EBD0C5017BE, OS:26.1, name:iPhone 16 Pro }
+2026-10-25T15:57:36.6137740Z { platform:iOS Simulator, arch:arm64, id:291E4B86-C951-41A7-8327-84BF0304D0A9, OS:26.2, name:iPhone 16 Pro }
+2026-10-25T15:57:36.6140180Z { platform:iOS Simulator, arch:arm64, id:F1218AE5-3D29-4CE5-9D0F-6F21CEAA502C, OS:18.5, name:iPhone 16 Pro Max }
+2026-10-25T15:57:36.6142440Z { platform:iOS Simulator, arch:arm64, id:BAE7F30B-6707-4BF4-8375-FE75C94DD2FA, OS:18.6, name:iPhone 16 Pro Max }
+2026-10-25T15:57:36.6144780Z { platform:iOS Simulator, arch:arm64, id:E1605B84-CF5A-4193-878D-3623BD8B90AE, OS:26.0.1, name:iPhone 16 Pro Max }
+2026-10-25T15:57:36.6147050Z { platform:iOS Simulator, arch:arm64, id:920BDAA4-BD69-4998-9337-3B06B2C584F4, OS:26.1, name:iPhone 16 Pro Max }
+2026-10-25T15:57:36.6149430Z { platform:iOS Simulator, arch:arm64, id:9F3D563E-AF8A-4089-B32E-3ADADEB067F0, OS:26.2, name:iPhone 16 Pro Max }
+2026-10-25T15:57:36.6151610Z { platform:iOS Simulator, arch:arm64, id:51F5467F-16A9-4296-9C05-A74F91234967, OS:18.5, name:iPhone 16e }
+2026-10-25T15:57:36.6153580Z { platform:iOS Simulator, arch:arm64, id:8CBC396B-9510-42FF-AC70-614F5BD0FC86, OS:18.6, name:iPhone 16e }
+2026-10-25T15:57:36.6155730Z { platform:iOS Simulator, arch:arm64, id:4118C2C1-7E78-41EB-B816-3C75C7076F1E, OS:26.0.1, name:iPhone 16e }
+2026-10-25T15:57:36.6157800Z { platform:iOS Simulator, arch:arm64, id:A1D6E20D-5C3F-46E8-88C8-9A88DB2C1D0E, OS:26.1, name:iPhone 16e }
+2026-10-25T15:57:36.6159950Z { platform:iOS Simulator, arch:arm64, id:1ECD563C-BBBB-42E5-9A9F-648809113BF6, OS:26.2, name:iPhone 16e }
+2026-10-25T15:57:36.6162100Z { platform:iOS Simulator, arch:arm64, id:003F24D4-BA1A-4D48-A26E-C14D511E7472, OS:26.0.1, name:iPhone 17 }
+2026-10-25T15:57:36.6164530Z { platform:iOS Simulator, arch:arm64, id:3D025AD9-C9BB-46A3-BCB4-B84F592C53A0, OS:26.1, name:iPhone 17 }
+2026-10-25T15:57:36.6167150Z { platform:iOS Simulator, arch:arm64, id:22970779-4A47-463E-8B6D-CC012359B320, OS:26.2, name:iPhone 17 }
+2026-10-25T15:57:36.6169660Z { platform:iOS Simulator, arch:arm64, id:517BAAA1-7BAB-4B50-8B25-04EF0238019B, OS:26.0.1, name:iPhone 17 Pro }
+2026-10-25T15:57:36.6172050Z { platform:iOS Simulator, arch:arm64, id:DBAE96AF-90B5-4387-B859-66348EF015C7, OS:26.1, name:iPhone 17 Pro }
+2026-10-25T15:57:36.6175760Z { platform:iOS Simulator, arch:arm64, id:E952A9B0-CC78-435C-BF08-06AD47FE1076, OS:26.2, name:iPhone 17 Pro }
+2026-10-25T15:57:36.6177940Z { platform:iOS Simulator, arch:arm64, id:CA359E70-5E9C-400C-A7E1-34013F7B088A, OS:26.0.1, name:iPhone 17 Pro Max }
+2026-10-25T15:57:36.6180250Z { platform:iOS Simulator, arch:arm64, id:1BF1F2D9-05B4-4B31-BE19-1031B4A0EA80, OS:26.1, name:iPhone 17 Pro Max }
+2026-10-25T15:57:36.6182340Z { platform:iOS Simulator, arch:arm64, id:4C675116-265D-488F-BFFA-836A4545674C, OS:26.2, name:iPhone 17 Pro Max }
+2026-10-25T15:57:36.6185150Z { platform:iOS Simulator, arch:arm64, id:AB0FB058-2DF8-4824-A382-91FE8566B342, OS:26.0.1, name:iPhone Air }
+2026-10-25T15:57:36.6187370Z { platform:iOS Simulator, arch:arm64, id:55DF797C-6847-4575-ABFA-4E2A08520774, OS:26.1, name:iPhone Air }
+2026-10-25T15:57:36.6189380Z { platform:iOS Simulator, arch:arm64, id:1CE1A334-F45C-4216-823B-EE5E6389838F, OS:26.2, name:iPhone Air }
+2026-10-25T15:57:36.6191650Z { platform:iOS Simulator, arch:arm64, id:22A3039C-6A45-47F4-82D4-80C58CA94379, OS:18.5, name:iPhone SE (3rd generation) }
+2026-10-25T15:57:36.6194060Z { platform:iOS Simulator, arch:arm64, id:8938AAA2-76B5-4D49-A228-383499B04C02, OS:18.6, name:iPhone SE (3rd generation) }
+2026-10-25T15:57:36.6196240Z { platform:iOS Simulator, arch:arm64, id:F3967A6C-63E1-4323-9EA7-6C26D42F77A3, OS:26.0.1, name:iPhone SE (3rd generation) }
+2026-10-25T15:57:36.6198650Z { platform:iOS Simulator, arch:arm64, id:3EF44343-CDF7-4757-BAE2-47B813D8FF60, OS:26.1, name:iPhone SE (3rd generation) }
+2026-10-25T15:57:36.6201020Z { platform:iOS Simulator, arch:arm64, id:48B2DA2E-AF18-4E36-BB25-B25969A4EBCF, OS:26.2, name:iPhone SE (3rd generation) }
+2026-10-25T15:57:41.7155860Z         Info connection; remote_addr=127.0.0.1:49239 conn_id=0
+2026-10-25T16:04:54.5537670Z ld: warning: object file (/Users/runner/work/cloudhub-tools/cloudhub-tools/src-tauri/gen/apple/Externals/arm64/release/libapp.a[2](cloudhub_tools_lib.cloudhub_tools_lib.59764926086ecc1d-cgu.00.rcgu.o)) was built for newer 'iOS' version (15.0) than being linked (14.0)
+2026-10-25T16:04:54.5627520Z ld: warning: object file (/Users/runner/work/cloudhub-tools/cloudhub-tools/src-tauri/gen/apple/Externals/arm64/release/libapp.a[3](cloudhub_tools_lib.cloudhub_tools_lib.59764926086ecc1d-cgu.01.rcgu.o)) was built for newer 'iOS' version (15.0) than being linked (14.0)
+2026-10-25T16:04:54.5631510Z ld: warning: object file (/Users/runner/work/cloudhub-tools/cloudhub-tools/src-tauri/gen/apple/Externals/arm64/release/libapp.a[4](cloudhub_tools_lib.cloudhub_tools_lib.59764926086ecc1d-cgu.02.rcgu.o)) was built for newer 'iOS' version (15.0) than being linked (14.0)
+2026-10-25T16:04:54.5634820Z ld: warning: object file (/Users/runner/work/cloudhub-tools/cloudhub-tools/src-tauri/gen/apple/Externals/arm64/release/libapp.a[5](cloudhub_tools_lib.cloudhub_tools_lib.59764926086ecc1d-cgu.03.rcgu.o)) was built for newer 'iOS' version (15.0) than being linked (14.0)
+2026-10-25T16:04:54.5637600Z ld: warning: object file (/Users/runner/work/cloudhub-tools/cloudhub-tools/src-tauri/gen/apple/Externals/arm64/release/libapp.a[6](cloudhub_tools_lib.cloudhub_tools_lib.59764926086ecc1d-cgu.04.rcgu.o)) was built for newer 'iOS' version (15.0) than being linked (14.0)
+2026-10-25T16:04:54.5644370Z ld: warning: object file (/Users/runner/work/cloudhub-tools/cloudhub-tools/src-tauri/gen/apple/Externals/arm64/release/libapp.a[7](cloudhub_tools_lib.cloudhub_tools_lib.59764926086ecc1d-cgu.05.rcgu.o)) was built for newer 'iOS' version (15.0) than being linked (14.0)
+2026-10-25T16:04:54.5647130Z ld: warning: object file (/Users/runner/work/cloudhub-tools/cloudhub-tools/src-tauri/gen/apple/Externals/arm64/release/libapp.a[8](cloudhub_tools_lib.cloudhub_tools_lib.59764926086ecc1d-cgu.06.rcgu.o)) was built for newer 'iOS' version (15.0) than being linked (14.0)
+2026-10-25T16:04:54.5659100Z ld: warning: object file (/Users/runner/work/cloudhub-tools/cloudhub-tools/src-tauri/gen/apple/Externals/arm64/release/libapp.a[9](cloudhub_tools_lib.cloudhub_tools_lib.59764926086ecc1d-cgu.07.rcgu.o)) was built for newer 'iOS' version (15.0) than being linked (14.0)
+2026-10-25T16:04:54.5706940Z ld: warning: object file (/Users/runner/work/cloudhub-tools/cloudhub-tools/src-tauri/gen/apple/Externals/arm64/release/libapp.a[10](cloudhub_tools_lib.cloudhub_tools_lib.59764926086ecc1d-cgu.08.rcgu.o)) was built for newer 'iOS' version (15.0) than being linked (14.0)
+2026-10-25T16:04:54.5714100Z ld: warning: object file (/Users/runner/work/cloudhub-tools/cloudhub-tools/src-tauri/gen/apple/Externals/arm64/release/libapp.a[11](cloudhub_tools_lib.cloudhub_tools_lib.59764926086ecc1d-cgu.09.rcgu.o)) was built for newer 'iOS' version (15.0) than being linked (14.0)
+2026-10-25T16:04:54.5766840Z ld: warning: object file (/Users/runner/work/cloudhub-tools/cloudhub-tools/src-tauri/gen/apple/Externals/arm64/release/libapp.a[12](cloudhub_tools_lib.cloudhub_tools_lib.59764926086ecc1d-cgu.10.rcgu.o)) was built for newer 'iOS' version (15.0) than being linked (14.0)
+2026-10-25T16:04:54.5773380Z ld: warning: object file (/Users/runner/work/cloudhub-tools/cloudhub-tools/src-tauri/gen/apple/Externals/arm64/release/libapp.a[13](cloudhub_tools_lib.cloudhub_tools_lib.59764926086ecc1d-cgu.11.rcgu.o)) was built for newer 'iOS' version (15.0) than being linked (14.0)
+2026-10-25T16:04:54.5782160Z ld: warning: object file (/Users/runner/work/cloudhub-tools/cloudhub-tools/src-tauri/gen/apple/Externals/arm64/release/libapp.a[14](cloudhub_tools_lib.cloudhub_tools_lib.59764926086ecc1d-cgu.12.rcgu.o)) was built for newer 'iOS' version (15.0) than being linked (14.0)
+2026-10-25T16:04:54.5791350Z ld: warning: object file (/Users/runner/work/cloudhub-tools/cloudhub-tools/src-tauri/gen/apple/Externals/arm64/release/libapp.a[15](cloudhub_tools_lib.cloudhub_tools_lib.59764926086ecc1d-cgu.13.rcgu.o)) was built for newer 'iOS' version (15.0) than being linked (14.0)
+2026-10-25T16:04:54.5799010Z ld: warning: object file (/Users/runner/work/cloudhub-tools/cloudhub-tools/src-tauri/gen/apple/Externals/arm64/release/libapp.a[16](cloudhub_tools_lib.cloudhub_tools_lib.59764926086ecc1d-cgu.14.rcgu.o)) was built for newer 'iOS' version (15.0) than being linked (14.0)
+2026-10-25T16:04:54.5804920Z ld: warning: object file (/Users/runner/work/cloudhub-tools/cloudhub-tools/src-tauri/gen/apple/Externals/arm64/release/libapp.a[17](cloudhub_tools_lib.cloudhub_tools_lib.59764926086ecc1d-cgu.15.rcgu.o)) was built for newer 'iOS' version (15.0) than being linked (14.0)
+2026-10-25T16:04:54.5813700Z ld: warning: object file (/Users/runner/work/cloudhub-tools/cloudhub-tools/src-tauri/gen/apple/Externals/arm64/release/libapp.a[18](cloudhub_tools_lib.70v3cypnv1s7lrg10lg4570kq.rcgu.o)) was built for newer 'iOS' version (15.0) than being linked (14.0)
+2026-10-25T16:04:56.2057050Z note: Using codesigning identity override: ""
+2026-10-25T16:04:56.2058590Z note: Disabling previews because SWIFT_VERSION is set and SWIFT_OPTIMIZATION_LEVEL=-O, expected -Onone (in target 'cloudhub-tools_iOS' from project 'cloudhub-tools')
+2026-10-25T16:04:56.2060320Z note: Run script build phase 'Build Rust Code' will be run during every build because the option to run the script phase "Based on dependency analysis" is unchecked. (in target 'cloudhub-tools_iOS' from project 'cloudhub-tools')
+2026-10-25T16:04:56.3493640Z     Finished 1 iOS Bundle at:
+2026-10-25T16:04:56.3554150Z         /Users/runner/work/cloudhub-tools/cloudhub-tools/src-tauri/gen/apple/build/cloudhub-tools_iOS.xcarchive
+2026-10-25T16:04:56.3569800Z
+2026-10-25T16:04:56.5691580Z ##[group]Run archive=$(find src-tauri/gen/apple/build -type d -name '*.xcarchive' -print -quit)
+2026-10-25T16:04:56.5693510Z [36;1marchive=$(find src-tauri/gen/apple/build -type d -name '*.xcarchive' -print -quit)[0m
+2026-10-25T16:04:56.5695100Z [36;1mtest -n "$archive"[0m
+2026-10-25T16:04:56.5695980Z [36;1mmkdir -p mobile-release[0m
+2026-10-25T16:04:56.5697660Z [36;1mditto -c -k --sequesterRsrc --keepParent "$archive" "mobile-release/CloudHub.Tools_${RELEASE_TAG#v}_ios_unsigned_xcarchive.zip"[0m
+2026-10-25T16:04:56.7677620Z shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+2026-10-25T16:04:56.7678540Z env:
+2026-10-25T16:04:56.7678810Z   RELEASE_TAG: v0.1.90
+2026-10-25T16:04:56.7679110Z   CARGO_HOME: /Users/runner/.cargo
+2026-10-25T16:04:56.7679390Z   CARGO_INCREMENTAL: 0
+2026-10-25T16:04:56.7679690Z   CARGO_TERM_COLOR: always
+2026-10-25T16:04:56.7680000Z   CACHE_ON_FAILURE: false
+2026-10-25T16:04:56.7680280Z ##[endgroup]
+2026-10-25T16:04:58.3182830Z ##[group]Run gh release view "$RELEASE_TAG" || gh release create "$RELEASE_TAG" --title "CloudHub Tools $RELEASE_TAG" --notes "Desktop, Android APK and unsigned iOS Xcode archive. iOS requires Apple signing before installation."
+2026-10-25T16:04:58.3184820Z [36;1mgh release view "$RELEASE_TAG" || gh release create "$RELEASE_TAG" --title "CloudHub Tools $RELEASE_TAG" --notes "Desktop, Android APK and unsigned iOS Xcode archive. iOS requires Apple signing before installation."[0m
+2026-10-25T16:04:58.3185690Z [36;1mgh release upload "$RELEASE_TAG" mobile-release/*.zip --clobber[0m
+2026-10-25T16:04:58.3227320Z shell: /bin/bash -e {0}
+2026-10-25T16:04:58.3227610Z env:
+2026-10-25T16:04:58.3227920Z   RELEASE_TAG: v0.1.90
+2026-10-25T16:04:58.3228180Z   CARGO_HOME: /Users/runner/.cargo
+2026-10-25T16:04:58.3228480Z   CARGO_INCREMENTAL: 0
+2026-10-25T16:04:58.3228730Z   CARGO_TERM_COLOR: always
+2026-10-25T16:04:58.3228990Z   CACHE_ON_FAILURE: false
+2026-10-25T16:04:58.3231940Z   GH_TOKEN: ***
+2026-10-25T16:04:58.3232280Z ##[endgroup]
+2026-10-25T16:05:28.6828870Z error connecting to api.github.com
+2026-10-25T16:05:28.6860940Z check your internet connection or https://githubstatus.com
+2026-10-25T16:05:51.9482570Z HTTP 422: Validation Failed (https://api.github.com/repos/wlphp/cloudhub-tools/releases)
+2026-10-25T16:05:51.9617640Z Release.tag_name already exists
+2026-10-25T16:05:51.9733690Z ##[error]Process completed with exit code 1.
+2026-10-25T16:05:52.0204150Z Post job cleanup.
+2026-10-25T16:05:52.5087180Z [command]/opt/homebrew/bin/git version
+2026-10-25T16:05:52.5259440Z git version 2.55.0
+2026-10-25T16:05:52.5293110Z Copying '/Users/runner/.gitconfig' to '/Users/runner/work/_temp/83f5e2c4-9a9d-4e11-abb0-bf99e7c61f61/.gitconfig'
+2026-10-25T16:05:52.5308550Z Temporarily overriding HOME='/Users/runner/work/_temp/83f5e2c4-9a9d-4e11-abb0-bf99e7c61f61' before making global git config changes
+2026-10-25T16:05:52.5311240Z Adding repository directory to the temporary git global config as a safe directory
+2026-10-25T16:05:52.5314140Z [command]/opt/homebrew/bin/git config --global --add safe.directory /Users/runner/work/cloudhub-tools/cloudhub-tools
+2026-10-25T16:05:52.5559860Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-10-25T16:05:52.5643530Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-10-25T16:05:52.6950320Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-10-25T16:05:52.6980410Z http.https://github.com/.extraheader
+2026-10-25T16:05:52.6987330Z [command]/opt/homebrew/bin/git config --local --unset-all http.https://github.com/.extraheader
+2026-10-25T16:05:52.7069550Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-10-25T16:05:52.8072100Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-10-25T16:05:52.8145470Z [command]/opt/homebrew/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-10-25T16:05:52.9058850Z Cleaning up orphan processes

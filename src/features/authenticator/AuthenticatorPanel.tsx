@@ -278,14 +278,15 @@ export function AuthenticatorPanel({ mobile = false }: { mobile?: boolean }) {
   const exportIds = entries.filter(entry => selected.has(entry.id)).map(entry => entry.id);
   const alerts = <>{error && !modal && !draft && <div className="auth-alert auth-error" role="alert">{error}</div>}{message && <div className="auth-alert" role="status">{message}</div>}</>;
 
-  if (loading) return <section className="auth-panel"><p role="status">正在读取验证器状态…</p></section>;
-  if (!unlocked) return <section className="auth-panel"><h2><ShieldCheck size={22} /> {mobile ? "身份验证器" : "验证器"}</h2>{alerts}{passwordRequired ? <form className="auth-unlock" onSubmit={(event) => void unlock(event)}>
+  const panelClassName = `auth-panel${mobile ? " auth-mobile" : ""}`;
+  if (loading) return <section className={panelClassName}><p role="status">正在读取验证器状态…</p></section>;
+  if (!unlocked) return <section className={panelClassName}><h2><ShieldCheck size={22} /> {mobile ? "身份验证器" : "验证器"}</h2>{passwordRequired ? <><>{alerts}</><form className="auth-unlock" onSubmit={(event) => void unlock(event)}>
     <LockKeyhole size={38} /><h3>迁移已有验证器</h3><p>已有数据由旧主密码加密。输入一次原密码后，改为打开即用，验证码保持不变。</p>
     <label>原主密码<input type="password" autoComplete="current-password" autoFocus required maxLength={1024} value={password} onChange={(event) => setPassword(event.target.value)} /></label>
     <button className="auth-primary" disabled={busy} type="submit">{busy ? "正在迁移…" : "迁移并打开"}</button>
-  </form> : <div className="auth-empty"><p>暂时无法打开本地验证器。</p><button disabled={busy} onClick={() => void action(openVault)}>重试</button></div>}</section>;
+  </form></> : <div className="auth-empty auth-unavailable" role="status"><span className="auth-empty-icon" aria-hidden="true"><ShieldCheck size={30} /></span><h3>验证器暂时不可用</h3><p>{error || "本地服务未连接，请确认移动端调试服务已启动。"}</p><button disabled={busy} onClick={() => void action(openVault)}>{busy ? "连接中…" : "重新连接"}</button></div>}</section>;
 
-  return <section className={`auth-panel${mobile ? " auth-mobile" : ""}`} onPointerDown={touch} onKeyDown={touch}>
+  return <section className={panelClassName} onPointerDown={touch} onKeyDown={touch}>
     {copyNotice && <div className="toast-notice auth-copy-toast" role={copyNotice.failed ? "alert" : "status"} aria-atomic="true">{!copyNotice.failed && <Check size={16} aria-hidden="true" />}<span>{copyNotice.text}</span></div>}
     <div className="auth-header"><div><h2><ShieldCheck size={22} /> {mobile ? "身份验证器" : "验证器"}</h2><span>{entries.length} 个验证码 · 本地加密保存</span></div><div className="auth-actions">
       <button disabled={busy} onClick={() => { hideDraftSecret(); setDraft(emptyDraft()); setError(""); }}><Plus size={16} /> 新增</button>

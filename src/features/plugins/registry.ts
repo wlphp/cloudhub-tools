@@ -63,6 +63,16 @@ export const officialPlugins = [{
   // 供应商 API Key 本地加密保存；写入 Claude Code 配置前先备份，
   // 且只改写连接与鉴权字段，hooks 等用户配置原样保留。
   permissions: ["在本机 SQLite 数据库中加密保存供应商 API Key", "读写用户或所选项目的 Claude Code 配置（修改前备份）", "启动本机回环路由并按所选供应商转换请求协议", "连接用户配置的供应商地址以查询模型及转发请求", "管理 MCP 配置、CLAUDE.md、已安装技能和本地会话", "记录不含提示词与凭据的请求用量"],
+}, {
+  id: "cloudhub.lan-devices",
+  name: "局域网设备",
+  version: "0.1.0",
+  publisher: "云枢工具箱",
+  description: "发现局域网设备、探测常用服务，保存设备备注与扫描历史。",
+  category: "运维工具",
+  distribution: "builtin",
+  platform: "desktop",
+  permissions: ["读取本机网卡、路由与邻居表", "主动探测所选私有子网的 ICMP 与 TCP 服务", "在本地 SQLite 保存设备备注及最近 20 次扫描", "按用户操作导出设备台账或打开管理页面"],
 }, ...([
   { id: "cloudhub.flow", name: "云效流水线", description: "管理云效连接、查看流水线及运行记录，按需触发执行。", category: "开发工具" },
   { id: "cloudhub.certificates", name: "HTTPS 证书", description: "申请、导入和管理 HTTPS 证书及续期配置。", category: "运维工具" },

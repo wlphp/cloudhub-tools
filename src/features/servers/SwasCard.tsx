@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { IpLocation } from "./IpLocation";
 import { Monitor, RefreshCw, ShieldCheck, Terminal } from "lucide-react";
 import { serversClient } from "../../platform/clients";
 import { platformErrorMessage } from "../../platform/api";
@@ -68,6 +69,7 @@ export function SwasCard({
         <div><span>实例 ID：</span>{displayValue(item.InstanceId)}</div>
         <div><span>地域：</span>{displayValue(item.RegionId || item._region_id)}</div>
         <div><span>公网 IP：</span>{displayValue(item.PublicIpAddress || item.PublicIp)}</div>
+        <IpLocation ip={String(item.PublicIpAddress || item.PublicIp || "")} />
         <div><span>套餐：</span>{displayValue(item.PlanId || item.InstanceType)}</div>
         <div><span>配置：</span>{displayValue(item.Cpu) !== "-" || displayValue(item.Memory) !== "-" ? `${displayValue(item.Cpu)} 核 / ${displayValue(item.Memory)} MB${displayValue(item.Bandwidth) !== "-" ? ` / ${displayValue(item.Bandwidth)} Mbps` : ""}` : "-"}</div>
         <div><span>镜像：</span>{displayValue(item.ImageId || item.ImageName)}</div>

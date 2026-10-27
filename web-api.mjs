@@ -1,4 +1,5 @@
 import http from "node:http";
+import { handleIpLocationRoute } from "./web-api/routes/ip-location.mjs";
 import crypto from "node:crypto";
 import { database, writeApiLog } from "./web-api/core/database.mjs";
 import { decryptSecret, encryptSecret } from "./web-api/core/crypto.mjs";
@@ -695,6 +696,7 @@ const server = http.createServer(async (req, res) => {
     if (await handleAccountRoutes(req, res, url, { accounts: listAccounts, saveAccount, deleteAccount })) return;
     if (await handleFlowRoutes(req, res, url)) return;
     if (await handleAiRoutes(req, res, url)) return;
+    if (await handleIpLocationRoute(req, res, url)) return;
     if (await handleAuthenticatorRoute(req, res, url)) return;
     if (handleNotesOpenRoute(req, res, url)) return;
     if (await handleNotesRoute(req, res, url)) return;

@@ -26,6 +26,8 @@ pub mod pet_alerts;
 #[cfg(desktop)]
 pub mod pet_life;
 pub mod repositories;
+#[cfg(desktop)]
+pub mod lan;
 pub mod sync_identity;
 
 // Compatibility facade for existing command code while the remaining repositories migrate.

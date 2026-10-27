@@ -24,6 +24,10 @@ pub(crate) struct SiteCertificate {
     pub panel_name: String,
     pub site_id: i64,
     pub site_name: String,
+    #[serde(default)]
+    pub server_ip: Option<String>,
+    #[serde(default)]
+    pub panel_order: Option<i64>,
     pub site_domains: Vec<String>,
     pub certificate_domains: Vec<String>,
     pub enabled: bool,
@@ -46,6 +50,28 @@ fn text<'a>(v: &'a Value, keys: &[&str]) -> Option<&'a str> {
     keys.iter()
         .find_map(|key| v.get(*key).and_then(Value::as_str))
         .filter(|v| !v.is_empty())
+}
+fn panel_server_ip(panel_url: &str) -> Option<String> {
+    let url = reqwest::Url::parse(panel_url).ok()?;
+    let host = url.host_str()?;
+    host.parse::<std::net::IpAddr>().ok().map(|ip| ip.to_string())
+}
+
+#[cfg(test)]
+mod panel_server_ip_tests {
+    use super::panel_server_ip;
+
+    #[test]
+    fn extracts_ipv4_and_ipv6_from_panel_urls() {
+        assert_eq!(panel_server_ip("https://192.0.2.8:8888/entry").as_deref(), Some("192.0.2.8"));
+        assert_eq!(panel_server_ip("https://[2001:db8::1]:8888/entry").as_deref(), Some("2001:db8::1"));
+    }
+
+    #[test]
+    fn returns_none_when_panel_url_uses_a_hostname_or_is_invalid() {
+        assert_eq!(panel_server_ip("https://panel.example.test/entry"), None);
+        assert_eq!(panel_server_ip("not a url"), None);
+    }
 }
 fn names(v: &Value) -> Vec<String> {
     let mut result = v
@@ -107,7 +133,7 @@ impl Api {
                 .host_str()
                 .is_some_and(|host| matches!(host, "127.0.0.1" | "localhost"));
         if url.scheme() != "https" && !local_test {
-            return Err("证书管理需要 HTTPS 面板连接，请先编辑面板地址".into());
+            return Err("当前面板地址不是 HTTPS，站点管理需要 HTTPS 连接；请先在宝塔启用面板 SSL 并编辑连接地址，忽略证书校验不能解决 HTTP 地址限制".into());
         }
         let key = Zeroizing::new(decrypt_secret(&cipher)?);
         let client = reqwest::Client::builder()
@@ -144,11 +170,15 @@ impl Api {
             .timeout(Duration::from_secs(if mutating { 180 } else { 25 }))
             .send()
             .await
-            .map_err(|_| {
+            .map_err(|error| {
                 if mutating {
                     "面板操作结果待确认，请先刷新站点确认结果，再决定是否重试"
+                } else if error.is_timeout() {
+                    "连接宝塔超时（25 秒），请检查网络、代理、防火墙和面板响应速度"
+                } else if error.is_connect() {
+                    "无法建立宝塔连接，可能为地址或端口不可达、DNS 解析失败或 TLS 握手失败"
                 } else {
-                    "连接宝塔失败，请检查面板地址、认证和 API 白名单"
+                    "宝塔请求发送失败，请检查网络、代理和面板连接配置"
                 }
             })?;
         if !response.status().is_success() {
@@ -181,6 +211,83 @@ fn fields(items: &[(&str, String)]) -> BTreeMap<String, String> {
         .map(|(key, value)| ((*key).into(), value.clone()))
         .collect()
 }
+fn binding_number(value: &Value) -> Option<i64> {
+    value.as_i64().or_else(|| value.as_str()?.parse().ok())
+}
+
+fn valid_binding_domain(domain: &str) -> bool {
+    !domain.is_empty() && domain == domain.trim() && !domain.chars().any(char::is_whitespace)
+        && (super::certificates::validate_domain(domain) || domain.parse::<std::net::IpAddr>().is_ok())
+        && !domain.trim_start_matches("*.").contains('*')
+}
+
+async fn remote_bindings(api: &Api, site_id: i64) -> Result<Vec<(String, u16)>, String> {
+    let mut bindings = Vec::new();
+    let mut seen = HashSet::new();
+    for page in 1..=100 {
+        let value = api.call("/data", "getData", fields(&[
+            ("table", "domain".into()), ("search", site_id.to_string()),
+            ("p", page.to_string()), ("limit", "100".into()), ("order", "id asc".into()),
+        ]), false).await?;
+        let rows = value.get("data").unwrap_or(&value).as_array().ok_or("无法读取宝塔域名绑定，请在面板核对")?;
+        for row in rows {
+            if row.get("pid").and_then(binding_number) != Some(site_id) {
+                return Err("宝塔返回了不匹配的站点绑定，已停止操作".into());
+            }
+            let name = text(row, &["name"]).filter(|name| valid_binding_domain(name)).ok_or("宝塔域名绑定格式无效")?;
+            let port = row.get("port").and_then(binding_number).and_then(|n| u16::try_from(n).ok()).filter(|n| *n > 0).ok_or("无法确认域名绑定端口")?;
+            if !seen.insert((name.to_ascii_lowercase(), port)) { return Err("宝塔域名分页数据重复，请刷新后重试".into()); }
+            bindings.push((name.to_string(), port));
+        }
+        if rows.len() < 100 { return Ok(bindings); }
+    }
+    Err("站点域名超过单次读取限制".into())
+}
+
+async fn remove_remote_domain(api: &Api, site_id: i64, site_name: &str, domain: &str) -> Result<Vec<String>, String> {
+    if site_id <= 0 || !valid_binding_domain(domain) { return Err("站点或域名参数无效".into()); }
+    let remote = api.call("/data", "getFind", fields(&[("table", "sites".into()), ("id", site_id.to_string())]), false).await?;
+    if remote.get("id").and_then(binding_number) != Some(site_id) || text(&remote, &["name"]) != Some(site_name) {
+        return Err("远端站点与本地记录不一致，请重新获取站点".into());
+    }
+    let before = remote_bindings(api, site_id).await?;
+    let matching = before.iter().filter(|(name, _)| name.eq_ignore_ascii_case(domain)).collect::<Vec<_>>();
+    if matching.len() != 1 { return Err("域名不存在或绑定多个端口，请在宝塔面板核对后操作".into()); }
+    if before.len() <= 1 { return Err("站点至少保留一个域名，不能移除最后一个绑定".into()); }
+    let (name, port) = matching[0];
+    let result = api.call("/site", "DelDomain", fields(&[
+        ("id", site_id.to_string()), ("webname", site_name.into()), ("domain", name.clone()), ("port", port.to_string()),
+    ]), true).await;
+    let after = remote_bindings(api, site_id).await.map_err(|_| "移除结果待确认，请先在宝塔面板刷新核对，勿直接重试")?;
+    if after.iter().any(|(name, _)| name.eq_ignore_ascii_case(domain)) {
+        return Err(result.err().unwrap_or_else(|| "宝塔仍存在该域名绑定，移除未生效".into()));
+    }
+    if after.is_empty() { return Err("远端绑定状态异常，请立即在宝塔面板核对".into()); }
+    let mut domains = after.into_iter().map(|(name, _)| name.to_ascii_lowercase()).collect::<Vec<_>>();
+    domains.sort(); domains.dedup();
+    Ok(domains)
+}
+
+#[tauri::command]
+pub(crate) async fn remove_baota_site_domain(id: i64, domain: String) -> PlatformResult<SiteCertificate> {
+    let result: Result<SiteCertificate, String> = async {
+        if id <= 0 { return Err("站点参数无效".into()); }
+        let mut site = list_baota_site_certificates_inner(None).map_err(|_| "读取站点记录失败")?.into_iter().find(|site| site.id == id).ok_or("站点记录不存在")?;
+        let panel_id = site.panel_id.ok_or("来源面板已移除")?;
+        let api = Api::load(panel_id)?;
+        site.site_domains = remove_remote_domain(&api, site.site_id, &site.site_name, &domain).await?;
+        // Only update binding metadata; certificate material and renewal state are preserved.
+        let conn = open_db().map_err(|_| "远端域名已移除，本地更新失败，请重新获取站点")?;
+        let saved = conn.execute(
+            "UPDATE certificate_source_links SET site_domains_json=?1,metadata_json=json_set(metadata_json,'$.siteDomains',json(?1)) WHERE id=?2 AND panel_id=?3 AND site_id=?4",
+            params![serde_json::to_string(&site.site_domains).map_err(|_| "域名数据无效")?, id, panel_id, site.site_id],
+        ).map_err(|_| "远端域名已移除，本地更新失败，请重新获取站点")?;
+        if saved != 1 { return Err("远端域名已移除，本地记录已变化，请重新获取站点".into()); }
+        Ok(site)
+    }.await;
+    result.map_err(Into::into)
+}
+
 fn order_rows(value: &Value) -> Vec<Value> {
     if let Some(rows) = value.as_array() {
         return rows.clone();
@@ -271,6 +378,7 @@ fn save_site(
     ssl: &Value,
     orders: &[Value],
     error: Option<String>,
+    panel_order: Option<i64>,
 ) -> Result<SiteCertificate, String> {
     let site_id = site
         .get("id")
@@ -279,7 +387,7 @@ fn save_site(
         .ok_or("面板站点标识无效")?;
     let site_name = text(site, &["name"])
         .filter(|name| super::certificates::validate_domain(name))
-        .ok_or("面板站点名称无效")?
+        .ok_or_else(|| format!("站点名称不符合当前域名校验规则（站点 ID：{site_id}），请核对是否包含下划线、中文或其他非标准域名字符"))?
         .to_string();
     let mut site_domains = names(ssl.get("domain").unwrap_or(&Value::Null));
     if site_domains.is_empty() {
@@ -292,7 +400,7 @@ fn save_site(
     let enabled = ssl.get("status").and_then(Value::as_bool).unwrap_or(false);
     let now = Utc::now().timestamp_millis();
     let conn = open_db()?;
-    let old:Option<(i64,Option<i64>)>=conn.query_row("SELECT id,certificate_id FROM certificate_source_links WHERE panel_id=?1 AND site_id=?2",params![api.panel.id,site_id],|row|Ok((row.get(0)?,row.get(1)?))).optional().map_err(|_|"读取站点证书关联失败")?;
+    let old:Option<(i64,Option<i64>,Option<i64>)>=conn.query_row("SELECT id,certificate_id,json_extract(metadata_json,'$.panelOrder') FROM certificate_source_links WHERE panel_id=?1 AND site_id=?2",params![api.panel.id,site_id],|row|Ok((row.get(0)?,row.get(1)?,row.get(2)?))).optional().map_err(|_|"读取站点证书关联失败")?;
     let old_pending:Option<(bool,Option<String>)>=conn.query_row("SELECT json_extract(metadata_json,'$.pendingRenewal'),fingerprint FROM certificate_source_links WHERE panel_id=?1 AND site_id=?2",params![api.panel.id,site_id],|row|Ok((row.get::<_,Option<bool>>(0)?.unwrap_or(false),row.get(1)?))).optional().map_err(|_|"读取续签保护状态失败")?;
     let mut result = SiteCertificate {
         id: old.as_ref().map(|row| row.0).unwrap_or(0),
@@ -300,6 +408,8 @@ fn save_site(
         panel_name: api.panel.name.clone(),
         site_id,
         site_name: site_name.clone(),
+        server_ip: panel_server_ip(&api.panel.panel_url),
+        panel_order: panel_order.or_else(|| old.as_ref().and_then(|row| row.2)),
         site_remark: text(site, &["ps", "remark"]).map(str::to_string),
         pending_renewal: false,
         site_domains: site_domains.clone(),
@@ -346,7 +456,7 @@ pub(crate) fn list_baota_site_certificates_inner(
     panel_id: Option<i64>,
 ) -> CertificateResult<Vec<SiteCertificate>> {
     let conn = open_db()?;
-    let mut stmt=conn.prepare("SELECT id,panel_id,certificate_id,metadata_json FROM certificate_source_links WHERE (?1 IS NULL OR panel_id=?1) ORDER BY panel_name,site_name").map_err(|_|"读取宝塔站点证书失败")?;
+    let mut stmt=conn.prepare("SELECT l.id,l.panel_id,l.certificate_id,l.metadata_json,p.panel_url FROM certificate_source_links l LEFT JOIN panel_connections p ON p.id=l.panel_id WHERE (?1 IS NULL OR l.panel_id=?1) ORDER BY l.panel_name,l.site_name").map_err(|_|"读取宝塔站点证书失败")?;
     let rows = stmt
         .query_map([panel_id], |row| {
             Ok((
@@ -354,17 +464,21 @@ pub(crate) fn list_baota_site_certificates_inner(
                 row.get::<_, Option<i64>>(1)?,
                 row.get::<_, Option<i64>>(2)?,
                 row.get::<_, String>(3)?,
+                row.get::<_, Option<String>>(4)?,
             ))
         })
         .map_err(|_| "读取宝塔站点证书失败")?;
     let mut result = Vec::new();
     for row in rows {
-        let (id, panel_id, certificate_id, metadata) = row.map_err(|_| "读取宝塔站点证书失败")?;
+        let (id, panel_id, certificate_id, metadata, panel_url) = row.map_err(|_| "读取宝塔站点证书失败")?;
         let mut site: SiteCertificate =
             serde_json::from_str(&metadata).map_err(|_| "本地站点证书信息无效")?;
         site.id = id;
         site.panel_id = panel_id;
         site.certificate_id = certificate_id;
+        if site.server_ip.is_none() {
+            site.server_ip = panel_url.as_deref().and_then(panel_server_ip);
+        }
         if panel_id.is_none() {
             site.can_import = false;
             site.can_renew = false;
@@ -427,7 +541,6 @@ pub(crate) async fn sync_baota_site_certificates_inner(
                     ("table", "sites".into()),
                     ("p", page.to_string()),
                     ("limit", "100".into()),
-                    ("order", "id desc".into()),
                 ]),
                 false,
             )
@@ -445,7 +558,7 @@ pub(crate) async fn sync_baota_site_certificates_inner(
             if !seen.insert(id) {
                 return Err("面板分页返回重复站点，请检查面板版本".into());
             }
-            let name = text(site, &["name"]).ok_or("面板站点名称无效")?;
+            let name = text(site, &["name"]).ok_or_else(|| format!("面板未返回有效站点名称（站点 ID：{id}），请核对站点数据和面板版本"))?;
             let (ssl, error) = match api
                 .call(
                     "/site",
@@ -458,7 +571,14 @@ pub(crate) async fn sync_baota_site_certificates_inner(
                 Ok(value) => (value, None),
                 Err(error) => (json!({}), Some(error)),
             };
-            result.push(save_site(&api, site, &ssl, &orders, error)?);
+            result.push(save_site(
+                &api,
+                site,
+                &ssl,
+                &orders,
+                error,
+                Some(result.len() as i64),
+            )?);
         }
         if rows.len() < 100 {
             let conn = open_db()?;
@@ -732,6 +852,7 @@ pub(crate) async fn renew_baota_site_certificate_inner(
             &ssl,
             &[result.after],
             None,
+            None,
         )?
     } else {
         previous.clone()
@@ -878,6 +999,7 @@ pub(crate) async fn deploy_certificate_to_baota_site_inner(
         &ssl,
         &[],
         None,
+        None,
     )?;
     if deployed {
         open_db()?
@@ -937,6 +1059,12 @@ mod tests {
                     }
                 }
                 assert!(String::from_utf8_lossy(&request).contains(&format!("action={action}")));
+                if action == "DelDomain" {
+                    let request = String::from_utf8_lossy(&request);
+                    for field in ["domain=www.site.test", "port=8080", "id=21", "webname=site.test"] {
+                        assert!(request.contains(field), "Missing expected binding field");
+                    }
+                }
                 let body = serde_json::to_string(&response).unwrap();
                 write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",body.len(),body).unwrap();
             }
@@ -968,6 +1096,45 @@ mod tests {
             server,
         )
     }
+    #[tokio::test]
+    async fn domain_removal_verifies_remote_binding_and_actual_port() {
+        let before = json!({"data":[{"pid":21,"name":"site.test","port":80},{"pid":21,"name":"www.site.test","port":"8080"}]});
+        let after = json!({"data":[{"pid":21,"name":"site.test","port":80}]});
+        for accepted in [true, false] {
+            let (api, server) = mock_api(vec![
+                ("getFind", json!({"id":21,"name":"site.test"})), ("getData", before.clone()),
+                ("DelDomain", json!({"status":accepted})), ("getData", after.clone()),
+            ]);
+            assert_eq!(remove_remote_domain(&api, 21, "site.test", "www.site.test").await.unwrap(), vec!["site.test"]);
+            server.join().unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn domain_removal_blocks_last_binding_and_foreign_site() {
+        for rows in [
+            json!([{"pid":21,"name":"www.site.test","port":8080}]),
+            json!([{"pid":22,"name":"www.site.test","port":8080}]),
+        ] {
+            let (api, server) = mock_api(vec![
+                ("getFind", json!({"id":21,"name":"site.test"})), ("getData", json!({"data":rows})),
+            ]);
+            assert!(remove_remote_domain(&api, 21, "site.test", "www.site.test").await.is_err());
+            server.join().unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn domain_removal_does_not_trust_success_without_readback() {
+        let before = json!({"data":[{"pid":21,"name":"site.test","port":80},{"pid":21,"name":"www.site.test","port":8080}]});
+        let (api, server) = mock_api(vec![
+            ("getFind", json!({"id":21,"name":"site.test"})), ("getData", before.clone()),
+            ("DelDomain", json!({"status":true})), ("getData", before),
+        ]);
+        assert!(remove_remote_domain(&api, 21, "site.test", "www.site.test").await.unwrap_err().contains("未生效"));
+        server.join().unwrap();
+    }
+
     fn fixture_order(year: i32) -> Value {
         let key = rcgen::KeyPair::generate().unwrap();
         let mut params =
@@ -1201,6 +1368,23 @@ pub(crate) fn list_baota_site_certificates(
     panel_id: Option<i64>,
 ) -> PlatformResult<Vec<SiteCertificate>> {
     list_baota_site_certificates_inner(panel_id).map_err(Into::into)
+}
+
+#[tauri::command]
+pub(crate) async fn resolve_baota_site_domain(domain: String) -> PlatformResult<Vec<String>> {
+    let domain = domain.trim().trim_start_matches("*.").trim_end_matches('.').to_ascii_lowercase();
+    if domain.is_empty() || domain.len() > 253 || domain.chars().any(|ch| !(ch.is_ascii_alphanumeric() || ch == '.' || ch == '-')) {
+        return Err("域名格式无效".into());
+    }
+    if let Ok(ip) = domain.parse::<std::net::IpAddr>() {
+        return Ok(vec![ip.to_string()]);
+    }
+    let addresses = tokio::net::lookup_host((domain.as_str(), 0)).await.map_err(|_| "DNS 解析失败或暂无解析记录")?;
+    let mut ips = addresses.map(|address| address.ip().to_string()).collect::<Vec<_>>();
+    ips.sort();
+    ips.dedup();
+    if ips.is_empty() { return Err("DNS 解析未返回 IP 记录".into()); }
+    Ok(ips)
 }
 #[tauri::command]
 pub(crate) async fn sync_baota_site_certificates(

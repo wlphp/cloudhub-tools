@@ -1,17 +1,20 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { SharedDialog } from "./SharedDialog";
 import "./export-selection.css";
 
 export type ExportItem = { id: string; label: string; detail?: string };
 
-export function ExportChecklist({ items, selected, onChange, disabled = false, search = true }: { items: ExportItem[]; selected: string[]; onChange: (ids: string[]) => void; disabled?: boolean; search?: boolean }) {
+export function ExportChecklist({ items, selected, onChange, disabled = false, search = true, itemActions }: { items: ExportItem[]; selected: string[]; onChange: (ids: string[]) => void; disabled?: boolean; search?: boolean; itemActions?: (item: ExportItem) => ReactNode }) {
   const [query, setQuery] = useState("");
   const valid = selected.filter(id => items.some(item => item.id === id));
   const visible = items.filter(item => `${item.label} ${item.detail ?? ""}`.toLowerCase().includes(query.trim().toLowerCase()));
   return <section className="export-selection" aria-label="选择导出内容">
     <div className="export-selection-tools"><button type="button" disabled={disabled} onClick={() => onChange(items.map(item => item.id))}>全选</button><button type="button" disabled={disabled} onClick={() => onChange([])}>取消全选</button><span aria-live="polite">已选 {valid.length} / {items.length}</span></div>
     {search && <input aria-label="搜索导出内容" placeholder="搜索名称" value={query} onChange={event => setQuery(event.target.value)} />}
-    <div className="export-selection-list">{visible.map(item => <label key={item.id}><input type="checkbox" disabled={disabled} checked={valid.includes(item.id)} onChange={event => onChange(event.target.checked ? [...valid, item.id] : valid.filter(id => id !== item.id))} /><span>{item.label}{item.detail && <small>{item.detail}</small>}</span></label>)}{!visible.length && <p>没有可选内容</p>}</div>
+    <div className="export-selection-list">{visible.map(item => {
+      const label = <label key={item.id}><input type="checkbox" disabled={disabled} checked={valid.includes(item.id)} onChange={event => onChange(event.target.checked ? [...valid, item.id] : valid.filter(id => id !== item.id))} /><span>{item.label}{item.detail && <small>{item.detail}</small>}</span></label>;
+      return itemActions ? <div className="export-selection-row" key={item.id}>{label}{itemActions(item)}</div> : label;
+    })}{!visible.length && <p>没有可选内容</p>}</div>
   </section>;
 }
 

@@ -25,6 +25,9 @@ export const databaseClient = {
   prepareSqlImport(mode: "merge" | "overwrite"): Promise<DatabaseImportPreview | null> {
     return nativeOnly<DatabaseImportPreview | null>("prepare_database_import", { format: "sql", mode });
   },
+  prepareBackupImport(password?: string): Promise<DatabaseImportPreview | null> {
+    return nativeOnly<DatabaseImportPreview | null>("prepare_database_import", { format: "backup", password });
+  },
   listBackups(): Promise<DatabaseBackupRecord[]> { return nativeOnly("list_database_backups"); },
   createBackup(password?: string): Promise<DatabaseBackupRecord> { return nativeOnly("create_database_backup", password === undefined ? {} : { password }); },
   importBackup(password?: string): Promise<DatabaseBackupRecord | null> { return nativeOnly("import_database_backup", { password }); },

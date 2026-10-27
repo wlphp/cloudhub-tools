@@ -158,3 +158,34 @@ body.theme-light .ide-theme .favorite-disk-chip.system i{color:#9a5518}
 .favorite-card-head { min-height: 45px; }
 .favorite-card-head > div { display: flex; flex-direction: column; justify-content: center; }
 .favorite-server-details .favorite-disk-row { min-height: 24px; align-items: center; }
+
+/* IP 归属地与地址保持相邻，左对齐；详情使用公共弹层。 */
+.favorite-card-details > .ip-location-row,
+.server-info > .ip-location-row { display:flex; flex-direction:column; align-items:flex-start; gap:4px; min-width:0; grid-column:1 / -1; text-align:left; }
+.panel-row-server > .panel-row-address-block { grid-column:1 / -1; grid-row:2; min-width:0; }
+.panel-row-address-block > .ip-location-row { display:flex; flex-direction:column; align-items:flex-start; gap:4px; margin:2px 0 4px; min-width:0; text-align:left; }
+.ip-location-summary { display:flex; align-items:center; justify-content:flex-start; flex-wrap:wrap; gap:8px; min-width:0; max-width:100%; font-size:12px; }
+.ip-location-summary > span { overflow-wrap:anywhere; }
+.ip-location-result { display:inline-flex; align-items:center; gap:4px; min-width:0; }
+.ip-location-result > svg { flex:0 0 auto; color:var(--jb-accent-strong); }
+.ip-location-action { display:inline-flex; align-items:center; justify-content:center; gap:4px; min-height:24px; padding:2px 4px; border:0; border-radius:4px; background:transparent; color:var(--jb-accent-strong); font:inherit; cursor:pointer; }
+.panel-row-address-block .ip-location-summary > .ip-location-action:first-child { padding-left:0; }
+.ip-location-action:hover:not(:disabled), .ip-location-action:active { background:var(--jb-accent-soft); }
+.ip-location-action:disabled { opacity:.6; cursor:wait; }
+.ip-location-action:focus-visible, .ip-location-raw > summary:focus-visible { outline:2px solid var(--jb-accent); outline-offset:2px; }
+.ip-location-error { color:var(--jb-text); overflow-wrap:anywhere; }
+.ip-location-dialog .modal-body { min-width:0; }
+.ip-location-overview { margin:0 0 16px; color:var(--jb-text); overflow-wrap:anywhere; }
+.ip-location-fields { display:grid; gap:0; margin:0; min-width:0; }
+.ip-location-fields > div { display:grid; grid-template-columns:minmax(90px, 120px) minmax(0, 1fr); gap:12px; padding:10px 0; border-bottom:1px solid var(--jb-border); }
+.ip-location-fields dt { color:var(--jb-muted); overflow-wrap:anywhere; }
+.ip-location-fields dd { margin:0; min-width:0; color:var(--jb-text); overflow-wrap:anywhere; }
+.ip-location-fields .ip-location-fields > div { padding:6px 0; }
+.ip-location-raw { margin-top:16px; color:var(--jb-muted); }
+.ip-location-raw > summary { cursor:pointer; padding:4px 0; }
+.ip-location-dialog pre { white-space:pre-wrap; overflow-wrap:anywhere; max-width:100%; font-size:12px; }
+@media (max-width: 600px) {
+  .ip-location-fields > div { grid-template-columns:1fr; gap:4px; }
+  .ip-location-action { min-height:32px; }
+}
+@media (prefers-reduced-motion: reduce) { .ip-location-row .spin, .ip-location-dialog .spin { animation:none; } }

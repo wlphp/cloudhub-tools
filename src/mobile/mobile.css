@@ -2606,6 +2606,187 @@ body:has(.mobile-shell) :is(.app-confirm-dialog,.sync-transfer-panel) {
   background: var(--mobile-surface);
 }
 
+/* Data import is a full mobile page; only the desktop variant keeps the dialog surface. */
+body:has(.mobile-shell) .sync-transfer-mobile-page {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+
+body:has(.mobile-shell) .sync-transfer-mobile-page .sync-transfer-body {
+  padding: 0;
+}
+
+/* Cloud sync is shared with desktop, but its desktop stylesheet is not loaded by the mobile entry. */
+body:has(.mobile-shell) .cloud-sync-section {
+  min-width: 0;
+  margin: 24px 0 0;
+}
+body:has(.mobile-shell) .cloud-sync-section > h2 {
+  margin: 0 0 10px;
+  color: var(--mobile-text);
+  font-size: 20px;
+  line-height: 1.3;
+}
+body:has(.mobile-shell) .cloud-sync-panel {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--mobile-border);
+  border-radius: 12px;
+  background: var(--mobile-surface);
+  color: var(--mobile-text);
+}
+body:has(.mobile-shell) .cloud-sync-heading {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+body:has(.mobile-shell) .cloud-sync-heading h3 {
+  min-width: 0;
+  margin: 0;
+  color: var(--mobile-text);
+  font-size: 16px;
+  line-height: 1.4;
+}
+body:has(.mobile-shell) .cloud-sync-heading .data-settings-badge {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border: 1px solid var(--mobile-border);
+  border-radius: 999px;
+  color: var(--mobile-muted);
+  font-size: 11px;
+}
+body:has(.mobile-shell) .cloud-sync-toggle {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  padding: 0 4px 0 8px;
+  border: 0;
+  background: transparent;
+  color: var(--mobile-accent-strong);
+  cursor: pointer;
+}
+body:has(.mobile-shell) .cloud-sync-panel > p,
+body:has(.mobile-shell) .cloud-sync-hint,
+body:has(.mobile-shell) .cloud-sync-transfer > p {
+  margin: 10px 0 0;
+  color: var(--mobile-muted);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+body:has(.mobile-shell) .cloud-sync-form {
+  display: grid;
+  gap: 14px;
+  margin-top: 16px;
+}
+body:has(.mobile-shell) .cloud-sync-form > .cloud-sync-field,
+body:has(.mobile-shell) .cloud-sync-grid,
+body:has(.mobile-shell) .cloud-sync-options {
+  min-width: 0;
+}
+body:has(.mobile-shell) .cloud-sync-field {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+  margin: 0;
+  color: var(--mobile-text);
+  font-size: 12px;
+  font-weight: 600;
+}
+body:has(.mobile-shell) .cloud-sync-field > span {
+  display: block;
+}
+body:has(.mobile-shell) .cloud-sync-field :is(input, select) {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  box-sizing: border-box;
+  padding: 0 11px;
+  border: 1px solid var(--mobile-border);
+  border-radius: 8px;
+  background: var(--mobile-bg);
+  color: var(--mobile-text);
+  font-size: 14px;
+}
+body:has(.mobile-shell) .cloud-sync-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+}
+body:has(.mobile-shell) .cloud-sync-options {
+  display: grid;
+  gap: 14px;
+  padding: 14px 0 0;
+  border-top: 1px solid var(--mobile-border);
+}
+body:has(.mobile-shell) .cloud-sync-option {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 0;
+  color: var(--mobile-text);
+  font-size: 13px;
+  line-height: 1.5;
+}
+body:has(.mobile-shell) .cloud-sync-option input {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  margin: 2px 0 0;
+  accent-color: var(--mobile-accent);
+}
+body:has(.mobile-shell) .cloud-sync-option span {
+  min-width: 0;
+}
+body:has(.mobile-shell) .cloud-sync-option small {
+  display: block;
+  margin-top: 3px;
+  color: var(--mobile-muted);
+  font-size: 12px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+body:has(.mobile-shell) .cloud-sync-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 9px;
+  margin-top: 14px;
+}
+body:has(.mobile-shell) .cloud-sync-actions button,
+body:has(.mobile-shell) .cloud-sync-transfer button {
+  display: inline-flex;
+  align-items: center;
+  width: 100%;
+  min-height: 46px;
+  justify-content: center;
+  gap: 7px;
+  border-radius: 9px;
+  font-size: 13px;
+}
+body:has(.mobile-shell) .cloud-sync-transfer {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--mobile-border);
+}
+body:has(.mobile-shell) .cloud-sync-transfer .cloud-sync-actions {
+  margin-top: 0;
+}
+body:has(.mobile-shell) .cloud-sync-section :is(input, select, button):focus-visible {
+  outline: 2px solid var(--mobile-accent);
+  outline-offset: 2px;
+}
+
 /* Account card ellipsis opens an explicit action menu instead of scrolling the row. */
 .mobile-account-swipe-card {
   position: relative;
@@ -2760,9 +2941,143 @@ body.theme-light .mobile-back-fab.is-dragging { box-shadow: 0 12px 28px #1f29373
 .network-toast-notice { position: fixed; z-index: 1200; top: calc(env(safe-area-inset-top,0px) + 12px); right: max(12px,env(safe-area-inset-right,0px)); left: max(12px,env(safe-area-inset-left,0px)); width: max-content; max-width: calc(100vw - 24px); margin: 0 auto; padding: 12px 14px; border: 1px solid var(--mobile-border); border-radius: 12px; background: var(--mobile-raised); color: var(--mobile-text); box-shadow: 0 8px 28px #0005; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
 body.theme-light .mobile-network-settings .network-settings-card,
 body.theme-light .mobile-network-settings .network-priority-card { background: var(--mobile-surface); }
+
+/* Keep the light mobile experience on one calm blue palette. */
+body.theme-light {
+  --mobile-bg: #f8fafc;
+  --mobile-surface: #ffffff;
+  --mobile-raised: #f1f5f9;
+  --mobile-border: #dbe4f0;
+  --mobile-border-strong: #bfd0e5;
+  --mobile-text: #172033;
+  --mobile-muted: #5b6b82;
+  --mobile-subtle: #8795a8;
+  --mobile-accent: #1e40af;
+  --mobile-accent-strong: #2563eb;
+  --mobile-focus: #1e40af;
+  --mobile-danger: #dc2626;
+}
+
+body.theme-light .mobile-shell { background: var(--mobile-bg); }
+body.theme-light .mobile-header { background: var(--mobile-surface); border-bottom-color: var(--mobile-border); }
+body.theme-light .mobile-brand-icon { background: #eff6ff; border: 1px solid #bfdbfe; color: var(--mobile-accent); }
+body.theme-light .mobile-page-title p { color: var(--mobile-accent); }
+body.theme-light .mobile-primary { border-color: var(--mobile-accent); background: var(--mobile-accent); color: #fff; }
+body.theme-light .mobile-primary:hover:not(:disabled) { background: var(--mobile-accent-strong); }
+body.theme-light .mobile-icon-button { background: var(--mobile-surface); color: var(--mobile-muted); }
+body.theme-light .mobile-security-note { border-color: #dbeafe; background: #f8fbff; }
+body.theme-light .mobile-security-note svg,
+body.theme-light .mobile-empty > svg { color: var(--mobile-accent-strong); }
+body.theme-light .mobile-empty { border-color: var(--mobile-border-strong); background: var(--mobile-surface); }
+body.theme-light .mobile-account-card.selected { border-color: #93b4f4; background: #eff6ff; }
+body.theme-light .mobile-provider-avatar { background: #f1f5f9; color: var(--mobile-accent); }
+body.theme-light .mobile-tab-bar { background: rgba(255,255,255,.96); box-shadow: 0 -8px 24px rgba(30,64,175,.08); }
+body.theme-light .mobile-tab-bar button.active { border-color: #bfdbfe; background: #eff6ff; color: var(--mobile-accent); }
+body.theme-light .mobile-account-form { box-shadow: 0 18px 55px rgba(30,64,175,.13); }
+body.theme-light .mobile-notice { border-color: #fed7aa; background: #fff7ed; color: #9a3412; }
+body.theme-light .mobile-domain-type { background: #eff6ff; color: var(--mobile-accent); }
+body.theme-light .mobile-panel-actions button.primary { border-color: var(--mobile-accent); background: var(--mobile-accent); }
+body.theme-light .mobile-resource-stats strong { color: var(--mobile-accent); }
+body.theme-light .mobile-server-tabs button.active::after { background: var(--mobile-accent); }
+body.theme-light .mobile-network-settings .network-pool-item.is-selected { border-color: var(--mobile-accent); }
 @media (min-width: 560px) {
   .mobile-network-settings .network-pool-toolbar { grid-template-columns: minmax(0,1fr) auto; align-items: center; }
   .mobile-network-settings .network-pool-toolbar > button { width: auto; min-width: 140px; }
   .mobile-network-settings .network-pool-item { grid-template-columns: minmax(0,1fr) auto; align-items: center; }
   .mobile-network-settings .network-pool-item-actions { display: flex; }
+}
+
+/* 移动端统一收紧普通操作的视觉尺寸，保留底部导航的触控高度。 */
+.mobile-shell .mobile-primary,
+.mobile-shell .mobile-icon-button,
+.mobile-shell .mobile-panel-actions > button,
+.mobile-shell .mobile-server-actions button {
+  min-height: 40px;
+  border-radius: 8px;
+}
+.mobile-shell .mobile-primary { padding-inline: 12px; }
+.mobile-shell .mobile-icon-button {
+  width: 40px;
+  flex-basis: 40px;
+  padding-inline: 0;
+}
+.mobile-shell .mobile-header-actions .mobile-icon-button {
+  width: 40px;
+  flex-basis: 40px;
+  min-height: 40px;
+  border-radius: 10px;
+}
+.mobile-shell .mobile-page-title .mobile-primary {
+  min-height: 40px;
+  padding-inline: 11px;
+  font-size: 12px;
+}
+.mobile-shell .mobile-panel-actions > button:has(> span) {
+  min-height: 40px;
+  padding-inline: 10px;
+  font-size: 12px;
+}
+.mobile-shell .mobile-panel-actions > button:not(:has(> span)) {
+  width: 40px;
+  min-width: 40px;
+  flex-basis: 40px;
+  padding-inline: 0;
+}
+.mobile-shell .mobile-account-actions .mobile-primary,
+.mobile-shell .mobile-account-actions .mobile-icon-button,
+.mobile-shell .mobile-resource-inline-actions .mobile-primary {
+  min-height: 32px;
+}
+.mobile-shell .mobile-network-settings .network-settings-heading > button,
+.mobile-shell .mobile-network-settings .network-pool-toolbar > button,
+.mobile-shell .mobile-network-settings .network-pool-item-actions button,
+.mobile-shell .mobile-network-settings .network-proxy-actions button {
+  min-height: 40px;
+}
+.mobile-shell .mobile-back-fab {
+  width: 42px;
+  height: 42px;
+}
+
+/* 第二档紧凑尺寸：页面内的普通按钮再缩一号，导航仍保持原触控区。 */
+.mobile-shell .mobile-primary,
+.mobile-shell .mobile-panel-actions > button,
+.mobile-shell .mobile-server-actions button,
+.mobile-shell .mobile-network-settings .network-settings-heading > button,
+.mobile-shell .mobile-network-settings .network-pool-toolbar > button,
+.mobile-shell .mobile-network-settings .network-pool-item-actions button,
+.mobile-shell .mobile-network-settings .network-proxy-actions button {
+  min-height: 36px;
+}
+.mobile-shell .mobile-primary { padding-inline: 10px; }
+.mobile-shell .mobile-empty .mobile-primary,
+.mobile-shell .mobile-page-title .mobile-primary,
+.mobile-shell .mobile-panel-actions > button:has(> span) {
+  min-height: 36px;
+  padding-inline: 10px;
+}
+.mobile-shell .mobile-icon-button,
+.mobile-shell .mobile-header-actions .mobile-icon-button {
+  width: 36px;
+  flex-basis: 36px;
+  min-height: 36px;
+}
+.mobile-shell .mobile-panel-actions > button:not(:has(> span)) {
+  width: 36px;
+  min-width: 36px;
+  flex-basis: 36px;
+}
+.mobile-shell .mobile-back-fab {
+  width: 40px;
+  height: 40px;
+}
+
+/* 主操作按钮再收紧一档，适配空状态等轻量操作。 */
+.mobile-shell .mobile-primary,
+.mobile-shell .mobile-empty .mobile-primary,
+.mobile-shell .mobile-page-title .mobile-primary,
+.mobile-shell .mobile-panel-actions > button:has(> span) {
+  min-height: 32px;
+  padding-inline: 8px;
+  border-radius: 7px;
 }

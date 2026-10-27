@@ -1,6 +1,7 @@
 {
   "version": 1,
   "mobileCommands": [
+    "query_ip_location",
     "acknowledge_sync_delta",
     "add_dns_record",
     "ai_cancel",
@@ -325,6 +326,11 @@
       "name": "servers",
       "operations": [
         {
+          "name": "ip-location",
+          "native": ["query_ip_location"],
+          "preview": [{ "method": "POST", "path": "/api/ip-location" }]
+        },
+        {
           "name": "managed-hosts",
           "native": [
             "list_managed_hosts",
@@ -640,6 +646,11 @@
           "native": [
             "cancel_certificate_request"
           ],
+          "preview": []
+        },
+        {
+          "name": "baota-domain-remove",
+          "native": ["remove_baota_site_domain"],
           "preview": []
         },
         {
@@ -1432,6 +1443,11 @@
             "wsl_dashboard_open_terminal",
             "wsl_dashboard_open_folder"
           ],
+          "preview": []
+        },
+        {
+          "name": "lan-devices",
+          "native": ["lan_interfaces", "lan_status", "lan_start", "lan_cancel", "lan_ledger", "lan_annotate", "lan_export"],
           "preview": []
         },
         {

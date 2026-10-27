@@ -1,6 +1,9 @@
 const DEFAULT_ALLOWED_ORIGINS = [
   "http://127.0.0.1:1420",
   "http://localhost:1420",
+  // Vite uses 1421 when the desktop preview already occupies 1420.
+  "http://127.0.0.1:1421",
+  "http://localhost:1421",
 ];
 
 function normalizedOrigin(value) {

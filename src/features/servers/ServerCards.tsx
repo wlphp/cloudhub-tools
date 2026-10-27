@@ -6,6 +6,7 @@ import type { Account, LocalAsset } from "../../shared/types";
 import { displayValue } from "../../shared/utils/display";
 import { cloudProvider } from "../cloud/catalog";
 import { SecurityGroupDialog, VultrFirewallDialog } from "./SecurityDialogs";
+import { IpLocation } from "./IpLocation";
 
 function firstAddress(value: unknown): string {
   if (Array.isArray(value)) return firstAddress(value[0]);
@@ -221,6 +222,7 @@ export function ServerCard({
           {displayValue(item.PublicIpAddress)}
           {!item.PublicIpAddress && networkError && <small>（{networkAccessDenied ? "OCI IAM 未授权读取 VNIC" : "网络接口读取失败"}）</small>}
         </div>
+        <IpLocation ip={firstAddress(item.PublicIpAddress)} />
         <div title={networkError || undefined}>
           <span>内网IP：</span>
           {displayValue(item.PrivateIpAddress)}
@@ -375,6 +377,7 @@ export function FavoriteServerDetails({ asset, account, onCopyIp }: { asset: Loc
   const allDisks = disks.length ? disks : fallbackDisks;
   return <div className="favorite-card-details favorite-server-details">
     <div><span>IP 地址：</span><div className="favorite-detail-value"><strong title={ip || "-"}>{ip || "-"}</strong>{ip && <button type="button" className="favorite-ip-copy" title="复制 IP 地址" aria-label="复制 IP 地址" onClick={() => onCopyIp(ip)}><Copy size={14} /></button>}</div></div>
+    <IpLocation ip={ip} />
     <div><span>规格：</span><strong title={bandwidth > 0 ? `${specification} · ${bandwidth}M 带宽` : specification}>{specification}{bandwidth > 0 ? ` · ${bandwidth}M 带宽` : ""}</strong></div>
     <div className="favorite-disk-row"><span>磁盘：</span><div className="favorite-disk-list">{diskLoading ? <em>磁盘信息加载中…</em> : allDisks.length ? allDisks.map((disk, index) => {
       const kind = String(disk.Type || disk.DiskUsage || disk.Usage || disk.Category || "").toLowerCase();
