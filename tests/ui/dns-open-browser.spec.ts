@@ -11,6 +11,7 @@ test("DNS browser links open the host through the native opener without editing 
     const calls: Array<{ command: string; args: any }> = [];
     (window as any).browserCalls = calls;
     (window as any).__TAURI_INTERNALS__ = {
+      metadata: { currentWindow: { label: "main" }, currentWebview: { label: "main" } },
       transformCallback: () => 1, unregisterCallback: () => {},
       invoke: async (command: string, args: any) => {
         calls.push({ command, args });
@@ -22,6 +23,7 @@ test("DNS browser links open the host through the native opener without editing 
           { RecordId: "3", RR: "*", Type: "A", Value: "192.0.2.1", TTL: 600 },
         ], total: 3 };
         if (command === "authenticator_status") return { configured: false, unlocked: false };
+        if (command === "list_client_preferences") return {};
         return [];
       },
     };

@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 
 test("quick command add buttons open the editor", async ({ page }) => {
   await page.addInitScript(() => {
-    (window as any).__TAURI_INTERNALS__ = { transformCallback: () => 1, unregisterCallback: () => {}, invoke: async (command: string) => {
+    (window as any).__TAURI_INTERNALS__ = { metadata: { currentWindow: { label: "main" }, currentWebview: { label: "main" } }, transformCallback: () => 1, unregisterCallback: () => {}, invoke: async (command: string) => {
       if (command === "list_managed_hosts") return [];
       if (command === "list_client_preferences") return {};
       if (command === "authenticator_status") return { configured: false, unlocked: false };

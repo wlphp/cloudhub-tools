@@ -5,6 +5,12 @@ const penguinFrames: number[][] = JSON.parse(readFileSync(new URL("../../src/fea
 const dogFrames: number[][] = JSON.parse(readFileSync(new URL("../../src/features/desktop-pet/assets/dog-frames.json", import.meta.url), "utf8"));
 const defaultPetLife = { enabled: false, province: "", city: "", weather: false, schedule: true, workStart: "09:00", lunchStart: "12:00", lunchEnd: "13:30", workEnd: "18:00", leaveBefore: 10, ignoreHolidays: true, restDates: [] as string[], workDates: [] as string[], water: true, waterMinutes: 60, waterRoam: true, stretch: false, stretchMinutes: 90 };
 
+async function openPetSettings(page: Page) {
+  await page.getByRole("button", { name: "系统设置", exact: true }).click();
+  await page.getByRole("tab", { name: "宠物管理" }).click();
+  await expect(page.getByRole("region", { name: "桌宠与运维预警" })).toBeVisible();
+}
+
 async function lifeNotice(page: Page, kind = "water", level = 0) {
   await expect.poll(() => page.evaluate(() => (window as any).petCalls.some((c: any) => c.command === "pet_settings"))).toBe(true);
   await page.evaluate(async ({ kind, level }) => {
@@ -20,9 +26,8 @@ async function lifeNotice(page: Page, kind = "water", level = 0) {
 
 test("life settings save region schedule and multiline calendar overrides atomically", async ({ page }) => {
   await fixture(page); await page.goto("/");
-  await page.getByRole("button", { name: "系统设置", exact: true }).click();
+  await openPetSettings(page);
   const section = page.getByRole("region", { name: "桌宠与运维预警" });
-  await section.getByRole("button", { name: "展开", exact: true }).click();
   await section.locator("summary").filter({ hasText: "地区与生活提醒" }).click();
   await section.getByLabel("开启生活提醒").check();
   await section.getByLabel("灾害天气预警").check();
@@ -48,9 +53,8 @@ test("life settings save region schedule and multiline calendar overrides atomic
 
 test("life settings retain a rejected draft and explain unsupported holiday years", async ({ page }) => {
   await fixture(page); await page.goto("/");
-  await page.getByRole("button", { name: "系统设置", exact: true }).click();
+  await openPetSettings(page);
   const section = page.getByRole("region", { name: "桌宠与运维预警" });
-  await section.getByRole("button", { name: "展开", exact: true }).click();
   await section.locator("summary").filter({ hasText: "地区与生活提醒" }).click();
   await section.getByLabel("开启生活提醒").check();
   await section.getByLabel("上班时间", { exact: true }).fill("14:00");
@@ -608,8 +612,7 @@ test("ignore one and all update the status list and pet badge without deleting h
 
 test("ignored alerts can be restored from settings history", async ({ page }) => {
   await fixture(page); await page.goto("/");
-  await page.getByRole("button", { name: "系统设置", exact: true }).click();
-  await page.locator(".pet-settings-section").getByRole("button", { name: "展开" }).click();
+  await openPetSettings(page);
   await expect(page.getByLabel("启用桌宠")).toBeVisible();
   await page.evaluate(() => (window as any).petEvent("pet-alerts-changed", { checkedAt: 100, lastError: null, alerts: [{ key: "cert:1", title: "被忽略的提醒", detail: "即将到期", section: "certificates", severity: "warning", active: true, ignored: true, updatedAt: 100, snoozedUntil: 0 }] }));
   await page.getByRole("button", { name: /提醒记录（/ }).click();
@@ -661,9 +664,8 @@ test("emergency alerts sort first and show explicit severity in list and speech 
 
 test("panel access check is independently configurable", async ({ page }) => {
   await fixture(page); await page.goto("/");
-  await page.getByRole("button", { name: "系统设置", exact: true }).click();
+  await openPetSettings(page);
   const section = page.locator(".pet-settings-section");
-  await section.getByRole("button", { name: "展开" }).click();
   await section.getByRole("checkbox", { name: "启用运维预警", exact: true }).check();
   await section.getByText("检查范围与提醒规则", { exact: true }).click();
   const access = section.getByRole("checkbox", { name: "面板访问异常", exact: true });
@@ -808,19 +810,15 @@ test("system reduced motion and hidden pets stop frame advancement", async ({ pa
 
 test("browser settings explicitly disable native companion functionality", async ({ page }) => {
   await page.route("**/api/**", route => route.fulfill({ json: [] }));
-  await page.goto("/"); await page.getByRole("button", { name: "系统设置", exact: true }).click();
-  const expand = page.locator(".pet-settings-section").getByRole("button", { name: "展开" });
-  await expect(expand).toHaveAttribute("aria-expanded", "false");
-  await expand.click();
+  await page.goto("/"); await openPetSettings(page);
   await expect(page.getByText("桌宠、后台巡检和托盘驻留仅支持桌面应用，浏览器预览不可用。")).toBeVisible();
   await expect(page.getByLabel("启用桌宠")).toHaveCount(0);
 });
 
 test("pet settings save dog appearance while retaining the alpaca option", async ({ page }) => {
   await fixture(page); await page.goto("/");
-  await page.getByRole("button", { name: "系统设置", exact: true }).click();
+  await openPetSettings(page);
   const section = page.locator(".pet-settings-section");
-  await section.getByRole("button", { name: "展开" }).click();
   await section.getByText("桌宠外观与行为", { exact: true }).click();
   const appearance = section.getByLabel("宠物形象");
   await expect(appearance).toHaveValue("alpaca");
@@ -898,15 +896,12 @@ for (const appearance of ["dog", "penguin", "fish"] as const) test(`${appearance
 
 test("settings keep monitoring independent and do not accept a failed enable", async ({ page }) => {
   await fixture(page, false); await page.goto("/");
-  await page.getByRole("button", { name: "系统设置", exact: true }).click();
+  await openPetSettings(page);
   const petSection = page.locator(".pet-settings-section");
-  const expand = petSection.getByRole("button", { name: "展开" });
-  await expect(expand).toHaveAttribute("aria-expanded", "false");
-  await expect(petSection.getByRole("checkbox")).toHaveCount(0);
+  await expect(petSection.getByRole("checkbox", { name: "启用桌宠" })).toBeVisible();
   await expect(petSection.getByText("桌宠 已关闭")).toBeVisible();
   await expect(petSection.getByText("运维预警 已关闭")).toBeVisible();
-  await page.screenshot({ path: "test-results/alpaca-settings-collapsed.png" });
-  await expand.click();
+  await page.screenshot({ path: "test-results/alpaca-settings-embedded.png" });
   const pet=page.getByRole("checkbox",{name:/启用桌宠/});
   const monitoring=page.getByRole("checkbox",{name:/启用运维预警/});
   await expect(pet).not.toBeChecked(); await expect(monitoring).not.toBeChecked();
@@ -924,9 +919,8 @@ test("settings keep monitoring independent and do not accept a failed enable", a
 
 test("expanded pet settings stay compact and fit desktop and narrow widths", async ({ page }) => {
   await fixture(page); await page.goto("/");
-  await page.getByRole("button", { name: "系统设置", exact: true }).click();
+  await openPetSettings(page);
   const section = page.locator(".pet-settings-section");
-  await section.getByRole("button", { name: "展开" }).click();
   await section.locator("summary").first().click();
   await section.locator("summary").filter({ hasText: "检查范围与提醒规则" }).click();
   await expect(section.getByLabel("活动范围")).toBeVisible();
@@ -956,8 +950,7 @@ test("desktop notification remains usable when the companion is disabled", async
 
 test("main window routes a panel alert to the matching panel filter", async ({page})=>{
   await fixture(page,false); await page.goto("/");
-  await page.getByRole("button",{name:"系统设置",exact:true}).click();
-  await page.locator(".pet-settings-section").getByRole("button",{name:"展开"}).click();
+  await openPetSettings(page);
   await expect(page.getByRole("checkbox",{name:/启用桌宠/})).toBeVisible();
   await page.evaluate(()=> (window as any).petEvent("pet-open-section",{section:"panels",key:"panel:7:service:web"}));
   await expect(page.getByRole("textbox",{name:"搜索面板",exact:true})).toHaveValue("测试面板");

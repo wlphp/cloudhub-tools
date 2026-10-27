@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test";
 test("detached file list fits the window and reveals the entire final filename", async ({ page }) => {
   await page.addInitScript(() => {
     const host = { id: 1, name: "文件列表测试", host: "192.0.2.10", platform: "linux", username: "operator", port: 22, group_name: "测试", status: "online", password_saved: true };
-    (window as any).__TAURI_INTERNALS__ = { transformCallback: () => 1, unregisterCallback: () => {}, invoke: async (command: string) => {
+    (window as any).__TAURI_INTERNALS__ = { metadata: { currentWindow: { label: "main" }, currentWebview: { label: "main" } }, transformCallback: () => 1, unregisterCallback: () => {}, invoke: async (command: string) => {
       if (command === "list_managed_hosts") return [host];
       if (command === "list_client_preferences") return {};
       if (command === "authenticator_status") return { configured: false, unlocked: false };

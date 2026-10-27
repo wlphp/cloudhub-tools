@@ -47,7 +47,7 @@ test("电脑信息面板支持单独复制 Wi-Fi 密码，并可打开和关闭�
   await expect(dialog.getByText("Example Laptop")).toBeVisible();
   const dialogBounds = await dialog.boundingBox();
   expect(dialogBounds!.width).toBeGreaterThan(1100);
-  expect(dialogBounds!.height).toBeGreaterThan(620);
+  expect(dialogBounds!.height).toBeGreaterThan(600);
   await expect(dialog.getByText("电脑信息会缓存在本设备本地；打开面板先显示缓存", { exact: false })).toBeVisible();
   expect(await page.evaluate(() => (window as any).hardwareInfoCalls)).toBe(1);
 

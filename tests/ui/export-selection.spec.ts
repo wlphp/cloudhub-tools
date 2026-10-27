@@ -7,7 +7,7 @@ async function fixture(page: Page) {
     const hosts = [1, 2].map(id => ({ id, name: `服务器${id}`, host: `host${id}.example.test`, port: 22, username: "operator", platform: "linux", auth_method: "password", password_saved: true, private_key_saved: false, group_name: "测试", tags: "", status: "unknown", metrics: {}, remark: "" }));
     const panels = [1, 2].map(id => ({ id, name: `面板${id}`, panel_url: `https://panel${id}.example.test`, api_key_saved: true, allow_insecure_tls: false, group_name: "测试", sort_order: id }));
     (window as any).__exportCalls = calls;
-    (window as any).__TAURI_INTERNALS__ = { transformCallback: () => 1, unregisterCallback: () => {}, invoke: async (command: string, args: any = {}) => {
+    (window as any).__TAURI_INTERNALS__ = { metadata: { currentWindow: { label: "main" }, currentWebview: { label: "main" } }, transformCallback: () => 1, unregisterCallback: () => {}, invoke: async (command: string, args: any = {}) => {
       // Keep migration passwords out of test artifacts.
       calls.push({ command, args: { ...args, ...(args.passphrase ? { passphrase: "[redacted]" } : {}), ...(args.password ? { password: "[redacted]" } : {}) } });
       if (command === "list_accounts") return accounts;
@@ -25,6 +25,7 @@ async function fixture(page: Page) {
       if (command === "plugin:app|version") return "0.1.52";
       if (command === "plugin:event|listen") return 1;
       if (command === "authenticator_status") return { initialized: false, unlocked: false, passwordRequired: false };
+      if (command === "list_client_preferences") return {};
       return [];
     } };
   });
@@ -85,17 +86,18 @@ test("server export supports select all, clear, search, escape and a precise sub
 test("settings exports the full database without a migration password", async ({ page }) => {
   await fixture(page);
   await page.getByRole("button", { name: "系统设置", exact: true }).first().click();
-  await page.locator(".data-management-entry").click();
-  await page.getByRole("button", { name: "打开备份与恢复", exact: true }).click();
+  await page.getByRole("tab", { name: "数据管理" }).click();
+  await page.getByRole("button", { name: "管理加密备份", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "备份与恢复", exact: true });
   await expect(dialog.getByLabel("迁移口令")).toHaveCount(0);
-  await expect(dialog).toContainText("完整备份包含本机敏感数据");
+  await expect(dialog).toContainText("敏感字段保持密文");
+  await expect(dialog).toContainText("持有完整文件即可恢复凭据");
   await page.setViewportSize({ width: 375, height: 900 });
   expect(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
   await dialog.screenshot({ path: "test-results/export-selection-data.png" });
   await dialog.getByRole("button", { name: "关闭备份与恢复", exact: true }).click();
   await expect(dialog).toHaveCount(0);
-  await expect(page.locator(".data-management-page")).toBeVisible();
+  await expect(page.getByRole("region", { name: "数据管理" })).toBeVisible();
 });
 
 test("panel export follows page selection instead of exporting all panels", async ({ page }) => {

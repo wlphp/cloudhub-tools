@@ -1,12 +1,27 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+
+async function dialogColors(page: Page) {
+  return page.evaluate(() => {
+    const probe = document.createElement("span");
+    document.body.append(probe);
+    const color = (token: string) => {
+      probe.style.backgroundColor = `var(${token})`;
+      return getComputedStyle(probe).backgroundColor;
+    };
+    const colors = { surface: color("--jb-surface"), raised: color("--jb-surface-2") };
+    probe.remove();
+    return colors;
+  });
+}
 
 test("summary, servers, lightweight servers and WHOIS reuse the neutral shared shell", async ({ page }) => {
   await page.addInitScript(() => {
-    (window as any).__TAURI_INTERNALS__ = { transformCallback: () => 1, unregisterCallback: () => {}, invoke: async (command: string, args: any = {}) => {
+    (window as any).__TAURI_INTERNALS__ = { metadata: { currentWindow: { label: "main" }, currentWebview: { label: "main" } }, transformCallback: () => 1, unregisterCallback: () => {}, invoke: async (command: string, args: any = {}) => {
       if (command === "list_accounts") return [{ id: 7, account_name: "fixture-account", cloud_type: "aliyun", access_key_id: "fixture-id", enabled: true, created_at: 1 }];
       if (command === "list_local_assets") return ["ecs", "swas", "domain"].filter(type => !args.resourceType || type === args.resourceType).map(resource_type => ({ account_id: 7, resource_type, asset_key: resource_type === "domain" ? "example.test" : `fixture-${resource_type}`, region_id: "cn-hangzhou", payload: resource_type === "domain" ? { DomainName: "example.test" } : { InstanceId: `fixture-${resource_type}`, InstanceName: `fixture-${resource_type}`, InstanceStatus: "Running" }, fetched_at: 1 }));
       if (command === "query_whois") return "Domain Name: EXAMPLE.TEST\nRegistrar: Fixture Registrar";
       if (command === "authenticator_status") return { configured: false, unlocked: false };
+      if (command === "list_client_preferences") return {};
       return [];
     } };
   });
@@ -22,8 +37,9 @@ test("summary, servers, lightweight servers and WHOIS reuse the neutral shared s
     await expect(dialog).toHaveClass(/shared-content-dialog/);
     await expect(dialog.getByText("加载中...", { exact: true })).toHaveCount(0);
     await expect(dialog.getByRole("button", { name: "实时拉取", exact: true })).toBeEnabled();
-    expect(await dialog.evaluate(el => getComputedStyle(el).backgroundColor)).toBe("rgb(40, 40, 40)");
-    expect(await dialog.locator(".modal-head").evaluate(el => getComputedStyle(el).backgroundColor)).toBe("rgb(48, 48, 48)");
+    const colors = await dialogColors(page);
+    expect(await dialog.evaluate(el => getComputedStyle(el).backgroundColor)).toBe(colors.surface);
+    expect(await dialog.locator(".modal-head").evaluate(el => getComputedStyle(el).backgroundColor)).toBe(colors.raised);
     await dialog.screenshot({ path: `test-results/shared-resource-${view}.png` });
     await page.keyboard.press("Escape");
     await expect(dialog).toHaveCount(0);
@@ -33,7 +49,7 @@ test("summary, servers, lightweight servers and WHOIS reuse the neutral shared s
   const whois = page.getByRole("dialog", { name: "【example.test】WHOIS", exact: true });
   await expect(whois).toHaveClass(/shared-content-dialog/);
   await expect(whois).toContainText("Fixture Registrar");
-  expect(await whois.locator(".modal-head").evaluate(el => getComputedStyle(el).backgroundColor)).toBe("rgb(48, 48, 48)");
+  expect(await whois.locator(".modal-head").evaluate(el => getComputedStyle(el).backgroundColor)).toBe((await dialogColors(page)).raised);
   await whois.screenshot({ path: "test-results/shared-resource-whois.png" });
   await page.keyboard.press("Escape");
   await expect(whois).toHaveCount(0);
@@ -43,11 +59,12 @@ test("resource dialog has one live pull action and refreshes local data without 
   await page.addInitScript(() => {
     let refreshed = false;
     (window as any).resourcePulls = [];
-    (window as any).__TAURI_INTERNALS__ = {transformCallback:()=>1,unregisterCallback:()=>{},invoke:async(command:string,args:any={})=>{
+    (window as any).__TAURI_INTERNALS__ = {metadata:{currentWindow:{label:"main"},currentWebview:{label:"main"}},transformCallback:()=>1,unregisterCallback:()=>{},invoke:async(command:string,args:any={})=>{
       if(command === "list_accounts") return [{id:7,account_name:"fixture-account",cloud_type:"aliyun",access_key_id:"fixture-id",enabled:true,created_at:1}];
       if(command === "list_local_assets") return Array.from({length:refreshed?2:1},(_,i)=>({account_id:7,resource_type:"rds",asset_key:`fixture-db-${i}`,region_id:"cn-hangzhou",payload:{DBInstanceId:`fixture-db-${i}`,DBInstanceStatus:"Running",Engine:"MySQL",RegionId:"cn-hangzhou"},fetched_at:1}));
       if(command === "sync_cloud_assets") { (window as any).resourcePulls.push(args); return new Promise(resolve => { (window as any).finishPull = () => {refreshed=true;resolve({fetched:2,counts:{rds:2},errors:[]});}; }); }
       if(command === "authenticator_status") return {configured:false,unlocked:false};
+      if(command === "list_client_preferences") return {};
       return [];
     }};
   });
@@ -64,8 +81,9 @@ test("resource dialog has one live pull action and refreshes local data without 
   await expect(dialog.locator(".rds-card")).toHaveCount(2);
   await expect(dialog.getByRole("button", {name:"实时拉取",exact:true})).toBeEnabled();
   await expect(dialog).toHaveClass(/shared-content-dialog/);
-  expect(await dialog.evaluate(element => getComputedStyle(element).backgroundColor)).toBe("rgb(40, 40, 40)");
-  expect(await dialog.locator(".modal-head").evaluate(element => getComputedStyle(element).backgroundColor)).toBe("rgb(48, 48, 48)");
+  const colors = await dialogColors(page);
+  expect(await dialog.evaluate(element => getComputedStyle(element).backgroundColor)).toBe(colors.surface);
+  expect(await dialog.locator(".modal-head").evaluate(element => getComputedStyle(element).backgroundColor)).toBe(colors.raised);
   await page.locator(".shared-dialog-backdrop").click({position:{x:2,y:2}});
   await expect(dialog).toBeVisible();
   await dialog.getByRole("button", {name:"最大化弹层",exact:true}).click();

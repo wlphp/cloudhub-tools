@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test";
 test("managed server drag sorting uses the upper and lower halves of the target row", async ({ page }) => {
   await page.addInitScript(() => {
     const host = (id: number, name: string, group_name: string) => ({ id, name, host: `192.0.2.${id}`, platform: "linux", username: "operator", port: 22, group_name, status: "unknown" });
-    (window as any).__TAURI_INTERNALS__ = { transformCallback: () => 1, unregisterCallback: () => {}, invoke: async (command: string) => {
+    (window as any).__TAURI_INTERNALS__ = { metadata: { currentWindow: { label: "main" }, currentWebview: { label: "main" } }, transformCallback: () => 1, unregisterCallback: () => {}, invoke: async (command: string) => {
       if (command === "list_managed_hosts") return [
         host(1, "Alpha 第一台", "Alpha"), host(2, "Beta 主机", "Beta"), host(3, "Gamma 主机", "Gamma"),
         host(4, "同组第一台", "Hosts"), host(5, "同组第二台", "Hosts"), host(6, "同组第三台", "Hosts"),

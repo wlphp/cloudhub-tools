@@ -48,6 +48,7 @@ async function openStore(page: Page, workbench = false, configuredCurrent = fals
   }, { providers: PROVIDERS, workbench, configuredCurrent });
   await page.goto("/");
   await page.getByRole("button", { name: "软件商店", exact: true }).first().click();
+  await page.getByRole("searchbox", { name: "应用搜索" }).fill("Claude Code 供应商");
 }
 
 test("MCP JSON import previews a server and writes only after saving", async ({ page }) => {
@@ -102,7 +103,7 @@ test("the store lists the Claude Code provider plugin and opens its manager", as
   // 当前供应商使用“使用中”状态，不展示可执行的切换按钮。
   const currentItem = dialog.locator(".claude-provider-item.is-current");
   await expect(currentItem).toContainText("DeepSeek");
-  await expect(currentItem.getByRole("button", { name: "使用中", exact: true })).toBeDisabled();
+  await expect(currentItem.getByRole("button", { name: "DeepSeek 使用中", exact: true })).toBeDisabled();
   // 没填 Key 的供应商给出可见提示。
   await expect(dialog).toContainText("缺少 Key");
 });
@@ -111,18 +112,18 @@ test("external configuration changes are detected on focus and can be switched b
   await openStore(page, true, true);
   await page.locator(".software-store-page tbody tr", { hasText: "Claude Code 供应商" }).getByRole("button", { name: "管理", exact: true }).click();
   const current = page.locator(".claude-provider-item.is-current");
-  await expect(current.getByRole("button", { name: "使用中", exact: true })).toBeDisabled();
+  await expect(current.getByRole("button", { name: "DeepSeek 使用中", exact: true })).toBeDisabled();
   await page.evaluate(() => { (window as any).__configurationStatus = "changed"; window.dispatchEvent(new Event("focus")); });
   await expect(current).toContainText("配置不一致");
   await expect(page.locator(".claude-mode-status")).toContainText("直连配置待核对");
   expect(await page.evaluate(() => (window as any).__claudeCalls)).toEqual([]);
   await page.evaluate(() => { (window as any).__switchFails = true; });
-  await current.getByRole("button", { name: "切换回来", exact: true }).click();
+  await current.getByRole("button", { name: "DeepSeek 切换回来", exact: true }).click();
   await expect(page.getByRole("alert")).toContainText("配置文件不可写");
   await expect(current).toContainText("配置不一致");
   await page.evaluate(() => { (window as any).__switchFails = false; });
-  await current.getByRole("button", { name: "切换回来", exact: true }).click();
-  await expect(current.getByRole("button", { name: "使用中", exact: true })).toBeDisabled();
+  await current.getByRole("button", { name: "DeepSeek 切换回来", exact: true }).click();
+  await expect(current.getByRole("button", { name: "DeepSeek 使用中", exact: true })).toBeDisabled();
   expect(await page.evaluate(() => (window as any).__claudeCalls)).toEqual(["switch:deepseek", "switch:deepseek"]);
 });
 
@@ -132,7 +133,7 @@ test("unreadable configuration stays read only and routing does not raise a dire
   await page.locator(".software-store-page tbody tr", { hasText: "Claude Code 供应商" }).getByRole("button", { name: "管理", exact: true }).click();
   const current = page.locator(".claude-provider-item.is-current");
   await expect(current).toContainText("无法读取或解析");
-  await expect(current.getByRole("button", { name: "无法核对", exact: true })).toBeDisabled();
+  await expect(current.getByRole("button", { name: "DeepSeek 无法核对", exact: true })).toBeDisabled();
   expect(await page.evaluate(() => (window as any).__claudeCalls)).toEqual([]);
   await page.evaluate(() => { (window as any).__configurationStatus = "changed"; });
   await page.getByRole("tab", { name: "路由", exact: true }).click();
@@ -148,7 +149,7 @@ test("switching reports the change and closing keeps user configuration intact",
   await page.locator(".software-store-page tbody tr", { hasText: "Claude Code 供应商" }).getByRole("button", { name: "管理", exact: true }).click();
 
   const dialog = page.locator(".claude-providers-dialog");
-  await dialog.locator(".claude-provider-item", { hasText: "Claude 官方" }).getByRole("button", { name: "切换", exact: true }).click();
+  await dialog.locator(".claude-provider-item", { hasText: "Claude 官方" }).getByRole("button", { name: "Claude 官方 切换", exact: true }).click();
   await expect.poll(() => page.evaluate(() => (window as any).__claudeCalls)).toContain("switch:claude-official");
   await expect(dialog).toContainText("重启 Claude Code 后生效");
 
@@ -161,7 +162,7 @@ test("switching reports the change and closing keeps user configuration intact",
 test("switching to a configured provider updates the active selection", async ({ page }) => {
   await openStore(page, true);
   await page.locator(".software-store-page tbody tr", { hasText: "Claude Code 供应商" }).getByRole("button", { name: "管理", exact: true }).click();
-  await page.locator(".claude-provider-item", { hasText: "Claude 官方" }).getByRole("button", { name: "切换", exact: true }).click();
+  await page.locator(".claude-provider-item", { hasText: "Claude 官方" }).getByRole("button", { name: "Claude 官方 切换", exact: true }).click();
   await expect.poll(() => page.evaluate(() => (window as any).__claudeCalls)).toContain("switch:claude-official");
   await expect(page.locator(".claude-status")).toContainText("重启 Claude Code 后生效");
 });
@@ -170,7 +171,7 @@ test("a failed switch does not launch Claude Code", async ({ page }) => {
   await openStore(page, true);
   await page.locator(".software-store-page tbody tr", { hasText: "Claude Code 供应商" }).getByRole("button", { name: "管理", exact: true }).click();
   await page.evaluate(() => { (window as any).__switchFails = true; });
-  await page.locator(".claude-provider-item", { hasText: "Claude 官方" }).getByRole("button", { name: "切换", exact: true }).click();
+  await page.locator(".claude-provider-item", { hasText: "Claude 官方" }).getByRole("button", { name: "Claude 官方 切换", exact: true }).click();
   await expect(page.getByRole("alert")).toContainText("配置文件不可写");
   expect(await page.evaluate(() => (window as any).__claudeCalls)).toEqual(["switch:claude-official"]);
 });

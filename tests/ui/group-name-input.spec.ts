@@ -3,6 +3,7 @@ import { expect, test } from "@playwright/test";
 test("account and panel groups suggest local groups and accept new names", async ({ page }) => {
   await page.addInitScript(() => {
     (window as any).__TAURI_INTERNALS__ = {
+      metadata: { currentWindow: { label: "main" }, currentWebview: { label: "main" } },
       transformCallback: () => 1, unregisterCallback: () => {},
       invoke: async (command: string) => {
         if (command === "authenticator_status") return { configured: false, unlocked: false };

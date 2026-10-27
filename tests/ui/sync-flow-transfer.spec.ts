@@ -5,6 +5,7 @@ test("desktop QR selection can transfer only Flow connections", async ({ page })
     const calls: Array<{ command: string; args: any }> = [];
     (window as any).syncCalls = calls;
     (window as any).__TAURI_INTERNALS__ = {
+      metadata: { currentWindow: { label: "main" }, currentWebview: { label: "main" } },
       transformCallback: () => 1, unregisterCallback: () => {},
       invoke: async (command: string, args: any = {}) => {
         calls.push({ command, args });
@@ -15,13 +16,14 @@ test("desktop QR selection can transfer only Flow connections", async ({ page })
         if (command === "start_sync_transfer") return { pairingUrl: "http://192.168.1.2:1234/sync/fixture", sourceDeviceId: "fixture-pc", sourcePublicKeyFingerprint: "fixture-fingerprint" };
         if (command === "plugin:app|version") return "0.1.43";
         if (command === "plugin:event|listen") return 1;
+        if (command === "list_client_preferences") return {};
         return [];
       },
     };
   });
   await page.goto("/");
   await page.getByRole("button", { name: "系统设置", exact: true }).first().click();
-  await page.locator(".data-management-entry").click();
+  await page.getByRole("tab", { name: "数据管理" }).click();
   await page.getByRole("button", { name: "开始迁移", exact: true }).click();
   await page.locator(".shared-dialog-backdrop").click({ position: { x: 5, y: 5 } });
   await expect(page.getByRole("tab", { name: /流水线/ })).toBeVisible();

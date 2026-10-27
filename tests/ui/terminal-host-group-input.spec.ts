@@ -6,7 +6,7 @@ test("server group field suggests existing groups and creates a group from free 
       { id: 1, name: "现有服务器", host: "192.0.2.10", platform: "linux", username: "operator", port: 22, group_name: "生产", status: "unknown" },
       { id: 2, name: "另一台服务器", host: "192.0.2.11", platform: "linux", username: "operator", port: 22, group_name: "测试", status: "unknown" },
     ];
-    (window as any).__TAURI_INTERNALS__ = { transformCallback: () => 1, unregisterCallback: () => {}, invoke: async (command: string, args?: { input?: Record<string, unknown> }) => {
+    (window as any).__TAURI_INTERNALS__ = { metadata: { currentWindow: { label: "main" }, currentWebview: { label: "main" } }, transformCallback: () => 1, unregisterCallback: () => {}, invoke: async (command: string, args?: { input?: Record<string, unknown> }) => {
       if (command === "list_managed_hosts") return hosts;
       if (command === "list_client_preferences") return {};
       if (command === "authenticator_status") return { configured: false, unlocked: false };

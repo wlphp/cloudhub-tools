@@ -296,5 +296,5 @@ test("browser preview disables native SQL and backup operations", async ({ page 
   await page.locator(".cloud-sync-toggle").click();
   await expect(page.getByRole("button", { name: "测试连接", exact: true })).toBeDisabled();
   await expect(page.getByRole("button", { name: "上传到云端", exact: true })).toBeDisabled();
-  await expect(page.getByRole("region", { name: "云同步", exact: true })).toContainText("云同步仅在桌面客户端中可用");
+  await expect(page.getByRole("region", { name: "云同步", exact: true }).getByRole("status")).toHaveText("云同步仅在原生客户端中可用，浏览器预览不连接远端存储。");
 });

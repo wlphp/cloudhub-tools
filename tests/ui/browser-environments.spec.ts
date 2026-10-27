@@ -46,6 +46,7 @@ async function fixture(page: Page) {
   });
   await page.goto("/");
   await page.getByRole("button", { name: "软件商店", exact: true }).first().click();
+  await page.getByRole("searchbox", { name: "应用搜索" }).fill("指纹浏览器");
   await page.locator(".store-table tr,.software-store-page tr").filter({ hasText: "指纹浏览器" }).getByRole("button", { name: "管理", exact: true }).click();
 }
 
@@ -139,6 +140,7 @@ test("浏览器预览明确限制原生操作", async ({ page }) => {
   await page.route("**/api/**", route => route.fulfill({ json: [] }));
   await page.goto("/");
   await page.getByRole("button", { name: "软件商店", exact: true }).first().click();
+  await page.getByRole("combobox", { name: "每页条数" }).selectOption("90");
   await page.locator(".software-store-page tr").filter({ hasText: "指纹浏览器" }).getByRole("button", { name: "管理", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "指纹浏览器", exact: true });
   await expect(dialog.getByText("此功能需要 Windows x64 桌面客户端，浏览器预览不能下载或启动本机浏览器。", { exact: true })).toBeVisible();

@@ -410,6 +410,7 @@ test("软件商店支持来源切换、搜索和启用筛选", async ({ page }) 
   await page.goto("/");
   await page.getByRole("button", { name: "软件商店", exact: true }).first().click();
   const store = page.locator(".software-store-page");
+  await store.getByLabel("每页条数").selectOption("20");
   const appRow = store.locator("tbody tr");
   await expect(appRow).not.toHaveCount(0);
   // 官方应用行数跟随注册表，避免新增内置插件时用例过期。

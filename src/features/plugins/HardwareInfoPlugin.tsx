@@ -315,6 +315,7 @@ export function HardwareInfoPlugin({ open, onOpened }: Props) {
         {info?.updatedAt && <span className="hardware-info-updated" role="status">最近一次完整采集：{info.updatedAt}</span>}
       </>, headExtraTarget)}
       <div className="plugin-content-body hardware-info-body">
+        {!headExtraTarget && <button type="button" className="secondary hardware-info-refresh" onClick={() => void refresh()} disabled={busy} aria-label="刷新电脑信息"><RefreshCw size={15} aria-hidden="true" />刷新</button>}
         <p className="hardware-info-cache-note" role="note">电脑信息会缓存在本设备本地；打开面板先显示缓存，并自动更新外接显示器、当前 Wi-Fi 和局域网 IP。点击上方“刷新”会重新采集全部信息并更新缓存。</p>
         {failure && <p className="hardware-info-error" role="alert">{failure}</p>}
         {message && <p className="hardware-info-message" role="status">{message}</p>}

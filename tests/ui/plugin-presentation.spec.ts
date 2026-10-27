@@ -28,17 +28,18 @@ async function openStore(page: Page) {
   await page.goto("/");
   await page.getByRole("button", { name: "软件商店", exact: true }).first().click();
   await expect(page.locator(".software-store-page tbody tr").first()).toBeVisible();
+  await page.getByRole("combobox", { name: "每页条数" }).selectOption("90");
 }
 
 test("every plugin defaults to opening as a page", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await openStore(page);
   const triggers = page.locator(".plugin-presentation-trigger");
-  await expect(triggers).toHaveCount(6);
-  for (let index = 0; index < 6; index += 1) {
+  await expect(triggers).toHaveCount(7);
+  for (let index = 0; index < 7; index += 1) {
     await expect(triggers.nth(index)).toHaveText("设置");
     await expect(triggers.nth(index)).toHaveAttribute("title", "设置，当前打开方式：页面");
-    await expect(page.locator(".store-row-actions").nth(index).getByRole("button").first()).toHaveAccessibleName("设置");
+    await expect(triggers.nth(index).locator("xpath=ancestor::div[contains(@class, 'store-row-actions')]").getByRole("button").first()).toHaveAccessibleName("设置");
   }
 });
 
@@ -108,6 +109,10 @@ test("page mode uses the main area and returns focus to the store", async ({ pag
     expect(await page.locator("#root").evaluate(element => (element as HTMLElement).inert)).toBe(false);
     await expect(host).toBeFocused();
     await page.keyboard.press("Tab");
+    if (item.name === "电脑信息") {
+      await expect(host.getByRole("button", { name: "刷新电脑信息" })).toBeFocused();
+      await page.keyboard.press("Tab");
+    }
     await expect(host.getByRole("button", { name: "返回软件商店" })).toBeFocused();
     await page.keyboard.press("Escape");
     await expect(host).toBeVisible();
@@ -276,7 +281,7 @@ test("page navigation preserves store filters and leaves the sidebar reachable",
   await expect(host).toBeVisible();
   await host.getByRole("button", { name: "返回软件商店" }).focus();
   await page.keyboard.press("Shift+Tab");
-  await expect(page.locator("#app-main-navigation button").last()).toBeFocused();
+  await expect(page.getByRole("button", { name: "系统设置", exact: true })).toBeFocused();
   await host.getByRole("button", { name: "返回软件商店" }).click();
   await expect(page.getByRole("searchbox", { name: "应用搜索" })).toHaveValue("WSL");
   await expect(page.getByRole("button", { name: "已启用", exact: true })).toHaveAttribute("aria-pressed", "true");

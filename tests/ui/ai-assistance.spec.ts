@@ -9,6 +9,11 @@ import { aiMonitorSummary, aiPanelMonitorSummary } from "../../src/features/serv
 import { reviewServerAiCandidates } from "../../src/features/servers/serverAiCandidates";
 import { ossAiSummary, rdsAiSummary, redisAiSummary } from "../../src/features/resources/aiResourceSummary";
 
+async function openAiSettings(page: Page) {
+  await page.getByRole("button", { name: /^(系统设置|设置)$/ }).click();
+  await page.getByRole("tab", { name: "AI 接入", exact: true }).click();
+}
+
 test("FRP drafts reject sensitive fields and invalid mappings and clear stale protocol settings",()=>{
   const current={serverId:1,name:"old",kind:"tcp" as const,localIp:"127.0.0.1",localPort:80,remotePort:9000,enabled:true};
   expect(frpAiRule(current,{local_port:3000,remote_port:9001}).localPort).toBe(3000);
@@ -78,8 +83,7 @@ test("AI rejection diagnostics preserve status and safe parameters without provi
     };
   });
   await page.goto("/");
-  await page.getByRole("button",{name:"系统设置",exact:true}).click();
-  await page.locator(".ai-settings").getByRole("button",{name:"展开",exact:true}).click();
+  await openAiSettings(page);
   const button = page.locator(".ai-profile").first().getByRole("button",{name:"测试连接",exact:true});
   await button.click();
   await expect(page.getByRole("status")).toContainText("AI服务拒绝请求（HTTP 400）：参数 max_output_tokens 不兼容");
@@ -110,7 +114,7 @@ test("natural-language filters are applied locally without sending the resource 
   await page.goto("/");await page.getByRole("button",{name:"资产管理",exact:true}).click();await expect(page.locator(".local-assets-panel tbody tr")).toHaveCount(3);
   await page.getByRole("button",{name:"AI 自然语言筛选",exact:true}).click();const side=page.getByRole("dialog",{name:"AI 自然语言筛选",exact:true});await expect(side.getByRole("textbox",{name:"分析内容",exact:true})).toHaveValue("");await side.getByRole("textbox",{name:"分析内容",exact:true}).fill("找生产分组里未来30天到期的域名，名称包含fixture");await side.getByRole("button",{name:"发送并分析"}).click();await expect(page.locator(".local-assets-panel tbody tr")).toHaveCount(3);await side.getByRole("button",{name:"应用勾选字段"}).click();
   await expect(page.locator(".local-assets-panel tbody tr")).toHaveCount(1);await expect(page.locator(".local-assets-panel tbody tr")).toContainText("fixture-near.test");const calls=await page.evaluate(()=>(window as any).aiRequests);expect(calls).toHaveLength(1);expect(calls[0].text).not.toContain("fixture-near.test");expect(calls[0].text).not.toContain("test-only-not-uploaded");expect(await page.evaluate(()=>(window as any).resourceWrites)).toBe(0);
-  await page.getByRole("button",{name:"清除资源筛选",exact:true}).click();await expect(page.locator(".local-assets-panel tbody tr")).toHaveCount(3);
+  await page.getByRole("button",{name:"清除筛选",exact:true}).click();await expect(page.locator(".local-assets-panel tbody tr")).toHaveCount(3);
 });
 
 test("asset note extraction ignores credentials and unknown supplier fields",()=>{
@@ -160,8 +164,7 @@ test("image composer accepts pasted screenshots and rejects invalid files withou
 });
 
 test("model list and capability metadata do not leak into profile save payload", async ({page}) => {
-  await nativeFixture(page);await page.goto("/");await page.getByRole("button",{name:"系统设置",exact:true}).click();
-  await page.locator(".ai-settings").getByRole("button",{name:"展开",exact:true}).click();
+  await nativeFixture(page);await page.goto("/");await openAiSettings(page);
   await page.locator(".ai-profile").first().getByRole("button",{name:"编辑",exact:true}).click();
   const form=page.locator(".ai-config-form");await form.getByRole("button",{name:"获取模型列表"}).click();
   await expect(page.getByText("已获取 2 个模型名称，可下拉选择或直接填写")).toBeVisible();
@@ -309,7 +312,7 @@ async function nativeFixture(page: Page) {
 
 test("AI configuration saves without exposing stored keys or sending a model request", async ({ page }) => {
   await nativeFixture(page); await page.goto("/");
-  await page.getByRole("button", { name: "系统设置", exact: true }).click();
+  await openAiSettings(page);
   await page.getByRole("button", { name: "添加服务", exact: true }).click();
   const form = page.locator(".ai-config-form");
   await form.getByLabel("配置名称").fill("我的模型"); await form.getByLabel("模型名称",{exact:true}).fill("fixture-model");
@@ -323,7 +326,7 @@ test("AI configuration saves without exposing stored keys or sending a model req
 
 test("AI save explains missing fields and reveals invalid advanced settings", async ({ page }) => {
   await nativeFixture(page); await page.goto("/");
-  await page.getByRole("button", { name: "系统设置", exact: true }).click();
+  await openAiSettings(page);
   await page.getByRole("button", { name: "添加服务", exact: true }).click();
   const form = page.locator(".ai-config-form");
   await form.getByRole("button", { name: "保存配置" }).click();
@@ -360,7 +363,7 @@ test("AI save keeps entered fields and shows a native failure beside the save ac
     };
   });
   await page.goto("/");
-  await page.getByRole("button", { name: "系统设置", exact: true }).click();
+  await openAiSettings(page);
   await page.getByRole("button", { name: "添加服务", exact: true }).click();
   const form = page.locator(".ai-config-form");
   await form.getByLabel("配置名称").fill("重试测试");
@@ -432,12 +435,11 @@ test("multiple AI server candidates are reviewed and deduplicated before filling
 });
 
 test("browser preview enables AI configuration while retaining manual server entry",async({page})=>{
- await page.route("**/api/ai/profiles",route=>route.fulfill({json:[]}));await page.goto("/");await page.getByRole("button",{name:"系统设置",exact:true}).click();await expect(page.getByRole("button",{name:"添加服务",exact:true})).toBeEnabled();await page.getByRole("button",{name:"添加服务",exact:true}).click();await expect(page.getByRole("dialog",{name:"添加AI服务",exact:true})).toBeVisible();await page.keyboard.press("Escape");await page.getByRole("button",{name:"终端管理",exact:true}).click();await page.locator(".terminal-add-host").click();await page.locator(".managed-host-modal").getByLabel("服务器名称").fill("手动服务器");
+ await page.route("**/api/ai/profiles",route=>route.fulfill({json:[]}));await page.goto("/");await openAiSettings(page);await expect(page.getByRole("button",{name:"添加服务",exact:true})).toBeEnabled();await page.getByRole("button",{name:"添加服务",exact:true}).click();await expect(page.getByRole("dialog",{name:"添加AI服务",exact:true})).toBeVisible();await page.keyboard.press("Escape");await page.getByRole("button",{name:"终端管理",exact:true}).click();await page.locator(".terminal-add-host").click();await page.locator(".managed-host-modal").getByLabel("服务器名称").fill("手动服务器");
 });
 
 test("AI transfer restores configuration state and keeps the existing service", async ({ page }) => {
-  await nativeFixture(page); await page.goto("/"); await page.getByRole("button", { name: "系统设置", exact: true }).click();
-  await page.locator(".ai-settings").getByRole("button", { name: "展开", exact: true }).click();
+  await nativeFixture(page); await page.goto("/"); await openAiSettings(page);
   await page.getByText("AI配置文件迁移", { exact: true }).click();
   await expect(page.getByLabel("迁移口令")).toHaveCount(0);
   await expect(page.getByLabel("在加密迁移包中携带密钥")).toHaveCount(0);
@@ -460,22 +462,18 @@ test("AI transfer restores configuration state and keeps the existing service", 
   expect(await page.evaluate(() => (window as any).aiRequests)).toHaveLength(0);
 });
 
-test("AI settings collapse to a compact summary and adding a service expands the section", async ({ page }) => {
-  await nativeFixture(page); await page.goto("/"); await page.getByRole("button", { name: "系统设置", exact: true }).click();
-  const toggle = page.locator(".ai-settings").getByRole("button", { name: "展开", exact: true });
-  await expect(toggle).toHaveAttribute("aria-expanded", "false");
-  await expect(page.locator("#ai-settings-content")).toBeHidden();
-  await expect(page.getByText("1 项", { exact: true })).toBeVisible();
-  await toggle.click();
+test("embedded AI settings stay open and adding a service displays the form", async ({ page }) => {
+  await nativeFixture(page); await page.goto("/"); await openAiSettings(page);
+  const section = page.locator(".ai-settings");
   await expect(page.locator("#ai-settings-content")).toBeVisible();
-  await page.locator(".ai-settings").getByRole("button", { name: "收起", exact: true }).click();
-  await expect(page.locator("#ai-settings-content")).toBeHidden();
+  await expect(section.getByRole("button", { name: /^(展开|收起)$/ })).toHaveCount(0);
+  await expect(page.getByText("1 项", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "添加服务", exact: true }).click();
   await expect(page.locator("#ai-settings-content")).toBeVisible();
   await expect(page.locator(".ai-config-form")).toBeVisible();
 });
 
-test("collapsed AI settings show service statistics and channels without revealing endpoints",async({page})=>{
+test("embedded AI settings show service statistics without revealing endpoints",async({page})=>{
   await nativeFixture(page);await page.addInitScript(()=>{
     const original=(window as any).__TAURI_INTERNALS__.invoke;
     (window as any).__TAURI_INTERNALS__.invoke=async(command:string,args:any)=>command==="ai_list_profiles"?[
@@ -483,14 +481,14 @@ test("collapsed AI settings show service statistics and channels without reveali
       {id:"second",name:"minimax",protocol:"claude",enabled:false,isDefault:false,visionStatus:"unknown",baseUrl:"https://private-other.test",model:"fixture"},
     ]:original(command,args);
   });
-  await page.goto("/");await page.getByRole("button",{name:"系统设置",exact:true}).click();
+  await page.goto("/");await openAiSettings(page);
   const summary=page.getByRole("group",{name:"AI 服务概览",exact:true});
   await expect(summary).toContainText("启用 1 / 2");await expect(summary).toContainText("图像测试通过 1");await expect(summary).toContainText("默认：云枢");
   await expect(summary).toContainText("OpenAI · Responses");await expect(summary).toContainText("Claude · Messages · 已停用");await expect(summary).not.toContainText("private-endpoint");
-  await expect(page.locator("#ai-settings-content")).toBeHidden();
+  await expect(page.locator("#ai-settings-content")).toBeVisible();
   for(const width of [375,768,1024,1440]){
     await page.setViewportSize({width,height:900});
-    await page.reload();await page.getByRole("button",{name:/^(系统设置|设置)$/}).click();
+    await page.reload();await openAiSettings(page);
     if(width<=600)await expect(page.locator(".ai-config-summary")).toBeHidden();else expect(await summary.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);
     if(width===1440)await page.screenshot({path:"test-results/ai-settings-summary.png"});
   }
@@ -505,7 +503,7 @@ test("AI sidebar and configuration fit narrow desktop windows", async ({ page })
 });
 
 test("AI service dialog keeps actions visible, traps focus and preserves edits on backdrop clicks",async({page})=>{
-  await nativeFixture(page);await page.goto("/");await page.getByRole("button",{name:"系统设置",exact:true}).click();
+  await nativeFixture(page);await page.goto("/");await openAiSettings(page);
   const add=page.getByRole("button",{name:"添加服务",exact:true});await add.click();
   const dialog=page.getByRole("dialog",{name:"添加AI服务",exact:true});
   await expect(dialog.getByLabel("配置名称")).toBeFocused();
@@ -547,7 +545,7 @@ test("AI model configuration queries unsaved credentials and saves multiple sear
       return original(command, args);
     };
   });
-  await page.goto("/"); await page.getByRole("button", {name:"系统设置", exact:true}).click();
+  await page.goto("/"); await openAiSettings(page);
   await page.getByRole("button", {name:"添加服务", exact:true}).click();
   const form = page.getByRole("dialog", {name:"添加AI服务", exact:true});
   await form.getByLabel("配置名称").fill("多模型服务");
@@ -621,8 +619,7 @@ test("AI key eye reveals only on click, clears on hide and never resaves reveale
       return original(command,args);
     };
   });
-  await page.goto("/"); await page.getByRole("button", {name:"系统设置",exact:true}).click();
-  await page.locator(".ai-settings").getByRole("button", {name:"展开",exact:true}).click();
+  await page.goto("/"); await openAiSettings(page);
   await page.locator(".ai-profile").first().getByRole("button", {name:"编辑",exact:true}).click();
   const form = page.getByRole("dialog", {name:"编辑AI服务",exact:true});
   const input = form.getByLabel("API Key", {exact:true});
@@ -654,7 +651,7 @@ test("AI model queries and picker filtering preserve dialog geometry and body sc
       return original(command,args);
     };
   });
-  await page.goto("/"); await page.getByRole("button", {name:"系统设置",exact:true}).click(); await page.locator(".ai-settings").getByRole("button", {name:"展开",exact:true}).click();
+  await page.goto("/"); await openAiSettings(page);
   await page.locator(".ai-profile").first().getByRole("button", {name:"编辑",exact:true}).click();
   const form = page.getByRole("dialog", {name:"编辑AI服务",exact:true});
   const geometry = () => form.evaluate(el => { const body = el.querySelector(".ai-config-dialog-body")!; const rect = el.getBoundingClientRect(); return {top:rect.top,height:rect.height,scroll:body.scrollTop,content:body.scrollHeight}; });

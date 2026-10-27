@@ -41,6 +41,7 @@ async function openSettings(page: Page) {
   const expand = page.getByRole("button", { name: "展开主导航" });
   if (await expand.count()) await expand.first().click();
   await page.getByRole("button", { name: "系统设置", exact: true }).first().click();
+  await page.getByRole("tab", { name: "数据管理" }).click();
 }
 
 test("settings exposes the recycle bin and groups every deleted type", async ({ page }) => {
@@ -136,7 +137,7 @@ test("purging asks for confirmation because it cannot be undone", async ({ page 
   await expect(bin).toContainText("旧测试机");
 });
 
-test("short desktop windows can scroll the sidebar to the settings entry", async ({ page }) => {
+test("short desktop windows keep settings accessible below the scrolling navigation", async ({ page }) => {
   await page.setViewportSize({ width: 768, height: 700 });
   await openSettings(page);
   const sidebar = page.locator(".app-main-sidebar");
@@ -147,12 +148,15 @@ test("short desktop windows can scroll the sidebar to the settings entry", async
   await page.mouse.wheel(0, 600);
   await expect.poll(() => nav.evaluate(element => element.scrollTop)).toBeGreaterThan(0);
   const settings = sidebar.getByRole("button", { name: "系统设置" });
+  await expect(settings).toBeVisible();
   const visible = await settings.evaluate(element => {
     const button = element.getBoundingClientRect();
-    const viewport = element.closest("nav")!.getBoundingClientRect();
+    const viewport = element.closest(".app-main-sidebar")!.getBoundingClientRect();
     return button.top >= viewport.top && button.bottom <= viewport.bottom;
   });
   expect(visible).toBe(true);
+  await settings.click();
+  await expect(page.getByRole("tab", { name: "数据管理" })).toBeVisible();
 });
 
 // 375px renders the mobile shell, which has no 系统设置 entry; the recycle bin
@@ -192,6 +196,7 @@ test("credential retention can be changed and secrets cleared on demand", async 
   }, TRASH);
   await page.goto("/");
   await page.getByRole("button", { name: "系统设置", exact: true }).first().click();
+  await page.getByRole("tab", { name: "数据管理" }).click();
   await page.getByRole("button", { name: /回收站/ }).first().click();
 
   const bin = page.locator("body > .modal-backdrop .recycle-bin");

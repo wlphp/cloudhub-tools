@@ -18,7 +18,7 @@ test("terminal host group expansion state is restored after reopening", async ({
       if (command === "authenticator_status") return { configured: false, unlocked: false };
       return [];
     };
-    (window as any).__TAURI_INTERNALS__ = { transformCallback: () => 1, unregisterCallback: () => {}, invoke };
+    (window as any).__TAURI_INTERNALS__ = { metadata: { currentWindow: { label: "main" }, currentWebview: { label: "main" } }, transformCallback: () => 1, unregisterCallback: () => {}, invoke };
   });
 
   await page.goto("/");

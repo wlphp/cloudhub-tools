@@ -12,9 +12,12 @@ async function mockNative(page: import("@playwright/test").Page, legacy = false,
     const calls: Array<{ command: string; args: any }> = [];
     (window as any).authCalls = calls;
     (window as any).__TAURI_INTERNALS__ = {
+      metadata: { currentWindow: { label: "main" }, currentWebview: { label: "main" } },
       transformCallback: () => 1, unregisterCallback: () => {},
       invoke: async (command: string, args: any = {}) => {
         calls.push({ command, args: command === "authenticator_unlock" ? { create: args.create } : args });
+        if (command === "list_client_preferences") return {};
+        if (command === "save_client_preference") return null;
         if (command === "authenticator_status") { if (!passwordRequired) locked = false; return { initialized: true, unlocked: !locked, passwordRequired }; }
         if (command === "authenticator_unlock") { if (args.password !== "test-passphrase") throw { kind: "platform-error", code: "authenticator-error", message: "无法解密，请检查密码或文件完整性" }; locked = false; passwordRequired = false; return null; }
         if (command === "authenticator_lock") { locked = true; return null; }
@@ -129,9 +132,20 @@ test("opens without a master password, copy, HOTP, edit and reopen", async ({ pa
     inset: element.querySelector("header")!.getBoundingClientRect().left - element.getBoundingClientRect().left,
     field: getComputedStyle(element.querySelector("input")!).backgroundColor,
   }));
-  expect(dialogChrome.background).toBe("rgb(40, 40, 40)");
-  expect(dialogChrome.header).toBe("rgb(48, 48, 48)");
-  expect(dialogChrome.field).toBe("rgb(32, 32, 32)");
+  const themeColors = await page.evaluate(() => {
+    const probe = document.createElement("span");
+    document.body.append(probe);
+    const color = (token: string) => {
+      probe.style.backgroundColor = `var(${token})`;
+      return getComputedStyle(probe).backgroundColor;
+    };
+    const colors = { surface: color("--jb-surface"), raised: color("--jb-surface-2"), input: color("--jb-input") };
+    probe.remove();
+    return colors;
+  });
+  expect(dialogChrome.background).toBe(themeColors.surface);
+  expect(dialogChrome.header).toBe(themeColors.raised);
+  expect(dialogChrome.field).toBe(themeColors.input);
   expect(dialogChrome.inset).toBeLessThanOrEqual(1);
   await page.screenshot({ path: "test-results/authenticator-add-dialog.png" });
   await addDialog.getByRole("button", { name: "关闭对话框", exact: true }).click();

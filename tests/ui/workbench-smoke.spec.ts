@@ -13,10 +13,11 @@ test("loads the workbench shell without native credentials", async ({ page }) =>
   await apiLogs.click();
   await expect(page.getByRole("heading", { name: "API日志" })).toBeVisible();
 
-  await page.locator("button:visible").filter({ hasText: "设置" }).last().click();
+  await page.getByRole("button", { name: "系统设置", exact: true }).click();
   await expect(page.getByRole("heading", { name: "系统设置" })).toBeVisible();
-  await page.getByRole("button", { name: /打开目录/ }).click();
-  await expect(page.getByRole("status")).toContainText("打开数据目录仅支持桌面客户端");
+  await page.getByRole("tab", { name: "数据管理" }).click();
+  await expect(page.getByRole("button", { name: "打开目录" })).toBeDisabled();
+  await expect(page.getByRole("region", { name: "存储位置" }).getByRole("textbox", { name: "CloudHub 数据目录" })).toHaveAttribute("placeholder", "仅桌面客户端可查看本机目录");
 
   await page.getByRole("button", { name: "HTTPS 证书" }).first().click();
   await expect(page.getByRole("heading", { name: "HTTPS 证书" })).toBeVisible();
@@ -26,9 +27,9 @@ test("loads the workbench shell without native credentials", async ({ page }) =>
 
 test("account summary cards stay compact", async ({ page }) => {
   await page.goto("/");
-  const stats = page.locator(".account-section .stats");
-  await expect(stats.locator(":scope > div")).toHaveCount(3);
-  for (const card of await stats.locator(":scope > div").all()) {
+  const stats = page.locator(".account-section .header-stat-tiles");
+  await expect(stats.locator(":scope > .header-stat-tile")).toHaveCount(3);
+  for (const card of await stats.locator(":scope > .header-stat-tile").all()) {
     expect((await card.boundingBox())!.height).toBeLessThanOrEqual(72);
   }
 });
@@ -53,7 +54,7 @@ test("opens the cloud account form with required credential boundaries", async (
 test("shows QR migration controls with native boundaries on desktop", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "系统设置", exact: true }).first().click();
-  await page.locator(".data-management-entry").click();
+  await page.getByRole("tab", { name: "数据管理" }).click();
   await page.getByRole("button", { name: "开始迁移", exact: true }).click();
   await expect(page.getByRole("heading", { name: "迁移到手机" })).toBeVisible();
   await expect(page.getByRole("tab", { name: /云账号/ })).toBeVisible();
@@ -136,7 +137,7 @@ test("renders DNS and OSS tools from sanitized local-asset fixtures", async ({ p
   await page.getByRole("button", { name: "解析管理" }).click();
   await expect(page.getByRole("heading", { name: "【example.test】解析管理" })).toBeVisible();
   await expect(page.getByText("192.0.2.10", { exact: true })).toBeVisible();
-  await page.locator(".domain-tool-filter input").fill("leak");
+  await page.getByRole("dialog", { name: "【example.test】解析管理" }).getByPlaceholder("搜索主机记录").fill("leak");
   await page.getByRole("button", { name: "查询" }).click();
   await expect(page.getByRole("button", { name: "查询" })).toBeEnabled();
   await page.getByRole("button", { name: "查询" }).click();

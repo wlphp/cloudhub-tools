@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 
 test("server tree uses compact rows while retaining grouping, selection and menus", async ({ page }) => {
   await page.addInitScript(() => {
-    (window as any).__TAURI_INTERNALS__ = { transformCallback: () => 1, unregisterCallback: () => {}, invoke: async (command: string) => {
+    (window as any).__TAURI_INTERNALS__ = { metadata: { currentWindow: { label: "main" }, currentWebview: { label: "main" } }, transformCallback: () => 1, unregisterCallback: () => {}, invoke: async (command: string) => {
     if (command === "list_managed_hosts") return [
       { id: 1, name: "个人测试 Linux", host: "192.0.2.10", platform: "linux", username: "operator", port: 22, group_name: "个人", status: "online" },
       { id: 2, name: "Windows 测试", host: "192.0.2.11", platform: "windows", username: "operator", port: 3389, group_name: "公司客户", status: "unknown" },

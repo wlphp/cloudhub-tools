@@ -5,8 +5,8 @@ test("main navigation collapse retains icon navigation and restores its saved st
   await page.goto("/");
   const sidebar = page.locator(".app-main-sidebar");
   const toggleBox = (await page.getByRole("button", { name: "收缩主导航", exact: true }).boundingBox())!;
-  const brandBox = (await sidebar.locator(".brand").boundingBox())!;
-  expect(brandBox.y).toBeGreaterThanOrEqual(toggleBox.y + toggleBox.height + 4);
+  const brandMarkBox = (await sidebar.locator(".brand-mark").boundingBox())!;
+  expect(brandMarkBox.x + brandMarkBox.width).toBeLessThan(toggleBox.x);
   await page.screenshot({ path: "test-results/navigation-expanded.png" });
   const originalWidth = (await sidebar.boundingBox())!.width;
   await page.getByRole("button", { name: "收缩主导航", exact: true }).click();

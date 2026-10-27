@@ -23,7 +23,7 @@ test("manual panel SSH password is revealed on demand and blank edits preserve i
   await page.goto("/");
   await page.getByRole("button", { name: "面板管理", exact: true }).first().click();
   await page.getByRole("button", { name: "配置 Fixture panel", exact: true }).click();
-  await page.getByRole("button", { name: "面板配置", exact: true }).click();
+  await page.getByRole("menuitem", { name: "面板配置", exact: true }).click();
   await expect(page.getByRole("button", { name: "显示SSH 密码", exact: true })).toBeVisible();
   expect(await page.evaluate(() => (window as unknown as { __panelCalls: {command:string}[] }).__panelCalls.some(call => call.command === "reveal_ssh_password"))).toBe(false);
   await page.getByRole("button", { name: "显示SSH 密码", exact: true }).click();
@@ -34,7 +34,7 @@ test("manual panel SSH password is revealed on demand and blank edits preserve i
   await expect(page.getByRole("heading", { name: "编辑面板", exact: true })).toHaveCount(0);
   expect(await page.evaluate(() => (window as unknown as { __panelCalls: {command:string;args:{input:{id:number;password:string;port:number}}}[] }).__panelCalls.find(call => call.command === "save_managed_host")?.args.input)).toMatchObject({ id: 9, password: "", port: 2222 });
   await page.getByRole("button", { name: "配置 Fixture panel", exact: true }).click();
-  await page.getByRole("button", { name: "面板配置", exact: true }).click();
+  await page.getByRole("menuitem", { name: "面板配置", exact: true }).click();
   await page.getByLabel("SSH 密码", { exact: true }).fill("test-only-replacement-password");
   await page.getByRole("button", { name: "验证并保存", exact: true }).click();
   await expect(page.getByRole("heading", { name: "编辑面板", exact: true })).toHaveCount(0);

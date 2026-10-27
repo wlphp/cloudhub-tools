@@ -200,28 +200,30 @@ test("site domain removal confirms native write and preserves failed binding", a
   await fixture(page);
   await page.getByRole("button", { name: "宝塔站点管理", exact: true }).click();
   await page.getByRole("button", { name: "查看 site.test 的全部域名（2 个）", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: "site.test · 全部域名", exact: true });
+  const dialog = page.getByRole("dialog", { name: "当前条件下的站点域名", exact: true });
+  await expect(dialog.locator("tbody tr")).toHaveCount(2);
   for (const width of [375, 768, 1024, 1440]) {
     await page.setViewportSize({ width, height: 900 });
-    const positions = await dialog.locator(".export-selection-row").evaluateAll(rows => rows.map(row => { const r = row.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, left: r.left }; }));
+    const positions = await dialog.locator("tbody tr").evaluateAll(rows => rows.map(row => { const r = row.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, left: r.left }; }));
+    expect(positions).toHaveLength(2);
     expect(positions[1].top).toBeGreaterThanOrEqual(positions[0].bottom);
     expect(positions[1].left).toBe(positions[0].left);
   }
-  const remove = dialog.getByRole("button", { name: "移除域名 www.site.test", exact: true });
+  const remove = dialog.getByRole("button", { name: "移除 site.test 的域名 www.site.test", exact: true });
   await remove.click();
   await page.getByRole("alertdialog").getByRole("button", { name: "取消", exact: true }).click();
   expect(await page.evaluate(() => (window as any).__certificateCalls.filter((c: any) => c.command === "remove_baota_site_domain"))).toHaveLength(0);
   await page.evaluate(() => { (window as any).__failDomainRemove = true; });
   await remove.click();
   await page.getByRole("alertdialog").getByRole("button", { name: "确认移除", exact: true }).click();
-  await expect(dialog.getByRole("status")).toContainText("移除失败");
+  await expect(dialog.getByRole("alert")).toContainText("移除失败");
   await expect(remove).toBeEnabled();
   await page.evaluate(() => { (window as any).__failDomainRemove = false; });
   await remove.click();
   await page.getByRole("alertdialog").getByRole("button", { name: "确认移除", exact: true }).click();
   await expect(remove).toHaveCount(0);
-  await expect(dialog.getByRole("button", { name: "移除域名 site.test", exact: true })).toBeDisabled();
-  await expect(dialog).toContainText("全部域名 · 1 个");
+  await expect(dialog.getByRole("button", { name: "移除 site.test 的域名 site.test", exact: true })).toBeDisabled();
+  await expect(dialog.getByLabel("选择 site.test 的域名 site.test", { exact: true })).toBeVisible();
   expect(await page.evaluate(() => (window as any).__certificateCalls.filter((c: any) => c.command === "remove_baota_site_domain").map((c: any) => c.args))).toEqual([{ id: 12, domain: "www.site.test" }, { id: 12, domain: "www.site.test" }]);
 });
 
@@ -534,19 +536,28 @@ test("manual certificate import clears pasted material and saves only after conf
   await fixture(page);
   await page.getByRole("button", { name: "导入证书", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "导入 HTTPS 证书" });
-  const dialogChrome = await dialog.evaluate(element => ({
-    background: getComputedStyle(element).backgroundColor,
-    header: getComputedStyle(element.querySelector("header")!).backgroundColor,
-    inset: element.querySelector("header")!.getBoundingClientRect().left - element.getBoundingClientRect().left,
-    padding: getComputedStyle(element).padding,
-    headerMargin: getComputedStyle(element.querySelector("header")!).margin,
-    drop: getComputedStyle(element.querySelector(".certificate-file-drop")!).backgroundColor,
-  }));
+  const dialogChrome = await dialog.evaluate(element => {
+    const probe = document.createElement("span");
+    element.append(probe);
+    const color = (token: string) => {
+      probe.style.backgroundColor = `var(${token})`;
+      return getComputedStyle(probe).backgroundColor;
+    };
+    const result = {
+      background: getComputedStyle(element).backgroundColor,
+      header: getComputedStyle(element.querySelector("header")!).backgroundColor,
+      inset: element.querySelector("header")!.getBoundingClientRect().left - element.getBoundingClientRect().left,
+      drop: getComputedStyle(element.querySelector(".certificate-file-drop")!).backgroundColor,
+      theme: { surface: color("--jb-surface"), raised: color("--jb-surface-2"), drop: color("--jb-surface-3") },
+    };
+    probe.remove();
+    return result;
+  });
   await page.screenshot({ path: "test-results/certificate-import-dialog.png" });
-  expect(dialogChrome.background).toBe("rgb(40, 40, 40)");
-  expect(dialogChrome.header).toBe("rgb(48, 48, 48)");
+  expect(dialogChrome.background).toBe(dialogChrome.theme.surface);
+  expect(dialogChrome.header).toBe(dialogChrome.theme.raised);
   expect(dialogChrome.inset, JSON.stringify(dialogChrome)).toBeLessThanOrEqual(1);
-  expect(dialogChrome.drop).toBe("rgb(54, 54, 54)");
+  expect(dialogChrome.drop).toBe(dialogChrome.theme.drop);
   await dialog.getByLabel("证书或完整证书链", { exact: true }).fill("fixture-certificate-input");
   await dialog.getByLabel("导入私钥", { exact: true }).fill("fixture-key-input");
   await dialog.getByRole("button", { name: "校验粘贴内容" }).click();

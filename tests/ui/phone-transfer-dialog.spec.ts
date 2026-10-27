@@ -2,17 +2,18 @@ import { expect, test } from "@playwright/test";
 
 test("phone migration defaults to 95 percent with fixed common header and footer and can shrink", async ({page}) => {
   await page.addInitScript(() => {
-    (window as any).__TAURI_INTERNALS__ = {transformCallback:()=>1,unregisterCallback:()=>{},invoke:async(command:string)=>{
+    (window as any).__TAURI_INTERNALS__ = {metadata:{currentWindow:{label:"main"},currentWebview:{label:"main"}},transformCallback:()=>1,unregisterCallback:()=>{},invoke:async(command:string)=>{
       if(command === "list_accounts") return Array.from({length:40},(_,i)=>({id:i+1,account_name:`测试账号 ${i+1}`,cloud_type:"aliyun",access_key_id:"fixture-id",enabled:true,sort_order:i}));
       if(command === "authenticator_status") return {configured:false,unlocked:false};
       if(command === "plugin:app|version") return "0.1.52";
       if(command === "plugin:event|listen") return 1;
+      if(command === "list_client_preferences") return {};
       return [];
     }};
   });
   await page.setViewportSize({width:1440,height:900}); await page.goto("/");
   await page.getByRole("button", {name:"系统设置",exact:true}).first().click();
-  await page.locator(".data-management-entry").click();
+  await page.getByRole("tab", {name:"数据管理"}).click();
   await page.getByRole("button", {name:"开始迁移",exact:true}).click();
   const panel = page.getByRole("dialog", {name:"迁移到手机",exact:true});
   await expect(panel.locator(".sync-transfer-account")).toHaveCount(40);
