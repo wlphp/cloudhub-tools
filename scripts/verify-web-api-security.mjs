@@ -23,7 +23,12 @@ function responseHeaders() {
 }
 
 const defaults = allowedWebOrigins("");
-assert.deepEqual([...defaults], ["http://127.0.0.1:1420", "http://localhost:1420"]);
+assert.deepEqual([...defaults], [
+  "http://127.0.0.1:1420",
+  "http://localhost:1420",
+  "http://127.0.0.1:1421",
+  "http://localhost:1421",
+]);
 assert.equal(webRequestOriginPolicy({ headers: { origin: "https://example.com" } }, defaults).allowed, false);
 assert.equal(webRequestOriginPolicy({ headers: { "sec-fetch-site": "cross-site" } }, defaults).allowed, false);
 assert.equal(webRequestOriginPolicy({ headers: {} }, defaults).allowed, true);
