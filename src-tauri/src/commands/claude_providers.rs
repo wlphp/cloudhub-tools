@@ -196,8 +196,6 @@ pub(crate) async fn claude_provider_delete(id: String) -> PlatformResult<u64> {
     if crate::core::claude_gateway::in_use(&id).await {return Err("该供应商仍在路由或聚合名单中，请先移除".into());}
     work(move || {
         let conn=open_db()?;
-        #[cfg(desktop)]
-        if crate::core::claude_workspace::current_provider(&conn)?.as_deref()==Some(&id){return Err("当前直连供应商不能删除，请先切换".into());}
         repository::delete_provider(&conn, &id)
     }).await
 }

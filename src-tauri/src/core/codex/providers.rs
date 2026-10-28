@@ -197,8 +197,18 @@ fn save_encrypted(conn: &mut Connection,input:ProviderInput,encrypt:impl Fn(&str
 }
 
 pub fn remove(conn:&Connection,id:&str,version:i64)->Result<Vec<Provider>,String> {
-    ensure_not_aggregate_member(conn,id)?;
     let tx=conn.unchecked_transaction().map_err(|_| "删除供应商失败")?;
+    let mut affected=tx.prepare("SELECT DISTINCT aggregate_id FROM codex_provider_aggregate_members WHERE provider_id=?1").map_err(|_| "读取聚合供应商成员失败")?;
+    let aggregate_ids=affected.query_map([id],|row|row.get::<_,String>(0)).map_err(|_| "读取聚合供应商成员失败")?.collect::<Result<Vec<_>,_>>().map_err(|_| "读取聚合供应商成员失败")?;
+    drop(affected);
+    tx.execute("DELETE FROM codex_provider_aggregate_members WHERE provider_id=?1",[id]).map_err(|_| "清理聚合供应商成员失败")?;
+    for aggregate_id in aggregate_ids {
+        let member_count:i64=tx.query_row("SELECT COUNT(*) FROM codex_provider_aggregate_members WHERE aggregate_id=?1",[&aggregate_id],|row|row.get(0)).map_err(|_| "检查聚合供应商成员失败")?;
+        if member_count<2 {
+            tx.execute("DELETE FROM codex_provider_aggregate_members WHERE aggregate_id=?1",[&aggregate_id]).map_err(|_| "清理无效聚合成员失败")?;
+            tx.execute("DELETE FROM codex_provider_aggregates WHERE id=?1",[&aggregate_id]).map_err(|_| "清理无效聚合供应商失败")?;
+        }
+    }
     clear_managed_accounts(&tx,id)?;
     tx.execute("DELETE FROM codex_provider_bindings WHERE provider_id=?1",[&id]).map_err(|_| "清理供应商绑定失败")?;
     // 请求日志包含该供应商的明文参数与响应，随供应商一起删除。
@@ -206,13 +216,6 @@ pub fn remove(conn:&Connection,id:&str,version:i64)->Result<Vec<Provider>,String
     if tx.execute("DELETE FROM codex_model_providers WHERE id=?1 AND version=?2",params![id,version]).map_err(|_| "删除供应商失败")? !=1 {return Err("供应商已被修改，请刷新后重试".into());}
     tx.commit().map_err(|_| "删除供应商失败")?;
     list(conn)
-}
-
-/// 聚合成员必须先退出聚合。直接删除会连同成员与权重一起消失，用户搭建的
-/// 聚合配置会被静默破坏，因此这里必须由用户显式先解绑。
-fn ensure_not_aggregate_member(conn:&Connection,id:&str)->Result<(),String> {
-    let member:bool=conn.query_row("SELECT EXISTS(SELECT 1 FROM codex_provider_aggregate_members WHERE provider_id=?1)",[id],|r|r.get(0)).map_err(|_| "读取供应商绑定失败")?;
-    if member {Err("请先从聚合供应商中移除此供应商，再删除".into())} else {Ok(())}
 }
 
 /// 保存会整表重写该供应商的密钥。被聚合供应商引用的密钥若在本次保存中被移除，
@@ -297,7 +300,7 @@ mod tests {
     }
 
     #[test]
-    fn multiple_key_settings_survive_database_reopen_and_block_referenced_deletion() {
+    fn deleting_aggregate_member_cleans_database_references_and_invalid_aggregate() {
         let temp=super::super::profile::TemporaryProfile::new("{}").unwrap();
         let path=temp.path.join("providers.sqlite");
         let mut db=Connection::open(&path).unwrap();
@@ -323,6 +326,7 @@ mod tests {
         assert_eq!(secondary.context_window,Some(16384));
         assert_eq!(secondary.compact_limit,Some(8192));
         db.execute("INSERT INTO codex_provider_bindings VALUES(?1)",[&persisted.id]).unwrap();
+        db.execute("INSERT INTO codex_provider_aggregates(id,name,strategy,version) VALUES('fixture','Fixture','round_robin',1)",[]).unwrap();
         db.execute("INSERT INTO codex_provider_aggregate_members(aggregate_id,provider_id,key_id,weight,position) VALUES('fixture',?1,?2,1,0)",params![persisted.id,persisted.keys[0].id]).unwrap();
         let mut update=input(); update.id=Some(persisted.id.clone()); update.version=Some(persisted.version); update.keys[0].id=Some(persisted.keys[1].id.clone()); update.keys[0].secret=None;
         // 被聚合引用的密钥不能随保存一起消失，成员行与权重必须由用户显式移除。
@@ -332,8 +336,12 @@ mod tests {
         db.execute("DELETE FROM codex_provider_aggregate_members",[]).unwrap();
         save_encrypted(&mut db,update,|v|crate::core::crypto::encrypt_secret_with_key(v,&[19;32])).unwrap();
         let current_version:i64=db.query_row("SELECT version FROM codex_model_providers WHERE id=?1",[&persisted.id],|r|r.get(0)).unwrap();
+        let current_key:String=db.query_row("SELECT id FROM codex_provider_keys WHERE provider_id=?1 LIMIT 1",[&persisted.id],|r|r.get(0)).unwrap();
+        db.execute("INSERT INTO codex_provider_aggregate_members(aggregate_id,provider_id,key_id,weight,position) VALUES('fixture',?1,?2,1,0)",params![persisted.id,current_key]).unwrap();
         remove(&db,&persisted.id,current_version).unwrap();
         assert!(list(&db).unwrap().is_empty());
+        assert_eq!(db.query_row("SELECT COUNT(*) FROM codex_provider_aggregate_members",[],|r|r.get::<_,i64>(0)).unwrap(),0);
+        assert_eq!(db.query_row("SELECT COUNT(*) FROM codex_provider_aggregates",[],|r|r.get::<_,i64>(0)).unwrap(),0);
     }
     #[test]
     fn scoped_key_catalogs_are_independent_and_empty_catalog_does_not_inherit() {

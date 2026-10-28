@@ -314,7 +314,6 @@ pub fn save_provider(conn: &Connection, provider: &ClaudeProvider, now: i64) -> 
 }
 
 pub fn delete_provider(conn: &Connection, id: &str) -> Result<u64, String> {
-    if current_provider_id(conn)?.as_deref()==Some(id) {return Err("当前直连供应商不能删除，请先切换".into());}
     let removed = conn.execute("DELETE FROM claude_providers WHERE id=?1", [id]).map_err(|_| "删除供应商失败")?;
     if removed > 0 {
         conn.execute("DELETE FROM claude_providers WHERE is_current=0 AND id=?1", [id]).ok();

@@ -48,8 +48,8 @@ export const databaseClient = {
   cancelBrowserImport(token: string): Promise<void> {
     return previewOnly({ path: "/api/database-import/cancel", init: jsonRequest("POST", { token }) });
   },
-  confirmImport(token: string, tables?: string[], mode?: "merge" | "overwrite" | "replace"): Promise<string> {
-    return nativeOnly<string>("confirm_database_import", { token, tables, mode });
+  confirmImport(token: string, tables?: string[], mode?: "merge" | "overwrite" | "replace", forceRestore = false): Promise<string> {
+    return nativeOnly<string>("confirm_database_import", { token, tables, mode, forceRestore });
   },
   cancelImport(token: string): Promise<void> {
     return nativeOnly<void>("cancel_database_import", { token });

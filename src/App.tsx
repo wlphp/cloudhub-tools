@@ -251,7 +251,7 @@ function syncAssetTypes(account: Account): ReadonlyArray<(typeof assetTypes)[num
 }
 const assetTypes = catalogAssetTypes;
 
-const bundledVersion = "0.1.100";
+const bundledVersion = "0.1.101";
 const isDevelopmentBuild = import.meta.env.DEV;
 
 const detachedTerminalHostId = (() => {
@@ -1211,12 +1211,12 @@ function App() {
     setDatabaseImportPreview(null);
     if (preview) { try { await databaseClient.cancelImport(preview.token); } catch (error) { setStatus(`取消导入失败：${String(error)}`); } }
   }
-  async function confirmDatabaseImport(tables?: string[], mode?: "merge" | "overwrite" | "replace") {
+  async function confirmDatabaseImport(tables?: string[], mode?: "merge" | "overwrite" | "replace", forceRestore = false) {
     const preview = databaseImportPreview;
     if (!preview || databaseImportBusy) return;
     setDatabaseImportBusy(true);
     try {
-      const message = await databaseClient.confirmImport(preview.token, tables, mode);
+      const message = await databaseClient.confirmImport(preview.token, tables, mode, forceRestore);
       setDatabaseImportPreview(null);
       setStatus(`${message}，应用即将刷新`);
       window.setTimeout(() => window.location.reload(), 700);

@@ -31,6 +31,7 @@ export function UnifiedMigrationPanel({ mode, mobilePage = false, onClose, onImp
   const [backup, setBackup] = useState<DatabaseImportPreview | null>(null);
   const [backupTables, setBackupTables] = useState<string[]>([]);
   const [restoreMode, setRestoreMode] = useState<"merge" | "overwrite" | "replace">("merge");
+  const [forceRestore, setForceRestore] = useState(false);
   const [password, setPassword] = useState("");
   const [cameraDenied, setCameraDenied] = useState(false);
 
@@ -88,7 +89,7 @@ export function UnifiedMigrationPanel({ mode, mobilePage = false, onClose, onImp
       setPreview(null); setSessionId(""); setNotice("迁移完成：新增 " + result.added + " 条，更新 " + result.updated + " 条；已有记录已保留。"); onImported?.();
     } catch (cause) { setPreview(null); setSessionId(""); setError(message(cause) + "，请重新扫码重试。"); } finally { setBusy(false); }
   }
-  function reviewBackup(value: DatabaseImportPreview) { setBackup(value); setBackupTables(value.categories.map(item => item.table)); setRestoreMode("merge"); }
+  function reviewBackup(value: DatabaseImportPreview) { setBackup(value); setBackupTables(value.categories.map(item => item.table)); setRestoreMode("merge"); setForceRestore(false); }
   async function selectBackup() {
     setBusy(true); setError("");
     try { const result = await databaseClient.prepareBackupImport(password || undefined); setPassword(""); if (result) reviewBackup(result); }
@@ -97,7 +98,7 @@ export function UnifiedMigrationPanel({ mode, mobilePage = false, onClose, onImp
   async function restoreBackup() {
     if (!backup) return;
     setBusy(true); setError("");
-    try { setNotice(await databaseClient.confirmImport(backup.token, backupTables, restoreMode)); setBackup(null); onImported?.(); }
+    try { setNotice(await databaseClient.confirmImport(backup.token, backupTables, restoreMode, forceRestore)); setBackup(null); onImported?.(); }
     catch (cause) { setBackup(null); setError(message(cause) + "，请重新选择备份重试。"); } finally { setBusy(false); }
   }
   const content = <>
@@ -115,7 +116,7 @@ export function UnifiedMigrationPanel({ mode, mobilePage = false, onClose, onImp
       <div className="mobile-import-heading"><span className="mobile-provider-avatar"><FileArchive size={22} aria-hidden="true" /></span><div><h2 id="mobile-import-backup-title">导入电脑备份</h2><p>从 .chdb 文件恢复数据</p></div></div>
       <label className="sync-transfer-backup-password">备份密码（可选）<input type="password" autoComplete="off" placeholder="仅加密备份需要填写" value={password} onChange={event => setPassword(event.target.value)} disabled={busy || !runningInTauri} /></label>
       <button type="button" className="secondary" disabled={busy || !runningInTauri} onClick={() => void selectBackup()}><FileArchive size={16} aria-hidden="true" />选择 .chdb 备份</button>
-      {backup && <section className="sync-transfer-preview"><h3>{backup.packageName}</h3><DataTransferScope categories={backup.categories} tables={backupTables} onChange={setBackupTables} disabled={busy} /><label>恢复方式<select value={restoreMode} disabled={busy} onChange={event => setRestoreMode(event.target.value as typeof restoreMode)}><option value="merge">合并，保留已有</option><option value="overwrite">合并，覆盖重复</option><option value="replace">替换所选模块</option></select></label><p>包含回收站；保留手机本机日志、设备身份和登录状态。恢复前自动保存快照。</p><button type="button" className="primary" disabled={busy || !backupTables.length} onClick={() => void restoreBackup()}>确认恢复</button><button type="button" className="secondary" disabled={busy} onClick={() => setBackup(null)}>取消</button></section>}
+      {backup && <section className="sync-transfer-preview"><h3>{backup.packageName}</h3><DataTransferScope categories={backup.categories} tables={backupTables} onChange={setBackupTables} disabled={busy} /><label>恢复方式<select value={restoreMode} disabled={busy} onChange={event => setRestoreMode(event.target.value as typeof restoreMode)}><option value="merge">合并，保留已有</option><option value="overwrite">合并，覆盖重复</option><option value="replace">替换所选模块</option></select></label><label className="data-transfer-check"><input type="checkbox" checked={forceRestore} disabled={busy} onChange={event => setForceRestore(event.target.checked)} />强制恢复前先创建本机业务数据备份（可在备份管理中恢复）</label><p>包含回收站；保留手机本机日志、设备身份和登录状态。恢复前自动保存快照。</p><button type="button" className="primary" disabled={busy || !backupTables.length} onClick={() => void restoreBackup()}>{forceRestore ? "备份本机并强制恢复" : "确认恢复"}</button><button type="button" className="secondary" disabled={busy} onClick={() => setBackup(null)}>取消</button></section>}
       </section>
       <CloudSyncSection available={runningInTauri} mobile onRestore={reviewBackup} />
     </> : <><DataTransferScope categories={scope.categories} tables={scope.tables} onChange={scope.setTables} disabled={busy || !!pairingUrl} /><label className="data-transfer-check"><input type="checkbox" checked={includeTrash} disabled={busy || !!pairingUrl} onChange={event => setIncludeTrash(event.target.checked)} />包含回收站（默认关闭）</label><p>电脑和手机需要使用相同数据库版本。每次最多 64 MB，较大内容可分模块迁移。</p>{scope.error && <p role="alert">{scope.error}</p>}</>}

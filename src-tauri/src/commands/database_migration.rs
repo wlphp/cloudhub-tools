@@ -1163,13 +1163,26 @@ mod tests {
 }
 
 #[tauri::command]
-pub(crate) async fn confirm_database_import(app: tauri::AppHandle, state: tauri::State<'_, DatabaseImportStore>, token: String, tables: Option<Vec<String>>, mode: Option<String>) -> PlatformResult<String> {
+pub(crate) async fn confirm_database_import(app: tauri::AppHandle, state: tauri::State<'_, DatabaseImportStore>, token: String, tables: Option<Vec<String>>, mode: Option<String>, force_restore: Option<bool>) -> PlatformResult<String> {
     ensure_database_file_migration_supported()?;
     let _transfer = lock_transfer()?;
     #[cfg(desktop)]
     let _codex_writer = super::codex::AUTH_WRITER.lock().map_err(|_| "Codex 账号操作不可用")?;
     #[cfg(desktop)]
-    { use tauri::Manager; if state.sessions.lock().map_err(|_| "导入预览状态不可用")?.get(&token).is_some_and(|prepared| prepared.sql_mode.is_none()) { super::codex_instances::ensure_idle(&app.state::<super::codex_runtime::CodexRuntimeStore>())?; } }
+    // Portable business-data restores do not replace Codex provider config files.
+    // Require runtime processes to be idle, but do not let unrelated pending
+    // provider-config recovery block restoring selected database categories.
+    { use tauri::Manager; if state.sessions.lock().map_err(|_| "导入预览状态不可用")?.get(&token).is_some_and(|prepared| prepared.sql_mode.is_none()) { super::codex_instances::ensure_runtime_idle(&app.state::<super::codex_runtime::CodexRuntimeStore>())?; } }
+    let should_save_recovery_backup = state.sessions.lock().map_err(|_| "导入预览状态不可用".to_string())?.get(&token).ok_or_else(|| "导入预览已失效，请重新选择文件".to_string())?.sql_mode.is_none() && force_restore.unwrap_or(false);
+    if should_save_recovery_backup {
+        let path = backups_dir()?.join(format!("{}.chdb", Uuid::new_v4()));
+        let name = format!("强制恢复前备份-{}.chdb", Utc::now().format("%Y%m%d-%H%M%S"));
+        if let Err(error) = create_package_file(&path, None).and_then(|()| save_backup_display_name(&path, &name)) {
+            let _ = fs::remove_file(&path);
+            let _ = fs::remove_file(path.with_extension("name"));
+            return Err(error.into());
+        }
+    }
     let prepared = state.sessions.lock().map_err(|_| "导入预览状态不可用".to_string())?.remove(&token).ok_or_else(|| "导入预览已失效，请重新选择文件".to_string())?;
     let result = if let Some(mode) = prepared.sql_mode.as_deref() {
         let current_key = Zeroizing::new(crypto_key_bytes()?);

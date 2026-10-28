@@ -776,7 +776,7 @@ export function ClaudeProvidersPlugin() {
       <button type="button" disabled={Boolean(busyId) || !selectedProviders.size} onClick={() => {
         const ids=[...selectedProviders];
         const names=providers.filter(p=>selectedProviders.has(p.id)).map(p=>p.name).join("、");
-        confirm("确认永久删除所选 " + ids.length + " 条供应商？（" + names + "）此操作不能撤销。",async()=>{await claudeWorkbenchClient.deleteProviders(ids);setSelectedProviders(new Set());setMessage("所选供应商已删除");await load();});
+        confirm("确认永久删除所选 " + ids.length + " 条供应商？（" + names + "）此操作不能撤销。仅删除 CloudHub 数据库中的供应商记录，不修改或清理 Claude Code 配置文件。",async()=>{await claudeWorkbenchClient.deleteProviders(ids);setSelectedProviders(new Set());setMessage("所选供应商已删除");await load();});
       }}>删除所选</button>
       </div>
     </header>

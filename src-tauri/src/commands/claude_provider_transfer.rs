@@ -80,12 +80,10 @@ pub(super) fn export(app:&tauri::AppHandle,providers:&[ClaudeProvider],ids:&[Str
 
 pub(super) fn delete(conn:&Connection,providers:&[ClaudeProvider],ids:&[String])->PlatformResult<Value>{
     if ids.is_empty() || ids.len()>500 {return Err(error("请选择 1–500 条供应商记录"))}
-    let current=crate::core::claude_workspace::current_provider(conn)?;
     let mut seen=std::collections::HashSet::new();
     for id in ids {
         if !seen.insert(id){return Err(error("选择包含重复记录"))}
-        let p=providers.iter().find(|p|&p.id==id).ok_or_else(||error("所选记录不存在，请刷新后重试"))?;
-        if current.as_ref()==Some(id) || p.extra_env.contains_key(repo::IS_CURRENT_MARKER){return Err(error(&format!("无法批量删除：「{}」是当前供应商，请先切换；未删除任何记录",p.name)))}
+        providers.iter().find(|p|&p.id==id).ok_or_else(||error("所选记录不存在，请刷新后重试"))?;
     }
     let tx=conn.unchecked_transaction().map_err(|_|error("无法开始批量删除"))?;
     for id in ids {repo::delete_provider(&tx,id)?;}
@@ -112,5 +110,18 @@ mod tests {
     fn rejects_malformed_packages() {
         assert!(serde_json::from_str::<Package>(r#"{"format":"cloudhub-claude-providers","version":1}"#).is_err());
         assert!(serde_json::from_str::<Package>(r#"{"format":"cloudhub-claude-providers","version":1,"providers":[],"unexpected":true}"#).is_err());
+    }
+    #[test]
+    fn batch_delete_removes_current_provider_record_without_changing_config_files() {
+        let conn=Connection::open_in_memory().unwrap();
+        conn.execute_batch(repo::SCHEMA).unwrap();
+        let provider=repo::presets().remove(0);
+        repo::save_provider(&conn,&provider,1).unwrap();
+        repo::set_current(&conn,&provider.id).unwrap();
+        let providers=repo::list_providers(&conn).unwrap();
+        let result=delete(&conn,&providers,&[provider.id.clone()]).unwrap();
+        assert_eq!(result["deleted"],1);
+        assert!(repo::list_providers(&conn).unwrap().is_empty());
+        assert_eq!(repo::current_provider_id(&conn).unwrap(),None);
     }
 }
