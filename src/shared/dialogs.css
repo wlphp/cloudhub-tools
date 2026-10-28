@@ -8,6 +8,7 @@
  * See cloudhub-ui-ux for the full rule.
  */
 .dialog-header-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex: 0 0 auto; margin-left: auto; }
+.shared-dialog-mobile-icon { display: none; }
 @media (min-width: 761px) {
   .dialog-common-theme .dialog-header-actions > button.secondary {
     box-sizing: border-box;
@@ -32,8 +33,9 @@
 .shared-content-dialog > .modal-head > .shared-dialog-heading > h2 { margin: 0; padding: 0; line-height: 1.35; }
 .shared-content-dialog > .modal-head > .shared-dialog-heading > p { margin: 0; }
 .shared-content-dialog > .modal-body { min-width: 0; min-height: 0; padding: 16px; overflow: auto; }
-.shared-content-dialog > .modal-form-content { flex: 1 1 auto; min-width: 0; }
-.shared-content-dialog > .modal-form-content > .modal-body { flex: 1 1 auto; min-width: 0; }
+.shared-content-dialog > .modal-form-content { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; min-height: 0; margin: 0; overflow: hidden; }
+.shared-content-dialog > .modal-form-content > .modal-body { flex: 1 1 auto; min-width: 0; min-height: 0; padding: 16px; overflow: auto; scroll-padding-block: 16px; }
+.shared-content-dialog > .modal-form-content > .modal-actions { flex-shrink: 0; }
 .shared-content-dialog > .modal-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 10px 12px; }
 .shared-confirm-dialog.shared-confirm-dialog {display:flex;flex-direction:column;box-sizing:border-box;padding:0;width:min(440px,calc(100vw - 24px));max-height:calc(100dvh - 24px);overflow:hidden}
 .shared-confirm-dialog > header {display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--jb-border)}

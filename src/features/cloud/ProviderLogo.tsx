@@ -8,6 +8,9 @@ import huaweiLogo from "./assets/huawei.svg?raw";
 import microsoftLogo from "./assets/microsoft.svg?raw";
 import oracleLogo from "./assets/oracle.svg?raw";
 import vultrLogo from "./assets/vultr.svg?raw";
+import tencentLogo from "./assets/tencentcloud-color.svg?raw";
+import volcengineLogo from "./assets/volcengine-color.svg?raw";
+import jdcloudLogo from "./assets/jdcloud.svg?raw";
 
 /** 打包内置的云厂商品牌图标，按 cloud_type 静态映射，运行时不请求外部资源；未覆盖的厂商回退文字头像。 */
 const providerLogos: Record<string, string> = {
@@ -19,6 +22,9 @@ const providerLogos: Record<string, string> = {
   huawei: huaweiLogo,
   oracle: oracleLogo,
   vultr: vultrLogo,
+  tencent: tencentLogo,
+  volcengine: volcengineLogo,
+  jdcloud: jdcloudLogo,
 };
 
 export function hasProviderLogo(cloudType: string) {

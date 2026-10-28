@@ -38,6 +38,11 @@
 .codex-provider-row-copy strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:14px; }
 .codex-provider-row-copy>span { color:var(--jb-muted); font-size:12px; overflow-wrap:anywhere; }
 .codex-provider-row-actions { display:flex; align-items:center; justify-content:flex-end; flex:0 0 auto; gap:6px; }
+.codex-provider-usage { display:flex; align-items:center; gap:4px; min-width:0; max-width:300px; }
+.codex-provider-usage>span { font-size:12px; overflow-wrap:anywhere; color:var(--jb-muted); }
+.codex-provider-usage .codex-provider-usage-amount { color:var(--jb-success,var(--jb-green)); font-weight:600; font-variant-numeric:tabular-nums; }
+.codex-page .codex-providers .codex-provider-usage>button { display:grid; place-items:center; flex:0 0 30px; width:30px; min-width:30px; height:30px; padding:0; border:1px solid transparent; background:transparent; color:var(--jb-muted); }
+@media(max-width:768px) { .codex-provider-row { flex-wrap:wrap; } .codex-provider-usage { max-width:100%; margin-left:auto; } }
 .codex-page .codex-providers .codex-provider-row-actions>button { display:grid; box-sizing:border-box; place-items:center; flex:0 0 30px; width:30px; min-width:30px; height:30px; min-height:30px; padding:0; border:1px solid transparent; border-radius:4px; background:transparent; box-shadow:none; color:var(--jb-muted,var(--jb-muted)); }
 .codex-page .codex-providers .codex-provider-row-actions>button:hover:not(:disabled),.codex-page .codex-providers .codex-provider-row-actions>button:focus-visible { border-color:transparent; background:color-mix(in srgb,var(--jb-muted,var(--jb-muted)) 14%,transparent); color:var(--jb-text,var(--jb-text)); }
 .codex-page .codex-providers .codex-provider-row-actions>button:last-child:hover:not(:disabled) { color:var(--jb-danger,#ffb4aa); }
@@ -121,6 +126,27 @@
 @media(max-width:700px) { .codex-provider-editor-card { padding:12px; } .codex-provider-editor-fields { grid-template-columns:1fr; gap:14px; } .codex-provider-mode-note { padding-top:0; } .codex-provider-editor-heading { gap:8px; } .codex-provider-editor-heading h2 { font-size:15px; } }
 @media(max-width:420px) { .codex-provider-preset-grid { grid-template-columns:1fr; } }
 .codex-provider-form { display:grid; gap:12px; }
+.shared-content-dialog.codex-provider-usage-dialog:not(.dialog-size-expanded) { width:min(600px,calc(100vw - 32px)); }
+.codex-provider-usage-dialog .codex-usage-content { gap:12px; }
+.codex-usage-fields { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.25fr); gap:12px; }
+.codex-provider-usage-dialog .codex-usage-fields label { margin:0; gap:6px; }
+.codex-provider-usage-dialog .codex-usage-fields select { margin:0; min-height:36px; padding:7px 10px; font-size:12px; }
+.codex-provider-usage-dialog p.codex-usage-hint { margin:0; color:var(--jb-muted); font-size:12px; line-height:1.5; }
+.codex-usage-result { min-width:0; padding:18px; border:1px solid var(--jb-border); border-radius:6px; background:var(--jb-surface-2); }
+.codex-usage-balances { display:grid; gap:16px; margin:0; }
+.codex-usage-balance { display:grid; gap:8px; min-width:0; }
+.codex-usage-balance + .codex-usage-balance { padding-top:16px; border-top:1px solid var(--jb-border); }
+.codex-usage-balance dt { display:flex; align-items:center; gap:7px; color:var(--jb-muted); font-size:12px; }
+.codex-usage-balance dd { margin:0; color:var(--jb-text); overflow-wrap:anywhere; }
+.codex-usage-balance dd strong { font-size:30px; font-weight:600; line-height:1.2; letter-spacing:-.025em; font-variant-numeric:tabular-nums; }
+.codex-usage-balance dd>span { color:var(--jb-muted); font-size:13px; }
+.codex-usage-details { display:flex; flex-wrap:wrap; gap:6px 14px; color:var(--jb-muted); font-size:12px; }
+.codex-usage-updated { display:flex; align-items:center; gap:5px; margin-top:16px; color:var(--jb-muted); font-size:11px; }
+.codex-usage-updated svg { flex:none; }
+.codex-usage-empty { display:grid; justify-items:center; gap:8px; padding:14px 0; color:var(--jb-muted); text-align:center; }
+.codex-usage-empty strong { color:var(--jb-text); font-size:13px; font-weight:500; }
+.codex-usage-empty span { font-size:12px; }
+@media(max-width:480px) { .codex-usage-fields { grid-template-columns:minmax(0,1fr); } .codex-usage-result { padding:14px; } }
 .codex-provider-form label { display:grid; gap:5px; font-size:13px; min-width:0; }
 .codex-provider-form input,.codex-provider-form textarea,.codex-provider-form select { width:100%; min-width:0; box-sizing:border-box; }
 .codex-provider-key-heading { display:flex; align-items:center; justify-content:space-between; gap:8px; }

@@ -1,13 +1,13 @@
-import { useEffect, useId, useRef, type FormEventHandler, type PointerEventHandler, type ReactNode } from "react";
+import { useEffect, useId, useRef, type FormEventHandler, type PointerEventHandler, type ReactNode, type Ref } from "react";
 import { createPortal } from "react-dom";
-import { X } from "lucide-react";
+import { PanelsTopLeft, X } from "lucide-react";
 import { DialogHeaderActions } from "./DialogHeaderActions";
 
 const focusable = 'button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), summary, [tabindex="0"], [contenteditable="true"]';
 const isolation = new WeakMap<HTMLElement, { original: boolean; owners: Set<symbol> }>();
 
 /** Shared shell; dragging and sizing use the existing app primitives. */
-export function SharedDialog({ title, subtitle, eyebrow, icon, children, footer, headerActions, onClose, className = "", bodyClassName = "", footerClassName = "", backdropClassName = "", size = "large", closeLabel, showResize = true, defaultExpanded = false, closeDisabled = false, busy = false, role = "dialog", onSubmit, noValidate = false, initialFocus, onHeaderPointerDown, describedBy }: {
+export function SharedDialog({ title, subtitle, eyebrow, icon, children, footer, headerActions, onClose, className = "", bodyClassName = "", footerClassName = "", backdropClassName = "", size = "large", closeLabel, showResize = true, defaultExpanded = false, closeDisabled = false, busy = false, role = "dialog", onSubmit, formRef, noValidate = false, initialFocus, onHeaderPointerDown, describedBy }: {
   title: string;
   subtitle?: string;
   eyebrow?: string;
@@ -28,6 +28,7 @@ export function SharedDialog({ title, subtitle, eyebrow, icon, children, footer,
   busy?: boolean;
   role?: "dialog" | "alertdialog";
   onSubmit?: FormEventHandler<HTMLFormElement>;
+  formRef?: Ref<HTMLFormElement>;
   noValidate?: boolean;
   initialFocus?: string;
   onHeaderPointerDown?: PointerEventHandler<HTMLElement>;
@@ -97,16 +98,16 @@ export function SharedDialog({ title, subtitle, eyebrow, icon, children, footer,
   const content = <><div className={`modal-body ${bodyClassName}`}>{children}</div>{footer && <footer className={`modal-actions ${footerClassName}`}>{footer}</footer>}</>;
   return createPortal(
     <div ref={backdrop} className={`modal-backdrop ide-theme shared-dialog-backdrop ${backdropClassName}`}>
-      <section ref={dialog} className={`modal modal-form-layout dialog-common-theme shared-content-dialog shared-dialog-${size} ${className}`} role={role} aria-modal="true" aria-busy={busy} aria-labelledby={`${id}-title`} aria-describedby={describedBy} tabIndex={-1}>
+      <section ref={dialog} className={`modal modal-form-layout dialog-common-theme shared-content-dialog shared-dialog-${size} ${className}`} role={role} aria-modal="true" aria-busy={busy} aria-labelledby={`${id}-title`} aria-describedby={describedBy ?? (subtitle ? `${id}-subtitle` : undefined)} tabIndex={-1}>
         <header className="modal-head" onPointerDown={onHeaderPointerDown}>
-          {icon}
-          <div className="shared-dialog-heading">{eyebrow && <span className="eyebrow">{eyebrow}</span>}<h2 id={`${id}-title`}>{title}</h2>{subtitle && <p>{subtitle}</p>}</div>
+          {icon ?? <span className="shared-dialog-mobile-icon" aria-hidden="true"><PanelsTopLeft size={22} /></span>}
+          <div className="shared-dialog-heading">{eyebrow && <span className="eyebrow">{eyebrow}</span>}<h2 id={`${id}-title`}>{title}</h2>{subtitle && <p id={`${id}-subtitle`}>{subtitle}</p>}</div>
           <DialogHeaderActions showResize={showResize} defaultExpanded={defaultExpanded}>
             {headerActions}
             <button type="button" className="close" disabled={closeDisabled} aria-label={closeLabel ?? `关闭${title}`} title="关闭" onClick={onClose}><X size={18} aria-hidden="true" /></button>
           </DialogHeaderActions>
         </header>
-        {onSubmit ? <form className="modal-form-content" noValidate={noValidate} onSubmit={onSubmit}>{content}</form> : content}
+        {onSubmit ? <form ref={formRef} className="modal-form-content" noValidate={noValidate} onSubmit={onSubmit}>{content}</form> : content}
       </section>
     </div>,
     document.body,

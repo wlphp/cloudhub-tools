@@ -13,6 +13,28 @@ test("mobile browser uses the local authenticator API", async ({ page }) => {
   await expect(page.locator(".auth-card")).toHaveCount(0);
 });
 
+test("mobile authenticator editor uses shared form and fixed footer", async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 640 });
+  await page.route("**/api/**", route => route.fulfill({ json: [] }));
+  await page.route("**/api/authenticator", route => {
+    const { op } = route.request().postDataJSON();
+    return route.fulfill({ json: op === "status" ? { initialized: true, unlocked: true, passwordRequired: false } : [] });
+  });
+  await page.goto("/");
+  await page.locator(".mobile-tab-bar").getByRole("button", { name: "更多", exact: true }).click();
+  await page.locator(".mobile-more-feature").filter({ hasText: "验证器" }).click();
+  await page.getByRole("button", { name: "新增", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "新增验证码", exact: true });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.locator("form.modal-form-content")).toHaveCount(1);
+  await expect(dialog.locator(":scope > form > .modal-body")).toBeVisible();
+  await expect(dialog.locator(":scope > form > .modal-actions")).toBeInViewport();
+  await expect(dialog.getByRole("button", { name: "保存", exact: true })).toBeInViewport();
+  await page.screenshot({ path: "test-results/mobile-authenticator-dialog.png" });
+  await dialog.getByRole("button", { name: "取消", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+});
+
 test("mobile authenticator follows Flow and copies all fields without moving cards", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
   await page.addInitScript(() => {

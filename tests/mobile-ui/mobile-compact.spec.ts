@@ -57,8 +57,14 @@ for (const width of [320, 360, 375, 390, 430]) {
         }
         if (width === 390) await page.screenshot({ path: "test-results/mobile-compact-panels.png" });
         await expect(page.getByText("系统负载", { exact: true })).toBeHidden();
-        await page.locator("summary").filter({ hasText: "监控详情" }).click();
+        const monitorToggle = panel.locator("summary").filter({ hasText: "监控详情" });
+        const collapsedToggle = await monitorToggle.boundingBox();
+        await monitorToggle.click();
         await expect(page.getByText("系统负载", { exact: true })).toBeVisible();
+        expect((await monitorToggle.boundingBox())!.x).toBeCloseTo(collapsedToggle!.x, 0);
+        await monitorToggle.click();
+        await expect(page.getByText("系统负载", { exact: true })).toBeHidden();
+        expect((await monitorToggle.boundingBox())!.x).toBeCloseTo(collapsedToggle!.x, 0);
       }
       const dimensions = await page.locator(".mobile-content").evaluate((el) => ({ inner: el.clientWidth, outer: el.scrollWidth }));
       expect(dimensions.outer).toBeLessThanOrEqual(dimensions.inner);

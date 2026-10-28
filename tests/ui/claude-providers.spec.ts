@@ -23,6 +23,7 @@ async function openStore(page: Page, workbench = false, configuredCurrent = fals
         if (command === "ai_list_profiles") return [{ id: "f", name: "T", protocol: "openai_chat", model: "m", enabled: true, isDefault: true, visionStatus: "supported" }];
         if (command === "claude_provider_list") return { providers: fixture.providers.map(provider => ({ ...provider, keyConfigured: provider.isCurrent && fixture.configuredCurrent ? true : provider.keyConfigured })), currentId: "deepseek", settingsPath: "/home/test/.claude/settings.json", settingsExists: true, hasBackup: true, backups: [{ id: 7, createdAt: 1793160000000 }], configurationStatus: (window as any).__configurationStatus ?? "matched" };
         if (command === "claude_provider_action" && args?.action?.type === "balance") return { is_available: true, balance_infos: [] };
+        if (command === "claude_provider_action" && args?.action?.type === "usage") return { adapter: args.action.adapter, fetchedAt: Date.now(), windows: [{ name: "余额", remaining: 12.3, total: null, unit: "CNY", resetsAt: null }] };
         if (fixture.workbench && command === "claude_routing_state") return structuredClone(routing);
         if (command === "claude_routing_save") { calls.push(`routing:${JSON.stringify(args.config)}`); routing.config = args.config; return null; }
         if (command === "claude_routing_activate") {
@@ -50,6 +51,59 @@ async function openStore(page: Page, workbench = false, configuredCurrent = fals
   await page.getByRole("button", { name: "软件商店", exact: true }).first().click();
   await page.getByRole("searchbox", { name: "应用搜索" }).fill("Claude Code 供应商");
 }
+
+test("provider quota settings and refresh work in direct, route and aggregate modes", async ({ page }) => {
+  await openStore(page, true, true);
+  await page.evaluate(() => {
+    const original = (window as any).__TAURI_INTERNALS__.invoke;
+    const preferences: Record<string, string> = {};
+    (window as any).__quotaQueries = [];
+    (window as any).__TAURI_INTERNALS__.invoke = async (command: string, args?: any) => {
+      if (command === "list_client_preferences") return { ...preferences };
+      if (command === "save_client_preference") { preferences[args.key] = args.value; return null; }
+      if (command === "claude_provider_action" && args?.action?.type === "usage") {
+        (window as any).__quotaQueries.push(args.action);
+        if ((window as any).__quotaFails) throw { message: "额度接口鉴权失败（HTTP 401），请检查所选密钥是否有效或已禁用" };
+        return { adapter: args.action.adapter, fetchedAt: Date.now(), windows: [{ name: "余额", remaining: 12.3, total: null, unit: "CNY", resetsAt: null }] };
+      }
+      return original(command, args);
+    };
+  });
+  await page.locator(".software-store-page tbody tr", { hasText: "Claude Code 供应商" }).getByRole("button", { name: "管理", exact: true }).click();
+  const current = page.locator(".claude-provider-item", { hasText: "DeepSeek" });
+  await expect(current.locator(".codex-provider-usage")).toContainText("12.3 CNY");
+  for (const mode of ["直连", "路由", "聚合"]) {
+    await page.getByRole("tab", { name: new RegExp("^" + mode) }).click();
+    await current.getByRole("button", { name: "查询额度 DeepSeek", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "DeepSeek · 额度", exact: true });
+    await expect(dialog.getByLabel("密钥")).toHaveValue("primary");
+    await dialog.getByLabel("额度适配").selectOption("new_api");
+    await dialog.getByRole("button", { name: "保存", exact: true }).click();
+    await expect(dialog.getByRole("status").filter({ hasText: "已保存" })).toBeVisible();
+    await dialog.getByRole("button", { name: "查询额度", exact: true }).click();
+    await expect(dialog.getByText("12.3 CNY", { exact: true })).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "查询额度", exact: true })).toBeEnabled();
+    // 遮罩点击不能丢失设置或关闭弹层。
+    await page.locator(".modal-backdrop").last().click({ position: { x: 2, y: 2 } });
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: "关闭", exact: true }).click();
+    await current.getByRole("button", { name: "查询额度 DeepSeek", exact: true }).click();
+    await expect(dialog.getByLabel("额度适配")).toHaveValue("new_api");
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+    await page.evaluate(() => { (window as any).__quotaFails = true; });
+    await current.getByRole("button", { name: "刷新额度 DeepSeek", exact: true }).click();
+    await expect(current.locator(".codex-provider-usage")).toContainText("12.3 CNY（刷新失败）");
+    await page.evaluate(() => { (window as any).__quotaFails = false; });
+    await current.getByRole("button", { name: "刷新额度 DeepSeek", exact: true }).click();
+    await expect(current.locator(".codex-provider-usage")).not.toContainText("刷新失败");
+  }
+  await page.getByRole("button", { name: "刷新", exact: true }).click();
+  await expect(current.locator(".codex-provider-usage")).toContainText("12.3 CNY");
+  const queries = await page.evaluate(() => (window as any).__quotaQueries);
+  expect(queries.at(-1)).toEqual({ type: "usage", id: "deepseek", adapter: "new_api" });
+  expect(await page.evaluate(() => (window as any).__claudeCalls)).toEqual([]);
+});
 
 test("MCP JSON import previews a server and writes only after saving", async ({ page }) => {
   await openStore(page, true);
@@ -202,16 +256,56 @@ test("the editor writes model mappings and rejects a blank address", async ({ pa
 });
 
 for (const width of [375, 768, 1024, 1440]) {
-  test(`provider manager stays within ${width}px`, async ({ page }) => {
+  test(`provider manager stays within ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 900 });
-    await openStore(page);
+    await openStore(page, true, true);
     await page.locator(".software-store-page tbody tr", { hasText: "Claude Code 供应商" }).getByRole("button", { name: "管理", exact: true }).click();
     const dialog = page.locator(".claude-providers-dialog");
     await expect(dialog).toBeVisible();
     const box = await dialog.boundingBox();
+    const explanation = page.getByRole("button", { name: "详细说明", exact: true });
+    const explanationBefore = await explanation.boundingBox();
+    await explanation.click();
+    await expect(explanation).toHaveAttribute("aria-expanded", "true");
+    await expect(page.locator("#claude-config-description")).toBeVisible();
+    const explanationAfter = await explanation.boundingBox();
+    expect(explanationAfter!.y).toBeCloseTo(explanationBefore!.y, 0);
+    expect(explanationAfter!.x).toBeCloseTo(explanationBefore!.x, 0);
+    await explanation.click();
+    await expect(page.locator("#claude-config-description")).toBeHidden();
     expect(box!.x).toBeGreaterThanOrEqual(-1);
     expect(box!.x + box!.width).toBeLessThanOrEqual(width + 1);
     expect(await dialog.evaluate(element => element.scrollWidth > element.clientWidth + 1)).toBe(false);
+    await page.evaluate(() => {
+      (window as any).__configurationStatus = "changed";
+      const original = (window as any).__TAURI_INTERNALS__.invoke;
+      (window as any).__TAURI_INTERNALS__.invoke = async (command: string, args: unknown) => {
+        const result = await original(command, args);
+        if (command === "claude_provider_list") result.providers[1].models = {
+          sonnet: { model: "deepseek-chat" }, opus: { model: "deepseek-chat" }, haiku: { model: "deepseek-chat" },
+        };
+        return result;
+      };
+      window.dispatchEvent(new Event("focus"));
+    });
+    await expect(page.locator(".claude-configuration-warning")).toBeVisible();
+    const mappings = page.locator(".claude-provider-item", { hasText: "DeepSeek" }).locator(".claude-model-mappings");
+    await expect(mappings).toBeHidden();
+    await page.screenshot({ path: testInfo.outputPath("provider-list.png"), fullPage: true });
+    await page.getByRole("button", { name: "展开 DeepSeek 的模型", exact: true }).click();
+    await expect(mappings).toBeVisible();
+    await expect(mappings.locator("dd")).toHaveText(["deepseek-chat"]);
+    await expect(mappings.locator("dt")).toHaveText(["Sonnet / Opus / Haiku"]);
+    await page.getByRole("button", { name: "收起 DeepSeek 的模型", exact: true }).click();
+    await expect(mappings).toBeHidden();
+    await page.getByRole("button", { name: "查询额度 DeepSeek", exact: true }).click();
+    const quota = page.getByRole("dialog", { name: "DeepSeek · 额度", exact: true });
+    await expect(quota).toBeVisible();
+    expect(await quota.evaluate(element => element.scrollWidth > element.clientWidth + 1)).toBe(false);
+    const quotaBox = await quota.boundingBox();
+    expect(quotaBox!.x).toBeGreaterThanOrEqual(-1);
+    expect(quotaBox!.x + quotaBox!.width).toBeLessThanOrEqual(width + 1);
+    await page.screenshot({ path: testInfo.outputPath("quota-dialog.png") });
   });
 }
 

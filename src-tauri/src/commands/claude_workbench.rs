@@ -20,6 +20,7 @@ pub async fn claude_routing_clear_logs()->PlatformResult<()>{gateway::clear_logs
 #[derive(Deserialize)]
 #[serde(tag="type",rename_all="snake_case",deny_unknown_fields)]
 pub enum ProviderAction{
+    Usage{id:String,adapter:String},
     Quota{id:String},
     Balance{id:String},
     Duplicate{id:String},
@@ -34,6 +35,17 @@ pub enum ProviderAction{
 }
 #[tauri::command]
 pub async fn claude_provider_action(app:tauri::AppHandle,action:ProviderAction)->PlatformResult<Value>{
+    if let ProviderAction::Usage { id, adapter } = &action {
+        let id = id.clone();
+        let p = tauri::async_runtime::spawn_blocking(move || provider(&id))
+            .await.map_err(|_| "读取供应商额度参数失败")??;
+        if p.official_login || p.api_key.trim().is_empty() {
+            return Err("请先配置供应商 API Key；官方登录不支持此额度接口".into());
+        }
+        let key = zeroize::Zeroizing::new(p.api_key);
+        let usage = crate::core::codex::provider_usage::query(&p.base_url, &key, adapter).await?;
+        return serde_json::to_value(usage).map_err(|_| "额度结果不可用".into());
+    }
     if let ProviderAction::Quota { id } = &action {
         return quota::query(provider(id)?).await;
     }
@@ -49,7 +61,7 @@ pub async fn claude_provider_action(app:tauri::AppHandle,action:ProviderAction)-
         let _writer=gateway::CONFIG_WRITER.lock().map_err(|_|"配置正在使用")?;
         let conn=open_db()?;let providers=repo::list_providers(&conn)?;
         match action{
-            ProviderAction::Balance{..}|ProviderAction::Quota{..}=>return Err("额度请求不可用".into()),
+            ProviderAction::Usage{..}|ProviderAction::Balance{..}|ProviderAction::Quota{..}=>return Err("额度请求不可用".into()),
             ProviderAction::PrepareImport=>return transfer::prepare(&app),
             ProviderAction::CancelImport=>return transfer::cancel(),
             ProviderAction::ImportSelected{token,indices}=>return transfer::import(&conn,&token,&indices),

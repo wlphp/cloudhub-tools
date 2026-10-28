@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { Format, openAppSettings, requestPermissions, scan } from "@tauri-apps/plugin-barcode-scanner";
 import { QRCodeSVG } from "qrcode.react";
-import { ShieldCheck, Upload } from "lucide-react";
+import { FileArchive, ScanLine, ShieldCheck, Upload } from "lucide-react";
 import { accountsClient, type SyncImportPreview } from "../../platform/clients/accounts";
 import { databaseClient, type DatabaseImportPreview } from "../../platform/clients/database";
 import { runningInTauri } from "../../platform/api";
@@ -14,7 +14,7 @@ import "./sync-transfer.css";
 type Props = { mode: "desktop" | "mobile"; mobilePage?: boolean; onClose?: () => void; onImported?: () => void };
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
 
-export function UnifiedMigrationPanel({ mode, onClose, onImported }: Props) {
+export function UnifiedMigrationPanel({ mode, mobilePage = false, onClose, onImported }: Props) {
   const mobile = mode === "mobile";
   const scope = useTransferCatalog(!mobile && runningInTauri);
   const [includeTrash, setIncludeTrash] = useState(false);
@@ -101,21 +101,27 @@ export function UnifiedMigrationPanel({ mode, onClose, onImported }: Props) {
     catch (cause) { setBackup(null); setError(message(cause) + "，请重新选择备份重试。"); } finally { setBusy(false); }
   }
   const content = <>
-    <p className="sync-transfer-intro">统一迁移云账号、主机、宝塔、证书及私钥、FRP、供应商、AI 配置、备忘录、指纹浏览器配置和验证码种子。排除日志、缓存、Codex 登录账号及下载包。</p>
+    <p className="sync-transfer-intro">{mobile ? "从电脑接收配置或恢复备份，已有数据默认保留。" : "统一迁移云账号、主机、宝塔、证书及私钥、FRP、供应商、AI 配置、备忘录、指纹浏览器配置和验证码种子。排除日志、缓存、Codex 登录账号及下载包。"}</p>
     {mobile ? <>
+      <section className="mobile-import-card" aria-labelledby="mobile-import-scan-title">
+      <div className="mobile-import-heading"><span className="mobile-provider-avatar"><ScanLine size={22} aria-hidden="true" /></span><div><h2 id="mobile-import-scan-title">扫码接收</h2><p>扫描电脑端的迁移二维码</p></div></div>
+      <p className="mobile-import-description">在电脑端生成迁移二维码，扫码并核对校验码后，选择需要导入的配置。</p>
       <button type="button" className="primary" disabled={busy || !runningInTauri} onClick={() => void receive()}><Upload size={16} />扫码接收电脑配置</button>
       {cameraDenied && <button type="button" className="secondary" onClick={() => void openAppSettings().catch(cause => setError(message(cause)))}>打开相机权限设置</button>}
-      {!runningInTauri && <p>扫码和业务备份恢复请使用手机 App。</p>}
+      {!runningInTauri && <p className="mobile-import-hint">扫码与备份恢复需在手机 App 中操作。</p>}
       {preview && <section className="sync-transfer-preview"><h3>确认导入配置</h3><DataTransferScope categories={preview.categories ?? []} tables={importTables} onChange={setImportTables} disabled={busy} /><p>默认合并并保留已有记录。桌面专属配置保存至手机，手机不执行桌面功能。</p><button className="primary" type="button" disabled={busy || !importTables.length} onClick={() => void importQr()}>确认导入所选配置</button><button type="button" className="secondary" disabled={busy} onClick={() => { void accountsClient.cancelQrSyncImport(sessionId); setPreview(null); setSessionId(""); }}>取消迁移</button></section>}
-      <h3>导入电脑备份</h3>
-      <label className="sync-transfer-backup-password">备份密码（可选）<input type="password" autoComplete="off" value={password} onChange={event => setPassword(event.target.value)} disabled={busy} /></label>
-      <button type="button" className="secondary" disabled={busy || !runningInTauri} onClick={() => void selectBackup()}>选择 .chdb 备份</button>
+      </section>
+      <section className="mobile-import-card" aria-labelledby="mobile-import-backup-title">
+      <div className="mobile-import-heading"><span className="mobile-provider-avatar"><FileArchive size={22} aria-hidden="true" /></span><div><h2 id="mobile-import-backup-title">导入电脑备份</h2><p>从 .chdb 文件恢复数据</p></div></div>
+      <label className="sync-transfer-backup-password">备份密码（可选）<input type="password" autoComplete="off" placeholder="仅加密备份需要填写" value={password} onChange={event => setPassword(event.target.value)} disabled={busy || !runningInTauri} /></label>
+      <button type="button" className="secondary" disabled={busy || !runningInTauri} onClick={() => void selectBackup()}><FileArchive size={16} aria-hidden="true" />选择 .chdb 备份</button>
       {backup && <section className="sync-transfer-preview"><h3>{backup.packageName}</h3><DataTransferScope categories={backup.categories} tables={backupTables} onChange={setBackupTables} disabled={busy} /><label>恢复方式<select value={restoreMode} disabled={busy} onChange={event => setRestoreMode(event.target.value as typeof restoreMode)}><option value="merge">合并，保留已有</option><option value="overwrite">合并，覆盖重复</option><option value="replace">替换所选模块</option></select></label><p>包含回收站；保留手机本机日志、设备身份和登录状态。恢复前自动保存快照。</p><button type="button" className="primary" disabled={busy || !backupTables.length} onClick={() => void restoreBackup()}>确认恢复</button><button type="button" className="secondary" disabled={busy} onClick={() => setBackup(null)}>取消</button></section>}
+      </section>
       <CloudSyncSection available={runningInTauri} mobile onRestore={reviewBackup} />
     </> : <><DataTransferScope categories={scope.categories} tables={scope.tables} onChange={scope.setTables} disabled={busy || !!pairingUrl} /><label className="data-transfer-check"><input type="checkbox" checked={includeTrash} disabled={busy || !!pairingUrl} onChange={event => setIncludeTrash(event.target.checked)} />包含回收站（默认关闭）</label><p>电脑和手机需要使用相同数据库版本。每次最多 64 MB，较大内容可分模块迁移。</p>{scope.error && <p role="alert">{scope.error}</p>}</>}
     {error && <p className="sync-transfer-error" role="alert">{error}</p>}
     {notice && <p className="sync-transfer-status" role="status">{notice}</p>}
     {pairingUrl && qrOpen && <SharedDialog title="手机迁移二维码" size="small" className="sync-transfer-qr-dialog" bodyClassName="sync-transfer-qr-body" closeDisabled={busy} onClose={() => setQrOpen(false)} footer={<><button type="button" className="secondary" disabled={busy} onClick={() => setQrOpen(false)}>暂时关闭</button><button type="button" className="danger" disabled={busy} onClick={() => void cancelTransfer()}>取消本次迁移</button></>}><QRCodeSVG value={pairingUrl} size={220} level="M" title="手机迁移二维码" />{request && <div className="sync-transfer-approval"><strong>手机请求接收配置</strong><p>请求校验码：{request.verificationCode}</p><p>设备：{request.deviceId}<br />指纹：{request.publicKeyFingerprint}<br />地址：{request.clientAddress}</p><button type="button" disabled={busy} onClick={() => void approve(false)}>拒绝</button><button type="button" disabled={busy} onClick={() => void approve(true)}>批准并发送</button></div>}</SharedDialog>}
   </>;
-  return mobile ? <section className="sync-transfer-panel sync-transfer-mobile" aria-label="数据迁移">{content}</section> : <SharedDialog title="迁移到手机" icon={<ShieldCheck size={18} />} className="sync-transfer-panel sync-transfer-desktop ide-theme" bodyClassName="sync-transfer-dialog-body" defaultExpanded busy={busy} closeDisabled={busy} onClose={() => onClose?.()} footer={<><small>已选 {scope.tables.length} 类数据</small><button type="button" className="secondary" disabled={busy} onClick={onClose}>关闭</button><button type="button" className="primary" disabled={busy || !ready || !scope.tables.length} onClick={() => pairingUrl ? setQrOpen(true) : void start()}>{busy ? "正在准备…" : pairingUrl ? "显示迁移二维码" : "生成迁移二维码"}</button></>}>{content}</SharedDialog>;
+  return mobile ? <section className={`sync-transfer-panel sync-transfer-mobile${mobilePage ? " sync-transfer-mobile-page" : ""}`} aria-label="数据迁移">{content}</section> : <SharedDialog title="迁移到手机" icon={<ShieldCheck size={18} />} className="sync-transfer-panel sync-transfer-desktop ide-theme" bodyClassName="sync-transfer-dialog-body" defaultExpanded busy={busy} closeDisabled={busy} onClose={() => onClose?.()} footer={<><small>已选 {scope.tables.length} 类数据</small><button type="button" className="secondary" disabled={busy} onClick={onClose}>关闭</button><button type="button" className="primary" disabled={busy || !ready || !scope.tables.length} onClick={() => pairingUrl ? setQrOpen(true) : void start()}>{busy ? "正在准备…" : pairingUrl ? "显示迁移二维码" : "生成迁移二维码"}</button></>}>{content}</SharedDialog>;
 }

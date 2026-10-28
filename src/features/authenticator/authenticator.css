@@ -138,16 +138,18 @@
 .auth-dialog-mobile-form.auth-dialog.dialog-common-theme>header h3{font-size:16px;line-height:1.3}
 .auth-dialog-mobile-form .dialog-header-actions{gap:6px}
 .auth-dialog-mobile-form .dialog-header-actions button,.auth-dialog-mobile-form>header>button{width:44px;height:44px;min-width:44px;min-height:44px;padding:0;border-radius:8px}
-.auth-dialog-mobile-form.auth-dialog.dialog-common-theme>form.auth-mobile-form{display:flex;flex:1;flex-direction:column;min-height:0;margin:0;overflow:hidden}
+.auth-dialog-mobile-form.auth-dialog.dialog-common-theme>form.modal-form-content{display:flex;flex:1;flex-direction:column;min-height:0;margin:0;overflow:hidden}
 .auth-dialog-mobile-form .auth-mobile-form-body{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:8px 14px 12px}
 .auth-dialog-mobile-form.auth-dialog.dialog-common-theme .auth-mobile-form-body label{margin:8px 0 12px;color:var(--mobile-text);font-size:13px}
 .auth-dialog-mobile-form.auth-dialog.dialog-common-theme .auth-mobile-form-body :is(input:not([type="checkbox"]),select,textarea){min-height:44px;border-color:var(--mobile-border);border-radius:8px;background:var(--mobile-bg);color:var(--mobile-text)}
 .auth-dialog-mobile-form.auth-dialog.dialog-common-theme .auth-mobile-form-body textarea{min-height:76px}
 .auth-dialog-mobile-form.auth-dialog.dialog-common-theme .auth-mobile-form-body .auth-secret-eye{width:44px;color:var(--mobile-muted)}
 .auth-dialog-mobile-form.auth-dialog.dialog-common-theme .auth-mobile-form-body label.auth-checkbox{align-items:center;min-height:44px;margin:4px 0;color:var(--mobile-text)}
-.auth-dialog-mobile-form.auth-dialog.dialog-common-theme>form.auth-mobile-form>footer{flex:none;justify-content:flex-end;gap:10px;margin:0;padding:10px 14px calc(10px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--mobile-border);background:var(--mobile-surface)}
-.auth-dialog-mobile-form.auth-dialog.dialog-common-theme>form.auth-mobile-form>footer button{min-width:76px;min-height:44px;border-color:var(--mobile-border);border-radius:8px;background:var(--mobile-raised);color:var(--mobile-text)}
-.auth-dialog-mobile-form.auth-dialog.dialog-common-theme>form.auth-mobile-form>footer .auth-primary{border-color:var(--mobile-accent-strong);background:var(--mobile-accent-strong);color:var(--jb-text)}
+.auth-dialog-mobile-form.auth-dialog.dialog-common-theme>form.modal-form-content>.modal-body{flex:1;min-height:0;padding:8px 14px 12px;overflow-y:auto;overscroll-behavior:contain}
+.auth-dialog-mobile-form.auth-dialog.dialog-common-theme>.modal-body{flex:1;min-height:0;padding:8px 14px 12px;overflow-y:auto;overscroll-behavior:contain}
+.auth-dialog-mobile-form.auth-dialog.dialog-common-theme .modal-actions{flex:none;justify-content:flex-end;gap:10px;margin:0;padding:10px 14px calc(10px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--mobile-border);background:var(--mobile-surface)}
+.auth-dialog-mobile-form.auth-dialog.dialog-common-theme .modal-actions button{min-width:76px;min-height:44px;border-color:var(--mobile-border);border-radius:8px;background:var(--mobile-raised);color:var(--mobile-text)}
+.auth-dialog-mobile-form.auth-dialog.dialog-common-theme .modal-actions .primary{border-color:var(--mobile-accent-strong);background:var(--mobile-accent-strong);color:#fff}
 .auth-import-buttons { display:flex; flex-wrap:wrap; gap:8px; margin:16px 0; }
 .auth-import-preview { max-height:340px; overflow:auto; border:1px solid var(--jb-border,var(--jb-surface-3)); border-radius:5px; }
 .auth-import-row { display:flex; gap:12px; align-items:center; padding:10px; border-bottom:1px solid var(--jb-border,var(--jb-surface-3)); }
@@ -337,3 +339,52 @@
   .auth-mobile .auth-toolbar { grid-template-columns: 1fr; }
   .auth-mobile .auth-toolbar > select { width: 100%; }
 }
+
+/* Follow the mobile theme for selection and countdown accents. */
+.auth-panel.auth-mobile {
+  --jb-accent-strong: var(--mobile-accent-strong);
+}
+.auth-panel.auth-mobile button.auth-primary,
+.auth-mobile .auth-actions button:first-child {
+  border-color: var(--mobile-accent);
+  background: var(--mobile-accent);
+  color: #fff;
+}
+.auth-panel.auth-mobile button.auth-primary:hover:not(:disabled) {
+  border-color: var(--mobile-accent-strong);
+  background: var(--mobile-accent-strong);
+}
+.auth-panel.auth-mobile .auth-category {
+  --auth-category-color: var(--mobile-accent);
+  border: 1px solid var(--mobile-border);
+  background: var(--mobile-surface);
+  color: var(--mobile-muted);
+  box-shadow: none;
+}
+.auth-mobile .auth-category-dot { background: var(--mobile-border-strong); }
+.auth-panel.auth-mobile .auth-category:hover {
+  background: var(--mobile-raised);
+}
+.auth-panel.auth-mobile .auth-category[aria-pressed=true] {
+  border-color: color-mix(in srgb,var(--mobile-accent) 45%,var(--mobile-border));
+  background: color-mix(in srgb,var(--mobile-accent) 8%,var(--mobile-surface));
+  color: var(--mobile-accent-strong);
+  box-shadow: none;
+}
+.auth-mobile .auth-category[aria-pressed=true] .auth-category-dot { background: var(--mobile-accent); }
+.auth-mobile .auth-view button[aria-pressed=true] {
+  border-color: color-mix(in srgb,var(--mobile-accent) 45%,var(--mobile-border));
+  background: color-mix(in srgb,var(--mobile-accent) 8%,var(--mobile-surface));
+  color: var(--mobile-accent-strong);
+}
+.auth-mobile .auth-selection {
+  border: 1px solid var(--mobile-border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--mobile-surface);
+  color: var(--mobile-text);
+}
+.auth-panel.auth-mobile input[type=checkbox] { accent-color: var(--mobile-accent); }
+.auth-mobile .auth-progress { background: var(--mobile-raised); }
+.auth-mobile .auth-progress i { background: var(--mobile-accent-strong); }
+.auth-mobile .auth-expiring .auth-progress i { background: var(--mobile-danger); }

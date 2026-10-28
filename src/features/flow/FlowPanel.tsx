@@ -1,4 +1,5 @@
 import { SharedDialog } from "../../shared/SharedDialog";
+import { useConfirmDialog } from "../../shared/useConfirmDialog";
 import { SecretField } from "../../shared/SecretField";
 import { PaginationBar } from "../../shared/PaginationBar";
 import { AiLogAnalysis } from "../ai/AiLogAnalysis";
@@ -19,6 +20,7 @@ const triggerText = (mode?: number | null) => ({ 1: "页面手动触发", 2: "�
 type PipelineSummary = { runId?: string; status?: string | null; startTime?: number | null; endTime?: number | null; triggerMode?: number | null; creatorAccountId?: string | null; creatorEmail?: string | null; stages: Array<{ name: string; status?: string | null }> };
 
 export function FlowPanel({ mobile = false }: { mobile?: boolean }) {
+  const { confirm, confirmationDialog } = useConfirmDialog();
   const [connections, setConnections] = useState<FlowConnection[]>([]);
   const [connectionId, setConnectionId] = useState<number | null>(null);
   const [pipelines, setPipelines] = useState<FlowPipeline[]>([]);
@@ -201,7 +203,7 @@ export function FlowPanel({ mobile = false }: { mobile?: boolean }) {
   }
 
   async function removeConnection(item: FlowConnection) {
-    if (!window.confirm(`移除云效连接“${item.name}”？`)) return;
+    if (!await confirm({ message: `移除云效连接“${item.name}”？` })) return;
     setBusy("delete");
     try { await flowClient.deleteConnection(item.id); await loadConnections(); setMessage("云效连接已移除"); }
     catch (reason) { setError(reason instanceof Error ? reason.message : "移除连接失败"); }
@@ -360,5 +362,6 @@ export function FlowPanel({ mobile = false }: { mobile?: boolean }) {
       </details>
       <div className="flow-run-notice"><CircleAlert size={15} aria-hidden="true" /><span>确认后将在云效创建一次运行，请确认目标环境。</span></div>
     </SharedDialog>}
+    {confirmationDialog}
   </section>;
 }

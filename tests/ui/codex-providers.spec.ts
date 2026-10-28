@@ -51,7 +51,12 @@ test("model provider management, masked editing and configuration recovery", asy
           if (localStorage.getItem("probe-output-limit")) return { models: [], generated: false, elapsedMs: 250, status: 200, error: "output_limit" };
           return { models: args.model ? [] : ["model-c"], generated: !!args.model, elapsedMs: 250, status: 200, error: null };
         }
-        if (command === "codex_provider_usage") return { adapter: "deepseek", fetchedAt: Date.now(), windows: [{ name: "余额", remaining: 12.3, total: null, unit: "CNY", resetsAt: null }] };
+        if (command === "save_client_preference") { localStorage.setItem(String(args.key), String(args.value)); return; }
+        if (command === "codex_provider_usage") {
+          localStorage.setItem("last-usage-query", JSON.stringify(args));
+          if (localStorage.getItem("usage-error")) throw { message: "额度查询网络失败或超时" };
+          return { adapter: args.adapter, fetchedAt: Date.now(), windows: [{ name: "余额", remaining: 12.3, total: null, unit: "CNY", resetsAt: null }] };
+        }
         if (command === "codex_provider_reveal_key") return `revealed-${args.keyId}`;
         if (command === "codex_provider_import") {
           if (args.action === "prepare") return { token: "import-fixture", providers: [{ name: "imported", baseUrl: "https://example.org/v1", wireApi: "responses", models: ["model-a"], keyCount: 1, duplicate: false }], warnings: ["实例和 OAuth 绑定不迁移"] };
@@ -131,9 +136,38 @@ test("model provider management, masked editing and configuration recovery", asy
   await expect(card).toBeVisible();
   await card.getByRole("button", { name: "查询额度 Example Provider", exact: true }).click();
   const usage = page.getByRole("dialog", { name: "Example Provider · 额度", exact: true });
+  expect(await page.evaluate(() => localStorage.getItem("last-usage-query"))).toBeNull();
   await usage.getByRole("button", { name: "查询额度", exact: true }).click();
   await expect(usage.getByText("12.3 CNY", { exact: true })).toBeVisible();
+  await usage.getByLabel("额度适配").selectOption("sub2api");
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem("last-usage-query") ?? "{}").adapter)).toBe("auto");
+  expect(await page.evaluate(() => localStorage.getItem("codex.providers.usage.provider-a"))).toBeNull();
+  await usage.getByRole("button", { name: "查询额度", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("last-usage-query") ?? "{}").adapter)).toBe("sub2api");
+  await expect(usage.getByRole("button", { name: "查询额度", exact: true })).toBeEnabled();
+  await usage.getByLabel("额度适配").selectOption("new_api");
+  await usage.getByRole("button", { name: "保存", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("codex.providers.usage.provider-a") ?? "{}").adapter)).toBe("new_api");
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem("last-usage-query") ?? "{}").adapter)).toBe("sub2api");
+  await expect(usage.getByText("已保存，后续默认使用此类型和密钥", { exact: true })).toBeVisible();
+  await usage.getByRole("button", { name: "查询额度", exact: true }).click();
+  await expect(usage.getByText("12.3 CNY", { exact: true })).toBeVisible();
+  await usage.getByLabel("额度适配").selectOption("one_api");
   await page.keyboard.press("Escape");
+  await card.getByRole("button", { name: "查询额度 Example Provider", exact: true }).click();
+  await expect(usage.getByLabel("额度适配")).toHaveValue("new_api");
+  await usage.getByRole("button", { name: "查询额度", exact: true }).click();
+  await expect(usage.getByText("12.3 CNY", { exact: true })).toBeVisible();
+  await expect(usage.getByRole("button", { name: "查询额度", exact: true })).toBeEnabled();
+  await page.keyboard.press("Escape");
+  await expect(card.getByText("余额 12.3 CNY", { exact: true })).toBeVisible();
+  await page.evaluate(() => localStorage.setItem("usage-error", "true"));
+  await card.getByRole("button", { name: "刷新额度 Example Provider", exact: true }).click();
+  await expect(card.getByText("余额 12.3 CNY（刷新失败）", { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem("last-usage-query") ?? "{}").adapter)).toBe("new_api");
+  await page.evaluate(() => localStorage.removeItem("usage-error"));
+  await card.getByRole("button", { name: "刷新额度 Example Provider", exact: true }).click();
+  await expect(card.getByText("余额 12.3 CNY", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "导入供应商", exact: true }).click();
   const importing = page.getByRole("dialog", { name: "导入模型供应商", exact: true });
   await importing.getByRole("button", { name: "选择 JSON 文件", exact: true }).click();

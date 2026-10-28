@@ -1,12 +1,12 @@
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { Check, RefreshCw, ShieldCheck, X } from "lucide-react";
+import { Check, RefreshCw, ShieldCheck } from "lucide-react";
 import type { Account, LocalAsset } from "../shared/types";
 import { certificatesClient, type CertificateRequest } from "../platform/clients/certificates";
 import { resourcesClient } from "../platform/clients/resources";
 import { platformErrorMessage, runningInTauri } from "../platform/api";
 import { SecretField } from "../shared/SecretField";
-import { DialogHeaderActions } from "../shared/DialogHeaderActions";
+import { SharedDialog } from "../shared/SharedDialog";
 import { certificateDomains, validateCertificateRequest } from "./certificate-request";
 import "./mobile-certificate-request.css";
 
@@ -34,20 +34,17 @@ export function MobileCertificateRequest({ accounts, onClose, onIssued }: { acco
   const operation = useRef<string | null>(null);
   const unlisten = useRef<(() => void) | null>(null);
   const mounted = useRef(true);
-  const form = useRef<HTMLFormElement>(null);
+
   const cancelRequested = useRef(false);
   const invoked = useRef(false);
   const zones = [...new Set(assets.filter((asset) => asset.account_id === Number(accountId) && asset.resource_type === "domain").map(domainName))].sort();
 
   useEffect(() => {
     mounted.current = true;
-    const previousFocus = document.activeElement as HTMLElement | null;
-    form.current?.focus();
     void resourcesClient.listLocal({ resourceType: "domain" }).then((result) => { if (mounted.current) setAssets(result); }).catch((reason) => { if (mounted.current) setError(platformErrorMessage(reason,"读取域名资产失败")); }).finally(() => { if (mounted.current) setReading(false); });
     return () => {
       mounted.current = false; unlisten.current?.();
       if (operation.current && invoked.current) void certificatesClient.cancel(operation.current).catch(() => {});
-      previousFocus?.focus();
     };
   }, []);
   useEffect(() => {
@@ -108,18 +105,8 @@ export function MobileCertificateRequest({ accounts, onClose, onIssued }: { acco
     }
   }
 
-  function keyDown(event: KeyboardEvent) {
-    if (event.key === "Escape") { event.preventDefault(); if (!cancelling) void cancel(); return; }
-    if (event.key !== "Tab") return;
-    const controls = [...(form.current?.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled)') ?? [])].filter((element) => element.offsetParent !== null && element.tabIndex >= 0);
-    const first = controls[0], last = controls[controls.length-1];
-    if (!first || !last) { event.preventDefault(); return; }
-    if (event.shiftKey && (document.activeElement === first || document.activeElement === form.current)) { event.preventDefault(); last.focus(); }
-    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
-  }
+  return <SharedDialog title="申请证书" subtitle="自动完成 DNS 验证并加密保存证书" icon={<ShieldCheck size={22} />} size="small" className="mobile-certificate-dialog" closeLabel={busy ? "取消证书申请" : "关闭申请证书"} closeDisabled={cancelling} busy={busy} onClose={() => void cancel()} onSubmit={(event) => void submit(event)} footer={<><button className="secondary" type="button" disabled={cancelling} onClick={() => void cancel()}>{completed ? "完成" : cancelling ? "正在取消…" : busy ? "取消申请" : "取消"}</button>{!completed && <button className="primary" type="submit" disabled={busy || reading || !runningInTauri || !accountId || !zones.length}>{busy ? "正在签发…" : "开始申请"}</button>}</>}>
 
-  return <div className="mobile-modal-backdrop mobile-cert-request-backdrop"><form ref={form} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="mobile-cert-request-title" className="mobile-cert-request" onSubmit={(event) => void submit(event)} onKeyDown={keyDown}>
-    <header><h2 id="mobile-cert-request-title">申请证书</h2><DialogHeaderActions><button type="button" aria-label={busy ? "取消证书申请" : "关闭申请证书"} disabled={cancelling} onClick={() => void cancel()}><X size={19} /></button></DialogHeaderActions></header>
     {!runningInTauri && <p className="mobile-cert-request-hint">请在手机 App 中提交申请，浏览器可预览申请表单。</p>}
     <fieldset disabled={busy || reading || completed}>
       <label>证书品牌<select aria-label="证书品牌" value={provider} onChange={(event) => { setProvider(event.target.value as typeof provider); setEabKid(""); setEabHmacKey(""); }}><option value="letsencrypt">Let's Encrypt · 免费</option><option value="litessl">LiteSSL · EAB</option></select></label>
@@ -137,6 +124,6 @@ export function MobileCertificateRequest({ accounts, onClose, onIssued }: { acco
     {!!logs.length && <section className="mobile-cert-request-progress" aria-label="证书申请进度"><ol>{steps.map((step,index) => <li key={step} aria-current={!completed && index === stage ? "step" : undefined} data-done={completed || index < stage}><span>{completed || index < stage ? <Check size={12} /> : index+1}</span>{step}</li>)}</ol><div role="log" aria-live="polite" aria-label="证书签发进度">{logs.map((line,index) => <p key={index}>{line}</p>)}</div></section>}
     {error && <p role="alert" className="mobile-cert-request-error">{error}</p>}
     {completed && <p className="mobile-cert-request-success" role="status"><ShieldCheck size={16} />证书已签发并保存</p>}
-    <footer><button type="button" disabled={cancelling} onClick={() => void cancel()}>{completed ? "完成" : cancelling ? "正在取消…" : busy ? "取消申请" : "取消"}</button>{!completed && <button type="submit" disabled={busy || reading || !runningInTauri || !accountId || !zones.length}>{busy ? "正在签发…" : "开始申请"}</button>}</footer>
-  </form></div>;
+
+  </SharedDialog>;
 }

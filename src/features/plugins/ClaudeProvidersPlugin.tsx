@@ -10,6 +10,7 @@ import { claudeProvidersClient, claudeWorkbenchClient, DEFAULT_CLAUDE_ROUTING, t
 import { AggregateStartDialog, ModeBar, providerModelCount, RoutingSettings, UsagePanel } from "./ClaudeRoutingPanels";
 import { ClaudeWorkspacePanel } from "./ClaudeWorkspacePanel";
 import { ClaudeProviderPresetPicker } from "./ClaudeProviderPresetPicker";
+import { ClaudeProviderUsage } from "./ClaudeProviderUsage";
 import "./claude-providers.css";
 
 const USER_AGENT_PRESETS: { value: string; label: string }[] = [
@@ -534,7 +535,7 @@ function windowedUsage(logs: ClaudeRoutingState["logs"], providerId: string) {
 export function ClaudeProvidersPlugin() {
   const balanceGeneration = useRef(0);
   useEffect(() => () => { balanceGeneration.current += 1; }, []);
-  const [balances, setBalances] = useState<Record<string, { data?: Awaited<ReturnType<typeof claudeWorkbenchClient.balance>>; error?: string; loading?: boolean }>>({});
+  const [usageRevision, setUsageRevision] = useState(0);
   const [quotas, setQuotas] = useState<Record<string, { data?: Awaited<ReturnType<typeof claudeWorkbenchClient.quota>>; error?: string; loading?: boolean }>>({});
   const supportsQuota = (item: ClaudeProviderSummary) => {
     try { const url = new URL(item.baseUrl ?? ""); return !item.officialLogin && item.keyConfigured && ["https://api.minimaxi.com", "https://api.minimax.io", "https://api.minimax.cn"].includes(url.origin) && !url.username && !url.password && !url.search && !url.hash; } catch { return false; }
@@ -544,15 +545,6 @@ export function ClaudeProvidersPlugin() {
     setQuotas(current => ({ ...current, [id]: { loading: true } }));
     try { const data = await claudeWorkbenchClient.quota(id); if (generation === balanceGeneration.current) setQuotas(current => ({ ...current, [id]: { data } })); }
     catch (reason) { if (generation === balanceGeneration.current) setQuotas(current => ({ ...current, [id]: { error: reason instanceof Error ? reason.message : "官方额度查询失败" } })); }
-  };
-  const supportsBalance = (item: ClaudeProviderSummary) => {
-    try { const url = new URL(item.baseUrl ?? ""); return !item.officialLogin && item.keyConfigured && url.origin === "https://api.deepseek.com" && !url.username && !url.password && !url.search && !url.hash; } catch { return false; }
-  };
-  const refreshBalance = async (id: string) => {
-    const generation = balanceGeneration.current;
-    setBalances(current => ({ ...current, [id]: { loading: true } }));
-    try { const data = await claudeWorkbenchClient.balance(id); if (generation === balanceGeneration.current) setBalances(current => ({ ...current, [id]: { data } })); }
-    catch (reason) { if (generation === balanceGeneration.current) setBalances(current => ({ ...current, [id]: { error: reason instanceof Error ? reason.message : "余额查询失败" } })); }
   };
   const [providers, setProviders] = useState<ClaudeProviderSummary[]>([]);
   const [currentId, setCurrentId] = useState<string | null>(null);
@@ -580,6 +572,8 @@ export function ClaudeProvidersPlugin() {
   const [routeStartError, setRouteStartError] = useState("");
   const [quotaProviderId, setQuotaProviderId] = useState<string | null>(null);
   const [selectedProviders, setSelectedProviders] = useState<Set<string>>(new Set());
+  const [expandedModels, setExpandedModels] = useState<Set<string>>(new Set());
+  const [showConfigDescription, setShowConfigDescription] = useState(false);
   const [importPreview, setImportPreview] = useState<Awaited<ReturnType<typeof claudeWorkbenchClient.prepareProviderImport>>>(null);
   const [importSelection, setImportSelection] = useState<Set<number>>(new Set());
   const [importBusy, setImportBusy] = useState(false);
@@ -615,12 +609,10 @@ export function ClaudeProvidersPlugin() {
     try {
       const list = await claudeProvidersClient.list();
       applyList(list);
-      // Balance errors stay local to each card and never block provider loading.
-      const generation = ++balanceGeneration.current;
-      setBalances({});
+      // 额度查询独立于列表加载，失败不会阻塞供应商管理。
+      ++balanceGeneration.current;
+      setUsageRevision(current => current + 1);
       setQuotas({});
-      const eligible = list.providers.filter(supportsBalance);
-      void (async () => { for (let index = 0; index < eligible.length && generation === balanceGeneration.current; index += 3) await Promise.all(eligible.slice(index, index + 3).map(item => refreshBalance(item.id))); })();
       setError("");
       await Promise.all([refreshRouting(), refreshWorkspace()]);
     } catch (reason) {
@@ -763,7 +755,7 @@ export function ClaudeProvidersPlugin() {
       </span>
     </div>
 
-    <div className="claude-config-help claude-config-description">保存到本地；点击「切换」后写入配置文件。<details><summary>详细说明</summary><p>切换前会备份当前配置，并写入所选供应商的地址、Key 和模型映射；已运行的 Claude Code 需重启加载。路由／聚合模式写入本地代理地址，由 CloudHub 转发。</p></details></div>
+    <div className="claude-config-help claude-config-description"><span>保存到本地；点击「切换」后写入配置文件。</span><button type="button" aria-expanded={showConfigDescription} aria-controls="claude-config-description" onClick={() => setShowConfigDescription(value => !value)}><ArrowDown size={12} aria-hidden="true" />详细说明</button><p id="claude-config-description" hidden={!showConfigDescription}>切换前会备份当前配置，并写入所选供应商的地址、Key 和模型映射；已运行的 Claude Code 需重启加载。路由／聚合模式写入本地代理地址，由 CloudHub 转发。</p></div>
 
     <header className="claude-providers-head claude-list-toolbar">
       <label className="claude-search"><Search size={14} aria-hidden="true" /><input type="search" aria-label="搜索供应商" placeholder="搜索供应商" value={keyword} onChange={e => setKeyword(e.target.value)} /></label>
@@ -799,6 +791,11 @@ export function ClaudeProvidersPlugin() {
     </div> : <ul className="claude-provider-list">
       {displayed.map((item, index) => {
         const accent = providerAccent(item.name);
+        const modelGroups = new Map<string, string[]>();
+        for (const role of ROLES.filter(role => item.models?.[role.key]?.model).slice(0, 3)) {
+          const model = item.models?.[role.key]?.model;
+          if (model) modelGroups.set(model, [...(modelGroups.get(model) ?? []), role.label]);
+        }
         const needsRouting = !item.officialLogin && item.apiFormat !== "anthropic";
         const usage = windowedUsage(routing.logs, item.id);
         const isCurrent = item.id === currentId;
@@ -818,34 +815,37 @@ export function ClaudeProvidersPlugin() {
           {groupHeading && <li className="claude-provider-group-heading">{group === 0 ? routing.mode === "aggregate" && routing.running ? "默认供应商" : "切换到聚合模式后的默认供应商" : (group === 1 ? "已添加" : "可添加") + " · " + providers.filter(provider => aggregateGroup(provider) === group).length}</li>}
           <li className={`claude-provider-item${(viewMode === "route" ? isRouteTarget : viewMode === "aggregate" ? group === 0 : isCurrent) ? " is-current" : ""}${selectedProviders.has(item.id) ? " is-selected" : ""}${viewMode === "route" ? " is-aggregate-item" : ""}`}>
           {viewMode === "route" && (index === 0 || config.queue.includes(displayed[index - 1].id) !== inQueue) && <div className="claude-aggregate-heading">{inQueue ? "队列 · 按优先级" : "不在队列"}（{shown.filter(provider => config.queue.includes(provider.id) === inQueue).length}）</div>}
+          <input className="claude-provider-select" type="checkbox" aria-label={"选择 " + item.name} checked={selectedProviders.has(item.id)} disabled={Boolean(busyId)} onChange={event=>setSelectedProviders(current=>{const next=new Set(current);if(event.target.checked)next.add(item.id);else next.delete(item.id);return next;})} />
           <div className="claude-provider-main">
             <div className="claude-provider-title">
-              <input type="checkbox" aria-label={"选择 " + item.name} checked={selectedProviders.has(item.id)} disabled={Boolean(busyId)} onChange={event=>setSelectedProviders(current=>{const next=new Set(current);if(event.target.checked)next.add(item.id);else next.delete(item.id);return next;})} />
               <span className="claude-provider-logo" aria-hidden="true" style={{ background: accent.color }}>{accent.letter}</span>
               <strong>{item.name}</strong>
+              {modelGroups.size > 0 && <button type="button" className="claude-model-toggle" aria-label={`${expandedModels.has(item.id) ? "收起" : "展开"} ${item.name} 的模型`} aria-expanded={expandedModels.has(item.id)} aria-controls={`claude-models-${item.id}`} onClick={() => setExpandedModels(current => {
+                const next = new Set(current);
+                if (next.has(item.id)) next.delete(item.id); else next.add(item.id);
+                return next;
+              })}><ArrowDown size={12} aria-hidden="true" />模型 · {modelGroups.size}</button>}
               {viewMode === "route" && inQueue && <><span className="claude-tag">P{queueIndex + 1}</span><span className="claude-tag" title="根据本地请求记录与熔断状态显示">{healthLabel}</span></>}
               {viewMode === "route" && isRouteTarget && <span className="claude-tag is-current">{config.failover ? "最近响应" : "路由中"}</span>}
               {viewMode === "aggregate" && <span className="claude-tag">{group === 0 ? "默认" : providerModelCount(item) + " 个模型"}</span>}
-              {isCurrent && viewMode === "direct" && !routing.running && <span className={`claude-tag ${configurationIssue ? "is-warning" : "is-current"}`}>{!configurationIssue && <span className="claude-live-dot" aria-hidden="true" />}{configurationIssue || "使用中"}</span>}
+              {isCurrent && viewMode === "direct" && !routing.running && <><span className={`claude-tag ${configurationIssue ? "is-configured" : "is-current"}`}>{!configurationIssue && <span className="claude-live-dot" aria-hidden="true" />}{configurationIssue ? "当前配置" : "使用中"}</span>{configurationIssue && <span className="claude-tag is-warning">{configurationIssue}</span>}</>}
               {!item.keyConfigured && !item.officialLogin && <span className="claude-tag is-warning">缺少 Key</span>}
               {item.officialLogin && <span className="claude-tag">官方登录</span>}
               {needsRouting && <span className="claude-tag is-warning">需要路由</span>}
               {routing.health[item.id]?.openUntil && routing.health[item.id].openUntil! > Date.now() && <span className="claude-tag is-warning">熔断中</span>}
             </div>
             <code className="claude-provider-url">{item.baseUrl || "未填写请求地址"}</code>
-            {configurationIssue && <p className="claude-configuration-warning" role="status">{configurationStatus === "unreadable" ? "无法读取或解析 Claude Code 配置，请检查文件后刷新。未自动覆盖配置。" : configurationStatus === "missing" ? "Claude Code 配置文件已缺失，点击“切换回来”可重新应用此渠道。" : "Claude Code 配置与此渠道不一致，可能已被其他软件修改。点击“切换回来”可恢复此渠道。"}</p>}
-            <div className="claude-provider-meta">
-              {item.apiFormat !== "anthropic" && <span>{API_FORMATS.find(format => format.value === item.apiFormat)?.label}</span>}
-              {ROLES.filter(role => item.models?.[role.key]?.model).slice(0, 3).map(role => <span key={role.key} className="claude-model-chip" title={role.label + ": " + item.models![role.key].model}>{role.label}: {item.models![role.key].model}</span>)}
-            </div>
+            {item.apiFormat !== "anthropic" && <div className="claude-provider-meta">{API_FORMATS.find(format => format.value === item.apiFormat)?.label}</div>}
+            {modelGroups.size > 0 && <dl id={`claude-models-${item.id}`} className="claude-model-mappings" aria-label="模型映射" hidden={!expandedModels.has(item.id)}>
+              {Array.from(modelGroups, ([model, roles]) => <div key={model} className="claude-model-mapping">
+                <dt>{roles.join(" / ")}</dt>
+                <dd>{model}</dd>
+              </div>)}
+            </dl>}
+            {configurationIssue && <p className="claude-configuration-warning" role="status"><HelpCircle size={13} aria-hidden="true" /><span>{configurationStatus === "unreadable" ? "无法读取或解析配置，请检查文件后刷新。" : configurationStatus === "missing" ? "配置文件已缺失，点击“切换回来”恢复。" : "配置已在外部更改，点击“切换回来”恢复此渠道。"}</span></p>}
           </div>
           <div className="claude-provider-stats">
-            {supportsBalance(item) && <div className="claude-balance">
-              <span className="claude-stat-caption">余额</span>
-              <strong className="claude-balance-value" role="status">{balances[item.id]?.loading ? "查询中…" : balances[item.id]?.error ? balances[item.id].error : balances[item.id]?.data ? balances[item.id].data!.balance_infos.map(info => (info.currency === "CNY" ? "¥" : info.currency === "USD" ? "$" : info.currency + " ") + info.total_balance).join(" · ") : "待查询"}</strong>
-              <button type="button" className="claude-balance-refresh" aria-label={"刷新 " + item.name + " 余额"} title="刷新余额" aria-busy={Boolean(balances[item.id]?.loading)} disabled={Boolean(busyId) || balances[item.id]?.loading} onClick={() => void refreshBalance(item.id)}>{balances[item.id]?.loading ? <Loader2 className="is-spin" size={13} aria-hidden="true" /> : <RotateCcw size={13} aria-hidden="true" />}</button>
-              {balances[item.id]?.data && <span className={"claude-balance-availability" + (balances[item.id].data!.is_available ? "" : " is-unavailable")} title={balances[item.id].data!.balance_infos.map(info => info.currency + "：赠送 " + info.granted_balance + "，充值 " + info.topped_up_balance).join("；")}>{balances[item.id].data!.is_available ? "可用" : "不可用"}</span>}
-            </div>}
+            {!item.officialLogin && item.keyConfigured && runningInTauri && <ClaudeProviderUsage key={item.id + ":" + usageRevision + ":" + JSON.stringify(item)} provider={item} disabled={Boolean(busyId)} />}
             {(isCurrent || usage.requests > 0) && <div className="claude-provider-usage" title={`最近 5 小时累计：${usage.requests} 次，${usage.tokens.toLocaleString()} tokens`}>
               <span className="claude-stat-caption">本地 · 5h</span>
               <span className="claude-provider-usage-label"><strong>{usage.requests}</strong> 次<span className="claude-stat-divider" aria-hidden="true">/</span><strong>{usage.tokens.toLocaleString()}</strong> tokens</span>

@@ -1,4 +1,5 @@
 import { invokeOrWeb, jsonRequest, nativeOnly } from "./base";
+import type { ProviderUsage } from "./codex-providers";
 
 /** 上游协议格式。 */
 export type ClaudeApiFormat = "anthropic" | "openai_chat" | "openai_responses" | "gemini";
@@ -73,6 +74,7 @@ export type ClaudeWorkspaceAction =
   | { type: "restore_file"; kind: "mcp" | "prompt" }
   | { type: "trash_skill" | "restore_skill" | "trash_session" | "restore_session"; key: string };
 export const claudeWorkbenchClient = {
+  usage: (id: string, adapter: string) => nativeOnly<ProviderUsage>("claude_provider_action", { action: { type: "usage", id, adapter } }),
   quota: (id: string) => nativeOnly<{ windows: { model: string; period: "5h" | "week"; remainingPercent: number; resetsAt: number | null }[]; queriedAt: number }>("claude_provider_action", { action: { type: "quota", id } }),
   balance: (id: string) => nativeOnly<{ is_available: boolean; balance_infos: { currency: string; total_balance: string; granted_balance: string; topped_up_balance: string }[] }>("claude_provider_action", { action: { type: "balance", id } }),
   cancelProviderImport: () => nativeOnly<void>("claude_provider_action", { action: { type: "cancel_import" } }),

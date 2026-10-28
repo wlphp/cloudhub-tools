@@ -65,6 +65,7 @@ for (const width of [320, 375, 430]) {
     await page.getByRole("button", { name: "关闭详情", exact: true }).click();
     await page.locator(".flow-row-actions button").first().click();
     expect(starts).toBe(0);
+    await page.locator(".flow-run-dialog summary").click();
     await page.locator(".flow-run-dialog textarea").fill("[]");
     await page.getByRole("button", { name: "确认运行", exact: true }).click();
     await expect(page.getByText("运行参数必须是有效的 JSON 对象", { exact: true })).toBeVisible();
@@ -76,8 +77,9 @@ for (const width of [320, 375, 430]) {
     testStatus = 403;
     await page.getByRole("button", { name: "验证连接", exact: true }).click();
     await expect(page.getByRole("alert")).toContainText("云效账号无权访问此组织或流水线");
-    page.once("dialog", (dialog) => dialog.accept());
     await page.getByRole("button", { name: "移除此连接", exact: true }).click();
+    await expect(page.getByRole("alertdialog")).toBeVisible();
+    await page.getByRole("alertdialog").locator("button.primary").click();
     await expect(page.getByRole("button", { name: "配置连接", exact: true })).toBeEnabled();
     expect(saves).toBe(2);
   });

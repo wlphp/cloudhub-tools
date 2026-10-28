@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Plus, Pencil, Copy, Trash2, RefreshCw, Search, Server, Play, FlaskConical, Gauge, Upload, Download, FileText, CheckSquare, Layers, GripVertical } from "lucide-react";
+import { Plus, Pencil, Copy, Trash2, RefreshCw, Search, Server, Play, FlaskConical, Upload, Download, FileText, CheckSquare, Layers, GripVertical } from "lucide-react";
 import { ProviderEditorPage, providerEditorInput } from "./ProviderEditorPage";
 import { ProviderImportDialog } from "./ProviderImportDialog";
-import { ProviderUsageDialog } from "./ProviderUsageDialog";
+import { ProviderUsageControl, readUsageSelection, USAGE_PREFERENCE_PREFIX } from "./ProviderUsageControl";
 import { ProviderProbeDialog } from "./ProviderProbeDialog";
 import { ProviderLaunchDialog, type ProviderLaunchTarget } from "./ProviderLaunchDialog";
 import { codexProviders, type CodexProvider, type ProviderRequestLog, type ProviderInput, type ProviderAggregate, type ProviderAggregateInput } from "../../platform/clients/codex-providers";
@@ -47,7 +47,7 @@ export function ModelProviders({ onChanged, privacy = false }: { onChanged?: () 
   const [removing, setRemoving] = useState<CodexProvider | null>(null);
   const [launching, setLaunching] = useState<ProviderLaunchTarget | null>(null);
   const [probing, setProbing] = useState<CodexProvider | null>(null);
-  const [usage, setUsage] = useState<CodexProvider | null>(null);
+  const [usagePreferences, setUsagePreferences] = useState<Record<string, string>>({});
   const [importing, setImporting] = useState(false);
   const [checkedProviders, setCheckedProviders] = useState<string[]>([]);
   const [logsProvider, setLogsProvider] = useState<CodexProvider | null>(null);
@@ -72,6 +72,7 @@ export function ModelProviders({ onChanged, privacy = false }: { onChanged?: () 
       const providers = providerResult.value;
       const groups = aggregateResult.status === "fulfilled" ? aggregateResult.value : [];
       const preferences = preferenceResult.status === "fulfilled" ? preferenceResult.value : {};
+      setUsagePreferences(preferences);
       if (aggregateResult.status === "rejected") setError("读取聚合供应商失败");
       if (preferenceResult.status === "rejected") setError("读取供应商切换设置失败，当前按关闭处理");
       let savedOrder: string[] = [];
@@ -276,8 +277,8 @@ export function ModelProviders({ onChanged, privacy = false }: { onChanged?: () 
               <span className="codex-provider-avatar" aria-hidden="true">{v.name.trim().slice(0, 1).toLocaleUpperCase() || <Server size={17} />}</span>
               <span className="codex-provider-row-copy"><strong>{v.name}</strong><span>{v.wireApi === "responses" ? "Responses API" : "Chat Completions"} · {v.baseUrl} · {v.keys.length} 个密钥 · {v.models.length} 个模型</span></span>
             </div>
+            <ProviderUsageControl key={v.id + ":" + v.version} provider={v} savedSelection={readUsageSelection(usagePreferences[USAGE_PREFERENCE_PREFIX + v.id], v)} disabled={busy} privacy={privacy} onSaved={value => setUsagePreferences(current => ({ ...current, [USAGE_PREFERENCE_PREFIX + v.id]: value }))} />
             <div className="codex-provider-row-actions" role="group" aria-label={`${v.name} 操作`}>
-              <button title="查询额度" aria-label={`查询额度 ${v.name}`} disabled={busy} onClick={() => setUsage(v)}><Gauge size={15} /></button>
               <button title="模型测试" aria-label={`模型测试 ${v.name}`} disabled={busy} onClick={() => setProbing(v)}><FlaskConical size={15} /></button>
               <button title="请求日志" aria-label={`请求日志 ${v.name}`} disabled={busy} onClick={() => void openLogs(v)}><FileText size={15} /></button>
               <button title="启动预览" aria-label={`启动预览 ${v.name}`} disabled={busy} onClick={() => { setSelectedProviderId(v.id); setLaunching({ kind: "provider", value: v }); }}><Play size={15} /></button>
@@ -302,7 +303,6 @@ export function ModelProviders({ onChanged, privacy = false }: { onChanged?: () 
     {aggregateEditing && <AggregateDialog value={aggregateEditing} providers={items.filter(v => v.wireApi === "chat_completions")} busy={busy} onClose={() => setAggregateEditing(null)} onChange={setAggregateEditing} onSave={() => void runAggregate(() => codexProviders.aggregateSave(aggregateEditing), true)} error={error} />}
     {launching && <ProviderLaunchDialog target={launching} privacy={privacy} switchEnabled={switchEnabled} onEnableSwitch={() => setProviderSwitchEnabled(true)} onClose={() => { setLaunching(null); onChanged?.(); }} />}
     {probing && <ProviderProbeDialog provider={probing} onClose={() => setProbing(null)} onSaved={updateProviderList} />}
-    {usage && <ProviderUsageDialog provider={usage} onClose={() => setUsage(null)} />}
     {importing && <ProviderImportDialog onClose={() => setImporting(false)} onSaved={updateProviderList} />}
     {logsProvider && <OverviewDialog title={`${logsProvider.name} · 请求日志`} layout="form" busy={logsBusy} onClose={() => setLogsProvider(null)} className="codex-provider-logs-dialog" headerActions={<button type="button" title="刷新请求日志" aria-label="刷新请求日志" disabled={logsBusy} onClick={() => void refreshLogs()}><RefreshCw size={15} className={logsBusy ? "codex-refresh-spinning" : ""} /></button>} footer={<><button disabled={logsBusy} onClick={() => setLogsProvider(null)}>关闭</button><button disabled={logsBusy || !logs.length} onClick={() => setClearLogsConfirm(true)}><Trash2 size={14} />清空日志</button></>}><div className="codex-provider-results">{logsError && <p role="alert" className="codex-card-error">{logsError}</p>}{logsBusy ? <p>正在读取请求日志…</p> : !logs.length ? <p>暂无请求日志</p> : <table><thead><tr><th>时间</th><th>来源</th><th>请求</th><th>状态 / 耗时</th><th>返回 / 错误</th><th>操作</th></tr></thead><tbody>{logs.map(log => <tr key={log.id}><td>{new Date(log.createdAt).toLocaleString()}</td><td>{log.source}</td><td><code>{log.method} {log.url}</code><pre><strong>Codex 上送参数</strong>{log.clientRequestBody || "（未记录）"}</pre><pre><strong>上游转换参数</strong>{log.requestBody || "（未发送上游请求）"}</pre></td><td>{log.status ?? "—"} · {log.elapsedMs} ms</td><td><pre>{log.responseBody}</pre>{log.error && <p role="alert">{log.error}</p>}</td><td><button type="button" className="codex-provider-log-copy" title="复制此条日志" aria-label={`复制 ${new Date(log.createdAt).toLocaleString()} 请求日志`} onClick={() => void copyLog(log)}><Copy size={14} />{copiedLogId === log.id ? "已复制" : "复制"}</button></td></tr>)}</tbody></table>}</div></OverviewDialog>}
     {clearLogsConfirm && logsProvider && createPortal(<ConfirmDialog title="清空请求日志" message={`确定清空“${logsProvider.name}”的全部请求日志？此操作不可撤销。`} confirmLabel="清空日志" busy={logsBusy} error={logsError} onResolve={yes => yes ? void clearLogs() : setClearLogsConfirm(false)} />, document.querySelector<HTMLDialogElement>('dialog[aria-label$="请求日志"]') ?? document.body)}
