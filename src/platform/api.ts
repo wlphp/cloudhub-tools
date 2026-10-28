@@ -6,6 +6,7 @@ export const runningInTauri =
 export const invoke = tauriInvoke;
 
 export type PlatformErrorCode =
+  | "mail"
   | "codex-login"
   | "codex-launch"
   | "codex-config"
@@ -13,6 +14,7 @@ export type PlatformErrorCode =
   | "claude-workbench"
   | "oss-cname"
   | "local-plugin"
+  | "network-speed"
   | "unknown"
   | "ai"
   | "unsupported-in-preview"

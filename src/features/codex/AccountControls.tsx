@@ -4,7 +4,8 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { CalendarDays, Edit3, RefreshCw, Shield } from "lucide-react";
 import { codexClient, type CodexAccount } from "../../platform/clients/codex";
 
-export function AccountControls({ account, busy, act, onAccount, onEdit, onNotice, headerAction, children, onRefreshBenefits, refreshing = false }: { account: CodexAccount; busy: boolean; act: (name: string, run: () => Promise<void>) => Promise<void>; onAccount: (account: CodexAccount) => void; onEdit: () => void; onNotice?: (message: string) => void; headerAction?: ReactNode; children?: ReactNode; refreshing?: boolean; onRefreshBenefits?: () => Promise<void> }) {
+export function AccountControls({ account, busy, now, act, onAccount, onEdit, onNotice, headerAction, children, onRefreshBenefits, refreshing = false }: { account: CodexAccount; busy: boolean; now: number; act: (name: string, run: () => Promise<void>) => Promise<void>; onAccount: (account: CodexAccount) => void; onEdit: () => void; onNotice?: (message: string) => void; headerAction?: ReactNode; children?: ReactNode; refreshing?: boolean; onRefreshBenefits?: () => Promise<void> }) {
+  void now;
   const [modal, setModal] = useState<"proxy" | "reset" | null>(null);
   const [url, setUrl] = useState("");
   const [error, setError] = useState("");

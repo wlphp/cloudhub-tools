@@ -1,8 +1,9 @@
-import { Bot, Cpu, FileCode2, GitBranch, Globe, Lock, MessageCircle, Network, NotebookPen, ShieldCheck, SquareTerminal } from "lucide-react";
+import { Bot, Cpu, FileCode2, GitBranch, Globe, Gauge, Lock, Mail, MessageCircle, Network, NotebookPen, ShieldCheck, SquareTerminal } from "lucide-react";
 import { officialPlugins } from "./registry";
 
 export type ApplicationSection = "flow" | "certificates" | "authenticator" | "claude" | "codex" | "frp" | "notes";
 const navigation: Record<string, { section?: ApplicationSection; order: number; sidebar: boolean; icon: typeof Cpu; keywords?: string }> = {
+  "cloudhub.mail": { order: 140, sidebar: false, icon: Mail, keywords: "邮件 邮箱 收信 发信 QQ 网易 IMAP SMTP email mail" },
   "cloudhub.flow": { section: "flow", order: 10, sidebar: true, icon: GitBranch },
   "cloudhub.certificates": { section: "certificates", order: 20, sidebar: true, icon: Lock },
   "cloudhub.authenticator": { section: "authenticator", order: 30, sidebar: true, icon: ShieldCheck },
@@ -15,6 +16,7 @@ const navigation: Record<string, { section?: ApplicationSection; order: number; 
   "cloudhub.wsl-dashboard": { order: 100, sidebar: false, icon: SquareTerminal, keywords: "WSL Linux Ubuntu Debian 发行版" },
   "cloudhub.fingerprint-browser": { order: 110, sidebar: false, icon: Globe, keywords: "Chromium Chrome 代理 浏览器" },
   "cloudhub.lan-devices": { order: 120, sidebar: false, icon: Network, keywords: "局域网 扫描 IP MAC NAS 打印机 端口 LAN" },
+  "cloudhub.network-speed": { order: 130, sidebar: false, icon: Gauge, keywords: "网络 测速 下载 上传 带宽 延迟 speedtest Mbps" },
 };
 export const applicationCatalog = officialPlugins.map(definition => ({ ...definition, ...navigation[definition.id] }));
 export type ApplicationDefinition = typeof applicationCatalog[number];

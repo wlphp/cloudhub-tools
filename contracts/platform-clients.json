@@ -117,7 +117,17 @@
     "trash_restore",
     "trash_scrub_now",
     "trash_set_scrub_days",
-    "update_dns_record"
+    "update_dns_record",
+    "database_transfer_catalog",
+    "prepare_database_import",
+    "confirm_database_import",
+    "cancel_database_import",
+    "cloud_sync_state",
+    "cloud_sync_save",
+    "cloud_sync_test",
+    "cloud_sync_upload",
+    "cloud_sync_download",
+    "cloud_sync_reveal_secret"
   ],
   "domains": [
     {
@@ -327,8 +337,15 @@
       "operations": [
         {
           "name": "ip-location",
-          "native": ["query_ip_location"],
-          "preview": [{ "method": "POST", "path": "/api/ip-location" }]
+          "native": [
+            "query_ip_location"
+          ],
+          "preview": [
+            {
+              "method": "POST",
+              "path": "/api/ip-location"
+            }
+          ]
         },
         {
           "name": "managed-hosts",
@@ -650,7 +667,9 @@
         },
         {
           "name": "baota-domain-remove",
-          "native": ["remove_baota_site_domain"],
+          "native": [
+            "remove_baota_site_domain"
+          ],
           "preview": []
         },
         {
@@ -1003,7 +1022,9 @@
       "operations": [
         {
           "name": "revealSecret",
-          "native": ["authenticator_reveal_secret"],
+          "native": [
+            "authenticator_reveal_secret"
+          ],
           "preview": []
         },
         {
@@ -1447,7 +1468,15 @@
         },
         {
           "name": "lan-devices",
-          "native": ["lan_interfaces", "lan_status", "lan_start", "lan_cancel", "lan_ledger", "lan_annotate", "lan_export"],
+          "native": [
+            "lan_interfaces",
+            "lan_status",
+            "lan_start",
+            "lan_cancel",
+            "lan_ledger",
+            "lan_annotate",
+            "lan_export"
+          ],
           "preview": []
         },
         {
@@ -1466,6 +1495,22 @@
             "browser_move_group",
             "browser_cookie_file",
             "browser_check_proxy"
+          ],
+          "preview": []
+        },
+        {
+          "name": "mail",
+          "native": [
+            "mail_accounts",
+            "mail_reveal_secret",
+            "mail_save",
+            "mail_remove",
+            "mail_test",
+            "mail_folders",
+            "mail_list",
+            "mail_read",
+            "mail_attachment",
+            "mail_send"
           ],
           "preview": []
         }

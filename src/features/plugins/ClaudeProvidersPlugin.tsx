@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { createPortal } from "react-dom";
 import { ArrowDown, ArrowUp, Check, Copy, Download, ExternalLink, FolderOpen, HelpCircle, ListChecks, Loader2, Minus, MoreHorizontal, Pencil, Plus, RotateCcw, Search, Server, Star, Trash2, Wand2, Wifi } from "lucide-react";
 import { SharedDialog } from "../../shared/SharedDialog";
+import { runningInTauri } from "../../platform/api";
 import { MoreMenu } from "../../shared/MoreMenu";
 import { ConfirmDialog } from "../../shared/ConfirmDialog";
 import { SecretField } from "../../shared/SecretField";
@@ -558,6 +559,8 @@ export function ClaudeProvidersPlugin() {
   const [settingsPath, setSettingsPath] = useState("");
   const [settingsExists, setSettingsExists] = useState(false);
   const [hasBackup, setHasBackup] = useState(false);
+  const [backups, setBackups] = useState<NonNullable<ClaudeProviderList["backups"]>>([]);
+  const [backupHistoryOpen, setBackupHistoryOpen] = useState(false);
   const [configurationStatus, setConfigurationStatus] = useState<ClaudeProviderList["configurationStatus"]>(null);
   const [workspace, setWorkspace] = useState<ClaudeWorkspaceState["project"] | null>(null);
   const [editing, setEditing] = useState<ClaudeProviderInput | null>(null);
@@ -604,6 +607,7 @@ export function ClaudeProvidersPlugin() {
     setSettingsPath(list.settingsPath);
     setSettingsExists(list.settingsExists);
     setHasBackup(list.hasBackup);
+    setBackups(list.backups ?? []);
     setConfigurationStatus(list.configurationStatus);
   }, []);
 
@@ -750,7 +754,9 @@ export function ClaudeProvidersPlugin() {
         ? <span className="claude-current"><FolderOpen size={13} aria-hidden="true" />项目 {workspace}</span>
         : <span className="claude-current"><FolderOpen size={13} aria-hidden="true" />用户全局</span>}
       <span className="claude-status-bar-actions">
-        {hasBackup && <button type="button" disabled={Boolean(busyId)} onClick={() => confirm("恢复上一份 Claude Code 配置？当前配置会先备份。", async()=>{await claudeProvidersClient.restoreBackup();setMessage("已恢复到上一份配置");await load();})}><RotateCcw size={13} aria-hidden="true" />恢复上一份</button>}
+        {hasBackup && (runningInTauri
+          ? <button type="button" disabled={Boolean(busyId)} onClick={() => setBackupHistoryOpen(true)} title="查看并恢复任意历史配置备份"><RotateCcw size={13} aria-hidden="true" />历史备份（{backups.length}）</button>
+          : <button type="button" disabled={Boolean(busyId)} onClick={() => confirm("恢复上一份 Claude Code 配置？当前配置会先备份。", async()=>{await claudeProvidersClient.restoreBackup();setMessage("已恢复到上一份配置");await load();})}><RotateCcw size={13} aria-hidden="true" />恢复上一份</button>)}
         <button type="button" className="secondary" disabled={Boolean(busyId) || !settingsPath} onClick={() => void run("open-config", () => claudeWorkbenchClient.providerAction({ type: "open_config_directory" }), "")} title="打开当前 Claude Code 配置文件所在目录"><FolderOpen size={13} aria-hidden="true" />打开配置目录</button>
         <button type="button" className="secondary" disabled={Boolean(busyId) || routing.running} onClick={() => void changeScope(false)}>选择项目</button>
         <button type="button" className="secondary" disabled={Boolean(busyId) || !workspace || routing.running} onClick={() => void changeScope(true)}>不使用项目</button>
@@ -935,6 +941,15 @@ export function ClaudeProvidersPlugin() {
     {configPreview && <SharedDialog title="当前配置文件预览" subtitle={configPreview.path} onClose={() => setConfigPreview(null)} footer={<button type="button" className="secondary" onClick={() => setConfigPreview(null)}>关闭</button>}>
       <p className="claude-config-help">完整内容，只读预览，未脱敏；可能包含明文密钥、认证信息和命令，请勿直接截图或分享。</p>
       <pre className="claude-config-preview">{JSON.stringify(configPreview.document, null, 2)}</pre>
+    </SharedDialog>}
+    {backupHistoryOpen && <SharedDialog title="Claude Code 配置备份历史" subtitle="历史备份会一直保留；恢复后也不会删除所选记录。恢复前会自动备份当前配置。" size="large" onClose={() => setBackupHistoryOpen(false)} footer={<button type="button" className="secondary" onClick={() => setBackupHistoryOpen(false)}>关闭</button>}>
+      <div className="claude-backup-history" role="list">
+        {backups.map((backup, index) => <div className="claude-backup-history-row" role="listitem" key={backup.id}>
+          <span><strong>{new Date(backup.createdAt).toLocaleString()}</strong><small>{index === 0 ? "最近备份" : `历史备份 #${backups.length - index}`}</small></span>
+          <button type="button" className="secondary" disabled={Boolean(busyId)} onClick={() => confirm(`恢复 ${new Date(backup.createdAt).toLocaleString()} 的配置？当前配置会先另存为一条新备份。`, async () => { await claudeProvidersClient.restoreBackup(backup.id); setBackupHistoryOpen(false); setMessage("已恢复所选历史配置，所有历史备份仍保留"); await load(); })}><RotateCcw size={13} aria-hidden="true" />恢复此备份</button>
+        </div>)}
+        {!backups.length && <p className="claude-config-help">当前配置目录还没有历史备份。</p>}
+      </div>
     </SharedDialog>}
     {confirmation && createPortal(<ConfirmDialog message={confirmation.message} busy={confirmBusy} error={confirmError} onResolve={accepted => {
       if (confirmBusy) return;

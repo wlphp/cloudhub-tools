@@ -12,6 +12,7 @@ export interface CodexAccount {
   isWebSession?: boolean;
   id: number; label: string; email: string | null; accountId: string | null;
   userId?: string | null; loginProvider?: string | null; workspaceName?: string | null;
+  accessExpiresAt: number | null; refreshExpiresAt: number | null; idExpiresAt: number | null; hasRefreshToken: boolean;
   proxyUrl?: string | null; benefits?: CodexBenefits;
   authMode: "chatgpt" | "apikey"; plan: string | null; note: string; tags: string[];
   quota: { windows: CodexQuotaWindow[]; fetchedAt: number | null }; lastError: string | null; updatedAt: number;

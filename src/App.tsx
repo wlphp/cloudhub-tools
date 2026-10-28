@@ -1,3 +1,4 @@
+import { DataImportReview } from "./features/accounts/DataImportReview";
 import { ConfirmDialog } from "./shared/ConfirmDialog";
 import { SharedDialog } from "./shared/SharedDialog";
 import { MoreMenu } from "./shared/MoreMenu";
@@ -250,7 +251,7 @@ function syncAssetTypes(account: Account): ReadonlyArray<(typeof assetTypes)[num
 }
 const assetTypes = catalogAssetTypes;
 
-const bundledVersion = "0.1.97";
+const bundledVersion = "0.1.98";
 const isDevelopmentBuild = import.meta.env.DEV;
 
 const detachedTerminalHostId = (() => {
@@ -1210,12 +1211,12 @@ function App() {
     setDatabaseImportPreview(null);
     if (preview) { try { await databaseClient.cancelImport(preview.token); } catch (error) { setStatus(`取消导入失败：${String(error)}`); } }
   }
-  async function confirmDatabaseImport() {
+  async function confirmDatabaseImport(tables?: string[], mode?: "merge" | "overwrite" | "replace") {
     const preview = databaseImportPreview;
     if (!preview || databaseImportBusy) return;
     setDatabaseImportBusy(true);
     try {
-      const message = await databaseClient.confirmImport(preview.token);
+      const message = await databaseClient.confirmImport(preview.token, tables, mode);
       setDatabaseImportPreview(null);
       setStatus(`${message}，应用即将刷新`);
       window.setTimeout(() => window.location.reload(), 700);
@@ -2822,8 +2823,6 @@ function App() {
   useEffect(() => { setLogPage(1); }, [logFilter, logTypeFilter]);
   useEffect(() => { setApiLogPage(1); }, [logFilter]);
   useEffect(() => { if (!status) return; const timer = window.setTimeout(() => setStatus(""), 2600); return () => window.clearTimeout(timer); }, [status]);
-  useEffect(() => { if (moreId === null) return; const close = (event: globalThis.MouseEvent) => { const target = event.target as HTMLElement; if (!target.closest(".more-wrap")) { setMoreId(null); } }; document.addEventListener("mousedown", close); return () => document.removeEventListener("mousedown", close); }, [moreId]);
-
   function edit(account: Account) {
     let credentialMeta: { tenancy_ocid?: string; key_fingerprint?: string; tenant_id?: string; subscription_id?: string; project_id?: string } = {};
     try { credentialMeta = JSON.parse(account.credential_meta || "{}"); } catch { /* legacy account */ }
@@ -4034,11 +4033,13 @@ function App() {
           <div className="header-stat-panel">
             <div className="header-stat-tiles">
               <div className="header-stat-tile"><span>云账号</span><strong>{accounts.length}</strong></div>
+              <div className="header-stat-tile"><span>云类型</span><strong>{accountProviderStats.length}</strong></div>
               <div className="header-stat-tile"><span>已启用</span><strong>{accounts.filter((a) => a.enabled).length}</strong></div>
               <div className="header-stat-tile"><span>资源总数</span><strong>{localAssets.length}</strong></div>
             </div>
             <div className="header-stat-chips" role="group" aria-label="厂商统计">
-              {accountProviderStats.map(({ cloudType, count, label }) => <span className="header-stat-chip" key={cloudType} title={`${label}：${count} 个账号`}><CloudAvatar cloudType={cloudType} /><em>{label}</em><strong>{count}</strong></span>)}
+              <button type="button" className={`header-stat-chip${cloudFilterTypes.length === 0 || providerFilterAll ? " active" : ""}`} title="显示全部云类型账号" aria-pressed={cloudFilterTypes.length === 0 || providerFilterAll} onClick={() => setCloudFilterTypes([])}><em>全部</em><strong>{accounts.length}</strong></button>
+              {accountProviderStats.map(({ cloudType, count, label }) => <button type="button" className={`header-stat-chip${cloudFilterTypes.includes(cloudType) ? " active" : ""}`} key={cloudType} title={`筛选${label}账号，共 ${count} 个`} aria-pressed={cloudFilterTypes.includes(cloudType)} onClick={() => setCloudFilterTypes([cloudType])}><CloudAvatar cloudType={cloudType} /><em>{label}</em><strong>{count}</strong></button>)}
             </div>
           </div>
         </header>
@@ -5397,12 +5398,7 @@ function App() {
       </SharedDialog>}
       {confirmRequest && <ConfirmDialog message={confirmRequest.message} title={confirmRequest.title} confirmLabel={confirmRequest.confirmLabel} onResolve={resolveConfirm} />}
       {showSyncTransfer && <SyncTransferPanel mode="desktop" accounts={accounts} managedHosts={managedHosts} panels={panelConnections} onClose={() => setShowSyncTransfer(false)} onImported={() => { void load(); void loadLocalAssets(); void loadManagedHosts(); void loadPanelConnections(); }} />}
-      {databaseImportPreview && <SharedDialog title={databaseImportPreview.importMode === "merge" || databaseImportPreview.importMode === "overwrite" ? "确认导入 SQL" : "确认恢复本机数据库"} eyebrow="DATABASE IMPORT REVIEW" icon={<AlertTriangle size={20} />} role="alertdialog" className="database-import-dialog" busy={databaseImportBusy} closeDisabled={databaseImportBusy} onClose={() => void cancelDatabaseImport()} initialFocus="button[data-cancel]" footer={<><button type="button" className="secondary" data-cancel disabled={databaseImportBusy} onClick={() => void cancelDatabaseImport()}>取消导入</button><button type="button" className="primary" disabled={databaseImportBusy} onClick={() => void confirmDatabaseImport()}>{databaseImportBusy ? "正在导入…" : "确定导入"}</button></>}>
-              <p>文件：{databaseImportPreview.packageName}<br />导出时间：{databaseImportPreview.exportedAt}<br />共发现 <strong>{databaseImportPreview.totalRecords}</strong> 条记录。{databaseImportPreview.importMode === "merge" ? "确认后合并数据，跳过重复记录，保留现有其他数据。" : databaseImportPreview.importMode === "overwrite" ? "确认后合并数据，覆盖重复记录，保留现有其他数据。" : "确认后将替换普通数据库内容，并保留本机 Codex 与验证器。"}导入前会保留本机恢复快照。</p>
-              <div className="database-import-summary">{databaseImportPreview.categories.map((item) => <span key={item.label}><b>{item.count}</b>{item.label}</span>)}</div>
-              <div className="database-import-details"><strong>记录明细（已脱敏）</strong>{databaseImportPreview.details.map((item, index) => <div key={`${item}-${index}`}>{item}</div>)}</div>
-              {databaseImportPreview.conflicts.length > 0 && <div className="database-import-conflicts"><strong>重复/冲突预警（{databaseImportPreview.conflicts.length}）</strong>{databaseImportPreview.conflicts.map((item, index) => <div key={`${item}-${index}`}>{item}</div>)}</div>}
-      </SharedDialog>}
+      {databaseImportPreview && <DataImportReview key={databaseImportPreview.token} preview={databaseImportPreview} busy={databaseImportBusy} onClose={() => void cancelDatabaseImport()} onConfirm={(tables, mode) => void confirmDatabaseImport(tables, mode)} />}
       {promptRequest && <SharedDialog title="请输入内容" eyebrow="INPUT REQUIRED" icon={<AlertTriangle size={20} />} size="small" describedBy="prompt-message" onSubmit={(event) => { event.preventDefault(); resolvePrompt(promptValue); }} onClose={() => resolvePrompt(null)} footer={<><button type="button" className="secondary" onClick={() => resolvePrompt(null)}>取消</button><button type="submit" className="primary">确定</button></>}><p id="prompt-message">{promptRequest.message}</p><input aria-label="需要输入的内容" value={promptValue} autoFocus onChange={(event) => setPromptValue(event.target.value)} /></SharedDialog>}
     </div>
   );

@@ -218,6 +218,10 @@ async function confirmImport(token, exclusive) {
 }
 
 export async function handleDatabaseMigrationRoutes(req, res, url, send, exclusive) {
+  if (req.method === "POST" && ["/api/database-import/preview", "/api/database-import/confirm", "/api/database-import/cancel"].includes(url.pathname)) {
+    send(res, 501, { error: "统一业务备份恢复需要桌面客户端或手机 App；浏览器预览不支持原生密钥与验证器恢复。" });
+    return true;
+  }
   if (req.method === "POST" && url.pathname === "/api/database-import/preview") {
     const preview = await prepareImport(req, url);
     send(res, 200, preview);

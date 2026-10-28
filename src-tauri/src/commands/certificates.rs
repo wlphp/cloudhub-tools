@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256};
-use std::{collections::BTreeMap, fs, process::Command, time::Duration};
+use std::{collections::BTreeMap, fs, io::Cursor, process::Command, time::Duration};
+use zip::{write::SimpleFileOptions, ZipWriter};
 use tauri::Emitter;
 use tauri_plugin_dialog::DialogExt;
 
@@ -885,8 +886,100 @@ pub(crate) fn export_certificate_material(app: tauri::AppHandle, id: i64, primar
 #[tauri::command]
 pub(crate) fn delete_certificate(id: i64) -> PlatformResult<()> { certificate_repository::delete(&open_db()?, id, chrono::Utc::now().timestamp_millis()).map_err(Into::into) }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct BaotaDomainExportRow {
+    pub index: usize,
+    pub domain: String,
+    pub server_ip: String,
+    pub dns_ips: String,
+    pub consistency: String,
+    pub site: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct BaotaDomainSummaryExportRow {
+    pub index: usize,
+    pub domain: String,
+    pub domain_count: usize,
+    pub site_count: usize,
+}
+
+fn xlsx_escape(value: &str) -> String {
+    value.chars().filter_map(|character| match character {
+        '\u{9}' | '\u{a}' | '\u{d}' | '\u{20}'..='\u{d7ff}' | '\u{e000}'..='\u{fffd}' | '\u{10000}'..='\u{10ffff}' => Some(character),
+        _ => None,
+    }).map(|character| match character {
+        '&' => "&amp;".to_string(), '<' => "&lt;".to_string(), '>' => "&gt;".to_string(),
+        _ => character.to_string(),
+    }).collect()
+}
+
+fn xlsx_cell(reference: &str, value: &str) -> String {
+    format!("<c r=\"{reference}\" t=\"inlineStr\"><is><t xml:space=\"preserve\">{}</t></is></c>", xlsx_escape(value))
+}
+
+fn baota_xlsx(headers: &[&str], rows: &[Vec<String>]) -> Result<Vec<u8>, String> {
+    if headers.is_empty() || headers.len() > 26 || rows.iter().any(|row| row.len() != headers.len()) { return Err("Excel 表格内容无效".into()); }
+    let mut sheet = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\"><sheetData>");
+    sheet.push_str("<row r=\"1\">");
+    for (index, header) in headers.iter().enumerate() { sheet.push_str(&xlsx_cell(&format!("{}1", (b'A' + index as u8) as char), header)); }
+    sheet.push_str("</row>");
+    for (offset, values) in rows.iter().enumerate() {
+        let row_number = offset + 2;
+        sheet.push_str(&format!("<row r=\"{row_number}\">"));
+        for (index, value) in values.iter().enumerate() { sheet.push_str(&xlsx_cell(&format!("{}{row_number}", (b'A' + index as u8) as char), value)); }
+        sheet.push_str("</row>");
+    }
+    sheet.push_str("</sheetData></worksheet>");
+    let mut archive = ZipWriter::new(Cursor::new(Vec::new()));
+    let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+    for (name, content) in [
+        ("[Content_Types].xml", "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"><Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/><Default Extension=\"xml\" ContentType=\"application/xml\"/><Override PartName=\"/xl/workbook.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml\"/><Override PartName=\"/xl/worksheets/sheet1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/></Types>"),
+        ("_rels/.rels", "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"xl/workbook.xml\"/></Relationships>"),
+        ("xl/workbook.xml", "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"><sheets><sheet name=\"站点域名\" sheetId=\"1\" r:id=\"rId1\"/></sheets></workbook>"),
+        ("xl/_rels/workbook.xml.rels", "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet1.xml\"/></Relationships>"),
+    ] {
+        archive.start_file(name, options).map_err(|_| "创建 Excel 文件失败")?;
+        std::io::Write::write_all(&mut archive, content.as_bytes()).map_err(|_| "创建 Excel 文件失败")?;
+    }
+    archive.start_file("xl/worksheets/sheet1.xml", options).map_err(|_| "创建 Excel 文件失败")?;
+    std::io::Write::write_all(&mut archive, sheet.as_bytes()).map_err(|_| "创建 Excel 文件失败")?;
+    archive.finish().map(|cursor| cursor.into_inner()).map_err(|_| "创建 Excel 文件失败".into())
+}
+
+fn baota_domains_xlsx(rows: &[BaotaDomainExportRow]) -> Result<Vec<u8>, String> {
+    let values = rows.iter().map(|row| vec![row.index.to_string(), row.domain.clone(), row.server_ip.clone(), row.dns_ips.clone(), row.consistency.clone(), row.site.clone()]).collect::<Vec<_>>();
+    baota_xlsx(&["序号", "域名", "服务器 IP", "DNS 解析 IP", "一致性", "站点"], &values)
+}
+
 #[tauri::command]
-pub(crate) fn export_certificate_domains(app: tauri::AppHandle, title: String, domains: Vec<String>) -> PlatformResult<Option<String>> {
+pub(crate) fn export_certificate_domains(app: tauri::AppHandle, title: String, domains: Vec<String>, rows: Option<Vec<BaotaDomainExportRow>>, summary_rows: Option<Vec<BaotaDomainSummaryExportRow>>, format: Option<String>) -> PlatformResult<Option<String>> {
+    if format.as_deref() == Some("xlsx_summary") {
+        let rows = summary_rows.ok_or("Excel 汇总内容缺失")?;
+        if rows.is_empty() || rows.len() > 10000 || rows.iter().any(|row| row.domain.len() > 253 || !(validate_domain(&row.domain) || row.domain.parse::<std::net::IpAddr>().is_ok())) { return Err("Excel 汇总内容无效或超过数量限制".into()); }
+        let values = rows.iter().map(|row| vec![row.index.to_string(), row.domain.clone(), row.domain_count.to_string(), row.site_count.to_string()]).collect::<Vec<_>>();
+        let bytes = baota_xlsx(&["序号", "主域名", "域名数", "站点数"], &values)?;
+        let name: String = title.chars().take(80).map(|character| if character.is_ascii_alphanumeric() || character == '.' || character == '-' { character } else { '_' }).collect();
+        let filename = format!("{}_domains.xlsx", if name.trim_matches('_').is_empty() { "baota-domain-summary" } else { &name });
+        let Some(selected) = app.dialog().file().set_file_name(filename).add_filter("Excel 工作簿", &["xlsx"]).blocking_save_file() else { return Ok(None) };
+        let target = selected.into_path().map_err(|_| "当前平台返回了不支持的保存地址".to_string())?;
+        fs::write(&target, bytes).map_err(|_| "保存 Excel 文件失败".to_string())?;
+        return Ok(Some(target.to_string_lossy().into_owned()));
+    }
+    if format.as_deref() == Some("xlsx") {
+        let rows = rows.ok_or("Excel 导出内容缺失")?;
+        if rows.is_empty() || rows.len() > 10000 || rows.iter().any(|row| row.domain.len() > 253 || row.server_ip.len() > 256 || row.dns_ips.len() > 4096 || row.consistency.len() > 64 || row.site.len() > 2048) {
+            return Err("Excel 导出内容无效或超过数量限制".into());
+        }
+        let name: String = title.chars().take(80).map(|character| if character.is_ascii_alphanumeric() || character == '.' || character == '-' { character } else { '_' }).collect();
+        let filename = format!("{}_domains.xlsx", if name.is_empty() { "baota" } else { &name });
+        let Some(selected) = app.dialog().file().set_file_name(filename).add_filter("Excel 工作簿", &["xlsx"]).blocking_save_file() else { return Ok(None) };
+        let target = selected.into_path().map_err(|_| "当前平台返回了不支持的保存地址".to_string())?;
+        fs::write(&target, baota_domains_xlsx(&rows)?).map_err(|_| "保存 Excel 文件失败".to_string())?;
+        return Ok(Some(target.to_string_lossy().into_owned()));
+    }
     if domains.is_empty() || domains.len() > 10000 || domains.iter().any(|domain| domain.len() > 253 || domain.chars().any(|character| character.is_whitespace() || character.is_control()) || !(validate_domain(domain) || domain.parse::<std::net::IpAddr>().is_ok())) {
         return Err("域名列表无效或超过导出数量限制".into());
     }

@@ -42,7 +42,7 @@ const nav = (page: Page) => page.locator("#app-main-navigation");
 test("catalog contains all seven menu apps and opens the five existing feature pages", async ({ page }) => {
   await openStore(page);
   await page.getByRole("region", { name: "软件列表", exact: true }).getByLabel("每页条数").selectOption("20");
-  await expect(page.locator(".store-table tbody tr")).toHaveCount(12);
+  await expect(page.locator(".store-table tbody tr")).toHaveCount(14);
   await expect(nav(page).locator("[data-application-id]")).toHaveText(["云效流水线", "HTTPS 证书", "身份验证器", "Claude 管理", "Codex 管理", "内网穿透", "备忘录"]);
   for (const name of ["云效流水线", "HTTPS 证书", "身份验证器", "Codex 管理", "内网穿透"]) {
     await row(page, name).getByRole("button", { name: "打开", exact: true }).click();

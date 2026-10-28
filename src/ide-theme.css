@@ -2453,22 +2453,22 @@ body.theme-light .ide-theme .account-section .resource-actions .teal:hover:not(:
   background: #ea580c !important;
   color: #ffffff !important;
 }
-body.theme-light .ide-theme :where(.primary, .primary-update-btn, .app-confirm-primary, .layui-btn-normal, .panel-toolbar-add, .terminal-add-host, .panel-open-button, .pagination-page-number):not(:disabled) {
+body.theme-light .ide-theme :where(.primary, .primary-update-btn, .app-confirm-primary, .layui-btn-normal, .panel-toolbar-add, .terminal-add-host, .panel-open-button):not(:disabled) {
   border-color: #f97316 !important;
   background: #f97316 !important;
   color: #ffffff !important;
 }
-body.theme-light .ide-theme :where(.primary, .primary-update-btn, .app-confirm-primary, .layui-btn-normal, .panel-toolbar-add, .terminal-add-host, .panel-open-button, .pagination-page-number):not(:disabled):hover {
+body.theme-light .ide-theme :where(.primary, .primary-update-btn, .app-confirm-primary, .layui-btn-normal, .panel-toolbar-add, .terminal-add-host, .panel-open-button):not(:disabled):hover {
   border-color: #ea580c !important;
   background: #ea580c !important;
   color: #ffffff !important;
 }
-body.theme-light :where(.modal-backdrop, .resource-modal-backdrop, .app-confirm-backdrop, .terminal-connect-backdrop) :where(.primary, .app-confirm-primary, .layui-btn-normal, .pagination-page-number):not(:disabled) {
+body.theme-light :where(.modal-backdrop, .resource-modal-backdrop, .app-confirm-backdrop, .terminal-connect-backdrop) :where(.primary, .app-confirm-primary, .layui-btn-normal):not(:disabled) {
   border-color: #f97316 !important;
   background: #f97316 !important;
   color: #ffffff !important;
 }
-body.theme-light :where(.modal-backdrop, .resource-modal-backdrop, .app-confirm-backdrop, .terminal-connect-backdrop) :where(.primary, .app-confirm-primary, .layui-btn-normal, .pagination-page-number):not(:disabled):hover {
+body.theme-light :where(.modal-backdrop, .resource-modal-backdrop, .app-confirm-backdrop, .terminal-connect-backdrop) :where(.primary, .app-confirm-primary, .layui-btn-normal):not(:disabled):hover {
   border-color: #ea580c !important;
   background: #ea580c !important;
   color: #ffffff !important;

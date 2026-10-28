@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { Archive, Pin, RefreshCw, RotateCcw, Trash2 } from "lucide-react";
+import { Archive, FolderOpen, Pin, RefreshCw, RotateCcw, Trash2 } from "lucide-react";
 import { OverviewDialog } from "./OverviewDialogs";
 import { ConfirmDialog } from "../../shared/ConfirmDialog";
 import { platformErrorMessage } from "../../platform/api";
+import { databaseClient } from "../../platform/clients/database";
 import { codexHistory, type CodexHistoryAction, type CodexHistoryEntry, type CodexHistoryState, type CodexHistoryTarget } from "../../platform/clients/codex-history";
 
 const reasons: Record<string, string> = { account: "切换账号前", provider: "切换供应商前", instance: "切换实例账号前", restore: "恢复历史前", manual: "手动备份", legacy_account: "旧版账号备份迁入", legacy_provider: "旧版供应商备份迁入" };
@@ -27,6 +28,13 @@ export function ConfigHistoryDialog({ initialTarget, privacy = false, onClose, o
     try { const next = await codexHistory.list(); if (alive.current) setState(next); }
     catch (e) { if (alive.current) setError(platformErrorMessage(e, "读取备份历史失败")); }
     finally { working.current = false; if (alive.current) setLoading(false); }
+  }
+  async function openBackupDirectory() {
+    setError(""); setNotice("");
+    try {
+      await databaseClient.openBackupDirectory();
+      if (alive.current) setNotice("已打开应用数据备份目录。Codex 历史记录保存在本地加密数据库中。");
+    } catch (e) { if (alive.current) setError(platformErrorMessage(e, "打开备份目录失败")); }
   }
   async function run(action: CodexHistoryAction, target: CodexHistoryTarget | null, entry: CodexHistoryEntry | null = null) {
     if (working.current) return;
@@ -62,6 +70,7 @@ export function ConfigHistoryDialog({ initialTarget, privacy = false, onClose, o
           <label>备份来源<select aria-label="备份来源" value={source} disabled={locked} onChange={e => setSource(e.target.value)}><option value="">全部来源</option>{Object.entries(reasons).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>
           <button type="button" disabled={locked} onClick={() => void refresh()}><RefreshCw size={14} />刷新</button>
           <button type="button" disabled={locked || !selectedTarget || selectedTarget.pending} title={!selectedTarget ? "先选择需要备份的目标目录" : "将当前配置与登录加密保存到本机"} onClick={() => selectedTarget && void run("manual", selectedTarget)}><Archive size={14} />立即备份</button>
+          <button type="button" disabled={locked} title="打开应用数据目录中的数据库备份文件夹；Codex 历史记录本身加密保存在本地数据库中" onClick={() => void openBackupDirectory()}><FolderOpen size={14} />打开备份目录</button>
         </div>
         <p className="codex-history-help">时间按本地时区显示。每条备份只能恢复到原目录；恢复前会自动保存当前状态。旧版备份没有原始时间，迁入时间不作为备份时间。</p>
         {selectedTarget && <code className="codex-history-path">{privacy ? "配置目录已隐藏" : selectedTarget.home}</code>}

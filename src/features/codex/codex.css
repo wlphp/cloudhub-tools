@@ -144,20 +144,32 @@
 .codex-dialog.codex-export-dialog { width: min(640px, calc(100vw - 32px)); }
 .codex-dialog.codex-history-dialog { width: min(1080px, calc(100vw - 32px)); }
 .codex-history-content { display: grid; gap: 12px; padding: 16px; min-height: 0; }
-.codex-history-controls, .codex-history-row-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.codex-history-controls { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr) max-content max-content max-content; align-items: end; gap: 10px; }
+.codex-history-row-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .codex-history-controls label { display: grid; gap: 4px; font-size: 12px; }
-.codex-history-controls select { min-width: 160px; }
+.codex-history-controls select { box-sizing: border-box; width: 100%; min-width: 0; }
 .codex-history-controls button, .codex-history-row-actions button, .codex-history-table small { display: inline-flex; align-items: center; gap: 4px; }
+.codex-history-controls button { min-height: 36px; white-space: nowrap; }
 .codex-history-help, .codex-history-count, .codex-history-table small { color: var(--jb-muted, #a4a4a4); font-size: 12px; }
 .codex-history-help { margin: 0; line-height: 1.6; }
 .codex-history-count { margin-right: auto; }
 .codex-history-path { overflow-wrap: anywhere; font-size: 12px; }
 .codex-history-table-wrap { overflow: auto; }
-.codex-history-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.codex-history-table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 12px; }
 .codex-history-table th, .codex-history-table td { padding: 10px 8px; text-align: left; border-bottom: 1px solid var(--jb-border, #3b3b3b); vertical-align: top; }
+.codex-history-table :is(th,td):first-child { width: 23%; }
+.codex-history-table :is(th,td):nth-child(2) { width: 25%; }
+.codex-history-table :is(th,td):last-child { width: 230px; }
 .codex-history-table th { white-space: nowrap; }
 .codex-history-table td > small { display: flex; margin-top: 5px; }
-.codex-history-table td:nth-child(2), .codex-history-table td:nth-child(3) { max-width: 280px; overflow-wrap: anywhere; }
+.codex-history-table td:nth-child(2), .codex-history-table td:nth-child(3) { overflow-wrap: anywhere; }
+@media (max-width: 900px) {
+  .codex-history-controls { display: flex; align-items: end; }
+  .codex-history-controls label { flex: 1 1 220px; }
+}
+@media (max-width: 560px) {
+  .codex-history-table { min-width: 720px; }
+}
 .codex-export-format-group { display: grid; gap: 8px; }
 .codex-export-format-group > .codex-export-format { display: grid; gap: 6px; margin: 0; color: var(--jb-text, #d7d7d7); font-size: 12px; font-weight: 500; }
 .codex-export-format-group select { width: 100%; min-height: 38px; padding: 6px 12px; border: 1px solid var(--jb-border, #3b3b3b); border-radius: 6px; background: var(--jb-surface-2, #242424); color: var(--jb-text, #d7d7d7); font-size: 12px; }
@@ -227,6 +239,9 @@
 .codex-page .codex-account-controls button { display: inline-flex; align-items: center; gap: 5px; min-height: 28px; padding: 4px 8px; font-size: 11px; border-radius: 5px; }
 .codex-subscription { margin: 10px 0; padding: 10px; border: 1px solid var(--jb-border, #3b3b3b); background: var(--jb-surface, #2b2b2b); border-radius: 6px; min-width: 0; }
 .codex-subscription > div { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.codex-subscription > .codex-token-expiries { display: grid; grid-template-columns: minmax(0,1fr); gap: 2px; min-width: 0; }
+.codex-token-expiries small { min-width: 0; margin-top: 0; overflow-wrap: anywhere; }
+.codex-token-expiries strong { margin-right: 3px; color: var(--jb-text, #dedede); font-size: 10px; font-weight: 700; }
 
 /* Form dialogs use the same clear header, grouped fields, and anchored actions as account setup. */
 .codex-dialog-form-layout { flex-direction: column; width: min(760px, calc(100vw - 32px)); max-height: min(760px, calc(100dvh - 32px)); padding: 0; overflow: hidden; }

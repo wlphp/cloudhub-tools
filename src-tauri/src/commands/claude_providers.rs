@@ -55,8 +55,16 @@ pub struct ClaudeProviderList {
     pub settings_path: String,
     pub settings_exists: bool,
     pub has_backup: bool,
+    pub backups: Vec<ClaudeProviderBackupSummary>,
     /// 只返回状态，不返回配置差异或凭据。无已选供应商时为空。
     pub configuration_status: Option<ConfigurationStatus>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ClaudeProviderBackupSummary {
+    pub id: i64,
+    pub created_at: i64,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
@@ -141,7 +149,6 @@ fn proxy_override_to_text(value: &serde_json::Value) -> String {
 pub(crate) async fn claude_provider_list() -> PlatformResult<ClaudeProviderList> {
     work(|| {
         let conn = open_db()?;
-        repository::seed(&conn, now())?;
         #[cfg(desktop)]
         let current_id=crate::core::claude_workspace::current_provider(&conn)?;
         #[cfg(not(desktop))]
@@ -156,6 +163,7 @@ pub(crate) async fn claude_provider_list() -> PlatformResult<ClaudeProviderList>
             settings_path: path.to_string_lossy().to_string(),
             settings_exists: path.exists(),
             has_backup: repository::latest_backup(&conn)?.is_some(),
+            backups: repository::list_backups(&conn)?.into_iter().map(|(id, created_at)| ClaudeProviderBackupSummary { id, created_at }).collect(),
             configuration_status,
         })
     })
@@ -241,26 +249,25 @@ pub(crate) async fn claude_provider_switch(id: String) -> PlatformResult<()> {
     .await
 }
 
-/// 把最近一次备份写回 live 配置。
-///
-/// 先取走最近备份再备份当前内容，否则「当前内容」会占掉刚取出的那一份，用户无法
-/// 再次回到同一状态。
+/// 恢复一条历史备份；恢复前保存当前配置，历史记录始终保留。
 #[tauri::command]
-pub(crate) async fn claude_provider_restore_backup() -> PlatformResult<()> {
+pub(crate) async fn claude_provider_restore_backup(backup_id: Option<i64>) -> PlatformResult<()> {
     #[cfg(desktop)]
     crate::core::claude_gateway::activate(crate::core::claude_gateway::Mode::Direct).await?;
-    work(|| {
+    work(move || {
         #[cfg(desktop)]
         let _writer=crate::core::claude_gateway::CONFIG_WRITER.lock().map_err(|_|"配置正在使用")?;
         let conn = open_db()?;
-        let (backup_id, content) = repository::latest_backup(&conn)?.ok_or_else(|| "没有可恢复的备份".to_string())?;
+        let content = match backup_id {
+            Some(id) => repository::backup_by_id(&conn, id)?.ok_or_else(|| "所选备份不存在或不属于当前配置目录".to_string())?,
+            None => repository::latest_backup(&conn)?.ok_or_else(|| "没有可恢复的备份".to_string())?.1,
+        };
         let parsed: serde_json::Value = serde_json::from_str(&content).map_err(|_| "备份内容不是合法 JSON".to_string())?;
         if !parsed.is_object()||parsed.get("env").is_some_and(|v|!v.is_object()){return Err("备份配置格式无效，未恢复".into());}
         let path=repository::settings_path()?;
         let tx=conn.unchecked_transaction().map_err(|_|"无法开始恢复")?;
         repository::backup(&tx, now())?;
         repository::write_settings_at(&path,&parsed)?;
-        tx.execute("DELETE FROM claude_provider_backups WHERE id=?1",[backup_id]).map_err(|_|"更新恢复记录失败")?;
         #[cfg(desktop)]
         crate::core::claude_workspace::set_current_provider(&tx,None)?;
         #[cfg(not(desktop))]

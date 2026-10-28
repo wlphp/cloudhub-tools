@@ -281,7 +281,7 @@ fn build_encrypted_bundle_with_flows(account_ids: Vec<i64>, managed_host_ids: Ve
     let managed_host_sync_ids = managed_host_sync_ids_by_local_ids(&mut conn, &managed_host_ids)?;
     let panel_sync_ids = panel_sync_ids_by_local_ids(&conn, &panel_ids)?;
     let mut bundle = Zeroizing::new(if account_sync_ids.is_empty() && managed_host_sync_ids.is_empty() && panel_sync_ids.is_empty() && !include_deletions && (!flow_connection_ids.is_empty() || !certificate_ids.is_empty() || !authenticator_ids.is_empty() || !ai_profile_ids.is_empty()) {
-        SyncAccountBundle { protocol_version: 1, accounts: vec![], managed_hosts: vec![], panels: vec![], deletions: vec![], flow_connections: vec![], certificates: vec![], ai_profiles: vec![], authenticators: vec![] }
+        SyncAccountBundle { portable_sql: None, protocol_version: 1, accounts: vec![], managed_hosts: vec![], panels: vec![], deletions: vec![], flow_connections: vec![], certificates: vec![], ai_profiles: vec![], authenticators: vec![] }
     } else { build_account_bundle(&mut conn, &account_sync_ids, &managed_host_sync_ids, &panel_sync_ids, include_deletions)? });
     bundle.flow_connections = crate::core::repositories::flow_sync::build(&mut conn, &flow_connection_ids)?;
     if !certificate_ids.is_empty() { crate::commands::certificates::list_certificates(None)?; }
@@ -477,6 +477,8 @@ pub(crate) fn save_sync_account_bundle(
 pub(crate) async fn start_sync_transfer(
     account_ids: Vec<i64>, managed_host_ids: Vec<i64>, panel_ids: Vec<i64>, flow_connection_ids: Option<Vec<i64>>, certificate_ids: Option<Vec<i64>>, authenticator_ids: Option<Vec<String>>, ai_profile_ids: Option<Vec<String>>,
     include_deletions: bool,
+    transfer_tables: Option<Vec<String>>,
+    include_trash: Option<bool>,
     store: State<'_, SyncTransferStore>,
     app: AppHandle,
 ) -> PlatformResult<SyncTransferStartResult> {
@@ -484,7 +486,7 @@ pub(crate) async fn start_sync_transfer(
     let certificate_ids = certificate_ids.unwrap_or_default();
     let authenticator_ids = authenticator_ids.unwrap_or_default();
     let ai_profile_ids = ai_profile_ids.unwrap_or_default();
-    if account_ids.len() + managed_host_ids.len() + panel_ids.len() + flow_connection_ids.len() + certificate_ids.len() + authenticator_ids.len() + ai_profile_ids.len() == 0 && !include_deletions {
+    if transfer_tables.as_ref().is_none_or(|tables| tables.is_empty()) && account_ids.len() + managed_host_ids.len() + panel_ids.len() + flow_connection_ids.len() + certificate_ids.len() + authenticator_ids.len() + ai_profile_ids.len() == 0 && !include_deletions {
         return Err("至少选择一个配置后再开始传输".into());
     }
     let local_identity = get_sync_device_identity(app.clone())?;
@@ -493,7 +495,13 @@ pub(crate) async fn start_sync_transfer(
     rand::thread_rng().fill_bytes(&mut transfer_key_bytes);
     let transfer_key = Zeroizing::new(URL_SAFE_NO_PAD.encode(transfer_key_bytes));
     transfer_key_bytes.fill(0);
-    let envelope = build_encrypted_bundle_with_flows(account_ids, managed_host_ids, panel_ids, flow_connection_ids, certificate_ids, authenticator_ids, ai_profile_ids, transfer_key.as_str(), include_deletions)?;
+    let envelope = if let Some(tables) = transfer_tables {
+        let conn = open_db()?;
+        let tables = super::database_migration::sql::selected(Some(tables))?;
+        let input = super::database_migration::sql::export_portable(&conn, &crate::core::crypto::crypto_key_bytes()?, &tables, include_trash.unwrap_or(false))?;
+        let bundle = Zeroizing::new(SyncAccountBundle { protocol_version: 5, portable_sql: Some(input.to_string()), accounts: vec![], managed_hosts: vec![], panels: vec![], deletions: vec![], flow_connections: vec![], certificates: vec![], authenticators: vec![], ai_profiles: vec![] });
+        seal_sync_payload(&*bundle, transfer_key.as_str())?
+    } else { build_encrypted_bundle_with_flows(account_ids, managed_host_ids, panel_ids, flow_connection_ids, certificate_ids, authenticator_ids, ai_profile_ids, transfer_key.as_str(), include_deletions)? };
     let body = serde_json::to_vec(&envelope).map_err(|_| "同步包序列化失败")?;
     let ip = primary_lan_ipv4()?;
     let listener = TcpListener::bind((Ipv4Addr::UNSPECIFIED, 0)).await.map_err(|_| "无法开启局域网迁移服务")?;
@@ -1208,7 +1216,7 @@ pub(crate) async fn fetch_sync_transfer(app: AppHandle, pairing_url: String, cli
     }
     let mut bytes = Vec::new();
     while let Some(chunk) = response.chunk().await.map_err(|_| "接收迁移包失败")? {
-        if bytes.len() + chunk.len() > 15 * 1024 * 1024 { return Err("迁移包超过允许大小".into()); }
+        if bytes.len() + chunk.len() > 90 * 1024 * 1024 { return Err("迁移包超过允许大小，请分模块迁移".into()); }
         bytes.extend_from_slice(&chunk);
     }
     let envelope: SyncEnvelope = serde_json::from_slice(&bytes).map_err(|_| "接收到的迁移包格式无效")?;
@@ -1290,6 +1298,26 @@ mod transfer_tests {
     const TOKEN: &str = "aBcDef0123456789_aBcDef0123456789-aBcDef012";
 
     #[test]
+    fn unified_protocol_five_roundtrips_selected_business_rows() {
+        let source=crate::core::database::open_transfer_test_db(std::path::Path::new(":memory:")).unwrap();
+        let target=crate::core::database::open_transfer_test_db(std::path::Path::new(":memory:")).unwrap();
+        source.execute("INSERT INTO memo_notes(title,body,group_name,created_at,updated_at) VALUES('fixture','fixture-portable-body','default',1,1)",[]).unwrap();
+        let tables=super::super::database_migration::sql::selected(Some(vec!["memo_notes".into()])).unwrap();
+        let input=super::super::database_migration::sql::export_portable(&source,&[1;32],&tables,false).unwrap();
+        let bundle=SyncAccountBundle {protocol_version:5, portable_sql:Some(input.to_string()),accounts:vec![],managed_hosts:vec![],panels:vec![],deletions:vec![],flow_connections:vec![],certificates:vec![],authenticators:vec![],ai_profiles:vec![]};
+        let envelope=seal_sync_payload(&bundle,"fixture-transfer-passphrase").unwrap();
+        assert!(!serde_json::to_string(&envelope).unwrap().contains("fixture-portable-body"));
+        let restored:SyncAccountBundle=open_sync_payload(&envelope,"fixture-transfer-passphrase").unwrap();
+        assert_eq!(restored.protocol_version,5);
+        let input=restored.portable_sql.as_ref().unwrap();
+        let preview=super::super::database_migration::sql::portable_preview(&target,input,&[2;32]).unwrap();
+        assert_eq!(preview.iter().find(|c|c.table=="memo_notes").unwrap().count,1);
+        assert!(super::super::database_migration::sql::filter_portable(&target,input,&[2;32],vec!["codex_accounts".into()]).is_err());
+        super::super::database_migration::sql::import_portable(&target,input,&[2;32],"merge").unwrap();
+        assert_eq!(target.query_row("SELECT body FROM memo_notes",[],|r|r.get::<_,String>(0)).unwrap(),"fixture-portable-body");
+    }
+
+    #[test]
     fn ai_protocol_four_preserves_keys_only_inside_encrypted_envelope() {
         let mut bundle: SyncAccountBundle = serde_json::from_str(r#"{"protocolVersion":4,"accounts":[],"aiProfiles":[{"profile":{"id":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","name":"AI迁移","protocol":"claude","baseUrl":"https://example.test","model":"model-a","enabled":true,"isDefault":true,"timeoutSeconds":60,"maxOutputTokens":512,"allowLoopbackHttp":false,"hasKey":true}}]}"#).unwrap();
         bundle.ai_profiles[0].api_key = Some(uuid::Uuid::new_v4().to_string());
@@ -1310,7 +1338,7 @@ mod transfer_tests {
         let entry = crate::core::authenticator::formats::parse_uri("otpauth://totp/Example:demo?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ").unwrap();
         let summary = serde_json::to_value(entry.summary()).unwrap();
         assert!(summary.get("secret").is_none());
-        let bundle = SyncAccountBundle { protocol_version: 3, accounts: vec![], managed_hosts: vec![], panels: vec![], deletions: vec![], flow_connections: vec![], certificates: vec![], ai_profiles: vec![], authenticators: vec![entry] };
+        let bundle = SyncAccountBundle { portable_sql: None, protocol_version: 3, accounts: vec![], managed_hosts: vec![], panels: vec![], deletions: vec![], flow_connections: vec![], certificates: vec![], ai_profiles: vec![], authenticators: vec![entry] };
         let envelope = seal_sync_payload(&bundle, "fixture-transfer-passphrase").unwrap();
         let wire = serde_json::to_string(&envelope).unwrap();
         assert!(!wire.contains(&bundle.authenticators[0].secret));
@@ -1672,6 +1700,7 @@ pub(crate) struct SyncImportPreview {
     ai_profiles: Vec<crate::core::repositories::ai::Profile>,
     deletions: Vec<SyncDeletionPreview>,
     conflicts: Vec<SyncBundleConflict>,
+    categories: Vec<super::database_migration::ImportCategory>,
 }
 
 #[derive(Serialize)]
@@ -1759,6 +1788,11 @@ pub(crate) fn preview_sync_account_bundle(envelope: SyncEnvelope, passphrase: St
 }
 
 fn preview_sync_bundle(bundle: &SyncAccountBundle) -> PlatformResult<SyncImportPreview> {
+    if let Some(input) = &bundle.portable_sql {
+        if bundle.protocol_version != 5 || !bundle.accounts.is_empty() || !bundle.managed_hosts.is_empty() || !bundle.panels.is_empty() || !bundle.deletions.is_empty() || !bundle.flow_connections.is_empty() || !bundle.certificates.is_empty() || !bundle.authenticators.is_empty() || !bundle.ai_profiles.is_empty() { return Err("统一迁移数据协议无效".into()); }
+        let categories = super::database_migration::sql::portable_preview(&open_db()?, input, &crate::core::crypto::crypto_key_bytes()?)?;
+        return Ok(SyncImportPreview { protocol_version: 5, categories, accounts: vec![], managed_hosts: vec![], panels: vec![], flow_connections: vec![], certificates: vec![], authenticators: vec![], ai_profiles: vec![], deletions: vec![], conflicts: vec![] });
+    }
     let total = bundle.accounts.len() + bundle.managed_hosts.len() + bundle.panels.len() + bundle.deletions.len() + bundle.flow_connections.len() + bundle.certificates.len() + bundle.authenticators.len() + bundle.ai_profiles.len();
     if !matches!(bundle.protocol_version, 1 | 2 | 3 | 4) || (bundle.protocol_version == 1 && (!bundle.flow_connections.is_empty() || !bundle.certificates.is_empty() || !bundle.authenticators.is_empty())) || total == 0 || total > 100 { return Err("同步包版本或记录数量无效".into()); }
     let conn = open_db()?;
@@ -1770,6 +1804,7 @@ fn preview_sync_bundle(bundle: &SyncAccountBundle) -> PlatformResult<SyncImportP
     let conflicts = find_bundle_conflicts(&conn, &bundle)?;
     let deletions = preview_bundle_deletions(&conn, &bundle.deletions)?;
     Ok(SyncImportPreview {
+        categories: vec![],
         protocol_version: bundle.protocol_version,
         accounts: bundle.accounts.iter().map(|account| SyncImportAccountPreview {
             sync_id: account.sync_id.clone(), account_name: account.account_name.clone(), cloud_type: account.cloud_type.clone(), region_id: account.region_id.clone(),
@@ -1796,6 +1831,8 @@ fn preview_sync_bundle(bundle: &SyncAccountBundle) -> PlatformResult<SyncImportP
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct SyncTransferSelection {
+    #[serde(default)]
+    transfer_tables: Vec<String>,
     account_sync_ids: Vec<String>,
     managed_host_sync_ids: Vec<String>,
     panel_sync_ids: Vec<String>,
@@ -1821,6 +1858,17 @@ pub(crate) fn confirm_sync_transfer_import(
         .ok_or("手机迁移预览已失效，请重新扫码")?;
     if pending.session_id != session_id || pending.created_at.elapsed() > Duration::from_secs(600) {
         return Err("手机迁移预览已失效，请重新扫码".into());
+    }
+    if let Some(input) = &pending.bundle.portable_sql {
+        let mut conn = open_db()?;
+        let key = Zeroizing::new(crate::core::crypto::crypto_key_bytes()?);
+        let input = super::database_migration::sql::filter_portable(&conn, input, &key, selection.transfer_tables)?;
+        if input.contains("INSERT INTO \"authenticator_entries\"") { crate::core::repositories::authenticator_sync::prepare_key(&mut conn)?; }
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(|_| "数据库正在使用，请重试")?;
+        let (added, updated, _) = super::database_migration::sql::import_portable(&tx, &input, &key, "merge")?;
+        super::database_migration::rebuild_memo_reminders(&tx)?;
+        tx.commit().map_err(|_| "迁移未提交，当前数据未改变")?;
+        return Ok(SyncImportSummary { accounts: 0, managed_hosts: 0, panels: 0, flow_connections: 0, certificates: 0, authenticators: 0, ai_profiles: 0, added: added as usize, updated: updated as usize, deleted: 0 });
     }
     let allowed_accounts = pending.bundle.accounts.iter().map(|item| item.sync_id.as_str()).collect::<std::collections::HashSet<_>>();
     let allowed_hosts = pending.bundle.managed_hosts.iter().map(|item| item.sync_id.as_str()).collect::<std::collections::HashSet<_>>();
@@ -1850,7 +1898,7 @@ pub(crate) fn confirm_sync_transfer_import(
     let authenticator_ids = selection.authenticator_ids.iter().map(String::as_str).collect::<std::collections::HashSet<_>>();
     let certificate_ids = selection.certificate_sync_ids.iter().map(String::as_str).collect::<std::collections::HashSet<_>>();
     let bundle = Zeroizing::new(SyncAccountBundle {
-        protocol_version: pending.bundle.protocol_version,
+        portable_sql: None, protocol_version: pending.bundle.protocol_version,
         ai_profiles: pending.bundle.ai_profiles.iter().filter(|item| ai_ids.contains(item.profile.id.as_str())).cloned().collect(),
         authenticators: pending.bundle.authenticators.iter().filter(|item| authenticator_ids.contains(item.id.as_str())).cloned().collect(),
         certificates: pending.bundle.certificates.iter().filter(|item| certificate_ids.contains(item.sync_id.as_str())).cloned().collect(),
@@ -1879,7 +1927,7 @@ pub(crate) fn preview_sync_delta_bundle(envelope: SyncEnvelope, passphrase: Stri
     let passphrase = Zeroizing::new(passphrase);
     let delta = Zeroizing::new(open_sync_payload::<SyncDeltaBundle>(&envelope, passphrase.as_str())?);
     let total = delta.snapshot.accounts.len() + delta.snapshot.managed_hosts.len() + delta.snapshot.panels.len() + delta.snapshot.deletions.len();
-    if delta.snapshot.protocol_version != 1 || total > 100 { return Err("增量同步包版本或记录数量无效".into()); }
+    if delta.snapshot.protocol_version != 1 || delta.snapshot.portable_sql.is_some() || total > 100 { return Err("增量同步包版本或记录数量无效".into()); }
     let conn = open_db()?;
     verify_delta_source_signature(&conn, &delta)?;
     let envelope_hash: [u8; 32] = sha2::Sha256::digest(serde_json::to_vec(&envelope).map_err(|_| "增量包校验失败")?).into();

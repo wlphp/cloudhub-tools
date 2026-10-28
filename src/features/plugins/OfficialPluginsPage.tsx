@@ -330,7 +330,7 @@ function OfficialPluginsStore({ initialPluginId, forceInitialPageMode, applicati
           <td data-label="价格">免费</td><td data-label="平台">{app.id === "cloudhub.lan-devices" ? "Windows / macOS" : "Windows / macOS / Linux"}</td>
           <td data-label="状态"><span className="store-state"><i aria-hidden="true" />已内置</span></td><td data-label="启用">已内置</td>
           {sidebarCell}
-          <td data-label="操作"><div className="store-row-actions">{app.id === "cloudhub.lan-devices" && <PresentationButton pluginId={app.id} onOpen={setPresentationFor} />}<button type="button" className="table-link" data-plugin-entry={app.id} onClick={() => openPlugin(app.id)}>打开</button></div></td>
+          <td data-label="操作"><div className="store-row-actions">{["cloudhub.lan-devices", "cloudhub.network-speed", "cloudhub.mail"].includes(app.id) && <PresentationButton pluginId={app.id} onOpen={setPresentationFor} />}<button type="button" className="table-link" data-plugin-entry={app.id} onClick={() => openPlugin(app.id)}>打开</button></div></td>
         </tr>;
         })}
       </tbody></table>

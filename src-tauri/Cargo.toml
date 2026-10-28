@@ -1,6 +1,6 @@
 [package]
 name = "cloudhub-tools"
-version = "0.1.97"
+version = "0.1.98"
 description = "本地阿里云资源管理客户端"
 authors = ["wanglei"]
 edition = "2021"
@@ -62,6 +62,10 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 rqrr = "0.10"
 
 [target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))'.dependencies]
+imap = "2.4.1"
+native-tls = "0.2"
+lettre = { version = "0.11", default-features = false, features = ["builder", "smtp-transport", "native-tls", "hostname"] }
+mailparse = "0.16"
 tauri = { version = "2", features = ["macos-private-api", "tray-icon"] }
 tauri-plugin-updater = "2.10.1"
 arboard = { version = "3", default-features = false }

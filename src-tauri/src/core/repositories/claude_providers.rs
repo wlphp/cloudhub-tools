@@ -25,9 +25,6 @@ CREATE TABLE IF NOT EXISTS claude_provider_backups (
     content TEXT NOT NULL
 );";
 
-/// 备份最多保留的份数，避免无限增长。
-const MAX_BACKUPS: i64 = 20;
-
 pub fn claude_home() -> Result<PathBuf, String> {
     #[cfg(desktop)]
     return claude_home_in(&crate::core::database::open_db()?);
@@ -126,11 +123,6 @@ fn backup_at(conn: &Connection, now: i64, path: &Path) -> Result<bool, String> {
     let encrypted = format!("cloudhub-encrypted:{}",crate::core::crypto::encrypt_secret(&scoped.to_string())?);
     conn.execute("INSERT INTO claude_provider_backups(created_at,content) VALUES(?1,?2)", params![now, encrypted])
         .map_err(|_| "备份 Claude Code 配置失败")?;
-    conn.execute(
-        "DELETE FROM claude_provider_backups WHERE id NOT IN (SELECT id FROM claude_provider_backups ORDER BY id DESC LIMIT ?1)",
-        [MAX_BACKUPS],
-    )
-    .map_err(|_| "清理历史备份失败")?;
     Ok(true)
 }
 
@@ -174,6 +166,44 @@ pub fn latest_backup(conn: &Connection) -> Result<Option<(i64, String)>, String>
         if path==claude_home()?.join("settings.json"){return Ok(Some((id,plain)));}
     }
     Ok(None)
+}
+
+/// 返回当前 Claude 配置目录对应的备份编号和时间，不解密或返回配置内容。
+pub fn list_backups(conn: &Connection) -> Result<Vec<(i64, i64)>, String> {
+    let path = settings_path()?;
+    let mut statement = conn.prepare("SELECT id,created_at,content FROM claude_provider_backups ORDER BY id DESC")
+        .map_err(|_| "读取备份失败")?;
+    let rows = statement.query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?, row.get::<_, String>(2)?)) )
+        .map_err(|_| "读取备份失败")?;
+    let mut backups = Vec::new();
+    for row in rows {
+        let (id, created_at, content) = row.map_err(|_| "读取备份失败")?;
+        let plain = if let Some(cipher) = content.strip_prefix("cloudhub-encrypted:") { crate::core::crypto::decrypt_secret(cipher)? } else { content };
+        if let Ok(wrapper) = serde_json::from_str::<Value>(&plain) {
+            if wrapper["cloudhubBackup"] == 1 {
+                if wrapper["path"].as_str() == Some(path.to_string_lossy().as_ref()) { backups.push((id, created_at)); }
+                continue;
+            }
+        }
+        if path == claude_home()?.join("settings.json") { backups.push((id, created_at)); }
+    }
+    Ok(backups)
+}
+
+/// 读取指定备份，并确认它属于当前配置目录。
+pub fn backup_by_id(conn: &Connection, backup_id: i64) -> Result<Option<String>, String> {
+    let path = settings_path()?;
+    let content: Option<String> = conn.query_row("SELECT content FROM claude_provider_backups WHERE id=?1", [backup_id], |row| row.get(0))
+        .optional().map_err(|_| "读取备份失败")?;
+    let Some(content) = content else { return Ok(None); };
+    let plain = if let Some(cipher) = content.strip_prefix("cloudhub-encrypted:") { crate::core::crypto::decrypt_secret(cipher)? } else { content };
+    if let Ok(wrapper) = serde_json::from_str::<Value>(&plain) {
+        if wrapper["cloudhubBackup"] == 1 {
+            if wrapper["path"].as_str() != Some(path.to_string_lossy().as_ref()) { return Ok(None); }
+            return Ok(Some(wrapper["content"].as_str().ok_or("备份内容无效")?.into()));
+        }
+    }
+    if path == claude_home()?.join("settings.json") { Ok(Some(plain)) } else { Ok(None) }
 }
 
 pub fn list_providers(conn: &Connection) -> Result<Vec<ClaudeProvider>, String> {
@@ -307,20 +337,6 @@ pub fn set_current(conn: &Connection, id: &str) -> Result<(), String> {
 }
 
 /// 预置供应商。base_url 取自 cc-switch 同名预设，模型映射是各家的公开别名。
-pub fn seed(conn: &Connection, now: i64) -> Result<usize, String> {
-    let count: i64 = conn.query_row("SELECT COUNT(*) FROM claude_providers", [], |row| row.get(0)).map_err(|_| "读取供应商失败")?;
-    if count > 0 {
-        return Ok(0);
-    }
-    for (index, preset) in presets().into_iter().enumerate() {
-        save_provider(conn, &preset, now)?;
-        conn.execute("UPDATE claude_providers SET sort_index=?1 WHERE id=?2", params![index as i64, preset.id])
-            .map_err(|_| "写入供应商顺序失败")?;
-    }
-    let total: i64 = conn.query_row("SELECT COUNT(*) FROM claude_providers", [], |row| row.get(0)).map_err(|_| "读取供应商失败")?;
-    Ok(total as usize)
-}
-
 fn provider(id: &str, name: &str, website: &str, base_url: &str, models: &[(&str, &str)]) -> ClaudeProvider {
     let mut map = Map::new();
     for (role, model_name) in models {
@@ -462,21 +478,17 @@ mod tests {
     }
 
     #[test]
-    fn presets_seed_once_and_carry_no_keys() {
-        let conn = db();
-        let first = seed(&conn, 10).unwrap();
-        assert!(first > 0);
-        assert_eq!(seed(&conn, 20).unwrap(), 0, "已初始化过就不再重复写入");
-        for item in list_providers(&conn).unwrap() {
+    fn presets_carry_no_keys() {
+        for item in presets() {
             assert!(item.api_key.is_empty(), "{} 预置不应携带密钥", item.name);
             assert!(!item.base_url.is_empty());
         }
     }
 
     #[test]
-    fn backups_are_capped() {
+    fn backups_are_retained_without_a_count_limit() {
         let conn = db();
-        for index in 0..(MAX_BACKUPS + 5) {
+        for index in 0..25 {
             conn.execute("INSERT INTO claude_provider_backups(created_at,content) VALUES(?1,?2)", params![index, format!("{{\"n\":{index}}}")]).unwrap();
         }
         let root = std::env::temp_dir().join(format!("cloudhub-backup-test-{}", uuid::Uuid::new_v4()));
@@ -486,7 +498,7 @@ mod tests {
         assert!(backup_at(&conn, 100, &path).unwrap());
         fs::remove_dir_all(root).unwrap();
         let kept: i64 = conn.query_row("SELECT COUNT(*) FROM claude_provider_backups", [], |row| row.get(0)).unwrap();
-        assert_eq!(kept, MAX_BACKUPS);
+        assert_eq!(kept, 26);
     }
 
     #[test]

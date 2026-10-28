@@ -112,6 +112,7 @@ export type ClaudeProviderList = {
   settingsPath: string;
   settingsExists: boolean;
   hasBackup: boolean;
+  backups?: { id: number; createdAt: number }[];
   /** 仅原生核对；浏览器预览不提供真实文件匹配状态。 */
   configurationStatus?: "matched" | "changed" | "missing" | "unreadable" | null;
 };
@@ -128,7 +129,7 @@ export const claudeProvidersClient = {
   remove: (id: string) => invokeOrWeb<number>("claude_provider_delete", { id }, post("delete", { id })),
   /** 备份后把该供应商写入 live 配置并标记为当前生效。 */
   switchTo: (id: string) => invokeOrWeb<void>("claude_provider_switch", { id }, post("switch", { id })),
-  restoreBackup: () => invokeOrWeb<void>("claude_provider_restore_backup", undefined, post("restore_backup")),
+  restoreBackup: (backupId?: number) => invokeOrWeb<void>("claude_provider_restore_backup", backupId == null ? undefined : { backupId }, post("restore_backup", backupId == null ? {} : { backupId })),
   currentSettings: () => invokeOrWeb<unknown>("claude_provider_current_settings", undefined, post("current_settings")),
   previewSettings: () => nativeOnly<{ path: string; document: unknown }>("claude_provider_current_settings", { preview: true }),
 };

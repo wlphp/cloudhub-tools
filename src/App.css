@@ -339,11 +339,10 @@ main{flex:1 1 auto;min-width:0;padding:36px 48px;max-width:none;margin:0;width:1
   --ui-focus: #ff9357;
   --ui-radius: 6px;
   --ui-z-nav: 20;
-  /* Keep overlays in one explicit stack: menus < dialogs < notices < confirmations. */
+  /* Keep transient app notices above every application overlay. */
   --ui-z-dropdown: 1000;
   --ui-z-modal: 2000;
-  /* toast 需低于 SharedDialog 遮罩（运行时取 max(10000,…) + 1），否则提示会压在弹窗之上。 */
-  --ui-z-toast: 9000;
+  --ui-z-toast: 2147483000;
   --ui-z-confirm: 11000;
 }
 
@@ -602,7 +601,7 @@ body.theme-light .ide-theme .error-list{color:#b3424c;background:#fceef0;border:
 .page-header-stats .header-stat-tile span{color:var(--jb-muted);font-size:11px}
 .page-header-stats .header-stat-tile strong{color:var(--jb-text);font-size:18px;font-weight:600}
 .page-header-stats .header-stat-chips{display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end}
-.page-header-stats .header-stat-chip{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border:1px solid var(--jb-border);border-radius:999px;background:var(--jb-surface-2);color:var(--jb-muted);font:inherit;font-size:11px;cursor:default}
+.page-header-stats .header-stat-chip{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border:1px solid var(--jb-border);border-radius:999px;background:var(--jb-surface-2);color:var(--jb-muted);font:inherit;font-size:11px}
 .page-header-stats .header-stat-chip em{font-style:normal}
 .page-header-stats .header-stat-chip strong{color:var(--jb-text);font-weight:600}
 .page-header-stats .header-stat-chip .avatar{width:15px;height:15px;font-size:9px}

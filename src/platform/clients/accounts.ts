@@ -55,14 +55,14 @@ export type SyncDeviceIdentity = { deviceId: string; publicKey: string };
 export type SyncDeviceScopeEntry = { entityType: "cloud_account" | "managed_host" | "panel_connection"; entitySyncId: string; displayName: string };
 export type SyncTrustedDevice = { deviceId: string; deviceName: string; status: "pending" | "trusted" | "revoked"; publicKeyFingerprint: string; sharedEntities: SyncDeviceScopeEntry[]; approvedAt: number | null; lastSeenAt: number | null };
 export type SyncImportConflict = { entityType: "cloudAccount" | "managedHost" | "panel" | "flowConnection"; syncId: string; name: string; reason: string; resolvable: boolean };
-export type SyncImportPreview = { protocolVersion: number; accounts: SyncAccountPreview[]; managedHosts: SyncManagedHostPreview[]; panels: SyncPanelPreview[]; flowConnections?: SyncFlowPreview[]; certificates?: CertificateMetadata[]; authenticators?: AuthEntry[]; aiProfiles?: AiProfile[]; deletions: SyncDeletionPreview[]; conflicts: SyncImportConflict[] };
+export type SyncImportPreview = { categories?: Array<{ table: string; label: string; count: number }>; protocolVersion: number; accounts: SyncAccountPreview[]; managedHosts: SyncManagedHostPreview[]; panels: SyncPanelPreview[]; flowConnections?: SyncFlowPreview[]; certificates?: CertificateMetadata[]; authenticators?: AuthEntry[]; aiProfiles?: AiProfile[]; deletions: SyncDeletionPreview[]; conflicts: SyncImportConflict[] };
 export type SyncDeltaConflictResolution = { entityType: string; syncId: string; choice: "incoming" | "local" };
 export type SyncDeltaConflict = { entityType: string; syncId: string; name: string; reason: string; resolvable: boolean };
 export type SyncDeltaReview = { protocolVersion: number; sourceDeviceId: string; targetDeviceId: string; fromSequence: number; throughSequence: number; changeCount: number; conflicts: SyncDeltaConflict[]; deletions: SyncDeletionPreview[] };
 export type SyncDeltaApplyResult = { sourceDeviceId: string; receiverDeviceId: string; messageIds: string[]; signature: string; added: number; updated: number; deleted: number };
 export type SyncTransferStartResult = { pairingUrl: string; sourceDeviceId: string; sourcePublicKeyFingerprint: string };
 export type SyncTransferFetchResult = { sessionId: string; preview: SyncImportPreview; sourceDeviceId: string; sourcePublicKeyFingerprint: string };
-export type SyncTransferSelection = { accountSyncIds: string[]; managedHostSyncIds: string[]; panelSyncIds: string[]; flowConnectionSyncIds: string[]; certificateSyncIds?: string[]; authenticatorIds?: string[]; aiProfileIds?: string[]; includeDeletions: boolean };
+export type SyncTransferSelection = { transferTables?: string[]; accountSyncIds: string[]; managedHostSyncIds: string[]; panelSyncIds: string[]; flowConnectionSyncIds: string[]; certificateSyncIds?: string[]; authenticatorIds?: string[]; aiProfileIds?: string[]; includeDeletions: boolean };
 export type SyncImportSummary = { accounts: number; managedHosts: number; panels: number; flowConnections?: number; certificates?: number; authenticators?: number; aiProfiles?: number; added: number; updated: number; deleted: number };
 
 export const accountsClient = {
@@ -192,8 +192,8 @@ export const accountsClient = {
     return nativeOnly("import_sync_account_bundle", { envelope, passphrase });
   },
 
-  startSyncTransfer(accountIds: number[], managedHostIds: number[], panelIds: number[], includeDeletions: boolean, flowConnectionIds: number[] = [], certificateIds: number[] = [], authenticatorIds: string[] = [], aiProfileIds: string[] = []): Promise<SyncTransferStartResult> {
-    return nativeOnly("start_sync_transfer", { accountIds, managedHostIds, panelIds, includeDeletions, flowConnectionIds, certificateIds, authenticatorIds, aiProfileIds });
+  startSyncTransfer(accountIds: number[], managedHostIds: number[], panelIds: number[], includeDeletions: boolean, flowConnectionIds: number[] = [], certificateIds: number[] = [], authenticatorIds: string[] = [], aiProfileIds: string[] = [], transferTables?: string[], includeTrash = false): Promise<SyncTransferStartResult> {
+    return nativeOnly("start_sync_transfer", { accountIds, managedHostIds, panelIds, includeDeletions, flowConnectionIds, certificateIds, authenticatorIds, aiProfileIds, transferTables, includeTrash });
   },
 
   startSyncDeltaTransfer(targetDeviceId: string, passphrase: string): Promise<SyncTransferStartResult> {

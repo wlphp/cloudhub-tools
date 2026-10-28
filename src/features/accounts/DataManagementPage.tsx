@@ -82,7 +82,7 @@ export function DataManagementPage({ language, onOpenDirectory, onPhoneMigration
           <p className="data-settings-warning"><AlertTriangle size={14} aria-hidden="true" />{t("文件包含明文凭据，请妥善保管。")}</p>
           <details className="data-settings-scope">
             <summary>{t("查看范围与说明")}</summary>
-            <p>{t("范围：云账号、SSH/RDP、主机、面板、当前证书及私钥、流水线和 FRP；关联父记录会一并导出。不包含 Codex、验证器、AI、浏览器、笔记、偏好、同步身份、日志、资源缓存、证书历史与部署关联。")}</p>
+            <p>{t("统一范围：云账号、SSH/RDP、主机、宝塔面板及站点证书关联、证书及历史私钥、流水线、FRP、Claude/Codex 供应商、AI 配置、备忘录、指纹浏览器配置、验证器种子与可迁移偏好。不含 Codex 登录账号、日志、缓存、设备身份及下载包。")}</p>
             <p>{t("仅支持数据库版本一致的 CloudHub SQL，文件最大 64 MB。导入先预览再确认，凭据会用本机密钥重新加密。")}</p>
           </details>
         </div>
@@ -100,7 +100,7 @@ export function DataManagementPage({ language, onOpenDirectory, onPhoneMigration
     {error && <p className="data-settings-error" role="alert">{error}</p>}
     <div className="settings-card"><div className="settings-icon purple"><Upload size={22} /></div><div className="settings-copy"><strong>{t("手机扫码迁移")}</strong><small>{t("通过扫码在设备间选择并迁移数据。")}</small></div><button type="button" className="secondary settings-link" onClick={onPhoneMigration}>{t("开始迁移")}</button></div>
     {backupOpen && <BackupRestoreDialog onClose={() => setBackupOpen(false)} onRestore={onRestore} onStatus={onStatus} />}
-    {exportConfirm && <SqlExportDialog onClose={() => setExportConfirm(false)} onExport={async tables => { const path = await databaseClient.exportSql(tables); if (path) onStatus("明文 SQL 已导出，包含密码和私钥，请妥善保管。"); }} />}
+    {exportConfirm && <SqlExportDialog onClose={() => setExportConfirm(false)} onExport={async (tables, includeTrash) => { const path = await databaseClient.exportSql(tables, includeTrash); if (path) onStatus("明文 SQL 已导出，包含密码和私钥，请妥善保管。"); }} />}
   </>;
 }
 
@@ -182,7 +182,7 @@ function BackupRestoreDialog({ onClose, onRestore, onStatus }: Pick<Props, "onRe
   }
   return <>
   <SharedDialog title="备份与恢复" className="codex-dialog backup-restore-dialog" bodyClassName="codex-dialog-content backup-restore-content" closeDisabled={busy} onClose={onClose} footer={<button type="button" className="secondary" disabled={busy} onClick={onClose}>关闭</button>}>
-      <p className="backup-restore-note">敏感字段保持密文，恢复 key 随备份携带。创建时默认不加密码，也可勾选密码保护，将数据库和 key 整体加密。不加密码时，持有完整文件即可恢复凭据，请勿公开分享；密码备份需记住密码。导入仅加入列表；恢复先预览，确认后替换普通数据库内容，并保留当前设备的 Codex 与验证器数据。</p>
+      <p className="backup-restore-note">敏感字段保持密文，恢复 key 随备份携带。创建时默认不加密码，也可勾选密码保护，将数据库和 key 整体加密。不加密码时，持有完整文件即可恢复凭据，请勿公开分享；密码备份需记住密码。导入仅加入列表；恢复先预览，可选择模块与合并或替换方式；包含验证码种子，保留当前设备的 Codex 登录账号、日志和设备身份。本机与云备份包含回收站。</p>
       <div className="backup-restore-toolbar"><strong>本机备份</strong><div><button type="button" className="secondary" disabled={busy} onClick={() => void importBackup()}><Upload size={14} />导入备份</button><button type="button" className="secondary" disabled={busy} onClick={() => setPasswordAction({ kind: "import" })}>导入密码备份</button><button type="button" className="primary" disabled={busy} onClick={() => { setError(""); setCreateOpen(true); }}><HardDriveDownload size={14} />创建备份</button><button type="button" className="secondary icon-button" aria-label="刷新备份列表" disabled={busy} onClick={() => void refresh()}><RefreshCw size={14} /></button></div></div>
       {error && <p className="backup-restore-error" role="alert">{error}</p>}
       <div className="backup-restore-list">{records.length ? records.map(record => <article className="backup-record" key={record.id}><div><strong className="backup-record-name" title={record.fileName}>{record.fileName}</strong><small>{new Date(record.createdAt).toLocaleString()} · {sizeText(record.sizeBytes)} · {record.encrypted ? "密码备份" : "内含恢复密钥 · 无需密码"}</small></div><div className="backup-record-actions">

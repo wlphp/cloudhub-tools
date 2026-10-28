@@ -1,38 +1,34 @@
 import { useState } from "react";
 import { LockKeyhole, FileWarning } from "lucide-react";
 import { SharedDialog } from "../../shared/SharedDialog";
+import { DataTransferScope, useTransferCatalog } from "./DataTransferScope";
 
-const sqlGroups = [
-  { label: "云账号与云主机 SSH", tables: ["cloud_accounts", "ssh_connections"] },
-  { label: "托管主机与 RDP", tables: ["managed_hosts", "rdp_connections", "frp_clients"] },
-  { label: "面板连接", tables: ["panel_connections"] },
-  { label: "证书与私钥（包含关联云账号）", tables: ["certificates"] },
-  { label: "流水线连接", tables: ["flow_connections"] },
-  { label: "FRP 设置、服务端与规则", tables: ["frp_local_settings", "frp_local_servers", "frp_local_proxies"] },
-];
-
-export function SqlExportDialog({ onClose, onExport }: { onClose: () => void; onExport: (tables: string[]) => Promise<void> }) {
-  const [selected, setSelected] = useState(sqlGroups.map((_, i) => i));
+export function SqlExportDialog({ onClose, onExport }: { onClose: () => void; onExport: (tables: string[], includeTrash: boolean) => Promise<void> }) {
+  const { categories, tables, setTables, error: catalogError } = useTransferCatalog();
+  const [includeTrash, setIncludeTrash] = useState(false);
   const [accepted, setAccepted] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   async function submit() {
-    if (busy || !accepted || !selected.length) return;
+    if (busy || !accepted || !tables.length) return;
     setBusy(true); setError("");
-    try { await onExport([...new Set(selected.flatMap(i => sqlGroups[i].tables))]); onClose(); }
+    try { await onExport(tables, includeTrash); onClose(); }
     catch { setError("SQL 导出失败，请检查凭据与保存位置后重试。"); }
     finally { setBusy(false); }
   }
-  return <SharedDialog title="导出明文 SQL" size="small" icon={<FileWarning size={18} />} className="data-transfer-dialog" busy={busy} closeDisabled={busy} initialFocus="input" onClose={onClose} onSubmit={event => { event.preventDefault(); void submit(); }} footer={<><button type="button" className="secondary" disabled={busy} onClick={onClose}>取消</button><button type="submit" className="primary" disabled={busy || !accepted || !selected.length}>{busy ? "正在导出…" : "导出明文 SQL"}</button></>}>
+  return <SharedDialog title="导出明文 SQL" size="small" icon={<FileWarning size={18} />} className="data-transfer-dialog" busy={busy} closeDisabled={busy} initialFocus="input" onClose={onClose} onSubmit={event => { event.preventDefault(); void submit(); }} footer={<><button type="button" className="secondary" disabled={busy} onClick={onClose}>取消</button><button type="submit" className="primary" disabled={busy || !accepted || !tables.length}>{busy ? "正在导出…" : "导出明文 SQL"}</button></>}>
     <p>SQL 包含解密后的密码、Access Key Secret、令牌和私钥，任何获得文件的人均可阅读。请保存至可信位置，不要分享给他人。</p>
-    <fieldset disabled={busy}><legend>导出范围</legend>{sqlGroups.map((group, i) => <label className="data-transfer-check" key={group.label}><input type="checkbox" checked={selected.includes(i)} onChange={event => setSelected(rows => event.target.checked ? [...rows, i] : rows.filter(value => value !== i))} />{group.label}</label>)}</fieldset>
-    <p>不包含 Codex、验证器、AI 配置、浏览器数据、笔记、同步身份、客户端偏好、日志和资源缓存。证书仅包含当前版本，不包含历史版本与部署关联。关联父记录会一并导出。文件最大 64 MB，仅支持在数据库版本一致的 CloudHub 客户端导入。</p>
+    <DataTransferScope categories={categories} tables={tables} onChange={setTables} disabled={busy} />
+    {catalogError && <p role="alert">{catalogError}</p>}
+    <label className="data-transfer-check"><input type="checkbox" checked={includeTrash} disabled={busy} onChange={event => setIncludeTrash(event.target.checked)} />包含回收站（保留删除状态）</label>
+    <p>包含所选模块的凭据、私钥及验证码种子。排除登录账号、日志、缓存、设备身份和下载包。关联父记录自动纳入。文件最大 64 MB，要求数据库版本一致。</p>
     <label className="data-transfer-check"><input type="checkbox" checked={accepted} disabled={busy} onChange={event => setAccepted(event.target.checked)} />我了解文件未加密，且包含明文凭据</label>
     {error && <p role="alert">{error}</p>}
   </SharedDialog>;
 }
 
 export function BackupCreateDialog({ onClose, onCreate }: { onClose: () => void; onCreate: (password?: string) => Promise<void> }) {
+  const { categories, error: catalogError } = useTransferCatalog();
   const [protectedBackup, setProtectedBackup] = useState(false);
   const [password, setPassword] = useState("");
   const [repeat, setRepeat] = useState("");
@@ -56,6 +52,12 @@ export function BackupCreateDialog({ onClose, onCreate }: { onClose: () => void;
       <label className="data-transfer-field">备份密码<input type="password" autoComplete="new-password" value={password} disabled={busy} onChange={event => setPassword(event.target.value)} /></label>
       <label className="data-transfer-field">确认备份密码<input type="password" autoComplete="new-password" value={repeat} disabled={busy} onChange={event => setRepeat(event.target.value)} /></label>
     </>}
+    <section className="backup-content-scope" aria-label="备份内容">
+      <h3>备份内容</h3>
+      <p>包含以下全部项目及其回收站数据，保留密码、密钥、证书私钥和验证码种子。</p>
+      {categories.length > 0 ? <ul>{categories.map(item => <li key={item.table}>{item.label}</li>)}</ul> : <p role={catalogError ? "alert" : "status"}>{catalogError || "正在读取备份内容…"}</p>}
+      <p>指纹浏览器仅备份配置及代理凭据；Claude/Codex 管理仅备份供应商相关配置。</p>
+    </section>
     {error && <p role="alert">{error}</p>}
   </SharedDialog>;
 }

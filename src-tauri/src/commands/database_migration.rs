@@ -14,7 +14,7 @@ use zeroize::Zeroizing;
 #[path = "database_backup_crypto.rs"]
 mod backup_crypto;
 #[path = "database_sql.rs"]
-mod sql;
+pub(crate) mod sql;
 
 const MAGIC: &[u8; 8] = b"CHDBMIG1";
 const FORMAT_VERSION: u32 = 1;
@@ -26,10 +26,8 @@ fn lock_transfer() -> Result<std::sync::MutexGuard<'static, ()>, String> {
 }
 
 fn ensure_database_file_migration_supported() -> Result<(), String> {
-    #[cfg(mobile)]
-    { return Err("手机端不支持整库文件迁移；请使用口令加密的配置迁移包".into()); }
-    #[cfg(not(mobile))]
-    { Ok(()) }
+    // Imports now write portable rows using this device's key on every platform.
+    Ok(())
 }
 
 #[derive(Default)]
@@ -47,7 +45,12 @@ pub(crate) struct ImportPreview { pub(crate) token: String, pub(crate) package_n
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ImportCategory { pub(crate) label: String, pub(crate) count: u64 }
+pub(crate) struct ImportCategory { pub(crate) table: String, pub(crate) label: String, pub(crate) count: u64 }
+
+#[tauri::command]
+pub(crate) fn database_transfer_catalog() -> PlatformResult<Vec<ImportCategory>> {
+    Ok(crate::core::data_transfer::TABLES.iter().map(|(table,label)| ImportCategory { table: (*table).into(), label: (*label).into(), count: 0 }).collect())
+}
 
 fn digest(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
@@ -72,6 +75,8 @@ fn package_bytes(database: &[u8], key: &[u8]) -> Result<Vec<u8>, String> {
     let manifest = serde_json::to_vec(&json!({
         "format": "cloudhub-tools-database-migration", "version": FORMAT_VERSION,
         "exported_at": Utc::now().to_rfc3339(), "database_sha256": digest(database), "key_sha256": digest(key),
+        "policy_version": crate::core::data_transfer::POLICY_VERSION,
+        "tables": crate::core::data_transfer::TABLES.iter().map(|(table,_)| *table).collect::<Vec<_>>(),
     })).map_err(|error| format!("生成迁移包信息失败: {error}"))?;
     let mut package = Vec::with_capacity(8 + 4 + manifest.len() + 8 + 4 + database.len() + key.len());
     package.extend_from_slice(MAGIC);
@@ -91,6 +96,7 @@ fn create_package_file(target: &Path, password: Option<&str>) -> Result<(), Stri
     let snapshot = data.join(format!(".cloudhub-export-{}.sqlite3", Uuid::new_v4()));
     let result = (|| {
         snapshot_database(&snapshot)?;
+        sanitize_snapshot(&snapshot)?;
         let database = Zeroizing::new(fs::read(&snapshot).map_err(|_| "读取 SQLite 快照失败")?);
         let key = Zeroizing::new(crypto_key_bytes()?);
         let package = Zeroizing::new(package_bytes(&database, &key)?);
@@ -154,6 +160,7 @@ pub(super) fn cloud_snapshot(password: Option<String>) -> Result<Vec<u8>, String
     let snapshot = data_dir()?.join(format!(".cloudhub-cloud-{}.sqlite3", Uuid::new_v4()));
     let result = (|| {
         snapshot_database(&snapshot)?;
+        sanitize_snapshot(&snapshot)?;
         {
             let conn = Connection::open(&snapshot).map_err(|_| "打开云备份快照失败")?;
             conn.execute_batch("PRAGMA secure_delete=ON; DELETE FROM client_preferences WHERE key LIKE 'cloud.sync.%'; VACUUM;")
@@ -221,6 +228,44 @@ fn snapshot_database_at(source: &Path, target: &Path) -> Result<(), String> {
     let escaped = target.to_string_lossy().replace('\'', "''");
     conn.execute_batch(&format!("VACUUM INTO '{}';", escaped))
         .map_err(|error| format!("创建 SQLite 快照失败: {error}"))
+}
+
+fn sanitize_snapshot(path: &Path) -> Result<(), String> {
+    sanitize_snapshot_with_key(path, &crypto_key_bytes()?)
+}
+
+fn sanitize_snapshot_with_key(path: &Path, key: &[u8]) -> Result<(), String> {
+    use crate::core::data_transfer as policy;
+    let db = Connection::open(path).map_err(|_| "打开备份快照失败")?;
+    db.execute_batch("PRAGMA foreign_keys=OFF; PRAGMA secure_delete=ON;").map_err(|_| "准备备份过滤失败")?;
+    let mut stmt = db.prepare("SELECT name FROM sqlite_master WHERE type='trigger'").map_err(|_| "读取快照触发器失败")?;
+    let triggers = stmt.query_map([], |r| r.get::<_,String>(0)).map_err(|_| "读取快照触发器失败")?.collect::<rusqlite::Result<Vec<_>>>().map_err(|_| "读取快照触发器失败")?;
+    for trigger in triggers { db.execute_batch(&format!("DROP TRIGGER {}", policy::ident(&trigger))).map_err(|_| "清理快照触发器失败")?; }
+    policy::export_authenticator(&db, key)?;
+    let mut stmt = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").map_err(|_| "读取快照数据范围失败")?;
+    let tables = stmt.query_map([], |r| r.get::<_,String>(0)).map_err(|_| "读取快照数据范围失败")?.collect::<rusqlite::Result<Vec<_>>>().map_err(|_| "读取快照数据范围失败")?;
+    drop(stmt);
+    for table in tables {
+        if !policy::allowed(&table) { db.execute(&format!("DELETE FROM {}", policy::ident(&table)), []).map_err(|_| "过滤备份数据失败")?; continue; }
+        if table == "client_preferences" {
+            let mut stmt = db.prepare("SELECT key FROM client_preferences").map_err(|_| "过滤本机设置失败")?;
+            let keys = stmt.query_map([], |r| r.get::<_,String>(0)).map_err(|_| "过滤本机设置失败")?.collect::<rusqlite::Result<Vec<_>>>().map_err(|_| "过滤本机设置失败")?;
+            for key in keys.into_iter().filter(|key| !policy::portable_preference(key)) { db.execute("DELETE FROM client_preferences WHERE key=?1", [key]).map_err(|_| "过滤本机设置失败")?; }
+        }
+        let fields = policy::columns(&db, &table)?;
+        let mut stmt = db.prepare(&format!("SELECT rowid,* FROM {}", policy::ident(&table))).map_err(|_| "读取备份配置失败")?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_,i64>(0)?, (0..fields.len()).map(|i| r.get::<_,rusqlite::types::Value>(i+1)).collect::<rusqlite::Result<Vec<_>>>()?))).map_err(|_| "读取备份配置失败")?.collect::<rusqlite::Result<Vec<_>>>().map_err(|_| "读取备份配置失败")?;
+        drop(stmt);
+        for (id, values) in rows {
+            for (name, value) in fields.iter().zip(values) {
+                let cleaned = policy::clean_value(&table, name, value.clone());
+                if cleaned != value { db.execute(&format!("UPDATE {} SET {}=?1 WHERE rowid=?2",policy::ident(&table),policy::ident(name)), rusqlite::params![cleaned,id]).map_err(|_| "过滤备份运行状态失败")?; }
+            }
+        }
+    }
+    db.execute_batch("VACUUM").map_err(|_| "整理备份失败")?;
+    db.execute_batch("CREATE TABLE cloudhub_transfer_policy(version INTEGER NOT NULL); INSERT INTO cloudhub_transfer_policy VALUES(1);").map_err(|_| "写入备份范围版本失败")?;
+    Ok(())
 }
 
 fn preserve_local_codex(incoming: &Path, current: &Path, current_key: &[u8], incoming_key: &[u8]) -> Result<(), String> {
@@ -562,10 +607,18 @@ fn table_exists(conn: &Connection, table: &str) -> Result<bool, String> {
 
 fn build_preview(database_path: &Path, current_db: &Path, token: String, package_name: String, exported_at: String) -> Result<ImportPreview, String> {
     let imported = Connection::open(database_path).map_err(|error| format!("打开导入数据库失败: {error}"))?;
-    let labels = [("cloud_accounts", "云账号"), ("cloud_assets", "云资产"), ("ssh_connections", "SSH 连接"), ("rdp_connections", "RDP 连接"), ("managed_hosts", "托管主机"), ("panel_connections", "面板连接"), ("operation_logs", "操作日志"), ("api_logs", "API 日志"), ("client_preferences", "客户端设置")];
+    let labels = crate::core::data_transfer::TABLES;
     let mut categories = Vec::new(); let mut total_records = 0;
-    for (table, label) in labels { let count = table_count(&imported, table)?; total_records += count; categories.push(ImportCategory { label: label.into(), count }); }
-    let mut details = vec!["验证器由独立备份管理：整库导入保留本机验证器，请在验证器页面迁移验证码。".into()]; let mut incoming_keys = HashMap::new();
+    for &(table, label) in labels {
+        if table == "authenticator_entries" && !table_exists(&imported, "cloudhub_transfer_policy")? { continue; }
+        let count = if table == "client_preferences" && table_exists(&imported, table)? {
+            let mut stmt=imported.prepare("SELECT key FROM client_preferences").map_err(|_| "读取偏好范围失败")?;
+            let keys=stmt.query_map([],|r|r.get::<_,String>(0)).map_err(|_| "读取偏好范围失败")?.collect::<rusqlite::Result<Vec<_>>>().map_err(|_| "读取偏好范围失败")?;
+            keys.into_iter().filter(|key|crate::core::data_transfer::portable_preference(key)).count() as u64
+        } else if table_exists(&imported, table)? { table_count(&imported, table)? } else { 0 };
+        total_records += count; categories.push(ImportCategory { table: table.into(), label: label.into(), count });
+    }
+    let mut details = vec!["统一业务备份包含供应商、备忘录、浏览器配置及验证码种子；保留本机 Codex 登录账号、日志和设备身份。".into()]; let mut incoming_keys = HashMap::new();
     let mut stmt = imported.prepare("SELECT account_name, cloud_type, region_id, enabled, access_key_id FROM cloud_accounts ORDER BY id LIMIT 200").map_err(|error| format!("读取账号明细失败: {error}"))?;
     for row in stmt.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, Option<String>>(2)?, row.get::<_, i64>(3)?, row.get::<_, String>(4)?))).map_err(|error| format!("读取账号明细失败: {error}"))?.flatten() { let (name, cloud, region, enabled, key) = row; incoming_keys.insert(key, name.clone()); details.push(format!("云账号：{} · {} · {} · {}", name, cloud, region.unwrap_or_else(|| "未设置地域".into()), if enabled == 1 { "启用" } else { "停用" })); }
     let mut stmt = imported.prepare("SELECT name, host, port, platform, auth_method FROM managed_hosts ORDER BY id LIMIT 200").map_err(|error| format!("读取托管主机明细失败: {error}"))?;
@@ -586,15 +639,15 @@ fn build_preview(database_path: &Path, current_db: &Path, token: String, package
         let mut stmt = imported.prepare("SELECT host, port, name FROM managed_hosts").map_err(|error| format!("读取导入托管主机失败: {error}"))?;
         for row in stmt.query_map([], |row| Ok((format!("{}:{}", row.get::<_, String>(0)?, row.get::<_, i64>(1)?), row.get::<_, String>(2)?))).map_err(|error| format!("读取导入托管主机失败: {error}"))?.flatten() { if let Some(existing_name) = existing.get(&row.0) { conflicts.push(format!("托管主机重复：导入“{}”与当前“{}”地址和端口相同", row.1, existing_name)); } }
     }
-    details.push("Codex 账号、配置及验证器保留当前设备数据，不由此备份覆盖。".into());
+    details.push("恢复仅写入统一目录中的业务数据；不接管本机 Claude/Codex 配置文件，不启动进程。旧版备份不含可恢复的验证码种子，将保留本机验证器。".into());
     Ok(ImportPreview { token, package_name, exported_at, total_records, categories, details, conflicts, import_mode: "backup".into() })
 }
 
 #[tauri::command]
-pub(crate) async fn export_database_file(app: tauri::AppHandle, format: Option<String>, tables: Option<Vec<String>>) -> PlatformResult<Option<String>> {
+pub(crate) async fn export_database_file(app: tauri::AppHandle, format: Option<String>, tables: Option<Vec<String>>, include_trash: Option<bool>) -> PlatformResult<Option<String>> {
     ensure_database_file_migration_supported()?;
     let _transfer = lock_transfer()?;
-    if format.as_deref() == Some("sql") { return Ok(sql::export_file(&app, tables)?); }
+    if format.as_deref() == Some("sql") { return Ok(sql::export_file(&app, tables, include_trash.unwrap_or(false))?); }
     if format.as_deref().is_some_and(|value| value != "backup") { return Err("不支持的导出格式".into()); }
     let result = (|| {
         let Some(selected) = app.dialog().file().set_file_name(format!("cloudhub-tools-backup-{}.chdb", Utc::now().format("%Y%m%d-%H%M%S"))).blocking_save_file() else { return Ok(None) };
@@ -708,67 +761,41 @@ pub(crate) fn import_database_file(app: tauri::AppHandle) -> PlatformResult<Opti
         let _codex_writer = super::codex::AUTH_WRITER.lock().map_err(|_| "Codex 账号操作不可用")?;
         #[cfg(desktop)]
         { use tauri::Manager; super::codex_instances::ensure_idle(&app.state::<super::codex_runtime::CodexRuntimeStore>())?; }
-        validate_database(&import_db)?;
-        let current_db = data.join("cloudhub_tools.sqlite3");
         lock_authenticator_for_migration(&app);
-        preserve_local_authenticator(&import_db, &current_db)?;
-        preserve_local_codex(&import_db, &current_db, &crypto_key_bytes()?, key)?;
-        preserve_local_codex_providers(&import_db, &current_db, &crypto_key_bytes()?, key)?;
-        preserve_local_cloud_config(&import_db, &current_db, &crypto_key_bytes()?, key)?;
-        let current_key = data.join(".key");
-        let stamp = Utc::now().format("%Y%m%d-%H%M%S");
-        let backup_db = data.join(format!("cloudhub_tools.sqlite3.before-import-{stamp}-{}", &Uuid::new_v4().to_string()[..8]));
-        let backup_key = data.join(format!(".key.before-import-{stamp}-{}", &Uuid::new_v4().to_string()[..8]));
-        let import_key = data.join(format!(".cloudhub-import-key-{}", Uuid::new_v4()));
-        fs::write(&import_key, key).map_err(|error| format!("准备导入密钥失败: {error}"))?;
-        if current_db.exists() { fs::rename(&current_db, &backup_db).map_err(|error| format!("备份当前数据库失败: {error}"))?; }
-        if let Err(error) = fs::rename(&import_db, &current_db) {
-            if backup_db.exists() { let _ = fs::rename(&backup_db, &current_db); }
-            let _ = fs::remove_file(&import_key);
-            return Err(format!("替换数据库失败: {error}"));
-        }
-        if current_key.exists() { fs::rename(&current_key, &backup_key).map_err(|error| { let _ = fs::rename(&current_db, &import_db); let _ = fs::rename(&backup_db, &current_db); let _ = fs::remove_file(&import_key); format!("备份当前密钥失败: {error}") })?; }
-        if let Err(error) = fs::rename(&import_key, &current_key) {
-            let _ = fs::remove_file(&current_db);
-            if backup_db.exists() { let _ = fs::rename(&backup_db, &current_db); }
-            if backup_key.exists() { let _ = fs::rename(&backup_key, &current_key); }
-            return Err(format!("替换密钥失败: {error}"));
-        }
-        Ok(format!("已导入数据库，并保留导入前备份：{}", backup_db.to_string_lossy()))
+        restore_portable_database(&import_db, key)
     })();
     let _ = fs::remove_file(&import_db);
     Ok(result.map(Some)?)
 }
 
-fn replace_prepared_database(import_db: &Path, key: &[u8]) -> Result<String, String> {
+fn restore_portable_database(import_db: &Path, key: &[u8]) -> Result<String, String> {
+    restore_portable_selection(import_db, key, None, "replace")
+}
+
+fn restore_portable_selection(import_db: &Path, key: &[u8], tables: Option<Vec<String>>, mode: &str) -> Result<String, String> {
+    if !matches!(mode, "replace" | "merge" | "overwrite") { return Err("恢复方式无效".into()); }
     let _cloud_guard = super::cloud_sync::restore_guard()?;
-    let data = data_dir()?;
     validate_database(import_db)?;
-    let current_db = data.join("cloudhub_tools.sqlite3");
-    preserve_local_authenticator(import_db, &current_db)?;
-    preserve_local_codex(import_db, &current_db, &crypto_key_bytes()?, key)?;
-    preserve_local_codex_providers(import_db, &current_db, &crypto_key_bytes()?, key)?;
-    preserve_local_cloud_config(import_db, &current_db, &crypto_key_bytes()?, key)?;
-    let current_key = data.join(".key");
-    let stamp = Utc::now().format("%Y%m%d-%H%M%S");
-    let backup_db = data.join(format!("cloudhub_tools.sqlite3.before-import-{stamp}-{}", &Uuid::new_v4().to_string()[..8]));
-    let backup_key = data.join(format!(".key.before-import-{stamp}-{}", &Uuid::new_v4().to_string()[..8]));
-    let import_key = data.join(format!(".cloudhub-import-key-{}", Uuid::new_v4()));
-    fs::write(&import_key, key).map_err(|error| format!("准备导入密钥失败: {error}"))?;
-    if current_db.exists() { fs::rename(&current_db, &backup_db).map_err(|error| format!("备份当前数据库失败: {error}"))?; }
-    if let Err(error) = fs::rename(import_db, &current_db) {
-        if backup_db.exists() { let _ = fs::rename(&backup_db, &current_db); }
-        let _ = fs::remove_file(&import_key);
-        return Err(format!("替换数据库失败: {error}"));
-    }
-    if current_key.exists() { fs::rename(&current_key, &backup_key).map_err(|error| { let _ = fs::rename(&current_db, import_db); let _ = fs::rename(&backup_db, &current_db); let _ = fs::remove_file(&import_key); format!("备份当前密钥失败: {error}") })?; }
-    if let Err(error) = fs::rename(&import_key, &current_key) {
-        let _ = fs::remove_file(&current_db);
-        if backup_db.exists() { let _ = fs::rename(&backup_db, &current_db); }
-        if backup_key.exists() { let _ = fs::rename(&backup_key, &current_key); }
-        return Err(format!("替换密钥失败: {error}"));
-    }
-    Ok(format!("已导入数据库，并保留导入前备份：{}", backup_db.to_string_lossy()))
+    crate::core::database::upgrade_transfer_database(import_db)?;
+    let source = Connection::open(import_db).map_err(|_| "打开恢复副本失败")?;
+    let has_policy = crate::core::data_transfer::exists(&source, "cloudhub_transfer_policy")?;
+    let tables = sql::selected(tables)?.into_iter().filter(|table| has_policy || table != "authenticator_entries").collect::<Vec<_>>();
+    // Legacy files cannot carry a usable OTP device key; retain the local vault.
+    let input = sql::dump(&source, key, &tables)?;
+    let mut current = open_db()?;
+    let recovery = data_dir()?.join(format!("cloudhub_tools.sqlite3.before-import-{}", Uuid::new_v4()));
+    snapshot_database(&recovery)?;
+    if has_policy && table_count(&source, "authenticator_entries")? > 0 { crate::core::repositories::authenticator_sync::prepare_key(&mut current)?; }
+    let current_key = Zeroizing::new(crypto_key_bytes()?);
+    let tx = current.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(|_| "数据库正在使用，请重试")?;
+    let (added, changed, skipped) = sql::import_portable(&tx, &input, &current_key, mode)?;
+    rebuild_memo_reminders(&tx)?;
+    tx.commit().map_err(|_| "恢复未提交，原有数据保持不变")?;
+    Ok(format!("恢复完成：新增 {added} 条、更新 {changed} 条、跳过 {skipped} 条；保留本机登录账号、日志和设备身份，恢复前快照已保存"))
+}
+
+pub(crate) fn rebuild_memo_reminders(db: &Connection) -> Result<(), String> {
+    db.execute_batch("DELETE FROM memo_reminders WHERE NOT EXISTS (SELECT 1 FROM memo_notes n WHERE n.id=memo_reminders.note_id AND n.deleted_at IS NULL AND n.remind_at=memo_reminders.fire_at AND (n.remind_done_at IS NULL OR n.remind_done_at<n.remind_at)); INSERT INTO memo_reminders(note_id,fire_at) SELECT n.id,n.remind_at FROM memo_notes n WHERE n.deleted_at IS NULL AND n.remind_at IS NOT NULL AND (n.remind_done_at IS NULL OR n.remind_done_at<n.remind_at) AND NOT EXISTS (SELECT 1 FROM memo_reminders r WHERE r.note_id=n.id AND r.fire_at=n.remind_at);").map_err(|_| "重建备忘录提醒失败".into())
 }
 
 #[tauri::command]
@@ -831,6 +858,26 @@ mod tests {
     use rusqlite::Connection;
     use std::{fs, path::PathBuf};
     use uuid::Uuid;
+
+    #[test]
+    fn snapshot_contains_business_and_trash_but_no_login_logs_or_device_identity() {
+        let root=std::env::temp_dir().join(format!("cloudhub-policy-{}",Uuid::new_v4())); fs::create_dir(&root).unwrap();
+        let path=root.join("snapshot.sqlite3");
+        let db=crate::core::database::open_transfer_test_db(&path).unwrap();
+        db.execute_batch("INSERT INTO operation_logs(action,result,message,created_at) VALUES('fixture','ok','forbidden-log-marker',1); INSERT INTO codex_accounts(identity,label,auth_mode,auth_ciphertext,updated_at) VALUES('fixture','fixture','oauth','forbidden-account-marker',1); INSERT INTO client_preferences VALUES('cloud.sync.config','forbidden-config-marker',1); INSERT INTO memo_groups VALUES('fixture',0,1); INSERT INTO memo_notes(title,body,group_name,created_at,updated_at,deleted_at) VALUES('fixture','portable-note-marker','fixture',1,1,5);").unwrap();
+        drop(db);
+        super::sanitize_snapshot_with_key(&path,&[1;32]).unwrap();
+        let db=Connection::open(&path).unwrap();
+        for table in ["operation_logs","api_logs","codex_accounts","sync_local_device","cloud_assets","authenticator_vault"] {
+            assert_eq!(super::table_count(&db,table).unwrap(),0);
+        }
+        assert_eq!(super::table_count(&db,"memo_notes").unwrap(),1);
+        assert_eq!(super::table_count(&db,"cloudhub_transfer_policy").unwrap(),1);
+        drop(db);
+        let bytes=fs::read(&path).unwrap(); let text=String::from_utf8_lossy(&bytes);
+        assert!(!text.contains("forbidden-log-marker")); assert!(!text.contains("forbidden-account-marker")); assert!(!text.contains("forbidden-config-marker"));
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn cloud_config_stays_local_and_is_reencrypted_with_incoming_key() {
@@ -1116,7 +1163,7 @@ mod tests {
 }
 
 #[tauri::command]
-pub(crate) async fn confirm_database_import(app: tauri::AppHandle, state: tauri::State<'_, DatabaseImportStore>, token: String) -> PlatformResult<String> {
+pub(crate) async fn confirm_database_import(app: tauri::AppHandle, state: tauri::State<'_, DatabaseImportStore>, token: String, tables: Option<Vec<String>>, mode: Option<String>) -> PlatformResult<String> {
     ensure_database_file_migration_supported()?;
     let _transfer = lock_transfer()?;
     #[cfg(desktop)]
@@ -1130,7 +1177,7 @@ pub(crate) async fn confirm_database_import(app: tauri::AppHandle, state: tauri:
         else { sql::confirm(&prepared.database_path, mode) }
     } else {
         lock_authenticator_for_migration(&app);
-        replace_prepared_database(&prepared.database_path, &prepared.key)
+        restore_portable_selection(&prepared.database_path, &prepared.key, tables, mode.as_deref().unwrap_or("replace"))
     };
     let _ = fs::remove_file(&prepared.database_path);
     Ok(result?)

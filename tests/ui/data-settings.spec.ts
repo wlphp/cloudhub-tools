@@ -29,6 +29,7 @@ async function openSettings(page: Page) {
             cloudConfig = { ...rest, hasPassword: !!password || cloudConfig.hasPassword, hasSecretKey: !!secretKey || cloudConfig.hasSecretKey, hasBackupPassword: !!backupPassword || cloudConfig.hasBackupPassword };
             cloudConfigured = true; return cloudView();
           }
+          if (command === "database_transfer_catalog") return [{ table: "cloud_accounts", label: "云账号", count: 0 }, { table: "flow_connections", label: "流水线连接", count: 0 }];
           if (command === "export_database_file") return "C:\\fixture\\transfer.sql";
           if (command === "list_database_backups") return [record("encrypted-fixture", true), record("legacy-fixture", false)];
           if (command === "create_database_backup") return record(args.password ? "protected-new-fixture" : "new-fixture", typeof args.password === "string");
@@ -37,7 +38,7 @@ async function openSettings(page: Page) {
           if (command === "prepare_database_import" || command === "prepare_database_backup_restore" || command === "cloud_sync_download") return {
             token: "fixture-preview", packageName: "fixture", exportedAt: "fixture", totalRecords: 1,
             importMode: command === "prepare_database_import" ? args.mode : "backup",
-            categories: [{ label: "云账号", count: 1 }], details: ["凭据已在本机重新加密"], conflicts: [],
+            categories: [{ table: "cloud_accounts", label: "云账号", count: 1 }], details: ["凭据已在本机重新加密"], conflicts: [],
           };
           return [];
         },
@@ -110,7 +111,7 @@ test("cloud configuration saves redacted credentials and requires confirmation b
   await expect(cloud.getByRole("button", { name: "从云端下载", exact: true })).toBeDisabled();
   await cloud.getByLabel("同步配置名").fill("default");
   await cloud.getByRole("button", { name: "从云端下载", exact: true }).click();
-  await expect(page.getByRole("alertdialog", { name: "确认恢复本机数据库", exact: true })).toBeVisible();
+  await expect(page.getByRole("alertdialog", { name: "确认恢复业务数据", exact: true })).toBeVisible();
   expect((await calls(page)).some(call => call.command === "confirm_database_import")).toBe(false);
 });
 
@@ -209,10 +210,24 @@ test("ordinary backups create import and preview without a password", async ({ p
   }
   await backups.screenshot({ path: "test-results/data-backups.png" });
   await backups.locator(".backup-record").filter({ hasText: "legacy-fixture.chdb" }).getByRole("button", { name: "恢复", exact: true }).click();
-  await expect(page.getByRole("alertdialog", { name: "确认恢复本机数据库", exact: true })).toBeVisible();
+  await expect(page.getByRole("alertdialog", { name: "确认恢复业务数据", exact: true })).toBeVisible();
   await expect(page.getByLabel("备份密码", { exact: true })).toHaveCount(0);
   expect((await calls(page)).find(c => c.command === "prepare_database_backup_restore")!.protected).toBe(false);
   await page.getByRole("button", { name: "取消导入", exact: true }).click();
+});
+
+test("restore submits selected modules and explicit merge mode", async ({ page }) => {
+  await openSettings(page);
+  await page.getByRole("button", { name: "管理加密备份", exact: true }).click();
+  await page.locator(".backup-record").filter({ hasText: "legacy-fixture.chdb" }).getByRole("button", { name: "恢复", exact: true }).click();
+  const review=page.getByRole("alertdialog",{name:"确认恢复业务数据",exact:true});
+  await review.getByRole("button",{name:"清空选择"}).click();
+  await expect(review.getByRole("button",{name:"确定导入"})).toBeDisabled();
+  await review.getByRole("checkbox",{name:"云账号（1 条）",exact:true}).check();
+  await review.getByLabel("恢复方式",{exact:true}).selectOption("merge");
+  await review.getByRole("button",{name:"确定导入"}).click();
+  await expect.poll(async()=> (await calls(page)).find(c=>c.command==="confirm_database_import")?.mode).toBe("merge");
+  expect((await calls(page)).find(c=>c.command==="confirm_database_import")?.tables).toEqual(["cloud_accounts"]);
 });
 
 test("password backup is optional validates confirmation and resets to no password", async ({ page }) => {
@@ -261,7 +276,7 @@ test("failed backup unlock permits retry without exposing raw errors", async ({ 
   await expect(unlock.getByRole("alert")).toContainText("无法读取备份");
   await expect(unlock).not.toContainText("fixture-failure");
   await unlock.getByRole("button", { name: "解锁并预览", exact: true }).click();
-  await expect(page.getByRole("alertdialog", { name: "确认恢复本机数据库", exact: true })).toBeVisible();
+  await expect(page.getByRole("alertdialog", { name: "确认恢复业务数据", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "取消导入", exact: true }).click();
 });
 

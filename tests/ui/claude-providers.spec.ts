@@ -21,7 +21,7 @@ async function openStore(page: Page, workbench = false, configuredCurrent = fals
         if (command === "authenticator_status") return { configured: false, unlocked: false };
         if (command === "list_client_preferences") return {};
         if (command === "ai_list_profiles") return [{ id: "f", name: "T", protocol: "openai_chat", model: "m", enabled: true, isDefault: true, visionStatus: "supported" }];
-        if (command === "claude_provider_list") return { providers: fixture.providers.map(provider => ({ ...provider, keyConfigured: provider.isCurrent && fixture.configuredCurrent ? true : provider.keyConfigured })), currentId: "deepseek", settingsPath: "/home/test/.claude/settings.json", settingsExists: true, hasBackup: true, configurationStatus: (window as any).__configurationStatus ?? "matched" };
+        if (command === "claude_provider_list") return { providers: fixture.providers.map(provider => ({ ...provider, keyConfigured: provider.isCurrent && fixture.configuredCurrent ? true : provider.keyConfigured })), currentId: "deepseek", settingsPath: "/home/test/.claude/settings.json", settingsExists: true, hasBackup: true, backups: [{ id: 7, createdAt: 1793160000000 }], configurationStatus: (window as any).__configurationStatus ?? "matched" };
         if (command === "claude_provider_action" && args?.action?.type === "balance") return { is_available: true, balance_infos: [] };
         if (fixture.workbench && command === "claude_routing_state") return structuredClone(routing);
         if (command === "claude_routing_save") { calls.push(`routing:${JSON.stringify(args.config)}`); routing.config = args.config; return null; }
@@ -154,7 +154,10 @@ test("switching reports the change and closing keeps user configuration intact",
   await expect(dialog).toContainText("重启 Claude Code 后生效");
 
   // 备份恢复入口存在，且只影响 live 文件，不动供应商列表。
-  await dialog.getByRole("button", { name: "恢复上一份" }).click();
+  await dialog.getByRole("button", { name: /历史备份/ }).click();
+  const history = page.getByRole("dialog", { name: "Claude Code 配置备份历史" });
+  await expect(history).toContainText("历史备份");
+  await history.getByRole("button", { name: "恢复此备份", exact: true }).click();
   await page.getByRole("alertdialog").getByRole("button", { name: "确认", exact: true }).click();
   await expect.poll(() => page.evaluate(() => (window as any).__claudeCalls)).toContain("restore");
 });

@@ -28,7 +28,7 @@ test("loads the workbench shell without native credentials", async ({ page }) =>
 test("account summary cards stay compact", async ({ page }) => {
   await page.goto("/");
   const stats = page.locator(".account-section .header-stat-tiles");
-  await expect(stats.locator(":scope > .header-stat-tile")).toHaveCount(3);
+  await expect(stats.locator(":scope > .header-stat-tile")).toHaveCount(4);
   for (const card of await stats.locator(":scope > .header-stat-tile").all()) {
     expect((await card.boundingBox())!.height).toBeLessThanOrEqual(72);
   }
@@ -57,10 +57,10 @@ test("shows QR migration controls with native boundaries on desktop", async ({ p
   await page.getByRole("tab", { name: "数据管理" }).click();
   await page.getByRole("button", { name: "开始迁移", exact: true }).click();
   await expect(page.getByRole("heading", { name: "迁移到手机" })).toBeVisible();
-  await expect(page.getByRole("tab", { name: /云账号/ })).toBeVisible();
-  await expect(page.getByRole("tab", { name: /SSH 主机/ })).toBeVisible();
-  await expect(page.getByRole("tab", { name: /面板/ })).toBeVisible();
-  await expect(page.locator('.sync-transfer-desktop .sync-transfer-primary')).toBeDisabled();
+  await expect(page.getByRole("group", { name: "数据范围" })).toBeVisible();
+  await expect(page.locator(".sync-transfer-desktop .data-transfer-scope input[type=checkbox]")).toHaveCount(0);
+  await expect(page.locator(".sync-transfer-intro")).toBeVisible();
+  await expect(page.getByRole("button", { name: "生成迁移二维码", exact: true })).toBeDisabled();
 });
 
 test("opens the managed server form without attempting an SSH connection", async ({ page }) => {

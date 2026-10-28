@@ -1,5 +1,10 @@
 pub mod accounts;
+#[cfg(desktop)]
+pub mod mail;
+#[cfg(desktop)]
+pub mod speed_test;
 pub mod ip_location;
+pub mod icp;
 #[cfg(desktop)]
 pub mod claude_workbench;
 #[cfg(desktop)]

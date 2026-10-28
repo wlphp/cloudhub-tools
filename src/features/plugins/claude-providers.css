@@ -396,3 +396,11 @@ body.theme-light .ide-theme .claude-icon-button.is-danger:not(:disabled):hover {
 .claude-provider-actions{gap:6px;justify-content:flex-end}
 .claude-provider-actions .secondary{min-height:28px;height:28px;padding:0 8px}
 .claude-provider-actions .claude-icon-button{width:28px;min-width:28px;padding:0}
+
+.claude-backup-history{display:grid;gap:0;max-height:min(60vh,560px);overflow:auto}
+.claude-backup-history-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 2px;border-bottom:1px solid var(--border-color,#353535)}
+.claude-backup-history-row>span{display:grid;gap:3px;min-width:0}
+.claude-backup-history-row strong{font-size:13px}
+.claude-backup-history-row small{color:var(--text-muted,#999);font-size:11px}
+.claude-backup-history-row button{flex:0 0 auto}
+@media(max-width:520px){.claude-backup-history-row{align-items:flex-start;flex-direction:column}}

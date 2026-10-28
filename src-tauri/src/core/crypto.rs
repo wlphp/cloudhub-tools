@@ -15,7 +15,7 @@ const SYNC_ENVELOPE_VERSION: u16 = 1;
 const SYNC_ENVELOPE_AAD: &[u8] = b"cloudhub-tools-sync-envelope:v1";
 const SYNC_KDF_ITERATIONS: u32 = 210_000;
 const SYNC_KDF_ACCEPTED_ITERATIONS: RangeInclusive<u32> = 100_000..=1_000_000;
-const MAX_SYNC_PAYLOAD_BYTES: usize = 10 * 1024 * 1024;
+const MAX_SYNC_PAYLOAD_BYTES: usize = 64 * 1024 * 1024;
 
 /// Portable, authenticated ciphertext for a one-time sync or migration transfer.
 /// It deliberately does not contain a device-local database key.

@@ -503,20 +503,7 @@ pub(super) fn restore_guard() -> Result<tokio::sync::MutexGuard<'static, ()>, St
 fn fingerprint(connection: &Connection) -> Result<String, String> {
     let mut hash = Sha256::new();
     // Ignore logs, cache and our own status/config writes so uploads never trigger themselves.
-    for table in [
-        "cloud_accounts",
-        "ssh_connections",
-        "managed_hosts",
-        "rdp_connections",
-        "panel_connections",
-        "certificates",
-        "flow_connections",
-        "frp_local_settings",
-        "frp_local_servers",
-        "frp_local_proxies",
-        "frp_clients",
-        "client_preferences",
-    ] {
+    for &(table, _) in crate::core::data_transfer::TABLES {
         let exists: bool = connection
             .query_row(
                 "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1)",
@@ -536,11 +523,15 @@ fn fingerprint(connection: &Connection) -> Result<String, String> {
         hash.update(table.as_bytes());
         let mut statement = connection.prepare(&sql).map_err(|_| "检测数据库变化失败")?;
         let count = statement.column_count();
+        let fields = statement.column_names().iter().map(|name| name.to_string()).collect::<Vec<_>>();
         let mut rows = statement.query([]).map_err(|_| "检测数据库变化失败")?;
         while let Some(row) = rows.next().map_err(|_| "检测数据库变化失败")? {
+            if table == "client_preferences" && !crate::core::data_transfer::portable_preference(&row.get::<_,String>(0).map_err(|_| "读取偏好失败")?) { continue; }
             for index in 0..count {
                 use rusqlite::types::ValueRef;
-                match row.get_ref(index).map_err(|_| "检测数据库变化失败")? {
+                let raw = row.get::<_,rusqlite::types::Value>(index).map_err(|_| "检测数据库变化失败")?;
+                let value = crate::core::data_transfer::clean_value(table, &fields[index], raw);
+                match ValueRef::from(&value) {
                     ValueRef::Null => hash.update([0]),
                     ValueRef::Integer(v) => {
                         hash.update([1]);
@@ -685,5 +676,16 @@ mod tests {
         conn.execute("UPDATE cloud_accounts SET name='changed'", [])
             .unwrap();
         assert_ne!(fingerprint(&conn).unwrap(), before);
+    }
+
+    #[test]
+    fn fingerprint_tracks_new_business_modules_and_ignores_runtime_and_logs() {
+        let conn=Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE memo_notes(id INTEGER PRIMARY KEY,body TEXT); CREATE TABLE browser_environments(id TEXT,config_json TEXT,last_opened_at INTEGER); CREATE TABLE operation_logs(message TEXT); INSERT INTO memo_notes VALUES(1,'fixture'); INSERT INTO browser_environments VALUES('fixture','{}',NULL);").unwrap();
+        let before=fingerprint(&conn).unwrap();
+        conn.execute_batch("INSERT INTO operation_logs VALUES('fixture'); UPDATE browser_environments SET last_opened_at=123;").unwrap();
+        assert_eq!(before,fingerprint(&conn).unwrap());
+        conn.execute("UPDATE memo_notes SET body='changed'",[]).unwrap();
+        assert_ne!(before,fingerprint(&conn).unwrap());
     }
 }

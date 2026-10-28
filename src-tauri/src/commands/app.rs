@@ -68,7 +68,7 @@ pub(crate) fn open_app_data_directory(directory: Option<String>) -> PlatformResu
         None => {},
         Some("backups") => {
             path.push("backups");
-            if !path.is_dir() { return Err("备份目录不存在".into()); }
+            std::fs::create_dir_all(&path).map_err(|_| "无法创建备份目录".to_string())?;
         },
         Some(_) => return Err("不支持打开此数据目录".into()),
     }

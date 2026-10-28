@@ -3,7 +3,11 @@ use std::sync::Mutex;
 
 use super::paths::data_dir;
 
-const CURRENT_SCHEMA_VERSION: i64 = 57;
+const CURRENT_SCHEMA_VERSION: i64 = 59;
+pub const MAIL_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS mail_accounts(id TEXT PRIMARY KEY,config TEXT NOT NULL,secret_ciphertext TEXT NOT NULL);";
+
+// Local measurement summaries only; intentionally not part of cross-device sync.
+pub const NETWORK_SPEED_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS network_speed_history(id TEXT PRIMARY KEY,started_at INTEGER NOT NULL,json TEXT NOT NULL);";
 // Local credential history is deliberately excluded from device synchronization.
 pub const CODEX_CONFIG_HISTORY_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS codex_config_history(id TEXT PRIMARY KEY,home TEXT NOT NULL,instance_id TEXT,created_at INTEGER,migrated_at INTEGER,source TEXT NOT NULL,mode TEXT NOT NULL,summary TEXT NOT NULL,complete INTEGER NOT NULL,pinned INTEGER NOT NULL,legacy_key TEXT UNIQUE,content_ciphertext TEXT NOT NULL); CREATE INDEX IF NOT EXISTS codex_config_history_home ON codex_config_history(home,created_at DESC,id DESC); CREATE TABLE IF NOT EXISTS codex_config_operations(home TEXT PRIMARY KEY,snapshot_id TEXT NOT NULL,content_ciphertext TEXT NOT NULL);";
 pub const CODEX_PROVIDER_LOGS_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS codex_provider_request_logs(id TEXT PRIMARY KEY,provider_id TEXT NOT NULL,source TEXT NOT NULL,method TEXT NOT NULL,url TEXT NOT NULL,request_body TEXT NOT NULL,status INTEGER,response_body TEXT NOT NULL,error TEXT,elapsed_ms INTEGER NOT NULL,created_at INTEGER NOT NULL,client_request_body TEXT NOT NULL DEFAULT ''); CREATE INDEX IF NOT EXISTS codex_provider_request_logs_provider ON codex_provider_request_logs(provider_id,created_at DESC);";
@@ -487,6 +491,14 @@ fn migrate_connection_inner(conn: &mut Connection) -> Result<(), String> {
         transaction.execute_batch(CODEX_CONFIG_HISTORY_SCHEMA).map_err(|_| "创建 Codex 备份历史失败")?;
         transaction.pragma_update(None, "user_version", 57).map_err(|_| "保存 Codex 备份历史版本失败")?;
     }
+    if version < 58 {
+        transaction.execute_batch(NETWORK_SPEED_SCHEMA).map_err(|_| "创建网络测速历史失败")?;
+        transaction.pragma_update(None, "user_version", 58).map_err(|_| "保存网络测速历史版本失败")?;
+    }
+    if version < 59 {
+        transaction.execute_batch(MAIL_SCHEMA).map_err(|_| "创建邮箱配置存储失败")?;
+        transaction.pragma_update(None, "user_version", 59).map_err(|_| "保存邮箱数据库版本失败")?;
+    }
     transaction.commit().map_err(|error| format!("提交 SQLite 迁移失败: {error}"))?;
 
     Ok(())
@@ -497,6 +509,12 @@ pub fn open_db() -> Result<Connection, String> {
         .lock()
         .map_err(|_| "SQLite 初始化锁不可用".to_string())?;
     open_db_at(&data_dir()?.join("cloudhub_tools.sqlite3"))
+}
+
+/// Upgrade an isolated import copy; never initialize or replace the live database.
+pub(crate) fn upgrade_transfer_database(path: &std::path::Path) -> Result<(), String> {
+    let mut db = Connection::open(path).map_err(|_| "打开迁移副本失败")?;
+    migrate_connection(&mut db)
 }
 
 #[cfg(test)]
@@ -642,6 +660,17 @@ mod tests {
     }
     use super::{migrate_connection, CURRENT_SCHEMA_VERSION};
     use rusqlite::Connection;
+
+    #[test]
+    fn mail_v59_migration_is_idempotent_and_preserves_configuration() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.pragma_update(None, "user_version", 58).unwrap();
+        migrate_connection(&mut conn).unwrap();
+        conn.execute("INSERT INTO mail_accounts(id,config,secret_ciphertext) VALUES('mail-test','{}','')", []).unwrap();
+        migrate_connection(&mut conn).unwrap();
+        assert_eq!(conn.query_row("SELECT count(*) FROM mail_accounts", [], |r| r.get::<_, i64>(0)).unwrap(), 1);
+        assert_eq!(conn.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0)).unwrap(), CURRENT_SCHEMA_VERSION);
+    }
 
     #[test]
     fn retained_v37_migration_upgrades_v36_and_preserves_existing_data() {
@@ -913,6 +942,17 @@ mod tests {
         assert!(error.contains("高于当前客户端支持的版本"));
     }
 
+    #[test]
+    fn network_speed_migration_is_local_and_preserves_history() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.pragma_update(None, "user_version", 57).unwrap();
+        migrate_connection(&mut conn).unwrap();
+        conn.execute("INSERT INTO network_speed_history(id,started_at,json) VALUES('fixture',1,'{}')", []).unwrap();
+        migrate_connection(&mut conn).unwrap();
+        assert_eq!(conn.query_row("SELECT COUNT(*) FROM network_speed_history", [], |r| r.get::<_, i64>(0)).unwrap(), 1);
+        assert_eq!(conn.query_row("SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND tbl_name='network_speed_history'", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
+        assert_eq!(super::supported_schema_version(&conn).unwrap(), CURRENT_SCHEMA_VERSION);
+    }
     #[test]
     fn codex_migration_is_idempotent_and_has_no_sync_triggers() {
         let mut conn = Connection::open_in_memory().unwrap();

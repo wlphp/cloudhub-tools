@@ -26,6 +26,8 @@ pub struct SyncConfigSnapshot {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SyncAccountBundle {
     pub protocol_version: u16,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub portable_sql: Option<String>,
     pub accounts: Vec<SyncAccountRecord>,
     #[serde(default)]
     pub managed_hosts: Vec<SyncManagedHostRecord>,
@@ -97,6 +99,7 @@ impl Zeroize for SyncDeltaChange {
 impl Zeroize for SyncAccountBundle {
     fn zeroize(&mut self) {
         self.protocol_version.zeroize();
+        self.portable_sql.zeroize();
         self.accounts.zeroize();
         self.managed_hosts.zeroize();
         self.panels.zeroize();
@@ -558,7 +561,7 @@ fn build_account_bundle_from(conn: &Connection, account_sync_ids: &[String], man
     if accounts.is_empty() && managed_hosts.is_empty() && panels.is_empty() && deletions.is_empty() {
         return Err("请至少选择一个配置，或勾选并包含源设备的删除记录".into());
     }
-    Ok(SyncAccountBundle { protocol_version: 1, accounts, managed_hosts, panels, deletions, flow_connections: vec![], certificates: vec![], ai_profiles: vec![], authenticators: vec![] })
+    Ok(SyncAccountBundle { portable_sql: None, protocol_version: 1, accounts, managed_hosts, panels, deletions, flow_connections: vec![], certificates: vec![], ai_profiles: vec![], authenticators: vec![] })
 }
 
 pub fn managed_host_sync_ids_by_local_ids(conn: &mut Connection, host_ids: &[i64]) -> Result<Vec<String>, String> {
@@ -1046,7 +1049,7 @@ mod tests {
         let mut delta = SyncDeltaBundle {
             protocol_version: 1, source_device_id: remote.into(), target_device_id: local.into(), from_sequence: 7, through_sequence: 7, signature: None,
             changes: vec![SyncDeltaChange { sequence: 7, message_id: message_id.into(), entity_type: "cloud_account".into(), entity_sync_id: entity.into(), operation: "upsert".into(), version_json: format!(r#"{{"{remote}":1}}"#), created_at: 100 }],
-            snapshot: SyncAccountBundle { protocol_version: 1, accounts: vec![SyncAccountRecord { sync_id: entity.into(), account_name: "mobile test".into(), cloud_type: "aliyun".into(), group_name: None, access_key_id: "unique-mobile-test".into(), access_key_secret: "test-secret-value".into(), credential_meta: None, region_id: None, sort_order: 0, enabled: true, remark: None }], managed_hosts: vec![], panels: vec![], flow_connections: vec![], certificates: vec![], ai_profiles: vec![], authenticators: vec![], deletions: vec![] },
+            snapshot: SyncAccountBundle { portable_sql: None, protocol_version: 1, accounts: vec![SyncAccountRecord { sync_id: entity.into(), account_name: "mobile test".into(), cloud_type: "aliyun".into(), group_name: None, access_key_id: "unique-mobile-test".into(), access_key_secret: "test-secret-value".into(), credential_meta: None, region_id: None, sort_order: 0, enabled: true, remark: None }], managed_hosts: vec![], panels: vec![], flow_connections: vec![], certificates: vec![], ai_profiles: vec![], authenticators: vec![], deletions: vec![] },
         };
         let bytes = super::sync_delta_signing_bytes(&delta).unwrap();
         // A source signature binds source -> target.
@@ -1082,7 +1085,7 @@ mod tests {
         let mut delta = SyncDeltaBundle {
             protocol_version: 1, source_device_id: remote.into(), target_device_id: local.into(), from_sequence: 3, through_sequence: 3, signature: None,
             changes: vec![SyncDeltaChange { sequence: 3, message_id: message_id.into(), entity_type: "cloud_account".into(), entity_sync_id: entity.into(), operation: "upsert".into(), version_json: format!(r#"{{"{remote}":1}}"#), created_at: 100 }],
-            snapshot: SyncAccountBundle { protocol_version: 1, accounts: vec![SyncAccountRecord { sync_id: entity.into(), account_name: "incoming name".into(), cloud_type: "aliyun".into(), group_name: None, access_key_id: "new-access-id".into(), access_key_secret: "incoming-secret".into(), credential_meta: None, region_id: None, sort_order: 0, enabled: true, remark: None }], managed_hosts: vec![], panels: vec![], flow_connections: vec![], certificates: vec![], ai_profiles: vec![], authenticators: vec![], deletions: vec![] },
+            snapshot: SyncAccountBundle { portable_sql: None, protocol_version: 1, accounts: vec![SyncAccountRecord { sync_id: entity.into(), account_name: "incoming name".into(), cloud_type: "aliyun".into(), group_name: None, access_key_id: "new-access-id".into(), access_key_secret: "incoming-secret".into(), credential_meta: None, region_id: None, sort_order: 0, enabled: true, remark: None }], managed_hosts: vec![], panels: vec![], flow_connections: vec![], certificates: vec![], ai_profiles: vec![], authenticators: vec![], deletions: vec![] },
         };
         let bytes = super::sync_delta_signing_bytes(&delta).unwrap();
         delta.signature = Some(STANDARD.encode(crate::core::sync_identity::sign_sync_delta(&seed, remote, local, &bytes).unwrap()));
@@ -1112,7 +1115,7 @@ mod tests {
         let delta = SyncDeltaBundle {
             protocol_version: 1, source_device_id: remote.into(), target_device_id: local.into(), from_sequence: 1, through_sequence: 1, signature: None,
             changes: vec![SyncDeltaChange { sequence: 1, message_id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd".into(), entity_type: "cloud_account".into(), entity_sync_id: entity.into(), operation: "delete".into(), version_json: format!(r#"{{"{remote}":2}}"#), created_at: 10 }],
-            snapshot: SyncAccountBundle { protocol_version: 1, accounts: vec![], managed_hosts: vec![], panels: vec![], flow_connections: vec![], certificates: vec![], ai_profiles: vec![], authenticators: vec![], deletions: vec![super::SyncDeletionRecord { entity_type: "cloud_account".into(), sync_id: entity.into(), version_json: format!(r#"{{"{remote}":2}}"#), deleted_at: 10 }] },
+            snapshot: SyncAccountBundle { portable_sql: None, protocol_version: 1, accounts: vec![], managed_hosts: vec![], panels: vec![], flow_connections: vec![], certificates: vec![], ai_profiles: vec![], authenticators: vec![], deletions: vec![super::SyncDeletionRecord { entity_type: "cloud_account".into(), sync_id: entity.into(), version_json: format!(r#"{{"{remote}":2}}"#), deleted_at: 10 }] },
         };
         let conflicts = preview_delta_version_conflicts(&conn, &delta).unwrap();
         assert_eq!(conflicts.len(), 1);
@@ -1209,7 +1212,7 @@ mod tests {
         use super::super::certificate_sync::SyncCertificateRecord;
         let mut conn = config_fixture();
         conn.execute_batch("CREATE TABLE certificate_snapshots(sync_id TEXT PRIMARY KEY,metadata_json TEXT NOT NULL,synced_at INTEGER NOT NULL)").unwrap();
-        let mut bundle = SyncAccountBundle { protocol_version: 2, accounts: vec![], managed_hosts: vec![], panels: vec![], deletions: vec![], flow_connections: vec![], ai_profiles: vec![], authenticators: vec![], certificates: vec![SyncCertificateRecord {
+        let mut bundle = SyncAccountBundle { portable_sql: None, protocol_version: 2, accounts: vec![], managed_hosts: vec![], panels: vec![], deletions: vec![], flow_connections: vec![], ai_profiles: vec![], authenticators: vec![], certificates: vec![SyncCertificateRecord {
             sync_id: Uuid::new_v4().to_string(), provider: "letsencrypt".into(), primary_domain:"example.com".into(), domains:vec!["example.com".into()], status:"issued".into(), issuer:None, serial_number:None, not_before:Some(100), not_after:Some(200), updated_at:1,
         }] };
         let before: i64 = conn.query_row("SELECT COUNT(*) FROM cloud_accounts",[],|r|r.get(0)).unwrap();
@@ -1227,7 +1230,7 @@ mod tests {
     fn bundle_conflict_preview_reports_only_non_secret_names_and_reasons() {
         let conn = config_fixture();
         let bundle = SyncAccountBundle {
-            protocol_version: 1,
+            portable_sql: None, protocol_version: 1,
             accounts: vec![SyncAccountRecord {
                 sync_id: "11111111-1111-4111-8111-111111111111".into(), account_name: "prod-copy".into(),
                 cloud_type: "aliyun".into(), group_name: None, access_key_id: "ACCESS-ID-SECRETLIKE".into(),
@@ -1261,7 +1264,7 @@ mod tests {
         let mut conn = config_fixture();
         conn.execute("INSERT INTO sync_tombstones(entity_type,entity_sync_id,version_json,deleted_at) VALUES('cloud_account','11111111-1111-4111-8111-111111111111','{\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\":1}',1)", []).unwrap();
         let bundle = SyncAccountBundle {
-            protocol_version: 1,
+            portable_sql: None, protocol_version: 1,
             accounts: vec![SyncAccountRecord {
                 sync_id: "11111111-1111-4111-8111-111111111111".into(), account_name: "prod-updated".into(),
                 cloud_type: "aliyun".into(), group_name: Some("production".into()), access_key_id: "ACCESS-ID-SECRETLIKE".into(),
@@ -1473,7 +1476,7 @@ mod tests {
         assert_eq!(preview.len(), 1);
         assert_eq!(preview[0].name, "web-1");
         assert!(preview[0].will_delete);
-        let bundle = SyncAccountBundle { protocol_version: 1, accounts: vec![], managed_hosts: vec![], panels: vec![], flow_connections: vec![], certificates: vec![], ai_profiles: vec![], authenticators: vec![], deletions: vec![deletion] };
+        let bundle = SyncAccountBundle { portable_sql: None, protocol_version: 1, accounts: vec![], managed_hosts: vec![], panels: vec![], flow_connections: vec![], certificates: vec![], ai_profiles: vec![], authenticators: vec![], deletions: vec![deletion] };
         let counts = super::import_account_bundle_with_encryptor(&mut conn, &bundle, 101, |value| Ok(format!("cipher:{value}"))).unwrap();
         assert_eq!(counts.deleted, 1);
         let exists: bool = conn.query_row("SELECT EXISTS(SELECT 1 FROM managed_hosts WHERE sync_id='22222222-2222-4222-8222-222222222222')", [], |row| row.get(0)).unwrap();
@@ -1501,7 +1504,7 @@ mod tests {
             password: Some("encrypted-in-envelope".into()), private_key: None, key_passphrase: None, group_name: None, tags: None,
             source_account_sync_id: None, source_asset_key: None, remark: None,
         };
-        let invalid = SyncAccountBundle { protocol_version: 1, accounts: vec![], managed_hosts: vec![host.clone(), host], panels: vec![], flow_connections: vec![], certificates: vec![], ai_profiles: vec![], authenticators: vec![], deletions: vec![] };
+        let invalid = SyncAccountBundle { portable_sql: None, protocol_version: 1, accounts: vec![], managed_hosts: vec![host.clone(), host], panels: vec![], flow_connections: vec![], certificates: vec![], ai_profiles: vec![], authenticators: vec![], deletions: vec![] };
         assert!(import_account_bundle(&mut conn, &invalid, 1).unwrap_err().contains("重复"));
         let legacy: SyncAccountBundle = serde_json::from_str(r#"{"protocolVersion":1,"accounts":[]}"#).unwrap();
         assert!(legacy.managed_hosts.is_empty());

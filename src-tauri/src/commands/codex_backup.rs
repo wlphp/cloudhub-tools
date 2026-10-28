@@ -439,6 +439,10 @@ mod tests {
         crate::core::codex::CodexAccountSummary {
             is_web_session: false,
             user_id: None, login_provider: None, workspace_name: None,
+            access_expires_at: None,
+            refresh_expires_at: None,
+            id_expires_at: None,
+            has_refresh_token: false,
             id: 1,
             label: "one@example.test".into(),
             email: Some("one@example.test".into()),

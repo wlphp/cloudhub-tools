@@ -1,5 +1,53 @@
 import { test, expect, type Page } from "@playwright/test";
 
+test("ICP lookup shares root domain results, attributes Baota and preserves results on failure", async ({ page }) => {
+  await fixture(page);
+  await page.evaluate(() => {
+    const bridge = (window as any).__TAURI_INTERNALS__;
+    const original = bridge.invoke;
+    (window as any).icpCalls = [];
+    bridge.invoke = async (command: string, args: any) => {
+      if (command !== "query_domain_icp") return original(command, args);
+      (window as any).icpCalls.push(args.domain);
+      if ((window as any).icpFail) throw { message: "备案查询连接失败" };
+      return { target: args.domain, registered: args.domain === "site.test", site_beian_code: args.domain === "site.test" ? "测试ICP备00000000号-1" : "", company_name: "测试主体", checkedAt: 1793150000 };
+    };
+  });
+  await page.getByRole("button", { name: "宝塔站点管理", exact: true }).click();
+  await page.getByRole("button", { name: /^站点域名（/ }).click();
+  const list = page.getByRole("dialog", { name: "当前条件下的站点域名", exact: true });
+  expect(await page.evaluate(() => (window as any).icpCalls)).toEqual([]);
+  await list.getByRole("button", { name: "查看 www.site.test 的备案详情", exact: true }).click();
+  const detail = page.getByRole("dialog", { name: "ICP备案详情", exact: true });
+  await expect(detail).toContainText("使用宝塔服务查询");
+  await expect(detail).toContainText("尚未取得查询结果");
+  expect(await page.evaluate(() => (window as any).icpCalls)).toEqual([]);
+  await detail.getByRole("button", { name: "查询备案", exact: true }).click();
+  await expect(detail).toContainText("测试ICP备00000000号-1");
+  expect(await page.evaluate(() => (window as any).icpCalls)).toEqual(["site.test"]);
+  await page.locator("body > .modal-backdrop").last().click({ position: { x: 2, y: 2 } });
+  await expect(detail).toBeVisible();
+  await page.evaluate(() => { (window as any).icpFail = true; });
+  await detail.getByRole("button", { name: "重新查询", exact: true }).click();
+  await expect(detail.getByRole("alert")).toContainText("上次查询结果");
+  await expect(detail).toContainText("测试ICP备00000000号-1");
+  for (const width of [375, 768, 1024, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    expect(await detail.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await detail.screenshot({ path: "test-results/icp-detail.png" });
+  await page.keyboard.press("Escape");
+  await expect(detail).toHaveCount(0);
+  await page.evaluate(() => { (window as any).icpFail = false; (window as any).icpCalls = []; });
+  await list.getByRole("button", { name: "批量检测备案", exact: true }).click();
+  await expect(list).toContainText("备案检测结束");
+  expect(await page.evaluate(() => [...(window as any).icpCalls].sort())).toEqual(["expired.test", "plain.test", "site.test"]);
+  await expect(list.locator("tbody tr").filter({ hasText: "www.site.test" })).toContainText("测试ICP备00000000号-1");
+  await expect(list.locator("tbody tr").filter({ hasText: "plain.test" })).toContainText("未备案");
+  await list.screenshot({ path: "test-results/icp-list.png" });
+});
+
 test("local certificate source filter combines with search and supports legacy sources", async ({ page }) => {
   await fixture(page, true);
   await page.evaluate(() => {
@@ -188,7 +236,9 @@ test("combined site domain list removes only the confirmed site binding through 
   for (const width of [375, 768, 1024, 1440]) {
     await page.setViewportSize({ width, height: 900 });
     expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
-    await expect(dialog.getByRole("button", { name: "移除 plain.test 的域名 www.site.test", exact: true })).toBeInViewport();
+    const remove = dialog.getByRole("button", { name: "移除 plain.test 的域名 www.site.test", exact: true });
+    await remove.scrollIntoViewIfNeeded();
+    await expect(remove).toBeInViewport();
   }
   await dialog.screenshot({ path: "test-results/baota-domain-remove-list.png" });
   expect(await page.evaluate(() => (window as any).__certificateCalls.filter((call: any) => call.command === "remove_baota_site_domain").map((call: any) => call.args))).toEqual([{ id: 12, domain: "www.site.test" }, { id: 12, domain: "www.site.test" }]);

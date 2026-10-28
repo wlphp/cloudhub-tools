@@ -35,8 +35,8 @@ test("every plugin defaults to opening as a page", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await openStore(page);
   const triggers = page.locator(".plugin-presentation-trigger");
-  await expect(triggers).toHaveCount(7);
-  for (let index = 0; index < 7; index += 1) {
+  await expect(triggers).toHaveCount(9);
+  for (let index = 0; index < 9; index += 1) {
     await expect(triggers.nth(index)).toHaveText("设置");
     await expect(triggers.nth(index)).toHaveAttribute("title", "设置，当前打开方式：页面");
     await expect(triggers.nth(index).locator("xpath=ancestor::div[contains(@class, 'store-row-actions')]").getByRole("button").first()).toHaveAccessibleName("设置");

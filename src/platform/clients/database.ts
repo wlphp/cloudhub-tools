@@ -5,7 +5,7 @@ export type DatabaseImportPreview = {
   packageName: string;
   exportedAt: string;
   totalRecords: number;
-  categories: Array<{ label: string; count: number }>;
+  categories: Array<{ table: string; label: string; count: number }>;
   details: string[];
   conflicts: string[];
   importMode?: "backup" | "merge" | "overwrite";
@@ -16,11 +16,12 @@ export type BrowserDatabaseImportPreview = DatabaseImportPreview;
 export type DatabaseBackupRecord = { id: string; fileName: string; createdAt: string; sizeBytes: number; encrypted: boolean };
 
 export const databaseClient = {
+  transferCatalog(): Promise<DatabaseImportPreview["categories"]> { return nativeOnly("database_transfer_catalog"); },
   openBackupDirectory(): Promise<void> {
     return nativeOnly("open_app_data_directory", { directory: "backups" });
   },
-  exportSql(tables: string[]): Promise<string | null> {
-    return nativeOnly<string | null>("export_database_file", { format: "sql", tables });
+  exportSql(tables: string[], includeTrash = false): Promise<string | null> {
+    return nativeOnly<string | null>("export_database_file", { format: "sql", tables, includeTrash });
   },
   prepareSqlImport(mode: "merge" | "overwrite"): Promise<DatabaseImportPreview | null> {
     return nativeOnly<DatabaseImportPreview | null>("prepare_database_import", { format: "sql", mode });
@@ -47,8 +48,8 @@ export const databaseClient = {
   cancelBrowserImport(token: string): Promise<void> {
     return previewOnly({ path: "/api/database-import/cancel", init: jsonRequest("POST", { token }) });
   },
-  confirmImport(token: string): Promise<string> {
-    return nativeOnly<string>("confirm_database_import", { token });
+  confirmImport(token: string, tables?: string[], mode?: "merge" | "overwrite" | "replace"): Promise<string> {
+    return nativeOnly<string>("confirm_database_import", { token, tables, mode });
   },
   cancelImport(token: string): Promise<void> {
     return nativeOnly<void>("cancel_database_import", { token });

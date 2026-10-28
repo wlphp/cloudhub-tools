@@ -1,4 +1,6 @@
 pub mod crypto;
+#[cfg(desktop)]
+pub mod mail;
 pub mod ai;
 pub mod ai_stream;
 pub mod ai_images;
@@ -15,6 +17,9 @@ pub mod claude_protocol;
 #[cfg(desktop)]
 pub mod claude_workspace;
 pub mod database;
+pub mod data_transfer;
+#[cfg(desktop)]
+pub mod speed_test;
 #[cfg(desktop)]
 pub mod browser;
 pub mod error;

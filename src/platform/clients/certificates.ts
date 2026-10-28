@@ -3,6 +3,8 @@ import type { Certificate, PanelConnection } from "../../shared/types";
 
 export type CertificateImportPreview = { token: string; candidates: Array<{ id: string; primaryDomain: string; domains: string[]; issuer: string; serialNumber: string; notBefore: number; notAfter: number; fingerprint: string; warnings: string[] }> };
 export type BaotaSiteCertificate = { id: number; panelId: number | null; panelName: string; siteId: number; siteName: string; serverIp?: string | null; panelOrder?: number | null; siteRemark?: string | null; pendingRenewal?: boolean; siteDomains: string[]; certificateDomains: string[]; enabled: boolean; issuer: string | null; notAfter: number | null; fingerprint: string | null; certificateId: number | null; canRenew: boolean; canImport: boolean; capabilityReason: string; checkedAt: number; error: string | null };
+export type BaotaDomainExportRow = { index: number; domain: string; serverIp: string; dnsIps: string; consistency: string; site: string };
+export type BaotaDomainSummaryExportRow = { index: number; domain: string; domainCount: number; siteCount: number };
 export type BaotaCertificateOperation = { renewed: boolean; deployed: boolean; message: string; site: BaotaSiteCertificate };
 
 export type CertificateMetadata = Pick<Certificate, "provider" | "primaryDomain" | "domains" | "status" | "issuer" | "serialNumber" | "notBefore" | "notAfter" | "updatedAt"> & { syncId: string };
@@ -26,6 +28,8 @@ export type EsaCertificateDeployment = { remoteId: string; status: string; verif
 
 export const certificatesClient = {
   exportDomains(title: string, domains: string[]): Promise<string | null> { return nativeOnly("export_certificate_domains", { title, domains }); },
+  exportBaotaDomainRows(title: string, rows: BaotaDomainExportRow[]): Promise<string | null> { return nativeOnly("export_certificate_domains", { title, domains: [], rows, format: "xlsx" }); },
+  exportBaotaDomainSummary(title: string, summaryRows: BaotaDomainSummaryExportRow[]): Promise<string | null> { return nativeOnly("export_certificate_domains", { title, domains: [], summaryRows, format: "xlsx_summary" }); },
   prepareText(certificate: string, privateKey: string): Promise<CertificateImportPreview> { return nativeOnly("prepare_certificate_import_text", { certificate, privateKey }); },
   prepareFiles(paths: string[]): Promise<CertificateImportPreview> { return nativeOnly("prepare_certificate_import_files", { paths }); },
   selectImportFiles(): Promise<CertificateImportPreview | null> { return nativeOnly("select_certificate_import_files"); },
