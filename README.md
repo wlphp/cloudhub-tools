@@ -125,6 +125,8 @@ npm run tauri android # Android 开发与构建
 npm run tauri ios     # iOS 开发与构建（仅 macOS）
 ```
 
+Windows 用户也可以双击 `run-mobile-web.bat` 启动手机端 Web 调试。它使用 `http://127.0.0.1:1421`，避开桌面端默认使用的 1420 端口，并在服务就绪后自动打开浏览器；本地 Web API 使用 1430 端口。
+
 ## 构建与发布
 
 ### 构建桌面安装包
