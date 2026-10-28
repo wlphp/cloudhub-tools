@@ -1,5 +1,7 @@
 pub mod accounts;
 #[cfg(desktop)]
+pub mod cloud_drive;
+#[cfg(desktop)]
 pub mod mail;
 #[cfg(desktop)]
 pub mod speed_test;

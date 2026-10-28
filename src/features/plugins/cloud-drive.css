@@ -1,0 +1,38 @@
+.cloud-drive { min-width: 0; color: var(--jb-text); font-size: 13px; }
+.drive-toolbar,.drive-connection>header { display: flex; justify-content: space-between; align-items: start; gap: 12px; flex-wrap: wrap; }
+.drive-toolbar h2 { display: flex; gap: 8px; align-items: center; margin: 0; font-size: 18px; }
+.drive-toolbar p,.drive-connection p { margin: 8px 0; overflow-wrap: anywhere; }
+.drive-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.cloud-drive button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 32px; }
+.drive-dependencies { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 12px; padding: 14px; margin: 16px 0; border: 1px solid var(--jb-border); border-radius: 6px; }
+.drive-dependencies>div:not(.drive-download) { display: flex; flex-wrap: wrap; gap: 8px 16px; overflow-wrap: anywhere; }
+.drive-download { grid-column: 1 / -1; display: grid; gap: 8px; }
+.drive-download progress { width: 100%; }
+.drive-warning,.drive-help { padding: 12px; border: 1px solid var(--jb-border); border-radius: 6px; line-height: 1.7; }
+.drive-feedback { min-height: 24px; margin: 8px 0; }
+.drive-error { color: var(--jb-danger); overflow-wrap: anywhere; line-height: 1.6; }
+.drive-connections { display: grid; gap: 12px; }
+.drive-connection { padding: 14px; border: 1px solid var(--jb-border); border-radius: 6px; min-width: 0; }
+.drive-connection h3 { margin: 0; font-size: 14px; display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.drive-connection h3 span { font-size: 12px; font-weight: 400; border: 1px solid var(--jb-border); border-radius: 4px; padding: 2px 6px; }
+.drive-connection dl { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; margin: 12px 0 16px; }
+.drive-connection dl div { min-width: 0; }
+.drive-connection dt { color: var(--jb-muted); margin-bottom: 5px; }
+.drive-connection dd { margin: 0; overflow-wrap: anywhere; }
+.drive-empty { padding: 24px 12px; text-align: center; border: 1px dashed var(--jb-border); }
+.drive-help { margin-top: 16px; }
+.drive-help summary { cursor: pointer; }
+.drive-fields { border: 0; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 14px; min-width: 0; }
+.drive-fields label:not(.drive-check) { display: flex; flex-direction: column; gap: 6px; min-width: 0; margin: 0; }
+.drive-fields :is(input:not([type=checkbox]),select) { box-sizing: border-box; min-width: 0; width: 100%; height: 34px; padding: 0 8px; background: var(--jb-input); color: var(--jb-text); border: 1px solid var(--jb-border-strong); border-radius: 5px; font: inherit; }
+.drive-fields small,.drive-hint { font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.drive-check { display: flex; gap: 8px; align-items: center; margin: 0; min-height: 32px; min-width: 0; overflow-wrap: anywhere; }
+.drive-check input { flex: 0 0 auto; width: auto; }
+.drive-browse { align-self: center; justify-self: start; }
+.drive-bucket-picker { grid-column: 1 / -1; display: grid; gap: 8px; min-width: 0; }
+.drive-bucket-picker p { margin: 0; overflow-wrap: anywhere; }
+.drive-listing { padding-left: 20px; overflow-wrap: anywhere; }
+.drive-listing li { margin: 8px 0; }
+.drive-listing button { margin-left: 12px; }
+:is(.cloud-drive,.cloud-drive-editor) :is(button,input,select,summary):focus-visible { outline: 2px solid var(--jb-accent); outline-offset: 2px; }
+@media(max-width:600px) { .drive-fields,.drive-connection dl { grid-template-columns: minmax(0,1fr); } .drive-dependencies { grid-template-columns: minmax(0,1fr); } .drive-dependencies button { justify-self: start; } }

@@ -1,6 +1,6 @@
 [package]
 name = "cloudhub-tools"
-version = "0.1.99"
+version = "0.1.100"
 description = "本地阿里云资源管理客户端"
 authors = ["wanglei"]
 edition = "2021"
@@ -75,7 +75,7 @@ arboard = { version = "3", default-features = false }
 # client also needs window activation so an already running single instance can
 # be brought to the front instead of silently handing over to a dead process.
 [target.'cfg(target_os = "windows")'.dependencies]
-windows-sys = { version = "0.59", features = ["Win32_Security_Cryptography", "Win32_Foundation", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }
+windows-sys = { version = "0.59", features = ["Win32_Security_Cryptography", "Win32_Foundation", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging", "Win32_Storage_FileSystem"] }
 
 [target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
 tauri-plugin-barcode-scanner = "2.5.1"

@@ -12,6 +12,6 @@ pub(crate) fn list_client_preferences() -> PlatformResult<BTreeMap<String, Strin
 #[tauri::command]
 pub(crate) fn save_client_preference(key: String, value: String) -> PlatformResult<()> {
     let key = key.trim();
-    if key.is_empty() || key.starts_with("cloud.sync.") || key.len() > 120 || value.len() > 100_000 { return Err("客户端设置数据无效".into()); }
+    if key.is_empty() || key.starts_with("cloud.sync.") || key.starts_with("cloud.drive.") || key.len() > 120 || value.len() > 100_000 { return Err("客户端设置数据无效".into()); }
     Ok(preferences_repository::save(&open_db()?, key, &value, chrono::Utc::now().timestamp_millis())?)
 }

@@ -853,11 +853,16 @@ pub fn run() {
         if !core::paths::desktop_development() {
             builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
         }
-        builder = builder.manage(commands::speed_test::SpeedTestStore::default()).manage(commands::lan::LanStore::default()).manage(commands::desktop_pet::PetStore::default()).manage(CodexRuntimeStore::default()).manage(commands::notes::NotesStore::default())
+        builder = builder.manage(commands::cloud_drive::DriveStore::default()).manage(commands::speed_test::SpeedTestStore::default()).manage(commands::lan::LanStore::default()).manage(commands::desktop_pet::PetStore::default()).manage(CodexRuntimeStore::default()).manage(commands::notes::NotesStore::default())
             .on_window_event(|window,event| {
                 use tauri::Manager;
                 use std::sync::atomic::Ordering;
                 if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    if window.label() == "main" && !commands::desktop_pet::wants_tray(window.app_handle()) && commands::cloud_drive::must_keep_running(window.app_handle()) {
+                        api.prevent_close();
+                        commands::cloud_drive::explain_exit(window.app_handle());
+                        return;
+                    }
                     if window.label() == "main" && commands::desktop_pet::wants_tray(window.app_handle()) {
                         if window.hide().is_ok() { api.prevent_close(); }
                     } else if window.label() == "main" {
@@ -891,6 +896,7 @@ pub fn run() {
                 use tauri::Manager;
                 commands::desktop_pet::initialize(app.handle());
                 commands::cloud_sync::initialize();
+                commands::cloud_drive::initialize(app.handle().clone());
                 if core::paths::desktop_development() {
                     if let Some(window) = app.get_webview_window("main") {
                         window.set_title("云枢工具箱 · 开发版 · 独立数据")?;
@@ -951,6 +957,14 @@ pub fn run() {
     let builder = builder.manage(core::browser::runtime::BrowserState::default());
     #[cfg(desktop)]
     let builder = builder.invoke_handler(commands::desktop_pet::restricted(tauri::generate_handler![
+        commands::cloud_drive::cloud_drive_snapshot, commands::cloud_drive::cloud_drive_install,
+        commands::cloud_drive::cloud_drive_save, commands::cloud_drive::cloud_drive_remove,
+        commands::cloud_drive::cloud_drive_probe, commands::cloud_drive::cloud_drive_list_buckets, commands::cloud_drive::cloud_drive_mount,
+        commands::cloud_drive::cloud_drive_unmount, commands::cloud_drive::cloud_drive_open,
+        commands::cloud_drive::cloud_drive_clear_recovery, commands::cloud_drive::cloud_drive_winfsp,
+        commands::cloud_drive::cloud_drive_select_cache,
+        commands::cloud_drive::cloud_drive_suspend, commands::cloud_drive::cloud_drive_credentials,
+        commands::cloud_drive::cloud_drive_reveal_secret,
         commands::mail::mail_accounts, commands::mail::mail_save, commands::mail::mail_remove,
         commands::mail::mail_reveal_secret,
         commands::mail::mail_test, commands::mail::mail_folders, commands::mail::mail_list,
@@ -973,6 +987,13 @@ pub fn run() {
     builder.build(tauri::generate_context!())
         .expect("error while building Tauri application")
         .run(|app, event| {
+            #[cfg(desktop)]
+            if let tauri::RunEvent::ExitRequested { api, .. } = &event {
+                if commands::cloud_drive::must_keep_running(app) {
+                    api.prevent_exit();
+                    commands::cloud_drive::explain_exit(app);
+                }
+            }
             #[cfg(desktop)]
             if matches!(event, tauri::RunEvent::Exit) {
                 use tauri::Manager;

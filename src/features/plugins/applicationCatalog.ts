@@ -1,8 +1,9 @@
-import { Bot, Cpu, FileCode2, GitBranch, Globe, Gauge, Lock, Mail, MessageCircle, Network, NotebookPen, ShieldCheck, SquareTerminal } from "lucide-react";
+import { Bot, Cpu, FileCode2, GitBranch, Globe, Gauge, HardDrive, Lock, Mail, MessageCircle, Network, NotebookPen, ShieldCheck, SquareTerminal } from "lucide-react";
 import { officialPlugins } from "./registry";
 
 export type ApplicationSection = "flow" | "certificates" | "authenticator" | "claude" | "codex" | "frp" | "notes";
 const navigation: Record<string, { section?: ApplicationSection; order: number; sidebar: boolean; icon: typeof Cpu; keywords?: string }> = {
+  "cloudhub.cloud-drive": { order: 150, sidebar: false, icon: HardDrive, keywords: "云盘 挂载 OSS S3 rclone MinIO R2 WinFsp 磁盘 对象存储" },
   "cloudhub.mail": { order: 140, sidebar: false, icon: Mail, keywords: "邮件 邮箱 收信 发信 QQ 网易 IMAP SMTP email mail" },
   "cloudhub.flow": { section: "flow", order: 10, sidebar: true, icon: GitBranch },
   "cloudhub.certificates": { section: "certificates", order: 20, sidebar: true, icon: Lock },

@@ -93,6 +93,16 @@ export const officialPlugins = [{
   distribution: "builtin",
   platform: "desktop",
   permissions: ["在本机 SQLite 加密保存邮箱授权码", "连接用户指定的 IMAP 与 SMTP 服务器", "读取邮件和附件，阅读时标记为已读", "按用户操作发送邮件与下载附件"],
+}, {
+  id: "cloudhub.cloud-drive",
+  name: "云盘挂载",
+  version: "0.1.0",
+  publisher: "云枢工具箱",
+  description: "将 OSS 和 S3 兼容存储挂载为本机磁盘，支持加密配置、读写缓存与安全卸载；引擎按需下载。",
+  category: "运维工具",
+  distribution: "builtin",
+  platform: "windows",
+  permissions: ["主动下载并校验官方 rclone 引擎", "检测 WinFsp 并打开官方安装页面", "在本机 SQLite 加密保存存储凭据", "连接用户配置的存储服务并按权限读写对象", "启动和管理磁盘挂载进程及本地文件缓存"],
 }, ...([
   { id: "cloudhub.flow", name: "云效流水线", description: "管理云效连接、查看流水线及运行记录，按需触发执行。", category: "开发工具" },
   { id: "cloudhub.certificates", name: "HTTPS 证书", description: "申请、导入和管理 HTTPS 证书及续期配置。", category: "运维工具" },
