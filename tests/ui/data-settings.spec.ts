@@ -53,6 +53,15 @@ async function calls(page: Page) {
   return page.evaluate(() => (window as unknown as { __dataCalls: Array<{ command: string; format?: string; mode?: string; protected: boolean; sourceId?: string; tables?: string[] }> }).__dataCalls);
 }
 
+async function dismissCloudResult(page: Page, title: string, message: string) {
+  const dialog = page.getByRole("alertdialog", { name: title, exact: true });
+  await expect(dialog).toContainText(message);
+  await page.locator(".modal-backdrop").last().click({ position: { x: 2, y: 2 }, force: true });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "确定", exact: true }).click();
+  await expect(dialog).toBeHidden();
+}
+
 test("cloud eye reveals drafts and saved passwords without changing the configuration", async ({ page }) => {
   await openSettings(page);
   const cloud = page.getByRole("region", { name: "云同步", exact: true });
@@ -68,6 +77,7 @@ test("cloud eye reveals drafts and saved passwords without changing the configur
   await expect(password).toHaveAttribute("type", "password");
   await cloud.getByRole("button", { name: "保存配置", exact: true }).click();
   await expect(password).toHaveValue("");
+  await dismissCloudResult(page, "保存配置成功", "凭据已在本机加密存储");
   await cloud.getByRole("button", { name: "显示WebDAV 密码", exact: true }).click();
   await expect(cloud.getByLabel("已保存的WebDAV 密码", { exact: true })).toHaveValue("non-sensitive-saved-fixture");
   await expect(cloud.getByRole("button", { name: "上传到云端", exact: true })).toBeEnabled();
@@ -95,10 +105,13 @@ test("cloud configuration saves redacted credentials and requires confirmation b
   await cloud.getByRole("button", { name: "测试连接", exact: true }).click();
   await expect(cloud.getByRole("alert")).toBeVisible();
   await expect(cloud.getByLabel("WebDAV 账号")).toHaveValue("fixture-user");
+  await dismissCloudResult(page, "测试连接失败", "认证失败或权限不足");
   await cloud.getByRole("button", { name: "测试连接", exact: true }).click();
   await expect(cloud.getByRole("status")).toContainText("连接成功");
+  await dismissCloudResult(page, "测试连接成功", "连接成功");
   await cloud.getByRole("button", { name: "保存配置", exact: true }).click();
   await expect(cloud.getByLabel("WebDAV 密码", { exact: true })).toHaveValue("");
+  await dismissCloudResult(page, "保存配置成功", "凭据已在本机加密存储");
   await expect(cloud.getByRole("button", { name: "上传到云端", exact: true })).toBeEnabled();
   await cloud.getByRole("button", { name: "上传到云端", exact: true }).click();
   const confirmation = page.getByRole("alertdialog", { name: "上传云备份", exact: true });
@@ -106,7 +119,8 @@ test("cloud configuration saves redacted credentials and requires confirmation b
   await page.locator(".modal-backdrop").last().click({ position: { x: 2, y: 2 }, force: true });
   await expect(confirmation).toBeVisible();
   await confirmation.getByRole("button", { name: "确认上传", exact: true }).click();
-  await expect(cloud.getByRole("status")).toContainText("已上传");
+  await expect(cloud.getByRole("status")).toContainText("上传到云端");
+  await dismissCloudResult(page, "上传云备份成功", "上传到云端");
   await cloud.getByLabel("同步配置名").fill("another-profile");
   await expect(cloud.getByRole("button", { name: "从云端下载", exact: true })).toBeDisabled();
   await cloud.getByLabel("同步配置名").fill("default");
@@ -299,8 +313,22 @@ test("light password dialog stays within compact widths and only explicit contro
   expect((await calls(page)).some(c => c.command === "create_database_backup")).toBe(false);
 });
 
-test("browser preview disables native SQL and backup operations", async ({ page }) => {
-  await page.route("**/api/**", route => route.fulfill({ json: [] }));
+test("browser preview disables native SQL and backups while testing cloud sync through the local API", async ({ page }) => {
+  let testedConfig: Record<string, unknown> | undefined;
+  await page.route("**/api/**", route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === "/api/cloud-sync/state") return route.fulfill({ json: {
+      configured: false,
+      config: { method: "webdav", provider: "custom", endpoint: "", username: "", accessKeyId: "", bucket: "", region: "us-east-1", pathStyle: true, remoteRoot: "cloudhub-sync", profile: "default", autoSync: false, allowInsecure: false, passwordProtected: false, hasPassword: false, hasSecretKey: false, hasBackupPassword: false },
+      status: { busy: false, paused: false, error: null, lastUpload: null, lastDownload: null },
+    } });
+    if (path === "/api/cloud-sync/test") {
+      expect(route.request().method()).toBe("POST");
+      testedConfig = route.request().postDataJSON().config;
+      return route.fulfill({ json: null });
+    }
+    return route.fulfill({ json: [] });
+  });
   await page.goto("/");
   await page.getByRole("button", { name: "系统设置", exact: true }).first().click();
   await page.getByRole("tab", { name: "数据管理", exact: true }).click();
@@ -309,7 +337,16 @@ test("browser preview disables native SQL and backup operations", async ({ page 
   await expect(page.getByRole("button", { name: "管理加密备份", exact: true })).toBeDisabled();
   await expect(page.getByRole("region", { name: "云同步", exact: true }).getByText("展开后填写连接配置、上传或下载数据。", { exact: true })).toBeVisible();
   await page.locator(".cloud-sync-toggle").click();
-  await expect(page.getByRole("button", { name: "测试连接", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "测试连接", exact: true })).toBeEnabled();
   await expect(page.getByRole("button", { name: "上传到云端", exact: true })).toBeDisabled();
-  await expect(page.getByRole("region", { name: "云同步", exact: true }).getByRole("status")).toHaveText("云同步仅在原生客户端中可用，浏览器预览不连接远端存储。");
+  const cloud = page.getByRole("region", { name: "云同步", exact: true });
+  await expect(cloud.getByText("网页调试支持真实连接与备份恢复；连接配置单独保存。下载校验后选择恢复范围，确认后写入本机数据。", { exact: true })).toBeVisible();
+  await cloud.getByLabel("WebDAV 服务器地址").fill("https://storage.example.test/dav");
+  await cloud.getByLabel("WebDAV 账号", { exact: true }).fill("fixture-user");
+  await cloud.getByLabel("WebDAV 密码", { exact: true }).fill("non-sensitive-fixture");
+  expect(testedConfig).toBeUndefined();
+  await cloud.getByRole("button", { name: "测试连接", exact: true }).click();
+  await dismissCloudResult(page, "测试连接成功", "连接成功");
+  expect(testedConfig).toMatchObject({ method: "webdav", endpoint: "https://storage.example.test/dav", username: "fixture-user", password: "non-sensitive-fixture" });
+  await expect(cloud.getByRole("button", { name: "上传到云端", exact: true })).toBeDisabled();
 });
