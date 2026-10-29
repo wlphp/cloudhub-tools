@@ -12,11 +12,19 @@ export type DatabaseImportPreview = {
 };
 
 export type BrowserDatabaseImportPreview = DatabaseImportPreview;
+export type DatabaseRestorePlan = {
+  requestedModules: string[]; dependencyModules: string[]; effectiveModules: string[];
+  impacts: Array<{ table: string; label: string; added: number; updated: number; skipped: number; deleted: number }>;
+  policyVersion: number; sourcePolicyVersion?: number | null; warnings: string[];
+};
 
 export type DatabaseBackupRecord = { id: string; fileName: string; createdAt: string; sizeBytes: number; encrypted: boolean };
 
 export const databaseClient = {
-  transferCatalog(): Promise<DatabaseImportPreview["categories"]> { return nativeOnly("database_transfer_catalog"); },
+  transferCatalog(): Promise<DatabaseImportPreview["categories"]> { return invokeOrWeb("database_transfer_catalog", undefined, { path: "/api/database-import/catalog", init: jsonRequest("POST", {}) }); },
+  planImport(token: string, tables?: string[], mode?: "merge" | "overwrite" | "replace", includeTrash = false): Promise<DatabaseRestorePlan> {
+    return invokeOrWeb("plan_database_import", { token, tables, mode, includeTrash }, { path: "/api/database-import/plan", init: jsonRequest("POST", { token, tables, mode, includeTrash }) });
+  },
   openBackupDirectory(): Promise<void> {
     return nativeOnly("open_app_data_directory", { directory: "backups" });
   },
@@ -30,7 +38,7 @@ export const databaseClient = {
     return nativeOnly<DatabaseImportPreview | null>("prepare_database_import", { format: "backup", password });
   },
   listBackups(): Promise<DatabaseBackupRecord[]> { return nativeOnly("list_database_backups"); },
-  createBackup(password?: string): Promise<DatabaseBackupRecord> { return nativeOnly("create_database_backup", password === undefined ? {} : { password }); },
+  createBackup(password?: string, tables?: string[]): Promise<DatabaseBackupRecord> { return nativeOnly("create_database_backup", { password, tables }); },
   importBackup(password?: string): Promise<DatabaseBackupRecord | null> { return nativeOnly("import_database_backup", { password }); },
   downloadBackup(id: string): Promise<string | null> { return nativeOnly("download_database_backup", { id }); },
   deleteBackup(id: string): Promise<void> { return nativeOnly("delete_database_backup", { id }); },

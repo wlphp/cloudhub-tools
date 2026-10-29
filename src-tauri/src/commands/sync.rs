@@ -497,7 +497,7 @@ pub(crate) async fn start_sync_transfer(
     transfer_key_bytes.fill(0);
     let envelope = if let Some(tables) = transfer_tables {
         let conn = open_db()?;
-        let tables = super::database_migration::sql::selected(Some(tables))?;
+        super::database_migration::sql::selected(Some(tables.clone()))?;
         let input = super::database_migration::sql::export_portable(&conn, &crate::core::crypto::crypto_key_bytes()?, &tables, include_trash.unwrap_or(false))?;
         let bundle = Zeroizing::new(SyncAccountBundle { protocol_version: 5, portable_sql: Some(input.to_string()), accounts: vec![], managed_hosts: vec![], panels: vec![], deletions: vec![], flow_connections: vec![], certificates: vec![], authenticators: vec![], ai_profiles: vec![] });
         seal_sync_payload(&*bundle, transfer_key.as_str())?
@@ -1863,11 +1863,13 @@ pub(crate) fn confirm_sync_transfer_import(
         let mut conn = open_db()?;
         let key = Zeroizing::new(crate::core::crypto::crypto_key_bytes()?);
         let input = super::database_migration::sql::filter_portable(&conn, input, &key, selection.transfer_tables)?;
+        super::database_migration::create_recovery_backup()?;
         if input.contains("INSERT INTO \"authenticator_entries\"") { crate::core::repositories::authenticator_sync::prepare_key(&mut conn)?; }
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(|_| "数据库正在使用，请重试")?;
         let (added, updated, _) = super::database_migration::sql::import_portable(&tx, &input, &key, "merge")?;
         super::database_migration::rebuild_memo_reminders(&tx)?;
         tx.commit().map_err(|_| "迁移未提交，当前数据未改变")?;
+        super::cloud_sync::pause_for_restore();
         return Ok(SyncImportSummary { accounts: 0, managed_hosts: 0, panels: 0, flow_connections: 0, certificates: 0, authenticators: 0, ai_profiles: 0, added: added as usize, updated: updated as usize, deleted: 0 });
     }
     let allowed_accounts = pending.bundle.accounts.iter().map(|item| item.sync_id.as_str()).collect::<std::collections::HashSet<_>>();

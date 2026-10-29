@@ -19,7 +19,7 @@ use core::repositories::accounts as account_repository;
 use core::repositories::logs as log_repository;
 mod commands;
 #[cfg(mobile)]
-use commands::cloud_sync::{cloud_sync_state, cloud_sync_save, cloud_sync_test, cloud_sync_upload, cloud_sync_download, cloud_sync_reveal_secret};
+use commands::cloud_sync::{cloud_sync_state, cloud_sync_save, cloud_sync_test, cloud_sync_upload, cloud_sync_download, cloud_sync_reveal_secret, cloud_sync_versions, cloud_sync_channels, cloud_sync_delete};
 pub(crate) use commands::ip_location::query_ip_location;
 pub(crate) use commands::icp::query_domain_icp;
 #[cfg(desktop)]
@@ -90,7 +90,7 @@ pub(crate) use commands::assets::{delete_local_asset, list_local_assets};
 pub(crate) use commands::managed_hosts::{delete_managed_host, delete_managed_host_group, export_managed_hosts_file, import_managed_hosts, list_managed_hosts, probe_managed_host, rename_managed_host_group, save_managed_host};
 pub(crate) use commands::panel_connections::{delete_panel_connection, export_panel_connections_file, import_panel_connections, reveal_panel_api_key, list_panel_connections, open_panel_temporary_login, panel_temporary_login, refresh_panel_connection, save_panel_connection, update_panel_connection_order, update_panel_connection_remark};
 pub(crate) use commands::connections::{delete_rdp_connection, delete_ssh_connection, get_rdp_connection, get_ssh_connection, reveal_rdp_password, reveal_ssh_password, reveal_managed_host_credential};
-pub(crate) use commands::database_migration::{cancel_database_import, confirm_database_import, create_database_backup, delete_database_backup, download_database_backup, database_transfer_catalog, export_database_file, import_database_backup, import_database_file, list_database_backups, prepare_database_backup_restore, prepare_database_import, DatabaseImportStore};
+pub(crate) use commands::database_migration::{cancel_database_import, confirm_database_import, create_database_backup, delete_database_backup, download_database_backup, database_transfer_catalog, export_database_file, import_database_backup, import_database_file, list_database_backups, prepare_database_backup_restore, prepare_database_import, plan_database_import, DatabaseImportStore};
 pub(crate) use commands::app::{app_data_path, app_exit, app_is_development, open_app_data_directory};
 pub(crate) use commands::domains::{add_dns_record, delete_dns_record, list_dns_records, list_domain_logs, list_rds_accounts, list_rds_databases, rds_connection_addresses, rds_storage_usage, list_redis_accounts, query_whois, toggle_dns_record, update_dns_record};
 pub(crate) use commands::storage::{discard_oss_upload_selection, download_oss_object, download_oss_objects, get_oss_acl, get_oss_cnames, create_oss_cname_token, bind_oss_cname, delete_oss_cname, get_oss_object_url, list_oss_objects, select_oss_upload_file, set_oss_cors, set_oss_public_read, stage_oss_upload_file, upload_oss_object};
@@ -957,13 +957,14 @@ pub fn run() {
         ssh_connect, ssh_read, ssh_disconnect, ssh_write,
         get_sync_device_identity, list_sync_devices, revoke_sync_device, set_sync_device_share_scope, list_pending_sync_acknowledgements,
         create_sync_account_bundle, create_sync_delta_bundle, save_sync_delta_bundle_file, save_sync_acknowledgement_file, preview_sync_delta_bundle, apply_sync_delta_bundle, complete_sync_delta_push, acknowledge_sync_delta, send_sync_delta_ack_lan, start_sync_delta_receiver, send_sync_delta_bundle_lan, take_received_sync_delta, save_sync_account_bundle, preview_sync_account_bundle, import_sync_account_bundle, start_sync_transfer, start_sync_delta_transfer, cancel_sync_transfer, approve_sync_transfer, fetch_sync_transfer, confirm_sync_transfer_import, cancel_sync_transfer_import,
-        cloud_sync_state, cloud_sync_save, cloud_sync_test, cloud_sync_upload, cloud_sync_download, cloud_sync_reveal_secret,
-        database_transfer_catalog, prepare_database_import, confirm_database_import, cancel_database_import,
+        cloud_sync_state, cloud_sync_save, cloud_sync_test, cloud_sync_upload, cloud_sync_download, cloud_sync_reveal_secret, cloud_sync_versions, cloud_sync_channels, cloud_sync_delete,
+        database_transfer_catalog, prepare_database_import, plan_database_import, confirm_database_import, cancel_database_import,
     ]);
     #[cfg(desktop)]
     let builder = builder.manage(core::browser::runtime::BrowserState::default());
     #[cfg(desktop)]
     let builder = builder.invoke_handler(commands::desktop_pet::restricted(tauri::generate_handler![
+        plan_database_import,
         commands::cloud_drive::cloud_drive_snapshot, commands::cloud_drive::cloud_drive_install,
         commands::cloud_drive::cloud_drive_save, commands::cloud_drive::cloud_drive_remove,
         commands::cloud_drive::cloud_drive_probe, commands::cloud_drive::cloud_drive_list_buckets, commands::cloud_drive::cloud_drive_mount,
@@ -986,6 +987,8 @@ pub fn run() {
         commands::cloud_sync::cloud_sync_state, commands::cloud_sync::cloud_sync_save,
         commands::cloud_sync::cloud_sync_test, commands::cloud_sync::cloud_sync_upload,
         commands::cloud_sync::cloud_sync_download,
+        commands::cloud_sync::cloud_sync_versions,
+        commands::cloud_sync::cloud_sync_channels, commands::cloud_sync::cloud_sync_delete,
         commands::cloud_sync::cloud_sync_reveal_secret,
         codex_config_source,
         codex_provider_list, codex_provider_save, codex_provider_duplicate, codex_provider_remove, codex_provider_reveal_key,

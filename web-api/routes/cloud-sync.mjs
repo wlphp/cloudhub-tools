@@ -1,10 +1,10 @@
 import { database } from "../core/database.mjs";
 import { decryptSecret, encryptSecret } from "../core/crypto.mjs";
 import { readBody, send } from "../core/http.mjs";
-import { CloudSyncError, createCloudSyncService, previewConfigKey } from "../services/cloud-sync.mjs";
+import { CloudSyncError, createCloudSyncChannels, previewConfigKey } from "../services/cloud-sync.mjs";
 import { createBrowserCloudBackup } from "../services/database-restore.mjs";
 
-const service = createCloudSyncService({
+const channels = createCloudSyncChannels({
   load() {
     const row = database().prepare("SELECT value FROM client_preferences WHERE key=?").get(previewConfigKey);
     if (!row) return null;
@@ -21,18 +21,26 @@ export async function handleCloudSyncRoutes(req, res, url) {
   res.setHeader("Cache-Control", "no-store");
   try {
     const action = url.pathname.slice("/api/cloud-sync/".length);
-    if (req.method === "GET" && action === "state") send(res, 200, service.state());
+    const channelId = url.searchParams.get("channelId") ?? "default";
+    const service = channels.channel(channelId);
+    if (req.method === "GET" && action === "channels") send(res, 200, channels.list());
+    else if (req.method === "POST" && action === "delete") {
+      await channels.run(() => channels.remove(channelId)); send(res, 200, null);
+    }
+    else if (req.method === "GET" && action === "state") send(res, 200, service.state());
+    else if (req.method === "GET" && action === "versions") send(res, 200, await channels.run(() => service.versions()));
     else if (req.method === "POST" && ["save", "test", "reveal"].includes(action)) {
       const body = JSON.parse(await readBody(req, 32 * 1024));
-      const result = action === "reveal" ? service.reveal(body.config, body.field) : await service[action](body.config);
+      if ((body.config?.id ?? "default") !== channelId) throw new CloudSyncError("同步渠道不匹配");
+      const result = await channels.run(() => action === "reveal" ? service.reveal(body.config, body.field) : service[action](body.config));
       send(res, 200, result ?? null);
     } else if (req.method === "POST" && action === "upload") {
       const body = JSON.parse(await readBody(req, 1024));
       if (!body || Array.isArray(body) || typeof body !== "object" || Object.keys(body).length) throw new CloudSyncError("上传参数无效，请直接备份本机当前数据");
-      send(res, 200, await service.upload(createBrowserCloudBackup));
+      send(res, 200, await channels.run(() => service.upload(() => createBrowserCloudBackup(service.state().config.tables))));
     }
     else if (req.method === "POST" && action === "download") {
-      const bytes = await service.download();
+      const bytes = await channels.run(() => service.download(url.searchParams.get("versionId") ?? undefined));
       res.writeHead(200, { "Content-Type": "application/octet-stream", "Content-Disposition": 'attachment; filename="cloudhub-cloud-backup.chdb"', "Content-Length": bytes.length, "Cache-Control": "no-store" });
       res.end(bytes);
     } else send(res, 404, { error: "云备份接口不存在" });

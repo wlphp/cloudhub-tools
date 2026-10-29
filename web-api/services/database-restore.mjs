@@ -22,7 +22,8 @@ export function closeDatabaseRestoreBridge() {
 function start() {
   if (child) return child;
   const filename = process.platform === "win32" ? "cloudhub-browser-database.exe" : "cloudhub-browser-database";
-  const executable = ["debug", "release"].map(mode => path.join(root, "src-tauri", "target", mode, filename)).find(file => fs.existsSync(file));
+  const targetDir = process.env.CARGO_TARGET_DIR ? path.resolve(root, process.env.CARGO_TARGET_DIR) : path.join(root, "src-tauri", "target");
+  const executable = ["debug", "release"].map(mode => path.join(targetDir, mode, filename)).find(file => fs.existsSync(file));
   if (!executable) throw new Error("请先编译本机调试程序，再使用网页恢复");
   const processHandle = spawn(executable, [], { cwd: root, windowsHide: true, stdio: ["pipe", "pipe", "ignore"], env: { ...process.env, CLOUDHUB_BROWSER_DATA_DIR: dataDir } });
   child = processHandle;
@@ -68,10 +69,10 @@ export function consumeRestore(token) {
   if (typeof token !== "string" || !sessions.has(token)) throw new Error("恢复预览已失效，请重新下载备份");
   clearTimeout(sessions.get(token)); sessions.delete(token);
 }
-export async function createBrowserCloudBackup() {
+export async function createBrowserCloudBackup(tables = null) {
   const packagePath = path.join(dataDir, `.browser-upload-${crypto.randomUUID()}.chdb`);
   try {
-    await callDatabaseRestore({ op: "backup", path: packagePath });
+    await callDatabaseRestore({ op: "backup", path: packagePath, tables });
     const info = await fs.promises.stat(packagePath);
     if (info.size > 256 * 1024 * 1024) throw new Error("备份超过 256 MB 限制");
     return await fs.promises.readFile(packagePath);

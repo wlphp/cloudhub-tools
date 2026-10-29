@@ -3,7 +3,7 @@ import { once } from "node:events";
 import http from "node:http";
 import crypto from "node:crypto";
 import { test } from "node:test";
-import { createCloudSyncService, defaults, mergeConfig, readLimited, signedHeaders, targetUrl, validatePackage } from "../../web-api/services/cloud-sync.mjs";
+import { createCloudSyncService, createCloudSyncChannels, defaults, mergeConfig, readLimited, signedHeaders, targetUrl, validatePackage } from "../../web-api/services/cloud-sync.mjs";
 
 function packageFixture() {
   const database = Buffer.from("SQLite format 3\0non-sensitive-fixture"), key = Buffer.alloc(32, 73);
@@ -29,6 +29,52 @@ test("S3 signature agrees with the native independently verified fixture", () =>
   assert.equal(targetUrl({ ...endpoint, pathStyle: false }).hostname, "fixture-bucket.storage.example");
 });
 
+test("channels migrate legacy settings and isolate credentials, objects and status", async () => {
+  let stored = configFixture("https://first.example/dav");
+  const objects = new Map();
+  const channels = createCloudSyncChannels({
+    load: () => structuredClone(stored), persist: config => { stored = structuredClone(config); },
+    fetchRemote: async (url, init) => {
+      const key = url.href, existing = objects.get(key);
+      const expected = url.hostname === "first.example" ? "non-sensitive-fixture" : "second-fixture-password";
+      assert.equal(init.headers.Authorization, `Basic ${Buffer.from(`fixture-user:${expected}`).toString("base64")}`);
+      if (init.method === "MKCOL") return new Response(null, { status: 405 });
+      if (init.method === "HEAD") return new Response(null, { status: existing ? 200 : 404 });
+      if (init.method === "GET") return existing ? new Response(existing, { headers: { ETag: '"fixture"' } }) : new Response(null, { status: 404 });
+      assert.equal(init.method, "PUT");
+      objects.set(key, Buffer.isBuffer(init.body) ? init.body : await readLimited(init.body));
+      return new Response(null, { status: 201, headers: { ETag: '"fixture"' } });
+    },
+  });
+  assert.equal(channels.list()[0].config.name, "默认渠道");
+  const secondId = "22222222-2222-4222-8222-222222222222";
+  const second = channels.channel(secondId);
+  await assert.rejects(second.save({ ...configFixture("https://second.example/dav"), id: secondId, name: "备用渠道", password: "" }), /请填写/);
+  await second.save({ ...configFixture("https://second.example/dav"), id: secondId, name: "备用渠道", password: "second-fixture-password" });
+  const first = channels.channel();
+  assert.equal(channels.list().length, 2);
+  assert.ok(stored.channels);
+  await first.upload(packageFixture());
+  assert.equal(second.state().status.lastUpload, null);
+  assert.equal((await first.versions()).length, 1);
+  assert.equal((await second.versions()).length, 0);
+  await second.upload(packageFixture());
+  const selected = (await second.versions())[0];
+  assert.deepEqual(await second.download(selected.id), packageFixture());
+  assert.equal(first.state().status.lastDownload, null);
+  await assert.rejects(first.download(selected.id), /不存在/);
+  assert.equal(JSON.stringify(channels.list()).includes("second-fixture-password"), false);
+  let release;
+  const pending = channels.run(() => new Promise(resolve => { release = resolve; }));
+  await assert.rejects(channels.run(() => channels.remove(secondId)), /正在执行/);
+  release(); await pending;
+  const count = objects.size;
+  await channels.run(() => channels.remove(secondId));
+  assert.equal(channels.list().length, 1);
+  assert.equal(objects.size, count);
+  assert.throws(() => channels.channel("../private"), /渠道无效/);
+});
+
 test("validation retains credentials only for the same identity and rejects unsafe input", () => {
   const config = mergeConfig(configFixture("https://storage.example/dav/"));
   assert.equal(mergeConfig({ ...config, password: "" }, config).password, config.password);
@@ -38,6 +84,8 @@ test("validation retains credentials only for the same identity and rejects unsa
   }
   for (const remoteRoot of ["../outside", "/absolute", "folder//nested", "folder\\nested"]) assert.throws(() => mergeConfig({ ...config, remoteRoot }));
   assert.throws(() => mergeConfig({ ...config, allowInsecure: "true" }));
+  for (const tables of [[],["../private"],"memo_notes",[123],Array(33).fill("memo_notes")]) assert.throws(()=>mergeConfig({...config,tables}));
+  assert.deepEqual(mergeConfig({...config,tables:["memo_notes"]}).tables,["memo_notes"]);
   const forced = mergeConfig({ ...config, autoSync: true, passwordProtected: true, backupPassword: "fixture-password" });
   assert.equal(forced.autoSync, false); assert.equal(forced.passwordProtected, false); assert.equal(forced.backupPassword, "");
 });
@@ -51,8 +99,9 @@ test("backup validation catches corruption and bounded readers reject oversized 
   await assert.rejects(readLimited([Buffer.alloc(5), Buffer.alloc(6)], 10), /256 MB/);
 });
 
-test("WebDAV performs real conditional uploads/downloads and refuses stale overwrites", async t => {
-  const fixture = packageFixture(); let remote = null, version = 0, redirect = false;
+test("WebDAV preserves versions, selects downloads and retains legacy backups", async t => {
+  const fixture = packageFixture(); let version = 0, redirect = false;
+  const objects = new Map([["/dav/cloudhub-sync/v1/default/database.chdb", { bytes: fixture, tag: '"legacy"' }]]);
   const requests = [];
   const server = http.createServer(async (req, res) => {
     requests.push({ method: req.method, url: req.url, headers: req.headers });
@@ -60,12 +109,12 @@ test("WebDAV performs real conditional uploads/downloads and refuses stale overw
     if (redirect) { res.writeHead(302, { Location: "http://127.0.0.1:1/leak" }); res.end("remote-secret-body"); return; }
     if (req.method === "PROPFIND") { res.writeHead(207); res.end(); return; }
     if (req.method === "MKCOL") { res.writeHead(405); res.end(); return; }
-    if (req.method === "HEAD") { res.writeHead(remote ? 200 : 404, remote ? { ETag: `"v${version}"` } : {}); res.end(); return; }
-    if (req.method === "GET") { res.writeHead(200, { ETag: `"v${version}"` }); res.end(remote); return; }
+    const remote = objects.get(req.url);
+    if (req.method === "HEAD" || req.method === "GET") { res.writeHead(remote ? 200 : 404, remote ? { ETag: remote.tag } : {}); res.end(req.method === "GET" ? remote?.bytes : undefined); return; }
     if (req.method === "PUT") {
       const body = await readLimited(req);
-      if ((remote && req.headers["if-match"] !== `"v${version}"`) || (!remote && req.headers["if-none-match"] !== "*")) { res.writeHead(412); res.end(); return; }
-      remote = body; version++; res.writeHead(201, { ETag: `"v${version}"` }); res.end(); return;
+      if ((remote && req.headers["if-match"] !== remote.tag) || (!remote && req.headers["if-none-match"] !== "*")) { res.writeHead(412); res.end(); return; }
+      version++; objects.set(req.url, { bytes: body, tag: `"v${version}"` }); res.writeHead(201, { ETag: `"v${version}"` }); res.end(); return;
     }
     res.writeHead(404); res.end();
   });
@@ -84,11 +133,23 @@ test("WebDAV performs real conditional uploads/downloads and refuses stale overw
   assert.equal(view.config.password, undefined); assert.equal(view.config.hasPassword, true);
   assert.equal(service.reveal(config, "password"), config.password);
   assert.throws(() => service.reveal({ ...config, username: "other" }, "password"));
-  assert.deepEqual(remote, fixture); assert.deepEqual(await service.download(), fixture);
+  assert.deepEqual(await service.download(), fixture);
+  const first = (await service.versions())[0];
+  assert.ok(first.machineName.endsWith("-dev")); assert.ok(first.uploadedAt);
+  assert.deepEqual(await service.download(first.id), fixture);
+  await new Promise(resolve => setTimeout(resolve, 5));
   await service.upload(fixture);
-  assert.equal(requests.filter(req => req.method === "PUT")[1].headers["if-match"], '"v1"');
-  version++;
-  await assert.rejects(service.upload(fixture), /已发生变化/);
+  const versions = await service.versions();
+  assert.equal(versions.length, 3); assert.equal(versions[1].id, first.id);
+  assert.notEqual(versions[0].id, first.id);
+  assert.equal(versions[2].id, "database.chdb");
+  assert.deepEqual(await service.download(first.id), fixture);
+  assert.deepEqual(await service.download(versions[0].id), fixture);
+  assert.equal(objects.size, 4);
+  await assert.rejects(service.download("../versions.json"), /版本无效/);
+  const indexWrites = requests.filter(req => req.method === "PUT" && req.url.endsWith("versions.json"));
+  assert.equal(indexWrites[0].headers["if-none-match"], "*");
+  assert.ok(indexWrites[1].headers["if-match"]);
   assert.equal(service.state().status.busy, false);
   assert.ok(requests.some(req => req.method === "MKCOL" && req.url === "/dav/cloudhub-sync/v1/default/"));
   redirect = true;
@@ -106,6 +167,99 @@ test("concurrent actions fail explicitly and unexpected backend errors stay priv
   release(); await pending;
   const failure = createCloudSyncService({ load: () => { throw new Error("private local path and payload"); }, persist: () => {} });
   await assert.rejects(failure.save(config), error => !error.message.includes("private"));
+});
+
+test("two S3 devices merge racing index updates without losing either backup", async () => {
+  const objects = new Map();
+  let counter = 0, conflicts = 0, release;
+  const gate = new Promise(resolve => { release = resolve; });
+  let initialReads = 0;
+  const fetchRemote = async (url, init) => {
+    const key = url.pathname, existing = objects.get(key);
+    assert.match(init.headers.Authorization, /^AWS4-HMAC-SHA256 /);
+    if (init.method === "HEAD") return new Response(null, { status: existing ? 200 : 404 });
+    if (init.method === "GET") {
+      if (!existing && key.endsWith("versions.json") && initialReads < 2) {
+        if (++initialReads === 2) release();
+        await gate;
+      }
+      return existing ? new Response(existing.bytes, { headers: { ETag: existing.tag } }) : new Response(null, { status: 404 });
+    }
+    assert.equal(init.method, "PUT");
+    const bytes = Buffer.isBuffer(init.body) ? init.body : await readLimited(init.body);
+    const current = objects.get(key);
+    if ((current && init.headers["If-Match"] !== current.tag) || (!current && init.headers["If-None-Match"] !== "*")) {
+      conflicts++; return new Response(null, { status: 412 });
+    }
+    const tag = `"${++counter}"`; objects.set(key, { bytes, tag });
+    return new Response(null, { status: 201, headers: { ETag: tag } });
+  };
+  const first = serviceFixture(fetchRemote), second = serviceFixture(fetchRemote);
+  const config = { ...defaults, method: "s3", endpoint: "https://storage.example", bucket: "fixture-bucket", accessKeyId: "fixture-access", secretKey: "fixture-signing" };
+  await first.save(config); await second.save(config);
+  await Promise.all([first.upload(packageFixture()), second.upload(packageFixture())]);
+  const versions = await first.versions();
+  assert.equal(versions.length, 2); assert.notEqual(versions[0].id, versions[1].id);
+  assert.equal(conflicts, 1);
+  for (const version of versions) assert.deepEqual(await second.download(version.id), packageFixture());
+});
+
+test("invalid remote version metadata cannot select arbitrary remote paths", async () => {
+  const service = serviceFixture(async () => new Response(JSON.stringify([{ id: "../private", machineName: "fixture", uploadedAt: "2026-10-29T12:00:00Z" }]), { headers: { ETag: '"fixture"' } }));
+  await service.save(configFixture("https://storage.example"));
+  await assert.rejects(service.versions(), /版本无效/);
+});
+
+test("index uploads confirm committed writes after a lost acknowledgement", async () => {
+  for (const committed of [true, false]) {
+    let index = null, backupWrites = 0, indexWrites = 0;
+    const service = serviceFixture(async (url, init) => {
+      if (init.method === "MKCOL") return new Response(null, { status: 405 });
+      if (init.method === "GET") return index
+        ? new Response(index, { headers: { ETag: '"fixture-index"' } })
+        : new Response(null, { status: 404 });
+      assert.equal(init.method, "PUT");
+      if (url.pathname.endsWith("/versions.json")) {
+        indexWrites++;
+        assert.ok(Buffer.isBuffer(init.body));
+        assert.equal(init.duplex, undefined);
+        assert.equal(init.headers["Content-Type"], "application/json");
+        assert.equal(init.headers["Content-Length"], String(init.body.length));
+        if (committed) index = init.body;
+        throw new TypeError("private endpoint and credentials", { cause: { code: "UND_ERR_SOCKET" } });
+      }
+      backupWrites++;
+      assert.equal(init.duplex, "half");
+      assert.deepEqual(await readLimited(init.body), packageFixture());
+      return new Response(null, { status: 201 });
+    });
+    await service.save(configFixture("https://storage.example"));
+    if (committed) {
+      await service.upload(packageFixture());
+      assert.ok(service.state().status.lastUpload);
+      assert.equal(service.state().status.error, null);
+    } else {
+      await assert.rejects(service.upload(packageFixture()), error =>
+        /备份文件已上传，但版本目录登记失败/.test(error.message)
+        && /连接在请求过程中中断/.test(error.message) && !error.message.includes("private"));
+      assert.equal(service.state().status.lastUpload, null);
+    }
+    assert.equal(backupWrites, 1);
+    assert.equal(indexWrites, 1);
+    assert.equal(service.state().status.busy, false);
+    assert.equal(service.state().status.progress, null);
+  }
+});
+
+test("connection errors expose safe categories without endpoint or credentials", async () => {
+  for (const [code, message] of [["ENOTFOUND", "域名解析失败"], ["ECONNREFUSED", "拒绝连接"], ["ETIMEDOUT", "请求超时"], ["CERT_HAS_EXPIRED", "证书校验失败"]]) {
+    const service = serviceFixture(async () => {
+      throw new TypeError("private endpoint and credentials", { cause: { code } });
+    });
+    await service.save(configFixture("https://storage.example"));
+    await assert.rejects(service.test(configFixture("https://storage.example")), error =>
+      error.message.includes(message) && !error.message.includes("private"));
+  }
 });
 
 test("transfer progress counts bytes, waits for acknowledgement and clears on failure", async () => {

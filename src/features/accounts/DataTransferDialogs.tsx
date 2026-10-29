@@ -27,21 +27,21 @@ export function SqlExportDialog({ onClose, onExport }: { onClose: () => void; on
   </SharedDialog>;
 }
 
-export function BackupCreateDialog({ onClose, onCreate }: { onClose: () => void; onCreate: (password?: string) => Promise<void> }) {
-  const { categories, error: catalogError } = useTransferCatalog();
+export function BackupCreateDialog({ onClose, onCreate }: { onClose: () => void; onCreate: (password?: string, tables?: string[]) => Promise<void> }) {
+  const { categories, tables, setTables, error: catalogError } = useTransferCatalog();
   const [protectedBackup, setProtectedBackup] = useState(false);
   const [password, setPassword] = useState("");
   const [repeat, setRepeat] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   async function submit() {
-    if (busy) return;
+    if (busy || !tables.length) return;
     if (protectedBackup) {
       if ([...password].length < 8 || new TextEncoder().encode(password).length > 1024) { setError("备份密码至少 8 个字符，最多 1024 个 UTF-8 字节。"); return; }
       if (password !== repeat) { setError("两次输入的备份密码不一致。"); return; }
     }
     setBusy(true); setError("");
-    try { await onCreate(protectedBackup ? password : undefined); setPassword(""); setRepeat(""); onClose(); }
+    try { await onCreate(protectedBackup ? password : undefined, tables); setPassword(""); setRepeat(""); onClose(); }
     catch { setError("创建备份失败，请检查凭据和存储权限后重试。"); }
     finally { setBusy(false); }
   }
@@ -54,8 +54,9 @@ export function BackupCreateDialog({ onClose, onCreate }: { onClose: () => void;
     </>}
     <section className="backup-content-scope" aria-label="备份内容">
       <h3>备份内容</h3>
-      <p>包含以下全部项目及其回收站数据，保留密码、密钥、证书私钥和验证码种子。</p>
-      {categories.length > 0 ? <ul>{categories.map(item => <li key={item.table}>{item.label}</li>)}</ul> : <p role={catalogError ? "alert" : "status"}>{catalogError || "正在读取备份内容…"}</p>}
+      <p>包含所选项目及其回收站数据，保留密码、密钥、证书私钥和验证码种子。</p>
+      <DataTransferScope categories={categories} tables={tables} onChange={setTables} disabled={busy} />
+      {catalogError && <p role="alert">{catalogError}</p>}
       <p>指纹浏览器仅备份配置及代理凭据；Claude/Codex 管理仅备份供应商相关配置。</p>
     </section>
     {error && <p role="alert">{error}</p>}

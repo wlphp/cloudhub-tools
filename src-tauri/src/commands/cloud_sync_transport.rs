@@ -40,6 +40,7 @@ pub(super) const MAX_BYTES: usize = 256 * 1024 * 1024;
 
 pub(super) fn client() -> Result<Client, String> {
     Client::builder()
+        .no_proxy() // Temporary A/B diagnostic: compare a direct connection.
         .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(Duration::from_secs(15))
         .timeout(Duration::from_secs(180))
@@ -87,6 +88,12 @@ pub(super) fn url(config: &Config, artifact: bool) -> Result<Url, String> {
         }
     }
     Ok(url)
+}
+
+pub(super) fn named_url(config: &Config, name: &str) -> Result<Url, String> {
+    let mut target = url(config, true)?;
+    target.path_segments_mut().map_err(|_| "服务地址无效")?.pop().push(name);
+    Ok(target)
 }
 
 fn hmac(key: &[u8], value: &str) -> Result<Zeroizing<Vec<u8>>, String> {
@@ -178,23 +185,63 @@ pub(super) async fn request(
     }
     if method == Method::PUT {
         let total = body.len() as u64;
-        super::progress("uploading", 0, Some(total));
-        request = request
-            .header("Content-Type", "application/octet-stream")
-            .header("Content-Length", total)
-            .body(reqwest::Body::wrap_stream(ReaderStream::with_capacity(
-                UploadReader {
-                    inner: std::io::Cursor::new(body),
-                    total,
-                },
-                64 * 1024,
-            )));
-    }
-    request.send().await.map_err(|error| {
-        if error.is_timeout() {
-            "云同步连接超时，请稍后重试".into()
+        if url.path().ends_with("/versions.json") {
+            request = request.header("Content-Type", "application/json")
+                .header("Content-Length", total).body(body);
         } else {
-            "云同步连接失败，请检查地址、网络与证书".into()
+            super::progress("uploading", 0, Some(total));
+            request = request
+                .header("Content-Type", "application/octet-stream")
+                .header("Content-Length", total)
+                .body(reqwest::Body::wrap_stream(ReaderStream::with_capacity(
+                    UploadReader {
+                        inner: std::io::Cursor::new(body),
+                        total,
+                    },
+                    64 * 1024,
+                )));
+        }
+    }
+    let diagnostic_stage = match method.as_str() {
+        "MKCOL" => "创建目录",
+        "PUT" if url.path().ends_with("/versions.json") => "登记版本",
+        "PUT" => "上传文件",
+        "GET" => "读取版本或备份",
+        "PROPFIND" => "检查访问权限",
+        _ => "检查备份",
+    };
+    request.send().await.map_err(|error| {
+        // Temporary diagnostics: emit only fixed classifications, never raw errors/URLs.
+        let mut categories = Vec::new();
+        let mut source: Option<&(dyn std::error::Error + 'static)> = Some(&error);
+        while let Some(cause) = source {
+            if let Some(io) = cause.downcast_ref::<std::io::Error>() {
+                categories.push(format!("IO:{:?}/OS:{:?}", io.kind(), io.raw_os_error()));
+            }
+            let description = cause.to_string().to_ascii_lowercase();
+            for (needle, label) in [
+                ("connection closed before message completed", "响应未完整返回即断开"),
+                ("connection reset", "连接被重置"),
+                ("broken pipe", "写入连接已关闭"),
+                ("unexpected eof", "响应意外结束"),
+                ("invalid header", "响应头无效"),
+                ("invalid http", "HTTP响应无效"),
+                ("connection error", "连接错误"),
+            ] {
+                if description.contains(needle) && !categories.iter().any(|v| v == label) {
+                    categories.push(label.to_string());
+                }
+            }
+            source = cause.source();
+        }
+        if categories.is_empty() { categories.push("未分类传输错误".to_string()); }
+        let detail = format!("（{}：{}）", diagnostic_stage, categories.join("，"));
+        if error.is_timeout() {
+            format!("云同步连接超时，请稍后重试{detail}")
+        } else if error.is_connect() {
+            format!("无法建立云存储连接，请检查网络、服务端口和证书{detail}")
+        } else {
+            format!("云存储连接在请求过程中中断{detail}")
         }
     })
 }

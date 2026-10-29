@@ -1,18 +1,31 @@
 import crypto from "node:crypto";
+import os from "node:os";
 
 export const MAX_BACKUP_BYTES = 256 * 1024 * 1024;
 export const previewConfigKey = "cloud.sync.preview.config";
 export const defaults = {
+  id: "default", name: "默认渠道",
   method: "webdav", provider: "custom", endpoint: "", username: "", password: "",
   accessKeyId: "", secretKey: "", bucket: "", region: "us-east-1", pathStyle: true,
   remoteRoot: "cloudhub-sync", profile: "default", autoSync: false, allowInsecure: false,
   passwordProtected: false, backupPassword: "",
+  tables: null,
 };
 const hash = value => crypto.createHash("sha256").update(value).digest("hex");
 const hmac = (key, value) => crypto.createHmac("sha256", key).update(value).digest();
 const encode = value => encodeURIComponent(value).replace(/[!'()*]/g, c => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
 const segment = value => typeof value === "string" && value.length > 0 && value.length <= 100 && value.trim() === value && ![".", ".."].includes(value) && /^[a-zA-Z0-9_ .-]+$/.test(value);
+const channelIdValid = value => typeof value === "string" && /^(?:default|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/.test(value);
 export class CloudSyncError extends Error {}
+function connectionFailure(error) {
+  const code = error?.cause?.code;
+  if (error?.name === "TimeoutError" || code === "UND_ERR_CONNECT_TIMEOUT" || code === "ETIMEDOUT") return "云存储请求超时";
+  if (code === "ENOTFOUND" || code === "EAI_AGAIN") return "云存储域名解析失败";
+  if (code === "ECONNREFUSED") return "云存储拒绝连接，请检查服务和端口";
+  if (["CERT_HAS_EXPIRED", "DEPTH_ZERO_SELF_SIGNED_CERT", "UNABLE_TO_VERIFY_LEAF_SIGNATURE", "ERR_TLS_CERT_ALTNAME_INVALID"].includes(code)) return "云存储证书校验失败，请检查证书有效期与信任链";
+  if (["UND_ERR_SOCKET", "ECONNRESET", "EPIPE"].includes(code)) return "云存储连接在请求过程中中断";
+  return "云同步连接失败，请检查地址、网络与证书";
+}
 const fail = message => { throw new CloudSyncError(message); };
 
 function endpoint(config) {
@@ -27,9 +40,15 @@ export function mergeConfig(input, saved) {
   if (!input || typeof input !== "object" || Array.isArray(input)) fail("云同步配置无效");
   const config = {};
   for (const [key, fallback] of Object.entries(defaults)) {
+    if (key === "tables") { config.tables = input.tables ?? null; continue; }
+    if ((key === "id" || key === "name") && input[key] === undefined) { config[key] = fallback; continue; }
     if (typeof input[key] !== typeof fallback) fail("云同步配置字段无效");
     config[key] = input[key];
   }
+  if (!channelIdValid(config.id)) fail("同步渠道无效");
+  if (config.tables !== null && (!Array.isArray(config.tables) || !config.tables.length || config.tables.length > 32 || config.tables.some(table => typeof table !== "string" || !/^[a-z_]+$/.test(table)))) fail("请选择有效的备份范围");
+  config.name = config.name.trim();
+  if (!config.name || config.name.length > 80 || /[\x00-\x1f\x7f]/.test(config.name)) fail("请填写有效的渠道名称（最多 80 个字符）");
   config.endpoint = config.endpoint.trim().replace(/\/+$/, "");
   config.remoteRoot = config.remoteRoot.trim(); config.profile = config.profile.trim();
   const sameIdentity = saved && ["method", "endpoint", "username", "accessKeyId"].every(key => config[key] === saved[key]);
@@ -52,6 +71,49 @@ export function mergeConfig(input, saved) {
   return config;
 }
 
+// One encrypted collection; legacy single-channel configuration is read in place.
+export function createCloudSyncChannels({ load, persist, fetchRemote }) {
+  const services = new Map();
+  let busy = false;
+  function configs() {
+    const stored = load();
+    return stored ? (Array.isArray(stored.channels) ? stored.channels : [{ ...stored, id: "default", name: "默认渠道" }]) : [];
+  }
+  function channel(id = "default") {
+    if (!channelIdValid(id)) fail("同步渠道无效");
+    if (!services.has(id)) services.set(id, createCloudSyncService({
+      load: () => configs().find(config => config.id === id) ?? null,
+      persist(config) {
+        if (config.id !== id) fail("同步渠道不匹配");
+        const all = configs(), index = all.findIndex(item => item.id === id);
+        if (index < 0) {
+          if (all.length >= 50) fail("同步渠道最多可添加 50 条");
+          all.push(config);
+        } else all[index] = config;
+        persist({ channels: all });
+      },
+      ...(fetchRemote ? { fetchRemote } : {}),
+    }));
+    return services.get(id);
+  }
+  return {
+    channel,
+    list: () => configs().map(config => channel(config.id).state()),
+    async run(action) {
+      if (busy) fail("云同步正在执行，请稍后重试");
+      busy = true;
+      try { return await action(); } finally { busy = false; }
+    },
+    remove(id) {
+      channel(id);
+      const all = configs();
+      if (!all.some(config => config.id === id)) fail("同步渠道不存在，请刷新列表");
+      persist({ channels: all.filter(config => config.id !== id) });
+      services.delete(id);
+    },
+  };
+}
+
 export function targetUrl(config, artifact = true) {
   const url = endpoint(config);
   if (config.method === "s3" && !config.pathStyle) url.hostname = `${config.bucket}.${url.hostname}`;
@@ -59,6 +121,16 @@ export function targetUrl(config, artifact = true) {
   if (artifact) parts.push(...config.remoteRoot.split("/"), "v1", config.profile, "database.chdb");
   url.pathname = url.pathname.replace(/\/$/, "") + (parts.length ? "/" + parts.map(encode).join("/") : "");
   return url;
+}
+
+function namedUrl(config, name) {
+  const url = targetUrl(config);
+  url.pathname = url.pathname.slice(0, url.pathname.lastIndexOf("/") + 1) + encode(name);
+  return url;
+}
+function selectedVersion(id = "database.chdb") {
+  if (typeof id !== "string" || (id !== "database.chdb" && !/^backup-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.chdb$/.test(id))) fail("备份版本无效，请刷新版本列表");
+  return id;
 }
 
 export function signedHeaders(config, method, url, body = Buffer.alloc(0), time = new Date().toISOString().replace(/[:-]|\.\d{3}/g, "")) {
@@ -132,6 +204,7 @@ export function createCloudSyncService({ load, persist, fetchRemote = fetch }) {
   }
   async function request(config, method, url, body = Buffer.alloc(0), condition = {}) {
     let response;
+    const metadata = method === "PUT" && url.pathname.endsWith("/versions.json");
     async function* uploadChunks() {
       progress("uploading", 0, body.length);
       for (let offset = 0; offset < body.length; offset += 64 * 1024) {
@@ -143,16 +216,58 @@ export function createCloudSyncService({ load, persist, fetchRemote = fetch }) {
     }
     try {
       response = await fetchRemote(url, {
-        method, headers: { ...signedHeaders(config, method, url, body), ...condition, ...(method === "PROPFIND" ? { Depth: "0" } : {}), ...(method === "PUT" ? { "Content-Type": "application/octet-stream", "Content-Length": String(body.length) } : {}) },
-        ...(method === "PUT" ? { body: uploadChunks(), duplex: "half" } : {}), redirect: "manual", signal: AbortSignal.timeout(180_000),
+        method, headers: { ...signedHeaders(config, method, url, body), ...condition, ...(method === "PROPFIND" ? { Depth: "0" } : {}), ...(method === "PUT" ? { "Content-Type": metadata ? "application/json" : "application/octet-stream", "Content-Length": String(body.length) } : {}) },
+        ...(method === "PUT" ? metadata ? { body } : { body: uploadChunks(), duplex: "half" } : {}), redirect: "manual", signal: AbortSignal.timeout(180_000),
       });
-    } catch { fail("云同步连接失败，请检查地址、网络与证书"); }
+    } catch (error) { fail(`${method === "PUT" ? metadata ? "写入版本目录失败：" : "上传备份文件失败：" : ""}${connectionFailure(error)}`); }
     return response;
   }
   function savedConfig() {
     const config = load();
     if (!config) fail("请先保存云同步配置");
     return mergeConfig(config, config);
+  }
+  async function versionIndex(config) {
+    const response = await request(config, "GET", namedUrl(config, "versions.json"));
+    try {
+      if (response.status === 404) return { versions: [], tag: null };
+      check(response);
+      const tag = etag(response);
+      if (!tag) fail("服务未提供版本目录 ETag，无法安全维护多版本备份");
+      const bytes = await readLimited(response.body, 4 * 1024 * 1024);
+      let versions;
+      try { versions = JSON.parse(bytes.toString("utf8")); } catch { fail("备份版本目录无效"); }
+      if (!Array.isArray(versions) || versions.length > 10000) fail("备份版本目录无效");
+      for (const item of versions) {
+        if (!item || item.id === "database.chdb" || typeof item.machineName !== "string" || Buffer.byteLength(item.machineName) > 400 || /[\x00-\x1f\x7f]/.test(item.machineName) || typeof item.uploadedAt !== "string" || !Number.isFinite(Date.parse(item.uploadedAt))) fail("备份版本目录无效");
+        selectedVersion(item.id);
+      }
+      return { versions, tag };
+    } finally { if (!response.bodyUsed) await response.body?.cancel(); }
+  }
+  async function registerVersion(config, version) {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const { versions, tag } = await versionIndex(config);
+      if (versions.some(item => item.id === version.id)) return;
+      if (versions.length >= 10000) fail("备份版本已达一万条，请更换同步配置名");
+      versions.push(version);
+      versions.sort((a, b) => Date.parse(b.uploadedAt) - Date.parse(a.uploadedAt));
+      let response;
+      try {
+        response = await request(config, "PUT", namedUrl(config, "versions.json"), Buffer.from(JSON.stringify(versions)), tag ? { "If-Match": tag } : { "If-None-Match": "*" });
+      } catch (error) {
+        // A lost acknowledgement can occur after the server has committed the PUT.
+        // Confirm our exact id instead of uploading another snapshot or assuming success.
+        const confirmed = await versionIndex(config).catch(() => null);
+        if (confirmed?.versions.some(item => item.id === version.id)) return;
+        throw error;
+      }
+      try {
+        if (response.status === 412) continue;
+        check(response); return;
+      } finally { await response.body?.cancel(); }
+    }
+    fail("其他设备正在上传，版本登记未完成，请稍后重试上传");
   }
   return {
     state: view,
@@ -167,13 +282,27 @@ export function createCloudSyncService({ load, persist, fetchRemote = fetch }) {
       if (!["password", "secretKey"].includes(field) || !["method", "username", "accessKeyId"].every(key => input?.[key] === saved[key]) || String(input?.endpoint).trim().replace(/\/+$/, "") !== saved.endpoint || !saved[field]) fail("当前配置没有可查看的已保存凭据");
       return saved[field];
     },
+    versions: () => exclusive(async () => {
+      const config = savedConfig();
+      const { versions } = await versionIndex(config);
+      versions.sort((a, b) => Date.parse(b.uploadedAt) - Date.parse(a.uploadedAt) || a.id.localeCompare(b.id));
+      const response = await request(config, "HEAD", targetUrl(config));
+      try {
+        if (response.status !== 404) {
+          check(response);
+          versions.push({ id: "database.chdb", machineName: "旧版备份（机器名称未知）", uploadedAt: null });
+        }
+      } finally { await response.body?.cancel(); }
+      return versions;
+    }),
     upload: source => exclusive(async () => {
       progress("preparing");
       const config = savedConfig();
       const bytes = typeof source === "function" ? await source() : source;
       validatePackage(bytes);
       progress("connecting");
-      const target = targetUrl(config);
+      const version = { id: `backup-${crypto.randomUUID()}.chdb`, machineName: `${os.hostname().replace(/[\x00-\x1f\x7f]/g, "").slice(0, 100) || os.platform()}-dev`, uploadedAt: new Date().toISOString() };
+      const target = namedUrl(config, version.id);
       if (config.method === "webdav") {
         const directory = endpoint(config);
         for (const part of [...config.remoteRoot.split("/"), "v1", config.profile]) {
@@ -182,24 +311,16 @@ export function createCloudSyncService({ load, persist, fetchRemote = fetch }) {
           try { if (response.status !== 405) check(response); } finally { await response.body?.cancel(); }
         }
       }
-      const head = await request(config, "HEAD", target);
-      let condition;
-      try {
-        if (head.status === 404) condition = { "If-None-Match": "*" };
-        else {
-          check(head);
-          const current = etag(head);
-          if (!config.lastEtag || current !== config.lastEtag) fail("云端已有备份或已发生变化，请先下载检查后再上传");
-          condition = { "If-Match": config.lastEtag };
-        }
-      } finally { await head.body?.cancel(); }
-      const response = await request(config, "PUT", target, bytes, condition);
-      try { check(response); progress("finishing"); config.lastEtag = etag(response); persist(config); status.lastUpload = new Date().toISOString(); }
+      const response = await request(config, "PUT", target, bytes, { "If-None-Match": "*" });
+      try { check(response); progress("finishing"); config.lastEtag = etag(response); }
       finally { await response.body?.cancel(); }
+      try { await registerVersion(config, version); }
+      catch (error) { fail(`备份文件已上传，但版本目录登记失败：${error instanceof CloudSyncError ? error.message : "请检查云存储状态"}`); }
+      persist(config); status.lastUpload = new Date().toISOString();
     }).then(() => view()),
-    download: () => exclusive(async () => {
+    download: versionId => exclusive(async () => {
       progress("connecting");
-      const config = savedConfig(); const response = await request(config, "GET", targetUrl(config));
+      const config = savedConfig(); const response = await request(config, "GET", namedUrl(config, selectedVersion(versionId)));
       try {
         check(response);
         if (Number(response.headers.get("content-length")) > MAX_BACKUP_BYTES) fail("备份超过 256 MB 限制");

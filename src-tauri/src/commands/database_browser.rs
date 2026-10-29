@@ -13,6 +13,7 @@ struct Request {
     #[serde(default)] token: String,
     tables: Option<Vec<String>>,
     mode: Option<String>,
+    #[serde(default)] include_trash: bool,
     #[serde(default)] force_restore: bool,
 }
 
@@ -23,7 +24,7 @@ fn dispatch(state: &DatabaseImportStore, request: Request) -> Result<Value, Stri
             let name = path.file_name().and_then(|name| name.to_str()).ok_or("备份路径无效")?;
             let id = name.strip_prefix(".browser-upload-").and_then(|name| name.strip_suffix(".chdb")).ok_or("备份路径无效")?;
             if Uuid::parse_str(id).is_err() || path.parent().and_then(|parent| parent.canonicalize().ok()).as_deref() != Some(data_dir()?.as_path()) || path.exists() { return Err("备份路径无效".into()); }
-            let bytes = Zeroizing::new(cloud_snapshot(None)?);
+            let bytes = Zeroizing::new(cloud_snapshot_scoped(None,request.tables)?);
             write_new_or_replace(&path, &bytes)?;
             Ok(Value::Null)
         }
@@ -35,19 +36,24 @@ fn dispatch(state: &DatabaseImportStore, request: Request) -> Result<Value, Stri
             let bytes = Zeroizing::new(fs::read(path).map_err(|_| "读取备份失败")?);
             serde_json::to_value(prepare_cloud_snapshot(&bytes, Some(request.password), state)?).map_err(|_| "生成预览失败".into())
         }
+        "catalog" => serde_json::to_value(database_transfer_catalog().map_err(|_|"读取范围失败")?).map_err(|_|"读取范围失败".into()),
+        "plan" => serde_json::to_value(plan_restore(state,&request.token,request.tables,request.mode,request.include_trash)?).map_err(|_|"生成恢复计划失败".into()),
         "confirm" => {
             let _transfer = lock_transfer()?;
             if !matches!(request.mode.as_deref(), Some("replace" | "merge" | "overwrite")) || request.tables.as_ref().is_none_or(|tables| tables.is_empty()) { return Err("请选择恢复范围和方式".into()); }
             sql::selected(request.tables.clone())?;
-            let prepared = state.sessions.lock().map_err(|_| "恢复状态不可用")?.remove(&request.token).ok_or("恢复预览已失效")?;
-            if request.force_restore {
-                let path = backups_dir()?.join(format!("{}.chdb", Uuid::new_v4()));
-                create_package_file(&path, None)?;
-                save_backup_display_name(&path, "网页调试强制恢复前备份.chdb")?;
+            {
+                let sessions=state.sessions.lock().map_err(|_|"恢复状态不可用")?;
+                validate_restore_binding(sessions.get(&request.token).ok_or("恢复预览已失效")?,request.tables.as_deref(),request.mode.as_deref())?;
             }
+            let prepared = state.sessions.lock().map_err(|_| "恢复状态不可用")?.remove(&request.token).ok_or("恢复预览已失效")?;
+            create_recovery_backup()?;
             // The private helper has no running GUI/runtime processes. Node drains
             // API requests and closes its SQLite connection before this call.
-            serde_json::to_value(restore_portable_selection(&prepared.database_path, &prepared.key, request.tables, request.mode.as_deref().unwrap_or("replace"))?).map_err(|_| "生成恢复结果失败".into())
+            let plan=prepared.plan.as_ref().ok_or("请先预览恢复影响")?;
+            let _=request.force_restore;
+            let result=restore_selection_bound(&prepared.database_path, &prepared.key, request.tables, request.mode.as_deref().unwrap_or("merge"),plan.include_trash,Some(&plan.revision))?;
+            serde_json::to_value(format!("{result}；{}",plan.summary)).map_err(|_| "生成恢复结果失败".into())
         }
         "cancel" => {
             state.sessions.lock().map_err(|_| "恢复状态不可用")?.remove(&request.token);

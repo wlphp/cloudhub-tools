@@ -10,10 +10,12 @@ import { closeAuthenticatorBridge } from "../services/authenticator.mjs";
 
 export async function handleDatabaseMigrationRoutes(req, res, url, send, exclusive) {
   const action = url.pathname.slice("/api/database-import/".length);
-  if (!url.pathname.startsWith("/api/database-import/") || req.method !== "POST" || !["preview", "confirm", "cancel"].includes(action)) return false;
+  if (!url.pathname.startsWith("/api/database-import/") || req.method !== "POST" || !["preview", "catalog", "plan", "confirm", "cancel"].includes(action)) return false;
   res.setHeader("Cache-Control", "no-store");
   try {
-    if (action === "preview") {
+    if (action === "catalog") {
+      send(res, 200, await callDatabaseRestore({ op: "catalog" }));
+    } else if (action === "preview") {
       const password = decodeURIComponent(String(req.headers["x-backup-password"] || ""));
       if (Buffer.byteLength(password) > 1024) throw new Error("备份密码过长");
       const bytes = await readLimited(req);
@@ -32,6 +34,9 @@ export async function handleDatabaseMigrationRoutes(req, res, url, send, exclusi
       if (action === "cancel") {
         consumeRestore(body.token);
         send(res, 200, await callDatabaseRestore({ op: "cancel", token: body.token }));
+      } else if (action === "plan") {
+        if (!Array.isArray(body.tables) || !body.tables.length || body.tables.length > 32 || body.tables.some(table => typeof table !== "string" || !/^[a-z_]+$/.test(table)) || !["replace", "merge", "overwrite"].includes(body.mode) || typeof body.includeTrash !== "boolean") throw new Error("恢复参数无效");
+        send(res, 200, await callDatabaseRestore({ op: "plan", token: body.token, tables: body.tables, mode: body.mode, includeTrash: body.includeTrash }));
       } else {
         if (!Array.isArray(body.tables) || !body.tables.length || body.tables.length > 32 || body.tables.some(table => typeof table !== "string" || !/^[a-z_]+$/.test(table)) || !["replace", "merge", "overwrite"].includes(body.mode) || typeof body.forceRestore !== "boolean") throw new Error("恢复范围或方式无效");
         await exclusive?.enter?.();

@@ -8,6 +8,7 @@ use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
+    collections::HashMap,
     sync::{Mutex, OnceLock},
     time::{Duration, Instant},
 };
@@ -19,10 +20,19 @@ mod transport;
 pub(super) const CONFIG_KEY: &str = "cloud.sync.config";
 static OPERATION: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 static STATUS: OnceLock<Mutex<SyncStatus>> = OnceLock::new();
+static CHANNEL_STATUS: OnceLock<Mutex<HashMap<String, SyncStatus>>> = OnceLock::new();
+static ACTIVE_CHANNEL: OnceLock<Mutex<String>> = OnceLock::new();
+
+fn default_id() -> String { "default".into() }
+fn default_name() -> String { "默认渠道".into() }
 
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct Config {
+    #[serde(default = "default_id")]
+    pub id: String,
+    #[serde(default = "default_name")]
+    pub name: String,
     pub method: String,
     pub provider: String,
     pub endpoint: String,
@@ -40,10 +50,14 @@ pub(crate) struct Config {
     pub password_protected: bool,
     pub backup_password: String,
     pub last_etag: Option<String>,
+    #[serde(default)]
+    pub tables: Option<Vec<String>>,
 }
 impl Default for Config {
     fn default() -> Self {
         Self {
+            id: default_id(),
+            name: default_name(),
             method: "webdav".into(),
             provider: "custom".into(),
             endpoint: String::new(),
@@ -61,6 +75,7 @@ impl Default for Config {
             password_protected: false,
             backup_password: String::new(),
             last_etag: None,
+            tables: None,
         }
     }
 }
@@ -110,21 +125,52 @@ pub(crate) struct SyncView {
 fn status() -> &'static Mutex<SyncStatus> {
     STATUS.get_or_init(|| Mutex::new(SyncStatus::default()))
 }
+fn channel_status(id: &str) -> Result<SyncStatus, String> {
+    let active = ACTIVE_CHANNEL.get_or_init(|| Mutex::new(default_id())).lock().map_err(|_| "同步状态不可用")?;
+    if *active == id { return Ok(status().lock().map_err(|_| "同步状态不可用")?.clone()); }
+    Ok(CHANNEL_STATUS.get_or_init(|| Mutex::new(HashMap::new())).lock().map_err(|_| "同步状态不可用")?.get(id).cloned().unwrap_or_default())
+}
+fn activate(id: &str) -> Result<(), String> {
+    let mut active = ACTIVE_CHANNEL.get_or_init(|| Mutex::new(default_id())).lock().map_err(|_| "同步状态不可用")?;
+    let mut state = status().lock().map_err(|_| "同步状态不可用")?;
+    let mut all = CHANNEL_STATUS.get_or_init(|| Mutex::new(HashMap::new())).lock().map_err(|_| "同步状态不可用")?;
+    all.insert(active.clone(), state.clone());
+    *state = all.get(id).cloned().unwrap_or_default();
+    *active = id.into();
+    Ok(())
+}
+fn checked_id(id: Option<&str>) -> Result<&str, String> {
+    let id = id.unwrap_or("default");
+    if id == "default" || uuid::Uuid::parse_str(id).is_ok_and(|v| v.to_string() == id) { Ok(id) }
+    else { Err("同步渠道无效".into()) }
+}
 fn view(config: &Config, configured: bool) -> Result<SyncView, String> {
     Ok(SyncView {
         configured,
-        status: status().lock().map_err(|_| "同步状态不可用")?.clone(),
+        status: channel_status(&config.id)?,
         config: serde_json::json!({
+            "id": config.id, "name": config.name,
             "method": config.method, "provider": config.provider, "endpoint": config.endpoint, "username": config.username,
             "accessKeyId": config.access_key_id, "bucket": config.bucket, "region": config.region, "pathStyle": config.path_style,
             "remoteRoot": config.remote_root, "profile": config.profile, "autoSync": config.auto_sync, "allowInsecure": config.allow_insecure,
             "passwordProtected": config.password_protected, "hasPassword": !config.password.is_empty(), "hasSecretKey": !config.secret_key.is_empty(),
             "hasBackupPassword": !config.backup_password.is_empty(),
+            "tables": config.tables,
         }),
     })
 }
 
-fn load() -> Result<Option<Config>, String> {
+#[derive(Serialize, Deserialize)]
+pub(super) struct ChannelConfigs { pub channels: Vec<Config> }
+pub(super) fn parse_configs(text: &str) -> Result<ChannelConfigs, String> {
+    let value: serde_json::Value = serde_json::from_str(text).map_err(|_| "云同步配置格式无效")?;
+    if value.get("channels").is_some() {
+        serde_json::from_value(value).map_err(|_| "云同步配置格式无效".into())
+    } else {
+        Ok(ChannelConfigs { channels: vec![serde_json::from_value(value).map_err(|_| "云同步配置格式无效")?] })
+    }
+}
+fn load_all() -> Result<ChannelConfigs, String> {
     let connection = open_db()?;
     let saved: Option<String> = connection
         .query_row(
@@ -139,13 +185,18 @@ fn load() -> Result<Option<Config>, String> {
             let text = Zeroizing::new(
                 decrypt_secret(&ciphertext).map_err(|_| "云同步配置无法解密，请重新配置")?,
             );
-            serde_json::from_str(&text).map_err(|_| "云同步配置格式无效".into())
+            parse_configs(&text)
         })
         .transpose()
+        .map(|value| value.unwrap_or(ChannelConfigs { channels: vec![] }))
 }
-fn persist(config: &Config) -> Result<(), String> {
+fn load_channel(id: &str) -> Result<Option<Config>, String> {
+    checked_id(Some(id))?;
+    Ok(load_all()?.channels.into_iter().find(|config| config.id == id))
+}
+fn persist_all(configs: &ChannelConfigs) -> Result<(), String> {
     let serialized =
-        Zeroizing::new(serde_json::to_string(config).map_err(|_| "生成云同步配置失败")?);
+        Zeroizing::new(serde_json::to_string(configs).map_err(|_| "生成云同步配置失败")?);
     let encrypted = encrypt_secret(&serialized)?;
     crate::core::repositories::preferences::save(
         &open_db()?,
@@ -154,6 +205,32 @@ fn persist(config: &Config) -> Result<(), String> {
         chrono::Utc::now().timestamp_millis(),
     )
     .map_err(|_| "保存云同步配置失败".into())
+}
+fn persist(config: &Config) -> Result<(), String> {
+    let mut all = load_all()?;
+    if let Some(saved) = all.channels.iter_mut().find(|item| item.id == config.id) { *saved = config.clone(); }
+    else {
+        if all.channels.len() >= 50 { return Err("同步渠道最多可添加 50 条".into()); }
+        all.channels.push(config.clone());
+    }
+    persist_all(&all)
+}
+
+#[tauri::command]
+pub(crate) fn cloud_sync_channels() -> PlatformResult<Vec<SyncView>> {
+    Ok(load_all()?.channels.iter().map(|config| view(config, true)).collect::<Result<Vec<_>, _>>()?)
+}
+#[tauri::command]
+pub(crate) async fn cloud_sync_delete(channel_id: String) -> PlatformResult<()> {
+    checked_id(Some(&channel_id))?;
+    let _guard = OPERATION.try_lock().map_err(|_| "云同步正在执行，请稍后重试")?;
+    let mut all = load_all()?;
+    if !all.channels.iter().any(|item| item.id == channel_id) { return Err("同步渠道不存在，请刷新列表".into()); }
+    all.channels.retain(|item| item.id != channel_id);
+    persist_all(&all)?;
+    activate(&channel_id)?;
+    *status().lock().map_err(|_| "同步状态不可用")? = SyncStatus::default();
+    Ok(())
 }
 
 fn safe_segment(value: &str) -> bool {
@@ -167,6 +244,11 @@ fn safe_segment(value: &str) -> bool {
         && value.trim() == value
 }
 fn validate(config: &Config) -> Result<(), String> {
+    super::database_migration::sql::selected(config.tables.clone())?;
+    checked_id(Some(&config.id))?;
+    if config.name.trim().is_empty() || config.name.chars().count() > 80 || config.name.chars().any(char::is_control) {
+        return Err("请填写有效的渠道名称（最多 80 个字符）".into());
+    }
     if !["webdav", "s3"].contains(&config.method.as_str())
         || !["custom", "jianguoyun", "nextcloud", "alist"].contains(&config.provider.as_str())
     {
@@ -226,6 +308,7 @@ fn validate(config: &Config) -> Result<(), String> {
 }
 
 fn merge_input(mut input: Config, saved: Option<&Config>) -> Result<Config, String> {
+    input.name = input.name.trim().to_string();
     input.endpoint = input.endpoint.trim().trim_end_matches('/').to_string();
     input.remote_root = input.remote_root.trim().to_string();
     input.profile = input.profile.trim().to_string();
@@ -284,7 +367,7 @@ fn supported() -> Result<(), String> {
 #[tauri::command]
 pub(crate) fn cloud_sync_reveal_secret(config: Config, field: String) -> PlatformResult<String> {
     supported()?;
-    let saved = load()?.ok_or("尚未保存云同步配置")?;
+    let saved = load_channel(&config.id)?.ok_or("尚未保存云同步配置")?;
     Ok(reveal_secret(&config, &saved, &field)?.to_string())
 }
 
@@ -306,11 +389,13 @@ fn reveal_secret<'a>(input: &Config, saved: &'a Config, field: &str) -> Result<&
 }
 
 #[tauri::command]
-pub(crate) fn cloud_sync_state() -> PlatformResult<SyncView> {
+pub(crate) fn cloud_sync_state(channel_id: Option<String>) -> PlatformResult<SyncView> {
     supported()?;
-    let config = load()?;
+    let id = checked_id(channel_id.as_deref())?;
+    let config = load_channel(id)?;
+    let mut fallback = Config::default(); fallback.id = id.into();
     Ok(view(
-        config.as_ref().unwrap_or(&Config::default()),
+        config.as_ref().unwrap_or(&fallback),
         config.is_some(),
     )?)
 }
@@ -320,9 +405,10 @@ pub(crate) async fn cloud_sync_save(config: Config) -> PlatformResult<SyncView> 
     let _guard = OPERATION
         .try_lock()
         .map_err(|_| "云同步正在执行，请稍后重试")?;
-    let saved = load()?;
+    let saved = load_channel(&config.id)?;
     let config = merge_input(config, saved.as_ref())?;
     persist(&config)?;
+    activate(&config.id)?;
     {
         let mut state = status().lock().map_err(|_| "同步状态不可用")?;
         state.paused = false;
@@ -336,7 +422,7 @@ pub(crate) async fn cloud_sync_test(config: Config) -> PlatformResult<()> {
     let _guard = OPERATION
         .try_lock()
         .map_err(|_| "云同步正在执行，请稍后重试")?;
-    let saved = load()?;
+    let saved = load_channel(&config.id)?;
     let config = merge_input(config, saved.as_ref())?;
     let client = transport::client()?;
     let method = if config.method == "webdav" {
@@ -388,9 +474,129 @@ impl Drop for Busy {
     }
 }
 
-async fn upload(automatic: bool) -> Result<(), String> {
+const VERSION_INDEX: &str = "versions.json";
+const MAX_VERSIONS: usize = 10000;
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct BackupVersion {
+    id: String,
+    machine_name: String,
+    uploaded_at: Option<String>,
+}
+
+impl BackupVersion {
+    fn new() -> Self {
+        let machine_name = std::env::var("COMPUTERNAME")
+            .or_else(|_| std::env::var("HOSTNAME"))
+            .ok().filter(|name| !name.trim().is_empty())
+            .unwrap_or_else(machine_name)
+            .trim().chars().filter(|c| !c.is_control()).take(100).collect::<String>();
+        Self {
+            id: format!("backup-{}.chdb", uuid::Uuid::new_v4()),
+            machine_name: format!("{machine_name}{}", crate::core::data_transfer::BUILD_SUFFIX),
+            uploaded_at: Some(chrono::Utc::now().to_rfc3339()),
+        }
+    }
+}
+
+fn machine_name() -> String {
+    #[cfg(target_os = "macos")]
+    if let Ok(output) = std::process::Command::new("/usr/sbin/scutil").args(["--get", "ComputerName"]).output() {
+        if output.status.success() {
+            let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !name.is_empty() { return name; }
+        }
+    }
+    if let Ok(name) = std::fs::read_to_string("/etc/hostname") {
+        if !name.trim().is_empty() { return name; }
+    }
+    let device = open_db().ok().and_then(|db| db.query_row(
+        "SELECT device_id,device_name FROM sync_local_device WHERE id=1", [],
+        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))).ok());
+    match device {
+        Some((_, name)) if name != "本机" && !name.trim().is_empty() => name,
+        Some((id, _)) => format!("{}-{}", std::env::consts::OS, id.chars().take(8).collect::<String>()),
+        None => std::env::consts::OS.into(),
+    }
+}
+
+fn selected_version(id: Option<&str>) -> Result<String, String> {
+    let id = id.unwrap_or("database.chdb");
+    if id == "database.chdb" || id.strip_prefix("backup-").and_then(|s| s.strip_suffix(".chdb"))
+        .is_some_and(|s| uuid::Uuid::parse_str(s).is_ok() && s.len() == 36) {
+        Ok(id.into())
+    } else {
+        Err("备份版本无效，请刷新版本列表".into())
+    }
+}
+
+async fn version_index(client: &reqwest::Client, config: &Config) -> Result<(Vec<BackupVersion>, Option<String>), String> {
+    let mut response = transport::request(client, config, Method::GET,
+        transport::named_url(config, VERSION_INDEX)?, vec![], None).await?;
+    if response.status() == reqwest::StatusCode::NOT_FOUND { return Ok((vec![], None)); }
+    transport::check(response.status())?;
+    let tag = transport::etag(&response).ok_or("服务未提供版本目录 ETag，无法安全维护多版本备份")?;
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|_| "读取备份版本目录失败")? {
+        if bytes.len().saturating_add(chunk.len()) > 4 * 1024 * 1024 { return Err("备份版本目录过大".into()); }
+        bytes.extend_from_slice(&chunk);
+    }
+    let versions: Vec<BackupVersion> = serde_json::from_slice(&bytes).map_err(|_| "备份版本目录无效")?;
+    if versions.len() > MAX_VERSIONS || versions.iter().any(|v| selected_version(Some(&v.id)).is_err()
+        || v.id == "database.chdb" || v.machine_name.len() > 400 || v.machine_name.chars().any(char::is_control)
+        || v.uploaded_at.as_ref().is_none_or(|s| chrono::DateTime::parse_from_rfc3339(s).is_err())) {
+        return Err("备份版本目录无效".into());
+    }
+    Ok((versions, Some(tag)))
+}
+
+async fn register_version(client: &reqwest::Client, config: &Config, version: BackupVersion) -> Result<(), String> {
+    for _ in 0..5 {
+        let (mut versions, tag) = version_index(client, config).await?;
+        if versions.iter().any(|v| v.id == version.id) { return Ok(()); }
+        if versions.len() >= MAX_VERSIONS { return Err("备份版本已达一万条，请更换同步配置名".into()); }
+        versions.push(version.clone());
+        versions.sort_by(|a, b| b.uploaded_at.cmp(&a.uploaded_at));
+        let response = transport::request(client, config, Method::PUT,
+            transport::named_url(config, VERSION_INDEX)?,
+            serde_json::to_vec(&versions).map_err(|_| "生成备份版本目录失败")?,
+            Some(tag.as_deref().map(|s| ("If-Match", s)).unwrap_or(("If-None-Match", "*")))).await;
+        let response = match response {
+            Ok(response) => response,
+            Err(error) => {
+                if let Ok((confirmed, _)) = version_index(client, config).await {
+                    if confirmed.iter().any(|item| item.id == version.id) { return Ok(()); }
+                }
+                return Err(error);
+            }
+        };
+        if response.status() == reqwest::StatusCode::PRECONDITION_FAILED { continue; }
+        return transport::check(response.status());
+    }
+    Err("其他设备正在上传，版本登记未完成，请稍后重试上传".into())
+}
+
+#[tauri::command]
+pub(crate) async fn cloud_sync_versions(channel_id: Option<String>) -> PlatformResult<Vec<BackupVersion>> {
+    let _guard = OPERATION.try_lock().map_err(|_| "云同步正在执行，请稍后重试")?;
+    let config = load_channel(checked_id(channel_id.as_deref())?)?.ok_or("请先保存云同步配置")?;
+    validate(&config)?;
+    let client = transport::client()?;
+    let (mut versions, _) = version_index(&client, &config).await?;
+    versions.sort_by(|a, b| {
+        let time = |v: &BackupVersion| v.uploaded_at.as_ref().and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok());
+        time(b).cmp(&time(a)).then_with(|| a.id.cmp(&b.id))
+    });
+    if transport::head(&client, &config).await?.0 {
+        versions.push(BackupVersion { id: "database.chdb".into(), machine_name: "旧版备份（机器名称未知）".into(), uploaded_at: None });
+    }
+    Ok(versions)
+}
+
+async fn upload(automatic: bool, channel_id: &str) -> Result<(), String> {
     progress("connecting", 0, None);
-    let mut config = load()?.ok_or("请先保存云同步配置")?;
+    let mut config = load_channel(channel_id)?.ok_or("请先保存云同步配置")?;
     validate(&config)?;
     if automatic && (!config.auto_sync || status().lock().map_err(|_| "同步状态不可用")?.paused)
     {
@@ -398,41 +604,32 @@ async fn upload(automatic: bool) -> Result<(), String> {
     }
     let client = transport::client()?;
     transport::ensure_directories(&client, &config).await?;
-    let (exists, current_etag) = transport::head(&client, &config).await?;
-    if automatic && exists && (current_etag.is_none() || config.last_etag != current_etag) {
-        return Err("云端存在其他版本，自动上传已停止；请先下载检查，或手动确认上传".into());
-    }
-    if exists && current_etag.is_none() {
-        return Err(
-            "服务未提供有效 ETag，无法安全覆盖已有备份；请更换配置名或使用支持 ETag 的服务".into(),
-        );
-    }
     let password = if config.password_protected {
         Some(config.backup_password.clone())
     } else {
         None
     };
     progress("preparing", 0, None);
+    let tables=config.tables.clone();
     let bytes = tauri::async_runtime::spawn_blocking(move || {
-        super::database_migration::cloud_snapshot(password)
+        super::database_migration::cloud_snapshot_scoped(password,tables)
     })
     .await
     .map_err(|_| "创建云备份快照失败")??;
-    let condition = current_etag
-        .as_deref()
-        .map(|tag| ("If-Match", tag))
-        .unwrap_or(("If-None-Match", "*"));
+    let version = BackupVersion::new();
     let response = transport::request(
         &client,
         &config,
         Method::PUT,
-        transport::url(&config, true)?,
+        transport::named_url(&config, &version.id)?,
         bytes,
-        Some(condition),
+        Some(("If-None-Match", "*")),
     )
     .await?;
     transport::check(response.status())?;
     progress("finishing", 0, None);
+    register_version(&client, &config, version).await
+        .map_err(|error| format!("备份文件已上传，但版本目录登记失败：{error}"))?;
     config.last_etag = transport::etag(&response);
     // Do not fetch a newer ETag here: a second device could have replaced our upload.
     persist(&config)?;
@@ -443,38 +640,44 @@ async fn upload(automatic: bool) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub(crate) async fn cloud_sync_upload() -> PlatformResult<SyncView> {
+pub(crate) async fn cloud_sync_upload(channel_id: Option<String>) -> PlatformResult<SyncView> {
     supported()?;
     let _guard = OPERATION
         .try_lock()
         .map_err(|_| "云同步正在执行，请勿重复操作")?;
+    let id = checked_id(channel_id.as_deref())?;
+    activate(id)?;
     let busy = Busy::start()?;
-    let result = upload(false).await;
+    let result = upload(false, id).await;
     busy.finish(result.as_ref().err().cloned(), true);
     result?;
     drop(busy);
-    Ok(view(&load()?.ok_or("配置已失效")?, true)?)
+    Ok(view(&load_channel(id)?.ok_or("配置已失效")?, true)?)
 }
 
 #[tauri::command]
 pub(crate) async fn cloud_sync_download(
     app: tauri::AppHandle,
+    version_id: Option<String>,
+    channel_id: Option<String>,
 ) -> PlatformResult<super::database_migration::ImportPreview> {
     supported()?;
     let _guard = OPERATION
         .try_lock()
         .map_err(|_| "云同步正在执行，请勿重复操作")?;
+    let id = checked_id(channel_id.as_deref())?;
+    activate(id)?;
     let busy = Busy::start()?;
     progress("connecting", 0, None);
     let result = async {
-        let mut config = load()?.ok_or("请先保存云同步配置")?;
+        let mut config = load_channel(id)?.ok_or("请先保存云同步配置")?;
         validate(&config)?;
         let client = transport::client()?;
         let response = transport::request(
             &client,
             &config,
             Method::GET,
-            transport::url(&config, true)?,
+            transport::named_url(&config, &selected_version(version_id.as_deref())?)?,
             vec![],
             None,
         )
@@ -501,7 +704,6 @@ pub(crate) async fn cloud_sync_download(
         })
         .await
         .map_err(|_| "准备云备份预览失败")??;
-        pause_for_restore();
         Ok::<_, String>(preview)
     }
     .await;
@@ -510,6 +712,12 @@ pub(crate) async fn cloud_sync_download(
 }
 
 pub(super) fn pause_for_restore() {
+    if let Ok(mut all) = CHANNEL_STATUS.get_or_init(|| Mutex::new(HashMap::new())).lock() {
+        for state in all.values_mut() { state.paused = true; }
+        if let Ok(configs) = load_all() {
+            for config in configs.channels { all.entry(config.id.clone()).or_default().paused = true; }
+        }
+    }
     if let Ok(mut state) = status().lock() {
         state.paused = true;
         state.error =
@@ -521,7 +729,6 @@ pub(super) fn restore_guard() -> Result<tokio::sync::MutexGuard<'static, ()>, St
     let guard = OPERATION
         .try_lock()
         .map_err(|_| "云同步正在执行，请完成后再恢复数据库")?;
-    pause_for_restore();
     Ok(guard)
 }
 
@@ -582,50 +789,47 @@ fn fingerprint(connection: &Connection) -> Result<String, String> {
 #[cfg(desktop)]
 pub(crate) fn initialize() {
     tauri::async_runtime::spawn(async {
-        let mut previous = None;
-        let mut pending: Option<(Instant, Instant)> = None;
-        let mut retry_after = Instant::now();
+        let mut trackers: HashMap<String, (Option<String>, Option<(Instant, Instant)>, Instant)> = HashMap::new();
         loop {
             tokio::time::sleep(Duration::from_secs(10)).await;
-            let Ok(Some(config)) = load() else {
-                continue;
-            };
-            if !config.auto_sync || status().lock().map(|state| state.paused).unwrap_or(true) {
-                previous = None;
-                pending = None;
-                continue;
-            }
+            let Ok(configs) = load_all() else { continue; };
+            trackers.retain(|id, _| configs.channels.iter().any(|config| config.id == *id));
             let hash = tauri::async_runtime::spawn_blocking(|| fingerprint(&open_db()?)).await;
-            let Ok(Ok(hash)) = hash else {
-                continue;
-            };
-            if previous.as_ref().is_some_and(|old| old != &hash) {
-                let now = Instant::now();
-                pending = Some((pending.map(|v| v.0).unwrap_or(now), now));
+            let Ok(Ok(hash)) = hash else { continue; };
+            for config in configs.channels {
+                let (previous, pending, retry_after) = trackers.entry(config.id.clone()).or_insert((None, None, Instant::now()));
+                if !config.auto_sync || channel_status(&config.id).map(|state| state.paused).unwrap_or(true) {
+                    *previous = None; *pending = None; continue;
+                }
+                if previous.as_ref().is_some_and(|old| old != &hash) {
+                    let now = Instant::now();
+                    *pending = Some((pending.map(|v| v.0).unwrap_or(now), now));
+                }
+                *previous = Some(hash.clone());
+                let Some((first, last)) = *pending else {
+                    continue;
+                };
+                if Instant::now() < *retry_after
+                    || (last.elapsed() < Duration::from_secs(30)
+                        && first.elapsed() < Duration::from_secs(120))
+                {
+                    continue;
+                }
+                let Ok(_guard) = OPERATION.try_lock() else {
+                    continue;
+                };
+                if activate(&config.id).is_err() { continue; }
+                let Ok(busy) = Busy::start() else {
+                    continue;
+                };
+                let result = upload(true, &config.id).await;
+                busy.finish(result.as_ref().err().cloned(), true);
+                if result.is_ok() {
+                    *pending = None;
+                }
+                *retry_after =
+                    Instant::now() + Duration::from_secs(if result.is_ok() { 30 } else { 300 });
             }
-            previous = Some(hash);
-            let Some((first, last)) = pending else {
-                continue;
-            };
-            if Instant::now() < retry_after
-                || (last.elapsed() < Duration::from_secs(30)
-                    && first.elapsed() < Duration::from_secs(120))
-            {
-                continue;
-            }
-            let Ok(_guard) = OPERATION.try_lock() else {
-                continue;
-            };
-            let Ok(busy) = Busy::start() else {
-                continue;
-            };
-            let result = upload(true).await;
-            busy.finish(result.as_ref().err().cloned(), true);
-            if result.is_ok() {
-                pending = None;
-            }
-            retry_after =
-                Instant::now() + Duration::from_secs(if result.is_ok() { 30 } else { 300 });
         }
     });
 }
@@ -639,6 +843,24 @@ mod tests {
         value.username = "fixture-user".into();
         value.password = "fixture-password".into();
         value
+    }
+    #[test]
+    fn legacy_and_multi_channel_configs_keep_separate_identities() {
+        let config = fixture();
+        let mut legacy = serde_json::to_value(&config).unwrap();
+        legacy.as_object_mut().unwrap().remove("id");
+        legacy.as_object_mut().unwrap().remove("name");
+        let migrated = parse_configs(&legacy.to_string()).unwrap();
+        assert_eq!(migrated.channels[0].id, "default");
+        let mut second = fixture();
+        second.id = uuid::Uuid::new_v4().to_string(); second.name = "备用渠道".into();
+        second.password = "second-fixture".into();
+        let all = ChannelConfigs { channels: vec![config, second] };
+        let parsed = parse_configs(&serde_json::to_string(&all).unwrap()).unwrap();
+        assert_eq!(parsed.channels.len(), 2);
+        assert_ne!(parsed.channels[0].id, parsed.channels[1].id);
+        assert_ne!(parsed.channels[0].password, parsed.channels[1].password);
+        assert!(checked_id(Some("../private")).is_err());
     }
     #[test]
     fn reveal_requires_matching_identity_and_supported_secret_field() {

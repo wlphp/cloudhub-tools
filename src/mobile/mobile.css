@@ -2736,6 +2736,48 @@ body:has(.mobile-shell) .sync-transfer-mobile-page > .sync-transfer-intro {
   line-height: 1.6;
 }
 
+.mobile-sync-scope {
+  margin-bottom: 16px;
+  color: var(--mobile-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.mobile-sync-scope summary { min-height: 44px; display: list-item; align-content: center; color: var(--mobile-text); cursor: pointer; }
+.mobile-sync-scope p { white-space: normal; overflow-wrap: anywhere; }
+body:has(.mobile-shell) .data-transfer-scope {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  margin: 12px 0;
+  padding: 12px;
+  gap: 8px;
+  border: 1px solid var(--mobile-border);
+  border-radius: 8px;
+  color: var(--mobile-text);
+}
+body:has(.mobile-shell) .data-transfer-group { margin-top: 8px; color: var(--mobile-muted); font-size: 13px; }
+body:has(.mobile-shell) .data-transfer-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+body:has(.mobile-shell) .data-transfer-check input { flex: 0 0 auto; width: 20px; height: 20px; accent-color: var(--mobile-accent); }
+body:has(.mobile-shell) .database-import-dialog .data-transfer-field { display: grid; gap: 8px; margin: 12px 0; }
+body:has(.mobile-shell) .database-import-dialog .data-transfer-field select { min-height: 44px; width: 100%; min-width: 0; font-size: 16px; }
+body:has(.mobile-shell) .data-transfer-scope small { color: var(--mobile-muted); line-height: 1.6; overflow-wrap: anywhere; }
+body:has(.mobile-shell) :is(.database-import-dialog, .cloud-sync-section, .sync-transfer-mobile) p {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+@media(min-width: 600px) {
+  body:has(.mobile-shell) .data-transfer-scope { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  body:has(.mobile-shell) .data-transfer-scope > :is(button, strong, small) { grid-column: 1 / -1; }
+}
+
 .mobile-import-card {
   display: grid;
   min-width: 0;

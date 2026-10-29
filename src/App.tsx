@@ -5398,7 +5398,7 @@ function App() {
       </SharedDialog>}
       {confirmRequest && <ConfirmDialog message={confirmRequest.message} title={confirmRequest.title} confirmLabel={confirmRequest.confirmLabel} onResolve={resolveConfirm} />}
       {showSyncTransfer && <SyncTransferPanel mode="desktop" accounts={accounts} managedHosts={managedHosts} panels={panelConnections} onClose={() => setShowSyncTransfer(false)} onImported={() => { void load(); void loadLocalAssets(); void loadManagedHosts(); void loadPanelConnections(); }} />}
-      {databaseImportPreview && <DataImportReview key={databaseImportPreview.token} preview={databaseImportPreview} busy={databaseImportBusy} onClose={() => void cancelDatabaseImport()} onConfirm={(tables, mode) => void confirmDatabaseImport(tables, mode)} />}
+      {databaseImportPreview && <DataImportReview key={databaseImportPreview.token} preview={databaseImportPreview} busy={databaseImportBusy} onClose={() => void cancelDatabaseImport()} onConfirm={(tables, mode, forceRestore) => void confirmDatabaseImport(tables, mode, forceRestore)} />}
       {promptRequest && <SharedDialog title="请输入内容" eyebrow="INPUT REQUIRED" icon={<AlertTriangle size={20} />} size="small" describedBy="prompt-message" onSubmit={(event) => { event.preventDefault(); resolvePrompt(promptValue); }} onClose={() => resolvePrompt(null)} footer={<><button type="button" className="secondary" onClick={() => resolvePrompt(null)}>取消</button><button type="submit" className="primary">确定</button></>}><p id="prompt-message">{promptRequest.message}</p><input aria-label="需要输入的内容" value={promptValue} autoFocus onChange={(event) => setPromptValue(event.target.value)} /></SharedDialog>}
     </div>
   );

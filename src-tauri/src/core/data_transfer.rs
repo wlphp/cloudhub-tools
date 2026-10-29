@@ -2,7 +2,8 @@
 use rusqlite::{Connection, types::Value};
 use crate::core::crypto::{decrypt_secret_with_key, encrypt_secret_with_key};
 
-pub const POLICY_VERSION: u16 = 1;
+pub const POLICY_VERSION: u16 = 2;
+pub const BUILD_SUFFIX: &str = if cfg!(debug_assertions) { "-dev" } else { "" };
 // Parent tables precede children. Unknown tables are never portable by default.
 pub const TABLES: &[(&str, &str)] = &[
     ("cloud_accounts", "云账号"), ("ssh_connections", "云主机 SSH"),
@@ -18,9 +19,26 @@ pub const TABLES: &[(&str, &str)] = &[
     ("codex_provider_aggregates", "供应商聚合"), ("codex_provider_aggregate_members", "聚合成员"),
     ("ai_profiles", "AI 配置"), ("memo_groups", "备忘录分组"), ("memo_notes", "备忘录"),
     ("browser_environments", "指纹浏览器配置"),
-    ("authenticator_entries", "验证器（含种子）"), ("client_preferences", "可迁移偏好"),
+    ("authenticator_entries", "验证器（含种子）"),
+    ("transfer_cloud_drive", "云盘连接配置"), ("transfer_asset_metadata", "资产自定义信息"),
+    ("client_preferences", "外观与使用偏好"),
 ];
 pub fn allowed(table: &str) -> bool { TABLES.iter().any(|(name, _)| *name == table) }
+/// Explicitly excluded persistence. Adding a database table requires a scope decision.
+pub const LOCAL_TABLES: &[&str] = &[
+    "api_logs","operation_logs","cloud_assets","flow_pipeline_cache","network_speed_history",
+    "certificate_snapshots","certificate_sync_identity","flow_sync_identity",
+    "authenticator_vault","memo_reminders","ai_capabilities","claude_provider_backups",
+    "codex_accounts","codex_profiles","codex_profile_backups","codex_account_controls","codex_account_events",
+    "codex_config_history","codex_config_operations","codex_gateway_config","codex_gateway_network",
+    "codex_gateway_pool","codex_gateway_preferences","codex_gateway_tunnel",
+    "codex_provider_accounts","codex_provider_bindings","codex_provider_config_backups",
+    "codex_provider_gateways","codex_provider_oauth","codex_provider_request_logs",
+    "sync_apply_guard","sync_device_scope","sync_devices","sync_entity_versions","sync_inbox",
+    "sync_local_device","sync_local_versions","sync_outbox","sync_outbox_acknowledgements",
+    "sync_pending_acknowledgements","sync_tombstones","lan_devices","lan_scans","mail_accounts",
+    "data_transfer_identity","cloudhub_transfer_ids","cloudhub_transfer_scope","cloudhub_transfer_policy",
+];
 pub fn ident(name: &str) -> String { format!("\"{}\"", name.replace('"', "\"\"")) }
 pub fn exists(db: &Connection, table: &str) -> Result<bool, String> {
     db.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1)", [table], |r| r.get(0)).map_err(|_| "检查迁移数据结构失败".into())
@@ -31,8 +49,37 @@ pub fn columns(db: &Connection, table: &str) -> Result<Vec<String>, String> {
     rows.collect::<rusqlite::Result<_>>().map_err(|_| "读取迁移字段失败".into())
 }
 pub fn portable_preference(key: &str) -> bool {
-    matches!(key, "theme" | "language" | "locale" | "app.theme" | "app.language" | "cloudhub.application-navigation" | "codex.providers.order")
-        || key.starts_with("ui.") || key.starts_with("memo.")
+    preference_module(key).is_some()
+}
+pub fn preference_module(key: &str) -> Option<&'static str> {
+    match key {
+        "cloud.drive.connections" => Some("transfer_cloud_drive"),
+        "cloudhub-tools-favorite-assets" | "cloudhub-tools-favorite-asset-order" |
+        "cloudhub-tools-asset-notes" | "cloudhub-tools-asset-order" |
+        "cloudhub-tools-asset-display-names" | "cloudhub-tools-managed-host-order" => Some("transfer_asset_metadata"),
+        "theme" | "language" | "locale" | "app.theme" | "app.language" |
+        "cloudhub-tools-ui-theme" | "cloudhub-tools-ui-language" | "cloudhub-tools-terminal-theme" |
+        "cloudhub.application-navigation" | "codex.providers.order" | "cloudhub-terminal-quick-commands" => Some("client_preferences"),
+        _ => None,
+    }
+}
+pub fn virtual_table(table: &str) -> bool { matches!(table, "transfer_cloud_drive" | "transfer_asset_metadata") }
+pub fn target_table(table: &str) -> &str { if virtual_table(table) { "client_preferences" } else { table } }
+/// Transfer-only projections; these tables never become application persistence.
+pub fn project_preferences(db: &Connection) -> Result<(), String> {
+    for table in ["transfer_cloud_drive", "transfer_asset_metadata"] {
+        db.execute_batch(&format!("CREATE TABLE IF NOT EXISTS {table}(key TEXT PRIMARY KEY,value TEXT NOT NULL,updated_at INTEGER NOT NULL DEFAULT 0)")).map_err(|_| "创建偏好投影失败")?;
+    }
+    let mut stmt = db.prepare("SELECT key,value,updated_at FROM client_preferences").map_err(|_| "读取偏好投影失败")?;
+    let rows = stmt.query_map([], |r| Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,i64>(2)?))).map_err(|_| "读取偏好投影失败")?.collect::<rusqlite::Result<Vec<_>>>().map_err(|_| "读取偏好投影失败")?;
+    drop(stmt);
+    for (key,value,updated) in rows {
+        if let Some(table) = preference_module(&key).filter(|table| virtual_table(table)) {
+            db.execute(&format!("INSERT OR IGNORE INTO {table}(key,value,updated_at) VALUES(?1,?2,?3)"),rusqlite::params![key,value,updated]).map_err(|_| "写入偏好投影失败")?;
+            db.execute("DELETE FROM client_preferences WHERE key=?1",[key]).map_err(|_| "清理偏好投影失败")?;
+        }
+    }
+    Ok(())
 }
 pub fn secret(table: &str, column: &str) -> bool {
     column.ends_with("_ciphertext") || (matches!(table, "codex_provider_keys" | "authenticator_entries") && column == "ciphertext")
@@ -43,6 +90,8 @@ pub fn clean_value(table: &str, column: &str, value: Value) -> Value {
         ("managed_hosts", "metrics_json") | ("panel_connections", "summary_json") => Value::Text("{}".into()),
         (_, "last_error" | "last_checked_at" | "last_latency_ms" | "last_opened_at") => Value::Null,
         ("claude_providers", "is_current") => Value::Integer(0),
+        (_, "auto_start" | "auto_mount") => Value::Integer(0),
+        (_, "host_key_fingerprint" | "trusted_fingerprint") => Value::Null,
         ("certificates", "dns_record_ids_json") => Value::Text("[]".into()),
         ("certificates", "order_url" | "certificate_url") => Value::Null,
         _ => value,
@@ -56,6 +105,18 @@ pub fn convert(table: &str, column: &str, value: Value, from: Option<&[u8]>, to:
         let plain = zeroize::Zeroizing::new(match from { Some(key) => decrypt_secret_with_key(text, key)?, None => text.to_string() });
         match to { Some(key) => encrypt_secret_with_key(&plain, key), None => Ok(plain.to_string()) }
     };
+    if table == "transfer_cloud_drive" && column == "value" {
+        let plain = zeroize::Zeroizing::new(match from { Some(key) => decrypt_secret_with_key(&text,key).map_err(|_| "云盘凭据转换失败")?, None => text });
+        let mut connections: serde_json::Value = serde_json::from_str(&plain).map_err(|_| "云盘连接格式无效")?;
+        for connection in connections.as_array_mut().ok_or("云盘连接格式无效")? {
+            let object = connection.as_object_mut().ok_or("云盘连接格式无效")?;
+            object.insert("autoMount".into(), false.into());
+            object.insert("mountPoint".into(), "".into());
+            object.insert("cacheDir".into(), "".into());
+        }
+        let plain = zeroize::Zeroizing::new(serde_json::to_string(&connections).map_err(|_| "云盘连接格式无效")?);
+        return Ok(Value::Text(match to { Some(key) => encrypt_secret_with_key(&plain,key)?, None => plain.to_string() }));
+    }
     if secret(table, column) { return convert_secret(&text).map(Value::Text).map_err(|_| "迁移凭据转换失败".into()); }
     if table == "claude_providers" && column == "settings_json" {
         let mut settings: serde_json::Value = serde_json::from_str(&text).map_err(|_| "Claude 供应商格式无效")?;

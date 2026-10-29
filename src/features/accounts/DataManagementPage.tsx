@@ -82,7 +82,7 @@ export function DataManagementPage({ language, onOpenDirectory, onPhoneMigration
           <p className="data-settings-warning"><AlertTriangle size={14} aria-hidden="true" />{t("文件包含明文凭据，请妥善保管。")}</p>
           <details className="data-settings-scope">
             <summary>{t("查看范围与说明")}</summary>
-            <p>{t("统一范围：云账号、SSH/RDP、主机、宝塔面板及站点证书关联、证书及历史私钥、流水线、FRP、Claude/Codex 供应商、AI 配置、备忘录、指纹浏览器配置、验证器种子与可迁移偏好。不含 Codex 登录账号、日志、缓存、设备身份及下载包。")}</p>
+            <p>{t("统一范围：云账号、SSH/RDP、主机、宝塔面板及站点证书关联、证书及历史私钥、流水线、FRP、Claude/Codex 供应商、AI 配置、备忘录、指纹浏览器配置、验证器种子、云盘连接、资产收藏/备注/显示名/排序与外观偏好。不含云同步渠道、Codex 登录账号、日志、缓存、设备身份及下载包。云盘挂载位置与自动挂载留在本机。")}</p>
             <p>{t("仅支持数据库版本一致的 CloudHub SQL，文件最大 64 MB。导入先预览再确认，凭据会用本机密钥重新加密。")}</p>
           </details>
         </div>
@@ -160,10 +160,10 @@ function BackupRestoreDialog({ onClose, onRestore, onStatus }: Pick<Props, "onRe
     }
     finally { setBusy(false); }
   }
-  async function createBackup(password?: string) {
+  async function createBackup(password?: string, tables?: string[]) {
     setBusy(true);
     try {
-      const record = await databaseClient.createBackup(password);
+      const record = await databaseClient.createBackup(password, tables);
       setRecords(rows => [record, ...rows]);
       onStatus(record.encrypted ? "密码备份已保存，恢复时需要备份密码。" : "备份已保存，包含加密字段及恢复密钥，请妥善保管。");
     } finally { setBusy(false); }
