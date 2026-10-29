@@ -116,7 +116,7 @@ test("fits the account form on a narrow phone viewport", async ({ page }) => {
   await page.getByRole("button", { name: "添加云账号" }).click();
   await expect(page.getByRole("heading", { name: "添加云账号" })).toBeVisible();
   await page.locator('input[name="accountName"]').fill("保留的账号名称");
-  await page.locator(".mobile-modal-backdrop").click({ position: { x: 2, y: 2 } });
+  await page.locator(".shared-dialog-backdrop").click({ position: { x: 2, y: 2 } });
   await expect(page.getByRole("heading", { name: "添加云账号" })).toBeVisible();
   await expect(page.locator('input[name="accountName"]')).toHaveValue("保留的账号名称");
   await expect(page.locator('input[name="accountName"]')).toHaveAttribute("required", "");
@@ -124,12 +124,12 @@ test("fits the account form on a narrow phone viewport", async ({ page }) => {
   await expect(page.locator('input[name="accessKeySecret"]')).toHaveAttribute("type", "password");
   await expectNoHorizontalOverflow(page);
 
-  const form = page.locator(".mobile-account-form");
+  const form = page.getByRole("dialog", { name: "添加云账号", exact: true });
   const bounds = await form.boundingBox();
   expect(bounds).not.toBeNull();
   expect(bounds!.x).toBeGreaterThanOrEqual(0);
   expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(320);
-  const scrollable = await form.evaluate((element) => element.scrollHeight > element.clientHeight);
+  const scrollable = await form.locator(".modal-body").evaluate((element) => element.scrollHeight > element.clientHeight);
   expect(scrollable).toBeTruthy();
   const submit = page.getByRole("button", { name: /保存到本机/ });
   await submit.scrollIntoViewIfNeeded();
@@ -143,7 +143,7 @@ test("shows provider-specific credentials and secret field types", async ({ page
   await stubLocalApi(page);
   await page.goto("/");
   await page.getByRole("button", { name: "添加云账号" }).click();
-  const form = page.locator(".mobile-account-form");
+  const form = page.getByRole("dialog", { name: "添加云账号", exact: true });
 
   await form.locator('select:not([name="enabled"])').selectOption("oracle");
   await expect(form.locator('input[name="tenancyOcid"]')).toHaveAttribute("required", "");
@@ -172,7 +172,7 @@ test("edits account settings without reading the saved secret back into the form
   await page.goto("/");
   await page.getByRole("button", { name: "展开 mobile-fixture 操作",exact:true }).click();
   await page.getByRole("button", { name: "编辑本机账号 mobile-fixture" }).click();
-  const form = page.locator(".mobile-account-form");
+  const form = page.getByRole("dialog", { name: "编辑云账号", exact: true });
   await expect(page.getByRole("heading", { name: "编辑云账号" })).toBeVisible();
   await expect(form.locator('input[name="accountName"]')).toHaveValue("mobile-fixture");
   await expect(form.locator('input[name="accessKeyId"]')).toHaveValue("fixture-access-id");
@@ -202,7 +202,7 @@ test("validates mobile DNS input before sending provider mutations", async ({ pa
   await page.getByRole("button", { name: /example\.test/ }).click();
   await page.getByRole("button", { name: /新增记录/ }).click();
 
-  const form = page.locator(".mobile-account-form");
+  const form = page.getByRole("dialog", { name: "新增 DNS 记录", exact: true });
   await form.getByRole("button", { name: "AI 识别 DNS 草稿" }).click();
   const ai = page.getByRole("dialog", { name: "AI 识别 DNS 草稿" });
   await expect(ai.getByRole("textbox",{name:"分析内容",exact:true})).toBeVisible();await expect(ai.getByRole("button",{name:"发送并分析"})).toBeDisabled();
@@ -322,7 +322,7 @@ test("adds a panel locally and rejects non-root panel URLs before native save", 
   await page.locator(".mobile-more-feature").filter({ hasText: "运维面板" }).click();
   await page.getByRole("button", { name: "添加面板" }).click();
 
-  const form = page.locator(".mobile-account-form");
+  const form = page.getByRole("dialog", { name: "添加运维面板", exact: true });
   await expect(page.getByRole("heading", { name: "添加运维面板" })).toBeVisible();
   await expect(form.getByLabel("API 密钥", { exact: true })).toHaveAttribute("type", "password");
   await expect(form.getByLabel("API 密钥", { exact: true })).toHaveAttribute("required", "");
@@ -342,7 +342,7 @@ test("keeps the SSH credential form usable when the mobile viewport shrinks", as
   await page.getByRole("button", { name: "SSH 终端" }).click();
   await page.getByRole("button", { name: "添加主机" }).click();
 
-  const form = page.locator(".mobile-account-form");
+  const form = page.getByRole("dialog", { name: "添加 SSH 主机", exact: true });
   await expect(page.getByRole("heading", { name: "添加 SSH 主机" })).toBeVisible();
   await form.getByLabel("主机地址").fill("host.example.test");
   await form.getByLabel("认证方式").selectOption("private_key");
@@ -352,7 +352,7 @@ test("keeps the SSH credential form usable when the mobile viewport shrinks", as
   // it does not claim to exercise Android/iOS keyboard behavior.
   await page.setViewportSize({ width: 320, height: 320 });
   await expectNoHorizontalOverflow(page);
-  expect(await form.evaluate((element) => element.scrollHeight > element.clientHeight)).toBeTruthy();
+  expect(await form.locator(".modal-body").evaluate((element) => element.scrollHeight > element.clientHeight)).toBeTruthy();
 
   const submit = form.getByRole("button", { name: "加密保存主机" });
   await submit.scrollIntoViewIfNeeded();

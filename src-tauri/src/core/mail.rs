@@ -18,8 +18,12 @@ use std::{
     panic::{catch_unwind, AssertUnwindSafe},
     time::Duration,
 };
+use std::sync::Mutex;
+use tauri_plugin_dialog::DialogExt;
 use zeroize::Zeroizing;
 const MAX_MESSAGE: u32 = 20 * 1024 * 1024;
+const MAX_TRANSFER: usize = 8 * 1024 * 1024;
+static PENDING_IMPORT: Mutex<Option<(String, Vec<TransferAccount>)>> = Mutex::new(None);
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Account {
@@ -40,6 +44,12 @@ pub struct AccountInput {
     pub account: Account,
     pub password: String,
 }
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct TransferAccount { account: Account, password: String }
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TransferPackage { format: String, version: u32, accounts: Vec<TransferAccount> }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Summary {
@@ -108,6 +118,56 @@ pub fn accounts() -> Result<Vec<Account>, String> {
         serde_json::from_str(&r.map_err(|_| "读取邮箱失败")?).map_err(|_| "邮箱配置损坏".into())
     })
     .collect()
+}
+
+pub fn prepare_import(app: &tauri::AppHandle) -> Result<serde_json::Value, String> {
+    *PENDING_IMPORT.lock().map_err(|_| "导入状态不可用")? = None;
+    let Some(file) = app.dialog().file().add_filter("邮箱 JSON", &["json"]).blocking_pick_file() else { return Ok(serde_json::Value::Null); };
+    let path = file.into_path().map_err(|_| "导入路径无效")?;
+    let metadata = std::fs::symlink_metadata(&path).map_err(|_| "无法读取导入文件")?;
+    if !metadata.is_file() || metadata.file_type().is_symlink() || metadata.len() as usize > MAX_TRANSFER { return Err("请选择不超过 8 MB 的普通 JSON 文件".into()); }
+    let bytes = std::fs::read(&path).map_err(|_| "无法读取导入文件")?;
+    let package: TransferPackage = serde_json::from_slice(&bytes).map_err(|_| "文件格式无效，请选择 CloudHub 邮箱导出文件")?;
+    if package.format != "cloudhub-mail-accounts" || package.version != 1 || package.accounts.is_empty() || package.accounts.len() > 500 { return Err("文件版本或邮箱数量无效（支持 1–500 条）".into()); }
+    for item in &package.accounts { validate(&item.account)?; if item.password.is_empty() || item.password.len() > 4096 || item.password.chars().any(char::is_control) { return Err("导入文件包含无效的邮箱凭据".into()); } }
+    let token = uuid::Uuid::new_v4().to_string();
+    let summaries = package.accounts.iter().enumerate().map(|(index, item)| serde_json::json!({"index": index, "name": item.account.name, "email": item.account.email, "username": item.account.username})).collect::<Vec<_>>();
+    *PENDING_IMPORT.lock().map_err(|_| "导入状态不可用")? = Some((token.clone(), package.accounts));
+    Ok(serde_json::json!({"token": token, "accounts": summaries}))
+}
+pub fn import_selected(token: &str, indices: &[usize]) -> Result<serde_json::Value, String> {
+    if indices.is_empty() || indices.len() > 500 { return Err("请选择要导入的邮箱".into()); }
+    let mut pending = PENDING_IMPORT.lock().map_err(|_| "导入状态不可用")?;
+    let (saved_token, incoming) = pending.as_ref().ok_or("导入预览已失效，请重新选择文件")?;
+    if saved_token != token { return Err("导入预览已失效，请重新选择文件".into()); }
+    let conn = db()?;
+    let existing = accounts()?;
+    let tx = conn.unchecked_transaction().map_err(|_| "无法开始导入")?;
+    let mut seen = std::collections::HashSet::new(); let mut imported = 0usize;
+    for index in indices {
+        if !seen.insert(index) { return Err("导入选择包含重复项".into()); }
+        let item = incoming.get(*index).ok_or("导入选择已失效")?;
+        if existing.iter().any(|old| old.email == item.account.email && old.username == item.account.username && old.imap_host == item.account.imap_host && old.smtp_host == item.account.smtp_host) { continue; }
+        let mut account = item.account.clone(); account.id = uuid::Uuid::new_v4().to_string();
+        let json = serde_json::to_string(&account).map_err(|_| "邮箱配置无效")?;
+        let secret = Zeroizing::new(item.password.clone());
+        let cipher = encrypt_secret(&secret).map_err(|_| "加密邮箱凭据失败")?;
+        tx.execute("INSERT INTO mail_accounts(id,config,secret_ciphertext) VALUES(?1,?2,?3)", params![account.id, json, cipher]).map_err(|_| "导入保存失败，未修改记录")?;
+        imported += 1;
+    }
+    tx.commit().map_err(|_| "导入保存失败，未修改记录")?; *pending = None;
+    Ok(serde_json::json!({"imported": imported, "skipped": indices.len() - imported}))
+}
+pub fn export_selected(app: &tauri::AppHandle, ids: &[String], acknowledge_plain: bool) -> Result<bool, String> {
+    if !acknowledge_plain { return Err("导出明文邮箱授权码前必须确认风险".into()); }
+    if ids.is_empty() || ids.len() > 500 { return Err("请选择 1–500 个邮箱导出".into()); }
+    let conn = db()?; let mut selected = Vec::new(); let mut seen = std::collections::HashSet::new();
+    for id in ids { if !seen.insert(id) { return Err("选择包含重复记录".into()); } let (config, secret): (String, String) = conn.query_row("SELECT config,secret_ciphertext FROM mail_accounts WHERE id=?1", [id], |r| Ok((r.get(0)?, r.get(1)?))).map_err(|_| "所选邮箱不存在，请刷新后重试")?; let account: Account = serde_json::from_str(&config).map_err(|_| "邮箱配置损坏")?; selected.push(TransferAccount { account, password: decrypt_secret(&secret).map_err(|_| "解密邮箱凭据失败")? }); }
+    let Some(file) = app.dialog().file().set_file_name("cloudhub-mail-accounts.json").add_filter("邮箱 JSON（含明文授权码）", &["json"]).blocking_save_file() else { return Ok(false); };
+    let path = file.into_path().map_err(|_| "导出路径无效")?;
+    let bytes = Zeroizing::new(serde_json::to_vec_pretty(&TransferPackage { format: "cloudhub-mail-accounts".into(), version: 1, accounts: selected }).map_err(|_| "导出失败")?);
+    if bytes.len() > MAX_TRANSFER { return Err("导出内容超过 8 MB，请分批导出".into()); }
+    std::fs::write(path, bytes.as_slice()).map_err(|_| "无法保存导出文件")?; Ok(true)
 }
 fn validate(a: &Account) -> Result<(), String> {
     if a.name.trim().is_empty()

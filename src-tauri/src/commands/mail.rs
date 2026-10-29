@@ -126,3 +126,15 @@ pub(crate) async fn mail_send(
     caller(&window)?;
     work("发送邮件", move || mail::send(&id, draft)).await
 }
+#[tauri::command]
+pub(crate) async fn mail_prepare_import(window: tauri::WebviewWindow, app: tauri::AppHandle) -> PlatformResult<serde_json::Value> {
+    caller(&window)?; work("读取邮箱导入文件", move || mail::prepare_import(&app)).await
+}
+#[tauri::command]
+pub(crate) async fn mail_import_selected(window: tauri::WebviewWindow, token: String, indices: Vec<usize>) -> PlatformResult<serde_json::Value> {
+    caller(&window)?; work("导入邮箱", move || mail::import_selected(&token, &indices)).await
+}
+#[tauri::command]
+pub(crate) async fn mail_export_selected(window: tauri::WebviewWindow, app: tauri::AppHandle, ids: Vec<String>, acknowledge_plain: bool) -> PlatformResult<bool> {
+    caller(&window)?; work("导出邮箱", move || mail::export_selected(&app, &ids, acknowledge_plain)).await
+}

@@ -67,6 +67,16 @@ for (const [feature, button, title, shell] of [["SSH 终端", "添加 SSH 主机
     await expect(dialog).toHaveClass(/shared-content-dialog/);
     await expect(page.locator(shell + " form.modal-form-content")).toHaveCount(1);
     await expect(dialog.locator(".modal-actions")).toBeInViewport();
+    // Labels and controls use the same columns as the account form, including
+    // fields that previously lived in two-column feature-specific groups.
+    const columns = await dialog.locator(".dialog-field").evaluateAll(rows => rows.map(row => {
+      const label = row.querySelector("label")!.getBoundingClientRect();
+      const control = row.querySelector("input,select,textarea")!.getBoundingClientRect();
+      return { labelLeft: label.left, controlLeft: control.left, controlRight: control.right, rowRight: row.getBoundingClientRect().right };
+    }));
+    expect(columns.length).toBeGreaterThan(3);
+    expect(Math.max(...columns.map(row => row.controlLeft)) - Math.min(...columns.map(row => row.controlLeft))).toBeLessThan(2);
+    expect(columns.every(row => row.labelLeft < row.controlLeft && row.controlRight <= row.rowRight)).toBe(true);
     if (feature === "SSH 终端") {
       const aiOpener = dialog.getByRole("button", { name: "AI 识别主机信息", exact: true });
       await aiOpener.click();

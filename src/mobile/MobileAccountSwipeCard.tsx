@@ -1,7 +1,7 @@
 import { Children, useState, type ReactNode } from "react";
 import { MoreHorizontal } from "lucide-react";
 
-export function MobileAccountSwipeCard({ label, children }: { label: string; children: ReactNode }) {
+export function MobileAccountSwipeCard({ label, children, details }: { label: string; children: ReactNode; details?: ReactNode }) {
   const [content, ...actions] = Children.toArray(children);
   const [expanded, setExpanded] = useState(false);
 
@@ -21,6 +21,7 @@ export function MobileAccountSwipeCard({ label, children }: { label: string; chi
   >
     <div className="mobile-account-swipe-main">
       {content}
+      <div className="mobile-account-menu-anchor">
       <button
         type="button"
         className="mobile-account-menu"
@@ -31,7 +32,9 @@ export function MobileAccountSwipeCard({ label, children }: { label: string; chi
       >
         <MoreHorizontal size={19} />
       </button>
+      {expanded && actions}
+      </div>
     </div>
-    {expanded && actions}
+    {details}
   </article>;
 }

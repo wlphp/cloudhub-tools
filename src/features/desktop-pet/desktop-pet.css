@@ -258,10 +258,29 @@ html.pet-window-page,html.pet-window-page body,html.pet-window-page #root{backgr
 .pet-chat-service select option {background:var(--jb-input);color:var(--jb-text)}
 .pet-chat-composer {background:var(--jb-input);border-color:var(--jb-border-strong)}
 .pet-chat-composer:focus-within {border-color:var(--jb-accent)}
-.pet-desktop-notice {box-sizing:border-box;padding:0;display:flex;flex-direction:column}
-.pet-desktop-notice > header {margin:0 0 12px;border-bottom:1px solid var(--jb-border)}
-.pet-desktop-notice > :not(header) {margin-left:12px;margin-right:12px}
-.pet-desktop-notice button {background:var(--jb-surface-3);border-color:var(--jb-border-strong)}
+/* This is a whole native window, not a phone-sized overlay. Keep its frame
+   flush with the viewport while reusing the shared header/body/footer. */
+.pet-desktop-notice.pet-desktop-notice {box-sizing:border-box;inset:0;width:100%;max-width:none;height:100dvh;max-height:none;margin:0;padding:0;display:flex;flex-direction:column;overflow:hidden;border-radius:0;font:13px/1.5 "Segoe UI","Microsoft YaHei",sans-serif}
+.pet-desktop-notice.pet-desktop-notice > .modal-head {box-sizing:border-box;min-height:46px;margin:0;padding:5px 12px;gap:8px;border-bottom:1px solid var(--jb-border)}
+.pet-desktop-notice .modal-head > strong {min-width:0;font-size:13px;font-weight:600}
+.pet-desktop-notice .modal-head > strong > span {margin-left:3px;color:var(--jb-muted);font-weight:400}
+.pet-desktop-notice.pet-desktop-notice .dialog-header-actions > button.close {width:28px;min-width:28px;height:28px;min-height:28px;padding:4px;border-color:transparent;background:transparent;color:var(--jb-muted)}
+.pet-desktop-notice.pet-desktop-notice > .modal-body {display:block;flex:1;min-height:0;margin:0;padding:12px 16px;overflow:auto}
+.pet-desktop-notice .pet-notice-meta {display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
+.pet-desktop-notice .pet-notice-level {display:inline-flex;align-items:center;gap:4px;flex:0 0 auto;width:auto;margin:0;padding:2px 6px;border:0;border-radius:4px;background:color-mix(in srgb,var(--jb-yellow) 12%,var(--jb-surface));color:var(--jb-yellow);font-size:11px;line-height:18px}
+.pet-desktop-notice .pet-notice-level:is(.critical,.emergency) {background:color-mix(in srgb,var(--jb-red) 12%,var(--jb-surface));color:var(--jb-red)}
+.pet-desktop-notice .pet-notice-level.recovered {background:color-mix(in srgb,var(--jb-green) 12%,var(--jb-surface));color:var(--jb-green)}
+.pet-desktop-notice h1 {margin:0;font-size:14px;line-height:1.55;font-weight:600;overflow-wrap:anywhere}
+.pet-desktop-notice .pet-notice-detail {margin:7px 0 0;color:var(--jb-muted);font-size:12px;line-height:1.7;overflow-wrap:anywhere}
+.pet-desktop-notice.pet-desktop-notice button {display:inline-flex;align-items:center;justify-content:center;gap:5px;min-width:0;min-height:30px;margin:0;padding:5px 9px;border:1px solid var(--jb-border-strong);border-radius:5px;background:var(--jb-surface);color:var(--jb-text);font:inherit;font-size:12px;line-height:18px;cursor:pointer}
+.pet-desktop-notice.pet-desktop-notice button:hover {background:var(--jb-surface-3)}
+.pet-desktop-notice.pet-desktop-notice button.primary {border-color:transparent !important;background:color-mix(in srgb,var(--jb-accent) 82%,#000) !important;color:#fff !important}
+.pet-desktop-notice.pet-desktop-notice button.primary:hover {filter:brightness(.94)}
+.pet-desktop-notice.pet-desktop-notice button.pet-notice-history {min-height:24px;padding:0;border-color:transparent;background:transparent;color:var(--jb-muted);font-size:11px}
+.pet-desktop-notice.pet-desktop-notice button.pet-notice-history:hover {color:var(--jb-text);text-decoration:underline}
+.pet-desktop-notice.pet-desktop-notice > .modal-actions {position:static;display:flex;align-items:center;justify-content:flex-start;flex:0 0 auto;flex-wrap:wrap;gap:6px;margin:0;padding:9px 12px;border-top:1px solid var(--jb-border);box-shadow:none}
+.pet-desktop-notice.pet-desktop-notice > .modal-actions > button {min-height:32px;border-radius:5px}
+.pet-desktop-notice.pet-desktop-notice .pet-notice-ignore {margin-left:auto;border-color:transparent;background:transparent;color:var(--jb-muted)}
 
 /* Detached windows share App's theme tokens, including bubbles outside dialog frames. */
 body.theme-light .pet-stage .pet-status-card{background:#fff;color:#1d1d1f;border-color:#cfcfd2;box-shadow:0 8px 24px #0002}

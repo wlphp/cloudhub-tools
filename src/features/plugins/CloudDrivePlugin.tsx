@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { Download, FolderOpen, HardDrive, Plus, RefreshCw } from "lucide-react";
+import { Download, FolderOpen, HardDrive, Plus, RefreshCw, Upload } from "lucide-react";
 import { runningInTauri } from "../../platform/api";
 import { cloudDriveClient as client, type DriveConnection, type DriveSnapshot } from "../../platform/clients/cloudDrive";
 import { SharedDialog } from "../../shared/SharedDialog";
 import { ConfirmDialog } from "../../shared/ConfirmDialog";
 import { SecretField } from "../../shared/SecretField";
 import { useDialogDragging } from "../../shared/useDialogDragging";
+import { PlainTransferDialog } from "../../shared/PlainTransferDialog";
 import "./cloud-drive.css";
 
 const fresh: DriveConnection = { id: "", name: "", provider: "Alibaba", endpoint: "https://oss-cn-hangzhou.aliyuncs.com", region: "cn-hangzhou", bucket: "", prefix: "", accessKeyId: "", pathStyle: false, mountPoint: "O:", readOnly: true, autoMount: false, cacheDir: "", cacheGib: 10, hasCredentials: false, hasSessionToken: false };
@@ -117,6 +118,7 @@ export function CloudDrivePlugin() {
   const [credentialTarget, setCredentialTarget] = useState<DriveConnection | null>(null);
   const [confirm, setConfirm] = useState<{ title: string; text: string; run: () => Promise<unknown> } | null>(null);
   const [listing, setListing] = useState<{ kind: "buckets" | "directories"; items: string[]; connection: DriveConnection; editable: boolean } | null>(null);
+  const [transfer, setTransfer] = useState(false);
   const refresh = async () => { const next = await client.snapshot(); if (mounted.current) setSnapshot(next); };
   useEffect(() => {
     mounted.current = true;
@@ -158,9 +160,10 @@ export function CloudDrivePlugin() {
   const dep = snapshot.dependency;
   if (!dep.supported) return <p role="status">云盘挂载当前仅支持 Windows x64；macOS 和其他平台尚未适配。</p>;
   const download = dep.progress;
+  const prepareDriveImport = async () => { const preview = await client.prepareImport(); return preview && { token: preview.token, rows: preview.connections.map(item => ({ index: item.index, title: item.name, detail: `${item.provider} · ${item.bucket} → ${item.mountPoint}` })) }; };
   return <section className="cloud-drive" aria-label="云盘挂载管理" aria-busy={!!busy}>
     <header className="drive-toolbar"><div><h2><HardDrive size={19} aria-hidden="true" />云盘挂载</h2><p>将 OSS / S3 存储桶映射为本机磁盘，文件直接在本机与存储服务间传输。</p></div>
-      <div className="drive-actions"><button type="button" className="secondary" disabled={!!busy} onClick={() => void operate("刷新", refresh, "状态已刷新")}><RefreshCw size={14} aria-hidden="true" />刷新</button><button type="button" className="primary" disabled={!!busy} onClick={() => { setError(""); setEditor({ ...fresh }); }}><Plus size={14} aria-hidden="true" />新增连接</button></div></header>
+      <div className="drive-actions"><button type="button" className="secondary" disabled={!!busy} onClick={() => setTransfer(true)}><Upload size={14} aria-hidden="true" />导入 / 导出</button><button type="button" className="secondary" disabled={!!busy} onClick={() => void operate("刷新", refresh, "状态已刷新")}><RefreshCw size={14} aria-hidden="true" />刷新</button><button type="button" className="primary" disabled={!!busy} onClick={() => { setError(""); setEditor({ ...fresh }); }}><Plus size={14} aria-hidden="true" />新增连接</button></div></header>
     <div className="drive-dependencies"><div><strong>挂载引擎</strong><span>{dep.installed ? `已检测到 · ${dep.source}` : `未安装 · 按需下载 rclone ${dep.version}`}</span></div><button type="button" className="secondary" disabled={!!busy || download.phase === "downloading"} onClick={() => void operate("下载挂载引擎", client.install, "挂载引擎已下载并通过 SHA-256 校验")}><Download size={14} aria-hidden="true" />{dep.installed ? "重新下载已校验版本" : "下载挂载引擎"}</button>
       <div><strong>WinFsp 驱动</strong><span>{dep.winfsp ? "已检测到" : "未检测到 · 安装可能需要管理员权限或重启"}</span></div><button type="button" className="secondary" disabled={!!busy} onClick={() => void operate("打开安装页面", client.winfsp, "已打开 WinFsp 官方页面；安装后点击刷新")}>官方安装页面</button>
       {["downloading", "verifying"].includes(download.phase) && <div className="drive-download" role="status">{download.phase === "verifying" ? "正在校验并安装…" : `正在下载：${(download.downloaded / 1024 ** 2).toFixed(1)} MiB${download.total ? ` / ${(download.total / 1024 ** 2).toFixed(1)} MiB` : ""}`}<progress max={download.total || undefined} value={download.total ? download.downloaded : undefined} /></div>}</div>
@@ -208,6 +211,7 @@ export function CloudDrivePlugin() {
       {error && <p role="alert" className="drive-error">{error}</p>}
     </SharedDialog>}
     {confirm && <ConfirmDialog title={confirm.title} message={confirm.text} busy={!!busy} onResolve={yes => { const action = confirm; setConfirm(null); if (yes) void operate(action.title, action.run); }} />}
+    {transfer && <PlainTransferDialog title="云盘连接" rows={snapshot.connections.map(c => ({ id: c.id, title: c.name, detail: `${c.provider} · ${c.bucket}${c.prefix ? `/${c.prefix}` : ""}` }))} prepareImport={prepareDriveImport} importSelected={client.importSelected} exportSelected={client.exportSelected} onClose={() => setTransfer(false)} onDone={message => { setTransfer(false); setNotice(message); void refresh(); }} />}
     {listing && <SharedDialog title={listing.kind === "buckets" ? "存储桶列表" : "子目录列表"} onClose={() => setListing(null)} size="small" footer={<button type="button" className="secondary" onClick={() => setListing(null)}>关闭</button>}><p>{listing.editable ? "选择条目后在连接配置中确认保存。更换存储位置会使用独立缓存。" : "当前有挂载或恢复记录，仅可查看。安全卸载后可选择存储位置。"}</p>{listing.items.length ? <ul className="drive-listing">{listing.items.map((item, i) => <li key={i}><span>{item}</span>{listing.editable && <button type="button" className="secondary" onClick={() => {
       const c = listing.connection;
       setEditor({ ...c, ...(listing.kind === "buckets" ? { bucket: item, prefix: "" } : { prefix: [c.prefix.replace(/\/+$/, ""), item].filter(Boolean).join("/") }) });

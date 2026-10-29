@@ -1,0 +1,11 @@
+/* Default stacked form layout; mobile-dialogs.css supplies the account-row UI. */
+.dialog-field { display: grid; gap: 6px; min-width: 0; margin: 8px 0 12px; }
+.dialog-field-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; min-width: 0; }
+.dialog-field .dialog-field-label { margin: 0; font-size: inherit; line-height: 1.5; }
+.dialog-field-content, .dialog-field-control { min-width: 0; }
+.dialog-field-control { position: relative; }
+.dialog-field-control > :is(input, select, textarea) { box-sizing: border-box; width: 100%; }
+.dialog-field-action { position: absolute; inset: 0 0 auto auto; display: flex; align-items: center; justify-content: center; height: 44px; }
+.dialog-field-action > button { position: static !important; transform: none !important; width: 44px; height: 44px; }
+.dialog-field-with-action > input { padding-right: 48px !important; }
+.dialog-field-hint { margin: 4px 0 0; color: var(--jb-muted); font-size: 12px; line-height: 1.5; }

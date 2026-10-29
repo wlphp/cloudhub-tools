@@ -109,7 +109,7 @@ body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog .modal-fo
   flex-direction: column;
   gap: 6px;
 }
-body:has(.mobile-shell) .shared-dialog-backdrop .auth-dialog-mobile-form .modal-form-content > .modal-body { display: block; }
+body:has(.mobile-shell) .shared-dialog-backdrop .auth-dialog-mobile-form .modal-form-content > .modal-body { display: flex; }
 body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
   box-sizing: border-box;
   width: 100%;
@@ -224,7 +224,7 @@ body:has(.mobile-shell) .shared-dialog-backdrop .mobile-cert-zone-label { margin
 body:has(.mobile-shell) .shared-dialog-backdrop .mobile-certificate-dialog .mobile-cert-request-hint { margin: 0; font-size: 12px; }
 @media (min-width: 360px) {
   body:has(.mobile-shell) .shared-dialog-backdrop .dialog-field { display: grid; grid-template-columns: minmax(84px, 28%) minmax(0, 1fr); align-items: start; gap: 8px; }
-  body:has(.mobile-shell) .shared-dialog-backdrop .dialog-field-label { padding-top: 13px; }
+  body:has(.mobile-shell) .shared-dialog-backdrop .dialog-field-heading { padding-top: 13px; }
 }
 @media (max-width: 539px) {
   body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog .shared-dialog-heading h2 { font-size: 15px; }
@@ -233,3 +233,10 @@ body:has(.mobile-shell) .shared-dialog-backdrop .mobile-certificate-dialog .mobi
 @media (min-width: 540px) {
   body:has(.mobile-shell) .shared-dialog-backdrop .dialog-field { padding: 4px 10px; }
 }
+
+/* All form dialogs reuse the account dialog's rows, including nested groups. */
+body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog :is(.mobile-form-grid, .auth-form-grid) { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
+body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog .dialog-field-label { margin: 0; padding: 0; color: var(--mobile-text); }
+body:has(.mobile-shell) .shared-dialog-backdrop .dialog-field-heading > button { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; padding: 4px; border: 0; background: transparent; color: var(--mobile-accent); font: inherit; }
+body:has(.mobile-shell) .shared-dialog-backdrop .dialog-field-action > button { min-width: 44px; min-height: 44px; }
+body:has(.mobile-shell) .shared-dialog-backdrop .dialog-field-heading:has(> button) { padding-top: 0; }

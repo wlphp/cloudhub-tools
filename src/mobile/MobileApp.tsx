@@ -36,6 +36,9 @@ import { useMobileUpdates } from "./useMobileUpdates";
 import { MobileUpdatePanel } from "./MobileUpdatePanel";
 import { FlowPanel } from "../features/flow/FlowPanel";
 import { MobileAccountSwipeCard } from "./MobileAccountSwipeCard";
+import { MobilePullRefresh } from "./MobilePullRefresh";
+import { MobileEsaProducts } from "./MobileEsaProducts";
+import { MobileServerDetails, serverExpiryLabel } from "./MobileServerDetails";
 import { MobileProviderMark } from "./MobileProviderMark";
 import { panelRefreshIntervals, useMobilePanelRefresh } from "./useMobilePanelRefresh";
 
@@ -57,6 +60,13 @@ function serverPowerState(payload: Record<string, unknown>): "running" | "stoppe
   if (["running", "active", "运行中", "正常"].includes(status)) return "running";
   if (["stopped", "stop", "已停止", "停止"].includes(status)) return "stopped";
   return "pending";
+}
+
+function domainRecordCountLabel(payload: Record<string, unknown>): string {
+  const value = payload.RecordCount ?? payload.recordCount ?? payload.record_count;
+  if ((typeof value !== "number" && typeof value !== "string") || String(value).trim() === "") return "解析记录：未获取";
+  const count = Number(value);
+  return Number.isSafeInteger(count) && count >= 0 ? `解析记录 ${count} 条` : "解析记录：未获取";
 }
 
 function serverStatusClass(payload: Record<string, unknown>): string {
@@ -109,6 +119,8 @@ export function MobileApp() {
   const { confirm, confirmationDialog } = useConfirmDialog();
   useDialogDragging();
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [accountProductCounts, setAccountProductCounts] = useState<Record<number, Record<string, number>>>({});
+  const [accountAssetsRevision, setAccountAssetsRevision] = useState(0);
   const [uiTheme, setUiTheme] = useState<"light" | "dark">(readUiTheme);
   useEffect(() => {
     document.body.classList.toggle("theme-light", uiTheme === "light");
@@ -118,6 +130,41 @@ export function MobileApp() {
     try { localStorage.setItem(cloudHubUiThemeStorageKey, uiTheme); } catch { /* 存储不可用时仅本次会话生效 */ }
   }, [uiTheme]);
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
+  const [productDialog, setProductDialog] = useState<{ account: Account; type: string; previousAccountId: number | null; searches: { server: string; domain: string; resources: Partial<Record<MobileTab, string>> } } | null>(null);
+
+  function openAccountProduct(account: Account, type: string) {
+    const productTabs: Record<string, MobileTab> = { ecs: "servers", swas: "servers", domain: "domains", oss: "storage", rds: "databases", redis: "redis", esa: "accounts" };
+    const target = productTabs[type];
+    if (!target) return;
+    setProductDialog({ account, type, previousAccountId: selectedAccountId, searches: { server: serverSearch, domain: domainSearch, resources: resourceSearch } });
+    setSelectedAccountId(account.id);
+    setSelectedDomain(null);
+    setSelectedBucket(null);
+    setSelectedDatabase(null);
+    setSelectedRedis(null);
+    setServerSearch("");
+    setDomainSearch("");
+    setResourceSearch({});
+    setTab(target);
+  }
+
+  function closeAccountProduct() {
+    if (productDialog) {
+      setServerSearch(productDialog.searches.server);
+      setDomainSearch(productDialog.searches.domain);
+      setResourceSearch(productDialog.searches.resources);
+    }
+    setSelectedAccountId(productDialog?.previousAccountId ?? null);
+    setProductDialog(null);
+    setSelectedDomain(null);
+    setDnsRecords([]);
+    setSelectedBucket(null);
+    setObjectListing(null);
+    setSelectedDatabase(null);
+    setSelectedRedis(null);
+    setNotice("");
+    setTab("accounts");
+  }
   const [accountSearch, setAccountSearch] = useState("");
   const [accountProviderFilter, setAccountProviderFilter] = useState("");
   const [accountSortAscending, setAccountSortAscending] = useState(true);
@@ -128,7 +175,7 @@ export function MobileApp() {
   const [serverKind, setServerKind] = useState<"all" | "ecs" | "swas">("all");
   const [serverAccountFilterIds, setServerAccountFilterIds] = useState<number[]>([]);
   const [serverAccountFilterOpen, setServerAccountFilterOpen] = useState(false);
-  const [serverActionConfirmation, setServerActionConfirmation] = useState<{ server: LocalAsset; action: InstanceAction } | null>(null);
+  const [serverActionConfirmation, setServerActionConfirmation] = useState<{ server: LocalAsset; action: InstanceAction; forceStop?: boolean } | null>(null);
   const [domains, setDomains] = useState<LocalAsset[]>([]);
   const [domainSearch, setDomainSearch] = useState("");
   const [domainSortAscending, setDomainSortAscending] = useState(true);
@@ -173,6 +220,8 @@ export function MobileApp() {
   const [sshCommand, setSshCommand] = useState("");
   const [sshConnecting, setSshConnecting] = useState(false);
   const [showAddSshHost, setShowAddSshHost] = useState(false);
+  const [editingSshHost, setEditingSshHost] = useState<ManagedHost | null>(null);
+  const [sshHostSaving, setSshHostSaving] = useState(false);
   const [newSshAuthMethod, setNewSshAuthMethod] = useState<"password" | "private_key">("password");
   const [dnsEditor, setDnsEditor] = useState<Record<string, unknown> | null | undefined>(undefined);
   const [tab, setTab] = useState<MobileTab>("accounts");
@@ -187,10 +236,6 @@ export function MobileApp() {
   const accountImportInput = useRef<HTMLInputElement>(null);
   const mobileContentRef = useRef<HTMLElement>(null);
   const pullRefreshActionRef = useRef<(() => Promise<void>) | null>(null);
-  const pullRefreshingRef = useRef(false);
-  const pullGestureRef = useRef({ startX: 0, startY: 0, distance: 0, tracking: false });
-  const [pullDistance, setPullDistance] = useState(0);
-  const [pullRefreshing, setPullRefreshing] = useState(false);
   const [showAddAccount, setShowAddAccount] = useState(false);
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [newAccountCloud, setNewAccountCloud] = useState("aliyun");
@@ -255,7 +300,7 @@ export function MobileApp() {
     }
   }, []);
 
-  const refreshServers = useCallback(async (accountId: number | null = selectedAccountId) => {
+  const refreshServers = useCallback(async (accountId: number | null = selectedAccountId, preserveNotice = false) => {
     const isCurrentRead = beginResourceRead("servers", accountId);
     setLoading(true);
     try {
@@ -263,7 +308,7 @@ export function MobileApp() {
       const result = results.flat();
       if (!isCurrentRead()) return;
       setServers(result);
-      setNotice("");
+      if (!preserveNotice) setNotice("");
     } catch (error) {
       if (!isCurrentRead()) return;
       setNotice(error instanceof Error ? error.message : "读取本机缓存失败");
@@ -273,6 +318,22 @@ export function MobileApp() {
   }, [beginResourceRead, selectedAccountId]);
 
   useEffect(() => { void refreshAccounts(); }, [refreshAccounts]);
+
+  useEffect(() => {
+    if (tab !== "accounts" || accounts.length === 0) return;
+    let cancelled = false;
+    // One local cache read for all accounts; never query providers for badges.
+    void resourcesClient.listLocal().then(assets => {
+      const counts: Record<number, Record<string, number>> = {};
+      for (const asset of assets) {
+        if (!Object.prototype.hasOwnProperty.call(resourceLabels, asset.resource_type)) continue;
+        const products = counts[asset.account_id] ??= {};
+        products[asset.resource_type] = (products[asset.resource_type] ?? 0) + 1;
+      }
+      if (!cancelled) setAccountProductCounts(counts);
+    }).catch(() => { if (!cancelled) setAccountProductCounts({}); });
+    return () => { cancelled = true; };
+  }, [accounts, tab, accountAssetsRevision]);
 
   const refreshDomains = useCallback(async (accountId: number | null = selectedAccountId) => {
     const isCurrentRead = beginResourceRead("domains", accountId);
@@ -679,6 +740,7 @@ export function MobileApp() {
     } finally {
       setSyncing(false);
       setSyncingAccountId(null);
+      setAccountAssetsRevision(revision => revision + 1);
     }
   }
 
@@ -712,24 +774,24 @@ export function MobileApp() {
     } finally { setSyncing(false); }
   }
 
-  async function runServerAction(server: LocalAsset, action: InstanceAction) {
+  async function runServerAction(server: LocalAsset, action: InstanceAction, forceStop = false) {
     const account = accountForAsset(server);
-    if (!account || !["aliyun", "tencent"].includes(account.cloud_type)) return;
+    if (!account || !["aliyun", "tencent"].includes(account.cloud_type) || activeAction !== null) return;
     const power = serverPowerState(server.payload);
     if (power === "pending" || action === "start" && power !== "stopped" || action !== "start" && power !== "running") return;
     const instanceId = payloadText(server.payload, ["instanceId", "InstanceId", "id", "Id"]);
-    const actionLabel = action === "reboot" ? "重启" : action === "start" ? "启动" : "停止";
+    const actionLabel = action === "reboot" ? (forceStop ? "强制重启" : "普通重启") : action === "start" ? "启动" : "停止";
     if (instanceId === "—") return;
     const key = `${server.account_id}:${server.asset_key}`;
     setActiveAction(key);
     setNotice("");
     try {
-      const payload = { id: server.account_id, regionId: server.region_id || account.region_id || "", instanceId, action, forceStop: false };
+      const payload = { id: server.account_id, regionId: server.region_id || account.region_id || "", instanceId, action, forceStop: action === "reboot" && forceStop };
       if (server.resource_type === "swas") await serversClient.swasAction(payload);
       else if (account.cloud_type === "aliyun") await serversClient.aliyunAction(payload);
       else await serversClient.providerAction("tencent", payload);
       setNotice(`已提交${actionLabel}请求，云厂商状态可能需要片刻更新`);
-      await refreshServers();
+      await refreshServers(undefined, true);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : `${actionLabel}请求失败`);
     } finally {
@@ -841,8 +903,15 @@ export function MobileApp() {
     finally { setSshConnecting(false); }
   }
 
+  function openSshHostForm(host: ManagedHost | null = null) {
+    setEditingSshHost(host);
+    setNewSshAuthMethod(host?.auth_method === "private_key" ? "private_key" : "password");
+    setShowAddSshHost(true);
+  }
+
   async function addManagedHost(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (sshHostSaving) return;
     const element = event.currentTarget;
     const form = new FormData(element);
     const hostAddress = String(form.get("host") || "").trim();
@@ -851,18 +920,23 @@ export function MobileApp() {
     if (!hostAddress || !Number.isInteger(port) || port < 1 || port > 65535) { setNotice("请填写有效主机地址和 1–65535 端口"); return; }
     const password = String(form.get("password") || "");
     const privateKey = String(form.get("privateKey") || "");
-    if (newSshAuthMethod === "password" && !password.trim()) { setNotice("请输入 SSH 密码"); return; }
-    if (newSshAuthMethod === "private_key" && !privateKey.trim()) { setNotice("请粘贴 SSH 私钥"); return; }
+    if (newSshAuthMethod === "password" && !password.trim() && !editingSshHost?.password_saved) { setNotice("请输入 SSH 密码"); return; }
+    if (newSshAuthMethod === "private_key" && !privateKey.trim() && !editingSshHost?.private_key_saved) { setNotice("请粘贴 SSH 私钥"); return; }
+    setSshHostSaving(true);
     try {
       await serversClient.saveManaged({
+        id: editingSshHost?.id,
         name: hostName, host: hostAddress, port, username: String(form.get("username") || "root").trim(),
-        platform: "linux", auth_method: newSshAuthMethod, password, private_key: privateKey,
-        key_passphrase: String(form.get("keyPassphrase") || ""), group_name: "mobile", tags: "",
-        remark: "由手机端添加",
+        platform: editingSshHost?.platform === "windows" ? "windows" : "linux", auth_method: newSshAuthMethod, password, private_key: privateKey,
+        key_passphrase: String(form.get("keyPassphrase") || "") || undefined,
+        group_name: editingSshHost?.group_name ?? "mobile", tags: editingSshHost?.tags ?? "",
+        source_account_id: editingSshHost?.source_account_id, source_asset_key: editingSshHost?.source_asset_key,
+        remark: editingSshHost?.remark ?? "由手机端添加",
       });
-      element.reset(); setShowAddSshHost(false); setNewSshAuthMethod("password");
+      element.reset(); setShowAddSshHost(false); setEditingSshHost(null); setNewSshAuthMethod("password");
       await refreshManagedHosts(); setNotice("托管主机已加密保存在本机");
     } catch (error) { setNotice(error instanceof Error ? error.message : "保存 SSH 主机失败"); }
+    finally { setSshHostSaving(false); }
   }
 
   async function disconnectManagedHost() {
@@ -917,59 +991,7 @@ export function MobileApp() {
                         : tab === "apiLogs" ? refreshApiLogs
                           : null;
 
-  useEffect(() => {
-    const content = mobileContentRef.current;
-    if (!content) return;
-    const resetGesture = () => {
-      pullGestureRef.current = { startX: 0, startY: 0, distance: 0, tracking: false };
-      setPullDistance(0);
-    };
-    const onTouchStart = (event: TouchEvent) => {
-      if (event.touches.length !== 1 || content.scrollTop > 0 || !pullRefreshActionRef.current || pullRefreshingRef.current) return;
-      const target = event.target;
-      if (target instanceof Element && target.closest("input, textarea, select, [contenteditable='true'], .mobile-terminal-output")) return;
-      pullGestureRef.current = { startX: event.touches[0].clientX, startY: event.touches[0].clientY, distance: 0, tracking: true };
-    };
-    const onTouchMove = (event: TouchEvent) => {
-      const gesture = pullGestureRef.current;
-      if (!gesture.tracking || event.touches.length !== 1 || content.scrollTop > 0) return;
-      const deltaX = event.touches[0].clientX - gesture.startX;
-      const delta = event.touches[0].clientY - gesture.startY;
-      if (Math.abs(deltaX) > Math.abs(delta)) {
-        pullGestureRef.current = { ...gesture, tracking: false };
-        setPullDistance(0);
-        return;
-      }
-      if (delta <= 0) { resetGesture(); return; }
-      if (delta < 8) return;
-      if (event.cancelable) event.preventDefault();
-      gesture.distance = Math.min(88, Math.round(delta * 0.55));
-      setPullDistance(gesture.distance);
-    };
-    const onTouchEnd = () => {
-      const shouldRefresh = pullGestureRef.current.tracking && pullGestureRef.current.distance >= 64 && !!pullRefreshActionRef.current;
-      resetGesture();
-      if (!shouldRefresh || pullRefreshingRef.current) return;
-      pullRefreshingRef.current = true;
-      setPullRefreshing(true);
-      void Promise.resolve(pullRefreshActionRef.current?.()).finally(() => {
-        pullRefreshingRef.current = false;
-        setPullRefreshing(false);
-      });
-    };
-    content.addEventListener("touchstart", onTouchStart, { passive: true });
-    content.addEventListener("touchmove", onTouchMove, { passive: false });
-    content.addEventListener("touchend", onTouchEnd, { passive: true });
-    content.addEventListener("touchcancel", resetGesture, { passive: true });
-    return () => {
-      content.removeEventListener("touchstart", onTouchStart);
-      content.removeEventListener("touchmove", onTouchMove);
-      content.removeEventListener("touchend", onTouchEnd);
-      content.removeEventListener("touchcancel", resetGesture);
-    };
-  }, []);
-
-  const accountFilteredServers = servers.filter((server) => serverAccountFilterIds.length === 0 || serverAccountFilterIds.includes(server.account_id));
+  const accountFilteredServers = servers.filter((server) => productDialog ? server.account_id === productDialog.account.id && server.resource_type === productDialog.type : serverAccountFilterIds.length === 0 || serverAccountFilterIds.includes(server.account_id));
   const filteredServers = accountFilteredServers.filter((server) => {
     const owner = accountForAsset(server);
     const searchable = [
@@ -984,7 +1006,7 @@ export function MobileApp() {
     return searchable.includes(serverSearch.trim().toLocaleLowerCase());
   });
   const unknownServers = servers.filter((server) => accountForAsset(server) === null);
-  const visibleServers = filteredServers.filter((server) => serverKind === "all" || server.resource_type === serverKind).sort((left, right) => {
+  const visibleServers = filteredServers.filter((server) => productDialog || serverKind === "all" || server.resource_type === serverKind).sort((left, right) => {
     const leftName = payloadText(left.payload, ["instanceName", "InstanceName", "name", "Name", "serverName"]);
     const rightName = payloadText(right.payload, ["instanceName", "InstanceName", "name", "Name", "serverName"]);
     const order = leftName.localeCompare(rightName, "zh-CN", { numeric: true, sensitivity: "base" });
@@ -996,7 +1018,7 @@ export function MobileApp() {
   const serverAccountFilterAll = accounts.length > 0 && serverAccountFilterIds.length === accounts.length;
   const serverAccountFilterLabel = serverAccountFilterIds.length === 0 ? "全部账号" : serverAccountFilterIds.length === 1 ? accounts.find((account) => account.id === serverAccountFilterIds[0])?.account_name || "已选 1 个账号" : `已选 ${serverAccountFilterIds.length} 个账号`;
   const filteredDomains = domains.filter((domain) => {
-    if (assetAccountFilterId !== null && domain.account_id !== assetAccountFilterId) return false;
+    if (productDialog ? domain.account_id !== productDialog.account.id : assetAccountFilterId !== null && domain.account_id !== assetAccountFilterId) return false;
     const owner = accountForAsset(domain);
     const searchable = [
       payloadText(domain.payload, ["DomainName", "domain", "domainName", "name"]),
@@ -1021,7 +1043,7 @@ export function MobileApp() {
     return name === "—" ? asset.asset_key : name;
   };
   const assetSearchText = (asset: LocalAsset) => [assetName(asset), asset.asset_key, asset.region_id, accountForAsset(asset)?.account_name, accountForAsset(asset) ? cloudProvider(accountForAsset(asset)!.cloud_type).label : "", payloadText(asset.payload, ["Location", "location", "Region"]), payloadText(asset.payload, ["DBInstanceStatus", "InstanceStatus", "Status", "status"])].join(" ");
-  const accountAssets = (rows: LocalAsset[]) => rows.filter((asset) => assetAccountFilterId === null || asset.account_id === assetAccountFilterId);
+  const accountAssets = (rows: LocalAsset[]) => rows.filter((asset) => productDialog ? asset.account_id === productDialog.account.id : assetAccountFilterId === null || asset.account_id === assetAccountFilterId);
   const filteredBuckets = filterNamed("storage", accountAssets(buckets), assetName, assetSearchText);
   const filteredDatabaseAssets = filterNamed("databases", accountAssets(databaseAssets), assetName, assetSearchText);
   const filteredRedisAssets = filterNamed("redis", accountAssets(redisAssets), assetName, assetSearchText);
@@ -1046,7 +1068,7 @@ export function MobileApp() {
   const resourceConfig = tab in resourceConfigs ? resourceConfigs[tab as keyof typeof resourceConfigs] : null;
   const statusOptions = [...new Set((tab === "ssh" ? managedHosts : tab === "panels" ? panelConnections : tab === "apiLogs" ? apiLogs : []).map((row) => row.status).filter(Boolean))];
   const statusFilter = statusOptions.length ? <select aria-label="按状态筛选" value={resourceStatus[tab] ?? ""} onChange={(event) => { const value = event.currentTarget.value; setResourceStatus((current) => ({ ...current, [tab]: value })); }}><option value="">全部状态</option>{statusOptions.map((status) => <option value={status} key={status}>{status === "online" ? "在线" : status === "offline" ? "离线" : status === "unknown" ? "未检查" : status}</option>)}</select> : undefined;
-  const resourcePageOverview = resourceConfig && <MobileResourceOverview inlineActions={tab === "ssh" || tab === "panels"} title={resourceConfig.title} description={resourceConfig.description} icon={resourceConfig.icon} count={resourceConfig.count} countLabel={resourceConfig.unit} secondaryCount={resourceConfig.second} secondaryLabel={resourceConfig.secondLabel} search={resourceSearch[tab] ?? ""} onSearch={(value) => setResourceSearch((current) => ({ ...current, [tab]: value }))} ascending={resourceAscending[tab] !== false} onSort={() => setResourceAscending((current) => ({ ...current, [tab]: current[tab] === false }))} filter={resourceConfig.accounts ? <select aria-label={`按账号筛选${resourceConfig.title}`} value={assetAccountFilterId ?? ""} onChange={(event) => setAssetAccountFilterId(event.currentTarget.value ? Number(event.currentTarget.value) : null)}><option value="">全部账号</option>{accounts.map((account) => <option key={account.id} value={account.id}>{account.account_name}</option>)}</select> : statusFilter} actions={tab === "ssh" ? <button type="button" className="mobile-primary" onClick={() => setShowAddSshHost(true)}><Plus size={17} />添加主机</button> : tab === "panels" ? <button type="button" className="mobile-primary" onClick={addPanel}><Plus size={17} />添加面板</button> : tab === "operationLogs" || tab === "apiLogs" ? <button type="button" className="mobile-icon-button" aria-label="清空日志" title="清空日志" disabled={operationLogsLoading || apiLogsLoading} onClick={() => void clearMobileLogs(tab === "operationLogs" ? "operation" : "api")}><Trash2 size={18} /></button> : undefined} />;
+  const resourcePageOverview = resourceConfig && <MobileResourceOverview inlineActions={tab === "ssh" || tab === "panels"} title={resourceConfig.title} description={resourceConfig.description} icon={resourceConfig.icon} count={resourceConfig.count} countLabel={resourceConfig.unit} secondaryCount={resourceConfig.second} secondaryLabel={resourceConfig.secondLabel} search={resourceSearch[tab] ?? ""} onSearch={(value) => setResourceSearch((current) => ({ ...current, [tab]: value }))} ascending={resourceAscending[tab] !== false} onSort={() => setResourceAscending((current) => ({ ...current, [tab]: current[tab] === false }))} filter={resourceConfig.accounts ? <select aria-label={`按账号筛选${resourceConfig.title}`} value={assetAccountFilterId ?? ""} onChange={(event) => setAssetAccountFilterId(event.currentTarget.value ? Number(event.currentTarget.value) : null)}><option value="">全部账号</option>{accounts.map((account) => <option key={account.id} value={account.id}>{account.account_name}</option>)}</select> : statusFilter} actions={tab === "ssh" ? <button type="button" className="mobile-primary" onClick={() => openSshHostForm()}><Plus size={17} />添加主机</button> : tab === "panels" ? <button type="button" className="mobile-primary" onClick={addPanel}><Plus size={17} />添加面板</button> : tab === "operationLogs" || tab === "apiLogs" ? <button type="button" className="mobile-icon-button" aria-label="清空日志" title="清空日志" disabled={operationLogsLoading || apiLogsLoading} onClick={() => void clearMobileLogs(tab === "operationLogs" ? "operation" : "api")}><Trash2 size={18} /></button> : undefined} />;
   const cloudPullAction = tab === "servers" ? syncServers : tab === "domains" && !selectedDomain ? refreshDomainsFromCloud : tab === "storage" && !selectedBucket ? refreshBucketsFromCloud : tab === "databases" && !selectedDatabase ? refreshDatabasesFromCloud : tab === "redis" && !selectedRedis ? refreshRedisFromCloud : null;
   const refreshLabel = cloudPullAction ? "刷新本机缓存" : tab === "domains" ? "刷新 DNS 记录" : "刷新当前页面";
   function linkedResourceAccountCount(assets: LocalAsset[]) { return new Set(assets.filter((asset) => accountForAsset(asset)).map((asset) => asset.account_id)).size; }
@@ -1148,26 +1170,7 @@ export function MobileApp() {
     backAction.onClick();
   };
 
-  return (
-    <main className={"mobile-shell" + (backAction ? " mobile-subpage" : "")}>
-      <header className="mobile-header">
-        <div className="mobile-brand"><span className="mobile-brand-icon"><img src="/cloudhub-logo.png" alt="" /></span><div><div className="mobile-brand-title"><strong>云枢工具箱</strong><span className="mobile-brand-version">v{packageJson.version}</span></div><small>本地多云资源管理</small></div></div>
-        <div className="mobile-header-actions">
-          {(tab === "accounts" || tab === "servers" || tab === "domains" || tab === "more" || resourceConfig) && (tab !== "domains" || !selectedDomain) && (tab !== "storage" || !selectedBucket) && (tab !== "databases" || !selectedDatabase) && (tab !== "redis" || !selectedRedis) && (tab !== "ssh" || !sshSessionId) && <button className="mobile-icon-button mobile-header-search" type="button" aria-label="搜索当前页面" title="搜索当前页面" onClick={() => {
-            const field = mobileContentRef.current?.querySelector<HTMLInputElement>('input[aria-label^="搜索"]');
-            field?.scrollIntoView({ block: "center", behavior: "smooth" });
-            field?.focus({ preventScroll: true });
-          }}><Search size={20} /></button>}
-          <button className="mobile-icon-button" type="button" aria-label={refreshLabel} title={cloudPullAction ? "重新读取本机缓存" : refreshLabel} disabled={!pullRefreshActionRef.current} onClick={() => void pullRefreshActionRef.current?.()}><RefreshCw size={19} className={loading || syncing || panelLoading || operationLogsLoading || apiLogsLoading ? "mobile-spin" : ""} /></button>
-          {cloudPullAction && <button className="mobile-primary mobile-header-fetch" type="button" aria-label={syncing ? "正在拉取云端" : "拉取云端"} title="从云端拉取资源并更新本机缓存" disabled={accounts.length === 0 || loading || syncing} onClick={() => void cloudPullAction()}><CloudDownload size={20} /><span>{syncing ? "拉取中" : "拉取云端"}</span></button>}
-        </div>
-      </header>
-
-      <section ref={mobileContentRef} className={resourceConfig ? "mobile-content mobile-resource-page" : "mobile-content"}>
-        {(pullDistance > 0 || pullRefreshing) && <div className="mobile-pull-refresh" style={{ height: `${pullRefreshing ? 48 : Math.min(pullDistance, 72)}px` }} role="status" aria-live="polite"><RefreshCw size={16} className={pullRefreshing ? "mobile-spin" : ""} /><span>{pullRefreshing ? "正在刷新…" : pullDistance >= 64 ? "松开刷新" : "下拉刷新"}</span></div>}
-        {notice && <p className="mobile-notice" role="status">{notice}</p>}
-        {mobileUpdate.info?.available && tab !== "about" && <button type="button" className="mobile-update-banner" onClick={() => setTab("about")}><ArrowDownToLine size={15} aria-hidden="true" />发现新版 v{mobileUpdate.info.version} · 查看更新</button>}
-        {tab === "accounts" ? <>
+  const accountPage = <>
           <div className="mobile-page-title"><h1>云账号</h1></div>
           <div className="mobile-account-overview">
             <div className="mobile-account-stats" aria-label="账号统计">
@@ -1191,10 +1194,17 @@ export function MobileApp() {
           </>}
           {loading && accounts.length === 0 ? <div className="mobile-empty"><Activity className="mobile-spin" />正在读取本机账号…</div> : accounts.length === 0 ? <div className="mobile-empty"><Cloud size={30} /><strong>还没有云账号</strong><span>添加账号后，手机可以独立查询云资源。</span><button className="mobile-primary" type="button" onClick={openAddAccount}><Plus size={17} />添加云账号</button></div> : filteredAccounts.length === 0 ? <div className="mobile-empty"><Search size={30} /><strong>没有匹配的云账号</strong><span>试试其他关键词或选择全部云厂商。</span><button className="mobile-primary" type="button" onClick={() => { setAccountSearch(""); setAccountProviderFilter(""); }}>清除筛选</button></div> : <div className="mobile-account-list">{filteredAccounts.map((account) => {
             const canSync = syncAssetTypes(account).length > 0;
-            return <MobileAccountSwipeCard key={account.id} label={account.account_name}>
+            const productStats = Object.entries(accountProductCounts[account.id] ?? {}).filter(([, count]) => count > 0).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+            return <MobileAccountSwipeCard key={account.id} label={account.account_name} details={
+              <details className="mobile-account-product-details">
+                <summary aria-label={`${account.account_name} 产品详情`}>产品详情{productStats.length > 0 && <span>（{productStats.length} 项）</span>}</summary>
+                {productStats.length > 0 ? <dl aria-label={`${account.account_name} 全部产品统计`}>{productStats.map(([type, count]) => <div key={type}><dt><button type="button" aria-haspopup="dialog" aria-label={`${resourceLabels[type as keyof typeof resourceLabels]}（${count}）`} onClick={() => openAccountProduct(account, type)}>{resourceLabels[type as keyof typeof resourceLabels]}</button></dt><dd>{count}</dd></div>)}</dl> : <p>暂无缓存产品，请通过“获取资产”同步。</p>}
+              </details>
+            }>
               <div className="mobile-account-select">
                 <span className="mobile-provider-avatar" data-provider={account.cloud_type}>{<MobileProviderMark cloudType={account.cloud_type} />}</span>
                 <span className="mobile-account-copy"><strong>{account.account_name}</strong><small>{cloudProvider(account.cloud_type).label} · {account.region_id || "默认地域"}</small></span>
+                {productStats.length > 0 && <span className="mobile-account-products" role="group" aria-label={`${account.account_name} 产品统计`}>{productStats.slice(0, 3).map(([type, count]) => <button type="button" aria-haspopup="dialog" className="mobile-account-product" key={type} onClick={() => openAccountProduct(account, type)}><span>{resourceLabels[type as keyof typeof resourceLabels]}</span><strong>{count}</strong></button>)}</span>}
               </div>
               <div className="mobile-account-swipe-actions" role="group" aria-label={`${account.account_name} 操作`}>
                 <button type="button" className="mobile-account-fetch" aria-label={`获取 ${account.account_name} 资产`} title={canSync ? "获取并保存此账号已接入的全部资产" : "此云厂商暂未接入资产同步"} disabled={!canSync || syncing} onClick={() => void syncAccountAssets(account)}>{syncingAccountId === account.id ? <RefreshCw size={17} className="mobile-spin" /> : <ArrowDownToLine size={17} />}<span>获取资产</span></button>
@@ -1203,7 +1213,9 @@ export function MobileApp() {
               </div>
             </MobileAccountSwipeCard>;
           })}</div>}
-        </> : tab === "servers" ? <>
+        </>;
+
+  const resourcePage = tab === "servers" ? <>
           <div className="mobile-page-title"><h1>云服务器</h1></div>
           <div className="mobile-server-overview"><div className="mobile-server-stats" aria-label="服务器统计"><div className="server-stat-total"><span className="mobile-account-stat-icon"><Server size={21} /></span><span className="mobile-account-stat-copy"><strong>{filteredServers.length}</strong><small>服务器</small></span></div><div className="server-stat-running"><span className="mobile-account-stat-icon"><Activity size={21} /></span><span className="mobile-account-stat-copy"><strong>{runningServerCount}</strong><small>运行中</small></span></div></div></div>
           <div className="mobile-security-note"><ShieldCheck size={18} /><span>云服务器数据保存在本机，账号凭据由加密数据库保护。</span></div>
@@ -1225,7 +1237,8 @@ export function MobileApp() {
             const unavailable = busy || syncing || activeAction !== null;
             return <article className="mobile-server-card mobile-server-card-featured" key={key}>
               <div className="mobile-server-featured-main"><span className="mobile-provider-avatar" data-provider={owner?.cloud_type ?? "other"}>{<MobileProviderMark cloudType={owner?.cloud_type ?? "other"} />}</span><div className="mobile-server-featured-copy"><div className="mobile-server-featured-title"><strong title={payloadText(server.payload, ["instanceName", "InstanceName", "name", "Name", "serverName"])}>{payloadText(server.payload, ["instanceName", "InstanceName", "name", "Name", "serverName"])}</strong>{owner && <span className="mobile-server-provider">{cloudProvider(owner.cloud_type).label}</span>}</div><p>{owner?.account_name ?? "未知账号"} · {server.region_id || "地域未知"}</p></div><span className={`${serverStatusClass(server.payload)} mobile-server-status-pill`}><i aria-hidden="true" />{status}</span></div>
-              <details className="mobile-server-options"><summary>详情与操作</summary><div className="mobile-server-metadata"><span>{payloadText(server.payload, ["instanceId", "InstanceId", "id", "Id"])} · {server.resource_type === "swas" ? "轻量服务器" : "云服务器"} · 缓存于 {fetchedAtLabel(server.fetched_at)}</span></div>{owner && ["aliyun", "tencent"].includes(owner.cloud_type) && <div className="mobile-server-actions"><button type="button" disabled={unavailable || power !== "stopped"} onClick={() => setServerActionConfirmation({ server, action: "start" })}><Power size={14} />启动</button><button type="button" disabled={unavailable || power !== "running"} onClick={() => setServerActionConfirmation({ server, action: "stop" })}><Power size={14} />停止</button><button type="button" disabled={unavailable || power !== "running"} onClick={() => setServerActionConfirmation({ server, action: "reboot" })}><RotateCw size={14} />重启</button>{power === "pending" && <span role="status">状态待确认，请刷新</span>}{busy && <span role="status">提交中…</span>}</div>}</details>
+              <p className="mobile-server-expiry">到期时间：{serverExpiryLabel(server.payload)}</p>
+<details className="mobile-server-options"><summary>详情与操作</summary><div className="mobile-server-metadata"><span>{payloadText(server.payload, ["instanceId", "InstanceId", "id", "Id"])} · {server.resource_type === "swas" ? "轻量服务器" : "云服务器"} · 缓存于 {fetchedAtLabel(server.fetched_at)}</span></div><MobileServerDetails server={server} cloudType={owner?.cloud_type} />{owner && ["aliyun", "tencent"].includes(owner.cloud_type) && <div className="mobile-server-actions"><button type="button" disabled={unavailable || power !== "stopped"} onClick={() => setServerActionConfirmation({ server, action: "start" })}><Power size={14} />启动</button><button type="button" disabled={unavailable || power !== "running"} onClick={() => setServerActionConfirmation({ server, action: "stop" })}><Power size={14} />停止</button><button type="button" disabled={unavailable || power !== "running"} onClick={() => setServerActionConfirmation({ server, action: "reboot", forceStop: true })}><RotateCw size={14} />重启</button>{power === "pending" && <span role="status">状态待确认，请刷新</span>}{busy && <span role="status">提交中…</span>}</div>}</details>
             </article>;
           })}</div>}
         </> : tab === "domains" ? <>
@@ -1239,7 +1252,7 @@ export function MobileApp() {
           {accounts.length === 0 ? <div className="mobile-empty"><Globe2 size={30} /><strong>先添加云账号</strong><button type="button" className="mobile-primary" onClick={() => setTab("accounts")}>查看账号</button></div> : selectedDomain ? <>
             <div className="mobile-domain-heading"><div><h2 className="mobile-domain-name">{payloadText(selectedDomain.payload, ["DomainName", "domain", "domainName", "name"])}</h2><small>{selectedDomainAccount?.account_name ?? "未知账号"}</small></div>{selectedDomainAccount?.cloud_type === "aliyun" && <button className="mobile-primary" type="button" onClick={() => openDnsEditor(null)}><Plus size={16} />新增记录</button>}</div>
             {loading && dnsRecords.length === 0 ? <div className="mobile-empty">正在读取 DNS 记录…</div> : dnsRecords.length === 0 ? <div className="mobile-empty"><strong>暂无 DNS 记录</strong></div> : <div className="mobile-domain-list">{dnsRecords.map((row, index) => <article className="mobile-domain-card" key={String(row.RecordId ?? index)}><div className="mobile-server-heading"><span className="mobile-domain-type">{String(row.Type ?? "DNS")}</span><strong>{String(row.RR ?? "@")}</strong></div><p>{String(row.Value ?? "—")}</p><div className="mobile-server-meta"><span>TTL {String(row.TTL ?? "—")}</span><span>{String(row.Status ?? "未知")}</span></div>{selectedDomainAccount?.cloud_type === "aliyun" && <div className="mobile-server-actions"><button type="button" onClick={() => openDnsEditor(row)}>编辑</button><button type="button" onClick={() => void changeDnsRecord(row, "toggle")}>{String(row.Status).toUpperCase() === "ENABLE" ? "暂停" : "启用"}</button><button type="button" aria-label={`删除 ${String(row.RR ?? "")} 记录`} onClick={() => void changeDnsRecord(row, "delete")}><Trash2 size={15} />删除</button></div>}</article>)}</div>}
-          </> : loading && domains.length === 0 ? <div className="mobile-empty" role="status"><Activity className="mobile-spin" /><strong>正在读取本机域名缓存</strong></div> : filteredDomains.length === 0 ? <div className="mobile-empty"><Globe2 size={30} /><strong>{domainSearch || assetAccountFilterId !== null ? "没有匹配的域名" : domains.length ? "该账号下暂无缓存的域名" : "暂无缓存的域名"}</strong><span>{domainSearch || assetAccountFilterId !== null ? "试试其他关键词或清除筛选条件。" : "点击“拉取云端”汇总已接入账号的域名。"}</span>{(domainSearch || assetAccountFilterId !== null) && <button className="mobile-primary" type="button" onClick={() => { setDomainSearch(""); setAssetAccountFilterId(null); }}>清除筛选</button>}</div> : <div className="mobile-domain-list mobile-domain-resource-list">{filteredDomains.map((domain) => { const key = `${domain.account_id}:${domain.asset_key}`; const owner = accountForAsset(domain); const domainName = payloadText(domain.payload, ["DomainName", "domain", "domainName", "name"]); return <button className="mobile-server-card mobile-server-card-featured mobile-domain-resource-card" key={key} type="button" onClick={() => void loadDns(domain)}><span className="mobile-provider-avatar" data-provider={owner?.cloud_type ?? "other"}><MobileProviderMark cloudType={owner?.cloud_type ?? "other"} /></span><span className="mobile-domain-resource-copy"><span className="mobile-domain-resource-title"><strong title={domainName}>{domainName}</strong>{owner && <span className="mobile-server-provider">{cloudProvider(owner.cloud_type).label}</span>}</span><small>{owner?.account_name ?? "未知账号"} · 点击查看解析记录 · {fetchedAtLabel(domain.fetched_at)}</small></span><span className="mobile-server-status-pill is-running mobile-domain-cached"><i aria-hidden="true" />已缓存</span><span className="mobile-account-arrow">›</span></button>; })}</div>}
+          </> : loading && domains.length === 0 ? <div className="mobile-empty" role="status"><Activity className="mobile-spin" /><strong>正在读取本机域名缓存</strong></div> : filteredDomains.length === 0 ? <div className="mobile-empty"><Globe2 size={30} /><strong>{domainSearch || assetAccountFilterId !== null ? "没有匹配的域名" : domains.length ? "该账号下暂无缓存的域名" : "暂无缓存的域名"}</strong><span>{domainSearch || assetAccountFilterId !== null ? "试试其他关键词或清除筛选条件。" : "点击“拉取云端”汇总已接入账号的域名。"}</span>{(domainSearch || assetAccountFilterId !== null) && <button className="mobile-primary" type="button" onClick={() => { setDomainSearch(""); setAssetAccountFilterId(null); }}>清除筛选</button>}</div> : <div className="mobile-domain-list mobile-domain-resource-list">{filteredDomains.map((domain) => { const key = `${domain.account_id}:${domain.asset_key}`; const owner = accountForAsset(domain); const domainName = payloadText(domain.payload, ["DomainName", "domain", "domainName", "name"]); return <button className="mobile-server-card mobile-server-card-featured mobile-domain-resource-card" key={key} type="button" onClick={() => void loadDns(domain)}><span className="mobile-provider-avatar" data-provider={owner?.cloud_type ?? "other"}><MobileProviderMark cloudType={owner?.cloud_type ?? "other"} /></span><span className="mobile-domain-resource-copy"><span className="mobile-domain-resource-title"><strong title={domainName}>{domainName}</strong>{owner && <span className="mobile-server-provider">{cloudProvider(owner.cloud_type).label}</span>}</span><small>{owner?.account_name ?? "未知账号"} · {domainRecordCountLabel(domain.payload)} · {fetchedAtLabel(domain.fetched_at)}</small></span><span className="mobile-server-status-pill is-running mobile-domain-cached"><i aria-hidden="true" />已缓存</span><span className="mobile-account-arrow">›</span></button>; })}</div>}
         </> : tab === "storage" ? <>
           {!selectedBucket && resourcePageOverview}
           {accounts.length > 0 && unknownBuckets.length > 0 && <button type="button" className="mobile-clean-unknown" disabled={loading || syncing || cleaningUnknownResource !== null} onClick={() => void removeUnknownRecords("storage", "存储桶", buckets, (bucket) => accountForAsset(bucket) === null, (bucket) => `${bucket.account_id}:${bucket.resource_type}:${bucket.asset_key}`, resourcesClient.removeLocal, setBuckets)}>{cleaningUnknownResource === "storage" ? "正在移除…" : `移除未知账号存储桶（${unknownBuckets.length}）`}</button>}
@@ -1271,10 +1284,10 @@ export function MobileApp() {
 
         </> : tab === "ssh" ? <>
           {!sshSessionId && resourcePageOverview}
-          {sshSessionId ? <section className="mobile-terminal"><div className="mobile-terminal-heading"><span><Terminal size={16} />{sshHost?.name ?? sshHost?.host ?? "SSH"}</span><button type="button" onClick={() => void disconnectManagedHost()}>断开</button></div><pre className="mobile-terminal-output" aria-live="polite">{sshOutput || "已连接，等待远端输出…"}</pre><form className="mobile-terminal-input" onSubmit={(event) => void sendSshCommand(event)}><label className="mobile-sr-only" htmlFor="mobile-ssh-command">输入 SSH 命令</label><input id="mobile-ssh-command" value={sshCommand} onChange={(event) => setSshCommand(event.target.value)} autoComplete="off" autoCapitalize="off" spellCheck={false} placeholder="输入命令并发送" /><button className="mobile-primary" type="submit" disabled={!sshCommand.trim()}>发送</button></form><p>命令会直接在远程 Shell 执行。敏感凭据仅由原生层读取。</p></section> : loading && filteredHosts.length === 0 ? <div className="mobile-empty">正在读取托管主机…</div> : filteredHosts.length === 0 ? <div className="mobile-empty"><Terminal size={30} /><strong>{resourceSearch.ssh ? "没有匹配的主机" : "暂无托管主机"}</strong><span>可以直接在手机上添加 SSH 主机并将凭据加密保存在本机。</span><button type="button" className="mobile-primary" onClick={() => setShowAddSshHost(true)}><Plus size={17} />添加 SSH 主机</button></div> : <div className="mobile-ssh-host-list">{filteredHosts.map((host) => <article className="mobile-ssh-host-row" key={host.id}>
-            <span className="mobile-ssh-host-icon" aria-hidden="true"><Terminal size={18} /></span>
+          {sshSessionId ? <section className="mobile-terminal"><div className="mobile-terminal-heading"><span><Terminal size={16} />{sshHost?.name ?? sshHost?.host ?? "SSH"}</span><button type="button" onClick={() => void disconnectManagedHost()}>断开</button></div><pre className="mobile-terminal-output" aria-live="polite">{sshOutput || "已连接，等待远端输出…"}</pre><form className="mobile-terminal-input" onSubmit={(event) => void sendSshCommand(event)}><label className="mobile-sr-only" htmlFor="mobile-ssh-command">输入 SSH 命令</label><input id="mobile-ssh-command" value={sshCommand} onChange={(event) => setSshCommand(event.target.value)} autoComplete="off" autoCapitalize="off" spellCheck={false} placeholder="输入命令并发送" /><button className="mobile-primary" type="submit" disabled={!sshCommand.trim()}>发送</button></form><p>命令会直接在远程 Shell 执行。敏感凭据仅由原生层读取。</p></section> : loading && filteredHosts.length === 0 ? <div className="mobile-empty">正在读取托管主机…</div> : filteredHosts.length === 0 ? <div className="mobile-empty"><Terminal size={30} /><strong>{resourceSearch.ssh ? "没有匹配的主机" : "暂无托管主机"}</strong><span>可以直接在手机上添加 SSH 主机并将凭据加密保存在本机。</span><button type="button" className="mobile-primary" onClick={() => openSshHostForm()}><Plus size={17} />添加 SSH 主机</button></div> : <div className="mobile-ssh-host-list">{filteredHosts.map((host) => <article className="mobile-ssh-host-row" key={host.id}>
+            <span className="mobile-ssh-host-icon" aria-hidden="true">{host.platform === "windows" ? <Monitor size={17} /> : <Terminal size={17} />}</span>
             <div className="mobile-ssh-host-copy"><strong>{host.name}</strong><p>{host.username}@{host.host}:{host.port}</p><div className="mobile-ssh-host-meta"><span className={`mobile-ssh-host-status is-${host.status === "online" ? "online" : host.status === "offline" ? "offline" : "unknown"}`}><i aria-hidden="true" />{host.status === "online" ? "在线" : host.status === "offline" ? "离线" : "未检查"}</span><span>{host.platform === "windows" ? "RDP · 手机端暂不支持" : !host.password_saved && !host.private_key_saved ? "未配置凭据" : "SSH"}</span></div></div>
-            <button type="button" className="mobile-ssh-connect" aria-label={`连接终端 ${host.name}`} disabled={sshConnecting || host.platform === "windows" || (!host.password_saved && !host.private_key_saved)} onClick={() => void connectManagedHost(host)}>{sshConnecting ? "连接中" : "连接"}</button>
+            <div className="mobile-ssh-host-actions"><button type="button" className="mobile-ssh-edit" aria-label={`编辑主机 ${host.name}`} title="编辑主机" onClick={() => openSshHostForm(host)}><Pencil size={16} aria-hidden="true" /><span>编辑</span></button><button type="button" className="mobile-ssh-connect" aria-label={`连接终端 ${host.name}`} disabled={sshConnecting || host.platform === "windows" || (!host.password_saved && !host.private_key_saved)} onClick={() => void connectManagedHost(host)}>{sshConnecting ? "连接中" : "连接"}</button></div>
           </article>)}</div>}
 
         </> : tab === "panels" ? <>
@@ -1317,12 +1330,37 @@ export function MobileApp() {
           <div className="mobile-page-title"><div><p>系统设置</p><h1>关于</h1></div></div>
           <section className="mobile-about-card"><span className="mobile-about-logo"><img src="/cloudhub-logo.png" alt="" /></span><strong>云枢工具箱</strong><span>本地多云资源管理</span><small>版本 {packageJson.version}</small></section>
           <MobileUpdatePanel update={mobileUpdate} />
-        </> : <MobileMorePage onNavigate={setTab} />}
+        </> : <MobileMorePage onNavigate={setTab} />;
+
+  return (
+    <main className={"mobile-shell" + (backAction && !productDialog ? " mobile-subpage" : "")}>
+      <header className="mobile-header">
+        <div className="mobile-brand"><span className="mobile-brand-icon"><img src="/cloudhub-logo.png" alt="" /></span><div><div className="mobile-brand-title"><strong>云枢工具箱</strong><span className="mobile-brand-version">v{packageJson.version}</span></div><small>本地多云资源管理</small></div></div>
+        <div className="mobile-header-actions">
+          <button className="mobile-icon-button" type="button" aria-label={refreshLabel} title={cloudPullAction ? "重新读取本机缓存" : refreshLabel} disabled={!pullRefreshActionRef.current} onClick={() => void pullRefreshActionRef.current?.()}><RefreshCw size={19} className={loading || syncing || panelLoading || operationLogsLoading || apiLogsLoading ? "mobile-spin" : ""} /></button>
+          {cloudPullAction && <button className="mobile-primary mobile-header-fetch" type="button" aria-label={syncing ? "正在拉取云端" : "拉取云端"} title="从云端拉取资源并更新本机缓存" disabled={accounts.length === 0 || loading || syncing} onClick={() => void cloudPullAction()}><CloudDownload size={20} /><span>{syncing ? "拉取中" : "拉取云端"}</span></button>}
+        </div>
+      </header>
+
+      <section ref={mobileContentRef} className={resourceConfig && !productDialog ? "mobile-content mobile-resource-page" : "mobile-content"}>
+        <MobilePullRefresh containerRef={mobileContentRef} actionRef={pullRefreshActionRef} scopeKey={`${tab}:${selectedAccountId}:${selectedDomain?.asset_key ?? ""}:${selectedBucket?.asset_key ?? ""}:${objectPrefix}:${selectedDatabase?.asset_key ?? ""}:${selectedRedis?.asset_key ?? ""}`} disabled={!!productDialog} onError={setNotice}>
+        {notice && <p className="mobile-notice" role="status">{notice}</p>}
+        {mobileUpdate.info?.available && tab !== "about" && <button type="button" className="mobile-update-banner" onClick={() => setTab("about")}><ArrowDownToLine size={15} aria-hidden="true" />发现新版 v{mobileUpdate.info.version} · 查看更新</button>}
+        {productDialog || tab === "accounts" ? accountPage : resourcePage}
+        </MobilePullRefresh>
       </section>
 
       <nav className="mobile-tab-bar" aria-label="主导航"><button type="button" aria-current={tab === "accounts" ? "page" : undefined} className={tab === "accounts" ? "active" : ""} onClick={() => setTab("accounts")}><Cloud size={19} /><span>账号</span></button><button type="button" aria-current={tab === "servers" ? "page" : undefined} className={tab === "servers" ? "active" : ""} onClick={() => setTab("servers")}><Server size={19} /><span>服务器</span></button><button type="button" aria-current={tab === "domains" ? "page" : undefined} className={tab === "domains" ? "active" : ""} onClick={() => setTab("domains")}><Globe2 size={19} /><span>域名</span></button><button type="button" aria-current={tab === "more" || tab === "authenticator" || tab === "flow" || tab === "storage" || tab === "databases" || tab === "redis" || tab === "certificates" || tab === "ssh" || tab === "panels" || tab === "sync" || tab === "settings" || tab === "aiSettings" || tab === "networkSettings" || tab === "operationLogs" || tab === "apiLogs" || tab === "about" ? "page" : undefined} className={tab === "more" || tab === "authenticator" || tab === "flow" || tab === "storage" || tab === "databases" || tab === "redis" || tab === "certificates" || tab === "ssh" || tab === "panels" || tab === "sync" || tab === "settings" || tab === "aiSettings" || tab === "networkSettings" || tab === "operationLogs" || tab === "apiLogs" || tab === "about" ? "active" : ""} onClick={() => setTab("more")}><LayoutGrid size={19} /><span>更多</span></button></nav>
 
       {backAction && <button type="button" className="mobile-back-fab" aria-label={backAction.label} title={backAction.label} style={backFabPos ? { left: "auto", top: "auto", right: Math.max(8, Math.min(backFabPos.right, Math.min(window.innerWidth, 720) - 62)), bottom: Math.max(8, Math.min(backFabPos.bottom, window.innerHeight - 114)) } : undefined} onPointerDown={startBackFabDrag} onPointerMove={dragBackFab} onPointerUp={endBackFabDrag} onPointerCancel={endBackFabDrag} onContextMenu={(event) => { if (backFabDragRef.current?.dragging) event.preventDefault(); }} onClick={clickBackFab}><ArrowLeft size={20} /></button>}
+      {productDialog && <SharedDialog title={resourceLabels[productDialog.type as keyof typeof resourceLabels]} subtitle={productDialog.account.account_name} className="mobile-account-product-dialog" onClose={closeAccountProduct} footer={<>
+        {(selectedDomain || selectedBucket || selectedDatabase || selectedRedis) && backAction && <button type="button" className="secondary" onClick={backAction.onClick}><ArrowLeft size={16} />{backAction.label}</button>}
+        <button type="button" className="secondary" onClick={closeAccountProduct}>关闭</button>
+        {productDialog.type !== "esa" && <button type="button" className="primary" disabled={loading || syncing} onClick={() => void pullRefreshActionRef.current?.()}><RefreshCw size={16} />刷新</button>}
+      </>}>
+        {notice && <p className="mobile-notice" role="status">{notice}</p>}
+        {productDialog.type === "esa" ? <MobileEsaProducts account={productDialog.account} accounts={accounts} onConfirm={message => confirm({ message })} /> : resourcePage}
+      </SharedDialog>}
       {showCertificateRequest && <MobileCertificateRequest accounts={accounts} onClose={() => setShowCertificateRequest(false)} onIssued={() => void refreshCertificates()} />}
       {showAddAccount && <SharedDialog title={editingAccount ? "编辑云账号" : "添加云账号"} subtitle="填写云厂商账号信息，统一管理云资源" icon={<Cloud size={22} />} size="small" className="mobile-cloud-account-dialog" onSubmit={(event) => void saveAccount(event)} onClose={() => { setShowAddAccount(false); setEditingAccount(null); }} footer={<><button className="secondary" type="button" onClick={() => { setShowAddAccount(false); setEditingAccount(null); }}>取消</button><button className="primary" type="submit"><ShieldCheck size={16} aria-hidden="true" />{editingAccount ? "保存配置" : "保存到本机"}</button></>}>
         <DialogField label="云厂商" required icon={<MobileProviderMark cloudType={newAccountCloud} />}><select aria-label="云厂商" value={newAccountCloud} disabled={!!editingAccount} onChange={(event) => setNewAccountCloud(event.target.value)}>{cloudProviders.map((provider) => <option key={provider.value} value={provider.value}>{provider.label}</option>)}</select></DialogField>
@@ -1340,29 +1378,29 @@ export function MobileApp() {
         <DialogNotice>密钥仅加密保存在本机，建议授予只读权限。</DialogNotice>
       </SharedDialog>}
 
-      {showAddSshHost && <SharedDialog title="添加 SSH 主机" subtitle="保存连接信息，随时安全连接主机" icon={<Server size={22} />} size="small" className="mobile-ssh-dialog" formRef={sshHostFormRef} onSubmit={(event) => void addManagedHost(event)} onClose={() => setShowAddSshHost(false)} footer={<><button className="secondary" type="button" onClick={() => setShowAddSshHost(false)}>取消</button><button className="primary" type="submit"><ShieldCheck size={17} aria-hidden="true" />加密保存主机</button></>}>
-        <AiAssistButton task="server" title="AI 识别主机信息" current={{name:"",host:"",port:22,username:"root"}} onApply={({fields})=>applyFormFields(sshHostFormRef.current,fields,["name","host","port","username"])} /><label>显示名称<input name="name" maxLength={100} autoComplete="off" placeholder="例如：生产 Web 服务器" /></label><label>主机地址<input name="host" required maxLength={253} autoCapitalize="off" autoComplete="url" placeholder="主机名或 IP 地址" /></label><div className="mobile-form-grid"><label>SSH 端口<input name="port" type="number" min="1" max="65535" defaultValue="22" inputMode="numeric" /></label><label>用户名<input name="username" required maxLength={128} defaultValue="root" autoComplete="username" /></label></div><label>认证方式<select value={newSshAuthMethod} onChange={(event) => setNewSshAuthMethod(event.target.value as "password" | "private_key")}><option value="password">密码</option><option value="private_key">SSH 私钥</option></select></label>{newSshAuthMethod === "password" ? <label>SSH 密码<SecretField name="password" required secretLabel="SSH 密码" maxLength={8192} autoComplete="new-password" /></label> : <><label>SSH 私钥<SecretField multiline secretLabel="SSH 私钥" name="privateKey" required maxLength={32768} rows={7} autoComplete="off" spellCheck={false} placeholder="粘贴 OpenSSH 或 PEM 私钥" /></label><label>私钥口令（可选）<SecretField name="keyPassphrase" secretLabel="私钥口令" maxLength={8192} autoComplete="new-password" /></label></>}<p className="mobile-form-hint">AI 只识别名称、地址、端口和用户名；密码与私钥须手动填写。保存时凭据会在 Rust 原生层加密；连接时会校验并记住主机指纹。</p>
+      {showAddSshHost && <SharedDialog title={editingSshHost ? "编辑 SSH 主机" : "添加 SSH 主机"} subtitle="保存连接信息，随时安全连接主机" icon={<Server size={22} />} size="small" className="mobile-ssh-dialog" formRef={sshHostFormRef} busy={sshHostSaving} closeDisabled={sshHostSaving} onSubmit={(event) => void addManagedHost(event)} onClose={() => setShowAddSshHost(false)} footer={<><button className="secondary" type="button" disabled={sshHostSaving} onClick={() => setShowAddSshHost(false)}>取消</button><button className="primary" type="submit" disabled={sshHostSaving}><ShieldCheck size={17} aria-hidden="true" />{sshHostSaving ? "正在保存…" : editingSshHost ? "保存修改" : "加密保存主机"}</button></>}>
+        <AiAssistButton task="server" title="AI 识别主机信息" current={{name:editingSshHost?.name ?? "",host:editingSshHost?.host ?? "",port:editingSshHost?.port ?? 22,username:editingSshHost?.username ?? "root"}} onApply={({fields})=>applyFormFields(sshHostFormRef.current,fields,["name","host","port","username"])} /><DialogField label="显示名称"><input defaultValue={editingSshHost?.name ?? ""} name="name" maxLength={100} autoComplete="off" placeholder="例如：生产 Web 服务器" /></DialogField><DialogField label="主机地址"><input defaultValue={editingSshHost?.host ?? ""} name="host" required maxLength={253} autoCapitalize="off" autoComplete="url" placeholder="主机名或 IP 地址" /></DialogField><div className="mobile-form-grid"><DialogField label="SSH 端口"><input name="port" type="number" min="1" max="65535" defaultValue={editingSshHost?.port ?? 22} inputMode="numeric" /></DialogField><DialogField label="用户名"><input name="username" required maxLength={128} defaultValue={editingSshHost?.username ?? "root"} autoComplete="username" /></DialogField></div><DialogField label="认证方式"><select disabled={editingSshHost?.platform === "windows"} value={newSshAuthMethod} onChange={(event) => setNewSshAuthMethod(event.target.value as "password" | "private_key")}><option value="password">密码</option><option value="private_key">SSH 私钥</option></select></DialogField>{newSshAuthMethod === "password" ? <DialogField label="SSH 密码"><SecretField name="password" required={!editingSshHost?.password_saved} placeholder={editingSshHost?.password_saved ? "留空保留已保存密码" : "输入 SSH 密码"} secretLabel="SSH 密码" maxLength={8192} autoComplete="new-password" /></DialogField> : <><DialogField label="SSH 私钥"><SecretField multiline secretLabel="SSH 私钥" name="privateKey" required={!editingSshHost?.private_key_saved} maxLength={32768} rows={7} autoComplete="off" spellCheck={false} placeholder={editingSshHost?.private_key_saved ? "留空保留已保存私钥" : "粘贴 OpenSSH 或 PEM 私钥"} /></DialogField><DialogField label="私钥口令（可选）"><SecretField name="keyPassphrase" secretLabel="私钥口令" maxLength={8192} autoComplete="new-password" /></DialogField></>}{editingSshHost && <p className="mobile-form-hint">密码、私钥及口令留空保留原凭据；更换私钥时请同时填写新私钥的口令（如有）。</p>}<p className="mobile-form-hint">AI 只识别名称、地址、端口和用户名；密码与私钥须手动填写。保存时凭据会在 Rust 原生层加密；连接时会校验并记住主机指纹。</p>
       </SharedDialog>}
 
       {panelDraft && <SharedDialog title={panelDraft.id ? "编辑运维面板" : "添加运维面板"} subtitle="连接面板，统一管理服务器与站点" size="small" className="mobile-panel-dialog" closeLabel="关闭面板表单" closeDisabled={panelSaving} busy={panelSaving} onSubmit={(event) => void savePanel(event)} onClose={() => setPanelDraft(null)} footer={<><button className="secondary" type="button" disabled={panelSaving} onClick={() => setPanelDraft(null)}>取消</button><button className="primary" type="submit" disabled={panelSaving}><ShieldCheck size={17} aria-hidden="true" />{panelSaving ? "正在验证并保存…" : "验证并加密保存"}</button></>}>
-        <AiAssistButton task="panel" title="AI 识别面板信息" current={{name:panelDraft.name,panel_url:panelDraft.panel_url,group_name:panelDraft.group_name,remark:panelDraft.remark}} disabled={panelSaving} onApply={({fields})=>{const candidate=panelAiFields(fields);setPanelDraft(current=>current?({...current,...candidate}):current);}} /><label>面板名称<input placeholder="例如：生产环境" required maxLength={100} autoComplete="off" value={panelDraft.name} onChange={(event) => setPanelDraft({ ...panelDraft, name: event.target.value })} /></label><label>面板根地址<input required type="url" inputMode="url" autoCapitalize="none" autoCorrect="off" maxLength={2048} autoComplete="url" value={panelDraft.panel_url} onChange={(event) => setPanelDraft({ ...panelDraft, panel_url: event.target.value })} placeholder="https://panel.example.com" /></label><label>API 密钥<SecretField key={panelDraft.id ?? "new"} secretLabel="API 密钥" reveal={panelDraft.id ? () => remoteClient.revealPanelApiKey(panelDraft.id!) : undefined} maxLength={8192} autoComplete="new-password" value={panelDraft.api_key} onChange={(event) => setPanelDraft({ ...panelDraft, api_key: event.target.value })} placeholder={panelDraft.id ? "留空以保留已保存的密钥" : "首次添加必须填写"} required={!panelDraft.id} /></label><div className="mobile-form-grid"><label>分组<GroupNameInput groups={panelConnections.map(panel => panel.group_name || "")} maxLength={80} value={panelDraft.group_name} onChange={(event) => setPanelDraft({ ...panelDraft, group_name: event.target.value })} /></label><label>排序<input type="number" min="0" max="100000" inputMode="numeric" value={panelDraft.sort_order} onChange={(event) => setPanelDraft({ ...panelDraft, sort_order: Number(event.target.value) })} /></label></div><label>备注<input maxLength={500} autoComplete="off" value={panelDraft.remark} onChange={(event) => setPanelDraft({ ...panelDraft, remark: event.target.value })} /></label><label className="mobile-panel-check"><input type="checkbox" checked={panelDraft.allow_insecure_tls} onChange={(event) => setPanelDraft({ ...panelDraft, allow_insecure_tls: event.target.checked })} />允许不安全 TLS 证书（仅在面板使用自签名证书时开启）</label><p className="mobile-form-hint">手机会直接连接面板验证配置。点击小眼睛可查看密钥，留空会保留本机已加密密钥。</p>
+        <AiAssistButton task="panel" title="AI 识别面板信息" current={{name:panelDraft.name,panel_url:panelDraft.panel_url,group_name:panelDraft.group_name,remark:panelDraft.remark}} disabled={panelSaving} onApply={({fields})=>{const candidate=panelAiFields(fields);setPanelDraft(current=>current?({...current,...candidate}):current);}} /><DialogField label="面板名称"><input placeholder="例如：生产环境" required maxLength={100} autoComplete="off" value={panelDraft.name} onChange={(event) => setPanelDraft({ ...panelDraft, name: event.target.value })} /></DialogField><DialogField label="面板根地址"><input required type="url" inputMode="url" autoCapitalize="none" autoCorrect="off" maxLength={2048} autoComplete="url" value={panelDraft.panel_url} onChange={(event) => setPanelDraft({ ...panelDraft, panel_url: event.target.value })} placeholder="https://panel.example.com" /></DialogField><DialogField label="API 密钥"><SecretField key={panelDraft.id ?? "new"} secretLabel="API 密钥" reveal={panelDraft.id ? () => remoteClient.revealPanelApiKey(panelDraft.id!) : undefined} maxLength={8192} autoComplete="new-password" value={panelDraft.api_key} onChange={(event) => setPanelDraft({ ...panelDraft, api_key: event.target.value })} placeholder={panelDraft.id ? "留空以保留已保存的密钥" : "首次添加必须填写"} required={!panelDraft.id} /></DialogField><div className="mobile-form-grid"><DialogField label="分组"><GroupNameInput groups={panelConnections.map(panel => panel.group_name || "")} maxLength={80} value={panelDraft.group_name} onChange={(event) => setPanelDraft({ ...panelDraft, group_name: event.target.value })} /></DialogField><DialogField label="排序"><input type="number" min="0" max="100000" inputMode="numeric" value={panelDraft.sort_order} onChange={(event) => setPanelDraft({ ...panelDraft, sort_order: Number(event.target.value) })} /></DialogField></div><DialogField label="备注"><input maxLength={500} autoComplete="off" value={panelDraft.remark} onChange={(event) => setPanelDraft({ ...panelDraft, remark: event.target.value })} /></DialogField><label className="mobile-panel-check"><input type="checkbox" checked={panelDraft.allow_insecure_tls} onChange={(event) => setPanelDraft({ ...panelDraft, allow_insecure_tls: event.target.checked })} />允许不安全 TLS 证书（仅在面板使用自签名证书时开启）</label><p className="mobile-form-hint">手机会直接连接面板验证配置。点击小眼睛可查看密钥，留空会保留本机已加密密钥。</p>
       </SharedDialog>}
 
       {dnsEditor !== undefined && <SharedDialog title={dnsEditor ? "编辑 DNS 记录" : "新增 DNS 记录"} subtitle={selectedDomainName} size="small" className="mobile-dns-dialog" closeLabel="关闭 DNS 表单" formRef={dnsFormRef} closeDisabled={dnsSaving} busy={dnsSaving} onSubmit={(event) => void saveDnsRecord(event)} onClose={() => setDnsEditor(undefined)} footer={<><button className="secondary" type="button" disabled={dnsSaving} onClick={() => setDnsEditor(undefined)}>取消</button><button className="primary" type="submit" disabled={dnsSaving}><ShieldCheck size={17} aria-hidden="true" />{dnsSaving ? "正在保存…" : "保存记录"}</button></>}>
 
         <div className="mobile-dns-body">
           <div className="mobile-dns-ai"><AiAssistButton task="dns" title="AI 识别 DNS 草稿" current={{type:dnsRecordType,rr:dnsHostRecord,value:String(dnsEditor?.Value??""),ttl:Number(dnsEditor?.TTL??600),priority:Number(dnsEditor?.Priority??10),line:String(dnsEditor?.Line??"default")}} text={`当前域名：${selectedDomainName}`} disabled={dnsSaving} onApply={({fields})=>{const form=dnsFormRef.current;if(!form)throw new Error("表单已关闭，请重新打开后再应用");const data=new FormData(form);const candidate=parseDnsPaste(JSON.stringify({type:data.get("recordType"),...Object.fromEntries(data.entries()),...fields}),selectedDomainName)[0];if(!candidate)throw new Error("未得到有效 DNS 记录，请核对字段");if(!["A","AAAA","CNAME","MX","TXT","NS","SRV","CAA"].includes(candidate.type))throw new Error("手机端暂不支持此 DNS 记录类型，请在桌面端核对后手动填写");setDnsRecordType(candidate.type);setDnsHostRecord(candidate.rr??"@");setDnsHostError("");applyFormFields(form,{value:candidate.value,ttl:candidate.ttl??600,priority:candidate.priority??10,line:candidate.line??"default"},["value","ttl","priority","line"]);}} /></div>
-          <label>记录类型<select name="recordType" value={dnsRecordType} disabled={dnsSaving} onChange={(event) => setDnsRecordType(event.currentTarget.value)}><option>A</option><option>AAAA</option><option>CNAME</option><option>MX</option><option>TXT</option><option>NS</option><option>SRV</option><option>CAA</option></select></label>
-          <label>主机记录<input name="rr" required maxLength={253} value={dnsHostRecord} disabled={dnsSaving} onChange={(event) => {setDnsHostRecord(event.currentTarget.value);setDnsHostError("");}} onBlur={() => {try {setDnsHostRecord(normalizeDnsHost(dnsHostRecord, selectedDomainName));setDnsHostError("");} catch (error) {setDnsHostError(error instanceof Error ? error.message : "无法识别主机记录。");}}} autoFocus placeholder="@ 或 www" aria-invalid={!!dnsHostError} aria-describedby="mobile-dns-host-help mobile-dns-host-feedback" /></label>
+          <DialogField label="记录类型"><select name="recordType" value={dnsRecordType} disabled={dnsSaving} onChange={(event) => setDnsRecordType(event.currentTarget.value)}><option>A</option><option>AAAA</option><option>CNAME</option><option>MX</option><option>TXT</option><option>NS</option><option>SRV</option><option>CAA</option></select></DialogField>
+          <DialogField label="主机记录"><input name="rr" required maxLength={253} value={dnsHostRecord} disabled={dnsSaving} onChange={(event) => {setDnsHostRecord(event.currentTarget.value);setDnsHostError("");}} onBlur={() => {try {setDnsHostRecord(normalizeDnsHost(dnsHostRecord, selectedDomainName));setDnsHostError("");} catch (error) {setDnsHostError(error instanceof Error ? error.message : "无法识别主机记录。");}}} autoFocus placeholder="@ 或 www" aria-invalid={!!dnsHostError} aria-describedby="mobile-dns-host-help mobile-dns-host-feedback" /></DialogField>
           <div className="mobile-dns-host-shortcuts" role="group" aria-label="主机记录快捷录入">{["@","www","*","api","mail",...(dnsRecordType==="TXT"?["_acme-challenge","_dmarc","default._domainkey"]:[]),...(dnsRecordType==="SRV"?["_sip._tcp"]:[])].map((host)=><button key={host} type="button" disabled={dnsSaving} aria-pressed={dnsHostRecord===host} onClick={()=>{setDnsHostRecord(host);setDnsHostError("");}}>{host==="@"?"根域名 @":host==="*"?"泛域名 *":host==="www"?"网站 www":host==="_acme-challenge"?"证书验证":host==="_dmarc"?"DMARC":host==="default._domainkey"?"DKIM 示例":host==="_sip._tcp"?"SIP 示例":host}</button>)}</div>
           {dnsHostError ? <small id="mobile-dns-host-feedback" className="mobile-dns-error" role="alert">{dnsHostError}</small> : dnsHostPreview ? <small id="mobile-dns-host-feedback" className="mobile-dns-preview" aria-live="polite">完整域名：<strong>{dnsHostPreview}</strong></small> : null}
           <small id="mobile-dns-host-help" className="mobile-dns-help">只填写域名前缀；@ 表示根域名，* 表示泛域名。也可粘贴当前域名或网址。</small>
-          <label>记录值<input name="value" required maxLength={2048} defaultValue={String(dnsEditor?.Value ?? "")} disabled={dnsSaving} placeholder="请输入记录值" aria-describedby="mobile-dns-value-help" /></label>
+          <DialogField label="记录值"><input name="value" required maxLength={2048} defaultValue={String(dnsEditor?.Value ?? "")} disabled={dnsSaving} placeholder="请输入记录值" aria-describedby="mobile-dns-value-help" /></DialogField>
           <small id="mobile-dns-value-help" className="mobile-dns-help">{mobileDnsValueHints[dnsRecordType] ?? "按 DNS 服务商要求填写记录值。"}</small>
           <details className="mobile-dns-advanced"><summary>高级选项</summary>
-            <label>TTL<select name="ttl" defaultValue={String(dnsEditor?.TTL ?? 600)} disabled={dnsSaving}>{![60,120,300,600,1800,3600,43200,86400].includes(Number(dnsEditor?.TTL ?? 600))&&<option value={String(dnsEditor?.TTL)}>{String(dnsEditor?.TTL)} 秒（当前）</option>}<option value="60">1 分钟</option><option value="120">2 分钟</option><option value="300">5 分钟</option><option value="600">10 分钟</option><option value="1800">30 分钟</option><option value="3600">1 小时</option><option value="43200">12 小时</option><option value="86400">1 天</option></select></label>
-            <label>解析线路<select name="line" defaultValue={String(dnsEditor?.Line ?? "default")} disabled={dnsSaving}>{!["default","telecom","unicom","mobile","oversea","edu","search"].includes(String(dnsEditor?.Line ?? "default"))&&<option value={String(dnsEditor?.Line)}>{String(dnsEditor?.Line)}（当前线路）</option>}<option value="default">默认</option><option value="telecom">电信</option><option value="unicom">联通</option><option value="mobile">移动</option><option value="oversea">境外</option><option value="edu">教育网</option><option value="search">搜索引擎</option></select></label>
-            {dnsRecordType === "MX" && <label>MX 优先级<input name="priority" type="number" min="1" max="50" inputMode="numeric" defaultValue={Number(dnsEditor?.Priority ?? 10)} disabled={dnsSaving} /></label>}
+            <DialogField label="TTL"><select name="ttl" defaultValue={String(dnsEditor?.TTL ?? 600)} disabled={dnsSaving}>{![60,120,300,600,1800,3600,43200,86400].includes(Number(dnsEditor?.TTL ?? 600))&&<option value={String(dnsEditor?.TTL)}>{String(dnsEditor?.TTL)} 秒（当前）</option>}<option value="60">1 分钟</option><option value="120">2 分钟</option><option value="300">5 分钟</option><option value="600">10 分钟</option><option value="1800">30 分钟</option><option value="3600">1 小时</option><option value="43200">12 小时</option><option value="86400">1 天</option></select></DialogField>
+            <DialogField label="解析线路"><select name="line" defaultValue={String(dnsEditor?.Line ?? "default")} disabled={dnsSaving}>{!["default","telecom","unicom","mobile","oversea","edu","search"].includes(String(dnsEditor?.Line ?? "default"))&&<option value={String(dnsEditor?.Line)}>{String(dnsEditor?.Line)}（当前线路）</option>}<option value="default">默认</option><option value="telecom">电信</option><option value="unicom">联通</option><option value="mobile">移动</option><option value="oversea">境外</option><option value="edu">教育网</option><option value="search">搜索引擎</option></select></DialogField>
+            {dnsRecordType === "MX" && <DialogField label="MX 优先级"><input name="priority" type="number" min="1" max="50" inputMode="numeric" defaultValue={Number(dnsEditor?.Priority ?? 10)} disabled={dnsSaving} /></DialogField>}
           </details>
           <p className="mobile-dns-warning">AI 生成的 DNS 记录仍需核对；保存后会直接修改云厂商配置。</p>
         </div>
@@ -1371,8 +1409,13 @@ export function MobileApp() {
       {serverActionConfirmation && <ConfirmDialog title="确认服务器操作" message={`确认${serverActionConfirmation.action === "reboot" ? "重启" : serverActionConfirmation.action === "start" ? "启动" : "停止"}服务器“${payloadText(serverActionConfirmation.server.payload, ["instanceName", "InstanceName", "name", "Name", "serverName"])}”吗？`} confirmLabel="确认操作" onResolve={confirmed => {
         const target = serverActionConfirmation;
         setServerActionConfirmation(null);
-        if (confirmed) void runServerAction(target.server, target.action);
-      }} />}
+        if (confirmed) void runServerAction(target.server, target.action, target.forceStop);
+      }}>
+        {serverActionConfirmation.action === "reboot" && <>
+          <DialogField label="重启方式"><select value={serverActionConfirmation.forceStop ? "force" : "normal"} onChange={event => setServerActionConfirmation(current => current ? { ...current, forceStop: event.target.value === "force" } : current)}><option value="normal">普通重启</option><option value="force">强制重启</option></select></DialogField>
+          <DialogNotice>{serverActionConfirmation.forceStop ? "强制重启会立即中断服务，可能导致未保存的数据丢失。仅在服务器无响应时使用。" : "普通重启会尝试正常关闭系统后重新启动，服务将暂时中断。"}</DialogNotice>
+        </>}
+      </ConfirmDialog>}
       {confirmationDialog}
     </main>
   );

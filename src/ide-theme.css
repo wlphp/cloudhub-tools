@@ -2294,6 +2294,12 @@
   display: flex;
   height: 27px;
 }
+.ide-theme .local-resource-page .asset-actions-cell .asset-more-wrap > .shared-more-wrap {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+}
 .ide-theme .local-resource-page .asset-actions-cell .asset-action-buttons .asset-more-button {
   width: 100%;
   min-width: 0;
@@ -2302,6 +2308,18 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.ide-theme .local-resource-page .asset-actions-cell .server-asset-actions > button,
+.ide-theme .local-resource-page .asset-actions-cell .server-asset-actions .asset-more-button {
+  box-sizing: border-box;
+  height: 27px;
+  justify-content: center;
+}
+.ide-theme .local-resource-page .asset-actions-cell .asset-more-button > span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
 }
 .ide-theme .local-resource-page .asset-actions-cell .asset-action-buttons .asset-more-menu {
   left: auto;

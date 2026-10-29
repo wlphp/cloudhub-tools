@@ -944,6 +944,21 @@ test("desktop notification remains usable when the companion is disabled", async
   await expect(notification.locator("header")).toHaveCSS("background-color", "rgb(243, 243, 244)");
   await expect(page.getByText("证书即将到期",{exact:true})).toBeVisible();
   await expect(page.locator(".pet-avatar")).toHaveCount(0);
+  // A detached native window must not inherit the narrow-screen overlay inset.
+  await expect(notification).toHaveCSS("width", "360px");
+  await expect(notification).toHaveCSS("height", "240px");
+  for (const theme of ["light", "dark"] as const) {
+    await page.evaluate(theme => {
+      localStorage.setItem("cloudhub-tools-ui-theme", theme);
+      window.dispatchEvent(new Event("focus"));
+      (window as any).petEvent("pet-notification", { key: "server:cpu", title: "测试服务器（frps）CPU 持续偏高", detail: "当前使用率 100.0%，阈值 90%；连续两次巡检超限。请核对进程与负载。", section: "panels", active: true, severity: "warning" });
+    }, theme);
+    const badge = notification.locator(".pet-notice-level");
+    expect((await badge.boundingBox())!.width).toBeLessThan(100);
+    const actions = notification.locator("footer");
+    expect((await actions.boundingBox())!.y + (await actions.boundingBox())!.height).toBeLessThanOrEqual(240);
+    await notification.screenshot({ path: `test-results/pet-notification-${theme}.png` });
+  }
   await page.getByRole("button",{name:"一小时后提醒"}).click();
   expect(await page.evaluate(() => (window as any).petCalls.filter((c:any) => ["pet_snooze","pet_dismiss"].includes(c.command)).map((c:any)=>c.command))).toEqual(["pet_snooze","pet_dismiss"]);
 });

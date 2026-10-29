@@ -110,7 +110,7 @@ export type ManagedHostDraft = {
   platform: "linux" | "windows";
   auth_method: "password" | "private_key";
   private_key: string;
-  key_passphrase: string;
+  key_passphrase?: string;
   group_name: string;
   tags: string;
   source_account_id?: number | null;

@@ -4,6 +4,13 @@ use serde::Serialize;
 use std::{collections::HashMap,sync::Mutex};
 use tauri::{Manager,State};
 use tauri_plugin_opener::OpenerExt;
+use tauri_plugin_dialog::DialogExt;
+
+const MAX_TRANSFER: usize = 8 * 1024 * 1024;
+static PENDING_IMPORT: Mutex<Option<(String, Vec<model::Connection>)>> = Mutex::new(None);
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TransferPackage { format: String, version: u32, connections: Vec<model::Connection> }
 
 #[derive(Default)]
 pub struct DriveStore {
@@ -161,6 +168,48 @@ pub async fn cloud_drive_select_cache(app:tauri::AppHandle)->Result<Option<Strin
     tauri::async_runtime::spawn_blocking(move ||app.dialog().file().blocking_pick_folder().map(|p|p.into_path()
         .map(|p|p.to_string_lossy().into_owned()).map_err(|_|"请选择本机目录".to_owned())).transpose())
         .await.map_err(|_|"目录选择失败")?
+}
+pub fn prepare_import(app: &tauri::AppHandle) -> Result<serde_json::Value,String> {
+    *PENDING_IMPORT.lock().map_err(|_| "导入状态不可用")?=None;
+    let Some(file)=app.dialog().file().add_filter("云盘 JSON", &["json"]).blocking_pick_file() else {return Ok(serde_json::Value::Null)};
+    let path=file.into_path().map_err(|_| "导入路径无效")?;
+    let metadata=std::fs::symlink_metadata(&path).map_err(|_| "无法读取导入文件")?;
+    if !metadata.is_file() || metadata.file_type().is_symlink() || metadata.len() as usize > MAX_TRANSFER {return Err("请选择不超过 8 MB 的普通 JSON 文件".into())}
+    let bytes=std::fs::read(&path).map_err(|_| "无法读取导入文件")?;
+    let package:TransferPackage=serde_json::from_slice(&bytes).map_err(|_| "文件格式无效，请选择 CloudHub 云盘导出文件")?;
+    if package.format!="cloudhub-cloud-drive" || package.version!=1 || package.connections.is_empty() || package.connections.len()>500 {return Err("文件版本或连接数量无效（支持 1–500 条）".into())}
+    for c in &package.connections {model::validate(c)?;}
+    let token=uuid::Uuid::new_v4().to_string();
+    let summaries=package.connections.iter().enumerate().map(|(index,c)|serde_json::json!({"index":index,"name":c.name,"provider":c.provider,"endpoint":c.endpoint,"bucket":c.bucket,"mountPoint":c.mount_point})).collect::<Vec<_>>();
+    *PENDING_IMPORT.lock().map_err(|_| "导入状态不可用")?=Some((token.clone(),package.connections));
+    Ok(serde_json::json!({"token":token,"connections":summaries}))
+}
+pub fn import_selected(token:&str,indices:&[usize])->Result<serde_json::Value,String> {
+    if indices.is_empty() || indices.len()>500 {return Err("请选择要导入的云盘连接".into())}
+    let mut pending=PENDING_IMPORT.lock().map_err(|_| "导入状态不可用")?;
+    let (saved_token,incoming)=pending.as_ref().ok_or("导入预览已失效，请重新选择文件")?;
+    if saved_token!=token {return Err("导入预览已失效，请重新选择文件".into())}
+    let mut all=model::load()?; let mut seen=std::collections::HashSet::new(); let mut imported=0usize;
+    for index in indices {
+        if !seen.insert(index){return Err("导入选择包含重复项".into())}
+        let mut c=incoming.get(*index).ok_or("导入选择已失效")?.clone();
+        if all.iter().any(|old|old.endpoint==c.endpoint && old.bucket==c.bucket && old.prefix==c.prefix && old.access_key_id==c.access_key_id){continue}
+        c.id=uuid::Uuid::new_v4().to_string();
+        if all.iter().any(|old|old.mount_point.eq_ignore_ascii_case(&c.mount_point)){return Err("导入连接的挂载目标与现有配置冲突，请先调整挂载目标后再导入".into())}
+        model::validate(&c)?; all.push(c); imported+=1;
+    }
+    if all.len()>50{return Err("导入后云盘连接不能超过 50 个".into())}
+    model::persist(&all)?; *pending=None;
+    Ok(serde_json::json!({"imported":imported,"skipped":indices.len()-imported}))
+}
+pub fn export_selected(app:&tauri::AppHandle,ids:&[String],acknowledge_plain:bool)->Result<bool,String> {
+    if !acknowledge_plain{return Err("导出明文云盘密钥前必须确认风险".into())}
+    if ids.is_empty() || ids.len()>500{return Err("请选择 1–500 个云盘连接导出".into())}
+    let all=model::load()?; let mut selected=Vec::new(); let mut seen=std::collections::HashSet::new();
+    for id in ids {if !seen.insert(id){return Err("选择包含重复记录".into())} let c=all.iter().find(|c|&c.id==id).ok_or("所选云盘连接不存在，请刷新后重试")?; selected.push(c.clone());}
+    let Some(file)=app.dialog().file().set_file_name("cloudhub-cloud-drive.json").add_filter("云盘 JSON（含明文密钥）", &["json"]).blocking_save_file() else {return Ok(false)};
+    let path=file.into_path().map_err(|_| "导出路径无效")?; let bytes=zeroize::Zeroizing::new(serde_json::to_vec_pretty(&TransferPackage{format:"cloudhub-cloud-drive".into(),version:1,connections:selected}).map_err(|_| "导出失败")?);
+    if bytes.len()>MAX_TRANSFER{return Err("导出内容超过 8 MB，请分批导出".into())} std::fs::write(path,bytes.as_slice()).map_err(|_| "无法保存导出文件")?; Ok(true)
 }
 pub fn must_keep_running(app:&tauri::AppHandle)->bool {
     let state=app.state::<DriveStore>();

@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { Copy, Download, Inbox, Mail, Paperclip, Pencil, Plus, RefreshCw, Reply, Search, Send, Settings, Trash2 } from "lucide-react";
+import { Copy, Download, Inbox, Mail, Paperclip, Pencil, Plus, RefreshCw, Reply, Search, Send, Settings, Trash2, Upload } from "lucide-react";
 import { runningInTauri } from "../../platform/api";
 import { mailClient, type MailAccount, type MailDraft, type MailListing, type MailMessage, type MailSummary } from "../../platform/clients/mail";
 import { SharedDialog } from "../../shared/SharedDialog";
 import { ConfirmDialog } from "../../shared/ConfirmDialog";
 import { SecretField } from "../../shared/SecretField";
 import { extractVerificationCode } from "./verificationCode";
+import { PlainTransferDialog } from "../../shared/PlainTransferDialog";
 import "./mail.css";
 
 const presets = [
@@ -105,9 +106,11 @@ export function MailPlugin() {
  const [draft, setDraft] = useState<MailDraft | null>(null);
  const [remove, setRemove] = useState(false);
  const [keyword, setKeyword] = useState("");
+ const [accountQuery, setAccountQuery] = useState("");
  const [busy, setBusy] = useState("");
  const [error, setError] = useState("");
  const [notice, setNotice] = useState("");
+ const [transfer, setTransfer] = useState(false);
  const lock = useRef(false);
  const generation = useRef(0);
  const account = accounts.find(a => a.id === id);
@@ -154,13 +157,21 @@ export function MailPlugin() {
   catch { setError("复制验证码失败，请检查剪贴板权限"); }
  };
  const searchTerm = keyword.trim().normalize("NFKC").toLowerCase();
+ const accountTerm = accountQuery.trim().normalize("NFKC").toLowerCase();
+ const matchingAccounts = accounts.filter(a => [a.name, a.email, a.username].some(value => value.normalize("NFKC").toLowerCase().includes(accountTerm)));
  const filtered = listing.messages.filter(m => (m.subject + " " + m.from).normalize("NFKC").toLowerCase().includes(searchTerm));
+ const prepareMailImport = async () => { const preview = await mailClient.prepareImport(); return preview && { token: preview.token, rows: preview.accounts.map(item => ({ index: item.index, title: item.name, detail: `${item.email} · ${item.username}` })) }; };
  return <div className="mail-app" aria-busy={!!busy}>
-  <header className="mail-toolbar"><div className="mail-title"><Mail size={19} /><div><h2>邮件管理</h2><span>多邮箱 · 本地加密凭据</span></div></div><label className="mail-toolbar-search"><Search size={15} aria-hidden="true" /><input type="search" aria-label="搜索邮箱" disabled={!account || !!busy} value={keyword} placeholder="模糊搜索已加载邮件：主题 / 发件人（最近 50 封）" onChange={e => setKeyword(e.target.value)} /></label><div className="mail-toolbar-actions"><button type="button" className="secondary" disabled={!!busy || !runningInTauri} onClick={() => setEditor({ ...emptyAccount })}><Plus size={14} />添加邮箱</button><button type="button" className="primary" disabled={!account || !!busy} onClick={() => setDraft(emptyDraft())}><Pencil size={14} />写邮件</button></div></header>
+  <header className="mail-toolbar"><div className="mail-title"><Mail size={19} /><div><h2>邮件管理</h2><span>多邮箱 · 本地加密凭据</span></div></div><label className="mail-toolbar-search"><Search size={15} aria-hidden="true" /><input type="search" aria-label="搜索已加载邮件" disabled={!account || !!busy} value={keyword} placeholder="搜索邮件主题 / 发件人（最近 50 封）" onChange={e => setKeyword(e.target.value)} /></label><div className="mail-toolbar-actions"><button type="button" className="secondary" disabled={!!busy || !runningInTauri} onClick={() => setTransfer(true)}><Upload size={14} />导入 / 导出</button><button type="button" className="secondary" disabled={!!busy || !runningInTauri} onClick={() => setEditor({ ...emptyAccount })}><Plus size={14} />添加邮箱</button><button type="button" className="primary" disabled={!account || !!busy} onClick={() => setDraft(emptyDraft())}><Pencil size={14} />写邮件</button></div></header>
   {!runningInTauri && <p className="mail-banner" role="status">邮件收发仅支持 CloudHub 桌面客户端。浏览器预览不连接邮箱，也不保存授权码。</p>}
   {error && <p className="mail-error" role="alert">{error}</p>}{(busy || notice) && <p className="mail-status" role="status">{busy || notice}</p>}
   <div className="mail-workspace">
-   <aside className="mail-sidebar"><label>当前邮箱<select aria-label="当前邮箱" disabled={!!busy} value={id} onChange={e => reset(e.target.value)}><option value="">选择邮箱</option>{accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select></label>{account && <><div className="mail-account-caption">{account.email}</div><div className="mail-account-tools"><button type="button" disabled={!!busy} title="编辑邮箱" aria-label="编辑邮箱" onClick={() => setEditor(account)}><Settings size={14} /></button><button type="button" disabled={!!busy} onClick={() => void run("正在分别检测收信与发信…", async () => { const r = await mailClient.test(id); const imap = r.imap ? "通过" : "失败" + (r.imapError ? "（" + r.imapError + "）" : ""); const smtp = r.smtp ? "通过" : "失败" + (r.smtpError ? "（" + r.smtpError + "）" : ""); setNotice("IMAP 收信：" + imap + "；SMTP 发信：" + smtp + ((!r.imap || !r.smtp) && !r.imapError && !r.smtpError ? "。请检查服务是否开启、授权码和服务器配置。" : "")); })}>检测连接</button><button type="button" disabled={!!busy} title="移除邮箱" aria-label="移除邮箱" onClick={() => setRemove(true)}><Trash2 size={14} /></button></div></>}
+   <aside className="mail-sidebar">
+    <div className="mail-section-heading"><span>我的邮箱</span><small>{accounts.length}</small></div>
+    <label className="mail-account-search"><Search size={14} aria-hidden="true" /><input type="search" aria-label="按邮箱地址、名称或用户名搜索邮箱" placeholder="搜索邮箱地址 / 名称" value={accountQuery} onChange={e => setAccountQuery(e.target.value)} /></label>
+    <div className="mail-account-results" role="status">{accountTerm ? `找到 ${matchingAccounts.length} 个邮箱` : "选择邮箱以查看邮件"}</div>
+    <div className="mail-account-list" aria-label="邮箱账号列表">{matchingAccounts.map(a => <button key={a.id} type="button" className={"mail-account-option" + (a.id === id ? " is-active" : "")} aria-pressed={a.id === id} disabled={!!busy} title={`${a.name} · ${a.email}`} onClick={() => reset(a.id)}><span className="mail-account-avatar" aria-hidden="true">{(a.name || a.email).slice(0, 1).toUpperCase()}</span><span className="mail-account-label"><strong>{a.name}</strong><small>{a.email}</small></span>{a.id === id && <span className="mail-account-current">当前</span>}</button>)}{!matchingAccounts.length && <div className="mail-account-no-results"><span>{accountTerm ? "没有匹配的邮箱，试试地址或名称" : "尚未添加邮箱"}</span>{accountTerm && <button type="button" onClick={() => setAccountQuery("")}>清空搜索</button>}</div>}</div>
+    {account && <div className="mail-section-heading mail-current-heading"><span>当前邮箱设置</span></div>}{account && <><div className="mail-account-caption">{account.email}</div><div className="mail-account-tools"><button type="button" disabled={!!busy} title="编辑邮箱" aria-label="编辑邮箱" onClick={() => setEditor(account)}><Settings size={14} /></button><button type="button" disabled={!!busy} onClick={() => void run("正在分别检测收信与发信…", async () => { const r = await mailClient.test(id); const imap = r.imap ? "通过" : "失败" + (r.imapError ? "（" + r.imapError + "）" : ""); const smtp = r.smtp ? "通过" : "失败" + (r.smtpError ? "（" + r.smtpError + "）" : ""); setNotice("IMAP 收信：" + imap + "；SMTP 发信：" + smtp + ((!r.imap || !r.smtp) && !r.imapError && !r.smtpError ? "。请检查服务是否开启、授权码和服务器配置。" : "")); })}>检测连接</button><button type="button" disabled={!!busy} title="移除邮箱" aria-label="移除邮箱" onClick={() => setRemove(true)}><Trash2 size={14} /></button></div></>}
     <nav aria-label="邮件文件夹">{folders.map(name => <button type="button" key={name} disabled={!!busy || !account} className={folder === name ? "is-active" : ""} aria-current={folder === name ? "page" : undefined} onClick={() => { generation.current++; setFolder(name); setListing({ validity: 0, total: 0, messages: [] }); setMessage(null); setSelected(null); setNotice("点击收取邮件加载当前文件夹"); }}><Inbox size={14} /><span>{folderName(name)}</span></button>)}</nav>
     <p className="mail-hint">选择邮箱后点击收取邮件。正文按需读取，不在本地持久缓存。</p>
    </aside>
@@ -170,5 +181,6 @@ export function MailPlugin() {
   {editor && <AccountEditor account={editor} onClose={() => setEditor(null)} onSaved={a => { setAccounts(items => [...items.filter(v => v.id !== a.id), a]); reset(a.id); setEditor(null); setNotice("邮箱已保存，可先检测连接，再收取邮件"); }} />}
   {draft && account && <Composer account={account} initial={draft} onClose={() => setDraft(null)} onSent={() => { setDraft(null); setNotice("邮件已提交给 SMTP 服务器"); }} />}
   {remove && account && <ConfirmDialog title="移除邮箱？" message={"将从本机移除“" + account.name + "”的配置和授权码，不会删除服务器上的邮件。"} confirmLabel="移除邮箱" busy={!!busy} onResolve={yes => { if (!yes) setRemove(false); else void run("正在移除邮箱…", async () => { await mailClient.remove(id); const next = accounts.filter(a => a.id !== id); setAccounts(next); reset(next[0]?.id ?? ""); setRemove(false); }); }} />}
+  {transfer && <PlainTransferDialog title="邮箱" rows={accounts.map(a => ({ id: a.id, title: a.name, detail: `${a.email} · ${a.imapHost} / ${a.smtpHost}` }))} prepareImport={prepareMailImport} importSelected={mailClient.importSelected} exportSelected={mailClient.exportSelected} onClose={() => setTransfer(false)} onDone={message => { setTransfer(false); setNotice(message); void mailClient.accounts().then(setAccounts); }} />}
  </div>;
 }

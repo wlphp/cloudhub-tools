@@ -69,3 +69,9 @@ pub async fn cloud_drive_select_cache(app:tauri::AppHandle)->PlatformResult<Opti
 pub fn cloud_drive_winfsp(app:tauri::AppHandle)->PlatformResult<()> {
     service::cloud_drive_winfsp(app).map_err(public_error)
 }
+#[tauri::command]
+pub async fn cloud_drive_prepare_import(app:tauri::AppHandle)->PlatformResult<serde_json::Value> { service::prepare_import(&app).map_err(public_error) }
+#[tauri::command]
+pub async fn cloud_drive_import_selected(token:String,indices:Vec<usize>)->PlatformResult<serde_json::Value> { service::import_selected(&token,&indices).map_err(public_error) }
+#[tauri::command]
+pub async fn cloud_drive_export_selected(app:tauri::AppHandle,ids:Vec<String>,acknowledge_plain:bool)->PlatformResult<bool> { service::export_selected(&app,&ids,acknowledge_plain).map_err(public_error) }

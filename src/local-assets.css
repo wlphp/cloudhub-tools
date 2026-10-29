@@ -189,3 +189,100 @@ body.theme-light .ide-theme .favorite-disk-chip.system i{color:#9a5518}
   .ip-location-action { min-height:32px; }
 }
 @media (prefers-reduced-motion: reduce) { .ip-location-row .spin, .ip-location-dialog .spin { animation:none; } }
+
+/* 收藏卡片沿用相同的标签列、右边界和操作按钮尺寸。 */
+.ide-theme .favorites-page .favorite-card-grid {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+}
+.ide-theme .favorites-page .favorite-resource-card {
+  --favorite-label-width: 72px;
+  --favorite-control-height: 34px;
+  padding: 16px;
+}
+.ide-theme .favorites-page .favorite-card-account {
+  min-height: 32px;
+  margin-bottom: 12px;
+}
+.ide-theme .favorites-page .favorite-card-account > span:not(.favorite-card-settings) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ide-theme .favorites-page .favorite-card-note {
+  grid-template-columns: var(--favorite-label-width) minmax(0, 1fr) auto;
+  gap: 8px;
+  min-height: 26px;
+  margin-bottom: 12px;
+}
+.ide-theme .favorites-page .favorite-card-note > button {
+  padding: 0;
+  line-height: 20px;
+}
+.ide-theme .favorites-page .favorite-card-head {
+  min-height: 45px;
+  align-items: start;
+}
+.ide-theme .favorites-page .favorite-card-details {
+  gap: 10px;
+  margin: 18px 0 16px;
+}
+.ide-theme .favorites-page .favorite-card-details > div:not(.ip-location-row) {
+  grid-template-columns: var(--favorite-label-width) minmax(0, 1fr);
+  gap: 8px;
+  min-height: 24px;
+  align-items: center;
+}
+.ide-theme .favorites-page .favorite-detail-value {
+  justify-content: space-between;
+}
+.ide-theme .favorites-page .favorite-disk-list {
+  min-height: 24px;
+  align-items: center;
+}
+.ide-theme .favorites-page .favorite-card-meta {
+  min-height: 26px;
+  align-items: center;
+  gap: 8px;
+  padding-top: 14px;
+}
+.ide-theme .favorites-page .favorite-card-actions {
+  min-height: var(--favorite-control-height);
+  margin-top: 14px;
+}
+.ide-theme .favorites-page .favorite-card-actions .server-asset-actions {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+.ide-theme .favorites-page .server-asset-actions > button,
+.ide-theme .favorites-page .server-asset-actions > .asset-more-wrap {
+  flex: 0 1 108px;
+  min-width: 0;
+  height: var(--favorite-control-height);
+  margin: 0;
+}
+.ide-theme .favorites-page .server-asset-actions .shared-more-wrap {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+}
+.ide-theme .favorites-page .server-asset-actions .asset-more-button {
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+}
+.ide-theme .favorites-page .server-asset-actions > button,
+.ide-theme .favorites-page .server-asset-actions .asset-more-button,
+.ide-theme .favorites-page .server-asset-actions .asset-more-button > span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  box-sizing: border-box;
+  line-height: 20px;
+}
+@media (max-width: 1100px) {
+  .ide-theme .favorites-page .favorite-resource-card { --favorite-label-width: 56px; }
+}

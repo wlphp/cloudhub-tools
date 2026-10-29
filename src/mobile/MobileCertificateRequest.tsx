@@ -1,3 +1,4 @@
+import { DialogField } from "../shared/DialogForm";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { Check, RefreshCw, ShieldCheck } from "lucide-react";
@@ -109,12 +110,12 @@ export function MobileCertificateRequest({ accounts, onClose, onIssued }: { acco
 
     {!runningInTauri && <p className="mobile-cert-request-hint">请在手机 App 中提交申请，浏览器可预览申请表单。</p>}
     <fieldset disabled={busy || reading || completed}>
-      <label>证书品牌<select aria-label="证书品牌" value={provider} onChange={(event) => { setProvider(event.target.value as typeof provider); setEabKid(""); setEabHmacKey(""); }}><option value="letsencrypt">Let's Encrypt · 免费</option><option value="litessl">LiteSSL · EAB</option></select></label>
-      {provider === "litessl" && <><label>EAB KID<input aria-label="EAB KID" required autoComplete="off" maxLength={256} value={eabKid} onChange={(event) => setEabKid(event.target.value)} /></label><label>EAB HMAC 密钥<SecretField required secretLabel="EAB HMAC 密钥" autoComplete="off" maxLength={2048} value={eabHmacKey} onChange={(event) => setEabHmacKey(event.target.value)} /></label><p className="mobile-cert-request-hint">EAB 凭据仅用于本次签发，不保存。</p></>}
-      <label>DNS 账号<select aria-label="DNS 账号" required value={accountId} onChange={(event) => { setAccountId(event.target.value); setZone(""); setDomains(""); setError(""); }}><option value="">选择阿里云账号</option>{dnsAccounts.map((account) => <option key={account.id} value={account.id}>{account.account_name}</option>)}</select></label>
-      <div className="mobile-cert-zone-label"><span>DNS 区域</span><button type="button" disabled={!accountId || !runningInTauri} onClick={() => void refreshZones()}><RefreshCw size={13} aria-hidden="true" />拉取域名</button></div>
-      <select required aria-label="DNS 区域" value={zone} onChange={(event) => { setZone(event.target.value); setDomains(event.target.value); }}><option value="">选择已同步域名</option>{zones.map((name) => <option key={name}>{name}</option>)}</select>
-      <label>证书域名<textarea aria-label="证书域名" required rows={3} maxLength={25400} autoCapitalize="none" spellCheck={false} value={domains} onChange={(event) => setDomains(event.target.value)} placeholder="example.com\n*.example.com" /></label>
+      <DialogField label="证书品牌"><select aria-label="证书品牌" value={provider} onChange={(event) => { setProvider(event.target.value as typeof provider); setEabKid(""); setEabHmacKey(""); }}><option value="letsencrypt">Let's Encrypt · 免费</option><option value="litessl">LiteSSL · EAB</option></select></DialogField>
+      {provider === "litessl" && <><DialogField label="EAB KID"><input aria-label="EAB KID" required autoComplete="off" maxLength={256} value={eabKid} onChange={(event) => setEabKid(event.target.value)} /></DialogField><DialogField label="EAB HMAC 密钥"><SecretField required secretLabel="EAB HMAC 密钥" autoComplete="off" maxLength={2048} value={eabHmacKey} onChange={(event) => setEabHmacKey(event.target.value)} /></DialogField><p className="mobile-cert-request-hint">EAB 凭据仅用于本次签发，不保存。</p></>}
+      <DialogField label="DNS 账号"><select aria-label="DNS 账号" required value={accountId} onChange={(event) => { setAccountId(event.target.value); setZone(""); setDomains(""); setError(""); }}><option value="">选择阿里云账号</option>{dnsAccounts.map((account) => <option key={account.id} value={account.id}>{account.account_name}</option>)}</select></DialogField>
+      <DialogField label="DNS 区域" labelAction={<button type="button" disabled={!accountId || !runningInTauri} onClick={() => void refreshZones()}><RefreshCw size={13} aria-hidden="true" />拉取域名</button>}><select required aria-label="DNS 区域" value={zone} onChange={(event) => { setZone(event.target.value); setDomains(event.target.value); }}><option value="">选择已同步域名</option>{zones.map((name) => <option key={name}>{name}</option>)}</select></DialogField>
+
+      <DialogField label="证书域名"><textarea aria-label="证书域名" required rows={3} maxLength={25400} autoCapitalize="none" spellCheck={false} value={domains} onChange={(event) => setDomains(event.target.value)} placeholder="example.com\n*.example.com" /></DialogField>
       {zone && <div className="mobile-cert-domain-presets"><button type="button" onClick={() => setDomains(zone)}>主域名</button><button type="button" onClick={() => setDomains(`*.${zone}`)}>通配符</button><button type="button" onClick={() => setDomains(`${zone}\n*.${zone}`)}>主域名 + 通配符</button></div>}
     </fieldset>
     {reading && <p role="status" className="mobile-cert-request-hint">正在读取域名…</p>}

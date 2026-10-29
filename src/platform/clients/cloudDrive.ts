@@ -15,6 +15,7 @@ export interface DriveSnapshot {
     progress: { phase: string; downloaded: number; total: number } };
   connections: DriveConnection[]; mounts: DriveMount[];
 }
+export type DriveTransferPreview = { token: string; connections: Array<{ index: number; name: string; provider: string; endpoint: string; bucket: string; mountPoint: string }> };
 export type DriveInput = Omit<DriveConnection, "hasCredentials" | "hasSessionToken"> & {
   accessKeyId: string; secretKey: string; sessionToken: string;
 };
@@ -34,4 +35,7 @@ export const cloudDriveClient = {
   open: (id: string) => nativeOnly<void>("cloud_drive_open", { id }),
   winfsp: () => nativeOnly<void>("cloud_drive_winfsp"),
   selectCache: () => nativeOnly<string | null>("cloud_drive_select_cache"),
+  prepareImport: () => nativeOnly<DriveTransferPreview | null>("cloud_drive_prepare_import"),
+  importSelected: (token: string, indices: number[]) => nativeOnly<{ imported: number; skipped: number }>("cloud_drive_import_selected", { token, indices }),
+  exportSelected: (ids: string[], acknowledgePlain: boolean) => nativeOnly<boolean>("cloud_drive_export_selected", { ids, acknowledgePlain }),
 };

@@ -2,7 +2,7 @@ import { DialogHeaderActions } from "../../shared/DialogHeaderActions";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { PetPortrait } from "./PetPortrait";
 import { useEffect, useState } from "react";
-import { Bell, X } from "lucide-react";
+import { Bell, CheckCircle2, Clock3, History, X } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 import { defaultPetSettings, type PetSettings, petSeverityLabel, desktopPetClient as client, type PetAlert, type PetSnapshot } from "../../platform/clients/desktopPet";
 import { notesClient } from "../../platform/clients/notes";
@@ -32,9 +32,38 @@ export function PetAlertWindow() {
   const noteId = alert?.section === "notes" ? Number(alert.key.split(":")[1]) : null;
   const dismissNote = async () => { if (noteId) await notesClient.dismissReminder(noteId); };
   const handleNote = (snoozeMinutes?: number) => void work(async () => { if (noteId && snoozeMinutes) await notesClient.snoozeReminder(noteId, snoozeMinutes); else await dismissNote(); await client.dismiss(); });
-  return <main className="modal-form-layout dialog-common-theme pet-desktop-notice" role="dialog" aria-label="CloudHub 运维提醒"><header onPointerDown={e => { if (e.button === 0 && !(e.target as HTMLElement).closest("button")) { e.preventDefault(); void work(() => getCurrentWindow().startDragging()); } }}><PetPortrait appearance={appearance} pose={alert?.active ? "alert" : "happy"} /><Bell size={16} /><strong>CloudHub 运维提醒</strong><DialogHeaderActions showResize={false}><button className="close" onClick={() => void work(client.dismiss)} aria-label="关闭提醒"><X size={16} /></button></DialogHeaderActions></header>
-    {error && <p role="alert" className="pet-error">{error}</p>}
-    {alert ? (noteId ? <><span className={`pet-notice-level ${alert.severity}`}>备忘录提醒</span><strong>{alert.title}</strong><p>{alert.detail}</p><div><button onClick={() => void work(notesClient.open)}>打开备忘录</button><button onClick={() => handleNote(10)}>10 分钟后</button><button onClick={() => handleNote(60)}>1 小时后</button><button onClick={() => handleNote()}>完成</button></div></>
-      : <><span className={`pet-notice-level ${alert.active ? alert.severity : "recovered"}`}>{alert.active ? petSeverityLabel(alert.severity) : "已解除"}</span><strong>{alert.active ? alert.title : `已解除 · ${alert.title}`}</strong><p>{alert.detail}</p><div><button onClick={() => void work(() => client.open(alert.section, alert.key))}>查看详情</button>{alert.active && <><button onClick={() => void work(async () => { await client.snooze(alert.key); await client.dismiss(); })}>一小时后提醒</button><button onClick={() => void work(async () => { await client.ignore([alert.key]); await client.dismiss(); })}>忽略</button></>}<button onClick={() => void work(() => client.open("settings"))}>提醒记录</button></div></>) : <p>暂无提醒</p>}
+  const level = alert?.active ? alert.severity : "recovered";
+  const StatusIcon = !alert?.active ? CheckCircle2 : Bell;
+  return <main className="modal-form-layout dialog-common-theme pet-desktop-notice" role="dialog" aria-label="CloudHub 运维提醒">
+    <header className="modal-head" onPointerDown={e => { if (e.button === 0 && !(e.target as HTMLElement).closest("button")) { e.preventDefault(); void work(() => getCurrentWindow().startDragging()); } }}>
+      <PetPortrait appearance={appearance} pose={alert?.active ? "alert" : "happy"} />
+      <strong>CloudHub <span>运维提醒</span></strong>
+      <DialogHeaderActions showResize={false}><button className="close" onClick={() => void work(client.dismiss)} aria-label="关闭提醒" title="关闭提醒（Esc）"><X size={16} aria-hidden="true" /></button></DialogHeaderActions>
+    </header>
+    <div className="modal-body">
+      {error && <p role="alert" className="pet-error">{error}</p>}
+      {alert ? <>
+        <div className="pet-notice-meta">
+          <span className={`pet-notice-level ${level}`}><StatusIcon size={12} aria-hidden="true" />{noteId ? "备忘录提醒" : alert.active ? petSeverityLabel(alert.severity) : "已解除"}</span>
+          {!noteId && <button className="pet-notice-history" onClick={() => void work(() => client.open("settings"))}><History size={13} aria-hidden="true" />提醒记录</button>}
+        </div>
+        <h1>{alert.title}</h1>
+        <p className="pet-notice-detail">{alert.detail}</p>
+      </> : <p className="pet-notice-detail">暂无提醒</p>}
+    </div>
+    {alert && <footer className="modal-actions">
+      {noteId ? <>
+        <button className="primary" onClick={() => void work(notesClient.open)}>打开备忘录</button>
+        <button onClick={() => handleNote(10)}>10 分钟后</button>
+        <button onClick={() => handleNote(60)}>1 小时后</button>
+        <button onClick={() => handleNote()}>完成</button>
+      </> : <>
+        <button className="primary" onClick={() => void work(() => client.open(alert.section, alert.key))}>查看详情</button>
+        {alert.active && <>
+          <button onClick={() => void work(async () => { await client.snooze(alert.key); await client.dismiss(); })}><Clock3 size={13} aria-hidden="true" />一小时后提醒</button>
+          <button className="pet-notice-ignore" onClick={() => void work(async () => { await client.ignore([alert.key]); await client.dismiss(); })}>忽略</button>
+        </>}
+      </>}
+    </footer>}
   </main>;
 }
