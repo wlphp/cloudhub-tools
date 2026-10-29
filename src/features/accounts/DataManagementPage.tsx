@@ -96,7 +96,7 @@ export function DataManagementPage({ language, onOpenDirectory, onPhoneMigration
         </div>
       </div>
     </section>
-    <CloudSyncSection available={canManageBackups} onRestore={onRestore} />
+    <CloudSyncSection onRestore={onRestore} />
     {error && <p className="data-settings-error" role="alert">{error}</p>}
     <div className="settings-card"><div className="settings-icon purple"><Upload size={22} /></div><div className="settings-copy"><strong>{t("手机扫码迁移")}</strong><small>{t("通过扫码在设备间选择并迁移数据。")}</small></div><button type="button" className="secondary settings-link" onClick={onPhoneMigration}>{t("开始迁移")}</button></div>
     {backupOpen && <BackupRestoreDialog onClose={() => setBackupOpen(false)} onRestore={onRestore} onStatus={onStatus} />}

@@ -13,6 +13,9 @@ use zeroize::Zeroizing;
 
 #[path = "database_backup_crypto.rs"]
 mod backup_crypto;
+#[cfg(desktop)]
+#[path = "database_browser.rs"]
+pub(crate) mod browser;
 #[path = "database_sql.rs"]
 pub(crate) mod sql;
 

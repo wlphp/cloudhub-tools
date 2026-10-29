@@ -1,0 +1,47 @@
+import assert from "node:assert/strict";
+import crypto from "node:crypto";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import http from "node:http";
+import { once } from "node:events";
+import { DatabaseSync } from "node:sqlite";
+import { test } from "node:test";
+import { defaults, previewConfigKey } from "../../web-api/services/cloud-sync.mjs";
+
+test("local cloud routes encrypt isolated debug settings, return safe errors and transfer bytes", async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "cloudhub-cloud-route-"));
+  const previousLocalAppData = process.env.LOCALAPPDATA;
+  process.env.LOCALAPPDATA = root;
+  const dir = path.join(root, "CloudHubTools"); fs.mkdirSync(dir);
+  fs.writeFileSync(path.join(dir, ".key"), crypto.randomBytes(32));
+  const setup = new DatabaseSync(path.join(dir, "cloudhub_tools.sqlite3"));
+  setup.exec("CREATE TABLE cloud_accounts(id INTEGER PRIMARY KEY); CREATE TABLE client_preferences(key TEXT PRIMARY KEY,value TEXT NOT NULL,updated_at INTEGER NOT NULL)");
+  setup.prepare("INSERT INTO client_preferences VALUES(?,?,0)").run("cloud.sync.config", "native-config-must-stay-untouched");
+  setup.close();
+  const { handleCloudSyncRoutes } = await import("../../web-api/routes/cloud-sync.mjs");
+  const { database, closeDatabase } = await import("../../web-api/core/database.mjs");
+  if (previousLocalAppData === undefined) delete process.env.LOCALAPPDATA; else process.env.LOCALAPPDATA = previousLocalAppData;
+  const server = http.createServer((req, res) => {
+    void handleCloudSyncRoutes(req, res, new URL(req.url, "http://localhost"));
+  });
+  server.listen(0, "127.0.0.1"); await once(server, "listening");
+  t.after(() => { server.closeAllConnections(); server.close(); closeDatabase(); fs.rmSync(root, { recursive: true, force: true }); });
+  const base = `http://127.0.0.1:${server.address().port}/api/cloud-sync/`;
+  const post = (action, body) => fetch(base + action, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  assert.equal((await (await fetch(base + "state")).json()).configured, false);
+  const config = { ...defaults, endpoint: "https://storage.example/dav", username: "fixture-user", password: "non-sensitive-fixture" };
+  const saving = await post("save", { config });
+  assert.equal(saving.status, 200); assert.equal(saving.headers.get("cache-control"), "no-store");
+  const saved = await saving.json();
+  assert.equal(saved.config.hasPassword, true); assert.equal(saved.config.password, undefined); assert.equal(saved.status.busy, false);
+  const row = database().prepare("SELECT value FROM client_preferences WHERE key=?").get(previewConfigKey);
+  assert.ok(row.value); assert.equal(row.value.includes(config.password), false);
+  assert.equal(database().prepare("SELECT value FROM client_preferences WHERE key='cloud.sync.config'").get().value, "native-config-must-stay-untouched");
+  assert.equal(await (await post("reveal", { config, field: "password" })).json(), config.password);
+  assert.equal((await post("reveal", { config: { ...config, endpoint: "https://other.example" }, field: "password" })).status, 400);
+  assert.equal((await post("save", { config: { ...config, endpoint: "file:///private" } })).status, 400);
+  const invalid = await post("upload", { file: "not-accepted.chdb" });
+  assert.equal(invalid.status, 400); assert.match((await invalid.json()).error, /上传参数无效/);
+  assert.equal((await post("not-a-command", {})).status, 404);
+});

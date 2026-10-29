@@ -1,4 +1,4 @@
-import { nativeOnly, previewOnly, jsonRequest } from "./base";
+import { invokeOrWeb, nativeOnly, previewOnly, jsonRequest } from "./base";
 
 export type DatabaseImportPreview = {
   token: string;
@@ -35,11 +35,11 @@ export const databaseClient = {
   downloadBackup(id: string): Promise<string | null> { return nativeOnly("download_database_backup", { id }); },
   deleteBackup(id: string): Promise<void> { return nativeOnly("delete_database_backup", { id }); },
   prepareBackupRestore(id: string, password?: string): Promise<DatabaseImportPreview | null> { return nativeOnly("prepare_database_backup_restore", { id, password }); },
-  prepareBrowserImport(file: File): Promise<BrowserDatabaseImportPreview> {
+  prepareBrowserImport(file: File, password = ""): Promise<BrowserDatabaseImportPreview> {
     const query = new URLSearchParams({ name: file.name });
     return previewOnly<BrowserDatabaseImportPreview>({
       path: `/api/database-import/preview?${query}`,
-      init: { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: file },
+      init: { method: "POST", headers: { "Content-Type": "application/octet-stream", "X-Backup-Password": encodeURIComponent(password) }, body: file },
     });
   },
   confirmBrowserImport(token: string): Promise<{ message: string }> {
@@ -49,9 +49,9 @@ export const databaseClient = {
     return previewOnly({ path: "/api/database-import/cancel", init: jsonRequest("POST", { token }) });
   },
   confirmImport(token: string, tables?: string[], mode?: "merge" | "overwrite" | "replace", forceRestore = false): Promise<string> {
-    return nativeOnly<string>("confirm_database_import", { token, tables, mode, forceRestore });
+    return invokeOrWeb<string>("confirm_database_import", { token, tables, mode, forceRestore }, { path: "/api/database-import/confirm", init: jsonRequest("POST", { token, tables, mode, forceRestore }) });
   },
   cancelImport(token: string): Promise<void> {
-    return nativeOnly<void>("cancel_database_import", { token });
+    return invokeOrWeb<void>("cancel_database_import", { token }, { path: "/api/database-import/cancel", init: jsonRequest("POST", { token }) });
   },
 };

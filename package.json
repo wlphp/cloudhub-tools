@@ -15,7 +15,7 @@
   "scripts": {
     "dev": "vite",
     "dev:mobile": "node scripts/mobile-target.mjs dev",
-    "web:api": "node web-api.mjs",
+    "web:api": "node --watch web-api.mjs",
     "verify:platform-contracts": "node scripts/verify-platform-contracts.mjs",
     "verify:rust-boundary": "node scripts/verify-rust-command-boundary.mjs",
     "verify:release-config": "node scripts/verify-release-config.mjs",

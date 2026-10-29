@@ -2958,7 +2958,7 @@ body:has(.mobile-shell) .cloud-sync-option small {
 }
 body:has(.mobile-shell) .cloud-sync-actions {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 9px;
   margin-top: 14px;
 }
@@ -2970,8 +2970,79 @@ body:has(.mobile-shell) .cloud-sync-transfer button {
   min-height: 46px;
   justify-content: center;
   gap: 7px;
+  min-width: 0;
+  padding: 10px 12px;
+  appearance: none;
+  border: 1px solid var(--mobile-border);
   border-radius: 9px;
+  background: var(--mobile-surface);
+  color: var(--mobile-text);
   font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+  box-shadow: none;
+  cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+body:has(.mobile-shell) .cloud-sync-actions button svg {
+  flex-shrink: 0;
+  color: var(--mobile-accent);
+}
+body:has(.mobile-shell) .cloud-sync-actions button.primary-update-btn {
+  border-color: color-mix(in srgb, var(--mobile-accent) 35%, var(--mobile-border));
+  background: color-mix(in srgb, var(--mobile-accent) 10%, var(--mobile-surface));
+  color: color-mix(in srgb, var(--mobile-accent) 70%, var(--mobile-text));
+}
+body:has(.mobile-shell) .cloud-sync-actions button:hover:not(:disabled),
+body:has(.mobile-shell) .cloud-sync-actions button:active:not(:disabled) {
+  border-color: var(--mobile-accent);
+  background: color-mix(in srgb, var(--mobile-accent) 15%, var(--mobile-surface));
+}
+body:has(.mobile-shell) .cloud-sync-actions button:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+body:has(.mobile-shell) .cloud-sync-field input[type="file"] {
+  height: auto;
+  padding: 7px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--mobile-muted);
+}
+body:has(.mobile-shell) .cloud-sync-field input::file-selector-button {
+  margin-right: 10px;
+  padding: 6px 10px;
+  border: 1px solid var(--mobile-border);
+  border-radius: 6px;
+  background: var(--mobile-surface);
+  color: var(--mobile-text);
+  font: inherit;
+  cursor: pointer;
+}
+body:has(.mobile-shell) .cloud-sync-transfer > p:not(.cloud-sync-history) {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--mobile-accent) 7%, var(--mobile-surface));
+  color: color-mix(in srgb, var(--mobile-accent) 55%, var(--mobile-text));
+}
+body:has(.mobile-shell) .cloud-sync-transfer > .cloud-sync-history {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 20px;
+  padding-top: 4px;
+  color: var(--mobile-muted);
+  font-variant-numeric: tabular-nums;
+}
+body:has(.mobile-shell) .cloud-sync-history span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+body:has(.mobile-shell) .cloud-sync-history strong {
+  color: var(--mobile-text);
+  font-weight: 500;
+}
+@media (prefers-reduced-motion: reduce) {
+  body:has(.mobile-shell) .cloud-sync-actions button { transition: none; }
 }
 body:has(.mobile-shell) .cloud-sync-transfer {
   margin-top: 16px;

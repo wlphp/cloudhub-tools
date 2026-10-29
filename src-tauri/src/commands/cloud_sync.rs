@@ -76,10 +76,28 @@ impl Drop for Config {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct SyncStatus {
     busy: bool,
+    progress: Option<TransferProgress>,
     last_upload: Option<String>,
     last_download: Option<String>,
     error: Option<String>,
     paused: bool,
+}
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TransferProgress {
+    phase: String,
+    transferred: u64,
+    total: Option<u64>,
+}
+
+pub(super) fn progress(phase: &str, transferred: u64, total: Option<u64>) {
+    if let Ok(mut state) = status().lock() {
+        state.progress = Some(TransferProgress {
+            phase: phase.into(),
+            transferred,
+            total,
+        });
+    }
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -345,6 +363,7 @@ impl Busy {
         let mut state = status().lock().map_err(|_| "同步状态不可用")?;
         state.busy = true;
         state.error = None;
+        state.progress = None;
         Ok(Self)
     }
     fn finish(&self, error: Option<String>, upload: bool) {
@@ -364,11 +383,13 @@ impl Drop for Busy {
     fn drop(&mut self) {
         if let Ok(mut state) = status().lock() {
             state.busy = false;
+            state.progress = None;
         }
     }
 }
 
 async fn upload(automatic: bool) -> Result<(), String> {
+    progress("connecting", 0, None);
     let mut config = load()?.ok_or("请先保存云同步配置")?;
     validate(&config)?;
     if automatic && (!config.auto_sync || status().lock().map_err(|_| "同步状态不可用")?.paused)
@@ -391,6 +412,7 @@ async fn upload(automatic: bool) -> Result<(), String> {
     } else {
         None
     };
+    progress("preparing", 0, None);
     let bytes = tauri::async_runtime::spawn_blocking(move || {
         super::database_migration::cloud_snapshot(password)
     })
@@ -410,6 +432,7 @@ async fn upload(automatic: bool) -> Result<(), String> {
     )
     .await?;
     transport::check(response.status())?;
+    progress("finishing", 0, None);
     config.last_etag = transport::etag(&response);
     // Do not fetch a newer ETag here: a second device could have replaced our upload.
     persist(&config)?;
@@ -442,6 +465,7 @@ pub(crate) async fn cloud_sync_download(
         .try_lock()
         .map_err(|_| "云同步正在执行，请勿重复操作")?;
     let busy = Busy::start()?;
+    progress("connecting", 0, None);
     let result = async {
         let mut config = load()?.ok_or("请先保存云同步配置")?;
         validate(&config)?;
@@ -457,6 +481,7 @@ pub(crate) async fn cloud_sync_download(
         .await?;
         let tag = transport::etag(&response);
         let bytes = transport::read(response).await?;
+        progress("verifying", 0, None);
         let password = if config.password_protected {
             Some(config.backup_password.clone())
         } else {

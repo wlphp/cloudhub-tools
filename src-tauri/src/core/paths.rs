@@ -1,5 +1,15 @@
 use std::{fs, path::PathBuf};
 
+// Only initialized by the private browser database pipe, never by the GUI.
+#[cfg(desktop)]
+static BROWSER_DATABASE_DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+#[cfg(desktop)]
+pub(crate) fn initialize_browser_database_dir() -> Result<(), String> {
+    let path = PathBuf::from(std::env::var_os("CLOUDHUB_BROWSER_DATA_DIR").ok_or("缺少网页调试数据目录")?);
+    if !path.is_absolute() || !path.is_dir() { return Err("网页调试数据目录无效".into()); }
+    BROWSER_DATABASE_DIR.set(path.canonicalize().map_err(|_| "网页调试数据目录无效")?).map_err(|_| "网页调试数据目录已初始化".into())
+}
+
 #[cfg(mobile)]
 static APP_LOCAL_DATA_BASE: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
 
@@ -11,6 +21,8 @@ pub fn initialize_app_local_data_base(base: PathBuf) -> Result<(), String> {
 }
 
 pub fn data_dir() -> Result<PathBuf, String> {
+    #[cfg(desktop)]
+    if let Some(path) = BROWSER_DATABASE_DIR.get() { return Ok(path.clone()); }
     #[cfg(mobile)]
     let base = APP_LOCAL_DATA_BASE
         .get()

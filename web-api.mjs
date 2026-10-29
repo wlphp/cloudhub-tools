@@ -13,6 +13,7 @@ import { handleTrashRoute } from "./web-api/routes/trash.mjs";
 import { handleClaudeProvidersRoute } from "./web-api/routes/claude-providers.mjs";
 import { handleAiRoutes } from "./web-api/routes/ai.mjs";
 import { handleFlowRoutes } from "./web-api/routes/flow.mjs";
+import { handleCloudSyncRoutes } from "./web-api/routes/cloud-sync.mjs";
 import { listAccounts, deleteAccount, getAccountSecretRecord, getAccountType, getAccountRegion, getAccountTypeAndRegion, getAccountForUpdate, saveAccountRecord, importAccountRecords } from "./web-api/repositories/accounts.mjs";
 import { listAssets, deleteAsset, updateServerName } from "./web-api/repositories/assets.mjs";
 import { listApiLogs, clearApiLogs, clearOperationLogs } from "./web-api/repositories/logs.mjs";
@@ -679,7 +680,7 @@ const server = http.createServer(async (req, res) => {
   let requestTracked = false;
   try {
     const url = new URL(req.url, `http://localhost:${port}`);
-    if (databaseImportActive && url.pathname !== "/api/database-import/confirm") return send(res, 503, { error: "正在导入电脑备份，请稍后重试" });
+    if (databaseImportActive) return send(res, 503, { error: "正在导入电脑备份，请稍后重试" });
     activeApiRequests += 1;
     requestTracked = true;
     if (await handleDatabaseMigrationRoutes(req, res, url, send, {
@@ -695,6 +696,7 @@ const server = http.createServer(async (req, res) => {
     })) return;
     if (await handleAccountRoutes(req, res, url, { accounts: listAccounts, saveAccount, deleteAccount })) return;
     if (await handleFlowRoutes(req, res, url)) return;
+    if (await handleCloudSyncRoutes(req, res, url)) return;
     if (await handleAiRoutes(req, res, url)) return;
     if (await handleIpLocationRoute(req, res, url)) return;
     if (await handleAuthenticatorRoute(req, res, url)) return;

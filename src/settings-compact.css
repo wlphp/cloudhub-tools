@@ -79,6 +79,17 @@ html,body,#root{height:100%;overflow:hidden}.app-shell{height:100vh;min-height:0
 .cloud-sync-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 .ide-theme .utility-page .cloud-sync-actions button{display:inline-flex;align-items:center;justify-content:center;gap:7px;width:auto;height:34px;min-height:34px;padding:0 12px;border-radius:6px;font-size:12px;white-space:nowrap}
 .cloud-sync-transfer{margin-top:16px;padding-top:16px;border-top:1px solid var(--jb-border)}
+.data-settings-panel .cloud-sync-history{display:flex;flex-wrap:wrap;gap:4px 20px;color:var(--jb-muted);font-variant-numeric:tabular-nums}
+.cloud-sync-history strong{color:var(--jb-text);font-weight:500}
+.data-settings-panel .cloud-sync-success{display:flex;align-items:flex-start;gap:7px;padding:8px 10px;border:1px solid color-mix(in srgb,var(--jb-success) 30%,var(--jb-border));border-radius:6px;background:color-mix(in srgb,var(--jb-success) 8%,var(--jb-surface));color:color-mix(in srgb,var(--jb-success) 65%,var(--jb-text))}
+.cloud-sync-success svg{flex-shrink:0;margin-top:3px}
+.cloud-sync-success span{min-width:0;overflow-wrap:anywhere}
+.cloud-sync-progress{min-width:0;margin-top:12px;padding:10px 12px;border:1px solid var(--jb-border);border-radius:6px;color:var(--jb-text)}
+.cloud-sync-progress-heading{display:flex;justify-content:space-between;flex-wrap:wrap;gap:4px 12px;font-size:12px;line-height:1.6;overflow-wrap:anywhere}
+.cloud-sync-progress-heading>span:last-child{font-variant-numeric:tabular-nums}
+.cloud-sync-progress progress{display:block;width:100%;height:6px;margin:8px 0 0;accent-color:var(--jb-accent);border:0;border-radius:3px;overflow:hidden}
+.cloud-sync-progress progress::-webkit-progress-bar{background:var(--jb-border);border-radius:3px}
+.cloud-sync-progress progress::-webkit-progress-value{background:var(--jb-accent);border-radius:3px}
 .ide-theme .utility-page .cloud-sync-toggle{display:inline-flex;align-items:center;gap:8px;width:auto;min-height:32px;margin:0;padding:4px 6px;border:0;border-radius:4px;background:transparent;color:inherit;font:inherit;cursor:pointer;box-shadow:none}
 .ide-theme .utility-page .cloud-sync-toggle:hover{background:var(--jb-hover);transform:none}
 .ide-theme .utility-page .cloud-sync-toggle:active{transform:none}

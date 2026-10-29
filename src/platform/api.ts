@@ -139,6 +139,17 @@ const localWebApiPort = webApiPort(
 );
 const localWebApiBaseUrl = `http://127.0.0.1:${localWebApiPort}`;
 
+export async function webApiDownload(path: string): Promise<Blob> {
+  try {
+    const response = await fetch(`${localWebApiBaseUrl}${path}`, { method: "POST" });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      throw new Error(payload.error || `Web API ${response.status}`);
+    }
+    return await response.blob();
+  } catch (reason) { throw normalizePlatformError(reason); }
+}
+
 export interface UnsupportedInPreviewError extends Error {
   kind: "unsupported-in-preview";
   feature?: string;

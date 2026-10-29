@@ -60,6 +60,13 @@ pub(crate) use commands::codex_gateway::{codex_gateway_configure, codex_gateway_
 pub(crate) use commands::authenticator::{authenticator_reveal_secret,authenticator_status,authenticator_unlock,authenticator_lock,authenticator_list,authenticator_touch,authenticator_codes,authenticator_save,authenticator_remove,authenticator_advance,authenticator_copy,authenticator_prepare,authenticator_import,authenticator_cancel,authenticator_export};
 #[cfg(desktop)]
 pub fn run_browser_authenticator() { commands::authenticator::browser::run(); }
+
+#[cfg(desktop)]
+pub fn run_browser_database() {
+    if core::paths::initialize_browser_database_dir().is_ok() {
+        commands::database_migration::browser::run();
+    }
+}
 pub(crate) use commands::accounts::{delete_account, export_accounts, export_accounts_file, import_accounts, list_accounts, reveal_account_secret, save_account};
 pub(crate) use commands::preferences::{list_client_preferences, save_client_preference};
 #[cfg(desktop)]

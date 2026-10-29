@@ -6,6 +6,35 @@ use reqwest::{Client, Method, Response, StatusCode, Url};
 use sha2::{Digest, Sha256};
 use std::time::Duration;
 use zeroize::Zeroizing;
+use std::{
+    pin::Pin,
+    task::{Context, Poll},
+};
+use tokio::io::{AsyncRead, ReadBuf};
+use tokio_util::io::ReaderStream;
+
+// Counts bytes consumed by the HTTP client. Server acknowledgement is a
+// separate phase: consuming the last chunk does not mean upload succeeded.
+struct UploadReader {
+    inner: std::io::Cursor<Vec<u8>>,
+    total: u64,
+}
+impl AsyncRead for UploadReader {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        let result = Pin::new(&mut self.inner).poll_read(cx, buf);
+        let sent = self.inner.position();
+        super::progress(
+            if sent == self.total { "confirming" } else { "uploading" },
+            sent,
+            Some(self.total),
+        );
+        result
+    }
+}
 
 pub(super) const MAX_BYTES: usize = 256 * 1024 * 1024;
 
@@ -148,9 +177,18 @@ pub(super) async fn request(
         request = request.header("Depth", "0");
     }
     if method == Method::PUT {
+        let total = body.len() as u64;
+        super::progress("uploading", 0, Some(total));
         request = request
             .header("Content-Type", "application/octet-stream")
-            .body(body);
+            .header("Content-Length", total)
+            .body(reqwest::Body::wrap_stream(ReaderStream::with_capacity(
+                UploadReader {
+                    inner: std::io::Cursor::new(body),
+                    total,
+                },
+                64 * 1024,
+            )));
     }
     request.send().await.map_err(|error| {
         if error.is_timeout() {
@@ -245,6 +283,8 @@ pub(super) async fn ensure_directories(client: &Client, config: &Config) -> Resu
 
 pub(super) async fn read(mut response: Response) -> Result<Vec<u8>, String> {
     check(response.status())?;
+    let total = response.content_length();
+    super::progress("downloading", 0, total);
     if response
         .content_length()
         .is_some_and(|size| size > MAX_BYTES as u64)
@@ -257,6 +297,7 @@ pub(super) async fn read(mut response: Response) -> Result<Vec<u8>, String> {
             return Err("云端备份超过 256 MB 限制".into());
         }
         bytes.extend_from_slice(&chunk);
+        super::progress("downloading", bytes.len() as u64, total);
     }
     Ok(bytes)
 }

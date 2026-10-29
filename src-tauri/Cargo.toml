@@ -4,6 +4,15 @@ version = "0.1.102"
 description = "本地阿里云资源管理客户端"
 authors = ["wanglei"]
 edition = "2021"
+default-run = "cloudhub-tools"
+
+[features]
+browser-debug = []
+
+[[bin]]
+name = "cloudhub-browser-database"
+path = "src/browser_database_main.rs"
+required-features = ["browser-debug"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

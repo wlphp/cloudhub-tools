@@ -32,7 +32,7 @@ if (command !== "dev" && command !== "build") {
       if (await apiPortIsOpen()) {
         console.log("复用已运行的本地 Web API：127.0.0.1:1430");
       } else {
-        apiChild = spawn(process.execPath, [resolve("web-api.mjs")], { stdio: "inherit", env: process.env });
+        apiChild = spawn(process.execPath, ["--watch", resolve("web-api.mjs")], { stdio: "inherit", env: process.env });
         apiChild.on("error", (error) => {
           console.error(`启动本地 Web API 失败: ${error.message}`);
           stop(1);
