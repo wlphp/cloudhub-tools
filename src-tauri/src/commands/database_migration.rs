@@ -677,11 +677,24 @@ fn reset_imported_sync_identity(path: &Path) -> Result<(), String> {
 
 fn parse_package_password(package_path: &Path, password: Option<&str>) -> Result<(Vec<u8>, Vec<u8>, serde_json::Value), String> {
     if fs::metadata(package_path).map_err(|_| "无法读取备份文件")?.len() > MAX_PACKAGE_BYTES { return Err("备份超过 256 MB 限制".into()); }
-    let mut package = Zeroizing::new(fs::read(package_path).map_err(|_| "读取备份失败")?);
+    let package = Zeroizing::new(fs::read(package_path).map_err(|_| "读取备份失败")?);
+    parse_package_contents(package, password, package_path)
+}
+
+fn parse_package_contents(mut package: Zeroizing<Vec<u8>>, password: Option<&str>, package_path: &Path) -> Result<(Vec<u8>, Vec<u8>, serde_json::Value), String> {
     if package.starts_with(backup_crypto::MAGIC) {
         package = backup_crypto::open(&package, password.ok_or("请输入备份密码")?)?;
     }
     parse_package_bytes(&package, package_path)
+}
+
+#[cfg(any(mobile, test))]
+fn read_limited_package(reader: impl std::io::Read, limit: u64) -> Result<Zeroizing<Vec<u8>>, String> {
+    use std::io::Read;
+    let mut package = Zeroizing::new(Vec::new());
+    reader.take(limit.saturating_add(1)).read_to_end(&mut package).map_err(|_| "读取备份失败")?;
+    if package.len() as u64 > limit { return Err("备份超过 256 MB 限制".into()); }
+    Ok(package)
 }
 
 fn parse_package_bytes(package: &[u8], package_path: &Path) -> Result<(Vec<u8>, Vec<u8>, serde_json::Value), String> {
@@ -896,8 +909,24 @@ pub(crate) async fn prepare_database_import(app: tauri::AppHandle, state: tauri:
     if format.as_deref().is_some_and(|value| value != "backup") { return Err("不支持的导入格式".into()); }
     let password = Zeroizing::new(password.unwrap_or_default());
     let Some(selected) = app.dialog().file().blocking_pick_file() else { return Ok(None) };
-    let package_path = selected.into_path().map_err(|_| "当前平台返回了不支持的导入路径".to_string())?;
-    let (database, key, manifest) = parse_package_password(&package_path, Some(&password))?;
+    #[cfg(mobile)]
+    let (database, key, manifest, package_name) = {
+        use tauri_plugin_fs::FsExt;
+        let mut options = tauri_plugin_fs::OpenOptions::new();
+        options.read(true);
+        let file = app.fs().open(selected, options).map_err(|_| "无法打开系统选择的备份文件")?;
+        let package = read_limited_package(file, MAX_PACKAGE_BYTES)?;
+        if package.starts_with(b"SQLite format 3\0") { return Err("手机端仅支持 CloudHub .chdb 备份包".into()); }
+        let parsed = parse_package_contents(package, Some(&password), Path::new("mobile-backup.chdb"))?;
+        (parsed.0, parsed.1, parsed.2, "手机备份".to_string())
+    };
+    #[cfg(not(mobile))]
+    let (database, key, manifest, package_name) = {
+        let package_path = selected.into_path().map_err(|_| "当前平台返回了不支持的导入路径".to_string())?;
+        let parsed = parse_package_password(&package_path, Some(&password))?;
+        let name = package_path.file_name().and_then(|value| value.to_str()).unwrap_or("迁移包").to_string();
+        (parsed.0, parsed.1, parsed.2, name)
+    };
     let database = Zeroizing::new(database); let key = Zeroizing::new(key);
     let data = data_dir()?;
     let token = Uuid::new_v4().to_string();
@@ -906,7 +935,6 @@ pub(crate) async fn prepare_database_import(app: tauri::AppHandle, state: tauri:
         fs::write(&database_path, &*database).map_err(|_| "准备导入预览失败")?;
         validate_database(&database_path)?;
         reset_imported_sync_identity(&database_path)?;
-        let package_name = package_path.file_name().and_then(|value| value.to_str()).unwrap_or("迁移包").to_string();
         let preview = build_preview(&database_path, &data.join("cloudhub_tools.sqlite3"), token.clone(), package_name, manifest.get("exported_at").and_then(|value| value.as_str()).unwrap_or("未知").to_string())?;
         state.sessions.lock().map_err(|_| "导入预览状态不可用")?.insert(token, PreparedImport { database_path: database_path.clone(), key, sql_mode: None, plan: None });
         Ok(Some(preview))
@@ -942,12 +970,18 @@ pub(crate) async fn prepare_database_backup_restore(id: String, password: Option
 #[cfg(test)]
 mod tests {
     use super::{
-        preserve_local_authenticator, preserve_local_codex, preserve_local_codex_providers,
+        preserve_local_authenticator, preserve_local_codex, preserve_local_codex_providers, read_limited_package,
         reset_imported_sync_identity,
     };
     use rusqlite::Connection;
     use std::{fs, path::PathBuf};
     use uuid::Uuid;
+
+    #[test]
+    fn selected_backup_reads_are_bounded() {
+        assert_eq!(&*read_limited_package(std::io::Cursor::new(b"abc"), 3).unwrap(), b"abc");
+        assert!(read_limited_package(std::io::Cursor::new(b"abcd"), 3).is_err());
+    }
 
     #[test]
     fn snapshot_contains_business_and_trash_but_no_login_logs_or_device_identity() {
