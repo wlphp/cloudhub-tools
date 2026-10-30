@@ -12,6 +12,8 @@ export function normalizePageSize(value: number, fallback: number = DEFAULT_PAGE
 type PaginationBarProps = {
   page: number;
   pageSize: number;
+  /** Optional effective count for layouts that must paginate complete grid rows. */
+  paginationPageSize?: number;
   /** 已知总条数；未知（服务端分页无总数）时隐藏总数与跳页。 */
   total?: number;
   /** total 未知时的下一页依据；false 时禁用下一页。 */
@@ -23,10 +25,10 @@ type PaginationBarProps = {
   className?: string;
 };
 
-export function PaginationBar({ page, pageSize, total, hasNext, onPageChange, onPageSizeChange, pageSizeOptions = PAGE_SIZE_OPTIONS, disabled = false, className }: PaginationBarProps) {
+export function PaginationBar({ page, pageSize, paginationPageSize = pageSize, total, hasNext, onPageChange, onPageSizeChange, pageSizeOptions = PAGE_SIZE_OPTIONS, disabled = false, className }: PaginationBarProps) {
   const [jumpDraft, setJumpDraft] = useState(String(page));
   useEffect(() => { setJumpDraft(String(page)); }, [page]);
-  const pageCount = total === undefined ? null : Math.max(1, Math.ceil(total / pageSize));
+  const pageCount = total === undefined ? null : Math.max(1, Math.ceil(total / paginationPageSize));
   const prevDisabled = disabled || page <= 1;
   const nextDisabled = disabled || (pageCount !== null ? page >= pageCount : hasNext === false);
   const pageNumbers = pageCount === null ? [] : pageCount <= 5
@@ -70,7 +72,7 @@ export function PaginationBar({ page, pageSize, total, hasNext, onPageChange, on
       {total !== undefined && <span className="pagination-total">共 {total} 条</span>}
       {onPageSizeChange && (
         <select className="pagination-size" aria-label="每页条数" value={pageSize} disabled={disabled} onChange={(event) => onPageSizeChange(Number(event.target.value))}>
-          {pageSizeOptions.map((value) => <option key={value} value={value}>{value} 条/页</option>)}
+          {pageSizeOptions.map((value) => <option key={value} value={value}>{value} 条/页{value === pageSize && paginationPageSize !== pageSize ? `（整行显示 ${paginationPageSize} 条）` : ""}</option>)}
         </select>
       )}
     </div>

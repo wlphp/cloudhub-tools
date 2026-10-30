@@ -5,6 +5,7 @@ import { GroupNameInput } from "../../shared/GroupNameInput";
 import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type FormEvent, type ReactNode } from "react";
 import { Check, Copy, Download, Edit3, Eye, EyeOff, Grid2X2, KeyRound, List, LockKeyhole, Plus, Search, ShieldCheck, Star, Trash2, Upload } from "lucide-react";
 import { PaginationBar, PAGE_SIZE_OPTIONS } from "../../shared/PaginationBar";
+import { useGridPageSize } from "../../shared/useGridPageSize";
 import { authenticatorClient as client, type AuthCode, type AuthEntry, type AuthInput, type AuthPreview } from "../../platform/clients/authenticator";
 import { runningInTauri } from "../../platform/api";
 import "./authenticator.css";
@@ -55,6 +56,7 @@ export function AuthenticatorPanel({ mobile = false }: { mobile?: boolean }) {
   const [sort, setSort] = useState("custom");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(100);
+  const gridPagination = useGridPageSize<HTMLDivElement>(pageSize);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [draft, setDraft] = useState<AuthInput | null>(null);
   const [modal, setModal] = useState<"import" | "export" | "delete" | null>(null);
@@ -175,9 +177,9 @@ export function AuthenticatorPanel({ mobile = false }: { mobile?: boolean }) {
       .sort((a, b) => Number(b.pinned) - Number(a.pinned) || (sort === "name" ? a.issuer.localeCompare(b.issuer) || a.account.localeCompare(b.account) : a.order - b.order));
   }, [entries, category, group, search, sort]);
   useEffect(() => { setPage(1); }, [category, group, search, sort]);
-  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageCount = Math.max(1, Math.ceil(filtered.length / gridPagination.pageSize));
   const safePage = Math.min(page, pageCount);
-  const visible = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
+  const visible = filtered.slice((safePage - 1) * gridPagination.pageSize, safePage * gridPagination.pageSize);
   const visibleIds = visible.map((entry) => entry.id).join(",");
   useEffect(() => {
     if (!unlocked) return;
@@ -305,7 +307,7 @@ export function AuthenticatorPanel({ mobile = false }: { mobile?: boolean }) {
       </div>}
     </div>
     {entries.length > 0 && <div className="auth-selection"><label><input type="checkbox" ref={(node) => { if (node) node.indeterminate = visible.some((entry) => selected.has(entry.id)) && !visible.every((entry) => selected.has(entry.id)); }} checked={visible.length > 0 && visible.every((entry) => selected.has(entry.id))} onChange={(event) => setSelected((old) => { const next = new Set(old); visible.forEach((entry) => event.target.checked ? next.add(entry.id) : next.delete(entry.id)); return next; })} /> 选择本页</label><span>已选 {selected.size} 项</span>{selected.size > 0 ? <><button className="auth-primary" disabled={busy} onClick={() => { setModal("export"); setError(""); }}><Download size={14} /> 导出所选</button><button onClick={() => setSelected(new Set())}>取消选择</button><button disabled={busy} onClick={() => setModal("delete")}><Trash2 size={14} /> 删除所选</button></> : <span className="auth-hint">勾选验证码后可导出部分条目</span>}</div>}
-    {!visible.length ? <div className="auth-empty"><KeyRound size={36} /><h3>{entries.length ? "没有匹配的验证码" : "还没有验证码"}</h3><p>{entries.length ? "调整搜索条件、服务商类别或分组。" : "导入 Ente 文件、识别二维码图片，或手动添加 OTP 密钥。"}</p></div> : <div className={`auth-cards ${layout === "list" ? "auth-list" : ""}`}>
+    {!visible.length ? <div className="auth-empty"><KeyRound size={36} /><h3>{entries.length ? "没有匹配的验证码" : "还没有验证码"}</h3><p>{entries.length ? "调整搜索条件、服务商类别或分组。" : "导入 Ente 文件、识别二维码图片，或手动添加 OTP 密钥。"}</p></div> : <div ref={gridPagination.gridRef} className={`auth-cards ${layout === "list" ? "auth-list" : ""}`}>
       {visible.map((entry) => { const code = codes[entry.id]; return <article className={`auth-card ${code && code.remaining <= 5 && entry.kind !== "hotp" ? "auth-expiring" : ""}`} key={entry.id}>
         <div className="auth-card-heading"><div className="auth-card-top"><label><input aria-label={`选择 ${entry.issuer} ${entry.account}`} type="checkbox" checked={selected.has(entry.id)} onChange={(event) => setSelected((old) => { const next = new Set(old); event.target.checked ? next.add(entry.id) : next.delete(entry.id); return next; })} /></label><div className="auth-identity"><strong title={entry.issuer}>{entry.issuer || "未指定服务商"}</strong></div>
           <button className={entry.pinned ? "auth-pinned" : ""} aria-label={`${entry.pinned ? "取消置顶" : "置顶"} ${entry.account}`} disabled={busy} onClick={() => void action(async () => { await client.save({ ...entry, pinned: !entry.pinned }); await refresh(); })}><Star size={16} fill={entry.pinned ? "currentColor" : "none"} /></button>
@@ -319,7 +321,7 @@ export function AuthenticatorPanel({ mobile = false }: { mobile?: boolean }) {
         {entry.kind !== "hotp" && <div className="auth-progress" role="progressbar" aria-label={`${entry.account} 剩余时间`} aria-valuemin={0} aria-valuemax={entry.period} aria-valuenow={code?.remaining ?? 0}><i style={{ transform: `scaleX(${code ? code.remaining / code.period : 0})` }} /></div>}
       </article>; })}
     </div>}
-    {filtered.length > 0 && <PaginationBar className="auth-pagination" page={safePage} pageSize={pageSize} total={filtered.length} onPageChange={setPage} onPageSizeChange={(size) => { setPageSize(size); setPage(1); }} pageSizeOptions={[...PAGE_SIZE_OPTIONS, 100]} />}
+    {filtered.length > 0 && <PaginationBar className="auth-pagination" page={safePage} pageSize={pageSize} paginationPageSize={gridPagination.pageSize} total={filtered.length} onPageChange={setPage} onPageSizeChange={(size) => { setPageSize(size); setPage(1); }} pageSizeOptions={[...PAGE_SIZE_OPTIONS, 100]} />}
 
     {draft && <Modal title={draft.id ? "编辑验证码" : "新增验证码"} busy={busy} mobileForm={mobile} close={() => { hideDraftSecret(); setDraft(null); setError(""); }} onSubmit={(event) => { event.preventDefault(); const input = draft; hideDraftSecret(); setDraft({ ...draft, secret: "" }); void action(async () => { await client.save(input); setDraft(null); await refresh(); setMessage("验证码已保存"); }); }} footer={<><button type="button" className="secondary" disabled={busy} onClick={() => { hideDraftSecret(); setDraft(null); }}>取消</button><button className="primary" disabled={busy} type="submit">{busy ? "保存中…" : "保存"}</button></>}>
       <div className="auth-form-grid"><DialogField label="服务商"><input maxLength={256} value={draft.issuer} onChange={(event) => setDraft({ ...draft, issuer: event.target.value })} /></DialogField><DialogField label="账户"><input maxLength={512} value={draft.account} onChange={(event) => setDraft({ ...draft, account: event.target.value })} /></DialogField></div>

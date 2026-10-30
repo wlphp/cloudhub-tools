@@ -16,6 +16,7 @@ import { CodexAccountLogsDialog } from "./CodexAccountLogsDialog";
 import { LaunchPreviewDialog } from "./LaunchPreviewDialog";
 import { AccountTable } from "./AccountTable";
 import { PaginationBar } from "../../shared/PaginationBar";
+import { useGridPageSize } from "../../shared/useGridPageSize";
 import { emptyOverviewPreferences, readOverviewPreferences, saveOverviewPreferences, type OverviewPreferences } from "./overviewPreferences";
 import { Bot, Copy, ExternalLink, Eye, EyeOff, FileText, Filter, FolderOpen, History, LayoutGrid, List, Link2, Play, Plus, RefreshCw, RotateCcw, Search, Server, Settings, ShieldCheck, Square, Tag, Terminal, Trash2, Upload, Users, X } from "lucide-react";
 import { platformErrorMessage, runningInTauri } from "../../platform/api";
@@ -66,6 +67,7 @@ export function CodexPanel() {
   const [sort, setSort] = useState("default");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
+  const gridPagination = useGridPageSize<HTMLDivElement>(pageSize, preferences.showServiceEntry ? 1 : 0);
   const now = useQuotaClock();
   const [batch, setBatch] = useState<{ total: number; done: number; label: string; stopping: boolean } | null>(null);
   const stopBatch = useRef(false);
@@ -218,9 +220,9 @@ export function CodexPanel() {
     });
   }, [accounts, query, tagFilter, plan, statusFilter, sort, reverseSort, now, state?.currentAccountId, preferences.groups, groupId]);
   useEffect(() => { setPage(1); }, [query, tagFilter, plan, statusFilter, sort, reverseSort, groupId]);
-  const pageCount = Math.max(1, Math.ceil(visible.length / pageSize));
+  const pageCount = Math.max(1, Math.ceil(visible.length / gridPagination.pageSize));
   const safePage = Math.min(page, pageCount);
-  const paged = visible.slice((safePage - 1) * pageSize, safePage * pageSize);
+  const paged = visible.slice((safePage - 1) * gridPagination.pageSize, safePage * gridPagination.pageSize);
   const targets = visible.filter(account => account.authMode === "chatgpt" && (!selected.size || selected.has(account.id)));
   const proxyTargets = visible.filter(account => selected.has(account.id));
   const plans = [...new Set(accounts.map((account) => account.plan ?? account.authMode))].sort();
@@ -351,7 +353,7 @@ export function CodexPanel() {
       <button disabled={!!busy || !visible.some(account => account.lastError)} onClick={() => { setError(""); setDeleteIds(visible.filter(account => account.lastError).map(account => account.id)); }}>清理错误账号</button>
       {(query || plan || statusFilter || tagFilter) && <button onClick={() => { setQuery(""); setPlan(""); setStatusFilter(""); setTagFilter(""); }}>清除筛选</button>}
     </div></div>
-    {state && !accounts.length ? <div className="codex-empty"><Bot size={35} /><h2>添加你的第一个 Codex 账号</h2><p>导入本机登录或选择账号 JSON。账号凭据只在本机加密保存。</p></div> : !visible.length && state ? <div className="codex-empty"><Search size={28} /><h2>没有匹配的账号</h2><p>调整搜索关键词、套餐或额度状态筛选。</p></div> : viewMode === "table" ? <AccountTable accounts={paged} selected={selected} currentId={state?.currentAccountId} busy={!!busy} refreshingIds={refreshingIds} now={now} onSelect={id => setSelected(current => { const next = new Set(current); next.has(id) ? next.delete(id) : next.add(id); return next; })} onDetails={setInspecting} onSwitch={account => void act("准备切号", async () => { try { const preview = await codexClient.prepareSwitch(account.id); if (alive.current) setSwitching(preview); } catch (reason) { if (isCodexDefaultProcessBusy(reason)) { setCloseDefaultRequest({ inPreview: false, retry: async () => { const preview = await codexClient.prepareSwitch(account.id); if (alive.current) setSwitching(preview); } }); return; } throw reason; } })} onRefresh={account => void refreshOne(account.id)} onLogs={setLogsAccount} onDelete={account => { setError(""); setDeleting(account); }} /> : <div className={"codex-grid codex-reference-grid" + (viewMode === "list" ? " codex-list-view" : "") + (preferences.compact ? " codex-compact-view" : "")}>{preferences.showServiceEntry && <ServiceSummary accounts={accounts} state={gateway} lanUrl={summaryLanUrl} active={activePanel === "accounts"} busy={!!busy} onOpen={kind => { setActivePanel("api"); setGatewayAction(current => ({id:(current?.id ?? 0)+1,kind})); }} onInstances={() => setActivePanel("instances")} onRefresh={() => void act("刷新服务统计", async () => { const next = await codexClient.gatewayState(); if (alive.current) setGateway(next); })} />}{paged.map((account) => <article className={`codex-card${state?.currentAccountId === account.id ? " current" : ""}`} key={account.id} aria-label={`Codex 账号 ${account.label}`}>
+    {state && !accounts.length ? <div className="codex-empty"><Bot size={35} /><h2>添加你的第一个 Codex 账号</h2><p>导入本机登录或选择账号 JSON。账号凭据只在本机加密保存。</p></div> : !visible.length && state ? <div className="codex-empty"><Search size={28} /><h2>没有匹配的账号</h2><p>调整搜索关键词、套餐或额度状态筛选。</p></div> : viewMode === "table" ? <AccountTable accounts={paged} selected={selected} currentId={state?.currentAccountId} busy={!!busy} refreshingIds={refreshingIds} now={now} onSelect={id => setSelected(current => { const next = new Set(current); next.has(id) ? next.delete(id) : next.add(id); return next; })} onDetails={setInspecting} onSwitch={account => void act("准备切号", async () => { try { const preview = await codexClient.prepareSwitch(account.id); if (alive.current) setSwitching(preview); } catch (reason) { if (isCodexDefaultProcessBusy(reason)) { setCloseDefaultRequest({ inPreview: false, retry: async () => { const preview = await codexClient.prepareSwitch(account.id); if (alive.current) setSwitching(preview); } }); return; } throw reason; } })} onRefresh={account => void refreshOne(account.id)} onLogs={setLogsAccount} onDelete={account => { setError(""); setDeleting(account); }} /> : <div ref={gridPagination.gridRef} className={"codex-grid codex-reference-grid" + (viewMode === "list" ? " codex-list-view" : "") + (preferences.compact ? " codex-compact-view" : "")}>{preferences.showServiceEntry && <ServiceSummary accounts={accounts} state={gateway} lanUrl={summaryLanUrl} active={activePanel === "accounts"} busy={!!busy} onOpen={kind => { setActivePanel("api"); setGatewayAction(current => ({id:(current?.id ?? 0)+1,kind})); }} onInstances={() => setActivePanel("instances")} onRefresh={() => void act("刷新服务统计", async () => { const next = await codexClient.gatewayState(); if (alive.current) setGateway(next); })} />}{paged.map((account) => <article className={`codex-card${state?.currentAccountId === account.id ? " current" : ""}`} key={account.id} aria-label={`Codex 账号 ${account.label}`}>
       <div className="codex-card-title"><input type="checkbox" aria-label={`选择 ${account.label}`} checked={selected.has(account.id)} disabled={!!busy} onChange={() => setSelected((current) => { const next = new Set(current); next.has(account.id) ? next.delete(account.id) : next.add(account.id); return next; })} /><h2 title={account.label}>{account.label}</h2>{account.isWebSession && <span className="codex-badge codex-web-session-badge" title="仅支持查看额度">Web Session</span>}{state?.currentAccountId === account.id && <span className="codex-badge codex-current-badge">当前</span>}{account.lastError && <span className="codex-badge codex-error-badge">刷新失败</span>}<span className={"codex-badge codex-plan-badge" + (account.plan && account.plan !== "free" ? " is-paid" : "")}>{account.authMode === "apikey" ? "API KEY" : account.plan?.toUpperCase() ?? "未知套餐"}</span></div>
       {account.email && account.label && account.label !== account.email && <p className="codex-account-alias" title={account.email}>{account.email}</p>}
       <div className="codex-tags">{account.tags.map((tag) => <span key={tag}>{tag}</span>)}</div>
@@ -405,7 +407,7 @@ export function CodexPanel() {
         <button disabled={!!busy} aria-label={`删除 ${account.label}`} title="从 CloudHub 删除账号" onClick={() => { setError(""); setDeleting(account); }}><Trash2 size={15} /></button>
       </div></div>
     </article>)}</div>}
-    {activePanel === "accounts" && visible.length > 0 && <PaginationBar page={safePage} pageSize={pageSize} total={visible.length} onPageChange={setPage} onPageSizeChange={(size) => { setPageSize(size); setPage(1); }} />}
+    {activePanel === "accounts" && visible.length > 0 && <PaginationBar page={safePage} pageSize={pageSize} paginationPageSize={gridPagination.pageSize} total={visible.length} onPageChange={setPage} onPageSizeChange={(size) => { setPageSize(size); setPage(1); }} />}
     </section>
     <section className="codex-tab-panel" id="codex-panel-api" role="tabpanel" aria-labelledby="codex-tab-api" hidden={activePanel !== "api"} tabIndex={0}><CodexGateway accounts={accounts} disabled={!!busy} onStateChange={setGateway} externalPool={externalPool} onLanUrlChange={setSummaryLanUrl} actionRequest={gatewayAction} /></section>
     <section className="codex-tab-panel" id="codex-panel-instances" role="tabpanel" aria-labelledby="codex-tab-instances" hidden={activePanel !== "instances"} tabIndex={0}>

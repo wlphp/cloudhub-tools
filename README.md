@@ -1,6 +1,22 @@
-# 云枢工具箱（CloudHub Tools）
+<p align="center">
+  <img src="public/cloudhub-logo.png" alt="云枢工具箱图标" width="112" />
+</p>
 
-本地优先的多云资源管理工具箱。云枢工具箱把分散在不同云厂商的账号、服务器、域名、数据库和存储资源集中到一个本机客户端中管理，并提供域名解析、对象存储浏览、终端连接、面板监控、HTTPS 证书、内网穿透和操作审计等能力；同时内置软件商店、AI 辅助与桌面宠物。
+<h1 align="center">云枢工具箱 · CloudHub Tools</h1>
+
+<p align="center">
+  本地优先的多云资源管理工具箱
+</p>
+
+<p align="center">
+  <a href="https://github.com/wlphp/cloudhub-tools/releases"><img alt="GitHub Release" src="https://img.shields.io/github/v/release/wlphp/cloudhub-tools?label=Release&logo=github"></a>
+  <img alt="Windows" src="https://img.shields.io/badge/Windows-x64-0078D4?logo=windows&logoColor=white">
+  <img alt="macOS" src="https://img.shields.io/badge/macOS-Intel%20%2B%20Apple%20Silicon-111111?logo=apple&logoColor=white">
+  <img alt="Android" src="https://img.shields.io/badge/Android-ARM64-3DDC84?logo=android&logoColor=white">
+  <img alt="iOS" src="https://img.shields.io/badge/iOS-Xcode%20Archive-555555?logo=apple&logoColor=white">
+</p>
+
+云枢工具箱把分散在不同云厂商的账号、服务器、域名、数据库和存储资源集中到一个本机客户端中管理，并提供域名解析、对象存储浏览、终端连接、面板监控、HTTPS 证书、内网穿透和操作审计等能力；同时内置软件商店、AI 辅助与桌面宠物。
 
 基于 Tauri 2 + React 19 构建，桌面端与手机端同版本发布：
 
@@ -18,6 +34,23 @@
 | ![面板管理](docs/screenshots/panels.png) | ![终端管理](docs/screenshots/terminal.png) |
 | **软件商店** | **Claude 管理** |
 | ![软件商店](docs/screenshots/store.png) | ![Claude 管理](docs/screenshots/claude.png) |
+
+### 手机端预览
+
+以下为手机端界面截图，演示数据仅用于展示，不包含真实账号或凭据。
+
+<table>
+  <tr>
+    <th>云账号</th>
+    <th>云服务器</th>
+    <th>域名与 DNS</th>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/mobile-accounts.png" alt="手机端云账号列表" width="240" /></td>
+    <td><img src="docs/screenshots/mobile-servers.png" alt="手机端云服务器列表" width="240" /></td>
+    <td><img src="docs/screenshots/mobile-domains.png" alt="手机端域名与 DNS 列表" width="240" /></td>
+  </tr>
+</table>
 
 ## 核心功能
 

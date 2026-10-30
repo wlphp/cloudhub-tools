@@ -24,6 +24,7 @@ import { aiPanelMonitorSummary } from "./features/servers/aiMonitorSummary";
 import { assetSearchFilters, withinAssetExpiry } from "./features/assets/aiSearch";
 import { SecretField } from "./shared/SecretField";
 import { PaginationBar, PAGE_SIZE_OPTIONS, normalizePageSize } from "./shared/PaginationBar";
+import { useGridPageSize } from "./shared/useGridPageSize";
 import {
   displayDnsServers,
   formatMoney,
@@ -483,6 +484,8 @@ function App() {
   const [syncResult, setSyncResult] = useState<{ fetched: number; counts: Record<string, number>; errors: string[] } | null>(null);
   const [syncProgress, setSyncProgress] = useState<{ accountId: number; completed: number; total: number; resourceType: string; status: string; elapsedMs?: number } | null>(null);
   const [pageSize, setPageSize] = useState(() => { const saved = Number(readLocalStorage("aliyun-page-size") || "10"); return normalizePageSize(saved === 100 ? 90 : saved); });
+  const panelGridPagination = useGridPageSize<HTMLDivElement>(pageSize);
+  const favoriteGridPagination = useGridPageSize<HTMLDivElement>(pageSize);
   const [panelPage, setPanelPage] = useState(1);
   const [accountPage, setAccountPage] = useState(1);
   const [assetPage, setAssetPage] = useState(1);
@@ -3746,7 +3749,7 @@ function App() {
       && (!favoriteRegionFilter || region === favoriteRegionFilter);
     }).sort((left, right) => (order.get(assetFavoriteKey(left)) ?? Number.MAX_SAFE_INTEGER) - (order.get(assetFavoriteKey(right)) ?? Number.MAX_SAFE_INTEGER));
   }, [favoriteAssets, favoriteAssetOrder, accounts, favoriteTypeFilter, favoriteKeyword, favoriteRegionFilter]);
-  const pagedFavoriteAssets = visibleFavoriteAssets.slice((favoritePage - 1) * pageSize, favoritePage * pageSize);
+  const pagedFavoriteAssets = visibleFavoriteAssets.slice((favoritePage - 1) * favoriteGridPagination.pageSize, favoritePage * favoriteGridPagination.pageSize);
   const managedHostGroups = useMemo(() => {
     const order = new Map(managedHostGroupOrder.map((group, index) => [group, index]));
     return Array.from(new Set(managedHosts.map((host) => host.group_name || "未分组")))
@@ -3807,7 +3810,7 @@ function App() {
       .sort((left, right) => right[1] - left[1])
       .map(([cloudType, count]) => ({ cloudType, count, label: getCloudProvider(cloudType).label }));
   }, [accounts]);
-  const pagedPanels = visiblePanels.slice((panelPage - 1) * pageSize, panelPage * pageSize);
+  const pagedPanels = visiblePanels.slice((panelPage - 1) * panelGridPagination.pageSize, panelPage * panelGridPagination.pageSize);
   const openLocalDomainTool = (asset: LocalAsset, account: Account, kind: DomainTool["kind"]) => {
     const payload = asset.payload || {};
     const tool = {
@@ -4775,7 +4778,7 @@ function App() {
               <label className="favorite-search"><Search size={16} /><input value={favoriteKeyword} onChange={(event) => setFavoriteKeyword(event.target.value)} placeholder="搜索资源名称 / ID / 账号" /></label>
               <select value={favoriteRegionFilter} onChange={(event) => setFavoriteRegionFilter(event.target.value)}><option value="">全部地域</option>{Array.from(new Set(favoriteAssets.map((asset) => asset.region_id || String(asset.payload?.RegionId || asset.payload?.Location || "")).filter(Boolean))).map((region) => <option key={region} value={region}>{region}</option>)}</select>
             </section>
-            {visibleFavoriteAssets.length ? <div className="favorite-card-grid">
+            {visibleFavoriteAssets.length ? <div ref={favoriteGridPagination.gridRef} className="favorite-card-grid">
               {pagedFavoriteAssets.map((asset) => {
                 const account = accounts.find((item) => item.id === asset.account_id);
                 const payload = asset.payload || {};
@@ -4803,7 +4806,7 @@ function App() {
                 </article>;
               })}
             </div> : <div className="favorite-empty"><Star size={42} /><h3>{favoriteAssets.length ? "没有符合条件的收藏" : "还没有收藏资源"}</h3><p>{favoriteAssets.length ? "调整筛选条件后再试。" : "前往资源管理，点击操作列的星标即可收藏资源。"}</p><button className="secondary" onClick={() => { setSection("resources"); void loadLocalAssets(); }}>前往资源管理</button></div>}
-            {visibleFavoriteAssets.length > 0 && <PaginationBar className="favorite-pagination" page={favoritePage} pageSize={pageSize} total={visibleFavoriteAssets.length} onPageChange={setFavoritePage} onPageSizeChange={setPageSize} />}
+            {visibleFavoriteAssets.length > 0 && <PaginationBar className="favorite-pagination" page={favoritePage} pageSize={pageSize} paginationPageSize={favoriteGridPagination.pageSize} total={visibleFavoriteAssets.length} onPageChange={setFavoritePage} onPageSizeChange={setPageSize} />}
           </section>
         )}
         {section === "panels" && (
@@ -4835,7 +4838,7 @@ function App() {
                 <span className="panel-toolbar-count">共 {panelConnections.length} 台服务器</span>
               </div>
             </section>
-            {visiblePanels.length ? <div className={`panel-monitor-scroll${panelSorting ? " is-sorting" : ""}`}><div className="panel-monitor-table"><div className="panel-monitor-table-head"><span>{panelSorting ? "排序" : <input type="checkbox" aria-label="选择全部当前面板" checked={visiblePanels.length > 0 && visiblePanels.every((panel) => selectedPanelIds.has(panel.id))} onChange={toggleAllVisiblePanels} />}</span><span>服务器信息</span><span>状态</span><span>资源监控</span><span>操作</span></div>{pagedPanels.map((panel) => {
+            {visiblePanels.length ? <div className={`panel-monitor-scroll${panelSorting ? " is-sorting" : ""}`}><div ref={panelGridPagination.gridRef} className="panel-monitor-table"><div className="panel-monitor-table-head"><span>{panelSorting ? "排序" : <input type="checkbox" aria-label="选择全部当前面板" checked={visiblePanels.length > 0 && visiblePanels.every((panel) => selectedPanelIds.has(panel.id))} onChange={toggleAllVisiblePanels} />}</span><span>服务器信息</span><span>状态</span><span>资源监控</span><span>操作</span></div>{pagedPanels.map((panel) => {
               const summary = panel.summary || {};
               const value = (key: string) => { const entry = summary[key]; return entry == null || entry === "" ? "-" : typeof entry === "string" || typeof entry === "number" ? String(entry) : "-"; };
               const sourceAccount = panel.source_account_id ? accounts.find((account) => account.id === panel.source_account_id) : undefined;
@@ -4862,7 +4865,7 @@ function App() {
                 <div className="panel-row-actions"><button type="button" className="panel-action-button panel-open-button" title="在浏览器中打开面板" aria-label={`打开 ${panel.name}`} disabled={panelOpeningId !== null} onClick={() => void openPanelTemporaryLogin(panel)}><Globe2 size={15} />{panelOpeningId === panel.id ? "打开中" : "面板"}</button><button type="button" className="panel-action-button" title="打开 SSH 终端管理" aria-label={`通过 SSH 连接 ${panel.name}`} onClick={() => void launchPanelSshDirect(panel)}><Terminal size={15} />SSH</button><button type="button" className="panel-action-button panel-reboot-button" disabled={!canReboot} title={canReboot ? "重启关联云服务器" : "关联云服务器后可重启"} aria-label={`重启 ${panel.name} 关联服务器`} onClick={() => sourceAsset && void rebootLocalAsset(sourceAsset, false)}><RefreshCw size={15} />重启</button><button type="button" className="panel-action-button panel-delete-button" disabled={panelOpeningId !== null} title="移除面板" aria-label={`移除 ${panel.name}`} onClick={() => void deletePanelConnection(panel)}><Trash2 size={15} />删除</button></div>
               </article>;
             })}</div></div> : <div className="managed-server-empty"><Monitor size={42} /><h3>{panelConnections.length ? "没有符合条件的面板" : "还没有绑定面板"}</h3><p>{panelConnections.length ? "调整搜索或筛选条件后再试。" : "添加面板 URL 与 API 密钥，验证成功后即可统一查看并快速进入面板。"}</p></div>}
-            {visiblePanels.length > 0 && <PaginationBar page={panelPage} pageSize={pageSize} total={visiblePanels.length} onPageChange={setPanelPage} onPageSizeChange={setPageSize} />}
+            {visiblePanels.length > 0 && <PaginationBar page={panelPage} pageSize={pageSize} paginationPageSize={panelGridPagination.pageSize} total={visiblePanels.length} onPageChange={setPanelPage} onPageSizeChange={setPageSize} />}
           </section>
         )}
         {section === "servers" && (
