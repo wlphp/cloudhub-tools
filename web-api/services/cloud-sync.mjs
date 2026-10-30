@@ -54,9 +54,10 @@ export function mergeConfig(input, saved) {
   const sameIdentity = saved && ["method", "endpoint", "username", "accessKeyId"].every(key => config[key] === saved[key]);
   if (sameIdentity) for (const key of ["password", "secretKey"]) config[key] ||= saved[key];
   config.lastEtag = sameIdentity && ["remoteRoot", "profile", "bucket", "region", "pathStyle"].every(key => config[key] === saved[key]) ? saved.lastEtag : null;
-  if (!["webdav", "s3"].includes(config.method) || !["custom", "jianguoyun", "nextcloud", "alist"].includes(config.provider)) fail("同步方式或服务商无效");
+  if (!["webdav", "s3", "oss"].includes(config.method) || !["custom", "jianguoyun", "nextcloud", "alist"].includes(config.provider)) fail("同步方式或服务商无效");
   if (config.endpoint.length > 2048) fail("服务地址过长");
   endpoint(config);
+  if (config.method === "oss" && !ossEndpoint(config)) fail("请填写阿里云 OSS 区域 Endpoint，例如 https://oss-cn-beijing.aliyuncs.com");
   if (config.remoteRoot.length > 240 || !config.remoteRoot.split("/").every(segment) || !segment(config.profile)) fail("根目录和配置名仅支持英文、数字、空格、横线和下划线；目录不能包含路径跳转");
   if ([config.username, config.accessKeyId, config.region, config.bucket].some(value => value.length > 256 || /[\x00-\x1f\x7f]/.test(value))) fail("云同步配置字段无效");
   if (config.method === "webdav") {
@@ -114,10 +115,15 @@ export function createCloudSyncChannels({ load, persist, fetchRemote }) {
   };
 }
 
+function ossEndpoint(config) {
+  return ["s3", "oss"].includes(config.method) && !!config.endpoint && /(?:^|\.)oss-[a-z0-9-]+\.aliyuncs\.com$/.test(endpoint(config).hostname);
+}
+
 export function targetUrl(config, artifact = true) {
   const url = endpoint(config);
-  if (config.method === "s3" && !config.pathStyle) url.hostname = `${config.bucket}.${url.hostname}`;
-  const parts = config.method === "s3" && config.pathStyle ? [config.bucket] : [];
+  const oss = ossEndpoint(config), hasBucket = oss && url.hostname.startsWith(`${config.bucket}.`);
+  if ((oss || (config.method === "s3" && !config.pathStyle)) && !hasBucket) url.hostname = `${config.bucket}.${url.hostname}`;
+  const parts = config.method === "s3" && config.pathStyle && !oss ? [config.bucket] : [];
   if (artifact) parts.push(...config.remoteRoot.split("/"), "v1", config.profile, "database.chdb");
   url.pathname = url.pathname.replace(/\/$/, "") + (parts.length ? "/" + parts.map(encode).join("/") : "");
   return url;
@@ -133,8 +139,16 @@ function selectedVersion(id = "database.chdb") {
   return id;
 }
 
-export function signedHeaders(config, method, url, body = Buffer.alloc(0), time = new Date().toISOString().replace(/[:-]|\.\d{3}/g, "")) {
+export function signedHeaders(config, method, url, body = Buffer.alloc(0), time = new Date().toISOString().replace(/[:-]|\.\d{3}/g, ""), extraHeaders = {}) {
   if (config.method === "webdav") return { Authorization: `Basic ${Buffer.from(`${config.username}:${config.password}`).toString("base64")}` };
+  if (ossEndpoint(config)) {
+    const date = new Date(`${time.slice(0, 4)}-${time.slice(4, 6)}-${time.slice(6, 8)}T${time.slice(9, 11)}:${time.slice(11, 13)}:${time.slice(13, 15)}Z`).toUTCString();
+    const mime = method === "PUT" ? (url.pathname.endsWith(".json") ? "application/json" : "application/octet-stream") : "";
+    const resource = `/${config.bucket}${decodeURIComponent(url.pathname)}`;
+    const canonicalHeaders = extraHeaders["x-oss-forbid-overwrite"] === "true" ? "x-oss-forbid-overwrite:true\n" : "";
+    const signature = crypto.createHmac("sha1", config.secretKey).update(`${method}\n\n${mime}\n${date}\n${canonicalHeaders}${resource}`).digest("base64");
+    return { Authorization: `OSS ${config.accessKeyId}:${signature}`, Date: date };
+  }
   const date = time.slice(0, 8), digest = hash(body);
   const names = "host;x-amz-content-sha256;x-amz-date";
   const headers = `host:${url.host}\nx-amz-content-sha256:${digest}\nx-amz-date:${time}\n`;
@@ -151,7 +165,26 @@ export function signedHeaders(config, method, url, body = Buffer.alloc(0), time 
 function check(response) {
   if (response.ok) return;
   const messages = { 401: "认证失败或权限不足，请检查账号、应用密码或存储策略", 403: "认证失败或权限不足，请检查账号、应用密码或存储策略", 404: "远端目录、存储桶或备份不存在", 409: "远端目录冲突，请检查远程根目录", 412: "云端备份已发生变化，请先下载检查后再上传", 429: "远端请求过于频繁，请稍后重试" };
-  fail(messages[response.status] || (response.status >= 300 && response.status < 400 ? "服务器要求重定向，请填写最终服务地址（不会转发凭据）" : "云同步请求失败，请检查服务状态与配置"));
+  const message = messages[response.status] || (response.status >= 300 && response.status < 400 ? "服务器要求重定向，请填写最终服务地址（不会转发凭据）" : "云同步请求失败，请检查服务状态与配置");
+  fail(`${message}（HTTP ${response.status}）`);
+}
+
+function ossError(status, stage, bytes) {
+  // Only fixed codes may leave the transport; raw OSS XML can contain signing material.
+  const hints = new Map([
+    ["SignatureDoesNotMatch", "请求签名不匹配"], ["InvalidAccessKeyId", "AccessKey ID 无效或已停用"],
+    ["AccessDenied", "存储桶策略或账号权限拒绝访问"], ["RequestTimeTooSkewed", "本机时间与云端偏差过大，请同步系统时间"],
+    ["InvalidArgument", "OSS 不接受当前请求参数"], ["InvalidRequest", "OSS 不接受当前请求格式或签名版本"],
+    ["SignatureVersionNotSupported", "存储桶不支持当前签名版本"], ["UnsupportedSignatureVersion", "存储桶不支持当前签名版本"],
+    ["AuthorizationHeaderMalformed", "认证头或区域配置不正确"], ["PermanentRedirect", "Endpoint 与存储桶所在区域不一致"],
+    ["NoSuchBucket", "存储桶不存在，请核对 Bucket 和 Endpoint"], ["InvalidBucketName", "存储桶名称无效"],
+    ["MissingContentLength", "请求缺少有效的文件长度"], ["NotImplemented", "OSS 不支持当前请求头或传输方式"],
+    ["FileAlreadyExists", "同名备份已存在，已阻止覆盖"],
+    ["InvalidDigest", "请求内容校验值无效"], ["BadDigest", "请求内容与校验值不一致"], ["RequestTimeout", "OSS 接收请求超时"],
+  ]);
+  const candidate = /<Code>([\s\S]*?)<\/Code>/.exec(bytes.toString("utf8"))?.[1];
+  const code = hints.has(candidate) ? candidate : "Unknown";
+  return `阿里云 OSS ${stage}失败：${hints.get(code) || "未识别的 OSS 错误，请检查 Endpoint、签名与请求参数"}（HTTP ${status}，OSS ${code}）`;
 }
 function etag(response) {
   const value = response.headers.get("etag");
@@ -204,7 +237,11 @@ export function createCloudSyncService({ load, persist, fetchRemote = fetch }) {
   }
   async function request(config, method, url, body = Buffer.alloc(0), condition = {}) {
     let response;
-    const metadata = method === "PUT" && url.pathname.endsWith("/versions.json");
+    const metadata = method === "PUT" && url.pathname.endsWith(".json");
+    if (ossEndpoint(config) && method === "PUT" && Object.keys(condition).length) {
+      if (Object.keys(condition).length !== 1 || condition["If-None-Match"] !== "*") fail("OSS 不支持条件更新版本目录，请使用独立版本记录");
+      condition = { "x-oss-forbid-overwrite": "true" };
+    }
     async function* uploadChunks() {
       progress("uploading", 0, body.length);
       for (let offset = 0; offset < body.length; offset += 64 * 1024) {
@@ -216,10 +253,22 @@ export function createCloudSyncService({ load, persist, fetchRemote = fetch }) {
     }
     try {
       response = await fetchRemote(url, {
-        method, headers: { ...signedHeaders(config, method, url, body), ...condition, ...(method === "PROPFIND" ? { Depth: "0" } : {}), ...(method === "PUT" ? { "Content-Type": metadata ? "application/json" : "application/octet-stream", "Content-Length": String(body.length) } : {}) },
+        method, headers: { ...signedHeaders(config, method, url, body, undefined, condition), ...condition, ...(method === "PROPFIND" ? { Depth: "0" } : {}), ...(method === "PUT" ? { "Content-Type": metadata ? "application/json" : "application/octet-stream", "Content-Length": String(body.length) } : {}) },
         ...(method === "PUT" ? metadata ? { body } : { body: uploadChunks(), duplex: "half" } : {}), redirect: "manual", signal: AbortSignal.timeout(180_000),
       });
     } catch (error) { fail(`${method === "PUT" ? metadata ? "写入版本目录失败：" : "上传备份文件失败：" : ""}${connectionFailure(error)}`); }
+    if (ossEndpoint(config) && !response.ok && response.status !== 412 && !(response.status === 404 && ["GET", "HEAD", "DELETE"].includes(method))) {
+      const chunks = []; let size = 0;
+      try {
+        for await (const chunk of response.body || []) {
+          const bytes = Buffer.from(chunk).subarray(0, 16 * 1024 - size);
+          chunks.push(bytes); size += bytes.length;
+          if (size >= 16 * 1024) break;
+        }
+      } catch { /* A partial error body must not hide the HTTP failure. */ }
+      const stage = method === "PUT" ? metadata ? "登记版本" : "上传文件" : method === "GET" ? "读取版本或备份" : "检查备份";
+      fail(ossError(response.status, stage, Buffer.concat(chunks)));
+    }
     return response;
   }
   function savedConfig() {
@@ -227,25 +276,108 @@ export function createCloudSyncService({ load, persist, fetchRemote = fetch }) {
     if (!config) fail("请先保存云同步配置");
     return mergeConfig(config, config);
   }
-  async function versionIndex(config) {
+  function validateVersion(item, id = item?.id) {
+    if (item?.passwordProtected != null && typeof item.passwordProtected !== "boolean") fail("备份密码状态无效");
+    if (!item || item.id !== id || item.id === "database.chdb" || typeof item.machineName !== "string" || Buffer.byteLength(item.machineName) > 400 || /[\x00-\x1f\x7f]/.test(item.machineName) || typeof item.uploadedAt !== "string" || !Number.isFinite(Date.parse(item.uploadedAt))) fail("备份版本目录无效");
+    selectedVersion(item.id);
+  }
+  async function legacyVersionIndex(config) {
     const response = await request(config, "GET", namedUrl(config, "versions.json"));
     try {
       if (response.status === 404) return { versions: [], tag: null };
       check(response);
       const tag = etag(response);
-      if (!tag) fail("服务未提供版本目录 ETag，无法安全维护多版本备份");
+      if (!tag && !ossEndpoint(config)) fail("服务未提供版本目录 ETag，无法安全维护多版本备份");
       const bytes = await readLimited(response.body, 4 * 1024 * 1024);
       let versions;
       try { versions = JSON.parse(bytes.toString("utf8")); } catch { fail("备份版本目录无效"); }
       if (!Array.isArray(versions) || versions.length > 10000) fail("备份版本目录无效");
-      for (const item of versions) {
-        if (!item || item.id === "database.chdb" || typeof item.machineName !== "string" || Buffer.byteLength(item.machineName) > 400 || /[\x00-\x1f\x7f]/.test(item.machineName) || typeof item.uploadedAt !== "string" || !Number.isFinite(Date.parse(item.uploadedAt))) fail("备份版本目录无效");
-        selectedVersion(item.id);
-      }
+      for (const item of versions) validateVersion(item);
       return { versions, tag };
     } finally { if (!response.bodyUsed) await response.body?.cancel(); }
   }
+  async function versionIndex(config) {
+    const legacy = await legacyVersionIndex(config);
+    if (!ossEndpoint(config)) return legacy;
+    // OSS cannot compare-and-swap a shared PutObject index. Each backup owns
+    // its own immutable JSON record; ListObjects discovers records across devices.
+    const result = new Map(legacy.versions.map(item => [item.id, item]));
+    const discovered = new Set();
+    const prefix = decodeURIComponent(namedUrl(config, "backup-").pathname.slice(1));
+    let marker = "", count = 0;
+    const field = (xml, tag) => {
+      const value = xml.split(`<${tag}>`)[1]?.split(`</${tag}>`);
+      if (!value || value.length < 2) fail("OSS 版本列表格式无效");
+      return value[0];
+    };
+    const decodeKey = value => {
+      if (value.length > 3072 || /[<>&]/.test(value)) fail("OSS 版本路径无效");
+      let key;
+      try { key = decodeURIComponent(value); } catch { fail("OSS 版本路径无效"); }
+      if (Buffer.byteLength(key) > 1024 || /[\x00-\x1f\x7f]/.test(key)) fail("OSS 版本路径无效");
+      return key;
+    };
+    while (true) {
+      const url = targetUrl(config, false); url.pathname = "/";
+      url.search = new URLSearchParams({ prefix, "encoding-type": "url", "max-keys": "1000", marker }).toString();
+      const response = await request(config, "GET", url);
+      let xml;
+      try { check(response); xml = (await readLimited(response.body, 2 * 1024 * 1024)).toString("utf8"); }
+      finally { if (!response.bodyUsed) await response.body?.cancel(); }
+      if (!xml.includes("<ListBucketResult") || xml.includes("<!") || field(xml, "EncodingType") !== "url") fail("OSS 版本列表格式无效");
+      const blocks = xml.split("<Contents>").slice(1);
+      if (blocks.length > 1000 || (count += blocks.length) > 20000) fail("备份版本过多，请更换同步配置名");
+      let previous = marker;
+      for (const content of blocks) {
+        const parts = content.split("</Contents>");
+        if (parts.length < 2) fail("OSS 版本列表格式无效");
+        const key = decodeKey(field(parts[0], "Key"));
+        if (!key.startsWith(prefix) || key <= previous) fail("OSS 版本路径或分页顺序无效");
+        previous = key;
+        if (key.endsWith(".chdb")) discovered.add(key.split("/").at(-1));
+        if (!key.endsWith(".json")) continue;
+        const id = key.slice(0, -5).split("/").at(-1);
+        selectedVersion(id);
+        if (id === "database.chdb" || key !== `${prefix}${id.slice("backup-".length)}.json`) fail("OSS 版本路径无效");
+        const recordResponse = await request(config, "GET", namedUrl(config, `${id}.json`));
+        try {
+          if (recordResponse.status === 404) continue;
+          check(recordResponse);
+          let item;
+          const bytes = await readLimited(recordResponse.body, 4096);
+          try { item = JSON.parse(bytes.toString("utf8")); } catch { fail("OSS 备份版本信息无效"); }
+          validateVersion(item, id); result.set(id, item); discovered.add(id);
+          if (result.size > 10000) fail("备份版本过多，请更换同步配置名");
+        } finally { if (!recordResponse.bodyUsed) await recordResponse.body?.cancel(); }
+      }
+      const truncated = field(xml, "IsTruncated");
+      if (truncated === "false") break;
+      if (truncated !== "true") fail("OSS 版本列表格式无效");
+      const next = decodeKey(field(xml, "NextMarker"));
+      if (!blocks.length || !next.startsWith(prefix) || next <= marker || next < previous) fail("OSS 版本分页无效");
+      marker = next;
+    }
+    // A legacy shared index is read-only on OSS. Listing its actual objects
+    // prevents deleted legacy backups from reappearing without rewriting it.
+    return { versions: [...result.values()].filter(item => discovered.has(item.id)), tag: null };
+  }
   async function registerVersion(config, version) {
+    if (ossEndpoint(config)) {
+      const target = namedUrl(config, `${version.id}.json`), body = Buffer.from(JSON.stringify(version));
+      try {
+        const response = await request(config, "PUT", target, body, { "If-None-Match": "*" });
+        try { check(response); return; } finally { await response.body?.cancel(); }
+      } catch (error) {
+        // Confirm a lost acknowledgement against this exact immutable record.
+        let response;
+        try {
+          response = await request(config, "GET", target); check(response);
+          if ((await readLimited(response.body, 4096)).equals(body)) return;
+        } catch { /* Keep the original, safe upload error. */ }
+        finally { if (response && !response.bodyUsed) await response.body?.cancel(); }
+        throw error;
+      }
+    }
     for (let attempt = 0; attempt < 5; attempt++) {
       const { versions, tag } = await versionIndex(config);
       if (versions.some(item => item.id === version.id)) return;
@@ -271,6 +403,26 @@ export function createCloudSyncService({ load, persist, fetchRemote = fetch }) {
   }
   return {
     state: view,
+    deleteVersion: versionId => exclusive(async () => {
+      if (typeof versionId !== "string") fail("备份版本参数无效");
+      const id = selectedVersion(versionId), config = savedConfig();
+      async function remove(name) {
+        const response = await request(config, "DELETE", namedUrl(config, name));
+        try { if (response.status !== 404) check(response); }
+        finally { await response.body?.cancel(); }
+      }
+      await remove(id);
+      if (id === "database.chdb") return;
+      if (ossEndpoint(config)) { await remove(`${id}.json`); return; }
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const { versions, tag } = await legacyVersionIndex(config);
+        if (!versions.some(item => item.id === id)) return;
+        const response = await request(config, "PUT", namedUrl(config, "versions.json"), Buffer.from(JSON.stringify(versions.filter(item => item.id !== id))), { "If-Match": tag });
+        try { if (response.status === 412) continue; check(response); return; }
+        finally { await response.body?.cancel(); }
+      }
+      fail("备份文件已删除，但其他设备正在更新版本目录，请重试删除以完成清理");
+    }),
     save: input => exclusive(async () => { persist(mergeConfig(input, load())); return view(); }).then(() => view()),
     test: input => exclusive(async () => {
       const config = mergeConfig(input, load());
@@ -301,7 +453,7 @@ export function createCloudSyncService({ load, persist, fetchRemote = fetch }) {
       const bytes = typeof source === "function" ? await source() : source;
       validatePackage(bytes);
       progress("connecting");
-      const version = { id: `backup-${crypto.randomUUID()}.chdb`, machineName: `${os.hostname().replace(/[\x00-\x1f\x7f]/g, "").slice(0, 100) || os.platform()}-dev`, uploadedAt: new Date().toISOString() };
+      const version = { id: `backup-${crypto.randomUUID()}.chdb`, machineName: `${os.hostname().replace(/[\x00-\x1f\x7f]/g, "").slice(0, 100) || os.platform()}-dev`, uploadedAt: new Date().toISOString(), passwordProtected: bytes.subarray(0, 8).toString() === "CHDBENC2" };
       const target = namedUrl(config, version.id);
       if (config.method === "webdav") {
         const directory = endpoint(config);

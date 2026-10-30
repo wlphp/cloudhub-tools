@@ -29,6 +29,11 @@ export async function handleCloudSyncRoutes(req, res, url) {
     }
     else if (req.method === "GET" && action === "state") send(res, 200, service.state());
     else if (req.method === "GET" && action === "versions") send(res, 200, await channels.run(() => service.versions()));
+    else if (req.method === "POST" && action === "delete-version") {
+      const body = JSON.parse(await readBody(req, 1024));
+      if (!body || typeof body.versionId !== "string" || Object.keys(body).some(key => key !== "versionId")) throw new CloudSyncError("备份版本参数无效");
+      await channels.run(() => service.deleteVersion(body.versionId)); send(res, 200, null);
+    }
     else if (req.method === "POST" && ["save", "test", "reveal"].includes(action)) {
       const body = JSON.parse(await readBody(req, 32 * 1024));
       if ((body.config?.id ?? "default") !== channelId) throw new CloudSyncError("同步渠道不匹配");

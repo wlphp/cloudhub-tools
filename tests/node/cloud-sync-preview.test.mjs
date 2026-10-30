@@ -19,6 +19,76 @@ function serviceFixture(fetchRemote) {
   return createCloudSyncService({ load: () => stored ? structuredClone(stored) : null, persist: config => { stored = structuredClone(config); }, ...(fetchRemote ? { fetchRemote } : {}) });
 }
 
+test("version deletion validates exact paths, preserves concurrent index additions and is retryable", async () => {
+  const id = "backup-11111111-1111-4111-8111-111111111111.chdb";
+  const other = "backup-22222222-2222-4222-8222-222222222222.chdb";
+  const version = id => ({ id, machineName: "fixture", uploadedAt: "2026-10-30T01:00:00Z" });
+  let index = [version(id)], writes = 0, deleted = [], requests = 0;
+  const service = serviceFixture(async (url, init) => {
+    requests++;
+    if (init.method === "DELETE") { deleted.push(url.pathname); return new Response(null, { status: deleted.length === 1 ? 204 : 404 }); }
+    if (init.method === "GET") return new Response(JSON.stringify(index), { headers: { ETag: `"${writes}"` } });
+    if (init.method === "PUT") {
+      assert.equal(init.headers["If-Match"], `"${writes}"`);
+      if (writes++ === 0) { index.push(version(other)); return new Response(null, { status: 412 }); }
+      index = JSON.parse(init.body.toString()); return new Response(null, { status: 200 });
+    }
+    throw new Error("unexpected method");
+  });
+  await service.save(configFixture("https://dav.example.test"));
+  for (const invalid of [undefined, null, "", "../database.chdb", `${id}.json`, "versions.json"]) {
+    await assert.rejects(service.deleteVersion(invalid), /参数无效|版本无效/);
+  }
+  assert.equal(requests, 0);
+  await service.deleteVersion(id);
+  assert.deepEqual(index.map(item => item.id), [other]);
+  assert.equal(writes, 2);
+  assert.deepEqual(deleted, [`/cloudhub-sync/v1/default/${id}`]);
+  await service.deleteVersion(id);
+  await service.deleteVersion("database.chdb");
+  assert.equal(writes, 2);
+  assert.equal(deleted.at(-1), "/cloudhub-sync/v1/default/database.chdb");
+});
+
+test("denied deletion keeps metadata and never exposes vendor response bodies", async () => {
+  const methods = [];
+  const service = serviceFixture(async (_url, init) => {
+    methods.push(init.method); return new Response("private-vendor-response", { status: 403 });
+  });
+  await service.save(configFixture("https://dav.example.test"));
+  await assert.rejects(service.deleteVersion("backup-11111111-1111-4111-8111-111111111111.chdb"), error => {
+    assert.doesNotMatch(error.message, /private-vendor-response/); return /权限|认证/.test(error.message);
+  });
+  assert.deepEqual(methods, ["DELETE"]);
+});
+
+test("OSS removes version objects and hides removed legacy entries without rewriting shared indexes", async () => {
+  const id = "backup-11111111-1111-4111-8111-111111111111.chdb";
+  const base = "/cloudhub-sync/v1/default/";
+  const legacy = [{ id, machineName: "fixture", uploadedAt: "2026-10-30T01:00:00Z" }];
+  const objects = new Map([[`${base}versions.json`, Buffer.from(JSON.stringify(legacy))], [`${base}${id}`, packageFixture()]]);
+  const deleted = [];
+  const service = serviceFixture(async (url, init) => {
+    assert.notEqual(init.method, "PUT");
+    if (init.method === "DELETE") {
+      assert.match(init.headers.Authorization, /^OSS /);
+      deleted.push(url.pathname); return new Response(null, { status: objects.delete(url.pathname) ? 204 : 404 });
+    }
+    if (url.pathname === "/") {
+      const keys = [...objects.keys()].filter(key => key.startsWith(`${base}backup-`)).sort();
+      return new Response(`<ListBucketResult><EncodingType>url</EncodingType><IsTruncated>false</IsTruncated>${keys.map(key => `<Contents><Key>${encodeURIComponent(key.slice(1))}</Key></Contents>`).join("")}</ListBucketResult>`);
+    }
+    const body = objects.get(url.pathname);
+    return new Response(init.method === "HEAD" ? null : body, { status: body ? 200 : 404 });
+  });
+  await service.save({ ...defaults, method: "oss", endpoint: "https://oss-cn-beijing.aliyuncs.com", bucket: "fixture-bucket", region: "cn-beijing", accessKeyId: "fixture-access", secretKey: "fixture-signing" });
+  assert.deepEqual(await service.versions(), legacy);
+  await service.deleteVersion(id);
+  assert.deepEqual(await service.versions(), []);
+  assert.deepEqual(deleted, [`${base}${id}`, `${base}${id}.json`]);
+  assert.deepEqual(JSON.parse(objects.get(`${base}versions.json`)), legacy);
+});
+
 test("S3 signature agrees with the native independently verified fixture", () => {
   const config = { ...defaults, method: "s3", region: "test-region", accessKeyId: "fixture-access", secretKey: "fixture-signing" };
   const headers = signedHeaders(config, "PUT", new URL("https://storage.example:9443/bucket/folder%20name/database.chdb"), Buffer.from("fixture-backup"), "20261026T120000Z");
@@ -27,6 +97,151 @@ test("S3 signature agrees with the native independently verified fixture", () =>
   const endpoint = { ...config, endpoint: "https://storage.example/dav/", bucket: "fixture-bucket", remoteRoot: "folder with spaces" };
   assert.equal(targetUrl(endpoint).href, "https://storage.example/dav/fixture-bucket/folder%20with%20spaces/v1/default/database.chdb");
   assert.equal(targetUrl({ ...endpoint, pathStyle: false }).hostname, "fixture-bucket.storage.example");
+});
+
+test("OSS uses bucket hosts once and signs the actual MIME type with OSS authentication", () => {
+  const config = { ...defaults, method: "s3", bucket: "fixture-bucket", region: "cn-beijing", accessKeyId: "fixture-access", secretKey: "fixture-signing", remoteRoot: "folder with spaces" };
+  for (const [storageMethod, endpoint] of ["s3", "oss"].flatMap(method => ["https://oss-cn-beijing.aliyuncs.com", "https://fixture-bucket.oss-cn-beijing.aliyuncs.com"].map(endpoint => [method, endpoint]))) {
+    for (const pathStyle of [true, false]) {
+      const settings = { ...config, endpoint, pathStyle, method: storageMethod };
+      const url = targetUrl(settings);
+      assert.equal(url.href, "https://fixture-bucket.oss-cn-beijing.aliyuncs.com/folder%20with%20spaces/v1/default/database.chdb");
+      assert.equal(targetUrl(settings, false).href, "https://fixture-bucket.oss-cn-beijing.aliyuncs.com/");
+      const headers = signedHeaders(settings, "PUT", url, Buffer.from("fixture-backup"), "20261030T020000Z");
+      // Independently calculated using .NET HMACSHA1.
+      assert.equal(headers.Authorization, "OSS fixture-access:77DFBf0D8JRsN04phrbXWl0DNcA=");
+      assert.equal(headers.Date, "Fri, 30 Oct 2026 02:00:00 GMT");
+      assert.equal(headers["x-amz-date"], undefined);
+      for (const method of ["GET", "HEAD", "PUT"]) {
+        const index = new URL("versions.json", url);
+        const result = signedHeaders(settings, method, index, Buffer.alloc(0), "20261030T020000Z");
+        const mime = method === "PUT" ? "application/json" : "";
+        const signature = crypto.createHmac("sha1", settings.secretKey).update(`${method}\n\n${mime}\n${result.Date}\n/fixture-bucket/folder with spaces/v1/default/versions.json`).digest("base64");
+        assert.equal(result.Authorization, `OSS fixture-access:${signature}`);
+      }
+    }
+  }
+  const lookalike = { ...config, endpoint: "https://oss-cn-beijing.aliyuncs.com.example.org" };
+  assert.match(signedHeaders(lookalike, "PUT", targetUrl(lookalike)).Authorization, /^AWS4-HMAC-SHA256/);
+});
+
+test("dedicated OSS channels validate, save and retain credentials by identity", async () => {
+  const service = serviceFixture();
+  const config = { ...defaults, method: "oss", endpoint: "https://oss-cn-beijing.aliyuncs.com", bucket: "fixture-bucket", region: "cn-beijing", accessKeyId: "fixture-access", secretKey: "fixture-signing" };
+  const view = await service.save(config);
+  assert.equal(view.config.method, "oss");
+  assert.equal(view.config.hasSecretKey, true);
+  assert.equal(JSON.stringify(view).includes("fixture-signing"), false);
+  await service.save({ ...config, secretKey: "" });
+  assert.equal(service.reveal(config, "secretKey"), "fixture-signing");
+  assert.throws(() => mergeConfig({ ...config, endpoint: "https://storage.example" }), /OSS/);
+  assert.throws(() => mergeConfig({ ...config, endpoint: "https://oss-cn-beijing.aliyuncs.com.example.org" }), /OSS/);
+});
+
+test("OSS upload errors classify bounded vendor bodies without exposing raw values", async () => {
+  const config = { ...defaults, method: "oss", endpoint: "https://oss-cn-beijing.aliyuncs.com", bucket: "fixture-bucket", region: "cn-beijing", accessKeyId: "fixture-access", secretKey: "fixture-signing" };
+  for (const [body, code] of [
+    ["<Error><Code>InvalidRequest</Code><Message>private-fixture</Message><StringToSign>private-fixture</StringToSign></Error>", "InvalidRequest"],
+    ["<Code>private-fixture</Code>", "Unknown"],
+    ["<Code>InvalidRequest", "Unknown"],
+    ["x".repeat(17 * 1024) + "<Code>InvalidRequest</Code>", "Unknown"],
+  ]) {
+    const service = serviceFixture(async () => new Response(body, { status: 400 }));
+    await service.save(config);
+    await assert.rejects(service.upload(packageFixture()), error => {
+      assert.match(error.message, /上传文件/);
+      assert.ok(error.message.includes(`OSS ${code}`));
+      assert.match(error.message, /HTTP 400/);
+      assert.equal(error.message.includes("private-fixture"), false);
+      assert.equal(error.message.includes("fixture-signing"), false);
+      return true;
+    });
+  }
+});
+
+test("OSS uses signed native overwrite protection and independent paginated version records", async () => {
+  const config = { ...defaults, method: "oss", endpoint: "https://oss-cn-beijing.aliyuncs.com", bucket: "fixture-bucket", region: "cn-beijing", accessKeyId: "fixture-access", secretKey: "fixture-signing", remoteRoot: "folder with spaces" };
+  const legacy = { id: "backup-11111111-1111-4111-8111-111111111111.chdb", machineName: "legacy-fixture", uploadedAt: "2026-10-29T12:00:00Z" };
+  const basePath = "/folder%20with%20spaces/v1/default/", objects = new Map([
+    [`${basePath}versions.json`, Buffer.from(JSON.stringify([legacy]))],
+    [`${basePath}${legacy.id}`, packageFixture()],
+  ]);
+  let pages = 0;
+  const fetchRemote = async (url, init) => {
+    assert.equal(init.headers["If-Match"], undefined);
+    assert.equal(init.headers["If-None-Match"], undefined);
+    if (init.method === "PUT") {
+      assert.equal(init.headers["x-oss-forbid-overwrite"], "true");
+      assert.equal(init.headers["x-amz-date"], undefined);
+      assert.notEqual(url.pathname, `${basePath}versions.json`);
+      const canonical = `PUT\n\n${init.headers["Content-Type"]}\n${init.headers.Date}\nx-oss-forbid-overwrite:true\n/fixture-bucket${decodeURIComponent(url.pathname)}`;
+      const signature = crypto.createHmac("sha1", config.secretKey).update(canonical).digest("base64");
+      assert.equal(init.headers.Authorization, `OSS fixture-access:${signature}`);
+      const body = Buffer.isBuffer(init.body) ? init.body : await readLimited(init.body);
+      assert.equal(init.headers["Content-Length"], String(body.length));
+      if (objects.has(url.pathname)) return new Response("<Code>FileAlreadyExists</Code>", { status: 409 });
+      objects.set(url.pathname, body);
+      return new Response(null, { status: 200, headers: { ETag: '"fixture"' } });
+    }
+    if (init.method === "GET" && url.pathname === "/") {
+      pages++;
+      assert.equal(url.searchParams.get("encoding-type"), "url");
+      assert.equal(url.searchParams.get("prefix"), "folder with spaces/v1/default/backup-");
+      const keys = [...objects.keys()].map(key => decodeURIComponent(key.slice(1))).filter(key => key.startsWith(url.searchParams.get("prefix")) && key > url.searchParams.get("marker")).sort();
+      const key = keys[0], truncated = keys.length > 1;
+      return new Response(`<ListBucketResult><EncodingType>url</EncodingType><IsTruncated>${truncated}</IsTruncated>${truncated ? `<NextMarker>${encodeURIComponent(key)}</NextMarker>` : ""}${key ? `<Contents><Key>${encodeURIComponent(key)}</Key></Contents>` : ""}</ListBucketResult>`);
+    }
+    const body = objects.get(url.pathname);
+    // Read-only legacy indexes do not need ETags on OSS.
+    return new Response(init.method === "HEAD" ? null : body, { status: body ? 200 : 404 });
+  };
+  const first = serviceFixture(fetchRemote), second = serviceFixture(fetchRemote);
+  await first.save(config); await second.save(config);
+  await Promise.all([first.upload(packageFixture()), second.upload(packageFixture())]);
+  const versions = await first.versions();
+  assert.equal(versions.length, 3); assert.equal(new Set(versions.map(v => v.id)).size, 3);
+  assert.deepEqual(versions.find(v => v.id === legacy.id), legacy);
+  assert.equal(pages, 5);
+  assert.deepEqual(JSON.parse(objects.get(`${basePath}versions.json`).toString()), [legacy]);
+  for (const version of versions) assert.deepEqual(await second.download(version.id), packageFixture());
+});
+
+test("OSS confirms only the exact metadata record after a lost acknowledgement", async () => {
+  const config = { ...defaults, method: "oss", endpoint: "https://oss-cn-beijing.aliyuncs.com", bucket: "fixture-bucket", region: "cn-beijing", accessKeyId: "fixture-access", secretKey: "fixture-signing" };
+  for (const committed of [true, false]) {
+    let record;
+    const service = serviceFixture(async (url, init) => {
+      if (init.method === "GET") return record ? new Response(record) : new Response(null, { status: 404 });
+      if (!url.pathname.endsWith(".json")) { await readLimited(init.body); return new Response(null); }
+      if (committed) record = init.body;
+      throw new TypeError("private-fixture", { cause: { code: "UND_ERR_SOCKET" } });
+    });
+    await service.save(config);
+    if (committed) { await service.upload(packageFixture()); assert.ok(service.state().status.lastUpload); }
+    else await assert.rejects(service.upload(packageFixture()), /备份文件已上传，但版本目录登记失败/);
+  }
+});
+
+test("OSS rejects out-of-scope, non-advancing and malformed remote version lists", async () => {
+  const config = { ...defaults, method: "oss", endpoint: "https://oss-cn-beijing.aliyuncs.com", bucket: "fixture-bucket", region: "cn-beijing", accessKeyId: "fixture-access", secretKey: "fixture-signing" };
+  const prefix = "cloudhub-sync/v1/default/backup-";
+  const validKey = `${prefix}11111111-1111-4111-8111-111111111111.chdb.json`;
+  for (const xml of [
+    "<ListBucketResult><EncodingType>url</EncodingType><IsTruncated>true</IsTruncated><NextMarker></NextMarker></ListBucketResult>",
+    `<ListBucketResult><EncodingType>url</EncodingType><IsTruncated>false</IsTruncated><Contents><Key>../private.json</Key></Contents></ListBucketResult>`,
+    `<ListBucketResult><EncodingType>url</EncodingType><IsTruncated>false</IsTruncated><Contents><Key>${validKey.replace("backup-", "backup-/../../")}</Key></Contents></ListBucketResult>`,
+    `<ListBucketResult><EncodingType>url</EncodingType><IsTruncated>false</IsTruncated><Contents><Key>&external;</Key></Contents></ListBucketResult>`,
+  ]) {
+    let recordReads = 0;
+    const service = serviceFixture(async (url) => {
+      if (url.pathname.endsWith("versions.json")) return new Response(null, { status: 404 });
+      if (url.pathname === "/") return new Response(xml);
+      recordReads++; throw new Error("must not fetch arbitrary keys");
+    });
+    await service.save(config);
+    await assert.rejects(service.versions(), /OSS 版本|备份版本无效/);
+    assert.equal(recordReads, 0);
+  }
 });
 
 test("channels migrate legacy settings and isolate credentials, objects and status", async () => {
@@ -135,6 +350,7 @@ test("WebDAV preserves versions, selects downloads and retains legacy backups", 
   assert.throws(() => service.reveal({ ...config, username: "other" }, "password"));
   assert.deepEqual(await service.download(), fixture);
   const first = (await service.versions())[0];
+  assert.equal(first.passwordProtected, false);
   assert.ok(first.machineName.endsWith("-dev")); assert.ok(first.uploadedAt);
   assert.deepEqual(await service.download(first.id), fixture);
   await new Promise(resolve => setTimeout(resolve, 5));

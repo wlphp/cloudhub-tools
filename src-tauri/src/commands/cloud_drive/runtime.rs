@@ -6,9 +6,13 @@ use serde_json::{json,Value};
 use std::{fs,io::Read,path::{Path,PathBuf},process::{Child,Command,Stdio},time::{Duration,Instant}};
 use zeroize::Zeroizing;
 
+// Keep owned children reapable after mount() returns, especially on Unix.
+static CHILDREN:std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<u32,Child>>>=std::sync::OnceLock::new();
+
 const JOURNAL:&str="cloud.drive.sessions";
 #[derive(Clone,Serialize,Deserialize)]
-pub struct Session {pub id:String,pub port:u16,pub token:String,pub pid:u32,pub mount_point:String,pub cache_dir:PathBuf}
+pub struct Session {pub id:String,pub port:u16,pub token:String,pub pid:u32,pub mount_point:String,pub cache_dir:PathBuf,
+    #[serde(default)] pub bridge:Option<super::alipan_dav::Bridge>}
 #[derive(Clone,Default,Serialize)]
 #[serde(rename_all="camelCase")]
 pub struct MountStatus {
@@ -28,7 +32,17 @@ pub fn save_sessions(items:&[Session])->Result<(),String> {
 }
 pub fn configured_command(c:&Connection)->Result<Command,String> {
     let mut cmd=dependency::command(dependency::executable()?);
-    cmd.args(["--config","NUL","--log-level","OFF","--contimeout","10s","--timeout","30s","--retries","1"]);
+    cmd.args(["--config",dependency::null_config(),"--log-level","OFF","--contimeout","10s","--timeout",if c.provider=="Alipan"{"10m"}else{"30s"},"--retries","1"]);
+    if c.provider=="Alipan" {
+        super::alipan::credentials(c)?;
+        let bridge=super::alipan_dav::endpoint(&c.id)?;
+        cmd.env("RCLONE_CONFIG_DRIVE_TYPE","webdav")
+            .env("RCLONE_CONFIG_DRIVE_URL",format!("http://127.0.0.1:{}/",bridge.port))
+            .env("RCLONE_CONFIG_DRIVE_VENDOR","other")
+            .env("RCLONE_CONFIG_DRIVE_BEARER_TOKEN",&bridge.token)
+            .args(["--no-update-modtime","--transfers","1","--checkers","2","--multi-thread-streams","0"]);
+        return Ok(cmd);
+    }
     for (key,value) in [("TYPE","s3"),("PROVIDER",&c.provider),("ENDPOINT",&c.endpoint),("REGION",&c.region),
         ("ACCESS_KEY_ID",&c.access_key_id),("SECRET_ACCESS_KEY",&c.secret_key),("SESSION_TOKEN",&c.session_token),
         ("ENV_AUTH","false"),("FORCE_PATH_STYLE",if c.path_style {"true"} else {"false"})] {
@@ -126,7 +140,7 @@ pub(super) async fn cache_status(s:&Session)->Result<MountStatus,String> {
 }
 fn registered_mount(value:&Value,target:&str)->Result<bool,String> {
     let points=value["mountPoints"].as_array().ok_or("无法确认已挂载磁盘，未停止进程")?;
-    let normalize=|p:&str|p.replace('/',"\\").trim_end_matches('\\').to_ascii_lowercase();
+    let normalize=|p:&str|if cfg!(windows){p.replace('/',"\\").trim_end_matches('\\').to_ascii_lowercase()}else{p.trim_end_matches('/').to_owned()};
     let target=normalize(target);
     let mut found=false;
     for point in points {
@@ -159,7 +173,7 @@ fn daemon_command(c:&Connection,cache:&Path,port:u16,token:&str)->Result<Command
 }
 fn mount_request(c:&Connection)->Value {
     // RC uses Go duration values in nanoseconds and CacheMode enum 3 = full.
-    json!({"fs":c.remote(),"mountPoint":c.mount_point,"mountType":"cmount",
+    json!({"fs":c.remote(),"mountPoint":c.mount_point,"mountType":if cfg!(target_os="linux"){"mount"}else{"cmount"},
         "vfsOpt":{"ReadOnly":c.read_only,"CacheMode":3,"CacheMaxSize":u64::from(c.cache_gib)*1024*1024*1024,
             "CacheMinFreeSpace":1024_u64*1024*1024,"WriteBack":5_000_000_000_u64,"DirCacheTime":30_000_000_000_u64},
         "mountOpt":{"VolName":c.name}})
@@ -175,8 +189,13 @@ fn startup_exit_message(status:std::process::ExitStatus)->&'static str {
 
 pub async fn mount(c:&Connection)->Result<(),String> {
     dependency::require()?;
-    if !dependency::winfsp(){return Err("请先安装 WinFsp；安装后可能需要重启电脑".into());}
+    if !dependency::winfsp(){return Err("请先安装本平台挂载驱动并完成系统授权，再重试挂载".into());}
     let mut items=sessions()?;
+    let bridge=if c.provider=="Alipan" {
+        super::alipan::credentials(c)?;
+        if !c.read_only && !c.alipan_auth.as_ref().is_some_and(|a|a.writable) {return Err("读写挂载需要重新授予阿里云盘写入权限".into());}
+        Some(super::alipan_dav::ensure(&c.id,items.iter().find(|s|s.id==c.id).and_then(|s|s.bridge.as_ref())).await?)
+    }else{None};
     if let Some(old)=items.iter().find(|s|s.id==c.id) {
         if alive(old).await {
             if registered_mount(&rc(old,"mount/listmounts",json!({})).await?,&old.mount_point)? {return Err("此连接已有挂载，请刷新状态".into());}
@@ -195,7 +214,7 @@ pub async fn mount(c:&Connection)->Result<(),String> {
     let token=format!("{}{}",uuid::Uuid::new_v4().simple(),uuid::Uuid::new_v4().simple());
     let mut cmd=daemon_command(c,&cache,port,&token)?;
     let mut child=cmd.spawn().map_err(|_|"无法启动挂载引擎")?;
-    let s=Session{id:c.id.clone(),port,token,pid:child.id(),mount_point:c.mount_point.clone(),cache_dir:cache};
+    let s=Session{id:c.id.clone(),port,token,pid:child.id(),mount_point:c.mount_point.clone(),cache_dir:cache,bridge};
     items.retain(|s|s.id!=c.id);items.push(s.clone());
     if let Err(error)=save_sessions(&items){let _=child.kill();let _=child.wait();return Err(error);}
     let mut ready=false;
@@ -205,6 +224,7 @@ pub async fn mount(c:&Connection)->Result<(),String> {
         tokio::time::sleep(Duration::from_millis(250)).await;
     }
     if !ready {let _=child.kill();let _=child.wait();return Err("挂载引擎本地控制接口未响应；恢复记录和缓存已保留".into());}
+    CHILDREN.get_or_init(Default::default).lock().map_err(|_|"无法检查进程")?.insert(child.id(),child);
     // Once mount is requested, even a timeout is ambiguous. Preserve the process and journal.
     rc(&s,"mount/mount",mount_request(c)).await?;
     let status=status(&s).await;
@@ -251,13 +271,27 @@ pub async fn suspend(id:&str)->Result<(),String> {
     Err("引擎尚未退出，恢复记录和缓存已保留，请稍后重试".into())
 }
 pub fn pid_exists(pid:u32)->bool {
+    if pid==0 {return false;}
+    if let Some(children)=CHILDREN.get() {
+        if let Ok(mut children)=children.lock() {
+            if let Some(child)=children.get_mut(&pid) {
+                match child.try_wait() {Ok(Some(_))=>{children.remove(&pid);return false;},Ok(None)=>return true,Err(_)=>return true}
+            }
+        }
+    }
     #[cfg(windows)] {
         use windows_sys::Win32::{Foundation::CloseHandle,System::Threading::{OpenProcess,GetExitCodeProcess,PROCESS_QUERY_LIMITED_INFORMATION}};
         // Only ERROR_INVALID_PARAMETER proves a missing PID; access denied or
         // other lookup errors must not authorize a duplicate engine or cleanup.
         unsafe {let h=OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION,0,pid);if h.is_null(){return std::io::Error::last_os_error().raw_os_error()!=Some(87);}let mut code=0;let ok=GetExitCodeProcess(h,&mut code);CloseHandle(h);ok==0||code==259}
     }
-    #[cfg(not(windows))] {let _=pid;false}
+    #[cfg(unix)] {
+        if pid>i32::MAX as u32 {return true;}
+        unsafe extern "C" {fn kill(pid:i32,signal:i32)->i32;}
+        // ESRCH alone proves absence; permission errors do not.
+        unsafe {kill(pid as i32,0)==0 || std::io::Error::last_os_error().raw_os_error()!=Some(3)}
+    }
+    #[cfg(not(any(windows,unix)))] {let _=pid;true}
 }
 async fn check_mount_available(value:&str)->Result<(),String> {
     let value=value.to_owned();
@@ -269,6 +303,21 @@ async fn check_mount_available(value:&str)->Result<(),String> {
 }
 fn validate_mount_available(value:&str)->Result<(),String> {
     super::model::validate_mount_point(value)?;
+    #[cfg(unix)]
+    {
+        let path=Path::new(value);
+        let metadata=fs::symlink_metadata(path).map_err(|_|"Unix 挂载点必须是已存在的空目录")?;
+        if metadata.file_type().is_symlink()||!metadata.is_dir()||fs::read_dir(path).map_err(|_|"无法检查挂载目标")?.next().is_some() {
+            return Err("Unix 挂载点必须是已存在的空目录".into());
+        }
+        // Detect an existing filesystem mount, including an empty mounted remote.
+        use std::os::unix::fs::MetadataExt;
+        let parent=path.parent().ok_or("挂载目录无效")?;
+        if fs::metadata(parent).map_err(|_|"无法确认挂载父目录")?.dev()!=metadata.dev() {return Err("挂载目录已是其他文件系统的挂载点".into());}
+        return Ok(());
+    }
+    #[cfg(not(unix))]
+    {
     #[cfg(windows)]
     if value.len()==2 {
         // Query the drive-letter namespace without opening an unresponsive
@@ -286,6 +335,7 @@ fn validate_mount_available(value:&str)->Result<(),String> {
         if canonical.to_string_lossy().starts_with(r"\\?\UNC\"){return Err("不能挂载到网络目录".into());}
     }
     Ok(())
+    }
 }
 #[cfg(any(windows,test))]
 fn drive_letter_available(mask:u32,letter:u8)->Result<(),String> {
@@ -360,7 +410,7 @@ mod tests {
             let _=fs::remove_dir(&self.directory);
         }}
         let mut guard=Guard{child,directory};
-        let s=Session{id:c.id.clone(),port,token,pid:guard.child.id(),mount_point:c.mount_point.clone(),cache_dir:cache};
+        let s=Session{id:c.id.clone(),port,token,pid:guard.child.id(),mount_point:c.mount_point.clone(),cache_dir:cache,bridge:None};
         let mut ready=false;
         for _ in 0..50 {
             assert!(guard.child.try_wait().unwrap().is_none(),"生产启动参数使 rcd 提前退出");
@@ -402,8 +452,14 @@ mod tests {
     #[test] fn stale_vfs_cannot_prove_a_registered_mount() {
         assert!(!registered_mount(&json!({"mountPoints":[]}),"O:").unwrap());
         assert!(!registered_mount(&json!({"mountPoints":[{"MountPoint":"P:"}]}),"O:").unwrap());
-        assert!(registered_mount(&json!({"mountPoints":[{"MountPoint":"o:\\"}]}),"O:").unwrap());
-        assert!(registered_mount(&json!({"mountPoints":[{"MountPoint":"D:/CloudDrive"}]}),r"D:\CloudDrive").unwrap());
+        #[cfg(windows)] {
+            assert!(registered_mount(&json!({"mountPoints":[{"MountPoint":"o:\\"}]}),"O:").unwrap());
+            assert!(registered_mount(&json!({"mountPoints":[{"MountPoint":"D:/CloudDrive"}]}),r"D:\CloudDrive").unwrap());
+        }
+        #[cfg(unix)] {
+            assert!(registered_mount(&json!({"mountPoints":[{"MountPoint":"/tmp/drive/"}]}),"/tmp/drive").unwrap());
+            assert!(!registered_mount(&json!({"mountPoints":[{"MountPoint":"/tmp/Drive"}]}),"/tmp/drive").unwrap());
+        }
         for value in [json!({}),json!({"mountPoints":null}),json!({"mountPoints":[{}]}),json!({"mountPoints":[{"MountPoint":""}]})] {
             assert!(registered_mount(&value,"O:").is_err());
         }

@@ -3,6 +3,17 @@ use crate::core::error::PlatformError;
 // Exact, authored diagnostics only. Never expose arbitrary IO, database or
 // provider responses through the native boundary.
 const DIAGNOSTICS: &[&str] = &[
+    "阿里云盘授权失败或已过期，请重新授权",
+    "阿里云盘请求失败，请检查授权、权限、额度和网络",
+    "阿里云盘应用 ID 或云盘类型无效",
+    "无法启动阿里云盘本机文件接口",
+    "重新授权必须选择原账户和原云盘，避免缓存写入其他位置",
+    "读写挂载需要重新授予阿里云盘写入权限",
+    "云盘挂载支持 Windows x64、macOS 和 Linux 桌面客户端",
+    "请先安装本平台挂载驱动并完成系统授权，再重试挂载",
+    "Unix 挂载点必须是已存在的空目录",
+    "挂载目录已是其他文件系统的挂载点",
+    "无法打开挂载驱动安装说明",
     "云盘挂载当前仅支持 Windows x64 桌面客户端",
     "无法读取挂载引擎",
     "无法校验挂载引擎",
@@ -133,8 +144,10 @@ const DIAGNOSTICS: &[&str] = &[
     "目录选择失败",
 ];
 pub(super) fn public_error(message: String) -> PlatformError {
-    if DIAGNOSTICS.contains(&message.as_str()) {
+    if DIAGNOSTICS.contains(&message.as_str()) || super::alipan::AUTH_DIAGNOSTICS.contains(&message.as_str()) || message == super::alipan::CLIENT_ERROR {
         PlatformError { kind: "platform-error", code: "cloud-drive", message, retryable: false }
+    } else if message.starts_with("阿里云盘") {
+        PlatformError { kind: "platform-error", code: "cloud-drive", message: super::alipan::API_ERROR.into(), retryable: false }
     } else {
         message.into()
     }

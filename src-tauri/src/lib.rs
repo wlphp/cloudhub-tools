@@ -19,7 +19,7 @@ use core::repositories::accounts as account_repository;
 use core::repositories::logs as log_repository;
 mod commands;
 #[cfg(mobile)]
-use commands::cloud_sync::{cloud_sync_state, cloud_sync_save, cloud_sync_test, cloud_sync_upload, cloud_sync_download, cloud_sync_reveal_secret, cloud_sync_versions, cloud_sync_channels, cloud_sync_delete};
+use commands::cloud_sync::{cloud_sync_state, cloud_sync_save, cloud_sync_test, cloud_sync_upload, cloud_sync_download, cloud_sync_reveal_secret, cloud_sync_versions, cloud_sync_channels, cloud_sync_delete, cloud_sync_delete_version};
 pub(crate) use commands::ip_location::query_ip_location;
 pub(crate) use commands::icp::query_domain_icp;
 #[cfg(desktop)]
@@ -957,7 +957,7 @@ pub fn run() {
         ssh_connect, ssh_read, ssh_disconnect, ssh_write,
         get_sync_device_identity, list_sync_devices, revoke_sync_device, set_sync_device_share_scope, list_pending_sync_acknowledgements,
         create_sync_account_bundle, create_sync_delta_bundle, save_sync_delta_bundle_file, save_sync_acknowledgement_file, preview_sync_delta_bundle, apply_sync_delta_bundle, complete_sync_delta_push, acknowledge_sync_delta, send_sync_delta_ack_lan, start_sync_delta_receiver, send_sync_delta_bundle_lan, take_received_sync_delta, save_sync_account_bundle, preview_sync_account_bundle, import_sync_account_bundle, start_sync_transfer, start_sync_delta_transfer, cancel_sync_transfer, approve_sync_transfer, fetch_sync_transfer, confirm_sync_transfer_import, cancel_sync_transfer_import,
-        cloud_sync_state, cloud_sync_save, cloud_sync_test, cloud_sync_upload, cloud_sync_download, cloud_sync_reveal_secret, cloud_sync_versions, cloud_sync_channels, cloud_sync_delete,
+        cloud_sync_state, cloud_sync_save, cloud_sync_test, cloud_sync_upload, cloud_sync_download, cloud_sync_reveal_secret, cloud_sync_versions, cloud_sync_channels, cloud_sync_delete, cloud_sync_delete_version,
         database_transfer_catalog, prepare_database_import, plan_database_import, confirm_database_import, cancel_database_import,
     ]);
     #[cfg(desktop)]
@@ -966,6 +966,7 @@ pub fn run() {
     let builder = builder.invoke_handler(commands::desktop_pet::restricted(tauri::generate_handler![
         plan_database_import,
         commands::cloud_drive::cloud_drive_snapshot, commands::cloud_drive::cloud_drive_install,
+        commands::cloud_drive::cloud_drive_alipan_begin, commands::cloud_drive::cloud_drive_alipan_finish, commands::cloud_drive::cloud_drive_alipan_cancel,
         commands::cloud_drive::cloud_drive_save, commands::cloud_drive::cloud_drive_remove,
         commands::cloud_drive::cloud_drive_probe, commands::cloud_drive::cloud_drive_list_buckets, commands::cloud_drive::cloud_drive_mount,
         commands::cloud_drive::cloud_drive_unmount, commands::cloud_drive::cloud_drive_open,
@@ -988,6 +989,7 @@ pub fn run() {
         commands::cloud_sync::cloud_sync_test, commands::cloud_sync::cloud_sync_upload,
         commands::cloud_sync::cloud_sync_download,
         commands::cloud_sync::cloud_sync_versions,
+        commands::cloud_sync::cloud_sync_delete_version,
         commands::cloud_sync::cloud_sync_channels, commands::cloud_sync::cloud_sync_delete,
         commands::cloud_sync::cloud_sync_reveal_secret,
         codex_config_source,

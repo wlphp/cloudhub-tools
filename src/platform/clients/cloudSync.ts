@@ -5,12 +5,12 @@ import type { DatabaseImportPreview } from "./database";
 export type CloudSyncConfig = {
   id?: string; name?: string;
   tables?: string[] | null;
-  method: "webdav" | "s3"; provider: string; endpoint: string; username: string;
+  method: "webdav" | "s3" | "oss"; provider: string; endpoint: string; username: string;
   password: string; accessKeyId: string; secretKey: string; bucket: string; region: string;
   pathStyle: boolean; remoteRoot: string; profile: string; autoSync: boolean;
   allowInsecure: boolean; passwordProtected: boolean; backupPassword: string;
 };
-export type CloudBackupVersion = { id: string; machineName: string; uploadedAt: string | null };
+export type CloudBackupVersion = { id: string; machineName: string; uploadedAt: string | null; passwordProtected?: boolean | null };
 export type CloudSyncProgress = {
   phase: "connecting" | "preparing" | "uploading" | "downloading" | "confirming" | "verifying" | "finishing";
   transferred: number;
@@ -31,9 +31,10 @@ export function cloudSyncChannelClient(channelId = "default") {
     save: (config: CloudSyncConfig) => invokeOrWeb<CloudSyncView>("cloud_sync_save", { config }, { path: path("save"), init: jsonRequest("POST", { config }) }),
     test: (config: CloudSyncConfig) => invokeOrWeb<void>("cloud_sync_test", { config }, { path: path("test"), init: jsonRequest("POST", { config }) }),
     versions: () => invokeOrWeb<CloudBackupVersion[]>("cloud_sync_versions", { channelId }, { path: path("versions") }),
+    deleteVersion: (versionId: string) => invokeOrWeb<void>("cloud_sync_delete_version", { channelId, versionId }, { path: path("delete-version"), init: jsonRequest("POST", { versionId }) }),
     downloadFile: (versionId?: string) => webApiDownload(`${path("download")}${versionId ? `&versionId=${encodeURIComponent(versionId)}` : ""}`),
     upload: () => invokeOrWeb<CloudSyncView>("cloud_sync_upload", { channelId }, { path: path("upload"), init: jsonRequest("POST", {}) }),
-    download: (versionId?: string) => nativeOnly<DatabaseImportPreview>("cloud_sync_download", { versionId, channelId }),
+    download: (versionId?: string, password?: string) => nativeOnly<DatabaseImportPreview>("cloud_sync_download", { versionId, channelId, password }),
     remove: () => invokeOrWeb<void>("cloud_sync_delete", { channelId }, { path: path("delete"), init: jsonRequest("POST", {}) }),
   };
 }

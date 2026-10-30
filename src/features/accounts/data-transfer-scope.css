@@ -1,0 +1,17 @@
+/* Shared by desktop settings, mobile settings and import previews. */
+.data-transfer-scope.data-transfer-scope { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 12px; min-width: 0; margin: 12px 0; padding: 12px; border: 1px solid var(--jb-border); border-radius: 6px; }
+.data-transfer-scope > :is(.data-transfer-all, small) { grid-column: 1 / -1; }
+.data-transfer-scope .data-transfer-all { display: flex; flex-direction: row; align-items: center; justify-content: flex-start; justify-self: start; gap: 8px; width: auto; min-height: 32px; margin: 0; padding: 0; border: 0; background: none; color: var(--jb-text); font-size: 12px; font-weight: 500; cursor: pointer; }
+.data-transfer-scope .data-transfer-group-heading { display: flex; align-items: center; justify-content: flex-start; gap: 8px; grid-column: 1 / -1; margin-top: 8px; }
+.data-transfer-scope .data-transfer-group { margin: 0; font-size: 12px; color: var(--jb-muted); }
+.data-transfer-scope .data-transfer-group-select { display: flex; flex-direction: row; align-items: center; gap: 8px; min-height: 32px; margin: 0; color: var(--jb-muted); font-size: 12px; font-weight: 500; white-space: nowrap; cursor: pointer; }
+.data-transfer-scope .data-transfer-check { display: flex; flex-direction: row; align-items: center; justify-content: flex-start; gap: 8px; min-width: 0; min-height: 32px; margin: 0; color: var(--jb-text); font-size: 12px; font-weight: 400; overflow-wrap: anywhere; cursor: pointer; }
+.data-transfer-scope input[type="checkbox"] { flex: 0 0 auto; width: 16px; height: 16px; margin: 0; accent-color: var(--jb-accent); }
+.data-transfer-scope > .data-transfer-check { padding-inline-start: 32px; box-sizing: border-box; }
+.data-transfer-scope > .data-transfer-group-heading .data-transfer-group-select { color: var(--jb-accent-strong, var(--jb-accent)); }
+.data-transfer-scope > small { color: var(--jb-muted); font-size: 12px; line-height: 1.6; }
+.data-transfer-scope input:focus-visible { outline: 2px solid var(--jb-accent); outline-offset: 2px; }
+@media (max-width: 600px) {
+  .data-transfer-scope.data-transfer-scope { grid-template-columns: minmax(0, 1fr); }
+  .data-transfer-scope :is(.data-transfer-check, .data-transfer-group-select, .data-transfer-all) { min-height: 44px; }
+}

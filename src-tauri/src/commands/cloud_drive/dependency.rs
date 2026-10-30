@@ -4,11 +4,21 @@ use std::{fs, io::Read, path::PathBuf, process::{Command, Stdio}, time::Duration
 use tokio::io::AsyncWriteExt;
 
 pub const VERSION: &str = "1.75.2";
-const ARCHIVE_SHA: &str = "8a9db2bad1dc79a65b3348fd857069598e2aab7cf4d118b77b1df23055aff818";
-const URL: &str = "https://downloads.rclone.org/v1.75.2/rclone-v1.75.2-windows-amd64.zip";
+fn platform()->(&'static str,&'static str) {
+    match (std::env::consts::OS,std::env::consts::ARCH) {
+        ("windows","x86_64") => ("windows-amd64","8a9db2bad1dc79a65b3348fd857069598e2aab7cf4d118b77b1df23055aff818"),
+        ("macos","x86_64") => ("osx-amd64","574e1f31cf1c464e5fb0325cb66fcbdeaf1efa1802bd9b17f13c256fd74b6561"),
+        ("macos","aarch64") => ("osx-arm64","610ab7d48615135dfc60b763858b11a426a0d3d1160c1bb76fb0ae6011b02edd"),
+        ("linux","x86_64") => ("linux-amd64","349ac8fba6ff65d6247043f1750cdcb518ec5d500ef91463a10d37c0ccdf3702"),
+        ("linux","aarch64") => ("linux-arm64","7e1e8d69654941b7b7df84ee74c5f7fb09cce7d5496947fb7bf16b55ff427d10"),
+        _ => ("", ""),
+    }
+}
+fn binary()->&'static str {if cfg!(windows){"rclone.exe"}else{"rclone"}}
+pub fn null_config()->&'static str {if cfg!(windows){"NUL"}else{"/dev/null"}}
 pub fn root() -> Result<PathBuf,String> { Ok(crate::core::paths::data_dir()?.join("cloud-drives")) }
-pub fn supported() -> bool { cfg!(all(target_os="windows",target_arch="x86_64")) }
-pub fn require() -> Result<(),String> { if supported() {Ok(())} else {Err("云盘挂载当前仅支持 Windows x64 桌面客户端".into())} }
+pub fn supported() -> bool { !platform().0.is_empty() }
+pub fn require() -> Result<(),String> { if supported() {Ok(())} else {Err("云盘挂载支持 Windows x64、macOS 和 Linux 桌面客户端".into())} }
 pub fn command(path: impl AsRef<std::ffi::OsStr>) -> Command {
     let mut c=Command::new(path);
     #[cfg(windows)] { use std::os::windows::process::CommandExt; c.creation_flags(0x08000000); }
@@ -17,7 +27,7 @@ pub fn command(path: impl AsRef<std::ffi::OsStr>) -> Command {
     c.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
     c
 }
-fn managed() -> Result<PathBuf,String> { Ok(root()?.join(format!("rclone-{VERSION}")).join("rclone.exe")) }
+fn managed() -> Result<PathBuf,String> { Ok(root()?.join(format!("rclone-{VERSION}")).join(binary())) }
 fn digest(path:&std::path::Path)->Result<String,String> {
     let mut file=fs::File::open(path).map_err(|_|"无法读取挂载引擎")?;
     let mut hash=Sha256::new(); let mut buf=[0;65536];
@@ -35,26 +45,34 @@ pub fn executable()->Result<PathBuf,String> {
     // Search explicit PATH directories, never the current working directory.
     if let Some(paths)=std::env::var_os("PATH") {
         for p in std::env::split_paths(&paths).filter(|p|p.is_absolute()) {
-            let exe=p.join("rclone.exe"); if exe.is_file() {return Ok(exe);}
+            let exe=p.join(binary()); if exe.is_file() {return Ok(exe);}
         }
     }
     Err("尚未安装 rclone，请点击下载挂载引擎".into())
 }
 pub fn winfsp()->bool {
+    #[cfg(target_os="macos")]
+    { return std::path::Path::new("/Library/Filesystems/macfuse.fs").is_dir() || std::path::Path::new("/Library/Filesystems/osxfuse.fs").is_dir(); }
+    #[cfg(target_os="linux")]
+    { return std::path::Path::new("/dev/fuse").exists() && std::env::var_os("PATH").is_some_and(|paths|std::env::split_paths(&paths).any(|p|p.join("fusermount3").is_file()||p.join("fusermount").is_file())); }
+    #[cfg(not(any(target_os="macos",target_os="linux")))]
+    {
     ["ProgramFiles(x86)","ProgramFiles"].iter().filter_map(std::env::var_os)
         .any(|p|PathBuf::from(p).join("WinFsp/bin/winfsp-x64.dll").is_file())
+    }
 }
 #[derive(Clone, Default, Serialize)]
 #[serde(rename_all="camelCase")]
 pub struct Progress {pub phase:String,pub downloaded:u64,pub total:u64}
 #[derive(Serialize)]
 #[serde(rename_all="camelCase")]
-pub struct Dependency {pub supported:bool,pub installed:bool,pub winfsp:bool,pub version:&'static str,pub source:String,pub progress:Progress}
+pub struct Dependency {pub supported:bool,pub installed:bool,pub winfsp:bool,pub platform:&'static str,pub driver:&'static str,pub version:&'static str,pub source:String,pub progress:Progress}
 pub fn status(progress:Progress)->Dependency {
     // Hash the executable at launch, not on each UI status refresh.
     let exe=managed().ok().filter(|p|p.is_file()&&p.with_extension("sha256").is_file()).or_else(||
-        std::env::var_os("PATH").and_then(|paths|std::env::split_paths(&paths).filter(|p|p.is_absolute()).map(|p|p.join("rclone.exe")).find(|p|p.is_file())));
-    Dependency{supported:supported(),installed:exe.is_some(),winfsp:winfsp(),version:VERSION,
+        std::env::var_os("PATH").and_then(|paths|std::env::split_paths(&paths).filter(|p|p.is_absolute()).map(|p|p.join(binary())).find(|p|p.is_file())));
+    Dependency{supported:supported(),installed:exe.is_some(),winfsp:winfsp(),platform:std::env::consts::OS,
+        driver:if cfg!(target_os="macos"){"macFUSE"}else if cfg!(target_os="linux"){"FUSE"}else{"WinFsp"},version:VERSION,
         source:if exe.as_ref().is_some_and(|p|Some(p)==managed().ok().as_ref()) {"CloudHub 已校验引擎"} else {"本机 PATH（需兼容 rclone 1.75.2 的挂载接口）"}.into(),progress}
 }
 pub async fn install(progress:&std::sync::Mutex<Progress>)->Result<(),String> {
@@ -64,7 +82,9 @@ pub async fn install(progress:&std::sync::Mutex<Progress>)->Result<(),String> {
     let dir=root()?.join(format!("download-{}",uuid::Uuid::new_v4()));
     fs::create_dir_all(&dir).map_err(|_|"无法创建下载目录")?;
     let result=async {
-        let mut response=client.get(URL).send().await.map_err(|_|"引擎下载失败，请检查网络后重试")?
+        let (target_platform,archive_sha)=platform();
+        let archive_name=format!("rclone-v{VERSION}-{target_platform}");
+        let mut response=client.get(format!("https://downloads.rclone.org/v{VERSION}/{archive_name}.zip")).send().await.map_err(|_|"引擎下载失败，请检查网络后重试")?
             .error_for_status().map_err(|_|"官方下载服务暂不可用")?;
         let total=response.content_length().unwrap_or(0);
         if total>128*1024*1024 {return Err("引擎下载包超出大小限制".into());}
@@ -80,11 +100,11 @@ pub async fn install(progress:&std::sync::Mutex<Progress>)->Result<(),String> {
             progress.lock().map_err(|_|"下载状态不可用")?.downloaded=downloaded;
         }
         file.flush().await.map_err(|_|"保存下载失败")?; drop(file);
-        if hex::encode(hash.finalize())!=ARCHIVE_SHA {return Err("官方下载包 SHA-256 校验失败，未安装".into());}
+        if hex::encode(hash.finalize())!=archive_sha {return Err("官方下载包 SHA-256 校验失败，未安装".into());}
         progress.lock().map_err(|_|"下载状态不可用")?.phase="verifying".into();
         let mut zip=zip::ZipArchive::new(fs::File::open(&archive).map_err(|_|"无法读取下载包")?).map_err(|_|"下载包格式无效")?;
         let target=managed()?;
-        let mut entry=zip.by_name("rclone-v1.75.2-windows-amd64/rclone.exe").map_err(|_|"下载包中缺少引擎")?;
+        let mut entry=zip.by_name(&format!("{archive_name}/{}",binary())).map_err(|_|"下载包中缺少引擎")?;
         if entry.size()>256*1024*1024 {return Err("引擎文件超出限制".into());}
         let staging=dir.join("rclone.exe");
         let mut out=fs::File::create(&staging).map_err(|_|"无法保存引擎")?;
@@ -92,6 +112,7 @@ pub async fn install(progress:&std::sync::Mutex<Progress>)->Result<(),String> {
         fs::create_dir_all(target.parent().ok_or("引擎目录无效")?).map_err(|_|"无法创建引擎目录")?;
         // Never overwrite an executable currently used by a mounted drive.
         fs::copy(&staging,&target).map_err(|_|"无法安装引擎，请确认旧版本未被占用")?;
+        #[cfg(unix)] {use std::os::unix::fs::PermissionsExt; fs::set_permissions(&target,fs::Permissions::from_mode(0o700)).map_err(|_|"无法安装引擎，请确认旧版本未被占用")?;}
         fs::write(target.with_extension("sha256"),digest(&target)?).map_err(|_|"无法保存校验记录")?;
         Ok(())
     }.await;
@@ -122,7 +143,7 @@ mod tests {
         struct Guard(std::process::Child,PathBuf);
         impl Drop for Guard {fn drop(&mut self){let _=self.0.kill();let _=self.0.wait();let _=fs::remove_dir_all(&self.1);}}
         let mut guard=Guard(start(),directory.clone());
-        let mut session=super::super::runtime::Session{id:uuid::Uuid::new_v4().to_string(),port:rc_port,token:token.clone(),pid:guard.0.id(),mount_point:String::new(),cache_dir:directory.join("cache")};
+        let mut session=super::super::runtime::Session{id:uuid::Uuid::new_v4().to_string(),port:rc_port,token:token.clone(),pid:guard.0.id(),mount_point:String::new(),cache_dir:directory.join("cache"),bridge:None};
         let mut ready=false;
         for _ in 0..50 {
             if super::super::runtime::alive(&session).await {ready=true;break;}

@@ -3,11 +3,26 @@ mod model;
 mod runtime;
 mod service;
 mod error;
+mod alipan;
+mod alipan_dav;
 use error::public_error;
 
 use crate::core::error::PlatformResult;
 use tauri::State;
 pub use service::{DriveStore, Snapshot, initialize, must_keep_running, explain_exit};
+
+#[tauri::command]
+pub async fn cloud_drive_alipan_begin(app:tauri::AppHandle,state:State<'_,DriveStore>,id:String)->PlatformResult<String> {
+    alipan::begin(app,state,id).await.map_err(public_error)
+}
+#[tauri::command]
+pub async fn cloud_drive_alipan_finish(state:State<'_,DriveStore>,ticket:String,code:String)->PlatformResult<()> {
+    alipan::finish(state,ticket,code).await.map_err(public_error)
+}
+#[tauri::command]
+pub async fn cloud_drive_alipan_cancel(state:State<'_,DriveStore>,ticket:String)->PlatformResult<()> {
+    alipan::cancel(state,ticket).await.map_err(public_error)
+}
 
 #[tauri::command]
 pub async fn cloud_drive_snapshot(state:State<'_,DriveStore>)->PlatformResult<Snapshot> {

@@ -133,10 +133,10 @@
 .mobile-shell .ai-settings .ai-profile > div:first-child > strong { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
 .mobile-shell .ai-settings .ai-profile small { margin: 0; padding: 2px 6px; border: 0; border-radius: 4px; background: var(--mobile-accent-soft, var(--mobile-raised)); color: var(--mobile-accent-strong); font-size: 11px; font-weight: 500; }
 .mobile-shell .ai-settings .ai-profile > div:first-child > span { margin: 0; font-size: 12px; line-height: 1.5; color: var(--mobile-muted); white-space: normal; overflow-wrap: anywhere; }
-.mobile-shell .ai-settings .ai-profile > .ai-actions { display: flex; flex-wrap: nowrap; gap: 0; width: 100%; padding: 4px 0; border-top: 1px solid var(--mobile-border); }
-.mobile-shell .ai-settings .ai-profile > .ai-actions > button { flex: 1 1 0; min-width: 0; min-height: 44px; padding: 0 6px; border: 0; border-radius: 6px; background: transparent; color: var(--mobile-muted); font-size: 12px; white-space: normal; }
-.mobile-shell .ai-settings .ai-profile > .ai-actions > button:nth-child(2) { color: var(--mobile-accent-strong); }
-.mobile-shell .ai-settings .ai-profile > .ai-actions > button:last-child { flex: 0 0 44px; width: 44px; padding: 0; color: var(--mobile-danger); }
+.mobile-shell .ai-settings .ai-profile > .ai-actions { display: flex; flex-wrap: nowrap; gap: 8px; width: 100%; padding: 10px 0 12px; border-top: 1px solid var(--mobile-border); }
+.mobile-shell .ai-settings .ai-profile > .ai-actions > button { flex: 1 1 0; min-width: 0; min-height: 44px; padding: 0 6px; border: 1px solid var(--mobile-border); border-radius: 6px; background: var(--mobile-raised); color: var(--mobile-text); font-size: 12px; white-space: normal; }
+.mobile-shell .ai-settings .ai-profile > .ai-actions > button:nth-child(2) { border-color: color-mix(in srgb,var(--mobile-accent) 30%,var(--mobile-border)); background: color-mix(in srgb,var(--mobile-accent) 7%,var(--mobile-surface)); color: var(--mobile-accent-strong); }
+.mobile-shell .ai-settings .ai-profile > .ai-actions > button:last-child { flex: 0 0 44px; width: 44px; padding: 0; border-color: color-mix(in srgb,var(--mobile-danger) 22%,var(--mobile-border)); background: color-mix(in srgb,var(--mobile-danger) 5%,var(--mobile-surface)); color: var(--mobile-danger); }
 .mobile-shell .ai-settings .ai-profile > .ai-actions > button:hover:not(:disabled),
 .mobile-shell .ai-settings .ai-profile > .ai-actions > button:active:not(:disabled) { background: var(--mobile-raised); }
 .mobile-shell .ai-settings .ai-delete-confirm { padding-bottom: 12px; }

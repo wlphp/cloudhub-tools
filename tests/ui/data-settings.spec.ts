@@ -24,7 +24,8 @@ async function openSettings(page: Page) {
           if (command === "cloud_sync_channels") return cloudConfigured ? [cloudView()] : [];
           if (command === "cloud_sync_versions") return [
             { id: "backup-11111111-1111-4111-8111-111111111111.chdb", machineName: "办公电脑", uploadedAt: "2026-10-29T12:00:00Z" },
-            { id: "backup-22222222-2222-4222-8222-222222222222.chdb", machineName: "家用电脑", uploadedAt: "2026-10-28T12:00:00Z" },
+            { id: "backup-22222222-2222-4222-8222-222222222222.chdb", machineName: "家用电脑", uploadedAt: "2026-10-28T12:00:00Z", passwordProtected: false },
+            { id: "backup-33333333-3333-4333-8333-333333333333.chdb", machineName: "加密电脑", uploadedAt: "2026-10-27T12:00:00Z", passwordProtected: true },
           ];
           if (command === "cloud_sync_reveal_secret") return "non-sensitive-saved-fixture";
           if (command === "cloud_sync_test") { if (++cloudTestAttempts === 1) throw new Error("认证失败或权限不足"); return; }
@@ -44,6 +45,7 @@ async function openSettings(page: Page) {
           if (command === "create_database_backup") return record(args.password ? "protected-new-fixture" : "new-fixture", typeof args.password === "string");
           if (command === "import_database_backup") return record("imported-fixture", false);
           if (command === "prepare_database_backup_restore" && args.id === "encrypted-fixture" && ++restoreAttempts === 1) throw new Error("fixture-failure");
+          if (command === "cloud_sync_download" && (window as unknown as { __requireCloudPassword?: boolean }).__requireCloudPassword && args.password !== "non-sensitive-restore-fixture") throw new Error("备份密码错误或文件已损坏");
           if (command === "prepare_database_import" || command === "prepare_database_backup_restore" || command === "cloud_sync_download") return {
             token: "fixture-preview", packageName: "fixture", exportedAt: "fixture", totalRecords: 1,
             importMode: command === "prepare_database_import" ? args.mode : "backup",
@@ -61,6 +63,49 @@ async function openSettings(page: Page) {
 async function calls(page: Page) {
   return page.evaluate(() => (window as unknown as { __dataCalls: Array<{ command: string; format?: string; mode?: string; protected: boolean; sourceId?: string; tables?: string[] }> }).__dataCalls);
 }
+
+test("cloud operation history has a compact empty state", async ({ page }) => {
+  await openSettings(page);
+  const region = page.getByRole("region", { name: "云同步", exact: true });
+  await region.getByRole("button", { name: "添加同步渠道", exact: true }).click();
+  const editor = page.locator(".cloud-sync-editor");
+  await editor.getByLabel("渠道名称").fill("测试渠道");
+  await editor.getByRole("button", { name: "保存配置", exact: true }).click();
+  await expect(editor).toBeHidden();
+  await region.getByRole("button", { name: "上传记录", exact: true }).click();
+  const history = page.getByRole("dialog", { name: "上传记录", exact: true });
+  await expect(history.getByText("暂无操作记录")).toBeVisible();
+  await expect(history.locator("table")).toHaveCount(0);
+  await expect(history.getByRole("navigation", { name: "记录分页" })).toHaveCount(0);
+  for (const width of [375, 768, 1024, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    expect(await history.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+  }
+});
+
+test("cloud operation history pagination buttons stay compact", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(crypto, "randomUUID", { configurable: true, value: () => "default" });
+    const key = `cloudhub.backup-downloads.v1:${JSON.stringify(["default", "webdav", "", "", "cloudhub-sync", "default"])}:events`;
+    const entries = Array.from({ length: 11 }, (_, index) => ({
+      id: `fixture-${index}`, action: "upload", occurredAt: new Date(Date.UTC(2026, 9, 30, 12, index)).toISOString(), versionId: null,
+    }));
+    localStorage.setItem(key, JSON.stringify(entries));
+  });
+  await openSettings(page);
+  const region = page.getByRole("region", { name: "云同步", exact: true });
+  await region.getByRole("button", { name: "添加同步渠道", exact: true }).click();
+  const editor = page.locator(".cloud-sync-editor");
+  await editor.getByLabel("渠道名称").fill("测试渠道");
+  await editor.getByRole("button", { name: "保存配置", exact: true }).click();
+  await expect(editor).toBeHidden();
+  await region.getByRole("button", { name: "上传记录", exact: true }).click();
+  const history = page.getByRole("dialog", { name: "上传记录", exact: true });
+  const pagination = history.getByRole("navigation", { name: "记录分页" });
+  await expect(pagination).toBeVisible();
+  await expect(pagination.getByRole("button")).toHaveCount(2);
+  expect(await pagination.getByRole("button").evaluateAll(buttons => buttons.map(button => button.getBoundingClientRect().width).every(width => width <= 40))).toBe(true);
+});
 
 async function dismissCloudResult(page: Page, title: string, message: string) {
   const dialog = page.getByRole("alertdialog", { name: title, exact: true });
@@ -136,17 +181,48 @@ test("cloud configuration saves redacted credentials and requires confirmation b
   await region.getByRole("button", { name: "下载备份", exact: true }).click();
   const versions = page.getByRole("dialog", { name: "选择云端备份版本", exact: true });
   await expect(versions).toBeVisible();
-  await expect(versions.getByRole("combobox")).toHaveValue("backup-11111111-1111-4111-8111-111111111111.chdb");
-  await expect(versions.getByRole("option").first()).toContainText("最新 · 办公电脑");
+  await expect(versions.getByRole("combobox", { name: "上传时间排序" })).toHaveValue("desc");
+  await expect(versions.locator("tbody tr").first()).toContainText("办公电脑");
+  await expect(versions.locator("tbody tr").first()).toContainText("最新");
   await page.locator(".modal-backdrop").last().click({ position: { x: 2, y: 2 }, force: true });
   await expect(versions).toBeVisible();
   for (const width of [375, 768, 1024, 1440]) {
     await page.setViewportSize({ width, height: 900 });
     expect(await versions.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
   }
-  await versions.getByRole("combobox").selectOption("backup-22222222-2222-4222-8222-222222222222.chdb");
-  await versions.getByRole("button", { name: "下载所选版本", exact: true }).click();
+  await versions.getByRole("button", { name: /下载 .*backup-22222222-2222-4222-8222-222222222222.chdb/ }).click();
   await expect(page.getByRole("alertdialog", { name: "确认恢复业务数据", exact: true })).toBeVisible();
+  expect((await calls(page)).some(call => call.command === "confirm_database_import")).toBe(false);
+});
+
+for (const [machine, badge] of [["办公电脑", "密码状态未知"], ["加密电脑", "有密码"]]) test(`cloud restore accepts a temporary password for ${badge}`, async ({ page }) => {
+  await openSettings(page);
+  await page.evaluate(() => { Object.assign(window, { __requireCloudPassword: true }); });
+  const region = page.getByRole("region", { name: "云同步", exact: true });
+  await region.getByRole("button", { name: "添加同步渠道", exact: true }).click();
+  const editor = page.locator(".cloud-sync-editor");
+  await editor.getByLabel("渠道名称").fill("测试渠道");
+  await editor.getByRole("button", { name: "保存配置", exact: true }).click();
+  const saves = (await calls(page)).filter(call => call.command === "cloud_sync_save").length;
+  await region.getByRole("button", { name: "下载备份", exact: true }).click();
+  const versions = page.getByRole("dialog", { name: "选择云端备份版本", exact: true });
+  await expect(versions.locator("tr").filter({ hasText: machine })).toContainText(badge);
+  await versions.getByRole("button", { name: new RegExp(`^下载 ${machine} `) }).click();
+  const password = page.getByRole("dialog", { name: "下载并解密云备份", exact: true });
+  await expect(password).toBeVisible();
+  await page.setViewportSize({ width: 375, height: 844 });
+  expect(await password.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+  await password.getByLabel("本次恢复密码", { exact: true }).fill("wrong-fixture");
+  await password.getByRole("button", { name: "下载并预览", exact: true }).click();
+  await expect(password.getByRole("alert")).toContainText("备份密码错误");
+  await expect(password.getByLabel("本次恢复密码", { exact: true })).toHaveValue("");
+  await expect(page.getByRole("alertdialog", { name: "确认恢复业务数据", exact: true })).toHaveCount(0);
+  await password.getByLabel("本次恢复密码", { exact: true }).fill("non-sensitive-restore-fixture");
+  await password.getByRole("button", { name: "下载并预览", exact: true }).click();
+  await expect(password).toHaveCount(0);
+  await expect(page.getByRole("alertdialog", { name: "确认恢复业务数据", exact: true })).toBeVisible();
+  expect((await calls(page)).filter(call => call.command === "cloud_sync_download").at(-1)?.protected).toBe(true);
+  expect((await calls(page)).filter(call => call.command === "cloud_sync_save").length).toBe(saves);
   expect((await calls(page)).some(call => call.command === "confirm_database_import")).toBe(false);
 });
 
@@ -256,7 +332,10 @@ test("restore submits selected modules and explicit merge mode", async ({ page }
   await page.getByRole("button", { name: "管理加密备份", exact: true }).click();
   await page.locator(".backup-record").filter({ hasText: "legacy-fixture.chdb" }).getByRole("button", { name: "恢复", exact: true }).click();
   const review=page.getByRole("alertdialog",{name:"确认恢复业务数据",exact:true});
-  await review.getByRole("button",{name:"清空选择"}).click();
+  await expect(review.locator("details").filter({ has: page.locator("summary", { hasText: /^数据范围/ }) })).not.toHaveAttribute("open");
+  await expect(review.locator("details").filter({ has: page.locator("summary", { hasText: /^备份详细内容/ }) })).not.toHaveAttribute("open");
+  await review.locator("summary").filter({ hasText: /^数据范围/ }).click();
+  await review.getByRole("checkbox",{name:"选择全部数据",exact:true}).uncheck();
   await expect(review.getByRole("button",{name:"备份本机并导入"})).toBeDisabled();
   await review.getByRole("checkbox",{name:"云账号（1 条）",exact:true}).check();
   await expect(review.getByLabel("恢复方式",{exact:true})).toHaveValue("merge");
@@ -293,6 +372,12 @@ test("password backup is optional validates confirmation and resets to no passwo
   for (const width of [375, 768, 1024, 1440]) {
     await page.setViewportSize({ width, height: 900 });
     expect(await create.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+    const offsets = await create.locator('.data-transfer-scope').evaluate(scope => {
+      const parent = scope.querySelector('.data-transfer-group-heading input')!.getBoundingClientRect().left;
+      const child = scope.querySelector('.data-transfer-check input')!.getBoundingClientRect().left;
+      return child - parent;
+    });
+    expect(offsets).toBeCloseTo(32, 0);
   }
   await create.getByLabel("确认备份密码", { exact: true }).fill("fixture-password");
   await create.getByRole("button", { name: "保存备份", exact: true }).click();

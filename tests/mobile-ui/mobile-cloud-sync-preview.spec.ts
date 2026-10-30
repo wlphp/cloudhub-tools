@@ -18,7 +18,7 @@ test("mobile cloud restore aligns scopes, defaults to append and requires explic
     const path = new URL(route.request().url()).pathname;
     if (path === "/api/cloud-sync/state") return route.fulfill({ json: view });
     if (path === "/api/cloud-sync/channels") return route.fulfill({ json: view.configured ? [view] : [] });
-    if (path === "/api/cloud-sync/versions") return route.fulfill({ json: [{ id: "backup-11111111-1111-4111-8111-111111111111.chdb", machineName: "测试电脑", uploadedAt: "2026-10-29T12:00:00Z" }] });
+    if (path === "/api/cloud-sync/versions") return route.fulfill({ json: [{ id: "backup-11111111-1111-4111-8111-111111111111.chdb", machineName: "测试电脑", uploadedAt: "2026-10-29T12:00:00Z", passwordProtected: false }] });
     if (path === "/api/cloud-sync/test") return route.fulfill({ json: null });
     if (path === "/api/cloud-sync/save") {
       const { password: _password, secretKey: _secret, backupPassword: _backup, ...config } = route.request().postDataJSON().config;
@@ -98,7 +98,7 @@ test("mobile cloud restore aligns scopes, defaults to append and requires explic
   expect(uploaded).toBe(true);
   await result.getByRole("button", { name: "确定", exact: true }).click();
   await cloud.getByRole("button", { name: "下载备份", exact: true }).click();
-  await page.getByRole("dialog", { name: "选择云端备份版本" }).getByRole("button", { name: "下载所选版本" }).click();
+  await page.getByRole("dialog", { name: "选择云端备份版本" }).getByRole("button", { name: /^下载 / }).click();
   await expect(cloud.getByRole("progressbar")).toHaveAccessibleName("正在下载备份");
   await expect(cloud.getByRole("progressbar")).not.toHaveAttribute("value");
   await expect(cloud.locator(".cloud-sync-progress")).toContainText("1.0 KB");
@@ -118,8 +118,9 @@ test("mobile cloud restore aligns scopes, defaults to append and requires explic
   await expect.poll(() => cancelled).toBe(1);
   expect(restored).toBeUndefined();
   await cloud.getByRole("button", { name: "下载备份", exact: true }).click();
-  await page.getByRole("dialog", { name: "选择云端备份版本" }).getByRole("button", { name: "下载所选版本" }).click();
+  await page.getByRole("dialog", { name: "选择云端备份版本" }).getByRole("button", { name: /^下载 / }).click();
   await expect(review).toBeVisible();
+  await review.locator("summary").filter({ hasText: /^数据范围/ }).click();
   await review.getByRole("checkbox", { name: /流水线连接/ }).uncheck();
   await expect(review.getByLabel("恢复方式", { exact: true })).toHaveValue("merge");
   await review.getByLabel("恢复方式", { exact: true }).selectOption("replace");
@@ -131,7 +132,7 @@ test("mobile cloud restore aligns scopes, defaults to append and requires explic
   expect(restored).toEqual({ token: "fixture-preview", tables: ["memo_notes"], mode: "merge", forceRestore: true });
   await expect(page.getByRole("region", { name: "数据迁移" })).toContainText("恢复完成：新增 2 条");
   await cloud.getByRole("button", { name: "下载备份", exact: true }).click();
-  await page.getByRole("dialog", { name: "选择云端备份版本" }).getByRole("button", { name: "下载所选版本" }).click();
+  await page.getByRole("dialog", { name: "选择云端备份版本" }).getByRole("button", { name: /^下载 / }).click();
   await expect(review.getByLabel("恢复方式", { exact: true })).toHaveValue("merge");
   await expect(review.getByRole("checkbox", { name: /包含备份回收站/ })).not.toBeChecked();
   await review.getByLabel("恢复方式", { exact: true }).selectOption("replace");
@@ -144,6 +145,25 @@ test("mobile cloud restore aligns scopes, defaults to append and requires explic
   await confirmRestore.click();
   await expect(review).toHaveCount(0);
   expect(restored).toEqual({ token: "fixture-preview", tables: ["memo_notes", "flow_connections"], mode: "replace", forceRestore: true });
+  await page.route("**/api/cloud-sync/versions?*", route => route.fulfill({ json: [{ id: "backup-11111111-1111-4111-8111-111111111111.chdb", machineName: "测试电脑", uploadedAt: "2026-10-29T12:00:00Z", passwordProtected: true }] }));
+  await page.route("**/api/database-import/preview?*", async route => {
+    if (decodeURIComponent(route.request().headers()["x-backup-password"] ?? "") !== "non-sensitive-restore-fixture") return route.fulfill({ status: 400, json: { error: "备份密码错误或文件已损坏" } });
+    return route.fulfill({ json: { token: "protected-fixture", packageName: "云端备份", exportedAt: "2026-10-29", totalRecords: 2, categories: [{ table: "memo_notes", label: "备忘录", count: 2 }], details: [], conflicts: [], importMode: "backup" } });
+  });
+  await cloud.getByRole("button", { name: "下载备份", exact: true }).click();
+  const versions = page.getByRole("dialog", { name: "选择云端备份版本" });
+  await expect(versions).toContainText("有密码");
+  await versions.getByRole("button", { name: /^下载 / }).click();
+  const password = page.getByRole("dialog", { name: "下载并解密云备份", exact: true });
+  await password.getByLabel("本次恢复密码", { exact: true }).fill("wrong-fixture");
+  await password.getByRole("button", { name: "下载并预览", exact: true }).click();
+  await expect(password.getByRole("alert")).toContainText("密码错误");
+  await expect(review).toHaveCount(0);
+  await password.getByLabel("本次恢复密码", { exact: true }).fill("non-sensitive-restore-fixture");
+  await password.getByRole("button", { name: "下载并预览", exact: true }).click();
+  await expect(review).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(review).toHaveCount(0);
   for (const width of [375, 768, 1024, 1440]) {
     await page.setViewportSize({ width, height: 900 });
     expect(await cloud.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);

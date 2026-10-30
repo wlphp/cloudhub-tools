@@ -1209,7 +1209,8 @@ body { background: var(--mobile-bg); color: var(--mobile-text); }
 .mobile-resource-stats > div { display: flex; align-items: baseline; gap: 8px; min-width: 0; padding: 10px 12px; border: 1px solid var(--mobile-border); border-radius: 10px; background: var(--mobile-surface); }
 .mobile-resource-stats strong { color: var(--mobile-accent-strong); font-size: 18px; line-height: 1; }
 .mobile-resource-stats span { overflow: hidden; color: var(--mobile-muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-.mobile-clean-unknown { width: 100%; min-height: 42px; margin: -4px 0 12px; border: 1px solid #62434b; border-radius: 10px; background: #2b1d27; color: #ffabb2; font-size: 12px; font-weight: 600; }
+.mobile-clean-unknown { display: block; width: fit-content; max-width: 100%; min-height: 44px; margin: -4px 0 12px auto; padding: 8px 12px; border: 1px solid color-mix(in srgb,var(--mobile-danger) 22%,var(--mobile-border)); border-radius: 8px; background: color-mix(in srgb,var(--mobile-danger) 4%,var(--mobile-surface)); color: var(--mobile-danger); font-size: 12px; font-weight: 500; line-height: 1.5; cursor: pointer; }
+.mobile-clean-unknown:is(:hover,:active):not(:disabled) { border-color: var(--mobile-danger); background: color-mix(in srgb,var(--mobile-danger) 9%,var(--mobile-surface)); }
 .mobile-clean-unknown:disabled { cursor: wait; opacity: .65; }
 .mobile-clean-unknown:focus-visible { outline: 2px solid var(--mobile-focus); outline-offset: 2px; }
 .mobile-server-card,
@@ -2716,8 +2717,8 @@ body:has(.mobile-shell) :is(.app-confirm-dialog,.sync-transfer-panel) {
 /* Data import is a full mobile page; only the desktop variant keeps the dialog surface. */
 body:has(.mobile-shell) .sync-transfer-mobile-page {
   width: 100%;
-  max-width: none;
-  margin: 0;
+  max-width: 720px;
+  margin: 0 auto;
   padding: 0;
   border: 0;
   border-radius: 0;
@@ -2730,7 +2731,7 @@ body:has(.mobile-shell) .sync-transfer-mobile-page .sync-transfer-body {
 }
 
 body:has(.mobile-shell) .sync-transfer-mobile-page > .sync-transfer-intro {
-  margin: 0 0 18px;
+  margin: 0 0 8px;
   color: var(--mobile-muted);
   font-size: 13px;
   line-height: 1.6;
@@ -2773,7 +2774,7 @@ body:has(.mobile-shell) :is(.database-import-dialog, .cloud-sync-section, .sync-
   white-space: normal;
   overflow-wrap: anywhere;
 }
-@media(min-width: 600px) {
+@media(min-width: 601px) {
   body:has(.mobile-shell) .data-transfer-scope { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   body:has(.mobile-shell) .data-transfer-scope > :is(button, strong, small) { grid-column: 1 / -1; }
 }
@@ -2781,8 +2782,8 @@ body:has(.mobile-shell) :is(.database-import-dialog, .cloud-sync-section, .sync-
 .mobile-import-card {
   display: grid;
   min-width: 0;
-  gap: 16px;
-  margin-bottom: 14px;
+  gap: 12px;
+  margin-bottom: 12px;
   padding: 16px;
   border: 1px solid var(--mobile-border);
   border-radius: 12px;
@@ -2793,10 +2794,12 @@ body:has(.mobile-shell) :is(.database-import-dialog, .cloud-sync-section, .sync-
 .mobile-import-heading {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
-.mobile-import-heading > div { min-width: 0; }
+.mobile-import-heading > div { min-width: 0; flex: 1; }
+.mobile-import-heading .mobile-provider-avatar { width: 36px; height: 36px; flex: 0 0 36px; border-radius: 10px; }
+.mobile-import-app-badge { padding: 4px 7px; border-radius: 6px; background: var(--mobile-raised); color: var(--mobile-muted); font-size: 11px; white-space: nowrap; }
 .mobile-import-heading h2 { margin: 0; font-size: 16px; line-height: 1.4; }
 .mobile-import-heading p,
 .mobile-import-description,
@@ -2809,9 +2812,8 @@ body:has(.mobile-shell) :is(.database-import-dialog, .cloud-sync-section, .sync-
 .mobile-import-description { margin: 0; }
 .mobile-import-hint {
   margin: 0;
-  padding: 10px 12px;
-  border-radius: 8px;
-  background: var(--mobile-raised);
+  padding: 0;
+  background: transparent;
 }
 
 body:has(.mobile-shell) .mobile-import-card button {
@@ -2819,9 +2821,9 @@ body:has(.mobile-shell) .mobile-import-card button {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  min-height: 46px;
+  min-height: 48px;
   width: 100%;
-  padding: 10px 14px;
+  padding: 8px 12px;
   border: 1px solid var(--mobile-border);
   border-radius: 9px;
   background: var(--mobile-raised);
@@ -2862,18 +2864,29 @@ body:has(.mobile-shell) .mobile-import-card :is(input[type="password"], select) 
 }
 body:has(.mobile-shell) .mobile-import-card input::placeholder { color: var(--mobile-muted); }
 body:has(.mobile-shell) .mobile-import-card .sync-transfer-preview { margin: 0; }
+body:has(.mobile-shell) .mobile-import-card :is(.sync-transfer-error,.sync-transfer-status) { margin: 0; padding: 10px 12px; border-radius: 8px; }
 
 /* Cloud sync is shared with desktop, but its desktop stylesheet is not loaded by the mobile entry. */
 body:has(.mobile-shell) .cloud-sync-section {
   min-width: 0;
   margin: 24px 0 0;
 }
-body:has(.mobile-shell) .cloud-sync-section > h2 {
-  margin: 0 0 10px;
+body:has(.mobile-shell) .cloud-sync-list-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+body:has(.mobile-shell) .cloud-sync-list-heading h2 {
+  margin: 0;
   color: var(--mobile-text);
-  font-size: 20px;
+  font-size: 16px;
   line-height: 1.3;
 }
+body:has(.mobile-shell) .cloud-sync-list-heading .cloud-sync-actions { display: flex; margin: 0; }
+body:has(.mobile-shell) .cloud-sync-list-heading .cloud-sync-actions button { min-height: 48px; padding: 8px 0 8px 8px; border: 0; background: transparent; color: var(--mobile-accent-strong); }
+body:has(.mobile-shell) .cloud-sync-section > .cloud-sync-hint { margin: 0 0 12px; }
+body:has(.mobile-shell) .cloud-sync-channel-list { display: grid; gap: 12px; }
 body:has(.mobile-shell) .cloud-sync-panel {
   min-width: 0;
   padding: 16px;
@@ -2890,20 +2903,35 @@ body:has(.mobile-shell) .cloud-sync-heading {
   margin: 0;
 }
 body:has(.mobile-shell) .cloud-sync-heading h3 {
+  flex: 1;
   min-width: 0;
   margin: 0;
   color: var(--mobile-text);
   font-size: 16px;
   line-height: 1.4;
+  overflow-wrap: anywhere;
 }
-body:has(.mobile-shell) .cloud-sync-heading .data-settings-badge {
+body:has(.mobile-shell) .cloud-sync-channel-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+  color: var(--mobile-muted);
+  font-size: 12px;
+}
+body:has(.mobile-shell) .cloud-sync-channel-meta .data-settings-badge {
   flex: 0 0 auto;
   padding: 2px 6px;
   border: 1px solid var(--mobile-border);
-  border-radius: 999px;
+  border-radius: 5px;
   color: var(--mobile-muted);
   font-size: 11px;
 }
+body:has(.mobile-shell) .cloud-sync-manage { display: flex; gap: 8px; margin: -8px -8px -8px 0; }
+body:has(.mobile-shell) .cloud-sync-manage button { display: grid; place-items: center; width: 48px; height: 48px; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--mobile-muted); cursor: pointer; }
+body:has(.mobile-shell) .cloud-sync-manage button:hover:not(:disabled),
+body:has(.mobile-shell) .cloud-sync-manage button:active:not(:disabled) { background: var(--mobile-raised); color: var(--mobile-text); }
+body:has(.mobile-shell) .cloud-sync-manage button:disabled { opacity: .45; cursor: not-allowed; }
 body:has(.mobile-shell) .cloud-sync-toggle {
   display: inline-flex;
   min-height: 44px;
@@ -3009,7 +3037,7 @@ body:has(.mobile-shell) .cloud-sync-transfer button {
   display: inline-flex;
   align-items: center;
   width: 100%;
-  min-height: 46px;
+  min-height: 48px;
   justify-content: center;
   gap: 7px;
   min-width: 0;
@@ -3067,21 +3095,57 @@ body:has(.mobile-shell) .cloud-sync-transfer > p:not(.cloud-sync-history) {
   background: color-mix(in srgb, var(--mobile-accent) 7%, var(--mobile-surface));
   color: color-mix(in srgb, var(--mobile-accent) 55%, var(--mobile-text));
 }
-body:has(.mobile-shell) .cloud-sync-transfer > .cloud-sync-history {
+body:has(.mobile-shell) .cloud-sync-history {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px 20px;
-  padding-top: 4px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--mobile-border);
   color: var(--mobile-muted);
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
-body:has(.mobile-shell) .cloud-sync-history span {
+body:has(.mobile-shell) .cloud-sync-history-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
   min-width: 0;
-  overflow-wrap: anywhere;
+  width: 100%;
 }
-body:has(.mobile-shell) .cloud-sync-history strong {
+body:has(.mobile-shell) .cloud-sync-history-label {
+  color: var(--mobile-muted);
+  white-space: nowrap;
+}
+body:has(.mobile-shell) .cloud-sync-history-value {
+  min-width: 0;
   color: var(--mobile-text);
   font-weight: 500;
+  overflow-wrap: anywhere;
+}
+body:has(.mobile-shell) .cloud-sync-history-value.is-empty {
+  color: var(--mobile-muted);
+  font-weight: 400;
+}
+body:has(.mobile-shell) .cloud-sync-history-open {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 48px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font: inherit;
+  color: var(--mobile-accent-strong);
+  cursor: pointer;
+}
+body:has(.mobile-shell) .cloud-sync-history-open:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--mobile-accent) 14%, transparent);
+  color: var(--mobile-accent);
 }
 @media (prefers-reduced-motion: reduce) {
   body:has(.mobile-shell) .cloud-sync-actions button { transition: none; }

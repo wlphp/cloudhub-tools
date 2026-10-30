@@ -1,7 +1,9 @@
-//! WebDAV (RFC 4918) and S3 Signature V4 transports. Never follow credential redirects.
+//! WebDAV, S3 Signature V4 and native Aliyun OSS transports. Never follow credential redirects.
 use super::Config;
 use chrono::Utc;
+use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use hmac::{Hmac, Mac};
+use sha1::Sha1;
 use reqwest::{Client, Method, Response, StatusCode, Url};
 use sha2::{Digest, Sha256};
 use std::time::Duration;
@@ -72,9 +74,22 @@ pub(super) fn base(config: &Config) -> Result<Url, String> {
     Ok(url)
 }
 
+// Match only official OSS regional hosts, never arbitrary lookalike suffixes.
+pub(super) fn oss_endpoint(config: &Config) -> Result<bool, String> {
+    let endpoint = base(config)?;
+    let host = endpoint.host_str().unwrap_or_default();
+    let Some(prefix) = host.strip_suffix(".aliyuncs.com") else { return Ok(false); };
+    let region = prefix.rsplit('.').next().unwrap_or_default();
+    Ok(["s3", "oss"].contains(&config.method.as_str()) && region.starts_with("oss-") && region.len() > 4
+        && region.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-'))
+}
+
 pub(super) fn url(config: &Config, artifact: bool) -> Result<Url, String> {
     let mut url = base(config)?;
-    if config.method == "s3" && !config.path_style {
+    let oss = oss_endpoint(config)?;
+    let bucket_host = format!("{}.", config.bucket);
+    let has_bucket = oss && url.host_str().is_some_and(|host| host.starts_with(&bucket_host));
+    if (oss || (config.method == "s3" && !config.path_style)) && !has_bucket {
         let host = format!(
             "{}.{}",
             config.bucket,
@@ -85,7 +100,7 @@ pub(super) fn url(config: &Config, artifact: bool) -> Result<Url, String> {
     {
         let mut path = url.path_segments_mut().map_err(|_| "服务地址无效")?;
         path.pop_if_empty();
-        if config.method == "s3" && config.path_style {
+        if config.method == "s3" && config.path_style && !oss {
             path.push(&config.bucket);
         }
         if artifact {
@@ -166,6 +181,49 @@ fn signature(
     Ok((auth, hash))
 }
 
+fn content_type(url: &Url) -> &'static str {
+    if url.path().ends_with(".json") { "application/json" } else { "application/octet-stream" }
+}
+
+fn oss_signature(config: &Config, method: &Method, url: &Url, date: &str, forbid_overwrite: bool) -> Result<String, String> {
+    let mime = if *method == Method::PUT { content_type(url) } else { "" };
+    let path = percent_encoding::percent_decode_str(url.path()).decode_utf8().map_err(|_| "OSS 对象路径无效")?;
+    let resource = format!("/{}{path}", config.bucket);
+    let mut mac = <Hmac<Sha1> as Mac>::new_from_slice(config.secret_key.as_bytes()).map_err(|_| "云同步签名失败")?;
+    let headers = if forbid_overwrite { "x-oss-forbid-overwrite:true\n" } else { "" };
+    mac.update(format!("{method}\n\n{mime}\n{date}\n{headers}{resource}").as_bytes());
+    Ok(format!("OSS {}:{}", config.access_key_id, B64.encode(mac.finalize().into_bytes())))
+}
+
+// Never forward Message, StringToSign, RequestId, URLs or unknown Code values:
+// OSS error documents can contain credentials and signing material.
+fn oss_error(status: StatusCode, stage: &str, bytes: &[u8]) -> String {
+    let text = String::from_utf8_lossy(bytes);
+    let code = text.split_once("<Code>").and_then(|(_, rest)| rest.split_once("</Code>")).map(|(code, _)| code);
+    let (code, hint) = match code {
+        Some("SignatureDoesNotMatch") => ("SignatureDoesNotMatch", "请求签名不匹配"),
+        Some("InvalidAccessKeyId") => ("InvalidAccessKeyId", "AccessKey ID 无效或已停用"),
+        Some("AccessDenied") => ("AccessDenied", "存储桶策略或账号权限拒绝访问"),
+        Some("RequestTimeTooSkewed") => ("RequestTimeTooSkewed", "本机时间与云端偏差过大，请同步系统时间"),
+        Some("InvalidArgument") => ("InvalidArgument", "OSS 不接受当前请求参数"),
+        Some("InvalidRequest") => ("InvalidRequest", "OSS 不接受当前请求格式或签名版本"),
+        Some("SignatureVersionNotSupported") => ("SignatureVersionNotSupported", "存储桶不支持当前签名版本"),
+        Some("UnsupportedSignatureVersion") => ("UnsupportedSignatureVersion", "存储桶不支持当前签名版本"),
+        Some("AuthorizationHeaderMalformed") => ("AuthorizationHeaderMalformed", "认证头或区域配置不正确"),
+        Some("PermanentRedirect") => ("PermanentRedirect", "Endpoint 与存储桶所在区域不一致"),
+        Some("NoSuchBucket") => ("NoSuchBucket", "存储桶不存在，请核对 Bucket 和 Endpoint"),
+        Some("InvalidBucketName") => ("InvalidBucketName", "存储桶名称无效"),
+        Some("MissingContentLength") => ("MissingContentLength", "请求缺少有效的文件长度"),
+        Some("NotImplemented") => ("NotImplemented", "OSS 不支持当前请求头或传输方式"),
+        Some("FileAlreadyExists") => ("FileAlreadyExists", "同名备份已存在，已阻止覆盖"),
+        Some("InvalidDigest") => ("InvalidDigest", "请求内容校验值无效"),
+        Some("BadDigest") => ("BadDigest", "请求内容与校验值不一致"),
+        Some("RequestTimeout") => ("RequestTimeout", "OSS 接收请求超时"),
+        _ => ("Unknown", "未识别的 OSS 错误，请检查 Endpoint、签名与请求参数"),
+    };
+    format!("阿里云 OSS {stage}失败：{hint}（HTTP {}，OSS {code}）", status.as_u16())
+}
+
 pub(super) async fn request(
     client: &Client,
     config: &Config,
@@ -174,9 +232,19 @@ pub(super) async fn request(
     body: Vec<u8>,
     condition: Option<(&str, &str)>,
 ) -> Result<Response, String> {
+    let oss = oss_endpoint(config)?;
+    let forbid_overwrite = oss && method == Method::PUT && condition == Some(("If-None-Match", "*"));
+    if oss && method == Method::PUT && condition.is_some() && !forbid_overwrite {
+        return Err("OSS 不支持条件更新版本目录，请使用独立版本记录".into());
+    }
     let mut request = client.request(method.clone(), url.clone());
     if config.method == "webdav" {
         request = request.basic_auth(&config.username, Some(&config.password));
+    } else if oss {
+        let date = Utc::now().format("%a, %d %b %Y %H:%M:%S GMT").to_string();
+        request = request.header("Authorization", oss_signature(config, &method, &url, &date, forbid_overwrite)?)
+            .header("Date", date);
+        if forbid_overwrite { request = request.header("x-oss-forbid-overwrite", "true"); }
     } else {
         let time = Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
         let (auth, hash) = signature(config, &method, &url, &body, &time)?;
@@ -186,14 +254,14 @@ pub(super) async fn request(
             .header("x-amz-content-sha256", hash);
     }
     if let Some((name, value)) = condition {
-        request = request.header(name, value);
+        if !oss { request = request.header(name, value); }
     }
     if method.as_str() == "PROPFIND" {
         request = request.header("Depth", "0");
     }
     if method == Method::PUT {
         let total = body.len() as u64;
-        if url.path().ends_with("/versions.json") {
+        if content_type(&url) == "application/json" {
             request = request.header("Content-Type", "application/json")
                 .header("Content-Length", total).body(body);
         } else {
@@ -212,13 +280,14 @@ pub(super) async fn request(
     }
     let diagnostic_stage = match method.as_str() {
         "MKCOL" => "创建目录",
-        "PUT" if url.path().ends_with("/versions.json") => "登记版本",
+        "PUT" if content_type(&url) == "application/json" => "登记版本",
         "PUT" => "上传文件",
         "GET" => "读取版本或备份",
+        "DELETE" => "删除备份",
         "PROPFIND" => "检查访问权限",
         _ => "检查备份",
     };
-    request.send().await.map_err(|error| {
+    let mut response = request.send().await.map_err(|error| {
         // Emit only fixed classifications, never raw errors, URLs or credentials.
         let mut categories = Vec::new();
         let mut source: Option<&(dyn std::error::Error + 'static)> = Some(&error);
@@ -251,14 +320,31 @@ pub(super) async fn request(
         } else {
             format!("云存储连接在请求过程中中断{detail}")
         }
-    })
+    })?;
+    let status = response.status();
+    // Keep expected absence/conflict responses available to version handling.
+    if oss && !status.is_success() && status != StatusCode::PRECONDITION_FAILED
+        && !(status == StatusCode::NOT_FOUND && (method == Method::GET || method == Method::HEAD || method == Method::DELETE)) {
+        let mut bytes = Vec::new();
+        while bytes.len() < 16 * 1024 {
+            match response.chunk().await {
+                Ok(Some(chunk)) => {
+                    let count = chunk.len().min(16 * 1024 - bytes.len());
+                    bytes.extend_from_slice(&chunk[..count]);
+                }
+                _ => break,
+            }
+        }
+        return Err(oss_error(status, diagnostic_stage, &bytes));
+    }
+    Ok(response)
 }
 
 pub(super) fn check(status: StatusCode) -> Result<(), String> {
     if status.is_success() {
         return Ok(());
     }
-    Err(match status.as_u16() {
+    let message = match status.as_u16() {
         401 | 403 => "认证失败或权限不足，请检查账号、应用密码或存储策略",
         404 => "远端目录、存储桶或备份不存在",
         409 => "远端目录冲突，请检查远程根目录",
@@ -266,8 +352,8 @@ pub(super) fn check(status: StatusCode) -> Result<(), String> {
         429 => "远端请求过于频繁，请稍后重试",
         300..=399 => "服务器要求重定向，请填写最终服务地址（不会转发凭据）",
         _ => "云同步请求失败，请检查服务状态与配置",
-    }
-    .into())
+    };
+    Err(format!("{message}（HTTP {}）", status.as_u16()))
 }
 
 pub(super) fn etag(response: &Response) -> Option<String> {
@@ -361,6 +447,44 @@ pub(super) async fn read(mut response: Response) -> Result<Vec<u8>, String> {
 mod tests {
     use super::*;
     use std::io::{Read, Write};
+
+    #[test]
+    fn oss_errors_only_expose_allowlisted_codes() {
+        let message = oss_error(StatusCode::BAD_REQUEST, "上传文件", b"<Error><Code>InvalidRequest</Code><Message>private-fixture</Message><StringToSign>private-fixture</StringToSign></Error>");
+        assert!(message.contains("OSS InvalidRequest"));
+        assert!(message.contains("HTTP 400"));
+        assert!(message.contains("上传文件"));
+        assert!(!message.contains("private-fixture"));
+        for body in ["<Code>private-fixture</Code>", "<Code>InvalidRequest", "<Code>InvalidRequest\nprivate-fixture</Code>", "<html>private-fixture</html>"] {
+            let message = oss_error(StatusCode::BAD_REQUEST, "上传文件", body.as_bytes());
+            assert!(message.contains("OSS Unknown"));
+            assert!(!message.contains("private-fixture"));
+        }
+    }
+
+    #[test]
+    fn oss_bucket_urls_and_signatures_match_independent_fixture() {
+        let mut config = Config::default();
+        config.method = "s3".into();
+        config.bucket = "fixture-bucket".into();
+        config.access_key_id = "fixture-access".into();
+        config.secret_key = "fixture-signing".into();
+        config.remote_root = "folder with spaces".into();
+        for endpoint in ["https://oss-cn-beijing.aliyuncs.com", "https://fixture-bucket.oss-cn-beijing.aliyuncs.com"] {
+            config.endpoint = endpoint.into();
+            for path_style in [true, false] {
+                config.path_style = path_style;
+                let target = url(&config, true).unwrap();
+                assert_eq!(target.as_str(), "https://fixture-bucket.oss-cn-beijing.aliyuncs.com/folder%20with%20spaces/v1/default/database.chdb");
+                assert_eq!(url(&config, false).unwrap().as_str(), "https://fixture-bucket.oss-cn-beijing.aliyuncs.com/");
+                assert_eq!(oss_signature(&config, &Method::PUT, &target, "Fri, 30 Oct 2026 02:00:00 GMT", false).unwrap(),
+                    "OSS fixture-access:77DFBf0D8JRsN04phrbXWl0DNcA=");
+                assert_eq!(content_type(&named_url(&config, "versions.json").unwrap()), "application/json");
+            }
+        }
+        config.endpoint = "https://oss-cn-beijing.aliyuncs.com.example.org".into();
+        assert!(!oss_endpoint(&config).unwrap());
+    }
 
     #[test]
     fn s3_signature_matches_independent_sha256_hmac_fixture() {

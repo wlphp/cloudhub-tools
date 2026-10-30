@@ -24,6 +24,9 @@ pub struct Connection {
     pub auto_mount: bool,
     pub cache_dir: String,
     pub cache_gib: u32,
+    #[serde(default)] pub alipan_app_id: String,
+    #[serde(default)] pub alipan_drive: String,
+    #[serde(default)] pub alipan_auth: Option<super::alipan::Authorization>,
 }
 impl Drop for Connection {
     fn drop(&mut self) { self.access_key_id.zeroize(); self.secret_key.zeroize(); self.session_token.zeroize(); }
@@ -34,9 +37,12 @@ impl Connection {
             "region":self.region,"bucket":self.bucket,"prefix":self.prefix,"pathStyle":self.path_style,
             "mountPoint":self.mount_point,"readOnly":self.read_only,"autoMount":self.auto_mount,
             "cacheDir":self.cache_dir,"cacheGib":self.cache_gib,"accessKeyId":self.access_key_id,"hasCredentials":!self.secret_key.is_empty(),
-            "hasSessionToken":!self.session_token.is_empty()})
+            "hasSessionToken":!self.session_token.is_empty(),"alipanAppId":self.alipan_app_id,
+            "alipanDrive":self.alipan_drive,"authorized":self.alipan_auth.is_some(),
+            "authorizationExpiresAt":self.alipan_auth.as_ref().map(|a|a.expires_at)})
     }
     pub fn remote(&self) -> String {
+        if self.provider == "Alipan" { return format!("drive:{}", self.prefix); }
         format!("drive:{}/{}", self.bucket, self.prefix)
     }
 }
@@ -62,6 +68,14 @@ pub fn find(id: &str) -> Result<Connection, String> {
 pub fn valid_id(id: &str) -> bool { uuid::Uuid::parse_str(id).is_ok_and(|u|u.to_string() == id) }
 
 pub fn validate_service(c: &Connection) -> Result<(), String> {
+    if c.provider == "Alipan" {
+        if c.endpoint != super::alipan::ORIGIN || c.alipan_app_id.len() < 8 || c.alipan_app_id.len() > 128
+            || !c.alipan_app_id.bytes().all(|b|b.is_ascii_alphanumeric())
+            || !["default", "resource", "backup"].contains(&c.alipan_drive.as_str()) {
+            return Err("阿里云盘应用 ID 或云盘类型无效".into());
+        }
+        return Ok(());
+    }
     if !["Alibaba", "AWS", "Other", "Minio", "Cloudflare", "TencentCOS", "HuaweiOBS"].contains(&c.provider.as_str()) {
         return Err("连接名称或服务商无效".into());
     }
@@ -84,9 +98,9 @@ pub fn validate(c: &Connection) -> Result<(), String> {
     if !valid_id(&c.id) || c.name.trim().is_empty() || c.name.len()>100 || c.name.chars().any(char::is_control) {
         return Err("连接名称或服务商无效".into());
     }
-    if c.bucket.len()<3 || c.bucket.len()>63 || !c.bucket.bytes().all(|b|b.is_ascii_lowercase()||b.is_ascii_digit()||b".-".contains(&b))
+    if (c.provider!="Alipan" && (c.bucket.len()<3 || c.bucket.len()>63 || !c.bucket.bytes().all(|b|b.is_ascii_lowercase()||b.is_ascii_digit()||b".-".contains(&b))
         || !c.bucket.as_bytes()[0].is_ascii_alphanumeric() || !c.bucket.as_bytes()[c.bucket.len()-1].is_ascii_alphanumeric()
-        || c.bucket.contains("..") || c.prefix.len()>512 || c.prefix.starts_with('/') || c.prefix.contains('\\')
+        || c.bucket.contains(".."))) || c.prefix.len()>512 || c.prefix.starts_with('/') || c.prefix.contains('\\')
         || c.prefix.chars().any(char::is_control) || c.prefix.split('/').any(|s|s=="."||s=="..") {
         return Err("区域、存储桶或目录前缀无效（不支持路径跳转）".into());
     }
@@ -96,6 +110,19 @@ pub fn validate(c: &Connection) -> Result<(), String> {
     Ok(())
 }
 pub fn validate_local_dir(path: &str) -> Result<(), String> {
+    #[cfg(not(windows))]
+    {
+        use std::path::{Component, Path};
+        if !Path::new(path).is_absolute() || path == "/" || path.starts_with("//")
+            || path.chars().any(char::is_control) || path.contains('\\')
+            || Path::new(path).components().any(|c|matches!(c, Component::ParentDir | Component::CurDir))
+            || path.split('/').any(|s| s=="." || s=="..") {
+            return Err("请选择本地磁盘上的绝对目录，不能使用网络路径或路径跳转".into());
+        }
+        return Ok(());
+    }
+    #[cfg(windows)]
+    {
     // Only local Windows drive paths; reject UNC, device namespaces, ADS and traversal.
     let b=path.as_bytes();
     if b.len()<4 || !b[0].is_ascii_alphabetic() || b[1]!=b':' || ![b'\\',b'/'].contains(&b[2])
@@ -109,21 +136,26 @@ pub fn validate_local_dir(path: &str) -> Result<(), String> {
         return Err("请选择本地磁盘上的绝对目录，不能使用网络路径或路径跳转".into());
     }
     Ok(())
+    }
 }
 pub fn validate_mount_point(path: &str) -> Result<(), String> {
+    #[cfg(windows)]
+    {
     let b=path.as_bytes();
     if b.len()==2 && (b'D'..=b'Z').contains(&b[0]) && b[1]==b':' { return Ok(()); }
+    }
     validate_local_dir(path)
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
-    pub(super) fn fixture() -> Connection {
+    pub(crate) fn fixture() -> Connection {
         Connection{id:uuid::Uuid::new_v4().to_string(),name:"测试资料盘".into(),provider:"Alibaba".into(),
             endpoint:"https://oss-cn-hangzhou.aliyuncs.com".into(),region:"cn-hangzhou".into(),bucket:"sample-bucket".into(),prefix:"资料/项目".into(),
             access_key_id:uuid::Uuid::new_v4().to_string(),secret_key:uuid::Uuid::new_v4().to_string(),session_token:String::new(),
-            path_style:false,mount_point:"O:".into(),read_only:true,auto_mount:false,cache_dir:String::new(),cache_gib:10}
+            path_style:false,mount_point:if cfg!(windows){"O:"}else{"/tmp/cloudhub-drive"}.into(),read_only:true,auto_mount:false,cache_dir:String::new(),cache_gib:10,
+            alipan_app_id:String::new(),alipan_drive:String::new(),alipan_auth:None}
     }
     #[test] fn endpoint_and_object_path_inputs_are_validated() {
         let mut c=fixture();assert!(validate(&c).is_ok());
@@ -149,12 +181,16 @@ mod tests {
         c.provider="Other".into();c.region="../invalid".into();assert!(validate_service(&c).is_err());
         c.region.clear();c.secret_key.clear();assert!(validate_service(&c).is_err());
     }
-    #[test] fn local_paths_reject_devices_shares_and_traversal() {
+    #[test] #[cfg(windows)] fn local_paths_reject_devices_shares_and_traversal() {
         for p in [r"\\server\share",r"\\?\C:\data",r"C:\data\..\etc",r"C:\data:stream",r"C:\",r"C:\data\bad.",r"D:\cache\CON",r"D:\NUL.txt",r"D:\com1",r"D:\LPT9.log"] {
             assert!(validate_local_dir(p).is_err(),"{p}");
         }
         assert!(validate_mount_point("O:").is_ok());
         assert!(validate_local_dir(r"D:\CloudHubCache").is_ok());
         assert!(validate_mount_point("C:").is_err());
+    }
+    #[test] #[cfg(unix)] fn unix_mount_paths_require_safe_absolute_directories() {
+        for p in ["/", "//server/share", "/tmp/../data", "/tmp/./data", "relative", "C:\\data"] {assert!(validate_local_dir(p).is_err());}
+        assert!(validate_mount_point("/tmp/资料盘").is_ok());
     }
 }

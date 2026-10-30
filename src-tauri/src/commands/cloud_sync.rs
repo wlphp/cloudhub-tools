@@ -17,6 +17,8 @@ use zeroize::{Zeroize, Zeroizing};
 
 #[path = "cloud_sync_transport.rs"]
 mod transport;
+#[path = "cloud_sync_oss_versions.rs"]
+mod oss_versions;
 pub(super) const CONFIG_KEY: &str = "cloud.sync.config";
 static OPERATION: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 static STATUS: OnceLock<Mutex<SyncStatus>> = OnceLock::new();
@@ -249,7 +251,7 @@ fn validate(config: &Config) -> Result<(), String> {
     if config.name.trim().is_empty() || config.name.chars().count() > 80 || config.name.chars().any(char::is_control) {
         return Err("请填写有效的渠道名称（最多 80 个字符）".into());
     }
-    if !["webdav", "s3"].contains(&config.method.as_str())
+    if !["webdav", "s3", "oss"].contains(&config.method.as_str())
         || !["custom", "jianguoyun", "nextcloud", "alist"].contains(&config.provider.as_str())
     {
         return Err("同步方式或服务商无效".into());
@@ -258,6 +260,9 @@ fn validate(config: &Config) -> Result<(), String> {
         return Err("服务地址过长".into());
     }
     transport::base(config)?;
+    if config.method == "oss" && !transport::oss_endpoint(config)? {
+        return Err("请填写阿里云 OSS 区域 Endpoint，例如 https://oss-cn-beijing.aliyuncs.com".into());
+    }
     if config.remote_root.len() > 240
         || !config.remote_root.split('/').all(safe_segment)
         || !safe_segment(&config.profile)
@@ -378,7 +383,7 @@ fn reveal_secret<'a>(input: &Config, saved: &'a Config, field: &str) -> Result<&
         && input.access_key_id == saved.access_key_id;
     let secret = match field {
         "password" if same_identity && saved.method == "webdav" => &saved.password,
-        "secretKey" if same_identity && saved.method == "s3" => &saved.secret_key,
+        "secretKey" if same_identity && ["s3", "oss"].contains(&saved.method.as_str()) => &saved.secret_key,
         "backupPassword" if input.password_protected && saved.password_protected => &saved.backup_password,
         _ => return Err("当前配置没有可查看的已保存凭据".into()),
     };
@@ -483,6 +488,8 @@ pub(crate) struct BackupVersion {
     id: String,
     machine_name: String,
     uploaded_at: Option<String>,
+    #[serde(default)]
+    password_protected: Option<bool>,
 }
 
 impl BackupVersion {
@@ -496,6 +503,7 @@ impl BackupVersion {
             id: format!("backup-{}.chdb", uuid::Uuid::new_v4()),
             machine_name: format!("{machine_name}{}", crate::core::data_transfer::BUILD_SUFFIX),
             uploaded_at: Some(chrono::Utc::now().to_rfc3339()),
+            password_protected: None,
         }
     }
 }
@@ -532,11 +540,22 @@ fn selected_version(id: Option<&str>) -> Result<String, String> {
 }
 
 async fn version_index(client: &reqwest::Client, config: &Config) -> Result<(Vec<BackupVersion>, Option<String>), String> {
+    let (versions, tag) = legacy_version_index(client, config).await?;
+    if transport::oss_endpoint(config)? {
+        return Ok((oss_versions::versions(client, config, versions).await?, None));
+    }
+    Ok((versions, tag))
+}
+
+async fn legacy_version_index(client: &reqwest::Client, config: &Config) -> Result<(Vec<BackupVersion>, Option<String>), String> {
     let mut response = transport::request(client, config, Method::GET,
         transport::named_url(config, VERSION_INDEX)?, vec![], None).await?;
     if response.status() == reqwest::StatusCode::NOT_FOUND { return Ok((vec![], None)); }
     transport::check(response.status())?;
-    let tag = transport::etag(&response).ok_or("服务未提供版本目录 ETag，无法安全维护多版本备份")?;
+    let tag = transport::etag(&response);
+    if tag.is_none() && !transport::oss_endpoint(config)? {
+        return Err("服务未提供版本目录 ETag，无法安全维护多版本备份".into());
+    }
     let mut bytes = Vec::new();
     while let Some(chunk) = response.chunk().await.map_err(|_| "读取备份版本目录失败")? {
         if bytes.len().saturating_add(chunk.len()) > 4 * 1024 * 1024 { return Err("备份版本目录过大".into()); }
@@ -548,10 +567,11 @@ async fn version_index(client: &reqwest::Client, config: &Config) -> Result<(Vec
         || v.uploaded_at.as_ref().is_none_or(|s| chrono::DateTime::parse_from_rfc3339(s).is_err())) {
         return Err("备份版本目录无效".into());
     }
-    Ok((versions, Some(tag)))
+    Ok((versions, tag))
 }
 
 async fn register_version(client: &reqwest::Client, config: &Config, version: BackupVersion) -> Result<(), String> {
+    if transport::oss_endpoint(config)? { return oss_versions::register(client, config, version).await; }
     for _ in 0..5 {
         let (mut versions, tag) = version_index(client, config).await?;
         if versions.iter().any(|v| v.id == version.id) { return Ok(()); }
@@ -578,6 +598,40 @@ async fn register_version(client: &reqwest::Client, config: &Config, version: Ba
 }
 
 #[tauri::command]
+pub(crate) async fn cloud_sync_delete_version(channel_id: Option<String>, version_id: String) -> PlatformResult<()> {
+    let _guard = OPERATION.try_lock().map_err(|_| "云同步正在执行，请稍后重试")?;
+    let id = selected_version(Some(&version_id))?;
+    let config = load_channel(checked_id(channel_id.as_deref())?)?.ok_or("请先保存云同步配置")?;
+    validate(&config)?;
+    let client = transport::client()?;
+    let remove = |name: String| {
+        let client = &client;
+        let config = &config;
+        async move {
+            let response = transport::request(client, config, Method::DELETE,
+                transport::named_url(config, &name)?, vec![], None).await?;
+            if response.status() == reqwest::StatusCode::NOT_FOUND { Ok(()) }
+            else { transport::check(response.status()) }
+        }
+    };
+    remove(id.clone()).await?;
+    if id == "database.chdb" { return Ok(()); }
+    if transport::oss_endpoint(&config)? { remove(format!("{id}.json")).await?; return Ok(()); }
+    for _ in 0..5 {
+        let (mut versions, tag) = legacy_version_index(&client, &config).await?;
+        if !versions.iter().any(|v| v.id == id) { return Ok(()); }
+        versions.retain(|v| v.id != id);
+        let response = transport::request(&client, &config, Method::PUT,
+            transport::named_url(&config, VERSION_INDEX)?,
+            serde_json::to_vec(&versions).map_err(|_| "生成备份版本目录失败")?,
+            Some(("If-Match", tag.as_deref().ok_or("版本目录缺少 ETag")?))).await?;
+        if response.status() == reqwest::StatusCode::PRECONDITION_FAILED { continue; }
+        return Ok(transport::check(response.status())?);
+    }
+    Err("备份文件已删除，但其他设备正在更新版本目录，请重试删除以完成清理".into())
+}
+
+#[tauri::command]
 pub(crate) async fn cloud_sync_versions(channel_id: Option<String>) -> PlatformResult<Vec<BackupVersion>> {
     let _guard = OPERATION.try_lock().map_err(|_| "云同步正在执行，请稍后重试")?;
     let config = load_channel(checked_id(channel_id.as_deref())?)?.ok_or("请先保存云同步配置")?;
@@ -589,7 +643,7 @@ pub(crate) async fn cloud_sync_versions(channel_id: Option<String>) -> PlatformR
         time(b).cmp(&time(a)).then_with(|| a.id.cmp(&b.id))
     });
     if transport::head(&client, &config).await?.0 {
-        versions.push(BackupVersion { id: "database.chdb".into(), machine_name: "旧版备份（机器名称未知）".into(), uploaded_at: None });
+        versions.push(BackupVersion { id: "database.chdb".into(), machine_name: "旧版备份（机器名称未知）".into(), uploaded_at: None, password_protected: None });
     }
     Ok(versions)
 }
@@ -616,7 +670,8 @@ async fn upload(automatic: bool, channel_id: &str) -> Result<(), String> {
     })
     .await
     .map_err(|_| "创建云备份快照失败")??;
-    let version = BackupVersion::new();
+    let mut version = BackupVersion::new();
+    version.password_protected = Some(config.password_protected);
     let response = transport::request(
         &client,
         &config,
@@ -655,12 +710,25 @@ pub(crate) async fn cloud_sync_upload(channel_id: Option<String>) -> PlatformRes
     Ok(view(&load_channel(id)?.ok_or("配置已失效")?, true)?)
 }
 
+fn restore_password(config: &Config, password: Option<String>) -> Result<Option<String>, String> {
+    if password.as_ref().is_some_and(|value| value.len() > 4096) {
+        return Err("备份密码长度超出限制".into());
+    }
+    Ok(password.filter(|value| !value.is_empty()).or_else(|| {
+        config.password_protected.then(|| config.backup_password.clone())
+    }))
+}
+
 #[tauri::command]
 pub(crate) async fn cloud_sync_download(
     app: tauri::AppHandle,
     version_id: Option<String>,
     channel_id: Option<String>,
+    password: Option<String>,
 ) -> PlatformResult<super::database_migration::ImportPreview> {
+    if password.as_ref().is_some_and(|value| value.len() > 4096) {
+        return Err("备份密码长度超出限制".into());
+    }
     supported()?;
     let _guard = OPERATION
         .try_lock()
@@ -685,16 +753,11 @@ pub(crate) async fn cloud_sync_download(
         let tag = transport::etag(&response);
         let bytes = transport::read(response).await?;
         progress("verifying", 0, None);
-        let password = if config.password_protected {
-            Some(config.backup_password.clone())
-        } else {
-            None
-        };
+        let password = restore_password(&config, password)?;
         config.last_etag = tag;
         // A preview may be cancelled or the app may restart before restore. Never
         // accept a remote version as the baseline for automatic local overwrite.
         config.auto_sync = false;
-        persist(&config)?;
         let preview = tauri::async_runtime::spawn_blocking(move || {
             super::database_migration::prepare_cloud_snapshot(
                 &bytes,
@@ -704,6 +767,7 @@ pub(crate) async fn cloud_sync_download(
         })
         .await
         .map_err(|_| "准备云备份预览失败")??;
+        persist(&config)?;
         Ok::<_, String>(preview)
     }
     .await;
@@ -837,6 +901,31 @@ pub(crate) fn initialize() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn restore_password_is_independent_of_upload_protection() {
+        let mut config = Config::default();
+        let temporary = "non-sensitive-restore-fixture".to_string();
+        assert_eq!(restore_password(&config, Some(temporary.clone())).unwrap(), Some(temporary.clone()));
+        assert!(restore_password(&config, None).unwrap().is_none());
+        config.password_protected = true;
+        config.backup_password = "non-sensitive-saved-fixture".into();
+        assert_eq!(restore_password(&config, None).unwrap().as_deref(), Some(config.backup_password.as_str()));
+        assert_eq!(restore_password(&config, Some(String::new())).unwrap().as_deref(), Some(config.backup_password.as_str()));
+        assert_eq!(restore_password(&config, Some(temporary.clone())).unwrap(), Some(temporary));
+        assert!(restore_password(&config, Some("x".repeat(4097))).is_err());
+    }
+
+    #[test]
+    fn version_password_metadata_preserves_unknown_legacy_state() {
+        let old = r#"{"id":"database.chdb","machineName":"fixture","uploadedAt":null}"#;
+        let mut version: BackupVersion = serde_json::from_str(old).unwrap();
+        assert_eq!(version.password_protected, None);
+        for flag in [true, false] {
+            version.password_protected = Some(flag);
+            let parsed: BackupVersion = serde_json::from_slice(&serde_json::to_vec(&version).unwrap()).unwrap();
+            assert_eq!(parsed.password_protected, Some(flag));
+        }
+    }
     fn fixture() -> Config {
         let mut value = Config::default();
         value.endpoint = "https://storage.example/dav".into();
@@ -885,6 +974,24 @@ mod tests {
         input.method = "s3".into();
         assert!(reveal_secret(&input, &saved, "secretKey").is_ok());
         assert!(reveal_secret(&input, &saved, "password").is_err());
+    }
+    #[test]
+    fn oss_channels_validate_and_preserve_secrets() {
+        let mut input = Config::default();
+        input.method = "oss".into();
+        input.endpoint = "https://oss-cn-beijing.aliyuncs.com".into();
+        input.bucket = "fixture-bucket".into();
+        input.region = "cn-beijing".into();
+        input.access_key_id = "fixture-access".into();
+        input.secret_key = "fixture-signing".into();
+        let saved = merge_input(input.clone(), None).unwrap();
+        input.secret_key.clear();
+        let merged = merge_input(input.clone(), Some(&saved)).unwrap();
+        assert_eq!(merged.secret_key, saved.secret_key);
+        assert!(reveal_secret(&input, &saved, "secretKey").is_ok());
+        assert!(!serde_json::to_string(&view(&merged, true).unwrap()).unwrap().contains("fixture-signing"));
+        input.endpoint = "https://storage.example".into();
+        assert!(validate(&input).unwrap_err().contains("OSS"));
     }
     #[test]
     fn secrets_are_redacted_and_only_preserved_for_same_identity() {

@@ -5,6 +5,8 @@ export interface DriveConnection {
   bucket: string; prefix: string; pathStyle: boolean; mountPoint: string;
   readOnly: boolean; autoMount: boolean; cacheDir: string; cacheGib: number;
   accessKeyId: string; hasCredentials: boolean; hasSessionToken: boolean;
+  alipanAppId?: string; alipanDrive?: "default" | "resource" | "backup";
+  authorized?: boolean; authorizationExpiresAt?: number | null;
 }
 export interface DriveMount {
   id: string; phase: "idle" | "mounted" | "recovery"; queued: number; uploading: number;
@@ -12,14 +14,18 @@ export interface DriveMount {
 }
 export interface DriveSnapshot {
   dependency: { supported: boolean; installed: boolean; winfsp: boolean; version: string; source: string;
+    platform?: string; driver?: string;
     progress: { phase: string; downloaded: number; total: number } };
   connections: DriveConnection[]; mounts: DriveMount[];
 }
 export type DriveTransferPreview = { token: string; connections: Array<{ index: number; name: string; provider: string; endpoint: string; bucket: string; mountPoint: string }> };
-export type DriveInput = Omit<DriveConnection, "hasCredentials" | "hasSessionToken"> & {
+export type DriveInput = Omit<DriveConnection, "hasCredentials" | "hasSessionToken" | "authorized" | "authorizationExpiresAt"> & {
   accessKeyId: string; secretKey: string; sessionToken: string;
 };
 export const cloudDriveClient = {
+  alipanBegin: (id: string) => nativeOnly<string>("cloud_drive_alipan_begin", { id }),
+  alipanFinish: (ticket: string, code: string) => nativeOnly<void>("cloud_drive_alipan_finish", { ticket, code }),
+  alipanCancel: (ticket: string) => nativeOnly<void>("cloud_drive_alipan_cancel", { ticket }),
   snapshot: () => nativeOnly<DriveSnapshot>("cloud_drive_snapshot"),
   install: () => nativeOnly<void>("cloud_drive_install"),
   save: (input: DriveInput, clearSessionToken: boolean, reuseSavedCredentials = false) => nativeOnly<void>("cloud_drive_save", { input, clearSessionToken, reuseSavedCredentials }),

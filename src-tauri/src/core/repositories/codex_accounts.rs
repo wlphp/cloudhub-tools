@@ -151,18 +151,22 @@ fn import_with_encrypt(
         .collect::<Result<Vec<_>, _>>()?;
     let tx = conn.transaction().map_err(|_| "保存 Codex 账号失败")?;
     for (account, cipher) in encrypted {
-        let previous: Option<(i64, String)> = tx.query_row(
-            "SELECT id,auth_ciphertext FROM codex_accounts WHERE identity=?1",
+        let previous: Option<(i64, String, Option<i64>)> = tx.query_row(
+            "SELECT id,auth_ciphertext,deleted_at FROM codex_accounts WHERE identity=?1",
             [&account.identity],
-            |row| Ok((row.get(0)?,row.get(1)?)),
+            |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?)),
         ).optional().map_err(|_| "查询 Codex 账号失败")?;
         let tags = serde_json::to_string(&account.tags).map_err(|_| "标签参数无效")?;
-        tx.execute("INSERT INTO codex_accounts(identity,label,email,account_id,auth_mode,plan,note,tags_json,auth_ciphertext,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10) ON CONFLICT(identity) DO UPDATE SET email=excluded.email,account_id=excluded.account_id,plan=excluded.plan,label=CASE WHEN excluded.label LIKE '%@%' AND (codex_accounts.label NOT LIKE '%@%' OR codex_accounts.label = 'ChatGPT 账号') THEN excluded.label ELSE codex_accounts.label END,auth_ciphertext=excluded.auth_ciphertext,last_error=NULL,updated_at=MAX(codex_accounts.updated_at+1,excluded.updated_at)", params![account.identity, account.label, account.email, account.account_id, account.auth_mode, account.plan, account.note, tags, cipher, chrono::Utc::now().timestamp_millis()]).map_err(|_| "保存 Codex 账号失败")?;
+        // Explicit re-import restores the same identity using only the incoming
+        // credentials. Cached quota belongs to the previous credentials.
+        tx.execute("INSERT INTO codex_accounts(identity,label,email,account_id,auth_mode,plan,note,tags_json,auth_ciphertext,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10) ON CONFLICT(identity) DO UPDATE SET email=excluded.email,account_id=excluded.account_id,auth_mode=excluded.auth_mode,plan=excluded.plan,label=CASE WHEN excluded.label LIKE '%@%' AND (codex_accounts.label = 'ChatGPT 账号' OR (codex_accounts.deleted_at IS NULL AND codex_accounts.label NOT LIKE '%@%')) THEN excluded.label ELSE codex_accounts.label END,auth_ciphertext=excluded.auth_ciphertext,deleted_at=NULL,quota_json='{}',last_error=NULL,updated_at=MAX(codex_accounts.updated_at+1,excluded.updated_at)", params![account.identity, account.label, account.email, account.account_id, account.auth_mode, account.plan, account.note, tags, cipher, chrono::Utc::now().timestamp_millis()]).map_err(|_| "保存 Codex 账号失败")?;
         let account_id: i64 = tx.query_row("SELECT id FROM codex_accounts WHERE identity=?1", [&account.identity], |row| row.get(0)).map_err(|_| "读取 Codex 账号失败")?;
-        let (message, changes, is_new) = if let Some((_, previous_cipher)) = previous {
+        let restored = previous.as_ref().is_some_and(|(_, _, deleted_at)| deleted_at.is_some());
+        let (message, changes, is_new) = if let Some((_, previous_cipher, _)) = previous {
             let prior = decrypt(&previous_cipher);
             let changes = token_changes(prior.as_deref().map(|value| value.as_str()), account.auth_json.as_str());
-            let message = if changes.is_empty() { "账号已导入，凭据未变化".to_string() }
+            let message = if restored { "账号从回收站恢复，已保存本次导入凭据，待验证可用性".to_string() }
+            else if changes.is_empty() { "账号已导入，凭据未变化".to_string() }
             else { format!("凭据通过导入更新（{}）", changes.join("、")) };
             (message, changes, false)
         } else {
@@ -173,7 +177,7 @@ fn import_with_encrypt(
             "status":null,
             "outcome":"completed",
             "request":{"authMode":account.auth_mode,"credentialFields":changes,"credentialValues":"已省略"},
-            "response":{"result":if is_new {"首次保存"} else {"更新保存"},"credentialValues":"本机加密保存"}
+            "response":{"result":if restored {"恢复并更新保存"} else if is_new {"首次保存"} else {"更新保存"},"credentialValues":"本机加密保存"}
         }]});
         let details = serde_json::to_string(&details).map_err(|_| "保存 Codex 账号日志失败")?;
         tx.execute("INSERT INTO codex_account_events(account_id,event_type,message,details_json,created_at) VALUES(?1,'import',?2,?3,?4)", params![account_id,message,details,chrono::Utc::now().timestamp_millis()]).map_err(|_| "保存 Codex 账号日志失败")?;
@@ -330,6 +334,89 @@ mod tests {
     fn decrypt(value: &str) -> Option<Zeroizing<String>> {
         decrypt_secret_with_key(value, &[7u8; 32]).ok().map(Zeroizing::new)
     }
+    fn login_account(access: &str, include_other_tokens: bool) -> ImportedAccount {
+        let mut value = serde_json::json!({
+            "tokens": {"access_token": access, "account_id": "org-reimport-fixture"},
+            "session_user_id": "user-reimport-fixture",
+            "email": "reimport@example.test",
+            "session_plan": "plus"
+        });
+        if include_other_tokens {
+            value["tokens"]["id_token"] = serde_json::json!("invalid-old-id-fixture");
+            value["tokens"]["refresh_token"] = serde_json::json!("invalid-old-refresh-fixture");
+        }
+        auth::parse_account(&value).unwrap()
+    }
+
+    #[test]
+    fn reimport_replaces_credentials_and_restores_without_merging_old_tokens() {
+        for deleted_at in [None, Some(1_i64)] {
+            let mut conn = Connection::open_in_memory().unwrap();
+            conn.execute_batch(CODEX_SCHEMA).unwrap();
+            conn.execute_batch(crate::core::database::CODEX_ACCOUNT_EVENTS_SCHEMA).unwrap();
+            let saved = import_with_encrypt(&mut conn, vec![login_account("invalid-old-access-fixture", true)], encrypt, decrypt)
+                .unwrap().remove(0);
+            let label = if deleted_at.is_some() { "保留名称" } else { "保留名称@example.test" };
+            metadata(&conn, &AccountMetadataInput {
+                id: saved.id, label: label.into(), note: "保留备注".into(), tags: vec!["保留标签".into()],
+            }).unwrap();
+            let quota = serde_json::to_string(&QuotaSnapshot { windows: vec![], fetched_at: Some(100) }).unwrap();
+            conn.execute("UPDATE codex_accounts SET deleted_at=?1,quota_json=?2,last_error='旧认证失败' WHERE id=?3",
+                params![deleted_at, quota, saved.id]).unwrap();
+            let before = conn.query_row("SELECT updated_at FROM codex_accounts WHERE id=?1", [saved.id], |row| row.get::<_, i64>(0)).unwrap();
+            let incoming = login_account("invalid-new-access-fixture", false);
+            let expected_auth = incoming.auth_json.clone();
+            let current = import_with_encrypt(&mut conn, vec![incoming], encrypt, decrypt).unwrap();
+            assert_eq!(current.len(), 1);
+            let current = &current[0];
+            assert_eq!(current.id, saved.id);
+            assert_eq!(current.label, label);
+            assert_eq!(current.note, "保留备注");
+            assert_eq!(current.tags, vec!["保留标签"]);
+            assert!(current.updated_at > before);
+            assert!(current.last_error.is_none());
+            assert!(current.quota.fetched_at.is_none());
+            assert!(current.quota.windows.is_empty());
+            let (cipher, deleted, count): (String, Option<i64>, i64) = conn.query_row(
+                "SELECT auth_ciphertext,deleted_at,(SELECT COUNT(*) FROM codex_accounts) FROM codex_accounts WHERE id=?1",
+                [saved.id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            ).unwrap();
+            assert!(deleted.is_none());
+            assert_eq!(count, 1);
+            let auth = decrypt(&cipher).unwrap();
+            assert_eq!(auth.as_str(), expected_auth.as_str());
+            assert!(!auth.contains("invalid-old"));
+            assert!(!cipher.contains("invalid-new"));
+            let records = events(&conn, saved.id).unwrap();
+            if deleted_at.is_some() {
+                assert!(records[0].message.contains("从回收站恢复"));
+            }
+            let serialized = serde_json::to_string(&records).unwrap();
+            assert!(!serialized.contains("invalid-old"));
+            assert!(!serialized.contains("invalid-new"));
+        }
+    }
+
+    #[test]
+    fn failed_reimport_rolls_back_restoration_credentials_and_cached_state() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(CODEX_SCHEMA).unwrap();
+        conn.execute_batch(crate::core::database::CODEX_ACCOUNT_EVENTS_SCHEMA).unwrap();
+        let saved = import_with_encrypt(&mut conn, vec![login_account("invalid-old-access-fixture", true)], encrypt, decrypt)
+            .unwrap().remove(0);
+        conn.execute("UPDATE codex_accounts SET deleted_at=1,last_error='旧认证失败',quota_json='{}' WHERE id=?1", [saved.id]).unwrap();
+        let snapshot = |conn: &Connection| conn.query_row(
+            "SELECT auth_ciphertext,deleted_at,last_error,quota_json,updated_at FROM codex_accounts WHERE id=?1",
+            [saved.id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<i64>>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, i64>(4)?)),
+        ).unwrap();
+        let before = snapshot(&conn);
+        conn.execute_batch("CREATE TRIGGER reject_reimport_log BEFORE INSERT ON codex_account_events BEGIN SELECT RAISE(ABORT,'fixture'); END;").unwrap();
+        assert!(import_with_encrypt(&mut conn, vec![login_account("invalid-new-access-fixture", false)], encrypt, decrypt).is_err());
+        assert_eq!(snapshot(&conn), before);
+        assert!(list(&conn).unwrap().is_empty());
+        assert_eq!(events(&conn, saved.id).unwrap().len(), 1);
+    }
+
     #[test]
     fn imports_encrypt_preserve_metadata_and_rollback_on_failure() {
         let mut conn = Connection::open_in_memory().unwrap();

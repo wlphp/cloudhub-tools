@@ -32,6 +32,12 @@ async function openTool(page: Page, native = true) {
             state.driveSnapshot.connections = [{ ...view, accessKeyId, id: "fixture-id", hasCredentials: true, hasSessionToken: false }];
             state.driveSnapshot.mounts = [{ id: "fixture-id", phase: "idle", queued: 0, uploading: 0, errors: 0, bytesUsed: 0, outOfSpace: false, dirty: false, message: "" }];
           }
+          if (command === "cloud_drive_alipan_begin") return "test-authorization-ticket";
+          if (command === "cloud_drive_alipan_finish") {
+            if (state.driveFailAuthorization) throw new Error("阿里云盘授权失败或已过期，请重新授权");
+            state.driveSnapshot.connections[0].authorized = true;
+            state.driveSnapshot.connections[0].authorizationExpiresAt = Math.floor(Date.now() / 1000) + 86400;
+          }
           if (command === "cloud_drive_mount") state.driveSnapshot.mounts[0].phase = "mounted";
           if (command === "cloud_drive_unmount") state.driveSnapshot.mounts[0].phase = "idle";
           if (command === "cloud_drive_probe") return args.kind === "buckets" ? ["other-bucket"] : ["子目录"];
@@ -62,6 +68,42 @@ async function createConnection(page: Page) {
   await dialog.getByLabel("Secret Access Key", { exact: true }).fill(crypto.randomUUID());
   return dialog;
 }
+
+test("Alipan uses public authorization, blocks expired mounts and supports retry and cancellation", async ({ page }) => {
+  await openTool(page);
+  await page.evaluate(() => { Object.assign((window as any).driveSnapshot.dependency, { platform: "linux", driver: "FUSE" }); });
+  await page.locator(".cloud-drive").getByRole("button", { name: "刷新", exact: true }).click();
+  await page.getByRole("button", { name: "新增连接" }).click();
+  const editor = page.getByRole("dialog", { name: "新增云盘连接" });
+  await editor.getByRole("combobox", { name: "存储服务", exact: true }).selectOption("Alipan");
+  await editor.getByLabel("连接名称", { exact: true }).fill("网盘资料");
+  await editor.getByLabel("阿里云盘应用 App ID", { exact: false }).fill("publicClient12345");
+  await expect(editor.getByLabel("Secret Access Key", { exact: true })).toHaveCount(0);
+  await expect(editor.getByLabel("Bucket / 存储桶", { exact: false })).toHaveCount(0);
+  await editor.getByLabel("挂载目录", { exact: false }).fill("/mnt/alipan");
+  await editor.getByRole("button", { name: "保存连接", exact: true }).click();
+  await expect(editor).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "挂载", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "查看存储桶", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "授权阿里云盘", exact: true }).click();
+  const authorization = page.getByRole("dialog", { name: "授权阿里云盘 · 网盘资料", exact: true });
+  await authorization.getByLabel("授权码", { exact: true }).fill(crypto.randomUUID());
+  await page.evaluate(() => { (window as any).driveFailAuthorization = true; });
+  await authorization.getByRole("button", { name: "完成授权", exact: true }).click();
+  await expect(authorization.getByRole("alert")).toContainText("重新授权");
+  await authorization.getByRole("button", { name: "取消", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).driveCalls.includes("cloud_drive_alipan_cancel"))).toBe(true);
+  await page.evaluate(() => { (window as any).driveFailAuthorization = false; });
+  await page.getByRole("button", { name: "授权阿里云盘", exact: true }).click();
+  await authorization.getByLabel("授权码", { exact: true }).fill(crypto.randomUUID());
+  await authorization.getByRole("button", { name: "完成授权", exact: true }).click();
+  await expect(authorization).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "挂载", exact: true })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "重新授权", exact: true })).toBeVisible();
+  await page.evaluate(() => { (window as any).driveSnapshot.connections[0].authorizationExpiresAt = 1; });
+  await page.locator(".cloud-drive").getByRole("button", { name: "刷新", exact: true }).click();
+  await expect(page.getByRole("button", { name: "挂载", exact: true })).toBeDisabled();
+});
 
 test("unsaved credentials list and select buckets without requiring name or bucket", async ({ page }) => {
   await openTool(page);
@@ -134,7 +176,7 @@ test("saved credentials list without reveal and require confirmation for a chang
 
 test("preview refuses mounting without invoking native commands", async ({ page }) => {
   await openTool(page, false);
-  await expect(page.getByText("云盘挂载仅支持 Windows x64 桌面客户端", { exact: false })).toBeVisible();
+  await expect(page.getByText("云盘挂载仅支持桌面客户端", { exact: false })).toBeVisible();
   await expect(page.getByRole("button", { name: "新增连接" })).toHaveCount(0);
 });
 

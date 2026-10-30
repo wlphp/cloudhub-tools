@@ -54,7 +54,7 @@ export async function handleDatabaseMigrationRoutes(req, res, url, send, exclusi
     }
   } catch {
     // Never expose source rows, paths, parser errors, or SQLite diagnostics.
-    send(res, 400, { error: "备份预览或恢复失败，请检查备份密码、文件格式与恢复范围；失败后请重新下载。" });
+    send(res, 400, { error: action === "catalog" ? "读取数据范围失败，请更新本机调试程序后重试。" : "备份预览或恢复失败，请检查备份密码、文件格式与恢复范围；失败后请重新下载。" });
   }
   return true;
 }

@@ -258,7 +258,10 @@ fn load_sql(conn: &mut Connection, input: &str, key: &[u8]) -> Result<Vec<String
         let expected = columns(&tx, &table)?;
         let mut fields = Vec::new();
         loop { fields.push(parser.quoted('"')?); parser.ws(); if parser.rest.starts_with(')') { parser.take(")")?; break; } parser.take(",")?; if fields.len() > 128 { return Err(err()); } }
-        if fields != expected { return Err(err()); }
+        // ALTER TABLE appends fields on upgraded desktops; fresh mobile installs
+        // can have the same schema version with a different physical order.
+        // Bind VALUES to the validated INSERT names, never to table positions.
+        if fields.len() != expected.len() || fields.iter().enumerate().any(|(index, name)| !expected.contains(name) || fields[..index].contains(name)) { return Err(err()); }
         parser.take("VALUES (")?;
         let mut values = Vec::new();
         for (i, name) in fields.iter().enumerate() {
@@ -727,6 +730,40 @@ mod tests {
         conn.execute("INSERT INTO cloud_accounts(id,account_name,access_key_id,secret_ciphertext,created_at,updated_at,sync_id) VALUES(?1,?2,?3,?4,1,1,?5)", rusqlite::params![id,name,access,cipher,Uuid::new_v4().to_string()]).unwrap();
     }
     #[test]
+    fn portable_transfer_accepts_upgraded_desktop_column_order() {
+        let fixture = Fixture::new();
+        let legacy_path = fixture.root.join("upgraded-desktop.sqlite3");
+        // Before migration 1 these columns were absent; upgrades append them,
+        // whereas a fresh installation creates them before enabled/remark.
+        Connection::open(&legacy_path).unwrap().execute_batch(
+            "CREATE TABLE cloud_accounts(id INTEGER PRIMARY KEY AUTOINCREMENT,account_name TEXT NOT NULL,cloud_type TEXT NOT NULL DEFAULT 'aliyun',group_name TEXT,access_key_id TEXT NOT NULL,secret_ciphertext TEXT NOT NULL,region_id TEXT,enabled INTEGER NOT NULL DEFAULT 1,remark TEXT,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,deleted_at INTEGER);"
+        ).unwrap();
+        let desktop = fixture.db("upgraded-desktop.sqlite3");
+        let mobile = fixture.db("fresh-mobile.sqlite3");
+        assert_ne!(columns(&desktop,"cloud_accounts").unwrap(), columns(&mobile,"cloud_accounts").unwrap());
+        assert_eq!(desktop.pragma_query_value::<i64,_>(None,"user_version",|r|r.get(0)).unwrap(), mobile.pragma_query_value::<i64,_>(None,"user_version",|r|r.get(0)).unwrap());
+        for (source,target,source_key,target_key) in [(&desktop,&mobile,[11;32],[22;32]),(&mobile,&desktop,[22;32],[11;32])] {
+            if table_count(source,"cloud_accounts").unwrap() == 0 { account(source,7,"fixture","fixture-access",&source_key); }
+            source.execute("UPDATE cloud_accounts SET sort_order=17,credential_meta='{}',remark='fixture remark'",[]).unwrap();
+            let tables = vec!["cloud_accounts".to_string()];
+            let input = export_portable(source,&source_key,&tables,false).unwrap();
+            let preview = portable_preview(target,&input,&target_key).unwrap();
+            assert_eq!(preview.iter().find(|item|item.table=="cloud_accounts").unwrap().count,1);
+            let filtered = filter_portable(target,&input,&target_key,tables).unwrap();
+            // Exercise both the received SQL and the re-export used by QR confirmation.
+            for sql in [&*input,&*filtered] {
+                let tx = target.unchecked_transaction().unwrap();
+                import_portable(&tx,sql,&target_key,"merge").unwrap();
+                tx.commit().unwrap();
+            }
+            let (sort,meta,remark,cipher):(i64,String,String,String) = target.query_row("SELECT sort_order,credential_meta,remark,secret_ciphertext FROM cloud_accounts",[],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).unwrap();
+            assert_eq!((sort,meta.as_str(),remark.as_str()),(17,"{}","fixture remark"));
+            assert_eq!(decrypt_secret_with_key(&cipher,&target_key).unwrap(),"fixture';\npassword");
+            assert!(decrypt_secret_with_key(&cipher,&source_key).is_err());
+            assert_eq!(table_count(target,"cloud_accounts").unwrap(),1);
+        }
+    }
+    #[test]
     fn persisted_schema_requires_explicit_transfer_classification() {
         let fixture=Fixture::new();let db=fixture.db("coverage.sqlite3");
         let mut stmt=db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").unwrap();
@@ -858,6 +895,22 @@ mod tests {
         }
         let wrong = sql.replacen("-- schema: ","-- schema: 999",1);
         assert!(load_sql(&mut stage,&wrong,&[22u8;32]).is_err());
+    }
+    #[test]
+    fn sql_column_validation_rejects_duplicate_unknown_and_missing_fields() {
+        let fixture = Fixture::new();
+        let source = fixture.db("source.sqlite3");
+        account(&source,1,"fixture","fixture-access",&[11;32]);
+        let input = export_portable(&source,&[11;32],&["cloud_accounts".into()],false).unwrap();
+        for replacement in ["\"account_name\",", "\"unknown_column\",", ""] {
+            let invalid = input.replacen("\"sort_order\",",replacement,1);
+            assert_ne!(input.as_str(),invalid.as_str());
+            let mut stage = create_stage(&source,Path::new(":memory:")).unwrap();
+            let error = load_sql(&mut stage,&invalid,&[22;32]).unwrap_err();
+            assert!(!error.contains("fixture"));
+            assert_eq!(table_count(&stage,"cloud_accounts").unwrap(),0);
+            assert!(!policy::exists(&stage,"cloudhub_sql_scope").unwrap());
+        }
     }
     #[test]
     fn invalid_child_rolls_back_whole_merge() {

@@ -14,7 +14,8 @@ struct TransferPackage { format: String, version: u32, connections: Vec<model::C
 
 #[derive(Default)]
 pub struct DriveStore {
-    operations:tokio::sync::Mutex<()>,
+    pub(super) operations:tokio::sync::Mutex<()>,
+    pub(super) authorizations:tokio::sync::Mutex<HashMap<String,super::alipan::Pending>>,
     progress:Mutex<dependency::Progress>,
     errors:Mutex<HashMap<String,String>>,
 }
@@ -41,6 +42,12 @@ pub async fn cloud_drive_install(state:State<'_,DriveStore>)->Result<(),String> 
     dependency::install(&state.progress).await
 }
 fn merge_saved_credentials(input:&mut model::Connection,old:&model::Connection,clear_session_token:bool,reuse_saved_credentials:bool)->Result<(),String> {
+    if input.provider=="Alipan" {
+        input.alipan_auth=if old.provider=="Alipan"&&old.alipan_app_id==input.alipan_app_id&&old.alipan_drive==input.alipan_drive {old.alipan_auth.clone()}else{None};
+        input.access_key_id.clear();input.secret_key.clear();input.session_token.clear();
+        return Ok(());
+    }
+    input.alipan_auth=None;
     let destination_same=old.endpoint==input.endpoint && old.provider==input.provider;
     let key_same=old.access_key_id==input.access_key_id;
     if input.secret_key.is_empty() {
@@ -58,13 +65,16 @@ pub async fn cloud_drive_save(state:State<'_,DriveStore>,mut input:model::Connec
     dependency::require()?;
     let _lock=state.operations.lock().await;
     let mut all=model::load()?;
+    input.alipan_auth=None; // Never accept an access token from the configuration editor.
+    let previous_id=input.id.clone();
     if input.id.is_empty(){input.id=uuid::Uuid::new_v4().to_string();}
     if runtime::sessions()?.iter().any(|s|s.id==input.id){return Err("请先安全卸载并处理恢复记录，再修改配置".into());}
     if let Some(old)=all.iter().find(|c|c.id==input.id) {
         merge_saved_credentials(&mut input,old,clear_session_token,reuse_saved_credentials)?;
         if runtime::has_dirty_cache(&runtime::cache_dir(old)?)? {return Err("旧缓存有未上传修改，请先用原配置恢复挂载".into());}
         // A new storage identity must never reuse cached objects from a previous endpoint.
-        if old.endpoint!=input.endpoint || old.provider!=input.provider || old.bucket!=input.bucket || old.prefix!=input.prefix {
+        if old.endpoint!=input.endpoint || old.provider!=input.provider || old.bucket!=input.bucket || old.prefix!=input.prefix
+            || old.alipan_app_id!=input.alipan_app_id || old.alipan_drive!=input.alipan_drive {
             let previous=input.id.clone();
             input.id=uuid::Uuid::new_v4().to_string();
             all.retain(|c|c.id!=previous);
@@ -74,7 +84,9 @@ pub async fn cloud_drive_save(state:State<'_,DriveStore>,mut input:model::Connec
     if all.iter().any(|c|c.id!=input.id && c.mount_point.eq_ignore_ascii_case(&input.mount_point)) {
         return Err("此挂载目标已分配给其他连接".into());
     }
-    all.retain(|c|c.id!=input.id);all.push(input);model::persist(&all)
+    all.retain(|c|c.id!=input.id);all.push(input);model::persist(&all)?;
+    if !previous_id.is_empty() {super::alipan_dav::stop(&previous_id);}
+    Ok(())
 }
 pub async fn cloud_drive_remove(state:State<'_,DriveStore>,id:String)->Result<(),String> {
     let _lock=state.operations.lock().await;
@@ -82,7 +94,8 @@ pub async fn cloud_drive_remove(state:State<'_,DriveStore>,id:String)->Result<()
     if runtime::sessions()?.iter().any(|s|s.id==id) || runtime::has_dirty_cache(&runtime::cache_dir(&c)?)? {
         return Err("请先安全卸载并完成缓存恢复，不能删除此配置".into());
     }
-    let mut all=model::load()?;all.retain(|c|c.id!=id);model::persist(&all)
+    let mut all=model::load()?;all.retain(|c|c.id!=id);model::persist(&all)?;
+    super::alipan_dav::stop(&id);Ok(())
     // Intentionally retain cached files; removing a connection never deletes local or remote data.
 }
 pub async fn cloud_drive_probe(_state:State<'_,DriveStore>,id:String,kind:String)->Result<Vec<String>,String> {
@@ -91,6 +104,10 @@ pub async fn cloud_drive_probe(_state:State<'_,DriveStore>,id:String,kind:String
     // behind a stalled filesystem mount or prevent a recovery operation.
     if !["test","buckets","directories"].contains(&kind.as_str()){return Err("无效的连接检查类型".into());}
     let c=model::find(&id)?;
+    if c.provider=="Alipan" {
+        super::alipan::credentials(&c)?;
+        super::alipan_dav::ensure(&c.id,runtime::sessions()?.iter().find(|s|s.id==c.id).and_then(|s|s.bridge.as_ref())).await?;
+    }
     tauri::async_runtime::spawn_blocking(move ||runtime::probe(&c,kind=="buckets")).await.map_err(|_|"连接检查任务失败")?
 }
 pub async fn cloud_drive_list_buckets(mut input:model::Connection,clear_session_token:bool,reuse_saved_credentials:bool)->Result<Vec<String>,String> {
@@ -131,6 +148,7 @@ pub async fn cloud_drive_credentials(state:State<'_,DriveStore>,id:String,access
     }
     let mut all=model::load()?;
     let c=all.iter_mut().find(|c|c.id==id).ok_or("云盘连接不存在")?;
+    if c.provider=="Alipan" {return Err(super::alipan::AUTH_ERROR.into());}
     c.access_key_id=access_key_id.to_string();c.secret_key=secret_key.to_string();c.session_token=session_token.to_string();
     model::validate(c)?;
     model::persist(&all)
@@ -160,7 +178,8 @@ pub async fn cloud_drive_open(app:tauri::AppHandle,state:State<'_,DriveStore>,id
 }
 pub fn cloud_drive_winfsp(app:tauri::AppHandle)->Result<(),String> {
     dependency::require()?;
-    app.opener().open_url("https://winfsp.dev/rel/",None::<&str>).map_err(|_|"无法打开 WinFsp 官方安装页面".into())
+    let url=if cfg!(target_os="macos"){"https://macfuse.github.io/"}else if cfg!(target_os="linux"){"https://rclone.org/commands/rclone_mount/#mounting-on-linux"}else{"https://winfsp.dev/rel/"};
+    app.opener().open_url(url,None::<&str>).map_err(|_|"无法打开挂载驱动安装说明".into())
 }
 pub async fn cloud_drive_select_cache(app:tauri::AppHandle)->Result<Option<String>,String> {
     use tauri_plugin_dialog::DialogExt;
@@ -176,9 +195,9 @@ pub fn prepare_import(app: &tauri::AppHandle) -> Result<serde_json::Value,String
     let metadata=std::fs::symlink_metadata(&path).map_err(|_| "无法读取导入文件")?;
     if !metadata.is_file() || metadata.file_type().is_symlink() || metadata.len() as usize > MAX_TRANSFER {return Err("请选择不超过 8 MB 的普通 JSON 文件".into())}
     let bytes=std::fs::read(&path).map_err(|_| "无法读取导入文件")?;
-    let package:TransferPackage=serde_json::from_slice(&bytes).map_err(|_| "文件格式无效，请选择 CloudHub 云盘导出文件")?;
+    let mut package:TransferPackage=serde_json::from_slice(&bytes).map_err(|_| "文件格式无效，请选择 CloudHub 云盘导出文件")?;
     if package.format!="cloudhub-cloud-drive" || package.version!=1 || package.connections.is_empty() || package.connections.len()>500 {return Err("文件版本或连接数量无效（支持 1–500 条）".into())}
-    for c in &package.connections {model::validate(c)?;}
+    for c in &mut package.connections {c.alipan_auth=None;model::validate(c)?;}
     let token=uuid::Uuid::new_v4().to_string();
     let summaries=package.connections.iter().enumerate().map(|(index,c)|serde_json::json!({"index":index,"name":c.name,"provider":c.provider,"endpoint":c.endpoint,"bucket":c.bucket,"mountPoint":c.mount_point})).collect::<Vec<_>>();
     *PENDING_IMPORT.lock().map_err(|_| "导入状态不可用")?=Some((token.clone(),package.connections));
@@ -193,7 +212,8 @@ pub fn import_selected(token:&str,indices:&[usize])->Result<serde_json::Value,St
     for index in indices {
         if !seen.insert(index){return Err("导入选择包含重复项".into())}
         let mut c=incoming.get(*index).ok_or("导入选择已失效")?.clone();
-        if all.iter().any(|old|old.endpoint==c.endpoint && old.bucket==c.bucket && old.prefix==c.prefix && old.access_key_id==c.access_key_id){continue}
+        if all.iter().any(|old|old.provider==c.provider && old.endpoint==c.endpoint && old.bucket==c.bucket && old.prefix==c.prefix && old.access_key_id==c.access_key_id
+            && old.alipan_app_id==c.alipan_app_id && old.alipan_drive==c.alipan_drive){continue}
         c.id=uuid::Uuid::new_v4().to_string();
         if all.iter().any(|old|old.mount_point.eq_ignore_ascii_case(&c.mount_point)){return Err("导入连接的挂载目标与现有配置冲突，请先调整挂载目标后再导入".into())}
         model::validate(&c)?; all.push(c); imported+=1;
@@ -207,6 +227,8 @@ pub fn export_selected(app:&tauri::AppHandle,ids:&[String],acknowledge_plain:boo
     if ids.is_empty() || ids.len()>500{return Err("请选择 1–500 个云盘连接导出".into())}
     let all=model::load()?; let mut selected=Vec::new(); let mut seen=std::collections::HashSet::new();
     for id in ids {if !seen.insert(id){return Err("选择包含重复记录".into())} let c=all.iter().find(|c|&c.id==id).ok_or("所选云盘连接不存在，请刷新后重试")?; selected.push(c.clone());}
+    // Public-client OAuth grants stay on this device; imported profiles must authorize afresh.
+    for c in &mut selected {c.alipan_auth=None;}
     let Some(file)=app.dialog().file().set_file_name("cloudhub-cloud-drive.json").add_filter("云盘 JSON（含明文密钥）", &["json"]).blocking_save_file() else {return Ok(false)};
     let path=file.into_path().map_err(|_| "导出路径无效")?; let bytes=zeroize::Zeroizing::new(serde_json::to_vec_pretty(&TransferPackage{format:"cloudhub-cloud-drive".into(),version:1,connections:selected}).map_err(|_| "导出失败")?);
     if bytes.len()>MAX_TRANSFER{return Err("导出内容超过 8 MB，请分批导出".into())} std::fs::write(path,bytes.as_slice()).map_err(|_| "无法保存导出文件")?; Ok(true)
@@ -223,6 +245,14 @@ pub fn initialize(app:tauri::AppHandle) {
     if !dependency::supported(){return;}
     tauri::async_runtime::spawn(async move {
         let state=app.state::<DriveStore>();let _lock=state.operations.lock().await;
+        // Restore the authenticated loopback endpoint before an orphaned rclone can resume its cache.
+        if let Ok(sessions)=runtime::sessions() {
+            for session in sessions {
+                if let Some(bridge)=&session.bridge {
+                    if let Err(error)=super::alipan_dav::ensure(&session.id,Some(bridge)).await {if let Ok(mut errors)=state.errors.lock(){errors.insert(session.id,error);}}
+                }
+            }
+        }
         let Ok(connections)=model::load()else{return;};
         for c in connections.into_iter().filter(|c|c.auto_mount) {
             // Existing journal entries are shown for explicit recovery, not silently duplicated.
@@ -239,7 +269,8 @@ mod tests {
         model::Connection {id:uuid::Uuid::new_v4().to_string(),name:"测试".into(),provider:"Alibaba".into(),
             endpoint:"https://storage.example.test".into(),region:String::new(),bucket:"sample-bucket".into(),prefix:String::new(),
             access_key_id:uuid::Uuid::new_v4().to_string(),secret_key:uuid::Uuid::new_v4().to_string(),session_token:uuid::Uuid::new_v4().to_string(),
-            path_style:false,mount_point:"O:".into(),read_only:true,auto_mount:false,cache_dir:String::new(),cache_gib:10}
+            path_style:false,mount_point:"O:".into(),read_only:true,auto_mount:false,cache_dir:String::new(),cache_gib:10,
+            alipan_app_id:String::new(),alipan_drive:String::new(),alipan_auth:None}
     }
     #[test]
     fn saved_credentials_require_confirmation_for_destination_changes() {
