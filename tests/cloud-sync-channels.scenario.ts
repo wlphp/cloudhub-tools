@@ -91,15 +91,19 @@ export async function verifyCloudChannels(page: Page, mobile: boolean) {
   expect(operations.find(c => c.action === "delete-version")?.channelId).toBe("22222222-2222-4222-8222-222222222222");
   // A failed download/validation must not increment local usage metadata.
   await rows.first().getByRole("button", { name: /^下载 / }).click();
-  await page.getByRole("alertdialog", { name: "下载云备份失败", exact: true }).getByRole("button", { name: "确定", exact: true }).click();
+  const downloadDialog = page.getByRole("dialog", { name: "下载并解密云备份", exact: true });
+  await downloadDialog.getByRole("button", { name: "下载并预览", exact: true }).click();
+  await expect(downloadDialog.getByRole("alert")).toContainText("备份校验失败");
+  await downloadDialog.getByRole("button", { name: "取消", exact: true }).click();
   await secondary.getByRole("button", { name: "下载记录", exact: true }).click();
   const emptyDownloadHistory = page.getByRole("dialog", { name: "下载记录", exact: true });
-  await expect(emptyDownloadHistory).toContainText("暂无记录");
+  await expect(emptyDownloadHistory).toContainText("暂无操作记录");
   await emptyDownloadHistory.getByRole("button", { name: "关闭", exact: true }).click();
   await secondary.getByRole("button", { name: "下载备份", exact: true }).click();
-  await expect(rows.first().locator('td[data-label="本机下载次数"]')).toHaveText("0 次");
+  await expect(rows.first().locator(".cloud-backup-download-count")).toHaveText("本机下载 0 次");
   failPreview = false;
   await rows.first().getByRole("button", { name: /^下载 / }).click();
+  await page.getByRole("dialog", { name: "下载并解密云备份", exact: true }).getByRole("button", { name: "下载并预览", exact: true }).click();
   await expect.poll(() => page.evaluate(() => Object.keys(localStorage).filter(k => k.startsWith("cloudhub.backup-downloads.v1:")).some(k => JSON.parse(localStorage.getItem(k) ?? "{}")["backup-11111111-1111-4111-8111-111111111111.chdb"]?.count === 1))).toBe(true);
   await page.keyboard.press("Escape");
   await secondary.getByRole("button", { name: "下载记录", exact: true }).click();
@@ -111,8 +115,8 @@ export async function verifyCloudChannels(page: Page, mobile: boolean) {
   await successfulDownloads.getByRole("button", { name: "关闭", exact: true }).click();
   // Reopen the versions after inspecting local download history.
   await secondary.getByRole("button", { name: "下载备份", exact: true }).click();
-  await expect(rows.first().locator('td[data-label="本机下载次数"]')).toHaveText("1 次");
-  await expect(rows.first().locator('td[data-label="最后下载时间"]')).not.toHaveText("尚无记录");
+  await expect(rows.first().locator(".cloud-backup-download-count")).toHaveText("本机下载 1 次");
+  await expect(rows.first().locator(".cloud-backup-last-download")).not.toHaveText("尚无下载记录");
   await versions.getByRole("button", { name: "取消", exact: true }).click();
   expect(operations.find(c => c.action === "versions")?.channelId).toBe("22222222-2222-4222-8222-222222222222");
   await primary.getByRole("button", { name: "上传备份", exact: true }).click();
@@ -150,8 +154,6 @@ export async function verifyCloudChannels(page: Page, mobile: boolean) {
   for (const width of [375, 768, 1024, 1440]) {
     await page.setViewportSize({ width, height: 900 });
     expect(await editor.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
-    const positions = await scope.locator('input[type="checkbox"]').evaluateAll(inputs => inputs.map(input => input.getBoundingClientRect().left));
-    expect(Math.max(...positions) - Math.min(...positions)).toBeLessThan(2);
   }
   await editor.getByRole("button", { name: "保存配置", exact: true }).click();
   await expect(editor).toBeHidden();

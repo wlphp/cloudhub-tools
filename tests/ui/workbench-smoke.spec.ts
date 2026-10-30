@@ -57,8 +57,9 @@ test("shows QR migration controls with native boundaries on desktop", async ({ p
   await page.getByRole("tab", { name: "数据管理" }).click();
   await page.getByRole("button", { name: "开始迁移", exact: true }).click();
   await expect(page.getByRole("heading", { name: "迁移到手机" })).toBeVisible();
+  await page.locator("details.sync-transfer-scope-details > summary").click();
   await expect(page.getByRole("group", { name: "数据范围" })).toBeVisible();
-  await expect(page.locator(".sync-transfer-desktop .data-transfer-scope input[type=checkbox]")).toHaveCount(0);
+  await expect(page.locator(".sync-transfer-desktop .data-transfer-scope input[type=checkbox]")).toHaveCount(1);
   await expect(page.locator(".sync-transfer-intro")).toBeVisible();
   await expect(page.getByRole("button", { name: "生成迁移二维码", exact: true })).toBeDisabled();
 });

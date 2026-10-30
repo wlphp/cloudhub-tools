@@ -28,10 +28,11 @@ export async function transferFixture(page: Page, table: string, label: string, 
     await page.getByRole("button", { name: "系统设置", exact: true }).first().click();
     await page.getByRole("tab", { name: "数据管理" }).click();
     await page.getByRole("button", { name: "开始迁移", exact: true }).click();
+    await page.locator("details.sync-transfer-scope-details > summary").click();
   }
   const scope = page.getByRole("group", { name: "数据范围", exact: true });
   await expect(scope.getByRole("checkbox", { name: label + "（2 条）", exact: true })).toBeChecked();
-  await scope.getByRole("button", { name: "清空选择" }).click();
+  await scope.getByRole("checkbox", { name: "选择全部数据", exact: true }).uncheck();
   const action = page.getByRole("button", { name: mobile ? "确认导入所选配置" : "生成迁移二维码", exact: true });
   await expect(action).toBeDisabled();
   await scope.getByRole("checkbox", { name: label + "（2 条）", exact: true }).check();

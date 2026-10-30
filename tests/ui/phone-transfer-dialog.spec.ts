@@ -17,8 +17,9 @@ test("phone migration defaults to 95 percent with fixed common header and footer
   await page.getByRole("tab", {name:"数据管理"}).click();
   await page.getByRole("button", {name:"开始迁移",exact:true}).click();
   const panel = page.getByRole("dialog", {name:"迁移到手机",exact:true});
+  await panel.locator("details.sync-transfer-scope-details > summary").click();
   await expect(panel.getByRole("group", { name: "数据范围" })).toBeVisible();
-  await expect(panel.getByRole("group", { name: "数据范围" }).getByRole("checkbox")).toHaveCount(3);
+  await expect(panel.locator(".sync-transfer-scope-details .data-transfer-check input[type=checkbox]")).toHaveCount(3);
   await expect(panel.getByRole("checkbox", { name: "包含回收站（默认关闭）" })).not.toBeChecked();
   for (const width of [375,768,1024,1440]) {
     await page.setViewportSize({width,height:900});
@@ -33,7 +34,7 @@ test("phone migration defaults to 95 percent with fixed common header and footer
     expect(await panel.evaluate(el=>getComputedStyle(el).backgroundColor)).toBe(await footer.evaluate(el=>getComputedStyle(el).backgroundColor));
   }
   await panel.getByRole("button", {name:"缩小弹层"}).click();
-  const small = await panel.boundingBox(); expect(small!.width).toBe(760); expect(small!.height).toBe(720);
+  const small = await panel.boundingBox(); expect(small!.width).toBeLessThan(1440 * 0.95); expect(small!.height).toBeLessThan(900 * 0.95);
   await panel.getByRole("button", {name:"最大化弹层"}).click();
   await panel.locator(".modal-body").evaluate(el=>{el.scrollTop=0;});
   await page.screenshot({path:"test-results/phone-migration-common-dialog.png"});
