@@ -39,8 +39,15 @@ impl AsyncRead for UploadReader {
 pub(super) const MAX_BYTES: usize = 256 * 1024 * 1024;
 
 pub(super) fn client() -> Result<Client, String> {
-    Client::builder()
-        .no_proxy() // Temporary A/B diagnostic: compare a direct connection.
+    let builder = Client::builder();
+    // Honor an explicitly enabled application proxy. Inherited system proxies
+    // can reject WebDAV methods even when a connection test succeeds.
+    let builder = if crate::core::network::current_route().mode == "global" {
+        builder
+    } else {
+        builder.no_proxy()
+    };
+    builder
         .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(Duration::from_secs(15))
         .timeout(Duration::from_secs(180))
@@ -211,7 +218,7 @@ pub(super) async fn request(
         _ => "检查备份",
     };
     request.send().await.map_err(|error| {
-        // Temporary diagnostics: emit only fixed classifications, never raw errors/URLs.
+        // Emit only fixed classifications, never raw errors, URLs or credentials.
         let mut categories = Vec::new();
         let mut source: Option<&(dyn std::error::Error + 'static)> = Some(&error);
         while let Some(cause) = source {

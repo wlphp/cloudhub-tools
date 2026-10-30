@@ -5,7 +5,7 @@ test("phone migration defaults to 95 percent with fixed common header and footer
     (window as any).__TAURI_INTERNALS__ = {metadata:{currentWindow:{label:"main"},currentWebview:{label:"main"}},transformCallback:()=>1,unregisterCallback:()=>{},invoke:async(command:string)=>{
       if(command === "list_accounts") return Array.from({length:40},(_,i)=>({id:i+1,account_name:`测试账号 ${i+1}`,cloud_type:"aliyun",access_key_id:"fixture-id",enabled:true,sort_order:i}));
       if(command === "authenticator_status") return {configured:false,unlocked:false};
-      if(command === "database_transfer_catalog") return [{table:"accounts",label:"云账号",count:40},{table:"ssh_hosts",label:"SSH 主机",count:0},{table:"panels",label:"面板",count:0}];
+      if(command === "database_transfer_catalog") return [{table:"cloud_accounts",label:"云账号",count:40},{table:"ssh_connections",label:"SSH 主机",count:0},{table:"panel_connections",label:"面板",count:0}];
       if(command === "plugin:app|version") return "0.1.52";
       if(command === "plugin:event|listen") return 1;
       if(command === "list_client_preferences") return {};
@@ -18,7 +18,8 @@ test("phone migration defaults to 95 percent with fixed common header and footer
   await page.getByRole("button", {name:"开始迁移",exact:true}).click();
   const panel = page.getByRole("dialog", {name:"迁移到手机",exact:true});
   await expect(panel.getByRole("group", { name: "数据范围" })).toBeVisible();
-  await expect(panel.locator(".data-transfer-check")).toHaveCount(4);
+  await expect(panel.getByRole("group", { name: "数据范围" }).getByRole("checkbox")).toHaveCount(3);
+  await expect(panel.getByRole("checkbox", { name: "包含回收站（默认关闭）" })).not.toBeChecked();
   for (const width of [375,768,1024,1440]) {
     await page.setViewportSize({width,height:900});
     const bounds = await panel.boundingBox();
