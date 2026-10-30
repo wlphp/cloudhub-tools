@@ -35,11 +35,13 @@
 .store-catalog .store-table th, .store-catalog .store-table td { text-align: left; padding: 14px 10px; border: 0; border-bottom: 1px solid var(--jb-border); color: var(--jb-text); background: transparent; line-height: 1.6; overflow-wrap: anywhere; }
 .store-catalog .store-table th { font-weight: 400; white-space: nowrap; color: var(--jb-muted); background: var(--jb-surface-2); padding-top: 10px; padding-bottom: 10px; }
 .store-table td > small, .store-app-name small, .store-description small { display: block; color: var(--jb-muted); font-size: 11px; margin-top: 3px; }
-.store-app-name { display: flex; gap: 10px; align-items: center; min-width: 118px; }
+.store-app-name { display: flex; gap: 10px; align-items: center; min-width: 140px; }
 .store-app-name > svg { flex-shrink: 0; color: var(--jb-green); }
 .store-app-name strong { font-weight: 500; font-size: 13px; }
 .store-description { max-width: 380px; }
 .store-publisher { color: var(--jb-green); }
+.store-table td:is([data-label="价格"], [data-label="状态"], [data-label="启用"]) { white-space: nowrap; }
+.store-table td[data-label="开发商"] { min-width: 80px; }
 .store-state { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
 .store-state i { width: 5px; height: 5px; border-radius: 50%; background: var(--jb-muted); }
 .store-row-actions { display: flex; gap: 12px; white-space: nowrap; }
@@ -979,7 +981,7 @@
 }
 .ide-theme .terminal-stage-empty .terminal-empty-art { width: min(300px, 100%); height: auto; margin-bottom: 12px; }
 .ide-theme .terminal-stage-empty h1 { color: var(--jb-text); font-size: 18px; font-weight: 600; margin-bottom: 10px; }
-.ide-theme .terminal-stage-empty p { max-width: min(400px, 100%); color: var(--jb-subtle); font-size: 12px; margin-bottom: 22px; }
+.ide-theme .terminal-stage-empty p { max-width: min(400px, 100%); color: var(--jb-muted); font-size: 13px; line-height: 1.8; margin-bottom: 22px; }
 .ide-theme .terminal-stage-empty .layui-btn { min-height: 34px; height: 34px; margin-top: 0; }
 .ide-theme .terminal-stage { position: relative; }
 .ide-theme .terminal-stage.is-loading > :not(.terminal-stage-loading) { visibility: hidden; }
@@ -1235,13 +1237,13 @@
 .ide-theme .panel-management-page > header h1 {
   margin: 0;
   color: var(--jb-text);
-  font-size: 18px;
+  font-size: 22px;
   font-weight: 600;
   letter-spacing: 0;
 }
 .ide-theme .panel-management-page > header p {
   margin: 3px 0 0;
-  color: var(--jb-subtle);
+  color: var(--jb-muted);
   font-size: 12px;
   line-height: 1.45;
 }
@@ -1372,9 +1374,9 @@
 }
 
 .ide-theme .panel-monitor-scroll {
-  border: 1px solid var(--jb-border) !important;
-  border-radius: 4px;
-  background: var(--jb-surface) !important;
+  border: 0 !important;
+  border-radius: 0;
+  background: transparent !important;
 }
 .ide-theme .panel-monitor-table {
   /* 卡片网格铺满容器即可，固定 min-width 会在非全屏窗口被裁剪 */
@@ -1393,12 +1395,21 @@
 }
 .ide-theme .panel-monitor-row {
   min-height: 164px;
-  border-bottom: 1px solid var(--jb-border);
+  border: 1px solid var(--jb-border);
+  border-color: var(--jb-border) !important;
+  border-radius: 8px;
   background: var(--jb-surface);
+  box-shadow: none;
 }
 .ide-theme .panel-monitor-row:hover {
-  background: var(--jb-border);
+  border-color: var(--jb-border-strong) !important;
+  background: var(--jb-surface);
+  box-shadow: none;
 }
+.ide-theme .panel-monitor-row .panel-row-server { background: var(--jb-surface); border-radius: 7px 7px 0 0; }
+.ide-theme .panel-monitor-row .panel-row-status { background: var(--jb-surface-2); }
+.ide-theme .panel-monitor-row .panel-row-metrics { background: var(--jb-surface); }
+.ide-theme .panel-monitor-row .panel-row-actions { background: var(--jb-surface); border-top-color: var(--jb-border); border-radius: 0 0 7px 7px; }
 .ide-theme .panel-monitor-row > div {
   padding: 16px 14px;
 }

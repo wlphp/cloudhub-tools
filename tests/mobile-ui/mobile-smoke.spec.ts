@@ -237,9 +237,9 @@ test("navigates mobile resource sections and preserves narrow layout", async ({ 
   await expect(page.locator(".mobile-more-feature").filter({ hasText: "运维面板" })).toBeVisible();
   await page.locator(".mobile-more-feature").filter({ hasText: "系统设置" }).click();
   await page.getByRole("button", { name: /导入数据/ }).click();
-  await expect(page.getByRole("heading", { name: "导入电脑数据" })).toBeVisible();
-  await expect(page.getByText(/当前浏览器预览不支持原生扫码/)).toBeVisible();
-  await expect(page.getByRole("button", { name: "选择 .chdb 电脑备份文件", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "导入数据", exact: true })).toBeVisible();
+  await expect(page.getByText(/请在手机 App 内扫码/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "选择 .chdb 备份", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "扫码从电脑迁移（免口令）", exact: true })).toHaveCount(0);
   await expect(page.locator('[aria-labelledby="sync-mobile-send-title"]')).toHaveCount(0);
   await expectNoHorizontalOverflow(page);

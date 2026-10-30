@@ -41,7 +41,7 @@ for (const width of [320, 360, 375, 390, 430]) {
         await expect(page.locator(".mobile-ssh-host-row")).toHaveCount(3);
         await expect(page.getByRole("button", { name: "连接终端 Linux 测试主机", exact: true })).toBeEnabled();
         await expect(page.getByRole("button", { name: "连接终端 Windows 测试主机", exact: true })).toBeDisabled();
-        await expect(page.locator(".mobile-ssh-host-row").filter({ hasText: "unconfigured.example.test" }).getByRole("button")).toBeDisabled();
+        await expect(page.locator(".mobile-ssh-host-row").filter({ hasText: "unconfigured.example.test" }).getByRole("button", { name: /^连接终端/ })).toBeDisabled();
         if (width === 390) await page.screenshot({ path: "test-results/mobile-compact-ssh.png" });
       }
       if (name === "运维面板") {
@@ -52,7 +52,7 @@ for (const width of [320, 360, 375, 390, 430]) {
         await expect(panel.getByRole("button", { name: "打开面板 测试面板", exact: true })).toBeDisabled();
         for (const button of await panel.locator(".mobile-panel-actions button").all()) {
           const bounds = await button.boundingBox();
-          expect(bounds!.height).toBe(36);
+          expect(bounds!.height).toBeGreaterThanOrEqual(44);
           expect(bounds!.width).toBeLessThan(100);
         }
         if (width === 390) await page.screenshot({ path: "test-results/mobile-compact-panels.png" });
