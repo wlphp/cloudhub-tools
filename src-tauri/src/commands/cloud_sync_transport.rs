@@ -42,6 +42,7 @@ pub(super) fn client() -> Result<Client, String> {
     let builder = Client::builder();
     // Honor an explicitly enabled application proxy. Inherited system proxies
     // can reject WebDAV methods even when a connection test succeeds.
+    #[cfg(desktop)]
     let builder = if crate::core::network::current_route().mode == "global" {
         builder
     } else {
