@@ -196,7 +196,7 @@ html,body,#root{height:100%;overflow:hidden}.app-shell{height:100vh;min-height:0
 .mobile-download-card>header svg{flex:none;margin-top:2px;color:var(--jb-accent)}
 .mobile-download-card strong{display:block;font-size:13.5px;color:var(--jb-text)}
 .mobile-download-card p{margin:3px 0 0;color:var(--jb-muted);font-size:12px;line-height:1.6}
-.mobile-download-qr{display:grid;place-items:center;width:fit-content;margin:0 auto;padding:10px;border:1px solid var(--jb-border);border-radius:12px;background:var(--jb-text)}
+.mobile-download-qr{display:grid;place-items:center;width:fit-content;margin:0 auto;padding:10px;background:#fff}
 .mobile-download-qr svg{display:block}
 .mobile-download-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border:1px solid var(--jb-border);border-radius:8px;background:var(--jb-input)}
 .mobile-download-row strong{font-size:12.5px}

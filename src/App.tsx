@@ -1,6 +1,8 @@
 import { DataImportReview } from "./features/accounts/DataImportReview";
 import { ConfirmDialog } from "./shared/ConfirmDialog";
 import { SharedDialog } from "./shared/SharedDialog";
+import { MemberAvatar, MemberDialog } from "./features/member/MemberDialog";
+import { memberClient, type Member } from "./platform/clients/member";
 import { MoreMenu } from "./shared/MoreMenu";
 import { PetSettingsPanel } from "./features/desktop-pet/PetSettingsPanel";
 import { useExportSelection } from "./shared/ExportSelection";
@@ -91,7 +93,6 @@ import {
   Check,
   Cloud,
   Copy,
-  Crown,
   ExternalLink,
   Database,
   Download,
@@ -100,7 +101,6 @@ import {
   FolderPlus,
   Globe2,
   GitBranch,
-  Gift,
   Network,
   GripVertical,
   Eye,
@@ -109,8 +109,6 @@ import {
   MoreVertical,
   Monitor,
   List,
-  LogIn,
-  LogOut,
   NotebookPen,
   MapPin,
   PawPrint,
@@ -130,7 +128,6 @@ import {
   Trash2,
   Upload,
   UserRound,
-  Wrench,
   X,
   ZoomIn,
   Minus,
@@ -292,6 +289,16 @@ function apiLogProxyLabel(requestParams: string): string {
 const cloudHubRepoUrl = "https://github.com/wlphp/cloudhub-tools";
 const cloudHubReleasesUrl = "https://github.com/wlphp/cloudhub-tools/releases";
 
+function maskMemberEmail(email: string) {
+  const separator = email.lastIndexOf("@");
+  if (separator <= 0) return email;
+  const local = email.slice(0, separator);
+  const maskedLocal = local.length <= 2
+    ? `${local.slice(0, 1)}***`
+    : `${local.slice(0, 2)}***${local.slice(-2)}`;
+  return `${maskedLocal}${email.slice(separator)}`;
+}
+
 /** 身份菜单里带子菜单的界面设置项：悬停或聚焦时向右侧弹出选项浮层。 */
 function IdentityMenuItem({ icon: Icon, label, children }: { icon: typeof Globe2; label: string; children: ReactNode }) {
   return <div className="identity-submenu-wrap">
@@ -308,6 +315,15 @@ function App() {
   const [showMobileDownload, setShowMobileDownload] = useState(false);
   const [showIdentityMenu, setShowIdentityMenu] = useState(false);
   const [showLoginDialog, setShowLoginDialog] = useState(false);
+  const [member, setMember] = useState<Member | null>(null);
+  const memberCenterOpeningRef = useRef(false);
+  useEffect(() => {
+    if (!("__TAURI_INTERNALS__" in window)) return;
+    let active = true;
+    const refresh = () => { void memberClient.me().then(value => { if (active) setMember(value); }).catch(reason => { if (active && String(reason).includes("登录已失效")) setMember(null); }); };
+    refresh(); window.addEventListener("focus", refresh);
+    return () => { active = false; window.removeEventListener("focus", refresh); };
+  }, []);
   const [identityMenuPos, setIdentityMenuPos] = useState({ left: 12, bottom: 64 });
   const [uiZoom, setUiZoom] = useState(() => {
     const stored = Number(localStorage.getItem(cloudHubUiZoomStorageKey));
@@ -621,6 +637,25 @@ function App() {
     openExternalLink(target);
   }
 
+  async function openMemberCenter() {
+    setShowIdentityMenu(false);
+    if (memberCenterOpeningRef.current) return;
+    memberCenterOpeningRef.current = true;
+    try {
+      const memberCenterUrl = "https://yun.wlphp.com/member.html";
+      if (!runningInTauri) { openExternalLink(memberCenterUrl); return; }
+      try {
+        const ticket = await memberClient.webHandoff();
+        await openUrl(`${memberCenterUrl}#handoff=${encodeURIComponent(ticket)}`);
+      } catch {
+        await openUrl(memberCenterUrl);
+        setStatus("自动登录暂不可用，已打开官网会员页，请登录后继续");
+      }
+    } finally {
+      memberCenterOpeningRef.current = false;
+    }
+  }
+
   function openExternalLink(target: string) {
     if (runningInTauri) void openUrl(target).catch(error => setStatus(`打开链接失败：${String(error)}`));
     else window.open(target, "_blank", "noreferrer");
@@ -666,12 +701,6 @@ function App() {
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, []);
-
-  async function exitApplication() {
-    setShowIdentityMenu(false);
-    try { await appClient.exitApp(); }
-    catch (error) { setStatus(`退出失败：${String(error)}`); }
-  }
 
   useEffect(() => {
     if (!showIdentityMenu) return;
@@ -3993,9 +4022,10 @@ function App() {
                 <ScrollText size={18} /><span className="app-nav-label">{t("API日志")}</span></button>
             </nav>
             <div className="app-sidebar-footer">
-              <button type="button" className="app-sidebar-identity" title="身份信息与菜单" aria-haspopup="menu" aria-expanded={showIdentityMenu} onClick={toggleIdentityMenu}>
-                <span className="app-sidebar-avatar app-sidebar-avatar-anon" aria-hidden="true"><UserRound size={16} /></span>
-                <span className="app-nav-label">{t("未登录")}</span>
+              <button type="button" className="app-sidebar-identity" title={member ? (member.nickname.trim() || member.email) : "身份信息与菜单"} aria-label={member ? `身份菜单，${member.nickname.trim() || member.email}` : "身份信息与菜单，未登录"} aria-haspopup="menu" aria-expanded={showIdentityMenu} onClick={toggleIdentityMenu}>
+                <MemberAvatar member={member} size={20} />
+                <span className="app-nav-label">{member ? (member.nickname.trim() || member.email) : t("未登录")}</span>
+                {member?.is_vip && <span className="member-vip-badge">VIP</span>}
               </button>
               <button type="button" aria-label={t("手机端下载")} title={t("手机端下载")} onClick={() => setShowMobileDownload(true)}><Smartphone size={16} aria-hidden="true" /></button>
               <button type="button" className={section === "settings" ? "nav-active" : ""} aria-current={section === "settings" ? "page" : undefined} aria-label={t("系统设置")} title={t("系统设置")} onClick={() => setSection("settings")}><Settings size={16} aria-hidden="true" /></button>
@@ -4023,6 +4053,7 @@ function App() {
             <button type="button" className={section === "logs" ? "nav-active" : ""} aria-current={section === "logs" ? "page" : undefined} onClick={() => setSection("logs")}><FileText size={16} /><span>操作日志</span></button>
             <button type="button" className={section === "api_logs" ? "nav-active" : ""} aria-current={section === "api_logs" ? "page" : undefined} onClick={() => { setSection("api_logs"); void loadApiLogs(); }}><Terminal size={16} /><span>API 日志</span></button>
             <button type="button" className={section === "settings" ? "nav-active" : ""} aria-current={section === "settings" ? "page" : undefined} onClick={() => setSection("settings")}><Settings size={16} /><span>设置</span></button>
+            <button type="button" aria-label={member ? "打开会员资料" : "登录"} title={member ? "打开会员资料" : "登录"} onClick={() => setShowLoginDialog(true)}>{member ? <MemberAvatar member={member} size={20} /> : <UserRound size={16} />}<span>{member ? member.nickname : "登录"}</span>{member?.is_vip && <span className="member-vip-badge">VIP</span>}</button>
           </div>
         </nav>
         {status && createPortal(<div className="toast-notice" role="status" aria-live="polite" aria-atomic="true">{status}</div>, document.body)}
@@ -4912,39 +4943,6 @@ function App() {
                 </span>
                 </div>
                 {sshSessionId ? <div className="terminal-session-shell"><div ref={sshWorkspaceRef} className="ssh-terminal-workspace" style={{ gridTemplateColumns: `minmax(360px, 1fr) 8px minmax(330px, ${sshFilePaneWidth}px)`, ["--ssh-file-pane-width" as string]: `${sshFilePaneWidth}px` }}><div className="ssh-terminal-pane"><div className="ssh-terminal-viewport" ref={sshTerminalHostRef} aria-label="SSH 终端" style={{ background: terminalThemes[terminalThemeName].background }} /><div className="ssh-terminal-input-bar"><CornerDownLeft size={15} className="ssh-terminal-input-icon" aria-hidden="true" /><input value={sshCommandInput} onChange={(event) => setSshCommandInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void submitSshCommand(); } }} placeholder="输入命令并回车执行" aria-label="终端命令输入" spellCheck={false} disabled={sshCommandSending} autoComplete="off" /><button type="button" onClick={() => void submitSshCommand()} disabled={sshCommandSending || !sshCommandInput.trim()}>{sshCommandSending ? "发送中…" : "发送(Ctrl+Enter)"}</button></div></div><div className={`ssh-file-resizer${isDetachedTerminalWindow && detachedRightPanel === null ? " is-collapsed" : ""}`} role="separator" aria-label="调整文件管理面板宽度" aria-orientation="vertical" onPointerDown={startSshFileResize} /> <div className={`ssh-side-panel${detachedRightPanel ? ` is-${detachedRightPanel}` : " is-collapsed"}`}><div className="ssh-side-tabs" role="tablist" aria-label="终端侧边栏"><button type="button" role="tab" aria-selected={detachedRightPanel === "monitor"} className={detachedRightPanel === "monitor" ? "active" : ""} onClick={() => setDetachedRightPanel((current) => current === "monitor" ? null : "monitor")}><Monitor size={14} />监控</button><button type="button" role="tab" aria-selected={detachedRightPanel === "files"} className={detachedRightPanel === "files" ? "active" : ""} onClick={() => setDetachedRightPanel((current) => current === "files" ? null : "files")}><FolderOpen size={14} />文件管理</button><button type="button" role="tab" aria-selected={detachedRightPanel === "audit"} className={detachedRightPanel === "audit" ? "active" : ""} onClick={() => setDetachedRightPanel(current => current === "audit" ? null : "audit")}><History size={14} />录像审计{terminalAuditStore.current.recording && <i className="terminal-audit-dot" />}</button></div><aside className={`ssh-file-manager${sshFileDragActive ? " is-dragging" : ""}`} aria-label="远程文件管理" onDragEnter={(event) => { event.preventDefault(); setSshFileDragActive(true); }} onDragOver={(event) => event.preventDefault()} onDragLeave={(event) => { if (event.currentTarget === event.target) setSshFileDragActive(false); }} onDrop={(event) => { event.preventDefault(); setSshFileDragActive(false); void uploadSshFiles(event.dataTransfer.files); }}><div className="ssh-file-toolbar"><button type="button" title="返回上级目录" disabled={sshFilesLoading || sshFilePath === "/"} onClick={() => void loadSshFiles(parentSshPath(sshFilePath))}><ChevronLeft size={16} /></button><input className="ssh-file-path" value={sshFilePath} onChange={(event) => setSshFilePath(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void loadSshFiles(event.currentTarget.value); }} aria-label="远程目录路径" /><button type="button" title="刷新目录" disabled={sshFilesLoading} onClick={() => void loadSshFiles()}><RefreshCw size={15} className={sshFilesLoading ? "spin" : ""} /></button></div><div className="ssh-file-actions"><button type="button" title="上传文件" disabled={sshFilesLoading} onClick={() => sshUploadInputRef.current?.click()}><Upload size={15} />上传</button><button type="button" title="新建文件夹" disabled={sshFilesLoading} onClick={() => void makeSshDirectory()}><FolderPlus size={15} />新建</button><input ref={sshUploadInputRef} className="ssh-file-upload-input" type="file" multiple onChange={(event) => { const files = event.currentTarget.files; event.currentTarget.value = ""; if (files?.length) void uploadSshFiles(files); }} /></div>{sshFileEditor ? <div className="ssh-file-editor"><div className="ssh-file-editor-head"><span title={sshFileEditor.path}>{sshFileEditor.path}</span><button type="button" title="关闭编辑器" onClick={() => setSshFileEditor(null)}><X size={15} /></button></div><textarea value={sshFileEditor.content} spellCheck={false} onChange={(event) => setSshFileEditor((current) => current ? { ...current, content: event.target.value } : current)} /><div className="ssh-file-editor-actions"><button type="button" onClick={() => setSshFileEditor(null)}>关闭</button><button type="button" className="primary" disabled={sshFileSaving} onClick={() => void saveSshFile()}><Save size={15} />{sshFileSaving ? "保存中" : "保存"}</button></div></div> : <div className="ssh-file-list"><div className="ssh-file-list-head"><span>名称</span><span>大小</span><span>权限 / 所有者</span></div>{sshFiles.map((entry) => <div className="ssh-file-row" key={entry.path} onDoubleClick={() => void openSshFile(entry)}><button type="button" className="ssh-file-name" title={`${entry.isDir ? "进入目录" : "打开文本文件"}：${entry.name}`} onClick={() => void openSshFile(entry)}>{entry.isDir ? <FolderOpen size={16} /> : <FileCode2 size={16} />}<span>{entry.name}</span></button><span>{entry.isDir ? "文件夹" : sshFileSize(entry.size)}</span><span>{entry.mode}/{entry.owner}</span><div className="ssh-file-row-actions">{entry.isFile && <button type="button" className="ssh-file-download" title="下载到本机并定位文件" onClick={() => void downloadSshFile(entry)}><Download size={14} /><span>下载</span></button>}<button type="button" title="删除" className="danger" onClick={() => void deleteSshEntry(entry)}><Trash2 size={14} /></button></div></div>)}{!sshFilesLoading && sshFiles.length === 0 && <div className="ssh-file-empty">此目录为空</div>}{sshFilesLoading && <div className="ssh-file-empty">正在读取目录…</div>}</div>}{sshFileError && <div className="ssh-file-error">{sshFileError}</div>}</aside>{detachedRightPanel === "audit" && renderTerminalAudit()}<div className="ssh-monitor-panel" aria-label="服务器监控"><div className="ssh-monitor-head"><strong>监控</strong></div><div className="ssh-monitor-card ssh-monitor-system"><div className="ssh-monitor-system-line"><span className="ssh-monitor-address"><MapPin size={12} />{detachedMonitorIp}</span><button type="button" className="ssh-monitor-copy" title="复制 IP 地址" aria-label="复制 IP 地址" onClick={() => void copyAssetIp(detachedMonitorIp)}><Copy size={12} /></button></div><strong>{detachedMonitorOsMatch?.[1] || detachedMonitorOs}</strong>{detachedMonitorOsMatch && <strong>({detachedMonitorOsMatch[2]})</strong>}<span>持续运行：{formatMonitorUptime(detachedMonitorMetrics.uptime)}</span><span>负载：{String(detachedMonitorMetrics.load || "-")}</span><span className="ssh-monitor-process-line"><span>进程数：{String(detachedMonitorMetrics.processes || "-")}</span><span>活跃：{String(detachedMonitorMetrics.active_processes || "-")}</span></span></div><div className="ssh-monitor-card"><h3>CPU　{String(detachedCpuMetrics.cores || "-")}核</h3><div className="ssh-monitor-inline-bar"><i><b style={{ width: `${Math.min(100, Math.max(0, Number(detachedCpuMetrics.usage || 0)))}%` }} /></i><span>{Number(detachedCpuMetrics.usage || 0).toFixed(2)}%</span></div><span>{String(detachedCpuMetrics.model || "-")}</span></div><div className="ssh-monitor-card"><h3>内存　{formatMonitorMemory(detachedMemoryMetrics.used)} / {formatMonitorMemory(detachedMemoryMetrics.total)}</h3><div className="ssh-monitor-inline-bar"><i><b style={{ width: `${detachedMemoryMetrics.total ? Math.min(100, Number(detachedMemoryMetrics.used || 0) / Number(detachedMemoryMetrics.total) * 100) : 0}%` }} /></i><span>{detachedMemoryMetrics.total ? (Number(detachedMemoryMetrics.used || 0) / Number(detachedMemoryMetrics.total) * 100).toFixed(2) : "0.00"}%</span></div><span>SWAP：{detachedMonitorMetrics.swap && typeof detachedMonitorMetrics.swap === "object" ? `${formatMonitorMemory((detachedMonitorMetrics.swap as Record<string, unknown>).used)} / ${formatMonitorMemory((detachedMonitorMetrics.swap as Record<string, unknown>).total)}` : "- / -"}</span></div><div className="ssh-monitor-card"><h3>网络IO</h3><div className="ssh-monitor-table-head"><span>速度</span><span>已用流量</span></div><div className="ssh-monitor-table-row"><span className="up">↑ {detachedNetworkMetrics.up_rate !== undefined ? formatBytes(Number(detachedNetworkMetrics.up_rate)) : "-"}</span><span>{detachedNetworkMetrics.up_total !== undefined ? formatBytes(Number(detachedNetworkMetrics.up_total)) : "-"}</span></div><div className="ssh-monitor-table-row"><span className="down">↓ {detachedNetworkMetrics.down_rate !== undefined ? formatBytes(Number(detachedNetworkMetrics.down_rate)) : "-"}</span><span>{detachedNetworkMetrics.down_total !== undefined ? formatBytes(Number(detachedNetworkMetrics.down_total)) : "-"}</span></div></div><div className="ssh-monitor-card"><h3>磁盘IO</h3><div className="ssh-monitor-table-head ssh-disk-io-head"><span>读</span><span>写</span><span>延迟　iops</span></div><div className="ssh-monitor-table-row ssh-disk-io-row"><span>读：{detachedDiskIoMetrics.read !== undefined ? formatBytes(Number(detachedDiskIoMetrics.read)) : "-"}</span><span>写：{detachedDiskIoMetrics.write !== undefined ? formatBytes(Number(detachedDiskIoMetrics.write)) : "-"}</span><span>{String(detachedDiskIoMetrics.latency || 0)}ms　{String(detachedDiskIoMetrics.iops || 0)}</span></div></div></div></div></div>{sshError && <div className="error-list ssh-error">{sshError}</div>}</div> : detachedRightPanel === "audit" && terminalRecordings.length > 0 ? <div className="terminal-audit-standalone"><button type="button" className="terminal-audit-back" onClick={() => setDetachedRightPanel(null)}>返回终端</button>{renderTerminalAudit()}</div> : <div className="terminal-stage-empty">
-            <svg className="terminal-empty-art" viewBox="0 0 340 224" aria-hidden="true" focusable="false">
-              <defs>
-                <linearGradient id="terminal-empty-cloud-stroke" x1="0" y1="0" x2="1" y2="0.4">
-                  <stop offset="0" stopColor="#5ec5e8" />
-                  <stop offset="0.48" stopColor="#9a8cf5" />
-                  <stop offset="1" stopColor="#fb8c42" />
-                </linearGradient>
-              </defs>
-              <ellipse cx="170" cy="110" rx="146" ry="48" fill="none" stroke="var(--jb-border)" strokeWidth="1.2" />
-              <circle cx="34" cy="116" r="4.5" fill="#f97316" />
-              <circle cx="228" cy="62" r="4" fill="#6ea8fe" />
-              <circle cx="304" cy="124" r="3" fill="var(--jb-subtle)" />
-              <ellipse cx="170" cy="197" rx="116" ry="13" fill="var(--jb-surface-3)" opacity="0.75" />
-              <ellipse cx="170" cy="197" rx="80" ry="8" fill="var(--jb-border)" opacity="0.6" />
-              <g transform="translate(46 44)">
-                <rect x="0" y="0" width="46" height="11" rx="3" fill="var(--jb-surface-3)" stroke="var(--jb-border-strong)" />
-                <rect x="0" y="14" width="46" height="11" rx="3" fill="var(--jb-surface-3)" stroke="var(--jb-border-strong)" />
-                <rect x="0" y="28" width="46" height="11" rx="3" fill="var(--jb-surface-3)" stroke="var(--jb-border-strong)" />
-                <circle cx="7" cy="5.5" r="1.7" fill="var(--jb-subtle)" />
-                <circle cx="7" cy="19.5" r="1.7" fill="var(--jb-subtle)" />
-                <circle cx="7" cy="33.5" r="1.7" fill="var(--jb-subtle)" />
-              </g>
-              <g transform="translate(270 112)">
-                <path d="M0 10a24 9 0 0 1 48 0v26a24 9 0 0 1-48 0z" fill="var(--jb-surface-2)" stroke="var(--jb-border-strong)" strokeWidth="1.2" />
-                <ellipse cx="24" cy="10" rx="24" ry="9" fill="var(--jb-surface-3)" stroke="var(--jb-border-strong)" strokeWidth="1.2" />
-                <path d="M0 23a24 9 0 0 0 48 0" fill="none" stroke="var(--jb-border-strong)" strokeWidth="1.2" />
-              </g>
-              <path transform="translate(236 30) scale(0.09)" d="M0 336c0 79.5 64.5 144 144 144H512c70.7 0 128-57.3 128-128c0-61.9-44-113.6-102.4-125.4c4.1-10.7 6.4-22.4 6.4-34.6c0-53-43-96-96-96c-19.7 0-38.1 6-53.3 16.2C367 64.2 315.3 32 256 32C167.6 32 96 103.6 96 192c0 2.7 .1 5.4 .2 8.1C40.2 219.8 0 273.2 0 336z" fill="var(--jb-surface-2)" stroke="var(--jb-border-strong)" strokeWidth="16" />
-              <g transform="translate(74 26) scale(0.3)">
-                <path d="M0 336c0 79.5 64.5 144 144 144H512c70.7 0 128-57.3 128-128c0-61.9-44-113.6-102.4-125.4c4.1-10.7 6.4-22.4 6.4-34.6c0-53-43-96-96-96c-19.7 0-38.1 6-53.3 16.2C367 64.2 315.3 32 256 32C167.6 32 96 103.6 96 192c0 2.7 .1 5.4 .2 8.1C40.2 219.8 0 273.2 0 336z" fill="var(--jb-surface)" stroke="url(#terminal-empty-cloud-stroke)" strokeWidth="30" strokeLinejoin="round" />
-              </g>
-              <text x="170" y="130" textAnchor="middle" fontSize="28" fontWeight="700" letterSpacing="2" fill="var(--jb-text)">云枢</text>
-            </svg>
             <h1>选择一台服务器开始连接</h1>
             <p>从左侧服务器列表打开 SSH 终端，连接后可在右侧直接浏览和管理远程文件。</p>
             <button className="layui-btn layui-btn-normal" onClick={() => openManagedHostDialog()}><Plus size={16} />添加服务器</button>
@@ -5088,22 +5086,22 @@ function App() {
               </section>
             </div>
         </SharedDialog>}
-        {showLoginDialog && <SharedDialog title={t("登录")} subtitle={t("账号系统维护中")} icon={<LogIn size={20} aria-hidden="true" />} size="small" className="login-maintenance-dialog" onClose={() => setShowLoginDialog(false)} footer={<button type="button" className="primary" onClick={() => setShowLoginDialog(false)}>{t("我知道了")}</button>}>
-          <div className="empty">
-            <Wrench size={38} aria-hidden="true" />
-            <h3>{t("登录功能维护中")}</h3>
-            <p>{t("云账号体系即将上线，当前为本地模式，所有数据仍保存在本机。")}</p>
-          </div>
-        </SharedDialog>}
+        {showLoginDialog && <MemberDialog member={member} onMember={setMember} onClose={() => setShowLoginDialog(false)} onOpenCenter={openMemberCenter} onNotice={setStatus} />}
         {showIdentityMenu && createPortal(
           <div className="identity-menu-backdrop" onPointerDown={() => setShowIdentityMenu(false)}>
             <div className="identity-menu" role="menu" aria-label={t("身份菜单")} style={{ left: identityMenuPos.left, bottom: identityMenuPos.bottom }} onPointerDown={event => event.stopPropagation()}>
               <div className="identity-menu-head">
-                <span className="app-sidebar-avatar app-sidebar-avatar-anon" aria-hidden="true"><UserRound size={19} /></span>
-                <div className="identity-menu-title">
-                  <strong>{t("未登录")}</strong>
-                </div>
-                <button type="button" className="identity-login-button" onClick={() => { setShowIdentityMenu(false); setShowLoginDialog(true); }}>{t("登录")}</button>
+                {member ? <button type="button" className="identity-profile-trigger" aria-label="打开会员资料" onClick={() => { setShowIdentityMenu(false); setShowLoginDialog(true); }}>
+                  <MemberAvatar member={member} size={19} />
+                  <span className="identity-menu-title">
+                    <strong>{member.nickname}</strong>
+                    <small title={member.email}>{maskMemberEmail(member.email)}</small>
+                  </span>
+                </button> : <>
+                  <MemberAvatar member={member} size={19} />
+                  <div className="identity-menu-title"><strong>{t("未登录")}</strong></div>
+                  <button type="button" className="identity-login-button" onClick={() => { setShowIdentityMenu(false); setShowLoginDialog(true); }}>{t("登录")}</button>
+                </>}
               </div>
               <div className="identity-menu-group">
                 <IdentityMenuItem icon={Globe2} label={t("界面语言")}>
@@ -5127,13 +5125,9 @@ function App() {
                 </IdentityMenuItem>
               </div>
               <div className="identity-menu-group">
-                <button type="button" role="menuitem" onClick={() => openIdentityLink(cloudHubRepoUrl)}><Globe2 size={15} aria-hidden="true" />{t("访问官网")}</button>
-                <button type="button" role="menuitem" onClick={() => openIdentityLink(cloudHubRepoUrl)}><Crown size={15} aria-hidden="true" />{t("开通VIP")}</button>
-                <button type="button" role="menuitem" onClick={() => openIdentityLink(cloudHubRepoUrl)}><Gift size={15} aria-hidden="true" />{t("邀请好友")}</button>
+                {member && <button type="button" role="menuitem" onClick={() => { void openMemberCenter().catch(error => setStatus(`打开会员中心失败：${String(error)}`)); }}><UserRound size={15} aria-hidden="true" />会员中心</button>}
+                <button type="button" role="menuitem" onClick={() => openIdentityLink("https://yun.wlphp.com/")}><Globe2 size={15} aria-hidden="true" />{t("访问官网")}</button>
               </div>
-              {runningInTauri && <div className="identity-menu-group">
-                <button type="button" role="menuitem" onClick={() => void exitApplication()}><LogOut size={15} aria-hidden="true" />{t("退出")}</button>
-              </div>}
             </div>
           </div>, document.body)}
         {section === "settings" && (

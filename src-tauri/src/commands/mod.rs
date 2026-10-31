@@ -1,4 +1,5 @@
 pub mod accounts;
+pub mod member;
 #[cfg(desktop)]
 pub mod cloud_drive;
 #[cfg(desktop)]

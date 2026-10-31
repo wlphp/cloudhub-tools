@@ -41,6 +41,9 @@ import { MobileEsaProducts } from "./MobileEsaProducts";
 import { MobileServerDetails, serverExpiryLabel } from "./MobileServerDetails";
 import { MobileProviderMark } from "./MobileProviderMark";
 import { panelRefreshIntervals, useMobilePanelRefresh } from "./useMobilePanelRefresh";
+import { MemberDialog } from "../features/member/MemberDialog";
+import { memberClient, type Member } from "../platform/clients/member";
+import { openUrl } from "@tauri-apps/plugin-opener";
 
 type MobileTab = "accounts" | "servers" | "domains" | "storage" | "databases" | "redis" | "certificates" | "ssh" | "panels" | "sync" | "settings" | "aiSettings" | "networkSettings" | "operationLogs" | "apiLogs" | "about" | "flow" | "authenticator" | "more";
 
@@ -122,6 +125,9 @@ export function MobileApp() {
   const [accountProductCounts, setAccountProductCounts] = useState<Record<number, Record<string, number>>>({});
   const [accountAssetsRevision, setAccountAssetsRevision] = useState(0);
   const [uiTheme, setUiTheme] = useState<"light" | "dark">(readUiTheme);
+  const [member, setMember] = useState<Member | null>(null);
+  const [showMemberDialog, setShowMemberDialog] = useState(false);
+  const memberCenterOpeningRef = useRef(false);
   useEffect(() => {
     document.body.classList.toggle("theme-light", uiTheme === "light");
     let themeColorMeta = document.head.querySelector('meta[name="theme-color"]');
@@ -240,6 +246,28 @@ export function MobileApp() {
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [newAccountCloud, setNewAccountCloud] = useState("aliyun");
   const [notice, setNotice] = useState("");
+  useEffect(() => {
+    if (!runningInTauri) return;
+    let active = true;
+    const refreshMember = () => { void memberClient.me().then(value => { if (active) setMember(value); }).catch(reason => { if (active && String(reason).includes("登录已失效")) setMember(null); }); };
+    refreshMember(); window.addEventListener("focus", refreshMember);
+    return () => { active = false; window.removeEventListener("focus", refreshMember); };
+  }, []);
+  async function openMemberCenter() {
+    if (memberCenterOpeningRef.current) return;
+    memberCenterOpeningRef.current = true;
+    const memberCenterUrl = "https://yun.wlphp.com/member.html";
+    try {
+      if (!runningInTauri) { window.open(memberCenterUrl, "_blank", "noopener,noreferrer"); return; }
+      try {
+        const ticket = await memberClient.webHandoff();
+        await openUrl(`${memberCenterUrl}#handoff=${encodeURIComponent(ticket)}`);
+      } catch {
+        await openUrl(memberCenterUrl);
+        setNotice("自动登录暂不可用，已打开官网会员页，请登录后继续");
+      }
+    } finally { memberCenterOpeningRef.current = false; }
+  }
   const accountForAsset = useCallback((asset: LocalAsset | null) => asset ? accounts.find((account) => account.id === asset.account_id) ?? null : null, [accounts]);
   const selectedDomainAccount = accountForAsset(selectedDomain);
   const selectedDomainName = selectedDomain ? payloadText(selectedDomain.payload, ["DomainName", "domain", "domainName", "name"]) : "";
@@ -1330,7 +1358,7 @@ export function MobileApp() {
           <div className="mobile-page-title"><div><p>系统设置</p><h1>关于</h1></div></div>
           <section className="mobile-about-card"><span className="mobile-about-logo"><img src="/cloudhub-logo.png" alt="" /></span><strong>云枢工具箱</strong><span>本地多云资源管理</span><small>版本 {packageJson.version}</small></section>
           <MobileUpdatePanel update={mobileUpdate} />
-        </> : <MobileMorePage onNavigate={setTab} />;
+        </> : <MobileMorePage onNavigate={setTab} member={member} onMemberClick={() => setShowMemberDialog(true)} />;
 
   return (
     <main className={"mobile-shell" + (backAction && !productDialog ? " mobile-subpage" : "")}>
@@ -1417,6 +1445,7 @@ export function MobileApp() {
         </>}
       </ConfirmDialog>}
       {confirmationDialog}
+      {showMemberDialog && <MemberDialog member={member} onMember={setMember} onClose={() => setShowMemberDialog(false)} onOpenCenter={openMemberCenter} onNotice={setNotice} />}
     </main>
   );
 }

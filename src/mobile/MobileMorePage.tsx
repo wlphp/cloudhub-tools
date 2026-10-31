@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Award, ChevronRight, Database, Folder, GitBranch, Layers, Monitor, Search, Settings, ShieldCheck, Terminal, X } from "lucide-react";
+import { MemberAvatar } from "../features/member/MemberDialog";
+import type { Member } from "../platform/clients/member";
 
 type Destination = "storage" | "databases" | "redis" | "certificates" | "ssh" | "panels" | "flow" | "authenticator" | "settings";
 const features = [
@@ -14,7 +16,7 @@ const features = [
   { tab: "settings", title: "系统设置", description: "外观、数据同步与更新", keywords: "迁移 同步 关于 更新 日志 导入", icon: Settings },
 ] satisfies { tab: Destination; title: string; description: string; keywords: string; icon: typeof Folder }[];
 
-export function MobileMorePage({ onNavigate }: { onNavigate: (tab: Destination) => void }) {
+export function MobileMorePage({ onNavigate, member, onMemberClick }: { onNavigate: (tab: Destination) => void; member: Member | null; onMemberClick: () => void }) {
   const [search, setSearch] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const searchInput = useRef<HTMLInputElement>(null);
@@ -36,6 +38,13 @@ export function MobileMorePage({ onNavigate }: { onNavigate: (tab: Destination) 
     </div>
     {searchOpen && <label className="mobile-more-search mobile-more-search-expanded"><Search size={16} aria-hidden="true" /><input ref={searchInput} id="mobile-more-search-field" type="search" aria-label="搜索全部功能" placeholder="搜索功能" value={search} onChange={(event) => setSearch(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); closeSearch(); } }} /></label>}
     <div className="mobile-more-feature-list" aria-label="功能入口">
+      {!query && <button type="button" className="mobile-more-feature mobile-more-member" onClick={onMemberClick}>
+        <span className="mobile-more-feature-icon"><MemberAvatar member={member} size={28} /></span>
+        <span className="mobile-more-feature-copy"><strong>{member?.nickname?.trim() || "会员登录 / 注册"}</strong><small>{member ? member.email : "同步昵称、头像与会员身份"}</small></span>
+        {member?.is_vip && <span className="member-vip-badge">VIP</span>}
+        {member?.is_admin && <span className="member-admin-badge">管理员</span>}
+        <ChevronRight size={20} className="mobile-more-feature-chevron" aria-hidden="true" />
+      </button>}
       {matches.map(({ tab, title, description, icon: Icon }) => <button type="button" className="mobile-more-feature" key={tab} onClick={() => onNavigate(tab)}>
         <span className="mobile-more-feature-icon"><Icon size={20} strokeWidth={1.9} aria-hidden="true" /></span>
         <span className="mobile-more-feature-copy"><strong>{title}</strong><small>{description}</small></span>

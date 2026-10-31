@@ -3698,6 +3698,7 @@ body.theme-light .mobile-shell .mobile-panel-card .mobile-panel-actions > button
 .mobile-shell .mobile-more-titlebar { padding: 0; margin-bottom: 8px; }
 .mobile-shell .mobile-more-feature { border-radius: 10px; }
 .mobile-shell .mobile-more-feature:active { background: var(--mobile-raised); filter: none; }
+.mobile-shell .mobile-more-member .mobile-more-feature-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mobile-shell .mobile-empty { border-style: solid; border-color: var(--mobile-border); background: var(--mobile-surface); }
 .mobile-shell .mobile-empty > svg { color: var(--mobile-muted); }
 .mobile-shell :is(button, input, select, textarea) { scroll-margin-block: 12px; }

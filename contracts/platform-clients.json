@@ -1,6 +1,14 @@
 {
   "version": 1,
   "mobileCommands": [
+    "member_me",
+    "member_send_code",
+    "member_login",
+    "member_login_logs",
+    "member_avatar",
+    "member_web_handoff",
+    "member_nickname",
+    "member_logout",
     "query_ip_location",
     "acknowledge_sync_delta",
     "add_dns_record",
@@ -1360,6 +1368,20 @@
     {
       "name": "app",
       "operations": [
+        {
+          "name": "membership",
+          "native": [
+            "member_me",
+            "member_send_code",
+            "member_login",
+            "member_login_logs",
+            "member_avatar",
+            "member_web_handoff",
+            "member_nickname",
+            "member_logout"
+          ],
+          "preview": []
+        },
         {
           "name": "development-channel",
           "native": [

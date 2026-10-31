@@ -2992,6 +2992,9 @@ body.pane-resizing .ide-theme > .app-main-sidebar{transition:none}
 .identity-menu-backdrop{position:fixed;z-index:10060;inset:0}
 .identity-menu{position:fixed;display:grid;gap:2px;width:200px;padding:6px;border:1px solid var(--jb-border);border-radius:10px;background:var(--jb-surface)}
 .identity-menu-head{display:flex;align-items:center;gap:11px;margin-bottom:4px;padding:13px 10px 11px;border-bottom:1px solid var(--jb-border)}
+.identity-profile-trigger{display:flex;align-items:center;gap:11px;flex:1;min-width:0;padding:0;border:0;background:transparent;color:inherit;text-align:left;cursor:pointer;border-radius:6px}
+.identity-profile-trigger:hover .identity-menu-title strong{text-decoration:underline;text-underline-offset:3px}
+.identity-profile-trigger:focus-visible{outline:2px solid var(--jb-accent);outline-offset:2px}
 .identity-menu .app-sidebar-avatar{flex:none;width:38px;height:38px;border-radius:50%;display:grid;place-items:center;font-size:19px;line-height:1;user-select:none}
 .app-sidebar-avatar-anon{background:var(--jb-surface-3);color:var(--jb-muted)}
 .identity-menu-title{display:grid;gap:3px;min-width:0;flex:1;text-align:left}

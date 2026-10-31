@@ -18,6 +18,7 @@ use core::repositories::managed_hosts as managed_host_repository;
 use core::repositories::accounts as account_repository;
 use core::repositories::logs as log_repository;
 mod commands;
+use commands::member::{member_me, member_web_handoff, member_send_code, member_login, member_avatar, member_nickname, member_logout, member_login_logs};
 #[cfg(mobile)]
 use commands::cloud_sync::{cloud_sync_state, cloud_sync_save, cloud_sync_test, cloud_sync_upload, cloud_sync_download, cloud_sync_reveal_secret, cloud_sync_versions, cloud_sync_channels, cloud_sync_delete, cloud_sync_delete_version};
 pub(crate) use commands::ip_location::query_ip_location;
@@ -943,6 +944,7 @@ pub fn run() {
         });
     #[cfg(mobile)]
     let builder = builder.invoke_handler(tauri::generate_handler![
+        member_me, member_web_handoff, member_send_code, member_login, member_avatar, member_nickname, member_logout, member_login_logs,
         query_ip_location, ai_list_models, ai_test_vision, ai_export_config, ai_prepare_import, ai_confirm_import, ai_cancel_import,
         ai_list_profiles, ai_reveal_key, ai_save_profile, ai_delete_profile, ai_preview, ai_run, ai_cancel,
         authenticator_reveal_secret, authenticator_status, authenticator_unlock, authenticator_lock, authenticator_list, authenticator_touch, authenticator_codes, authenticator_save, authenticator_remove, authenticator_advance, authenticator_copy, authenticator_prepare, authenticator_import, authenticator_cancel, authenticator_export,
@@ -964,6 +966,7 @@ pub fn run() {
     let builder = builder.manage(core::browser::runtime::BrowserState::default());
     #[cfg(desktop)]
     let builder = builder.invoke_handler(commands::desktop_pet::restricted(tauri::generate_handler![
+        member_me, member_web_handoff, member_send_code, member_login, member_avatar, member_nickname, member_logout, member_login_logs,
         plan_database_import,
         commands::cloud_drive::cloud_drive_snapshot, commands::cloud_drive::cloud_drive_install,
         commands::cloud_drive::cloud_drive_alipan_begin, commands::cloud_drive::cloud_drive_alipan_finish, commands::cloud_drive::cloud_drive_alipan_cancel,
