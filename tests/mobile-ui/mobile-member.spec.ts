@@ -62,7 +62,7 @@ test("shows the signed-in nickname and VIP identity and saves a nickname change"
   await profile.getByRole("button", { name: "修改昵称" }).click();
 
   const nicknameDialog = page.getByRole("dialog", { name: "修改昵称" });
-  await nicknameDialog.getByLabel("昵称").fill("移动端昵称");
+  await nicknameDialog.locator("#member-nickname-input").fill("移动端昵称");
   await nicknameDialog.getByRole("button", { name: "保存" }).click();
   await expect(nicknameDialog).toHaveCount(0);
   await expect(profile).toContainText("移动端昵称");
