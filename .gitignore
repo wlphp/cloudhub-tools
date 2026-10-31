@@ -59,6 +59,8 @@ scripts/skill-sync.mjs
 scripts/task-tracker.mjs
 
 # Local credentials and machine-specific settings
+# 本机 Android 发布签名密钥（禁止提交）
+/local-signing/
 .env
 .env.*
 !.env.example
