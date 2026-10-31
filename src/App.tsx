@@ -249,7 +249,7 @@ function syncAssetTypes(account: Account): ReadonlyArray<(typeof assetTypes)[num
 }
 const assetTypes = catalogAssetTypes;
 
-const bundledVersion = "0.1.110";
+const bundledVersion = "0.1.111";
 const isDevelopmentBuild = import.meta.env.DEV;
 
 const detachedTerminalHostId = (() => {
@@ -320,7 +320,7 @@ function App() {
   useEffect(() => {
     if (!("__TAURI_INTERNALS__" in window)) return;
     let active = true;
-    const refresh = () => { void memberClient.me().then(value => { if (active) setMember(value); }).catch(reason => { if (active && String(reason).includes("登录已失效")) setMember(null); }); };
+    const refresh = () => { void memberClient.me().then(value => { if (active) setMember(value && typeof value.nickname === "string" ? value : null); }).catch(reason => { if (active && String(reason).includes("登录已失效")) setMember(null); }); };
     refresh(); window.addEventListener("focus", refresh);
     return () => { active = false; window.removeEventListener("focus", refresh); };
   }, []);

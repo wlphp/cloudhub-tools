@@ -3703,6 +3703,65 @@ body.theme-light .mobile-shell .mobile-panel-card .mobile-panel-actions > button
 .mobile-shell .mobile-empty > svg { color: var(--mobile-muted); }
 .mobile-shell :is(button, input, select, textarea) { scroll-margin-block: 12px; }
 .mobile-shell button { touch-action: manipulation; }
+.mobile-member-page { display: grid; gap: 16px; width: min(100%, 680px); margin: 0 auto; padding: 4px 2px 28px; color: var(--mobile-text); }
+.mobile-member-heading { display: flex; align-items: center; gap: 12px; min-height: 58px; margin-bottom: 2px; }
+.mobile-member-heading > div { display: grid; gap: 1px; }
+.mobile-member-heading p { margin: 0; color: var(--mobile-accent); font-size: 11px; font-weight: 650; letter-spacing: .08em; }
+.mobile-member-heading h1 { margin: 0; font-size: 21px; line-height: 1.35; }
+.mobile-member-back,.mobile-member-refresh { display: grid; place-items: center; width: 44px; height: 44px; flex: 0 0 44px; border: 1px solid var(--mobile-border); border-radius: 13px; background: var(--mobile-surface); color: var(--mobile-text); }
+.mobile-member-hero { position: relative; display: grid; gap: 17px; overflow: hidden; padding: 20px; border: 1px solid color-mix(in srgb,var(--mobile-accent) 35%,var(--mobile-border)); border-radius: 20px; background: radial-gradient(ellipse at 100% 0%, color-mix(in srgb,var(--mobile-accent) 20%,transparent),transparent 52%), linear-gradient(145deg,var(--mobile-surface),color-mix(in srgb,var(--mobile-bg) 60%,var(--mobile-surface))); box-shadow: 0 12px 32px #0002; }
+.mobile-member-hero-top { display: flex; align-items: center; gap: 13px; min-width: 0; }
+.mobile-member-avatar { display: grid; place-items: center; width: 64px; height: 64px; flex: 0 0 64px; border: 2px solid color-mix(in srgb,var(--mobile-accent) 45%,transparent); border-radius: 20px; background: var(--mobile-raised); }
+.mobile-member-avatar .app-sidebar-avatar { width: 52px; height: 52px; }
+.mobile-member-identity { display: grid; gap: 5px; min-width: 0; flex: 1; }
+.mobile-member-name { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; overflow-wrap: anywhere; font-size: 17px; font-weight: 700; }
+.mobile-member-identity > span { color: var(--mobile-muted); font-size: 13px; overflow-wrap: anywhere; }
+.mobile-member-refresh { align-self: flex-start; border-color: transparent; background: color-mix(in srgb,var(--mobile-bg) 42%,transparent); color: var(--mobile-muted); }
+.mobile-member-stats { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 10px; padding: 13px 0; border-top: 1px solid var(--mobile-border); border-bottom: 1px solid var(--mobile-border); }
+.mobile-member-stats > div { display: grid; gap: 4px; min-width: 0; }
+.mobile-member-stats span { color: var(--mobile-muted); font-size: 11px; }
+.mobile-member-stats strong { font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.mobile-member-edit,.mobile-member-site,.mobile-member-logout { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 46px; padding: 0 14px; border: 1px solid var(--mobile-border); border-radius: 12px; background: var(--mobile-surface); color: var(--mobile-text); font: inherit; font-size: 13px; font-weight: 600; }
+.mobile-member-edit { justify-self: start; min-height: 40px; border-color: color-mix(in srgb,var(--mobile-accent) 35%,var(--mobile-border)); color: var(--mobile-accent); background: color-mix(in srgb,var(--mobile-accent) 9%,var(--mobile-surface)); }
+.mobile-member-nickname { display: grid; gap: 8px; }
+.mobile-member-nickname label,.mobile-member-login > label { font-size: 13px; font-weight: 600; }
+.mobile-member-nickname > div { display: flex; flex-wrap: wrap; gap: 8px; }
+.mobile-member-nickname input,.mobile-member-input input { flex: 1; min-width: 0; min-height: 46px; padding: 0 12px; border: 1px solid var(--mobile-border); border-radius: 11px; background: var(--mobile-bg); color: var(--mobile-text); font: inherit; font-size: 16px; }
+.mobile-member-nickname button,.mobile-member-input button { min-height: 44px; padding: 0 13px; border: 1px solid var(--mobile-border); border-radius: 10px; background: var(--mobile-raised); color: var(--mobile-text); font: inherit; }
+.mobile-member-nickname button[type=submit],.mobile-member-input button { border-color: transparent; background: var(--mobile-accent); color: white; }
+.mobile-member-section { padding: 17px; border: 1px solid var(--mobile-border); border-radius: 18px; background: var(--mobile-surface); }
+.mobile-member-section-title { display: flex; align-items: center; gap: 11px; margin-bottom: 13px; }
+.mobile-member-section-icon { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 12px; background: var(--mobile-accent-soft); color: var(--mobile-accent); }
+.mobile-member-section-title h2 { margin: 0; font-size: 15px; }
+.mobile-member-section-title p { margin: 3px 0 0; color: var(--mobile-muted); font-size: 11px; }
+.mobile-member-logs { display: grid; }
+.mobile-member-logs article { display: flex; align-items: center; gap: 10px; min-height: 58px; border-top: 1px solid var(--mobile-border); }
+.mobile-member-log-dot { width: 9px; height: 9px; flex: 0 0 9px; border-radius: 50%; background: #ef4444; }
+.mobile-member-log-dot.ok { background: #22c55e; }
+.mobile-member-logs article > div { display: grid; gap: 3px; flex: 1; min-width: 0; }
+.mobile-member-logs article strong { font-size: 13px; }
+.mobile-member-logs article small { color: var(--mobile-muted); font-size: 11px; }
+.mobile-member-result-ok,.mobile-member-result-failed { font-size: 11px; }
+.mobile-member-result-ok { color: #22c55e; }.mobile-member-result-failed { color: #ef4444; }
+.mobile-member-empty { margin: 0; padding: 14px 0 3px; color: var(--mobile-muted); font-size: 13px; }
+.mobile-member-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.mobile-member-site { border-color: color-mix(in srgb,var(--mobile-accent) 45%,var(--mobile-border)); color: var(--mobile-accent); }
+.mobile-member-logout { color: #ef7777; }
+.mobile-member-login-intro { display: grid; justify-items: center; gap: 8px; padding: 22px 20px 18px; text-align: center; }
+.mobile-member-login-intro > span { display: grid; place-items: center; width: 62px; height: 62px; border-radius: 20px; background: var(--mobile-accent-soft); color: var(--mobile-accent); }
+.mobile-member-login-intro h2 { margin: 3px 0 0; font-size: 19px; }
+.mobile-member-login-intro p { max-width: 330px; margin: 0; color: var(--mobile-muted); font-size: 13px; line-height: 1.6; }
+.mobile-member-login { display: grid; gap: 10px; padding: 18px; border: 1px solid var(--mobile-border); border-radius: 18px; background: var(--mobile-surface); }
+.mobile-member-input { display: flex; align-items: center; gap: 9px; min-height: 48px; padding-left: 12px; border: 1px solid var(--mobile-border); border-radius: 12px; background: var(--mobile-bg); color: var(--mobile-muted); }
+.mobile-member-input:focus-within { border-color: var(--mobile-focus); }
+.mobile-member-input input { min-height: 46px; padding: 0; border: 0; background: transparent; outline: 0; }
+.mobile-member-input button { flex: 0 0 auto; margin-right: 3px; }
+.mobile-member-security { display: flex; align-items: center; gap: 7px; margin: 4px 0; color: var(--mobile-muted); font-size: 12px; }
+.mobile-member-submit { min-height: 48px; border: 0; border-radius: 12px; background: linear-gradient(100deg,var(--mobile-accent-strong),var(--mobile-accent)); color: white; font: inherit; font-weight: 700; }
+.mobile-member-login button:disabled,.mobile-member-logout:disabled { opacity: .55; }
+.mobile-member-error { margin: 0; color: #ef7777; font-size: 12px; line-height: 1.5; }
+.mobile-member-page :is(button,input):focus-visible { outline: 2px solid var(--mobile-focus); outline-offset: 2px; }
+@media(max-width:380px) { .mobile-member-hero { padding: 15px; }.mobile-member-stats { gap: 7px; }.mobile-member-section,.mobile-member-login { padding: 14px; }.mobile-member-actions { grid-template-columns: 1fr; } }
 @media (prefers-reduced-motion: reduce) {
   .mobile-shell *, .mobile-shell *::before, .mobile-shell *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }

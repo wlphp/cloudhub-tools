@@ -41,11 +41,11 @@ import { MobileEsaProducts } from "./MobileEsaProducts";
 import { MobileServerDetails, serverExpiryLabel } from "./MobileServerDetails";
 import { MobileProviderMark } from "./MobileProviderMark";
 import { panelRefreshIntervals, useMobilePanelRefresh } from "./useMobilePanelRefresh";
-import { MemberDialog } from "../features/member/MemberDialog";
+import { MobileMemberPage } from "./MobileMemberPage";
 import { memberClient, type Member } from "../platform/clients/member";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
-type MobileTab = "accounts" | "servers" | "domains" | "storage" | "databases" | "redis" | "certificates" | "ssh" | "panels" | "sync" | "settings" | "aiSettings" | "networkSettings" | "operationLogs" | "apiLogs" | "about" | "flow" | "authenticator" | "more";
+type MobileTab = "accounts" | "servers" | "domains" | "storage" | "databases" | "redis" | "certificates" | "ssh" | "panels" | "sync" | "settings" | "aiSettings" | "networkSettings" | "operationLogs" | "apiLogs" | "about" | "flow" | "authenticator" | "member" | "more";
 
 function payloadText(payload: Record<string, unknown>, keys: string[]): string {
   for (const key of keys) {
@@ -126,7 +126,6 @@ export function MobileApp() {
   const [accountAssetsRevision, setAccountAssetsRevision] = useState(0);
   const [uiTheme, setUiTheme] = useState<"light" | "dark">(readUiTheme);
   const [member, setMember] = useState<Member | null>(null);
-  const [showMemberDialog, setShowMemberDialog] = useState(false);
   const memberCenterOpeningRef = useRef(false);
   useEffect(() => {
     document.body.classList.toggle("theme-light", uiTheme === "light");
@@ -1358,7 +1357,7 @@ export function MobileApp() {
           <div className="mobile-page-title"><div><p>系统设置</p><h1>关于</h1></div></div>
           <section className="mobile-about-card"><span className="mobile-about-logo"><img src="/cloudhub-logo.png" alt="" /></span><strong>云枢工具箱</strong><span>本地多云资源管理</span><small>版本 {packageJson.version}</small></section>
           <MobileUpdatePanel update={mobileUpdate} />
-        </> : <MobileMorePage onNavigate={setTab} member={member} onMemberClick={() => setShowMemberDialog(true)} />;
+        </> : tab === "member" ? <MobileMemberPage member={member} onMember={setMember} onBack={() => setTab("more")} onOpenCenter={openMemberCenter} onNotice={setNotice} /> : <MobileMorePage onNavigate={setTab} member={member} onMemberClick={() => setTab("member")} />;
 
   return (
     <main className={"mobile-shell" + (backAction && !productDialog ? " mobile-subpage" : "")}>
@@ -1378,7 +1377,7 @@ export function MobileApp() {
         </MobilePullRefresh>
       </section>
 
-      <nav className="mobile-tab-bar" aria-label="主导航"><button type="button" aria-current={tab === "accounts" ? "page" : undefined} className={tab === "accounts" ? "active" : ""} onClick={() => setTab("accounts")}><Cloud size={19} /><span>账号</span></button><button type="button" aria-current={tab === "servers" ? "page" : undefined} className={tab === "servers" ? "active" : ""} onClick={() => setTab("servers")}><Server size={19} /><span>服务器</span></button><button type="button" aria-current={tab === "domains" ? "page" : undefined} className={tab === "domains" ? "active" : ""} onClick={() => setTab("domains")}><Globe2 size={19} /><span>域名</span></button><button type="button" aria-current={tab === "more" || tab === "authenticator" || tab === "flow" || tab === "storage" || tab === "databases" || tab === "redis" || tab === "certificates" || tab === "ssh" || tab === "panels" || tab === "sync" || tab === "settings" || tab === "aiSettings" || tab === "networkSettings" || tab === "operationLogs" || tab === "apiLogs" || tab === "about" ? "page" : undefined} className={tab === "more" || tab === "authenticator" || tab === "flow" || tab === "storage" || tab === "databases" || tab === "redis" || tab === "certificates" || tab === "ssh" || tab === "panels" || tab === "sync" || tab === "settings" || tab === "aiSettings" || tab === "networkSettings" || tab === "operationLogs" || tab === "apiLogs" || tab === "about" ? "active" : ""} onClick={() => setTab("more")}><LayoutGrid size={19} /><span>更多</span></button></nav>
+      <nav className="mobile-tab-bar" aria-label="主导航"><button type="button" aria-current={tab === "accounts" ? "page" : undefined} className={tab === "accounts" ? "active" : ""} onClick={() => setTab("accounts")}><Cloud size={19} /><span>账号</span></button><button type="button" aria-current={tab === "servers" ? "page" : undefined} className={tab === "servers" ? "active" : ""} onClick={() => setTab("servers")}><Server size={19} /><span>服务器</span></button><button type="button" aria-current={tab === "domains" ? "page" : undefined} className={tab === "domains" ? "active" : ""} onClick={() => setTab("domains")}><Globe2 size={19} /><span>域名</span></button><button type="button" aria-current={tab === "more" || tab === "member" || tab === "authenticator" || tab === "flow" || tab === "storage" || tab === "databases" || tab === "redis" || tab === "certificates" || tab === "ssh" || tab === "panels" || tab === "sync" || tab === "settings" || tab === "aiSettings" || tab === "networkSettings" || tab === "operationLogs" || tab === "apiLogs" || tab === "about" ? "page" : undefined} className={tab === "more" || tab === "member" || tab === "authenticator" || tab === "flow" || tab === "storage" || tab === "databases" || tab === "redis" || tab === "certificates" || tab === "ssh" || tab === "panels" || tab === "sync" || tab === "settings" || tab === "aiSettings" || tab === "networkSettings" || tab === "operationLogs" || tab === "apiLogs" || tab === "about" ? "active" : ""} onClick={() => setTab("more")}><LayoutGrid size={19} /><span>更多</span></button></nav>
 
       {backAction && <button type="button" className="mobile-back-fab" aria-label={backAction.label} title={backAction.label} style={backFabPos ? { left: "auto", top: "auto", right: Math.max(8, Math.min(backFabPos.right, Math.min(window.innerWidth, 720) - 62)), bottom: Math.max(8, Math.min(backFabPos.bottom, window.innerHeight - 114)) } : undefined} onPointerDown={startBackFabDrag} onPointerMove={dragBackFab} onPointerUp={endBackFabDrag} onPointerCancel={endBackFabDrag} onContextMenu={(event) => { if (backFabDragRef.current?.dragging) event.preventDefault(); }} onClick={clickBackFab}><ArrowLeft size={20} /></button>}
       {productDialog && <SharedDialog title={resourceLabels[productDialog.type as keyof typeof resourceLabels]} subtitle={productDialog.account.account_name} className="mobile-account-product-dialog" onClose={closeAccountProduct} footer={<>
@@ -1445,7 +1444,6 @@ export function MobileApp() {
         </>}
       </ConfirmDialog>}
       {confirmationDialog}
-      {showMemberDialog && <MemberDialog member={member} onMember={setMember} onClose={() => setShowMemberDialog(false)} onOpenCenter={openMemberCenter} onNotice={setNotice} />}
     </main>
   );
 }
