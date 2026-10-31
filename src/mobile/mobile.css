@@ -3703,6 +3703,7 @@ body.theme-light .mobile-shell .mobile-panel-card .mobile-panel-actions > button
 .mobile-shell .mobile-empty > svg { color: var(--mobile-muted); }
 .mobile-shell :is(button, input, select, textarea) { scroll-margin-block: 12px; }
 .mobile-shell button { touch-action: manipulation; }
+.mobile-shell .mobile-back-fab { width: 48px; height: 48px; touch-action: none; }
 .mobile-member-page { display: grid; gap: 16px; width: min(100%, 680px); margin: 0 auto; padding: 4px 2px 28px; color: var(--mobile-text); }
 .mobile-member-heading { display: flex; align-items: center; gap: 12px; min-height: 58px; margin-bottom: 2px; }
 .mobile-member-heading > div { display: grid; gap: 1px; }

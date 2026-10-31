@@ -1147,49 +1147,51 @@ export function MobileApp() {
     } catch { return null; }
   });
   const backFabPosRef = useRef(backFabPos);
-  const backFabDragRef = useRef<{ pointerId: number; timer: number; grabOffsetX: number; grabOffsetY: number; dragging: boolean } | null>(null);
+  const backFabDragRef = useRef<{ pointerId: number; startX: number; startY: number; grabOffsetX: number; grabOffsetY: number; dragging: boolean } | null>(null);
   const suppressBackFabClickRef = useRef(false);
   const startBackFabDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
     if (!event.isPrimary || backFabDragRef.current) return;
     const button = event.currentTarget;
-    const shellRect = button.closest(".mobile-shell")?.getBoundingClientRect();
-    if (!shellRect) return;
     const buttonRect = button.getBoundingClientRect();
-    const drag = {
+    backFabDragRef.current = {
       pointerId: event.pointerId,
-      timer: 0,
+      startX: event.clientX,
+      startY: event.clientY,
       grabOffsetX: event.clientX - buttonRect.left,
       grabOffsetY: event.clientY - buttonRect.top,
       dragging: false,
     };
-    drag.timer = window.setTimeout(() => {
-      drag.dragging = true;
-      suppressBackFabClickRef.current = true;
-      button.classList.add("is-dragging");
-      try { button.setPointerCapture(drag.pointerId); } catch { /* 指针可能已释放 */ }
-    }, 350);
-    backFabDragRef.current = drag;
+    suppressBackFabClickRef.current = false;
+    try { button.setPointerCapture(event.pointerId); } catch { /* 指针可能已释放 */ }
   };
   const dragBackFab = (event: ReactPointerEvent<HTMLButtonElement>) => {
     const drag = backFabDragRef.current;
-    if (!drag?.dragging || event.pointerId !== drag.pointerId) return;
-    const shellRect = document.querySelector(".mobile-shell")?.getBoundingClientRect();
+    if (!drag || event.pointerId !== drag.pointerId) return;
+    if (!drag.dragging && Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) >= 6) {
+      drag.dragging = true;
+      suppressBackFabClickRef.current = true;
+      event.currentTarget.classList.add("is-dragging");
+    }
+    if (!drag.dragging) return;
+    const shellRect = event.currentTarget.closest(".mobile-shell")?.getBoundingClientRect();
     if (!shellRect) return;
-    const size = 46;
-    const left = Math.min(Math.max(event.clientX - drag.grabOffsetX - shellRect.left, 8), shellRect.width - size - 8);
-    const top = Math.min(Math.max(event.clientY - drag.grabOffsetY - shellRect.top, 8), shellRect.height - size - 8);
-    const pos = { right: Math.round(shellRect.width - size - left), bottom: Math.round(shellRect.height - size - top) };
+    const buttonRect = event.currentTarget.getBoundingClientRect();
+    const left = Math.min(Math.max(event.clientX - drag.grabOffsetX - shellRect.left, 8), shellRect.width - buttonRect.width - 8);
+    const top = Math.min(Math.max(event.clientY - drag.grabOffsetY - shellRect.top, 8), shellRect.height - buttonRect.height - 8);
+    const pos = { right: Math.round(shellRect.width - buttonRect.width - left), bottom: Math.round(shellRect.height - buttonRect.height - top) };
     backFabPosRef.current = pos;
     setBackFabPos(pos);
   };
-  const endBackFabDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+  const endBackFabDrag = (event: ReactPointerEvent<HTMLButtonElement>, cancelled = false) => {
     const drag = backFabDragRef.current;
     if (!drag || event.pointerId !== drag.pointerId) return;
-    window.clearTimeout(drag.timer);
     backFabDragRef.current = null;
-    if (!drag.dragging) return;
     event.currentTarget.classList.remove("is-dragging");
-    try { localStorage.setItem(cloudHubBackFabPositionStorageKey, JSON.stringify(backFabPosRef.current)); } catch { /* 存储不可用时仅本次会话生效 */ }
+    if (drag.dragging && !cancelled) {
+      try { localStorage.setItem(cloudHubBackFabPositionStorageKey, JSON.stringify(backFabPosRef.current)); } catch { /* 存储不可用时仅本次会话生效 */ }
+    } else if (cancelled) {
+      suppressBackFabClickRef.current = false;
+    }
   };
   const clickBackFab = () => {
     if (suppressBackFabClickRef.current) { suppressBackFabClickRef.current = false; return; }
@@ -1379,7 +1381,7 @@ export function MobileApp() {
 
       <nav className="mobile-tab-bar" aria-label="主导航"><button type="button" aria-current={tab === "accounts" ? "page" : undefined} className={tab === "accounts" ? "active" : ""} onClick={() => setTab("accounts")}><Cloud size={19} /><span>账号</span></button><button type="button" aria-current={tab === "servers" ? "page" : undefined} className={tab === "servers" ? "active" : ""} onClick={() => setTab("servers")}><Server size={19} /><span>服务器</span></button><button type="button" aria-current={tab === "domains" ? "page" : undefined} className={tab === "domains" ? "active" : ""} onClick={() => setTab("domains")}><Globe2 size={19} /><span>域名</span></button><button type="button" aria-current={tab === "more" || tab === "member" || tab === "authenticator" || tab === "flow" || tab === "storage" || tab === "databases" || tab === "redis" || tab === "certificates" || tab === "ssh" || tab === "panels" || tab === "sync" || tab === "settings" || tab === "aiSettings" || tab === "networkSettings" || tab === "operationLogs" || tab === "apiLogs" || tab === "about" ? "page" : undefined} className={tab === "more" || tab === "member" || tab === "authenticator" || tab === "flow" || tab === "storage" || tab === "databases" || tab === "redis" || tab === "certificates" || tab === "ssh" || tab === "panels" || tab === "sync" || tab === "settings" || tab === "aiSettings" || tab === "networkSettings" || tab === "operationLogs" || tab === "apiLogs" || tab === "about" ? "active" : ""} onClick={() => setTab("more")}><LayoutGrid size={19} /><span>更多</span></button></nav>
 
-      {backAction && <button type="button" className="mobile-back-fab" aria-label={backAction.label} title={backAction.label} style={backFabPos ? { left: "auto", top: "auto", right: Math.max(8, Math.min(backFabPos.right, Math.min(window.innerWidth, 720) - 62)), bottom: Math.max(8, Math.min(backFabPos.bottom, window.innerHeight - 114)) } : undefined} onPointerDown={startBackFabDrag} onPointerMove={dragBackFab} onPointerUp={endBackFabDrag} onPointerCancel={endBackFabDrag} onContextMenu={(event) => { if (backFabDragRef.current?.dragging) event.preventDefault(); }} onClick={clickBackFab}><ArrowLeft size={20} /></button>}
+      {backAction && <button type="button" className="mobile-back-fab" aria-label={backAction.label} title={backAction.label} style={backFabPos ? { left: "auto", top: "auto", right: Math.max(8, Math.min(backFabPos.right, Math.min(window.innerWidth, 720) - 56)), bottom: Math.max(8, Math.min(backFabPos.bottom, window.innerHeight - 114)) } : undefined} onPointerDown={startBackFabDrag} onPointerMove={dragBackFab} onPointerUp={endBackFabDrag} onPointerCancel={(event) => endBackFabDrag(event, true)} onLostPointerCapture={(event) => endBackFabDrag(event, true)} onContextMenu={(event) => { if (backFabDragRef.current?.dragging) event.preventDefault(); }} onClick={clickBackFab}><ArrowLeft size={20} /></button>}
       {productDialog && <SharedDialog title={resourceLabels[productDialog.type as keyof typeof resourceLabels]} subtitle={productDialog.account.account_name} className="mobile-account-product-dialog" onClose={closeAccountProduct} footer={<>
         {(selectedDomain || selectedBucket || selectedDatabase || selectedRedis) && backAction && <button type="button" className="secondary" onClick={backAction.onClick}><ArrowLeft size={16} />{backAction.label}</button>}
         <button type="button" className="secondary" onClick={closeAccountProduct}>关闭</button>
