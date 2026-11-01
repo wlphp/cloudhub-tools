@@ -140,7 +140,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { runningInTauri } from "./platform/api";
+import { platformErrorMessage, runningInTauri } from "./platform/api";
 import { accountsClient, appClient, databaseClient, domainsClient, logsClient, preferencesClient, remoteClient, resourcesClient, serversClient } from "./platform/clients";
 import type { DatabaseImportPreview } from "./platform/clients/database";
 import {
@@ -250,7 +250,7 @@ function syncAssetTypes(account: Account): ReadonlyArray<(typeof assetTypes)[num
 }
 const assetTypes = catalogAssetTypes;
 
-const bundledVersion = "0.1.114";
+const bundledVersion = "0.1.115";
 const isDevelopmentBuild = import.meta.env.DEV;
 
 const detachedTerminalHostId = (() => {
@@ -646,12 +646,28 @@ function App() {
     try {
       const memberCenterUrl = "https://yun.wlphp.com/member.html";
       if (!runningInTauri) { openExternalLink(memberCenterUrl); return; }
+      let ticket: string;
       try {
-        const ticket = await memberClient.webHandoff();
+        ticket = await memberClient.webHandoff();
+      } catch (reason) {
+        const detail = platformErrorMessage(reason, "会员服务请求失败");
+        try {
+          await openUrl(memberCenterUrl);
+          setStatus(`创建会员中心登录链接失败：${detail}。已打开官网会员页，请登录后继续`);
+        } catch {
+          setStatus(`创建会员中心登录链接失败：${detail}；并且无法打开官网，请检查系统默认浏览器`);
+        }
+        return;
+      }
+      try {
         await openUrl(`${memberCenterUrl}#handoff=${encodeURIComponent(ticket)}`);
       } catch {
-        await openUrl(memberCenterUrl);
-        setStatus("自动登录暂不可用，已打开官网会员页，请登录后继续");
+        try {
+          await openUrl(memberCenterUrl);
+          setStatus("临时登录链接已创建，但系统未能打开自动登录链接；已打开官网会员页，请登录后继续");
+        } catch {
+          setStatus("临时登录链接已创建，但系统无法打开浏览器，请检查系统默认浏览器");
+        }
       }
     } finally {
       memberCenterOpeningRef.current = false;
@@ -4103,77 +4119,83 @@ function App() {
               placeholder="请输入关键词"
               aria-label="关键词"
             />
-            <label>分组：</label>
-            <select
-              className="account-group-filter"
-              aria-label="按分组筛选"
-              value={groupFilter}
-              onChange={(e) => setGroupFilter(e.target.value)}
-            >
-              <option value="">全部分组</option>
-              {groups.map((group) => (
-                <option key={group} value={group}>
-                  {group}
-                </option>
-              ))}
-            </select>
-            <label>状态：</label>
-            <select
-              className="account-status-filter"
-              aria-label="按状态筛选"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-            >
-              <option value="1">启用</option>
-              <option value="0">禁用</option>
-              <option value="all">全部</option>
-            </select>
-            <label>云类型：</label>
-            <div className="provider-filter-wrap">
-              <button
-                type="button"
-                className={`account-provider-filter-toggle${providerFilterOpen ? " is-open" : ""}${cloudFilterTypes.length ? " has-selection" : ""}`}
-                aria-label="按云类型筛选"
-                aria-expanded={providerFilterOpen}
-                onClick={toggleProviderFilterOpen}
+            <div className="account-filter-field">
+              <span>分组：</span>
+              <select
+                className="account-group-filter"
+                aria-label="按分组筛选"
+                value={groupFilter}
+                onChange={(e) => setGroupFilter(e.target.value)}
               >
-                <span>{providerFilterLabel}</span>
-                <ChevronDown size={14} aria-hidden="true" />
-              </button>
-              {providerFilterOpen && (
-                <div
-                  className="account-provider-filter-menu"
-                  role="group"
-                  aria-label="按云类型筛选账号"
-                  style={providerFilterPosition ? { position: "fixed", top: providerFilterPosition.top, left: providerFilterPosition.left, right: "auto" } : undefined}
+                <option value="">全部分组</option>
+                {groups.map((group) => (
+                  <option key={group} value={group}>
+                    {group}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="account-filter-field">
+              <span>状态：</span>
+              <select
+                className="account-status-filter"
+                aria-label="按状态筛选"
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+              >
+                <option value="1">启用</option>
+                <option value="0">禁用</option>
+                <option value="all">全部</option>
+              </select>
+            </div>
+            <div className="account-filter-field account-provider-filter-field">
+              <span>云类型：</span>
+              <div className="provider-filter-wrap">
+                <button
+                  type="button"
+                  className={`account-provider-filter-toggle${providerFilterOpen ? " is-open" : ""}${cloudFilterTypes.length ? " has-selection" : ""}`}
+                  aria-label="按云类型筛选"
+                  aria-expanded={providerFilterOpen}
+                  onClick={toggleProviderFilterOpen}
                 >
-                  <label className="account-provider-filter-head">
-                    <input
-                      ref={(element) => { if (element) element.indeterminate = cloudFilterTypes.length > 0 && !providerFilterAll; }}
-                      type="checkbox"
-                      aria-label="全选云类型"
-                      checked={providerFilterAll}
-                      onChange={() => setCloudFilterTypes(providerFilterAll ? [] : providerFilterOptions.map((option) => option.value))}
-                    />
-                    <span>云类型</span>
-                  </label>
-                  <div className="account-provider-filter-list">
-                    {providerFilterOptions.map((option) => (
-                      <label key={option.value} className="account-provider-filter-row">
-                        <input
-                          type="checkbox"
-                          aria-label={`筛选云类型 ${option.label}`}
-                          checked={cloudFilterTypes.includes(option.value)}
-                          onChange={() => setCloudFilterTypes((types) => types.includes(option.value) ? types.filter((type) => type !== option.value) : [...types, option.value])}
-                        />
-                        <CloudAvatar cloudType={option.value} />
-                        <span className="account-provider-filter-name">{option.label}</span>
-                        <small>{option.count}</small>
-                      </label>
-                    ))}
+                  <span>{providerFilterLabel}</span>
+                  <ChevronDown size={14} aria-hidden="true" />
+                </button>
+                {providerFilterOpen && (
+                  <div
+                    className="account-provider-filter-menu"
+                    role="group"
+                    aria-label="按云类型筛选账号"
+                    style={providerFilterPosition ? { position: "fixed", top: providerFilterPosition.top, left: providerFilterPosition.left, right: "auto" } : undefined}
+                  >
+                    <label className="account-provider-filter-head">
+                      <input
+                        ref={(element) => { if (element) element.indeterminate = cloudFilterTypes.length > 0 && !providerFilterAll; }}
+                        type="checkbox"
+                        aria-label="全选云类型"
+                        checked={providerFilterAll}
+                        onChange={() => setCloudFilterTypes(providerFilterAll ? [] : providerFilterOptions.map((option) => option.value))}
+                      />
+                      <span>云类型</span>
+                    </label>
+                    <div className="account-provider-filter-list">
+                      {providerFilterOptions.map((option) => (
+                        <label key={option.value} className="account-provider-filter-row">
+                          <input
+                            type="checkbox"
+                            aria-label={`筛选云类型 ${option.label}`}
+                            checked={cloudFilterTypes.includes(option.value)}
+                            onChange={() => setCloudFilterTypes((types) => types.includes(option.value) ? types.filter((type) => type !== option.value) : [...types, option.value])}
+                          />
+                          <CloudAvatar cloudType={option.value} />
+                          <span className="account-provider-filter-name">{option.label}</span>
+                          <small>{option.count}</small>
+                        </label>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
             </div>
             <button
               type="button"

@@ -28,7 +28,7 @@ import type { AccountSaveInput } from "../platform/clients/accounts";
 import { serversClient, type InstanceAction } from "../platform/clients/servers";
 import { SyncTransferPanel } from "../features/accounts/SyncTransferPanel";
 import { NetworkSettingsPage } from "../features/settings/NetworkSettingsPage";
-import { runningInTauri } from "../platform/api";
+import { platformErrorMessage, runningInTauri } from "../platform/api";
 import { MobileResourceOverview } from "./MobileResourceOverview";
 import { MobilePanelMetrics } from "./MobilePanelMetrics";
 import { MobileMorePage } from "./MobileMorePage";
@@ -268,12 +268,28 @@ export function MobileApp() {
     const memberCenterUrl = "https://yun.wlphp.com/member.html";
     try {
       if (!runningInTauri) { window.open(memberCenterUrl, "_blank", "noopener,noreferrer"); return; }
+      let ticket: string;
       try {
-        const ticket = await memberClient.webHandoff();
+        ticket = await memberClient.webHandoff();
+      } catch (reason) {
+        const detail = platformErrorMessage(reason, "会员服务请求失败");
+        try {
+          await openUrl(memberCenterUrl);
+          setNotice(`创建会员中心登录链接失败：${detail}。已打开官网会员页，请登录后继续`);
+        } catch {
+          setNotice(`创建会员中心登录链接失败：${detail}；并且无法打开官网，请检查系统默认浏览器`);
+        }
+        return;
+      }
+      try {
         await openUrl(`${memberCenterUrl}#handoff=${encodeURIComponent(ticket)}`);
       } catch {
-        await openUrl(memberCenterUrl);
-        setNotice("自动登录暂不可用，已打开官网会员页，请登录后继续");
+        try {
+          await openUrl(memberCenterUrl);
+          setNotice("临时登录链接已创建，但系统未能打开自动登录链接；已打开官网会员页，请登录后继续");
+        } catch {
+          setNotice("临时登录链接已创建，但系统无法打开浏览器，请检查系统默认浏览器");
+        }
       }
     } finally { memberCenterOpeningRef.current = false; }
   }

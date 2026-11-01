@@ -34,6 +34,58 @@ test("account summary cards stay compact", async ({ page }) => {
   }
 });
 
+test("account filter labels stay grouped at the minimum desktop width", async ({ page }) => {
+  await page.setViewportSize({ width: 820, height: 900 });
+  await page.goto("/");
+
+  const statusField = page.locator(".account-filter-field").filter({ has: page.getByText("状态：", { exact: true }) });
+  const label = statusField.locator("span").first();
+  const select = statusField.getByRole("combobox", { name: "按状态筛选" });
+  await expect(label).toBeVisible();
+  await expect(select).toBeVisible();
+
+  const [labelBox, selectBox] = await Promise.all([label.boundingBox(), select.boundingBox()]);
+  expect(labelBox).not.toBeNull();
+  expect(selectBox).not.toBeNull();
+  expect(Math.abs((labelBox!.y + labelBox!.height / 2) - (selectBox!.y + selectBox!.height / 2))).toBeLessThanOrEqual(1);
+  expect(labelBox!.x + labelBox!.width).toBeLessThanOrEqual(selectBox!.x + 1);
+});
+
+test("subtle text and notifications remain legible without covering dialogs", async ({ page }) => {
+  await page.goto("/");
+
+  const contrast = async (foreground: string, background: string) => page.evaluate(({ foreground, background }) => {
+    const luminance = (value: string) => {
+      const channels = value.match(/[a-f\d]{2}/gi)!.map((channel) => parseInt(channel, 16) / 255);
+      const linear = channels.map((channel) => channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4);
+      return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
+    };
+    const a = luminance(foreground);
+    const b = luminance(background);
+    return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+  }, { foreground, background });
+
+  const subtle = page.locator(".ide-theme");
+  await page.evaluate(() => document.body.classList.add("theme-light"));
+  let color = await subtle.evaluate((element) => getComputedStyle(element).getPropertyValue("--jb-subtle").trim());
+  expect(await contrast(color, "#f3f3f4")).toBeGreaterThanOrEqual(4.5);
+  await page.evaluate(() => document.body.classList.remove("theme-light"));
+  color = await subtle.evaluate((element) => getComputedStyle(element).getPropertyValue("--jb-subtle").trim());
+  expect(await contrast(color, "#2c2c2c")).toBeGreaterThanOrEqual(4.5);
+
+  const toast = await page.evaluate(() => {
+    const element = document.createElement("div");
+    element.className = "toast-notice";
+    document.body.append(element);
+    const style = getComputedStyle(element);
+    const values = { bottom: style.bottom, zIndex: style.zIndex };
+    element.remove();
+    return values;
+  });
+  expect(toast.bottom).toBe("24px");
+  expect(Number(toast.zIndex)).toBeGreaterThan(100);
+});
+
 test("opens the cloud account form with required credential boundaries", async ({ page }) => {
   await page.goto("/");
 

@@ -385,9 +385,10 @@ test("微信插件传递启动参数、保留取消选择并防止重复启动",
   await expect(page.locator(".store-catalog")).not.toContainText("已检测到微信客户端。");
   const position = await notice.evaluate(element => {
     const rect = element.getBoundingClientRect();
-    return { top: rect.top, right: window.innerWidth - rect.right };
+    return { bottom: window.innerHeight - rect.bottom, right: window.innerWidth - rect.right };
   });
-  expect(position.top).toBeLessThan(120);
+  expect(position.bottom).toBeGreaterThanOrEqual(0);
+  expect(position.bottom).toBeLessThan(50);
   expect(position.right).toBeGreaterThanOrEqual(0);
   expect(position.right).toBeLessThan(50);
   await notice.getByRole("button", { name: "关闭操作提示" }).click();

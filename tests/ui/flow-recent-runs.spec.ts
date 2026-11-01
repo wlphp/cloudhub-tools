@@ -23,6 +23,8 @@ test("recent runs sort across provider pages and retain search and group navigat
   });
   await page.goto("/");
   await page.getByRole("button", { name: "云效流水线", exact: true }).first().click();
+  await expect(page.locator(".flow-toolbar-actions select")).toHaveValue("all");
+  await page.locator(".flow-toolbar-actions select").selectOption("1");
   await page.getByRole("button", { name: "添加连接", exact: true }).click();
   const connectionDialog = page.locator(".flow-dialog");
   await expect(connectionDialog).toHaveClass(/dialog-common-theme/);
@@ -89,6 +91,34 @@ test("recent runs sort across provider pages and retain search and group navigat
   await page.locator(".flow-pipeline-panel").screenshot({ path: "test-results/flow-recent-runs.png" });
 });
 
+test("all connections aggregates pipelines and keeps each pipeline's source connection", async ({ page }) => {
+  await page.route("**/api/**", route => {
+    const url = new URL(route.request().url());
+    if (url.pathname === "/api/flow-connections") return route.fulfill({ json: [
+      { id: 1, name: "研发组织", edition: "central", tokenSaved: true },
+      { id: 2, name: "测试组织", edition: "central", tokenSaved: true },
+    ] });
+    if (url.pathname === "/api/flow-pipelines") {
+      const id = url.searchParams.get("connectionId");
+      return route.fulfill({ json: [{ pipelineId: "same-id", pipelineName: `流水线 ${id}`, latestStatus: "SUCCESS" }] });
+    }
+    if (url.pathname === "/api/flow-latest-run") {
+      return route.fulfill({ json: { pipelineRunId: `run-${url.searchParams.get("connectionId")}`, status: "SUCCESS", startTime: 1700000000000, stages: [] } });
+    }
+    return route.fulfill({ json: [] });
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "云效流水线", exact: true }).first().click();
+  await page.locator(".flow-toolbar-actions select").selectOption("1");
+  await page.locator(".flow-toolbar-actions select").selectOption("all");
+  const rows = page.locator(".flow-pipeline-table tbody tr");
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(0).locator(".flow-source-label")).toHaveText("研发组织");
+  await expect(rows.nth(1).locator(".flow-source-label")).toHaveText("测试组织");
+  await expect(rows.nth(0).locator("td").nth(2)).toContainText("#run-1");
+  await expect(rows.nth(1).locator("td").nth(2)).toContainText("#run-2");
+});
+
 test("local recent runs persist successful triggers per connection and explain both sources", async ({ page }) => {
   const items = ["A", "B", "C"].map(id => ({ pipelineId: id, pipelineName: `本地测试 ${id}` }));
   let pipelineRequests = 0;
@@ -109,6 +139,7 @@ test("local recent runs persist successful triggers per connection and explain b
     { pipeline: { pipelineId: "B", pipelineName: "本地测试 B" }, triggeredAt: 1700000010000 },
   ])));
   await page.getByRole("button", { name: "云效流水线", exact: true }).first().click();
+  await page.locator(".flow-toolbar-actions select").selectOption("1");
   const tabs = page.getByRole("tablist", { name: "流水线分组" });
   const local = tabs.getByRole("tab", { name: "本地最近运行", exact: true });
   await expect(tabs.getByRole("tab").first()).toHaveText("本地最近运行");

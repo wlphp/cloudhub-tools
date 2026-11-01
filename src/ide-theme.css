@@ -59,7 +59,8 @@
 .store-empty h2 { font-size: 15px; color: var(--jb-text); }
 .store-empty p { font-size: 13px; line-height: 1.7; }
 .store-notification { display: flex; align-items: flex-start; gap: 10px; line-height: 1.7; overflow-wrap: anywhere; }
-.store-notification-layer { position: relative; z-index: 10050; }
+.store-notification-layer { position: fixed; inset: 0; z-index: 2147483000; pointer-events: none; }
+.store-notification-layer .store-notification { position: absolute; right: 24px; bottom: 24px; pointer-events: auto; }
 .store-notification > span { min-width: 0; }
 .store-notification > button { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 24px; width: 24px; height: 24px; margin: 0; padding: 0; border: 0; background: transparent; color: inherit; cursor: pointer; }
 .store-notification > button:focus-visible { outline: 2px solid var(--jb-accent); outline-offset: 2px; }
@@ -334,7 +335,7 @@
   --jb-border-strong: #404040;
   --jb-text: #e6e6e6;
   --jb-muted: #a0a0a0;
-  --jb-subtle: #757575;
+  --jb-subtle: #969696;
   --jb-accent: #ea580c;
   --jb-accent-soft: #33200f;
   --jb-blue: #5aa8ff;
@@ -3025,7 +3026,7 @@ body.pane-resizing .ide-theme > .app-main-sidebar{transition:none}
 body.theme-light :where(.ide-theme,.identity-menu){
   --jb-bg:#f7f7f8;--jb-sidebar:#f0f0f1;--jb-surface:#ffffff;--jb-surface-2:#f3f3f4;--jb-surface-3:#eaeaea;--jb-input:#ffffff;
   --jb-border:#e4e4e5;--jb-border-strong:#cfcfd2;
-  --jb-text:#1d1d1f;--jb-muted:#67676c;--jb-subtle:#97979c;
+  --jb-text:#1d1d1f;--jb-muted:#67676c;--jb-subtle:#6d6d72;
   --jb-accent:#ea580c;--jb-accent-strong:#d14e08;--jb-accent-soft:#fdeadd;
   --jb-blue:#1774d6;--jb-green:#12967a;--jb-yellow:#a8731f;--jb-red:#d2454f;
   --jb-success:#12967a;--jb-warning:#a8731f;--jb-danger:#d2454f;
@@ -3037,7 +3038,7 @@ body.theme-light{background:#f0f0f1}
 body.theme-light{
   --jb-bg:#f7f7f8;--jb-sidebar:#f0f0f1;--jb-surface:#ffffff;--jb-surface-2:#f3f3f4;--jb-surface-3:#eaeaea;--jb-input:#ffffff;
   --jb-border:#e4e4e5;--jb-border-strong:#cfcfd2;
-  --jb-text:#1d1d1f;--jb-muted:#67676c;--jb-subtle:#97979c;
+  --jb-text:#1d1d1f;--jb-muted:#67676c;--jb-subtle:#6d6d72;
   --jb-accent:#ea580c;--jb-accent-strong:#d14e08;--jb-accent-soft:#fdeadd;
   --jb-blue:#1774d6;--jb-green:#12967a;--jb-yellow:#a8731f;--jb-red:#d2454f;
   --jb-success:#12967a;--jb-warning:#a8731f;--jb-danger:#d2454f;
@@ -3421,9 +3422,9 @@ body.theme-light .ide-theme .more-menu button:hover{background:var(--jb-surface-
 .ai-log-analysis small { font-size: 11px; color: var(--jb-subtle); }
 
 /* 浅色主题：面板绑定弹窗的 HTTPS 警示条改用浅色暖黄 */
-body.theme-light .modal-backdrop .panel-bind-modal .panel-insecure-tls { border-color: #e3cf9a; background: #fbf4e0; color: #8a6a1c; }
-body.theme-light .modal-backdrop .panel-bind-modal .panel-insecure-tls small { color: #a3906a; }
-body.theme-light .modal-backdrop .panel-bind-modal .panel-insecure-tls input { accent-color: #d19b2f; }
+body.theme-light .modal-backdrop .panel-bind-modal .panel-insecure-tls { border-color: #e5d5a8; background: #faf6e9; color: var(--jb-text); }
+body.theme-light .modal-backdrop .panel-bind-modal .panel-insecure-tls small { color: var(--jb-muted); }
+body.theme-light .modal-backdrop .panel-bind-modal .panel-insecure-tls input { accent-color: var(--jb-warning,#a77b24); }
 
 /* ===== 非全屏窗口自适应加固 =====
    窗口未最大化（或系统缩放/网页缩放较大）时，内容区宽度可能低于桌面布局假设。

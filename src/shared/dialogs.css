@@ -96,6 +96,7 @@
 /* SharedDialog also powers native mobile settings forms; keep the common shell
    usable in the mobile bundle, which intentionally does not load App.css. */
 body:has(.mobile-shell) .shared-dialog-backdrop { position: fixed; inset: 0; z-index: 120; display: grid; place-items: center; padding: max(14px,env(safe-area-inset-top,0px)) 12px max(14px,env(safe-area-inset-bottom,0px)); background: #050b12b8; backdrop-filter: blur(5px); }
+body > .ide-theme.store-notification-layer { z-index: 2147483000; }
 body:has(.mobile-shell) .network-proxy-dialog { --jb-bg: var(--mobile-surface); --jb-surface: var(--mobile-surface); --jb-surface-2: var(--mobile-raised); --jb-surface-3: var(--mobile-raised); --jb-input: var(--mobile-bg); --jb-text: var(--mobile-text); --jb-muted: var(--mobile-muted); --jb-border: var(--mobile-border); --jb-border-strong: var(--mobile-border); --jb-accent: var(--mobile-accent); --jb-accent-strong: var(--mobile-accent-strong); width: min(560px,calc(100vw - 24px)); max-width: calc(100vw - 24px); max-height: calc(100dvh - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px) - 28px); border: 1px solid var(--mobile-border); border-radius: 16px; background: var(--mobile-surface); color: var(--mobile-text); box-shadow: 0 24px 64px #0008; }
 body:has(.mobile-shell) .network-proxy-dialog > .modal-head { display: flex; min-height: 58px; align-items: center; padding: 12px 14px; border-bottom: 1px solid var(--mobile-border); background: var(--mobile-raised); }
 body:has(.mobile-shell) .network-proxy-dialog > .modal-body { display: grid; gap: 12px; padding: 14px; overflow-y: auto; }
@@ -272,7 +273,7 @@ body.theme-light :is(.modal,.resource-modal,.codex-dialog,.codex-log-dialog,.flo
 .transfer-tabs{display:flex;gap:6px;margin-bottom:12px;border-bottom:1px solid var(--jb-border)}
 .transfer-tabs button{border:0;border-bottom:2px solid transparent;background:transparent;color:var(--jb-muted);padding:7px 12px;cursor:pointer}
 .transfer-tabs button.active{border-bottom-color:var(--jb-accent-strong);color:var(--jb-text)}
-.transfer-warning{margin:0 0 12px;padding:9px 10px;border:1px solid #8c5a28;border-radius:6px;background:#3b2a19;color:#ffd49a;font-size:12px;line-height:1.5}
+.transfer-warning{display:flex;align-items:flex-start;gap:9px;margin:0 0 12px;padding:11px 12px;border:1px solid color-mix(in srgb,var(--jb-warning,#d7b46a) 30%,var(--jb-border));border-left:3px solid var(--jb-warning,#d7b46a);border-radius:7px;background:color-mix(in srgb,var(--jb-warning,#d7b46a) 7%,var(--jb-surface));color:var(--jb-text);font-size:12px;line-height:1.55}.transfer-warning svg{flex:0 0 auto;margin-top:1px;color:var(--jb-warning,#d7b46a)}.transfer-warning span{min-width:0}
 .transfer-check{display:flex;align-items:center;gap:7px;margin:8px 0;color:var(--jb-text);font-size:12px}
 .transfer-check input{width:auto!important;margin:0}
 .transfer-list{max-height:280px;overflow:auto;border:1px solid var(--jb-border);border-radius:6px}

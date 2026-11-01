@@ -81,3 +81,4 @@
 .flow-feedback button{flex-shrink:0;min-width:26px;min-height:26px;border-radius:4px}
 .flow-feedback button:hover{background:color-mix(in srgb,var(--flow-feedback-tone) 10%,transparent)}
 .flow-feedback button:focus-visible{outline:2px solid var(--jb-accent-strong);outline-offset:2px}
+.flow-source-label{display:inline-flex;max-width:220px;align-items:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--jb-text);font-size:11px}.flow-card-meta .flow-source-label{max-width:100%;white-space:normal;overflow-wrap:anywhere}
