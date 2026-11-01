@@ -17,10 +17,10 @@ import { SecretField } from "../shared/SecretField";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { useConfirmDialog } from "../shared/useConfirmDialog";
 import { useCallback, useEffect, useRef, useState, type Dispatch, type FormEvent, type PointerEvent as ReactPointerEvent, type SetStateAction } from "react";
-import { Activity, ArrowLeft, Bot, CloudDownload, LayoutGrid, ArrowDownToLine, ArrowUpDown, ChevronDown, Cloud, Database, File, FileText, Filter, Folder, Globe2, Plus, Power, RefreshCw, RotateCw, Search, Server, ShieldCheck, SunMoon, Trash2, Award, Terminal, Pencil, ExternalLink, Monitor, Upload, Info, Network } from "lucide-react";
+import { Activity, ArrowLeft, Bot, CloudDownload, LayoutGrid, ArrowDownToLine, ArrowUpDown, ChevronDown, Cloud, Database, File, FileText, Filter, Folder, Globe2, Plus, Power, RefreshCw, RotateCw, Search, Server, ShieldCheck, SunMoon, Trash2, Award, Terminal, Pencil, ExternalLink, Monitor, Upload, Info, Network, Sparkles } from "lucide-react";
 import type { Account, ApiLog, LocalAsset, ManagedHost, PanelConnection, PanelConnectionDraft, TransferAccount } from "../shared/types";
 import packageJson from "../../package.json";
-import { accountsClient, certificatesClient, domainsClient, logsClient, remoteClient, resourcesClient, storageClient } from "../platform/clients";
+import { accountsClient, certificatesClient, domainsClient, logsClient, preferencesClient, remoteClient, resourcesClient, storageClient } from "../platform/clients";
 import type { OssObjectListing } from "../platform/clients/storage";
 import { cloudProvider, cloudProviders, matchCloudTypeFromText, resourceLabels, syncAssetTypes } from "../features/cloud/catalog";
 import { cloudHubBackFabPositionStorageKey, cloudHubUiThemeStorageKey, readUiTheme } from "../features/app/constants";
@@ -230,6 +230,16 @@ export function MobileApp() {
   const [newSshAuthMethod, setNewSshAuthMethod] = useState<"password" | "private_key">("password");
   const [dnsEditor, setDnsEditor] = useState<Record<string, unknown> | null | undefined>(undefined);
   const [tab, setTab] = useState<MobileTab>("accounts");
+  const [startupAnimationEnabled, setStartupAnimationEnabled] = useState<boolean | null>(null);
+  useEffect(() => {
+    let active = true;
+    void preferencesClient.list().then(preferences => { if (active) setStartupAnimationEnabled(preferences["cloudhub-startup-animation"] !== "0"); }).catch(() => { if (active) setStartupAnimationEnabled(true); });
+    return () => { active = false; };
+  }, []);
+  useEffect(() => {
+    if (startupAnimationEnabled === null) return;
+    void preferencesClient.save("cloudhub-startup-animation", startupAnimationEnabled ? "1" : "0").catch(() => {});
+  }, [startupAnimationEnabled]);
   useEffect(() => { const open = () => setTab("aiSettings"); window.addEventListener("cloudhub-ai-settings", open); return () => window.removeEventListener("cloudhub-ai-settings", open); }, []);
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -1339,6 +1349,7 @@ export function MobileApp() {
           <div className="mobile-page-title"><div><p>本机客户端</p><h1>系统设置</h1></div></div>
           <div className="mobile-domain-list mobile-more-list">
             <button type="button" className="mobile-account-card" onClick={() => setTab("aiSettings")}><span className="mobile-provider-avatar"><Bot size={20} /></span><span className="mobile-account-copy"><strong>AI 服务</strong><small>配置模型、密钥与识别能力</small></span><span className="mobile-account-arrow">›</span></button>
+            <div className="mobile-account-card mobile-startup-switch"><span className="mobile-provider-avatar"><Sparkles size={20} aria-hidden="true" /></span><span className="mobile-account-copy"><strong>启用开机动画</strong><small>下次启动时先播放动画，再进入主界面</small></span><input type="checkbox" aria-label="启用开机动画" checked={startupAnimationEnabled ?? true} disabled={startupAnimationEnabled === null} onChange={event => setStartupAnimationEnabled(event.target.checked)} /></div>
             <div className="mobile-account-card mobile-theme-card"><span className="mobile-provider-avatar"><SunMoon size={20} /></span><span className="mobile-account-copy"><strong>外观主题</strong><small>切换深色或浅色界面</small></span><div className="mobile-theme-toggle" role="radiogroup" aria-label="外观主题"><button type="button" role="radio" aria-checked={uiTheme === "dark"} className={uiTheme === "dark" ? "active" : ""} onClick={() => setUiTheme("dark")}>深色</button><button type="button" role="radio" aria-checked={uiTheme === "light"} className={uiTheme === "light" ? "active" : ""} onClick={() => setUiTheme("light")}>浅色</button></div></div>
             <button type="button" className="mobile-account-card" onClick={() => setTab("sync")}><span className="mobile-provider-avatar"><ShieldCheck size={20} /></span><span className="mobile-account-copy"><strong>导入数据</strong><small>导入电脑端加密配置</small></span><span className="mobile-account-arrow">›</span></button>
             <button type="button" className="mobile-account-card" onClick={() => setTab("networkSettings")}><span className="mobile-provider-avatar"><Network size={20} /></span><span className="mobile-account-copy"><strong>网络代理</strong><small>配置全局出站代理及代理池</small></span><span className="mobile-account-arrow">›</span></button>

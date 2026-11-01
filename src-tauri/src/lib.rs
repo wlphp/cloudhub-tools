@@ -93,6 +93,7 @@ pub(crate) use commands::panel_connections::{delete_panel_connection, export_pan
 pub(crate) use commands::connections::{delete_rdp_connection, delete_ssh_connection, get_rdp_connection, get_ssh_connection, reveal_rdp_password, reveal_ssh_password, reveal_managed_host_credential};
 pub(crate) use commands::database_migration::{cancel_database_import, confirm_database_import, create_database_backup, delete_database_backup, download_database_backup, database_transfer_catalog, export_database_file, import_database_backup, import_database_file, list_database_backups, prepare_database_backup_restore, prepare_database_import, plan_database_import, DatabaseImportStore};
 pub(crate) use commands::app::{app_data_path, app_exit, app_is_development, open_app_data_directory};
+
 pub(crate) use commands::domains::{add_dns_record, delete_dns_record, list_dns_records, list_domain_logs, list_rds_accounts, list_rds_databases, rds_connection_addresses, rds_storage_usage, list_redis_accounts, query_whois, toggle_dns_record, update_dns_record};
 pub(crate) use commands::storage::{discard_oss_upload_selection, download_oss_object, download_oss_objects, get_oss_acl, get_oss_cnames, create_oss_cname_token, bind_oss_cname, delete_oss_cname, get_oss_object_url, list_oss_objects, select_oss_upload_file, set_oss_cors, set_oss_public_read, stage_oss_upload_file, upload_oss_object};
 pub(crate) use commands::resources::{cancel_cloud_asset_sync, list_cloud_resources, sync_cloud_assets};
@@ -895,6 +896,8 @@ pub fn run() {
     let builder = builder.setup(|app| {
             #[cfg(mobile)]
             core::crypto::initialize_mobile_key_store(app).map_err(|message| std::io::Error::other(message))?;
+            #[cfg(mobile)]
+            if let Some(main) = app.get_webview_window("main") { main.show()?; }
             #[cfg(desktop)]
             if let Ok(conn) = open_db() {
                 if core::network::initialize(&conn).is_err() { eprintln!("全局代理配置加载失败，将使用系统默认网络设置"); }
@@ -902,6 +905,39 @@ pub fn run() {
             #[cfg(desktop)]
             {
                 use tauri::Manager;
+                use tauri::Listener;
+                let startup_app = app.handle().clone();
+                app.listen("startup-animation-finished", move |_| {
+                    if let Some(main) = startup_app.get_webview_window("main") {
+                        let _ = main.show();
+                        let _ = main.set_focus();
+                    }
+                    if let Some(splash) = startup_app.get_webview_window("startup") { let _ = splash.close(); }
+                });
+                let startup_animation_enabled = open_db()
+                    .ok()
+                    .and_then(|db| core::repositories::preferences::list(&db).ok())
+                    .and_then(|preferences| preferences.get("cloudhub-startup-animation").cloned())
+                    .map_or(true, |value| value != "0");
+                if startup_animation_enabled {
+                    let splash = tauri::WebviewWindowBuilder::new(
+                        app,
+                        "startup",
+                        tauri::WebviewUrl::App("index.html?startup=1".into()),
+                    )
+                    .title("云枢工具箱")
+                    .inner_size(520.0, 320.0)
+                    .resizable(false)
+                    .decorations(false)
+                    .always_on_top(true)
+                    .center()
+                    .build();
+                    if splash.is_err() {
+                        if let Some(main) = app.get_webview_window("main") { let _ = main.show(); }
+                    }
+                } else if let Some(main) = app.get_webview_window("main") {
+                    main.show()?;
+                }
                 commands::desktop_pet::initialize(app.handle());
                 commands::cloud_sync::initialize();
                 commands::cloud_drive::initialize(app.handle().clone());
@@ -960,6 +996,7 @@ pub fn run() {
         get_sync_device_identity, list_sync_devices, revoke_sync_device, set_sync_device_share_scope, list_pending_sync_acknowledgements,
         create_sync_account_bundle, create_sync_delta_bundle, save_sync_delta_bundle_file, save_sync_acknowledgement_file, preview_sync_delta_bundle, apply_sync_delta_bundle, complete_sync_delta_push, acknowledge_sync_delta, send_sync_delta_ack_lan, start_sync_delta_receiver, send_sync_delta_bundle_lan, take_received_sync_delta, save_sync_account_bundle, preview_sync_account_bundle, import_sync_account_bundle, start_sync_transfer, start_sync_delta_transfer, cancel_sync_transfer, approve_sync_transfer, fetch_sync_transfer, confirm_sync_transfer_import, cancel_sync_transfer_import,
         cloud_sync_state, cloud_sync_save, cloud_sync_test, cloud_sync_upload, cloud_sync_download, cloud_sync_reveal_secret, cloud_sync_versions, cloud_sync_channels, cloud_sync_delete, cloud_sync_delete_version,
+        list_client_preferences, save_client_preference,
         database_transfer_catalog, prepare_database_import, plan_database_import, confirm_database_import, cancel_database_import,
     ]);
     #[cfg(desktop)]

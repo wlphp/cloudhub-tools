@@ -3290,6 +3290,9 @@ body.theme-light .mobile-account-swipe-actions { box-shadow: 0 4px 14px #1f29371
 
 /* 外观主题：设置页内的深色/浅色切换控件，配色沿用手机端令牌 */
 .mobile-theme-card { gap: 10px; }
+.mobile-startup-switch { cursor: default; }
+.mobile-more-list .mobile-startup-switch { justify-content: flex-start; }
+.mobile-startup-switch input[type="checkbox"] { width: 48px; height: 28px; min-width: 48px; margin: 0 2px 0 auto; accent-color: var(--mobile-accent-strong); }
 .mobile-theme-toggle { display: flex; flex: 0 0 auto; gap: 2px; padding: 3px; border: 1px solid var(--mobile-border); border-radius: 9px; background: var(--mobile-raised); }
 .mobile-theme-toggle button { min-height: 34px; padding: 0 13px; border: 0; border-radius: 7px; background: transparent; color: var(--mobile-muted); font-size: 12px; font-weight: 600; }
 .mobile-theme-toggle button.active { background: var(--mobile-accent); color: #fff; }

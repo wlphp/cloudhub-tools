@@ -3,7 +3,7 @@
   "identifier": "default",
   "description": "Capability for the main window",
   "platforms": ["windows", "linux", "macOS"],
-  "windows": ["main", "terminal-detached-*"],
+  "windows": ["main", "startup", "terminal-detached-*"],
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",

@@ -133,6 +133,7 @@ import {
   Minus,
   ShieldCheck,
   Smartphone,
+  Sparkles,
   CornerDownLeft,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
@@ -481,6 +482,7 @@ function App() {
   const [operationLogClearedAt, setOperationLogClearedAt] = useState(() => Number(readLocalStorage("aliyun-operation-log-cleared-at") || "0"));
   const [autoRefresh, setAutoRefresh] = useState(() => readLocalStorage("aliyun-auto-refresh") !== "0");
   const [compactMode, setCompactMode] = useState(() => readLocalStorage("aliyun-compact-mode") === "1");
+  const [startupAnimationEnabled, setStartupAnimationEnabled] = useState(true);
   const { appVersion, isDevelopment, updateState, checkForUpdates, installUpdate } = useAppUpdates(bundledVersion, setStatus);
   const [logFilter, setLogFilter] = useState("");
   const [logTypeFilter, setLogTypeFilter] = useState("");
@@ -2758,6 +2760,7 @@ function App() {
       if (preferences[cloudHubTerminalThemeStorageKey] !== undefined && preferences[cloudHubTerminalThemeStorageKey] in terminalThemes) setTerminalThemeName(preferences[cloudHubTerminalThemeStorageKey] as TerminalThemeName);
       if (preferences["aliyun-auto-refresh"] !== undefined) setAutoRefresh(preferences["aliyun-auto-refresh"] !== "0");
       if (preferences["aliyun-compact-mode"] !== undefined) setCompactMode(preferences["aliyun-compact-mode"] === "1");
+      if (preferences["cloudhub-startup-animation"] !== undefined) setStartupAnimationEnabled(preferences["cloudhub-startup-animation"] !== "0");
       if (preferences["cloudhub-app-sidebar-collapsed"] !== undefined) setAppSidebarCollapsed(preferences["cloudhub-app-sidebar-collapsed"] === "1");
       if (preferences["aliyun-panel-hide-ip"] !== undefined) setHidePanelIps(preferences["aliyun-panel-hide-ip"] === "1");
       if (preferences["aliyun-panel-open-mode"] === "copy") setPanelOpenMode("copy");
@@ -2783,6 +2786,7 @@ function App() {
   useEffect(() => { const value = autoRefresh ? "1" : "0"; localStorage.setItem("aliyun-auto-refresh", value); saveClientPreference("aliyun-auto-refresh", value); }, [autoRefresh, clientPreferencesReady]);
   useEffect(() => { const value = appSidebarCollapsed ? "1" : "0"; localStorage.setItem("cloudhub-app-sidebar-collapsed", value); saveClientPreference("cloudhub-app-sidebar-collapsed", value); }, [appSidebarCollapsed, clientPreferencesReady]);
   useEffect(() => { const value = compactMode ? "1" : "0"; localStorage.setItem("aliyun-compact-mode", value); document.documentElement.classList.toggle("compact-mode", compactMode); saveClientPreference("aliyun-compact-mode", value); }, [compactMode, clientPreferencesReady]);
+  useEffect(() => { if (import.meta.env.VITE_APP_TARGET === "mobile") return; const value = startupAnimationEnabled ? "1" : "0"; localStorage.setItem("cloudhub-startup-animation", value); saveClientPreference("cloudhub-startup-animation", value); }, [startupAnimationEnabled, clientPreferencesReady]);
   useEffect(() => { const value = hidePanelIps ? "1" : "0"; localStorage.setItem("aliyun-panel-hide-ip", value); saveClientPreference("aliyun-panel-hide-ip", value); }, [hidePanelIps, clientPreferencesReady]);
   useEffect(() => { localStorage.setItem("aliyun-panel-open-mode", panelOpenMode); saveClientPreference("aliyun-panel-open-mode", panelOpenMode); }, [panelOpenMode, clientPreferencesReady]);
   useEffect(() => { const value = String(panelRefreshSeconds); localStorage.setItem("aliyun-panel-refresh-seconds", value); saveClientPreference("aliyun-panel-refresh-seconds", value); }, [panelRefreshSeconds, clientPreferencesReady]);
@@ -5140,6 +5144,7 @@ function App() {
               <section className="settings-grid settings-list">
               <div className="settings-card"><div className="settings-icon cyan"><Cloud size={22} /></div><div className="settings-copy"><strong>{t("自动刷新资产")}</strong><small>{t("进入资源管理时读取本地缓存，不主动上传数据")}</small></div><label className="setting-switch"><input type="checkbox" checked={autoRefresh} onChange={(event) => setAutoRefresh(event.target.checked)} /><span /></label></div>
               <div className="settings-card"><div className="settings-icon purple"><Monitor size={22} /></div><div className="settings-copy"><strong>{t("紧凑显示")}</strong><small>{t("减少表格行高，适合小窗口查看")}</small></div><label className="setting-switch"><input type="checkbox" checked={compactMode} onChange={(event) => setCompactMode(event.target.checked)} /><span /></label></div>
+              {runningInTauri && import.meta.env.VITE_APP_TARGET !== "mobile" && <div className="settings-card"><div className="settings-icon blue"><Sparkles size={22} aria-hidden="true" /></div><div className="settings-copy"><strong>{t("启用开机动画")}</strong><small>{t("下次启动时先显示独立动画页，再进入主界面")}</small></div><label className="setting-switch"><input type="checkbox" checked={startupAnimationEnabled} onChange={(event) => setStartupAnimationEnabled(event.target.checked)} aria-label={t("启用开机动画")} /><span /></label></div>}
               <div className="settings-card"><div className="settings-icon blue"><List size={22} /></div><div className="settings-copy"><strong>{t("每页显示条数")}</strong><small>{t("账号、资源和操作日志列表统一使用此分页大小")}</small></div><select className="settings-select" value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))}>{PAGE_SIZE_OPTIONS.map((value) => <option key={value} value={value}>{value} {t("条")}</option>)}</select></div>
               </section>
             )}
