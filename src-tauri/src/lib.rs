@@ -897,7 +897,10 @@ pub fn run() {
             #[cfg(mobile)]
             core::crypto::initialize_mobile_key_store(app).map_err(|message| std::io::Error::other(message))?;
             #[cfg(mobile)]
-            if let Some(main) = app.get_webview_window("main") { main.show()?; }
+            {
+                use tauri::Manager;
+                if let Some(main) = app.get_webview_window("main") { main.show()?; }
+            }
             #[cfg(desktop)]
             if let Ok(conn) = open_db() {
                 if core::network::initialize(&conn).is_err() { eprintln!("全局代理配置加载失败，将使用系统默认网络设置"); }
