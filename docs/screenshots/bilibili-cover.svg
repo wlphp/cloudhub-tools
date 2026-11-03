@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#07152b"/><stop offset=".55" stop-color="#10284a"/><stop offset="1" stop-color="#123b59"/></linearGradient>
+    <linearGradient id="glow" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#36d6c2"/><stop offset="1" stop-color="#4b8cff"/></linearGradient>
+    <linearGradient id="card" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#182c45"/><stop offset="1" stop-color="#0e1e34"/></linearGradient>
+    <filter id="shadow" x="-.3" y="-.3" width="1.6" height="1.7"><feDropShadow dx="0" dy="26" stdDeviation="28" flood-color="#020916" flood-opacity=".48"/></filter>
+    <pattern id="grid" width="56" height="56" patternUnits="userSpaceOnUse"><path d="M56 0H0V56" fill="none" stroke="#9bb9df" stroke-opacity=".07" stroke-width="1"/></pattern>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#bg)"/><rect width="1920" height="1080" fill="url(#grid)"/>
+  <circle cx="1530" cy="300" r="430" fill="#159bba" opacity=".09"/><circle cx="1470" cy="710" r="390" fill="#426cff" opacity=".10"/>
+  <path d="M0 880C360 760 520 1000 900 870s650-30 1020-230v440H0Z" fill="#071323" opacity=".35"/>
+  <g font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif">
+    <rect x="126" y="122" width="62" height="62" rx="18" fill="url(#glow)"/>
+    <path d="M143 161a13 13 0 0 1 14-19 18 18 0 0 1 31 9 10 10 0 0 1-3 20h-35a11 11 0 0 1-7-10Z" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round"/>
+    <text x="210" y="166" fill="#eaf3ff" font-size="34" font-weight="700" letter-spacing="1">云枢工具箱</text>
+    <text x="412" y="164" fill="#91a9c7" font-size="21" letter-spacing="2">CLOUDHUB TOOLS</text>
+    <rect x="126" y="285" width="205" height="48" rx="24" fill="#20c5ae" fill-opacity=".14" stroke="#38dbc3" stroke-opacity=".52"/>
+    <text x="228" y="317" fill="#68e5d4" font-size="23" text-anchor="middle" font-weight="600">本地优先 · 多云管理</text>
+    <text x="120" y="474" fill="#fff" font-size="93" font-weight="800" letter-spacing="1">云服务器太多？</text>
+    <text x="120" y="590" fill="#fff" font-size="93" font-weight="800" letter-spacing="1">用一个工作台</text>
+    <text x="120" y="700" fill="#77e0d0" font-size="93" font-weight="800" letter-spacing="1">统一管起来</text>
+    <text x="126" y="786" fill="#b3c5dc" font-size="30" letter-spacing="2">账号 · 资源 · DNS · SSH · 面板</text>
+    <g transform="translate(126 858)">
+      <rect width="178" height="54" rx="14" fill="#ffffff" fill-opacity=".08" stroke="#ffffff" stroke-opacity=".12"/><text x="89" y="36" fill="#d7e4f4" font-size="22" text-anchor="middle">桌面 + 手机</text>
+      <rect x="196" width="166" height="54" rx="14" fill="#ffffff" fill-opacity=".08" stroke="#ffffff" stroke-opacity=".12"/><text x="279" y="36" fill="#d7e4f4" font-size="22" text-anchor="middle">本机保存</text>
+      <rect x="380" width="156" height="54" rx="14" fill="#ffffff" fill-opacity=".08" stroke="#ffffff" stroke-opacity=".12"/><text x="458" y="36" fill="#d7e4f4" font-size="22" text-anchor="middle">开箱看看</text>
+    </g>
+  </g>
+  <g transform="translate(1010 192) rotate(2 390 350)" filter="url(#shadow)">
+    <rect width="760" height="628" rx="28" fill="url(#card)" stroke="#9fc6ea" stroke-opacity=".34" stroke-width="2"/>
+    <path d="M0 28a28 28 0 0 1 28-28h704a28 28 0 0 1 28 28v48H0Z" fill="#213956"/>
+    <circle cx="34" cy="38" r="7" fill="#ff7373"/><circle cx="59" cy="38" r="7" fill="#ffc45f"/><circle cx="84" cy="38" r="7" fill="#45d3a5"/>
+    <text x="132" y="46" fill="#e6effb" font-family="Microsoft YaHei, sans-serif" font-size="21" font-weight="600">云枢工具箱</text>
+    <rect x="22" y="100" width="165" height="500" rx="16" fill="#0c192a"/>
+    <rect x="39" y="124" width="132" height="46" rx="11" fill="#1b4357"/><circle cx="61" cy="147" r="8" fill="#42d4bf"/>
+    <g font-family="Microsoft YaHei, sans-serif" font-size="18" fill="#a9bdd4">
+      <text x="80" y="154">云账号</text><text x="50" y="212">资源总览</text><text x="50" y="265">域名与 DNS</text><text x="50" y="318">对象存储</text><text x="50" y="371">面板管理</text><text x="50" y="424">终端管理</text><text x="50" y="477">软件商店</text>
+    </g>
+    <text x="220" y="139" fill="#f3f7fd" font-family="Microsoft YaHei, sans-serif" font-size="27" font-weight="700">云账号</text>
+    <text x="220" y="171" fill="#92a9c3" font-family="Microsoft YaHei, sans-serif" font-size="15">集中查看并管理云服务商账号</text>
+    <rect x="220" y="197" width="514" height="66" rx="13" fill="#203550"/><text x="242" y="238" fill="#dce8f5" font-family="Arial, sans-serif" font-size="17">PROVIDER</text><text x="392" y="238" fill="#dce8f5" font-family="Arial, sans-serif" font-size="17">账号名称</text><text x="634" y="238" fill="#dce8f5" font-family="Arial, sans-serif" font-size="17">状态</text>
+    <g font-family="Microsoft YaHei, sans-serif" font-size="18" fill="#d3e1f0">
+      <rect x="220" y="274" width="514" height="70" rx="12" fill="#152a41"/><circle cx="253" cy="309" r="15" fill="#ff8b35"/><text x="282" y="316">阿里云</text><text x="392" y="316" fill="#afc1d5">生产环境</text><circle cx="646" cy="309" r="6" fill="#40d9a5"/><text x="659" y="316" fill="#9bd9c6" font-size="16">启用</text>
+      <rect x="220" y="354" width="514" height="70" rx="12" fill="#152a41"/><circle cx="253" cy="389" r="15" fill="#2e96ff"/><text x="282" y="396">腾讯云</text><text x="392" y="396" fill="#afc1d5">个人项目</text><circle cx="646" cy="389" r="6" fill="#40d9a5"/><text x="659" y="396" fill="#9bd9c6" font-size="16">启用</text>
+      <rect x="220" y="434" width="514" height="70" rx="12" fill="#152a41"/><circle cx="253" cy="469" r="15" fill="#f3a94b"/><text x="282" y="476">AWS</text><text x="392" y="476" fill="#afc1d5">海外服务</text><circle cx="646" cy="469" r="6" fill="#40d9a5"/><text x="659" y="476" fill="#9bd9c6" font-size="16">启用</text>
+    </g>
+    <rect x="220" y="528" width="248" height="68" rx="13" fill="#1b3b50"/><text x="241" y="557" fill="#8fb0c7" font-family="Microsoft YaHei, sans-serif" font-size="15">已接入账号</text><text x="241" y="584" fill="#61ddc9" font-family="Arial, sans-serif" font-size="25" font-weight="700">多云统一管理</text>
+    <rect x="482" y="528" width="252" height="68" rx="13" fill="#1c3150"/><text x="504" y="557" fill="#8fb0c7" font-family="Microsoft YaHei, sans-serif" font-size="15">数据存储</text><text x="504" y="584" fill="#91b8ff" font-family="Microsoft YaHei, sans-serif" font-size="24" font-weight="700">默认保存在本机</text>
+  </g>
+  <text x="1756" y="1004" fill="#83a0be" font-family="Arial, sans-serif" font-size="20" text-anchor="end" letter-spacing="3">CLOUDHUB TOOLS</text>
+</svg>
