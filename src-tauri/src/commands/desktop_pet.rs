@@ -150,7 +150,19 @@ fn caller(window: &tauri::WebviewWindow) -> Result<(), String> {
 pub fn restricted<R: tauri::Runtime>(
     handler: impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static,
 ) -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static {
+    let environment_handler: Box<dyn Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync> = Box::new(tauri::generate_handler![
+        crate::commands::env_manager::env_manager_list,
+        crate::commands::env_manager::env_manager_write,
+        crate::commands::env_manager::env_manager_relaunch_elevated,
+    ]);
     move |invoke| {
+        if ["env_manager_list", "env_manager_write", "env_manager_relaunch_elevated"].contains(&invoke.message.command()) {
+            if invoke.message.webview_ref().label() != "main" {
+                invoke.resolver.reject("环境变量管理仅允许从主窗口调用");
+                return true;
+            }
+            return environment_handler(invoke);
+        }
         if [LABEL, NOTICE_LABEL].contains(&invoke.message.webview_ref().label())
             && ![
                 "pet_settings",

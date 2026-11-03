@@ -1,5 +1,16 @@
 import { expect, test } from "@playwright/test";
 
+test("环境变量管理标明 Windows 范围并拒绝浏览器预览访问", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "软件商店", exact: true }).first().click();
+  const store = page.locator(".software-store-page");
+  await store.getByLabel("应用搜索").fill("环境变量管理");
+  const row = store.locator("tbody tr").filter({ hasText: "环境变量管理" });
+  await expect(row).toContainText("Windows");
+  await row.getByRole("button", { name: "打开", exact: true }).click();
+  await expect(page.getByText("环境变量管理仅支持 Windows 桌面端；浏览器预览无法读取或修改电脑设置。", { exact: true })).toBeVisible();
+});
+
 test.describe("已保存配置批量启动", () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {

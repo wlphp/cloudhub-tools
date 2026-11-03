@@ -5,6 +5,7 @@ import { WechatPluginSettings } from "./WechatPluginSettings";
 import { ClaudeProvidersPlugin } from "./ClaudeProvidersPlugin";
 import { NotesPanel } from "../notes/NotesPanel";
 import { LanDevicesPlugin } from "./LanDevicesPlugin";
+import { EnvironmentVariablesPlugin } from "./EnvironmentVariablesPlugin";
 
 const BrowserEnvironments = lazy(() => import("./BrowserEnvironments").then(module => ({ default: module.BrowserEnvironments })));
 const NetworkSpeedPlugin = lazy(() => import("./NetworkSpeedPlugin").then(module => ({ default: module.NetworkSpeedPlugin })));
@@ -30,6 +31,7 @@ export function PluginApplication({ pluginId, wslEnabled, onNotify, onError, onL
     case "cloudhub.notes": return <NotesPanel />;
     case "cloudhub.lan-devices": return <LanDevicesPlugin onConnect={onLanConnect} />;
     case "cloudhub.network-speed": return <Suspense fallback={<p role="status">正在加载网络测速…</p>}><NetworkSpeedPlugin /></Suspense>;
+    case "cloudhub.environment-variables": return <EnvironmentVariablesPlugin />;
     default: return null;
   }
 }

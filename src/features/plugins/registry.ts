@@ -84,6 +84,16 @@ export const officialPlugins = [{
   platform: "desktop",
   permissions: ["按用户操作直连公网测速节点并传输测速载荷", "查询默认 IPv4 网卡地址及 IPIP.NET 公网出口 IP 和大致归属地（仅临时展示）", "在本地 SQLite 保存最近 20 次测速摘要", "测速和 IP 查询服务可看到来源 IP；不向节点上报测速摘要"],
 }, {
+  id: "cloudhub.environment-variables",
+  name: "环境变量管理",
+  version: "0.1.0",
+  publisher: "云枢工具箱",
+  description: "查看并直接管理 Windows 用户与系统环境变量，支持 Path 分段编辑。",
+  category: "开发工具",
+  distribution: "builtin",
+  platform: "windows",
+  permissions: ["读取 Windows 用户和系统环境变量（值以明文显示）", "按用户操作新增、修改或删除用户与系统变量", "按用户操作逐项编辑 Path 并通知 Windows 环境变量已更改", "写入系统变量需要 Windows 管理员权限"],
+}, {
   id: "cloudhub.mail",
   name: "邮件管理",
   version: "0.1.0",

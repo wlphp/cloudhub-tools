@@ -327,7 +327,7 @@ function OfficialPluginsStore({ initialPluginId, forceInitialPageMode, applicati
           <td data-label="软件名称"><div className="store-app-name"><Icon size={20} aria-hidden="true" /><div><strong>{app.name}</strong><small>v{app.version} · 官方</small></div></div></td>
           <td data-label="开发商"><span className="store-publisher">官方</span><small>{app.publisher}</small></td>
           <td data-label="说明" className="store-description">{app.description}</td>
-          <td data-label="价格">免费</td><td data-label="平台">{app.id === "cloudhub.lan-devices" ? "Windows / macOS" : "Windows / macOS / Linux"}</td>
+          <td data-label="价格">免费</td><td data-label="平台">{app.platform === "windows" ? "Windows" : app.id === "cloudhub.lan-devices" ? "Windows / macOS" : "Windows / macOS / Linux"}</td>
           <td data-label="状态"><span className="store-state"><i aria-hidden="true" />已内置</span></td><td data-label="启用">已内置</td>
           {sidebarCell}
           <td data-label="操作"><div className="store-row-actions">{["cloudhub.lan-devices", "cloudhub.network-speed", "cloudhub.mail"].includes(app.id) && <PresentationButton pluginId={app.id} onOpen={setPresentationFor} />}<button type="button" className="table-link" data-plugin-entry={app.id} onClick={() => openPlugin(app.id)}>打开</button></div></td>

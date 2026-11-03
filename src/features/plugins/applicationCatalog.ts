@@ -1,4 +1,4 @@
-import { Bot, Cpu, FileCode2, GitBranch, Globe, Gauge, HardDrive, Lock, Mail, MessageCircle, Network, NotebookPen, ShieldCheck, SquareTerminal } from "lucide-react";
+import { Bot, Cpu, FileCode2, GitBranch, Globe, Gauge, HardDrive, Lock, Mail, MessageCircle, Network, NotebookPen, ShieldCheck, SquareTerminal, Variable } from "lucide-react";
 import { officialPlugins } from "./registry";
 
 export type ApplicationSection = "flow" | "certificates" | "authenticator" | "claude" | "codex" | "frp" | "notes";
@@ -18,6 +18,7 @@ const navigation: Record<string, { section?: ApplicationSection; order: number; 
   "cloudhub.fingerprint-browser": { order: 110, sidebar: false, icon: Globe, keywords: "Chromium Chrome 代理 浏览器" },
   "cloudhub.lan-devices": { order: 120, sidebar: false, icon: Network, keywords: "局域网 扫描 IP MAC NAS 打印机 端口 LAN" },
   "cloudhub.network-speed": { order: 130, sidebar: false, icon: Gauge, keywords: "网络 测速 下载 上传 带宽 延迟 speedtest Mbps" },
+  "cloudhub.environment-variables": { order: 145, sidebar: false, icon: Variable, keywords: "环境变量 Environment Variables Path JAVA_HOME 开发 Windows 系统 用户" },
 };
 export const applicationCatalog = officialPlugins.map(definition => ({ ...definition, ...navigation[definition.id] }));
 export type ApplicationDefinition = typeof applicationCatalog[number];
