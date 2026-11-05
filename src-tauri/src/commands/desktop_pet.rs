@@ -154,11 +154,13 @@ pub fn restricted<R: tauri::Runtime>(
         crate::commands::env_manager::env_manager_list,
         crate::commands::env_manager::env_manager_write,
         crate::commands::env_manager::env_manager_relaunch_elevated,
+        crate::commands::startup_manager::startup_manager_list,
+        crate::commands::startup_manager::startup_manager_set,
     ]);
     move |invoke| {
-        if ["env_manager_list", "env_manager_write", "env_manager_relaunch_elevated"].contains(&invoke.message.command()) {
+        if ["env_manager_list", "env_manager_write", "env_manager_relaunch_elevated", "startup_manager_list", "startup_manager_set"].contains(&invoke.message.command()) {
             if invoke.message.webview_ref().label() != "main" {
-                invoke.resolver.reject("环境变量管理仅允许从主窗口调用");
+                invoke.resolver.reject("系统管理功能仅允许从主窗口调用");
                 return true;
             }
             return environment_handler(invoke);

@@ -1,4 +1,4 @@
-import { Bot, Cpu, FileCode2, GitBranch, Globe, Gauge, HardDrive, Lock, Mail, MessageCircle, Network, NotebookPen, ShieldCheck, SquareTerminal, Variable } from "lucide-react";
+import { Bot, Cpu, FileCode2, GitBranch, Globe, Gauge, HardDrive, Lock, Mail, MessageCircle, MonitorCog, Network, NotebookPen, ShieldCheck, SquareTerminal, Variable, Power } from "lucide-react";
 import { officialPlugins } from "./registry";
 
 export type ApplicationSection = "flow" | "certificates" | "authenticator" | "claude" | "codex" | "frp" | "notes";
@@ -19,6 +19,8 @@ const navigation: Record<string, { section?: ApplicationSection; order: number; 
   "cloudhub.lan-devices": { order: 120, sidebar: false, icon: Network, keywords: "局域网 扫描 IP MAC NAS 打印机 端口 LAN" },
   "cloudhub.network-speed": { order: 130, sidebar: false, icon: Gauge, keywords: "网络 测速 下载 上传 带宽 延迟 speedtest Mbps" },
   "cloudhub.environment-variables": { order: 145, sidebar: false, icon: Variable, keywords: "环境变量 Environment Variables Path JAVA_HOME 开发 Windows 系统 用户" },
+  "cloudhub.startup-manager": { order: 155, sidebar: false, icon: Power, keywords: "开机启动 启动项 服务 计划任务 startup service scheduled task Windows" },
+  "cloudhub.windows-toolbox": { order: 160, sidebar: false, icon: MonitorCog, keywords: "Windows 工具箱 桌面图标 已安装应用 系统代理 hosts DNS 屏幕 显示设置" },
 };
 export const applicationCatalog = officialPlugins.map(definition => ({ ...definition, ...navigation[definition.id] }));
 export type ApplicationDefinition = typeof applicationCatalog[number];

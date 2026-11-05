@@ -1,0 +1,53 @@
+.windows-toolbox { display: grid; gap: 12px; min-width: 0; }
+.windows-toolbox-help { border: 1px solid var(--border-color, #ddd); border-radius: 6px; background: var(--surface, #fff); }
+.windows-toolbox-help summary { min-height: 40px; padding: 10px 12px; color: var(--text-primary, #222); font-size: 13px; font-weight: 600; cursor: pointer; }
+.windows-toolbox-help summary::marker { color: var(--jb-accent, #f26a21); }
+.windows-toolbox-help[open] summary { border-bottom: 1px solid var(--border-color, #ddd); }
+.windows-toolbox-help-content { padding: 10px 12px; color: var(--text-secondary, #737373); font-size: 12px; line-height: 1.6; }
+.windows-toolbox-help-content p { margin: 0 0 7px; }
+.windows-toolbox-help-content ul { display: grid; gap: 4px; padding-left: 20px; margin: 0; }
+.windows-toolbox-help-content strong { color: var(--text-primary, #222); }
+.windows-toolbox-help-content code { color: var(--text-primary, #222); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+.windows-toolbox-help :focus-visible { outline: 2px solid var(--jb-accent, #f26a21); outline-offset: 2px; }
+.windows-toolbox-notice, .windows-toolbox-feedback { margin: 0; padding: 9px 11px; border: 1px solid var(--border-color, #ddd); border-radius: 6px; line-height: 1.5; overflow-wrap: anywhere; }
+.windows-toolbox-feedback { color: var(--success, #198754); }
+.windows-toolbox-feedback.is-pending { color: var(--text-secondary, #737373); }
+.windows-toolbox-progress { position: relative; display: grid; gap: 8px; padding-right: 38px; }
+.windows-toolbox-progress > strong { color: var(--text-primary, #222); font-size: 13px; }
+.windows-toolbox-progress ol { display: grid; gap: 4px; margin: 0; padding-left: 20px; font-size: 12px; }
+.windows-toolbox-progress li { color: var(--text-secondary, #737373); }
+.windows-toolbox-progress li.is-active { color: var(--jb-accent, #f26a21); font-weight: 600; }
+.windows-toolbox-progress-indicator { position: absolute; top: 50%; right: 14px; width: 16px; height: 16px; margin-top: -8px; border: 2px solid var(--border-color, #ddd); border-top-color: var(--jb-accent, #f26a21); border-radius: 50%; animation: windows-toolbox-spin .8s linear infinite; }
+@keyframes windows-toolbox-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .windows-toolbox-progress-indicator { animation-duration: 2s; } }
+.windows-toolbox-feedback.is-error { color: var(--danger, #c62828); }
+.windows-toolbox-toast { top: 20px; right: 24px; bottom: auto; display: flex; align-items: flex-start; gap: 9px; width: min(460px, calc(100vw - 40px)); color: var(--jb-success, #198754); animation: windows-toolbox-toast-in .2s ease-out; }
+.windows-toolbox-toast > svg { flex: 0 0 auto; margin-top: 2px; }
+.windows-toolbox-toast > span { flex: 1; min-width: 0; }
+.windows-toolbox-toast > button { display: inline-flex; flex: 0 0 28px; align-items: center; justify-content: center; width: 28px; height: 28px; margin: -4px -5px 0 0; padding: 0; border: 0; border-radius: 4px; background: transparent; color: inherit; cursor: pointer; }
+.windows-toolbox-toast > button:hover { background: color-mix(in srgb, currentColor 10%, transparent); }
+.windows-toolbox-toast > button:focus-visible { outline: 2px solid var(--jb-accent, #f26a21); outline-offset: 2px; }
+@keyframes windows-toolbox-toast-in { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+.windows-toolbox-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 290px), 1fr)); gap: 8px; }
+.windows-toolbox-card { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 12px; border: 1px solid var(--border-color, #ddd); border-radius: 7px; background: var(--surface, #fff); }
+.windows-toolbox-icon { display: grid; place-items: center; flex: 0 0 34px; width: 34px; height: 34px; border-radius: 6px; color: var(--jb-accent, #f26a21); background: var(--jb-accent-soft, #fff0e7); }
+.windows-toolbox-card-copy { display: grid; gap: 3px; flex: 1; min-width: 0; }
+.windows-toolbox-card-copy strong { font-size: 13px; }
+.windows-toolbox-card-copy span { color: var(--text-secondary, #737373); font-size: 11px; line-height: 1.4; }
+.windows-toolbox-card-actions { display: flex; flex: 0 0 auto; gap: 6px; }
+.windows-toolbox-card-actions > button { flex: 0 0 auto; min-width: 64px; min-height: 34px; }
+.windows-toolbox-credssp-card { align-items: flex-start; }
+.windows-toolbox-credssp-actions { flex-wrap: wrap; justify-content: flex-end; align-items: center; }
+.windows-toolbox-credssp-actions > button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; }
+.windows-toolbox-credssp-working { display: inline-flex; align-items: center; gap: 6px; color: var(--text-secondary, #737373); font-size: 12px; }
+.windows-toolbox-credssp-confirm-note { display: grid; gap: 8px; color: var(--text-secondary, #737373); font-size: 12px; line-height: 1.55; }
+.windows-toolbox-credssp-confirm-note > strong { display: flex; align-items: center; gap: 6px; color: var(--danger, #c62828); font-size: 13px; }
+.windows-toolbox-credssp-confirm-note ol { display: grid; gap: 4px; margin: 0; padding-left: 20px; }
+.windows-toolbox-credssp-confirm-note p { margin: 0; }
+.windows-toolbox-credssp-confirm-note code { color: var(--text-primary, #222); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+.windows-toolbox-credssp-phase { display: flex; align-items: flex-start; gap: 7px; margin: 10px 0 0; color: var(--text-secondary, #737373); font-size: 12px; line-height: 1.5; }
+.windows-toolbox-credssp-phase svg, .windows-toolbox-credssp-working svg { flex: 0 0 auto; animation: windows-toolbox-spin .8s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .windows-toolbox-credssp-phase svg, .windows-toolbox-credssp-working svg { animation-duration: 2s; } }
+@media (max-width: 520px) { .windows-toolbox-card { flex-wrap: wrap; } .windows-toolbox-card-actions { width: 100%; } .windows-toolbox-card-actions > button { flex: 1 1 0; } }
+@media (max-width: 520px) { .windows-toolbox-toast { top: 12px; right: 12px; width: calc(100vw - 24px); } }
+@media (prefers-reduced-motion: reduce) { .windows-toolbox-toast { animation: none; } }

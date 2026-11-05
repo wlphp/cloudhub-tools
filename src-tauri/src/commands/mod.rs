@@ -22,6 +22,10 @@ pub mod wechat_data_detection;
 pub mod hardware_info;
 #[cfg(desktop)]
 pub mod wsl_dashboard;
+#[cfg(desktop)]
+pub mod startup_manager;
+#[cfg(desktop)]
+pub mod windows_toolbox;
 pub mod ai;
 pub mod ai_transfer;
 #[cfg(desktop)]
