@@ -1,3 +1,4 @@
+use crate::core::error::PlatformResult;
 use serde::{Deserialize, Serialize};
 use std::process::{Command, Stdio};
 
@@ -62,7 +63,7 @@ fn powershell(script: &str, kind: Option<&str>, id: Option<&str>, enabled: Optio
 }
 
 #[tauri::command]
-pub fn startup_manager_list() -> Result<StartupSnapshot, String> {
+pub fn startup_manager_list() -> PlatformResult<StartupSnapshot> {
     #[cfg(target_os = "windows")]
     {
         const SCRIPT: &str = r#"
@@ -157,7 +158,7 @@ ConvertTo-Json -InputObject @($items) -Depth 4 -Compress
 }
 
 #[tauri::command]
-pub fn startup_manager_set(request: StartupAction) -> Result<(), String> {
+pub fn startup_manager_set(request: StartupAction) -> PlatformResult<()> {
     if request.id.len() != 64 || !request.id.bytes().all(|byte| byte.is_ascii_hexdigit()) { return Err("项目标识无效，请刷新列表后重试".into()); }
     if !matches!(request.kind.as_str(), "task" | "service" | "startup") { return Err("项目类型无效".into()); }
     #[cfg(target_os = "windows")]
