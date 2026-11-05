@@ -12,11 +12,11 @@ import { CloudSyncSection } from "./CloudSyncSection";
 import { DataImportReview } from "./DataImportReview";
 import "./sync-transfer.css";
 
-type Props = { mode: "desktop" | "mobile"; mobilePage?: boolean; onClose?: () => void; onImported?: () => void };
+type Props = { mode: "desktop" | "mobile"; mobilePage?: boolean; onClose?: () => void; onImported?: () => void; initialPairingUrl?: string; onInitialPairingHandled?: () => void };
 const message = (error: unknown) => error && typeof error === "object" && "message" in error
   ? platformErrorMessage(new Error(String(error.message))) : platformErrorMessage(error);
 
-export function UnifiedMigrationPanel({ mode, mobilePage = false, onClose, onImported }: Props) {
+export function UnifiedMigrationPanel({ mode, mobilePage = false, onClose, onImported, initialPairingUrl, onInitialPairingHandled }: Props) {
   const mobile = mode === "mobile";
   const scope = useTransferCatalog(!mobile && runningInTauri);
   const [includeTrash, setIncludeTrash] = useState(false);
@@ -35,6 +35,7 @@ export function UnifiedMigrationPanel({ mode, mobilePage = false, onClose, onImp
   const [cameraDenied, setCameraDenied] = useState(false);
   const backupInput = useRef<HTMLInputElement>(null);
   const [receiving, setReceiving] = useState(false);
+  const initialPairingHandled = useRef(false);
 
   useEffect(() => {
     if (mobile || !runningInTauri) return;
@@ -67,7 +68,7 @@ export function UnifiedMigrationPanel({ mode, mobilePage = false, onClose, onImp
     try { await accountsClient.cancelSyncTransfer(); setPairingUrl(""); setQrOpen(false); setRequest(null); }
     catch (cause) { setError(message(cause)); }
   }
-  async function receive() {
+  async function receive(scannedPairingUrl?: string) {
     if (sessionId) {
       setError("请先确认或取消已接收的迁移，再重新扫码。");
       return;
@@ -75,19 +76,28 @@ export function UnifiedMigrationPanel({ mode, mobilePage = false, onClose, onImp
     setReceiving(true);
     setBusy(true); setError(""); setNotice(""); setCameraDenied(false);
     try {
-      if (await requestPermissions() !== "granted") { setCameraDenied(true); throw new Error("请在系统设置中允许相机权限。"); }
-      const result = await scan({ windowed: false, formats: [Format.QRCode] });
-      if (!result.content?.trim()) throw new Error("没有读取到有效二维码。");
+      let pairingUrl = scannedPairingUrl;
+      if (!pairingUrl) {
+        if (await requestPermissions() !== "granted") { setCameraDenied(true); throw new Error("请在系统设置中允许相机权限。"); }
+        const result = await scan({ windowed: false, formats: [Format.QRCode] });
+        pairingUrl = result.content?.trim();
+      }
+      if (!pairingUrl) throw new Error("没有读取到有效二维码。");
       const random = crypto.getRandomValues(new Uint32Array(1));
       const code = String(random[0] % 1_000_000).padStart(6, "0");
       setNotice("请求校验码：" + code + "。请在电脑核对并批准。");
-      const received = await accountsClient.fetchSyncTransfer(result.content, code);
+      const received = await accountsClient.fetchSyncTransfer(pairingUrl, code);
       if (received.preview.protocolVersion !== 5) { await accountsClient.cancelQrSyncImport(received.sessionId); throw new Error("请将电脑端升级到支持统一数据迁移的版本后重新扫码。"); }
       setPreview(received.preview); setSessionId(received.sessionId);
       setImportTables((received.preview.categories ?? []).map(item => item.table));
       setNotice("已接收配置，请选择导入范围。已有记录默认保留，缺少的关联配置会一并导入。");
     } catch (cause) { setNotice(""); setError(message(cause)); } finally { setBusy(false); setReceiving(false); }
   }
+  useEffect(() => {
+    if (!initialPairingUrl || initialPairingHandled.current) return;
+    initialPairingHandled.current = true;
+    void receive(initialPairingUrl).finally(() => onInitialPairingHandled?.());
+  }, [initialPairingUrl]);
   async function importQr() {
     setBusy(true); setError("");
     try {

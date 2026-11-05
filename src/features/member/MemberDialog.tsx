@@ -1,9 +1,10 @@
 import { useEffect, useState, type CSSProperties } from "react";
-import { History, KeyRound, LogIn, Mail, Pencil, RefreshCw, ShieldCheck, UserRound } from "lucide-react";
+import { BadgeCheck, Crown, History, KeyRound, LogIn, Mail, Pencil, RefreshCw, ShieldCheck, UserRound } from "lucide-react";
 import { SharedDialog } from "../../shared/SharedDialog";
 import { PaginationBar } from "../../shared/PaginationBar";
-import { memberClient, type Member, type MemberLoginRecord } from "../../platform/clients/member";
-import { runningInTauri } from "../../platform/api";
+import { memberClient, memberHasExperienceOfficerIdentity, type Member, type MemberLoginRecord } from "../../platform/clients/member";
+import { readRememberedMemberEmail, rememberMemberEmail } from "./memberEmail";
+import { MobileMemberIdentityDialog, type MemberIdentityKind } from "../../mobile/MobileMemberIdentityDialog";
 import "./member.css";
 
 function formatBeijingTime(value: string) {
@@ -70,9 +71,10 @@ function avatarAnimal(key: number, size: number) {
 }
 
 export function MemberDialog({ member, onMember, onClose, onOpenCenter, onNotice }: { member: Member | null; onMember: (member: Member | null) => void; onClose: () => void; onOpenCenter: () => Promise<void>; onNotice: (message: string) => void }) {
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(readRememberedMemberEmail);
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
+  const [sendingCode, setSendingCode] = useState(false);
   const [centerError, setCenterError] = useState("");
   const [remaining, setRemaining] = useState(0);
   const [logs, setLogs] = useState<MemberLoginRecord[]>([]);
@@ -84,6 +86,7 @@ export function MemberDialog({ member, onMember, onClose, onOpenCenter, onNotice
   const [nicknameDialogOpen, setNicknameDialogOpen] = useState(false);
   const [nicknameError, setNicknameError] = useState("");
   const [refreshing, setRefreshing] = useState(false);
+  const [activeIdentity, setActiveIdentity] = useState<MemberIdentityKind | null>(null);
   useEffect(() => { setNickname(member?.nickname ?? ""); }, [member?.nickname]);
   useEffect(() => { if (!remaining) return; const timer = window.setTimeout(() => setRemaining(v => Math.max(0, v - 1)), 1000); return () => clearTimeout(timer); }, [remaining]);
   useEffect(() => {
@@ -100,6 +103,16 @@ export function MemberDialog({ member, onMember, onClose, onOpenCenter, onNotice
     if (busy) return; setBusy(true);
     try { await task(); } catch (reason) { onNotice(reason instanceof Error ? reason.message : String(reason)); }
     finally { setBusy(false); }
+  }
+  async function sendVerificationCode(targetEmail: string) {
+    if (sendingCode || busy) return;
+    setSendingCode(true);
+    try {
+      setRemaining(await memberClient.sendCode(targetEmail));
+      onNotice("验证码已发送，请检查收件箱和垃圾邮件。");
+    } catch (reason) {
+      onNotice(reason instanceof Error ? reason.message : String(reason));
+    } finally { setSendingCode(false); }
   }
   async function refreshMember() {
     if (refreshing || busy) return;
@@ -126,6 +139,7 @@ export function MemberDialog({ member, onMember, onClose, onOpenCenter, onNotice
     initialFocus={member ? undefined : 'input[type="email"]'}
     onSubmit={member ? undefined : event => {
       event.preventDefault();
+      rememberMemberEmail(email);
       void run(async () => { onMember(await memberClient.login(email.trim(), code)); onClose(); });
     }}
     footer={member ? <>
@@ -138,21 +152,26 @@ export function MemberDialog({ member, onMember, onClose, onOpenCenter, onNotice
       })}>退出登录</button>
     </> : <>
       <span className="member-registration-hint">新邮箱验证后自动注册</span>
-      <button type="submit" className="primary" disabled={busy || !runningInTauri}>{busy ? "处理中…" : "登录"}</button>
+      <button type="submit" className="primary" disabled={busy}>{busy ? "处理中…" : "登录"}</button>
     </>}
   >
     {member ? <div className="member-profile">
       <section className="member-summary-card" aria-label="会员信息">
         <MemberAvatar member={member} size={42} />
         <div className="member-summary-copy">
-          <div className="member-summary-title"><strong>{member.nickname.trim() || member.email}</strong>{member.is_vip && <span className="member-vip-badge">VIP</span>}{member.is_admin && <span className="member-admin-badge">超级管理员</span>}
+          <div className="member-summary-title"><strong>{member.nickname.trim() || member.email}</strong>
+            <div className="member-identity-badges" aria-label="会员身份">
+              <button type="button" className={`member-vip-badge${member.is_vip ? " is-active" : ""}`} aria-label="查看 VIP 身份卡" onClick={() => setActiveIdentity("vip")}><Crown size={12} aria-hidden="true" />VIP</button>
+              {memberHasExperienceOfficerIdentity(member) && <button type="button" className="member-experience-badge" aria-label="查看体验官身份卡" onClick={() => setActiveIdentity("experience_officer")}><BadgeCheck size={12} aria-hidden="true" />体验官</button>}
+              {member.id === 1 && member.is_admin && <button type="button" className="member-admin-badge" aria-label="查看超级管理身份卡" onClick={() => setActiveIdentity("super_admin")}><ShieldCheck size={12} aria-hidden="true" />超级管理</button>}
+            </div>
             <div className="member-profile-actions">
               <button type="button" className="secondary" disabled={busy || refreshing} onClick={() => { setNickname(member.nickname); setNicknameError(""); setNicknameDialogOpen(true); }}><Pencil size={13} aria-hidden="true" />修改昵称</button>
               <button type="button" className="secondary" aria-label="刷新会员信息" title="刷新会员信息" disabled={busy || refreshing} onClick={() => void refreshMember()}><RefreshCw size={14} aria-hidden="true" className={refreshing ? "spin" : undefined} />{refreshing ? "刷新中…" : "刷新"}</button>
             </div>
           </div>
           {member.nickname.trim() && <p className="member-summary-email">{member.email}</p>}
-          <p>会员 ID：{member.id} · 注册于 {formatBeijingTime(member.created_at)} 北京时间</p>
+          <p>注册日期：{formatBeijingTime(member.created_at).slice(0, 10)}</p>
         </div>
       </section>
       <section className="member-login-history" aria-labelledby="member-login-history-title">
@@ -165,13 +184,14 @@ export function MemberDialog({ member, onMember, onClose, onOpenCenter, onNotice
         {!logsLoading && !logsError && logs.length === 0 && <p className="member-history-state">暂无登录记录</p>}
         <PaginationBar className="member-history-pagination" page={logsPage} pageSize={20} hasNext={logsHasNext} disabled={logsLoading} onPageChange={setLogsPage} />
       </section>
+      {activeIdentity && <MobileMemberIdentityDialog member={member} identity={activeIdentity} desktop onClose={() => setActiveIdentity(null)} />}
     </div> : <div className="member-login-fields">
       <div className="member-login-field">
         <label htmlFor="member-email">邮箱</label>
         <div className="member-input-shell">
           <Mail size={16} aria-hidden="true" />
           <input id="member-email" type="email" value={email} required autoComplete="email" maxLength={254} disabled={busy}
-            onChange={e => setEmail(e.target.value)} placeholder="输入你的邮箱" />
+            onChange={e => setEmail(e.target.value)} onBlur={e => rememberMemberEmail(e.currentTarget.value)} placeholder="输入你的邮箱" />
         </div>
       </div>
       <div className="member-login-field">
@@ -180,15 +200,15 @@ export function MemberDialog({ member, onMember, onClose, onOpenCenter, onNotice
           <KeyRound size={16} aria-hidden="true" />
           <input id="member-code" value={code} required inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}"
             maxLength={6} disabled={busy} onChange={e => setCode(e.target.value)} placeholder="6位验证码" />
-          <button type="button" disabled={busy || remaining > 0 || !runningInTauri} onClick={e => {
+          <button type="button" disabled={busy || sendingCode || remaining > 0} onClick={e => {
             const field = e.currentTarget.closest("form")?.querySelector<HTMLInputElement>('input[type="email"]');
             if (!field?.reportValidity()) return;
-            void run(async () => { setRemaining(await memberClient.sendCode(email.trim())); onNotice("验证码已发送，请检查收件箱和垃圾邮件。"); });
-          }}>{remaining > 0 ? `${remaining}秒后重发` : "获取验证码"}</button>
+            rememberMemberEmail(field.value);
+            void sendVerificationCode(email.trim());
+          }}>{sendingCode ? "发送中…" : remaining > 0 ? `${remaining}秒后重发` : "获取验证码"}</button>
         </div>
       </div>
       <p className="member-privacy-note"><ShieldCheck size={15} aria-hidden="true" /><span>本机云资源与凭据不会随登录上传</span></p>
-      {!runningInTauri && <p>当前为浏览器预览，请使用原生客户端登录。</p>}
     </div>}
     {member && nicknameDialogOpen && <SharedDialog
       title="修改昵称"

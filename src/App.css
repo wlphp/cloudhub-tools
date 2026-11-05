@@ -483,8 +483,8 @@ main { background: var(--ui-bg); }
 .ide-theme nav button:hover svg { color: var(--jb-muted); }
 .ide-theme nav button.nav-active { background: var(--jb-accent-soft); box-shadow: inset 2px 0 var(--jb-accent); color: var(--jb-accent-strong); }
 .ide-theme nav button.nav-active svg { color: var(--jb-accent-strong); }
-.ide-theme nav button:nth-child(6) { margin-top: 13px; position: relative; }
-.ide-theme nav button:nth-child(6)::before { content: ""; position: absolute; top: -8px; left: 10px; right: 10px; border-top: 1px solid var(--jb-border); }
+.ide-theme > .app-main-sidebar nav button:nth-child(8) { margin-top: 13px; position: relative; }
+.ide-theme > .app-main-sidebar nav button:nth-child(8)::before { content: ""; position: absolute; top: -8px; left: 10px; right: 10px; border-top: 1px solid var(--jb-border); }
 .ide-theme .side-note { margin: auto 6px 0; padding: 10px; border: 1px solid var(--jb-border); border-radius: 4px; background: var(--jb-surface-2); color: var(--jb-subtle); font-size: 11px; }
 .ide-theme .side-note span { color: var(--jb-success); }
 .ide-theme header h1 { margin-top: 4px; color: var(--jb-text); font-size: 25px; font-weight: 600; letter-spacing: 0; }

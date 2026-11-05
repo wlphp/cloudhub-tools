@@ -4,6 +4,7 @@ import { SharedDialog } from "../shared/SharedDialog";
 import { useDialogDragging } from "../shared/useDialogDragging";
 import { KeyRound, LockKeyhole } from "lucide-react";
 import { AuthenticatorPanel } from "../features/authenticator/AuthenticatorPanel";
+import { Format, requestPermissions, scan } from "@tauri-apps/plugin-barcode-scanner";
 import { AiSettings } from "../features/ai/AiSettings";
 import { AiAssistButton } from "../features/ai/AiAssistButton";
 import { panelAiFields } from "../features/ai/panelDraft";
@@ -17,35 +18,55 @@ import { SecretField } from "../shared/SecretField";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { useConfirmDialog } from "../shared/useConfirmDialog";
 import { useCallback, useEffect, useRef, useState, type Dispatch, type FormEvent, type PointerEvent as ReactPointerEvent, type SetStateAction } from "react";
-import { Activity, ArrowLeft, Bot, CloudDownload, LayoutGrid, ArrowDownToLine, ArrowUpDown, ChevronDown, Cloud, Database, File, FileText, Filter, Folder, Globe2, Plus, Power, RefreshCw, RotateCw, Search, Server, ShieldCheck, SunMoon, Trash2, Award, Terminal, Pencil, ExternalLink, Monitor, Upload, Info, Network, Sparkles } from "lucide-react";
+import { Activity, ArrowLeft, BadgeCheck, CloudDownload, Crown, House, BellRing, Mail, Store, UserRound, ScanLine, ArrowDownToLine, ArrowUpDown, ChevronDown, ChevronRight, Cloud, Database, File, FileText, Filter, Folder, Globe2, HardDrive, Plus, Power, RefreshCw, RotateCw, Search, Server, ShieldCheck, SunMoon, Trash2, Award, Terminal, Pencil, ExternalLink, Monitor, Upload, Sparkles, Settings, Star } from "lucide-react";
 import type { Account, ApiLog, LocalAsset, ManagedHost, PanelConnection, PanelConnectionDraft, TransferAccount } from "../shared/types";
 import packageJson from "../../package.json";
 import { accountsClient, certificatesClient, domainsClient, logsClient, preferencesClient, remoteClient, resourcesClient, storageClient } from "../platform/clients";
 import type { OssObjectListing } from "../platform/clients/storage";
-import { cloudProvider, cloudProviders, matchCloudTypeFromText, resourceLabels, syncAssetTypes } from "../features/cloud/catalog";
-import { cloudHubBackFabPositionStorageKey, cloudHubUiThemeStorageKey, readUiTheme } from "../features/app/constants";
+import { assetTypes, cloudProvider, cloudProviders, matchCloudTypeFromText, resourceLabels, syncAssetTypes } from "../features/cloud/catalog";
+import { cloudHubBackFabPositionStorageKey, cloudHubFavoriteAssetsStorageKey, cloudHubUiThemeStorageKey, readUiTheme } from "../features/app/constants";
+import { assetFavoriteKey, savedFavoriteAssetKeys, stringListFromValue } from "../features/assets/preferences";
 import type { AccountSaveInput } from "../platform/clients/accounts";
 import { serversClient, type InstanceAction } from "../platform/clients/servers";
 import { SyncTransferPanel } from "../features/accounts/SyncTransferPanel";
 import { NetworkSettingsPage } from "../features/settings/NetworkSettingsPage";
-import { platformErrorMessage, runningInTauri } from "../platform/api";
+import { runningInTauri } from "../platform/api";
 import { MobileResourceOverview } from "./MobileResourceOverview";
 import { MobilePanelMetrics } from "./MobilePanelMetrics";
-import { MobileMorePage } from "./MobileMorePage";
+import { MobileMorePage, type MobileFeatureDestination } from "./MobileMorePage";
+import { MobileHomePage } from "./MobileHomePage";
+import { MobileMonitorAlertsPage } from "./MobileMonitorAlertsPage";
+import { OfficialPluginsPage } from "../features/plugins/OfficialPluginsPage";
+import { useApplicationPreferences } from "../features/plugins/useApplicationPreferences";
 import { useMobileUpdates } from "./useMobileUpdates";
 import { MobileUpdatePanel } from "./MobileUpdatePanel";
 import { FlowPanel } from "../features/flow/FlowPanel";
 import { MobileAccountSwipeCard } from "./MobileAccountSwipeCard";
 import { MobilePullRefresh } from "./MobilePullRefresh";
+import { MobileLoadingSkeleton } from "./MobileLoadingSkeleton";
 import { MobileEsaProducts } from "./MobileEsaProducts";
 import { MobileServerDetails, serverExpiryLabel } from "./MobileServerDetails";
 import { MobileProviderMark } from "./MobileProviderMark";
 import { panelRefreshIntervals, useMobilePanelRefresh } from "./useMobilePanelRefresh";
 import { MobileMemberPage } from "./MobileMemberPage";
-import { memberClient, type Member } from "../platform/clients/member";
+import { MobilePersonalProfile } from "./MobilePersonalProfile";
+import { MobileMemberIdentityDialog, type MemberIdentityKind } from "./MobileMemberIdentityDialog";
+import { MemberAvatar } from "../features/member/MemberDialog";
+import { memberClient, memberHasExperienceOfficerIdentity, type Member } from "../platform/clients/member";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
-type MobileTab = "accounts" | "servers" | "domains" | "storage" | "databases" | "redis" | "certificates" | "ssh" | "panels" | "sync" | "settings" | "aiSettings" | "networkSettings" | "operationLogs" | "apiLogs" | "about" | "flow" | "authenticator" | "member" | "more";
+type MobileTab = "accounts" | "servers" | "domains" | "assets" | "favorites" | "storage" | "databases" | "redis" | "certificates" | "ssh" | "panels" | "sync" | "settings" | "settingsMenu" | "aiSettings" | "networkSettings" | "operationLogs" | "apiLogs" | "about" | "flow" | "authenticator" | "personalProfile" | "member" | "more" | "home" | "monitorAlerts" | "softwareStore";
+
+type MobileQrKind = "authenticator" | "transfer" | "link" | "text";
+function mobileQrKind(content: string): MobileQrKind {
+  if (content.startsWith("otpauth://")) return "authenticator";
+  try {
+    const url = new URL(content);
+    if (url.protocol === "http:" && /^\/v1\/transfer\/[^/]+$/.test(url.pathname) && url.hash.length > 1) return "transfer";
+    if (url.protocol === "https:" || url.protocol === "http:") return "link";
+  } catch { /* 普通文本二维码 */ }
+  return "text";
+}
 
 function payloadText(payload: Record<string, unknown>, keys: string[]): string {
   for (const key of keys) {
@@ -74,6 +95,14 @@ function domainRecordCountLabel(payload: Record<string, unknown>): string {
 
 function serverStatusClass(payload: Record<string, unknown>): string {
   return `mobile-server-status is-${serverPowerState(payload)}`;
+}
+
+function MemberIdentityBadges({ member, className, onSelect }: { member: Member | null; className: string; onSelect?: (identity: MemberIdentityKind) => void }) {
+  return <span className={className} role="group" aria-label="账户身份">
+    {onSelect ? <button type="button" className="mobile-member-status-button" aria-label="查看 VIP 身份卡" disabled={!member} onClick={() => onSelect("vip")}><span className={`mobile-member-status-badge is-vip${member?.is_vip ? " is-active" : ""}`}><Crown size={13} aria-hidden="true" /><span>VIP</span></span></button> : <span className={`mobile-member-status-badge is-vip${member?.is_vip ? " is-active" : ""}`}><Crown size={13} aria-hidden="true" /><span>VIP</span></span>}
+    {memberHasExperienceOfficerIdentity(member) && (onSelect ? <button type="button" className="mobile-member-status-button" aria-label="查看产品体验官身份卡" onClick={() => onSelect("experience_officer")}><span className="mobile-member-status-badge is-experience-officer"><BadgeCheck size={13} aria-hidden="true" /><span>体验官</span></span></button> : <span className="mobile-member-status-badge is-experience-officer"><BadgeCheck size={13} aria-hidden="true" /><span>体验官</span></span>)}
+    {member?.id === 1 && member.is_admin && (onSelect ? <button type="button" className="mobile-member-status-button" aria-label="查看超级管理员身份卡" onClick={() => onSelect("super_admin")}><span className="mobile-member-status-badge is-super-admin"><ShieldCheck size={13} aria-hidden="true" /><span>超级管理</span></span></button> : <span className="mobile-member-status-badge is-super-admin"><ShieldCheck size={13} aria-hidden="true" /><span>超级管理</span></span>)}
+  </span>;
 }
 
 function fetchedAtLabel(timestamp: number): string {
@@ -120,13 +149,55 @@ function panelCloudType(panel: PanelConnection, accounts: Account[]) {
 
 export function MobileApp() {
   const { confirm, confirmationDialog } = useConfirmDialog();
+  const applicationSettings = useApplicationPreferences();
+  const [storePluginId, setStorePluginId] = useState<string | null>(null);
   useDialogDragging();
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [mobileAssetRows, setMobileAssetRows] = useState<LocalAsset[]>([]);
+  const [mobileAssetSearch, setMobileAssetSearch] = useState("");
+  const [mobileAssetTypeFilter, setMobileAssetTypeFilter] = useState("");
+  const [mobileAssetAccountFilter, setMobileAssetAccountFilter] = useState<number | null>(null);
+  const [mobileAssetsLoading, setMobileAssetsLoading] = useState(false);
+  const [mobileFavoriteKeys, setMobileFavoriteKeys] = useState<string[]>(savedFavoriteAssetKeys);
+  const [mobileFavoritesReady, setMobileFavoritesReady] = useState(false);
   const [accountProductCounts, setAccountProductCounts] = useState<Record<number, Record<string, number>>>({});
   const [accountAssetsRevision, setAccountAssetsRevision] = useState(0);
   const [uiTheme, setUiTheme] = useState<"light" | "dark">(readUiTheme);
   const [member, setMember] = useState<Member | null>(null);
-  const memberCenterOpeningRef = useRef(false);
+  const [memberUnreadCount, setMemberUnreadCount] = useState(0);
+  const [mobileActiveAlertCount, setMobileActiveAlertCount] = useState(0);
+  const [memberInboxRequested, setMemberInboxRequested] = useState(false);
+  const [activeMemberIdentity, setActiveMemberIdentity] = useState<MemberIdentityKind | null>(null);
+  useEffect(() => {
+    let active = true;
+    if (!member) { setMemberUnreadCount(0); return; }
+    const refreshUnread = () => { void memberClient.messages(1).then(page => { if (active) setMemberUnreadCount(page.unread_count); }).catch(() => {}); };
+    refreshUnread();
+    const timer = window.setInterval(refreshUnread, 60_000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [member?.id]);
+  const [settingsDrawerDirection, setSettingsDrawerDirection] = useState<"forward" | "back">("forward");
+  const [settingsTransitionUnderlayVisible, setSettingsTransitionUnderlayVisible] = useState(false);
+  const settingsReturnToMenuRef = useRef(false);
+  const settingsButtonRef = useRef<HTMLButtonElement>(null);
+  const settingsCloseButtonRef = useRef<HTMLButtonElement>(null);
+  const closeSettingsDrawer = () => {
+    settingsReturnToMenuRef.current = false;
+    setTab("more");
+    requestAnimationFrame(() => settingsButtonRef.current?.focus());
+  };
+  const openSettingsTab = (destination: MobileTab) => {
+    settingsReturnToMenuRef.current = true;
+    setSettingsTransitionUnderlayVisible(true);
+    setSettingsDrawerDirection("forward");
+    setTab(destination);
+  };
+  const returnToSettingsMenu = () => {
+    settingsReturnToMenuRef.current = true;
+    setSettingsTransitionUnderlayVisible(false);
+    setSettingsDrawerDirection("back");
+    setTab("settingsMenu");
+  };
   useEffect(() => {
     document.body.classList.toggle("theme-light", uiTheme === "light");
     let themeColorMeta = document.head.querySelector('meta[name="theme-color"]');
@@ -229,7 +300,36 @@ export function MobileApp() {
   const [sshHostSaving, setSshHostSaving] = useState(false);
   const [newSshAuthMethod, setNewSshAuthMethod] = useState<"password" | "private_key">("password");
   const [dnsEditor, setDnsEditor] = useState<Record<string, unknown> | null | undefined>(undefined);
-  const [tab, setTab] = useState<MobileTab>("accounts");
+  const [tab, setTab] = useState<MobileTab>("home");
+  const [homeSearch, setHomeSearch] = useState("");
+  const [mobileQrResult, setMobileQrResult] = useState<string | null>(null);
+  const [pendingOtpUri, setPendingOtpUri] = useState<string | null>(null);
+  const [pendingTransferQr, setPendingTransferQr] = useState<string | null>(null);
+  async function scanMobileQr() {
+    if (!runningInTauri) { setNotice("扫一扫仅支持手机 App，请在 App 内使用相机扫描。"); return; }
+    try {
+      if (await requestPermissions() !== "granted") { setNotice("请在系统设置中允许相机权限后重试。"); return; }
+      const result = await scan({ windowed: false, formats: [Format.QRCode] });
+      const content = result.content?.trim();
+      if (!content) { setNotice("没有读取到有效二维码。"); return; }
+      setMobileQrResult(content);
+    } catch { setNotice("扫码已取消或相机不可用，请重试。"); }
+  }
+  function closeMobileQrResult() { setMobileQrResult(null); }
+  async function copyMobileQrResult() {
+    if (!mobileQrResult) return;
+    try { await navigator.clipboard.writeText(mobileQrResult); setMobileQrResult(null); setNotice("已复制二维码内容。"); }
+    catch { setNotice("复制失败，请检查系统剪贴板权限。"); }
+  }
+  useEffect(() => {
+    if (tab !== "settingsMenu") return;
+    settingsCloseButtonRef.current?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { event.preventDefault(); closeSettingsDrawer(); return; }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [tab]);
   const [startupAnimationEnabled, setStartupAnimationEnabled] = useState<boolean | null>(null);
   useEffect(() => {
     let active = true;
@@ -251,48 +351,17 @@ export function MobileApp() {
   const accountImportInput = useRef<HTMLInputElement>(null);
   const mobileContentRef = useRef<HTMLElement>(null);
   const pullRefreshActionRef = useRef<(() => Promise<void>) | null>(null);
+  const monitorRefreshRef = useRef<(() => Promise<void>) | null>(null);
   const [showAddAccount, setShowAddAccount] = useState(false);
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [newAccountCloud, setNewAccountCloud] = useState("aliyun");
   const [notice, setNotice] = useState("");
   useEffect(() => {
-    if (!runningInTauri) return;
     let active = true;
     const refreshMember = () => { void memberClient.me().then(value => { if (active) setMember(value); }).catch(reason => { if (active && String(reason).includes("登录已失效")) setMember(null); }); };
     refreshMember(); window.addEventListener("focus", refreshMember);
     return () => { active = false; window.removeEventListener("focus", refreshMember); };
   }, []);
-  async function openMemberCenter() {
-    if (memberCenterOpeningRef.current) return;
-    memberCenterOpeningRef.current = true;
-    const memberCenterUrl = "https://yun.wlphp.com/member.html";
-    try {
-      if (!runningInTauri) { window.open(memberCenterUrl, "_blank", "noopener,noreferrer"); return; }
-      let ticket: string;
-      try {
-        ticket = await memberClient.webHandoff();
-      } catch (reason) {
-        const detail = platformErrorMessage(reason, "会员服务请求失败");
-        try {
-          await openUrl(memberCenterUrl);
-          setNotice(`创建会员中心登录链接失败：${detail}。已打开官网会员页，请登录后继续`);
-        } catch {
-          setNotice(`创建会员中心登录链接失败：${detail}；并且无法打开官网，请检查系统默认浏览器`);
-        }
-        return;
-      }
-      try {
-        await openUrl(`${memberCenterUrl}#handoff=${encodeURIComponent(ticket)}`);
-      } catch {
-        try {
-          await openUrl(memberCenterUrl);
-          setNotice("临时登录链接已创建，但系统未能打开自动登录链接；已打开官网会员页，请登录后继续");
-        } catch {
-          setNotice("临时登录链接已创建，但系统无法打开浏览器，请检查系统默认浏览器");
-        }
-      }
-    } finally { memberCenterOpeningRef.current = false; }
-  }
   const accountForAsset = useCallback((asset: LocalAsset | null) => asset ? accounts.find((account) => account.id === asset.account_id) ?? null : null, [accounts]);
   const selectedDomainAccount = accountForAsset(selectedDomain);
   const selectedDomainName = selectedDomain ? payloadText(selectedDomain.payload, ["DomainName", "domain", "domainName", "name"]) : "";
@@ -370,7 +439,40 @@ export function MobileApp() {
     }
   }, [beginResourceRead, selectedAccountId]);
 
+  const refreshMobileAssets = useCallback(async () => {
+    setMobileAssetsLoading(true);
+    try {
+      setMobileAssetRows(await resourcesClient.listLocal());
+      setNotice("");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "读取本机资产失败");
+    } finally {
+      setMobileAssetsLoading(false);
+    }
+  }, []);
+
   useEffect(() => { void refreshAccounts(); }, [refreshAccounts]);
+
+  useEffect(() => {
+    let active = true;
+    void preferencesClient.list().then((preferences) => {
+      if (active && preferences[cloudHubFavoriteAssetsStorageKey] !== undefined) {
+        const keys = stringListFromValue(preferences[cloudHubFavoriteAssetsStorageKey]);
+        setMobileFavoriteKeys(keys);
+        try { localStorage.setItem(cloudHubFavoriteAssetsStorageKey, JSON.stringify(keys)); } catch { /* 客户端偏好仍可用 */ }
+      }
+    }).catch(() => undefined).finally(() => { if (active) setMobileFavoritesReady(true); });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!mobileFavoritesReady) return;
+    const value = JSON.stringify(mobileFavoriteKeys);
+    try { localStorage.setItem(cloudHubFavoriteAssetsStorageKey, value); } catch { /* 客户端偏好仍可用 */ }
+    void preferencesClient.save(cloudHubFavoriteAssetsStorageKey, value).catch(() => undefined);
+  }, [mobileFavoriteKeys, mobileFavoritesReady]);
+
+  useEffect(() => { if (tab === "home" || tab === "assets" || tab === "favorites" || tab === "more") void refreshMobileAssets(); }, [tab, refreshMobileAssets]);
 
   useEffect(() => {
     if (tab !== "accounts" || accounts.length === 0) return;
@@ -475,7 +577,7 @@ export function MobileApp() {
   }, [beginResourceRead, selectedAccountId]);
 
   useEffect(() => {
-    if (tab === "servers") void refreshServers();
+    if (tab === "servers" || tab === "more") void refreshServers();
     else if (tab === "domains") void refreshDomains();
     else if (tab === "storage") void refreshBuckets();
     else if (tab === "databases") void refreshDatabases();
@@ -501,8 +603,8 @@ export function MobileApp() {
   }, [panelAutoRefresh.inFlight]);
 
   useEffect(() => {
-    if (tab === "ssh") void refreshManagedHosts();
-    else if (tab === "panels") void refreshPanelConnections();
+    if (tab === "ssh" || tab === "more") void refreshManagedHosts();
+    if (tab === "panels" || tab === "more") void refreshPanelConnections();
   }, [tab, refreshManagedHosts, refreshPanelConnections]);
 
   const refreshOperationLogs = useCallback(async () => {
@@ -1031,7 +1133,11 @@ export function MobileApp() {
 
   pullRefreshActionRef.current = loading || syncing || panelLoading || panelActionId !== null || operationLogsLoading || apiLogsLoading
     ? null
-    : tab === "accounts" ? refreshAccounts
+    : tab === "home" ? async () => { await Promise.all([refreshAccounts(), refreshMobileAssets(), monitorRefreshRef.current?.()]); }
+      : tab === "monitorAlerts" ? monitorRefreshRef.current
+      : tab === "more" ? async () => { await Promise.all([refreshMobileAssets(), refreshServers(), refreshManagedHosts(), refreshPanelConnections()]); }
+      : tab === "accounts" ? refreshAccounts
+      : tab === "assets" || tab === "favorites" ? refreshMobileAssets
       : tab === "servers" ? refreshServers
       : tab === "domains" ? selectedDomain ? () => loadDns(selectedDomain) : refreshDomains
           : tab === "storage" ? selectedBucket ? () => browseBucket(selectedBucket, objectPrefix) : refreshBuckets
@@ -1096,6 +1202,57 @@ export function MobileApp() {
     return name === "—" ? asset.asset_key : name;
   };
   const assetSearchText = (asset: LocalAsset) => [assetName(asset), asset.asset_key, asset.region_id, accountForAsset(asset)?.account_name, accountForAsset(asset) ? cloudProvider(accountForAsset(asset)!.cloud_type).label : "", payloadText(asset.payload, ["Location", "location", "Region"]), payloadText(asset.payload, ["DBInstanceStatus", "InstanceStatus", "Status", "status"])].join(" ");
+  const visibleMobileAssetRows = mobileAssetRows.filter((asset) =>
+    (!mobileAssetTypeFilter || asset.resource_type === mobileAssetTypeFilter)
+    && (mobileAssetAccountFilter === null || asset.account_id === mobileAssetAccountFilter)
+    && (!mobileAssetSearch.trim() || `${assetSearchText(asset)} ${resourceLabels[asset.resource_type as keyof typeof resourceLabels] ?? asset.resource_type}`.toLocaleLowerCase().includes(mobileAssetSearch.trim().toLocaleLowerCase()))
+  ).sort((left, right) => right.fetched_at - left.fetched_at);
+  const favoriteMobileAssetRows = visibleMobileAssetRows.filter((asset) => mobileFavoriteKeys.includes(assetFavoriteKey(asset)));
+  const mobileAssetPageRows = tab === "favorites" ? favoriteMobileAssetRows : visibleMobileAssetRows;
+  const mobileAssetTypeCounts = assetTypes.map(([type, label]) => ({ type, label, count: mobileAssetRows.filter((asset) => asset.resource_type === type).length }));
+  const toggleMobileAssetFavorite = (asset: LocalAsset) => {
+    const key = assetFavoriteKey(asset);
+    setMobileFavoriteKeys((current) => current.includes(key) ? current.filter((item) => item !== key) : [...current, key]);
+  };
+  const openMobileAssetOperations = (asset: LocalAsset) => {
+    setSelectedAccountId(asset.account_id);
+    setAssetAccountFilterId(asset.account_id);
+    setMobileAssetSearch("");
+    if (asset.resource_type === "ecs" || asset.resource_type === "swas") {
+      setServerAccountFilterIds([asset.account_id]);
+      setServerSearch(asset.asset_key);
+      setTab("servers");
+    } else if (asset.resource_type === "domain") {
+      setDomainSearch(asset.asset_key);
+      setTab("domains");
+    } else if (asset.resource_type === "oss") {
+      setResourceSearch((current) => ({ ...current, storage: asset.asset_key }));
+      setTab("storage");
+    } else if (asset.resource_type === "rds") {
+      setResourceSearch((current) => ({ ...current, databases: asset.asset_key }));
+      setTab("databases");
+    } else if (asset.resource_type === "redis") {
+      setResourceSearch((current) => ({ ...current, redis: asset.asset_key }));
+      setTab("redis");
+    } else if (asset.resource_type === "certificate") {
+      setTab("certificates");
+    } else if (asset.resource_type.toLowerCase() === "esa") {
+      const owner = accountForAsset(asset);
+      const consoleUrl = owner?.cloud_type === "tencent"
+        ? "https://console.cloud.tencent.com/edgeone"
+        : owner?.cloud_type === "volcengine"
+          ? "https://console.volcengine.com/cdn/"
+          : "https://esa.console.aliyun.com/";
+      const consoleName = owner?.cloud_type === "tencent" ? "腾讯云 EdgeOne" : owner?.cloud_type === "volcengine" ? "火山引擎 CDN" : "阿里云 ESA";
+      if (runningInTauri) void openUrl(consoleUrl).then(() => setNotice(`已打开${consoleName}控制台`)).catch((error) => setNotice(error instanceof Error ? error.message : "打开云厂商控制台失败"));
+      else {
+        window.open(consoleUrl, "_blank", "noopener,noreferrer");
+        setNotice(`已请求打开${consoleName} 控制台；若未打开，请允许浏览器弹出窗口`);
+      }
+    } else {
+      setNotice("桌面端暂未为该类型提供专用操作，可在对应云厂商控制台管理");
+    }
+  };
   const accountAssets = (rows: LocalAsset[]) => rows.filter((asset) => productDialog ? asset.account_id === productDialog.account.id : assetAccountFilterId === null || asset.account_id === assetAccountFilterId);
   const filteredBuckets = filterNamed("storage", accountAssets(buckets), assetName, assetSearchText);
   const filteredDatabaseAssets = filterNamed("databases", accountAssets(databaseAssets), assetName, assetSearchText);
@@ -1123,7 +1280,6 @@ export function MobileApp() {
   const statusFilter = statusOptions.length ? <select aria-label="按状态筛选" value={resourceStatus[tab] ?? ""} onChange={(event) => { const value = event.currentTarget.value; setResourceStatus((current) => ({ ...current, [tab]: value })); }}><option value="">全部状态</option>{statusOptions.map((status) => <option value={status} key={status}>{status === "online" ? "在线" : status === "offline" ? "离线" : status === "unknown" ? "未检查" : status}</option>)}</select> : undefined;
   const resourcePageOverview = resourceConfig && <MobileResourceOverview inlineActions={tab === "ssh" || tab === "panels"} title={resourceConfig.title} description={resourceConfig.description} icon={resourceConfig.icon} count={resourceConfig.count} countLabel={resourceConfig.unit} secondaryCount={resourceConfig.second} secondaryLabel={resourceConfig.secondLabel} search={resourceSearch[tab] ?? ""} onSearch={(value) => setResourceSearch((current) => ({ ...current, [tab]: value }))} ascending={resourceAscending[tab] !== false} onSort={() => setResourceAscending((current) => ({ ...current, [tab]: current[tab] === false }))} filter={resourceConfig.accounts ? <select aria-label={`按账号筛选${resourceConfig.title}`} value={assetAccountFilterId ?? ""} onChange={(event) => setAssetAccountFilterId(event.currentTarget.value ? Number(event.currentTarget.value) : null)}><option value="">全部账号</option>{accounts.map((account) => <option key={account.id} value={account.id}>{account.account_name}</option>)}</select> : statusFilter} actions={tab === "ssh" ? <button type="button" className="mobile-primary" onClick={() => openSshHostForm()}><Plus size={17} />添加主机</button> : tab === "panels" ? <button type="button" className="mobile-primary" onClick={addPanel}><Plus size={17} />添加面板</button> : tab === "operationLogs" || tab === "apiLogs" ? <button type="button" className="mobile-icon-button" aria-label="清空日志" title="清空日志" disabled={operationLogsLoading || apiLogsLoading} onClick={() => void clearMobileLogs(tab === "operationLogs" ? "operation" : "api")}><Trash2 size={18} /></button> : undefined} />;
   const cloudPullAction = tab === "servers" ? syncServers : tab === "domains" && !selectedDomain ? refreshDomainsFromCloud : tab === "storage" && !selectedBucket ? refreshBucketsFromCloud : tab === "databases" && !selectedDatabase ? refreshDatabasesFromCloud : tab === "redis" && !selectedRedis ? refreshRedisFromCloud : null;
-  const refreshLabel = cloudPullAction ? "刷新本机缓存" : tab === "domains" ? "刷新 DNS 记录" : "刷新当前页面";
   function linkedResourceAccountCount(assets: LocalAsset[]) { return new Set(assets.filter((asset) => accountForAsset(asset)).map((asset) => asset.account_id)).size; }
   const unknownDomains = domains.filter((domain) => accountForAsset(domain) === null);
   const unknownBuckets = buckets.filter((bucket) => accountForAsset(bucket) === null);
@@ -1145,8 +1301,24 @@ export function MobileApp() {
     })
     .sort((left, right) => (left.account_name.localeCompare(right.account_name, "zh-CN", { numeric: true, sensitivity: "base" })) * (accountSortAscending ? 1 : -1));
 
-  const isSubPageTab = tab !== "accounts" && tab !== "servers" && tab !== "domains" && tab !== "more";
+  const isSubPageTab = tab !== "more" && tab !== "home";
+  const settingsPageOpen = settingsReturnToMenuRef.current && tab !== "more" && tab !== "settingsMenu";
+  const settingsPageTitle: Partial<Record<MobileTab, string>> = {
+    settings: "通用",
+    aiSettings: "模型供应商",
+    networkSettings: "网络与代理",
+    sync: "数据导入与迁移",
+    authenticator: "身份验证器",
+    operationLogs: "操作日志",
+    apiLogs: "API 日志",
+    about: "关于",
+    personalProfile: "个人资料",
+  };
   const backAction = (() => {
+    if (tab === "settingsMenu") return null;
+    if (tab === "monitorAlerts" || tab === "softwareStore") return { label: "返回首页", onClick: () => setTab("home") };
+    if (tab === "favorites") return { label: "返回我的资产", onClick: () => setTab("assets") };
+    if (settingsPageOpen) return { label: "返回设置", onClick: returnToSettingsMenu };
     if (tab === "domains" && selectedDomain) return { label: "返回域名列表", onClick: () => { setSelectedDomain(null); setDnsRecords([]); } };
     if (tab === "storage" && selectedBucket) return {
       label: objectPrefix ? "返回上一级目录" : "返回存储桶列表",
@@ -1162,9 +1334,10 @@ export function MobileApp() {
     if (tab === "redis" && selectedRedis) return { label: "返回实例列表", onClick: () => { setSelectedRedis(null); setRedisAccounts([]); } };
     if (tab === "networkSettings" || tab === "sync") return { label: "返回系统设置", onClick: () => setTab("settings") };
     if (tab === "aiSettings") return { label: "返回系统设置", onClick: () => setTab("settings") };
-    if (isSubPageTab) return { label: "返回更多", onClick: () => setTab("more") };
+    if (isSubPageTab) return { label: "返回我的", onClick: () => setTab("more") };
     return null;
   })();
+  const isBottomNavigationTab = tab === "home" || tab === "monitorAlerts" || tab === "softwareStore" || tab === "more";
 
   const [backFabPos, setBackFabPos] = useState<{ right: number; bottom: number } | null>(() => {
     try {
@@ -1247,7 +1420,7 @@ export function MobileApp() {
             <div className="mobile-account-list-heading"><h2>云账号列表 <span>{filteredAccounts.length}</span></h2><button type="button" className="mobile-account-sort" aria-label={`按名称${accountSortAscending ? "降序" : "升序"}排列`} onClick={() => setAccountSortAscending((ascending) => !ascending)}><ArrowUpDown size={16} />{accountSortAscending ? "按名称" : "名称倒序"}</button></div>
             {filteredAccounts.length > 0 && <p className="mobile-account-swipe-hint">点击账号卡片右侧的更多按钮，可获取资产、编辑或删除</p>}
           </>}
-          {loading && accounts.length === 0 ? <div className="mobile-empty"><Activity className="mobile-spin" />正在读取本机账号…</div> : accounts.length === 0 ? <div className="mobile-empty"><Cloud size={30} /><strong>还没有云账号</strong><span>添加账号后，手机可以独立查询云资源。</span><button className="mobile-primary" type="button" onClick={openAddAccount}><Plus size={17} />添加云账号</button></div> : filteredAccounts.length === 0 ? <div className="mobile-empty"><Search size={30} /><strong>没有匹配的云账号</strong><span>试试其他关键词或选择全部云厂商。</span><button className="mobile-primary" type="button" onClick={() => { setAccountSearch(""); setAccountProviderFilter(""); }}>清除筛选</button></div> : <div className="mobile-account-list">{filteredAccounts.map((account) => {
+          {loading && accounts.length === 0 ? <MobileLoadingSkeleton variant="list" label="正在读取云账号" /> : accounts.length === 0 ? <div className="mobile-empty"><Cloud size={30} /><strong>还没有云账号</strong><span>添加账号后，手机可以独立查询云资源。</span><button className="mobile-primary" type="button" onClick={openAddAccount}><Plus size={17} />添加云账号</button></div> : filteredAccounts.length === 0 ? <div className="mobile-empty"><Search size={30} /><strong>没有匹配的云账号</strong><span>试试其他关键词或选择全部云厂商。</span><button className="mobile-primary" type="button" onClick={() => { setAccountSearch(""); setAccountProviderFilter(""); }}>清除筛选</button></div> : <div className="mobile-account-list">{filteredAccounts.map((account) => {
             const canSync = syncAssetTypes(account).length > 0;
             const productStats = Object.entries(accountProductCounts[account.id] ?? {}).filter(([, count]) => count > 0).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
             return <MobileAccountSwipeCard key={account.id} label={account.account_name} details={
@@ -1270,7 +1443,58 @@ export function MobileApp() {
           })}</div>}
         </>;
 
-  const resourcePage = tab === "servers" ? <>
+  const renderSettingsMenuContent = () => <div className="mobile-settings-menu-content">
+    <div className="mobile-settings-profile">
+      <span className="mobile-settings-profile-avatar"><MemberAvatar member={member} size={52} /></span>
+      <span className="mobile-settings-profile-copy">
+        <span className="mobile-settings-profile-identity">
+          <span className="mobile-profile-account-line">
+            <button type="button" className="mobile-settings-profile-name" onClick={() => {
+              if (!member) { openSettingsTab("member"); return; }
+              settingsReturnToMenuRef.current = true;
+              setSettingsDrawerDirection("forward");
+              setTab("personalProfile");
+            }}>
+              {member ? (member.nickname?.trim() && member.nickname.trim() !== "匿名用户" ? member.nickname.trim() : member.email) : "登录 / 注册"}
+            </button>
+            {member?.nickname?.trim() && member.nickname.trim() !== "匿名用户" && <small>{member.email}</small>}
+          </span>
+          <MemberIdentityBadges member={member} className="mobile-member-status-badges" onSelect={setActiveMemberIdentity} />
+        </span>
+        {member && <small className="mobile-settings-profile-joined">注册日期：{member.created_at.slice(0, 10)}</small>}
+      </span>
+    </div>
+    <section className="mobile-settings-group" aria-label="通用设置">
+      <button type="button" onClick={() => openSettingsTab("settings")}><span>通用设置</span><ChevronRight size={18} aria-hidden="true" /></button>
+      <button type="button" onClick={() => openSettingsTab("networkSettings")}><span>网络与代理</span><ChevronRight size={18} aria-hidden="true" /></button>
+    </section>
+    <section className="mobile-settings-group" aria-label="数据与工具">
+      <button type="button" onClick={() => openSettingsTab("sync")}><span>数据导入与迁移</span><ChevronRight size={18} aria-hidden="true" /></button>
+      <button type="button" onClick={() => openSettingsTab("aiSettings")}><span>模型供应商</span><ChevronRight size={18} aria-hidden="true" /></button>
+    </section>
+    <section className="mobile-settings-group" aria-label="关于与支持">
+      <button type="button" onClick={() => openSettingsTab("about")}><span>更新与关于</span><ChevronRight size={18} aria-hidden="true" /></button>
+    </section>
+    <p className="mobile-settings-version">云枢工具箱 · v{packageJson.version}</p>
+  </div>;
+
+  const resourcePage = tab === "settingsMenu" ? renderSettingsMenuContent() : tab === "assets" || tab === "favorites" ? <>
+          <div className="mobile-page-title mobile-assets-title"><div><p>本机 SQLite · 不实时请求云端</p><h1>{tab === "favorites" ? "我的收藏" : "我的资产"}</h1></div><span>{(tab === "favorites" ? favoriteMobileAssetRows : mobileAssetRows).length} 项</span></div>
+          <div className="mobile-assets-page-switch" role="tablist" aria-label="资产视图"><button type="button" role="tab" aria-selected={tab === "assets"} className={tab === "assets" ? "is-active" : ""} onClick={() => setTab("assets")}>全部资产</button><button type="button" role="tab" aria-selected={tab === "favorites"} className={tab === "favorites" ? "is-active" : ""} onClick={() => setTab("favorites")}>我的收藏 <span>{mobileFavoriteKeys.length}</span></button></div>
+          {tab === "assets" && <>
+          <div className="mobile-assets-summary"><div><HardDrive size={19} aria-hidden="true" /><strong>{mobileAssetRows.length}</strong><span>本机资产</span></div><div><Cloud size={19} aria-hidden="true" /><strong>{new Set(mobileAssetRows.map((asset) => asset.account_id)).size}</strong><span>关联账号</span></div></div>
+          </>}
+          <div className="mobile-assets-filters"><label className="mobile-account-search"><Search size={18} aria-hidden="true" /><input aria-label="搜索资产名称、ID 或账号" value={mobileAssetSearch} onChange={(event) => setMobileAssetSearch(event.currentTarget.value)} placeholder="搜索资产名称 / ID / 账号…" /></label><label className="mobile-account-provider-filter"><Filter size={16} aria-hidden="true" /><select aria-label="筛选资产类型" value={mobileAssetTypeFilter} onChange={(event) => setMobileAssetTypeFilter(event.currentTarget.value)}><option value="">全部类型</option>{mobileAssetTypeCounts.filter((item) => item.count > 0).map((item) => <option key={item.type} value={item.type}>{item.label}（{item.count}）</option>)}</select></label><label className="mobile-account-provider-filter"><Cloud size={16} aria-hidden="true" /><select aria-label="筛选云账号" value={mobileAssetAccountFilter ?? ""} onChange={(event) => setMobileAssetAccountFilter(event.currentTarget.value ? Number(event.currentTarget.value) : null)}><option value="">全部账号</option>{accounts.map((account) => <option key={account.id} value={account.id}>{account.account_name}</option>)}</select></label></div>
+          <div className="mobile-asset-list-heading"><h2>{tab === "favorites" ? "已收藏资产" : "资产列表"} <span>{mobileAssetPageRows.length}</span></h2></div>
+          {mobileAssetsLoading && mobileAssetRows.length === 0 ? <MobileLoadingSkeleton variant="list" label="正在读取本机资产" /> : mobileAssetPageRows.length === 0 ? <div className="mobile-empty"><HardDrive size={28} /><strong>{tab === "favorites" ? "还没有收藏资产" : mobileAssetRows.length ? "没有匹配的资产" : "本机暂无已缓存资产"}</strong><span>{tab === "favorites" ? "在资产卡片上点亮星标后，会集中显示在这里。" : mobileAssetRows.length ? "试试其他关键词或筛选条件。" : "在账号页获取并保存云资源后，资产会汇总显示在这里。"}</span>{tab === "favorites" && <button type="button" className="mobile-primary" onClick={() => setTab("assets")}>去浏览资产</button>}{(mobileAssetSearch || mobileAssetTypeFilter || mobileAssetAccountFilter !== null) && <button type="button" className="mobile-primary" onClick={() => { setMobileAssetSearch(""); setMobileAssetTypeFilter(""); setMobileAssetAccountFilter(null); }}>清除筛选</button>}</div> : <div className="mobile-asset-list">{mobileAssetPageRows.map((asset) => {
+            const owner = accountForAsset(asset);
+            const typeLabel = assetTypes.find(([type]) => type === asset.resource_type)?.[1] ?? resourceLabels[asset.resource_type as keyof typeof resourceLabels] ?? asset.resource_type;
+            const region = asset.region_id || payloadText(asset.payload, ["RegionId", "Location", "Region", "region"]);
+            const status = payloadText(asset.payload, ["Status", "InstanceStatus", "DBInstanceStatus", "DomainStatus", "status"]);
+            const isFavorite = mobileFavoriteKeys.includes(assetFavoriteKey(asset));
+            return <article className="mobile-asset-card" key={`${asset.account_id}:${asset.resource_type}:${asset.asset_key}`}><span className="mobile-provider-avatar" data-provider={owner?.cloud_type ?? "other"} aria-hidden="true">{owner ? <MobileProviderMark cloudType={owner.cloud_type} /> : <HardDrive size={18} />}</span><div className="mobile-asset-card-copy"><div className="mobile-asset-card-title"><span>{typeLabel}</span><strong title={assetName(asset)}>{assetName(asset)}</strong></div><small>{owner ? `${owner.account_name} · ${cloudProvider(owner.cloud_type).label}` : `未知账号 · ${asset.account_id}`}</small><small className="mobile-asset-id">{asset.asset_key}</small><div className="mobile-asset-card-actions"><button type="button" className="mobile-asset-action" onClick={() => openMobileAssetOperations(asset)}>操作</button><button type="button" className={`mobile-asset-favorite${isFavorite ? " is-favorite" : ""}`} aria-label={isFavorite ? `取消收藏 ${assetName(asset)}` : `收藏 ${assetName(asset)}`} aria-pressed={isFavorite} onClick={() => toggleMobileAssetFavorite(asset)}><Star size={17} fill={isFavorite ? "currentColor" : "none"} aria-hidden="true" />{isFavorite ? "已收藏" : "收藏"}</button></div></div><div className="mobile-asset-card-meta"><span>{status === "—" ? "状态未知" : status}</span><small>{region === "—" ? "地域未知" : region}</small></div></article>;
+          })}</div>}
+        </> : tab === "servers" ? <>
           <div className="mobile-page-title"><h1>云服务器</h1></div>
           <div className="mobile-server-overview"><div className="mobile-server-stats" aria-label="服务器统计"><div className="server-stat-total"><span className="mobile-account-stat-icon"><Server size={21} /></span><span className="mobile-account-stat-copy"><strong>{filteredServers.length}</strong><small>服务器</small></span></div><div className="server-stat-running"><span className="mobile-account-stat-icon"><Activity size={21} /></span><span className="mobile-account-stat-copy"><strong>{runningServerCount}</strong><small>运行中</small></span></div></div></div>
           <div className="mobile-security-note"><ShieldCheck size={18} /><span>云服务器数据保存在本机，账号凭据由加密数据库保护。</span></div>
@@ -1355,24 +1579,17 @@ export function MobileApp() {
 
         </> : tab === "sync" ? <>
           <div className="mobile-page-title"><div><p>系统设置</p><h1 id="sync-transfer-title">导入数据</h1></div></div>
-          <SyncTransferPanel mode="mobile" mobilePage accounts={accounts} managedHosts={managedHosts} panels={panelConnections} onImported={() => { void refreshAccounts(); void refreshManagedHosts(); void refreshPanelConnections(); }} />
+          <SyncTransferPanel mode="mobile" mobilePage accounts={accounts} managedHosts={managedHosts} panels={panelConnections} initialPairingUrl={pendingTransferQr ?? undefined} onInitialPairingHandled={() => setPendingTransferQr(null)} onImported={() => { void refreshAccounts(); void refreshManagedHosts(); void refreshPanelConnections(); }} />
         </> : tab === "aiSettings" ? <>
           <AiSettings embedded />
         </> : tab === "networkSettings" ? <>
           <div className="mobile-page-title mobile-network-page-title"><div><p>系统设置</p><h1>网络设置</h1></div></div>
           <NetworkSettingsPage mobile />
         </> : tab === "settings" ? <>
-          <div className="mobile-page-title"><div><p>本机客户端</p><h1>系统设置</h1></div></div>
-          <div className="mobile-domain-list mobile-more-list">
-            <button type="button" className="mobile-account-card" onClick={() => setTab("aiSettings")}><span className="mobile-provider-avatar"><Bot size={20} /></span><span className="mobile-account-copy"><strong>AI 服务</strong><small>配置模型、密钥与识别能力</small></span><span className="mobile-account-arrow">›</span></button>
+          <div className="mobile-page-title"><div><p>通用</p><h1>通用设置</h1></div></div>
+          <div className="mobile-domain-list mobile-more-list mobile-general-settings">
             <div className="mobile-account-card mobile-startup-switch"><span className="mobile-provider-avatar"><Sparkles size={20} aria-hidden="true" /></span><span className="mobile-account-copy"><strong>启用开机动画</strong><small>下次启动时先播放动画，再进入主界面</small></span><input type="checkbox" aria-label="启用开机动画" checked={startupAnimationEnabled ?? true} disabled={startupAnimationEnabled === null} onChange={event => setStartupAnimationEnabled(event.target.checked)} /></div>
             <div className="mobile-account-card mobile-theme-card"><span className="mobile-provider-avatar"><SunMoon size={20} /></span><span className="mobile-account-copy"><strong>外观主题</strong><small>切换深色或浅色界面</small></span><div className="mobile-theme-toggle" role="radiogroup" aria-label="外观主题"><button type="button" role="radio" aria-checked={uiTheme === "dark"} className={uiTheme === "dark" ? "active" : ""} onClick={() => setUiTheme("dark")}>深色</button><button type="button" role="radio" aria-checked={uiTheme === "light"} className={uiTheme === "light" ? "active" : ""} onClick={() => setUiTheme("light")}>浅色</button></div></div>
-            <button type="button" className="mobile-account-card" onClick={() => setTab("sync")}><span className="mobile-provider-avatar"><ShieldCheck size={20} /></span><span className="mobile-account-copy"><strong>导入数据</strong><small>导入电脑端加密配置</small></span><span className="mobile-account-arrow">›</span></button>
-            <button type="button" className="mobile-account-card" onClick={() => setTab("networkSettings")}><span className="mobile-provider-avatar"><Network size={20} /></span><span className="mobile-account-copy"><strong>网络代理</strong><small>配置全局出站代理及代理池</small></span><span className="mobile-account-arrow">›</span></button>
-            <button type="button" className="mobile-account-card" onClick={() => setTab("operationLogs")}><span className="mobile-provider-avatar"><FileText size={20} /></span><span className="mobile-account-copy"><strong>操作日志</strong><small>查看本机资源管理记录</small></span><span className="mobile-account-arrow">›</span></button>
-            <button type="button" className="mobile-account-card" onClick={() => setTab("apiLogs")}><span className="mobile-provider-avatar"><Terminal size={20} /></span><span className="mobile-account-copy"><strong>API 日志</strong><small>查看接口调用状态</small></span><span className="mobile-account-arrow">›</span></button>
-            <a className="mobile-account-card mobile-settings-link" href="https://github.com/wlphp/cloudhub-tools" target="_blank" rel="noreferrer"><span className="mobile-provider-avatar"><ExternalLink size={20} /></span><span className="mobile-account-copy"><strong>GitHub 开源仓库</strong><small>github.com/wlphp/cloudhub-tools</small></span><span className="mobile-account-arrow" aria-hidden="true">›</span></a>
-            <button type="button" className="mobile-account-card" onClick={() => setTab("about")}><span className="mobile-provider-avatar"><Info size={20} /></span><span className="mobile-account-copy"><strong>关于</strong><small>云枢工具箱 · v{packageJson.version}</small></span><span className="mobile-account-arrow">›</span></button>
           </div>
         </> : tab === "operationLogs" ? <>
           {resourcePageOverview}
@@ -1382,33 +1599,104 @@ export function MobileApp() {
           {resourcePageOverview}
           {apiLogsLoading && filteredApiLogs.length === 0 ? <div className="mobile-empty">正在读取 API 日志…</div> : filteredApiLogs.length === 0 ? <div className="mobile-empty"><Terminal size={30} /><strong>暂无 API 日志</strong><span>调用云资源接口后会在这里显示记录。</span></div> : <div className="mobile-domain-list">{filteredApiLogs.map((log) => <article className="mobile-domain-card mobile-log-card" key={log.id}><div className="mobile-server-heading"><Terminal size={17} /><strong>{log.action}</strong></div><p>{log.endpoint}</p><div className="mobile-server-meta"><span>{log.account_name || "未知账号"}</span><span className={log.status === "成功" ? "mobile-log-success" : "mobile-log-failure"}>{log.status}</span><time>{new Date(log.created_at).toLocaleString()}</time></div></article>)}</div>}
 
-        </> : tab === "authenticator" ? <AuthenticatorPanel mobile /> : tab === "flow" ? <FlowPanel mobile /> : tab === "about" ? <>
-          <div className="mobile-page-title"><div><p>系统设置</p><h1>关于</h1></div></div>
-          <section className="mobile-about-card"><span className="mobile-about-logo"><img src="/cloudhub-logo.png" alt="" /></span><strong>云枢工具箱</strong><span>本地多云资源管理</span><small>版本 {packageJson.version}</small></section>
-          <MobileUpdatePanel update={mobileUpdate} />
-        </> : tab === "member" ? <MobileMemberPage member={member} onMember={setMember} onBack={() => setTab("more")} onOpenCenter={openMemberCenter} onNotice={setNotice} /> : <MobileMorePage onNavigate={setTab} member={member} onMemberClick={() => setTab("member")} />;
+        </> : tab === "authenticator" ? <AuthenticatorPanel mobile initialOtpUri={pendingOtpUri ?? undefined} onInitialOtpUriHandled={() => setPendingOtpUri(null)} /> : tab === "flow" ? <FlowPanel mobile /> : tab === "about" ? <>
+          <div className="mobile-page-title"><div><p>系统设置</p><h1>更新与关于</h1></div></div>
+          <div className="mobile-about-layout">
+            <section className="mobile-about-card"><span className="mobile-about-logo"><img src="/cloudhub-logo.png" alt="" /></span><strong>云枢工具箱</strong><span>本地多云资源管理</span><small>当前版本 <b>v{packageJson.version}</b></small></section>
+            <MobileUpdatePanel update={mobileUpdate} />
+            <section className="mobile-about-platform" aria-labelledby="mobile-about-desktop-title">
+              <span className="mobile-about-platform-icon"><Monitor size={20} aria-hidden="true" /></span>
+              <div className="mobile-about-platform-copy"><strong id="mobile-about-desktop-title">PC 桌面版</strong><small>Windows 与 macOS 版本可在 GitHub Releases 查看并下载。</small></div>
+              <a className="mobile-about-platform-action" href="https://github.com/wlphp/cloudhub-tools/releases" target="_blank" rel="noreferrer">查看下载<ExternalLink size={14} aria-hidden="true" /></a>
+            </section>
+            <section className="mobile-about-links" aria-label="CloudHub 服务入口">
+              <a href="https://yun.wlphp.com/member.html" target="_blank" rel="noreferrer"><UserRound size={17} aria-hidden="true" /><span>会员中心</span><ExternalLink size={14} aria-hidden="true" /></a>
+              <a href="https://yun.wlphp.com/" target="_blank" rel="noreferrer"><Globe2 size={17} aria-hidden="true" /><span>访问官网</span><ExternalLink size={14} aria-hidden="true" /></a>
+              <a href="https://github.com/wlphp/cloudhub-tools" target="_blank" rel="noreferrer"><Star size={17} aria-hidden="true" /><span>给个好评 · GitHub</span><ExternalLink size={14} aria-hidden="true" /></a>
+            </section>
+          </div>
+        </> : tab === "personalProfile" && member ? <MobilePersonalProfile member={member} onMember={setMember} onBack={settingsPageOpen ? returnToSettingsMenu : () => setTab("more")} onNotice={setNotice} showHeader={!settingsPageOpen} /> : tab === "member" ? <MobileMemberPage member={member} onMember={setMember} onBack={settingsPageOpen ? returnToSettingsMenu : () => setTab("more")} onNotice={setNotice} openInbox={memberInboxRequested} onInboxOpened={() => setMemberInboxRequested(false)} onUnreadCount={setMemberUnreadCount} /> : <MobileMorePage onNavigate={setTab} accounts={accounts} assets={mobileAssetRows} servers={servers} favoriteCount={mobileFavoriteKeys.length} sshCount={managedHosts.length} panelCount={panelConnections.length} />;
+
+  const initialPageLoading =
+    (tab === "home" && (loading && accounts.length === 0 || mobileAssetsLoading && mobileAssetRows.length === 0)) ||
+    ((tab === "accounts") && loading && accounts.length === 0) ||
+    ((tab === "assets" || tab === "favorites") && mobileAssetsLoading && mobileAssetRows.length === 0) ||
+    (tab === "servers" && loading && servers.length === 0) ||
+    (tab === "domains" && loading && (selectedDomain ? dnsRecords.length === 0 : domains.length === 0)) ||
+    (tab === "storage" && loading && (selectedBucket ? !objectListing : buckets.length === 0)) ||
+    (tab === "databases" && loading && (selectedDatabase ? databaseDetails.length === 0 : databaseAssets.length === 0)) ||
+    (tab === "redis" && loading && (selectedRedis ? redisAccounts.length === 0 : redisAssets.length === 0)) ||
+    (tab === "certificates" && loading && certificates.length === 0) ||
+    (tab === "ssh" && loading && !sshSessionId && managedHosts.length === 0) ||
+    (tab === "panels" && panelLoading && panelConnections.length === 0) ||
+    (tab === "operationLogs" && operationLogsLoading && operationLogAssets.length === 0) ||
+    (tab === "apiLogs" && apiLogsLoading && apiLogs.length === 0) ||
+    (tab === "more" && (loading && servers.length === 0 || mobileAssetsLoading && mobileAssetRows.length === 0 || panelLoading && panelConnections.length === 0));
+  const initialSkeletonVariant = tab === "home" ? "dashboard" as const : selectedDomain || selectedBucket || selectedDatabase || selectedRedis ? "detail" as const : "list" as const;
 
   return (
-    <main className={"mobile-shell" + (backAction && !productDialog ? " mobile-subpage" : "")}>
-      <header className="mobile-header">
-        <div className="mobile-brand"><span className="mobile-brand-icon"><img src="/cloudhub-logo.png" alt="" /></span><div><div className="mobile-brand-title"><strong>云枢工具箱</strong><span className="mobile-brand-version">v{packageJson.version}</span></div><small>本地多云资源管理</small></div></div>
-        <div className="mobile-header-actions">
-          <button className="mobile-icon-button" type="button" aria-label={refreshLabel} title={cloudPullAction ? "重新读取本机缓存" : refreshLabel} disabled={!pullRefreshActionRef.current} onClick={() => void pullRefreshActionRef.current?.()}><RefreshCw size={19} className={loading || syncing || panelLoading || operationLogsLoading || apiLogsLoading ? "mobile-spin" : ""} /></button>
-          {cloudPullAction && <button className="mobile-primary mobile-header-fetch" type="button" aria-label={syncing ? "正在拉取云端" : "拉取云端"} title="从云端拉取资源并更新本机缓存" disabled={accounts.length === 0 || loading || syncing} onClick={() => void cloudPullAction()}><CloudDownload size={20} /><span>{syncing ? "拉取中" : "拉取云端"}</span></button>}
+    <main className={"mobile-shell" + (backAction && !isBottomNavigationTab && !productDialog ? " mobile-subpage" : "") + (tab === "personalProfile" ? " mobile-personal-profile-open" : "") + (settingsPageOpen ? " mobile-settings-page-active" : "") + (tab === "settingsMenu" ? ` mobile-settings-menu-open${settingsDrawerDirection === "back" ? " is-returning" : ""}` : "")}>
+      {tab === "home" && <header className="mobile-home-topbar" aria-label="首页快捷栏">
+        <button type="button" className="mobile-home-avatar-button" aria-label={member ? "打开个人资料" : "登录或注册"} onClick={() => setTab(member ? "personalProfile" : "member")}><MemberAvatar member={member} size={42} /></button>
+        <label className="mobile-home-top-search"><Search size={18} aria-hidden="true" /><input aria-label="搜索应用" value={homeSearch} onChange={event => setHomeSearch(event.currentTarget.value)} placeholder="搜索" /></label>
+        <button type="button" className="mobile-home-top-action" aria-label={`监控预警，${mobileActiveAlertCount} 条未解除`} title="监控预警" onClick={() => setTab("monitorAlerts")}><BellRing size={20} aria-hidden="true" />{mobileActiveAlertCount > 0 && <span className="mobile-home-alert-count">{mobileActiveAlertCount > 99 ? "99+" : mobileActiveAlertCount}</span>}</button>
+        <button type="button" className="mobile-home-top-action" aria-label="扫一扫" title="扫一扫" onClick={() => void scanMobileQr()}><ScanLine size={21} aria-hidden="true" /></button>
+      </header>}
+      {tab === "settingsMenu" ? <header className={`mobile-settings-drawer-header${settingsDrawerDirection === "back" ? " is-returning" : ""}`}><button ref={settingsCloseButtonRef} type="button" aria-label="返回我的页面" onClick={closeSettingsDrawer}><ArrowLeft size={20} aria-hidden="true" /></button><h1>设置</h1><span aria-hidden="true" /></header> : tab === "more" && !productDialog && <header className="mobile-header">
+        <div className="mobile-profile-header">
+        <button type="button" className="mobile-profile-header-main" aria-label={member ? `个人资料：${member.nickname?.trim() && member.nickname.trim() !== "匿名用户" ? member.nickname.trim() : member.email}` : "登录或注册会员"} onClick={() => setTab(member ? "personalProfile" : "member")}>
+          <span className="mobile-profile-header-avatar"><MemberAvatar member={member} size={42} /></span>
+          <span className="mobile-profile-header-copy">
+              <span className="mobile-profile-header-identity">
+              <span className="mobile-profile-account-line">
+                <strong>{member ? (member.nickname?.trim() && member.nickname.trim() !== "匿名用户" ? member.nickname.trim() : member.email) : "登录 / 注册"}</strong>
+                {member?.nickname?.trim() && member.nickname.trim() !== "匿名用户" && <small>{member.email}</small>}
+              </span>
+            </span>
+            {member && <small className="mobile-profile-header-joined">注册日期：{member.created_at.slice(0, 10)}</small>}
+          </span>
+        </button>
+        <MemberIdentityBadges member={member} className="mobile-member-status-badges" onSelect={setActiveMemberIdentity} />
         </div>
-      </header>
+        <div className="mobile-header-actions">
+          {member ? <button className="mobile-icon-button mobile-notifications-button mobile-member-inbox-header-button" type="button" aria-label={`会员消息，${memberUnreadCount} 条未读`} title="会员消息" onClick={() => { setMemberInboxRequested(true); setTab("member"); }}><Mail size={19} aria-hidden="true" />{memberUnreadCount > 0 && <span className="mobile-member-unread-badge">{memberUnreadCount > 99 ? "99+" : memberUnreadCount}</span>}</button> : <button className="mobile-icon-button mobile-notifications-button" type="button" aria-label="通知与监控预警" title="通知与监控预警" onClick={() => setTab("monitorAlerts")}><BellRing size={19} aria-hidden="true" /></button>}
+          {cloudPullAction && <button className="mobile-primary mobile-header-fetch" type="button" aria-label={syncing ? "正在拉取云端" : "拉取云端"} title="从云端拉取资源并更新本机缓存" disabled={accounts.length === 0 || loading || syncing} onClick={() => void cloudPullAction()}><CloudDownload size={20} /><span>{syncing ? "拉取中" : "拉取云端"}</span></button>}
+          <button ref={settingsButtonRef} className="mobile-icon-button mobile-settings-button" type="button" aria-label="系统设置" title="系统设置" onClick={() => { settingsReturnToMenuRef.current = false; setSettingsDrawerDirection("forward"); setTab("settingsMenu"); }}><Settings size={19} aria-hidden="true" /></button>
+        </div>
+      </header>}
 
-      <section ref={mobileContentRef} className={resourceConfig && !productDialog ? "mobile-content mobile-resource-page" : "mobile-content"}>
-        <MobilePullRefresh containerRef={mobileContentRef} actionRef={pullRefreshActionRef} scopeKey={`${tab}:${selectedAccountId}:${selectedDomain?.asset_key ?? ""}:${selectedBucket?.asset_key ?? ""}:${objectPrefix}:${selectedDatabase?.asset_key ?? ""}:${selectedRedis?.asset_key ?? ""}`} disabled={!!productDialog} onError={setNotice}>
+      {settingsPageOpen && tab !== "member" && <header className="mobile-settings-page-header">
+        <button type="button" aria-label="返回设置" onClick={returnToSettingsMenu}><ArrowLeft size={20} aria-hidden="true" /></button>
+        <h1>{settingsPageTitle[tab] ?? "设置"}</h1>
+        <span aria-hidden="true" />
+      </header>}
+
+      {settingsPageOpen && settingsTransitionUnderlayVisible && <div className="mobile-settings-menu-underlay" aria-hidden="true" inert onAnimationEnd={(event) => { if (event.target === event.currentTarget) setSettingsTransitionUnderlayVisible(false); }}>
+        <header className="mobile-settings-drawer-header"><span aria-hidden="true" /><h1>设置</h1><span aria-hidden="true" /></header>
+        <section className="mobile-content mobile-settings-menu-page-content">{renderSettingsMenuContent()}</section>
+      </div>}
+
+      <section ref={mobileContentRef} className={(resourceConfig && !productDialog ? "mobile-content mobile-resource-page" : "mobile-content") + (settingsPageOpen ? " mobile-settings-page-content" : "") + (tab === "settingsMenu" ? ` mobile-settings-menu-page-content${settingsDrawerDirection === "back" ? " is-returning" : ""}` : "")}>
+        <MobilePullRefresh containerRef={mobileContentRef} actionRef={pullRefreshActionRef} scopeKey={`${tab}:${selectedAccountId}:${selectedDomain?.asset_key ?? ""}:${selectedBucket?.asset_key ?? ""}:${objectPrefix}:${selectedDatabase?.asset_key ?? ""}:${selectedRedis?.asset_key ?? ""}`} disabled={!!productDialog || tab === "settingsMenu"} onError={setNotice}>
         {notice && <p className="mobile-notice" role="status">{notice}</p>}
-        {mobileUpdate.info?.available && tab !== "about" && <button type="button" className="mobile-update-banner" onClick={() => setTab("about")}><ArrowDownToLine size={15} aria-hidden="true" />发现新版 v{mobileUpdate.info.version} · 查看更新</button>}
-        {productDialog || tab === "accounts" ? accountPage : resourcePage}
+        {mobileUpdate.info?.available && tab !== "about" && tab !== "settingsMenu" && <button type="button" className="mobile-update-banner" onClick={() => setTab("about")}><ArrowDownToLine size={15} aria-hidden="true" />发现新版 v{mobileUpdate.info.version} · 查看更新</button>}
+        {initialPageLoading ? <MobileLoadingSkeleton variant={initialSkeletonVariant} label={tab === "home" ? "正在准备首页数据" : "正在加载页面内容"} /> : tab === "home" ? <MobileHomePage accounts={accounts} assets={mobileAssetRows} search={homeSearch} favoriteCount={mobileFavoriteKeys.length} applicationSettings={applicationSettings} onActiveAlertCount={setMobileActiveAlertCount} onNavigate={setTab} onOpenSoftware={id => { setStorePluginId(id); setTab("softwareStore"); }} refreshRef={monitorRefreshRef} /> : tab === "monitorAlerts" ? <MobileMonitorAlertsPage onActiveCount={setMobileActiveAlertCount} refreshRef={monitorRefreshRef} /> : tab === "softwareStore" ? <OfficialPluginsPage initialPluginId={storePluginId ?? undefined} forceInitialPageMode={!!storePluginId} applicationSettings={applicationSettings} onOpenSection={section => {
+          const target: Partial<Record<typeof section, MobileFeatureDestination>> = { flow: "flow", certificates: "certificates", authenticator: "authenticator" };
+          if (target[section]) { setTab(target[section]!); return true; }
+          if (section === "codex" || section === "frp") setNotice("该应用目前尚未提供移动端界面，请在 PC 端使用。");
+          return true;
+        }} onReturnCatalog={() => { setStorePluginId(null); setTab("softwareStore"); }} /> : productDialog || tab === "accounts" ? accountPage : resourcePage}
         </MobilePullRefresh>
       </section>
 
-      <nav className="mobile-tab-bar" aria-label="主导航"><button type="button" aria-current={tab === "accounts" ? "page" : undefined} className={tab === "accounts" ? "active" : ""} onClick={() => setTab("accounts")}><Cloud size={19} /><span>账号</span></button><button type="button" aria-current={tab === "servers" ? "page" : undefined} className={tab === "servers" ? "active" : ""} onClick={() => setTab("servers")}><Server size={19} /><span>服务器</span></button><button type="button" aria-current={tab === "domains" ? "page" : undefined} className={tab === "domains" ? "active" : ""} onClick={() => setTab("domains")}><Globe2 size={19} /><span>域名</span></button><button type="button" aria-current={tab === "more" || tab === "member" || tab === "authenticator" || tab === "flow" || tab === "storage" || tab === "databases" || tab === "redis" || tab === "certificates" || tab === "ssh" || tab === "panels" || tab === "sync" || tab === "settings" || tab === "aiSettings" || tab === "networkSettings" || tab === "operationLogs" || tab === "apiLogs" || tab === "about" ? "page" : undefined} className={tab === "more" || tab === "member" || tab === "authenticator" || tab === "flow" || tab === "storage" || tab === "databases" || tab === "redis" || tab === "certificates" || tab === "ssh" || tab === "panels" || tab === "sync" || tab === "settings" || tab === "aiSettings" || tab === "networkSettings" || tab === "operationLogs" || tab === "apiLogs" || tab === "about" ? "active" : ""} onClick={() => setTab("more")}><LayoutGrid size={19} /><span>更多</span></button></nav>
+      <nav className="mobile-tab-bar" aria-label="主导航">
+        <button type="button" aria-current={tab === "home" ? "page" : undefined} className={tab === "home" ? "active" : ""} onClick={() => setTab("home")}><House size={20} aria-hidden="true" /><span>首页</span></button>
+        <button type="button" aria-current={tab === "monitorAlerts" ? "page" : undefined} className={tab === "monitorAlerts" ? "active" : ""} onClick={() => setTab("monitorAlerts")}><BellRing size={20} aria-hidden="true" /><span>监控预警</span></button>
+        <button type="button" aria-current={tab === "softwareStore" ? "page" : undefined} className={tab === "softwareStore" ? "active" : ""} onClick={() => { setStorePluginId(null); setTab("softwareStore"); }}><Store size={20} aria-hidden="true" /><span>软件商店</span></button>
+        <button type="button" aria-current={tab === "more" || tab === "member" || tab === "assets" || tab === "favorites" || tab === "authenticator" || tab === "flow" || tab === "storage" || tab === "databases" || tab === "redis" || tab === "certificates" || tab === "ssh" || tab === "panels" || tab === "sync" || tab === "settings" || tab === "aiSettings" || tab === "networkSettings" || tab === "operationLogs" || tab === "apiLogs" || tab === "about" || tab === "accounts" || tab === "servers" || tab === "domains" ? "page" : undefined} className={tab === "more" || tab === "member" || tab === "assets" || tab === "favorites" || tab === "authenticator" || tab === "flow" || tab === "storage" || tab === "databases" || tab === "redis" || tab === "certificates" || tab === "ssh" || tab === "panels" || tab === "sync" || tab === "settings" || tab === "aiSettings" || tab === "networkSettings" || tab === "operationLogs" || tab === "apiLogs" || tab === "about" || tab === "accounts" || tab === "servers" || tab === "domains" ? "active" : ""} onClick={() => setTab("more")}><UserRound size={20} aria-hidden="true" /><span>我的</span></button>
+      </nav>
 
-      {backAction && <button type="button" className="mobile-back-fab" aria-label={backAction.label} title={backAction.label} style={backFabPos ? { left: "auto", top: "auto", right: Math.max(8, Math.min(backFabPos.right, Math.min(window.innerWidth, 720) - 56)), bottom: Math.max(8, Math.min(backFabPos.bottom, window.innerHeight - 114)) } : undefined} onPointerDown={startBackFabDrag} onPointerMove={dragBackFab} onPointerUp={endBackFabDrag} onPointerCancel={(event) => endBackFabDrag(event, true)} onLostPointerCapture={(event) => endBackFabDrag(event, true)} onContextMenu={(event) => { if (backFabDragRef.current?.dragging) event.preventDefault(); }} onClick={clickBackFab}><ArrowLeft size={20} /></button>}
+      {backAction && !isBottomNavigationTab && !settingsPageOpen && tab !== "member" && tab !== "personalProfile" && <button type="button" className="mobile-back-fab" aria-label={backAction.label} title={backAction.label} style={backFabPos ? { left: "auto", top: "auto", right: Math.max(8, Math.min(backFabPos.right, Math.min(window.innerWidth, 720) - 56)), bottom: Math.max(8, Math.min(backFabPos.bottom, window.innerHeight - 114)) } : undefined} onPointerDown={startBackFabDrag} onPointerMove={dragBackFab} onPointerUp={endBackFabDrag} onPointerCancel={(event) => endBackFabDrag(event, true)} onLostPointerCapture={(event) => endBackFabDrag(event, true)} onContextMenu={(event) => { if (backFabDragRef.current?.dragging) event.preventDefault(); }} onClick={clickBackFab}><ArrowLeft size={20} /></button>}
       {productDialog && <SharedDialog title={resourceLabels[productDialog.type as keyof typeof resourceLabels]} subtitle={productDialog.account.account_name} className="mobile-account-product-dialog" onClose={closeAccountProduct} footer={<>
         {(selectedDomain || selectedBucket || selectedDatabase || selectedRedis) && backAction && <button type="button" className="secondary" onClick={backAction.onClick}><ArrowLeft size={16} />{backAction.label}</button>}
         <button type="button" className="secondary" onClick={closeAccountProduct}>关闭</button>
@@ -1473,6 +1761,22 @@ export function MobileApp() {
         </>}
       </ConfirmDialog>}
       {confirmationDialog}
+      {member && activeMemberIdentity && <MobileMemberIdentityDialog member={member} identity={activeMemberIdentity} onClose={() => setActiveMemberIdentity(null)} />}
+      {mobileQrResult && <SharedDialog title="识别到二维码" subtitle="请选择接下来要执行的操作" size="small" showResize={false} className="mobile-qr-result-dialog" onClose={closeMobileQrResult} footer={<button type="button" className="secondary" onClick={closeMobileQrResult}>取消</button>}>
+        {mobileQrKind(mobileQrResult) === "authenticator" ? <>
+          <p>识别到身份验证器二维码。添加前会进入现有验证器流程进行解析和确认。</p>
+          <button type="button" className="primary mobile-qr-result-action" onClick={() => { setPendingOtpUri(mobileQrResult); closeMobileQrResult(); setTab("authenticator"); }}><ShieldCheck size={17} aria-hidden="true" />添加到身份验证器</button>
+        </> : mobileQrKind(mobileQrResult) === "transfer" ? <>
+          <p>识别到 CloudHub 配置迁移二维码。继续后将请求电脑端确认，并由你选择导入范围。</p>
+          <button type="button" className="primary mobile-qr-result-action" onClick={() => { setPendingTransferQr(mobileQrResult); closeMobileQrResult(); setTab("sync"); }}><CloudDownload size={17} aria-hidden="true" />接收电脑配置</button>
+        </> : mobileQrKind(mobileQrResult) === "link" ? <>
+          <p>识别到网页链接：<strong>{new URL(mobileQrResult).host}</strong></p>
+          <button type="button" className="primary mobile-qr-result-action" onClick={() => { const url = new URL(mobileQrResult); if (url.protocol !== "https:" && url.protocol !== "http:") return; void openUrl(url.toString()).then(closeMobileQrResult).catch(() => setNotice("无法打开此链接，请重试。")); }}><ExternalLink size={17} aria-hidden="true" />打开链接</button>
+        </> : <>
+          <p>识别到文本二维码（{mobileQrResult.length} 个字符）。为避免直接展示敏感内容，你可以选择复制到剪贴板。</p>
+          <button type="button" className="primary mobile-qr-result-action" onClick={() => void copyMobileQrResult()}><FileText size={17} aria-hidden="true" />复制识别内容</button>
+        </>}
+      </SharedDialog>}
     </main>
   );
 }

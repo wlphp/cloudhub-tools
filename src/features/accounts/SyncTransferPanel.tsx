@@ -9,6 +9,8 @@ type Props = {
   panels?: PanelConnection[];
   onClose?: () => void;
   onImported?: () => void;
+  initialPairingUrl?: string;
+  onInitialPairingHandled?: () => void;
 };
 
 export function SyncTransferPanel(props: Props) { return <UnifiedMigrationPanel {...props} />; }

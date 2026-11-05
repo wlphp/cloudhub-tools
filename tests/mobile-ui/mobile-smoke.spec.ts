@@ -58,6 +58,36 @@ test("refreshes both server types and shows provider failures instead of false s
   await expect(page.getByText(/已从 \d+ 个云账号刷新/)).toHaveCount(0);
 });
 
+test("opens the matching Tencent EdgeOne console from a favorited ESA asset in browser preview", async ({ page }) => {
+  const tencentAccount = { ...account, cloud_type: "tencent", account_name: "tencent-fixture" };
+  const esaSite = {
+    account_id: tencentAccount.id,
+    resource_type: "esa",
+    asset_key: "zone-fixture",
+    region_id: "",
+    payload: { SiteName: "zone-fixture", Status: "active" },
+    fetched_at: 1_700_000_000,
+  };
+  await page.route("**/api/accounts**", (route) => route.fulfill({ json: [tencentAccount] }));
+  await page.route("**/api/local-assets**", (route) => route.fulfill({ json: [esaSite] }));
+  await page.route("**/api/preferences**", (route) => route.fulfill({ json: {} }));
+  await page.context().route("https://console.cloud.tencent.com/edgeone", (route) => route.fulfill({ contentType: "text/html", body: "<title>EdgeOne console</title>" }));
+  await page.goto("/");
+  await page.locator(".mobile-tab-bar").getByRole("button", { name: "我的", exact: true }).click();
+  await page.getByRole("button", { name: "我的资产" }).click();
+  const asset = page.locator(".mobile-asset-card", { hasText: "zone-fixture" });
+  await expect(asset).toBeVisible();
+  await asset.getByRole("button", { name: "收藏 zone-fixture" }).click();
+  await page.getByRole("tab", { name: /我的收藏/ }).click();
+  const favorite = page.locator(".mobile-asset-card", { hasText: "zone-fixture" });
+  const popup = page.waitForEvent("popup");
+  await favorite.getByRole("button", { name: "操作" }).click();
+  const consolePage = await popup;
+  expect(consolePage.url()).toBe("https://console.cloud.tencent.com/edgeone");
+  await expect(page.getByRole("status")).toContainText("腾讯云 EdgeOne 控制台");
+  await expect(page.getByText("该类型暂未提供移动端操作入口")).toHaveCount(0);
+});
+
 test("server actions match power state and use the shared confirmation", async ({ page }) => {
   await stubLocalApi(page, [account]);
   await page.goto("/");
@@ -274,7 +304,7 @@ test("keeps a slower resource read from replacing the cache after returning to s
   await page.locator(".mobile-tab-bar").getByRole("button", { name: "服务器", exact: true }).click();
   await expect.poll(() => firstRequestStarted).toBeTruthy();
 
-  await page.locator(".mobile-tab-bar").getByRole("button", { name: "账号" }).click();
+  await page.locator(".mobile-tab-bar").getByRole("button", { name: "首页" }).click();
   await page.locator(".mobile-tab-bar").getByRole("button", { name: "服务器", exact: true }).click();
   await expect(page.getByRole("heading", { name: "云服务器", exact: true })).toBeVisible();
   await expect.poll(() => secondRequestStarted).toBeTruthy();
@@ -309,7 +339,7 @@ test("releases resource loading state after navigating away from a pending read"
   await page.locator(".mobile-tab-bar").getByRole("button", { name: "更多" }).click();
   await expect(page.getByRole("heading", { name: "更多管理" })).toBeVisible();
   await expect(page.locator(".mobile-header .mobile-spin")).toHaveCount(0);
-  await page.locator(".mobile-tab-bar").getByRole("button", { name: "账号", exact: true }).click();
+  await page.locator(".mobile-tab-bar").getByRole("button", { name: "首页", exact: true }).click();
   await expect(page.locator(".mobile-header").getByRole("button", { name: "刷新" })).toBeEnabled();
   finishRequest();
 });
@@ -360,4 +390,82 @@ test("keeps the SSH credential form usable when the mobile viewport shrinks", as
   expect(bounds).not.toBeNull();
   expect(bounds!.y).toBeGreaterThanOrEqual(0);
   expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(320);
+});
+
+test("shows compact software cards with optional details on mobile", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 844 });
+  await stubLocalApi(page);
+  await page.route("**/api/preferences**", (route) => route.fulfill({ json: {} }));
+  await page.goto("/");
+  await page.locator(".mobile-tab-bar").getByRole("button", { name: "软件商店", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "软件商店" })).toBeVisible();
+  const tableCaption = page.locator(".store-table-caption");
+  await expect(tableCaption).toBeAttached();
+  expect(await tableCaption.boundingBox()).toMatchObject({ width: 1, height: 1 });
+  await expect(page.locator(".software-store-page .store-total")).toBeHidden();
+  await expect(page.locator(".store-table th", { hasText: "左侧菜单显示" })).toHaveCount(0);
+  await expect(page.locator(".store-table th", { hasText: "首页显示" })).toHaveCount(1);
+
+  await page.getByRole("searchbox", { name: "应用搜索" }).fill("局域网设备");
+  const appRow = page.locator(".store-table tbody tr").filter({ hasText: "局域网设备" });
+  await expect(appRow).toBeVisible();
+  await expect(appRow.locator('[data-label="说明"]')).toBeHidden();
+  const detailsToggle = appRow.getByRole("button", { name: "展开详情" });
+  await detailsToggle.click();
+  await expect(appRow.getByRole("button", { name: "收起详情" })).toHaveAttribute("aria-expanded", "true");
+  await expect(appRow.locator('[data-label="说明"]')).toBeVisible();
+  const homeToggle = appRow.getByRole("checkbox", { name: "在首页显示局域网设备" });
+  await homeToggle.check();
+  const switchBounds = await homeToggle.locator("..").boundingBox();
+  expect(switchBounds).not.toBeNull();
+  expect(switchBounds!.width).toBeGreaterThanOrEqual(40);
+  const track = await appRow.locator(".store-switch > span").boundingBox();
+  expect(track?.width).toBe(38);
+  expect(track?.height).toBe(22);
+  await expectNoHorizontalOverflow(page);
+  await appRow.getByRole("button", { name: "收起详情" }).click();
+  await expect(appRow.locator('[data-label="说明"]')).toBeHidden();
+  await page.getByRole("button", { name: "首页", exact: true }).click();
+  await expect(page.locator(".mobile-home-resource-stats")).toBeVisible();
+  await expect(page.locator(".mobile-home-software")).toHaveCount(0);
+});
+
+test("home top bar matches mobile quick access and keeps search and actions usable", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 844 });
+  await stubLocalApi(page);
+  await page.goto("/");
+
+  const topbar = page.locator(".mobile-home-topbar");
+  await expect(topbar).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  await expect(topbar.getByRole("button", { name: "登录或注册" })).toBeVisible();
+  await expect(topbar.getByRole("button", { name: "扫一扫" })).toBeVisible();
+  for (const control of [topbar.getByRole("button", { name: "登录或注册" }), topbar.getByRole("button", { name: "扫一扫" })]) {
+    const bounds = await control.boundingBox();
+    expect(bounds?.width).toBeGreaterThanOrEqual(44);
+    expect(bounds?.height).toBeGreaterThanOrEqual(44);
+  }
+  const search = topbar.getByRole("textbox", { name: "搜索应用" });
+  await search.fill("账号");
+  await expect(page.locator(".mobile-home-app-grid button")).toHaveCount(1);
+  await topbar.getByRole("button", { name: "扫一扫" }).click();
+  await expect(page.getByRole("status")).toContainText("仅支持手机 App");
+  await page.locator(".mobile-tab-bar").getByRole("button", { name: "我的" }).click();
+  await page.locator(".mobile-header-actions").getByRole("button", { name: "通知与监控预警" }).click();
+  await expect(page.getByRole("heading", { name: "监控预警" })).toBeVisible();
+  await expect(page.locator(".mobile-tab-bar").getByRole("button", { name: "我的" }).locator("svg")).toBeVisible();
+});
+
+test("replaces the more-page server shortcut with panel and terminal shortcuts", async ({ page }) => {
+  await stubLocalApi(page);
+  await page.goto("/");
+  await page.locator(".mobile-tab-bar").getByRole("button", { name: "我的", exact: true }).click();
+  const shortcuts = page.locator(".mobile-more-shortcuts");
+  await expect(shortcuts.getByRole("button")).toHaveCount(5);
+  await expect(shortcuts.getByRole("button", { name: "服务器" })).toHaveCount(0);
+  await shortcuts.getByRole("button", { name: "运维面板" }).click();
+  await expect(page.getByRole("heading", { name: "运维面板", exact: true })).toBeVisible();
+  await page.locator(".mobile-tab-bar").getByRole("button", { name: "我的", exact: true }).click();
+  await page.locator(".mobile-more-shortcuts").getByRole("button", { name: "SSH 终端" }).click();
+  await expect(page.getByRole("heading", { name: "SSH 终端", exact: true })).toBeVisible();
 });

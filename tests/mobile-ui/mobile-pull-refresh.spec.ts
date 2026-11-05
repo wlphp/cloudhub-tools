@@ -9,6 +9,12 @@ async function touch(page: Page, type: "touchstart" | "touchmove" | "touchend" |
   }, { type, x, y, fingers });
 }
 
+async function openAccounts(page: Page) {
+  await page.goto("/");
+  await page.getByRole("button", { name: /我的账号/ }).click();
+  await expect(page.getByText("pull-fixture", { exact: true })).toBeVisible();
+}
+
 test.beforeEach(async ({ page }) => {
   page.on("pageerror", error => { throw error; });
   await page.route("**/api/**", route => route.fulfill({ json: [] }));
@@ -24,8 +30,7 @@ test("native touch follows smoothly, refreshes once and settles without changing
     if (requests > 1) await pending;
     await route.fulfill({ json: accounts });
   });
-  await page.goto("/");
-  await expect(page.getByText("pull-fixture", { exact: true })).toBeVisible();
+  await openAccounts(page);
   const surface = page.locator(".mobile-refresh-content");
   const baseline = await surface.evaluate(element => element.offsetHeight);
   const cdp = await context.newCDPSession(page);
@@ -37,7 +42,7 @@ test("native touch follows smoothly, refreshes once and settles without changing
   }
   await expect(surface).toHaveAttribute("data-pull-phase", "ready");
   expect(await surface.evaluate(element => element.offsetHeight)).toBe(baseline);
-  await expect(page.locator(".mobile-pull-refresh")).toContainText("松开刷新");
+  await expect(page.locator(".mobile-pull-refresh")).toContainText("松开即可更新");
   await page.screenshot({ path: testInfo.outputPath("pull-ready.png") });
   await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
   await expect(surface).toHaveAttribute("data-pull-phase", "refreshing");
@@ -57,8 +62,7 @@ test("native touch follows smoothly, refreshes once and settles without changing
 test("short pulls, horizontal swipes, multitouch, editors and cancellation do not refresh", async ({ page }) => {
   let requests = 0;
   await page.route("**/api/accounts**", route => { requests++; return route.fulfill({ json: accounts }); });
-  await page.goto("/");
-  await expect(page.getByText("pull-fixture", { exact: true })).toBeVisible();
+  await openAccounts(page);
   const surface = page.locator(".mobile-refresh-content");
   await touch(page, "touchstart");
   await touch(page, "touchmove", 180, 220);
@@ -92,8 +96,7 @@ test("failed refresh settles and allows retry with reduced motion", async ({ pag
     requests++;
     return requests === 2 ? route.fulfill({ status: 500, json: { error: "刷新暂时失败" } }) : route.fulfill({ json: accounts });
   });
-  await page.goto("/");
-  await expect(page.getByText("pull-fixture", { exact: true })).toBeVisible();
+  await openAccounts(page);
   const surface = page.locator(".mobile-refresh-content");
   await touch(page, "touchstart");
   await touch(page, "touchmove", 180, 400);
@@ -117,22 +120,21 @@ test("changing pages clears an unfinished gesture and a pending refresh", async 
     if (requests > 1) await pending;
     await route.fulfill({ json: accounts });
   });
-  await page.goto("/");
-  await expect(page.getByText("pull-fixture", { exact: true })).toBeVisible();
+  await openAccounts(page);
   await touch(page, "touchstart");
   await touch(page, "touchmove", 180, 400);
-  await page.getByRole("navigation", { name: "主导航" }).getByRole("button", { name: "更多" }).click();
+  await page.getByRole("navigation", { name: "主导航" }).getByRole("button", { name: "我的" }).click();
   const surface = page.locator(".mobile-refresh-content");
   await expect(surface).toHaveAttribute("data-pull-phase", "idle");
   expect(requests).toBe(1);
-  await page.getByRole("navigation", { name: "主导航" }).getByRole("button", { name: "账号", exact: true }).click();
+  await page.getByRole("navigation", { name: "主导航" }).getByRole("button", { name: "首页", exact: true }).click();
   await touch(page, "touchstart");
   await touch(page, "touchmove", 180, 400);
   await touch(page, "touchend");
   await expect.poll(() => requests).toBe(2);
-  await page.getByRole("navigation", { name: "主导航" }).getByRole("button", { name: "更多" }).click();
+  await page.getByRole("navigation", { name: "主导航" }).getByRole("button", { name: "我的" }).click();
   await expect(surface).toHaveAttribute("data-pull-phase", "idle");
   finishRefresh();
-  await expect(page.getByRole("heading", { name: "更多管理" })).toBeVisible();
+  await expect(page.locator(".mobile-more-page")).toBeVisible();
   await expect(surface).toHaveCSS("transform", "none");
 });

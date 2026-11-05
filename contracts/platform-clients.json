@@ -8,6 +8,10 @@
     "member_avatar",
     "member_web_handoff",
     "member_nickname",
+    "member_bio",
+    "member_messages",
+    "member_message",
+    "member_messages_read_all",
     "member_logout",
     "query_ip_location",
     "acknowledge_sync_delta",
@@ -1380,6 +1384,10 @@
             "member_avatar",
             "member_web_handoff",
             "member_nickname",
+            "member_bio",
+            "member_messages",
+            "member_message",
+            "member_messages_read_all",
             "member_logout"
           ],
           "preview": []

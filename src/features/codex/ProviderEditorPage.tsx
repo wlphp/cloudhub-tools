@@ -5,6 +5,7 @@ import { OverviewDialog } from "./OverviewDialogs";
 import { ConfirmDialog } from "../../shared/ConfirmDialog";
 import { codexClient } from "../../platform/clients/codex";
 import { codexProviders, type ModelSettings, type ProviderInput } from "../../platform/clients/codex-providers";
+import { AiSupplierImport } from "../ai/AiSupplierImport";
 
 // Public endpoint shortcuts only. Fetch the available model catalogue with the user's own key.
 const presets: { name: string; baseUrl: string; wireApi: ProviderInput["wireApi"]; group: string }[] = [
@@ -130,6 +131,14 @@ export function ProviderEditorPage({ value, busy, fetchingModels, catalogMessage
       <div className="codex-provider-editor-body">
         <div className="codex-provider-editor-card codex-provider-form">
           {!value.id && <div className="codex-provider-presets">
+            <AiSupplierImport target="codex" onImport={({ profile, apiKey }) => {
+              const models = [...new Set([profile.model, ...(profile.models ?? [])].map(model => model.trim()).filter(Boolean))];
+              const wireApi = profile.protocol === "openai_responses" ? "responses" : "chat_completions";
+              onChange({ ...value, name: profile.name, baseUrl: profile.baseUrl, wireApi, models,
+                settings: { ...value.settings, defaultModel: profile.model || models[0] || null },
+              });
+              onKeysChange([{ ...value.keys[0], name: "导入密钥", secret: apiKey, settings: { ...value.keys[0]?.settings, models, modelsScoped: true } }]);
+            }} />
             <button type="button" className="codex-provider-preset-toggle" disabled={busy} aria-expanded={presetOpen} aria-controls={presetsId} onClick={() => setPresetOpen(open => !open)}><span>从预设模板创建 <small>{presets.length} 个供应商</small></span><ChevronDown size={14} className={presetOpen ? "is-open" : ""} /></button>
             {presetOpen && <div id={presetsId} className="codex-provider-preset-list" role="region" aria-label="供应商预设列表">
               <label className="codex-provider-preset-search"><Search size={14} /><input aria-label="搜索供应商预设" placeholder="搜索供应商…" disabled={busy} value={query} onChange={event => setQuery(event.target.value)} /></label>

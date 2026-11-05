@@ -39,7 +39,7 @@ function Modal({ title, children, close, busy, mobileForm = false, footer, onSub
   return <SharedDialog title={title} size="small" className={`auth-dialog${mobileForm ? " auth-dialog-mobile-form" : ""}`} bodyClassName={mobileForm ? "auth-mobile-form-body" : ""} closeLabel="关闭对话框" closeDisabled={busy} busy={busy} onClose={close} footer={footer} onSubmit={onSubmit}>{children}</SharedDialog>;
 }
 
-export function AuthenticatorPanel({ mobile = false }: { mobile?: boolean }) {
+export function AuthenticatorPanel({ mobile = false, initialOtpUri, onInitialOtpUriHandled }: { mobile?: boolean; initialOtpUri?: string; onInitialOtpUriHandled?: () => void }) {
   const [passwordRequired, setPasswordRequired] = useState(false);
   const [unlocked, setUnlocked] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -259,6 +259,12 @@ export function AuthenticatorPanel({ mobile = false }: { mobile?: boolean }) {
       if (data) { setPreview(data); setChoices(Object.fromEntries(data.items.map((item) => [item.entry.id, item.duplicateId ? "skip" : "add"]))); }
     });
   }
+  const initialOtpImportStarted = useRef(false);
+  useEffect(() => {
+    if (!mobile || !initialOtpUri || !unlocked || initialOtpImportStarted.current) return;
+    initialOtpImportStarted.current = true;
+    void prepare(false, initialOtpUri).finally(() => onInitialOtpUriHandled?.());
+  }, [mobile, initialOtpUri, unlocked]);
   async function scanOtp() {
     if (scanning.current || actionBusy.current) return;
     scanning.current = true; setBusy(true); setError("");

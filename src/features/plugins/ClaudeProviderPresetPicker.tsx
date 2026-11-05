@@ -3,6 +3,7 @@ import { ArrowLeft, ChevronRight, Search, Server, Settings2 } from "lucide-react
 import { SharedDialog } from "../../shared/SharedDialog";
 import type { ClaudeProviderInput } from "../../platform/clients/claudeProviders";
 import { PROVIDER_PRESETS, presetToInput } from "./claudeProviderPresets";
+import { AiSupplierImport } from "../ai/AiSupplierImport";
 
 export function ClaudeProviderPresetPicker({ onClose, onSelect, onCustom }: { onClose: () => void; onSelect: (value: ClaudeProviderInput) => void; onCustom: () => void }) {
   const [keyword, setKeyword] = useState("");
@@ -22,6 +23,16 @@ export function ClaudeProviderPresetPicker({ onClose, onSelect, onCustom }: { on
       </> : <>
         <label className="claude-preset-search"><Search size={16} aria-hidden="true" /><input type="search" aria-label="搜索厂商预设" placeholder="搜索厂商、地区、套餐或 API 地址，例如 Kimi、智谱、MiniMax" value={keyword} onChange={event => setKeyword(event.target.value)} autoFocus /></label>
         <button type="button" className="claude-preset-card" onClick={onCustom}><Settings2 size={22} aria-hidden="true" /><span className="claude-preset-details"><strong>自定义配置</strong><small>手动填写请求地址、协议和 API Key</small></span><ChevronRight size={16} aria-hidden="true" /></button>
+        <AiSupplierImport target="claude" onImport={({ profile, apiKey }) => {
+          const apiFormat = ({ openai_chat: "openai_chat", openai_responses: "openai_responses", claude: "anthropic", gemini: "gemini" } as const)[profile.protocol];
+          const catalog = [...new Set([profile.model, ...(profile.models ?? [])].map(model => model.trim()).filter(Boolean))].map(model => ({ model }));
+          const model = profile.model || catalog[0]?.model || "";
+          onSelect({ id: "", name: profile.name, description: "从模型供应商导入", baseUrl: profile.baseUrl, apiKey,
+            apiKeyField: "auth_token", apiFormat, isFullUrl: true,
+            models: model ? { sonnet: { model }, opus: { model }, haiku: { model } } : {},
+            extraEnv: {}, officialLogin: false, modelCatalog: catalog,
+          });
+        }} />
         <h3>账号登录</h3>
         <div className="claude-preset-grid"><button type="button" className="claude-preset-card" onClick={() => onSelect({ id: "", name: "Claude 官方", baseUrl: "https://api.anthropic.com", websiteUrl: "https://www.anthropic.com/claude-code", officialLogin: true, apiKey: "", apiKeyField: "auth_token", apiFormat: "anthropic", isFullUrl: true, models: {}, extraEnv: {}, modelCatalog: [] })}><Server size={22} aria-hidden="true" /><span className="claude-preset-details"><strong>Claude Official</strong><small>使用已有 Claude 登录状态，不在此进行登录</small></span><ChevronRight size={16} aria-hidden="true" /></button></div>
         <h3>模型厂商 <span>{groups.length} 家</span></h3>

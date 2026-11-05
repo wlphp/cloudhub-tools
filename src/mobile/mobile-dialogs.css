@@ -52,6 +52,160 @@ body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog {
 }
 body:has(.mobile-shell) .shared-dialog-backdrop .shared-dialog-small { width: min(520px, calc(100vw - 24px)); }
 body:has(.mobile-shell) .shared-dialog-backdrop .shared-confirm-dialog { width: min(440px, calc(100vw - 24px)); }
+/* Identity cards follow the member-center reference while retaining SharedDialog focus and Escape behavior. */
+body:has(.mobile-shell) .shared-dialog-backdrop .mobile-member-identity-dialog {
+  position: relative;
+  width: min(324px, calc(100vw - 48px));
+  max-width: calc(100vw - 48px);
+  max-height: none !important;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+body:has(.mobile-shell) .shared-dialog-backdrop .mobile-member-identity-dialog > .modal-head {
+  position: absolute;
+  z-index: 4;
+  inset: 0 0 auto;
+  display: block;
+  min-height: 0;
+  padding: 0;
+  overflow: visible;
+}
+body:has(.mobile-shell) .shared-dialog-backdrop .mobile-member-identity-dialog > .modal-head > :is(svg, .shared-dialog-mobile-icon),
+body:has(.mobile-shell) .shared-dialog-backdrop .mobile-member-identity-dialog .shared-dialog-heading {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+body:has(.mobile-shell) .shared-dialog-backdrop .mobile-member-identity-dialog .dialog-header-actions {
+  position: absolute;
+  top: 68px;
+  right: -14px;
+  z-index: 2;
+  margin: 0;
+}
+body:has(.mobile-shell) .shared-dialog-backdrop .mobile-member-identity-dialog .dialog-header-actions > button.close {
+  width: 40px;
+  min-width: 40px;
+  height: 40px;
+  min-height: 40px;
+  border: 1px solid #ffffff38 !important;
+  background: #19172285 !important;
+  color: #fff !important;
+  backdrop-filter: blur(8px);
+}
+body:has(.mobile-shell) .shared-dialog-backdrop .mobile-member-identity-dialog > .modal-body {
+  flex: 0 0 auto;
+  max-height: none !important;
+  padding: 0;
+  overflow: visible !important;
+}
+body:has(.mobile-shell) .shared-dialog-backdrop .mobile-identity-card {
+  position: relative;
+  display: flex;
+  box-sizing: border-box;
+  min-height: 286px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 9px;
+  margin-top: 30px;
+  padding: 62px 22px 20px;
+  overflow: visible;
+  border: 1px solid #ffffff1a;
+  border-radius: 22px;
+  background: linear-gradient(135deg, #211f2b 0%, #302d46 70%, #4a4238 100%);
+  color: #fff;
+  text-align: center;
+  box-shadow: 0 24px 70px #07070c80, inset 0 1px 0 #ffffff1a;
+}
+body:has(.mobile-shell) .shared-dialog-backdrop .mobile-identity-card::after {
+  position: absolute;
+  right: -78px;
+  bottom: -116px;
+  width: 240px;
+  height: 240px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #d7a94c55 0%, #d7a94c00 72%);
+  content: "";
+  pointer-events: none;
+}
+body:has(.mobile-shell) .shared-dialog-backdrop .mobile-identity-avatar {
+  position: absolute;
+  top: -30px;
+  left: 50%;
+  z-index: 1;
+  display: grid;
+  width: 62px;
+  height: 62px;
+  place-items: center;
+  transform: translateX(-50%);
+  border: 2px solid #f2cb73;
+  border-radius: 50%;
+  background: #302d46;
+  box-shadow: 0 5px 18px #0006;
+}
+body:has(.mobile-shell) .shared-dialog-backdrop .mobile-identity-avatar .app-sidebar-avatar {
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+}
+body:has(.mobile-shell) .shared-dialog-backdrop .mobile-identity-avatar .app-sidebar-avatar svg { width: 42px; height: 42px; }
+body:has(.mobile-shell) .shared-dialog-backdrop .mobile-identity-ribbon {
+  position: absolute;
+  top: 32px;
+  left: 50%;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 22px;
+  padding: 1px 8px;
+  transform: translateX(-50%);
+  border: 1px solid #f9df9b66;
+  border-radius: 5px;
+  background: linear-gradient(110deg, #66552d, #3d3528);
+  color: #ffdf8d;
+  font-size: 11px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+body:has(.mobile-shell) .shared-dialog-backdrop .mobile-identity-ribbon.is-super_admin { border-color: #b5b0ff55; background: linear-gradient(110deg, #49436c, #302d46); color: #d4d1ff; }
+body:has(.mobile-shell) .shared-dialog-backdrop .mobile-identity-brand { margin-top: 15px; color: #c5c0d2; font-size: 10px; font-weight: 600; letter-spacing: 1.8px; }
+body:has(.mobile-shell) .shared-dialog-backdrop .mobile-identity-card h3 { max-width: 100%; margin: 0; overflow: hidden; color: #fff; font-size: 20px; font-weight: 600; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+body:has(.mobile-shell) .shared-dialog-backdrop .mobile-identity-card > p { margin: 0; color: #c8c4d2; font-size: 12px; line-height: 1.5; }
+body:has(.mobile-shell) .shared-dialog-backdrop .mobile-identity-card > time { color: #aaa5b6; font-size: 10px; }
+body:has(.mobile-shell) .shared-dialog-backdrop .mobile-identity-save {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  width: min(100%, 220px);
+  min-height: 48px;
+  align-items: center;
+  justify-content: center;
+  margin-top: auto;
+  border: 0;
+  border-radius: 999px;
+  background: linear-gradient(110deg, #ffe6a1, #f7bd4e);
+  color: #574321;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: inset 0 1px 0 #ffffff99, 0 8px 20px #0003;
+}
+body:has(.mobile-shell) .shared-dialog-backdrop .mobile-identity-save:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
+body:has(.mobile-shell) .shared-dialog-backdrop .mobile-identity-save:disabled { opacity: .7; cursor: wait; }
+body:has(.mobile-shell) .shared-dialog-backdrop .mobile-identity-confetti { position: absolute; width: 13px; height: 5px; border-radius: 4px; opacity: .9; }
+body:has(.mobile-shell) .shared-dialog-backdrop .mobile-identity-confetti.is-one { top: 28px; left: 16%; transform: rotate(-28deg); background: #5bd4d5; }
+body:has(.mobile-shell) .shared-dialog-backdrop .mobile-identity-confetti.is-two { top: 52px; right: 19%; transform: rotate(35deg); background: #f5cc68; }
+body:has(.mobile-shell) .shared-dialog-backdrop .mobile-identity-confetti.is-three { top: 120px; left: 9%; transform: rotate(42deg); background: #f5cc68; }
+body:has(.mobile-shell) .shared-dialog-backdrop .mobile-identity-card-error { position: relative; z-index: 1; margin: 0; color: #ffaaa5; font-size: 12px; }
+body:has(.mobile-shell) .shared-dialog-backdrop .mobile-identity-card-error + .mobile-identity-save { margin-top: 2px; }
 body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog > .modal-head {
   position: relative;
   top: auto;

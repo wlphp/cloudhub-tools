@@ -173,6 +173,34 @@ export async function webApi<T>(path: string, init?: RequestInit): Promise<T> {
     }
     if (!response.ok) {
       if (["authenticator-error", "authenticator-locked", "ai", "notes"].includes(payload?.code)) throw new PlatformError(payload.error || "操作失败", payload.code);
+      if (payload?.code === "member") {
+        const memberDiagnostics: Record<string, string> = {
+          "token-not-string": "会员服务未返回文本 token",
+          "token-length-invalid": "会员服务 token 长度异常",
+          "token-contains-unsafe-characters": "会员服务 token 含空白或控制字符",
+          "upstream-network-error": "无法连接会员上游服务",
+          "upstream-invalid-response": "会员上游返回了无效响应",
+          "upstream-api-error": "会员上游接口返回失败",
+        };
+        const diagnostic = typeof payload.details?.diagnostic === "string"
+          ? memberDiagnostics[payload.details.diagnostic]
+          : undefined;
+        const upstreamStatus = Number.isInteger(payload.details?.upstream_status) ? payload.details.upstream_status : null;
+        const actionLabels: Record<string, string> = {
+          "auth.send_code": "发送验证码",
+          "auth.login": "登录",
+          "auth.logout": "退出登录",
+          "member.me": "读取会员资料",
+          "member.avatar": "更新头像",
+          "member.nickname": "更新昵称",
+          "member.login_logs": "读取登录记录",
+        };
+        const action = typeof payload.details?.action === "string" ? actionLabels[payload.details.action] : undefined;
+        if (diagnostic || upstreamStatus !== null) {
+          const details = [action, upstreamStatus !== null ? `上游 HTTP ${upstreamStatus}` : diagnostic].filter(Boolean).join(" · ");
+          throw new Error(`${payload.error || "会员请求失败"}${details ? `（${details}）` : ""}`);
+        }
+      }
       throw new Error(payload.error || `Web API ${response.status}`);
     }
     return payload as T;

@@ -139,9 +139,9 @@ export function MobilePullRefresh({ containerRef, actionRef, scopeKey, disabled,
 
   const visible = phase !== "idle" && phase !== "settling";
   return <>
-    <div ref={indicatorRef} className="mobile-pull-refresh" aria-hidden={!visible}>
-      <RefreshCw size={18} aria-hidden="true" className={phase === "refreshing" ? "mobile-spin" : ""} />
-      <span role="status" aria-live="polite">{phase === "refreshing" ? "正在刷新…" : phase === "ready" ? "松开刷新" : "下拉刷新"}</span>
+    <div ref={indicatorRef} className="mobile-pull-refresh" data-pull-phase="idle" aria-hidden={!visible}>
+      <span className="mobile-pull-refresh-orbit"><RefreshCw size={16} aria-hidden="true" className={phase === "refreshing" ? "mobile-spin" : ""} /></span>
+      <span className="mobile-pull-refresh-label" role="status" aria-live="polite">{phase === "refreshing" ? "正在更新" : phase === "ready" ? "松开即可更新" : "下拉刷新"}</span>
     </div>
     <div ref={surfaceRef} className="mobile-refresh-content">{children}</div>
   </>;

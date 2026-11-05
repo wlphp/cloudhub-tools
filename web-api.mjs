@@ -13,6 +13,7 @@ import { handleTrashRoute } from "./web-api/routes/trash.mjs";
 import { handleClaudeProvidersRoute } from "./web-api/routes/claude-providers.mjs";
 import { handleAiRoutes } from "./web-api/routes/ai.mjs";
 import { handleFlowRoutes } from "./web-api/routes/flow.mjs";
+import { handleMemberRoute } from "./web-api/routes/member.mjs";
 import { handleCloudSyncRoutes } from "./web-api/routes/cloud-sync.mjs";
 import { listAccounts, deleteAccount, getAccountSecretRecord, getAccountType, getAccountRegion, getAccountTypeAndRegion, getAccountForUpdate, saveAccountRecord, importAccountRecords } from "./web-api/repositories/accounts.mjs";
 import { listAssets, deleteAsset, updateServerName } from "./web-api/repositories/assets.mjs";
@@ -696,6 +697,7 @@ const server = http.createServer(async (req, res) => {
     })) return;
     if (await handleAccountRoutes(req, res, url, { accounts: listAccounts, saveAccount, deleteAccount })) return;
     if (await handleFlowRoutes(req, res, url)) return;
+    if (await handleMemberRoute(req, res, url)) return;
     if (await handleCloudSyncRoutes(req, res, url)) return;
     if (await handleAiRoutes(req, res, url)) return;
     if (await handleIpLocationRoute(req, res, url)) return;

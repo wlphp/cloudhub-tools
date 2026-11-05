@@ -15,8 +15,12 @@ pub(crate) struct Member {
     pub email: String,
     #[serde(default)]
     pub nickname: String,
+    #[serde(default)]
+    pub bio: String,
     pub avatar_key: u8,
     pub is_vip: bool,
+    #[serde(default)]
+    pub is_experience_officer: bool,
     pub is_admin: bool,
     pub status: String,
     pub created_at: String,
@@ -31,6 +35,10 @@ pub(crate) struct MemberLoginRecord {
     pub client_type: String,
     pub created_at: String,
 }
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct MemberMessage { pub id: u64, pub message_type: String, pub title: String, pub content: String, pub created_at: String, pub read_at: Option<String> }
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct MemberMessagePage { pub items: Vec<MemberMessage>, pub unread_count: u32, pub page: u32, pub has_more: bool }
 
 fn session_path() -> Result<std::path::PathBuf, String> { Ok(data_dir()?.join("member-session.enc")) }
 fn token() -> Result<Option<zeroize::Zeroizing<String>>, String> {
@@ -58,6 +66,7 @@ fn valid_email(value: &str) -> bool {
 fn api_error(status: u16, action: &str) -> &'static str {
     match (status, action) {
         (422, "member.nickname") => "昵称需为1到20个字符，且不能包含控制字符",
+        (422, "member.bio") => "个人简介最多100个字符，且不能包含控制字符",
         (422, _) => "邮箱或验证码无效、过期，请检查后重新获取",
         (429, _) => "操作太频繁，请稍后再试",
         (403, _) => "该会员不可用，请联系管理员",
@@ -69,14 +78,13 @@ fn api_error(status: u16, action: &str) -> &'static str {
 async fn request(action: &str, payload: Option<Value>, secret: Option<&str>) -> Result<Value, String> {
     let client = reqwest::Client::builder().timeout(Duration::from_secs(35)).connect_timeout(Duration::from_secs(10))
         .redirect(reqwest::redirect::Policy::none()).build().map_err(|_| "会员服务网络初始化失败")?;
-    let query_payload = action == "member.login_logs";
+    let query_payload = matches!(action, "member.login_logs" | "member.messages");
     let mut builder = if payload.is_some() && !query_payload { client.post(API) } else { client.get(API) };
     builder = builder.query(&[("action", action)]).header("X-CloudHub-Client", "native");
     if let Some(secret) = secret { builder = builder.bearer_auth(secret); }
     if let Some(payload) = payload {
         if query_payload {
-            let page = payload["page"].as_u64().ok_or("登录记录页码无效")?;
-            builder = builder.query(&[("page", page)]);
+            builder = builder.query(&[("page", payload["page"].as_u64().ok_or("消息页码无效")?)]);
         } else {
             builder = builder.json(&payload);
         }
@@ -104,7 +112,7 @@ async fn request(action: &str, payload: Option<Value>, secret: Option<&str>) -> 
 fn member(value: &Value) -> Result<Member, String> {
     let mut result: Member = serde_json::from_value(value["member"].clone()).map_err(|_| "会员资料格式无效")?;
     if result.nickname.trim().is_empty() { result.nickname = "匿名用户".into(); }
-    if result.id == 0 || !valid_email(&result.email) || result.nickname.trim().is_empty() || result.nickname.chars().count() > 20 || result.nickname.chars().any(char::is_control) || !(1..=12).contains(&result.avatar_key) || result.status != "active" || result.is_admin != (result.id == 1) {
+    if result.id == 0 || !valid_email(&result.email) || result.nickname.trim().is_empty() || result.nickname.chars().count() > 20 || result.nickname.chars().any(char::is_control) || result.bio.chars().count() > 100 || result.bio.chars().any(|character| character.is_control() && character != '\n') || !(1..=12).contains(&result.avatar_key) || result.status != "active" || result.is_admin != (result.id == 1) {
         return Err("会员资料格式无效".into());
     }
     Ok(result)
@@ -167,6 +175,16 @@ pub(crate) async fn member_nickname(nickname: String) -> PlatformResult<Member> 
 }
 
 #[tauri::command]
+pub(crate) async fn member_bio(bio: String) -> PlatformResult<Member> {
+    let bio = bio.trim().to_owned();
+    if bio.chars().count() > 100 || bio.chars().any(|character| character.is_control() && character != '\n') { return Err("个人简介最多100个字符，且不能包含控制字符".into()); }
+    let _guard = SESSION_LOCK.lock().await;
+    let secret = token()?.ok_or("请先登录")?;
+    let data = request("member.bio", Some(json!({"bio":bio})), Some(&secret)).await?;
+    Ok(member(&data)?)
+}
+
+#[tauri::command]
 pub(crate) async fn member_login_logs(page: u32) -> PlatformResult<Vec<MemberLoginRecord>> {
     if page == 0 || page > 100_000 { return Err("登录记录页码无效".into()); }
     let _guard = SESSION_LOCK.lock().await;
@@ -183,6 +201,30 @@ pub(crate) async fn member_login_logs(page: u32) -> PlatformResult<Vec<MemberLog
     Ok(records)
 }
 #[tauri::command]
+pub(crate) async fn member_messages(page: u32) -> PlatformResult<MemberMessagePage> {
+    if page == 0 || page > 100_000 { return Err("消息页码无效".into()); }
+    let _guard = SESSION_LOCK.lock().await; let secret = token()?.ok_or("请先登录")?;
+    let data = request("member.messages", Some(json!({"page":page})), Some(&secret)).await?;
+    let page: MemberMessagePage = serde_json::from_value(data).map_err(|_| "会员消息格式无效")?;
+    if page.items.len() > 20 || page.unread_count > 1_000_000 || page.items.iter().any(|m| m.id == 0 || m.title.is_empty() || m.title.chars().count() > 100 || m.content.chars().count() > 4000 || m.message_type.len() > 40 || m.created_at.len() > 32 || m.title.chars().any(char::is_control) || m.content.chars().any(|c| c.is_control() && c != '\n')) { return Err("会员消息格式无效".into()); }
+    Ok(page)
+}
+#[tauri::command]
+pub(crate) async fn member_message(id: u64) -> PlatformResult<MemberMessage> {
+    if id == 0 { return Err("消息编号无效".into()); }
+    let _guard = SESSION_LOCK.lock().await; let secret = token()?.ok_or("请先登录")?;
+    let data = request("member.message", Some(json!({"id":id})), Some(&secret)).await?;
+    let m: MemberMessage = serde_json::from_value(data).map_err(|_| "会员消息格式无效")?;
+    if m.id != id || m.title.is_empty() || m.title.chars().count() > 100 || m.content.chars().count() > 4000 || m.title.chars().any(char::is_control) || m.content.chars().any(|c| c.is_control() && c != '\n') { return Err("会员消息格式无效".into()); }
+    Ok(m)
+}
+#[tauri::command]
+pub(crate) async fn member_messages_read_all() -> PlatformResult<u32> {
+    let _guard = SESSION_LOCK.lock().await; let secret = token()?.ok_or("请先登录")?;
+    let data = request("member.messages_read_all", Some(json!({})), Some(&secret)).await?;
+    Ok(data["updated"].as_u64().unwrap_or(0).min(u32::MAX as u64) as u32)
+}
+#[tauri::command]
 pub(crate) async fn member_logout() -> PlatformResult<bool> {
     let _guard = SESSION_LOCK.lock().await;
     let secret = token().ok().flatten();
@@ -196,13 +238,13 @@ mod tests {
     use super::*;
     #[test]
     fn membership_contract_rejects_invalid_identity() {
-        let good = json!({"member":{"id":2,"email":"user@example.invalid","nickname":"星河小熊猫123","avatar_key":1,"is_vip":false,"is_admin":false,"status":"active","created_at":"2026-10-31 00:00:00","last_login_at":null}});
+        let good = json!({"member":{"id":2,"email":"user@example.invalid","nickname":"星河小熊猫123","bio":"简介","avatar_key":1,"is_vip":false,"is_experience_officer":false,"is_admin":false,"status":"active","created_at":"2026-10-31 00:00:00","last_login_at":null}});
         assert!(member(&good).is_ok());
         let mut unnamed = good.clone(); unnamed["member"]["nickname"] = json!("  ");
         assert_eq!(member(&unnamed).unwrap().nickname, "匿名用户");
         let mut old_api = good.clone(); old_api["member"].as_object_mut().unwrap().remove("nickname");
         assert_eq!(member(&old_api).unwrap().nickname, "匿名用户");
-        for (field,value) in [("avatar_key",json!(0)),("is_admin",json!(true)),("status",json!("disabled")),("email",json!("bad\r\nmail"))] {
+        for (field,value) in [("avatar_key",json!(0)),("is_experience_officer",json!("yes")),("is_admin",json!(true)),("status",json!("disabled")),("email",json!("bad\r\nmail"))] {
             let mut bad=good.clone();bad["member"][field]=value;assert!(member(&bad).is_err());
         }
         assert!(!valid_email("a@b@c.example"));
@@ -212,5 +254,6 @@ mod tests {
         assert_eq!(api_error(404, "member.nickname"), "会员服务接口版本不匹配，请更新会员服务");
         assert_eq!(api_error(500, "member.nickname"), "会员服务发生内部错误，请稍后重试");
         assert_eq!(api_error(422, "member.nickname"), "昵称需为1到20个字符，且不能包含控制字符");
+        assert_eq!(api_error(422, "member.bio"), "个人简介最多100个字符，且不能包含控制字符");
     }
 }

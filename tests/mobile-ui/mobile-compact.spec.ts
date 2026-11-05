@@ -19,8 +19,7 @@ for (const width of [320, 360, 375, 390, 430]) {
     await page.goto("/");
     const navigation = page.locator(".mobile-tab-bar");
     await expect(page.getByRole("heading", { name: "云账号", exact: true })).toBeVisible();
-    const header = await page.locator(".mobile-header").boundingBox();
-    expect(header!.height).toBeLessThanOrEqual(60);
+    await expect(page.locator(".mobile-header")).toHaveCount(0);
     await navigation.getByRole("button", { name: "服务器", exact: true }).click();
     await expect(page.getByText(longName, { exact: true })).toBeVisible();
     const server = page.locator(".mobile-server-card-featured").first();
@@ -32,9 +31,9 @@ for (const width of [320, 360, 375, 390, 430]) {
     expect(await server.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBeTruthy();
     await navigation.getByRole("button", { name: "域名", exact: true }).click();
     await expect(page.getByRole("heading", { name: "域名与 DNS", exact: true })).toBeVisible();
-    for (const name of ["对象存储", "云数据库", "Redis", "证书管理", "SSH 终端", "运维面板", "云效流水线", "系统设置"]) {
-      await navigation.getByRole("button", { name: "更多", exact: true }).click();
-      await expect(page.getByRole("heading", { name: "更多管理", exact: true })).toBeVisible();
+    for (const name of ["对象存储", "云数据库", "Redis", "证书管理", "SSH 终端", "运维面板", "云效流水线", "身份验证器"]) {
+      await navigation.getByRole("button", { name: "我的", exact: true }).click();
+      await expect(page.locator(".mobile-more-shortcuts")).toBeVisible();
       await page.locator(".mobile-more-feature").filter({ hasText: name }).click();
       await expect(page.getByRole("heading", { name, exact: true }).first()).toBeVisible();
       if (name === "SSH 终端") {
@@ -71,7 +70,7 @@ for (const width of [320, 360, 375, 390, 430]) {
       const navBounds = await navigation.boundingBox();
       expect(navBounds!.y + navBounds!.height).toBeLessThanOrEqual(844);
     }
-    await navigation.getByRole("button", { name: "更多", exact: true }).click();
+    await navigation.getByRole("button", { name: "我的", exact: true }).click();
     await expect(page.getByRole("searchbox", { name: "搜索全部功能" })).toHaveCount(0);
     await page.getByRole("button", { name: "搜索功能", exact: true }).click();
     const search = page.getByRole("searchbox", { name: "搜索全部功能" });
@@ -79,7 +78,7 @@ for (const width of [320, 360, 375, 390, 430]) {
     await search.fill("Redis");
     await expect(page.locator(".mobile-more-feature")).toHaveCount(1);
     await search.press("Escape");
-    await expect(page.locator(".mobile-more-feature")).toHaveCount(10);
+    await expect(page.locator(".mobile-more-feature")).toHaveCount(8);
     await expect(page.locator(".mobile-more-feature").filter({ hasText: "验证器" })).toBeVisible();
     await expect(page.getByRole("button", { name: "搜索功能", exact: true })).toBeFocused();
     if (width === 390) await page.screenshot({ path: "test-results/mobile-compact-more.png" });

@@ -24,7 +24,7 @@ const navigation: Record<string, { section?: ApplicationSection; order: number; 
 };
 export const applicationCatalog = officialPlugins.map(definition => ({ ...definition, ...navigation[definition.id] }));
 export type ApplicationDefinition = typeof applicationCatalog[number];
-export type ApplicationPreference = { order: number; sidebar: boolean };
+export type ApplicationPreference = { order: number; sidebar: boolean; home: boolean };
 export type ApplicationPreferences = Record<string, ApplicationPreference>;
 export const APPLICATION_PREFERENCES_KEY = "cloudhub.application-navigation";
 
@@ -39,13 +39,15 @@ export function parseApplicationPreferences(raw: string | null | undefined): App
       result[app.id] = {
         order: Number.isInteger(value.order) && value.order! >= 0 && value.order! <= 9999 ? value.order! : app.order,
         sidebar: typeof value.sidebar === "boolean" ? value.sidebar : app.sidebar,
+        // Keep older clients' sidebar preference intact while migrating the visible store toggle to the home page.
+        home: typeof value.home === "boolean" ? value.home : typeof value.sidebar === "boolean" ? value.sidebar : app.sidebar,
       };
     }
     return result;
   } catch { return {}; }
 }
 export function applicationPreference(app: ApplicationDefinition, preferences: ApplicationPreferences): ApplicationPreference {
-  return preferences[app.id] ?? { order: app.order, sidebar: app.sidebar };
+  return preferences[app.id] ?? { order: app.order, sidebar: app.sidebar, home: app.sidebar };
 }
 export function sortedApplications(preferences: ApplicationPreferences) {
   return [...applicationCatalog].sort((a, b) => applicationPreference(a, preferences).order - applicationPreference(b, preferences).order || a.order - b.order);

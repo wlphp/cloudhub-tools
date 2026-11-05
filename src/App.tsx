@@ -23,6 +23,8 @@ import { panelAiFields } from "./features/ai/panelDraft";
 import { AiAssetNotes } from "./features/assets/AiAssetNotes";
 import { AiLogAnalysis } from "./features/ai/AiLogAnalysis";
 import { aiPanelMonitorSummary } from "./features/servers/aiMonitorSummary";
+import { DesktopHomePage, DesktopMonitorAlertsPage } from "./features/overview/DesktopOverviewPages";
+import "./features/overview/desktop-overview.css";
 import { assetSearchFilters, withinAssetExpiry } from "./features/assets/aiSearch";
 import { SecretField } from "./shared/SecretField";
 import { PaginationBar, PAGE_SIZE_OPTIONS, normalizePageSize } from "./shared/PaginationBar";
@@ -101,6 +103,8 @@ import {
   FolderPlus,
   Globe2,
   GitBranch,
+  House,
+  BellRing,
   Network,
   GripVertical,
   Eye,
@@ -268,9 +272,9 @@ type SettingsTab = "general" | "network" | "data" | "ai" | "pet" | "about";
 
 const settingsTabs: { id: SettingsTab; label: string; icon: typeof SlidersHorizontal }[] = [
   { id: "general", label: "通用设置", icon: SlidersHorizontal },
-  { id: "network", label: "网络", icon: Network },
+  { id: "network", label: "网络与代理", icon: Network },
   { id: "data", label: "数据管理", icon: Database },
-  { id: "ai", label: "AI 接入", icon: Bot },
+  { id: "ai", label: "模型供应商", icon: Bot },
   { id: "pet", label: "宠物管理", icon: PawPrint },
   { id: "about", label: "关于", icon: Info },
 ];
@@ -410,7 +414,7 @@ function App() {
   const esaRequestRef = useRef(0);
   const [esaCertificateSite, setEsaCertificateSite] = useState<{ account: Account; siteId: number } | null>(null);
   const [esaSiteKeyword, setEsaSiteKeyword] = useState("");
-  const [section, setSection] = useState<"accounts" | "resources" | "certificates" | "authenticator" | "flow" | "frp" | "codex" | "claude" | "panels" | "servers" | "favorites" | "logs" | "api_logs" | "settings" | "plugins" | "notes">(() => isDetachedTerminalWindow ? "servers" : "accounts");
+  const [section, setSection] = useState<"home" | "monitorAlerts" | "accounts" | "resources" | "certificates" | "authenticator" | "flow" | "frp" | "codex" | "claude" | "panels" | "servers" | "favorites" | "logs" | "api_logs" | "settings" | "plugins" | "notes">(() => isDetachedTerminalWindow ? "servers" : "accounts");
   function openCatalogApplication(app: ApplicationDefinition) {
     if (app.section) setSection(app.section);
     else { setStoreApplicationId(app.id); setSection("plugins"); }
@@ -4017,6 +4021,8 @@ function App() {
               </div>
             </div>
             <nav id="app-main-navigation" aria-label="主导航">
+              <button type="button" className={section === "home" ? "nav-active" : ""} aria-current={section === "home" ? "page" : undefined} onClick={() => setSection("home")} aria-label="首页" title="首页"><House size={18} aria-hidden="true" /><span className="app-nav-label">首页</span></button>
+              <button type="button" className={section === "monitorAlerts" ? "nav-active" : ""} aria-current={section === "monitorAlerts" ? "page" : undefined} onClick={() => setSection("monitorAlerts")} aria-label="监控预警" title="监控预警"><BellRing size={18} aria-hidden="true" /><span className="app-nav-label">监控预警</span></button>
               <button type="button" className={section === "accounts" ? "nav-active" : ""} aria-current={section === "accounts" ? "page" : undefined} onClick={() => setSection("accounts")} aria-label={t("账号管理")} title={t("账号管理")}>
                 <Database size={18} /><span className="app-nav-label">{t("账号管理")}</span></button>
               <button type="button" className={section === "resources" ? "nav-active" : ""} aria-current={section === "resources" ? "page" : undefined} onClick={() => { setSection("resources"); void loadLocalAssets(); }} aria-label={t("资产管理")} title={t("资产管理")}>
@@ -4033,9 +4039,6 @@ function App() {
                 return <button key={app.id} type="button" className={active ? "nav-active" : ""} aria-current={active ? "page" : undefined} aria-label={t(app.name)} title={t(app.name)} data-application-id={app.id} onClick={() => openCatalogApplication(app)}><Icon size={18} aria-hidden="true" /><span className="app-nav-label">{t(app.name)}</span></button>;
               })}
               <button type="button" className={section === "plugins" && !storeApplicationId ? "nav-active" : ""} aria-current={section === "plugins" && !storeApplicationId ? "page" : undefined} onClick={() => { setStoreApplicationId(undefined); setSection("plugins"); }} aria-label={t("软件商店")} title={t("软件商店")}><Grid2X2 size={18} aria-hidden="true" /><span className="app-nav-label">{t("软件商店")}</span></button>
-
-
-
               <button type="button" className={section === "logs" ? "nav-active" : ""} aria-current={section === "logs" ? "page" : undefined} onClick={() => setSection("logs")} aria-label={t("操作日志")} title={t("操作日志")}>
                 <FileText size={18} /><span className="app-nav-label">{t("操作日志")}</span></button>
               <button type="button" className={section === "api_logs" ? "nav-active" : ""} aria-current={section === "api_logs" ? "page" : undefined} onClick={() => { setSection("api_logs"); void loadApiLogs(); }} aria-label={t("API日志")} title={t("API日志")}>
@@ -4077,6 +4080,8 @@ function App() {
           </div>
         </nav>
         {status && createPortal(<div className="toast-notice" role="status" aria-live="polite" aria-atomic="true">{status}</div>, document.body)}
+        {section === "home" && <DesktopHomePage accounts={accounts} assets={localAssets} onNavigate={setSection} />}
+        {section === "monitorAlerts" && <DesktopMonitorAlertsPage onNavigate={target => { if (target === "resources") void loadLocalAssets(); if (target === "panels") void loadPanelConnections(); setSection(target); }} />}
         <div className={`account-section ${section === "accounts" ? "" : "section-hidden"}`}>
         <header className="page-header-stats">
           <div>
