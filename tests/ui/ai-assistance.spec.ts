@@ -11,7 +11,7 @@ import { ossAiSummary, rdsAiSummary, redisAiSummary } from "../../src/features/r
 
 async function openAiSettings(page: Page) {
   await page.getByRole("button", { name: /^(系统设置|设置)$/ }).click();
-  await page.getByRole("tab", { name: "AI 接入", exact: true }).click();
+  await page.getByRole("tab", { name: "模型供应商", exact: true }).click();
 }
 
 test("FRP drafts reject sensitive fields and invalid mappings and clear stale protocol settings",()=>{
@@ -314,7 +314,7 @@ async function nativeFixture(page: Page) {
 test("AI configuration saves without exposing stored keys or sending a model request", async ({ page }) => {
   await nativeFixture(page); await page.goto("/");
   await openAiSettings(page);
-  await page.getByRole("button", { name: "添加服务", exact: true }).click();
+  await page.getByRole("button", { name: "添加模型供应商", exact: true }).click();
   const form = page.locator(".ai-config-form");
   await form.getByLabel("配置名称").fill("我的模型"); await form.getByLabel("模型名称",{exact:true}).fill("fixture-model");
   await form.getByLabel("API Key",{exact:true}).fill("test-only-ai-secret"); await form.getByRole("button", { name: "保存配置" }).click();
@@ -328,7 +328,7 @@ test("AI configuration saves without exposing stored keys or sending a model req
 test("AI save explains missing fields and reveals invalid advanced settings", async ({ page }) => {
   await nativeFixture(page); await page.goto("/");
   await openAiSettings(page);
-  await page.getByRole("button", { name: "添加服务", exact: true }).click();
+  await page.getByRole("button", { name: "添加模型供应商", exact: true }).click();
   const form = page.locator(".ai-config-form");
   await form.getByRole("button", { name: "保存配置" }).click();
   await expect(form.getByRole("status")).toContainText("配置名称");
@@ -365,7 +365,7 @@ test("AI save keeps entered fields and shows a native failure beside the save ac
   });
   await page.goto("/");
   await openAiSettings(page);
-  await page.getByRole("button", { name: "添加服务", exact: true }).click();
+  await page.getByRole("button", { name: "添加模型供应商", exact: true }).click();
   const form = page.locator(".ai-config-form");
   await form.getByLabel("配置名称").fill("重试测试");
   await form.getByLabel("模型名称",{exact:true}).fill("fixture-model");
@@ -436,7 +436,7 @@ test("multiple AI server candidates are reviewed and deduplicated before filling
 });
 
 test("browser preview enables AI configuration while retaining manual server entry",async({page})=>{
- await page.route("**/api/ai/profiles",route=>route.fulfill({json:[]}));await page.goto("/");await openAiSettings(page);await expect(page.getByRole("button",{name:"添加服务",exact:true})).toBeEnabled();await page.getByRole("button",{name:"添加服务",exact:true}).click();await expect(page.getByRole("dialog",{name:"添加AI服务",exact:true})).toBeVisible();await page.keyboard.press("Escape");await page.getByRole("button",{name:"终端管理",exact:true}).click();await page.locator(".terminal-add-host").click();await page.locator(".managed-host-modal").getByLabel("服务器名称").fill("手动服务器");
+ await page.route("**/api/ai/profiles",route=>route.fulfill({json:[]}));await page.goto("/");await openAiSettings(page);await expect(page.getByRole("button",{name:"添加模型供应商",exact:true})).toBeEnabled();await page.getByRole("button",{name:"添加模型供应商",exact:true}).click();await expect(page.getByRole("dialog",{name:"添加模型供应商",exact:true})).toBeVisible();await page.keyboard.press("Escape");await page.getByRole("button",{name:"终端管理",exact:true}).click();await page.locator(".terminal-add-host").click();await page.locator(".managed-host-modal").getByLabel("服务器名称").fill("手动服务器");
 });
 
 test("AI transfer restores configuration state and keeps the existing service", async ({ page }) => {
@@ -469,7 +469,7 @@ test("embedded AI settings stay open and adding a service displays the form", as
   await expect(page.locator("#ai-settings-content")).toBeVisible();
   await expect(section.getByRole("button", { name: /^(展开|收起)$/ })).toHaveCount(0);
   await expect(page.getByText("1 项", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "添加服务", exact: true }).click();
+  await page.getByRole("button", { name: "添加模型供应商", exact: true }).click();
   await expect(page.locator("#ai-settings-content")).toBeVisible();
   await expect(page.locator(".ai-config-form")).toBeVisible();
 });
@@ -483,7 +483,7 @@ test("embedded AI settings show service statistics without revealing endpoints",
     ]:original(command,args);
   });
   await page.goto("/");await openAiSettings(page);
-  const summary=page.getByRole("group",{name:"AI 服务概览",exact:true});
+  const summary=page.getByRole("group",{name:"模型供应商概览",exact:true});
   await expect(summary).toContainText("启用 1 / 2");await expect(summary).toContainText("图像测试通过 1");await expect(summary).toContainText("默认：云枢");
   await expect(summary).toContainText("OpenAI · Responses");await expect(summary).toContainText("Claude · Messages · 已停用");await expect(summary).not.toContainText("private-endpoint");
   await expect(page.locator("#ai-settings-content")).toBeVisible();
@@ -505,8 +505,8 @@ test("AI sidebar and configuration fit narrow desktop windows", async ({ page })
 
 test("AI service dialog keeps actions visible, traps focus and preserves edits on backdrop clicks",async({page})=>{
   await nativeFixture(page);await page.goto("/");await openAiSettings(page);
-  const add=page.getByRole("button",{name:"添加服务",exact:true});await add.click();
-  const dialog=page.getByRole("dialog",{name:"添加AI服务",exact:true});
+  const add=page.getByRole("button",{name:"添加模型供应商",exact:true});await add.click();
+  const dialog=page.getByRole("dialog",{name:"添加模型供应商",exact:true});
   await expect(dialog.getByLabel("配置名称")).toBeFocused();
   await dialog.getByLabel("配置名称").fill("保留草稿");
   await page.locator(".shared-dialog-backdrop").filter({has:dialog}).click({position:{x:1,y:1}});
@@ -527,7 +527,7 @@ test("AI service dialog keeps actions visible, traps focus and preserves edits o
   }
   await page.keyboard.press("Escape");await expect(dialog).toHaveCount(0);await expect(add).toBeFocused();
   await page.locator(".ai-profile").first().getByRole("button",{name:"编辑",exact:true}).click();
-  await expect(page.getByRole("dialog",{name:"编辑AI服务",exact:true})).toBeVisible();await expect(page.getByLabel("API Key",{exact:true})).toHaveValue("");
+  await expect(page.getByRole("dialog",{name:"编辑模型供应商",exact:true})).toBeVisible();await expect(page.getByLabel("API Key",{exact:true})).toHaveValue("");
 });
 
 test("selected terminal context removes known credentials before entering the assistant",()=>{
@@ -547,8 +547,8 @@ test("AI model configuration queries unsaved credentials and saves multiple sear
     };
   });
   await page.goto("/"); await openAiSettings(page);
-  await page.getByRole("button", {name:"添加服务", exact:true}).click();
-  const form = page.getByRole("dialog", {name:"添加AI服务", exact:true});
+  await page.getByRole("button", {name:"添加模型供应商", exact:true}).click();
+  const form = page.getByRole("dialog", {name:"添加模型供应商", exact:true});
   await form.getByLabel("配置名称").fill("多模型服务");
   await expect(form.getByRole("button", {name:"获取模型列表"})).toBeDisabled();
   await form.getByLabel("API Key", {exact:true}).fill("test-only-query-key");
@@ -622,7 +622,7 @@ test("AI key eye reveals only on click, clears on hide and never resaves reveale
   });
   await page.goto("/"); await openAiSettings(page);
   await page.locator(".ai-profile").first().getByRole("button", {name:"编辑",exact:true}).click();
-  const form = page.getByRole("dialog", {name:"编辑AI服务",exact:true});
+  const form = page.getByRole("dialog", {name:"编辑模型供应商",exact:true});
   const input = form.getByLabel("API Key", {exact:true});
   await expect(input).toHaveValue(""); await expect(input).toHaveAttribute("type","password");
   expect(await page.evaluate(() => (window as any).keyRevealCount)).toBe(0);
@@ -654,7 +654,7 @@ test("AI model queries and picker filtering preserve dialog geometry and body sc
   });
   await page.goto("/"); await openAiSettings(page);
   await page.locator(".ai-profile").first().getByRole("button", {name:"编辑",exact:true}).click();
-  const form = page.getByRole("dialog", {name:"编辑AI服务",exact:true});
+  const form = page.getByRole("dialog", {name:"编辑模型供应商",exact:true});
   const geometry = () => form.evaluate(el => { const body = el.querySelector(".ai-config-dialog-body")!; const rect = el.getBoundingClientRect(); return {top:rect.top,height:rect.height,scroll:body.scrollTop,content:body.scrollHeight}; });
   for (const width of [375,768,1024,1440]) {
     await page.setViewportSize({width,height:900});
