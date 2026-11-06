@@ -396,7 +396,7 @@ test("password backup is optional validates confirmation and resets to no passwo
   expect(created.map(c => c.protected)).toEqual([true, false]);
 });
 
-test("restore waits for a valid impact plan and can retry safely", async ({ page }) => {
+test("restore remains available when the impact plan fails", async ({ page }) => {
   await openSettings(page);
   await page.evaluate(()=>{(window as unknown as {__planFails:boolean}).__planFails=true;});
   await page.getByRole("button", {name:"管理加密备份",exact:true}).click();
@@ -404,12 +404,11 @@ test("restore waits for a valid impact plan and can retry safely", async ({ page
   const review=page.getByRole("alertdialog",{name:"确认恢复业务数据",exact:true});
   await expect(review.getByRole("alert")).toContainText("无法计算恢复影响");
   await expect(review).not.toContainText("fixture-private-diagnostic");
-  await expect(review.getByRole("button",{name:"备份本机并导入"})).toBeDisabled();
-  expect((await calls(page)).some(c=>c.command==="confirm_database_import")).toBe(false);
-  await page.evaluate(()=>{(window as unknown as {__planFails:boolean}).__planFails=false;});
-  await review.getByRole("button",{name:"重新预览",exact:true}).click();
-  await expect(review.getByRole("region",{name:"恢复影响"})).toContainText("新增 1");
-  await expect(review.getByRole("button",{name:"备份本机并导入"})).toBeEnabled();
+  const restore=review.getByRole("button",{name:"备份本机并导入"});
+  await expect(restore).toBeEnabled();
+  await restore.click();
+  await expect.poll(async()=> (await calls(page)).some(c=>c.command==="confirm_database_import")).toBe(true);
+  await expect(review).toHaveCount(0);
 });
 
 test("failed backup unlock permits retry without exposing raw errors", async ({ page }) => {

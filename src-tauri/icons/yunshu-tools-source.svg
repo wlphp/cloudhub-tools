@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f8faff"/>
+      <stop offset="1" stop-color="#eef3f8"/>
+    </linearGradient>
+    <linearGradient id="cloud" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#2588f5"/>
+      <stop offset="0.32" stop-color="#19bddd"/>
+      <stop offset="0.52" stop-color="#54c3c1"/>
+      <stop offset="0.72" stop-color="#f6b338"/>
+      <stop offset="1" stop-color="#ff8734"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="72" y="72" width="880" height="880" rx="164" fill="url(#tile)"/>
+  <circle cx="512" cy="512" r="300" fill="#fff" opacity="0.72"/>
+
+  <!-- One continuous, bilaterally symmetric cloud outline. -->
+  <path d="M 704 712
+           H 320
+           C 255 712 205 662 205 597
+           C 205 532 255 482 320 482
+           C 342 377 415 312 512 312
+           C 609 312 682 377 704 482
+           C 769 482 819 532 819 597
+           C 819 662 769 712 704 712
+           Z"
+        fill="none" stroke="url(#cloud)" stroke-width="62"
+        stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

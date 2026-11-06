@@ -189,9 +189,9 @@ export function PetWindow() {
         <button onClick={() => { setNotice(null); setPanel("chat"); }}><MessageCircle size={16} />和宠物聊天</button>
         <button onClick={() => setPanel("status")}><Bell size={16} />查看提醒（{pending.length}）</button>
         <button onClick={() => void work(() => client.move(0,0,true,true))}><Move size={16} />回到屏幕下沿</button>
-        <button onClick={() => void work(() => client.open("resources"))}><Home size={16} />打开 CloudHub</button>
+        <button onClick={() => void work(() => client.open("resources"))}><Home size={16} />打开云枢</button>
         <button onClick={() => void work(() => client.open("settings"))}><Settings size={16} />桌宠设置</button>
-        <button onClick={() => void work(client.hide)}><EyeOff size={16} />隐藏桌宠（预警继续）</button>
+        <button title="隐藏桌宠后，运维预警仍会继续运行" onClick={() => void work(client.hide)}><EyeOff size={16} />隐藏桌宠</button>
         <span className="pet-menu-section">电脑快捷操作</span>
         <button disabled={computerBusy} onClick={() => void computerAction("taskManager")}><MonitorCog size={16} />任务管理器</button>
         <button disabled={computerBusy} onClick={() => void computerAction("explorer")}><FolderOpen size={16} />文件资源管理器</button>
@@ -213,7 +213,6 @@ export function PetWindow() {
         onClick={e => { if (e.detail === 0) setPanel("status"); }}>
         <span className={`pet-sprite pet-pose-${pose}`} style={{ ...petSpriteStyle(settings.appearance, column, row), transform: `scaleX(${direction})` }} />
       </button>
-      <button className="pet-mouth" aria-label="双击嘴巴，和宠物聊天" title="双击嘴巴，和宠物聊聊天" style={{ left: settings.appearance === "fish" ? direction < 0 ? "17%" : "57%" : settings.appearance !== "alpaca" ? "40%" : direction < 0 ? "44%" : "30%", top: settings.appearance === "fish" ? "62%" : settings.appearance === "penguin" ? "38%" : settings.appearance === "dog" ? "42%" : "28%" }} onDoubleClick={() => { setNotice(null); setPanel("chat"); setPose("happy"); }} onClick={e => { if (e.detail === 0) { setNotice(null); setPanel("chat"); setPose("happy"); } }} />
       {pose === "spray" && !reduced && <div className={`pet-water ${direction < 0 ? "to-left" : ""}`} aria-hidden="true">{Array.from({ length: 7 },(_,i) => <i key={i} style={{ "--drop": i } as React.CSSProperties} />)}</div>}
       {pending.length > 0 && <button className="pet-alert-badge" aria-label={`${pending.length}项待处理提醒`} onClick={() => setPanel("status")}>{pending.length}</button>}
     </div>

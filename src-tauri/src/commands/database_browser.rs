@@ -50,10 +50,14 @@ fn dispatch(state: &DatabaseImportStore, request: Request) -> Result<Value, Stri
             create_recovery_backup()?;
             // The private helper has no running GUI/runtime processes. Node drains
             // API requests and closes its SQLite connection before this call.
-            let plan=prepared.plan.as_ref().ok_or("请先预览恢复影响")?;
             let _=request.force_restore;
-            let result=restore_selection_bound(&prepared.database_path, &prepared.key, request.tables, request.mode.as_deref().unwrap_or("merge"),plan.include_trash,Some(&plan.revision))?;
-            serde_json::to_value(format!("{result}；{}",plan.summary)).map_err(|_| "生成恢复结果失败".into())
+            // The impact preview is advisory here as well: a failed preview must
+            // not block the restore, and the restore reports its own errors.
+            let include_trash=prepared.plan.as_ref().map(|plan|plan.include_trash).unwrap_or(request.include_trash);
+            let revision=prepared.plan.as_ref().map(|plan|plan.revision.as_str());
+            let result=restore_selection_bound(&prepared.database_path, &prepared.key, request.tables, request.mode.as_deref().unwrap_or("merge"),include_trash,revision)?;
+            let summary=prepared.plan.as_ref().map(|plan|plan.summary.as_str()).unwrap_or_default();
+            serde_json::to_value(if summary.is_empty() { result } else { format!("{result}；{summary}") }).map_err(|_| "生成恢复结果失败".into())
         }
         "cancel" => {
             state.sessions.lock().map_err(|_| "恢复状态不可用")?.remove(&request.token);
@@ -77,8 +81,33 @@ pub(crate) fn run() {
         // Never expose SQLite/IO details, data values or package parser errors.
         let response = match result {
             Ok(value) => json!({"result": value}),
-            Err(error) => json!({"error": if error.contains("密码") { "备份密码错误或缺失，请填写正确密码后重新下载" } else { "备份恢复操作失败，请检查备份格式、恢复范围或重新下载备份" }}),
+            Err(error) => {
+                let (message, safe) = safe_restore_error(&error);
+                json!({"error": message, "safe": safe})
+            },
         };
         if writeln!(stdout, "{response}").and_then(|_| stdout.flush()).is_err() { break; }
     }
+}
+
+fn safe_restore_error(error: &str) -> (&'static str, bool) {
+    const SAFE_ERRORS: &[&str] = &[
+        "恢复预览已失效", "恢复范围或方式已变化，请重新预览", "本地数据已变化，请重新预览恢复影响",
+        "所选模块不在备份范围中", "旧备份不支持验证器恢复，请取消选择验证器",
+        "备份来自更新版本，请升级客户端", "备份来自更新版本，请升级客户端后恢复",
+        "恢复方式无效", "请选择恢复范围", "请选择恢复范围和方式",
+        "所选模块被未选择的模块引用；请同时选择关联模块，或使用合并恢复",
+        "所选记录仍被 RDP 连接引用，请同时选择关联模块或使用追加恢复",
+        "所选记录仍被资产自定义信息引用，请同时选择关联模块或使用追加恢复",
+        "SQL 缺少关联的父记录，请同时导出云账号、主机或 FRP 服务端",
+        "迁移包包含重复验证码种子", "同一验证码标识的种子已变化，已取消导入",
+        "数据库正在使用，请重试", "恢复未提交，原有数据保持不变",
+        "SQL 格式、数据或版本无效；仅支持 CloudHub 导出的 SQL，当前数据未修改",
+        "备份密码错误或缺失，请填写正确密码后重新下载", "验证码格式无效", "验证码标识无效",
+        "验证器本机密钥文件缺失，需从独立备份恢复", "无法读取验证器本机密钥",
+        "云盘凭据转换失败", "云盘连接格式无效", "资产自定义信息格式无效",
+    ];
+    if let Some(message) = SAFE_ERRORS.iter().copied().find(|message| *message == error) { return (message, true); }
+    if error.contains("密码") { return ("备份密码错误或缺失，请填写正确密码后重新下载", true); }
+    ("备份恢复操作失败，请检查备份格式、恢复范围或重新下载备份", false)
 }

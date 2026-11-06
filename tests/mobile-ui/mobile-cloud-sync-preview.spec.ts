@@ -129,7 +129,7 @@ test("mobile cloud restore aligns scopes, defaults to append and requires explic
   await review.getByLabel("恢复方式", { exact: true }).selectOption("merge");
   await review.getByRole("button", { name: "备份本机并导入", exact: true }).click();
   await expect(review).toHaveCount(0);
-  expect(restored).toEqual({ token: "fixture-preview", tables: ["memo_notes"], mode: "merge", forceRestore: true });
+  expect(restored).toEqual({ token: "fixture-preview", tables: ["memo_notes"], mode: "merge", forceRestore: true, includeTrash: false });
   await expect(page.getByRole("region", { name: "数据迁移" })).toContainText("恢复完成：新增 2 条");
   await cloud.getByRole("button", { name: "下载备份", exact: true }).click();
   await page.getByRole("dialog", { name: "选择云端备份版本" }).getByRole("button", { name: /^下载 / }).click();
@@ -144,7 +144,7 @@ test("mobile cloud restore aligns scopes, defaults to append and requires explic
   await review.getByRole("checkbox", { name: "我确认替换所选模块并删除本地独有记录", exact: true }).check();
   await confirmRestore.click();
   await expect(review).toHaveCount(0);
-  expect(restored).toEqual({ token: "fixture-preview", tables: ["memo_notes", "flow_connections"], mode: "replace", forceRestore: true });
+  expect(restored).toEqual({ token: "fixture-preview", tables: ["memo_notes", "flow_connections"], mode: "replace", forceRestore: true, includeTrash: true });
   await page.route("**/api/cloud-sync/versions?*", route => route.fulfill({ json: [{ id: "backup-11111111-1111-4111-8111-111111111111.chdb", machineName: "测试电脑", uploadedAt: "2026-10-29T12:00:00Z", passwordProtected: true }] }));
   await page.route("**/api/database-import/preview?*", async route => {
     if (decodeURIComponent(route.request().headers()["x-backup-password"] ?? "") !== "non-sensitive-restore-fixture") return route.fulfill({ status: 400, json: { error: "备份密码错误或文件已损坏" } });

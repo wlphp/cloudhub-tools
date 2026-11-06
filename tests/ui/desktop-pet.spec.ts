@@ -8,7 +8,12 @@ const defaultPetLife = { enabled: false, province: "", city: "", weather: false,
 async function openPetSettings(page: Page) {
   await page.getByRole("button", { name: "系统设置", exact: true }).click();
   await page.getByRole("tab", { name: "宠物管理" }).click();
-  await expect(page.getByRole("region", { name: "桌宠与运维预警" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "桌面陪伴与生活陪伴设置" })).toBeVisible();
+}
+
+async function openPetChat(page: Page) {
+  await page.getByRole("button", { name: /^宠物：/ }).click({ button: "right" });
+  await page.getByRole("dialog", { name: "宠物快捷菜单" }).getByRole("button", { name: "和宠物聊天", exact: true }).click();
 }
 
 async function lifeNotice(page: Page, kind = "water", level = 0) {
@@ -96,7 +101,7 @@ test("reduced motion preserves water bubble and snooze without roaming", async (
 
 test("life weather waits for chat and ops messages and opens a native official detail action", async ({ page }) => {
   await fixture(page); await page.goto("/?desktopPet=1");
-  await page.getByRole("button", { name: "双击嘴巴，和宠物聊天", exact: true }).dblclick();
+  await openPetChat(page);
   await lifeNotice(page, "weather", 3);
   const bubble = page.getByRole("status", { name: "宠物生活提醒" });
   await expect(bubble).not.toBeVisible();
@@ -114,7 +119,7 @@ test("life weather waits for chat and ops messages and opens a native official d
 
 async function fixture(page: Page, enabled = true) {
   await page.addInitScript(({ enabled, life }) => {
-    let settings = { enabled, life, appearance: "alpaca", monitoring: false, panels: false, panelAccess: true, certificates: true, servers: true, size: 160, roam: "still", activity: 0, sound: false, reducedMotion: false, quiet: false, intervalSeconds: 300, expiryDays: 30, cpuThreshold: 90, diskThreshold: 90, keepInTray: false };
+    let settings = { enabled, life, appearance: "alpaca", monitoring: false, panels: false, panelAccess: true, certificates: true, servers: true, excludedAssetAlerts: [] as string[], size: 160, roam: "still", activity: 0, sound: false, reducedMotion: false, quiet: false, intervalSeconds: 300, expiryDays: 30, cpuThreshold: 90, diskThreshold: 90, keepInTray: false };
     let lifeState = { notices: [] as any[], weatherCheckedAt: 0, weatherAttemptAt: 0, weatherError: null as string | null, region: "", calendarYear: 2026, calendarSupported: true };
     let id = 0;
     const callbacks: Record<number, (v: unknown) => void> = {};
@@ -152,6 +157,11 @@ async function fixture(page: Page, enabled = true) {
         if (command === "list_panel_connections") return [{id:7,name:"测试面板",panel_url:"https://example.test:8888",status:"unknown",summary:{},sort_order:0,api_key_saved:false,allow_insecure_tls:false,last_checked_at:null,last_error:null}];
         if (command === "pet_notice") return { key: "cert:1", title: "证书即将到期", detail: "剩余 7 天", section: "certificates", active: true, severity: "critical" };
         if (command === "pet_snapshot") return petSnapshot;
+        if (command === "list_local_assets") return [
+          { account_id: 1, resource_type: "ecs", asset_key: "i-test", payload: { InstanceName: "测试服务器" }, fetched_at: 100 },
+          { account_id: 1, resource_type: "oss", asset_key: "bucket-test", payload: { BucketName: "测试存储桶" }, fetched_at: 100 },
+          { account_id: 1, resource_type: "domain", asset_key: "example-test", payload: { DomainName: "example-test.com", ExpirationDate: "2099-01-01T00:00:00Z" }, fetched_at: 100 },
+        ];
         if (command === "pet_ignore") {
           if ((window as any).failPetIgnore) throw "忽略保存失败";
           petSnapshot = { ...petSnapshot, alerts: petSnapshot.alerts.map(a => args.keys.includes(a.key) ? { ...a, ignored: args.ignored } : a) };
@@ -280,6 +290,7 @@ test("pet has transparent canvas, explicit menu close and water interaction", as
   await avatar.click({ button: "right" });
   const menu = page.getByRole("dialog", { name: "宠物快捷菜单" });
   await expect(menu).toBeVisible();
+  await expect(menu.getByRole("button", { name: "隐藏桌宠", exact: true })).toHaveAttribute("title", "隐藏桌宠后，运维预警仍会继续运行");
   await expect(menu.locator(".pet-menu button")).toHaveCount(13);
   expect(await menu.evaluate(el => el.scrollHeight <= el.clientHeight)).toBe(true);
   await page.screenshot({ path: "test-results/alpaca-quick-menu.png", animations: "disabled", omitBackground: true });
@@ -352,7 +363,7 @@ test("alert speech bubble is clickable, dismissible and waits until chat closes"
   await page.mouse.click(350, 10); await expect(bubble).toBeVisible();
   await page.getByRole("button", { name: "关闭消息气泡", exact: true }).click();
   await expect(bubble).toHaveCount(0);
-  await page.getByRole("button", { name: "双击嘴巴，和宠物聊天" }).dblclick();
+  await openPetChat(page);
   await notify();
   const chat = page.getByRole("dialog", { name: "和宠物聊天", exact: true });
   await expect(chat).toBeVisible(); await expect(bubble).toHaveCount(0);
@@ -367,12 +378,11 @@ test("alert speech bubble is clickable, dismissible and waits until chat closes"
   await notify(); await expect(bubble).toHaveCount(0);
 });
 
-test("mouth requires double click, sends bounded conversation and supports stop and close", async ({ page }) => {
+test("pet chat opens from the menu, sends bounded conversation and supports stop and close", async ({ page }) => {
   await page.setViewportSize({ width: 520, height: 720 });
   await fixture(page); await page.goto("/?desktopPet=1");
-  await page.getByRole("button", { name: "双击嘴巴，和宠物聊天" }).click();
-  await expect(page.getByRole("dialog", { name: "和宠物聊天", exact: true })).toHaveCount(0);
-  await page.getByRole("button", { name: "双击嘴巴，和宠物聊天" }).dblclick();
+  await expect(page.locator(".pet-mouth")).toHaveCount(0);
+  await openPetChat(page);
   const chat = page.getByRole("dialog", { name: "和宠物聊天", exact: true });
   await expect(chat).toBeVisible();
   const input = chat.getByLabel("和宠物说句话");
@@ -395,7 +405,7 @@ test("mouth requires double click, sends bounded conversation and supports stop 
 test("pet chat without a configured service offers settings instead of a fake reply", async ({ page }) => {
   await fixture(page); await page.goto("/?desktopPet=1");
   await page.evaluate(() => { (window as any).noPetChatService = true; });
-  await page.getByRole("button", { name: "双击嘴巴，和宠物聊天" }).dblclick();
+  await openPetChat(page);
   await expect(page.getByLabel("和宠物说句话")).toBeDisabled();
   await page.getByRole("button", { name: "去设置 AI 服务" }).click();
   expect(await page.evaluate(() => (window as any).petCalls.find((c: any) => c.command === "pet_open").args.section)).toBe("settings");
@@ -406,7 +416,7 @@ test("pet chat without a configured service offers settings instead of a fake re
 test("pet chat images require preparation and send only the reviewed current image", async ({ page }) => {
   await page.setViewportSize({ width: 520, height: 720 });
   await fixture(page); await page.goto("/?desktopPet=1");
-  await page.getByRole("button", { name: "双击嘴巴，和宠物聊天" }).dblclick();
+  await openPetChat(page);
   const chat = page.getByRole("dialog", { name: "和宠物聊天", exact: true });
   await expect(chat.getByRole("button", { name: "图片", exact: true })).toBeEnabled();
   await page.screenshot({ path: "test-results/alpaca-chat-refined.png", animations: "disabled", omitBackground: true });
@@ -447,7 +457,7 @@ test("pet chat images require preparation and send only the reviewed current ima
 test("pet chat accepts paste and native image drop, and preserves send blocking for invalid files", async ({ page }) => {
   await page.setViewportSize({ width: 520, height: 720 });
   await fixture(page); await page.goto("/?desktopPet=1");
-  await page.getByRole("button", { name: "双击嘴巴，和宠物聊天" }).dblclick();
+  await openPetChat(page);
   const chat = page.getByRole("dialog", { name: "和宠物聊天", exact: true });
   const input = chat.getByLabel("和宠物说句话");
   await expect(input).toBeEnabled();
@@ -473,7 +483,7 @@ test("pet chat accepts paste and native image drop, and preserves send blocking 
 test("pet chat disables image attachment until the service has verified vision support", async ({ page }) => {
   await fixture(page); await page.goto("/?desktopPet=1");
   await page.evaluate(() => { (window as any).noPetVision = true; });
-  await page.getByRole("button", { name: "双击嘴巴，和宠物聊天" }).dblclick();
+  await openPetChat(page);
   await expect(page.getByRole("button", { name: "图片", exact: true })).toBeDisabled();
   await expect(page.getByLabel("和宠物说句话")).toBeEnabled();
   await expect(page.getByRole("button", { name: "启用识图", exact: true })).toBeVisible();
@@ -584,43 +594,43 @@ test("alert status defaults to unresolved and recovered alerts remain available 
   await expect(recovered).toHaveAttribute("aria-pressed", "true");
   await expect(panel.locator("article")).toHaveCount(1);
   await expect(panel.locator("article")).toContainText("CPU 已恢复");
-  await expect(panel.getByRole("button", { name: "全部忽略", exact: true })).toHaveCount(0);
+  await expect(panel.getByRole("button", { name: "全部静音", exact: true })).toHaveCount(0);
   await page.screenshot({ path: "test-results/alpaca-recovered-filter.png", animations: "disabled", omitBackground: true });
   await active.click(); await expect(panel.locator("article")).toHaveCount(0);
 });
 
-test("ignore one and all update the status list and pet badge without deleting history", async ({ page }) => {
+test("mute one and all update the status list and pet badge without deleting history", async ({ page }) => {
   await fixture(page); await page.goto("/?desktopPet=1");
   await page.getByRole("button", { name: /^宠物：/ }).click();
   await page.evaluate(() => (window as any).petEvent("pet-alerts-changed", { checkedAt: 100, lastError: null, alerts: [1, 2].map(i => ({ key: `cert:${i}`, title: `测试提醒 ${i}`, detail: "即将到期", section: "certificates", severity: "warning", active: true, ignored: false, updatedAt: 100, snoozedUntil: 0 })) }));
   const panel = page.getByRole("dialog", { name: "宠物运维状态" });
   await expect(page.getByRole("button", { name: "2项待处理提醒", exact: true })).toBeVisible();
   await page.evaluate(() => { (window as any).failPetIgnore = true; });
-  await panel.locator("article").first().getByRole("button", { name: "忽略", exact: true }).click();
+  await panel.locator("article").first().getByRole("button", { name: "静音提醒", exact: true }).click();
   await expect(page.locator(".pet-inline-error")).toBeVisible();
   await expect(panel.locator("article")).toHaveCount(2);
   await page.evaluate(() => { (window as any).failPetIgnore = false; });
-  await panel.locator("article").first().getByRole("button", { name: "忽略", exact: true }).click();
+  await panel.locator("article").first().getByRole("button", { name: "静音提醒", exact: true }).click();
   await expect(panel.locator("article")).toHaveCount(1);
   await expect(page.getByRole("button", { name: "1项待处理提醒", exact: true })).toBeVisible();
-  await panel.getByRole("button", { name: "全部忽略", exact: true }).click();
+  await panel.getByRole("button", { name: "全部静音", exact: true }).click();
   await expect(panel.locator("article")).toHaveCount(0);
   await expect(page.locator(".pet-alert-badge")).toHaveCount(0);
   expect(await page.evaluate(() => (window as any).petCalls.filter((c: any) => c.command === "pet_ignore").at(-1).args)).toEqual({ keys: ["cert:2"], ignored: true });
   expect(await page.evaluate(async () => (await (window as any).__TAURI_INTERNALS__.invoke("pet_snapshot", {})).alerts.length)).toBe(2);
 });
 
-test("ignored alerts can be restored from settings history", async ({ page }) => {
+test("muted alerts can be restored from settings history", async ({ page }) => {
   await fixture(page); await page.goto("/");
   await openPetSettings(page);
   await expect(page.getByLabel("启用桌宠")).toBeVisible();
   await page.evaluate(() => (window as any).petEvent("pet-alerts-changed", { checkedAt: 100, lastError: null, alerts: [{ key: "cert:1", title: "被忽略的提醒", detail: "即将到期", section: "certificates", severity: "warning", active: true, ignored: true, updatedAt: 100, snoozedUntil: 0 }] }));
   await page.getByRole("button", { name: /提醒记录（/ }).click();
   const history = page.getByRole("dialog", { name: "运维提醒记录" });
-  await expect(history.getByText("已忽略", { exact: true })).toBeVisible();
-  await history.getByRole("button", { name: "恢复提醒", exact: true }).click();
-  await expect(history.getByText("已忽略", { exact: true })).toHaveCount(0);
-  await expect(history.getByRole("button", { name: "忽略", exact: true })).toBeVisible();
+  await expect(history.getByText("已静音", { exact: true })).toBeVisible();
+  await history.getByRole("button", { name: "取消静音", exact: true }).click();
+  await expect(history.getByText("已静音", { exact: true })).toHaveCount(0);
+  await expect(history.getByRole("button", { name: "静音提醒", exact: true })).toBeVisible();
   await expect(history).toHaveClass(/dialog-common-theme/);
   await history.getByRole("button", { name: "最大化弹层" }).click();
   await expect(history).toHaveClass(/dialog-size-expanded/);
@@ -684,7 +694,7 @@ for (const theme of ["dark", "light"] as const) for (const kind of ["status", "m
   await page.addInitScript(theme => localStorage.setItem("cloudhub-tools-ui-theme", theme), theme);
   await page.goto("/?desktopPet=1");
   const avatar = page.getByRole("button", { name: /^宠物：/ });
-  if (kind === "chat") await page.getByRole("button", { name: "双击嘴巴，和宠物聊天" }).dblclick();
+  if (kind === "chat") await openPetChat(page);
   else await avatar.click(kind === "menu" ? { button: "right" } : {});
   const panel = page.getByRole("dialog");
   await expect(panel).toHaveClass(/modal-form-layout/);
@@ -851,7 +861,7 @@ for (const appearance of ["dog", "penguin", "fish"] as const) test(`${appearance
   await expect.poll(() => page.locator(".pet-sprite").evaluate(el => getComputedStyle(el).backgroundImage)).toContain(`${appearance}-sprites`);
   await expect.poll(() => page.evaluate(() => (window as any).petCalls.filter((c: any) => c.command === "pet_sprite").at(-1).args.appearance)).toBe(appearance);
   await page.screenshot({ path: `test-results/${appearance}-desktop-pet.png`, animations: "disabled" });
-  await page.getByRole("button", { name: "双击嘴巴，和宠物聊天", exact: true }).dblclick();
+  await openPetChat(page);
   await expect(page.getByRole("dialog", { name: "和宠物聊天", exact: true })).toBeVisible();
   expect(await page.locator(".pet-chat-welcome-avatar").evaluate(el => getComputedStyle(el).backgroundImage)).toContain(`${appearance}-sprites`);
   await page.screenshot({ path: `test-results/${appearance}-chat.png`, animations: "disabled" });
@@ -894,27 +904,21 @@ for (const appearance of ["dog", "penguin", "fish"] as const) test(`${appearance
   await page.screenshot({ path: `test-results/${appearance === "dog" ? "corgi" : appearance}-all-frames.png`, animations: "disabled" });
 });
 
-test("settings keep monitoring independent and do not accept a failed enable", async ({ page }) => {
+test("companion settings page keeps only pet and life controls", async ({ page }) => {
   await fixture(page, false); await page.goto("/");
   await openPetSettings(page);
   const petSection = page.locator(".pet-settings-section");
   await expect(petSection.getByRole("checkbox", { name: "启用桌宠" })).toBeVisible();
   await expect(petSection.getByText("桌宠 已关闭")).toBeVisible();
-  await expect(petSection.getByText("运维预警 已关闭")).toBeVisible();
+  await expect(petSection.getByText("运维预警 已关闭")).toHaveCount(0);
   await page.screenshot({ path: "test-results/alpaca-settings-embedded.png" });
   const pet=page.getByRole("checkbox",{name:/启用桌宠/});
-  const monitoring=page.getByRole("checkbox",{name:/启用运维预警/});
-  await expect(pet).not.toBeChecked(); await expect(monitoring).not.toBeChecked();
+  await expect(pet).not.toBeChecked();
   await expect(page.locator(".pet-settings-disclosure[open]")).toHaveCount(0);
-  await expect(page.locator(".pet-control-card")).toHaveCount(3);
-  await monitoring.check(); await expect(monitoring).toBeChecked(); await expect(pet).not.toBeChecked();
-  await expect(petSection.getByText("运维预警 已启用")).toBeVisible();
+  await expect(page.locator(".pet-control-card")).toHaveCount(2);
+  await expect(petSection.getByRole("checkbox", { name: /启用运维预警/ })).toHaveCount(0);
   await page.evaluate(() => { (window as any).failPetSave=true; });
   await pet.click(); await expect(page.locator(".pet-settings-section [role=alert]")).toBeVisible(); await expect(pet).not.toBeChecked();
-  await page.getByRole("button",{name:/提醒记录（/}).click();
-  await expect(page.getByRole("dialog",{name:"运维提醒记录"})).toBeVisible();
-  await page.mouse.click(5,5); await expect(page.getByRole("dialog",{name:"运维提醒记录"})).toBeVisible();
-  await page.keyboard.press("Escape"); await expect(page.getByRole("dialog",{name:"运维提醒记录"})).toHaveCount(0);
 });
 
 test("expanded pet settings stay compact and fit desktop and narrow widths", async ({ page }) => {
@@ -922,7 +926,6 @@ test("expanded pet settings stay compact and fit desktop and narrow widths", asy
   await openPetSettings(page);
   const section = page.locator(".pet-settings-section");
   await section.locator("summary").first().click();
-  await section.locator("summary").filter({ hasText: "检查范围与提醒规则" }).click();
   await expect(section.getByLabel("活动范围")).toBeVisible();
   for (const width of [1440, 1024, 768, 375]) {
     await page.setViewportSize({ width, height: 1100 });
@@ -969,4 +972,54 @@ test("main window routes a panel alert to the matching panel filter", async ({pa
   await expect(page.getByRole("checkbox",{name:/启用桌宠/})).toBeVisible();
   await page.evaluate(()=> (window as any).petEvent("pet-open-section",{section:"panels",key:"panel:7:service:web"}));
   await expect(page.getByRole("textbox",{name:"搜索面板",exact:true})).toHaveValue("测试面板");
+});
+
+test("monitor alerts summarizes products and manages supported per-asset strategy in a shared dialog", async ({ page }) => {
+  await fixture(page); await page.goto("/");
+  await page.evaluate(async () => {
+    const bridge = (window as any).__TAURI_INTERNALS__;
+    const settings = await bridge.invoke("pet_settings", {});
+    await bridge.invoke("pet_save_settings", { settings: { ...settings, monitoring: true, servers: true } });
+    const now = Math.floor(Date.now() / 1000);
+    (window as any).petEvent("pet-alerts-changed", { checkedAt: now, lastError: null, alerts: [{ key: "asset:1:ecs:i-test", title: "测试服务器即将到期", detail: "剩余 10 天", section: "resources", severity: "warning", active: true, ignored: false, firstSeen: now, updatedAt: now, snoozedUntil: 0, notifiedAt: now, occurrences: 3 }] });
+  });
+  await page.getByRole("button", { name: "监控预警", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "被预警产品" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "查看资源预警，3条" })).toContainText("3 次");
+  await page.getByRole("button", { name: "立即巡检" }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).petCalls.some((call: any) => call.command === "pet_check"))).toBe(true);
+  await page.getByRole("button", { name: "预警策略" }).click();
+  const dialog = page.getByRole("dialog", { name: "预警策略" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByLabel("按资产类型筛选")).toBeVisible();
+  await expect(dialog.getByRole("checkbox", { name: "全选当前筛选资产参与监控" })).toBeVisible();
+  await expect(dialog.getByRole("checkbox", { name: "启用运维预警" })).toBeChecked();
+  await expect(dialog.getByRole("checkbox", { name: "HTTPS 证书到期" })).toBeChecked();
+  await expect(dialog.getByLabel("策略巡检间隔")).toHaveValue("300");
+  await expect(dialog.getByLabel("策略到期提醒")).toHaveValue("30");
+  await expect(dialog.getByLabel("策略CPU告警阈值")).toHaveValue("90");
+  await expect(dialog.getByText("测试服务器", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("测试存储桶", { exact: true })).toBeVisible();
+  await expect(dialog.getByText(/域名到期提醒/)).toBeVisible();
+  const domainToggle = dialog.getByRole("checkbox", { name: "example-test.com参与域名到期监控" });
+  await expect(domainToggle).toBeChecked();
+  await domainToggle.uncheck();
+  await expect(domainToggle).not.toBeChecked();
+  await expect.poll(() => page.evaluate(() => (window as any).petCalls.filter((call: any) => call.command === "pet_save_settings").at(-1)?.args.settings.excludedAssetAlerts)).toEqual(["asset:1:domain:example-test"]);
+  await dialog.getByLabel("按资产类型筛选").selectOption("domain");
+  const selectAllAssets = dialog.getByRole("checkbox", { name: "全选当前筛选资产参与监控" });
+  await selectAllAssets.check();
+  await expect.poll(() => page.evaluate(() => (window as any).petCalls.filter((call: any) => call.command === "pet_save_settings").at(-1)?.args.settings.excludedAssetAlerts)).toEqual([]);
+  await dialog.getByLabel("按资产类型筛选").selectOption("all");
+  await expect(dialog.getByText("当前版本暂无此类资产的预警规则")).toBeVisible();
+  const serverToggle = dialog.getByRole("checkbox", { name: "测试服务器参与服务器到期监控" });
+  await expect(serverToggle).toBeChecked();
+  await serverToggle.uncheck();
+  await expect(serverToggle).not.toBeChecked();
+  for (const width of [1440, 1024, 768, 375]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  }
+  await page.keyboard.press("Escape");
+  await expect(dialog).not.toBeVisible();
 });

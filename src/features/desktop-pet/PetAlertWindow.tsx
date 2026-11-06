@@ -61,7 +61,7 @@ export function PetAlertWindow() {
         <button className="primary" onClick={() => void work(() => client.open(alert.section, alert.key))}>查看详情</button>
         {alert.active && <>
           <button onClick={() => void work(async () => { await client.snooze(alert.key); await client.dismiss(); })}><Clock3 size={13} aria-hidden="true" />一小时后提醒</button>
-          <button className="pet-notice-ignore" onClick={() => void work(async () => { await client.ignore([alert.key]); await client.dismiss(); })}>忽略</button>
+          <button className="pet-notice-ignore" onClick={() => void work(async () => { await client.ignore([alert.key]); await client.dismiss(); })}>静音此预警</button>
         </>}
       </>}
     </footer>}

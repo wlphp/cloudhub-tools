@@ -23,8 +23,8 @@ test("recent runs sort across provider pages and retain search and group navigat
   });
   await page.goto("/");
   await page.getByRole("button", { name: "云效流水线", exact: true }).first().click();
-  await expect(page.locator(".flow-toolbar-actions select")).toHaveValue("all");
-  await page.locator(".flow-toolbar-actions select").selectOption("1");
+  await expect(page.locator(".flow-toolbar-actions select")).toHaveValue("1");
+  await expect(page.getByRole("tab", { name: "测试项目", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "添加连接", exact: true }).click();
   const connectionDialog = page.locator(".flow-dialog");
   await expect(connectionDialog).toHaveClass(/dialog-common-theme/);
@@ -117,6 +117,14 @@ test("all connections aggregates pipelines and keeps each pipeline's source conn
   await expect(rows.nth(1).locator(".flow-source-label")).toHaveText("测试组织");
   await expect(rows.nth(0).locator("td").nth(2)).toContainText("#run-1");
   await expect(rows.nth(1).locator("td").nth(2)).toContainText("#run-2");
+  const columns = await page.locator(".flow-pipeline-table thead th").evaluateAll(headers => headers.map(header => {
+    const rect = header.getBoundingClientRect();
+    return { left: rect.left, right: rect.right, width: rect.width };
+  }));
+  expect(columns).toHaveLength(7);
+  expect(columns.every(column => column.width > 0)).toBe(true);
+  expect(columns[5].right).toBeLessThanOrEqual(columns[6].left + 1);
+  expect(columns[6].right).toBeLessThanOrEqual(await page.locator(".flow-table-scroll").evaluate(element => element.getBoundingClientRect().right) + 1);
 });
 
 test("local recent runs persist successful triggers per connection and explain both sources", async ({ page }) => {

@@ -39,7 +39,8 @@ export type PlatformErrorCode =
   | "wsl-dashboard"
   | "browser"
   | "notes"
-  | "panel-probe";
+  | "panel-probe"
+  | "database-restore";
 
 // 失败原因一律原样透传。这里只做两件事：把夹带的凭据形状片段脱敏，以及在原生层
 // 真的没给出文字时补一句可读提示。按 code 用通用文案覆盖原文没有意义——覆盖之后
@@ -48,6 +49,59 @@ const CREDENTIAL_SHAPE = /(private[_-]?key|secret[_-]?key|access[_-]?key|api[_-]
 const BEARER_CREDENTIAL = /(bearer\s+)[A-Za-z0-9._~+/=-]{8,}/gi;
 const OTP_URI = /otpauth:\/\/[^\s]+/gi;
 const MAX_ERROR_LENGTH = 500;
+
+// 备份恢复只展示下面这些人工写定的原因。原生层与浏览器预览层各自持有一份
+// 同样的清单（src-tauri/src/commands/database_browser.rs），任何未列出的
+// 报错都回落到通用提示，避免把 SQLite 诊断、路径或包解析细节带到界面上。
+const DATABASE_RESTORE_REASONS = [
+  "恢复预览已失效",
+  "恢复预览已失效，请重新选择文件",
+  "恢复范围或方式已变化，请重新预览",
+  "本地数据已变化，请重新预览恢复影响",
+  "所选模块不在备份范围中",
+  "旧备份不支持验证器恢复，请取消选择验证器",
+  "备份来自更新版本，请升级客户端",
+  "备份来自更新版本，请升级客户端后恢复",
+  "恢复方式无效",
+  "请选择恢复范围",
+  "请选择恢复范围和方式",
+  "所选模块被未选择的模块引用；请同时选择关联模块，或使用合并恢复",
+  "所选记录仍被 RDP 连接引用，请同时选择关联模块或使用追加恢复",
+  "所选记录仍被资产自定义信息引用，请同时选择关联模块或使用追加恢复",
+  "SQL 缺少关联的父记录，请同时导出云账号、主机或 FRP 服务端",
+  "迁移包包含重复验证码种子",
+  "同一验证码标识的种子已变化，已取消导入",
+  "数据库正在使用，请重试",
+  "恢复未提交，原有数据保持不变",
+  "迁移凭据转换失败",
+  "备份策略无效",
+  "备份范围无效",
+  "读取恢复副本失败",
+  "打开恢复副本失败",
+  "恢复状态不可用",
+  "恢复预览状态不可用",
+  "请先关闭已有恢复预览",
+  "SQL 格式、数据或版本无效；仅支持 CloudHub 导出的 SQL，当前数据未修改",
+  "备份密码错误或缺失，请填写正确密码后重新下载",
+  "本机密钥已改变，请重新导入 SQL",
+  "迁移包校验失败，文件可能已损坏或被篡改",
+  "不支持的迁移包版本",
+  "迁移包格式无效，请选择 .chdb 导出包或与 .key 同目录的 SQLite 文件",
+  "手机端仅支持 CloudHub .chdb 备份包",
+  "云备份格式无效，请上传 CloudHub .chdb 备份",
+  "验证器本机密钥文件缺失，需从独立备份恢复",
+  "无法读取验证器本机密钥",
+  "验证码格式无效",
+  "验证码标识无效",
+  "读取验证码失败",
+  "保存验证码失败",
+  "资产自定义信息格式无效",
+  "云盘凭据转换失败",
+  "云盘连接格式无效",
+  "读取一致性预览失败",
+  "备份超过 256 MB 限制",
+];
+const DATABASE_RESTORE_FALLBACK = "备份恢复操作失败，请检查备份格式、恢复范围或重新下载备份";
 
 // 仅在原生层返回空文案时才用；正常失败一律显示原文。
 const EMPTY_MESSAGE_FALLBACK: Partial<Record<PlatformErrorCode, string>> = {
@@ -70,6 +124,10 @@ function publicPlatformMessage(code: PlatformErrorCode, rawMessage: string): str
     safe.push("每个服务最多配置20个模型", "请使用已配置的模型ID", "请先将所选模型设为默认并完成图像测试", "AI配置不存在，请刷新设置");
     safe.push("此服务尚未保存密钥", "AI配置标识无效");
     return safe.includes(rawMessage) ? rawMessage : "AI操作失败，请检查配置或继续手动操作";
+  }
+  if (code === "database-restore") {
+    // 只放行人工写定的恢复原因，其余报错一律回落为通用提示。
+    return DATABASE_RESTORE_REASONS.includes(rawMessage) ? rawMessage : DATABASE_RESTORE_FALLBACK;
   }
   const text = String(rawMessage ?? "")
     .replace(OTP_URI, "[OTP 地址已隐藏]")
@@ -114,7 +172,7 @@ export function normalizePlatformError(reason: unknown): PlatformError {
   }
   if (typeof reason === "object" && reason !== null && "code" in reason && "message" in reason) {
     const structured = reason as { code?: PlatformErrorCode; message?: string; retryable?: boolean };
-    const code = structured.code && ["codex-config", "codex-launch", "codex-login", "codex-import", "claude-workbench", "oss-cname", "local-plugin", "ai", "unknown", "unsupported-in-preview", "validation", "authentication", "permission", "network", "not-found", "conflict", "frp-port-conflict", "codex-account-busy", "codex-gateway-port-conflict", "codex-model-catalog", "codex-provider", "codex-proxy", "cancelled", "certificate", "esa-query", "authenticator-error", "authenticator-locked", "hardware-info", "wsl-dashboard", "browser", "notes", "panel-probe"].includes(structured.code)
+    const code = structured.code && ["codex-config", "codex-launch", "codex-login", "codex-import", "claude-workbench", "oss-cname", "local-plugin", "ai", "unknown", "unsupported-in-preview", "validation", "authentication", "permission", "network", "not-found", "conflict", "frp-port-conflict", "codex-account-busy", "codex-gateway-port-conflict", "codex-model-catalog", "codex-provider", "codex-proxy", "cancelled", "certificate", "esa-query", "authenticator-error", "authenticator-locked", "hardware-info", "wsl-dashboard", "browser", "notes", "panel-probe", "database-restore"].includes(structured.code)
       ? structured.code : "unknown";
     return new PlatformError(String(structured.message), code, structured.retryable === true);
   }

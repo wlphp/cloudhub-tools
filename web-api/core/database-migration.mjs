@@ -38,13 +38,13 @@ export async function handleDatabaseMigrationRoutes(req, res, url, send, exclusi
         if (!Array.isArray(body.tables) || !body.tables.length || body.tables.length > 32 || body.tables.some(table => typeof table !== "string" || !/^[a-z_]+$/.test(table)) || !["replace", "merge", "overwrite"].includes(body.mode) || typeof body.includeTrash !== "boolean") throw new Error("恢复参数无效");
         send(res, 200, await callDatabaseRestore({ op: "plan", token: body.token, tables: body.tables, mode: body.mode, includeTrash: body.includeTrash }));
       } else {
-        if (!Array.isArray(body.tables) || !body.tables.length || body.tables.length > 32 || body.tables.some(table => typeof table !== "string" || !/^[a-z_]+$/.test(table)) || !["replace", "merge", "overwrite"].includes(body.mode) || typeof body.forceRestore !== "boolean") throw new Error("恢复范围或方式无效");
+        if (!Array.isArray(body.tables) || !body.tables.length || body.tables.length > 32 || body.tables.some(table => typeof table !== "string" || !/^[a-z_]+$/.test(table)) || !["replace", "merge", "overwrite"].includes(body.mode) || typeof body.forceRestore !== "boolean" || typeof body.includeTrash !== "boolean") throw new Error("恢复范围或方式无效");
         await exclusive?.enter?.();
         let message;
         try {
           consumeRestore(body.token);
           closeAuthenticatorBridge(); closeDatabase();
-          message = await callDatabaseRestore({ op: "confirm", token: body.token, tables: body.tables, mode: body.mode, forceRestore: body.forceRestore });
+          message = await callDatabaseRestore({ op: "confirm", token: body.token, tables: body.tables, mode: body.mode, forceRestore: body.forceRestore, includeTrash: body.includeTrash });
         } finally {
           await callDatabaseRestore({ op: "cancel", token: body.token }).catch(() => {});
           exclusive?.leave?.();
@@ -52,9 +52,13 @@ export async function handleDatabaseMigrationRoutes(req, res, url, send, exclusi
         send(res, 200, message);
       }
     }
-  } catch {
+  } catch (reason) {
     // Never expose source rows, paths, parser errors, or SQLite diagnostics.
-    send(res, 400, { error: action === "catalog" ? "读取数据范围失败，请更新本机调试程序后重试。" : "备份预览或恢复失败，请检查备份密码、文件格式与恢复范围；失败后请重新下载。" });
+    const safeRestoreReason = action === "confirm" && reason?.safe === true
+      && typeof reason.message === "string" && reason.message.length <= 120
+      ? reason.message
+      : null;
+    send(res, 400, { error: action === "catalog" ? "读取数据范围失败，请更新本机调试程序后重试。" : safeRestoreReason || "备份预览或恢复失败，请检查备份密码、文件格式与恢复范围；失败后请重新下载。" });
   }
   return true;
 }

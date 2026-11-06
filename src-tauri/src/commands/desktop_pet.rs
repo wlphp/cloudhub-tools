@@ -20,7 +20,9 @@ mod docking;
 mod computer;
 
 const CONFIG: &str = "desktop-pet-config-v1";
-const HISTORY: &str = "desktop-pet-alerts-v1";
+const MONITOR_CONFIG: &str = "monitor-alerts-config-v1";
+const HISTORY: &str = "monitor-alerts-history-v1";
+const LEGACY_HISTORY: &str = "desktop-pet-alerts-v1";
 const POSITION: &str = "desktop-pet-position-v1";
 const LABEL: &str = "desktop-pet";
 const NOTICE_LABEL: &str = "desktop-pet-alert";
@@ -35,6 +37,8 @@ pub struct Settings {
     pub panel_access: bool,
     pub certificates: bool,
     pub servers: bool,
+    #[serde(default)]
+    pub excluded_asset_alerts: Vec<String>,
     pub size: u32,
     pub roam: String,
     pub activity: u32,
@@ -48,6 +52,51 @@ pub struct Settings {
     pub keep_in_tray: bool,
     pub life: crate::core::pet_life::LifeSettings,
 }
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MonitorSettings {
+    pub monitoring: bool,
+    pub panels: bool,
+    pub panel_access: bool,
+    pub certificates: bool,
+    pub servers: bool,
+    pub excluded_asset_alerts: Vec<String>,
+    pub interval_seconds: u64,
+    pub expiry_days: i64,
+    pub cpu_threshold: f64,
+    pub disk_threshold: f64,
+}
+impl From<&Settings> for MonitorSettings {
+    fn from(settings: &Settings) -> Self {
+        Self {
+            monitoring: settings.monitoring,
+            panels: settings.panels,
+            panel_access: settings.panel_access,
+            certificates: settings.certificates,
+            servers: settings.servers,
+            excluded_asset_alerts: settings.excluded_asset_alerts.clone(),
+            interval_seconds: settings.interval_seconds,
+            expiry_days: settings.expiry_days,
+            cpu_threshold: settings.cpu_threshold,
+            disk_threshold: settings.disk_threshold,
+        }
+    }
+}
+impl MonitorSettings {
+    fn apply(self, settings: &mut Settings) {
+        settings.monitoring = self.monitoring;
+        settings.panels = self.panels;
+        settings.panel_access = self.panel_access;
+        settings.certificates = self.certificates;
+        settings.servers = self.servers;
+        settings.excluded_asset_alerts = self.excluded_asset_alerts;
+        settings.interval_seconds = self.interval_seconds;
+        settings.expiry_days = self.expiry_days;
+        settings.cpu_threshold = self.cpu_threshold;
+        settings.disk_threshold = self.disk_threshold;
+    }
+}
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -58,6 +107,7 @@ impl Default for Settings {
             panel_access: true,
             certificates: true,
             servers: true,
+            excluded_asset_alerts: Vec::new(),
             size: 120,
             roam: "edge".into(),
             activity: 1,
@@ -85,6 +135,8 @@ impl Settings {
             || !(50.0..=100.0).contains(&self.cpu_threshold)
             || !self.disk_threshold.is_finite()
             || !(50.0..=100.0).contains(&self.disk_threshold)
+            || self.excluded_asset_alerts.len() > 10_000
+            || self.excluded_asset_alerts.iter().any(|key| key.is_empty() || key.len() > 512 || key.chars().any(char::is_control))
         {
             return Err("桌宠设置无效".into());
         }
@@ -117,20 +169,29 @@ pub struct PetStore {
 
 fn read_settings() -> Result<Settings, String> {
     let all = preferences::list(&open_db()?)?;
-    let settings: Settings = all
+    let mut settings: Settings = all
         .get(CONFIG)
         .map(|v| serde_json::from_str(v).map_err(|_| "桌宠设置读取失败".to_string()))
         .transpose()?
         .unwrap_or_default();
+    if let Some(monitor) = all.get(MONITOR_CONFIG) {
+        let monitor: MonitorSettings = serde_json::from_str(monitor).map_err(|_| "监控策略读取失败".to_string())?;
+        monitor.apply(&mut settings);
+    }
     settings.validate()?;
     Ok(settings)
 }
 fn snapshot() -> Result<Snapshot, String> {
     let all = preferences::list(&open_db()?)?;
-    all.get(HISTORY)
-        .map(|v| serde_json::from_str(v).map_err(|_| "提醒记录读取失败".to_string()))
-        .transpose()
-        .map(|v| v.unwrap_or_default())
+    if let Some(value) = all.get(HISTORY) {
+        return serde_json::from_str(value).map_err(|_| "监控记录读取失败".into());
+    }
+    if let Some(value) = all.get(LEGACY_HISTORY) {
+        let migrated: Snapshot = serde_json::from_str(value).map_err(|_| "监控记录读取失败".to_string())?;
+        save_json(HISTORY, &migrated)?;
+        return Ok(migrated);
+    }
+    Ok(Snapshot::default())
 }
 fn save_json<T: Serialize>(key: &str, value: &T) -> Result<(), String> {
     preferences::save(
@@ -178,6 +239,7 @@ pub fn restricted<R: tauri::Runtime>(
                 "pet_computer_action",
                 "pet_snooze",
                 "pet_ignore",
+                "pet_clear_selected",
                 "pet_check",
                 "pet_sprite",
                 "pet_regions",
@@ -203,6 +265,53 @@ pub fn restricted<R: tauri::Runtime>(
 pub fn pet_settings(window: tauri::WebviewWindow) -> PlatformResult<Settings> {
     caller(&window)?;
     Ok(read_settings()?)
+}
+
+// Mobile monitoring has its own invoke surface. These commands deliberately do
+// not expose or synchronize any companion-window behavior.
+#[tauri::command]
+pub fn monitor_alerts_settings(window: tauri::WebviewWindow) -> PlatformResult<MonitorSettings> {
+    caller(&window)?;
+    Ok(MonitorSettings::from(&read_settings()?))
+}
+
+#[tauri::command]
+pub fn monitor_alerts_snapshot(window: tauri::WebviewWindow) -> PlatformResult<Snapshot> {
+    caller(&window)?;
+    Ok(snapshot()?)
+}
+
+#[tauri::command]
+pub fn monitor_alerts_save_settings(window: tauri::WebviewWindow, app: tauri::AppHandle, settings: MonitorSettings) -> PlatformResult<()> {
+    caller(&window)?;
+    let mut current = read_settings()?;
+    let was_monitoring = current.monitoring;
+    settings.apply(&mut current);
+    current.validate()?;
+    save_json(MONITOR_CONFIG, &MonitorSettings::from(&current))?;
+    if current.monitoring && !was_monitoring {
+        tauri::async_runtime::spawn(async move { let _ = check(app).await; });
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn monitor_alerts_check(window: tauri::WebviewWindow, app: tauri::AppHandle) -> PlatformResult<()> {
+    caller(&window)?;
+    {
+        let store = app.state::<PetStore>();
+        let mut at = store.last_manual.lock().map_err(|_| "巡检状态不可用")?;
+        let now = chrono::Utc::now().timestamp();
+        if now - *at < 60 { return Err("手动巡检间隔至少一分钟".into()); }
+        *at = now;
+    }
+    check(app).await?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn monitor_alerts_ignore(window: tauri::WebviewWindow, app: tauri::AppHandle, keys: Vec<String>, ignored: bool) -> PlatformResult<Snapshot> {
+    pet_ignore(window, app, keys, ignored)
 }
 
 #[tauri::command]
@@ -655,9 +764,15 @@ pub async fn pet_save_settings(
     caller(&window)?;
     settings.validate()?;
     let previous = read_settings()?;
+    let previous_monitor = MonitorSettings::from(&previous);
     save_json(CONFIG, &settings)?;
+    if let Err(error) = save_json(MONITOR_CONFIG, &MonitorSettings::from(&settings)) {
+        let _ = save_json(CONFIG, &previous);
+        return Err(error.into());
+    }
     if let Err(error) = sync_window(&app) {
         let _ = save_json(CONFIG, &previous);
+        let _ = save_json(MONITOR_CONFIG, &previous_monitor);
         return Err(error.into());
     }
     if previous.life != settings.life {
@@ -894,6 +1009,32 @@ pub fn pet_ignore(window: tauri::WebviewWindow, app: tauri::AppHandle, keys: Vec
     Ok(result?)
 }
 
+#[tauri::command]
+pub fn pet_clear_selected(window: tauri::WebviewWindow, app: tauri::AppHandle, keys: Vec<String>) -> PlatformResult<Snapshot> {
+    caller(&window)?;
+    if keys.is_empty() || keys.len() > 5000 || keys.iter().any(|key| key.is_empty() || key.len() > 1024) {
+        return Err("预警清理参数无效".into());
+    }
+    let store = app.state::<PetStore>();
+    if store.checking.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_err() {
+        return Err("巡检正在执行，请稍后重试".into());
+    }
+    let result = (|| -> Result<Snapshot, String> {
+        let mut state = snapshot()?;
+        if keys.iter().collect::<std::collections::HashSet<_>>().len() != keys.len()
+            || keys.iter().any(|key| !state.alerts.iter().any(|alert| alert.key == *key))
+        {
+            return Err("部分预警记录已变化，请刷新后重新选择".into());
+        }
+        state.alerts.retain(|alert| !keys.contains(&alert.key));
+        save_json(HISTORY, &state)?;
+        let _ = app.emit("pet-alerts-changed", &state);
+        Ok(state)
+    })();
+    store.checking.store(false, Ordering::SeqCst);
+    Ok(result?)
+}
+
 fn date(value: &Value) -> Option<i64> {
     if let Some(n) = value
         .as_i64()
@@ -1046,7 +1187,12 @@ async fn inspect(app: &tauri::AppHandle, settings: &Settings) -> Result<(), Stri
             now,
         );
         for a in rows {
-            if !["ecs", "cvm", "lighthouse", "swas", "server", "instance"]
+            let asset_alert_key = format!("asset:{}:{}:{}", a.account_id, a.resource_type, a.asset_key);
+            if settings.excluded_asset_alerts.contains(&asset_alert_key) {
+                observed.push(asset_alert_key);
+                continue;
+            }
+            if !["ecs", "cvm", "lighthouse", "swas", "server", "instance", "domain"]
                 .contains(&a.resource_type.as_str())
             {
                 continue;
@@ -1192,6 +1338,7 @@ async fn inspect(app: &tauri::AppHandle, settings: &Settings) -> Result<(), Stri
     state.last_error = None;
     save_json(HISTORY, &state)?;
     let _ = app.emit("pet-alerts-changed", &state);
+    #[cfg(desktop)]
     if !read_settings()?.quiet {
         if let Some(notification) = notifications
             .into_iter()
@@ -1406,6 +1553,24 @@ pub fn initialize(app: &tauri::AppHandle) {
     });
 }
 
+#[cfg(mobile)]
+pub fn initialize_mobile_monitoring(app: &tauri::AppHandle) {
+    let handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let mut last_check = 0_i64;
+        loop {
+            tokio::time::sleep(Duration::from_secs(5)).await;
+            if let Ok(settings) = read_settings() {
+                let now = chrono::Utc::now().timestamp();
+                if settings.monitoring && now - last_check >= settings.interval_seconds as i64 {
+                    last_check = now;
+                    let _ = check(handle.clone()).await;
+                }
+            }
+        }
+    });
+}
+
 // Both renderers read the same frame bounds, including character-specific gutters.
 fn sprite_rect(appearance: usize, column: u32, row: u32) -> (u32, u32, u32, u32) {
     static DOG: std::sync::OnceLock<[[u32; 4]; 24]> = std::sync::OnceLock::new();
@@ -1434,6 +1599,7 @@ mod tests {
     fn pet_appearance_defaults_and_validation_round_trip() {
         let settings: super::Settings = serde_json::from_str("{}").unwrap();
         assert_eq!(settings.appearance, "alpaca");
+        assert!(settings.excluded_asset_alerts.is_empty());
         let dog: super::Settings = serde_json::from_str(r#"{"appearance":"dog"}"#).unwrap();
         assert!(dog.validate().is_ok());
         let saved = serde_json::to_string(&dog).unwrap();
@@ -1447,6 +1613,29 @@ mod tests {
         assert!(fish.validate().is_ok());
         assert_eq!(serde_json::from_str::<super::Settings>(&serde_json::to_string(&fish).unwrap()).unwrap().appearance,"fish");
         assert!(invalid.validate().is_err());
+    }
+    #[test]
+    fn monitoring_strategy_contract_excludes_companion_preferences() {
+        let mut original = super::Settings::default();
+        original.appearance = "dog".into();
+        original.size = 160;
+        original.monitoring = true;
+        original.interval_seconds = 900;
+        let strategy = super::MonitorSettings::from(&original);
+        let json = serde_json::to_value(&strategy).unwrap();
+        assert_eq!(json["monitoring"], true);
+        assert_eq!(json["intervalSeconds"], 900);
+        assert!(json.get("appearance").is_none());
+        assert!(json.get("life").is_none());
+
+        let mut restored = super::Settings::default();
+        restored.appearance = "fish".into();
+        restored.size = 200;
+        strategy.apply(&mut restored);
+        assert_eq!(restored.appearance, "fish");
+        assert_eq!(restored.size, 200);
+        assert!(restored.monitoring);
+        assert_eq!(restored.interval_seconds, 900);
     }
     #[test]
     fn all_pet_atlases_have_valid_frames_and_transparent_borders() {
@@ -1553,6 +1742,11 @@ mod tests {
         assert!(s.validate().is_err());
         s.cpu_threshold = 90.;
         s.roam = "unknown".into();
+        assert!(s.validate().is_err());
+        s.roam = "still".into();
+        s.excluded_asset_alerts = vec!["asset:1:ecs:i-1".into()];
+        assert!(s.validate().is_ok());
+        s.excluded_asset_alerts = vec!["\u{0007}".into()];
         assert!(s.validate().is_err());
     }
     #[test]

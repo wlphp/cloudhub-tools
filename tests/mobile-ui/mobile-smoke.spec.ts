@@ -453,6 +453,14 @@ test("home top bar matches mobile quick access and keeps search and actions usab
   await page.locator(".mobile-tab-bar").getByRole("button", { name: "我的" }).click();
   await page.locator(".mobile-header-actions").getByRole("button", { name: "通知与监控预警" }).click();
   await expect(page.getByRole("heading", { name: "监控预警" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "预警策略" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "立即巡检" })).toBeDisabled();
+  await page.getByRole("button", { name: "预警策略" }).click();
+  const strategyDialog = page.getByRole("dialog", { name: "预警策略" });
+  await expect(strategyDialog).toBeVisible();
+  await expect(strategyDialog.getByRole("alert")).toContainText("仅支持原生移动 App");
+  await page.keyboard.press("Escape");
+  await expect(strategyDialog).toHaveCount(0);
   await expect(page.locator(".mobile-tab-bar").getByRole("button", { name: "我的" }).locator("svg")).toBeVisible();
 });
 

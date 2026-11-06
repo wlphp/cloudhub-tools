@@ -65,11 +65,9 @@ test("browser restore uses native selective import, preserves local key/settings
   db = new DatabaseSync(dbPath);
   assert.equal(db.prepare("SELECT title FROM memo_notes").get().title, "local"); db.close();
   assert.equal((await post("cancel", { token: prepared.token })).status, 200);
-  assert.equal((await post("confirm", { token: prepared.token, tables: ["memo_notes"], mode: "replace", forceRestore: false })).status, 400);
+  assert.equal((await post("confirm", { token: prepared.token, tables: ["memo_notes"], mode: "replace", forceRestore: false, includeTrash: false })).status, 400);
   prepared = await preview();
-  assert.equal((await post("confirm", { token: prepared.token, tables: ["operation_logs"], mode: "replace", forceRestore: false })).status, 400);
-  prepared = await preview();
-  assert.equal((await post("confirm", { token: prepared.token, tables: ["memo_notes"], mode: "replace", forceRestore: false })).status, 400);
+  assert.equal((await post("confirm", { token: prepared.token, tables: ["not_a_transfer_table"], mode: "replace", forceRestore: false, includeTrash: false })).status, 400);
   prepared = await preview();
   const planned=await post("plan",{token:prepared.token,tables:["memo_notes"],mode:"replace",includeTrash:false});
   assert.equal(planned.status,200,await planned.clone().text());
@@ -78,10 +76,10 @@ test("browser restore uses native selective import, preserves local key/settings
   assert.ok(impact.dependencyModules.includes("memo_groups"));
   assert.equal(impact.impacts.find(item=>item.table==="memo_notes").deleted,1);
   db=new DatabaseSync(dbPath);db.exec("UPDATE memo_notes SET updated_at=2");db.close();
-  assert.equal((await post("confirm", { token: prepared.token, tables: ["memo_notes"], mode: "replace", forceRestore: false })).status, 400);
+  assert.equal((await post("confirm", { token: prepared.token, tables: ["memo_notes"], mode: "replace", forceRestore: false, includeTrash: false })).status, 400);
   prepared = await preview();
   assert.equal((await post("plan",{token:prepared.token,tables:["memo_notes"],mode:"replace",includeTrash:false})).status,200);
-  const restored = await post("confirm", { token: prepared.token, tables: ["memo_notes"], mode: "replace", forceRestore: false });
+  const restored = await post("confirm", { token: prepared.token, tables: ["memo_notes"], mode: "replace", forceRestore: false, includeTrash: false });
   assert.equal(restored.status, 200, await restored.clone().text());
   assert.match(await restored.json(), /恢复完成/);
   assert.equal(exclusive, false);
@@ -93,8 +91,7 @@ test("browser restore uses native selective import, preserves local key/settings
   assert.deepEqual(fs.readFileSync(path.join(dir, ".key")), localKey);
   assert.ok(fs.readdirSync(dir).some(name => name.includes("before-import")));
   prepared = await preview();
-  assert.equal((await post("plan",{token:prepared.token,tables:["cloud_accounts"],mode:"merge",includeTrash:false})).status,200);
-  assert.equal((await post("confirm", { token: prepared.token, tables: ["cloud_accounts"], mode: "merge", forceRestore: false })).status, 200);
+  assert.equal((await post("confirm", { token: prepared.token, tables: ["cloud_accounts"], mode: "merge", forceRestore: false, includeTrash: false })).status, 200);
   db = new DatabaseSync(dbPath);
   const restoredCipher = db.prepare("SELECT secret_ciphertext FROM cloud_accounts").get().secret_ciphertext;
   db.close();

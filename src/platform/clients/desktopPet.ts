@@ -1,11 +1,15 @@
 import { nativeOnly } from "./base";
 import type { AiImage } from "./ai";
+import { monitorSeverityLabel, monitorSeverityRank, sortMonitorAlerts, type MonitorAlert, type MonitorSnapshot } from "./monitorAlerts";
+export type PetAlert = MonitorAlert;
+export type PetSnapshot = MonitorSnapshot;
 export type PetComputerAction = "shutdown" | "restart" | "taskManager" | "lock" | "explorer";
 
 export interface PetSettings {
   life: PetLifeSettings;
   appearance: "alpaca" | "dog" | "penguin" | "fish";
   enabled: boolean; monitoring: boolean; panels: boolean; panelAccess: boolean; certificates: boolean; servers: boolean;
+  excludedAssetAlerts: string[];
   size: number; roam: "edge" | "free" | "still"; activity: number; sound: boolean; reducedMotion: boolean;
   quiet: boolean; intervalSeconds: number; expiryDays: number; cpuThreshold: number; diskThreshold: number; keepInTray: boolean;
 }
@@ -29,23 +33,15 @@ export const defaultPetLife: PetLifeSettings = {
   ignoreHolidays: true, restDates: [], workDates: [], water: true, waterMinutes: 60, waterRoam: true, stretch: false, stretchMinutes: 90,
 };
 export const emptyPetLifeState: PetLifeState = { notices: [], weatherCheckedAt: 0, weatherAttemptAt: 0, weatherError: null, region: "", calendarYear: 0, calendarSupported: false };
-export interface PetAlert {
-  key: string; title: string; detail: string; section: "panels" | "resources" | "certificates" | "notes";
-  severity: "emergency" | "critical" | "warning"; active: boolean; ignored?: boolean; firstSeen: number; updatedAt: number;
-  snoozedUntil: number; notifiedAt: number; occurrences: number;
-}
-export interface PetSnapshot { alerts: PetAlert[]; checkedAt: number; lastError: string | null }
 export interface PetChatService { id: string; name: string; model: string; revision: number; supportsImages: boolean }
 export interface PetChatMessage { role: "user" | "assistant"; text: string; image?: string }
-export const petSeverityRank = (severity: PetAlert["severity"]) => severity === "emergency" ? 3 : severity === "critical" ? 2 : 1;
-export const petSeverityLabel = (severity: PetAlert["severity"]) => severity === "emergency" ? "超级严重" : severity === "critical" ? "紧急" : "提醒";
-export function sortPetAlerts(alerts: PetAlert[]): PetAlert[] {
-  return [...alerts].sort((a, b) => Number(b.active && !b.ignored) - Number(a.active && !a.ignored) || Number(b.active) - Number(a.active) || petSeverityRank(b.severity) - petSeverityRank(a.severity) || b.updatedAt - a.updatedAt);
-}
+export const petSeverityRank = monitorSeverityRank;
+export const petSeverityLabel = monitorSeverityLabel;
+export const sortPetAlerts = sortMonitorAlerts;
 export const defaultPetSettings: PetSettings = {
   life: defaultPetLife,
   appearance: "alpaca",
-  enabled: false, monitoring: false, panels: false, panelAccess: true, certificates: true, servers: true,
+  enabled: false, monitoring: false, panels: false, panelAccess: true, certificates: true, servers: true, excludedAssetAlerts: [],
   size: 120, roam: "edge", activity: 1, sound: false, reducedMotion: false, quiet: false,
   intervalSeconds: 300, expiryDays: 30, cpuThreshold: 90, diskThreshold: 90, keepInTray: false,
 };
@@ -72,4 +68,5 @@ export const desktopPetClient = {
   computerAction: (action: PetComputerAction) => nativeOnly<void>("pet_computer_action", { action }),
   snooze: (key: string, minutes = 60) => nativeOnly<void>("pet_snooze", { key, minutes }),
   ignore: (keys: string[], ignored = true) => nativeOnly<PetSnapshot>("pet_ignore", { keys, ignored }),
+  clearSelected: (keys: string[]) => nativeOnly<PetSnapshot>("pet_clear_selected", { keys }),
 };

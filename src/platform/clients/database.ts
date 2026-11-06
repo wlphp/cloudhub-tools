@@ -1,4 +1,5 @@
 import { invokeOrWeb, nativeOnly, previewOnly, jsonRequest } from "./base";
+import { PlatformError, normalizePlatformError } from "../api";
 
 export type DatabaseImportPreview = {
   token: string;
@@ -20,10 +21,18 @@ export type DatabaseRestorePlan = {
 
 export type DatabaseBackupRecord = { id: string; fileName: string; createdAt: string; sizeBytes: number; encrypted: boolean };
 
+// 备份恢复的失败原因必须是人工写定的安全文案。原生层和浏览器预览层都可能
+// 返回 SQLite 诊断或解析细节，这里统一按 database-restore 白名单过滤。
+function restoreFailure(reason: unknown): PlatformError {
+  const error = normalizePlatformError(reason);
+  return new PlatformError(error.message, "database-restore");
+}
+
 export const databaseClient = {
   transferCatalog(): Promise<DatabaseImportPreview["categories"]> { return invokeOrWeb("database_transfer_catalog", undefined, { path: "/api/database-import/catalog", init: jsonRequest("POST", {}) }); },
   planImport(token: string, tables?: string[], mode?: "merge" | "overwrite" | "replace", includeTrash = false): Promise<DatabaseRestorePlan> {
-    return invokeOrWeb("plan_database_import", { token, tables, mode, includeTrash }, { path: "/api/database-import/plan", init: jsonRequest("POST", { token, tables, mode, includeTrash }) });
+    return invokeOrWeb<DatabaseRestorePlan>("plan_database_import", { token, tables, mode, includeTrash }, { path: "/api/database-import/plan", init: jsonRequest("POST", { token, tables, mode, includeTrash }) })
+      .catch((reason: unknown) => { throw restoreFailure(reason); });
   },
   openBackupDirectory(): Promise<void> {
     return nativeOnly("open_app_data_directory", { directory: "backups" });
@@ -56,8 +65,9 @@ export const databaseClient = {
   cancelBrowserImport(token: string): Promise<void> {
     return previewOnly({ path: "/api/database-import/cancel", init: jsonRequest("POST", { token }) });
   },
-  confirmImport(token: string, tables?: string[], mode?: "merge" | "overwrite" | "replace", forceRestore = false): Promise<string> {
-    return invokeOrWeb<string>("confirm_database_import", { token, tables, mode, forceRestore }, { path: "/api/database-import/confirm", init: jsonRequest("POST", { token, tables, mode, forceRestore }) });
+  confirmImport(token: string, tables?: string[], mode?: "merge" | "overwrite" | "replace", forceRestore = false, includeTrash = false): Promise<string> {
+    return invokeOrWeb<string>("confirm_database_import", { token, tables, mode, forceRestore, includeTrash }, { path: "/api/database-import/confirm", init: jsonRequest("POST", { token, tables, mode, forceRestore, includeTrash }) })
+      .catch((reason: unknown) => { throw restoreFailure(reason); });
   },
   cancelImport(token: string): Promise<void> {
     return invokeOrWeb<void>("cancel_database_import", { token }, { path: "/api/database-import/cancel", init: jsonRequest("POST", { token }) });

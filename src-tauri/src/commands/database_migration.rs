@@ -1303,7 +1303,7 @@ mod tests {
 }
 
 #[tauri::command]
-pub(crate) async fn confirm_database_import(app: tauri::AppHandle, state: tauri::State<'_, DatabaseImportStore>, token: String, tables: Option<Vec<String>>, mode: Option<String>, force_restore: Option<bool>) -> PlatformResult<String> {
+pub(crate) async fn confirm_database_import(app: tauri::AppHandle, state: tauri::State<'_, DatabaseImportStore>, token: String, tables: Option<Vec<String>>, mode: Option<String>, force_restore: Option<bool>, include_trash: Option<bool>) -> PlatformResult<String> {
     ensure_database_file_migration_supported()?;
     let _transfer = lock_transfer()?;
     #[cfg(desktop)]
@@ -1327,14 +1327,22 @@ pub(crate) async fn confirm_database_import(app: tauri::AppHandle, state: tauri:
     let result = if let Some(mode) = prepared.sql_mode.as_deref() {
         let current_key = Zeroizing::new(crypto_key_bytes()?);
         if *prepared.key != *current_key { Err("本机密钥已改变，请重新导入 SQL".into()) }
-        else { sql::confirm(&prepared.database_path, mode, prepared.plan.as_ref().map(|p|p.revision.as_str()),prepared.plan.as_ref().is_some_and(|p|p.include_trash)) }
+        else {
+            let include_trash=prepared.plan.as_ref().map(|plan|plan.include_trash).unwrap_or_else(||include_trash.unwrap_or(false));
+            sql::confirm(&prepared.database_path, mode, prepared.plan.as_ref().map(|plan|plan.revision.as_str()),include_trash)
+        }
     } else {
         lock_authenticator_for_migration(&app);
-        let plan=prepared.plan.as_ref().ok_or("请先预览恢复影响")?;
-        restore_selection_bound(&prepared.database_path, &prepared.key, tables, mode.as_deref().unwrap_or("merge"),plan.include_trash,Some(&plan.revision))
+        // The impact preview is advisory. A failed preview must never strand the
+        // user with an unusable action; the restore itself validates the scope.
+        let include_trash=prepared.plan.as_ref().map(|plan|plan.include_trash).unwrap_or_else(||include_trash.unwrap_or(false));
+        let revision=prepared.plan.as_ref().map(|plan|plan.revision.as_str());
+        restore_selection_bound(&prepared.database_path, &prepared.key, tables, mode.as_deref().unwrap_or("merge"),include_trash,revision)
     };
     let _ = fs::remove_file(&prepared.database_path);
-    Ok(format!("{}；{}",result?,prepared.plan.as_ref().map(|plan|plan.summary.as_str()).unwrap_or_default()))
+    let result=result?;
+    let summary=prepared.plan.as_ref().map(|plan|plan.summary.as_str()).unwrap_or_default();
+    Ok(if summary.is_empty() { result } else { format!("{result}；{summary}") })
 }
 
 #[tauri::command]
@@ -1345,7 +1353,8 @@ pub(crate) fn cancel_database_import(state: tauri::State<'_, DatabaseImportStore
 }
 
 fn validate_restore_binding(prepared:&PreparedImport,tables:Option<&[String]>,mode:Option<&str>) -> Result<(),String> {
-    let plan=prepared.plan.as_ref().ok_or("请先预览恢复影响")?;
+    // Without a successful preview there is no baseline to compare against.
+    let Some(plan)=prepared.plan.as_ref() else {return Ok(());};
     if prepared.sql_mode.is_none() && (tables!=Some(plan.tables.as_slice()) || mode.unwrap_or("merge")!=plan.mode) {return Err("恢复范围或方式已变化，请重新预览".into());}
     if sql::revision(&open_db()?)?!=plan.revision {return Err("本地数据已变化，请重新预览恢复影响".into());}
     Ok(())

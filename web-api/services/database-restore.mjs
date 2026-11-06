@@ -33,7 +33,13 @@ function start() {
     try {
       if (line.length > 2 * 1024 * 1024) throw new Error();
       const response = JSON.parse(line);
-      if (typeof response.error === "string") reject(new Error(response.error.includes("密码") ? "备份密码错误或缺失，请填写正确密码后重新下载" : "备份恢复失败，请检查备份与恢复范围后重新下载"));
+      if (typeof response.error === "string") {
+        const error = new Error(response.safe === true && response.error.length <= 120
+          ? response.error
+          : "备份恢复操作失败，请检查备份格式、恢复范围或重新下载备份");
+        if (response.safe === true && response.error.length <= 120) error.safe = true;
+        reject(error);
+      }
       else if (Object.hasOwn(response, "result")) resolve(response.result);
       else throw new Error();
     } catch { reject(new Error("本机恢复响应无效，请重新下载备份")); closeDatabaseRestoreBridge(); }

@@ -118,10 +118,10 @@ export function UnifiedMigrationPanel({ mode, mobilePage = false, onClose, onImp
       setPassword("");
     } catch (cause) { setError(message(cause)); } finally { setBusy(false); }
   }
-  async function restoreBackup(tables?: string[], mode?: "merge" | "overwrite" | "replace", forceRestore = false) {
+  async function restoreBackup(tables?: string[], mode?: "merge" | "overwrite" | "replace", forceRestore = false, includeTrash = false) {
     if (!backup) return;
     setBusy(true); setError("");
-    try { setNotice(await databaseClient.confirmImport(backup.token, tables, mode, forceRestore)); setBackup(null); onImported?.(); }
+    try { setNotice(await databaseClient.confirmImport(backup.token, tables, mode, forceRestore, includeTrash)); setBackup(null); onImported?.(); }
     catch (cause) { setBackup(null); setError(message(cause) + "，请重新选择备份重试。"); } finally { setBusy(false); }
   }
   const content = <>
@@ -149,7 +149,7 @@ export function UnifiedMigrationPanel({ mode, mobilePage = false, onClose, onImp
       <button type="button" className="secondary" disabled={busy} onClick={() => runningInTauri ? void selectBackup() : backupInput.current?.click()}><FileArchive size={16} aria-hidden="true" />{busy ? "正在处理…" : "选择 .chdb 备份"}</button>
       </section>
       <CloudSyncSection mobile onRestore={reviewBackup} />
-      {backup && <DataImportReview key={backup.token} preview={backup} busy={busy} onClose={() => setBackup(null)} onConfirm={(tables, mode, force) => void restoreBackup(tables, mode, force)} />}
+      {backup && <DataImportReview key={backup.token} preview={backup} busy={busy} onClose={() => setBackup(null)} onConfirm={(tables, mode, force, includeTrash) => void restoreBackup(tables, mode, force, includeTrash)} />}
     </> : <>
       <details className="sync-transfer-scope-details">
         <summary>数据范围<span>已选 {scope.tables.length} 类</span></summary>

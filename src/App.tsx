@@ -254,7 +254,7 @@ function syncAssetTypes(account: Account): ReadonlyArray<(typeof assetTypes)[num
 }
 const assetTypes = catalogAssetTypes;
 
-const bundledVersion = "0.1.119";
+const bundledVersion = "0.1.120";
 const isDevelopmentBuild = import.meta.env.DEV;
 
 const detachedTerminalHostId = (() => {
@@ -414,7 +414,7 @@ function App() {
   const esaRequestRef = useRef(0);
   const [esaCertificateSite, setEsaCertificateSite] = useState<{ account: Account; siteId: number } | null>(null);
   const [esaSiteKeyword, setEsaSiteKeyword] = useState("");
-  const [section, setSection] = useState<"home" | "monitorAlerts" | "accounts" | "resources" | "certificates" | "authenticator" | "flow" | "frp" | "codex" | "claude" | "panels" | "servers" | "favorites" | "logs" | "api_logs" | "settings" | "plugins" | "notes">(() => isDetachedTerminalWindow ? "servers" : "accounts");
+  const [section, setSection] = useState<"home" | "monitorAlerts" | "accounts" | "resources" | "certificates" | "authenticator" | "flow" | "frp" | "codex" | "claude" | "panels" | "servers" | "favorites" | "logs" | "api_logs" | "settings" | "plugins" | "notes">(() => isDetachedTerminalWindow ? "servers" : "home");
   function openCatalogApplication(app: ApplicationDefinition) {
     if (app.section) setSection(app.section);
     else { setStoreApplicationId(app.id); setSection("plugins"); }
@@ -1265,12 +1265,12 @@ function App() {
     setDatabaseImportPreview(null);
     if (preview) { try { await databaseClient.cancelImport(preview.token); } catch (error) { setStatus(`取消导入失败：${String(error)}`); } }
   }
-  async function confirmDatabaseImport(tables?: string[], mode?: "merge" | "overwrite" | "replace", forceRestore = false) {
+  async function confirmDatabaseImport(tables?: string[], mode?: "merge" | "overwrite" | "replace", forceRestore = false, includeTrash = false) {
     const preview = databaseImportPreview;
     if (!preview || databaseImportBusy) return;
     setDatabaseImportBusy(true);
     try {
-      const message = await databaseClient.confirmImport(preview.token, tables, mode, forceRestore);
+      const message = await databaseClient.confirmImport(preview.token, tables, mode, forceRestore, includeTrash);
       setDatabaseImportPreview(null);
       setStatus(`${message}，应用即将刷新`);
       window.setTimeout(() => window.location.reload(), 700);
@@ -4080,8 +4080,12 @@ function App() {
           </div>
         </nav>
         {status && createPortal(<div className="toast-notice" role="status" aria-live="polite" aria-atomic="true">{status}</div>, document.body)}
-        {section === "home" && <DesktopHomePage accounts={accounts} assets={localAssets} onNavigate={setSection} />}
-        {section === "monitorAlerts" && <DesktopMonitorAlertsPage onNavigate={target => { if (target === "resources") void loadLocalAssets(); if (target === "panels") void loadPanelConnections(); setSection(target); }} />}
+        {section === "home" && <DesktopHomePage accounts={accounts} assets={localAssets} applicationSettings={applicationSettings} onNavigate={setSection} onOpenSoftware={id => {
+          if (!id) { setStoreApplicationId(undefined); setSection("plugins"); return; }
+          const app = sortedApplications(applicationSettings.preferences).find(item => item.id === id);
+          if (app) openCatalogApplication(app);
+        }} />}
+        {section === "monitorAlerts" && <DesktopMonitorAlertsPage accounts={accounts} onNavigate={target => { if (target === "resources") void loadLocalAssets(); if (target === "panels") void loadPanelConnections(); setSection(target); }} />}
         <div className={`account-section ${section === "accounts" ? "" : "section-hidden"}`}>
         <header className="page-header-stats">
           <div>
@@ -5427,7 +5431,7 @@ function App() {
       </SharedDialog>}
       {confirmRequest && <ConfirmDialog message={confirmRequest.message} title={confirmRequest.title} confirmLabel={confirmRequest.confirmLabel} onResolve={resolveConfirm} />}
       {showSyncTransfer && <SyncTransferPanel mode="desktop" accounts={accounts} managedHosts={managedHosts} panels={panelConnections} onClose={() => setShowSyncTransfer(false)} onImported={() => { void load(); void loadLocalAssets(); void loadManagedHosts(); void loadPanelConnections(); }} />}
-      {databaseImportPreview && <DataImportReview key={databaseImportPreview.token} preview={databaseImportPreview} busy={databaseImportBusy} onClose={() => void cancelDatabaseImport()} onConfirm={(tables, mode, forceRestore) => void confirmDatabaseImport(tables, mode, forceRestore)} />}
+      {databaseImportPreview && <DataImportReview key={databaseImportPreview.token} preview={databaseImportPreview} busy={databaseImportBusy} onClose={() => void cancelDatabaseImport()} onConfirm={(tables, mode, forceRestore, includeTrash) => void confirmDatabaseImport(tables, mode, forceRestore, includeTrash)} />}
       {promptRequest && <SharedDialog title="请输入内容" eyebrow="INPUT REQUIRED" icon={<AlertTriangle size={20} />} size="small" describedBy="prompt-message" onSubmit={(event) => { event.preventDefault(); resolvePrompt(promptValue); }} onClose={() => resolvePrompt(null)} footer={<><button type="button" className="secondary" onClick={() => resolvePrompt(null)}>取消</button><button type="submit" className="primary">确定</button></>}><p id="prompt-message">{promptRequest.message}</p><input aria-label="需要输入的内容" value={promptValue} autoFocus onChange={(event) => setPromptValue(event.target.value)} /></SharedDialog>}
     </div>
   );
