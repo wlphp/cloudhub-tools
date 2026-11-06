@@ -87,7 +87,7 @@ pub(crate) use commands::trash::{trash_list, trash_restore, trash_purge, trash_e
 #[cfg(desktop)]
 use commands::desktop_pet::{pet_settings, pet_snapshot, pet_save_settings, pet_show, pet_hide, pet_layout, pet_move, pet_open, pet_computer_action, pet_snooze, pet_ignore, pet_check, pet_sprite, pet_regions, pet_notice, pet_dismiss, pet_chat_services, pet_chat, pet_chat_cancel, pet_chat_read_image, pet_life_state, pet_life_action, pet_life_weather};
 #[cfg(mobile)]
-use commands::desktop_pet::{monitor_alerts_check, monitor_alerts_ignore, monitor_alerts_save_settings, monitor_alerts_settings, monitor_alerts_snapshot};
+use commands::monitoring::{monitor_alerts_check, monitor_alerts_ignore, monitor_alerts_save_settings, monitor_alerts_settings, monitor_alerts_snapshot};
 pub(crate) use commands::baota_certificates::{confirm_baota_certificate_retry,list_baota_site_certificates, sync_baota_site_certificates, remove_baota_site_domain, import_baota_site_certificate, renew_baota_site_certificate, deploy_certificate_to_baota_site, resolve_baota_site_domain};
 pub(crate) use commands::certificate_import::{prepare_certificate_import_text, prepare_certificate_import_files, select_certificate_import_files, confirm_certificate_import, cancel_certificate_import};
 pub(crate) use commands::logs::{clear_api_logs, clear_operation_logs, list_api_logs};
@@ -856,7 +856,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init());
     #[cfg(mobile)]
     {
-        builder = builder.manage(commands::desktop_pet::PetStore::default());
+        builder = builder.manage(commands::monitoring::MonitoringStore::default());
         builder = builder.plugin(tauri_plugin_fs::init());
         builder = builder.plugin(tauri_plugin_cloudhub_keystore::init());
         builder = builder.plugin(tauri_plugin_barcode_scanner::init());
@@ -905,7 +905,7 @@ pub fn run() {
             {
                 use tauri::Manager;
                 if let Some(main) = app.get_webview_window("main") { main.show()?; }
-                commands::desktop_pet::initialize_mobile_monitoring(app.handle());
+                commands::monitoring::initialize_mobile_monitoring(app.handle());
             }
             #[cfg(desktop)]
             if let Ok(conn) = open_db() {

@@ -75,8 +75,12 @@ pub mod frp;
 pub mod sync;
 
 pub mod esa_certificates;
-#[cfg(any(desktop, mobile))]
+#[cfg(desktop)]
 pub mod desktop_pet;
+#[cfg(mobile)]
+#[path = "desktop_pet.rs"]
+// The mobile module exports only monitor-alert commands; desktop pet APIs are cfg-gated.
+pub mod monitoring;
 #[cfg(desktop)]
 pub mod notes;
 pub mod trash;

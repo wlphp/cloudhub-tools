@@ -154,7 +154,7 @@ fn load_panel_connection(id: i64) -> Result<(PanelConnection, String), String> {
 }
 
 /// Read-only monitoring path. Do not retain or expose the environment response (it contains secrets).
-#[cfg(desktop)]
+#[cfg(any(desktop, mobile))]
 async fn monitor_request(client: &reqwest::Client, panel: &PanelConnection, api_key: &str, action: &str) -> Result<Value, ()> {
     let (request_time, request_token)=panel_sign(api_key);
     let mut response=client.post(format!("{}/system?action={action}",panel.panel_url))
@@ -170,7 +170,7 @@ async fn monitor_request(client: &reqwest::Client, panel: &PanelConnection, api_
     if !data.is_object() || data.get("status").and_then(Value::as_bool)==Some(false) { return Err(()); }
     Ok(data)
 }
-#[cfg(desktop)]
+#[cfg(any(desktop, mobile))]
 pub(crate) async fn monitor_panel(id: i64) -> Result<(Value, Option<Vec<(String, bool)>>), ()> {
     let (panel, api_key) = load_panel_connection(id).map_err(|_| ())?;
     let api_key = zeroize::Zeroizing::new(api_key);

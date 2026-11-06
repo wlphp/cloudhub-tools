@@ -26,9 +26,9 @@ pub mod error;
 pub mod paths;
 #[cfg(desktop)]
 pub mod network;
-#[cfg(desktop)]
+#[cfg(any(desktop, mobile))]
 pub mod pet_alerts;
-#[cfg(desktop)]
+#[cfg(any(desktop, mobile))]
 pub mod pet_life;
 pub mod repositories;
 #[cfg(desktop)]
