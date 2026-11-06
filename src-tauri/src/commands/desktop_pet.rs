@@ -208,6 +208,7 @@ fn caller(window: &tauri::WebviewWindow) -> Result<(), String> {
         Err("此窗口不支持桌宠操作".into())
     }
 }
+#[cfg(desktop)]
 pub fn restricted<R: tauri::Runtime>(
     handler: impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static,
 ) -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static {

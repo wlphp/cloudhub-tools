@@ -75,7 +75,7 @@ pub mod frp;
 pub mod sync;
 
 pub mod esa_certificates;
-#[cfg(desktop)]
+#[cfg(any(desktop, mobile))]
 pub mod desktop_pet;
 #[cfg(desktop)]
 pub mod notes;
