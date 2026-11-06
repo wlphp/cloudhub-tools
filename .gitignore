@@ -65,3 +65,5 @@ scripts/task-tracker.mjs
 .env.*
 !.env.example
 !.env.template
+/.codex-build-temp
+/.tmp-*
