@@ -24,6 +24,13 @@ body,
   margin: 0;
 }
 
+/* Keep mobile WebView/Chrome from font-boosting short text blocks (e.g. collapsed
+   store cards), which made the same text render larger after collapsing details. */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
 body {
   overflow-x: hidden;
   background: var(--mobile-bg);
@@ -4393,7 +4400,7 @@ body.theme-light .mobile-home-apps,body.theme-light .mobile-home-alerts { backgr
 .mobile-shell .software-store-page .store-table td[data-label="软件名称"] { padding: 0 0 7px; }
 .mobile-shell .software-store-page .store-app-name { gap: 10px; }
 .mobile-shell .software-store-page .store-app-name > svg { flex-basis: 44px; width: 44px; height: 44px; padding: 11px; border-radius: 13px; }
-.mobile-shell .software-store-page .store-app-name strong { font-size: 15px; line-height: 1.3; }
+.mobile-shell .software-store-page .store-app-name strong { font-size: 14px; line-height: 1.3; }
 .mobile-shell .software-store-page .store-app-name small { font-size: 11px; line-height: 1.35; }
 .mobile-shell .software-store-page .store-details-toggle { min-height: 44px !important; margin-left: -4px; padding: 0 5px !important; color: var(--mobile-accent-strong); font-size: 12px !important; }
 .mobile-shell .software-store-page .store-table tbody tr:not(.is-expanded) td[data-label="状态"] { display: flex !important; grid-column: 1; grid-row: 2; align-self: center; padding: 0 0 0 54px; }

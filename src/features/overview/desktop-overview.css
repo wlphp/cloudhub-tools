@@ -14,11 +14,11 @@
 .desktop-overview-card{min-width:0;padding:19px 21px;border:1px solid var(--jb-border);border-radius:10px;background:var(--jb-surface)}
 .desktop-overview-card-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px;color:var(--jb-muted)}
 .desktop-overview-card-heading h2{margin:0 0 4px;color:var(--jb-text);font-size:16px}
-.desktop-overview-donut-wrap{display:flex;align-items:center;justify-content:center;gap:clamp(20px,4vw,58px);min-height:230px}
-.desktop-overview-donut{width:190px;height:190px;flex:none;overflow:visible}
+.desktop-overview-donut-wrap{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:center;justify-items:center;gap:14px;min-height:230px}
+.desktop-overview-donut{width:min(100%,190px);height:auto;aspect-ratio:1;overflow:visible}
 .desktop-overview-donut-total{fill:var(--jb-text);font-size:24px;font-weight:700}
 .desktop-overview-donut-caption{fill:var(--jb-muted);font-size:11px}
-.desktop-overview-legend{display:grid;gap:12px;min-width:145px;margin:0;padding:0;list-style:none}
+.desktop-overview-legend{display:grid;gap:12px;width:100%;min-width:0;margin:0;padding:0;list-style:none}
 .desktop-overview-legend li,.desktop-overview-legend li>span{display:flex;align-items:center;justify-content:space-between;gap:14px}
 .desktop-overview-legend li>span{justify-content:flex-start;color:var(--jb-muted);font-size:13px}
 .desktop-overview-legend i{width:9px;height:9px;border-radius:50%}

@@ -258,10 +258,15 @@ fn load_sql(conn: &mut Connection, input: &str, key: &[u8]) -> Result<Vec<String
         let expected = columns(&tx, &table)?;
         let mut fields = Vec::new();
         loop { fields.push(parser.quoted('"')?); parser.ws(); if parser.rest.starts_with(')') { parser.take(")")?; break; } parser.take(",")?; if fields.len() > 128 { return Err(err()); } }
-        // ALTER TABLE appends fields on upgraded desktops; fresh mobile installs
-        // can have the same schema version with a different physical order.
-        // Bind VALUES to the validated INSERT names, never to table positions.
-        if fields.len() != expected.len() || fields.iter().enumerate().any(|(index, name)| !expected.contains(name) || fields[..index].contains(name)) { return Err(err()); }
+        // Bind VALUES to validated names, never physical column positions. Older
+        // backups may omit columns added later; permit that only where SQLite can
+        // safely supply NULL/default/autoincrement. Never accept unknown columns.
+        if fields.is_empty() || fields.iter().enumerate().any(|(index, name)| !expected.contains(name) || fields[..index].contains(name)) { return Err(err()); }
+        if fields.len() != expected.len() {
+            let mut statement = tx.prepare(&format!("PRAGMA table_info({})", ident(&table))).map_err(|_| err())?;
+            let info = statement.query_map([], |row| Ok((row.get::<_, String>(1)?, row.get::<_, i64>(3)?, row.get::<_, Option<String>>(4)?, row.get::<_, i64>(5)?))).map_err(|_| err())?.collect::<rusqlite::Result<Vec<_>>>().map_err(|_| err())?;
+            if info.iter().any(|(name, not_null, default, primary_key)| !fields.contains(name) && *not_null != 0 && default.is_none() && *primary_key == 0) { return Err(err()); }
+        }
         parser.take("VALUES (")?;
         let mut values = Vec::new();
         for (i, name) in fields.iter().enumerate() {
@@ -897,20 +902,25 @@ mod tests {
         assert!(load_sql(&mut stage,&wrong,&[22u8;32]).is_err());
     }
     #[test]
-    fn sql_column_validation_rejects_duplicate_unknown_and_missing_fields() {
+    fn sql_import_accepts_older_optional_columns_but_rejects_duplicate_and_unknown_fields() {
         let fixture = Fixture::new();
         let source = fixture.db("source.sqlite3");
+        let target = fixture.db("target.sqlite3");
+        source.execute_batch("DROP TRIGGER IF EXISTS cloud_accounts_sync_update; ALTER TABLE cloud_accounts DROP COLUMN group_name;").unwrap();
         account(&source,1,"fixture","fixture-access",&[11;32]);
         let input = export_portable(&source,&[11;32],&["cloud_accounts".into()],false).unwrap();
-        for replacement in ["\"account_name\",", "\"unknown_column\",", ""] {
+        for replacement in ["\"account_name\",", "\"unknown_column\","] {
             let invalid = input.replacen("\"sort_order\",",replacement,1);
             assert_ne!(input.as_str(),invalid.as_str());
-            let mut stage = create_stage(&source,Path::new(":memory:")).unwrap();
+            let mut stage = create_stage(&target,Path::new(":memory:")).unwrap();
             let error = load_sql(&mut stage,&invalid,&[22;32]).unwrap_err();
             assert!(!error.contains("fixture"));
             assert_eq!(table_count(&stage,"cloud_accounts").unwrap(),0);
             assert!(!policy::exists(&stage,"cloudhub_sql_scope").unwrap());
         }
+        let mut stage = create_stage(&target,Path::new(":memory:")).unwrap();
+        assert!(load_sql(&mut stage,&input,&[22;32]).is_ok());
+        assert_eq!(table_count(&stage,"cloud_accounts").unwrap(),1);
     }
     #[test]
     fn invalid_child_rolls_back_whole_merge() {

@@ -34,6 +34,9 @@ def main():
 
     # Retain the legacy raster source as a matching preview/compatibility asset.
     shutil.copy2(ICONS / "icon.png", ICONS / "yunshu-tools-source.png")
+    # The React sidebar and About page use this public asset, so keep it aligned
+    # with the native launcher icon generated from the same maintained SVG.
+    shutil.copy2(ICONS / "icon.png", ROOT / "public/cloudhub-logo.png")
 
 
 if __name__ == "__main__":

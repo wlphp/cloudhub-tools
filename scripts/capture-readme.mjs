@@ -93,6 +93,7 @@ try {
     console.log(`Captured ${name}`);
   };
   await page.getByRole("button", { name: "账号管理", exact: true }).waitFor();
+  await page.getByRole("button", { name: "账号管理", exact: true }).click();
   await capture("accounts");
   for (const [label, file] of [["资产管理", "resources"], ["面板管理", "panels"], ["终端管理", "terminal"], ["软件商店", "store"], ["Claude 管理", "claude"]]) {
     await page.getByRole("button", { name: label, exact: true }).first().click();
@@ -113,14 +114,25 @@ try {
     return route.fulfill({ json: [] });
   });
   await mobile.goto(mobileURL, { waitUntil: "networkidle" });
-  for (const [label, heading, file] of [[null, "云账号", "accounts"], ["服务器", "云服务器", "servers"], ["域名", "域名与 DNS", "domains"]]) {
-    if (label) await mobile.getByRole("button", { name: label, exact: true }).click();
+  // The current mobile home is a dashboard; open the account shortcut before
+  // capturing the account-list screen (the old script assumed accounts was the landing page).
+  await mobile.getByRole("button", { name: /我的账号/ }).click();
+  const captureMobile = async (heading, file) => {
     await mobile.getByRole("heading", { name: heading, exact: true }).waitFor();
     await mobile.locator("body.theme-light").waitFor();
     await mobile.evaluate(() => document.fonts.ready);
     await mobile.screenshot({ path: `docs/screenshots/mobile-${file}.png`, animations: "disabled" });
     console.log(`Captured mobile-${file}`);
-  }
+  };
+  await captureMobile("云账号", "accounts");
+  await mobile.getByRole("button", { name: "首页", exact: true }).click();
+  await mobile.getByRole("button", { name: /服务器/ }).first().click();
+  await captureMobile("云服务器", "servers");
+  await mobile.getByRole("button", { name: "首页", exact: true }).click();
+  await mobile.getByRole("button", { name: /我的资产/ }).click();
+  await mobile.getByLabel("筛选资产类型").selectOption("domain");
+  await mobile.getByRole("button", { name: "操作", exact: true }).first().click();
+  await captureMobile("域名与 DNS", "domains");
 } finally {
   await browser.close();
 }
