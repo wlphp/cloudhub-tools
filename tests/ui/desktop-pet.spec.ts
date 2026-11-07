@@ -32,7 +32,7 @@ async function lifeNotice(page: Page, kind = "water", level = 0) {
 test("life settings save region schedule and multiline calendar overrides atomically", async ({ page }) => {
   await fixture(page); await page.goto("/");
   await openPetSettings(page);
-  const section = page.getByRole("region", { name: "桌宠与运维预警" });
+  const section = page.getByRole("region", { name: "桌面陪伴与生活陪伴设置" });
   await section.locator("summary").filter({ hasText: "地区与生活提醒" }).click();
   await section.getByLabel("开启生活提醒").check();
   await section.getByLabel("灾害天气预警").check();
@@ -59,7 +59,7 @@ test("life settings save region schedule and multiline calendar overrides atomic
 test("life settings retain a rejected draft and explain unsupported holiday years", async ({ page }) => {
   await fixture(page); await page.goto("/");
   await openPetSettings(page);
-  const section = page.getByRole("region", { name: "桌宠与运维预警" });
+  const section = page.getByRole("region", { name: "桌面陪伴与生活陪伴设置" });
   await section.locator("summary").filter({ hasText: "地区与生活提醒" }).click();
   await section.getByLabel("开启生活提醒").check();
   await section.getByLabel("上班时间", { exact: true }).fill("14:00");

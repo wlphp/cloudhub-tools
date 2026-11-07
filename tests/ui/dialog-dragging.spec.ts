@@ -15,6 +15,7 @@ test("account dialog moves when dragging blank space in its header", async ({ pa
   });
   await page.goto(process.env.CLOUDHUB_TEST_BASE_URL || "/");
   await page.setViewportSize({ width: 1440, height: 900 });
+  await page.getByRole("button", { name: "账号管理", exact: true }).click();
   await page.getByRole("button", { name: "添加云账号" }).click();
 
   const dialog = page.getByRole("dialog", { name: "添加云账号" });

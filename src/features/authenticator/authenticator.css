@@ -335,7 +335,7 @@
 .auth-mobile .auth-unlock button,
 .auth-mobile .auth-actions button { min-height: 38px; }
 .auth-mobile .auth-unavailable button,
-.auth-mobile .auth-unlock button { min-height: 38px; }
+.auth-mobile .auth-unlock button { min-height: 44px; }
 @media (max-width: 420px) {
   .auth-mobile .auth-toolbar { grid-template-columns: minmax(0, 1fr) auto; }
   .auth-mobile .auth-toolbar > select { width: 100%; }

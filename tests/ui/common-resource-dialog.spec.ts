@@ -26,6 +26,7 @@ test("summary, servers, lightweight servers and WHOIS reuse the neutral shared s
     } };
   });
   await page.goto("/");
+  await page.getByRole("button", { name: "账号管理", exact: true }).click();
   for (const view of ["summary", "ecs", "swas"]) {
     if (view === "summary") await page.getByRole("button", { name: "打开 fixture-account 资产汇总", exact: true }).click();
     else if (view === "ecs") await page.getByRole("button", { name: /查看 fixture-account 服务器资产/ }).click();
@@ -69,6 +70,7 @@ test("resource dialog has one live pull action and refreshes local data without 
     }};
   });
   await page.goto("/");
+  await page.getByRole("button", { name: "账号管理", exact: true }).click();
   await page.getByRole("button", {name:"更多 fixture-account 资产操作",exact:true}).click();
   await page.getByRole("button", {name:/查看 fixture-account 云数据库资产/}).click();
   const dialog = page.locator(".resource-modal");

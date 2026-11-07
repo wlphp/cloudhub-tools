@@ -34,6 +34,7 @@ async function fixture(page: Page, accessType: "NS" | "CNAME" = "NS") {
     } });
   }, { accessType });
   await page.goto("/");
+  await page.getByRole("button", { name: "账号管理", exact: true }).click();
   await page.getByRole("button", { name: /查看 Fixture ESA 边缘安全加速资产/ }).click();
   await page.getByRole("button", { name: "站点列表", exact: true }).click();
   await page.getByRole("button", { name: "证书部署", exact: true }).click();

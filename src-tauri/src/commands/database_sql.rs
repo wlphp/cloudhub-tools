@@ -163,11 +163,13 @@ fn dump_scoped(conn: &Connection, key: &[u8], tables: &[String], requested:&[Str
             let rowid:i64=row.get(0).map_err(|_|err())?;
             let inherited:Option<String>=if policy::exists(conn,"cloudhub_transfer_ids")? {conn.query_row("SELECT portable_id FROM cloudhub_transfer_ids WHERE table_name=?1 AND source_rowid=?2",rusqlite::params![table,rowid],|r|r.get(0)).optional().map_err(|_|err())?}else{None};
             let inherited=if inherited.is_some() {inherited}else if policy::exists(conn,"data_transfer_identity")? {conn.query_row("SELECT portable_id FROM data_transfer_identity WHERE table_name=?1 AND target_rowid=?2 ORDER BY portable_id LIMIT 1",rusqlite::params![table,rowid],|r|r.get(0)).optional().map_err(|_|err())?}else{None};
+            let inherited_for_debug = inherited.clone();
             let portable_id=inherited.unwrap_or_else(|| {
                 let mut hash=Sha256::new(); hash.update(key); hash.update(table.as_bytes()); hash.update(rowid.to_le_bytes());
                 if let Some(index)=names.iter().position(|name|name=="created_at") {hash.update(values[index].as_bytes());}
                 format!("{:x}",hash.finalize())
             });
+            if table == "codex_provider_keys" { eprintln!("DUMP table={table} rowid={rowid} inherited={:?} portable={portable_id}", inherited_for_debug); }
             output.push_str(&format!("-- record: {portable_id}\nINSERT INTO {} ({}) VALUES ({});\n", ident(table), names.iter().map(|name| ident(name)).collect::<Vec<_>>().join(","), values.join(",")));
             for value in &mut values { use zeroize::Zeroize; value.zeroize(); }
             if output.len() as u64 > MAX_SQL { return Err("SQL 超过 64 MB 限制，请缩小导出范围".into()); }
@@ -1023,6 +1025,137 @@ mod tests {
         assert_eq!(table_count(&target,"cloud_accounts").unwrap(),1);
         assert_eq!(table_count(&target,"ssh_connections").unwrap(),1);
     }
+    fn debug_load(conn: &mut Connection, input: &str, key: &[u8]) -> Result<Vec<String>, String> {
+        if input.len() as u64 > MAX_SQL { return Err("LEN".into()); }
+        let tail = input.strip_prefix(HEADER).ok_or("HEADER")?;
+        let (schema, tail) = tail.split_once('\n').ok_or("SCHEMA-LINE")?;
+        let version: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0)).map_err(|_| "VERSION-READ".to_string())?;
+        if schema != format!("-- schema: {version}") { return Err(format!("VERSION {schema} != {version}")); }
+        let (tables, tail) = tail.split_once('\n').ok_or("TABLES-LINE")?;
+        let names = tables.strip_prefix("-- tables: ").ok_or("TABLES-PREFIX")?.split(',').map(String::from).collect::<Vec<_>>();
+        let tables = selected(Some(names.clone()))?;
+        if tables != names { return Err(format!("TABLES-MISMATCH {tables:?} vs {names:?}")); }
+        let (_, tail) = tail.strip_prefix("-- WARNING: ").ok_or("WARN-PREFIX")?.split_once('\n').ok_or("WARN-LINE")?;
+        let (requested, tail) = if let Some(rest) = tail.strip_prefix("-- requested: ") {
+            let (line, tail) = rest.split_once('\n').ok_or("REQ-LINE")?;
+            let requested = line.split(',').map(String::from).collect::<Vec<_>>();
+            let recomputed = selected(Some(requested.clone()))?;
+            if recomputed != tables { return Err(format!("REQ-MISMATCH {recomputed:?} vs {tables:?}")); }
+            (requested, tail)
+        } else { (tables.clone(), tail) };
+        let tx = conn.transaction().map_err(|_| "TX".to_string())?;
+        tx.execute_batch("CREATE TABLE cloudhub_sql_scope(name TEXT PRIMARY KEY)").map_err(|e| format!("SCOPE-TABLE {e}"))?;
+        for table in requested { tx.execute("INSERT INTO cloudhub_sql_scope VALUES(?1)", [table]).map_err(|e| format!("SCOPE-ROW {e}"))?; }
+        let mut parser = Parser { rest: tail };
+        let mut count = 0usize;
+        loop {
+            parser.ws(); if parser.rest.is_empty() { break; }
+            let portable_id = if parser.rest.starts_with("-- record: ") {
+                let (line, tail) = parser.rest.split_once('\n').ok_or("RECORD-LINE")?;
+                let id = line.strip_prefix("-- record: ").ok_or("RECORD-PREFIX")?;
+                if id.len() != 64 || !id.bytes().all(|byte| byte.is_ascii_hexdigit()) { return Err(format!("RECORD-ID {:?}", &id[..id.len().min(80)])); }
+                parser.rest = tail; Some(id.to_string())
+            } else { None };
+            count += 1;
+            parser.take("INSERT INTO ").map_err(|_| format!("REC{count} INSERT"))?;
+            let table = parser.quoted('"').map_err(|_| format!("REC{count} TABLE"))?;
+            if !tables.contains(&table) { return Err(format!("REC{count} UNKNOWN-TABLE {table}")); }
+            parser.take("(").map_err(|_| format!("REC{count} LPAREN"))?;
+            let expected = columns(&tx, &table)?;
+            let mut fields = Vec::new();
+            loop { fields.push(parser.quoted('"').map_err(|_| format!("REC{count} FIELD"))?); parser.ws(); if parser.rest.starts_with(')') { parser.take(")")?; break; } parser.take(",")?; if fields.len() > 128 { return Err("TOO-MANY-FIELDS".into()); } }
+            if fields.is_empty() || fields.iter().enumerate().any(|(index, name)| !expected.contains(name) || fields[..index].contains(name)) { return Err(format!("REC{count} FIELDS-DIFF table={table} fields={fields:?} expected={expected:?}")); }
+            if fields.len() != expected.len() {
+                let mut statement = tx.prepare(&format!("PRAGMA table_info({})", ident(&table))).map_err(|_| "TABLE-INFO".to_string())?;
+                let info = statement.query_map([], |row| Ok((row.get::<_, String>(1)?, row.get::<_, i64>(3)?, row.get::<_, Option<String>>(4)?, row.get::<_, i64>(5)?))).map_err(|_| "TABLE-INFO".to_string())?.collect::<rusqlite::Result<Vec<_>>>().map_err(|_| "TABLE-INFO".to_string())?;
+                if info.iter().any(|(name, not_null, default, primary_key)| !fields.contains(name) && *not_null != 0 && default.is_none() && *primary_key == 0) { return Err(format!("REC{count} MISSING-REQUIRED table={table} fields={fields:?}")); }
+            }
+            parser.take("VALUES (").map_err(|_| format!("REC{count} VALUES"))?;
+            let mut values = Vec::new();
+            for (i, name) in fields.iter().enumerate() {
+                if i > 0 { parser.take(",")?; }
+                let mut value = parser.value().map_err(|_| format!("REC{count} VALUE {table}.{name}"))?;
+                value = policy::convert(&table, name, policy::clean_value(&table, name, value), None, Some(key)).map_err(|e| format!("REC{count} CONVERT {table}.{name}: {e}"))?;
+                values.push(value);
+            }
+            parser.take(")").map_err(|_| format!("REC{count} RPAREN"))?; parser.take(";").map_err(|_| format!("REC{count} SEMI"))?;
+            let sql = format!("INSERT INTO {} ({}) VALUES ({})", ident(&table), fields.iter().map(|name| ident(name)).collect::<Vec<_>>().join(","), vec!["?"; fields.len()].join(","));
+            tx.execute(&sql, params_from_iter(values.iter())).map_err(|e| format!("REC{count} EXEC {table}: {e}"))?;
+            if let Some(id) = portable_id { tx.execute("INSERT INTO cloudhub_transfer_ids VALUES(?1,?2,?3)", rusqlite::params![table, tx.last_insert_rowid(), id]).map_err(|e| format!("REC{count} ID-ROW: {e}"))?; }
+        }
+        tx.commit().map_err(|_| "COMMIT".to_string())?;
+        Ok(tables)
+    }
+
+    #[test]
+    #[ignore]
+    fn temporary_real_data_roundtrip() {
+        let src = std::path::PathBuf::from(std::env::var("CH_SRC_DB").unwrap());
+        let key = std::fs::read(std::env::var("CH_KEY").unwrap()).unwrap();
+        assert_eq!(key.len(), 32);
+        let dir = std::env::temp_dir().join(format!("ch-real-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let copy = dir.join("desktop.sqlite3");
+        std::fs::copy(&src, &copy).unwrap();
+        let desktop = crate::core::database::open_transfer_test_db(&copy).unwrap();
+        let phone = crate::core::database::open_transfer_test_db(&dir.join("phone.sqlite3")).unwrap();
+        for (table, _) in TABLES {
+            let a = columns(&desktop, table).unwrap_or_default();
+            let b = columns(&phone, table).unwrap_or_default();
+            if a != b { eprintln!("COLUMN-DIFF {table}\n  desktop={a:?}\n  phone={b:?}"); }
+        }
+        let tables: Vec<String> = policy::TABLES.iter().map(|(t, _)| t.to_string()).filter(|t| t != "authenticator_entries").collect();
+        let input = match export_portable(&desktop, &key, &tables, false) {
+            Ok(value) => { eprintln!("export ok {} bytes", value.len()); value }
+            Err(error) => panic!("export failed: {error}"),
+        };
+        eprintln!("header={:?}", &input.lines().take(4).collect::<Vec<_>>());
+        {
+            let mut seen: std::collections::HashMap<(String, String), usize> = std::collections::HashMap::new();
+            let mut current: Option<String> = None;
+            let mut duplicates: Vec<((String, String), usize)> = Vec::new();
+            for line in input.lines() {
+                if let Some(id) = line.strip_prefix("-- record: ") { current = Some(id.to_string()); continue; }
+                if let Some(rest) = line.strip_prefix("INSERT INTO \"") {
+                    let table = rest.split('"').next().unwrap_or_default().to_string();
+                    if let Some(id) = current.take() {
+                        let count = seen.entry((table.clone(), id.clone())).or_insert(0);
+                        *count += 1;
+                        if *count > 1 { duplicates.push(((table, id), *count)); }
+                    }
+                }
+            }
+            for ((table, id), count) in duplicates.iter().take(10) {
+                eprintln!("DUPLICATE table={table} id={id} count={count}");
+                let mut current: Option<String> = None;
+                for line in input.lines() {
+                    if let Some(value) = line.strip_prefix("-- record: ") { current = Some(value.to_string()); continue; }
+                    if line.starts_with("INSERT INTO \"codex_provider_keys\"") || line.starts_with("INSERT INTO \"codex_provider_aggregates\"") {
+                        let head = line.splitn(3, ") VALUES (").nth(1).unwrap_or("");
+                        let first = head.split(',').next().unwrap_or("");
+                        eprintln!("  rec={:?} head={:?} first={:?}", current, line.splitn(2, ") VALUES (").next().unwrap_or(""), first);
+                    }
+                }
+            }
+            eprintln!("duplicate groups = {}", duplicates.len());
+        }
+        {
+            let mut stage = create_stage(&phone, Path::new(":memory:")).unwrap();
+            match debug_load(&mut stage, &input, &[7u8; 32]) {
+                Ok(tables) => eprintln!("debug_load ok {:?}", tables.len()),
+                Err(error) => eprintln!("debug_load: {error}"),
+            }
+        }
+        match portable_preview(&phone, &input, &[7u8; 32]) {
+            Ok(list) => eprintln!("preview ok: {:?}", list.iter().map(|c| (c.table.clone(), c.count)).collect::<Vec<_>>()),
+            Err(error) => panic!("preview failed: {error}"),
+        }
+        let mut phone = phone;
+        let tx = phone.transaction().unwrap();
+        match import_portable(&tx, &input, &[7u8; 32], "merge") { Ok(value) => eprintln!("import ok {value:?}"), Err(error) => panic!("import failed: {error}") }
+        tx.commit().unwrap();
+    }
+
     #[test]
     fn strict_literals_preserve_multiline_secrets_and_reject_expressions() {
         let mut p = Parser { rest: "'fixture'';\nvalue',NULL,123,1.5,X'0102')" };

@@ -121,3 +121,26 @@
 /* 插件页面按钮：紧凑尺寸（页面内所有主要/次要按钮） */
 .plugin-page-host :is(.primary, .secondary, .icon-button) { min-height: 32px; height: 32px; padding: 0 12px; font-size: 12px; gap: 6px; }
 .plugin-page-host :is(.primary, .secondary, .icon-button) svg { width: 14px; height: 14px; }
+
+/* 移动壳内插件页按触控目标尺寸渲染；桌面端保持上面的紧凑尺寸。 */
+@media (max-width: 760px) {
+  .plugin-page-host .plugin-page-back,
+  .plugin-page-host :is(.primary, .secondary, .icon-button) {
+    height: auto;
+    min-height: 44px;
+    padding: 0 14px;
+    font-size: 13px;
+    gap: 8px;
+  }
+  .plugin-page-host .plugin-page-back svg,
+  .plugin-page-host :is(.primary, .secondary, .icon-button) svg { width: 16px; height: 16px; }
+  .plugin-page-host .icon-button { min-width: 44px; padding: 0; }
+  /* 插件自己的操作按钮（微信多开、Windows 工具箱等）同步满足 44px 触控高度。 */
+  .plugin-page-host button:not(.plugin-page-back),
+  .plugin-page-host [role="button"],
+  .plugin-page-host a { min-height: 44px; }
+  .plugin-page-host .plugin-page-head-extra button { height: auto; }
+  .ide-theme .plugin-page-head-extra .hardware-info-refresh,
+  .plugin-page-host .plugin-page-head-extra .hardware-info-refresh { height: 44px; min-height: 44px; padding: 0 12px; font-size: 13px; }
+  .plugin-page-host .plugin-page-head-extra .hardware-info-updated { line-height: 44px; }
+}

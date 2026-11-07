@@ -26,6 +26,7 @@ test("ESA loads on open, refreshes filters automatically and ignores stale respo
     } });
   });
   await page.goto("/");
+  await page.getByRole("button", { name: "账号管理", exact: true }).click();
   await page.getByRole("button", { name: /查看 Fixture ESA 边缘安全加速资产/ }).click();
   const refresh = page.locator(".esa-head").getByRole("button", { name: "实时拉取", exact: true });
   await expect(page.getByRole("alert")).toContainText("MissingFields");

@@ -83,6 +83,7 @@
   .store-catalog .store-table tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border: 1px solid var(--jb-border); border-radius: 4px; }
   .store-catalog .store-table td { display: flex; align-items: center; gap: 12px; min-width: 0; }
   .store-catalog .store-table tr:not(.is-expanded) td:not([data-label="软件名称"]) { display: none; }
+  .ide-theme .store-catalog .store-table tr:not(.is-expanded) td[data-label="操作"] { display: flex !important; grid-column: 1 / -1; }
   .store-catalog .store-table tr:not(.is-expanded) td[data-label="软件名称"] { grid-column: 1 / -1; }
   .store-catalog .store-table td::before { content: attr(data-label); color: var(--jb-muted); flex: 0 0 52px; }
   .store-catalog .store-table td:first-child, .store-catalog .store-table .store-description { grid-column: 1 / -1; max-width: none; }

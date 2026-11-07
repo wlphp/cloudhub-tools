@@ -15,7 +15,7 @@ const navigation: Record<string, { section?: ApplicationSection; order: number; 
   "cloudhub.wechat-multi": { order: 80, sidebar: false, icon: MessageCircle, keywords: "微信 WeChat Weixin Windows" },
   "cloudhub.hardware-info": { order: 90, sidebar: false, icon: Cpu, keywords: "硬件 设备 系统 CPU 显卡" },
   "cloudhub.wsl-dashboard": { order: 100, sidebar: false, icon: SquareTerminal, keywords: "WSL Linux Ubuntu Debian 发行版" },
-  "cloudhub.fingerprint-browser": { order: 110, sidebar: false, icon: Globe, keywords: "Chromium Chrome 代理 浏览器" },
+  "cloudhub.fingerprint-browser": { order: 110, sidebar: true, icon: Globe, keywords: "Chromium Chrome 代理 浏览器" },
   "cloudhub.lan-devices": { order: 120, sidebar: false, icon: Network, keywords: "局域网 扫描 IP MAC NAS 打印机 端口 LAN" },
   "cloudhub.network-speed": { order: 130, sidebar: false, icon: Gauge, keywords: "网络 测速 下载 上传 带宽 延迟 speedtest Mbps" },
   "cloudhub.environment-variables": { order: 145, sidebar: false, icon: Variable, keywords: "环境变量 Environment Variables Path JAVA_HOME 开发 Windows 系统 用户" },
@@ -47,7 +47,9 @@ export function parseApplicationPreferences(raw: string | null | undefined): App
   } catch { return {}; }
 }
 export function applicationPreference(app: ApplicationDefinition, preferences: ApplicationPreferences): ApplicationPreference {
-  return preferences[app.id] ?? { order: app.order, sidebar: app.sidebar, home: app.sidebar };
+  const preference = preferences[app.id] ?? { order: app.order, sidebar: app.sidebar, home: app.sidebar };
+  // This tool is a first-class navigation destination; older saved preferences may still say hidden.
+  return app.id === "cloudhub.fingerprint-browser" ? { ...preference, sidebar: true } : preference;
 }
 export function sortedApplications(preferences: ApplicationPreferences) {
   return [...applicationCatalog].sort((a, b) => applicationPreference(a, preferences).order - applicationPreference(b, preferences).order || a.order - b.order);

@@ -91,7 +91,7 @@ function OfficialPluginsStore({ initialPluginId, forceInitialPageMode, applicati
     // 从左侧菜单进入的应用始终整页打开；弹层设置只在商店列表内打开时生效。
     return { id: initialPluginId, presentation: forceInitialPageMode ? { ...stored, mode: "page" } : stored };
   });
-  const returnPosition = useRef({ windowY: 0, mainY: 0, entry: null as HTMLElement | null });
+  const returnPosition = useRef({ windowY: 0, mainY: 0, contentY: 0, entry: null as HTMLElement | null });
   const [recent, setRecent] = useState(() => {
     try { return localStorage.getItem(`${plugin.id}.last-used`) !== null; } catch { return false; }
   });
@@ -124,6 +124,7 @@ function OfficialPluginsStore({ initialPluginId, forceInitialPageMode, applicati
     returnPosition.current = {
       windowY: window.scrollY,
       mainY: document.getElementById("main-content")?.scrollTop ?? 0,
+      contentY: document.querySelector<HTMLElement>(".mobile-content")?.scrollTop ?? 0,
       entry: document.activeElement instanceof HTMLElement ? document.activeElement : null,
     };
     setActivePlugin({ id: pluginId, presentation: get(pluginId) });
@@ -152,6 +153,8 @@ function OfficialPluginsStore({ initialPluginId, forceInitialPageMode, applicati
     window.requestAnimationFrame(() => {
       const main = document.getElementById("main-content");
       if (main) main.scrollTop = position.mainY;
+      const content = document.querySelector<HTMLElement>(".mobile-content");
+      if (content) content.scrollTop = position.contentY;
       window.scrollTo({ top: position.windowY, behavior: "instant" });
       const entry = position.entry?.isConnected ? position.entry
         : document.querySelector<HTMLElement>(`[data-plugin-entry="${CSS.escape(pluginId ?? "")}"]`);
