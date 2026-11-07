@@ -57,7 +57,7 @@ export const resourceLabels: Record<Exclude<View, "summary">, string> = {
 };
 
 export const cloudProviders = [
-  { value: "aliyun", label: "阿里云", idLabel: "AccessKey ID", secretLabel: "AccessKey Secret", regionPlaceholder: "cn-hangzhou", avatar: "阿" },
+  { value: "aliyun", label: "阿里云", idLabel: "AccessKey ID", secretLabel: "AccessKey Secret", regionPlaceholder: "", avatar: "阿" },
   { value: "tencent", label: "腾讯云", idLabel: "SecretId", secretLabel: "SecretKey", regionPlaceholder: "ap-guangzhou", avatar: "腾" },
   { value: "volcengine", label: "火山引擎", idLabel: "AccessKey ID", secretLabel: "Secret Access Key", regionPlaceholder: "cn-beijing", avatar: "火" },
   { value: "ctyun", label: "天翼云", idLabel: "AccessKey", secretLabel: "SecretKey", regionPlaceholder: "cn-huabei-9", avatar: "翼" },

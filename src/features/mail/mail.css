@@ -24,3 +24,21 @@
 .mail-list-tools{padding:14px;border-bottom:1px solid var(--jb-border);min-height:34px}.mail-list-tools small{display:inline-block;padding:2px 6px;border-radius:4px;background:var(--jb-surface-2);color:var(--jb-muted)}.mail-message-row{padding:14px;gap:8px}.mail-message-row.is-selected{border-left:3px solid var(--jb-accent-strong)}.mail-reader>.mail-empty{min-height:360px}.mail-empty>svg{box-sizing:content-box;padding:16px;border:1px solid var(--jb-border);border-radius:16px;background:var(--jb-surface-2);color:var(--jb-muted)}.mail-empty h3{color:var(--jb-text);margin-top:4px}.mail-reader header{padding:20px}.mail-body{padding:20px}
 @media(max-width:1100px){.mail-workspace{grid-template-columns:240px minmax(0,1fr)}.mail-reader{grid-column:1/-1;border-top:1px solid var(--jb-border);max-height:70vh}.mail-list-pane{border-right:0}.mail-message-list{max-height:350px}.mail-toolbar-search{order:3;flex-basis:100%;max-width:none}.mail-reader>.mail-empty{min-height:200px}}
 @media(max-width:600px){.mail-workspace{display:flex;flex-direction:column}.mail-sidebar{border-right:0;border-bottom:1px solid var(--jb-border)}.mail-sidebar nav{flex-direction:row;flex-wrap:wrap}.mail-sidebar .mail-hint{display:none}.mail-form{grid-template-columns:1fr}.mail-form-wide{grid-column:auto}.mail-toolbar-actions{order:2;flex-wrap:wrap}.mail-toolbar-search{order:3;flex:1 1 100%;max-width:none;margin:0;padding:0}.mail-reader{max-height:none}.mail-toolbar{align-items:flex-start}.mail-empty{min-height:150px;padding:28px 12px}}
+
+/* The mobile shell may use a wide viewport, so scope compact mail layout to the shell itself. */
+body:has(.mobile-shell) .plugin-page-host:has(.mail-app) .mail-app { gap: 10px; min-height: 0; }
+body:has(.mobile-shell) .plugin-page-host:has(.mail-app) .mail-title { display: none; }
+body:has(.mobile-shell) .plugin-page-host:has(.mail-app) .mail-toolbar { gap: 10px; padding: 0; align-items: center; }
+body:has(.mobile-shell) .plugin-page-host:has(.mail-app) .mail-toolbar-actions { order: 0; gap: 8px; }
+body:has(.mobile-shell) .plugin-page-host:has(.mail-app) .mail-toolbar-actions button { min-height: 44px; height: 44px; border-radius: 8px; }
+body:has(.mobile-shell) .plugin-page-host:has(.mail-app) .mail-toolbar-search { order: 1; flex: 1 1 100%; max-width: none; margin: 0; }
+body:has(.mobile-shell) .plugin-page-host:has(.mail-app) .mail-workspace { display: flex; flex-direction: column; min-height: 0; }
+body:has(.mobile-shell) .plugin-page-host:has(.mail-app) .mail-sidebar { padding: 12px; border-right: 0; border-bottom: 1px solid var(--jb-border); }
+body:has(.mobile-shell) .plugin-page-host:has(.mail-app) .mail-sidebar nav { flex-direction: row; flex-wrap: wrap; }
+body:has(.mobile-shell) .plugin-page-host:has(.mail-app) .mail-sidebar .mail-hint { display: none; }
+body:has(.mobile-shell) .plugin-page-host:has(.mail-app) .mail-list-pane { border-right: 0; }
+body:has(.mobile-shell) .plugin-page-host:has(.mail-app) .mail-list-tools { min-height: 44px; padding: 8px 12px; }
+body:has(.mobile-shell) .plugin-page-host:has(.mail-app) .mail-message-list { max-height: 220px; min-height: 0; }
+body:has(.mobile-shell) .plugin-page-host:has(.mail-app) .mail-reader { max-height: none; border-top: 1px solid var(--jb-border); }
+body:has(.mobile-shell) .plugin-page-host:has(.mail-app) .mail-reader > .mail-empty { min-height: 128px; padding: 20px 14px; gap: 8px; }
+body:has(.mobile-shell) .plugin-page-host:has(.mail-app) .mail-reader > .mail-empty > svg { width: 26px; height: 26px; padding: 8px; border-radius: 10px; }

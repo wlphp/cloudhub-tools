@@ -899,6 +899,25 @@ pub fn run() {
         builder = builder.plugin(tauri_plugin_cloudhub_mobile_updater::init());
     }
     let builder = builder.setup(|app| {
+            #[cfg(desktop)]
+            use tauri::Manager;
+            #[cfg(desktop)]
+            if app.get_webview_window("main").is_none() {
+                let window_config = app
+                    .config()
+                    .app
+                    .windows
+                    .iter()
+                    .find(|window| window.label == "main")
+                    .ok_or_else(|| std::io::Error::other("未找到调试版主窗口配置"))?;
+                let data_directory = app
+                    .path()
+                    .app_local_data_dir()?
+                    .join("webview2-debug-profile");
+                tauri::WebviewWindowBuilder::from_config(app, window_config)?
+                    .data_directory(data_directory)
+                    .build()?;
+            }
             #[cfg(mobile)]
             core::crypto::initialize_mobile_key_store(app).map_err(|message| std::io::Error::other(message))?;
             #[cfg(mobile)]

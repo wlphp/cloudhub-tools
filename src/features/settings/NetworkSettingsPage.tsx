@@ -9,7 +9,9 @@ type ProxyStatus = { id: string; name: string; url: string; authConfigured: bool
 type ProxyDraft = ProxyStatus & { username: string; password: string };
 type PoolStatus = { enabled: boolean; selectedId: string | null; proxies: ProxyStatus[] };
 type ProxyCandidate = { url: string; source: string; enabled: boolean };
-const supportsNetworkProxy = runningInTauri;
+// Global proxy configuration changes the desktop process environment. The command is
+// intentionally unavailable in Android/iOS builds, even though they run in Tauri.
+const supportsNetworkProxy = runningInTauri && !/Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 const emptyDraft = (): ProxyDraft => ({ id: crypto.randomUUID(), name: "", url: "", authConfigured: false, username: "", password: "" });
 
 export function NetworkSettingsPage({ mobile = false }: { mobile?: boolean }) {

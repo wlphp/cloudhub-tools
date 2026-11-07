@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState, type MutableRefObject } from "react";
-import { Activity, BellRing, CheckCircle2, ChevronLeft, ChevronRight, Search, Settings2, ShieldAlert } from "lucide-react";
+import { Activity, CheckCircle2, ChevronLeft, ChevronRight, Search, Settings2, ShieldAlert } from "lucide-react";
 import { runningInTauri, platformErrorMessage } from "../platform/api";
 import { monitorSeverityLabel, sortMonitorAlerts, type MonitorAlert, type MonitorSnapshot } from "../platform/clients/monitorAlerts";
 import { defaultMonitorSettings, monitorAlertsClient, type MonitorSettings } from "../platform/clients/monitorAlerts";
-import type { LocalAsset } from "../shared/types";
+import type { Account, LocalAsset } from "../shared/types";
 import { resourcesClient } from "../platform/clients/resources";
 import { SharedDialog } from "../shared/SharedDialog";
 
@@ -14,7 +14,7 @@ const assetTypeLabels: Record<string, string> = { ecs: "云服务器", cvm: "云
 const assetAlertKey = (asset: LocalAsset) => `asset:${asset.account_id}:${asset.resource_type}:${asset.asset_key}`;
 const assetName = (asset: LocalAsset) => ["InstanceName", "Name", "name", "DomainName", "BucketName"].map(key => asset.payload[key]).find(value => typeof value === "string" && value.trim()) as string | undefined ?? asset.asset_key;
 
-export function MobileMonitorAlertsPage({ compact = false, onActiveCount, refreshRef }: { compact?: boolean; onActiveCount?: (count: number) => void; refreshRef?: MutableRefObject<(() => Promise<void>) | null> }) {
+export function MobileMonitorAlertsPage({ compact = false, onActiveCount, refreshRef, cachedAssets = [], accounts = [] }: { compact?: boolean; onActiveCount?: (count: number) => void; refreshRef?: MutableRefObject<(() => Promise<void>) | null>; cachedAssets?: LocalAsset[]; accounts?: Account[] }) {
   const [snapshot, setSnapshot] = useState<MonitorSnapshot>(emptySnapshot);
   const [status, setStatus] = useState<"active" | "recovered">("active");
   const [range, setRange] = useState<"today" | "yesterday" | "7days" | "all">("7days");
@@ -31,6 +31,15 @@ export function MobileMonitorAlertsPage({ compact = false, onActiveCount, refres
   const [strategyType, setStrategyType] = useState("all");
   const [strategySettings, setStrategySettings] = useState<MonitorSettings>(defaultMonitorSettings);
   const [strategyAssets, setStrategyAssets] = useState<LocalAsset[]>([]);
+
+  useEffect(() => {
+    if (!strategiesOpen || !cachedAssets.length) return;
+    setStrategyAssets(current => {
+      const byKey = new Map(current.map(asset => [assetAlertKey(asset), asset]));
+      cachedAssets.forEach(asset => byKey.set(assetAlertKey(asset), asset));
+      return [...byKey.values()];
+    });
+  }, [cachedAssets, strategiesOpen]);
 
   const refresh = async () => {
     if (!runningInTauri) {
@@ -52,9 +61,16 @@ export function MobileMonitorAlertsPage({ compact = false, onActiveCount, refres
     setStrategiesOpen(true); setStrategyLoading(true); setStrategyError(""); setStrategyQuery(""); setStrategyType("all");
     if (!runningInTauri) { setStrategyError("预警策略仅支持原生移动 App。请在 CloudHub Tools App 中打开。"); setStrategyLoading(false); return; }
     try {
-      const [settings, assets] = await Promise.all([monitorAlertsClient.settings(), resourcesClient.listLocal()]);
-      setStrategySettings(settings); setStrategyAssets(assets);
-    } catch (reason) { setStrategyError(platformErrorMessage(reason, "读取资产预警策略失败。")); }
+      const [settingsResult, assetsResult] = await Promise.allSettled([monitorAlertsClient.settings(), resourcesClient.listLocal()]);
+      const errors: string[] = [];
+      if (settingsResult.status === "fulfilled") setStrategySettings(settingsResult.value);
+      else errors.push(platformErrorMessage(settingsResult.reason, "读取预警策略失败。"));
+      const freshAssets = assetsResult.status === "fulfilled" ? assetsResult.value : [];
+      if (assetsResult.status === "rejected") errors.push(platformErrorMessage(assetsResult.reason, "读取本机资产失败。"));
+      const byKey = new Map([...cachedAssets, ...freshAssets].map(asset => [assetAlertKey(asset), asset]));
+      setStrategyAssets([...byKey.values()]);
+      setStrategyError(errors.join(" "));
+    } catch (reason) { setStrategyAssets(cachedAssets); setStrategyError(platformErrorMessage(reason, "读取预警策略失败。")); }
     finally { setStrategyLoading(false); }
   };
   const updateSettings = async (patch: Partial<MonitorSettings>) => {
@@ -113,13 +129,9 @@ export function MobileMonitorAlertsPage({ compact = false, onActiveCount, refres
 
   return <div className="mobile-alerts-page">
     {!compact && <header className="mobile-alerts-heading">
-      <div><p>本机运维状态</p><h1><BellRing size={21} aria-hidden="true" />监控预警</h1></div>
+      <div className="mobile-alerts-title"><div><h1>监控预警</h1><span>本机运维状态</span></div><p>集中查看服务器、域名与证书预警，管理策略并发起巡检。</p></div>
       <div className="mobile-alerts-heading-actions"><button type="button" className="mobile-alert-header-action" onClick={() => void openStrategies()}><Settings2 size={16} aria-hidden="true" />预警策略</button><button type="button" className="mobile-alert-header-action is-primary" disabled={!runningInTauri || checking || loading} title={!runningInTauri ? "立即巡检仅支持原生移动 App" : undefined} onClick={() => void runInspection()}><Activity size={16} className={checking ? "mobile-spin" : undefined} aria-hidden="true" />{checking ? "巡检中" : "立即巡检"}</button></div>
     </header>}
-    <div className="mobile-alerts-summary" aria-label="预警统计">
-      <span><i className="is-active" aria-hidden="true" />未解除 <strong>{activeCount}</strong></span>
-      <span><i className="is-recovered" aria-hidden="true" />已解除 <strong>{recoveredCount}</strong></span>
-    </div>
     <div className="mobile-alerts-filters" role="group" aria-label="预警状态筛选">
       <button type="button" aria-pressed={status === "active"} onClick={() => { setStatus("active"); setPage(1); }}>未解除 <span>{activeCount}</span></button>
       <button type="button" aria-pressed={status === "recovered"} onClick={() => { setStatus("recovered"); setPage(1); }}>已解除 <span>{recoveredCount}</span></button>
@@ -156,12 +168,13 @@ export function MobileMonitorAlertsPage({ compact = false, onActiveCount, refres
         </section>
         <div className="mobile-strategy-assets-heading"><strong>资产监控</strong><span>{strategyAssets.length} 项资产</span></div>
         <div className="mobile-strategy-toolbar"><label className="mobile-strategy-type">类型<select aria-label="按资产类型筛选" value={strategyType} onChange={event => setStrategyType(event.target.value)}><option value="all">全部类型（{strategyAssets.length}）</option>{assetTypes.map(type => <option key={type} value={type}>{assetTypeLabels[type] ?? type}（{strategyAssets.filter(asset => asset.resource_type === type).length}）</option>)}</select></label><label className="mobile-strategy-search"><Search size={16} aria-hidden="true" /><input type="search" aria-label="搜索预警策略资产" placeholder="搜索名称、ID、账号" value={strategyQuery} onChange={event => setStrategyQuery(event.target.value)} /></label></div>
-        <div className="mobile-strategy-select-all"><label><input type="checkbox" aria-label="全选当前筛选资产参与监控" checked={allVisibleEnabled} disabled={!supportedVisibleAssets.length || strategySaving || !strategySettings.monitoring || !strategySettings.servers} onChange={event => void setAssetParticipation(supportedVisibleAssets, event.target.checked)} /><span>全选当前筛选结果（{supportedVisibleAssets.length}）</span></label><small>仅支持到期监控的资产</small></div>
-        <div className="mobile-strategy-list" aria-busy={strategyLoading}>{visibleAssets.length ? visibleAssets.map(asset => {
+        <div className="mobile-strategy-select-all"><label><input type="checkbox" aria-label="全选当前筛选资产参与监控" checked={allVisibleEnabled} disabled={!supportedVisibleAssets.length || strategySaving || !strategySettings.monitoring || !strategySettings.servers} onChange={event => void setAssetParticipation(supportedVisibleAssets, event.target.checked)} /><span>全选当前筛选结果（{supportedVisibleAssets.length}）</span></label><small>仅支持服务器与域名到期监控</small></div>
+        <div className="mobile-strategy-list" aria-busy={strategyLoading}>{strategyLoading ? <p className="mobile-strategy-loading">正在读取资产与策略…</p> : visibleAssets.length ? visibleAssets.map(asset => {
           const supported = monitoredAssetTypes.has(asset.resource_type);
           const participating = strategySettings.monitoring && strategySettings.servers && !strategySettings.excludedAssetAlerts.includes(assetAlertKey(asset));
           const label = asset.resource_type === "domain" ? `域名到期提醒 · 提前 ${strategySettings.expiryDays} 天` : `服务器到期提醒 · 提前 ${strategySettings.expiryDays} 天`;
-          return <article className="mobile-strategy-asset" key={assetAlertKey(asset)}><div><strong>{assetName(asset)}</strong><span>账号 {asset.account_id} · {assetTypeLabels[asset.resource_type] ?? asset.resource_type}</span><small>{supported ? asset.resource_type === "domain" ? `${label}（以采集到的有效期为准）` : label : "当前版本暂无此类资产的预警规则"}</small></div>{supported ? <label className="mobile-strategy-asset-toggle"><input type="checkbox" aria-label={`${assetName(asset)}参与${asset.resource_type === "domain" ? "域名" : "服务器"}到期监控`} checked={participating} disabled={strategySaving || !strategySettings.monitoring || !strategySettings.servers} onChange={event => void setAssetParticipation([asset], event.target.checked)} /><span>{participating ? "监控中" : "未参与"}</span></label> : <span className="mobile-strategy-unsupported">未支持</span>}</article>;
+          const accountName = accounts.find(account => account.id === asset.account_id)?.account_name ?? `账号 ${asset.account_id}`;
+          return <article className="mobile-strategy-asset" key={assetAlertKey(asset)}><div><strong>{assetName(asset)}</strong><span>{accountName} · {assetTypeLabels[asset.resource_type] ?? asset.resource_type}</span><small>{supported ? asset.resource_type === "domain" ? `${label}（以采集到的有效期为准）` : label : "当前版本暂无此类资产的预警规则"}</small></div>{supported ? <label className="mobile-strategy-asset-toggle"><input type="checkbox" aria-label={`${assetName(asset)}参与${asset.resource_type === "domain" ? "域名" : "服务器"}到期监控`} checked={participating} disabled={strategySaving || !strategySettings.monitoring || !strategySettings.servers} onChange={event => void setAssetParticipation([asset], event.target.checked)} /><span>{participating ? "监控中" : "未参与"}</span></label> : <span className="mobile-strategy-unsupported">未支持</span>}</article>;
         }) : <p className="mobile-strategy-empty">{strategyAssets.length ? "没有匹配的资产。" : "本机暂无已保存资产。"}</p>}</div>
       </>}
     </SharedDialog>}

@@ -1,6 +1,5 @@
 import fishSprite from "./assets/fish-sprites.png";
 import fishFrames from "./assets/fish-frames.json";
-import heads from "./assets/pet-heads.json";
 import alpacaSprite from "./assets/alpaca-sprites.png";
 import dogSprite from "./assets/dog-sprites.png";
 import penguinSprite from "./assets/penguin-sprites.png";
@@ -37,9 +36,4 @@ export function petSpriteStyle(appearance: PetSettings["appearance"], column: nu
     return { backgroundSize: `${1536 / width * 100}% ${1024 / height * 100}%`, backgroundPosition: `${left / (1536 - width) * 100}% ${top / (1024 - height) * 100}%` };
   }
   return { backgroundSize: "600% 400%", backgroundPosition: `${column * 20}% ${row * 100 / 3}%` };
-}
-
-export function petHeadStyle(appearance: PetSettings["appearance"]) {
-  const [left,top,width,height] = heads[appearance === "dog" ? 1 : appearance === "penguin" ? 2 : appearance === "fish" ? 3 : 0];
-  return { backgroundImage: `url("${petAppearances[appearance].sprite}")`, backgroundSize: `${1536/width*100}% ${1024/height*100}%`, backgroundPosition: `${left/(1536-width)*100}% ${top/(1024-height)*100}%` };
 }

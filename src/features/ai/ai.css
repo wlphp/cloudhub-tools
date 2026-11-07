@@ -143,3 +143,37 @@
 .ai-supplier-import{display:grid;gap:8px;min-width:0;padding:12px;border:1px solid var(--jb-border,var(--jb-surface-3));border-radius:5px;background:var(--jb-surface,var(--jb-input))}.ai-supplier-import>strong{line-height:20px}.ai-supplier-import>div{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:8px}.ai-supplier-import label{display:grid;gap:6px;min-width:0;margin:0;line-height:18px}.ai-supplier-import select{box-sizing:border-box;width:100%;min-width:0;max-width:100%;height:38px;min-height:38px;margin:0}.ai-supplier-import button{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;gap:6px;height:38px;min-height:38px;margin:0;padding:0 12px;white-space:nowrap}.ai-supplier-import small,.ai-supplier-import>span{color:var(--jb-muted,var(--jb-muted));overflow-wrap:anywhere}.ai-supplier-import [role="status"]{line-height:1.45}
 @media(max-width:520px){.ai-supplier-import>div{grid-template-columns:minmax(0,1fr)}.ai-supplier-import button{width:100%}}
 .codex-provider-editor .ai-supplier-import select,.claude-providers .ai-supplier-import select{height:40px;min-height:40px;padding:0 12px}.codex-provider-editor .ai-supplier-import button,.claude-providers .ai-supplier-import button{height:40px;min-height:40px}
+
+/* Refine the mobile model-provider list and its shared editor dialog. */
+.mobile-shell .ai-settings .ai-settings-header { margin-bottom: 14px; }
+.mobile-shell .ai-settings .ai-settings-header h2 { gap: 8px; font-size: 17px; letter-spacing: -.02em; }
+.mobile-shell .ai-settings .ai-profile-list { gap: 12px; }
+.mobile-shell .ai-settings .ai-profile { gap: 11px; padding: 14px 14px 0; border-radius: 14px; box-shadow: 0 2px 10px color-mix(in srgb,var(--mobile-text) 4%,transparent); }
+.mobile-shell .ai-settings .ai-profile > div:first-child { gap: 7px; }
+.mobile-shell .ai-settings .ai-profile > div:first-child > strong { font-size: 15px; }
+.mobile-shell .ai-settings .ai-profile > div:first-child > span { font-size: 12px; line-height: 1.55; }
+.mobile-shell .ai-settings .ai-profile > .ai-actions { gap: 8px; padding: 12px 0 14px; }
+.mobile-shell .ai-settings .ai-profile > .ai-actions > button { min-height: 42px; border-radius: 9px; font-weight: 600; }
+.mobile-shell .ai-settings .ai-profile > .ai-actions > button:first-child { background: var(--mobile-raised); }
+.mobile-shell .ai-settings .ai-profile > .ai-actions > button:nth-child(2) { border-color: color-mix(in srgb,var(--mobile-accent) 34%,var(--mobile-border)); background: color-mix(in srgb,var(--mobile-accent) 9%,var(--mobile-surface)); }
+.mobile-shell .ai-settings .ai-profile > .ai-actions > button:last-child { flex-basis: 46px; width: 46px; min-height: 42px; }
+.mobile-shell .ai-config-dialog-body { gap: 12px; padding: 14px; }
+.mobile-shell .ai-config-dialog-body > label { gap: 6px; margin: 0; color: var(--mobile-text); font-size: 13px; font-weight: 600; }
+.mobile-shell .ai-config-dialog-body > label :is(input,select) { min-height: 46px; border-color: var(--mobile-border); border-radius: 11px; background: var(--mobile-bg); font-size: 14px; font-weight: 400; }
+.mobile-shell .ai-config-dialog-body .ai-key-field { gap: 6px; }
+.mobile-shell .ai-config-dialog-body .ai-key-field > label { color: var(--mobile-text); font-size: 13px; font-weight: 600; }
+.mobile-shell .ai-config-dialog-body .ai-key-input input { min-height: 46px; border-radius: 11px; background: var(--mobile-bg); }
+.mobile-shell .ai-config-dialog-body .ai-model-config { gap: 9px; padding: 12px; border: 1px solid var(--mobile-border); border-radius: 12px; background: color-mix(in srgb,var(--mobile-raised) 55%,var(--mobile-surface)); }
+.mobile-shell .ai-config-dialog-body .ai-model-heading strong { font-size: 14px; }
+.mobile-shell .ai-config-dialog-body .ai-model-config > small { color: var(--mobile-muted); line-height: 1.5; }
+.mobile-shell .ai-config-dialog-body .ai-model-row { grid-template-columns: 58px minmax(0,1fr) 42px; }
+.mobile-shell .ai-config-dialog-body .ai-model-input input { min-height: 44px; border-radius: 10px; }
+.mobile-shell .ai-config-dialog-body .ai-model-row > button { border-radius: 10px; }
+.mobile-shell .ai-config-dialog-body .ai-add-model { border-color: var(--mobile-border); border-radius: 9px; background: var(--mobile-raised); }
+.mobile-shell .ai-config-dialog-body .ai-checks { gap: 8px 14px; }
+.mobile-shell .ai-config-dialog-body .ai-checks label { color: var(--mobile-text); font-size: 13px; }
+.mobile-shell .ai-config-dialog-body details { padding: 10px 12px; border: 1px solid var(--mobile-border); border-radius: 11px; background: var(--mobile-surface); }
+.mobile-shell .ai-config-dialog-body details summary { color: var(--mobile-text); font-weight: 600; }
+.mobile-shell .ai-config-dialog-body > p { margin: 0; font-size: 12px; line-height: 1.55; }
+.mobile-shell .ai-config-dialog.ai-workbench.ide-theme > .ai-workbench-footer { display: grid; grid-template-columns: minmax(0,.8fr) minmax(0,1.2fr); gap: 10px; padding: 12px 14px max(12px,env(safe-area-inset-bottom)); }
+.mobile-shell .ai-config-dialog.ai-workbench.ide-theme > .ai-workbench-footer button { min-height: 46px; border-radius: 11px; font-weight: 650; }

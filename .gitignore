@@ -67,3 +67,5 @@ scripts/task-tracker.mjs
 !.env.template
 /.codex-build-temp
 /.tmp-*
+/.codex-build-tmp
+/.codex-ip-location-build-83d3c3d2f99044fb99263ee12e249753

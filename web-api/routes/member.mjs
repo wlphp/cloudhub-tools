@@ -116,6 +116,7 @@ function apiError(status, action) {
   if (status === 429) return "操作太频繁，请稍后再试";
   if (status === 403) return "该会员不可用，请联系管理员";
   if (status === 404) return "会员服务接口版本不匹配，请更新客户端";
+  if (status === 405) return "会员服务暂不接受此请求，请稍后重试或联系管理员检查接口配置";
   if (status >= 500) return "会员服务发生内部错误，请稍后重试";
   return "会员服务请求失败，请稍后重试";
 }
@@ -275,6 +276,7 @@ export async function handleMemberRoute(req, res, url) {
       "个人简介最多100个字符，且不能包含控制字符",
       "邮箱或验证码无效、过期，请检查后重新获取", "操作太频繁，请稍后再试", "该会员不可用，请联系管理员",
       "会员服务接口版本不匹配，请更新客户端", "会员服务发生内部错误，请稍后重试", "会员服务请求失败，请稍后重试",
+      "会员服务暂不接受此请求，请稍后重试或联系管理员检查接口配置",
       "浏览器预览登录人数过多，请稍后重试",
     ].includes(error.message) ? error.message : "会员服务请求失败，请稍后重试";
     sendError(res, status, "member", safeMessage, error?.diagnostic ? {

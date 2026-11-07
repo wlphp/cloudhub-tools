@@ -48,6 +48,55 @@
 .plugin-presentation-hint { color: var(--jb-subtle, var(--jb-muted)); font-size: 11px; line-height: 1.6; }
 .plugin-presentation-reset { margin-right: auto; }
 
+/* Mobile presentation settings: compact choice rows and a clearer action footer. */
+@media (max-width: 760px) {
+  body:has(.mobile-shell) .plugin-presentation-body { gap: 12px; }
+  body:has(.mobile-shell) .plugin-presentation-group { gap: 8px; padding: 9px 10px 10px; border-radius: 11px; background: var(--mobile-surface); }
+  body:has(.mobile-shell) .plugin-presentation-group legend { color: var(--mobile-muted); font-size: 12px; font-weight: 600; }
+  body:has(.mobile-shell) .plugin-presentation-group.is-disabled { opacity: 1; }
+  body:has(.mobile-shell) .plugin-presentation-modes { grid-template-columns: minmax(0,1fr); gap: 7px; }
+  body:has(.mobile-shell) .plugin-presentation-mode { display: grid; grid-template-columns: 24px minmax(0,1fr); grid-template-rows: auto auto; align-items: center; column-gap: 9px; row-gap: 2px; min-height: 68px; padding: 10px 12px; border-color: var(--mobile-border); border-radius: 10px; background: var(--mobile-bg); }
+  body:has(.mobile-shell) .plugin-presentation-mode > svg { grid-column: 1; grid-row: 1 / span 2; width: 20px; height: 20px; color: var(--mobile-muted); }
+  body:has(.mobile-shell) .plugin-presentation-mode strong { grid-column: 2; font-size: 13px; line-height: 1.35; }
+  body:has(.mobile-shell) .plugin-presentation-mode small { grid-column: 2; color: var(--mobile-muted); font-size: 11px; line-height: 1.4; }
+  body:has(.mobile-shell) .plugin-presentation-mode.is-selected { border-color: color-mix(in srgb,var(--mobile-accent) 52%,var(--mobile-border)); background: color-mix(in srgb,var(--mobile-accent) 8%,var(--mobile-surface)); color: var(--mobile-accent-strong); box-shadow: inset 3px 0 var(--mobile-accent-strong); }
+  body:has(.mobile-shell) .plugin-presentation-mode.is-selected > svg,
+  body:has(.mobile-shell) .plugin-presentation-mode.is-selected small { color: var(--mobile-accent-strong); }
+  body:has(.mobile-shell) .plugin-presentation-sizes { gap: 8px; }
+  body:has(.mobile-shell) .plugin-presentation-size { min-height: 42px; border-color: var(--mobile-border); border-radius: 9px; background: var(--mobile-bg); color: var(--mobile-text); font-size: 12px; font-weight: 600; }
+  body:has(.mobile-shell) .plugin-presentation-size.is-selected { border-color: color-mix(in srgb,var(--mobile-accent) 50%,var(--mobile-border)); background: color-mix(in srgb,var(--mobile-accent) 8%,var(--mobile-surface)); color: var(--mobile-accent-strong); }
+  body:has(.mobile-shell) .plugin-presentation-size:disabled { opacity: .48; }
+  body:has(.mobile-shell) .plugin-presentation-hint { font-size: 11px; }
+  body:has(.mobile-shell) .plugin-presentation-dialog > .modal-actions { display: grid; grid-template-columns: minmax(0,.9fr) minmax(0,1.1fr); gap: 10px; }
+  body:has(.mobile-shell) .plugin-presentation-dialog > .modal-actions > button { min-height: 44px; border-radius: 10px; font-size: 13px; font-weight: 600; }
+  body:has(.mobile-shell) .plugin-presentation-reset { margin: 0; }
+}
+
+/* Mobile shell can run in a wide native viewport; keep page-mode plugins compact there too. */
+body:has(.mobile-shell) .plugin-page-host { gap: 12px; padding: 16px 18px 20px; }
+body:has(.mobile-shell) .plugin-page-host .plugin-page-head { gap: 12px; }
+body:has(.mobile-shell) .plugin-page-host .plugin-page-head h1 { font-size: 20px; }
+body:has(.mobile-shell) .plugin-page-host .plugin-page-back {
+  min-height: 44px;
+  height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--mobile-accent-border);
+  border-radius: 10px;
+  background: var(--mobile-accent-soft);
+  color: var(--mobile-accent-strong);
+  box-shadow: none;
+  font-size: 13px;
+  font-weight: 600;
+  transition: background-color .16s ease, border-color .16s ease, transform .16s ease;
+}
+body:has(.mobile-shell) .plugin-page-host .plugin-page-back:hover:not(:disabled) {
+  border-color: var(--mobile-accent-strong);
+  background: color-mix(in srgb, var(--mobile-accent) 14%, var(--mobile-surface));
+}
+body:has(.mobile-shell) .plugin-page-host .plugin-page-back:active:not(:disabled) { transform: translateY(1px); }
+body:has(.mobile-shell) .plugin-page-host .plugin-page-back:focus-visible { outline: 2px solid var(--mobile-focus); outline-offset: 2px; }
+body:has(.mobile-shell) .plugin-page-host .plugin-page-back svg { width: 16px; height: 16px; }
+
 /* ---------- 页面模式宿主 ---------- */
 .plugin-page-host {
   display: flex;
@@ -143,4 +192,13 @@
   .ide-theme .plugin-page-head-extra .hardware-info-refresh,
   .plugin-page-host .plugin-page-head-extra .hardware-info-refresh { height: 44px; min-height: 44px; padding: 0 12px; font-size: 13px; }
   .plugin-page-host .plugin-page-head-extra .hardware-info-updated { line-height: 44px; }
+}
+
+/* 备忘录页面的移动页头更紧凑，返回操作采用轻量强调色。 */
+@media (max-width: 760px) {
+  .plugin-page-host:has(.notes-panel) { gap: 8px; padding: 12px 12px 16px; }
+  .plugin-page-host:has(.notes-panel) .plugin-page-head { gap: 8px; }
+  .plugin-page-host:has(.notes-panel) .plugin-page-head h1 { font-size: 21px; letter-spacing: -.02em; }
+  .plugin-page-host:has(.notes-panel) .plugin-page-back { border: 1px solid var(--mobile-accent-border) !important; border-radius: 9px; background: var(--mobile-accent-soft) !important; color: var(--mobile-accent-strong) !important; font-weight: 600; }
+  .plugin-page-host:has(.notes-panel) .plugin-page-back:hover:not(:disabled) { border-color: var(--mobile-accent-strong) !important; background: color-mix(in srgb, var(--mobile-accent) 14%, var(--mobile-surface)) !important; }
 }

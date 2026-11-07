@@ -28,16 +28,16 @@ const myResourceFeatures = [
   { tab: "assets", title: "边缘安全加速", description: "边缘安全加速资源", keywords: "ESA 边缘安全加速", icon: ShieldCheck },
 ] satisfies { tab: MobileFeatureDestination; title: string; description: string; keywords: string; icon: typeof Folder }[];
 
-export function MobileMorePage({ onNavigate, accounts, assets, servers, favoriteCount, sshCount, panelCount }: { onNavigate: (tab: MobileFeatureDestination) => void; accounts: Account[]; assets: LocalAsset[]; servers: LocalAsset[]; favoriteCount: number; sshCount: number; panelCount: number }) {
+export function MobileMorePage({ onNavigate, accounts, assets, favoriteCount, sshCount, panelCount }: { onNavigate: (tab: MobileFeatureDestination, resourceType?: "swas" | "esa") => void; accounts: Account[]; assets: LocalAsset[]; favoriteCount: number; sshCount: number; panelCount: number }) {
   const shortcutTabs: MobileFeatureDestination[] = ["accounts", "assets", "favorites", "panels", "ssh"];
   const shortcuts = shortcutTabs.map(tab => mobileFeatures.find(feature => feature.tab === tab)!).filter(Boolean);
   const counts: Record<MobileFeatureDestination, number> = {
-    accounts: accounts.length, assets: assets.length, favorites: favoriteCount, servers: servers.filter(asset => asset.resource_type === "ecs").length,
+    accounts: accounts.length, assets: assets.length, favorites: favoriteCount, servers: assets.filter(asset => asset.resource_type === "ecs").length,
     domains: assets.filter(asset => asset.resource_type === "domain").length, storage: assets.filter(asset => asset.resource_type === "oss").length,
     databases: assets.filter(asset => asset.resource_type === "rds").length, redis: assets.filter(asset => asset.resource_type === "redis").length,
     certificates: 0, ssh: sshCount, panels: panelCount, flow: 0, authenticator: 0, operationLogs: 0, apiLogs: 0,
   };
-  const otherFeatures = myResourceFeatures.map(feature => ({ ...feature, count: feature.title === "服务器" ? counts.servers : feature.title === "轻量应用服务器" ? servers.filter(asset => asset.resource_type === "swas").length : feature.title === "边缘安全加速" ? assets.filter(asset => asset.resource_type === "esa").length : counts[feature.tab] }));
+  const otherFeatures = myResourceFeatures.map(feature => ({ ...feature, count: feature.title === "服务器" ? counts.servers : feature.title === "轻量应用服务器" ? assets.filter(asset => asset.resource_type === "swas").length : feature.title === "边缘安全加速" ? assets.filter(asset => asset.resource_type === "esa").length : counts[feature.tab] }));
   return <div className="mobile-more-page">
     <div className="mobile-more-shortcuts" aria-label="常用功能">
       {shortcuts.map(({ tab, title, icon: Icon }) => <button type="button" key={tab} onClick={() => onNavigate(tab)} aria-label={`${title}，${counts[tab]} 项`}>
@@ -45,7 +45,7 @@ export function MobileMorePage({ onNavigate, accounts, assets, servers, favorite
       </button>)}
     </div>
     <div className="mobile-more-feature-list" aria-label="功能入口">
-      {otherFeatures.map(({ tab, title, description, icon: Icon, count }) => <button type="button" className="mobile-more-feature" key={title} onClick={() => onNavigate(tab)}>
+      {otherFeatures.map(({ tab, title, description, icon: Icon, count }) => <button type="button" className="mobile-more-feature" key={title} onClick={() => onNavigate(tab, title === "轻量应用服务器" ? "swas" : title === "边缘安全加速" ? "esa" : undefined)}>
         <span className="mobile-more-feature-icon"><Icon size={20} strokeWidth={1.9} aria-hidden="true" /></span>
         <span className="mobile-more-feature-copy"><strong>{title}</strong><small>{description}</small></span>
         <span className="mobile-more-feature-count">（{count}）</span><ChevronRight size={20} className="mobile-more-feature-chevron" aria-hidden="true" />

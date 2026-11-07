@@ -1,11 +1,12 @@
 import { useEffect, useId, useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, Cloud, CloudDownload, CloudUpload, Link, Save, Plus, Pencil, Trash2, Search, History, ChevronLeft, ChevronRight } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Cloud, CloudDownload, CloudUpload, Link, Save, Plus, Pencil, Trash2, Search, History } from "lucide-react";
 import { cloudSyncClient, cloudSyncChannelClient, type CloudBackupVersion, type CloudSyncConfig, type CloudSyncView } from "../../platform/clients/cloudSync";
 import type { DatabaseImportPreview } from "../../platform/clients/database";
 import { databaseClient } from "../../platform/clients/database";
 import { ConfirmDialog } from "../../shared/ConfirmDialog";
 import { SecretField } from "../../shared/SecretField";
 import { SharedDialog } from "../../shared/SharedDialog";
+import { PaginationBar } from "../../shared/PaginationBar";
 import { runningInTauri } from "../../platform/api";
 import { DataTransferScope, useTransferCatalog } from "./DataTransferScope";
 import { appendCloudSyncHistory, backupHistoryKey, readBackupHistory, readCloudSyncHistory, type CloudSyncHistoryEntry } from "./cloud-backup-history";
@@ -78,14 +79,14 @@ function CloudSyncChannel({ channel, onRestore, mobile, blocked, onBusy, onChang
   const [historyDialog, setHistoryDialog] = useState<CloudSyncHistoryEntry["action"] | null>(null);
   const [historySearch, setHistorySearch] = useState("");
   const [historyPage, setHistoryPage] = useState(1);
+  const [historyPageSize, setHistoryPageSize] = useState(10);
   const [syncHistory, setSyncHistory] = useState(() => readCloudSyncHistory(historyKey));
   useEffect(() => { setDownloadHistory(readBackupHistory(historyKey)); }, [historyKey]);
   useEffect(() => { setSyncHistory(readCloudSyncHistory(historyKey)); }, [historyKey]);
   const filteredHistory = useMemo(() => syncHistory.filter(item => item.action === historyDialog &&
     [item.versionId ?? "", item.occurredAt, new Date(item.occurredAt).toLocaleString(), "本机"].some(value => value.toLocaleLowerCase().includes(historySearch.trim().toLocaleLowerCase()))), [syncHistory, historyDialog, historySearch]);
-  const historyPageSize = 10;
-  const pageHistory = filteredHistory.slice((historyPage - 1) * historyPageSize, historyPage * historyPageSize);
-  const historyPageCount = Math.max(1, Math.ceil(filteredHistory.length / historyPageSize));
+  const safeHistoryPage = Math.min(historyPage, Math.max(1, Math.ceil(filteredHistory.length / historyPageSize)));
+  const safePageHistory = filteredHistory.slice((safeHistoryPage - 1) * historyPageSize, safeHistoryPage * historyPageSize);
   const visibleVersions = useMemo(() => {
     const query = versionSearch.trim().toLocaleLowerCase();
     return (versions ?? []).filter(version => [version.machineName, version.id, version.uploadedAt ?? "", version.uploadedAt ? timeText(version.uploadedAt) : "时间未知"].some(value => value.toLocaleLowerCase().includes(query)))
@@ -283,8 +284,8 @@ function CloudSyncChannel({ channel, onRestore, mobile, blocked, onBusy, onChang
     {confirmUpload && <ConfirmDialog title="上传云备份" confirmLabel="确认上传" message={`将本机当前数据上传到“${saved?.config.name ?? "默认渠道"}”，以机器名称和上传时间记录为新版本，保留历史备份。`} onResolve={confirmed => { setConfirmUpload(false); if (confirmed) void run("upload"); }} />}
     {historyDialog && <SharedDialog title={historyDialog === "upload" ? "上传记录" : "下载记录"} subtitle={`${saved?.config.name ?? "默认渠道"} · 记录保存在本机，最多保留 2000 条。`} className="cloud-sync-history-dialog" onClose={() => setHistoryDialog(null)} initialFocus="input[type=search]" footer={<><span className="cloud-backup-total">共 {filteredHistory.length} 条</span><button type="button" className="secondary" onClick={() => setHistoryDialog(null)}>关闭</button></>}>
       <label className="cloud-sync-history-search"><Search size={16} aria-hidden="true" /><input type="search" aria-label="搜索同步记录" placeholder="搜索时间或版本号" value={historySearch} onChange={event => { setHistorySearch(event.target.value); setHistoryPage(1); }} /></label>
-      <div className="cloud-sync-history-table-wrap">{pageHistory.length > 0 ? <table className="cloud-sync-history-table"><thead><tr><th scope="col">时间</th><th scope="col">设备</th><th scope="col">备份版本</th></tr></thead><tbody>{pageHistory.map(item => <tr key={item.id}><td data-label="时间">{timeText(item.occurredAt)}</td><td data-label="设备">本机</td><td data-label="备份版本">{item.versionId ?? "上传新版本（版本号由云端生成）"}</td></tr>)}</tbody></table> : <div className="cloud-sync-history-empty" role="status"><History size={22} aria-hidden="true" /><strong>{historySearch.trim() ? "没有匹配的记录" : "暂无操作记录"}</strong><span>{historySearch.trim() ? "试试其他时间或版本号。" : "完成上传或下载后，记录会显示在这里。"}</span></div>}</div>
-      {filteredHistory.length > historyPageSize && <nav className="cloud-sync-history-pagination" aria-label="记录分页"><span>第 {Math.min(historyPage, historyPageCount)} / {historyPageCount} 页</span><button type="button" className="secondary" aria-label="上一页" disabled={historyPage <= 1} onClick={() => setHistoryPage(page => page - 1)}><ChevronLeft size={16} aria-hidden="true" /></button><button type="button" className="secondary" aria-label="下一页" disabled={historyPage >= historyPageCount} onClick={() => setHistoryPage(page => page + 1)}><ChevronRight size={16} aria-hidden="true" /></button></nav>}
+      <div className="cloud-sync-history-table-wrap">{safePageHistory.length > 0 ? <table className="cloud-sync-history-table"><thead><tr><th scope="col">时间</th><th scope="col">设备</th><th scope="col">备份版本</th></tr></thead><tbody>{safePageHistory.map(item => <tr key={item.id}><td data-label="时间">{timeText(item.occurredAt)}</td><td data-label="设备">本机</td><td data-label="备份版本">{item.versionId ?? "上传新版本（版本号由云端生成）"}</td></tr>)}</tbody></table> : <div className="cloud-sync-history-empty" role="status"><History size={22} aria-hidden="true" /><strong>{historySearch.trim() ? "没有匹配的记录" : "暂无操作记录"}</strong><span>{historySearch.trim() ? "试试其他时间或版本号。" : "完成上传或下载后，记录会显示在这里。"}</span></div>}</div>
+      {filteredHistory.length > 0 && <PaginationBar className="store-pagination" page={safeHistoryPage} pageSize={historyPageSize} total={filteredHistory.length} onPageChange={setHistoryPage} onPageSizeChange={size => { setHistoryPageSize(size); setHistoryPage(1); }} />}
     </SharedDialog>}
     {versions !== null && <SharedDialog title="选择云端备份版本" subtitle={`${saved?.config.name ?? "默认渠道"} · 下载后选择恢复模块`} className="cloud-backup-versions" onClose={() => setVersions(null)} closeDisabled={!!busy} initialFocus="input[type=search]" footer={<><span className="cloud-backup-total" role="status">显示 {visibleVersions.length} / {versions.length} 个版本</span><button type="button" className="secondary" disabled={!!busy} onClick={() => void loadVersions()}>{busy === "versions" ? "正在刷新…" : "刷新"}</button><button type="button" className="secondary" disabled={!!busy} onClick={() => setVersions(null)}>取消</button></>}>
       <div className="cloud-backup-toolbar"><label className="cloud-backup-search"><Search size={16} aria-hidden="true" /><input type="search" aria-label="搜索备份版本" placeholder="搜索机器名称、时间或版本号" value={versionSearch} onChange={event => setVersionSearch(event.target.value)} /></label><label className="cloud-backup-sort"><span>上传时间</span><select aria-label="上传时间排序" value={versionSort} onChange={event => setVersionSort(event.target.value)}><option value="desc">倒序 · 最新在前</option><option value="asc">正序 · 最早在前</option></select></label></div>
@@ -301,7 +302,7 @@ function CloudSyncChannel({ channel, onRestore, mobile, blocked, onBusy, onChang
         {!visibleVersions.length && busy !== "versions" && <p className="cloud-backup-empty" role="status">{versionSearch.trim() ? "没有匹配的备份，试试其他关键词。" : versionError ? "版本列表暂不可用，请刷新重试。" : "此配置下暂无云端备份。"}</p>}
       </div>
     </SharedDialog>}
-    {downloadVersion && <SharedDialog title="下载并解密云备份" size="small" closeDisabled={!!busy} busy={!!busy} initialFocus="input" onClose={() => { setDownloadVersion(null); setDownloadPassword(""); setDownloadError(""); }} footer={<><button type="button" className="secondary" disabled={!!busy} onClick={() => { setDownloadVersion(null); setDownloadPassword(""); setDownloadError(""); }}>取消</button><button type="button" className="primary" disabled={!!busy || blocked} onClick={() => { const password = downloadPassword; setDownloadPassword(""); setDownloadError(""); void run("download", downloadVersion.id, password || undefined); }}>{busy ? "正在下载并校验…" : "下载并预览"}</button></>}>
+    {downloadVersion && <SharedDialog title="下载并解密云备份" size="small" className="cloud-backup-download-dialog" bodyClassName="cloud-backup-download-body" closeDisabled={!!busy} busy={!!busy} initialFocus="input" onClose={() => { setDownloadVersion(null); setDownloadPassword(""); setDownloadError(""); }} footer={<><button type="button" className="secondary" disabled={!!busy} onClick={() => { setDownloadVersion(null); setDownloadPassword(""); setDownloadError(""); }}>取消</button><button type="button" className="primary" disabled={!!busy || blocked} onClick={() => { const password = downloadPassword; setDownloadPassword(""); setDownloadError(""); void run("download", downloadVersion.id, password || undefined); }}>{busy ? "正在下载并校验…" : "下载并预览"}</button></>}>
       <p>{downloadVersion.machineName} · {downloadVersion.uploadedAt ? timeText(downloadVersion.uploadedAt) : "时间未知"}</p>
       <p>{downloadVersion.passwordProtected === true ? "此备份有密码，请使用创建该备份时的密码。" : "此备份未记录密码状态；有密码请填写，无密码可直接继续。"}</p>
       <label className="cloud-sync-field"><span>本次恢复密码</span><SecretField secretLabel="本次恢复密码" aria-label="本次恢复密码" autoComplete="off" maxLength={4096} value={downloadPassword} disabled={!!busy} onChange={event => setDownloadPassword(event.target.value)} /></label>

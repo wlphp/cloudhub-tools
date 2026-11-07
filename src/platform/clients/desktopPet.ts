@@ -1,6 +1,6 @@
 import { nativeOnly } from "./base";
 import type { AiImage } from "./ai";
-import { monitorSeverityLabel, monitorSeverityRank, sortMonitorAlerts, type MonitorAlert, type MonitorSnapshot } from "./monitorAlerts";
+import { monitorSeverityLabel, sortMonitorAlerts, type MonitorAlert, type MonitorSnapshot } from "./monitorAlerts";
 export type PetAlert = MonitorAlert;
 export type PetSnapshot = MonitorSnapshot;
 export type PetComputerAction = "shutdown" | "restart" | "taskManager" | "lock" | "explorer";
@@ -35,7 +35,6 @@ export const defaultPetLife: PetLifeSettings = {
 export const emptyPetLifeState: PetLifeState = { notices: [], weatherCheckedAt: 0, weatherAttemptAt: 0, weatherError: null, region: "", calendarYear: 0, calendarSupported: false };
 export interface PetChatService { id: string; name: string; model: string; revision: number; supportsImages: boolean }
 export interface PetChatMessage { role: "user" | "assistant"; text: string; image?: string }
-export const petSeverityRank = monitorSeverityRank;
 export const petSeverityLabel = monitorSeverityLabel;
 export const sortPetAlerts = sortMonitorAlerts;
 export const defaultPetSettings: PetSettings = {

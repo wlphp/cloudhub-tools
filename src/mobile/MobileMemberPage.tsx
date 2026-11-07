@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { ArrowLeft, CheckCheck, ChevronRight, KeyRound, Mail, ShieldCheck, UserRound } from "lucide-react";
+import { AlertCircle, ArrowLeft, ChevronRight, KeyRound, Mail, RefreshCw, ShieldCheck } from "lucide-react";
 import { memberClient, type Member, type MemberMessage } from "../platform/clients/member";
 import { readRememberedMemberEmail, rememberMemberEmail } from "../features/member/memberEmail";
 
@@ -20,16 +20,18 @@ export function MobileMemberPage({ member, onMember, onBack, onNotice, openInbox
   const [unreadCount, setUnreadCount] = useState(0);
   const [selectedMessage, setSelectedMessage] = useState<MemberMessage | null>(null);
   const [messagesBusy, setMessagesBusy] = useState(false);
+  const [messagesError, setMessagesError] = useState("");
 
   async function loadMessages() {
     setMessagesBusy(true);
+    setMessagesError("");
     try {
       const page = await memberClient.messages(1);
       setMessages(page.items);
       setUnreadCount(page.unread_count);
       onUnreadCount?.(page.unread_count);
     } catch (reason) {
-      onNotice(reason instanceof Error ? reason.message : String(reason));
+      setMessagesError(reason instanceof Error ? reason.message : String(reason));
     } finally {
       setMessagesBusy(false);
     }
@@ -45,6 +47,7 @@ export function MobileMemberPage({ member, onMember, onBack, onNotice, openInbox
     if (!member) {
       setMessages([]);
       setUnreadCount(0);
+      setMessagesError("");
       setInboxOpen(false);
       setSelectedMessage(null);
     }
@@ -103,15 +106,15 @@ export function MobileMemberPage({ member, onMember, onBack, onNotice, openInbox
           } catch (reason) {
             onNotice(reason instanceof Error ? reason.message : String(reason));
           }
-        }}><CheckCheck size={15} />全部已读</button>}
+        }}>全部已读</button>}
       </div>
       {selectedMessage ? <>
         <button type="button" className="mobile-member-back" aria-label="返回消息列表" onClick={() => setSelectedMessage(null)}><ArrowLeft size={19} />返回消息列表</button>
         <article className="mobile-member-message-detail"><h2>{selectedMessage.title}</h2><time>{beijingTime(selectedMessage.created_at)}</time><p>{selectedMessage.content}</p></article>
-      </> : messagesBusy ? <p className="mobile-member-empty">正在加载…</p> : messages.length ? <div className="mobile-member-message-list">{messages.map(item => <button type="button" key={item.id} className={`mobile-member-message-row${item.read_at ? " is-read" : " is-unread"}`} onClick={() => void openMessage(item)}><span><strong>{item.title}</strong><small>{beijingTime(item.created_at)}</small><span>{item.content}</span></span>{!item.read_at && <i aria-label="未读" />}<ChevronRight size={17} /></button>)}</div> : <p className="mobile-member-empty">暂无消息</p>}
+      </> : messagesBusy ? <p className="mobile-member-empty" role="status">正在加载消息…</p> : messagesError ? <div className="mobile-member-load-error" role="alert"><AlertCircle size={20} aria-hidden="true" /><strong>消息暂时无法加载</strong><p>{messagesError}</p><button type="button" onClick={() => void loadMessages()} disabled={messagesBusy}><RefreshCw size={15} aria-hidden="true" />重试</button></div> : messages.length ? <div className="mobile-member-message-list">{messages.map(item => <button type="button" key={item.id} className={`mobile-member-message-row${item.read_at ? " is-read" : " is-unread"}`} onClick={() => void openMessage(item)}><span><strong>{item.title}</strong><small>{beijingTime(item.created_at)}</small><span>{item.content}</span></span>{!item.read_at && <i aria-label="未读" />}<ChevronRight size={17} /></button>)}</div> : <p className="mobile-member-empty" role="status">暂无消息</p>}
     </section> : <div className="mobile-member-empty" role="status">正在返回…</div> : <>
       <header className="mobile-member-heading"><button type="button" className="mobile-member-back" onClick={onBack} aria-label="返回"><ArrowLeft size={19} /></button><div><p>账户与身份</p><h1>登录 / 注册</h1></div></header>
-      <section className="mobile-member-login-intro"><span aria-hidden="true"><UserRound size={23} /></span><div><h2>登录会员账号</h2><p>同步昵称、头像与会员身份。本机云资源与凭据始终保存在本机。</p></div></section>
+      <p className="mobile-member-login-hint">同步昵称、头像与会员身份。本机云资源与凭据始终保存在本机。</p>
       <form className="mobile-member-login" onSubmit={event => void handleLogin(event)}>
         <label htmlFor="mobile-member-email">邮箱</label><div className="mobile-member-input"><Mail size={17} aria-hidden="true" /><input id="mobile-member-email" type="email" autoComplete="email" required maxLength={254} value={email} disabled={busy} onChange={event => setEmail(event.target.value)} onBlur={event => rememberMemberEmail(event.currentTarget.value)} placeholder="输入你的邮箱" /></div>
         <label htmlFor="mobile-member-code">邮箱验证码</label><div className="mobile-member-input"><KeyRound size={17} aria-hidden="true" /><input id="mobile-member-code" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} required value={code} disabled={busy} onChange={event => setCode(event.target.value)} placeholder="6 位验证码" /><button type="button" disabled={busy || sendingCode || remaining > 0} onClick={async () => {

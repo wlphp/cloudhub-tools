@@ -1,3 +1,19 @@
 {
-  "identifier": "com.wanglei.cloudhub.tools.dev"
+  "identifier": "com.wanglei.cloudhub.tools.debug2",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "create": false,
+        "title": "云枢工具箱 · 本地多云资源管理",
+        "width": 1280,
+        "height": 800,
+        "decorations": false,
+        "shadow": true,
+        "visible": false,
+        "minWidth": 820,
+        "minHeight": 560
+      }
+    ]
+  }
 }

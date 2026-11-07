@@ -1,12 +1,12 @@
 /* Shared JetBrains-style surface layer. Page-specific CSS stays responsible for layout. */
 .official-plugins-page { min-width: 0; }
-.software-store-page { min-width: 0; }
+.software-store-page { min-width: 0; container: store-page / inline-size; }
 .software-store-page > header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .store-total { color: var(--jb-muted); font-size: 12px; white-space: nowrap; }
 .store-tabs { display: flex; gap: 6px; padding: 0 12px; margin-bottom: 12px; border: 1px solid var(--jb-border); border-radius: 5px; background: var(--jb-surface); }
 .store-tabs button { padding: 15px 20px; background: transparent; color: var(--jb-muted); border: 0; border-bottom: 2px solid transparent; cursor: pointer; font-size: 13px; }
 .store-tabs button.is-active { color: var(--jb-accent); border-bottom-color: var(--jb-accent); background: var(--jb-accent-soft); }
-.store-catalog { padding: 20px; min-width: 0; }
+.store-catalog { padding: 20px; min-width: 0; container: store-catalog / inline-size; }
 .store-search-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .store-search-row > label, .store-filter-row > span { font-size: 13px; flex: 0 0 60px; color: var(--jb-muted); }
 .store-search-row > label { margin: 0; line-height: 1.4; }
@@ -34,6 +34,9 @@
 .ide-theme .store-order-value:focus-visible { outline: 2px solid var(--jb-accent); outline-offset: 2px; }
 .store-catalog .store-table th, .store-catalog .store-table td { text-align: left; padding: 14px 10px; border: 0; border-bottom: 1px solid var(--jb-border); color: var(--jb-text); background: transparent; line-height: 1.6; overflow-wrap: anywhere; }
 .store-catalog .store-table th { font-weight: 400; white-space: nowrap; color: var(--jb-muted); background: var(--jb-surface-2); padding-top: 10px; padding-bottom: 10px; }
+.ide-theme .store-catalog .store-table tbody tr { transition: background-color .12s ease, box-shadow .12s ease; }
+.ide-theme .store-catalog .store-table tbody tr:hover { background-color: color-mix(in srgb, var(--jb-accent) 4%, var(--jb-surface)) !important; box-shadow: inset 2px 0 var(--jb-accent); }
+.ide-theme .store-catalog .store-table tbody tr:hover > td { background-color: color-mix(in srgb, var(--jb-accent) 4%, var(--jb-surface)) !important; }
 .store-table td > small, .store-app-name small, .store-description small { display: block; color: var(--jb-muted); font-size: 11px; margin-top: 3px; }
 .store-app-name { display: flex; gap: 10px; align-items: center; min-width: 140px; }
 .store-app-name > svg { flex-shrink: 0; color: var(--jb-green); }
@@ -64,11 +67,10 @@
 .store-empty h2 { font-size: 15px; color: var(--jb-text); }
 .store-empty p { font-size: 13px; line-height: 1.7; }
 .store-notification { display: flex; align-items: flex-start; gap: 10px; line-height: 1.7; overflow-wrap: anywhere; }
-.store-notification-layer { position: fixed; inset: 0; z-index: 2147483000; pointer-events: none; }
-.store-notification-layer .store-notification { position: absolute; right: 24px; bottom: 24px; pointer-events: auto; }
+.store-settings-notification { position: fixed !important; top: 24px !important; right: 24px !important; bottom: auto !important; z-index: 2147483000 !important; box-sizing: border-box !important; width: max-content !important; max-width: min(420px, calc(100vw - 32px)) !important; height: auto !important; min-height: 0 !important; }
 .store-notification > span { min-width: 0; }
-.store-notification > button { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 24px; width: 24px; height: 24px; margin: 0; padding: 0; border: 0; background: transparent; color: inherit; cursor: pointer; }
-.store-notification > button:focus-visible { outline: 2px solid var(--jb-accent); outline-offset: 2px; }
+.store-notification > button:not(.store-notification-retry) { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 24px; width: 24px; height: 24px; margin: 0; padding: 0; border: 0; background: transparent; color: inherit; cursor: pointer; }
+.store-notification > button:not(.store-notification-retry):focus-visible { outline: 2px solid var(--jb-accent); outline-offset: 2px; }
 @media (max-width: 600px) { .store-notification > button { width: 44px; height: 44px; flex-basis: 44px; } }
 @media (prefers-reduced-motion: reduce) { .store-notification { animation: none; } }
 .modal-backdrop .wechat-settings-dialog { display: flex; flex-direction: column; width: min(760px, calc(100vw - 32px)); max-width: 760px; max-height: calc(100dvh - 32px); padding: 0; margin: 0; overflow: hidden; border: 1px solid var(--jb-border-strong); }
@@ -77,39 +79,120 @@
 .wechat-settings-dialog > .modal-body { min-height: 0; overflow: auto; padding: 16px; }
 .wechat-settings-dialog .official-plugin-toggle { justify-content: flex-start; margin: 10px 0; }
 @media (max-width: 600px) { .wechat-settings-dialog .modal-head .close { width: 44px; height: 44px; min-height: 44px; } }
-@media (max-width: 1350px) {
+@container store-catalog (max-width: 1350px) {
   .store-catalog .store-table thead { display: none; }
   .store-catalog .store-table, .store-catalog .store-table tbody { display: block; }
-  .store-catalog .store-table tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border: 1px solid var(--jb-border); border-radius: 4px; }
-  .store-catalog .store-table td { display: flex; align-items: center; gap: 12px; min-width: 0; }
-  .store-catalog .store-table tr:not(.is-expanded) td:not([data-label="软件名称"]) { display: none; }
-  .ide-theme .store-catalog .store-table tr:not(.is-expanded) td[data-label="操作"] { display: flex !important; grid-column: 1 / -1; }
-  .store-catalog .store-table tr:not(.is-expanded) td[data-label="软件名称"] { grid-column: 1 / -1; }
-  .store-catalog .store-table td::before { content: attr(data-label); color: var(--jb-muted); flex: 0 0 52px; }
-  .store-catalog .store-table td:first-child, .store-catalog .store-table .store-description { grid-column: 1 / -1; max-width: none; }
-  .store-catalog .store-table td:nth-child(2) { flex-wrap: wrap; }
+  .store-catalog .store-table tr { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(92px, .65fr) minmax(138px, auto) minmax(112px, auto) minmax(140px, max-content); align-items: center; margin: 0 0 8px; padding: 4px 8px; border: 1px solid var(--jb-border); border-radius: 5px; background: var(--jb-surface); }
+  .store-catalog .store-table td { display: none; align-items: center; gap: 6px; min-width: 0; padding: 8px 6px; border: 0; }
+  .store-catalog .store-table tr:not(.is-expanded) td:is([data-label="软件名称"], [data-label="状态"], [data-label="左侧菜单显示"], [data-label="首页显示"], [data-label="操作"]) { display: flex; }
+  .store-catalog .store-table td[data-label="软件名称"] { grid-column: 1; }
+  .store-catalog .store-table td[data-label="状态"] { grid-column: 2; }
+  .store-catalog .store-table td[data-label="左侧菜单显示"] { grid-column: 3; }
+  .store-catalog .store-table td[data-label="首页显示"] { grid-column: 4; }
+  .store-catalog .store-table td[data-label="操作"] { grid-column: 5; }
+  .store-catalog .store-table td::before { content: attr(data-label); color: var(--jb-muted); flex: 0 0 auto; white-space: nowrap; }
+  .store-catalog .store-table td[data-label="软件名称"]::before, .store-catalog .store-table td[data-label="操作"]::before { display: none; }
+  .store-catalog .store-app-name { min-width: 0; gap: 8px; }
+  .store-catalog .store-app-name > div { min-width: 0; }
+  .store-catalog .store-app-name strong { overflow-wrap: anywhere; }
   .store-catalog .store-table td > small { margin: 0; }
-  .store-catalog .store-table tr:not(.is-expanded) .store-description { display: none; }
-  .store-catalog .store-table tr.is-expanded .store-description { display: block; }
-  .store-catalog .store-description::before { display: inline-block; width: 64px; }
+  .store-catalog .store-table tr.is-expanded { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .store-catalog .store-table tr.is-expanded td { display: flex; grid-column: auto; }
+  .store-catalog .store-table tr.is-expanded td[data-label="软件名称"], .store-catalog .store-table tr.is-expanded .store-description, .store-catalog .store-table tr.is-expanded td[data-label="操作"] { grid-column: 1 / -1; }
   .ide-theme:not(.mobile-shell) .store-catalog .store-details-toggle { display: inline-flex !important; align-items: center; gap: 4px; width: fit-content; min-height: 28px; margin-top: 2px; padding: 2px 0; border: 0; color: var(--jb-accent); background: transparent; font-size: 12px; cursor: pointer; }
   .store-catalog .store-details-toggle svg { transition: transform .16s ease; }
   .store-catalog .store-details-toggle[aria-expanded="true"] svg { transform: rotate(180deg); }
   .store-catalog .store-row-actions { flex-wrap: wrap; gap: 6px; }
   .store-catalog .store-row-actions button { min-width: 64px; min-height: 32px; padding: 4px 10px; }
 }
-@media (max-width: 600px) {
+@container store-catalog (max-width: 980px) {
+  .store-catalog { padding: 16px; }
+  .store-search-row > label { flex-basis: 60px; }
+  .store-search-input { flex: 1 1 320px; }
+  .store-filter-row { flex-wrap: wrap; }
+  .store-catalog .store-table tr:not(.is-expanded) { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 176px; grid-template-rows: auto auto auto; gap: 2px 12px; padding: 10px 12px; }
+  .store-catalog .store-table tr:not(.is-expanded) td[data-label="软件名称"] { grid-column: 1 / -1; grid-row: 1; padding: 8px 4px; }
+  .store-catalog .store-table tr:not(.is-expanded) td[data-label="状态"] { grid-column: 1; grid-row: 2; padding: 8px 4px; }
+  .store-catalog .store-table tr:not(.is-expanded) td[data-label="左侧菜单显示"] { grid-column: 1; grid-row: 3; padding: 6px 4px; }
+  .store-catalog .store-table tr:not(.is-expanded) td[data-label="首页显示"] { grid-column: 2; grid-row: 3; padding: 6px 4px; }
+  .store-catalog .store-table tr:not(.is-expanded) td[data-label="操作"] { grid-column: 3; grid-row: 2 / span 2; align-self: center; padding: 6px 4px; }
+  .store-catalog .store-table tr:not(.is-expanded) td[data-label="状态"]::before { display: none; }
+  .store-catalog .store-table tr:not(.is-expanded) td[data-label="左侧菜单显示"], .store-catalog .store-table tr:not(.is-expanded) td[data-label="首页显示"] { justify-content: space-between; }
+  .store-catalog .store-table tr:not(.is-expanded) td[data-label="左侧菜单显示"]::before, .store-catalog .store-table tr:not(.is-expanded) td[data-label="首页显示"]::before { flex: 0 1 auto; }
+  .store-catalog .store-table tr:not(.is-expanded) td[data-label="操作"]::before { display: none; }
+  .store-catalog .store-table tr:not(.is-expanded) .store-app-name { gap: 8px; }
+  .store-catalog .store-table tr:not(.is-expanded) .store-app-name > svg { width: 18px; height: 18px; }
+  .store-catalog .store-table tr:not(.is-expanded) .store-row-actions { justify-content: flex-end; }
+  .store-catalog .store-table tr.is-expanded { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .store-catalog .store-table tr.is-expanded td[data-label="软件名称"], .store-catalog .store-table tr.is-expanded .store-description, .store-catalog .store-table tr.is-expanded td[data-label="操作"] { grid-column: 1 / -1; }
+}
+@container store-catalog (max-width: 600px) {
+  .store-search-input { flex: 1 1 100%; }
+  .store-search-row .store-refresh { margin-left: 0; }
+  .store-filter-row { align-items: flex-start; }
+  .store-catalog button, .store-switch, .store-switch input { min-height: 44px; }
+  .store-catalog .store-table tr:not(.is-expanded) { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: auto auto auto; gap: 2px 8px; padding: 8px; }
+  .store-catalog .store-table tr:not(.is-expanded) td[data-label="软件名称"] { grid-column: 1 / -1; grid-row: 1; padding: 6px 4px; }
+  .store-catalog .store-table tr:not(.is-expanded) td[data-label="状态"] { grid-column: 1; grid-row: 2; padding: 6px 4px; }
+  .store-catalog .store-table tr:not(.is-expanded) td[data-label="左侧菜单显示"] { grid-column: 1; grid-row: 3; padding: 4px; }
+  .store-catalog .store-table tr:not(.is-expanded) td[data-label="首页显示"] { grid-column: 2; grid-row: 3; padding: 4px; }
+  .store-catalog .store-table tr:not(.is-expanded) td[data-label="操作"] { grid-column: 2; grid-row: 2; padding: 4px; }
+  .store-catalog .store-table tr:not(.is-expanded) td[data-label="左侧菜单显示"], .store-catalog .store-table tr:not(.is-expanded) td[data-label="首页显示"] { justify-content: space-between; }
+  .store-catalog .store-table tr:not(.is-expanded) td[data-label="左侧菜单显示"]::before, .store-catalog .store-table tr:not(.is-expanded) td[data-label="首页显示"]::before { flex: 1 1 auto; }
+  .store-catalog .store-switch { width: 44px; min-width: 44px; }
+  .store-catalog .store-switch input { width: 44px; }
+  .store-catalog .store-row-actions { justify-content: flex-end; gap: 4px; }
+  .store-catalog .store-row-actions button { min-width: 0; min-height: 36px; padding: 4px 8px; }
+}
+@container store-page (max-width: 600px) {
   .store-total { display: none; }
   .store-catalog { padding: 12px; }
   .store-tabs { padding: 0; gap: 0; }
   .store-tabs button { padding: 14px 10px; flex: 1; }
-  .store-search-input { flex: 1 1 100%; }
-  .store-search-row .store-refresh { margin-left: 0; }
-  .store-filter-row { align-items: flex-start; }
-  .store-catalog .store-table tr { grid-template-columns: minmax(0, 1fr); }
-  .store-catalog .store-table td { grid-column: 1; }
-  .store-catalog button, .store-switch, .store-switch input { min-height: 44px; }
-  .store-switch input { width: 44px; }
+}
+
+/* Expanded desktop cards follow the same information order as the mobile store:
+   keep the collapsed header in place and reveal only the detail rows below it. */
+@container store-catalog (max-width: 1350px) {
+  .store-catalog .store-table tr.is-expanded {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto;
+    align-items: center;
+  }
+  .store-catalog .store-table tr.is-expanded td[data-label="软件名称"] { grid-column: 1; grid-row: 1; }
+  .store-catalog .store-table tr.is-expanded td[data-label="操作"] { grid-column: 2; grid-row: 1; justify-content: flex-end; }
+  .store-catalog .store-table tr.is-expanded td[data-label="状态"] { grid-column: 1; grid-row: 2; }
+  .store-catalog .store-table tr.is-expanded td[data-label="开发商"] { grid-column: 2; grid-row: 2; }
+  .store-catalog .store-table tr.is-expanded td[data-label="排序号"] { grid-column: 1; grid-row: 3; }
+  .store-catalog .store-table tr.is-expanded td[data-label="平台"] { grid-column: 1 / -1; grid-row: 4; }
+  .store-catalog .store-table tr.is-expanded td[data-label="说明"] { grid-column: 1 / -1; grid-row: 5; }
+  .store-catalog .store-table tr.is-expanded td[data-label="价格"] { grid-column: 1; grid-row: 6; }
+  .store-catalog .store-table tr.is-expanded td[data-label="启用"] { grid-column: 2; grid-row: 6; }
+  .store-catalog .store-table tr.is-expanded td[data-label="左侧菜单显示"] { grid-column: 1 / -1; grid-row: 7; }
+  .store-catalog .store-table tr.is-expanded td[data-label="首页显示"] { grid-column: 1 / -1; grid-row: 8; }
+  .store-catalog .store-table tr.is-expanded td[data-label="左侧菜单显示"],
+  .store-catalog .store-table tr.is-expanded td[data-label="首页显示"] { justify-content: space-between; border-top: 1px solid var(--jb-border); }
+}
+@container store-catalog (max-width: 600px) {
+  .store-catalog .store-table tr.is-expanded td:is([data-label="状态"], [data-label="开发商"], [data-label="排序号"], [data-label="平台"], [data-label="说明"], [data-label="价格"], [data-label="启用"], [data-label="左侧菜单显示"], [data-label="首页显示"]) {
+    grid-column: 1 / -1;
+  }
+  .store-catalog .store-table tr.is-expanded td[data-label="开发商"] { grid-row: 3; }
+  .store-catalog .store-table tr.is-expanded td[data-label="排序号"] { grid-row: 4; }
+  .store-catalog .store-table tr.is-expanded td[data-label="平台"] { grid-row: 5; }
+  .store-catalog .store-table tr.is-expanded td[data-label="说明"] { grid-row: 6; }
+  .store-catalog .store-table tr.is-expanded td[data-label="价格"] { grid-row: 7; }
+  .store-catalog .store-table tr.is-expanded td[data-label="启用"] { grid-row: 8; }
+  .store-catalog .store-table tr.is-expanded td[data-label="左侧菜单显示"] { grid-row: 9; }
+  .store-catalog .store-table tr.is-expanded td[data-label="首页显示"] { grid-row: 10; }
+  .store-catalog .store-table tr.is-expanded td[data-label="左侧菜单显示"],
+  .store-catalog .store-table tr.is-expanded td[data-label="首页显示"] { grid-column: 1 / -1; }
+}
+/* Only hide secondary controls when the card itself is genuinely narrow. */
+@container store-catalog (max-width: 420px) {
+  .store-catalog .store-table tr:not(.is-expanded) td:is([data-label="状态"], [data-label="左侧菜单显示"], [data-label="首页显示"]) {
+    display: none !important;
+  }
 }
 .official-plugin-card { max-width: 900px; padding: 20px; color: var(--jb-text); }
 .official-plugin-heading { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
@@ -3498,4 +3581,27 @@ body.theme-light .modal-backdrop .panel-bind-modal .panel-insecure-tls input { a
     width: 168px !important;
     min-width: 168px;
   }
+}
+
+/* Store cards: at tablet-sized widths, keep the primary action beside status
+   instead of marooning it in a third column across two rows. */
+@container store-catalog (max-width: 980px) {
+  .store-catalog .store-table tr:not(.is-expanded) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: auto auto auto;
+    gap: 2px 12px;
+  }
+  .store-catalog .store-table tr:not(.is-expanded) td[data-label="软件名称"] { grid-column: 1 / -1; grid-row: 1; }
+  .store-catalog .store-table tr:not(.is-expanded) td[data-label="状态"] { grid-column: 1; grid-row: 2; }
+  .store-catalog .store-table tr:not(.is-expanded) td[data-label="操作"] {
+    grid-column: 2;
+    grid-row: 2;
+    align-self: center;
+    justify-self: stretch;
+    justify-content: flex-end;
+    padding: 6px 4px;
+  }
+  .store-catalog .store-table tr:not(.is-expanded) td[data-label="左侧菜单显示"] { grid-column: 1; grid-row: 3; }
+  .store-catalog .store-table tr:not(.is-expanded) td[data-label="首页显示"] { grid-column: 2; grid-row: 3; }
+  .store-catalog .store-table tr:not(.is-expanded) .store-row-actions { justify-content: flex-end; }
 }

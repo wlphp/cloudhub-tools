@@ -14,19 +14,21 @@ type Props = {
   ascending: boolean;
   onSort: () => void;
   filter?: ReactNode;
+  filterLayout?: "stacked";
   actions?: ReactNode;
   inlineActions?: boolean;
 };
 
-export function MobileResourceOverview({ title, count, countLabel, secondaryCount, secondaryLabel, search, onSearch, ascending, onSort, filter, actions, inlineActions }: Props) {
+export function MobileResourceOverview({ title, count, countLabel, secondaryCount, secondaryLabel, search, onSearch, ascending, onSort, filter, filterLayout, actions, inlineActions }: Props) {
+  const showInlineActions = inlineActions || title === "操作日志" || title === "API 日志";
   return <>
-    <div className="mobile-page-title"><h1>{title}</h1>{inlineActions && actions && <div className="mobile-resource-page-actions mobile-resource-inline-actions">{actions}</div>}</div>
+    <div className="mobile-page-title"><h1>{title}</h1>{showInlineActions && actions && <div className="mobile-resource-page-actions mobile-resource-inline-actions">{actions}</div>}</div>
     <div className="mobile-domain-overview"><div className="mobile-domain-stats" aria-label={`${title}统计`}>
       <div><span className="mobile-account-stat-copy"><strong>{count}</strong><small>{countLabel}</small></span></div>
       <div className="domain-stat-accounts"><span className="mobile-account-stat-copy"><strong>{secondaryCount}</strong><small>{secondaryLabel}</small></span></div>
     </div></div>
-    {!inlineActions && actions && <div className="mobile-resource-page-actions">{actions}</div>}
-    <div className={`mobile-resource-tools${filter ? " has-filter" : ""}`}>
+    {!showInlineActions && actions && <div className="mobile-resource-page-actions">{actions}</div>}
+    <div className={`mobile-resource-tools${filter ? " has-filter" : ""}${filterLayout === "stacked" ? " has-stacked-filter" : ""}`}>
       <label className="mobile-account-search"><Search size={18} aria-hidden="true" /><input type="search" aria-label={`搜索${title}`} placeholder={`搜索${title}名称 / 账号 / 状态…`} value={search} onChange={(event) => onSearch(event.currentTarget.value)} /></label>
       {filter && <label className="mobile-account-provider-filter"><Filter size={16} aria-hidden="true" />{filter}</label>}
     </div>

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { runningInTauri } from "../../platform/api";
+import { platformErrorMessage, runningInTauri } from "../../platform/api";
 import { preferencesClient } from "../../platform/clients/preferences";
 import { APPLICATION_PREFERENCES_KEY, applicationCatalog, applicationPreference, parseApplicationPreferences, type ApplicationPreference, type ApplicationPreferences } from "./applicationCatalog";
 
@@ -40,9 +40,12 @@ export function useApplicationPreferences() {
       else localStorage.setItem(APPLICATION_PREFERENCES_KEY, raw);
       setPreferences(next);
       if (runningInTauri) { try { localStorage.setItem(APPLICATION_PREFERENCES_KEY, raw); } catch { /* SQLite is authoritative on desktop. */ } }
-    } catch { setError("菜单设置保存失败，本次修改未生效，请重试。"); }
+    } catch (reason) {
+      const detail = platformErrorMessage(reason, "未知错误");
+      setError(`菜单设置保存失败，本次修改未生效：${detail}`);
+    }
     finally { pending.current = false; setSaving(false); }
   }
-  return { preferences, ready, saving, error, update, retry: () => setRevision(value => value + 1) };
+  return { preferences, ready, saving, error, update, retry: () => setRevision(value => value + 1), dismissError: () => setError("") };
 }
 export type ApplicationPreferenceState = ReturnType<typeof useApplicationPreferences>;
