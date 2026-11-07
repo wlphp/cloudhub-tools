@@ -16,7 +16,8 @@ if (!token) throw new Error("GITEE_TOKEN is required.");
 
 const files = fs.readdirSync(assetsDirectory)
   .map((name) => path.join(assetsDirectory, name))
-  .filter((file) => fs.statSync(file).isFile());
+  .filter((file) => fs.statSync(file).isFile())
+  .sort((left, right) => fs.statSync(left).size - fs.statSync(right).size);
 if (files.length === 0) throw new Error("No release assets were downloaded.");
 
 const api = `https://gitee.com/api/v5/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repository)}`;
