@@ -53,7 +53,8 @@ if (lookup.ok) {
   } catch {
     throw new Error(`Gitee API returned an invalid response (${lookup.status}).`);
   }
-} else if (lookup.status === 404) {
+}
+if (lookup.status === 404 || (lookup.ok && release === null)) {
   let source;
   try {
     source = await fetch(`https://api.github.com/repos/${process.env.GITHUB_REPOSITORY}/releases/tags/${encodeURIComponent(tag)}`, {
@@ -69,16 +70,23 @@ if (lookup.ok) {
   } catch {
     throw new Error(`GitHub API returned an invalid response (${source.status}).`);
   }
-  const form = new URLSearchParams({
+  const payload = {
     tag_name: tag,
     name: githubRelease.name || tag,
     body: githubRelease.body || "",
     prerelease: String(githubRelease.prerelease),
     target_commitish: "main",
+  };
+  release = await request(`${api}/releases`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
   });
-  release = await request(`${api}/releases`, { method: "POST", body: form });
 } else {
-  throw new Error(`Could not find Gitee release (${lookup.status}).`);
+  if (!lookup.ok) throw new Error(`Could not find Gitee release (${lookup.status}).`);
+}
+if (!release || !release.id) {
+  throw new Error(`Gitee release ${tag} was not returned by the API.`);
 }
 
 const attachmentsUrl = `${api}/releases/${release.id}/attach_files`;
