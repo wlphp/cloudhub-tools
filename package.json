@@ -30,7 +30,7 @@
     "bundle:mac:x64": "tauri build --target x86_64-apple-darwin",
     "preview": "vite preview",
     "tauri": "tauri",
-    "tauri:dev": "tauri dev --config src-tauri/tauri.dev.conf.json",
+    "tauri:dev": "node scripts/tauri-dev.mjs",
     "tauri:android": "tauri android",
     "tauri:ios": "tauri ios"
   },

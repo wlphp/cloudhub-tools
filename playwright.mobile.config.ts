@@ -17,6 +17,8 @@ export default defineConfig({
   webServer: {
     command: "npm run preview -- --host 127.0.0.1 --port 4174",
     url: "http://127.0.0.1:4174",
+    // 与 build:mobile 的独立输出目录保持一致，预览 dist-mobile 而非桌面 dist。
+    env: { VITE_APP_TARGET: "mobile" },
     reuseExistingServer: !process.env.CI,
   },
 });

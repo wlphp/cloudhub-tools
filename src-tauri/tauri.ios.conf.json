@@ -1,7 +1,8 @@
 {
   "build": {
     "beforeDevCommand": "npm run dev:mobile",
-    "beforeBuildCommand": "npm run build:mobile"
+    "beforeBuildCommand": "npm run build:mobile",
+    "frontendDist": "../dist-mobile"
   },
   "app": {
     "windows": [

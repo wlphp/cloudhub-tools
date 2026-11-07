@@ -10,6 +10,7 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+dist-mobile
 test-results/
 release
 target/
@@ -72,3 +73,4 @@ scripts/task-tracker.mjs
 /.codex-ip-location-build-83d3c3d2f99044fb99263ee12e249753
 /node-compile-cache
 /playwright-transform-cache
+/.tmp
