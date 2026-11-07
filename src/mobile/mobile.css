@@ -4418,8 +4418,8 @@ body.theme-light .mobile-home-apps,body.theme-light .mobile-home-alerts { backgr
 .mobile-shell .software-store-page .store-heading > p { margin-top: 4px; font-size: 12px; line-height: 1.45; }
 .mobile-shell .software-store-page .store-tabs { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 7px; }
 .mobile-shell .software-store-page .store-tabs button { min-height: 44px; border-radius: 11px; font-size: 13px; font-weight: 600; }
-.mobile-shell .software-store-page .store-catalog { display: grid; gap: 12px; padding: 11px; border-radius: 16px; }
-.mobile-shell .software-store-page .store-search-row { display: grid; grid-template-columns: minmax(0,1fr); gap: 9px; }
+.mobile-shell .software-store-page .store-catalog { display: grid; grid-template-columns: minmax(0,1fr); gap: 12px; padding: 11px; border-radius: 16px; }
+.mobile-shell .software-store-page .store-search-row { display: grid; grid-template-columns: minmax(0,1fr); min-width: 0; gap: 9px; }
 .mobile-shell .software-store-page .store-search-row > label { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
 .mobile-shell .software-store-page .store-search-input { min-height: 48px; padding-inline: 13px; border-radius: 12px; }
 .mobile-shell .software-store-page .store-search-input input { min-width: 0; font-size: 14px; }
@@ -4427,7 +4427,7 @@ body.theme-light .mobile-home-apps,body.theme-light .mobile-home-alerts { backgr
 .mobile-shell .software-store-page .store-categories::-webkit-scrollbar { display: none; }
 .mobile-shell .software-store-page .store-categories button { flex: 0 0 auto; min-height: 42px; padding-inline: 13px; border-radius: 11px; font-size: 12px; white-space: nowrap; }
 .mobile-shell .software-store-page .store-refresh { min-height: 46px; border-radius: 11px; font-size: 13px; font-weight: 600; }
-.mobile-shell .software-store-page .store-filter-row { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin: 0; padding: 10px 0 0; border-top: 1px solid var(--mobile-border); }
+.mobile-shell .software-store-page .store-filter-row { display: flex; flex-wrap: wrap; align-items: center; min-width: 0; gap: 7px; margin: 0; padding: 10px 0 0; border-top: 1px solid var(--mobile-border); }
 .mobile-shell .software-store-page .store-refresh { display: none; }
 .mobile-shell .software-store-page .store-filter-row > span { flex: 0 0 100%; color: var(--mobile-muted); font-size: 11px; }
 .mobile-shell .software-store-page .store-filter-row small { color: var(--mobile-muted); font-size: 12px; }
