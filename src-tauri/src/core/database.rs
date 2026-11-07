@@ -547,6 +547,20 @@ fn open_db_at(path: &std::path::Path) -> Result<Connection, String> {
     }
     let conn = Connection::open(path)
         .map_err(|error| format!("打开 SQLite 失败: {error}"))?;
+    if conn.is_readonly(rusqlite::DatabaseName::Main).unwrap_or(false) {
+        // 连接以读写意图打开却回退只读：DACL/MIC 正常时通常是安全软件按进程拦截。
+        // 目录新建文件与打开库文件两个探针可区分失败层，附原始系统错误码便于定位。
+        let create_probe = std::fs::write(path.with_extension("probe-tmp"), b"probe")
+            .map(|_| ()).map_err(|error| error.to_string());
+        let _ = std::fs::remove_file(path.with_extension("probe-tmp"));
+        let open_probe = std::fs::OpenOptions::new().write(true).open(path)
+            .map(|_| ()).map_err(|error| error.to_string());
+        return Err(format!(
+            "本地数据库以只读模式打开，当前无写入权限；请检查数据目录权限、安全软件拦截记录或沙箱限制后重试［诊断: 新建文件探针={create_probe:?}; 打开数据库文件探针={open_probe:?}; 用户={}; 路径={}］",
+            std::env::var("USERNAME").unwrap_or_default(),
+            path.display(),
+        ));
+    }
     conn.busy_timeout(std::time::Duration::from_secs(5))
         .map_err(|error| format!("配置 SQLite 锁等待失败: {error}"))?;
     conn.execute_batch("PRAGMA foreign_keys=ON;
@@ -606,6 +620,41 @@ fn snapshot_before_upgrade(source: &Connection, path: &std::path::Path, version:
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn inspect_user_real_database() {
+        let p = std::path::PathBuf::from(r"C:\Users\wl\AppData\Local\CloudHubTools-Dev\cloudhub_tools.sqlite3");
+        if !p.exists() {
+            println!("User db not found!");
+            return;
+        }
+        println!("--- Testing open_with_flags READ_ONLY ---");
+        let r1 = rusqlite::Connection::open_with_flags(&p, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY);
+        println!("r1: {:?}", r1.as_ref().map(|c| c.is_readonly(rusqlite::DatabaseName::Main)));
+
+        println!("--- Testing Connection::open ---");
+        let r2 = rusqlite::Connection::open(&p);
+        match r2 {
+            Ok(c) => {
+                println!("Connection::open succeeded! is_readonly: {:?}", c.is_readonly(rusqlite::DatabaseName::Main));
+                let write_res = c.execute("PRAGMA foreign_keys=ON;", []);
+                println!("write PRAGMA: {:?}", write_res);
+                let test_table = c.execute("CREATE TABLE IF NOT EXISTS _test_probe_rw (id INT);", []);
+                println!("CREATE TABLE: {:?}", test_table);
+                if test_table.is_ok() {
+                    let _ = c.execute("DROP TABLE _test_probe_rw;", []);
+                }
+            }
+            Err(e) => println!("Connection::open failed: {:?}", e),
+        }
+
+        println!("--- Testing open_db_at ---");
+        let r3 = super::open_db_at(&p);
+        match r3 {
+            Ok(c) => println!("open_db_at succeeded! is_readonly: {:?}", c.is_readonly(rusqlite::DatabaseName::Main)),
+            Err(e) => println!("open_db_at failed: {:?}", e),
+        }
+    }
+
     #[test]
     fn upgrades_legacy_authenticator_and_allows_import() {
         use crate::core::authenticator::formats::parse_uri;

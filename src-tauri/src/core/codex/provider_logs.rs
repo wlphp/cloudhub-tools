@@ -7,6 +7,7 @@ pub const MAX_PER_PROVIDER: usize = 200;
 /// 单条日志中请求体与响应体保留的最大字符数。
 pub const MAX_BODY: usize = 64 * 1024;
 
+#[allow(dead_code)]
 pub const SCHEMA: &str = crate::core::database::CODEX_PROVIDER_LOGS_SCHEMA;
 
 #[derive(Clone, Serialize)]

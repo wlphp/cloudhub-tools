@@ -85,6 +85,9 @@ fn decode_snapshot(cipher:&str,decrypt:impl Fn(&str)->Result<String,String>)->Re
     let text=Zeroizing::new(decrypt(cipher).map_err(|_| "解密供应商备份失败")?);
     serde_json::from_str(&text).map_err(|_| "供应商备份损坏".into())
 }
+// 供应商切换状态机的补偿职责已移交统一操作日志，生产链路暂未接线；
+// 实现与测试保留，恢复接线时移除下方 allow 标注即可。
+#[allow(dead_code)]
 fn snapshot(home:&Path)->Result<Snapshot,String> {
     Ok(Snapshot{config:read_optional(home,"config.toml")?.map(|s|s.to_string()),auth:read_optional(home,"auth.json")?.map(|s|s.to_string()),catalog:Some(catalog_snapshot(home)),selection:None,pending:None})
 }
@@ -128,6 +131,7 @@ pub fn build_catalog(settings:&super::providers::ModelSettings,overlay:Option<se
 }
 
 /// 写入供应商模型目录并让配置指向它。
+#[allow(dead_code)]
 pub fn install_catalog(home:&Path,settings:&super::providers::ModelSettings)->Result<(),String> {
     let catalog=build_catalog(settings,catalog_template(home));
     super::model_catalog::validate(&catalog)?;
@@ -172,6 +176,7 @@ pub fn remove_catalog(home:&Path) {
 }
 
 /// 记录安装前模型目录的归属。文件不存在、无法读取或不是普通文件时都不会被删除。
+#[allow(dead_code)]
 fn catalog_snapshot(home:&Path)->CatalogBackup {
     let path=home.join(CATALOG_FILE);
     match fs::symlink_metadata(&path) {
@@ -293,6 +298,7 @@ fn set_value(table:&mut dyn toml_edit::TableLike,key:&str,mut next:Item)->Result
 /// 的官方登录与按账号的官方模型列表都会失效。切回官方账号启动时移除这些引用键，
 /// 以及在接管状态下选出的默认 model，让客户端回到官方目录；供应商表与目录文件
 /// 原样保留。返回被移除项的摘要供界面提示，无接管时返回 None。
+#[allow(dead_code)]
 pub fn clear_third_party_overrides(home:&Path)->Result<Option<String>,String> {
     let (config,summary)=official_config(home)?;
     if summary.is_some() {if let Some(config)=config {profile::write_private(&home.join("config.toml"),&config)?;}}
@@ -325,9 +331,11 @@ fn write_optional(home:&Path,name:&str,value:Option<&str>)->Result<(),String> {
 }
 
 /// 保留首次安装前的恢复点，同时持久化本次切换前状态以补偿失败。
+#[allow(dead_code)]
 pub fn begin_switch(conn:&Connection,home:&Path,version:&str,config:&str,auth:&str,selection:AppliedSelection)->Result<SwitchRecovery,String> {
     begin_switch_with(conn,home,version,config,auth,selection,decrypt_secret,encrypt_secret)
 }
+#[allow(dead_code)]
 fn begin_switch_with(conn:&Connection,home:&Path,version:&str,config:&str,auth:&str,selection:AppliedSelection,decrypt:impl Fn(&str)->Result<String,String>,encrypt:impl Fn(&str)->Result<String,String>)->Result<SwitchRecovery,String> {
     if preview(conn,home)?.version!=version {return Err("目标配置已变更，请重新预览".into());}
     let backup=backup_row(conn,home)?;
@@ -347,14 +355,17 @@ fn begin_switch_with(conn:&Connection,home:&Path,version:&str,config:&str,auth:&
     conn.execute("INSERT INTO codex_provider_config_backups VALUES(?1,?2,?3,?4) ON CONFLICT(home) DO UPDATE SET content_ciphertext=excluded.content_ciphertext,installed_config=excluded.installed_config,installed_auth=excluded.installed_auth",params![home.to_string_lossy(),cipher,config_fingerprint(Some(config)),profile::fingerprint(Some(auth))]).map_err(|_| "保存供应商恢复记录失败")?;
     Ok(*original.pending.take().ok_or("供应商恢复记录缺失")?)
 }
+#[allow(dead_code)]
 pub fn write_switch(home:&Path,config:&str,auth:&str)->Result<(),String> {
     if !home.exists() {fs::create_dir_all(home).map_err(|_| "创建供应商配置目录失败")?;profile::private_permissions(home,true)?;}
     profile::write_private(&home.join("config.toml"),config)?;
     profile::write_private(&home.join("auth.json"),auth)
 }
+#[allow(dead_code)]
 pub fn finish_switch(conn:&Connection,home:&Path)->Result<(),String> {
     finish_switch_with(conn,home,decrypt_secret,encrypt_secret)
 }
+#[allow(dead_code)]
 fn finish_switch_with(conn:&Connection,home:&Path,decrypt:impl Fn(&str)->Result<String,String>,encrypt:impl Fn(&str)->Result<String,String>)->Result<(),String> {
     let row=backup_row(conn,home)?.ok_or("供应商恢复记录缺失")?;
     let mut original=decode_snapshot(&row.cipher,decrypt)?;
@@ -363,6 +374,7 @@ fn finish_switch_with(conn:&Connection,home:&Path,decrypt:impl Fn(&str)->Result<
     let cipher=encrypt(&encoded).map_err(|_| "加密供应商恢复记录失败")?;
     conn.execute("UPDATE codex_provider_config_backups SET content_ciphertext=?1 WHERE home=?2",params![cipher,home.to_string_lossy()]).map_err(|_| "保存供应商恢复记录失败")?;Ok(())
 }
+#[allow(dead_code)]
 pub fn rollback_switch(conn:&Connection,home:&Path,recovery:&SwitchRecovery)->Result<(),String> {
     let row=backup_row(conn,home)?.ok_or("供应商恢复记录缺失")?;
     let current=fingerprints(home)?;
@@ -377,10 +389,6 @@ pub fn rollback_switch(conn:&Connection,home:&Path,recovery:&SwitchRecovery)->Re
     Ok(())
 }
 
-#[cfg(test)]
-pub fn install(conn:&Connection,home:&Path,version:&str,config:&str,auth:&str)->Result<(),String> {
-    install_encrypted(conn,home,version,config,auth,encrypt_secret)
-}
 #[cfg(test)]
 fn install_encrypted(conn:&Connection,home:&Path,version:&str,config:&str,auth:&str,encrypt:impl Fn(&str)->Result<String,String>)->Result<(),String> {
     install_with_writer(conn,home,version,config,auth,encrypt,profile::write_private)
@@ -404,13 +412,6 @@ fn install_with_writer(conn:&Connection,home:&Path,version:&str,config:&str,auth
         }
         return Err(error);
     }
-    Ok(())
-}
-
-#[cfg(test)]
-pub fn restore(conn:&Connection,home:&Path)->Result<(),String> {
-    restore_files(conn,home)?;
-    conn.execute("DELETE FROM codex_provider_config_backups WHERE home=?1",[home.to_string_lossy().as_ref()]).map_err(|_| "清理供应商恢复记录失败")?;
     Ok(())
 }
 

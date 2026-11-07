@@ -56,6 +56,8 @@ pub fn derive(password: &str, kdf: &Kdf) -> Result<Zeroizing<[u8; 32]>, String> 
         .map_err(|_| "密钥派生失败")?;
     Ok(key)
 }
+/// 备份导出封装；当前生产链路仅使用解封方向，保留实现与测试。
+#[allow(dead_code)]
 pub fn seal(data: &[u8], password: &str) -> Result<Envelope, String> {
     if data.len() > MAX_FILE_BYTES {
         return Err("备份内容过大".into());

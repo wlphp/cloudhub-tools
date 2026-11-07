@@ -285,19 +285,23 @@ pub fn pet_settings(window: tauri::WebviewWindow) -> PlatformResult<Settings> {
 }
 
 // Mobile monitoring has its own invoke surface. These commands deliberately do
-// not expose or synchronize any companion-window behavior.
+// not expose or synchronize any companion-window behavior, and are only
+// registered by the mobile invoke handler (see lib.rs cfg(mobile) block).
+#[cfg(mobile)]
 #[tauri::command]
 pub fn monitor_alerts_settings(window: tauri::WebviewWindow) -> PlatformResult<MonitorSettings> {
     caller(&window)?;
     Ok(MonitorSettings::from(&read_settings()?))
 }
 
+#[cfg(mobile)]
 #[tauri::command]
 pub fn monitor_alerts_snapshot(window: tauri::WebviewWindow) -> PlatformResult<Snapshot> {
     caller(&window)?;
     Ok(snapshot()?)
 }
 
+#[cfg(mobile)]
 #[tauri::command]
 pub fn monitor_alerts_save_settings(window: tauri::WebviewWindow, app: tauri::AppHandle, settings: MonitorSettings) -> PlatformResult<()> {
     caller(&window)?;
@@ -312,6 +316,7 @@ pub fn monitor_alerts_save_settings(window: tauri::WebviewWindow, app: tauri::Ap
     Ok(())
 }
 
+#[cfg(mobile)]
 #[tauri::command]
 pub async fn monitor_alerts_check(window: tauri::WebviewWindow, app: tauri::AppHandle) -> PlatformResult<()> {
     caller(&window)?;
@@ -326,6 +331,7 @@ pub async fn monitor_alerts_check(window: tauri::WebviewWindow, app: tauri::AppH
     Ok(())
 }
 
+#[cfg(mobile)]
 #[tauri::command]
 pub fn monitor_alerts_ignore(window: tauri::WebviewWindow, app: tauri::AppHandle, keys: Vec<String>, ignored: bool) -> PlatformResult<Snapshot> {
     caller(&window)?;

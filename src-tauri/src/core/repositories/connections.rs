@@ -27,10 +27,6 @@ pub fn rdp_password_ciphertext(conn: &Connection, target_key: &str) -> Result<Op
     conn.query_row("SELECT password_ciphertext FROM rdp_connections WHERE target_key=?1", [target_key], |row| row.get(0)).optional().map_err(|error| format!("读取 RDP 密码失败: {error}"))?.map_or(Ok(None), |value: Option<String>| Ok(value))
 }
 
-pub fn delete_rdp(conn: &Connection, target_key: &str) -> Result<(), String> {
-    conn.execute("DELETE FROM rdp_connections WHERE target_key=?1", [target_key]).map(|_| ()).map_err(|error| format!("清除 RDP 连接配置失败: {error}"))
-}
-
 pub fn save_ssh(conn: &Connection, input: &crate::SshConnectInput, password_ciphertext: Option<&str>, fingerprint: &str, now: i64) -> Result<(), String> {
     let account_id = input.account_id.ok_or("缺少云账号标识")?;
     let asset_key = input.asset_key.as_deref().ok_or("缺少资产标识")?;

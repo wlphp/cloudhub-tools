@@ -147,6 +147,21 @@ fn dump_scoped(conn: &Connection, key: &[u8], tables: &[String], requested:&[Str
     for table in tables {
         if policy::virtual_table(table) && !policy::exists(conn,table)? { continue; }
         let names = columns(conn, table)?;
+        // 继承身份可能来自此前导入的同源数据：该身份对应的行与仍按自身
+        // 密钥/rowid/created_at 重新哈希出同一标识的行并存。记录标识必须在
+        // 单次导出内唯一，否则接收端登记迁移身份时触发唯一约束整包拒绝。
+        let mut inherited_ids = if policy::exists(conn,"cloudhub_transfer_ids")? {
+            conn.prepare("SELECT portable_id FROM cloudhub_transfer_ids WHERE table_name=?1").map_err(|_| err())?
+                .query_map([table],|r|r.get(0)).map_err(|_| err())?
+                .collect::<rusqlite::Result<std::collections::HashSet<String>>>().map_err(|_| err())?
+        } else { Default::default() };
+        if policy::exists(conn,"data_transfer_identity")? {
+            conn.prepare("SELECT portable_id FROM data_transfer_identity WHERE table_name=?1").map_err(|_| err())?
+                .query_map([table],|r|r.get(0)).map_err(|_| err())?
+                .collect::<rusqlite::Result<std::collections::HashSet<String>>>().map_err(|_| err())?
+                .into_iter().for_each(|id| { inherited_ids.insert(id); });
+        }
+        let mut used = std::collections::HashSet::new();
         let mut stmt = conn.prepare(&format!("SELECT rowid,{} FROM {}", names.iter().map(|name| ident(name)).collect::<Vec<_>>().join(","), ident(table))).map_err(|_| err())?;
         let mut rows = stmt.query([]).map_err(|_| err())?;
         while let Some(row) = rows.next().map_err(|_| err())? {
@@ -164,11 +179,18 @@ fn dump_scoped(conn: &Connection, key: &[u8], tables: &[String], requested:&[Str
             let inherited:Option<String>=if policy::exists(conn,"cloudhub_transfer_ids")? {conn.query_row("SELECT portable_id FROM cloudhub_transfer_ids WHERE table_name=?1 AND source_rowid=?2",rusqlite::params![table,rowid],|r|r.get(0)).optional().map_err(|_|err())?}else{None};
             let inherited=if inherited.is_some() {inherited}else if policy::exists(conn,"data_transfer_identity")? {conn.query_row("SELECT portable_id FROM data_transfer_identity WHERE table_name=?1 AND target_rowid=?2 ORDER BY portable_id LIMIT 1",rusqlite::params![table,rowid],|r|r.get(0)).optional().map_err(|_|err())?}else{None};
             let inherited_for_debug = inherited.clone();
-            let portable_id=inherited.unwrap_or_else(|| {
-                let mut hash=Sha256::new(); hash.update(key); hash.update(table.as_bytes()); hash.update(rowid.to_le_bytes());
-                if let Some(index)=names.iter().position(|name|name=="created_at") {hash.update(values[index].as_bytes());}
-                format!("{:x}",hash.finalize())
-            });
+            let mut hash=Sha256::new(); hash.update(key); hash.update(table.as_bytes()); hash.update(rowid.to_le_bytes());
+            if let Some(index)=names.iter().position(|name|name=="created_at") {hash.update(values[index].as_bytes());}
+            // 继承身份优先保留跨设备语义；标识已被占用时按尝试计数重新派生，保持确定性。
+            let mut candidate=inherited.clone().unwrap_or_else(|| format!("{:x}",hash.clone().finalize()));
+            let mut attempt=0u64;
+            while match inherited { Some(_) => used.contains(&candidate), None => used.contains(&candidate) || inherited_ids.contains(&candidate) } {
+                attempt+=1;
+                let mut salted=hash.clone(); salted.update(attempt.to_le_bytes());
+                candidate=format!("{:x}",salted.finalize());
+            }
+            used.insert(candidate.clone());
+            let portable_id=candidate;
             if table == "codex_provider_keys" { eprintln!("DUMP table={table} rowid={rowid} inherited={:?} portable={portable_id}", inherited_for_debug); }
             output.push_str(&format!("-- record: {portable_id}\nINSERT INTO {} ({}) VALUES ({});\n", ident(table), names.iter().map(|name| ident(name)).collect::<Vec<_>>().join(","), values.join(",")));
             for value in &mut values { use zeroize::Zeroize; value.zeroize(); }
@@ -578,10 +600,13 @@ fn merge_projected(table:&str,local:&str,incoming:&str,key:Option<&[u8]>,mode:&s
     Ok(Some(if table=="transfer_cloud_drive" {crate::core::crypto::encrypt_secret_with_key(&plain,key.ok_or("缺少云盘恢复密钥")?)?}else{plain.to_string()}))
 }
 
+// 合并/覆盖语义由测试直接驱动；生产链路经由 apply_rows_scoped。
+#[allow(dead_code)]
 fn apply_rows(target: &Connection, source: &Connection, tables: &[String], mode: &str) -> Result<(u64, u64, u64), String> {
     apply_rows_tracked(target, source, tables, mode, &mut HashMap::new())
 }
 
+#[allow(dead_code)]
 fn apply_rows_tracked(target: &Connection, source: &Connection, tables: &[String], mode: &str, retained: &mut HashMap<String,Vec<i64>>) -> Result<(u64, u64, u64), String> {
     apply_rows_scoped(target,source,tables,mode,tables,retained,None)
 }
@@ -1177,5 +1202,40 @@ mod tests {
         assert_eq!(p.value().unwrap(), Value::Blob(vec![1,2]));
         assert!(Parser { rest: "load_extension('fixture'))" }.value().is_err());
         assert!(Parser { rest: "NaN)" }.value().is_err());
+    }
+
+    // 此前导入的身份与另一行重算的哈希撞车时（同机导入回写 data_transfer_identity
+    // 后 rowid 重排），导出必须仍为每条记录派生唯一标识，否则接收端整包拒绝。
+    #[test]
+    fn dump_keeps_record_ids_unique_when_inherited_identity_collides_with_hash() {
+        let fixture = Fixture::new();
+        let source = fixture.db("source.sqlite3");
+        let key = [11u8;32];
+        let secret = encrypt_secret_with_key("fixture-secret", &key).unwrap();
+        source.execute("INSERT INTO codex_model_providers VALUES('provider','fixture','https://example.test','responses','[]','',1,'{}')", []).unwrap();
+        source.execute("INSERT INTO codex_provider_keys VALUES('key-a','provider','fixture-a',?1,'{}')", [&secret]).unwrap();
+        source.execute("INSERT INTO codex_provider_keys VALUES('key-b','provider','fixture-b',?1,'{}')", [&secret]).unwrap();
+        // 按 dump 的同一公式计算 rowid 1 的哈希标识，并把它作为导入身份挂到 rowid 2。
+        let names = columns(&source, "codex_provider_keys").unwrap();
+        let mut hash = Sha256::new();
+        hash.update(&key); hash.update(b"codex_provider_keys"); hash.update(1i64.to_le_bytes());
+        if names.iter().any(|name| name == "created_at") {
+            let created: i64 = source.query_row("SELECT created_at FROM codex_provider_keys WHERE rowid=1", [], |r| r.get(0)).unwrap();
+            hash.update(literal(&Value::Integer(created)).as_bytes());
+        }
+        let colliding = format!("{:x}", hash.finalize());
+        source.execute_batch("CREATE TABLE data_transfer_identity(table_name TEXT,portable_id TEXT,target_rowid INTEGER,PRIMARY KEY(table_name,portable_id))").unwrap();
+        source.execute("INSERT INTO data_transfer_identity(table_name,portable_id,target_rowid) VALUES('codex_provider_keys',?1,2)", [&colliding]).unwrap();
+        let tables = vec!["codex_provider_keys".to_string()];
+        let input = export_portable(&source, &key, &tables, false).unwrap();
+        let mut ids: Vec<String> = Vec::new(); let mut current: Option<String> = None;
+        for line in input.lines() {
+            if let Some(id) = line.strip_prefix("-- record: ") { current = Some(id.to_string()); continue; }
+            if line.starts_with("INSERT INTO \"codex_provider_keys\"") { ids.extend(current.take()); }
+        }
+        assert_eq!(ids.len(), 2, "两条记录必须各持唯一标识: {ids:?}");
+        assert!(ids.iter().any(|id| id == &colliding), "导入继承的身份必须原样保留");
+        let mut stage = create_stage(&source, Path::new(":memory:")).unwrap();
+        load_sql(&mut stage, &input, &[22u8;32]).unwrap();
     }
 }

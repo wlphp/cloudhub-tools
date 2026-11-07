@@ -450,6 +450,7 @@ pub fn purge(conn: &Connection, ids: &[i64]) -> Result<u64, String> {
 }
 
 /// Drops trashed rows older than the retention window. Returns how many went.
+#[allow(dead_code)]
 pub fn purge_expired(conn: &Connection, before: i64) -> Result<u64, String> {
     conn.execute("DELETE FROM memo_notes WHERE deleted_at IS NOT NULL AND deleted_at < ?1", [before])
         .map(|changed| changed as u64)

@@ -25,9 +25,6 @@ pub(crate) fn delete_ssh_connection(account_id: i64, asset_key: String) -> Platf
 pub(crate) fn get_rdp_connection(target_key: String) -> PlatformResult<Option<SavedRdpConnection>> { connection_repository::rdp_saved(&open_db()?, &target_key).map_err(Into::into) }
 
 #[tauri::command]
-pub(crate) fn delete_rdp_connection(target_key: String) -> PlatformResult<()> { connection_repository::delete_rdp(&open_db()?, &target_key).map_err(Into::into) }
-
-#[tauri::command]
 pub(crate) fn reveal_ssh_password(account_id: Option<i64>, asset_key: Option<String>, managed_host_id: Option<i64>) -> PlatformResult<String> {
     let ciphertext = if let Some(id) = managed_host_id {
         managed_host_repository::password_ciphertext(&open_db()?, id)?

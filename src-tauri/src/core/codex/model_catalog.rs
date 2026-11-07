@@ -133,6 +133,7 @@ fn digest(content:&str)->String {
 }
 
 /// 目录落盘成功后写版本戳。版本戳只用于判断产出是否陈旧，写失败不牵连目录本身。
+#[allow(dead_code)]
 pub fn write_meta(catalog:&Path,content:&str) {
     if let Ok(text)=meta_content(content) {
         let _=super::profile::write_private(&meta_path(catalog),&text);

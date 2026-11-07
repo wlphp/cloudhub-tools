@@ -34,6 +34,7 @@ pub const RECYCLABLE: [(&str, &str, KeyKind, &str); 8] = [
 ];
 
 /// The column that names a row in the shared panel.
+#[allow(dead_code)]
 pub fn display_column(table: &str) -> Result<&'static str, String> {
     table_entry(table).map(|(_, _, _, column)| column)
 }
@@ -122,13 +123,6 @@ pub fn table_name(table: &str) -> Result<&'static str, String> {
 
 pub fn key_kind(table: &str) -> Result<KeyKind, String> {
     table_entry(table).map(|(_, _, key, _)| key)
-}
-
-/// Live rows only. Applies to every read path so trashed rows never surface in
-/// normal lists, and `get` reports them as missing.
-pub fn live_filter(table: &str) -> Result<&'static str, String> {
-    table_name(table)?;
-    Ok(" AND deleted_at IS NULL")
 }
 
 /// Binds ids as parameters after validating them against the table's key kind.

@@ -83,6 +83,7 @@ fn parse_models(body: &Value, credential: &str) -> Result<Vec<String>, &'static 
     Ok(result)
 }
 
+#[allow(dead_code)]
 pub async fn run(base: &str, wire_api: &str, credential: &str, model: Option<&str>) -> Result<ProbeResult, String> {
     run_exchange(base, wire_api, credential, model).await.map(|(result, _)| result)
 }

@@ -94,7 +94,7 @@ pub(crate) use commands::logs::{clear_api_logs, clear_operation_logs, list_api_l
 pub(crate) use commands::assets::{delete_local_asset, list_local_assets};
 pub(crate) use commands::managed_hosts::{delete_managed_host, delete_managed_host_group, export_managed_hosts_file, import_managed_hosts, list_managed_hosts, probe_managed_host, rename_managed_host_group, save_managed_host};
 pub(crate) use commands::panel_connections::{delete_panel_connection, export_panel_connections_file, import_panel_connections, reveal_panel_api_key, list_panel_connections, open_panel_temporary_login, panel_temporary_login, refresh_panel_connection, save_panel_connection, update_panel_connection_order, update_panel_connection_remark};
-pub(crate) use commands::connections::{delete_rdp_connection, delete_ssh_connection, get_rdp_connection, get_ssh_connection, reveal_rdp_password, reveal_ssh_password, reveal_managed_host_credential};
+pub(crate) use commands::connections::{delete_ssh_connection, get_rdp_connection, get_ssh_connection, reveal_rdp_password, reveal_ssh_password, reveal_managed_host_credential};
 pub(crate) use commands::database_migration::{cancel_database_import, confirm_database_import, create_database_backup, delete_database_backup, download_database_backup, database_transfer_catalog, export_database_file, import_database_backup, import_database_file, list_database_backups, prepare_database_backup_restore, prepare_database_import, plan_database_import, DatabaseImportStore};
 pub(crate) use commands::app::{app_data_path, app_exit, app_is_development, open_app_data_directory};
 

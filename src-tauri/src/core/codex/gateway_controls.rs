@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use rusqlite::{Connection, OptionalExtension, params};
 use std::collections::{HashMap, VecDeque};
 
+#[allow(dead_code)]
 pub const SCHEMA: &str = crate::core::database::CODEX_GATEWAY_PREFERENCES_SCHEMA;
 
 #[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Debug, Default)]

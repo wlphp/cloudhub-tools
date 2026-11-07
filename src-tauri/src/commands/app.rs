@@ -72,8 +72,18 @@ pub(crate) fn open_app_data_directory(directory: Option<String>) -> PlatformResu
         },
         Some(_) => return Err("不支持打开此数据目录".into()),
     }
-    tauri_plugin_opener::open_path(&path, None::<&str>)
-        .map_err(|_| "无法打开数据目录".to_string())?;
+    if let Err(error) = tauri_plugin_opener::open_path(&path, None::<&str>) {
+        #[cfg(target_os = "windows")]
+        {
+            std::process::Command::new("explorer")
+                .arg(&path)
+                .spawn()
+                .map_err(|_| crate::core::error::PlatformError::from(format!("无法打开数据目录: {error}")))?;
+            return Ok(());
+        }
+        #[cfg(not(target_os = "windows"))]
+        return Err(crate::core::error::PlatformError::from(format!("无法打开数据目录: {error}")));
+    }
     Ok(())
 }
 

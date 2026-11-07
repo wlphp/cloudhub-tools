@@ -473,13 +473,6 @@ pub(crate) fn runtime_account_running(store: &CodexRuntimeStore, account_id: i64
     Ok(instance_running || gateway_running || waking)
 }
 
-pub(crate) fn ensure_idle(store: &CodexRuntimeStore) -> Result<(), String> {
-    let conn=open_db()?;
-    let provider_active:bool=conn.query_row("SELECT EXISTS(SELECT 1 FROM codex_provider_config_backups)",[],|r|r.get(0)).map_err(|_| "读取供应商配置状态失败")?;
-    if provider_active {return Err("请先恢复所有供应商目标的配置与登录，再执行此操作".into());}
-    ensure_runtime_idle(store)
-}
-
 pub(crate) fn ensure_runtime_idle(store: &CodexRuntimeStore) -> Result<(), String> {
     if !store
         .instances

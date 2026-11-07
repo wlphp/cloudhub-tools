@@ -482,6 +482,7 @@ fn parse(
     Ok((draft, input, output))
 }
 
+#[allow(dead_code)]
 pub async fn request(
     profile: &Profile,
     key: &str,

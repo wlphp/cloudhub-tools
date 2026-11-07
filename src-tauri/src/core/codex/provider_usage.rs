@@ -111,6 +111,7 @@ fn quota_urls(base:&str,adapter:&str)->Result<Vec<reqwest::Url>,String> {
     let mut url=base_url;url.set_path(endpoint_path(adapter));
     Ok(vec![url])
 }
+#[allow(dead_code)]
 fn quota_url(base:&str,adapter:&str)->Result<reqwest::Url,String> {
     quota_urls(base,adapter)?.into_iter().next().ok_or_else(|| "额度接口地址无效".into())
 }

@@ -25,6 +25,8 @@ pub const TABLES: &[(&str, &str)] = &[
 ];
 pub fn allowed(table: &str) -> bool { TABLES.iter().any(|(name, _)| *name == table) }
 /// Explicitly excluded persistence. Adding a database table requires a scope decision.
+// 仅由导入校验的测试断言使用，作为排除范围的文档保持同步。
+#[allow(dead_code)]
 pub const LOCAL_TABLES: &[&str] = &[
     "api_logs","operation_logs","cloud_assets","flow_pipeline_cache","network_speed_history",
     "certificate_snapshots","certificate_sync_identity","flow_sync_identity",

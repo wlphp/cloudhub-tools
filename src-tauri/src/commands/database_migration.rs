@@ -149,6 +149,9 @@ fn backup_filename(prefix: &str) -> String {
     format!("{prefix}-{}{}.chdb", Utc::now().format("%Y%m%d-%H%M%S"), crate::core::data_transfer::BUILD_SUFFIX)
 }
 
+// 导入流程改用 plan/confirm 链路后，以下本地数据保留步骤在生产链路暂未接线；
+// 实现与测试保留，恢复接线时移除 allow 标注即可。
+#[allow(dead_code)]
 fn package_bytes(database: &[u8], key: &[u8]) -> Result<Vec<u8>, String> {
     package_bytes_scoped(database,key,None,false)
 }
@@ -243,6 +246,7 @@ pub(super) fn validate_cloud_password(password: &str) -> Result<(), String> {
     backup_crypto::validate_password(password)
 }
 
+#[allow(dead_code)]
 pub(super) fn cloud_snapshot(password: Option<String>) -> Result<Vec<u8>, String> {
     cloud_snapshot_scoped(password,None)
 }
@@ -295,6 +299,7 @@ pub(super) fn prepare_cloud_snapshot(bytes: &[u8], password: Option<String>, sta
     result
 }
 
+#[allow(dead_code)]
 fn preserve_local_cloud_config(incoming: &Path, current: &Path, current_key: &[u8], incoming_key: &[u8]) -> Result<(), String> {
     use crate::core::crypto::{decrypt_secret_with_key, encrypt_secret_with_key};
     use rusqlite::OptionalExtension;
@@ -379,6 +384,7 @@ fn scope_snapshot(path:&Path,tables:Option<&[String]>) -> Result<(),String> {
     Ok(())
 }
 
+#[allow(dead_code)]
 fn preserve_local_codex(incoming: &Path, current: &Path, current_key: &[u8], incoming_key: &[u8]) -> Result<(), String> {
     use crate::core::crypto::{decrypt_secret_with_key, encrypt_secret_with_key};
     let mut destination = Connection::open(incoming).map_err(|_| "无法准备本机 Codex 数据保留")?;
@@ -426,6 +432,7 @@ fn preserve_local_codex(incoming: &Path, current: &Path, current_key: &[u8], inc
     tx.commit().map_err(|_| "提交本机 Codex 数据失败".into())
 }
 
+#[allow(dead_code)]
 fn preserve_local_codex_providers(
     incoming: &Path,
     current: &Path,
@@ -580,6 +587,7 @@ fn preserve_local_codex_providers(
     }
     tx.commit().map_err(|_| "提交本机供应商数据失败".into())
 }
+#[allow(dead_code)]
 fn preserve_local_authenticator(incoming: &Path, current: &Path) -> Result<(), String> {
     use crate::core::repositories::authenticator::{self, SCHEMA};
     let mut destination = Connection::open(incoming).map_err(|_| "无法准备本机验证器保留")?;
@@ -1299,6 +1307,35 @@ mod tests {
         let count: i64 = Connection::open(&path).unwrap().query_row("SELECT COUNT(*) FROM cloud_accounts", [], |row| row.get(0)).unwrap();
         assert_eq!(count, 1);
         fs::remove_file(path).unwrap();
+    }
+
+    // 临时诊断（#[ignore]，CH_SRC_DB/CH_KEY 环境变量驱动）：用真实数据库走
+    // .chdb 本地备份与云同步备份同款的快照→清洗→恢复导出→导入全链路，
+    // 验证迁移身份撞车不会影响备份恢复路径。只读真实库，副本均在临时目录。
+    #[test]
+    #[ignore]
+    fn temporary_real_backup_restore_roundtrip() {
+        let src = PathBuf::from(std::env::var("CH_SRC_DB").unwrap());
+        let key = fs::read(std::env::var("CH_KEY").unwrap()).unwrap();
+        assert_eq!(key.len(), 32);
+        let dir = std::env::temp_dir().join(format!("ch-backup-{}", Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let snapshot = dir.join("snapshot.sqlite3");
+        super::snapshot_database_at(&src, &snapshot).unwrap();
+        // 测试进程的验证器本机密钥固定解析到调试配置目录，与生产库不匹配，
+        // 因此排除验证器模块；验证器路径已由调试库全量用例覆盖。
+        let requested: Vec<String> = crate::core::data_transfer::TABLES.iter().map(|(name, _)| name.to_string()).filter(|name| name != "authenticator_entries").collect();
+        super::sanitize_snapshot_with_scope(&snapshot, &key, Some(&requested)).unwrap();
+        let input = super::restore_input(&snapshot, &key, &requested, false).unwrap();
+        eprintln!("restore sql {} bytes", input.len());
+        let fresh = crate::core::database::open_transfer_test_db(&dir.join("target.sqlite3")).unwrap();
+        let target_key: Vec<u8> = (0..32).collect();
+        match super::sql::import_portable_scoped(&fresh, &input, &target_key, "merge", Some(&requested)) {
+            Ok((added, changed, skipped)) => eprintln!("restore import ok added={added} changed={changed} skipped={skipped}"),
+            Err(error) => panic!("restore import failed: {error}"),
+        }
+        drop(fresh);
+        let _ = fs::remove_dir_all(dir);
     }
 }
 

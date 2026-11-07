@@ -335,6 +335,8 @@ pub fn set_current(conn: &Connection, id: &str) -> Result<(), String> {
     tx.commit().map_err(|_| "提交切换失败".to_string())
 }
 
+// 预置清单已由前端维护，这里仅作为导入导出测试的夹具来源。
+#[allow(dead_code)]
 /// 预置供应商。base_url 取自 cc-switch 同名预设，模型映射是各家的公开别名。
 fn provider(id: &str, name: &str, website: &str, base_url: &str, models: &[(&str, &str)]) -> ClaudeProvider {
     let mut map = Map::new();
@@ -363,6 +365,7 @@ fn provider(id: &str, name: &str, website: &str, base_url: &str, models: &[(&str
     }
 }
 
+#[allow(dead_code)]
 /// 预置清单。`is_full_url` 表示 base_url 已是完整端点，切换时不再拼接路径。
 pub fn presets() -> Vec<ClaudeProvider> {
     vec![

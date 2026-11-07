@@ -26,13 +26,6 @@ fn field(value: &Value, names: &[&str], max: usize) -> Option<String> {
         .map(str::trim).filter(|v| !v.is_empty() && v.len() <= max && !v.chars().any(char::is_control)).map(str::to_owned))
 }
 
-fn session_hint(value: &Value, keys: &[&str], max: usize) -> Option<String> {
-    let session = value.get("session").unwrap_or(&Value::Null);
-    let user = value.get("user").or_else(|| session.get("user")).unwrap_or(&Value::Null);
-    let account = value.get("account").or_else(|| session.get("account")).unwrap_or(&Value::Null);
-    [value, session, user, account].into_iter().find_map(|source| field(source, keys, max))
-}
-
 pub(super) fn normalize(value: &Value) -> Result<Value, String> {
     if let Some(raw) = value.as_str() {
         let raw = raw.trim().strip_prefix("Bearer ").unwrap_or(raw.trim());
