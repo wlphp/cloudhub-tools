@@ -97,6 +97,7 @@ for (const file of files) {
     await request(`${attachmentsUrl}/${attachment.id}`, { method: "DELETE" });
   }
   const form = new FormData();
+  form.append("access_token", token);
   form.append("file", new Blob([fs.readFileSync(file)]), filename);
   await request(attachmentsUrl, { method: "POST", body: form });
   console.log(`Mirrored ${filename}`);
