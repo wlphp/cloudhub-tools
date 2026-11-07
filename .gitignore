@@ -43,28 +43,6 @@ src-tauri/**/target-verify/
 .agents/
 AGENTS.md
 
-# Version the shared release procedure while keeping personal agent configuration ignored.
-!.agents/
-.agents/*
-!.agents/skills/
-.agents/skills/*
-!.agents/skills/cloudhub-release/
-.agents/skills/cloudhub-release/*
-!.agents/skills/cloudhub-release/SKILL.md
-!.claude/
-.claude/*
-!.claude/skills/
-.claude/skills/*
-!.claude/skills/cloudhub-release/
-.claude/skills/cloudhub-release/*
-!.claude/skills/cloudhub-release/SKILL.md
-!.codex/
-.codex/*
-!.codex/skills/
-.codex/skills/*
-!.codex/skills/cloudhub-release/
-.codex/skills/cloudhub-release/*
-!.codex/skills/cloudhub-release/SKILL.md
 CLAUDE.md
 docs/agent-integration.md
 docs/experience/
