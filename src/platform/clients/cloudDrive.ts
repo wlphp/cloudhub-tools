@@ -8,7 +8,7 @@ export interface DriveConnection {
   alipanAppId?: string; alipanDrive?: "default" | "resource" | "backup";
   authorized?: boolean; authorizationExpiresAt?: number | null;
 }
-export interface DriveMount {
+interface DriveMount {
   id: string; phase: "idle" | "mounted" | "recovery"; queued: number; uploading: number;
   errors: number; bytesUsed: number; outOfSpace: boolean; dirty: boolean; message: string;
 }

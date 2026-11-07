@@ -1,7 +1,7 @@
 import { nativeOnly } from "./base";
 
-export interface BrowserProxy { kind: "direct" | "http" | "https" | "socks5"; host: string; port: number; username: string }
-export interface BrowserFingerprint { seed: number; canvasNoise: boolean; hardwareConcurrency: number; deviceMemory: number }
+interface BrowserProxy { kind: "direct" | "http" | "https" | "socks5"; host: string; port: number; username: string }
+interface BrowserFingerprint { seed: number; canvasNoise: boolean; hardwareConcurrency: number; deviceMemory: number }
 export interface BrowserConfig {
   name: string; group: string; tags: string; note: string; kernelVersion: string;
   startUrls: string[]; proxy: BrowserProxy; language: string; timezone: string; width: number; height: number;
@@ -13,7 +13,7 @@ export interface BrowserEnvironment {
   id: string; config: BrowserConfig; passwordSaved: boolean; createdAt: number;
   lastOpenedAt: number | null; deletedAt: number | null; running: boolean; recoveryRequired: boolean;
 }
-export interface BrowserKernel {
+interface BrowserKernel {
   label: string; recommended: boolean; experimental: boolean;
   version: string; installed: boolean; phase: "idle" | "downloading" | "verifying" | "extracting" | "ready" | "cancelled" | "failed";
   downloaded: number; total: number; error: string | null;

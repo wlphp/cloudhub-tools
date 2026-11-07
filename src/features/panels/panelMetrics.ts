@@ -49,7 +49,7 @@ export function panelMetricNumber(value: unknown): number | null {
   return null;
 }
 
-export function panelMetricRecord(value: unknown): Record<string, unknown> | null {
+function panelMetricRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;

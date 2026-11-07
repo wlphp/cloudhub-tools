@@ -1,4 +1,4 @@
-export type AuditFrame = { at: number; text: string };
+type AuditFrame = { at: number; text: string };
 export type TerminalRecording = { id: number; sessionId: string; label: string; startedAt: number; duration: number; frames: AuditFrame[]; bytes: number; stopped: boolean; reason?: string };
 
 export class TerminalAuditStore {

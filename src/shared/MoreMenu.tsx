@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
-export interface MoreMenuItem {
+interface MoreMenuItem {
   id: string;
   label: ReactNode;
   icon?: ReactNode;

@@ -2,10 +2,10 @@ import { preferencesClient } from "../../platform/clients/preferences";
 
 export type AccountGroup = { id: string; name: string; accountIds: number[] };
 export type OverviewPreferences = { groups: AccountGroup[]; view: "grid" | "list" | "table"; compact: boolean; showServiceEntry: boolean };
-export const overviewPreferenceKey = "codex.overview.v1";
+const overviewPreferenceKey = "codex.overview.v1";
 export const emptyOverviewPreferences: OverviewPreferences = { groups: [], view: "grid", compact: false, showServiceEntry: true };
 
-export function parseOverviewPreferences(raw?: string): OverviewPreferences {
+function parseOverviewPreferences(raw?: string): OverviewPreferences {
   if (!raw || raw.length > 100000) return emptyOverviewPreferences;
   try {
     const value = JSON.parse(raw);

@@ -5,7 +5,7 @@ import { preferencesClient } from "../../platform/clients/preferences";
 import { ProviderUsageDialog } from "./ProviderUsageDialog";
 
 export const USAGE_PREFERENCE_PREFIX = "codex.providers.usage.";
-export const USAGE_ADAPTERS = [["auto", "官方接口 · DeepSeek / MiniMax / 智谱"], ["sub2api", "Sub2API"], ["new_api", "New API"], ["one_api", "One API（兼容计费接口）"]] as const;
+const USAGE_ADAPTERS = [["auto", "官方接口 · DeepSeek / MiniMax / 智谱"], ["sub2api", "Sub2API"], ["new_api", "New API"], ["one_api", "One API（兼容计费接口）"]] as const;
 export interface UsageSelection { adapter: string; keyId: string }
 export type UsageProvider = Pick<CodexProvider, "id" | "name" | "version" | "keys">;
 export function readUsageSelection(value: string | undefined, provider: UsageProvider): UsageSelection | null {

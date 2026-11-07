@@ -1,8 +1,8 @@
 import { useCallback, useState } from "react";
 import type { Account, ResourceResponse, View } from "../../shared/types";
-import { fetchCachedResources, type CachedSummary } from "./cache.ts";
+import { fetchCachedResources } from "./cache.ts";
 
-export type ResourceView =
+type ResourceView =
   | "summary"
   | "ecs"
   | "domain"
@@ -11,8 +11,6 @@ export type ResourceView =
   | "redis"
   | "swas"
   | "esa";
-
-export type { CachedSummary };
 
 export interface UseResourceWorkspaceResult {
   // Resource listing for the detail dialog and the resources page.

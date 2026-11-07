@@ -6,8 +6,8 @@ export function isCodexDefaultProcessBusy(reason: unknown): boolean {
 }
 
 export interface CodexQuotaWindow { name: string; usedPercent: number; windowMinutes: number | null; resetsAt: number | null }
-export interface CodexResetCredit { id: string | null; status: string | null; resetType: string | null; grantedAt: number | null; expiresAt: number | null; redeemedAt: number | null }
-export interface CodexBenefits { expiresAt: number | null; resetCredits: number | null; resetExpiresAt: number | null; resetCards?: CodexResetCredit[]; fetchedAt: number | null; subscriptionError: string | null; creditsError: string | null }
+interface CodexResetCredit { id: string | null; status: string | null; resetType: string | null; grantedAt: number | null; expiresAt: number | null; redeemedAt: number | null }
+interface CodexBenefits { expiresAt: number | null; resetCredits: number | null; resetExpiresAt: number | null; resetCards?: CodexResetCredit[]; fetchedAt: number | null; subscriptionError: string | null; creditsError: string | null }
 export interface CodexAccount {
   isWebSession?: boolean;
   id: number; label: string; email: string | null; accountId: string | null;

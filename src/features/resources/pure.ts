@@ -3,7 +3,7 @@
 
 import type { View } from "../../shared/types";
 
-export const RESOURCE_VIEWS: ReadonlyArray<Exclude<View, "summary">> = [
+const RESOURCE_VIEWS: ReadonlyArray<Exclude<View, "summary">> = [
   "ecs",
   "domain",
   "oss",

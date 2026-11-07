@@ -208,7 +208,7 @@ export async function webApiDownload(path: string): Promise<Blob> {
   } catch (reason) { throw normalizePlatformError(reason); }
 }
 
-export interface UnsupportedInPreviewError extends Error {
+interface UnsupportedInPreviewError extends Error {
   kind: "unsupported-in-preview";
   feature?: string;
   hint?: string;

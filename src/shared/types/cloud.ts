@@ -14,13 +14,13 @@ export type Account = {
 };
 
 export type FlowConnection = { id: number; name: string; edition: "central" | "region"; organizationId?: string | null; domain: string; tokenSaved: boolean; createdAt: number; updatedAt: number };
-export type FrpHttps2HttpPlugin = { type: "https2http"; localAddr: string; crtPath: string; keyPath: string };
+type FrpHttps2HttpPlugin = { type: "https2http"; localAddr: string; crtPath: string; keyPath: string };
 export type FrpProxy = { id?: number | null; serverId: number; name: string; kind: "tcp" | "udp" | "http" | "https"; localIp: string; localPort: number; remotePort?: number | null; customDomain?: string | null; customDomains?: string[]; plugin?: FrpHttps2HttpPlugin | null; enabled: boolean };
 export type FrpServer = { id: number; name: string; serverAddr: string; serverPort: number; tokenSaved: boolean; panelUrl: string | null; panelUsername: string | null; panelPasswordSaved: boolean; adminPort: number; proxies: FrpProxy[]; updatedAt: number };
 export type FrpServerInput = { id?: number | null; name: string; serverAddr: string; serverPort: number; token?: string | null; panelUrl?: string | null; panelUsername?: string | null; panelPassword?: string | null; proxies: FrpProxy[] };
 export type FrpGlobalSettings = { adminUser: string; adminPasswordSaved: boolean };
 export type FrpGlobalSettingsInput = { adminUser: string; adminPassword?: string | null };
-export type FrpProxyRuntime = { name: string; status: "running" | "wait" | "error" | string };
+type FrpProxyRuntime = { name: string; status: "running" | "wait" | "error" | string };
 export type FrpRuntime = { serverId: number; installed: boolean; configPresent: boolean; configCurrent: boolean; running: boolean; connected: boolean; version?: string | null; proxies: FrpProxyRuntime[] };
 export type FlowConnectionInput = { id?: number; name: string; edition: "central" | "region"; organizationId?: string | null; domain?: string | null; token?: string | null };
 export type FlowGroup = { groupId: string; groupName: string };
@@ -30,8 +30,8 @@ export type FlowRun = { pipelineRunId: string; startTime?: number | null; endTim
 export type FlowStep = { stepIndex?: number | null; buildId?: number | null; name?: string | null; status?: string | null };
 export type FlowLogPage = { logs: string; more: boolean; nextOffset: number };
 export type FlowJob = { id?: string | null; name?: string | null; status?: string | null; startTime?: number | null; endTime?: number | null; steps: FlowStep[] };
-export type FlowStage = { name?: string | null; status?: string | null; startTime?: number | null; endTime?: number | null; jobs: FlowJob[] };
-export type FlowSource = { sourceType?: string | null; repository?: string | null; branch?: string | null; commitId?: string | null; commitMessage?: string | null };
+type FlowStage = { name?: string | null; status?: string | null; startTime?: number | null; endTime?: number | null; jobs: FlowJob[] };
+type FlowSource = { sourceType?: string | null; repository?: string | null; branch?: string | null; commitId?: string | null; commitMessage?: string | null };
 export type FlowRunDetail = { pipelineRunId: string; status?: string | null; startTime?: number | null; endTime?: number | null; triggerMode?: number | null; creatorAccountId?: string | null; creatorEmail?: string | null; sources: FlowSource[]; stages: FlowStage[] };
 
 export type Draft = {
@@ -155,7 +155,7 @@ export type PanelConnectionDraft = {
   ssh_managed_host_id?: number;
 };
 
-export type EsaTrendPoint = { time: string; value: number };
+type EsaTrendPoint = { time: string; value: number };
 
 export type EsaOverview = {
   traffic: number;

@@ -8,7 +8,7 @@ export type ClaudeApiKeyField = "auth_token" | "api_key";
 
 export type ClaudeModelMapping = { model: string; displayName?: string; supports1m?: boolean };
 
-export type ClaudeApiKeyFieldChoice = "auth_token" | "api_key";
+type ClaudeApiKeyFieldChoice = "auth_token" | "api_key";
 
 export type ClaudeProviderInput = {
   id: string;
@@ -44,7 +44,7 @@ export const DEFAULT_CLAUDE_ROUTING: ClaudeRoutingConfig = {
   port: 15721, routeProvider: "", defaultProvider: "", members: [], failover: false, queue: [],
   retries: 2, timeoutSecs: 600, firstByteSecs: 90, idleSecs: 180, failureThreshold: 8, cooldownSecs: 90, logging: true,
 };
-export type ClaudeRequestLog = {
+type ClaudeRequestLog = {
   mode?: ClaudeMode | null;
   id: string; timestamp: number; providerId: string; model: string; actualModel: string; status: number;
   durationMs: number; inputTokens: number; outputTokens: number; cacheReadTokens: number;

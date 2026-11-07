@@ -82,7 +82,7 @@ export function formatEsaTime(value: string): string {
   return `${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")} ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 }
 
-export const COLUMN_LABELS: Record<string, string> = {
+const COLUMN_LABELS: Record<string, string> = {
   InstanceName: "实例名称",
   InstanceId: "实例 ID",
   Status: "状态",

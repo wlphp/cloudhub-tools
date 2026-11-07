@@ -3,7 +3,7 @@ import { RotateCcw, Search, Trash2, TriangleAlert } from "lucide-react";
 import { ConfirmDialog } from "./ConfirmDialog";
 
 /** Credential retention options offered in the settings panel. */
-export const SCRUB_DAY_OPTIONS = [
+const SCRUB_DAY_OPTIONS = [
   { value: 0, label: "永久保留" },
   { value: 7, label: "7 天" },
   { value: 30, label: "30 天" },
@@ -18,7 +18,7 @@ export type TrashKind = {
   items: TrashItem[];
 };
 
-export type TrashItem = {
+type TrashItem = {
   id: string;
   title: string;
   detail?: string;

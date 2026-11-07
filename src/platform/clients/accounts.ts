@@ -41,23 +41,23 @@ export type SyncEnvelope = {
   nonce: string;
   ciphertext: string;
 };
-export type SyncAccountPreview = {
+type SyncAccountPreview = {
   syncId: string;
   accountName: string;
   cloudType: string;
   regionId: string | null;
 };
-export type SyncManagedHostPreview = Pick<ManagedHost, "name" | "host" | "port" | "username" | "platform"> & { syncId: string; authMethod: string };
-export type SyncPanelPreview = { syncId: string; name: string; panelUrl: string; allowInsecureTls: boolean };
-export type SyncFlowPreview = { syncId: string; name: string; edition: string; organizationId: string | null; pipelineCount: number };
-export type SyncDeletionPreview = { entityType: "cloud_account" | "managed_host" | "panel_connection"; syncId: string; name: string; willDelete: boolean };
+type SyncManagedHostPreview = Pick<ManagedHost, "name" | "host" | "port" | "username" | "platform"> & { syncId: string; authMethod: string };
+type SyncPanelPreview = { syncId: string; name: string; panelUrl: string; allowInsecureTls: boolean };
+type SyncFlowPreview = { syncId: string; name: string; edition: string; organizationId: string | null; pipelineCount: number };
+type SyncDeletionPreview = { entityType: "cloud_account" | "managed_host" | "panel_connection"; syncId: string; name: string; willDelete: boolean };
 export type SyncDeviceIdentity = { deviceId: string; publicKey: string };
-export type SyncDeviceScopeEntry = { entityType: "cloud_account" | "managed_host" | "panel_connection"; entitySyncId: string; displayName: string };
+type SyncDeviceScopeEntry = { entityType: "cloud_account" | "managed_host" | "panel_connection"; entitySyncId: string; displayName: string };
 export type SyncTrustedDevice = { deviceId: string; deviceName: string; status: "pending" | "trusted" | "revoked"; publicKeyFingerprint: string; sharedEntities: SyncDeviceScopeEntry[]; approvedAt: number | null; lastSeenAt: number | null };
-export type SyncImportConflict = { entityType: "cloudAccount" | "managedHost" | "panel" | "flowConnection"; syncId: string; name: string; reason: string; resolvable: boolean };
+type SyncImportConflict = { entityType: "cloudAccount" | "managedHost" | "panel" | "flowConnection"; syncId: string; name: string; reason: string; resolvable: boolean };
 export type SyncImportPreview = { categories?: Array<{ table: string; label: string; count: number }>; protocolVersion: number; accounts: SyncAccountPreview[]; managedHosts: SyncManagedHostPreview[]; panels: SyncPanelPreview[]; flowConnections?: SyncFlowPreview[]; certificates?: CertificateMetadata[]; authenticators?: AuthEntry[]; aiProfiles?: AiProfile[]; deletions: SyncDeletionPreview[]; conflicts: SyncImportConflict[] };
 export type SyncDeltaConflictResolution = { entityType: string; syncId: string; choice: "incoming" | "local" };
-export type SyncDeltaConflict = { entityType: string; syncId: string; name: string; reason: string; resolvable: boolean };
+type SyncDeltaConflict = { entityType: string; syncId: string; name: string; reason: string; resolvable: boolean };
 export type SyncDeltaReview = { protocolVersion: number; sourceDeviceId: string; targetDeviceId: string; fromSequence: number; throughSequence: number; changeCount: number; conflicts: SyncDeltaConflict[]; deletions: SyncDeletionPreview[] };
 export type SyncDeltaApplyResult = { sourceDeviceId: string; receiverDeviceId: string; messageIds: string[]; signature: string; added: number; updated: number; deleted: number };
 export type SyncTransferStartResult = { pairingUrl: string; sourceDeviceId: string; sourcePublicKeyFingerprint: string };

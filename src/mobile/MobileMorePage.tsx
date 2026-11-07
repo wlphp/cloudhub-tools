@@ -2,7 +2,7 @@ import { Award, ChevronRight, Cloud, Database, FileText, Folder, GitBranch, Glob
 import type { Account, LocalAsset } from "../shared/types";
 
 export type MobileFeatureDestination = "accounts" | "assets" | "favorites" | "servers" | "domains" | "storage" | "databases" | "redis" | "certificates" | "ssh" | "panels" | "flow" | "authenticator" | "operationLogs" | "apiLogs";
-export const mobileFeatures = [
+const mobileFeatures = [
   { tab: "accounts", title: "我的账号", description: "管理本机保存的云账号", keywords: "账号 云账户", icon: Cloud },
   { tab: "assets", title: "我的资产", description: "查看本机已缓存的云资源", keywords: "资产 资源汇总", icon: HardDrive },
   { tab: "favorites", title: "我的收藏", description: "集中查看已收藏的云资源", keywords: "收藏 资产", icon: Star },

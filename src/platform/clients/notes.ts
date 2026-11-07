@@ -8,7 +8,7 @@ export type Note = {
   deletedAt: number | null;
 };
 export type NoteInput = Omit<Note, "id" | "remindDoneAt" | "createdAt" | "updatedAt" | "deletedAt"> & { id?: number };
-export type NoteReminder = { noteId: number; title: string; summary: string; fireAt: number };
+type NoteReminder = { noteId: number; title: string; summary: string; fireAt: number };
 export type NotesSnapshot = { notes: Note[]; groups: string[]; reminders: NoteReminder[]; trashed: Note[] };
 
 /** Command names stay literal so `verify:platform-contracts` can match them statically. */

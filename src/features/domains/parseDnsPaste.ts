@@ -1,6 +1,6 @@
 import { normalizeDnsHost } from "./dnsHost";
 export type ParsedDnsRecord = { type: string; rr?: string; value: string; ttl?: number; priority?: number; line?: string; inference?: string };
-export const dnsTypes = ["A", "AAAA", "CNAME", "MX", "TXT", "NS", "SRV", "CAA", "REDIRECT_URL", "FORWARD_URL"];
+const dnsTypes = ["A", "AAAA", "CNAME", "MX", "TXT", "NS", "SRV", "CAA", "REDIRECT_URL", "FORWARD_URL"];
 const lineNames: Record<string, string> = { 默认: "default", 电信: "telecom", 联通: "unicom", 移动: "mobile", 境外: "oversea", 教育网: "edu", 搜索引擎: "search" };
 const aliases: Record<string, string> = { type: "type", 记录类型: "type", 类型: "type", rr: "rr", host: "rr", name: "rr", hostname: "rr", 主机记录: "rr", 主机: "rr", 名称: "rr", value: "value", content: "value", target: "value", 记录值: "value", 值: "value", 目标: "value", ttl: "ttl", priority: "priority", 优先级: "priority", line: "line", 线路: "line", 解析线路: "line" };
 const ipv4 = (value: string) => value.split(".").length === 4 && value.split(".").every(part => /^\d{1,3}$/.test(part) && Number(part) <= 255);

@@ -2,7 +2,7 @@ import { nativeOnly } from "./base";
 
 export type SpeedTestConfig = { node: "cn-qiniu" | "cn-alipay" | "cloudflare" | "custom"; baseUrl: string; durationSecs: number; limitMib: number };
 export type SpeedNetworkInfo = { publicIp: string | null; localIp: string | null; location: string | null; source: string; checkedAt: number; warning: string | null };
-export type SpeedPoint = { seconds: number; mbps: number; direction: "download" | "upload" };
+type SpeedPoint = { seconds: number; mbps: number; direction: "download" | "upload" };
 export type SpeedRun = {
   id: string; node: string; endpoint: string; colo: string;
   status: "running" | "completed" | "cancelled" | "failed";

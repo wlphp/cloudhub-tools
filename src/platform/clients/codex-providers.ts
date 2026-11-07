@@ -13,7 +13,7 @@ async function nativeOnly<T>(command: string, args?: Record<string, unknown>): P
 }
 
 export interface ModelSettings { models?: string[]; modelsScoped?: boolean; defaultModel?: string | null; contextWindow?: number | null; compactLimit?: number | null }
-export interface ProviderKey { id: string; name: string; settings?: ModelSettings }
+interface ProviderKey { id: string; name: string; settings?: ModelSettings }
 export interface CodexProvider {
   id: string; version: number; name: string; baseUrl: string;
   wireApi: "responses" | "chat_completions"; models: string[]; note: string; keys: ProviderKey[];
@@ -43,7 +43,7 @@ export interface ProviderModelCatalogInput { baseUrl: string; providerId: string
 export interface ProviderUsage { adapter: string; fetchedAt: number; windows: { name: string; remaining: number; total: number | null; unit: string; resetsAt: number | null }[] }
 export interface ProviderImport { token: string; providers: { name: string; baseUrl: string; wireApi: string; models: string[]; keyCount: number; duplicate: boolean }[]; warnings: string[] }
 export interface ProviderRequestLog { id: string; providerId: string; source: string; method: string; url: string; requestBody: string; clientRequestBody: string; status: number | null; responseBody: string; error: string | null; elapsedMs: number; createdAt: number }
-export type AggregateStrategy = "failover" | "roundRobin" | "weightedRoundRobin";
+type AggregateStrategy = "failover" | "roundRobin" | "weightedRoundRobin";
 export interface ProviderAggregate {
   id: string; version: number; name: string; strategy: AggregateStrategy; models: string[];
   members: { providerId: string; keyId: string; providerName: string; keyName: string; wireApi: string; models: string[]; weight: number }[];

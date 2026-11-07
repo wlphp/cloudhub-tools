@@ -1,8 +1,8 @@
 import { invokeOrWeb } from "./base";
 
 /** Row id as a string: text-keyed tables (authenticator) need this form. */
-export type TrashEntry = { kind: string; id: string; title: string; deletedAt: number };
-export type TrashGroup = { kind: string; label: string; items: TrashEntry[] };
+type TrashEntry = { kind: string; id: string; title: string; deletedAt: number };
+type TrashGroup = { kind: string; label: string; items: TrashEntry[] };
 /** Bin contents plus the credential-retention setting. */
 export type TrashSnapshot = { groups: TrashGroup[]; scrubDays: number; scrubbedNow: number };
 

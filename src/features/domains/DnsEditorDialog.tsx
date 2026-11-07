@@ -7,7 +7,7 @@ import { normalizeDnsHost } from "./dnsHost";
 import { AiAssistButton } from "../ai/AiAssistButton";
 import type { AiFields } from "../../platform/clients/ai";
 
-export type DnsRecordInput = {
+type DnsRecordInput = {
   type: string;
   rr: string;
   value: string;

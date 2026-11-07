@@ -1,7 +1,7 @@
 import type { ManagedHost, ManagedHostDraft } from "../../shared/types";
 import { invokeOrWeb, jsonRequest, nativeOnly, queryPath } from "./base";
 
-export type CloudServerProvider = "aliyun" | "tencent" | "oracle" | "baidu" | "vultr";
+type CloudServerProvider = "aliyun" | "tencent" | "oracle" | "baidu" | "vultr";
 export type InstanceAction = "start" | "stop" | "reboot";
 
 const securityGroupContracts = {

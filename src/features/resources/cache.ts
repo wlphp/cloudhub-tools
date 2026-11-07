@@ -5,9 +5,6 @@
 import { resourcesClient } from "../../platform/clients";
 import type { Account, LocalAsset, ResourceResponse, View } from "../../shared/types";
 
-// Re-export the pure helpers so callers can pick whichever surface suits them.
-export { resourceColumns, listResourceViews } from "./pure.ts";
-
 export interface CachedSummary {
   account_id: string;
   account_type: string;
@@ -27,7 +24,7 @@ export interface CachedSummary {
   cached_at: number;
 }
 
-export async function fetchLocalAssets(
+async function fetchLocalAssets(
   account: Account,
   resourceType: string | null,
 ): Promise<LocalAsset[]> {

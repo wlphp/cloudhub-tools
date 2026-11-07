@@ -4,7 +4,7 @@ import { SharedDialog } from "../../shared/SharedDialog";
 import { HelpTooltip } from "../../shared/HelpTooltip";
 import { type ClaudeMode, type ClaudeProviderSummary, type ClaudeRoutingConfig, type ClaudeRoutingState } from "../../platform/clients/claudeProviders";
 
-export const CLAUDE_MODES: { id: ClaudeMode; label: string; icon: typeof Plug }[] = [
+const CLAUDE_MODES: { id: ClaudeMode; label: string; icon: typeof Plug }[] = [
   { id: "direct", label: "直连", icon: Plug }, { id: "route", label: "路由", icon: Route }, { id: "aggregate", label: "聚合", icon: Layers },
 ];
 

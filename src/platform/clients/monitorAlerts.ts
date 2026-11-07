@@ -6,7 +6,7 @@ export interface MonitorAlert {
   snoozedUntil: number; notifiedAt: number; occurrences: number;
 }
 export interface MonitorSnapshot { alerts: MonitorAlert[]; checkedAt: number; lastError: string | null }
-export const monitorSeverityRank = (severity: MonitorAlert["severity"]) => severity === "emergency" ? 3 : severity === "critical" ? 2 : 1;
+const monitorSeverityRank = (severity: MonitorAlert["severity"]) => severity === "emergency" ? 3 : severity === "critical" ? 2 : 1;
 export const monitorSeverityLabel = (severity: MonitorAlert["severity"]) => severity === "emergency" ? "超级严重" : severity === "critical" ? "紧急" : "提醒";
 export function sortMonitorAlerts(alerts: MonitorAlert[]): MonitorAlert[] {
   return [...alerts].sort((a, b) => Number(b.active && !b.ignored) - Number(a.active && !a.ignored) || Number(b.active) - Number(a.active) || monitorSeverityRank(b.severity) - monitorSeverityRank(a.severity) || b.updatedAt - a.updatedAt);

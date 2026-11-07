@@ -3,7 +3,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import "./pagination-bar.css";
 
 export const PAGE_SIZE_OPTIONS = [10, 20, 30, 40, 50, 60, 70, 80, 90];
-export const DEFAULT_PAGE_SIZE = 10;
+const DEFAULT_PAGE_SIZE = 10;
 
 export function normalizePageSize(value: number, fallback: number = DEFAULT_PAGE_SIZE): number {
   return PAGE_SIZE_OPTIONS.includes(value) ? value : fallback;

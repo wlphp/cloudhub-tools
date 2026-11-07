@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 
-export function alignPageSizeToGrid(pageSize: number, columns: number, leadingItems = 0): number {
+function alignPageSizeToGrid(pageSize: number, columns: number, leadingItems = 0): number {
   const safeColumns = Math.max(1, Math.floor(columns));
   return Math.ceil((pageSize + leadingItems) / safeColumns) * safeColumns - leadingItems;
 }
