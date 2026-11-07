@@ -7,6 +7,8 @@ export async function transferFixture(page: Page, table: string, label: string, 
     (window as any).__TAURI_INTERNALS__ = { metadata: { currentWindow: { label: "main" }, currentWebview: { label: "main" } }, transformCallback: () => 1, unregisterCallback: () => {}, invoke: async (command: string, args: any = {}) => {
       (window as any).transferCalls.push({ command, args });
       if (command === "database_transfer_catalog") return categories;
+      if (command === "member_me") return null;
+      if (command === "monitor_alerts_snapshot") return { alerts: [], checkedAt: 0, lastError: null };
       if (command === "plugin:event|listen") return 1;
       if (command === "plugin:app|version") return "0.1.97";
       if (command === "list_client_preferences") return {};
@@ -20,9 +22,9 @@ export async function transferFixture(page: Page, table: string, label: string, 
   }, { table, label, mobile });
   await page.goto("/");
   if (mobile) {
-    await page.locator(".mobile-tab-bar").getByRole("button", { name: "更多", exact: true }).click();
-    await page.locator(".mobile-more-feature").filter({ hasText: "系统设置" }).click();
-    await page.getByRole("button", { name: /导入数据/ }).click();
+    await page.locator(".mobile-tab-bar").getByRole("button", { name: "我的", exact: true }).click();
+    await page.getByRole("button", { name: "系统设置", exact: true }).click();
+    await page.getByRole("button", { name: "数据导入与迁移", exact: true }).click();
     await page.getByRole("button", { name: "扫码接收电脑配置" }).click();
   } else {
     await page.getByRole("button", { name: "系统设置", exact: true }).first().click();

@@ -16,6 +16,7 @@ test("mobile cloud restore aligns scopes, defaults to append and requires explic
   const downloadGate = new Promise<void>(resolve => { finishDownload = resolve; });
   await page.route("**/api/**", async route => {
     const path = new URL(route.request().url()).pathname;
+    if (path === "/api/member") return route.fulfill({ json: null });
     if (path === "/api/cloud-sync/state") return route.fulfill({ json: view });
     if (path === "/api/cloud-sync/channels") return route.fulfill({ json: view.configured ? [view] : [] });
     if (path === "/api/cloud-sync/versions") return route.fulfill({ json: [{ id: "backup-11111111-1111-4111-8111-111111111111.chdb", machineName: "测试电脑", uploadedAt: "2026-10-29T12:00:00Z", passwordProtected: false }] });
@@ -62,9 +63,9 @@ test("mobile cloud restore aligns scopes, defaults to append and requires explic
     return route.fulfill({ json: [] });
   });
   await page.goto("/");
-  await page.locator(".mobile-tab-bar").getByRole("button", { name: "更多", exact: true }).click();
-  await page.locator(".mobile-more-feature").filter({ hasText: "系统设置" }).click();
-  await page.getByRole("button", { name: /导入数据/ }).click();
+  await page.locator(".mobile-tab-bar").getByRole("button", { name: "我的", exact: true }).click();
+  await page.getByRole("button", { name: "系统设置", exact: true }).click();
+  await page.getByRole("button", { name: "数据导入与迁移", exact: true }).click();
   await page.getByText("同步数据范围与恢复规则", { exact: true }).click();
   await expect(page.locator(".mobile-sync-scope")).toContainText("云盘连接、资产收藏与备注、外观偏好");
   await expect(page.locator(".mobile-sync-scope")).toContainText("云同步渠道凭据");

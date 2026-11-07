@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { RefreshCw } from "lucide-react";
 
 type Phase = "idle" | "pulling" | "ready" | "refreshing" | "settling";
@@ -19,8 +19,14 @@ export function MobilePullRefresh({ containerRef, actionRef, scopeKey, disabled,
   const indicatorRef = useRef<HTMLDivElement>(null);
   const [phase, setPhase] = useState<Phase>("idle");
   const errorRef = useRef(onError);
+  const disabledRef = useRef(disabled);
+  const interactionVersionRef = useRef(0);
+  const resetInteractionRef = useRef<() => void>(() => {});
   errorRef.current = onError;
+  disabledRef.current = disabled;
 
+  // Bind synchronously after a page/scope change so a fast first swipe cannot
+  // land in the passive-effect gap with no touch listeners attached.
   useEffect(() => {
     const container = containerRef.current;
     const surface = surfaceRef.current;
@@ -61,6 +67,15 @@ export function MobilePullRefresh({ containerRef, actionRef, scopeKey, disabled,
         if (alive) updatePhase("idle");
       }, reducedMotion ? 0 : 280);
     };
+    const resetInteraction = () => {
+      tracking = null;
+      clearTimeout(settleTimer);
+      clearTimeout(finishTimer);
+      distance = 0;
+      updatePhase("idle");
+      move(0);
+    };
+    resetInteractionRef.current = resetInteraction;
     // A nested scroller, editor or horizontal gesture must retain its own gestures.
     const nestedScrollTarget = (target: EventTarget | null) => {
       let element = target instanceof Element ? target : null;
@@ -74,7 +89,7 @@ export function MobilePullRefresh({ containerRef, actionRef, scopeKey, disabled,
     };
     const start = (event: TouchEvent) => {
       if (tracking || event.touches.length !== 1) { if (tracking) settle(); return; }
-      if (disabled || container.closest("[inert]") || currentPhase !== "idle" || container.scrollTop > 1 || !actionRef.current || nestedScrollTarget(event.target)) return;
+      if (disabledRef.current || container.closest("[inert]") || currentPhase !== "idle" || container.scrollTop > 1 || !actionRef.current || nestedScrollTarget(event.target)) return;
       const touch = event.touches[0];
       tracking = { id: touch.identifier, x: touch.clientX, y: touch.clientY, locked: false };
     };
@@ -105,11 +120,12 @@ export function MobilePullRefresh({ containerRef, actionRef, scopeKey, disabled,
       updatePhase("refreshing");
       move(restingDistance);
       const started = performance.now();
+      const interactionVersion = interactionVersionRef.current;
       // Catch synchronous and asynchronous failures without a stuck indicator.
       void Promise.resolve().then(() => refresh()).catch(error => {
-        if (alive) errorRef.current(error instanceof Error ? error.message : "刷新失败，请重试");
+        if (alive && interactionVersion === interactionVersionRef.current) errorRef.current(error instanceof Error ? error.message : "刷新失败，请重试");
       }).finally(() => {
-        if (!alive) return;
+        if (!alive || interactionVersion !== interactionVersionRef.current) return;
         // Fast local reads should not flash and disappear before users see feedback.
         finishTimer = window.setTimeout(settle, Math.max(0, 420 - (performance.now() - started)));
       });
@@ -131,11 +147,17 @@ export function MobilePullRefresh({ containerRef, actionRef, scopeKey, disabled,
       container.removeEventListener("touchmove", drag);
       container.removeEventListener("touchend", end);
       container.removeEventListener("touchcancel", cancel);
+      resetInteractionRef.current = () => {};
       surface.dataset.pullPhase = indicator.dataset.pullPhase = "idle";
       surface.style.removeProperty("--pull-distance");
       indicator.style.removeProperty("--pull-distance");
     };
-  }, [containerRef, actionRef, scopeKey, disabled]);
+  }, [containerRef, actionRef]);
+
+  useLayoutEffect(() => {
+    interactionVersionRef.current += 1;
+    resetInteractionRef.current();
+  }, [scopeKey, disabled]);
 
   const visible = phase !== "idle" && phase !== "settling";
   return <>

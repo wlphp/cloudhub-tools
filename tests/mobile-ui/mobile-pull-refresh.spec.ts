@@ -18,6 +18,9 @@ async function openAccounts(page: Page) {
 test.beforeEach(async ({ page }) => {
   page.on("pageerror", error => { throw error; });
   await page.route("**/api/**", route => route.fulfill({ json: [] }));
+  // Keep the guest profile null; the catch-all API fixture must not return []
+  // for the member endpoint, because MobileApp renders created_at as a string.
+  await page.route("**/api/member", route => route.fulfill({ json: null }));
   await page.route("**/api/accounts**", route => route.fulfill({ json: accounts }));
 });
 
@@ -128,9 +131,10 @@ test("changing pages clears an unfinished gesture and a pending refresh", async 
   await expect(surface).toHaveAttribute("data-pull-phase", "idle");
   expect(requests).toBe(1);
   await page.getByRole("navigation", { name: "主导航" }).getByRole("button", { name: "首页", exact: true }).click();
-  await touch(page, "touchstart");
-  await touch(page, "touchmove", 180, 400);
-  await touch(page, "touchend");
+  await touch(page, "touchstart", 180, 180, ".mobile-home-apps");
+  await touch(page, "touchmove", 180, 400, ".mobile-home-apps");
+  await expect(surface).toHaveAttribute("data-pull-phase", "ready");
+  await touch(page, "touchend", 180, 400, ".mobile-home-apps");
   await expect.poll(() => requests).toBe(2);
   await page.getByRole("navigation", { name: "主导航" }).getByRole("button", { name: "我的" }).click();
   await expect(surface).toHaveAttribute("data-pull-phase", "idle");

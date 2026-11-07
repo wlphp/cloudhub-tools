@@ -11,6 +11,7 @@ test("mobile channel scope recovers in place and saves only selected modules", a
   ];
   await page.route("**/api/**", route => {
     const path = new URL(route.request().url()).pathname;
+    if (path === "/api/member") return route.fulfill({ json: null });
     if (path === "/api/database-import/catalog") return route.fulfill(catalogFailed
       ? { status: 400, json: { error: "读取数据范围失败，请更新本机调试程序后重试。" } }
       : { json: categories });
@@ -21,9 +22,9 @@ test("mobile channel scope recovers in place and saves only selected modules", a
     return route.fulfill({ json: [] });
   });
   await page.goto("/");
-  await page.locator(".mobile-tab-bar").getByRole("button", { name: "更多", exact: true }).click();
-  await page.locator(".mobile-more-feature").filter({ hasText: "系统设置" }).click();
-  await page.getByRole("button", { name: /导入数据/ }).click();
+  await page.locator(".mobile-tab-bar").getByRole("button", { name: "我的", exact: true }).click();
+  await page.getByRole("button", { name: "系统设置", exact: true }).click();
+  await page.getByRole("button", { name: "数据导入与迁移", exact: true }).click();
   await page.getByRole("button", { name: "添加同步渠道", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "添加同步渠道", exact: true });
   await dialog.locator("summary").click();

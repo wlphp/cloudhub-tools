@@ -227,7 +227,14 @@ fn load_sql(conn: &mut Connection, input: &str, key: &[u8]) -> Result<Vec<String
     let tail = input.strip_prefix(HEADER).ok_or_else(err)?;
     let (schema, tail) = tail.split_once('\n').ok_or_else(err)?;
     let version: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0)).map_err(|_| err())?;
-    if schema != format!("-- schema: {version}") { return Err("SQL 数据版本与当前客户端不一致，请使用相同数据库版本的客户端".into()); }
+    let source_version = schema.strip_prefix("-- schema: ").and_then(|value| value.parse::<i64>().ok()).ok_or_else(err)?;
+    // Portable SQL contains only selected rows and column names, not executable
+    // schema. Older exporters are safe to accept when the target can satisfy
+    // their columns/defaults; a newer schema may require semantics this client
+    // does not understand and must remain rejected.
+    if source_version <= 0 || source_version > version {
+        return Err("SQL 数据版本高于当前客户端，请先更新接收设备".into());
+    }
     let (tables, tail) = tail.split_once('\n').ok_or_else(err)?;
     let names = tables.strip_prefix("-- tables: ").ok_or_else(err)?.split(',').map(String::from).collect::<Vec<_>>();
     let tables = selected(Some(names.clone()))?;
@@ -892,9 +899,11 @@ mod tests {
     fn untrusted_sql_and_schema_mismatch_roll_back_without_secret_errors() {
         let fixture = Fixture::new(); let source = fixture.db("source.sqlite3");
         account(&source,1,"fixture","fixture-access",&[11u8;32]);
+        source.pragma_update(None, "user_version", 2).unwrap();
         let tables = selected(Some(vec!["cloud_accounts".into()])).unwrap();
         let sql = dump(&source,&[11u8;32],&tables).unwrap();
         let mut stage = create_stage(&source,&fixture.root.join("stage.sqlite3")).unwrap();
+        stage.pragma_update(None, "user_version", 2).unwrap();
         for suffix in ["ATTACH DATABASE 'fixture' AS injected;", "DROP TABLE cloud_accounts;", "SELECT load_extension('fixture');"] {
             let error = load_sql(&mut stage,&format!("{}{}", &*sql,suffix),&[22u8;32]).unwrap_err();
             assert!(!error.contains("fixture"));
@@ -902,6 +911,8 @@ mod tests {
         }
         let wrong = sql.replacen("-- schema: ","-- schema: 999",1);
         assert!(load_sql(&mut stage,&wrong,&[22u8;32]).is_err());
+        let older = sql.replacen("-- schema: 2\n","-- schema: 1\n",1);
+        assert!(load_sql(&mut stage,&older,&[22u8;32]).is_ok());
     }
     #[test]
     fn sql_import_accepts_older_optional_columns_but_rejects_duplicate_and_unknown_fields() {

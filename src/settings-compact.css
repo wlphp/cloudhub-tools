@@ -17,7 +17,28 @@ html,body,#root{height:100%;overflow:hidden}.app-shell{height:100vh;min-height:0
 .domain-tool-modal{max-height:calc(100vh - 32px)!important}
 .domain-tool-modal .domain-tool-body{max-height:calc(100vh - 132px)!important;overflow-y:auto!important;overflow-x:hidden!important}
 .resource-modal-backdrop.nested-resource-modal,.domain-tool-backdrop{z-index:100!important}
-.database-import-dialog{width:min(720px,calc(100vw - 36px));max-height:min(780px,calc(100vh - 36px));overflow:auto}
+.database-import-dialog{display:flex;flex-direction:column;width:min(720px,calc(100vw - 36px));max-height:min(780px,calc(100dvh - 36px));overflow:hidden}
+.database-import-dialog>.modal-body{flex:1 1 auto;min-width:0;min-height:0;padding:18px 20px;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable}
+.database-import-dialog>.modal-body>p{margin:0 0 14px;color:var(--jb-muted);font-size:13px;line-height:1.65;overflow-wrap:anywhere;word-break:break-word}
+.database-import-dialog>.modal-body>.data-settings-scope{display:block;margin:0 0 14px;padding:10px 12px;border:1px solid var(--jb-border);border-radius:6px;background:var(--jb-surface-2)}
+.database-import-dialog>.modal-body>.data-settings-scope summary{max-width:100%;line-height:1.5;overflow-wrap:anywhere}
+.database-import-dialog>.modal-body>.data-transfer-field{display:grid;gap:6px;margin:0 0 12px;color:var(--jb-text);font-size:12px;font-weight:600}
+.database-import-dialog>.modal-body>.data-transfer-field select{width:100%;min-width:0;min-height:38px;margin:0;padding:0 10px;font:inherit;font-weight:400}
+.database-import-dialog>.modal-body>.data-transfer-check{display:flex;align-items:flex-start;gap:9px;min-width:0;margin:0 0 14px;padding:11px 12px;border:1px solid var(--jb-border);border-radius:6px;background:var(--jb-surface-2);color:var(--jb-text);font-size:12px;line-height:1.55;overflow-wrap:anywhere}
+.database-import-dialog>.modal-body>.data-transfer-check input{flex:0 0 auto;width:16px;height:16px;margin:2px 0 0;accent-color:var(--jb-accent)}
+.database-import-dialog>.modal-actions{position:static;display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr);flex:0 0 auto;gap:8px;margin:0;padding:10px 12px calc(10px + env(safe-area-inset-bottom,0px));box-shadow:none}
+.database-import-dialog>.modal-actions>button{min-width:0;min-height:40px;padding:7px 10px;white-space:normal;line-height:1.35}
+@media(max-width:600px){
+  .database-import-dialog.shared-content-dialog{width:calc(100vw - 24px);max-width:calc(100vw - 24px);max-height:calc(100dvh - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px) - 24px);border-radius:12px}
+  .database-import-dialog>.modal-head{padding:10px 12px}
+  .database-import-dialog>.modal-body{padding:14px;scrollbar-gutter:auto}
+  .database-import-dialog>.modal-body>p{font-size:13px}
+  .database-import-dialog>.modal-body>.data-transfer-field select{min-height:44px;font-size:16px}
+  .database-import-dialog>.modal-body>.data-transfer-check{min-height:44px;margin-bottom:12px;font-size:13px}
+  .database-import-dialog>.modal-body>.data-transfer-check input{width:20px;height:20px}
+  .database-import-dialog>.modal-actions{padding-inline:12px}
+  .database-import-dialog>.modal-actions>button{min-height:44px;border-radius:8px;font-size:13px;font-weight:600}
+}
 .database-import-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:14px 0}
 .database-import-summary span{padding:9px;border:1px solid var(--jb-border,var(--jb-border));border-radius:6px;background:var(--jb-surface-2,var(--jb-surface));font-size:12px;color:var(--jb-muted,var(--jb-muted))}
 .database-import-summary b{display:block;color:var(--jb-text,var(--jb-text));font-size:18px}
