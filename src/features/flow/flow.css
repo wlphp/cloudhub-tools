@@ -89,3 +89,83 @@
 .flow-feedback button:hover{background:color-mix(in srgb,var(--flow-feedback-tone) 10%,transparent)}
 .flow-feedback button:focus-visible{outline:2px solid var(--jb-accent-strong);outline-offset:2px}
 .flow-source-label{display:inline-flex;max-width:220px;align-items:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--jb-text);font-size:11px}.flow-card-meta .flow-source-label{max-width:100%;white-space:normal;overflow-wrap:anywhere}
+
+/* 云效流水线页统一页面节奏与操作层级。 */
+.flow-page{box-sizing:border-box;padding:24px clamp(18px,2.2vw,34px) 36px}
+.flow-page-header{align-items:center;gap:24px;margin-bottom:20px}
+.flow-page-header>div:first-child{min-width:220px}
+.flow-page-header .eyebrow{display:inline-flex;align-items:center;min-height:22px;padding:0 8px;border:1px solid var(--jb-border);border-radius:5px;color:var(--jb-muted);font-size:10px;font-weight:600;letter-spacing:.08em}
+.flow-page-header h1{margin:9px 0 5px;font-size:24px;line-height:1.25;letter-spacing:-.02em}
+.flow-page-header p{max-width:620px;font-size:12px;line-height:1.6}
+.flow-toolbar-actions{justify-content:flex-end;flex-wrap:wrap;gap:8px}
+.flow-toolbar-actions select{min-width:200px;height:36px;padding-left:12px;border-color:var(--jb-border);border-radius:7px;background:var(--jb-surface);font-size:12px}
+.flow-page .flow-toolbar-actions .secondary,.flow-toolbar-actions .primary{height:36px;min-height:36px;border-radius:7px;font-size:12px}
+.flow-toolbar-actions .icon-button{width:36px;height:36px;min-width:36px}
+.flow-page .panel{border-color:var(--jb-border);border-radius:10px;background:var(--jb-surface);box-shadow:0 2px 8px color-mix(in srgb,var(--jb-text) 4%,transparent)}
+.flow-panel-title{min-height:64px;padding:12px 18px;gap:16px}
+.flow-panel-title>div:first-child{min-width:130px}
+.flow-panel-title h2{display:flex;align-items:center;gap:8px;margin:0 0 4px;font-size:15px;line-height:1.35}
+.flow-panel-title h2 .flow-count{display:inline-grid;min-width:22px;height:20px;place-items:center;padding:0 5px;border:1px solid var(--jb-border);border-radius:5px;background:var(--jb-bg);color:var(--jb-muted);font-size:10px;font-weight:600}
+.flow-panel-title>div:first-child>span{font-size:10px;line-height:1.4}
+.flow-panel-title .flow-list-toolbar{flex:1;min-width:160px;padding:0}
+.flow-panel-title .flow-search{width:min(360px,100%);min-height:36px;padding:0 10px;border-color:var(--jb-border);border-radius:7px;background:var(--jb-bg)}
+.flow-panel-title .flow-search:focus-within{border-color:var(--jb-accent-strong);box-shadow:0 0 0 3px color-mix(in srgb,var(--jb-accent-strong) 14%,transparent)}
+.flow-panel-title .flow-search input{font-size:12px}
+.flow-panel-title .flow-search button{min-height:26px;padding:0 9px;border:1px solid var(--jb-border);border-radius:5px;background:var(--jb-surface);font-size:11px}
+.flow-page .flow-refresh-button{flex:0 0 36px;width:36px;height:36px;border-color:var(--jb-border);border-radius:7px;background:var(--jb-bg)}
+.flow-group-tabs{min-height:46px;padding:0 18px;gap:5px;background:var(--jb-bg)}
+.flow-group-tabs button{min-height:32px;padding:0 11px;border:1px solid transparent;border-radius:6px;font-size:11px;transition:background-color .15s ease,border-color .15s ease,color .15s ease}
+.flow-group-tabs button:hover{border-color:var(--jb-border);background:var(--jb-surface)}
+.flow-group-tabs button.active{border-color:color-mix(in srgb,var(--jb-accent-strong) 25%,var(--jb-border));border-bottom-color:color-mix(in srgb,var(--jb-accent-strong) 25%,var(--jb-border));background:color-mix(in srgb,var(--jb-accent-strong) 9%,var(--jb-surface));color:var(--jb-accent-strong);font-weight:600}
+.flow-recent-note{padding:9px 18px;background:var(--jb-bg);font-size:11px}
+.flow-table-scroll{min-height:180px}
+.flow-pipeline-table{font-size:11px}
+.flow-pipeline-table thead{background:var(--jb-bg)}
+.flow-pipeline-table th{height:36px;padding:0 12px;border-bottom-color:var(--jb-border);font-size:10px;font-weight:600;letter-spacing:.015em}
+.flow-pipeline-table td{height:62px;padding:8px 12px;border-bottom-color:color-mix(in srgb,var(--jb-border) 72%,transparent);color:var(--jb-text)}
+.flow-pipeline-table tbody tr{transition:background-color .12s ease}
+.flow-pipeline-table tbody tr:hover,.flow-pipeline-table tbody tr.selected{background:color-mix(in srgb,var(--jb-accent-strong) 5%,var(--jb-surface))}
+.flow-name-button{gap:4px!important}
+.flow-name-button strong{font-size:12px;line-height:1.4}
+.flow-name-button small{font-size:10px}
+.flow-list-status>strong{font-size:11px}
+.flow-stage-label{font-size:10px}
+.flow-trigger-avatar{background:var(--jb-surface-2);color:var(--jb-muted)}
+.flow-trigger-info small{min-width:0;max-width:145px;overflow:hidden;text-overflow:ellipsis}
+.flow-row-actions{gap:3px}
+.flow-row-actions button{width:32px;height:32px;border-color:transparent;border-radius:6px}
+.flow-row-actions button:hover{border-color:var(--jb-border);background:var(--jb-surface)}
+.flow-list-empty{padding:42px 18px;font-size:12px}
+.flow-empty{max-width:720px;margin:42px auto;padding:36px 28px;border:1px solid var(--jb-border);border-radius:10px;background:var(--jb-surface);text-align:center}
+.flow-empty h2{font-size:17px}
+.flow-empty p{max-width:520px;line-height:1.65}
+.flow-feedback{border-radius:7px}
+.flow-page :is(button,select,input):focus-visible,.flow-page .flow-name-button:focus-visible{outline:2px solid var(--jb-accent-strong);outline-offset:2px}
+@media(max-width:900px){
+  .flow-page{padding:20px 16px 28px}
+  .flow-page-header{align-items:flex-start;gap:14px}
+  .flow-toolbar-actions{justify-content:flex-start}
+  .flow-toolbar-actions select{flex:1 1 220px;min-width:180px}
+  .flow-panel-title{flex-wrap:wrap}
+  .flow-panel-title .flow-list-toolbar{flex:1 1 220px;order:3}
+  .flow-panel-title .flow-refresh-button{margin-left:auto}
+}
+@media(max-width:560px){
+  .flow-page{padding:16px 11px 24px}
+  .flow-page-header{gap:12px;margin-bottom:16px}
+  .flow-page-header h1{font-size:21px}
+  .flow-page-header p{font-size:11px}
+  .flow-toolbar-actions{gap:7px}
+  .flow-toolbar-actions select{flex-basis:100%;min-width:0;max-width:none}
+  .flow-page .flow-toolbar-actions .secondary,.flow-toolbar-actions .primary{flex:1 1 auto;padding:0 10px}
+  .flow-panel-title{gap:9px;padding:12px}
+  .flow-panel-title .flow-list-toolbar{flex-basis:calc(100% - 46px);order:0}
+  .flow-panel-title .flow-refresh-button{order:0}
+  .flow-panel-title>div:first-child{flex:1 0 100%;order:-1}
+  .flow-panel-title .flow-search{width:100%}
+  .flow-group-tabs{min-height:44px;padding:0 10px}
+  .flow-recent-note{padding:8px 11px;font-size:10px}
+  .flow-pipeline-table{min-width:620px}
+  .flow-empty{margin:24px auto;padding:26px 18px}
+}
+@media(prefers-reduced-motion:reduce){.flow-group-tabs button,.flow-pipeline-table tbody tr{transition:none}}

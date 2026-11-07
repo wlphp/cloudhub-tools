@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { Bell, BellOff, Copy, Edit3, Eye, EyeOff, FolderCog, KeyRound, NotebookPen, Pin, PinOff, Plus, Search, StickyNote, Tag, Trash2, X } from "lucide-react";
+import { Bell, BellOff, ChevronDown, ChevronUp, Copy, Edit3, Eye, EyeOff, FolderCog, KeyRound, NotebookPen, Pin, PinOff, Plus, Save, Search, StickyNote, Tag, Trash2, X } from "lucide-react";
 import { ConfirmDialog } from "../../shared/ConfirmDialog";
 import { SharedDialog } from "../../shared/SharedDialog";
 import { GroupNameInput } from "../../shared/GroupNameInput";
@@ -45,8 +45,8 @@ const draftOf = (note: Note): NoteInput => ({
 });
 
 /** Shared dialog base: `.modal-backdrop` + `.modal.modal-form-layout` + `.modal-head` / `.modal-body` / `.modal-actions`. */
-function Dialog({ title, subtitle, icon, children, onClose, footer, onSubmit }: { title: string; subtitle?: string; icon: ReactNode; children: ReactNode; onClose: () => void; footer?: ReactNode; onSubmit?: (event: FormEvent<HTMLFormElement>) => void }) {
-  return <SharedDialog title={title} subtitle={subtitle} icon={icon} className="notes-dialog" bodyClassName="notes-dialog-content" onClose={onClose} footer={footer} onSubmit={onSubmit}>{children}</SharedDialog>;
+function Dialog({ title, subtitle, icon, children, onClose, footer, onSubmit, wide = false, resizable = false, sizeStorageKey }: { title: string; subtitle?: string; icon: ReactNode; children: ReactNode; onClose: () => void; footer?: ReactNode; onSubmit?: (event: FormEvent<HTMLFormElement>) => void; wide?: boolean; resizable?: boolean; sizeStorageKey?: string }) {
+  return <SharedDialog title={title} subtitle={subtitle} icon={icon} className={wide ? "notes-dialog notes-dialog-wide" : "notes-dialog"} bodyClassName="notes-dialog-content" onClose={onClose} footer={footer} onSubmit={onSubmit} resizable={resizable} sizeStorageKey={sizeStorageKey}>{children}</SharedDialog>;
 }
 
 async function copyText(value: string, setMessage: (text: string) => void, what: string) {
@@ -129,18 +129,112 @@ function NoteEditor({ draft: initial, groups, onClose, onSaved }: EditorProps) {
   </Dialog>;
 }
 
-function NoteViewer({ note, due, onClose, onEdit, setMessage }: { note: Note; due: boolean; onClose: () => void; onEdit: () => void; setMessage: (text: string) => void }) {
+function NoteViewer({ note, due, onClose, onSaved, setMessage }: { note: Note; due: boolean; onClose: () => void; onSaved: () => void | Promise<void>; setMessage: (text: string) => void }) {
   const [revealed, setRevealed] = useState(false);
-  return <Dialog title={note.title} subtitle={`${note.group} · 更新于 ${formatTime(note.updatedAt)}`} icon={<StickyNote size={20} aria-hidden="true" />} onClose={onClose}
-    footer={<><button type="button" className="secondary" onClick={onClose}>关闭</button><button type="button" className="primary" onClick={onEdit}><Edit3 size={14} aria-hidden="true" />编辑</button></>}>
-    <div className="notes-view-body">
+  const [body, setBody] = useState(note.body);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [query, setQuery] = useState("");
+  const [active, setActive] = useState(0);
+  const [searchSeq, setSearchSeq] = useState(0);
+  const [discardHint, setDiscardHint] = useState(false);
+  const textRef = useRef<HTMLTextAreaElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const dirty = body !== note.body;
+
+  // 正文随内容自动增高，超过 62vh 后在文本框内部滚动。
+  const syncHeight = useCallback(() => {
+    const el = textRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, []);
+  useEffect(() => { syncHeight(); }, [body, syncHeight]);
+  useEffect(() => {
+    const el = textRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(syncHeight);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [syncHeight]);
+
+  // 悬浮检索：大小写不敏感，记录每个命中的起止偏移，用文本框选区定位。
+  const trimmed = query.trim();
+  const matches = useMemo<Array<[number, number]>>(() => {
+    if (!trimmed || !body) return [];
+    const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const found: Array<[number, number]> = [];
+    for (const hit of body.matchAll(new RegExp(escaped, "gi"))) {
+      if (hit.index === undefined) continue;
+      found.push([hit.index, hit.index + hit[0].length]);
+      if (found.length >= 10000) break;
+    }
+    return found;
+  }, [body, trimmed]);
+  const total = matches.length;
+  const activeIndex = total ? Math.min(active, total - 1) : 0;
+  const step = (delta: number) => { if (total) { setActive(current => (current + delta + total) % total); setSearchSeq(seq => seq + 1); } };
+
+  // 仅在检索动作（输入、跳转）后定位选区；正文编辑不触发，避免打断输入。
+  // 依赖保持最小：searchSeq 变化触发的这次渲染已持有最新 matches/activeIndex。
+  useEffect(() => {
+    if (!searchSeq) return;
+    const el = textRef.current;
+    const match = matches[activeIndex];
+    if (!el || !match) return;
+    el.focus();
+    el.setSelectionRange(match[0], match[1]);
+    searchRef.current?.focus({ preventScroll: true });
+  }, [searchSeq]);
+
+  async function save() {
+    if (busy) return;
+    if (!dirty) { onClose(); return; }
+    setBusy(true); setError("");
+    try {
+      await notesClient.save({ ...draftOf(note), body });
+      await onSaved();
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "保存失败"); } finally { setBusy(false); }
+  }
+
+  // 有未保存修改时先提示，再按一次 Esc 或再次点击关闭才真正退出，避免误触丢失内容。
+  const requestClose = () => { if (dirty && !discardHint) setDiscardHint(true); else onClose(); };
+
+  return <Dialog wide title={note.title} subtitle={`${note.group} · 更新于 ${formatTime(note.updatedAt)}`} icon={<StickyNote size={20} aria-hidden="true" />} onClose={onClose} resizable sizeStorageKey="notes-viewer"
+    footer={<><button type="button" className="secondary" onClick={requestClose}>关闭</button><button type="button" className="primary" disabled={busy} onClick={() => void save()}><Save size={14} aria-hidden="true" />{busy ? "保存中…" : "保存"}</button></>}>
+    <div className="notes-view-body" onKeyDown={event => {
+      if ((event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "f") {
+        event.preventDefault();
+        searchRef.current?.focus();
+        searchRef.current?.select();
+      }
+    }}>
+      {body !== "" && <div className="notes-view-search" role="search">
+        <Search size={13} aria-hidden="true" />
+        <input ref={searchRef} value={query} aria-label="检索正文" placeholder="检索正文…" autoComplete="off" spellCheck={false}
+          onChange={event => { setQuery(event.target.value); setActive(0); setSearchSeq(seq => seq + 1); }}
+          onKeyDown={event => {
+            if (event.key === "Escape") {
+              if (query) { event.stopPropagation(); setQuery(""); }
+              else if (dirty && !discardHint) { event.stopPropagation(); setDiscardHint(true); }
+            } else if (event.key === "Enter") { event.preventDefault(); step(event.shiftKey ? -1 : 1); }
+          }} />
+        {query.trim() !== "" && <small className="notes-view-search-count" aria-live="polite">{total ? `${activeIndex + 1}/${total}` : "无匹配"}</small>}
+        <button type="button" aria-label="上一个匹配" title="上一个（Shift+Enter）" disabled={!total} onClick={() => step(-1)}><ChevronUp size={13} aria-hidden="true" /></button>
+        <button type="button" aria-label="下一个匹配" title="下一个（Enter）" disabled={!total} onClick={() => step(1)}><ChevronDown size={13} aria-hidden="true" /></button>
+        {query !== "" && <button type="button" aria-label="清除检索" title="清除检索" onClick={() => { setQuery(""); setActive(0); searchRef.current?.focus(); }}><X size={13} aria-hidden="true" /></button>}
+      </div>}
       <div className="notes-view-meta">
         {note.pinned && <span className="notes-view-flag"><Pin size={12} aria-hidden="true" />已置顶</span>}
         {due && <span className="notes-badge"><Bell size={11} aria-hidden="true" />待提醒</span>}
         {note.remindAt && <span className="notes-view-flag"><Bell size={12} aria-hidden="true" />{repeatLabel(note.remindRepeat)} {formatTime(note.remindAt)}</span>}
         {note.tags.map(tag => <span key={tag} className="notes-tag">{tag}</span>)}
       </div>
-      {note.body ? <div className="notes-view-text">{note.body}</div> : <p className="notes-view-empty">这条备忘录没有正文。</p>}
+      <textarea ref={textRef} className="notes-view-text" value={body} aria-label={`正文 ${note.title}`} placeholder="正文为空，点击这里输入…" spellCheck={false} rows={2}
+        onChange={event => { setBody(event.target.value); setDiscardHint(false); }}
+        onKeyDown={event => { if (event.key === "Escape" && dirty && !discardHint) { event.stopPropagation(); setDiscardHint(true); } }} />
+      {discardHint && <small className="notes-field-help" role="status">有未保存的修改：再按一次 Esc 或点击“关闭”放弃修改，点击“保存”保留。</small>}
+      {error && <p className="notes-error" role="alert">{error}</p>}
       {(note.account || note.password) && <div className="notes-view-secrets">
         <small className="notes-field-help">账号密码为明文保存在本机数据库，不做加密。</small>
         {note.account && <div className="notes-secret">
@@ -221,7 +315,10 @@ export function NotesPanel({ openSignal = 0 }: NotesPanelProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [toast, setToast] = useState("");
   const [keyword, setKeyword] = useState("");
+  // 隐私遮罩：默认对列表卡片正文与账号做毛玻璃遮挡，检索时自动显露。
+  const [privacy, setPrivacy] = useState(true);
   const [group, setGroup] = useState("all");
   const [editor, setEditor] = useState<NoteInput | null>(null);
   const [viewerId, setViewerId] = useState<number | null>(null);
@@ -265,6 +362,12 @@ export function NotesPanel({ openSignal = 0 }: NotesPanelProps) {
     const timer = window.setTimeout(() => { setMessage(""); setError(""); }, error ? 10000 : 6000);
     return () => window.clearTimeout(timer);
   }, [message, error]);
+  // 保存成功的顶部 toast：右上角悬浮 3 秒后自动消失。
+  useEffect(() => {
+    if (!toast) return;
+    const timer = window.setTimeout(() => setToast(""), 3000);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
 
   const counts = useMemo(() => {
     const map = new Map<string, number>();
@@ -299,14 +402,17 @@ export function NotesPanel({ openSignal = 0 }: NotesPanelProps) {
   const startCreate = () => setEditor(emptyDraft(group === "all" ? groups[0] ?? "" : group));
   // Resolved at render so the viewer always shows the latest loaded copy after a refresh.
   const viewer = viewerId === null ? null : notes.find(note => note.id === viewerId) ?? null;
+  // 有检索条件时自动解除遮挡，便于看到命中内容；清空检索后恢复遮挡。
+  const masked = privacy && keyword.trim() === "";
 
-  return <section className="notes-panel" aria-busy={loading}>
+  return <section className={`notes-panel${masked ? " notes-privacy" : ""}`} aria-busy={loading}>
     <header className="notes-header">
       <div className="notes-heading">
         <h1><NotebookPen size={19} aria-hidden="true" />备忘录</h1>
         <p>本机存储 · {notes.length} 条笔记 · {groups.length} 个分组{notes.some(note => note.password) && " · 账号密码为明文存储"}</p>
       </div>
       <div className="notes-header-actions">
+        <button type="button" className="secondary" aria-pressed={privacy} onClick={() => setPrivacy(value => !value)} aria-label={privacy ? "显示隐私内容" : "隐藏隐私内容"}>{privacy ? <Eye size={14} aria-hidden="true" /> : <EyeOff size={14} aria-hidden="true" />}{privacy ? "显示隐私" : "隐藏隐私"}</button>
         <button type="button" className="secondary" onClick={() => setShowTrash(true)} aria-label={`回收站，${trashed.length} 项`}><Trash2 size={14} aria-hidden="true" />回收站{trashed.length > 0 ? ` (${trashed.length})` : ""}</button>
         <button type="button" className="secondary" onClick={() => setManaging(true)}><FolderCog size={14} aria-hidden="true" />管理分组</button>
         <button type="button" className="primary" onClick={startCreate}><Plus size={14} aria-hidden="true" />新建备忘录</button>
@@ -366,7 +472,7 @@ export function NotesPanel({ openSignal = 0 }: NotesPanelProps) {
       </article>)}
     </div>}
     {editor && <NoteEditor draft={editor} groups={groups} onClose={() => setEditor(null)} onSaved={() => { setEditor(null); setMessage("已保存备忘录"); void load(true); }} />}
-    {viewer && <NoteViewer note={viewer} due={dueIds.includes(viewer.id)} setMessage={setMessage} onClose={() => setViewerId(null)} onEdit={() => { setEditor(draftOf(viewer)); setViewerId(null); }} />}
+    {viewer && <NoteViewer note={viewer} due={dueIds.includes(viewer.id)} setMessage={setMessage} onClose={() => setViewerId(null)} onSaved={() => { setViewerId(null); setToast("保存成功"); void load(true); }} />}
     {managing && <GroupManager groups={groups} onClose={() => setManaging(false)} onChanged={() => load(true)} />}
     {showTrash && <Dialog title="回收站" subtitle="删除的数据永久保留，可恢复或彻底删除" icon={<Trash2 size={20} aria-hidden="true" />} onClose={() => setShowTrash(false)}>
       <RecycleBin
@@ -385,5 +491,6 @@ export function NotesPanel({ openSignal = 0 }: NotesPanelProps) {
         if (!confirmed) { setConfirmDelete(null); return; }
         void act(() => notesClient.remove([confirmDelete.id]), "删除备忘录失败", "已删除备忘录").then(() => setConfirmDelete(null));
       }} />, document.body)}
+    {toast && createPortal(<div className="toast-notice toast-top" role="status" aria-live="polite" aria-atomic="true">{toast}</div>, document.body)}
   </section>;
 }

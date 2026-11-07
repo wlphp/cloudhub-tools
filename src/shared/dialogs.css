@@ -60,6 +60,20 @@
 .dialog-common-theme.dialog-common-theme .primary { border-color: var(--jb-accent-soft) !important; border-radius: 4px; background: var(--jb-accent) !important; color: var(--jb-text) !important; }
 .dialog-size-expanded.modal-form-layout > .modal-body { flex: 1; min-height: 0; overflow: auto; }
 .dialog-size-expanded.ai-workbench > .ai-workbench-body { flex: 1; min-height: 0; }
+/* 可拖拽调宽高的弹层：四边 + 四角各一条隐形热区，由 SharedDialog 的 resizable 属性启用 */
+.dialog-resizable { position: relative; }
+.dialog-resize-handle { position: absolute; z-index: 5; touch-action: none; }
+.dialog-resize-n { top: 0; left: 10px; right: 10px; height: 6px; cursor: ns-resize; }
+.dialog-resize-s { bottom: 0; left: 10px; right: 10px; height: 6px; cursor: ns-resize; }
+.dialog-resize-e { right: 0; top: 10px; bottom: 10px; width: 6px; cursor: ew-resize; }
+.dialog-resize-w { left: 0; top: 10px; bottom: 10px; width: 6px; cursor: ew-resize; }
+.dialog-resize-ne { top: 0; right: 0; width: 14px; height: 14px; cursor: nesw-resize; }
+.dialog-resize-nw { top: 0; left: 0; width: 14px; height: 14px; cursor: nwse-resize; }
+.dialog-resize-se { bottom: 0; right: 0; width: 14px; height: 14px; cursor: nwse-resize; }
+.dialog-resize-sw { bottom: 0; left: 0; width: 14px; height: 14px; cursor: nesw-resize; }
+/* 最大化与移动端壳内不提供边缘拖拽 */
+.dialog-size-expanded .dialog-resize-handle { display: none; }
+body:has(.mobile-shell) .dialog-resize-handle { display: none; }
 @media(max-width:600px) { .dialog-header-actions .dialog-size-button { width: 44px; height: 44px; min-height: 44px; } }
 .dialog-common-theme > .terminal-quick-dialog-head { position: sticky; top: 0; z-index: 3; background: var(--jb-surface-2); }
 .dialog-common-theme > .terminal-quick-dialog-actions { position: sticky; bottom: 0; background: var(--jb-surface); }
