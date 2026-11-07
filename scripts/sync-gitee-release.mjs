@@ -83,6 +83,22 @@ if (lookup.status === 404 || (lookup.ok && release === null)) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
+  // Gitee may create the release but return an empty response body. Resolve the
+  // resource by tag before declaring failure or attempting attachment uploads.
+  if (!release?.id) {
+    let createdRelease;
+    try {
+      createdRelease = await fetch(`${api}/releases/tags/${encodeURIComponent(tag)}`, { headers });
+    } catch {
+      throw new Error("Gitee release was created, but could not be verified due to a network error.");
+    }
+    if (!createdRelease.ok) throw new Error(`Gitee release ${tag} was created but could not be verified (${createdRelease.status}).`);
+    try {
+      release = await createdRelease.json();
+    } catch {
+      throw new Error(`Gitee release ${tag} was created but its lookup response was invalid.`);
+    }
+  }
 } else {
   if (!lookup.ok) throw new Error(`Could not find Gitee release (${lookup.status}).`);
 }
