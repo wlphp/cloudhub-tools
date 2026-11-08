@@ -1977,20 +1977,30 @@ function App() {
   function startAssetDrag(event: PointerEvent<HTMLButtonElement>, sourceKey: string) {
     if (event.pointerType === "mouse" && event.button !== 0) return;
     event.preventDefault();
-    event.currentTarget.setPointerCapture(event.pointerId);
+    const handle = event.currentTarget;
+    handle.setPointerCapture(event.pointerId);
     assetDragKeyRef.current = sourceKey;
     setDraggedAssetKey(sourceKey);
+    // 指针捕获期间命中测试被接管，松开后手柄可能残留 hover 高亮；
+    // 失焦并逐帧关闭命中测试，促使浏览器重算 :hover。
+    const clearHandleResidue = () => {
+      handle.blur();
+      handle.style.pointerEvents = "none";
+      requestAnimationFrame(() => { handle.style.pointerEvents = ""; });
+    };
     const endDrag = (endEvent: globalThis.PointerEvent) => {
       const target = document.elementFromPoint(endEvent.clientX, endEvent.clientY)?.closest<HTMLElement>("[data-asset-row-key]");
       const targetKey = target?.dataset.assetRowKey;
       if (assetDragKeyRef.current && targetKey) moveAssetBefore(assetDragKeyRef.current, targetKey);
       assetDragKeyRef.current = null;
       setDraggedAssetKey(null);
+      clearHandleResidue();
       document.removeEventListener("pointercancel", cancelDrag);
     };
     const cancelDrag = () => {
       assetDragKeyRef.current = null;
       setDraggedAssetKey(null);
+      clearHandleResidue();
       document.removeEventListener("pointerup", endDrag);
     };
     document.addEventListener("pointerup", endDrag, { once: true });
@@ -2012,20 +2022,30 @@ function App() {
   function startFavoriteCardDrag(event: PointerEvent<HTMLButtonElement>, sourceKey: string) {
     if (event.pointerType === "mouse" && event.button !== 0) return;
     event.preventDefault();
-    event.currentTarget.setPointerCapture(event.pointerId);
+    const handle = event.currentTarget;
+    handle.setPointerCapture(event.pointerId);
     favoriteDragKeyRef.current = sourceKey;
     setDraggedFavoriteKey(sourceKey);
+    // 指针捕获期间命中测试被接管，松开后手柄可能残留 hover 高亮；
+    // 失焦并逐帧关闭命中测试，促使浏览器重算 :hover。
+    const clearHandleResidue = () => {
+      handle.blur();
+      handle.style.pointerEvents = "none";
+      requestAnimationFrame(() => { handle.style.pointerEvents = ""; });
+    };
     const endDrag = (endEvent: globalThis.PointerEvent) => {
       const target = document.elementFromPoint(endEvent.clientX, endEvent.clientY)?.closest<HTMLElement>("[data-favorite-asset-key]");
       const targetKey = target?.dataset.favoriteAssetKey;
       if (favoriteDragKeyRef.current && targetKey) moveFavoriteBefore(favoriteDragKeyRef.current, targetKey);
       favoriteDragKeyRef.current = null;
       setDraggedFavoriteKey(null);
+      clearHandleResidue();
       document.removeEventListener("pointercancel", cancelDrag);
     };
     const cancelDrag = () => {
       favoriteDragKeyRef.current = null;
       setDraggedFavoriteKey(null);
+      clearHandleResidue();
       document.removeEventListener("pointerup", endDrag);
     };
     document.addEventListener("pointerup", endDrag, { once: true });
