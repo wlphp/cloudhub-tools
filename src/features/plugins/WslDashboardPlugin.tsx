@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { CircleStop, FolderOpen, MessageSquare, MoreVertical, Play, Pause, RefreshCw, Save, SquareTerminal, Star, FileArchive, ScrollText, Settings2, House, Trash2 } from "lucide-react";
 import { MoreMenu } from "../../shared/MoreMenu";
 import { WslDeleteConfirmation } from "./WslDeleteConfirmation";
-import { runningInTauri } from "../../platform/api";
+import { runningInTauri, runningOnPhone } from "../../platform/api";
 import { pluginsClient, type WslDistribution, type WslOnlineDistribution, type WslOperationLog } from "../../platform/clients/plugins";
 
 interface Props { open: boolean; enabled: boolean }
@@ -105,9 +105,9 @@ export function WslDashboardPlugin({ open, enabled }: Props) {
     try { setLogs(await pluginsClient.wslLogs()); }
     catch (reason) { setError(reason instanceof Error ? reason.message : "无法读取 WSL 运行日志"); }
   }
-  useEffect(() => { if (open && runningInTauri && enabled) { void refresh(); void loadSettings(); void loadLogs(); } }, [open, enabled]);
-  useEffect(() => { if (open && tab === "logs" && runningInTauri && enabled) void loadLogs(); }, [open, tab, enabled]);
-  useEffect(() => { if (open && tab === "install" && runningInTauri && enabled) void loadOnlineList(); }, [open, tab, enabled]);
+  useEffect(() => { if (open && runningInTauri && !runningOnPhone && enabled) { void refresh(); void loadSettings(); void loadLogs(); } }, [open, enabled]);
+  useEffect(() => { if (open && tab === "logs" && runningInTauri && !runningOnPhone && enabled) void loadLogs(); }, [open, tab, enabled]);
+  useEffect(() => { if (open && tab === "install" && runningInTauri && !runningOnPhone && enabled) void loadOnlineList(); }, [open, tab, enabled]);
 
   async function control(item: WslDistribution, action: "start" | "stop" | "default" | "unregister", confirmationName?: string) {
     if (busy) return;
@@ -215,8 +215,8 @@ export function WslDashboardPlugin({ open, enabled }: Props) {
       <nav className="wsl-tabs" role="tablist" aria-label="WSL 管理页面">{TABS.map(({ id, label, Icon }) => <button key={id} type="button" role="tab" id={`wsl-tab-${id}`} aria-selected={tab === id} aria-controls={`wsl-panel-${id}`} className={tab === id ? "is-active" : ""} onClick={() => { setTab(id); setError(""); setMessage(""); }}><Icon size={15} aria-hidden="true" />{label}</button>)}</nav>
       <div className="plugin-content-body">
         {!enabled && <p role="status">插件已停用，请回到软件列表启用后再管理发行版。</p>}
-        {!runningInTauri && <p role="status">浏览器预览无法访问本机 WSL，请在 Windows 桌面客户端使用。</p>}
-        {runningInTauri && <>
+        {(!runningInTauri || runningOnPhone) && <p role="status">{runningOnPhone ? "手机端无法访问本机 WSL，请在 Windows 桌面客户端使用。" : "浏览器预览无法访问本机 WSL，请在 Windows 桌面客户端使用。"}</p>}
+        {runningInTauri && !runningOnPhone && <>
           <div className="wsl-tab-panel" role="tabpanel" id={`wsl-panel-${tab}`} aria-labelledby={`wsl-tab-${tab}`}>
             {tab === "home" && <>
               <p>停止发行版会保留数据；删除发行版会永久移除其 Linux 文件与设置，请先备份。</p>

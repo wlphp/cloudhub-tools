@@ -1,5 +1,6 @@
 .startup-manager { min-width: 0; color: var(--jb-text); font-size: 13px; }
 .startup-manager-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.startup-manager-heading > button { flex: 0 0 auto; white-space: nowrap; }
 .startup-manager-heading h2 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 17px; }
 .startup-manager-heading h2 svg { color: var(--jb-accent); }
 .startup-manager-heading p { margin: 6px 0 12px; color: var(--jb-muted); line-height: 1.6; }

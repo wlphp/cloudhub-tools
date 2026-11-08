@@ -3,6 +3,10 @@ import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 export const runningInTauri =
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
+/** Tauri Android / iOS 运行时；桌面 Tauri 与浏览器预览均为 false。桌面专属插件据此回退到提示态，避免调用未注册的命令。 */
+export const runningOnPhone =
+  runningInTauri && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
 export const invoke = tauriInvoke;
 
 export type PlatformErrorCode =

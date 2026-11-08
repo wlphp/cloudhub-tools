@@ -356,7 +356,8 @@ body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog :is(.moda
   flex-shrink: 0;
   gap: 8px;
   margin: 0;
-  padding: 0 10px max(10px, env(safe-area-inset-bottom, 0px));
+  /* 底部安全区由 .shared-dialog-backdrop 的内边距统一预留，这里不再叠加，否则按钮下方出现双倍空白。 */
+  padding: 0 10px 10px;
   border: 0;
   background: transparent;
   box-shadow: none;
@@ -382,6 +383,10 @@ body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog .modal-ac
   line-height: 1.5;
 }
 body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog .modal-actions > :is(.primary, .ai-primary, button[type="submit"]) { flex-grow: 1.6; border-color: var(--dialog-primary) !important; background: var(--dialog-primary) !important; color: #fff !important; box-shadow: 0 3px 8px color-mix(in srgb, var(--dialog-primary) 12%, transparent); }
+/* 页脚只有单个按钮（如“关闭”）时不再拉伸成整行巨条，右对齐紧凑展示。 */
+body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog .modal-actions > button:only-child { flex: 0 0 auto; min-width: 128px; }
+/* 弹层正文里的功能页脚（回收站关闭栏等 footer 元素）会命中通用页脚规则，其底部安全区同样交给 backdrop 预留。 */
+body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog .recycle-bin-foot { padding: 10px 16px 10px; }
 body:has(.mobile-shell) .shared-dialog-backdrop .mobile-dns-body { display: grid; gap: 8px; padding: 0; overflow: visible; }
 body:has(.mobile-shell) .shared-dialog-backdrop .mobile-cert-zone-label { margin-bottom: 0; }
 body:has(.mobile-shell) .shared-dialog-backdrop .mobile-certificate-dialog .mobile-cert-request-hint { margin: 0; font-size: 12px; }

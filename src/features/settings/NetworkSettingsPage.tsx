@@ -11,7 +11,7 @@ type PoolStatus = { enabled: boolean; selectedId: string | null; proxies: ProxyS
 type ProxyCandidate = { url: string; source: string; enabled: boolean };
 // Global proxy configuration changes the desktop process environment. The command is
 // intentionally unavailable in Android/iOS builds, even though they run in Tauri.
-const supportsNetworkProxy = runningInTauri && !/Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+const supportsNetworkProxy = runningInTauri;
 const emptyDraft = (): ProxyDraft => ({ id: crypto.randomUUID(), name: "", url: "", authConfigured: false, username: "", password: "" });
 
 export function NetworkSettingsPage({ mobile = false }: { mobile?: boolean }) {
@@ -101,17 +101,17 @@ export function NetworkSettingsPage({ mobile = false }: { mobile?: boolean }) {
     <article className="mobile-network-summary">
       <div className="mobile-network-summary-head">
         <span className="mobile-network-symbol"><Network size={22} aria-hidden="true" /></span>
-        <div><h2>全局出站代理</h2><span className="mobile-network-platform"><Monitor size={12} aria-hidden="true" />桌面端功能</span></div>
+        <div><h2>全局出站代理</h2><span className="mobile-network-platform"><Monitor size={12} aria-hidden="true" />需原生客户端</span></div>
       </div>
       <p className="mobile-network-description">为应用的云服务请求统一配置代理，并管理多个代理节点。</p>
-      <div className="mobile-network-availability"><Info size={17} aria-hidden="true" /><div><strong>当前环境暂不支持配置</strong><p>请在桌面客户端中设置全局代理。手机端及浏览器预览不提供此配置入口。</p></div></div>
+      <div className="mobile-network-availability"><Info size={17} aria-hidden="true" /><div><strong>当前环境暂不支持配置</strong><p>浏览器预览不提供全局代理配置，请在桌面客户端或手机 App 中设置。</p></div></div>
     </article>
     <div className="mobile-network-help"><Wifi size={17} aria-hidden="true" /><div><h3>需要通过代理连接？</h3><p>可在设备的系统设置中配置网络代理或 VPN。</p></div></div>
   </section>;
 
   return <section className={`settings-grid settings-list network-settings${mobile ? " mobile-network-settings" : ""}`}>
     <div className="network-settings-heading"><div><h2><Network size={18} />全局出站代理</h2><p>为应用出站请求指定默认代理。账号或功能单独配置的代理优先；未单独配置时使用这里选择的代理。</p></div><button type="button" className="secondary" onClick={() => void load()} disabled={!supportsNetworkProxy || busy}>{busyAction === "load" ? <LoaderCircle size={14} className="spin" /> : <RotateCw size={14} />}{busyAction === "load" ? "刷新中" : "刷新"}</button></div>
-    {!supportsNetworkProxy ? <p className="network-settings-notice">网络代理设置仅支持桌面客户端，移动端和浏览器预览版不会模拟代理状态。</p> : <>
+    {!supportsNetworkProxy ? <p className="network-settings-notice">网络代理设置仅支持桌面客户端与手机 App，浏览器预览版不会模拟代理状态。</p> : <>
       <div className="network-settings-card">
         <div className="network-pool-toolbar"><label className="network-proxy-toggle"><input type="checkbox" checked={pool.enabled} onChange={event => setPool(current => ({ ...current, enabled: event.target.checked }))} /><span><strong>启用全局出站代理</strong><small>从下方代理池中选择默认代理；关闭时不额外指定代理</small></span></label><button type="button" className="secondary" onClick={addDraft} disabled={busy}><Plus size={14} />添加代理</button></div>
         {drafts.length === 0 ? <div className="network-pool-empty">代理池为空。添加一个 HTTP/HTTPS 代理后即可选择使用。</div> : <div className="network-pool-list" role="radiogroup" aria-label="选择全局代理">

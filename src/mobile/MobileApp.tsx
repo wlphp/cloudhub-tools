@@ -39,6 +39,7 @@ import { MobileMorePage, type MobileFeatureDestination } from "./MobileMorePage"
 import { MobileHomePage } from "./MobileHomePage";
 import { MobileMonitorAlertsPage } from "./MobileMonitorAlertsPage";
 import { OfficialPluginsPage } from "../features/plugins/OfficialPluginsPage";
+import { applicationCatalog, type ApplicationSection } from "../features/plugins/applicationCatalog";
 import { useApplicationPreferences } from "../features/plugins/useApplicationPreferences";
 import { useMobileUpdates } from "./useMobileUpdates";
 import { MobileUpdatePanel } from "./MobileUpdatePanel";
@@ -327,6 +328,8 @@ export function MobileApp() {
   const [newSshAuthMethod, setNewSshAuthMethod] = useState<"password" | "private_key">("password");
   const [dnsEditor, setDnsEditor] = useState<Record<string, unknown> | null | undefined>(undefined);
   const [tab, setTab] = useState<MobileTab>("home");
+  // 云效流水线/HTTPS 证书/身份验证器从商店或首页进入时记录来源，供返回按钮回到来源页。
+  const sectionOriginRef = useRef<"softwareStore" | "home" | null>(null);
   const [homeSearch, setHomeSearch] = useState("");
   const [mobileQrResult, setMobileQrResult] = useState<string | null>(null);
   const [pendingOtpUri, setPendingOtpUri] = useState<string | null>(null);
@@ -1283,6 +1286,7 @@ export function MobileApp() {
       setResourceSearch((current) => ({ ...current, redis: asset.asset_key }));
       setTab("redis");
     } else if (asset.resource_type === "certificate") {
+      sectionOriginRef.current = null;
       setTab("certificates");
     } else if (asset.resource_type.toLowerCase() === "esa") {
       const owner = accountForAsset(asset);
@@ -1405,6 +1409,11 @@ export function MobileApp() {
     if (tab === "redis" && selectedRedis) return { label: "返回实例列表", onClick: () => { setSelectedRedis(null); setRedisAccounts([]); } };
     if (tab === "networkSettings" || tab === "sync") return { label: "返回系统设置", onClick: () => setTab("settings") };
     if (tab === "aiSettings") return { label: "返回系统设置", onClick: () => setTab("settings") };
+    // 云效流水线/HTTPS 证书/身份验证器从商店或首页进入时，返回来源页而不是固定回“我的”。
+    if ((tab === "flow" || tab === "certificates" || tab === "authenticator") && sectionOriginRef.current) {
+      const origin = sectionOriginRef.current;
+      return { label: origin === "softwareStore" ? "返回软件商店" : "返回首页", onClick: () => setTab(origin) };
+    }
     if (isSubPageTab) return { label: "返回我的", onClick: () => setTab("more") };
     return null;
   })();
@@ -1733,6 +1742,36 @@ export function MobileApp() {
     (tab === "more" && (loading && servers.length === 0 || mobileAssetsLoading && mobileAssetRows.length === 0 || panelLoading && panelConnections.length === 0));
   const initialSkeletonVariant = tab === "home" ? "dashboard" as const : selectedDomain || selectedBucket || selectedDatabase || selectedRedis ? "detail" as const : "list" as const;
 
+  // 归属功能分区的应用（云效流水线/HTTPS 证书/身份验证器）跳转独立页面，未适配移动端的（Codex/内网穿透）提示去 PC 端；
+  // 商店列表与首页常用软件共用该路由，避免首页捷径打开一个空白插件页。
+  const openApplicationSection = (section: ApplicationSection): boolean => {
+    const destination: Partial<Record<ApplicationSection, MobileFeatureDestination>> = { flow: "flow", certificates: "certificates", authenticator: "authenticator" };
+    if (destination[section]) {
+      // 记录进入来源（商店/首页），返回按钮优先回到来源页；其他入口（资产、扫码）不记录，沿用“返回我的”。
+      sectionOriginRef.current = tab === "softwareStore" ? "softwareStore" : tab === "home" ? "home" : null;
+      // 跳转即离开当前页，遗留的提示条（如 Codex/内网穿透的“去 PC 端”）不能跟着带进新页面。
+      setNotice("");
+      setTab(destination[section]!);
+      return true;
+    }
+    if (section === "codex" || section === "frp") {
+      // 提示条固定在内容区顶部；列表滚动在下方时必须滚回顶部，否则看起来像点了没反应。
+      setNotice("该应用目前尚未提供移动端界面，请在 PC 端使用。");
+      mobileContentRef.current?.scrollTo({ top: 0 });
+      return true;
+    }
+    return true;
+  };
+  // Claude 管理与备忘录虽归属分区，但界面就是插件页，与其余插件一样整页打开。
+  const openHomeApplication = (pluginId: string) => {
+    const section = applicationCatalog.find(app => app.id === pluginId)?.section;
+    if (section && section !== "claude" && section !== "notes") { openApplicationSection(section); return; }
+    // 打开插件页前清掉首页遗留提示，避免“请在 PC 端使用”等旧提示挂在备忘录等本就可用的页面顶部。
+    setNotice("");
+    setStorePluginId(pluginId);
+    setTab("softwareStore");
+  };
+
   return (
     <main className={"mobile-shell" + (backAction && !isBottomNavigationTab && !productDialog ? " mobile-subpage" : "") + (tab === "personalProfile" ? " mobile-personal-profile-open" : "") + (settingsPageOpen ? " mobile-settings-page-active" : "") + (tab === "settingsMenu" ? ` mobile-settings-menu-open${settingsDrawerDirection === "back" ? " is-returning" : ""}` : "")}>
       {tab === "home" && <header className="mobile-home-topbar" aria-label="首页快捷栏">
@@ -1778,20 +1817,15 @@ export function MobileApp() {
         <MobilePullRefresh containerRef={mobileContentRef} actionRef={pullRefreshActionRef} scopeKey={`${tab}:${selectedAccountId}:${selectedDomain?.asset_key ?? ""}:${selectedBucket?.asset_key ?? ""}:${objectPrefix}:${selectedDatabase?.asset_key ?? ""}:${selectedRedis?.asset_key ?? ""}`} disabled={!!productDialog || tab === "settingsMenu"} onError={setNotice}>
         {notice && <p className="mobile-notice" role="status">{notice}</p>}
         {mobileUpdate.info?.available && tab !== "about" && tab !== "settingsMenu" && <button type="button" className="mobile-update-banner" onClick={() => setTab("about")}><ArrowDownToLine size={15} aria-hidden="true" />发现新版 v{mobileUpdate.info.version} · 查看更新</button>}
-        {initialPageLoading ? <MobileLoadingSkeleton variant={initialSkeletonVariant} label={tab === "home" ? "正在准备首页数据" : "正在加载页面内容"} /> : tab === "home" ? <MobileHomePage accounts={accounts} assets={mobileAssetRows} search={homeSearch} favoriteCount={mobileFavoriteKeys.length} applicationSettings={applicationSettings} onActiveAlertCount={setMobileActiveAlertCount} onNavigate={setTab} onOpenSoftware={id => { setStorePluginId(id); setTab("softwareStore"); }} refreshRef={monitorRefreshRef} /> : tab === "monitorAlerts" ? <MobileMonitorAlertsPage accounts={accounts} onActiveCount={setMobileActiveAlertCount} refreshRef={monitorRefreshRef} cachedAssets={mobileAssetRows} /> : tab === "softwareStore" ? <OfficialPluginsPage initialPluginId={storePluginId ?? undefined} forceInitialPageMode={!!storePluginId} applicationSettings={applicationSettings} refreshActionRef={pullRefreshActionRef} onOpenSection={section => {
-          const target: Partial<Record<typeof section, MobileFeatureDestination>> = { flow: "flow", certificates: "certificates", authenticator: "authenticator" };
-          if (target[section]) { setTab(target[section]!); return true; }
-          if (section === "codex" || section === "frp") setNotice("该应用目前尚未提供移动端界面，请在 PC 端使用。");
-          return true;
-        }} onReturnCatalog={() => { setStorePluginId(null); setTab("softwareStore"); }} /> : productDialog || tab === "accounts" ? accountPage : resourcePage}
+        {initialPageLoading ? <MobileLoadingSkeleton variant={initialSkeletonVariant} label={tab === "home" ? "正在准备首页数据" : "正在加载页面内容"} /> : tab === "home" ? <MobileHomePage accounts={accounts} assets={mobileAssetRows} search={homeSearch} favoriteCount={mobileFavoriteKeys.length} applicationSettings={applicationSettings} onActiveAlertCount={setMobileActiveAlertCount} onNavigate={setTab} onOpenSoftware={openHomeApplication} refreshRef={monitorRefreshRef} /> : tab === "monitorAlerts" ? <MobileMonitorAlertsPage accounts={accounts} onActiveCount={setMobileActiveAlertCount} refreshRef={monitorRefreshRef} cachedAssets={mobileAssetRows} /> : tab === "softwareStore" ? <OfficialPluginsPage initialPluginId={storePluginId ?? undefined} forceInitialPageMode={!!storePluginId} applicationSettings={applicationSettings} refreshActionRef={pullRefreshActionRef} onOpenSection={openApplicationSection} onOpenPlugin={() => setNotice("")} onReturnCatalog={() => { setStorePluginId(null); setTab("softwareStore"); }} /> : productDialog || tab === "accounts" ? accountPage : resourcePage}
         </MobilePullRefresh>
       </section>
 
       <nav className="mobile-tab-bar" aria-label="主导航">
-        <button type="button" aria-current={tab === "home" ? "page" : undefined} className={tab === "home" ? "active" : ""} onClick={() => setTab("home")}><House size={20} aria-hidden="true" /><span>首页</span></button>
-        <button type="button" aria-current={tab === "monitorAlerts" ? "page" : undefined} className={tab === "monitorAlerts" ? "active" : ""} onClick={() => setTab("monitorAlerts")}><BellRing size={20} aria-hidden="true" /><span>监控预警</span></button>
-        <button type="button" aria-current={tab === "softwareStore" ? "page" : undefined} className={tab === "softwareStore" ? "active" : ""} onClick={() => { setStorePluginId(null); setTab("softwareStore"); }}><Store size={20} aria-hidden="true" /><span>软件商店</span></button>
-        <button type="button" aria-current={tab === "more" || tab === "member" || tab === "assets" || tab === "favorites" || tab === "authenticator" || tab === "flow" || tab === "storage" || tab === "databases" || tab === "redis" || tab === "certificates" || tab === "ssh" || tab === "panels" || tab === "sync" || tab === "settings" || tab === "aiSettings" || tab === "networkSettings" || tab === "operationLogs" || tab === "apiLogs" || tab === "about" || tab === "accounts" || tab === "servers" || tab === "domains" ? "page" : undefined} className={tab === "more" || tab === "member" || tab === "assets" || tab === "favorites" || tab === "authenticator" || tab === "flow" || tab === "storage" || tab === "databases" || tab === "redis" || tab === "certificates" || tab === "ssh" || tab === "panels" || tab === "sync" || tab === "settings" || tab === "aiSettings" || tab === "networkSettings" || tab === "operationLogs" || tab === "apiLogs" || tab === "about" || tab === "accounts" || tab === "servers" || tab === "domains" ? "active" : ""} onClick={() => setTab("more")}><UserRound size={20} aria-hidden="true" /><span>我的</span></button>
+        <button type="button" aria-current={tab === "home" ? "page" : undefined} className={tab === "home" ? "active" : ""} onClick={() => { setNotice(""); setTab("home"); }}><House size={20} aria-hidden="true" /><span>首页</span></button>
+        <button type="button" aria-current={tab === "monitorAlerts" ? "page" : undefined} className={tab === "monitorAlerts" ? "active" : ""} onClick={() => { setNotice(""); setTab("monitorAlerts"); }}><BellRing size={20} aria-hidden="true" /><span>监控预警</span></button>
+        <button type="button" aria-current={tab === "softwareStore" ? "page" : undefined} className={tab === "softwareStore" ? "active" : ""} onClick={() => { setNotice(""); setStorePluginId(null); setTab("softwareStore"); }}><Store size={20} aria-hidden="true" /><span>软件商店</span></button>
+        <button type="button" aria-current={tab === "more" || tab === "member" || tab === "assets" || tab === "favorites" || tab === "authenticator" || tab === "flow" || tab === "storage" || tab === "databases" || tab === "redis" || tab === "certificates" || tab === "ssh" || tab === "panels" || tab === "sync" || tab === "settings" || tab === "aiSettings" || tab === "networkSettings" || tab === "operationLogs" || tab === "apiLogs" || tab === "about" || tab === "accounts" || tab === "servers" || tab === "domains" ? "page" : undefined} className={tab === "more" || tab === "member" || tab === "assets" || tab === "favorites" || tab === "authenticator" || tab === "flow" || tab === "storage" || tab === "databases" || tab === "redis" || tab === "certificates" || tab === "ssh" || tab === "panels" || tab === "sync" || tab === "settings" || tab === "aiSettings" || tab === "networkSettings" || tab === "operationLogs" || tab === "apiLogs" || tab === "about" || tab === "accounts" || tab === "servers" || tab === "domains" ? "active" : ""} onClick={() => { setNotice(""); setTab("more"); }}><UserRound size={20} aria-hidden="true" /><span>我的</span></button>
       </nav>
 
       {backAction && !isBottomNavigationTab && !settingsPageOpen && tab !== "member" && tab !== "personalProfile" && <button type="button" className="mobile-back-fab" aria-label={`${backAction.label}，可拖动调整位置`} title={`${backAction.label}（拖动调整位置，方向键微调）`} style={backFabPos ? { left: "auto", top: "auto", right: backFabPos.right, bottom: backFabPos.bottom } : undefined} onPointerDown={startBackFabDrag} onPointerMove={dragBackFab} onPointerUp={endBackFabDrag} onPointerCancel={(event) => endBackFabDrag(event, true)} onLostPointerCapture={(event) => endBackFabDrag(event, true)} onKeyDown={moveBackFabByKeyboard} onContextMenu={(event) => { if (backFabDragRef.current?.dragging) event.preventDefault(); }} onClick={clickBackFab}><ArrowLeft size={20} /></button>}
@@ -1863,7 +1897,7 @@ export function MobileApp() {
       {mobileQrResult && <SharedDialog title="识别到二维码" subtitle="请选择接下来要执行的操作" size="small" showResize={false} className="mobile-qr-result-dialog" onClose={closeMobileQrResult} footer={<button type="button" className="secondary" onClick={closeMobileQrResult}>取消</button>}>
         {mobileQrKind(mobileQrResult) === "authenticator" ? <>
           <p>识别到身份验证器二维码。添加前会进入现有验证器流程进行解析和确认。</p>
-          <button type="button" className="primary mobile-qr-result-action" onClick={() => { setPendingOtpUri(mobileQrResult); closeMobileQrResult(); setTab("authenticator"); }}><ShieldCheck size={17} aria-hidden="true" />添加到身份验证器</button>
+          <button type="button" className="primary mobile-qr-result-action" onClick={() => { setPendingOtpUri(mobileQrResult); closeMobileQrResult(); sectionOriginRef.current = null; setTab("authenticator"); }}><ShieldCheck size={17} aria-hidden="true" />添加到身份验证器</button>
         </> : mobileQrKind(mobileQrResult) === "transfer" ? <>
           <p>识别到 CloudHub 配置迁移二维码。继续后将请求电脑端确认，并由你选择导入范围。</p>
           <button type="button" className="primary mobile-qr-result-action" onClick={() => { setPendingTransferQr(mobileQrResult); closeMobileQrResult(); setTab("sync"); }}><CloudDownload size={17} aria-hidden="true" />接收电脑配置</button>

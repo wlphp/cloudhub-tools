@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { invoke, runningInTauri } from "../../platform/api";
+import { invoke, runningInTauri, runningOnPhone } from "../../platform/api";
 import { AppWindow, Check, Eye, FileKey2, FileType, Loader2, Monitor, MonitorCog, Network, RefreshCw, RotateCcw, RotateCw, ShieldAlert, X } from "lucide-react";
 import { ConfirmDialog } from "../../shared/ConfirmDialog";
 import "./windows-toolbox.css";
@@ -50,7 +50,7 @@ export function WindowsToolboxPlugin() {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [credSsp, setCredSsp] = useState<CredSspStatus | null>(null);
-  const [credSspLoading, setCredSspLoading] = useState(runningInTauri);
+  const [credSspLoading, setCredSspLoading] = useState(runningInTauri && !runningOnPhone);
   const [credSspBusy, setCredSspBusy] = useState(false);
   const [credSspConfirmation, setCredSspConfirmation] = useState<CredSspConfirmation | null>(null);
   const [credSspPhase, setCredSspPhase] = useState("");
@@ -60,7 +60,7 @@ export function WindowsToolboxPlugin() {
   const [explorerConfirmation, setExplorerConfirmation] = useState(false);
   const [explorerPhase, setExplorerPhase] = useState("");
   const [explorerPreferences, setExplorerPreferences] = useState<ExplorerPreferences | null>(null);
-  const [explorerPreferencesLoading, setExplorerPreferencesLoading] = useState(runningInTauri);
+  const [explorerPreferencesLoading, setExplorerPreferencesLoading] = useState(runningInTauri && !runningOnPhone);
   const [explorerPreferencesError, setExplorerPreferencesError] = useState("");
   const [explorerPreferencesBusy, setExplorerPreferencesBusy] = useState(false);
   const [explorerPreferencesMessage, setExplorerPreferencesMessage] = useState("");
@@ -68,7 +68,7 @@ export function WindowsToolboxPlugin() {
   const [explorerSettingError, setExplorerSettingError] = useState("");
 
   async function refreshCredSsp() {
-    if (!runningInTauri) return;
+    if (!runningInTauri || runningOnPhone) return;
     setCredSspLoading(true); setCredSspStatusError("");
     try { setCredSsp(await invoke<CredSspStatus>("windows_toolbox_credssp_status")); }
     catch (reason) { setCredSspStatusError(errorText(reason)); }
@@ -76,7 +76,7 @@ export function WindowsToolboxPlugin() {
   }
 
   async function refreshExplorerPreferences() {
-    if (!runningInTauri) return;
+    if (!runningInTauri || runningOnPhone) return;
     setExplorerPreferencesLoading(true); setExplorerPreferencesError("");
     try { setExplorerPreferences(await invoke<ExplorerPreferences>("windows_toolbox_explorer_preferences")); }
     catch (reason) { setExplorerPreferencesError(errorText(reason)); }
@@ -120,7 +120,7 @@ export function WindowsToolboxPlugin() {
   }
 
   async function open(action: Action) {
-    if (!runningInTauri || busy || credSspBusy || explorerPreferencesBusy) return;
+    if (!runningInTauri || runningOnPhone || busy || credSspBusy || explorerPreferencesBusy) return;
     if (action === "restart-explorer") {
       setExplorerConfirmation(true); setError(""); setMessage(""); setExplorerPreferencesMessage(""); setExplorerSettingError("");
       return;
@@ -140,7 +140,7 @@ export function WindowsToolboxPlugin() {
     finally { setBusy(null); }
   }
 
-  const credSspStatusText = !runningInTauri ? "仅支持 Windows 桌面端" : credSspLoading ? "正在读取本机策略…" : credSspStatusError ? "读取失败" : credSsp?.currentValue === 2 ? "易受攻击（兼容模式）" : credSsp?.currentValue === 0 ? "强制更新客户端" : credSsp?.currentValue === 1 ? "已缓解" : credSsp ? "未显式配置（采用系统默认策略）" : "状态未知";
+  const credSspStatusText = !runningInTauri || runningOnPhone ? "仅支持 Windows 桌面端" : credSspLoading ? "正在读取本机策略…" : credSspStatusError ? "读取失败" : credSsp?.currentValue === 2 ? "易受攻击（兼容模式）" : credSsp?.currentValue === 0 ? "强制更新客户端" : credSsp?.currentValue === 1 ? "已缓解" : credSsp ? "未显式配置（采用系统默认策略）" : "状态未知";
   const toastMessage = credSspMessage || explorerPreferencesMessage || (message && busy !== "flush-dns" ? message : "");
 
   return <section className="windows-toolbox" aria-busy={Boolean(busy) || credSspBusy}>
@@ -158,7 +158,7 @@ export function WindowsToolboxPlugin() {
         </ul>
       </div>
     </details>
-    {!runningInTauri && <p className="windows-toolbox-notice" role="status">Windows 工具箱仅支持 Windows 桌面端；浏览器预览不会执行本机操作。</p>}
+    {(!runningInTauri || runningOnPhone) && <p className="windows-toolbox-notice" role="status">{runningOnPhone ? "Windows 工具箱仅支持 Windows 桌面端，手机端暂不支持。" : "Windows 工具箱仅支持 Windows 桌面端；浏览器预览不会执行本机操作。"}</p>}
     {error && <p className="windows-toolbox-feedback is-error" role="alert">{error}</p>}
     {busy === "flush-dns" && <div className="windows-toolbox-feedback is-pending windows-toolbox-progress" role="status" aria-live="polite">
       <strong>{message}</strong>
@@ -195,7 +195,7 @@ export function WindowsToolboxPlugin() {
         { setting: "hidden-files" as const, title: "显示隐藏文件和文件夹", detail: "不影响受保护的操作系统文件设置", icon: Eye, enabled: explorerPreferences?.showHiddenFiles },
       ]).map(({ setting, title, detail, icon: Icon, enabled }) => <article className="windows-toolbox-card" key={setting}>
         <span className="windows-toolbox-icon" aria-hidden="true"><Icon size={18} /></span>
-        <div className="windows-toolbox-card-copy"><strong>{title}</strong><span>当前状态：{!runningInTauri ? "仅支持 Windows 桌面端" : explorerPreferencesLoading ? "正在读取…" : explorerPreferencesError ? "读取失败" : enabled ? "已开启" : "已关闭"}</span><span>{detail}</span></div>
+        <div className="windows-toolbox-card-copy"><strong>{title}</strong><span>当前状态：{!runningInTauri || runningOnPhone ? "仅支持 Windows 桌面端" : explorerPreferencesLoading ? "正在读取…" : explorerPreferencesError ? "读取失败" : enabled ? "已开启" : "已关闭"}</span><span>{detail}</span></div>
         <div className="windows-toolbox-card-actions">
           {explorerPreferencesError
             ? <button type="button" className="secondary" disabled={!runningInTauri || explorerPreferencesLoading || explorerPreferencesBusy || Boolean(busy) || credSspBusy} onClick={() => void refreshExplorerPreferences()}><RefreshCw size={13} aria-hidden="true" />重试读取</button>

@@ -857,6 +857,7 @@ pub fn run() {
     #[cfg(mobile)]
     {
         builder = builder.manage(commands::monitoring::MonitoringStore::default());
+        builder = builder.manage(commands::speed_test::SpeedTestStore::default()).manage(commands::lan::LanStore::default());
         builder = builder.plugin(tauri_plugin_fs::init());
         builder = builder.plugin(tauri_plugin_cloudhub_keystore::init());
         builder = builder.plugin(tauri_plugin_barcode_scanner::init());
@@ -926,7 +927,6 @@ pub fn run() {
                 if let Some(main) = app.get_webview_window("main") { main.show()?; }
                 commands::monitoring::initialize_mobile_monitoring(app.handle());
             }
-            #[cfg(desktop)]
             if let Ok(conn) = open_db() {
                 if core::network::initialize(&conn).is_err() { eprintln!("全局代理配置加载失败，将使用系统默认网络设置"); }
             }
@@ -1019,6 +1019,14 @@ pub fn run() {
         start_instance, stop_instance, reboot_instance, cvm_instance_action,
         list_dns_records, add_dns_record, update_dns_record, delete_dns_record, toggle_dns_record, list_oss_objects,
         trash_list, trash_restore, trash_purge, trash_empty, trash_set_scrub_days, trash_scrub_now,
+        commands::mail::mail_accounts, commands::mail::mail_save, commands::mail::mail_remove,
+        commands::mail::mail_reveal_secret,
+        commands::mail::mail_test, commands::mail::mail_folders, commands::mail::mail_list,
+        commands::mail::mail_read, commands::mail::mail_attachment, commands::mail::mail_send,
+        commands::mail::mail_prepare_import, commands::mail::mail_import_selected, commands::mail::mail_export_selected,
+        commands::speed_test::speed_test_status, commands::speed_test::speed_test_start, commands::speed_test::speed_test_cancel, commands::speed_test::speed_test_history, commands::speed_test::speed_test_network_info,
+        commands::lan::lan_interfaces, commands::lan::lan_status, commands::lan::lan_start, commands::lan::lan_cancel, commands::lan::lan_ledger, commands::lan::lan_annotate, commands::lan::lan_export,
+        commands::network::network_proxy_get, commands::network::network_proxy_save, commands::network::network_proxy_test,
         claude_provider_list, claude_provider_save, claude_provider_delete, claude_provider_switch, claude_provider_restore_backup, claude_provider_current_settings,
         list_rds_databases, list_redis_accounts, list_certificates, list_certificate_summaries, request_certificate, cancel_certificate_request,
         list_managed_hosts, save_managed_host, list_panel_connections, reveal_panel_api_key, refresh_panel_connection, open_panel_temporary_login, save_panel_connection, delete_panel_connection,

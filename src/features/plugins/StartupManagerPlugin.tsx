@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { CircleCheck, Ellipsis, Loader2, Power, RefreshCw, Search, ShieldCheck, Undo2 } from "lucide-react";
 import { ConfirmDialog } from "../../shared/ConfirmDialog";
 import { MoreMenu } from "../../shared/MoreMenu";
-import { runningInTauri } from "../../platform/api";
+import { runningInTauri, runningOnPhone } from "../../platform/api";
 import { nativeOnly } from "../../platform/clients/base";
 import "./startup-manager.css";
 
@@ -23,7 +23,7 @@ export function StartupManagerPlugin() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [tab, setTab] = useState<Kind>("startup");
   const [query, setQuery] = useState("");
-  const [busy, setBusy] = useState(runningInTauri);
+  const [busy, setBusy] = useState(runningInTauri && !runningOnPhone);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [target, setTarget] = useState<Target | null>(null);
@@ -34,7 +34,7 @@ export function StartupManagerPlugin() {
   const [showHistory, setShowHistory] = useState(false);
 
   const refresh = useCallback(async () => {
-    if (!runningInTauri) return;
+    if (!runningInTauri || runningOnPhone) return;
     setBusy(true); setError("");
     try { setSnapshot(await nativeOnly<Snapshot>("startup_manager_list")); }
     catch (reason) { setError(typeof reason === "string" ? reason : reason instanceof Error ? reason.message : "读取系统管理信息失败"); }
@@ -57,9 +57,9 @@ export function StartupManagerPlugin() {
   }
 
   return <section className="startup-manager">
-    <header className="startup-manager-heading"><div><h2><Power size={19} aria-hidden="true" />系统启动管理</h2><p>管理各类软件的开机启动；所有系统更改均逐项确认。</p></div><button type="button" className="secondary" onClick={() => void refresh()} disabled={!runningInTauri || busy}><RefreshCw size={14} aria-hidden="true" />刷新</button></header>
+    <header className="startup-manager-heading"><div><h2><Power size={19} aria-hidden="true" />系统启动管理</h2><p>管理各类软件的开机启动；所有系统更改均逐项确认。</p></div><button type="button" className="secondary" onClick={() => void refresh()} disabled={!runningInTauri || runningOnPhone || busy}><RefreshCw size={14} aria-hidden="true" />刷新</button></header>
     <div className="startup-manager-summary"><span className="startup-manager-summary-icon"><ShieldCheck size={17} aria-hidden="true" /></span><strong>Windows 启动环境</strong><span>{snapshot?.entries.filter(item => item.kind === "startup").length ?? "—"} 个启动项</span><span>{snapshot?.entries.filter(item => item.kind === "startup" && item.canChange).length ?? "—"} 个可调整</span><span className="startup-manager-summary-note">更改前会逐项确认</span></div>
-    {!runningInTauri && <p className="startup-manager-notice" role="status">系统启动管理只支持 Windows 桌面客户端；浏览器预览不提供本机系统控制。</p>}
+    {(!runningInTauri || runningOnPhone) && <p className="startup-manager-notice" role="status">{runningOnPhone ? "系统启动管理只支持 Windows 桌面客户端，手机端暂不支持。" : "系统启动管理只支持 Windows 桌面客户端；浏览器预览不提供本机系统控制。"}</p>}
     {runningInTauri && snapshot && !snapshot.supported && <p className="startup-manager-notice" role="status">当前平台暂不支持此功能。</p>}
     <div className="startup-manager-safety"><ShieldCheck size={16} aria-hidden="true" /><span>安全范围：启动项仅支持当前用户 Run/RunOnce 项逐项启停，并可恢复原值；系统级和其他来源只读。计划任务与服务仍按保护规则逐项调整。</span></div>
     <div className="startup-manager-controls"><nav className="startup-manager-tabs" aria-label="系统项目类别">{tabs.map(item => <button key={item.id} type="button" aria-pressed={tab === item.id} className={tab === item.id ? "is-active" : ""} onClick={() => setTab(item.id)}>{item.title}<span>{snapshot?.entries.filter(entry => entry.kind === item.id).length ?? "—"}</span></button>)}</nav>

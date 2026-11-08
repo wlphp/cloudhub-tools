@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { SharedDialog } from "../../shared/SharedDialog";
 import { ChevronDown, Cpu, Globe, MessageCircle, NotebookPen, RefreshCw, Search, Package, SlidersHorizontal, SquareTerminal, X } from "lucide-react";
-import { runningInTauri } from "../../platform/api";
+import { runningInTauri, runningOnPhone } from "../../platform/api";
 import { pluginsClient, type WechatPluginStatus } from "../../platform/clients/plugins";
 import { officialPlugins } from "./registry";
 import { PluginApplication } from "./PluginApplication";
@@ -22,6 +22,11 @@ const claudePlugin = officialPlugins[5];
 const configKey = `${plugin.id}.config`;
 const hardwareEnabledKey = hardwarePlugin.id + ".enabled";
 const wslEnabledKey = wslPlugin.id + ".enabled";
+/** 仅桌面客户端可用、手机端未注册对应命令的插件；手机端商店禁用入口并提示，插件页自身也做同样回退。 */
+const desktopOnlyPluginIds = new Set([
+  plugin.id, hardwarePlugin.id, wslPlugin.id, browserPlugin.id,
+  "cloudhub.cloud-drive", "cloudhub.environment-variables", "cloudhub.startup-manager", "cloudhub.windows-toolbox",
+]);
 
 function readConfig(): { enabled: boolean; path: string; count: number } {
   try {
@@ -41,7 +46,7 @@ function PresentationButton({ pluginId, onOpen }: { pluginId: string; onOpen: (i
   </button>;
 }
 
-type StoreProps = { initialPluginId?: string; forceInitialPageMode?: boolean; applicationSettings: ApplicationPreferenceState; onOpenSection: (section: ApplicationSection) => boolean | void; onReturnCatalog: () => void; onLanConnect?: (ip: string, platform: "linux" | "windows", name: string) => void; refreshActionRef?: { current: (() => Promise<void>) | null } };
+type StoreProps = { initialPluginId?: string; forceInitialPageMode?: boolean; applicationSettings: ApplicationPreferenceState; onOpenSection: (section: ApplicationSection) => boolean | void; onOpenPlugin?: () => void; onReturnCatalog: () => void; onLanConnect?: (ip: string, platform: "linux" | "windows", name: string) => void; refreshActionRef?: { current: (() => Promise<void>) | null } };
 
 function OrderCell({ app, settings }: { app: ApplicationDefinition; settings: ApplicationPreferenceState }) {
   const order = applicationPreference(app, settings.preferences).order;
@@ -77,7 +82,7 @@ function StoreDetailsButton({ expanded, onClick }: { expanded: boolean; onClick:
   return <button type="button" className="store-details-toggle" aria-expanded={expanded} onClick={onClick}>{expanded ? "收起详情" : "展开详情"}<ChevronDown size={14} aria-hidden="true" /></button>;
 }
 
-function OfficialPluginsStore({ initialPluginId, forceInitialPageMode, applicationSettings, onOpenSection, onReturnCatalog, onLanConnect, refreshActionRef }: StoreProps) {
+function OfficialPluginsStore({ initialPluginId, forceInitialPageMode, applicationSettings, onOpenSection, onOpenPlugin, onReturnCatalog, onLanConnect, refreshActionRef }: StoreProps) {
   const { get } = usePluginPresentation();
   const [config, setConfig] = useState(readConfig);
   const [status, setStatus] = useState<WechatPluginStatus | null>(null);
@@ -125,6 +130,8 @@ function OfficialPluginsStore({ initialPluginId, forceInitialPageMode, applicati
     const app = applicationCatalog.find(item => item.id === pluginId);
     // Existing plugins retain their page/modal preference; newly catalogued modules use their owning page.
     if (app?.section && pluginId !== notesPlugin.id && pluginId !== claudePlugin.id && onOpenSection(app.section) !== false) return;
+    // 真正打开插件页时通知宿主清理遗留状态，避免上一页面留下的提示条（如“去 PC 端使用”）跟到新插件页顶部。
+    onOpenPlugin?.();
     returnPosition.current = {
       windowY: window.scrollY,
       mainY: document.getElementById("main-content")?.scrollTop ?? 0,
@@ -153,7 +160,7 @@ function OfficialPluginsStore({ initialPluginId, forceInitialPageMode, applicati
     setActivePlugin(null);
     if (initialPluginId) onReturnCatalog();
     setConfig(readConfig());
-    if (runningInTauri) void operate(() => refresh());
+    if (runningInTauri && !runningOnPhone) void operate(() => refresh());
     window.requestAnimationFrame(() => {
       const main = document.getElementById("main-content");
       if (main) main.scrollTop = position.mainY;
@@ -174,7 +181,7 @@ function OfficialPluginsStore({ initialPluginId, forceInitialPageMode, applicati
 
 
   useEffect(() => {
-    if (activePlugin?.id !== plugin.id || !runningInTauri) return;
+    if (activePlugin?.id !== plugin.id || !runningInTauri || runningOnPhone) return;
     let active = true;
     let checking = false;
     const checkStatus = async () => {
@@ -211,7 +218,7 @@ function OfficialPluginsStore({ initialPluginId, forceInitialPageMode, applicati
   useEffect(() => {
     if (!refreshActionRef) return;
     const action = async () => {
-      if (runningInTauri) await operate(() => refresh());
+      if (runningInTauri && !runningOnPhone) await operate(() => refresh());
       else { setConfig(readConfig()); setStatus(null); setError(""); setMessage(""); }
     };
     refreshActionRef.current = action;
@@ -219,7 +226,7 @@ function OfficialPluginsStore({ initialPluginId, forceInitialPageMode, applicati
   });
 
   useEffect(() => {
-    if (runningInTauri) void operate(() => refresh());
+    if (runningInTauri && !runningOnPhone) void operate(() => refresh());
   }, []);
 
   useEffect(() => {
@@ -252,7 +259,7 @@ function OfficialPluginsStore({ initialPluginId, forceInitialPageMode, applicati
     catch { setError("启动后未能刷新进程状态，请查看微信窗口后再操作。"); }
   }
 
-  const application = activePlugin && (activePlugin.id === hardwarePlugin.id && (!hardwareEnabled || !runningInTauri)
+  const application = activePlugin && (activePlugin.id === hardwarePlugin.id && (!hardwareEnabled || !runningInTauri || runningOnPhone)
     ? <p role="status">电脑信息当前已停用或运行环境不支持，请返回软件商店检查启用状态，并在桌面客户端使用。</p>
     : <PluginApplication pluginId={activePlugin.id} wslEnabled={wslEnabled} onLanConnect={onLanConnect ? (ip, platform, name) => { closePlugin(); onLanConnect(ip, platform, name); } : undefined} onNotify={activePlugin.presentation.mode === "modal" ? setMessage : undefined} onError={activePlugin.presentation.mode === "modal" ? setError : undefined} />);
   const activeDefinition = officialPlugins.find(item => item.id === activePlugin?.id);
@@ -267,10 +274,11 @@ function OfficialPluginsStore({ initialPluginId, forceInitialPageMode, applicati
       <div className="store-search-row">
         <label htmlFor="store-search">应用搜索</label><div className="store-search-input"><Search size={15} aria-hidden="true" /><input id="store-search" type="search" value={keyword} onChange={event => setKeyword(event.target.value)} placeholder="搜索应用名称、开发商或说明" /></div>
         <div className="store-categories" role="group" aria-label="应用分类">{["全部", "已内置", "已启用", "免费应用", "桌面工具"].map(item => <button type="button" key={item} aria-pressed={category === item} className={category === item ? "is-active" : ""} onClick={() => setCategory(item)}>{item}</button>)}</div>
-        <button type="button" className="secondary store-refresh" disabled={!runningInTauri || busy} onClick={() => void operate(() => refresh())}><RefreshCw size={14} aria-hidden="true" />{busy ? "正在刷新…" : "刷新应用状态"}</button>
+        <button type="button" className="secondary store-refresh" disabled={!runningInTauri || runningOnPhone || busy} onClick={() => void operate(() => refresh())}><RefreshCw size={14} aria-hidden="true" />{busy ? "正在刷新…" : "刷新应用状态"}</button>
       </div>
       <div className="store-filter-row"><span>最近使用</span>{recent && <button type="button" className="store-recent" onClick={() => { setSource("官方应用"); setCategory("全部"); setKeyword(""); openPlugin(plugin.id); }}><MessageCircle size={14} aria-hidden="true" />微信多开</button>}{hardwareRecent && <button type="button" className="store-recent" onClick={() => { setSource("官方应用"); setCategory("全部"); setKeyword(""); openPlugin(hardwarePlugin.id); }}><Cpu size={14} aria-hidden="true" />电脑信息</button>}{wslRecent && <button type="button" className="store-recent" onClick={() => { setSource("官方应用"); setCategory("全部"); setKeyword(""); openPlugin(wslPlugin.id); }}><SquareTerminal size={14} aria-hidden="true" />WSL 管理</button>}{!recent && !hardwareRecent && !wslRecent && <small>暂无使用记录</small>}</div>
       {!runningInTauri && <p className="store-platform-note" role="status">浏览器预览不支持启动本地软件，请在 Windows 桌面客户端使用。</p>}
+      {runningOnPhone && <p className="store-platform-note" role="status">桌面专属工具（微信多开、电脑信息、WSL 管理等）需在桌面客户端使用，手机端暂不支持。</p>}
       {runningInTauri && status && !status.supported && <p className="store-platform-note" role="status">微信多开插件仅支持 Windows 桌面端。</p>}
       <table className="store-table"><caption className="store-table-caption">应用列表</caption><thead><tr><th scope="col" title="排序号越小越靠前，双击数字修改，失焦或按 Enter 保存，Escape 取消。">排序号</th><th scope="col">软件名称</th><th scope="col">开发商</th><th scope="col">说明</th><th scope="col">价格</th><th scope="col">平台</th><th scope="col">状态</th><th scope="col">启用</th><th scope="col" title="开启后在左侧导航显示。">左侧菜单显示</th><th scope="col" title="开启后显示在首页的“我的软件”区域。">首页显示</th><th scope="col">操作</th></tr></thead><tbody>
         {pagedApplications.map(app => {
@@ -288,7 +296,7 @@ function OfficialPluginsStore({ initialPluginId, forceInitialPageMode, applicati
           <td data-label="启用"><label className="store-switch"><input type="checkbox" aria-label="启用微信多开" checked={config.enabled} disabled={busy} onChange={event => setConfig(current => ({ ...current, enabled: event.target.checked }))} /><span aria-hidden="true" /></label></td>
           {sidebarCell}
           {homeCell}
-          <td data-label="操作"><div className="store-row-actions"><PresentationButton pluginId={plugin.id} onOpen={setPresentationFor} /><button type="button" className="table-link" data-plugin-entry={plugin.id} aria-expanded={activePlugin?.id === plugin.id} onClick={() => openPlugin(plugin.id)}>管理</button><button type="button" className="table-link" disabled={!canLaunch} onClick={() => void operate(launch)}>启动</button></div></td>
+          <td data-label="操作"><div className="store-row-actions"><PresentationButton pluginId={plugin.id} onOpen={setPresentationFor} /><button type="button" className="table-link" data-plugin-entry={plugin.id} aria-expanded={activePlugin?.id === plugin.id} disabled={runningOnPhone} onClick={() => openPlugin(plugin.id)}>管理</button><button type="button" className="table-link" disabled={!canLaunch} onClick={() => void operate(launch)}>启动</button></div></td>
         </tr>;
         if (app.id === hardwarePlugin.id) return <tr key={app.id} className={expandedCards[app.id] ? "is-expanded" : ""}>
           {orderCell}
@@ -300,7 +308,7 @@ function OfficialPluginsStore({ initialPluginId, forceInitialPageMode, applicati
           <td data-label="启用"><label className="store-switch"><input type="checkbox" aria-label="启用电脑信息插件" checked={hardwareEnabled} disabled={busy} onChange={event => setHardwareEnabled(event.target.checked)} /><span aria-hidden="true" /></label></td>
           {sidebarCell}
           {homeCell}
-          <td data-label="操作"><div className="store-row-actions"><PresentationButton pluginId={hardwarePlugin.id} onOpen={setPresentationFor} /><button type="button" className="table-link" data-plugin-entry={hardwarePlugin.id} disabled={!hardwareEnabled || !runningInTauri} onClick={() => openPlugin(hardwarePlugin.id)}>查看</button></div></td>
+          <td data-label="操作"><div className="store-row-actions"><PresentationButton pluginId={hardwarePlugin.id} onOpen={setPresentationFor} /><button type="button" className="table-link" data-plugin-entry={hardwarePlugin.id} disabled={!hardwareEnabled || !runningInTauri || runningOnPhone} onClick={() => openPlugin(hardwarePlugin.id)}>查看</button></div></td>
         </tr>;
         if (app.id === wslPlugin.id) return <tr key={app.id} className={expandedCards[app.id] ? "is-expanded" : ""}>
           {orderCell}
@@ -312,7 +320,7 @@ function OfficialPluginsStore({ initialPluginId, forceInitialPageMode, applicati
           <td data-label="启用"><label className="store-switch"><input type="checkbox" aria-label="启用 WSL 管理插件" checked={wslEnabled} onChange={event => setWslEnabled(event.target.checked)} /><span aria-hidden="true" /></label></td>
           {sidebarCell}
           {homeCell}
-          <td data-label="操作"><div className="store-row-actions"><PresentationButton pluginId={wslPlugin.id} onOpen={setPresentationFor} /><button type="button" className="table-link" data-plugin-entry={wslPlugin.id} disabled={!wslEnabled} onClick={() => openPlugin(wslPlugin.id)}>管理</button></div></td>
+          <td data-label="操作"><div className="store-row-actions"><PresentationButton pluginId={wslPlugin.id} onOpen={setPresentationFor} /><button type="button" className="table-link" data-plugin-entry={wslPlugin.id} disabled={!wslEnabled || runningOnPhone} onClick={() => openPlugin(wslPlugin.id)}>管理</button></div></td>
         </tr>;
         if (app.id === browserPlugin.id) return <tr key={app.id} className={expandedCards[app.id] ? "is-expanded" : ""}>
           {orderCell}
@@ -324,7 +332,7 @@ function OfficialPluginsStore({ initialPluginId, forceInitialPageMode, applicati
           <td data-label="启用">已内置</td>
           {sidebarCell}
           {homeCell}
-          <td data-label="操作"><div className="store-row-actions"><PresentationButton pluginId={browserPlugin.id} onOpen={setPresentationFor} /><button type="button" className="table-link" data-plugin-entry={browserPlugin.id} onClick={() => openPlugin(browserPlugin.id)}>管理</button></div></td>
+          <td data-label="操作"><div className="store-row-actions"><PresentationButton pluginId={browserPlugin.id} onOpen={setPresentationFor} /><button type="button" className="table-link" data-plugin-entry={browserPlugin.id} disabled={runningOnPhone} onClick={() => openPlugin(browserPlugin.id)}>管理</button></div></td>
         </tr>;
         if (app.id === claudePlugin.id) return <tr key={app.id} className={expandedCards[app.id] ? "is-expanded" : ""}>
           {orderCell}
@@ -359,7 +367,7 @@ function OfficialPluginsStore({ initialPluginId, forceInitialPageMode, applicati
           <td data-label="状态"><span className="store-state"><i aria-hidden="true" />已内置</span></td><td data-label="启用">已内置</td>
           {sidebarCell}
           {homeCell}
-          <td data-label="操作"><div className="store-row-actions">{["cloudhub.lan-devices", "cloudhub.network-speed", "cloudhub.mail"].includes(app.id) && <PresentationButton pluginId={app.id} onOpen={setPresentationFor} />}<button type="button" className="table-link" data-plugin-entry={app.id} onClick={() => openPlugin(app.id)}>打开</button></div></td>
+          <td data-label="操作"><div className="store-row-actions">{["cloudhub.lan-devices", "cloudhub.network-speed", "cloudhub.mail"].includes(app.id) && <PresentationButton pluginId={app.id} onOpen={setPresentationFor} />}<button type="button" className="table-link" data-plugin-entry={app.id} disabled={runningOnPhone && desktopOnlyPluginIds.has(app.id)} onClick={() => openPlugin(app.id)}>打开</button></div></td>
         </tr>;
         })}
       </tbody></table>

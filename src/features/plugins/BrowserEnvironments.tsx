@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ArrowLeft, Download, HardDrive, Monitor, Play, Plus, RefreshCw, RotateCcw, Search, Square, Trash2, Pencil, Network, Database, Upload, Eye, EyeOff } from "lucide-react";
 import { SharedDialog } from "../../shared/SharedDialog";
-import { runningInTauri } from "../../platform/api";
+import { runningInTauri, runningOnPhone } from "../../platform/api";
 import { browserClient, type BrowserConfig, type BrowserCookie, type BrowserEnvironment, type BrowserSnapshot } from "../../platform/clients/browser";
 import "./browser-environments.css";
 
@@ -69,7 +69,7 @@ export function BrowserEnvironments({ open }: Props) {
     finally { refreshRef.current = false; }
   }
   useEffect(() => {
-    if (!open || !runningInTauri) return;
+    if (!open || !runningInTauri || runningOnPhone) return;
     void refresh(); const timer = window.setInterval(() => void refresh(true), 1500);
     return () => window.clearInterval(timer);
   }, [open]);
@@ -156,7 +156,7 @@ export function BrowserEnvironments({ open }: Props) {
     else { setEditor(null); setPassword(null); }
   }}>
       <div className="plugin-content-body browser-body">
-        {!supported && <p className="browser-notice" role="status">{!runningInTauri ? "此功能需要 Windows x64 桌面客户端，浏览器预览不能下载或启动本机浏览器。" : snapshot ? "当前系统暂不支持浏览器环境，请使用 Windows x64 客户端。" : "正在读取本机浏览器环境…"}</p>}
+        {!supported && <p className="browser-notice" role="status">{runningOnPhone ? "手机端暂不支持浏览器环境，请使用 Windows x64 桌面客户端。" : !runningInTauri ? "此功能需要 Windows x64 桌面客户端，浏览器预览不能下载或启动本机浏览器。" : snapshot ? "当前系统暂不支持浏览器环境，请使用 Windows x64 客户端。" : "正在读取本机浏览器环境…"}</p>}
         {error && <p className="browser-error" role="alert">{error}</p>}{message && <p className="browser-notice" role="status">{message}</p>}
         {confirmation && <section className="browser-confirm" aria-label="删除确认"><h3>{confirmation.kind === "kernel" ? `卸载浏览器内核 ${confirmation.name}` : `永久删除 ${confirmation.name}`}</h3><p>{confirmation.kind === "kernel" ? "卸载前需要关闭所有环境。环境配置、Cookie 和登录资料保留，可重新安装相同版本内核。" : "此操作将永久删除该环境的 Cookie、缓存及本地资料，无法恢复。请输入完整环境名称确认。"}</p>{confirmation.kind === "environment" && <label>确认环境名称<input aria-label="确认环境名称" value={confirmationName} onChange={e => setConfirmationName(e.target.value)} /></label>}<div className="browser-toolbar"><button type="button" disabled={busy} onClick={() => setConfirmation(null)}>取消删除</button><button type="button" disabled={busy || confirmation.kind === "environment" && confirmationName !== confirmation.name} onClick={() => void operate(async () => { if (confirmation.kind === "kernel") await browserClient.uninstallKernel(confirmation.name); else await browserClient.remove(confirmation.id!, confirmationName); setConfirmation(null); }, confirmation.kind === "kernel" ? "内核已卸载，环境资料保留" : "环境及本地资料已永久删除")}>确认{confirmation.kind === "kernel" ? "卸载内核" : "永久删除"}</button></div></section>}
         {editor && config ? <form id="browser-environment-form" onSubmit={event => void save(event)} className="browser-editor">

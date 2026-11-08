@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Download, FolderOpen, HardDrive, Plus, RefreshCw, Upload } from "lucide-react";
-import { runningInTauri } from "../../platform/api";
+import { runningInTauri, runningOnPhone } from "../../platform/api";
 import { cloudDriveClient as client, type DriveConnection, type DriveSnapshot } from "../../platform/clients/cloudDrive";
 import { SharedDialog } from "../../shared/SharedDialog";
 import { ConfirmDialog } from "../../shared/ConfirmDialog";
@@ -131,7 +131,7 @@ export function CloudDrivePlugin() {
   const refresh = async () => { const next = await client.snapshot(); if (mounted.current) setSnapshot(next); };
   useEffect(() => {
     mounted.current = true;
-    if (!runningInTauri) return () => { mounted.current = false; };
+    if (!runningInTauri || runningOnPhone) return () => { mounted.current = false; };
     let checking = false;
     const poll = async () => { if (checking) return; checking = true; try { await refresh(); } catch (e) { if (mounted.current) setError(message(e)); } finally { checking = false; } };
     void poll(); const timer = window.setInterval(() => void poll(), 4000);
@@ -164,7 +164,7 @@ export function CloudDrivePlugin() {
     }
     await operate("保存连接", () => commit(), "连接已加密保存，可先测试连接再挂载");
   }
-  if (!runningInTauri) return <p role="status">云盘挂载仅支持桌面客户端，浏览器和手机不提供系统磁盘挂载。</p>;
+  if (!runningInTauri || runningOnPhone) return <p role="status">云盘挂载仅支持桌面客户端，浏览器和手机不提供系统磁盘挂载。</p>;
   if (!snapshot) return <div className="cloud-drive"><p role="status">正在读取云盘配置…</p>{error && <p role="alert">{error}</p>}</div>;
   const dep = snapshot.dependency;
   if (!dep.supported) return <p role="status">云盘挂载支持 Windows x64、macOS Intel / Apple Silicon 和 Linux x64 / ARM64 桌面客户端。</p>;

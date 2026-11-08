@@ -263,9 +263,13 @@ body:has(.mobile-shell) .plugin-page-host:has(.claude-providers) .claude-mode-ba
   padding-bottom: 9px;
 }
 body:has(.mobile-shell) .plugin-page-host:has(.claude-providers) .claude-mode-tabs { width: max-content; max-width: 100%; }
-body:has(.mobile-shell) .plugin-page-host:has(.claude-providers) .claude-mode-tabs button { min-height: 42px; padding: 5px 10px; }
+body:has(.mobile-shell) .plugin-page-host:has(.claude-providers) .claude-mode-tabs button { min-height: 42px; padding: 5px 10px; white-space: nowrap; }
 body:has(.mobile-shell) .plugin-page-host:has(.claude-providers) .claude-mode-status { grid-column: 1; grid-row: 2; line-height: 1.45; }
 body:has(.mobile-shell) .plugin-page-host:has(.claude-providers) .claude-mode-actions { grid-column: 2; grid-row: 2; width: auto; }
+/* 手机端模式横幅改为上下两行：说明占满一行，动作按钮整宽置底，不再左右拉开。 */
+body:has(.mobile-shell) .plugin-page-host:has(.claude-providers) .claude-mode-banner { flex-wrap: wrap; gap: 8px; padding: 9px 10px; }
+body:has(.mobile-shell) .plugin-page-host:has(.claude-providers) .claude-mode-banner span { flex: 1 1 100%; line-height: 1.5; }
+body:has(.mobile-shell) .plugin-page-host:has(.claude-providers) .claude-mode-banner button { flex: 1 1 auto; width: 100%; min-height: 40px; }
 body:has(.mobile-shell) .plugin-page-host:has(.claude-providers) .claude-work-tabs {
   flex-wrap: nowrap;
   overflow-x: auto;
@@ -277,6 +281,30 @@ body:has(.mobile-shell) .plugin-page-host:has(.claude-providers) .claude-status-
 body:has(.mobile-shell) .plugin-page-host:has(.claude-providers) .claude-status-bar-actions { gap: 7px; }
 body:has(.mobile-shell) .plugin-page-host:has(.claude-providers) .claude-status-bar-actions button { min-height: 40px; height: auto; padding: 0 10px; border-radius: 7px; }
 body:has(.mobile-shell) .plugin-page-host:has(.claude-providers) .claude-config-description { gap: 5px 8px; }
+
+/* 手机端没有 .ide-theme 上下文，错误提示与状态徽章不能沿用桌面 IDE 的深栗色硬编码；
+   改用移动端 danger/accent 令牌混色，自动跟随手机明暗主题（弹层同样生效）。 */
+body:has(.mobile-shell) .claude-status.is-error,
+body:has(.mobile-shell) .claude-error {
+  border-color: color-mix(in srgb, var(--mobile-danger) 32%, var(--mobile-border));
+  background: color-mix(in srgb, var(--mobile-danger) 9%, var(--mobile-surface));
+  color: var(--mobile-danger);
+}
+body:has(.mobile-shell) .claude-tag.is-warning {
+  border-color: color-mix(in srgb, var(--mobile-danger) 32%, var(--mobile-border));
+  background: color-mix(in srgb, var(--mobile-danger) 9%, var(--mobile-surface));
+  color: var(--mobile-danger);
+}
+body:has(.mobile-shell) .claude-tag.is-current {
+  border-color: color-mix(in srgb, var(--mobile-accent) 35%, var(--mobile-border));
+  background: color-mix(in srgb, var(--mobile-accent) 10%, var(--mobile-surface));
+  color: var(--mobile-accent-strong);
+}
+body:has(.mobile-shell) .claude-icon-button.is-danger:not(:disabled):hover {
+  border-color: color-mix(in srgb, var(--mobile-danger) 45%, var(--mobile-border));
+  background: color-mix(in srgb, var(--mobile-danger) 12%, var(--mobile-surface));
+  color: var(--mobile-danger);
+}
 
 .claude-mode-bar, .claude-mode-actions, .claude-mode-tabs, .claude-work-tabs, .claude-work-toolbar, .claude-search, .claude-check {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0;
