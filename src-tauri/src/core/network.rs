@@ -229,7 +229,13 @@ fn safe_proxy_address(raw: &str) -> Option<String> {
 }
 
 pub fn route_for_account(account_proxy: Option<&str>) -> ProxyRoute {
-    if let Some(url) = account_proxy.and_then(|raw| crate::core::codex::account_controls::validate_proxy(raw).ok().flatten()) {
+    // 账号专属代理校验：桌面走 codex 的 validate_proxy；移动端 codex 模块未编译，
+    // 改用与全局代理同源的 normalize_url，校验规则保持一致。
+    #[cfg(desktop)]
+    let url = account_proxy.and_then(|raw| crate::core::codex::account_controls::validate_proxy(raw).ok().flatten());
+    #[cfg(mobile)]
+    let url = account_proxy.and_then(|raw| normalize_url(raw).ok());
+    if let Some(url) = url {
         let config = ProxyConfig { enabled: true, url, ..ProxyConfig::default() };
         return route_from_config(&config, "account");
     }
