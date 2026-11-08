@@ -151,7 +151,22 @@
     "monitor_alerts_ignore",
     "monitor_alerts_save_settings",
     "monitor_alerts_settings",
-    "monitor_alerts_snapshot"
+    "monitor_alerts_snapshot",
+    "lan_interfaces",
+    "lan_status",
+    "lan_start",
+    "lan_cancel",
+    "lan_ledger",
+    "lan_annotate",
+    "lan_export",
+    "speed_test_status",
+    "speed_test_start",
+    "speed_test_cancel",
+    "speed_test_history",
+    "speed_test_network_info",
+    "network_proxy_get",
+    "network_proxy_save",
+    "network_proxy_test"
   ],
   "domains": [
     {

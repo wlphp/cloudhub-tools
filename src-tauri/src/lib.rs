@@ -21,6 +21,12 @@ mod commands;
 use commands::member::{member_me, member_web_handoff, member_send_code, member_login, member_avatar, member_nickname, member_bio, member_logout, member_login_logs, member_messages, member_message, member_messages_read_all};
 #[cfg(mobile)]
 use commands::cloud_sync::{cloud_sync_state, cloud_sync_save, cloud_sync_test, cloud_sync_upload, cloud_sync_download, cloud_sync_reveal_secret, cloud_sync_versions, cloud_sync_channels, cloud_sync_delete, cloud_sync_delete_version};
+#[cfg(mobile)]
+use commands::lan::{lan_annotate, lan_cancel, lan_export, lan_interfaces, lan_ledger, lan_start, lan_status};
+#[cfg(mobile)]
+use commands::network::{network_proxy_get, network_proxy_save, network_proxy_test};
+#[cfg(mobile)]
+use commands::speed_test::{speed_test_cancel, speed_test_history, speed_test_network_info, speed_test_start, speed_test_status};
 pub(crate) use commands::ip_location::query_ip_location;
 pub(crate) use commands::icp::query_domain_icp;
 #[cfg(desktop)]
@@ -1019,14 +1025,9 @@ pub fn run() {
         start_instance, stop_instance, reboot_instance, cvm_instance_action,
         list_dns_records, add_dns_record, update_dns_record, delete_dns_record, toggle_dns_record, list_oss_objects,
         trash_list, trash_restore, trash_purge, trash_empty, trash_set_scrub_days, trash_scrub_now,
-        commands::mail::mail_accounts, commands::mail::mail_save, commands::mail::mail_remove,
-        commands::mail::mail_reveal_secret,
-        commands::mail::mail_test, commands::mail::mail_folders, commands::mail::mail_list,
-        commands::mail::mail_read, commands::mail::mail_attachment, commands::mail::mail_send,
-        commands::mail::mail_prepare_import, commands::mail::mail_import_selected, commands::mail::mail_export_selected,
-        commands::speed_test::speed_test_status, commands::speed_test::speed_test_start, commands::speed_test::speed_test_cancel, commands::speed_test::speed_test_history, commands::speed_test::speed_test_network_info,
-        commands::lan::lan_interfaces, commands::lan::lan_status, commands::lan::lan_start, commands::lan::lan_cancel, commands::lan::lan_ledger, commands::lan::lan_annotate, commands::lan::lan_export,
-        commands::network::network_proxy_get, commands::network::network_proxy_save, commands::network::network_proxy_test,
+        speed_test_status, speed_test_start, speed_test_cancel, speed_test_history, speed_test_network_info,
+        lan_interfaces, lan_status, lan_start, lan_cancel, lan_ledger, lan_annotate, lan_export,
+        network_proxy_get, network_proxy_save, network_proxy_test,
         claude_provider_list, claude_provider_save, claude_provider_delete, claude_provider_switch, claude_provider_restore_backup, claude_provider_current_settings,
         list_rds_databases, list_redis_accounts, list_certificates, list_certificate_summaries, request_certificate, cancel_certificate_request,
         list_managed_hosts, save_managed_host, list_panel_connections, reveal_panel_api_key, refresh_panel_connection, open_panel_temporary_login, save_panel_connection, delete_panel_connection,

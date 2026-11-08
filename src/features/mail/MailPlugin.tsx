@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Copy, Download, Inbox, Mail, Paperclip, Pencil, Plus, RefreshCw, Reply, Search, Send, Settings, Trash2, Upload } from "lucide-react";
-import { runningInTauri } from "../../platform/api";
+import { runningInTauri, runningOnPhone } from "../../platform/api";
 import { mailClient, type MailAccount, type MailDraft, type MailListing, type MailMessage, type MailSummary } from "../../platform/clients/mail";
 import { SharedDialog } from "../../shared/SharedDialog";
 import { ConfirmDialog } from "../../shared/ConfirmDialog";
@@ -161,6 +161,8 @@ export function MailPlugin() {
  const matchingAccounts = accounts.filter(a => [a.name, a.email, a.username].some(value => value.normalize("NFKC").toLowerCase().includes(accountTerm)));
  const filtered = listing.messages.filter(m => (m.subject + " " + m.from).normalize("NFKC").toLowerCase().includes(searchTerm));
  const prepareMailImport = async () => { const preview = await mailClient.prepareImport(); return preview && { token: preview.token, rows: preview.accounts.map(item => ({ index: item.index, title: item.name, detail: `${item.email} · ${item.username}` })) }; };
+ // 手机端未注册邮件命令（IMAP/SMTP 依赖在 Android 不可用的 native-tls），整页回退提示。
+ if (runningOnPhone) return <p className="mail-banner" role="status">邮件收发目前仅支持桌面客户端，手机端暂不支持。</p>;
  return <div className="mail-app" aria-busy={!!busy}>
   <header className="mail-toolbar"><div className="mail-title"><Mail size={19} /><div><h2>邮件管理</h2><span>多邮箱 · 本地加密凭据</span></div></div><label className="mail-toolbar-search"><Search size={15} aria-hidden="true" /><input type="search" aria-label="搜索已加载邮件" disabled={!account || !!busy} value={keyword} placeholder="搜索邮件主题 / 发件人（最近 50 封）" onChange={e => setKeyword(e.target.value)} /></label><div className="mail-toolbar-actions"><button type="button" className="secondary" disabled={!!busy || !runningInTauri} onClick={() => setTransfer(true)}><Upload size={14} />导入 / 导出</button><button type="button" className="secondary" disabled={!!busy || !runningInTauri} onClick={() => setEditor({ ...emptyAccount })}><Plus size={14} />添加邮箱</button><button type="button" className="primary" disabled={!account || !!busy} onClick={() => setDraft(emptyDraft())}><Pencil size={14} />写邮件</button></div></header>
   {!runningInTauri && <p className="mail-banner" role="status">邮件收发仅支持 CloudHub 桌面客户端。浏览器预览不连接邮箱，也不保存授权码。</p>}

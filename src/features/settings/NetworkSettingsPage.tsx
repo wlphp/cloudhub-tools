@@ -1,16 +1,12 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Check, Info, LoaderCircle, Monitor, Network, Pencil, Plus, RotateCw, ScanSearch, Save, ShieldCheck, Trash2, Wifi } from "lucide-react";
-import { nativeOnly } from "../../platform/clients/base";
+import { networkClient, type PoolStatus, type ProxyCandidate, type ProxyStatus } from "../../platform/clients/network";
 import { runningInTauri } from "../../platform/api";
 import { SharedDialog } from "../../shared/SharedDialog";
 
-type ProxyStatus = { id: string; name: string; url: string; authConfigured: boolean };
 type ProxyDraft = ProxyStatus & { username: string; password: string };
-type PoolStatus = { enabled: boolean; selectedId: string | null; proxies: ProxyStatus[] };
-type ProxyCandidate = { url: string; source: string; enabled: boolean };
-// Global proxy configuration changes the desktop process environment. The command is
-// intentionally unavailable in Android/iOS builds, even though they run in Tauri.
+// 全局代理通过进程环境变量生效，桌面客户端与手机 App 均可配置；浏览器预览不提供。
 const supportsNetworkProxy = runningInTauri;
 const emptyDraft = (): ProxyDraft => ({ id: crypto.randomUUID(), name: "", url: "", authConfigured: false, username: "", password: "" });
 
@@ -34,7 +30,7 @@ export function NetworkSettingsPage({ mobile = false }: { mobile?: boolean }) {
   async function load() {
     setBusyAction("load"); setError("");
     try {
-      const value = await nativeOnly<PoolStatus>("network_proxy_get");
+      const value = await networkClient.get();
       setPool(value);
       setDrafts(value.proxies.map(proxy => ({ ...proxy, username: "", password: "" })));
       setDraft(null);
@@ -68,7 +64,7 @@ export function NetworkSettingsPage({ mobile = false }: { mobile?: boolean }) {
   async function save() {
     setBusyAction("save"); setError(""); setMessage("");
     try {
-      const value = await nativeOnly<PoolStatus>("network_proxy_save", {
+      const value = await networkClient.save({
         enabled: pool.enabled, selectedId: pool.selectedId,
         proxies: drafts.map(({ id, name, url, username, password }) => ({ id, name, url, username, password })),
       });
@@ -81,7 +77,7 @@ export function NetworkSettingsPage({ mobile = false }: { mobile?: boolean }) {
     setBusyAction({ type: "test", proxyId: proxy.id }); setError(""); setMessage("");
     setLatencies(current => { const next = { ...current }; delete next[proxy.id]; return next; });
     try {
-      const latency = await nativeOnly<number>("network_proxy_test", { proxyId: proxy.id, url: proxy.url, username: proxy.username, password: proxy.password, keepAuth: proxy.authConfigured && !proxy.username && !proxy.password });
+      const latency = await networkClient.test({ proxyId: proxy.id, url: proxy.url, username: proxy.username, password: proxy.password, keepAuth: proxy.authConfigured && !proxy.username && !proxy.password });
       setLatencies(current => ({ ...current, [proxy.id]: latency }));
       setMessage(`“${proxy.name || "未命名代理"}”连通性测试成功。`);
     } catch (reason) { setError(reason instanceof Error ? reason.message : "代理连接测试失败"); }
@@ -90,7 +86,7 @@ export function NetworkSettingsPage({ mobile = false }: { mobile?: boolean }) {
   async function detect() {
     setBusyAction("detect"); setError(""); setMessage("");
     try {
-      const values = await nativeOnly<ProxyCandidate[]>("network_proxy_detect");
+      const values = await networkClient.detect();
       setCandidates(values);
       if (!values.length) setMessage("没有检测到可用的 HTTP/HTTPS 代理地址，可手动填写。");
     } catch (reason) { setError(reason instanceof Error ? reason.message : "读取本机代理配置失败"); }

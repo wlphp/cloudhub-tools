@@ -4,7 +4,6 @@ pub mod member;
 pub mod cloud_drive;
 #[cfg(desktop)]
 pub mod mail;
-#[cfg(desktop)]
 pub mod speed_test;
 pub mod ip_location;
 pub mod icp;
@@ -48,7 +47,6 @@ pub mod codex_backup;
 pub mod codex_gateway;
 pub mod authenticator;
 pub mod preferences;
-#[cfg(desktop)]
 pub mod network;
 pub mod cloud_sync;
 pub mod logs;
@@ -85,5 +83,4 @@ pub mod monitoring;
 pub mod notes;
 pub mod trash;
 pub mod claude_providers;
-#[cfg(desktop)]
 pub mod lan;

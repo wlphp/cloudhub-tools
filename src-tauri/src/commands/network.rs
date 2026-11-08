@@ -45,7 +45,9 @@ pub(crate) async fn network_proxy_test(proxy_id: Option<String>, url: String, us
     network::test(&url, &username, &password).await.map_err(Into::into)
 }
 
+// 依赖桌面门控的 codex 代理检测，且手机端不展示"检测地址"入口，故仅桌面提供。
 #[tauri::command]
+#[cfg(desktop)]
 pub(crate) async fn network_proxy_detect() -> PlatformResult<Vec<crate::core::codex::proxy_detection::ProxyCandidate>> {
     tauri::async_runtime::spawn_blocking(crate::core::codex::proxy_detection::detect)
         .await.map_err(|_| "读取本机代理配置失败，请手动填写地址")?.map_err(Into::into)

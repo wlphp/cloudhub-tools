@@ -18,20 +18,17 @@ pub mod claude_protocol;
 pub mod claude_workspace;
 pub mod database;
 pub mod data_transfer;
-#[cfg(desktop)]
 pub mod speed_test;
 #[cfg(desktop)]
 pub mod browser;
 pub mod error;
 pub mod paths;
-#[cfg(desktop)]
 pub mod network;
 #[cfg(any(desktop, mobile))]
 pub mod pet_alerts;
 #[cfg(any(desktop, mobile))]
 pub mod pet_life;
 pub mod repositories;
-#[cfg(desktop)]
 pub mod lan;
 pub mod sync_identity;
 
