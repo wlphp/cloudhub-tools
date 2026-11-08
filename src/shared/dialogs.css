@@ -31,6 +31,8 @@
 .shared-content-dialog > .modal-head > .shared-dialog-heading { display: flex; flex: 1 1 auto; flex-direction: column; align-items: flex-start; justify-content: center; gap: 3px; text-align: left; }
 .shared-content-dialog > .modal-head > .shared-dialog-heading > .eyebrow { display: block; margin: 0; line-height: 1.3; letter-spacing: .04em; overflow-wrap: anywhere; }
 .shared-content-dialog > .modal-head > .shared-dialog-heading > h2 { margin: 0; padding: 0; line-height: 1.35; }
+/* 标题徽标插槽：仅负责与标题同行排版，外观由调用方样式决定；标题文本可折行，徽标整体不折行。 */
+.shared-dialog-title-extra { display: inline-flex; align-items: center; margin-left: 8px; vertical-align: middle; white-space: nowrap; }
 .shared-content-dialog > .modal-head > .shared-dialog-heading > p { margin: 0; }
 .shared-content-dialog > .modal-body { min-width: 0; min-height: 0; padding: 16px; overflow: auto; }
 .shared-content-dialog > .modal-form-content { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; min-height: 0; margin: 0; overflow: hidden; }

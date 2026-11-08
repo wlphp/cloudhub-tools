@@ -26,8 +26,10 @@ function saveDialogSize(key: string, size: DialogSize) {
 }
 
 /** Shared shell; dragging and sizing use the existing app primitives. */
-export function SharedDialog({ title, subtitle, eyebrow, icon, children, footer, headerActions, onClose, className = "", bodyClassName = "", footerClassName = "", backdropClassName = "", size = "large", closeLabel, showResize = true, defaultExpanded = false, closeDisabled = false, busy = false, role = "dialog", onSubmit, formRef, noValidate = false, initialFocus, onHeaderPointerDown, describedBy, resizable = false, sizeStorageKey }: {
+export function SharedDialog({ title, titleExtra, subtitle, eyebrow, icon, children, footer, headerActions, onClose, className = "", bodyClassName = "", footerClassName = "", backdropClassName = "", size = "large", closeLabel, showResize = true, defaultExpanded = false, closeDisabled = false, busy = false, role = "dialog", onSubmit, formRef, noValidate = false, initialFocus, onHeaderPointerDown, describedBy, resizable = false, sizeStorageKey }: {
   title: string;
+  /** 标题旁的补充徽标（如“已置顶”），随标题整行排版、自身不折行。 */
+  titleExtra?: ReactNode;
   subtitle?: string;
   eyebrow?: string;
   icon?: ReactNode;
@@ -183,7 +185,7 @@ export function SharedDialog({ title, subtitle, eyebrow, icon, children, footer,
       <section ref={dialog} className={`modal modal-form-layout dialog-common-theme shared-content-dialog shared-dialog-${size} ${resizable ? "dialog-resizable" : ""} ${restoredSize ? "dialog-user-size" : ""} ${className}`} style={restoredSize ? { width: restoredSize.width, height: restoredSize.height } : undefined} role={role} aria-modal="true" aria-busy={busy} aria-labelledby={`${id}-title`} aria-describedby={describedBy ?? (subtitle ? `${id}-subtitle` : undefined)} tabIndex={-1}>
         <header className="modal-head" onPointerDown={onHeaderPointerDown}>
           {icon ?? <span className="shared-dialog-mobile-icon" aria-hidden="true"><PanelsTopLeft size={22} /></span>}
-          <div className="shared-dialog-heading">{eyebrow && <span className="eyebrow">{eyebrow}</span>}<h2 id={`${id}-title`}>{title}</h2>{subtitle && <p id={`${id}-subtitle`}>{subtitle}</p>}</div>
+          <div className="shared-dialog-heading">{eyebrow && <span className="eyebrow">{eyebrow}</span>}<h2 id={`${id}-title`}>{title}{titleExtra && <span className="shared-dialog-title-extra">{titleExtra}</span>}</h2>{subtitle && <p id={`${id}-subtitle`}>{subtitle}</p>}</div>
           <DialogHeaderActions showResize={showResize} defaultExpanded={defaultExpanded}>
             {headerActions}
             <button type="button" className="close" disabled={closeDisabled} aria-label={closeLabel ?? `关闭${title}`} title="关闭" onClick={onClose}><X size={18} aria-hidden="true" /></button>
