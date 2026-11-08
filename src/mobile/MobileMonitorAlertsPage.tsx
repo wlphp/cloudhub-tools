@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type MutableRefObject } from "react";
-import { Activity, CheckCircle2, ChevronLeft, ChevronRight, Search, Settings2, ShieldAlert } from "lucide-react";
+import { Activity, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Search, Settings2, ShieldAlert } from "lucide-react";
 import { runningInTauri, platformErrorMessage } from "../platform/api";
 import { monitorSeverityLabel, sortMonitorAlerts, type MonitorAlert, type MonitorSnapshot } from "../platform/clients/monitorAlerts";
 import { defaultMonitorSettings, monitorAlertsClient, type MonitorSettings } from "../platform/clients/monitorAlerts";
@@ -24,6 +24,7 @@ export function MobileMonitorAlertsPage({ compact = false, onActiveCount, refres
   const [error, setError] = useState("");
   const [checking, setChecking] = useState(false);
   const [strategiesOpen, setStrategiesOpen] = useState(false);
+  const [strategyGlobalOpen, setStrategyGlobalOpen] = useState(false);
   const [strategyLoading, setStrategyLoading] = useState(false);
   const [strategySaving, setStrategySaving] = useState(false);
   const [strategyError, setStrategyError] = useState("");
@@ -58,7 +59,7 @@ export function MobileMonitorAlertsPage({ compact = false, onActiveCount, refres
   };
 
   const openStrategies = async () => {
-    setStrategiesOpen(true); setStrategyLoading(true); setStrategyError(""); setStrategyQuery(""); setStrategyType("all");
+    setStrategiesOpen(true); setStrategyGlobalOpen(false); setStrategyLoading(true); setStrategyError(""); setStrategyQuery(""); setStrategyType("all");
     if (!runningInTauri) { setStrategyError("预警策略仅支持原生移动 App。请在 CloudHub Tools App 中打开。"); setStrategyLoading(false); return; }
     try {
       const [settingsResult, assetsResult] = await Promise.allSettled([monitorAlertsClient.settings(), resourcesClient.listLocal()]);
@@ -156,8 +157,8 @@ export function MobileMonitorAlertsPage({ compact = false, onActiveCount, refres
     {strategiesOpen && <SharedDialog title="预警策略" subtitle="配置巡检范围与提醒规则，并管理资产是否参与监控。" icon={<Settings2 size={20} aria-hidden="true" />} size="small" className="mobile-alert-strategy-dialog" closeLabel="关闭预警策略" onClose={() => setStrategiesOpen(false)} footer={<button type="button" className="secondary" onClick={() => setStrategiesOpen(false)}>完成</button>}>
       {strategyError && <p className="mobile-alerts-message" role="alert">{strategyError}</p>}
       {strategyLoading ? <p className="mobile-strategy-loading" role="status">正在读取资产与策略…</p> : <>
-        <div className="mobile-strategy-summary"><strong>全局策略</strong><span>运维预警 {strategySettings.monitoring ? "已开启" : "已关闭"}</span><span>到期提前 {strategySettings.expiryDays} 天</span><span>CPU {strategySettings.cpuThreshold}% · 磁盘 {strategySettings.diskThreshold}%</span></div>
-        <section className="mobile-strategy-config" aria-label="巡检范围与提醒规则">
+        <div className="mobile-strategy-summary"><button type="button" className="mobile-strategy-summary-toggle" aria-expanded={strategyGlobalOpen} onClick={() => setStrategyGlobalOpen(open => !open)}><strong>全局策略</strong><ChevronDown size={15} aria-hidden="true" className="mobile-strategy-summary-chevron" /></button>{strategyGlobalOpen && <div className="mobile-strategy-summary-chips"><span>运维预警 {strategySettings.monitoring ? "已开启" : "已关闭"}</span><span>到期提前 {strategySettings.expiryDays} 天</span><span>CPU {strategySettings.cpuThreshold}% · 磁盘 {strategySettings.diskThreshold}%</span></div>}</div>
+        {strategyGlobalOpen && <section className="mobile-strategy-config" aria-label="巡检范围与提醒规则">
           <label className="mobile-strategy-master"><span><strong>启用运维预警</strong><small>App 前台按设定间隔巡检；退到后台、锁屏或退出后不保证执行</small></span><input type="checkbox" aria-label="启用运维预警" checked={strategySettings.monitoring} disabled={strategySaving} onChange={event => void updateSettings({ monitoring: event.target.checked })} /></label>
           <div className="mobile-strategy-options">{([["certificates", "HTTPS 证书到期"], ["servers", "服务器与域名到期"], ["panels", "宝塔资源与服务巡检"], ["panelAccess", "面板访问异常"]] as const).map(([key, label]) => <label key={key}><input type="checkbox" checked={strategySettings[key]} disabled={!strategySettings.monitoring || strategySaving} onChange={event => void updateSettings({ [key]: event.target.checked })} /><span>{label}</span></label>)}</div>
           <div className="mobile-strategy-tunings">
@@ -165,7 +166,7 @@ export function MobileMonitorAlertsPage({ compact = false, onActiveCount, refres
             <label>到期提醒<select aria-label="策略到期提醒" value={strategySettings.expiryDays} disabled={!strategySettings.monitoring || strategySaving} onChange={event => void updateSettings({ expiryDays: Number(event.target.value) })}><option value={7}>提前 7 天</option><option value={30}>提前 30 天</option><option value={60}>提前 60 天</option></select></label>
             {(["cpuThreshold", "diskThreshold"] as const).map(key => <label key={key}>{key === "cpuThreshold" ? "CPU" : "磁盘"}阈值<select aria-label={`策略${key === "cpuThreshold" ? "CPU" : "磁盘"}告警阈值`} value={strategySettings[key]} disabled={!strategySettings.monitoring || strategySaving} onChange={event => void updateSettings({ [key]: Number(event.target.value) })}>{[70, 80, 90, 95].map(value => <option key={value} value={value}>{value}%</option>)}</select></label>)}
           </div>
-        </section>
+        </section>}
         <div className="mobile-strategy-assets-heading"><strong>资产监控</strong><span>{strategyAssets.length} 项资产</span></div>
         <div className="mobile-strategy-toolbar"><label className="mobile-strategy-type">类型<select aria-label="按资产类型筛选" value={strategyType} onChange={event => setStrategyType(event.target.value)}><option value="all">全部类型（{strategyAssets.length}）</option>{assetTypes.map(type => <option key={type} value={type}>{assetTypeLabels[type] ?? type}（{strategyAssets.filter(asset => asset.resource_type === type).length}）</option>)}</select></label><label className="mobile-strategy-search"><Search size={16} aria-hidden="true" /><input type="search" aria-label="搜索预警策略资产" placeholder="搜索名称、ID、账号" value={strategyQuery} onChange={event => setStrategyQuery(event.target.value)} /></label></div>
         <div className="mobile-strategy-select-all"><label><input type="checkbox" aria-label="全选当前筛选资产参与监控" checked={allVisibleEnabled} disabled={!supportedVisibleAssets.length || strategySaving || !strategySettings.monitoring || !strategySettings.servers} onChange={event => void setAssetParticipation(supportedVisibleAssets, event.target.checked)} /><span>全选当前筛选结果（{supportedVisibleAssets.length}）</span></label><small>仅支持服务器与域名到期监控</small></div>
