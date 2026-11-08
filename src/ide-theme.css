@@ -19,6 +19,7 @@
 .store-filter-row > small { color: var(--jb-subtle); font-size: 12px; }
 .store-categories { display: flex; flex-wrap: wrap; gap: 8px; }
 .store-categories button, .store-recent { padding: 7px 16px; background: var(--jb-surface-2); border: 1px solid var(--jb-border); color: var(--jb-text); border-radius: 3px; cursor: pointer; font-size: 12px; }
+.store-recent { display: inline-flex; align-items: center; gap: 6px; }
 .store-categories button.is-active { background: var(--jb-accent-soft); color: var(--jb-accent); border-color: var(--jb-accent); }
 .store-heading { min-width: 0; }
 .store-heading-line { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 14px; }

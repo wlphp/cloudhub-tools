@@ -4174,7 +4174,7 @@ body.theme-light .mobile-shell .mobile-tab-bar button.active { border: 0; backgr
 .software-store-page .store-filter-row { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin: 12px 0; }
 .software-store-page .store-filter-row > span { flex: 0 0 100%; color: var(--mobile-muted); font-size: 12px; }
 .software-store-page .store-filter-row > small { color: var(--mobile-muted); }
-.software-store-page .store-recent { min-height: 40px; padding: 0 11px; border: 1px solid var(--mobile-border); border-radius: 9px; color: var(--mobile-text); background: var(--mobile-raised); }
+.software-store-page .store-recent { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 11px; border: 1px solid var(--mobile-border); border-radius: 9px; color: var(--mobile-text); background: var(--mobile-raised); }
 .software-store-page .store-platform-note { margin: 10px 0; padding: 10px; border-radius: 9px; color: var(--mobile-muted); background: var(--mobile-raised); font-size: 12px; line-height: 1.55; }
 .software-store-page .store-table { display: block; width: 100%; min-width: 0; border: 0; border-collapse: collapse; }
 .software-store-page .store-table thead { display: none; }
@@ -4431,7 +4431,7 @@ body.theme-light .mobile-home-apps,body.theme-light .mobile-home-alerts { backgr
 .mobile-shell .software-store-page .store-refresh { display: none; }
 .mobile-shell .software-store-page .store-filter-row > span { flex: 0 0 100%; color: var(--mobile-muted); font-size: 11px; }
 .mobile-shell .software-store-page .store-filter-row small { color: var(--mobile-muted); font-size: 12px; }
-.mobile-shell .software-store-page .store-recent { min-height: 42px; gap: 6px; padding-inline: 11px; border-radius: 10px; font-size: 12px; }
+.mobile-shell .software-store-page .store-recent { display: inline-flex; align-items: center; gap: 6px; min-height: 42px; padding-inline: 11px; border-radius: 10px; font-size: 12px; }
 .mobile-shell .software-store-page .store-table tbody { gap: 9px; }
 .mobile-shell .software-store-page .store-table tbody tr { position: relative; gap: 0 8px; padding: 12px; border: 1px solid var(--mobile-border); border-radius: 14px; box-shadow: none; }
 /* Collapsed entry: one icon, two lines of copy, one quiet action. The status
