@@ -27,7 +27,6 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dev-dependencies]
-rcgen = "0.13"
 
 [dependencies]
 tauri = { version = "2", features = ["macos-private-api"] }
@@ -63,6 +62,7 @@ percent-encoding = "2"
 rsa = { version = "0.9", features = ["pem"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 rustls-pemfile = "2"
+rcgen = "0.13"
 x509-parser = { version = "0.18", features = ["verify"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 russh = { version = "0.63", default-features = false, features = ["ring", "rsa"] }
@@ -84,7 +84,7 @@ arboard = { version = "3", default-features = false }
 # client also needs window activation so an already running single instance can
 # be brought to the front instead of silently handing over to a dead process.
 [target.'cfg(target_os = "windows")'.dependencies]
-windows-sys = { version = "0.59", features = ["Win32_Security_Cryptography", "Win32_Foundation", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell", "Win32_Storage_FileSystem"] }
+windows-sys = { version = "0.59", features = ["Win32_Security_Cryptography", "Win32_Foundation", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell", "Win32_Storage_FileSystem", "Win32_Networking_WinInet"] }
 
 [target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
 tauri-plugin-barcode-scanner = "2.5.1"

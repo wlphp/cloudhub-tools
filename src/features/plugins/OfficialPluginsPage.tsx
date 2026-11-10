@@ -25,7 +25,7 @@ const wslEnabledKey = wslPlugin.id + ".enabled";
 /** 仅桌面客户端可用、手机端未注册对应命令的插件；手机端商店禁用入口并提示，插件页自身也做同样回退。 */
 const desktopOnlyPluginIds = new Set([
   plugin.id, hardwarePlugin.id, wslPlugin.id, browserPlugin.id,
-  "cloudhub.cloud-drive", "cloudhub.environment-variables", "cloudhub.mail", "cloudhub.startup-manager", "cloudhub.windows-toolbox",
+  "cloudhub.cloud-drive", "cloudhub.environment-variables", "cloudhub.mail", "cloudhub.startup-manager", "cloudhub.windows-toolbox", "cloudhub.http-debug-proxy",
 ]);
 
 function readConfig(): { enabled: boolean; path: string; count: number } {

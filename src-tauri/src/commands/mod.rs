@@ -48,6 +48,8 @@ pub mod codex_gateway;
 pub mod authenticator;
 pub mod preferences;
 pub mod network;
+#[cfg(desktop)]
+pub mod http_debug_proxy;
 pub mod cloud_sync;
 pub mod logs;
 pub mod assets;

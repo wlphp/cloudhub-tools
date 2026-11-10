@@ -84,6 +84,16 @@ export const officialPlugins = [{
   platform: "desktop",
   permissions: ["按用户操作直连公网测速节点并传输测速载荷", "查询默认 IPv4 网卡地址及 IPIP.NET 公网出口 IP 和大致归属地（仅临时展示）", "在本地 SQLite 保存最近 20 次测速摘要", "测速和 IP 查询服务可看到来源 IP；不向节点上报测速摘要"],
 }, {
+  id: "cloudhub.http-debug-proxy",
+    name: "HTTP(S) 抓包",
+  version: "0.1.0",
+  publisher: "云枢工具箱",
+    description: "通过本机代理捕获并检查 HTTP/HTTPS 请求，支持 Windows 系统代理与 HTTPS 解密。",
+  category: "开发工具",
+  distribution: "builtin",
+  platform: "windows",
+  permissions: ["在本机回环地址启动 HTTP/HTTPS 代理", "按用户操作设置并恢复当前 Windows 用户的系统代理", "按用户操作安装或移除本机 HTTPS 调试根证书", "将最多 300 条捕获会话暂存在内存中，停止后清除", "捕获请求和响应内容；敏感请求头会隐藏，正文需用户在工具页主动查看"],
+}, {
   id: "cloudhub.environment-variables",
   name: "环境变量管理",
   version: "0.1.0",

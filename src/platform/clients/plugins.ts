@@ -1,4 +1,5 @@
 import { nativeOnly } from "./base";
+import { Channel } from "@tauri-apps/api/core";
 
 export interface WechatPluginStatus {
   supported: boolean;
@@ -50,6 +51,31 @@ export interface WslDistribution {
   remark: string;
 }
 
+export interface WslDistributionDetails extends WslDistribution {
+  ipAddress: string | null;
+  rootUsedBytes: number | null;
+}
+
+export interface WslDistroConfig {
+  automountEnabled: boolean;
+  mountFstab: boolean;
+  mountRoot: string;
+  mountOptions: string;
+  generateHosts: boolean;
+  generateResolvConf: boolean;
+  hostname: string;
+  interopEnabled: boolean;
+  appendWindowsPath: boolean;
+  defaultUser: string;
+  systemd: boolean;
+  bootCommand: string;
+  protectBinfmt: boolean;
+  initTimeout: number;
+  useWindowsTimezone: boolean;
+  gpuEnabled: boolean;
+  appendGpuLibPath: boolean;
+}
+
 export interface WslOnlineDistribution {
   name: string;
   friendlyName: string;
@@ -57,6 +83,29 @@ export interface WslOnlineDistribution {
 
 export interface WslDashboardSettings {
   defaultInstallLocation: string;
+}
+
+export interface WslRuntimeInfo {
+  currentVersion: string | null;
+  minimumSupportedVersion: string;
+  compatible: boolean | null;
+  components: { name: string; version: string }[];
+  message: string | null;
+}
+
+export interface WslMirrorDistro {
+  id: string;
+  name: string;
+  version: string;
+  sourceCount: number;
+}
+
+export interface WslMirrorInstallProgress {
+  stage: "probing" | "downloading" | "verifying" | "importing" | "complete";
+  mirror: string | null;
+  downloadedBytes: number;
+  totalBytes: number | null;
+  bytesPerSecond: number;
 }
 
 export interface WslOperationLog {
@@ -69,12 +118,26 @@ export interface WslOperationLog {
 export const pluginsClient = {
   hardwareInfo: () => nativeOnly<HardwareInfo>("hardware_info_get"),
   wslList: () => nativeOnly<WslDistribution[]>("wsl_dashboard_list"),
+  wslDetails: (name: string) => nativeOnly<WslDistributionDetails>("wsl_dashboard_details", { name }),
+  wslDistroConfig: (name: string) => nativeOnly<WslDistroConfig>("wsl_dashboard_config_get", { name }),
+  wslSaveDistroConfig: (name: string, config: WslDistroConfig, restart: boolean) => nativeOnly<void>("wsl_dashboard_config_save", { name, config, restart }),
   wslControl: (name: string, action: "start" | "stop" | "default" | "unregister", confirmationName?: string) => nativeOnly<void>("wsl_dashboard_control", { name, action, confirmationName: confirmationName ?? null }),
   wslBackup: (name: string) => nativeOnly<string | null>("wsl_dashboard_backup", { name }),
+  wslMove: (name: string, location: string) => nativeOnly<void>("wsl_dashboard_move", { name, location }),
   wslShutdown: () => nativeOnly<void>("wsl_dashboard_shutdown"),
+  wslUpdate: (proxyUrl: string | null = null) => nativeOnly<void>("wsl_dashboard_update", { proxyUrl }),
+  wslRuntimeInfo: () => nativeOnly<WslRuntimeInfo>("wsl_dashboard_runtime_info"),
+  wslMirrorList: () => nativeOnly<WslMirrorDistro[]>("wsl_dashboard_mirror_list"),
+  async wslMirrorInstall(input: { distribution: string; version: string; instanceName: string; installLocation: string }, onProgress: (progress: WslMirrorInstallProgress) => void): Promise<void> {
+    let active = true;
+    const channel = new Channel<WslMirrorInstallProgress>(progress => { if (active) onProgress(progress); });
+    try { await nativeOnly<void>("wsl_dashboard_mirror_install", { ...input, onProgress: channel }); }
+    finally { active = false; channel.onmessage = () => {}; }
+  },
   wslSettings: () => nativeOnly<WslDashboardSettings>("wsl_dashboard_settings_get"),
   wslSaveSettings: (defaultInstallLocation: string, name?: string, remark?: string) => nativeOnly<void>("wsl_dashboard_save_settings", { defaultInstallLocation, name: name ?? null, remark: remark ?? null }),
   wslSelectInstallLocation: () => nativeOnly<string | null>("wsl_dashboard_select_install_location"),
+  wslSelectMoveLocation: () => nativeOnly<string | null>("wsl_dashboard_select_move_location"),
   wslSelectRootfsFile: () => nativeOnly<string | null>("wsl_dashboard_select_rootfs_file"),
   wslImportRootfs: (distribution: string, installLocation: string, filePath: string) => nativeOnly<void>("wsl_dashboard_import_rootfs", { distribution, installLocation, filePath }),
   wslLogs: () => nativeOnly<WslOperationLog[]>("wsl_dashboard_logs_get"),
