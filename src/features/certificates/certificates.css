@@ -203,3 +203,5 @@
 .baota-sync-error-list strong{font-weight:600}.baota-sync-error-index{color:var(--jb-muted)}
 .baota-sync-error-list p:last-child{color:var(--jb-muted)}.baota-sync-error-label{display:none}
 @media(max-width:760px){.baota-sync-errors-dialog .baota-sync-error-head{display:none}.baota-sync-error-list>li{grid-template-columns:minmax(0,1fr);gap:6px;padding:12px 0}.baota-sync-error-label{display:block;font-size:12px;color:var(--jb-muted)}}
+
+.ide-theme.theme-light .certificate-page .certificate-preview-warning{border-color:color-mix(in srgb,var(--jb-warning,#a8731f) 30%,var(--jb-border));background:color-mix(in srgb,var(--jb-warning,#a8731f) 8%,var(--jb-surface));color:#76500d}

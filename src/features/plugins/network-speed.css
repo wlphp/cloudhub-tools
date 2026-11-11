@@ -3,6 +3,7 @@
 .speed-intro { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 12px; }
 .speed-intro > svg { flex: 0 0 auto; color: var(--jb-accent); }
 .speed-intro p, .speed-muted { color: var(--jb-muted); line-height: 1.65; margin: 6px 0 12px; overflow-wrap: anywhere; }
+.speed-preview-notice { margin: 0 0 14px; padding: 10px 12px; border: 1px solid var(--jb-border); border-left: 3px solid var(--jb-accent); border-radius: 5px; background: var(--jb-surface-2); line-height: 1.6; }
 .speed-tabs { margin-bottom: 14px; }
 .speed-network { margin: 0 0 14px; padding: 12px 14px; border: 1px solid var(--jb-border); border-radius: 6px; background: var(--jb-surface-2); }
 .speed-network-head, .speed-network-head strong { display: flex; align-items: center; gap: 8px; }
@@ -65,3 +66,60 @@
   .speed-steps { font-size: 12px; gap: 2px; }
   .speed-history th, .speed-history td { font-size: 11px; }
 }
+
+/* Native phone shells may report a wide physical viewport; scope phone styling
+   to the shell instead of relying on the device's CSS viewport width. */
+body:has(.mobile-shell) .network-speed { font-size: 14px; }
+body:has(.mobile-shell) .network-speed .speed-intro { gap: 12px; margin: 2px 0 16px; padding: 14px; border: 1px solid var(--jb-border); border-radius: 12px; background: var(--jb-surface-2); }
+body:has(.mobile-shell) .network-speed .speed-intro > svg { width: 22px; height: 22px; margin-top: 1px; }
+body:has(.mobile-shell) .network-speed .speed-intro strong { font-size: 15px; }
+body:has(.mobile-shell) .network-speed .speed-intro p { margin: 4px 0 0; font-size: 13px; }
+body:has(.mobile-shell) .network-speed .speed-preview-notice { margin-bottom: 12px; padding: 11px 12px; border-radius: 10px; font-size: 13px; }
+body:has(.mobile-shell) .network-speed .speed-network { margin-bottom: 12px; padding: 14px; border-radius: 12px; }
+body:has(.mobile-shell) .network-speed .speed-network-head { align-items: flex-start; gap: 8px; }
+body:has(.mobile-shell) .network-speed .speed-network-head strong { min-height: 44px; font-size: 14px; }
+body:has(.mobile-shell) .network-speed .speed-network dl { grid-template-columns: minmax(0, 1fr); gap: 0; margin: 8px 0; }
+body:has(.mobile-shell) .network-speed .speed-network dl > div { display: flex; justify-content: space-between; gap: 12px; min-height: 44px; padding: 10px 0; border-top: 1px solid var(--jb-border); }
+body:has(.mobile-shell) .network-speed .speed-network dt,
+body:has(.mobile-shell) .network-speed .speed-network dd { margin: 0; font-size: 13px; }
+body:has(.mobile-shell) .network-speed .speed-network dd { text-align: right; }
+body:has(.mobile-shell) .network-speed .speed-network-location { grid-column: auto; }
+body:has(.mobile-shell) .network-speed .speed-network > small { display: block; margin-top: 8px; }
+body:has(.mobile-shell) .network-speed .speed-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-bottom: 12px; padding: 4px; border-radius: 10px; background: var(--jb-surface-2); }
+body:has(.mobile-shell) .network-speed .speed-tabs button { min-height: 44px; border: 0; border-radius: 8px; background: transparent; color: var(--jb-muted); font-size: 14px; }
+body:has(.mobile-shell) .network-speed .speed-tabs button.is-active { background: var(--jb-bg); color: var(--jb-text); box-shadow: 0 1px 3px color-mix(in srgb, var(--jb-text) 12%, transparent); font-weight: 600; }
+body:has(.mobile-shell) .network-speed .speed-form { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 14px; border-radius: 12px; }
+body:has(.mobile-shell) .network-speed .speed-form label,
+body:has(.mobile-shell) .network-speed .speed-form label:first-child { flex: none; width: 100%; gap: 6px; font-size: 13px; }
+body:has(.mobile-shell) .network-speed :is(.speed-form select, .speed-form input) { height: 46px; min-height: 46px; padding: 0 12px; border-radius: 9px; font-size: 14px; }
+body:has(.mobile-shell) .network-speed .speed-form .speed-actions { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; width: 100%; }
+body:has(.mobile-shell) .network-speed .speed-form .speed-actions button { min-height: 48px; height: auto; border-radius: 11px; font-size: 14px; font-weight: 600; transition: background-color .16s ease, border-color .16s ease, color .16s ease, box-shadow .16s ease; }
+body:has(.mobile-shell) .network-speed .speed-form .speed-actions button.primary { border: 1px solid var(--jb-accent); background: var(--jb-accent); color: #fff; box-shadow: 0 3px 8px color-mix(in srgb, var(--jb-accent) 22%, transparent); }
+body:has(.mobile-shell) .network-speed .speed-form .speed-actions button.primary:disabled { border-color: var(--jb-border-strong); background: var(--jb-surface-2); color: var(--jb-muted); box-shadow: none; opacity: .72; }
+body:has(.mobile-shell) .network-speed .speed-form .speed-actions button.speed-stop { border: 1px solid color-mix(in srgb, var(--jb-red, #ef7070) 38%, var(--jb-border)); background: color-mix(in srgb, var(--jb-red, #ef7070) 9%, var(--jb-bg)); color: var(--jb-red, #ef7070); }
+body:has(.mobile-shell) .network-speed .speed-form .speed-actions button:active:not(:disabled) { filter: brightness(.94); }
+body:has(.mobile-shell) .network-speed .speed-network-head button { min-height: 40px; height: auto; padding: 0 10px; border: 1px solid var(--jb-border); border-radius: 9px; background: transparent; color: var(--jb-muted); font-size: 12px; }
+body:has(.mobile-shell) .network-speed .speed-network-head button:disabled { opacity: .56; }
+body:has(.mobile-shell) .network-speed .speed-muted { font-size: 12px; }
+body:has(.mobile-shell) .network-speed .speed-status { align-items: flex-start; flex-direction: column; gap: 4px; margin: 14px 0 8px; padding: 12px 14px; border: 1px solid var(--jb-border); border-radius: 10px; background: var(--jb-surface-2); }
+body:has(.mobile-shell) .network-speed .speed-status strong { font-size: 14px; }
+body:has(.mobile-shell) .network-speed .speed-status span { font-size: 12px; }
+body:has(.mobile-shell) .network-speed .speed-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+body:has(.mobile-shell) .network-speed .speed-steps li { min-height: 40px; padding: 10px 6px; border: 1px solid var(--jb-border); border-radius: 8px; font-size: 12px; }
+body:has(.mobile-shell) .network-speed .speed-steps [aria-current=step] { border-color: var(--jb-accent); }
+body:has(.mobile-shell) .network-speed .speed-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+body:has(.mobile-shell) .network-speed .speed-metrics > div { padding: 12px; border-radius: 10px; }
+body:has(.mobile-shell) .network-speed .speed-metrics span { min-height: 38px; font-size: 12px; }
+body:has(.mobile-shell) .network-speed .speed-metrics strong { margin: 6px 0 4px; font-size: 24px; }
+body:has(.mobile-shell) .network-speed .speed-chart { padding: 10px; border-radius: 10px; }
+body:has(.mobile-shell) .network-speed .speed-chart figcaption { gap: 6px; font-size: 12px; }
+body:has(.mobile-shell) .network-speed .speed-history-heading { flex-direction: column; gap: 4px; font-size: 13px; }
+body:has(.mobile-shell) .network-speed .speed-history-wrap { overflow: visible; }
+body:has(.mobile-shell) .network-speed .speed-history,
+body:has(.mobile-shell) .network-speed .speed-history tbody { display: block; width: 100%; }
+body:has(.mobile-shell) .network-speed .speed-history thead { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+body:has(.mobile-shell) .network-speed .speed-history tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 10px; padding: 12px; border: 1px solid var(--jb-border); border-radius: 10px; background: var(--jb-surface-2); }
+body:has(.mobile-shell) .network-speed .speed-history td { min-width: 0; padding: 0; border: 0; font-size: 12px; }
+body:has(.mobile-shell) .network-speed .speed-history td:first-child,
+body:has(.mobile-shell) .network-speed .speed-history td:last-child { grid-column: 1 / -1; }
+body:has(.mobile-shell) .network-speed .speed-history td::before { display: block; margin-bottom: 3px; color: var(--jb-muted); content: attr(data-label); font-size: 11px; }

@@ -37,6 +37,46 @@
 .notes-heading p { margin: 5px 0 0; color: var(--jb-subtle, var(--jb-subtle)); font-size: 12px; line-height: 1.5; }
 .notes-header-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .notes-header-actions button { height: 32px; padding: 0 12px; border-radius: 4px; font-size: 12px; }
+@media (min-width: 761px) {
+  .notes-panel .notes-header-actions > button {
+    box-sizing: border-box;
+    height: 36px;
+    min-height: 36px;
+    padding: 0 13px;
+    appearance: none;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--jb-muted);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 550;
+    line-height: 1;
+    box-shadow: none;
+    transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease, transform 100ms ease;
+  }
+  .notes-panel .notes-header-actions > button.secondary:hover:not(:disabled) {
+    border-color: transparent;
+    background: var(--jb-surface-2);
+    color: var(--jb-text);
+  }
+  .notes-panel .notes-header-actions > button.primary {
+    border-color: var(--jb-accent-soft);
+    background: var(--jb-accent-soft);
+    color: var(--jb-accent-strong);
+    font-weight: 600;
+  }
+  .notes-panel .notes-header-actions > button.primary:hover:not(:disabled) {
+    border-color: var(--jb-accent-soft);
+    background: color-mix(in srgb, var(--jb-accent) 16%, var(--jb-surface));
+    color: var(--jb-accent-strong);
+  }
+  .notes-panel .notes-header-actions > button:not(:disabled):active { transform: translateY(1px); }
+  .notes-panel .notes-header-actions > button:focus-visible { outline: 2px solid var(--jb-accent-strong); outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) {
+    .notes-panel .notes-header-actions > button { transition: none; }
+  }
+}
 /* 等高开关：沿用应用内 role=switch 视觉（同 store-switch），与头部按钮同高。
    margin:0 重置 App.css 全局 label 的 margin-top，避免在垂直居中行内被压低。 */
 .notes-header-switch { position: relative; display: inline-flex; align-items: center; gap: 7px; height: 32px; margin: 0; padding: 0 10px; border: 1px solid var(--jb-border-strong, var(--jb-border-strong)); border-radius: 4px; background: var(--jb-surface-2, var(--jb-surface-3)); color: var(--jb-muted, var(--jb-muted)); font-size: 12px; cursor: pointer; user-select: none; }
@@ -232,10 +272,10 @@
 }
 .notes-view-editor { position: relative; display: flex; min-width: 0; min-height: 140px; max-height: 62vh; overflow: hidden; border: 1px solid var(--jb-border, var(--jb-border)); border-radius: 4px; background: var(--jb-input, var(--jb-input)); }
 .notes-view-line-numbers { flex: 0 0 42px; box-sizing: border-box; max-height: 62vh; margin: 0; padding: 8px 8px 8px 4px; overflow: hidden; border-right: 1px solid var(--jb-border, var(--jb-border)); color: var(--jb-muted, var(--jb-muted)); background: var(--jb-surface-2, var(--jb-surface-2)); font: inherit; font-size: 12.5px; line-height: 1.65; text-align: right; user-select: none; }
-.notes-view-search-layer { position: absolute; z-index: 0; inset: 0 0 0 42px; overflow: hidden; pointer-events: none; }
+.notes-view-search-layer { position: absolute; z-index: 2; inset: 0 0 0 42px; overflow: hidden; pointer-events: none; }
 .notes-view-search-layer > pre { min-height: 100%; box-sizing: border-box; margin: 0; padding: 8px 10px; color: transparent; font: inherit; font-size: 12.5px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
-.notes-view-search-layer mark { border-radius: 2px; background: color-mix(in srgb, var(--jb-accent, #ea580c) 28%, transparent); color: transparent; }
-.notes-view-search-layer mark.is-active { background: color-mix(in srgb, var(--jb-accent, #ea580c) 54%, transparent); }
+.notes-view-search-layer mark { border-radius: 2px; background: color-mix(in srgb, var(--jb-danger, #ef4444) 18%, transparent); color: var(--jb-danger, #ef4444); }
+.notes-view-search-layer mark.is-active { background: color-mix(in srgb, var(--jb-danger, #ef4444) 34%, transparent); color: var(--jb-danger, #ef4444); }
 .notes-view-editor .notes-view-text { flex: 1 1 auto; min-width: 0; min-height: 138px; max-height: 62vh; border: 0; border-radius: 0; background: transparent; }
 .notes-view-editor .notes-view-text { position: relative; z-index: 1; }
 .notes-view-editor:focus-within { border-color: var(--jb-accent, var(--jb-accent)); box-shadow: 0 0 0 2px rgba(234, 88, 12, .15); }

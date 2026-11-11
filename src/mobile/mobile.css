@@ -854,6 +854,11 @@ body.theme-light .mobile-flow-page { --mobile-flow-success:#15803d; }
 .mobile-flow-page .flow-mobile-card .flow-row-actions button { width:auto; height:36px; min-height:36px; padding:0 10px; border:1px solid var(--mobile-border); border-radius:6px; background:var(--mobile-raised); color:var(--mobile-text); font-size:12px; }
 .mobile-flow-page .flow-mobile-card .flow-row-actions button:first-child { border-color:var(--mobile-border); background:var(--mobile-surface); color:var(--mobile-accent); }
 .mobile-flow-page .flow-mobile-card .flow-row-actions button:active { background:var(--mobile-raised); }
+.mobile-flow-page .flow-toolbar-actions button.primary { border-radius:10px; box-shadow:none; font-weight:600; }
+.mobile-flow-page .flow-toolbar-actions button.secondary { border-radius:10px; background:var(--mobile-raised); color:var(--mobile-text); }
+.mobile-flow-page .flow-mobile-card .flow-row-actions button { min-height:44px; padding:0 12px; border-radius:9px; font-weight:600; }
+.mobile-flow-page .flow-mobile-card .flow-row-actions button:first-child { border-color:color-mix(in srgb,var(--mobile-accent) 24%,var(--mobile-border)); background:color-mix(in srgb,var(--mobile-accent) 9%,var(--mobile-surface)); color:var(--mobile-accent-strong); }
+.mobile-flow-page .flow-mobile-card .flow-row-actions button:focus-visible { outline:2px solid var(--mobile-focus); outline-offset:2px; }
 
 @media(max-width:559px) {
   .mobile-account-form {

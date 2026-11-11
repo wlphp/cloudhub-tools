@@ -169,3 +169,18 @@
   .flow-empty{margin:24px auto;padding:26px 18px}
 }
 @media(prefers-reduced-motion:reduce){.flow-group-tabs button,.flow-pipeline-table tbody tr{transition:none}}
+
+/* Make high-frequency pipeline actions feel intentional without adding visual weight. */
+.flow-page .flow-toolbar-actions .primary{border-radius:8px;box-shadow:none!important;transition:background-color .16s ease,border-color .16s ease,transform .16s ease}
+.flow-page .flow-toolbar-actions .primary:hover:not(:disabled){filter:brightness(.97);transform:translateY(-1px)}
+.flow-page .flow-toolbar-actions .secondary{border-radius:8px;background:var(--jb-surface);transition:background-color .16s ease,border-color .16s ease,color .16s ease}
+.flow-page .flow-toolbar-actions .secondary:hover:not(:disabled){background:var(--jb-surface-2);color:var(--jb-accent-strong)}
+.flow-page .flow-search button{min-height:30px;padding:0 11px;border:1px solid var(--jb-border);border-radius:7px;background:var(--jb-surface);color:var(--jb-text);font-size:11px;font-weight:600;transition:background-color .16s ease,border-color .16s ease,color .16s ease}
+.flow-page .flow-search button:hover{border-color:var(--jb-accent-strong);background:var(--jb-accent-soft);color:var(--jb-accent-strong)}
+.flow-page .flow-refresh-button{border-radius:8px;background:var(--jb-surface);transition:background-color .16s ease,border-color .16s ease,color .16s ease,transform .16s ease}
+.flow-page .flow-refresh-button:hover:not(:disabled){border-color:var(--jb-accent-strong);background:var(--jb-accent-soft);color:var(--jb-accent-strong)}
+.flow-page .flow-row-actions button{display:inline-grid;place-items:center;width:36px;height:36px;padding:0;border:1px solid var(--jb-border);border-radius:9px;background:var(--jb-surface);color:var(--jb-muted);transition:background-color .16s ease,border-color .16s ease,color .16s ease,transform .16s ease}
+.flow-page .flow-row-actions button:first-child{background:var(--jb-accent-soft);color:var(--jb-accent-strong)}
+.flow-page .flow-row-actions button:hover:not(:disabled){border-color:var(--jb-accent-strong);background:var(--jb-accent-soft);color:var(--jb-accent-strong);transform:translateY(-1px)}
+.flow-page .flow-row-actions button:focus-visible,.flow-page .flow-toolbar-actions button:focus-visible,.flow-page .flow-search button:focus-visible{outline:2px solid var(--jb-accent-strong);outline-offset:2px}
+@media(prefers-reduced-motion:reduce){.flow-page .flow-toolbar-actions button,.flow-page .flow-search button,.flow-page .flow-refresh-button,.flow-page .flow-row-actions button{transition:none;transform:none}}

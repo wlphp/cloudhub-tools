@@ -43,6 +43,27 @@ async function openMail(page: Page, native = true) {
  await expect(page.locator(".mail-app")).toBeVisible();
 }
 
+test("mobile shell gives mailbox actions consistent touch-sized states", async ({ page }) => {
+ await openMail(page, false);
+ await page.evaluate(() => {
+  const shell = document.createElement("div");
+  shell.className = "mobile-shell";
+  document.body.append(shell);
+ });
+ const actions = page.locator(".mail-toolbar-actions button");
+ await expect(actions).toHaveCount(3);
+ for (const action of await actions.all()) {
+  const style = await action.evaluate(button => {
+   const computed = getComputedStyle(button);
+   return { height: computed.minHeight, radius: computed.borderRadius, background: computed.backgroundColor, opacity: computed.opacity };
+  });
+  expect(style.height).toBe("48px");
+  expect(style.radius).toBe("11px");
+  expect(style.background).not.toBe("rgba(0, 0, 0, 0)");
+  expect(style.opacity).toBe("1");
+ }
+});
+
 test("receive, read safely, download, reply, and report independent connection results", async ({ page }) => {
  await openMail(page);
  await page.getByRole("button", { name: "检测连接", exact: true }).click();

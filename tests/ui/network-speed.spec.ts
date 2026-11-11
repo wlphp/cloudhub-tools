@@ -44,13 +44,13 @@ test("start, prevent repeat, cancel, history, and revisit the shared page", asyn
   await page.getByLabel("每方向时长").selectOption("5");
   await page.getByLabel("总载荷上限").selectOption("50");
   await start.click();
-  await expect(start).toBeDisabled();
+  await expect(page.getByRole("button", { name: "停止测速", exact: true })).toBeEnabled();
   await expect(page.locator(".speed-metrics")).toContainText("80.0");
   await page.getByRole("button", { name: "返回软件商店" }).click();
   await page.getByRole("searchbox").fill("网络测速");
   await page.locator(".store-table tbody tr").getByRole("button", { name: "管理", exact: true }).click();
-  await expect(start).toBeDisabled();
-  await page.getByRole("button", { name: "停止", exact: true }).click();
+  await expect(page.getByRole("button", { name: "停止测速", exact: true })).toBeEnabled();
+  await page.getByRole("button", { name: "停止测速", exact: true }).click();
   await expect(start).toBeEnabled();
   await page.getByRole("button", { name: "历史记录", exact: true }).click();
   await expect(page.locator(".speed-history")).toContainText("已停止 · 部分结果");
@@ -100,10 +100,30 @@ test("network info failures can be retried and do not block measurement", async 
   await expect(page.locator(".speed-network-error")).toHaveCount(0);
 });
 
-test("preview explicitly refuses native measurement", async ({ page }) => {
+test("preview shows the page while clearly disabling native-only actions", async ({ page }) => {
   await openTool(page, false);
-  await expect(page.locator(".network-speed")).toContainText("浏览器预览和手机端不执行测速");
-  await expect(page.getByRole("button", { name: "开始测速" })).toHaveCount(0);
+  await expect(page.locator(".network-speed")).toContainText("网页预览仅展示测速界面");
+  await expect(page.getByRole("button", { name: "开始测速" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "刷新网络信息" })).toBeDisabled();
+  await expect(page.locator(".network-speed select").first()).toBeDisabled();
+  await expect(page.locator(".network-speed")).toContainText("网页端不读取");
+});
+
+test("mobile shell uses a single-column form and touch-sized controls", async ({ page }) => {
+  await openTool(page, false);
+  await page.evaluate(() => {
+    const shell = document.createElement("div");
+    shell.className = "mobile-shell";
+    document.body.append(shell);
+  });
+  const styles = await page.locator(".speed-form").evaluate(form => ({
+    columns: getComputedStyle(form).gridTemplateColumns,
+    buttonHeight: getComputedStyle(form.querySelector("button")!).minHeight,
+    networkColumns: getComputedStyle(document.querySelector(".speed-network dl")!).gridTemplateColumns,
+  }));
+  expect(styles.columns.trim().split(/\s+/)).toHaveLength(1);
+  expect(styles.buttonHeight).toBe("48px");
+  expect(styles.networkColumns.trim().split(/\s+/)).toHaveLength(1);
 });
 
 test("tool fits narrow and wide hosts with a labelled chart", async ({ page }) => {
@@ -138,5 +158,5 @@ test("dark small dialog uses shared shell, ignores backdrop, and closes with Esc
   await page.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);
   await page.locator(".store-table tbody tr").getByRole("button", { name: "管理", exact: true }).click();
-  await expect(page.getByRole("button", { name: "开始测速" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "停止测速", exact: true })).toBeEnabled();
 });
