@@ -26,6 +26,7 @@ pub mod provider_import;
 pub mod provider_export;
 pub mod provider_logs;
 pub mod provider_aggregate;
+pub mod project_state;
 pub(crate) static AUTH_WRITER: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 use serde::{Deserialize, Serialize};

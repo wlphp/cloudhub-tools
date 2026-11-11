@@ -798,6 +798,7 @@ pub(crate) async fn codex_confirm_switch(
         )? {
             return Err(super::codex_instances::account_busy_error(&app.state::<super::codex_runtime::CodexRuntimeStore>(), ticket.id, "切换默认账号")?);
         }
+        crate::core::codex::project_state::preserve_before_identity_change(&home)?;
         if repository::get(&conn, ticket.id)?.updated_at != ticket.version {
             return Err("Codex 账号已变更，请重新确认切号".into());
         }

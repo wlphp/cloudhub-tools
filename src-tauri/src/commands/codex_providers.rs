@@ -292,6 +292,7 @@ pub(crate) async fn codex_provider_apply(app:tauri::AppHandle,id:Option<String>,
         let store=app.state::<super::codex_runtime::CodexRuntimeStore>();
         let home=super::codex_instances::config_home(&store,id.as_deref(),true)?;
         let _target=crate::core::codex::target_lock::TargetLock::acquire(&home)?;
+        if id.is_none() { crate::core::codex::project_state::preserve_before_identity_change(&home)?; }
         profile::ensure_file_storage(&home)?;
         let mut conn=open_db()?;
         let preview=history_preview(&conn,&home,id.as_deref())?;

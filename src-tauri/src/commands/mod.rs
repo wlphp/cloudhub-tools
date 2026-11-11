@@ -81,7 +81,6 @@ pub mod desktop_pet;
 #[path = "desktop_pet.rs"]
 // The mobile module exports only monitor-alert commands; desktop pet APIs are cfg-gated.
 pub mod monitoring;
-#[cfg(desktop)]
 pub mod notes;
 pub mod trash;
 pub mod claude_providers;
