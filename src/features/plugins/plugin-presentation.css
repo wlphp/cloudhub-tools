@@ -46,7 +46,23 @@
 .plugin-presentation-size.is-selected { border-color: var(--jb-accent); background: var(--jb-accent-soft, var(--jb-accent-soft)); color: var(--jb-accent-strong, var(--jb-accent-strong)); }
 .plugin-presentation-size:disabled { cursor: default; }
 .plugin-presentation-hint { color: var(--jb-subtle, var(--jb-muted)); font-size: 11px; line-height: 1.6; }
+.plugin-order-preference > label { color: var(--jb-muted); font-size: 11.5px; }
+.plugin-order-preference > select { width: 100%; min-height: 34px; margin: 0; }
 .plugin-presentation-reset { margin-right: auto; }
+.plugin-display-preferences { gap: 0; }
+.plugin-display-preference { display: flex; align-items: center; justify-content: space-between; gap: 14px; min-height: 46px; padding: 5px 2px; border-top: 1px solid var(--jb-border); }
+.plugin-display-preference:first-of-type { border-top: 0; }
+.plugin-display-preference > span { display: grid; gap: 3px; }
+.plugin-display-preference strong { color: var(--jb-text); font-size: 12px; font-weight: 500; }
+.plugin-display-preference small { color: var(--jb-subtle, var(--jb-muted)); font-size: 10.5px; line-height: 1.4; }
+.plugin-display-preference .store-switch { flex: 0 0 40px; }
+.store-application-details-dialog.modal-form-layout { width: min(620px, calc(100vw - 32px)); max-width: calc(100vw - 32px); }
+.store-application-details { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 20px; margin: 0; }
+.store-application-details > div { display: grid; grid-template-columns: 70px minmax(0, 1fr); align-items: start; gap: 10px; min-width: 0; padding: 11px 2px; border-bottom: 1px solid var(--jb-border); }
+.store-application-details > div:nth-child(5) { grid-column: 1 / -1; }
+.store-application-details dt { color: var(--jb-muted); font-size: 12px; }
+.store-application-details dd { min-width: 0; margin: 0; color: var(--jb-text); font-size: 12px; line-height: 1.65; overflow-wrap: anywhere; }
+.store-application-details dd small { display: block; margin-top: 5px; color: var(--jb-subtle, var(--jb-muted)); font-size: 11px; line-height: 1.6; }
 
 /* Mobile presentation settings: compact choice rows and a clearer action footer. */
 @media (max-width: 760px) {
@@ -63,10 +79,20 @@
   body:has(.mobile-shell) .plugin-presentation-mode.is-selected > svg,
   body:has(.mobile-shell) .plugin-presentation-mode.is-selected small { color: var(--mobile-accent-strong); }
   body:has(.mobile-shell) .plugin-presentation-sizes { gap: 8px; }
+  body:has(.mobile-shell) .plugin-order-preference > select { min-height: 44px; border-radius: 9px; }
   body:has(.mobile-shell) .plugin-presentation-size { min-height: 42px; border-color: var(--mobile-border); border-radius: 9px; background: var(--mobile-bg); color: var(--mobile-text); font-size: 12px; font-weight: 600; }
   body:has(.mobile-shell) .plugin-presentation-size.is-selected { border-color: color-mix(in srgb,var(--mobile-accent) 50%,var(--mobile-border)); background: color-mix(in srgb,var(--mobile-accent) 8%,var(--mobile-surface)); color: var(--mobile-accent-strong); }
   body:has(.mobile-shell) .plugin-presentation-size:disabled { opacity: .48; }
   body:has(.mobile-shell) .plugin-presentation-hint { font-size: 11px; }
+  body:has(.mobile-shell) .plugin-display-preference { min-height: 54px; gap: 12px; }
+  body:has(.mobile-shell) .plugin-display-preference strong { font-size: 13px; }
+  body:has(.mobile-shell) .plugin-display-preference small { font-size: 11px; }
+  body:has(.mobile-shell) .plugin-display-preference .store-switch { flex: 0 0 44px; min-height: 44px; }
+  body:has(.mobile-shell) .store-application-details { grid-template-columns: minmax(0, 1fr); }
+  body:has(.mobile-shell) .store-application-details > div:nth-child(5) { grid-column: auto; }
+  body:has(.mobile-shell) .store-application-details > div { grid-template-columns: 70px minmax(0, 1fr); gap: 8px; min-height: 44px; }
+  body:has(.mobile-shell) .store-application-details dt,
+  body:has(.mobile-shell) .store-application-details dd { font-size: 13px; }
   body:has(.mobile-shell) .plugin-presentation-dialog > .modal-actions { display: grid; grid-template-columns: minmax(0,.9fr) minmax(0,1.1fr); gap: 10px; }
   body:has(.mobile-shell) .plugin-presentation-dialog > .modal-actions > button { min-height: 44px; border-radius: 10px; font-size: 13px; font-weight: 600; }
   body:has(.mobile-shell) .plugin-presentation-reset { margin: 0; }

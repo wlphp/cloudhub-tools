@@ -152,8 +152,18 @@ function NoteViewer({ note, due, onClose, onSaved, setMessage }: { note: Note; d
   const syncHeight = useCallback(() => {
     const el = textRef.current;
     if (!el) return;
+    const editor = el.closest<HTMLElement>(".notes-view-editor");
+    if (editor?.closest(".dialog-size-expanded, .dialog-user-size")) {
+      el.style.height = "";
+      editor.style.height = "";
+      return;
+    }
     el.style.height = "auto";
-    el.style.height = `${el.scrollHeight}px`;
+    const desiredHeight = el.scrollHeight;
+    const maxHeight = Math.floor(window.innerHeight * 0.62);
+    const height = Math.min(desiredHeight, maxHeight);
+    el.style.height = `${height}px`;
+    if (editor) editor.style.height = `${height + 2}px`;
   }, []);
   useEffect(() => { syncHeight(); }, [body, syncHeight]);
   useEffect(() => {
@@ -164,7 +174,7 @@ function NoteViewer({ note, due, onClose, onSaved, setMessage }: { note: Note; d
     return () => observer.disconnect();
   }, [syncHeight]);
 
-  // 悬浮检索：大小写不敏感，记录每个命中的起止偏移，用文本框选区定位。
+  // 悬浮检索：大小写不敏感，记录每个命中的起止偏移并在正文上绘制高亮。
   const trimmed = query.trim();
   const matches = useMemo<Array<[number, number]>>(() => {
     if (!trimmed || !body) return [];
@@ -179,18 +189,35 @@ function NoteViewer({ note, due, onClose, onSaved, setMessage }: { note: Note; d
   }, [body, trimmed]);
   const total = matches.length;
   const activeIndex = total ? Math.min(active, total - 1) : 0;
+  const highlightedBody = useMemo<ReactNode>(() => {
+    if (!matches.length) return body;
+    const parts: ReactNode[] = [];
+    let cursor = 0;
+    matches.forEach(([start, end], index) => {
+      if (start > cursor) parts.push(body.slice(cursor, start));
+      parts.push(<mark key={`${start}-${end}`} className={index === activeIndex ? "is-active" : undefined}>{body.slice(start, end)}</mark>);
+      cursor = end;
+    });
+    if (cursor < body.length) parts.push(body.slice(cursor));
+    return parts;
+  }, [activeIndex, body, matches]);
   const step = (delta: number) => { if (total) { setActive(current => (current + delta + total) % total); setSearchSeq(seq => seq + 1); } };
 
-  // 仅在检索动作（输入、跳转）后定位选区；正文编辑不触发，避免打断输入。
+  // 仅在检索动作（输入、跳转）后定位命中行；正文编辑不触发，避免打断输入。
   // 依赖保持最小：searchSeq 变化触发的这次渲染已持有最新 matches/activeIndex。
   useEffect(() => {
     if (!searchSeq) return;
     const el = textRef.current;
     const match = matches[activeIndex];
     if (!el || !match) return;
-    el.focus();
-    el.setSelectionRange(match[0], match[1]);
-    searchRef.current?.focus({ preventScroll: true });
+    const lineHeight = Number.parseFloat(getComputedStyle(el).lineHeight) || 20;
+    const line = body.slice(0, match[0]).split("\n").length - 1;
+    el.scrollTop = Math.max(0, line * lineHeight - el.clientHeight / 2);
+    const editor = el.closest(".notes-view-editor");
+    const gutter = editor?.querySelector<HTMLElement>(".notes-view-line-numbers");
+    const highlightLayer = editor?.querySelector<HTMLElement>(".notes-view-search-layer > pre");
+    if (gutter) gutter.scrollTop = el.scrollTop;
+    if (highlightLayer) highlightLayer.style.transform = `translateY(-${el.scrollTop}px)`;
   }, [searchSeq]);
 
   async function save() {
@@ -235,9 +262,20 @@ function NoteViewer({ note, due, onClose, onSaved, setMessage }: { note: Note; d
         {note.remindAt && <span className="notes-view-flag"><Bell size={12} aria-hidden="true" />{repeatLabel(note.remindRepeat)} {formatTime(note.remindAt)}</span>}
         {note.tags.map(tag => <span key={tag} className="notes-tag">{tag}</span>)}
       </div>
-      <textarea ref={textRef} className="notes-view-text" value={body} aria-label={`正文 ${note.title}`} placeholder="正文为空，点击这里输入…" spellCheck={false} rows={2}
+      <div className="notes-view-editor">
+        <pre className="notes-view-line-numbers" aria-hidden="true">{Array.from({ length: Math.max(1, body.split("\n").length) }, (_, index) => index + 1).join("\n")}</pre>
+        <div className="notes-view-search-layer" aria-hidden="true"><pre>{highlightedBody}</pre></div>
+        <textarea ref={textRef} className="notes-view-text" value={body} aria-label={`正文 ${note.title}`} placeholder="正文为空，点击这里输入…" spellCheck={false} rows={2}
+        onScroll={event => {
+          const editor = event.currentTarget.closest(".notes-view-editor");
+          const gutter = editor?.querySelector<HTMLElement>(".notes-view-line-numbers");
+          const highlightLayer = editor?.querySelector<HTMLElement>(".notes-view-search-layer > pre");
+          if (gutter) gutter.scrollTop = event.currentTarget.scrollTop;
+          if (highlightLayer) highlightLayer.style.transform = `translateY(-${event.currentTarget.scrollTop}px)`;
+        }}
         onChange={event => { setBody(event.target.value); setDiscardHint(false); }}
         onKeyDown={event => { if (event.key === "Escape" && dirty && !discardHint) { event.stopPropagation(); setDiscardHint(true); } }} />
+      </div>
       {discardHint && <small className="notes-field-help" role="status">有未保存的修改：再按一次 Esc 或点击“关闭”放弃修改，点击“保存”保留。</small>}
       {error && <p className="notes-error" role="alert">{error}</p>}
       {(note.account || note.password) && <div className="notes-view-secrets">
@@ -313,7 +351,7 @@ function ReminderActions({ busy, complete, snooze }: { busy: boolean; complete: 
 
 interface NotesPanelProps { mobile?: boolean; openSignal?: number }
 
-export function NotesPanel({ openSignal = 0 }: NotesPanelProps) {
+export function NotesPanel({ mobile = false, openSignal = 0 }: NotesPanelProps) {
   const [notes, setNotes] = useState<Note[]>([]);
   const [groups, setGroups] = useState<string[]>([]);
   const [dueIds, setDueIds] = useState<number[]>([]);
@@ -417,7 +455,7 @@ export function NotesPanel({ openSignal = 0 }: NotesPanelProps) {
   // 有检索条件时自动解除遮挡，便于看到命中内容；清空检索后恢复遮挡。
   const masked = privacy && keyword.trim() === "";
 
-  return <section className={`notes-panel${masked ? " notes-privacy" : ""}`} aria-busy={loading}>
+  return <section className={`notes-panel${mobile ? " notes-mobile" : ""}${masked ? " notes-privacy" : ""}`} aria-busy={loading}>
     <header className="notes-header">
       <div className="notes-heading">
         <h1><NotebookPen size={19} aria-hidden="true" />备忘录</h1>
@@ -479,7 +517,7 @@ export function NotesPanel({ openSignal = 0 }: NotesPanelProps) {
           {note.account && <div className="notes-secret"><KeyRound size={12} aria-hidden="true" /><code>{note.account}</code><button type="button" aria-label={`复制账号 ${note.title}`} title="复制账号" onClick={() => void copyText(note.account, setMessage, "账号")}><Copy size={12} aria-hidden="true" /></button></div>}
           {note.password && <div className="notes-secret"><Eye size={12} aria-hidden="true" /><code aria-label="密码已隐藏">••••••••</code><button type="button" aria-label={`复制密码 ${note.title}`} title="复制密码" onClick={() => void copyText(note.password, setMessage, "密码")}><Copy size={12} aria-hidden="true" /></button></div>}
         </div>}
-        {dueIds.includes(note.id) && <ReminderActions busy={busy} complete={() => void act(() => notesClient.completeReminder(note.id), "完成提醒失败", "已完成本次提醒")} snooze={minutes => void act(() => notesClient.snoozeReminder(note.id, minutes), "稍后提醒失败", `已推迟 ${minutes} 分钟`)} />}
+        {!mobile && dueIds.includes(note.id) && <ReminderActions busy={busy} complete={() => void act(() => notesClient.completeReminder(note.id), "完成提醒失败", "已完成本次提醒")} snooze={minutes => void act(() => notesClient.snoozeReminder(note.id, minutes), "稍后提醒失败", `已推迟 ${minutes} 分钟`)} />}
         <div className="notes-card-actions">
           <button type="button" className="secondary" aria-label={`查看 ${note.title}`} onClick={() => setViewerId(note.id)}><Eye size={13} aria-hidden="true" />查看</button>
           <button type="button" className="secondary" aria-label={`编辑 ${note.title}`} disabled={busy} onClick={() => startEdit(note)}><Edit3 size={13} aria-hidden="true" />编辑</button>

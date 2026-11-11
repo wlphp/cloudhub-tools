@@ -78,8 +78,9 @@ pub fn run_browser_database() {
 }
 pub(crate) use commands::accounts::{delete_account, export_accounts, export_accounts_file, import_accounts, list_accounts, reveal_account_secret, save_account};
 pub(crate) use commands::preferences::{list_client_preferences, save_client_preference};
+pub(crate) use commands::notes::{notes_snapshot, notes_save, notes_delete, notes_restore, notes_purge, notes_group_save, notes_group_delete};
 #[cfg(desktop)]
-pub(crate) use commands::notes::{notes_open, notes_snapshot, notes_save, notes_delete, notes_restore, notes_purge, notes_group_save, notes_group_delete, notes_reminder_complete, notes_reminder_dismiss, notes_reminder_snooze};
+pub(crate) use commands::notes::{notes_open, notes_reminder_complete, notes_reminder_dismiss, notes_reminder_snooze};
 #[cfg(desktop)]
 pub(crate) use commands::lan::{lan_interfaces, lan_status, lan_start, lan_cancel, lan_ledger, lan_annotate, lan_export};
 #[cfg(desktop)]
@@ -865,6 +866,7 @@ pub fn run() {
     #[cfg(mobile)]
     {
         builder = builder.manage(commands::monitoring::MonitoringStore::default());
+        builder = builder.manage(commands::notes::NotesStore::default());
         builder = builder.manage(commands::speed_test::SpeedTestStore::default()).manage(commands::lan::LanStore::default());
         builder = builder.plugin(tauri_plugin_fs::init());
         builder = builder.plugin(tauri_plugin_cloudhub_keystore::init());
@@ -1032,6 +1034,7 @@ pub fn run() {
         speed_test_status, speed_test_start, speed_test_cancel, speed_test_history, speed_test_network_info,
         lan_interfaces, lan_status, lan_start, lan_cancel, lan_ledger, lan_annotate, lan_export,
         network_proxy_get, network_proxy_save, network_proxy_test,
+        notes_snapshot, notes_save, notes_delete, notes_restore, notes_purge, notes_group_save, notes_group_delete,
         claude_provider_list, claude_provider_save, claude_provider_delete, claude_provider_switch, claude_provider_restore_backup, claude_provider_current_settings,
         list_rds_databases, list_redis_accounts, list_certificates, list_certificate_summaries, request_certificate, cancel_certificate_request,
         list_managed_hosts, save_managed_host, list_panel_connections, reveal_panel_api_key, refresh_panel_connection, open_panel_temporary_login, save_panel_connection, delete_panel_connection,

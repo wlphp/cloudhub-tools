@@ -1,17 +1,22 @@
-//! Desktop memo store commands. Notes are plain local data without a password
+//! Memo store commands. Notes are plain local data without a password
 //! gate, matching the agreed product scope for the built-in 备忘录 app.
 use crate::core::{
-    database::open_db,
     error::PlatformResult,
-    pet_alerts::Alert,
     repositories::notes::{self as repository, Note, NoteInput, NotePatch},
 };
+use crate::core::database::open_db;
+#[cfg(desktop)]
+use crate::core::pet_alerts::Alert;
+#[cfg(desktop)]
 use crate::commands::desktop_pet;
 use serde::Serialize;
+#[cfg(desktop)]
 use std::time::Duration;
+#[cfg(desktop)]
 use tauri::{Emitter, Manager};
 use std::sync::{Arc, Mutex, MutexGuard};
 
+#[cfg(desktop)]
 const ALLOWED_WINDOWS: [&str; 3] = ["main", "desktop-pet", "desktop-pet-alert"];
 
 /// Serializes reminder processing so the background loop and the frontend
@@ -64,6 +69,7 @@ async fn work<T: Send + 'static, F: FnOnce() -> Result<T, String> + Send + 'stat
         .map_err(Into::into)
 }
 
+#[cfg(desktop)]
 fn caller(window: &tauri::WebviewWindow) -> Result<(), String> {
     if ALLOWED_WINDOWS.contains(&window.label()) {
         Ok(())
@@ -74,6 +80,7 @@ fn caller(window: &tauri::WebviewWindow) -> Result<(), String> {
 
 /// Opens the main window on the 备忘录 section from the pet or alert window.
 #[tauri::command]
+#[cfg(desktop)]
 pub(crate) async fn notes_open(
     window: tauri::WebviewWindow,
     app: tauri::AppHandle,
@@ -178,6 +185,7 @@ pub(crate) async fn notes_group_delete(name: String, target: String) -> Platform
 /// Called by the main window or the pet alert window when the user reacts to a
 /// reminder. Completing a repeating reminder schedules its next run.
 #[tauri::command]
+#[cfg(desktop)]
 pub(crate) async fn notes_reminder_complete(
     window: tauri::WebviewWindow,
     id: i64,
@@ -191,6 +199,7 @@ pub(crate) async fn notes_reminder_complete(
 /// Dismisses the alert window for `id` without touching the schedule, so the
 /// reminder visibly stays armed in the notes list.
 #[tauri::command]
+#[cfg(desktop)]
 pub(crate) async fn notes_reminder_dismiss(
     window: tauri::WebviewWindow,
     id: i64,
@@ -200,6 +209,7 @@ pub(crate) async fn notes_reminder_dismiss(
 }
 
 #[tauri::command]
+#[cfg(desktop)]
 pub(crate) async fn notes_reminder_snooze(
     window: tauri::WebviewWindow,
     id: i64,
@@ -212,8 +222,10 @@ pub(crate) async fn notes_reminder_snooze(
 
 /// Background reminder loop. It is independent of the 运维预警 switch: only
 /// the quiet setting and the pet visibility gate how notifications surface.
+#[cfg(desktop)]
 const REMINDER_POLL: Duration = Duration::from_secs(20);
 
+#[cfg(desktop)]
 fn reminder_alert(item: &repository::DueReminder) -> Alert {
     let detail = if item.summary.is_empty() {
         format!("备忘录提醒 · {}", item.title)
@@ -229,6 +241,7 @@ fn reminder_alert(item: &repository::DueReminder) -> Alert {
     )
 }
 
+#[cfg(desktop)]
 fn fire_reminders(app: &tauri::AppHandle, store: &NotesStore) -> Result<(), String> {
     let _guard = store.guard()?;
     let conn = open_db()?;
@@ -247,6 +260,7 @@ fn fire_reminders(app: &tauri::AppHandle, store: &NotesStore) -> Result<(), Stri
 
 /// Starts the reminder loop once at app startup. `NotesStore` serializes it with
 /// the frontend commands, so a reminder can only be fired one way.
+#[cfg(desktop)]
 pub fn start_reminder_loop(app: &tauri::AppHandle) {
     let handle = app.clone();
     let store = app.state::<NotesStore>().inner().clone();

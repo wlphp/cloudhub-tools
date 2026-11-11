@@ -39,7 +39,7 @@ async function openMail(page: Page, native = true) {
  await page.goto("/");
  await page.getByRole("button", { name: "软件商店", exact: true }).first().click();
  await page.getByRole("searchbox").fill("邮件管理");
- await page.locator(".store-table tbody tr").getByRole("button", { name: "打开", exact: true }).click();
+ await page.locator(".store-table tbody tr").getByRole("button", { name: "管理", exact: true }).click();
  await expect(page.locator(".mail-app")).toBeVisible();
 }
 

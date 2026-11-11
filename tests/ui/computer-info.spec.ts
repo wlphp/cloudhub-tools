@@ -41,7 +41,7 @@ test("电脑信息面板支持单独复制 Wi-Fi 密码，并可打开和关闭�
   await row.locator(".plugin-presentation-trigger").click();
   await page.locator(".plugin-presentation-dialog").getByRole("button", { name: /^弹层/ }).click();
   await page.locator(".plugin-presentation-dialog").getByRole("button", { name: "完成", exact: true }).click();
-  await row.getByRole("button", { name: "查看", exact: true }).click();
+  await row.getByRole("button", { name: "管理", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "电脑信息" });
   await expect(dialog.getByRole("tab", { name: "概览" })).toHaveAttribute("aria-selected", "true");
   await expect(dialog.getByText("Example Laptop")).toBeVisible();
@@ -81,7 +81,7 @@ test("电脑信息面板支持单独复制 Wi-Fi 密码，并可打开和关闭�
 
   await dialog.getByRole("button", { name: "关闭电脑信息" }).click();
   await expect(dialog).toHaveCount(0);
-  await row.getByRole("button", { name: "查看", exact: true }).click();
+  await row.getByRole("button", { name: "管理", exact: true }).click();
   await expect(dialog).toBeVisible();
   await expect.poll(() => page.evaluate(() => (window as any).hardwareInfoCalls)).toBe(2);
   await dialog.getByRole("tab", { name: "网络" }).click();

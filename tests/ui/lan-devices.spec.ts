@@ -33,7 +33,7 @@ async function fixture(page: Page, native = true) {
   await page.goto("/");
   await page.getByRole("button", { name:"软件商店", exact:true }).first().click();
   await page.getByLabel("应用搜索", {exact:true}).fill("局域网设备");
-  await page.locator(".store-table tbody tr").getByRole("button", {name:"打开",exact:true}).click();
+  await page.locator(".store-table tbody tr").getByRole("button", {name:"管理",exact:true}).click();
 }
 
 test("browser preview does not expose native scan controls", async ({ page }) => {

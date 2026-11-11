@@ -254,7 +254,7 @@ function syncAssetTypes(account: Account): ReadonlyArray<(typeof assetTypes)[num
 }
 const assetTypes = catalogAssetTypes;
 
-const bundledVersion = "0.1.130";
+const bundledVersion = "0.1.131";
 const isDevelopmentBuild = import.meta.env.DEV;
 
 const detachedTerminalHostId = (() => {
@@ -5098,7 +5098,7 @@ function App() {
             </div></section>
           </section>
         )}
-        {section === "plugins" && <OfficialPluginsPage key={storeApplicationId ?? "catalog"} initialPluginId={storeApplicationId} forceInitialPageMode={storeApplicationId !== undefined} applicationSettings={applicationSettings} onOpenSection={target => setSection(target)} onReturnCatalog={() => setStoreApplicationId(undefined)} onLanConnect={(ip, platform, name) => {
+        {section === "plugins" && <OfficialPluginsPage key={storeApplicationId ?? "catalog"} initialPluginId={storeApplicationId} forceInitialPageMode={storeApplicationId !== undefined} applicationSettings={applicationSettings} accounts={accounts} localAssets={localAssets} onStatus={setStatus} onConfirm={requestConfirm} onOpenSection={target => setSection(target)} onReturnCatalog={() => setStoreApplicationId(undefined)} onLanConnect={(ip, platform, name) => {
           const port = platform === "windows" ? 3389 : 22;
           const existing = managedHosts.find(host => host.host === ip && host.port === port && host.platform === platform);
           if (existing) { void openManagedHostSsh(existing); return; }

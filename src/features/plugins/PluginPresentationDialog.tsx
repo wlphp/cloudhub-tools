@@ -3,6 +3,8 @@ import { SharedDialog } from "../../shared/SharedDialog";
 import { officialPlugins } from "./registry";
 import "./plugin-presentation.css";
 import { DEFAULT_PRESENTATION, usePluginPresentation, type PluginModalSize, type PluginOpenMode } from "./pluginPresentation";
+import { applicationCatalog, applicationPreference, sortedApplications } from "./applicationCatalog";
+import type { ApplicationPreferenceState } from "./useApplicationPreferences";
 
 const MODE_OPTIONS: { value: PluginOpenMode; label: string; hint: string; icon: typeof LayoutPanelLeft }[] = [
   { value: "page", label: "页面", hint: "在主区域铺开，适合内容较多的插件", icon: LayoutPanelLeft },
@@ -15,13 +17,17 @@ const SIZE_OPTIONS: { value: PluginModalSize; label: string }[] = [
 ];
 
 /** 每个内置插件的打开方式设置：页面 / 弹层，以及弹层的大小。 */
-export function PluginPresentationDialog({ targetId, onClose }: { targetId: string; onClose: () => void }) {
+export function PluginPresentationDialog({ targetId, onClose, applicationSettings }: { targetId: string; onClose: () => void; applicationSettings: ApplicationPreferenceState }) {
   const { get, set, reset, presentation } = usePluginPresentation();
   const plugin = officialPlugins.find(item => item.id === targetId);
+  const app = applicationCatalog.find(item => item.id === targetId);
+  const preferences = app ? applicationPreference(app, applicationSettings.preferences) : null;
+  const applicationsByOrder = sortedApplications(applicationSettings.preferences);
+  const currentPosition = applicationsByOrder.findIndex(item => item.id === targetId) + 1;
   const current = get(targetId);
   const isDefault = !(targetId in presentation);
 
-  return <SharedDialog title="打开方式" subtitle={plugin?.name ?? "插件"} icon={<SlidersHorizontal size={20} aria-hidden="true" />} className="plugin-presentation-dialog" bodyClassName="plugin-presentation-body" size="small" closeLabel="关闭打开方式设置" showResize={false} onClose={onClose}
+  return <SharedDialog title="应用设置" subtitle={plugin?.name ?? "插件"} icon={<SlidersHorizontal size={20} aria-hidden="true" />} className="plugin-presentation-dialog" bodyClassName="plugin-presentation-body" size="small" closeLabel="关闭应用设置" showResize={false} onClose={onClose}
     footer={<><button type="button" className="secondary plugin-presentation-reset" disabled={isDefault} onClick={() => reset(targetId)}><RotateCcw size={14} aria-hidden="true" />恢复默认</button><button type="button" className="primary" onClick={onClose}>完成</button></>}>
           <fieldset className="plugin-presentation-group">
             <legend>打开方式</legend>
@@ -43,5 +49,24 @@ export function PluginPresentationDialog({ targetId, onClose }: { targetId: stri
             </div>
             {current.mode !== "modal" && <small className="plugin-presentation-hint">切换为弹层后可设置大小。{current.size === DEFAULT_PRESENTATION.size ? "" : `当前已记住「${SIZE_OPTIONS.find(item => item.value === current.size)?.label}」，切回弹层时生效。`}</small>}
           </fieldset>
+          {app && <fieldset className="plugin-presentation-group plugin-order-preference">
+            <legend>列表序号</legend>
+            <label htmlFor="application-order-position">显示顺序</label>
+            <select id="application-order-position" aria-label="应用列表序号" value={currentPosition} disabled={!applicationSettings.ready || applicationSettings.saving} onChange={event => void applicationSettings.updateOrder(targetId, Number(event.target.value))}>
+              {applicationsByOrder.map((item, index) => <option key={item.id} value={index + 1}>{index + 1}{item.id === targetId ? "（当前）" : ` · ${item.name}`}</option>)}
+            </select>
+          </fieldset>}
+          {preferences && <fieldset className="plugin-presentation-group plugin-display-preferences">
+            <legend>显示位置</legend>
+            <div className="plugin-display-preference">
+              <span><strong>左侧菜单显示</strong><small>在应用侧边栏显示快捷入口。</small></span>
+              <label className="store-switch"><input type="checkbox" aria-label="在左侧菜单显示应用" checked={preferences.sidebar} disabled={!applicationSettings.ready || applicationSettings.saving || targetId === "cloudhub.fingerprint-browser"} onChange={event => void applicationSettings.update(targetId, { sidebar: event.target.checked })} /><span aria-hidden="true" /></label>
+            </div>
+            <div className="plugin-display-preference">
+              <span><strong>首页显示</strong><small>在首页的“我的软件”区域显示。</small></span>
+              <label className="store-switch"><input type="checkbox" aria-label="在首页显示应用" checked={preferences.home} disabled={!applicationSettings.ready || applicationSettings.saving} onChange={event => void applicationSettings.update(targetId, { home: event.target.checked })} /><span aria-hidden="true" /></label>
+            </div>
+            {applicationSettings.error && <small className="plugin-presentation-hint" role="alert">{applicationSettings.error}</small>}
+          </fieldset>}
     </SharedDialog>;
 }

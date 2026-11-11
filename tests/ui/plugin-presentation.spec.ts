@@ -35,11 +35,11 @@ test("every plugin defaults to opening as a page", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await openStore(page);
   const triggers = page.locator(".plugin-presentation-trigger");
-  await expect(triggers).toHaveCount(9);
-  for (let index = 0; index < 9; index += 1) {
+  await expect(triggers).toHaveCount(19);
+  for (let index = 0; index < 19; index += 1) {
     await expect(triggers.nth(index)).toHaveText("设置");
     await expect(triggers.nth(index)).toHaveAttribute("title", "设置，当前打开方式：页面");
-    await expect(triggers.nth(index).locator("xpath=ancestor::div[contains(@class, 'store-row-actions')]").getByRole("button").first()).toHaveAccessibleName("设置");
+    await expect(triggers.nth(index)).toHaveAccessibleName("设置");
   }
 });
 
@@ -90,11 +90,11 @@ test("page mode uses the main area and returns focus to the store", async ({ pag
   await openStore(page);
   const cases = [
     { name: "微信多开", action: "管理", id: "cloudhub.wechat-multi", content: ".wechat-settings-dialog" },
-    { name: "电脑信息", action: "查看", id: "cloudhub.hardware-info", content: ".hardware-info-dialog" },
-    { name: "WSL 管理", action: "管理", id: "cloudhub.wsl-dashboard", content: ".wechat-settings-dialog" },
+    { name: "电脑信息", action: "管理", id: "cloudhub.hardware-info", content: ".hardware-info-dialog" },
+    { name: "WSL 管理", action: "管理", id: "cloudhub.wsl-dashboard", content: ".wsl-tabs" },
     { name: "指纹浏览器", action: "管理", id: "cloudhub.fingerprint-browser", content: ".browser-dialog" },
     { name: "Claude 管理", action: "管理", id: "cloudhub.claude-providers", content: ".claude-providers" },
-    { name: "备忘录", action: "打开", id: "cloudhub.notes", content: ".notes-panel" },
+    { name: "备忘录", action: "管理", id: "cloudhub.notes", content: ".notes-panel" },
   ];
   for (const item of cases) {
     const entry = page.locator(`[data-plugin-entry="${item.id}"]`);
@@ -125,7 +125,7 @@ test("page mode uses the main area and returns focus to the store", async ({ pag
 test("page mode keeps hardware Wi-Fi dialog open until its own Escape and restores focus", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await openStore(page);
-  const entry = page.locator(".software-store-page tbody tr", { hasText: "电脑信息" }).getByRole("button", { name: "查看", exact: true });
+  const entry = page.locator(".software-store-page tbody tr", { hasText: "电脑信息" }).getByRole("button", { name: "管理", exact: true });
   await entry.click();
   const host = page.getByRole("region", { name: "电脑信息 页面" });
   await host.getByRole("tab", { name: "网络" }).click();
@@ -200,7 +200,7 @@ test("modal mode still renders a backdrop", async ({ page }) => {
   await dialog.getByRole("button", { name: /^弹层/ }).click();
   await dialog.getByRole("button", { name: "完成" }).click();
 
-  await row.getByRole("button", { name: "查看" }).click();
+  await row.getByRole("button", { name: "管理", exact: true }).click();
   await expect(page.locator("body > .modal-backdrop .hardware-info-dialog")).toBeVisible();
 });
 
@@ -220,11 +220,11 @@ for (const width of [375, 768, 1024, 1440]) {
 
 const plugins = [
   { name: "微信多开", action: "管理", title: "微信多开设置", content: ".wechat-settings-dialog" },
-  { name: "电脑信息", action: "查看", title: "电脑信息", content: ".hardware-info-dialog" },
+  { name: "电脑信息", action: "管理", title: "电脑信息", content: ".hardware-info-dialog" },
   { name: "WSL 管理", action: "管理", title: "WSL 管理", content: ".wsl-tabs" },
   { name: "指纹浏览器", action: "管理", title: "指纹浏览器", content: ".browser-dialog" },
   { name: "Claude 管理", action: "管理", title: "Claude 管理", content: ".claude-providers" },
-  { name: "备忘录", action: "打开", title: "备忘录", content: ".notes-panel" },
+  { name: "备忘录", action: "管理", title: "备忘录", content: ".notes-panel" },
 ];
 
 for (const plugin of plugins) {
@@ -233,7 +233,7 @@ for (const plugin of plugins) {
     await openStore(page);
     const row = page.locator(".software-store-page tbody tr", { hasText: plugin.name });
     await row.locator(".plugin-presentation-trigger").click();
-    const settings = page.getByRole("dialog", { name: "打开方式", exact: true });
+    const settings = page.getByRole("dialog", { name: "应用设置", exact: true });
     await settings.getByRole("button", { name: /^弹层/ }).click();
     await settings.getByRole("button", { name: "小弹窗" }).click();
     await settings.getByRole("button", { name: "完成" }).click();
@@ -300,7 +300,7 @@ for (const name of ["备忘录", "Claude 管理"]) {
     const settings = page.locator(".plugin-presentation-dialog");
     await settings.getByRole("button", { name: /^弹层/ }).click();
     await settings.getByRole("button", { name: "完成" }).click();
-    await row.getByRole("button", { name: name === "备忘录" ? "打开" : "管理", exact: true }).click();
+    await row.getByRole("button", { name: "管理", exact: true }).click();
     const parent = page.getByRole("dialog", { name, exact: true });
     const trigger = parent.getByRole("button", { name: name === "备忘录" ? "新建备忘录" : "添加供应商", exact: true }).first();
     await trigger.click();

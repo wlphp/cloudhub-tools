@@ -166,7 +166,14 @@
     "speed_test_network_info",
     "network_proxy_get",
     "network_proxy_save",
-    "network_proxy_test"
+    "network_proxy_test",
+    "notes_delete",
+    "notes_group_delete",
+    "notes_group_save",
+    "notes_purge",
+    "notes_restore",
+    "notes_save",
+    "notes_snapshot"
   ],
   "domains": [
     {

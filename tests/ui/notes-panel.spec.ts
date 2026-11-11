@@ -112,6 +112,23 @@ test("note editor reuses the shared dialog base instead of a bespoke overlay", a
   await expect(page.getByRole("button", { name: "新建备忘录", exact: true }).first()).toBeFocused();
 });
 
+test("maximized note viewer keeps the text area expanded beside line numbers", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openNotes(page);
+  await page.getByRole("button", { name: "查看 生产环境 SSH 账号", exact: true }).click();
+
+  const dialog = page.locator("body > .modal-backdrop .notes-dialog");
+  await dialog.getByRole("button", { name: "最大化弹层", exact: true }).click();
+  const editor = dialog.locator(".notes-view-editor");
+  const textArea = editor.locator(".notes-view-text");
+  await expect.poll(async () => textArea.evaluate(element => element.getBoundingClientRect().height)).toBeGreaterThan(300);
+  const heights = await Promise.all([
+    editor.evaluate(element => element.getBoundingClientRect().height),
+    textArea.evaluate(element => element.getBoundingClientRect().height),
+  ]);
+  expect(heights[1]).toBeGreaterThan(heights[0] - 8);
+});
+
 test("delete confirmation uses the shared ConfirmDialog and blocks backdrop dismissal", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 720 });
   await openNotes(page);
@@ -181,7 +198,7 @@ test("recycle bin searches and restores only selected current results", async ({
   expect(await page.evaluate(() => [...(window as any).__notesStore.trash.keys()])).toEqual([11]);
 });
 
-test("note viewer shows the full body, revealed password and jumps into the editor", async ({ page }) => {
+test("note viewer highlights search matches, reveals passwords, and keeps the body editable", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 720 });
   await openNotes(page);
   await page.getByRole("button", { name: "查看 生产环境 SSH 账号", exact: true }).click();
@@ -189,15 +206,26 @@ test("note viewer shows the full body, revealed password and jumps into the edit
   const viewer = page.locator("body > .modal-backdrop .notes-dialog");
   await expect(viewer).toBeVisible();
   await expect(viewer).toContainText("跳板机 10.0.0.9");
+  const search = viewer.getByRole("textbox", { name: "检索正文" });
+  await search.fill("10.0.0.9");
+  const match = viewer.locator(".notes-view-search-layer mark");
+  await expect(match).toHaveCount(1);
+  await expect(match).toHaveClass(/is-active/);
+  expect(await match.evaluate(element => getComputedStyle(element).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
+  expect(await viewer.locator(".notes-view-text").evaluate(element => {
+    const textarea = element as HTMLTextAreaElement;
+    return textarea.selectionStart === textarea.selectionEnd;
+  })).toBe(true);
   // The password stays masked until explicitly revealed.
   await expect(viewer.locator("code.is-masked")).toHaveText("••••••••");
   await viewer.getByRole("button", { name: /^显示密码/ }).click();
   await expect(viewer.locator("code.is-masked")).toHaveCount(0);
   await expect(viewer).toContainText("fixture-secret");
 
-  await viewer.getByRole("button", { name: "编辑", exact: true }).click();
-  const editor = page.locator("body > .modal-backdrop .notes-dialog");
-  await expect(editor.getByLabel("标题")).toHaveValue("生产环境 SSH 账号");
+  const bodyEditor = viewer.locator(".notes-view-text");
+  await expect(bodyEditor).toHaveValue(NOTES[0].body);
+  await bodyEditor.fill("本机编辑中的正文");
+  await expect(bodyEditor).toHaveValue("本机编辑中的正文");
 });
 
 for (const width of [375, 768, 1024, 1440]) {

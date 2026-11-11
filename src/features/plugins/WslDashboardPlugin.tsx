@@ -190,7 +190,7 @@ export function WslDashboardPlugin({ open, enabled }: Props) {
     finally { mirrorRequestRef.current = false; setMirrorBusy(false); }
   }
   async function loadSettings() {
-    try { setDefaultInstallLocation((await pluginsClient.wslSettings()).defaultInstallLocation); }
+    try { setDefaultInstallLocation((await pluginsClient.wslSettings()).defaultInstallLocation ?? ""); }
     catch (reason) { setError(reason instanceof Error ? reason.message : "无法读取 WSL 安装设置"); }
   }
   async function loadRuntimeInfo() {
@@ -487,7 +487,7 @@ export function WslDashboardPlugin({ open, enabled }: Props) {
                     <small>代理仅用于本次 Windows WSL 更新下载，留空则沿用当前网络设置。</small>
                   </div>
                 </details>
-                {runtimeInfo?.components.length ? <ul className="wsl-runtime-components">{runtimeInfo.components.map(component => <li key={`${component.name}-${component.version}`}><span>{component.name}</span><code>{component.version}</code></li>)}</ul> : null}
+                {runtimeInfo?.components?.length ? <ul className="wsl-runtime-components">{runtimeInfo.components.map(component => <li key={`${component.name}-${component.version}`}><span>{component.name}</span><code>{component.version}</code></li>)}</ul> : null}
                 {(runtimeInfoError || runtimeInfo?.message) && <p className="wsl-runtime-note" role="status">{runtimeInfoError || runtimeInfo?.message}</p>}
                 {wslUpdating && <div className="wsl-update-progress" role="status" aria-live="polite"><strong>正在升级 Windows Subsystem for Linux</strong><progress aria-label="正在升级 WSL" /><span>由 Windows 检查并安装更新，运行中的发行版可能暂时不可用。</span></div>}
                 </div>

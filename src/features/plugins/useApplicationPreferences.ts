@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { platformErrorMessage, runningInTauri } from "../../platform/api";
 import { preferencesClient } from "../../platform/clients/preferences";
-import { APPLICATION_PREFERENCES_KEY, applicationCatalog, applicationPreference, parseApplicationPreferences, type ApplicationPreference, type ApplicationPreferences } from "./applicationCatalog";
+import { APPLICATION_PREFERENCES_KEY, applicationCatalog, applicationPreference, parseApplicationPreferences, sortedApplications, type ApplicationPreference, type ApplicationPreferences } from "./applicationCatalog";
 
 function cachedPreferences() {
   try { return parseApplicationPreferences(localStorage.getItem(APPLICATION_PREFERENCES_KEY)); } catch { return {}; }
@@ -27,12 +27,7 @@ export function useApplicationPreferences() {
     return () => { cancelled = true; };
   }, [revision]);
 
-  async function update(id: string, patch: Partial<ApplicationPreference>) {
-    if (!ready || pending.current) return;
-    const app = applicationCatalog.find(item => item.id === id);
-    if (!app) return;
-    if (patch.order !== undefined && (!Number.isInteger(patch.order) || patch.order < 0 || patch.order > 9999)) return;
-    const next = { ...preferences, [id]: { ...applicationPreference(app, preferences), ...patch } };
+  async function persist(next: ApplicationPreferences) {
     const raw = JSON.stringify(next);
     pending.current = true; setSaving(true); setError("");
     try {
@@ -46,6 +41,24 @@ export function useApplicationPreferences() {
     }
     finally { pending.current = false; setSaving(false); }
   }
-  return { preferences, ready, saving, error, update, retry: () => setRevision(value => value + 1), dismissError: () => setError("") };
+  async function update(id: string, patch: Partial<ApplicationPreference>) {
+    if (!ready || pending.current) return;
+    const app = applicationCatalog.find(item => item.id === id);
+    if (!app) return;
+    if (patch.order !== undefined && (!Number.isInteger(patch.order) || patch.order < 1 || patch.order > applicationCatalog.length)) return;
+    await persist({ ...preferences, [id]: { ...applicationPreference(app, preferences), ...patch } });
+  }
+  async function updateOrder(id: string, position: number) {
+    if (!ready || pending.current || !Number.isInteger(position) || position < 1 || position > applicationCatalog.length) return;
+    const ordered = sortedApplications(preferences);
+    const currentIndex = ordered.findIndex(app => app.id === id);
+    if (currentIndex < 0 || currentIndex + 1 === position) return;
+    const [moved] = ordered.splice(currentIndex, 1);
+    ordered.splice(position - 1, 0, moved);
+    const next = { ...preferences };
+    ordered.forEach((app, index) => { next[app.id] = { ...applicationPreference(app, preferences), order: index + 1 }; });
+    await persist(next);
+  }
+  return { preferences, ready, saving, error, update, updateOrder, retry: () => setRevision(value => value + 1), dismissError: () => setError("") };
 }
 export type ApplicationPreferenceState = ReturnType<typeof useApplicationPreferences>;

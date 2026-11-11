@@ -4185,7 +4185,7 @@ body.theme-light .mobile-shell .mobile-tab-bar button.active { border: 0; backgr
 .software-store-page .store-table td[data-label="软件名称"], .software-store-page .store-table td[data-label="说明"], .software-store-page .store-table td[data-label="操作"] { grid-column: 1 / -1; }
 .software-store-page .store-table td[data-label="软件名称"] { padding-top: 12px; }
 .software-store-page .store-table td[data-label="说明"] { align-items: flex-start; }
-.software-store-page .store-table td[data-label="启用"]:has(.store-switch), .software-store-page .store-table td[data-label="首页显示"] { justify-content: space-between; }
+.software-store-page .store-table td[data-label="首页显示"] { justify-content: space-between; }
 .software-store-page .store-table td[data-label="开发商"] { display: block; }
 .software-store-page .store-table td[data-label="开发商"]::before { float: left; margin: 0 8px 3px 0; }
 .software-store-page .store-table td[data-label="开发商"] small { display: inline; }
@@ -4256,7 +4256,6 @@ body.theme-light .mobile-home-apps,body.theme-light .mobile-home-alerts { backgr
 .mobile-shell .software-store-page .store-table td[data-label="价格"] { grid-column: 1; grid-row: 4; }
 .mobile-shell .software-store-page .store-table td[data-label="平台"] { grid-column: 2; grid-row: 4; }
 .mobile-shell .software-store-page .store-table td[data-label="状态"] { grid-column: 1; grid-row: 5; }
-.mobile-shell .software-store-page .store-table td[data-label="启用"] { grid-column: 2; grid-row: 5; justify-content: space-between; }
 .mobile-shell .software-store-page .store-table td[data-label="首页显示"] { grid-column: 1 / -1; grid-row: 6; justify-content: space-between; min-height: 42px; margin-top: 4px; padding: 4px 0; border-top: 1px solid var(--mobile-border); }
 .mobile-shell .software-store-page .store-table td[data-label="操作"] { grid-column: 1 / -1; grid-row: 7; padding-top: 8px; border-top: 1px solid var(--mobile-border); }
 .mobile-shell .software-store-page .store-app-name { display: flex; flex-direction: row; align-items: center; min-width: 0; gap: 11px; }
@@ -4288,7 +4287,6 @@ body.theme-light .mobile-home-apps,body.theme-light .mobile-home-alerts { backgr
 .mobile-shell .software-store-page .store-table tbody tr:not(.is-expanded) td[data-label="说明"],
 .mobile-shell .software-store-page .store-table tbody tr:not(.is-expanded) td[data-label="价格"],
 .mobile-shell .software-store-page .store-table tbody tr:not(.is-expanded) td[data-label="平台"],
-.mobile-shell .software-store-page .store-table tbody tr:not(.is-expanded) td[data-label="启用"],
 .mobile-shell .software-store-page .store-table tbody tr:not(.is-expanded) td[data-label="左侧菜单显示"],
 .mobile-shell .software-store-page .store-table tbody tr:not(.is-expanded) td[data-label="首页显示"] { display: none !important; }
 .mobile-shell .software-store-page .store-table tbody tr:not(.is-expanded) td[data-label="软件名称"] { grid-row: 1; }
@@ -4304,10 +4302,9 @@ body.theme-light .mobile-home-apps,body.theme-light .mobile-home-alerts { backgr
 .mobile-shell .software-store-page .store-table tbody tr.is-expanded td[data-label="平台"] { grid-column: 2; grid-row: 3; justify-self: stretch; justify-content: flex-start; align-items: flex-start; }
 .mobile-shell .software-store-page .store-table tbody tr.is-expanded td[data-label="说明"] { grid-column: 1 / -1; grid-row: 4; }
 .mobile-shell .software-store-page .store-table tbody tr.is-expanded td[data-label="价格"] { grid-column: 1; grid-row: 5; }
-.mobile-shell .software-store-page .store-table tbody tr.is-expanded td[data-label="启用"] { grid-column: 2; grid-row: 5; }
-.mobile-shell .software-store-page .store-table tbody tr.is-expanded td[data-label="左侧菜单显示"] { grid-column: 1 / -1; grid-row: 6; }
-.mobile-shell .software-store-page .store-table tbody tr.is-expanded td[data-label="首页显示"] { grid-column: 1 / -1; grid-row: 7; }
-.mobile-shell .software-store-page .store-table tbody tr.is-expanded td[data-label="操作"] { grid-column: 1 / -1; grid-row: 8; }
+.mobile-shell .software-store-page .store-table tbody tr.is-expanded td[data-label="左侧菜单显示"] { grid-column: 2; grid-row: 5; }
+.mobile-shell .software-store-page .store-table tbody tr.is-expanded td[data-label="首页显示"] { grid-column: 1 / -1; grid-row: 6; }
+.mobile-shell .software-store-page .store-table tbody tr.is-expanded td[data-label="操作"] { grid-column: 1 / -1; grid-row: 7; }
 .mobile-shell .software-store-page .store-table tbody tr.is-expanded .store-row-actions { flex-wrap: wrap; }
 .mobile-shell .software-store-page .store-table tbody tr.is-expanded .store-row-actions > button { flex: 1 1 92px; }
 .mobile-shell .software-store-page .store-table tbody tr.is-expanded .store-row-actions .plugin-presentation-trigger { flex: 0 0 44px; }
@@ -4319,6 +4316,18 @@ body.theme-light .mobile-home-apps,body.theme-light .mobile-home-alerts { backgr
 .mobile-shell .software-store-page .store-row-actions > button.table-link:last-child:disabled { border-color: var(--mobile-border); background: var(--mobile-raised); }
 .mobile-shell .software-store-page .store-table tbody tr.is-expanded td[data-label="说明"] { display: block; }
 .mobile-shell .software-store-page .store-table tbody tr.is-expanded td[data-label="说明"] small { margin-top: 6px; line-height: 1.5; }
+
+/* Compact store cards no longer expose state or display toggles in the list. */
+.mobile-shell .software-store-page .store-table td[data-label="状态"],
+.mobile-shell .software-store-page .store-table td[data-label="左侧菜单显示"],
+.mobile-shell .software-store-page .store-table td[data-label="首页显示"] { display: none !important; }
+.mobile-shell .software-store-page .store-table tbody tr:not(.is-expanded) td[data-label="操作"] { grid-column: 1 / -1; grid-row: 2; }
+.mobile-shell .software-store-page .store-table tbody tr.is-expanded td[data-label="开发商"] { grid-column: 1; grid-row: 2; }
+.mobile-shell .software-store-page .store-table tbody tr.is-expanded td[data-label="排序号"] { grid-column: 2; grid-row: 2; }
+.mobile-shell .software-store-page .store-table tbody tr.is-expanded td[data-label="平台"] { grid-column: 1 / -1; grid-row: 3; }
+.mobile-shell .software-store-page .store-table tbody tr.is-expanded td[data-label="说明"] { grid-column: 1 / -1; grid-row: 4; }
+.mobile-shell .software-store-page .store-table tbody tr.is-expanded td[data-label="价格"] { grid-column: 1; grid-row: 5; }
+.mobile-shell .software-store-page .store-table tbody tr.is-expanded td[data-label="操作"] { grid-column: 1 / -1; grid-row: 6; }
 
 
 /* Home top bar follows the supplied mobile reference: profile, search, scan, alerts. */
@@ -4623,3 +4632,99 @@ body:has(.mobile-shell) .cloud-sync-panel { padding: 14px; border-radius: 15px; 
 body:has(.mobile-shell) .cloud-sync-panel > .cloud-sync-channel-target { margin: 10px 0 0; border-radius: 10px; }
 body:has(.mobile-shell) .cloud-sync-actions { gap: 8px; }
 body:has(.mobile-shell) .cloud-sync-actions button { min-height: 46px; border-radius: 10px; font-weight: 600; }
+
+@container store-catalog (max-width: 760px) {
+  .mobile-shell .software-store-page .store-table tbody tr:not(.is-expanded) { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto; gap: 8px; }
+  .mobile-shell .software-store-page .store-table tbody tr:not(.is-expanded) td[data-label="软件名称"] { grid-column: 1; grid-row: 1; }
+  .mobile-shell .software-store-page .store-table tbody tr:not(.is-expanded) td[data-label="操作"] { grid-column: 1; grid-row: 2; justify-self: stretch; }
+  .mobile-shell .software-store-page .store-table tbody tr:not(.is-expanded) .store-row-actions { justify-content: flex-start; }
+  .mobile-shell .software-store-page .store-table tbody tr:not(.is-expanded) .store-row-actions > button { flex: 1 1 0; }
+}
+
+/* Align the phone store with the desktop compact-row behavior: keep the serial,
+   app name and actions in the list; put the full record behind the View dialog. */
+.mobile-shell .software-store-page .store-table tbody tr {
+  grid-template-columns: 28px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  align-items: center;
+  gap: 5px 8px;
+  padding: 11px 12px;
+}
+.mobile-shell .software-store-page .store-table tbody tr td.store-serial-number {
+  display: flex !important;
+  grid-column: 1;
+  grid-row: 1;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  color: var(--mobile-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.mobile-shell .software-store-page .store-table tbody tr td.store-serial-number::before { display: none; }
+.mobile-shell .software-store-page .store-table tbody tr td[data-label="软件名称"] {
+  display: flex !important;
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+}
+.mobile-shell .software-store-page .store-table tbody tr td[data-label="软件名称"]::before,
+.mobile-shell .software-store-page .store-table tbody tr td[data-label="操作"]::before { display: none; }
+.mobile-shell .software-store-page .store-table tbody tr td[data-label="开发商"],
+.mobile-shell .software-store-page .store-table tbody tr td[data-label="说明"],
+.mobile-shell .software-store-page .store-table tbody tr td[data-label="价格"],
+.mobile-shell .software-store-page .store-table tbody tr td[data-label="平台"],
+.mobile-shell .software-store-page .store-table tbody tr td[data-label="状态"],
+.mobile-shell .software-store-page .store-table tbody tr td[data-label="启用"],
+.mobile-shell .software-store-page .store-table tbody tr td[data-label="左侧菜单显示"],
+.mobile-shell .software-store-page .store-table tbody tr td[data-label="首页显示"] { display: none !important; }
+.mobile-shell .software-store-page .store-table tbody tr td[data-label="操作"] {
+  display: flex !important;
+  grid-column: 1 / -1;
+  grid-row: 2;
+  min-width: 0;
+  padding: 4px 0 0;
+  border: 0;
+}
+.mobile-shell .software-store-page .store-row-actions { display: flex; flex-wrap: nowrap; gap: 7px; width: 100%; }
+.mobile-shell .software-store-page .store-row-actions > button,
+.mobile-shell .software-store-page .store-row-actions > .plugin-presentation-trigger {
+  display: inline-flex;
+  flex: 1 1 0 !important;
+  min-width: 0 !important;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  padding-inline: 5px;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.mobile-shell .software-store-page .store-row-actions > .plugin-presentation-trigger { border-color: var(--mobile-border) !important; background: var(--mobile-raised) !important; color: var(--mobile-text) !important; }
+.mobile-shell .software-store-page .store-row-actions > .store-view-details { display: inline-flex !important; }
+.mobile-shell .software-store-page .store-row-actions > button[data-plugin-entry] { flex: 1 1 0 !important; min-width: 0 !important; }
+.mobile-shell .software-store-page .store-table tbody tr td.store-serial-number {
+  box-sizing: border-box;
+  width: 28px !important;
+  min-width: 28px !important;
+  max-width: 28px;
+  align-self: start;
+  margin-top: 9px;
+  color: var(--mobile-muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+.mobile-shell .software-store-page .store-row-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.mobile-shell .software-store-page .store-row-actions > button { min-height: 44px; border-radius: 9px; }
+.mobile-shell .software-store-page .store-row-actions > button.table-link { box-sizing: border-box; width: 100%; min-width: 0 !important; }
+.mobile-shell .software-store-page .store-row-actions > .plugin-presentation-trigger { display: none !important; }
+.mobile-shell .software-store-page .store-application-details-dialog > .modal-actions { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+@media (max-width: 380px) {
+  .mobile-shell .software-store-page .store-table tbody tr { grid-template-columns: 24px minmax(0, 1fr); gap: 5px 6px; padding: 10px; }
+  .mobile-shell .software-store-page .store-table tbody tr td.store-serial-number { width: 24px !important; min-width: 24px !important; max-width: 24px; }
+  .mobile-shell .software-store-page .store-app-name { gap: 8px; }
+  .mobile-shell .software-store-page .store-app-name > svg { flex-basis: 36px; width: 36px; height: 36px; padding: 9px; }
+  .mobile-shell .software-store-page .store-row-actions { gap: 5px; }
+  .mobile-shell .software-store-page .store-row-actions > button { padding-inline: 3px; font-size: 11px; }
+}

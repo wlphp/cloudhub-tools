@@ -33,7 +33,7 @@ async function openTool(page: Page, native = true) {
   await page.goto("/");
   await page.getByRole("button", { name: "软件商店", exact: true }).first().click();
   await page.getByRole("searchbox").fill("网络测速");
-  await page.locator(".store-table tbody tr").getByRole("button", { name: "打开", exact: true }).click();
+  await page.locator(".store-table tbody tr").getByRole("button", { name: "管理", exact: true }).click();
   await expect(page.locator(".network-speed")).toBeVisible();
 }
 
@@ -48,7 +48,7 @@ test("start, prevent repeat, cancel, history, and revisit the shared page", asyn
   await expect(page.locator(".speed-metrics")).toContainText("80.0");
   await page.getByRole("button", { name: "返回软件商店" }).click();
   await page.getByRole("searchbox").fill("网络测速");
-  await page.locator(".store-table tbody tr").getByRole("button", { name: "打开", exact: true }).click();
+  await page.locator(".store-table tbody tr").getByRole("button", { name: "管理", exact: true }).click();
   await expect(start).toBeDisabled();
   await page.getByRole("button", { name: "停止", exact: true }).click();
   await expect(start).toBeEnabled();
@@ -137,6 +137,6 @@ test("dark small dialog uses shared shell, ignores backdrop, and closes with Esc
   }
   await page.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);
-  await page.locator(".store-table tbody tr").getByRole("button", { name: "打开", exact: true }).click();
+  await page.locator(".store-table tbody tr").getByRole("button", { name: "管理", exact: true }).click();
   await expect(page.getByRole("button", { name: "开始测速" })).toBeDisabled();
 });

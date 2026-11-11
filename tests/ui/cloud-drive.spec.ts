@@ -57,7 +57,7 @@ async function openTool(page: Page, native = true) {
   await page.goto("/");
   await page.getByRole("button", { name: "软件商店", exact: true }).first().click();
   await page.getByRole("searchbox").fill("云盘挂载");
-  await page.locator(".store-table tbody tr").getByRole("button", { name: "打开", exact: true }).click();
+  await page.locator(".store-table tbody tr").getByRole("button", { name: "管理", exact: true }).click();
 }
 async function createConnection(page: Page) {
   await page.getByRole("button", { name: "新增连接" }).click();

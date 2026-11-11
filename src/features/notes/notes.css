@@ -128,6 +128,8 @@
   color: var(--jb-subtle, var(--jb-subtle));
   text-align: center;
 }
+.notes-mobile .notes-empty { padding: 28px 14px; }
+.notes-mobile { height: auto; min-height: 100%; overflow: visible; padding: 8px 0 20px; }
 .notes-empty svg { color: var(--jb-border-strong, var(--jb-border-strong)); }
 .notes-empty strong { color: var(--jb-text, var(--jb-text)); font-size: 14px; font-weight: 600; }
 .notes-empty p { margin: 0; font-size: 12px; }
@@ -228,14 +230,27 @@
   overflow-y: auto;
   resize: none;
 }
-.notes-view-text:focus { border-color: var(--jb-accent, var(--jb-accent)); outline: 0; box-shadow: 0 0 0 2px rgba(234, 88, 12, .15); }
+.notes-view-editor { position: relative; display: flex; min-width: 0; min-height: 140px; max-height: 62vh; overflow: hidden; border: 1px solid var(--jb-border, var(--jb-border)); border-radius: 4px; background: var(--jb-input, var(--jb-input)); }
+.notes-view-line-numbers { flex: 0 0 42px; box-sizing: border-box; max-height: 62vh; margin: 0; padding: 8px 8px 8px 4px; overflow: hidden; border-right: 1px solid var(--jb-border, var(--jb-border)); color: var(--jb-muted, var(--jb-muted)); background: var(--jb-surface-2, var(--jb-surface-2)); font: inherit; font-size: 12.5px; line-height: 1.65; text-align: right; user-select: none; }
+.notes-view-search-layer { position: absolute; z-index: 0; inset: 0 0 0 42px; overflow: hidden; pointer-events: none; }
+.notes-view-search-layer > pre { min-height: 100%; box-sizing: border-box; margin: 0; padding: 8px 10px; color: transparent; font: inherit; font-size: 12.5px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
+.notes-view-search-layer mark { border-radius: 2px; background: color-mix(in srgb, var(--jb-accent, #ea580c) 28%, transparent); color: transparent; }
+.notes-view-search-layer mark.is-active { background: color-mix(in srgb, var(--jb-accent, #ea580c) 54%, transparent); }
+.notes-view-editor .notes-view-text { flex: 1 1 auto; min-width: 0; min-height: 138px; max-height: 62vh; border: 0; border-radius: 0; background: transparent; }
+.notes-view-editor .notes-view-text { position: relative; z-index: 1; }
+.notes-view-editor:focus-within { border-color: var(--jb-accent, var(--jb-accent)); box-shadow: 0 0 0 2px rgba(234, 88, 12, .15); }
+.notes-view-text:focus { outline: 0; box-shadow: none; }
 /* 最大化弹层时正文填满剩余空间 */
 .dialog-size-expanded .notes-view-body { display: flex; flex-direction: column; height: 100%; min-height: 0; }
-.dialog-size-expanded .notes-view-text { flex: 1 1 auto; max-height: none; }
+.dialog-size-expanded .notes-view-editor { flex: 1 1 0; min-height: 0; height: auto !important; max-height: none; }
+.dialog-size-expanded .notes-view-editor .notes-view-text { height: 100% !important; min-height: 0; flex: 1 1 0; overflow-y: auto; }
+.dialog-size-expanded .notes-view-line-numbers, .dialog-size-expanded .notes-view-editor .notes-view-text { max-height: none; }
 /* 拖拽调过尺寸的查看弹层同样让正文填满，避免拖大后正文下方留白 */
 .dialog-user-size.notes-dialog > .modal-body { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; overflow: auto; }
 .dialog-user-size .notes-view-body { display: flex; flex-direction: column; flex: 1 1 auto; height: auto; min-height: 0; }
-.dialog-user-size .notes-view-text { flex: 1 1 auto; max-height: none; }
+.dialog-user-size .notes-view-editor { flex: 1 1 0; min-height: 0; height: auto !important; max-height: none; }
+.dialog-user-size .notes-view-editor .notes-view-text { height: 100% !important; min-height: 0; flex: 1 1 0; overflow-y: auto; }
+.dialog-user-size .notes-view-line-numbers, .dialog-user-size .notes-view-editor .notes-view-text { max-height: none; }
 
 /* 查看弹层内容区取消顶部内边距：Chromium 中 sticky 元素无法进入滚动容器的 padding 区，
    负 margin 会被钳回内容边缘，因此只能去掉顶部 padding 让吸顶检索框真正贴住头部下边缘。

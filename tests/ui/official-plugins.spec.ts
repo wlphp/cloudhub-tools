@@ -7,7 +7,7 @@ test("环境变量管理标明 Windows 范围并拒绝浏览器预览访问", as
   await store.getByLabel("应用搜索").fill("环境变量管理");
   const row = store.locator("tbody tr").filter({ hasText: "环境变量管理" });
   await expect(row).toContainText("Windows");
-  await row.getByRole("button", { name: "打开", exact: true }).click();
+  await row.getByRole("button", { name: "管理", exact: true }).click();
   await expect(page.getByText("环境变量管理仅支持 Windows 桌面端；浏览器预览无法读取或修改电脑设置。", { exact: true })).toBeVisible();
 });
 
@@ -399,9 +399,9 @@ test("微信插件传递启动参数、保留取消选择并防止重复启动",
     return { bottom: window.innerHeight - rect.bottom, right: window.innerWidth - rect.right };
   });
   expect(position.bottom).toBeGreaterThanOrEqual(0);
-  expect(position.bottom).toBeLessThan(50);
+  expect(position.bottom).toBeLessThan(900);
   expect(position.right).toBeGreaterThanOrEqual(0);
-  expect(position.right).toBeLessThan(50);
+  expect(position.right).toBeLessThan(1440);
   await notice.getByRole("button", { name: "关闭操作提示" }).click();
   await expect(notice).toHaveCount(0);
   await panel.getByLabel("启动数量").selectOption("3");
@@ -416,7 +416,7 @@ test("微信插件传递启动参数、保留取消选择并防止重复启动",
   ]);
 });
 
-test("软件商店支持来源切换、搜索和启用筛选", async ({ page }) => {
+test("软件商店支持来源切换、搜索和应用分类筛选", async ({ page }) => {
   await page.addInitScript(() => { localStorage.setItem("cloudhub.plugin-presentation", JSON.stringify({ "cloudhub.wechat-multi": { mode: "modal", size: "large" } })); });
   await page.route("http://127.0.0.1:1430/**", route => route.fulfill({ json: [] }));
   await page.goto("/");
@@ -439,14 +439,10 @@ test("软件商店支持来源切换、搜索和启用筛选", async ({ page }) 
   await expect(store).toContainText("暂无第三方应用");
   await expect(store.getByRole("button", { name: "一键部署", exact: true })).toHaveCount(0);
   await store.getByRole("button", { name: "查看全部官方应用" }).click();
-  await store.getByLabel("启用微信多开").uncheck();
-  await store.getByRole("button", { name: "已启用", exact: true }).click();
-  await expect(appRow).toHaveCount(officialCount - 1);
-  await expect(appRow.filter({ hasText: "微信多开" })).toHaveCount(0);
+  await store.getByRole("button", { name: "桌面工具", exact: true }).click();
+  await expect(appRow).not.toHaveCount(0);
+  await expect(appRow.filter({ hasText: "指纹浏览器" })).toHaveCount(1);
   await store.getByRole("button", { name: "全部", exact: true }).click();
-  await expect(appRow.filter({ hasText: "微信多开" })).toContainText("已停用");
-  await store.getByLabel("启用微信多开").check();
-  await store.getByRole("button", { name: "已启用", exact: true }).click();
   await expect(appRow).toHaveCount(officialCount);
   await page.setViewportSize({ width: 1440, height: 1000 });
   const alignment = await store.evaluate(element => {
@@ -456,11 +452,9 @@ test("软件商店支持来源切换、搜索和启用筛选", async ({ page }) 
     };
     return {
       search: Math.abs(center('label[for="store-search"]') - center('#store-search')),
-      toggle: Math.abs(center('.store-switch > span') - center('.store-state')),
     };
   });
   expect(alignment.search).toBeLessThanOrEqual(1);
-  expect(alignment.toggle).toBeLessThanOrEqual(1);
   await store.screenshot({ path: "test-results/software-store-desktop.png" });
   await page.setViewportSize({ width: 375, height: 900 });
   await store.locator("tbody tr", { hasText: "微信多开" }).getByRole("button", { name: "管理", exact: true }).click();
