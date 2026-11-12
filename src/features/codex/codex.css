@@ -904,3 +904,8 @@
 body.theme-light .codex-gateway .codex-auto-start-toggle input { background: var(--jb-border-strong, #cfcfd2); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .05); }
 body.theme-light .codex-gateway .codex-auto-start-toggle input:before { background: #ffffff; box-shadow: 0 1px 2px rgba(0, 0, 0, .22); }
 body.theme-light .codex-gateway .codex-auto-start-toggle input:checked { background: var(--api-accent, var(--jb-accent)); }
+
+/* 商店页面已提供标题和内边距，配置栏及账号区直接对齐宿主边界。 */
+.plugin-page-body > .codex-page{padding:0}
+.plugin-page-body > .codex-page > .codex-heading h1,
+.plugin-page-body > .codex-page > .codex-heading .codex-eyebrow{display:none}

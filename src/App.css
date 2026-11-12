@@ -168,6 +168,7 @@ main{flex:1 1 auto;min-width:0;padding:36px 48px;max-width:none;margin:0;width:1
 .panel-row-refresh{display:inline-grid;flex:0 0 auto;place-items:center;width:24px;height:24px;border:1px solid var(--jb-surface-3);border-radius:4px;background:var(--jb-border);color:var(--jb-muted);cursor:pointer}
 .panel-row-refresh:hover:not(:disabled){border-color:var(--jb-accent);background:var(--jb-border-strong);color:var(--jb-text)}
 .panel-row-refresh:disabled{cursor:not-allowed;opacity:.5}
+.ide-theme .panel-row-refresh.is-refreshing{border-color:var(--jb-accent);background:var(--jb-accent-soft);color:var(--jb-accent-strong);opacity:1;cursor:progress}
 .managed-server-status{border-radius:3px;background:var(--jb-border);color:var(--jb-muted)}
 .managed-server-status.online{background:#244838;color:#82d9a7}
 .managed-server-status.offline{background:#533238;color:#f1a0a5}

@@ -205,3 +205,41 @@
 @media(max-width:760px){.baota-sync-errors-dialog .baota-sync-error-head{display:none}.baota-sync-error-list>li{grid-template-columns:minmax(0,1fr);gap:6px;padding:12px 0}.baota-sync-error-label{display:block;font-size:12px;color:var(--jb-muted)}}
 
 .ide-theme.theme-light .certificate-page .certificate-preview-warning{border-color:color-mix(in srgb,var(--jb-warning,#a8731f) 30%,var(--jb-border));background:color-mix(in srgb,var(--jb-warning,#a8731f) 8%,var(--jb-surface));color:#76500d}
+
+/* 商店页面宿主已提供标题和内边距，正文直接沿用宿主边界。 */
+.plugin-page-body > .certificate-page{padding:0;overflow:visible}
+.plugin-page-body > .certificate-page > header h1,
+.plugin-page-body > .certificate-page > header .eyebrow{display:none}
+
+/* 本地证书工作台：统一控件尺寸、列宽和行内对齐，完整域名按需查看。 */
+.certificate-page .certificate-panel:not(.baota-certificate-manager){box-shadow:none;border-radius:6px}
+.certificate-page .certificate-header-actions button,
+.certificate-source-tabs button{box-sizing:border-box;min-height:30px;border-radius:4px;white-space:nowrap}
+.certificate-page .certificate-panel:not(.baota-certificate-manager) .certificate-toolbar{gap:8px;padding:10px 12px}
+.certificate-page .certificate-panel:not(.baota-certificate-manager) .certificate-toolbar>input{flex:1 1 240px;min-width:0;max-width:520px;border-radius:4px}
+.certificate-page .certificate-source-filter{margin-left:auto;color:var(--jb-muted)}
+.certificate-page .certificate-source-filter select{box-sizing:border-box;width:112px;border-radius:4px;color:var(--jb-text)}
+.certificate-page .certificate-panel:not(.baota-certificate-manager) .certificate-toolbar>button{flex:none;padding:0 10px;border-radius:4px;white-space:nowrap}
+.certificate-page .certificate-panel:not(.baota-certificate-manager) .table-wrap table{min-width:980px;width:100%}
+.certificate-page .certificate-panel:not(.baota-certificate-manager) th:nth-child(1){width:25%}
+.certificate-page .certificate-panel:not(.baota-certificate-manager) th:nth-child(2){width:110px}
+.certificate-page .certificate-panel:not(.baota-certificate-manager) th:nth-child(3){width:auto}
+.certificate-page .certificate-panel:not(.baota-certificate-manager) th:nth-child(4){width:150px}
+.certificate-page .certificate-panel:not(.baota-certificate-manager) th:nth-child(5){width:86px}
+.certificate-page .certificate-panel:not(.baota-certificate-manager) th:nth-child(6){width:216px}
+.certificate-page .certificate-panel:not(.baota-certificate-manager) :is(th,td){box-sizing:border-box;vertical-align:middle;padding:10px 12px;font-size:12px;line-height:1.5;text-align:left}
+.certificate-page .certificate-panel:not(.baota-certificate-manager) td:first-child>strong{display:block;font-size:13px;font-weight:600}
+.certificate-page .certificate-panel:not(.baota-certificate-manager) .certificate-domain-view{min-height:24px;margin-top:4px;padding:0 6px;border-radius:4px;font-size:11px}
+.certificate-page .certificate-panel:not(.baota-certificate-manager) .certificate-actions{flex-wrap:nowrap;gap:6px}
+.certificate-page .certificate-panel:not(.baota-certificate-manager) .certificate-actions button{box-sizing:border-box;flex:none;height:30px;min-height:30px;gap:5px;margin:0;padding:0 8px;border-radius:4px;white-space:nowrap}
+.certificate-page .certificate-panel:not(.baota-certificate-manager) .certificate-actions svg{flex:none;width:14px;height:14px}
+.certificate-page .certificate-panel:not(.baota-certificate-manager) .certificate-source-label{border-radius:4px;color:var(--jb-text)}
+.certificate-page .certificate-panel:not(.baota-certificate-manager) .certificate-status.issued{border-color:color-mix(in srgb,var(--jb-success,var(--jb-green)) 30%,var(--jb-border));background:color-mix(in srgb,var(--jb-success,var(--jb-green)) 12%,var(--jb-surface));color:var(--jb-success,var(--jb-green))}
+.certificate-page .certificate-toolbar :is(input,select,button):focus-visible,
+.certificate-page .certificate-actions button:focus-visible,
+.certificate-page .certificate-domain-view:focus-visible{outline:2px solid var(--jb-accent);outline-offset:2px}
+@media(max-width:760px){
+  .certificate-page .certificate-panel:not(.baota-certificate-manager) .certificate-toolbar>input{flex-basis:100%;max-width:none}
+  .certificate-page .certificate-source-filter{margin-left:0}
+  .certificate-page .certificate-count{margin-left:auto}
+}

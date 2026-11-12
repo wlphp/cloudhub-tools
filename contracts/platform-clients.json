@@ -14,6 +14,8 @@
     "member_messages_read_all",
     "member_logout",
     "query_ip_location",
+    "list_ip_locations",
+    "delete_ip_location",
     "acknowledge_sync_delta",
     "add_dns_record",
     "ai_cancel",
@@ -384,9 +386,19 @@
         {
           "name": "ip-location",
           "native": [
-            "query_ip_location"
+            "query_ip_location",
+            "list_ip_locations",
+            "delete_ip_location"
           ],
           "preview": [
+            {
+              "method": "GET",
+              "path": "/api/ip-location"
+            },
+            {
+              "method": "DELETE",
+              "path": "/api/ip-location"
+            },
             {
               "method": "POST",
               "path": "/api/ip-location"

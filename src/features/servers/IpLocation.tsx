@@ -1,28 +1,8 @@
-import { useState, useSyncExternalStore } from "react";
-import { MapPin, RefreshCw } from "lucide-react";
-import { ipLocationClient, type IpLocationResult } from "../../platform/clients/ip-location";
+import { useState } from "react";
+import { MapPin, RefreshCw, Trash2 } from "lucide-react";
+import { locationAddress, useIpLocations, queryLocation as query, removeLocation } from "./ip-location-store";
 import { SharedDialog } from "../../shared/SharedDialog";
-
-type QueryState = { data?: IpLocationResult; loading: boolean; error?: string };
-const empty: QueryState = { loading: false };
-const cache = new Map<string, QueryState>();
-const subscribers = new Set<() => void>();
-function subscribe(listener: () => void) { subscribers.add(listener); return () => { subscribers.delete(listener); }; }
-function publish(ip: string, value: QueryState) {
-  cache.set(ip, value);
-  if (cache.size > 256) {
-    const oldest = [...cache.keys()].find(key => key !== ip && !cache.get(key)?.loading);
-    if (oldest) cache.delete(oldest);
-  }
-  subscribers.forEach(listener => listener());
-}
-async function query(ip: string) {
-  if (cache.get(ip)?.loading) return;
-  const previous = cache.get(ip)?.data;
-  publish(ip, { data: previous, loading: true });
-  try { publish(ip, { data: await ipLocationClient.query(ip), loading: false }); }
-  catch { publish(ip, { data: previous, loading: false, error: "归属地查询失败，请稍后重试" }); }
-}
+import { ConfirmDialog } from "../../shared/ConfirmDialog";
 
 const labels: Record<string, string> = {
   feature: "查询类型", target: "IP 地址", found: "已收录", location: "归属地",
@@ -42,11 +22,15 @@ function Fields({ data, depth = 0 }: { data: object; depth?: number }) {
 }
 
 export function IpLocation({ ip }: { ip: string }) {
-  const address = ip.trim();
-  const state = useSyncExternalStore(subscribe, () => cache.get(address) || empty);
+  const address = locationAddress(ip);
+  const store = useIpLocations();
+  const state = store.entries.get(address);
   const [open, setOpen] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   if (!address || address === "-") return null;
-  const { data, loading, error } = state;
+  const data = state?.data;
+  const loading = state?.loading || (!store.ready && !store.error);
+  const error = state?.error || store.error;
   const location = data?.location;
   const text = (value: unknown) => typeof value === "string" ? value : "";
   const summary = data ? data.found
@@ -55,13 +39,17 @@ export function IpLocation({ ip }: { ip: string }) {
   return <div className="ip-location-row">
     <div className="ip-location-summary" aria-live="polite" aria-busy={loading}>
       {data ? <><span className="ip-location-result" title={summary}><MapPin size={12} aria-hidden="true" /><span>{summary}</span></span><button type="button" className="ip-location-action" onClick={() => setOpen(true)} aria-label={`查看 ${address} 的归属地详情`}>查看</button></>
-        : <button type="button" className="ip-location-action" disabled={loading} title="使用宝塔查询此 IP 的归属地" onClick={() => void query(address)}>{loading ? <RefreshCw size={12} className="spin" aria-hidden="true" /> : <MapPin size={12} aria-hidden="true" />}{loading ? "获取中…" : error ? "重新获取归属地" : "一键获取归属地"}</button>}
+        : <button type="button" className="ip-location-action" disabled={loading || store.batch.phase === "running"} title={store.batch.phase === "running" ? "正在按列表顺序获取，请等待批量任务结束" : "使用宝塔查询此 IP 的归属地"} onClick={() => void query(address)}>{loading ? <RefreshCw size={12} className="spin" aria-hidden="true" /> : <MapPin size={12} aria-hidden="true" />}{loading ? "获取中…" : error ? "重新获取归属地" : "一键获取归属地"}</button>}
     </div>
     {error && <small role="alert" className="ip-location-error">{error}</small>}
-    {open && <SharedDialog title="IP 归属地详情" subtitle={`${address} · 使用宝塔服务查询`} icon={<MapPin size={18} aria-hidden="true" />} className="ip-location-dialog" onClose={() => setOpen(false)} busy={loading} footer={<><button type="button" className="secondary" onClick={() => setOpen(false)}>关闭</button><button type="button" className="primary" disabled={loading} onClick={() => void query(address)}><RefreshCw size={14} className={loading ? "spin" : ""} aria-hidden="true" />{loading ? "正在拉取…" : "重新拉取最新信息"}</button></>}>
+    {open && <SharedDialog title="IP 归属地详情" subtitle={`${address} · 已保存到本地 SQLite，删除前不会重复查询`} icon={<MapPin size={18} aria-hidden="true" />} className="ip-location-dialog" onClose={() => setOpen(false)} busy={loading} footer={<><button type="button" className="secondary" onClick={() => setOpen(false)}>关闭</button><button type="button" className="secondary" disabled={loading || store.batch.phase === "running"} onClick={() => setConfirmDelete(true)}><Trash2 size={14} aria-hidden="true" />删除归属地缓存</button></>}>
       {error && <p role="alert">{error}，当前保留上次查询结果。</p>}
       <p className="ip-location-overview" aria-live="polite">{summary}</p>
       {data && <><Fields data={data} /><details className="ip-location-raw"><summary>接口原始返回</summary><pre>{JSON.stringify(data, null, 2)}</pre></details></>}
     </SharedDialog>}
+    {confirmDelete && <ConfirmDialog title="删除归属地缓存" message="确认删除此 IP 的本地归属地记录吗？所有使用此 IP 的卡片都会清除归属地，之后可手动重新获取。" confirmLabel="删除缓存" busy={loading} error={state?.error} onResolve={confirmed => {
+      if (!confirmed) { setConfirmDelete(false); return; }
+      void removeLocation(address).then(removed => { if (removed) { setConfirmDelete(false); setOpen(false); } });
+    }} />}
   </div>;
 }

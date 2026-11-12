@@ -456,3 +456,10 @@
   .auth-mobile .auth-actions button,
   .auth-mobile .auth-view button { transition: none; }
 }
+
+/* 商店页面复用宿主标题与边距，独立验证器入口保留原布局。 */
+.plugin-page-body > .auth-panel{box-sizing:border-box;height:auto;padding:0;overflow:visible}
+.plugin-page-body > .auth-panel > h2,
+.plugin-page-body > .auth-panel > .auth-header h2{display:none}
+.plugin-page-body > .auth-panel > .auth-header{align-items:center}
+.plugin-page-body > .auth-panel > .auth-header > div > span{margin-top:0}

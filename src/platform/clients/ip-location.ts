@@ -11,5 +11,7 @@ export type IpLocationResult = {
 };
 
 export const ipLocationClient = {
+  list: () => invokeOrWeb<IpLocationResult[]>("list_ip_locations", undefined, { path: "/api/ip-location" }),
+  remove: (ip: string) => invokeOrWeb<void>("delete_ip_location", { ip }, { path: "/api/ip-location", init: jsonRequest("DELETE", { ip }) }),
   query: (ip: string) => invokeOrWeb<IpLocationResult>("query_ip_location", { ip }, { path: "/api/ip-location", init: jsonRequest("POST", { ip }) }),
 };

@@ -27,7 +27,7 @@ use commands::lan::{lan_annotate, lan_cancel, lan_export, lan_interfaces, lan_le
 use commands::network::{network_proxy_get, network_proxy_save, network_proxy_test};
 #[cfg(mobile)]
 use commands::speed_test::{speed_test_cancel, speed_test_history, speed_test_network_info, speed_test_start, speed_test_status};
-pub(crate) use commands::ip_location::query_ip_location;
+pub(crate) use commands::ip_location::{query_ip_location, list_ip_locations, delete_ip_location};
 pub(crate) use commands::icp::query_domain_icp;
 #[cfg(desktop)]
 pub(crate) use commands::codex_config::codex_config_source;
@@ -1023,7 +1023,7 @@ pub fn run() {
         monitor_alerts_settings, monitor_alerts_snapshot, monitor_alerts_save_settings,
         monitor_alerts_check, monitor_alerts_ignore,
         member_me, member_web_handoff, member_send_code, member_login, member_avatar, member_nickname, member_bio, member_logout, member_login_logs, member_messages, member_message, member_messages_read_all,
-        query_ip_location, ai_list_models, ai_test_vision, ai_export_config, ai_prepare_import, ai_confirm_import, ai_cancel_import,
+        query_ip_location, list_ip_locations, delete_ip_location, ai_list_models, ai_test_vision, ai_export_config, ai_prepare_import, ai_confirm_import, ai_cancel_import,
         ai_list_profiles, ai_reveal_key, ai_save_profile, ai_delete_profile, ai_preview, ai_run, ai_cancel,
         authenticator_reveal_secret, authenticator_status, authenticator_unlock, authenticator_lock, authenticator_list, authenticator_touch, authenticator_codes, authenticator_save, authenticator_remove, authenticator_advance, authenticator_copy, authenticator_prepare, authenticator_import, authenticator_cancel, authenticator_export,
         reveal_flow_token, list_flow_connections, save_flow_connection, delete_flow_connection, test_flow_connection, list_flow_groups, list_flow_pipelines, get_flow_pipeline_cache, list_flow_runs, get_flow_run, get_flow_latest_run, run_flow_pipeline, get_flow_job_steps, get_flow_job_log, get_flow_job_run_log,
@@ -1067,7 +1067,7 @@ pub fn run() {
         commands::mail::mail_test, commands::mail::mail_folders, commands::mail::mail_list,
         commands::mail::mail_read, commands::mail::mail_attachment, commands::mail::mail_send,
         commands::mail::mail_prepare_import, commands::mail::mail_import_selected, commands::mail::mail_export_selected,
-        query_domain_icp, query_ip_location,
+        query_domain_icp, query_ip_location, list_ip_locations, delete_ip_location,
         lan_interfaces, lan_status, lan_start, lan_cancel, lan_ledger, lan_annotate, lan_export,
         speed_test_status, speed_test_start, speed_test_cancel, speed_test_history, speed_test_network_info,
         http_debug_proxy_state, http_debug_proxy_start, http_debug_proxy_stop, http_debug_proxy_restore_system_proxy, http_debug_proxy_set_certificate, http_debug_proxy_certificates, http_debug_proxy_remove_certificate, http_debug_proxy_delete_application_certificate, http_debug_proxy_clear, http_debug_proxy_session, http_debug_proxy_export_session,

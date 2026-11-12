@@ -31,6 +31,7 @@ fn replace_file(source: &Path, destination: &Path) -> Result<(), String> {
             exclude: *mut std::ffi::c_void,
             reserved: *mut std::ffi::c_void,
         ) -> i32;
+        fn MoveFileExW(existing: *const u16, new: *const u16, flags: u32) -> i32;
         fn GetLastError() -> u32;
     }
     let replacement: Vec<u16> = OsStr::new(source).encode_wide().chain(Some(0)).collect();
@@ -49,6 +50,13 @@ fn replace_file(source: &Path, destination: &Path) -> Result<(), String> {
         )
     };
     if ok == 0 {
+        // ReplaceFileW can fail on Windows filesystems that cannot merge file
+        // metadata; both files are siblings, so MoveFileExW remains a same-
+        // volume replacement and does not expose a partially written state.
+        let moved = unsafe { MoveFileExW(replacement.as_ptr(), replaced.as_ptr(), 0x1 | 0x8) };
+        if moved != 0 {
+            return Ok(());
+        }
         let code = unsafe { GetLastError() };
         return Err(format!(
             "替换 Codex 项目状态失败（Windows 错误 {code}），原始备份已保留"
@@ -87,11 +95,15 @@ pub fn preserve_before_identity_change(home: &Path) -> Result<(), String> {
     let account = account
         .as_object()
         .ok_or("Codex 账户状态结构异常，已停止切换")?;
-    match account.get("owner") {
-        Some(Value::Null) => {}
-        Some(_) => return Ok(()),
+    let owner_is_null = match account.get("owner") {
+        // A non-null owner is the common case before an account switch. Its
+        // renderer globals must be folded into the machine-local catalog
+        // before Codex changes owners and hides the previous account's data.
+        Some(Value::Null) => true,
+        Some(Value::String(owner)) if !owner.is_empty() => false,
+        Some(_) => return Err("Codex 账户状态 owner 格式异常，已停止切换".into()),
         None => return Err("Codex 账户状态缺少 owner，已停止切换".into()),
-    }
+    };
     let inactive = match account.get("inactive") {
         Some(value) => Some(
             value
@@ -100,7 +112,7 @@ pub fn preserve_before_identity_change(home: &Path) -> Result<(), String> {
         ),
         None => None,
     };
-    if inactive.is_none_or(|buckets| buckets.is_empty()) {
+    if owner_is_null && inactive.is_none_or(|buckets| buckets.is_empty()) {
         return Err("Codex 账户存档为空，无法安全保全侧栏项目，已停止切换".into());
     }
     // Codex writes this file while running; do not race its renderer/app-server.
@@ -349,7 +361,7 @@ pub fn preserve_before_identity_change(home: &Path) -> Result<(), String> {
 mod tests {
     use super::*;
     fn fixture_home() -> std::path::PathBuf {
-        let path = std::env::temp_dir().join(format!(
+        let path = std::env::current_dir().unwrap().join("target").join(format!(
             "cloudhub-codex-project-state-{}",
             uuid::Uuid::new_v4()
         ));
@@ -410,20 +422,63 @@ mod tests {
     }
 
     #[test]
-    fn active_owner_state_is_not_flattened_or_rewritten() {
+    fn active_owner_and_inactive_project_state_are_preserved_before_switch() {
         let home = fixture_home();
         let path = home.join(".codex-global-state.json");
         let original = serde_json::to_vec(&serde_json::json!({
-            "local-projects": {"active": {"name": "active"}},
+            "project-order": ["top"],
+            "local-projects": {"top": {"name": "top"}},
             ACCOUNT_KEY: {
                 "owner": "account-hash",
-                "inactive": {"old": {"globals": {"local-projects": {"old": {"name": "old"}}}}}
+                "globals": {
+                    "project-order": ["active"],
+                    "local-projects": {"active": {"name": "active"}},
+                    "thread-project-assignments": {"thread-active": {"projectId": "active"}}
+                },
+                "inactive": {"old": {"globals": {
+                    "project-order": ["old", "top"],
+                    "local-projects": {"old": {"name": "old"}},
+                    "thread-project-assignments": {"thread-old": {"projectId": "old"}}
+                }}}
             }
         })).unwrap();
         fs::write(&path, &original).unwrap();
         preserve_before_identity_change(&home).unwrap();
-        assert_eq!(fs::read(&path).unwrap(), original);
-        assert_eq!(fs::read_dir(&home).unwrap().count(), 1);
+        let merged: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        assert!(merged.get(ACCOUNT_KEY).is_none());
+        assert_eq!(merged["project-order"], serde_json::json!(["top", "old", "active"]));
+        assert_eq!(merged["local-projects"].as_object().unwrap().len(), 3);
+        assert!(merged["thread-project-assignments"].get("thread-active").is_some());
+        assert!(merged["thread-project-assignments"].get("thread-old").is_some());
+        let backups: Vec<_> = fs::read_dir(&home)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_name().to_string_lossy().ends_with(".bak"))
+            .collect();
+        assert_eq!(backups.len(), 1);
+        assert_eq!(fs::read(backups[0].path()).unwrap(), original);
+        fs::remove_dir_all(home).unwrap();
+    }
+
+    #[test]
+    fn active_owner_without_inactive_buckets_preserves_current_projects() {
+        let home = fixture_home();
+        let path = home.join(".codex-global-state.json");
+        fs::write(
+            &path,
+            serde_json::to_vec(&serde_json::json!({
+                ACCOUNT_KEY: {
+                    "owner": "account-hash",
+                    "globals": {"local-projects": {"active": {"name": "active"}}}
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        preserve_before_identity_change(&home).unwrap();
+        let merged: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        assert!(merged.get(ACCOUNT_KEY).is_none());
+        assert_eq!(merged["local-projects"]["active"]["name"], "active");
         fs::remove_dir_all(home).unwrap();
     }
 

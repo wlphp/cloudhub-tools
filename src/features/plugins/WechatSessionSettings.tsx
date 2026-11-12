@@ -106,9 +106,13 @@ export function WechatSessionSettings({ enabled, busy, path, operate, notify }: 
   }
   return <fieldset className="wechat-session-settings" disabled={!enabled || busy}>
     <legend>账号登录配置 · 实验性</legend>
-    <p>先登录账号 A，从托盘退出全部微信后保存为“A”；再切换登录账号 B，退出后保存为“B”。使用时先逐个恢复并打开所有账号的登录窗口，确认头像后，最后再分别点击微信登录。</p>
-    <p className="wechat-session-help">保存的是登录配置，不包含聊天记录。首次登录仍需微信验证，后续免扫码或自动登录由微信决定。配置被占用时请先退出微信。</p>
-    <label htmlFor="wechat-data-path">微信数据根目录</label>
+    <div className="wechat-section-intro"><p>保存不同账号的登录配置，按需恢复并启动。</p><details className="wechat-help"><summary>使用步骤与注意事项</summary>
+      <ol><li>登录账号 A，从托盘退出全部微信后保存为“A”。</li><li>切换登录账号 B，退出全部微信后保存为“B”。</li><li>逐个恢复并打开登录窗口，核对头像后再分别点击微信登录。</li></ol>
+      <p>保存的是登录配置，不包含聊天记录。首次登录仍需微信验证，后续免扫码或自动登录由微信决定。配置被占用时请先退出微信。</p>
+      <p>自动检测会检查微信保存的位置、文档目录和本地磁盘浅层位置，只检查配置文件是否存在，不读取聊天记录；也可选择一个大致位置继续查找。</p>
+      <p>每次恢复前会在 CloudHub 本地数据目录的 wechat-login-configs 中保存加密备份。不会修改微信 DLL、强制关闭文件句柄或结束微信进程。</p>
+    </details></div>
+    <div className="wechat-form-row"><label htmlFor="wechat-data-path">微信数据根目录</label>
     <div className="official-plugin-path">
       <input id="wechat-data-path" readOnly value={dataPath} placeholder="选择 xwechat_files 或 WeChat Files 目录" />
       <button type="button" className="secondary" onClick={() => void operate(() => detectData())}><RefreshCw size={14} aria-hidden="true" />{detecting ? "正在检测…" : "自动检测数据目录"}</button>
@@ -119,8 +123,7 @@ export function WechatSessionSettings({ enabled, busy, path, operate, notify }: 
           rememberDataPath(selected);
         }
       })}><FolderOpen size={14} aria-hidden="true" />选择数据目录</button>
-    </div>
-    <p className="wechat-session-help">自动匹配微信保存的位置、文档目录和本地磁盘浅层位置。只检查配置文件是否存在，不读取聊天记录；也可选择一个大致位置继续查找。</p>
+    </div></div>
     {detected && detected.candidates.length > 0 && <div className="wechat-detected-paths">
       <label htmlFor="wechat-detected-path">匹配的数据目录</label>
       <select id="wechat-detected-path" value={detected.candidates.some(item => item.path === dataPath) ? dataPath : ""} onChange={event => { if (event.target.value) rememberDataPath(event.target.value); }}>
@@ -161,13 +164,13 @@ export function WechatSessionSettings({ enabled, busy, path, operate, notify }: 
       <label htmlFor="wechat-batch-pace">启动节奏</label>
       <select id="wechat-batch-pace" value={batchPace} onChange={event => setBatchPace(event.target.value)}>{[0, 20, 50, 100, 200].map(value => <option key={value} value={String(value)}>快速尝试 · {value} 毫秒</option>)}<option value="wait">等待窗口出现</option></select>
       <button type="button" className="primary" disabled={!path || loadError || launchableProfiles.length === 0} onClick={() => void operate(launchSavedProfiles)}><Play size={14} aria-hidden="true" />{batchProgress ? `正在${batchPace === "wait" ? "准备" : "提交"} ${batchProgress.current}/${batchProgress.total}…` : "批量启动已保存配置"}</button>
-      <span className="wechat-session-help">按顺序处理 {launchableProfiles.length} 个兼容配置。快速模式不等待窗口，间隔是额外等待时间；可能重复头像，仍保留备份及文件锁检查。遇到失败停止，关闭设置停止后续启动。</span>
+      <span className="wechat-session-help">{launchableProfiles.length} 个兼容配置 · 失败即停止</span>
     </div>
     {backups.length > 0 && <div className="wechat-session-recovery"><label htmlFor="wechat-recovery">恢复前备份</label><select id="wechat-recovery" value={backupId} onChange={event => setBackupId(event.target.value)}>{backups.map(item => <option key={item.id} value={item.id}>{new Date(item.createdAt * 1000).toLocaleString()} · {item.dataPath}</option>)}</select><button type="button" className="secondary" disabled={!backupId} onClick={() => void operate(async () => {
       await pluginsClient.restoreWechatBackup(backupId);
       notify("已恢复所选备份；恢复前的配置也已另存为加密备份。");
       await reload();
     })}>恢复备份</button></div>}
-    <small className="wechat-session-help">每次恢复前会在 CloudHub 本地数据目录的 wechat-login-configs 中保存加密备份。不会修改微信 DLL、强制关闭文件句柄或结束微信进程。</small>
+    <details className="wechat-help"><summary>启动节奏说明</summary><p>快速模式不等待窗口，间隔是额外等待时间；可能重复头像，仍保留备份及文件锁检查。遇到失败停止，关闭设置停止后续启动。</p></details>
   </fieldset>;
 }

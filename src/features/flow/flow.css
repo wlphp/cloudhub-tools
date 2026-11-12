@@ -170,6 +170,13 @@
 }
 @media(prefers-reduced-motion:reduce){.flow-group-tabs button,.flow-pipeline-table tbody tr{transition:none}}
 
+/* 商店页面已提供标题和内边距，流水线正文沿用宿主的左右边界。 */
+.plugin-page-body > .flow-page{min-height:0;padding:0;overflow:visible}
+.plugin-page-body > .flow-page > .flow-page-header{margin-bottom:16px}
+.plugin-page-body > .flow-page > .flow-page-header > div:first-child{min-width:0}
+.plugin-page-body > .flow-page > .flow-page-header .eyebrow,
+.plugin-page-body > .flow-page > .flow-page-header h1{display:none}
+
 /* Make high-frequency pipeline actions feel intentional without adding visual weight. */
 .flow-page .flow-toolbar-actions .primary{border-radius:8px;box-shadow:none!important;transition:background-color .16s ease,border-color .16s ease,transform .16s ease}
 .flow-page .flow-toolbar-actions .primary:hover:not(:disabled){filter:brightness(.97);transform:translateY(-1px)}

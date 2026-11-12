@@ -8,6 +8,7 @@ export function database() {
   if (sharedDatabase) return sharedDatabase;
   ensureDataDir();
   const db = new DatabaseSync(dbPath);
+  db.exec("CREATE TABLE IF NOT EXISTS ip_location_cache (ip TEXT PRIMARY KEY, result_json TEXT NOT NULL)");
   try { db.exec("ALTER TABLE cloud_accounts ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0"); } catch { /* already migrated */ }
   try { db.exec("ALTER TABLE cloud_accounts ADD COLUMN credential_meta TEXT"); } catch { /* already migrated */ }
   db.exec(`CREATE TABLE IF NOT EXISTS cloud_assets (

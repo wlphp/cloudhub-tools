@@ -1,124 +1,132 @@
 .network-speed { color: var(--jb-text); font-size: 13px; min-width: 0; container-type: inline-size; }
-.network-speed button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 32px; font-size: 12px; }
-.speed-intro { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 12px; }
-.speed-intro > svg { flex: 0 0 auto; color: var(--jb-accent); }
-.speed-intro p, .speed-muted { color: var(--jb-muted); line-height: 1.65; margin: 6px 0 12px; overflow-wrap: anywhere; }
-.speed-preview-notice { margin: 0 0 14px; padding: 10px 12px; border: 1px solid var(--jb-border); border-left: 3px solid var(--jb-accent); border-radius: 5px; background: var(--jb-surface-2); line-height: 1.6; }
-.speed-tabs { margin-bottom: 14px; }
-.speed-network { margin: 0 0 14px; padding: 12px 14px; border: 1px solid var(--jb-border); border-radius: 6px; background: var(--jb-surface-2); }
-.speed-network-head, .speed-network-head strong { display: flex; align-items: center; gap: 8px; }
-.speed-network-head { justify-content: space-between; flex-wrap: wrap; }
-.speed-network dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 20px; margin: 12px 0; }
-.speed-network dl > div { min-width: 0; }
-.speed-network dt, .speed-network small { color: var(--jb-muted); font-size: 12px; line-height: 1.6; }
-.speed-network dd { margin: 4px 0 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-.speed-network-location { grid-column: 1 / -1; }
-.speed-network-error { line-height: 1.6; margin: 8px 0; }
-.speed-form { display: flex; gap: 12px; flex-wrap: wrap; align-items: end; padding: 14px; background: var(--jb-surface-2); border: 1px solid var(--jb-border); border-radius: 6px; }
-.network-speed .speed-form label { display: flex; flex: 1 1 130px; flex-direction: column; gap: 6px; min-width: 0; margin: 0; }
-.network-speed .speed-form label:first-child { flex-basis: 240px; }
-.network-speed .speed-form .speed-custom { flex-basis: 100%; }
-.network-speed :is(select, input) { box-sizing: border-box; width: 100%; min-width: 0; height: 34px; padding: 0 8px; border: 1px solid var(--jb-border-strong); border-radius: 5px; background: var(--jb-input); color: var(--jb-text); font: inherit; }
-.speed-custom small { color: var(--jb-muted); line-height: 1.5; overflow-wrap: anywhere; }
-.speed-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-.speed-status { display: flex; flex-wrap: wrap; gap: 8px 20px; justify-content: space-between; padding: 10px 0; }
-.speed-status span { color: var(--jb-muted); font-variant-numeric: tabular-nums; }
-.speed-steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); list-style: none; padding: 0; margin: 0 0 14px; gap: 6px; }
-.speed-steps li { padding: 8px 4px; text-align: center; border-bottom: 2px solid var(--jb-border); color: var(--jb-muted); }
-.speed-steps [aria-current=step] { border-color: var(--jb-accent); color: var(--jb-text); font-weight: 600; background: var(--jb-accent-soft); }
-.speed-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
-.speed-metrics > div { border: 1px solid var(--jb-border); background: var(--jb-surface-2); border-radius: 6px; padding: 14px; min-width: 0; }
-.speed-metrics span { display: flex; align-items: center; gap: 5px; }
-.speed-metrics strong { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px; font-size: 28px; font-variant-numeric: tabular-nums; margin: 10px 0 6px; overflow-wrap: anywhere; }
-.speed-metrics small { color: var(--jb-muted); font-size: 12px; font-weight: 400; line-height: 1.5; }
-.speed-chart { margin: 14px 0; padding: 12px; border: 1px solid var(--jb-border); border-radius: 6px; }
-.speed-chart figcaption { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
-.speed-chart figcaption span { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--jb-muted); }
-.speed-chart i { width: 12px; height: 3px; display: inline-block; background: currentColor; }
-.speed-chart svg { display: block; width: 100%; margin-top: 10px; }
-.speed-chart text { fill: var(--jb-muted); font-size: 12px; }
-.speed-grid { stroke: var(--jb-border); }
-.speed-line { fill: none; stroke: currentColor; stroke-width: 2; vector-effect: non-scaling-stroke; }
+.network-speed button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 32px; font-size: 12px; }
+.speed-muted { color: var(--jb-muted); line-height: 1.7; margin: 0; overflow-wrap: anywhere; }
+.speed-preview-notice { margin: 0 0 10px; padding: 8px 10px; border-left: 2px solid var(--jb-accent); background: var(--jb-surface-2); line-height: 1.6; font-size: 12px; }
+.network-speed summary { cursor: pointer; overflow-wrap: anywhere; }
+.network-speed summary:focus-visible { outline: 2px solid var(--jb-accent); outline-offset: 2px; border-radius: 3px; }
+.speed-tabs { display: flex; gap: 20px; margin: 0 0 12px; border-bottom: 1px solid var(--jb-border); }
+.network-speed .speed-tabs button { min-height: 32px; padding: 0 3px; margin-bottom: -1px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--jb-muted); border-radius: 0; }
+.network-speed .speed-tabs button:hover { color: var(--jb-text); }
+.network-speed .speed-tabs button.is-active { color: var(--jb-accent); border-bottom-color: var(--jb-accent); font-weight: 600; }
+.speed-form { display: grid; grid-template-columns: minmax(240px, 360px) 170px 180px max-content; justify-content: start; gap: 12px; align-items: center; }
+.network-speed .speed-form label { display: flex; flex-direction: row; align-items: center; gap: 8px; min-width: 0; margin: 0; color: var(--jb-muted); font-size: 12px; white-space: nowrap; }
+.network-speed :is(select, input) { box-sizing: border-box; width: 100%; min-width: 0; height: 34px; padding: 0 8px; border: 1px solid var(--jb-border-strong); border-radius: 5px; background: var(--jb-input); color: var(--jb-text); font: inherit; font-size: 13px; }
+.network-speed .speed-form .speed-custom { grid-column: 1 / -1; flex-direction: column; align-items: stretch; white-space: normal; }
+.speed-custom small { line-height: 1.6; overflow-wrap: anywhere; }
+.speed-actions { display: flex; }
+.network-speed .speed-actions button { min-height: 34px; padding: 0 14px; white-space: nowrap; font-weight: 500; }
+.speed-status { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; justify-content: space-between; padding: 12px 0 10px; }
+.speed-status strong { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; }
+.speed-status strong::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: var(--jb-accent); }
+.speed-status > span { color: var(--jb-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.speed-metrics { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); border: 1px solid var(--jb-border); border-radius: 6px; background: var(--jb-surface-2); padding: 12px 0; }
+.speed-metrics.is-download-only { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.speed-metrics > div { display: grid; grid-template-rows: 18px minmax(34px, auto) minmax(22px, auto); align-content: start; row-gap: 5px; padding: 0 16px; min-width: 0; }
+.speed-metrics > div + div { border-left: 1px solid var(--jb-border); }
+.speed-metrics span { display: flex; align-items: center; gap: 5px; color: var(--jb-muted); font-size: 12px; }
+.speed-metrics strong { display: flex; align-items: baseline; flex-wrap: wrap; gap: 5px; font-size: 28px; font-weight: 600; letter-spacing: -.6px; font-variant-numeric: tabular-nums; margin: 0; overflow-wrap: anywhere; line-height: 1.2; }
+.speed-metrics small { color: var(--jb-muted); font-size: 12px; font-weight: 400; line-height: 1.6; letter-spacing: 0; }
+.speed-metrics > div > small { display: block; margin: 0; }
+.speed-metric-download strong, .speed-metric-download span svg { color: var(--jb-accent); }
+.speed-metric-upload span svg { color: var(--jb-success); }
+.speed-chart { margin: 12px 0; padding: 12px 0 0; }
+.speed-chart figcaption { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.speed-chart figcaption strong { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; }
+.speed-chart figcaption > span { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--jb-muted); font-size: 12px; }
+.speed-chart figcaption small { padding-left: 4px; font-size: 11px; }
+.speed-chart i { width: 14px; height: 2px; display: inline-block; background: currentColor; }
+.speed-chart i.speed-upload { height: 0; background: transparent; border-top: 2px dashed currentColor; }
+.speed-plot { position: relative; display: grid; grid-template-columns: 36px minmax(0, 1fr); grid-template-rows: 130px 16px; gap: 6px; margin: 16px 4px 0 0; font-size: 11px; color: var(--jb-muted); }
+.speed-plot > svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.speed-axis-y { position: relative; font-variant-numeric: tabular-nums; }
+.speed-axis-y span { position: absolute; right: 0; top: 0; transform: translateY(-50%); }
+.speed-axis-y span:nth-child(2) { top: 50%; }
+.speed-axis-y span:nth-child(3) { top: 100%; }
+.speed-axis-x { grid-column: 2; display: flex; justify-content: space-between; }
+.speed-grid { stroke: var(--jb-border); stroke-dasharray: 3 5; vector-effect: non-scaling-stroke; }
+.speed-line { fill: none; stroke: currentColor; stroke-width: 2; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 .speed-download { color: var(--jb-accent); }
 .speed-upload { color: var(--jb-success, var(--jb-text)); }
+.speed-chart-idle { display: grid; place-items: center; min-height: 56px; margin: 10px 0; color: var(--jb-muted); font-size: 12px; }
+.speed-network, .speed-method { border-top: 1px solid var(--jb-border); color: var(--jb-muted); font-size: 12px; }
+.speed-network summary, .speed-method summary, .speed-run-notes summary { padding: 10px 2px; line-height: 1.6; }
+.speed-run-notes { color: var(--jb-muted); font-size: 12px; }
+.speed-network details { position: relative; }
+.speed-network details[open] > summary { padding-right: 140px; }
+.speed-network summary svg, .speed-method summary svg { vertical-align: -2px; margin: 0 4px 0 2px; }
+.speed-network-head { position: absolute; right: 0; top: 4px; }
+.network-speed .speed-network-head button { min-height: 28px; padding: 3px 8px; border: 1px solid var(--jb-border); background: transparent; color: var(--jb-muted); border-radius: 5px; }
+.network-speed .speed-network-head button:hover:not(:disabled) { background: var(--jb-surface-2); color: var(--jb-text); }
+.speed-network dl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 8px 0; }
+.speed-network dl > div { min-width: 0; }
+.speed-network dt { color: var(--jb-muted); font-size: 12px; line-height: 1.6; }
+.speed-network dd { color: var(--jb-text); margin: 4px 0 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; line-height: 1.6; }
+.speed-network-error { line-height: 1.6; margin: 8px 0; }
+.speed-network-note { margin: 8px 0 12px; line-height: 1.7; }
+.speed-method .speed-muted { margin: 0 0 10px; }
 .speed-warnings { color: var(--jb-text); line-height: 1.6; padding-left: 20px; }
 .speed-history-heading { display: flex; flex-wrap: wrap; gap: 8px 16px; margin: 14px 0; }
 .speed-history-heading span { color: var(--jb-muted); }
 .speed-history-wrap { width: 100%; overflow-x: auto; }
 .speed-history { width: 100%; border-collapse: collapse; table-layout: fixed; }
-.speed-history th, .speed-history td { padding: 10px 8px; text-align: left; border-bottom: 1px solid var(--jb-border); vertical-align: top; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
-.speed-history th { color: var(--jb-muted); font-weight: 500; }
-.speed-history th:first-child { width: 28%; }
-.speed-history small { display: block; color: var(--jb-muted); line-height: 1.5; margin-top: 4px; }
+.network-speed .speed-history :is(th, td) { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--jb-border); vertical-align: top; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; line-height: 1.6; background: transparent; color: var(--jb-text); }
+.network-speed .speed-history th { color: var(--jb-muted); font-size: 12px; font-weight: 500; background: var(--jb-surface-2); letter-spacing: 0; }
+.network-speed .speed-history th:first-child { width: 24%; }
+.network-speed .speed-history th:last-child { width: 22%; }
+.network-speed .speed-history tr:hover td { background: var(--jb-surface-2); }
+.speed-history small { display: block; color: var(--jb-muted); font-size: 12px; line-height: 1.6; margin: 2px 0 0; }
+.speed-history th small { display: inline; margin-left: 5px; font-size: 11px; }
+.speed-history-details { color: var(--jb-muted); font-size: 12px; }
+.speed-history-details summary { padding: 2px 0 0; }
+.speed-history-details p { margin: 6px 0 0; overflow-wrap: anywhere; }
 .network-speed :is(button, input, select):focus-visible { outline: 2px solid var(--jb-accent); outline-offset: 2px; }
 .network-speed button:disabled { opacity: .5; cursor: not-allowed; }
-@container (max-width: 700px) {
-  .speed-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .speed-history { table-layout: auto; }
-  .speed-history th, .speed-history td { padding: 8px 4px; font-size: 12px; }
-}
-@container (max-width: 400px) {
-  .speed-form { padding: 10px; }
-  .speed-actions { width: 100%; }
-  .speed-actions button { flex: 1; }
-  .speed-metrics > div { padding: 10px; }
-  .speed-metrics strong { font-size: 24px; }
-  .speed-steps { font-size: 12px; gap: 2px; }
-  .speed-history th, .speed-history td { font-size: 11px; }
-}
 
-/* Native phone shells may report a wide physical viewport; scope phone styling
-   to the shell instead of relying on the device's CSS viewport width. */
-body:has(.mobile-shell) .network-speed { font-size: 14px; }
-body:has(.mobile-shell) .network-speed .speed-intro { gap: 12px; margin: 2px 0 16px; padding: 14px; border: 1px solid var(--jb-border); border-radius: 12px; background: var(--jb-surface-2); }
-body:has(.mobile-shell) .network-speed .speed-intro > svg { width: 22px; height: 22px; margin-top: 1px; }
-body:has(.mobile-shell) .network-speed .speed-intro strong { font-size: 15px; }
-body:has(.mobile-shell) .network-speed .speed-intro p { margin: 4px 0 0; font-size: 13px; }
-body:has(.mobile-shell) .network-speed .speed-preview-notice { margin-bottom: 12px; padding: 11px 12px; border-radius: 10px; font-size: 13px; }
-body:has(.mobile-shell) .network-speed .speed-network { margin-bottom: 12px; padding: 14px; border-radius: 12px; }
-body:has(.mobile-shell) .network-speed .speed-network-head { align-items: flex-start; gap: 8px; }
-body:has(.mobile-shell) .network-speed .speed-network-head strong { min-height: 44px; font-size: 14px; }
-body:has(.mobile-shell) .network-speed .speed-network dl { grid-template-columns: minmax(0, 1fr); gap: 0; margin: 8px 0; }
-body:has(.mobile-shell) .network-speed .speed-network dl > div { display: flex; justify-content: space-between; gap: 12px; min-height: 44px; padding: 10px 0; border-top: 1px solid var(--jb-border); }
-body:has(.mobile-shell) .network-speed .speed-network dt,
-body:has(.mobile-shell) .network-speed .speed-network dd { margin: 0; font-size: 13px; }
-body:has(.mobile-shell) .network-speed .speed-network dd { text-align: right; }
-body:has(.mobile-shell) .network-speed .speed-network-location { grid-column: auto; }
-body:has(.mobile-shell) .network-speed .speed-network > small { display: block; margin-top: 8px; }
-body:has(.mobile-shell) .network-speed .speed-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-bottom: 12px; padding: 4px; border-radius: 10px; background: var(--jb-surface-2); }
-body:has(.mobile-shell) .network-speed .speed-tabs button { min-height: 44px; border: 0; border-radius: 8px; background: transparent; color: var(--jb-muted); font-size: 14px; }
-body:has(.mobile-shell) .network-speed .speed-tabs button.is-active { background: var(--jb-bg); color: var(--jb-text); box-shadow: 0 1px 3px color-mix(in srgb, var(--jb-text) 12%, transparent); font-weight: 600; }
-body:has(.mobile-shell) .network-speed .speed-form { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 14px; border-radius: 12px; }
-body:has(.mobile-shell) .network-speed .speed-form label,
-body:has(.mobile-shell) .network-speed .speed-form label:first-child { flex: none; width: 100%; gap: 6px; font-size: 13px; }
-body:has(.mobile-shell) .network-speed :is(.speed-form select, .speed-form input) { height: 46px; min-height: 46px; padding: 0 12px; border-radius: 9px; font-size: 14px; }
-body:has(.mobile-shell) .network-speed .speed-form .speed-actions { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; width: 100%; }
-body:has(.mobile-shell) .network-speed .speed-form .speed-actions button { min-height: 48px; height: auto; border-radius: 11px; font-size: 14px; font-weight: 600; transition: background-color .16s ease, border-color .16s ease, color .16s ease, box-shadow .16s ease; }
-body:has(.mobile-shell) .network-speed .speed-form .speed-actions button.primary { border: 1px solid var(--jb-accent); background: var(--jb-accent); color: #fff; box-shadow: 0 3px 8px color-mix(in srgb, var(--jb-accent) 22%, transparent); }
-body:has(.mobile-shell) .network-speed .speed-form .speed-actions button.primary:disabled { border-color: var(--jb-border-strong); background: var(--jb-surface-2); color: var(--jb-muted); box-shadow: none; opacity: .72; }
-body:has(.mobile-shell) .network-speed .speed-form .speed-actions button.speed-stop { border: 1px solid color-mix(in srgb, var(--jb-red, #ef7070) 38%, var(--jb-border)); background: color-mix(in srgb, var(--jb-red, #ef7070) 9%, var(--jb-bg)); color: var(--jb-red, #ef7070); }
-body:has(.mobile-shell) .network-speed .speed-form .speed-actions button:active:not(:disabled) { filter: brightness(.94); }
-body:has(.mobile-shell) .network-speed .speed-network-head button { min-height: 40px; height: auto; padding: 0 10px; border: 1px solid var(--jb-border); border-radius: 9px; background: transparent; color: var(--jb-muted); font-size: 12px; }
-body:has(.mobile-shell) .network-speed .speed-network-head button:disabled { opacity: .56; }
-body:has(.mobile-shell) .network-speed .speed-muted { font-size: 12px; }
-body:has(.mobile-shell) .network-speed .speed-status { align-items: flex-start; flex-direction: column; gap: 4px; margin: 14px 0 8px; padding: 12px 14px; border: 1px solid var(--jb-border); border-radius: 10px; background: var(--jb-surface-2); }
-body:has(.mobile-shell) .network-speed .speed-status strong { font-size: 14px; }
-body:has(.mobile-shell) .network-speed .speed-status span { font-size: 12px; }
-body:has(.mobile-shell) .network-speed .speed-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
-body:has(.mobile-shell) .network-speed .speed-steps li { min-height: 40px; padding: 10px 6px; border: 1px solid var(--jb-border); border-radius: 8px; font-size: 12px; }
-body:has(.mobile-shell) .network-speed .speed-steps [aria-current=step] { border-color: var(--jb-accent); }
-body:has(.mobile-shell) .network-speed .speed-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-body:has(.mobile-shell) .network-speed .speed-metrics > div { padding: 12px; border-radius: 10px; }
-body:has(.mobile-shell) .network-speed .speed-metrics span { min-height: 38px; font-size: 12px; }
-body:has(.mobile-shell) .network-speed .speed-metrics strong { margin: 6px 0 4px; font-size: 24px; }
-body:has(.mobile-shell) .network-speed .speed-chart { padding: 10px; border-radius: 10px; }
-body:has(.mobile-shell) .network-speed .speed-chart figcaption { gap: 6px; font-size: 12px; }
-body:has(.mobile-shell) .network-speed .speed-history-heading { flex-direction: column; gap: 4px; font-size: 13px; }
+@container (max-width: 900px) {
+  .speed-form { grid-template-columns: repeat(2, minmax(0, 1fr)); justify-content: stretch; }
+  .network-speed .speed-form > label:first-child { grid-column: 1 / -1; }
+  .speed-actions { grid-column: 1 / -1; justify-self: end; }
+}
+@container (max-width: 700px) {
+  .speed-network dl { grid-template-columns: minmax(0, 1fr); }
+  .network-speed .speed-history { table-layout: fixed; }
+  .network-speed .speed-history, .network-speed .speed-history tbody { display: block; width: 100%; }
+  .network-speed .speed-history thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .network-speed .speed-history tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; border: 1px solid var(--jb-border); border-radius: 5px; padding: 12px; margin-bottom: 10px; }
+  .network-speed .speed-history td { padding: 0; border: 0; font-size: 12px; }
+  .network-speed .speed-history td:first-child, .network-speed .speed-history td:last-child { grid-column: 1 / -1; }
+  .network-speed .speed-history td::before { display: block; content: attr(data-label); color: var(--jb-muted); font-size: 11px; margin-bottom: 3px; }
+  .speed-metrics, .speed-metrics.is-download-only { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 0; }
+  .speed-metrics > div { padding: 0 10px; }
+  .speed-metrics > div:nth-child(odd) { border-left: 0; }
+  .speed-metrics strong { font-size: 24px; }
+}
+@container (max-width: 360px) {
+  .network-speed .speed-form label { flex-direction: column; align-items: stretch; gap: 5px; }
+  .speed-actions { justify-self: stretch; }
+  .speed-actions button { width: 100%; }
+  .speed-metrics > div { padding: 0 8px; }
+  .speed-metrics strong { font-size: 22px; }
+  .speed-metrics span { font-size: 12px; }
+  .speed-metrics span svg { display: none; }
+  .speed-metrics strong small { font-size: 11px; }
+}
+/* Phone shells retain touch targets while keeping secondary content collapsed. */
+body:has(.mobile-shell) .network-speed .speed-form { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+body:has(.mobile-shell) .network-speed .speed-form label { flex-direction: column; align-items: stretch; }
+body:has(.mobile-shell) .network-speed :is(.speed-form select, .speed-form input) { height: 44px; font-size: 14px; }
+body:has(.mobile-shell) .network-speed .speed-form .speed-actions button { min-height: 48px; width: 100%; }
+body:has(.mobile-shell) .network-speed summary { min-height: 44px; box-sizing: border-box; padding-top: 12px; padding-bottom: 12px; }
+body:has(.mobile-shell) .network-speed .speed-actions { grid-column: 1; justify-self: stretch; }
+body:has(.mobile-shell) .network-speed .speed-network-head { top: 0; }
+body:has(.mobile-shell) .network-speed .speed-network dl { grid-template-columns: minmax(0, 1fr); }
+body:has(.mobile-shell) .network-speed .speed-network-head button { min-height: 44px; }
+body:has(.mobile-shell) .network-speed .speed-tabs button { min-height: 44px; }
 body:has(.mobile-shell) .network-speed .speed-history-wrap { overflow: visible; }
 body:has(.mobile-shell) .network-speed .speed-history,
 body:has(.mobile-shell) .network-speed .speed-history tbody { display: block; width: 100%; }
 body:has(.mobile-shell) .network-speed .speed-history thead { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
-body:has(.mobile-shell) .network-speed .speed-history tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 10px; padding: 12px; border: 1px solid var(--jb-border); border-radius: 10px; background: var(--jb-surface-2); }
+body:has(.mobile-shell) .network-speed .speed-history tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 10px; padding: 12px; border: 1px solid var(--jb-border); border-radius: 6px; background: var(--jb-surface-2); }
 body:has(.mobile-shell) .network-speed .speed-history td { min-width: 0; padding: 0; border: 0; font-size: 12px; }
 body:has(.mobile-shell) .network-speed .speed-history td:first-child,
 body:has(.mobile-shell) .network-speed .speed-history td:last-child { grid-column: 1 / -1; }

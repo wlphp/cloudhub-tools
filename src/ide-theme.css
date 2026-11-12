@@ -14,6 +14,8 @@
 .store-search-input > svg { position: absolute; left: 10px; color: var(--jb-muted); pointer-events: none; }
 .store-search-input input { width: 100%; padding-left: 32px; min-height: 34px; }
 .store-search-row .store-refresh { margin-left: auto; }
+.store-search-row .store-categories button,
+.store-search-row .store-refresh { box-sizing: border-box; height: 34px; min-height: 34px; padding: 0 16px; font-size: 12px; line-height: 1.4; white-space: nowrap; }
 .store-catalog button { display: inline-flex; gap: 6px; align-items: center; justify-content: center; }
 .store-filter-row { display: flex; align-items: center; gap: 12px; margin-top: 20px; }
 .store-filter-row > small { color: var(--jb-subtle); font-size: 12px; }

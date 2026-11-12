@@ -31,6 +31,66 @@ async function openStore(page: Page) {
   await page.getByRole("combobox", { name: "每页条数" }).selectOption("90");
 }
 
+test("certificate store page shares the host title and content boundaries", async ({ page }) => {
+  await openStore(page);
+  await page.locator('[data-plugin-entry="cloudhub.certificates"]').click();
+  const host = page.getByRole("region", { name: "HTTPS 证书 页面" });
+  await expect(host.locator(".certificate-panel")).toBeVisible();
+  await expect(host.getByRole("heading", { name: "HTTPS 证书", exact: true })).toHaveCount(1);
+  for (const width of [375, 768, 1024, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    const bounds = await host.evaluate(element => {
+      const head = element.querySelector(".plugin-page-head")!.getBoundingClientRect();
+      const panel = element.querySelector(".certificate-panel")!.getBoundingClientRect();
+      const body = element.querySelector(".certificate-page")!.getBoundingClientRect();
+      return {
+        left: Math.abs(head.left - panel.left),
+        right: Math.abs(head.right - panel.right),
+        bodyLeft: Math.abs(head.left - body.left),
+        overflow: element.scrollWidth - element.clientWidth,
+      };
+    });
+    expect(bounds.left).toBeLessThanOrEqual(1);
+    expect(bounds.right).toBeLessThanOrEqual(1);
+    expect(bounds.bodyLeft).toBeLessThanOrEqual(1);
+    expect(bounds.overflow).toBe(0);
+  }
+  await host.screenshot({ path: "test-results/certificate-store-page-alignment.png" });
+});
+
+for (const app of [
+  { id: "cloudhub.authenticator", title: "身份验证器", body: ".auth-panel", content: ".auth-toolbar" },
+  { id: "cloudhub.codex", title: "Codex 管理", body: ".codex-page", content: ".codex-config-bar" },
+]) test(`${app.title} store page shares the host title and content boundaries`, async ({ page }) => {
+  await openStore(page);
+  await page.evaluate(() => {
+    const bridge = (window as any).__TAURI_INTERNALS__;
+    const invoke = bridge.invoke;
+    bridge.invoke = async (command: string) => {
+      if (command === "authenticator_status") return { configured: true, unlocked: true, passwordRequired: false };
+      if (command === "codex_state") return { accounts: [], cliAvailable: false, desktopAvailable: false, profileHome: "", currentAccountId: null, canRestore: false };
+      if (command === "codex_gateway_state") return { running: false, address: null, accountIds: [], completed: 0, failed: 0, active: 0, settings: { loggingEnabled: false, strategy: "quota_first", cooldownSeconds: 60 }, configuredPort: 0 };
+      return invoke(command);
+    };
+  });
+  await page.locator(`[data-plugin-entry="${app.id}"]`).click();
+  const host = page.getByRole("region", { name: `${app.title} 页面` });
+  await expect(host.locator(app.content)).toBeVisible();
+  await expect(host.getByRole("heading", { level: 1 })).toHaveCount(1);
+  if (app.id === "cloudhub.authenticator") await expect(host.getByRole("heading", { name: "验证器", exact: true })).toHaveCount(0);
+  for (const width of [375, 768, 1024, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    const bounds = await host.evaluate((element, app) => {
+      const head = element.querySelector(".plugin-page-head")!.getBoundingClientRect();
+      const body = element.querySelector(app.body)!.getBoundingClientRect();
+      const content = element.querySelector(app.content)!.getBoundingClientRect();
+      return [Math.abs(head.left - body.left), Math.abs(head.right - body.right), Math.abs(head.left - content.left), Math.abs(head.right - content.right)];
+    }, app);
+    for (const difference of bounds) expect(difference).toBeLessThanOrEqual(1);
+  }
+  await host.screenshot({ path: `test-results/${app.id}-store-alignment.png` });
+});
+
 test("every plugin defaults to opening as a page", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await openStore(page);

@@ -416,11 +416,11 @@ export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm, r
                     <tr key={row.id}>
                       <td>
                         <strong>{row.primaryDomain}</strong>
-                        <CertificateDomains domains={row.domains} title={row.primaryDomain} />
+                        <CertificateDomains domains={row.domains} title={row.primaryDomain} compact />
                         {row.sourceSites?.map(site => <div key={site.id}><small className="asset-subline">{site.panelName} · 站点 {site.siteName}</small><CertificateDomains domains={site.siteDomains} title={`${site.panelName} · ${site.siteName}`} /></div>)}
                       </td>
                       <td><span className={`certificate-source-label source-${certificateSource(row)}`}>{sourceLabels[certificateSource(row)]}</span>{providerLabels[row.provider] && <small className="asset-subline">{providerLabels[row.provider]}</small>}</td>
-                      <td>{row.issuer || "—"}</td>
+                      <td>{providerLabels[row.issuer || ""] || row.issuer || "—"}</td>
                       <td>
                         <div>
                           {date(row.notBefore)}
