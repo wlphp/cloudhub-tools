@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { runningInTauri, runningOnPhone } from "../platform/api";
 
 const headerSelector = ":scope > header, :scope > .modal-head, :scope > .detail-toolbar, :scope > .terminal-quick-dialog-head, :scope > .terminal-connect-card-head, :scope > .frp-editor-header, :scope > .flow-details-header, :scope > .certificate-dialog-header, :scope > .auth-dialog-header";
 const headerMatchSelector = headerSelector.replace(/:scope > /g, "");
@@ -7,7 +8,7 @@ const interactiveSelector = "button, a, input, select, textarea, label, [content
 
 export function useDialogDragging() {
   useEffect(() => {
-    let active: { element: HTMLElement; header: HTMLElement; pointerId: number; x: number; y: number; left: number; top: number } | null = null;
+    let active: { element: HTMLElement; header: HTMLElement; pointerId: number; x: number; y: number; left: number; top: number; detachRequested: boolean } | null = null;
 
     const onPointerDown = (event: PointerEvent) => {
       if (event.button !== 0 || !(event.target instanceof Element)) return;
@@ -22,7 +23,8 @@ export function useDialogDragging() {
       }
       if (!header.contains(event.target)) return;
       const rect = element.getBoundingClientRect();
-      active = { element, header, pointerId: event.pointerId, x: event.clientX, y: event.clientY, left: rect.left, top: rect.top };
+      active = { element, header, pointerId: event.pointerId, x: event.clientX, y: event.clientY, left: rect.left, top: rect.top, detachRequested: false };
+      header.setPointerCapture(event.pointerId);
       element.style.position = "fixed";
       element.style.margin = "0";
       element.style.transform = "none";
@@ -38,6 +40,14 @@ export function useDialogDragging() {
       if (!active || event.pointerId !== active.pointerId) return;
       const { element, x, y, left, top } = active;
       const rect = element.getBoundingClientRect();
+      const proposedLeft = left + event.clientX - x;
+      const proposedTop = top + event.clientY - y;
+      if (runningInTauri && !runningOnPhone && !active.detachRequested && element.closest("[data-shared-dialog-host]") &&
+          Math.hypot(event.clientX - x, event.clientY - y) > 12 &&
+          (proposedLeft < -32 || proposedTop < -32 || proposedLeft + rect.width > window.innerWidth + 32 || proposedTop + rect.height > window.innerHeight + 32)) {
+        active.detachRequested = true;
+        element.dispatchEvent(new CustomEvent("cloudhub-dialog-detach", { bubbles: true, detail: { x: event.screenX - (x - left), y: event.screenY - (y - top) } }));
+      }
       const nextLeft = Math.min(Math.max(8, left + event.clientX - x), Math.max(8, window.innerWidth - Math.min(rect.width, window.innerWidth) - 8));
       const nextTop = Math.min(Math.max(8, top + event.clientY - y), Math.max(8, window.innerHeight - Math.min(rect.height, window.innerHeight) - 8));
       element.style.left = `${nextLeft}px`;
@@ -47,6 +57,7 @@ export function useDialogDragging() {
     const onPointerUp = (event: PointerEvent) => {
       if (!active || event.pointerId !== active.pointerId) return;
       active.header.classList.remove("dialog-dragging-header");
+      if (active.header.hasPointerCapture(event.pointerId)) active.header.releasePointerCapture(event.pointerId);
       active = null;
     };
 

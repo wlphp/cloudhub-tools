@@ -43,6 +43,20 @@ export async function regions(accountId) {
   return arr(data, ["Regions", "Region"]).map((item) => item.RegionId).filter(Boolean);
 }
 
+function swasInstance(item) {
+  const systemDisk = Array.isArray(item.Disks) ? item.Disks.find(disk => disk?.DiskType === "system") : undefined;
+  return { ...item,
+    Cpu: item.ResourceSpec?.Cpu ?? item.Cpu,
+    MemoryInGB: item.ResourceSpec?.Memory ?? item.MemoryInGB,
+    Bandwidth: item.ResourceSpec?.Bandwidth ?? item.Bandwidth,
+    SystemDiskSize: systemDisk?.Size ?? item.ResourceSpec?.DiskSize ?? item.SystemDiskSize,
+    PrivateIpAddress: item.InnerIpAddress ?? item.PrivateIpAddress,
+    CreateTime: item.CreationTime ?? item.CreateTime,
+    ImageName: item.Image?.ImageName ?? item.ImageName,
+    OSType: item.Image?.OsType ?? item.OSType,
+  };
+}
+
 export async function resources(accountId, type) {
   const items = [];
   const errors = [];
@@ -67,7 +81,7 @@ export async function resources(accountId, type) {
       else if (type === "swas") data = await rpc(accountId, `swas.${regionId}.aliyuncs.com`, "2020-06-01", "ListInstances", { RegionId: regionId, PageSize: "100" });
       else data = await rpc(accountId, type === "rds" ? "rds.aliyuncs.com" : "r-kvstore.aliyuncs.com", type === "rds" ? "2014-08-15" : "2015-01-01", type === "rds" ? "DescribeDBInstances" : "DescribeInstances", { RegionId: regionId, PageSize: "100" });
       const path = type === "ecs" ? ["Instances", "Instance"] : type === "swas" ? ["Instances"] : type === "rds" ? ["Items", "DBInstance"] : ["Instances", "KVStoreInstance"];
-      for (const item of arr(data, path)) items.push({ ...item, _region_id: regionId });
+      for (const item of arr(data, path)) items.push({ ...(type === "swas" ? swasInstance(item) : item), _region_id: regionId });
     } catch (error) { errors.push(`${regionId}: ${error.message}`); }
   }
   return { resource_type: type, items, errors, fetched_at: Date.now() };

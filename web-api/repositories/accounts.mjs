@@ -20,7 +20,7 @@ export function getAccountTypeAndRegion(id) {
 }
 
 export function getAccountForUpdate(id) {
-  return database().prepare("SELECT secret_ciphertext,credential_meta FROM cloud_accounts WHERE id=?").get(id) || null;
+  return database().prepare("SELECT secret_ciphertext,credential_meta,cloud_type,access_key_id FROM cloud_accounts WHERE id=?").get(id) || null;
 }
 
 export function saveAccountRecord({ id, values, now }) {

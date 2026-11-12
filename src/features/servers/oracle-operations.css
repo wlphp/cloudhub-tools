@@ -1,0 +1,7 @@
+.oracle-operation-dialog { width: min(900px, calc(100vw - 32px)); }
+.oracle-operation-dialog .api-log-meta { display: flex; flex-wrap: wrap; gap: 8px 20px; overflow-wrap: anywhere; }
+.oracle-operation-dialog pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 360px; overflow: auto; }
+.oracle-operation-log { border-bottom: 1px solid var(--jb-border); padding: 10px 0; }
+.oracle-operation-log summary { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; cursor: pointer; }
+.oracle-operation-log summary:focus-visible { outline: 2px solid var(--jb-accent); outline-offset: 2px; }
+.oracle-operation-log summary strong { flex: 1; }

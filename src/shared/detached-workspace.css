@@ -1,0 +1,11 @@
+.detachable-workspace-anchor,
+.detachable-workspace-content:not(.workspace-popout) { display: contents; }
+.detachable-workspace-content.workspace-popout { position: fixed; inset: 0; overflow: hidden; background: var(--jb-bg); color: var(--jb-text); }
+.workspace-popout .managed-servers-page.managed-servers-page { margin: 0; height: 100dvh; min-height: 0; }
+.terminal-host-title-row[data-workspace-drag],
+.terminal-session-header[data-workspace-drag] { cursor: grab; touch-action: none; user-select: none; }
+.terminal-session-header .terminal-tabs { align-self: stretch; }
+.terminal-workspace-popout { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 5px; height: 26px; padding: 0 8px; border: 1px solid var(--jb-border); border-radius: 3px; background: var(--jb-surface-2); color: var(--jb-muted); cursor: pointer; font-size: 12px; }
+.terminal-workspace-popout:hover { background: var(--jb-accent-soft); color: var(--jb-accent-strong); }
+.terminal-workspace-popout:focus-visible { outline: 2px solid var(--jb-accent); outline-offset: 2px; }
+.terminal-workspace-placeholder { display: flex; align-items: center; justify-content: center; gap: 12px; min-height: 200px; flex-wrap: wrap; color: var(--jb-muted); }

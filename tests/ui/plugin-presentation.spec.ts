@@ -218,7 +218,11 @@ test("page mode isolates browser Cookie dialog and restores its trigger", async 
   await page.keyboard.press("Tab");
   await expect(dialog.getByRole("button", { name: "最大化弹层" })).toBeFocused();
   await page.keyboard.press("Tab");
+  await expect(dialog.getByRole("button", { name: "移到独立窗口" })).toBeFocused();
+  await page.keyboard.press("Tab");
   await expect(dialog.getByRole("button", { name: "关闭 Cookie 数据" })).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(dialog.getByRole("button", { name: "移到独立窗口" })).toBeFocused();
   await page.keyboard.press("Shift+Tab");
   await expect(dialog.getByRole("button", { name: "最大化弹层" })).toBeFocused();
   await page.keyboard.press("Shift+Tab");

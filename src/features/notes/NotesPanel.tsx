@@ -42,6 +42,18 @@ function savedUniformHeight(): boolean {
   try { return localStorage.getItem(uniformHeightStorageKey) !== "0"; } catch { return true; }
 }
 
+// 正文检索词偏好：按笔记记住上次的检索词，重新打开时自动回填并定位首个命中。
+const viewerSearchStoragePrefix = "cloudhub.notes.viewerSearch.";
+function savedViewerSearch(noteId: number): string {
+  try { return localStorage.getItem(`${viewerSearchStoragePrefix}${noteId}`) ?? ""; } catch { return ""; }
+}
+function storeViewerSearch(noteId: number, query: string) {
+  try {
+    if (query) localStorage.setItem(`${viewerSearchStoragePrefix}${noteId}`, query);
+    else localStorage.removeItem(`${viewerSearchStoragePrefix}${noteId}`);
+  } catch { /* 存储不可用时仅本次会话生效 */ }
+}
+
 const emptyDraft = (group: string): NoteInput => ({
   title: "", body: "", group, tags: [], account: "", password: "", pinned: false, remindAt: null, remindRepeat: "none",
 });
@@ -51,7 +63,7 @@ const draftOf = (note: Note): NoteInput => ({
 });
 
 /** Shared dialog base: `.modal-backdrop` + `.modal.modal-form-layout` + `.modal-head` / `.modal-body` / `.modal-actions`. */
-function Dialog({ title, titleExtra, subtitle, icon, children, onClose, footer, onSubmit, wide = false, resizable = false, sizeStorageKey }: { title: string; titleExtra?: ReactNode; subtitle?: string; icon: ReactNode; children: ReactNode; onClose: () => void; footer?: ReactNode; onSubmit?: (event: FormEvent<HTMLFormElement>) => void; wide?: boolean; resizable?: boolean; sizeStorageKey?: string }) {
+function Dialog({ title, titleExtra, subtitle, icon, children, onClose, footer, onSubmit, wide = false, resizable, sizeStorageKey }: { title: string; titleExtra?: ReactNode; subtitle?: string; icon: ReactNode; children: ReactNode; onClose: () => void; footer?: ReactNode; onSubmit?: (event: FormEvent<HTMLFormElement>) => void; wide?: boolean; resizable?: boolean; sizeStorageKey?: string }) {
   return <SharedDialog title={title} titleExtra={titleExtra} subtitle={subtitle} icon={icon} className={wide ? "notes-dialog notes-dialog-wide" : "notes-dialog"} bodyClassName="notes-dialog-content" onClose={onClose} footer={footer} onSubmit={onSubmit} resizable={resizable} sizeStorageKey={sizeStorageKey}>{children}</SharedDialog>;
 }
 
@@ -94,7 +106,7 @@ function NoteEditor({ draft: initial, groups, onClose, onSaved }: EditorProps) {
     } finally { setBusy(false); }
   }
 
-  return <Dialog title={initial.id ? "编辑备忘录" : "新建备忘录"} subtitle="内容与凭据仅保存在本机数据库" icon={<StickyNote size={20} aria-hidden="true" />} onClose={onClose} onSubmit={event => void submit(event)}
+  return <Dialog sizeStorageKey="features/notes/notes-panel/note-editor" title={initial.id ? "编辑备忘录" : "新建备忘录"} subtitle="内容与凭据仅保存在本机数据库" icon={<StickyNote size={20} aria-hidden="true" />} onClose={onClose} onSubmit={event => void submit(event)}
     footer={<><button type="button" className="secondary" onClick={onClose} disabled={busy}>取消</button><button type="submit" className="primary" disabled={busy}>{busy ? "保存中…" : "保存"}</button></>}>
       <div className="notes-dialog-body">
         <label className="notes-field">标题<input value={draft.title} maxLength={200} required autoFocus onChange={event => patch({ title: event.target.value })} placeholder="例如：生产环境 SSH 账号" /></label>
@@ -140,9 +152,9 @@ function NoteViewer({ note, due, onClose, onSaved, setMessage }: { note: Note; d
   const [body, setBody] = useState(note.body);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(() => savedViewerSearch(note.id));
   const [active, setActive] = useState(0);
-  const [searchSeq, setSearchSeq] = useState(0);
+  const [searchSeq, setSearchSeq] = useState(() => (query ? 1 : 0));
   const [discardHint, setDiscardHint] = useState(false);
   const textRef = useRef<HTMLTextAreaElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -166,6 +178,8 @@ function NoteViewer({ note, due, onClose, onSaved, setMessage }: { note: Note; d
     if (editor) editor.style.height = `${height + 2}px`;
   }, []);
   useEffect(() => { syncHeight(); }, [body, syncHeight]);
+  // 记住该笔记上次的检索词，下次打开时自动回填并定位首个命中。
+  useEffect(() => { storeViewerSearch(note.id, query); }, [note.id, query]);
   useEffect(() => {
     const el = textRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
@@ -312,7 +326,7 @@ function GroupManager({ groups, onClose, onChanged }: { groups: string[]; onClos
     finally { setBusy(false); }
   }
 
-  return <Dialog title="管理分组" subtitle="删除分组时，其备忘录会迁移到目标分组" icon={<FolderCog size={20} aria-hidden="true" />} onClose={onClose}
+  return <Dialog sizeStorageKey="features/notes/notes-panel/group-manager" title="管理分组" subtitle="删除分组时，其备忘录会迁移到目标分组" icon={<FolderCog size={20} aria-hidden="true" />} onClose={onClose}
     onSubmit={event => { event.preventDefault(); void run(async () => { await notesClient.saveGroup(name); setName(""); }, "保存分组失败"); }}
     footer={<button type="button" className="secondary" onClick={onClose}>关闭</button>}>
       <div className="notes-dialog-body">
@@ -527,9 +541,9 @@ export function NotesPanel({ mobile = false, openSignal = 0 }: NotesPanelProps) 
       </article>)}
     </div>}
     {editor && <NoteEditor draft={editor} groups={groups} onClose={() => setEditor(null)} onSaved={() => { setEditor(null); setMessage("已保存备忘录"); void load(true); }} />}
-    {viewer && <NoteViewer note={viewer} due={dueIds.includes(viewer.id)} setMessage={setMessage} onClose={() => setViewerId(null)} onSaved={() => { setViewerId(null); setToast("保存成功"); void load(true); }} />}
+    {viewer && <NoteViewer key={viewer.id} note={viewer} due={dueIds.includes(viewer.id)} setMessage={setMessage} onClose={() => setViewerId(null)} onSaved={() => { setViewerId(null); setToast("保存成功"); void load(true); }} />}
     {managing && <GroupManager groups={groups} onClose={() => setManaging(false)} onChanged={() => load(true)} />}
-    {showTrash && <Dialog title="回收站" subtitle="删除的数据永久保留，可恢复或彻底删除" icon={<Trash2 size={20} aria-hidden="true" />} onClose={() => setShowTrash(false)}>
+    {showTrash && <Dialog sizeStorageKey="features/notes/notes-panel/notes-panel" title="回收站" subtitle="删除的数据永久保留，可恢复或彻底删除" icon={<Trash2 size={20} aria-hidden="true" />} onClose={() => setShowTrash(false)}>
       <RecycleBin
         busy={busy}
         kinds={[{ id: "notes", label: "备忘录", items: trashed.map(note => ({ id: String(note.id), title: note.title, detail: note.group, deletedAt: note.deletedAt ?? note.updatedAt })) } satisfies TrashKind]}

@@ -1,6 +1,11 @@
+import { DialogPage } from "./shared/DialogPage";
+import { CloudflareManager } from "./features/cloud/CloudflareManager";
+import { dnsProvider, usePublicNameservers } from "./features/domains/usePublicNameservers";
 import { DataImportReview } from "./features/accounts/DataImportReview";
 import { ConfirmDialog } from "./shared/ConfirmDialog";
 import { SharedDialog } from "./shared/SharedDialog";
+import { DialogDocument } from "./shared/DialogDocument";
+import { DetachedWorkspace } from "./shared/DetachedWorkspace";
 import { MemberAvatar, MemberDialog } from "./features/member/MemberDialog";
 import { memberClient, type Member } from "./platform/clients/member";
 import { MoreMenu } from "./shared/MoreMenu";
@@ -30,7 +35,6 @@ import { SecretField } from "./shared/SecretField";
 import { PaginationBar, PAGE_SIZE_OPTIONS, normalizePageSize } from "./shared/PaginationBar";
 import { useGridPageSize } from "./shared/useGridPageSize";
 import {
-  displayDnsServers,
   formatMoney,
   daysUntil,
   domainStatus,
@@ -78,7 +82,6 @@ import {
   Scissors,
   ArrowUp,
   Grid2X2,
-  ArrowUpCircle,
   ArrowDown,
   AlertTriangle,
   Apple,
@@ -219,6 +222,7 @@ type AccountResourceType = (typeof catalogAssetTypes)[number][0];
 type AccountResourceView = Exclude<View, "summary">;
 const accountResourceViews: readonly AccountResourceView[] = ["ecs", "domain", "oss", "rds", "redis", "swas", "esa"];
 const accountResourceActionLabels: Record<AccountResourceType, string> = {
+  workers: "Workers", pages: "Pages", tunnel: "Tunnel",
   ecs: "服务器",
   domain: "域名",
   oss: "对象存储",
@@ -239,8 +243,9 @@ function cloudProvider(value: string) {
   return getCloudProvider(value);
 }
 
-function maskAccessKeyId(accessKeyId: string) {
-  return accessKeyId.length > 10 ? `${accessKeyId.slice(0, 6)}****${accessKeyId.slice(-4)}` : accessKeyId || "-";
+function maskAccessKeyId(accessKeyId: string | null | undefined) {
+  const value = typeof accessKeyId === "string" ? accessKeyId : "";
+  return value.length > 10 ? `${value.slice(0, 6)}****${value.slice(-4)}` : value || "-";
 }
 
 function supportsResourceSync(account: Account) {
@@ -256,7 +261,7 @@ function syncAssetTypes(account: Account): ReadonlyArray<(typeof assetTypes)[num
 }
 const assetTypes = catalogAssetTypes;
 
-const bundledVersion = "0.1.134";
+const bundledVersion = "0.1.135";
 const isDevelopmentBuild = import.meta.env.DEV;
 
 const detachedTerminalHostId = (() => {
@@ -380,6 +385,7 @@ function App() {
   const [cloudFilterTypes, setCloudFilterTypes] = useState<string[]>([]);
   const [providerFilterOpen, setProviderFilterOpen] = useState(false);
   const [providerFilterPosition, setProviderFilterPosition] = useState<{ top: number; left: number } | null>(null);
+  const [cloudflareTarget, setCloudflareTarget] = useState<{ account: Account; kind?: string } | null>(null);
   const [domainKeyword, setDomainKeyword] = useState("");
   const [domainKeywordDraft, setDomainKeywordDraft] = useState("");
   const [domainSearchLoading, setDomainSearchLoading] = useState(false);
@@ -416,6 +422,8 @@ function App() {
   const esaRequestRef = useRef(0);
   const [esaCertificateSite, setEsaCertificateSite] = useState<{ account: Account; siteId: number } | null>(null);
   const [esaSiteKeyword, setEsaSiteKeyword] = useState("");
+  const [ossBucketKeyword, setOssBucketKeyword] = useState("");
+  const [ossBucketDomains, setOssBucketDomains] = useState<Record<string, string[]>>({});
   const [section, setSection] = useState<"home" | "monitorAlerts" | "accounts" | "resources" | "certificates" | "authenticator" | "flow" | "frp" | "codex" | "claude" | "panels" | "servers" | "favorites" | "logs" | "api_logs" | "settings" | "plugins" | "notes">(() => isDetachedTerminalWindow ? "servers" : "home");
   function openCatalogApplication(app: ApplicationDefinition) {
     if (app.section) setSection(app.section);
@@ -461,6 +469,8 @@ function App() {
   const [managedHostImporting, setManagedHostImporting] = useState(false);
   const managedHostImportInputRef = useRef<HTMLInputElement>(null);
   const [managedHostDialog, setManagedHostDialog] = useState(false);
+  const [pendingDetachedAsset, setPendingDetachedAsset] = useState<{ accountId: number; assetKey: string } | null>(null);
+  const [managedHostSaveError, setManagedHostSaveError] = useState("");
   const [serverAiCandidates, setServerAiCandidates] = useState<AiFields[] | null>(null);
   const [managedHostDraft, setManagedHostDraft] = useState<ManagedHostDraft>(emptyManagedHost);
   const [showManagedHostPassword, setShowManagedHostPassword] = useState(false);
@@ -525,7 +535,10 @@ function App() {
   const [favoriteAssetOrder, setFavoriteAssetOrder] = useState<string[]>(() => stringListFromValue(readLocalStorage(cloudHubFavoriteAssetOrderStorageKey) || undefined));
   const [assetDisplayNames, setAssetDisplayNames] = useState<Record<string, string>>(() => stringRecordFromValue(readLocalStorage(cloudHubAssetDisplayNamesStorageKey) || undefined));
   const [editingAssetNote, setEditingAssetNote] = useState<{ key: string; value: string; initial: string } | null>(null);
-  const [favoriteRefreshingKey, setFavoriteRefreshingKey] = useState<string | null>(null);
+  const [favoriteRefreshingKeys, setFavoriteRefreshingKeys] = useState<Set<string>>(new Set());
+  const favoriteRefreshRequests = useRef(new Map<string, ReturnType<typeof resourcesClient.sync>>());
+  const favoriteRefreshAccountQueues = useRef(new Map<number, Promise<unknown>>());
+  const favoriteRefreshPendingKeys = useRef(new Set<string>());
   const [draggedAssetKey, setDraggedAssetKey] = useState<string | null>(null);
   const [draggedFavoriteKey, setDraggedFavoriteKey] = useState<string | null>(null);
   const assetDragKeyRef = useRef<string | null>(null);
@@ -561,6 +574,8 @@ function App() {
   const [terminalTabMenu, setTerminalTabMenu] = useState<{ tabId: string; x: number; y: number } | null>(null);
   const duplicateReturnTabIdRef = useRef<string | null>(null);
   const [detachingTerminalTabId, setDetachingTerminalTabId] = useState<string | null>(null);
+  const [terminalWorkspaceDetached, setTerminalWorkspaceDetached] = useState(false);
+  const [terminalWorkspaceDocument, setTerminalWorkspaceDocument] = useState(document);
   const [sshError, setSshError] = useState("");
   const [sshConnecting, setSshConnecting] = useState(false);
   const [sshFiles, setSshFiles] = useState<SshFileEntry[]>([]);
@@ -1325,14 +1340,29 @@ function App() {
   }
   async function refreshFavoriteAsset(asset: LocalAsset, account: Account) {
     const key = assetFavoriteKey(asset);
-    if (favoriteRefreshingKey) return;
-    setFavoriteRefreshingKey(key);
+    if (favoriteRefreshPendingKeys.current.has(key)) return;
+    favoriteRefreshPendingKeys.current.add(key);
+    setFavoriteRefreshingKeys(current => new Set(current).add(key));
+    const requestKey = `${account.id}:${asset.resource_type}`;
     try {
-      const result = await resourcesClient.sync(account.id, [asset.resource_type]);
+      let request = favoriteRefreshRequests.current.get(requestKey);
+      if (!request) {
+        const previous = favoriteRefreshAccountQueues.current.get(account.id) || Promise.resolve();
+        request = previous.catch(() => {}).then(() => resourcesClient.sync(account.id, [asset.resource_type])).finally(() => {
+          if (favoriteRefreshRequests.current.get(requestKey) === request) favoriteRefreshRequests.current.delete(requestKey);
+          if (favoriteRefreshAccountQueues.current.get(account.id) === request) favoriteRefreshAccountQueues.current.delete(account.id);
+        });
+        favoriteRefreshRequests.current.set(requestKey, request);
+        favoriteRefreshAccountQueues.current.set(account.id, request);
+      }
+      const result = await request;
       await loadLocalAssets();
       setStatus(`${account.account_name} · ${assetTypes.find(([type]) => type === asset.resource_type)?.[1] || "资源"}已刷新${result.errors.length ? `，${result.errors.length} 项失败` : ""}`);
     } catch (error) { setStatus(`刷新服务器失败：${String(error)}`); }
-    finally { setFavoriteRefreshingKey(null); }
+    finally {
+      favoriteRefreshPendingKeys.current.delete(key);
+      setFavoriteRefreshingKeys(current => { const next = new Set(current); next.delete(key); return next; });
+    }
   }
   async function deletePanelConnection(panel: PanelConnection) {
     if (!(await requestConfirm(`确认移除面板“${panel.name}”吗？本机保存的 API 密钥也会一并移除。移除后可在系统设置的回收站恢复。`))) return;
@@ -1379,7 +1409,14 @@ function App() {
     } catch (error) { setStatus(`导入面板失败：${String(error)}`); }
     finally { setPanelImporting(false); }
   }
+  function closeManagedHostDialog() {
+    setManagedHostDialog(false);
+    setPendingDetachedAsset(null);
+    setManagedHostSaveError("");
+  }
   function openManagedHostDialog(host?: ManagedHost) {
+    setPendingDetachedAsset(null);
+    setManagedHostSaveError("");
     setShowManagedHostPassword(false);
     setManagedHostDraft(host ? {
       id: host.id, name: host.name, host: host.host, port: host.port, username: host.username, password: "",
@@ -1414,6 +1451,7 @@ function App() {
     event.preventDefault();
     if (!runningInTauri) { setStatus("服务器管理仅支持桌面客户端"); return; }
     setManagedHostSaving(true);
+    setManagedHostSaveError("");
     try {
       const normalizedDraft = { ...managedHostDraft, group_name: managedHostDraft.group_name.trim() };
       const saved = await serversClient.saveManaged(normalizedDraft);
@@ -1421,9 +1459,17 @@ function App() {
       if (normalizedDraft.group_name && !managedHostGroups.includes(normalizedDraft.group_name)) {
         setManagedHostGroupOrder((current) => current.includes(normalizedDraft.group_name) ? current : [...current, normalizedDraft.group_name]);
       }
-      setManagedHostDialog(false);
-      setStatus(managedHostDraft.id ? "服务器已更新" : "服务器已加入管理，点击刷新状态完成首次探测");
-    } catch (error) { setStatus(`保存服务器失败：${String(error)}`); }
+      closeManagedHostDialog();
+      if (pendingDetachedAsset && normalizedDraft.source_account_id === pendingDetachedAsset.accountId && normalizedDraft.source_asset_key === pendingDetachedAsset.assetKey) {
+        openDetachedTerminalWindow(saved.id, saved.name);
+      } else {
+        setStatus(managedHostDraft.id ? "服务器已更新" : "服务器已加入管理，点击刷新状态完成首次探测");
+      }
+    } catch (error) {
+      const message = `保存服务器失败：${platformErrorMessage(error)}`;
+      setManagedHostSaveError(message);
+      setStatus(message);
+    }
     finally { setManagedHostSaving(false); }
   }
   async function probeManagedHost(id: number) {
@@ -1703,17 +1749,14 @@ function App() {
     if (!runningInTauri) { setStatus("远程连接仅支持桌面客户端"); return; }
     const payload = asset.payload || {};
     const defaultHost = firstAddress(payload.PublicIpAddress || payload.PublicAddresses || payload.PublicIp || payload.InternetIp || payload.EipAddress);
-    const platform = remotePlatformFromPayload(payload);
     const linkedHost = managedHosts.find((host) => (host.source_account_id === account.id && host.source_asset_key === asset.asset_key) || host.host === defaultHost);
-    let hostId = linkedHost?.id;
-    if (!hostId) {
-      try {
-        const saved = await serversClient.saveManaged({ ...emptyManagedHost, name: String(payload.InstanceName || asset.asset_key), host: defaultHost, platform, port: platform === "windows" ? 3389 : 22, username: platform === "windows" ? "administrator" : "root", group_name: account.group_name || "", source_account_id: account.id, source_asset_key: asset.asset_key, password: "", private_key: "", key_passphrase: "", auth_method: "password", tags: "", remark: `来源：${account.account_name} / ${asset.resource_type}` });
-        hostId = saved.id;
-        setManagedHosts((current) => [...current, saved]);
-      } catch { /* save fallback */ }
+    if (linkedHost) {
+      openDetachedTerminalWindow(linkedHost.id, String(payload.InstanceName || asset.asset_key));
+      return;
     }
-    if (hostId) openDetachedTerminalWindow(hostId, String(payload.InstanceName || asset.asset_key));
+    // 首次连接需要先配置凭据；不能用空密码保存后吞掉失败。
+    openTerminalConfiguration(asset, account);
+    setPendingDetachedAsset({ accountId: account.id, assetKey: asset.asset_key });
   }
   async function detachTerminalTab(tab: TerminalWorkspaceTab) {
     if (!runningInTauri || !tab.target.managedHostId) {
@@ -2070,6 +2113,8 @@ function App() {
     document.addEventListener("pointercancel", cancelDrag, { once: true });
   }
   function openTerminalConfiguration(asset: LocalAsset, account: Account, host?: ManagedHost) {
+    setPendingDetachedAsset(null);
+    setManagedHostSaveError("");
     const payload = asset.payload || {};
     if (host) {
       openManagedHostDialog(host);
@@ -2458,6 +2503,7 @@ function App() {
   }
 
   async function openCachedSummary(account: Account) {
+    if (account.cloud_type === "cloudflare") { setCloudflareTarget({ account }); setMoreId(null); return; }
     const startedAt = Date.now();
     setMoreId(null);
     setActive({ account, view: "summary", source: "cache" });
@@ -2476,6 +2522,7 @@ function App() {
   }
 
   async function openCachedView(account: Account, view: Exclude<View, "summary">) {
+    if (account.cloud_type === "cloudflare") { setCloudflareTarget({ account, kind: view }); setMoreId(null); return; }
     const startedAt = Date.now();
     setMoreId(null);
     setActive({ account, view, source: "cache" });
@@ -2500,6 +2547,7 @@ function App() {
   }
 
   function openAccountResource(account: Account, resourceType: AccountResourceType) {
+    if (account.cloud_type === "cloudflare") { setCloudflareTarget({ account, kind: resourceType }); setMoreId(null); return; }
     if (accountResourceViews.includes(resourceType as AccountResourceView)) {
       void openCachedView(account, resourceType as AccountResourceView);
       return;
@@ -2962,7 +3010,7 @@ function App() {
         ...normalizedDraft,
         access_key_id: normalizedDraft.access_key_id || (normalizedDraft.cloud_type === "vultr" ? normalizedDraft.account_name : ""),
         group_name: normalizedDraft.group_name || null,
-        region_id: normalizedDraft.region_id || null,
+        region_id: normalizedDraft.cloud_type === "cloudflare" ? "global" : normalizedDraft.region_id || null,
         remark: normalizedDraft.remark || null,
         access_key_secret: normalizedDraft.access_key_secret || null,
         credential_meta: normalizedDraft.cloud_type === "oracle" ? JSON.stringify({ tenancy_ocid: normalizedDraft.tenancy_ocid, key_fingerprint: normalizedDraft.key_fingerprint }) : normalizedDraft.cloud_type === "azure" ? JSON.stringify({ tenant_id: normalizedDraft.tenant_id, subscription_id: normalizedDraft.subscription_id }) : normalizedDraft.cloud_type === "gcp" ? JSON.stringify({ project_id: normalizedDraft.project_id }) : null,
@@ -3148,6 +3196,8 @@ function App() {
       }),
     [resources, domainKeyword],
   );
+  const publicDns = usePublicNameservers(active?.view === "domain" ? (resources?.items || []).map(item => String(item.DomainName || "")) : [], resources?.fetched_at || 0);
+
   const summaryPanel = (
     <div className="summary-reference">
       <div className="server-toolbar summary-source-toolbar">
@@ -3481,25 +3531,33 @@ function App() {
       )}
     </div>
   );
+  const ossItems = resources?.items || [];
+  const ossKeyword = ossBucketKeyword.trim().toLocaleLowerCase();
+  const ossVisibleItems = ossKeyword ? ossItems.filter((item) => {
+    const key = `${active?.account.id}:${String(item.Name || "")}`;
+    const domains = ossBucketDomains[key];
+    const matches = [item.Name, item.ExtranetEndpoint, item.IntranetEndpoint, item.Endpoint, item.Cname, item.Cnames, item.Domain, item.DomainName, ...(domains || [])]
+      .some((value) => String(value || "").toLocaleLowerCase().includes(ossKeyword));
+    return matches || !Object.prototype.hasOwnProperty.call(ossBucketDomains, key);
+  }) : ossItems;
   const ossPanel = (
     <div className="oss-reference">
       <div className="server-toolbar">
         <span>对象存储桶列表</span>
+        <label className="oss-bucket-search"><Search size={15} aria-hidden="true" /><input aria-label="搜索存储桶名称或域名" value={ossBucketKeyword} onChange={(event) => setOssBucketKeyword(event.target.value)} placeholder="搜索桶名称或域名" />{ossBucketKeyword && <button type="button" aria-label="清除搜索" onClick={() => setOssBucketKeyword("")}><X size={14} /></button>}</label>
+        <span className="bucket-list-count">显示 <strong>{ossVisibleItems.length}</strong> / {ossItems.length} 个存储桶</span>
       </div>
-      <div className="server-summary">
-        <span>
-          存储桶总数：<strong>{resources?.items.length || 0}</strong>
-        </span>
-      </div>
-      {(resources?.items || []).length === 0 ? (
+      {ossItems.length === 0 ? (
         <div className="detail-empty">
           <Cloud size={36} />
           暂无对象存储桶
         </div>
+      ) : ossVisibleItems.length === 0 ? (
+        <div className="detail-empty">没有匹配的存储桶或域名，请尝试其他关键词。</div>
       ) : (
         <div className="oss-grid">
           <Suspense fallback={<div className="detail-empty">正在加载对象存储管理模块…</div>}>
-            {resources!.items.map((item, index) => (
+            {ossVisibleItems.map((item, index) => (
               <BucketCard
                 account={active?.account!}
                 item={item}
@@ -3508,6 +3566,7 @@ function App() {
                 onQuickActionOpened={() => setOssQuickTool(null)}
                 onConfirm={requestConfirm}
                 onPrompt={requestPrompt}
+                onDomainsLoaded={(domains) => setOssBucketDomains((previous) => ({ ...previous, [`${active?.account.id}:${String(item.Name || "")}`]: domains }))}
               />
             ))}
           </Suspense>
@@ -3603,7 +3662,7 @@ function App() {
           域名总数：<strong>{domainItems.length}</strong>
         </span>
         <span>
-          解析记录：
+          账户内记录：
           <strong className="blue-text">
             {domainItems.reduce(
               (sum, item) => sum + Number(item.RecordCount || 0),
@@ -3654,7 +3713,9 @@ function App() {
         domainItems.map((item, index) => {
           const [status, statusClass] = domainStatus(item);
           const days = daysUntil(item.ExpirationDate);
-          const dns = displayDnsServers(item.DnsServers);
+          const publicEntry = publicDns.entries[String(item.DomainName || "")];
+          const dns = publicEntry?.servers?.join(", ") || "";
+          const provider = publicEntry?.servers ? dnsProvider(publicEntry.servers) : publicEntry?.error ? "DNS 未确认" : "NS 查询中…";
           return (
             <article
               className="domain-card"
@@ -3663,15 +3724,7 @@ function App() {
               <div className="domain-header">
                 <div className="domain-name">
                   ◉ {displayValue(item.DomainName)}
-                  {item.NotInDns ? (
-                    <span className="dns-tag dns-not-added">未添加DNS解析</span>
-                  ) : dns.includes("alidns") || dns.includes("hichina") ? (
-                    <span className="dns-tag dns-aliyun">
-                      {dns.includes("alidns") ? "阿里云DNS" : "万网DNS"}
-                    </span>
-                  ) : dns ? (
-                    <span className="dns-tag dns-other">第三方DNS</span>
-                  ) : null}
+                  <span className={`dns-tag ${provider === "阿里云 DNS" ? "dns-aliyun" : "dns-other"}`} title="根据公网 NS 查询识别；与域名注册商无关">{provider}</span>
                   {Boolean(item.DomainType) && (
                     <span className="dns-tag domain-type-tag">
                       {displayValue(item.DomainType)}
@@ -3729,31 +3782,32 @@ function App() {
                   </div>
                 )}
                 <div>
-                  <span>解析记录数：</span>
+                  <span>{active?.account.cloud_type === "aliyun" ? "阿里云记录数：" : "账户内记录数："}</span>
                   <b className="blue-text">
                     {displayValue(item.RecordCount || 0)} 条
                   </b>
                 </div>
-                {dns && (
-                  <div>
-                    <span>DNS服务器：</span>
-                    {dns}
-                  </div>
-                )}
+                <div title={publicEntry?.error || "来自公网 DNS 查询，与云账户托管区配置分开显示"}>
+                  <span>公网 NS：</span>
+                  {dns || (publicEntry?.error ? "查询失败，未确认" : "查询中…")}
+                </div>
+                {publicEntry?.error && <div className="error-list" role="alert">{publicEntry.error}</div>}
                 {Boolean(item.CreateTime) && (
                   <div>
-                    <span>DNS添加时间：</span>
+                    <span>托管区添加时间：</span>
                     {displayValue(item.CreateTime)}
                   </div>
                 )}
                 {Boolean(item.VersionCode) && (
                   <div>
-                    <span>DNS版本：</span>
+                    <span>账户 DNS 版本：</span>
                     {displayValue(item.VersionCode)}
                   </div>
                 )}
               </div>
+              {active?.account.cloud_type === "aliyun" && provider !== "阿里云 DNS" && <p className="security-tip">{publicEntry?.servers ? `公网 NS 识别为${provider}，下方仅管理阿里云内保留的解析配置，不代表公网生效记录。` : "公网 DNS 尚未确认，下方仅管理阿里云账户内的解析配置。"}</p>}
               <div className="domain-actions">
+                <button type="button" className="layui-btn" onClick={publicDns.refresh}><RefreshCw size={14} />刷新公网 NS</button>
                 <button
                   className="layui-btn layui-btn-normal"
                   onClick={() => {
@@ -3766,7 +3820,7 @@ function App() {
                     void loadDomainTool(tool);
                   }}
                 >
-                  解析管理
+                  {active?.account.cloud_type === "aliyun" ? "阿里云解析配置" : "账户解析配置"}
                 </button>
                 {active?.account.cloud_type === "aliyun" && <button
                   className="layui-btn"
@@ -3871,6 +3925,14 @@ function App() {
     return cloudByIp;
   }, [localAssets, accounts]);
   const panelGroups = useMemo(() => Array.from(new Set(panelConnections.map((panel) => panel.group_name || "未分组"))).sort(), [panelConnections]);
+  const panelGroupCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const panel of panelConnections) {
+      const group = panel.group_name || "未分组";
+      counts.set(group, (counts.get(group) || 0) + 1);
+    }
+    return counts;
+  }, [panelConnections]);
   const panelLocationTargets = useMemo(() => panelConnections.map(panel => ({ ip: panelAddress(panel.panel_url), name: panel.name })), [panelConnections]);
   const panelRegions = useMemo(() => {
     const byId = new Map(panelConnections.map(panel => [panel.id, locationRegion(ipLocations.entries.get(locationAddress(panelAddress(panel.panel_url)))?.data)]));
@@ -3938,6 +4000,7 @@ function App() {
   }
   const renderAssetActions = (asset: LocalAsset, account: Account | undefined) => {
     if (!account) return <span className="asset-action-muted">—</span>;
+    if (account.cloud_type === "cloudflare") return <div className="asset-action-buttons"><button type="button" className="table-action" onClick={() => setCloudflareTarget({ account, kind: asset.resource_type })}>管理 Cloudflare 资产</button></div>;
     if (account.cloud_type === "other") return <div className="asset-action-buttons">
       <button type="button" className="asset-cache-delete-button" onClick={() => void deleteLocalAsset(asset)}><Trash2 size={15} />删除记录</button>
     </div>;
@@ -3946,7 +4009,7 @@ function App() {
       <button className="asset-domain-log-button" onClick={() => openLocalDomainTool(asset, account, "logs")}>操作日志</button>
       <button className="asset-domain-whois-button" onClick={() => openLocalDomainTool(asset, account, "whois")}>WHOIS</button>
     </div>;
-    if (asset.resource_type === "oss" && !["volcengine", "ctyun", "oracle", "huawei", "baidu", "ucloud", "qiniu", "aws", "azure", "gcp", "jdcloud", "qingcloud", "ksyun"].includes(account.cloud_type)) return <div className="asset-action-buttons oss-asset-actions">
+    if (asset.resource_type === "oss" && !["cloudflare", "volcengine", "ctyun", "oracle", "huawei", "baidu", "ucloud", "qiniu", "aws", "azure", "gcp", "jdcloud", "qingcloud", "ksyun"].includes(account.cloud_type)) return <div className="asset-action-buttons oss-asset-actions">
       <button className="asset-oss-files-button" onClick={() => void openOssQuickTool(account, asset, "files")}>文件列表</button>
       <button className="asset-oss-stat-button" onClick={() => void openOssQuickTool(account, asset, "stat")}>容量统计</button>
     </div>;
@@ -4064,7 +4127,6 @@ function App() {
               <div>
                 <div className="brand-heading">
                   <strong>云枢工具箱</strong>
-                  {runningInTauri && updateState.phase === "available" && <button type="button" className="brand-update-button" aria-label={`发现新版本 v${updateState.version}`} title={`发现新版本 v${updateState.version}，点击更新`} onClick={() => void installUpdate()}><ArrowUpCircle size={16} /></button>}
                 </div>
                 <small>{t("本地多云资源管家")}</small>
               </div>
@@ -4129,12 +4191,12 @@ function App() {
           </div>
         </nav>
         {status && createPortal(<div className="toast-notice" role="status" aria-live="polite" aria-atomic="true">{status}</div>, document.body)}
-        {section === "home" && <DesktopHomePage accounts={accounts} assets={localAssets} applicationSettings={applicationSettings} onNavigate={setSection} onOpenSoftware={id => {
+        <DialogPage active={section === "home"}>{() => (<DesktopHomePage accounts={accounts} assets={localAssets} applicationSettings={applicationSettings} onNavigate={setSection} onOpenSoftware={id => {
           if (!id) { setStoreApplicationId(undefined); setSection("plugins"); return; }
           const app = sortedApplications(applicationSettings.preferences).find(item => item.id === id);
           if (app) openCatalogApplication(app);
-        }} />}
-        {section === "monitorAlerts" && <DesktopMonitorAlertsPage accounts={accounts} onNavigate={target => { if (target === "resources") void loadLocalAssets(); if (target === "panels") void loadPanelConnections(); setSection(target); }} />}
+        }} />)}</DialogPage>
+        <DialogPage active={section === "monitorAlerts"}>{() => (<DesktopMonitorAlertsPage accounts={accounts} onNavigate={target => { if (target === "resources") void loadLocalAssets(); if (target === "panels") void loadPanelConnections(); setSection(target); }} />)}</DialogPage>
         <div className={`account-section ${section === "accounts" ? "" : "section-hidden"}`}>
         <header className="page-header-stats">
           <div>
@@ -4473,7 +4535,7 @@ function App() {
           )}
           <PaginationBar page={accountPage} pageSize={pageSize} total={visibleAccounts.length} onPageChange={setAccountPage} onPageSizeChange={setPageSize} />
         </section>
-        {domainTool && <SharedDialog
+        {domainTool && <SharedDialog sizeStorageKey={`domain-tool:${domainTool.account.cloud_type}:${domainTool.kind}`}
           key={`${domainTool.account.id}:${domainTool.domain}:${domainTool.kind}`}
           className="resource-modal domain-tool-modal"
           backdropClassName="resource-modal-backdrop"
@@ -4495,8 +4557,10 @@ function App() {
         >
                 {domainTool.kind !== "whois" && (
                   <div className="domain-tool-toolbar">
+                    <div className="domain-tool-query">
                     {domainTool.kind === "dns" && (
                       <select
+                        aria-label="解析记录类型"
                         value={domainToolDraftType}
                         onChange={(event) =>
                           setDomainToolDraftType(event.target.value)
@@ -4512,6 +4576,7 @@ function App() {
                       </select>
                     )}
                     <input
+                      aria-label={domainTool.kind === "dns" ? "搜索主机记录" : "搜索日志关键词"}
                       value={domainToolDraftFilter}
                       onChange={(event) =>
                         setDomainToolDraftFilter(event.target.value)
@@ -4523,14 +4588,25 @@ function App() {
                       }
                     />
                     <button
-                      className="layui-btn layui-btn-sm"
+                      className="secondary domain-tool-search"
                       disabled={domainToolLoading}
                       onClick={searchDomainTool}
                     >
-                      <RefreshCw className={domainToolLoading ? "spin" : undefined} size={14} />
+                      <Search size={14} />
                       {domainToolLoading ? "查询中…" : "查询"}
                     </button>
+                    </div>
+                    {domainTool.kind === "dns" && (
+                      <span className="domain-tool-count">共 {Array.isArray(domainToolData?.items) ? domainToolData.items.length : 0} 条记录</span>
+                    )}
                     {domainTool.kind === "dns" && !["tencent", "volcengine", "ctyun", "oracle", "huawei", "baidu"].includes(domainTool.account.cloud_type) && (
+                      <>
+                        <button
+                          className="layui-btn dns-add-btn"
+                          onClick={() => void dnsAdd()}
+                        >
+                          <Plus size={14} /> 添加记录
+                        </button>
                       <div className="domain-tool-quick">
                         <span className="quick-add-label">快速添加</span>
                         {[
@@ -4548,20 +4624,8 @@ function App() {
                             {item.label}
                           </button>
                         ))}
-                        <button
-                          className="layui-btn layui-btn-normal dns-add-btn"
-                          onClick={() => void dnsAdd()}
-                        >
-                          ＋ 添加记录
-                        </button>
-                        <span className="domain-tool-count">
-                          共{" "}
-                          {Array.isArray(domainToolData?.items)
-                            ? domainToolData!.items.length
-                            : 0}{" "}
-                          条
-                        </span>
                       </div>
+                      </>
                     )}
                   </div>
                 )}
@@ -4801,7 +4865,7 @@ function App() {
             onSubmit={submitDnsEditor}
           />
         )}
-        {active && <SharedDialog
+        {active && <SharedDialog sizeStorageKey={`resource:${active.account.cloud_type}:${active.view}`}
           key={`${active.account.id}:${active.view}`}
           className="resource-modal"
           bodyClassName="resource-dialog-body"
@@ -4874,7 +4938,7 @@ function App() {
               )}
         </SharedDialog>}
         </div>
-        {section === "favorites" && (
+        <DialogPage active={section === "favorites"}>{() => ((
           <section className="favorites-page">
             <header className="page-header-stats">
               <div>
@@ -4916,15 +4980,15 @@ function App() {
                   {isServer && account
                     ? <FavoriteServerDetails asset={asset} account={account} onCopyIp={(address) => void copyAssetIp(address)} />
                     : <div className="favorite-card-details">{detailRows.map(([label, value]) => <div key={label}><span>{label}：</span><div className="favorite-detail-value"><strong title={String(value)}>{value}</strong>{label === "IP 地址" && value !== "-" && <button type="button" className="favorite-ip-copy" title="复制 IP 地址" aria-label="复制 IP 地址" onClick={() => void copyAssetIp(String(value))}><Copy size={14} /></button>}</div></div>)}</div>}
-                  <div className="favorite-card-meta"><span className={`favorite-resource-type ${asset.resource_type}`}>{assetTypes.find(([value]) => value === asset.resource_type)?.[1] || asset.resource_type}</span><span className="favorite-status">{status}</span>{isServer && account && <button type="button" className="favorite-status-refresh" title="刷新服务器状态" disabled={favoriteRefreshingKey !== null} onClick={() => void refreshFavoriteAsset(asset, account)}><RefreshCw size={13} className={favoriteRefreshingKey === assetKey ? "spin" : ""} />{favoriteRefreshingKey === assetKey ? "刷新中" : "刷新"}</button>}</div>
+                  <div className="favorite-card-meta"><span className={`favorite-resource-type ${asset.resource_type}`}>{assetTypes.find(([value]) => value === asset.resource_type)?.[1] || asset.resource_type}</span><span className="favorite-status">{status}</span>{isServer && account && <button type="button" className={`favorite-status-refresh${favoriteRefreshingKeys.has(assetKey) ? " is-refreshing" : ""}`} title="刷新服务器状态" aria-busy={favoriteRefreshingKeys.has(assetKey)} disabled={favoriteRefreshingKeys.has(assetKey)} onClick={() => void refreshFavoriteAsset(asset, account)}><RefreshCw size={13} className={favoriteRefreshingKeys.has(assetKey) ? "spin" : ""} />{favoriteRefreshingKeys.has(assetKey) ? "刷新中" : "刷新"}</button>}</div>
                   <div className="favorite-card-actions">{renderAssetActions(asset, account)}</div>
                 </article>;
               })}
             </div> : <div className="favorite-empty"><Star size={42} /><h3>{favoriteAssets.length ? "没有符合条件的收藏" : "还没有收藏资源"}</h3><p>{favoriteAssets.length ? "调整筛选条件后再试。" : "前往资源管理，点击操作列的星标即可收藏资源。"}</p><button className="secondary" onClick={() => { setSection("resources"); void loadLocalAssets(); }}>前往资源管理</button></div>}
             {visibleFavoriteAssets.length > 0 && <PaginationBar className="favorite-pagination" page={favoritePage} pageSize={pageSize} paginationPageSize={favoriteGridPagination.pageSize} total={visibleFavoriteAssets.length} onPageChange={setFavoritePage} onPageSizeChange={setPageSize} />}
           </section>
-        )}
-        {section === "panels" && (
+        ))}</DialogPage>
+        <DialogPage active={section === "panels"}>{() => ((
           <section className="panel-management-page">
             <header>
               <div><h1>面板管理</h1><p>统一绑定和管理多台宝塔或 aaPanel 面板；API 密钥仅加密保存在当前设备。</p></div>
@@ -4940,7 +5004,7 @@ function App() {
             <section className="managed-server-toolbar panel-management-toolbar">
               <div className="panel-toolbar-primary">
                 <label className="managed-host-search" title="搜索面板"><Search size={16} /><input aria-label="搜索面板" value={panelKeyword} onChange={(event) => setPanelKeyword(event.target.value)} placeholder="搜索面板名称、IP 地址或备注" /></label>
-                <select aria-label="面板分组" title="按分组筛选面板" value={panelGroup} disabled={panelSorting} onChange={(event) => setPanelGroup(event.target.value)}><option value="">全部分组</option>{panelGroups.map((group) => <option key={group} value={group}>{group}</option>)}</select>
+                <select className="panel-group-filter" aria-label="面板分组" title="按分组筛选面板，括号内为分组下的面板数量" value={panelGroup} disabled={panelSorting} onChange={(event) => setPanelGroup(event.target.value)}><option value="">全部分组（{panelConnections.length}）</option>{panelGroups.map((group) => <option key={group} value={group}>{group}（{panelGroupCounts.get(group) || 0}）</option>)}</select>
                 <select aria-label="面板状态" title="按在线状态筛选面板" value={panelStatusFilter} disabled={panelSorting} onChange={(event) => setPanelStatusFilter(event.target.value)}><option value="">全部状态</option><option value="online">在线</option><option value="offline">离线</option></select>
                 <button type="button" className={`secondary panel-filter-toggle${panelMetricFilterOpen || panelCpuFilter.trim() !== "" || panelDiskFilter.trim() !== "" ? " is-filtering" : ""}`} title="按 CPU / 磁盘使用率阈值筛选面板" aria-expanded={panelMetricFilterOpen} onClick={() => setPanelMetricFilterOpen((open) => { if (open) { setPanelCpuFilter(""); setPanelDiskFilter(""); } return !open; })}><SlidersHorizontal size={15} />资源筛选</button>
                 <button type="button" className="secondary" title="刷新所有面板状态" disabled={panelBatchRefreshing} onClick={() => void refreshAllPanelConnections()}><RefreshCw size={15} className={panelBatchRefreshing ? "spin" : ""} />{panelBatchRefreshing ? "刷新中" : "刷新"}</button>
@@ -4990,15 +5054,17 @@ function App() {
             })}</div></div> : <div className="managed-server-empty"><Monitor size={42} /><h3>{panelConnections.length ? "没有符合条件的面板" : "还没有绑定面板"}</h3><p>{panelConnections.length ? "调整搜索或筛选条件后再试。" : "添加面板 URL 与 API 密钥，验证成功后即可统一查看并快速进入面板。"}</p></div>}
             {visiblePanels.length > 0 && <PaginationBar page={panelPage} pageSize={pageSize} paginationPageSize={panelGridPagination.pageSize} total={visiblePanels.length} onPageChange={setPanelPage} onPageSizeChange={setPageSize} />}
           </section>
-        )}
-        {section === "servers" && (
+        ))}</DialogPage>
+        {(section === "servers" || terminalWorkspaceDetached) && (
+          <DetachedWorkspace enabled={!isDetachedTerminalWindow} visible={section === "servers"} onDetachedChange={setTerminalWorkspaceDetached} onDocumentChange={setTerminalWorkspaceDocument}>
+          {({ onPointerDown, action }) => <>
           <section className="managed-servers-page">
             <div ref={terminalWorkbenchRef} className={`terminal-workbench${isDetachedTerminalWindow ? " is-detached-workbench" : ""}`} style={{ gridTemplateColumns: isDetachedTerminalWindow ? "1fr" : `${terminalHostSidebarWidth}px minmax(0, 1fr)`, "--terminal-host-sidebar-width": isDetachedTerminalWindow ? "0px" : `${terminalHostSidebarWidth}px` } as CSSProperties}>
               {!isDetachedTerminalWindow && (
                 <>
                   <aside className="terminal-host-sidebar" aria-label="服务器列表">
                     <div className="terminal-host-header">
-                      <div className="terminal-host-title-row"><div className="terminal-host-heading">{terminalSidebarView === "hosts" ? <Server size={16} /> : <Terminal size={16} />}<strong>{terminalSidebarView === "hosts" ? "服务器" : "常用命令"}</strong><span>{terminalSidebarView === "hosts" ? visibleManagedHosts.length : terminalQuickCommands.length}</span></div><button type="button" className="terminal-sidebar-switch" aria-pressed={terminalSidebarView === "commands"} onClick={() => setTerminalSidebarView((view) => view === "hosts" ? "commands" : "hosts")}>{terminalSidebarView === "hosts" ? <><Terminal size={14} />常用命令</> : <><Server size={14} />服务器列表</>}</button></div>
+                      <div className="terminal-host-title-row" data-workspace-drag={!isDetachedTerminalWindow || undefined} onPointerDown={onPointerDown}><div className="terminal-host-heading">{terminalSidebarView === "hosts" ? <Server size={16} /> : <Terminal size={16} />}<strong>{terminalSidebarView === "hosts" ? "服务器" : "常用命令"}</strong><span>{terminalSidebarView === "hosts" ? visibleManagedHosts.length : terminalQuickCommands.length}</span></div><button type="button" className="terminal-sidebar-switch" aria-pressed={terminalSidebarView === "commands"} onClick={() => setTerminalSidebarView((view) => view === "hosts" ? "commands" : "hosts")}>{terminalSidebarView === "hosts" ? <><Terminal size={14} />常用命令</> : <><Server size={14} />服务器列表</>}</button></div>
                       {terminalSidebarView === "hosts" ? <div className="terminal-host-actions"><button type="button" className="terminal-toolbar-action" title="选择服务器导出（明文 JSON）" aria-label="导出服务器" disabled={!managedHosts.length} onClick={() => void exportManagedHosts()}><Download size={15} />导出</button><label className="terminal-toolbar-action terminal-import-button" title="导入服务器 JSON"><Upload size={15} />{managedHostImporting ? "导入中" : "导入"}<input ref={managedHostImportInputRef} type="file" accept="application/json,.json" disabled={managedHostImporting} onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void importManagedHosts(file); }} /></label><button type="button" className="terminal-toolbar-action" title="刷新服务器状态" aria-label="刷新服务器" onClick={() => void loadManagedHosts()}><RefreshCw size={16} />刷新</button></div> : null}
                     </div>
                     {terminalSidebarView === "commands" ? <TerminalQuickCommands commands={terminalQuickCommands} connected={!!sshSessionId} onChange={setTerminalQuickCommands} onInsert={(command, execute) => { const terminal = sshTerminalRef.current; if (!sshSessionId || !terminal) { setStatus("请先打开并连接 SSH 终端"); return; } terminal.paste(command + (execute ? "\r" : "")); terminal.focus(); }} /> : <>
@@ -5020,7 +5086,7 @@ function App() {
               )}
               <section className={`terminal-stage${detachedTerminalIsLoading ? " is-loading" : ""}`}>
                 {detachedTerminalIsLoading && <div className="terminal-stage-loading"><RefreshCw size={28} className="spin" /><strong>正在加载服务器…</strong><span>正在准备独立终端，请稍候</span></div>}
-                <div className="terminal-session-header">
+                <div className="terminal-session-header" data-workspace-drag={!isDetachedTerminalWindow || undefined} onPointerDown={onPointerDown}>
                 <div className="terminal-tabs" role="tablist" aria-label="SSH 终端标签">
                   {terminalTabs.map((tab) => {
                     const label = tab.target.managedHostId ? managedHosts.find((host) => host.id === tab.target.managedHostId)?.name || displayValue(tab.target.asset.payload.InstanceName || tab.target.asset.asset_key) : displayValue(tab.target.asset.payload.InstanceName || tab.target.asset.asset_key);
@@ -5028,6 +5094,7 @@ function App() {
                     return <div className={`terminal-tab${activeTab ? " active" : ""}${detachingTerminalTabId === tab.id ? " is-detaching" : ""}`} key={tab.id} role="presentation"><button type="button" className="terminal-tab-select" role="tab" aria-selected={activeTab} title={`${label} · 拖出可分离窗口`} onContextMenu={(event) => { event.preventDefault(); setTerminalTabMenu({ tabId: tab.id, x: Math.max(8, Math.min(event.clientX, window.innerWidth - 184)), y: Math.max(8, Math.min(event.clientY, window.innerHeight - 150)) }); }} onPointerDown={(event) => startTerminalTabDrag(event, tab.id)} onPointerMove={(event) => moveTerminalTabDrag(event, tab)} onPointerUp={endTerminalTabDrag} onPointerCancel={endTerminalTabDrag} onClick={() => { if (terminalTabSuppressClickRef.current === tab.id) { terminalTabSuppressClickRef.current = null; return; } activateTerminalTab(tab); }}><i aria-hidden="true" /><span>{label}</span></button><button type="button" className="terminal-tab-detach" title={`分离 ${label}`} aria-label={`分离 ${label}`} onClick={(event) => { event.stopPropagation(); void detachTerminalTab(tab); }}><ExternalLink size={13} /></button><button type="button" className="terminal-tab-close" title={`关闭 ${label}`} aria-label={`关闭 ${label}`} onClick={() => void closeTerminalTab(tab.id)}><X size={14} /></button></div>;
                   })}
                 </div>
+                {action}
                 <AiAssistButton task="diagnose" title="AI 分析选中输出" disabled={!sshSessionId} text={()=>redactAiContext(sshTerminalRef.current?.getSelection()||"",auditSecretsRef.current)} />
                 <span className="ssh-terminal-theme">
                   <button type="button" className="ssh-terminal-command" title="终端配色" aria-label="终端配色" aria-haspopup="menu" aria-expanded={terminalThemeMenuOpen} onClick={() => setTerminalThemeMenuOpen((value) => !value)}><Palette size={16} /></button>
@@ -5042,14 +5109,16 @@ function App() {
               </section>
             </div>
           </section>
+          </>}
+          </DetachedWorkspace>
         )}
-        {section === "servers" && sshTarget && !sshSessionId && (
-          <SharedDialog title={`连接 ${displayValue(sshTarget.asset.payload.InstanceName || sshTarget.asset.asset_key)}`} eyebrow={sshPlatform === "windows" ? "REMOTE DESKTOP" : "SSH CONNECTION"} icon={<Terminal size={18} />} className="terminal-connect-card" closeLabel="关闭连接" onClose={() => void closeSshClient()} onSubmit={(event) => { event.preventDefault(); void connectSshClient(); }} footerClassName="terminal-connect-actions" footer={<>{sshPlatform === "linux" ? <button type="button" className="secondary" disabled={sshTesting || sshConnecting} onClick={() => void testSshConnection()}>{sshTesting ? "测试中…" : "测试连接"}</button> : <span />}<button type="button" className="secondary" onClick={() => void closeSshClient()}>取消</button><button type="submit" className="primary" disabled={sshTesting || sshConnecting}>{sshConnecting ? (sshPlatform === "windows" ? "启动中…" : "连接中…") : sshPlatform === "windows" ? "打开远程桌面" : "连接"}</button></>}>
+        {(section === "servers" || terminalWorkspaceDetached) && sshTarget && !sshSessionId && (
+          <DialogDocument.Provider value={terminalWorkspaceDocument}><SharedDialog sizeStorageKey="app:terminal-connection" title={`连接 ${displayValue(sshTarget.asset.payload.InstanceName || sshTarget.asset.asset_key)}`} eyebrow={sshPlatform === "windows" ? "REMOTE DESKTOP" : "SSH CONNECTION"} icon={<Terminal size={18} />} className="terminal-connect-card" closeLabel="关闭连接" onClose={() => void closeSshClient()} onSubmit={(event) => { event.preventDefault(); void connectSshClient(); }} footerClassName="terminal-connect-actions" footer={<>{sshPlatform === "linux" ? <button type="button" className="secondary" disabled={sshTesting || sshConnecting} onClick={() => void testSshConnection()}>{sshTesting ? "测试中…" : "测试连接"}</button> : <span />}<button type="button" className="secondary" onClick={() => void closeSshClient()}>取消</button><button type="submit" className="primary" disabled={sshTesting || sshConnecting}>{sshConnecting ? (sshPlatform === "windows" ? "启动中…" : "连接中…") : sshPlatform === "windows" ? "打开远程桌面" : "连接"}</button></>}>
               <div className="terminal-connect-fields"><div className="ssh-choice-row ssh-platform-row"><span>操作系统</span><div className="ssh-segmented"><button type="button" className={sshPlatform === "linux" ? "active" : ""} onClick={() => void setRemotePlatform("linux")}>Linux</button><button type="button" className={sshPlatform === "windows" ? "active" : ""} onClick={() => void setRemotePlatform("windows")}>Windows</button></div></div><label>主机<input value={sshHost} onChange={(event) => setSshHost(event.target.value)} placeholder="公网 IP 或域名" autoFocus /></label><label>{sshPlatform === "windows" ? "RDP 端口" : "SSH 端口"}<input type="number" min={1} max={65535} value={sshPort} onChange={(event) => setSshPort(Number(event.target.value) || (sshPlatform === "windows" ? 3389 : 22))} /></label><label className="terminal-connect-user">{sshPlatform === "windows" ? "RDP 用户名" : "SSH 用户名"}<input value={sshUsername} onChange={(event) => setSshUsername(event.target.value)} placeholder={sshPlatform === "windows" ? "administrator" : "root"} /></label><label className="terminal-connect-password">{sshPlatform === "windows" ? "密码（可选）" : "密码"}<span className="ssh-password-wrap"><input type={showSshPassword ? "text" : "password"} value={sshPassword} onChange={(event) => setSshPassword(event.target.value)} placeholder={sshPlatform === "windows" ? (sshPasswordSaved ? "已保存本地记录" : "由 Windows 远程桌面验证") : (sshPasswordSaved ? "已保存密码，可直接连接" : "请输入 SSH 密码")} autoComplete="current-password" /><button type="button" className="ssh-password-toggle" disabled={sshPasswordRevealing} title={sshPasswordRevealing ? "正在读取密码" : showSshPassword ? "隐藏密码" : sshPasswordSaved ? "读取当前保存密码" : "显示密码"} aria-label={sshPasswordRevealing ? "正在读取密码" : showSshPassword ? "隐藏密码" : sshPasswordSaved ? "读取当前保存密码" : "显示密码"} onClick={() => void toggleSshPasswordVisibility()}>{sshPasswordRevealing ? <RefreshCw size={16} className="spin" /> : showSshPassword ? <EyeOff size={17} /> : <Eye size={17} />}</button></span></label></div>
               {sshError && <div className="error-list ssh-error">{sshError}</div>}
-          </SharedDialog>
+          </SharedDialog></DialogDocument.Provider>
         )}
-        {section === "resources" && (
+        <DialogPage active={section === "resources"}>{() => ((
           <section className="local-resource-page">
             <header className="page-header-stats">
               <div>
@@ -5075,20 +5144,20 @@ function App() {
                   const accessKey = account?.access_key_id || "";
                   const maskedKey = accessKey.length > 8 ? `${accessKey.slice(0, 4)}****${accessKey.slice(-4)}` : accessKey || "-";
                   const expiry = payload.ExpiredTime || payload.ExpirationTime || payload.ExpirationDate || payload.ExpirationTime || payload.ExpireTime || payload.ExpireDate || payload.EndTime;
-                  const domainActions = asset.resource_type === "domain" && account && !["oracle", "huawei", "baidu", "ucloud", "aws", "azure", "gcp", "jdcloud", "qingcloud", "ksyun"].includes(account.cloud_type) ? (
+                  const domainActions = account?.cloud_type === "cloudflare" ? renderAssetActions(asset, account) : asset.resource_type === "domain" && account && !["oracle", "huawei", "baidu", "ucloud", "aws", "azure", "gcp", "jdcloud", "qingcloud", "ksyun"].includes(account.cloud_type) ? (
                     <div className="asset-action-buttons domain-asset-actions">
                       <button type="button" className="asset-domain-dns-button" title="打开域名解析管理" onClick={() => openLocalDomainTool(asset, account, "dns")}>解析管理</button>
                       <button type="button" className="asset-domain-log-button" title="查看域名操作日志" onClick={() => openLocalDomainTool(asset, account, "logs")}>操作日志</button>
                       <button type="button" className="asset-domain-whois-button" title="查看 WHOIS 信息" onClick={() => openLocalDomainTool(asset, account, "whois")}>WHOIS</button>
                     </div>
                   ) : null;
-                  const ossActions = asset.resource_type === "oss" && account && !["volcengine", "ctyun", "oracle", "huawei", "baidu", "ucloud", "qiniu", "aws", "azure", "gcp", "jdcloud", "qingcloud", "ksyun"].includes(account.cloud_type) ? (
+                  const ossActions = asset.resource_type === "oss" && account && !["cloudflare", "volcengine", "ctyun", "oracle", "huawei", "baidu", "ucloud", "qiniu", "aws", "azure", "gcp", "jdcloud", "qingcloud", "ksyun"].includes(account.cloud_type) ? (
                     <div className="asset-action-buttons oss-asset-actions">
                       <button type="button" className="asset-oss-files-button" title="查看对象文件列表" onClick={() => void openOssQuickTool(account, asset, "files")}>文件列表</button>
                       <button type="button" className="asset-oss-stat-button" title="查看对象存储容量统计" onClick={() => void openOssQuickTool(account, asset, "stat")}>容量统计</button>
                     </div>
                   ) : null;
-                  const serverActions = (asset.resource_type === "ecs" || asset.resource_type === "swas") ? renderAssetActions(asset, account) : null;
+                  const serverActions = (account?.cloud_type === "cloudflare" || asset.resource_type === "ecs" || asset.resource_type === "swas") ? renderAssetActions(asset, account) : null;
                   const assetNote = assetNotes[assetRowKey] || "";
                   return <tr key={`${asset.account_id}-${asset.resource_type}-${asset.asset_key}-${index}`} className={draggedAssetKey === assetRowKey ? "is-asset-dragging" : ""} data-asset-row-key={assetRowKey}>
                     <td className="asset-order-cell"><button type="button" className="asset-drag-handle" aria-label={`拖动排序 ${serverName}`} title="拖动排序" onPointerDown={(event) => startAssetDrag(event, assetRowKey)}><GripVertical size={17} /></button></td>
@@ -5107,15 +5176,16 @@ function App() {
               {visibleLocalAssets.length > 0 && <PaginationBar page={assetPage} pageSize={pageSize} total={visibleLocalAssets.length} onPageChange={setAssetPage} onPageSizeChange={setPageSize} />}
             </section>
           </section>
-        )}
+        ))}</DialogPage>
+        {cloudflareTarget && <CloudflareManager key={cloudflareTarget.account.id} account={cloudflareTarget.account} initialKind={cloudflareTarget.kind} onClose={() => setCloudflareTarget(null)} onChanged={loadLocalAssets} onConfirm={requestConfirm} />}
         {esaCertificateSite && <EsaCertificateDialog key={`${esaCertificateSite.account.id}:${esaCertificateSite.siteId}`} account={esaCertificateSite.account} siteId={esaCertificateSite.siteId} accounts={accounts} localAssets={localAssets} onClose={() => setEsaCertificateSite(null)} onStatus={setStatus} onConfirm={requestConfirm} />}
-        {section === "certificates" && <CertificatePanel accounts={accounts} localAssets={localAssets} onStatus={setStatus} onConfirm={requestConfirm} alertTarget={petCertificateTarget} onAlertTargetHandled={()=>setPetCertificateTarget(null)} />}
-        {section === "flow" && <FlowPanel />}
-        {section === "codex" && <CodexPanel />}
-        {section === "claude" && <section className="utility-page"><header><div><span className="eyebrow">AI 工具</span><h1>Claude 管理</h1><p>管理 Claude Code 供应商、模型配置与本地路由。</p></div></header><div className="claude-providers-dialog"><ClaudeProvidersPlugin /></div></section>}
-        {section === "authenticator" && <AuthenticatorPanel />}
-        {section === "frp" && <FrpPanel />}
-        {section === "logs" && (
+        <DialogPage active={section === "certificates"}>{() => (<CertificatePanel accounts={accounts} localAssets={localAssets} onStatus={setStatus} onConfirm={requestConfirm} alertTarget={petCertificateTarget} onAlertTargetHandled={()=>setPetCertificateTarget(null)} />)}</DialogPage>
+        <DialogPage active={section === "flow"}>{() => (<FlowPanel />)}</DialogPage>
+        <DialogPage active={section === "codex"}>{() => (<CodexPanel />)}</DialogPage>
+        <DialogPage active={section === "claude"}>{() => (<section className="utility-page"><header><div><span className="eyebrow">AI 工具</span><h1>Claude 管理</h1><p>管理 Claude Code 供应商、模型配置与本地路由。</p></div></header><div className="claude-providers-dialog"><ClaudeProvidersPlugin /></div></section>)}</DialogPage>
+        <DialogPage active={section === "authenticator"}>{() => (<AuthenticatorPanel />)}</DialogPage>
+        <DialogPage active={section === "frp"}>{() => (<FrpPanel />)}</DialogPage>
+        <DialogPage active={section === "logs"}>{() => ((
           <section className="utility-page operation-log-ai-scope">
             <header><div><span className="eyebrow">AUDIT TRAIL</span><h1>操作日志</h1><p>记录本机账号和资产管理操作，日志只保存在当前设备。</p></div><AiLogAnalysis scope=".operation-log-ai-scope .log-list" title="AI 分析选中操作日志" /></header>
             <section className="panel utility-panel"><div className="utility-toolbar log-toolbar"><input value={logFilter} onChange={(event) => setLogFilter(event.target.value)} placeholder="搜索账号、资源类型或操作" /><select value={logTypeFilter} onChange={(event) => setLogTypeFilter(event.target.value)}><option value="">全部资源类型</option>{assetTypes.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><select><option>全部操作状态</option><option>已完成</option></select><button className="secondary" onClick={() => { setLogFilter(""); setLogTypeFilter(""); }}>重置</button><button className="clear-log-button" onClick={() => void clearLogs("operation")}>清空日志</button></div><div className="log-list"><div className="log-head"><span>操作内容</span><span>资源类型</span><span>操作时间</span><span>状态</span></div>
@@ -5124,8 +5194,8 @@ function App() {
               {logRows.length > 0 && <PaginationBar page={logPage} pageSize={pageSize} total={logRows.length} onPageChange={setLogPage} onPageSizeChange={setPageSize} />}
             </div></section>
           </section>
-        )}
-        {section === "api_logs" && (
+        ))}</DialogPage>
+        <DialogPage active={section === "api_logs"}>{() => ((
           <section className="utility-page">
             <header><div><span className="eyebrow">API ACTIVITY</span><h1>API日志</h1><p>记录本机客户端发起的云 API 请求与结果；代理项显示选中的配置路径，NO_PROXY、系统代理或 VPN 仍可能影响实际链路。</p></div></header>
             <section className="panel utility-panel"><div className="utility-toolbar log-toolbar"><input value={logFilter} onChange={(event) => setLogFilter(event.target.value)} placeholder="搜索账号、接口或操作" />{accounts.length > 0 && <select aria-label="按账号筛选" title="按账号筛选" value={apiLogAccountId ?? ""} onChange={(event) => { setApiLogAccountId(event.target.value ? Number(event.target.value) : null); setApiLogPage(1); }}><option value="">全部账号</option>{accounts.map((account) => <option key={account.id} value={account.id}>{account.account_name}</option>)}</select>}<button className="secondary" onClick={() => { setLogFilter(""); setApiLogAccountId(null); setApiLogPage(1); }}>重置</button><button className="clear-log-button" onClick={() => void clearLogs("api")}>清空日志</button></div><div className="log-list"><div className="log-head api-log-head"><span aria-hidden="true" /><span>API操作</span><span>接口</span><span>操作时间</span><span>状态</span><span>详情</span></div>
@@ -5134,17 +5204,17 @@ function App() {
               {filteredApiLogs.length > 0 && <PaginationBar page={apiLogPage} pageSize={pageSize} total={filteredApiLogs.length} onPageChange={setApiLogPage} onPageSizeChange={setPageSize} />}
             </div></section>
           </section>
-        )}
-        {section === "plugins" && <OfficialPluginsPage key={storeApplicationId ?? "catalog"} initialPluginId={storeApplicationId} forceInitialPageMode={storeApplicationId !== undefined} applicationSettings={applicationSettings} accounts={accounts} localAssets={localAssets} onStatus={setStatus} onConfirm={requestConfirm} onOpenSection={target => setSection(target)} onReturnCatalog={() => setStoreApplicationId(undefined)} onLanConnect={(ip, platform, name) => {
+        ))}</DialogPage>
+        <DialogPage active={section === "plugins"}>{() => (<OfficialPluginsPage key={storeApplicationId ?? "catalog"} initialPluginId={storeApplicationId} forceInitialPageMode={storeApplicationId !== undefined} applicationSettings={applicationSettings} accounts={accounts} localAssets={localAssets} onStatus={setStatus} onConfirm={requestConfirm} onOpenSection={target => setSection(target)} onReturnCatalog={() => setStoreApplicationId(undefined)} onLanConnect={(ip, platform, name) => {
           const port = platform === "windows" ? 3389 : 22;
           const existing = managedHosts.find(host => host.host === ip && host.port === port && host.platform === platform);
           if (existing) { void openManagedHostSsh(existing); return; }
           setShowManagedHostPassword(false);
           setManagedHostDraft({ ...emptyManagedHost, name, host: ip, port, platform, username: platform === "windows" ? "administrator" : "root", group_name: "局域网", remark: "来自局域网设备扫描" });
           setManagedHostDialog(true);
-        }} />}
-        {section === "notes" && <NotesPanel />}
-        {showTrash && <SharedDialog title="回收站" subtitle="删除的数据永久保留，可恢复或彻底删除" icon={<Trash2 size={20} aria-hidden="true" />} className="trash-dialog" bodyClassName="trash-dialog-body" onClose={() => setShowTrash(false)}>
+        }} />)}</DialogPage>
+        <DialogPage active={section === "notes"}>{() => (<NotesPanel />)}</DialogPage>
+        {showTrash && <SharedDialog sizeStorageKey="app:trash" title="回收站" subtitle="删除的数据永久保留，可恢复或彻底删除" icon={<Trash2 size={20} aria-hidden="true" />} className="trash-dialog" bodyClassName="trash-dialog-body" onClose={() => setShowTrash(false)}>
             {trashGroups.loading ? <p className="recycle-bin-empty">正在读取回收站…</p> : <RecycleBin kinds={trashGroups_flat.map((group) => ({ id: group.kind, label: group.label, items: group.items.map((item) => ({ id: String(item.id), title: item.title, deletedAt: item.deletedAt })) }))} actions={trashActions.actions} busy={trashActions.busy} onClose={() => setShowTrash(false)}
               scrubDays={trashGroups.snapshot?.scrubDays}
               scrubbedNow={trashGroups.snapshot?.scrubbedNow}
@@ -5152,7 +5222,7 @@ function App() {
               onScrubNow={() => void trashActions.scrubNow()} />}
             {trashActions.error && <p className="notes-error" role="alert">{trashActions.error}</p>}
         </SharedDialog>}
-        {showMobileDownload && <SharedDialog title={t("手机端 App")} subtitle={t("扫码或在手机上打开仓库，即可下载手机端安装包。")} icon={<Smartphone size={20} aria-hidden="true" />} className="mobile-download-dialog" onClose={() => setShowMobileDownload(false)}>
+        {showMobileDownload && <SharedDialog sizeStorageKey="app:mobile-download" title={t("手机端 App")} subtitle={t("扫码或在手机上打开仓库，即可下载手机端安装包。")} icon={<Smartphone size={20} aria-hidden="true" />} className="mobile-download-dialog" onClose={() => setShowMobileDownload(false)}>
             <div className="mobile-download-grid">
               <section className="mobile-download-card">
                 <header><Smartphone size={15} aria-hidden="true" /><div><strong>{t("手机扫码下载")}</strong><p>{t("用手机相机扫码，直达 GitHub Releases 下载页。")}</p></div></header>
@@ -5222,7 +5292,7 @@ function App() {
               </div>
             </div>
           </div>, document.body)}
-        {section === "settings" && (
+        <DialogPage active={section === "settings"}>{() => ((
           <section className="utility-page">
             <header><div><span className="eyebrow">LOCAL PREFERENCES</span><h1>{t("系统设置")}</h1><p>{t("管理本地客户端的各项配置，让使用更高效，更便捷。")}</p></div></header>
             <div className="settings-tabs" role="tablist" aria-label={t("设置分类")}>
@@ -5282,9 +5352,9 @@ function App() {
               </section>
             )}
           </section>
-        )}
+        ))}</DialogPage>
         {panelDialog && (
-          <SharedDialog title={panelDraft.id ? "编辑面板" : "添加面板"} eyebrow="BT / AAPANEL API" className="panel-bind-modal" onSubmit={savePanelConnection} onClose={() => setPanelDialog(false)} closeLabel="关闭面板配置" closeDisabled={panelSaving} footer={<><button type="button" className="secondary" disabled={panelSaving} onClick={() => setPanelDialog(false)}>取消</button><button type="submit" className="primary" disabled={panelSaving}>{panelSaving ? "验证并保存中…" : panelDraft.id ? "验证并保存" : "绑定面板"}</button></>}>
+          <SharedDialog sizeStorageKey="app:panel-editor" title={panelDraft.id ? "编辑面板" : "添加面板"} eyebrow="BT / AAPANEL API" className="panel-bind-modal" onSubmit={savePanelConnection} onClose={() => setPanelDialog(false)} closeLabel="关闭面板配置" closeDisabled={panelSaving} footer={<><button type="button" className="secondary" disabled={panelSaving} onClick={() => setPanelDialog(false)}>取消</button><button type="submit" className="primary" disabled={panelSaving}>{panelSaving ? "验证并保存中…" : panelDraft.id ? "验证并保存" : "绑定面板"}</button></>}>
               <p className="security-tip">通过面板 API 验证并绑定。API 密钥将使用本机密钥加密保存，不会显示在面板列表中。</p>
               <AiAssistButton task="panel" title="AI 识别面板信息" disabled={panelSaving} current={{name:panelDraft.name,panel_url:panelDraft.panel_url,group_name:panelDraft.group_name,remark:panelDraft.remark}} onApply={result=>{const fields=panelAiFields(result.fields);setPanelDraft(current=>({...current,...fields}));}} />
               <label>名称<input required value={panelDraft.name} onChange={(event) => setPanelDraft((current) => ({ ...current, name: event.target.value }))} placeholder="例如：生产网站面板" autoFocus /></label>
@@ -5303,7 +5373,8 @@ function App() {
           </SharedDialog>
         )}
         {managedHostDialog && (
-          <SharedDialog title={managedHostDraft.id ? "编辑服务器" : "添加服务器"} eyebrow="MANAGED SERVER" className="managed-host-modal" onSubmit={saveManagedHost} onClose={() => setManagedHostDialog(false)} closeLabel="关闭服务器配置" closeDisabled={managedHostSaving} footer={<><button type="button" className="secondary" disabled={managedHostSaving} onClick={() => setManagedHostDialog(false)}>取消</button><button type="submit" className="primary" disabled={managedHostSaving}>{managedHostSaving ? "保存中…" : managedHostDraft.id ? "保存修改" : "加入服务器管理"}</button></>}>
+          <DialogDocument.Provider value={terminalWorkspaceDocument}><SharedDialog sizeStorageKey="app:managed-host-editor" title={pendingDetachedAsset ? "配置 SSH 连接" : managedHostDraft.id ? "编辑服务器" : "添加服务器"} subtitle={pendingDetachedAsset ? "首次连接请填写 SSH 密码或私钥，保存后自动打开独立终端窗口。" : undefined} eyebrow="MANAGED SERVER" className="managed-host-modal" onSubmit={saveManagedHost} onClose={closeManagedHostDialog} closeLabel="关闭服务器配置" closeDisabled={managedHostSaving} footer={<><button type="button" className="secondary" disabled={managedHostSaving} onClick={closeManagedHostDialog}>取消</button><button type="submit" className="primary" disabled={managedHostSaving}>{managedHostSaving ? "保存中…" : pendingDetachedAsset ? "保存并打开独立窗口" : managedHostDraft.id ? "保存修改" : "加入服务器管理"}</button></>}>
+              {managedHostSaveError && <p role="alert">{managedHostSaveError}</p>}
               <AiAssistButton task="server" title="AI 识别填写" disabled={managedHostSaving} current={{name:managedHostDraft.name,host:managedHostDraft.host,port:managedHostDraft.port,platform:managedHostDraft.platform,username:managedHostDraft.username,group_name:managedHostDraft.group_name,tags:managedHostDraft.tags,remark:managedHostDraft.remark}} onApplyItems={!managedHostDraft.id ? items => setServerAiCandidates(items) : undefined} onApply={({fields}) => {
                 if(fields.port!=null && (!Number.isInteger(Number(fields.port)) || Number(fields.port)<1 || Number(fields.port)>65535)) throw new Error("端口须为1～65535的整数");
                 if(fields.platform!=null && fields.platform!=="linux" && fields.platform!=="windows") throw new Error("操作系统须为linux或windows");
@@ -5313,17 +5384,17 @@ function App() {
               <label>服务器名称<input required value={managedHostDraft.name} onChange={(event) => setManagedHostDraft((current) => ({ ...current, name: event.target.value }))} placeholder="例如：生产 Web 01" autoFocus /></label>
               <div className="managed-host-choice"><span>操作系统</span><div className="ssh-segmented"><button type="button" className={managedHostDraft.platform === "linux" ? "active" : ""} onClick={() => setManagedHostDraft((current) => ({ ...current, platform: "linux", auth_method: "password", port: current.port === 3389 ? 22 : current.port, username: current.username === "administrator" ? "root" : current.username }))}>Linux</button><button type="button" className={managedHostDraft.platform === "windows" ? "active" : ""} onClick={() => setManagedHostDraft((current) => ({ ...current, platform: "windows", auth_method: "password", port: current.port === 22 ? 3389 : current.port, username: current.username === "root" ? "administrator" : current.username }))}>Windows</button></div></div>
               <div className="form-grid"><label>主机 / IP<input required value={managedHostDraft.host} onChange={(event) => setManagedHostDraft((current) => ({ ...current, host: event.target.value }))} placeholder="203.0.113.10 或 server.example.com" /></label><label>{managedHostDraft.platform === "windows" ? "RDP 端口" : "SSH 端口"}<input required type="number" min={1} max={65535} value={managedHostDraft.port} onChange={(event) => setManagedHostDraft((current) => ({ ...current, port: Number(event.target.value) || (current.platform === "windows" ? 3389 : 22) }))} /></label><label>{managedHostDraft.platform === "windows" ? "RDP 用户名" : "SSH 用户名"}<input required value={managedHostDraft.username} onChange={(event) => setManagedHostDraft((current) => ({ ...current, username: event.target.value }))} placeholder={managedHostDraft.platform === "windows" ? "administrator" : "root"} /></label></div>
-              {managedHostDraft.platform === "linux" && <div className="managed-host-choice"><span>验证方式</span><div className="ssh-segmented"><button type="button" className={managedHostDraft.auth_method === "password" ? "active" : ""} onClick={() => setManagedHostDraft((current) => ({ ...current, auth_method: "password" }))}>密码验证</button><button type="button" className={managedHostDraft.auth_method === "private_key" ? "active" : ""} onClick={() => setManagedHostDraft((current) => ({ ...current, auth_method: "private_key", password: "" }))}>私钥验证</button></div></div>}
+              {managedHostDraft.platform === "linux" && <div className="managed-host-choice"><span>验证方式</span><div className="ssh-segmented"><button type="button" className={managedHostDraft.auth_method === "password" ? "active" : ""} onClick={() => setManagedHostDraft((current) => ({ ...current, auth_method: "password" }))}>密码验证</button><button type="button" className={managedHostDraft.auth_method === "private_key" ? "active" : ""} onClick={() => setManagedHostDraft((current) => ({ ...current, auth_method: "private_key" }))}>私钥验证</button></div></div>}
               {managedHostDraft.platform === "windows" || managedHostDraft.auth_method === "password" ? <label>{managedHostDraft.platform === "windows" ? "RDP 密码（可选）" : "SSH 密码"}<span className="secret-input-wrap"><input required={managedHostDraft.platform === "linux" && !managedHostDraft.id} type={showManagedHostPassword ? "text" : "password"} value={managedHostDraft.password} onChange={(event) => setManagedHostDraft((current) => ({ ...current, password: event.target.value }))} placeholder={managedHostDraft.platform === "windows" ? "留空时由 Windows 远程桌面验证" : managedHostDraft.id ? "留空则保留已保存密码" : "首次添加必填"} autoComplete="new-password" /><button type="button" className="secret-eye" disabled={managedHostPasswordRevealing} title={managedHostPasswordRevealing ? "正在读取密码" : showManagedHostPassword ? "隐藏密码" : "显示密码"} aria-label={managedHostPasswordRevealing ? "正在读取密码" : showManagedHostPassword ? "隐藏密码" : "显示密码"} onClick={() => void toggleManagedHostPasswordVisibility()}>{managedHostPasswordRevealing ? <RefreshCw size={16} className="spin" /> : showManagedHostPassword ? <EyeOff size={17} /> : <Eye size={17} />}</button></span></label> : <><label>SSH 私钥<SecretField key={managedHostDraft.id ?? "new"} multiline secretLabel="SSH 私钥" reveal={managedHostDraft.id ? () => remoteClient.revealManagedHostCredential(managedHostDraft.id!, "private_key") : undefined} required={!managedHostDraft.id} rows={5} value={managedHostDraft.private_key} onChange={(event) => setManagedHostDraft((current) => ({ ...current, private_key: event.target.value }))} placeholder={managedHostDraft.id ? "留空则保留已保存私钥" : "粘贴 OpenSSH、PKCS#8 或 PEM 格式私钥"} spellCheck={false} /></label><label>私钥口令（可选）<SecretField key={managedHostDraft.id ?? "new"} secretLabel="私钥口令" reveal={managedHostDraft.id ? () => remoteClient.revealManagedHostCredential(managedHostDraft.id!, "key_passphrase") : undefined} value={managedHostDraft.key_passphrase} onChange={(event) => setManagedHostDraft((current) => ({ ...current, key_passphrase: event.target.value }))} placeholder="未加密私钥可留空" autoComplete="off" /></label></>}
               <div className="form-grid"><label>分组<GroupNameInput groups={managedHostGroups} list="managed-host-group-options" aria-label="分组，可选择或输入新分组" autoComplete="off" value={managedHostDraft.group_name} onChange={(event) => setManagedHostDraft((current) => ({ ...current, group_name: event.target.value }))} placeholder="选择已有分组或输入新分组" /></label><label>标签<input value={managedHostDraft.tags} onChange={(event) => setManagedHostDraft((current) => ({ ...current, tags: event.target.value }))} placeholder="web, nginx, cn" /></label></div>
               <label>备注<textarea rows={2} value={managedHostDraft.remark} onChange={(event) => setManagedHostDraft((current) => ({ ...current, remark: event.target.value }))} placeholder="可选" /></label>
-          </SharedDialog>
+          </SharedDialog></DialogDocument.Provider>
         )}
         {serverAiCandidates && <ServerAiCandidateReview items={serverAiCandidates} existing={managedHosts} onClose={() => setServerAiCandidates(null)} onFill={fields => {
           setManagedHostDraft(current => ({ ...current, ...Object.fromEntries(Object.entries(fields).filter(([key, value]) => ["name", "host", "username", "group_name", "tags", "remark"].includes(key) && value != null).map(([key, value]) => [key, String(value)])), ...(fields.port != null ? { port: Number(fields.port) } : {}), ...(fields.platform === "linux" || fields.platform === "windows" ? { platform: fields.platform } : {}) }));
         }} />}
         {apiLogDetail && (
-          <SharedDialog title="API 调用详情" eyebrow="API DETAIL" className="api-log-detail-modal" onClose={() => setApiLogDetail(null)}>
+          <SharedDialog sizeStorageKey="app:api-log-detail" title="API 调用详情" eyebrow="API DETAIL" className="api-log-detail-modal" onClose={() => setApiLogDetail(null)}>
               <AiLogAnalysis scope=".api-log-detail-modal .api-log-section pre,.api-log-detail-modal .api-log-message" title="AI 分析选中API日志" />
               <div className="api-log-meta"><span>账号：{apiLogDetail.account_name || "未知账号"}</span><span>接口：{apiLogDetail.endpoint}</span><span>操作：{apiLogDetail.action}</span><span>时间：{new Date(apiLogDetail.created_at).toLocaleString()}</span><span className={apiLogDetail.status === "成功" ? "log-success" : "log-failure"}>状态：{apiLogDetail.status}</span><span className="api-log-proxy-route">{apiLogProxyLabel(apiLogDetail.request_params)}</span></div>
               <div className="api-log-section"><h3>上送参数</h3><pre>{formatJson(apiLogDetail.request_params)}</pre></div>
@@ -5332,13 +5403,13 @@ function App() {
           </SharedDialog>
         )}
         {assetDetail && (
-          <SharedDialog title={displayValue(assetDetail.asset.payload.InstanceName || assetDetail.asset.asset_key)} eyebrow="SERVER DETAIL" className="asset-detail-modal" closeLabel="关闭详情" onClose={() => setAssetDetail(null)} footer={<button className="secondary" onClick={() => setAssetDetail(null)}>关闭</button>}>
+          <SharedDialog sizeStorageKey="app:server-detail" title={displayValue(assetDetail.asset.payload.InstanceName || assetDetail.asset.asset_key)} eyebrow="SERVER DETAIL" className="asset-detail-modal" closeLabel="关闭详情" onClose={() => setAssetDetail(null)} footer={<button className="secondary" onClick={() => setAssetDetail(null)}>关闭</button>}>
               <div className="asset-detail-meta"><CloudAvatar cloudType={assetDetail.account.cloud_type} /><span>{assetDetail.account.account_name}</span><span>{assetTypes.find(([value]) => value === assetDetail.asset.resource_type)?.[1] || assetDetail.asset.resource_type}</span><span>{assetDetail.asset.region_id || String(assetDetail.asset.payload.RegionId || assetDetail.asset.payload.Location || "未标注地域")}</span></div>
               <div className="asset-detail-list">{Object.entries(assetDetail.asset.payload).filter(([key]) => !key.startsWith("_")).map(([key, value]) => <div key={key}><span>{columnLabel(key)}</span><strong title={displayValue(value)}>{displayValue(value)}</strong></div>)}</div>
           </SharedDialog>
         )}
         {syncAccount && (
-          <SharedDialog title="获取账号资产" eyebrow="LOCAL SYNC" className="asset-sync-modal" onClose={() => setSyncAccount(null)} footer={<><button className="secondary" onClick={() => { setSyncAccount(null); setSyncResult(null); }}>{syncResult ? "关闭" : "取消"}</button>{syncing && runningInTauri && <button className="secondary" onClick={() => void cancelSync(syncAccount)}>取消同步</button>}<button className="primary" disabled={syncing || syncTypes.length === 0} onClick={() => void syncAssets(syncAccount)}>{syncing ? "获取中…" : supportsResourceSync(syncAccount) ? (syncResult ? "重新获取" : "开始获取并保存") : "查看接入状态"}</button></>}>
+          <SharedDialog sizeStorageKey="app:account-sync" title="获取账号资产" eyebrow="LOCAL SYNC" className="asset-sync-modal" onClose={() => setSyncAccount(null)} footer={<><button className="secondary" onClick={() => { setSyncAccount(null); setSyncResult(null); }}>{syncResult ? "关闭" : "取消"}</button>{syncing && runningInTauri && <button className="secondary" onClick={() => void cancelSync(syncAccount)}>取消同步</button>}<button className="primary" disabled={syncing || syncTypes.length === 0} onClick={() => void syncAssets(syncAccount)}>{syncing ? "获取中…" : supportsResourceSync(syncAccount) ? (syncResult ? "重新获取" : "开始获取并保存") : "查看接入状态"}</button></>}>
               <p className="security-tip">选择要从{cloudProvider(syncAccount.cloud_type).label}获取并保存到本地 SQLite 的资产类型。当前支持{providerSyncDescription(syncAccount.cloud_type)}。</p>
               <div className="asset-check-grid">{syncAssetTypes(syncAccount).map(([value, label]) => <label key={value} className="asset-check"><input type="checkbox" checked={syncTypes.includes(value)} onChange={(event) => setSyncTypes((current) => event.target.checked ? [...new Set([...current, value])] : current.filter((item) => item !== value))} /><span>{syncAccount.cloud_type === "tencent" && value === "ecs" ? "CVM服务器" : label}</span></label>)}</div>
               <div className="asset-sync-account">账号：{syncAccount.account_name}</div>
@@ -5351,15 +5422,17 @@ function App() {
         </footer>
       </main>
       {dialog && (
-        <SharedDialog title={draft.id ? "编辑云账号" : "添加云账号"} eyebrow="ACCOUNT" onSubmit={save} closeLabel="关闭云账号配置" onClose={() => setDialog(false)} footer={<><button type="button" className="secondary" onClick={() => setDialog(false)}>取消</button><button className="primary" type="submit">保存账号</button>{draft.id && ["vultr", "ctyun", "huawei", "baidu", "jdcloud", "ucloud", "qingcloud", "ksyun", "qiniu", "aws", "azure", "gcp"].includes(draft.cloud_type) && <button className="secondary" type="button" disabled={verifyingAccount} onClick={() => void verifyCloudAccount()}>{verifyingAccount ? "验证中…" : "验证账号"}</button>}</>}>
+        <SharedDialog sizeStorageKey="app:cloud-account-editor" title={draft.id ? "编辑云账号" : "添加云账号"} eyebrow="ACCOUNT" onSubmit={save} closeLabel="关闭云账号配置" onClose={() => setDialog(false)} footer={<><button type="button" className="secondary" onClick={() => setDialog(false)}>取消</button><button className="primary" type="submit">保存账号</button>{draft.id && ["vultr", "ctyun", "huawei", "baidu", "jdcloud", "ucloud", "qingcloud", "ksyun", "qiniu", "aws", "azure", "gcp"].includes(draft.cloud_type) && <button className="secondary" type="button" disabled={verifyingAccount} onClick={() => void verifyCloudAccount()}>{verifyingAccount ? "验证中…" : "验证账号"}</button>}</>}>
             <p className="security-tip account-key-tip">
               <span>{cloudProvider(draft.cloud_type).secretLabel} 会加密保存在本机。当前支持{providerSyncDescription(draft.cloud_type)}。</span>
               {draft.cloud_type === "aliyun" && <a href="https://ram.console.aliyun.com/profile/access-keys?userCode=jdeqlgm5" target="_blank" rel="noreferrer">获取阿里云 AccessKey ↗</a>}
+              {draft.cloud_type === "cloudflare" && <a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank" rel="noreferrer">创建 Cloudflare API Token ↗</a>}
               {draft.cloud_type === "vultr" && <a href="https://my.vultr.com/settings/#settingsapi" target="_blank" rel="noreferrer">获取 Vultr API Key ↗</a>}
               {draft.cloud_type === "tencent" && <a href="https://console.cloud.tencent.com/cam/capi" target="_blank" rel="noreferrer">获取腾讯云密钥 ↗</a>}
               {draft.cloud_type === "volcengine" && <a href="https://console.volcengine.com/iam/keymanage/" target="_blank" rel="noreferrer">获取火山引擎密钥 ↗</a>}
               {draft.cloud_type === "oracle" && <a href="https://docs.oracle.com/iaas/Content/API/Concepts/apisigningkey.htm" target="_blank" rel="noreferrer">配置 OCI API Key ↗</a>}
             </p>
+            {draft.cloud_type === "cloudflare" && <details><summary>Cloudflare 凭据与权限说明</summary><p>Account ID 是控制台账号首页中的 32 位十六进制标识；API Token 会加密保存。站点读取需要 Zone Read，DNS 管理需要 DNS Edit；Workers、R2、Pages、Tunnel 按需授予对应 Read 或 Edit / Write 权限。保存后点击账号“汇总”进入统一资产管理。</p></details>}
             <label>
               账号名称
               <input
@@ -5389,9 +5462,10 @@ function App() {
                 />
               </label>
               <label>
-                {draft.cloud_type === "baidu" ? "偏好地域（自动扫描全部 BCC 地域）" : "默认地域"}
+                {draft.cloud_type === "cloudflare" ? "资源范围（全球）" : draft.cloud_type === "baidu" ? "偏好地域（自动扫描全部 BCC 地域）" : "默认地域"}
                 <input
-                  value={draft.region_id}
+                  disabled={draft.cloud_type === "cloudflare"}
+                  value={draft.cloud_type === "cloudflare" ? "global" : draft.region_id}
                   onChange={(e) =>
                     setDraft({ ...draft, region_id: e.target.value })
                   }
@@ -5479,7 +5553,7 @@ function App() {
           <button type="button" onClick={() => duplicateTerminalTab(tab)}>复制会话</button>
         </div>;
       })(), document.body)}
-      {managedHostGroupEdit && <SharedDialog title="编辑分组" eyebrow="EDIT SERVER GROUP" icon={<Settings size={20} />} size="small" className="managed-group-edit-dialog" onSubmit={(event) => void saveManagedHostGroupEdit(event)} onClose={() => setManagedHostGroupEdit(null)} footer={<><button type="button" className="secondary" onClick={() => setManagedHostGroupEdit(null)}>取消</button><button type="submit" className="primary">保存</button></>}>
+      {managedHostGroupEdit && <SharedDialog sizeStorageKey="app:managed-host-group" title="编辑分组" eyebrow="EDIT SERVER GROUP" icon={<Settings size={20} />} size="small" className="managed-group-edit-dialog" onSubmit={(event) => void saveManagedHostGroupEdit(event)} onClose={() => setManagedHostGroupEdit(null)} footer={<><button type="button" className="secondary" onClick={() => setManagedHostGroupEdit(null)}>取消</button><button type="submit" className="primary">保存</button></>}>
               <div className="managed-group-edit-fields">
                 <label>分组名称<input aria-label="分组名称" value={managedHostGroupEdit.name} autoFocus maxLength={80} required onChange={(event) => setManagedHostGroupEdit((current) => current ? { ...current, name: event.target.value } : current)} /></label>
                 <label>排序号<input aria-label="排序号" type="number" min={1} max={Math.max(1, managedHostGroups.length)} step={1} value={managedHostGroupEdit.order} required aria-describedby="managed-group-order-help" onChange={(event) => setManagedHostGroupEdit((current) => current ? { ...current, order: event.target.value } : current)} /></label>
@@ -5489,7 +5563,7 @@ function App() {
       {confirmRequest && <ConfirmDialog message={confirmRequest.message} title={confirmRequest.title} confirmLabel={confirmRequest.confirmLabel} onResolve={resolveConfirm} />}
       {showSyncTransfer && <SyncTransferPanel mode="desktop" accounts={accounts} managedHosts={managedHosts} panels={panelConnections} onClose={() => setShowSyncTransfer(false)} onImported={() => { void load(); void loadLocalAssets(); void loadManagedHosts(); void loadPanelConnections(); }} />}
       {databaseImportPreview && <DataImportReview key={databaseImportPreview.token} preview={databaseImportPreview} busy={databaseImportBusy} onClose={() => void cancelDatabaseImport()} onConfirm={(tables, mode, forceRestore, includeTrash) => void confirmDatabaseImport(tables, mode, forceRestore, includeTrash)} />}
-      {promptRequest && <SharedDialog title="请输入内容" eyebrow="INPUT REQUIRED" icon={<AlertTriangle size={20} />} size="small" describedBy="prompt-message" onSubmit={(event) => { event.preventDefault(); resolvePrompt(promptValue); }} onClose={() => resolvePrompt(null)} footer={<><button type="button" className="secondary" onClick={() => resolvePrompt(null)}>取消</button><button type="submit" className="primary">确定</button></>}><p id="prompt-message">{promptRequest.message}</p><input aria-label="需要输入的内容" value={promptValue} autoFocus onChange={(event) => setPromptValue(event.target.value)} /></SharedDialog>}
+      {promptRequest && <SharedDialog sizeStorageKey="app:prompt" title="请输入内容" eyebrow="INPUT REQUIRED" icon={<AlertTriangle size={20} />} size="small" describedBy="prompt-message" onSubmit={(event) => { event.preventDefault(); resolvePrompt(promptValue); }} onClose={() => resolvePrompt(null)} footer={<><button type="button" className="secondary" onClick={() => resolvePrompt(null)}>取消</button><button type="submit" className="primary">确定</button></>}><p id="prompt-message">{promptRequest.message}</p><input aria-label="需要输入的内容" value={promptValue} autoFocus onChange={(event) => setPromptValue(event.target.value)} /></SharedDialog>}
     </div>
   );
 }

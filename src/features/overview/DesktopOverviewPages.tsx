@@ -227,7 +227,7 @@ export function DesktopMonitorAlertsPage({ onNavigate, accounts }: { onNavigate:
       </article>
     </div>
     {confirmationDialog}
-    {strategiesOpen && <SharedDialog title="预警策略" subtitle="查看所有本地资产的监控参与状态与当前规则。调整仅影响后续巡检，不会删除历史预警。" icon={<Settings2 size={20} aria-hidden="true" />} className="desktop-alert-strategy-dialog" closeLabel="关闭预警策略" onClose={() => setStrategiesOpen(false)} footer={<button type="button" className="secondary" onClick={() => setStrategiesOpen(false)}>完成</button>}>
+    {strategiesOpen && <SharedDialog sizeStorageKey="features/overview/desktop-overview-pages/desktop-monitor-alerts-page" title="预警策略" subtitle="查看所有本地资产的监控参与状态与当前规则。调整仅影响后续巡检，不会删除历史预警。" icon={<Settings2 size={20} aria-hidden="true" />} className="desktop-alert-strategy-dialog" closeLabel="关闭预警策略" onClose={() => setStrategiesOpen(false)} footer={<button type="button" className="secondary" onClick={() => setStrategiesOpen(false)}>完成</button>}>
       {strategyError && <p className="desktop-overview-message" role="alert">{strategyError}</p>}
       <div className="desktop-alert-strategy-global"><strong>全局策略</strong><span>运维预警：{strategySettings.monitoring ? "已开启" : "已关闭"}</span><span>服务器到期：提前 {strategySettings.expiryDays} 天</span><span>证书到期：提前 {strategySettings.expiryDays} 天（{strategySettings.certificates ? "已开启" : "已关闭"}）</span><span>宝塔面板：CPU {strategySettings.panels ? `${strategySettings.cpuThreshold}%` : "关闭"} · 磁盘 {strategySettings.panels ? `${strategySettings.diskThreshold}%` : "关闭"} · 访问异常 {strategySettings.panelAccess ? "开启" : "关闭"}</span></div>
       <section className="desktop-alert-strategy-config" aria-label="巡检范围与提醒规则">

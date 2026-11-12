@@ -63,7 +63,7 @@ export function ConfigHistoryDialog({ initialTarget, privacy = false, onClose, o
   const targetName = (home: string) => targets.find(t => t.home === home)?.name ?? "目标已移除";
   const confirmMessage = confirmation?.action === "delete" ? `删除 ${timestamp(confirmation.entry?.createdAt ?? null)} 的备份？删除后无法恢复该记录。` : confirmation?.action === "recover" ? `将 ${confirmation.target?.name} 的未完成操作回退到操作前状态。外部修改冲突时保留恢复点并停止。` : `将 ${confirmation?.target?.name} 恢复到 ${timestamp(confirmation?.entry?.createdAt ?? null)} 保存的状态。${confirmation?.entry?.complete ? "配置、登录及目标绑定将一并恢复。" : "此为旧版部分备份，仅恢复已捕获内容。"}当前状态会先自动备份。请先停止 Codex，恢复后需要重新启动。`;
   return <>
-    <OverviewDialog title="Codex 备份与恢复" busy={locked} onClose={onClose} layout="form" className="codex-history-dialog" description="账号切换与供应商切换共用本机加密备份历史" footer={<><span className="codex-history-count">{entries.length} 条记录</span><button type="button" disabled={locked} onClick={onClose}>关闭</button></>}>
+    <OverviewDialog sizeStorageKey="features/codex/config-history-dialog/config-history-dialog" title="Codex 备份与恢复" busy={locked} onClose={onClose} layout="form" className="codex-history-dialog" description="账号切换与供应商切换共用本机加密备份历史" footer={<><span className="codex-history-count">{entries.length} 条记录</span><button type="button" disabled={locked} onClick={onClose}>关闭</button></>}>
       <div className="codex-history-content">
         <div className="codex-history-controls">
           <label>目标目录<select aria-label="备份目标" value={targetId} disabled={locked} onChange={e => setTargetId(e.target.value)}><option value="all">全部目标</option>{targets.map(t => <option key={t.id ?? "default"} value={t.id ?? "default"}>{privacy && t.id ? "独立实例" : t.name}</option>)}</select></label>

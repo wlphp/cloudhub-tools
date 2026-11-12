@@ -490,7 +490,7 @@ export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm, r
       </>}
       {importOpen && <CertificateImportDialog onClose={() => setImportOpen(false)} onImported={() => { setImportOpen(false); void load(); onStatus("证书已导入本地加密库"); }} />}
       {openForm && (
-        <SharedDialog title={requestTarget ? "申请证书并部署到 ESA" : "申请 HTTPS 证书"} eyebrow="DNS-01" className="certificate-dialog" backdropClassName={requestTarget ? "esa-certificate-request-backdrop" : ""} onSubmit={submit} onClose={() => void cancelRequest()} closeDisabled={cancelling} footer={<><button type="button" className="secondary" onClick={() => void cancelRequest()} disabled={cancelling}>{cancelling ? "正在取消…" : "取消"}</button><button type="submit" className="primary" disabled={loading || !form.accountId || !zoneNames.length}>{loading ? "申请中，等待 DNS 验证…" : "开始申请"}</button></>}>
+        <SharedDialog sizeStorageKey="features/certificates/certificate-panel/certificate-panel" title={requestTarget ? "申请证书并部署到 ESA" : "申请 HTTPS 证书"} eyebrow="DNS-01" className="certificate-dialog" backdropClassName={requestTarget ? "esa-certificate-request-backdrop" : ""} onSubmit={submit} onClose={() => void cancelRequest()} closeDisabled={cancelling} footer={<><button type="button" className="secondary" onClick={() => void cancelRequest()} disabled={cancelling}>{cancelling ? "正在取消…" : "取消"}</button><button type="submit" className="primary" disabled={loading || !form.accountId || !zoneNames.length}>{loading ? "申请中，等待 DNS 验证…" : "开始申请"}</button></>}>
             <p className="certificate-hint">
               {requestTarget ? `目标 ESA 站点：${requestTarget.siteName}。签发后先加密保存，再上传；上传失败可直接重试部署。${esaDns ? "本次使用 ESA DNS 写入 TXT 验证记录。" : "请选择域名权威 DNS 所在的阿里云账号，ESA 账号与 DNS 账号可以不同。"}` : "域名和 DNS 区域只从当前账号已同步的域名资产中选择，避免把证书申请到其他账号的域名上。"}
             </p>
@@ -613,7 +613,7 @@ export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm, r
         </SharedDialog>
       )}
       {detail && (
-        <SharedDialog title={detail.primaryDomain} eyebrow="CERTIFICATE DETAILS" className="certificate-dialog certificate-detail-dialog" backdropClassName="certificate-modal-backdrop" onClose={() => setDetail(null)} footer={<button type="button" className="secondary" onClick={() => setDetail(null)}>关闭</button>}>
+        <SharedDialog sizeStorageKey="features/certificates/certificate-panel/certificate-panel/2" title={detail.primaryDomain} eyebrow="CERTIFICATE DETAILS" className="certificate-dialog certificate-detail-dialog" backdropClassName="certificate-modal-backdrop" onClose={() => setDetail(null)} footer={<button type="button" className="secondary" onClick={() => setDetail(null)}>关闭</button>}>
             <div className="certificate-detail-summary">
               <div>
                 <span>证书分类</span>

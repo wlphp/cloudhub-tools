@@ -120,7 +120,7 @@ export function NetworkSettingsPage({ mobile = false }: { mobile?: boolean }) {
       </div>
       <div className="network-priority-card"><h3><ShieldCheck size={16} />代理优先级</h3><ol><li><strong>账号/功能专属代理</strong>：该请求使用自己的代理。</li><li><strong>全局代理池</strong>：没有专属代理且全局已开启时，使用当前选择项。</li><li><strong>直连/系统网络</strong>：前两者都未启用时，不额外指定代理；操作系统代理或 VPN 仍可能生效。</li></ol><p>当前支持 HTTP/HTTPS（含可选认证）；SOCKS5 暂不支持。代理认证信息在本机加密保存，代理地址和认证信息不会写入 API 日志。全局代理使用当前应用进程代理环境变量，应用启动的兼容子进程可能继承这些变量。设置对新建连接生效。</p></div>
       {(message || (error && !draft)) && createPortal(<div className={`toast-notice network-toast-notice${error ? " network-toast-error" : ""}`} role={error ? "alert" : "status"} aria-live={error ? "assertive" : "polite"} aria-atomic="true">{message ? <><Check size={15} aria-hidden="true" />{message}</> : error}</div>, document.body)}
-      {draft && <SharedDialog
+      {draft && <SharedDialog sizeStorageKey="features/settings/network-settings-page/network-settings-page"
         title={drafts.some(item => item.id === draft.id) ? "编辑代理" : "添加代理"}
         subtitle="配置后先加入代理池，再保存代理池使更改生效。"
         icon={<Network size={18} aria-hidden="true" />}

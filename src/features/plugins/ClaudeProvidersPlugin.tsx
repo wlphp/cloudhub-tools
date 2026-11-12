@@ -246,7 +246,7 @@ function Editor({ draft, keyConfigured, onClose, onSaved }: { draft: ClaudeProvi
     } finally { setBusy(false); }
   }
 
-  return <SharedDialog
+  return <SharedDialog sizeStorageKey="features/plugins/claude-providers-plugin/editor"
     title={draft.id ? `编辑供应商 · ${value.name || "(未命名)"}` : "添加供应商"}
     subtitle="Claude Code 供应商配置：请求地址、API Key、模型映射、路由增强"
     icon={<Server size={20} aria-hidden="true" />}
@@ -433,7 +433,7 @@ function ModelPicker({
     onApply(add, remove);
   };
 
-  return <SharedDialog
+  return <SharedDialog sizeStorageKey="features/plugins/claude-providers-plugin/model-picker"
     title="选择模型"
     subtitle="勾选要加入「聚合模型列表」的项，已在列表中的项会预选并允许取消。"
     icon={<ListChecks size={20} aria-hidden="true" />}
@@ -852,7 +852,7 @@ export function ClaudeProvidersPlugin() {
             </div>}
           </div>
           <div className="claude-provider-actions">
-            {quotaProviderId === item.id && <SharedDialog title={item.name + " · 剩余额度"} subtitle="来自供应商官方接口，与本地请求统计无关。" className="claude-providers claude-quota-dialog" size="small" onClose={() => setQuotaProviderId(null)} footer={<><button type="button" className="secondary" disabled={quotas[item.id]?.loading} onClick={() => void refreshQuota(item.id)}>{quotas[item.id]?.loading ? <Loader2 className="is-spin" size={14} aria-hidden="true" /> : <RotateCcw size={14} aria-hidden="true" />}{quotas[item.id]?.loading ? "查询中…" : "刷新额度"}</button><button type="button" className="secondary" onClick={() => setQuotaProviderId(null)}>关闭</button></>}>
+            {quotaProviderId === item.id && <SharedDialog sizeStorageKey="features/plugins/claude-providers-plugin/claude-providers-plugin" title={item.name + " · 剩余额度"} subtitle="来自供应商官方接口，与本地请求统计无关。" className="claude-providers claude-quota-dialog" size="small" onClose={() => setQuotaProviderId(null)} footer={<><button type="button" className="secondary" disabled={quotas[item.id]?.loading} onClick={() => void refreshQuota(item.id)}>{quotas[item.id]?.loading ? <Loader2 className="is-spin" size={14} aria-hidden="true" /> : <RotateCcw size={14} aria-hidden="true" />}{quotas[item.id]?.loading ? "查询中…" : "刷新额度"}</button><button type="button" className="secondary" onClick={() => setQuotaProviderId(null)}>关闭</button></>}>
             <div className="claude-provider-quota" aria-busy={Boolean(quotas[item.id]?.loading)}>
               {!quotas[item.id]?.data && <span className="claude-quota-status" role="status">{quotas[item.id]?.loading ? "查询中…" : quotas[item.id]?.error || "待查询"}</span>}
               {quotas[item.id]?.data && <>
@@ -906,7 +906,7 @@ export function ClaudeProvidersPlugin() {
     })()}
     {settingsOpen && viewMode !== "direct" && <RoutingSettings config={config} mode={viewMode} running={routing.running} onClose={() => setSettingsOpen(false)} onSave={saveConfig} />}
     {aggregateStartOpen && <AggregateStartDialog providers={providers} config={config} initialDefault={aggregateDefault} onClose={() => setAggregateStartOpen(false)} onStart={async next => { await saveConfig(next); await claudeWorkbenchClient.activate("aggregate"); setMessage("已启用聚合模式；请保持本应用运行。"); await load(); }} />}
-    {routeStartOpen && <SharedDialog title="让 Claude Code 使用路由模式？" size="small" closeDisabled={routeStartBusy} onClose={() => setRouteStartOpen(false)}
+    {routeStartOpen && <SharedDialog sizeStorageKey="features/plugins/claude-providers-plugin/claude-providers-plugin/2" title="让 Claude Code 使用路由模式？" size="small" closeDisabled={routeStartBusy} onClose={() => setRouteStartOpen(false)}
       onSubmit={event => {
         event.preventDefault();
         if (routeStartBusy || !routeProviders.some(item => item.id === routeTarget)) return;
@@ -930,7 +930,7 @@ export function ClaudeProvidersPlugin() {
       <p className="claude-config-help">{config.failover ? "故障转移已开启，所选供应商会排到 P1，其余队列顺序保留；启用后可在列表调整优先级。" : "故障转移已关闭，所选供应商作为固定目标；开启顶部开关后按队列优先级请求。"} 点击「回到直连」停止路由并恢复直连配置。</p>
       {routeStartError && <p className="claude-error" role="alert">{routeStartError}</p>}
     </SharedDialog>}
-    {importPreview && <SharedDialog title="选择导入供应商" subtitle="导入为新记录，不覆盖现有供应商；完全相同的配置将跳过。" closeDisabled={importBusy} onClose={closeImport} footer={<>
+    {importPreview && <SharedDialog sizeStorageKey="features/plugins/claude-providers-plugin/claude-providers-plugin/3" title="选择导入供应商" subtitle="导入为新记录，不覆盖现有供应商；完全相同的配置将跳过。" closeDisabled={importBusy} onClose={closeImport} footer={<>
       <button type="button" className="secondary" disabled={importBusy} onClick={closeImport}>取消</button>
       <button type="button" className="primary" disabled={importBusy || !importSelection.size} onClick={async()=>{setImportBusy(true);setImportError("");try{const result=await claudeWorkbenchClient.importProviders(importPreview.token,[...importSelection]);setImportPreview(null);setMessage("导入 " + result.imported + " 条，跳过重复 " + result.skipped + " 条");await load();}catch(reason){setImportError(reason instanceof Error?reason.message:"导入失败");}finally{setImportBusy(false);}}}>{importBusy?"导入中…":"导入所选"}</button>
     </>}>
@@ -938,11 +938,11 @@ export function ClaudeProvidersPlugin() {
       {importPreview.providers.map(p=><label className="claude-import-row" key={p.index}><input type="checkbox" disabled={importBusy} checked={importSelection.has(p.index)} onChange={event=>setImportSelection(current=>{const next=new Set(current);if(event.target.checked)next.add(p.index);else next.delete(p.index);return next;})} /><span>{p.name}<small>{p.baseUrl}</small></span></label>)}
       {importError && <p className="claude-error" role="alert">{importError}</p>}
     </SharedDialog>}
-    {configPreview && <SharedDialog title="当前配置文件预览" subtitle={configPreview.path} onClose={() => setConfigPreview(null)} footer={<button type="button" className="secondary" onClick={() => setConfigPreview(null)}>关闭</button>}>
+    {configPreview && <SharedDialog sizeStorageKey="features/plugins/claude-providers-plugin/claude-providers-plugin/4" title="当前配置文件预览" subtitle={configPreview.path} onClose={() => setConfigPreview(null)} footer={<button type="button" className="secondary" onClick={() => setConfigPreview(null)}>关闭</button>}>
       <p className="claude-config-help">完整内容，只读预览，未脱敏；可能包含明文密钥、认证信息和命令，请勿直接截图或分享。</p>
       <pre className="claude-config-preview">{JSON.stringify(configPreview.document, null, 2)}</pre>
     </SharedDialog>}
-    {backupHistoryOpen && <SharedDialog title="Claude Code 配置备份历史" subtitle="历史备份会一直保留；恢复后也不会删除所选记录。恢复前会自动备份当前配置。" size="large" onClose={() => setBackupHistoryOpen(false)} footer={<button type="button" className="secondary" onClick={() => setBackupHistoryOpen(false)}>关闭</button>}>
+    {backupHistoryOpen && <SharedDialog sizeStorageKey="features/plugins/claude-providers-plugin/claude-providers-plugin/5" title="Claude Code 配置备份历史" subtitle="历史备份会一直保留；恢复后也不会删除所选记录。恢复前会自动备份当前配置。" size="large" onClose={() => setBackupHistoryOpen(false)} footer={<button type="button" className="secondary" onClick={() => setBackupHistoryOpen(false)}>关闭</button>}>
       <div className="claude-backup-history" role="list">
         {backups.map((backup, index) => <div className="claude-backup-history-row" role="listitem" key={backup.id}>
           <span><strong>{new Date(backup.createdAt).toLocaleString()}</strong><small>{index === 0 ? "最近备份" : `历史备份 #${backups.length - index}`}</small></span>

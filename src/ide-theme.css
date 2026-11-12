@@ -717,10 +717,56 @@
 .ide-theme :where(.security-group-note, .error-list, .bucket-detail-box, .memory-bar, .db-list, .whois-result) { border-color: var(--jb-border) !important; border-radius: 3px !important; background: var(--jb-surface) !important; color: var(--jb-muted) !important; }
 /* WHOIS 文本卡片左右出血，与上方 20px 的正文内边距联动；文字与头部 16px 对齐。 */
 .ide-theme .domain-tool-body .whois-result { margin: 0 -20px; padding: 16px; }
-/* 解析管理/操作日志的工具栏与表格同样出血，文字与头部 16px 对齐。 */
-.ide-theme .domain-tool-body .domain-tool-toolbar { margin: 0 -20px 14px; padding: 9px 16px; border-radius: 0; }
+/* 域名工具统一使用标题栏的水平基准，避免正文内边距和出血间距叠加。 */
+.ide-theme .domain-tool-modal { --domain-tool-gutter: 16px; }
+.ide-theme .domain-tool-modal > .modal-head { padding-inline: var(--domain-tool-gutter); }
+.ide-theme .domain-tool-modal > .domain-tool-body { padding: 0 !important; }
+.ide-theme .domain-tool-body .domain-tool-toolbar { margin: 0; padding: 10px var(--domain-tool-gutter); border-radius: 0; }
 .ide-theme .domain-tool-body .dns-table-wrap,
-.ide-theme .domain-tool-body .domain-audit-table-wrap { margin: 0 -20px; padding: 14px 16px; }
+.ide-theme .domain-tool-body .domain-audit-table-wrap { margin: 0; padding: 0 var(--domain-tool-gutter); overflow: auto; }
+.ide-theme .domain-tool-body .whois-result { margin: 0; padding: 16px var(--domain-tool-gutter); }
+.ide-theme .domain-tool-body > :is(.error-list, .detail-empty, .dns-pagination) { margin-inline: var(--domain-tool-gutter); }
+/* 查询、主操作与快捷模板分层，减少每行重复的色块。 */
+.ide-theme .domain-tool-modal .eyebrow { color: var(--jb-muted); }
+.ide-theme .domain-tool-modal .domain-tool-toolbar { gap: 10px; padding-block: 12px 0; background: var(--jb-surface); }
+.domain-tool-query { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
+.ide-theme .domain-tool-query input { width: 260px; }
+.ide-theme .domain-tool-toolbar .domain-tool-search { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 32px; margin: 0; padding: 0 12px; }
+.ide-theme .domain-tool-toolbar .domain-tool-count { margin-left: auto; padding: 0; border: 0; border-radius: 0; background: transparent; }
+.ide-theme .domain-tool-toolbar .dns-add-btn { gap: 6px; margin-left: 6px; border-color: var(--jb-accent) !important; background: var(--jb-accent-soft) !important; color: var(--jb-accent-strong) !important; }
+.ide-theme .domain-tool-toolbar .dns-add-btn:hover { background: var(--jb-accent-soft) !important; border-color: var(--jb-accent-strong) !important; }
+.ide-theme .domain-tool-toolbar .domain-tool-quick { flex: 1 0 100%; gap: 4px; min-width: 0; padding: 6px 0 8px; border-top: 1px solid var(--jb-border); }
+.ide-theme .domain-tool-quick .quick-add-label { margin-right: 8px; font-size: 12px; }
+.ide-theme .domain-tool-quick .quick-add-btn { height: 28px; min-height: 28px; padding: 0 10px; border-color: transparent !important; background: transparent !important; color: var(--jb-muted) !important; }
+.ide-theme .domain-tool-quick .quick-add-btn:hover { background: var(--jb-surface-3) !important; color: var(--jb-text) !important; }
+.ide-theme .domain-tool-modal .dns-table-wrap th { height: 36px; background: var(--jb-surface-2) !important; }
+.ide-theme .domain-tool-modal .dns-table-wrap td { height: 46px; color: var(--jb-text) !important; }
+.ide-theme .domain-tool-modal .dns-table-wrap tbody tr:hover td { background: var(--jb-surface-2) !important; }
+.ide-theme .domain-tool-modal .dns-table-wrap :is(th,td):nth-child(1) { width: 80px; }
+.ide-theme .domain-tool-modal .dns-table-wrap :is(th,td):nth-child(2) { width: 18%; }
+.ide-theme .domain-tool-modal .dns-table-wrap :is(th,td):nth-child(4) { width: 7%; }
+.ide-theme .domain-tool-modal .dns-table-wrap :is(th,td):nth-child(5) { width: 6%; }
+.ide-theme .domain-tool-modal .dns-table-wrap :is(th,td):nth-child(6) { width: 8%; }
+.ide-theme .domain-tool-modal .dns-table-wrap :is(th,td):nth-child(7) { width: 8%; }
+.ide-theme .domain-tool-modal .dns-table-wrap :is(th,td):nth-child(8) { width: 166px; text-align: center; }
+.ide-theme .domain-tool-modal .dns-type-tag { box-sizing: border-box; width: 58px; min-width: 0; padding: 3px 0; border: 1px solid var(--jb-border) !important; border-radius: 3px; background: var(--jb-surface-2) !important; color: var(--jb-muted) !important; font: 11px/1.3 Consolas,monospace; letter-spacing: 0; }
+.ide-theme .domain-tool-modal .domain-tool-body .dns-status { padding: 0; border: 0 !important; background: transparent !important; color: var(--jb-success) !important; }
+.ide-theme .domain-tool-modal .domain-tool-body .dns-status.off { color: var(--jb-muted) !important; }
+.ide-theme .domain-tool-modal .dns-status-dot { width: 6px; height: 6px; background: currentColor !important; box-shadow: none !important; }
+.ide-theme .domain-tool-modal .dns-actions { justify-content: center; gap: 2px; }
+.ide-theme .domain-tool-modal .dns-action-btn { min-width: 48px; padding: 0 8px; border: 1px solid transparent !important; background: transparent !important; color: var(--jb-muted) !important; }
+.ide-theme .domain-tool-modal .dns-action-btn.edit { color: var(--jb-accent-strong) !important; }
+.ide-theme .domain-tool-modal .dns-action-btn.danger { color: var(--jb-danger) !important; }
+.ide-theme .domain-tool-modal .dns-action-btn:hover:not(:disabled) { background: var(--jb-surface-3) !important; border-color: var(--jb-border) !important; }
+@media (max-width: 760px) {
+  .ide-theme .domain-tool-toolbar :is(input, select, .layui-btn, .quick-add-btn, .domain-tool-search) { height: 48px; min-height: 48px; }
+  .domain-tool-query { flex: 1 0 100%; }
+}
+@media (max-width: 650px) {
+  .ide-theme .domain-tool-modal { --domain-tool-gutter: 12px; }
+  .ide-theme .domain-tool-toolbar input { min-width: 0; max-width: 100%; }
+  .ide-theme .domain-tool-quick { flex-basis: 100%; }
+}
 .ide-theme :where(.security-group-rule, .log-row, .panel-monitor-row, .terminal-host-row) { border-color: var(--jb-surface-3) !important; background: var(--jb-surface) !important; }
 
 /* Panels and terminal workbench */
@@ -1559,6 +1605,11 @@
   flex: 0 0 124px;
   height: 32px;
   padding: 0 8px;
+}
+.ide-theme .panel-toolbar-primary > select.panel-group-filter {
+  flex: 0 0 auto;
+  min-width: 168px;
+  max-width: 260px;
 }
 .ide-theme .panel-toolbar-primary > button,
 .ide-theme .panel-toolbar-primary > label {

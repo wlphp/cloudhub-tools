@@ -69,7 +69,7 @@ export function ProviderProbeDialog({ provider, onClose, onSaved }: { provider: 
     catch (e) { if (alive.current) setError(e instanceof Error ? e.message : "保存模型目录失败"); }
     finally { active.current = false; if (alive.current) setSaving(false); }
   }
-  return <OverviewDialog title={provider.name + " · 模型测试"} layout="form" busy={busy || saving} onClose={onClose} footer={<>
+  return <OverviewDialog sizeStorageKey="features/codex/provider-probe-dialog/provider-probe-dialog" title={provider.name + " · 模型测试"} layout="form" busy={busy || saving} onClose={onClose} footer={<>
     <button disabled={busy || saving} onClick={onClose}>关闭</button>
     {busy ? <button disabled={cancelled.current} onClick={() => { cancelled.current = true; setRows(v => v.map(row => row.state === "queued" ? { ...row, state: "stopped" } : row)); }}><Square size={14} />停止排队</button> : <>
       <button disabled={saving || !keys.length} onClick={() => void run(false)}><Download size={14} />获取模型目录</button>

@@ -12,7 +12,7 @@ export function ClaudeProviderPresetPicker({ onClose, onSelect, onCustom }: { on
   const groups = [...new Set(PROVIDER_PRESETS.map(item => item.family))].map(name => ({ name, variants: PROVIDER_PRESETS.filter(item => item.family === name) }))
     .filter(group => group.variants.some(item => `${item.family} ${item.name} ${item.website} ${item.baseUrl}`.toLocaleLowerCase().includes(query)));
   const variants = PROVIDER_PRESETS.filter(item => item.family === family);
-  return <SharedDialog title="添加供应商" subtitle="先选择厂商及版本，再填写 API Key；选择预设不会立即写入配置。" icon={<Server size={20} aria-hidden="true" />} className="claude-providers claude-preset-dialog" onClose={onClose} footer={<button type="button" className="secondary" onClick={onClose}>取消</button>}>
+  return <SharedDialog sizeStorageKey="features/plugins/claude-provider-preset-picker/claude-provider-preset-picker" title="添加供应商" subtitle="先选择厂商及版本，再填写 API Key；选择预设不会立即写入配置。" icon={<Server size={20} aria-hidden="true" />} className="claude-providers claude-preset-dialog" onClose={onClose} footer={<button type="button" className="secondary" onClick={onClose}>取消</button>}>
     <div className="claude-preset-browser">
       {family ? <>
         <button type="button" className="secondary claude-preset-back" onClick={() => setFamily(null)}><ArrowLeft size={14} aria-hidden="true" />返回厂商列表</button>

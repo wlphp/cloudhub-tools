@@ -90,7 +90,7 @@ function ConfigPreviewDialog({ source, onClose }: { source: CodexConfigSource; o
   const current = result ?? source;
   const content = catalog ? result?.catalogPreview : auth ? result?.authPreview : result?.configPreview;
   const formatted = file !== "config" ? JSON.stringify(content, null, 2) : formatConfigToml(result?.configPreview ?? {});
-  return <OverviewDialog title="Codex 配置预览" busy={false} onClose={onClose} className="codex-config-preview" footer={<button type="button" onClick={onClose}>关闭</button>}>
+  return <OverviewDialog sizeStorageKey="features/codex/config-toolbar/config-preview-dialog" title="Codex 配置预览" busy={false} onClose={onClose} className="codex-config-preview" footer={<button type="button" onClick={onClose}>关闭</button>}>
     <div className="codex-config-preview-tabs" role="tablist" aria-label="选择预览文件">
       {files.map((value, index) => <button key={value} type="button" id={`codex-config-preview-tab-${value}`} role="tab" aria-selected={file === value} aria-controls="codex-config-preview-content" tabIndex={file === value ? 0 : -1} onClick={() => changePreview(value)} onKeyDown={event => {
         if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {

@@ -15,6 +15,7 @@ test("account and panel groups suggest local groups and accept new names", async
     };
   });
   await page.goto("/");
+  await page.getByRole("navigation", { name: "主导航" }).getByRole("button", { name: "账号管理", exact: true }).click();
   await page.getByRole("button", { name: "添加云账号", exact: true }).click();
   const account = page.getByRole("dialog", { name: "添加云账号" });
   const accountGroup = account.getByLabel("分组", { exact: true });

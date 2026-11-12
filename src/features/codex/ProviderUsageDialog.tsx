@@ -11,7 +11,7 @@ export function ProviderUsageDialog({ provider, selection, adapters, usage, busy
 }) {
   const { keyId, adapter } = selection;
   const query = () => onQuery(selection);
-  return <OverviewDialog title={provider.name + " · 额度"} busy={busy} layout="form" className="codex-provider-usage-dialog" onClose={onClose} footer={<><button disabled={busy} onClick={onClose}>关闭</button><button disabled={busy || !keyId} onClick={onSave}>保存</button><button className="primary" disabled={busy || !keyId} onClick={() => void query()}><RefreshCw size={14} aria-hidden="true" className={busy ? "codex-refresh-spinning" : ""} />{busy ? "处理中..." : "查询额度"}</button></>}>
+  return <OverviewDialog sizeStorageKey="features/codex/provider-usage-dialog/provider-usage-dialog" title={provider.name + " · 额度"} busy={busy} layout="form" className="codex-provider-usage-dialog" onClose={onClose} footer={<><button disabled={busy} onClick={onClose}>关闭</button><button disabled={busy || !keyId} onClick={onSave}>保存</button><button className="primary" disabled={busy || !keyId} onClick={() => void query()}><RefreshCw size={14} aria-hidden="true" className={busy ? "codex-refresh-spinning" : ""} />{busy ? "处理中..." : "查询额度"}</button></>}>
     <div className="codex-provider-form codex-usage-content">
       <div className="codex-usage-fields">
       <label>密钥<select disabled={busy} value={keyId} onChange={e => onChange({ ...selection, keyId: e.target.value })}>{provider.keys.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}</select></label>

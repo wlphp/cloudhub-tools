@@ -15,7 +15,7 @@ export function AccountRefreshError({ reason, accountLabel, children }: { reason
       <button type="button" aria-haspopup="dialog" onClick={() => { setCopyStatus(""); setExpanded(true); }}>查看详情</button>
       {children}
     </div>
-    {expanded && <OverviewDialog title="错误详情" className="codex-error-detail-dialog" busy={false} onClose={() => setExpanded(false)} footer={<>
+    {expanded && <OverviewDialog sizeStorageKey="features/codex/account-refresh-error/account-refresh-error" title="错误详情" className="codex-error-detail-dialog" busy={false} onClose={() => setExpanded(false)} footer={<>
       <span className="codex-error-copy-status" role="status">{copyStatus}</span>
       <span className="codex-error-reauthorize" onClick={event => { if ((event.target as HTMLElement).closest("button:not(:disabled)")) setExpanded(false); }}>{children}</span>
       <button type="button" onClick={() => void navigator.clipboard.writeText(accountLabel + "\n" + reason).then(() => setCopyStatus("已复制"), () => setCopyStatus("复制失败，请重试"))}>复制</button>

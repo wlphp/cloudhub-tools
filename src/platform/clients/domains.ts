@@ -3,6 +3,9 @@ import { invokeOrWeb, jsonRequest, queryPath } from "./base";
 export type DomainToolResponse = Record<string, unknown>;
 
 export const domainsClient = {
+  nameservers(domain: string): Promise<string[]> {
+    return invokeOrWeb("resolve_domain_nameservers", { domain }, { path: queryPath("/api/domain-nameservers", { domain }) });
+  },
   whois(accountId: number, domain: string): Promise<string> {
     return invokeOrWeb("query_whois", { id: accountId, domain }, {
       path: queryPath("/api/whois", { id: accountId, domain }),

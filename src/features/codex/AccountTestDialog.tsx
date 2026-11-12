@@ -45,7 +45,7 @@ export function AccountTestDialog({ accounts, models, onClose }: { accounts: Cod
   const fenced = previewResult?.text?.split("```")[1];
   const html = fenced ? fenced.slice(fenced.indexOf(String.fromCharCode(10)) + 1) : previewResult?.text;
   const windowLabel = (account: CodexAccount) => account.quota.windows.find(window => window.name.toLowerCase().includes("week") || window.windowMinutes === 10080);
-  return <OverviewDialog title="鹈鹕测智" busy={busy} onClose={onClose} className="codex-test-dialog" footer={<>{busy ? <button onClick={() => { stopped.current = true; }}>停止排队请求，等待当前请求完成</button> : <button onClick={onClose}>关闭</button>}{tab === "new" && <button className="primary" disabled={!selected.size || !promptValid || !modelValid || busy} onClick={() => void start()}>确认消耗额度并测试</button>}</>}>
+  return <OverviewDialog sizeStorageKey="features/codex/account-test-dialog/account-test-dialog" title="鹈鹕测智" busy={busy} onClose={onClose} className="codex-test-dialog" footer={<>{busy ? <button onClick={() => { stopped.current = true; }}>停止排队请求，等待当前请求完成</button> : <button onClick={onClose}>关闭</button>}{tab === "new" && <button className="primary" disabled={!selected.size || !promptValid || !modelValid || busy} onClick={() => void start()}>确认消耗额度并测试</button>}</>}>
     <div className="codex-test-tabs" role="tablist" aria-label="测试页面"><button role="tab" aria-selected={tab === "new"} onClick={() => setTab("new")}>新建测试</button><button role="tab" aria-selected={tab === "history"} onClick={() => setTab("history")}><History size={14} />测试记录{history.length > 0 && <span>{history.length}</span>}</button></div>
     {tab === "new" ? <>
       <p className="codex-test-description">同一提示词并行发送到选中的账号，返回独立 HTML 结果，由你自行对比，不自动评分。</p>

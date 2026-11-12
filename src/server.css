@@ -38,3 +38,66 @@ body.theme-light .ide-theme .status-running{background:#dcf2e9;color:#0d7a55;bor
 body.theme-light .ide-theme .status-stopped{background:#fbe4e6;color:#b3424c;border-color:#e8a7b0}
 body.theme-light .ide-theme .status-other{background:#fbf2da;color:#8a6a1c;border-color:#e0c375}
 body.theme-light .ide-theme .security-group-note{border-color:#e0c375;background:#fbf2da;color:#6f5410}
+
+/* 服务器工作台：紧凑标题、固定标签列及主题色操作。 */
+.server-reference { padding: 14px 16px; }
+.server-reference .server-toolbar { margin-bottom: 10px; }
+.server-reference .server-summary { padding: 10px 14px; gap: 12px 28px; margin-bottom: 12px; }
+.server-reference .server-summary > span { display: inline-flex; align-items: center; gap: 6px; }
+.server-reference .server-summary strong { margin-left: 0; font-size: 19px; line-height: 1.3; }
+.server-reference .region-section { margin-bottom: 16px; }
+.server-reference .region-title { font-size: 13px; padding: 8px 0; margin: 0 0 10px; }
+.server-reference .server-card { min-width: 0; padding: 12px 14px; margin-bottom: 10px; }
+.server-reference .server-header { gap: 12px; padding-bottom: 9px; margin-bottom: 10px; }
+.server-reference .server-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; min-width: 0; }
+.server-reference .server-display-name { max-width: 100%; padding: 0; font-size: 14px; font-weight: 600; line-height: 1.5; white-space: normal; overflow-wrap: anywhere; }
+.server-reference .server-account-label { margin: 0; padding: 2px 7px 2px 3px; gap: 5px; border-radius: 4px; font-size: 11px; }
+.server-reference .server-account-label .avatar { width: 18px; height: 18px; flex-basis: 18px; font-size: 10px; }
+.server-reference .server-status { flex-shrink: 0; padding: 3px 8px; line-height: 1.4; }
+.server-reference .server-info { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 20px; }
+.server-reference .server-info > div { min-width: 0; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; word-break: normal; }
+.server-reference .server-info > div > span:first-child:not(.server-field-value) { flex: 0 0 68px; min-width: 68px; color: var(--jb-muted); }
+.server-reference .server-info .server-instance-id { grid-column: 1 / -1; align-items: baseline; }
+.server-reference .server-info .server-field-value { min-width: 0; flex-shrink: 1; color: var(--jb-text); font: 11px/1.7 ui-monospace, SFMono-Regular, Consolas, monospace; overflow-wrap: anywhere; }
+.server-reference .server-info .ip-location-row span { min-width: 0; flex-shrink: 1; }
+.server-reference .disk-info { min-height: 0; margin-top: 10px; padding: 6px 10px; }
+.server-reference .disk-item { gap: 8px 16px; align-items: baseline; flex-wrap: wrap; padding: 2px 0; }
+.server-reference .disk-name { min-width: 0; overflow-wrap: anywhere; }
+.server-reference .disk-size { flex-shrink: 0; margin-left: auto; font-variant-numeric: tabular-nums; }
+.server-reference .server-actions { margin-top: 10px; padding-top: 10px; gap: 8px; }
+.server-reference .server-actions .layui-btn { display: inline-flex; align-items: center; justify-content: center; gap: 5px; height: 30px; padding: 0 10px; border-radius: 4px; line-height: 1; white-space: nowrap; }
+.server-reference .server-control[data-tone="blue"] { --server-action-color: var(--jb-blue); }
+.server-reference .server-control[data-tone="accent"] { --server-action-color: var(--jb-accent); }
+.server-reference .server-control[data-tone="green"] { --server-action-color: var(--jb-green); }
+.server-reference .server-control[data-tone="warning"] { --server-action-color: var(--jb-yellow); }
+.server-reference .server-control[data-tone="danger"] { --server-action-color: var(--jb-danger); }
+.resource-modal-backdrop .server-reference .server-card .server-actions button.server-control.layui-btn[data-tone] {
+  color: var(--server-action-color) !important;
+  border: 1px solid color-mix(in srgb, var(--server-action-color) 40%, var(--jb-border)) !important;
+  background: color-mix(in srgb, var(--server-action-color) 10%, var(--jb-surface)) !important;
+  box-shadow: none;
+}
+.resource-modal-backdrop .server-reference .server-card .server-actions button.server-control.layui-btn[data-tone]:hover:not(:disabled) {
+  border-color: var(--server-action-color) !important;
+  background: color-mix(in srgb, var(--server-action-color) 19%, var(--jb-surface)) !important;
+}
+.server-reference .server-actions button:focus-visible { outline: 2px solid var(--jb-accent); outline-offset: 2px; }
+.server-reference .server-actions button:disabled { opacity: .55; cursor: not-allowed; }
+@media (max-width: 1000px) {
+  .server-reference .server-info { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 600px) {
+  .server-reference { padding: 10px; }
+  .server-reference .server-card { padding: 10px; }
+  .server-reference .server-info { grid-template-columns: minmax(0, 1fr); gap: 7px; }
+  .server-reference .server-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .server-reference .server-summary > span { white-space: nowrap; font-size: 12px; }
+  .server-reference .server-heading { flex-direction: column; align-items: flex-start; }
+  .server-reference .server-actions .layui-btn { min-height: 36px; flex: 1 1 auto; }
+}
+
+.server-reference .server-info .server-field-value { color: var(--jb-text) !important; }
+.server-reference .server-location-field { align-items: baseline; }
+.server-reference .server-location-field > .ip-location-row { flex: 1; min-width: 0; }
+.server-reference .server-location-field .ip-location-summary { gap: 5px; }
+.server-reference .server-location-field .ip-location-action { padding: 0; min-height: 20px; }

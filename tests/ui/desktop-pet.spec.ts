@@ -620,39 +620,17 @@ test("mute one and all update the status list and pet badge without deleting his
   expect(await page.evaluate(async () => (await (window as any).__TAURI_INTERNALS__.invoke("pet_snapshot", {})).alerts.length)).toBe(2);
 });
 
-test("muted alerts can be restored from settings history", async ({ page }) => {
+test("muted alerts can be restored from the monitor page", async ({ page }) => {
   await fixture(page); await page.goto("/");
-  await openPetSettings(page);
-  await expect(page.getByLabel("启用桌宠")).toBeVisible();
+  await page.getByRole("navigation", { name: "主导航" }).getByRole("button", { name: "监控预警", exact: true }).click();
   await page.evaluate(() => (window as any).petEvent("pet-alerts-changed", { checkedAt: 100, lastError: null, alerts: [{ key: "cert:1", title: "被忽略的提醒", detail: "即将到期", section: "certificates", severity: "warning", active: true, ignored: true, updatedAt: 100, snoozedUntil: 0 }] }));
-  await page.getByRole("button", { name: /提醒记录（/ }).click();
-  const history = page.getByRole("dialog", { name: "运维提醒记录" });
-  await expect(history.getByText("已静音", { exact: true })).toBeVisible();
-  await history.getByRole("button", { name: "取消静音", exact: true }).click();
-  await expect(history.getByText("已静音", { exact: true })).toHaveCount(0);
-  await expect(history.getByRole("button", { name: "静音提醒", exact: true })).toBeVisible();
-  await expect(history).toHaveClass(/dialog-common-theme/);
-  await history.getByRole("button", { name: "最大化弹层" }).click();
-  await expect(history).toHaveClass(/dialog-size-expanded/);
-  await history.getByRole("button", { name: "缩小弹层" }).click();
-  await expect(history).not.toHaveClass(/dialog-size-expanded/);
-  await page.evaluate(() => (window as any).petEvent("pet-alerts-changed", { checkedAt: 100, lastError: null, alerts: Array.from({ length: 30 }, (_, i) => ({ key: `cert:${i}`, title: `测试证书 ${i} 即将到期`, detail: "请刷新资源核对续费或续签结果。", section: "certificates", severity: "warning", active: true, updatedAt: 100, snoozedUntil: 0 })) }));
-  const body = history.locator(".modal-body");
-  await body.evaluate(el => { el.scrollTop = el.scrollHeight; });
-  await expect(history.getByRole("heading", { name: "运维提醒记录" })).toBeVisible();
-  await expect(history.locator("footer").getByRole("button", { name: "关闭", exact: true })).toBeInViewport();
-  for (const width of [375, 768, 1440]) {
-    await page.setViewportSize({ width, height: 900 });
-    const bounds = await history.boundingBox();
-    expect(bounds!.x).toBeGreaterThanOrEqual(0); expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width);
-  }
-  const before = await history.boundingBox();
-  const header = await history.locator("header").boundingBox();
-  await page.mouse.move(header!.x + 100, header!.y + 22); await page.mouse.down();
-  await page.mouse.move(header!.x + 125, header!.y + 32); await page.mouse.up();
-  expect((await history.boundingBox())!.x).toBeGreaterThan(before!.x);
-  await body.evaluate(el => { el.scrollTop = 0; });
-  await history.screenshot({ path: "test-results/pet-history-shared-dialog.png" });
+  await page.getByRole("button", { name: "刷新", exact: true }).click();
+  const row = page.locator(".desktop-alert-row").filter({ hasText: "被忽略的提醒" });
+  await expect(row).toContainText("已静音");
+  await row.getByRole("button", { name: /被忽略的提醒/ }).click();
+  await row.getByRole("button", { name: "取消静音", exact: true }).click();
+  await expect(row).not.toContainText("已静音");
+  await expect(row.getByRole("button", { name: "静音提醒", exact: true })).toBeVisible();
 });
 
 test("emergency alerts sort first and show explicit severity in list and speech bubble", async ({ page }) => {
@@ -674,10 +652,10 @@ test("emergency alerts sort first and show explicit severity in list and speech 
 
 test("panel access check is independently configurable", async ({ page }) => {
   await fixture(page); await page.goto("/");
-  await openPetSettings(page);
-  const section = page.locator(".pet-settings-section");
+  await page.getByRole("navigation", { name: "主导航" }).getByRole("button", { name: "监控预警", exact: true }).click();
+  await page.getByRole("button", { name: "预警策略", exact: true }).click();
+  const section = page.getByRole("region", { name: "巡检范围与提醒规则" });
   await section.getByRole("checkbox", { name: "启用运维预警", exact: true }).check();
-  await section.getByText("检查范围与提醒规则", { exact: true }).click();
   const access = section.getByRole("checkbox", { name: "面板访问异常", exact: true });
   await expect(access).toBeChecked();
   await access.uncheck();

@@ -1,3 +1,4 @@
+import { resolveDomainNameservers } from "./web-api/routes/domain-nameservers.mjs";
 import http from "node:http";
 import { handleIpLocationRoute } from "./web-api/routes/ip-location.mjs";
 import crypto from "node:crypto";
@@ -37,6 +38,7 @@ import * as baiduProvider from "./web-api/providers/baidu.mjs";
 import * as aliyunOssProvider from "./web-api/providers/aliyun-oss.mjs";
 import * as aliyunEsaProvider from "./web-api/providers/aliyun-esa.mjs";
 import * as tencentCosProvider from "./web-api/providers/tencent-cos.mjs";
+import * as cloudflareProvider from "./web-api/providers/cloudflare.mjs";
 import * as vultrProvider from "./web-api/providers/vultr.mjs";
 import { syncCloudAssets } from "./web-api/services/assets.mjs";
 import { saveAccount as saveAccountService } from "./web-api/services/accounts.mjs";
@@ -464,6 +466,7 @@ async function verifyVultrAccount(id) {
 async function cloudResources(id, type) {
   const account = getAccountType(id);
   if (!account) throw new Error("云账号不存在");
+  if (account.cloud_type === "cloudflare") return cloudflareProvider.resources(id, type);
   if (account.cloud_type === "vultr") return vultrResources(id, type);
   if (account.cloud_type === "tencent") return tencentResources(id, type);
   if (account.cloud_type === "volcengine") return volcResources(id, type);
@@ -695,6 +698,11 @@ const server = http.createServer(async (req, res) => {
       },
       leave: () => { databaseImportActive = false; },
     })) return;
+    if (req.method === "POST" && url.pathname === "/api/cloudflare-manage") {
+      const payload = JSON.parse(await readBody(req));
+      if (!Number.isSafeInteger(payload.id) || payload.id <= 0 || typeof payload.action !== "string" || !payload.input || typeof payload.input !== "object" || Array.isArray(payload.input)) return send(res, 400, { error: "Cloudflare 请求参数无效" });
+      return send(res, 200, await cloudflareProvider.manage(payload.id, payload.action, payload.input));
+    }
     if (await handleAccountRoutes(req, res, url, { accounts: listAccounts, saveAccount, deleteAccount })) return;
     if (await handleFlowRoutes(req, res, url)) return;
     if (await handleMemberRoute(req, res, url)) return;
@@ -757,6 +765,10 @@ const server = http.createServer(async (req, res) => {
         remark: item.remark || null,
       })));
       return send(res, 200, { imported });
+    }
+    if (req.method === "GET" && url.pathname === "/api/domain-nameservers") {
+      send(res, 200, await resolveDomainNameservers(url.searchParams.get("domain")));
+      return;
     }
     if (req.method === "GET" && url.pathname === "/api/dns-records") {
       const type = url.searchParams.get("type") || "";

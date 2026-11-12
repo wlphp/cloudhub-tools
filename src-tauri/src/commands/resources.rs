@@ -42,7 +42,8 @@ async fn fetch_cloud_resource(
     let fetch_type = resource_type.clone();
     let cloud = cloud_type;
     let response = fetch_resource_with_retry(|| async {
-        if cloud == "vultr" { crate::cloud::vultr::vultr_resource_items(id, &fetch_type).await }
+        if cloud == "cloudflare" { crate::cloud::cloudflare::resource_items(id, &fetch_type).await }
+        else if cloud == "vultr" { crate::cloud::vultr::vultr_resource_items(id, &fetch_type).await }
         else if cloud == "huawei" { crate::cloud::huawei::resource_items(id, &fetch_type).await }
         else if cloud == "baidu" { crate::cloud::baidu::resource_items(id, &fetch_type).await }
         else if cloud == "ucloud" { crate::cloud::ucloud::resource_items(id, &fetch_type).await }
@@ -82,6 +83,7 @@ pub(crate) async fn list_cloud_resources(id: i64, resource_type: String) -> Plat
         "qingcloud" => crate::cloud::qingcloud::resource_items(id, &resource_type).await,
         "ksyun" => crate::cloud::ksyun::resource_items(id, &resource_type).await,
         "oracle" => crate::cloud::oracle::resource_items(id, &resource_type).await,
+        "cloudflare" => crate::cloud::cloudflare::resource_items(id, &resource_type).await,
         "vultr" => crate::cloud::vultr::vultr_resource_items(id, &resource_type).await,
         _ => return Err("当前云类型资源 API 尚未接入".into()),
     };
@@ -102,10 +104,10 @@ pub(crate) async fn sync_cloud_assets(app: tauri::AppHandle, state: tauri::State
     state.cancelled_accounts.lock().map_err(|_| "同步状态不可用".to_string())?.remove(&id);
     let (access_key_id, access_key_secret) = account_credentials(id)?;
     let cloud_type = account_cloud_type(id)?;
-    if !["aliyun", "tencent", "volcengine", "ctyun", "oracle", "huawei", "baidu", "ucloud", "qiniu", "aws", "azure", "gcp", "jdcloud", "qingcloud", "ksyun", "vultr"].contains(&cloud_type.as_str()) { return Err("当前云类型资源实时拉取尚未接入".into()); }
+    if !["aliyun", "tencent", "volcengine", "ctyun", "oracle", "huawei", "baidu", "ucloud", "qiniu", "aws", "azure", "gcp", "jdcloud", "qingcloud", "ksyun", "vultr", "cloudflare"].contains(&cloud_type.as_str()) { return Err("当前云类型资源实时拉取尚未接入".into()); }
     let now = Utc::now().timestamp_millis();
     let types = if resource_types.is_empty() {
-        if cloud_type == "vultr" { vec!["ecs", "domain", "oss", "rds", "block", "network", "firewall", "ip", "loadbalancer", "snapshot", "kubernetes"].into_iter().map(String::from).collect() } else if cloud_type == "qiniu" { vec!["oss"].into_iter().map(String::from).collect() } else if cloud_type == "jdcloud" { vec!["ecs", "domain", "swas", "rds", "redis", "oss"].into_iter().map(String::from).collect() } else if cloud_type == "qingcloud" { vec!["ecs", "domain", "rds", "redis", "oss"].into_iter().map(String::from).collect() } else if cloud_type == "ksyun" { vec!["ecs", "rds", "redis", "oss"].into_iter().map(String::from).collect() } else if ["huawei", "baidu", "ucloud", "aws", "azure", "gcp"].contains(&cloud_type.as_str()) { vec!["ecs", "domain", "rds", "redis", "oss"].into_iter().map(String::from).collect() } else if cloud_type == "oracle" { vec!["ecs", "domain", "rds", "oss"].into_iter().map(String::from).collect() } else if cloud_type == "ctyun" { vec!["ecs", "domain", "rds", "redis", "oss"].into_iter().map(String::from).collect() } else if cloud_type == "volcengine" { vec!["ecs", "domain", "swas", "rds", "redis", "oss", "esa"].into_iter().map(String::from).collect() } else { vec!["ecs", "domain", "oss", "rds", "redis", "swas", "esa"].into_iter().map(String::from).collect() }
+        if cloud_type == "cloudflare" { vec!["domain", "oss", "workers", "pages", "tunnel"].into_iter().map(String::from).collect() } else if cloud_type == "vultr" { vec!["ecs", "domain", "oss", "rds", "block", "network", "firewall", "ip", "loadbalancer", "snapshot", "kubernetes"].into_iter().map(String::from).collect() } else if cloud_type == "qiniu" { vec!["oss"].into_iter().map(String::from).collect() } else if cloud_type == "jdcloud" { vec!["ecs", "domain", "swas", "rds", "redis", "oss"].into_iter().map(String::from).collect() } else if cloud_type == "qingcloud" { vec!["ecs", "domain", "rds", "redis", "oss"].into_iter().map(String::from).collect() } else if cloud_type == "ksyun" { vec!["ecs", "rds", "redis", "oss"].into_iter().map(String::from).collect() } else if ["huawei", "baidu", "ucloud", "aws", "azure", "gcp"].contains(&cloud_type.as_str()) { vec!["ecs", "domain", "rds", "redis", "oss"].into_iter().map(String::from).collect() } else if cloud_type == "oracle" { vec!["ecs", "domain", "rds", "oss"].into_iter().map(String::from).collect() } else if cloud_type == "ctyun" { vec!["ecs", "domain", "rds", "redis", "oss"].into_iter().map(String::from).collect() } else if cloud_type == "volcengine" { vec!["ecs", "domain", "swas", "rds", "redis", "oss", "esa"].into_iter().map(String::from).collect() } else { vec!["ecs", "domain", "oss", "rds", "redis", "swas", "esa"].into_iter().map(String::from).collect() }
     } else { resource_types };
     let total = types.len();
     let _ = app.emit("asset-sync-progress", AssetSyncProgress { account_id: id, completed: 0, total, resource_type: String::new(), status: "started".into(), elapsed_ms: started_at.elapsed().as_millis() });

@@ -110,11 +110,11 @@ pub(crate) async fn instance_status(id: i64, region_id: String, instance_id: Str
     Ok(crate::array_at(&data, &["InstanceStatuses", "InstanceStatus"]).first().and_then(|item| item.get("Status")).and_then(Value::as_str).unwrap_or("Unknown").to_string())
 }
 
-pub(crate) async fn instance_action(id: i64, region_id: String, instance_id: String, action: &str, force_stop: bool) -> Result<String, String> {
+pub(crate) async fn instance_action(id: i64, region_id: String, instance_id: String, action: &str, force_stop: bool) -> Result<Value, String> {
     ensure_account(id)?; if region_id.trim().is_empty() || instance_id.trim().is_empty() { return Err("缺少服务器地域或实例 ID".into()); }
     let action_name = match action { "reboot" => "RebootInstance", "start" => "StartInstance", "stop" => "StopInstance", _ => return Err("不支持的阿里云服务器操作".into()) };
     let (access_key_id, access_key_secret) = crate::account_credentials(id)?; let mut params = crate::string_params(&[("RegionId", region_id.clone()), ("InstanceId", instance_id)]); if action == "reboot" { params.insert("ForceStop".into(), force_stop.to_string()); }
-    let data = request(&format!("ecs.{region_id}.aliyuncs.com"), "2014-05-26", action_name, params, &access_key_id, &access_key_secret).await?; Ok(data.get("RequestId").and_then(Value::as_str).unwrap_or_default().to_string())
+    request(&format!("ecs.{region_id}.aliyuncs.com"), "2014-05-26", action_name, params, &access_key_id, &access_key_secret).await
 }
 
 pub(crate) async fn rename_instance(id: i64, region_id: &str, instance_id: &str, instance_name: &str) -> Result<String, String> {
@@ -281,6 +281,61 @@ pub(crate) fn signed_object_url(id: i64, bucket: &str, location: &str, key: &str
     if crate::account_cloud_type(id)? != "aliyun" { return Err("当前仅支持阿里云 OSS 文件 URL".into()); } validate_object_key(key)?; let (access_key_id, access_key_secret) = crate::account_credentials(id)?; let location = if location.is_empty() { "oss-cn-hangzhou" } else { location }; let expires = (Utc::now().timestamp() + 15 * 60).to_string(); let resource = format!("/{bucket}/{key}"); let mut mac: Hmac<Sha1> = <Hmac<Sha1> as Mac>::new_from_slice(access_key_secret.as_bytes()).map_err(|error| error.to_string())?; mac.update(format!("GET\n\n\n{expires}\n{resource}").as_bytes()); let signature = B64.encode(mac.finalize().into_bytes()); let host = format!("{bucket}.{location}.aliyuncs.com"); Ok(format!("https://{host}/{}?Expires={}&OSSAccessKeyId={}&Signature={}", encode_object_path(key), crate::rpc_encode(&expires), crate::rpc_encode(&access_key_id), crate::rpc_encode(&signature)))
 }
 
+pub(crate) async fn read_text_object(id: i64, bucket: &str, location: &str, key: &str) -> Result<String, String> {
+    validate_object_key(key)?;
+    let (access_key_id, access_key_secret) = crate::account_credentials(id)?;
+    let location = if location.is_empty() { "oss-cn-hangzhou" } else { location };
+    let host = format!("{bucket}.{location}.aliyuncs.com");
+    let date = Utc::now().format("%a, %d %b %Y %H:%M:%S GMT").to_string();
+    let resource = format!("/{bucket}/{key}");
+    let mut mac: Hmac<Sha1> = <Hmac<Sha1> as Mac>::new_from_slice(access_key_secret.as_bytes()).map_err(|error| error.to_string())?;
+    mac.update(format!("GET\n\n\n{date}\n{resource}").as_bytes());
+    let mut response = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).build().map_err(|error| error.to_string())?
+        .get(format!("https://{host}/{}", encode_object_path(key))).header("Date", &date).header("Host", &host)
+        .header("Authorization", format!("OSS {access_key_id}:{}", B64.encode(mac.finalize().into_bytes())))
+        .timeout(std::time::Duration::from_secs(30)).send().await.map_err(|error| format!("读取 OSS 文件失败: {error}"))?;
+    let status = response.status();
+    if !status.is_success() { return Err(format!("读取 OSS 文件失败（{status}）")); }
+    const MAX_TEXT_BYTES: usize = 2 * 1024 * 1024;
+    if response.content_length().is_some_and(|length| length > MAX_TEXT_BYTES as u64) { return Err("在线编辑仅支持 2 MiB 以内的文本文件".into()); }
+    let mut bytes = Vec::with_capacity(response.content_length().unwrap_or(0).min(MAX_TEXT_BYTES as u64) as usize);
+    while let Some(chunk) = response.chunk().await.map_err(|error| format!("读取 OSS 文件内容失败: {error}"))? {
+        if bytes.len() + chunk.len() > MAX_TEXT_BYTES { return Err("在线编辑仅支持 2 MiB 以内的文本文件".into()); }
+        bytes.extend_from_slice(&chunk);
+    }
+    String::from_utf8(bytes).map_err(|_| "文件不是有效的 UTF-8 文本，无法在线编辑".into())
+}
+
+pub(crate) async fn write_text_object(id: i64, bucket: &str, location: &str, key: &str, content: &str) -> Result<(), String> {
+    validate_object_key(key)?;
+    if content.len() > 2 * 1024 * 1024 { return Err("在线编辑内容不能超过 2 MiB".into()); }
+    let (access_key_id, access_key_secret) = crate::account_credentials(id)?;
+    let location = if location.is_empty() { "oss-cn-hangzhou" } else { location };
+    let host = format!("{bucket}.{location}.aliyuncs.com");
+    let date = Utc::now().format("%a, %d %b %Y %H:%M:%S GMT").to_string();
+    let content_type = match key.rsplit('.').next().unwrap_or("").to_ascii_lowercase().as_str() {
+        "html" | "htm" => "text/html; charset=utf-8",
+        "css" => "text/css; charset=utf-8",
+        "js" | "mjs" => "text/javascript; charset=utf-8",
+        "json" | "jsonc" => "application/json; charset=utf-8",
+        "xml" => "application/xml; charset=utf-8",
+        "svg" => "image/svg+xml; charset=utf-8",
+        "csv" => "text/csv; charset=utf-8",
+        _ => "text/plain; charset=utf-8",
+    };
+    let resource = format!("/{bucket}/{key}");
+    let mut mac: Hmac<Sha1> = <Hmac<Sha1> as Mac>::new_from_slice(access_key_secret.as_bytes()).map_err(|error| error.to_string())?;
+    mac.update(format!("PUT\n\n{content_type}\n{date}\n{resource}").as_bytes());
+    let response = reqwest::Client::new().put(format!("https://{host}/{}", encode_object_path(key)))
+        .header("Date", &date).header("Host", &host).header("Content-Type", content_type)
+        .header("Content-Length", content.len())
+        .header("Authorization", format!("OSS {access_key_id}:{}", B64.encode(mac.finalize().into_bytes())))
+        .body(content.to_owned()).timeout(std::time::Duration::from_secs(60))
+        .send().await.map_err(|error| format!("保存 OSS 文件失败: {error}"))?;
+    if !response.status().is_success() { return Err(format!("保存 OSS 文件失败（{}）", response.status())); }
+    Ok(())
+}
+
 pub(crate) async fn upload_object(id: i64, bucket: &str, location: &str, key: &str, source_path: &Path, overwrite: bool) -> Result<(), String> {
     if crate::account_cloud_type(id)? != "aliyun" { return Err("当前仅支持阿里云 OSS 文件上传".into()); } validate_object_key(key)?; let metadata = tokio::fs::metadata(source_path).await.map_err(|error| format!("读取本机文件失败: {error}"))?; if !metadata.is_file() { return Err("所选路径不是文件".into()); } if metadata.len() > 5 * 1024 * 1024 * 1024 { return Err("单文件上传不能超过 5 GB，请使用 OSS 分片上传工具".into()); } let location = if location.is_empty() { "oss-cn-hangzhou" } else { location }; let (access_key_id, access_key_secret) = crate::account_credentials(id)?; let host = format!("{bucket}.{location}.aliyuncs.com"); let date = Utc::now().format("%a, %d %b %Y %H:%M:%S GMT").to_string(); let content_type = "application/octet-stream"; let resource = format!("/{bucket}/{key}"); let overwrite_header = if overwrite { "" } else { "x-oss-forbid-overwrite:true\n" }; let mut mac: Hmac<Sha1> = <Hmac<Sha1> as Mac>::new_from_slice(access_key_secret.as_bytes()).map_err(|error| error.to_string())?; mac.update(format!("PUT\n\n{content_type}\n{date}\n{overwrite_header}{resource}").as_bytes()); let file = tokio::fs::File::open(source_path).await.map_err(|error| format!("打开本机文件失败: {error}"))?; let body = reqwest::Body::wrap_stream(ReaderStream::new(file)); let mut request = reqwest::Client::new().put(format!("https://{host}/{}", encode_object_path(key))).header("Date", date).header("Host", &host).header("Content-Type", content_type).header("Content-Length", metadata.len()).header("Authorization", format!("OSS {access_key_id}:{}", B64.encode(mac.finalize().into_bytes()))); if !overwrite { request = request.header("x-oss-forbid-overwrite", "true"); } let response = request.body(body).timeout(std::time::Duration::from_secs(60 * 60)).send().await.map_err(|error| format!("OSS 上传失败: {error}"))?; let status = response.status(); if !status.is_success() { let body = response.text().await.unwrap_or_default(); let code = xml_text(&body, "Code"); let message = xml_text(&body, "Message"); return Err(if code == "FileAlreadyExists" { "同名对象已存在，请确认覆盖后重试".into() } else { format!("OSS 上传失败（{status}）：{}", if message.is_empty() { if code.is_empty() { "请求被拒绝" } else { &code } } else { &message }) }); } Ok(())
 }
@@ -300,6 +355,27 @@ fn server_regions(configured: Option<&str>) -> Result<Vec<(String, String)>, Str
         if !regions.iter().any(|(id, _)| id == region) { regions.push((region.to_string(), region.to_string())); }
     }
     Ok(regions)
+}
+
+fn swas_instance(item: &Value) -> Value {
+    let mut value = item.clone();
+    if let Some(target) = value.as_object_mut() {
+        let system_disk = crate::array_at(item, &["Disks"]).into_iter().find(|disk| disk.get("DiskType").and_then(Value::as_str) == Some("system"));
+        let fields = [
+            ("Cpu", item.pointer("/ResourceSpec/Cpu")),
+            ("MemoryInGB", item.pointer("/ResourceSpec/Memory")),
+            ("Bandwidth", item.pointer("/ResourceSpec/Bandwidth")),
+            ("SystemDiskSize", system_disk.and_then(|disk| disk.get("Size")).or_else(|| item.pointer("/ResourceSpec/DiskSize"))),
+            ("PrivateIpAddress", item.get("InnerIpAddress")),
+            ("CreateTime", item.get("CreationTime")),
+            ("ImageName", item.pointer("/Image/ImageName")),
+            ("OSType", item.pointer("/Image/OsType")),
+        ];
+        for (key, source) in fields {
+            if let Some(source) = source.filter(|value| !value.is_null()) { target.insert(key.into(), source.clone()); }
+        }
+    }
+    value
 }
 
 async fn server_items(
@@ -332,7 +408,7 @@ async fn server_items(
                             let batch = crate::array_at(&data, &path);
                             let count = batch.len();
                             for item in batch {
-                                let mut value = item.clone();
+                                let mut value = if kind == "swas" { swas_instance(item) } else { item.clone() };
                                 if let Value::Object(object) = &mut value {
                                     object.insert("_region_id".into(), json!(region));
                                     object.insert("_region_name".into(), json!(name));
@@ -403,5 +479,32 @@ mod server_region_tests {
     #[test]
     fn rejects_region_values_that_could_change_the_endpoint() {
         assert!(server_regions(Some("cn-hangzhou.example/path")).is_err());
+    }
+}
+
+#[cfg(test)]
+mod swas_asset_tests {
+    use super::*;
+    #[test]
+    fn maps_nested_swas_configuration_and_actual_system_disk() {
+        let result = swas_instance(&json!({"ResourceSpec":{"Cpu":2,"Memory":2.0,"Bandwidth":3,"DiskSize":40},
+            "Disks":[{"DiskType":"data","Size":100},{"DiskType":"system","Size":60}],
+            "InnerIpAddress":"10.0.0.8", "CreationTime":"2026-01-01T00:00:00Z",
+            "Image":{"ImageName":"Ubuntu 22.04", "OsType":"linux"}}));
+        assert_eq!(result["Cpu"], 2);
+        assert_eq!(result["MemoryInGB"], 2.0);
+        assert_eq!(result["Bandwidth"], 3);
+        assert_eq!(result["SystemDiskSize"], 60);
+        assert_eq!(result["PrivateIpAddress"], "10.0.0.8");
+        assert_eq!(result["CreateTime"], "2026-01-01T00:00:00Z");
+        assert_eq!(result["ImageName"], "Ubuntu 22.04");
+    }
+    #[test]
+    fn preserves_missing_and_existing_values() {
+        let result = swas_instance(&json!({"Cpu":1,"SystemDiskSize":40,"ResourceSpec":null}));
+        assert_eq!(result["Cpu"], 1);
+        assert_eq!(result["SystemDiskSize"], 40);
+        assert!(result.get("MemoryInGB").is_none());
+        assert!(result.get("Bandwidth").is_none());
     }
 }

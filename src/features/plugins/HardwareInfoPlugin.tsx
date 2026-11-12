@@ -377,11 +377,11 @@ export function HardwareInfoPlugin({ open, onOpened }: Props) {
       </div>
     </section>;
   return <>{shell}
-    {cameraOpen && <SharedDialog title="摄像头实时预览" subtitle="本机实时画面" icon={<Camera size={22} aria-hidden="true" />} className="computer-camera-dialog" bodyClassName="computer-camera-preview" closeLabel="关闭摄像头预览" onClose={stopCamera}
+    {cameraOpen && <SharedDialog sizeStorageKey="features/plugins/hardware-info-plugin/hardware-info-plugin" title="摄像头实时预览" subtitle="本机实时画面" icon={<Camera size={22} aria-hidden="true" />} className="computer-camera-dialog" bodyClassName="computer-camera-preview" closeLabel="关闭摄像头预览" onClose={stopCamera}
       footer={<><small><ShieldCheck size={14} aria-hidden="true" />实时画面仅在本机显示，不录制、不保存。</small><button type="button" className="secondary" onClick={stopCamera}><X size={15} aria-hidden="true" />关闭预览</button></>}>
       <video ref={cameraVideoRef} autoPlay playsInline muted aria-label="摄像头画面预览" />
     </SharedDialog>}
-    {wifiPassword && <SharedDialog title={`${wifiPassword.ssid} 属性`} subtitle="当前已保存的 Wi-Fi 网络" className="wifi-password-dialog" bodyClassName="wifi-password-body" size="small" closeLabel="关闭 Wi-Fi 密码" onClose={hideWifiPassword}
+    {wifiPassword && <SharedDialog sizeStorageKey="features/plugins/hardware-info-plugin/hardware-info-plugin/2" title={`${wifiPassword.ssid} 属性`} subtitle="当前已保存的 Wi-Fi 网络" className="wifi-password-dialog" bodyClassName="wifi-password-body" size="small" closeLabel="关闭 Wi-Fi 密码" onClose={hideWifiPassword}
       footer={<button type="button" className="secondary" onClick={hideWifiPassword}>关闭</button>}>
           <div className="wifi-password-value"><span>Wi-Fi 网络密码</span><code>{wifiPassword.password}</code><button type="button" className="secondary" onClick={() => void copyWifiPassword()}><Copy size={14} aria-hidden="true" />复制密码</button></div>
           <div className="wifi-password-qr"><strong>扫描以连接</strong><div><QRCodeSVG value={wifiQrPayload(wifiPassword.ssid, wifiPassword.password)} size={184} level="M" marginSize={2} title="Wi-Fi 连接二维码" /></div><small>使用手机相机扫描二维码即可加入此网络</small></div>

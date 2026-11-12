@@ -27,6 +27,7 @@ test("loads the workbench shell without native credentials", async ({ page }) =>
 
 test("account summary cards stay compact", async ({ page }) => {
   await page.goto("/");
+  await page.getByRole("navigation", { name: "主导航" }).getByRole("button", { name: "账号管理", exact: true }).click();
   const stats = page.locator(".account-section .header-stat-tiles");
   await expect(stats.locator(":scope > .header-stat-tile")).toHaveCount(4);
   for (const card of await stats.locator(":scope > .header-stat-tile").all()) {
@@ -37,6 +38,7 @@ test("account summary cards stay compact", async ({ page }) => {
 test("account filter labels stay grouped at the minimum desktop width", async ({ page }) => {
   await page.setViewportSize({ width: 820, height: 900 });
   await page.goto("/");
+  await page.getByRole("navigation", { name: "主导航" }).getByRole("button", { name: "账号管理", exact: true }).click();
 
   const statusField = page.locator(".account-filter-field").filter({ has: page.getByText("状态：", { exact: true }) });
   const label = statusField.locator("span").first();
@@ -88,6 +90,7 @@ test("subtle text and notifications remain legible without covering dialogs", as
 
 test("opens the cloud account form with required credential boundaries", async ({ page }) => {
   await page.goto("/");
+  await page.getByRole("navigation", { name: "主导航" }).getByRole("button", { name: "账号管理", exact: true }).click();
 
   await page.getByRole("button", { name: "添加云账号" }).click();
   const dialog = page.getByRole("heading", { name: "添加云账号" }).locator("..")
@@ -183,7 +186,7 @@ test("renders DNS and OSS tools from sanitized local-asset fixtures", async ({ p
   }));
 
   await page.goto("/");
-  await page.getByRole("button", { name: "资产管理" }).click();
+  await page.getByRole("navigation", { name: "主导航" }).getByRole("button", { name: "资产管理", exact: true }).click();
   await expect(page.getByText("example.test", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("fixture-bucket", { exact: true }).first()).toBeVisible();
 

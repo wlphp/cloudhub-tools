@@ -495,7 +495,7 @@ pub(crate) async fn codex_refresh_quota(
         let conn = open_db()?;
         let account = repository::get(&conn, id)?;
         if account.auth_mode != "chatgpt" { return Err("API Key 账号不提供 ChatGPT 订阅额度".into()); }
-        if account.quota.fetched_at.is_some_and(|time| chrono::Utc::now().timestamp_millis() - time < 30_000) { return Err("额度刚刚刷新，请在 30 秒后重试".into()); }
+        if account.quota.fetched_at.is_some_and(|time| chrono::Utc::now().timestamp_millis() - time < 5_000) { return Err("额度刚刚刷新，请在 5 秒后重试".into()); }
         let auth_json = repository::credentials(&conn, id)?;
         let mut original = auth::parse_import(&auth_json)?.remove(0);
         if running {

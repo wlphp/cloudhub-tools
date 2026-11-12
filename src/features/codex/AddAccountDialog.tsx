@@ -27,7 +27,7 @@ export function AddAccountDialog({ busy, error, canOpenDefault, onClose, onOffic
     if (await onImportText(value, force)) { setContent(""); setApiKey(""); }
   }
 
-  return <OverviewDialog title="添加 Codex 账号" busy={busy} onClose={onClose} className="codex-add-account-dialog" footer={<button type="button" onClick={onClose} disabled={busy}>关闭</button>}>
+  return <OverviewDialog sizeStorageKey="features/codex/add-account-dialog/add-account-dialog" title="添加 Codex 账号" busy={busy} onClose={onClose} className="codex-add-account-dialog" footer={<button type="button" onClick={onClose} disabled={busy}>关闭</button>}>
     <div className="codex-add-methods" role="tablist" aria-label="选择账号添加方式">
       {methods.map(({ id, label, Icon }) => <button id={`codex-add-tab-${id}`} key={id} type="button" role="tab" aria-selected={method === id} aria-controls={`codex-add-panel-${id}`} onClick={() => setMethod(id)} disabled={busy}><Icon size={15} />{label}</button>)}
     </div>

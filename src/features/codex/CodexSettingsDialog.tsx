@@ -14,7 +14,7 @@ export function CodexSettingsDialog({ preferences, busy, canOpenDefault, onClose
   onStartCodex: () => void;
 }) {
   const update = (patch: Partial<OverviewPreferences>) => onSave({ ...preferences, ...patch });
-  return <OverviewDialog title="Codex 设置" busy={busy} onClose={onClose} className="codex-settings-dialog">
+  return <OverviewDialog sizeStorageKey="features/codex/codex-settings-dialog/codex-settings-dialog" title="Codex 设置" busy={busy} onClose={onClose} className="codex-settings-dialog">
     <section className="codex-settings-section">
       <div className="codex-settings-heading"><SlidersHorizontal size={16} /><h3>账号总览</h3></div>
       <label className="codex-settings-switch"><span><strong>显示 API 服务入口</strong><small>控制账号总览中的 API 服务卡片显示，不会停止本地 API 服务。</small></span><input type="checkbox" role="switch" aria-label="显示 API 服务入口" checked={preferences.showServiceEntry} disabled={busy} onChange={event => update({ showServiceEntry: event.target.checked })} /></label>

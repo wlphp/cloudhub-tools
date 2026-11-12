@@ -16,7 +16,7 @@ export function SqlExportDialog({ onClose, onExport }: { onClose: () => void; on
     catch { setError("SQL 导出失败，请检查凭据与保存位置后重试。"); }
     finally { setBusy(false); }
   }
-  return <SharedDialog title="导出明文 SQL" size="small" icon={<FileWarning size={18} />} className="data-transfer-dialog" busy={busy} closeDisabled={busy} initialFocus="input" onClose={onClose} onSubmit={event => { event.preventDefault(); void submit(); }} footer={<><button type="button" className="secondary" disabled={busy} onClick={onClose}>取消</button><button type="submit" className="primary" disabled={busy || !accepted || !tables.length}>{busy ? "正在导出…" : "导出明文 SQL"}</button></>}>
+  return <SharedDialog sizeStorageKey="features/accounts/data-transfer-dialogs/sql-export-dialog" title="导出明文 SQL" size="small" icon={<FileWarning size={18} />} className="data-transfer-dialog" busy={busy} closeDisabled={busy} initialFocus="input" onClose={onClose} onSubmit={event => { event.preventDefault(); void submit(); }} footer={<><button type="button" className="secondary" disabled={busy} onClick={onClose}>取消</button><button type="submit" className="primary" disabled={busy || !accepted || !tables.length}>{busy ? "正在导出…" : "导出明文 SQL"}</button></>}>
     <p>SQL 包含解密后的密码、Access Key Secret、令牌和私钥，任何获得文件的人均可阅读。请保存至可信位置，不要分享给他人。</p>
     <DataTransferScope categories={categories} tables={tables} onChange={setTables} disabled={busy} />
     {catalogError && <p role="alert">{catalogError}</p>}
@@ -45,7 +45,7 @@ export function BackupCreateDialog({ onClose, onCreate }: { onClose: () => void;
     catch { setError("创建备份失败，请检查凭据和存储权限后重试。"); }
     finally { setBusy(false); }
   }
-  return <SharedDialog title="创建备份" size="small" className="data-transfer-dialog" icon={<LockKeyhole size={18} />} busy={busy} closeDisabled={busy} initialFocus="input[type=checkbox]" onClose={onClose} onSubmit={event => { event.preventDefault(); void submit(); }} footer={<><button type="button" className="secondary" disabled={busy} onClick={onClose}>取消</button><button type="submit" className="primary" disabled={busy}>{busy ? "正在创建…" : "保存备份"}</button></>}>
+  return <SharedDialog sizeStorageKey="features/accounts/data-transfer-dialogs/backup-create-dialog" title="创建备份" size="small" className="data-transfer-dialog" icon={<LockKeyhole size={18} />} busy={busy} closeDisabled={busy} initialFocus="input[type=checkbox]" onClose={onClose} onSubmit={event => { event.preventDefault(); void submit(); }} footer={<><button type="button" className="secondary" disabled={busy} onClick={onClose}>取消</button><button type="submit" className="primary" disabled={busy}>{busy ? "正在创建…" : "保存备份"}</button></>}>
     <label className="data-transfer-check"><input type="checkbox" checked={protectedBackup} disabled={busy} onChange={event => { setProtectedBackup(event.target.checked); setPassword(""); setRepeat(""); setError(""); }} />使用密码保护</label>
     <p>{protectedBackup ? "敏感字段保持密文，数据库和恢复 key 再整体使用此密码加密。导入和恢复时需要密码，忘记后无法恢复，密码不会保存。" : "默认不设置密码：敏感字段保持密文，恢复 key 随备份携带。持有完整文件即可恢复凭据，请妥善保管。"}</p>
     {protectedBackup && <>
@@ -76,7 +76,7 @@ export function BackupPasswordDialog({ kind, onClose, onExecute }: { kind: "rest
     catch { setError("无法读取备份，请检查密码、文件完整性及版本后重试。"); }
     finally { setBusy(false); }
   }
-  return <SharedDialog title={title} size="small" className="data-transfer-dialog" icon={<LockKeyhole size={18} />} onClose={onClose} busy={busy} closeDisabled={busy} initialFocus="input[type=password]" onSubmit={event => { event.preventDefault(); void submit(); }} footer={<><button type="button" className="secondary" disabled={busy} onClick={onClose}>取消</button><button type="submit" className="primary" disabled={busy}>{busy ? "正在处理…" : kind === "import" ? "选择备份文件" : "解锁并预览"}</button></>}>
+  return <SharedDialog sizeStorageKey="features/accounts/data-transfer-dialogs/backup-password-dialog" title={title} size="small" className="data-transfer-dialog" icon={<LockKeyhole size={18} />} onClose={onClose} busy={busy} closeDisabled={busy} initialFocus="input[type=password]" onSubmit={event => { event.preventDefault(); void submit(); }} footer={<><button type="button" className="secondary" disabled={busy} onClick={onClose}>取消</button><button type="submit" className="primary" disabled={busy}>{busy ? "正在处理…" : kind === "import" ? "选择备份文件" : "解锁并预览"}</button></>}>
     <p>输入创建该密码备份时设置的密码，密码不会保存。普通备份无需此步骤。</p>
     <label className="data-transfer-field">备份密码<input type="password" autoComplete="off" value={password} disabled={busy} onChange={event => setPassword(event.target.value)} /></label>
     {error && <p role="alert">{error}</p>}

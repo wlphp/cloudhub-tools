@@ -45,6 +45,20 @@ pub(crate) fn get_oss_object_url(id: i64, bucket: String, location: String, obje
 }
 
 #[tauri::command]
+pub(crate) async fn read_oss_text_object(id: i64, bucket: String, location: String, object_key: String) -> PlatformResult<String> {
+    validate_object_key(&object_key)?;
+    if account_cloud_type(id)? != "aliyun" { return Err("在线编辑当前仅支持阿里云 OSS".into()); }
+    crate::cloud::aliyun::read_text_object(id, &bucket, &location, &object_key).await.map_err(Into::into)
+}
+
+#[tauri::command]
+pub(crate) async fn write_oss_text_object(id: i64, bucket: String, location: String, object_key: String, content: String) -> PlatformResult<()> {
+    validate_object_key(&object_key)?;
+    if account_cloud_type(id)? != "aliyun" { return Err("在线编辑当前仅支持阿里云 OSS".into()); }
+    crate::cloud::aliyun::write_text_object(id, &bucket, &location, &object_key, &content).await.map_err(Into::into)
+}
+
+#[tauri::command]
 pub(crate) async fn set_oss_public_read(id: i64, bucket: String, location: String) -> PlatformResult<()> {
     crate::cloud::aliyun::set_public_read(id, &bucket, &location).await.map_err(Into::into)
 }

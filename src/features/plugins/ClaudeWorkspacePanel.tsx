@@ -24,7 +24,7 @@ function McpEditor({ existing, onClose, onSave }: { existing?: ClaudeWorkspaceSt
   const [importText, setImportText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  return <SharedDialog title={existing ? "编辑 MCP 服务器" : "添加 MCP 服务器"} onClose={onClose} closeDisabled={busy} size="small"
+  return <SharedDialog sizeStorageKey="features/plugins/claude-workspace-panel/mcp-editor" title={existing ? "编辑 MCP 服务器" : "添加 MCP 服务器"} onClose={onClose} closeDisabled={busy} size="small"
     onSubmit={event => {
       event.preventDefault(); if (busy) return;
       let config: Record<string, unknown>;
@@ -88,7 +88,7 @@ function PromptEditor({ draft, onClose, onSave }: { draft: ClaudePrompt; onClose
   const [value, setValue] = useState(draft);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  return <SharedDialog title={draft.id ? "编辑提示词" : "新建提示词"} onClose={onClose} closeDisabled={busy}
+  return <SharedDialog sizeStorageKey="features/plugins/claude-workspace-panel/prompt-editor" title={draft.id ? "编辑提示词" : "新建提示词"} onClose={onClose} closeDisabled={busy}
     onSubmit={e => { e.preventDefault(); if (busy) return; setBusy(true); void onSave({ ...value, id: value.id || `prompt-${crypto.randomUUID()}` }).then(onClose).catch(reason => setError(reason instanceof Error ? reason.message : "保存失败")).finally(() => setBusy(false)); }}
     footer={<><button type="button" className="secondary" disabled={busy} onClick={onClose}>取消</button><button type="submit" className="primary" disabled={busy}>保存</button></>}>
     <div className="claude-work-form"><label className="claude-field">提示词名称<input required maxLength={240} autoFocus value={value.name} onChange={e => setValue({ ...value, name: e.target.value })} /></label>
@@ -168,6 +168,6 @@ export function ClaudeWorkspacePanel({ view, confirm, onScopeChanged }: { view: 
     </div>}
     {mcpEditor && <McpEditor existing={mcpEditor.existing} onClose={() => setMcpEditor(null)} onSave={(name, config) => act({ type: "save_mcp", name, config })} />}
     {promptEditor && <PromptEditor draft={promptEditor} onClose={() => setPromptEditor(null)} onSave={prompt => act({ type: "save_prompt", prompt })} />}
-    {preview && <SharedDialog title="Claude Code 会话" subtitle={preview.title} onClose={() => setPreview(null)}><pre className="claude-session-preview">{preview.text || "未读取到文本消息"}</pre></SharedDialog>}
+    {preview && <SharedDialog sizeStorageKey="features/plugins/claude-workspace-panel/claude-workspace-panel" title="Claude Code 会话" subtitle={preview.title} onClose={() => setPreview(null)}><pre className="claude-session-preview">{preview.text || "未读取到文本消息"}</pre></SharedDialog>}
   </section>;
 }

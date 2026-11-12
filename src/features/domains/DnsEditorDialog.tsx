@@ -117,7 +117,7 @@ export function DnsEditorDialog({ mode, row, preset, domain = "", onCancel, onSu
   };
 
   return (
-    <SharedDialog className="dns-editor-modal" size="small" title={mode === "edit" ? "编辑解析记录" : "添加解析记录"} closeLabel="关闭解析记录编辑" onClose={onCancel} closeDisabled={submitting} onSubmit={handleSubmit} footer={<><button type="button" className="secondary" onClick={onCancel} disabled={submitting}>取消</button><button type="submit" className="primary" disabled={submitting}>{submitting ? "提交中…" : "确定"}</button></>}>
+    <SharedDialog sizeStorageKey="features/domains/dns-editor-dialog/dns-editor-dialog" className="dns-editor-modal" size="small" title={mode === "edit" ? "编辑解析记录" : "添加解析记录"} closeLabel="关闭解析记录编辑" onClose={onCancel} closeDisabled={submitting} onSubmit={handleSubmit} footer={<><button type="button" className="secondary" onClick={onCancel} disabled={submitting}>取消</button><button type="submit" className="primary" disabled={submitting}>{submitting ? "提交中…" : "确定"}</button></>}>
             <div className="dns-ai-actions">
             <AiAssistButton task="dns" title="AI 智能填写" current={{type,rr,value,ttl,priority,line}} disabled={submitting} onApplyItems={applyAiRecords} onApply={({fields}) => { const records=parseDnsPaste(JSON.stringify({type,rr,value,ttl,priority,line,...fields}),domain); if(!records.length)throw new Error("未得到有效DNS记录，请核对字段"); applyParsed(records[0],rr||"@"); setParsed([]); }} />
             </div>

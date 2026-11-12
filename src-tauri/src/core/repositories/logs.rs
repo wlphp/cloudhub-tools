@@ -13,7 +13,7 @@ fn sensitive_key(key: &str) -> bool {
         .any(|needle| normalized.contains(needle))
 }
 
-fn sanitize_json(value: &Value, key: Option<&str>) -> Value {
+pub(crate) fn sanitize_json(value: &Value, key: Option<&str>) -> Value {
     if key.is_some_and(sensitive_key) {
         return Value::String("[REDACTED]".into());
     }
@@ -35,12 +35,16 @@ fn log_json(value: &Value) -> String {
 }
 
 pub fn list_api(conn: &Connection, keyword: Option<&str>, status: Option<&str>, limit: i64, offset: i64) -> Result<Vec<ApiLog>, String> {
+    list_api_scoped(conn, keyword, status, limit, offset, None, None)
+}
+
+pub fn list_api_scoped(conn: &Connection, keyword: Option<&str>, status: Option<&str>, limit: i64, offset: i64, account_id: Option<i64>, instance_id: Option<&str>) -> Result<Vec<ApiLog>, String> {
     let keyword = keyword.map(|value| format!("%{}%", value.trim()));
     let status = status.map(str::trim).filter(|value| !value.is_empty());
     let limit = limit.clamp(1, 500);
     let offset = offset.max(0);
-    let mut statement = conn.prepare("SELECT l.id,l.account_id,a.account_name,l.endpoint,l.action,l.request_params,l.response_params,l.status,l.message,l.created_at FROM api_logs l LEFT JOIN cloud_accounts a ON a.id=l.account_id WHERE (?1 IS NULL OR COALESCE(a.account_name,'') LIKE ?1 OR l.endpoint LIKE ?1 OR l.action LIKE ?1 OR l.status LIKE ?1 OR COALESCE(l.message,'') LIKE ?1) AND (?2 IS NULL OR l.status=?2) ORDER BY l.created_at DESC LIMIT ?3 OFFSET ?4").map_err(|error| error.to_string())?;
-    let rows = statement.query_map(params![keyword, status, limit, offset], |row| Ok(ApiLog {
+    let mut statement = conn.prepare("SELECT l.id,l.account_id,a.account_name,l.endpoint,l.action,l.request_params,l.response_params,l.status,l.message,l.created_at FROM api_logs l LEFT JOIN cloud_accounts a ON a.id=l.account_id WHERE (?1 IS NULL OR COALESCE(a.account_name,'') LIKE ?1 OR l.endpoint LIKE ?1 OR l.action LIKE ?1 OR l.status LIKE ?1 OR COALESCE(l.message,'') LIKE ?1) AND (?2 IS NULL OR l.status=?2) AND (?5 IS NULL OR l.account_id=?5) AND (?6 IS NULL OR CASE WHEN json_valid(l.request_params) THEN json_extract(l.request_params, '$.instanceId') END = ?6) ORDER BY l.created_at DESC,l.id DESC LIMIT ?3 OFFSET ?4").map_err(|error| error.to_string())?;
+    let rows = statement.query_map(params![keyword, status, limit, offset, account_id, instance_id], |row| Ok(ApiLog {
         id: row.get(0)?, account_id: row.get(1)?, account_name: row.get(2)?, endpoint: row.get(3)?, action: row.get(4)?, request_params: row.get(5)?, response_params: row.get(6)?, status: row.get(7)?, message: row.get(8)?, created_at: row.get(9)?,
     })).map_err(|error| error.to_string())?;
     rows.map(|row| row.map_err(|error| error.to_string())).collect()
@@ -117,4 +121,18 @@ mod tests {
         let empty = list_api(&conn, Some("ecs"), Some("失败"), 1, 0).unwrap();
         assert!(empty.is_empty());
     }
+    #[test]
+    fn instance_logs_isolate_accounts_and_paginate_equal_timestamps() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE cloud_accounts (id INTEGER PRIMARY KEY, account_name TEXT); CREATE TABLE api_logs (id INTEGER PRIMARY KEY, account_id INTEGER, endpoint TEXT, action TEXT, request_params TEXT, response_params TEXT, status TEXT, message TEXT, created_at INTEGER);").unwrap();
+        for (id, account, request) in [(1, 1, r#"{"instanceId":"instance-a"}"#), (2, 1, r#"{"instanceId":"instance-b"}"#), (3, 2, r#"{"instanceId":"instance-a"}"#), (4, 1, "invalid-json"), (5, 1, r#"{"instanceId":"instance-a"}"#)] {
+            conn.execute("INSERT INTO api_logs VALUES(?1,?2,'iaas','POST',?3,NULL,'成功',NULL,1)", rusqlite::params![id, account, request]).unwrap();
+        }
+        let first = super::list_api_scoped(&conn, None, None, 1, 0, Some(1), Some("instance-a")).unwrap();
+        let second = super::list_api_scoped(&conn, None, None, 1, 1, Some(1), Some("instance-a")).unwrap();
+        assert_eq!(first[0].id, 5);
+        assert_eq!(second[0].id, 1);
+        assert!(super::list_api_scoped(&conn, None, None, 1, 2, Some(1), Some("instance-a")).unwrap().is_empty());
+    }
+
 }

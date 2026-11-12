@@ -111,16 +111,11 @@ pub(crate) fn save_managed_host(input: ManagedHostInput) -> PlatformResult<Manag
     let conn = open_db()?; let now = Utc::now().timestamp_millis();
     let existing = input.id.map(|id| managed_host_repository::existing_secrets(&conn, id)).transpose()?.flatten();
     let password_secret = input.password.as_deref().map(str::trim).filter(|value| !value.is_empty()).map(encrypt_secret).transpose()?.or_else(|| existing.as_ref().and_then(|value| value.0.clone()));
-    let has_new_key = input.private_key.as_deref().is_some_and(|value| !value.trim().is_empty());
-    let private_key_secret = if auth_method == "private_key" {
-        input.private_key.as_deref().map(str::trim).filter(|value| !value.is_empty()).map(encrypt_secret).transpose()?.or_else(|| existing.as_ref().and_then(|value| value.1.clone()))
-    } else { None };
-    let key_passphrase_secret = if auth_method == "private_key" {
-        if has_new_key || input.key_passphrase.is_some() { input.key_passphrase.as_deref().map(str::trim).filter(|value| !value.is_empty()).map(encrypt_secret).transpose()? } else { existing.as_ref().and_then(|value| value.2.clone()) }
-    } else { None };
+    let private_key_secret = input.private_key.as_deref().map(str::trim).filter(|value| !value.is_empty()).map(encrypt_secret).transpose()?.or_else(|| existing.as_ref().and_then(|value| value.1.clone()));
+    let key_passphrase_secret = input.key_passphrase.as_deref().map(str::trim).filter(|value| !value.is_empty()).map(encrypt_secret).transpose()?.or_else(|| existing.as_ref().and_then(|value| value.2.clone()));
     if platform == "linux" && auth_method == "password" && password_secret.as_deref().is_none_or(str::is_empty) { return Err("首次添加 Linux 服务器需要填写 SSH 密码".into()); }
     if platform == "linux" && auth_method == "private_key" && private_key_secret.as_deref().is_none_or(str::is_empty) { return Err("首次添加 Linux 服务器需要粘贴 SSH 私钥".into()); }
-    let password_value = if auth_method == "private_key" { String::new() } else { password_secret.unwrap_or_default() };
+    let password_value = password_secret.unwrap_or_default();
     Ok(managed_host_repository::save(&conn, &input, name, host, username, platform, auth_method, port, &password_value, private_key_secret.as_deref(), key_passphrase_secret.as_deref(), now)?)
 }
 #[tauri::command]

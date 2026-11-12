@@ -40,7 +40,7 @@ function AccountEditor({ account, onClose, onSaved }: { account: MailAccount; on
  const [error, setError] = useState("");
  const locked = useRef(false);
  const field = <K extends keyof MailAccount>(key: K, next: MailAccount[K]) => setValue(v => ({ ...v, [key]: next }));
- return <SharedDialog title={account.id ? "编辑邮箱" : "添加邮箱"} icon={<Mail size={18} />} className="mail-account-dialog" busy={busy} closeDisabled={busy} onClose={onClose} onSubmit={async e => {
+ return <SharedDialog sizeStorageKey="features/mail/mail-plugin/account-editor" title={account.id ? "编辑邮箱" : "添加邮箱"} icon={<Mail size={18} />} className="mail-account-dialog" busy={busy} closeDisabled={busy} onClose={onClose} onSubmit={async e => {
    e.preventDefault(); if (locked.current) return; locked.current = true; setBusy(true); setError("");
    try { const result = await mailClient.save({ ...value, name: value.name.trim() || value.email, username: value.username.trim() || value.email, password }); setPassword(""); onSaved(result); } catch (e) { setError(errorText(e)); } finally { locked.current = false; setBusy(false); }
  }} footer={<><button type="button" className="secondary" disabled={busy} onClick={onClose}>取消</button><button className="primary" disabled={busy || !runningInTauri}>{busy ? "正在保存…" : "保存邮箱"}</button></>}>
@@ -71,7 +71,7 @@ function Composer({ account, initial, onClose, onSent }: { account: MailAccount;
  const locked = useRef(false);
  const dirty = draft.to !== initial.to || draft.subject !== initial.subject || draft.body !== initial.body || draft.attachments.length > 0;
  const close = () => { if (dirty) setDiscard(true); else onClose(); };
- return <><SharedDialog title="写邮件" subtitle={"发件人：" + account.email} icon={<Pencil size={18} />} className="mail-compose-dialog" onClose={close} closeDisabled={busy || reading} busy={busy || reading} onSubmit={async e => {
+ return <><SharedDialog sizeStorageKey="features/mail/mail-plugin/composer" title="写邮件" subtitle={"发件人：" + account.email} icon={<Pencil size={18} />} className="mail-compose-dialog" onClose={close} closeDisabled={busy || reading} busy={busy || reading} onSubmit={async e => {
   e.preventDefault(); if (locked.current) return; locked.current = true; setBusy(true); setError("");
   try { await mailClient.send(account.id, draft); onSent(); } catch (e) { setError(errorText(e)); } finally { locked.current = false; setBusy(false); }
  }} footer={<><span className="mail-hint">纯文本邮件 · 附件合计 ≤ 10 MiB</span><button type="button" className="secondary" disabled={busy || reading} onClick={close}>取消</button><button className="primary" disabled={busy || reading}><Send size={14} />{busy ? "正在发送…" : "发送邮件"}</button></>}>

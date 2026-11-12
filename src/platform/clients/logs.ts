@@ -1,10 +1,13 @@
 import type { ApiLog } from "../../shared/types";
-import { invokeOrWeb, queryPath } from "./base";
+import { invokeOrWeb, nativeOnly, queryPath } from "./base";
 
 export type LogKind = "api" | "operation";
-export type ApiLogQuery = { keyword?: string; status?: string; limit?: number; offset?: number };
+export type ApiLogQuery = { keyword?: string; status?: string; limit?: number; offset?: number; accountId?: number; instanceId?: string };
 
 export const logsClient = {
+  listInstanceApi(query: ApiLogQuery & { accountId: number; instanceId: string }): Promise<ApiLog[]> {
+    return nativeOnly("list_api_logs", query);
+  },
   listApi(query: ApiLogQuery = {}): Promise<ApiLog[]> {
     return invokeOrWeb("list_api_logs", query, { path: queryPath("/api/api-logs", query) });
   },

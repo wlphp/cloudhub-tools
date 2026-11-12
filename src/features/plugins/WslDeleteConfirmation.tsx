@@ -15,7 +15,7 @@ interface Props {
 
 export function WslDeleteConfirmation({ name, busy, backingUp, error, message, onCancel, onBackup, onConfirm }: Props) {
   const [confirmation, setConfirmation] = useState("");
-  return <SharedDialog title={`删除发行版 ${name}`} icon={<Trash2 size={18} aria-hidden="true" />} role="alertdialog" className="wsl-delete-dialog" size="small" showResize={false} closeLabel="关闭删除对话框" closeDisabled={busy} onClose={onCancel}
+  return <SharedDialog sizeStorageKey="features/plugins/wsl-delete-confirmation/wsl-delete-confirmation" title={`删除发行版 ${name}`} icon={<Trash2 size={18} aria-hidden="true" />} role="alertdialog" className="wsl-delete-dialog" size="small" showResize={false} closeLabel="关闭删除对话框" closeDisabled={busy} onClose={onCancel}
     footer={<>
       <button type="button" className="secondary" disabled={busy} onClick={onBackup}><FileArchive size={14} aria-hidden="true" />{backingUp ? "正在备份…" : "先备份"}</button>
       <button type="button" className="secondary" disabled={busy} onClick={onCancel}>取消</button>

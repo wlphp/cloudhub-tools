@@ -52,7 +52,7 @@ export function TerminalQuickCommands({ commands, connected, onChange, onInsert 
       </article>)}
       {commands.length === 0 && <div className="terminal-quick-empty"><Terminal size={25} /><strong>还没有常用命令</strong><span>把常用的安装或维护命令保存在这里</span><button type="button" onClick={() => openEditor()}><Plus size={14} />添加第一条命令</button></div>}
     </div>
-    {editing && <SharedDialog title={commands.some((item) => item.id === editing.id) ? "编辑常用命令" : "添加常用命令"} className="terminal-quick-dialog" onSubmit={save} onClose={() => setEditing(null)} footer={<><button type="button" onClick={() => setEditing(null)}>取消</button><button type="submit" className="primary" disabled={!draft.name.trim() || !draft.command.trim()}>保存</button></>}>
+    {editing && <SharedDialog sizeStorageKey="features/servers/terminal-quick-commands/terminal-quick-commands" title={commands.some((item) => item.id === editing.id) ? "编辑常用命令" : "添加常用命令"} className="terminal-quick-dialog" onSubmit={save} onClose={() => setEditing(null)} footer={<><button type="button" onClick={() => setEditing(null)}>取消</button><button type="submit" className="primary" disabled={!draft.name.trim() || !draft.command.trim()}>保存</button></>}>
         <label>名称<input autoFocus maxLength={80} value={draft.name} onChange={(event) => setDraft((value) => ({ ...value, name: event.target.value }))} placeholder="例如：查看磁盘空间" /></label>
         <label>命令<textarea required rows={5} maxLength={2000} spellCheck={false} value={draft.command} onChange={(event) => setDraft((value) => ({ ...value, command: event.target.value }))} placeholder="输入要保存的终端命令" /></label>
         <p>命令会随“数据库迁移 · 导出全部 / 导入全部”迁移。填入不会执行；执行操作需要单独点击。</p>

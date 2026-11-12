@@ -31,7 +31,7 @@ fn esa_waf_blocked_requests(data: &Value) -> f64 {
 }
 
 #[tauri::command]
-pub(crate) async fn oracle_instance_action(id: i64, region_id: String, instance_id: String, action: String) -> PlatformResult<String> { cloud::oracle::instance_action(id, region_id, instance_id, action).await.map_err(Into::into) }
+pub(crate) async fn oracle_instance_action(id: i64, region_id: String, instance_id: String, action: String) -> PlatformResult<Value> { cloud::oracle::instance_action(id, region_id, instance_id, action).await.map_err(Into::into) }
 
 #[tauri::command]
 pub(crate) async fn vultr_instance_action(id: i64, instance_id: String, action: String) -> PlatformResult<Value> { cloud::vultr::vultr_instance_action(id, instance_id, action).await.map_err(Into::into) }
@@ -136,22 +136,22 @@ pub(crate) async fn list_tencent_security_groups(id: i64, region_id: String, ins
 pub(crate) async fn list_baidu_security_groups(id: i64, region_id: String, instance_id: String, security_group_id: Option<String>) -> PlatformResult<Value> { cloud::baidu::list_security_groups(id, &region_id, &instance_id, security_group_id).await.map_err(Into::into) }
 
 #[tauri::command]
-pub(crate) async fn reboot_instance(id: i64, region_id: String, instance_id: String, force_stop: bool) -> PlatformResult<String> { cloud::aliyun::instance_action(id, region_id, instance_id, "reboot", force_stop).await.map_err(Into::into) }
+pub(crate) async fn reboot_instance(id: i64, region_id: String, instance_id: String, force_stop: bool) -> PlatformResult<Value> { cloud::aliyun::instance_action(id, region_id, instance_id, "reboot", force_stop).await.map_err(Into::into) }
 
 #[tauri::command]
-pub(crate) async fn start_instance(id: i64, region_id: String, instance_id: String) -> PlatformResult<String> { cloud::aliyun::instance_action(id, region_id, instance_id, "start", false).await.map_err(Into::into) }
+pub(crate) async fn start_instance(id: i64, region_id: String, instance_id: String) -> PlatformResult<Value> { cloud::aliyun::instance_action(id, region_id, instance_id, "start", false).await.map_err(Into::into) }
 
 #[tauri::command]
-pub(crate) async fn stop_instance(id: i64, region_id: String, instance_id: String) -> PlatformResult<String> { cloud::aliyun::instance_action(id, region_id, instance_id, "stop", false).await.map_err(Into::into) }
+pub(crate) async fn stop_instance(id: i64, region_id: String, instance_id: String) -> PlatformResult<Value> { cloud::aliyun::instance_action(id, region_id, instance_id, "stop", false).await.map_err(Into::into) }
 
 #[tauri::command]
 pub(crate) async fn instance_status(id: i64, region_id: String, instance_id: String) -> PlatformResult<String> { cloud::aliyun::instance_status(id, region_id, instance_id).await.map_err(Into::into) }
 
 #[tauri::command]
-pub(crate) async fn cvm_instance_action(id: i64, region_id: String, instance_id: String, action: String, force_stop: bool) -> PlatformResult<String> { cloud::tencent::cvm_instance_action(id, &region_id, &instance_id, &action, force_stop).await.map_err(Into::into) }
+pub(crate) async fn cvm_instance_action(id: i64, region_id: String, instance_id: String, action: String, force_stop: bool) -> PlatformResult<Value> { cloud::tencent::cvm_instance_action(id, &region_id, &instance_id, &action, force_stop).await.map_err(Into::into) }
 
 #[tauri::command]
-pub(crate) async fn cvm_instance_reboot(id: i64, region_id: String, instance_id: String, force_stop: bool) -> PlatformResult<String> { cloud::tencent::cvm_instance_reboot(id, &region_id, &instance_id, force_stop).await.map_err(Into::into) }
+pub(crate) async fn cvm_instance_reboot(id: i64, region_id: String, instance_id: String, force_stop: bool) -> PlatformResult<Value> { cloud::tencent::cvm_instance_reboot(id, &region_id, &instance_id, force_stop).await.map_err(Into::into) }
 
 #[tauri::command]
 pub(crate) async fn authorize_tencent_security_group_rule(id: i64, region_id: String, security_group_id: String, ip_protocol: String, port_range: String, source_cidr_ip: String, description: Option<String>, nic_type: Option<String>) -> PlatformResult<String> {

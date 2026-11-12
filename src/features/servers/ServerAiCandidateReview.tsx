@@ -16,7 +16,7 @@ export function ServerAiCandidateReview({ items, existing, onFill, onClose }: Pr
     onClose();
   }
   const readyCount = candidates.filter(candidate => !candidate.errors.length && !candidate.duplicateOf).length;
-  return <SharedDialog title="审核服务器候选" eyebrow="SERVER CANDIDATES" icon={<Server size={18} />} className="ai-asset-note-dialog server-ai-review" closeLabel="关闭候选审核" onClose={onClose} footer={<><span role="status">{readyCount} / {candidates.length} 条可填入</span><button type="button" onClick={onClose}>关闭</button></>}>
+  return <SharedDialog sizeStorageKey="features/servers/server-ai-candidate-review/server-ai-candidate-review" title="审核服务器候选" eyebrow="SERVER CANDIDATES" icon={<Server size={18} />} className="ai-asset-note-dialog server-ai-review" closeLabel="关闭候选审核" onClose={onClose} footer={<><span role="status">{readyCount} / {candidates.length} 条可填入</span><button type="button" onClick={onClose}>关闭</button></>}>
     <p>逐条检查识别结果。填入只会更新服务器表单；登录密码、私钥和保存操作仍由你完成。</p>
     <div className="server-ai-review-list">{candidates.map((candidate, index) => {
       const blocked = candidate.errors.length > 0 || !!candidate.duplicateOf;

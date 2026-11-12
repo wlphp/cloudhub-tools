@@ -91,6 +91,7 @@ pub(crate) fn list_accounts(keyword: Option<String>) -> PlatformResult<Vec<Cloud
 pub(crate) fn save_account(mut input: AccountInput) -> PlatformResult<CloudAccount> {
     if input.account_name.trim().is_empty() || input.access_key_id.trim().is_empty() { return Err("账号名称和 AccessKey ID 不能为空".into()); }
     let conn = open_db()?; let now = Utc::now().timestamp_millis();
+    if input.cloud_type == "cloudflare" && (input.access_key_id.trim().len() != 32 || !input.access_key_id.trim().bytes().all(|c| c.is_ascii_hexdigit())) { return Err("Cloudflare Account ID 必须为 32 位十六进制字符".into()); }
     if input.cloud_type == "oracle" {
         if let Some(private_key) = input.access_key_secret.as_mut() { *private_key = serialize_oci_private_key(private_key); }
         let meta: Value = serde_json::from_str(input.credential_meta.as_deref().unwrap_or("{}")).map_err(|_| "OCI 凭证信息格式无效".to_string())?;

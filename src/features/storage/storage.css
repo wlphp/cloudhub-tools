@@ -1,0 +1,109 @@
+/* Keep storage density local to the resource panel and its cards. */
+.ide-theme .oss-reference { padding: 12px 16px; }
+.oss-reference > .server-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.bucket-list-count { color: var(--jb-muted); font-size: 12px; white-space: nowrap; }
+.oss-bucket-search { display: flex; align-items: center; gap: 7px; width: min(360px, 42vw); min-width: 190px; height: 32px; margin: 0; padding: 0 9px; border: 1px solid var(--jb-border); border-radius: 5px; color: var(--jb-muted); background: var(--jb-surface); }
+.oss-bucket-search:focus-within { border-color: var(--jb-accent-strong); box-shadow: 0 0 0 2px var(--jb-accent-soft); }
+.ide-theme .oss-bucket-search > input { display: block; box-sizing: border-box; flex: 1; width: auto; min-width: 0; height: 100%; margin: 0; padding: 0; border: 0 !important; border-radius: 0 !important; outline: 0 !important; box-shadow: none !important; color: var(--jb-text) !important; background: transparent !important; font: inherit; }
+.ide-theme .oss-bucket-search > input:focus { border: 0 !important; outline: 0 !important; box-shadow: none !important; }
+.oss-bucket-search input::placeholder { color: var(--jb-muted); }
+.oss-bucket-search button { display: inline-flex; align-items: center; justify-content: center; padding: 3px; border: 0; color: var(--jb-muted); background: transparent; cursor: pointer; }
+.oss-reference .oss-grid { gap: 10px; }
+.bucket-card { min-width: 0; }
+.ide-theme .bucket-card { padding: 12px 14px; }
+.ide-theme .bucket-card .bucket-header { gap: 12px; padding: 0; margin: 0 0 6px; border: 0; font-size: 14px; }
+.bucket-card .bucket-header .bucket-notice { flex: 0 1 auto; max-width: min(42%, 360px); margin: 0 0 0 auto; padding: 4px 8px; line-height: 18px; overflow-wrap: anywhere; }
+.bucket-header strong { display: flex; align-items: center; gap: 7px; min-width: 0; overflow-wrap: anywhere; }
+.bucket-header strong svg { flex-shrink: 0; color: var(--jb-accent-strong); }
+.bucket-header .bucket-acl { flex-shrink: 0; padding: 2px 8px; line-height: 18px; }
+.bucket-overview { display: flex; flex-wrap: wrap; gap: 4px 24px; color: var(--jb-text); font-size: 12px; line-height: 20px; }
+.bucket-overview span { color: var(--jb-muted); margin-right: 4px; }
+.bucket-card .bucket-detail-box { gap: 6px 20px; margin-top: 8px; padding: 7px 10px; line-height: 20px; }
+.bucket-card .bucket-detail-box > span { flex-wrap: wrap; overflow-wrap: anywhere; }
+.bucket-card .bucket-cname { max-width: 100%; overflow-wrap: anywhere; text-align: left; }
+.bucket-cname-item { display: inline-flex; align-items: center; max-width: 100%; }
+.bucket-cname-copy { display: inline-flex; align-items: center; justify-content: center; min-width: 25px; min-height: 25px; border: 1px solid var(--jb-border); border-right: 0; border-radius: 4px 0 0 4px; color: var(--jb-muted); background: var(--jb-surface-2); cursor: pointer; }
+.bucket-cname-item .bucket-cname { border-radius: 0 4px 4px 0; }
+.bucket-cname-copy:hover { color: var(--jb-accent-strong); }
+.bucket-cname-copy:focus-visible { outline: 2px solid var(--jb-accent-strong); outline-offset: 2px; z-index: 1; }
+.bucket-connection-details { margin-top: 7px; font-size: 12px; }
+.bucket-connection-details summary { width: fit-content; padding: 3px 0; color: var(--jb-muted); cursor: pointer; }
+.bucket-connection-details summary:hover { color: var(--jb-accent-strong); }
+.bucket-connection-details summary:focus-visible { outline: 2px solid var(--jb-accent-strong); outline-offset: 2px; }
+.bucket-connection-details .bucket-info { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 20px; margin-top: 6px; padding: 8px 10px; background: var(--jb-surface-2); font-size: 12px; }
+.bucket-connection-details .bucket-info > div { display: grid; grid-template-columns: 64px minmax(0, 1fr); align-items: baseline; gap: 8px; min-width: 0; line-height: 20px; }
+.bucket-connection-details .bucket-info span { margin: 0; }
+.bucket-connection-details :is(code, time) { color: var(--jb-text); font: inherit; overflow-wrap: anywhere; }
+.bucket-card .bucket-actions { align-items: center; gap: 6px; margin-top: 8px; padding-top: 8px; }
+.bucket-card .bucket-actions :is(.layui-btn, .ai-assist-button) { display: inline-flex; align-items: center; justify-content: center; gap: 5px; height: 28px; margin: 0; padding: 0 9px; font-size: 12px; line-height: 1; }
+.bucket-ai-action { display: inline-flex; margin-left: auto; }
+.oss-text-editor { display: flex; min-height: 0; flex: 1; flex-direction: column; }
+.oss-text-editor-toolbar { display: flex; align-items: center; gap: 9px; min-height: 48px; padding: 8px 14px; border-bottom: 1px solid var(--jb-border); background: var(--jb-bg); }
+.oss-text-editor-toolbar > strong { min-width: 0; overflow: hidden; color: var(--jb-text); text-overflow: ellipsis; white-space: nowrap; }
+.oss-text-editor-toolbar > span { margin-left: auto; color: var(--jb-muted); font-size: 12px; white-space: nowrap; }
+.oss-text-editor-input { box-sizing: border-box; width: 100%; min-height: 320px; flex: 1; resize: none; padding: 14px 16px; border: 0; border-radius: 0; outline: 0; background: var(--jb-input); color: var(--jb-text); font: 13px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace; tab-size: 2; white-space: pre; overflow: auto; }
+.oss-text-editor-input:focus-visible { box-shadow: inset 0 0 0 2px var(--jb-accent-strong); }
+.oss-text-editor-hint { flex: 0 0 auto; margin: 0; padding: 8px 14px; border-top: 1px solid var(--jb-border); color: var(--jb-muted); font-size: 12px; line-height: 1.5; }
+/* File browser columns reserve space for actions; long metadata stays in its cell. */
+.oss-object-dialog .oss-object-table table { min-width: 880px; }
+.oss-object-dialog .oss-object-table :is(th, td) { box-sizing: border-box; padding: 10px 12px; vertical-align: middle; }
+.oss-object-dialog .oss-object-table :is(th, td):nth-child(2) { width: auto; }
+.oss-object-dialog .oss-object-check { width: 40px; }
+.oss-object-dialog .oss-object-table :is(th, td):nth-child(3) { width: 100px; white-space: nowrap; }
+.oss-object-dialog .oss-object-table :is(th, td):nth-child(4) { width: 160px; white-space: nowrap; }
+.oss-object-dialog .oss-object-table :is(th, td):nth-child(5) { width: 140px; }
+.oss-object-dialog .oss-object-operation { width: 244px !important; text-align: right !important; }
+.oss-object-dialog .oss-object-actions { justify-content: flex-end; gap: 6px; }
+.oss-object-dialog .oss-object-etag { display: block; overflow: hidden; color: var(--jb-muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.oss-object-dialog :is(.oss-object-file, .oss-object-name) > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.oss-object-dialog .oss-file-command { display: inline-flex; align-items: center; justify-content: center; gap: 5px; flex-shrink: 0; height: 30px; min-width: 66px; margin: 0; padding: 0 8px; border: 1px solid var(--jb-border); border-radius: 5px; background: var(--jb-surface-2); color: var(--jb-text); font: inherit; font-size: 12px; line-height: 1; white-space: nowrap; cursor: pointer; }
+.oss-object-dialog .oss-file-download { color: var(--jb-accent-strong); }
+.oss-object-dialog .oss-file-command:hover:not(:disabled) { border-color: var(--jb-accent-strong); background: var(--jb-accent-soft); }
+.oss-object-dialog .oss-file-command:focus-visible { outline: 2px solid var(--jb-accent-strong); outline-offset: 2px; }
+.oss-object-dialog .oss-file-command:disabled { opacity: .45; cursor: not-allowed; }
+.oss-object-dialog .oss-browser-search { box-sizing: border-box; min-width: 160px; height: 32px; margin: 0; border-color: var(--jb-border); }
+.oss-object-dialog .oss-browser-search:focus-within { border-color: var(--jb-accent-strong); box-shadow: 0 0 0 2px var(--jb-accent-soft); }
+.ide-theme .oss-object-dialog .oss-browser-search > input { display: block; box-sizing: border-box; flex: 1; width: auto; min-width: 0; height: 100%; min-height: 0; margin: 0 !important; padding: 0 !important; border: 0 !important; border-radius: 0 !important; outline: 0 !important; box-shadow: none !important; background: transparent !important; color: var(--jb-text); font: inherit; }
+.oss-object-dialog .oss-browser-address { box-sizing: border-box; min-width: 0; flex: 1 1 240px; }
+.oss-object-dialog .oss-browser-actions { flex-wrap: wrap; }
+@media (max-width: 680px) {
+  .oss-object-dialog .oss-browser-pathbar { padding: 10px; gap: 8px; }
+  .oss-object-dialog .oss-browser-search { flex-basis: 100%; }
+  .oss-object-dialog .oss-browser-actions { padding: 8px 10px; }
+  .ide-theme .oss-reference { padding: 10px; }
+  .oss-reference > .server-toolbar { flex-wrap: wrap; }
+  .oss-bucket-search { order: 3; width: 100%; min-width: 0; }
+  .ide-theme .bucket-card { padding: 10px; }
+  .bucket-card .bucket-header .bucket-notice { max-width: 100%; }
+  .bucket-connection-details .bucket-info { grid-template-columns: minmax(0, 1fr); }
+  .bucket-ai-action { margin-left: 0; }
+  .bucket-card .bucket-actions :is(.layui-btn, .ai-assist-button) { min-height: 34px; height: auto; padding: 7px 9px; }
+  .oss-text-editor-toolbar { flex-wrap: wrap; }
+  .oss-text-editor-toolbar > strong { order: 3; width: 100%; }
+  .oss-text-editor-toolbar > span { margin-left: auto; }
+  .oss-text-editor-input { min-height: 45vh; padding: 12px; }
+}
+
+/* Compact file management toolbar; keep room for the actual file list. */
+.oss-object-dialog.shared-content-dialog > .modal-head { min-height: 0; padding: 8px 12px; }
+.oss-object-dialog.shared-content-dialog > .modal-body { padding: 8px; }
+.oss-object-dialog .oss-browser-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 6px 8px; border-bottom: 1px solid var(--jb-border); background: var(--jb-surface-2); }
+.oss-object-dialog .oss-browser-pathbar { flex: 1 1 420px; min-width: 0; gap: 6px; padding: 0; border: 0; flex-wrap: nowrap; background: transparent !important; }
+.oss-object-dialog .oss-browser-nav { flex-shrink: 0; gap: 3px; }
+.oss-object-dialog .oss-browser-nav button, .oss-object-dialog .oss-browser-icon { box-sizing: border-box; width: 28px; height: 28px; min-height: 28px; }
+.oss-object-dialog .oss-browser-address { flex: 1 1 160px; max-width: none; height: 28px; padding: 0 7px; }
+.oss-object-dialog .oss-browser-search { flex: 0 1 180px; min-width: 130px; height: 28px; font-size: 12px; }
+.oss-object-dialog .oss-browser-actions { flex: 0 1 auto; min-width: 0; gap: 6px; padding: 0; border: 0; background: transparent !important; }
+.oss-object-dialog .oss-browser-command { flex: 0 0 auto; height: 28px; min-height: 28px; padding: 0 8px; font-size: 12px; white-space: nowrap; }
+.oss-object-dialog .oss-browser-actions > span { width: auto; margin-left: auto; font-size: 12px; white-space: nowrap; }
+.oss-object-dialog .oss-object-table :is(th, td) { padding: 4px 10px; line-height: 20px; }
+.oss-object-dialog .oss-file-command { height: 26px; min-height: 26px; }
+.oss-object-dialog .oss-transfer-status { padding: 4px 8px; }
+@media (max-width: 680px) {
+  .oss-object-dialog .oss-browser-toolbar { padding: 6px; }
+  .oss-object-dialog .oss-browser-pathbar { flex-basis: 100%; flex-wrap: wrap; }
+  .oss-object-dialog .oss-browser-address { flex-basis: 150px; }
+  .oss-object-dialog .oss-browser-search { flex: 1 1 100%; }
+  .oss-object-dialog .oss-browser-actions { flex: 1 1 100%; align-items: center; }
+  .oss-object-dialog .oss-browser-actions > span { flex: 1 1 100%; }
+}

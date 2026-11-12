@@ -311,3 +311,12 @@ body.theme-light .ide-theme .favorite-disk-chip.system i{color:#9a5518}
 @media (max-width: 1100px) {
   .ide-theme .favorites-page .favorite-resource-card { --favorite-label-width: 56px; }
 }
+.favorites-page .favorite-status-refresh.is-refreshing:disabled{color:var(--jb-accent-strong);background:var(--jb-accent-soft);box-shadow:inset 0 0 0 1px var(--jb-accent);border-radius:4px;padding-inline:7px;font-weight:600;opacity:1;cursor:progress}
+.favorites-page .favorite-status-refresh:focus-visible{outline:2px solid var(--jb-accent-strong);outline-offset:2px}
+@media(prefers-reduced-motion:reduce){.favorite-status-refresh .spin{animation:none}}
+
+/* Cloudflare 复用资产工具栏，搜索焦点只绘制在外框。 */
+.asset-list-toolbar label.cloudflare-search { display: flex; flex: 1; align-items: center; gap: 8px; margin: 0; min-width: 160px; padding: 0 10px; border: 1px solid var(--jb-border); border-radius: 4px; }
+.asset-list-toolbar label.cloudflare-search:focus-within { outline: 2px solid var(--jb-accent); outline-offset: 1px; }
+.asset-list-toolbar label.cloudflare-search input { flex: 1; width: 100%; min-width: 0; margin: 0; border: 0 !important; background: transparent !important; box-shadow: none !important; outline: none !important; }
+.cloudflare-dns-content { max-width: 320px; overflow-wrap: anywhere; }

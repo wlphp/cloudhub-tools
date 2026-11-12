@@ -1,3 +1,4 @@
+pub mod cloudflare;
 pub mod vultr;
 pub mod ctyun;
 pub mod aliyun;

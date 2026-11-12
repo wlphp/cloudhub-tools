@@ -87,4 +87,10 @@ export const storageClient = {
   objectUrl(accountId: number, bucket: string, location: string, objectKey: string): Promise<string> {
     return nativeOnly("get_oss_object_url", { id: accountId, bucket, location, objectKey });
   },
+  readText(accountId: number, bucket: string, location: string, objectKey: string): Promise<string> {
+    return nativeOnly("read_oss_text_object", { id: accountId, bucket, location, objectKey });
+  },
+  writeText(accountId: number, bucket: string, location: string, objectKey: string, content: string): Promise<void> {
+    return nativeOnly("write_oss_text_object", { id: accountId, bucket, location, objectKey, content });
+  },
 };

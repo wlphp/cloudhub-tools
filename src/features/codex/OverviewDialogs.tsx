@@ -3,8 +3,8 @@ import { SharedDialog } from "../../shared/SharedDialog";
 import { RecycleBin } from "../../shared/RecycleBin";
 import { trashClient, type TrashSnapshot } from "../../platform/clients/trash";
 
-export function OverviewDialog({ title, busy, onClose, children, eyebrow, description, headerActions, layout, className = "", footer, footerLayout = "actions", dismissWhileBusy = false }: { title: string; busy: boolean; onClose: () => void; children: ReactNode; eyebrow?: string; description?: string; headerActions?: ReactNode; layout?: "form"; className?: string; footer?: ReactNode; footerLayout?: "actions" | "stacked"; dismissWhileBusy?: boolean }) {
-  return <SharedDialog title={title} subtitle={description} eyebrow={eyebrow} busy={busy} closeDisabled={busy && !dismissWhileBusy} closeLabel="关闭对话框" onClose={onClose} headerActions={headerActions} className={`codex-dialog ${className}${layout === "form" ? " codex-dialog-form-layout" : ""}`} bodyClassName={layout === "form" ? "codex-dialog-form-body" : "codex-dialog-content"} footerClassName={footerLayout === "stacked" ? "codex-launch-footer" : "codex-overview-dialog-actions"} footer={footer}>{children}</SharedDialog>;
+export function OverviewDialog({ title, busy, onClose, children, eyebrow, description, headerActions, layout, className = "", footer, footerLayout = "actions", dismissWhileBusy = false, sizeStorageKey }: { title: string; busy: boolean; onClose: () => void; children: ReactNode; eyebrow?: string; description?: string; headerActions?: ReactNode; layout?: "form"; className?: string; footer?: ReactNode; footerLayout?: "actions" | "stacked"; dismissWhileBusy?: boolean; sizeStorageKey?: string }) {
+  return <SharedDialog sizeStorageKey={sizeStorageKey} title={title} subtitle={description} eyebrow={eyebrow} busy={busy} closeDisabled={busy && !dismissWhileBusy} closeLabel="关闭对话框" onClose={onClose} headerActions={headerActions} className={`codex-dialog ${className}${layout === "form" ? " codex-dialog-form-layout" : ""}`} bodyClassName={layout === "form" ? "codex-dialog-form-body" : "codex-dialog-content"} footerClassName={footerLayout === "stacked" ? "codex-launch-footer" : "codex-overview-dialog-actions"} footer={footer}>{children}</SharedDialog>;
 }
 
 export function CodexRecycleDialog({ onClose, onChanged }: { onClose: () => void; onChanged: () => Promise<void> }) {
@@ -35,7 +35,7 @@ export function CodexRecycleDialog({ onClose, onChanged }: { onClose: () => void
     finally { pending.current = false; if (alive.current) setBusy(false); }
   }
   const group = snapshot?.groups.find(value => value.kind === "codex_accounts");
-  return <OverviewDialog title="Codex 账号回收站" busy={busy} onClose={onClose}>
+  return <OverviewDialog sizeStorageKey="features/codex/overview-dialogs/codex-recycle-dialog" title="Codex 账号回收站" busy={busy} onClose={onClose}>
     {error && <p role="alert" className="codex-card-error">{error}</p>}
     {!snapshot ? <p>正在读取回收站…</p> : <><p>删除的 Codex 账号可在此恢复。{snapshot.scrubDays ? `删除 ${snapshot.scrubDays} 天后会清除凭据，恢复后需要重新登录。` : "凭据保留至手动彻底删除。"}</p><RecycleBin kinds={group ? [{ id: group.kind, label: group.label, items: group.items }] : []} busy={busy} onClose={onClose} actions={{ restore: (_, ids) => run(ids, false), purge: (_, ids) => run(ids, true) }} /></>}
   </OverviewDialog>;

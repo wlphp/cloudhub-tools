@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import { dnsBrowserUrl } from "../../src/features/domains/dnsHost";
 
 test("DNS browser links open the host through the native opener without editing records", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
   expect(dnsBrowserUrl("@", "example.test")).toBe("https://example.test/");
   expect(dnsBrowserUrl("www", "example.test")).toBe("https://www.example.test/");
   expect(dnsBrowserUrl("*.api", "example.test")).toBeNull();

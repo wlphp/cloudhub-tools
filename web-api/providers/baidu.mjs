@@ -66,7 +66,37 @@ const BCC_REGIONS = ["bj", "bd", "gz", "su", "hkg", "fwh"];
 function xmlText(xml, tag) { const match = String(xml).match(new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)</${tag}>`, "i")); return match ? match[1].replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1").trim() : ""; }
 function xmlBlocks(xml, tag) { return [...String(xml).matchAll(new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)</${tag}>`, "gi"))].map((match) => match[1]); }
 function configuredRegions(accountId) { const row = account(accountId); const values = String(row.region_id || "bj").split(/[,，\s]+/).map((value) => value.trim()).filter(Boolean); return [...new Set([...(values.length ? values : ["bj"]), ...BCC_REGIONS])]; }
-function instance(item, region) { const addresses = item.publicIps || item.publicIp || item.eip || []; const privateAddresses = item.internalIps || item.privateIps || item.internalIp || []; return { ...item, InstanceId: item.id || item.instanceId, InstanceName: item.name || item.instanceName || item.id, InstanceStatus: item.status, Status: item.status, PublicIpAddress: Array.isArray(addresses) ? addresses[0] || "" : addresses, PrivateIpAddress: Array.isArray(privateAddresses) ? privateAddresses[0] || "" : privateAddresses, InstanceType: item.cpuCount && item.memoryCapacityInGB ? `${item.cpuCount}C${item.memoryCapacityInGB}G` : item.spec || "", VpcId: item.vpcId || "", _region_id: region }; }
+function instance(item, region) {
+  const addresses = item.publicIps ?? item.publicIp ?? [];
+  const privateAddresses = item.internalIps ?? item.privateIps ?? item.internalIp ?? [];
+  const memory = Number(item.memoryCapacityInGB);
+  const memoryGb = Number.isFinite(memory) && memory > 0 ? memory : null;
+  const os = [item.osName, item.osVersion].filter(Boolean).join(" ");
+  const primaryIp = Array.isArray(item.nicInfo?.ips) ? item.nicInfo.ips.find(ip => ip.primary === true || ip.primary === "true") : undefined;
+  const eipBandwidth = Number(primaryIp?.eipSize);
+  return { ...item, InstanceId: item.id || item.instanceId, InstanceName: item.name || item.instanceName || item.id,
+    InstanceStatus: item.status, Status: item.status,
+    PublicIpAddress: Array.isArray(addresses) ? addresses[0] || "" : addresses,
+    PrivateIpAddress: Array.isArray(privateAddresses) ? privateAddresses[0] || "" : privateAddresses,
+    Cpu: item.cpuCount ?? null, Memory: memoryGb === null ? null : memoryGb * 1024, MemoryInGB: memoryGb,
+    InstanceType: item.spec || item.instanceType || "", VpcId: item.vpcId || "", ZoneId: item.zoneName || "",
+    InternetMaxBandwidthOut: Number.isFinite(eipBandwidth) && eipBandwidth > 0 ? eipBandwidth : item.networkCapacityInMbps ?? null, OSName: os || item.imageName || null,
+    ImageId: item.imageId, CreationTime: item.createTime, ExpiredTime: item.expireTime, PaymentTiming: item.paymentTiming,
+    Disks: (Array.isArray(item.volumes) ? item.volumes : []).map(disk => ({ DiskId: disk.volumeId, DiskName: disk.isSystemVolume === true ? "系统盘" : "数据盘", Size: disk.diskSizeInGB, Category: disk.storageType ?? disk.type, Status: disk.status })),
+    _region_id: region,
+  };
+}
+async function instanceWithDetails(accountId, host, item, region) {
+  const id = item.id || item.instanceId;
+  if (typeof id !== "string" || !/^[a-zA-Z0-9_-]+$/.test(id)) return instance(item, region);
+  let merged = { ...item };
+  try {
+    const { data } = await request(accountId, host, `/v2/instance/${encodeURIComponent(id)}`);
+    if (data.instance && typeof data.instance === "object" && !Array.isArray(data.instance)) merged = { ...merged, ...data.instance };
+    else merged._detail_error = "实例详情返回不完整，请重新拉取";
+  } catch { merged._detail_error = "实例详情读取失败，请检查权限或稍后重试"; }
+  return instance(merged, region);
+}
 function rds(item, region) { return { ...item, DBInstanceId: item.instanceId || item.id, DBInstanceDescription: item.instanceName || item.name || item.instanceId, DBInstanceStatus: item.status, DBInstanceClass: item.instanceClass || item.instanceType || "", DBInstanceStorage: Number(item.volumeCapacity || item.capacity || 0), ConnectionString: item.endpoint || item.vip || "", Port: item.port || "", Engine: item.engine || item.engineType || "", EngineVersion: item.engineVersion || "", CreateTime: item.createTime || "", _region_id: region }; }
 function redis(item, region) { return { ...item, InstanceId: item.instanceId || item.id, InstanceName: item.instanceName || item.name || item.instanceId, InstanceStatus: item.instanceStatus || item.status, InstanceType: item.engine || "Redis", InstanceClass: item.instanceClass || item.nodeType || "", Capacity: Number(item.capacity || item.memorySize || 0), ConnectionDomain: item.domain || item.endpoint || item.vip || "", Port: item.port || "", EngineVersion: item.engineVersion || "", NetworkType: item.vnetIp || item.vpcId || "", CreateTime: item.instanceCreateTime || "", _region_id: region }; }
 function zone(item) { return { ...item, DomainName: item.domain || item.name || item.zoneName, DomainStatus: item.status || "ACTIVE", ZoneId: item.id || item.domainId || item.domain, RecordCount: Number(item.recordCount || item.recordNum || 0), RegistrationDate: item.createTime || "", _region_id: "global", _baidu_public_zone: true }; }
@@ -80,7 +110,7 @@ export async function resources(accountId, type) {
   const definition = definitions[type];
   if (!definition) return { resource_type: type, items, errors: [`百度智能云暂未接入 ${type} 资源`], fetched_at: Date.now() };
   const [name, pathname, keys, normalize] = definition;
-  for (const region of regions) { try { items.push(...(await pages(accountId, `${name}.${region}.baidubce.com`, pathname, keys)).map((item) => normalize(item, region))); } catch (error) { errors.push(`${region}: ${error.message}`); } }
+  for (const region of regions) { try { for (const item of await pages(accountId, `${name}.${region}.baidubce.com`, pathname, keys)) { items.push(type === "ecs" ? await instanceWithDetails(accountId, `${name}.${region}.baidubce.com`, item, region) : normalize(item, region)); } } catch (error) { errors.push(`${region}: ${error.message}`); } }
   return { resource_type: type, items, errors, fetched_at: Date.now() };
 }
 

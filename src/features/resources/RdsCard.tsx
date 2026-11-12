@@ -222,7 +222,7 @@ export function RdsCard({
         </button>
       </div>}
       {accountDialog && (
-        <SharedDialog title="账号管理" eyebrow={displayValue(item.DBInstanceDescription || item.DBInstanceId)} className="resource-modal account-dialog" backdropClassName="resource-modal-backdrop" onClose={() => setAccountDialog(false)} headerActions={<button className="secondary" disabled={busy} onClick={() => void load("accounts")}><RefreshCw className={busy ? "spin" : undefined} size={13} />{busy ? "读取中…" : "刷新"}</button>}>
+        <SharedDialog sizeStorageKey="features/resources/rds-card/rds-card" title="账号管理" eyebrow={displayValue(item.DBInstanceDescription || item.DBInstanceId)} className="resource-modal account-dialog" backdropClassName="resource-modal-backdrop" onClose={() => setAccountDialog(false)} headerActions={<button className="secondary" disabled={busy} onClick={() => void load("accounts")}><RefreshCw className={busy ? "spin" : undefined} size={13} />{busy ? "读取中…" : "刷新"}</button>}>
             {accountError && <div className="error-list">{accountError}</div>}
             <div className="resource-table-wrap account-table-wrap">
               {busy ? (

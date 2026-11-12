@@ -73,6 +73,7 @@ export const cloudProviders = [
   { value: "azure", label: "Microsoft Azure", idLabel: "Client ID", secretLabel: "Client Secret", regionPlaceholder: "eastasia", avatar: "Az" },
   { value: "gcp", label: "Google Cloud", idLabel: "Service Account Email", secretLabel: "Private Key PEM", regionPlaceholder: "asia-east1", avatar: "G" },
   { value: "vultr", label: "Vultr", idLabel: "API Key 标识（可选）", secretLabel: "Vultr API Key", regionPlaceholder: "ewr", avatar: "V" },
+  { value: "cloudflare", label: "Cloudflare", idLabel: "Account ID", secretLabel: "API Token", regionPlaceholder: "global", avatar: "CF" },
 ] as const;
 
 const legacyOtherCloudProvider = { value: "other", label: "未接入云", idLabel: "凭证 ID", secretLabel: "凭证 Secret", regionPlaceholder: "可选", avatar: "云" } as const;
@@ -97,6 +98,7 @@ const cloudTypeTextMatchers: ReadonlyArray<readonly [string, RegExp]> = [
   ["azure", /\bazure\b|微软云|microsoft/i],
   ["gcp", /\bgcp\b|谷歌云|google\s*cloud/i],
   ["oracle", /\boracle\b|\boci\b|甲骨文/i],
+  ["cloudflare", /cloudflare|cloudfare/i],
   ["vultr", /\bvultr\b/i],
 ];
 
@@ -106,15 +108,16 @@ export function matchCloudTypeFromText(text: string) {
 }
 
 export const assetTypes = [
-  ["ecs", "服务器"], ["domain", "域名"], ["oss", "对象存储"], ["rds", "云数据库"], ["redis", "Redis"], ["swas", "轻量应用服务器"], ["esa", "边缘安全加速"], ["block", "块存储"], ["network", "私有网络"], ["firewall", "防火墙"], ["ip", "保留 IP"], ["loadbalancer", "负载均衡"], ["snapshot", "快照"], ["kubernetes", "Kubernetes"],
+  ["ecs", "服务器"], ["domain", "域名"], ["oss", "对象存储"], ["rds", "云数据库"], ["redis", "Redis"], ["swas", "轻量应用服务器"], ["esa", "边缘安全加速"], ["block", "块存储"], ["network", "私有网络"], ["firewall", "防火墙"], ["ip", "保留 IP"], ["loadbalancer", "负载均衡"], ["snapshot", "快照"], ["kubernetes", "Kubernetes"], ["workers", "Workers"], ["pages", "Pages"], ["tunnel", "Tunnel"],
 ] as const;
 
 export function supportsResourceSync(account: Account) {
-  return ["aliyun", "vultr", "tencent", "volcengine", "ctyun", "oracle", "huawei", "baidu", "jdcloud", "ucloud", "qingcloud", "ksyun", "qiniu", "aws", "azure", "gcp"].includes(account.cloud_type);
+  return ["cloudflare", "aliyun", "vultr", "tencent", "volcengine", "ctyun", "oracle", "huawei", "baidu", "jdcloud", "ucloud", "qingcloud", "ksyun", "qiniu", "aws", "azure", "gcp"].includes(account.cloud_type);
 }
 
 export function providerSyncDescription(cloudType: string) {
   const descriptions: Record<string, string> = {
+    cloudflare: "站点 / DNS、Workers、R2 存储桶、Pages 和 Tunnel 资产同步与管理",
     aliyun: "ECS、域名、轻量应用服务器、RDS、Redis、OSS 和 ESA 资产同步",
     vultr: "云计算、DNS、对象存储、托管数据库、块存储、VPC、防火墙、保留 IP、负载均衡、快照和 Kubernetes 资产同步",
     tencent: "CVM、域名、轻量应用服务器、云数据库、Redis、对象存储和边缘安全加速资产同步",
@@ -138,6 +141,7 @@ export function providerSyncDescription(cloudType: string) {
 export function syncAssetTypes(account: Account): ReadonlyArray<(typeof assetTypes)[number]> {
   if (!supportsResourceSync(account)) return [];
   const resourcesByProvider: Record<string, string[]> = {
+    cloudflare: ["domain", "oss", "workers", "pages", "tunnel"],
     qiniu: ["oss"],
     vultr: ["ecs", "domain", "oss", "rds", "block", "network", "firewall", "ip", "loadbalancer", "snapshot", "kubernetes"],
     jdcloud: ["ecs", "domain", "swas", "rds", "redis", "oss"],

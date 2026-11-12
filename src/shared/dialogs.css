@@ -9,6 +9,37 @@
  */
 .dialog-header-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex: 0 0 auto; margin-left: auto; }
 .shared-dialog-mobile-icon { display: none; }
+/* A detached dialog uses the OS window for movement and resizing. */
+body.dialog-popout-page { margin: 0; overflow: hidden; }
+.dialog-page-owner:not([hidden]) { display: contents; }
+.dialog-page-owner[hidden] { display: none !important; }
+.dialog-popout-host.dialog-popout-host { position: fixed; inset: 0; padding: 0; background: transparent; backdrop-filter: none; }
+.dialog-popout-host > .shared-content-dialog.shared-content-dialog.shared-content-dialog { position: relative !important; inset: auto !important; margin: 0 !important; transform: none !important; width: 100vw !important; height: 100dvh !important; max-width: 100vw !important; max-height: 100dvh !important; min-width: 0; min-height: 0; border: 0; border-radius: 0; box-shadow: none; }
+.dialog-popout-host > .shared-content-dialog > .modal-body { flex: 1; }
+.dialog-detach-error { flex-shrink: 0; margin: 0; padding: 8px 16px; color: var(--jb-error, var(--jb-text)); background: var(--jb-surface-2); }
+
+/* Cloudflare 资产详情：摘要与对齐字段，沿用公共弹层的尺寸和交互。 */
+.shared-content-dialog.shared-content-dialog.cloudflare-asset-detail { width: min(720px, calc(100vw - 32px)); }
+.cloudflare-asset-detail > .modal-body { display: flex; flex-direction: column; gap: 20px; }
+.cloudflare-detail-summary { display: flex; align-items: center; gap: 12px; min-width: 0; padding-bottom: 18px; border-bottom: 1px solid var(--jb-border); }
+.cloudflare-detail-icon { display: grid; place-items: center; flex: 0 0 42px; height: 42px; border: 1px solid var(--jb-border); border-radius: 6px; background: var(--jb-surface-2); color: var(--jb-muted); }
+.cloudflare-detail-identity { flex: 1; min-width: 0; }
+.cloudflare-detail-identity > span { font-size: 12px; color: var(--jb-muted); }
+.cloudflare-detail-identity > h3 { margin: 4px 0 0; font-size: 18px; line-height: 1.4; color: var(--jb-text); overflow-wrap: anywhere; }
+.cloudflare-detail-status { flex-shrink: 0; padding: 4px 9px; border: 1px solid var(--jb-border-strong); border-radius: 4px; background: var(--jb-surface-2); color: var(--jb-text); font-size: 12px; }
+.cloudflare-asset-detail .cloudflare-detail-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 24px; margin: 0; }
+.cloudflare-detail-fields > div { display: grid; grid-template-columns: 88px minmax(0, 1fr); align-items: baseline; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--jb-border); min-width: 0; }
+.cloudflare-detail-fields > .cloudflare-detail-wide { grid-column: 1 / -1; }
+.cloudflare-detail-fields dt { font-size: 13px; line-height: 1.6; color: var(--jb-muted); overflow-wrap: anywhere; }
+.cloudflare-detail-fields dd { margin: 0; min-width: 0; font-size: 13px; line-height: 1.6; color: var(--jb-text); overflow-wrap: anywhere; white-space: pre-wrap; }
+.cloudflare-detail-fields .cloudflare-detail-id { font-family: var(--font-mono, monospace); user-select: text; }
+.cloudflare-detail-extra > summary { padding: 4px 0; cursor: pointer; color: var(--jb-muted); font-size: 13px; }
+.cloudflare-detail-extra > summary:focus-visible { outline: 2px solid var(--jb-accent); outline-offset: 4px; }
+.cloudflare-detail-extra[open] > summary { margin-bottom: 8px; }
+@media (max-width: 640px) {
+  .cloudflare-asset-detail .cloudflare-detail-fields { grid-template-columns: minmax(0, 1fr); }
+  .cloudflare-detail-summary { flex-wrap: wrap; }
+}
 @media (min-width: 761px) {
   .dialog-common-theme .dialog-header-actions > button.secondary {
     box-sizing: border-box;
@@ -64,7 +95,11 @@
 .dialog-size-expanded.ai-workbench > .ai-workbench-body { flex: 1; min-height: 0; }
 /* 可拖拽调宽高的弹层：四边 + 四角各一条隐形热区，由 SharedDialog 的 resizable 属性启用 */
 .dialog-resizable { position: relative; }
-.dialog-resize-handle { position: absolute; z-index: 5; touch-action: none; }
+.shared-content-dialog.dialog-user-size.dialog-user-size:not(.dialog-size-expanded) { box-sizing: border-box; width: var(--dialog-user-width) !important; height: var(--dialog-user-height) !important; min-width: 0 !important; min-height: 0 !important; max-width: calc(100vw - 32px) !important; max-height: calc(100dvh - 32px) !important; }
+.shared-content-dialog.dialog-user-size > .modal-body { flex: 1 1 auto; }
+.dialog-resizing.dialog-resizing { transition: none !important; }
+.dialog-resizable > .modal-head, .dialog-resizable > .modal-actions { flex-shrink: 0; }
+.dialog-resize-handle { position: absolute; z-index: 10; touch-action: none; user-select: none; }
 .dialog-resize-n { top: 0; left: 10px; right: 10px; height: 6px; cursor: ns-resize; }
 .dialog-resize-s { bottom: 0; left: 10px; right: 10px; height: 6px; cursor: ns-resize; }
 .dialog-resize-e { right: 0; top: 10px; bottom: 10px; width: 6px; cursor: ew-resize; }

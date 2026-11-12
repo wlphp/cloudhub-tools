@@ -1,6 +1,7 @@
+import { MoreMenu } from "../../shared/MoreMenu";
 import { SharedDialog } from "../../shared/SharedDialog";
 import { useEffect, useState } from "react";
-import { ArrowUp, CheckSquare, Copy, Download, Eye, File, Folder, Home, Link2, RefreshCw, Search, Square, Upload, X } from "lucide-react";
+import { ArrowLeft, ArrowUp, CheckSquare, Copy, Database, Download, Ellipsis, Eye, File, Folder, Home, Link2, Pencil, RefreshCw, Save, Search, Square, Upload, X } from "lucide-react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { runningInTauri } from "../../platform/api";
@@ -12,6 +13,7 @@ import { displayValue } from "../../shared/utils/display";
 import { cloudProvider } from "../cloud/catalog";
 import { AiAssistButton } from "../ai/AiAssistButton";
 import { ossAiSummary } from "../resources/aiResourceSummary";
+import "./storage.css";
 
 function formatBytes(value: unknown): string {
   let bytes = Number(value || 0);
@@ -34,6 +36,10 @@ function isViewableObject(name: string): boolean {
   return /\.(avif|bmp|gif|jpe?g|png|svg|webp|html?|pdf|txt|csv|json|xml|md|mp3|m4a|ogg|wav|mp4|webm|mov)$/i.test(name);
 }
 
+function isEditableTextObject(name: string): boolean {
+  return /\.(txt|md|markdown|csv|tsv|json|jsonc|xml|ya?ml|toml|ini|conf|log|html?|css|scss|js|jsx|mjs|cjs|ts|tsx|sql|sh|bat|ps1|properties|env|svg)$/i.test(name);
+}
+
 type OssObject = {
   Key: string;
   LastModified: string;
@@ -48,6 +54,7 @@ export function BucketCard({
   onQuickActionOpened,
   onConfirm,
   onPrompt,
+  onDomainsLoaded,
 }: {
   account: Account;
   item: Record<string, unknown>;
@@ -55,6 +62,7 @@ export function BucketCard({
   onQuickActionOpened?: () => void;
   onConfirm: (message: string) => Promise<boolean>;
   onPrompt: (message: string, initialValue?: string) => Promise<string | null>;
+  onDomainsLoaded?: (domains: string[]) => void;
 }) {
   const [objectListing, setObjectListing] = useState<OssObjectListing | null>(null);
   const [objectDialog, setObjectDialog] = useState<"files" | "stat" | null>(null);
@@ -68,6 +76,13 @@ export function BucketCard({
   const [objectsLoading, setObjectsLoading] = useState(false);
   const [objectTransfer, setObjectTransfer] = useState<{ kind: "upload" | "download"; key: string } | null>(null);
   const [objectTransferMessage, setObjectTransferMessage] = useState("");
+  const [textEditorObject, setTextEditorObject] = useState<(OssObject & { name: string }) | null>(null);
+  const [textEditorValue, setTextEditorValue] = useState("");
+  const [textEditorOriginal, setTextEditorOriginal] = useState("");
+  const [textEditorLoading, setTextEditorLoading] = useState(false);
+  const [textEditorSaving, setTextEditorSaving] = useState(false);
+  const [textEditorError, setTextEditorError] = useState("");
+  const [textEditorNotice, setTextEditorNotice] = useState("");
   const [isDragOver, setIsDragOver] = useState(false);
   const [cnameDialog, setCnameDialog] = useState(false);
   const [cnameValue, setCnameValue] = useState("");
@@ -104,6 +119,7 @@ export function BucketCard({
     try {
       const value = await fetchDetail();
       setDetail(value);
+      onDomainsLoaded?.(value.cnames.map((cname) => cname.Domain));
       if (value.errors.length) setError(value.errors.join("；"));
     } catch (reason) {
       setDetail(null);
@@ -145,6 +161,7 @@ export function BucketCard({
   useEffect(() => {
     if (isReadOnlyBucketProvider) {
       setDetailLoading(false);
+      onDomainsLoaded?.([]);
       setError(`${cloudProvider(account.cloud_type).label}当前支持存储桶清单，对象浏览和桶配置暂未接入。`);
       return;
     }
@@ -154,6 +171,7 @@ export function BucketCard({
         const value = await fetchDetail();
         if (!cancelled) {
           setDetail(value);
+          onDomainsLoaded?.(value.cnames.map((cname) => cname.Domain));
           if (value.errors.length) setError(value.errors.join("；"));
         }
       } catch (reason) {
@@ -176,6 +194,14 @@ export function BucketCard({
     try {
       await navigator.clipboard.writeText(endpoint);
       setNotice("域名已复制");
+    } catch {
+      setNotice("复制失败，请手动复制");
+    }
+  }
+  async function copyCname(domain: string) {
+    try {
+      await navigator.clipboard.writeText(domain);
+      setNotice(`域名已复制：${domain}`);
     } catch {
       setNotice("复制失败，请手动复制");
     }
@@ -385,6 +411,61 @@ export function BucketCard({
       setObjectTransferMessage(`已打开在线查看：${object.name}`);
     } catch (reason) { setError(`在线查看失败：${platformErrorMessage(reason)}`); }
   }
+  async function editTextObject(object: OssObject & { name: string }) {
+    if (!supportsObjectTransfer || !runningInTauri) { setObjectTransferMessage("在线编辑仅支持桌面客户端的阿里云 OSS"); return; }
+    if (!isEditableTextObject(object.name)) return;
+    if (Number(object.Size) > 2 * 1024 * 1024) { setObjectTransferMessage("在线编辑仅支持 2 MiB 以内的文本文件，请先下载编辑后再上传"); return; }
+    setTextEditorObject(object);
+    setTextEditorValue("");
+    setTextEditorOriginal("");
+    setTextEditorError("");
+    setTextEditorNotice("");
+    setTextEditorLoading(true);
+    try {
+      const content = await storageClient.readText(account.id, bucketName, location, object.Key);
+      setTextEditorValue(content);
+      setTextEditorOriginal(content);
+    } catch (reason) {
+      setTextEditorError(platformErrorMessage(reason));
+    } finally { setTextEditorLoading(false); }
+  }
+  async function saveTextObject() {
+    if (!textEditorObject || textEditorSaving || textEditorValue === textEditorOriginal) return;
+    setTextEditorSaving(true);
+    setTextEditorError("");
+    setTextEditorNotice("");
+    try {
+      await storageClient.writeText(account.id, bucketName, location, textEditorObject.Key, textEditorValue);
+      setTextEditorOriginal(textEditorValue);
+      setTextEditorNotice("已保存到 OSS");
+      void loadObjects("files", objectPrefix);
+    } catch (reason) { setTextEditorError(`保存失败：${platformErrorMessage(reason)}`); }
+    finally { setTextEditorSaving(false); }
+  }
+  async function leaveTextEditor() {
+    if (textEditorSaving) return;
+    if (textEditorValue !== textEditorOriginal && !(await onConfirm("文件有未保存的修改，确定放弃并返回列表吗？"))) return;
+    setTextEditorObject(null);
+  }
+  async function closeObjectDialog() {
+    if (textEditorObject && textEditorValue !== textEditorOriginal) {
+      if (!(await onConfirm("文件有未保存的修改，确定放弃并关闭文件列表吗？"))) return;
+    }
+    if (textEditorSaving) return;
+    setTextEditorObject(null);
+    setObjectDialog(null);
+  }
+  useEffect(() => {
+    if (!textEditorObject || textEditorLoading || textEditorSaving) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        void saveTextObject();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [textEditorObject, textEditorValue, textEditorOriginal, textEditorLoading, textEditorSaving]);
   async function copyObjectUrl(object: OssObject & { name: string }) {
     try {
       setError("");
@@ -413,33 +494,18 @@ export function BucketCard({
   return (
     <article className="bucket-card">
       <div className="bucket-header">
-        <strong>🪣 {displayValue(item.Name)}</strong>
+        <strong><Database size={16} aria-hidden="true" />{displayValue(item.Name)}</strong>
         <span className="bucket-acl">{acl === "public-read-write" ? "公共读写" : acl === "public-read" ? "公共读" : "私有"}</span>
+        {notice && <div className="bucket-notice">{notice}</div>}
       </div>
-      <div className="bucket-info">
-        <div>
-          <span>存储桶名称：</span>
-          {displayValue(item.Name)}
-        </div>
+      <div className="bucket-overview">
         <div>
           <span>地域：</span>
           {displayValue(item.Location)}
         </div>
         <div>
-          <span>创建时间：</span>
-          {displayValue(item.CreationDate)}
-        </div>
-        <div>
           <span>存储类型：</span>
           {storageClassNames[String(item.StorageClass || "Standard")] || displayValue(item.StorageClass)}
-        </div>
-        <div>
-          <span>外网域名：</span>
-          {endpoint}
-        </div>
-        <div>
-          <span>内网域名：</span>
-          {intranetEndpoint}
         </div>
       </div>
       <div className="bucket-detail-box">
@@ -448,12 +514,20 @@ export function BucketCard({
           <span>文件数量：{detail?.objectCount || 0} 个</span>
           <span>当月流量：{formatBytes(detail?.monthTraffic)}</span>
           <span>当月请求：{detail?.monthRequests || 0} 次</span>
-          <span>自定义域名：{detail?.cnames?.length ? detail.cnames.map((cname) => <button className="bucket-cname" key={cname.Domain} title="删除此自定义域名" onClick={() => void deleteCname(cname.Domain)}>{cname.Domain}<X size={12} /></button>) : "未绑定"}</span>
+          <span>自定义域名：{detail?.cnames?.length ? detail.cnames.map((cname) => <span className="bucket-cname-item" key={cname.Domain}><button className="bucket-cname-copy" type="button" title={`复制域名 ${cname.Domain}`} aria-label={`复制域名 ${cname.Domain}`} onClick={() => void copyCname(cname.Domain)}><Copy size={12} aria-hidden="true" /></button><button className="bucket-cname" type="button" title={`删除域名 ${cname.Domain}`} onClick={() => void deleteCname(cname.Domain)}>{cname.Domain}<X size={12} aria-hidden="true" /></button></span>) : "未绑定"}</span>
           <span>CORS 配置：{detail?.cors?.length ? detail.cors.map((rule, index) => <i className="bucket-cors" key={index} title={`来源：${rule.origin.join(", ")}\n方法：${rule.method.join(", ")}\nHeader：${rule.header.join(", ")}`}>{rule.origin.join(", ") || "*"}</i>) : "未配置"}</span>
         </>}
       </div>
-      {!isReadOnlyBucketProvider && <div className="bucket-actions"><AiAssistButton task="diagnose" title="AI 存储配置建议" text={() => ossAiSummary(item, runningInTauri ? null : detail)} disabled={detailLoading} /></div>}
-      {!isVolcengine && !isCtyun && <div className="bucket-actions">
+      <details className="bucket-connection-details">
+        <summary>域名与创建信息</summary>
+        <div className="bucket-info">
+          <div><span>外网域名</span><code>{endpoint}</code></div>
+          <div><span>内网域名</span><code>{intranetEndpoint}</code></div>
+          <div><span>创建时间</span><time>{formatCloudDate(item.CreationDate)}</time></div>
+        </div>
+      </details>
+      <div className="bucket-actions">
+      {!isVolcengine && !isCtyun && <>
         <button
           className="layui-btn layui-btn-xs layui-btn-normal"
           disabled={objectsLoading}
@@ -474,11 +548,12 @@ export function BucketCard({
         {!isTencent && <button className="layui-btn layui-btn-xs layui-btn-danger" onClick={() => void setCors()}>设置跨域</button>}
         {!isTencent && <button className="layui-btn layui-btn-xs bucket-cname-btn" onClick={() => { setCnameDialog(true); setCnameToken(null); setCnameMessage(""); }}>添加域名</button>}
         <button className="layui-btn layui-btn-xs layui-btn-primary" onClick={() => void copyEndpoint()}>复制域名</button>
-      </div>}
-      {notice && <div className="bucket-notice">{notice}</div>}
+      </>}
+      {!isReadOnlyBucketProvider && <span className="bucket-ai-action"><AiAssistButton task="diagnose" title="AI 存储配置建议" text={() => ossAiSummary(item, runningInTauri ? null : detail)} disabled={detailLoading} /></span>}
+      </div>
       {error && <div className="bucket-inline-error">{error}</div>}
       {objectDialog && (
-        <SharedDialog title={objectDialog === "files" ? "文件列表" : "容量统计"} eyebrow={bucketName} className="resource-modal oss-object-dialog" backdropClassName="resource-modal-backdrop" closeLabel="关闭文件列表" onClose={() => setObjectDialog(null)}>
+        <SharedDialog sizeStorageKey={`storage:${account.cloud_type}:${objectDialog}`} title={textEditorObject ? "在线编辑" : objectDialog === "files" ? "文件列表" : "容量统计"} eyebrow={bucketName} className="resource-modal oss-object-dialog" backdropClassName="resource-modal-backdrop" closeLabel="关闭文件列表" closeDisabled={textEditorSaving} preserveSize={objectDialog === "files"} onClose={() => void closeObjectDialog()}>
             {error && <div className="error-list">{error}</div>}
             {objectDialog === "stat" ? (
               <div className="oss-stat-grid">
@@ -488,8 +563,22 @@ export function BucketCard({
                 <div><span>分片数量</span><strong>{detail?.multipartUploadCount || 0} 个</strong></div>
                 <div><span>活跃直播通道</span><strong>{detail?.liveChannelCount || 0} 个</strong></div>
               </div>
+            ) : textEditorObject ? (
+              <section className="oss-text-editor" aria-label={`编辑 ${textEditorObject.name}`}>
+                <div className="oss-text-editor-toolbar">
+                  <button className="oss-browser-command" disabled={textEditorSaving} onClick={() => void leaveTextEditor()}><ArrowLeft size={15} />返回文件列表</button>
+                  <strong title={textEditorObject.Key}>{textEditorObject.name}</strong>
+                  <span>{textEditorValue.length.toLocaleString()} 字符 · UTF-8 · 最大 2 MiB</span>
+                  <button className="oss-browser-command oss-upload-command" disabled={textEditorLoading || textEditorSaving || textEditorValue === textEditorOriginal} onClick={() => void saveTextObject()}><Save size={15} />{textEditorSaving ? "保存中…" : "保存"}</button>
+                </div>
+                {textEditorError && <div className="error-list" role="alert">{textEditorError}</div>}
+                {textEditorNotice && <div className="oss-transfer-status" role="status" aria-live="polite">{textEditorNotice}</div>}
+                {textEditorLoading ? <div className="detail-empty"><RefreshCw className="spin" size={17} />正在读取文件内容…</div> : <textarea className="oss-text-editor-input" aria-label="文件内容" spellCheck={false} value={textEditorValue} onChange={(event) => { setTextEditorValue(event.target.value); setTextEditorNotice(""); }} />}
+                <p className="oss-text-editor-hint">保存会直接覆盖云端对象；建议先确认当前文件不被其他人同时修改。快捷键：Ctrl/⌘ + S</p>
+              </section>
             ) : (
               <div className="oss-browser">
+                <div className="oss-browser-toolbar">
                 <div className="oss-browser-pathbar">
                   <div className="oss-browser-nav" aria-label="目录导航">
                     <button title="向上一级" disabled={!objectPrefix || objectsLoading} onClick={() => void loadObjects("files", parentPrefix)}><ArrowUp size={16} /></button>
@@ -497,21 +586,36 @@ export function BucketCard({
                     <button title="刷新当前目录" disabled={objectsLoading} onClick={() => void loadObjects("files", objectPrefix)}><RefreshCw className={objectsLoading ? "spin" : undefined} size={16} /></button>
                   </div>
                   <div className="oss-browser-address" title={`oss://${bucketName}/${objectPrefix}`}><span>oss://{bucketName}/</span>{pathSegments.map((segment, index) => <button key={`${segment}-${index}`} onClick={() => void loadObjects("files", `${pathSegments.slice(0, index + 1).join("/")}/`)}>{segment}/</button>)}</div>
-                  <label className="oss-browser-search"><Search size={15} /><input value={objectFilter} onChange={(event) => setObjectFilter(event.target.value)} placeholder="按名称筛选" /></label>
+                  <label className="oss-browser-search"><Search size={15} /><input value={objectFilter} onChange={(event) => setObjectFilter(event.target.value)} aria-label="按名称筛选文件" placeholder="按名称筛选" /></label>
                 </div>
-                {supportsObjectTransfer && <div className={`oss-drop-zone${isDragOver ? " is-drag-over" : ""}`} aria-label="拖拽文件上传区域"><Upload size={16} /><span>{isDragOver ? "松开鼠标以上传文件" : "支持将文件拖拽到这里上传，也可点击“上传文件”选择"}</span></div>}
                 <div className="oss-browser-actions">
-                  <button className="oss-browser-command oss-upload-command" disabled={!supportsObjectTransfer || Boolean(objectTransfer) || objectsLoading} title={!supportsObjectTransfer ? "当前仅支持阿里云 OSS 文件上传" : runningInTauri ? `上传到 oss://${bucketName}/${objectPrefix}` : "仅桌面客户端支持上传"} onClick={() => void uploadObject()}><Upload size={15} />{objectTransfer?.kind === "upload" ? "上传中…" : "上传文件"}</button>
+                  <button className="oss-browser-command oss-upload-command" disabled={!supportsObjectTransfer || Boolean(objectTransfer) || objectsLoading} title={!supportsObjectTransfer ? "当前仅支持阿里云 OSS 文件上传" : runningInTauri ? `上传到 oss://${bucketName}/${objectPrefix}，也可拖拽文件到列表上传` : "仅桌面客户端支持上传"} onClick={() => void uploadObject()}><Upload size={15} />{objectTransfer?.kind === "upload" ? "上传中…" : "上传文件"}</button>
                   <button className="oss-browser-command oss-batch-download-command" disabled={!supportsObjectTransfer || !selectedFileKeys.length || Boolean(objectTransfer)} title={selectedFileKeys.length ? `批量下载选中的 ${selectedFileKeys.length} 个文件` : "先勾选文件"} onClick={() => void downloadSelectedObjects()}><Download size={15} />批量下载{selectedFileKeys.length ? ` (${selectedFileKeys.length})` : ""}</button>
                   <button className="oss-browser-command" disabled={!selectedObjectKeys.size} onClick={() => void copyObjectPaths()}><Copy size={15} />复制路径{selectedObjectKeys.size ? ` (${selectedObjectKeys.size})` : ""}</button>
                   <button className="oss-browser-icon" title={allVisibleSelected ? "取消全选" : "全选当前目录"} disabled={!selectableKeys.length} onClick={toggleAllVisibleObjects}>{allVisibleSelected ? <CheckSquare size={17} /> : <Square size={17} />}</button>
                   <span>{objectListing ? `${folderRows.length} 个目录，${fileRows.length} 个文件` : "正在读取目录..."}</span>
                 </div>
+                </div>
+                {supportsObjectTransfer && isDragOver && <div className="oss-drop-zone is-drag-over" role="status" aria-label="拖拽文件上传区域"><Upload size={16} /><span>松开鼠标以上传文件</span></div>}
                 {(objectTransferMessage || !supportsObjectTransfer) && <div className={`oss-transfer-status${objectTransfer ? " is-active" : ""}`} role="status" aria-live="polite">{objectTransfer && <RefreshCw className="spin" size={14} />}{objectTransferMessage || "当前云厂商暂只支持对象浏览；文件上传与下载已在阿里云 OSS 可用。"}</div>}
                 <div className="resource-table-wrap oss-object-table">
                   {objectsLoading && !objectListing ? <div className="detail-empty"><RefreshCw className="spin" size={17} />正在读取目录...</div> : folderRows.length || fileRows.length ? <table><thead><tr><th className="oss-object-check"><input aria-label="全选" type="checkbox" checked={allVisibleSelected} onChange={toggleAllVisibleObjects} /></th><th>名称</th><th>类型 / 大小</th><th>最后修改时间</th><th>ETag</th><th className="oss-object-operation">操作</th></tr></thead><tbody>
-                    {folderRows.map((folder) => <tr className="oss-folder-row" key={folder.key}><td className="oss-object-check"><input aria-label={`选择目录 ${folder.name}`} type="checkbox" checked={selectedObjectKeys.has(folder.key)} onChange={() => toggleObjectSelection(folder.key)} /></td><td><button className="oss-object-name" title={`打开 ${folder.name}`} onClick={() => void loadObjects("files", folder.prefix)}><Folder size={17} />{folder.name}</button></td><td><span className="oss-object-kind">目录</span></td><td>-</td><td>-</td><td className="oss-object-operation">-</td></tr>)}
-                    {fileRows.map((object) => <tr key={object.Key}><td className="oss-object-check"><input aria-label={`选择文件 ${object.name}`} type="checkbox" checked={selectedObjectKeys.has(object.Key)} onChange={() => toggleObjectSelection(object.Key)} /></td><td><span className="oss-object-file" title={object.name}><File size={16} />{object.name}</span></td><td>{formatBytes(object.Size)}</td><td>{formatCloudDate(object.LastModified)}</td><td><code title={object.ETag}>{object.ETag || "-"}</code></td><td className="oss-object-operation"><div className="oss-object-actions">{isViewableObject(object.name) && <button className="oss-object-action" disabled={!supportsObjectTransfer || Boolean(objectTransfer)} title={`在线查看 ${object.name}`} aria-label={`在线查看 ${object.name}`} onClick={() => void viewObject(object)}><Eye size={14} /></button>}<button className="oss-object-action" disabled={!supportsObjectTransfer || Boolean(objectTransfer)} title={`复制 ${object.name} 的临时 URL`} aria-label={`复制 ${object.name} 的临时 URL`} onClick={() => void copyObjectUrl(object)}><Link2 size={14} /></button><button className="oss-download-button" disabled={!supportsObjectTransfer || Boolean(objectTransfer)} title={supportsObjectTransfer ? `下载 ${object.name} 并指定保存位置` : "当前仅支持阿里云 OSS 文件下载"} onClick={() => void downloadObject(object)}>{objectTransfer?.kind === "download" && objectTransfer.key === object.Key ? <RefreshCw className="spin" size={14} /> : <Download size={14} />}下载</button></div></td></tr>)}
+                    {folderRows.map((folder) => <tr className="oss-folder-row" key={folder.key}><td className="oss-object-check"><input aria-label={`选择目录 ${folder.name}`} type="checkbox" checked={selectedObjectKeys.has(folder.key)} onChange={() => toggleObjectSelection(folder.key)} /></td><td><button className="oss-object-name" title={`打开 ${folder.name}`} onClick={() => void loadObjects("files", folder.prefix)}><Folder size={17} /><span>{folder.name}</span></button></td><td><span className="oss-object-kind">目录</span></td><td>-</td><td>-</td><td className="oss-object-operation">-</td></tr>)}
+                    {fileRows.map((object) => <tr key={object.Key}>
+                      <td className="oss-object-check"><input aria-label={`选择文件 ${object.name}`} type="checkbox" checked={selectedObjectKeys.has(object.Key)} onChange={() => toggleObjectSelection(object.Key)} /></td>
+                      <td><span className="oss-object-file" title={object.name}><File size={16} /><span>{object.name}</span></span></td>
+                      <td>{formatBytes(object.Size)}</td>
+                      <td>{formatCloudDate(object.LastModified)}</td>
+                      <td><code className="oss-object-etag" title={object.ETag}>{object.ETag || "-"}</code></td>
+                      <td className="oss-object-operation"><div className="oss-object-actions">
+                        <button className="oss-file-command oss-file-download" disabled={!supportsObjectTransfer || Boolean(objectTransfer)} title={supportsObjectTransfer ? `下载 ${object.name} 并指定保存位置` : "当前仅支持阿里云 OSS 文件下载"} onClick={() => void downloadObject(object)}>{objectTransfer?.kind === "download" && objectTransfer.key === object.Key ? <RefreshCw className="spin" size={14} aria-hidden="true" /> : <Download size={14} aria-hidden="true" />}下载</button>
+                        {isViewableObject(object.name) && <button className="oss-file-command" disabled={!supportsObjectTransfer || Boolean(objectTransfer)} title={`在线查看 ${object.name}`} onClick={() => void viewObject(object)}><Eye size={14} aria-hidden="true" />查看</button>}
+                        <MoreMenu label="更多" triggerIcon={<Ellipsis size={14} aria-hidden="true" />} triggerClassName="oss-file-command" triggerTitle={`更多操作：${object.name}`} triggerAriaLabel={`更多操作：${object.name}`} items={[
+                          ...(isEditableTextObject(object.name) ? [{ id: "edit", label: "在线编辑", icon: <Pencil size={14} aria-hidden="true" />, disabled: !supportsObjectTransfer || !runningInTauri || Boolean(objectTransfer) || Number(object.Size) > 2 * 1024 * 1024, title: Number(object.Size) > 2 * 1024 * 1024 ? "文件超过 2 MiB，暂不支持在线编辑" : !runningInTauri ? "仅桌面客户端支持在线编辑" : "在线编辑文本文件", onSelect: () => void editTextObject(object) }] : []),
+                          { id: "copy-url", label: "复制临时链接", icon: <Link2 size={14} aria-hidden="true" />, disabled: !supportsObjectTransfer || Boolean(objectTransfer), onSelect: () => void copyObjectUrl(object) },
+                        ]} />
+                      </div></td>
+                    </tr>)}
                   </tbody></table> : <div className="detail-empty">{error || (objectFilter ? "没有符合筛选条件的对象" : "此目录暂无对象")}</div>}
                   {objectListing?.isTruncated && objectListing.nextMarker && <div className="oss-browser-more"><button className="secondary" disabled={objectsLoading} onClick={() => void loadObjects("files", objectPrefix, objectListing.nextMarker)}>{objectsLoading ? "读取中..." : "加载更多"}</button></div>}
                 </div>
@@ -520,7 +624,7 @@ export function BucketCard({
         </SharedDialog>
       )}
       {cnameDialog && (
-        <SharedDialog title="添加自定义域名" eyebrow={bucketName} className="resource-modal oss-cname-dialog" backdropClassName="resource-modal-backdrop" closeLabel="关闭自定义域名" onClose={() => setCnameDialog(false)}>
+        <SharedDialog sizeStorageKey={`storage:${account.cloud_type}:cname`} title="添加自定义域名" eyebrow={bucketName} className="resource-modal oss-cname-dialog" backdropClassName="resource-modal-backdrop" closeLabel="关闭自定义域名" onClose={() => setCnameDialog(false)}>
             <label className="oss-cname-input"><span>域名</span><input disabled={cnameLoading} value={cnameValue} onChange={(event) => { setCnameValue(event.target.value.trim()); setCnameToken(null); setCnameMessage(""); }} placeholder="例如 img.example.com" /></label>
             <div className="oss-cname-steps"><p>1. 获取验证 Token。</p><p>2. 在 DNS 服务商添加 TXT 记录验证域名。</p><p>3. DNS 生效后绑定域名，再添加 CNAME 记录。</p></div>
             {cnameMessage && <div className="oss-cname-steps" role="status" aria-live="polite">{cnameMessage}</div>}

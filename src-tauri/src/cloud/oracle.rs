@@ -42,10 +42,33 @@ pub(crate) async fn resource_items(id: i64, resource_type: &str) -> ResourceResp
     ResourceResponse { resource_type: resource_type.into(), items, errors, fetched_at: now }
 }
 
-pub(crate) async fn instance_action(id: i64, region_id: String, instance_id: String, action: String) -> Result<String, String> {
+pub(crate) async fn instance_action(id: i64, region_id: String, instance_id: String, action: String) -> Result<Value, String> {
     if region_id.trim().is_empty() || instance_id.trim().is_empty() { return Err("缺少 OCI 地域或实例 ID".into()); }
+    if !region_id.bytes().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-') || !instance_id.starts_with("ocid1.instance.") || !instance_id.bytes().all(|c| c.is_ascii_alphanumeric() || matches!(c, b'.' | b'_' | b'-')) { return Err("OCI 地域或实例 ID 格式无效".into()); }
     let action_name = match action.as_str() { "start" => "START", "stop" => "STOP", "reboot" => "SOFTRESET", "forceReboot" => "RESET", _ => return Err("不支持的 OCI 实例操作".into()) };
-    let credentials = credentials(id)?; let host = format!("iaas.{region_id}.oraclecloud.com"); let path = format!("/20160918/instances/{}?action={action_name}", crate::rpc_encode(&instance_id)); let private_key = RsaPrivateKey::from_pkcs8_pem(&credentials.private_key).or_else(|_| RsaPrivateKey::from_pkcs1_pem(&credentials.private_key)).map_err(|_| "OCI API 私钥无效，需使用未加密的 RSA PEM 私钥".to_string())?; let date = Utc::now().format("%a, %d %b %Y %H:%M:%S GMT").to_string(); let body = ""; let content_sha256 = B64.encode(Sha256::digest(body.as_bytes())); let canonical = format!("(request-target): post {path}\nhost: {host}\ndate: {date}\ncontent-type: application/json\ncontent-length: {}\nx-content-sha256: {content_sha256}", body.len()); let signature = B64.encode(SigningKey::<Sha256>::new(private_key).sign(canonical.as_bytes()).to_vec()); let key_id = format!("{}/{}/{}", credentials.tenancy_ocid, credentials.user_ocid, credentials.fingerprint); let authorization = format!("Signature version=\"1\",keyId=\"{key_id}\",algorithm=\"rsa-sha256\",headers=\"(request-target) host date content-type content-length x-content-sha256\",signature=\"{signature}\""); let response = reqwest::Client::new().post(format!("https://{host}{path}")).header("host", &host).header("date", &date).header("content-type", "application/json").header("content-length", body.len()).header("x-content-sha256", &content_sha256).header("authorization", authorization).body(body).timeout(std::time::Duration::from_secs(30)).send().await.map_err(|error| format!("OCI 请求失败: {error}"))?; let status = response.status(); let text = response.text().await.map_err(|error| format!("OCI 返回读取失败: {error}"))?; let data = serde_json::from_str::<Value>(&text).unwrap_or(Value::String(text)); if !status.is_success() { let message = data.get("message").or_else(|| data.get("code")).and_then(Value::as_str).unwrap_or("OCI API 返回错误").to_string(); crate::write_api_log(&credentials.user_ocid, &host, "POST /20160918/instances", &json!({"action": action_name}), Some(&data), "失败", Some(&message)); return Err(message); } crate::write_api_log(&credentials.user_ocid, &host, "POST /20160918/instances", &json!({"action": action_name}), Some(&data), "成功", None); Ok(String::new())
+    let credentials = credentials(id)?; let host = format!("iaas.{region_id}.oraclecloud.com"); let path = format!("/20160918/instances/{}?action={action_name}", crate::rpc_encode(&instance_id)); let private_key = RsaPrivateKey::from_pkcs8_pem(&credentials.private_key).or_else(|_| RsaPrivateKey::from_pkcs1_pem(&credentials.private_key)).map_err(|_| "OCI API 私钥无效，需使用未加密的 RSA PEM 私钥".to_string())?; let date = Utc::now().format("%a, %d %b %Y %H:%M:%S GMT").to_string(); let body = ""; let content_sha256 = B64.encode(Sha256::digest(body.as_bytes())); let canonical = format!("(request-target): post {path}\nhost: {host}\ndate: {date}\ncontent-type: application/json\ncontent-length: {}\nx-content-sha256: {content_sha256}", body.len()); let signature = B64.encode(SigningKey::<Sha256>::new(private_key).sign(canonical.as_bytes()).to_vec()); let key_id = format!("{}/{}/{}", credentials.tenancy_ocid, credentials.user_ocid, credentials.fingerprint); let authorization = format!("Signature version=\"1\",keyId=\"{key_id}\",algorithm=\"rsa-sha256\",headers=\"(request-target) host date content-type content-length x-content-sha256\",signature=\"{signature}\""); let request_params = json!({"action": action_name, "instanceId": instance_id, "regionId": region_id});
+    let response = reqwest::Client::new().post(format!("https://{host}{path}")).header("host", &host).header("date", &date).header("content-type", "application/json").header("content-length", body.len()).header("x-content-sha256", &content_sha256).header("authorization", &authorization).body(body).timeout(std::time::Duration::from_secs(30)).send().await;
+    let result = match response {
+        Ok(response) => {
+            let status = response.status();
+            let request_id = response.headers().get("opc-request-id").and_then(|v| v.to_str().ok()).map(str::to_string);
+            match response.text().await {
+                Ok(text) => {
+                    let mut safe_text = text;
+                    for secret in [&credentials.private_key, &authorization] { if !secret.is_empty() { safe_text = safe_text.replace(secret.as_str(), "[REDACTED]"); } }
+                    let data = if safe_text.is_empty() { Value::Null } else { serde_json::from_str::<Value>(&safe_text).unwrap_or(Value::String(safe_text)) };
+                    let data = crate::core::repositories::logs::sanitize_json(&data, None);
+                    json!({"success": status.is_success(), "httpStatus": status.as_u16(), "requestId": request_id, "response": data})
+                },
+                Err(_) => json!({"success": false, "httpStatus": status.as_u16(), "requestId": request_id, "message": "OCI 返回读取失败，操作结果未知，请刷新状态核实"}),
+            }
+        },
+        Err(_) => json!({"success": false, "message": "OCI 请求失败或超时，操作结果未知，请刷新状态核实"}),
+    };
+    let success = result.get("success").and_then(Value::as_bool).unwrap_or(false);
+    let message = result.get("message").and_then(Value::as_str);
+    crate::write_api_log(&credentials.user_ocid, &host, "POST /20160918/instances", &request_params, Some(&result), if success { "成功" } else { "失败" }, message);
+    Ok(result)
 }
 
 pub(crate) async fn instance_disks(id: i64, region: &str, instance_id: &str, compartment_id: &str) -> Result<Vec<Value>, String> {

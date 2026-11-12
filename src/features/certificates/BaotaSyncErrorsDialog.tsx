@@ -13,7 +13,7 @@ function troubleshooting(reason: string): string {
 }
 
 export function BaotaSyncErrorsDialog({ failures, onClose }: { failures: BaotaSyncFailure[]; onClose: () => void }) {
-  return <SharedDialog title="站点拉取失败详情" subtitle={`共 ${failures.length} 个面板失败 · 已保留未拉取到的本地记录`} className="baota-sync-errors-dialog" closeLabel="关闭失败详情" onClose={onClose} footer={<button type="button" className="secondary" onClick={onClose}>关闭</button>}>
+  return <SharedDialog sizeStorageKey="features/certificates/baota-sync-errors-dialog/baota-sync-errors-dialog" title="站点拉取失败详情" subtitle={`共 ${failures.length} 个面板失败 · 已保留未拉取到的本地记录`} className="baota-sync-errors-dialog" closeLabel="关闭失败详情" onClose={onClose} footer={<button type="button" className="secondary" onClick={onClose}>关闭</button>}>
     <div className="baota-sync-error-head" aria-hidden="true"><span>面板</span><span>失败原因</span><span>排查建议</span></div>
     <ol className="baota-sync-error-list">{failures.map((failure, index) => <li key={failure.panelId}>
       <strong><span className="baota-sync-error-index">{index + 1}.</span> {failure.panelName}</strong>

@@ -134,7 +134,7 @@ export function BrowserEnvironments({ open }: Props) {
   }
   if (!open) return null;
   const config = editor?.config;
-  const cookieDialog = cookieView ? <SharedDialog title="Cookie 原始数据" subtitle={cookieView.name} icon={<Database size={22} aria-hidden="true" />} className="cookie-view-dialog" bodyClassName="cookie-view-body" closeLabel="关闭 Cookie 数据" onClose={() => setCookieView(null)}
+  const cookieDialog = cookieView ? <SharedDialog sizeStorageKey="features/plugins/browser-environments/browser-environments" title="Cookie 原始数据" subtitle={cookieView.name} icon={<Database size={22} aria-hidden="true" />} className="cookie-view-dialog" bodyClassName="cookie-view-body" closeLabel="关闭 Cookie 数据" onClose={() => setCookieView(null)}
     footer={<><span>共 {cookieView.items.length} 条</span><button type="button" className="secondary" onClick={() => setCookieView(current => current ? { ...current, revealed: {} } : current)}>全部隐藏</button><button type="button" className="primary" onClick={() => setCookieView(null)}>关闭</button></>}>
         <p className="browser-notice" role="status">Cookie 值默认隐藏，包含登录凭据，请勿分享。</p>
         {cookieView.items.length === 0 ? <p role="status">当前环境还没有保存任何 Cookie。</p> : <div className="cookie-view-scroll"><table className="browser-table"><thead><tr><th>域名</th><th>名称</th><th>值</th><th>过期</th><th>标志</th></tr></thead><tbody>

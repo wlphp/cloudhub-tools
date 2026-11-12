@@ -1,3 +1,4 @@
+import { CloudflareManager } from "../features/cloud/CloudflareManager";
 import { GroupNameInput } from "../shared/GroupNameInput";
 import { DialogField, DialogNotice } from "../shared/DialogForm";
 import { SharedDialog } from "../shared/SharedDialog";
@@ -162,6 +163,7 @@ function panelCloudType(panel: PanelConnection, accounts: Account[]) {
 
 export function MobileApp() {
   const { confirm, confirmationDialog } = useConfirmDialog();
+  const [cloudflareTarget, setCloudflareTarget] = useState<{ account: Account; kind?: string } | null>(null);
   const applicationSettings = useApplicationPreferences();
   const [storePluginId, setStorePluginId] = useState<string | null>(null);
   useDialogDragging();
@@ -233,6 +235,7 @@ export function MobileApp() {
   const [productDialog, setProductDialog] = useState<{ account: Account; type: string; previousAccountId: number | null; searches: { server: string; domain: string; resources: Partial<Record<MobileTab, string>> } } | null>(null);
 
   function openAccountProduct(account: Account, type: string) {
+    if (account.cloud_type === "cloudflare") { setCloudflareTarget({ account, kind: type }); return; }
     const productTabs: Record<string, MobileTab> = { ecs: "servers", swas: "servers", domain: "domains", oss: "storage", rds: "databases", redis: "redis", esa: "accounts" };
     const target = productTabs[type];
     if (!target) return;
@@ -788,6 +791,7 @@ export function MobileApp() {
   async function browseBucket(bucket: LocalAsset, prefix = "", marker = "") {
     const account = accountForAsset(bucket);
     if (!account) { setNotice("找不到该存储桶所属的云账号"); return; }
+    if (account.cloud_type === "cloudflare") { setCloudflareTarget({ account, kind: "oss" }); return; }
     const bucketName = payloadText(bucket.payload, ["Name", "Bucket", "name"]);
     const location = payloadText(bucket.payload, ["Location", "location", "Region"]);
     if (bucketName === "—" || location === "—") { setNotice("存储桶缓存缺少名称或地域"); return; }
@@ -809,6 +813,7 @@ export function MobileApp() {
   async function loadDns(domainAsset: LocalAsset) {
     const account = accountForAsset(domainAsset);
     if (!account) { setNotice("找不到该域名所属的云账号"); return; }
+    if (account.cloud_type === "cloudflare") { setCloudflareTarget({ account, kind: "domain" }); return; }
     const domain = payloadText(domainAsset.payload, ["DomainName", "domain", "domainName", "name"]);
     if (domain === "—") { setNotice("缓存中缺少域名名称，请先刷新云端数据"); return; }
     const isCurrentRead = beginResourceRead("domains", selectedAccountId);
@@ -1266,6 +1271,8 @@ export function MobileApp() {
     setMobileFavoriteKeys((current) => current.includes(key) ? current.filter((item) => item !== key) : [...current, key]);
   };
   const openMobileAssetOperations = (asset: LocalAsset) => {
+    const owner = accountForAsset(asset);
+    if (owner?.cloud_type === "cloudflare") { setCloudflareTarget({ account: owner, kind: asset.resource_type }); return; }
     setSelectedAccountId(asset.account_id);
     setAssetAccountFilterId(asset.account_id);
     setMobileAssetSearch("");
@@ -1347,7 +1354,9 @@ export function MobileApp() {
   const resourceConfig = tab in resourceConfigs ? resourceConfigs[tab as keyof typeof resourceConfigs] : null;
   const statusOptions = [...new Set((tab === "ssh" ? managedHosts : tab === "panels" ? panelConnections : tab === "apiLogs" ? apiLogs : []).map((row) => row.status).filter(Boolean))];
   const statusFilter = statusOptions.length ? <select aria-label="按状态筛选" value={resourceStatus[tab] ?? ""} onChange={(event) => { const value = event.currentTarget.value; setResourceStatus((current) => ({ ...current, [tab]: value })); }}><option value="">全部状态</option>{statusOptions.map((status) => <option value={status} key={status}>{status === "online" ? "在线" : status === "offline" ? "离线" : status === "unknown" ? "未检查" : status}</option>)}</select> : undefined;
-  const panelFilters = <span className="mobile-panel-filter-options">{statusFilter}<select aria-label="按分组筛选面板" value={panelGroupFilter} onChange={(event) => setPanelGroupFilter(event.currentTarget.value)}><option value="">全部分组</option>{panelGroups.map((group) => <option key={group} value={group}>{group}</option>)}</select></span>;
+  const panelGroupCounts = new Map<string, number>();
+  for (const panel of panelConnections) { const group = panel.group_name || "未分组"; panelGroupCounts.set(group, (panelGroupCounts.get(group) || 0) + 1); }
+  const panelFilters = <span className="mobile-panel-filter-options">{statusFilter}<select aria-label="按分组筛选面板" value={panelGroupFilter} onChange={(event) => setPanelGroupFilter(event.currentTarget.value)}><option value="">全部分组（{panelConnections.length}）</option>{panelGroups.map((group) => <option key={group} value={group}>{group}（{panelGroupCounts.get(group) || 0}）</option>)}</select></span>;
   const sshFilters = <span className="mobile-panel-filter-options">{statusFilter}<select aria-label="按分组筛选 SSH 主机" value={sshGroupFilter} onChange={(event) => setSshGroupFilter(event.currentTarget.value)}><option value="">全部分组</option>{sshGroups.map((group) => <option key={group} value={group}>{group}</option>)}</select></span>;
   const resourcePageOverview = resourceConfig && <MobileResourceOverview inlineActions={tab === "ssh" || tab === "panels"} filterLayout={tab === "ssh" || tab === "panels" ? "stacked" : undefined} title={resourceConfig.title} description={resourceConfig.description} icon={resourceConfig.icon} count={resourceConfig.count} countLabel={resourceConfig.unit} secondaryCount={resourceConfig.second} secondaryLabel={resourceConfig.secondLabel} search={resourceSearch[tab] ?? ""} onSearch={(value) => setResourceSearch((current) => ({ ...current, [tab]: value }))} ascending={resourceAscending[tab] !== false} onSort={() => setResourceAscending((current) => ({ ...current, [tab]: current[tab] === false }))} filter={resourceConfig.accounts ? <select aria-label={`按账号筛选${resourceConfig.title}`} value={assetAccountFilterId ?? ""} onChange={(event) => setAssetAccountFilterId(event.currentTarget.value ? Number(event.currentTarget.value) : null)}><option value="">全部账号</option>{accounts.map((account) => <option key={account.id} value={account.id}>{account.account_name}</option>)}</select> : tab === "panels" ? panelFilters : tab === "ssh" ? sshFilters : statusFilter} actions={tab === "ssh" ? <button type="button" className="mobile-primary" onClick={() => openSshHostForm()}><Plus size={17} />添加主机</button> : tab === "panels" ? <button type="button" className="mobile-primary" onClick={addPanel}><Plus size={17} />添加面板</button> : tab === "operationLogs" || tab === "apiLogs" ? <button type="button" className="mobile-icon-button" aria-label="清空日志" title="清空日志" disabled={operationLogsLoading || apiLogsLoading} onClick={() => void clearMobileLogs(tab === "operationLogs" ? "operation" : "api")}><Trash2 size={18} /></button> : undefined} />;
   const cloudPullAction = tab === "servers" ? syncServers : tab === "domains" && !selectedDomain ? refreshDomainsFromCloud : tab === "storage" && !selectedBucket ? refreshBucketsFromCloud : tab === "databases" && !selectedDatabase ? refreshDatabasesFromCloud : tab === "redis" && !selectedRedis ? refreshRedisFromCloud : null;
@@ -1523,13 +1532,13 @@ export function MobileApp() {
             return <MobileAccountSwipeCard key={account.id} label={account.account_name} details={
               <details className="mobile-account-product-details">
                 <summary aria-label={`${account.account_name} 产品详情`}>产品详情{productStats.length > 0 && <span>（{productStats.length} 项）</span>}</summary>
-                {productStats.length > 0 ? <dl aria-label={`${account.account_name} 全部产品统计`}>{productStats.map(([type, count]) => <div key={type}><dt><button type="button" aria-haspopup="dialog" aria-label={`${resourceLabels[type as keyof typeof resourceLabels]}（${count}）`} onClick={() => openAccountProduct(account, type)}>{resourceLabels[type as keyof typeof resourceLabels]}</button></dt><dd>{count}</dd></div>)}</dl> : <p>暂无缓存产品，请通过“获取资产”同步。</p>}
+                {productStats.length > 0 ? <dl aria-label={`${account.account_name} 全部产品统计`}>{productStats.map(([type, count]) => <div key={type}><dt><button type="button" aria-haspopup="dialog" aria-label={`${(resourceLabels[type as keyof typeof resourceLabels] || type)}（${count}）`} onClick={() => openAccountProduct(account, type)}>{(resourceLabels[type as keyof typeof resourceLabels] || type)}</button></dt><dd>{count}</dd></div>)}</dl> : <p>暂无缓存产品，请通过“获取资产”同步。</p>}
               </details>
             }>
               <div className="mobile-account-select">
                 <span className="mobile-provider-avatar" data-provider={account.cloud_type}>{<MobileProviderMark cloudType={account.cloud_type} />}</span>
                 <span className="mobile-account-copy"><strong>{account.account_name}</strong><small>{cloudProvider(account.cloud_type).label} · {account.region_id || "默认地域"}</small>{syncingAccountId === account.id && <small className="mobile-account-sync-progress" role="status" aria-live="polite">正在获取{accountSyncProgress ? ` · ${accountSyncProgress.completed}/${accountSyncProgress.total}${accountSyncProgress.resourceType ? ` · ${resourceLabels[accountSyncProgress.resourceType as keyof typeof resourceLabels] ?? accountSyncProgress.resourceType}` : ""}` : "资产…"}</small>}</span>
-                {productStats.length > 0 && <span className="mobile-account-products" role="group" aria-label={`${account.account_name} 产品统计`}>{productStats.slice(0, 3).map(([type, count]) => <button type="button" aria-haspopup="dialog" className="mobile-account-product" key={type} onClick={() => openAccountProduct(account, type)}><span>{resourceLabels[type as keyof typeof resourceLabels]}</span><strong>{count}</strong></button>)}</span>}
+                {productStats.length > 0 && <span className="mobile-account-products" role="group" aria-label={`${account.account_name} 产品统计`}>{productStats.slice(0, 3).map(([type, count]) => <button type="button" aria-haspopup="dialog" className="mobile-account-product" key={type} onClick={() => openAccountProduct(account, type)}><span>{(resourceLabels[type as keyof typeof resourceLabels] || type)}</span><strong>{count}</strong></button>)}</span>}
               </div>
               <div className="mobile-account-swipe-actions" role="group" aria-label={`${account.account_name} 操作`}>
                 <button type="button" className="mobile-account-fetch" aria-label={syncingAccountId === account.id ? `正在获取 ${account.account_name} 资产` : `获取 ${account.account_name} 资产`} title={canSync ? "获取并保存此账号已接入的全部资产" : "此云厂商暂未接入资产同步"} disabled={!canSync || syncing} onClick={() => void syncAccountAssets(account)}>{syncingAccountId === account.id ? <RefreshCw size={17} className="mobile-spin" /> : <ArrowDownToLine size={17} />}<span>{syncingAccountId === account.id ? "获取中" : "获取资产"}</span></button>
@@ -1892,6 +1901,7 @@ export function MobileApp() {
           <DialogNotice>{serverActionConfirmation.forceStop ? "强制重启会立即中断服务，可能导致未保存的数据丢失。仅在服务器无响应时使用。" : "普通重启会尝试正常关闭系统后重新启动，服务将暂时中断。"}</DialogNotice>
         </>}
       </ConfirmDialog>}
+      {cloudflareTarget && <CloudflareManager key={cloudflareTarget.account.id} account={cloudflareTarget.account} initialKind={cloudflareTarget.kind} onClose={() => setCloudflareTarget(null)} onChanged={refreshMobileAssets} onConfirm={message => confirm({ message })} />}
       {confirmationDialog}
       {member && activeMemberIdentity && <MobileMemberIdentityDialog member={member} identity={activeMemberIdentity} onClose={() => setActiveMemberIdentity(null)} />}
       {mobileQrResult && <SharedDialog title="识别到二维码" subtitle="请选择接下来要执行的操作" size="small" showResize={false} className="mobile-qr-result-dialog" onClose={closeMobileQrResult} footer={<button type="button" className="secondary" onClick={closeMobileQrResult}>取消</button>}>

@@ -47,7 +47,7 @@ export function CodexAccountLogsDialog({ account, onClose }: { account: CodexAcc
   }, [account.id]);
 
   return <>
-    <SharedDialog
+    <SharedDialog sizeStorageKey="features/codex/codex-account-logs-dialog/codex-account-logs-dialog"
       title="账号日志"
       subtitle={account.label}
       icon={<History size={19} aria-hidden="true" />}
@@ -67,7 +67,7 @@ export function CodexAccountLogsDialog({ account, onClose }: { account: CodexAcc
         </li>)}
       </ol>}
     </SharedDialog>
-    {selected && <SharedDialog
+    {selected && <SharedDialog sizeStorageKey="features/codex/codex-account-logs-dialog/codex-account-logs-dialog/2"
       title="日志详情"
       subtitle={`${dateTime(selected.createdAt)} · ${selected.message}`}
       className="codex-account-log-detail-dialog"

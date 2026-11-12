@@ -125,7 +125,7 @@ export function ProviderEditorPage({ value, busy, fetchingModels, catalogMessage
       if (alive.current) setReadingConfig(false);
     }
   }
-  return <OverviewDialog title={value.name.trim() || (value.id ? "编辑供应商" : "添加供应商")} description={value.id ? "编辑供应商配置，保存后生效" : "新建供应商需要先保存到列表"} busy={busy || readingConfig} onClose={close} layout="form" className="codex-provider-editor-dialog" headerActions={<button type="submit" form={formId} className="codex-provider-save" disabled={busy || !canSave}>{busy && !fetchingModels ? <LoaderCircle size={15} className="codex-refresh-spinning" /> : <Save size={15} />}{busy && !fetchingModels ? "保存中…" : "保存"}</button>}>
+  return <OverviewDialog sizeStorageKey="features/codex/provider-editor-page/provider-editor-page" title={value.name.trim() || (value.id ? "编辑供应商" : "添加供应商")} description={value.id ? "编辑供应商配置，保存后生效" : "新建供应商需要先保存到列表"} busy={busy || readingConfig} onClose={close} layout="form" className="codex-provider-editor-dialog" headerActions={<button type="submit" form={formId} className="codex-provider-save" disabled={busy || !canSave}>{busy && !fetchingModels ? <LoaderCircle size={15} className="codex-refresh-spinning" /> : <Save size={15} />}{busy && !fetchingModels ? "保存中…" : "保存"}</button>}>
     <section ref={editor} className="codex-provider-editor" aria-label="供应商配置表单" aria-busy={busy}>
     <form id={formId} onSubmit={event => { event.preventDefault(); if (canSave && !busy) onSave(); }}>
       <div className="codex-provider-editor-body">

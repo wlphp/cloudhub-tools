@@ -1,3 +1,5 @@
+import { aliyunSwasFields } from "../shared/utils/aliyunSwas";
+import { baiduServerFields } from "../shared/utils/baiduServer";
 import type { LocalAsset } from "../shared/types";
 import { displayValue, formatAssetDate } from "../shared/utils/display";
 
@@ -16,21 +18,24 @@ export function serverExpiryLabel(payload: Record<string, unknown>): string {
 }
 
 export function MobileServerDetails({ server, cloudType }: { server: LocalAsset; cloudType?: string }) {
-  const payload = server.payload;
+  const isAliyunSwas = cloudType === "aliyun" && server.resource_type === "swas";
+  const payload = isAliyunSwas ? aliyunSwasFields(server.payload) : cloudType === "baidu" ? baiduServerFields(server.payload) : server.payload;
   const memoryGb = value(payload, ["MemoryInGB", "memoryInGB", "memoryCapacityInGB"]);
   // Tencent CVM/Lighthouse return GB; other normalized server payloads use MB.
-  const memory = memoryGb !== undefined ? quantity(memoryGb, "GB")
+  const memory = memoryGb !== undefined ? quantity(memoryGb, isAliyunSwas ? "GiB" : "GB")
     : quantity(Number(value(payload, ["Memory", "memory", "ram"])) / (cloudType === "tencent" ? 1 : 1024), "GB");
   const disk = payload.SystemDisk && typeof payload.SystemDisk === "object" ? payload.SystemDisk as Record<string, unknown> : {};
+  const disks = Array.isArray(payload.Disks) ? payload.Disks as Record<string, unknown>[] : [];
+  const systemDisk = disks.find(disk => disk.DiskName === "系统盘");
   const fields: [string, string][] = [
     ["CPU", quantity(value(payload, ["Cpu", "CPU", "cpu", "cpuCount", "vcpu_count"]), "核")],
     ["内存", memory],
     ["实例规格 / 套餐", displayValue(value(payload, ["InstanceType", "PlanId", "shape", "instanceType"]))],
     ["操作系统 / 镜像", displayValue(value(payload, ["OSName", "OsName", "OSType", "ImageName", "ImageId", "imageId"]))],
-    ["系统盘", quantity(value(payload, ["SystemDiskSize"]) ?? disk.Size, "GB")],
-    ["公网带宽", quantity(value(payload, ["Bandwidth", "InternetMaxBandwidthOut"]), "Mbps")],
+    ["系统盘", quantity(value(payload, ["SystemDiskSize"]) ?? disk.Size ?? disk.DiskSize ?? systemDisk?.Size, isAliyunSwas ? "GiB" : "GB")],
+    ["公网带宽", value(payload, ["Bandwidth", "InternetMaxBandwidthOut"]) === 0 ? "0 Mbps" : quantity(value(payload, ["Bandwidth", "InternetMaxBandwidthOut"]), "Mbps")],
     ["公网 IP", displayValue(value(payload, ["PublicIpAddress", "PublicIpAddresses", "PublicIp", "PublicAddresses"]))],
-    ["私网 IP", displayValue(value(payload, ["PrivateIpAddress", "PrivateIpAddresses", "PrivateIp"]))],
+    ["私网 IP", displayValue(value(payload, ["PrivateIpAddress", "PrivateIpAddresses", "PrivateIp", "PrivateAddresses"]))],
     ["创建时间", formatAssetDate(value(payload, ["CreationTime", "CreateTime", "CreatedTime", "createTime"]))],
     ["到期时间", serverExpiryLabel(payload)],
   ];

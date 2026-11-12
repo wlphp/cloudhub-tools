@@ -2,9 +2,12 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { HelpCircle } from "lucide-react";
 import "./help-tooltip.css";
+import { useDialogDocument } from "./DialogDocument";
 
 /** Non-interactive contextual help; usable by mouse, keyboard and touch. */
 export function HelpTooltip({ label, children }: { label: string; children: ReactNode }) {
+  const document = useDialogDocument();
+  const window = document.defaultView!;
   const id = useId();
   const trigger = useRef<HTMLButtonElement>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -26,7 +29,7 @@ export function HelpTooltip({ label, children }: { label: string; children: Reac
     window.addEventListener("resize", hide);
     window.addEventListener("scroll", hide, true);
     return () => { document.removeEventListener("keydown", dismiss, true); window.removeEventListener("resize", hide); window.removeEventListener("scroll", hide, true); };
-  }, [position]);
+  }, [position, document, window]);
   return <>
     <button ref={trigger} type="button" className="shared-help-trigger" aria-label={label} aria-describedby={position ? id : undefined}
       onMouseEnter={show} onMouseLeave={deferClose} onFocus={show} onBlur={close} onClick={show}>

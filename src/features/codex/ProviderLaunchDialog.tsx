@@ -112,7 +112,7 @@ export function ProviderLaunchDialog({ target: launchTarget, privacy = false, sw
   const disabled = busy || loading || !preview;
   const applyLabel = configured ? "已切换" : !switchEnabled ? "启用并切换" : "切换";
   const launchLabel = configured ? "启动 Codex" : !switchEnabled ? "启用、切换并启动" : "切换并启动";
-  return <><OverviewDialog title={title + " · 启动预览"} busy={busy} onClose={onClose} layout="form" className="codex-provider-launch-dialog" footer={<>
+  return <><OverviewDialog sizeStorageKey="features/codex/provider-launch-dialog/provider-launch-dialog" title={title + " · 启动预览"} busy={busy} onClose={onClose} layout="form" className="codex-provider-launch-dialog" footer={<>
     <button title="关闭启动预览；已应用的配置和登录状态会保留，不会自动恢复。" disabled={busy} onClick={onClose}>关闭</button>
     <button title="打开当前目标的统一备份历史，按备份时间选择恢复" disabled={busy || loading} onClick={() => setHistoryOpen(true)}><RotateCcw size={14} />备份与恢复</button>
     <button title={configured ? "当前选择已应用到目标实例，无需重复切换；可点击“启动 Codex”打开客户端。" : `${!switchEnabled ? "先启用配置切换，再" : ""}备份并将所选供应商、密钥、模型和登录设置应用到目标实例，不启动客户端。`} disabled={disabled || !validSelection || configured || preview?.recoveryPending} onClick={() => void execute()}>{applyLabel}</button>

@@ -20,7 +20,7 @@ export function ExportChecklist({ items, selected, onChange, disabled = false, s
 
 function SelectionDialog({ title, items, finish }: { title: string; items: ExportItem[]; finish: (ids: string[] | null) => void }) {
   const [selected, setSelected] = useState<string[]>([]);
-  return <SharedDialog title={title} size="small" className="export-selection-dialog export-selection-picker-dialog" closeLabel="关闭导出选择" onClose={() => finish(null)} footer={<><button type="button" className="secondary" onClick={() => finish(null)}>取消</button><button type="button" className="primary" disabled={!selected.length} onClick={() => finish(selected)}>导出所选（{selected.length}）</button></>}><ExportChecklist items={items} selected={selected} onChange={setSelected} /></SharedDialog>;
+  return <SharedDialog sizeStorageKey="shared/export-selection/selection-dialog" title={title} size="small" className="export-selection-dialog export-selection-picker-dialog" closeLabel="关闭导出选择" onClose={() => finish(null)} footer={<><button type="button" className="secondary" onClick={() => finish(null)}>取消</button><button type="button" className="primary" disabled={!selected.length} onClick={() => finish(selected)}>导出所选（{selected.length}）</button></>}><ExportChecklist items={items} selected={selected} onChange={setSelected} /></SharedDialog>;
 }
 
 export function useExportSelection() {

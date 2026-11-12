@@ -50,7 +50,7 @@ export function AccountControls({ account, busy, now, act, onAccount, onEdit, on
       </>}
       </details>}
     </div>}
-    {modal && <SharedDialog title={modal === "proxy" ? "账号代理" : "主动重置额度"} className={`codex-dialog${modal === "reset" ? " codex-reset-dialog" : ""}`} closeLabel="关闭账号设置" closeDisabled={busy || detecting} onClose={close}>
+    {modal && <SharedDialog sizeStorageKey="features/codex/account-controls/account-controls" title={modal === "proxy" ? "账号代理" : "主动重置额度"} className={`codex-dialog${modal === "reset" ? " codex-reset-dialog" : ""}`} closeLabel="关闭账号设置" closeDisabled={busy || detecting} onClose={close}>
       <p className="codex-account-dialog-label">{account.label}</p>
       {modal === "proxy" ? <form onSubmit={(event) => { event.preventDefault(); if (detecting) return; if (url.trim() && !url.includes("://")) { setError("代理地址缺少协议，请填写 http://127.0.0.1:10808 这样的完整地址"); return; } void run("保存账号代理", async () => { const next = await codexClient.saveProxy(account.id, url); if (alive.current) { onAccount(next); setModal(null); } }); }}>
         <label>HTTP/HTTPS 代理地址<input aria-label="账号代理地址" aria-describedby={`codex-proxy-help-${account.id}${error ? ` codex-proxy-error-${account.id}` : ""}`} aria-invalid={!!error} placeholder="http://127.0.0.1:7890" maxLength={512} value={url} disabled={busy || detecting} onChange={(event) => { setUrl(event.target.value); setError(""); }} /></label>

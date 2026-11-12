@@ -1,6 +1,7 @@
 {
   "version": 1,
   "mobileCommands": [
+    "resolve_domain_nameservers",
     "member_me",
     "member_send_code",
     "member_login",
@@ -175,7 +176,8 @@
     "notes_purge",
     "notes_restore",
     "notes_save",
-    "notes_snapshot"
+    "notes_snapshot",
+    "cloudflare_manage"
   ],
   "domains": [
     {
@@ -375,6 +377,18 @@
             {
               "method": "GET",
               "path": "/api/redis-accounts"
+            }
+          ]
+        },
+        {
+          "name": "cloudflare-manage",
+          "native": [
+            "cloudflare_manage"
+          ],
+          "preview": [
+            {
+              "method": "POST",
+              "path": "/api/cloudflare-manage"
             }
           ]
         }
@@ -615,6 +629,18 @@
     {
       "name": "domains",
       "operations": [
+        {
+          "name": "nameservers",
+          "native": [
+            "resolve_domain_nameservers"
+          ],
+          "preview": [
+            {
+              "method": "GET",
+              "path": "/api/domain-nameservers"
+            }
+          ]
+        },
         {
           "name": "whois",
           "native": [

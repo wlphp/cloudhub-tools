@@ -27,7 +27,7 @@ export function PluginPresentationDialog({ targetId, onClose, applicationSetting
   const current = get(targetId);
   const isDefault = !(targetId in presentation);
 
-  return <SharedDialog title="应用设置" subtitle={plugin?.name ?? "插件"} icon={<SlidersHorizontal size={20} aria-hidden="true" />} className="plugin-presentation-dialog" bodyClassName="plugin-presentation-body" size="small" closeLabel="关闭应用设置" showResize={false} onClose={onClose}
+  return <SharedDialog sizeStorageKey="features/plugins/plugin-presentation-dialog/plugin-presentation-dialog" title="应用设置" subtitle={plugin?.name ?? "插件"} icon={<SlidersHorizontal size={20} aria-hidden="true" />} className="plugin-presentation-dialog" bodyClassName="plugin-presentation-body" size="small" closeLabel="关闭应用设置" showResize={false} onClose={onClose}
     footer={<><button type="button" className="secondary plugin-presentation-reset" disabled={isDefault} onClick={() => reset(targetId)}><RotateCcw size={14} aria-hidden="true" />恢复默认</button><button type="button" className="primary" onClick={onClose}>完成</button></>}>
           <fieldset className="plugin-presentation-group">
             <legend>打开方式</legend>

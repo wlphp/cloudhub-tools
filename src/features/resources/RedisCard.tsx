@@ -133,7 +133,7 @@ export function RedisCard({
         </button>
       </div>}
       {accountDialog && (
-        <SharedDialog title="账号列表" eyebrow={displayValue(item.InstanceName || item.InstanceId)} className="resource-modal account-dialog" backdropClassName="resource-modal-backdrop" onClose={() => setAccountDialog(false)} headerActions={<button className="secondary" onClick={() => void loadAccounts()}>刷新</button>}>
+        <SharedDialog sizeStorageKey="features/resources/redis-card/redis-card" title="账号列表" eyebrow={displayValue(item.InstanceName || item.InstanceId)} className="resource-modal account-dialog" backdropClassName="resource-modal-backdrop" onClose={() => setAccountDialog(false)} headerActions={<button className="secondary" onClick={() => void loadAccounts()}>刷新</button>}>
             {accountError && <div className="error-list">{accountError}</div>}
             <div className="resource-table-wrap account-table-wrap">
               {accounts.length ? (

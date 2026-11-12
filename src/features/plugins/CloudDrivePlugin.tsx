@@ -70,7 +70,7 @@ function ConnectionEditor({ value, busy, error, platform, onClose, onSave }: {
   }
   const field = (key: "name" | "endpoint" | "region" | "bucket" | "prefix" | "mountPoint" | "cacheDir", label: string, hint?: string) =>
     <label><span>{label}</span><input value={draft[key]} required={["name", "endpoint", "bucket", "mountPoint"].includes(key)} maxLength={key === "endpoint" ? 2048 : 512} onChange={e => patch({ [key]: e.target.value })} />{hint && <small>{hint}</small>}</label>;
-  return <><SharedDialog title={value.id ? "编辑云盘连接" : "新增云盘连接"} icon={<HardDrive size={18} aria-hidden="true" />} className="cloud-drive-editor" onClose={onClose}
+  return <><SharedDialog sizeStorageKey="features/plugins/cloud-drive-plugin/connection-editor" title={value.id ? "编辑云盘连接" : "新增云盘连接"} icon={<HardDrive size={18} aria-hidden="true" />} className="cloud-drive-editor" onClose={onClose}
     closeDisabled={busy} busy={busy || bucketBusy} initialFocus="input" formRef={formRef} onSubmit={e => { e.preventDefault(); if (!bucketBusy) void onSave(draft, e.currentTarget); }}
     footer={<><button type="button" className="secondary" disabled={busy} onClick={onClose}>取消</button><button type="submit" className="primary" disabled={busy || bucketBusy}>{busy ? "正在保存…" : "保存连接"}</button></>}>
     <fieldset disabled={busy || bucketBusy} className="drive-fields" onChange={e => { if (e.target instanceof HTMLInputElement && ["accessKeyId", "secretKey", "sessionToken", "clearSessionToken"].includes(e.target.name)) invalidateBuckets(); }}>
@@ -210,7 +210,7 @@ export function CloudDrivePlugin() {
     })}</div>
     <details className="drive-help"><summary>使用说明与数据保护</summary><p>挂载盘依赖网络，不能保证完整离线或多端协同。空目录、文件锁和重命名行为可能与本地磁盘不同；归档对象需先恢复。桶容量与磁盘显示的可用空间不一定对应。</p><p>缓存包含实际文件内容，不做额外加密，请放在可信的本机磁盘，敏感文件建议使用系统磁盘加密。异常退出后保留原连接和缓存，点击恢复挂载；不要手动删除缓存。应用正常退出前需安全卸载全部连接。</p><p>阿里云盘使用官方公开客户端授权，速度和额度受平台规则限制。删除使用云盘回收站；覆盖上传先完成临时文件，再将旧文件放入回收站，不保证跨设备原子覆盖。失败时云端可能留下 .cloudhub-upload- 临时文件，请确认本地缓存已恢复后再处理。覆盖已有目标的移动会拒绝执行，避免误删。其他 S3 厂商为兼容模板，实际读写能力需逐项验证。</p></details>
     {editor && <ConnectionEditor key={editor.id || "new"} value={editor} platform={dep.platform} busy={!!busy} error={error} onClose={() => setEditor(null)} onSave={save} />}
-    {authorization && <SharedDialog title={`授权阿里云盘 · ${authorization.name}`} size="small" busy={!!busy} closeDisabled={!!busy} onClose={() => setAuthorization(null)} onSubmit={e => {
+    {authorization && <SharedDialog sizeStorageKey="features/plugins/cloud-drive-plugin/cloud-drive-plugin" title={`授权阿里云盘 · ${authorization.name}`} size="small" busy={!!busy} closeDisabled={!!busy} onClose={() => setAuthorization(null)} onSubmit={e => {
       e.preventDefault(); const form = e.currentTarget; const code = String(new FormData(form).get("code") ?? "").trim();
       void operate("完成阿里云盘授权", async () => { await client.alipanFinish(authorization.ticket, code); form.reset(); if (mounted.current) setAuthorization(null); }, "授权已加密保存，可测试连接后挂载");
     }} footer={<><button type="button" className="secondary" disabled={!!busy} onClick={() => setAuthorization(null)}>取消</button><button type="submit" className="primary" disabled={!!busy}>完成授权</button></>}>
@@ -219,7 +219,7 @@ export function CloudDrivePlugin() {
       <p>无需填写 App Secret。授权失败后请关闭此窗口，重新点击授权。公开客户端令牌默认有效 30 天，到期需重新授权。</p>
       {error && <p role="alert" className="drive-error">{error}</p>}
     </SharedDialog>}
-    {credentialTarget && <SharedDialog title="更新云盘凭据" className="cloud-drive-editor" size="small" busy={!!busy} closeDisabled={!!busy} onClose={() => setCredentialTarget(null)} onSubmit={e => {
+    {credentialTarget && <SharedDialog sizeStorageKey="features/plugins/cloud-drive-plugin/cloud-drive-plugin/2" title="更新云盘凭据" className="cloud-drive-editor" size="small" busy={!!busy} closeDisabled={!!busy} onClose={() => setCredentialTarget(null)} onSubmit={e => {
       e.preventDefault(); const form = e.currentTarget; const fields = new FormData(form); const id = credentialTarget.id;
       void operate("更新凭据", async () => { await client.credentials(id, String(fields.get("accessKeyId") ?? ""), String(fields.get("secretKey") ?? ""), String(fields.get("sessionToken") ?? "")); form.reset(); if (mounted.current) setCredentialTarget(null); }, "凭据已更新，请恢复挂载完成待上传数据");
     }} footer={<><button type="button" className="secondary" disabled={!!busy} onClick={() => setCredentialTarget(null)}>取消</button><button type="submit" className="primary" disabled={!!busy}>保存凭据</button></>}>
@@ -233,7 +233,7 @@ export function CloudDrivePlugin() {
     </SharedDialog>}
     {confirm && <ConfirmDialog title={confirm.title} message={confirm.text} busy={!!busy} onResolve={yes => { const action = confirm; setConfirm(null); if (yes) void operate(action.title, action.run); }} />}
     {transfer && <PlainTransferDialog title="云盘连接" rows={snapshot.connections.map(c => ({ id: c.id, title: c.name, detail: `${c.provider} · ${c.bucket}${c.prefix ? `/${c.prefix}` : ""}` }))} prepareImport={prepareDriveImport} importSelected={client.importSelected} exportSelected={client.exportSelected} onClose={() => setTransfer(false)} onDone={message => { setTransfer(false); setNotice(message); void refresh(); }} />}
-    {listing && <SharedDialog title={listing.kind === "buckets" ? "存储桶列表" : "子目录列表"} onClose={() => setListing(null)} size="small" footer={<button type="button" className="secondary" onClick={() => setListing(null)}>关闭</button>}><p>{listing.editable ? "选择条目后在连接配置中确认保存。更换存储位置会使用独立缓存。" : "当前有挂载或恢复记录，仅可查看。安全卸载后可选择存储位置。"}</p>{listing.items.length ? <ul className="drive-listing">{listing.items.map((item, i) => <li key={i}><span>{item}</span>{listing.editable && <button type="button" className="secondary" onClick={() => {
+    {listing && <SharedDialog sizeStorageKey="features/plugins/cloud-drive-plugin/cloud-drive-plugin/3" title={listing.kind === "buckets" ? "存储桶列表" : "子目录列表"} onClose={() => setListing(null)} size="small" footer={<button type="button" className="secondary" onClick={() => setListing(null)}>关闭</button>}><p>{listing.editable ? "选择条目后在连接配置中确认保存。更换存储位置会使用独立缓存。" : "当前有挂载或恢复记录，仅可查看。安全卸载后可选择存储位置。"}</p>{listing.items.length ? <ul className="drive-listing">{listing.items.map((item, i) => <li key={i}><span>{item}</span>{listing.editable && <button type="button" className="secondary" onClick={() => {
       const c = listing.connection;
       setEditor({ ...c, ...(listing.kind === "buckets" ? { bucket: item, prefix: "" } : { prefix: [c.prefix.replace(/\/+$/, ""), item].filter(Boolean).join("/") }) });
       setListing(null); setError("");

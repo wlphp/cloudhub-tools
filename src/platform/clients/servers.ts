@@ -28,7 +28,7 @@ const securityGroupContracts = {
   },
 } as const;
 
-function providerAction(provider: Exclude<CloudServerProvider, "aliyun">, payload: Record<string, unknown>): Promise<void> {
+async function providerAction(provider: Exclude<CloudServerProvider, "aliyun">, payload: Record<string, unknown>): Promise<void> {
   const command = {
     tencent: payload.action === "reboot" ? "cvm_instance_reboot" : "cvm_instance_action",
     oracle: "oracle_instance_action",
@@ -41,10 +41,16 @@ function providerAction(provider: Exclude<CloudServerProvider, "aliyun">, payloa
     baidu: "/api/bcc-action",
     vultr: "/api/vultr-instance-action",
   }[provider];
-  return invokeOrWeb(command, payload, { path, init: jsonRequest("POST", payload) });
+  const result = await invokeOrWeb<OracleActionResult | undefined>(command, payload, { path, init: jsonRequest("POST", payload) });
+  if (provider === "oracle" && result?.success === false) throw new Error(result.message || `OCI API 调用失败（HTTP ${result.httpStatus ?? "未知"}），请查看 API 日志`);
 }
 
+export type OracleActionResult = { success: boolean; httpStatus?: number; requestId?: string; response?: unknown; message?: string };
+
 export const serversClient = {
+  oracleAction(payload: { id: number; regionId: string; instanceId: string; action: string }): Promise<OracleActionResult> {
+    return nativeOnly("oracle_instance_action", payload);
+  },
   listManaged(): Promise<ManagedHost[]> {
     return invokeOrWeb("list_managed_hosts", undefined, { path: "/api/managed-hosts" });
   },

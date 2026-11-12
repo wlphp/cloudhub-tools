@@ -44,7 +44,7 @@ export function CertificateImportDialog({ onClose, onImported }: { onClose: () =
     finally { busyRef.current = false; if (alive.current) setBusy(false); }
   }
   const candidate = preview?.candidates.find(item => item.id === selected);
-  return <SharedDialog title="导入 HTTPS 证书" className="certificate-source-dialog" bodyClassName="certificate-source-body" closeLabel="关闭证书导入" onClose={onClose} footer={<><button className="secondary" onClick={onClose}>取消</button><button className="primary" disabled={busy || !candidate} onClick={() => void confirm()}>{busy ? "处理中…" : "确认导入并加密保存"}</button></>}>
+  return <SharedDialog sizeStorageKey="features/certificates/certificate-import-dialog/certificate-import-dialog" title="导入 HTTPS 证书" className="certificate-source-dialog" bodyClassName="certificate-source-body" closeLabel="关闭证书导入" onClose={onClose} footer={<><button className="secondary" onClick={onClose}>取消</button><button className="primary" disabled={busy || !candidate} onClick={() => void confirm()}>{busy ? "处理中…" : "确认导入并加密保存"}</button></>}>
       <button className="certificate-file-drop secondary" disabled={busy} onClick={() => void prepare(() => certificatesClient.selectImportFiles())}><FileUp size={20} />选择证书与私钥，或拖放 ZIP 到此窗口</button>
       <small>支持 PEM、CRT、CER、KEY 和 ZIP，在本机校验并加密保存。</small>
       <form ref={form} key={formKey} onSubmit={event => { event.preventDefault(); const values = new FormData(form.current!); const certificate = String(values.get("certificate") || ""); const privateKey = String(values.get("privateKey") || ""); setFormKey(key => key + 1); void prepare(() => certificatesClient.prepareText(certificate, privateKey)); }}>

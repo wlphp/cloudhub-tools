@@ -23,7 +23,7 @@ export function AggregateStartDialog({ providers, config, initialDefault, onClos
   const eligible = providers.filter(provider => !provider.officialLogin && provider.keyConfigured && providerModelCount(provider) > 0);
   const memberIds = [...new Set([...config.members, ...(initialDefault && target !== initialDefault ? [initialDefault] : [])])].filter(id => id !== target);
   const members = providers.filter(provider => memberIds.includes(provider.id));
-  return <SharedDialog title="让 Claude Code 使用聚合模式？" subtitle="默认供应商承接不带前缀的请求。" size="small" onClose={onClose} closeDisabled={busy}
+  return <SharedDialog sizeStorageKey="features/plugins/claude-routing-panels/aggregate-start-dialog" title="让 Claude Code 使用聚合模式？" subtitle="默认供应商承接不带前缀的请求。" size="small" onClose={onClose} closeDisabled={busy}
     onSubmit={event => {
       event.preventDefault();
       if (busy || !eligible.some(provider => provider.id === target)) return;
@@ -55,7 +55,7 @@ export function RoutingSettings({ config, mode, running, onClose, onSave }: { co
     { key: "cooldownSecs", label: "熔断恢复等待（秒）", min: 0, max: 300 },
   ];
   const visibleFields = fields.filter(field => mode === "route" || !["retries", "failureThreshold", "cooldownSecs"].includes(field.key));
-  return <SharedDialog title={mode === "route" ? "Claude Code 路由设置" : "Claude Code 聚合设置"} size="small" onClose={onClose} closeDisabled={busy}
+  return <SharedDialog sizeStorageKey="features/plugins/claude-routing-panels/routing-settings" title={mode === "route" ? "Claude Code 路由设置" : "Claude Code 聚合设置"} size="small" onClose={onClose} closeDisabled={busy}
     onSubmit={event => {
       event.preventDefault(); if (busy) return; setBusy(true); setError("");
       void onSave(draft).then(onClose).catch(reason => setError(reason instanceof Error ? reason.message : "保存失败")).finally(() => setBusy(false));

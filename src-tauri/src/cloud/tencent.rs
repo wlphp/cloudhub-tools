@@ -70,7 +70,31 @@ fn security_group_policy(ip_protocol: String, port_range: String, source_cidr_ip
 }
 fn security_group_port(value: &Value) -> String { let port = value.as_str().unwrap_or(""); if port.eq_ignore_ascii_case("all") { "-1/-1".into() } else if let Some((start, end)) = port.split_once('-') { format!("{start}/{end}") } else if port.is_empty() { "-1/-1".into() } else { format!("{port}/{port}") } }
 fn instance(item: &Value, region: &Value) -> Value { let mut value = item.clone(); if let Value::Object(target) = &mut value { let state = item.get("InstanceState").and_then(Value::as_str).unwrap_or(""); let status = match state.to_uppercase().as_str() { "RUNNING" => "Running", "STOPPED" => "Stopped", _ => state }; let network = item.get("InternetAccessible").unwrap_or(&Value::Null); target.insert("InstanceName".into(), item.get("InstanceName").or_else(|| item.get("InstanceId")).cloned().unwrap_or(json!(""))); target.insert("Status".into(), json!(status)); target.insert("PublicIpAddress".into(), item.get("PublicIpAddresses").cloned().unwrap_or(json!([]))); target.insert("PrivateIpAddress".into(), item.get("PrivateIpAddresses").cloned().unwrap_or(json!([]))); target.insert("Cpu".into(), item.get("CPU").cloned().unwrap_or(json!(0))); target.insert("Memory".into(), item.get("Memory").cloned().unwrap_or(json!(0))); target.insert("InternetMaxBandwidthIn".into(), json!(0)); target.insert("InternetMaxBandwidthOut".into(), network.get("InternetMaxBandwidthOut").cloned().unwrap_or(json!(0))); target.insert("OSName".into(), item.get("OsName").or_else(|| item.get("OsType")).cloned().unwrap_or(json!("-"))); target.insert("CreationTime".into(), item.get("CreatedTime").cloned().unwrap_or(json!(""))); target.insert("ExpiredTime".into(), item.get("ExpiredTime").cloned().unwrap_or(json!(""))); target.insert("_region_id".into(), region.get("Region").cloned().unwrap_or(json!(""))); target.insert("_region_name".into(), region.get("RegionName").or_else(|| region.get("Region")).cloned().unwrap_or(json!(""))); } value }
-fn lighthouse(item: &Value, region: &str) -> Value { let mut value = item.clone(); if let Value::Object(target) = &mut value { let state = item.get("InstanceState").or_else(|| item.get("InstanceStatus")).and_then(Value::as_str).unwrap_or(""); let status = match state.to_uppercase().as_str() { "RUNNING" => "Running", "STOPPED" => "Stopped", _ => state }; let ips = item.get("PublicAddresses").or_else(|| item.get("PublicIpAddresses")).cloned().unwrap_or(json!([])); target.insert("InstanceName".into(), item.get("InstanceName").or_else(|| item.get("InstanceId")).cloned().unwrap_or(json!(""))); target.insert("InstanceStatus".into(), json!(status)); target.insert("Status".into(), json!(status)); target.insert("PublicIpAddress".into(), ips.clone()); target.insert("PublicIp".into(), ips.as_array().and_then(|values| values.first()).cloned().unwrap_or(json!(""))); target.insert("ImageName".into(), item.get("BlueprintName").or_else(|| item.get("BlueprintId")).cloned().unwrap_or(json!(""))); target.insert("PlanId".into(), item.get("BundleId").or_else(|| item.get("BundleName")).cloned().unwrap_or(json!(""))); target.insert("ExpiredTime".into(), item.get("ExpiredTime").cloned().unwrap_or(json!(""))); target.insert("_region_id".into(), json!(region)); } value }
+fn lighthouse(item: &Value, region: &str) -> Value {
+    let mut value = item.clone();
+    if let Value::Object(target) = &mut value {
+        let state = item.get("InstanceState").or_else(|| item.get("InstanceStatus")).and_then(Value::as_str).unwrap_or("");
+        let status = match state.to_uppercase().as_str() { "RUNNING" => "Running", "STOPPED" => "Stopped", _ => state };
+        let ips = item.get("PublicAddresses").or_else(|| item.get("PublicIpAddresses")).filter(|value| !value.is_null()).cloned().unwrap_or(json!([]));
+        target.insert("InstanceName".into(), item.get("InstanceName").or_else(|| item.get("InstanceId")).cloned().unwrap_or(json!("")));
+        target.insert("InstanceStatus".into(), json!(status));
+        target.insert("Status".into(), json!(status));
+        target.insert("PublicIpAddress".into(), ips.clone());
+        target.insert("PublicIp".into(), ips.as_array().and_then(|values| values.first()).cloned().unwrap_or(json!("")));
+        target.insert("PrivateIpAddress".into(), item.get("PrivateAddresses").filter(|value| !value.is_null()).cloned().unwrap_or(json!([])));
+        target.insert("Cpu".into(), item.get("CPU").cloned().unwrap_or(Value::Null));
+        // Lighthouse Memory is GB; keep the provider value and expose the unit explicitly.
+        target.insert("MemoryInGB".into(), item.get("Memory").cloned().unwrap_or(Value::Null));
+        target.insert("SystemDiskSize".into(), item.pointer("/SystemDisk/DiskSize").cloned().unwrap_or(Value::Null));
+        target.insert("Bandwidth".into(), item.pointer("/InternetAccessible/InternetMaxBandwidthOut").cloned().unwrap_or(Value::Null));
+        target.insert("ImageName".into(), item.get("BlueprintName").or_else(|| item.get("BlueprintId")).cloned().unwrap_or(json!("")));
+        target.insert("PlanId".into(), item.get("BundleId").or_else(|| item.get("BundleName")).cloned().unwrap_or(json!("")));
+        target.insert("CreateTime".into(), item.get("CreatedTime").cloned().unwrap_or(json!("")));
+        target.insert("ExpiredTime".into(), item.get("ExpiredTime").cloned().unwrap_or(json!("")));
+        target.insert("_region_id".into(), json!(region));
+    }
+    value
+}
 fn cdb(item: &Value, region: &str) -> Value { let mut value = item.clone(); if let Value::Object(target) = &mut value { let status = item.get("Status").or_else(|| item.get("DBInstanceStatus")).and_then(Value::as_str).unwrap_or(""); target.insert("DBInstanceId".into(), item.get("InstanceId").or_else(|| item.get("DBInstanceId")).cloned().unwrap_or(json!(""))); target.insert("DBInstanceDescription".into(), item.get("InstanceName").or_else(|| item.get("DBInstanceDescription")).or_else(|| item.get("InstanceId")).cloned().unwrap_or(json!(""))); target.insert("DBInstanceStatus".into(), json!(match status { "1" => "Running", "0" => "Stopped", _ => status })); target.insert("DBInstanceType".into(), item.get("DeviceType").or_else(|| item.get("InstanceType")).cloned().unwrap_or(json!(""))); target.insert("DBInstanceClass".into(), item.get("InstanceType").or_else(|| item.get("Model")).cloned().unwrap_or(json!(""))); target.insert("DBInstanceStorage".into(), item.get("Volume").or_else(|| item.get("Storage")).cloned().unwrap_or(json!(0))); target.insert("ConnectionString".into(), item.get("Vip").or_else(|| item.get("ConnectionString")).cloned().unwrap_or(json!(""))); target.insert("Port".into(), item.get("Vport").or_else(|| item.get("Port")).cloned().unwrap_or(json!(""))); target.insert("DBInstanceNetType".into(), json!(if item.get("ProjectId").is_some() { "私有网络" } else { "-" })); target.insert("Engine".into(), item.get("Engine").cloned().unwrap_or(json!("MySQL"))); target.insert("EngineVersion".into(), item.get("EngineVersion").cloned().unwrap_or(json!(""))); target.insert("CreateTime".into(), item.get("CreateTime").cloned().unwrap_or(json!(""))); target.insert("ExpireTime".into(), item.get("DeadlineTime").or_else(|| item.get("ExpireTime")).cloned().unwrap_or(json!(""))); target.insert("_region_id".into(), json!(region)); } value }
 fn redis(item: &Value, region: &str) -> Value { let mut value = item.clone(); if let Value::Object(target) = &mut value { let status = item.get("Status").or_else(|| item.get("InstanceStatus")).and_then(Value::as_str).unwrap_or(""); target.insert("InstanceName".into(), item.get("InstanceName").or_else(|| item.get("InstanceId")).cloned().unwrap_or(json!(""))); target.insert("InstanceStatus".into(), json!(if ["2", "RUNNING", "NORMAL"].contains(&status.to_uppercase().as_str()) { "Normal" } else { status })); target.insert("InstanceType".into(), item.get("Type").or_else(|| item.get("TypeName")).cloned().unwrap_or(json!(""))); target.insert("InstanceClass".into(), item.get("Size").or_else(|| item.get("TypeName")).cloned().unwrap_or(json!(""))); target.insert("Capacity".into(), item.get("Size").or_else(|| item.get("Capacity")).cloned().unwrap_or(json!(0))); target.insert("Bandwidth".into(), item.get("Bandwidth").cloned().unwrap_or(json!(0))); target.insert("Connections".into(), item.get("ClientLimit").or_else(|| item.get("Connections")).cloned().unwrap_or(json!(0))); target.insert("ConnectionDomain".into(), item.get("WanIp").or_else(|| item.get("PrivateIp")).or_else(|| item.get("ConnectionDomain")).cloned().unwrap_or(json!(""))); target.insert("Port".into(), item.get("Port").cloned().unwrap_or(json!(""))); target.insert("EngineVersion".into(), item.get("CurrentRedisVersion").or_else(|| item.get("RedisVersion")).cloned().unwrap_or(json!(""))); target.insert("NetworkType".into(), item.get("NetType").cloned().unwrap_or(json!(""))); target.insert("ChargeType".into(), item.get("BillingMode").cloned().unwrap_or(json!(""))); target.insert("EndTime".into(), item.get("DeadTime").or_else(|| item.get("EndTime")).cloned().unwrap_or(json!(""))); target.insert("ArchitectureType".into(), item.get("Type").cloned().unwrap_or(json!("standard"))); target.insert("_region_id".into(), json!(region)); } value }
 fn edge(item: &Value) -> Value { let mut value = item.clone(); if let Value::Object(target) = &mut value { target.insert("SiteId".into(), item.get("ZoneId").or_else(|| item.get("Id")).cloned().unwrap_or(json!(""))); target.insert("SiteName".into(), item.get("ZoneName").or_else(|| item.get("ZoneId")).cloned().unwrap_or(json!(""))); target.insert("DomainName".into(), item.get("ZoneName").cloned().unwrap_or(json!(""))); target.insert("Status".into(), item.get("ActiveStatus").or_else(|| item.get("Status")).cloned().unwrap_or(json!(""))); target.insert("AccessType".into(), item.get("Type").or_else(|| item.get("ZoneType")).cloned().unwrap_or(json!(""))); target.insert("Coverage".into(), item.get("Area").or_else(|| item.get("PlanType")).cloned().unwrap_or(json!(""))); target.insert("PlanName".into(), item.get("PlanType").or_else(|| item.get("Plan")).cloned().unwrap_or(json!(""))); } value }
@@ -130,12 +154,12 @@ pub(crate) async fn swas_instance_action(id: i64, region_id: &str, instance_id: 
     request("lighthouse", "2020-03-24", action_name, payload, Some(region_id), &access_key_id, &access_key_secret).await
 }
 
-pub(crate) async fn cvm_instance_reboot(id: i64, region_id: &str, instance_id: &str, force_stop: bool) -> Result<String, String> {
-    if crate::account_cloud_type(id)? != "tencent" { return Err("当前账号不是腾讯云账号".into()); } if region_id.is_empty() || instance_id.is_empty() { return Err("缺少服务器地域或实例 ID".into()); } let mut payload = json!({"InstanceIds": [instance_id]}); if force_stop { payload["ForceStop"] = json!(true); } let (access_key_id, access_key_secret) = crate::account_credentials(id)?; let result = request("cvm", "2017-03-12", "RebootInstances", payload, Some(region_id), &access_key_id, &access_key_secret).await?; Ok(result.get("RequestId").and_then(Value::as_str).unwrap_or_default().to_string())
+pub(crate) async fn cvm_instance_reboot(id: i64, region_id: &str, instance_id: &str, force_stop: bool) -> Result<Value, String> {
+    if crate::account_cloud_type(id)? != "tencent" { return Err("当前账号不是腾讯云账号".into()); } if region_id.is_empty() || instance_id.is_empty() { return Err("缺少服务器地域或实例 ID".into()); } let mut payload = json!({"InstanceIds": [instance_id]}); if force_stop { payload["ForceStop"] = json!(true); } let (access_key_id, access_key_secret) = crate::account_credentials(id)?; request("cvm", "2017-03-12", "RebootInstances", payload, Some(region_id), &access_key_id, &access_key_secret).await
 }
 
-pub(crate) async fn cvm_instance_action(id: i64, region_id: &str, instance_id: &str, action: &str, force_stop: bool) -> Result<String, String> {
-    if crate::account_cloud_type(id)? != "tencent" { return Err("当前账号不是腾讯云账号".into()); } if region_id.is_empty() || instance_id.is_empty() { return Err("缺少服务器地域或实例 ID".into()); } let action_name = match action { "start" => "StartInstances", "stop" => "StopInstances", "reboot" => "RebootInstances", _ => return Err("不支持的腾讯云服务器操作".into()) }; let mut payload = json!({"InstanceIds": [instance_id]}); if force_stop && (action == "stop" || action == "reboot") { payload["ForceStop"] = json!(true); } let (access_key_id, access_key_secret) = crate::account_credentials(id)?; let result = request("cvm", "2017-03-12", action_name, payload, Some(region_id), &access_key_id, &access_key_secret).await?; Ok(result.get("RequestId").and_then(Value::as_str).unwrap_or_default().to_string())
+pub(crate) async fn cvm_instance_action(id: i64, region_id: &str, instance_id: &str, action: &str, force_stop: bool) -> Result<Value, String> {
+    if crate::account_cloud_type(id)? != "tencent" { return Err("当前账号不是腾讯云账号".into()); } if region_id.is_empty() || instance_id.is_empty() { return Err("缺少服务器地域或实例 ID".into()); } let action_name = match action { "start" => "StartInstances", "stop" => "StopInstances", "reboot" => "RebootInstances", _ => return Err("不支持的腾讯云服务器操作".into()) }; let mut payload = json!({"InstanceIds": [instance_id]}); if force_stop && (action == "stop" || action == "reboot") { payload["ForceStop"] = json!(true); } let (access_key_id, access_key_secret) = crate::account_credentials(id)?; request("cvm", "2017-03-12", action_name, payload, Some(region_id), &access_key_id, &access_key_secret).await
 }
 
 fn lighthouse_port(port: &str) -> String { let port = port.trim(); if port.eq_ignore_ascii_case("all") { return "-1/-1".into(); } let parts = port.split('-').collect::<Vec<_>>(); if parts.len() == 2 { format!("{}/{}", parts[0], parts[1]) } else { format!("{port}/{port}") } }
@@ -197,4 +221,45 @@ pub(crate) async fn list_objects(id: i64, bucket: &str, location: &str, prefix: 
 
 pub(crate) async fn get_acl(id: i64, bucket: &str, location: &str) -> Result<String, String> {
     if crate::account_cloud_type(id)? != "tencent" { return Err("当前账号不是腾讯云账号".into()); } let (access_key_id, access_key_secret) = crate::account_credentials(id)?; let host = format!("{bucket}.cos.{location}.myqcloud.com"); let authorization = cos_authorization_with_query(&access_key_id, &access_key_secret, &host, "acl")?; let response = reqwest::Client::new().get(format!("https://{host}/?acl")).header("Host", &host).header("Authorization", authorization).timeout(std::time::Duration::from_secs(25)).send().await.map_err(|error| format!("COS 请求失败: {error}"))?; let status = response.status(); let body = response.text().await.map_err(|error| error.to_string())?; if !status.is_success() { return Err(format!("COS 返回错误（{status}）：{}", xml_text(&body, "Code"))); } Ok(xml_text(&body, "Permission"))
+}
+
+#[cfg(test)]
+mod lighthouse_tests {
+    use super::*;
+
+    #[test]
+    fn maps_lighthouse_configuration_without_changing_memory_units() {
+        let source = json!({
+            "InstanceId": "lhins-fixture", "CPU": 2, "Memory": 2,
+            "InstanceState": "RUNNING", "PublicAddresses": ["192.0.2.10"],
+            "PrivateAddresses": ["10.0.0.8"], "SystemDisk": {"DiskSize": 40},
+            "InternetAccessible": {"InternetMaxBandwidthOut": 30},
+            "CreatedTime": "2026-01-01T00:00:00Z", "Zone": "ap-singapore-1",
+            "BundleId": "bundle-fixture", "BlueprintId": "lhbp-fixture"
+        });
+        let result = lighthouse(&source, "ap-singapore");
+        assert_eq!(result["Cpu"], 2);
+        assert_eq!(result["Memory"], 2);
+        assert_eq!(result["MemoryInGB"], 2);
+        assert_eq!(result["SystemDiskSize"], 40);
+        assert_eq!(result["Bandwidth"], 30);
+        assert_eq!(result["PrivateIpAddress"], json!(["10.0.0.8"]));
+        assert_eq!(result["PublicIp"], "192.0.2.10");
+        assert_eq!(result["CreateTime"], source["CreatedTime"]);
+        assert_eq!(result["Status"], "Running");
+        assert_eq!(result["Zone"], "ap-singapore-1");
+        assert_eq!(result["PlanId"], "bundle-fixture");
+        assert_eq!(result["ImageName"], "lhbp-fixture");
+        assert_eq!(result["_region_id"], "ap-singapore");
+    }
+
+    #[test]
+    fn missing_lighthouse_fields_remain_unknown() {
+        let result = lighthouse(&json!({"PrivateAddresses": null, "PublicAddresses": null}), "ap-singapore");
+        for key in ["Cpu", "MemoryInGB", "SystemDiskSize", "Bandwidth"] {
+            assert!(result[key].is_null());
+        }
+        assert_eq!(result["PrivateIpAddress"], json!([]));
+        assert_eq!(result["PublicIpAddress"], json!([]));
+    }
 }

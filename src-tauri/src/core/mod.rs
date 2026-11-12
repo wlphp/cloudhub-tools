@@ -1,5 +1,7 @@
 pub mod crypto;
 #[cfg(desktop)]
+pub mod dialog_windows;
+#[cfg(desktop)]
 pub mod mail;
 pub mod ai;
 pub mod ai_stream;

@@ -181,7 +181,7 @@ function BackupRestoreDialog({ onClose, onRestore, onStatus }: Pick<Props, "onRe
     finally { setBusy(false); }
   }
   return <>
-  <SharedDialog title="备份与恢复" className="codex-dialog backup-restore-dialog" bodyClassName="codex-dialog-content backup-restore-content" closeDisabled={busy} onClose={onClose} footer={<button type="button" className="secondary" disabled={busy} onClick={onClose}>关闭</button>}>
+  <SharedDialog sizeStorageKey="features/accounts/data-management-page/backup-restore-dialog" title="备份与恢复" className="codex-dialog backup-restore-dialog" bodyClassName="codex-dialog-content backup-restore-content" closeDisabled={busy} onClose={onClose} footer={<button type="button" className="secondary" disabled={busy} onClick={onClose}>关闭</button>}>
       <p className="backup-restore-note">敏感字段保持密文，恢复 key 随备份携带。创建时默认不加密码，也可勾选密码保护，将数据库和 key 整体加密。不加密码时，持有完整文件即可恢复凭据，请勿公开分享；密码备份需记住密码。导入仅加入列表；恢复先预览，可选择模块与合并或替换方式；包含验证码种子，保留当前设备的 Codex 登录账号、日志和设备身份。本机与云备份包含回收站。</p>
       <div className="backup-restore-toolbar"><strong>本机备份</strong><div><button type="button" className="secondary" disabled={busy} onClick={() => void importBackup()}><Upload size={14} />导入备份</button><button type="button" className="secondary" disabled={busy} onClick={() => setPasswordAction({ kind: "import" })}>导入密码备份</button><button type="button" className="primary" disabled={busy} onClick={() => { setError(""); setCreateOpen(true); }}><HardDriveDownload size={14} />创建备份</button><button type="button" className="secondary icon-button" aria-label="刷新备份列表" disabled={busy} onClick={() => void refresh()}><RefreshCw size={14} /></button></div></div>
       {error && <p className="backup-restore-error" role="alert">{error}</p>}

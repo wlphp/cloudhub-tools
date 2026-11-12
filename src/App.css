@@ -476,7 +476,6 @@ main { background: var(--ui-bg); }
 .ide-theme .brand-heading strong { display: block; min-width: 0; }
 .ide-theme .brand strong { color: var(--jb-text); font-size: 14px; letter-spacing: 0; }
 .ide-theme .brand small, .ide-theme .brand-version { color: var(--jb-subtle); font-size: 11px; margin-left: 0; }
-.ide-theme .brand-update-button{display:inline-grid;flex:0 0 auto;place-items:center;width:22px;height:22px;margin-left:0;padding:0;border:1px solid var(--jb-accent);border-radius:50%;background:var(--jb-accent-soft);color:var(--jb-accent-strong);cursor:pointer;box-shadow:0 0 0 2px rgba(234,88,12,.11);animation:brand-update-pulse 1.8s ease-in-out infinite}.ide-theme .brand-update-button:hover{border-color:var(--jb-accent-strong);background:var(--jb-accent);color:var(--jb-text);transform:translateY(-1px)}.ide-theme .brand-update-button:focus-visible{outline:2px solid var(--jb-accent-strong);outline-offset:2px}@keyframes brand-update-pulse{0%,100%{box-shadow:0 0 0 2px rgba(234,88,12,.11)}50%{box-shadow:0 0 0 5px rgba(234,88,12,.15)}}
 .ide-theme .brand-dev-badge { margin: 0; border-color: var(--jb-accent-soft); color: var(--jb-accent-strong); background: var(--jb-accent-soft); }
 .ide-theme .brand small { display: block; }
 .ide-theme nav button { min-height: 38px; margin-bottom: 2px; padding: 0 10px; border-radius: 4px; gap: 10px; color: var(--jb-muted); font-size: 13px; }

@@ -126,7 +126,7 @@ export function MemberDialog({ member, onMember, onClose, onOpenCenter, onNotice
       onNotice(reason instanceof Error ? reason.message : String(reason));
     } finally { setRefreshing(false); }
   }
-  return <SharedDialog
+  return <SharedDialog sizeStorageKey="features/member/member-dialog/member-dialog"
     title={member ? "会员资料" : "登录"}
     subtitle={member ? member.email : "使用邮箱验证码，无需密码"}
     icon={<LogIn size={20} aria-hidden="true" />}
@@ -210,7 +210,7 @@ export function MemberDialog({ member, onMember, onClose, onOpenCenter, onNotice
       </div>
       <p className="member-privacy-note"><ShieldCheck size={15} aria-hidden="true" /><span>本机云资源与凭据不会随登录上传</span></p>
     </div>}
-    {member && nicknameDialogOpen && <SharedDialog
+    {member && nicknameDialogOpen && <SharedDialog sizeStorageKey="features/member/member-dialog/member-dialog/2"
       title="修改昵称"
       subtitle="昵称会同步显示在会员资料和侧栏中"
       icon={<Pencil size={18} aria-hidden="true" />}

@@ -42,7 +42,41 @@ fn regions(id: i64) -> Result<Vec<String>, String> {
 fn instance(item: &Value, region: &str) -> Value {
     let public = item.get("publicIps").or_else(|| item.get("publicIp")).and_then(Value::as_array).and_then(|v| v.first()).cloned().or_else(|| item.get("publicIp").cloned()).unwrap_or(json!(""));
     let private = item.get("internalIps").or_else(|| item.get("privateIps")).and_then(Value::as_array).and_then(|v| v.first()).cloned().or_else(|| item.get("internalIp").cloned()).unwrap_or(json!(""));
-    json!({"InstanceId": item.get("id").or_else(|| item.get("instanceId")), "InstanceName": item.get("name").or_else(|| item.get("instanceName")).or_else(|| item.get("id")), "InstanceStatus": item.get("status"), "Status": item.get("status"), "PublicIpAddress": public, "PrivateIpAddress": private, "InstanceType": item.get("spec"), "VpcId": item.get("vpcId"), "_region_id": region, "_raw": item})
+    let memory = item.get("memoryCapacityInGB").and_then(|value| value.as_f64().or_else(|| value.as_str().and_then(|text| text.parse::<f64>().ok()))).filter(|value| value.is_finite() && *value > 0.0);
+    let os = ["osName", "osVersion"].iter().filter_map(|key| item.get(key).and_then(Value::as_str)).filter(|value| !value.is_empty()).collect::<Vec<_>>().join(" ");
+    let nic_ips = crate::array_at(item, &["nicInfo", "ips"]);
+    let primary_ip = nic_ips.iter().find(|ip| ip.get("primary").is_some_and(|value| value == true || value == "true"));
+    let eip_bandwidth = primary_ip.and_then(|ip| ip.get("eipSize")).and_then(|value| value.as_f64().or_else(|| value.as_str().and_then(|text| text.parse::<f64>().ok()))).filter(|value| value.is_finite() && *value > 0.0);
+    let disks = crate::array_at(item, &["volumes"]).into_iter().map(|disk| json!({
+        "DiskId": disk.get("volumeId"), "DiskName": if disk.get("isSystemVolume").and_then(Value::as_bool) == Some(true) { "系统盘" } else { "数据盘" },
+        "Size": disk.get("diskSizeInGB"), "Category": disk.get("storageType").or_else(|| disk.get("type")), "Status": disk.get("status")
+    })).collect::<Vec<_>>();
+    json!({"InstanceId": item.get("id").or_else(|| item.get("instanceId")), "InstanceName": item.get("name").or_else(|| item.get("instanceName")).or_else(|| item.get("id")),
+        "InstanceStatus": item.get("status"), "Status": item.get("status"), "PublicIpAddress": public, "PrivateIpAddress": private,
+        "Cpu": item.get("cpuCount"), "Memory": memory.map(|value| value * 1024.0), "MemoryInGB": memory,
+        "InstanceType": item.get("spec").or_else(|| item.get("instanceType")), "VpcId": item.get("vpcId"), "ZoneId": item.get("zoneName"),
+        "InternetMaxBandwidthOut": eip_bandwidth.map(|value| json!(value)).or_else(|| item.get("networkCapacityInMbps").cloned()),
+        "OSName": if os.is_empty() { item.get("imageName").cloned().unwrap_or(Value::Null) } else { json!(os) },
+        "ImageId": item.get("imageId"), "CreationTime": item.get("createTime"), "ExpiredTime": item.get("expireTime"),
+        "PaymentTiming": item.get("paymentTiming"), "Disks": disks, "_detail_error": item.get("_detail_error"), "_region_id": region, "_raw": item})
+}
+
+async fn instance_with_details(id: i64, host: &str, item: Value, region: &str) -> Value {
+    let instance_id = item.get("id").or_else(|| item.get("instanceId")).and_then(Value::as_str).unwrap_or("");
+    // Encode path segments through canonical_uri; reject separators from provider responses.
+    if instance_id.is_empty() || !instance_id.bytes().all(|ch| ch.is_ascii_alphanumeric() || ch == b'-' || ch == b'_') {
+        return instance(&item, region);
+    }
+    let mut merged = item.clone();
+    match request(id, host, &format!("/v2/instance/{instance_id}"), BTreeMap::new()).await {
+        Ok((data, _)) => {
+            if let (Some(target), Some(detail)) = (merged.as_object_mut(), data.get("instance").and_then(Value::as_object)) {
+                target.extend(detail.clone());
+            } else { merged["_detail_error"] = json!("实例详情返回不完整，请重新拉取"); }
+        }
+        Err(_) => { merged["_detail_error"] = json!("实例详情读取失败，请检查权限或稍后重试"); }
+    }
+    instance(&merged, region)
 }
 fn rds(item: &Value, region: &str) -> Value { json!({"DBInstanceId": item.get("instanceId").or_else(|| item.get("id")), "DBInstanceDescription": item.get("instanceName").or_else(|| item.get("name")).or_else(|| item.get("instanceId")), "DBInstanceStatus": item.get("status"), "DBInstanceClass": item.get("instanceClass").or_else(|| item.get("instanceType")), "DBInstanceStorage": item.get("volumeCapacity").or_else(|| item.get("capacity")).unwrap_or(&json!(0)), "ConnectionString": item.get("endpoint").or_else(|| item.get("vip")), "Port": item.get("port"), "Engine": item.get("engine").or_else(|| item.get("engineType")), "EngineVersion": item.get("engineVersion"), "CreateTime": item.get("createTime"), "_region_id": region, "_raw": item}) }
 fn redis(item: &Value, region: &str) -> Value { json!({"InstanceId": item.get("instanceId").or_else(|| item.get("id")), "InstanceName": item.get("instanceName").or_else(|| item.get("name")).or_else(|| item.get("instanceId")), "InstanceStatus": item.get("instanceStatus").or_else(|| item.get("status")), "InstanceType": item.get("engine").unwrap_or(&json!("Redis")), "InstanceClass": item.get("instanceClass").or_else(|| item.get("nodeType")), "Capacity": item.get("capacity").or_else(|| item.get("memorySize")).unwrap_or(&json!(0)), "ConnectionDomain": item.get("domain").or_else(|| item.get("endpoint")).or_else(|| item.get("vip")), "Port": item.get("port"), "EngineVersion": item.get("engineVersion"), "NetworkType": item.get("vnetIp").or_else(|| item.get("vpcId")), "CreateTime": item.get("instanceCreateTime"), "_region_id": region, "_raw": item}) }
@@ -55,7 +89,7 @@ pub(crate) async fn resource_items(id: i64, resource_type: &str) -> ResourceResp
     if resource_type == "oss" { match request(id, "bj.bcebos.com", "/", BTreeMap::new()).await { Ok((data, body)) => { let values = if crate::array_at(&data, &["buckets"]).is_empty() { crate::xml_blocks(&body, "Bucket").into_iter().map(|block| json!({"name": crate::xml_text(&block, "Name"), "location": crate::xml_text(&block, "Location"), "creationDate": crate::xml_text(&block, "CreationDate")})).collect::<Vec<_>>() } else { crate::array_at(&data, &["buckets"]).into_iter().cloned().collect() }; items.extend(values.into_iter().map(|item| bucket(&item)).filter(|item| item.get("Name").and_then(Value::as_str).is_some_and(|v| !v.is_empty()))); }, Err(e) => errors.push(e) }; return ResourceResponse { resource_type: resource_type.into(), items, errors, fetched_at: now }; }
     let service = match resource_type { "ecs" => Some(("bcc", "/v2/instance", vec!["instances", "instanceList"])), "rds" => Some(("rds", "/v1/instance", vec!["instances", "instanceList"])), "redis" => Some(("redis", "/v2/instance", vec!["instances", "instanceList"])), _ => None };
     let Some((service, path, keys)) = service else { return ResourceResponse { resource_type: resource_type.into(), items, errors: vec![format!("百度智能云暂未接入 {resource_type} 资源")], fetched_at: now }; };
-    for region in regions { match pages(id, &format!("{service}.{region}.baidubce.com"), path, &keys).await { Ok(values) => for item in values { items.push(match resource_type { "ecs" => instance(&item, &region), "rds" => rds(&item, &region), "redis" => redis(&item, &region), _ => item }); }, Err(e) => errors.push(format!("{region}: {e}")) } }
+    for region in regions { match pages(id, &format!("{service}.{region}.baidubce.com"), path, &keys).await { Ok(values) => for item in values { items.push(match resource_type { "ecs" => instance_with_details(id, &format!("bcc.{region}.baidubce.com"), item, &region).await, "rds" => rds(&item, &region), "redis" => redis(&item, &region), _ => item }); }, Err(e) => errors.push(format!("{region}: {e}")) } }
     ResourceResponse { resource_type: resource_type.into(), items, errors, fetched_at: now }
 }
 
@@ -109,4 +143,34 @@ pub(crate) async fn revoke_security_group_rule(id: i64, region_id: &str, _securi
     let mut query = crate::string_params(&[("clientToken", uuid::Uuid::new_v4().to_string())]); if let Some(version) = sg_version { query.insert("sgVersion".into(), version.to_string()); }
     let host = format!("bcc.{region_id}.baidubce.com"); let (result, _) = request_with_options(id, &host, &format!("/v2/securityGroup/rule/{rule_id}"), query, "DELETE", None, false).await?;
     Ok(result.get("requestId").or_else(|| result.get("RequestId")).and_then(Value::as_str).unwrap_or_default().to_string())
+}
+
+#[cfg(test)]
+mod bcc_asset_tests {
+    use super::*;
+    #[test]
+    fn maps_configuration_dates_os_and_disks() {
+        let result = instance(&json!({"id":"i-fixture", "cpuCount":2, "memoryCapacityInGB":2,
+            "spec":"bcc.g5.c2m2", "osName":"Ubuntu", "osVersion":"22.04", "imageId":"m-fixture",
+            "networkCapacityInMbps":5, "createTime":"2026-01-01T00:00:00Z", "expireTime":"2027-01-01T00:00:00Z",
+            "volumes":[{"volumeId":"v-fixture", "isSystemVolume":true, "diskSizeInGB":40}]}), "bd");
+        assert_eq!(result["Cpu"], 2);
+        assert_eq!(result["Memory"], 2048.0);
+        assert_eq!(result["MemoryInGB"], 2.0);
+        assert_eq!(result["InternetMaxBandwidthOut"], 5);
+        assert_eq!(result["OSName"], "Ubuntu 22.04");
+        assert_eq!(result["CreationTime"], "2026-01-01T00:00:00Z");
+        assert_eq!(result["ExpiredTime"], "2027-01-01T00:00:00Z");
+        assert_eq!(result["Disks"][0]["Size"], 40);
+        assert_eq!(result["Disks"][0]["DiskName"], "系统盘");
+    }
+    #[test]
+    fn preserves_unknown_fields_and_eip_bandwidth() {
+        let missing = instance(&json!({"id":"i-fixture"}), "bd");
+        assert!(missing["Memory"].is_null());
+        assert!(missing["InternetMaxBandwidthOut"].is_null());
+        assert!(missing["OSName"].is_null());
+        let eip = instance(&json!({"networkCapacityInMbps":0, "nicInfo":{"ips":[{"primary":"true", "eipSize":"10"}]}}), "bd");
+        assert_eq!(eip["InternetMaxBandwidthOut"], 10.0);
+    }
 }
