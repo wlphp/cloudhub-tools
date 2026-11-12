@@ -36,6 +36,9 @@ test("panel refreshes are independent and batch refresh shares pending requests"
   const second = page.getByRole("button", { name: "刷新 测试面板 2 状态", exact: true });
   const third = page.getByRole("button", { name: "刷新 测试面板 3 状态", exact: true });
   const batch = page.getByTitle("刷新所有面板状态", { exact: true });
+  // Sample the idle color before any refresh: sampling later races the CSS
+  // color transition and can capture a blended intermediate value.
+  const idleColor = await first.evaluate(button => getComputedStyle(button).color);
   await first.click();
   await expect(first).toBeDisabled();
   await expect(second).toBeEnabled();
@@ -69,7 +72,6 @@ test("panel refreshes are independent and batch refresh shares pending requests"
   expect(await page.evaluate(() => (window as any).__refreshCalls)).toEqual([1, 2, 1, 2, 3]);
 
   // The timer uses the same visible per-panel feedback as a manual refresh.
-  const idleColor = await first.evaluate(button => getComputedStyle(button).color);
   await page.getByLabel("监控资源刷新间隔").selectOption("5");
   await expect(first).toHaveAttribute("aria-busy", "true", { timeout: 8000 });
   await expect(first).toHaveClass(/is-refreshing/);
