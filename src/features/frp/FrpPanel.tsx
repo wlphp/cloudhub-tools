@@ -1,3 +1,4 @@
+import { ToastNotice } from "../../shared/ToastNotice";
 import { SharedDialog } from "../../shared/SharedDialog";
 import { ConfirmDialog } from "../../shared/ConfirmDialog";
 import { GatewayTunnel } from "../codex/GatewayTunnel";
@@ -78,6 +79,8 @@ export function FrpPanel() {
   const downloadPercent = installProgress?.totalBytes ? Math.min(100, Math.floor(installProgress.downloadedBytes / installProgress.totalBytes * 100)) : null;
   const logLines = logSnapshot?.serverId === selectedId ? logSnapshot.lines : [];
   const frpcInstalled = runtime.some((state) => state.installed) || !!localPaths?.installed;
+  const frpcMissing = !frpcInstalled && (selectedRuntime?.installed === false || localPaths?.installed === false);
+  const inactiveActionHint = frpcMissing ? "请先安装 frpc 客户端" : "请先启动当前服务端连接";
   const frpcVersion = runtime.find((state) => state.version)?.version ?? localPaths?.version ?? (frpcInstalled ? "已安装 · 版本未知" : localPaths ? "未安装" : "检查中");
   const configPending = servers.some((server) => !runtime.find((state) => state.serverId === server.id)?.configCurrent);
 
@@ -406,7 +409,7 @@ export function FrpPanel() {
         {owner.canTerminate && <button type="button" className="secondary" disabled={!!busy} onClick={() => terminateStale(owner)}><Square size={14} />结束旧 frpc 进程</button>}
       </div>) : <p>占用进程已退出，可重新点击启动连接。</p>}
     </div>}
-    {feedback && <div className="flow-feedback success" role="status">{feedback}</div>}
+    {feedback && <ToastNotice message={feedback} />}
     {runningInTauri && <>
       <div className="frp-overview" role="status"><span>frpc：<strong>{frpcVersion}</strong></span><span>运行连接：<strong>{runtime.filter((state) => state.running).length}/{servers.length}</strong></span><span>运行规则：<strong>{runtime.reduce((total, state) => total + state.proxies.filter((proxy) => proxy.status === "running").length, 0)}</strong></span><span>配置：<strong>{configPending ? "有待应用更改" : "已同步"}</strong></span><button type="button" className={frpcInstalled ? "secondary" : "primary"} disabled={!!busy} aria-expanded={clientPanelOpen} aria-controls="frp-client-panel" onClick={() => setClientPanelOpen(!clientPanelOpen)}><Download size={14} />{frpcInstalled ? "客户端管理" : "安装客户端"}{clientPanelOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</button></div>
       {!passwordSaved && !busy && <div className="frp-setup-hint" role="status"><span>首次连接前，请设置本机客户端面板账号。</span><button type="button" className="secondary" onClick={() => { setClientPanelOpen(true); window.requestAnimationFrame(() => document.getElementById("frp-global-settings")?.scrollIntoView({ block: "center" })); }}><Settings2 size={14} />设置面板账号</button></div>}
@@ -512,11 +515,12 @@ export function FrpPanel() {
             <div className="frp-workspace-id"><Server size={22} /><div><h2>{selected?.name || "新增服务端"}</h2><p>{selected ? `${selected.serverAddr}:${selected.serverPort} · 本机面板 :${selected.adminPort}` : "添加服务端，开始配置本地连接"}</p></div></div>
             {selected && <div className="frp-workspace-status"><span className="frp-chip"><span className={`frp-dot ${selectedRuntime?.running ? "online" : "offline"}`} aria-hidden="true" />进程<strong>{selectedRuntime?.running ? "运行中" : "未运行"}</strong></span><span className="frp-chip">代理<strong>{selectedRuntime?.connected ? "有规则运行中" : selectedRuntime?.running ? "无规则运行" : "未连接"}</strong></span><span className="frp-chip">配置<strong>{selectedRuntime?.configCurrent ? "已应用" : selectedRuntime?.configPresent ? "待应用" : "未应用"}</strong></span></div>}
             <div className="frp-workspace-actions">{selected && <>
-              <button type="button" className="primary" title={connectionActionHint} disabled={!selectedRuntime?.installed || draftDirty || connectionReady || !!busy} onClick={() => connectionNeedsApply ? apply() : control("start")}><Play size={14} />{connectionActionLabel}</button>
-              <button type="button" className="secondary" disabled={!selectedRuntime?.running || !!busy} onClick={() => control("restart")}>重启</button>
-              <button type="button" className="secondary" disabled={!selectedRuntime?.running || !!busy} onClick={stopServer}><Square size={14} />停止</button>
-              <button type="button" className="secondary" disabled={!selectedRuntime?.running || !!busy} onClick={openPanel}><ExternalLink size={15} />客户端面板</button>
+              <button type="button" className={!selectedRuntime?.installed ? "secondary" : "primary"} title={connectionActionHint} aria-describedby={frpcMissing ? "frp-client-required" : undefined} disabled={!selectedRuntime?.installed || draftDirty || connectionReady || !!busy} onClick={() => connectionNeedsApply ? apply() : control("start")}><Play size={14} />{connectionActionLabel}</button>
+              <button type="button" className="secondary" title={!selectedRuntime?.running ? inactiveActionHint : "重启当前服务端连接"} disabled={frpcMissing || !selectedRuntime?.running || !!busy} onClick={() => control("restart")}>重启</button>
+              <button type="button" className="secondary" title={!selectedRuntime?.running ? inactiveActionHint : "停止当前服务端连接"} disabled={frpcMissing || !selectedRuntime?.running || !!busy} onClick={stopServer}><Square size={14} />停止</button>
+              <button type="button" className="secondary" title={!selectedRuntime?.running ? inactiveActionHint : "打开当前服务端的客户端面板"} disabled={frpcMissing || !selectedRuntime?.running || !!busy} onClick={openPanel}><ExternalLink size={15} />客户端面板</button>
             </>}</div>
+            {selected && frpcMissing && <p id="frp-client-required" className="frp-client-required" role="status">请先通过上方“安装客户端”安装 frpc，再使用连接和管理操作。</p>}
           </div>
           <nav className="frp-tabs" aria-label="连接详情">{[{id:"rules", label:"穿透规则"}, {id:"connection", label:"连接配置"}, {id:"logs", label:"客户端运行日志"}].map((tab) => <button type="button" key={tab.id} className={activeTab === tab.id ? "active" : ""} aria-current={activeTab === tab.id ? "page" : undefined} onClick={() => setActiveTab(tab.id)}>{tab.label}{tab.id === "rules" && <span>{serverDraft?.proxies.length ?? 0}</span>}</button>)}</nav>
           {selected && activeTab === "logs" && <section className="frp-card frp-logs-card" aria-label="客户端运行日志">

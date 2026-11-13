@@ -126,6 +126,7 @@ struct SwitchTicket {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct CodexState {
     accounts: Vec<CodexAccountSummary>,
+    provider_account_ids: Vec<i64>,
     cli_available: bool,
     desktop_available: bool,
     can_open_default: bool,
@@ -159,8 +160,13 @@ fn state() -> Result<CodexState, String> {
         .map_err(|_| "读取 Codex 恢复状态失败")?
         > 0;
     let desktop_available = crate::core::codex::desktop::installed().is_some();
+    let provider_account_ids = conn
+        .prepare("SELECT account_id FROM codex_provider_accounts")
+        .and_then(|mut statement| statement.query_map([], |row| row.get(0))?.collect::<rusqlite::Result<Vec<i64>>>())
+        .map_err(|_| "读取供应商账号关联失败")?;
     Ok(CodexState {
         accounts: repository::list(&conn)?,
+        provider_account_ids,
         cli_available: profile::cli_path().is_some(),
         desktop_available,
         can_open_default: desktop_available,

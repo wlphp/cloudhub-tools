@@ -1,3 +1,4 @@
+import { ToastNotice } from "../../shared/ToastNotice";
 import { useEffect, useRef, useState } from "react";
 import { Activity, ArrowDown, ArrowUp, Clock3, Gauge, History, Info, MapPin, Play, RefreshCw, Square } from "lucide-react";
 import { runningInTauri } from "../../platform/api";
@@ -117,7 +118,7 @@ export function NetworkSpeedPlugin() {
   return <section className="network-speed" aria-label="网络测速工具">
     {!runningInTauri && <p className="speed-preview-notice" role="status">网页预览仅展示测速界面；测速、设备网络信息和本机历史需在 CloudHub 桌面或手机 App 中使用。</p>}
     <div className="speed-tabs" role="group" aria-label="测速视图">{([['test', '测速'], ['history', '历史记录']] as const).map(([value, label]) => <button type="button" key={value} className={tab === value ? "is-active" : ""} aria-pressed={tab === value} onClick={() => setTab(value)}>{value === "test" ? <Gauge size={14} aria-hidden="true" /> : <History size={14} aria-hidden="true" />}{label}</button>)}</div>
-    {error && <p className="notes-error" role="alert">{error}</p>}
+    {error && <ToastNotice message={error} tone="error" />}
     {tab === "test" ? <>
       <form className="speed-form" onSubmit={event => { event.preventDefault(); void operate(start); }}>
         <label>测速节点<select value={config.node} disabled={!runningInTauri || busy || running} onChange={e => setConfig(c => ({ ...c, node: e.target.value as SpeedTestConfig["node"] }))}><option value="cn-qiniu">国内 · 七牛 CDN（仅下载）</option><option value="cn-alipay">国内 · 支付宝 CDN（仅下载）</option><option value="cloudflare">Cloudflare · 自动边缘节点（下载 / 上传）</option><option value="custom">自建兼容节点</option></select></label>

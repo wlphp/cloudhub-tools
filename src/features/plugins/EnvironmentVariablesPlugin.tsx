@@ -1,3 +1,4 @@
+import { ToastNotice } from "../../shared/ToastNotice";
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { invoke, runningInTauri, runningOnPhone } from "../../platform/api";
 import { AlertTriangle, Plus, RefreshCw, Save, Trash2, X } from "lucide-react";
@@ -105,7 +106,7 @@ export function EnvironmentVariablesPlugin() {
   return <section className="env-manager" aria-busy={busy}>
     <div className="env-manager-warning" role="note"><AlertTriangle size={18} aria-hidden="true" /><div><strong>直接管理 Windows 环境变量</strong><p>变量值（包括密钥）会以明文显示并可直接修改。系统变量写入需要管理员权限；修改通常只对新启动的程序生效。错误或误删可能导致软件无法运行。</p></div></div>
     {snapshot && <div className={`env-manager-admin ${snapshot.isAdmin ? "is-admin" : ""}`} role="status"><span>{snapshot.isAdmin ? "当前以管理员权限运行，可修改用户与系统变量。" : "当前不是管理员。用户变量可正常修改；系统变量修改需经 Windows 管理员授权。"}</span>{!snapshot.isAdmin && <button type="button" className="secondary" disabled={busy} onClick={() => void openElevated()}>以管理员身份重新打开</button>}</div>}
-    {error && <p className="hardware-info-error" role="alert">{error}</p>}{message && <p className="hardware-info-message" role="status">{message}</p>}
+    {error && <ToastNotice message={error} tone="error" />}{message && <ToastNotice message={message} />}
     <div className="env-manager-toolbar"><div className="env-manager-filters" role="group" aria-label="变量范围">{([["all", "全部"], ["user", "用户变量"], ["system", "系统变量"]] as const).map(([key, label]) => <button key={key} type="button" className={scopeFilter === key ? "is-active" : "secondary"} aria-pressed={scopeFilter === key} onClick={() => setScopeFilter(key)}>{label}</button>)}</div><div className="env-manager-tools"><label className="env-manager-search">搜索变量<input value={query} onChange={event => setQuery(event.target.value)} placeholder="名称或值" /></label><button type="button" className="secondary" disabled={busy} onClick={() => void refresh()}><RefreshCw size={14} aria-hidden="true" />刷新</button><button type="button" disabled={busy} onClick={openAdd}><Plus size={14} aria-hidden="true" />新增变量</button></div></div>
     <div className="env-manager-table-wrap"><table className="env-manager-table"><thead><tr><th scope="col">变量名</th><th scope="col">范围</th><th scope="col">类型</th><th scope="col">变量值（明文）</th><th scope="col">操作</th></tr></thead><tbody>
       {variables.map(item => {

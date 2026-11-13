@@ -3912,3 +3912,10 @@ body.theme-light .modal-backdrop .panel-bind-modal .panel-insecure-tls input { a
 @container store-catalog (max-width: 600px) {
   body:has(.mobile-shell) .store-catalog .store-table tr:not(.is-expanded) td[data-label="操作"] { grid-column: 1 / -1; grid-row: 2; justify-content: flex-start; }
 }
+
+/* Reserve a column for the drag handle without shifting distro details or tools. */
+.wsl-distro-main.is-sorting { grid-template-columns:28px 32px 32px minmax(0,1fr) auto; }
+@media(max-width:700px) {
+  .wsl-distro-main.is-sorting { grid-template-columns:28px 28px 28px minmax(0,1fr); }
+  .wsl-distro-main.is-sorting .wsl-row-tools { grid-column:2 / -1; justify-content:flex-end; }
+}

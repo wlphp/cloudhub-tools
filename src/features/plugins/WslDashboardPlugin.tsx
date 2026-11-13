@@ -1,3 +1,8 @@
+import { ToastNotice } from "../../shared/ToastNotice";
+import { useListOrder } from "../../shared/useListOrder";
+import { SortSelectionControls } from "../../shared/SortSelectionControls";
+import { ListSortHandle } from "../../shared/ListSortHandle";
+import { useSortableDrag } from "../../shared/useSortableDrag";
 import { useDialogDocument } from "../../shared/DialogDocument";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -137,6 +142,14 @@ export function WslDashboardPlugin({ open, enabled }: Props) {
   const [rootfsPath, setRootfsPath] = useState("");
   const [rootfsName, setRootfsName] = useState("");
   const [rootfsLocation, setRootfsLocation] = useState("");
+  const listOrder = useListOrder("cloudhub.wsl.distribution-order");
+  const [sorting, setSorting] = useState(false);
+  const sortedItems = listOrder.sort(items, item => item.name);
+  const sortIds = sortedItems.map(item => item.name);
+  // Native operations remain independent of the saved display order.
+  const sortDisabled = !listOrder.ready || listOrder.saving || busy || !enabled;
+  function moveItem(source: string, target: string) { if (sorting && !sortDisabled) void listOrder.move(sortIds, source, target); }
+  const drag = useSortableDrag({ selector: "[data-wsl-sort-id]", attribute: "data-wsl-sort-id", enabled: sorting && !sortDisabled, onMove: moveItem });
   const dialogRef = useRef<HTMLElement>(null);
   const selectedDistributionInstalled = isInstalledDistribution(items, distribution);
   const selectedMirror = mirrorItems.find(item => item.id === mirrorSelection) ?? null;
@@ -464,7 +477,7 @@ export function WslDashboardPlugin({ open, enabled }: Props) {
             {tab === "home" && <>
               <div className="wsl-home-toolbar">
                 <p className="wsl-home-warning">停止发行版会保留数据；删除发行版会永久移除其 Linux 文件与设置，请先备份。</p>
-                <div className="official-plugin-actions"><button type="button" className="secondary" disabled={busy || !enabled} onClick={() => void refresh()}><RefreshCw size={14} aria-hidden="true" />{busy && !wslUpdating ? "正在刷新…" : "刷新列表"}</button><button type="button" className="secondary" disabled={busy || !enabled} onClick={() => void shutdown()}><CircleStop size={14} aria-hidden="true" />停止全部 WSL</button></div>
+                <div className="official-plugin-actions"><SortSelectionControls label="发行版" keys={sortIds} selected={new Set<string>()} sorting={sorting} onToggleAll={() => {}} onSortingChange={setSorting} showSelectAll={false} disabled={sortDisabled} /><button type="button" className="secondary" disabled={busy || !enabled} onClick={() => void refresh()}><RefreshCw size={14} aria-hidden="true" />{busy && !wslUpdating ? "正在刷新…" : "刷新列表"}</button><button type="button" className="secondary" disabled={busy || !enabled} onClick={() => void shutdown()}><CircleStop size={14} aria-hidden="true" />停止全部 WSL</button></div>
               </div>
               <details className={`wsl-runtime-card ${runtimeInfo?.compatible === true ? "is-compatible" : runtimeInfo?.compatible === false ? "is-outdated" : ""}`} aria-busy={runtimeInfoBusy || wslUpdating}>
                 <summary className="wsl-runtime-summary"><strong>WSL 平台版本</strong><span>当前版本：<code>{runtimeInfo?.currentVersion ?? (runtimeInfoBusy ? "正在读取…" : "未知")}</code></span><span className={`wsl-runtime-badge ${runtimeInfo?.compatible === true ? "is-compatible" : runtimeInfo?.compatible === false ? "is-outdated" : "is-unknown"}`} role="status">{runtimeInfoBusy ? "正在检查" : runtimeInfo?.compatible === true ? "符合要求" : runtimeInfo?.compatible === false ? "需要升级" : "无法确认"}</span><span className="wsl-expand-hint"><ChevronDown size={17} aria-hidden="true" /></span></summary>
@@ -496,10 +509,11 @@ export function WslDashboardPlugin({ open, enabled }: Props) {
                 </div>
               </details>
               {enabled && !busy && !error && items.length === 0 && <p role="status">未检测到已注册的 WSL 发行版。可在“安装”页添加发行版。</p>}
-              {items.length > 0 && <div className="wsl-distro-list">{items.map(item => {
+              {listOrder.error && <p role="alert">{listOrder.error}<button type="button" onClick={listOrder.retry}>重试</button></p>}
+              {items.length > 0 && <div className="wsl-distro-list">{sortedItems.map(item => {
                 const running = isWslRunning(item.state);
-                return <article key={item.name} className={`wsl-distro-row ${running ? "is-running" : "is-stopped"}`}>
-                  <div className="wsl-distro-main">
+                return <article key={item.name} data-wsl-sort-id={item.name} className={`wsl-distro-row ${running ? "is-running" : "is-stopped"}`}>
+                  <div className={`wsl-distro-main${sorting ? " is-sorting" : ""}`}>{sorting && <ListSortHandle id={item.name} name={item.name} ids={sortIds} disabled={sortDisabled} onStart={drag.startDrag} onMove={moveItem} />}
                     <button type="button" className={`wsl-row-power ${running ? "is-running" : "is-stopped"}`} disabled={busy} aria-label={`${running ? "停止" : "启动"} ${item.name}`} title={`${running ? "停止" : "启动"} ${item.name}`} onClick={() => void control(item, running ? "stop" : "start")}>{running ? <Pause size={15} aria-hidden="true" /> : <Play size={15} aria-hidden="true" />}</button>
                     <DistributionIcon name={item.name} />
                     <div className="wsl-distro-title"><strong title={item.name}>{item.name}</strong><span className={`wsl-row-state ${running ? "is-running" : "is-stopped"}`}><i aria-hidden="true" />{displayWslState(item.state)}{item.isDefault && <em>默认</em>}</span><small className="wsl-row-last-start">最后启动：{formatWslTimestamp(item.lastStartedAt)}</small>{item.remark && <small className="wsl-row-remark" title={item.remark}>备注：{item.remark.split(/\r?\n/, 1)[0]}</small>}</div>
@@ -551,7 +565,7 @@ export function WslDashboardPlugin({ open, enabled }: Props) {
             </>}
             {tab === "logs" && <><div className="wsl-logs-heading"><div><h3>运行日志</h3><p>最多保留最近 200 条本机操作记录。</p></div><button type="button" className="secondary" disabled={busy || logs.length === 0} onClick={() => void clearLogs()}><Trash2 size={14} aria-hidden="true" />清空日志</button></div>{logs.length === 0 ? <p role="status">暂无运行日志。</p> : <><div className="wsl-log-filters"><label>检索日志<input type="search" value={logsQuery} onChange={event => { setLogsQuery(event.target.value); setLogsPage(1); }} placeholder="操作、发行版或时间" /></label><label>执行结果<select value={logsResultFilter} onChange={event => { setLogsResultFilter(event.target.value as typeof logsResultFilter); setLogsPage(1); }}><option value="all">全部结果</option><option value="success">成功</option><option value="failure">失败</option></select></label></div>{visibleLogs.length === 0 ? <p className="wsl-log-empty" role="status">没有符合条件的日志，请调整检索条件。</p> : <ol className="wsl-log-list">{visibleLogs.map((entry, index) => <li key={`${entry.timestamp}-${(safeLogsPage - 1) * logsPageSize + index}`}><time dateTime={new Date(entry.timestamp).toISOString()}>{formatWslTimestamp(entry.timestamp)}</time><span>{entry.action === "注销" ? "删除发行版" : entry.action === "关闭全部 WSL" ? "停止全部 WSL" : entry.action}</span><span>{entry.distribution || "全部发行版"}</span><strong className={entry.success ? "is-success" : "is-failure"}>{entry.success ? "成功" : "失败"}</strong></li>)}</ol>}{filteredLogs.length > 0 && <PaginationBar className="wsl-log-pagination" page={safeLogsPage} pageSize={logsPageSize} total={filteredLogs.length} onPageChange={setLogsPage} onPageSizeChange={size => { setLogsPageSize(size); setLogsPage(1); }} pageSizeOptions={[10, 20, 50]} />}</>}<small>日志只记录时间、操作、发行版名称和结果；不会保存目录、RootFS 文件路径或 WSL 命令输出。</small></>}
           </div>
-          {error && <p role="alert" className="hardware-info-error">{error}</p>}{message && <p role="status">{message}</p>}
+          {error && <ToastNotice message={error} tone="error" />}{message && <ToastNotice message={message} />}
           <details className="wsl-install-guide-disclosure"><summary><span><strong>安装与运行说明</strong><small>展开查看镜像原理、常用命令与支持范围</small></span><span className="wsl-expand-hint"><ChevronDown size={17} aria-hidden="true" /></span></summary>
           <section className="wsl-install-guide" aria-labelledby="wsl-install-guide-title">
             <div className="wsl-install-guide-heading"><div><h3 id="wsl-install-guide-title">安装与运行说明</h3><p>了解镜像来源如何选择，以及发行版安装后如何启动。</p></div></div>

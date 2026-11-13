@@ -1,3 +1,4 @@
+import { ToastNotice } from "../../shared/ToastNotice";
 import { useEffect, useRef, useState } from "react";
 import { Eye, EyeOff, FolderOpen, RefreshCw, RotateCcw, Server } from "lucide-react";
 import { codexClient, type CodexConfigSource } from "../../platform/clients/codex";
@@ -52,7 +53,7 @@ export function ConfigToolbar({ busy, onRestore }: {
         <button type="button" disabled={locked} onClick={() => void run("state")} title="刷新配置文件状态" aria-label="刷新配置文件状态"><RefreshCw size={13} aria-hidden="true" /></button>
       </div>
     </div>
-    {error && <p className="codex-feedback error" role="alert">{error}</p>}
+    {error && <ToastNotice message={error} tone="error" />}
     {previewOpen && source && <ConfigPreviewDialog source={source} onClose={() => setPreviewOpen(false)} />}
   </>;
 }

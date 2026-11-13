@@ -1,3 +1,4 @@
+import { ToastNotice } from "../../shared/ToastNotice";
 import { useEffect, useRef, useState } from "react";
 import { Copy, Eye, EyeOff, ExternalLink, Play, Power, RefreshCw, ScrollText, Terminal, Users } from "lucide-react";
 import { codexClient, type CodexAccount, type CodexGatewayState } from "../../platform/clients/codex";
@@ -46,6 +47,6 @@ export function ServiceSummary({ accounts, state, lanUrl, active, busy, onOpen, 
     <div className="codex-summary-counters"><span>处理中 {state?.active ?? 0}</span><span>完成 {state?.completed ?? 0}</span><span>失败 {state?.failed ?? 0}</span></div>
     <p className="codex-summary-help">访问范围：{!state?.running ? "服务已停止" : state.listeningLan ? "本机 + 局域网（IPv4）" : "仅本机"}</p>
     <div className="codex-summary-action-rail"><button disabled={locked} title="服务账号池" aria-label="概览账号池操作" onClick={() => onOpen("pool")}><Users size={15} /></button><button disabled={locked} title="应用多开" aria-label="概览应用多开" onClick={onInstances}><Terminal size={15} /></button><button disabled={locked} title="调用日志" aria-label="概览调用日志" onClick={() => onOpen("logs")}><ScrollText size={15} /></button><button disabled={locked} title="打开服务配置" aria-label="打开 API 服务配置" onClick={() => onOpen("config")}><ExternalLink size={15} /></button><button disabled={locked} title="刷新服务统计" aria-label="刷新概览服务统计" onClick={onRefresh}><RefreshCw size={15} /></button><button disabled={locked || !!state?.running || !ids.length} title="启动服务" aria-label="概览启动服务" onClick={() => onOpen("start")}><Play size={15} /></button><button disabled={locked || !state?.running} title="停止服务" aria-label="概览停止服务" onClick={() => onOpen("stop")}><Power size={15} /></button></div>
-    {message && <small className="codex-summary-result" role="status">{message}</small>}
+    {message && <ToastNotice message={message} />}
   </section>;
 }

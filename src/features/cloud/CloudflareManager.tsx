@@ -1,3 +1,4 @@
+import { ToastNotice } from "../../shared/ToastNotice";
 import { useEffect, useRef, useState } from "react";
 import { RefreshCw, Search } from "lucide-react";
 import type { Account, LocalAsset } from "../../shared/types";
@@ -81,7 +82,7 @@ export function CloudflareManager({ account, initialKind = "domain", onClose, on
   const dnsQuery = dnsKeyword.trim().toLowerCase();
   const visibleRecords = records.filter(row => ["name", "type", "content", "comment"].some(key => value(row, key).toLowerCase().includes(dnsQuery)));
   const filtered = assets.filter(a => a.resource_type === kind && `${a.payload.Name} ${a.asset_key}`.toLowerCase().includes(keyword.toLowerCase()));
-  const notice = <>{error && <p role="alert" className="error-text">{error}</p>}{message && <p role="status">{message}</p>}</>;
+  const notice = <>{error && <ToastNotice message={error} tone="error" />}{message && <ToastNotice message={message} />}</>;
   const consoleLink = <a href="https://dash.cloudflare.com/" target="_blank" rel="noreferrer">Cloudflare 控制台 ↗</a>;
   return <>
     <SharedDialog sizeStorageKey="features/cloud/cloudflare-manager/cloudflare-manager" title={`${account.account_name} · Cloudflare 资产管理`} eyebrow="CLOUDFLARE" onClose={onClose} closeDisabled={busy} busy={busy} footer={<><span>Account ID：{account.access_key_id}</span><button type="button" className="secondary" disabled={busy} onClick={onClose}>关闭</button></>}>

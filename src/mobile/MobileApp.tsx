@@ -1,3 +1,4 @@
+import { ToastNotice } from "../shared/ToastNotice";
 import { CloudflareManager } from "../features/cloud/CloudflareManager";
 import { GroupNameInput } from "../shared/GroupNameInput";
 import { DialogField, DialogNotice } from "../shared/DialogForm";
@@ -6,7 +7,6 @@ import { useDialogDragging } from "../shared/useDialogDragging";
 import { KeyRound, LockKeyhole } from "lucide-react";
 import { AuthenticatorPanel } from "../features/authenticator/AuthenticatorPanel";
 import { Format, requestPermissions, scan } from "@tauri-apps/plugin-barcode-scanner";
-import { AiSettings } from "../features/ai/AiSettings";
 import { AiAssistButton } from "../features/ai/AiAssistButton";
 import { panelAiFields } from "../features/ai/panelDraft";
 import { parseDnsPaste } from "../features/domains/parseDnsPaste";
@@ -60,7 +60,7 @@ import { MemberAvatar } from "../features/member/MemberDialog";
 import { memberClient, memberHasExperienceOfficerIdentity, type Member } from "../platform/clients/member";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
-type MobileTab = "accounts" | "servers" | "domains" | "assets" | "favorites" | "storage" | "databases" | "redis" | "certificates" | "ssh" | "panels" | "sync" | "settings" | "settingsMenu" | "aiSettings" | "networkSettings" | "operationLogs" | "apiLogs" | "about" | "flow" | "authenticator" | "personalProfile" | "member" | "more" | "home" | "monitorAlerts" | "softwareStore";
+type MobileTab = "accounts" | "servers" | "domains" | "assets" | "favorites" | "storage" | "databases" | "redis" | "certificates" | "ssh" | "panels" | "sync" | "settings" | "settingsMenu" | "networkSettings" | "operationLogs" | "apiLogs" | "about" | "flow" | "authenticator" | "personalProfile" | "member" | "more" | "home" | "monitorAlerts" | "softwareStore";
 
 function mobilePanelIp(panelUrl: string): string {
   try {
@@ -372,7 +372,7 @@ export function MobileApp() {
     if (startupAnimationEnabled === null) return;
     void preferencesClient.save("cloudhub-startup-animation", startupAnimationEnabled ? "1" : "0").catch(() => {});
   }, [startupAnimationEnabled]);
-  useEffect(() => { const open = () => setTab("aiSettings"); window.addEventListener("cloudhub-ai-settings", open); return () => window.removeEventListener("cloudhub-ai-settings", open); }, []);
+  useEffect(() => { const open = () => { settingsReturnToMenuRef.current = false; setStorePluginId("cloudhub.model-suppliers"); setTab("softwareStore"); }; window.addEventListener("cloudhub-ai-settings", open); return () => window.removeEventListener("cloudhub-ai-settings", open); }, []);
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncingAccountId, setSyncingAccountId] = useState<number | null>(null);
@@ -1389,7 +1389,6 @@ export function MobileApp() {
   const settingsPageOpen = settingsReturnToMenuRef.current && tab !== "more" && tab !== "settingsMenu";
   const settingsPageTitle: Partial<Record<MobileTab, string>> = {
     settings: "通用",
-    aiSettings: "模型供应商",
     networkSettings: "网络与代理",
     sync: "数据导入与迁移",
     authenticator: "身份验证器",
@@ -1417,7 +1416,6 @@ export function MobileApp() {
     if (tab === "databases" && selectedDatabase) return { label: "返回实例列表", onClick: () => { setSelectedDatabase(null); setDatabaseDetails([]); } };
     if (tab === "redis" && selectedRedis) return { label: "返回实例列表", onClick: () => { setSelectedRedis(null); setRedisAccounts([]); } };
     if (tab === "networkSettings" || tab === "sync") return { label: "返回系统设置", onClick: () => setTab("settings") };
-    if (tab === "aiSettings") return { label: "返回系统设置", onClick: () => setTab("settings") };
     // 云效流水线/HTTPS 证书/身份验证器从商店或首页进入时，返回来源页而不是固定回“我的”。
     if ((tab === "flow" || tab === "certificates" || tab === "authenticator") && sectionOriginRef.current) {
       const origin = sectionOriginRef.current;
@@ -1576,7 +1574,6 @@ export function MobileApp() {
     </section>
     <section className="mobile-settings-group" aria-label="数据与工具">
       <button type="button" onClick={() => openSettingsTab("sync")}><span>数据导入与迁移</span><ChevronRight size={18} aria-hidden="true" /></button>
-      <button type="button" onClick={() => openSettingsTab("aiSettings")}><span>模型供应商</span><ChevronRight size={18} aria-hidden="true" /></button>
     </section>
     <section className="mobile-settings-group" aria-label="关于与支持">
       <button type="button" onClick={() => openSettingsTab("about")}><span>更新与关于</span><ChevronRight size={18} aria-hidden="true" /></button>
@@ -1686,8 +1683,6 @@ export function MobileApp() {
         </> : tab === "sync" ? <>
           <div className="mobile-page-title"><div><p>系统设置</p><h1 id="sync-transfer-title">导入数据</h1></div></div>
           <SyncTransferPanel mode="mobile" mobilePage accounts={accounts} managedHosts={managedHosts} panels={panelConnections} initialPairingUrl={pendingTransferQr ?? undefined} onInitialPairingHandled={() => setPendingTransferQr(null)} onImported={() => { void refreshAccounts(); void refreshManagedHosts(); void refreshPanelConnections(); }} />
-        </> : tab === "aiSettings" ? <>
-          <AiSettings embedded />
         </> : tab === "networkSettings" ? <>
           <div className="mobile-page-title mobile-network-page-title"><div><p>系统设置</p><h1>网络设置</h1></div></div>
           <NetworkSettingsPage mobile />
@@ -1783,6 +1778,7 @@ export function MobileApp() {
 
   return (
     <main className={"mobile-shell" + (backAction && !isBottomNavigationTab && !productDialog ? " mobile-subpage" : "") + (tab === "personalProfile" ? " mobile-personal-profile-open" : "") + (settingsPageOpen ? " mobile-settings-page-active" : "") + (tab === "settingsMenu" ? ` mobile-settings-menu-open${settingsDrawerDirection === "back" ? " is-returning" : ""}` : "")}>
+      <ToastNotice message={notice} onDismiss={() => setNotice("")} />
       {tab === "home" && <header className="mobile-home-topbar" aria-label="首页快捷栏">
         <label className="mobile-home-top-search"><Search size={18} aria-hidden="true" /><input aria-label="搜索应用" value={homeSearch} onChange={event => setHomeSearch(event.currentTarget.value)} placeholder="搜索" /></label>
         <button type="button" className="mobile-home-top-action" aria-label={`监控预警，${mobileActiveAlertCount} 条未解除`} title="监控预警" onClick={() => setTab("monitorAlerts")}><BellRing size={20} aria-hidden="true" /><span className="mobile-home-alert-count">{mobileActiveAlertCount > 99 ? "99+" : mobileActiveAlertCount}</span></button>
@@ -1824,9 +1820,9 @@ export function MobileApp() {
 
       <section ref={mobileContentRef} className={(resourceConfig && !productDialog ? "mobile-content mobile-resource-page" : "mobile-content") + (settingsPageOpen ? " mobile-settings-page-content" : "") + (tab === "settingsMenu" ? ` mobile-settings-menu-page-content${settingsDrawerDirection === "back" ? " is-returning" : ""}` : "")}>
         <MobilePullRefresh containerRef={mobileContentRef} actionRef={pullRefreshActionRef} scopeKey={`${tab}:${selectedAccountId}:${selectedDomain?.asset_key ?? ""}:${selectedBucket?.asset_key ?? ""}:${objectPrefix}:${selectedDatabase?.asset_key ?? ""}:${selectedRedis?.asset_key ?? ""}`} disabled={!!productDialog || tab === "settingsMenu"} onError={setNotice}>
-        {notice && <p className="mobile-notice" role="status">{notice}</p>}
+
         {mobileUpdate.info?.available && tab !== "about" && tab !== "settingsMenu" && <button type="button" className="mobile-update-banner" onClick={() => setTab("about")}><ArrowDownToLine size={15} aria-hidden="true" />发现新版 v{mobileUpdate.info.version} · 查看更新</button>}
-        {initialPageLoading ? <MobileLoadingSkeleton variant={initialSkeletonVariant} label={tab === "home" ? "正在准备首页数据" : "正在加载页面内容"} /> : tab === "home" ? <MobileHomePage accounts={accounts} assets={mobileAssetRows} search={homeSearch} favoriteCount={mobileFavoriteKeys.length} applicationSettings={applicationSettings} onActiveAlertCount={setMobileActiveAlertCount} onNavigate={setTab} onOpenSoftware={openHomeApplication} refreshRef={monitorRefreshRef} /> : tab === "monitorAlerts" ? <MobileMonitorAlertsPage accounts={accounts} onActiveCount={setMobileActiveAlertCount} refreshRef={monitorRefreshRef} cachedAssets={mobileAssetRows} /> : tab === "softwareStore" ? <OfficialPluginsPage initialPluginId={storePluginId ?? undefined} forceInitialPageMode={!!storePluginId} applicationSettings={applicationSettings} accounts={accounts} localAssets={mobileAssetRows} onStatus={setNotice} onConfirm={message => confirm({ message })} refreshActionRef={pullRefreshActionRef} onOpenSection={openApplicationSection} onOpenPlugin={() => setNotice("")} onReturnCatalog={() => { setStorePluginId(null); setTab("softwareStore"); }} /> : productDialog || tab === "accounts" ? accountPage : resourcePage}
+        {initialPageLoading ? <MobileLoadingSkeleton variant={initialSkeletonVariant} label={tab === "home" ? "正在准备首页数据" : "正在加载页面内容"} /> : tab === "home" ? <MobileHomePage accounts={accounts} assets={mobileAssetRows} search={homeSearch} favoriteCount={mobileFavoriteKeys.length} applicationSettings={applicationSettings} onActiveAlertCount={setMobileActiveAlertCount} onNavigate={setTab} onOpenSoftware={openHomeApplication} refreshRef={monitorRefreshRef} /> : tab === "monitorAlerts" ? <MobileMonitorAlertsPage accounts={accounts} onActiveCount={setMobileActiveAlertCount} refreshRef={monitorRefreshRef} cachedAssets={mobileAssetRows} /> : tab === "softwareStore" ? <OfficialPluginsPage key={storePluginId ?? "catalog"} initialPluginId={storePluginId ?? undefined} forceInitialPageMode={!!storePluginId} applicationSettings={applicationSettings} accounts={accounts} localAssets={mobileAssetRows} onStatus={setNotice} onConfirm={message => confirm({ message })} refreshActionRef={pullRefreshActionRef} onOpenSection={openApplicationSection} onOpenPlugin={() => setNotice("")} onReturnCatalog={() => { setStorePluginId(null); setTab("softwareStore"); }} /> : productDialog || tab === "accounts" ? accountPage : resourcePage}
         </MobilePullRefresh>
       </section>
 
@@ -1834,7 +1830,7 @@ export function MobileApp() {
         <button type="button" aria-current={tab === "home" ? "page" : undefined} className={tab === "home" ? "active" : ""} onClick={() => { setNotice(""); setTab("home"); }}><House size={20} aria-hidden="true" /><span>首页</span></button>
         <button type="button" aria-current={tab === "monitorAlerts" ? "page" : undefined} className={tab === "monitorAlerts" ? "active" : ""} onClick={() => { setNotice(""); setTab("monitorAlerts"); }}><BellRing size={20} aria-hidden="true" /><span>监控预警</span></button>
         <button type="button" aria-current={tab === "softwareStore" ? "page" : undefined} className={tab === "softwareStore" ? "active" : ""} onClick={() => { setNotice(""); setStorePluginId(null); setTab("softwareStore"); }}><Store size={20} aria-hidden="true" /><span>软件商店</span></button>
-        <button type="button" aria-current={tab === "more" || tab === "member" || tab === "assets" || tab === "favorites" || tab === "authenticator" || tab === "flow" || tab === "storage" || tab === "databases" || tab === "redis" || tab === "certificates" || tab === "ssh" || tab === "panels" || tab === "sync" || tab === "settings" || tab === "aiSettings" || tab === "networkSettings" || tab === "operationLogs" || tab === "apiLogs" || tab === "about" || tab === "accounts" || tab === "servers" || tab === "domains" ? "page" : undefined} className={tab === "more" || tab === "member" || tab === "assets" || tab === "favorites" || tab === "authenticator" || tab === "flow" || tab === "storage" || tab === "databases" || tab === "redis" || tab === "certificates" || tab === "ssh" || tab === "panels" || tab === "sync" || tab === "settings" || tab === "aiSettings" || tab === "networkSettings" || tab === "operationLogs" || tab === "apiLogs" || tab === "about" || tab === "accounts" || tab === "servers" || tab === "domains" ? "active" : ""} onClick={() => { setNotice(""); setTab("more"); }}><UserRound size={20} aria-hidden="true" /><span>我的</span></button>
+        <button type="button" aria-current={tab === "more" || tab === "member" || tab === "assets" || tab === "favorites" || tab === "authenticator" || tab === "flow" || tab === "storage" || tab === "databases" || tab === "redis" || tab === "certificates" || tab === "ssh" || tab === "panels" || tab === "sync" || tab === "settings" || tab === "networkSettings" || tab === "operationLogs" || tab === "apiLogs" || tab === "about" || tab === "accounts" || tab === "servers" || tab === "domains" ? "page" : undefined} className={tab === "more" || tab === "member" || tab === "assets" || tab === "favorites" || tab === "authenticator" || tab === "flow" || tab === "storage" || tab === "databases" || tab === "redis" || tab === "certificates" || tab === "ssh" || tab === "panels" || tab === "sync" || tab === "settings" || tab === "networkSettings" || tab === "operationLogs" || tab === "apiLogs" || tab === "about" || tab === "accounts" || tab === "servers" || tab === "domains" ? "active" : ""} onClick={() => { setNotice(""); setTab("more"); }}><UserRound size={20} aria-hidden="true" /><span>我的</span></button>
       </nav>
 
       {backAction && !isBottomNavigationTab && !settingsPageOpen && tab !== "member" && tab !== "personalProfile" && <button type="button" className="mobile-back-fab" aria-label={`${backAction.label}，可拖动调整位置`} title={`${backAction.label}（拖动调整位置，方向键微调）`} style={backFabPos ? { left: "auto", top: "auto", right: backFabPos.right, bottom: backFabPos.bottom } : undefined} onPointerDown={startBackFabDrag} onPointerMove={dragBackFab} onPointerUp={endBackFabDrag} onPointerCancel={(event) => endBackFabDrag(event, true)} onLostPointerCapture={(event) => endBackFabDrag(event, true)} onKeyDown={moveBackFabByKeyboard} onContextMenu={(event) => { if (backFabDragRef.current?.dragging) event.preventDefault(); }} onClick={clickBackFab}><ArrowLeft size={20} /></button>}
@@ -1843,7 +1839,7 @@ export function MobileApp() {
         <button type="button" className="secondary" onClick={closeAccountProduct}>关闭</button>
         {productDialog.type !== "esa" && <button type="button" className="primary" disabled={loading || syncing} onClick={() => void pullRefreshActionRef.current?.()}><RefreshCw size={16} />刷新</button>}
       </>}>
-        {notice && <p className="mobile-notice" role="status">{notice}</p>}
+
         {productDialog.type === "esa" ? <MobileEsaProducts account={productDialog.account} accounts={accounts} onConfirm={message => confirm({ message })} /> : resourcePage}
       </SharedDialog>}
       {showCertificateRequest && <MobileCertificateRequest accounts={accounts} onClose={() => setShowCertificateRequest(false)} onIssued={() => void refreshCertificates()} />}

@@ -10,8 +10,9 @@ import { reviewServerAiCandidates } from "../../src/features/servers/serverAiCan
 import { ossAiSummary, rdsAiSummary, redisAiSummary } from "../../src/features/resources/aiResourceSummary";
 
 async function openAiSettings(page: Page) {
-  await page.getByRole("button", { name: /^(系统设置|设置)$/ }).click();
-  await page.getByRole("tab", { name: "模型供应商", exact: true }).click();
+  await page.getByRole("button", { name: "软件商店", exact: true }).first().click();
+  await page.getByRole("searchbox").fill("模型供应商");
+  await page.locator("[data-plugin-entry=\"cloudhub.model-suppliers\"]").click();
 }
 
 test("FRP drafts reject sensitive fields and invalid mappings and clear stale protocol settings",()=>{
@@ -468,7 +469,7 @@ test("embedded AI settings stay open and adding a service displays the form", as
   const section = page.locator(".ai-settings");
   await expect(page.locator("#ai-settings-content")).toBeVisible();
   await expect(section.getByRole("button", { name: /^(展开|收起)$/ })).toHaveCount(0);
-  await expect(page.getByText("1 项", { exact: true })).toBeVisible();
+  await expect(section.locator(".ai-supplier-total")).toHaveText("共 1 项");
   await page.getByRole("button", { name: "添加模型供应商", exact: true }).click();
   await expect(page.locator("#ai-settings-content")).toBeVisible();
   await expect(page.locator(".ai-config-form")).toBeVisible();
@@ -485,12 +486,12 @@ test("embedded AI settings show service statistics without revealing endpoints",
   await page.goto("/");await openAiSettings(page);
   const summary=page.getByRole("group",{name:"模型供应商概览",exact:true});
   await expect(summary).toContainText("启用 1 / 2");await expect(summary).toContainText("图像测试通过 1");await expect(summary).toContainText("默认：云枢");
-  await expect(summary).toContainText("OpenAI · Responses");await expect(summary).toContainText("Claude · Messages · 已停用");await expect(summary).not.toContainText("private-endpoint");
+  await expect(summary).not.toContainText("private-endpoint");
   await expect(page.locator("#ai-settings-content")).toBeVisible();
   for(const width of [375,768,1024,1440]){
     await page.setViewportSize({width,height:900});
     await page.reload();await openAiSettings(page);
-    if(width<=600)await expect(page.locator(".ai-config-summary")).toBeHidden();else expect(await summary.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);
+    expect(await summary.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);
     if(width===1440)await page.screenshot({path:"test-results/ai-settings-summary.png"});
   }
 });

@@ -1,3 +1,4 @@
+import { ToastNotice } from "../../shared/ToastNotice";
 import { useEffect, useRef, useState } from "react";
 import { Copy, Download, Inbox, Mail, Paperclip, Pencil, Plus, RefreshCw, Reply, Search, Send, Settings, Trash2, Upload } from "lucide-react";
 import { runningInTauri, runningOnPhone } from "../../platform/api";
@@ -166,7 +167,7 @@ export function MailPlugin() {
  return <div className="mail-app" aria-busy={!!busy}>
   <header className="mail-toolbar"><div className="mail-title"><Mail size={19} /><div><h2>邮件管理</h2><span>多邮箱 · 本地加密凭据</span></div></div><label className="mail-toolbar-search"><Search size={15} aria-hidden="true" /><input type="search" aria-label="搜索已加载邮件" disabled={!account || !!busy} value={keyword} placeholder="搜索邮件主题 / 发件人（最近 50 封）" onChange={e => setKeyword(e.target.value)} /></label><div className="mail-toolbar-actions"><button type="button" className="secondary" disabled={!!busy || !runningInTauri} onClick={() => setTransfer(true)}><Upload size={14} />导入 / 导出</button><button type="button" className="secondary" disabled={!!busy || !runningInTauri} onClick={() => setEditor({ ...emptyAccount })}><Plus size={14} />添加邮箱</button><button type="button" className="primary" disabled={!account || !!busy} onClick={() => setDraft(emptyDraft())}><Pencil size={14} />写邮件</button></div></header>
   {!runningInTauri && <p className="mail-banner" role="status">邮件收发仅支持 CloudHub 桌面客户端。浏览器预览不连接邮箱，也不保存授权码。</p>}
-  {error && <p className="mail-error" role="alert">{error}</p>}{(busy || notice) && <p className="mail-status" role="status">{busy || notice}</p>}
+  {error && <ToastNotice message={error} tone="error" />}{(busy || notice) && <p className="mail-status" role="status">{busy || notice}</p>}
   <div className="mail-workspace">
    <aside className="mail-sidebar">
     <div className="mail-section-heading"><span>我的邮箱</span><small>{accounts.length}</small></div>

@@ -1,8 +1,11 @@
+import { ToastNotice } from "../../shared/ToastNotice";
+import { SortSelectionControls } from "../../shared/SortSelectionControls";
+import { ListSortHandle } from "../../shared/ListSortHandle";
+import { useSortableDrag } from "../../shared/useSortableDrag";
 import { useDialogDocument } from "../../shared/DialogDocument";
 import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { SharedDialog } from "../../shared/SharedDialog";
-import { ArrowLeft, Cpu, Globe, MessageCircle, NotebookPen, RefreshCw, Search, Package, SquareTerminal, X } from "lucide-react";
+import { ArrowLeft, Cpu, Globe, MessageCircle, NotebookPen, RefreshCw, Search, Package, SquareTerminal } from "lucide-react";
 import { runningInTauri, runningOnPhone } from "../../platform/api";
 import { pluginsClient, type WechatPluginStatus } from "../../platform/clients/plugins";
 import { officialPlugins } from "./registry";
@@ -54,6 +57,7 @@ const applicationDetailNotes: Record<string, string> = {
 };
 
 function applicationPlatform(app: ApplicationDefinition) {
+  if (app.platform === "all") return "Windows / macOS / Linux / Android / iOS";
   if (app.id === "cloudhub.hardware-info") return "Windows / macOS / Linux";
   if (app.id === "cloudhub.wsl-dashboard") return "Windows / WSL";
   if (app.id === "cloudhub.fingerprint-browser") return "Windows x64";
@@ -122,6 +126,14 @@ function OfficialPluginsStore({ initialPluginId, forceInitialPageMode, applicati
   const [storePage, setStorePage] = useState(1);
   const [storePageSize, setStorePageSize] = useState(10);
   const pagedApplications = applications.slice((storePage - 1) * storePageSize, storePage * storePageSize);
+  const [sorting, setSorting] = useState(false);
+  const sortDisabled = !applicationSettings.ready || applicationSettings.saving;
+  function moveApplication(source: string, target: string) {
+    if (!sorting || sortDisabled) return;
+    const position = applicationPositions.get(target);
+    if (position !== undefined) void applicationSettings.updateOrder(source, position);
+  }
+  const drag = useSortableDrag({ selector: "[data-store-sort-id]", attribute: "data-store-sort-id", enabled: sorting && !sortDisabled, onMove: moveApplication });
   useEffect(() => { setStorePage(1); }, [keyword, category, source]);
 
   /** Capture the mode when opening so a mounted plugin never switches containers mid-edit. */
@@ -248,17 +260,18 @@ function OfficialPluginsStore({ initialPluginId, forceInitialPageMode, applicati
       <div className="store-search-row">
         <label htmlFor="store-search">应用搜索</label><div className="store-search-input"><Search size={15} aria-hidden="true" /><input id="store-search" type="search" value={keyword} onChange={event => setKeyword(event.target.value)} placeholder="搜索应用名称、开发商或说明" /></div>
         <div className="store-categories" role="group" aria-label="应用分类">{["全部", "已内置", "已启用", "免费应用", "桌面工具"].map(item => <button type="button" key={item} aria-pressed={category === item} className={category === item ? "is-active" : ""} onClick={() => setCategory(item)}>{item}</button>)}</div>
+        <SortSelectionControls label="应用" keys={pagedApplications.map(app => app.id)} selected={new Set<string>()} sorting={sorting} onToggleAll={() => {}} onSortingChange={setSorting} showSelectAll={false} disabled={sortDisabled} />
         <button type="button" className="secondary store-refresh" disabled={!runningInTauri || runningOnPhone || busy} onClick={() => void operate(() => refresh())}><RefreshCw size={14} aria-hidden="true" />{busy ? "正在刷新…" : "刷新应用状态"}</button>
       </div>
       <div className="store-filter-row"><span>最近使用</span>{recent && <button type="button" className="store-recent" onClick={() => { setSource("官方应用"); setCategory("全部"); setKeyword(""); openPlugin(plugin.id); }}><MessageCircle size={14} aria-hidden="true" />微信多开</button>}{hardwareRecent && <button type="button" className="store-recent" onClick={() => { setSource("官方应用"); setCategory("全部"); setKeyword(""); openPlugin(hardwarePlugin.id); }}><Cpu size={14} aria-hidden="true" />电脑信息</button>}{wslRecent && <button type="button" className="store-recent" onClick={() => { setSource("官方应用"); setCategory("全部"); setKeyword(""); openPlugin(wslPlugin.id); }}><SquareTerminal size={14} aria-hidden="true" />WSL 管理</button>}{!recent && !hardwareRecent && !wslRecent && <small>暂无使用记录</small>}</div>
       {!runningInTauri && <p className="store-platform-note" role="status">浏览器预览不支持启动本地软件，请在 Windows 桌面客户端使用。</p>}
       {runningOnPhone && <p className="store-platform-note" role="status">桌面专属工具（微信多开、电脑信息、WSL 管理等）需在桌面客户端使用，手机端暂不支持。</p>}
       {runningInTauri && status && !status.supported && <p className="store-platform-note" role="status">微信多开插件仅支持 Windows 桌面端。</p>}
-      <table className="store-table"><caption className="store-table-caption">应用列表</caption><thead><tr><th scope="col">序号</th><th scope="col">软件名称</th><th scope="col">开发商</th><th scope="col">说明</th><th scope="col">价格</th><th scope="col">平台</th><th scope="col">操作</th></tr></thead><tbody>
+        <table className="store-table"><caption className="store-table-caption">应用列表</caption><thead><tr><th scope="col">{sorting ? "排序" : "序号"}</th><th scope="col">软件名称</th><th scope="col">开发商</th><th scope="col">说明</th><th scope="col">价格</th><th scope="col">平台</th><th scope="col">操作</th></tr></thead><tbody>
         {pagedApplications.map(app => {
         const Icon = app.icon;
-        const serialCell = <td data-label="序号" className="store-serial-number">{applicationPositions.get(app.id)}</td>;
-        if (app.id === plugin.id) return <tr key={app.id}>
+        const serialCell = <td data-label="序号" className="store-serial-number">{sorting ? <ListSortHandle id={app.id} name={app.name} ids={pagedApplications.map(item => item.id)} disabled={sortDisabled} onStart={drag.startDrag} onMove={moveApplication} /> : applicationPositions.get(app.id)}</td>;
+        if (app.id === plugin.id) return <tr key={app.id} data-store-sort-id={app.id}>
           {serialCell}
           <td data-label="软件名称"><div className="store-app-name"><MessageCircle size={20} aria-hidden="true" /><div><strong>{plugin.name}</strong><small>v{plugin.version} · 实验性</small></div></div></td>
           <td data-label="开发商"><span className="store-publisher">官方</span><small>{plugin.publisher}</small></td>
@@ -266,7 +279,7 @@ function OfficialPluginsStore({ initialPluginId, forceInitialPageMode, applicati
           <td data-label="价格">免费</td><td data-label="平台">Windows</td>
           <td data-label="操作"><div className="store-row-actions"><ApplicationDetailsButton app={app} onOpen={setDetailsFor} /><PresentationButton pluginId={plugin.id} onOpen={setPresentationFor} /><button type="button" className="table-link" data-plugin-entry={plugin.id} aria-expanded={activePlugin?.id === plugin.id} disabled={runningOnPhone} onClick={() => openPlugin(plugin.id)}>管理</button></div></td>
         </tr>;
-        if (app.id === hardwarePlugin.id) return <tr key={app.id}>
+        if (app.id === hardwarePlugin.id) return <tr key={app.id} data-store-sort-id={app.id}>
           {serialCell}
           <td data-label="软件名称"><div className="store-app-name"><Cpu size={20} aria-hidden="true" /><div><strong>{hardwarePlugin.name}</strong><small>v{hardwarePlugin.version} · 官方</small></div></div></td>
           <td data-label="开发商"><span className="store-publisher">官方</span><small>{hardwarePlugin.publisher}</small></td>
@@ -274,7 +287,7 @@ function OfficialPluginsStore({ initialPluginId, forceInitialPageMode, applicati
           <td data-label="价格">免费</td><td data-label="平台">Windows / macOS / Linux</td>
           <td data-label="操作"><div className="store-row-actions"><ApplicationDetailsButton app={app} onOpen={setDetailsFor} /><PresentationButton pluginId={hardwarePlugin.id} onOpen={setPresentationFor} /><button type="button" className="table-link" data-plugin-entry={hardwarePlugin.id} disabled={!runningInTauri || runningOnPhone} onClick={() => openPlugin(hardwarePlugin.id)}>管理</button></div></td>
         </tr>;
-        if (app.id === wslPlugin.id) return <tr key={app.id}>
+        if (app.id === wslPlugin.id) return <tr key={app.id} data-store-sort-id={app.id}>
           {serialCell}
           <td data-label="软件名称"><div className="store-app-name"><SquareTerminal size={20} aria-hidden="true" /><div><strong>{wslPlugin.name}</strong><small>v{wslPlugin.version} · 官方</small></div></div></td>
           <td data-label="开发商"><span className="store-publisher">官方</span><small>{wslPlugin.publisher}</small></td>
@@ -282,7 +295,7 @@ function OfficialPluginsStore({ initialPluginId, forceInitialPageMode, applicati
           <td data-label="价格">免费</td><td data-label="平台">Windows / WSL</td>
           <td data-label="操作"><div className="store-row-actions"><ApplicationDetailsButton app={app} onOpen={setDetailsFor} /><PresentationButton pluginId={wslPlugin.id} onOpen={setPresentationFor} /><button type="button" className="table-link" data-plugin-entry={wslPlugin.id} disabled={runningOnPhone} onClick={() => openPlugin(wslPlugin.id)}>管理</button></div></td>
         </tr>;
-        if (app.id === browserPlugin.id) return <tr key={app.id}>
+        if (app.id === browserPlugin.id) return <tr key={app.id} data-store-sort-id={app.id}>
           {serialCell}
           <td data-label="软件名称"><div className="store-app-name"><Globe size={20} aria-hidden="true" /><div><strong>{browserPlugin.name}</strong><small>v{browserPlugin.version} · 官方</small></div></div></td>
           <td data-label="开发商"><span className="store-publisher">官方</span><small>{browserPlugin.publisher}</small></td>
@@ -290,7 +303,7 @@ function OfficialPluginsStore({ initialPluginId, forceInitialPageMode, applicati
           <td data-label="价格">免费</td><td data-label="平台">Windows x64</td>
           <td data-label="操作"><div className="store-row-actions"><ApplicationDetailsButton app={app} onOpen={setDetailsFor} /><PresentationButton pluginId={browserPlugin.id} onOpen={setPresentationFor} /><button type="button" className="table-link" data-plugin-entry={browserPlugin.id} disabled={runningOnPhone} onClick={() => openPlugin(browserPlugin.id)}>管理</button></div></td>
         </tr>;
-        if (app.id === claudePlugin.id) return <tr key={app.id}>
+        if (app.id === claudePlugin.id) return <tr key={app.id} data-store-sort-id={app.id}>
           {serialCell}
           <td data-label="软件名称"><div className="store-app-name"><Icon size={20} aria-hidden="true" /><div><strong>{claudePlugin.name}</strong><small>v{claudePlugin.version} · 官方</small></div></div></td>
           <td data-label="开发商"><span className="store-publisher">官方</span><small>{claudePlugin.publisher}</small></td>
@@ -298,7 +311,7 @@ function OfficialPluginsStore({ initialPluginId, forceInitialPageMode, applicati
           <td data-label="价格">免费</td><td data-label="平台">Windows / macOS / Linux</td>
           <td data-label="操作"><div className="store-row-actions"><ApplicationDetailsButton app={app} onOpen={setDetailsFor} /><PresentationButton pluginId={claudePlugin.id} onOpen={setPresentationFor} /><button type="button" className="table-link" data-plugin-entry={claudePlugin.id} onClick={() => openPlugin(claudePlugin.id)}>管理</button></div></td>
         </tr>;
-        if (app.id === notesPlugin.id) return <tr key={app.id}>
+        if (app.id === notesPlugin.id) return <tr key={app.id} data-store-sort-id={app.id}>
           {serialCell}
           <td data-label="软件名称"><div className="store-app-name"><NotebookPen size={20} aria-hidden="true" /><div><strong>{notesPlugin.name}</strong><small>v{notesPlugin.version} · 官方</small></div></div></td>
           <td data-label="开发商"><span className="store-publisher">官方</span><small>{notesPlugin.publisher}</small></td>
@@ -306,12 +319,12 @@ function OfficialPluginsStore({ initialPluginId, forceInitialPageMode, applicati
           <td data-label="价格">免费</td><td data-label="平台">Windows / macOS / Linux</td>
           <td data-label="操作"><div className="store-row-actions"><ApplicationDetailsButton app={app} onOpen={setDetailsFor} /><PresentationButton pluginId={notesPlugin.id} onOpen={setPresentationFor} /><button type="button" className="table-link" data-plugin-entry={notesPlugin.id} onClick={() => openPlugin(notesPlugin.id)}>管理</button></div></td>
         </tr>;
-        return <tr key={app.id}>
+        return <tr key={app.id} data-store-sort-id={app.id}>
           {serialCell}
           <td data-label="软件名称"><div className="store-app-name"><Icon size={20} aria-hidden="true" /><div><strong>{app.name}</strong><small>v{app.version} · 官方</small></div></div></td>
           <td data-label="开发商"><span className="store-publisher">官方</span><small>{app.publisher}</small></td>
           <td data-label="说明" className="store-description">{app.description}</td>
-          <td data-label="价格">免费</td><td data-label="平台">{app.platform === "windows" ? "Windows" : app.id === "cloudhub.lan-devices" ? "Windows / macOS" : "Windows / macOS / Linux"}</td>
+          <td data-label="价格">免费</td><td data-label="平台">{app.platform === "all" ? "桌面 / Android / iOS" : app.platform === "windows" ? "Windows" : app.id === "cloudhub.lan-devices" ? "Windows / macOS" : "Windows / macOS / Linux"}</td>
           <td data-label="操作"><div className="store-row-actions"><ApplicationDetailsButton app={app} onOpen={setDetailsFor} /><PresentationButton pluginId={app.id} onOpen={setPresentationFor} /><button type="button" className="table-link" data-plugin-entry={app.id} disabled={runningOnPhone && desktopOnlyPluginIds.has(app.id)} onClick={() => openPlugin(app.id)}>管理</button></div></td>
         </tr>;
         })}
@@ -322,7 +335,7 @@ function OfficialPluginsStore({ initialPluginId, forceInitialPageMode, applicati
     {activePlugin && activeDefinition && <SharedDialog key={activePlugin.id} sizeStorageKey={`plugin:${activePlugin.id}`} title={activePlugin.id === plugin.id ? "微信多开设置" : activeDefinition.name} size={activePlugin.presentation.size} className={`plugin-application-dialog plugin-modal-${activePlugin.presentation.size}`} onClose={closePlugin} footer={<button type="button" className="secondary" onClick={closePlugin}><ArrowLeft size={15} aria-hidden="true" />返回软件商店</button>}>{application}</SharedDialog>}
     {presentationFor && <PluginPresentationDialog targetId={presentationFor} applicationSettings={applicationSettings} onClose={() => setPresentationFor(null)} />}
     {detailsFor && applicationCatalog.find(item => item.id === detailsFor) && <ApplicationDetailsDialog app={applicationCatalog.find(item => item.id === detailsFor)!} order={applicationPositions.get(detailsFor)} onClose={() => setDetailsFor(null)} onConfigure={() => { const id = detailsFor; setDetailsFor(null); setPresentationFor(id); }} />}
-    {(message || error || applicationSettings.error) && createPortal(<div className="ide-theme toast-notice store-notification store-settings-notification" role={error || applicationSettings.error ? "alert" : "status"} aria-live={error || applicationSettings.error ? "assertive" : "polite"} aria-atomic="true"><span>{[message, error, applicationSettings.error].filter(Boolean).join(" ")}{applicationSettings.error && !applicationSettings.ready && <> <button type="button" className="table-link store-notification-retry" onClick={applicationSettings.retry}>重试读取</button></>}</span><button type="button" aria-label="关闭操作提示" title="关闭提示" onClick={() => { setMessage(""); setError(""); applicationSettings.dismissError(); }}><X size={14} aria-hidden="true" /></button></div>, document.body)}
+    <ToastNotice message={[message, error, applicationSettings.error].filter(Boolean).join(" ")} tone={error || applicationSettings.error ? "error" : undefined} onDismiss={() => { setMessage(""); setError(""); applicationSettings.dismissError(); }}>{applicationSettings.error && !applicationSettings.ready && <button type="button" className="table-link" onClick={applicationSettings.retry}>重试读取</button>}</ToastNotice>
   </section>;
 }
 

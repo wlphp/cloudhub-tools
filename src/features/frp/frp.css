@@ -252,6 +252,7 @@
 .frp-page .frp-chip strong{font-weight:500}
 .frp-page .frp-workspace-actions{flex-basis:auto;gap:6px;margin-left:auto}
 .frp-page .frp-workspace-actions button{padding:6px 9px;font-size:11px}
+.frp-page .frp-client-required{flex-basis:100%;margin:0;color:var(--frp-muted);font-size:12px;line-height:1.6}
 .frp-page .frp-tabs{gap:24px;padding:0 16px;background:var(--frp-panel)}
 .frp-page .frp-tabs button{margin:0;min-height:36px;padding:8px 0;font-size:12px}
 .frp-page .frp-tabs button.active{color:var(--frp-accent);font-weight:600}

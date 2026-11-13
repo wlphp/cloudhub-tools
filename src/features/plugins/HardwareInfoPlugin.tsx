@@ -1,3 +1,4 @@
+import { ToastNotice } from "../../shared/ToastNotice";
 import { useDialogDocument } from "../../shared/DialogDocument";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { createPortal } from "react-dom";
@@ -320,7 +321,7 @@ export function HardwareInfoPlugin({ open, onOpened }: Props) {
         {!headExtraTarget && <button type="button" className="secondary hardware-info-refresh" onClick={() => void refresh()} disabled={busy} aria-label="刷新电脑信息"><RefreshCw size={15} aria-hidden="true" />刷新</button>}
         <p className="hardware-info-cache-note" role="note">电脑信息会缓存在本设备本地；打开面板先显示缓存，并自动更新外接显示器、当前 Wi-Fi 和局域网 IP。点击上方“刷新”会重新采集全部信息并更新缓存。</p>
         {failure && <p className="hardware-info-error" role="alert">{failure}</p>}
-        {message && <p className="hardware-info-message" role="status">{message}</p>}
+        {message && <ToastNotice message={message} />}
         {busy && !info ? <p role="status">正在读取本机电脑信息…</p> : info && <>
           {(() => {
             const hardwareSections = info.sections.filter(section => ["处理器与主板", "内存与显卡", "显示与存储"].includes(section.title));

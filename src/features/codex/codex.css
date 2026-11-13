@@ -909,3 +909,68 @@ body.theme-light .codex-gateway .codex-auto-start-toggle input:checked { backgro
 .plugin-page-body > .codex-page{padding:0}
 .plugin-page-body > .codex-page > .codex-heading h1,
 .plugin-page-body > .codex-page > .codex-heading .codex-eyebrow{display:none}
+
+/* 管理页顶部使用紧凑工具栏，卡片和弹层保留各自尺寸。 */
+.codex-overview-reference { padding: 12px 16px 24px; }
+.codex-overview-reference > .codex-heading { margin-bottom: 10px; }
+.codex-overview-reference > .codex-heading > div { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 14px; min-width: 0; }
+.codex-overview-reference > .codex-heading .codex-eyebrow { display: none; }
+.codex-overview-reference > .codex-heading h1 { margin: 0; font-size: 18px; line-height: 28px; gap: 6px; }
+.codex-overview-reference > .codex-heading h1 svg { width: 20px; height: 20px; }
+.codex-overview-reference > .codex-heading p { font-size: 12px; line-height: 1.5; }
+.codex-overview-reference > .codex-config-bar { gap: 6px 10px; padding: 6px 8px; margin-bottom: 8px; }
+.codex-overview-reference .codex-config-source { flex-basis: 300px; gap: 6px; }
+.codex-overview-reference .codex-config-actions { gap: 4px; }
+.codex-overview-reference > .codex-tabs { justify-content: flex-start; flex-wrap: wrap; gap: 0 6px; padding: 0; margin-bottom: 12px; border: 0; border-bottom: 1px solid var(--jb-border); border-radius: 0; background: transparent; }
+.codex-overview-reference > .codex-tabs > button { position: relative; flex: 0 0 auto; min-height: 34px; padding: 6px 14px 8px; border: 0; border-radius: 4px 4px 0 0; background: transparent; font-size: 12px; gap: 6px; }
+.codex-overview-reference > .codex-tabs > button:hover { background: var(--jb-surface-2); color: var(--jb-text); }
+.codex-overview-reference > .codex-tabs > button[aria-selected=true] { background: transparent; color: var(--jb-accent); font-weight: 600; }
+.codex-overview-reference > .codex-tabs > button[aria-selected=true]::after { content: ""; position: absolute; left: 12px; right: 12px; bottom: -1px; height: 2px; border-radius: 2px; background: var(--jb-accent); }
+.codex-overview-reference > .codex-tabs > button:focus-visible { outline-offset: -3px; }
+.codex-overview-reference .codex-config-bar button,
+.codex-overview-reference .codex-toolbar button { box-sizing: border-box; min-height: 28px; height: 28px; margin: 0; padding: 3px 8px; gap: 4px; font-size: 12px; white-space: nowrap; }
+.codex-overview-reference .codex-toolbar { gap: 8px; margin-bottom: 10px; }
+.codex-overview-reference .codex-overview-toolrow { gap: 6px 10px; }
+.codex-overview-reference .codex-toolbar-filters { gap: 6px; flex-basis: 620px; }
+.codex-overview-reference .codex-toolbar-filters > label { min-height: 28px; }
+.codex-overview-reference .codex-toolbar .codex-plan select { box-sizing: border-box; height: 28px; min-height: 28px; margin: 0; padding: 0 6px; font-size: 12px; }
+.codex-overview-reference .codex-toolbar .codex-search { box-sizing: border-box; flex: 0 1 220px; min-width: 150px; height: 28px; min-height: 28px; margin: 0; padding: 0 7px; gap: 6px; border: 1px solid var(--jb-border); border-radius: 5px; background: var(--jb-input); }
+.codex-overview-reference .codex-toolbar .codex-search input { flex: 1; width: 0; min-width: 0; height: 100%; margin: 0; padding: 0; border: 0 !important; border-radius: 0 !important; background: transparent !important; box-shadow: none !important; outline: none; font-size: 12px; }
+.codex-overview-reference .codex-search:focus-within { border-color: var(--jb-accent); outline: 2px solid var(--jb-accent); outline-offset: 1px; }
+.codex-overview-reference .codex-toolbar .codex-overview-toolrow .codex-actions > button { width: 28px; height: 28px; min-height: 28px; padding: 5px; }
+.codex-overview-reference .codex-toolbar-actions { gap: 6px; margin-top: 0; }
+.codex-overview-reference .codex-toolbar-actions > .codex-select,
+.codex-overview-reference .codex-toolbar-actions > .codex-hint-inline { min-height: 28px; }
+.codex-overview-reference .codex-toolbar-actions .codex-group-tabs { gap: 4px; margin: 0; }
+.codex-overview-reference .codex-toolbar-actions .codex-hint-inline { display: flex; margin-right: auto; font-size: 11px; }
+/* 账号快捷操作：浅底细边，颜色同时表达操作类别与已配置状态。 */
+.codex-page .codex-reference-grid .codex-card .codex-account-action-row > button {
+  --codex-chip-ink: var(--jb-muted);
+  color: var(--codex-chip-ink);
+  border-color: color-mix(in srgb,var(--codex-chip-ink) 22%,var(--jb-border));
+  background: color-mix(in srgb,var(--codex-chip-ink) 5%,var(--jb-surface));
+  transition: background-color 120ms ease,border-color 120ms ease;
+}
+.codex-page .codex-reference-grid .codex-card .codex-account-action-row > :is(.codex-reset-chip[data-available=true],.codex-pool-link[aria-pressed=true]) { --codex-chip-ink: color-mix(in srgb,var(--jb-success) 78%,var(--jb-text)); border-color: color-mix(in srgb,var(--codex-chip-ink) 38%,var(--jb-border)); background: color-mix(in srgb,var(--codex-chip-ink) 9%,var(--jb-surface)); }
+.codex-page .codex-reference-grid .codex-card .codex-account-action-row > button:hover:not(:disabled) { border-color: color-mix(in srgb,var(--codex-chip-ink) 60%,var(--jb-border)); background: color-mix(in srgb,var(--codex-chip-ink) 11%,var(--jb-surface)); }
+.codex-page .codex-reference-grid .codex-card .codex-account-action-row > button:disabled { opacity: .5; }
+.codex-page .codex-reference-grid .codex-card .codex-account-action-row > .codex-pool-link[aria-pressed=false] { --codex-chip-ink: var(--jb-accent); border-color: color-mix(in srgb,var(--jb-accent) 28%,var(--jb-border)); background: color-mix(in srgb,var(--jb-accent) 5%,var(--jb-surface)); }
+.codex-page .codex-reference-grid .codex-card .codex-account-action-row > .codex-proxy-chip[data-configured=true] { --codex-chip-fill: color-mix(in srgb,var(--jb-accent) 80%,#000); color: #fff; border-color: var(--codex-chip-fill); background: var(--codex-chip-fill); }
+.codex-page .codex-reference-grid .codex-card .codex-account-action-row > .codex-proxy-chip[data-configured=true]:hover:not(:disabled) { --codex-chip-fill: color-mix(in srgb,var(--jb-accent) 70%,#000); }
+.codex-page .codex-error-badge { color: var(--jb-danger,var(--jb-red)); border-color: color-mix(in srgb,var(--jb-danger,var(--jb-red)) 38%,var(--jb-border)); background: color-mix(in srgb,var(--jb-danger,var(--jb-red)) 8%,var(--jb-surface)); }
+.codex-page .codex-refresh-error-bar { color: var(--jb-danger,var(--jb-red)); border-color: color-mix(in srgb,var(--jb-danger,var(--jb-red)) 38%,var(--jb-border)); background: color-mix(in srgb,var(--jb-danger,var(--jb-red)) 6%,var(--jb-surface)); }
+.codex-page .codex-refresh-failure .codex-card-error,.codex-page .codex-account-status[data-status=error] { color: var(--jb-danger,var(--jb-red)); }
+@media (max-width: 768px) {
+  .codex-overview-reference { padding: 10px 12px 20px; }
+  .codex-overview-reference .codex-config-source { flex-basis: 100%; }
+  .codex-overview-reference .codex-toolbar .codex-search { flex-basis: 100%; }
+  .codex-overview-reference .codex-toolbar-filters { flex-basis: 100%; }
+  .codex-overview-reference > .codex-tabs { gap: 0; }
+  .codex-overview-reference > .codex-tabs > button { padding-inline: 8px; }
+  .codex-overview-reference .codex-config-bar button,
+  .codex-overview-reference .codex-toolbar button,
+  .codex-overview-reference > .codex-tabs > button { height: auto; min-height: 36px; }
+  .codex-overview-reference .codex-toolbar .codex-plan select,
+  .codex-overview-reference .codex-toolbar .codex-search { height: 36px; min-height: 36px; }
+  .codex-overview-reference .codex-toolbar .codex-overview-toolrow .codex-actions > button { width: 36px; height: 36px; min-height: 36px; }
+}

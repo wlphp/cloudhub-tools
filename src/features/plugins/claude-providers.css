@@ -510,3 +510,32 @@ body.theme-light .ide-theme .claude-icon-button.is-danger:not(:disabled):hover {
 .claude-providers .claude-provider-drag-handle { grid-column: 1; grid-row: var(--provider-content-row); display: grid; place-items: center; align-self: start; width: 16px; min-width: 16px; height: 24px; min-height: 24px; margin: 0; padding: 0; border: 0; border-radius: 3px; background: transparent; color: var(--jb-muted); cursor: grab; touch-action: none; user-select: none; }
 .claude-providers .claude-provider-drag-handle:hover { color: var(--jb-accent-strong); background: var(--jb-surface-2); }
 .claude-providers .claude-provider-drag-handle:focus-visible { outline: 2px solid var(--jb-accent); outline-offset: 2px; }
+
+.claude-management-workbench .claude-list-toolbar > .claude-list-selection { flex: 1 1 100%; order: 3; }
+/* 桌面管理页压缩顶部操作区，弹层表单和手机触控尺寸保持各自规则。 */
+@media (min-width: 769px) {
+  .utility-page.claude-manager-page > header { margin: 0 0 8px; }
+  .claude-manager-page > header > div { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 14px; }
+  .claude-manager-page > header .eyebrow { display: none; }
+  .claude-manager-page > header h1 { margin: 0; font-size: 18px; line-height: 28px; }
+  .claude-manager-page > header p { margin: 0; font-size: 12px; }
+  .claude-management-workbench { gap: 6px; }
+  .claude-management-workbench > .claude-mode-bar { gap: 6px 12px; padding-bottom: 6px; }
+  .claude-management-workbench .claude-mode-tabs button { min-height: 28px; padding: 3px 10px; font-size: 12px; }
+  .claude-management-workbench > .claude-work-tabs { gap: 2px; }
+  .ide-theme .claude-management-workbench nav.claude-work-tabs > button { min-height: 28px; padding: 3px 10px; font-size: 12px; }
+  .claude-management-workbench > .claude-config-panel { gap: 6px 10px; margin: 0; padding: 5px 8px; }
+  .claude-management-workbench .claude-config-source { flex: 1 1 360px; gap: 6px; }
+  .claude-management-workbench .claude-status-bar-actions { gap: 4px; }
+  .claude-management-workbench .claude-status-bar-actions button { box-sizing: border-box; height: 28px; min-height: 28px; padding: 3px 8px; font-size: 11px; }
+  .claude-management-workbench > .claude-config-description { font-size: 11px; gap: 4px 8px; }
+  .claude-management-workbench > .claude-list-toolbar { min-height: 30px; gap: 6px 10px; align-items: center; }
+  .claude-management-workbench .claude-list-toolbar > .claude-list-selection { display: contents; }
+  .claude-management-workbench .claude-list-selection > label { order: 0; min-height: 28px; margin: 0; font-size: 11px; }
+  .claude-management-workbench .claude-list-selection > span { order: 3; font-size: 11px; }
+  .claude-management-workbench .claude-list-toolbar > .claude-search { order: 1; box-sizing: border-box; flex: 0 1 280px; height: 28px; min-height: 28px; margin: 0; padding: 0 7px; gap: 6px; border: 1px solid var(--jb-border-strong); border-radius: 4px; background: var(--jb-input); }
+  .claude-management-workbench .claude-list-toolbar .claude-search input { flex: 1; width: 0; max-width: none; min-width: 0; height: 100%; min-height: 0; margin: 0; padding: 0; border: 0 !important; border-radius: 0 !important; background: transparent !important; box-shadow: none !important; outline: none !important; font-size: 12px; }
+  .claude-management-workbench .claude-search:focus-within { outline: 2px solid var(--jb-accent); outline-offset: 1px; }
+  .claude-management-workbench .claude-list-toolbar > .claude-providers-actions { order: 2; gap: 5px; margin-left: auto; }
+  .claude-management-workbench .claude-list-toolbar .claude-providers-actions > button { box-sizing: border-box; min-height: 28px; height: 28px; padding: 3px 8px; font-size: 11px; }
+}

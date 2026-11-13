@@ -1,3 +1,4 @@
+import { ToastNotice } from "../../shared/ToastNotice";
 import { SortSelectionControls } from "../../shared/SortSelectionControls";
 import { useSortableDrag } from "../../shared/useSortableDrag";
 import { useDialogDocument } from "../../shared/DialogDocument";
@@ -759,13 +760,13 @@ export function ClaudeProvidersPlugin() {
     await run("scope", () => claudeWorkbenchClient.chooseProject(clear), "");
   };
 
-  return <section className="claude-providers">
+  return <section className="claude-providers claude-management-workbench">
     <ModeBar providers={providers} view={viewMode} state={routing} currentName={current?.name} directConfigurationIssue={Boolean(currentId) && !routing.running && ["changed", "missing", "unreadable"].includes(configurationStatus ?? "")} activeName={providers.find(item => item.id === routing.activeProvider)?.name} scopeLabel={scopeLabel} addressFallback={settingsPath} onView={mode => { setViewMode(mode); setTab("providers"); }} onActivate={activate} onSettings={() => setSettingsOpen(true)} onFailover={toggleFailover} disabled={Boolean(busyId) || routeStartBusy} />
     <nav className="claude-work-tabs" aria-label="Claude Code 工作台">
       {([["providers", "供应商"], ["usage", "用量"], ["mcp", "MCP"], ["prompts", "提示词"], ["skills", "技能"], ["sessions", "会话"], ["config", "配置"]] as const).map(([id, label]) =>
         <button type="button" key={id} aria-current={tab === id ? "page" : undefined} onClick={() => setTab(id)}>{label}</button>)}
     </nav>
-    {(message || error) && <p className={`claude-status${error ? " is-error" : ""}`} role={error ? "alert" : "status"}>{error || message}</p>}
+    <ToastNotice message={error || message} tone={error ? "error" : undefined} />
     {routing.recoveryAvailable && !routing.running && <div className="claude-status is-error">检测到待恢复的连接配置<button type="button" className="secondary" onClick={() => activate("direct")}>恢复直连配置</button></div>}
     {tab === "usage" && <UsagePanel state={routing} providers={providers} onClear={() => confirm("清空当前请求记录？", async () => { await claudeWorkbenchClient.clearLogs(); await refreshRouting(); })} />}
     {tab !== "providers" && tab !== "usage" && <ClaudeWorkspacePanel key={tab} view={tab} confirm={confirm} onScopeChanged={load} />}
@@ -798,6 +799,7 @@ export function ClaudeProvidersPlugin() {
     <div className="claude-config-help claude-config-description"><span>保存到本地；点击「切换」后写入配置文件。</span><button type="button" aria-expanded={showConfigDescription} aria-controls="claude-config-description" onClick={() => setShowConfigDescription(value => !value)}><ArrowDown size={12} aria-hidden="true" />详细说明</button><p id="claude-config-description" hidden={!showConfigDescription}>切换前会备份当前配置，并写入所选供应商的地址、Key 和模型映射；已运行的 Claude Code 需重启加载。路由／聚合模式写入本地代理地址，由 CloudHub 转发。</p></div>
 
     <header className="claude-providers-head claude-list-toolbar">
+    <div className="claude-list-selection">{!providerSorting && <label className="claude-check"><input type="checkbox" aria-label="全选当前搜索结果" disabled={Boolean(busyId) || !shown.length} checked={!!shown.length && shown.every(p=>selectedProviders.has(p.id))} ref={element=>{if(element)element.indeterminate=shown.some(p=>selectedProviders.has(p.id)) && !shown.every(p=>selectedProviders.has(p.id));}} onChange={event=>{const checked=event.target.checked;setSelectedProviders(current=>{const next=new Set(current);shown.forEach(p=>checked?next.add(p.id):next.delete(p.id));return next;});}} />全选当前结果</label>}<span>共 {shown.length} 个供应商</span></div>
       <label className="claude-search"><Search size={14} aria-hidden="true" /><input type="search" aria-label="搜索供应商" placeholder="搜索供应商" value={keyword} onChange={e => setKeyword(e.target.value)} /></label>
       <div className="claude-providers-actions">
         {viewMode === "direct" && <SortSelectionControls label="Claude 供应商" keys={shown.map(item => item.id)} selected={selectedProviders} sorting={providerSorting} onSortingChange={setProviderSorting} disabled={Boolean(busyId)} showSelectAll={false} onToggleAll={() => {}} />}
@@ -824,7 +826,7 @@ export function ClaudeProvidersPlugin() {
     {viewMode === "route" && <p className="claude-config-help">{config.failover ? "按 P1、P2… 优先级请求，失败时在重试次数限制内尝试后续供应商。" : "故障转移已关闭，仅使用固定供应商；队列与顺序仍保留。"} 无请求记录时显示“未检测”，不代表连接成功。</p>}
     {viewMode === "aggregate" && <p className="claude-config-help">默认供应商承接不带前缀的请求；添加其他供应商后，可在 Claude Code 的 /model 中选择其模型。聚合不使用故障转移。</p>}
 
-    <div className="claude-list-selection">{!providerSorting && <label className="claude-check"><input type="checkbox" aria-label="全选当前搜索结果" disabled={Boolean(busyId) || !shown.length} checked={!!shown.length && shown.every(p=>selectedProviders.has(p.id))} ref={element=>{if(element)element.indeterminate=shown.some(p=>selectedProviders.has(p.id)) && !shown.every(p=>selectedProviders.has(p.id));}} onChange={event=>{const checked=event.target.checked;setSelectedProviders(current=>{const next=new Set(current);shown.forEach(p=>checked?next.add(p.id):next.delete(p.id));return next;});}} />全选当前结果</label>}<span>共 {shown.length} 个供应商</span></div>
+
     {providers.length === 0 ? <div className="claude-empty">
       <Server size={26} aria-hidden="true" />
       <strong>还没有供应商</strong>

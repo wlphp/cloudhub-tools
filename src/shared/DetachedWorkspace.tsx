@@ -124,6 +124,6 @@ export function DetachedWorkspace({ children, enabled, visible, title = "终端�
   return <>
     <div ref={anchor} className="detachable-workspace-anchor" />
     {detached && visible && <div className="terminal-workspace-placeholder"><p>{title}已移到独立窗口</p><button type="button" className="secondary" onClick={() => void popup.current?.native.setFocus().catch(() => {})}>显示独立窗口</button><button type="button" className="secondary" onClick={restore}>回到父页面</button></div>}
-    {createPortal(<DialogDocument.Provider value={owner}><div className="detachable-page-body">{children({ onPointerDown, action: pageId === "servers" ? action : null })}</div>{/* Keep the fixed control after the page body so it stays last in the Tab order. */}{pageId !== "servers" && (visible || detached) && action && <div className="page-detach-tools">{action}</div>}{error && <p role="alert" className="dialog-detach-error">{error}</p>}</DialogDocument.Provider>, portal)}
+    {createPortal(<DialogDocument.Provider value={owner}>{pageId !== "servers" && (visible || detached) && action && <div className="page-detach-tools">{action}</div>}<div className="detachable-page-body">{children({ onPointerDown, action: pageId === "servers" ? action : null })}</div>{error && <p role="alert" className="dialog-detach-error">{error}</p>}</DialogDocument.Provider>, portal)}
   </>;
 }

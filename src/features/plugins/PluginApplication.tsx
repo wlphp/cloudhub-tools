@@ -20,6 +20,7 @@ const AuthenticatorPanel = lazy(() => import("../authenticator/AuthenticatorPane
 const CertificatePanel = lazy(() => import("../certificates/CertificatePanel").then(module => ({ default: module.CertificatePanel })));
 const CodexPanel = lazy(() => import("../codex/CodexPanel").then(module => ({ default: module.CodexPanel })));
 const FrpPanel = lazy(() => import("../frp/FrpPanel").then(module => ({ default: module.FrpPanel })));
+const AiSettings = lazy(() => import("../ai/AiSettings").then(module => ({ default: module.AiSettings })));
 
 /** Page and dialog containers share the same business UI. */
 export function PluginApplication({ pluginId, wslEnabled, mobile = false, accounts = [], localAssets = [], onStatus = () => {}, onConfirm = async () => false, onNotify, onError, onLanConnect }: {
@@ -35,6 +36,7 @@ export function PluginApplication({ pluginId, wslEnabled, mobile = false, accoun
   onLanConnect?: (ip: string, platform: "linux" | "windows", name: string) => void;
 }) {
   switch (pluginId) {
+    case "cloudhub.model-suppliers": return <Suspense fallback={<p role="status">正在加载模型供应商…</p>}><AiSettings embedded /></Suspense>;
     case "cloudhub.cloud-drive": return <Suspense fallback={<p role="status">正在加载云盘挂载…</p>}><CloudDrivePlugin /></Suspense>;
     case "cloudhub.mail": return <Suspense fallback={<p role="status">正在加载邮件管理…</p>}><MailPlugin /></Suspense>;
     case "cloudhub.flow": return <Suspense fallback={<p role="status">正在加载流水线…</p>}><FlowPanel mobile={mobile} /></Suspense>;

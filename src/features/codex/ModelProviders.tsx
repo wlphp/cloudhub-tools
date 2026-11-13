@@ -1,3 +1,4 @@
+import { ToastNotice } from "../../shared/ToastNotice";
 import { SortSelectionControls } from "../../shared/SortSelectionControls";
 import { useSortableDrag } from "../../shared/useSortableDrag";
 import { useDialogDocument } from "../../shared/DialogDocument";
@@ -274,8 +275,8 @@ export function ModelProviders({ onChanged, privacy = false }: { onChanged?: () 
         </div>
       </div>
       {exporting !== undefined && createPortal(<ConfirmDialog title="导出供应商配置" message={"导出文件包含所选供应商的明文 API Key，任何能读取该文件的人都可以直接使用这些密钥。请确认已了解风险，并妥善保管导出文件。"} confirmLabel="仍然导出" busy={busy} error={error} onResolve={yes => { if (yes) { setError(""); void exportProviders(exporting); } setExporting(undefined); }} />, document.body)}
-      {error && !editing && !removing && <p role="alert" className="codex-card-error">{error}</p>}
-      {notice && !error && <p role="status" className="codex-card-error">{notice}</p>}
+      {error && !editing && !removing && <ToastNotice message={error} tone="error" />}
+      {notice && !error && <ToastNotice message={notice} />}
       {loading ? <p role="status">正在读取供应商...</p> : !visible.length ? <div className="codex-empty"><Server size={30} /><h2>{items.length ? "没有匹配的供应商" : "暂无模型供应商"}</h2><button onClick={() => edit()}><Plus size={15} />添加供应商</button></div> : <div className="codex-provider-list" aria-label="模型供应商">
         {visible.map(v => {
           const selected = selectedProviderId === v.id;

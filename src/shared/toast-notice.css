@@ -1,0 +1,13 @@
+.app-toast-stack { position: fixed; inset: calc(48px + env(safe-area-inset-top,0px)) 16px auto auto; z-index: 50000; display: flex; flex-direction: column; align-items: stretch; gap: 8px; width: min(420px,calc(100vw - 32px)); max-height: calc(100dvh - 80px); overflow-y: auto; padding: 3px; box-sizing: border-box; pointer-events: none; }
+.app-toast-stack .toast-notice.app-toast-notice { position: relative; inset: auto; display: flex; align-items: flex-start; gap: 8px; width: 100%; min-width: 0; max-width: none; margin: 0; padding: 10px 12px; box-sizing: border-box; border: 1px solid var(--jb-border-strong); border-radius: 6px; background: var(--jb-surface); color: var(--jb-text); box-shadow: 0 4px 16px #0002; font-size: 12px; line-height: 1.6; pointer-events: auto; animation: none; transform: none; }
+.app-toast-stack .app-toast-notice > svg { flex: 0 0 auto; margin-top: 2px; color: var(--jb-accent); }
+.app-toast-stack .app-toast-notice.is-error { border-color: color-mix(in srgb,var(--jb-danger,var(--jb-red)) 45%,var(--jb-border)); }
+.app-toast-stack .app-toast-notice.is-error > svg { color: var(--jb-danger,var(--jb-red)); }
+.app-toast-content { flex: 1; min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.app-toast-content > span { display: block; }
+.app-toast-content :is(button,progress) { margin: 5px 4px 0 0; max-width: 100%; }
+.app-toast-stack .app-toast-close { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 24px; width: 24px; height: 24px; min-height: 24px; margin: -2px -4px 0 0; padding: 3px; border: 0; background: transparent; color: var(--jb-muted); cursor: pointer; }
+.app-toast-stack button:focus-visible { outline: 2px solid var(--jb-accent); outline-offset: -2px; }
+@media(max-width:600px) { .app-toast-stack { top: max(12px,env(safe-area-inset-top,0px)); right: 10px; width: min(420px,calc(100vw - 20px)); } .app-toast-stack .app-toast-close { flex-basis: 32px; width: 32px; height: 32px; } }
+@media(prefers-reduced-motion:no-preference) { .app-toast-notice.is-progress > svg { animation: app-toast-spin 1s linear infinite; } }
+@keyframes app-toast-spin { to { transform: rotate(360deg); } }

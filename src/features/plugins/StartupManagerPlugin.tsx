@@ -1,3 +1,4 @@
+import { ToastNotice } from "../../shared/ToastNotice";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CircleCheck, Ellipsis, Loader2, Power, RefreshCw, Search, ShieldCheck, Undo2 } from "lucide-react";
 import { ConfirmDialog } from "../../shared/ConfirmDialog";
@@ -64,7 +65,7 @@ export function StartupManagerPlugin() {
     <div className="startup-manager-safety"><ShieldCheck size={16} aria-hidden="true" /><span>安全范围：启动项仅支持当前用户 Run/RunOnce 项逐项启停，并可恢复原值；系统级和其他来源只读。计划任务与服务仍按保护规则逐项调整。</span></div>
     <div className="startup-manager-controls"><nav className="startup-manager-tabs" aria-label="系统项目类别">{tabs.map(item => <button key={item.id} type="button" aria-pressed={tab === item.id} className={tab === item.id ? "is-active" : ""} onClick={() => setTab(item.id)}>{item.title}<span>{snapshot?.entries.filter(entry => entry.kind === item.id).length ?? "—"}</span></button>)}</nav>
     <div className="startup-manager-toolbar"><label htmlFor="startup-manager-search">筛选</label><div><Search size={14} aria-hidden="true" /><input id="startup-manager-search" type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder="名称、说明或来源" /></div></div></div>
-    {error && <p className="startup-manager-error" role="alert">{error}</p>}{message && <p className="startup-manager-feedback" role="status">{message}</p>}
+    {error && <ToastNotice message={error} tone="error" />}{message && <ToastNotice message={message} />}
     {busy && snapshot && <p className="startup-manager-refreshing" role="status"><Loader2 size={14} aria-hidden="true" />正在刷新系统项目…</p>}
     {busy && !snapshot ? <div className="startup-manager-loading" role="status" aria-live="polite" aria-busy="true"><div className="startup-manager-loading-title"><Loader2 size={17} aria-hidden="true" /><span><strong>正在扫描本机启动配置</strong><small>正在读取启动项、服务和计划任务，首次加载可能需要几秒</small></span></div><div className="startup-manager-skeleton" aria-hidden="true"><div className="startup-manager-skeleton-head"><i /><i /><i /><i /><i /></div>{Array.from({ length: 7 }, (_, index) => <div className="startup-manager-skeleton-row" key={index}><span className="skeleton-name"><i /><b><i /><i /></b></span><i /><i /><i /><i /></div>)}</div></div> : entries.length === 0 ? <div className="startup-manager-empty">{snapshot ? "没有符合条件的项目。" : error ? "读取未完成，请检查错误后重试。" : "请使用 Windows 桌面客户端查看。"}{error && runningInTauri && <button type="button" className="secondary" onClick={() => void refresh()} disabled={busy}>重试</button>}</div> :
       <div className="startup-manager-table-wrap"><table className="startup-manager-table"><thead><tr><th>名称</th><th>当前状态</th><th>官方建议</th><th>设置启用方式</th><th aria-label="更多操作" /></tr></thead><tbody>{entries.map(item => {

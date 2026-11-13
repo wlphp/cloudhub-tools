@@ -1,3 +1,4 @@
+import { ToastNotice } from "../../shared/ToastNotice";
 import { useEffect, useState } from "react";
 import { ChevronDown, ChevronRight, Copy, FileKey, Network, RefreshCw, Save } from "lucide-react";
 import { codexTunnelClient, type CodexTunnelConfig, type CodexTunnelState } from "../../platform/clients/codex-tunnel";
@@ -38,7 +39,7 @@ export function GatewayTunnel({ monitorOnly = false }: { monitorOnly?: boolean }
   const status = !state?.config.enabled ? form.enabled ? "待保存启用" : "未开启" : state.error ? "连接失败" : !state.localPort ? "等待 API 服务启动" : state.connected ? "代理已注册" : state.running ? "正在连接 frps" : "穿透未运行";
   return <section className={`codex-tunnel${expanded ? " is-expanded" : ""}`} aria-label={monitorOnly ? "Codex API 托管穿透" : "API 内网穿透配置"}>
     <header><button type="button" className="codex-tunnel-toggle" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>{expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}<strong><Network size={15} />{monitorOnly ? "Codex API 托管穿透" : "内网穿透"}</strong></button>{!monitorOnly && <label><input type="checkbox" role="switch" aria-label="启用 API 内网穿透" checked={form.enabled} disabled={busy || !ready} onChange={event => { const enabled = event.target.checked; if (!enabled) void act(() => codexTunnelClient.save({ ...form, enabled: false })); else setForm({ ...form, enabled: true }); }} />启用内网穿透</label>}<span>{status}</span></header>
-    {error && <p role="alert">{error}</p>}{state?.error && <p role="alert">{state.error}</p>}{message && <p role="status">{message}</p>}
+    {error && <ToastNotice message={error} tone="error" />}{state?.error && <p role="alert">{state.error}</p>}{message && <ToastNotice message={message} />}
     {expanded && <div className="codex-tunnel-content">
     {!runningInTauri && <p>内网穿透仅支持 PC 桌面端。</p>}
     {state?.config.enabled && <div className="codex-tunnel-address"><span>公网 Base URL（{state.connected ? "代理已注册，外部访问待验证" : "已配置"}）</span><code>{state.publicUrl}</code><button aria-label="复制公网 Base URL" onClick={() => { void navigator.clipboard.writeText(state.publicUrl || "").then(() => setMessage("公网地址已复制")).catch(() => setError("复制地址失败")); }}><Copy size={14} /></button><small>本机目标：{state.localPort ? `127.0.0.1:${state.localPort}` : "等待 API 服务启动"} · 继续使用 API 服务密钥鉴权</small></div>}

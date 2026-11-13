@@ -1,3 +1,4 @@
+import { ToastNotice } from "../../shared/ToastNotice";
 import { useDialogDocument } from "../../shared/DialogDocument";
 import { DialogField } from "../../shared/DialogForm";
 import { SharedDialog } from "../../shared/SharedDialog";
@@ -6,7 +7,7 @@ import { SecretField } from "../../shared/SecretField";
 import { PaginationBar } from "../../shared/PaginationBar";
 import { AiLogAnalysis } from "../ai/AiLogAnalysis";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { Activity, Check, CircleAlert, Clock3, Eye, FileText, GitBranch, GitCommitHorizontal, LoaderCircle, Play, Plus, RefreshCw, Search, Settings2, Trash2, UserRound, Workflow, X } from "lucide-react";
+import { Activity, Check, CircleAlert, Clock3, Eye, FileText, GitBranch, GitCommitHorizontal, LoaderCircle, Play, Plus, RefreshCw, Search, Settings2, Trash2, UserRound, Workflow } from "lucide-react";
 import { flowClient } from "../../platform/clients";
 import { runningInTauri } from "../../platform/api";
 import type { FlowConnection, FlowConnectionInput, FlowGroup, FlowJob, FlowLogPage, FlowPipeline, FlowRun, FlowRunDetail, FlowStep } from "../../shared/types";
@@ -330,8 +331,8 @@ export function FlowPanel({ mobile = false }: { mobile?: boolean }) {
       <button className="primary" onClick={() => { setDraft(emptyDraft); setShowConnection(true); }}><Plus size={15} />添加连接</button>
       {currentConnection && <button className="icon-button" aria-label="编辑连接" title="编辑连接" onClick={() => editConnection(currentConnection)}><Settings2 size={16} /></button>}
     </div></header>
-    {message && <div className="flow-feedback success" role="status"><Check size={16} />{message}<button aria-label="关闭提示" onClick={() => setMessage("")}><X size={14} /></button></div>}
-    {error && <div className="flow-feedback error" role="alert"><CircleAlert size={16} />{error}<button aria-label="关闭错误" onClick={() => setError("")}><X size={14} /></button></div>}
+    <ToastNotice message={message} onDismiss={() => setMessage("")} />
+    <ToastNotice message={error} tone="error" onDismiss={() => setError("")} />
     {!connections.length ? <div className="flow-empty"><Activity size={34} /><h2>先连接云效组织</h2><p>使用云效个人访问令牌（PAT）连接中心版或 Region 版组织。令牌仅用于云效连接，并加密保存。</p><button onClick={() => { setDraft(emptyDraft); setShowConnection(true); }}><Plus size={15} />配置连接</button></div> : !allConnections && !currentConnection ? <div className="flow-empty">请选择云效连接。</div> : <div className="flow-workspace">
       <section className="panel flow-pipeline-panel"><div className="flow-panel-title"><div><h2>流水线 <span className="flow-count">{recentView ? recentPipelines.length : pipelines.length}</span></h2><span>{cacheUpdatedAt ? `更新于 ${new Date(cacheUpdatedAt).toLocaleString()}` : "首次拉取后自动保存"}</span></div><div className="flow-list-toolbar"><form className="flow-search" onSubmit={(event) => { event.preventDefault(); void loadPipelines(1); }}><Search size={15} /><input aria-label="搜索流水线" value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="搜索流水线名称" /><button type="submit">搜索</button></form></div><button className="icon-button flow-refresh-button" aria-label="刷新流水线" title="刷新流水线" disabled={busy === "pipelines"} onClick={() => void loadPipelines(page, keyword, false)}>{busy === "pipelines" ? <LoaderCircle className="flow-spin" size={16} /> : <RefreshCw size={16} />}{mobile && <span>刷新</span>}</button></div>
         <div className="flow-group-tabs" role="tablist" aria-label="流水线分组">

@@ -1,3 +1,4 @@
+import { ToastNotice } from "./shared/ToastNotice";
 import { SelectionCheckbox, SortSelectionControls, useItemSelection } from "./shared/SortSelectionControls";
 import { usePointerResize } from "./shared/usePointerResize";
 import { useSortableDrag } from "./shared/useSortableDrag";
@@ -24,7 +25,6 @@ import { NetworkSettingsPage } from "./features/settings/NetworkSettingsPage";
 import { useDialogDragging } from "./shared/useDialogDragging";
 import { GroupNameInput } from "./shared/GroupNameInput";
 import { HostPlatformIcon } from "./features/servers/HostPlatformIcon";
-import { AiSettings } from "./features/ai/AiSettings";
 import { AiAssistButton } from "./features/ai/AiAssistButton";
 import { ServerAiCandidateReview } from "./features/servers/ServerAiCandidateReview";
 import type { AiFields } from "./platform/clients/ai";
@@ -91,7 +91,6 @@ import {
   ArrowDown,
   AlertTriangle,
   Apple,
-  Bot,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -267,7 +266,7 @@ function syncAssetTypes(account: Account): ReadonlyArray<(typeof assetTypes)[num
 }
 const assetTypes = catalogAssetTypes;
 
-const bundledVersion = "0.1.137";
+const bundledVersion = "0.1.138";
 const isDevelopmentBuild = import.meta.env.DEV;
 
 const detachedTerminalHostId = (() => {
@@ -281,13 +280,12 @@ function readLocalStorage(key: string): string | null {
   catch { return null; }
 }
 
-type SettingsTab = "general" | "network" | "data" | "ai" | "pet" | "about";
+type SettingsTab = "general" | "network" | "data" | "pet" | "about";
 
 const settingsTabs: { id: SettingsTab; label: string; icon: typeof SlidersHorizontal }[] = [
   { id: "general", label: "通用设置", icon: SlidersHorizontal },
   { id: "network", label: "网络与代理", icon: Network },
   { id: "data", label: "数据管理", icon: Database },
-  { id: "ai", label: "模型供应商", icon: Bot },
   { id: "pet", label: "宠物管理", icon: PawPrint },
   { id: "about", label: "关于", icon: Info },
 ];
@@ -439,7 +437,7 @@ function App() {
     if (app.section) setSection(app.section);
     else { setStoreApplicationId(app.id); setSection("plugins"); }
   }
-  useEffect(() => { const open = () => setSection("settings"); window.addEventListener("cloudhub-ai-settings", open); return () => window.removeEventListener("cloudhub-ai-settings", open); }, []);
+  useEffect(() => { const open = () => { setStoreApplicationId("cloudhub.model-suppliers"); setSection("plugins"); }; window.addEventListener("cloudhub-ai-settings", open); return () => window.removeEventListener("cloudhub-ai-settings", open); }, []);
   const [petCertificateTarget,setPetCertificateTarget]=useState<{key:string;request:number}|null>(null);
   const [localAssets, setLocalAssets] = useState<LocalAsset[]>([]);
   const [panelConnections, setPanelConnections] = useState<PanelConnection[]>([]);
@@ -2750,7 +2748,6 @@ function App() {
   useEffect(() => { setFavoritePage(1); }, [favoriteTypeFilter, favoriteKeyword, favoriteRegionFilter]);
   useEffect(() => { setLogPage(1); }, [logFilter, logTypeFilter]);
   useEffect(() => { setApiLogPage(1); }, [logFilter]);
-  useEffect(() => { if (!status) return; const timer = window.setTimeout(() => setStatus(""), 2600); return () => window.clearTimeout(timer); }, [status]);
   function edit(account: Account) {
     let credentialMeta: { tenancy_ocid?: string; key_fingerprint?: string; tenant_id?: string; subscription_id?: string; project_id?: string } = {};
     try { credentialMeta = JSON.parse(account.credential_meta || "{}"); } catch { /* legacy account */ }
@@ -3993,7 +3990,7 @@ function App() {
             <button type="button" aria-label={member ? "打开会员资料" : "登录"} title={member ? "打开会员资料" : "登录"} onClick={() => setShowLoginDialog(true)}>{member ? <MemberAvatar member={member} size={20} /> : <UserRound size={16} />}<span>{member ? member.nickname : "登录"}</span>{member?.is_vip && <span className="member-vip-badge">VIP</span>}</button>
           </div>
         </nav>
-        {status && createPortal(<div className="toast-notice" role="status" aria-live="polite" aria-atomic="true">{status}</div>, document.body)}
+        <ToastNotice message={status} onDismiss={() => setStatus("")} />
         <DialogPage active={section === "home"} pageId="home" detachTitle={detachablePageTitles.home}>{() => (<DesktopHomePage accounts={accounts} assets={localAssets} applicationSettings={applicationSettings} onNavigate={setSection} onOpenSoftware={id => {
           if (!id) { setStoreApplicationId(undefined); setSection("plugins"); return; }
           const app = sortedApplications(applicationSettings.preferences).find(item => item.id === id);
@@ -4994,7 +4991,7 @@ function App() {
         <DialogPage active={section === "certificates"} pageId="certificates" detachTitle={detachablePageTitles.certificates}>{() => (<CertificatePanel accounts={accounts} localAssets={localAssets} onStatus={setStatus} onConfirm={requestConfirm} alertTarget={petCertificateTarget} onAlertTargetHandled={()=>setPetCertificateTarget(null)} />)}</DialogPage>
         <DialogPage active={section === "flow"} pageId="flow" detachTitle={detachablePageTitles.flow}>{() => (<FlowPanel />)}</DialogPage>
         <DialogPage active={section === "codex"} pageId="codex" detachTitle={detachablePageTitles.codex}>{() => (<CodexPanel />)}</DialogPage>
-        <DialogPage active={section === "claude"} pageId="claude" detachTitle={detachablePageTitles.claude}>{() => (<section className="utility-page"><header><div><span className="eyebrow">AI 工具</span><h1>Claude 管理</h1><p>管理 Claude Code 供应商、模型配置与本地路由。</p></div></header><div className="claude-providers-dialog"><ClaudeProvidersPlugin /></div></section>)}</DialogPage>
+        <DialogPage active={section === "claude"} pageId="claude" detachTitle={detachablePageTitles.claude}>{() => (<section className="utility-page claude-manager-page"><header><div><span className="eyebrow">AI 工具</span><h1>Claude 管理</h1><p>管理 Claude Code 供应商、模型配置与本地路由。</p></div></header><div className="claude-providers-dialog"><ClaudeProvidersPlugin /></div></section>)}</DialogPage>
         <DialogPage active={section === "authenticator"} pageId="authenticator" detachTitle={detachablePageTitles.authenticator}>{() => (<AuthenticatorPanel />)}</DialogPage>
         <DialogPage active={section === "frp"} pageId="frp" detachTitle={detachablePageTitles.frp}>{() => (<FrpPanel />)}</DialogPage>
         <DialogPage active={section === "logs"} pageId="logs" detachTitle={detachablePageTitles.logs}>{() => ((
@@ -5125,7 +5122,6 @@ function App() {
               <button type="button" className="settings-card trash-entry" onClick={() => setShowTrash(true)}><div className="settings-icon purple"><Trash2 size={22} /></div><div className="settings-copy"><strong>回收站</strong><small>{trashGroups.loading ? "正在读取…" : trashTotal > 0 ? `${trashTotal} 项已删除数据，可恢复或彻底删除` : "删除的数据保留在这里，可随时恢复"}</small></div><span className="secondary settings-link">打开回收站</span></button>
               </section>
             )}
-            {settingsTab === "ai" && <AiSettings embedded />}
             {settingsTab === "pet" && <PetSettingsPanel embedded />}
             {settingsTab === "about" && (
               <section className="about-card" aria-label="关于云枢工具箱">

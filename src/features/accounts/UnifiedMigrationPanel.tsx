@@ -1,3 +1,4 @@
+import { ToastNotice } from "../../shared/ToastNotice";
 import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { Format, openAppSettings, requestPermissions, scan } from "@tauri-apps/plugin-barcode-scanner";
@@ -138,8 +139,8 @@ export function UnifiedMigrationPanel({ mode, mobilePage = false, onClose, onImp
       {runningInTauri && <button type="button" className="primary" disabled={busy} onClick={() => void receive()}><ScanLine size={18} aria-hidden="true" />{busy ? "正在处理…" : "扫码接收电脑配置"}</button>}
       {cameraDenied && <button type="button" className="secondary" onClick={() => void openAppSettings().catch(cause => setError(message(cause)))}>打开相机权限设置</button>}
       {!runningInTauri && <p className="mobile-import-hint" role="status">请在手机 App 内扫码。当前可通过本地文件或云端备份恢复。</p>}
-      {receiving && notice && <p className="sync-transfer-status" role="status">{notice}</p>}
-      {error && <p className="sync-transfer-error" role="alert">{error}</p>}
+      {receiving && notice && <ToastNotice message={notice} />}
+      {error && <ToastNotice message={error} tone="error" />}
       {preview && <section className="sync-transfer-preview"><h3>确认导入配置</h3><DataTransferScope categories={preview.categories ?? []} tables={importTables} onChange={setImportTables} disabled={busy} /><p>默认合并并保留已有记录。桌面专属配置保存至手机，手机不执行桌面功能。</p><button className="primary" type="button" disabled={busy || !importTables.length} onClick={() => void importQr()}>确认导入所选配置</button><button type="button" className="secondary" disabled={busy} onClick={() => { void accountsClient.cancelQrSyncImport(sessionId); setPreview(null); setSessionId(""); }}>取消迁移</button></section>}
       </section>
       <section className="mobile-import-card" aria-labelledby="mobile-import-backup-title">
@@ -159,8 +160,8 @@ export function UnifiedMigrationPanel({ mode, mobilePage = false, onClose, onImp
       <p>电脑和手机需要使用相同数据库版本。每次最多 64 MB，较大内容可分模块迁移。</p>
       {scope.error && <p role="alert">{scope.error}</p>}
     </>}
-    {!mobile && error && <p className="sync-transfer-error" role="alert">{error}</p>}
-    {!receiving && notice && <p className="sync-transfer-status" role="status" aria-live="polite">{notice}</p>}
+    {!mobile && error && <ToastNotice message={error} tone="error" />}
+    {!receiving && notice && <ToastNotice message={notice} />}
     {pairingUrl && qrOpen && <SharedDialog sizeStorageKey="features/accounts/unified-migration-panel/unified-migration-panel" title="手机迁移二维码" size="small" className="sync-transfer-qr-dialog" bodyClassName="sync-transfer-qr-body" closeDisabled={busy} onClose={() => setQrOpen(false)} footer={<><button type="button" className="secondary" disabled={busy} onClick={() => setQrOpen(false)}>暂时关闭</button><button type="button" className="danger" disabled={busy} onClick={() => void cancelTransfer()}>取消本次迁移</button></>}><QRCodeSVG value={pairingUrl} size={220} level="M" title="手机迁移二维码" />{!request && <p role="status" aria-live="polite">请用 CloudHub 手机 App 顶部“扫一扫”扫描，并选择“接收电脑配置”；系统相机或微信扫码不会发起授权。手机请求到达后，电脑会弹出确认。若手机提示连接失败，请确认两台设备在同一 Wi-Fi/LAN。</p>}</SharedDialog>}
     {pairingUrl && request && <SharedDialog sizeStorageKey="features/accounts/unified-migration-panel/unified-migration-panel/2" title="手机迁移授权请求" subtitle="请核对请求校验码与设备信息，再决定是否发送数据。" size="small" role="alertdialog" className="sync-transfer-approval-dialog" closeDisabled={busy} onClose={() => {}} footer={<><button type="button" className="secondary" disabled={busy} onClick={() => void approve(false)}>拒绝</button><button type="button" className="primary" disabled={busy} onClick={() => void approve(true)}>批准并发送</button></>}><div className="sync-transfer-approval"><strong>手机请求接收配置</strong><p>请求校验码：{request.verificationCode}</p><p>设备：{request.deviceId}<br />指纹：{request.publicKeyFingerprint}<br />地址：{request.clientAddress}</p></div></SharedDialog>}
   </>;

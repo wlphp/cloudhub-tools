@@ -1,3 +1,4 @@
+import { ToastNotice } from "../../shared/ToastNotice";
 import { DialogField } from "../../shared/DialogForm";
 import { ExportChecklist } from "../../shared/ExportSelection";
 import { SharedDialog } from "../../shared/SharedDialog";
@@ -323,7 +324,7 @@ export function AuthenticatorPanel({ mobile = false, initialOtpUri, onInitialOtp
     await prepare(true, undefined, [...new Uint8Array(await file.arrayBuffer())]);
   }
   const exportIds = entries.filter(entry => selected.has(entry.id)).map(entry => entry.id);
-  const alerts = <>{error && !modal && !draft && <div className="auth-alert auth-error" role="alert">{error}</div>}{message && <div className="auth-alert" role="status">{message}</div>}</>;
+  const alerts = <>{error && !modal && !draft && <ToastNotice message={error} tone="error" />}{message && <ToastNotice message={message} />}</>;
 
   const panelClassName = `auth-panel${mobile ? " auth-mobile" : ""}`;
   if (loading) return <section className={panelClassName}><p role="status">正在读取验证器状态…</p></section>;
@@ -334,7 +335,7 @@ export function AuthenticatorPanel({ mobile = false, initialOtpUri, onInitialOtp
   </form></> : <div className="auth-empty auth-unavailable" role="status"><span className="auth-empty-icon" aria-hidden="true"><ShieldCheck size={30} /></span><h3>验证器暂时不可用</h3><p>{error || "本地服务未连接，请确认移动端调试服务已启动。"}</p><button disabled={busy} onClick={() => void action(openVault)}>{busy ? "连接中…" : "重新连接"}</button></div>}</section>;
 
   return <section className={panelClassName} onPointerDown={touch} onKeyDown={touch}>
-    {copyNotice && <div className="toast-notice auth-copy-toast" role={copyNotice.failed ? "alert" : "status"} aria-atomic="true">{!copyNotice.failed && <Check size={16} aria-hidden="true" />}<span>{copyNotice.text}</span></div>}
+    <ToastNotice message={copyNotice?.text} tone={copyNotice?.failed ? "error" : "info"} />
     <div className="auth-header"><div><h2><ShieldCheck size={22} /> {mobile ? "身份验证器" : "验证器"}</h2><span>{entries.length} 个验证码 · 本地加密保存</span></div><div className="auth-actions">
       <button disabled={busy} onClick={() => { hideDraftSecret(); setDraft(emptyDraft()); setError(""); }}><Plus size={16} /> 新增</button>
       <button disabled={busy} onClick={() => { setModal("import"); setError(""); }}><Upload size={16} /> 导入</button>

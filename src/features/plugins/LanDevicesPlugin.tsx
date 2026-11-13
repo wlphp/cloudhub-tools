@@ -1,3 +1,4 @@
+import { ToastNotice } from "../../shared/ToastNotice";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Copy, Download, ExternalLink, Monitor, Network, Play, RefreshCw, Square, Star } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -148,7 +149,7 @@ export function LanDevicesPlugin({ onConnect }: { onConnect?: Connect }) {
     {loading && <p role="status">正在读取网卡…</p>}
     {!loading && !interfaces.length && <p role="status">未发现可扫描的私有 IPv4 网络，请连接 Wi-Fi / 有线网络后刷新。当前仅支持 Windows、macOS。</p>}
     {scan && <div className="lan-progress" role="status"><span>{currentScan ? "" : "其他网络："}{stateText[scan.status]} · {scan.completed}/{scan.total} 个地址 · 发现 {scan.devices.length} 台</span>{running && <progress aria-label="扫描进度" value={scan.completed} max={scan.total} />}</div>}
-    {error && <p className="lan-error" role="alert">{error}</p>}{notice && <p role="status">{notice}</p>}
+    {error && <ToastNotice message={error} tone="error" />}{notice && <ToastNotice message={notice} />}
     {currentScan?.warnings.map(w => <p className="lan-error" role="status" key={w}>{w}</p>)}
     <nav className="lan-tabs" aria-label="设备视图"><button type="button" className={tab === "devices" ? "is-active" : ""} aria-pressed={tab === "devices"} onClick={() => setTab("devices")}>设备台账 · {rows.length}</button><button type="button" className={tab === "history" ? "is-active" : ""} aria-pressed={tab === "history"} onClick={() => setTab("history")}>扫描历史 · {ledger.history.length}</button></nav>
     {tab === "devices" ? <>

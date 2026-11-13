@@ -143,6 +143,16 @@ export const officialPlugins = [{
   distribution: "builtin",
   platform: "desktop",
   permissions: ["主动下载并校验官方 rclone 引擎", "检测 WinFsp、macFUSE 或 Linux FUSE 并打开安装说明", "在本机 SQLite 加密保存存储凭据", "通过阿里云盘官方 PKCE 授权访问文件", "连接用户配置的存储服务并按权限读写文件", "启动和管理磁盘挂载进程及本地文件缓存"],
+}, {
+  id: "cloudhub.model-suppliers",
+  name: "模型供应商",
+  version: "0.1.0",
+  publisher: "云枢工具箱",
+  description: "统一管理 AI 模型供应商，支持搜索、分页、连接测试，以及导入 Codex 和 Claude 配置。",
+  category: "开发工具",
+  distribution: "builtin",
+  platform: "all",
+  permissions: ["在本机加密保存供应商密钥", "按用户操作连接供应商并测试模型能力", "供应用内 AI 功能使用，或在确认导入时填入 Codex / Claude 配置草稿"],
 }, ...([
   { id: "cloudhub.flow", name: "云效流水线", description: "管理云效连接、查看流水线及运行记录，按需触发执行。", category: "开发工具" },
   { id: "cloudhub.certificates", name: "HTTPS 证书", description: "申请、导入和管理 HTTPS 证书及续期配置。", category: "运维工具" },

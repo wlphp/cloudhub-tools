@@ -1,3 +1,4 @@
+import { ToastNotice } from "../../shared/ToastNotice";
 import { useDialogDocument } from "../../shared/DialogDocument";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
@@ -195,9 +196,9 @@ export function HttpDebugProxyPlugin() {
     <div className="http-debug-proxy-status"><span className={snapshot.running ? "is-running" : ""} aria-hidden="true" /><strong>{snapshot.running ? "抓包运行中" : "抓包已停止"}</strong>{snapshot.running && <><code>{snapshot.address}</code><span>{snapshot.systemProxy ? "Windows 应用流量正在经过抓包" : "系统代理未修改，可手动配置应用"}</span>{snapshot.upstreamProxy && <span>已串联原系统上游代理</span>}{!snapshot.httpsDecryption && <span className="http-debug-proxy-decryption-off">HTTPS 未解密</span>}</>}<button type="button" className="secondary http-debug-proxy-certificate-action http-debug-proxy-certificate-manage" onClick={openCertificateManager} disabled={busy || certificateBusy !== null}><FileLock2 size={14} aria-hidden="true" />根证书管理</button>{snapshot.systemProxyRecoveryAvailable && <button type="button" className="secondary http-debug-proxy-certificate-action" onClick={() => setConfirmRestore(true)} disabled={busy || snapshot.running || !snapshot.systemProxyRecoverySafe}>恢复启动前设置</button>}{snapshot.rootCertificateInstalled && <button type="button" className="secondary http-debug-proxy-certificate-action" onClick={() => changeCertificate(false)} disabled={busy}><ShieldCheck size={14} aria-hidden="true" />移除根证书</button>}</div>
 
     {snapshot.running && <div className="http-debug-proxy-capture-note" role="note"><AlertTriangle size={15} aria-hidden="true" />{snapshot.httpsDecryption ? "HTTP 与 HTTPS 均经过代理；HTTPS 会解密并显示会话内容。" : "HTTP 请求会记录到会话列表；HTTPS 未安装根证书，只做加密转发，安装证书后新连接会自动解密。"}密码、Cookie、Authorization 和 API Key 请求头会隐藏；正文在你选中会话后显示。停止代理会恢复启动前的系统代理设置。</div>}
-    {error && <p className="http-debug-proxy-error" role="alert">{error}</p>}
+    {error && <ToastNotice message={error} tone="error" />}
     {certificateBusy && <p className="http-debug-proxy-notice is-pending" role="status">正在等待 Windows「安全警告」确认，请在弹出窗口点击「是」以{certificateBusy === "install" ? "安装" : "移除"}根证书。</p>}
-    {notice && <p className="http-debug-proxy-notice" role="status">{notice}</p>}
+    {notice && <ToastNotice message={notice} />}
     {!snapshot.running && <p className="http-debug-proxy-idle">HTTP 始终可抓；HTTPS 需要安装根证书才能解密，未安装时只转发加密流量。默认启用 Windows 系统代理，并自动串联原有本机 HTTP 上游代理（如 127.0.0.1:10808）。部分应用可能忽略系统代理或使用证书固定。</p>}
 
     <div className="http-debug-proxy-toolbar"><strong>会话 <span>{sessions.length}{(query || methodFilter !== "all" || statusFilter || responseTypeFilter !== "all") ? ` / ${snapshot.sessions.length}` : "（应用运行期间保留）"}</span></strong><div className="http-debug-proxy-toolbar-actions">

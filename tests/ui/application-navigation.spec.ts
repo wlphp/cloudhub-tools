@@ -53,7 +53,7 @@ const nav = (page: Page) => page.locator("#app-main-navigation");
 test("catalog contains menu apps and opens the five store-managed feature pages", async ({ page }) => {
   await openStore(page);
   await page.getByRole("region", { name: "软件列表", exact: true }).getByLabel("每页条数").selectOption("20");
-  await expect(page.locator(".store-table tbody tr")).toHaveCount(19);
+  await expect(page.locator(".store-table tbody tr")).toHaveCount(20);
   await expect(row(page, "云盘挂载")).toHaveCount(1);
   await expect(nav(page).locator("[data-application-id]")).toHaveText(["云效流水线", "HTTPS 证书", "身份验证器", "Claude 管理", "Codex 管理", "内网穿透", "备忘录", "指纹浏览器"]);
   for (const name of ["云效流水线", "HTTPS 证书", "身份验证器", "Codex 管理", "内网穿透"]) {
@@ -156,7 +156,7 @@ test("desktop preferences override an outdated browser cache", async ({ page }) 
   }, { key });
   await openStore(page);
   const settings = await openSettings(page, "备忘录");
-  await expect(settings.getByLabel("应用列表序号", { exact: true })).toHaveValue("19");
+  await expect(settings.getByLabel("应用列表序号", { exact: true })).toHaveValue("20");
   await expect(nav(page).getByRole("button", { name: "备忘录", exact: true })).toHaveCount(0);
 });
 

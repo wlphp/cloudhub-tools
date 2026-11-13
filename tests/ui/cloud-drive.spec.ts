@@ -47,7 +47,14 @@ async function openTool(page: Page, native = true) {
           }
           return [];
         }
-        if (command === "list_client_preferences") return {};
+        if (command === "list_client_preferences") return JSON.parse(localStorage.getItem("drive-test-preferences") || "{}");
+        if (command === "save_client_preference") {
+          if (state.driveFailSort) throw new Error("排序保存失败");
+          const preferences = JSON.parse(localStorage.getItem("drive-test-preferences") || "{}");
+          preferences[args.key] = args.value;
+          localStorage.setItem("drive-test-preferences", JSON.stringify(preferences));
+          return;
+        }
         if (command === "authenticator_status") return { configured: false, unlocked: false };
         if (command === "wechat_plugin_status") return { supported: true, detectedPath: null, runningProcesses: 0 };
         return [];
@@ -68,6 +75,47 @@ async function createConnection(page: Page) {
   await dialog.getByLabel("Secret Access Key", { exact: true }).fill(crypto.randomUUID());
   return dialog;
 }
+
+test("紧凑连接列表支持拖动、键盘排序，重新打开保留顺序，保存失败恢复", async ({ page }, testInfo) => {
+  await openTool(page);
+  const seed = async () => {
+    await page.evaluate(() => {
+      (window as any).driveSnapshot.connections = ["资料", "备份", "媒体"].map((name, index) => ({
+        id: `drive-${index}`, name, provider: "Alibaba", endpoint: "https://oss-cn-hangzhou.aliyuncs.com", region: "cn-hangzhou", bucket: "sample-bucket", prefix: "", mountPoint: `${String.fromCharCode(79 + index)}:`, readOnly: true, autoMount: false, cacheGib: 10, cacheDir: "", accessKeyId: "", hasCredentials: false, hasSessionToken: false,
+      }));
+    });
+    await page.locator(".cloud-drive").getByRole("button", { name: "刷新", exact: true }).click();
+  };
+  await seed();
+  const order = () => page.locator("[data-drive-sort-id]").evaluateAll(items => items.map(item => item.getAttribute("data-drive-sort-id")));
+  await page.getByRole("button", { name: "拖动排序 资料", exact: true }).press("ArrowDown");
+  await expect.poll(order).toEqual(["drive-1", "drive-0", "drive-2"]);
+  await expect(page.getByRole("button", { name: "拖动排序 资料", exact: true })).toBeEnabled();
+  const source = (await page.getByRole("button", { name: "拖动排序 媒体", exact: true }).boundingBox())!;
+  const target = (await page.locator("[data-drive-sort-id]").first().boundingBox())!;
+  await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(source.x + source.width / 2, target.y + target.height / 2, { steps: 12 });
+  await page.mouse.up();
+  await expect.poll(order).toEqual(["drive-2", "drive-1", "drive-0"]);
+  await expect(page.getByRole("button", { name: "拖动排序 媒体", exact: true })).toBeEnabled();
+  await page.reload();
+  await page.getByRole("button", { name: "软件商店", exact: true }).first().click();
+  await page.getByRole("searchbox").fill("云盘挂载");
+  await page.locator(".store-table tbody tr").getByRole("button", { name: "管理", exact: true }).click();
+  await seed();
+  await expect.poll(order).toEqual(["drive-2", "drive-1", "drive-0"]);
+  await page.evaluate(() => { (window as any).driveFailSort = true; });
+  await page.getByRole("button", { name: "拖动排序 媒体", exact: true }).press("ArrowDown");
+  await expect(page.getByRole("alert")).toContainText("排序保存失败");
+  await expect.poll(order).toEqual(["drive-2", "drive-1", "drive-0"]);
+  await expect(page.locator(".drive-guidance")).not.toHaveAttribute("open", "");
+  for (const width of [1440, 1024, 768, 375]) {
+    await page.setViewportSize({ width, height: 1000 });
+    expect(await page.locator(".cloud-drive").evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+    if (width === 1440) await page.screenshot({ path: testInfo.outputPath("cloud-drive-compact.png") });
+  }
+});
 
 test("Alipan uses public authorization, blocks expired mounts and supports retry and cancellation", async ({ page }) => {
   await openTool(page);

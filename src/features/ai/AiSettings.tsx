@@ -1,11 +1,14 @@
+import { ToastNotice } from "../../shared/ToastNotice";
 import { SharedDialog } from "../../shared/SharedDialog";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Bot, ChevronDown, Eye, EyeOff, Plus, Save, Trash2 } from "lucide-react";
+import { Bot, ChevronDown, Eye, EyeOff, Plus, RefreshCw, Save, Search, Trash2 } from "lucide-react";
 import { aiClient, type AiProfile, type AiProfileInput, type AiProtocol } from "../../platform/clients/ai";
-import { runningInTauri } from "../../platform/api";
+import { platformErrorMessage, runningInTauri } from "../../platform/api";
 import "./ai.css";
 import { AiModelInput } from "./AiModelInput";
 import { AiConfigTransfer } from "./AiConfigTransfer";
+import { PaginationBar } from "../../shared/PaginationBar";
+import { ConfirmDialog } from "../../shared/ConfirmDialog";
 
 const protocols: { value: AiProtocol; label: string; url: string }[] = [
   { value: "openai_chat", label: "OpenAI · Chat Completions", url: "https://api.openai.com/v1" },
@@ -18,6 +21,11 @@ const initial = (): AiProfileInput => ({ name: "", protocol: "openai_chat", base
 export function AiSettings({ embedded = false }: { embedded?: boolean }) {
   const [profiles, setProfiles] = useState<AiProfile[]>([]);
   const [expanded, setExpanded] = useState(embedded);
+  const [query, setQuery] = useState("");
+  const [protocol, setProtocol] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [loading, setLoading] = useState(true);
   const [draft, setDraft] = useState<AiProfileInput | null>(null);
   const [keyVisible, setKeyVisible] = useState(false);
   const [revealedKey, setRevealedKey] = useState("");
@@ -36,6 +44,11 @@ export function AiSettings({ embedded = false }: { embedded?: boolean }) {
   const enabledCount = profiles.filter(profile => profile.enabled).length;
   const visionCount = profiles.filter(profile => profile.visionStatus === "supported").length;
   const defaultProfile = profiles.find(profile => profile.isDefault);
+  const keyword = query.trim().toLocaleLowerCase();
+  const filtered = profiles.filter(profile => (!protocol || profile.protocol === protocol) && [profile.name, profile.baseUrl, profile.model, ...(profile.models ?? [])].some(value => value.toLocaleLowerCase().includes(keyword)));
+  const safePage = Math.min(page, Math.max(1, Math.ceil(filtered.length / pageSize)));
+  const paged = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
+  useEffect(() => { setPage(1); setDeleting(null); }, [query, protocol, pageSize]);
   function clearKeyDisplay() { keyRequest.current++; setKeyVisible(false); setRevealedKey(""); setRevealing(false); }
   useEffect(() => {
     if (!keyVisible) return;
@@ -60,12 +73,12 @@ export function AiSettings({ embedded = false }: { embedded?: boolean }) {
   async function reload() { const list = await aiClient.list(); if (alive.current) setProfiles(list); }
   useEffect(() => {
     alive.current = true;
-    void reload().catch(error => { if (alive.current) setMessage(String(error)); });
+    void reload().catch(error => { if (alive.current) setMessage(platformErrorMessage(error)); }).finally(() => { if (alive.current) setLoading(false); });
     return () => { alive.current = false; keyRequest.current++; if (request.current) void aiClient.cancel(request.current).catch(() => {}); };
   }, []);
-  async function action(fn: () => Promise<void>) {
+  async function action(fn: () => Promise<void>, failureContext = "") {
     setBusy(true); setMessage("");
-    try { await fn(); } catch (error) { if (alive.current) setMessage(String(error)); }
+    try { await fn(); } catch (error) { if (alive.current) setMessage(failureContext + platformErrorMessage(error)); }
     finally { if (alive.current) setBusy(false); }
   }
   function edit(profile: AiProfile) { clearKeyDisplay(); opener.current = document.activeElement as HTMLElement; setExpanded(true); const { hasKey: _hasKey, updatedAt: _updatedAt, visionStatus:_vision, ...input } = profile; setDraft({ ...input, models: profile.models?.length ? profile.models : [profile.model], apiKey: "" }); setModels([]); setMessage(""); setDeleting(null); }
@@ -94,7 +107,7 @@ export function AiSettings({ embedded = false }: { embedded?: boolean }) {
       try { const reply = await aiClient.run({ requestId: id, profileId: profile.id, expectedRevision: profile.updatedAt, task: "connection", text: "请完成连接与JSON格式测试。" });
         if (alive.current) setMessage(`测试通过：${reply.draft.summary || "结构化结果可用"}；输入 ${reply.inputTokens ?? "未知"} / 输出 ${reply.outputTokens ?? "未知"} Token`);
       } finally { request.current = null; }
-    });
+    }, `“${profile.name}”连接测试失败：`);
   }
   async function testVision(profile:AiProfile){await action(async()=>{const id=crypto.randomUUID();request.current=id;try{const result=await aiClient.testVision({requestId:id,profileId:profile.id,expectedRevision:profile.updatedAt});if(alive.current){setMessage(result.passed?"图像测试通过，可以使用裁剪遮挡后的截图识别":"图像测试未通过，请更换模型或重试，文本功能仍可使用");await reload();}}finally{request.current=null;}});}
   async function queryModels() {
@@ -114,21 +127,28 @@ export function AiSettings({ embedded = false }: { embedded?: boolean }) {
     const entries = draft.models || [draft.model];
     setDraft({ ...draft, model: entries.indexOf(draft.model) === index ? value : draft.model, models: entries.map((model, i) => i === index ? value : model) });
   }
-  return <section className="ai-settings" aria-labelledby="ai-settings-title">
-    <header className="ai-settings-header"><div><h2 id="ai-settings-title"><Bot size={20} aria-hidden="true" />模型供应商 <small className="ai-profile-count">{profiles.length ? `${profiles.length} 项` : "未配置"}</small></h2><p className="ai-settings-description">识别填写、命令草稿和错误分析。</p></div>
+  return <section className={`ai-settings ai-supplier-manager${embedded ? " is-embedded" : ""}`} aria-label="模型供应商管理" aria-busy={loading || busy}>
+    <header className="ai-settings-header"><div><h2 id="ai-settings-title"><Bot size={20} aria-hidden="true" />模型供应商 <small className="ai-profile-count">{profiles.length ? `${profiles.length} 项` : "未配置"}</small></h2><p className="ai-settings-description">统一配置，供 AI 辅助和 Codex / Claude 导入使用。</p></div>
       <div className="ai-config-summary" role="group" aria-label="模型供应商概览">
-      {profiles.length ? <><div className="ai-summary-stats"><span>启用 <strong>{enabledCount} / {profiles.length}</strong></span><span>图像测试通过 <strong>{visionCount}</strong></span><span className="ai-summary-default" title={defaultProfile?.name}>默认：{defaultProfile ? `${defaultProfile.name}${defaultProfile.enabled ? "" : "（已停用）"}` : "未设置"}</span></div><div className="ai-summary-channels">{profiles.map(profile => <span className={`ai-summary-channel${profile.enabled ? "" : " is-disabled"}`} key={profile.id} title={`${profile.name} · ${protocols.find(p => p.value === profile.protocol)?.label || profile.protocol}${profile.enabled ? "" : " · 已停用"}`}><span>{profile.name}</span><small>{protocols.find(p => p.value === profile.protocol)?.label || profile.protocol}{!profile.enabled && " · 已停用"}</small></span>)}</div></> : <p>尚未添加模型供应商，可在手机或电脑端配置并使用 AI 辅助。</p>}
+      {profiles.length ? <div className="ai-summary-stats"><span>启用 <strong>{enabledCount} / {profiles.length}</strong></span><span>图像测试通过 <strong>{visionCount}</strong></span><span className="ai-summary-default" title={defaultProfile?.name}>默认：{defaultProfile ? `${defaultProfile.name}${defaultProfile.enabled ? "" : "（已停用）"}` : "未设置"}</span></div> : <p>尚未添加模型供应商，可在手机或电脑端配置并使用 AI 辅助。</p>}
       </div>
       <div className="ai-settings-controls">{!embedded && <button className="ai-settings-toggle" type="button" aria-expanded={expanded} aria-controls="ai-settings-content" onClick={() => setExpanded(value => !value)}><ChevronDown size={15} aria-hidden="true" />{expanded ? "收起" : "展开"}</button>}<button type="button" disabled={busy} onClick={() => { opener.current = document.activeElement as HTMLElement; setExpanded(true); clearKeyDisplay(); setDraft(initial()); setModels([]); setDeleting(null); setMessage(""); }}><Plus size={15} />添加模型供应商</button></div></header>
     <div id="ai-settings-content" hidden={!expanded}>
     <>
-      {message && !draft && <p className="ai-feedback" role="status" tabIndex={-1} ref={saveFeedback}>{message}</p>}
-      {!profiles.length && !draft && <p>尚未配置模型供应商。配置不会自动上传业务数据。</p>}
-      <div className="ai-profile-list">{profiles.map(profile => <article className="ai-profile" key={profile.id}>
-        <div><strong>{profile.name}{profile.isDefault && <small>默认</small>}{!profile.enabled && <small>已停用</small>}</strong><span>{protocols.find(p => p.value === profile.protocol)?.label} · {profile.model}{(profile.models?.length || 0) > 1 && ` · ${profile.models!.length} 个模型`}</span><span>{profile.baseUrl}</span><span>截图能力：{profile.visionStatus==="supported"?"已通过测试":profile.visionStatus==="unsupported"?"测试未通过":"尚未测试"}</span></div>
-        <div className="ai-actions"><button type="button" disabled={busy} onClick={() => edit(profile)}>编辑</button><button type="button" disabled={busy || !profile.enabled} title="固定无敏感样例，测试可能产生调用费用" onClick={() => void test(profile)}>测试连接</button>{runningInTauri && <button type="button" disabled={busy || !profile.enabled} title="发送本机生成的不含敏感信息的测试图，可能产生调用费用" onClick={()=>void testVision(profile)}>测试图像</button>}<button type="button" disabled={busy} aria-label={`删除模型供应商 ${profile.name}`} onClick={() => setDeleting(profile.id)}><Trash2 size={15} /></button></div>
-        {deleting === profile.id && <div className="ai-delete-confirm"><span>删除模型供应商和密钥？正在进行的调用将取消。</span><button type="button" disabled={busy} onClick={() => void action(async () => { await aiClient.remove(profile.id); if (alive.current) { setDeleting(null); if (draft?.id === profile.id) setDraft(null); await reload(); } })}>确认删除</button><button type="button" disabled={busy} onClick={() => setDeleting(null)}>取消</button></div>}
-      </article>)}</div>
+      {message && !draft && <ToastNotice message={message} />}
+      <div className="ai-supplier-toolbar"><label className="ai-supplier-search"><Search size={15} aria-hidden="true" /><input aria-label="搜索模型供应商" placeholder="搜索名称、服务地址或模型" value={query} onChange={event => setQuery(event.target.value)} /></label><label className="ai-supplier-filter"><span>协议</span><select aria-label="筛选模型供应商协议" value={protocol} onChange={event => setProtocol(event.target.value)}><option value="">全部协议</option>{protocols.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label><span className="ai-supplier-total">共 {filtered.length} 项</span><button type="button" disabled={busy || loading} onClick={() => void action(reload)}><RefreshCw size={14} aria-hidden="true" />刷新</button></div>
+      {loading ? <p role="status">正在读取模型供应商…</p> : !profiles.length ? <p className="ai-supplier-empty">尚未配置模型供应商。点击上方添加，配置不会自动上传业务数据。</p> : !filtered.length && <p className="ai-supplier-empty">没有匹配的模型供应商，请调整搜索或协议筛选。</p>}
+      {!!paged.length && <div className="ai-supplier-table-wrap"><table className="ai-supplier-table" aria-label="模型供应商列表"><colgroup><col className="ai-supplier-col-name" /><col className="ai-supplier-col-protocol" /><col className="ai-supplier-col-address" /><col className="ai-supplier-col-model" /><col className="ai-supplier-col-status" /><col className="ai-supplier-col-actions" /></colgroup><thead><tr><th scope="col">名称</th><th scope="col">协议</th><th scope="col">服务地址</th><th scope="col">默认模型</th><th scope="col">状态 / 图像</th><th scope="col">操作</th></tr></thead><tbody>{paged.map(profile => <tr className="ai-profile" key={profile.id} aria-label={`模型供应商 ${profile.name}`}>
+        <td data-label="名称" className="ai-supplier-name"><strong>{profile.name}</strong>{profile.isDefault && <small className="ai-supplier-default">默认</small>}</td>
+        <td data-label="协议" className="ai-supplier-protocol" title={protocols.find(p => p.value === profile.protocol)?.label}>{{ openai_chat: "Chat Completions", openai_responses: "Responses", claude: "Claude Messages", gemini: "Gemini" }[profile.protocol]}</td>
+        <td data-label="地址" className="ai-supplier-address">{profile.baseUrl}</td>
+        <td data-label="模型" className="ai-supplier-model"><span>{profile.model}</span>{(profile.models?.length || 0) > 1 && <small title={profile.models!.join("、")}>共 {profile.models!.length} 个模型</small>}</td>
+        <td data-label="状态" className="ai-supplier-state"><span className={profile.enabled ? "is-enabled" : ""}>{profile.enabled ? "已启用" : "已停用"}</span><small>图像：{profile.visionStatus === "supported" ? "已通过" : profile.visionStatus === "unsupported" ? "未通过" : "未测试"}</small></td>
+        <td className="ai-supplier-operations"><div className="ai-actions"><button type="button" disabled={busy} onClick={() => edit(profile)}>编辑</button><button type="button" disabled={busy || !profile.enabled} title="固定无敏感样例，测试可能产生调用费用" onClick={() => void test(profile)}>测试连接</button>{runningInTauri && <button type="button" disabled={busy || !profile.enabled} title="发送本机生成的不含敏感信息的测试图，可能产生调用费用" onClick={()=>void testVision(profile)}>测试图像</button>}<button type="button" disabled={busy} aria-label={`删除模型供应商 ${profile.name}`} onClick={() => { setMessage(""); setDeleting(profile.id); }}><Trash2 size={15} /></button></div></td>
+      </tr>)}</tbody></table></div>}
+      {!!filtered.length && <PaginationBar page={safePage} pageSize={pageSize} total={filtered.length} disabled={busy} onPageChange={setPage} onPageSizeChange={setPageSize} />}
+      {deleting && <ConfirmDialog title="删除模型供应商" message={`删除“${profiles.find(profile => profile.id === deleting)?.name ?? "此供应商"}”和保存的密钥？正在进行的调用将取消，已导入 Codex / Claude 的独立配置保留。`} confirmLabel="确认删除" busy={busy} error={message || undefined} onResolve={yes => { if (!yes) { setDeleting(null); return; } void action(async () => { await aiClient.remove(deleting); if (alive.current) { setDeleting(null); if (draft?.id === deleting) setDraft(null); await reload(); } }); }} />}
+      <details className="ai-supplier-help"><summary>使用与导入说明</summary><p>应用内识别填写、命令草稿和错误分析继续使用这里的供应商。添加 Codex 或 Claude 供应商时，可选择“从模型供应商导入”填入草稿；保存后由目标模块独立管理。连接与图像测试可能产生调用费用。</p></details>
       {draft && <SharedDialog sizeStorageKey="features/ai/ai-settings/ai-settings" title={draft.id ? "编辑模型供应商" : "添加模型供应商"} className="ai-config-form ai-config-dialog ai-workbench" bodyClassName="ai-config-dialog-body" initialFocus={"input[maxlength='120']"} noValidate onSubmit={event => void save(event)} onClose={closeEditor} closeLabel="取消编辑模型供应商" closeDisabled={busy} footerClassName="ai-actions ai-workbench-footer" footer={<><button type="button" disabled={busy} onClick={closeEditor}>取消</button><button type="submit" className="ai-primary" disabled={busy}><Save size={15} />{busy ? "处理中…" : "保存配置"}</button></>}>
         <label>配置名称<input autoFocus required maxLength={120} value={draft.name} onChange={e => setDraft({ ...draft, name: e.target.value })} placeholder="例如：我的运维模型" /></label>
         <label>接口协议<select disabled={busy} value={draft.protocol} onChange={e => { const next = protocols.find(p => p.value === e.target.value)!; setModels([]); setDraft({ ...draft, protocol: next.value, baseUrl: protocols.some(p => p.url === draft.baseUrl) ? next.url : draft.baseUrl }); }}>{protocols.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}</select></label>

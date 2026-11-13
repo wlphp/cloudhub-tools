@@ -1,3 +1,4 @@
+import { ToastNotice } from "../../shared/ToastNotice";
 import { PetPortrait } from "./PetPortrait";
 import { useEffect, useState } from "react";
 import { Check, ChevronDown, PawPrint } from "lucide-react";
@@ -40,7 +41,7 @@ export function PetSettingsPanel({ embedded = false }: { embedded?: boolean }) {
     </div>{!embedded && <button className="pet-settings-expand" aria-expanded={expanded} aria-controls="pet-settings-content" onClick={() => setExpanded(value => !value)}>{expanded ? "收起" : "展开"}<ChevronDown size={15} /></button>}</div>
     {expanded && <div id="pet-settings-content">
     {!runningInTauri ? <p>桌宠、后台巡检和托盘驻留仅支持桌面应用，浏览器预览不可用。</p> : <>
-      {error && <p role="alert" className="pet-error">{error}</p>}
+      {error && <ToastNotice message={error} tone="error" />}
       <div className="pet-settings-columns">
         <article className="pet-control-card pet-companion-card">
           <header><div><PetPortrait appearance={settings.appearance} className="pet-settings-portrait" /><strong>桌宠陪伴</strong><small>点击宠物查看提醒，拖动可移动</small></div>{toggle("enabled", "启用桌宠")}</header>

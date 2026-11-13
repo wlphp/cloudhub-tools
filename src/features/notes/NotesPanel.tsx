@@ -1,3 +1,4 @@
+import { ToastNotice } from "../../shared/ToastNotice";
 import { useDialogDocument } from "../../shared/DialogDocument";
 import { SelectionCheckbox, SortSelectionControls, useItemSelection } from "../../shared/SortSelectionControls";
 import { useSortableDrag } from "../../shared/useSortableDrag";
@@ -625,6 +626,6 @@ export function NotesPanel({ mobile = false, openSignal = 0 }: NotesPanelProps) 
         if (!confirmed) { setConfirmDelete(null); return; }
         void act(() => notesClient.remove([confirmDelete.id]), "删除备忘录失败", "已删除备忘录").then(() => setConfirmDelete(null));
       }} />, document.body)}
-    {toast && createPortal(<div className="toast-notice toast-top" role="status" aria-live="polite" aria-atomic="true">{toast}</div>, document.body)}
+    <ToastNotice message={toast} onDismiss={() => setToast("")} />
   </section>;
 }

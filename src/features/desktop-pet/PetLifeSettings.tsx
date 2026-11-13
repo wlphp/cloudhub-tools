@@ -1,3 +1,4 @@
+import { ToastNotice } from "../../shared/ToastNotice";
 import { useEffect, useState } from "react";
 import { CloudSun, Droplets, RefreshCw, Save } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
@@ -61,7 +62,7 @@ export function PetLifeSettings({ value, onSave, disabled, petEnabled }: { value
             <div className="pet-life-options">{check("stretch", "起身活动提醒", "可选：走动一下、远眺休息；与喝水同时到点时优先提醒喝水。")}</div>
             <div className="pet-life-grid"><label>活动间隔<select value={draft.stretchMinutes} onChange={e => change({ stretchMinutes: Number(e.target.value) })}>{[30,60,90,120].map(n => <option key={n} value={n}>每 {n} 分钟</option>)}</select></label></div>
           </section>
-          {error && <p role="alert" className="pet-error">{error}</p>}
+          {error && <ToastNotice message={error} tone="error" />}
           <div className="pet-life-actions"><span>{dirty ? "有未保存的修改" : "设置已保存"}</span><button type="button" className="secondary" disabled={dirty || !value?.enabled || !petEnabled} onClick={() => void run(async () => { await client.lifeAction("", "testWater"); })}><Droplets size={14} />试试喝水提醒</button><button type="submit" className="secondary" disabled={!dirty}><Save size={14} />保存生活提醒</button></div>
         </fieldset>
       </form>

@@ -1,3 +1,4 @@
+import { ToastNotice } from "../../shared/ToastNotice";
 import { useEffect, useRef, useState } from "react";
 import { Download, FolderOpen, HardDrive, Plus, RefreshCw, Upload } from "lucide-react";
 import { runningInTauri, runningOnPhone } from "../../platform/api";
@@ -7,6 +8,9 @@ import { ConfirmDialog } from "../../shared/ConfirmDialog";
 import { SecretField } from "../../shared/SecretField";
 import { useDialogDragging } from "../../shared/useDialogDragging";
 import { PlainTransferDialog } from "../../shared/PlainTransferDialog";
+import { ListSortHandle } from "../../shared/ListSortHandle";
+import { useListOrder } from "../../shared/useListOrder";
+import { useSortableDrag } from "../../shared/useSortableDrag";
 import "./cloud-drive.css";
 
 const fresh: DriveConnection = { id: "", name: "", provider: "Alibaba", endpoint: "https://oss-cn-hangzhou.aliyuncs.com", region: "cn-hangzhou", bucket: "", prefix: "", accessKeyId: "", pathStyle: false, mountPoint: "O:", readOnly: true, autoMount: false, cacheDir: "", cacheGib: 10, hasCredentials: false, hasSessionToken: false, alipanAppId: "", alipanDrive: "default" };
@@ -117,6 +121,12 @@ function ConnectionEditor({ value, busy, error, platform, onClose, onSave }: {
 export function CloudDrivePlugin() {
   const [snapshot, setSnapshot] = useState<DriveSnapshot | null>(null);
   const [busy, setBusy] = useState("");
+  const listOrder = useListOrder("cloud_drive_connection_order");
+  const connections = listOrder.sort(snapshot?.connections ?? [], connection => connection.id);
+  const connectionIds = connections.map(connection => connection.id);
+  const sortDisabled = !!busy || !listOrder.ready || listOrder.saving;
+  const moveConnection = (source: string, target: string) => { if (!sortDisabled) void listOrder.move(connectionIds, source, target); };
+  const { startDrag } = useSortableDrag({ selector: "[data-drive-sort-id]", attribute: "data-drive-sort-id", enabled: !sortDisabled, onMove: moveConnection });
   const lock = useRef(false);
   const mounted = useRef(false);
   const [error, setError] = useState("");
@@ -176,18 +186,20 @@ export function CloudDrivePlugin() {
     <div className="drive-dependencies"><div><strong>挂载引擎</strong><span>{dep.installed ? `已检测到 · ${dep.source}` : `未安装 · 按需下载 rclone ${dep.version}`}</span></div><button type="button" className="secondary" disabled={!!busy || download.phase === "downloading"} onClick={() => void operate("下载挂载引擎", client.install, "挂载引擎已下载并通过 SHA-256 校验")}><Download size={14} aria-hidden="true" />{dep.installed ? "重新下载已校验版本" : "下载挂载引擎"}</button>
       <div><strong>{dep.driver ?? "WinFsp"} 驱动</strong><span>{dep.winfsp ? "已检测到 · 挂载仍需具备系统权限" : "未检测到 · 安装可能需要管理员权限或重启"}</span></div><button type="button" className="secondary" disabled={!!busy} onClick={() => void operate("打开安装说明", client.winfsp, "已打开挂载驱动官方说明；安装后点击刷新")}>官方安装说明</button>
       {["downloading", "verifying"].includes(download.phase) && <div className="drive-download" role="status">{download.phase === "verifying" ? "正在校验并安装…" : `正在下载：${(download.downloaded / 1024 ** 2).toFixed(1)} MiB${download.total ? ` / ${(download.total / 1024 ** 2).toFixed(1)} MiB` : ""}`}<progress max={download.total || undefined} value={download.total ? download.downloaded : undefined} /></div>}</div>
-    <p className="drive-warning">适合资料和媒体文件，不建议用作数据库、虚拟机或软件安装目录。读写保存会先进入本地缓存；确认上传完成后再卸载。公网流量、API 请求及归档恢复可能收费。</p>
-    <div role="status" aria-live="polite" className="drive-feedback">{busy ? `正在${busy}…` : notice}</div>
-    {error && !editor && <p role="alert" className="drive-error">{error}</p>}
+    <details className="drive-guidance"><summary>适合资料和媒体文件；上传完成后再卸载。<span>使用须知</span></summary><p>不建议用作数据库、虚拟机或软件安装目录。读写保存会先进入本地缓存；确认上传完成后再卸载。公网流量、API 请求及归档恢复可能收费。</p></details>
+    <ToastNotice message={busy ? `正在${busy}…` : notice} tone={busy ? "progress" : undefined} duration={busy ? 0 : 4500} />
+    {!editor && <ToastNotice message={error} tone="error" />}
     {!snapshot.connections.length && <p className="drive-empty">还没有云盘连接。新增阿里云盘、OSS 或 S3 配置后，先授权并测试连接，再挂载。</p>}
-    <div className="drive-connections">{snapshot.connections.map(c => {
+    {!!connections.length && <div className="drive-list-heading"><strong>连接列表 · {connections.length}</strong><span>{listOrder.saving ? "正在保存排序…" : "拖动左侧手柄排序，也可聚焦后按 ↑ ↓"}</span></div>}
+    {listOrder.error && <p role="alert" className="drive-error">{listOrder.error}<button type="button" className="secondary" disabled={listOrder.saving} onClick={listOrder.retry}>重试</button></p>}
+    <div className="drive-connections">{connections.map(c => {
       const state = snapshot.mounts.find(s => s.id === c.id);
       const active = state?.phase === "mounted";
       const recovery = state?.phase === "recovery";
       const pending = !!state && (state.queued > 0 || state.uploading > 0 || state.errors > 0 || state.dirty || state.outOfSpace);
       const alipan = c.provider === "Alipan";
       const expired = alipan && (!c.authorized || !c.authorizationExpiresAt || c.authorizationExpiresAt * 1000 <= Date.now() + 30000);
-      return <article key={c.id} className="drive-connection"><header><div><h3>{c.name}<span>{c.readOnly ? "只读" : "读写"}</span></h3><p>{alipan ? "阿里云盘" : c.bucket}{c.prefix ? `/${c.prefix}` : ""} → {c.mountPoint}</p></div><strong>{active ? (pending ? "有待处理数据" : "已挂载") : recovery ? "需要恢复" : "未挂载"}</strong></header>
+      return <article key={c.id} className="drive-connection" data-drive-sort-id={c.id}><header><div className="drive-identity"><ListSortHandle id={c.id} name={c.name} ids={connectionIds} disabled={sortDisabled || connections.length < 2} onStart={startDrag} onMove={moveConnection} /><div><h3>{c.name}<span>{c.readOnly ? "只读" : "读写"}</span></h3><p>{alipan ? "阿里云盘" : c.bucket}{c.prefix ? `/${c.prefix}` : ""} → {c.mountPoint}</p></div></div><strong className="drive-mount-status">{active ? (pending ? "有待处理数据" : "已挂载") : recovery ? "需要恢复" : "未挂载"}</strong></header>
         <dl><div><dt>服务地址</dt><dd>{c.endpoint}</dd></div><div><dt>启动时挂载</dt><dd>{c.autoMount ? "开启" : "关闭"}</dd></div><div><dt>缓存</dt><dd>{gib(state?.bytesUsed ?? 0)} / 目标 {c.cacheGib} GiB</dd></div><div><dt>上传状态</dt><dd>{active ? `排队 ${state.queued} · 上传中 ${state.uploading} · 失败 ${state.errors}${state.dirty ? " · 尚有未上传修改" : ""}` : "挂载后可查看"}</dd></div></dl>
         {state?.outOfSpace && <p className="drive-error">缓存磁盘空间不足，请释放本机其他文件的空间；不要删除未上传缓存。</p>}
         {state?.message && <p className="drive-error">{state.message}</p>}

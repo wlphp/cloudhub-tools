@@ -1,3 +1,4 @@
+import { ToastNotice } from "../../shared/ToastNotice";
 import { useEffect, useRef, useState } from "react";
 import { AlertTriangle, ArrowRight, Database, Download, FolderOpen, HardDriveDownload, LockKeyhole, RefreshCw, RotateCcw, Trash2, Upload } from "lucide-react";
 import { appClient } from "../../platform/clients/app";
@@ -97,7 +98,7 @@ export function DataManagementPage({ language, onOpenDirectory, onPhoneMigration
       </div>
     </section>
     <CloudSyncSection onRestore={onRestore} />
-    {error && <p className="data-settings-error" role="alert">{error}</p>}
+    {error && <ToastNotice message={error} tone="error" />}
     <div className="settings-card"><div className="settings-icon purple"><Upload size={22} /></div><div className="settings-copy"><strong>{t("手机扫码迁移")}</strong><small>{t("通过扫码在设备间选择并迁移数据。")}</small></div><button type="button" className="secondary settings-link" onClick={onPhoneMigration}>{t("开始迁移")}</button></div>
     {backupOpen && <BackupRestoreDialog onClose={() => setBackupOpen(false)} onRestore={onRestore} onStatus={onStatus} />}
     {exportConfirm && <SqlExportDialog onClose={() => setExportConfirm(false)} onExport={async (tables, includeTrash) => { const path = await databaseClient.exportSql(tables, includeTrash); if (path) onStatus("明文 SQL 已导出，包含密码和私钥，请妥善保管。"); }} />}

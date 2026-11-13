@@ -1,8 +1,7 @@
-import { useDialogDocument } from "../../shared/DialogDocument";
+import { ToastNotice } from "../../shared/ToastNotice";
 import { useEffect, useState } from "react";
-import { createPortal } from "react-dom";
 import { invoke, runningInTauri, runningOnPhone } from "../../platform/api";
-import { AppWindow, Check, Eye, FileKey2, FileType, Loader2, Monitor, MonitorCog, Network, RefreshCw, RotateCcw, RotateCw, ShieldAlert, X } from "lucide-react";
+import { AppWindow, Eye, FileKey2, FileType, Loader2, Monitor, MonitorCog, Network, RefreshCw, RotateCcw, RotateCw, ShieldAlert } from "lucide-react";
 import { ConfirmDialog } from "../../shared/ConfirmDialog";
 import "./windows-toolbox.css";
 
@@ -21,21 +20,6 @@ const actions: { id: Action; title: string; detail: string; icon: typeof Monitor
   { id: "restart-explorer", title: "重启 Windows 资源管理器", detail: "重启桌面、任务栏和文件管理器外壳", icon: RotateCw },
 ];
 
-function WindowsToolboxToast({ message }: { message: string }) {
-  const document = useDialogDocument();
-  const [dismissed, setDismissed] = useState(false);
-  useEffect(() => {
-    setDismissed(false);
-    const timer = window.setTimeout(() => setDismissed(true), 6000);
-    return () => window.clearTimeout(timer);
-  }, [message]);
-  if (!message || dismissed) return null;
-  return createPortal(<div className="toast-notice windows-toolbox-toast" role="status" aria-live="polite" aria-atomic="true">
-    <Check size={16} aria-hidden="true" />
-    <span>{message}</span>
-    <button type="button" aria-label="关闭提示" title="关闭提示" onClick={() => setDismissed(true)}><X size={14} aria-hidden="true" /></button>
-  </div>, document.body);
-}
 
 function errorText(reason: unknown) {
   if (typeof reason === "string" && reason.trim()) return reason;
@@ -146,7 +130,7 @@ export function WindowsToolboxPlugin() {
   const toastMessage = credSspMessage || explorerPreferencesMessage || (message && busy !== "flush-dns" ? message : "");
 
   return <section className="windows-toolbox" aria-busy={Boolean(busy) || credSspBusy}>
-    <WindowsToolboxToast message={toastMessage} />
+    <ToastNotice message={toastMessage} />
     <details className="windows-toolbox-help">
       <summary>说明</summary>
       <div className="windows-toolbox-help-content">
@@ -161,7 +145,7 @@ export function WindowsToolboxPlugin() {
       </div>
     </details>
     {(!runningInTauri || runningOnPhone) && <p className="windows-toolbox-notice" role="status">{runningOnPhone ? "Windows 工具箱仅支持 Windows 桌面端，手机端暂不支持。" : "Windows 工具箱仅支持 Windows 桌面端；浏览器预览不会执行本机操作。"}</p>}
-    {error && <p className="windows-toolbox-feedback is-error" role="alert">{error}</p>}
+    <ToastNotice message={error} tone="error" />
     {busy === "flush-dns" && <div className="windows-toolbox-feedback is-pending windows-toolbox-progress" role="status" aria-live="polite">
       <strong>{message}</strong>
       <ol aria-label="DNS 缓存清理过程">

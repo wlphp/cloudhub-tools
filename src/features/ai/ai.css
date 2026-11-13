@@ -177,3 +177,88 @@
 .mobile-shell .ai-config-dialog-body > p { margin: 0; font-size: 12px; line-height: 1.55; }
 .mobile-shell .ai-config-dialog.ai-workbench.ide-theme > .ai-workbench-footer { display: grid; grid-template-columns: minmax(0,.8fr) minmax(0,1.2fr); gap: 10px; padding: 12px 14px max(12px,env(safe-area-inset-bottom)); }
 .mobile-shell .ai-config-dialog.ai-workbench.ide-theme > .ai-workbench-footer button { min-height: 46px; border-radius: 11px; font-weight: 650; }
+
+/* 商店中的共享供应商管理，桌面与手机复用同一列表。 */
+.ai-supplier-manager { margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; font-size: 13px; }
+.ai-supplier-manager .ai-settings-header { grid-template-columns: minmax(0,1fr) auto; gap: 8px 16px; margin: 0 0 12px; }
+.ai-supplier-manager .ai-settings-header > div:first-child { grid-column: 1; grid-row: 1; }
+.ai-supplier-manager .ai-settings-controls { grid-column: 2; grid-row: 1; }
+.ai-supplier-manager .ai-config-summary { grid-column: 1 / -1; grid-row: 2; }
+.ai-supplier-manager .ai-settings-description { white-space: normal; }
+.ai-supplier-manager.is-embedded .ai-settings-header > div:first-child { display: none; }
+.ai-supplier-manager.is-embedded .ai-config-summary { grid-column: 1; grid-row: 1; display: block !important; }
+.ai-supplier-manager.is-embedded .ai-settings-header { margin-bottom: 8px; }
+.ai-supplier-manager .ai-summary-stats { gap: 8px 18px; font-size: 12px; }
+.ai-supplier-manager .ai-supplier-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; min-width: 0; }
+.ai-supplier-manager .ai-supplier-search { display: flex; align-items: center; gap: 6px; flex: 0 1 320px; min-width: 0; margin: 0; padding: 0 8px; height: 30px; box-sizing: border-box; border: 1px solid var(--jb-border-strong); border-radius: 4px; background: var(--jb-input); }
+.ai-supplier-manager .ai-supplier-search svg { flex-shrink: 0; }
+.ai-supplier-manager .ai-supplier-search input { flex: 1; width: 0; min-width: 0; height: 100%; margin: 0; padding: 0; border: 0 !important; border-radius: 0 !important; background: transparent !important; box-shadow: none !important; outline: none; }
+.ai-supplier-manager .ai-supplier-search:focus-within { outline: 2px solid var(--jb-accent); outline-offset: 1px; }
+.ai-supplier-manager .ai-supplier-search input:focus-visible { outline: none !important; }
+.ai-supplier-manager .ai-supplier-filter { display: flex; align-items: center; gap: 6px; min-width: 0; margin: 0; }
+.ai-supplier-manager .ai-supplier-filter select { width: auto; max-width: 230px; height: 32px; padding: 0 6px; margin: 0; }
+.ai-supplier-manager .ai-supplier-total { color: var(--jb-muted); font-size: 12px; }
+.ai-supplier-manager .ai-supplier-table-wrap { min-width: 0; border: 1px solid var(--jb-border); border-radius: 4px; overflow: hidden; }
+.ai-supplier-manager .ai-supplier-table { width: 100%; min-width: 0; table-layout: fixed; border-collapse: collapse; font-size: 12px; text-align: left; }
+.ai-supplier-col-name { width: 14%; }
+.ai-supplier-col-protocol { width: 15%; }
+.ai-supplier-col-address { width: 23%; }
+.ai-supplier-col-model { width: 17%; }
+.ai-supplier-col-status { width: 11%; }
+.ai-supplier-col-actions { width: 240px; }
+.ai-supplier-manager .ai-supplier-table :is(th,td) { padding: 7px 10px; border: 0; border-bottom: 1px solid var(--jb-border); color: var(--jb-text); vertical-align: middle; line-height: 1.5; overflow-wrap: anywhere; white-space: normal; letter-spacing: normal; text-transform: none; }
+.ai-supplier-manager .ai-supplier-table th { padding-block: 6px; background: var(--jb-surface-2); color: var(--jb-muted); font-size: 12px; font-weight: 500; }
+.ai-supplier-manager .ai-supplier-table .ai-profile { display: table-row; padding: 0; border: 0; border-radius: 0; background: var(--jb-surface); box-shadow: none; }
+.ai-supplier-manager .ai-supplier-table .ai-profile:last-child td { border-bottom: 0; }
+.ai-supplier-manager .ai-supplier-table .ai-profile:hover td { background: var(--jb-surface-2); }
+.ai-supplier-manager .ai-supplier-table strong { font-size: 12px; font-weight: 600; }
+.ai-supplier-manager .ai-supplier-table :is(span,small) { margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; font-size: 12px; line-height: 1.5; }
+.ai-supplier-manager .ai-supplier-table small { display: block; font-size: 11px; color: var(--jb-muted); }
+.ai-supplier-manager .ai-supplier-table .ai-supplier-default { display: inline-block; margin-left: 6px; color: var(--jb-accent); font-size: 11px; }
+.ai-supplier-manager .ai-supplier-table .ai-supplier-address { color: var(--jb-muted); }
+.ai-supplier-manager .ai-supplier-state .is-enabled { color: var(--jb-success, var(--jb-green)); }
+.ai-supplier-manager .ai-supplier-operations .ai-actions { flex-wrap: nowrap; gap: 2px; }
+.ai-supplier-manager .ai-supplier-operations .ai-actions button { min-height: 26px; padding: 2px 6px; border-color: transparent; background: transparent; color: var(--jb-text); white-space: nowrap; }
+.ai-supplier-manager .ai-supplier-operations .ai-actions button:hover:not(:disabled) { color: var(--jb-accent); background: var(--jb-accent-soft); }
+.ai-supplier-manager .ai-supplier-operations .ai-actions button:last-child:hover:not(:disabled) { color: var(--jb-danger, var(--jb-red)); }
+.ai-supplier-manager .ai-actions { gap: 6px; }
+.ai-supplier-manager .ai-actions button,.ai-supplier-manager .ai-settings-controls button,.ai-supplier-manager .ai-supplier-toolbar > button { min-height: 30px; padding: 4px 9px; font-size: 12px; }
+.ai-supplier-manager .ai-supplier-empty { padding: 20px 12px; text-align: center; border: 1px dashed var(--jb-border); }
+.ai-supplier-manager .pagination-bar { margin-top: 10px; padding: 10px 0; }
+.ai-supplier-manager .pagination-bar .pagination-size { width: auto; }
+.ai-supplier-manager .ai-supplier-help { margin-top: 8px; font-size: 12px; color: var(--jb-muted); }
+.ai-supplier-manager .ai-supplier-help p { margin: 6px 0; }
+.ai-supplier-manager .ai-transfer { margin-top: 10px; padding-top: 10px; }
+.plugin-page-host:has(.ai-supplier-manager) { gap: 10px; }
+.plugin-page-host:has(.ai-supplier-manager) .plugin-page-head { margin-bottom: 0; }
+.plugin-page-host:has(.ai-supplier-manager) .plugin-page-head h1 { font-size: 20px; }
+@media (max-width: 1100px) {
+  .ai-supplier-manager .ai-supplier-table colgroup { display: none; }
+  .ai-supplier-manager .ai-supplier-table thead { display: none; }
+  .ai-supplier-manager .ai-supplier-table,.ai-supplier-manager .ai-supplier-table tbody { display: block; }
+  .ai-supplier-manager .ai-supplier-table .ai-profile { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); padding: 8px 10px; gap: 4px 12px; border-bottom: 1px solid var(--jb-border); }
+  .ai-supplier-manager .ai-supplier-table .ai-profile:last-child { border-bottom: 0; }
+  .ai-supplier-manager .ai-supplier-table .ai-profile td { display: block; padding: 0; border: 0; min-width: 0; }
+  .ai-supplier-manager .ai-supplier-table td[data-label]:not(.ai-supplier-name)::before { content: attr(data-label) "："; color: var(--jb-muted); font-size: 11px; }
+  .ai-supplier-manager .ai-supplier-table :is(.ai-supplier-name,.ai-supplier-protocol,.ai-supplier-address,.ai-supplier-operations) { grid-column: 1 / -1; }
+  .ai-supplier-manager .ai-supplier-table .ai-supplier-model span { display: inline; }
+  .ai-supplier-manager .ai-supplier-table .ai-supplier-model small { display: inline; margin-left: 6px; }
+  .ai-supplier-manager .ai-supplier-table .ai-supplier-state span { display: inline; }
+  .ai-supplier-manager .ai-supplier-table .ai-supplier-operations { margin-top: 3px; }
+}
+@media (max-width: 600px) {
+  .ai-supplier-manager { margin: 0; padding: 0; }
+  .ai-supplier-manager .ai-settings-header { gap: 8px; }
+  .ai-supplier-manager .ai-settings-header > div:first-child { grid-row: 1; }
+  .ai-supplier-manager .ai-settings-header .ai-settings-description { font-size: 12px !important; white-space: normal; line-height: 1.5 !important; }
+  .ai-supplier-manager .ai-config-summary { display: block; }
+  .ai-supplier-manager .ai-settings-controls { grid-row: 1; }
+  .ai-supplier-manager .ai-settings-controls button { min-height: 40px; }
+  .ai-supplier-manager .ai-supplier-search { flex-basis: 100%; height: 40px; }
+  .ai-supplier-manager .ai-supplier-filter { flex: 1; }
+  .ai-supplier-manager .ai-supplier-filter select { flex: 1; max-width: 100%; width: 0; height: 40px; }
+  .ai-supplier-manager .ai-actions { width: 100%; }
+  .ai-supplier-manager .ai-actions button,.ai-supplier-manager .ai-supplier-toolbar > button { min-height: 40px; }
+  .ai-supplier-manager .ai-supplier-operations .ai-actions button { min-height: 40px; padding-inline: 8px; }
+  .ai-supplier-manager .pagination-bar :is(button,input,select) { min-height: 36px; }
+}

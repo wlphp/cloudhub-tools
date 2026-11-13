@@ -3,6 +3,7 @@ import { officialPlugins } from "./registry";
 
 export type ApplicationSection = "flow" | "certificates" | "authenticator" | "claude" | "codex" | "frp" | "notes";
 const navigation: Record<string, { section?: ApplicationSection; order: number; sidebar: boolean; icon: typeof Cpu; keywords?: string }> = {
+  "cloudhub.model-suppliers": { order: 20, sidebar: false, icon: Bot, keywords: "AI 模型供应商 OpenAI Claude Gemini API 模型 配置 导入" },
   "cloudhub.cloud-drive": { order: 17, sidebar: false, icon: HardDrive, keywords: "云盘 阿里云盘 Alipan 挂载 OSS S3 rclone MinIO R2 WinFsp macFUSE FUSE 磁盘 对象存储" },
   "cloudhub.mail": { order: 15, sidebar: false, icon: Mail, keywords: "邮件 邮箱 收信 发信 QQ 网易 IMAP SMTP email mail" },
   "cloudhub.flow": { section: "flow", order: 1, sidebar: true, icon: GitBranch },

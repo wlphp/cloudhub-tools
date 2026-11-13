@@ -18,7 +18,7 @@ export interface CodexAccount {
   quota: { windows: CodexQuotaWindow[]; fetchedAt: number | null }; lastError: string | null; updatedAt: number;
 }
 export type CodexExportFormat = "cockpit_tools" | "auth_json" | "sub2api" | "cpa";
-export interface CodexState { accounts: CodexAccount[]; cliAvailable: boolean; desktopAvailable: boolean; canOpenDefault?: boolean; supportsRemoteLogs?: boolean; profileHome: string; currentAccountId: number | null; canRestore: boolean }
+export interface CodexState { accounts: CodexAccount[]; providerAccountIds?: number[]; cliAvailable: boolean; desktopAvailable: boolean; canOpenDefault?: boolean; supportsRemoteLogs?: boolean; profileHome: string; currentAccountId: number | null; canRestore: boolean }
 export interface CodexRemoteLog { id: string; timestamp: number; accountId: number | null; transport: string; method: string; url: string; status: number | null; outcome: string; durationMs: number; proxyMode: string; proxyUrl: string | null; proxyName?: string | null }
 export interface CodexRemoteLogState { enabled: boolean; logs: CodexRemoteLog[] }
 export interface CodexSwitchPreview { token: string; accountLabel: string; profileHome: string; hasPreviousAuth: boolean }
