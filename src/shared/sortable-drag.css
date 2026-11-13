@@ -1,0 +1,19 @@
+/* Readable source, restrained outline; no scaling or fade. */
+[data-sortable-settling] { position: relative !important; z-index: 30 !important; }
+[data-sortable-dragging] {
+  position: relative !important;
+  z-index: 30 !important;
+  opacity: 1 !important;
+  outline: 1px solid var(--jb-accent);
+  outline-offset: -1px;
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--jb-text) 12%, transparent) !important;
+  cursor: grabbing !important;
+}
+[data-sortable-dragging] button { cursor: grabbing !important; }
+[data-sortable-dragging] :is(td, .terminal-host-card-main) { opacity: 1 !important; }
+:is(.favorite-card-drag-handle, .panel-drag-handle, .terminal-host-drag-handle, .terminal-group-drag-handle, .codex-provider-reorder-handle, .auth-drag-handle) { touch-action: none; user-select: none; cursor: grab; }
+:is(.favorite-card-drag-handle, .panel-drag-handle, .terminal-host-drag-handle, .terminal-group-drag-handle, .codex-provider-reorder-handle, .auth-drag-handle):active { cursor: grabbing; }
+
+@media (prefers-reduced-motion: reduce) {
+  :is([data-favorite-asset-key], [data-panel-id], [data-managed-host-id], [data-managed-host-group], [data-provider-sort-id], [data-asset-row-key], [data-account-sort-id], [data-claude-provider-sort-id], [data-note-sort-id], [data-authenticator-sort-id]) { transition: none !important; animation: none !important; }
+}

@@ -506,3 +506,7 @@ body.theme-light .ide-theme .claude-icon-button.is-danger:not(:disabled):hover {
 .claude-backup-history-row small{color:var(--text-muted,#999);font-size:11px}
 .claude-backup-history-row button{flex:0 0 auto}
 @media(max-width:520px){.claude-backup-history-row{align-items:flex-start;flex-direction:column}}
+
+.claude-providers .claude-provider-drag-handle { grid-column: 1; grid-row: var(--provider-content-row); display: grid; place-items: center; align-self: start; width: 16px; min-width: 16px; height: 24px; min-height: 24px; margin: 0; padding: 0; border: 0; border-radius: 3px; background: transparent; color: var(--jb-muted); cursor: grab; touch-action: none; user-select: none; }
+.claude-providers .claude-provider-drag-handle:hover { color: var(--jb-accent-strong); background: var(--jb-surface-2); }
+.claude-providers .claude-provider-drag-handle:focus-visible { outline: 2px solid var(--jb-accent); outline-offset: 2px; }

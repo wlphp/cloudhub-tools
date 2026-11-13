@@ -1,3 +1,5 @@
+import { SortSelectionControls } from "../../shared/SortSelectionControls";
+import { useSortableDrag } from "../../shared/useSortableDrag";
 import { useDialogDocument } from "../../shared/DialogDocument";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -42,7 +44,8 @@ export function ModelProviders({ onChanged, privacy = false }: { onChanged?: () 
   const [preferencesLoading, setPreferencesLoading] = useState(true);
   const [savingSwitch, setSavingSwitch] = useState(false);
   const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
-  const [draggingProviderId, setDraggingProviderId] = useState<string | null>(null);
+  const [providerSorting, setProviderSorting] = useState(false);
+  const providerDrag = useSortableDrag({ enabled: providerSorting && !busy, selector: "[data-provider-sort-id]", attribute: "data-provider-sort-id", onMove: reorderProvider });
   const [editing, setEditing] = useState<ProviderInput | null>(null);
   const [fetchingModels, setFetchingModels] = useState(false);
   const [catalogMessage, setCatalogMessage] = useState("");
@@ -258,6 +261,10 @@ export function ModelProviders({ onChanged, privacy = false }: { onChanged?: () 
           <span>{visible.length} 个供应商</span>
         </div>
         <div className="codex-provider-actions">
+          <SortSelectionControls label="供应商" keys={visible.map(provider => provider.id)} selected={new Set(checkedProviders)} sorting={providerSorting} scope="当前结果" disabled={busy || loading} onSortingChange={setProviderSorting} onToggleAll={() => {
+            const ids = visible.map(provider => provider.id);
+            setCheckedProviders(current => ids.every(id => current.includes(id)) ? current.filter(id => !ids.includes(id)) : [...new Set([...current, ...ids])]);
+          }} />
           <button title="刷新供应商" aria-label="刷新供应商" disabled={busy || loading} onClick={() => void refresh()}><RefreshCw size={15} /></button>
           <button disabled={busy} onClick={() => edit()}><Plus size={15} />添加供应商</button>
           <button disabled={busy || loading || items.filter(v => v.wireApi === "chat_completions").reduce((count, v) => count + v.keys.length, 0) < 2} onClick={() => { setError(""); setAggregateEditing(freshAggregate()); }}><Plus size={15} />添加聚合供应商</button>
@@ -272,9 +279,9 @@ export function ModelProviders({ onChanged, privacy = false }: { onChanged?: () 
       {loading ? <p role="status">正在读取供应商...</p> : !visible.length ? <div className="codex-empty"><Server size={30} /><h2>{items.length ? "没有匹配的供应商" : "暂无模型供应商"}</h2><button onClick={() => edit()}><Plus size={15} />添加供应商</button></div> : <div className="codex-provider-list" aria-label="模型供应商">
         {visible.map(v => {
           const selected = selectedProviderId === v.id;
-          return <article className={`codex-provider-row${selected ? " is-selected" : ""}${draggingProviderId && draggingProviderId !== v.id ? " is-drop-target" : ""}`} key={v.id} aria-label={"模型供应商 " + v.name} onDragOver={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }} onDrop={event => { event.preventDefault(); const source = event.dataTransfer.getData("text/plain") || draggingProviderId; if (source) reorderProvider(source, v.id); setDraggingProviderId(null); }} onDragEnd={() => setDraggingProviderId(null)}>
-            <button type="button" className="codex-provider-reorder-handle" title="拖动排序，或使用上下方向键" aria-label={`排序 ${v.name}，按上下方向键调整位置`} disabled={busy} draggable={!busy} onKeyDown={event => { if (event.key === "ArrowUp" || event.key === "ArrowDown") { event.preventDefault(); moveProvider(v.id, event.key === "ArrowUp" ? -1 : 1); } }} onDragStart={event => { setDraggingProviderId(v.id); event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", v.id); }}><GripVertical size={17} /></button>
-            <input type="checkbox" aria-label={`选择导出 ${v.name}`} checked={checkedProviders.includes(v.id)} disabled={busy} onChange={event => setCheckedProviders(current => event.target.checked ? [...new Set([...current, v.id])] : current.filter(id => id !== v.id))} />
+          return <article className={`codex-provider-row${selected ? " is-selected" : ""}`} key={v.id} data-provider-sort-id={v.id} aria-label={"模型供应商 " + v.name}>
+            {providerSorting ? <button type="button" className="codex-provider-reorder-handle" title="拖动排序，或使用上下方向键" aria-label={`排序 ${v.name}，按上下方向键调整位置`} disabled={busy} onKeyDown={event => { if (event.key === "ArrowUp" || event.key === "ArrowDown") { event.preventDefault(); moveProvider(v.id, event.key === "ArrowUp" ? -1 : 1); } }} onPointerDown={event => { if (!busy) providerDrag.startDrag(event, v.id); }}><GripVertical size={17} /></button> : (
+            <input type="checkbox" aria-label={`选择导出 ${v.name}`} checked={checkedProviders.includes(v.id)} disabled={busy} onChange={event => setCheckedProviders(current => event.target.checked ? [...new Set([...current, v.id])] : current.filter(id => id !== v.id))} />)}
             <div className="codex-provider-row-info" role="button" tabIndex={0} aria-pressed={selected} onClick={() => setSelectedProviderId(v.id)} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedProviderId(v.id); } }}>
               <span className="codex-provider-avatar" aria-hidden="true">{v.name.trim().slice(0, 1).toLocaleUpperCase() || <Server size={17} />}</span>
               <span className="codex-provider-row-copy"><strong>{v.name}</strong><span>{v.wireApi === "responses" ? "Responses API" : "Chat Completions"} · {v.baseUrl} · {v.keys.length} 个密钥 · {v.models.length} 个模型</span></span>

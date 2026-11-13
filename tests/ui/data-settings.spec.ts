@@ -101,7 +101,7 @@ test("cloud operation history pagination buttons stay compact", async ({ page })
   await expect(editor).toBeHidden();
   await region.getByRole("button", { name: "上传记录", exact: true }).click();
   const history = page.getByRole("dialog", { name: "上传记录", exact: true });
-  const pagination = history.getByRole("navigation", { name: "记录分页" });
+  const pagination = history.getByRole("navigation", { name: "分页" });
   await expect(pagination).toBeVisible();
   await expect(pagination.getByRole("button")).toHaveCount(2);
   expect(await pagination.getByRole("button").evaluateAll(buttons => buttons.map(button => button.getBoundingClientRect().width).every(width => width <= 40))).toBe(true);

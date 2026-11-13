@@ -17,11 +17,11 @@ test.beforeEach(async ({ page }) => {
       if (command === "list_local_assets") return assets;
       if (command === "list_client_preferences") return {};
       if (command === "authenticator_status") return { configured: false, unlocked: false };
-      if (command === "sync_cloud_assets") return { fetched: 5, errors: [], counts: {} };
+      if (command === "sync_cloud_assets") return (window as any).cfSyncFails ? { fetched: 0, errors: ["测试同步失败"], counts: {} } : { fetched: 5, errors: [], counts: {} };
       if (command === "cloudflare_manage") {
-        if (args.action === "worker_template_deploy") {
-          assets.push({ account_id: 97, resource_type: "workers", asset_key: args.input.name, payload: { Id: args.input.name, Name: args.input.name }, fetched_at: 1 });
-          return { success: true, url: `https://${args.input.hostname}`, subscriptionUrl: `https://${args.input.hostname}/sub/test-fixture-path` };
+        if (args.action === "worker_access") {
+          if ((window as any).cfAccessMode === "denied") throw new Error("Cloudflare HTTP 403：权限不足");
+          return (window as any).cfAccessMode === "disabled" ? { enabled: false } : { enabled: true, url: "https://demo-worker.example.workers.dev" };
         }
         if (args.action === "worker_create") {
           if (args.input.name === "old-backend") throw new Error("不支持的 Cloudflare 操作");
@@ -36,38 +36,6 @@ test.beforeEach(async ({ page }) => {
       return [];
     } };
   });
-});
-
-test("VLESS template requires domain selection and sends dynamic config without source or credentials", async ({ page }) => {
-  await page.goto("/");
-  await page.getByRole("button", { name: "账号管理", exact: true }).click();
-  await page.getByRole("button", { name: "打开 fixture-cloudflare 资产汇总", exact: true }).click();
-  const manager = page.getByRole("dialog", { name: "fixture-cloudflare · Cloudflare 资产管理", exact: true });
-  await manager.getByRole("button", { name: "Workers (1)", exact: true }).click();
-  await manager.getByRole("button", { name: "新建 Worker", exact: true }).click();
-  const editor = page.getByRole("dialog", { name: "新建 Worker", exact: true });
-  await editor.getByRole("combobox", { name: "部署模板", exact: true }).selectOption("vless");
-  await expect(editor.getByRole("textbox", { name: "JavaScript 模块代码", exact: true })).toBeHidden();
-  await expect(editor.getByLabel("子域名前缀", { exact: true })).toBeDisabled();
-  await editor.getByRole("button", { name: "创建并部署", exact: true }).click();
-  expect(await page.evaluate(() => (window as any).cfCalls.some((c: any) => c.args?.action === "worker_template_deploy"))).toBe(false);
-  await editor.getByRole("combobox", { name: "选择域名", exact: true }).selectOption("b".repeat(32));
-  await editor.getByLabel("子域名前缀", { exact: true }).fill("my-node");
-  await editor.getByLabel("Worker 名称", { exact: true }).fill("my-vless");
-  const thirdParty = editor.getByRole("checkbox");
-  await expect(thirdParty).not.toBeChecked();
-  await expect(editor).toContainText("https://my-node.example.test");
-  for (const width of [375, 768, 1024, 1440]) {
-    await page.setViewportSize({ width, height: 900 });
-    expect(await editor.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
-  }
-  await editor.screenshot({ path: "test-results/cloudflare-vless-template.png" });
-  await editor.getByRole("button", { name: "创建并部署", exact: true }).click();
-  await expect(editor.getByLabel("Clash / Mihomo 订阅地址", { exact: true })).toHaveValue("https://my-node.example.test/sub/test-fixture-path");
-  const payload = await page.evaluate(() => (window as any).cfCalls.find((c: any) => c.args?.action === "worker_template_deploy").args.input);
-  expect(payload).toEqual({ template: "vless", name: "my-vless", zoneId: "b".repeat(32), hostname: "my-node.example.test", thirdParty: false });
-  await editor.getByRole("button", { name: "关闭", exact: true }).click();
-  await expect(manager).toContainText("my-vless");
 });
 
 test("Cloudflare account assets, DNS proxy, and guarded cloud deletion", async ({ page }) => {
@@ -110,6 +78,12 @@ test("Cloudflare account assets, DNS proxy, and guarded cloud deletion", async (
   await manager.getByRole("button", { name: "DNS 管理", exact: true }).click();
   const dns = page.getByRole("dialog", { name: "example.test · DNS 管理", exact: true });
   await expect(dns).toContainText("192.0.2.1");
+  await dns.getByRole("textbox", { name: "搜索 DNS 记录" }).fill("missing");
+  await expect(dns).toContainText("没有匹配的 DNS 记录");
+  await expect(dns).toContainText("显示 0 / 1 条记录");
+  await dns.getByRole("textbox", { name: "搜索 DNS 记录" }).fill(" 192.0.2 ");
+  await expect(dns).toContainText("显示 1 / 1 条记录");
+  await expect(dns.getByRole("textbox", { name: "搜索 DNS 记录" })).toHaveCSS("border-top-width", "0px");
   await dns.getByRole("button", { name: "开启代理", exact: true }).click();
   await page.getByRole("alertdialog").getByRole("button", { name: "取消", exact: true }).click();
   expect(await page.evaluate(() => (window as any).cfCalls.some((c: any) => c.args?.action === "dns_proxy"))).toBe(false);
@@ -138,6 +112,58 @@ test("Cloudflare account assets, DNS proxy, and guarded cloud deletion", async (
   await manager.screenshot({ path: "test-results/cloudflare-manager.png" });
 });
 
+test("Worker access, draft discard and partial sync feedback", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (text: string) => { (window as any).cfCopiedUrl = text; } } });
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "账号管理", exact: true }).click();
+  await page.getByRole("button", { name: "打开 fixture-cloudflare 资产汇总", exact: true }).click();
+  const manager = page.getByRole("dialog", { name: "fixture-cloudflare · Cloudflare 资产管理", exact: true });
+  await manager.getByRole("button", { name: "Workers (1)", exact: true }).click();
+  await manager.getByRole("button", { name: "访问地址", exact: true }).click();
+  const access = page.getByRole("dialog", { name: "demo-worker · 访问地址", exact: true });
+  await expect(access.getByRole("textbox")).toHaveValue("https://demo-worker.example.workers.dev");
+  await access.getByRole("button", { name: "复制地址", exact: true }).click();
+  await expect(access).toContainText("地址已复制");
+  expect(await page.evaluate(() => (window as any).cfCopiedUrl)).toBe("https://demo-worker.example.workers.dev");
+  await page.evaluate(() => { navigator.clipboard.writeText = async () => { throw new Error("Clipboard denied"); }; });
+  await access.getByRole("button", { name: "复制地址", exact: true }).click();
+  await expect(access.getByRole("alert")).toContainText("手动复制");
+  for (const width of [375, 768, 1024, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    expect(await access.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+  }
+  await access.screenshot({ path: "test-results/cloudflare-worker-access.png" });
+  await page.evaluate(() => { (window as any).cfAccessMode = "disabled"; });
+  await access.getByRole("button", { name: "刷新", exact: true }).click();
+  await expect(access).toContainText("访问已关闭");
+  await expect(access.getByRole("textbox")).toHaveCount(0);
+  await page.evaluate(() => { (window as any).cfAccessMode = "denied"; });
+  await access.getByRole("button", { name: "刷新", exact: true }).click();
+  await expect(access.getByRole("alert")).toContainText("权限不足");
+  await access.getByRole("button", { name: "关闭", exact: true }).click();
+  await manager.getByRole("button", { name: "新建 Worker", exact: true }).click();
+  const editor = page.getByRole("dialog", { name: "新建 Worker", exact: true });
+  const code = editor.getByRole("textbox", { name: "JavaScript 模块代码", exact: true });
+  await code.fill("export default {};");
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("alertdialog")).toContainText("代码尚未部署");
+  await page.getByRole("alertdialog").getByRole("button", { name: "取消", exact: true }).click();
+  await expect(code).toHaveValue("export default {};");
+  await editor.getByRole("button", { name: "取消", exact: true }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "确认", exact: true }).click();
+  await expect(editor).toBeHidden();
+  await page.evaluate(() => { (window as any).cfSyncFails = true; });
+  await manager.getByRole("button", { name: "同步当前分类", exact: true }).click();
+  await expect(manager.getByRole("alert")).toContainText("测试同步失败");
+  await expect(manager.getByRole("status")).toContainText("同步未完成");
+  await expect(manager).toContainText("demo-worker");
+  await page.evaluate(() => { (window as any).cfSyncFails = false; });
+  await manager.getByRole("button", { name: "同步当前分类", exact: true }).click();
+  await expect(manager.getByRole("alert")).toHaveCount(0);
+});
+
 test("Worker creation preserves drafts on failure and refreshes after deployment", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "账号管理", exact: true }).click();
@@ -154,6 +180,9 @@ test("Worker creation preserves drafts on failure and refreshes after deployment
   await manager.getByRole("button", { name: "新建 Worker", exact: true }).click();
   const name = editor.getByLabel("Worker 名称", { exact: true });
   const code = editor.getByRole("textbox", { name: "JavaScript 模块代码", exact: true });
+  await expect(editor.getByRole("combobox")).toHaveCount(0);
+  await expect(code).toHaveValue("");
+  await code.fill("export default { fetch() { return new Response('Test'); } };");
   await name.fill("old-backend");
   await editor.getByRole("button", { name: "创建并部署", exact: true }).click();
   await expect(editor.getByRole("alert")).toContainText("重新编译并重启");
@@ -181,6 +210,7 @@ test("Worker creation preserves drafts on failure and refreshes after deployment
   await expect(manager).toContainText("new-worker");
   await manager.getByRole("button", { name: "新建 Worker", exact: true }).click();
   await editor.getByLabel("Worker 名称", { exact: true }).fill("partial-worker");
+  await code.fill("export default { fetch() { return new Response('Test'); } };");
   await editor.getByRole("button", { name: "创建并部署", exact: true }).click();
   await expect(editor.getByRole("alert")).toContainText("地址未就绪");
   await expect(editor.getByRole("button", { name: "创建并部署", exact: true })).toBeHidden();

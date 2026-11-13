@@ -28,10 +28,12 @@ export function CloudflareManager({ account, initialKind = "domain", onClose, on
   const revision = useRef(0);
   const [zone, setZone] = useState<Row | null>(null);
   const [records, setRecords] = useState<Row[]>([]);
+  const [dnsKeyword, setDnsKeyword] = useState("");
   const [editor, setEditor] = useState<DnsDraft | null>(null);
   const [detail, setDetail] = useState<Row | null>(null);
   const [bucketName, setBucketName] = useState<string | null>(null);
   const [workerCreate, setWorkerCreate] = useState(false);
+  const [workerAccess, setWorkerAccess] = useState<{ name: string; enabled?: boolean; url?: string; warning?: string } | null>(null);
   const [ssl, setSsl] = useState<Row | null>(null);
   const [sslMode, setSslMode] = useState("strict");
   useEffect(() => {
@@ -44,15 +46,16 @@ export function CloudflareManager({ account, initialKind = "domain", onClose, on
   async function run(work: () => Promise<void>) {
     if (lock.current) return;
     lock.current = true; setBusy(true); setError(""); setMessage("");
-    try { await work(); } catch (e) { setError(String(e)); } finally { lock.current = false; setBusy(false); }
+    try { await work(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); } finally { lock.current = false; setBusy(false); }
   }
   async function sync(types: string[]) {
+    setError(""); setMessage("");
     ++revision.current;
     const result = await resourcesClient.sync(account.id, types);
     setAssets(await resourcesClient.listLocal({ accountId: account.id }));
-    await onChanged();
-    setMessage(`已更新 ${result.fetched} 项资产`);
+    setMessage(result.errors.length ? (result.fetched ? `同步部分完成：已更新 ${result.fetched} 项资产；失败分类保留原有缓存。` : "同步未完成：本次未更新资产，失败分类保留原有缓存。") : `已更新 ${result.fetched} 项资产`);
     if (result.errors.length) setError(result.errors.join("；"));
+    await onChanged();
   }
   async function mutate(action: CloudflareAction, input: Row, confirmation?: string) {
     if (confirmation && !(await onConfirm(confirmation))) return false;
@@ -63,8 +66,20 @@ export function CloudflareManager({ account, initialKind = "domain", onClose, on
   async function dnsList(item: Row) {
     const result = await cloudflareClient.manage(account.id, "dns_list", { zoneId: value(item, "Id") });
     setRecords(result.items || []);
+    if (zone?.Id !== item.Id) setDnsKeyword("");
     setZone(item);
   }
+  async function workerAddress(worker: string) {
+    setWorkerAccess({ name: worker });
+    const result = await cloudflareClient.manage(account.id, "worker_access", { name: worker });
+    setWorkerAccess({ name: worker, ...result });
+  }
+  async function copyWorkerAddress(url: string) {
+    try { await navigator.clipboard.writeText(url); setError(""); setMessage("地址已复制"); }
+    catch { setMessage(""); setError("复制失败，请选中上方地址后手动复制。"); }
+  }
+  const dnsQuery = dnsKeyword.trim().toLowerCase();
+  const visibleRecords = records.filter(row => ["name", "type", "content", "comment"].some(key => value(row, key).toLowerCase().includes(dnsQuery)));
   const filtered = assets.filter(a => a.resource_type === kind && `${a.payload.Name} ${a.asset_key}`.toLowerCase().includes(keyword.toLowerCase()));
   const notice = <>{error && <p role="alert" className="error-text">{error}</p>}{message && <p role="status">{message}</p>}</>;
   const consoleLink = <a href="https://dash.cloudflare.com/" target="_blank" rel="noreferrer">Cloudflare 控制台 ↗</a>;
@@ -86,6 +101,7 @@ export function CloudflareManager({ account, initialKind = "domain", onClose, on
         const item = asset.payload;
         return <tr key={asset.asset_key}><td>{value(item, "Name")}</td><td><code>{value(item, "Id")}</code></td><td>{value(item, "Status") || value(item, "location") || "—"}</td><td>{new Date(asset.fetched_at).toLocaleString()}</td><td><div className="asset-action-buttons">
           <button type="button" className="table-action" disabled={busy} onClick={() => setDetail(item)}>详情</button>
+          {kind === "workers" && <button type="button" className="table-action" disabled={busy} onClick={() => void run(() => workerAddress(value(item, "Id")))}>访问地址</button>}
           {kind === "domain" ? <>
             <button type="button" className="table-action" disabled={busy} onClick={() => void run(() => dnsList(item))}>DNS 管理</button>
             <button type="button" className="table-action" disabled={busy} onClick={() => void run(async () => { await mutate("purge_cache", { zoneId: item.Id }, `清空 ${item.Name} 的全部边缘缓存？回源请求可能增加。`); })}>清缓存</button>
@@ -99,14 +115,23 @@ export function CloudflareManager({ account, initialKind = "domain", onClose, on
       {!filtered.length && <p className="detail-empty">暂无匹配资产，请同步当前分类。仅显示 Token 有权访问的资源。</p>}
     </SharedDialog>
     {detail && <CloudflareAssetDetail asset={detail} kindLabel={kinds.find(([id]) => id === kind)?.[1] ?? "资产"} onClose={() => setDetail(null)} />}
-    {workerCreate && <CloudflareWorkerCreate accountId={account.id} zones={assets.filter(asset => asset.resource_type === "domain").map(asset => ({ id: value(asset.payload, "Id"), name: value(asset.payload, "Name") }))} onClose={() => setWorkerCreate(false)} onCreated={() => sync(["workers"])} />}
+    {workerCreate && <CloudflareWorkerCreate accountId={account.id} onClose={() => setWorkerCreate(false)} onCreated={() => sync(["workers"])} onConfirm={onConfirm} />}
+    {workerAccess && <SharedDialog title={`${workerAccess.name} · 访问地址`} size="small" sizeStorageKey="cloudflare-worker-access" onClose={() => setWorkerAccess(null)} closeDisabled={busy} busy={busy} footer={<><button type="button" className="secondary" disabled={busy} onClick={() => void run(() => workerAddress(workerAccess.name))}>刷新</button><button type="button" className="secondary" disabled={busy} onClick={() => setWorkerAccess(null)}>关闭</button></>}>
+      {notice}
+      {busy && <p role="status">正在读取云端访问设置…</p>}
+      {workerAccess.enabled === false && <p>此 Worker 的 workers.dev 访问已关闭。它仍可能通过自定义域名或路由提供服务。</p>}
+      {workerAccess.url && <><label>workers.dev 地址<input readOnly value={workerAccess.url} onFocus={event => event.target.select()} /></label><div className="cloudflare-access-actions"><button type="button" className="secondary" onClick={() => void copyWorkerAddress(workerAccess.url!)}>复制地址</button><a href={workerAccess.url} target="_blank" rel="noreferrer">打开地址 ↗</a></div><p>已读取云端地址设置；这不代表应用内容或网络连通性已经验证。</p></>}
+      {workerAccess.warning && <p role="alert">{workerAccess.warning}</p>}
+      {consoleLink}
+    </SharedDialog>}
     {zone && <SharedDialog sizeStorageKey="features/cloud/cloudflare-manager/cloudflare-manager/3" title={`${zone.Name} · DNS 管理`} onClose={() => { if (!busy) { setZone(null); setRecords([]); } }} closeDisabled={busy} footer={<><span>代理开关仅改变 Cloudflare 代理状态，不会停用 DNS 记录。</span><button type="button" className="primary" disabled={busy} onClick={() => setEditor({ ...emptyDns, name: value(zone, "Name") })}>添加记录</button><button type="button" className="secondary" disabled={busy} onClick={() => void run(() => dnsList(zone))}>刷新</button></>}>
       {!editor && notice}
-      <div className="resource-table-wrap"><table><thead><tr><th>类型</th><th>完整名称</th><th>内容</th><th>TTL</th><th>代理</th><th>操作</th></tr></thead><tbody>{records.map(row => <tr key={value(row, "id")}><td>{value(row, "type")}</td><td>{value(row, "name")}</td><td className="cloudflare-dns-content">{value(row, "content")}</td><td>{row.ttl === 1 ? "自动" : value(row, "ttl")}</td><td>{row.proxied ? "已代理" : "仅 DNS"}</td><td><div className="asset-action-buttons">
+      <div className="asset-list-toolbar"><label className="cloudflare-search"><Search size={15} aria-hidden="true" /><input aria-label="搜索 DNS 记录" placeholder="搜索域名 / 类型 / 内容 / 备注" value={dnsKeyword} onChange={event => setDnsKeyword(event.target.value)} /></label><span className="cloudflare-record-count">显示 {visibleRecords.length} / {records.length} 条记录</span></div>
+      <div className="resource-table-wrap"><table><thead><tr><th>类型</th><th>完整名称</th><th>内容</th><th>TTL</th><th>代理</th><th>操作</th></tr></thead><tbody>{visibleRecords.map(row => <tr key={value(row, "id")}><td>{value(row, "type")}</td><td>{value(row, "name")}</td><td className="cloudflare-dns-content">{value(row, "content")}</td><td>{row.ttl === 1 ? "自动" : value(row, "ttl")}</td><td>{row.proxied ? "已代理" : "仅 DNS"}</td><td><div className="asset-action-buttons">
         <button type="button" className="table-action" disabled={busy || !editableTypes.includes(value(row, "type"))} onClick={() => setEditor({ recordId: value(row, "id"), type: value(row, "type"), name: value(row, "name"), content: value(row, "content"), ttl: Number(row.ttl) || 1, priority: Number(row.priority) || 0, proxied: Boolean(row.proxied) })}>编辑</button>
         {row.proxiable === true && <button type="button" className="table-action" disabled={busy} onClick={() => void run(async () => { if (await mutate("dns_proxy", { zoneId: zone.Id, recordId: row.id, proxied: !row.proxied }, `将 ${row.name} 切换为${row.proxied ? "仅 DNS" : "Cloudflare 代理"}？这会改变流量路由。`)) await dnsList(zone); })}>{row.proxied ? "关闭代理" : "开启代理"}</button>}
         <button type="button" className="table-action danger" disabled={busy} onClick={() => void run(async () => { if (await mutate("dns_delete", { zoneId: zone.Id, recordId: row.id }, `永久删除 ${row.type} ${row.name} 记录？可能导致对应服务不可达。`)) await dnsList(zone); })}>删除</button>
-      </div></td></tr>)}</tbody></table></div>{!records.length && <p>暂无 DNS 记录</p>}
+      </div></td></tr>)}</tbody></table></div>{!visibleRecords.length && <p>{records.length ? "没有匹配的 DNS 记录，请调整搜索条件。" : "暂无 DNS 记录"}</p>}
     </SharedDialog>}
     {editor && zone && <SharedDialog sizeStorageKey="features/cloud/cloudflare-manager/cloudflare-manager/4" title={editor.recordId ? "编辑 DNS 记录" : "添加 DNS 记录"} onClose={() => setEditor(null)} closeDisabled={busy} onSubmit={e => { e.preventDefault(); void run(async () => { if (await mutate("dns_save", { zoneId: zone.Id, ...editor }, `保存 ${editor.type} ${editor.name} 到 Cloudflare？现有解析可能立即变化。`)) { setEditor(null); await dnsList(zone); } }); }} footer={<><button type="button" className="secondary" disabled={busy} onClick={() => setEditor(null)}>取消</button><button type="submit" className="primary" disabled={busy}>保存到 Cloudflare</button></>}>
       {notice}<div className="form-grid"><label>类型<select value={editor.type} onChange={e => setEditor({ ...editor, type: e.target.value, proxied: false })}>{editableTypes.map(type => <option key={type}>{type}</option>)}</select></label><label>完整域名<input required value={editor.name} onChange={e => setEditor({ ...editor, name: e.target.value })} /></label><label>内容<input required value={editor.content} onChange={e => setEditor({ ...editor, content: e.target.value })} /></label><label>TTL（1 为自动）<input required type="number" min={1} max={86400} value={editor.ttl} onChange={e => setEditor({ ...editor, ttl: Number(e.target.value) })} /></label>{editor.type === "MX" && <label>优先级<input required type="number" min={0} max={65535} value={editor.priority} onChange={e => setEditor({ ...editor, priority: Number(e.target.value) })} /></label>}{["A", "AAAA", "CNAME"].includes(editor.type) && <label>Cloudflare 代理<select value={String(editor.proxied)} onChange={e => setEditor({ ...editor, proxied: e.target.value === "true" })}><option value="false">仅 DNS</option><option value="true">已代理（TTL 自动）</option></select></label>}</div>

@@ -17,7 +17,7 @@ test("managed server drag sorting uses the upper and lower halves of the target 
   await page.goto("/");
   await page.getByRole("button", { name: "终端管理", exact: true }).click();
   const tree = page.locator(".terminal-host-tree");
-  await page.getByRole("button", { name: "排序", exact: true }).click();
+  await page.getByRole("button", { name: "服务器排序", exact: true }).click();
 
   const alphaHandle = tree.locator('.terminal-group-drag-handle[aria-label="拖动分组排序 Alpha"]');
   const alphaHandleBox = (await alphaHandle.boundingBox())!;

@@ -1,3 +1,7 @@
+import { SelectionCheckbox, SortSelectionControls, useItemSelection } from "./shared/SortSelectionControls";
+import { usePointerResize } from "./shared/usePointerResize";
+import { useSortableDrag } from "./shared/useSortableDrag";
+import { useAssetRowDrag } from "./features/assets/useAssetRowDrag";
 import { DialogPage } from "./shared/DialogPage";
 import { detachablePageTitles, softwarePageDestinations } from "./features/app/pageDetachment";
 import { CloudflareManager } from "./features/cloud/CloudflareManager";
@@ -60,6 +64,7 @@ import {
   cloudHubAssetNotesStorageKey,
   cloudHubAboutStarDismissedStorageKey,
   cloudHubAssetOrderStorageKey,
+  cloudHubAccountOrderStorageKey,
   cloudHubUiZoomStorageKey,
   cloudHubUiThemeStorageKey,
   readUiTheme,
@@ -262,7 +267,7 @@ function syncAssetTypes(account: Account): ReadonlyArray<(typeof assetTypes)[num
 }
 const assetTypes = catalogAssetTypes;
 
-const bundledVersion = "0.1.136";
+const bundledVersion = "0.1.137";
 const isDevelopmentBuild = import.meta.env.DEV;
 
 const detachedTerminalHostId = (() => {
@@ -347,12 +352,16 @@ function App() {
   const [uiTheme, setUiTheme] = useState<"light" | "dark">(readUiTheme);
   const [showTrash, setShowTrash] = useState(false);
   useDialogDragging();
+  const startPaneResize = usePointerResize();
   const trashGroups = useTrashGroups();
   const trashGroups_flat = trashGroups.snapshot?.groups ?? [];
   const trashTotal = trashGroups_flat.reduce((sum, group) => sum + group.items.length, 0);
   const trashActions = useTrashActions(trashGroups.reload, () => setShowTrash(false));
   const exportSelection = useExportSelection();
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [accountOrder, setAccountOrder] = useState<string[]>(() => stringListFromValue(readLocalStorage(cloudHubAccountOrderStorageKey) || undefined));
+  const [accountSorting, setAccountSorting] = useState(false);
+  const accountDrag = useSortableDrag({ selector: "[data-account-sort-id]", attribute: "data-account-sort-id", enabled: accountSorting, onMove: moveAccountBefore });
   const [selectedAccountIds, setSelectedAccountIds] = useState<Set<number>>(() => new Set());
   const [showSyncTransfer, setShowSyncTransfer] = useState(false);
   const [keyword, setKeyword] = useState("");
@@ -443,7 +452,8 @@ function App() {
   const panelRefreshRequestsRef = useRef(new Map<number, Promise<PanelConnection>>());
   const [panelOpeningId, setPanelOpeningId] = useState<number | null>(null);
   const [panelSorting, setPanelSorting] = useState(false);
-  const [draggedPanelId, setDraggedPanelId] = useState<number | null>(null);
+  const panelDrag = useSortableDrag({ selector: "[data-panel-id]", attribute: "data-panel-id", layout: "grid", enabled: panelSorting, onMove: (source, target) => { void reorderPanels(Number(source), Number(target)); } });
+  const draggedPanelId = panelDrag.draggedKey === null ? null : Number(panelDrag.draggedKey);
   const [panelKeyword, setPanelKeyword] = useState("");
   const [panelGroup, setPanelGroup] = useState("");
   const [panelStatusFilter, setPanelStatusFilter] = useState("");
@@ -463,7 +473,6 @@ function App() {
     return [0, 5, 10, 30, 60].includes(value) ? value : 0;
   });
   const panelRefreshInFlightRef = useRef(false);
-  const panelDragIdRef = useRef<number | null>(null);
   const panelImportInputRef = useRef<HTMLInputElement>(null);
   const [managedHosts, setManagedHosts] = useState<ManagedHost[]>([]);
   const [managedHostsLoading, setManagedHostsLoading] = useState(isDetachedTerminalWindow);
@@ -485,8 +494,9 @@ function App() {
   const [recentManagedHostsCollapsed, setRecentManagedHostsCollapsed] = useState(() => readLocalStorage(cloudHubRecentManagedHostsCollapsedStorageKey) === "1");
   const [managedHostGroupOrder, setManagedHostGroupOrder] = useState<string[]>(() => stringListFromValue(readLocalStorage(cloudHubManagedHostGroupOrderStorageKey) || undefined));
   const [managedHostSorting, setManagedHostSorting] = useState(false);
-  const [draggedManagedHostId, setDraggedManagedHostId] = useState<number | null>(null);
-  const [draggedManagedHostGroup, setDraggedManagedHostGroup] = useState<string | null>(null);
+  const managedHostDrag = useSortableDrag({ selector: "[data-managed-host-id]", attribute: "data-managed-host-id", enabled: managedHostSorting, scope: "[data-managed-host-group]", insertion: "edges", onMove: (source, target, after) => reorderManagedHosts(Number(source), Number(target), after), onPreview: drop => setManagedHostDropPosition(drop ? { id: Number(drop.key), side: drop.side } : null) });
+  const draggedManagedHostId = managedHostDrag.draggedKey === null ? null : Number(managedHostDrag.draggedKey);
+  const { draggedKey: draggedManagedHostGroup, startDrag: startManagedHostGroupDrag } = useSortableDrag({ selector: "[data-managed-host-group]", attribute: "data-managed-host-group", enabled: managedHostSorting, scope: ".terminal-host-tree", insertion: "edges", hitArea: ".terminal-host-group-head", onMove: reorderManagedHostGroups, onPreview: drop => setManagedHostGroupDropPosition(drop ? { group: drop.key, side: drop.side } : null) });
   const [managedHostDropPosition, setManagedHostDropPosition] = useState<{ id: number; side: "before" | "after" } | null>(null);
   const [managedHostGroupDropPosition, setManagedHostGroupDropPosition] = useState<{ group: string; side: "before" | "after" } | null>(null);
   const [collapsedManagedHostGroups, setCollapsedManagedHostGroups] = useState<Set<string>>(() => new Set(stringListFromValue(readLocalStorage(cloudHubManagedHostCollapsedGroupsStorageKey) || undefined)));
@@ -533,6 +543,10 @@ function App() {
   const [savingAssetName, setSavingAssetName] = useState<string | null>(null);
   const [assetNotes, setAssetNotes] = useState<Record<string, string>>(() => stringRecordFromValue(readLocalStorage(cloudHubAssetNotesStorageKey) || undefined));
   const [assetOrder, setAssetOrder] = useState<string[]>(() => stringListFromValue(readLocalStorage(cloudHubAssetOrderStorageKey) || undefined));
+  const [assetSorting, setAssetSorting] = useState(false);
+  const [favoriteSorting, setFavoriteSorting] = useState(false);
+  const assetSelection = useItemSelection<string>();
+  const favoriteSelection = useItemSelection<string>();
   const [favoriteAssetOrder, setFavoriteAssetOrder] = useState<string[]>(() => stringListFromValue(readLocalStorage(cloudHubFavoriteAssetOrderStorageKey) || undefined));
   const [assetDisplayNames, setAssetDisplayNames] = useState<Record<string, string>>(() => stringRecordFromValue(readLocalStorage(cloudHubAssetDisplayNamesStorageKey) || undefined));
   const [editingAssetNote, setEditingAssetNote] = useState<{ key: string; value: string; initial: string } | null>(null);
@@ -540,12 +554,8 @@ function App() {
   const favoriteRefreshRequests = useRef(new Map<string, ReturnType<typeof resourcesClient.sync>>());
   const favoriteRefreshAccountQueues = useRef(new Map<number, Promise<unknown>>());
   const favoriteRefreshPendingKeys = useRef(new Set<string>());
-  const [draggedAssetKey, setDraggedAssetKey] = useState<string | null>(null);
-  const [draggedFavoriteKey, setDraggedFavoriteKey] = useState<string | null>(null);
-  const assetDragKeyRef = useRef<string | null>(null);
-  const favoriteDragKeyRef = useRef<string | null>(null);
-  const managedHostDragIdRef = useRef<number | null>(null);
-  const managedHostGroupDragRef = useRef<string | null>(null);
+  const { draggedKey: draggedAssetKey, startDrag: startAssetDrag } = useAssetRowDrag(moveAssetBefore, assetSorting);
+  const { draggedKey: draggedFavoriteKey, startDrag: startFavoriteCardDrag } = useSortableDrag({ selector: "[data-favorite-asset-key]", attribute: "data-favorite-asset-key", layout: "grid", enabled: favoriteSorting, onMove: moveFavoriteBefore });
   const [assetMoreKey, setAssetMoreKey] = useState<string | null>(null);
   const [logPage, setLogPage] = useState(1);
   const [apiLogPage, setApiLogPage] = useState(1);
@@ -1204,28 +1214,7 @@ function App() {
       await loadPanelConnections();
     }
   }
-  function startPanelDrag(event: PointerEvent<HTMLButtonElement>, sourceId: number) {
-    if (event.pointerType === "mouse" && event.button !== 0) return;
-    event.preventDefault();
-    event.currentTarget.setPointerCapture(event.pointerId);
-    panelDragIdRef.current = sourceId;
-    setDraggedPanelId(sourceId);
-    const endDrag = (endEvent: globalThis.PointerEvent) => {
-      const target = document.elementFromPoint(endEvent.clientX, endEvent.clientY)?.closest<HTMLElement>("[data-panel-id]");
-      const targetId = Number(target?.dataset.panelId);
-      if (panelDragIdRef.current !== null && Number.isInteger(targetId)) void reorderPanels(panelDragIdRef.current, targetId);
-      panelDragIdRef.current = null;
-      setDraggedPanelId(null);
-      document.removeEventListener("pointercancel", cancelDrag);
-    };
-    const cancelDrag = () => {
-      panelDragIdRef.current = null;
-      setDraggedPanelId(null);
-      document.removeEventListener("pointerup", endDrag);
-    };
-    document.addEventListener("pointerup", endDrag, { once: true });
-    document.addEventListener("pointercancel", cancelDrag, { once: true });
-  }
+  function startPanelDrag(event: PointerEvent<HTMLButtonElement>, sourceId: number) { panelDrag.startDrag(event, String(sourceId)); }
   function refreshPanelMetrics(id: number): Promise<PanelConnection> {
     const existing = panelRefreshRequestsRef.current.get(id);
     if (existing) return existing;
@@ -1387,7 +1376,7 @@ function App() {
   }
   function toggleAllVisiblePanels() {
     setSelectedPanelIds((current) => {
-      const ids = visiblePanels.map((panel) => panel.id);
+      const ids = pagedPanels.map((panel) => panel.id);
       const allSelected = ids.length > 0 && ids.every((id) => current.has(id));
       const next = new Set(current);
       ids.forEach((id) => allSelected ? next.delete(id) : next.add(id));
@@ -1593,137 +1582,13 @@ function App() {
     const groupHostIdSet = new Set(groupHostIds);
     setManagedHostOrder((current) => [...current.filter((id) => !groupHostIdSet.has(id)), ...nextGroupHostIds]);
   }
-  function startManagedHostDrag(event: PointerEvent<HTMLButtonElement>, sourceId: number) {
-    if (event.pointerType === "mouse" && event.button !== 0) return;
-    event.preventDefault();
-    const pointerId = event.pointerId;
-    const startX = event.clientX;
-    const startY = event.clientY;
-    let dragging = false;
-    managedHostDragIdRef.current = sourceId;
-    const updateDropPosition = (clientX: number, clientY: number) => {
-      const tree = document.querySelector<HTMLElement>(".terminal-host-tree");
-      if (tree) {
-        const bounds = tree.getBoundingClientRect();
-        const edge = Math.min(36, bounds.height * 0.12);
-        if (clientY < bounds.top + edge) tree.scrollTop -= Math.max(4, Math.round((bounds.top + edge - clientY) / 3));
-        else if (clientY > bounds.bottom - edge) tree.scrollTop += Math.max(4, Math.round((clientY - (bounds.bottom - edge)) / 3));
-      }
-      const target = document.elementFromPoint(clientX, clientY)?.closest<HTMLElement>("[data-managed-host-id]");
-      const targetId = Number(target?.dataset.managedHostId);
-      const source = managedHosts.find((host) => host.id === sourceId);
-      const targetHost = managedHosts.find((host) => host.id === targetId);
-      if (!target || !targetHost || targetId === sourceId || !source || (source.group_name || "未分组") !== (targetHost.group_name || "未分组")) {
-        setManagedHostDropPosition(null);
-        return null;
-      }
-      const rect = target.getBoundingClientRect();
-      const side = clientY >= rect.top + rect.height / 2 ? "after" : "before";
-      setManagedHostDropPosition((current) => current?.id === targetId && current.side === side ? current : { id: targetId, side });
-      return { targetId, placeAfter: side === "after" };
-    };
-    const moveDrag = (moveEvent: globalThis.PointerEvent) => {
-      if (moveEvent.pointerId !== pointerId) return;
-      if (!dragging) {
-        if (Math.hypot(moveEvent.clientX - startX, moveEvent.clientY - startY) < 5) return;
-        dragging = true;
-        setDraggedManagedHostId(sourceId);
-      }
-      moveEvent.preventDefault();
-      updateDropPosition(moveEvent.clientX, moveEvent.clientY);
-    };
-    const cleanup = () => {
-      managedHostDragIdRef.current = null;
-      setDraggedManagedHostId(null);
-      setManagedHostDropPosition(null);
-      window.removeEventListener("pointermove", moveDrag, true);
-      window.removeEventListener("pointerup", endDrag, true);
-      window.removeEventListener("pointercancel", cancelDrag, true);
-    };
-    const endDrag = (endEvent: globalThis.PointerEvent) => {
-      if (endEvent.pointerId !== pointerId) return;
-      if (dragging && managedHostDragIdRef.current !== null) {
-        const drop = updateDropPosition(endEvent.clientX, endEvent.clientY);
-        if (drop && Number.isInteger(drop.targetId)) reorderManagedHosts(sourceId, drop.targetId, drop.placeAfter);
-      }
-      cleanup();
-    };
-    const cancelDrag = (cancelEvent: globalThis.PointerEvent) => {
-      if (cancelEvent.pointerId !== pointerId) return;
-      cleanup();
-    };
-    window.addEventListener("pointermove", moveDrag, true);
-    window.addEventListener("pointerup", endDrag, true);
-    window.addEventListener("pointercancel", cancelDrag, true);
-  }
+  function startManagedHostDrag(event: PointerEvent<HTMLButtonElement>, sourceId: number) { managedHostDrag.startDrag(event, String(sourceId)); }
   function reorderManagedHostGroups(sourceGroup: string, targetGroup: string, placeAfter = false) {
     if (!sourceGroup || sourceGroup === targetGroup) return;
     const nextGroups = managedHostGroups.filter((group) => group !== sourceGroup);
     const targetIndex = nextGroups.indexOf(targetGroup);
     nextGroups.splice(targetIndex + (placeAfter ? 1 : 0), 0, sourceGroup);
     setManagedHostGroupOrder(nextGroups);
-  }
-  function startManagedHostGroupDrag(event: PointerEvent<HTMLButtonElement>, sourceGroup: string) {
-    if (event.pointerType === "mouse" && event.button !== 0) return;
-    event.preventDefault();
-    const pointerId = event.pointerId;
-    const startX = event.clientX;
-    const startY = event.clientY;
-    let dragging = false;
-    managedHostGroupDragRef.current = sourceGroup;
-    const updateDropPosition = (clientX: number, clientY: number) => {
-      const tree = document.querySelector<HTMLElement>(".terminal-host-tree");
-      if (tree) {
-        const bounds = tree.getBoundingClientRect();
-        const edge = Math.min(36, bounds.height * 0.12);
-        if (clientY < bounds.top + edge) tree.scrollTop -= Math.max(4, Math.round((bounds.top + edge - clientY) / 3));
-        else if (clientY > bounds.bottom - edge) tree.scrollTop += Math.max(4, Math.round((clientY - (bounds.bottom - edge)) / 3));
-      }
-      const target = document.elementFromPoint(clientX, clientY)?.closest<HTMLElement>("[data-managed-host-group]");
-      const targetGroup = target?.dataset.managedHostGroup;
-      const targetRow = target?.querySelector<HTMLElement>(":scope > .terminal-host-group-head") || target;
-      if (!target || !targetGroup || targetGroup === sourceGroup) {
-        setManagedHostGroupDropPosition(null);
-        return null;
-      }
-      const rect = targetRow!.getBoundingClientRect();
-      const side = clientY >= rect.top + rect.height / 2 ? "after" : "before";
-      setManagedHostGroupDropPosition((current) => current?.group === targetGroup && current.side === side ? current : { group: targetGroup, side });
-      return { targetGroup, placeAfter: side === "after" };
-    };
-    const moveDrag = (moveEvent: globalThis.PointerEvent) => {
-      if (moveEvent.pointerId !== pointerId) return;
-      if (!dragging) {
-        if (Math.hypot(moveEvent.clientX - startX, moveEvent.clientY - startY) < 5) return;
-        dragging = true;
-        setDraggedManagedHostGroup(sourceGroup);
-      }
-      moveEvent.preventDefault();
-      updateDropPosition(moveEvent.clientX, moveEvent.clientY);
-    };
-    const cleanup = () => {
-      managedHostGroupDragRef.current = null;
-      setDraggedManagedHostGroup(null);
-      setManagedHostGroupDropPosition(null);
-      window.removeEventListener("pointermove", moveDrag, true);
-      window.removeEventListener("pointerup", endDrag, true);
-      window.removeEventListener("pointercancel", cancelDrag, true);
-    };
-    const endDrag = (endEvent: globalThis.PointerEvent) => {
-      if (endEvent.pointerId !== pointerId) return;
-      if (dragging && managedHostGroupDragRef.current) {
-        const drop = updateDropPosition(endEvent.clientX, endEvent.clientY);
-        if (drop) reorderManagedHostGroups(sourceGroup, drop.targetGroup, drop.placeAfter);
-      }
-      cleanup();
-    };
-    const cancelDrag = (cancelEvent: globalThis.PointerEvent) => {
-      if (cancelEvent.pointerId !== pointerId) return;
-      cleanup();
-    };
-    window.addEventListener("pointermove", moveDrag, true);
-    window.addEventListener("pointerup", endDrag, true);
-    window.addEventListener("pointercancel", cancelDrag, true);
   }
   function openDetachedTerminalWindow(hostId: number, title?: string, onCreated?: () => void) {
     if (!runningInTauri) { setStatus("独立终端窗口仅支持桌面客户端"); return; }
@@ -2044,38 +1909,6 @@ function App() {
     const remaining = localAssets.map(assetFavoriteKey).filter((key) => !visibleKeySet.has(key));
     setAssetOrder([...nextVisible, ...remaining]);
   }
-  function startAssetDrag(event: PointerEvent<HTMLButtonElement>, sourceKey: string) {
-    if (event.pointerType === "mouse" && event.button !== 0) return;
-    event.preventDefault();
-    const handle = event.currentTarget;
-    handle.setPointerCapture(event.pointerId);
-    assetDragKeyRef.current = sourceKey;
-    setDraggedAssetKey(sourceKey);
-    // 指针捕获期间命中测试被接管，松开后手柄可能残留 hover 高亮；
-    // 失焦并逐帧关闭命中测试，促使浏览器重算 :hover。
-    const clearHandleResidue = () => {
-      handle.blur();
-      handle.style.pointerEvents = "none";
-      requestAnimationFrame(() => { handle.style.pointerEvents = ""; });
-    };
-    const endDrag = (endEvent: globalThis.PointerEvent) => {
-      const target = document.elementFromPoint(endEvent.clientX, endEvent.clientY)?.closest<HTMLElement>("[data-asset-row-key]");
-      const targetKey = target?.dataset.assetRowKey;
-      if (assetDragKeyRef.current && targetKey) moveAssetBefore(assetDragKeyRef.current, targetKey);
-      assetDragKeyRef.current = null;
-      setDraggedAssetKey(null);
-      clearHandleResidue();
-      document.removeEventListener("pointercancel", cancelDrag);
-    };
-    const cancelDrag = () => {
-      assetDragKeyRef.current = null;
-      setDraggedAssetKey(null);
-      clearHandleResidue();
-      document.removeEventListener("pointerup", endDrag);
-    };
-    document.addEventListener("pointerup", endDrag, { once: true });
-    document.addEventListener("pointercancel", cancelDrag, { once: true });
-  }
   function moveFavoriteBefore(sourceKey: string, targetKey: string) {
     if (!sourceKey || sourceKey === targetKey) return;
     const visibleKeys = visibleFavoriteAssets.map(assetFavoriteKey);
@@ -2088,38 +1921,6 @@ function App() {
     const visibleKeySet = new Set(nextVisible);
     const remaining = favoriteAssets.map(assetFavoriteKey).filter((key) => !visibleKeySet.has(key));
     setFavoriteAssetOrder([...nextVisible, ...remaining]);
-  }
-  function startFavoriteCardDrag(event: PointerEvent<HTMLButtonElement>, sourceKey: string) {
-    if (event.pointerType === "mouse" && event.button !== 0) return;
-    event.preventDefault();
-    const handle = event.currentTarget;
-    handle.setPointerCapture(event.pointerId);
-    favoriteDragKeyRef.current = sourceKey;
-    setDraggedFavoriteKey(sourceKey);
-    // 指针捕获期间命中测试被接管，松开后手柄可能残留 hover 高亮；
-    // 失焦并逐帧关闭命中测试，促使浏览器重算 :hover。
-    const clearHandleResidue = () => {
-      handle.blur();
-      handle.style.pointerEvents = "none";
-      requestAnimationFrame(() => { handle.style.pointerEvents = ""; });
-    };
-    const endDrag = (endEvent: globalThis.PointerEvent) => {
-      const target = document.elementFromPoint(endEvent.clientX, endEvent.clientY)?.closest<HTMLElement>("[data-favorite-asset-key]");
-      const targetKey = target?.dataset.favoriteAssetKey;
-      if (favoriteDragKeyRef.current && targetKey) moveFavoriteBefore(favoriteDragKeyRef.current, targetKey);
-      favoriteDragKeyRef.current = null;
-      setDraggedFavoriteKey(null);
-      clearHandleResidue();
-      document.removeEventListener("pointercancel", cancelDrag);
-    };
-    const cancelDrag = () => {
-      favoriteDragKeyRef.current = null;
-      setDraggedFavoriteKey(null);
-      clearHandleResidue();
-      document.removeEventListener("pointerup", endDrag);
-    };
-    document.addEventListener("pointerup", endDrag, { once: true });
-    document.addEventListener("pointercancel", cancelDrag, { once: true });
   }
   function openTerminalConfiguration(asset: LocalAsset, account: Account, host?: ManagedHost) {
     setPendingDetachedAsset(null);
@@ -2327,65 +2128,30 @@ function App() {
     finally { setSshFilesLoading(false); }
   }
   function startSshFileResize(event: PointerEvent<HTMLDivElement>) {
-    const document = event.currentTarget.ownerDocument;
-    const window = document.defaultView!;
+    const window = event.currentTarget.ownerDocument.defaultView!;
     const workspace = sshWorkspaceRef.current;
     if (!workspace || (!isDetachedTerminalWindow && window.innerWidth <= 900)) return;
-    event.preventDefault();
-    event.currentTarget.setPointerCapture(event.pointerId);
-    const initialX = event.clientX;
     const initialWidth = sshFilePaneWidth;
     const minWidth = isDetachedTerminalWindow ? 220 : 360;
     const maxWidth = Math.max(minWidth, workspace.clientWidth - (isDetachedTerminalWindow ? 260 : 360));
-    const resize = (moveEvent: globalThis.PointerEvent) => {
-      setSshFilePaneWidth(Math.min(maxWidth, Math.max(minWidth, initialWidth - (moveEvent.clientX - initialX))));
-    };
-    const finish = () => {
-      window.removeEventListener("pointermove", resize);
-      window.removeEventListener("pointerup", finish);
-      window.removeEventListener("pointercancel", finish);
-      document.body.classList.remove("ssh-resizing");
-    };
-    document.body.classList.add("ssh-resizing");
-    window.addEventListener("pointermove", resize);
-    window.addEventListener("pointerup", finish, { once: true });
-    window.addEventListener("pointercancel", finish, { once: true });
+    startPaneResize(event, { className: "ssh-resizing", onResize: delta => setSshFilePaneWidth(Math.min(maxWidth, Math.max(minWidth, initialWidth - delta))) });
   }
   function startAppSidebarResize(event: PointerEvent<HTMLDivElement>) {
     const shell = appShellRef.current;
     if (!shell || window.innerWidth <= 900) return;
-    event.preventDefault();
-    const initialX = event.clientX;
     const initialWidth = appSidebarWidth;
     const maxWidth = Math.max(190, Math.min(340, shell.clientWidth - 560));
-    const resize = (moveEvent: globalThis.PointerEvent) => setAppSidebarWidth(Math.min(maxWidth, Math.max(190, initialWidth + moveEvent.clientX - initialX)));
-    const finish = () => {
-      window.removeEventListener("pointermove", resize);
-      document.body.classList.remove("pane-resizing");
-      setAppSidebarWidth((width) => { localStorage.setItem("cloudhub-app-sidebar-width", String(width)); return width; });
-    };
-    document.body.classList.add("pane-resizing");
-    window.addEventListener("pointermove", resize);
-    window.addEventListener("pointerup", finish, { once: true });
+    const width = (delta: number) => Math.min(maxWidth, Math.max(190, initialWidth + delta));
+    startPaneResize(event, { className: "pane-resizing", onResize: delta => setAppSidebarWidth(width(delta)), onFinish: delta => localStorage.setItem("cloudhub-app-sidebar-width", String(width(delta))) });
   }
   function startTerminalHostSidebarResize(event: PointerEvent<HTMLDivElement>) {
-    const document = event.currentTarget.ownerDocument;
-    const window = document.defaultView!;
+    const window = event.currentTarget.ownerDocument.defaultView!;
     const workbench = terminalWorkbenchRef.current;
     if (!workbench || window.innerWidth <= 900) return;
-    event.preventDefault();
-    const initialX = event.clientX;
     const initialWidth = terminalHostSidebarWidth;
     const maxWidth = Math.max(190, Math.min(420, workbench.clientWidth - 360));
-    const resize = (moveEvent: globalThis.PointerEvent) => setTerminalHostSidebarWidth(Math.min(maxWidth, Math.max(190, initialWidth + moveEvent.clientX - initialX)));
-    const finish = () => {
-      window.removeEventListener("pointermove", resize);
-      document.body.classList.remove("pane-resizing");
-      setTerminalHostSidebarWidth((width) => { localStorage.setItem("cloudhub-terminal-host-sidebar-width", String(width)); return width; });
-    };
-    document.body.classList.add("pane-resizing");
-    window.addEventListener("pointermove", resize);
-    window.addEventListener("pointerup", finish, { once: true });
+    const width = (delta: number) => Math.min(maxWidth, Math.max(190, initialWidth + delta));
+    startPaneResize(event, { className: "pane-resizing", onResize: delta => setTerminalHostSidebarWidth(width(delta)), onFinish: delta => localStorage.setItem("cloudhub-terminal-host-sidebar-width", String(width(delta))) });
   }
   async function openSshFile(entry: SshFileEntry) {
     if (entry.isDir) { await loadSshFiles(entry.path); return; }
@@ -2863,6 +2629,7 @@ function App() {
       if (preferences[cloudHubFavoriteAssetsStorageKey] !== undefined) setFavoriteAssetKeys(stringListFromValue(preferences[cloudHubFavoriteAssetsStorageKey]));
       if (preferences[cloudHubFavoriteAssetOrderStorageKey] !== undefined) setFavoriteAssetOrder(stringListFromValue(preferences[cloudHubFavoriteAssetOrderStorageKey]));
       if (preferences[cloudHubAssetNotesStorageKey] !== undefined) setAssetNotes(stringRecordFromValue(preferences[cloudHubAssetNotesStorageKey]));
+      if (preferences[cloudHubAccountOrderStorageKey] !== undefined) setAccountOrder(stringListFromValue(preferences[cloudHubAccountOrderStorageKey]));
       if (preferences[cloudHubAssetOrderStorageKey] !== undefined) setAssetOrder(stringListFromValue(preferences[cloudHubAssetOrderStorageKey]));
       if (preferences[cloudHubAssetDisplayNamesStorageKey] !== undefined) setAssetDisplayNames(stringRecordFromValue(preferences[cloudHubAssetDisplayNamesStorageKey]));
       if (preferences[cloudHubManagedHostOrderStorageKey] !== undefined) setManagedHostOrder(stringListFromValue(preferences[cloudHubManagedHostOrderStorageKey]));
@@ -2918,6 +2685,12 @@ function App() {
   useEffect(() => { const value = JSON.stringify(favoriteAssetKeys); localStorage.setItem(cloudHubFavoriteAssetsStorageKey, value); saveClientPreference(cloudHubFavoriteAssetsStorageKey, value); }, [favoriteAssetKeys, clientPreferencesReady]);
   useEffect(() => { const value = JSON.stringify(favoriteAssetOrder); localStorage.setItem(cloudHubFavoriteAssetOrderStorageKey, value); saveClientPreference(cloudHubFavoriteAssetOrderStorageKey, value); }, [favoriteAssetOrder, clientPreferencesReady]);
   useEffect(() => { const value = JSON.stringify(assetNotes); localStorage.setItem(cloudHubAssetNotesStorageKey, value); saveClientPreference(cloudHubAssetNotesStorageKey, value); }, [assetNotes, clientPreferencesReady]);
+  useEffect(() => {
+    if (!clientPreferencesReady) return;
+    const value = JSON.stringify(accountOrder);
+    localStorage.setItem(cloudHubAccountOrderStorageKey, value);
+    if (runningInTauri) void preferencesClient.save(cloudHubAccountOrderStorageKey, value).catch(() => setStatus("账号排序未能写入本地偏好，请重试。"));
+  }, [accountOrder, clientPreferencesReady]);
   useEffect(() => { const value = JSON.stringify(assetOrder); localStorage.setItem(cloudHubAssetOrderStorageKey, value); saveClientPreference(cloudHubAssetOrderStorageKey, value); }, [assetOrder, clientPreferencesReady]);
   useEffect(() => { const value = JSON.stringify(assetDisplayNames); localStorage.setItem(cloudHubAssetDisplayNamesStorageKey, value); saveClientPreference(cloudHubAssetDisplayNamesStorageKey, value); }, [assetDisplayNames, clientPreferencesReady]);
   useEffect(() => { const value = JSON.stringify(managedHostOrder); localStorage.setItem(cloudHubManagedHostOrderStorageKey, value); saveClientPreference(cloudHubManagedHostOrderStorageKey, value); }, [managedHostOrder, clientPreferencesReady]);
@@ -3128,10 +2901,26 @@ function App() {
     () => resourceColumns(resources?.items ?? []),
     [resources],
   );
+  const orderedAccounts = useMemo(() => {
+    const positions = new Map(accountOrder.map((id, index) => [id, index]));
+    return [...accounts].sort((left, right) => (positions.get(String(left.id)) ?? Number.MAX_SAFE_INTEGER) - (positions.get(String(right.id)) ?? Number.MAX_SAFE_INTEGER));
+  }, [accounts, accountOrder]);
   const visibleAccounts = useMemo(
-    () => filterAccounts(accounts, { keyword, field: filterField, group: groupFilter, status: statusFilter, cloudTypes: cloudFilterTypes }),
-    [accounts, keyword, filterField, groupFilter, statusFilter, cloudFilterTypes],
+    () => filterAccounts(orderedAccounts, { keyword, field: filterField, group: groupFilter, status: statusFilter, cloudTypes: cloudFilterTypes }),
+    [orderedAccounts, keyword, filterField, groupFilter, statusFilter, cloudFilterTypes],
   );
+  function moveAccountBefore(source: string, target: string) {
+    const visibleIds = visibleAccounts.map(account => String(account.id));
+    const sourceIndex = visibleIds.indexOf(source), targetIndex = visibleIds.indexOf(target);
+    if (!accountSorting || sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) return;
+    const reordered = [...visibleIds];
+    reordered.splice(sourceIndex, 1);
+    reordered.splice(targetIndex, 0, source);
+    const visible = new Set(visibleIds);
+    const completeOrder = [...new Set([...accountOrder, ...orderedAccounts.map(account => String(account.id))])];
+    let next = 0;
+    setAccountOrder(completeOrder.map(id => visible.has(id) ? reordered[next++] : id));
+  }
   const pagedAccounts = visibleAccounts.slice((accountPage - 1) * pageSize, accountPage * pageSize);
   const pagedAccountIds = pagedAccounts.map((account) => account.id);
   const allPagedAccountsSelected = pagedAccountIds.length > 0 && pagedAccountIds.every((id) => selectedAccountIds.has(id));
@@ -4031,7 +3820,7 @@ function App() {
       const linkedPanel = panelConnections.find((panel) => panel.source_account_id === account.id && panel.source_asset_key === asset.asset_key);
       const canControl = ["aliyun", "tencent", "baidu", "oracle", "jdcloud", "vultr"].includes(account.cloud_type);
       return <div className="asset-action-buttons server-asset-actions">
-        {canControl && <button className="asset-force-reboot-button" onClick={() => void rebootLocalAsset(asset, true)}><RefreshCw size={15} />强制重启</button>}
+        {canControl && <button className="asset-force-reboot-button" onClick={() => void rebootLocalAsset(asset, true)}>强制重启</button>}
         <span className={`asset-more-wrap${assetMoreKey === key ? " is-open" : ""}`} onClick={(event) => event.stopPropagation()}>
           <MoreMenu
             align="center"
@@ -4385,6 +4174,7 @@ function App() {
               <Download size={14} />
               {selectedAccountIds.size ? `导出已勾选 (${selectedAccountIds.size})` : "选择导出"}
             </button>
+            <SortSelectionControls label="账号" keys={pagedAccountIds} selected={selectedAccountIds} sorting={accountSorting} onToggleAll={togglePagedAccountSelection} onSortingChange={setAccountSorting} showSelectAll={false} disabled={!clientPreferencesReady} />
           </div>
           {accounts.length === 0 ? (
             <div className="empty">
@@ -4407,7 +4197,7 @@ function App() {
               <table>
                 <thead>
                   <tr>
-                    <th className="account-select"><input aria-label="全选当前页账号" type="checkbox" checked={allPagedAccountsSelected} onChange={togglePagedAccountSelection} /></th>
+                    <th className="account-select">{accountSorting ? <span className="sr-only">排序</span> : <SelectionCheckbox label="全选当前页账号" checked={allPagedAccountsSelected} mixed={pagedAccountIds.some(id => selectedAccountIds.has(id)) && !allPagedAccountsSelected} onChange={togglePagedAccountSelection} />}</th>
                     <th>账号</th>
                     <th>分组</th>
                     <th>备注</th>
@@ -4421,8 +4211,14 @@ function App() {
                     const resourceActions = accountResourceActions(account);
                     const primaryResourceActions = resourceActions.slice(0, 3);
                     const moreResourceActions = resourceActions.slice(3);
-                    return <tr key={account.id}>
-                      <td className="account-select"><input aria-label={`选择账号 ${account.account_name}`} type="checkbox" checked={selectedAccountIds.has(account.id)} onChange={() => toggleAccountSelection(account.id)} /></td>
+                    return <tr key={account.id} data-account-sort-id={account.id}>
+                      <td className="account-select">{accountSorting ? <button type="button" className="account-drag-handle asset-drag-handle" aria-label={`拖动排序 ${account.account_name}`} title="拖动排序，也可用上下方向键调整" onPointerDown={event => accountDrag.startDrag(event, String(account.id))} onKeyDown={event => {
+                        if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+                        event.preventDefault();
+                        const index = visibleAccounts.findIndex(item => item.id === account.id);
+                        const target = visibleAccounts[index + (event.key === "ArrowUp" ? -1 : 1)];
+                        if (target) moveAccountBefore(String(account.id), String(target.id));
+                      }}><GripVertical size={17} /></button> : <input aria-label={`选择账号 ${account.account_name}`} type="checkbox" checked={selectedAccountIds.has(account.id)} onChange={() => toggleAccountSelection(account.id)} />}</td>
                       <td>
                         <div className="account-name">
                           <CloudAvatar cloudType={account.cloud_type} />
@@ -4968,8 +4764,9 @@ function App() {
             </header>
             <section className="favorite-toolbar">
               <div className="favorite-type-tabs"><button type="button" className={!favoriteTypeFilter ? "active" : ""} onClick={() => setFavoriteTypeFilter(null)}>全部 ({favoriteAssets.length})</button>{assetTypes.map(([value, label]) => <button type="button" className={favoriteTypeFilter === value ? "active" : ""} key={value} onClick={() => setFavoriteTypeFilter(value)}>{label} ({favoriteAssets.filter((item) => item.resource_type === value).length})</button>)}</div>
-              <label className="favorite-search"><Search size={16} /><input value={favoriteKeyword} onChange={(event) => setFavoriteKeyword(event.target.value)} placeholder="搜索资源名称 / ID / 账号" /></label>
-              <select value={favoriteRegionFilter} onChange={(event) => setFavoriteRegionFilter(event.target.value)}><option value="">全部地域</option>{Array.from(new Set(favoriteAssets.map((asset) => asset.region_id || String(asset.payload?.RegionId || asset.payload?.Location || "")).filter(Boolean))).map((region) => <option key={region} value={region}>{region}</option>)}</select>
+              <label className="favorite-search"><Search size={16} /><input aria-label="搜索收藏资源" value={favoriteKeyword} onChange={(event) => setFavoriteKeyword(event.target.value)} placeholder="搜索资源名称 / ID / 账号" /></label>
+              <select aria-label="收藏资源地域" value={favoriteRegionFilter} onChange={(event) => setFavoriteRegionFilter(event.target.value)}><option value="">全部地域</option>{Array.from(new Set(favoriteAssets.map((asset) => asset.region_id || String(asset.payload?.RegionId || asset.payload?.Location || "")).filter(Boolean))).map((region) => <option key={region} value={region}>{region}</option>)}</select>
+              <SortSelectionControls label="收藏" keys={pagedFavoriteAssets.map(assetFavoriteKey)} selected={favoriteSelection.selected} sorting={favoriteSorting} onToggleAll={() => favoriteSelection.toggleAll(pagedFavoriteAssets.map(assetFavoriteKey))} onSortingChange={setFavoriteSorting} />
             </section>
             {visibleFavoriteAssets.length ? <div ref={favoriteGridPagination.gridRef} className="favorite-card-grid">
               {pagedFavoriteAssets.map((asset) => {
@@ -4988,13 +4785,13 @@ function App() {
                       ? [["地域", region], ["存储类型", displayValue(payload.StorageClass)], ["创建时间", formatAssetDate(payload.CreationDate || payload.CreationTime)]]
                       : [["地域", region], ["版本 / 引擎", displayValue(payload.EngineVersion || payload.Engine || payload.Version)], ["到期时间", formatAssetDate(expiry)]];
                 return <article className={`favorite-resource-card${draggedFavoriteKey === assetKey ? " is-favorite-dragging" : ""}${assetMoreKey === assetKey ? " settings-open" : ""}`} key={assetKey} data-favorite-asset-key={assetKey}>
-                  <div className="favorite-card-account"><button type="button" className="favorite-card-drag-handle" aria-label={`拖动排序 ${title}`} title="拖动排序" onPointerDown={(event) => startFavoriteCardDrag(event, assetKey)}><GripVertical size={16} /></button><CloudAvatar cloudType={account?.cloud_type || "other"} /><span>{account?.account_name || `账号 ${asset.account_id}`}</span>{isServer && account && renderServerAssetSettings(asset, account)}</div>
-                  <div className="favorite-card-note"><span>备注</span>{editingAssetNote?.key === assetKey ? <input value={editingAssetNote.value} autoFocus onChange={(event) => setEditingAssetNote((current) => current?.key === assetKey ? { ...current, value: event.target.value } : current)} onBlur={() => saveAssetNote(assetKey)} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") setEditingAssetNote(null); }} aria-label="资产备注" placeholder="添加备注" /> : <button type="button" className={assetNote ? "has-note" : ""} onClick={() => setEditingAssetNote({ key: assetKey, value: assetNote, initial: assetNote })}>{assetNote || "添加备注"}</button>}<AiAssetNotes name={title} type={asset.resource_type} note={assetNote} onSave={value=>setAssetNotes(current=>({...current,[assetKey]:value}))}/></div>
+                  <div className="favorite-card-account">{favoriteSorting ? <button type="button" className="favorite-card-drag-handle" aria-label={`拖动排序 ${title}`} title="拖动排序" onPointerDown={(event) => startFavoriteCardDrag(event, assetKey)}><GripVertical size={16} /></button> : <SelectionCheckbox label={`选择收藏 ${title}`} checked={favoriteSelection.selected.has(assetKey)} onChange={() => favoriteSelection.toggle(assetKey)} />}<CloudAvatar cloudType={account?.cloud_type || "other"} /><span>{account?.account_name || `账号 ${asset.account_id}`}</span>{isServer && account && renderServerAssetSettings(asset, account)}</div>
                   <div className="favorite-card-head"><div><h2 title={title}>{title}</h2><small>{asset.asset_key}</small></div><button type="button" className="asset-favorite-button is-favorite" title="取消收藏" aria-label="取消收藏" onClick={() => toggleAssetFavorite(asset)}><Star size={10} fill="currentColor" /></button></div>
+                  <div className="favorite-card-meta"><span className={`favorite-resource-type ${asset.resource_type}`}>{assetTypes.find(([value]) => value === asset.resource_type)?.[1] || asset.resource_type}</span><span className="favorite-status">{status}</span>{isServer && account && <button type="button" className={`favorite-status-refresh${favoriteRefreshingKeys.has(assetKey) ? " is-refreshing" : ""}`} title="刷新服务器状态" aria-busy={favoriteRefreshingKeys.has(assetKey)} disabled={favoriteRefreshingKeys.has(assetKey)} onClick={() => void refreshFavoriteAsset(asset, account)}><RefreshCw size={13} className={favoriteRefreshingKeys.has(assetKey) ? "spin" : ""} />{favoriteRefreshingKeys.has(assetKey) ? "刷新中" : "刷新"}</button>}</div>
                   {isServer && account
                     ? <FavoriteServerDetails asset={asset} account={account} onCopyIp={(address) => void copyAssetIp(address)} />
                     : <div className="favorite-card-details">{detailRows.map(([label, value]) => <div key={label}><span>{label}：</span><div className="favorite-detail-value"><strong title={String(value)}>{value}</strong>{label === "IP 地址" && value !== "-" && <button type="button" className="favorite-ip-copy" title="复制 IP 地址" aria-label="复制 IP 地址" onClick={() => void copyAssetIp(String(value))}><Copy size={14} /></button>}</div></div>)}</div>}
-                  <div className="favorite-card-meta"><span className={`favorite-resource-type ${asset.resource_type}`}>{assetTypes.find(([value]) => value === asset.resource_type)?.[1] || asset.resource_type}</span><span className="favorite-status">{status}</span>{isServer && account && <button type="button" className={`favorite-status-refresh${favoriteRefreshingKeys.has(assetKey) ? " is-refreshing" : ""}`} title="刷新服务器状态" aria-busy={favoriteRefreshingKeys.has(assetKey)} disabled={favoriteRefreshingKeys.has(assetKey)} onClick={() => void refreshFavoriteAsset(asset, account)}><RefreshCw size={13} className={favoriteRefreshingKeys.has(assetKey) ? "spin" : ""} />{favoriteRefreshingKeys.has(assetKey) ? "刷新中" : "刷新"}</button>}</div>
+                  <div className="favorite-card-note"><span>备注</span>{editingAssetNote?.key === assetKey ? <input value={editingAssetNote.value} autoFocus onChange={(event) => setEditingAssetNote((current) => current?.key === assetKey ? { ...current, value: event.target.value } : current)} onBlur={() => saveAssetNote(assetKey)} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") setEditingAssetNote(null); }} aria-label="资产备注" placeholder="添加备注" /> : <button type="button" className={assetNote ? "has-note" : ""} onClick={() => setEditingAssetNote({ key: assetKey, value: assetNote, initial: assetNote })}>{assetNote || "添加备注"}</button>}<AiAssetNotes name={title} type={asset.resource_type} note={assetNote} onSave={value=>setAssetNotes(current=>({...current,[assetKey]:value}))}/></div>
                   <div className="favorite-card-actions">{renderAssetActions(asset, account)}</div>
                 </article>;
               })}
@@ -5035,11 +4832,11 @@ function App() {
                 <label className="panel-toolbar-option" title="在地址和列表中隐藏 IP"><input type="checkbox" checked={hidePanelIps} onChange={(event) => setHidePanelIps(event.target.checked)} />隐藏 IP</label>
                 <label className="panel-toolbar-option panel-refresh-mode"><span>监控刷新</span><select value={panelRefreshSeconds} onChange={(event) => setPanelRefreshSeconds(Number(event.target.value))} aria-label="监控资源刷新间隔" title="监控资源刷新间隔"><option value={0}>关闭</option><option value={5}>5 秒</option><option value={10}>10 秒</option><option value={30}>30 秒</option><option value={60}>60 秒</option></select></label>
                 <label className="panel-toolbar-option panel-open-mode"><span>打开面板</span><select value={panelOpenMode} onChange={(event) => setPanelOpenMode(event.target.value as "browser" | "copy")} aria-label="打开面板方式" title="打开面板方式"><option value="browser">默认浏览器打开</option><option value="copy">复制临时 URL</option></select></label>
-                <button type="button" className={`panel-sort-button${panelSorting ? " is-sorting" : ""}`} title={panelSorting ? "退出面板排序" : "调整面板顺序"} onClick={() => { setPanelSorting((value) => !value); setDraggedPanelId(null); }}><GripVertical size={15} />{panelSorting ? "退出排序" : "排序"}</button>
+                <SortSelectionControls label="面板" keys={pagedPanels.map(panel => panel.id)} selected={selectedPanelIds} sorting={panelSorting} onToggleAll={toggleAllVisiblePanels} onSortingChange={setPanelSorting} />
                 <span className="panel-toolbar-count">共 {panelConnections.length} 台服务器</span>
               </div>
             </section>
-            {visiblePanels.length ? <div className={`panel-monitor-scroll${panelSorting ? " is-sorting" : ""}`}><div ref={panelGridPagination.gridRef} className="panel-monitor-table"><div className="panel-monitor-table-head"><span>{panelSorting ? "排序" : <input type="checkbox" aria-label="选择全部当前面板" checked={visiblePanels.length > 0 && visiblePanels.every((panel) => selectedPanelIds.has(panel.id))} onChange={toggleAllVisiblePanels} />}</span><span>服务器信息</span><span>状态</span><span>资源监控</span><span>操作</span></div>{pagedPanels.map((panel) => {
+            {visiblePanels.length ? <div className={`panel-monitor-scroll${panelSorting ? " is-sorting" : ""}`}><div ref={panelGridPagination.gridRef} className="panel-monitor-table"><div className="panel-monitor-table-head"><span>{panelSorting ? "排序" : <SelectionCheckbox label="选择全部当前面板" checked={pagedPanels.length > 0 && pagedPanels.every(panel => selectedPanelIds.has(panel.id))} mixed={pagedPanels.some(panel => selectedPanelIds.has(panel.id)) && !pagedPanels.every(panel => selectedPanelIds.has(panel.id))} onChange={toggleAllVisiblePanels} />}</span><span>服务器信息</span><span>状态</span><span>资源监控</span><span>操作</span></div>{pagedPanels.map((panel) => {
               const summary = panel.summary || {};
               const value = (key: string) => { const entry = summary[key]; return entry == null || entry === "" ? "-" : typeof entry === "string" || typeof entry === "number" ? String(entry) : "-"; };
               const sourceAccount = panel.source_account_id ? accounts.find((account) => account.id === panel.source_account_id) : undefined;
@@ -5082,14 +4879,15 @@ function App() {
                       {terminalSidebarView === "hosts" ? <div className="terminal-host-actions"><button type="button" className="terminal-toolbar-action" title="选择服务器导出（明文 JSON）" aria-label="导出服务器" disabled={!managedHosts.length} onClick={() => void exportManagedHosts()}><Download size={15} />导出</button><label className="terminal-toolbar-action terminal-import-button" title="导入服务器 JSON"><Upload size={15} />{managedHostImporting ? "导入中" : "导入"}<input ref={managedHostImportInputRef} type="file" accept="application/json,.json" disabled={managedHostImporting} onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void importManagedHosts(file); }} /></label><button type="button" className="terminal-toolbar-action" title="刷新服务器状态" aria-label="刷新服务器" onClick={() => void loadManagedHosts()}><RefreshCw size={16} />刷新</button></div> : null}
                     </div>
                     {terminalSidebarView === "commands" ? <TerminalQuickCommands commands={terminalQuickCommands} connected={!!sshSessionId} onChange={setTerminalQuickCommands} onInsert={(command, execute) => { const terminal = sshTerminalRef.current; if (!sshSessionId || !terminal) { setStatus("请先打开并连接 SSH 终端"); return; } terminal.paste(command + (execute ? "\r" : "")); terminal.focus(); }} /> : <>
-                    <div className="terminal-group-title"><span><List size={15} />分组</span><div className="terminal-group-controls"><select aria-label="服务器分组" value={managedHostGroup} disabled={managedHostSorting} onChange={(event) => setManagedHostGroup(event.target.value)}><option value="">全部分组</option>{managedHostGroups.map((group) => <option key={group} value={group}>{group}</option>)}</select><button type="button" className={managedHostSorting ? "is-sorting" : ""} onClick={() => { setManagedHostSorting((value) => !value); setDraggedManagedHostId(null); setDraggedManagedHostGroup(null); setManagedHostMoreId(null); }}><GripVertical size={14} />{managedHostSorting ? "退出排序" : "排序"}</button></div></div>
+                    <div className="terminal-group-title"><span><List size={15} />分组</span><div className="terminal-group-controls"><select aria-label="服务器分组" value={managedHostGroup} disabled={managedHostSorting} onChange={(event) => setManagedHostGroup(event.target.value)}><option value="">全部分组</option>{managedHostGroups.map((group) => <option key={group} value={group}>{group}</option>)}</select></div></div>
+                    <div className="terminal-selection-bar"><SortSelectionControls label="服务器" keys={visibleManagedHosts.map(host => host.id)} selected={new Set<number>()} sorting={managedHostSorting} scope="当前结果" showSelectAll={false} onToggleAll={() => {}} onSortingChange={value => { setManagedHostSorting(value); setManagedHostMoreId(null); }} /></div>
                     <div className="terminal-host-filter"><label className="terminal-host-search"><Search size={15} /><input value={managedHostKeyword} onChange={(event) => setManagedHostKeyword(event.target.value)} placeholder="搜索服务器 IP / 名称" /></label><button type="button" className="terminal-add-host" onClick={() => openManagedHostDialog()}><Plus size={16} />添加服务器</button></div>
                     <div className="terminal-host-tree">
                       {[...(!managedHostSorting ? [{ group: "__recent__", label: "最近", recent: true, hosts: recentManagedHosts }] : []), ...managedHostGroups.map(group => ({ group, label: group, recent: false, hosts: visibleManagedHosts.filter(host => (host.group_name || "未分组") === group) }))].map(({ group, label, recent, hosts }) => {
                         if (!hosts.length && !recent) return null;
                         const collapsed = !managedHostSorting && (recent ? recentManagedHostsCollapsed : collapsedManagedHostGroups.has(group));
                         const dropSide = managedHostGroupDropPosition?.group === group ? managedHostGroupDropPosition.side : null;
-                        return <section className={`terminal-host-group${draggedManagedHostGroup === group ? " is-dragging" : ""}${dropSide ? ` is-drop-${dropSide}` : ""}${collapsed ? " is-collapsed" : ""}`} key={`${recent ? "recent" : "group"}:${group}`} data-managed-host-group={recent ? undefined : group} data-recent-hosts={recent || undefined}><div className="terminal-host-group-head" title={!recent && label !== "未分组" && !managedHostSorting ? "右键管理分组" : undefined} onContextMenu={(event) => { if (recent || label === "未分组" || managedHostSorting) return; event.preventDefault(); openManagedHostGroupMenu(label, event.clientX, event.clientY); }}>{managedHostSorting ? <button type="button" className="terminal-group-drag-handle" title="拖动分组排序" aria-label={`拖动分组排序 ${group}`} onPointerDown={(event) => startManagedHostGroupDrag(event, group)}><GripVertical size={15} /></button> : null}<button type="button" className="terminal-host-group-toggle" aria-expanded={!collapsed} aria-label={`${label}（${hosts.length} 台服务器）`} disabled={managedHostSorting} onKeyDown={(event) => { if (!recent && !managedHostSorting && (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10"))) { event.preventDefault(); const rect = event.currentTarget.getBoundingClientRect(); openManagedHostGroupMenu(label, rect.left + 32, rect.top + 24); } }} onClick={() => { if (recent) { setRecentManagedHostsCollapsed(value => !value); return; } setCollapsedManagedHostGroups((current) => { const next = new Set(current); if (next.has(group)) next.delete(group); else next.add(group); return next; }); }}>{recent && <span className="terminal-group-icon" aria-hidden="true"><History size={14} /></span>}<strong>{label}</strong><span>{hosts.length}</span>{collapsed ? <ChevronRight size={14} aria-hidden="true" /> : <ChevronDown size={14} aria-hidden="true" />}</button></div>{recent && !collapsed && !hosts.length && <p className="terminal-recent-empty">打开服务器后显示在这里</p>}{!collapsed && hosts.map((host) => { const hostDropSide = managedHostDropPosition?.id === host.id ? managedHostDropPosition.side : null; const hostCloudType = (host.source_account_id ? accounts.find((account) => account.id === host.source_account_id)?.cloud_type : undefined) || assetIpCloudTypes.get(host.host); const hostCloudLabel = hostCloudType ? getCloudProvider(hostCloudType).label : ""; return <article className={`terminal-host-card${terminalSelectedHostId === host.id ? " active" : ""}${managedHostSorting ? " is-sorting" : ""}${draggedManagedHostId === host.id ? " is-dragging" : ""}${hostDropSide ? ` is-drop-${hostDropSide}` : ""}`} key={host.id} data-managed-host-id={host.id}>{managedHostSorting && <button type="button" className="terminal-host-drag-handle" title="拖动排序" aria-label={`拖动排序 ${host.name}`} onPointerDown={(event) => startManagedHostDrag(event, host.id)}><GripVertical size={16} /></button>}<button type="button" className="terminal-host-card-main" aria-label={`选择服务器 ${host.name}，${host.host}${hostCloudLabel ? `，${hostCloudLabel}` : ""}，${host.platform === "windows" ? "Windows RDP" : "Linux SSH"}，${host.status === "online" ? "在线" : host.status === "offline" ? "离线" : "未检测"}`} title={`${host.name} · ${host.host}${hostCloudLabel ? ` · ${hostCloudLabel}` : ""} · ${host.platform === "windows" ? "Windows RDP" : "Linux SSH"} · ${host.status === "online" ? "在线" : host.status === "offline" ? "离线" : "未检测"}；双击连接，右击打开操作菜单`} disabled={managedHostSorting} onContextMenu={(event) => { if (managedHostSorting) return; event.preventDefault(); openManagedHostContextMenu(host.id, event.clientX, event.clientY); }} onKeyDown={(event) => { if (!managedHostSorting && (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10"))) { event.preventDefault(); const rect = event.currentTarget.getBoundingClientRect(); openManagedHostContextMenu(host.id, rect.left + 24, rect.top + 20); } }} onClick={() => setTerminalSelectedHostId(host.id)} onDoubleClick={() => void openManagedHostSsh(host)}><span className={`terminal-host-platform platform-${host.platform}`} aria-hidden="true"><HostPlatformIcon platform={host.platform} />{hostCloudType && <span className={`terminal-host-cloud cloud-avatar ${hostCloudType}`} title={`云厂商：${hostCloudLabel}`}>{hasProviderLogo(hostCloudType) ? <ProviderLogo cloudType={hostCloudType} /> : getCloudProvider(hostCloudType).avatar}</span>}<i className={host.status} /></span><span className="terminal-host-card-copy"><strong>{host.name}</strong><span className="terminal-host-address"> · {host.host}</span></span></button>{!managedHostSorting && !recent && <div className="terminal-host-card-actions"><button type="button" title="更多操作" aria-label={`${host.name} 的更多操作`} aria-expanded={managedHostMoreId === host.id} onClick={(event) => { event.stopPropagation(); setManagedHostMoreId((current) => current === host.id ? null : host.id); }}><MoreVertical size={20} /></button>{managedHostMoreId === host.id && <div className="terminal-host-more-menu"><button type="button" onClick={() => { setManagedHostMoreId(null); openManagedHostDialog(host); }}><Settings size={14} />编辑</button>{host.platform !== "windows" && <button type="button" disabled={managedHostLoadingId !== null} onClick={() => { setManagedHostMoreId(null); void probeManagedHost(host.id); }}><RefreshCw size={14} />刷新</button>}<button type="button" className="danger" onClick={() => { setManagedHostMoreId(null); void deleteManagedHost(host); }}><Trash2 size={14} />移除</button></div>}</div>}</article>; })}</section>;
+                        return <section className={`terminal-host-group${draggedManagedHostGroup === group ? " is-dragging" : ""}${dropSide ? ` is-drop-${dropSide}` : ""}${collapsed ? " is-collapsed" : ""}`} key={`${recent ? "recent" : "group"}:${group}`} data-managed-host-group={recent ? undefined : group} data-recent-hosts={recent || undefined}><div className="terminal-host-group-head" title={!recent && label !== "未分组" && !managedHostSorting ? "右键管理分组" : undefined} onContextMenu={(event) => { if (recent || label === "未分组" || managedHostSorting) return; event.preventDefault(); openManagedHostGroupMenu(label, event.clientX, event.clientY); }}>{managedHostSorting && <button type="button" className="terminal-group-drag-handle" title="拖动分组排序" aria-label={`拖动分组排序 ${group}`} onPointerDown={(event) => startManagedHostGroupDrag(event, group)}><GripVertical size={15} /></button>}<button type="button" className="terminal-host-group-toggle" aria-expanded={!collapsed} aria-label={`${label}（${hosts.length} 台服务器）`} disabled={managedHostSorting} onKeyDown={(event) => { if (!recent && !managedHostSorting && (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10"))) { event.preventDefault(); const rect = event.currentTarget.getBoundingClientRect(); openManagedHostGroupMenu(label, rect.left + 32, rect.top + 24); } }} onClick={() => { if (recent) { setRecentManagedHostsCollapsed(value => !value); return; } setCollapsedManagedHostGroups((current) => { const next = new Set(current); if (next.has(group)) next.delete(group); else next.add(group); return next; }); }}>{recent && <span className="terminal-group-icon" aria-hidden="true"><History size={14} /></span>}<strong>{label}</strong><span>{hosts.length}</span>{collapsed ? <ChevronRight size={14} aria-hidden="true" /> : <ChevronDown size={14} aria-hidden="true" />}</button></div>{recent && !collapsed && !hosts.length && <p className="terminal-recent-empty">打开服务器后显示在这里</p>}{!collapsed && hosts.map((host) => { const hostDropSide = managedHostDropPosition?.id === host.id ? managedHostDropPosition.side : null; const hostCloudType = (host.source_account_id ? accounts.find((account) => account.id === host.source_account_id)?.cloud_type : undefined) || assetIpCloudTypes.get(host.host); const hostCloudLabel = hostCloudType ? getCloudProvider(hostCloudType).label : ""; return <article className={`terminal-host-card${terminalSelectedHostId === host.id ? " active" : ""}${managedHostSorting ? " is-sorting" : ""}${draggedManagedHostId === host.id ? " is-dragging" : ""}${hostDropSide ? ` is-drop-${hostDropSide}` : ""}`} key={host.id} data-managed-host-id={host.id}>{managedHostSorting ? <button type="button" className="terminal-host-drag-handle" title="拖动排序" aria-label={`拖动排序 ${host.name}`} onPointerDown={(event) => startManagedHostDrag(event, host.id)}><GripVertical size={16} /></button> : null}<button type="button" className="terminal-host-card-main" aria-label={`选择服务器 ${host.name}，${host.host}${hostCloudLabel ? `，${hostCloudLabel}` : ""}，${host.platform === "windows" ? "Windows RDP" : "Linux SSH"}，${host.status === "online" ? "在线" : host.status === "offline" ? "离线" : "未检测"}`} title={`${host.name} · ${host.host}${hostCloudLabel ? ` · ${hostCloudLabel}` : ""} · ${host.platform === "windows" ? "Windows RDP" : "Linux SSH"} · ${host.status === "online" ? "在线" : host.status === "offline" ? "离线" : "未检测"}；双击连接，右击打开操作菜单`} disabled={managedHostSorting} onContextMenu={(event) => { if (managedHostSorting) return; event.preventDefault(); openManagedHostContextMenu(host.id, event.clientX, event.clientY); }} onKeyDown={(event) => { if (!managedHostSorting && (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10"))) { event.preventDefault(); const rect = event.currentTarget.getBoundingClientRect(); openManagedHostContextMenu(host.id, rect.left + 24, rect.top + 20); } }} onClick={() => setTerminalSelectedHostId(host.id)} onDoubleClick={() => void openManagedHostSsh(host)}><span className={`terminal-host-platform platform-${host.platform}`} aria-hidden="true"><HostPlatformIcon platform={host.platform} />{hostCloudType && <span className={`terminal-host-cloud cloud-avatar ${hostCloudType}`} title={`云厂商：${hostCloudLabel}`}>{hasProviderLogo(hostCloudType) ? <ProviderLogo cloudType={hostCloudType} /> : getCloudProvider(hostCloudType).avatar}</span>}<i className={host.status} /></span><span className="terminal-host-card-copy"><strong>{host.name}</strong><span className="terminal-host-address"> · {host.host}</span></span></button>{!managedHostSorting && !recent && <div className="terminal-host-card-actions"><button type="button" title="更多操作" aria-label={`${host.name} 的更多操作`} aria-expanded={managedHostMoreId === host.id} onClick={(event) => { event.stopPropagation(); setManagedHostMoreId((current) => current === host.id ? null : host.id); }}><MoreVertical size={20} /></button>{managedHostMoreId === host.id && <div className="terminal-host-more-menu"><button type="button" onClick={() => { setManagedHostMoreId(null); openManagedHostDialog(host); }}><Settings size={14} />编辑</button>{host.platform !== "windows" && <button type="button" disabled={managedHostLoadingId !== null} onClick={() => { setManagedHostMoreId(null); void probeManagedHost(host.id); }}><RefreshCw size={14} />刷新</button>}<button type="button" className="danger" onClick={() => { setManagedHostMoreId(null); void deleteManagedHost(host); }}><Trash2 size={14} />移除</button></div>}</div>}</article>; })}</section>;
                       })}
                       {!visibleManagedHosts.length && <div className="terminal-host-empty"><Server size={30} /><p>{managedHosts.length ? "没有匹配的服务器" : "添加服务器后即可开始连接"}</p><button type="button" className="terminal-host-empty-action" onClick={() => openManagedHostDialog()}><Plus size={14} />添加服务器</button>{terminalRecordings.length > 0 && <button type="button" className="secondary" onClick={() => setDetachedRightPanel("audit")}><History size={14} />录像审计</button>}</div>}
                     </div>
@@ -5147,9 +4945,9 @@ function App() {
               </div>
             </header>
             <section className="panel local-assets-panel">
-              <div className="asset-list-toolbar"><input className="asset-list-search" aria-label="搜索资产" value={assetKeyword} onChange={(event) => setAssetKeyword(event.target.value)} placeholder="请输入资产名称 / ID / 账号" /><select className="resource-account-select" aria-label="当前资源账号" title="切换资源账号" value={resourceAccountId ?? "all"} onChange={(event) => { const value = event.target.value; setResourceAccountId(value === "all" ? null : Number(value)); setResourceTypeFilter(null); }}><option value="all">全部账号（汇总）</option>{accounts.map((account) => <option key={account.id} value={account.id}>{account.account_name} · {account.access_key_id}</option>)}</select><select aria-label="按账号分组筛选" title="按账号分组筛选" value={assetGroupFilter} onChange={event=>setAssetGroupFilter(event.target.value)}><option value="">全部分组</option>{Array.from(new Set(accounts.map(account=>account.group_name||"").filter(Boolean))).map(group=><option key={group} value={group}>{group}</option>)}</select><input className="asset-expiry-input" aria-label="未来到期天数" type="number" min={0} max={3650} value={assetExpiryDays??""} onChange={event=>{const value=event.target.value;if(value==="")setAssetExpiryDays(null);else if(/^\d+$/.test(value)&&Number(value)<=3650)setAssetExpiryDays(Number(value));}} placeholder="到期天数" title="筛选未来 N 天内到期的资产；留空不限。到期筛选仅使用已获取的时间，未获取和已过期资源不计入。" /><select className="asset-type-filter" aria-label="按资产类型筛选" value={resourceTypeFilter || ""} onChange={(event) => setResourceTypeFilter(event.target.value || null)}><option value="">全部类型</option>{assetTypes.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><select className="asset-region-filter" aria-label="按地域筛选" value={assetRegionFilter} onChange={(event) => setAssetRegionFilter(event.target.value)}><option value="">全部地域</option>{Array.from(new Set(localAssets.map((asset) => asset.region_id || String(asset.payload?.RegionId || asset.payload?.Location || "")).filter(Boolean))).map((region) => <option key={region} value={region}>{region}</option>)}</select><select className="asset-status-filter" aria-label="按状态筛选" value={assetStatusFilter} onChange={(event) => setAssetStatusFilter(event.target.value)}><option value="">全部状态</option>{Array.from(new Set(localAssets.map((asset) => String(asset.payload?.Status || asset.payload?.InstanceStatus || asset.payload?.DBInstanceStatus || asset.payload?.DomainStatus || "")).filter(Boolean))).map((status) => <option key={status} value={status}>{cloudStatusText(status)}</option>)}</select><AiAssistButton task="search" title="AI 自然语言筛选" current={{query:assetKeyword,group:assetGroupFilter,resource_type:resourceTypeFilter||"",expires_within_days:assetExpiryDays}} onApply={result=>{const filters=assetSearchFilters(result.fields,assetTypes.map(([value])=>value),accounts.map(account=>account.group_name||""));if(filters.query!==undefined)setAssetKeyword(filters.query);if(filters.group!==undefined)setAssetGroupFilter(filters.group);if(filters.resource_type!==undefined)setResourceTypeFilter(filters.resource_type||null);if(filters.expires_within_days!==undefined)setAssetExpiryDays(filters.expires_within_days);}} /><button type="button" className="asset-filter-clear" title="清除搜索、类型、地域、状态、分组、到期天数和当前账号筛选" onClick={()=>{setAssetKeyword("");setResourceTypeFilter(null);setAssetRegionFilter("");setAssetStatusFilter("");setAssetGroupFilter("");setAssetExpiryDays(null);setResourceAccountId(null);}}>清除筛选</button></div>
-              {visibleLocalAssets.length ? <div className="table-wrap"><table><thead><tr><th className="asset-order-column"><span className="sr-only">排序</span></th><th>资源类型</th><th>资产名称 / ID</th><th>到期时间</th><th>账号信息</th><th>地域</th><th>状态</th><th className="asset-actions-column">操作</th></tr></thead><tbody>
-                {pagedLocalAssets.map((asset, index) => {
+              <div className="asset-list-toolbar"><input className="asset-list-search" aria-label="搜索资产" value={assetKeyword} onChange={(event) => setAssetKeyword(event.target.value)} placeholder="请输入资产名称 / ID / 账号" /><select className="resource-account-select" aria-label="当前资源账号" title="切换资源账号" value={resourceAccountId ?? "all"} onChange={(event) => { const value = event.target.value; setResourceAccountId(value === "all" ? null : Number(value)); setResourceTypeFilter(null); }}><option value="all">全部账号（汇总）</option>{accounts.map((account) => <option key={account.id} value={account.id}>{account.account_name} · {account.access_key_id}</option>)}</select><select aria-label="按账号分组筛选" title="按账号分组筛选" value={assetGroupFilter} onChange={event=>setAssetGroupFilter(event.target.value)}><option value="">全部分组</option>{Array.from(new Set(accounts.map(account=>account.group_name||"").filter(Boolean))).map(group=><option key={group} value={group}>{group}</option>)}</select><input className="asset-expiry-input" aria-label="未来到期天数" type="number" min={0} max={3650} value={assetExpiryDays??""} onChange={event=>{const value=event.target.value;if(value==="")setAssetExpiryDays(null);else if(/^\d+$/.test(value)&&Number(value)<=3650)setAssetExpiryDays(Number(value));}} placeholder="到期天数" title="筛选未来 N 天内到期的资产；留空不限。到期筛选仅使用已获取的时间，未获取和已过期资源不计入。" /><select className="asset-type-filter" aria-label="按资产类型筛选" value={resourceTypeFilter || ""} onChange={(event) => setResourceTypeFilter(event.target.value || null)}><option value="">全部类型</option>{assetTypes.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><select className="asset-region-filter" aria-label="按地域筛选" value={assetRegionFilter} onChange={(event) => setAssetRegionFilter(event.target.value)}><option value="">全部地域</option>{Array.from(new Set(localAssets.map((asset) => asset.region_id || String(asset.payload?.RegionId || asset.payload?.Location || "")).filter(Boolean))).map((region) => <option key={region} value={region}>{region}</option>)}</select><select className="asset-status-filter" aria-label="按状态筛选" value={assetStatusFilter} onChange={(event) => setAssetStatusFilter(event.target.value)}><option value="">全部状态</option>{Array.from(new Set(localAssets.map((asset) => String(asset.payload?.Status || asset.payload?.InstanceStatus || asset.payload?.DBInstanceStatus || asset.payload?.DomainStatus || "")).filter(Boolean))).map((status) => <option key={status} value={status}>{cloudStatusText(status)}</option>)}</select><AiAssistButton task="search" title="AI 自然语言筛选" current={{query:assetKeyword,group:assetGroupFilter,resource_type:resourceTypeFilter||"",expires_within_days:assetExpiryDays}} onApply={result=>{const filters=assetSearchFilters(result.fields,assetTypes.map(([value])=>value),accounts.map(account=>account.group_name||""));if(filters.query!==undefined)setAssetKeyword(filters.query);if(filters.group!==undefined)setAssetGroupFilter(filters.group);if(filters.resource_type!==undefined)setResourceTypeFilter(filters.resource_type||null);if(filters.expires_within_days!==undefined)setAssetExpiryDays(filters.expires_within_days);}} /><button type="button" className="asset-filter-clear" title="清除搜索、类型、地域、状态、分组、到期天数和当前账号筛选" onClick={()=>{setAssetKeyword("");setResourceTypeFilter(null);setAssetRegionFilter("");setAssetStatusFilter("");setAssetGroupFilter("");setAssetExpiryDays(null);setResourceAccountId(null);}}>清除筛选</button><SortSelectionControls label="资产" keys={pagedLocalAssets.map(assetFavoriteKey)} selected={assetSelection.selected} sorting={assetSorting} onToggleAll={() => assetSelection.toggleAll(pagedLocalAssets.map(assetFavoriteKey))} onSortingChange={setAssetSorting} showSelectAll={false} /></div>
+              {visibleLocalAssets.length ? <div className="table-wrap"><table><thead><tr><th className="asset-order-column">{assetSorting ? <span className="sr-only">排序</span> : <SelectionCheckbox label="全选当前页资产" checked={pagedLocalAssets.length > 0 && pagedLocalAssets.every(asset => assetSelection.selected.has(assetFavoriteKey(asset)))} mixed={pagedLocalAssets.some(asset => assetSelection.selected.has(assetFavoriteKey(asset))) && !pagedLocalAssets.every(asset => assetSelection.selected.has(assetFavoriteKey(asset)))} onChange={() => assetSelection.toggleAll(pagedLocalAssets.map(assetFavoriteKey))} />}</th><th>资源类型</th><th>资产名称 / ID</th><th>到期时间</th><th>账号信息</th><th>地域</th><th>状态</th><th className="asset-actions-column">操作</th></tr></thead><tbody>
+                {pagedLocalAssets.map((asset) => {
                   const account = accounts.find((item) => item.id === asset.account_id);
                   const payload = asset.payload || {};
                   const assetRowKey = `${asset.account_id}:${asset.resource_type}:${asset.asset_key}`;
@@ -5173,8 +4971,8 @@ function App() {
                   ) : null;
                   const serverActions = (account?.cloud_type === "cloudflare" || asset.resource_type === "ecs" || asset.resource_type === "swas") ? renderAssetActions(asset, account) : null;
                   const assetNote = assetNotes[assetRowKey] || "";
-                  return <tr key={`${asset.account_id}-${asset.resource_type}-${asset.asset_key}-${index}`} className={draggedAssetKey === assetRowKey ? "is-asset-dragging" : ""} data-asset-row-key={assetRowKey}>
-                    <td className="asset-order-cell"><button type="button" className="asset-drag-handle" aria-label={`拖动排序 ${serverName}`} title="拖动排序" onPointerDown={(event) => startAssetDrag(event, assetRowKey)}><GripVertical size={17} /></button></td>
+                  return <tr key={assetRowKey} className={draggedAssetKey === assetRowKey ? "is-asset-dragging" : ""} data-asset-row-key={assetRowKey}>
+                    <td className="asset-order-cell">{assetSorting ? <button type="button" className="asset-drag-handle" aria-label={`拖动排序 ${serverName}`} title="拖动排序" onPointerDown={(event) => startAssetDrag(event, assetRowKey)}><GripVertical size={17} /></button> : <SelectionCheckbox label={`选择资产 ${serverName}`} checked={assetSelection.selected.has(assetRowKey)} onChange={() => assetSelection.toggle(assetRowKey)} />}</td>
                     <td>{assetTypes.find(([value]) => value === asset.resource_type)?.[1] || asset.resource_type}</td>
                     <td><div className="asset-name-cell"><div className="asset-note-line">{editingAssetNote?.key === assetRowKey ? <input className="asset-note-editor" value={editingAssetNote.value} autoFocus onChange={(event) => setEditingAssetNote((current) => current?.key === assetRowKey ? { ...current, value: event.target.value } : current)} onBlur={() => saveAssetNote(assetRowKey)} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") setEditingAssetNote(null); }} aria-label="资产备注" placeholder="添加备注" /> : <button type="button" className={`asset-note-button${assetNote ? " has-note" : ""}`} onClick={() => setEditingAssetNote({ key: assetRowKey, value: assetNote, initial: assetNote })}>{assetNote || "添加备注"}</button>}<AiAssetNotes name={serverName} type={asset.resource_type} note={assetNote} onSave={value=>setAssetNotes(current=>({...current,[assetRowKey]:value}))}/></div><div className="asset-name-primary">{canEditServerName && account ? (
                       editingAssetName?.key === assetRowKey ? <input className="asset-name-editor" value={editingAssetName.value} autoFocus disabled={savingAssetName === assetRowKey} onChange={(event) => setEditingAssetName((current) => current?.key === assetRowKey ? { ...current, value: event.target.value } : current)} onBlur={() => void saveServerName(asset, account, assetRowKey)} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") setEditingAssetName(null); }} aria-label="服务器名称" /> : <button type="button" className="asset-name-edit-button" title="点击修改服务器名称" onClick={() => setEditingAssetName({ key: assetRowKey, value: serverName === "-" ? "" : serverName, initial: serverName === "-" ? "" : serverName })}><strong>{serverName}</strong></button>

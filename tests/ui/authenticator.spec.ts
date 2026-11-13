@@ -211,7 +211,7 @@ test("import previews conflicts and export creates a no-password backup after ri
   await expect(page.getByRole("status")).toContainText("新增 1，更新 0，跳过 1");
   await page.getByLabel("选择 Example demo@example.test").check();
   await expect(page.getByRole("button", { name: "导出所选（1）", exact: true })).toBeVisible();
-  await expect(page.getByLabel("选择本页")).toHaveJSProperty("indeterminate", true);
+  await expect(page.getByLabel("全选本页验证码")).toHaveJSProperty("indeterminate", true);
   await page.getByRole("button", { name: "导出所选", exact: true }).click();
   await expect(page.getByRole("dialog")).toContainText("所选 1 项");
   await expect(page.getByLabel("再次输入主密码")).toHaveCount(0);

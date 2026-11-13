@@ -2,8 +2,10 @@ import { DialogField } from "../../shared/DialogForm";
 import { ExportChecklist } from "../../shared/ExportSelection";
 import { SharedDialog } from "../../shared/SharedDialog";
 import { GroupNameInput } from "../../shared/GroupNameInput";
+import { SortSelectionControls } from "../../shared/SortSelectionControls";
+import { useSortableDrag } from "../../shared/useSortableDrag";
 import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type FormEvent, type ReactNode } from "react";
-import { Check, Copy, Download, Edit3, Eye, EyeOff, Grid2X2, KeyRound, List, LockKeyhole, Plus, Search, ShieldCheck, Star, Trash2, Upload } from "lucide-react";
+import { Check, Copy, Download, Edit3, Eye, EyeOff, Grid2X2, GripVertical, KeyRound, List, LockKeyhole, Plus, Search, ShieldCheck, Star, Trash2, Upload } from "lucide-react";
 import { PaginationBar, PAGE_SIZE_OPTIONS } from "../../shared/PaginationBar";
 import { useGridPageSize } from "../../shared/useGridPageSize";
 import { authenticatorClient as client, type AuthCode, type AuthEntry, type AuthInput, type AuthPreview } from "../../platform/clients/authenticator";
@@ -54,10 +56,17 @@ export function AuthenticatorPanel({ mobile = false, initialOtpUri, onInitialOtp
   const [category, setCategory] = useState("all");
   const [layout, setLayout] = useState<"grid" | "list">("grid");
   const [sort, setSort] = useState("custom");
+  const [sorting, setSorting] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(100);
   const gridPagination = useGridPageSize<HTMLDivElement>(pageSize);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const drag = useSortableDrag({
+    selector: "[data-authenticator-sort-id]", attribute: "data-authenticator-sort-id", layout: layout === "list" ? "list" : "grid",
+    enabled: sorting && sort === "custom" && !busy && unlocked,
+    canMove: (source, target) => entries.find(entry => entry.id === source)?.pinned === entries.find(entry => entry.id === target)?.pinned,
+    onMove: moveAuthenticatorEntry,
+  });
   const [draft, setDraft] = useState<AuthInput | null>(null);
   const [modal, setModal] = useState<"import" | "export" | "delete" | null>(null);
   const [uriText, setUriText] = useState("");
@@ -122,7 +131,7 @@ export function AuthenticatorPanel({ mobile = false, initialOtpUri, onInitialOtp
 
   const clearSecrets = useCallback(() => {
     ++epoch.current; setUnlocked(false); setEntries([]); setCodes({}); setDraft(null); setModal(null);
-    setPreview(null); setChoices({}); setSelected(new Set()); setPassword("");
+    setPreview(null); setChoices({}); setSelected(new Set()); setSorting(false); setPassword("");
     setUriText("");
     setCopied(""); setCopyNotice(null); if (copyTimer.current) clearTimeout(copyTimer.current);
     hideDraftSecret();
@@ -180,6 +189,35 @@ export function AuthenticatorPanel({ mobile = false, initialOtpUri, onInitialOtp
   const pageCount = Math.max(1, Math.ceil(filtered.length / gridPagination.pageSize));
   const safePage = Math.min(page, pageCount);
   const visible = filtered.slice((safePage - 1) * gridPagination.pageSize, safePage * gridPagination.pageSize);
+  async function moveAuthenticatorEntry(source: string, target: string) {
+    if (!sorting || sort !== "custom" || actionBusy.current) return;
+    const sourceEntry = entries.find(entry => entry.id === source), targetEntry = entries.find(entry => entry.id === target);
+    if (!sourceEntry || !targetEntry || sourceEntry.pinned !== targetEntry.pinned) return;
+    const keys = visible.filter(entry => entry.pinned === sourceEntry.pinned).map(entry => entry.id);
+    const from = keys.indexOf(source), to = keys.indexOf(target);
+    if (from < 0 || to < 0 || from === to) return;
+    const reordered = [...keys];
+    reordered.splice(from, 1); reordered.splice(to, 0, source);
+    const affected = new Set(keys);
+    const ordered = [...entries].sort((a, b) => Number(b.pinned) - Number(a.pinned) || a.order - b.order);
+    let cursor = 0;
+    const nextIds = ordered.map(entry => affected.has(entry.id) ? reordered[cursor++] : entry.id);
+    const nextEntries = nextIds.map((id, order) => ({ ...entries.find(entry => entry.id === id)!, order }));
+    setEntries(nextEntries);
+    await action(async () => {
+      try {
+        for (const entry of nextEntries) {
+          const previous = entries.find(item => item.id === entry.id);
+          if (previous?.order !== entry.order) await client.save(entry);
+        }
+        await refresh();
+        setMessage("验证码顺序已保存");
+      } catch (reason) {
+        await refresh().catch(() => {});
+        throw reason;
+      }
+    });
+  }
   const visibleIds = visible.map((entry) => entry.id).join(",");
   useEffect(() => {
     if (!unlocked) return;
@@ -312,10 +350,10 @@ export function AuthenticatorPanel({ mobile = false, initialOtpUri, onInitialOtp
         {[{ id: "all", issuer: "", label: "全部", count: entries.length }, ...categories].map((item) => <button className={`auth-category ${item.id === "all" ? "" : issuerTone(item.issuer)}`} key={item.id} aria-label={`${item.id === "all" ? "全部服务商" : item.label}，共 ${item.count} 项`} aria-pressed={category === item.id} onClick={() => setCategory(item.id)}><span className="auth-category-dot" aria-hidden="true" /><span className="auth-category-name">{item.label}</span><strong>{item.count}</strong>{category === item.id && <Check size={14} aria-hidden="true" />}</button>)}
       </div>}
     </div>
-    {entries.length > 0 && <div className="auth-selection"><label><input type="checkbox" ref={(node) => { if (node) node.indeterminate = visible.some((entry) => selected.has(entry.id)) && !visible.every((entry) => selected.has(entry.id)); }} checked={visible.length > 0 && visible.every((entry) => selected.has(entry.id))} onChange={(event) => setSelected((old) => { const next = new Set(old); visible.forEach((entry) => event.target.checked ? next.add(entry.id) : next.delete(entry.id)); return next; })} /> 选择本页</label><span>已选 {selected.size} 项</span>{selected.size > 0 ? <><button className="auth-primary" disabled={busy} onClick={() => { setModal("export"); setError(""); }}><Download size={14} /> 导出所选</button><button onClick={() => setSelected(new Set())}>取消选择</button><button disabled={busy} onClick={() => setModal("delete")}><Trash2 size={14} /> 删除所选</button></> : <span className="auth-hint">勾选验证码后可导出部分条目</span>}</div>}
+    {entries.length > 0 && <div className="auth-selection"><SortSelectionControls label="验证码" keys={visible.map(entry => entry.id)} selected={selected} sorting={sorting} scope="本页" onToggleAll={() => setSelected(old => { const next = new Set(old); const all = visible.length > 0 && visible.every(entry => next.has(entry.id)); visible.forEach(entry => all ? next.delete(entry.id) : next.add(entry.id)); return next; })} onSortingChange={next => { setSorting(next); if (next && sort !== "custom") { setSort("custom"); setPage(1); } }} disabled={busy || visible.length < 1} />{sorting && <span>已选 {selected.size} 项 · 置顶与未置顶条目分开排序</span>}{selected.size > 0 ? <><button className="auth-primary" disabled={busy} onClick={() => { setModal("export"); setError(""); }}><Download size={14} /> 导出所选</button><button onClick={() => setSelected(new Set())}>取消选择</button><button disabled={busy} onClick={() => setModal("delete")}><Trash2 size={14} /> 删除所选</button></> : !sorting && <span className="auth-hint">勾选验证码后可导出部分条目</span>}</div>}
     {!visible.length ? <div className="auth-empty"><KeyRound size={36} /><h3>{entries.length ? "没有匹配的验证码" : "还没有验证码"}</h3><p>{entries.length ? "调整搜索条件、服务商类别或分组。" : "导入 Ente 文件、识别二维码图片，或手动添加 OTP 密钥。"}</p></div> : <div ref={gridPagination.gridRef} className={`auth-cards ${layout === "list" ? "auth-list" : ""}`}>
-      {visible.map((entry) => { const code = codes[entry.id]; return <article className={`auth-card ${code && code.remaining <= 5 && entry.kind !== "hotp" ? "auth-expiring" : ""}`} key={entry.id}>
-        <div className="auth-card-heading"><div className="auth-card-top"><label><input aria-label={`选择 ${entry.issuer} ${entry.account}`} type="checkbox" checked={selected.has(entry.id)} onChange={(event) => setSelected((old) => { const next = new Set(old); event.target.checked ? next.add(entry.id) : next.delete(entry.id); return next; })} /></label><div className="auth-identity"><strong title={entry.issuer}>{entry.issuer || "未指定服务商"}</strong></div>
+      {visible.map((entry) => { const code = codes[entry.id]; return <article className={`auth-card ${code && code.remaining <= 5 && entry.kind !== "hotp" ? "auth-expiring" : ""}`} data-authenticator-sort-id={entry.id} key={entry.id}>
+        <div className="auth-card-heading"><div className="auth-card-top">{sorting ? <button type="button" className="auth-drag-handle" aria-label={`拖动排序 ${entry.issuer} ${entry.account}`} title="拖动排序" disabled={busy} onPointerDown={event => drag.startDrag(event, entry.id)}><GripVertical size={16} /></button> : <label><input aria-label={`选择 ${entry.issuer} ${entry.account}`} type="checkbox" checked={selected.has(entry.id)} onChange={(event) => setSelected((old) => { const next = new Set(old); event.target.checked ? next.add(entry.id) : next.delete(entry.id); return next; })} /></label>}<div className="auth-identity"><strong title={entry.issuer}>{entry.issuer || "未指定服务商"}</strong></div>
           <button className={entry.pinned ? "auth-pinned" : ""} aria-label={`${entry.pinned ? "取消置顶" : "置顶"} ${entry.account}`} disabled={busy} onClick={() => void action(async () => { await client.save({ ...entry, pinned: !entry.pinned }); await refresh(); })}><Star size={16} fill={entry.pinned ? "currentColor" : "none"} /></button>
           <button aria-label={`编辑 ${entry.account}`} onClick={() => { hideDraftSecret(); setDraft({ ...entry, secret: "" }); setError(""); }}><Edit3 size={15} /></button>
           <ProviderIcon issuer={entry.issuer} />

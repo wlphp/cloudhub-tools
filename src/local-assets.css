@@ -215,14 +215,16 @@ body.theme-light .ide-theme .favorite-disk-chip.system i{color:#9a5518}
 }
 @media (prefers-reduced-motion: reduce) { .ip-location-row .spin, .ip-location-dialog .spin { animation:none; } }
 
-/* 收藏卡片沿用相同的标签列、右边界和操作按钮尺寸。 */
+/* 收藏资源：名称与状态优先，详情、备注和操作沿用统一的列宽与间距。 */
 .ide-theme .favorites-page .favorite-card-grid {
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
 }
 .ide-theme .favorites-page .favorite-resource-card {
-  --favorite-label-width: 72px;
+  --favorite-label-width: 62px;
   --favorite-control-height: 34px;
   padding: 16px;
+  min-height: 0;
+  gap: 0;
 }
 .ide-theme .favorites-page .favorite-card-account {
   min-height: 32px;
@@ -237,8 +239,10 @@ body.theme-light .ide-theme .favorite-disk-chip.system i{color:#9a5518}
 .ide-theme .favorites-page .favorite-card-note {
   grid-template-columns: var(--favorite-label-width) minmax(0, 1fr) auto;
   gap: 8px;
-  min-height: 26px;
-  margin-bottom: 12px;
+  min-height: 32px;
+  margin: auto 0 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--jb-border);
 }
 .ide-theme .favorites-page .favorite-card-note > button {
   padding: 0;
@@ -249,8 +253,13 @@ body.theme-light .ide-theme .favorite-disk-chip.system i{color:#9a5518}
   align-items: start;
 }
 .ide-theme .favorites-page .favorite-card-details {
-  gap: 10px;
-  margin: 18px 0 16px;
+  gap: 6px;
+  min-height: 128px;
+  align-content: start;
+  margin: 12px 0;
+  padding: 10px 12px;
+  border-radius: 5px;
+  background: var(--jb-surface-2);
 }
 .ide-theme .favorites-page .favorite-card-details > div:not(.ip-location-row) {
   grid-template-columns: var(--favorite-label-width) minmax(0, 1fr);
@@ -268,12 +277,14 @@ body.theme-light .ide-theme .favorite-disk-chip.system i{color:#9a5518}
 .ide-theme .favorites-page .favorite-card-meta {
   min-height: 26px;
   align-items: center;
-  gap: 8px;
-  padding-top: 14px;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 0;
+  border: 0;
 }
 .ide-theme .favorites-page .favorite-card-actions {
   min-height: var(--favorite-control-height);
-  margin-top: 14px;
+  margin-top: 10px;
 }
 .ide-theme .favorites-page .favorite-card-actions .server-asset-actions {
   display: flex;
@@ -282,7 +293,7 @@ body.theme-light .ide-theme .favorite-disk-chip.system i{color:#9a5518}
 }
 .ide-theme .favorites-page .server-asset-actions > button,
 .ide-theme .favorites-page .server-asset-actions > .asset-more-wrap {
-  flex: 0 1 108px;
+  flex: 1 1 0;
   min-width: 0;
   height: var(--favorite-control-height);
   margin: 0;
@@ -311,6 +322,70 @@ body.theme-light .ide-theme .favorite-disk-chip.system i{color:#9a5518}
 @media (max-width: 1100px) {
   .ide-theme .favorites-page .favorite-resource-card { --favorite-label-width: 56px; }
 }
+
+.ide-theme .favorites-page .favorite-card-grid { gap: 12px; }
+.ide-theme .favorites-page .favorite-card-account { grid-template-columns: 20px 24px minmax(0, 1fr) auto; gap: 6px; margin-bottom: 10px; }
+.ide-theme .favorites-page .favorite-card-drag-handle { width: 20px; }
+.ide-theme .favorites-page .favorite-card-head h2 { font-size: 16px; line-height: 24px; }
+.ide-theme .favorites-page .favorite-card-head small { font-size: 11px; line-height: 18px; }
+.ide-theme .favorites-page .favorite-card-head .asset-favorite-button { width: 24px; height: 24px; margin: 0; }
+.ide-theme .favorites-page .favorite-card-head { grid-template-columns: minmax(0, 1fr) 24px; }
+.ide-theme .favorites-page .favorite-card-meta .favorite-status-refresh { margin-left: auto; }
+.ide-theme .favorites-page .favorite-card-note > button { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ide-theme .favorites-page .favorite-card-note .ai-assist-button { border-color: transparent; background: transparent; color: var(--jb-muted); }
+.ide-theme .favorites-page .favorite-card-note .ai-assist-button:hover { background: var(--jb-surface-2); color: var(--jb-accent-strong); text-decoration: none; }
+/* 磁盘是只读信息，不使用按钮式边框和底色。 */
+.ide-theme .favorites-page .favorite-card-details .favorite-disk-list .favorite-disk-chip {
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  line-height: 22px;
+}
+.ide-theme .favorites-page .favorite-card-details .favorite-disk-list .favorite-disk-chip :is(b, i) { color: var(--jb-text); font-size: 12px; font-weight: 400; }
+.ide-theme .favorites-page .favorite-disk-chip i { white-space: normal; overflow-wrap: anywhere; }
+.ide-theme .favorites-page .favorite-card-actions .asset-action-buttons { display: flex; gap: 8px; }
+/* 局部覆盖全局灰色按钮规则，保留统一的主题色与危险操作语义。 */
+.ide-theme :is(.favorites-page .favorite-card-actions, .local-resource-page .local-assets-panel .asset-actions-cell) .asset-action-buttons button {
+  --favorite-action-color: var(--jb-accent);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: var(--favorite-control-height);
+  padding: 0 10px !important;
+  border: 1px solid color-mix(in srgb, var(--favorite-action-color) 32%, white) !important;
+  border-radius: 5px !important;
+  background: color-mix(in srgb, var(--favorite-action-color) 14%, white) !important;
+  color: color-mix(in srgb, var(--favorite-action-color) 55%, black) !important;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+}
+.ide-theme :is(.favorites-page .favorite-card-actions, .local-resource-page .local-assets-panel .asset-actions-cell) .asset-action-buttons :is(.asset-force-reboot-button, .asset-cache-delete-button) { --favorite-action-color: var(--jb-red); }
+.ide-theme :is(.favorites-page .favorite-card-actions, .local-resource-page .local-assets-panel .asset-actions-cell) .asset-action-buttons :is(.asset-domain-dns-button, .asset-domain-whois-button, .asset-oss-files-button) { --favorite-action-color: var(--jb-blue); }
+.ide-theme :is(.favorites-page .favorite-card-actions, .local-resource-page .local-assets-panel .asset-actions-cell) .asset-action-buttons :is(.asset-domain-log-button, .asset-oss-stat-button) { --favorite-action-color: var(--jb-green); }
+.ide-theme :is(.favorites-page .favorite-card-actions, .local-resource-page .local-assets-panel .asset-actions-cell) .asset-action-buttons button:hover:not(:disabled),
+.ide-theme :is(.favorites-page .favorite-card-actions, .local-resource-page .local-assets-panel .asset-actions-cell) .asset-action-buttons .is-open .asset-more-button {
+  border-color: color-mix(in srgb, var(--favorite-action-color) 48%, white) !important;
+  background: color-mix(in srgb, var(--favorite-action-color) 22%, white) !important;
+  color: color-mix(in srgb, var(--favorite-action-color) 55%, black) !important;
+}
+.ide-theme :is(.favorites-page .favorite-card-actions, .local-resource-page .local-assets-panel .asset-actions-cell) .asset-action-buttons button:active:not(:disabled) { box-shadow: inset 0 2px 4px #0003; }
+.ide-theme :is(.favorites-page .favorite-card-actions, .local-resource-page .local-assets-panel .asset-actions-cell) .asset-action-buttons button:disabled { opacity: .5; cursor: not-allowed; }
+.ide-theme .favorites-page .favorite-resource-card :is(button, input):focus-visible { outline: 2px solid var(--jb-accent); outline-offset: 2px; }
+.ide-theme .favorites-page .favorite-search { min-width: 0; margin: 0; box-sizing: border-box; }
+.ide-theme .favorites-page .favorite-search:focus-within { border-color: var(--jb-accent); outline: 2px solid var(--jb-accent); outline-offset: 1px; }
+.ide-theme .favorites-page .favorite-search input { flex: 1; min-width: 0; margin: 0; padding: 0; border: 0 !important; border-radius: 0; background: transparent !important; box-shadow: none !important; outline: none !important; }
+@media (max-width: 600px) {
+  .ide-theme .favorites-page .favorite-toolbar { padding: 10px; gap: 8px; }
+  .ide-theme .favorites-page .favorite-type-tabs { flex-basis: 100%; }
+  .ide-theme .favorites-page .favorite-search { flex-basis: 100%; }
+  .ide-theme .favorites-page .favorite-toolbar > select { width: 100%; min-width: 0; }
+}
 .favorites-page .favorite-status-refresh.is-refreshing:disabled{color:var(--jb-accent-strong);background:var(--jb-accent-soft);box-shadow:inset 0 0 0 1px var(--jb-accent);border-radius:4px;padding-inline:7px;font-weight:600;opacity:1;cursor:progress}
 .favorites-page .favorite-status-refresh:focus-visible{outline:2px solid var(--jb-accent-strong);outline-offset:2px}
 @media(prefers-reduced-motion:reduce){.favorite-status-refresh .spin{animation:none}}
@@ -325,7 +400,27 @@ body.theme-light .ide-theme .favorite-disk-chip.system i{color:#9a5518}
 .cloudflare-worker-create .cloudflare-worker-fields textarea { min-height: 220px; resize: vertical; font: 12px/1.6 Consolas, monospace; }
 .cloudflare-worker-create details { margin-top: 12px; }
 .cloudflare-worker-result { min-width: 0; overflow-wrap: anywhere; }
-.cloudflare-worker-create .cloudflare-worker-fields .cloudflare-worker-checkbox { display: flex; align-items: flex-start; gap: 8px; }
-.cloudflare-worker-create .cloudflare-worker-fields .cloudflare-worker-checkbox input { flex: none; width: auto; margin: 2px 0 0; }
-.cloudflare-worker-create .cloudflare-worker-host { margin: 0; overflow-wrap: anywhere; color: var(--jb-muted); }
 .cloudflare-dns-content { max-width: 320px; overflow-wrap: anywhere; }
+.cloudflare-access-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 10px; }
+.cloudflare-record-count { color: var(--jb-muted); white-space: nowrap; font-size: 12px; }
+
+/* 资产操作使用单行按钮组；域名的三个操作保持在同一水平线上。 */
+.ide-theme .local-resource-page .local-assets-panel .asset-actions-cell { --favorite-control-height: 30px; }
+.ide-theme .local-resource-page .local-assets-panel .asset-actions-cell .asset-action-buttons { gap: 6px; }
+.ide-theme .local-resource-page .local-assets-panel .asset-actions-cell .domain-asset-actions { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.ide-theme .local-resource-page .local-assets-panel .asset-actions-cell .asset-action-buttons :is(button, .asset-more-wrap) { height: 30px; }
+.ide-theme .local-resource-page .local-assets-panel .asset-actions-cell .asset-action-buttons button { padding-inline: 6px !important; font-weight: 500; }
+.ide-theme .local-resource-page .asset-actions-cell button:focus-visible { outline: 2px solid var(--jb-accent); outline-offset: 2px; }
+/* 拖动行保持清晰，邻行只做垂直让位，避免变淡、缩放和大面积闪烁。 */
+.ide-theme .local-resource-page .local-assets-panel tr.is-asset-dragging { position: relative; z-index: 2; }
+.ide-theme .local-resource-page .local-assets-panel tr.is-asset-dragging td { opacity: 1; background: var(--jb-surface) !important; box-shadow: inset 0 1px var(--jb-accent), inset 0 -1px var(--jb-accent); }
+.ide-theme .local-resource-page .local-assets-panel tr.is-asset-dragging td:first-child { box-shadow: inset 3px 0 var(--jb-accent), inset 0 1px var(--jb-accent), inset 0 -1px var(--jb-accent); }
+.ide-theme .local-resource-page .asset-drag-handle { cursor: grab; }
+.ide-theme .local-resource-page .asset-drag-handle:active { cursor: grabbing; }
+
+.ide-theme .account-section .layui-toolbar .account-sort-button { display: inline-flex; align-items: center; gap: 5px; height: 30px; padding: 0 9px; border: 1px solid var(--jb-border-strong) !important; border-radius: 3px !important; background: var(--jb-surface-3) !important; color: var(--jb-text) !important; font-size: 11px; }
+.ide-theme .account-section .layui-toolbar .account-sort-button:hover:not(:disabled),
+.ide-theme .account-section .layui-toolbar .account-sort-button.is-sorting { border-color: var(--jb-accent) !important; background: var(--jb-accent-soft) !important; color: var(--jb-accent-strong) !important; }
+.ide-theme .account-section .account-drag-handle { width: 24px; height: 28px; vertical-align: middle; cursor: grab; }
+.ide-theme .account-section [data-sortable-dragging] td { background: var(--jb-surface) !important; }
+.ide-theme .account-section :is(.account-sort-button, .account-drag-handle):focus-visible { outline: 2px solid var(--jb-accent); outline-offset: 2px; }

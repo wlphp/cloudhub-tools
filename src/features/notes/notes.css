@@ -2,6 +2,14 @@
    .dialog-common-theme），这里只补充备忘录特有的字段、卡片与提醒布局，
    颜色一律取 --jb-* 令牌，避免与全局主题漂移。 */
 
+.notes-selection-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; }
+.notes-sort-hint { color: var(--jb-muted); font-size: 12px; }
+.notes-card-head > .notes-card-title { flex: 1; min-width: 0; }
+.notes-card-head > .sortable-item-checkbox { align-self: center; }
+.notes-card-head .notes-drag-handle { display: grid; flex: 0 0 20px; place-items: center; width: 20px; height: 24px; margin: 0; padding: 0; border: 0; border-radius: 3px; background: transparent; color: var(--jb-muted); cursor: grab; touch-action: none; user-select: none; }
+.notes-card-head .notes-drag-handle:hover { background: var(--jb-surface-2); color: var(--jb-accent-strong); }
+.notes-card-head .notes-drag-handle:focus-visible { outline: 2px solid var(--jb-accent); outline-offset: 2px; }
+
 .notes-panel {
   display: flex;
   flex-direction: column;

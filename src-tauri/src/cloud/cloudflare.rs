@@ -1,8 +1,6 @@
 use crate::{account_cloud_type, account_credentials, write_api_log, ResourceResponse};
 use serde_json::{json, Value};
 use reqwest::Method;
-#[path = "cloudflare_vless.rs"]
-mod vless;
 
 fn text<'a>(v: &'a Value, key: &str) -> &'a str { v.get(key).and_then(Value::as_str).unwrap_or("") }
 fn identifier(value: &str) -> Result<&str, String> {
@@ -17,6 +15,18 @@ fn project(v: &Value, fields: &[&str]) -> Value {
     let mut result = serde_json::Map::new();
     for field in fields { if let Some(value) = v.get(*field) { if value.is_string() || value.is_boolean() || value.is_number() || value.is_null() { result.insert((*field).into(), value.clone()); } } }
     Value::Object(result)
+}
+
+fn api_error(status: u16, codes: &[String]) -> String {
+    let hint = match status {
+        401 => "API Token 无效或已失效，请更新账号凭据",
+        403 => "权限不足，请检查此操作对应的 Token 权限与资源范围",
+        404 => "资源不存在或当前 Token 无权读取，请同步后确认资源状态",
+        429 => "请求过于频繁，请稍后重试，避免连续点击",
+        500..=599 => "Cloudflare 服务暂时异常，请稍后重试",
+        _ => "请检查 Token 权限、Account ID、资源状态或请求参数",
+    };
+    format!("Cloudflare HTTP {status}（错误码 {}）；{hint}", codes.join(","))
 }
 
 async fn request(id: i64, method: Method, path: &str, query: &[(String, String)], body: Option<Value>) -> Result<Value, String> {
@@ -37,7 +47,7 @@ async fn request_payload(id: i64, method: Method, path: &str, query: &[(String, 
     if !status.is_success() || data["success"] != true {
         // 厂商消息可能回显请求内容，仅返回状态和数字错误码。
         let codes: Vec<String> = data["errors"].as_array().into_iter().flatten().filter_map(|e| e["code"].as_i64()).map(|c| c.to_string()).collect();
-        let message = format!("Cloudflare HTTP {}（错误码 {}）；请检查 Token 权限、Account ID、资源状态或请求参数", status.as_u16(), codes.join(","));
+        let message = api_error(status.as_u16(), &codes);
         write_api_log(&account, "api.cloudflare.com", &action, &json!({}), None, "失败", Some(&message));
         return Err(message);
     }
@@ -106,7 +116,15 @@ pub(crate) async fn resource_items(id: i64, resource_type: &str) -> ResourceResp
 pub(crate) async fn manage(id: i64, action: &str, input: Value) -> Result<Value, String> {
     let (account, _) = account_credentials(id)?;
     identifier(&account)?;
-    if action == "worker_template_deploy" { return vless::deploy(id, &account, &input).await; }
+    if action == "worker_access" {
+        let worker = name(text(&input, "name"))?;
+        let settings = request(id, Method::GET, &format!("accounts/{account}/workers/scripts/{worker}/subdomain"), &[], None).await?;
+        let enabled = settings.pointer("/result/enabled").and_then(Value::as_bool).ok_or("Worker 访问设置格式无效")?;
+        if !enabled { return Ok(json!({"enabled": false})); }
+        let data = request(id, Method::GET, &format!("accounts/{account}/workers/subdomain"), &[], None).await?;
+        if data.pointer("/result/subdomain").and_then(Value::as_str) == Some("") { return Ok(json!({"enabled": true, "warning": "账号尚未配置 workers.dev 子域名，请在 Cloudflare 控制台完成配置。"})); }
+        return Ok(json!({"enabled": true, "url": worker_url(worker, text(&data["result"], "subdomain"))?}));
+    }
     if action == "verify" {
         request(id, Method::GET, &format!("accounts/{account}"), &[], None).await?;
         return Ok(json!({"verified": true}));
@@ -195,13 +213,16 @@ fn worker_input(input: &Value) -> Result<&str, String> {
     Ok(worker)
 }
 
-fn worker_upload(code: &str) -> (String, Vec<u8>) {
-    worker_upload_with_bindings(code, json!([]))
+fn worker_url(worker: &str, subdomain: &str) -> Result<String, String> {
+    for label in [worker, subdomain] {
+        if label.is_empty() || label.len() > 63 || label.starts_with('-') || label.ends_with('-') || !label.bytes().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-') { return Err("Worker 访问地址格式无效".into()); }
+    }
+    Ok(format!("https://{worker}.{subdomain}.workers.dev"))
 }
 
-fn worker_upload_with_bindings(code: &str, bindings: Value) -> (String, Vec<u8>) {
+fn worker_upload(code: &str) -> (String, Vec<u8>) {
     let boundary = format!("cloudhub-{}", uuid::Uuid::new_v4());
-    let metadata = json!({"main_module": "worker.mjs", "compatibility_date": "2026-11-13", "bindings": bindings});
+    let metadata = json!({"main_module": "worker.mjs", "compatibility_date": chrono::Utc::now().format("%Y-%m-%d").to_string()});
     let body = format!("--{boundary}\r\nContent-Disposition: form-data; name=\"metadata\"\r\nContent-Type: application/json\r\n\r\n{metadata}\r\n--{boundary}\r\nContent-Disposition: form-data; name=\"worker.mjs\"; filename=\"worker.mjs\"\r\nContent-Type: application/javascript+module\r\n\r\n{code}\r\n--{boundary}--\r\n");
     (format!("multipart/form-data; boundary={boundary}"), body.into_bytes())
 }
@@ -209,6 +230,14 @@ fn worker_upload_with_bindings(code: &str, bindings: Value) -> (String, Vec<u8>)
 #[cfg(test)]
 mod worker_tests {
     use super::*;
+
+    #[test]
+    fn access_urls_and_error_hints_are_validated() {
+        assert_eq!(worker_url("demo", "example").unwrap(), "https://demo.example.workers.dev");
+        for label in ["", "../bad", "host.test/path", "-invalid", "invalid-", "UPPER"] { assert!(worker_url("demo", label).is_err()); }
+        assert!(api_error(403, &["10000".into()]).contains("权限不足"));
+        assert!(api_error(429, &[]).contains("请求过于频繁"));
+    }
 
     #[test]
     fn validates_names_and_utf8_size_before_upload() {

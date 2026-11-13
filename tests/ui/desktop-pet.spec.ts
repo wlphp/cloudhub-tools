@@ -623,7 +623,7 @@ test("mute one and all update the status list and pet badge without deleting his
 test("muted alerts can be restored from the monitor page", async ({ page }) => {
   await fixture(page); await page.goto("/");
   await page.getByRole("navigation", { name: "主导航" }).getByRole("button", { name: "监控预警", exact: true }).click();
-  await page.evaluate(() => (window as any).petEvent("pet-alerts-changed", { checkedAt: 100, lastError: null, alerts: [{ key: "cert:1", title: "被忽略的提醒", detail: "即将到期", section: "certificates", severity: "warning", active: true, ignored: true, updatedAt: 100, snoozedUntil: 0 }] }));
+  await page.evaluate(() => (window as any).petEvent("pet-alerts-changed", { checkedAt: Math.floor(Date.now() / 1000), lastError: null, alerts: [{ key: "cert:1", title: "被忽略的提醒", detail: "即将到期", section: "certificates", severity: "warning", active: true, ignored: true, updatedAt: Math.floor(Date.now() / 1000), snoozedUntil: 0 }] }));
   await page.getByRole("button", { name: "刷新", exact: true }).click();
   const row = page.locator(".desktop-alert-row").filter({ hasText: "被忽略的提醒" });
   await expect(row).toContainText("已静音");

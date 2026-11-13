@@ -12,7 +12,27 @@ export function useDialogDragging(ownerDocument: Document = document, enabled = 
     const document = ownerDocument;
     const window = document.defaultView!;
     const { Element, HTMLElement } = window;
-    let active: { element: HTMLElement; header: HTMLElement; pointerId: number; x: number; y: number; left: number; top: number; detachRequested: boolean } | null = null;
+    let active: { element: HTMLElement; header: HTMLElement; pointerId: number; x: number; y: number; left: number; top: number; width: number; height: number; transition: string; detachRequested: boolean } | null = null;
+    let frame = 0;
+    let pending: { left: number; top: number } | null = null;
+    const applyPending = () => {
+      frame = 0;
+      if (active && pending) {
+        active.element.style.left = `${pending.left}px`;
+        active.element.style.top = `${pending.top}px`;
+      }
+      pending = null;
+    };
+    const finish = () => {
+      window.cancelAnimationFrame(frame);
+      applyPending();
+      const previous = active;
+      active = null;
+      if (!previous) return;
+      previous.header.classList.remove("dialog-dragging-header");
+      previous.element.style.transition = previous.transition;
+      if (previous.header.hasPointerCapture(previous.pointerId)) previous.header.releasePointerCapture(previous.pointerId);
+    };
 
     const onPointerDown = (event: PointerEvent) => {
       if (event.button !== 0 || !(event.target instanceof Element)) return;
@@ -26,8 +46,9 @@ export function useDialogDragging(ownerDocument: Document = document, enabled = 
         header = firstChild;
       }
       if (!header.contains(event.target)) return;
+      finish();
       const rect = element.getBoundingClientRect();
-      active = { element, header, pointerId: event.pointerId, x: event.clientX, y: event.clientY, left: rect.left, top: rect.top, detachRequested: false };
+      active = { element, header, pointerId: event.pointerId, x: event.clientX, y: event.clientY, left: rect.left, top: rect.top, width: rect.width, height: rect.height, transition: element.style.transition, detachRequested: false };
       header.setPointerCapture(event.pointerId);
       element.style.position = "fixed";
       element.style.margin = "0";
@@ -36,44 +57,48 @@ export function useDialogDragging(ownerDocument: Document = document, enabled = 
       element.style.top = `${rect.top}px`;
       element.style.right = "auto";
       element.style.bottom = "auto";
+      element.style.transition = "none";
       header.classList.add("dialog-dragging-header");
       event.preventDefault();
     };
 
     const onPointerMove = (event: PointerEvent) => {
       if (!active || event.pointerId !== active.pointerId) return;
-      const { element, x, y, left, top } = active;
-      const rect = element.getBoundingClientRect();
+      const { element, x, y, left, top, width, height } = active;
       const proposedLeft = left + event.clientX - x;
       const proposedTop = top + event.clientY - y;
       if (runningInTauri && !runningOnPhone && !active.detachRequested && element.closest("[data-shared-dialog-host]") &&
           Math.hypot(event.clientX - x, event.clientY - y) > 12 &&
-          (proposedLeft < -32 || proposedTop < -32 || proposedLeft + rect.width > window.innerWidth + 32 || proposedTop + rect.height > window.innerHeight + 32)) {
+          (proposedLeft < -32 || proposedTop < -32 || proposedLeft + width > window.innerWidth + 32 || proposedTop + height > window.innerHeight + 32)) {
         active.detachRequested = true;
         element.dispatchEvent(new CustomEvent("cloudhub-dialog-detach", { bubbles: true, detail: { x: event.screenX - (x - left), y: event.screenY - (y - top) } }));
       }
-      const nextLeft = Math.min(Math.max(8, left + event.clientX - x), Math.max(8, window.innerWidth - Math.min(rect.width, window.innerWidth) - 8));
-      const nextTop = Math.min(Math.max(8, top + event.clientY - y), Math.max(8, window.innerHeight - Math.min(rect.height, window.innerHeight) - 8));
-      element.style.left = `${nextLeft}px`;
-      element.style.top = `${nextTop}px`;
+      pending = {
+        left: Math.min(Math.max(8, proposedLeft), Math.max(8, window.innerWidth - Math.min(width, window.innerWidth) - 8)),
+        top: Math.min(Math.max(8, proposedTop), Math.max(8, window.innerHeight - Math.min(height, window.innerHeight) - 8)),
+      };
+      if (!frame) frame = window.requestAnimationFrame(applyPending);
     };
 
     const onPointerUp = (event: PointerEvent) => {
       if (!active || event.pointerId !== active.pointerId) return;
-      active.header.classList.remove("dialog-dragging-header");
-      if (active.header.hasPointerCapture(event.pointerId)) active.header.releasePointerCapture(event.pointerId);
-      active = null;
+      finish();
     };
 
     document.addEventListener("pointerdown", onPointerDown, true);
     window.addEventListener("pointermove", onPointerMove, true);
     window.addEventListener("pointerup", onPointerUp, true);
     window.addEventListener("pointercancel", onPointerUp, true);
+    document.addEventListener("lostpointercapture", onPointerUp, true);
+    window.addEventListener("blur", finish);
     return () => {
+      finish();
       document.removeEventListener("pointerdown", onPointerDown, true);
       window.removeEventListener("pointermove", onPointerMove, true);
       window.removeEventListener("pointerup", onPointerUp, true);
       window.removeEventListener("pointercancel", onPointerUp, true);
+      document.removeEventListener("lostpointercapture", onPointerUp, true);
+      window.removeEventListener("blur", finish);
     };
   }, [ownerDocument, enabled]);
 }

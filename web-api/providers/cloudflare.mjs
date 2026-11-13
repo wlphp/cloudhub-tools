@@ -2,7 +2,6 @@ import { isIP } from "node:net";
 import { decryptSecret } from "../core/crypto.mjs";
 import { getAccountSecretRecord } from "../repositories/accounts.mjs";
 import { writeApiLog } from "../core/database.mjs";
-import { deployVless } from "../../worker-templates/vless/deploy.mjs";
 
 export function identifier(value) {
   if (typeof value !== "string" || !/^[a-f\d]{32}$/i.test(value)) throw new Error("Cloudflare ID 必须为 32 位十六进制字符");
@@ -24,7 +23,8 @@ export function responseError(status, data) {
   if (!data || typeof data !== "object" || Array.isArray(data)) return "Cloudflare 返回格式无效";
   if (status >= 200 && status < 300 && data.success === true) return null;
   const codes = (Array.isArray(data.errors) ? data.errors : []).map(e => e?.code).filter(Number.isInteger).join(",");
-  return `Cloudflare HTTP ${status}（错误码 ${codes}）；请检查 Token 权限、Account ID、资源状态或请求参数`;
+  const hint = status === 401 ? "API Token 无效或已失效，请更新账号凭据" : status === 403 ? "权限不足，请检查此操作对应的 Token 权限与资源范围" : status === 404 ? "资源不存在或当前 Token 无权读取，请同步后确认资源状态" : status === 429 ? "请求过于频繁，请稍后重试，避免连续点击" : status >= 500 ? "Cloudflare 服务暂时异常，请稍后重试" : "请检查 Token 权限、Account ID、资源状态或请求参数";
+  return `Cloudflare HTTP ${status}（错误码 ${codes}）；${hint}`;
 }
 export async function request(id, method, path, query = {}, body) {
   const { token } = credentials(id);
@@ -97,6 +97,17 @@ export function workerInput(input) {
   return input.name;
 }
 
+export async function workerAccess(id, account, input, send = request) {
+  const worker = name(input.name);
+  const settings = await send(id, "GET", `accounts/${account}/workers/scripts/${worker}/subdomain`);
+  if (typeof settings.result?.enabled !== "boolean") throw new Error("Worker 访问设置格式无效");
+  if (!settings.result.enabled) return { enabled: false };
+  const data = await send(id, "GET", `accounts/${account}/workers/subdomain`);
+  if (data.result?.subdomain === "") return { enabled: true, warning: "账号尚未配置 workers.dev 子域名，请在 Cloudflare 控制台完成配置。" };
+  if (typeof data.result?.subdomain !== "string" || !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(data.result.subdomain) || !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(worker)) throw new Error("Worker 访问地址格式无效");
+  return { enabled: true, url: `https://${worker}.${data.result.subdomain}.workers.dev` };
+}
+
 // 允许使用无凭据请求替身验证部署顺序和部分成功，不在测试中访问云端。
 export async function createWorker(id, account, input, send = request) {
   const worker = workerInput(input);
@@ -119,10 +130,7 @@ export async function createWorker(id, account, input, send = request) {
 
 export async function manage(id, action, input = {}) {
   const { account } = credentials(id);
-  if (action === "worker_template_deploy") {
-    if (input.template !== "vless") throw new Error("不支持的 Worker 模板");
-    return deployVless({ accountId: account, workerName: input.name, zoneId: input.zoneId, hostname: input.hostname, thirdParty: input.thirdParty }, (method, path, body, query = {}) => request(id, method, path, query, body));
-  }
+  if (action === "worker_access") return workerAccess(id, account, input);
   if (action === "worker_create") return createWorker(id, account, input);
   if (action === "verify") { await request(id, "GET", `accounts/${account}`); return { verified: true }; }
   if (action.startsWith("dns_") || ["purge_cache", "ssl_get", "ssl_set"].includes(action)) {

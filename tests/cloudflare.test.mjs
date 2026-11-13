@@ -1,7 +1,40 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createWorker, workerInput, dnsBody, identifier, pages, project, responseError } from "../web-api/providers/cloudflare.mjs";
+import { createWorker, workerAccess, workerInput, dnsBody, identifier, pages, project, responseError } from "../web-api/providers/cloudflare.mjs";
 import { saveAccount } from "../web-api/services/accounts.mjs";
+
+test("Worker access reads live settings without mutating resources", async () => {
+  const calls = [];
+  const result = await workerAccess(1, "a".repeat(32), { name: "demo" }, async (...args) => {
+    calls.push(args);
+    return { result: args[2].endsWith("/scripts/demo/subdomain") ? { enabled: true } : { subdomain: "example" } };
+  });
+  assert.deepEqual(result, { enabled: true, url: "https://demo.example.workers.dev" });
+  assert.ok(calls.every(call => call[1] === "GET"));
+  assert.equal(calls.length, 2);
+});
+
+test("Worker access distinguishes disabled, unconfigured, malformed and denied settings", async () => {
+  let calls = 0;
+  assert.deepEqual(await workerAccess(1, "a".repeat(32), { name: "demo" }, async () => { calls++; return { result: { enabled: false } }; }), { enabled: false });
+  assert.equal(calls, 1);
+  const unconfigured = await workerAccess(1, "a".repeat(32), { name: "demo" }, async (_id, _method, path) => ({ result: path.includes("/scripts/") ? { enabled: true } : { subdomain: "" } }));
+  assert.match(unconfigured.warning, /尚未配置/);
+  assert.equal(unconfigured.url, undefined);
+  for (const invalid of ["evil.test/path", "-invalid", null]) {
+    await assert.rejects(workerAccess(1, "a".repeat(32), { name: "demo" }, async (_id, _method, path) => ({ result: path.includes("/scripts/") ? { enabled: true } : { subdomain: invalid } })), /格式无效/);
+  }
+  await assert.rejects(workerAccess(1, "a".repeat(32), { name: "../bad" }, async () => { throw new Error("must not fetch"); }), /名称无效/);
+  await assert.rejects(workerAccess(1, "a".repeat(32), { name: "demo" }, async () => { throw new Error("Cloudflare HTTP 403"); }), /403/);
+});
+
+test("Cloudflare errors provide safe operation guidance by status", () => {
+  for (const [status, hint] of [[401, "失效"], [403, "权限不足"], [404, "资源不存在"], [429, "请求过于频繁"], [503, "服务暂时异常"]]) {
+    const message = responseError(status, { success: false, errors: [{ code: 10000, message: "untrusted provider text" }] });
+    assert.ok(message.includes(hint));
+    assert.ok(!message.includes("untrusted provider text"));
+  }
+});
 
 test("Worker input rejects invalid names, empty code and UTF-8 byte overflow", () => {
   const input = { name: "demo-worker", code: "export default {fetch(){return new Response('ok')}}" };

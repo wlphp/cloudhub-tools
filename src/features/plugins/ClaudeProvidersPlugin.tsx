@@ -1,7 +1,9 @@
+import { SortSelectionControls } from "../../shared/SortSelectionControls";
+import { useSortableDrag } from "../../shared/useSortableDrag";
 import { useDialogDocument } from "../../shared/DialogDocument";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ArrowDown, ArrowUp, Check, Copy, Download, ExternalLink, FolderOpen, HelpCircle, ListChecks, Loader2, Minus, MoreHorizontal, Pencil, Plus, RotateCcw, Search, Server, Star, Trash2, Wand2, Wifi } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, Copy, Download, ExternalLink, FolderOpen, GripVertical, HelpCircle, ListChecks, Loader2, Minus, MoreHorizontal, Pencil, Plus, RotateCcw, Search, Server, Star, Trash2, Wand2, Wifi } from "lucide-react";
 import { SharedDialog } from "../../shared/SharedDialog";
 import { runningInTauri } from "../../platform/api";
 import { MoreMenu } from "../../shared/MoreMenu";
@@ -575,6 +577,9 @@ export function ClaudeProvidersPlugin() {
   const [routeStartError, setRouteStartError] = useState("");
   const [quotaProviderId, setQuotaProviderId] = useState<string | null>(null);
   const [selectedProviders, setSelectedProviders] = useState<Set<string>>(new Set());
+  const [providerSorting, setProviderSorting] = useState(false);
+  const providerDrag = useSortableDrag({ selector: "[data-claude-provider-sort-id]", attribute: "data-claude-provider-sort-id", enabled: providerSorting && viewMode === "direct" && !busyId, onMove: moveProviderBefore });
+  useEffect(() => { setProviderSorting(false); }, [viewMode]);
   const [expandedModels, setExpandedModels] = useState<Set<string>>(new Set());
   const [showConfigDescription, setShowConfigDescription] = useState(false);
   const [importPreview, setImportPreview] = useState<Awaited<ReturnType<typeof claudeWorkbenchClient.prepareProviderImport>>>(null);
@@ -689,6 +694,38 @@ export function ClaudeProvidersPlugin() {
   const aggregateGroup = (item: ClaudeProviderSummary) => item.id === aggregateDefault ? 0 : config.members.includes(item.id) ? 1 : 2;
   const queueRank = (item: ClaudeProviderSummary) => config.queue.includes(item.id) ? config.queue.indexOf(item.id) : Number.MAX_SAFE_INTEGER;
   const displayed = viewMode === "aggregate" ? [...shown].sort((a, b) => aggregateGroup(a) - aggregateGroup(b)) : viewMode === "route" ? [...shown].sort((a, b) => queueRank(a) - queueRank(b)) : shown;
+  async function moveProviderBefore(source: string, target: string) {
+    if (busyId || !providerSorting || viewMode !== "direct" || source === target) return;
+    const visibleIds = shown.map(item => item.id);
+    const from = visibleIds.indexOf(source), to = visibleIds.indexOf(target);
+    if (from < 0 || to < 0) return;
+    const reordered = [...visibleIds];
+    reordered.splice(from, 1);
+    reordered.splice(to, 0, source);
+    const visible = new Set(visibleIds);
+    let next = 0;
+    const desired = providers.map(item => visible.has(item.id) ? reordered[next++] : item.id);
+    const working = providers.map(item => item.id);
+    const positions = new Map(desired.map((id, index) => [id, index]));
+    setProviders(current => [...current].sort((left, right) => positions.get(left.id)! - positions.get(right.id)!));
+    setBusyId("provider-sort"); setError(""); setMessage("");
+    try {
+      // Existing move action persists adjacent moves without rewriting provider credentials/configuration.
+      for (let index = 0; index < desired.length; index++) {
+        let position = working.indexOf(desired[index]);
+        while (position > index) {
+          await claudeWorkbenchClient.providerAction({ type: "move", id: desired[index], offset: -1 });
+          [working[position - 1], working[position]] = [working[position], working[position - 1]];
+          position--;
+        }
+      }
+      applyList(await claudeProvidersClient.list());
+      setMessage("供应商顺序已保存");
+    } catch (reason) {
+      try { applyList(await claudeProvidersClient.list()); } catch { setProviders(providers); }
+      setError(reason instanceof Error ? reason.message : "保存供应商排序失败，请刷新后重试。");
+    } finally { setBusyId(""); }
+  }
   const scopeLabel = workspace ? `项目 ${workspace}` : "用户全局";
   const saveConfig = async (next: ClaudeRoutingConfig) => { await claudeWorkbenchClient.saveRouting(next); await refreshRouting(); };
   const toggleFailover = (enabled: boolean) => {
@@ -763,6 +800,7 @@ export function ClaudeProvidersPlugin() {
     <header className="claude-providers-head claude-list-toolbar">
       <label className="claude-search"><Search size={14} aria-hidden="true" /><input type="search" aria-label="搜索供应商" placeholder="搜索供应商" value={keyword} onChange={e => setKeyword(e.target.value)} /></label>
       <div className="claude-providers-actions">
+        {viewMode === "direct" && <SortSelectionControls label="Claude 供应商" keys={shown.map(item => item.id)} selected={selectedProviders} sorting={providerSorting} onSortingChange={setProviderSorting} disabled={Boolean(busyId)} showSelectAll={false} onToggleAll={() => {}} />}
         <button type="button" disabled={Boolean(busyId)} aria-busy={busyId === "refresh"} title="重新读取供应商、当前配置和路由状态，不修改配置" onClick={() => { setMessage(""); void run("refresh", async () => {}, ""); }}>
           {busyId === "refresh" ? <Loader2 size={13} aria-hidden="true" /> : <RotateCcw size={13} aria-hidden="true" />}{busyId === "refresh" ? "刷新中…" : "刷新"}
         </button>
@@ -786,7 +824,7 @@ export function ClaudeProvidersPlugin() {
     {viewMode === "route" && <p className="claude-config-help">{config.failover ? "按 P1、P2… 优先级请求，失败时在重试次数限制内尝试后续供应商。" : "故障转移已关闭，仅使用固定供应商；队列与顺序仍保留。"} 无请求记录时显示“未检测”，不代表连接成功。</p>}
     {viewMode === "aggregate" && <p className="claude-config-help">默认供应商承接不带前缀的请求；添加其他供应商后，可在 Claude Code 的 /model 中选择其模型。聚合不使用故障转移。</p>}
 
-    <div className="claude-list-selection"><label className="claude-check"><input type="checkbox" aria-label="全选当前搜索结果" disabled={Boolean(busyId) || !shown.length} checked={!!shown.length && shown.every(p=>selectedProviders.has(p.id))} ref={element=>{if(element)element.indeterminate=shown.some(p=>selectedProviders.has(p.id)) && !shown.every(p=>selectedProviders.has(p.id));}} onChange={event=>{const checked=event.target.checked;setSelectedProviders(current=>{const next=new Set(current);shown.forEach(p=>checked?next.add(p.id):next.delete(p.id));return next;});}} />全选当前结果</label><span>共 {shown.length} 个供应商</span></div>
+    <div className="claude-list-selection">{!providerSorting && <label className="claude-check"><input type="checkbox" aria-label="全选当前搜索结果" disabled={Boolean(busyId) || !shown.length} checked={!!shown.length && shown.every(p=>selectedProviders.has(p.id))} ref={element=>{if(element)element.indeterminate=shown.some(p=>selectedProviders.has(p.id)) && !shown.every(p=>selectedProviders.has(p.id));}} onChange={event=>{const checked=event.target.checked;setSelectedProviders(current=>{const next=new Set(current);shown.forEach(p=>checked?next.add(p.id):next.delete(p.id));return next;});}} />全选当前结果</label>}<span>共 {shown.length} 个供应商</span></div>
     {providers.length === 0 ? <div className="claude-empty">
       <Server size={26} aria-hidden="true" />
       <strong>还没有供应商</strong>
@@ -816,9 +854,10 @@ export function ClaudeProvidersPlugin() {
         const groupHeading = viewMode === "aggregate" && (index === 0 || aggregateGroup(displayed[index - 1]) !== group);
         return <Fragment key={item.id}>
           {groupHeading && <li className="claude-provider-group-heading">{group === 0 ? routing.mode === "aggregate" && routing.running ? "默认供应商" : "切换到聚合模式后的默认供应商" : (group === 1 ? "已添加" : "可添加") + " · " + providers.filter(provider => aggregateGroup(provider) === group).length}</li>}
-          <li className={`claude-provider-item${(viewMode === "route" ? isRouteTarget : viewMode === "aggregate" ? group === 0 : isCurrent) ? " is-current" : ""}${selectedProviders.has(item.id) ? " is-selected" : ""}${viewMode === "route" ? " is-aggregate-item" : ""}`}>
+          <li data-claude-provider-sort-id={item.id} className={`claude-provider-item${(viewMode === "route" ? isRouteTarget : viewMode === "aggregate" ? group === 0 : isCurrent) ? " is-current" : ""}${selectedProviders.has(item.id) ? " is-selected" : ""}${viewMode === "route" ? " is-aggregate-item" : ""}`}>
           {viewMode === "route" && (index === 0 || config.queue.includes(displayed[index - 1].id) !== inQueue) && <div className="claude-aggregate-heading">{inQueue ? "队列 · 按优先级" : "不在队列"}（{shown.filter(provider => config.queue.includes(provider.id) === inQueue).length}）</div>}
-          <input className="claude-provider-select" type="checkbox" aria-label={"选择 " + item.name} checked={selectedProviders.has(item.id)} disabled={Boolean(busyId)} onChange={event=>setSelectedProviders(current=>{const next=new Set(current);if(event.target.checked)next.add(item.id);else next.delete(item.id);return next;})} />
+          {providerSorting ? <button type="button" className="claude-provider-drag-handle" title="拖动排序" aria-label={`拖动排序 ${item.name}`} disabled={Boolean(busyId)} onPointerDown={event => providerDrag.startDrag(event, item.id)}><GripVertical size={16} /></button> : (<input className="claude-provider-select" type="checkbox" aria-label={"选择 " + item.name} checked={selectedProviders.has(item.id)} disabled={Boolean(busyId)} onChange={event=>setSelectedProviders(current=>{const next=new Set(current);if(event.target.checked)next.add(item.id);else next.delete(item.id);return next;})} />)}
+
           <div className="claude-provider-main">
             <div className="claude-provider-title">
               <span className="claude-provider-logo" aria-hidden="true" style={{ background: accent.color }}>{accent.letter}</span>

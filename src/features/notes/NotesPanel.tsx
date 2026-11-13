@@ -1,7 +1,11 @@
 import { useDialogDocument } from "../../shared/DialogDocument";
+import { SelectionCheckbox, SortSelectionControls, useItemSelection } from "../../shared/SortSelectionControls";
+import { useSortableDrag } from "../../shared/useSortableDrag";
+import { preferencesClient } from "../../platform/clients/preferences";
+import { runningInTauri } from "../../platform/api";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { Bell, BellOff, ChevronDown, ChevronUp, Copy, Edit3, Eye, EyeOff, FolderCog, KeyRound, NotebookPen, Pin, PinOff, Plus, Save, Search, StickyNote, Tag, Trash2, X } from "lucide-react";
+import { Bell, BellOff, ChevronDown, ChevronUp, Copy, Edit3, Eye, EyeOff, FolderCog, GripVertical, KeyRound, NotebookPen, Pin, PinOff, Plus, Save, Search, StickyNote, Tag, Trash2, X } from "lucide-react";
 import { ConfirmDialog } from "../../shared/ConfirmDialog";
 import { SharedDialog } from "../../shared/SharedDialog";
 import { GroupNameInput } from "../../shared/GroupNameInput";
@@ -39,6 +43,13 @@ const repeatLabel = (value: string) => REPEATS.find(item => item.value === value
 
 // 卡片等高偏好：默认同行卡片拉伸对齐；存 "0" 表示按内容自适应高度（仅 PC 头部提供开关）。
 const uniformHeightStorageKey = "cloudhub.notes.uniformHeight";
+const noteOrderStorageKey = "cloudhub.notes.order";
+function parseNoteOrder(value: string | null | undefined): string[] {
+  try {
+    const parsed: unknown = JSON.parse(value || "[]");
+    return Array.isArray(parsed) ? [...new Set(parsed.filter((id): id is string => typeof id === "string" && /^\d+$/.test(id)))] : [];
+  } catch { return []; }
+}
 function savedUniformHeight(): boolean {
   try { return localStorage.getItem(uniformHeightStorageKey) !== "0"; } catch { return true; }
 }
@@ -389,7 +400,27 @@ export function NotesPanel({ mobile = false, openSignal = 0 }: NotesPanelProps) 
   const [trashed, setTrashed] = useState<Note[]>([]);
   const [showTrash, setShowTrash] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [sorting, setSorting] = useState(false);
+  const selection = useItemSelection<number>();
+  const [noteOrder, setNoteOrder] = useState<string[]>(() => {
+    try { return parseNoteOrder(window.localStorage.getItem(noteOrderStorageKey)); } catch { return []; }
+  });
+  const [orderReady, setOrderReady] = useState(!runningInTauri);
+  const drag = useSortableDrag({
+    selector: "[data-note-sort-id]", attribute: "data-note-sort-id", layout: "grid", enabled: sorting && !busy && orderReady,
+    canMove: (source, target) => notes.find(note => String(note.id) === source)?.pinned === notes.find(note => String(note.id) === target)?.pinned,
+    onMove: moveNoteBefore,
+  });
   const alive = useRef(true);
+
+  useEffect(() => {
+    if (!runningInTauri) return;
+    let active = true;
+    void preferencesClient.list().then(preferences => {
+      if (active && preferences[noteOrderStorageKey] !== undefined) setNoteOrder(parseNoteOrder(preferences[noteOrderStorageKey]));
+    }).catch(() => {}).finally(() => { if (active) setOrderReady(true); });
+    return () => { active = false; };
+  }, []);
 
   const load = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true);
@@ -437,16 +468,45 @@ export function NotesPanel({ mobile = false, openSignal = 0 }: NotesPanelProps) 
     return map;
   }, [notes]);
   const tags = useMemo(() => [...new Set(notes.flatMap(note => note.tags))].sort((a, b) => a.localeCompare(b, "zh-CN")), [notes]);
+  const orderedNotes = useMemo(() => {
+    const positions = new Map(noteOrder.map((id, index) => [id, index]));
+    return [...notes].sort((left, right) => Number(right.pinned) - Number(left.pinned) || (positions.get(String(left.id)) ?? Number.MAX_SAFE_INTEGER) - (positions.get(String(right.id)) ?? Number.MAX_SAFE_INTEGER));
+  }, [notes, noteOrder]);
   const visible = useMemo(() => {
     const needle = keyword.trim().toLowerCase();
-    const inGroup = notes.filter(note => group === "all" || note.group === group);
+    const inGroup = orderedNotes.filter(note => group === "all" || note.group === group);
     if (!needle) return inGroup;
     const terms = needle.split(/\s+/);
     return inGroup.filter(note => {
       const haystack = [note.title, note.body, note.account, ...note.tags].join("\n").toLowerCase();
       return terms.every(term => haystack.includes(term));
     });
-  }, [notes, keyword, group]);
+  }, [orderedNotes, keyword, group]);
+
+  async function moveNoteBefore(source: string, target: string) {
+    if (!sorting || busy || !orderReady) return;
+    const sourceNote = notes.find(note => String(note.id) === source), targetNote = notes.find(note => String(note.id) === target);
+    if (!sourceNote || !targetNote || sourceNote.pinned !== targetNote.pinned) return;
+    const keys = visible.filter(note => note.pinned === sourceNote.pinned).map(note => String(note.id));
+    const from = keys.indexOf(source), to = keys.indexOf(target);
+    if (from < 0 || to < 0 || from === to) return;
+    const reordered = [...keys];
+    reordered.splice(from, 1); reordered.splice(to, 0, source);
+    const affected = new Set(keys);
+    const complete = [...new Set([...noteOrder, ...orderedNotes.map(note => String(note.id))])];
+    let index = 0;
+    const next = complete.map(id => affected.has(id) ? reordered[index++] : id);
+    const previous = noteOrder;
+    setNoteOrder(next); setBusy(true); setError(""); setMessage("");
+    try {
+      window.localStorage.setItem(noteOrderStorageKey, JSON.stringify(next));
+      if (runningInTauri) await preferencesClient.save(noteOrderStorageKey, JSON.stringify(next));
+      if (alive.current) setMessage("备忘录顺序已保存");
+    } catch {
+      if (alive.current) { setNoteOrder(previous); setError("保存备忘录排序失败，请重试。"); }
+      try { window.localStorage.setItem(noteOrderStorageKey, JSON.stringify(previous)); } catch { /* Original order remains in memory. */ }
+    } finally { if (alive.current) setBusy(false); }
+  }
 
   async function act(action: () => Promise<unknown>, failure: string, done?: string) {
     if (busy) return false;
@@ -494,6 +554,7 @@ export function NotesPanel({ mobile = false, openSignal = 0 }: NotesPanelProps) 
       <label className="notes-search"><Search size={14} aria-hidden="true" /><input type="search" aria-label="检索备忘录" value={keyword} onChange={event => setKeyword(event.target.value)} placeholder="检索标题、正文、账号和标签" /></label>
       <span className="notes-result-count" role="status">{visible.length} / {notes.length}</span>
     </div>
+    <div className="notes-selection-bar"><SortSelectionControls label="备忘录" keys={visible.map(note => note.id)} selected={selection.selected} sorting={sorting} scope="当前结果" onToggleAll={() => selection.toggleAll(visible.map(note => note.id))} onSortingChange={setSorting} disabled={busy || !orderReady} />{sorting && <span className="notes-sort-hint">置顶优先，同类卡片内拖动排序。</span>}</div>
     {(groups.length > 0 || tags.length > 0) && <div className="notes-filter-bar">
       {groups.length > 0 && <div className="notes-filters" role="group" aria-label="按分组筛选">
         <button type="button" className="notes-chip" aria-pressed={group === "all"} onClick={() => setGroup("all")}>全部 <small>{notes.length}</small></button>
@@ -514,8 +575,9 @@ export function NotesPanel({ mobile = false, openSignal = 0 }: NotesPanelProps) 
       <p>{notes.length === 0 ? "新建第一条笔记，按分组整理，并用标签检索。" : "尝试调整检索词、切换分组或取消标签筛选。"}</p>
       {notes.length === 0 && <button type="button" className="primary" onClick={startCreate}><Plus size={14} aria-hidden="true" />新建备忘录</button>}
     </div> : <div className={`notes-grid${uniform ? " is-uniform" : ""}`}>
-      {visible.map(note => <article key={note.id} className={`notes-card${note.pinned ? " is-pinned" : ""}`}>
+      {visible.map(note => <article key={note.id} data-note-sort-id={note.id} className={`notes-card${note.pinned ? " is-pinned" : ""}`}>
         <div className="notes-card-head">
+          {sorting ? <button type="button" className="notes-drag-handle" aria-label={`拖动排序 ${note.title}`} title="拖动排序" disabled={busy} onPointerDown={event => drag.startDrag(event, String(note.id))}><GripVertical size={16} /></button> : <SelectionCheckbox label={`选择备忘录 ${note.title}`} checked={selection.selected.has(note.id)} onChange={() => selection.toggle(note.id)} />}
           <div className="notes-card-title">
             {note.pinned && <Pin size={13} aria-hidden="true" />}
             <strong>{note.title}</strong>

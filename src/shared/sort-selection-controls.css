@@ -1,0 +1,11 @@
+.ide-theme .sort-selection-controls { display: inline-flex; flex: 0 0 auto; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
+.ide-theme .sort-selection-controls .sort-select-all { display: inline-flex; align-items: center; gap: 6px; margin: 0; padding: 0; min-width: 0; color: var(--jb-muted); font-size: 12px; white-space: nowrap; cursor: pointer; }
+.ide-theme input.sortable-item-checkbox { flex: 0 0 15px; box-sizing: border-box; width: 15px; min-width: 15px; height: 15px; min-height: 15px; margin: 0; padding: 0; accent-color: var(--jb-accent); cursor: pointer; }
+.ide-theme .sort-selection-controls .sort-selection-count { color: var(--jb-muted); font-size: 11px; white-space: nowrap; }
+.ide-theme .sort-selection-controls .sort-mode-button { display: inline-flex; align-items: center; justify-content: center; height: 30px; min-height: 30px; margin: 0; padding: 0 9px; border: 1px solid var(--jb-border-strong); border-radius: 4px; background: var(--jb-surface-3); color: var(--jb-text); font-size: 12px; white-space: nowrap; cursor: pointer; }
+.ide-theme .sort-selection-controls .sort-mode-button:hover:not(:disabled), .ide-theme .sort-selection-controls .sort-mode-button.is-sorting { border-color: var(--jb-accent); background: var(--jb-accent-soft); color: var(--jb-accent-strong); }
+.ide-theme :is(.sort-mode-button, .sortable-item-checkbox):focus-visible { outline: 2px solid var(--jb-accent); outline-offset: 2px; }
+.ide-theme .terminal-host-card > .sortable-item-checkbox { margin: 0 5px; align-self: center; }
+.ide-theme .terminal-host-group-head > .sortable-item-checkbox { margin: 0 9px; }
+
+.ide-theme .terminal-selection-bar { display: flex; align-items: center; padding: 6px 10px; border-bottom: 1px solid var(--jb-border); }

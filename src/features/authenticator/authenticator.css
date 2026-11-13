@@ -52,6 +52,9 @@
 .auth-card-top { display:flex; align-items:center; gap:8px; }
 .auth-card-heading { min-width:0; }
 .auth-card-top > label { display:flex; align-items:center; margin:0; padding:0; }
+.auth-panel .auth-card-top .auth-drag-handle { display:grid; flex:none; place-items:center; width:28px; height:28px; min-width:28px; margin:0; padding:0; border:0; background:transparent; color:var(--jb-muted,var(--jb-muted)); cursor:grab; touch-action:none; user-select:none; }
+.auth-panel .auth-card-top .auth-drag-handle:hover { background:var(--jb-surface-2,var(--jb-surface)); color:var(--jb-accent-strong,var(--jb-accent)); }
+.auth-panel .auth-card-top .auth-drag-handle:focus-visible { outline:2px solid var(--jb-accent,var(--jb-blue)); outline-offset:1px; }
 .auth-account { display:flex; align-items:flex-start; gap:5px; margin-top:8px; line-height:1.5; white-space:normal; overflow-wrap:anywhere; }
 .auth-account > span { min-width:0; }
 .auth-panel .auth-copy-account { flex:none; background:transparent; border:0; padding:2px; color:var(--jb-muted,var(--jb-muted)); }
