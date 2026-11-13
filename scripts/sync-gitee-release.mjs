@@ -1,4 +1,6 @@
+import { randomBytes } from "node:crypto";
 import fs from "node:fs";
+import https from "node:https";
 import path from "node:path";
 
 const [tag, assetsDirectory] = process.argv.slice(2);
@@ -108,15 +110,77 @@ if (!release || !release.id) {
 
 const attachmentsUrl = `${api}/releases/${release.id}/attach_files`;
 const existing = await request(`${attachmentsUrl}?page=1&per_page=100`);
+
+// fetch() applies undici's default 300s headers timeout, which aborts large
+// attachment uploads to Gitee midway. Stream the multipart body over
+// node:https instead and allow a much longer upload window.
+const uploadTimeoutMs = 30 * 60 * 1000;
+function uploadAttachment(file, filename) {
+  const endpoint = new URL(attachmentsUrl);
+  const boundary = `----cloudhub-release-${randomBytes(12).toString("hex")}`;
+  const head = Buffer.from(
+    `--${boundary}\r\n` +
+      `Content-Disposition: form-data; name="access_token"\r\n\r\n` +
+      `${token}\r\n` +
+      `--${boundary}\r\n` +
+      `Content-Disposition: form-data; name="file"; filename="${filename}"\r\n` +
+      `Content-Type: application/octet-stream\r\n\r\n`,
+    "utf8",
+  );
+  const tail = Buffer.from(`\r\n--${boundary}--\r\n`, "utf8");
+  const size = fs.statSync(file).size;
+  return new Promise((resolve, reject) => {
+    const upload = https.request(
+      {
+        method: "POST",
+        protocol: endpoint.protocol,
+        hostname: endpoint.hostname,
+        port: endpoint.port || undefined,
+        path: `${endpoint.pathname}${endpoint.search}`,
+        headers: {
+          Authorization: `token ${token}`,
+          "Content-Type": `multipart/form-data; boundary=${boundary}`,
+          "Content-Length": head.length + size + tail.length,
+          "User-Agent": "cloudhub-tools-release-sync",
+        },
+      },
+      (response) => {
+        let body = "";
+        response.setEncoding("utf8");
+        response.on("data", (chunk) => {
+          body += chunk;
+        });
+        response.on("end", () => {
+          if (response.statusCode < 200 || response.statusCode >= 300) {
+            reject(new Error(`Gitee attachment upload failed (${response.statusCode}).`));
+            return;
+          }
+          resolve(body);
+        });
+      },
+    );
+    upload.setTimeout(uploadTimeoutMs, () => {
+      upload.destroy(new Error("Gitee attachment upload timed out."));
+    });
+    upload.on("error", reject);
+    upload.write(head);
+    const stream = fs.createReadStream(file);
+    stream.on("error", (error) => {
+      upload.destroy(error);
+    });
+    stream.on("end", () => {
+      upload.end(tail);
+    });
+    stream.pipe(upload, { end: false });
+  });
+}
+
 for (const file of files) {
   const filename = path.basename(file);
   for (const attachment of existing.filter((item) => item.name === filename)) {
     await request(`${attachmentsUrl}/${attachment.id}`, { method: "DELETE" });
   }
-  const form = new FormData();
-  form.append("access_token", token);
-  form.append("file", new Blob([fs.readFileSync(file)]), filename);
-  await request(attachmentsUrl, { method: "POST", body: form });
+  await uploadAttachment(file, filename);
   console.log(`Mirrored ${filename}`);
 }
 
