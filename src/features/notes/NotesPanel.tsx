@@ -1,3 +1,4 @@
+import { useDialogDocument } from "../../shared/DialogDocument";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Bell, BellOff, ChevronDown, ChevronUp, Copy, Edit3, Eye, EyeOff, FolderCog, KeyRound, NotebookPen, Pin, PinOff, Plus, Save, Search, StickyNote, Tag, Trash2, X } from "lucide-react";
@@ -366,6 +367,8 @@ function ReminderActions({ busy, complete, snooze }: { busy: boolean; complete: 
 interface NotesPanelProps { mobile?: boolean; openSignal?: number }
 
 export function NotesPanel({ mobile = false, openSignal = 0 }: NotesPanelProps) {
+  const document = useDialogDocument();
+  const window = document.defaultView!;
   const [notes, setNotes] = useState<Note[]>([]);
   const [groups, setGroups] = useState<string[]>([]);
   const [dueIds, setDueIds] = useState<number[]>([]);
@@ -415,7 +418,7 @@ export function NotesPanel({ mobile = false, openSignal = 0 }: NotesPanelProps) 
     const refresh = () => { if (document.visibilityState === "visible") void load(true); };
     window.addEventListener("focus", refresh);
     return () => window.removeEventListener("focus", refresh);
-  }, [load]);
+  }, [load, document, window]);
   useEffect(() => {
     if (!message && !error) return;
     const timer = window.setTimeout(() => { setMessage(""); setError(""); }, error ? 10000 : 6000);

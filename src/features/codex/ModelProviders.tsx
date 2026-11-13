@@ -1,3 +1,4 @@
+import { useDialogDocument } from "../../shared/DialogDocument";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Plus, Pencil, Copy, Trash2, RefreshCw, Search, Server, Play, FlaskConical, Upload, Download, FileText, CheckSquare, Layers, GripVertical } from "lucide-react";
@@ -29,6 +30,7 @@ function sortProviders(providers: CodexProvider[], order: string[]) {
 }
 
 export function ModelProviders({ onChanged, privacy = false }: { onChanged?: () => void; privacy?: boolean }) {
+  const document = useDialogDocument();
   const [items, setItems] = useState<CodexProvider[]>([]);
   const [aggregates, setAggregates] = useState<ProviderAggregate[]>([]);
   const [loading, setLoading] = useState(true);

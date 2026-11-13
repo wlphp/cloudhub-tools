@@ -1,3 +1,4 @@
+import { useDialogDocument } from "../../shared/DialogDocument";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown, CircleStop, Copy, Download, FolderInput, FolderOpen, Info, MessageSquare, MoreVertical, Play, Pause, RefreshCw, Save, SquareTerminal, Star, FileArchive, ScrollText, Settings2, House, Trash2 } from "lucide-react";
@@ -68,6 +69,8 @@ function DistributionIcon({ name }: { name: string }) {
 }
 
 export function WslDashboardPlugin({ open, enabled }: Props) {
+  const document = useDialogDocument();
+  const window = document.defaultView!;
   const [tab, setTab] = useState<Tab>("home");
   const [items, setItems] = useState<WslDistribution[]>([]);
   const [onlineItems, setOnlineItems] = useState<WslOnlineDistribution[]>([]);

@@ -1,3 +1,4 @@
+import { useDialogDocument } from "../../shared/DialogDocument";
 import { DialogField } from "../../shared/DialogForm";
 import { SharedDialog } from "../../shared/SharedDialog";
 import { useConfirmDialog } from "../../shared/useConfirmDialog";
@@ -23,6 +24,7 @@ type ListedPipeline = FlowPipeline & { sourceConnectionId: number };
 const pipelineKey = (pipeline: Pick<ListedPipeline, "sourceConnectionId" | "pipelineId">) => `${pipeline.sourceConnectionId}:${pipeline.pipelineId}`;
 
 export function FlowPanel({ mobile = false }: { mobile?: boolean }) {
+  const document = useDialogDocument();
   const { confirm, confirmationDialog } = useConfirmDialog();
   const [connections, setConnections] = useState<FlowConnection[]>([]);
   const [connectionsLoaded, setConnectionsLoaded] = useState(false);
@@ -209,7 +211,7 @@ export function FlowPanel({ mobile = false }: { mobile?: boolean }) {
       void flowClient.runs(sourceConnectionId, selectedPipeline.pipelineId, 1, 20).then(setRuns).catch(() => undefined);
     }, 5000);
     return () => window.clearInterval(timer);
-  }, [showDetails, selectedPipeline?.sourceConnectionId, selectedPipeline?.pipelineId, runDetail?.pipelineRunId, runDetail?.status]);
+  }, [showDetails, selectedPipeline?.sourceConnectionId, selectedPipeline?.pipelineId, runDetail?.pipelineRunId, runDetail?.status, document]);
 
   const currentConnection = useMemo(() => connections.find((item) => item.id === connectionId) ?? null, [connections, connectionId]);
 

@@ -1,0 +1,8 @@
+{
+  "id": "vless",
+  "name": "VLESS 节点 · Clash / Mihomo 订阅",
+  "version": "1.0.0",
+  "entrypoint": "worker.mjs",
+  "compatibilityDate": "2026-11-13",
+  "source": "用户提供的 worker.fixed.js（已适配）"
+}

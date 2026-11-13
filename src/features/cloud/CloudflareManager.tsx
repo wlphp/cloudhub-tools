@@ -5,6 +5,7 @@ import { resourcesClient } from "../../platform/clients/resources";
 import { cloudflareClient, type CloudflareAction } from "../../platform/clients/cloudflare";
 import { SharedDialog } from "../../shared/SharedDialog";
 import { CloudflareAssetDetail } from "./CloudflareAssetDetail";
+import { CloudflareWorkerCreate } from "./CloudflareWorkerCreate";
 
 const kinds = [["domain", "站点 / DNS"], ["workers", "Workers"], ["oss", "R2 存储桶"], ["pages", "Pages"], ["tunnel", "Tunnel"]] as const;
 type Row = Record<string, unknown>;
@@ -30,6 +31,7 @@ export function CloudflareManager({ account, initialKind = "domain", onClose, on
   const [editor, setEditor] = useState<DnsDraft | null>(null);
   const [detail, setDetail] = useState<Row | null>(null);
   const [bucketName, setBucketName] = useState<string | null>(null);
+  const [workerCreate, setWorkerCreate] = useState(false);
   const [ssl, setSsl] = useState<Row | null>(null);
   const [sslMode, setSslMode] = useState("strict");
   useEffect(() => {
@@ -69,7 +71,7 @@ export function CloudflareManager({ account, initialKind = "domain", onClose, on
   return <>
     <SharedDialog sizeStorageKey="features/cloud/cloudflare-manager/cloudflare-manager" title={`${account.account_name} · Cloudflare 资产管理`} eyebrow="CLOUDFLARE" onClose={onClose} closeDisabled={busy} busy={busy} footer={<><span>Account ID：{account.access_key_id}</span><button type="button" className="secondary" disabled={busy} onClick={onClose}>关闭</button></>}>
       <p className="security-tip">同步保存在本机；写操作直接影响 Cloudflare 上的资源。{consoleLink}</p>
-      <details><summary>权限与支持范围</summary><p>验证账号需 Account Settings Read；站点需 Zone Read；DNS 管理需 DNS Edit；清缓存需 Cache Purge；SSL 需 Zone Settings Read / Edit。Workers、R2、Pages、Tunnel 分别授予对应 Read 权限，删除或创建时需要 Edit / Write。只开启需要管理的资源权限；权限不足的分类会显示错误并保留原有缓存。</p><p>Workers：元数据和删除；R2：桶创建和删除空桶；Pages：项目元数据和删除；Tunnel：状态和删除离线隧道。代码部署、R2 文件操作和 Tunnel 路由配置请通过控制台完成。R2 当前同步默认 jurisdiction 的桶。</p></details>
+      <details><summary>权限与支持范围</summary><p>验证账号需 Account Settings Read；站点需 Zone Read；DNS 管理需 DNS Edit；清缓存需 Cache Purge；SSL 需 Zone Settings Read / Edit。Workers、R2、Pages、Tunnel 分别授予对应 Read 权限，删除或创建时需要 Edit / Write。只开启需要管理的资源权限；权限不足的分类会显示错误并保留原有缓存。</p><p>Workers：元数据、新建并部署单文件 JavaScript 模块、删除；R2：桶创建和删除空桶；Pages：项目元数据和删除；Tunnel：状态和删除离线隧道。Workers 高级配置、R2 文件操作和 Tunnel 路由配置请通过控制台完成。R2 当前同步默认 jurisdiction 的桶。</p></details>
       <div className="favorite-type-tabs" role="group" aria-label="Cloudflare 资源类型">{kinds.map(([id, label]) => <button type="button" key={id} disabled={busy} aria-pressed={kind === id} className={kind === id ? "active" : ""} onClick={() => { setKind(id); setKeyword(""); }}>{label} ({assets.filter(a => a.resource_type === id).length})</button>)}</div>
       <div className="asset-list-toolbar">
         <label className="cloudflare-search"><Search size={15} aria-hidden="true" /><input aria-label="搜索 Cloudflare 资产" placeholder="搜索名称 / ID" value={keyword} onChange={e => setKeyword(e.target.value)} /></label>
@@ -77,6 +79,7 @@ export function CloudflareManager({ account, initialKind = "domain", onClose, on
         <button type="button" className="secondary" disabled={busy} onClick={() => void run(() => sync([kind]))}><RefreshCw size={14} />同步当前分类</button>
         <button type="button" className="primary" disabled={busy} onClick={() => void run(() => sync(kinds.map(([id]) => id)))}>{busy ? "处理中…" : "同步全部资产"}</button>
         {kind === "oss" && <button type="button" className="secondary" disabled={busy} onClick={() => setBucketName("")}>创建 R2 桶</button>}
+        {kind === "workers" && <button type="button" className="primary" disabled={busy} onClick={() => setWorkerCreate(true)}>新建 Worker</button>}
       </div>
       {!zone && !editor && !ssl && bucketName === null && notice}
       <div className="resource-table-wrap"><table><thead><tr><th>名称</th><th>ID</th><th>状态 / 位置</th><th>最近同步</th><th>操作</th></tr></thead><tbody>{filtered.map(asset => {
@@ -96,6 +99,7 @@ export function CloudflareManager({ account, initialKind = "domain", onClose, on
       {!filtered.length && <p className="detail-empty">暂无匹配资产，请同步当前分类。仅显示 Token 有权访问的资源。</p>}
     </SharedDialog>
     {detail && <CloudflareAssetDetail asset={detail} kindLabel={kinds.find(([id]) => id === kind)?.[1] ?? "资产"} onClose={() => setDetail(null)} />}
+    {workerCreate && <CloudflareWorkerCreate accountId={account.id} zones={assets.filter(asset => asset.resource_type === "domain").map(asset => ({ id: value(asset.payload, "Id"), name: value(asset.payload, "Name") }))} onClose={() => setWorkerCreate(false)} onCreated={() => sync(["workers"])} />}
     {zone && <SharedDialog sizeStorageKey="features/cloud/cloudflare-manager/cloudflare-manager/3" title={`${zone.Name} · DNS 管理`} onClose={() => { if (!busy) { setZone(null); setRecords([]); } }} closeDisabled={busy} footer={<><span>代理开关仅改变 Cloudflare 代理状态，不会停用 DNS 记录。</span><button type="button" className="primary" disabled={busy} onClick={() => setEditor({ ...emptyDns, name: value(zone, "Name") })}>添加记录</button><button type="button" className="secondary" disabled={busy} onClick={() => void run(() => dnsList(zone))}>刷新</button></>}>
       {!editor && notice}
       <div className="resource-table-wrap"><table><thead><tr><th>类型</th><th>完整名称</th><th>内容</th><th>TTL</th><th>代理</th><th>操作</th></tr></thead><tbody>{records.map(row => <tr key={value(row, "id")}><td>{value(row, "type")}</td><td>{value(row, "name")}</td><td className="cloudflare-dns-content">{value(row, "content")}</td><td>{row.ttl === 1 ? "自动" : value(row, "ttl")}</td><td>{row.proxied ? "已代理" : "仅 DNS"}</td><td><div className="asset-action-buttons">

@@ -1,4 +1,5 @@
 import { DialogPage } from "./shared/DialogPage";
+import { detachablePageTitles, softwarePageDestinations } from "./features/app/pageDetachment";
 import { CloudflareManager } from "./features/cloud/CloudflareManager";
 import { dnsProvider, usePublicNameservers } from "./features/domains/usePublicNameservers";
 import { DataImportReview } from "./features/accounts/DataImportReview";
@@ -261,7 +262,7 @@ function syncAssetTypes(account: Account): ReadonlyArray<(typeof assetTypes)[num
 }
 const assetTypes = catalogAssetTypes;
 
-const bundledVersion = "0.1.135";
+const bundledVersion = "0.1.136";
 const isDevelopmentBuild = import.meta.env.DEV;
 
 const detachedTerminalHostId = (() => {
@@ -576,6 +577,14 @@ function App() {
   const [detachingTerminalTabId, setDetachingTerminalTabId] = useState<string | null>(null);
   const [terminalWorkspaceDetached, setTerminalWorkspaceDetached] = useState(false);
   const [terminalWorkspaceDocument, setTerminalWorkspaceDocument] = useState(document);
+  const [actionDocument, setActionDocument] = useState(document);
+  useEffect(() => {
+    if (actionDocument === document) return;
+    const owner = actionDocument.defaultView;
+    const restore = () => setActionDocument(document);
+    owner?.addEventListener("pagehide", restore);
+    return () => owner?.removeEventListener("pagehide", restore);
+  }, [actionDocument]);
   const [sshError, setSshError] = useState("");
   const [sshConnecting, setSshConnecting] = useState(false);
   const [sshFiles, setSshFiles] = useState<SshFileEntry[]>([]);
@@ -2136,7 +2145,7 @@ function App() {
     setManagedHostDialog(true);
   }
   async function closeSshClient() {
-    if (section === "servers" && activeTerminalTabId) {
+    if ((section === "servers" || terminalWorkspaceDetached) && activeTerminalTabId) {
       await closeTerminalTab(activeTerminalTabId);
       return;
     }
@@ -2245,7 +2254,7 @@ function App() {
           rows: 30,
       });
       setSshSessionId(result.sessionId);
-      if (section === "servers") {
+      if (section === "servers" || terminalWorkspaceDetached) {
         const tab: TerminalWorkspaceTab = {
           id: result.sessionId,
           target: sshTarget,
@@ -2318,6 +2327,8 @@ function App() {
     finally { setSshFilesLoading(false); }
   }
   function startSshFileResize(event: PointerEvent<HTMLDivElement>) {
+    const document = event.currentTarget.ownerDocument;
+    const window = document.defaultView!;
     const workspace = sshWorkspaceRef.current;
     if (!workspace || (!isDetachedTerminalWindow && window.innerWidth <= 900)) return;
     event.preventDefault();
@@ -2358,6 +2369,8 @@ function App() {
     window.addEventListener("pointerup", finish, { once: true });
   }
   function startTerminalHostSidebarResize(event: PointerEvent<HTMLDivElement>) {
+    const document = event.currentTarget.ownerDocument;
+    const window = document.defaultView!;
     const workbench = terminalWorkbenchRef.current;
     if (!workbench || window.innerWidth <= 900) return;
     event.preventDefault();
@@ -4101,7 +4114,8 @@ function App() {
   const detachedMonitorOs = String(detachedMonitorMetrics.os || "未探测");
   const detachedMonitorOsMatch = detachedMonitorOs.match(/^(.*?)\s*\(([^)]+)\)$/);
   return (
-    <div className={`app-shell ide-theme${isDetachedTerminalWindow ? " detached-terminal-window" : ""}${appSidebarCollapsed ? " sidebar-collapsed" : ""}${uiTheme === "light" ? " theme-light" : ""}`} ref={appShellRef} style={{ "--app-sidebar-width": `${appSidebarCollapsed ? 64 : appSidebarWidth}px` } as CSSProperties}>
+    <DialogDocument.Provider value={actionDocument}>
+    <div onPointerDownCapture={event => { if (!actionDocument.querySelector(".modal-backdrop")) setActionDocument((event.target as Node).ownerDocument ?? document); }} onFocusCapture={event => { if (!actionDocument.querySelector(".modal-backdrop")) setActionDocument((event.target as Node).ownerDocument ?? document); }} className={`app-shell ide-theme${isDetachedTerminalWindow ? " detached-terminal-window" : ""}${appSidebarCollapsed ? " sidebar-collapsed" : ""}${uiTheme === "light" ? " theme-light" : ""}`} ref={appShellRef} style={{ "--app-sidebar-width": `${appSidebarCollapsed ? 64 : appSidebarWidth}px` } as CSSProperties}>
       {exportSelection.dialog}
       <a className="skip-link" href="#main-content">跳到主要内容</a>
       <div className="ide-topbar" role="banner">
@@ -4191,13 +4205,13 @@ function App() {
           </div>
         </nav>
         {status && createPortal(<div className="toast-notice" role="status" aria-live="polite" aria-atomic="true">{status}</div>, document.body)}
-        <DialogPage active={section === "home"}>{() => (<DesktopHomePage accounts={accounts} assets={localAssets} applicationSettings={applicationSettings} onNavigate={setSection} onOpenSoftware={id => {
+        <DialogPage active={section === "home"} pageId="home" detachTitle={detachablePageTitles.home}>{() => (<DesktopHomePage accounts={accounts} assets={localAssets} applicationSettings={applicationSettings} onNavigate={setSection} onOpenSoftware={id => {
           if (!id) { setStoreApplicationId(undefined); setSection("plugins"); return; }
           const app = sortedApplications(applicationSettings.preferences).find(item => item.id === id);
           if (app) openCatalogApplication(app);
         }} />)}</DialogPage>
-        <DialogPage active={section === "monitorAlerts"}>{() => (<DesktopMonitorAlertsPage accounts={accounts} onNavigate={target => { if (target === "resources") void loadLocalAssets(); if (target === "panels") void loadPanelConnections(); setSection(target); }} />)}</DialogPage>
-        <div className={`account-section ${section === "accounts" ? "" : "section-hidden"}`}>
+        <DialogPage active={section === "monitorAlerts"} pageId="monitorAlerts" detachTitle={detachablePageTitles.monitorAlerts}>{() => (<DesktopMonitorAlertsPage accounts={accounts} onNavigate={target => { if (target === "resources") void loadLocalAssets(); if (target === "panels") void loadPanelConnections(); setSection(target); }} />)}</DialogPage>
+        <DialogPage active={section === "accounts"} pageId="accounts" detachTitle={detachablePageTitles.accounts} keepMounted>{() => (<div className="account-section">
         <header className="page-header-stats">
           <div>
             <span className="eyebrow">LOCAL CONSOLE</span>
@@ -4937,8 +4951,8 @@ function App() {
                 </div>
               )}
         </SharedDialog>}
-        </div>
-        <DialogPage active={section === "favorites"}>{() => ((
+        </div>)}</DialogPage>
+        <DialogPage active={section === "favorites"} pageId="favorites" detachTitle={detachablePageTitles.favorites}>{() => ((
           <section className="favorites-page">
             <header className="page-header-stats">
               <div>
@@ -4988,7 +5002,7 @@ function App() {
             {visibleFavoriteAssets.length > 0 && <PaginationBar className="favorite-pagination" page={favoritePage} pageSize={pageSize} paginationPageSize={favoriteGridPagination.pageSize} total={visibleFavoriteAssets.length} onPageChange={setFavoritePage} onPageSizeChange={setPageSize} />}
           </section>
         ))}</DialogPage>
-        <DialogPage active={section === "panels"}>{() => ((
+        <DialogPage active={section === "panels"} pageId="panels" detachTitle={detachablePageTitles.panels}>{() => ((
           <section className="panel-management-page">
             <header>
               <div><h1>面板管理</h1><p>统一绑定和管理多台宝塔或 aaPanel 面板；API 密钥仅加密保存在当前设备。</p></div>
@@ -5118,7 +5132,7 @@ function App() {
               {sshError && <div className="error-list ssh-error">{sshError}</div>}
           </SharedDialog></DialogDocument.Provider>
         )}
-        <DialogPage active={section === "resources"}>{() => ((
+        <DialogPage active={section === "resources"} pageId="resources" detachTitle={detachablePageTitles.resources}>{() => ((
           <section className="local-resource-page">
             <header className="page-header-stats">
               <div>
@@ -5179,13 +5193,13 @@ function App() {
         ))}</DialogPage>
         {cloudflareTarget && <CloudflareManager key={cloudflareTarget.account.id} account={cloudflareTarget.account} initialKind={cloudflareTarget.kind} onClose={() => setCloudflareTarget(null)} onChanged={loadLocalAssets} onConfirm={requestConfirm} />}
         {esaCertificateSite && <EsaCertificateDialog key={`${esaCertificateSite.account.id}:${esaCertificateSite.siteId}`} account={esaCertificateSite.account} siteId={esaCertificateSite.siteId} accounts={accounts} localAssets={localAssets} onClose={() => setEsaCertificateSite(null)} onStatus={setStatus} onConfirm={requestConfirm} />}
-        <DialogPage active={section === "certificates"}>{() => (<CertificatePanel accounts={accounts} localAssets={localAssets} onStatus={setStatus} onConfirm={requestConfirm} alertTarget={petCertificateTarget} onAlertTargetHandled={()=>setPetCertificateTarget(null)} />)}</DialogPage>
-        <DialogPage active={section === "flow"}>{() => (<FlowPanel />)}</DialogPage>
-        <DialogPage active={section === "codex"}>{() => (<CodexPanel />)}</DialogPage>
-        <DialogPage active={section === "claude"}>{() => (<section className="utility-page"><header><div><span className="eyebrow">AI 工具</span><h1>Claude 管理</h1><p>管理 Claude Code 供应商、模型配置与本地路由。</p></div></header><div className="claude-providers-dialog"><ClaudeProvidersPlugin /></div></section>)}</DialogPage>
-        <DialogPage active={section === "authenticator"}>{() => (<AuthenticatorPanel />)}</DialogPage>
-        <DialogPage active={section === "frp"}>{() => (<FrpPanel />)}</DialogPage>
-        <DialogPage active={section === "logs"}>{() => ((
+        <DialogPage active={section === "certificates"} pageId="certificates" detachTitle={detachablePageTitles.certificates}>{() => (<CertificatePanel accounts={accounts} localAssets={localAssets} onStatus={setStatus} onConfirm={requestConfirm} alertTarget={petCertificateTarget} onAlertTargetHandled={()=>setPetCertificateTarget(null)} />)}</DialogPage>
+        <DialogPage active={section === "flow"} pageId="flow" detachTitle={detachablePageTitles.flow}>{() => (<FlowPanel />)}</DialogPage>
+        <DialogPage active={section === "codex"} pageId="codex" detachTitle={detachablePageTitles.codex}>{() => (<CodexPanel />)}</DialogPage>
+        <DialogPage active={section === "claude"} pageId="claude" detachTitle={detachablePageTitles.claude}>{() => (<section className="utility-page"><header><div><span className="eyebrow">AI 工具</span><h1>Claude 管理</h1><p>管理 Claude Code 供应商、模型配置与本地路由。</p></div></header><div className="claude-providers-dialog"><ClaudeProvidersPlugin /></div></section>)}</DialogPage>
+        <DialogPage active={section === "authenticator"} pageId="authenticator" detachTitle={detachablePageTitles.authenticator}>{() => (<AuthenticatorPanel />)}</DialogPage>
+        <DialogPage active={section === "frp"} pageId="frp" detachTitle={detachablePageTitles.frp}>{() => (<FrpPanel />)}</DialogPage>
+        <DialogPage active={section === "logs"} pageId="logs" detachTitle={detachablePageTitles.logs}>{() => ((
           <section className="utility-page operation-log-ai-scope">
             <header><div><span className="eyebrow">AUDIT TRAIL</span><h1>操作日志</h1><p>记录本机账号和资产管理操作，日志只保存在当前设备。</p></div><AiLogAnalysis scope=".operation-log-ai-scope .log-list" title="AI 分析选中操作日志" /></header>
             <section className="panel utility-panel"><div className="utility-toolbar log-toolbar"><input value={logFilter} onChange={(event) => setLogFilter(event.target.value)} placeholder="搜索账号、资源类型或操作" /><select value={logTypeFilter} onChange={(event) => setLogTypeFilter(event.target.value)}><option value="">全部资源类型</option>{assetTypes.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><select><option>全部操作状态</option><option>已完成</option></select><button className="secondary" onClick={() => { setLogFilter(""); setLogTypeFilter(""); }}>重置</button><button className="clear-log-button" onClick={() => void clearLogs("operation")}>清空日志</button></div><div className="log-list"><div className="log-head"><span>操作内容</span><span>资源类型</span><span>操作时间</span><span>状态</span></div>
@@ -5195,7 +5209,7 @@ function App() {
             </div></section>
           </section>
         ))}</DialogPage>
-        <DialogPage active={section === "api_logs"}>{() => ((
+        <DialogPage active={section === "api_logs"} pageId="api_logs" detachTitle={detachablePageTitles.api_logs}>{() => ((
           <section className="utility-page">
             <header><div><span className="eyebrow">API ACTIVITY</span><h1>API日志</h1><p>记录本机客户端发起的云 API 请求与结果；代理项显示选中的配置路径，NO_PROXY、系统代理或 VPN 仍可能影响实际链路。</p></div></header>
             <section className="panel utility-panel"><div className="utility-toolbar log-toolbar"><input value={logFilter} onChange={(event) => setLogFilter(event.target.value)} placeholder="搜索账号、接口或操作" />{accounts.length > 0 && <select aria-label="按账号筛选" title="按账号筛选" value={apiLogAccountId ?? ""} onChange={(event) => { setApiLogAccountId(event.target.value ? Number(event.target.value) : null); setApiLogPage(1); }}><option value="">全部账号</option>{accounts.map((account) => <option key={account.id} value={account.id}>{account.account_name}</option>)}</select>}<button className="secondary" onClick={() => { setLogFilter(""); setApiLogAccountId(null); setApiLogPage(1); }}>重置</button><button className="clear-log-button" onClick={() => void clearLogs("api")}>清空日志</button></div><div className="log-list"><div className="log-head api-log-head"><span aria-hidden="true" /><span>API操作</span><span>接口</span><span>操作时间</span><span>状态</span><span>详情</span></div>
@@ -5205,15 +5219,15 @@ function App() {
             </div></section>
           </section>
         ))}</DialogPage>
-        <DialogPage active={section === "plugins"}>{() => (<OfficialPluginsPage key={storeApplicationId ?? "catalog"} initialPluginId={storeApplicationId} forceInitialPageMode={storeApplicationId !== undefined} applicationSettings={applicationSettings} accounts={accounts} localAssets={localAssets} onStatus={setStatus} onConfirm={requestConfirm} onOpenSection={target => setSection(target)} onReturnCatalog={() => setStoreApplicationId(undefined)} onLanConnect={(ip, platform, name) => {
+        {softwarePageDestinations.map(destination => <DialogPage key={destination.id ?? "catalog"} active={section === "plugins" && storeApplicationId === destination.id} pageId={destination.id ? `software:${destination.id}` : "software-store"} detachTitle={destination.title}>{() => (<OfficialPluginsPage initialPluginId={destination.id} forceInitialPageMode={destination.id !== undefined} applicationSettings={applicationSettings} accounts={accounts} localAssets={localAssets} onStatus={setStatus} onConfirm={requestConfirm} onOpenSection={target => setSection(target)} onReturnCatalog={() => setStoreApplicationId(undefined)} onLanConnect={(ip, platform, name) => {
           const port = platform === "windows" ? 3389 : 22;
           const existing = managedHosts.find(host => host.host === ip && host.port === port && host.platform === platform);
           if (existing) { void openManagedHostSsh(existing); return; }
           setShowManagedHostPassword(false);
           setManagedHostDraft({ ...emptyManagedHost, name, host: ip, port, platform, username: platform === "windows" ? "administrator" : "root", group_name: "局域网", remark: "来自局域网设备扫描" });
           setManagedHostDialog(true);
-        }} />)}</DialogPage>
-        <DialogPage active={section === "notes"}>{() => (<NotesPanel />)}</DialogPage>
+        }} />)}</DialogPage>)}
+        <DialogPage active={section === "notes"} pageId="notes" detachTitle={detachablePageTitles.notes}>{() => (<NotesPanel />)}</DialogPage>
         {showTrash && <SharedDialog sizeStorageKey="app:trash" title="回收站" subtitle="删除的数据永久保留，可恢复或彻底删除" icon={<Trash2 size={20} aria-hidden="true" />} className="trash-dialog" bodyClassName="trash-dialog-body" onClose={() => setShowTrash(false)}>
             {trashGroups.loading ? <p className="recycle-bin-empty">正在读取回收站…</p> : <RecycleBin kinds={trashGroups_flat.map((group) => ({ id: group.kind, label: group.label, items: group.items.map((item) => ({ id: String(item.id), title: item.title, deletedAt: item.deletedAt })) }))} actions={trashActions.actions} busy={trashActions.busy} onClose={() => setShowTrash(false)}
               scrubDays={trashGroups.snapshot?.scrubDays}
@@ -5292,7 +5306,7 @@ function App() {
               </div>
             </div>
           </div>, document.body)}
-        <DialogPage active={section === "settings"}>{() => ((
+        <DialogPage active={section === "settings"} pageId="settings" detachTitle={detachablePageTitles.settings}>{() => ((
           <section className="utility-page">
             <header><div><span className="eyebrow">LOCAL PREFERENCES</span><h1>{t("系统设置")}</h1><p>{t("管理本地客户端的各项配置，让使用更高效，更便捷。")}</p></div></header>
             <div className="settings-tabs" role="tablist" aria-label={t("设置分类")}>
@@ -5425,12 +5439,20 @@ function App() {
         <SharedDialog sizeStorageKey="app:cloud-account-editor" title={draft.id ? "编辑云账号" : "添加云账号"} eyebrow="ACCOUNT" onSubmit={save} closeLabel="关闭云账号配置" onClose={() => setDialog(false)} footer={<><button type="button" className="secondary" onClick={() => setDialog(false)}>取消</button><button className="primary" type="submit">保存账号</button>{draft.id && ["vultr", "ctyun", "huawei", "baidu", "jdcloud", "ucloud", "qingcloud", "ksyun", "qiniu", "aws", "azure", "gcp"].includes(draft.cloud_type) && <button className="secondary" type="button" disabled={verifyingAccount} onClick={() => void verifyCloudAccount()}>{verifyingAccount ? "验证中…" : "验证账号"}</button>}</>}>
             <p className="security-tip account-key-tip">
               <span>{cloudProvider(draft.cloud_type).secretLabel} 会加密保存在本机。当前支持{providerSyncDescription(draft.cloud_type)}。</span>
-              {draft.cloud_type === "aliyun" && <a href="https://ram.console.aliyun.com/profile/access-keys?userCode=jdeqlgm5" target="_blank" rel="noreferrer">获取阿里云 AccessKey ↗</a>}
-              {draft.cloud_type === "cloudflare" && <a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank" rel="noreferrer">创建 Cloudflare API Token ↗</a>}
-              {draft.cloud_type === "vultr" && <a href="https://my.vultr.com/settings/#settingsapi" target="_blank" rel="noreferrer">获取 Vultr API Key ↗</a>}
-              {draft.cloud_type === "tencent" && <a href="https://console.cloud.tencent.com/cam/capi" target="_blank" rel="noreferrer">获取腾讯云密钥 ↗</a>}
-              {draft.cloud_type === "volcengine" && <a href="https://console.volcengine.com/iam/keymanage/" target="_blank" rel="noreferrer">获取火山引擎密钥 ↗</a>}
-              {draft.cloud_type === "oracle" && <a href="https://docs.oracle.com/iaas/Content/API/Concepts/apisigningkey.htm" target="_blank" rel="noreferrer">配置 OCI API Key ↗</a>}
+              {[
+                draft.cloud_type === "aliyun" && ["https://ram.console.aliyun.com/profile/access-keys?userCode=jdeqlgm5", "获取阿里云 AccessKey ↗"],
+                draft.cloud_type === "cloudflare" && ["https://dash.cloudflare.com/profile/api-tokens", "创建 Cloudflare API Token ↗"],
+                draft.cloud_type === "vultr" && ["https://my.vultr.com/settings/#settingsapi", "获取 Vultr API Key ↗"],
+                draft.cloud_type === "tencent" && ["https://console.cloud.tencent.com/cam/capi", "获取腾讯云密钥 ↗"],
+                draft.cloud_type === "volcengine" && ["https://console.volcengine.com/iam/keymanage/", "获取火山引擎密钥 ↗"],
+                draft.cloud_type === "oracle" && ["https://docs.oracle.com/iaas/Content/API/Concepts/apisigningkey.htm", "配置 OCI API Key ↗"],
+              ].filter((link): link is [string, string] => Boolean(link)).map(([url, label]) => (
+                <a key={url} href={url} target="_blank" rel="noreferrer" onClick={event => {
+                  if (!runningInTauri) return;
+                  event.preventDefault();
+                  void openUrl(url).catch(() => setStatus("无法打开链接，请检查系统默认浏览器或复制链接后手动访问。"));
+                }}>{label}</a>
+              ))}
             </p>
             {draft.cloud_type === "cloudflare" && <details><summary>Cloudflare 凭据与权限说明</summary><p>Account ID 是控制台账号首页中的 32 位十六进制标识；API Token 会加密保存。站点读取需要 Zone Read，DNS 管理需要 DNS Edit；Workers、R2、Pages、Tunnel 按需授予对应 Read 或 Edit / Write 权限。保存后点击账号“汇总”进入统一资产管理。</p></details>}
             <label>
@@ -5565,6 +5587,7 @@ function App() {
       {databaseImportPreview && <DataImportReview key={databaseImportPreview.token} preview={databaseImportPreview} busy={databaseImportBusy} onClose={() => void cancelDatabaseImport()} onConfirm={(tables, mode, forceRestore, includeTrash) => void confirmDatabaseImport(tables, mode, forceRestore, includeTrash)} />}
       {promptRequest && <SharedDialog sizeStorageKey="app:prompt" title="请输入内容" eyebrow="INPUT REQUIRED" icon={<AlertTriangle size={20} />} size="small" describedBy="prompt-message" onSubmit={(event) => { event.preventDefault(); resolvePrompt(promptValue); }} onClose={() => resolvePrompt(null)} footer={<><button type="button" className="secondary" onClick={() => resolvePrompt(null)}>取消</button><button type="submit" className="primary">确定</button></>}><p id="prompt-message">{promptRequest.message}</p><input aria-label="需要输入的内容" value={promptValue} autoFocus onChange={(event) => setPromptValue(event.target.value)} /></SharedDialog>}
     </div>
+    </DialogDocument.Provider>
   );
 }
 

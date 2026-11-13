@@ -1,3 +1,4 @@
+import { useDialogDocument } from "../../shared/DialogDocument";
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown, Copy, Download, Eye, EyeOff, LoaderCircle, Plus, Save, Search, Settings, ShieldCheck, Trash2 } from "lucide-react";
@@ -41,6 +42,7 @@ interface Props {
 }
 
 export function ProviderEditorPage({ value, busy, fetchingModels, catalogMessage, error, onChange, onKeysChange, onFetchModels, onSave, onClose }: Props) {
+  const document = useDialogDocument();
   const [presetOpen, setPresetOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [discarding, setDiscarding] = useState(false);

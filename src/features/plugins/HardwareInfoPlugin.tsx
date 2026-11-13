@@ -1,3 +1,4 @@
+import { useDialogDocument } from "../../shared/DialogDocument";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { QRCodeSVG } from "qrcode.react";
@@ -153,6 +154,7 @@ function renderImage(info: HardwareInfo) {
 }
 
 export function HardwareInfoPlugin({ open, onOpened }: Props) {
+  const document = useDialogDocument();
   const [info, setInfo] = useState<HardwareInfo | null>(() => readHardwareInfoCache());
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
@@ -166,7 +168,7 @@ export function HardwareInfoPlugin({ open, onOpened }: Props) {
   const [cameraOpen, setCameraOpen] = useState(false);
   const [activePanel, setActivePanel] = useState<(typeof infoPanels)[number]["id"]>("overview");
   const [headExtraTarget, setHeadExtraTarget] = useState<HTMLElement | null>(null);
-  useEffect(() => { setHeadExtraTarget(document.getElementById(PLUGIN_PAGE_HEAD_EXTRA_ID)); }, []);
+  useEffect(() => { setHeadExtraTarget(document.getElementById(PLUGIN_PAGE_HEAD_EXTRA_ID)); }, [document]);
   const wifiRequestRef = useRef(0);
   const infoRequestRef = useRef(0);
   const cameraRequestRef = useRef(0);

@@ -1,3 +1,4 @@
+import { useDialogDocument } from "../../shared/DialogDocument";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { AlertTriangle, Braces, CircleStop, Copy, Download, ExternalLink, Eye, EyeOff, FileLock2, Info, Play, RefreshCw, Search, ShieldCheck, Trash2 } from "lucide-react";
@@ -25,6 +26,7 @@ function responseTypeOf(contentType: string): Exclude<ResponseTypeFilter, "all">
 }
 
 export function HttpDebugProxyPlugin() {
+  const document = useDialogDocument();
   const [snapshot, setSnapshot] = useState(empty);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selected, setSelected] = useState<HttpDebugSession | null>(null);

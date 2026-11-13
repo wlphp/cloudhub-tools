@@ -4,7 +4,7 @@ import { ExternalLink, PanelsTopLeft, X } from "lucide-react";
 import { DialogHeaderActions } from "./DialogHeaderActions";
 import { runningInTauri, runningOnPhone } from "../platform/api";
 import { DialogDocument, useDialogDocument } from "./DialogDocument";
-import { openDetachedDialog, type DetachedDialog } from "./detachedDialog";
+import { dragDetachedDialog, openDetachedDialog, type DetachedDialog } from "./detachedDialog";
 import { useDetachedOwner } from "./DialogPage";
 
 const focusable = 'button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), summary, [tabindex="0"], [contenteditable="true"]';
@@ -65,7 +65,10 @@ export function SharedDialog({ title, titleExtra, subtitle, eyebrow, icon, child
   preserveSize?: boolean;
 }) {
   const id = useId();
-  const parentDocument = useDialogDocument();
+  const contextDocument = useDialogDocument();
+  // Focus in the detached portal can update the app's action-document context.
+  // Its original parent must stay stable or the portal effect destroys its own popup.
+  const parentDocument = useRef(contextDocument).current;
   const retainOwner = useDetachedOwner();
   const [portal] = useState(() => document.createElement("div"));
   const [portalReady, setPortalReady] = useState(false);
@@ -85,20 +88,43 @@ export function SharedDialog({ title, titleExtra, subtitle, eyebrow, icon, child
   const [restored, setRestored] = useState(() => ({ key: storageKey, size: sizingEnabled ? loadDialogSize(storageKey) : null }));
   const restoredSize = sizingEnabled ? (restored.key === storageKey ? restored.size : loadDialogSize(storageKey)) : null;
   const resizeCleanup = useRef<(() => void) | null>(null);
+  const dragCleanup = useRef<(() => void) | null>(null);
 
   useLayoutEffect(() => {
     mounted.current = true;
     if (!detachedRef.current) {
       parentDocument.body.append(portal);
+      setOwnerDocument(parentDocument);
       setPortalReady(true);
     }
     return () => {
       mounted.current = false;
+      dragCleanup.current?.();
       // Return the React-owned container before the native document disappears.
       parentDocument.body.append(portal);
       detachedRef.current?.dispose();
       detachedRef.current = null;
       portal.remove();
+    };
+  }, [parentDocument, portal]);
+
+  // A page popup can close while its editor is still open; return the live form to the app
+  // before the native document disappears. Detached dialogs own their own popup instead.
+  useLayoutEffect(() => {
+    const parentWindow = parentDocument.defaultView;
+    if (!parentWindow || parentDocument === document) return;
+    const adopt = () => {
+      if (!mounted.current || detachedRef.current) return;
+      document.body.append(portal);
+      setOwnerDocument(document);
+      setPortalReady(true);
+    };
+    // WebView2 does not always deliver pagehide to a window closed natively.
+    parentDocument.addEventListener("cloudhub-document-restore", adopt);
+    parentWindow.addEventListener("pagehide", adopt);
+    return () => {
+      parentDocument.removeEventListener("cloudhub-document-restore", adopt);
+      parentWindow.removeEventListener("pagehide", adopt);
     };
   }, [parentDocument, portal]);
 
@@ -184,7 +210,7 @@ export function SharedDialog({ title, titleExtra, subtitle, eyebrow, icon, child
   };
 
   useEffect(() => {
-    const background = detached ? [] : [...ownerDocument.querySelectorAll<HTMLElement>("#root, body > .modal-backdrop, body > .app-confirm-backdrop")]
+    const background = detached ? [] : [...ownerDocument.querySelectorAll<HTMLElement>("#root, body > .workspace-popout, body > .modal-backdrop, body > .app-confirm-backdrop")]
       .filter(element => element !== backdrop.current && !element.contains(backdrop.current));
     const owner = Symbol();
     background.forEach(element => {
@@ -300,10 +326,12 @@ export function SharedDialog({ title, titleExtra, subtitle, eyebrow, icon, child
     <DialogDocument.Provider value={ownerDocument}>
       <section ref={dialog} className={`modal modal-form-layout dialog-common-theme shared-content-dialog shared-dialog-${size} ${sizingEnabled ? "dialog-resizable" : ""} ${restoredSize ? "dialog-user-size" : ""} ${className}`} data-dialog-size-key={storageKey} role={role} aria-modal={detached ? undefined : true} aria-busy={busy || detaching} aria-labelledby={`${id}-title`} aria-describedby={describedBy ?? (subtitle ? `${id}-subtitle` : undefined)} style={restoredSize ? { "--dialog-user-width": `${restoredSize.width}px`, "--dialog-user-height": `${restoredSize.height}px` } as CSSProperties : undefined} tabIndex={-1} onPointerDownCapture={preserveCurrentSize} onKeyDownCapture={preserveCurrentSize}>
         <header className="modal-head" onPointerDown={event => {
-          if (detached && event.button === 0 && !(event.target as Element).closest("button, a, input, select, textarea, label")) {
-            event.preventDefault();
-            void detached.native.startDragging().catch(() => {});
-          } else onHeaderPointerDown?.(event);
+          if (!detached) { onHeaderPointerDown?.(event); return; }
+          if (event.button !== 0 || (event.target as Element).closest("button, a, input, select, textarea, label")) return;
+          event.preventDefault();
+          event.stopPropagation();
+          dragCleanup.current?.();
+          dragCleanup.current = dragDetachedDialog(detached, event.currentTarget, event, () => setDetachError("独立窗口拖动失败，请重试。"));
         }}>
           {icon ?? <span className="shared-dialog-mobile-icon" aria-hidden="true"><PanelsTopLeft size={22} /></span>}
           <div className="shared-dialog-heading">{eyebrow && <span className="eyebrow">{eyebrow}</span>}<h2 id={`${id}-title`}>{title}{titleExtra && <span className="shared-dialog-title-extra">{titleExtra}</span>}</h2>{subtitle && <p id={`${id}-subtitle`}>{subtitle}</p>}</div>

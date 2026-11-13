@@ -9,7 +9,7 @@ function resetScrollAncestors(element: HTMLElement | null) {
   for (let node = element?.parentElement ?? null; node; node = node.parentElement) {
     node.scrollTo({ top: 0, left: 0, behavior: "instant" });
   }
-  window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+  element?.ownerDocument.defaultView?.scrollTo({ top: 0, left: 0, behavior: "instant" });
 }
 
 /** Normal page navigation must leave the application's sidebar reachable. */

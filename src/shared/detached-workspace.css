@@ -1,6 +1,15 @@
 .detachable-workspace-anchor,
 .detachable-workspace-content:not(.workspace-popout) { display: contents; }
 .detachable-workspace-content.workspace-popout { position: fixed; inset: 0; overflow: hidden; background: var(--jb-bg); color: var(--jb-text); }
+.detachable-page-body { min-width: 0; }
+.detachable-workspace-content:not(.workspace-popout) > .detachable-page-body { display: contents; }
+.workspace-popout > .detachable-page-body { box-sizing: border-box; height: 100%; overflow: auto; padding: 48px 32px 24px; }
+.terminal-workspace-popout-page > .detachable-page-body { padding: 0; overflow: hidden; }
+.page-detach-tools { position: fixed; top: 42px; right: 28px; z-index: 24; display: flex; align-items: center; }
+.workspace-popout > .page-detach-tools { top: 8px; right: 16px; }
+.workspace-popout > .page-detach-tools button { background: var(--jb-surface-2); }
+.ide-theme .terminal-session-header > .terminal-workspace-popout { align-self: stretch; height: auto; min-height: 0; margin: 0; border-block: 0; border-radius: 0; }
+@media (max-width: 900px) { .page-detach-tools { right: 16px; } .workspace-popout > .detachable-page-body { padding: 48px 16px 16px; } .terminal-workspace-popout-page > .detachable-page-body { padding: 0; } }
 .workspace-popout .managed-servers-page.managed-servers-page { margin: 0; height: 100dvh; min-height: 0; }
 .terminal-host-title-row[data-workspace-drag],
 .terminal-session-header[data-workspace-drag] { cursor: grab; touch-action: none; user-select: none; }

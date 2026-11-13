@@ -319,4 +319,13 @@ body.theme-light .ide-theme .favorite-disk-chip.system i{color:#9a5518}
 .asset-list-toolbar label.cloudflare-search { display: flex; flex: 1; align-items: center; gap: 8px; margin: 0; min-width: 160px; padding: 0 10px; border: 1px solid var(--jb-border); border-radius: 4px; }
 .asset-list-toolbar label.cloudflare-search:focus-within { outline: 2px solid var(--jb-accent); outline-offset: 1px; }
 .asset-list-toolbar label.cloudflare-search input { flex: 1; width: 100%; min-width: 0; margin: 0; border: 0 !important; background: transparent !important; box-shadow: none !important; outline: none !important; }
+.cloudflare-worker-create .cloudflare-worker-fields { display: grid; gap: 12px; min-width: 0; }
+.cloudflare-worker-create .cloudflare-worker-fields label { display: grid; gap: 6px; min-width: 0; margin: 0; }
+.cloudflare-worker-create .cloudflare-worker-fields :is(input,textarea) { box-sizing: border-box; width: 100%; min-width: 0; margin: 0; }
+.cloudflare-worker-create .cloudflare-worker-fields textarea { min-height: 220px; resize: vertical; font: 12px/1.6 Consolas, monospace; }
+.cloudflare-worker-create details { margin-top: 12px; }
+.cloudflare-worker-result { min-width: 0; overflow-wrap: anywhere; }
+.cloudflare-worker-create .cloudflare-worker-fields .cloudflare-worker-checkbox { display: flex; align-items: flex-start; gap: 8px; }
+.cloudflare-worker-create .cloudflare-worker-fields .cloudflare-worker-checkbox input { flex: none; width: auto; margin: 2px 0 0; }
+.cloudflare-worker-create .cloudflare-worker-host { margin: 0; overflow-wrap: anywhere; color: var(--jb-muted); }
 .cloudflare-dns-content { max-width: 320px; overflow-wrap: anywhere; }

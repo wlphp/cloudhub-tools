@@ -1,4 +1,5 @@
 import { Window as NativeWindow } from "@tauri-apps/api/window";
+import { PhysicalPosition } from "@tauri-apps/api/dpi";
 
 export interface DetachedDialog {
   document: Document;
@@ -7,13 +8,63 @@ export interface DetachedDialog {
   dispose: () => void;
 }
 
+/** Portal events run in the opener; move the popup without relying on OS mouse capture there. */
+export function dragDetachedDialog(popup: DetachedDialog, handle: HTMLElement, pointer: { pointerId: number; screenX: number; screenY: number }, onError: () => void) {
+  let ended = false;
+  let latest = { x: pointer.screenX, y: pointer.screenY };
+  let origin: { x: number; y: number; scale: number } | null = null;
+  let moving = false;
+  const finish = () => {
+    ended = true;
+    handle.removeEventListener("pointermove", move);
+    handle.removeEventListener("pointerup", finish);
+    handle.removeEventListener("pointercancel", finish);
+    handle.removeEventListener("lostpointercapture", finish);
+    if (handle.hasPointerCapture(pointer.pointerId)) handle.releasePointerCapture(pointer.pointerId);
+  };
+  const update = async () => {
+    if (!origin || moving || ended) return;
+    moving = true;
+    try {
+      let applied;
+      do {
+        applied = latest;
+        await popup.native.setPosition(new PhysicalPosition(
+          Math.round(origin.x + (applied.x - pointer.screenX) * origin.scale),
+          Math.round(origin.y + (applied.y - pointer.screenY) * origin.scale),
+        ));
+      } while (!ended && applied !== latest);
+    } catch { finish(); onError(); }
+    finally { moving = false; }
+  };
+  const move = (event: PointerEvent) => {
+    if (event.pointerId !== pointer.pointerId) return;
+    latest = { x: event.screenX, y: event.screenY };
+    void update();
+  };
+  handle.setPointerCapture(pointer.pointerId);
+  handle.addEventListener("pointermove", move);
+  handle.addEventListener("pointerup", finish);
+  handle.addEventListener("pointercancel", finish);
+  handle.addEventListener("lostpointercapture", finish);
+  void Promise.all([popup.native.outerPosition(), popup.native.scaleFactor()]).then(([position, scale]) => {
+    origin = { ...position, scale };
+    void update();
+  }).catch(() => { finish(); onError(); });
+  return finish;
+}
+
 /** The original portal container is adopted, never cloned or serialized. */
 export async function openDetachedDialog(source: Document, title: string, bounds: DOMRect, position: { x: number; y: number } | undefined, onClose: () => void): Promise<DetachedDialog> {
   const label = `dialog-popout-${crypto.randomUUID()}`;
   const owner = source.defaultView!;
-  const x = Math.round(position?.x ?? owner.screenX + bounds.left);
-  const y = Math.round(position?.y ?? owner.screenY + bounds.top);
-  const popup = owner.open(`about:blank#${label}`, label, `popup,width=${Math.round(bounds.width)},height=${Math.round(bounds.height)},left=${x},top=${y}`);
+  // WebView2 can report sentinel screen coordinates during window transitions.
+  const coordinate = (value: number) => Number.isFinite(value) && Math.abs(value) < 32768 ? Math.round(value) : 64;
+  const x = coordinate(position?.x ?? owner.screenX + bounds.left);
+  const y = coordinate(position?.y ?? owner.screenY + bounds.top);
+  // The application host owns the allowlisted native popup handler. A page
+  // already adopted into a blank window can still detach its child dialogs.
+  const popup = window.open(`about:blank#${label}`, label, `popup,width=${Math.round(bounds.width)},height=${Math.round(bounds.height)},left=${x},top=${y}`);
   if (!popup) throw new Error("无法创建独立窗口，请重试");
   const native = await NativeWindow.getByLabel(label);
   if (!native) { popup.close(); throw new Error("独立窗口未准备好，内容已保留"); }

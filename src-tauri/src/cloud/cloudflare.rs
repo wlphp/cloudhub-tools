@@ -1,6 +1,8 @@
 use crate::{account_cloud_type, account_credentials, write_api_log, ResourceResponse};
 use serde_json::{json, Value};
 use reqwest::Method;
+#[path = "cloudflare_vless.rs"]
+mod vless;
 
 fn text<'a>(v: &'a Value, key: &str) -> &'a str { v.get(key).and_then(Value::as_str).unwrap_or("") }
 fn identifier(value: &str) -> Result<&str, String> {
@@ -18,12 +20,17 @@ fn project(v: &Value, fields: &[&str]) -> Value {
 }
 
 async fn request(id: i64, method: Method, path: &str, query: &[(String, String)], body: Option<Value>) -> Result<Value, String> {
+    request_payload(id, method, path, query, body, None).await
+}
+
+async fn request_payload(id: i64, method: Method, path: &str, query: &[(String, String)], body: Option<Value>, upload: Option<(String, Vec<u8>)>) -> Result<Value, String> {
     if account_cloud_type(id)? != "cloudflare" { return Err("当前账号不是 Cloudflare 账号".into()); }
     let (account, token) = account_credentials(id)?;
     let action = format!("{} {}", method, path);
     let client = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).timeout(std::time::Duration::from_secs(30)).build().map_err(|_| "无法初始化 Cloudflare 请求")?;
     let mut req = client.request(method, format!("https://api.cloudflare.com/client/v4/{path}")).bearer_auth(token).query(query);
     if let Some(body) = body { req = req.json(&body); }
+    if let Some((content_type, bytes)) = upload { req = req.header(reqwest::header::CONTENT_TYPE, content_type).body(bytes); }
     let response = req.send().await.map_err(|_| "Cloudflare 网络请求失败或超时")?;
     let status = response.status();
     let data: Value = response.json().await.map_err(|_| "Cloudflare 返回格式无效")?;
@@ -99,6 +106,7 @@ pub(crate) async fn resource_items(id: i64, resource_type: &str) -> ResourceResp
 pub(crate) async fn manage(id: i64, action: &str, input: Value) -> Result<Value, String> {
     let (account, _) = account_credentials(id)?;
     identifier(&account)?;
+    if action == "worker_template_deploy" { return vless::deploy(id, &account, &input).await; }
     if action == "verify" {
         request(id, Method::GET, &format!("accounts/{account}"), &[], None).await?;
         return Ok(json!({"verified": true}));
@@ -139,6 +147,25 @@ pub(crate) async fn manage(id: i64, action: &str, input: Value) -> Result<Value,
             _ => return Err("不支持的 Cloudflare 操作".into()),
         };
         request(id, method, &path, &[], if body.is_null() { None } else { Some(body) }).await?;
+    } else if action == "worker_create" {
+        let worker = worker_input(&input)?;
+        let base = format!("accounts/{account}/workers/scripts");
+        let rows = pages(id, &base, vec![], true, false).await?;
+        if rows.iter().any(|row| text(row, "id") == worker) { return Err("同名 Worker 已存在，请更换名称；新建不会覆盖现有代码".into()); }
+        let upload = worker_upload(text(&input, "code"));
+        request_payload(id, Method::PUT, &format!("{base}/{worker}"), &[], None, Some(upload)).await?;
+        // 部署已经成功，后续失败不能作为整个创建失败返回，避免用户重复提交。
+        let address = async {
+            request(id, Method::POST, &format!("{base}/{worker}/subdomain"), &[], Some(json!({"enabled": true, "previews_enabled": false}))).await?;
+            let result = request(id, Method::GET, &format!("accounts/{account}/workers/subdomain"), &[], None).await?;
+            let subdomain = text(&result["result"], "subdomain");
+            if subdomain.is_empty() || subdomain.len() > 63 || subdomain.starts_with('-') || subdomain.ends_with('-') || !subdomain.bytes().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-') { return Err("账号 workers.dev 子域名尚未配置或返回格式无效".to_string()); }
+            Ok::<String, String>(format!("https://{worker}.{subdomain}.workers.dev"))
+        }.await;
+        return Ok(match address {
+            Ok(url) => json!({"success": true, "name": worker, "url": url}),
+            Err(_) => json!({"success": true, "name": worker, "warning": "代码已部署，但 workers.dev 地址未就绪。请到 Cloudflare 控制台检查账号子域名、Workers 权限及访问设置；不要重复创建。"}),
+        });
     } else if action == "r2_create" {
         let bucket = text(&input, "name");
         if bucket.len() < 3 || bucket.len() > 63 || !bucket.bytes().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-') || bucket.starts_with('-') || bucket.ends_with('-') { return Err("R2 桶名称须为 3–63 位小写字母、数字或连字符，且首尾不能为连字符".into()); }
@@ -156,6 +183,58 @@ pub(crate) async fn manage(id: i64, action: &str, input: Value) -> Result<Value,
         request(id, Method::DELETE, &format!("accounts/{account}/{suffix}"), &[], None).await?;
     } else { return Err("不支持的 Cloudflare 操作".into()); }
     Ok(json!({"success": true}))
+}
+
+fn worker_input(input: &Value) -> Result<&str, String> {
+    let worker = text(input, "name");
+    if worker.is_empty() || worker.len() > 63 || worker.starts_with('-') || worker.ends_with('-') || !worker.bytes().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-') {
+        return Err("Worker 名称须为 1–63 位小写字母、数字或连字符，且首尾不能为连字符".into());
+    }
+    let code = text(input, "code");
+    if code.trim().is_empty() || code.len() > 1024 * 1024 || code.contains('\0') { return Err("Worker 代码不能为空，须为不超过 1 MiB 的单文件 JavaScript 模块".into()); }
+    Ok(worker)
+}
+
+fn worker_upload(code: &str) -> (String, Vec<u8>) {
+    worker_upload_with_bindings(code, json!([]))
+}
+
+fn worker_upload_with_bindings(code: &str, bindings: Value) -> (String, Vec<u8>) {
+    let boundary = format!("cloudhub-{}", uuid::Uuid::new_v4());
+    let metadata = json!({"main_module": "worker.mjs", "compatibility_date": "2026-11-13", "bindings": bindings});
+    let body = format!("--{boundary}\r\nContent-Disposition: form-data; name=\"metadata\"\r\nContent-Type: application/json\r\n\r\n{metadata}\r\n--{boundary}\r\nContent-Disposition: form-data; name=\"worker.mjs\"; filename=\"worker.mjs\"\r\nContent-Type: application/javascript+module\r\n\r\n{code}\r\n--{boundary}--\r\n");
+    (format!("multipart/form-data; boundary={boundary}"), body.into_bytes())
+}
+
+#[cfg(test)]
+mod worker_tests {
+    use super::*;
+
+    #[test]
+    fn validates_names_and_utf8_size_before_upload() {
+        for worker in ["a", "demo-worker", &"a".repeat(63)] {
+            assert!(worker_input(&json!({"name": worker, "code": "export default {}"})).is_ok());
+        }
+        for worker in ["", "Upper", "a_b", "-demo", "demo-", "a/b", &"a".repeat(64)] {
+            assert!(worker_input(&json!({"name": worker, "code": "export default {}"})).is_err());
+        }
+        for code in [" ".to_string(), "\0".to_string(), "中".repeat(349526)] {
+            assert!(worker_input(&json!({"name": "demo", "code": code})).is_err());
+        }
+    }
+
+    #[test]
+    fn multipart_preserves_module_bytes_and_entrypoint() {
+        let code = "export default {fetch(){return new Response('你好')}}";
+        let (content_type, bytes) = worker_upload(code);
+        let boundary = content_type.strip_prefix("multipart/form-data; boundary=").unwrap();
+        let body = String::from_utf8(bytes).unwrap();
+        assert!(body.starts_with(&format!("--{boundary}\r\n")));
+        assert!(body.ends_with(&format!("--{boundary}--\r\n")));
+        assert!(body.contains("\"main_module\":\"worker.mjs\""));
+        assert!(body.contains("Content-Type: application/javascript+module\r\n"));
+        assert!(body.contains(code));
+    }
 }
 
 fn dns_body(input: &Value) -> Result<Value, String> {

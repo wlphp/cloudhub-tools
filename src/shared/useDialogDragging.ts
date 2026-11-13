@@ -6,8 +6,12 @@ const headerMatchSelector = headerSelector.replace(/:scope > /g, "");
 const dialogSelector = ".modal, .resource-modal, .codex-dialog, .flow-dialog, .certificate-dialog, .modal-form-layout, .ai-config-dialog, .ai-asset-note-dialog, .app-confirm-dialog, .auth-dialog, .sync-transfer-panel, .terminal-quick-dialog, .terminal-connect-card, .dns-editor-modal, .security-group-modal, [role='dialog'], dialog";
 const interactiveSelector = "button, a, input, select, textarea, label, [contenteditable='true'], [role='button']";
 
-export function useDialogDragging() {
+export function useDialogDragging(ownerDocument: Document = document, enabled = true) {
   useEffect(() => {
+    if (!enabled) return;
+    const document = ownerDocument;
+    const window = document.defaultView!;
+    const { Element, HTMLElement } = window;
     let active: { element: HTMLElement; header: HTMLElement; pointerId: number; x: number; y: number; left: number; top: number; detachRequested: boolean } | null = null;
 
     const onPointerDown = (event: PointerEvent) => {
@@ -71,5 +75,5 @@ export function useDialogDragging() {
       window.removeEventListener("pointerup", onPointerUp, true);
       window.removeEventListener("pointercancel", onPointerUp, true);
     };
-  }, []);
+  }, [ownerDocument, enabled]);
 }

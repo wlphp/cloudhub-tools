@@ -1,3 +1,4 @@
+import { useDialogDocument } from "../../shared/DialogDocument";
 import { AccountRefreshError } from "./AccountRefreshError";
 import { ExportChecklist } from "../../shared/ExportSelection";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -34,6 +35,7 @@ const time = (value: number | null) => value ? new Date(value).toLocaleString("z
 const panels = [{ id: "accounts", label: "账号总览", icon: Users }, { id: "providers", label: "模型供应商", icon: Server }, { id: "api", label: "API 反代服务", icon: Server }, { id: "instances", label: "应用多开", icon: Terminal }] as const;
 
 export function CodexPanel() {
+  const document = useDialogDocument();
   const [activePanel, setActivePanel] = useState<(typeof panels)[number]["id"]>("accounts");
   const [instanceAccountId, setInstanceAccountId] = useState("");
   const [state, setState] = useState<CodexState | null>(null);

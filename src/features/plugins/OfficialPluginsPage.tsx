@@ -1,3 +1,4 @@
+import { useDialogDocument } from "../../shared/DialogDocument";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { SharedDialog } from "../../shared/SharedDialog";
@@ -83,6 +84,8 @@ function ApplicationDetailsButton({ app, onOpen }: { app: ApplicationDefinition;
 type StoreProps = { initialPluginId?: string; forceInitialPageMode?: boolean; applicationSettings: ApplicationPreferenceState; onOpenSection: (section: ApplicationSection) => boolean | void; onOpenPlugin?: () => void; onReturnCatalog: () => void; onLanConnect?: (ip: string, platform: "linux" | "windows", name: string) => void; accounts?: Account[]; localAssets?: LocalAsset[]; onStatus?: (message: string) => void; onConfirm?: (message: string) => Promise<boolean>; refreshActionRef?: { current: (() => Promise<void>) | null } };
 
 function OfficialPluginsStore({ initialPluginId, forceInitialPageMode, applicationSettings, onOpenSection, onOpenPlugin, onReturnCatalog, onLanConnect, accounts = [], localAssets = [], onStatus = () => {}, onConfirm = async () => false, refreshActionRef }: StoreProps) {
+  const document = useDialogDocument();
+  const window = document.defaultView!;
   const { get } = usePluginPresentation();
   const [config, setConfig] = useState(readConfig);
   const [status, setStatus] = useState<WechatPluginStatus | null>(null);
@@ -194,7 +197,7 @@ function OfficialPluginsStore({ initialPluginId, forceInitialPageMode, applicati
     void checkStatus();
     window.addEventListener("focus", checkStatus);
     return () => { active = false; window.removeEventListener("focus", checkStatus); };
-  }, [activePlugin?.id]);
+  }, [activePlugin?.id, window]);
 
   async function operate(action: () => Promise<void>) {
     if (busyRef.current) return;

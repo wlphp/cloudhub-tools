@@ -14,10 +14,15 @@ pub fn attach<'a, R: Runtime, M: Manager<R>>(
             || app.webview_windows().keys().filter(|name| name.starts_with("dialog-popout-")).count() >= 32 {
             return NewWindowResponse::Deny;
         }
+        // Invalid/sentinel popup coordinates can overflow Tao's Windows frame calculation.
+        let position = features.position().filter(|p| p.x.is_finite() && p.y.is_finite()
+            && p.x.abs() < 32768.0 && p.y.abs() < 32768.0);
+        let (x, y) = position.map(|p| (p.x, p.y)).unwrap_or((64.0, 64.0));
         let window = tauri::WebviewWindowBuilder::new(
             &app, label, tauri::WebviewUrl::External(url.clone()),
         )
         .window_features(features)
+        .position(x, y)
         .title("CloudHub Tools")
         .min_inner_size(320.0, 180.0)
         .resizable(true)

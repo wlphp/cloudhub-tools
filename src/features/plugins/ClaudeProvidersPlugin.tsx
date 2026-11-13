@@ -1,3 +1,4 @@
+import { useDialogDocument } from "../../shared/DialogDocument";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ArrowDown, ArrowUp, Check, Copy, Download, ExternalLink, FolderOpen, HelpCircle, ListChecks, Loader2, Minus, MoreHorizontal, Pencil, Plus, RotateCcw, Search, Server, Star, Trash2, Wand2, Wifi } from "lucide-react";
@@ -533,6 +534,8 @@ function windowedUsage(logs: ClaudeRoutingState["logs"], providerId: string) {
 }
 
 export function ClaudeProvidersPlugin() {
+  const document = useDialogDocument();
+  const window = document.defaultView!;
   const balanceGeneration = useRef(0);
   useEffect(() => () => { balanceGeneration.current += 1; }, []);
   const [usageRevision, setUsageRevision] = useState(0);
@@ -640,7 +643,7 @@ export function ClaudeProvidersPlugin() {
     window.addEventListener("focus", onVisible);
     document.addEventListener("visibilitychange", onVisible);
     return () => { disposed = true; window.clearInterval(timer); window.removeEventListener("focus", onVisible); document.removeEventListener("visibilitychange", onVisible); };
-  }, [applyList, busyId, routing.running, settingsPath]);
+  }, [applyList, busyId, routing.running, settingsPath, document, window]);
   // 直连模式下没有 3s 路由轮询，单独驱动一次每分钟刷新以保持 5h 倒计时实时。
   useEffect(() => {
     if (routing.running) return;

@@ -2,6 +2,7 @@ import { isIP } from "node:net";
 import { decryptSecret } from "../core/crypto.mjs";
 import { getAccountSecretRecord } from "../repositories/accounts.mjs";
 import { writeApiLog } from "../core/database.mjs";
+import { deployVless } from "../../worker-templates/vless/deploy.mjs";
 
 export function identifier(value) {
   if (typeof value !== "string" || !/^[a-f\d]{32}$/i.test(value)) throw new Error("Cloudflare ID 必须为 32 位十六进制字符");
@@ -30,7 +31,8 @@ export async function request(id, method, path, query = {}, body) {
   const url = new URL(`https://api.cloudflare.com/client/v4/${path}`);
   Object.entries(query).forEach(([key, value]) => url.searchParams.set(key, value));
   let response;
-  try { response = await fetch(url, { method, redirect: "error", signal: AbortSignal.timeout(30000), headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }); }
+  const multipart = body instanceof FormData;
+  try { response = await fetch(url, { method, redirect: "error", signal: AbortSignal.timeout(30000), headers: { Authorization: `Bearer ${token}`, ...(!multipart ? { "Content-Type": "application/json" } : {}) }, ...(body === undefined ? {} : { body: multipart ? body : JSON.stringify(body) }) }); }
   catch { throw new Error("Cloudflare 网络请求失败或超时"); }
   const data = await response.json().catch(() => { throw new Error("Cloudflare 返回格式无效"); });
   const message = responseError(response.status, data);
@@ -89,8 +91,39 @@ export function dnsBody(input) {
   if (type === "MX" && (!Number.isInteger(priority) || priority < 0 || priority > 65535)) throw new Error("MX 优先级无效");
   return { type, name: host, content, ttl: proxied ? 1 : ttl, proxied, ...(type === "MX" ? { priority } : {}) };
 }
+export function workerInput(input) {
+  if (typeof input.name !== "string" || !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(input.name)) throw new Error("Worker 名称须为 1–63 位小写字母、数字或连字符，且首尾不能为连字符");
+  if (typeof input.code !== "string" || !input.code.trim() || Buffer.byteLength(input.code, "utf8") > 1024 * 1024 || input.code.includes("\0")) throw new Error("Worker 代码不能为空，须为不超过 1 MiB 的单文件 JavaScript 模块");
+  return input.name;
+}
+
+// 允许使用无凭据请求替身验证部署顺序和部分成功，不在测试中访问云端。
+export async function createWorker(id, account, input, send = request) {
+  const worker = workerInput(input);
+  const base = `accounts/${account}/workers/scripts`;
+  const rows = await pages(q => send(id, "GET", base, q), { single: true });
+  if (rows.some(row => row.id === worker)) throw new Error("同名 Worker 已存在，请更换名称；新建不会覆盖现有代码");
+  const form = new FormData();
+  form.set("metadata", new Blob([JSON.stringify({ main_module: "worker.mjs", compatibility_date: new Date().toISOString().slice(0, 10) })], { type: "application/json" }));
+  form.set("worker.mjs", new Blob([input.code], { type: "application/javascript+module" }), "worker.mjs");
+  await send(id, "PUT", `${base}/${worker}`, {}, form);
+  try {
+    await send(id, "POST", `${base}/${worker}/subdomain`, {}, { enabled: true, previews_enabled: false });
+    const data = await send(id, "GET", `accounts/${account}/workers/subdomain`);
+    if (typeof data.result?.subdomain !== "string" || !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(data.result.subdomain)) throw new Error("子域名无效");
+    return { success: true, name: worker, url: `https://${worker}.${data.result.subdomain}.workers.dev` };
+  } catch {
+    return { success: true, name: worker, warning: "代码已部署，但 workers.dev 地址未就绪。请到 Cloudflare 控制台检查账号子域名、Workers 权限及访问设置；不要重复创建。" };
+  }
+}
+
 export async function manage(id, action, input = {}) {
   const { account } = credentials(id);
+  if (action === "worker_template_deploy") {
+    if (input.template !== "vless") throw new Error("不支持的 Worker 模板");
+    return deployVless({ accountId: account, workerName: input.name, zoneId: input.zoneId, hostname: input.hostname, thirdParty: input.thirdParty }, (method, path, body, query = {}) => request(id, method, path, query, body));
+  }
+  if (action === "worker_create") return createWorker(id, account, input);
   if (action === "verify") { await request(id, "GET", `accounts/${account}`); return { verified: true }; }
   if (action.startsWith("dns_") || ["purge_cache", "ssl_get", "ssl_set"].includes(action)) {
     const zone = identifier(input.zoneId);

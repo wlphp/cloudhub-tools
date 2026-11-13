@@ -1,36 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
+import { setupNativePage } from "./native-popout-fixture";
 
 async function setup(page: Page, desktop = true) {
-  await page.addInitScript(({ desktop }) => {
-    const state = window as any;
-    state.__popups = [];
-    const callbacks = new Map<number, Function>();
-    let next = 0;
-    state.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener: () => {} };
-    if (desktop) state.__TAURI_INTERNALS__ = {
-      metadata: { currentWindow: { label: "main" }, currentWebview: { label: "main" } },
-      transformCallback: (callback: Function) => { callbacks.set(++next, callback); return next; },
-      unregisterCallback: (id: number) => callbacks.delete(id),
-      invoke: async (command: string, args: any = {}) => {
-        if (command === "plugin:window|get_all_windows") return ["main", ...state.__popups.map((popup: Window) => popup.name)];
-        if (command === "plugin:window|destroy") state.__popups.find((popup: Window) => popup.name === args.label)?.close();
-        if (command === "plugin:event|listen") return ++next;
-        if (command.startsWith("plugin:")) return null;
-        if (command === "authenticator_status") return { configured: false, unlocked: false };
-        if (command === "list_client_preferences") return {};
-        return [];
-      },
-    };
-    const original = window.open.bind(window);
-    window.open = (...args) => {
-      if (state.__blockPopup) return null;
-      const popup = original(...args);
-      if (popup) state.__popups.push(popup);
-      return popup;
-    };
-  }, { desktop });
-  if (!desktop) await page.route("**/api/**", route => route.fulfill({ json: [] }));
-  await page.goto("/");
+  await setupNativePage(page, desktop);
   await page.getByRole("button", { name: "终端管理", exact: true }).click();
 }
 
@@ -38,7 +10,7 @@ test("whole workbench moves with its live search, survives parent navigation, an
   await setup(page);
   await page.getByPlaceholder("搜索服务器 IP / 名称").fill("保留搜索");
   const ready = page.waitForEvent("popup");
-  await page.getByRole("button", { name: "独立窗口", exact: true }).click();
+  await page.getByRole("button", { name: "脱离父页面", exact: true }).click();
   const popup = await ready;
   await expect(popup.locator(".terminal-workbench")).toBeVisible();
   await expect(popup.getByPlaceholder("搜索服务器 IP / 名称")).toHaveValue("保留搜索");
@@ -55,7 +27,7 @@ test("whole workbench moves with its live search, survives parent navigation, an
 test("both top blank areas detach on drag and a failed popup keeps the workbench", async ({ page }) => {
   await setup(page);
   await page.evaluate(() => { (window as any).__blockPopup = true; });
-  await page.getByRole("button", { name: "独立窗口", exact: true }).click();
+  await page.getByRole("button", { name: "脱离父页面", exact: true }).click();
   await expect(page.getByRole("alert")).toContainText("无法创建独立窗口");
   await expect(page.locator(".terminal-workbench")).toBeVisible();
   await page.evaluate(() => { (window as any).__blockPopup = false; });
@@ -76,5 +48,28 @@ test("both top blank areas detach on drag and a failed popup keeps the workbench
 
 test("browser preview does not offer native workbench detachment", async ({ page }) => {
   await setup(page, false);
-  await expect(page.getByRole("button", { name: "独立窗口", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "脱离父页面", exact: true })).toHaveCount(0);
+});
+
+test("native close restores the live workbench and popup resize uses its own document", async ({ page }) => {
+  await setup(page);
+  const ready = page.waitForEvent("popup");
+  await page.getByRole("button", { name: "脱离父页面", exact: true }).click();
+  const popup = await ready;
+  const workbench = popup.locator(".terminal-workbench");
+  await expect(workbench).toBeVisible();
+  const sidebar = popup.getByRole("complementary", { name: "服务器列表" });
+  const before = (await sidebar.boundingBox())!.width;
+  const handle = (await popup.getByRole("separator", { name: "调整服务器列表宽度" }).boundingBox())!;
+  await popup.mouse.move(handle.x + handle.width / 2, handle.y + 120);
+  await popup.mouse.down();
+  await popup.mouse.move(handle.x + handle.width / 2 + 45, handle.y + 120, { steps: 5 });
+  await popup.mouse.up();
+  await expect.poll(async () => (await sidebar.boundingBox())!.width).toBeGreaterThan(before + 20);
+  await popup.locator(".terminal-stage-empty").getByRole("button", { name: "添加服务器" }).click();
+  await expect(popup.getByRole("dialog", { name: "添加服务器", exact: true })).toBeVisible();
+  await popup.getByRole("button", { name: "关闭服务器配置", exact: true }).click();
+  await page.evaluate(() => (window as any).__requestNativeClose());
+  await expect.poll(() => popup.isClosed()).toBe(true);
+  await expect(page.locator(".terminal-workbench")).toBeVisible();
 });

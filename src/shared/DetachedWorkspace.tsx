@@ -5,14 +5,17 @@ import { runningInTauri, runningOnPhone } from "../platform/api";
 import { DialogDocument } from "./DialogDocument";
 import { openDetachedDialog, type DetachedDialog } from "./detachedDialog";
 import "./detached-workspace.css";
+import { useDialogDragging } from "./useDialogDragging";
 
 /** Move the live portal so terminal sessions and local edits keep their owner. */
-export function DetachedWorkspace({ children, enabled, visible, onDetachedChange, onDocumentChange }: {
+export function DetachedWorkspace({ children, enabled, visible, title = "终端管理", pageId = "servers", onDetachedChange, onDocumentChange }: {
   children: (controls: { onPointerDown: (event: PointerEvent<HTMLElement>) => void; action: ReactNode }) => ReactNode;
   enabled: boolean;
   visible: boolean;
-  onDocumentChange: (owner: Document) => void;
-  onDetachedChange: (detached: boolean) => void;
+  title?: string;
+  pageId?: string;
+  onDocumentChange?: (owner: Document) => void;
+  onDetachedChange?: (detached: boolean) => void;
 }) {
   const anchor = useRef<HTMLDivElement>(null);
   const [portal] = useState(() => document.createElement("div"));
@@ -21,6 +24,7 @@ export function DetachedWorkspace({ children, enabled, visible, onDetachedChange
   const busy = useRef(false);
   const [pending, setPending] = useState(false);
   const [owner, setOwner] = useState(document);
+  useDialogDragging(owner, owner !== document);
   const [error, setError] = useState("");
   const changed = useRef(onDetachedChange);
   changed.current = onDetachedChange;
@@ -31,18 +35,21 @@ export function DetachedWorkspace({ children, enabled, visible, onDetachedChange
   const restore = () => {
     const previous = popup.current;
     if (!previous) return;
+    // Editors opened inside the popup adopt their live forms back before it is destroyed.
+    previous.document.dispatchEvent(new Event("cloudhub-document-restore"));
     // Adopt back before destroying the native document; React keeps the same nodes.
     anchor.current?.append(portal);
     popup.current = null;
     setOwner(document);
-    documentChanged.current(document);
-    changed.current(false);
+    documentChanged.current?.(document);
+    changed.current?.(false);
     previous.dispose();
   };
 
   useLayoutEffect(() => {
     mounted.current = true;
     portal.className = "detachable-workspace-content";
+    portal.dataset.detachablePage = pageId;
     anchor.current?.append(portal);
     const dispose = () => popup.current?.dispose();
     window.addEventListener("pagehide", dispose);
@@ -54,7 +61,9 @@ export function DetachedWorkspace({ children, enabled, visible, onDetachedChange
       portal.remove();
       window.removeEventListener("pagehide", dispose);
     };
-  }, [portal]);
+  }, [portal, pageId]);
+
+  const bounds = () => (portal.querySelector(".managed-servers-page") ?? anchor.current?.closest("main") ?? document.documentElement).getBoundingClientRect();
 
   const detach = async (position?: { x: number; y: number }) => {
     if (!canDetach || busy.current || popup.current) return;
@@ -62,17 +71,16 @@ export function DetachedWorkspace({ children, enabled, visible, onDetachedChange
     setPending(true);
     setError("");
     try {
-      const bounds = portal.querySelector(".managed-servers-page")!.getBoundingClientRect();
-      const result = await openDetachedDialog(document, "终端管理 · 云枢工具箱", bounds, position, restore);
+      const result = await openDetachedDialog(document, `${title} · 云枢工具箱`, bounds(), position, restore);
       if (!mounted.current) { result.dispose(); return; }
       // Theme variables are scoped to the application shell in the parent.
       const shell = anchor.current?.closest(".ide-theme");
-      portal.className = `detachable-workspace-content ide-theme workspace-popout${shell?.classList.contains("theme-light") ? " theme-light" : ""}`;
+      portal.className = `detachable-workspace-content ide-theme workspace-popout${pageId === "servers" ? " terminal-workspace-popout-page" : ""}${shell?.classList.contains("theme-light") ? " theme-light" : ""}`;
       result.document.body.append(portal);
       popup.current = result;
       setOwner(result.document);
-      documentChanged.current(result.document);
-      changed.current(true);
+      documentChanged.current?.(result.document);
+      changed.current?.(true);
       result.window.addEventListener("pagehide", () => { if (popup.current === result && mounted.current) restore(); }, { once: true });
       result.window.focus();
     } catch (cause) {
@@ -90,7 +98,7 @@ export function DetachedWorkspace({ children, enabled, visible, onDetachedChange
     const view = header.ownerDocument.defaultView!;
     const startX = event.clientX;
     const startY = event.clientY;
-    const bounds = portal.querySelector(".managed-servers-page")!.getBoundingClientRect();
+    const rect = bounds();
     const pointerId = event.pointerId;
     header.setPointerCapture(pointerId);
     const finish = () => {
@@ -102,7 +110,7 @@ export function DetachedWorkspace({ children, enabled, visible, onDetachedChange
     const move = (next: globalThis.PointerEvent) => {
       if (next.pointerId !== pointerId || Math.hypot(next.clientX - startX, next.clientY - startY) < 16) return;
       finish();
-      void detach({ x: next.screenX - (startX - bounds.left), y: next.screenY - (startY - bounds.top) });
+      void detach({ x: next.screenX - (startX - rect.left), y: next.screenY - (startY - rect.top) });
     };
     view.addEventListener("pointermove", move);
     view.addEventListener("pointerup", finish, { once: true });
@@ -112,10 +120,10 @@ export function DetachedWorkspace({ children, enabled, visible, onDetachedChange
 
   const detached = owner !== document;
   useLayoutEffect(() => { if (!detached) portal.className = "detachable-workspace-content"; }, [detached, portal]);
-  const action = canDetach ? <button type="button" className="terminal-workspace-popout" disabled={pending} title={detached ? "回到父页面" : "独立窗口（也可拖动顶部空白处）"} onClick={() => detached ? restore() : void detach()}>{detached ? <PanelsTopLeft size={14} /> : <ExternalLink size={14} />}{detached ? "回到父页面" : pending ? "正在分离…" : "独立窗口"}</button> : null;
+  const action = canDetach ? <button type="button" className="terminal-workspace-popout" disabled={pending} title={detached ? "回到父页面" : "脱离父页面"} onClick={() => detached ? restore() : void detach()}>{detached ? <PanelsTopLeft size={14} /> : <ExternalLink size={14} />}{detached ? "回到父页面" : pending ? "正在分离…" : "脱离父页面"}</button> : null;
   return <>
     <div ref={anchor} className="detachable-workspace-anchor" />
-    {detached && visible && <div className="terminal-workspace-placeholder"><p>终端管理已移到独立窗口</p><button type="button" className="secondary" onClick={() => void popup.current?.native.setFocus()}>显示独立窗口</button><button type="button" className="secondary" onClick={restore}>回到父页面</button></div>}
-    {createPortal(<DialogDocument.Provider value={owner}>{error && <p role="alert" className="dialog-detach-error">{error}</p>}{children({ onPointerDown, action })}</DialogDocument.Provider>, portal)}
+    {detached && visible && <div className="terminal-workspace-placeholder"><p>{title}已移到独立窗口</p><button type="button" className="secondary" onClick={() => void popup.current?.native.setFocus().catch(() => {})}>显示独立窗口</button><button type="button" className="secondary" onClick={restore}>回到父页面</button></div>}
+    {createPortal(<DialogDocument.Provider value={owner}><div className="detachable-page-body">{children({ onPointerDown, action: pageId === "servers" ? action : null })}</div>{/* Keep the fixed control after the page body so it stays last in the Tab order. */}{pageId !== "servers" && (visible || detached) && action && <div className="page-detach-tools">{action}</div>}{error && <p role="alert" className="dialog-detach-error">{error}</p>}</DialogDocument.Provider>, portal)}
   </>;
 }

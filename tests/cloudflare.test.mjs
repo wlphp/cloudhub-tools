@@ -1,7 +1,58 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { dnsBody, identifier, pages, project, responseError } from "../web-api/providers/cloudflare.mjs";
+import { createWorker, workerInput, dnsBody, identifier, pages, project, responseError } from "../web-api/providers/cloudflare.mjs";
 import { saveAccount } from "../web-api/services/accounts.mjs";
+
+test("Worker input rejects invalid names, empty code and UTF-8 byte overflow", () => {
+  const input = { name: "demo-worker", code: "export default {fetch(){return new Response('ok')}}" };
+  assert.equal(workerInput(input), "demo-worker");
+  assert.equal(workerInput({ ...input, name: "a" }), "a");
+  for (const name of ["", "Upper", "a_b", "-demo", "demo-", "a/b", "a".repeat(64)]) assert.throws(() => workerInput({ ...input, name }));
+  for (const code of [" ", "\0", "中".repeat(349526)]) assert.throws(() => workerInput({ ...input, code }));
+});
+
+test("Worker creation checks live names before any upload", async () => {
+  const calls = [];
+  await assert.rejects(createWorker(1, "a".repeat(32), { name: "demo", code: "export default {}" }, async (...args) => {
+    calls.push(args); return { result: [{ id: "demo" }] };
+  }), /同名/);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0][1], "GET");
+});
+
+test("Worker uploads module metadata and code, then enables the address", async () => {
+  const calls = [];
+  const code = "export default {fetch(){return new Response('你好')}}";
+  const result = await createWorker(1, "a".repeat(32), { name: "demo", code }, async (...args) => {
+    calls.push(args);
+    return { result: args[2].endsWith("/workers/subdomain") ? { subdomain: "example" } : [] };
+  });
+  assert.equal(result.url, "https://demo.example.workers.dev");
+  assert.deepEqual(calls.map(c => c[1]), ["GET", "PUT", "POST", "GET"]);
+  const form = calls[1][4];
+  assert.equal(await form.get("worker.mjs").text(), code);
+  assert.equal(form.get("worker.mjs").type, "application/javascript+module");
+  assert.equal(JSON.parse(await form.get("metadata").text()).main_module, "worker.mjs");
+  assert.deepEqual(calls[2][4], { enabled: true, previews_enabled: false });
+});
+
+test("Worker upload failure stops, address failure reports deployed with a warning", async () => {
+  let calls = 0;
+  await assert.rejects(createWorker(1, "a".repeat(32), { name: "demo", code: "export default {}" }, async () => {
+    if (++calls === 1) return { result: [] };
+    throw new Error("upload failed");
+  }), /upload failed/);
+  assert.equal(calls, 2);
+  calls = 0;
+  const result = await createWorker(1, "a".repeat(32), { name: "demo", code: "export default {}" }, async () => {
+    if (++calls < 3) return { result: [] };
+    throw new Error("untrusted provider text");
+  });
+  assert.equal(result.success, true);
+  assert.match(result.warning, /代码已部署/);
+  assert.ok(!result.warning.includes("untrusted provider text"));
+  assert.equal(result.url, undefined);
+});
 
 test("Cloudflare errors expose only status and numeric codes", () => {
   for (const status of [401, 403, 429, 503, 200]) {

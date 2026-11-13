@@ -1,3 +1,4 @@
+import { useDialogDocument } from "../../shared/DialogDocument";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { invoke, runningInTauri, runningOnPhone } from "../../platform/api";
@@ -21,6 +22,7 @@ const actions: { id: Action; title: string; detail: string; icon: typeof Monitor
 ];
 
 function WindowsToolboxToast({ message }: { message: string }) {
+  const document = useDialogDocument();
   const [dismissed, setDismissed] = useState(false);
   useEffect(() => {
     setDismissed(false);

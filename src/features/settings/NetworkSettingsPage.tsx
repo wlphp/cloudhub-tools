@@ -1,3 +1,4 @@
+import { useDialogDocument } from "../../shared/DialogDocument";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Check, Info, LoaderCircle, Monitor, Network, Pencil, Plus, RotateCw, ScanSearch, Save, ShieldCheck, Trash2, Wifi } from "lucide-react";
@@ -11,6 +12,7 @@ const supportsNetworkProxy = runningInTauri;
 const emptyDraft = (): ProxyDraft => ({ id: crypto.randomUUID(), name: "", url: "", authConfigured: false, username: "", password: "" });
 
 export function NetworkSettingsPage({ mobile = false }: { mobile?: boolean }) {
+  const document = useDialogDocument();
   const [pool, setPool] = useState<PoolStatus>({ enabled: false, selectedId: null, proxies: [] });
   const [drafts, setDrafts] = useState<ProxyDraft[]>([]);
   const [draft, setDraft] = useState<ProxyDraft | null>(null);
