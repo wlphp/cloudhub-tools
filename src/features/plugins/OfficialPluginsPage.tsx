@@ -25,11 +25,6 @@ const browserPlugin = officialPlugins[3];
 const notesPlugin = officialPlugins[4];
 const claudePlugin = officialPlugins[5];
 const configKey = `${plugin.id}.config`;
-/** 仅桌面客户端可用、手机端未注册对应命令的插件；手机端商店禁用入口并提示，插件页自身也做同样回退。 */
-const desktopOnlyPluginIds = new Set([
-  plugin.id, hardwarePlugin.id, wslPlugin.id, browserPlugin.id,
-  "cloudhub.cloud-drive", "cloudhub.environment-variables", "cloudhub.mail", "cloudhub.startup-manager", "cloudhub.windows-toolbox", "cloudhub.http-debug-proxy",
-]);
 
 /** 桌面列表保留直接设置入口；手机端收进详情弹层以精简操作区。 */
 function PresentationButton({ pluginId, onOpen }: { pluginId: string; onOpen: (id: string) => void }) {
@@ -85,9 +80,9 @@ function ApplicationDetailsButton({ app, onOpen }: { app: ApplicationDefinition;
   return <button type="button" className="table-link store-view-details" aria-label={`查看${app.name}全部信息`} onClick={() => onOpen(app.id)}>查看</button>;
 }
 
-type StoreProps = { initialPluginId?: string; forceInitialPageMode?: boolean; applicationSettings: ApplicationPreferenceState; onOpenSection: (section: ApplicationSection) => boolean | void; onOpenPlugin?: () => void; onReturnCatalog: () => void; onLanConnect?: (ip: string, platform: "linux" | "windows", name: string) => void; accounts?: Account[]; localAssets?: LocalAsset[]; onStatus?: (message: string) => void; onConfirm?: (message: string) => Promise<boolean>; refreshActionRef?: { current: (() => Promise<void>) | null } };
+type StoreProps = { mobile?: boolean; initialPluginId?: string; forceInitialPageMode?: boolean; applicationSettings: ApplicationPreferenceState; onOpenSection: (section: ApplicationSection) => boolean | void; onOpenPlugin?: () => void; onReturnCatalog: () => void; onLanConnect?: (ip: string, platform: "linux" | "windows", name: string) => void; accounts?: Account[]; localAssets?: LocalAsset[]; onStatus?: (message: string) => void; onConfirm?: (message: string) => Promise<boolean>; refreshActionRef?: { current: (() => Promise<void>) | null } };
 
-function OfficialPluginsStore({ initialPluginId, forceInitialPageMode, applicationSettings, onOpenSection, onOpenPlugin, onReturnCatalog, onLanConnect, accounts = [], localAssets = [], onStatus = () => {}, onConfirm = async () => false, refreshActionRef }: StoreProps) {
+function OfficialPluginsStore({ mobile = false, initialPluginId, forceInitialPageMode, applicationSettings, onOpenSection, onOpenPlugin, onReturnCatalog, onLanConnect, accounts = [], localAssets = [], onStatus = () => {}, onConfirm = async () => false, refreshActionRef }: StoreProps) {
   const document = useDialogDocument();
   const window = document.defaultView!;
   const { get } = usePluginPresentation();
@@ -245,9 +240,8 @@ function OfficialPluginsStore({ initialPluginId, forceInitialPageMode, applicati
     try { localStorage.setItem(configKey, JSON.stringify(config)); }
     catch { setError("无法保存插件设置，请检查本地存储空间。"); }
   }, [config]);
-  const application = activePlugin && (activePlugin.id === hardwarePlugin.id && (!runningInTauri || runningOnPhone)
-    ? <p role="status">电脑信息当前已停用或运行环境不支持，请返回软件商店检查启用状态，并在桌面客户端使用。</p>
-    : <PluginApplication pluginId={activePlugin.id} wslEnabled mobile={runningOnPhone} accounts={accounts} localAssets={localAssets} onStatus={onStatus} onConfirm={onConfirm} onLanConnect={onLanConnect ? (ip, platform, name) => { closePlugin(); onLanConnect(ip, platform, name); } : undefined} onNotify={activePlugin.presentation.mode === "modal" ? setMessage : undefined} onError={activePlugin.presentation.mode === "modal" ? setError : undefined} />);
+  const application = activePlugin && (
+      <PluginApplication pluginId={activePlugin.id} wslEnabled mobile={mobile || runningOnPhone} accounts={accounts} localAssets={localAssets} onStatus={onStatus} onConfirm={onConfirm} onLanConnect={onLanConnect ? (ip, platform, name) => { closePlugin(); onLanConnect(ip, platform, name); } : undefined} onNotify={activePlugin.presentation.mode === "modal" ? setMessage : undefined} onError={activePlugin.presentation.mode === "modal" ? setError : undefined} />);
   const activeDefinition = officialPlugins.find(item => item.id === activePlugin?.id);
   if (activePlugin?.presentation.mode === "page" && activeDefinition) {
     return <PluginPageHost title={activeDefinition.name} onClose={closePlugin}>{application}</PluginPageHost>;
@@ -265,7 +259,6 @@ function OfficialPluginsStore({ initialPluginId, forceInitialPageMode, applicati
       </div>
       <div className="store-filter-row"><span>最近使用</span>{recent && <button type="button" className="store-recent" onClick={() => { setSource("官方应用"); setCategory("全部"); setKeyword(""); openPlugin(plugin.id); }}><MessageCircle size={14} aria-hidden="true" />微信多开</button>}{hardwareRecent && <button type="button" className="store-recent" onClick={() => { setSource("官方应用"); setCategory("全部"); setKeyword(""); openPlugin(hardwarePlugin.id); }}><Cpu size={14} aria-hidden="true" />电脑信息</button>}{wslRecent && <button type="button" className="store-recent" onClick={() => { setSource("官方应用"); setCategory("全部"); setKeyword(""); openPlugin(wslPlugin.id); }}><SquareTerminal size={14} aria-hidden="true" />WSL 管理</button>}{!recent && !hardwareRecent && !wslRecent && <small>暂无使用记录</small>}</div>
       {!runningInTauri && <p className="store-platform-note" role="status">浏览器预览不支持启动本地软件，请在 Windows 桌面客户端使用。</p>}
-      {runningOnPhone && <p className="store-platform-note" role="status">桌面专属工具（微信多开、电脑信息、WSL 管理等）需在桌面客户端使用，手机端暂不支持。</p>}
       {runningInTauri && status && !status.supported && <p className="store-platform-note" role="status">微信多开插件仅支持 Windows 桌面端。</p>}
         <table className="store-table"><caption className="store-table-caption">应用列表</caption><thead><tr><th scope="col">{sorting ? "排序" : "序号"}</th><th scope="col">软件名称</th><th scope="col">开发商</th><th scope="col">说明</th><th scope="col">价格</th><th scope="col">平台</th><th scope="col">操作</th></tr></thead><tbody>
         {pagedApplications.map(app => {
@@ -277,7 +270,7 @@ function OfficialPluginsStore({ initialPluginId, forceInitialPageMode, applicati
           <td data-label="开发商"><span className="store-publisher">官方</span><small>{plugin.publisher}</small></td>
           <td data-label="说明" className="store-description">{plugin.description}<small>{applicationDetailNotes[plugin.id]}</small></td>
           <td data-label="价格">免费</td><td data-label="平台">Windows</td>
-          <td data-label="操作"><div className="store-row-actions"><ApplicationDetailsButton app={app} onOpen={setDetailsFor} /><PresentationButton pluginId={plugin.id} onOpen={setPresentationFor} /><button type="button" className="table-link" data-plugin-entry={plugin.id} aria-expanded={activePlugin?.id === plugin.id} disabled={runningOnPhone} onClick={() => openPlugin(plugin.id)}>管理</button></div></td>
+          <td data-label="操作"><div className="store-row-actions"><ApplicationDetailsButton app={app} onOpen={setDetailsFor} /><PresentationButton pluginId={plugin.id} onOpen={setPresentationFor} /><button type="button" className="table-link" data-plugin-entry={plugin.id} aria-expanded={activePlugin?.id === plugin.id} onClick={() => openPlugin(plugin.id)}>管理</button></div></td>
         </tr>;
         if (app.id === hardwarePlugin.id) return <tr key={app.id} data-store-sort-id={app.id}>
           {serialCell}
@@ -285,7 +278,7 @@ function OfficialPluginsStore({ initialPluginId, forceInitialPageMode, applicati
           <td data-label="开发商"><span className="store-publisher">官方</span><small>{hardwarePlugin.publisher}</small></td>
           <td data-label="说明" className="store-description">{hardwarePlugin.description}<small>{applicationDetailNotes[hardwarePlugin.id]}</small></td>
           <td data-label="价格">免费</td><td data-label="平台">Windows / macOS / Linux</td>
-          <td data-label="操作"><div className="store-row-actions"><ApplicationDetailsButton app={app} onOpen={setDetailsFor} /><PresentationButton pluginId={hardwarePlugin.id} onOpen={setPresentationFor} /><button type="button" className="table-link" data-plugin-entry={hardwarePlugin.id} disabled={!runningInTauri || runningOnPhone} onClick={() => openPlugin(hardwarePlugin.id)}>管理</button></div></td>
+          <td data-label="操作"><div className="store-row-actions"><ApplicationDetailsButton app={app} onOpen={setDetailsFor} /><PresentationButton pluginId={hardwarePlugin.id} onOpen={setPresentationFor} /><button type="button" className="table-link" data-plugin-entry={hardwarePlugin.id} onClick={() => openPlugin(hardwarePlugin.id)}>管理</button></div></td>
         </tr>;
         if (app.id === wslPlugin.id) return <tr key={app.id} data-store-sort-id={app.id}>
           {serialCell}
@@ -293,7 +286,7 @@ function OfficialPluginsStore({ initialPluginId, forceInitialPageMode, applicati
           <td data-label="开发商"><span className="store-publisher">官方</span><small>{wslPlugin.publisher}</small></td>
           <td data-label="说明" className="store-description">{wslPlugin.description}<small>{applicationDetailNotes[wslPlugin.id]}</small></td>
           <td data-label="价格">免费</td><td data-label="平台">Windows / WSL</td>
-          <td data-label="操作"><div className="store-row-actions"><ApplicationDetailsButton app={app} onOpen={setDetailsFor} /><PresentationButton pluginId={wslPlugin.id} onOpen={setPresentationFor} /><button type="button" className="table-link" data-plugin-entry={wslPlugin.id} disabled={runningOnPhone} onClick={() => openPlugin(wslPlugin.id)}>管理</button></div></td>
+          <td data-label="操作"><div className="store-row-actions"><ApplicationDetailsButton app={app} onOpen={setDetailsFor} /><PresentationButton pluginId={wslPlugin.id} onOpen={setPresentationFor} /><button type="button" className="table-link" data-plugin-entry={wslPlugin.id} onClick={() => openPlugin(wslPlugin.id)}>管理</button></div></td>
         </tr>;
         if (app.id === browserPlugin.id) return <tr key={app.id} data-store-sort-id={app.id}>
           {serialCell}
@@ -301,7 +294,7 @@ function OfficialPluginsStore({ initialPluginId, forceInitialPageMode, applicati
           <td data-label="开发商"><span className="store-publisher">官方</span><small>{browserPlugin.publisher}</small></td>
           <td data-label="说明" className="store-description">{browserPlugin.description}<small>{applicationDetailNotes[browserPlugin.id]}</small></td>
           <td data-label="价格">免费</td><td data-label="平台">Windows x64</td>
-          <td data-label="操作"><div className="store-row-actions"><ApplicationDetailsButton app={app} onOpen={setDetailsFor} /><PresentationButton pluginId={browserPlugin.id} onOpen={setPresentationFor} /><button type="button" className="table-link" data-plugin-entry={browserPlugin.id} disabled={runningOnPhone} onClick={() => openPlugin(browserPlugin.id)}>管理</button></div></td>
+          <td data-label="操作"><div className="store-row-actions"><ApplicationDetailsButton app={app} onOpen={setDetailsFor} /><PresentationButton pluginId={browserPlugin.id} onOpen={setPresentationFor} /><button type="button" className="table-link" data-plugin-entry={browserPlugin.id} onClick={() => openPlugin(browserPlugin.id)}>管理</button></div></td>
         </tr>;
         if (app.id === claudePlugin.id) return <tr key={app.id} data-store-sort-id={app.id}>
           {serialCell}
@@ -325,7 +318,7 @@ function OfficialPluginsStore({ initialPluginId, forceInitialPageMode, applicati
           <td data-label="开发商"><span className="store-publisher">官方</span><small>{app.publisher}</small></td>
           <td data-label="说明" className="store-description">{app.description}</td>
           <td data-label="价格">免费</td><td data-label="平台">{app.platform === "all" ? "桌面 / Android / iOS" : app.platform === "windows" ? "Windows" : app.id === "cloudhub.lan-devices" ? "Windows / macOS" : "Windows / macOS / Linux"}</td>
-          <td data-label="操作"><div className="store-row-actions"><ApplicationDetailsButton app={app} onOpen={setDetailsFor} /><PresentationButton pluginId={app.id} onOpen={setPresentationFor} /><button type="button" className="table-link" data-plugin-entry={app.id} disabled={runningOnPhone && desktopOnlyPluginIds.has(app.id)} onClick={() => openPlugin(app.id)}>管理</button></div></td>
+          <td data-label="操作"><div className="store-row-actions"><ApplicationDetailsButton app={app} onOpen={setDetailsFor} /><PresentationButton pluginId={app.id} onOpen={setPresentationFor} /><button type="button" className="table-link" data-plugin-entry={app.id} onClick={() => openPlugin(app.id)}>管理</button></div></td>
         </tr>;
         })}
       </tbody></table>

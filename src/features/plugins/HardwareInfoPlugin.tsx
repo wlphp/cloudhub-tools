@@ -8,6 +8,8 @@ import { SharedDialog } from "../../shared/SharedDialog";
 import { pluginsClient, type HardwareInfo, type WifiPasswordReveal } from "../../platform/clients/plugins";
 import { PLUGIN_PAGE_HEAD_EXTRA_ID } from "./PluginSurface";
 
+import { runningInTauri, runningOnPhone } from "../../platform/api";
+
 interface Props { open: boolean; onOpened: () => void }
 
 const infoPanels = [
@@ -156,7 +158,17 @@ function renderImage(info: HardwareInfo) {
 
 export function HardwareInfoPlugin({ open, onOpened }: Props) {
   const document = useDialogDocument();
-  const [info, setInfo] = useState<HardwareInfo | null>(() => readHardwareInfoCache());
+  const [collectedInfo, setInfo] = useState<HardwareInfo | null>(() => readHardwareInfoCache());
+  const preview = !runningInTauri || runningOnPhone;
+  const info: HardwareInfo | null = collectedInfo ?? (preview ? {
+    model: "尚未读取", os: "尚未读取", uptime: "—", updatedAt: "", wifiPasswordSupported: false,
+    sections: [
+      { title: "处理器与主板", rows: [{ label: "处理器", value: "尚未读取" }, { label: "主板", value: "尚未读取" }] },
+      { title: "内存与显卡", rows: [{ label: "内存", value: "尚未读取" }, { label: "显卡", value: "尚未读取" }] },
+      { title: "网络信息", rows: [{ label: "当前 Wi-Fi", value: "尚未读取" }, { label: "局域网 IPv4", value: "尚未读取" }] },
+      { title: "音频与电源", rows: [{ label: "电池", value: "尚未读取" }] },
+    ],
+  } : null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [failure, setFailure] = useState("");
@@ -287,6 +299,7 @@ export function HardwareInfoPlugin({ open, onOpened }: Props) {
       return;
     }
     onOpened();
+    if (preview) return;
     const cached = readHardwareInfoCache();
     if (cached) { setInfo(cached); setBusy(false); setFailure(""); void refreshAutoUpdatedRows(); }
     else { setInfo(null); void refresh(); }
@@ -319,7 +332,8 @@ export function HardwareInfoPlugin({ open, onOpened }: Props) {
       </>, headExtraTarget)}
       <div className="plugin-content-body hardware-info-body">
         {!headExtraTarget && <button type="button" className="secondary hardware-info-refresh" onClick={() => void refresh()} disabled={busy} aria-label="刷新电脑信息"><RefreshCw size={15} aria-hidden="true" />刷新</button>}
-        <p className="hardware-info-cache-note" role="note">电脑信息会缓存在本设备本地；打开面板先显示缓存，并自动更新外接显示器、当前 Wi-Fi 和局域网 IP。点击上方“刷新”会重新采集全部信息并更新缓存。</p>
+        {preview && <p className="hardware-info-preview" role="status">界面预览 · 设备信息需在桌面客户端读取。</p>}
+        <details className="hardware-info-guide"><summary>采集与缓存说明</summary><p className="hardware-info-cache-note" role="note">电脑信息会缓存在本设备本地；打开面板先显示缓存，并自动更新外接显示器、当前 Wi-Fi 和局域网 IP。点击上方“刷新”会重新采集全部信息并更新缓存。</p></details>
         {failure && <p className="hardware-info-error" role="alert">{failure}</p>}
         {message && <ToastNotice message={message} />}
         {busy && !info ? <p role="status">正在读取本机电脑信息…</p> : info && <>

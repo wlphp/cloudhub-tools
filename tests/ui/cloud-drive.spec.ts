@@ -222,10 +222,11 @@ test("saved credentials list without reveal and require confirmation for a chang
   expect(await page.evaluate(() => (window as any).driveCalls.filter((c: string) => c === "cloud_drive_save").length)).toBe(1);
 });
 
-test("preview refuses mounting without invoking native commands", async ({ page }) => {
+test("preview opens configuration without mounting", async ({ page }) => {
   await openTool(page, false);
-  await expect(page.getByText("云盘挂载仅支持桌面客户端", { exact: false })).toBeVisible();
-  await expect(page.getByRole("button", { name: "新增连接" })).toHaveCount(0);
+  await expect(page.getByText("当前环境可预览连接配置；磁盘挂载需在桌面客户端执行。", { exact: false })).toBeVisible();
+  await page.getByRole("button", { name: "新增连接", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "新增云盘连接" })).toBeVisible();
 });
 
 test("connection editor reuses modal, keeps outside clicks open and fits host widths", async ({ page }) => {

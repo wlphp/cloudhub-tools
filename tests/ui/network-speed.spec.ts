@@ -182,13 +182,18 @@ test("network info failures can be retried and do not block measurement", async 
   await expect(page.locator(".speed-network-error")).toHaveCount(0);
 });
 
-test("preview shows the page while clearly disabling native-only actions", async ({ page }) => {
+test("preview allows parameters and reports unsupported execution on click", async ({ page }) => {
   await openTool(page, false);
-  await expect(page.locator(".network-speed")).toContainText("网页预览仅展示测速界面");
-  await expect(page.getByRole("button", { name: "开始测速" })).toBeDisabled();
+  await page.getByLabel("测速节点", { exact: true }).selectOption("custom");
+  await page.getByLabel("节点基础地址", { exact: false }).fill("https://speed.example.com/");
+  await page.getByLabel("每方向时长", { exact: true }).selectOption("5");
+  await page.getByLabel("总载荷上限", { exact: true }).selectOption("50");
+  await expect(page.locator(".speed-status")).toContainText("每方向 5 秒 · 上限 50 MiB");
+  await page.getByRole("button", { name: "开始测速" }).click();
+  await expect(page.getByRole("alert")).toContainText("原生客户端");
   await page.locator(".speed-network summary").click();
   await expect(page.getByRole("button", { name: "刷新网络信息" })).toBeDisabled();
-  await expect(page.locator(".network-speed select").first()).toBeDisabled();
+  await expect(page.locator(".network-speed select").first()).toBeEnabled();
   await expect(page.locator(".network-speed")).toContainText("网页端不读取");
 });
 

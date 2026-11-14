@@ -205,7 +205,7 @@ test("switching reports the change and closing keeps user configuration intact",
   const dialog = page.locator(".claude-providers-dialog");
   await dialog.locator(".claude-provider-item", { hasText: "Claude 官方" }).getByRole("button", { name: "Claude 官方 切换", exact: true }).click();
   await expect.poll(() => page.evaluate(() => (window as any).__claudeCalls)).toContain("switch:claude-official");
-  await expect(dialog).toContainText("重启 Claude Code 后生效");
+  await expect(page.locator(".app-toast-notice")).toContainText("重启 Claude Code 后生效");
 
   // 备份恢复入口存在，且只影响 live 文件，不动供应商列表。
   await dialog.getByRole("button", { name: /历史备份/ }).click();
@@ -221,7 +221,7 @@ test("switching to a configured provider updates the active selection", async ({
   await page.locator(".software-store-page tbody tr", { hasText: "Claude Code 供应商" }).getByRole("button", { name: "管理", exact: true }).click();
   await page.locator(".claude-provider-item", { hasText: "Claude 官方" }).getByRole("button", { name: "Claude 官方 切换", exact: true }).click();
   await expect.poll(() => page.evaluate(() => (window as any).__claudeCalls)).toContain("switch:claude-official");
-  await expect(page.locator(".claude-status")).toContainText("重启 Claude Code 后生效");
+  await expect(page.locator(".app-toast-notice")).toContainText("重启 Claude Code 后生效");
 });
 
 test("a failed switch does not launch Claude Code", async ({ page }) => {

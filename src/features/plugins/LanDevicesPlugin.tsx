@@ -1,6 +1,6 @@
 import { ToastNotice } from "../../shared/ToastNotice";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Copy, Download, ExternalLink, Monitor, Network, Play, RefreshCw, Square, Star } from "lucide-react";
+import { Copy, Download, ExternalLink, Monitor, Network, Play, RefreshCw, Search, Square, Star } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { runningInTauri } from "../../platform/api";
 import { DEFAULT_LAN_PORTS, lanClient, lanDeviceKey, lanService, type LanAnnotation, type LanDevice, type LanInterface, type LanLedger, type LanScan } from "../../platform/clients/lan";
@@ -136,7 +136,6 @@ export function LanDevicesPlugin({ onConnect }: { onConnect?: Connect }) {
     {onConnect && d.ports.includes(3389) && <button type="button" className="table-link" onClick={() => connect(d,"windows")}>RDP</button>}
   </div>; }
 
-  if (!runningInTauri) return <section className="lan-devices"><p role="status">局域网设备扫描仅支持 Windows 和 macOS 桌面客户端，浏览器预览与手机端不执行扫描。</p></section>;
   return <section className="lan-devices" aria-label="局域网设备扫描">
     <div className="lan-intro"><Network size={18} aria-hidden="true" /><div><strong>发现设备，连接服务</strong><p>选择本机网络后主动扫描，设备台账仅保存在本地。</p></div></div>
     <form className="lan-scan-form" onSubmit={e => { e.preventDefault(); void operate(start); }}>
@@ -147,16 +146,16 @@ export function LanDevicesPlugin({ onConnect }: { onConnect?: Connect }) {
     </form>
     {network && <p className="lan-muted">本机 {network.ip} · 网关 {network.gateway || "未获取"} · 单次最多 1024 个地址，仅扫描所选接口的私有子网。VPN / 虚拟网卡请按名称辨别。</p>}
     {loading && <p role="status">正在读取网卡…</p>}
-    {!loading && !interfaces.length && <p role="status">未发现可扫描的私有 IPv4 网络，请连接 Wi-Fi / 有线网络后刷新。当前仅支持 Windows、macOS。</p>}
+    {!loading && !interfaces.length && <p className="lan-muted" role="status">未发现可扫描的私有 IPv4 网络，请连接 Wi-Fi / 有线网络后刷新。当前仅支持 Windows、macOS。</p>}
     {scan && <div className="lan-progress" role="status"><span>{currentScan ? "" : "其他网络："}{stateText[scan.status]} · {scan.completed}/{scan.total} 个地址 · 发现 {scan.devices.length} 台</span>{running && <progress aria-label="扫描进度" value={scan.completed} max={scan.total} />}</div>}
     {error && <ToastNotice message={error} tone="error" />}{notice && <ToastNotice message={notice} />}
     {currentScan?.warnings.map(w => <p className="lan-error" role="status" key={w}>{w}</p>)}
     <nav className="lan-tabs" aria-label="设备视图"><button type="button" className={tab === "devices" ? "is-active" : ""} aria-pressed={tab === "devices"} onClick={() => setTab("devices")}>设备台账 · {rows.length}</button><button type="button" className={tab === "history" ? "is-active" : ""} aria-pressed={tab === "history"} onClick={() => setTab("history")}>扫描历史 · {ledger.history.length}</button></nav>
     {tab === "devices" ? <>
-      <div className="lan-toolbar"><label>搜索<input aria-label="搜索设备" value={query} onChange={e => setQuery(e.target.value)} placeholder="IP、名称、类型、服务或标签" /></label><label>状态<select aria-label="筛选设备" value={filter} onChange={e => setFilter(e.target.value)}><option value="all">全部设备</option><option value="seen">本次发现</option><option value="unseen">本次未发现 / 历史</option><option value="favorite">已收藏</option><option value="services">有开放服务</option></select></label><div className="lan-actions">{(["csv","json"] as const).map(format => <button type="button" className="secondary" key={format} disabled={busy || running || !network || !ledger.devices.length} onClick={() => void operate(async () => { const file = await lanClient.export(network!.networkKey,format); if (file) setNotice(`设备台账已导出：${file}`); })}><Download size={13} aria-hidden="true" />{format.toUpperCase()}</button>)}</div></div>
+      <div className="lan-toolbar"><label>搜索<span className="lan-search"><Search size={16} aria-hidden="true" /><input type="search" aria-label="搜索设备" value={query} onChange={e => setQuery(e.target.value)} placeholder="IP、名称、类型、服务或标签" /></span></label><label>状态<select aria-label="筛选设备" value={filter} onChange={e => setFilter(e.target.value)}><option value="all">全部设备</option><option value="seen">本次发现</option><option value="unseen">本次未发现 / 历史</option><option value="favorite">已收藏</option><option value="services">有开放服务</option></select></label><div className="lan-actions">{(["csv","json"] as const).map(format => <button type="button" className="secondary" key={format} disabled={busy || running || !network || !ledger.devices.length} onClick={() => void operate(async () => { const file = await lanClient.export(network!.networkKey,format); if (file) setNotice(`设备台账已导出：${file}`); })}><Download size={13} aria-hidden="true" />{format.toUpperCase()}</button>)}</div></div>
       <div className="lan-table-wrap">
         <table className="lan-table">
-          <caption className="store-table-caption">当前网络设备台账</caption>
+          <caption className="lan-table-caption">当前网络设备台账</caption>
           <thead><tr><th>设备 / 地址</th><th>类型 / 系统 / 厂商</th><th>本次状态</th><th>TCP 服务</th><th>最近发现</th><th>操作</th></tr></thead>
           <tbody>{shown.map(d => <tr key={lanDeviceKey(d)}>
             <td data-label="设备 / 地址">

@@ -6,7 +6,7 @@ test("连接测试404提示包含供应商并去除内部错误类名前缀", as
   await openSuppliers(page);
   await page.evaluate(() => { (window as any).supplierTest404 = true; });
   await page.getByRole("row", { name: "模型供应商 供应商 1", exact: true }).getByRole("button", { name: "测试连接", exact: true }).click();
-  const feedback = page.locator(".ai-feedback");
+  const feedback = page.locator(".app-toast-notice");
   await expect(feedback).toContainText("“供应商 1”连接测试失败");
   await expect(feedback).toContainText("HTTP 404");
   await expect(feedback).not.toContainText("PlatformError");

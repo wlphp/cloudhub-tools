@@ -68,13 +68,13 @@ test("shared history filters targets, confirms recovery, preserves selected back
   await page.evaluate(() => localStorage.removeItem("history-conflict"));
   await dialog.getByRole("button", { name: "恢复", exact: true }).click();
   await confirm.getByRole("button", { name: "确认恢复", exact: true }).click();
-  await expect(dialog.getByText(/已恢复所选备份/)).toBeVisible();
+  await expect(page.locator(".app-toast-notice").filter({ hasText: "已恢复所选备份" })).toBeVisible();
   const calls = await page.evaluate(() => JSON.parse(localStorage.getItem("history-calls") ?? "[]"));
   expect(calls).toMatchObject([{ action: "restore", snapshotId: "account-point", target: null, version: "v1" }, { action: "restore", snapshotId: "account-point", target: null, version: "v2" }]);
   await dialog.getByLabel("备份来源", { exact: true }).selectOption("");
   await expect(dialog.getByRole("row")).toHaveCount(4);
   await dialog.getByRole("button", { name: "立即备份", exact: true }).click();
-  await expect(dialog.getByText("当前配置与登录已加密备份", { exact: true })).toBeVisible();
+  await expect(page.locator(".app-toast-notice").filter({ hasText: "当前配置与登录已加密备份" })).toBeVisible();
   await expect(dialog.getByRole("row")).toHaveCount(5);
   await dialog.getByRole("button", { name: "取消保留备份 account-point", exact: true }).click();
   await expect(dialog.getByRole("button", { name: "保留备份 account-point", exact: true })).toHaveAttribute("aria-pressed", "false");

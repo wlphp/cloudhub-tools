@@ -1,3 +1,4 @@
+import { ToastNotice } from "../../shared/ToastNotice";
 import { useEffect, useRef, useState } from "react";
 import { Info, Play, RefreshCw, Terminal, UserRound } from "lucide-react";
 import { codexClient, isCodexDefaultProcessBusy, type CodexAccount, type CodexAuthMetadata, type CodexInstance, type CodexState, type CodexSwitchResult } from "../../platform/clients/codex";
@@ -115,7 +116,7 @@ export function LaunchPreviewDialog({ account, state, instances, onClose, onStat
     <section className="codex-launch-quota" aria-label="账号额度">{account.quota.windows.length ? account.quota.windows.map((value, index) => { const remaining = remainingPercent(value); const low = remaining != null && remaining <= 20; return <div className={"codex-launch-window" + (low ? " is-low" : "")} key={value.name + index}><div><strong>{windowName(value.windowMinutes)}</strong><span>{remaining == null ? "未知" : Math.round(remaining) + "% 剩余"}</span></div><progress value={remaining ?? 0} max={100} aria-label={windowName(value.windowMinutes) + "剩余额度"} /><small>重置于 {quotaResetTime(value.resetsAt, now)}</small></div>; }) : <p>尚未获取额度，可在账号列表刷新。</p>}{account.lastError && <AccountRefreshError reason={account.lastError} accountLabel={account.email ?? account.label} />}</section>
     <LaunchConfigRows target={target} cliAvailable={state.cliAvailable} busy={!!busy} onRun={run} onEditing={setConfigEditing} />
     <p className="codex-launch-path" title={selected ? "实例工作目录" : "Codex 配置目录"}><Terminal size={13} />{selected?.workDir ?? state.profileHome}</p>
-    {busy && <p role="status" className="codex-launch-status">正在{busy}…</p>}{notice && <p role="status" className="codex-feedback">{notice}</p>}{error && <p role="alert" className="codex-card-error">{error}</p>}
+    {busy && <p role="status" className="codex-launch-status">正在{busy}…</p>}<ToastNotice message={notice} />{error && <p role="alert" className="codex-card-error">{error}</p>}
     <details className="codex-launch-help">
       <summary>更多说明</summary>
       <div className="codex-launch-help-content">

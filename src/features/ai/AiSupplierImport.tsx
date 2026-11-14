@@ -1,3 +1,4 @@
+import { ToastNotice } from "../../shared/ToastNotice";
 import { useEffect, useState } from "react";
 import { Download, LoaderCircle } from "lucide-react";
 import { aiClient, type AiProfile } from "../../platform/clients/ai";
@@ -51,6 +52,6 @@ export function AiSupplierImport({ target, onImport }: {
       </select></label>
       <button type="button" disabled={busy || !selected} onClick={() => void importSelected()}>{busy ? <LoaderCircle size={14} className="is-spin" /> : <Download size={14} />}{busy ? "读取中…" : "导入配置"}</button>
     </div> : <span>暂无可导入且已配置密钥的模型供应商。</span>}
-    {message && <small role="status">{message}</small>}
+    <ToastNotice message={message} />
   </div>;
 }

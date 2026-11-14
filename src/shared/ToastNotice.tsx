@@ -45,6 +45,6 @@ export function ToastNotice({ message, tone, children, duration = 4500, onDismis
   return createPortal(<div className={`toast-notice app-toast-notice is-${kind} ${className}`} role={kind === "error" ? "alert" : "status"} aria-atomic="true"
     onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)} onFocusCapture={() => setPaused(true)} onBlurCapture={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setPaused(false); }}>
     <Icon size={16} aria-hidden="true" /><div className="app-toast-content"><span>{message}</span>{children}</div>
-    <button type="button" className="app-toast-close" aria-label="关闭通知" title="关闭通知" onClick={() => { setDismissed(message); dismissRef.current?.(); }}><X size={14} aria-hidden="true" /></button>
+    {kind !== "progress" && <button type="button" className="app-toast-close" aria-label="关闭通知" title="关闭通知" onClick={() => { setDismissed(message); dismissRef.current?.(); }}><X size={14} aria-hidden="true" /></button>}
   </div>, host);
 }

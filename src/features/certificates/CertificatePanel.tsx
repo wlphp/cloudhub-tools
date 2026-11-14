@@ -3,7 +3,7 @@ import { SecretField } from "../../shared/SecretField";
 import { PaginationBar } from "../../shared/PaginationBar";
 import { AiLogAnalysis } from "../ai/AiLogAnalysis";
 import { useEffect, useMemo, useState } from "react";
-import { Check, Copy, Download, Eye, Plus, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
+import { Check, Copy, Download, Eye, Plus, RefreshCw, Search, ShieldCheck, Trash2 } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 import { certificatesClient } from "../../platform/clients";
 import type { EsaCertificateTarget } from "../../platform/clients/certificates";
@@ -372,12 +372,12 @@ export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm, r
           <div><span>即将到期</span><strong>{rows.filter((row) => { const remaining = days(row.notAfter); return remaining !== null && remaining >= 0 && remaining <= 30; }).length}</strong><small>30 天内到期</small></div>
         </div>
         <div className="certificate-toolbar">
-          <input
+          <label className="certificate-search"><Search size={15} aria-hidden="true" /><input
             aria-label="搜索证书"
             placeholder="搜索域名、签发方或来源"
             value={filter}
             onChange={(event) => setFilter(event.target.value)}
-          />
+          /></label>
           <label className="certificate-source-filter">
             来源
             <select aria-label="来源" value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value as CertificateSource | "all")}>
@@ -414,14 +414,14 @@ export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm, r
                   const remaining = days(row.notAfter);
                   return (
                     <tr key={row.id}>
-                      <td>
+                      <td data-label="域名">
                         <strong>{row.primaryDomain}</strong>
                         <CertificateDomains domains={row.domains} title={row.primaryDomain} compact />
                         {row.sourceSites?.map(site => <div key={site.id}><small className="asset-subline">{site.panelName} · 站点 {site.siteName}</small><CertificateDomains domains={site.siteDomains} title={`${site.panelName} · ${site.siteName}`} /></div>)}
                       </td>
-                      <td><span className={`certificate-source-label source-${certificateSource(row)}`}>{sourceLabels[certificateSource(row)]}</span>{providerLabels[row.provider] && <small className="asset-subline">{providerLabels[row.provider]}</small>}</td>
-                      <td>{providerLabels[row.issuer || ""] || row.issuer || "—"}</td>
-                      <td>
+                      <td data-label="来源"><span className={`certificate-source-label source-${certificateSource(row)}`}>{sourceLabels[certificateSource(row)]}</span>{providerLabels[row.provider] && <small className="asset-subline">{providerLabels[row.provider]}</small>}</td>
+                      <td data-label="签发者">{providerLabels[row.issuer || ""] || row.issuer || "—"}</td>
+                      <td data-label="有效期">
                         <div>
                           {date(row.notBefore)}
                           <br />至 {date(row.notAfter)}
@@ -440,12 +440,12 @@ export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm, r
                           </small>
                         )}
                       </td>
-                      <td>
+                      <td data-label="状态">
                         <span className={`certificate-status ${row.status}`}>
                           {row.status === "issued" ? "已签发" : row.status}
                         </span>
                       </td>
-                      <td>
+                      <td data-label="操作">
                         <div className="certificate-actions">
                           <button
                             className="secondary"

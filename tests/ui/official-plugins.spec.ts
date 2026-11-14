@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("环境变量管理标明 Windows 范围并拒绝浏览器预览访问", async ({ page }) => {
+test("环境变量管理标明 Windows 范围并在预览中渲染真实界面", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "软件商店", exact: true }).first().click();
   const store = page.locator(".software-store-page");
@@ -8,7 +8,10 @@ test("环境变量管理标明 Windows 范围并拒绝浏览器预览访问", as
   const row = store.locator("tbody tr").filter({ hasText: "环境变量管理" });
   await expect(row).toContainText("Windows");
   await row.getByRole("button", { name: "管理", exact: true }).click();
-  await expect(page.getByText("环境变量管理仅支持 Windows 桌面端；浏览器预览无法读取或修改电脑设置。", { exact: true })).toBeVisible();
+  // 预览不再拦截整页：真实界面渲染，本机变量读取不可用时不伪造数据。
+  await expect(page.getByText("直接管理 Windows 环境变量", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "新增变量" })).toBeVisible();
+  await expect(page.locator(".env-manager-table tbody tr")).toHaveCount(0);
 });
 
 test.describe("已保存配置批量启动", () => {
@@ -56,7 +59,7 @@ test.describe("已保存配置批量启动", () => {
       expect(await page.evaluate(() => (window as any).batchCalls.length)).toBe(index + 1);
       await page.evaluate(() => { (window as any).batchResolve(); });
     }
-    await expect(page.locator(".store-notification")).toContainText("已准备 3/3 个微信窗口");
+    await expect(page.locator(".app-toast-notice")).toContainText("已准备 3/3 个微信窗口");
     expect(await page.evaluate(() => (window as any).batchPeak)).toBe(1);
     expect(await page.evaluate(() => (window as any).batchCalls)).toEqual([0, 1, 2].map(index => ({ id: `batch-${index}`, path: "C:\\Tencent\\Weixin.exe" })));
     for (const width of [375, 768, 1024, 1440]) {
@@ -108,8 +111,8 @@ test.describe("已保存配置批量启动", () => {
         await expect(panel.getByLabel("启动节奏")).toBeDisabled();
         await page.evaluate(() => { (window as any).batchResolve(); });
       }
-      await expect(page.locator(".store-notification")).toContainText(`已提交 3/3 个快速启动请求，额外间隔 ${interval} 毫秒`);
-      await expect(page.locator(".store-notification")).toContainText("不代表多开或登录成功");
+      await expect(page.locator(".app-toast-notice")).toContainText(`已提交 3/3 个快速启动请求，额外间隔 ${interval} 毫秒`);
+      await expect(page.locator(".app-toast-notice")).toContainText("不代表多开或登录成功");
       expect(await page.evaluate(() => (window as any).batchCalls.slice(-3))).toEqual([0, 1, 2].map(index => ({ id: `batch-${index}`, path: "C:\\Tencent\\Weixin.exe", quickIntervalMs: interval })));
     }
     expect(await page.evaluate(() => (window as any).batchPeak)).toBe(1);
@@ -164,7 +167,7 @@ test("删除旧配置需要确认，取消和失败保留记录，成功只移�
   await remove.click();
   await expect(panel.locator(".wechat-session-list li")).toHaveCount(1);
   await expect(panel.locator(".wechat-session-list li")).toContainText("工作号");
-  await expect(page.locator(".store-notification")).toContainText("已删除所选配置快照");
+  await expect(page.locator(".app-toast-notice")).toContainText("已删除所选配置快照");
   expect(await page.evaluate(() => (window as any).deletedSessions)).toEqual(["old-0"]);
 });
 
@@ -236,7 +239,7 @@ test("自动匹配数据目录，多个结果手动选择、单个自动填入�
   const detect = panel.getByRole("button", { name: "自动检测数据目录" });
   const path = panel.getByLabel("微信数据根目录");
   await detect.click();
-  await expect(page.locator(".store-notification")).toContainText("找到 2 个");
+  await expect(page.locator(".app-toast-notice")).toContainText("找到 2 个");
   await expect(path).toHaveValue("");
   await panel.getByLabel("匹配的数据目录").selectOption("E:\\备份\\xwechat_files");
   await expect(path).toHaveValue("E:\\备份\\xwechat_files");
@@ -247,15 +250,15 @@ test("自动匹配数据目录，多个结果手动选择、单个自动填入�
   await page.evaluate(() => { (window as any).detectionMode = "single"; });
   await detect.click();
   await expect(path).toHaveValue("D:\\微信资料\\xwechat_files");
-  await expect(page.locator(".store-notification")).toContainText("已匹配微信数据目录并填入");
+  await expect(page.locator(".app-toast-notice")).toContainText("已匹配微信数据目录并填入");
   await page.evaluate(() => { (window as any).detectionMode = "legacy"; });
   await detect.click();
-  await expect(page.locator(".store-notification")).toContainText("其他微信版本");
+  await expect(page.locator(".app-toast-notice")).toContainText("其他微信版本");
   await expect(path).toHaveValue("D:\\微信资料\\xwechat_files");
   await expect(panel.getByLabel("匹配的数据目录").locator('option[value="C:\\\\Old\\\\WeChat Files"]')).toBeDisabled();
   await page.evaluate(() => { (window as any).detectionMode = "limited"; });
   await panel.getByRole("button", { name: "选择位置查找" }).click();
-  await expect(page.locator(".store-notification")).toContainText("达到范围或时间上限");
+  await expect(page.locator(".app-toast-notice")).toContainText("达到范围或时间上限");
   await expect(path).toHaveValue("D:\\微信资料\\xwechat_files");
   expect(await page.evaluate(() => (window as any).detectionCalls)).toEqual([{ browse: false }, { browse: false }, { browse: false }, { browse: true }]);
   await page.evaluate(() => { (window as any).detectionMode = "error"; });
@@ -307,17 +310,17 @@ test("账号配置分别保存、按标识启动并恢复备份，提示使用�
   for (const name of ["工作号", "个人号"]) {
     await panel.getByLabel("配置名称").fill(name);
     await panel.getByRole("button", { name: "保存当前配置" }).click();
-    await expect(page.locator(".store-notification")).toContainText("当前账号登录配置已加密保存");
+    await expect(page.locator(".app-toast-notice")).toContainText("当前账号登录配置已加密保存");
   }
   const rows = panel.locator(".wechat-session-list li");
   await expect(rows).toHaveCount(2);
   await rows.filter({ hasText: "个人号" }).getByRole("button", { name: "恢复并启动" }).click();
   await expect(panel.locator(".wechat-setting-row > .primary")).toBeDisabled();
   await page.evaluate(() => { (window as any).finishSessionLaunch(); });
-  await expect(page.locator(".store-notification")).toContainText("请核对头像与账号");
+  await expect(page.locator(".app-toast-notice")).toContainText("请核对头像与账号");
   expect(await page.evaluate(() => (window as any).sessionCalls.filter((call: any) => call.command === "wechat_sessions_launch"))).toEqual([{ command: "wechat_sessions_launch", args: { id: "profile-1", path: "C:\\Tencent\\Weixin.exe" } }]);
   await panel.getByRole("button", { name: "恢复备份", exact: true }).click();
-  await expect(page.locator(".store-notification")).toContainText("已恢复所选备份");
+  await expect(page.locator(".app-toast-notice")).toContainText("已恢复所选备份");
   await page.evaluate(() => { (window as any).sessionFail = true; });
   await rows.filter({ hasText: "工作号" }).getByRole("button", { name: "恢复并启动" }).click();
   await expect(page.getByRole("alert")).toContainText("微信配置被占用或不可写");
@@ -390,7 +393,7 @@ test("微信插件传递启动参数、保留取消选择并防止重复启动",
   await expect(panel.getByRole("button", { name: "批量启动", exact: true })).toBeDisabled();
   await panel.getByLabel("启用微信多开").check();
   await panel.getByRole("button", { name: "自动检测", exact: true }).click();
-  const notice = page.locator(".store-notification");
+  const notice = page.locator(".app-toast-notice");
   await expect(notice).toContainText("已检测到微信客户端。");
   await expect(panel).not.toContainText("已检测到微信客户端。");
   await expect(page.locator(".store-catalog")).not.toContainText("已检测到微信客户端。");
@@ -402,15 +405,15 @@ test("微信插件传递启动参数、保留取消选择并防止重复启动",
   expect(position.bottom).toBeLessThan(900);
   expect(position.right).toBeGreaterThanOrEqual(0);
   expect(position.right).toBeLessThan(1440);
-  await notice.getByRole("button", { name: "关闭操作提示" }).click();
+  await notice.getByRole("button", { name: "关闭通知" }).click();
   await expect(notice).toHaveCount(0);
   await panel.getByLabel("启动数量").selectOption("3");
   await panel.getByRole("button", { name: "批量启动", exact: true }).click();
-  await expect(page.locator(".store-notification")).toContainText("已提交 3/3 个启动请求");
-  await expect(page.locator(".store-notification")).toContainText("启动请求数不代表多开成功");
+  await expect(page.locator(".app-toast-notice")).toContainText("已提交 3/3 个启动请求");
+  await expect(page.locator(".app-toast-notice")).toContainText("启动请求数不代表多开成功");
   await expect(panel.getByRole("button", { name: "批量启动", exact: true })).toBeEnabled();
   await panel.getByRole("button", { name: "批量启动", exact: true }).click();
-  await expect(page.locator(".store-notification")).toContainText("请先从微信托盘菜单退出所有微信");
+  await expect(page.locator(".app-toast-notice")).toContainText("请先从微信托盘菜单退出所有微信");
   expect(await page.evaluate(() => (window as any).pluginCalls.filter((call: any) => call.command === "wechat_plugin_launch"))).toEqual([
     { command: "wechat_plugin_launch", args: { path: "C:\\Program Files\\Tencent\\Weixin\\Weixin.exe", count: 3 } },
   ]);

@@ -32,7 +32,27 @@
 .drive-connection dl div { min-width: 0; display: grid; grid-template-columns: auto minmax(0,1fr); align-items: baseline; gap: 6px; }
 .drive-connection dt { color: var(--jb-muted); margin: 0; }
 .drive-connection dd { margin: 0; overflow-wrap: anywhere; }
-.drive-empty { padding: 24px 12px; text-align: center; border: 1px dashed var(--jb-border); }
+.drive-empty { display: grid; justify-items: center; gap: 10px; padding: 36px 16px; margin: 16px 0; text-align: center; border: 1px dashed var(--jb-border); border-radius: 10px; background: var(--jb-surface); }
+.drive-empty-icon { display: grid; place-items: center; width: 52px; height: 52px; border-radius: 14px; background: var(--jb-accent-soft); color: var(--jb-accent); }
+.drive-empty strong { font-size: 14px; }
+.drive-empty p { margin: 0; color: var(--jb-muted); font-size: 12px; line-height: 1.6; }
+.drive-empty small { color: var(--jb-muted); font-size: 12px; line-height: 1.6; }
+.drive-environment { margin-top: 16px; border: 1px solid var(--jb-border); border-radius: 8px; padding: 0 12px; }
+.drive-environment > summary { display: flex; align-items: center; gap: 8px; min-height: 44px; cursor: pointer; font-size: 13px; }
+.drive-environment > summary small { margin-left: auto; color: var(--jb-muted); font-size: 12px; }
+.drive-environment > summary::after { content: "+"; color: var(--jb-muted); }
+.drive-environment[open] > summary::after { content: "−"; }
+.drive-environment .drive-dependencies { border: 0; padding: 8px 0 12px; margin: 0; }
+body:has(.mobile-shell) .drive-toolbar { display: grid; gap: 12px; }
+body:has(.mobile-shell) .drive-toolbar h2 { display: none; }
+body:has(.mobile-shell) .drive-toolbar p { margin: 0; font-size: 12px; line-height: 1.6; }
+body:has(.mobile-shell) .drive-toolbar > .drive-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 8px; }
+body:has(.mobile-shell) .drive-toolbar > .drive-actions button { padding: 0 10px; min-width: 0; font-size: 12px; }
+body:has(.mobile-shell) .cloud-drive > .drive-hint { color: var(--jb-muted); margin: 12px 0 0; font-size: 12px; }
+body:has(.mobile-shell) .drive-help { margin-top: 10px; padding: 0 12px; border-radius: 8px; font-size: 12px; }
+body:has(.mobile-shell) .drive-help > summary { display: flex; align-items: center; min-height: 44px; gap: 8px; }
+body:has(.mobile-shell) .drive-help > summary::after { content: "+"; margin-left: auto; color: var(--jb-muted); }
+body:has(.mobile-shell) .drive-help[open] > summary::after { content: "−"; }
 .drive-help { margin-top: 16px; }
 .drive-help summary { cursor: pointer; }
 .drive-fields { border: 0; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 14px; min-width: 0; }

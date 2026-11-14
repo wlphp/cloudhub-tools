@@ -279,3 +279,77 @@ body:has(.mobile-shell) .plugin-page-host .plugin-page-back svg { width: 16px; h
   #wechat-store-settings button { min-height: 40px; height: auto; white-space: normal; }
   #wechat-store-settings .wechat-setting-row { grid-template-columns: 64px 64px minmax(0, 1fr); gap: 8px; }
 }
+
+
+/* Mobile application pages share the shell spacing; the business UI owns its cards. */
+body:has(.mobile-shell) .plugin-page-host { width: 100%; min-width: 0; gap: 12px; padding: 0 0 16px; background: transparent; font-size: 13px; }
+body:has(.mobile-shell) .plugin-page-head { min-height: 48px; gap: 8px; margin: 0; padding: 0 0 8px; border-bottom: 1px solid var(--mobile-border); }
+body:has(.mobile-shell) .plugin-page-head h1 { min-width: 0; margin: 0; font-size: 18px; line-height: 1.4; }
+body:has(.mobile-shell) .plugin-page-head .plugin-page-back { min-height: 44px; flex: 0 0 auto; padding: 0 10px; border: 1px solid var(--mobile-border); border-radius: 8px; background: var(--mobile-surface); color: var(--mobile-text); font-size: 12px; }
+body:has(.mobile-shell) .plugin-page-body { min-width: 0; width: 100%; }
+body:has(.mobile-shell) .plugin-page-host :is(button, [role="button"], summary) { min-height: 44px; }
+body:has(.mobile-shell) .plugin-page-host :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]), select) { box-sizing: border-box; min-width: 0; min-height: 44px; max-width: 100%; font-size: 14px; }
+body:has(.mobile-shell) .plugin-page-host :is(input[type="checkbox"], input[type="radio"]) { flex-shrink: 0; }
+body:has(.mobile-shell) .plugin-page-host :is(button, input, select, textarea, summary):focus-visible { outline: 2px solid var(--mobile-accent); outline-offset: 2px; }
+body:has(.mobile-shell) .plugin-page-host :is(.claude-search, .ai-supplier-search, .flow-search, .mail-toolbar-search, .mail-account-search) { box-sizing: border-box; display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 44px; height: 44px; margin: 0; padding: 0 10px; border: 1px solid var(--mobile-border); border-radius: 8px; background: var(--mobile-surface); color: var(--mobile-muted); }
+body:has(.mobile-shell) .plugin-page-host :is(.claude-search, .ai-supplier-search, .flow-search, .mail-toolbar-search, .mail-account-search) > svg { flex-shrink: 0; }
+body:has(.mobile-shell) .plugin-page-host :is(.claude-search, .ai-supplier-search, .flow-search, .mail-toolbar-search, .mail-account-search) input { flex: 1; width: 0; min-width: 0; height: 100%; min-height: 0; max-width: none; margin: 0; padding: 0; border: 0 !important; border-radius: 0; outline: 0 !important; background: transparent !important; color: var(--mobile-text); box-shadow: none !important; font-size: 14px; }
+body:has(.mobile-shell) .plugin-page-host :is(.claude-search, .ai-supplier-search, .flow-search, .mail-toolbar-search, .mail-account-search):focus-within { outline: 2px solid var(--mobile-accent); outline-offset: 1px; }
+.plugin-mobile-unavailable { display: grid; justify-items: center; gap: 10px; padding: 28px 16px; border: 1px solid var(--mobile-border); border-radius: 10px; background: var(--mobile-surface); text-align: center; }
+.plugin-mobile-unavailable-icon { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 10px; background: var(--mobile-raised); color: var(--mobile-muted); }
+.plugin-mobile-unavailable h2 { margin: 2px 0 0; font-size: 16px; font-weight: 600; color: var(--mobile-text); }
+.plugin-mobile-unavailable p { max-width: 32em; margin: 0; font-size: 13px; line-height: 1.6; color: var(--mobile-muted); overflow-wrap: anywhere; }
+.plugin-mobile-unavailable small { font-size: 12px; line-height: 1.5; color: var(--mobile-muted); }
+
+/* Feature pages use the same semantic tokens as the mobile shell, including dark mode. */
+body:has(.mobile-shell) .plugin-page-host {
+  --jb-bg: var(--mobile-bg); --jb-surface: var(--mobile-surface);
+  --jb-surface-2: var(--mobile-raised); --jb-surface-3: var(--mobile-raised);
+  --jb-input: var(--mobile-surface); --jb-border: var(--mobile-border); --jb-border-strong: var(--mobile-border);
+  --jb-text: var(--mobile-text); --jb-muted: var(--mobile-muted); --jb-subtle: var(--mobile-subtle);
+  --jb-accent: var(--mobile-accent); --jb-accent-strong: var(--mobile-accent-strong); --jb-accent-soft: var(--mobile-accent-soft);
+  --jb-danger: var(--mobile-danger); --jb-red: var(--mobile-danger);
+}
+body:has(.mobile-shell) .plugin-page-body :is(.primary, .secondary, .icon-button) { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--mobile-border); border-radius: 8px; background: var(--mobile-surface); color: var(--mobile-text); box-shadow: none; }
+body:has(.mobile-shell) .plugin-page-body .primary { border-color: var(--mobile-accent-border); background: var(--mobile-accent-soft); color: var(--mobile-accent-strong); }
+body:has(.mobile-shell) .plugin-page-body :is(.primary, .secondary, .icon-button):disabled { opacity: .45; }
+/* Mobile store tools share touch controls and compact disclosure rows. */
+body:has(.mobile-shell) :is(.wsl-content, .hardware-info-dialog) { min-width: 0; color: var(--jb-text); font-size: 13px; }
+body:has(.mobile-shell) :is(.wsl-content, .hardware-info-dialog) :is(p, small) { line-height: 1.6; overflow-wrap: anywhere; }
+body:has(.mobile-shell) :is(.wsl-content, .hardware-info-dialog) button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; padding: 0 12px; border: 1px solid var(--jb-border); border-radius: 8px; background: var(--jb-surface); color: var(--jb-text); font: inherit; }
+body:has(.mobile-shell) :is(.wsl-tabs, .hardware-info-tabs) { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; padding: 4px; margin: 0 0 12px; border: 1px solid var(--jb-border); border-radius: 10px; background: var(--jb-surface-2); }
+body:has(.mobile-shell) :is(.wsl-tabs, .hardware-info-tabs) button { min-width: 0; padding: 0 4px; gap: 4px; border: 0; background: transparent; font-size: 12px; color: var(--jb-muted); }
+body:has(.mobile-shell) :is(.wsl-tabs, .hardware-info-tabs) button.is-active { color: var(--jb-accent); background: var(--jb-surface); font-weight: 600; }
+body:has(.mobile-shell) :is(.wsl-content, .hardware-info-dialog) details { margin: 12px 0; padding: 0 12px; border: 1px solid var(--jb-border); border-radius: 8px; }
+body:has(.mobile-shell) :is(.wsl-content, .hardware-info-dialog) summary { display: flex; align-items: center; gap: 8px; min-height: 44px; cursor: pointer; font-size: 12px; }
+body:has(.mobile-shell) :is(.wsl-runtime-summary, .wsl-install-guide-disclosure summary) { flex-wrap: wrap; padding: 8px 0; }
+body:has(.mobile-shell) :is(.wsl-content, .hardware-info-dialog) summary small { display: block; color: var(--jb-muted); }
+body:has(.mobile-shell) .wsl-home-toolbar { display: grid; gap: 8px; }
+body:has(.mobile-shell) .wsl-home-warning { margin: 0 0 8px; font-size: 12px; color: var(--jb-muted); }
+body:has(.mobile-shell) .wsl-content :is(.official-plugin-actions, .wsl-runtime-actions) { display: flex; gap: 8px; flex-wrap: wrap; }
+body:has(.mobile-shell) .wsl-content :is(input, select, textarea) { box-sizing: border-box; width: 100%; min-width: 0; padding: 8px 10px; border: 1px solid var(--jb-border); border-radius: 8px; background: var(--jb-input); color: var(--jb-text); font: inherit; }
+body:has(.mobile-shell) .wsl-content label { display: grid; gap: 6px; margin: 8px 0; }
+body:has(.mobile-shell) .wsl-content :is(.wsl-online-install-row, .wsl-update-proxy-controls) { display: flex; gap: 8px; flex-wrap: wrap; }
+body:has(.mobile-shell) .wsl-content :is(.wsl-empty, .wsl-empty-state) { padding: 28px 16px; border: 1px dashed var(--jb-border); border-radius: 10px; background: var(--jb-surface); text-align: center; }
+body:has(.mobile-shell) .hardware-info-body { display: grid; gap: 12px; }
+body:has(.mobile-shell) .hardware-info-preview { margin: 0; color: var(--jb-muted); font-size: 12px; }
+body:has(.mobile-shell) .hardware-info-dialog .hardware-info-guide { margin: 0; }
+body:has(.mobile-shell) :is(.hardware-info-summary, .hardware-info-highlights, .hardware-info-grid) { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+body:has(.mobile-shell) .hardware-info-summary { grid-template-columns: minmax(0, 1fr); }
+body:has(.mobile-shell) :is(.hardware-info-summary, .hardware-info-highlights) article { display: grid; gap: 8px; padding: 14px; border: 1px solid var(--jb-border); border-radius: 10px; background: var(--jb-surface); }
+body:has(.mobile-shell) :is(.hardware-info-summary, .hardware-info-highlights) article span { display: flex; align-items: center; gap: 6px; color: var(--jb-muted); font-size: 12px; }
+body:has(.mobile-shell) :is(.hardware-info-grid, .hardware-info-panel) section { min-width: 0; }
+body:has(.mobile-shell) .hardware-info-panel dl { margin: 0; }
+body:has(.mobile-shell) .hardware-info-panel dl > div { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 8px; padding: 12px 0; border-bottom: 1px solid var(--jb-border); }
+body:has(.mobile-shell) .hardware-info-panel dd { margin: 0; overflow-wrap: anywhere; }
+body:has(.mobile-shell) .hardware-info-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+body:has(.mobile-shell) .hardware-info-footnote { display: block; color: var(--jb-muted); }
+body:has(.mobile-shell) .hardware-info-tool { padding: 14px; margin: 12px 0; border: 1px solid var(--jb-border); border-radius: 8px; }
+body:has(.mobile-shell) .hardware-info-tool small { display: block; margin: 8px 0; color: var(--jb-muted); }
+body:has(.mobile-shell) .plugin-page-head-extra .hardware-info-refresh { border: 1px solid var(--jb-border); border-radius: 8px; background: var(--jb-surface); color: var(--jb-text); }
+body:has(.mobile-shell) .wsl-empty { display: grid; justify-items: center; gap: 12px; }
+body:has(.mobile-shell) .wsl-empty > svg { color: var(--jb-accent); }
+body:has(.mobile-shell) .wsl-empty p { margin: 0; color: var(--jb-muted); font-size: 12px; }
+body:has(.mobile-shell) .hardware-info-tabs button { flex-direction: column; gap: 3px; padding: 6px 2px; white-space: nowrap; }
+body:has(.mobile-shell) .hardware-info-tabs button svg { flex-shrink: 0; }
+body:has(.mobile-shell) .hardware-info-summary { margin-bottom: 8px; }

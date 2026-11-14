@@ -342,11 +342,12 @@ export function AuthenticatorPanel({ mobile = false, initialOtpUri, onInitialOtp
       <button disabled={busy || !entries.length} onClick={() => { setModal("export"); setError(""); }}><Download size={16} /> {selected.size ? `导出所选（${selected.size}）` : "选择导出"}</button>
     </div></div>{alerts}
     <div className="auth-toolbar"><div className="auth-search"><Search size={16} /><input aria-label="搜索验证码" placeholder="搜索服务商、账户或备注" value={search} onChange={(event) => setSearch(event.target.value)} /></div>
+      {mobile && groups.length > 0 && <select aria-label="验证码分组" value={group} onChange={(event) => setGroup(event.target.value)}><option value="all">所有分组</option>{groups.map((name) => <option key={name} value={`g:${name}`}>{name}</option>)}</select>}
       <select aria-label="验证码排序" value={sort} onChange={(event) => setSort(event.target.value)}><option value="custom">自定义顺序</option><option value="name">按服务商名称</option></select>
       <div className="auth-view" role="group" aria-label="显示方式"><button aria-label="卡片视图" title="卡片视图" aria-pressed={layout === "grid"} onClick={() => setLayout("grid")}><Grid2X2 size={17} /></button><button aria-label="列表视图" title="列表视图" aria-pressed={layout === "list"} onClick={() => setLayout("list")}><List size={17} /></button></div>
     </div>
     <div className="auth-filters">
-      {groups.length > 0 && <select aria-label="验证码分组" value={group} onChange={(event) => setGroup(event.target.value)}><option value="all">所有分组</option>{groups.map((name) => <option key={name} value={`g:${name}`}>{name}</option>)}</select>}
+      {!mobile && groups.length > 0 && <select aria-label="验证码分组" value={group} onChange={(event) => setGroup(event.target.value)}><option value="all">所有分组</option>{groups.map((name) => <option key={name} value={`g:${name}`}>{name}</option>)}</select>}
       {entries.length > 0 && <div className="auth-categories" role="group" aria-label="服务商分类统计">
         {[{ id: "all", issuer: "", label: "全部", count: entries.length }, ...categories].map((item) => <button className={`auth-category ${item.id === "all" ? "" : issuerTone(item.issuer)}`} key={item.id} aria-label={`${item.id === "all" ? "全部服务商" : item.label}，共 ${item.count} 项`} aria-pressed={category === item.id} onClick={() => setCategory(item.id)}><span className="auth-category-dot" aria-hidden="true" /><span className="auth-category-name">{item.label}</span><strong>{item.count}</strong>{category === item.id && <Check size={14} aria-hidden="true" />}</button>)}
       </div>}

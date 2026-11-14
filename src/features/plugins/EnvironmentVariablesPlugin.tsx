@@ -1,6 +1,6 @@
 import { ToastNotice } from "../../shared/ToastNotice";
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
-import { invoke, runningInTauri, runningOnPhone } from "../../platform/api";
+import { invoke, runningInTauri } from "../../platform/api";
 import { AlertTriangle, Plus, RefreshCw, Save, Trash2, X } from "lucide-react";
 import { ConfirmDialog } from "../../shared/ConfirmDialog";
 import { SharedDialog } from "../../shared/SharedDialog";
@@ -41,7 +41,7 @@ export function EnvironmentVariablesPlugin() {
   const [pathDraft, setPathDraft] = useState<string[]>([]);
 
   const refresh = useCallback(async () => {
-    if (!runningInTauri || runningOnPhone) return;
+    if (!runningInTauri) return;
     setBusy(true); setError("");
     try { setSnapshot(await command<Snapshot>("env_manager_list")); }
     catch (reason) { setError(errorMessage(reason, "读取环境变量失败。")); }
@@ -100,8 +100,6 @@ export function EnvironmentVariablesPlugin() {
   const formItem = editing ?? draft;
   const editingPath = Boolean(editing && editing.name.toLowerCase() === "path");
   const dialogTitle = editing ? `编辑环境变量：${editing.name}` : "新增环境变量";
-
-  if (!runningInTauri || runningOnPhone) return <section className="env-manager"><p className="store-platform-note" role="status">{runningOnPhone ? "环境变量管理仅支持 Windows 桌面端，手机端暂不支持。" : "环境变量管理仅支持 Windows 桌面端；浏览器预览无法读取或修改电脑设置。"}</p></section>;
 
   return <section className="env-manager" aria-busy={busy}>
     <div className="env-manager-warning" role="note"><AlertTriangle size={18} aria-hidden="true" /><div><strong>直接管理 Windows 环境变量</strong><p>变量值（包括密钥）会以明文显示并可直接修改。系统变量写入需要管理员权限；修改通常只对新启动的程序生效。错误或误删可能导致软件无法运行。</p></div></div>

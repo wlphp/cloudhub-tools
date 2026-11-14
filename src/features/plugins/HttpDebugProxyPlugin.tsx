@@ -1,7 +1,5 @@
 import { ToastNotice } from "../../shared/ToastNotice";
-import { useDialogDocument } from "../../shared/DialogDocument";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { createPortal } from "react-dom";
 import { AlertTriangle, Braces, CircleStop, Copy, Download, ExternalLink, Eye, EyeOff, FileLock2, Info, Play, RefreshCw, Search, ShieldCheck, Trash2 } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { runningInTauri, runningOnPhone } from "../../platform/api";
@@ -27,7 +25,6 @@ function responseTypeOf(contentType: string): Exclude<ResponseTypeFilter, "all">
 }
 
 export function HttpDebugProxyPlugin() {
-  const document = useDialogDocument();
   const [snapshot, setSnapshot] = useState(empty);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selected, setSelected] = useState<HttpDebugSession | null>(null);
@@ -180,10 +177,9 @@ export function HttpDebugProxyPlugin() {
     } catch (reason) { setDetailFeedback(reason instanceof Error ? reason.message : "打开 URL 失败。"); }
   }
 
-  if (unsupported) return <section className="http-debug-proxy"><div className="http-debug-proxy-unavailable"><AlertTriangle size={20} /><div><strong>HTTP(S) 抓包仅支持 Windows 桌面端</strong><p>浏览器预览和手机 App 不提供本机代理、系统代理或根证书管理能力。</p></div></div></section>;
-
   return <section className="http-debug-proxy" aria-label="HTTP(S) 抓包">
-    {detailFeedback && createPortal(<div className="toast-notice toast-top http-debug-proxy-feedback-toast" role="status" aria-live="polite" aria-atomic="true">{detailFeedback}</div>, document.body)}
+    <ToastNotice message={detailFeedback} onDismiss={() => setDetailFeedback("")} />
+    {unsupported && <div className="http-debug-proxy-warning" role="note"><AlertTriangle size={18} aria-hidden="true" /><div><strong>HTTP(S) 抓包仅支持 Windows 桌面端</strong><p>浏览器预览和手机 App 不提供本机代理、系统代理或根证书管理能力，界面仅供查看，启动抓包等操作会提示失败。</p></div></div>}
     <header className="http-debug-proxy-heading"><div><h2>HTTP(S) 抓包</h2><p>通过本机代理捕获并检查 HTTP/HTTPS 请求。会话保留到手动清空或退出应用，不会因停止代理或数量增加而自动删除。</p></div>
       <div className="http-debug-proxy-actions"><button type="button" className="secondary" onClick={() => void refresh()} disabled={busy} aria-label="刷新代理状态"><RefreshCw size={14} aria-hidden="true" />刷新</button>
       <button type="button" className="secondary" onClick={() => setShowProxyInfo(true)} disabled={busy}>查看系统代理</button>
@@ -216,7 +212,7 @@ export function HttpDebugProxyPlugin() {
     {showCertificates && <SharedDialog title="根证书管理" subtitle="查看 CloudHub 本机 HTTPS 调试根证书及其在 Windows 当前用户证书存储中的安装状态" size="large" resizable sizeStorageKey="http-debug-proxy-certificates" onClose={() => { setShowCertificates(false); setCertificateDetail(null); setCertificateFeedback(""); setCertificateError(""); }} headerActions={<button type="button" className="secondary" onClick={() => void loadCertificates()} disabled={certificateLoading || certificateBusy !== null}><RefreshCw size={14} aria-hidden="true" />{certificateLoading ? "读取中…" : "刷新"}</button>}>
       {certificateBusy && <p className="http-debug-proxy-notice is-pending" role="status">正在等待 Windows「安全警告」确认，请在弹出窗口点击「是」以{certificateBusy === "install" ? "安装" : "移除"}根证书。</p>}
       {certificateError && <p className="http-debug-proxy-error" role="alert">{certificateError}</p>}
-      {certificateFeedback && <p className="http-debug-proxy-notice" role="status">{certificateFeedback}</p>}
+      <ToastNotice message={certificateFeedback} />
       <p className="http-debug-proxy-certificates-note"><Info size={15} aria-hidden="true" />根证书仅用于解密本机代理转发的 HTTPS 流量，私钥保存在本机应用数据目录，不会上传。从 Windows 证书存储移除不会删除私钥，可随时重新安装；移除只影响之后新建的 HTTPS 连接。</p>
       {certificateLoading && !certificateOverview ? <p className="http-debug-proxy-certificates-empty" role="status">正在读取根证书信息…</p>
         : certificateRows.length ? <ul className="http-debug-proxy-certificates">{certificateRows.map(item => {

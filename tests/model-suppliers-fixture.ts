@@ -74,7 +74,7 @@ export async function exerciseSuppliers(page: Page) {
   await manager.getByLabel("搜索模型供应商", { exact: true }).fill("共用供应商");
   await expect(manager.locator(".ai-profile")).toHaveCount(1);
   await manager.getByRole("button", { name: "测试连接", exact: true }).click();
-  await expect(manager.getByRole("status")).toContainText("测试通过");
+  await expect(page.locator(".app-toast-notice")).toContainText("测试通过");
   await manager.getByRole("button", { name: "删除模型供应商 手机与桌面共用供应商", exact: true }).click();
   const confirmation = page.getByRole("alertdialog", { name: "删除模型供应商", exact: true });
   await page.evaluate(() => { (window as any).supplierDeleteFails = true; });

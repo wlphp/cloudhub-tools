@@ -67,20 +67,20 @@ test("mobile shell gives mailbox actions consistent touch-sized states", async (
 test("receive, read safely, download, reply, and report independent connection results", async ({ page }) => {
  await openMail(page);
  await page.getByRole("button", { name: "检测连接", exact: true }).click();
- await expect(page.locator(".mail-status")).toContainText("IMAP 收信：通过；SMTP 发信：失败");
+ await expect(page.locator(".app-toast-notice")).toContainText("IMAP 收信：通过；SMTP 发信：失败");
  await page.getByRole("button", { name: "收取邮件", exact: true }).click();
  await page.getByRole("button", { name: /上线通知/ }).click();
  await expect(page.locator(".mail-body")).toContainText("<script>alert(1)</script>");
  await expect(page.locator(".mail-body script")).toHaveCount(0);
  await page.getByRole("button", { name: /说明.txt/ }).click();
- await expect(page.locator(".mail-status")).toContainText("附件已保存");
+ await expect(page.locator(".app-toast-notice")).toContainText("附件已保存");
  await page.getByRole("button", { name: "回复", exact: true }).click();
  const dialog = page.getByRole("dialog", { name: "写邮件", exact: true });
  await expect(dialog.getByLabel("收件人", { exact: true })).toHaveValue("sender@example.test");
  await expect(dialog.getByLabel("主题", { exact: true })).toHaveValue("Re: 上线通知");
  await dialog.getByRole("button", { name: "发送邮件", exact: true }).click();
  await expect(dialog).toHaveCount(0);
- await expect(page.locator(".mail-status")).toContainText("已提交给 SMTP 服务器");
+ await expect(page.locator(".app-toast-notice")).toContainText("已提交给 SMTP 服务器");
  const calls = await page.evaluate(() => (window as any).__mailCalls);
  expect(calls.find((c: any) => c.command === "mail_read").args).toEqual({ id: "mail-1", folder: "INBOX", validity: 23, uid: 41 });
  expect(calls.filter((c: any) => c.command === "mail_send")).toHaveLength(1);
@@ -90,10 +90,10 @@ test("shows separate safe IMAP and SMTP failure reasons", async ({ page }) => {
  await openMail(page);
  await page.evaluate(() => { (window as any).__mailTestFailed = true; });
  await page.getByRole("button", { name: "检测连接", exact: true }).click();
- const status = page.locator(".mail-status");
+ const status = page.locator(".app-toast-notice");
  await expect(status).toContainText("IMAP 收信：失败（IMAP 检测遇到无法识别的服务器响应）");
  await expect(status).toContainText("SMTP 发信：失败（SMTP 连接失败，请检查服务器、端口和网络）");
- await expect(page.getByRole("alert")).toHaveCount(0);
+ await expect(status).toHaveAttribute("role", "alert");
 });
 
 test("top mailbox search matches partial subject and sender text", async ({ page }) => {
@@ -120,7 +120,7 @@ test("extracts a context-labeled verification code and copies only that code", a
  await page.getByRole("button", { name: "收取邮件", exact: true }).click();
  await page.getByRole("button", { name: /上线通知/ }).click();
  await page.getByRole("button", { name: "复制验证码", exact: true }).click();
- await expect(page.locator(".mail-status")).toContainText("验证码已复制到剪贴板");
+ await expect(page.locator(".app-toast-notice")).toContainText("验证码已复制到剪贴板");
  expect(await page.evaluate(() => (window as any).__copiedText)).toEqual(["739204"]);
 });
 
@@ -134,7 +134,7 @@ test("does not guess a code from unrelated numbers", async ({ page }) => {
  await page.getByRole("button", { name: "收取邮件", exact: true }).click();
  await page.getByRole("button", { name: /上线通知/ }).click();
  await page.getByRole("button", { name: "复制验证码", exact: true }).click();
- await expect(page.locator(".mail-status")).toContainText("未能从当前邮件中识别到明确的验证码");
+ await expect(page.locator(".app-toast-notice")).toContainText("未能从当前邮件中识别到明确的验证码");
  expect(await page.evaluate(() => (window as any).__copiedText)).toEqual([]);
 });
 
@@ -155,8 +155,8 @@ test("continues receiving the inbox when listing other folders fails", async ({ 
  await openMail(page);
  await page.evaluate(() => { (window as any).__mailFolderFail = true; });
  await page.getByRole("button", { name: "收取邮件", exact: true }).click();
- await expect(page.locator(".mail-status")).toContainText("已更新收件箱");
- await expect(page.locator(".mail-status")).toContainText("读取其他文件夹失败");
+ await expect(page.locator(".app-toast-notice")).toContainText("已更新收件箱");
+ await expect(page.locator(".app-toast-notice")).toContainText("读取其他文件夹失败");
  await expect(page.getByRole("button", { name: /上线通知/ })).toBeVisible();
  const calls = await page.evaluate(() => (window as any).__mailCalls);
  expect(calls.find((c: any) => c.command === "mail_list").args.folder).toBe("INBOX");
@@ -248,7 +248,7 @@ test("compose body focus uses a single focus indicator", async ({ page }) => {
 
 test("preview refuses connections and workspace fits supported widths", async ({ page }) => {
  await openMail(page, false);
- await expect(page.getByRole("button", { name: "添加邮箱", exact: true }).first()).toBeDisabled();
+ await expect(page.getByRole("button", { name: "添加邮箱", exact: true }).first()).toBeEnabled();
  await expect(page.locator(".mail-banner")).toContainText("浏览器预览不连接邮箱");
  for (const width of [375, 768, 1024, 1440]) {
   await page.setViewportSize({ width, height: 1000 });

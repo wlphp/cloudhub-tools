@@ -1,3 +1,4 @@
+import { ToastNotice } from "../../shared/ToastNotice";
 import { useEffect, useRef, useState } from "react";
 import { Archive, FolderOpen, Pin, RefreshCw, RotateCcw, Trash2 } from "lucide-react";
 import { OverviewDialog } from "./OverviewDialogs";
@@ -77,7 +78,7 @@ export function ConfigHistoryDialog({ initialTarget, privacy = false, onClose, o
         {pendingTargets.map(t => <div key={t.home} className="codex-provider-launch-warning" role="status"><span>{privacy ? "目标" : t.name} 有未完成的配置操作，请先处理。</span><button type="button" disabled={locked} onClick={() => setConfirmation({ action: "recover", entry: null, target: t })}>处理待恢复操作</button></div>)}
         {loading && <p role="status">正在读取备份历史…</p>}
         {error && <p role="alert" className="codex-card-error">{error}</p>}
-        {notice && <p role="status">{notice}</p>}
+        <ToastNotice message={notice} />
         {!loading && !entries.length && <p role="status">暂无符合条件的备份。切换账号或供应商时会自动备份，也可选择目标后立即备份。</p>}
         {!!entries.length && <div className="codex-history-table-wrap"><table className="codex-history-table"><thead><tr><th>备份时间</th><th>目标 / 当时模式</th><th>备份内容与来源</th><th>操作</th></tr></thead><tbody>{entries.map(entry => {
           const target = targets.find(t => t.home === entry.home) ?? null;

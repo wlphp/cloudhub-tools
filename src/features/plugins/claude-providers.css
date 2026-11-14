@@ -524,7 +524,7 @@ body.theme-light .ide-theme .claude-icon-button.is-danger:not(:disabled):hover {
   .claude-management-workbench .claude-mode-tabs button { min-height: 28px; padding: 3px 10px; font-size: 12px; }
   .claude-management-workbench > .claude-work-tabs { gap: 2px; }
   .ide-theme .claude-management-workbench nav.claude-work-tabs > button { min-height: 28px; padding: 3px 10px; font-size: 12px; }
-  .claude-management-workbench > .claude-config-panel { gap: 6px 10px; margin: 0; padding: 5px 8px; }
+  .claude-management-workbench > .claude-config-disclosure > .claude-config-panel { gap: 6px 10px; margin: 0; padding: 5px 8px; }
   .claude-management-workbench .claude-config-source { flex: 1 1 360px; gap: 6px; }
   .claude-management-workbench .claude-status-bar-actions { gap: 4px; }
   .claude-management-workbench .claude-status-bar-actions button { box-sizing: border-box; height: 28px; min-height: 28px; padding: 3px 8px; font-size: 11px; }
@@ -539,3 +539,70 @@ body.theme-light .ide-theme .claude-icon-button.is-danger:not(:disabled):hover {
   .claude-management-workbench .claude-list-toolbar > .claude-providers-actions { order: 2; gap: 5px; margin-left: auto; }
   .claude-management-workbench .claude-list-toolbar .claude-providers-actions > button { box-sizing: border-box; min-height: 28px; height: 28px; padding: 3px 8px; font-size: 11px; }
 }
+
+
+.claude-config-disclosure { min-width: 0; margin: 0; }
+.claude-config-disclosure > summary { display: none; }
+body:has(.mobile-shell) .claude-config-disclosure { border: 1px solid var(--mobile-border); border-radius: 8px; background: var(--mobile-surface); }
+body:has(.mobile-shell) .claude-config-disclosure > summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 12px; color: var(--mobile-text); font-size: 13px; cursor: pointer; list-style: none; }
+body:has(.mobile-shell) .claude-config-disclosure > summary::-webkit-details-marker { display: none; }
+body:has(.mobile-shell) .claude-config-disclosure > summary::after { content: "+"; color: var(--mobile-muted); font-size: 18px; }
+body:has(.mobile-shell) .claude-config-disclosure[open] > summary::after { content: "−"; }
+body:has(.mobile-shell) .claude-config-disclosure > summary > span { margin-left: auto; color: var(--mobile-muted); font-size: 12px; }
+body:has(.mobile-shell) .claude-config-disclosure[open] > summary { border-bottom: 1px solid var(--mobile-border); }
+body:has(.mobile-shell) .claude-config-disclosure .claude-config-panel { display: flex; gap: 8px; padding: 10px; border: 0; background: transparent; }
+body:has(.mobile-shell) .claude-config-disclosure .claude-config-source { flex: 1 1 100%; }
+body:has(.mobile-shell) .claude-config-disclosure .claude-status-bar-actions { display: flex; width: 100%; gap: 6px; flex-wrap: wrap; }
+body:has(.mobile-shell) .claude-config-disclosure .claude-status-bar-actions button { flex: 1 1 auto; min-height: 44px; padding: 0 8px; font-size: 12px; }
+body:has(.mobile-shell) .claude-config-disclosure .claude-config-description { margin: 0; padding: 0 10px 10px; color: var(--mobile-muted); font-size: 12px; }
+body:has(.mobile-shell) .claude-management-workbench > .claude-list-toolbar { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+body:has(.mobile-shell) .claude-management-workbench .claude-list-toolbar > .claude-search { order: 0; width: 100%; max-width: none; }
+body:has(.mobile-shell) .claude-management-workbench .claude-list-toolbar > .claude-providers-actions { order: 1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); width: 100%; gap: 6px; margin: 0; }
+body:has(.mobile-shell) .claude-management-workbench .claude-providers-actions > button { justify-content: center; min-width: 0; min-height: 44px; padding: 0 5px; border: 1px solid var(--mobile-border); border-radius: 7px; background: var(--mobile-surface); color: var(--mobile-text); font-size: 12px; }
+body:has(.mobile-shell) .claude-management-workbench .claude-providers-actions > .primary { border-color: var(--mobile-accent); background: var(--mobile-accent); color: var(--mobile-on-accent, #fff); }
+body:has(.mobile-shell) .claude-management-workbench .claude-providers-actions > button:disabled { opacity: .45; }
+body:has(.mobile-shell) .claude-management-workbench .claude-list-toolbar > .claude-list-selection { order: 2; width: 100%; }
+body:has(.mobile-shell) .claude-management-workbench .claude-mode-tabs { display: flex; flex: 1; width: 100%; }
+body:has(.mobile-shell) .claude-management-workbench .claude-mode-tabs button { min-height: 44px; flex: 1; }
+body:has(.mobile-shell) .claude-management-workbench .claude-work-tabs { scrollbar-width: none; }
+body:has(.mobile-shell) .claude-management-workbench .claude-work-tabs::-webkit-scrollbar { display: none; }
+body:has(.mobile-shell) .claude-management-workbench .claude-provider-item { padding: 10px; border-radius: 8px; }
+body:has(.mobile-shell) .claude-management-workbench .claude-empty { padding: 24px 12px; }
+
+body:has(.mobile-shell) .plugin-page-host:has(.claude-providers) nav.claude-work-tabs { scrollbar-width: none; }
+body:has(.mobile-shell) .plugin-page-host:has(.claude-providers) nav.claude-work-tabs::-webkit-scrollbar { display: none; }
+
+/* 手机端把工作台依赖的 IDE 令牌统一映射到移动主题（与 ai-settings、身份验证器同一做法），
+   模式标签选中态、用量表、空状态等样式不再退化为透明或继承色。 */
+body:has(.mobile-shell) .claude-management-workbench {
+  --jb-surface: var(--mobile-surface);
+  --jb-surface-2: var(--mobile-raised);
+  --jb-surface-3: var(--mobile-raised);
+  --jb-input: var(--mobile-bg);
+  --jb-text: var(--mobile-text);
+  --jb-muted: var(--mobile-muted);
+  --jb-subtle: var(--mobile-subtle, var(--mobile-muted));
+  --jb-border: var(--mobile-border);
+  --jb-border-strong: var(--mobile-border-strong, var(--mobile-border));
+  --jb-accent: var(--mobile-accent-strong);
+  --jb-accent-soft: var(--mobile-accent-soft, var(--mobile-raised));
+  --jb-danger: var(--mobile-danger);
+  --jb-success: #22c55e;
+}
+body.theme-light:has(.mobile-shell) .claude-management-workbench { --jb-success: #15803d; }
+
+/* 用量日志表在手机上保持列完整并横向滚动，表头不再被压成逐字换行。 */
+body:has(.mobile-shell) .claude-management-workbench .claude-table-scroll { overscroll-behavior-x: contain; }
+body:has(.mobile-shell) .claude-management-workbench .claude-table-scroll table { min-width: 640px; }
+body:has(.mobile-shell) .claude-management-workbench .claude-table-scroll :is(th, td) { white-space: nowrap; }
+
+/* MCP/提示词/技能/会话工具栏：搜索占满一行，动作按钮成排等宽并保持 44px 触控高度。 */
+body:has(.mobile-shell) .claude-management-workbench .claude-workspace > .claude-work-toolbar { gap: 8px; }
+body:has(.mobile-shell) .claude-management-workbench .claude-workspace > .claude-work-toolbar > input[type="search"] { flex: 1 1 100%; width: 100%; max-width: none; height: 44px; min-height: 44px; }
+body:has(.mobile-shell) .claude-management-workbench .claude-workspace > .claude-work-toolbar > button { flex: 1 1 auto; min-height: 44px; height: 44px; margin: 0; border: 1px solid var(--mobile-border); border-radius: 7px; background: var(--mobile-surface); color: var(--mobile-text); font-size: 12px; }
+body:has(.mobile-shell) .claude-management-workbench .claude-workspace > .claude-work-toolbar > button.primary { border-color: var(--mobile-accent); background: var(--mobile-accent); color: var(--mobile-on-accent, #fff); }
+body:has(.mobile-shell) .claude-management-workbench .claude-workspace > .claude-work-toolbar > .claude-icon-button { flex: 0 0 44px; width: 44px; min-width: 44px; padding: 0; }
+body:has(.mobile-shell) .claude-management-workbench .claude-workspace > .claude-work-toolbar > .claude-check { flex: 0 0 auto; margin: 0; color: var(--mobile-muted); }
+
+/* 配置路径读不到（浏览器预览）时不再渲染一个空的路径盒子。 */
+.claude-work-path:empty { display: none; }

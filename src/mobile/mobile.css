@@ -31,6 +31,13 @@ html {
   text-size-adjust: 100%;
 }
 
+/* 双指缩放兜底：viewport user-scalable=no 覆盖大部分 WebView；这里再限制
+   触摸动作为横/纵平移，iOS 13+ Safari 与部分双击缩放场景同样被禁用，
+   上下滚动、横向标签滚动与拖拽排序不受影响（它们自身声明了对应 touch-action）。 */
+body:has(.mobile-shell) {
+  touch-action: pan-x pan-y;
+}
+
 body {
   overflow-x: hidden;
   background: var(--mobile-bg);
@@ -1904,7 +1911,7 @@ body { background: var(--mobile-bg); color: var(--mobile-text); }
 .mobile-server-provider { flex: 0 0 auto; padding: 2px 7px; border: 1px solid var(--mobile-border); border-radius: 999px; background: var(--mobile-raised); color: var(--mobile-text); font-size: 10px; }
 .mobile-server-featured-copy p { overflow: hidden; margin: 4px 0 0; color: var(--mobile-text); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .mobile-server-featured-copy small { display: block; margin-top: 3px; color: var(--mobile-muted); font-size: 10px; }
-.mobile-server-status-pill { display: inline-flex; min-height: 28px; flex: 0 0 auto; align-items: center; gap: 5px; padding: 0 8px; border-radius: 999px; font-size: 10px; white-space: nowrap; }
+.mobile-server-status-pill { display: inline-flex; min-height: 28px; flex: 0 0 auto; align-items: center; gap: 5px; padding: 0 8px; border: 1px solid transparent; border-radius: 999px; font-size: 10px; white-space: nowrap; }
 .mobile-server-status-pill i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 .mobile-server-status-pill.is-running { border-color: #147b66; background: #064b43; color: #6de3c2; }
 .mobile-server-status-pill.is-stopped { border-color: var(--mobile-border-strong); background: var(--mobile-surface); color: var(--mobile-muted); }
@@ -3498,6 +3505,16 @@ body.theme-light .mobile-back-fab.is-dragging { box-shadow: 0 12px 28px #1f29373
 .mobile-network-settings .network-settings-error { margin: 0; padding: 12px; border: 1px solid var(--mobile-border); border-radius: 10px; color: var(--mobile-muted); font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
 .mobile-network-settings .network-settings-error { border-color: #a9434e; color: #ffaaa2; }
 .network-toast-notice { position: fixed; z-index: 1200; top: calc(env(safe-area-inset-top,0px) + 12px); right: max(12px,env(safe-area-inset-right,0px)); left: max(12px,env(safe-area-inset-left,0px)); width: max-content; max-width: calc(100vw - 24px); margin: 0 auto; padding: 12px 14px; border: 1px solid var(--mobile-border); border-radius: 12px; background: var(--mobile-raised); color: var(--mobile-text); box-shadow: 0 8px 28px #0005; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+/* 手机端不加载桌面 IDE 主题，操作提示条依赖的 --jb-* 令牌在此映射为移动主题，
+   避免提示条背景透明、文字悬浮叠在插件页标题上。 */
+body:has(.mobile-shell) .app-toast-stack {
+  --jb-surface: var(--mobile-surface);
+  --jb-text: var(--mobile-text);
+  --jb-muted: var(--mobile-muted);
+  --jb-border-strong: var(--mobile-border-strong, var(--mobile-border));
+  --jb-accent: var(--mobile-accent-strong);
+  --jb-danger: var(--mobile-danger);
+}
 body.theme-light .mobile-network-settings .network-settings-card,
 body.theme-light .mobile-network-settings .network-priority-card { background: var(--mobile-surface); }
 
@@ -4077,6 +4094,8 @@ body.theme-light .mobile-shell .mobile-tab-bar button.active { border: 0; backgr
 .mobile-asset-card-meta { display: grid; justify-items: end; gap: 5px; flex: 0 0 auto; max-width: 30%; color: var(--mobile-text); font-size: 11px; text-align: right; }
 .mobile-asset-card-meta > span,.mobile-asset-card-meta > small { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mobile-asset-card-meta > small { color: var(--mobile-muted); }
+/* 资产卡状态沿用全局语义徽章，这里收紧到信息列的尺寸。 */
+.mobile-asset-card-meta .mobile-server-status-pill { min-height: 22px; padding: 2px 8px; }
 @media(max-width:380px) { .mobile-asset-card { gap: 8px; padding: 10px; }.mobile-asset-card > .mobile-provider-avatar { flex-basis: 32px; width: 32px; height: 32px; }.mobile-asset-card-meta { max-width: 26%; } }
 .mobile-home-page,.mobile-alerts-page { display: grid; gap: 14px; min-width: 0; }
 .mobile-home-apps,.mobile-home-alerts { min-width: 0; padding: 14px; border: 1px solid var(--mobile-border); border-radius: 14px; background: var(--mobile-surface); }

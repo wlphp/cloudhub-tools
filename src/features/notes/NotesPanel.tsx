@@ -456,12 +456,7 @@ export function NotesPanel({ mobile = false, openSignal = 0 }: NotesPanelProps) 
     const timer = window.setTimeout(() => { setMessage(""); setError(""); }, error ? 10000 : 6000);
     return () => window.clearTimeout(timer);
   }, [message, error]);
-  // 保存成功的顶部 toast：右上角悬浮 3 秒后自动消失。
-  useEffect(() => {
-    if (!toast) return;
-    const timer = window.setTimeout(() => setToast(""), 3000);
-    return () => window.clearTimeout(timer);
-  }, [toast]);
+
 
   const counts = useMemo(() => {
     const map = new Map<string, number>();
@@ -566,7 +561,7 @@ export function NotesPanel({ mobile = false, openSignal = 0 }: NotesPanelProps) 
         {tags.map(tag => <button type="button" key={tag} className="notes-chip" aria-pressed={keyword === tag} onClick={() => setKeyword(current => current === tag ? "" : tag)}>{tag}</button>)}
       </div>}
     </div>}
-    {(message || error) && <p className={`notes-status${error ? " is-error" : ""}`} role={error ? "alert" : "status"}>{error || message}</p>}
+    <ToastNotice message={error || message} tone={error ? "error" : undefined} onDismiss={() => { setError(""); setMessage(""); }} />
     {loading && notes.length === 0 ? <div className="notes-empty">
       <StickyNote size={26} aria-hidden="true" />
       <strong>正在读取备忘录…</strong>

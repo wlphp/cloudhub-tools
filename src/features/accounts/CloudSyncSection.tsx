@@ -1,3 +1,4 @@
+import { ToastNotice } from "../../shared/ToastNotice";
 import { useEffect, useId, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, Cloud, CloudDownload, CloudUpload, Link, Save, Plus, Pencil, Trash2, Search, History } from "lucide-react";
 import { cloudSyncClient, cloudSyncChannelClient, type CloudBackupVersion, type CloudSyncConfig, type CloudSyncView } from "../../platform/clients/cloudSync";
@@ -246,7 +247,7 @@ function CloudSyncChannel({ channel, onRestore, mobile, blocked, onBusy, onChang
       </div>
       {transferring && <div className="cloud-sync-progress"><div className="cloud-sync-progress-heading"><span role="status">{progressLabel}</span><span>{percent !== undefined ? `${percent}% · ` : ""}{progress && progress.transferred > 0 ? `${byteText(progress.transferred)}${progress.total ? ` / ${byteText(progress.total)}` : ""}` : ""}</span></div><progress aria-label={progressLabel} max={100} value={percent} /></div>}
       {(error || saved?.status.error) && <p role="alert" className="data-settings-error">{error || saved?.status.error}</p>}
-      {message && <p role="status" className="cloud-sync-success"><CheckCircle2 size={15} aria-hidden="true" /><span>{message}</span></p>}
+      <ToastNotice message={message} />
     </article>}
     {expanded && <SharedDialog sizeStorageKey="features/accounts/cloud-sync-section/cloud-sync-channel" title={channel.configured ? "编辑同步渠道" : "添加同步渠道"} subtitle="独立配置存储连接，凭据在本机加密保存。" className="cloud-sync-editor" closeDisabled={!!busy} onClose={closeEditor} initialFocus="input" footer={<><button type="button" className="secondary" disabled={disabled} onClick={() => void run("test")}><Link size={15} aria-hidden="true" />{busy === "test" ? "正在测试…" : "测试连接"}</button><button type="button" className="secondary" disabled={!!busy} onClick={closeEditor}>取消</button><button type="button" className="primary" disabled={disabled || scope.loading || !!scope.error || !scope.categories.length || config.tables?.length === 0} onClick={() => void run("save")}><Save size={15} aria-hidden="true" />{busy === "save" ? "正在保存…" : "保存配置"}</button></>}>
       <div className="cloud-sync-form">

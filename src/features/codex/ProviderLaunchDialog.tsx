@@ -1,3 +1,4 @@
+import { ToastNotice } from "../../shared/ToastNotice";
 import { useEffect, useRef, useState } from "react";
 import { Play, RotateCcw, ShieldCheck, CircleAlert } from "lucide-react";
 import { OverviewDialog } from "./OverviewDialogs";
@@ -169,7 +170,7 @@ export function ProviderLaunchDialog({ target: launchTarget, privacy = false, sw
           <p><strong>恢复：</strong>“备份与恢复”可按备份时间选择记录；账号与供应商切换使用同一份历史。恢复前会再次备份当前状态。</p>
         </div>
       </details>
-      {phase && <p role="status">{phase}</p>}{notice && <p role="status">{notice}</p>}{error && <div className="codex-provider-launch-error"><p role="alert" className="codex-card-error">{error}</p>{restoreBlocked && <button type="button" disabled={busy || loading} onClick={() => setHistoryOpen(true)}>备份与恢复</button>}<button type="button" disabled={busy || loading} onClick={() => { setPreview(null); setLoading(true); setPreviewRevision(value => value + 1); }}>刷新预览</button></div>}
+      {phase && <p role="status">{phase}</p>}<ToastNotice message={notice} />{error && <div className="codex-provider-launch-error"><p role="alert" className="codex-card-error">{error}</p>{restoreBlocked && <button type="button" disabled={busy || loading} onClick={() => setHistoryOpen(true)}>备份与恢复</button>}<button type="button" disabled={busy || loading} onClick={() => { setPreview(null); setLoading(true); setPreviewRevision(value => value + 1); }}>刷新预览</button></div>}
     </div>
   </OverviewDialog>{historyOpen && <ConfigHistoryDialog privacy={privacy} initialTarget={target || null} onClose={() => setHistoryOpen(false)} onChanged={async () => { const current = await codexProviders.preview(target || null); const next = await codexClient.instances(); if (alive.current) { setPreview(current); setInstances(next); } }} />}</>;
 }

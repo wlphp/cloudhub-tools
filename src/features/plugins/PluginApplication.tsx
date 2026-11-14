@@ -42,13 +42,13 @@ export function PluginApplication({ pluginId, wslEnabled, mobile = false, accoun
     case "cloudhub.flow": return <Suspense fallback={<p role="status">正在加载流水线…</p>}><FlowPanel mobile={mobile} /></Suspense>;
     case "cloudhub.authenticator": return <Suspense fallback={<p role="status">正在加载身份验证器…</p>}><AuthenticatorPanel mobile={mobile} /></Suspense>;
     case "cloudhub.certificates": return <Suspense fallback={<p role="status">正在加载 HTTPS 证书…</p>}><CertificatePanel accounts={accounts} localAssets={localAssets} onStatus={onStatus} onConfirm={onConfirm} /></Suspense>;
-    case "cloudhub.codex": return mobile ? <p role="status">Codex 管理暂不支持手机端，请在电脑客户端使用。</p> : <Suspense fallback={<p role="status">正在加载 Codex 管理…</p>}><CodexPanel /></Suspense>;
-    case "cloudhub.frp": return mobile ? <p role="status">内网穿透暂不支持手机端，请在电脑客户端使用。</p> : <Suspense fallback={<p role="status">正在加载内网穿透…</p>}><FrpPanel /></Suspense>;
+    case "cloudhub.codex": return <Suspense fallback={<p role="status">正在加载 Codex 管理…</p>}><CodexPanel /></Suspense>;
+    case "cloudhub.frp": return <Suspense fallback={<p role="status">正在加载内网穿透…</p>}><FrpPanel /></Suspense>;
     case "cloudhub.wechat-multi": return <WechatPluginSettings onNotify={onNotify} onError={onError} />;
     case "cloudhub.hardware-info": return <HardwareInfoPlugin open onOpened={() => {}} />;
     case "cloudhub.wsl-dashboard": return <WslDashboardPlugin open enabled={wslEnabled} />;
     case "cloudhub.fingerprint-browser": return <Suspense fallback={<p role="status">正在加载浏览器环境…</p>}><BrowserEnvironments open /></Suspense>;
-    case "cloudhub.claude-providers": return <div className="claude-providers-dialog"><ClaudeProvidersPlugin /></div>;
+    case "cloudhub.claude-providers": return <div className="claude-providers-dialog"><ClaudeProvidersPlugin mobile={mobile} /></div>;
     case "cloudhub.notes": return <NotesPanel mobile={mobile} />;
     case "cloudhub.lan-devices": return <LanDevicesPlugin onConnect={onLanConnect} />;
     case "cloudhub.network-speed": return <Suspense fallback={<p role="status">正在加载网络测速…</p>}><NetworkSpeedPlugin /></Suspense>;

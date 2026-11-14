@@ -536,7 +536,7 @@ function windowedUsage(logs: ClaudeRoutingState["logs"], providerId: string) {
   return { requests: scoped.length, tokens };
 }
 
-export function ClaudeProvidersPlugin() {
+export function ClaudeProvidersPlugin({ mobile = false }: { mobile?: boolean } = {}) {
   const document = useDialogDocument();
   const window = document.defaultView!;
   const balanceGeneration = useRef(0);
@@ -772,6 +772,8 @@ export function ClaudeProvidersPlugin() {
     {tab !== "providers" && tab !== "usage" && <ClaudeWorkspacePanel key={tab} view={tab} confirm={confirm} onScopeChanged={load} />}
     {tab === "providers" && <>
 
+    <details className="claude-config-disclosure" open={mobile ? undefined : true}>
+      <summary>配置与项目<span>{workspace ? "项目配置" : "用户全局"}</span></summary>
     <div className="claude-status-bar claude-config-panel">
       <div className="claude-config-source">
       <span className={settingsExists ? "is-ok" : "is-muted"}>
@@ -797,6 +799,8 @@ export function ClaudeProvidersPlugin() {
     </div>
 
     <div className="claude-config-help claude-config-description"><span>保存到本地；点击「切换」后写入配置文件。</span><button type="button" aria-expanded={showConfigDescription} aria-controls="claude-config-description" onClick={() => setShowConfigDescription(value => !value)}><ArrowDown size={12} aria-hidden="true" />详细说明</button><p id="claude-config-description" hidden={!showConfigDescription}>切换前会备份当前配置，并写入所选供应商的地址、Key 和模型映射；已运行的 Claude Code 需重启加载。路由／聚合模式写入本地代理地址，由 CloudHub 转发。</p></div>
+
+    </details>
 
     <header className="claude-providers-head claude-list-toolbar">
     <div className="claude-list-selection">{!providerSorting && <label className="claude-check"><input type="checkbox" aria-label="全选当前搜索结果" disabled={Boolean(busyId) || !shown.length} checked={!!shown.length && shown.every(p=>selectedProviders.has(p.id))} ref={element=>{if(element)element.indeterminate=shown.some(p=>selectedProviders.has(p.id)) && !shown.every(p=>selectedProviders.has(p.id));}} onChange={event=>{const checked=event.target.checked;setSelectedProviders(current=>{const next=new Set(current);shown.forEach(p=>checked?next.add(p.id):next.delete(p.id));return next;});}} />全选当前结果</label>}<span>共 {shown.length} 个供应商</span></div>

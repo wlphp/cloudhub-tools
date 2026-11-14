@@ -243,3 +243,48 @@
   .certificate-page .certificate-source-filter{margin-left:0}
   .certificate-page .certificate-count{margin-left:auto}
 }
+
+
+body:has(.mobile-shell) .plugin-page-body > .certificate-page > header { margin: 0 0 10px; }
+body:has(.mobile-shell) .certificate-page > header p { margin: 0 0 8px; font-size: 12px; line-height: 1.5; }
+body:has(.mobile-shell) .certificate-header-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; gap: 8px; }
+body:has(.mobile-shell) .certificate-page > header button { min-height: 44px; margin: 0; justify-content: center; }
+body:has(.mobile-shell) .certificate-page .certificate-summary { gap: 0; padding: 10px 0; }
+body:has(.mobile-shell) .certificate-page .certificate-summary > div { padding: 0 10px; }
+body:has(.mobile-shell) .certificate-page .certificate-panel:not(.baota-certificate-manager) .certificate-toolbar { display: flex; gap: 8px; padding: 10px; }
+body:has(.mobile-shell) .certificate-page .certificate-panel:not(.baota-certificate-manager) .certificate-toolbar > input { flex-basis: 100%; height: 44px; }
+body:has(.mobile-shell) .certificate-page .certificate-source-filter { flex: 1; gap: 8px; }
+body:has(.mobile-shell) .certificate-page .certificate-source-filter > select { flex: 1; width: 0; min-height: 44px; }
+body:has(.mobile-shell) .certificate-page .certificate-toolbar > button { min-height: 44px; }
+
+.certificate-toolbar > .certificate-search { display: flex; align-items: center; gap: 8px; flex: 1 1 240px; min-width: 0; max-width: 520px; height: 32px; padding: 0 10px; border: 1px solid var(--jb-border-strong); border-radius: 4px; background: var(--jb-input); color: var(--jb-muted); }
+.certificate-toolbar > .certificate-search > svg { flex-shrink: 0; }
+.certificate-toolbar > .certificate-search > input { width: 0; flex: 1; min-width: 0; height: 100%; min-height: 0; margin: 0; padding: 0; border: 0 !important; outline: 0 !important; background: transparent !important; box-shadow: none !important; }
+.certificate-toolbar > .certificate-search:focus-within { outline: 2px solid var(--jb-accent); outline-offset: 1px; }
+body:has(.mobile-shell) .certificate-page .certificate-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); padding: 0; background: var(--mobile-surface); }
+body:has(.mobile-shell) .certificate-page .certificate-summary > div { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 5px; min-width: 0; min-height: 72px; padding: 10px; border: 0; border-right: 1px solid var(--mobile-border); }
+body:has(.mobile-shell) .certificate-page .certificate-summary > div:last-child { border-right: 0; }
+body:has(.mobile-shell) .certificate-page .certificate-summary > div strong { margin: 0; font-size: 20px; }
+body:has(.mobile-shell) .certificate-page .certificate-summary > div span { font-size: 12px; }
+body:has(.mobile-shell) .certificate-page .certificate-summary > div small { display: none; }
+body:has(.mobile-shell) .certificate-page .certificate-preview-warning { padding: 10px 12px; border: 1px solid var(--mobile-border); border-radius: 8px; background: var(--mobile-raised); color: var(--mobile-muted); font-size: 12px; line-height: 1.6; }
+body:has(.mobile-shell) .certificate-header-actions > button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 8px; border: 1px solid var(--mobile-border); border-radius: 8px; background: var(--mobile-surface); color: var(--mobile-text); font-size: 13px; }
+body:has(.mobile-shell) .certificate-header-actions > .primary-update-btn { border-color: var(--mobile-accent-border); background: var(--mobile-accent-soft); color: var(--mobile-accent-strong); }
+body:has(.mobile-shell) .certificate-header-actions > button:disabled { opacity: .45; }
+body:has(.mobile-shell) .certificate-page .certificate-toolbar > .certificate-search { flex: 1 1 100%; max-width: none; height: 44px; min-height: 44px; border-radius: 8px; background: var(--mobile-surface); }
+
+body:has(.mobile-shell) .certificate-page .certificate-panel:not(.baota-certificate-manager) .table-wrap { overflow: visible; }
+body:has(.mobile-shell) .certificate-page .certificate-panel:not(.baota-certificate-manager) table,
+body:has(.mobile-shell) .certificate-page .certificate-panel:not(.baota-certificate-manager) tbody { display: block; width: 100%; min-width: 0; }
+body:has(.mobile-shell) .certificate-page .certificate-panel:not(.baota-certificate-manager) thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
+body:has(.mobile-shell) .certificate-page .certificate-panel:not(.baota-certificate-manager) tbody tr { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; padding: 12px; border-bottom: 1px solid var(--mobile-border); }
+body:has(.mobile-shell) .certificate-page .certificate-panel:not(.baota-certificate-manager) tbody td { display: block; min-width: 0; padding: 0; border: 0; overflow-wrap: anywhere; }
+body:has(.mobile-shell) .certificate-page td[data-label="域名"],
+body:has(.mobile-shell) .certificate-page td[data-label="有效期"],
+body:has(.mobile-shell) .certificate-page td[data-label="操作"] { grid-column: 1 / -1; }
+body:has(.mobile-shell) .certificate-page td[data-label="来源"]::before,
+body:has(.mobile-shell) .certificate-page td[data-label="签发者"]::before { display: block; margin-bottom: 4px; content: attr(data-label); color: var(--mobile-muted); font-size: 12px; }
+body:has(.mobile-shell) .certificate-page td[data-label="状态"] { grid-column: 2; grid-row: 1; justify-self: end; }
+body:has(.mobile-shell) .certificate-page td[data-label="域名"] { padding-right: 65px !important; }
+body:has(.mobile-shell) .certificate-page .certificate-panel:not(.baota-certificate-manager) .certificate-actions { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 6px; padding-top: 10px; border-top: 1px solid var(--mobile-border); }
+body:has(.mobile-shell) .certificate-page .certificate-panel:not(.baota-certificate-manager) .certificate-actions button { width: 100%; height: 44px; min-height: 44px; justify-content: center; }

@@ -118,8 +118,13 @@ function ConnectionEditor({ value, busy, error, platform, onClose, onSave }: {
   </SharedDialog>{confirmBuckets && <ConfirmDialog title="确认读取存储桶" message={`将使用已保存凭据访问 ${draft.endpoint} 读取存储桶，请确认这是你信任的服务地址。`} onResolve={yes => { setConfirmBuckets(false); if (yes) void readBuckets(true); }} />}</>;
 }
 
+// Empty UI state for environments without the native mount engine; no local operation is simulated.
+const unavailableSnapshot: DriveSnapshot = { connections: [], mounts: [], dependency: {
+  supported: false, installed: false, winfsp: false, version: "", source: "",
+  progress: { phase: "idle", downloaded: 0, total: 0 },
+} };
 export function CloudDrivePlugin() {
-  const [snapshot, setSnapshot] = useState<DriveSnapshot | null>(null);
+  const [snapshot, setSnapshot] = useState<DriveSnapshot | null>(!runningInTauri || runningOnPhone ? unavailableSnapshot : null);
   const [busy, setBusy] = useState("");
   const listOrder = useListOrder("cloud_drive_connection_order");
   const connections = listOrder.sort(snapshot?.connections ?? [], connection => connection.id);
@@ -174,22 +179,18 @@ export function CloudDrivePlugin() {
     }
     await operate("保存连接", () => commit(), "连接已加密保存，可先测试连接再挂载");
   }
-  if (!runningInTauri || runningOnPhone) return <p role="status">云盘挂载仅支持桌面客户端，浏览器和手机不提供系统磁盘挂载。</p>;
   if (!snapshot) return <div className="cloud-drive"><p role="status">正在读取云盘配置…</p>{error && <p role="alert">{error}</p>}</div>;
   const dep = snapshot.dependency;
-  if (!dep.supported) return <p role="status">云盘挂载支持 Windows x64、macOS Intel / Apple Silicon 和 Linux x64 / ARM64 桌面客户端。</p>;
   const download = dep.progress;
   const prepareDriveImport = async () => { const preview = await client.prepareImport(); return preview && { token: preview.token, rows: preview.connections.map(item => ({ index: item.index, title: item.name, detail: `${item.provider} · ${item.bucket} → ${item.mountPoint}` })) }; };
   return <section className="cloud-drive" aria-label="云盘挂载管理" aria-busy={!!busy}>
-    <header className="drive-toolbar"><div><h2><HardDrive size={19} aria-hidden="true" />云盘挂载</h2><p>将阿里云盘、OSS / S3 挂载为本机磁盘，文件在本机与存储服务间传输。</p></div>
+    <header className="drive-toolbar"><div><h2><HardDrive size={19} aria-hidden="true" />云盘挂载</h2><p>管理阿里云盘、OSS 与 S3 连接。</p></div>
       <div className="drive-actions"><button type="button" className="secondary" disabled={!!busy} onClick={() => setTransfer(true)}><Upload size={14} aria-hidden="true" />导入 / 导出</button><button type="button" className="secondary" disabled={!!busy} onClick={() => void operate("刷新", refresh, "状态已刷新")}><RefreshCw size={14} aria-hidden="true" />刷新</button><button type="button" className="primary" disabled={!!busy} onClick={() => { setError(""); setEditor({ ...fresh, mountPoint: dep.platform && dep.platform !== "windows" ? "" : fresh.mountPoint }); }}><Plus size={14} aria-hidden="true" />新增连接</button></div></header>
-    <div className="drive-dependencies"><div><strong>挂载引擎</strong><span>{dep.installed ? `已检测到 · ${dep.source}` : `未安装 · 按需下载 rclone ${dep.version}`}</span></div><button type="button" className="secondary" disabled={!!busy || download.phase === "downloading"} onClick={() => void operate("下载挂载引擎", client.install, "挂载引擎已下载并通过 SHA-256 校验")}><Download size={14} aria-hidden="true" />{dep.installed ? "重新下载已校验版本" : "下载挂载引擎"}</button>
-      <div><strong>{dep.driver ?? "WinFsp"} 驱动</strong><span>{dep.winfsp ? "已检测到 · 挂载仍需具备系统权限" : "未检测到 · 安装可能需要管理员权限或重启"}</span></div><button type="button" className="secondary" disabled={!!busy} onClick={() => void operate("打开安装说明", client.winfsp, "已打开挂载驱动官方说明；安装后点击刷新")}>官方安装说明</button>
-      {["downloading", "verifying"].includes(download.phase) && <div className="drive-download" role="status">{download.phase === "verifying" ? "正在校验并安装…" : `正在下载：${(download.downloaded / 1024 ** 2).toFixed(1)} MiB${download.total ? ` / ${(download.total / 1024 ** 2).toFixed(1)} MiB` : ""}`}<progress max={download.total || undefined} value={download.total ? download.downloaded : undefined} /></div>}</div>
-    <details className="drive-guidance"><summary>适合资料和媒体文件；上传完成后再卸载。<span>使用须知</span></summary><p>不建议用作数据库、虚拟机或软件安装目录。读写保存会先进入本地缓存；确认上传完成后再卸载。公网流量、API 请求及归档恢复可能收费。</p></details>
+    {!dep.supported && <p className="drive-hint" role="status">当前环境可预览连接配置；磁盘挂载需在桌面客户端执行。</p>}
+      {["downloading", "verifying"].includes(download.phase) && <div className="drive-download" role="status">{download.phase === "verifying" ? "正在校验并安装…" : `正在下载：${(download.downloaded / 1024 ** 2).toFixed(1)} MiB${download.total ? ` / ${(download.total / 1024 ** 2).toFixed(1)} MiB` : ""}`}<progress max={download.total || undefined} value={download.total ? download.downloaded : undefined} /></div>}
     <ToastNotice message={busy ? `正在${busy}…` : notice} tone={busy ? "progress" : undefined} duration={busy ? 0 : 4500} />
     {!editor && <ToastNotice message={error} tone="error" />}
-    {!snapshot.connections.length && <p className="drive-empty">还没有云盘连接。新增阿里云盘、OSS 或 S3 配置后，先授权并测试连接，再挂载。</p>}
+    {!snapshot.connections.length && <div className="drive-empty"><span className="drive-empty-icon"><HardDrive size={26} aria-hidden="true" /></span><strong>还没有云盘连接</strong><p>点击「新增连接」，添加阿里云盘、OSS 或 S3。</p><small>配置完成后，授权并测试连接即可挂载。</small></div>}
     {!!connections.length && <div className="drive-list-heading"><strong>连接列表 · {connections.length}</strong><span>{listOrder.saving ? "正在保存排序…" : "拖动左侧手柄排序，也可聚焦后按 ↑ ↓"}</span></div>}
     {listOrder.error && <p role="alert" className="drive-error">{listOrder.error}<button type="button" className="secondary" disabled={listOrder.saving} onClick={listOrder.retry}>重试</button></p>}
     <div className="drive-connections">{connections.map(c => {
@@ -220,7 +221,11 @@ export function CloudDrivePlugin() {
           <button type="button" className="secondary" disabled={!!busy || active || recovery} onClick={() => setConfirm({ title: "删除连接配置", text: `删除“${c.name}”的本机配置及加密凭据？不会删除云端对象或本地缓存。`, run: () => client.remove(c.id) })}>删除配置</button>
         </div></article>;
     })}</div>
-    <details className="drive-help"><summary>使用说明与数据保护</summary><p>挂载盘依赖网络，不能保证完整离线或多端协同。空目录、文件锁和重命名行为可能与本地磁盘不同；归档对象需先恢复。桶容量与磁盘显示的可用空间不一定对应。</p><p>缓存包含实际文件内容，不做额外加密，请放在可信的本机磁盘，敏感文件建议使用系统磁盘加密。异常退出后保留原连接和缓存，点击恢复挂载；不要手动删除缓存。应用正常退出前需安全卸载全部连接。</p><p>阿里云盘使用官方公开客户端授权，速度和额度受平台规则限制。删除使用云盘回收站；覆盖上传先完成临时文件，再将旧文件放入回收站，不保证跨设备原子覆盖。失败时云端可能留下 .cloudhub-upload- 临时文件，请确认本地缓存已恢复后再处理。覆盖已有目标的移动会拒绝执行，避免误删。其他 S3 厂商为兼容模板，实际读写能力需逐项验证。</p></details>
+    <details className="drive-environment"><summary><span>挂载环境</span><small>{dep.supported ? dep.installed && dep.winfsp ? "已就绪" : "待配置" : "桌面客户端可用"}</small></summary>    <div className="drive-dependencies"><div><strong>挂载引擎</strong><span>{dep.installed ? `已检测到 · ${dep.source}` : dep.supported ? `未安装 · 按需下载 rclone ${dep.version}` : "当前环境无挂载引擎"}</span></div><button type="button" className="secondary" disabled={!!busy || download.phase === "downloading"} onClick={() => void operate("下载挂载引擎", client.install, "挂载引擎已下载并通过 SHA-256 校验")}><Download size={14} aria-hidden="true" />{dep.installed ? "重新下载已校验版本" : "下载挂载引擎"}</button>
+      <div><strong>{dep.driver ?? "WinFsp"} 驱动</strong><span>{dep.winfsp ? "已检测到 · 挂载仍需具备系统权限" : "未检测到 · 安装可能需要管理员权限或重启"}</span></div><button type="button" className="secondary" disabled={!!busy} onClick={() => void operate("打开安装说明", client.winfsp, "已打开挂载驱动官方说明；安装后点击刷新")}>官方安装说明</button>
+</div>
+</details>
+    <details className="drive-help"><summary>使用说明与数据保护</summary><p>适合资料和媒体文件；上传完成后再卸载。不建议用作数据库、虚拟机或软件安装目录。公网流量、API 请求及归档恢复可能收费。</p><p>挂载盘依赖网络，不能保证完整离线或多端协同。空目录、文件锁和重命名行为可能与本地磁盘不同；归档对象需先恢复。桶容量与磁盘显示的可用空间不一定对应。</p><p>缓存包含实际文件内容，不做额外加密，请放在可信的本机磁盘，敏感文件建议使用系统磁盘加密。异常退出后保留原连接和缓存，点击恢复挂载；不要手动删除缓存。应用正常退出前需安全卸载全部连接。</p><p>阿里云盘使用官方公开客户端授权，速度和额度受平台规则限制。删除使用云盘回收站；覆盖上传先完成临时文件，再将旧文件放入回收站，不保证跨设备原子覆盖。失败时云端可能留下 .cloudhub-upload- 临时文件，请确认本地缓存已恢复后再处理。覆盖已有目标的移动会拒绝执行，避免误删。其他 S3 厂商为兼容模板，实际读写能力需逐项验证。</p></details>
     {editor && <ConnectionEditor key={editor.id || "new"} value={editor} platform={dep.platform} busy={!!busy} error={error} onClose={() => setEditor(null)} onSave={save} />}
     {authorization && <SharedDialog sizeStorageKey="features/plugins/cloud-drive-plugin/cloud-drive-plugin" title={`授权阿里云盘 · ${authorization.name}`} size="small" busy={!!busy} closeDisabled={!!busy} onClose={() => setAuthorization(null)} onSubmit={e => {
       e.preventDefault(); const form = e.currentTarget; const code = String(new FormData(form).get("code") ?? "").trim();

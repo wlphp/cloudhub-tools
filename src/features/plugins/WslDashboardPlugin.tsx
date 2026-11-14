@@ -471,8 +471,8 @@ export function WslDashboardPlugin({ open, enabled }: Props) {
       <nav className="wsl-tabs" role="tablist" aria-label="WSL 管理页面">{TABS.map(({ id, label, Icon }) => <button key={id} type="button" role="tab" id={`wsl-tab-${id}`} aria-selected={tab === id} aria-controls={`wsl-panel-${id}`} className={tab === id ? "is-active" : ""} onClick={() => { setTab(id); setError(""); setMessage(""); }}><Icon size={15} aria-hidden="true" />{label}</button>)}</nav>
       <div className="plugin-content-body">
         {!enabled && <p role="status">插件已停用，请回到软件列表启用后再管理发行版。</p>}
-        {(!runningInTauri || runningOnPhone) && <p role="status">{runningOnPhone ? "手机端无法访问本机 WSL，请在 Windows 桌面客户端使用。" : "浏览器预览无法访问本机 WSL，请在 Windows 桌面客户端使用。"}</p>}
-        {runningInTauri && !runningOnPhone && <>
+        {(!runningInTauri || runningOnPhone) && <p role="status">{runningOnPhone ? "界面预览 · WSL 实例需在 Windows 客户端读取。" : "界面预览 · WSL 实例需在 Windows 客户端读取。"}</p>}
+        {<>
           <div className="wsl-tab-panel" role="tabpanel" id={`wsl-panel-${tab}`} aria-labelledby={`wsl-tab-${tab}`}>
             {tab === "home" && <>
               <div className="wsl-home-toolbar">
@@ -508,7 +508,7 @@ export function WslDashboardPlugin({ open, enabled }: Props) {
                 {wslUpdating && <div className="wsl-update-progress" role="status" aria-live="polite"><strong>正在升级 Windows Subsystem for Linux</strong><progress aria-label="正在升级 WSL" /><span>由 Windows 检查并安装更新，运行中的发行版可能暂时不可用。</span></div>}
                 </div>
               </details>
-              {enabled && !busy && !error && items.length === 0 && <p role="status">未检测到已注册的 WSL 发行版。可在“安装”页添加发行版。</p>}
+              {enabled && !busy && !error && items.length === 0 && <div className="wsl-empty" role="status"><RefreshCw size={28} aria-hidden="true" /><strong>还没有发行版</strong><p>前往「安装」添加发行版，或在 Windows 客户端读取现有实例。</p><button type="button" className="primary" onClick={() => setTab("install")}>添加发行版</button></div>}
               {listOrder.error && <p role="alert">{listOrder.error}<button type="button" onClick={listOrder.retry}>重试</button></p>}
               {items.length > 0 && <div className="wsl-distro-list">{sortedItems.map(item => {
                 const running = isWslRunning(item.state);
@@ -642,7 +642,7 @@ export function WslDashboardPlugin({ open, enabled }: Props) {
         <dt>最后启动</dt><dd>{formatWslTimestamp((detailInfo ?? detailTarget).lastStartedAt)}</dd>
         {(detailInfo ?? detailTarget).remark && <><dt>备注</dt><dd>{(detailInfo ?? detailTarget).remark}</dd></>}
       </dl>}
-      {detailFeedback && <p className="wsl-details-feedback" role={detailInfo ? "status" : "alert"}>{detailFeedback}</p>}
+      <ToastNotice message={detailFeedback} tone={detailInfo ? "info" : "error"} />
       <small className="wsl-details-note">IP 只会在发行版运行时读取；磁盘用量统计 Linux 根文件系统已使用空间。</small>
     </SharedDialog>}
     {deleteTarget && <WslDeleteConfirmation key={deleteTarget.name} name={deleteTarget.name} busy={busy} backingUp={backingUp} error={error} message={message} onCancel={() => setDeleteTarget(null)} onBackup={() => void backup(deleteTarget)} onConfirm={confirmationName => void control(deleteTarget, "unregister", confirmationName)} />}

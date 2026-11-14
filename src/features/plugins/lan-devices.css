@@ -170,3 +170,31 @@
   .lan-device-dialog > .modal-body { gap: 16px; padding: 16px; }
   .lan-device-summary strong { font-size: 16px; }
 }
+
+.lan-table-caption { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.lan-search { display: flex; align-items: center; gap: 8px; padding: 0 12px; border: 1px solid var(--jb-border); border-radius: 8px; background: var(--jb-input); }
+.lan-search svg { flex-shrink: 0; color: var(--jb-muted); }
+.lan-devices .lan-search input { flex: 1; width: 0; padding: 0; margin: 0; height: 44px; min-height: 0; border: 0; outline: none; background: transparent; box-shadow: none; }
+.lan-search:focus-within { outline: 2px solid var(--jb-accent); outline-offset: 2px; }
+.lan-devices .lan-search input:focus-visible { outline: none; }
+body:has(.mobile-shell) .lan-intro { margin-bottom: 12px; }
+body:has(.mobile-shell) .lan-intro > svg, body:has(.mobile-shell) .lan-intro strong { display: none; }
+body:has(.mobile-shell) .lan-intro p { margin: 0; font-size: 12px; line-height: 1.6; }
+body:has(.mobile-shell) .lan-scan-form { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 12px; background: var(--jb-surface); border-radius: 10px; }
+body:has(.mobile-shell) .lan-scan-form > .lan-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+body:has(.mobile-shell) .lan-devices :is(input, select) { border: 1px solid var(--jb-border); border-radius: 8px; padding: 0 10px; color: var(--jb-text); background: var(--jb-input); }
+body:has(.mobile-shell) .lan-devices .lan-search input { border: 0; padding: 0; background: transparent; }
+body:has(.mobile-shell) .lan-devices label { font-size: 12px; color: var(--jb-muted); }
+body:has(.mobile-shell) .lan-devices button { padding: 0 8px; font-size: 12px; border: 1px solid var(--jb-border); border-radius: 8px; background: var(--jb-surface); color: var(--jb-text); }
+body:has(.mobile-shell) .lan-devices button[type=submit] { border-color: var(--jb-accent); color: var(--jb-accent); background: var(--jb-accent-soft); }
+body:has(.mobile-shell) .lan-devices button:disabled { opacity: .45; }
+body:has(.mobile-shell) .lan-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; padding: 4px; margin: 16px 0 12px; border: 1px solid var(--jb-border); border-radius: 10px; background: var(--jb-surface-2); }
+body:has(.mobile-shell) .lan-tabs button { border: 0; background: transparent; color: var(--jb-muted); }
+body:has(.mobile-shell) .lan-tabs button.is-active { color: var(--jb-accent); background: var(--jb-surface); font-weight: 600; }
+body:has(.mobile-shell) .lan-toolbar { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+body:has(.mobile-shell) .lan-muted { font-size: 12px; }
+body:has(.mobile-shell) .lan-empty { display: grid; justify-items: center; gap: 12px; padding: 28px 14px; border: 1px dashed var(--jb-border); border-radius: 10px; background: var(--jb-surface); }
+body:has(.mobile-shell) .lan-empty p { margin: 0; font-size: 12px; line-height: 1.6; }
+body:has(.mobile-shell) .lan-table:has(tbody:empty) { display: none; }
+body:has(.mobile-shell) .lan-help { margin-top: 12px; padding: 0 12px; border: 1px solid var(--jb-border); border-radius: 8px; font-size: 12px; color: var(--jb-muted); }
+body:has(.mobile-shell) .lan-help summary { display: flex; align-items: center; min-height: 44px; }

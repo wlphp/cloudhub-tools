@@ -1,7 +1,7 @@
 import { ToastNotice } from "../../shared/ToastNotice";
 import { useEffect, useRef, useState } from "react";
 import { Activity, ArrowDown, ArrowUp, Clock3, Gauge, History, Info, MapPin, Play, RefreshCw, Square } from "lucide-react";
-import { runningInTauri } from "../../platform/api";
+import { platformErrorMessage, runningInTauri } from "../../platform/api";
 import { speedTestClient, type SpeedNetworkInfo, type SpeedTestConfig, type SpeedRun } from "../../platform/clients/speed-test";
 import "./network-speed.css";
 import { estimateBandwidth } from "./bandwidth-estimate";
@@ -98,11 +98,10 @@ export function NetworkSpeedPlugin() {
     if (lock.current) return;
     lock.current = true; setBusy(true); setError("");
     try { await action(); }
-    catch (reason) { if (mounted.current) setError(String(reason)); }
+    catch (reason) { if (mounted.current) setError(platformErrorMessage(reason)); }
     finally { lock.current = false; if (mounted.current) setBusy(false); }
   }
   async function start() {
-    if (!runningInTauri) return;
     if (config.node === "custom") {
       let url: URL;
       try { url = new URL(config.baseUrl); } catch { throw new Error("请输入有效的公网 HTTPS 节点地址"); }
@@ -116,16 +115,16 @@ export function NetworkSpeedPlugin() {
   }
 
   return <section className="network-speed" aria-label="网络测速工具">
-    {!runningInTauri && <p className="speed-preview-notice" role="status">网页预览仅展示测速界面；测速、设备网络信息和本机历史需在 CloudHub 桌面或手机 App 中使用。</p>}
+    {!runningInTauri && <p className="speed-preview-notice" role="status">可选择节点和参数预览界面；实际测速由 App 执行。</p>}
     <div className="speed-tabs" role="group" aria-label="测速视图">{([['test', '测速'], ['history', '历史记录']] as const).map(([value, label]) => <button type="button" key={value} className={tab === value ? "is-active" : ""} aria-pressed={tab === value} onClick={() => setTab(value)}>{value === "test" ? <Gauge size={14} aria-hidden="true" /> : <History size={14} aria-hidden="true" />}{label}</button>)}</div>
     {error && <ToastNotice message={error} tone="error" />}
     {tab === "test" ? <>
       <form className="speed-form" onSubmit={event => { event.preventDefault(); void operate(start); }}>
-        <label>测速节点<select value={config.node} disabled={!runningInTauri || busy || running} onChange={e => setConfig(c => ({ ...c, node: e.target.value as SpeedTestConfig["node"] }))}><option value="cn-qiniu">国内 · 七牛 CDN（仅下载）</option><option value="cn-alipay">国内 · 支付宝 CDN（仅下载）</option><option value="cloudflare">Cloudflare · 自动边缘节点（下载 / 上传）</option><option value="custom">自建兼容节点</option></select></label>
-        <label>每方向时长<select value={config.durationSecs} disabled={!runningInTauri || busy || running} onChange={e => setConfig(c => ({ ...c, durationSecs: Number(e.target.value) }))}>{[5, 10, 15].map(v => <option key={v} value={v}>{v} 秒</option>)}</select></label>
-        <label>总载荷上限<select value={config.limitMib} disabled={!runningInTauri || busy || running} onChange={e => setConfig(c => ({ ...c, limitMib: Number(e.target.value) }))}>{[50, 200, 500].map(v => <option key={v} value={v}>{v} MiB</option>)}</select></label>
-        <div className="speed-actions">{running ? <button type="button" className="secondary speed-stop" disabled={!runningInTauri || busy || stopping} onClick={() => void operate(async () => { await speedTestClient.cancel(run!.id); if (mounted.current) setStopping(true); })}><Square size={14} aria-hidden="true" />{stopping ? "正在停止…" : "停止测速"}</button> : <button type="submit" className="primary" disabled={!runningInTauri || busy || loading}><Play size={15} aria-hidden="true" />开始测速</button>}</div>
-        {config.node === "custom" && <label className="speed-custom">节点基础地址<input type="url" required maxLength={512} placeholder="https://speed.example.com/" value={config.baseUrl} disabled={!runningInTauri || busy || running} onChange={e => setConfig(c => ({ ...c, baseUrl: e.target.value }))} /><small>需支持 Cloudflare 兼容的 __down?bytes=N 和 __up 接口，仅接受公网 HTTPS。</small></label>}
+        <label>测速节点<select aria-label="测速节点" value={config.node} disabled={busy || running} onChange={e => setConfig(c => ({ ...c, node: e.target.value as SpeedTestConfig["node"] }))}><option value="cn-qiniu">国内 · 七牛 CDN（仅下载）</option><option value="cn-alipay">国内 · 支付宝 CDN（仅下载）</option><option value="cloudflare">Cloudflare · 自动边缘节点（下载 / 上传）</option><option value="custom">自建兼容节点</option></select></label>
+        <label>每方向时长<select aria-label="每方向时长" value={config.durationSecs} disabled={busy || running} onChange={e => setConfig(c => ({ ...c, durationSecs: Number(e.target.value) }))}>{[5, 10, 15].map(v => <option key={v} value={v}>{v} 秒</option>)}</select></label>
+        <label>总载荷上限<select aria-label="总载荷上限" value={config.limitMib} disabled={busy || running} onChange={e => setConfig(c => ({ ...c, limitMib: Number(e.target.value) }))}>{[50, 200, 500].map(v => <option key={v} value={v}>{v} MiB</option>)}</select></label>
+        <div className="speed-actions">{running ? <button type="button" className="secondary speed-stop" disabled={!runningInTauri || busy || stopping} onClick={() => void operate(async () => { await speedTestClient.cancel(run!.id); if (mounted.current) setStopping(true); })}><Square size={14} aria-hidden="true" />{stopping ? "正在停止…" : "停止测速"}</button> : <button type="submit" className="primary" disabled={busy || loading}><Play size={15} aria-hidden="true" />开始测速</button>}</div>
+        {config.node === "custom" && <label className="speed-custom">节点基础地址<input type="url" required maxLength={512} placeholder="https://speed.example.com/" value={config.baseUrl} disabled={busy || running} onChange={e => setConfig(c => ({ ...c, baseUrl: e.target.value }))} /><small>需支持 Cloudflare 兼容的 __down?bytes=N 和 __up 接口，仅接受公网 HTTPS。</small></label>}
       </form>
       <div className="speed-status" role="status" aria-live="polite"><strong>{loading ? "正在读取测速状态…" : running ? `${stopping ? "正在停止" : phaseText[run.phase]}` : run ? statusText[run.status] : "准备就绪"}</strong><span>{run ? `${number(run.elapsedSecs)} 秒 · ${traffic(run.trafficBytes)} / ${run.limitMib} MiB${run.colo ? ` · 节点 ${run.colo}` : ""}` : `每方向 ${config.durationSecs} 秒 · 上限 ${config.limitMib} MiB`}</span></div>
       <div className={`speed-metrics${resultDownloadOnly ? " is-download-only" : ""}`}>

@@ -242,7 +242,7 @@
   .ai-supplier-manager .ai-supplier-table td[data-label]:not(.ai-supplier-name)::before { content: attr(data-label) "："; color: var(--jb-muted); font-size: 11px; }
   .ai-supplier-manager .ai-supplier-table :is(.ai-supplier-name,.ai-supplier-protocol,.ai-supplier-address,.ai-supplier-operations) { grid-column: 1 / -1; }
   .ai-supplier-manager .ai-supplier-table .ai-supplier-model span { display: inline; }
-  .ai-supplier-manager .ai-supplier-table .ai-supplier-model small { display: inline; margin-left: 6px; }
+  .ai-supplier-manager .ai-supplier-table .ai-supplier-model small { display: inline; margin-left: 6px; white-space: nowrap; }
   .ai-supplier-manager .ai-supplier-table .ai-supplier-state span { display: inline; }
   .ai-supplier-manager .ai-supplier-table .ai-supplier-operations { margin-top: 3px; }
 }
