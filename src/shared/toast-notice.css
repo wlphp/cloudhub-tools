@@ -9,5 +9,18 @@
 .app-toast-stack .app-toast-close { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 24px; width: 24px; height: 24px; min-height: 24px; margin: -2px -4px 0 0; padding: 3px; border: 0; background: transparent; color: var(--jb-muted); cursor: pointer; }
 .app-toast-stack button:focus-visible { outline: 2px solid var(--jb-accent); outline-offset: -2px; }
 @media(max-width:600px) { .app-toast-stack { top: max(12px,env(safe-area-inset-top,0px)); right: 10px; width: min(420px,calc(100vw - 20px)); } .app-toast-stack .app-toast-close { flex-basis: 32px; width: 32px; height: 32px; } }
+/* 手机端使用底部轻提示，避开页面标题和连接操作，给底部导航预留空间。 */
+body:has(.mobile-shell) .app-toast-stack { inset:auto 0 calc(76px + env(safe-area-inset-bottom,0px)); width:min(420px,calc(100vw - 24px)); max-width:calc(100vw - 24px); max-height:calc(100dvh - 160px - env(safe-area-inset-bottom,0px)); margin-inline:auto; align-items:center; }
+body:has(.mobile-shell) .app-toast-stack .app-toast-notice { align-items:center; gap:8px; padding:4px 4px 4px 12px; border-color:var(--mobile-border); border-radius:12px; background:var(--mobile-surface); color:var(--mobile-text); box-shadow:0 4px 18px #0002; font-size:13px; line-height:1.5; }
+body:has(.mobile-shell) .app-toast-stack .app-toast-notice > svg { margin:0; color:var(--mobile-accent); }
+body:has(.mobile-shell) .app-toast-stack .app-toast-notice.is-error { border-color:var(--mobile-danger,var(--jb-danger)); }
+body:has(.mobile-shell) .app-toast-stack .app-toast-notice.is-error > svg { color:var(--mobile-danger,var(--jb-danger)); }
+body:has(.mobile-shell) .app-toast-stack .app-toast-close { flex:0 0 44px; width:44px; height:44px; min-height:44px; margin:0; padding:0; border-radius:8px; color:var(--mobile-muted); }
+body:has(.mobile-shell) .app-toast-stack .app-toast-close:focus-visible { outline-color:var(--mobile-focus); }
+/* 轻提示不占用表单的触控区域；关闭控件仍可单独点击。 */
+body:has(.mobile-shell) .app-toast-stack .app-toast-notice { pointer-events:none; }
+body:has(.mobile-shell) .app-toast-stack .app-toast-close,
+body:has(.mobile-shell) .app-toast-content button { pointer-events:auto; }
+body:has(.mobile-shell) .app-toast-stack .app-toast-notice.is-progress { padding-block:12px; padding-right:12px; }
 @media(prefers-reduced-motion:no-preference) { .app-toast-notice.is-progress > svg { animation: app-toast-spin 1s linear infinite; } }
 @keyframes app-toast-spin { to { transform: rotate(360deg); } }

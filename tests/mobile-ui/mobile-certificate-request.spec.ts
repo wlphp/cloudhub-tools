@@ -1,3 +1,4 @@
+import { openMobileFeature } from "./navigation";
 import { expect, test, type Page } from "@playwright/test";
 import { certificateDomains, validateCertificateRequest } from "../../src/mobile/certificate-request";
 
@@ -26,7 +27,7 @@ async function fixture(page: Page) {
       transformCallback:(callback:any)=>{ callbacks.set(++next,callback);return next; },unregisterCallback:(id:number)=>callbacks.delete(id),
       invoke:async (command:string,args:any={})=>{
         state.calls.push({command,args});
-        if(command === "list_accounts")return [{id:1,account_name:"DNS 账号一",cloud_type:"aliyun",enabled:true},{id:2,account_name:"DNS 账号二",cloud_type:"aliyun",enabled:true}];
+        if(command === "member_me") return null; if(command === "list_accounts")return [{id:1,account_name:"DNS 账号一",cloud_type:"aliyun",enabled:true},{id:2,account_name:"DNS 账号二",cloud_type:"aliyun",enabled:true}];
         if(command === "list_local_assets")return [{account_id:1,resource_type:"domain",asset_key:"example.com",payload:{DomainName:"example.com"}},{account_id:2,resource_type:"domain",asset_key:"other.com",payload:{DomainName:"other.com"}}];
         if(command === "plugin:event|listen") {if(args.event==="certificate-request-progress") progressHandler=args.handler;return args.handler;}
         if(command === "plugin:event|unlisten")return;
@@ -45,8 +46,8 @@ async function fixture(page: Page) {
 
 async function open(page:Page) {
   await page.goto("/");
-  await page.locator(".mobile-tab-bar").getByRole("button",{name:"更多",exact:true}).click();
-  await page.locator(".mobile-more-feature").filter({hasText:"证书管理"}).click();
+  await page.locator(".mobile-tab-bar").getByRole("button",{name:"我的",exact:true}).click();
+  await openMobileFeature(page, "证书管理");
   await page.getByRole("button",{name:"申请证书",exact:true}).click();
   await expect(page.getByRole("dialog")).toBeVisible();
   await expect(page.getByLabel("DNS 区域",{exact:true})).toHaveValue("example.com");

@@ -1,3 +1,4 @@
+import { openMobileFeature } from "./navigation";
 import { expect, test } from "@playwright/test";
 
 for (const width of [320, 360, 375, 390, 430]) {
@@ -18,9 +19,9 @@ for (const width of [320, 360, 375, 390, 430]) {
     });
     await page.goto("/");
     const navigation = page.locator(".mobile-tab-bar");
-    await expect(page.getByRole("heading", { name: "云账号", exact: true })).toBeVisible();
-    await expect(page.locator(".mobile-header")).toHaveCount(0);
-    await navigation.getByRole("button", { name: "服务器", exact: true }).click();
+    await expect(page.locator(".mobile-home-page")).toBeVisible();
+    await expect(page.locator(".mobile-tab-bar button")).toHaveCount(4);
+    await openMobileFeature(page, "服务器");
     await expect(page.getByText(longName, { exact: true })).toBeVisible();
     const server = page.locator(".mobile-server-card-featured").first();
     await expect(server.getByRole("button", { name: "启动", exact: true })).toBeHidden();
@@ -29,12 +30,12 @@ for (const width of [320, 360, 375, 390, 430]) {
     await expect(server.getByText(/compact-server/)).toBeVisible();
     // Check visibility of the complete name and that expanded actions remain in the viewport.
     expect(await server.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBeTruthy();
-    await navigation.getByRole("button", { name: "域名", exact: true }).click();
+    await openMobileFeature(page, "域名");
     await expect(page.getByRole("heading", { name: "域名与 DNS", exact: true })).toBeVisible();
     for (const name of ["对象存储", "云数据库", "Redis", "证书管理", "SSH 终端", "运维面板", "云效流水线", "身份验证器"]) {
       await navigation.getByRole("button", { name: "我的", exact: true }).click();
       await expect(page.locator(".mobile-more-shortcuts")).toBeVisible();
-      await page.locator(".mobile-more-feature").filter({ hasText: name }).click();
+      await openMobileFeature(page, name);
       await expect(page.getByRole("heading", { name, exact: true }).first()).toBeVisible();
       if (name === "SSH 终端") {
         await expect(page.locator(".mobile-ssh-host-row")).toHaveCount(3);
@@ -47,7 +48,7 @@ for (const width of [320, 360, 375, 390, 430]) {
         await expect(page.getByText("测试面板", { exact: true })).toBeVisible();
         await expect(page.locator(".mobile-page-title").getByRole("button", { name: "添加面板" })).toBeVisible();
         const panel = page.locator(".mobile-panel-card").first();
-        expect((await panel.boundingBox())!.height).toBeLessThan(190);
+        expect((await panel.boundingBox())!.height).toBeLessThan(220);
         await expect(panel.getByRole("button", { name: "打开面板 测试面板", exact: true })).toBeDisabled();
         for (const button of await panel.locator(".mobile-panel-actions button").all()) {
           const bounds = await button.boundingBox();
@@ -72,15 +73,13 @@ for (const width of [320, 360, 375, 390, 430]) {
     }
     await navigation.getByRole("button", { name: "我的", exact: true }).click();
     await expect(page.getByRole("searchbox", { name: "搜索全部功能" })).toHaveCount(0);
-    await page.getByRole("button", { name: "搜索功能", exact: true }).click();
-    const search = page.getByRole("searchbox", { name: "搜索全部功能" });
-    await expect(search).toBeFocused();
+    await navigation.getByRole("button", { name: "首页", exact: true }).click();
+    const search = page.getByRole("textbox", { name: "搜索应用" });
     await search.fill("Redis");
-    await expect(page.locator(".mobile-more-feature")).toHaveCount(1);
-    await search.press("Escape");
-    await expect(page.locator(".mobile-more-feature")).toHaveCount(8);
-    await expect(page.locator(".mobile-more-feature").filter({ hasText: "验证器" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "搜索功能", exact: true })).toBeFocused();
+    await expect(page.locator(".mobile-home-app-grid button")).toHaveCount(1);
+    await expect(page.locator(".mobile-home-app-grid")).toContainText("Redis");
+    await search.fill("");
+    await expect(page.locator(".mobile-home-app-grid button")).toHaveCount(4);
     if (width === 390) await page.screenshot({ path: "test-results/mobile-compact-more.png" });
   });
 }

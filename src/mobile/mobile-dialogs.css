@@ -408,3 +408,20 @@ body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog .dialog-f
 body:has(.mobile-shell) .shared-dialog-backdrop .dialog-field-heading > button { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; padding: 4px; border: 0; background: transparent; color: var(--mobile-accent); font: inherit; }
 body:has(.mobile-shell) .shared-dialog-backdrop .dialog-field-action > button { min-width: 44px; min-height: 44px; }
 body:has(.mobile-shell) .shared-dialog-backdrop .dialog-field-heading:has(> button) { padding-top: 0; }
+/* 移动确认框：紧凑标题、分层文案与等宽操作，保留公共焦点/关闭行为。 */
+body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog.shared-confirm-dialog {
+  width: min(400px, calc(100vw - 32px)); border: 1px solid var(--mobile-border);
+  border-radius: 16px; box-shadow: 0 16px 48px #0003;
+}
+body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog.shared-confirm-dialog > .modal-head { min-height: 60px; padding: 12px 12px 0 16px; gap: 10px; align-items: center; }
+body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog.shared-confirm-dialog > .modal-head > svg { width: 32px; height: 32px; padding: 7px; border-radius: 9px; background: var(--mobile-accent-soft); }
+body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog.shared-confirm-dialog .dialog-header-actions { align-self: center; }
+body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog.shared-confirm-dialog .dialog-header-actions > button { border-radius: 8px !important; background: transparent !important; }
+body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog.shared-confirm-dialog > .modal-body { flex: 0 1 auto; display: block; padding: 14px 16px 20px; }
+body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog.shared-confirm-dialog .confirm-message { color: var(--mobile-text); font-size: 14px; font-weight: 550; line-height: 1.6; }
+body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog.shared-confirm-dialog .confirm-detail { margin-top: 8px; color: var(--mobile-muted); font-size: 13px; font-weight: 400; line-height: 1.6; }
+body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog.shared-confirm-dialog .modal-body [role="alert"] { margin-top: 10px; color: var(--mobile-danger); font-size: 13px; }
+body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog.shared-confirm-dialog > .modal-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding: 0 16px 16px; }
+body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog.shared-confirm-dialog .modal-actions > button { width: 100%; min-width: 0; height: 44px; min-height: 44px; padding: 0 12px; border-radius: 9px; font-size: 14px; font-weight: 600; box-shadow: none; }
+body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog.shared-confirm-dialog.is-danger { --dialog-primary: color-mix(in srgb, var(--mobile-danger) 80%, #000); }
+body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog.shared-confirm-dialog.is-danger > .modal-head > svg { color: var(--mobile-danger); background: color-mix(in srgb, var(--mobile-danger) 8%, var(--mobile-surface)); }

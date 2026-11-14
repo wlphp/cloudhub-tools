@@ -326,7 +326,7 @@ test("model provider management, masked editing and configuration recovery", asy
   await expect(historyDialog.getByRole("combobox", { name: "备份目标", exact: true })).toHaveValue("default");
   await historyDialog.getByRole("button", { name: "恢复", exact: true }).last().click();
   await page.getByRole("alertdialog", { name: "恢复所选 Codex 备份" }).getByRole("button", { name: "确认恢复", exact: true }).click();
-  await expect(historyDialog.getByText(/已恢复所选备份/)).toBeVisible();
+  await expect(page.getByText(/已恢复所选备份/)).toBeVisible();
   await historyDialog.getByRole("button", { name: "关闭", exact: true }).click();
   await page.keyboard.press("Escape");
   await card.getByRole("button", { name: "编辑 Example Provider", exact: true }).click();
@@ -364,7 +364,7 @@ test("model provider management, masked editing and configuration recovery", asy
   await aggregateLaunch.getByRole("button", { name: "备份与恢复", exact: true }).click();
   await historyDialog.getByRole("button", { name: "恢复", exact: true }).last().click();
   await page.getByRole("alertdialog", { name: "恢复所选 Codex 备份" }).getByRole("button", { name: "确认恢复", exact: true }).click();
-  await expect(historyDialog.getByText(/已恢复所选备份/)).toBeVisible();
+  await expect(page.getByText(/已恢复所选备份/)).toBeVisible();
   await historyDialog.getByRole("button", { name: "关闭", exact: true }).click();
   await page.keyboard.press("Escape");
   const aggregateSection = page.getByRole("region", { name: "聚合供应商", exact: true });

@@ -353,3 +353,67 @@ body:has(.mobile-shell) .wsl-empty p { margin: 0; color: var(--jb-muted); font-s
 body:has(.mobile-shell) .hardware-info-tabs button { flex-direction: column; gap: 3px; padding: 6px 2px; white-space: nowrap; }
 body:has(.mobile-shell) .hardware-info-tabs button svg { flex-shrink: 0; }
 body:has(.mobile-shell) .hardware-info-summary { margin-bottom: 8px; }
+/* 移动商店应用的共同版式：工具栏先操作，表单逐行对齐，状态保留可见。 */
+body:has(.mobile-shell) .plugin-page-body :where(button:not([role="switch"])) { font-family: inherit; font-size: 13px; line-height: 1.4; }
+body:has(.mobile-shell) .plugin-page-body :where(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea) { box-sizing: border-box; border: 1px solid var(--mobile-border); border-radius: 8px; background: var(--mobile-surface); color: var(--mobile-text); font-family: inherit; }
+body:has(.mobile-shell) .plugin-page-body :where(label) { min-width: 0; }
+body:has(.mobile-shell) .plugin-page-body :where(h2) { font-size: 16px; line-height: 1.5; }
+body:has(.mobile-shell) .plugin-page-body :where(h3) { font-size: 14px; line-height: 1.5; }
+body:has(.mobile-shell) .plugin-page-body :where(details) > summary { display: flex; align-items: center; min-height: 44px; gap: 8px; font-size: 13px; }
+/* 分组/全选独立一行，避免被全局 label 的竖排样式拆开。 */
+body:has(.mobile-shell) .plugin-page-body .sort-selection-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
+body:has(.mobile-shell) .plugin-page-body .sort-select-all { display: inline-flex; align-items: center; flex-direction: row; min-height: 44px; margin: 0; gap: 8px; font-size: 12px; }
+body:has(.mobile-shell) .plugin-page-body .sortable-item-checkbox { box-sizing: border-box; width: 16px; height: 16px; min-height: 0; margin: 0; padding: 0; flex: 0 0 16px; accent-color: var(--mobile-accent); }
+/* 搜索框只由外框表达聚焦，覆盖遗留 label/input 默认边框。 */
+body:has(.mobile-shell) .plugin-page-host :is(.browser-search, .env-manager-search, .startup-manager-search, .lan-search) { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 44px; margin: 0; padding: 0 12px; border: 1px solid var(--mobile-border); border-radius: 10px; background: var(--mobile-surface); color: var(--mobile-muted); }
+body:has(.mobile-shell) .plugin-page-host :is(.browser-search, .env-manager-search, .startup-manager-search, .lan-search) > svg { flex: 0 0 auto; }
+body:has(.mobile-shell) .plugin-page-host :is(.browser-search, .env-manager-search, .startup-manager-search, .lan-search) input { flex: 1; width: 0; min-width: 0; height: 44px; margin: 0; padding: 0; border: 0 !important; border-radius: 0; outline: none !important; background: transparent !important; box-shadow: none !important; font-size: 14px; }
+body:has(.mobile-shell) .plugin-page-host :is(.browser-search, .env-manager-search, .startup-manager-search, .lan-search):focus-within { outline: 2px solid var(--mobile-accent); outline-offset: 1px; }
+/* 原生诊断工具：信息区和命令区分层，说明/风险不与按钮混排。 */
+body:has(.mobile-shell) :is(.env-manager, .startup-manager, .lan-devices, .network-speed, .windows-toolbox) { font-size: 13px; line-height: 1.6; }
+body:has(.mobile-shell) :is(.env-manager-toolbar, .env-manager-tools, .startup-manager-controls, .lan-actions, .speed-actions) { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+body:has(.mobile-shell) :is(.env-manager-tools, .lan-actions, .speed-actions) > button { flex: 1 1 100px; min-height: 44px; padding: 8px 12px; border-radius: 8px; }
+body:has(.mobile-shell) .env-manager-toolbar { align-items: stretch; }
+body:has(.mobile-shell) .env-manager-search { width: 100%; flex: 1 1 100%; }
+body:has(.mobile-shell) .env-manager-tools { width: 100%; }
+body:has(.mobile-shell) :is(.env-manager-filters, .startup-manager-tabs, .lan-tabs, .speed-tabs, .browser-tabs) { display: flex; flex-wrap: wrap; gap: 8px; padding: 4px; border: 0; border-radius: 10px; background: var(--mobile-raised); }
+body:has(.mobile-shell) :is(.env-manager-filters, .startup-manager-tabs, .lan-tabs, .speed-tabs, .browser-tabs) > button { flex: 1 1 auto; min-height: 44px; padding: 0 10px; border: 0; border-radius: 7px; font-size: 12px; }
+body:has(.mobile-shell) :is(.env-manager-warning, .http-debug-proxy-platform-notice, .windows-toolbox-notice, .startup-manager-notice, .speed-preview-notice, .browser-notice) { border-radius: 10px; padding: 10px 12px; font-size: 12px; line-height: 1.6; }
+body:has(.mobile-shell) :is(.lan-scan-form, .speed-form) { gap: 12px; padding: 12px; border: 1px solid var(--mobile-border); border-radius: 12px; background: var(--mobile-surface); }
+body:has(.mobile-shell) :is(.lan-scan-form, .speed-form) label { display: flex; flex-direction: column; gap: 6px; margin: 0; font-size: 12px; color: var(--mobile-muted); }
+body:has(.mobile-shell) :is(.lan-scan-form, .speed-form) :is(input:not([type="checkbox"]), select) { height: 44px; margin: 0; padding: 0 10px; font-size: 14px; }
+body:has(.mobile-shell) .lan-toolbar { gap: 10px; }
+body:has(.mobile-shell) .lan-search { flex: 1 1 100%; }
+body:has(.mobile-shell) .startup-manager-heading { align-items: center; gap: 8px; }
+body:has(.mobile-shell) .startup-manager-footer { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+body:has(.mobile-shell) .startup-manager-footer label { display: inline-flex; flex-direction: row; gap: 8px; margin: 0; min-height: 44px; align-items: center; }
+body:has(.mobile-shell) .windows-toolbox-grid { gap: 12px; }
+body:has(.mobile-shell) .windows-toolbox-card { padding: 12px; border: 1px solid var(--mobile-border); border-radius: 12px; background: var(--mobile-surface); box-shadow: none; }
+body:has(.mobile-shell) .windows-toolbox-card-copy { gap: 4px; }
+body:has(.mobile-shell) .windows-toolbox-card-actions { gap: 8px; margin-top: 10px; }
+/* 云盘、邮件、模型与运维工作区沿用相同的段落和工具栏节奏。 */
+body:has(.mobile-shell) :is(.drive-toolbar, .mail-toolbar, .ai-supplier-toolbar, .certificate-toolbar, .auth-actions, .flow-mobile-connect-actions) { gap: 8px; align-items: center; }
+body:has(.mobile-shell) :is(.drive-toolbar, .mail-toolbar) > button { min-height: 44px; padding: 0 12px; border-radius: 8px; }
+body:has(.mobile-shell) :is(.drive-empty, .browser-empty, .mail-empty, .auth-empty, .notes-empty, .startup-manager-empty) { border-radius: 12px; padding: 28px 16px; background: var(--mobile-surface); }
+body:has(.mobile-shell) :is(.drive-help, .drive-environment, .wechat-help, .lan-help, .windows-toolbox-help) { margin-top: 12px; border: 1px solid var(--mobile-border); border-radius: 10px; padding: 0 12px; background: var(--mobile-surface); }
+body:has(.mobile-shell) .wechat-setting-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+body:has(.mobile-shell) .wechat-setting-row > label { margin: 0; }
+body:has(.mobile-shell) .wechat-setting-row > :is(select, button) { min-height: 44px; margin: 0; }
+body:has(.mobile-shell) :is(.hardware-overview-grid, .wsl-summary-grid) { gap: 10px; }
+body:has(.mobile-shell) .http-debug-proxy-toolbar { gap: 8px; }
+body:has(.mobile-shell) .http-debug-proxy-toolbar > button { min-height: 44px; padding: 0 12px; }
+body:has(.mobile-shell) :is(.claude-work-tabs, .codex-tabs, .auth-actions, .frp-tabs) { min-width: 0; }
+/* 较宽手机也保持操作行紧凑，不把桌面按钮拉成大块。 */
+@media (min-width: 480px) {
+  body:has(.mobile-shell) .plugin-page-host :is(.drive-toolbar, .mail-toolbar, .env-manager-tools) > button { flex: 0 1 auto; }
+}
+/* 兼容旧模块语义变量，避免深色主题的表头回退为浅色硬编码。 */
+body:has(.mobile-shell) .plugin-page-host {
+  --surface-subtle: var(--mobile-raised);
+  --border-color: var(--mobile-border);
+  --text-primary: var(--mobile-text);
+  --text-secondary: var(--mobile-muted);
+  --text-muted: var(--mobile-muted);
+  --text-color: var(--mobile-text);
+  --accent-color: var(--mobile-accent);
+}

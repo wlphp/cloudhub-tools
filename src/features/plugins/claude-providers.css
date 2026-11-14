@@ -310,6 +310,7 @@ body:has(.mobile-shell) .claude-icon-button.is-danger:not(:disabled):hover {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0;
 }
 .claude-mode-bar { padding-bottom: 12px; border-bottom: 1px solid var(--jb-border); }
+.claude-mode-selector { display:flex; align-items:center; gap:8px; min-width:0; }
 .claude-mode-tabs { gap: 0; border: 1px solid var(--jb-border-strong); border-radius: 4px; overflow: hidden; }
 .claude-mode-tabs button, .claude-work-tabs button {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 32px;
@@ -564,6 +565,9 @@ body:has(.mobile-shell) .claude-management-workbench .claude-providers-actions >
 body:has(.mobile-shell) .claude-management-workbench .claude-list-toolbar > .claude-list-selection { order: 2; width: 100%; }
 body:has(.mobile-shell) .claude-management-workbench .claude-mode-tabs { display: flex; flex: 1; width: 100%; }
 body:has(.mobile-shell) .claude-management-workbench .claude-mode-tabs button { min-height: 44px; flex: 1; }
+body:has(.mobile-shell) .plugin-page-host:has(.claude-providers) .claude-mode-selector { display:grid; grid-template-columns:minmax(0,1fr) 44px; grid-column:1 / -1; grid-row:1; align-items:center; gap:8px; width:100%; }
+body:has(.mobile-shell) .plugin-page-host:has(.claude-providers) .claude-mode-selector > .claude-mode-tabs { width:100%; max-width:none; }
+body:has(.mobile-shell) .plugin-page-host:has(.claude-providers) .claude-mode-selector > .shared-help-trigger { justify-self:end; width:44px; height:44px; min-height:44px; }
 body:has(.mobile-shell) .claude-management-workbench .claude-work-tabs { scrollbar-width: none; }
 body:has(.mobile-shell) .claude-management-workbench .claude-work-tabs::-webkit-scrollbar { display: none; }
 body:has(.mobile-shell) .claude-management-workbench .claude-provider-item { padding: 10px; border-radius: 8px; }

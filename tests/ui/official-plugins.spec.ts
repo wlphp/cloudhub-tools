@@ -11,7 +11,8 @@ test("环境变量管理标明 Windows 范围并在预览中渲染真实界面",
   // 预览不再拦截整页：真实界面渲染，本机变量读取不可用时不伪造数据。
   await expect(page.getByText("直接管理 Windows 环境变量", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "新增变量" })).toBeVisible();
-  await expect(page.locator(".env-manager-table tbody tr")).toHaveCount(0);
+  await expect(page.locator(".env-manager-empty")).toContainText("环境变量尚未加载");
+  await expect(page.locator(".env-manager-table tbody input")).toHaveCount(0);
 });
 
 test.describe("已保存配置批量启动", () => {

@@ -1,3 +1,4 @@
+import { openMobileFeature } from "./navigation";
 import { expect, test } from "@playwright/test";
 
 for (const width of [320, 375, 430]) {
@@ -39,8 +40,8 @@ for (const width of [320, 375, 430]) {
       await route.fulfill({ json: value });
     });
     await page.goto("/");
-    await page.locator(".mobile-tab-bar").getByRole("button", { name: "更多", exact: true }).click();
-    await page.locator(".mobile-more-feature").filter({ hasText: "云效流水线" }).click();
+    await page.locator(".mobile-tab-bar").getByRole("button", { name: "我的", exact: true }).click();
+    await openMobileFeature(page, "云效流水线");
     await expect(page.getByText(/云效流水线需在桌面或手机 App/)).toHaveCount(0);
     await page.getByRole("button", { name: "配置连接", exact: true }).click();
     await page.getByLabel("连接名称", { exact: true }).fill("浏览器组织");
@@ -102,8 +103,8 @@ for (const width of [375, 768, 1024, 1440]) {
       return route.fulfill({ json: [] });
     });
     await page.goto("/");
-    await page.locator(".mobile-tab-bar").getByRole("button", { name: "更多", exact: true }).click();
-    await page.locator(".mobile-more-feature").filter({ hasText: "云效流水线" }).click();
+    await page.locator(".mobile-tab-bar").getByRole("button", { name: "我的", exact: true }).click();
+    await openMobileFeature(page, "云效流水线");
     await expect(page.locator(".flow-mobile-card")).toHaveCount(3);
     await expect(page.getByRole("alert")).toBeVisible();
     await expect(page.getByText(/更新于/)).toBeVisible();
@@ -116,12 +117,12 @@ for (const width of [375, 768, 1024, 1440]) {
     await expect(page.locator(".flow-mobile-card")).toHaveCount(3);
     expect(cloudRequests).toBe(2);
     if (width === 375) {
-      await page.getByRole("button", { name: "关闭错误", exact: true }).click();
+      await page.getByRole("button", { name: "关闭通知", exact: true }).click();
       await page.screenshot({ path: "test-results/flow-local-cache-375.png" });
     }
     await page.reload();
-    await page.locator(".mobile-tab-bar").getByRole("button", { name: "更多", exact: true }).click();
-    await page.locator(".mobile-more-feature").filter({ hasText: "云效流水线" }).click();
+    await page.locator(".mobile-tab-bar").getByRole("button", { name: "我的", exact: true }).click();
+    await openMobileFeature(page, "云效流水线");
     await expect(page.locator(".flow-mobile-card")).toHaveCount(3);
   });
 }

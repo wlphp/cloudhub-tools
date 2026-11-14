@@ -125,11 +125,11 @@ test("Worker access, draft discard and partial sync feedback", async ({ page }) 
   const access = page.getByRole("dialog", { name: "demo-worker · 访问地址", exact: true });
   await expect(access.getByRole("textbox")).toHaveValue("https://demo-worker.example.workers.dev");
   await access.getByRole("button", { name: "复制地址", exact: true }).click();
-  await expect(access).toContainText("地址已复制");
+  await expect(page.locator(".app-toast-notice")).toContainText("地址已复制");
   expect(await page.evaluate(() => (window as any).cfCopiedUrl)).toBe("https://demo-worker.example.workers.dev");
   await page.evaluate(() => { navigator.clipboard.writeText = async () => { throw new Error("Clipboard denied"); }; });
   await access.getByRole("button", { name: "复制地址", exact: true }).click();
-  await expect(access.getByRole("alert")).toContainText("手动复制");
+  await expect(page.locator(".app-toast-notice")).toContainText("手动复制");
   for (const width of [375, 768, 1024, 1440]) {
     await page.setViewportSize({ width, height: 900 });
     expect(await access.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
@@ -141,7 +141,7 @@ test("Worker access, draft discard and partial sync feedback", async ({ page }) 
   await expect(access.getByRole("textbox")).toHaveCount(0);
   await page.evaluate(() => { (window as any).cfAccessMode = "denied"; });
   await access.getByRole("button", { name: "刷新", exact: true }).click();
-  await expect(access.getByRole("alert")).toContainText("权限不足");
+  await expect(page.locator(".app-toast-notice")).toContainText("权限不足");
   await access.getByRole("button", { name: "关闭", exact: true }).click();
   await manager.getByRole("button", { name: "新建 Worker", exact: true }).click();
   const editor = page.getByRole("dialog", { name: "新建 Worker", exact: true });
@@ -156,12 +156,12 @@ test("Worker access, draft discard and partial sync feedback", async ({ page }) 
   await expect(editor).toBeHidden();
   await page.evaluate(() => { (window as any).cfSyncFails = true; });
   await manager.getByRole("button", { name: "同步当前分类", exact: true }).click();
-  await expect(manager.getByRole("alert")).toContainText("测试同步失败");
-  await expect(manager.getByRole("status")).toContainText("同步未完成");
+  await expect(page.locator(".app-toast-notice").filter({ hasText: "测试同步失败" })).toBeVisible();
+  await expect(page.locator(".app-toast-notice").filter({ hasText: "同步未完成" })).toBeVisible();
   await expect(manager).toContainText("demo-worker");
   await page.evaluate(() => { (window as any).cfSyncFails = false; });
   await manager.getByRole("button", { name: "同步当前分类", exact: true }).click();
-  await expect(manager.getByRole("alert")).toHaveCount(0);
+  await expect(page.locator(".app-toast-notice.is-error")).toHaveCount(0);
 });
 
 test("Worker creation preserves drafts on failure and refreshes after deployment", async ({ page }) => {

@@ -1,3 +1,4 @@
+import { openMobileFeature } from "./navigation";
 import { expect, test } from "@playwright/test";
 
 for (const auth of ["password", "private_key"] as const) {
@@ -11,7 +12,7 @@ for (const auth of ["password", "private_key"] as const) {
         invoke: async (command: string, args?: { input: Record<string, unknown> }) => {
           if (command === "list_managed_hosts") return [host];
           if (command === "list_client_preferences") return {};
-          if (command === "authenticator_status") return { configured: false, unlocked: false };
+          if(command === "authenticator_status") return { configured: false, unlocked: false };
           if (command === "save_managed_host") {
             saves.push(JSON.parse(JSON.stringify(args!.input)));
             if (saves.length === 1) throw new Error("模拟保存失败");
@@ -23,8 +24,8 @@ for (const auth of ["password", "private_key"] as const) {
       } });
     }, auth);
     await page.goto("/");
-    await page.locator(".mobile-tab-bar").getByRole("button", { name: "更多" }).click();
-    await page.locator(".mobile-more-feature").filter({ hasText: "SSH 终端" }).click();
+    await page.locator(".mobile-tab-bar").getByRole("button", { name: "我的" }).click();
+    await openMobileFeature(page, "SSH 终端");
     await page.getByRole("button", { name: "编辑主机 演示主机", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "编辑 SSH 主机", exact: true });
     await expect(dialog.getByLabel("主机地址", { exact: true })).toHaveValue("host.example.test");

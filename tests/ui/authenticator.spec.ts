@@ -152,15 +152,15 @@ test("opens without a master password, copy, HOTP, edit and reopen", async ({ pa
   const card = page.locator(".auth-card").first();
   const beforeCopy = await card.boundingBox();
   await page.getByRole("button", { name: "复制 demo@example.test 验证码" }).click();
-  await expect(page.locator(".auth-copy-toast")).toHaveText("Example · demo@example.test：验证码复制成功");
+  await expect(page.locator(".app-toast-notice")).toHaveText("Example · demo@example.test：验证码复制成功");
   expect(await card.boundingBox()).toEqual(beforeCopy);
-  await expect(page.locator(".auth-copy-toast")).toHaveCount(0, { timeout: 5000 });
+  await expect(page.locator(".app-toast-notice")).toHaveCount(0, { timeout: 5000 });
   expect(await card.boundingBox()).toEqual(beforeCopy);
   await page.getByRole("button", { name: "复制账号 demo@example.test", exact: true }).click();
-  await expect(page.locator(".auth-copy-toast")).toContainText("账号复制成功");
+  await expect(page.locator(".app-toast-notice")).toContainText("账号复制成功");
   expect(await card.boundingBox()).toEqual(beforeCopy);
   await page.getByRole("button", { name: "复制 demo@example.test 下一个验证码", exact: true }).click();
-  await expect(page.locator(".auth-copy-toast")).toContainText("下一个验证码复制成功");
+  await expect(page.locator(".app-toast-notice")).toContainText("下一个验证码复制成功");
   expect(await card.boundingBox()).toEqual(beforeCopy);
   const copyCalls = await page.evaluate(() => (window as any).authCalls.filter((call: any) => call.command === "authenticator_copy"));
   expect(copyCalls.map((call: any) => call.args)).toEqual([

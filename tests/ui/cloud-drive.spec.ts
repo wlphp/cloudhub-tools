@@ -109,7 +109,7 @@ test("紧凑连接列表支持拖动、键盘排序，重新打开保留顺序�
   await page.getByRole("button", { name: "拖动排序 媒体", exact: true }).press("ArrowDown");
   await expect(page.getByRole("alert")).toContainText("排序保存失败");
   await expect.poll(order).toEqual(["drive-2", "drive-1", "drive-0"]);
-  await expect(page.locator(".drive-guidance")).not.toHaveAttribute("open", "");
+  await expect(page.locator(".drive-environment")).not.toHaveAttribute("open", "");
   for (const width of [1440, 1024, 768, 375]) {
     await page.setViewportSize({ width, height: 1000 });
     expect(await page.locator(".cloud-drive").evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);

@@ -87,9 +87,9 @@ test("AI rejection diagnostics preserve status and safe parameters without provi
   await openAiSettings(page);
   const button = page.locator(".ai-profile").first().getByRole("button",{name:"测试连接",exact:true});
   await button.click();
-  await expect(page.getByRole("status")).toContainText("AI服务拒绝请求（HTTP 400）：参数 max_output_tokens 不兼容");
+  await expect(page.locator(".app-toast-notice")).toContainText("AI服务拒绝请求（HTTP 400）：参数 max_output_tokens 不兼容");
   await button.click();
-  await expect(page.getByRole("status")).toContainText("AI操作失败，请检查配置或继续手动操作");
+  await expect(page.locator(".app-toast-notice")).toContainText("AI操作失败，请检查配置或继续手动操作");
   await expect(page.locator("body")).not.toContainText("test-only-private-value");
 });
 

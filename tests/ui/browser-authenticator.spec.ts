@@ -23,7 +23,7 @@ test("browser authenticator copies and imports/exports with browser file control
   for (const [name, expected] of [["复制 web@example.test 验证码", "287082"], ["复制账号 web@example.test", "web@example.test"], ["复制 web@example.test 下一个验证码", "359152"]]) {
     await page.getByRole("button", { name, exact: true }).click();
     const message = name.includes("复制账号") ? "账号复制成功" : name.includes("下一个") ? "下一个验证码复制成功" : "验证码复制成功";
-    await expect(page.locator(".auth-copy-toast")).toHaveText(`Example · web@example.test：${message}`);
+    await expect(page.locator(".app-toast-notice")).toHaveText(`Example · web@example.test：${message}`);
     await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(expected);
     expect(await card.boundingBox()).toEqual(before);
   }

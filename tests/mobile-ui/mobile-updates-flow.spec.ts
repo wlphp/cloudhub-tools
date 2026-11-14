@@ -1,3 +1,4 @@
+import { openMobileFeature } from "./navigation";
 import { expect, test, type Page } from "@playwright/test";
 
 async function nativeFixture(page: Page, available = true) {
@@ -9,7 +10,7 @@ async function nativeFixture(page: Page, available = true) {
       transformCallback: () => 1, unregisterCallback: () => {},
       invoke: async (command: string, args: any = {}) => {
         fixture.calls.push({ command, args });
-        if (command.endsWith("|check")) return { version: "0.1.99", available, downloadable: true, size: 1048576, notes: "测试更新说明" };
+        if (command.endsWith("|check")) return { version: "99.1.0", available, downloadable: true, size: 1048576, notes: "测试更新说明" };
         if (command.endsWith("|download")) {
           args.onProgress.onmessage({ downloaded: 524288, total: 1048576 });
           return new Promise<void>((resolve, reject) => { fixture.finish = resolve; fixture.reject = reject; });
@@ -33,7 +34,7 @@ async function nativeFixture(page: Page, available = true) {
 }
 
 async function more(page: Page) {
-  await page.locator(".mobile-tab-bar").getByRole("button", { name: "更多", exact: true }).click();
+  await page.locator(".mobile-tab-bar").getByRole("button", { name: "我的", exact: true }).click();
 }
 
 test("Android checks automatically, downloads only on request, and retries installation after permission", async ({ page }) => {
@@ -60,9 +61,8 @@ for (const width of [320, 375, 430]) {
     await nativeFixture(page, false);
     await page.goto("/");
     await more(page);
-    const entries = await page.locator(".mobile-more-feature-copy strong").allTextContents();
-    expect(entries.indexOf("云效流水线")).toBe(entries.indexOf("运维面板") + 1);
-    await page.locator(".mobile-more-feature").filter({ hasText: "云效流水线" }).click();
+    await expect(page.locator(".mobile-more-shortcuts")).toBeVisible();
+    await openMobileFeature(page, "云效流水线");
     await expect(page.locator(".flow-name-button")).toBeVisible();
     await expect(page.locator(".flow-status-icon.success")).toBeVisible();
     expect(await page.locator(".mobile-content").evaluate((el) => el.scrollWidth <= el.clientWidth)).toBeTruthy();
@@ -75,6 +75,7 @@ for (const width of [320, 375, 430]) {
     await page.getByRole("button", { name: "关闭详情", exact: true }).click();
     await page.locator(".flow-row-actions button").first().click();
     expect(await page.evaluate(() => (window as any).mobileFixture.calls.filter((c: any) => c.command === "run_flow_pipeline").length)).toBe(0);
+    await page.locator(".flow-run-dialog summary").click();
     await page.locator(".flow-run-dialog textarea").fill("[]");
     await page.getByRole("button", { name: "确认运行" }).click();
     await expect(page.getByText("运行参数必须是有效的 JSON 对象", { exact: true })).toBeVisible();
@@ -88,13 +89,13 @@ for (const width of [320, 375, 430]) {
 
 test("browser checks stable releases but never offers native APK installation", async ({ page }) => {
   await page.route("**/api/**", (route) => route.fulfill({ json: [] }));
-  await page.route("https://api.github.com/repos/wlphp/cloudhub-tools/releases/latest", (route) => route.fulfill({ json: { tag_name: "v0.1.99", draft: false, prerelease: false } }));
+  await page.route("https://api.github.com/repos/wlphp/cloudhub-tools/releases/latest", (route) => route.fulfill({ json: { tag_name: "v99.1.0", draft: false, prerelease: false } }));
   await page.goto("/");
   await more(page);
-  await page.locator(".mobile-more-feature").filter({ hasText: "系统设置" }).click();
-  await page.getByRole("button", { name: /^关于/ }).click();
+  await openMobileFeature(page, "系统设置");
+  await page.getByRole("button", { name: "更新与关于", exact: true }).click();
   await page.getByRole("button", { name: "检查更新", exact: true }).click();
-  await expect(page.getByText("发现新版本 v0.1.99", { exact: true })).toBeVisible();
+  await expect(page.getByText("发现新版本 v99.1.0", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "发布页", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: /下载更新|安装更新/ })).toHaveCount(0);
 });
@@ -103,8 +104,8 @@ test("Android update failure shows a safe message and allows retry", async ({ pa
   await nativeFixture(page, false);
   await page.goto("/");
   await more(page);
-  await page.locator(".mobile-more-feature").filter({ hasText: "系统设置" }).click();
-  await page.getByRole("button", { name: /^关于/ }).click();
+  await openMobileFeature(page, "系统设置");
+  await page.getByRole("button", { name: "更新与关于", exact: true }).click();
   await expect(page.getByText(/当前版本无需更新/)).toBeVisible();
   await page.evaluate(() => {
     const internals = (window as any).__TAURI_INTERNALS__;

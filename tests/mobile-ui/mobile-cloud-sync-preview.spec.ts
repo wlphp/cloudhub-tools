@@ -131,7 +131,7 @@ test("mobile cloud restore aligns scopes, defaults to append and requires explic
   await review.getByRole("button", { name: "备份本机并导入", exact: true }).click();
   await expect(review).toHaveCount(0);
   expect(restored).toEqual({ token: "fixture-preview", tables: ["memo_notes"], mode: "merge", forceRestore: true, includeTrash: false });
-  await expect(page.getByRole("region", { name: "数据迁移" })).toContainText("恢复完成：新增 2 条");
+  await expect(page.locator(".app-toast-notice").filter({ hasText: "恢复完成：新增 2 条" })).toBeVisible();
   await cloud.getByRole("button", { name: "下载备份", exact: true }).click();
   await page.getByRole("dialog", { name: "选择云端备份版本" }).getByRole("button", { name: /^下载 / }).click();
   await expect(review.getByLabel("恢复方式", { exact: true })).toHaveValue("merge");

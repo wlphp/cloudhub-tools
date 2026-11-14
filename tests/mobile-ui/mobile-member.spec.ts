@@ -6,16 +6,16 @@ test("orders the personal quick links and renames the accounts tab to home", asy
   await page.goto("/");
   const navigation = page.locator(".mobile-tab-bar");
   await navigation.getByRole("button", { name: "我的", exact: true }).click();
-  await expect(page.locator(".mobile-more-shortcuts button")).toHaveText(["我的账号", "我的资产", "我的收藏", "运维面板", "SSH 终端"]);
-  await expect(page.locator(".mobile-more-feature").first()).toContainText("域名与 DNS");
-  await expect(page.locator(".mobile-more-feature").nth(1)).toContainText("对象存储");
-  await page.locator(".mobile-more-shortcuts").getByRole("button", { name: "我的账号" }).click();
+  await expect(page.locator(".mobile-more-shortcuts button > span:nth-child(2)")).toHaveText(["我的账号", "我的资产", "我的收藏", "运维面板", "SSH 终端"]);
+  await expect(page.locator(".mobile-more-feature").first()).toContainText("服务器");
+  await expect(page.locator(".mobile-more-feature").nth(1)).toContainText("域名");
+  await page.locator(".mobile-more-shortcuts").getByRole("button", { name: /我的账号/ }).click();
   await expect(page.getByRole("heading", { name: "云账号", exact: true })).toBeVisible();
   await expect(navigation.getByRole("button", { name: "我的", exact: true })).toHaveAttribute("aria-current", "page");
 });
 
 async function openMemberFromSettings(page: import("@playwright/test").Page) {
-  await page.getByRole("button", { name: "我的", exact: true }).click();
+  await page.locator(".mobile-tab-bar").getByRole("button", { name: "我的", exact: true }).click();
   await page.getByRole("button", { name: "系统设置" }).click();
   await page.getByRole("button", { name: /登录 \/ 注册|云端访客/ }).click();
 }
@@ -132,7 +132,7 @@ test("shows the signed-in nickname and VIP identity and saves a nickname change"
         if (command === "member_me") return current;
         if (command === "member_login_logs") return [];
         if (command === "member_nickname") return { ...current, nickname: args.nickname };
-        if (command === "authenticator_status") return { configured: false, unlocked: false };
+        if(command === "authenticator_status") return { configured: false, unlocked: false };
         return [];
       },
     };
@@ -140,7 +140,7 @@ test("shows the signed-in nickname and VIP identity and saves a nickname change"
   await page.route("**/api/accounts**", route => route.fulfill({ json: [] }));
   await page.route("**/api/local-assets**", route => route.fulfill({ json: [] }));
   await page.goto("/");
-  await page.getByRole("button", { name: "我的", exact: true }).click();
+  await page.locator(".mobile-tab-bar").getByRole("button", { name: "我的", exact: true }).click();
   const homeProfile = page.locator(".mobile-profile-header");
   await expect(homeProfile).toContainText("云端访客");
   await expect(homeProfile).toContainText("member@example.test");
@@ -157,7 +157,7 @@ test("shows the signed-in nickname and VIP identity and saves a nickname change"
   await expect(profile).toContainText("云端访客");
   await profile.getByRole("button", { name: "云端访客" }).click();
   await profile.getByLabel("昵称", { exact: true }).fill("移动端昵称");
-  await profile.getByRole("button", { name: "保存昵称" }).click();
+  await profile.getByRole("button", { name: "保存", exact: true }).click();
   await expect(profile).toContainText("移动端昵称");
   await page.getByRole("button", { name: "返回设置" }).click();
   const settingsProfile = page.locator(".mobile-settings-profile");

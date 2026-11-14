@@ -54,6 +54,8 @@ test("验证器有数据时筛选与两种视图在手机和平板保持对齐",
 test("逐项打开移动商店应用，页面无溢出且全部渲染真实界面", async ({ page }) => {
   test.setTimeout(120000);
   await storeFixture(page);
+  await page.setViewportSize({ width: 519, height: 838 });
+  await page.screenshot({ path: "test-results/mobile-store-catalog.png", animations: "disabled" });
   const ids = await page.locator("[data-plugin-entry]").evaluateAll(nodes => nodes.filter(n => !(n as HTMLButtonElement).disabled).map(n => n.getAttribute("data-plugin-entry")!));
   expect(ids).toHaveLength(20);
   for (const id of ids) {
@@ -69,6 +71,26 @@ test("逐项打开移动商店应用，页面无溢出且全部渲染真实界�
         await expect(page.locator(".frp-server-settings")).toBeVisible();
       }
       if (id === "cloudhub.cloud-drive") await expect(page.getByRole("button", { name: "新增连接", exact: true })).toBeVisible();
+      if (id === "cloudhub.lan-devices") {
+        const buttons = page.locator(".lan-tabs button");
+        for (const width of [320, 390, 519, 768]) {
+          await page.setViewportSize({ width, height: 838 });
+          const first = (await buttons.nth(0).boundingBox())!;
+          const second = (await buttons.nth(1).boundingBox())!;
+          expect(Math.abs(first.width - second.width)).toBeLessThan(1);
+          expect(first.height).toBeGreaterThanOrEqual(44);
+          expect(await buttons.nth(0).evaluate(el => getComputedStyle(el).borderTopWidth)).toBe("1px");
+        }
+        for (const index of [1, 0]) {
+          await buttons.nth(index).click();
+          await expect(buttons.nth(index)).toHaveClass(/is-active/);
+          const backgrounds = await buttons.evaluateAll(nodes => nodes.map(el => getComputedStyle(el).backgroundColor));
+          expect(backgrounds[0]).not.toBe(backgrounds[1]);
+        }
+        await page.setViewportSize({ width: 519, height: 838 });
+        await page.locator(".lan-tabs").scrollIntoViewIfNeeded();
+        await page.screenshot({ path: "test-results/lan-device-tabs-refined.png", animations: "disabled" });
+      }
       if (id === "cloudhub.flow") {
         await expect(page.locator(".flow-mobile-card")).toHaveCount(1);
         await expect(page.locator(".flow-pipeline-table")).toHaveCount(0);
@@ -102,7 +124,7 @@ test("逐项打开移动商店应用，页面无溢出且全部渲染真实界�
 
 test("移动应用表单复用公共弹层，窄屏操作和遮罩行为正常", async ({ page }) => {
   await storeFixture(page);
-  for (const [id, trigger, dialogName] of [["cloud-drive", "新增连接", "新增云盘连接"], ["mail", "添加邮箱", "添加邮箱"], ["flow", "添加连接", "云效连接"], ["notes", "新建备忘录", "新建备忘录"], ["authenticator", "新增", "新增验证码"]]) {
+  for (const [id, trigger, dialogName] of [["cloud-drive", "新增连接", "新增云盘连接"], ["mail", "添加邮箱", "添加邮箱"], ["flow", "添加连接", "云效连接"], ["notes", "新建备忘录", "新建备忘录"], ["authenticator", "新增", "新增验证码"], ["model-suppliers", "添加模型供应商", "添加模型供应商"], ["codex", "添加 Codex 账号", "添加 Codex 账号"]]) {
     await page.locator(`[data-plugin-entry="cloudhub.${id}"]`).click();
     const button = page.getByRole("button", { name: trigger, exact: true }).first();
     if (id === "flow") await expect(page.locator(".flow-mobile-card")).toHaveCount(1);
@@ -116,8 +138,43 @@ test("移动应用表单复用公共弹层，窄屏操作和遮罩行为正常",
     }
     await page.locator(".modal-backdrop").last().click({ position: { x: 1, y: 1 }, force: true });
     await expect(dialog).toBeVisible();
+    await page.screenshot({ path: `test-results/audit-dialogs/${id}.png`, animations: "disabled" });
     await page.keyboard.press("Escape");
     await expect(dialog).toHaveCount(0);
+    await page.getByRole("button", { name: "返回软件商店", exact: true }).click();
+  }
+});
+
+test("全部商店应用的可见页签在浅深主题和手机宽度下逐项验收", async ({ page }) => {
+  test.setTimeout(180000);
+  await storeFixture(page);
+  await page.setViewportSize({ width: 519, height: 838 });
+  await page.screenshot({ path: "test-results/mobile-store-catalog.png", animations: "disabled" });
+  const ids = await page.locator("[data-plugin-entry]").evaluateAll(nodes => nodes.filter(n => !(n as HTMLButtonElement).disabled).map(n => n.getAttribute("data-plugin-entry")!));
+  for (const id of ids) {
+    await page.locator(`[data-plugin-entry="${id}"]`).click();
+    await page.locator(".plugin-page-body").getByText(/^正在加载/).waitFor({ state: "hidden" });
+    const visited = new Set<string>();
+    for (let round = 0; round < 40; round++) {
+      const tabs = page.locator('.plugin-page-body :is([role="tab"], .claude-work-tabs > button, .frp-tabs > button, .certificate-source-tabs > button, .browser-tabs > button, .startup-manager-tabs > button, .env-manager-filters > button, .speed-tabs > button, .lan-tabs > button):visible:not(:disabled)');
+      const names = await tabs.allTextContents();
+      const index = names.findIndex(name => !visited.has(name.trim()));
+      if (index < 0) break;
+      const name = names[index].trim();
+      visited.add(name);
+      await tabs.nth(index).click();
+      for (const width of [320, 519, 768]) await fits(page, width);
+      await page.setViewportSize({ width: 519, height: 838 });
+      await page.screenshot({ animations: "disabled", path: `test-results/audit-tabs/${id}-${visited.size}.png` });
+    }
+    for (const theme of ["light", "dark"]) {
+      await page.evaluate(value => document.body.classList.toggle("theme-light", value === "light"), theme);
+      await page.setViewportSize({ width: 519, height: 838 });
+      await page.locator(".mobile-content").evaluate(el => el.scrollTo(0, 0));
+      await page.screenshot({ animations: "disabled", path: `test-results/audit-apps/${id}-${theme}.png` });
+      await page.locator(".mobile-content").evaluate(el => el.scrollTo(0, el.scrollHeight));
+      await page.screenshot({ animations: "disabled", path: `test-results/audit-apps/${id}-${theme}-bottom.png` });
+    }
     await page.getByRole("button", { name: "返回软件商店", exact: true }).click();
   }
 });

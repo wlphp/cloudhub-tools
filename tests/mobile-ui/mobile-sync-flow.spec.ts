@@ -50,7 +50,7 @@ test("errors after scanning are readable next to scan control", async ({ page })
   await page.getByRole("button", { name: "数据导入与迁移", exact: true }).click();
   await page.getByRole("button", { name: "扫码接收电脑配置" }).click();
   const card = page.locator(".mobile-import-card").first();
-  await expect(card.getByRole("alert")).toHaveText("无法连接电脑迁移服务，请检查防火墙");
+  await expect(page.locator(".app-toast-notice").filter({ hasText: "无法连接电脑迁移服务，请检查防火墙" })).toBeVisible();
   await expect(card.getByRole("button", { name: "扫码接收电脑配置" })).toBeEnabled();
 });
 test("phone unified migration selects flow module", async ({ page }) => {

@@ -86,7 +86,7 @@ pub(crate) use commands::lan::{lan_interfaces, lan_status, lan_start, lan_cancel
 #[cfg(desktop)]
 pub(crate) use commands::speed_test::{speed_test_status, speed_test_start, speed_test_cancel, speed_test_history, speed_test_network_info};
 #[cfg(desktop)]
-pub(crate) use commands::http_debug_proxy::{http_debug_proxy_certificates, http_debug_proxy_clear, http_debug_proxy_delete_application_certificate, http_debug_proxy_export_session, http_debug_proxy_remove_certificate, http_debug_proxy_restore_system_proxy, http_debug_proxy_session, http_debug_proxy_set_certificate, http_debug_proxy_start, http_debug_proxy_state, http_debug_proxy_stop};
+pub(crate) use commands::http_debug_proxy::{http_debug_proxy_certificates, http_debug_proxy_clear, http_debug_proxy_delete_application_certificate, http_debug_proxy_export_session, http_debug_proxy_remove_certificate, http_debug_proxy_restore_system_proxy, http_debug_proxy_session, http_debug_proxy_set_certificate, http_debug_proxy_start, http_debug_proxy_intercepts, http_debug_proxy_configure_intercept, http_debug_proxy_intercept_detail, http_debug_proxy_resolve_intercept, http_debug_proxy_state, http_debug_proxy_stop};
 pub(crate) use commands::claude_providers::{claude_provider_list, claude_provider_save, claude_provider_delete, claude_provider_switch, claude_provider_restore_backup, claude_provider_current_settings};
 #[cfg(desktop)]
 pub(crate) use commands::claude_providers::claude_provider_reveal;
@@ -1070,7 +1070,7 @@ pub fn run() {
         query_domain_icp, query_ip_location, list_ip_locations, delete_ip_location,
         lan_interfaces, lan_status, lan_start, lan_cancel, lan_ledger, lan_annotate, lan_export,
         speed_test_status, speed_test_start, speed_test_cancel, speed_test_history, speed_test_network_info,
-        http_debug_proxy_state, http_debug_proxy_start, http_debug_proxy_stop, http_debug_proxy_restore_system_proxy, http_debug_proxy_set_certificate, http_debug_proxy_certificates, http_debug_proxy_remove_certificate, http_debug_proxy_delete_application_certificate, http_debug_proxy_clear, http_debug_proxy_session, http_debug_proxy_export_session,
+        http_debug_proxy_intercepts, http_debug_proxy_configure_intercept, http_debug_proxy_intercept_detail, http_debug_proxy_resolve_intercept, http_debug_proxy_state, http_debug_proxy_start, http_debug_proxy_stop, http_debug_proxy_restore_system_proxy, http_debug_proxy_set_certificate, http_debug_proxy_certificates, http_debug_proxy_remove_certificate, http_debug_proxy_delete_application_certificate, http_debug_proxy_clear, http_debug_proxy_session, http_debug_proxy_export_session,
         commands::network::network_proxy_get, commands::network::network_proxy_save,
         commands::network::network_proxy_test, commands::network::network_proxy_detect,
         commands::cloud_sync::cloud_sync_state, commands::cloud_sync::cloud_sync_save,

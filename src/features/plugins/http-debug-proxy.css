@@ -1,4 +1,22 @@
 .http-debug-proxy { display: grid; gap: 14px; min-width: 0; }
+.http-debug-proxy-intercept { min-width: 0; padding: 12px; border: 1px solid var(--jb-border); border-radius: 7px; }
+.http-debug-proxy-intercept-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.http-debug-proxy-intercept-controls label { display: inline-flex; align-items: center; gap: 6px; margin: 0; }
+.http-debug-proxy-intercept-controls input[type="checkbox"] { width: 14px; height: 14px; margin: 0; }
+.http-debug-proxy-intercept-keyword { flex: 1 1 260px; min-width: 0; }
+.http-debug-proxy-intercept-keyword input { flex: 1; min-width: 0; }
+.http-debug-proxy-intercept-controls .http-debug-proxy-intercept-keyword input { height: 32px; margin: 0; padding: 0 9px; border: 1px solid var(--jb-border); border-radius: 6px; }
+.http-debug-proxy-intercept-controls button { min-height: 32px; }
+.http-debug-proxy-intercept details, .http-debug-proxy-intercept-hint { margin-top: 8px; color: var(--text-muted); font-size: 12px; }
+.http-debug-proxy-pending { display: grid; gap: 8px; padding: 0; list-style: none; }
+.http-debug-proxy-pending li { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.http-debug-proxy-pending code { flex: 1 1 240px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.http-debug-proxy-intercept-editor { display: grid; min-width: 0; gap: 12px; }
+.http-debug-proxy-intercept-editor pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.http-debug-proxy-intercept-editor label { display: grid; gap: 6px; min-width: 0; }
+.http-debug-proxy-intercept-editor input, .http-debug-proxy-intercept-editor textarea { box-sizing: border-box; width: 100%; min-width: 0; }
+.http-debug-proxy-intercept-editor label input, .http-debug-proxy-intercept-editor label textarea { margin: 0; }
+.http-debug-proxy-intercept-editor textarea { min-height: 280px; resize: vertical; font: 12px/1.5 ui-monospace, Consolas, monospace; }
 .http-debug-proxy-heading, .http-debug-proxy-heading > div:first-child, .http-debug-proxy-actions, .http-debug-proxy-status, .http-debug-proxy-toolbar, .http-debug-proxy-detail > header { display: flex; align-items: center; gap: 10px; }
 .http-debug-proxy-heading, .http-debug-proxy-detail > header { justify-content: space-between; }
 .http-debug-proxy-heading h2, .http-debug-proxy-detail h3 { margin: 0; font-size: 16px; }

@@ -196,16 +196,16 @@
 @media(prefers-reduced-motion:reduce){.flow-page .flow-toolbar-actions button,.flow-page .flow-search button,.flow-page .flow-refresh-button,.flow-page .flow-row-actions button{transition:none;transform:none}}
 
 
-body:has(.mobile-shell) .plugin-page-body > .flow-page > .flow-page-header { gap: 10px; margin-bottom: 12px; }
+body:has(.mobile-shell) .plugin-page-body > .flow-page > .flow-page-header { gap: 8px; margin-bottom: 8px; }
 body:has(.mobile-shell) .flow-page-header p { margin: 0; color: var(--mobile-muted); font-size: 12px; line-height: 1.5; }
 body:has(.mobile-shell) .flow-toolbar-actions { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 44px; width: 100%; gap: 8px; }
 body:has(.mobile-shell) .flow-toolbar-actions > select { grid-column: 1 / -1; width: 100%; max-width: none; height: 44px; }
 body:has(.mobile-shell) .flow-toolbar-actions > button { min-height: 44px; width: 100%; min-width: 0; padding: 0 8px; font-size: 12px; }
-body:has(.mobile-shell) .flow-panel-title { display: grid; grid-template-columns: minmax(0, 1fr) 44px; gap: 8px; padding: 10px; }
-body:has(.mobile-shell) .flow-panel-title > div:first-child { min-width: 0; grid-column: 1; grid-row: 1; }
-body:has(.mobile-shell) .flow-panel-title h2 { margin: 0 0 3px; font-size: 14px; }
-body:has(.mobile-shell) .flow-panel-title > .flow-list-toolbar { grid-column: 1 / -1; grid-row: 2; min-width: 0; width: 100%; }
-body:has(.mobile-shell) .flow-panel-title > .flow-refresh-button { grid-column: 2; grid-row: 1; width: 44px; height: 44px; margin: 0; }
+body:has(.mobile-shell) .flow-panel-title { display: grid; grid-template-columns: minmax(0, 1fr) 44px; gap: 6px 8px; padding: 6px 10px; }
+body:has(.mobile-shell) .flow-panel-title > div:first-child { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 8px; min-width:0; grid-column:1 / -1; grid-row:1; }
+body:has(.mobile-shell) .flow-panel-title h2 { margin:0; font-size:14px; }
+body:has(.mobile-shell) .flow-panel-title > .flow-list-toolbar { grid-column:1; grid-row:2; min-width:0; width:100%; }
+body:has(.mobile-shell) .flow-panel-title > .flow-refresh-button { grid-column:2; grid-row:2; width:44px; height:44px; margin:0; }
 body:has(.mobile-shell) .flow-refresh-button > span { display: none; }
 body:has(.mobile-shell) .flow-toolbar-actions:not(:has(> .icon-button)) { grid-template-columns: minmax(0, 1fr); }
 body:has(.mobile-shell) .flow-mobile-card { min-width: 0; padding: 10px; border-radius: 8px; }
@@ -213,3 +213,44 @@ body:has(.mobile-shell) .flow-mobile-card .flow-row-actions { gap: 6px; }
 body:has(.mobile-shell) .flow-mobile-card .flow-row-actions button { width: auto; min-width: 64px; height: 44px; padding: 0 8px; }
 
 body:has(.mobile-shell) .flow-mobile-card .flow-row-actions button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; }
+
+/* SharedDialog 通过 portal 挂在 body，移动端详情不能依赖页面祖先选择器。 */
+body:has(.mobile-shell) .flow-details-dialog .modal-body { display:flex; flex-direction:column; gap:10px; min-width:0; }
+body:has(.mobile-shell) .flow-details-dialog .eyebrow { display:none; }
+body:has(.mobile-shell) .flow-details-dialog .ai-log-analysis { gap:8px; align-items:center; }
+body:has(.mobile-shell) .flow-details-dialog .ai-assist-button { min-height:44px; height:auto; font-size:12px; }
+body:has(.mobile-shell) .flow-details-dialog .ai-log-hint { flex:1; min-width:0; color:var(--mobile-muted); font-size:12px; }
+body:has(.mobile-shell) .flow-details-dialog .ai-log-hint summary { display:flex; align-items:center; min-height:44px; cursor:pointer; }
+body:has(.mobile-shell) .flow-details-dialog .ai-log-hint small { display:block; padding:4px 0 8px; line-height:1.5; }
+body:has(.mobile-shell) .flow-details-dialog .flow-detail-overview { grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; padding:12px; border:1px solid var(--mobile-border); border-radius:8px; background:var(--mobile-raised); }
+body:has(.mobile-shell) .flow-details-dialog .flow-detail-overview > div { gap:4px; }
+body:has(.mobile-shell) .flow-details-dialog .flow-detail-overview span { color:var(--mobile-muted); font-size:11px; }
+body:has(.mobile-shell) .flow-details-dialog .flow-detail-overview :is(strong,small) { white-space:normal; overflow-wrap:anywhere; font-size:12px; }
+body:has(.mobile-shell) .flow-details-dialog .flow-detail-overview > div:last-child { flex-direction:row; align-items:baseline; gap:8px; grid-column:1 / -1; }
+body:has(.mobile-shell) .flow-details-dialog .flow-detail-tabs { gap:8px; padding:0; border-color:var(--mobile-border); }
+body:has(.mobile-shell) .flow-details-dialog .flow-detail-tabs button { min-height:44px; padding:0 12px; font-size:13px; }
+body:has(.mobile-shell) .flow-details-dialog .flow-details-content,
+body:has(.mobile-shell) .flow-details-dialog .flow-modal-run-detail { display:flex; flex-direction:column; gap:12px; min-width:0; overflow:visible; padding:0; }
+body:has(.mobile-shell) .flow-details-dialog .flow-run-origin { display:flex; flex-direction:column; gap:8px; padding:12px; overflow:visible; border:1px solid var(--mobile-border); border-radius:8px; background:var(--mobile-surface); }
+body:has(.mobile-shell) .flow-details-dialog .flow-run-origin-heading { flex-direction:row; justify-content:flex-start; min-height:0; }
+body:has(.mobile-shell) .flow-details-dialog .flow-run-origin-heading strong { font-size:12px; }
+body:has(.mobile-shell) .flow-details-dialog .flow-source-icon { width:24px; height:24px; }
+body:has(.mobile-shell) .flow-details-dialog .flow-source-card { gap:8px; padding:0; border:0; background:transparent; }
+body:has(.mobile-shell) .flow-details-dialog .flow-source-card :is(strong,span) { white-space:normal; overflow-wrap:anywhere; font-size:12px; }
+body:has(.mobile-shell) .flow-details-dialog .flow-source-title { align-items:flex-start; }
+body:has(.mobile-shell) .flow-details-dialog .flow-source-mark { width:20px; height:20px; flex-basis:20px; }
+/* 流水线名称、运行编号和账号已在标题及概览显示。 */
+body:has(.mobile-shell) .flow-details-dialog .flow-source-meta { display:none!important; }
+body:has(.mobile-shell) .flow-details-dialog .flow-stage-lanes { flex-direction:column; gap:12px; min-height:0; padding:0; overflow:visible; background:transparent; }
+body:has(.mobile-shell) .flow-details-dialog .flow-stage-lane { flex:0 0 auto; width:100%; min-width:0; min-height:0; padding:0; border:0; }
+body:has(.mobile-shell) .flow-details-dialog .flow-stage-lane-heading { min-height:28px; margin-bottom:6px; padding:0 2px; }
+body:has(.mobile-shell) .flow-details-dialog .flow-stage-lane-heading strong { font-size:13px; color:var(--mobile-text); white-space:normal; overflow-wrap:anywhere; }
+body:has(.mobile-shell) .flow-details-dialog .flow-job-card { margin-bottom:8px; background:var(--mobile-surface); border-color:var(--mobile-border); box-shadow:none; }
+body:has(.mobile-shell) .flow-details-dialog .flow-job-card.success { border-left-color:var(--mobile-flow-success,#22a66b); }
+body:has(.mobile-shell) .flow-details-dialog .flow-job-card-heading { min-height:44px; padding:8px 10px; }
+body:has(.mobile-shell) .flow-details-dialog .flow-job-card-heading strong { white-space:normal; overflow-wrap:anywhere; font-size:13px; }
+body:has(.mobile-shell) .flow-details-dialog .flow-job-card-meta { min-height:44px; padding:0 10px; border-color:var(--mobile-border); }
+body:has(.mobile-shell) .flow-details-dialog .flow-log-toggle { min-width:44px; min-height:44px; font-size:12px; }
+body:has(.mobile-shell) .flow-details-dialog .flow-job-log { min-width:0; padding:10px; }
+body:has(.mobile-shell) .flow-details-dialog .flow-job-log pre { max-width:100%; padding:8px; font-size:12px; }
+body:has(.mobile-shell) .flow-details-dialog .flow-history-list { max-height:180px; padding:0; border:1px solid var(--mobile-border); border-radius:8px; }

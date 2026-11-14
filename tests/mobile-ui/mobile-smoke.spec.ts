@@ -1,3 +1,4 @@
+import { openMobileFeature } from "./navigation";
 import { expect, test } from "@playwright/test";
 import type { Page, Route } from "@playwright/test";
 
@@ -48,7 +49,7 @@ test("refreshes both server types and shows provider failures instead of false s
     await route.fulfill({ json: { fetched: 0, counts: { ecs: 0, swas: 0 }, errors: ["云厂商权限不足，请检查账号权限"] } });
   });
   await page.goto("/");
-  await page.locator(".mobile-tab-bar").getByRole("button", { name: "服务器", exact: true }).click();
+  await openMobileFeature(page, "服务器");
   await page.getByRole("button", { name: "拉取云端", exact: true }).click();
   await expect(page.getByText("正在查询云端服务器")).toBeVisible();
   await expect(page.getByText("暂无普通服务器", { exact: true })).toHaveCount(0);
@@ -91,7 +92,7 @@ test("opens the matching Tencent EdgeOne console from a favorited ESA asset in b
 test("server actions match power state and use the shared confirmation", async ({ page }) => {
   await stubLocalApi(page, [account]);
   await page.goto("/");
-  await page.locator(".mobile-tab-bar").getByRole("button", { name: "服务器", exact: true }).click();
+  await openMobileFeature(page, "服务器");
   const card = page.locator(".mobile-server-card-featured").first();
   await card.getByText("详情与操作").click();
   await expect(card.getByRole("button", { name: "启动" })).toBeDisabled();
@@ -111,7 +112,7 @@ test("stopped and unknown server states do not offer invalid operations", async 
     { account_id: 12, resource_type: "ecs", asset_key: "pending", region_id: "cn-hangzhou", payload: { instanceId: "pending", instanceName: "pending-server", status: "Starting" }, fetched_at: 1_700_000_000 },
   ] }));
   await page.goto("/");
-  await page.locator(".mobile-tab-bar").getByRole("button", { name: "服务器", exact: true }).click();
+  await openMobileFeature(page, "服务器");
   const stopped = page.locator(".mobile-server-card-featured", { hasText: "stopped-server" });
   await stopped.getByText("详情与操作").click();
   await expect(stopped.getByRole("button", { name: "启动" })).toBeEnabled();
@@ -130,7 +131,7 @@ test("shows cached lightweight servers alongside ECS servers", async ({ page }) 
     return route.fulfill({ json: [{ account_id: 12, resource_type: kind, asset_key: `${kind}-fixture`, region_id: "cn-hangzhou", payload: { InstanceId: `${kind}-fixture`, InstanceName: `${kind}-server` }, fetched_at: 1_700_000_000 }] });
   });
   await page.goto("/");
-  await page.locator(".mobile-tab-bar").getByRole("button", { name: "服务器", exact: true }).click();
+  await openMobileFeature(page, "服务器");
   await expect(page.getByText("ecs-server", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: /^轻量服务器/ }).click();
   await expect(page.getByText("swas-server", { exact: true })).toBeVisible();
@@ -139,11 +140,11 @@ test("shows cached lightweight servers alongside ECS servers", async ({ page }) 
 test("fits the account form on a narrow phone viewport", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 360 });
   await stubLocalApi(page);
-  await page.goto("/");
+  await page.goto("/"); await openMobileFeature(page, "我的账号");
 
   await expect(page.getByRole("heading", { name: "云账号" })).toBeVisible();
   await expect(page.getByText("还没有云账号")).toBeVisible();
-  await page.getByRole("button", { name: "添加云账号" }).click();
+  await page.getByRole("button", { name: "添加账号", exact: true }).click();
   await expect(page.getByRole("heading", { name: "添加云账号" })).toBeVisible();
   await page.locator('input[name="accountName"]').fill("保留的账号名称");
   await page.locator(".shared-dialog-backdrop").click({ position: { x: 2, y: 2 } });
@@ -171,11 +172,11 @@ test("fits the account form on a narrow phone viewport", async ({ page }) => {
 
 test("shows provider-specific credentials and secret field types", async ({ page }) => {
   await stubLocalApi(page);
-  await page.goto("/");
-  await page.getByRole("button", { name: "添加云账号" }).click();
+  await page.goto("/"); await openMobileFeature(page, "我的账号");
+  await page.getByRole("button", { name: "添加账号" }).click();
   const form = page.getByRole("dialog", { name: "添加云账号", exact: true });
 
-  await form.locator('select:not([name="enabled"])').selectOption("oracle");
+  await form.getByLabel("云厂商", { exact: true }).selectOption("oracle");
   await expect(form.locator('input[name="tenancyOcid"]')).toHaveAttribute("required", "");
   await expect(form.locator('input[name="keyFingerprint"]')).toHaveAttribute("required", "");
   await expect(form.locator('textarea[name="accessKeySecret"]')).toHaveAttribute("required", "");
@@ -199,7 +200,7 @@ test("edits account settings without reading the saved secret back into the form
     }
     await route.fulfill({ json: [fixture] });
   });
-  await page.goto("/");
+  await page.goto("/"); await openMobileFeature(page, "我的账号");
   await page.getByRole("button", { name: "展开 mobile-fixture 操作",exact:true }).click();
   await page.getByRole("button", { name: "编辑本机账号 mobile-fixture" }).click();
   const form = page.getByRole("dialog", { name: "编辑云账号", exact: true });
@@ -226,9 +227,8 @@ test("validates mobile DNS input before sending provider mutations", async ({ pa
     }
     await route.fulfill({ json: { items: [], total: 0 } });
   });
-  await page.goto("/");
-  await page.locator(".mobile-account-select").click();
-  await page.getByRole("button", { name: "域名" }).click();
+  await page.goto("/"); await openMobileFeature(page, "域名");
+  
   await page.getByRole("button", { name: /example\.test/ }).click();
   await page.getByRole("button", { name: /新增记录/ }).click();
 
@@ -253,21 +253,21 @@ test("validates mobile DNS input before sending provider mutations", async ({ pa
 test("navigates mobile resource sections and preserves narrow layout", async ({ page }) => {
   await stubLocalApi(page, [account]);
   await page.goto("/");
-  await page.locator(".mobile-tab-bar").getByRole("button", { name: "服务器", exact: true }).click();
+  await openMobileFeature(page, "服务器");
   await expect(page.getByRole("heading", { name: "云服务器", exact: true })).toBeVisible();
   await expect(page.getByText("mobile-server")).toBeVisible();
   await expectNoHorizontalOverflow(page);
 
-  await page.getByRole("button", { name: "域名" }).click();
+  await openMobileFeature(page, "域名");
   await expect(page.getByRole("heading", { name: "域名与 DNS", exact: true })).toBeVisible();
   await expectNoHorizontalOverflow(page);
 
-  await page.getByRole("button", { name: "更多" }).click();
-  await expect(page.getByRole("heading", { name: "更多管理" })).toBeVisible();
-  await expect(page.locator(".mobile-more-feature").filter({ hasText: "运维面板" })).toBeVisible();
-  await page.locator(".mobile-more-feature").filter({ hasText: "系统设置" }).click();
-  await page.getByRole("button", { name: /导入数据/ }).click();
-  await expect(page.getByRole("heading", { name: "导入数据", exact: true })).toBeVisible();
+  await page.locator(".mobile-tab-bar").getByRole("button", { name: "我的" }).click();
+  await expect(page.locator(".mobile-more-shortcuts")).toBeVisible();
+  await expect(page.locator(".mobile-more-shortcuts").getByRole("button", { name: /运维面板/ })).toBeVisible();
+  await openMobileFeature(page, "系统设置");
+  await page.getByRole("button", { name: "数据导入与迁移", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "数据导入与迁移", exact: true })).toBeVisible();
   await expect(page.getByText(/请在手机 App 内扫码/)).toBeVisible();
   await expect(page.getByRole("button", { name: "选择 .chdb 备份", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "扫码从电脑迁移（免口令）", exact: true })).toHaveCount(0);
@@ -286,6 +286,7 @@ test("keeps a slower resource read from replacing the cache after returning to s
   let reads = 0;
   await stubLocalApi(page, [account, secondAccount]);
   await page.route("**/api/local-assets**", async (route) => {
+    if (!new URL(route.request().url()).searchParams.has("resource_type")) return route.fulfill({ json: [] });
     if (new URL(route.request().url()).searchParams.get("resource_type") === "swas") {
       await route.fulfill({ json: [] });
       return;
@@ -301,16 +302,16 @@ test("keeps a slower resource read from replacing the cache after returning to s
     await route.fulfill({ json: [{ account_id: 13, resource_type: "ecs", asset_key: "i-second", region_id: "us-west-1", payload: { instanceId: "i-second", instanceName: "second-account-server", status: "Running" }, fetched_at: 1_700_000_000 }] });
   });
   await page.goto("/");
-  await page.locator(".mobile-tab-bar").getByRole("button", { name: "服务器", exact: true }).click();
+  await openMobileFeature(page, "服务器");
   await expect.poll(() => firstRequestStarted).toBeTruthy();
 
   await page.locator(".mobile-tab-bar").getByRole("button", { name: "首页" }).click();
-  await page.locator(".mobile-tab-bar").getByRole("button", { name: "服务器", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "云服务器", exact: true })).toBeVisible();
+  await openMobileFeature(page, "服务器");
   await expect.poll(() => secondRequestStarted).toBeTruthy();
   await expect(page.getByText("first-account-server")).toHaveCount(0);
 
   finishSecondRequest();
+  await expect(page.getByRole("heading", { name: "云服务器", exact: true })).toBeVisible();
   await expect(page.getByText("second-account-server")).toBeVisible();
 
   finishFirstRequest();
@@ -334,13 +335,13 @@ test("releases resource loading state after navigating away from a pending read"
     await route.fulfill({ json: [] });
   });
   await page.goto("/");
-  await page.locator(".mobile-tab-bar").getByRole("button", { name: "服务器", exact: true }).click();
+  await openMobileFeature(page, "服务器");
   await expect.poll(() => requestStarted).toBeTruthy();
-  await page.locator(".mobile-tab-bar").getByRole("button", { name: "更多" }).click();
-  await expect(page.getByRole("heading", { name: "更多管理" })).toBeVisible();
+  await page.locator(".mobile-tab-bar").getByRole("button", { name: "我的" }).click();
+  await expect(page.locator(".mobile-more-shortcuts")).toBeVisible();
   await expect(page.locator(".mobile-header .mobile-spin")).toHaveCount(0);
   await page.locator(".mobile-tab-bar").getByRole("button", { name: "首页", exact: true }).click();
-  await expect(page.locator(".mobile-header").getByRole("button", { name: "刷新" })).toBeEnabled();
+  await expect(page.locator(".mobile-home-topbar input")).toBeEditable();
   finishRequest();
 });
 
@@ -348,8 +349,8 @@ test("adds a panel locally and rejects non-root panel URLs before native save", 
   await page.setViewportSize({ width: 320, height: 720 });
   await stubLocalApi(page);
   await page.goto("/");
-  await page.getByRole("button", { name: "更多" }).click();
-  await page.locator(".mobile-more-feature").filter({ hasText: "运维面板" }).click();
+  await page.locator(".mobile-tab-bar").getByRole("button", { name: "我的" }).click();
+  await openMobileFeature(page, "运维面板");
   await page.getByRole("button", { name: "添加面板" }).click();
 
   const form = page.getByRole("dialog", { name: "添加运维面板", exact: true });
@@ -368,7 +369,7 @@ test("keeps the SSH credential form usable when the mobile viewport shrinks", as
   await page.setViewportSize({ width: 320, height: 720 });
   await stubLocalApi(page);
   await page.goto("/");
-  await page.getByRole("button", { name: "更多" }).click();
+  await page.locator(".mobile-tab-bar").getByRole("button", { name: "我的" }).click();
   await page.getByRole("button", { name: "SSH 终端" }).click();
   await page.getByRole("button", { name: "添加主机" }).click();
 
@@ -404,27 +405,18 @@ test("shows compact software cards with optional details on mobile", async ({ pa
   expect(await tableCaption.boundingBox()).toMatchObject({ width: 1, height: 1 });
   await expect(page.locator(".software-store-page .store-total")).toBeHidden();
   await expect(page.locator(".store-table th", { hasText: "左侧菜单显示" })).toHaveCount(0);
-  await expect(page.locator(".store-table th", { hasText: "首页显示" })).toHaveCount(1);
+  await expect(page.locator(".store-table")).toHaveCount(1);
 
   await page.getByRole("searchbox", { name: "应用搜索" }).fill("局域网设备");
   const appRow = page.locator(".store-table tbody tr").filter({ hasText: "局域网设备" });
   await expect(appRow).toBeVisible();
   await expect(appRow.locator('[data-label="说明"]')).toBeHidden();
-  const detailsToggle = appRow.getByRole("button", { name: "展开详情" });
-  await detailsToggle.click();
-  await expect(appRow.getByRole("button", { name: "收起详情" })).toHaveAttribute("aria-expanded", "true");
-  await expect(appRow.locator('[data-label="说明"]')).toBeVisible();
-  const homeToggle = appRow.getByRole("checkbox", { name: "在首页显示局域网设备" });
-  await homeToggle.check();
-  const switchBounds = await homeToggle.locator("..").boundingBox();
-  expect(switchBounds).not.toBeNull();
-  expect(switchBounds!.width).toBeGreaterThanOrEqual(40);
-  const track = await appRow.locator(".store-switch > span").boundingBox();
-  expect(track?.width).toBe(38);
-  expect(track?.height).toBe(22);
+  await appRow.getByRole("button", { name: "查看局域网设备全部信息", exact: true }).click();
+  const details = page.getByRole("dialog", { name: "应用详情", exact: true });
+  await expect(details).toContainText("局域网设备");
+  await expect(details).toContainText("说明");
   await expectNoHorizontalOverflow(page);
-  await appRow.getByRole("button", { name: "收起详情" }).click();
-  await expect(appRow.locator('[data-label="说明"]')).toBeHidden();
+  await details.getByRole("button", { name: "关闭", exact: true }).click();
   await page.getByRole("button", { name: "首页", exact: true }).click();
   await expect(page.locator(".mobile-home-resource-stats")).toBeVisible();
   await expect(page.locator(".mobile-home-software")).toHaveCount(0);
@@ -438,9 +430,9 @@ test("home top bar matches mobile quick access and keeps search and actions usab
   const topbar = page.locator(".mobile-home-topbar");
   await expect(topbar).toBeVisible();
   await expectNoHorizontalOverflow(page);
-  await expect(topbar.getByRole("button", { name: "登录或注册" })).toBeVisible();
+  await expect(topbar.getByRole("button", { name: /^监控预警/ })).toBeVisible();
   await expect(topbar.getByRole("button", { name: "扫一扫" })).toBeVisible();
-  for (const control of [topbar.getByRole("button", { name: "登录或注册" }), topbar.getByRole("button", { name: "扫一扫" })]) {
+  for (const control of [topbar.getByRole("button", { name: /^监控预警/ }), topbar.getByRole("button", { name: "扫一扫" })]) {
     const bounds = await control.boundingBox();
     expect(bounds?.width).toBeGreaterThanOrEqual(44);
     expect(bounds?.height).toBeGreaterThanOrEqual(44);

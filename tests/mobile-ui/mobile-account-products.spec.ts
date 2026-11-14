@@ -1,3 +1,4 @@
+import { openMobileFeature } from "./navigation";
 import { expect, test } from "@playwright/test";
 
 test("account product counts show at most three nonempty products and hide on narrow screens", async ({ page }, testInfo) => {
@@ -9,11 +10,11 @@ test("account product counts show at most three nonempty products and hide on na
     .flatMap(([resource_type, count]) => Array.from({ length: count }, (_, index) => ({
       account_id: 12, resource_type, asset_key: `${resource_type}-${index}`, payload: {}, fetched_at: 1700000000,
     })));
-  await page.route("**/api/**", route => route.fulfill({ json: [] }));
+  await page.route("**/api/**", route => route.fulfill({ json: new URL(route.request().url()).pathname === "/api/member" ? null : [] }));
   await page.route("**/api/accounts**", route => route.fulfill({ json: accounts }));
   await page.route("**/api/local-assets**", route => route.fulfill({ json: assets }));
   await page.setViewportSize({ width: 1080, height: 844 });
-  await page.goto("/");
+  await page.goto("/"); await openMobileFeature(page, "我的账号");
   const products = page.getByRole("group", { name: "product-fixture-12 产品统计" });
   await expect(products).toBeVisible();
   await expect(products.locator(".mobile-account-product")).toHaveText(["服务器5", "域名4", "对象存储3"]);

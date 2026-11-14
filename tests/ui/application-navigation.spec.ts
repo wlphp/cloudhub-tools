@@ -119,7 +119,7 @@ test("save failure preserves confirmed navigation and read failure can be retrie
   await page.evaluate(() => { (window as any).__saveFails = true; });
   let settings = await openSettings(page, "备忘录");
   await settings.getByLabel("在首页显示应用", { exact: true }).click();
-  await expect(page.locator(".store-settings-notification")).toContainText("菜单设置保存失败");
+  await expect(page.locator(".app-toast-notice")).toContainText("菜单设置保存失败");
   await expect(nav(page).getByRole("button", { name: "备忘录", exact: true })).toBeVisible();
   await expect(settings.getByLabel("在首页显示应用", { exact: true })).toBeChecked();
   await settings.getByRole("button", { name: "完成" }).click();

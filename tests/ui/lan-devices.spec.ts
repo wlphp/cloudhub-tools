@@ -38,8 +38,8 @@ async function fixture(page: Page, native = true) {
 
 test("browser preview does not expose native scan controls", async ({ page }) => {
   await fixture(page,false);
-  await expect(page.getByText("局域网设备扫描仅支持 Windows 和 macOS",{exact:false})).toBeVisible();
-  await expect(page.getByRole("button",{name:"开始扫描",exact:true})).toHaveCount(0);
+  await expect(page.getByText("未发现可扫描的私有 IPv4 网络",{exact:false})).toBeVisible();
+  await expect(page.getByRole("button",{name:"开始扫描",exact:true})).toBeDisabled();
 });
 
 test("scan sends typed range and ports; stop persists partial results and history", async ({ page }) => {

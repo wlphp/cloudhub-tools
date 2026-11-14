@@ -18,7 +18,7 @@ import type { CertificateSummary } from "../platform/clients/certificates";
 import { SecretField } from "../shared/SecretField";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { useConfirmDialog } from "../shared/useConfirmDialog";
-import { useCallback, useEffect, useRef, useState, type Dispatch, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type SetStateAction } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type Dispatch, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type SetStateAction } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { Activity, ArrowLeft, BadgeCheck, CloudDownload, Crown, House, BellRing, Mail, Store, UserRound, ScanLine, ArrowDownToLine, ArrowUpDown, ChevronDown, ChevronRight, Cloud, Database, File, FileText, Filter, Folder, Globe2, HardDrive, Plus, Power, RefreshCw, RotateCw, Search, Server, ShieldCheck, SunMoon, Trash2, Award, Terminal, Pencil, ExternalLink, Monitor, Upload, Sparkles, Settings, SlidersHorizontal, Star } from "lucide-react";
 import type { Account, ApiLog, LocalAsset, ManagedHost, PanelConnection, PanelConnectionDraft, TransferAccount } from "../shared/types";
@@ -192,7 +192,9 @@ export function MobileApp() {
   const [resourceListPage, setResourceListPage] = useState(1);
   const [resourceListPageSize, setResourceListPageSize] = useState(10);
   const [mobileAssetFiltersOpen, setMobileAssetFiltersOpen] = useState(true);
-  const [mobileAssetsLoading, setMobileAssetsLoading] = useState(false);
+  const [mobileAssetsLoading, setMobileAssetsLoading] = useState(true);
+  const [mobileAssetsReady, setMobileAssetsReady] = useState(false);
+  const [mobileAssetsError, setMobileAssetsError] = useState(false);
   const [mobileFavoriteKeys, setMobileFavoriteKeys] = useState<string[]>(savedFavoriteAssetKeys);
   const [mobileFavoritesReady, setMobileFavoritesReady] = useState(false);
   const [accountProductCounts, setAccountProductCounts] = useState<Record<number, Record<string, number>>>({});
@@ -200,7 +202,7 @@ export function MobileApp() {
   const [uiTheme, setUiTheme] = useState<"light" | "dark">(readUiTheme);
   const [member, setMember] = useState<Member | null>(null);
   const [memberUnreadCount, setMemberUnreadCount] = useState(0);
-  const [mobileActiveAlertCount, setMobileActiveAlertCount] = useState(0);
+  const [mobileActiveAlertCount, setMobileActiveAlertCount] = useState<number | null>(null);
   const [memberInboxRequested, setMemberInboxRequested] = useState(false);
   const [activeMemberIdentity, setActiveMemberIdentity] = useState<MemberIdentityKind | null>(null);
   useEffect(() => {
@@ -392,6 +394,7 @@ export function MobileApp() {
   const [importingAccounts, setImportingAccounts] = useState(false);
   const accountImportInput = useRef<HTMLInputElement>(null);
   const mobileContentRef = useRef<HTMLElement>(null);
+  useLayoutEffect(() => { if (mobileContentRef.current) mobileContentRef.current.scrollTop = 0; }, [tab]);
   const pullRefreshActionRef = useRef<(() => Promise<void>) | null>(null);
   const monitorRefreshRef = useRef<(() => Promise<void>) | null>(null);
   const [showAddAccount, setShowAddAccount] = useState(false);
@@ -495,11 +498,14 @@ export function MobileApp() {
     setMobileAssetsLoading(true);
     try {
       setMobileAssetRows(await resourcesClient.listLocal());
+      setMobileAssetsError(false);
       setNotice("");
     } catch (error) {
+      setMobileAssetsError(true);
       setNotice(error instanceof Error ? error.message : "读取本机资产失败");
     } finally {
       setMobileAssetsLoading(false);
+      setMobileAssetsReady(true);
     }
   }, []);
 
@@ -1367,8 +1373,9 @@ export function MobileApp() {
   for (const panel of panelConnections) { const group = panel.group_name || "未分组"; panelGroupCounts.set(group, (panelGroupCounts.get(group) || 0) + 1); }
   const panelFilters = <span className="mobile-panel-filter-options">{statusFilter}<select aria-label="按分组筛选面板" value={panelGroupFilter} onChange={(event) => setPanelGroupFilter(event.currentTarget.value)}><option value="">全部分组（{panelConnections.length}）</option>{panelGroups.map((group) => <option key={group} value={group}>{group}（{panelGroupCounts.get(group) || 0}）</option>)}</select></span>;
   const sshFilters = <span className="mobile-panel-filter-options">{statusFilter}<select aria-label="按分组筛选 SSH 主机" value={sshGroupFilter} onChange={(event) => setSshGroupFilter(event.currentTarget.value)}><option value="">全部分组</option>{sshGroups.map((group) => <option key={group} value={group}>{group}</option>)}</select></span>;
-  const resourcePageOverview = resourceConfig && <MobileResourceOverview inlineActions={tab === "ssh" || tab === "panels"} filterLayout={tab === "ssh" || tab === "panels" ? "stacked" : undefined} title={resourceConfig.title} description={resourceConfig.description} icon={resourceConfig.icon} count={resourceConfig.count} countLabel={resourceConfig.unit} secondaryCount={resourceConfig.second} secondaryLabel={resourceConfig.secondLabel} search={resourceSearch[tab] ?? ""} onSearch={(value) => setResourceSearch((current) => ({ ...current, [tab]: value }))} ascending={resourceAscending[tab] !== false} onSort={() => setResourceAscending((current) => ({ ...current, [tab]: current[tab] === false }))} filter={resourceConfig.accounts ? <select aria-label={`按账号筛选${resourceConfig.title}`} value={assetAccountFilterId ?? ""} onChange={(event) => setAssetAccountFilterId(event.currentTarget.value ? Number(event.currentTarget.value) : null)}><option value="">全部账号</option>{accounts.map((account) => <option key={account.id} value={account.id}>{account.account_name}</option>)}</select> : tab === "panels" ? panelFilters : tab === "ssh" ? sshFilters : statusFilter} actions={tab === "ssh" ? <button type="button" className="mobile-primary" onClick={() => openSshHostForm()}><Plus size={17} />添加主机</button> : tab === "panels" ? <button type="button" className="mobile-primary" onClick={addPanel}><Plus size={17} />添加面板</button> : tab === "operationLogs" || tab === "apiLogs" ? <button type="button" className="mobile-icon-button" aria-label="清空日志" title="清空日志" disabled={operationLogsLoading || apiLogsLoading} onClick={() => void clearMobileLogs(tab === "operationLogs" ? "operation" : "api")}><Trash2 size={18} /></button> : undefined} />;
   const cloudPullAction = tab === "servers" ? syncServers : tab === "domains" && !selectedDomain ? refreshDomainsFromCloud : tab === "storage" && !selectedBucket ? refreshBucketsFromCloud : tab === "databases" && !selectedDatabase ? refreshDatabasesFromCloud : tab === "redis" && !selectedRedis ? refreshRedisFromCloud : null;
+  const cloudPullControl = cloudPullAction ? <button type="button" className="mobile-primary" disabled={!accounts.length || loading || syncing} onClick={() => void cloudPullAction()}><CloudDownload size={17} />{syncing ? "正在拉取云端" : "拉取云端"}</button> : undefined;
+  const resourcePageOverview = resourceConfig && <MobileResourceOverview inlineActions={tab === "ssh" || tab === "panels"} filterLayout={tab === "ssh" || tab === "panels" ? "stacked" : undefined} title={resourceConfig.title} description={resourceConfig.description} icon={resourceConfig.icon} count={resourceConfig.count} countLabel={resourceConfig.unit} secondaryCount={resourceConfig.second} secondaryLabel={resourceConfig.secondLabel} search={resourceSearch[tab] ?? ""} onSearch={(value) => setResourceSearch((current) => ({ ...current, [tab]: value }))} ascending={resourceAscending[tab] !== false} onSort={() => setResourceAscending((current) => ({ ...current, [tab]: current[tab] === false }))} filter={resourceConfig.accounts ? <select aria-label={`按账号筛选${resourceConfig.title}`} value={assetAccountFilterId ?? ""} onChange={(event) => setAssetAccountFilterId(event.currentTarget.value ? Number(event.currentTarget.value) : null)}><option value="">全部账号</option>{accounts.map((account) => <option key={account.id} value={account.id}>{account.account_name}</option>)}</select> : tab === "panels" ? panelFilters : tab === "ssh" ? sshFilters : statusFilter} actions={tab === "ssh" ? <button type="button" className="mobile-primary" onClick={() => openSshHostForm()}><Plus size={17} />添加主机</button> : tab === "panels" ? <button type="button" className="mobile-primary" onClick={addPanel}><Plus size={17} />添加面板</button> : tab === "operationLogs" || tab === "apiLogs" ? <button type="button" className="mobile-icon-button" aria-label="清空日志" title="清空日志" disabled={operationLogsLoading || apiLogsLoading} onClick={() => void clearMobileLogs(tab === "operationLogs" ? "operation" : "api")}><Trash2 size={18} /></button> : cloudPullControl} />;
   function linkedResourceAccountCount(assets: LocalAsset[]) { return new Set(assets.filter((asset) => accountForAsset(asset)).map((asset) => asset.account_id)).size; }
   const unknownDomains = domains.filter((domain) => accountForAsset(domain) === null);
   const unknownBuckets = buckets.filter((bucket) => accountForAsset(bucket) === null);
@@ -1591,7 +1598,7 @@ export function MobileApp() {
   </div>;
 
   const resourcePage = tab === "settingsMenu" ? renderSettingsMenuContent() : tab === "assets" || tab === "favorites" ? <>
-          <div className="mobile-page-title mobile-assets-title"><div><p>本机 SQLite · 不实时请求云端</p><h1>{tab === "favorites" ? "我的收藏" : "我的资产"}</h1></div><span>{(tab === "favorites" ? favoriteMobileAssetRows : mobileAssetRows).length} 项 <ChevronRight size={17} aria-hidden="true" /></span></div>
+          <div className="mobile-page-title mobile-assets-title"><div><p>本机缓存 · 下拉刷新</p><h1>{tab === "favorites" ? "我的收藏" : "我的资产"}</h1></div><span>{(tab === "favorites" ? favoriteMobileAssetRows : mobileAssetRows).length} 项</span></div>
           <div className="mobile-assets-page-switch" role="tablist" aria-label="资产视图"><button type="button" role="tab" aria-selected={tab === "assets"} className={tab === "assets" ? "is-active" : ""} onClick={() => setTab("assets")}>全部资产</button><button type="button" role="tab" aria-selected={tab === "favorites"} className={tab === "favorites" ? "is-active" : ""} onClick={() => setTab("favorites")}>我的收藏 <span>{mobileFavoriteKeys.length}</span></button></div>
           {tab === "assets" && <>
           <div className="mobile-assets-summary"><div><HardDrive size={19} aria-hidden="true" /><strong>{mobileAssetRows.length}</strong><span>本机资产</span></div><div><Cloud size={19} aria-hidden="true" /><strong>{new Set(mobileAssetRows.map((asset) => asset.account_id)).size}</strong><span>关联账号</span></div></div>
@@ -1608,10 +1615,10 @@ export function MobileApp() {
             const assetTone = assetStatusTone(assetStatus);
             const assetStatusLabel = assetTone === "pending" ? "已缓存" : assetStatus;
             const isFavorite = mobileFavoriteKeys.includes(assetFavoriteKey(asset));
-            return <article className="mobile-asset-card" key={`${asset.account_id}:${asset.resource_type}:${asset.asset_key}`}><span className="mobile-provider-avatar" data-provider={owner?.cloud_type ?? "other"} aria-hidden="true">{owner ? <MobileProviderMark cloudType={owner.cloud_type} /> : <HardDrive size={18} />}</span><div className="mobile-asset-card-copy"><div className="mobile-asset-card-title"><span>{typeLabel}</span><strong title={assetName(asset)}>{assetName(asset)}</strong></div><small>{owner ? `${owner.account_name} · ${cloudProvider(owner.cloud_type).label}` : `未知账号 · ${asset.account_id}`}</small>{asset.asset_key !== assetName(asset) && <small className="mobile-asset-id">{asset.asset_key}</small>}<div className="mobile-asset-card-actions"><button type="button" className="mobile-asset-action" onClick={() => openMobileAssetOperations(asset)}>操作</button><button type="button" className={`mobile-asset-favorite${isFavorite ? " is-favorite" : ""}`} aria-label={isFavorite ? `取消收藏 ${assetName(asset)}` : `收藏 ${assetName(asset)}`} aria-pressed={isFavorite} onClick={() => toggleMobileAssetFavorite(asset)}><Star size={17} fill={isFavorite ? "currentColor" : "none"} aria-hidden="true" />{isFavorite ? "已收藏" : "收藏"}</button></div></div><div className="mobile-asset-card-meta"><span className={`mobile-server-status-pill is-${assetTone === "pending" ? "stopped" : assetTone}`}><i aria-hidden="true" />{assetStatusLabel}</span><small>{region === "—" ? "地域未知" : region}</small></div></article>;
+            return <article className="mobile-asset-card" key={`${asset.account_id}:${asset.resource_type}:${asset.asset_key}`}><span className="mobile-provider-avatar" data-provider={owner?.cloud_type ?? "other"} aria-hidden="true">{owner ? <MobileProviderMark cloudType={owner.cloud_type} /> : <HardDrive size={18} />}</span><div className="mobile-asset-card-copy"><div className="mobile-asset-card-title"><span>{typeLabel}</span><strong title={assetName(asset)}>{assetName(asset)}</strong></div><small>{owner ? `${owner.account_name} · ${cloudProvider(owner.cloud_type).label}` : `未知账号 · ${asset.account_id}`}</small>{asset.asset_key !== assetName(asset) && <small className="mobile-asset-id">{asset.asset_key}</small>}</div><div className="mobile-asset-card-meta"><span className={`mobile-server-status-pill is-${assetTone === "pending" ? "stopped" : assetTone}`}><i aria-hidden="true" />{assetStatusLabel}</span><small>{region === "—" ? "地域未知" : region}</small></div><div className="mobile-asset-card-actions"><button type="button" className="mobile-asset-action" onClick={() => openMobileAssetOperations(asset)}>操作</button><button type="button" className={`mobile-asset-favorite${isFavorite ? " is-favorite" : ""}`} aria-label={isFavorite ? `取消收藏 ${assetName(asset)}` : `收藏 ${assetName(asset)}`} aria-pressed={isFavorite} onClick={() => toggleMobileAssetFavorite(asset)}><Star size={17} fill={isFavorite ? "currentColor" : "none"} aria-hidden="true" />{isFavorite ? "已收藏" : "收藏"}</button></div></article>;
           })}</div><PaginationBar className="store-pagination" page={safeMobileAssetPage} pageSize={mobileAssetPageSize} total={mobileAssetPageRows.length} onPageChange={setMobileAssetPage} onPageSizeChange={(size) => { setMobileAssetPageSize(size); setMobileAssetPage(1); }} /></>}
         </> : tab === "servers" ? <>
-          <div className="mobile-page-title"><h1>云服务器</h1></div>
+          <div className="mobile-page-title"><h1>云服务器</h1>{cloudPullControl}</div>
           <div className="mobile-server-overview"><div className="mobile-server-stats" aria-label="服务器统计"><div className="server-stat-total"><span className="mobile-account-stat-icon"><Server size={21} /></span><span className="mobile-account-stat-copy"><strong>{filteredServers.length}</strong><small>服务器</small></span></div><div className="server-stat-running"><span className="mobile-account-stat-icon"><Activity size={21} /></span><span className="mobile-account-stat-copy"><strong>{runningServerCount}</strong><small>运行中</small></span></div></div></div>
           <div className="mobile-security-note"><ShieldCheck size={18} /><span>云服务器数据保存在本机，账号凭据由加密数据库保护。</span></div>
           <div className="mobile-server-tabs" role="group" aria-label="筛选服务器类型">
@@ -1638,7 +1645,7 @@ export function MobileApp() {
           })}</div>}{visibleServers.length > 0 && <PaginationBar className="store-pagination" page={safeServerPage} pageSize={resourceListPageSize} total={visibleServers.length} onPageChange={setResourceListPage} onPageSizeChange={(size) => { setResourceListPageSize(size); setResourceListPage(1); }} />}
         </> : tab === "domains" ? <>
           {!selectedDomain && <>
-            <div className="mobile-page-title"><h1>域名与 DNS</h1></div>
+            <div className="mobile-page-title"><h1>域名与 DNS</h1>{cloudPullControl}</div>
             <div className="mobile-domain-overview"><div className="mobile-domain-stats" aria-label="域名统计"><div className="domain-stat-total"><span className="mobile-account-stat-icon"><Globe2 size={21} /></span><span className="mobile-account-stat-copy"><strong>{filteredDomains.length}</strong><small>域名</small></span></div><div className="domain-stat-accounts"><span className="mobile-account-stat-icon"><Cloud size={21} /></span><span className="mobile-account-stat-copy"><strong>{new Set(filteredDomains.map((domain) => domain.account_id)).size}</strong><small>关联账号</small></span></div></div></div>
             {accounts.length > 0 && <div className="mobile-domain-tools"><label className="mobile-account-search"><Search size={18} aria-hidden="true" /><input aria-label="搜索域名、账号或备注" value={domainSearch} onChange={(event) => setDomainSearch(event.currentTarget.value)} placeholder="搜索域名 / 账号名 / 备注…" /></label><label className="mobile-account-provider-filter"><Filter size={16} aria-hidden="true" /><select aria-label="按云账号筛选域名" value={assetAccountFilterId ?? ""} onChange={(event) => setAssetAccountFilterId(event.currentTarget.value ? Number(event.currentTarget.value) : null)}><option value="">全部</option>{accounts.map((account) => <option key={account.id} value={account.id}>{account.account_name}</option>)}</select></label></div>}
             {accounts.length > 0 && unknownDomains.length > 0 && <button type="button" className="mobile-clean-unknown" disabled={loading || syncing || cleaningUnknownResource !== null} onClick={() => void removeUnknownRecords("domains", "域名", domains, (domain) => accountForAsset(domain) === null, (domain) => `${domain.account_id}:${domain.resource_type}:${domain.asset_key}`, resourcesClient.removeLocal, setDomains)}>{cleaningUnknownResource === "domains" ? "正在移除…" : `移除未知账号域名（${unknownDomains.length}）`}</button>}
@@ -1743,7 +1750,7 @@ export function MobileApp() {
   }} accounts={accounts} assets={mobileAssetRows} favoriteCount={mobileFavoriteKeys.length} sshCount={managedHosts.length} panelCount={panelConnections.length} />;
 
   const initialPageLoading =
-    (tab === "home" && (loading && accounts.length === 0 || mobileAssetsLoading && mobileAssetRows.length === 0)) ||
+    (tab === "home" && (loading && accounts.length === 0 || mobileAssetsLoading && !mobileAssetsReady)) ||
     ((tab === "accounts") && loading && accounts.length === 0) ||
     ((tab === "assets" || tab === "favorites") && mobileAssetsLoading && mobileAssetRows.length === 0) ||
     (tab === "servers" && loading && servers.length === 0) ||
@@ -1755,8 +1762,7 @@ export function MobileApp() {
     (tab === "ssh" && loading && !sshSessionId && managedHosts.length === 0) ||
     (tab === "panels" && panelLoading && panelConnections.length === 0) ||
     (tab === "operationLogs" && operationLogsLoading && operationLogAssets.length === 0) ||
-    (tab === "apiLogs" && apiLogsLoading && apiLogs.length === 0) ||
-    (tab === "more" && (loading && servers.length === 0 || mobileAssetsLoading && mobileAssetRows.length === 0 || panelLoading && panelConnections.length === 0));
+    (tab === "apiLogs" && apiLogsLoading && apiLogs.length === 0);
   const initialSkeletonVariant = tab === "home" ? "dashboard" as const : selectedDomain || selectedBucket || selectedDatabase || selectedRedis ? "detail" as const : "list" as const;
 
   // 归属功能分区的应用（云效流水线/HTTPS 证书/身份验证器）跳转独立页面，未适配移动端的（Codex/内网穿透）提示去 PC 端；
@@ -1794,7 +1800,7 @@ export function MobileApp() {
       <ToastNotice message={notice} onDismiss={() => setNotice("")} />
       {tab === "home" && <header className="mobile-home-topbar" aria-label="首页快捷栏">
         <label className="mobile-home-top-search"><Search size={18} aria-hidden="true" /><input aria-label="搜索应用" value={homeSearch} onChange={event => setHomeSearch(event.currentTarget.value)} placeholder="搜索" /></label>
-        <button type="button" className="mobile-home-top-action" aria-label={`监控预警，${mobileActiveAlertCount} 条未解除`} title="监控预警" onClick={() => setTab("monitorAlerts")}><BellRing size={20} aria-hidden="true" /><span className="mobile-home-alert-count">{mobileActiveAlertCount > 99 ? "99+" : mobileActiveAlertCount}</span></button>
+        <button type="button" className="mobile-home-top-action" aria-label={`监控预警，${mobileActiveAlertCount ?? "未知"} 条未解除`} title="监控预警" onClick={() => setTab("monitorAlerts")}><BellRing size={20} aria-hidden="true" /><span className="mobile-home-alert-count">{mobileActiveAlertCount === null ? "—" : mobileActiveAlertCount > 99 ? "99+" : mobileActiveAlertCount}</span></button>
         <button type="button" className="mobile-home-top-action" aria-label="扫一扫" title="扫一扫" onClick={() => void scanMobileQr()}><ScanLine size={21} aria-hidden="true" /></button>
       </header>}
       {tab === "settingsMenu" ? <header className={`mobile-settings-drawer-header${settingsDrawerDirection === "back" ? " is-returning" : ""}`}><button ref={settingsCloseButtonRef} type="button" aria-label="返回我的页面" onClick={closeSettingsDrawer}><ArrowLeft size={20} aria-hidden="true" /></button><h1>设置</h1><span aria-hidden="true" /></header> : tab === "more" && !productDialog && <header className="mobile-header">
@@ -1835,7 +1841,7 @@ export function MobileApp() {
         <MobilePullRefresh containerRef={mobileContentRef} actionRef={pullRefreshActionRef} scopeKey={`${tab}:${selectedAccountId}:${selectedDomain?.asset_key ?? ""}:${selectedBucket?.asset_key ?? ""}:${objectPrefix}:${selectedDatabase?.asset_key ?? ""}:${selectedRedis?.asset_key ?? ""}`} disabled={!!productDialog || tab === "settingsMenu"} onError={setNotice}>
 
         {mobileUpdate.info?.available && tab !== "about" && tab !== "settingsMenu" && <button type="button" className="mobile-update-banner" onClick={() => setTab("about")}><ArrowDownToLine size={15} aria-hidden="true" />发现新版 v{mobileUpdate.info.version} · 查看更新</button>}
-        {initialPageLoading ? <MobileLoadingSkeleton variant={initialSkeletonVariant} label={tab === "home" ? "正在准备首页数据" : "正在加载页面内容"} /> : tab === "home" ? <MobileHomePage accounts={accounts} assets={mobileAssetRows} search={homeSearch} favoriteCount={mobileFavoriteKeys.length} applicationSettings={applicationSettings} onActiveAlertCount={setMobileActiveAlertCount} onNavigate={setTab} onOpenSoftware={openHomeApplication} refreshRef={monitorRefreshRef} /> : tab === "monitorAlerts" ? <MobileMonitorAlertsPage accounts={accounts} onActiveCount={setMobileActiveAlertCount} refreshRef={monitorRefreshRef} cachedAssets={mobileAssetRows} /> : tab === "softwareStore" ? <OfficialPluginsPage mobile key={storePluginId ?? "catalog"} initialPluginId={storePluginId ?? undefined} forceInitialPageMode={!!storePluginId} applicationSettings={applicationSettings} accounts={accounts} localAssets={mobileAssetRows} onStatus={setNotice} onConfirm={message => confirm({ message })} refreshActionRef={pullRefreshActionRef} onOpenSection={openApplicationSection} onOpenPlugin={() => setNotice("")} onReturnCatalog={() => { setStorePluginId(null); setTab("softwareStore"); }} /> : productDialog || tab === "accounts" ? accountPage : resourcePage}
+        {initialPageLoading && !productDialog ? <MobileLoadingSkeleton variant={initialSkeletonVariant} label={tab === "home" ? "正在准备首页数据" : "正在加载页面内容"} /> : tab === "home" ? <MobileHomePage assetError={mobileAssetsError} accounts={accounts} assets={mobileAssetRows} search={homeSearch} favoriteCount={mobileFavoriteKeys.length} applicationSettings={applicationSettings} onActiveAlertCount={setMobileActiveAlertCount} onNavigate={setTab} onOpenSoftware={openHomeApplication} refreshRef={monitorRefreshRef} /> : tab === "monitorAlerts" ? <MobileMonitorAlertsPage accounts={accounts} onActiveCount={setMobileActiveAlertCount} refreshRef={monitorRefreshRef} cachedAssets={mobileAssetRows} /> : tab === "softwareStore" ? <OfficialPluginsPage mobile key={storePluginId ?? "catalog"} initialPluginId={storePluginId ?? undefined} forceInitialPageMode={!!storePluginId} applicationSettings={applicationSettings} accounts={accounts} localAssets={mobileAssetRows} onStatus={setNotice} onConfirm={message => confirm({ message })} refreshActionRef={pullRefreshActionRef} onOpenSection={openApplicationSection} onOpenPlugin={() => setNotice("")} onReturnCatalog={() => { setStorePluginId(null); setTab("softwareStore"); }} /> : productDialog || tab === "accounts" ? accountPage : resourcePage}
         </MobilePullRefresh>
       </section>
 

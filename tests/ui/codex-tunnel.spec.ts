@@ -43,7 +43,7 @@ test("API tunnel is disabled by default and shares its managed state with FRP", 
   await panel.getByLabel("API 穿透 frps 连接").selectOption("7");
   await panel.getByLabel("API 穿透公网域名").fill("api.example.test");
   await panel.getByRole("button", { name: "保存穿透配置", exact: true }).click();
-  await expect(panel.getByRole("alert")).toHaveText("请选择 HTTPS 证书和私钥文件");
+  await expect(page.locator(".app-toast-notice")).toHaveText("请选择 HTTPS 证书和私钥文件");
   await panel.getByLabel("API 穿透证书路径").fill("C:\\fixture\\cert.pem");
   await panel.getByLabel("API 穿透私钥路径").fill("C:\\fixture\\key.pem");
   await panel.getByRole("button", { name: "保存穿透配置", exact: true }).click();

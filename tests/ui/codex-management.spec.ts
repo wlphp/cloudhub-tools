@@ -36,7 +36,7 @@ test("Codex preview renders the real panel while native calls surface honest err
   await page.getByRole("button", { name: "Codex 管理", exact: true }).first().click();
   // 手机端与预览不再拦截整页：真实面板渲染，本机命令不可用时显示错误提示而不是伪造成功。
   await expect(page.getByRole("tab", { name: /账号总览/ })).toBeVisible();
-  await expect(page.getByRole("button", { name: /模型供应商/ })).toBeVisible();
+  await expect(page.getByRole("tab", { name: /模型供应商/ })).toBeVisible();
   await expect(page.getByText("该功能仅支持 CloudHub 原生客户端").first()).toBeVisible();
   await expect(page.getByRole("button", { name: "导入本机登录" })).toHaveCount(0);
 });
@@ -156,7 +156,7 @@ test("Codex account filters, metadata, quota errors and confirmed switching", as
   await page.goto("/");
   await page.getByRole("button", { name: "Codex 管理", exact: true }).first().click();
   await expect(page.getByText("70% 剩余", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "管理分组", exact: true }).click();
+  await page.getByRole("button", { name: "管理账号分组", exact: true }).click();
   const groupDialog = page.getByRole("dialog", { name: "管理 Codex 分组", exact: true });
   await groupDialog.getByLabel("新分组名称", { exact: true }).fill("开发组");
   await groupDialog.getByRole("button", { name: "创建分组", exact: true }).click();

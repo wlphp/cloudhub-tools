@@ -42,7 +42,7 @@ export function PluginApplication({ pluginId, wslEnabled, mobile = false, accoun
     case "cloudhub.flow": return <Suspense fallback={<p role="status">正在加载流水线…</p>}><FlowPanel mobile={mobile} /></Suspense>;
     case "cloudhub.authenticator": return <Suspense fallback={<p role="status">正在加载身份验证器…</p>}><AuthenticatorPanel mobile={mobile} /></Suspense>;
     case "cloudhub.certificates": return <Suspense fallback={<p role="status">正在加载 HTTPS 证书…</p>}><CertificatePanel accounts={accounts} localAssets={localAssets} onStatus={onStatus} onConfirm={onConfirm} /></Suspense>;
-    case "cloudhub.codex": return <Suspense fallback={<p role="status">正在加载 Codex 管理…</p>}><CodexPanel /></Suspense>;
+    case "cloudhub.codex": return <Suspense fallback={<p role="status">正在加载 Codex 管理…</p>}><CodexPanel mobile={mobile} /></Suspense>;
     case "cloudhub.frp": return <Suspense fallback={<p role="status">正在加载内网穿透…</p>}><FrpPanel /></Suspense>;
     case "cloudhub.wechat-multi": return <WechatPluginSettings onNotify={onNotify} onError={onError} />;
     case "cloudhub.hardware-info": return <HardwareInfoPlugin open onOpened={() => {}} />;

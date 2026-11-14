@@ -56,7 +56,7 @@ test("实验内核明确限制并保存种子；切回普通内核清除不支�
   await dialog.getByRole("button",{name:"新建环境",exact:true}).click();
   await dialog.getByLabel("名称",{exact:true}).fill("实验环境");
   await dialog.getByLabel("浏览器内核",{exact:true}).selectOption("clearcote-150.0.7871.114");
-  await expect(dialog.getByText(/实验版 Chromium 150 落后于推荐内核/)).toBeVisible();
+  await expect(page.getByText(/实验版 Chromium 150 落后于推荐内核/)).toBeVisible();
   await dialog.getByRole("tab",{name:"环境参数"}).click();
   await dialog.getByLabel("User-Agent 模板",{exact:true}).selectOption("windows10");
   await dialog.getByLabel("指纹种子",{exact:true}).fill("172904001");
@@ -79,14 +79,14 @@ test("实验内核明确限制并保存种子；切回普通内核清除不支�
   expect(last.args.input.config.fingerprint).toBeNull();
   await dialog.getByRole("button",{name:"内核管理",exact:true}).click();
   await dialog.getByLabel("管理内核版本").selectOption("clearcote-150.0.7871.114");
-  await expect(dialog.getByText(/Clearcote 官方 GitHub Release/)).toBeVisible();
-  await expect(dialog.getByText(/基于 Chromium 150，落后于推荐内核/)).toBeVisible();
+  await expect(page.getByText(/Clearcote 官方 GitHub Release/)).toBeVisible();
+  await expect(page.getByText(/基于 Chromium 150，落后于推荐内核/)).toBeVisible();
 });
 
 test("环境从创建、按需安装、运行到回收恢复；入口不自动下载", async ({ page }) => {
   await fixture(page);
   const dialog = page.getByRole("dialog", { name: "指纹浏览器", exact: true });
-  await expect(dialog.getByText("创建第一个浏览器环境", { exact: true })).toBeVisible();
+  await expect(page.getByText("创建第一个浏览器环境", { exact: true })).toBeVisible();
   expect(await page.evaluate(() => (window as any).browserCalls.some((c: any) => c.command === "browser_install_kernel"))).toBe(false);
   await dialog.getByRole("button", { name: "新建环境", exact: true }).click();
   await dialog.getByLabel("名称", { exact: true }).fill("工作环境");
@@ -100,7 +100,7 @@ test("环境从创建、按需安装、运行到回收恢复；入口不自动�
   await expect(row).toBeVisible(); await expect(row.getByRole("button", { name: "打开", exact: true })).toBeDisabled();
   await dialog.getByRole("button", { name: "内核管理", exact: true }).click();
   await dialog.getByRole("button", { name: "下载并安装", exact: true }).click();
-  await expect(dialog.getByText("浏览器内核已校验并安装，各环境共用此内核", { exact: true })).toBeVisible();
+  await expect(page.getByText("浏览器内核已校验并安装，各环境共用此内核", { exact: true })).toBeVisible();
   await dialog.getByRole("button", { name: "环境列表", exact: true }).click();
   await row.getByRole("button", { name: "打开", exact: true }).click();
   await expect(row.getByText("运行中", { exact: true })).toBeVisible();
@@ -143,7 +143,7 @@ test("浏览器预览明确限制原生操作", async ({ page }) => {
   await page.getByRole("combobox", { name: "每页条数" }).selectOption("90");
   await page.locator(".software-store-page tr").filter({ hasText: "指纹浏览器" }).getByRole("button", { name: "管理", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "指纹浏览器", exact: true });
-  await expect(dialog.getByText("此功能需要 Windows x64 桌面客户端，浏览器预览不能下载或启动本机浏览器。", { exact: true })).toBeVisible();
+  await expect(page.getByText("此功能需要 Windows x64 桌面客户端，浏览器预览不能下载或启动本机浏览器。", { exact: true })).toBeVisible();
   await expect(dialog.getByRole("button", { name: "新建环境", exact: true })).toBeDisabled();
 });
 
@@ -208,7 +208,7 @@ test("浏览器启动失败时显示安全诊断信息而非通用错误", async
   await dialog.getByRole("button", { name: "环境列表", exact: true }).click();
   await page.evaluate(() => { (window as any).browserLaunchError = { kind: "platform-error", code: "browser", message: "无法启动浏览器，请检查内核文件和系统权限", retryable: false }; });
   await dialog.locator("tbody tr").filter({ hasText: "诊断环境" }).getByRole("button", { name: "打开", exact: true }).click();
-  await expect(dialog.getByRole("alert")).toHaveText("无法启动浏览器，请检查内核文件和系统权限");
+  await expect(page.getByRole("alert")).toHaveText("无法启动浏览器，请检查内核文件和系统权限");
 });
 
 test("列表、内核与回收站在不同宽度下保持布局边界", async ({ page }) => {

@@ -1,6 +1,5 @@
 .auth-panel { padding: 20px; min-width: 0; overflow: auto; height: 100%; color: var(--jb-text, var(--jb-text)); }
 .auth-panel.auth-mobile { height:auto; overflow:visible; padding:0; color:inherit; --jb-surface:var(--mobile-surface); --jb-text:var(--mobile-text); --jb-input:var(--mobile-bg); --jb-border:var(--mobile-border); --jb-muted:var(--mobile-muted); --jb-accent:var(--mobile-accent); --jb-red:var(--mobile-danger); --jb-accent-soft:var(--mobile-raised); }
-.auth-mobile .auth-copy-toast { position:fixed; top:calc(env(safe-area-inset-top,0px) + 70px); left:16px; right:16px; z-index:10000; padding:12px 14px; border:1px solid var(--mobile-border); border-radius:8px; background:var(--mobile-raised); color:var(--mobile-text); box-shadow:0 6px 20px #0004; font-size:13px; }
 .auth-mobile .auth-cards { grid-template-columns:1fr; }
 .auth-mobile .auth-actions { flex-wrap:wrap; gap:8px; }
 .auth-mobile button { min-height:40px; }
@@ -506,5 +505,8 @@
 .auth-panel.auth-mobile .auth-progress { top: auto; bottom: 0; height: 3px; }
 @media (prefers-reduced-motion: reduce) { .auth-panel.auth-mobile .auth-view button { transition: none; } }
 .auth-panel.auth-mobile .auth-selection > .sort-selection-controls { width: 100%; justify-content: space-between; }
-.auth-panel.auth-mobile .auth-list .auth-card { padding-block: 8px; gap: 0; }
-.auth-panel.auth-mobile .auth-list .auth-code-row button.auth-code { font-size: 24px; }
+.auth-panel.auth-mobile .auth-list .auth-card { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); padding-block: 8px; gap: 0 8px; }
+.auth-panel.auth-mobile .auth-list .auth-code-row { flex-direction: column; align-items: stretch; gap: 0; }
+.auth-panel.auth-mobile .auth-list .auth-code-row button.auth-code { min-height: 44px; font-size: 22px; gap: 4px; }
+.auth-panel.auth-mobile .auth-list .auth-next { display: flex; align-items: center; justify-content: space-between; gap: 4px; text-align: left; }
+.auth-panel.auth-mobile .auth-list .auth-card-footer { grid-column: 1 / -1; }

@@ -15,6 +15,7 @@ export async function verifyCloudChannels(page: Page, mobile: boolean) {
   let failPreview = true;
   await page.route("**/api/**", async route => {
     const url = new URL(route.request().url()), action = url.pathname.split("/").pop()!, channelId = url.searchParams.get("channelId") ?? "default";
+    if (url.pathname === "/api/member") return route.fulfill({ json: null });
     if (url.pathname === "/api/database-import/catalog") return route.fulfill({json:[{table:"memo_notes",label:"备忘录",count:0},{table:"flow_connections",label:"流水线连接",count:0}]});
     if (url.pathname === "/api/database-import/preview") return failPreview
       ? route.fulfill({ status: 400, json: { error: "备份校验失败" } })
@@ -40,9 +41,9 @@ export async function verifyCloudChannels(page: Page, mobile: boolean) {
   });
   await page.goto("/");
   if (mobile) {
-    await page.locator(".mobile-tab-bar").getByRole("button", { name: "更多", exact: true }).click();
-    await page.locator(".mobile-more-feature").filter({ hasText: "系统设置" }).click();
-    await page.getByRole("button", { name: /导入数据/ }).click();
+    await page.locator(".mobile-tab-bar").getByRole("button", { name: "我的", exact: true }).click();
+    await page.getByRole("button", { name: "系统设置", exact: true }).click();
+    await page.getByRole("button", { name: "数据导入与迁移", exact: true }).click();
   } else {
     await page.getByRole("button", { name: "系统设置", exact: true }).first().click();
     await page.getByRole("tab", { name: "数据管理", exact: true }).click();

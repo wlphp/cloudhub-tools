@@ -1,3 +1,4 @@
+import { openMobileFeature } from "./navigation";
 import { expect, test, type Page } from "@playwright/test";
 
 async function serverFixture(page: Page, cloudType: string, resourceType: string) {
@@ -14,7 +15,7 @@ async function serverFixture(page: Page, cloudType: string, resourceType: string
     Object.assign(window, { serverCalls: calls, __TAURI_INTERNALS__: {
       transformCallback: () => 1, unregisterCallback: () => {},
       invoke: async (command: string, args: Record<string, unknown> = {}) => {
-        if (command === "list_accounts") return [account];
+        if(command === "member_me") return null; if(command === "list_accounts") return [account];
         if (command === "list_local_assets") return !args.resourceType || args.resourceType === resourceType ? [asset] : [];
         if (["reboot_instance", "cvm_instance_reboot", "swas_instance_action"].includes(command)) {
           calls.push({ command, args });
@@ -25,7 +26,7 @@ async function serverFixture(page: Page, cloudType: string, resourceType: string
     } });
   }, { cloudType, resourceType });
   await page.goto("/");
-  await page.locator(".mobile-tab-bar").getByRole("button", { name: "服务器", exact: true }).click();
+  await openMobileFeature(page, "服务器");
 }
 
 for (const cloudType of ["aliyun", "tencent"]) {
@@ -38,7 +39,7 @@ for (const cloudType of ["aliyun", "tencent"]) {
       await expect(card.locator(".mobile-server-expiry")).toContainText("2030/12/31");
       await card.getByText("详情与操作", { exact: true }).click();
       const config = card.locator('[aria-label="服务器配置"]');
-      for (const text of ["2 核", "4 GB", "fixture.small", "Debian 12", "40 GB", "5 Mbps", "192.0.2.10", "10.0.0.10"]) {
+      for (const text of ["2 核", "4 GB", "fixture.small", "Debian 12", resourceType === "swas" && cloudType === "aliyun" ? "40 GiB" : "40 GB", "5 Mbps", "192.0.2.10", "10.0.0.10"]) {
         await expect(config).toContainText(text);
       }
       await expect(config.getByRole("region")).toHaveCount(3);
@@ -78,11 +79,11 @@ for (const cloudType of ["aliyun", "tencent"]) {
 }
 
 test("servers with missing cached fields show an explicit expiry fallback", async ({ page }) => {
-  await page.route("**/api/**", route => route.fulfill({ json: [] }));
+  await page.route("**/api/**", route => route.fulfill({ json: new URL(route.request().url()).pathname === "/api/member" ? null : [] }));
   await page.route("**/api/accounts**", route => route.fulfill({ json: [{ id: 12, account_name: "empty-fixture", cloud_type: "aliyun", enabled: true }] }));
   await page.route("**/api/local-assets**", route => route.fulfill({ json: new URL(route.request().url()).searchParams.get("resource_type") === "swas" ? [] : [{ account_id: 12, resource_type: "ecs", asset_key: "empty", payload: { InstanceId: "empty", InstanceName: "empty", Status: "Running" }, fetched_at: 1700000000 }] }));
   await page.goto("/");
-  await page.locator(".mobile-tab-bar").getByRole("button", { name: "服务器", exact: true }).click();
+  await openMobileFeature(page, "服务器");
   const card = page.locator(".mobile-server-card-featured");
   await expect(card.locator(".mobile-server-expiry")).toHaveText("到期时间：未获取");
   await card.getByText("详情与操作", { exact: true }).click();

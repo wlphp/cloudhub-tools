@@ -188,9 +188,20 @@ body:has(.mobile-shell) .lan-devices label { font-size: 12px; color: var(--jb-mu
 body:has(.mobile-shell) .lan-devices button { padding: 0 8px; font-size: 12px; border: 1px solid var(--jb-border); border-radius: 8px; background: var(--jb-surface); color: var(--jb-text); }
 body:has(.mobile-shell) .lan-devices button[type=submit] { border-color: var(--jb-accent); color: var(--jb-accent); background: var(--jb-accent-soft); }
 body:has(.mobile-shell) .lan-devices button:disabled { opacity: .45; }
-body:has(.mobile-shell) .lan-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; padding: 4px; margin: 16px 0 12px; border: 1px solid var(--jb-border); border-radius: 10px; background: var(--jb-surface-2); }
-body:has(.mobile-shell) .lan-tabs button { border: 0; background: transparent; color: var(--jb-muted); }
-body:has(.mobile-shell) .lan-tabs button.is-active { color: var(--jb-accent); background: var(--jb-surface); font-weight: 600; }
+body:has(.mobile-shell) .lan-devices .lan-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; padding: 4px; margin: 16px 0 12px; border: 1px solid var(--jb-border); border-radius: 10px; background: var(--jb-surface-2); }
+body:has(.mobile-shell) .lan-devices .lan-tabs button {
+  box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;
+  width: 100%; min-width: 0; min-height: 44px; margin: 0; padding: 0 10px;
+  border: 1px solid var(--mobile-border); border-radius: 8px;
+  background: var(--mobile-surface); color: var(--mobile-muted); font-size: 13px;
+  box-shadow: none;
+}
+body:has(.mobile-shell) .lan-devices .lan-tabs button.is-active {
+  border-color: var(--mobile-accent-border); background: var(--mobile-accent-soft);
+  color: var(--mobile-accent-strong); font-weight: 600;
+}
+body:has(.mobile-shell) .lan-devices .lan-tabs button:active { transform: translateY(1px); }
+body:has(.mobile-shell) .lan-devices .lan-tabs button:focus-visible { outline: 2px solid var(--mobile-accent); outline-offset: 1px; }
 body:has(.mobile-shell) .lan-toolbar { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
 body:has(.mobile-shell) .lan-muted { font-size: 12px; }
 body:has(.mobile-shell) .lan-empty { display: grid; justify-items: center; gap: 12px; padding: 28px 14px; border: 1px dashed var(--jb-border); border-radius: 10px; background: var(--jb-surface); }

@@ -330,3 +330,5 @@ body.theme-light :is(.modal,.resource-modal,.codex-dialog,.codex-log-dialog,.flo
 .transfer-list{max-height:280px;overflow:auto;border:1px solid var(--jb-border);border-radius:6px}
 .transfer-row{display:flex;align-items:flex-start;gap:8px;padding:9px 10px;border-bottom:1px solid var(--jb-border);cursor:pointer}
 .transfer-row:last-child{border-bottom:0}.transfer-row input{width:auto!important;margin-top:2px}.transfer-row span{min-width:0;display:grid;gap:2px}.transfer-row strong,.transfer-row small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.transfer-row small{color:var(--jb-muted);font-size:11px}.transfer-error{color:#ffb9b1;font-size:12px}
+/* 确认框复用共享结构，主要问题与操作后果分层显示。 */
+.shared-confirm-dialog .modal-body .confirm-detail { margin-top: 8px; color: var(--jb-muted); font-size: 13px; }

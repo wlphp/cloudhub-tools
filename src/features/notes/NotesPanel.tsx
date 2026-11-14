@@ -342,10 +342,10 @@ function GroupManager({ groups, onClose, onChanged }: { groups: string[]; onClos
   return <Dialog sizeStorageKey="features/notes/notes-panel/group-manager" title="管理分组" subtitle="删除分组时，其备忘录会迁移到目标分组" icon={<FolderCog size={20} aria-hidden="true" />} onClose={onClose}
     onSubmit={event => { event.preventDefault(); void run(async () => { await notesClient.saveGroup(name); setName(""); }, "保存分组失败"); }}
     footer={<button type="button" className="secondary" onClick={onClose}>关闭</button>}>
-      <div className="notes-dialog-body">
+      <div className="notes-dialog-body notes-group-manager">
         <div className="notes-field-row notes-field-row-tight">
           <label className="notes-field">新建分组<input value={name} maxLength={20} onChange={event => setName(event.target.value)} placeholder="例如：公司、个人、运维" /></label>
-          <button type="submit" className="primary" disabled={busy || !name.trim()}>创建分组</button>
+          <button type="submit" className="primary" disabled={busy || !name.trim()}><Plus size={14} aria-hidden="true" />创建分组</button>
         </div>
         <ul className="notes-group-list" aria-label="分组列表">
           {groups.map(group => <li key={group} className="notes-group-item">
@@ -534,6 +534,7 @@ export function NotesPanel({ mobile = false, openSignal = 0 }: NotesPanelProps) 
         <h1><NotebookPen size={19} aria-hidden="true" />备忘录</h1>
         <p>本机存储 · {notes.length} 条笔记 · {groups.length} 个分组{notes.some(note => note.password) && " · 账号密码为明文存储"}</p>
       </div>
+      {mobile && <button type="button" className="primary notes-create" onClick={startCreate}><Plus size={16} aria-hidden="true" />新建备忘录</button>}
       <div className="notes-header-actions">
         <label className="notes-header-switch" title="同行卡片高度对齐；关闭后卡片按内容自适应高度">
           <input type="checkbox" role="switch" aria-label="卡片高度一致" checked={uniform} onChange={toggleUniform} />
@@ -543,7 +544,7 @@ export function NotesPanel({ mobile = false, openSignal = 0 }: NotesPanelProps) 
         <button type="button" className="secondary" aria-pressed={privacy} onClick={() => setPrivacy(value => !value)} aria-label={privacy ? "显示隐私内容" : "隐藏隐私内容"}>{privacy ? <Eye size={14} aria-hidden="true" /> : <EyeOff size={14} aria-hidden="true" />}{privacy ? "显示隐私" : "隐藏隐私"}</button>
         <button type="button" className="secondary" onClick={() => setShowTrash(true)} aria-label={`回收站，${trashed.length} 项`}><Trash2 size={14} aria-hidden="true" />回收站{trashed.length > 0 ? ` (${trashed.length})` : ""}</button>
         <button type="button" className="secondary" onClick={() => setManaging(true)}><FolderCog size={14} aria-hidden="true" />管理分组</button>
-        <button type="button" className="primary" onClick={startCreate}><Plus size={14} aria-hidden="true" />新建备忘录</button>
+        {!mobile && <button type="button" className="primary" onClick={startCreate}><Plus size={14} aria-hidden="true" />新建备忘录</button>}
       </div>
     </header>
     <div className="notes-toolbar">

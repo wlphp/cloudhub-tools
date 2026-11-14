@@ -1,3 +1,4 @@
+import { openMobileFeature } from "./navigation";
 import { expect, test } from "@playwright/test";
 
 for (const viewport of [{ width: 320, height: 720 }, { width: 375, height: 844 }, { width: 768, height: 1024 }, { width: 844, height: 390 }, { width: 1024, height: 768 }, { width: 1440, height: 900 }]) {
@@ -5,8 +6,8 @@ for (const viewport of [{ width: 320, height: 720 }, { width: 375, height: 844 }
     test(`shared mobile form fits ${viewport.width}x${viewport.height} in ${theme}`, async ({ page }) => {
       await page.setViewportSize(viewport);
       await page.addInitScript(value => localStorage.setItem("cloudhub-tools-ui-theme", value), theme);
-      await page.route("**/api/**", route => route.fulfill({ json: [] }));
-      await page.goto("/");
+      await page.route("**/api/**", route => route.fulfill({ json: new URL(route.request().url()).pathname === "/api/member" ? null : [] }));
+      await page.goto("/"); await openMobileFeature(page, "我的账号");
       await page.getByRole("button", { name: /添加云账号|添加账号/ }).first().click();
       const dialog = page.getByRole("dialog", { name: "添加云账号", exact: true });
       await expect(dialog).toBeVisible();
@@ -29,8 +30,8 @@ for (const viewport of [{ width: 320, height: 720 }, { width: 375, height: 844 }
 }
 
 test("mobile shared dialog keeps drafts on backdrop, traps focus and restores opener", async ({ page }) => {
-  await page.route("**/api/**", route => route.fulfill({ json: [] }));
-  await page.goto("/");
+  await page.route("**/api/**", route => route.fulfill({ json: new URL(route.request().url()).pathname === "/api/member" ? null : [] }));
+  await page.goto("/"); await openMobileFeature(page, "我的账号");
   const opener = page.getByRole("button", { name: /添加云账号|添加账号/ }).first();
   await opener.click();
   const dialog = page.getByRole("dialog", { name: "添加云账号", exact: true });
@@ -58,10 +59,10 @@ test("mobile shared dialog keeps drafts on backdrop, traps focus and restores op
 
 for (const [feature, button, title, shell] of [["SSH 终端", "添加 SSH 主机", "添加 SSH 主机", ".mobile-ssh-dialog"], ["运维面板", "添加运维面板", "添加运维面板", ".mobile-panel-dialog"]]) {
   test(`${feature} uses the shared mobile shell`, async ({ page }) => {
-    await page.route("**/api/**", route => route.fulfill({ json: [] }));
-    await page.goto("/");
-    await page.locator(".mobile-tab-bar").getByRole("button", { name: "更多", exact: true }).click();
-    await page.locator(".mobile-more-feature").filter({ hasText: feature }).click();
+    await page.route("**/api/**", route => route.fulfill({ json: new URL(route.request().url()).pathname === "/api/member" ? null : [] }));
+    await page.goto("/"); await openMobileFeature(page, "我的账号");
+    await page.locator(".mobile-tab-bar").getByRole("button", { name: "我的", exact: true }).click();
+    await openMobileFeature(page, feature);
     await page.getByRole("button", { name: button, exact: true }).first().click();
     const dialog = page.getByRole("dialog", { name: title, exact: true });
     await expect(dialog).toHaveClass(/shared-content-dialog/);

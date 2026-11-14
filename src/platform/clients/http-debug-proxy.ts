@@ -17,7 +17,15 @@ export interface HttpDebugCertificate {
   pem?: string | null;
 }
 export interface HttpDebugCertificateOverview { application: HttpDebugCertificate; store: HttpDebugCertificate[] }
+export interface HttpInterceptConfig { request: boolean; response: boolean; keyword: string }
+export interface HttpInterceptSummary { id: string; phase: "request" | "response"; url: string; method: string; expiresAt: number }
+export interface HttpInterceptDetail { summary: HttpInterceptSummary; body: string | null; status: number }
+export interface HttpInterceptDecision { cancel: boolean; body?: string; url?: string; status?: number }
 export const httpDebugProxyClient = {
+  intercepts: () => nativeOnly<{ config: HttpInterceptConfig; pending: HttpInterceptSummary[] }>("http_debug_proxy_intercepts"),
+  configureIntercept: (config: HttpInterceptConfig) => nativeOnly<void>("http_debug_proxy_configure_intercept", { config }),
+  interceptDetail: (id: string) => nativeOnly<HttpInterceptDetail>("http_debug_proxy_intercept_detail", { id }),
+  resolveIntercept: (id: string, decision: HttpInterceptDecision) => nativeOnly<void>("http_debug_proxy_resolve_intercept", { id, decision }),
   state: () => nativeOnly<HttpDebugSnapshot>("http_debug_proxy_state"),
   start: (systemProxy = true) => nativeOnly<HttpDebugSnapshot>("http_debug_proxy_start", { systemProxy }),
   stop: () => nativeOnly<void>("http_debug_proxy_stop"),

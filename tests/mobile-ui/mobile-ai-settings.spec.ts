@@ -1,11 +1,12 @@
+import { openMobileFeature } from "./navigation";
 import { expect, test } from "@playwright/test";
 
 test("mobile account groups suggest existing names and allow new names", async ({ page }) => {
   await page.route("**/api/accounts**", route => route.fulfill({json:[{id:1,account_name:"测试账号",cloud_type:"aliyun",access_key_id:"test-only-id",group_name:"生产",enabled:true,sort_order:0}]}));
-  await page.route("**/api/local-assets**", route => route.fulfill({json:[]}));
+  await page.route("**/api/local-assets**", route => route.fulfill({json: []}));
   await page.goto("/");
-  await page.getByRole("button",{name:"添加账号",exact:true}).first().click();
-  const group=page.locator(".mobile-account-form").getByLabel("分组",{exact:true});
+  await openMobileFeature(page, "我的账号"); await page.getByRole("button",{name:"添加账号",exact:true}).first().click();
+  const group=page.locator(".mobile-cloud-account-dialog").getByLabel("分组",{exact:true});
   await expect.poll(()=>group.evaluate((el:HTMLInputElement)=>Array.from(el.list!.options,option=>option.value))).toEqual(["生产"]);
   await group.fill("生产");await expect(group).toHaveValue("生产");
   await group.fill("新分组");await expect(group).toHaveValue("新分组");
@@ -13,20 +14,20 @@ test("mobile account groups suggest existing names and allow new names", async (
 
 test("mobile AI settings allow browser configuration and fit 375px", async ({ page }) => {
   await page.setViewportSize({ width:375,height:844 });
-  await page.route("**/api/accounts**",route=>route.fulfill({json:[]}));await page.route("**/api/local-assets**",route=>route.fulfill({json:[]}));
-  await page.goto("/");await page.locator(".mobile-tab-bar").getByRole("button",{name:"更多"}).click();await page.getByRole("button",{name:"系统设置"}).click();
-  await expect(page.getByRole("heading",{name:"AI 服务"})).toBeVisible();await expect(page.getByRole("button",{name:"添加服务",exact:true})).toBeEnabled();
+  await page.route("**/api/accounts**",route=>route.fulfill({json: []}));await page.route("**/api/local-assets**",route=>route.fulfill({json: []}));
+  await page.goto("/");await page.locator(".mobile-tab-bar").getByRole("button",{name:"我的"}).click();await openMobileFeature(page, "模型供应商");
+  await expect(page.getByRole("heading",{name:"模型供应商"})).toBeVisible();await expect(page.getByRole("button",{name:"添加模型供应商",exact:true})).toBeEnabled();
   const dimensions=await page.evaluate(()=>({width:document.documentElement.clientWidth,scroll:document.documentElement.scrollWidth}));expect(dimensions.scroll).toBeLessThanOrEqual(dimensions.width);
 });
 
 test("native mobile AI config form and encrypted transfer remain within the viewport",async({page})=>{
   await page.setViewportSize({width:375,height:844});
   await page.addInitScript(()=>{(window as any).__TAURI_INTERNALS__={transformCallback:()=>1,unregisterCallback:()=>{},invoke:async(command:string)=>{
-    if(command==="authenticator_status")return{configured:false,unlocked:false};if(command==="list_client_preferences")return{};
+    if(command === "authenticator_status")return{configured:false,unlocked:false};if(command==="list_client_preferences")return{};
     if(command==="get_sync_device_identity")return{deviceId:"fixture",publicKey:"fixture"};return[];
   }};});
-  await page.goto("/");await page.locator(".mobile-tab-bar").getByRole("button",{name:"更多"}).click();await page.getByRole("button",{name:"系统设置"}).click();
-  await page.getByRole("button",{name:"添加服务",exact:true}).click();
+  await page.goto("/");await page.locator(".mobile-tab-bar").getByRole("button",{name:"我的"}).click();await openMobileFeature(page, "模型供应商");
+  await page.getByRole("button",{name:"添加模型供应商",exact:true}).click();
   await page.getByLabel("模型名称", {exact:true}).fill("fixture-model");
   await page.getByRole("button", {name:"添加模型 ID"}).click();
   await page.getByLabel("模型 ID 2", {exact:true}).fill("fixture-other");
@@ -35,7 +36,7 @@ test("native mobile AI config form and encrypted transfer remain within the view
   await page.getByText("高级设置",{exact:true}).click();
   await expect(page.getByLabel("配置名称")).toBeVisible();const dimensions=await page.evaluate(()=>({width:document.documentElement.clientWidth,scroll:document.documentElement.scrollWidth}));expect(dimensions.scroll).toBeLessThanOrEqual(dimensions.width);
   await page.screenshot({path:"test-results/mobile-ai-settings-375.png",fullPage:true});
-  await page.getByRole("button",{name:"取消编辑AI服务",exact:true}).click();
+  await page.getByRole("button",{name:"取消",exact:true}).click();
   await page.getByText("AI配置文件迁移",{exact:true}).click();
 });
 
@@ -46,17 +47,17 @@ test("native mobile SSH and panel forms expose optional AI drafts without touchi
       if (command === "ai_list_profiles") return [{ id: "fixture", name: "本地测试服务", protocol: "openai_chat", baseUrl: "http://127.0.0.1", model: "fixture", enabled: true, isDefault: true, timeoutSeconds: 20, maxOutputTokens: 512, allowLoopbackHttp: true, hasKey: true, updatedAt: 1, visionStatus: "unknown" }];
       if (command === "ai_preview") return { text: args.text, removedLines: 0 };
       if (command === "ai_run") return { requestId: args.input.requestId, inputTokens: 1, outputTokens: 1, draft: { summary: "测试草稿", fields: args.input.task === "server" ? { name: "AI主机", host: "host.example.test", port: 2222, username: "admin" } : { name: "AI面板", panel_url: "https://panel.example.test", group_name: "生产", remark: "测试面板" }, items: [], warnings: [], evidence: [] } };
-      if (command === "authenticator_status") return { configured: false, unlocked: false };
+      if(command === "authenticator_status") return { configured: false, unlocked: false };
       return [];
     } };
   });
   await page.route("**/api/accounts**", route => route.fulfill({ json: [] }));
   await page.route("**/api/local-assets**", route => route.fulfill({ json: [] }));
   await page.goto("/");
-  await page.locator(".mobile-tab-bar").getByRole("button", { name: "更多" }).click();
+  await page.locator(".mobile-tab-bar").getByRole("button", { name: "我的" }).click();
   await page.getByRole("button", { name: "SSH 终端" }).click();
   await page.getByRole("button", { name: "添加主机" }).click();
-  const sshForm = page.locator(".mobile-account-form");
+  const sshForm = page.getByRole("dialog", { name: "添加 SSH 主机", exact: true });
   await sshForm.getByRole("button", { name: "AI 识别主机信息" }).click();
   await expect(page.getByRole("dialog", { name: "AI 识别主机信息" })).toBeVisible();
   const sshAi = page.getByRole("dialog", { name: "AI 识别主机信息" });
@@ -69,10 +70,10 @@ test("native mobile SSH and panel forms expose optional AI drafts without touchi
   await expect(sshForm.getByLabel("SSH 端口")).toHaveValue("2222");
   await expect(sshForm.getByRole("textbox", { name: "SSH 密码" })).toHaveValue("");
   await sshForm.getByRole("button", { name: "关闭" }).click();
-  await page.getByRole("button", { name: "更多" }).click();
-  await page.locator(".mobile-more-feature").filter({ hasText: "运维面板" }).click();
+  await page.locator(".mobile-tab-bar").getByRole("button", { name: "我的" }).click();
+  await openMobileFeature(page, "运维面板");
   await page.getByRole("button", { name: "添加面板" }).click();
-  const panelForm = page.locator(".mobile-account-form");
+  const panelForm = page.getByRole("dialog", { name: "添加运维面板", exact: true });
   await panelForm.getByRole("button", { name: "AI 识别面板信息" }).click();
   const panelAi = page.getByRole("dialog", { name: "AI 识别面板信息" });
   await panelAi.getByRole("textbox",{name:"分析内容",exact:true}).fill("面板地址 https://panel.example.test");

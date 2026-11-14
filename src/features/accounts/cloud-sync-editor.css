@@ -25,3 +25,27 @@ body:has(.mobile-shell) .shared-dialog-backdrop .cloud-sync-editor .data-transfe
 @media (min-width: 601px) {
   body:has(.mobile-shell) .shared-dialog-backdrop .cloud-sync-editor .data-transfer-scope { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+/* 渠道编辑、记录、版本和解密弹层均复用 SharedDialog，仅补充领域排版。 */
+body:has(.mobile-shell) .shared-dialog-backdrop :is(.cloud-sync-editor, .cloud-sync-history-dialog, .cloud-backup-versions, .cloud-backup-download-dialog) > .modal-body { padding: 8px 16px 16px; }
+body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog.cloud-sync-editor .cloud-sync-form { gap: 12px; }
+body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog.cloud-sync-editor .cloud-sync-field { gap: 6px; padding: 0; border-radius: 0; background: transparent; font-size: 12px; }
+body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog.cloud-sync-editor .cloud-sync-field :is(input, select) { height: 44px; min-height: 44px; margin: 0; border-radius: 8px; font-size: 14px; }
+body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog.cloud-sync-editor .cloud-sync-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog.cloud-sync-editor .cloud-sync-options { gap: 12px; padding-top: 12px; }
+body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog.cloud-sync-editor .cloud-sync-option { min-height: 44px; margin: 0; padding: 8px; border: 1px solid var(--mobile-border); border-radius: 8px; background: var(--mobile-raised); font-size: 12px; line-height: 1.6; }
+body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog.cloud-sync-editor .data-settings-scope { border-radius: 8px; }
+body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog.cloud-sync-editor > .modal-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 10px 16px 16px; border-top: 1px solid var(--mobile-border); }
+body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog.cloud-sync-editor > .modal-actions > button { min-width: 0; min-height: 44px; border-radius: 8px; font-size: 13px; }
+body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog.cloud-sync-editor > .modal-actions > button:first-child { grid-column: 1 / -1; }
+body:has(.mobile-shell) .shared-dialog-backdrop :is(.cloud-sync-history-dialog, .cloud-backup-versions) :is(.cloud-sync-history-search, .cloud-backup-search) { display: flex; align-items: center; gap: 8px; min-height: 44px; min-width: 0; margin: 0; padding: 0 10px; border: 1px solid var(--mobile-border); border-radius: 8px; background: var(--mobile-surface); color: var(--mobile-muted); }
+body:has(.mobile-shell) .shared-dialog-backdrop :is(.cloud-sync-history-dialog, .cloud-backup-versions) :is(.cloud-sync-history-search, .cloud-backup-search) input { flex: 1; width: 0; min-width: 0; height: 44px; margin: 0; padding: 0; border: 0 !important; outline: none !important; box-shadow: none !important; border-radius: 0; background: transparent !important; font-size: 14px; }
+body:has(.mobile-shell) .shared-dialog-backdrop :is(.cloud-sync-history-dialog, .cloud-backup-versions) :is(.cloud-sync-history-search, .cloud-backup-search):focus-within { outline: 2px solid var(--mobile-accent); outline-offset: 1px; }
+body:has(.mobile-shell) .shared-dialog-backdrop :is(.cloud-sync-history-dialog, .cloud-backup-versions) .cloud-sync-history-empty { display: grid; justify-items: center; gap: 8px; min-height: 160px; padding: 28px 14px; border: 1px dashed var(--mobile-border); border-radius: 10px; background: var(--mobile-raised); color: var(--mobile-muted); text-align: center; font-size: 13px; }
+body:has(.mobile-shell) .shared-dialog-backdrop .cloud-sync-history-empty strong { color: var(--mobile-text); font-size: 14px; }
+body:has(.mobile-shell) .shared-dialog-backdrop :is(.cloud-sync-history-table, .cloud-sync-version-list) { font-size: 12px; }
+body:has(.mobile-shell) .shared-dialog-backdrop :is(.cloud-sync-history-table, .cloud-sync-version-list) td { line-height: 1.6; overflow-wrap: anywhere; }
+body:has(.mobile-shell) .shared-dialog-backdrop :is(.cloud-sync-history-table, .cloud-sync-version-list) th { background: var(--mobile-raised); color: var(--mobile-muted); }
+body:has(.mobile-shell) .shared-dialog-backdrop :is(.cloud-sync-history-dialog, .cloud-backup-versions) .cloud-backup-total { color: var(--mobile-muted); font-size: 12px; }
+body:has(.mobile-shell) .shared-dialog-backdrop .cloud-backup-versions > .modal-actions { flex-wrap: wrap; gap: 8px; }
+body:has(.mobile-shell) .shared-dialog-backdrop .cloud-backup-versions > .modal-actions > .cloud-backup-total { flex: 1 1 100%; }
+body:has(.mobile-shell) .shared-dialog-backdrop .cloud-backup-download-dialog .cloud-sync-field { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; background: transparent; font-size: 12px; }

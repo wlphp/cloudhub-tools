@@ -1,3 +1,4 @@
+import { openMobileFeature } from "./navigation";
 import { expect, test } from "@playwright/test";
 import { certificateHealth } from "../../src/mobile/certificate-health";
 import type { CertificateSummary } from "../../src/platform/clients/certificates";
@@ -24,8 +25,8 @@ for (const width of [375,768,1024,1440]) test(`certificate summaries work in bro
     await route.fulfill({json:data});
   });
   await page.goto("/");
-  await page.locator(".mobile-tab-bar").getByRole("button",{name:"更多",exact:true}).click();
-  await page.locator(".mobile-more-feature").filter({hasText:"证书管理"}).click();
+  await page.locator(".mobile-tab-bar").getByRole("button",{name:"我的",exact:true}).click();
+  await openMobileFeature(page, "证书管理");
   await expect(page.locator(".mobile-cert-card")).toHaveCount(3);
   await expect(page.locator(".mobile-notice")).toHaveCount(0);
   await page.getByRole("button",{name:"即将到期"}).click();

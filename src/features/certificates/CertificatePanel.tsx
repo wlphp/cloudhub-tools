@@ -347,7 +347,7 @@ export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm, r
           <span className="eyebrow">HTTPS CERTIFICATES</span>
           <h1>HTTPS 证书</h1>
           <p>
-            申请、导入和管理本机及宝塔站点证书。私钥仅加密保存在本地数据库。
+            管理本机与宝塔站点证书，私钥加密保存在本机。
           </p>
         </div>
         <div className="certificate-header-actions"><button className="secondary" disabled={!runningInTauri} onClick={() => setImportOpen(true)}><Plus size={15} />导入证书</button><button
@@ -361,7 +361,7 @@ export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm, r
       </header>
       {!runningInTauri && (
         <div className="certificate-preview-warning">
-          证书申请、密钥材料读取和删除仅支持桌面客户端，浏览器预览不会模拟成功。
+          浏览器仅供预览，申请、密钥读取与删除请使用桌面客户端。
         </div>
       )}
       {!requestTarget && <div className="certificate-source-tabs"><button className={sourceView === "local" ? "active" : ""} onClick={() => setSourceView("local")}>本地证书</button><button className={sourceView === "baota" ? "active" : ""} disabled={!runningInTauri} onClick={() => setSourceView("baota")}>宝塔站点管理</button></div>}

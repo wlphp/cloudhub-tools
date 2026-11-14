@@ -173,7 +173,7 @@ test("cloud configuration saves redacted credentials and requires confirmation b
   await page.locator(".modal-backdrop").last().click({ position: { x: 2, y: 2 }, force: true });
   await expect(confirmation).toBeVisible();
   await confirmation.getByRole("button", { name: "确认上传", exact: true }).click();
-  await expect(region.getByRole("status")).toContainText("上传到云端");
+  await expect(page.locator(".app-toast-notice")).toContainText("上传到云端");
   await dismissCloudResult(page, "上传云备份成功", "上传到云端");
   await region.getByRole("button", { name: "编辑", exact: true }).click();
   await cloud.getByLabel("同步配置名").fill("another-profile");

@@ -107,6 +107,7 @@ export function ModeBar({
   })();
   const viewedLabel = CLAUDE_MODES.find(mode => mode.id === view)?.label ?? "直连";
   return <><div className="claude-mode-bar">
+    <div className="claude-mode-selector">
     <div role="tablist" aria-label="Claude Code 连接模式" className="claude-mode-tabs">{CLAUDE_MODES.map(mode => {
       const Icon = mode.icon;
       return <button type="button" role="tab" key={mode.id} aria-selected={view === mode.id} onClick={() => onView(mode.id)}>
@@ -119,6 +120,7 @@ export function ModeBar({
       <p>路由：请求经本机 CloudHub 转发，支持切换供应商、按优先级故障转移和格式转换。</p>
       <p>聚合：多家供应商的模型汇集在 /model 中，在 Claude Code 内选择模型即可分发到对应供应商，不做故障转移。</p>
     </HelpTooltip>
+    </div>
     <span className="claude-mode-status">{status}</span>
     <div className="claude-mode-actions">
       {view === "route" && <label className="claude-check" title="启用后按队列优先级请求，失败时尝试后续供应商"><input type="checkbox" role="switch" checked={state.config.failover} disabled={disabled} onChange={event => onFailover?.(event.target.checked)} />自动故障转移</label>}

@@ -5,7 +5,8 @@ import { codexClient, type CodexConfigSource } from "../../platform/clients/code
 import { platformErrorMessage } from "../../platform/api";
 import { OverviewDialog } from "./OverviewDialogs";
 
-export function ConfigToolbar({ busy, onRestore }: {
+export function ConfigToolbar({ busy, onRestore, mobile = false }: {
+  mobile?: boolean;
   busy: boolean;
   onRestore: () => void;
 }) {
@@ -37,6 +38,8 @@ export function ConfigToolbar({ busy, onRestore }: {
   }
   const locked = busy || pending;
   return <>
+    <details className="codex-config-disclosure" open={!mobile || undefined}>
+    <summary>配置与备份</summary>
     <div className="codex-config-bar" aria-label="Codex 配置工具栏" aria-busy={pending}>
       <div className="codex-config-source">
         <span className={source?.exists ? "is-present" : ""}><Server size={14} aria-hidden="true" /><span>配置文件 <code title={source?.path}>{source?.path ?? (error ? "读取失败" : "正在读取…")}</code>{source && !source.exists && <small>（尚未创建）</small>}</span></span>
@@ -53,6 +56,7 @@ export function ConfigToolbar({ busy, onRestore }: {
         <button type="button" disabled={locked} onClick={() => void run("state")} title="刷新配置文件状态" aria-label="刷新配置文件状态"><RefreshCw size={13} aria-hidden="true" /></button>
       </div>
     </div>
+    </details>
     {error && <ToastNotice message={error} tone="error" />}
     {previewOpen && source && <ConfigPreviewDialog source={source} onClose={() => setPreviewOpen(false)} />}
   </>;

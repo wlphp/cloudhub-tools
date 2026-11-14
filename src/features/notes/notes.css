@@ -375,6 +375,22 @@
 .notes-group-item button { display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 9px; border: 1px solid var(--jb-border-strong, var(--jb-border-strong)); border-radius: 3px; background: var(--jb-surface-3, var(--jb-surface-3)); color: var(--jb-text, var(--jb-text)); font: inherit; font-size: 11px; cursor: pointer; }
 .notes-group-item button:disabled { opacity: .5; cursor: default; }
 
+/* 分组管理复用公共弹窗，仅在移动端收紧表单与列表。 */
+body:has(.mobile-shell) .notes-dialog .notes-group-manager { gap:12px; }
+body:has(.mobile-shell) .notes-group-manager .notes-field-row-tight { grid-template-columns:minmax(0,1fr) auto; align-items:end; gap:8px; }
+body:has(.mobile-shell) .notes-group-manager .notes-field { gap:6px; font-size:12px; }
+body:has(.mobile-shell) .notes-group-manager .notes-field input { height:44px; min-height:44px; min-width:0; padding:0 10px; border-radius:8px; font-size:14px; }
+body:has(.mobile-shell) .notes-dialog .notes-group-manager .notes-field-row-tight > .primary { display:inline-flex; align-items:center; justify-content:center; gap:5px; width:auto; height:44px; min-height:44px; margin:0; padding:0 12px; border:1px solid var(--mobile-accent-border,var(--mobile-border)); border-radius:8px; background:var(--mobile-accent-soft,var(--mobile-raised)); color:var(--mobile-accent-strong); box-shadow:none; font-size:13px; white-space:nowrap; }
+body:has(.mobile-shell) .notes-dialog .notes-group-manager .notes-field-row-tight > .primary:disabled { opacity:.45; border-color:var(--mobile-border); background:var(--mobile-raised); color:var(--mobile-muted); box-shadow:none; }
+body:has(.mobile-shell) .notes-group-manager .notes-group-list { gap:0; overflow:hidden; border:1px solid var(--mobile-border); border-radius:8px; background:var(--mobile-surface); }
+body:has(.mobile-shell) .notes-group-manager .notes-group-item { min-height:52px; padding:4px 8px 4px 12px; border:0; border-bottom:1px solid var(--mobile-border); border-radius:0; background:transparent; font-size:14px; }
+body:has(.mobile-shell) .notes-group-manager .notes-group-item:last-child { border-bottom:0; }
+body:has(.mobile-shell) .notes-group-manager .notes-group-item > .secondary { justify-content:center; min-width:64px; min-height:44px; padding:0 8px; border-color:transparent; background:transparent; color:var(--mobile-muted); font-size:12px; }
+body:has(.mobile-shell) .notes-group-manager .notes-group-item > strong { flex-basis:100%; padding-top:6px; font-size:13px; overflow-wrap:anywhere; }
+body:has(.mobile-shell) .notes-group-manager .notes-schedule-row { display:grid; grid-template-columns:minmax(0,1fr) auto auto; align-items:center; gap:8px; width:100%; padding-bottom:6px; }
+body:has(.mobile-shell) .notes-group-manager .notes-schedule-row > select { width:100%; min-width:0; height:44px; margin:0; font-size:13px; }
+body:has(.mobile-shell) .notes-group-manager .notes-schedule-row > button { min-height:44px; padding:0 8px; font-size:12px; }
+
 /* ---------- 响应式 ---------- */
 @media (max-width: 900px) {
   .notes-grid { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
@@ -450,41 +466,105 @@
   .recycle-bin-scrub-actions select, .recycle-bin-scrub-actions button { min-height: 40px; flex: 1 1 auto; }
 }
 
-/* 移动端备忘录：明确主操作层级，并让笔记卡片与操作区更易扫读。 */
-@media (max-width: 760px) {
-  .notes-panel { gap: 10px; padding: 12px 10px 18px; }
-  .notes-header { gap: 8px; }
-  .notes-heading h1 { font-size: 19px; }
-  .notes-heading p { margin-top: 3px; font-size: 11px; }
-  /* 四个操作按钮（显示隐私/回收站/管理分组/新建备忘录）两行两列，避免主操作换行成孤行。 */
-  .notes-header-actions { display: grid; width: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
-  /* 等高开关仅 PC 提供，移动端隐藏以保持两行两列布局。 */
-  .notes-header-switch { display: none; }
-  .notes-header-actions button { min-width: 0; min-height: 42px; justify-content: center; gap: 5px; padding: 0 6px; border: 1px solid var(--mobile-border-strong); border-radius: 9px; background: var(--mobile-surface); color: var(--mobile-text); font-size: 12px; white-space: nowrap; }
-  .notes-header-actions button.primary { border-color: var(--mobile-accent-strong) !important; background: var(--mobile-accent-strong) !important; color: #fff !important; font-weight: 650; box-shadow: 0 2px 7px color-mix(in srgb, var(--mobile-accent-strong) 22%, transparent) !important; }
-  .notes-header-actions button.primary:hover:not(:disabled) { border-color: var(--mobile-accent) !important; background: var(--mobile-accent) !important; }
-  .notes-header-actions button.secondary { border-color: var(--mobile-border) !important; background: var(--mobile-surface) !important; color: var(--mobile-muted) !important; }
-  .notes-header-actions button.secondary:hover:not(:disabled) { border-color: var(--mobile-accent-border) !important; background: var(--mobile-accent-soft) !important; color: var(--mobile-accent-strong) !important; }
-  .notes-toolbar { gap: 8px; }
-  .notes-search { min-height: 42px; gap: 7px; padding: 0 10px; border-color: var(--mobile-border); border-radius: 10px; background: var(--mobile-surface); }
-  .notes-panel .notes-search input { box-sizing: border-box; min-width: 0; width: 0; height: 40px; flex: 1 1 auto; margin: 0; padding: 0; border: 0 !important; border-radius: 0 !important; outline: 0 !important; background: transparent !important; box-shadow: none !important; appearance: none; color: var(--mobile-text) !important; font: inherit; font-size: 14px; }
-  .notes-panel .notes-search input:focus { border: 0 !important; outline: 0 !important; background: transparent !important; box-shadow: none !important; }
-  .notes-result-count { padding: 4px 7px; border-radius: 7px; background: var(--mobile-raised); color: var(--mobile-muted); font-size: 11px; }
-  .notes-filter-bar { gap: 7px; }
-  .notes-filters { gap: 6px; }
-  .notes-chip { min-height: 32px; padding: 0 10px; border-color: var(--mobile-border); border-radius: 9px; background: var(--mobile-surface); color: var(--mobile-muted); font-size: 11px; }
-  .notes-chip[aria-pressed="true"] { border-color: var(--mobile-accent-border); background: var(--mobile-accent-soft); color: var(--mobile-accent-strong); }
-  .notes-grid { gap: 9px; }
-  .notes-card { gap: 6px; padding: 11px; border-color: var(--mobile-border); border-radius: 12px; background: var(--mobile-surface); box-shadow: 0 2px 8px color-mix(in srgb, var(--mobile-text) 5%, transparent); }
-  .notes-card-title strong { font-size: 14px; }
-  .notes-card-meta { gap: 5px; font-size: 11px; }
-  .notes-card-body { font-size: 12px; line-height: 1.55; -webkit-line-clamp: 3; }
-  .notes-card-actions { gap: 4px; padding-top: 7px; border-color: var(--mobile-border); }
-  .notes-card-actions button { min-width: 0; min-height: 38px; flex: 1 1 0; justify-content: center; gap: 4px; padding: 0 4px; border: 1px solid transparent !important; border-radius: 8px; background: transparent !important; color: var(--mobile-muted) !important; font-size: 11px; white-space: nowrap; box-shadow: none !important; }
-  .notes-card-actions button:hover:not(:disabled) { border-color: var(--mobile-accent-border) !important; background: var(--mobile-accent-soft) !important; color: var(--mobile-accent-strong) !important; }
-  .notes-card-actions .notes-danger { margin-left: 0; }
-  .notes-card-actions .notes-danger { color: var(--mobile-danger) !important; }
-  .notes-card-actions .notes-danger:hover:not(:disabled) { border-color: color-mix(in srgb, var(--mobile-danger) 30%, var(--mobile-border)) !important; background: color-mix(in srgb, var(--mobile-danger) 8%, var(--mobile-surface)) !important; color: var(--mobile-danger) !important; }
+/* 移动端备忘录：摘要与主操作并排，辅助工具降低视觉重量。
+   使用 mobile-shell 作用域覆盖商店宿主的通用控件规则，平板同样适用。 */
+body:has(.mobile-shell) .notes-mobile {
+  gap: 12px; padding: 0; min-height: 0;
+}
+body:has(.mobile-shell) .notes-mobile .notes-header {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center; gap: 10px 8px;
+}
+body:has(.mobile-shell) .notes-mobile .notes-heading p {
+  margin: 0; color: var(--mobile-muted); font-size: 12px; line-height: 1.6;
+}
+body:has(.mobile-shell) .notes-mobile .notes-create {
+  display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+  min-height: 44px; padding: 0 12px; border: 1px solid var(--mobile-accent-border);
+  border-radius: 10px; background: var(--mobile-accent-soft); color: var(--mobile-accent-strong);
+  font-size: 13px; font-weight: 650; white-space: nowrap; box-shadow: none;
+}
+body:has(.mobile-shell) .notes-mobile .notes-header-actions {
+  display: grid; grid-column: 1 / -1; grid-template-columns: repeat(3, minmax(0, 1fr));
+  width: 100%; gap: 8px;
+}
+body:has(.mobile-shell) .notes-mobile .notes-header-switch { display: none; }
+body:has(.mobile-shell) .notes-mobile .notes-header-actions button {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 0; min-height: 44px; padding: 0 4px; gap: 5px;
+  border: 0; border-radius: 8px; background: var(--mobile-raised);
+  color: var(--mobile-muted); font-size: 12px; box-shadow: none; white-space: nowrap;
+}
+body:has(.mobile-shell) .notes-mobile .notes-toolbar { position: relative; gap: 0; }
+body:has(.mobile-shell) .notes-mobile .notes-search {
+  min-height: 46px; gap: 8px; padding: 0 58px 0 12px; border: 1px solid var(--mobile-border);
+  border-radius: 10px; background: var(--mobile-surface); color: var(--mobile-muted);
+}
+body:has(.mobile-shell) .notes-mobile .notes-search input {
+  box-sizing: border-box; flex: 1; width: 0; min-width: 0; min-height: 44px; height: 44px;
+  margin: 0; padding: 0; border: 0 !important; border-radius: 0;
+  outline: none !important; background: transparent !important; box-shadow: none !important;
+  color: var(--mobile-text); font: inherit; font-size: 14px;
+}
+body:has(.mobile-shell) .notes-mobile .notes-search:focus-within {
+  outline: 2px solid var(--mobile-accent); outline-offset: 1px; box-shadow: none;
+}
+body:has(.mobile-shell) .notes-mobile .notes-result-count {
+  position: absolute; right: 12px; pointer-events: none; color: var(--mobile-muted);
+  font-size: 11px; font-variant-numeric: tabular-nums;
+}
+body:has(.mobile-shell) .notes-mobile .notes-filter-bar { order: 1; gap: 8px; }
+body:has(.mobile-shell) .notes-mobile .notes-selection-bar { order: 2; }
+body:has(.mobile-shell) .notes-mobile :is(.notes-grid, .notes-empty) { order: 3; }
+body:has(.mobile-shell) .notes-mobile .notes-filters { gap: 8px; }
+body:has(.mobile-shell) .notes-mobile .notes-chip {
+  min-height: 44px; padding: 0 12px; gap: 6px; border: 1px solid transparent;
+  border-radius: 8px; background: transparent; color: var(--mobile-muted); font-size: 13px;
+}
+body:has(.mobile-shell) .notes-mobile .notes-chip small {
+  padding: 1px 5px; border-radius: 5px; background: var(--mobile-raised); color: inherit; font-size: 11px;
+}
+body:has(.mobile-shell) .notes-mobile .notes-chip[aria-pressed="true"] {
+  background: var(--mobile-accent-soft); color: var(--mobile-accent-strong); font-weight: 600;
+}
+body:has(.mobile-shell) .notes-mobile .notes-selection-bar .sort-selection-controls {
+  display: flex; justify-content: space-between; width: 100%; gap: 8px;
+}
+body:has(.mobile-shell) .notes-mobile .sort-select-all {
+  min-height: 44px; margin: 0; gap: 8px; color: var(--mobile-muted); font-size: 12px;
+}
+body:has(.mobile-shell) .notes-mobile .sort-mode-button {
+  min-height: 44px; padding: 0 12px; border-color: transparent; background: transparent;
+  color: var(--mobile-muted); font-size: 12px; box-shadow: none;
+}
+body:has(.mobile-shell) .notes-mobile .notes-grid { grid-template-columns: 1fr; gap: 12px; }
+body:has(.mobile-shell) .notes-mobile .notes-card {
+  gap: 8px; padding: 12px 14px 4px; border: 1px solid var(--mobile-border);
+  border-radius: 12px; background: var(--mobile-surface); box-shadow: none;
+}
+body:has(.mobile-shell) .notes-mobile .notes-card.is-pinned {
+  border-left: 2px solid var(--mobile-accent); padding-left: 13px;
+}
+body:has(.mobile-shell) .notes-mobile .notes-card-head { align-items: center; gap: 8px; }
+body:has(.mobile-shell) .notes-mobile .notes-card-title strong { font-size: 15px; font-weight: 600; line-height: 1.5; }
+body:has(.mobile-shell) .notes-mobile .notes-card-meta { gap: 6px; font-size: 11px; }
+body:has(.mobile-shell) .notes-mobile .notes-card-group {
+  padding: 2px 7px; border: 0; border-radius: 5px; background: var(--mobile-raised); color: var(--mobile-muted);
+}
+body:has(.mobile-shell) .notes-mobile .notes-card-body { font-size: 13px; line-height: 1.65; -webkit-line-clamp: 3; }
+body:has(.mobile-shell) .notes-mobile .notes-card-actions {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px; margin-top: 4px; padding-top: 4px; border-color: var(--mobile-border);
+}
+body:has(.mobile-shell) .notes-mobile .notes-card-actions button {
+  min-width: 0; min-height: 44px; padding: 0; gap: 4px; border: 0; border-radius: 6px;
+  background: transparent; color: var(--mobile-muted); font-size: 12px; white-space: nowrap; box-shadow: none;
+}
+body:has(.mobile-shell) .notes-mobile .notes-card-actions button:first-child { color: var(--mobile-accent-strong); }
+body:has(.mobile-shell) .notes-mobile .notes-card-actions .notes-danger { margin: 0; color: var(--mobile-danger); }
+body:has(.mobile-shell) .notes-mobile .notes-secret button { width: 44px; min-height: 44px; }
+body:has(.mobile-shell) .notes-mobile :is(.notes-create, .notes-header-actions button, .notes-card-actions button, .notes-chip, .sort-mode-button):hover:not(:disabled) {
+  background: var(--mobile-accent-soft); color: var(--mobile-accent-strong);
 }
 
 /* 回收站列表紧凑化：分隔线行式布局，危险按钮跟随主题 */

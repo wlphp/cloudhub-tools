@@ -8,6 +8,7 @@ import { SharedDialog } from "../../shared/SharedDialog";
 import { ConfirmDialog } from "../../shared/ConfirmDialog";
 import { PaginationBar } from "../../shared/PaginationBar";
 import "./http-debug-proxy.css";
+import { HttpInterceptPanel } from "./HttpInterceptPanel";
 
 const empty: HttpDebugSnapshot = { running: false, address: "", systemProxy: false, systemProxyEnabled: false, systemProxyServer: null, systemProxyRecoveryAvailable: false, systemProxyRecoverySafe: false, upstreamProxy: false, rootCertificateInstalled: false, httpsDecryption: false, sessions: [] };
 const PAGE_SIZE = 10;
@@ -197,6 +198,7 @@ export function HttpDebugProxyPlugin() {
     {notice && <ToastNotice message={notice} />}
     {!snapshot.running && <p className="http-debug-proxy-idle">HTTP 始终可抓；HTTPS 需要安装根证书才能解密，未安装时只转发加密流量。默认启用 Windows 系统代理，并自动串联原有本机 HTTP 上游代理（如 127.0.0.1:10808）。部分应用可能忽略系统代理或使用证书固定。</p>}
 
+    <HttpInterceptPanel running={snapshot.running && !unsupported} />
     <div className="http-debug-proxy-toolbar"><strong>会话 <span>{sessions.length}{(query || methodFilter !== "all" || statusFilter || responseTypeFilter !== "all") ? ` / ${snapshot.sessions.length}` : "（应用运行期间保留）"}</span></strong><div className="http-debug-proxy-toolbar-actions">
       <label className="http-debug-proxy-search"><Search size={14} aria-hidden="true" /><input aria-label="筛选会话" value={query} onChange={event => { setQuery(event.target.value); setPage(1); }} placeholder="搜索域名、路径" /></label>
       <select aria-label="按请求方法筛选" value={methodFilter} onChange={event => { setMethodFilter(event.target.value); setPage(1); }}><option value="all">全部方法</option>{["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "CONNECT"].map(method => <option key={method} value={method}>{method}</option>)}</select>

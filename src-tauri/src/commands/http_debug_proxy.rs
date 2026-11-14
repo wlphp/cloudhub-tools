@@ -5,7 +5,7 @@
 //! proxy recovery record is encrypted in the existing preferences DB.
 use crate::core::{crypto::{decrypt_secret, encrypt_secret}, database::open_db, error::PlatformResult};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 use serde_json::{json, Value};
 use tauri_plugin_dialog::DialogExt;
 use tokio::io::AsyncWriteExt;
@@ -50,12 +50,103 @@ pub struct CaptureStats { pub accepted_connections: u64, pub recorded_sessions: 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Snapshot { pub running: bool, pub address: String, pub system_proxy: bool, pub system_proxy_enabled: bool, pub system_proxy_server: Option<String>, pub system_proxy_recovery_available: bool, pub system_proxy_recovery_safe: bool, pub upstream_proxy: bool, pub root_certificate_installed: bool, pub https_decryption: bool, pub stats: CaptureStats, pub sessions: Vec<SessionSummary> }
-struct Shared { sessions: VecDeque<Session>, root_cert: String, decrypt_https: bool, stats: CaptureStats }
+struct Shared { intercept: InterceptState, sessions: VecDeque<Session>, root_cert: String, decrypt_https: bool, stats: CaptureStats }
+// Breakpoints belong to one listener generation; stopping it cancels its waiters.
+#[derive(Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InterceptConfig { pub request: bool, pub response: bool, pub keyword: String }
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingSummary { pub id: String, pub phase: String, pub url: String, pub method: String, pub expires_at: i64 }
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingDetail { pub summary: PendingSummary, pub body: Option<String>, pub status: u16 }
+struct Pending { detail: PendingDetail, sender: tokio::sync::oneshot::Sender<InterceptDecision> }
+#[derive(Default)]
+struct InterceptState { config: InterceptConfig, pending: Vec<Pending>, stopped: bool }
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct InterceptDecision { pub cancel: bool, pub body: Option<String>, pub url: Option<String>, pub status: Option<u16> }
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InterceptSnapshot { pub config: InterceptConfig, pub pending: Vec<PendingSummary> }
+fn editable_body(headers: &[(String,String)], body: &[u8]) -> Option<String> {
+    if body.len()>256*1024 || headers.iter().any(|(key,value)|key.eq_ignore_ascii_case("content-encoding") && !value.eq_ignore_ascii_case("identity")) { return None; }
+    std::str::from_utf8(body).ok().filter(|text|!text.contains('\0')).map(str::to_owned)
+}
+fn update_body_headers(headers: &mut Vec<(String,String)>, length: usize) {
+    headers.retain(|(key,_)|!["content-length","transfer-encoding","etag","content-md5","digest"].iter().any(|name|key.eq_ignore_ascii_case(name)));
+    headers.push(("content-length".into(),length.to_string()));
+}
+async fn intercept(shared: &Arc<Mutex<Shared>>, phase: &str, method: &str, url: &str, headers: &[(String,String)], body: &[u8], status: u16) -> Result<InterceptDecision,String> {
+    let id=uuid::Uuid::new_v4().to_string();
+    let receiver={
+        let mut shared=shared.lock().map_err(|_|"代理状态不可用")?;
+        let state=&mut shared.intercept;
+        if state.stopped { return Err("抓包已停止".into()); }
+        let enabled=if phase=="request" {state.config.request} else {state.config.response};
+        if !enabled || !url.contains(&state.config.keyword) { return Ok(InterceptDecision::default()); }
+        let (sender,receiver)=tokio::sync::oneshot::channel();
+        state.pending.push(Pending{detail:PendingDetail{summary:PendingSummary{id:id.clone(),phase:phase.into(),url:redact_url(url),method:method.into(),expires_at:chrono::Utc::now().timestamp_millis()+180_000},body:editable_body(headers,body),status},sender});
+        receiver
+    };
+    let result=tokio::time::timeout(Duration::from_secs(180),receiver).await;
+    if let Ok(mut shared)=shared.lock() {shared.intercept.pending.retain(|item|item.detail.summary.id!=id);}
+    let decision=match result {Ok(Ok(value))=>value,Ok(Err(_))=>return Err("抓包已停止".into()),Err(_)=>InterceptDecision::default()};
+    if decision.cancel {Err("请求已取消".into())} else {Ok(decision)}
+}
+#[tauri::command]
+pub(crate) async fn http_debug_proxy_intercepts()->PlatformResult<InterceptSnapshot> {
+    let guard=runtime().lock().await;
+    let r=guard.as_ref().ok_or("请先启动抓包")?;
+    let shared=r.shared.lock().map_err(|_|"代理状态不可用")?;
+    Ok(InterceptSnapshot{config:shared.intercept.config.clone(),pending:shared.intercept.pending.iter().map(|item|item.detail.summary.clone()).collect()})
+}
+#[tauri::command]
+pub(crate) async fn http_debug_proxy_configure_intercept(config: InterceptConfig)->PlatformResult<()> {
+    if config.keyword.len()>2048 || config.keyword.chars().any(char::is_control) {return Err("地址关键字无效".into());}
+    let guard=runtime().lock().await;
+    let r=guard.as_ref().ok_or("请先启动抓包")?;
+    let mut shared=r.shared.lock().map_err(|_|"代理状态不可用")?;
+    let state=&mut shared.intercept;
+    state.config=config;
+    let mut keep=Vec::new();
+    for pending in state.pending.drain(..) {
+        let enabled=if pending.detail.summary.phase=="request" {state.config.request} else {state.config.response};
+        if enabled {keep.push(pending);} else {let _=pending.sender.send(InterceptDecision::default());}
+    }
+    state.pending=keep;
+    Ok(())
+}
+#[tauri::command]
+pub(crate) async fn http_debug_proxy_intercept_detail(id: String)->PlatformResult<PendingDetail> {
+    let guard=runtime().lock().await;
+    let r=guard.as_ref().ok_or("抓包已停止")?;
+    let shared=r.shared.lock().map_err(|_|"代理状态不可用")?;
+    shared.intercept.pending.iter().find(|item|item.detail.summary.id==id).map(|item|item.detail.clone()).ok_or_else(||"暂停已结束，请刷新列表".into())
+}
+#[tauri::command]
+pub(crate) async fn http_debug_proxy_resolve_intercept(id: String, decision: InterceptDecision)->PlatformResult<()> {
+    if decision.body.as_ref().is_some_and(|body|body.len()>256*1024) {return Err("编辑正文超过 256 KB 限制".into());}
+    if let Some(url)=&decision.url {
+        let parsed=reqwest::Url::parse(url).map_err(|_|"目标 URL 无效")?;
+        if url.len()>8192 || !matches!(parsed.scheme(),"http"|"https") || parsed.host_str().is_none() || !parsed.username().is_empty() || parsed.password().is_some() || url.chars().any(char::is_control) {return Err("目标必须是无内嵌凭据的 HTTP(S) URL".into());}
+    }
+    if decision.status.is_some_and(|status|!(200..=599).contains(&status)) {return Err("状态码必须在 200 至 599 之间".into());}
+    let guard=runtime().lock().await;
+    let r=guard.as_ref().ok_or("抓包已停止")?;
+    let mut shared=r.shared.lock().map_err(|_|"代理状态不可用")?;
+    let index=shared.intercept.pending.iter().position(|item|item.detail.summary.id==id).ok_or("暂停已结束，请刷新列表")?;
+    let detail=&shared.intercept.pending[index].detail;
+    if decision.body.is_some() && detail.body.is_none() {return Err("此正文不能安全编辑，请原样放行".into());}
+    if (detail.summary.phase=="response" && decision.url.is_some()) || (detail.summary.phase=="request" && decision.status.is_some()) {return Err("编辑字段与暂停阶段不匹配".into());}
+    shared.intercept.pending.remove(index).sender.send(decision).map_err(|_|"暂停已结束".into())
+}
 #[derive(Clone, Default)]
 struct UpstreamProxy { http: Option<String>, https: Option<String> }
 impl UpstreamProxy { fn for_scheme(&self, scheme: &str) -> Option<&str> { if scheme.eq_ignore_ascii_case("https") { self.https.as_deref() } else { self.http.as_deref() } } }
 struct Runtime { shared: Arc<Mutex<Shared>>, task: JoinHandle<()>, port: u16, system_proxy: bool, upstream: UpstreamProxy }
-impl Drop for Runtime { fn drop(&mut self) { self.task.abort(); } }
+impl Drop for Runtime { fn drop(&mut self) { if let Ok(mut shared)=self.shared.lock() { shared.intercept.stopped=true; shared.intercept.pending.clear(); } self.task.abort(); } }
 
 fn pref(key: &str) -> Result<Option<String>, String> {
     open_db()?.query_row("SELECT value FROM client_preferences WHERE key=?1", [key], |r| r.get(0))
@@ -379,6 +470,10 @@ async fn handle_request<S: Read + Write>(stream: &mut S, shared: &Arc<Mutex<Shar
     if uri.len()>8192{return Err("HTTP 目标地址超过 8 KB 限制".into());}
     let host=headers.iter().find(|(k,_)|k.eq_ignore_ascii_case("host")).map(|(_,v)|v.as_str()).or(host_override).ok_or("请求缺少目标主机")?;
     let url=if uri.starts_with("http://")||uri.starts_with("https://") {uri.to_string()} else {format!("{}://{}{}",if host_override.is_some(){"https"}else{"http"},host,if uri.starts_with('/') {uri.to_string()} else {format!("/{uri}")})};
+    let decision=intercept(shared,"request",method,&url,&headers,&body,0).await?;
+    let url=decision.url.unwrap_or(url);
+    let mut headers=headers;
+    let body=if let Some(value)=decision.body {let bytes=value.into_bytes();update_body_headers(&mut headers,bytes.len());bytes} else {body};
     let parsed_url=reqwest::Url::parse(&url).map_err(|_|"HTTP 目标地址无效")?;
     if !matches!(parsed_url.scheme(),"http"|"https")||!parsed_url.username().is_empty()||parsed_url.password().is_some(){return Err("代理目标必须是无内嵌凭据的 HTTP(S) 地址".into());}
     let mut client_builder=reqwest::Client::builder().no_proxy().redirect(reqwest::redirect::Policy::none()).timeout(Duration::from_secs(90));
@@ -401,10 +496,17 @@ async fn handle_request<S: Read + Write>(stream: &mut S, shared: &Arc<Mutex<Shar
         let source = source.split(" for url (").next().unwrap_or(&source);
         format!("上游 HTTP 请求失败：{detail}（{}）", source.chars().take(240).collect::<String>())
     })?;
-    let status=response.status(); let response_headers=response.headers().iter().filter_map(|(k,v)|v.to_str().ok().map(|v|(k.to_string(),v.to_string()))).collect::<Vec<_>>();
+    let mut status=response.status(); let mut response_headers=response.headers().iter().filter_map(|(k,v)|v.to_str().ok().map(|v|(k.to_string(),v.to_string()))).collect::<Vec<_>>();
     let mut response=response;
     let mut response_body=Vec::new();
     while let Some(chunk)=response.chunk().await.map_err(|_| "读取上游 HTTP 响应失败")? { if response_body.len().saturating_add(chunk.len())>MAX_MESSAGE{return Err("上游响应超过 4 MB 限制".into());}response_body.extend_from_slice(&chunk); }
+    let decision=intercept(shared,"response",method,&url,&response_headers,&response_body,status.as_u16()).await?;
+    if let Some(value)=decision.status {status=reqwest::StatusCode::from_u16(value).map_err(|_|"状态码无效")?;}
+    if let Some(value)=decision.body {
+        response_body=value.into_bytes();
+        update_body_headers(&mut response_headers,response_body.len());
+    }
+    if method=="HEAD" || status.as_u16()==204 || status.as_u16()==304 {response_body.clear();}
     let reason=status.canonical_reason().unwrap_or("Response");
     write!(stream,"HTTP/1.1 {} {}\r\n",status.as_u16(),reason).map_err(|_|"写入代理响应失败")?;
     for (key,value) in &response_headers { if !["content-length","transfer-encoding","connection"].iter().any(|k|key.eq_ignore_ascii_case(k)) && !key.contains(['\r','\n']) && !value.contains(['\r','\n']) {write!(stream,"{key}: {value}\r\n").map_err(|_|"写入代理响应失败")?;} }
@@ -449,8 +551,13 @@ fn serve_client(mut socket: TcpStream, shared: Arc<Mutex<Shared>>, ca_key: Arc<Z
         let connection=rustls::ServerConnection::new(config).map_err(|_|"建立 HTTPS 解密连接失败")?;
         let mut tls=rustls::StreamOwned::new(connection,socket);
         let (inner,inner_headers,inner_body)=match read_message(&mut tls) { Ok(request)=>request,Err(error)=>{record_connect_error(&shared,host,started,error.clone());return Err(error);} };
-        if let Err(error)=handle.block_on(handle_request(&mut tls,&shared,&upstream,Some(host),inner,inner_headers,inner_body)) {record_connect_error(&shared,host,started,error.clone());return Err(error);}
-    } else { handle.block_on(handle_request(&mut socket,&shared,&upstream,None,start,headers,body))?; }
+        if let Err(error)=handle.block_on(handle_request(&mut tls,&shared,&upstream,Some(host),inner,inner_headers,inner_body)) {let _=tls.write_all(b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");record_connect_error(&shared,host,started,error.clone());return Err(error);}
+    } else {
+        if let Err(error)=handle.block_on(handle_request(&mut socket,&shared,&upstream,None,start,headers,body)) {
+            let _=socket.write_all(b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+            return Err(error);
+        }
+    }
     Ok(())
 }
 
@@ -741,7 +848,7 @@ pub(crate) async fn http_debug_proxy_start(system_proxy:bool)->PlatformResult<Sn
             let port=listener.local_addr().map_err(|_|"读取本地代理端口失败")?.port(); listener.set_nonblocking(true).map_err(|_|"配置本地代理监听失败")?;
             let root_key=Arc::new(root_key);
             let sessions=session_history().lock().map_err(|_|"代理状态不可用")?.iter().cloned().collect();
-            let shared=Arc::new(Mutex::new(Shared{sessions,root_cert:root_cert.clone(),decrypt_https,stats:CaptureStats::default()}));
+            let shared=Arc::new(Mutex::new(Shared{intercept:InterceptState::default(),sessions,root_cert:root_cert.clone(),decrypt_https,stats:CaptureStats::default()}));
             let task_shared=shared.clone();
             let task_upstream=upstream.clone();
             let task=tokio::spawn(async move {
@@ -896,3 +1003,86 @@ pub(crate) fn shutdown() {
 }
 
 pub(crate) fn recover_abandoned() { #[cfg(target_os="windows")] { let _=restore_proxy(); } }
+
+#[cfg(test)]
+mod intercept_tests {
+    use super::*;
+    fn shared() -> Arc<Mutex<Shared>> {
+        Arc::new(Mutex::new(Shared { intercept: InterceptState { config: InterceptConfig { request: true, response: true, keyword: "127.0.0.1".into() }, ..Default::default() }, sessions: VecDeque::new(), root_cert: String::new(), decrypt_https: false, stats: CaptureStats::default() }))
+    }
+    async fn wait_pending(shared: &Arc<Mutex<Shared>>, phase: &str) {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if shared.lock().unwrap().intercept.pending.iter().any(|item|item.detail.summary.phase==phase) {break;}
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        }).await.expect("breakpoint must arrive");
+    }
+    fn release(shared: &Arc<Mutex<Shared>>, decision: InterceptDecision) {
+        assert!(shared.lock().unwrap().intercept.pending.remove(0).sender.send(decision).is_ok());
+    }
+    #[tokio::test]
+    async fn edits_reach_origin_and_client() {
+        let listener=TcpListener::bind("127.0.0.1:0").unwrap();
+        let address=listener.local_addr().unwrap();
+        let origin=std::thread::spawn(move || {
+            let (mut socket,_)=listener.accept().unwrap();
+            socket.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+            let (start,headers,body)=read_message(&mut socket).unwrap();
+            assert!(start.contains("/changed?value=2"));
+            assert_eq!(body,b"modified request");
+            assert!(headers.iter().any(|(key,value)|key.eq_ignore_ascii_case("content-length") && value=="16"));
+            socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 8\r\n\r\noriginal").unwrap();
+        });
+        let shared=shared();
+        let worker_shared=shared.clone();
+        let task=tokio::spawn(async move {
+            let mut output=std::io::Cursor::new(Vec::<u8>::new());
+            handle_request(&mut output,&worker_shared,&UpstreamProxy::default(),None,format!("POST http://{address}/original HTTP/1.1"),vec![("Host".into(),address.to_string()),("Content-Length".into(),"3".into())],b"old".to_vec()).await.unwrap();
+            output.into_inner()
+        });
+        wait_pending(&shared,"request").await;
+        // No connection has reached the origin before the request breakpoint is released.
+        release(&shared,InterceptDecision {body:Some("modified request".into()),url:Some(format!("http://{address}/changed?value=2")),..Default::default()});
+        wait_pending(&shared,"response").await;
+        assert_eq!(shared.lock().unwrap().intercept.pending[0].detail.body.as_deref(),Some("original"));
+        assert!(!task.is_finished());
+        release(&shared,InterceptDecision {body:Some("modified response".into()),status:Some(201),..Default::default()});
+        let output=String::from_utf8(task.await.unwrap()).unwrap();
+        assert!(output.starts_with("HTTP/1.1 201 Created"));
+        assert!(output.ends_with("modified response"));
+        assert!(output.contains("Content-Length: 17\r\n"));
+        assert!(shared.lock().unwrap().intercept.pending.is_empty());
+        origin.join().unwrap();
+    }
+    #[tokio::test]
+    async fn cancel_and_stop_release_waiters() {
+        for cancel in [true,false] {
+            let shared=shared();
+            let worker_shared=shared.clone();
+            let task=tokio::spawn(async move {intercept(&worker_shared,"request","POST","http://127.0.0.1/test",&[],b"body",0).await});
+            wait_pending(&shared,"request").await;
+            if cancel {release(&shared,InterceptDecision {cancel:true,..Default::default()});}
+            else {let mut value=shared.lock().unwrap();value.intercept.stopped=true;value.intercept.pending.clear();}
+            assert!(task.await.unwrap().is_err());
+            assert!(shared.lock().unwrap().intercept.pending.is_empty());
+        }
+    }
+    #[tokio::test]
+    async fn invalid_edits_are_rejected_before_resolving() {
+        for url in ["file:///tmp/sample", "http://example.test/\r\nx", "http://name:sample@example.test/"] {
+            assert!(http_debug_proxy_resolve_intercept("missing".into(),InterceptDecision {url:Some(url.into()),..Default::default()}).await.is_err());
+        }
+        assert!(http_debug_proxy_resolve_intercept("missing".into(),InterceptDecision {status:Some(100),..Default::default()}).await.is_err());
+        assert!(http_debug_proxy_resolve_intercept("missing".into(),InterceptDecision {body:Some("a".repeat(256*1024+1)),..Default::default()}).await.is_err());
+    }
+    #[tokio::test]
+    async fn unmatched_requests_bypass_and_unsafe_bodies_are_readonly() {
+        let shared=shared();
+        assert!(intercept(&shared,"request","GET","http://example.test/",&[],b"",0).await.is_ok());
+        assert!(shared.lock().unwrap().intercept.pending.is_empty());
+        assert!(editable_body(&[],b"\xff\x00").is_none());
+        assert!(editable_body(&[("Content-Encoding".into(),"gzip".into())],b"text").is_none());
+        assert!(editable_body(&[],&vec![b'a';256*1024+1]).is_none());
+    }
+}

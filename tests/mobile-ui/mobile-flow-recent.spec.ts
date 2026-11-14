@@ -1,3 +1,4 @@
+import { openMobileFeature } from "./navigation";
 import { expect, test } from "@playwright/test";
 
 test("mobile recent runs work without provider groups", async ({ page }) => {
@@ -12,9 +13,9 @@ test("mobile recent runs work without provider groups", async ({ page }) => {
     return route.fulfill({ json: [] });
   });
   await page.goto("/");
-  await page.locator(".mobile-tab-bar").getByRole("button", { name: "更多", exact: true }).click();
-  await page.locator(".mobile-more-feature").filter({ hasText: "云效流水线" }).click();
-  await page.getByRole("tab", { name: "最近运行", exact: true }).click();
+  await page.locator(".mobile-tab-bar").getByRole("button", { name: "我的", exact: true }).click();
+  await openMobileFeature(page, "云效流水线");
+  await page.getByRole("tab", { name: "云端最近运行", exact: true }).click();
   await expect(page.locator(".flow-recent-note")).toContainText("按最近运行开始时间从新到旧排列");
   const cards = page.locator(".flow-mobile-card");
   await expect(cards).toHaveCount(2);

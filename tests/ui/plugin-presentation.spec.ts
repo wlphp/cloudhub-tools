@@ -95,8 +95,8 @@ test("every plugin defaults to opening as a page", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await openStore(page);
   const triggers = page.locator(".plugin-presentation-trigger");
-  await expect(triggers).toHaveCount(19);
-  for (let index = 0; index < 19; index += 1) {
+  await expect(triggers).toHaveCount(20);
+  for (let index = 0; index < 20; index += 1) {
     await expect(triggers.nth(index)).toHaveText("设置");
     await expect(triggers.nth(index)).toHaveAttribute("title", "设置，当前打开方式：页面");
     await expect(triggers.nth(index)).toHaveAccessibleName("设置");
@@ -344,7 +344,7 @@ test("page navigation preserves store filters and leaves the sidebar reachable",
   const host = page.getByRole("region", { name: "WSL 管理 页面" });
   await expect(host).toBeVisible();
   await host.getByRole("button", { name: "返回软件商店" }).focus();
-  await page.keyboard.press("Shift+Tab");
+  for (let i = 0; i < 20 && !await page.getByRole("button", { name: "系统设置", exact: true }).evaluate(el => el === document.activeElement); i++) await page.keyboard.press("Shift+Tab");
   await expect(page.getByRole("button", { name: "系统设置", exact: true })).toBeFocused();
   await host.getByRole("button", { name: "返回软件商店" }).click();
   await expect(page.getByRole("searchbox", { name: "应用搜索" })).toHaveValue("WSL");

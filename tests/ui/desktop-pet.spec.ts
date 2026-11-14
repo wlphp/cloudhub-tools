@@ -37,7 +37,7 @@ test("life settings save region schedule and multiline calendar overrides atomic
   await section.getByLabel("开启生活提醒").check();
   await section.getByLabel("灾害天气预警").check();
   await section.getByRole("button", { name: "保存生活提醒" }).click();
-  await expect(section.getByRole("alert")).toContainText("选择天气预警的省份");
+  await expect(page.locator(".app-toast-notice")).toContainText("选择天气预警的省份");
   await section.getByRole("combobox", { name: "省份", exact: true }).selectOption("河北省");
   await section.getByLabel("城市 / 区县", { exact: true }).fill("保定");
   await section.getByLabel("上班时间", { exact: true }).fill("08:30");
@@ -64,11 +64,11 @@ test("life settings retain a rejected draft and explain unsupported holiday year
   await section.getByLabel("开启生活提醒").check();
   await section.getByLabel("上班时间", { exact: true }).fill("14:00");
   await section.getByRole("button", { name: "保存生活提醒" }).click();
-  await expect(section.getByRole("alert")).toContainText("顺序设置时间");
+  await expect(page.locator(".app-toast-notice")).toContainText("顺序设置时间");
   await section.getByLabel("上班时间", { exact: true }).fill("08:30");
   await page.evaluate(() => { (window as any).failPetSave = true; (window as any).petEvent("pet-life-changed", { notices: [], calendarYear: 2027, calendarSupported: false }); });
   await section.getByRole("button", { name: "保存生活提醒" }).click();
-  await expect(section.getByText("设置保存失败", { exact: true })).toBeVisible();
+  await expect(page.locator(".app-toast-notice").getByText("设置保存失败", { exact: true })).toBeVisible();
   await expect(section.getByLabel("上班时间", { exact: true })).toHaveValue("08:30");
   await expect(section.getByText(/尚未内置 2027 年法定日历/)).toBeVisible();
 });
@@ -896,7 +896,7 @@ test("companion settings page keeps only pet and life controls", async ({ page }
   await expect(page.locator(".pet-control-card")).toHaveCount(2);
   await expect(petSection.getByRole("checkbox", { name: /启用运维预警/ })).toHaveCount(0);
   await page.evaluate(() => { (window as any).failPetSave=true; });
-  await pet.click(); await expect(page.locator(".pet-settings-section [role=alert]")).toBeVisible(); await expect(pet).not.toBeChecked();
+  await pet.click(); await expect(page.locator(".app-toast-notice[role=alert]")).toBeVisible(); await expect(pet).not.toBeChecked();
 });
 
 test("expanded pet settings stay compact and fit desktop and narrow widths", async ({ page }) => {

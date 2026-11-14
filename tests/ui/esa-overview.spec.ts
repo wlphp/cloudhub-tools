@@ -29,9 +29,9 @@ test("ESA loads on open, refreshes filters automatically and ignores stale respo
   await page.getByRole("button", { name: "账号管理", exact: true }).click();
   await page.getByRole("button", { name: /查看 Fixture ESA 边缘安全加速资产/ }).click();
   const refresh = page.locator(".esa-head").getByRole("button", { name: "实时拉取", exact: true });
-  await expect(page.getByRole("alert")).toContainText("MissingFields");
+  await expect(page.locator(".esa-overview-error")).toContainText("MissingFields");
   await refresh.click();
-  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(page.locator(".esa-overview-error")).toHaveCount(0);
   await expect(page.locator(".esa-reference .metric-card").nth(1)).toContainText("567");
   await expect(page.getByRole("img", { name: "ESA 趋势图" })).toBeVisible();
   const centers = await page.locator(".esa-overview-toolbar").evaluate((toolbar) => {

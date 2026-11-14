@@ -31,7 +31,13 @@ function previewRequest<T>(op: string, args: Record<string, unknown> = {}) {
 }
 
 export const memberClient = {
-  me: () => runningInTauri ? nativeOnly<Member | null>("member_me") : previewRequest<Member | null>("me"),
+  me: async () => {
+    const value = await (runningInTauri ? nativeOnly<Member | null>("member_me") : previewRequest<Member | null>("me"));
+    if (value !== null && (!value || typeof value.id !== "number" || typeof value.email !== "string" || typeof value.created_at !== "string")) {
+      throw new Error("会员资料格式异常，请重新登录后重试。");
+    }
+    return value;
+  },
   webHandoff: () => nativeOnly<string>("member_web_handoff"),
   sendCode: (email: string) => runningInTauri
     ? nativeOnly<number>("member_send_code", { email })

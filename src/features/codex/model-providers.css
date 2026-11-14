@@ -274,3 +274,33 @@
   .codex-provider-launch-summary { padding:12px; }
   .codex-provider-launch-summary .codex-launch-facts>div { grid-template-columns:64px minmax(0,1fr); gap:8px; }
 }
+/* 手机供应商页：开关保持 50×30 的轨道，44px 点击区独立于轨道。 */
+body:has(.mobile-shell) .codex-page .codex-providers .codex-provider-switch {
+  flex: 0 0 50px; width: 50px; min-width: 50px; height: 44px; min-height: 44px;
+  padding: 0; border: 0; background: transparent; box-shadow: none;
+}
+body:has(.mobile-shell) .codex-page .codex-providers .codex-provider-switch::before {
+  content: ''; position: absolute; inset: 7px 0; border-radius: 999px;
+  background: var(--mobile-border-strong, var(--mobile-muted));
+}
+body:has(.mobile-shell) .codex-page .codex-providers .codex-provider-switch[aria-checked=true]::before { background: var(--mobile-accent); }
+body:has(.mobile-shell) .codex-page .codex-providers .codex-provider-switch > span { top: 10px; left: 3px; width: 24px; height: 24px; }
+body:has(.mobile-shell) .codex-page .codex-provider-list-panel { padding: 0; border: 0; background: transparent; }
+body:has(.mobile-shell) .codex-page .codex-provider-list-heading { gap: 4px; margin-bottom: 12px; }
+body:has(.mobile-shell) .codex-page .codex-provider-list-heading h2 { font-size: 15px; }
+body:has(.mobile-shell) .codex-page .codex-provider-list-heading > span { font-size: 12px; line-height: 1.5; color: var(--mobile-muted); }
+body:has(.mobile-shell) .codex-page .codex-provider-switch-row { gap: 12px; padding: 10px 12px; border-color: var(--mobile-border); border-radius: 10px; background: var(--mobile-surface); }
+body:has(.mobile-shell) .codex-page .codex-provider-switch-row strong { font-size: 13px; }
+body:has(.mobile-shell) .codex-page .codex-provider-switch-row p { font-size: 12px; line-height: 1.6; }
+body:has(.mobile-shell) .codex-page .codex-provider-toolbar { gap: 12px; margin: 12px 0; }
+body:has(.mobile-shell) .codex-page .codex-provider-filters { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; width: 100%; }
+body:has(.mobile-shell) .codex-page .codex-provider-search { grid-column: 1 / -1; box-sizing: border-box; display: flex; height: 46px; min-height: 46px; margin: 0; padding: 0 12px; gap: 8px; border: 1px solid var(--mobile-border); border-radius: 10px; background: var(--mobile-surface); color: var(--mobile-muted); }
+body:has(.mobile-shell) .codex-page .codex-provider-search input { flex: 1; width: 0; min-width: 0; height: 44px; min-height: 44px; margin: 0; padding: 0; border: 0 !important; outline: 0 !important; border-radius: 0; background: transparent !important; box-shadow: none !important; font-size: 14px; }
+body:has(.mobile-shell) .codex-page .codex-provider-search:focus-within { outline: 2px solid var(--mobile-accent); outline-offset: 1px; }
+body:has(.mobile-shell) .codex-page .codex-provider-filters > select { width: 100%; height: 44px; padding: 0 10px; margin: 0; font-size: 13px; border-radius: 8px; background: var(--mobile-surface); }
+body:has(.mobile-shell) .codex-page .codex-provider-filters > span { align-self: center; color: var(--mobile-muted); font-size: 12px; }
+body:has(.mobile-shell) .codex-page .codex-provider-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; width: 100%; }
+body:has(.mobile-shell) .codex-page .codex-provider-actions > .sort-selection-controls { grid-column: 1 / -1; display: flex; justify-content: space-between; min-height: 44px; }
+body:has(.mobile-shell) .codex-page .codex-provider-actions .sort-select-all { display: inline-flex; align-items: center; min-height: 44px; margin: 0; gap: 8px; font-size: 12px; }
+body:has(.mobile-shell) .codex-page .codex-provider-actions button { min-width: 0; min-height: 44px; padding: 0 8px; font-size: 12px; border-radius: 8px; }
+body:has(.mobile-shell) .codex-page .codex-provider-actions > button:nth-of-type(2) { background: var(--mobile-accent-soft); border-color: var(--mobile-accent-border); color: var(--mobile-accent-strong); }

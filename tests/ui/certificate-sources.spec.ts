@@ -149,7 +149,7 @@ for (const fail of [false, true]) test(`all panels synchronize without a selecti
   const button = page.getByRole("button", { name: "获取站点", exact: true });
   await expect(button).toBeEnabled();
   await button.click();
-  await expect(page.locator(".baota-certificate-manager").getByRole("status", { includeHidden: true })).toContainText(fail ? "2/3 个面板成功" : "3/3 个面板成功");
+  await expect(page.locator(".app-toast-notice")).toContainText(fail ? "2/3 个面板成功" : "3/3 个面板成功");
   const calls = await page.evaluate(() => (window as any).__certificateCalls.filter((call: any) => call.command === "sync_baota_site_certificates"));
   expect(calls.map((call: any) => call.args.panelId)).toEqual([4, 5, 6]);
   if (fail) {
@@ -161,7 +161,7 @@ for (const fail of [false, true]) test(`all panels synchronize without a selecti
   await expect(page.locator(".baota-certificate-manager tbody")).toContainText("site.test");
   await page.getByLabel("选择宝塔面板").selectOption("6");
   await button.click();
-  await expect(page.locator(".baota-certificate-manager").getByRole("status")).toContainText("1/1 个面板成功");
+  await expect(page.locator(".app-toast-notice")).toContainText("1/1 个面板成功");
   const ids = await page.evaluate(() => (window as any).__certificateCalls.filter((call: any) => call.command === "sync_baota_site_certificates").map((call: any) => call.args.panelId));
   expect(ids).toEqual([4, 5, 6, 6]);
 });
@@ -501,7 +501,7 @@ test("baota sort preserves the fetched panel order through filtering and refresh
   await page.getByLabel("是否有 HTTPS 证书").selectOption("all");
   await expect(names).toHaveText(["plain.test", "expired.test", "site.test"]);
   await manager.getByRole("button", { name: "获取站点", exact: true }).click();
-  await expect(manager.getByRole("status")).toContainText("已更新");
+  await expect(page.locator(".app-toast-notice")).toContainText("已更新");
   await expect(names).toHaveText(["plain.test", "expired.test", "site.test"]);
   await manager.getByRole("button", { name: "名称排序", exact: true }).click();
   await expect(names).toHaveText(["site.test", "plain.test", "expired.test"]);
@@ -639,7 +639,7 @@ test("baota certificates use site names for renewal and keep domains and panel c
   await expect(confirm).toContainText("测试宝塔");
   await expect(confirm).toContainText("site.test");
   await confirm.locator(".modal-actions .primary").click();
-  await expect(page.locator(".baota-certificate-manager").getByRole("status")).toContainText("已续签并验证站点部署");
+  await expect(page.locator(".app-toast-notice")).toContainText("已续签并验证站点部署");
   const calls = await page.evaluate(() => (window as any).__certificateCalls);
   expect(calls.find((call: any) => call.command === "renew_baota_site_certificate").args).toEqual({ id: 12 });
   await page.locator(".baota-certificate-manager").screenshot({ path: "test-results/baota-site-certificates.png" });
@@ -656,7 +656,7 @@ test("unconfirmed renewal cannot repeat until the user checks the panel and resy
   await expect(page.getByRole("button", { name: "续签站点 site.test", exact: true })).toBeDisabled();
   await page.getByRole("button", { name: "核对后允许重试", exact: true }).click();
   await page.getByRole("alertdialog").locator(".modal-actions .primary").click();
-  await expect(page.locator(".baota-certificate-manager").getByRole("status")).toContainText("重新获取站点");
+  await expect(page.locator(".app-toast-notice")).toContainText("重新获取站点");
   await expect(page.getByRole("button", { name: "续签站点 site.test", exact: true })).toBeDisabled();
   await page.getByRole("button", { name: "获取站点", exact: true }).click();
   await expect(page.getByRole("button", { name: "续签站点 site.test", exact: true })).toBeEnabled();

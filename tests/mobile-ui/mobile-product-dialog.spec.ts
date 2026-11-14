@@ -1,3 +1,4 @@
+import { openMobileFeature } from "./navigation";
 import { expect, test } from "@playwright/test";
 
 for (const { width, height, theme } of [{ width: 375, height: 844, theme: "light" }, { width: 375, height: 844, theme: "dark" }, { width: 768, height: 844, theme: "light" }, { width: 844, height: 390, theme: "dark" }]) {
@@ -11,14 +12,14 @@ for (const { width, height, theme } of [{ width: 375, height: 844, theme: "light
       { account_id, resource_type: "ecs", asset_key: `server-${account_id}`, payload: { InstanceName: `server-${account_id}`, InstanceId: `i-${account_id}`, Status: "Running" }, fetched_at: 1700000000 },
       { account_id, resource_type: "esa", asset_key: `site-${account_id}`, payload: { SiteName: `site-${account_id}.test`, SiteId: account_id }, fetched_at: 1700000000 },
     ]);
-    await page.route("**/api/**", route => route.fulfill({ json: [] }));
+    await page.route("**/api/**", route => route.fulfill({ json: new URL(route.request().url()).pathname === "/api/member" ? null : [] }));
     await page.route("**/api/accounts**", route => route.fulfill({ json: accounts }));
     await page.route("**/api/local-assets**", route => {
       const type = new URL(route.request().url()).searchParams.get("resource_type");
       return route.fulfill({ json: assets.filter(asset => !type || asset.resource_type === type) });
     });
     await page.route("**/api/dns-records**", route => route.fulfill({ json: { items: [] } }));
-    await page.goto("/");
+    await page.goto("/"); await openMobileFeature(page, "我的账号");
     await page.getByLabel("account-13 产品详情", { exact: true }).click();
     const products = page.getByLabel("account-13 全部产品统计", { exact: true });
     const domainOpener = products.getByRole("button", { name: "域名（1）", exact: true });

@@ -1,7 +1,7 @@
 import { useMemo, useState, type MutableRefObject } from "react";
 import { Activity, AppWindow, BellRing, ChevronRight, Cloud, Database, Folder, Globe2, HardDrive, Layers, Monitor, Server, ShieldCheck, Star, Terminal } from "lucide-react";
 import type { MobileFeatureDestination } from "./MobileMorePage";
-import { MobileMonitorAlertsPage } from "./MobileMonitorAlertsPage";
+import { MobileHomeDashboard } from "./MobileHomeDashboard";
 import type { Account, LocalAsset } from "../shared/types";
 import { applicationCatalog, applicationPreference, sortedApplications } from "../features/plugins/applicationCatalog";
 import type { ApplicationPreferenceState } from "../features/plugins/useApplicationPreferences";
@@ -28,7 +28,7 @@ function loadUsage(): Partial<Record<HomeApplication["id"], number>> {
   } catch { return {}; }
 }
 
-export function MobileHomePage({ accounts, assets, search, favoriteCount, applicationSettings, onActiveAlertCount, onNavigate, onOpenSoftware, refreshRef }: { accounts: Account[]; assets: LocalAsset[]; search: string; favoriteCount: number; applicationSettings: ApplicationPreferenceState; onActiveAlertCount: (count: number) => void; onNavigate: (tab: MobileFeatureDestination | "monitorAlerts") => void; onOpenSoftware: (id: string) => void; refreshRef?: MutableRefObject<(() => Promise<void>) | null> }) {
+export function MobileHomePage({ accounts, assets, search, favoriteCount, applicationSettings, assetError, onActiveAlertCount, onNavigate, onOpenSoftware, refreshRef }: { accounts: Account[]; assets: LocalAsset[]; search: string; favoriteCount: number; applicationSettings: ApplicationPreferenceState; assetError?: boolean; onActiveAlertCount: (count: number | null) => void; onNavigate: (tab: MobileFeatureDestination | "monitorAlerts") => void; onOpenSoftware: (id: string) => void; refreshRef?: MutableRefObject<(() => Promise<void>) | null> }) {
   const [usage, setUsage] = useState(loadUsage);
   const ranked = useMemo(() => [...defaultApps].sort((a, b) => (usage[b.id] ?? 0) - (usage[a.id] ?? 0) || defaultApps.indexOf(a) - defaultApps.indexOf(b)), [usage]);
   const filtered = ranked.filter(app => app.title.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()));
@@ -60,9 +60,7 @@ export function MobileHomePage({ accounts, assets, search, favoriteCount, applic
       {commonSoftware.map(app => { const Icon = app.icon; return <button type="button" key={app.id} onClick={() => onOpenSoftware(app.id)} aria-label={`打开${app.name}`}><Icon size={15} aria-hidden="true" /><span>{app.name}</span></button>; })}
       {!commonSoftware.length && <p>{search ? "没有匹配的常用软件" : applicationCatalog.some(app => applicationPreference(app, applicationSettings.preferences).home) ? "没有匹配的常用软件" : "可在软件商店设置首页显示的软件"}</p>}
     </section>
-    <section className="mobile-home-alerts" aria-label="监控预警列表">
-      <div className="mobile-home-alerts-heading"><div><p>资源风险与状态</p><h2><BellRing size={19} aria-hidden="true" />监控预警</h2></div><button type="button" onClick={() => onNavigate("monitorAlerts")}>全部预警<ChevronRight size={16} aria-hidden="true" /></button></div>
-      <MobileMonitorAlertsPage compact onActiveCount={onActiveAlertCount} refreshRef={refreshRef} />
-    </section>
+
+    <div hidden={Boolean(search.trim())}><MobileHomeDashboard accounts={accounts} assets={assets} assetError={assetError} onActiveAlertCount={onActiveAlertCount} onNavigate={onNavigate} refreshRef={refreshRef} /></div>
   </div>;
 }

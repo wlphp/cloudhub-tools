@@ -21,7 +21,7 @@ test("loads the workbench shell without native credentials", async ({ page }) =>
 
   await page.getByRole("button", { name: "HTTPS 证书" }).first().click();
   await expect(page.getByRole("heading", { name: "HTTPS 证书" })).toBeVisible();
-  await expect(page.getByText("证书申请、密钥材料读取和删除仅支持桌面客户端")).toBeVisible();
+  await expect(page.locator(".certificate-preview-warning")).toContainText("申请、密钥读取与删除请使用桌面客户端");
   await expect(page.getByRole("button", { name: "申请证书" })).toBeDisabled();
 });
 
@@ -67,7 +67,7 @@ test("subtle text and notifications remain legible without covering dialogs", as
     return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
   }, { foreground, background });
 
-  const subtle = page.locator(".ide-theme");
+  const subtle = page.locator(".app-shell.ide-theme");
   await page.evaluate(() => document.body.classList.add("theme-light"));
   let color = await subtle.evaluate((element) => getComputedStyle(element).getPropertyValue("--jb-subtle").trim());
   expect(await contrast(color, "#f3f3f4")).toBeGreaterThanOrEqual(4.5);

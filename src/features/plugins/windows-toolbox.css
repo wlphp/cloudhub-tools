@@ -1,4 +1,4 @@
-.windows-toolbox { display: grid; gap: 12px; min-width: 0; }
+.windows-toolbox { --surface: var(--jb-surface); --border-color: var(--jb-border); --text-primary: var(--jb-text); --text-secondary: var(--jb-muted); --danger: var(--jb-danger, var(--jb-red)); --success: var(--jb-success); display: grid; gap: 12px; min-width: 0; }
 .windows-toolbox-help { border: 1px solid var(--border-color, #ddd); border-radius: 6px; background: var(--surface, #fff); }
 .windows-toolbox-help summary { min-height: 40px; padding: 10px 12px; color: var(--text-primary, #222); font-size: 13px; font-weight: 600; cursor: pointer; }
 .windows-toolbox-help summary::marker { color: var(--jb-accent, #f26a21); }
