@@ -124,24 +124,13 @@ fn scan_models(dir: &Path) -> Vec<VoiceModelInfo> {
         let Ok(meta) = entry.metadata() else { continue };
         if !meta.is_file() { continue; }
         let Some(name) = entry.file_name().to_str().map(str::to_string) else { continue };
-        if !valid_model_name(&name) { continue; }
+        if !super::valid_model_name(&name) { continue; }
         let size = meta.len();
         if size < MODEL_MIN_BYTES || size > MODEL_MAX_BYTES { continue; }
         models.push(VoiceModelInfo { name, size_bytes: size });
     }
     models.sort_by(|a, b| b.size_bytes.cmp(&a.size_bytes));
     models
-}
-
-/// 仅允许纯文件名（无路径分隔符），防止越出模型目录。
-pub fn valid_model_name(name: &str) -> bool {
-    let name = name.trim();
-    let lower = name.to_ascii_lowercase();
-    !name.is_empty()
-        && name.len() <= 120
-        && (lower.ends_with(".bin") || lower.ends_with(".gguf"))
-        && !name.chars().any(|c| c.is_control() || c == '/' || c == '\\')
-        && !name.contains("..")
 }
 
 fn resolve_model(settings: &super::Settings) -> Result<(PathBuf, String), String> {

@@ -84,6 +84,16 @@ impl Default for VoiceSettings {
         }
     }
 }
+/// 仅允许纯文件名（无路径分隔符），防止越出模型目录；桌面与移动端共用（语音模块仅桌面编译）。
+pub fn valid_model_name(name: &str) -> bool {
+    let name = name.trim();
+    let lower = name.to_ascii_lowercase();
+    !name.is_empty()
+        && name.len() <= 120
+        && (lower.ends_with(".bin") || lower.ends_with(".gguf"))
+        && !name.chars().any(|c| c.is_control() || c == '/' || c == '\\')
+        && !name.contains("..")
+}
 impl VoiceSettings {
     fn validate(&self) -> Result<(), String> {
         let word = self.wake_word.trim();
@@ -93,7 +103,7 @@ impl VoiceSettings {
             || word.chars().any(char::is_control)
             || !(language == "auto" || (language.len() == 2 && language.chars().all(|c| c.is_ascii_lowercase())))
             || !(15..=120).contains(&self.max_seconds)
-            || (!self.model_file.trim().is_empty() && !voice::valid_model_name(self.model_file.trim()))
+            || (!self.model_file.trim().is_empty() && !valid_model_name(self.model_file.trim()))
         {
             return Err("桌宠语音设置无效".into());
         }
