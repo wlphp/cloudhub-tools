@@ -1,0 +1,6 @@
+# whisper.cpp 的 ggml 后端注册使用了 macOS 10.15 才有的 std::filesystem API。
+# tauri CLI 派发 cargo 时会把 MACOSX_DEPLOYMENT_TARGET 强设为 10.13（x86_64），
+# 覆盖工作流环境变量，导致 CI 的 macOS 构建编译失败；此处强制构建脚本层取 10.15
+# （Tauri v2 官方支持 macOS 10.15+，iOS 构建不使用该变量，不受影响）。
+[env]
+MACOSX_DEPLOYMENT_TARGET = { value = "10.15", force = true }
