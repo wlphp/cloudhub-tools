@@ -1,177 +1,210 @@
 /* 应用锁：锁屏覆盖层与“应用锁”设置页。配色沿用 mobile.css 主题变量。 */
 
+/* 锁屏：iOS 风格全屏沉浸布局，内容垂直居中，方式切换固定底部 */
 .app-lock-screen {
   position: fixed;
   inset: 0;
   z-index: 120;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
+  flex-direction: column;
+  padding: calc(20px + env(safe-area-inset-top, 0px)) 24px calc(14px + env(safe-area-inset-bottom, 0px));
   background: var(--mobile-bg);
   overflow-y: auto;
 }
 
-.app-lock-card {
+.app-lock-body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
-  width: min(340px, 100%);
+  width: min(320px, 100%);
   margin: auto;
-  padding: 26px 20px;
-  border: 1px solid var(--mobile-border);
-  border-radius: 16px;
-  background: var(--mobile-surface);
 }
 
 .app-lock-badge {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 64px;
-  height: 64px;
-  border: 1px solid var(--mobile-border);
-  border-radius: 18px;
+  width: 72px;
+  height: 72px;
+  border-radius: 24px;
   background: var(--mobile-raised);
   color: var(--mobile-accent-strong);
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.12);
 }
 
-.app-lock-card h1 {
-  margin: 0;
-  font-size: 19px;
+.app-lock-body h1 {
+  margin: 20px 0 6px;
+  font-size: 24px;
   font-weight: 700;
+  letter-spacing: .01em;
   color: var(--mobile-text);
 }
 
 .app-lock-subtitle {
   margin: 0;
-  font-size: 13px;
+  font-size: 14px;
+  line-height: 1.5;
   color: var(--mobile-muted);
 }
 
 .app-lock-error {
-  margin: 0;
+  margin: 16px 0 0;
   max-width: 100%;
-  padding: 8px 12px;
-  border: 1px solid rgba(210, 69, 79, 0.35);
-  border-radius: 9px;
+  padding: 8px 14px;
+  border-radius: 999px;
   background: rgba(210, 69, 79, 0.12);
   color: var(--mobile-danger, #d2454f);
   font-size: 13px;
+  font-weight: 600;
   text-align: center;
   overflow-wrap: anywhere;
 }
 
-/* 生物识别 */
+.app-lock-mode-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 316px;
+  padding-top: 26px;
+}
+
+/* 生物识别：圆形感应按钮 */
 .app-lock-biometric {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
+  gap: 0;
 }
 
 .app-lock-biometric-button {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 8px;
-  padding: 18px 26px;
+  justify-content: center;
+  width: 96px;
+  height: 96px;
   border: 1px solid var(--mobile-border);
-  border-radius: 16px;
-  background: var(--mobile-raised);
+  border-radius: 50%;
+  background: var(--mobile-surface);
   color: var(--mobile-accent-strong);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.10);
+  transition: transform .12s ease;
 }
 
-.app-lock-biometric-button span {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--mobile-text);
+.app-lock-biometric-button:active {
+  transform: scale(.96);
 }
 
 .app-lock-biometric-button:disabled {
   opacity: .55;
 }
 
+.app-lock-biometric-caption {
+  margin-top: 16px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--mobile-text);
+}
+
 .app-lock-text-button {
-  padding: 0;
+  margin-top: 10px;
+  padding: 6px 10px;
   border: 0;
+  border-radius: 999px;
   background: none;
   color: var(--mobile-accent);
   font-size: 13px;
+  font-weight: 600;
 }
 
 .app-lock-text-button:disabled {
   opacity: .5;
 }
 
-/* 数字密码 */
+/* 数字密码：圆点 + 圆形键盘 */
 .app-lock-pin {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 14px;
   width: 100%;
 }
 
 .app-lock-pin-dots {
   display: flex;
-  gap: 12px;
-  min-height: 14px;
+  gap: 16px;
+  min-height: 16px;
+  margin-bottom: 26px;
 }
 
 .app-lock-pin-dot {
-  width: 12px;
-  height: 12px;
-  border: 1px solid var(--mobile-border-strong, var(--mobile-border));
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid var(--mobile-border-strong, var(--mobile-border));
   border-radius: 50%;
   background: transparent;
+  transition: background-color .14s ease, border-color .14s ease, transform .14s ease;
 }
 
 .app-lock-pin-dot.is-filled {
   border-color: var(--mobile-accent);
   background: var(--mobile-accent);
+  transform: scale(1.1);
 }
 
 .app-lock-keypad {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
-  width: min(260px, 100%);
+  grid-template-columns: repeat(3, 72px);
+  justify-content: center;
+  gap: 16px 24px;
+}
+
+.app-lock-keypad-spacer {
+  width: 72px;
+  height: 72px;
 }
 
 .app-lock-keypad-key {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 52px;
-  border: 1px solid var(--mobile-border);
-  border-radius: 12px;
+  width: 72px;
+  height: 72px;
+  border: 0;
+  border-radius: 50%;
   background: var(--mobile-raised);
+  box-shadow: inset 0 0 0 1px var(--mobile-border);
   color: var(--mobile-text);
-  font-size: 19px;
-  font-weight: 600;
+  font-size: 27px;
+  font-weight: 400;
+  transition: transform .1s ease, background-color .1s ease;
 }
 
 .app-lock-keypad-key:active {
   background: var(--mobile-border);
+  transform: scale(.95);
 }
 
 .app-lock-keypad-key:disabled {
   opacity: .45;
 }
 
-/* 主按钮：锁屏内定宽，表单内通栏 */
+.app-lock-pin .app-lock-primary {
+  margin-top: 24px;
+}
+
+/* 主按钮：锁屏内定宽圆角，表单内通栏 */
 .app-lock-primary {
-  min-height: 44px;
+  min-height: 46px;
   width: min(260px, 100%);
-  padding: 0 15px;
+  padding: 0 18px;
   border: 0;
-  border-radius: 10px;
+  border-radius: 14px;
   background: linear-gradient(135deg, #f76707, #d9480f);
   color: #fff;
   font-size: 15px;
   font-weight: 650;
+  box-shadow: 0 10px 22px rgba(234, 88, 12, 0.22);
 }
 
 .app-lock-primary:disabled {
@@ -198,7 +231,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
 .app-lock-pattern {
@@ -207,7 +240,7 @@
   grid-template-columns: repeat(3, 1fr);
   grid-template-rows: repeat(3, 1fr);
   place-items: center;
-  width: min(240px, 72vw);
+  width: min(252px, 74vw);
   aspect-ratio: 1;
   touch-action: none;
 }
@@ -249,35 +282,38 @@
 }
 
 .app-lock-pattern-hint {
-  margin: 0;
-  font-size: 12px;
+  margin: 10px 0 0;
+  font-size: 13px;
   color: var(--mobile-muted);
 }
 
-/* 方式切换 */
-.app-lock-mode-switch {
+/* 方式切换：固定底部的胶囊组 */
+.app-lock-footer {
   display: flex;
-  gap: 8px;
-  margin-top: 4px;
+  justify-content: center;
+  gap: 10px;
+  padding-top: 18px;
 }
 
-.app-lock-mode-switch button {
+.app-lock-footer button {
   display: flex;
   align-items: center;
-  gap: 5px;
-  min-height: 34px;
-  padding: 0 12px;
+  gap: 6px;
+  min-height: 38px;
+  padding: 0 16px;
   border: 1px solid var(--mobile-border);
-  border-radius: 9px;
-  background: var(--mobile-raised);
+  border-radius: 999px;
+  background: transparent;
   color: var(--mobile-muted);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
 }
 
-.app-lock-mode-switch button.active {
-  border-color: var(--mobile-accent);
+.app-lock-footer button.active {
+  border-color: transparent;
+  background: var(--mobile-raised);
   color: var(--mobile-accent-strong);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
 }
 
 /* ===== 应用锁设置主页 ===== */

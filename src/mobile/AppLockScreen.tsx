@@ -121,78 +121,81 @@ export function AppLockScreen({ status, onUnlocked }: AppLockScreenProps) {
 
   return (
     <main className="app-lock-screen" aria-label="应用已锁定">
-      <div className="app-lock-card">
-        <span className="app-lock-badge"><LockKeyhole size={30} aria-hidden="true" /></span>
+      <div className="app-lock-body">
+        <span className="app-lock-badge"><LockKeyhole size={26} aria-hidden="true" /></span>
         <h1>应用已锁定</h1>
         <p className="app-lock-subtitle">验证身份后继续使用云枢工具箱</p>
 
         {cooling && <p className="app-lock-error" role="alert">尝试次数过多，请在 {cooldownSeconds} 秒后重试</p>}
         {!cooling && error && <p className="app-lock-error" role="alert">{error}</p>}
 
-        {mode === "biometric" && (
-          <div className="app-lock-biometric">
-            <button
-              type="button"
-              className="app-lock-biometric-button"
-              disabled={busy || cooling || !status.biometricAvailable}
-              onClick={() => void runBiometric(false)}
-            >
-              <Fingerprint size={54} aria-hidden="true" />
-              <span>{busy ? "正在验证…" : "点击验证指纹 / 面容"}</span>
-            </button>
-            <button type="button" className="app-lock-text-button" disabled={busy || cooling} onClick={() => void runBiometric(true)}>
-              使用系统锁屏密码解锁
-            </button>
-          </div>
-        )}
-
-        {mode === "pin" && (
-          <div className="app-lock-pin">
-            <div className="app-lock-pin-dots" aria-label="已输入数字密码长度" aria-live="polite">
-              {Array.from({ length: Math.max(4, pin.length || 4) }, (_, index) => (
-                <span key={index} className={"app-lock-pin-dot" + (index < pin.length ? " is-filled" : "")} />
-              ))}
-            </div>
-            <div className="app-lock-keypad" aria-label="数字键盘">
-              {["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "back"].map((key, index) =>
-                key === "" ? (
-                  <span key={index} className="app-lock-keypad-spacer" aria-hidden="true" />
-                ) : key === "back" ? (
-                  <button key={index} type="button" className="app-lock-keypad-key" aria-label="删除一位" disabled={busy || cooling || pin.length === 0}
-                    onClick={() => setPin((current) => current.slice(0, -1))}>
-                    <Delete size={22} aria-hidden="true" />
-                  </button>
-                ) : (
-                  <button key={index} type="button" className="app-lock-keypad-key" disabled={busy || cooling || pin.length >= 8}
-                    onClick={() => setPin((current) => current + key)}>{key}</button>
-                ),
-              )}
-            </div>
-            <button type="button" className="app-lock-primary" disabled={busy || cooling || pin.length < 4} onClick={() => void submitPin()}>
-              解锁
-            </button>
-          </div>
-        )}
-
-        {mode === "pattern" && (
-          <div className="app-lock-pattern-area">
-            <AppLockPatternGrid disabled={busy || cooling} onComplete={(pattern) => void submitPattern(pattern)} />
-            <p className="app-lock-pattern-hint">滑动连接至少 4 个点完成解锁</p>
-          </div>
-        )}
-
-        {modeOptions.length > 1 && (
-          <div className="app-lock-mode-switch" role="tablist" aria-label="切换解锁方式">
-            {modeOptions.filter((option) => option.id !== mode).map((option) => (
-              <button key={option.id} type="button" role="tab" aria-selected={false}
-                onClick={() => { setError(""); setMode(option.id); }}>
-                <option.icon size={16} aria-hidden="true" />
-                <span>{option.label}</span>
+        <div className="app-lock-mode-slot">
+          {mode === "biometric" && (
+            <div className="app-lock-biometric">
+              <button
+                type="button"
+                className="app-lock-biometric-button"
+                disabled={busy || cooling || !status.biometricAvailable}
+                onClick={() => void runBiometric(false)}
+              >
+                <Fingerprint size={44} aria-hidden="true" />
               </button>
-            ))}
-          </div>
-        )}
+              <span className="app-lock-biometric-caption">{busy ? "正在验证…" : "点击验证指纹 / 面容"}</span>
+              <button type="button" className="app-lock-text-button" disabled={busy || cooling} onClick={() => void runBiometric(true)}>
+                使用系统锁屏密码解锁
+              </button>
+            </div>
+          )}
+
+          {mode === "pin" && (
+            <div className="app-lock-pin">
+              <div className="app-lock-pin-dots" aria-label="已输入数字密码长度" aria-live="polite">
+                {Array.from({ length: Math.max(4, pin.length || 4) }, (_, index) => (
+                  <span key={index} className={"app-lock-pin-dot" + (index < pin.length ? " is-filled" : "")} />
+                ))}
+              </div>
+              <div className="app-lock-keypad" aria-label="数字键盘">
+                {["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "back"].map((key, index) =>
+                  key === "" ? (
+                    <span key={index} className="app-lock-keypad-spacer" aria-hidden="true" />
+                  ) : key === "back" ? (
+                    <button key={index} type="button" className="app-lock-keypad-key" aria-label="删除一位" disabled={busy || cooling || pin.length === 0}
+                      onClick={() => setPin((current) => current.slice(0, -1))}>
+                      <Delete size={24} aria-hidden="true" />
+                    </button>
+                  ) : (
+                    <button key={index} type="button" className="app-lock-keypad-key" disabled={busy || cooling || pin.length >= 8}
+                      onClick={() => setPin((current) => current + key)}>{key}</button>
+                  ),
+                )}
+              </div>
+              <button type="button" className="app-lock-primary" disabled={busy || cooling || pin.length < 4} onClick={() => void submitPin()}>
+                解锁
+              </button>
+            </div>
+          )}
+
+          {mode === "pattern" && (
+            <div className="app-lock-pattern-area">
+              <AppLockPatternGrid disabled={busy || cooling} onComplete={(pattern) => void submitPattern(pattern)} />
+              <p className="app-lock-pattern-hint">滑动连接至少 4 个点完成解锁</p>
+            </div>
+          )}
+        </div>
       </div>
+
+      {modeOptions.length > 1 && (
+        <div className="app-lock-footer" role="tablist" aria-label="切换解锁方式">
+          {modeOptions.map((option) => (
+            <button key={option.id} type="button" role="tab" aria-selected={option.id === mode}
+              className={option.id === mode ? "active" : ""}
+              onClick={() => { setError(""); setMode(option.id); }}>
+              <option.icon size={16} aria-hidden="true" />
+              <span>{option.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
     </main>
   );
 }
