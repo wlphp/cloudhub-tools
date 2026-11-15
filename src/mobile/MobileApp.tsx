@@ -1868,19 +1868,19 @@ export function MobileApp() {
     (tab === "apiLogs" && apiLogsLoading && apiLogs.length === 0);
   const initialSkeletonVariant = tab === "home" ? "dashboard" as const : selectedDomain || selectedBucket || selectedDatabase || selectedRedis ? "detail" as const : "list" as const;
 
-  // 归属功能分区的应用（云效流水线/HTTPS 证书/身份验证器）跳转独立页面，未适配移动端的（Codex/内网穿透）提示去 PC 端；
+  // 归属功能分区的应用（云效流水线/HTTPS 证书/身份验证器）跳转独立页面，未适配移动端的（Claude/Codex/内网穿透）提示去 PC 端；
   // 商店列表与首页常用软件共用该路由，避免首页捷径打开一个空白插件页。
   const openApplicationSection = (section: ApplicationSection): boolean => {
     const destination: Partial<Record<ApplicationSection, MobileFeatureDestination>> = { flow: "flow", certificates: "certificates", authenticator: "authenticator" };
     if (destination[section]) {
       // 记录进入来源（商店/首页），返回按钮优先回到来源页；其他入口（资产、扫码）不记录，沿用“返回我的”。
       sectionOriginRef.current = tab === "softwareStore" ? "softwareStore" : tab === "home" ? "home" : null;
-      // 跳转即离开当前页，遗留的提示条（如 Codex/内网穿透的“去 PC 端”）不能跟着带进新页面。
+      // 跳转即离开当前页，遗留的提示条（如 Claude/Codex/内网穿透的“去 PC 端”）不能跟着带进新页面。
       setNotice("");
       setTab(destination[section]!);
       return true;
     }
-    if (section === "codex" || section === "frp") {
+    if (section === "codex" || section === "claude" || section === "frp") {
       // 提示条固定在内容区顶部；列表滚动在下方时必须滚回顶部，否则看起来像点了没反应。
       setNotice("该应用目前尚未提供移动端界面，请在 PC 端使用。");
       mobileContentRef.current?.scrollTo({ top: 0 });
@@ -1888,10 +1888,10 @@ export function MobileApp() {
     }
     return true;
   };
-  // Claude 管理与备忘录虽归属分区，但界面就是插件页，与其余插件一样整页打开。
+  // 备忘录虽归属分区，但界面就是插件页，与其余插件一样整页打开；Claude 管理未适配移动端，与其他未适配分区一样提示去 PC 端。
   const openHomeApplication = (pluginId: string) => {
     const section = applicationCatalog.find(app => app.id === pluginId)?.section;
-    if (section && section !== "claude" && section !== "notes") { openApplicationSection(section); return; }
+    if (section && section !== "notes") { openApplicationSection(section); return; }
     // 打开插件页前清掉首页遗留提示，避免“请在 PC 端使用”等旧提示挂在备忘录等本就可用的页面顶部。
     setNotice("");
     setStorePluginId(pluginId);

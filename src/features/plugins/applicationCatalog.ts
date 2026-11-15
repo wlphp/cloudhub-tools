@@ -10,8 +10,9 @@ const navigation: Record<string, { section?: ApplicationSection; order: number; 
   "cloudhub.flow": { section: "flow", order: 1, sidebar: true, mobile: true, icon: GitBranch },
   "cloudhub.certificates": { section: "certificates", order: 2, sidebar: true, mobile: true, icon: Lock },
   "cloudhub.authenticator": { section: "authenticator", order: 3, sidebar: true, mobile: true, icon: ShieldCheck },
-  "cloudhub.claude-providers": { section: "claude", order: 4, sidebar: true, mobile: true, icon: Bot, keywords: "Claude Code 供应商 API 切换 模型 映射" },
-  "cloudhub.codex": { section: "codex", order: 5, sidebar: true, mobile: true, icon: FileCode2 },
+  // Claude / Codex 管理依赖本机配置文件与本地进程，未提供移动端界面，不进入商店“移动端可用”列表。
+  "cloudhub.claude-providers": { section: "claude", order: 4, sidebar: true, icon: Bot, keywords: "Claude Code 供应商 API 切换 模型 映射" },
+  "cloudhub.codex": { section: "codex", order: 5, sidebar: true, icon: FileCode2 },
   "cloudhub.frp": { section: "frp", order: 6, sidebar: true, icon: Network },
   "cloudhub.notes": { section: "notes", order: 7, sidebar: true, mobile: true, icon: NotebookPen, keywords: "备忘 笔记 记录 分组 标签 检索 提醒" },
   "cloudhub.wechat-multi": { order: 8, sidebar: false, icon: MessageCircle, keywords: "微信 WeChat Weixin Windows" },
