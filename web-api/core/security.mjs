@@ -4,6 +4,9 @@ const DEFAULT_ALLOWED_ORIGINS = [
   // Vite uses 1421 when the desktop preview already occupies 1420.
   "http://127.0.0.1:1421",
   "http://localhost:1421",
+  // H5 移动端预览常用 1422（桌面 dev 占用 1420、HMR 占用 1421 时）。
+  "http://127.0.0.1:1422",
+  "http://localhost:1422",
 ];
 
 function normalizedOrigin(value) {
