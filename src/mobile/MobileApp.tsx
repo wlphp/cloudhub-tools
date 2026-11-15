@@ -16,6 +16,8 @@ import { MobileCertificateRequest } from "./MobileCertificateRequest";
 import { MobileCertificates } from "./MobileCertificates";
 import { AppLockScreen } from "./AppLockScreen";
 import { MobileAppLockSettings } from "./MobileAppLockSettings";
+import { MobileAppLockPinSettings } from "./MobileAppLockPinSettings";
+import { MobileAppLockPatternSettings } from "./MobileAppLockPatternSettings";
 import { appLockClient, type AppLockStatus } from "../platform/clients/app_lock";
 import type { CertificateSummary } from "../platform/clients/certificates";
 import { SecretField } from "../shared/SecretField";
@@ -63,7 +65,7 @@ import { MemberAvatar } from "../features/member/MemberDialog";
 import { memberClient, memberHasExperienceOfficerIdentity, type Member } from "../platform/clients/member";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
-type MobileTab = "accounts" | "servers" | "domains" | "assets" | "favorites" | "storage" | "databases" | "redis" | "certificates" | "ssh" | "panels" | "sync" | "settings" | "settingsMenu" | "networkSettings" | "appLock" | "operationLogs" | "apiLogs" | "about" | "flow" | "authenticator" | "personalProfile" | "member" | "more" | "home" | "monitorAlerts" | "softwareStore";
+type MobileTab = "accounts" | "servers" | "domains" | "assets" | "favorites" | "storage" | "databases" | "redis" | "certificates" | "ssh" | "panels" | "sync" | "settings" | "settingsMenu" | "networkSettings" | "appLock" | "appLockPin" | "appLockPattern" | "operationLogs" | "apiLogs" | "about" | "flow" | "authenticator" | "personalProfile" | "member" | "more" | "home" | "monitorAlerts" | "softwareStore";
 
 function mobilePanelIp(panelUrl: string): string {
   try {
@@ -1441,6 +1443,8 @@ export function MobileApp() {
     settings: "通用",
     networkSettings: "网络与代理",
     appLock: "应用锁",
+    appLockPin: "数字密码",
+    appLockPattern: "滑动图案",
     sync: "数据导入与迁移",
     authenticator: "身份验证器",
     operationLogs: "操作日志",
@@ -1452,6 +1456,8 @@ export function MobileApp() {
     if (tab === "settingsMenu") return null;
     if (tab === "monitorAlerts" || tab === "softwareStore") return { label: "返回首页", onClick: () => setTab("home") };
     if (tab === "favorites") return { label: "返回我的资产", onClick: () => setTab("assets") };
+    // 应用锁的两个密码子页逐级返回：数字密码/滑动图案 → 应用锁 → 设置菜单。
+    if (tab === "appLockPin" || tab === "appLockPattern") return { label: "返回应用锁", onClick: () => setTab("appLock") };
     if (settingsPageOpen) return { label: "返回设置", onClick: returnToSettingsMenu };
     if (tab === "domains" && selectedDomain) return { label: "返回域名列表", onClick: () => { setSelectedDomain(null); setDnsRecords([]); } };
     if (tab === "storage" && selectedBucket) return {
@@ -1748,11 +1754,18 @@ export function MobileApp() {
           <div className="mobile-page-title"><div><p>系统设置</p><h1>应用锁</h1></div></div>
           <MobileAppLockSettings
             onNotice={setNotice}
+            onNavigate={(destination) => setTab(destination)}
             onLocked={() => {
               setAppLockLocked(true);
               void appLockClient.status().then((status) => applyAppLockStatus(status)).catch(() => {});
             }}
           />
+        </> : tab === "appLockPin" ? <>
+          <div className="mobile-page-title"><div><p>应用锁</p><h1>数字密码</h1></div></div>
+          <MobileAppLockPinSettings onNotice={setNotice} onDone={() => setTab("appLock")} />
+        </> : tab === "appLockPattern" ? <>
+          <div className="mobile-page-title"><div><p>应用锁</p><h1>滑动图案</h1></div></div>
+          <MobileAppLockPatternSettings onNotice={setNotice} onDone={() => setTab("appLock")} />
         </> : tab === "settings" ? <>
           <div className="mobile-page-title"><div><p>通用</p><h1>通用设置</h1></div></div>
           <div className="mobile-domain-list mobile-more-list mobile-general-settings">
@@ -1884,7 +1897,7 @@ export function MobileApp() {
       </header>}
 
       {settingsPageOpen && tab !== "member" && <header className="mobile-settings-page-header">
-        <button type="button" aria-label="返回设置" onClick={returnToSettingsMenu}><ArrowLeft size={20} aria-hidden="true" /></button>
+        <button type="button" aria-label={tab === "appLockPin" || tab === "appLockPattern" ? "返回应用锁" : "返回设置"} onClick={tab === "appLockPin" || tab === "appLockPattern" ? () => setTab("appLock") : returnToSettingsMenu}><ArrowLeft size={20} aria-hidden="true" /></button>
         <h1>{settingsPageTitle[tab] ?? "设置"}</h1>
         <span aria-hidden="true" />
       </header>}

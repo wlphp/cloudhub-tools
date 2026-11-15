@@ -161,6 +161,7 @@
   opacity: .45;
 }
 
+/* 主按钮：锁屏内定宽，表单内通栏 */
 .app-lock-primary {
   min-height: 44px;
   width: min(260px, 100%);
@@ -174,6 +175,21 @@
 }
 
 .app-lock-primary:disabled {
+  opacity: .5;
+}
+
+.app-lock-secondary {
+  min-height: 42px;
+  padding: 0 16px;
+  border: 1px solid var(--mobile-border);
+  border-radius: 10px;
+  background: var(--mobile-surface);
+  color: var(--mobile-text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.app-lock-secondary:disabled {
   opacity: .5;
 }
 
@@ -264,28 +280,32 @@
   color: var(--mobile-accent-strong);
 }
 
-/* 设置页 */
+/* ===== 应用锁设置主页 ===== */
 .app-lock-settings {
   gap: 0;
   overflow: hidden;
   border: 1px solid var(--mobile-border);
-  border-radius: 10px;
+  border-radius: 12px;
   background: var(--mobile-surface);
 }
 
-.app-lock-settings .mobile-account-card {
-  min-height: 76px;
+.app-lock-settings .app-lock-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 72px;
   padding: 12px 14px;
   gap: 12px;
   border: 0;
   border-radius: 0;
   background: transparent;
   box-shadow: none;
+  text-align: left;
 }
 
-.app-lock-settings .mobile-account-card + .mobile-account-card,
-.app-lock-settings .mobile-account-card + .app-lock-editor,
-.app-lock-settings .app-lock-editor + .mobile-account-card {
+.app-lock-settings .app-lock-row + .app-lock-row,
+.app-lock-settings .app-lock-row + .app-lock-autolock,
+.app-lock-settings .app-lock-autolock + .app-lock-row {
   border-top: 1px solid var(--mobile-border);
 }
 
@@ -299,28 +319,25 @@
   color: var(--mobile-accent-strong);
 }
 
-.app-lock-settings .mobile-account-copy {
+.app-lock-settings .app-lock-row .mobile-account-copy {
+  display: flex;
+  flex-direction: column;
   gap: 2px;
+  flex: 1;
+  min-width: 0;
 }
 
-.app-lock-settings .mobile-account-copy strong {
+.app-lock-settings .app-lock-row .mobile-account-copy strong {
   font-size: 14px;
   font-weight: 650;
+  color: var(--mobile-text);
 }
 
-.app-lock-settings .mobile-account-copy small {
+.app-lock-settings .app-lock-row .mobile-account-copy small {
   margin: 0;
   font-size: 12px;
   line-height: 1.45;
-}
-
-.app-lock-settings .app-lock-settings-action {
-  flex: 0 0 auto;
-}
-
-.app-lock-settings .app-lock-settings-delay {
-  flex-wrap: wrap;
-  flex: 0 0 auto;
+  color: var(--mobile-muted);
 }
 
 .app-lock-settings input[type="checkbox"] {
@@ -365,99 +382,112 @@
   opacity: .5;
 }
 
-.app-lock-editor {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 14px;
+/* 导航行：整行可点，右侧箭头 */
+.app-lock-nav-row {
+  cursor: pointer;
+}
+
+.app-lock-nav-row:active {
   background: var(--mobile-raised);
 }
 
-.app-lock-editor-field {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.app-lock-editor-field span {
-  flex: 0 0 96px;
-  font-size: 13px;
+.app-lock-chevron {
+  flex: 0 0 auto;
+  margin-left: auto;
   color: var(--mobile-muted);
 }
 
-.app-lock-editor-field input {
-  flex: 1;
-  min-width: 0;
-  min-height: 40px;
-  padding: 0 12px;
-  border: 1px solid var(--mobile-border);
-  border-radius: 9px;
-  background: var(--mobile-surface);
-  color: var(--mobile-text);
-  font-size: 15px;
-  letter-spacing: .2em;
-}
-
-.app-lock-editor-hint {
-  margin: 0;
-  font-size: 13px;
-  color: var(--mobile-text);
-  text-align: center;
-}
-
-.app-lock-editor-actions {
+/* 自动上锁：标题一行，档位通栏一行，避免窄屏截断 */
+.app-lock-autolock {
   display: flex;
-  justify-content: flex-end;
+  flex-direction: column;
   gap: 10px;
+  padding: 12px 14px;
 }
 
-.app-lock-editor-actions button {
-  min-height: 40px;
-  padding: 0 16px;
-  border: 1px solid var(--mobile-border);
-  border-radius: 9px;
-  background: var(--mobile-surface);
+.app-lock-autolock .app-lock-row-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 38px;
+}
+
+.app-lock-autolock .mobile-account-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.app-lock-autolock .mobile-account-copy strong {
+  font-size: 14px;
+  font-weight: 650;
   color: var(--mobile-text);
+}
+
+.app-lock-autolock .mobile-account-copy small {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--mobile-muted);
+}
+
+.app-lock-segments {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  padding: 3px;
+  border: 1px solid var(--mobile-border);
+  border-radius: 10px;
+  background: var(--mobile-raised);
+}
+
+.app-lock-segments button {
+  min-height: 38px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--mobile-muted);
   font-size: 13px;
   font-weight: 600;
 }
 
-.app-lock-editor-actions .mobile-primary {
-  border: 0;
-  background: linear-gradient(135deg, #f76707, #d9480f);
+.app-lock-segments button.active {
+  background: var(--mobile-accent);
   color: #fff;
 }
 
-.app-lock-editor-actions button:disabled {
-  opacity: .5;
+.app-lock-segments button:disabled {
+  opacity: .45;
 }
 
-.app-lock-settings .app-lock-pattern {
-  width: min(200px, 60vw);
-  margin: 0 auto;
+.app-lock-segments button:focus-visible {
+  outline: 2px solid var(--mobile-focus, var(--mobile-accent));
+  outline-offset: 1px;
 }
 
-.app-lock-settings-locknow {
+/* 立即锁定 */
+.app-lock-locknow {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  margin: 12px;
-  padding: 14px;
-  border: 1px solid var(--mobile-border);
-  border-radius: 12px;
-  background: var(--mobile-surface);
+  padding: 12px 14px;
+  border-top: 1px solid var(--mobile-border);
 }
 
-.app-lock-settings-locknow small {
+.app-lock-locknow .app-lock-primary {
+  width: 100%;
+}
+
+.app-lock-locknow small {
   font-size: 12px;
+  line-height: 1.5;
   color: var(--mobile-muted);
 }
 
-.app-lock-settings-locknow .mobile-primary {
-  align-self: flex-start;
-}
-
-.app-lock-settings-help {
+/* 安全说明 */
+.app-lock-help {
   margin: 12px;
   padding: 10px 12px;
   border: 1px dashed var(--mobile-border);
@@ -466,7 +496,7 @@
   color: var(--mobile-muted);
 }
 
-.app-lock-settings-help summary {
+.app-lock-help summary {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -475,7 +505,132 @@
   font-weight: 600;
 }
 
-.app-lock-settings-help p {
+.app-lock-help p {
   margin: 8px 0 0;
   line-height: 1.6;
+}
+
+/* ===== 数字密码 / 滑动图案子页 ===== */
+.app-lock-form {
+  gap: 12px;
+}
+
+.app-lock-form-intro {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--mobile-border);
+  border-radius: 12px;
+  background: var(--mobile-surface);
+  color: var(--mobile-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.app-lock-form-intro svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: var(--mobile-accent-strong);
+}
+
+.app-lock-form-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px 14px;
+  border: 1px solid var(--mobile-border);
+  border-radius: 12px;
+  background: var(--mobile-surface);
+}
+
+.app-lock-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.app-lock-field span {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--mobile-text);
+}
+
+.app-lock-field input {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--mobile-border);
+  border-radius: 10px;
+  background: var(--mobile-raised);
+  color: var(--mobile-text);
+  font-size: 15px;
+  letter-spacing: .2em;
+}
+
+.app-lock-field input:focus-visible {
+  outline: 2px solid var(--mobile-focus, var(--mobile-accent));
+  outline-offset: 1px;
+  border-color: var(--mobile-accent);
+}
+
+.app-lock-field input::placeholder {
+  color: var(--mobile-subtle, var(--mobile-muted));
+  letter-spacing: normal;
+}
+
+.app-lock-form-error {
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid rgba(210, 69, 79, 0.35);
+  border-radius: 9px;
+  background: rgba(210, 69, 79, 0.12);
+  color: var(--mobile-danger, #d2454f);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.app-lock-form > .app-lock-primary {
+  width: 100%;
+}
+
+.app-lock-form-note {
+  margin: 0;
+  padding: 0 4px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--mobile-muted);
+}
+
+.app-lock-form-actions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}
+
+/* 图案子页：步进提示 + 居中大网格 */
+.app-lock-pattern-page .app-lock-form-card {
+  align-items: center;
+}
+
+.app-lock-step {
+  margin: 0;
+  padding: 6px 14px;
+  border: 1px solid var(--mobile-border);
+  border-radius: 999px;
+  background: var(--mobile-raised);
+  color: var(--mobile-accent-strong);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.app-lock-pattern-page .app-lock-pattern {
+  width: min(264px, 76vw);
+  margin: 6px 0 2px;
+}
+
+.app-lock-pattern-page .app-lock-pattern-dot {
+  width: 16px;
+  height: 16px;
 }
