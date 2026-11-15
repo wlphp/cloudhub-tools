@@ -416,7 +416,16 @@ export function MobileApp() {
   };
   // 应用启动即判定锁屏；状态读取失败时保持放行，避免预览或异常环境下误锁。
   useEffect(() => {
-    if (!runningInTauri) return;
+    if (!runningInTauri) {
+      // 仅开发预览：H5 访问 ?applock-demo=1 直接渲染锁屏覆盖层，便于调整样式。
+      if (import.meta.env.DEV && new URLSearchParams(window.location.search).get("applock-demo") === "1") {
+        applyAppLockStatus({
+          enabled: true, hasPin: true, hasPattern: true, biometricEnabled: true,
+          biometricAvailable: true, locked: true, cooldownMs: 0, autoLockSeconds: 0,
+        });
+      }
+      return;
+    }
     let active = true;
     void appLockClient.status()
       .then((status) => { if (active) applyAppLockStatus(status); })
@@ -1629,9 +1638,9 @@ export function MobileApp() {
       <button type="button" onClick={() => openSettingsTab("settings")}><span>通用设置</span><ChevronRight size={18} aria-hidden="true" /></button>
       <button type="button" onClick={() => openSettingsTab("networkSettings")}><span>网络与代理</span><ChevronRight size={18} aria-hidden="true" /></button>
     </section>
-    {runningInTauri && <section className="mobile-settings-group" aria-label="安全">
+    <section className="mobile-settings-group" aria-label="安全">
       <button type="button" onClick={() => openSettingsTab("appLock")}><span>应用锁</span><ChevronRight size={18} aria-hidden="true" /></button>
-    </section>}
+    </section>
     <section className="mobile-settings-group" aria-label="数据与工具">
       <button type="button" onClick={() => openSettingsTab("sync")}><span>数据导入与迁移</span><ChevronRight size={18} aria-hidden="true" /></button>
     </section>
