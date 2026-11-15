@@ -392,6 +392,9 @@ export function MobileApp() {
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncingAccountId, setSyncingAccountId] = useState<number | null>(null);
+  // 依次获取全部账号资产的进度；null 表示未在批量获取中，账号卡片沿用单账号的逐类型进度显示。
+  const [bulkSyncing, setBulkSyncing] = useState(false);
+  const [bulkSyncProgress, setBulkSyncProgress] = useState<{ done: number; total: number; current: string; fetched: number } | null>(null);
   const [accountSyncProgress, setAccountSyncProgress] = useState<{ accountId: number; completed: number; total: number; resourceType: string; status: string } | null>(null);
   const [cleaningUnknownResource, setCleaningUnknownResource] = useState<string | null>(null);
   const [activeAction, setActiveAction] = useState<string | null>(null);
@@ -973,7 +976,7 @@ export function MobileApp() {
   }
 
   async function syncAccountAssets(account: Account) {
-    if (syncing) return;
+    if (syncing || bulkSyncing) return;
     const resourceTypes = syncAssetTypes(account).map(([type]) => type);
     if (!resourceTypes.length) {
       setNotice(`${cloudProvider(account.cloud_type).label}暂未接入资产同步`);
@@ -994,6 +997,43 @@ export function MobileApp() {
       setSyncing(false);
       setSyncingAccountId(null);
       setAccountAssetsRevision(revision => revision + 1);
+    }
+  }
+
+  /** 依次获取每个账号的资产：逐账号复用单账号同步，卡片沿用现有逐类型进度，每完成一个即刷新缓存徽标，全部完成后汇总通知。 */
+  async function syncAllAccountAssets() {
+    if (syncing || bulkSyncing) return;
+    const targets = accounts.filter((account) => syncAssetTypes(account).length > 0);
+    if (!targets.length) { setNotice("当前没有已接入资产同步的云账号"); return; }
+    setBulkSyncing(true);
+    setNotice("");
+    const errors: string[] = [];
+    let fetched = 0;
+    try {
+      for (let index = 0; index < targets.length; index++) {
+        const account = targets[index];
+        setBulkSyncProgress({ done: index, total: targets.length, current: account.account_name, fetched });
+        setSyncing(true);
+        setSyncingAccountId(account.id);
+        setAccountSyncProgress(null);
+        try {
+          const result = await resourcesClient.sync(account.id, syncAssetTypes(account).map(([type]) => type));
+          fetched += result.fetched;
+          errors.push(...result.errors.map((error) => `${account.account_name}：${error}`));
+        } catch (error) {
+          errors.push(`${account.account_name}：${error instanceof Error ? error.message : "同步失败"}`);
+        } finally {
+          setSyncing(false);
+          setSyncingAccountId(null);
+          setAccountAssetsRevision(revision => revision + 1);
+        }
+      }
+      setNotice(errors.length
+        ? `已依次获取 ${targets.length} 个账号共 ${fetched} 项资产，部分失败：${[...new Set(errors)].join("；")}`
+        : `已依次获取 ${targets.length} 个账号，共获取并保存 ${fetched} 项资产`);
+    } finally {
+      setBulkSyncing(false);
+      setBulkSyncProgress(null);
     }
   }
 
@@ -1571,9 +1611,11 @@ export function MobileApp() {
               <button type="button" className="mobile-icon-button" aria-label="导入账号 JSON" title="导入账号 JSON" disabled={importingAccounts} onClick={() => accountImportInput.current?.click()}><Upload size={19} /></button>
               <input ref={accountImportInput} className="mobile-file-input" type="file" accept=".json,application/json" aria-label="选择 CloudHub 账号 JSON 文件" onChange={(event) => void importAccountFile(event.currentTarget.files?.[0])} />
               <button type="button" className="mobile-primary" onClick={openAddAccount}><Plus size={18} />添加账号</button>
+              <button type="button" className="mobile-icon-button" aria-label={bulkSyncing && bulkSyncProgress ? `正在依次获取账号资产 ${bulkSyncProgress.done + 1}/${bulkSyncProgress.total}` : "依次获取每个账号的资产"} title="依次获取每个账号的资产信息" disabled={bulkSyncing || syncing || importingAccounts || accounts.length === 0} onClick={() => void syncAllAccountAssets()}>{bulkSyncing ? <RefreshCw size={19} className="mobile-spin" /> : <CloudDownload size={19} />}</button>
             </div>
           </div>
           <div className="mobile-security-note"><ShieldCheck size={18} /><span>凭据只保存在这台设备的本地加密数据库中。</span></div>
+          {bulkSyncProgress && <p className="mobile-bulk-sync-status" role="status" aria-live="polite"><RefreshCw size={14} className="mobile-spin" aria-hidden="true" />正在依次获取账号资产 {bulkSyncProgress.done + 1}/{bulkSyncProgress.total} · {bulkSyncProgress.current}{bulkSyncProgress.fetched > 0 ? ` · 已获取 ${bulkSyncProgress.fetched} 项` : ""}</p>}
           {accounts.length > 0 && <>
             <div className="mobile-account-tools">
               <label className="mobile-account-search"><Search size={18} aria-hidden="true" /><input aria-label="搜索云账号" value={accountSearch} onChange={(event) => setAccountSearch(event.currentTarget.value)} placeholder="搜索云厂商 / 账号名称 / 地域…" /></label>

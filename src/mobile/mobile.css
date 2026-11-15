@@ -245,6 +245,26 @@ button {
   color: #65cfaa;
 }
 
+/* 依次获取全部账号资产时的动态进度条，紧跟安全提示下方；随明暗主题变量取色。 */
+.mobile-bulk-sync-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--mobile-border);
+  border-radius: 13px;
+  background: var(--mobile-raised);
+  color: var(--mobile-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.mobile-bulk-sync-status svg {
+  flex: 0 0 auto;
+  color: var(--mobile-accent);
+}
+
 .mobile-empty {
   display: flex;
   min-height: 220px;
