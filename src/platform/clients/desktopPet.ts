@@ -1,4 +1,5 @@
 import { nativeOnly } from "./base";
+import { Channel } from "@tauri-apps/api/core";
 import type { AiImage } from "./ai";
 import { monitorSeverityLabel, sortMonitorAlerts, type MonitorAlert, type MonitorSnapshot } from "./monitorAlerts";
 export type PetAlert = MonitorAlert;
@@ -12,7 +13,16 @@ export interface PetSettings {
   excludedAssetAlerts: string[];
   size: number; roam: "edge" | "free" | "still"; activity: number; sound: boolean; reducedMotion: boolean;
   quiet: boolean; intervalSeconds: number; expiryDays: number; cpuThreshold: number; diskThreshold: number; keepInTray: boolean;
+  voice: PetVoiceSettings;
 }
+export interface PetVoiceSettings {
+  enabled: boolean; wakeEnabled: boolean; wakeWord: string; modelFile: string; language: string; autoSend: boolean; maxSeconds: number;
+}
+export const defaultPetVoice: PetVoiceSettings = { enabled: true, wakeEnabled: false, wakeWord: "小驼", modelFile: "", language: "zh", autoSend: true, maxSeconds: 60 };
+export interface PetVoiceModel { name: string; sizeBytes: number }
+export interface PetVoiceStatus { modelsDir: string; models: PetVoiceModel[]; catalog: PetVoiceModel[]; selected: string | null; ready: boolean; listening: boolean }
+export interface PetVoiceDownloadProgress { stage: "connecting" | "downloading" | "done"; source: string; downloadedBytes: number; totalBytes: number | null; bytesPerSecond: number }
+export interface PetVoiceIntent { action: string; text: string; summary: string }
 export interface PetLifeSettings {
   enabled: boolean; province: string; city: string; weather: boolean; schedule: boolean;
   workStart: string; lunchStart: string; lunchEnd: string; workEnd: string; leaveBefore: number;
@@ -43,11 +53,18 @@ export const defaultPetSettings: PetSettings = {
   enabled: false, monitoring: false, panels: false, panelAccess: true, certificates: true, servers: true, excludedAssetAlerts: [],
   size: 120, roam: "edge", activity: 1, sound: false, reducedMotion: false, quiet: false,
   intervalSeconds: 300, expiryDays: 30, cpuThreshold: 90, diskThreshold: 90, keepInTray: false,
+  voice: defaultPetVoice,
 };
 export const desktopPetClient = {
   lifeState: () => nativeOnly<PetLifeState>("pet_life_state"),
   lifeAction: (id: string, action: "ack" | "snooze" | "testWater" | "openWeather") => nativeOnly<PetLifeState>("pet_life_action", { id, action }),
   lifeWeather: () => nativeOnly<PetLifeState>("pet_life_weather"),
+  voiceStatus: () => nativeOnly<PetVoiceStatus>("pet_voice_status"),
+  voiceTranscribe: (audio: string) => nativeOnly<string>("pet_voice_transcribe", { audio }),
+  voiceIntent: (requestId: string, service: PetChatService, text: string) => nativeOnly<PetVoiceIntent>("pet_voice_intent", { requestId, profileId: service.id, revision: service.revision, text }),
+  openVoiceModelsDir: () => nativeOnly<void>("pet_voice_open_models_dir"),
+  voiceDownloadModel: (name: string, onProgress: (progress: PetVoiceDownloadProgress) => void) => nativeOnly<PetVoiceStatus>("pet_voice_download_model", { name, onProgress: new Channel<PetVoiceDownloadProgress>(onProgress) }),
+  voiceCancelModelDownload: () => nativeOnly<void>("pet_voice_cancel_model_download"),
   chatServices: () => nativeOnly<PetChatService[]>("pet_chat_services"),
   chat: (requestId: string, service: PetChatService, messages: PetChatMessage[], image?: AiImage) => nativeOnly<string>("pet_chat", { requestId, profileId: service.id, revision: service.revision, messages: messages.map(({ role, text }) => ({ role, text })), image: image ?? null }),
   readChatImage: (sourcePath: string) => nativeOnly<string>("pet_chat_read_image", { sourcePath }),

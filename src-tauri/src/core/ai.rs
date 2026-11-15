@@ -68,6 +68,7 @@ pub enum Task {
     Search,
     Frp,
     PetChat,
+    PetCommand,
 }
 impl Task {
     fn fields(&self) -> &'static [&'static str] {
@@ -91,11 +92,13 @@ impl Task {
             Self::Search => &["query", "group", "resource_type", "expires_within_days"],
             Self::Frp => &["name", "kind", "local_ip", "local_port", "remote_port", "custom_domain"],
             Self::Diagnose | Self::Configuration | Self::PetChat => &[],
+            Self::PetCommand => &["action", "text"],
         }
     }
     fn instruction(&self) -> &'static str {
         match self {
             Self::PetChat => "你是CloudHub的宠物伙伴，温和、自然、简洁地与用户用中文聊天，也能解答运维问题。输入包含当前宠物形象和按角色标记的对话历史，回应最后一条用户消息。将完整回复写入summary，其他字段留空。不声称读取本机数据或执行操作，不索要凭据。",
+            Self::PetCommand => "你是桌宠语音意图分类器。输入是用户对桌宠说的一句话。fields.action只允许填：shutdown(关机)、restart(重启)、lock(锁屏)、taskManager(任务管理器)、explorer(资源管理器)、weather(查询天气)、openApp(打开云枢工具箱)、chat(其他一切内容)。明确要求执行系统操作时选对应动作；weather与openApp的fields.text留空；选择chat时fields.text必须原样保留用户的话。summary用一句中文概括判断。意图不确定或句子含糊时一律选chat，不猜测系统操作。",
             Self::Connection => "这是连接测试，summary只填写连接正常。",
             Self::VisionTest => "读取图片从左到右的8个独立格子的颜色。fields.colors填写red或blue组成的8项英文列表，用逗号分隔；不要猜测。summary简短描述图片。",
             Self::Server => "提取托管服务器信息。单台服务器填写fields，多台服务器每台分别填写items；port为1至65535整数，platform只可linux或windows。仅输出有明确依据的名称、主机地址、端口、系统、用户名、分组、标签和备注；禁止输出密码、私钥、口令或其他认证凭据。",

@@ -20,6 +20,10 @@ use tauri::{Emitter, Manager};
 mod docking;
 #[cfg(desktop)]
 mod computer;
+#[cfg(desktop)]
+mod voice;
+#[cfg(desktop)]
+pub use voice::{pet_voice_cancel_model_download, pet_voice_download_model, pet_voice_intent, pet_voice_open_models_dir, pet_voice_status, pet_voice_transcribe};
 
 const CONFIG: &str = "desktop-pet-config-v1";
 const MONITOR_CONFIG: &str = "monitor-alerts-config-v1";
@@ -53,6 +57,48 @@ pub struct Settings {
     pub disk_threshold: f64,
     pub keep_in_tray: bool,
     pub life: crate::core::pet_life::LifeSettings,
+    pub voice: VoiceSettings,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+pub struct VoiceSettings {
+    pub enabled: bool,
+    pub wake_enabled: bool,
+    pub wake_word: String,
+    pub model_file: String,
+    pub language: String,
+    pub auto_send: bool,
+    pub max_seconds: u32,
+}
+impl Default for VoiceSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            wake_enabled: false,
+            wake_word: "小驼".into(),
+            model_file: String::new(),
+            language: "zh".into(),
+            auto_send: true,
+            max_seconds: 60,
+        }
+    }
+}
+impl VoiceSettings {
+    fn validate(&self) -> Result<(), String> {
+        let word = self.wake_word.trim();
+        let language = self.language.trim();
+        if word.is_empty()
+            || word.chars().count() > 24
+            || word.chars().any(char::is_control)
+            || !(language == "auto" || (language.len() == 2 && language.chars().all(|c| c.is_ascii_lowercase())))
+            || !(15..=120).contains(&self.max_seconds)
+            || (!self.model_file.trim().is_empty() && !voice::valid_model_name(self.model_file.trim()))
+        {
+            return Err("桌宠语音设置无效".into());
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -122,12 +168,14 @@ impl Default for Settings {
             disk_threshold: 90.,
             keep_in_tray: false,
             life: Default::default(),
+            voice: Default::default(),
         }
     }
 }
 impl Settings {
     fn validate(&self) -> Result<(), String> {
         self.life.validate()?;
+        self.voice.validate()?;
         if !["alpaca", "dog", "penguin", "fish"].contains(&self.appearance.as_str()) || !(80..=240).contains(&self.size)
             || !["edge", "free", "still"].contains(&self.roam.as_str())
             || self.activity > 2
@@ -178,6 +226,8 @@ pub struct MonitoringStore {
     pub life: Mutex<crate::core::pet_life::LifeState>,
     #[cfg(desktop)]
     pub life_checking: AtomicBool,
+    #[cfg(desktop)]
+    pub voice: std::sync::Arc<voice::Engine>,
 }
 #[cfg(desktop)]
 pub type PetStore = MonitoringStore;
@@ -269,6 +319,12 @@ pub fn restricted<R: tauri::Runtime>(
                 "pet_life_state",
                 "pet_life_action",
                 "pet_life_weather",
+                "pet_voice_status",
+                "pet_voice_transcribe",
+                "pet_voice_open_models_dir",
+                "pet_voice_download_model",
+                "pet_voice_cancel_model_download",
+                "pet_voice_intent",
             ]
             .contains(&invoke.message.command())
         {
@@ -828,6 +884,7 @@ pub async fn pet_save_settings(
         let _ = save_json(MONITOR_CONFIG, &previous_monitor);
         return Err(error.into());
     }
+    voice::sync_listener(&app);
     if previous.life != settings.life {
         // A changed schedule must not replay a pending greeting from the previous configuration.
         let _ = update_life(&app, |state| {
@@ -1517,6 +1574,7 @@ pub fn initialize(app: &tauri::AppHandle) {
         }
     }
     let _ = sync_window(app);
+    voice::sync_listener(app);
     // Native cursor polling restores pointer events even when the transparent region is click-through.
     // Hit testing uses the same alpha pixels and sprite frame as the UI, not the window rectangle.
     let handle = app.clone();

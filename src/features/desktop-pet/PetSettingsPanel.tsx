@@ -4,9 +4,10 @@ import { useEffect, useState } from "react";
 import { Check, ChevronDown, PawPrint } from "lucide-react";
 import { petAppearances } from "./appearances";
 import { PetLifeSettings } from "./PetLifeSettings";
+import { PetVoiceSettings } from "./PetVoiceSettings";
 import { listen } from "@tauri-apps/api/event";
 import { runningInTauri, platformErrorMessage } from "../../platform/api";
-import { defaultPetSettings, defaultPetLife, petSeverityLabel, sortPetAlerts, desktopPetClient as client, type PetSettings, type PetSnapshot } from "../../platform/clients/desktopPet";
+import { defaultPetSettings, defaultPetLife, defaultPetVoice, petSeverityLabel, sortPetAlerts, desktopPetClient as client, type PetSettings, type PetSnapshot } from "../../platform/clients/desktopPet";
 import "./desktop-pet.css";
 
 export function PetSettingsPanel({ embedded = false }: { embedded?: boolean }) {
@@ -34,6 +35,12 @@ export function PetSettingsPanel({ embedded = false }: { embedded?: boolean }) {
     try { await client.save(next); setSettings(next); }
     finally { setBusy(false); }
   }
+  async function changeVoice(voice: PetSettings["voice"]) {
+    const next = { ...settings, voice };
+    setBusy(true); setError("");
+    try { await client.save(next); setSettings(next); }
+    finally { setBusy(false); }
+  }
   const toggle = (key: "enabled" | "sound" | "reducedMotion", label: string, detail?: string, disabled = false) => <label className="pet-option"><span>{label}{detail && <small>{detail}</small>}</span><input type="checkbox" disabled={!ready || busy || disabled} checked={settings[key]} onChange={e => void change({ [key]: e.target.checked })} /></label>;
   return <section className={expanded ? "pet-settings-section is-expanded" : "pet-settings-section"} aria-label="桌面陪伴与生活陪伴设置">
     <div className="pet-settings-heading"><PawPrint size={20} /><div className="pet-settings-title"><strong>桌面陪伴与生活陪伴</strong><small>桌宠互动与生活提醒设置</small></div><div className="pet-settings-summary" aria-label="桌面陪伴状态">
@@ -56,6 +63,7 @@ export function PetSettingsPanel({ embedded = false }: { embedded?: boolean }) {
         </article>
       </div>
       <PetLifeSettings value={settings.life} onSave={changeLife} disabled={!ready || busy} petEnabled={settings.enabled} />
+      <PetVoiceSettings value={settings.voice ?? defaultPetVoice} onSave={changeVoice} disabled={!ready || busy} petEnabled={settings.enabled} />
     </>}
     </div>}
   </section>;
@@ -69,7 +77,8 @@ function isPetSettings(value: unknown): value is PetSettings {
     && ["alpaca", "dog", "penguin", "fish"].includes(String(settings.appearance))
     && typeof settings.size === "number" && ["edge", "free", "still"].includes(String(settings.roam))
     && typeof settings.activity === "number" && typeof settings.intervalSeconds === "number" && typeof settings.expiryDays === "number"
-    && typeof settings.cpuThreshold === "number" && typeof settings.diskThreshold === "number";
+    && typeof settings.cpuThreshold === "number" && typeof settings.diskThreshold === "number"
+    && (!settings.voice || typeof settings.voice === "object");
 }
 
 export function AlertList({ snapshot, onSnooze, onIgnore, busy = false, showIgnored = false }: { snapshot: PetSnapshot; onSnooze: (key: string) => void; onIgnore: (keys: string[], ignored: boolean) => void; busy?: boolean; showIgnored?: boolean }) {

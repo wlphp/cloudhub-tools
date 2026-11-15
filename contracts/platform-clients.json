@@ -1489,7 +1489,13 @@
             "pet_snooze",
             "pet_check",
             "pet_sprite",
-            "pet_regions"
+            "pet_regions",
+            "pet_voice_status",
+            "pet_voice_transcribe",
+            "pet_voice_open_models_dir",
+            "pet_voice_download_model",
+            "pet_voice_cancel_model_download",
+            "pet_voice_intent"
           ],
           "preview": []
         },

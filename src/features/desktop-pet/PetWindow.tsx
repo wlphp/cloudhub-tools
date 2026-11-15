@@ -12,6 +12,7 @@ import { PetPortrait } from "./PetPortrait";
 import { DialogHeaderActions } from "../../shared/DialogHeaderActions";
 import { PetChat } from "./PetChat";
 import { usePetLife } from "./usePetLife";
+import { usePetVoice } from "./usePetVoice";
 import { PetLifeBubble } from "./PetLifeBubble";
 import { AlertList } from "./PetSettingsPanel";
 import { usePetWindowTheme } from "./usePetWindowTheme";
@@ -57,6 +58,16 @@ export function PetWindow() {
   const reduced = settings.reducedMotion || systemReduced;
   const stopLifePose = useCallback(() => setPose(p => (p === "run" || p === "walk") ? "idle" : p), []);
   const life = usePetLife({ settings, blocked: dragging || panel !== null || notice !== null || hover || sleeping, visible, reduced, setPose, setDirection, stopPose: stopLifePose, onError: e => setError(platformErrorMessage(e)) });
+  const [voiceHint, setVoiceHint] = useState("");
+  const [pendingVoice, setPendingVoice] = useState<{ text: string; autoSend: boolean } | null>(null);
+  const petVoice = usePetVoice(settings, {
+    openChat: (text, autoSend) => { setNotice(null); setPanel("chat"); setPendingVoice({ text, autoSend }); },
+    requestComputer: action => { setError(""); setComputerConfirm(action); },
+    runComputer: action => { void work(async () => { await client.computerAction(action); }); },
+    showHint: text => setVoiceHint(text),
+    showError: message => setError(message),
+  });
+  useEffect(() => { if (!voiceHint) return; const timer = setTimeout(() => setVoiceHint(""), 8000); return () => clearTimeout(timer); }, [voiceHint]);
   const pause = dragging || docked || panel !== null || hover || sleeping || notice !== null || life.notice !== null;
   const [ready, setReady] = useState(false);
   const work = async (fn: () => Promise<unknown>) => { try { await fn(); setError(""); } catch (e) { setError(platformErrorMessage(e)); } };
@@ -169,6 +180,7 @@ export function PetWindow() {
   return <main className={`pet-stage ${dockEdge === "top" && panelOpen ? "pet-top-stage" : ""} ${reduced ? "pet-reduced" : ""}`} style={{ "--pet-size": `${settings.size}px`, "--pet-sprite-image": `url("${(petAppearances[settings.appearance] || petAppearances.alpaca).sprite}")` } as React.CSSProperties}>
     {life.notice && <PetLifeBubble notice={life.notice} action={life.action} roaming={life.roaming} appearance={settings.appearance} />}
     {!panel && !notice && !life.notice && protest && <div className="pet-speech-bubble pet-protest" role="status" aria-label="宠物在抗议被抓住">坏人，快放开我！放开我！</div>}
+    {!panel && !notice && !life.notice && !protest && (voiceHint || petVoice.listeningError) && <div className={`pet-speech-bubble${petVoice.listeningError && !voiceHint ? " pet-voice-warning" : ""}`} role="status" aria-label="语音助手状态">{petVoice.listeningError && !voiceHint ? petVoice.listeningError : voiceHint}</div>}
     {!panel && notice && !noticeExpanded && <div className={`pet-speech-bubble ${notice.active ? notice.severity : "recovered"}`} role="status" aria-label="运维消息气泡">
       <button className="pet-speech-open" onClick={() => setNoticeExpanded(true)} aria-label={`查看运维消息：${notice.title}`}>
         <span className="pet-speech-caption"><PetPortrait appearance={settings.appearance} pose={notice.active ? "alert" : "happy"} /><Bell size={13} aria-hidden="true" />{notice.active ? notice.severity === "emergency" ? "超级严重，请尽快处理" : "有件事想提醒你" : "好消息，状态恢复了"}</span>
@@ -177,7 +189,7 @@ export function PetWindow() {
     </div>}
     {(panel || (notice && noticeExpanded)) && <section className={panel === "menu" ? "modal-form-layout dialog-common-theme pet-floating-card pet-quick-menu" : `modal-form-layout dialog-common-theme pet-floating-card pet-status-card${panel === "chat" ? " pet-chat-card" : ""}`} role="dialog" aria-label={panel === "menu" ? "宠物快捷菜单" : panel === "chat" ? "和宠物聊天" : "宠物运维状态"}>
       <header className="pet-panel-titlebar" onPointerDown={dragPanel} title="拖动标题栏移动"><strong><PetPortrait appearance={settings.appearance} pose={panel === "chat" ? "happy" : "idle"} />{panel === "chat" ? <MessageCircle size={15} aria-hidden="true" /> : panel !== "menu" && <Bell size={15} aria-hidden="true" />}{panel === "menu" ? "宠物" : panel === "chat" ? "和宠物聊天" : notice && !panel ? notice.active ? notice.severity === "emergency" ? "超级严重，请尽快处理" : "有事情需要处理" : "状态已恢复" : "运维状态"}</strong>{panel === "status" && <span className="pet-pending-count">{pending.length} 项待处理</span>}<DialogHeaderActions expanded={enlarged} onExpandedChange={setEnlarged} showResize={panel !== "menu" && panel !== "chat"}><button className="close" aria-label="关闭" title="关闭（Esc）" onClick={closePanel}><X size={16} /></button></DialogHeaderActions></header>
-      <div className="modal-body pet-panel-body">{panel === "chat" ? <PetChat appearance={settings.appearance} /> : panel === "menu" ? <div className="pet-menu">
+      <div className="modal-body pet-panel-body">{panel === "chat" ? <PetChat appearance={settings.appearance} voice={settings.voice} pendingVoice={pendingVoice} onVoiceConsumed={() => setPendingVoice(null)} onVoiceTranscript={transcript => petVoice.submit(transcript)} /> : panel === "menu" ? <div className="pet-menu">
         <button onClick={() => { setPanel(null); perform("spray"); }}><Droplets size={16} />喷水玩一下</button>
         {settings.appearance !== "alpaca" && <>
           <button onClick={() => { setSleeping(false); setPanel(null); perform("walk", 4000); }}><Footprints size={16} />{settings.appearance === "fish" ? "游动一会" : "散步一会"}</button>
@@ -214,6 +226,7 @@ export function PetWindow() {
         <span className={`pet-sprite pet-pose-${pose}`} style={{ ...petSpriteStyle(settings.appearance, column, row), transform: `scaleX(${direction})` }} />
       </button>
       {pose === "spray" && !reduced && <div className={`pet-water ${direction < 0 ? "to-left" : ""}`} aria-hidden="true">{Array.from({ length: 7 },(_,i) => <i key={i} style={{ "--drop": i } as React.CSSProperties} />)}</div>}
+      {petVoice.listening && <span className="pet-voice-dot" role="status" aria-label={`正在监听唤醒词：${settings.voice.wakeWord}`} title={`正在监听唤醒词“${settings.voice.wakeWord}”${petVoice.listeningError ? `（${petVoice.listeningError}）` : ""}`} />}
       {pending.length > 0 && <button className="pet-alert-badge" aria-label={`${pending.length}项待处理提醒`} onClick={() => setPanel("status")}>{pending.length}</button>}
     </div>
   </main>;
