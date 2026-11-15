@@ -3,8 +3,6 @@ use crate::core::error::PlatformResult;
 
 /// 直达参数前缀；创建 .lnk、主窗口启动直达与单实例转发共用同一格式。
 const OPEN_APP_ARG_PREFIX: &str = "--open-app=";
-/// 桌面快捷方式名称前缀，与 tauri.conf.json 的 productName 保持一致，避免与真实安装的应用重名。
-const SHORTCUT_NAME_PREFIX: &str = "云枢工具箱 - ";
 
 /// 应用标识仅允许 `cloudhub.` 前缀加小写字母、数字与连字符，杜绝任意字符串进入启动参数。
 fn is_valid_plugin_id(id: &str) -> bool {
@@ -81,7 +79,7 @@ try {
         return Err("主程序不是可执行文件，未创建桌面快捷方式。".into());
     }
     let directory = dirs::desktop_dir().ok_or("无法定位桌面目录，未创建快捷方式。".to_string())?;
-    let path = directory.join(format!("{SHORTCUT_NAME_PREFIX}{app_name}.lnk"));
+    let path = directory.join(format!("{app_name}.lnk"));
     let output = Command::new("powershell.exe")
         .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "RemoteSigned", "-Command", SCRIPT])
         .env("CLOUDHUB_SHORTCUT_PATH", &path)
