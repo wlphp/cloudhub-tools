@@ -415,17 +415,9 @@ export function MobileApp() {
     setAppLockLocked(status !== null && status.enabled && status.locked);
   };
   // 应用启动即判定锁屏；状态读取失败时保持放行，避免预览或异常环境下误锁。
+  // 生产网页预览（非 dev）不拉取；dev 预览读内存模拟状态（?applock-demo=1 初始锁定）；Tauri 读真实状态。
   useEffect(() => {
-    if (!runningInTauri) {
-      // 仅开发预览：H5 访问 ?applock-demo=1 直接渲染锁屏覆盖层，便于调整样式。
-      if (import.meta.env.DEV && new URLSearchParams(window.location.search).get("applock-demo") === "1") {
-        applyAppLockStatus({
-          enabled: true, hasPin: true, hasPattern: true, biometricEnabled: true,
-          biometricAvailable: true, locked: true, cooldownMs: 0, autoLockSeconds: 0,
-        });
-      }
-      return;
-    }
+    if (!runningInTauri && !import.meta.env.DEV) return;
     let active = true;
     void appLockClient.status()
       .then((status) => { if (active) applyAppLockStatus(status); })

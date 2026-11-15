@@ -26,13 +26,17 @@ export interface AppLockConfigPatch {
 const previewEnabled =
   import.meta.env.DEV && typeof window !== "undefined" && !("__TAURI_INTERNALS__" in window);
 
+// H5 访问 ?applock-demo=1 时初始即为锁定，直接演示锁屏覆盖层。
+const previewLockedInitially =
+  previewEnabled && new URLSearchParams(window.location.search).get("applock-demo") === "1";
+
 const previewStatus: AppLockStatus = {
   enabled: true,
   hasPin: true,
   hasPattern: true,
   biometricEnabled: true,
   biometricAvailable: true,
-  locked: false,
+  locked: previewLockedInitially,
   cooldownMs: 0,
   autoLockSeconds: 60,
 };
@@ -48,14 +52,21 @@ export const appLockClient = {
   },
 
   verify(method: AppLockMethod, secret: string): Promise<boolean> {
-    if (previewEnabled) return Promise.resolve(secret.length >= 4);
+    if (previewEnabled) {
+      const unlocked = secret.length >= 4;
+      if (unlocked) previewStatus.locked = false;
+      return Promise.resolve(unlocked);
+    }
     return nativeOnly<boolean>("app_lock_verify", { method, secret });
   },
 
   /** 弹出系统生物识别/系统锁屏凭据验证框；仅移动端编译注册。 */
-  biometricVerify(allowDeviceCredentials: boolean): Promise<boolean> {
-    if (previewEnabled) return Promise.resolve(true);
-    return nativeOnly<boolean>("app_lock_biometric_verify", { allowDeviceCredentials });
+  biometricVerify(_allowDeviceCredentials: boolean): Promise<boolean> {
+    if (previewEnabled) {
+      // 演示模式不模拟生物识别成功：锁屏挂载即自动弹出验证，若返回成功会立刻解锁回到主页。
+      return Promise.resolve(false);
+    }
+    return nativeOnly<boolean>("app_lock_biometric_verify", { allowDeviceCredentials: _allowDeviceCredentials });
   },
 
   setSecret(method: AppLockMethod, _currentSecret: string | null, _newSecret: string): Promise<boolean> {
@@ -76,7 +87,10 @@ export const appLockClient = {
 
   setConfig(patch: AppLockConfigPatch): Promise<boolean> {
     if (previewEnabled) {
-      if (patch.enabled !== undefined) previewStatus.enabled = patch.enabled;
+      if (patch.enabled !== undefined) {
+        previewStatus.enabled = patch.enabled;
+        if (!patch.enabled) previewStatus.locked = false;
+      }
       if (patch.biometricEnabled !== undefined) previewStatus.biometricEnabled = patch.biometricEnabled;
       if (patch.autoLockSeconds !== undefined) previewStatus.autoLockSeconds = patch.autoLockSeconds;
       return Promise.resolve(true);
@@ -85,12 +99,18 @@ export const appLockClient = {
   },
 
   noteBackground(): Promise<void> {
-    if (previewEnabled) return Promise.resolve();
+    if (previewEnabled) {
+      if (previewStatus.enabled && previewStatus.autoLockSeconds === 0) previewStatus.locked = true;
+      return Promise.resolve();
+    }
     return nativeOnly<void>("app_lock_note_background");
   },
 
   lockNow(): Promise<void> {
-    if (previewEnabled) return Promise.resolve();
+    if (previewEnabled) {
+      if (previewStatus.enabled) previewStatus.locked = true;
+      return Promise.resolve();
+    }
     return nativeOnly<void>("app_lock_lock_now");
   },
 };
