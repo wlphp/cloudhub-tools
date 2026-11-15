@@ -36,9 +36,10 @@ else {
             Select-Object -First 1
     }
 }
-if ($buildTools -and @('apksigner.bat', 'aapt.exe', 'zipalign.exe') | Where-Object {
-        -not (Test-Path -LiteralPath (Join-Path $buildTools.FullName $_))
-    }) {
+$missingTools = @('apksigner.bat', 'aapt.exe', 'zipalign.exe') | Where-Object {
+    -not (Test-Path -LiteralPath (Join-Path $buildTools.FullName $_))
+}
+if ($missingTools) {
     throw 'Selected Android build-tools directory must contain apksigner.bat, aapt.exe, and zipalign.exe.'
 }
 if (-not $buildTools) {

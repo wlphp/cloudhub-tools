@@ -75,3 +75,4 @@ scripts/task-tracker.mjs
 /playwright-transform-cache
 /.tmp
 /.zcode
+/scripts
