@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
-import { ArrowUpRight, ChevronRight } from "lucide-react";
+import { ArrowUpRight, BellRing, ChevronRight, Cloud, HardDrive, ShieldCheck } from "lucide-react";
 import type { Account, LocalAsset } from "../shared/types";
 import type { MobileFeatureDestination } from "./MobileMorePage";
 import { runningInTauri } from "../platform/api";
@@ -51,7 +51,6 @@ export function MobileHomeDashboard({ accounts, assets, assetError, onActiveAler
   const stats = useMemo(() => homeStatistics(assets, accounts, certificates, now), [assets, accounts, certificates, now]);
   const active = snapshot?.alerts.filter(alert => alert.active && !alert.ignored) ?? [];
   const known = Boolean(snapshot && snapshot.checkedAt > 0);
-  const count = known ? active.length : "—";
   const groups = [
     { label: "超级严重", count: active.filter(alert => alert.severity === "emergency").length, tone: "danger" },
     { label: "紧急", count: active.filter(alert => alert.severity === "critical").length, tone: "warning" },
@@ -65,7 +64,10 @@ export function MobileHomeDashboard({ accounts, assets, assetError, onActiveAler
   return <section className="home-dashboard" aria-label="资产与风险概览" aria-busy={loading}>
     <header className="home-dashboard-heading"><div><p>本地资源看板</p><h1>资产与风险概览</h1></div><span>本机数据</span></header>
     <div className="home-stat-grid">
-      {[{ label: "资产总数", value: assetAvailable ? assets.length : "—", destination: "assets" }, { label: "云账号", value: accounts.length, destination: "accounts" }, { label: "待处理预警", value: count, destination: "monitorAlerts" }, { label: "30天内到期", value: assetAvailable && certificatesLoaded && !certificateError ? stats.expiry.week + stats.expiry.month : "—", destination: "assets" }].map(metric => <button type="button" key={metric.label} onClick={() => onNavigate(metric.destination as MobileFeatureDestination | "monitorAlerts")}><span>{metric.label}<ArrowUpRight size={14} aria-hidden="true" /></span><strong>{metric.value}</strong><small>{metric.label === "30天内到期" ? "含独立证书 · 不含已过期" : metric.label === "待处理预警" ? known ? "未解除且未忽略" : loading ? "正在读取" : "状态未知" : "查看列表"}</small></button>)}
+      {[{ label: "资产总数", value: assetAvailable ? assets.length : null, caption: "查看列表", icon: HardDrive, tone: "accent", destination: "assets" }, { label: "云账号", value: accounts.length, caption: "查看列表", icon: Cloud, tone: "accent", destination: "accounts" }, { label: "待处理预警", value: known ? active.length : null, caption: known ? "未解除且未忽略" : loading ? "正在读取" : "状态未知", icon: BellRing, tone: !known ? "muted" : active.length ? "danger" : "accent", destination: "monitorAlerts" }, { label: "30天内到期", value: assetAvailable && certificatesLoaded && !certificateError ? stats.expiry.week + stats.expiry.month : null, caption: "含独立证书 · 不含已过期", icon: ShieldCheck, tone: "accent", destination: "assets" }].map(metric => {
+        const Icon = metric.icon;
+        return <button type="button" key={metric.label} data-tone={metric.tone} data-placeholder={metric.value === null ? "" : undefined} onClick={() => onNavigate(metric.destination as MobileFeatureDestination | "monitorAlerts")}><span className="home-stat-label"><i className="home-stat-chip" aria-hidden="true"><Icon size={15} strokeWidth={1.8} /></i>{metric.label}<ArrowUpRight className="home-stat-arrow" size={13} aria-hidden="true" /></span><strong>{metric.value ?? "—"}</strong><small>{metric.caption}</small></button>;
+      })}
     </div>
     {assetError && <p className="home-dashboard-notice" role="status">资产缓存读取失败{assets.length ? "，保留上次数据" : "，资产统计暂不可用"}。</p>}
     <section className="home-chart-card" aria-label="资产分布">
