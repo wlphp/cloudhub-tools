@@ -7,6 +7,9 @@ export const runningInTauri =
 export const runningOnPhone =
   runningInTauri && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
+/** 当前系统是否为 Windows；桌面快捷方式等 Windows 专属入口据此显示。 */
+export const runningOnWindows = typeof navigator !== "undefined" && /Windows NT/i.test(navigator.userAgent);
+
 export const invoke = tauriInvoke;
 
 export type PlatformErrorCode =
@@ -118,7 +121,9 @@ const EMPTY_MESSAGE_FALLBACK: Partial<Record<PlatformErrorCode, string>> = {
 function publicPlatformMessage(code: PlatformErrorCode, rawMessage: string): string {
   if (code === "ai") {
     const chatErrors = ["仅桌宠窗口支持聊天", "聊天记录无效或过长，请清空后重试", "聊天消息无效或过长", "聊天内容含疑似凭据，请移除后再发送", "聊天记录过长，请清空后重试", "聊天请求标识无效", "AI配置已更新，请关闭聊天后重新打开", "聊天已停止", "回复为空，请重试"];
-    if (chatErrors.includes(rawMessage)) return rawMessage;
+    // 桌宠语音：本地识别的错误为固定文案，不含任何动态内容。
+    const petVoiceErrors = ["请先在桌宠设置中启用语音对话", "尚未放置语音模型，请下载 ggml 模型放入模型文件夹", "语音模型文件不存在，请检查语音设置", "语音模型文件不可读", "语音模型文件大小异常", "语音模型加载失败，请确认文件完整", "语音识别初始化失败", "语音识别失败", "语音识别任务失败", "语音引擎状态不可用", "未识别到语音内容，请靠近麦克风再试一次", "录音数据无效", "录音数据无效或过大", "录音过长", "录音过短", "语音指令无效或过长", "语音内容含疑似凭据，已停止处理", "识别已停止"];
+    if (chatErrors.includes(rawMessage) || petVoiceErrors.includes(rawMessage)) return rawMessage;
     if (/^AI服务拒绝请求（HTTP (400|404|422)）：(参数 (model|instructions|tools|tool_choice|input|reasoning|max_output_tokens|temperature|top_p|store|stream|include|service_tier|text|prompt_cache_key) 不兼容|模型不可用或模型参数不兼容|请求参数不受支持|指令参数不兼容|请求被拒绝)$/.test(rawMessage)) return rawMessage;
     const safe = ["AI任务状态不可用", "AI请求标识无效", "请先填写或选择分析内容", "内容含疑似凭据，请先使用发送预览移除后再提交", "AI任务已在运行或并发已达上限", "AI请求已取消", "AI服务地址无效", "AI服务地址不能包含账号、密码、查询参数或片段", "AI服务须使用HTTPS；本地回环HTTP需明确开启", "AI协议无效", "模型名称只支持字母、数字、点、下划线、冒号及连字符", "AI配置字段或限额无效", "AI密钥格式无效", "最多保存20个AI服务配置", "首次添加须填写AI密钥", "AI服务已停用", "分析内容过长，请选择较短片段", "内容包含私钥或验证器凭据，请移除后再分析", "模型未完整返回结果，请缩短输入或调整输出上限", "模型响应未完成或被拒绝", "模型响应未完成或请求了未授权工具", "模型响应未完成或内容被拒绝", "模型返回了敏感内容，结果已拦截", "AI结果格式不合法，请重试或手动填写", "AI结果超过处理上限", "AI结果包含未允许的字段或无效值", "AI结果包含疑似凭据，结果已拦截", "AI请求超时，可重试或继续手动操作", "AI连接失败，请检查地址与网络", "AI认证失败，请检查密钥和权限", "AI服务限流或额度不足，请稍后重试", "AI服务发生重定向，请填写最终HTTPS地址", "AI协议、路径或模型不受支持，请检查配置", "AI服务暂不可用，请稍后重试", "AI响应超过大小限制", "AI服务返回无效响应", "AI结果为空，请重试或手动填写", "更改AI服务来源时须重新填写密钥"];
     safe.push("启用AI服务须填写密钥", "请选择1～20个AI配置", "所选AI配置已变化，请刷新后重试", "AI迁移包类型、版本或数量无效", "AI迁移配置字段无效", "请选择迁移预览中的有效AI配置", "导入后AI配置将超过20个，请先整理配置", "导入AI配置失败，未写入任何配置", "AI配置文件超过大小限制", "AI配置文件格式无效", "AI迁移状态不可用", "请先关闭其他AI迁移预览", "AI迁移预览已过期，请重新选择文件", "保存AI迁移包失败", "导出AI配置失败", "读取AI迁移配置失败", "导出AI迁移任务失败", "读取AI迁移任务失败");

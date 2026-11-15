@@ -159,4 +159,5 @@ export const pluginsClient = {
   wechatStatus: () => nativeOnly<WechatPluginStatus>("wechat_plugin_status"),
   selectWechat: () => nativeOnly<string | null>("wechat_plugin_select"),
   launchWechat: (path: string, count: number) => nativeOnly<WechatLaunchResult>("wechat_plugin_launch", { path, count }),
+  createDesktopShortcut: (pluginId: string, appName: string) => nativeOnly<string>("desktop_shortcut_create", { pluginId, appName }),
 };

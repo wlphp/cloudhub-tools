@@ -26,6 +26,8 @@ pub mod wsl_dashboard;
 pub mod startup_manager;
 #[cfg(desktop)]
 pub mod windows_toolbox;
+#[cfg(desktop)]
+pub mod desktop_shortcut;
 pub mod ai;
 pub mod ai_transfer;
 #[cfg(desktop)]

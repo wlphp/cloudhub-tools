@@ -854,7 +854,15 @@ mod asset_key_tests {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[allow(unused_mut)]
-    let mut builder = tauri::Builder::default()
+    let mut builder = tauri::Builder::default();
+    // 单实例插件需最先注册：快捷方式等二次启动时在首个实例内回调聚焦窗口，当前进程随即退出。
+    #[cfg(desktop)]
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            commands::desktop_shortcut::handle_second_instance(app, argv);
+        }));
+    }
+    let builder = builder
         .manage(FrpProcessStore::default())
         .manage(SshTerminalStore { terminals: Mutex::new(HashMap::new()) })
         .manage(OssUploadSelectionStore { files: Mutex::new(HashMap::new()) })
@@ -919,14 +927,19 @@ pub fn run() {
             use tauri::Manager;
             #[cfg(desktop)]
             if app.get_webview_window("main").is_none() {
-                let window_config = app
+                let mut window_config = app
                     .config()
                     .app
                     .windows
                     .iter()
                     .find(|window| window.label == "main")
-                    .ok_or_else(|| std::io::Error::other("未找到调试版主窗口配置"))?;
-                let mut main_builder = tauri::WebviewWindowBuilder::from_config(app, window_config)?;
+                    .ok_or_else(|| std::io::Error::other("未找到调试版主窗口配置"))?
+                    .clone();
+                // 携带 --open-app= 启动参数（桌面快捷方式直达）时把应用标识经主窗口 URL 传给前端。
+                if let Some(open_app) = commands::desktop_shortcut::open_app_from_launch_args() {
+                    window_config.url = tauri::WebviewUrl::App(format!("index.html?openApp={open_app}").into());
+                }
+                let mut main_builder = tauri::WebviewWindowBuilder::from_config(app, &window_config)?;
                 if core::paths::desktop_development() {
                     let data_directory = app.path().app_local_data_dir()?.join("webview2-debug-profile");
                     main_builder = main_builder.data_directory(data_directory);

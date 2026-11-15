@@ -18,7 +18,7 @@ import { MoreMenu } from "./shared/MoreMenu";
 import { PetSettingsPanel } from "./features/desktop-pet/PetSettingsPanel";
 import { useExportSelection } from "./shared/ExportSelection";
 import { OfficialPluginsPage } from "./features/plugins/OfficialPluginsPage";
-import { applicationPreference, sortedApplications, type ApplicationDefinition } from "./features/plugins/applicationCatalog";
+import { applicationCatalog, applicationPreference, sortedApplications, type ApplicationDefinition } from "./features/plugins/applicationCatalog";
 import { useApplicationPreferences } from "./features/plugins/useApplicationPreferences";
 import { DataManagementPage } from "./features/accounts/DataManagementPage";
 import { NetworkSettingsPage } from "./features/settings/NetworkSettingsPage";
@@ -275,6 +275,14 @@ const detachedTerminalHostId = (() => {
 })();
 const isDetachedTerminalWindow = runningInTauri && detachedTerminalHostId !== null;
 
+/** 桌面快捷方式携带的直达参数：Rust 把 --open-app= 转为主窗口 URL 的 openApp 查询参数，未知应用忽略。 */
+const launchOpenApplication = (() => {
+  if (!runningInTauri) return null;
+  const value = new URLSearchParams(window.location.search).get("openApp");
+  if (!value) return null;
+  return applicationCatalog.find(item => item.id === value) ?? null;
+})();
+
 function readLocalStorage(key: string): string | null {
   try { return window.localStorage.getItem(key); }
   catch { return null; }
@@ -325,7 +333,7 @@ function IdentityMenuItem({ icon: Icon, label, children }: { icon: typeof Globe2
 
 function App() {
   const applicationSettings = useApplicationPreferences();
-  const [storeApplicationId, setStoreApplicationId] = useState<string | undefined>();
+  const [storeApplicationId, setStoreApplicationId] = useState<string | undefined>(() => launchOpenApplication && !launchOpenApplication.section ? launchOpenApplication.id : undefined);
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("general");
   const [aboutStarDismissed, setAboutStarDismissed] = useState(() => localStorage.getItem(cloudHubAboutStarDismissedStorageKey) === "1");
   const [showMobileDownload, setShowMobileDownload] = useState(false);
@@ -432,7 +440,11 @@ function App() {
   const [esaSiteKeyword, setEsaSiteKeyword] = useState("");
   const [ossBucketKeyword, setOssBucketKeyword] = useState("");
   const [ossBucketDomains, setOssBucketDomains] = useState<Record<string, string[]>>({});
-  const [section, setSection] = useState<"home" | "monitorAlerts" | "accounts" | "resources" | "certificates" | "authenticator" | "flow" | "frp" | "codex" | "claude" | "panels" | "servers" | "favorites" | "logs" | "api_logs" | "settings" | "plugins" | "notes">(() => isDetachedTerminalWindow ? "servers" : "home");
+  const [section, setSection] = useState<"home" | "monitorAlerts" | "accounts" | "resources" | "certificates" | "authenticator" | "flow" | "frp" | "codex" | "claude" | "panels" | "servers" | "favorites" | "logs" | "api_logs" | "settings" | "plugins" | "notes">(() => {
+    if (isDetachedTerminalWindow) return "servers";
+    if (launchOpenApplication) return launchOpenApplication.section ?? "plugins";
+    return "home";
+  });
   function openCatalogApplication(app: ApplicationDefinition) {
     if (app.section) setSection(app.section);
     else { setStoreApplicationId(app.id); setSection("plugins"); }
@@ -2744,6 +2756,15 @@ function App() {
     });
     return ()=>{void subscription.then(fn=>fn());};
   },[panelConnections,isDetachedTerminalWindow]);
+  // 已在运行时再次点按桌面快捷方式：单实例回调聚焦窗口后，从这里接收直达参数并打开对应应用。
+  useEffect(() => {
+    if (!runningInTauri || isDetachedTerminalWindow) return;
+    const subscription = listen<string>("cloudhub-open-app", event => {
+      const app = applicationCatalog.find(item => item.id === event.payload);
+      if (app) openCatalogApplication(app);
+    });
+    return () => { void subscription.then(fn => fn()); };
+  }, []);
   useEffect(() => { setAssetPage(1); }, [resourceAccountId, resourceTypeFilter, assetKeyword, assetRegionFilter, assetStatusFilter, assetGroupFilter, assetExpiryDays]);
   useEffect(() => { setFavoritePage(1); }, [favoriteTypeFilter, favoriteKeyword, favoriteRegionFilter]);
   useEffect(() => { setLogPage(1); }, [logFilter, logTypeFilter]);

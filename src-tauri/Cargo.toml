@@ -77,6 +77,8 @@ lettre = { version = "0.11", default-features = false, features = ["builder", "s
 mailparse = "0.16"
 tauri = { version = "2", features = ["macos-private-api", "tray-icon"] }
 tauri-plugin-updater = "2.10.1"
+# 单实例：软件商店桌面快捷方式二次启动时聚焦已有窗口并转发 --open-app= 直达参数。
+tauri-plugin-single-instance = "2"
 arboard = { version = "3", default-features = false }
 
 # Chrome for Testing encrypts stored cookie values with DPAPI-protected AES-GCM
