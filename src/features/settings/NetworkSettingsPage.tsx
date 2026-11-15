@@ -1,13 +1,14 @@
 import { ToastNotice } from "../../shared/ToastNotice";
 import { useEffect, useState } from "react";
-import { Info, LoaderCircle, Monitor, Network, Pencil, Plus, RotateCw, ScanSearch, Save, ShieldCheck, Trash2, Wifi } from "lucide-react";
-import { networkClient, type PoolStatus, type ProxyCandidate, type ProxyStatus } from "../../platform/clients/network";
+import { Check, ChevronRight, Globe2, Info, LoaderCircle, Monitor, Network, Pencil, Plus, RotateCw, ScanSearch, Save, ShieldCheck, Trash2, Wifi } from "lucide-react";
+import { networkClient, networkPreviewEnabled, type PoolStatus, type ProxyCandidate, type ProxyStatus } from "../../platform/clients/network";
 import { runningInTauri } from "../../platform/api";
 import { SharedDialog } from "../../shared/SharedDialog";
 
 type ProxyDraft = ProxyStatus & { username: string; password: string };
 // 全局代理通过进程环境变量生效，桌面客户端与手机 App 均可配置；浏览器预览不提供。
-const supportsNetworkProxy = runningInTauri;
+// 仅 dev 预览（H5 调样式）时放开为模拟数据，生产构建仍仅原生可用。
+const supportsNetworkProxy = runningInTauri || networkPreviewEnabled;
 const emptyDraft = (): ProxyDraft => ({ id: crypto.randomUUID(), name: "", url: "", authConfigured: false, username: "", password: "" });
 
 export function NetworkSettingsPage({ mobile = false }: { mobile?: boolean }) {
@@ -103,6 +104,79 @@ export function NetworkSettingsPage({ mobile = false }: { mobile?: boolean }) {
       <div className="mobile-network-availability"><Info size={17} aria-hidden="true" /><div><strong>当前环境暂不支持配置</strong><p>浏览器预览不提供全局代理配置，请在桌面客户端或手机 App 中设置。</p></div></div>
     </article>
     <div className="mobile-network-help"><Wifi size={17} aria-hidden="true" /><div><h3>需要通过代理连接？</h3><p>可在设备的系统设置中配置网络代理或 VPN。</p></div></div>
+  </section>;
+
+  if (mobile) return <section className="mnet-page" aria-label="网络与代理">
+    <div className="mnet-head">
+      <span className="mnet-head-icon"><Network size={20} aria-hidden="true" /></span>
+      <div className="mnet-head-copy"><strong>全局出站代理</strong><small>账号或功能单独配置的代理优先</small></div>
+      <button type="button" className="mnet-refresh" aria-label="刷新代理池" disabled={!supportsNetworkProxy || busy} onClick={() => void load()}>
+        {busyAction === "load" ? <LoaderCircle size={17} className="mobile-spin" aria-hidden="true" /> : <RotateCw size={17} aria-hidden="true" />}
+      </button>
+    </div>
+    {!supportsNetworkProxy ? <p className="mnet-notice">网络代理仅支持桌面客户端与手机 App，浏览器预览不模拟代理状态。</p> : <>
+      <div className="mnet-group">
+        <div className="mnet-row">
+          <span className="mnet-row-icon"><Globe2 size={19} aria-hidden="true" /></span>
+          <span className="mnet-row-copy"><strong>启用全局出站代理</strong><small>关闭时不额外指定代理</small></span>
+          <input type="checkbox" role="switch" aria-label="启用全局出站代理" checked={pool.enabled} disabled={busy} onChange={event => setPool(current => ({ ...current, enabled: event.target.checked }))} />
+        </div>
+        {drafts.length === 0
+          ? <div className="mnet-empty">代理池为空，添加一个 HTTP/HTTPS 代理后即可选择使用。</div>
+          : drafts.map(proxy => (
+            <div className={"mnet-row mnet-proxy-row" + (pool.selectedId === proxy.id ? " is-selected" : "")} key={proxy.id}>
+              <label className="mnet-proxy-choice">
+                <input type="radio" name="mnet-global-proxy" checked={pool.selectedId === proxy.id} onChange={() => setPool(current => ({ ...current, selectedId: proxy.id }))} aria-label={`使用${proxy.name || "未命名代理"}作为全局代理`} />
+                <span className="mnet-proxy-copy">
+                  <strong>{proxy.name || "未命名代理"}{pool.selectedId === proxy.id && <Check size={14} className="mnet-check" aria-hidden="true" />}</strong>
+                  <small>{proxy.url || "未填写地址"} · {proxy.authConfigured ? "已配置认证" : "无认证"}{latencies[proxy.id] !== undefined ? ` · 延迟 ${latencies[proxy.id]} ms` : ""}</small>
+                </span>
+              </label>
+              <div className="mnet-proxy-actions">
+                <button type="button" aria-label={`测试${proxy.name || "代理"}`} title="测试连接" disabled={busy || !proxy.url} onClick={() => void test(proxy)}>{busyAction && typeof busyAction === "object" && busyAction.type === "test" && busyAction.proxyId === proxy.id ? <LoaderCircle size={15} className="mobile-spin" aria-hidden="true" /> : <Wifi size={15} aria-hidden="true" />}</button>
+                <button type="button" aria-label={`编辑${proxy.name || "代理"}`} title="编辑" disabled={busy} onClick={() => edit(proxy)}><Pencil size={15} aria-hidden="true" /></button>
+                <button type="button" className="is-danger" aria-label={`移除${proxy.name || "代理"}`} title="移出代理池" disabled={busy} onClick={() => remove(proxy.id)}><Trash2 size={15} aria-hidden="true" /></button>
+              </div>
+            </div>
+          ))}
+        <button type="button" className="mnet-row mnet-add-row" disabled={busy} onClick={addDraft}>
+          <span className="mnet-row-icon"><Plus size={19} aria-hidden="true" /></span>
+          <span className="mnet-row-copy"><strong>添加代理</strong><small>HTTP/HTTPS，可选认证</small></span>
+          <ChevronRight size={18} className="mnet-chevron" aria-hidden="true" />
+        </button>
+      </div>
+      <button type="button" className="mnet-save" disabled={busy} onClick={() => void save()}>
+        {busyAction === "save" ? <LoaderCircle size={16} className="mobile-spin" aria-hidden="true" /> : null}
+        <span>{busyAction === "save" ? "保存中…" : "保存代理池"}</span>
+      </button>
+      <p className="mnet-save-note">更改在保存后对新连接生效；凭据仅在本机加密保存，不会写入 API 日志。</p>
+      <details className="mnet-help">
+        <summary><ShieldCheck size={15} aria-hidden="true" /> 代理优先级与说明</summary>
+        <ol>
+          <li><strong>账号/功能专属代理</strong>：该请求使用自己的代理。</li>
+          <li><strong>全局代理池</strong>：没有专属代理且全局已开启时，使用当前选择项。</li>
+          <li><strong>直连/系统网络</strong>：前两者都未启用时，不额外指定代理；系统代理或 VPN 仍可能生效。</li>
+        </ol>
+        <p>当前支持 HTTP/HTTPS（含可选认证），SOCKS5 暂不支持。全局代理通过当前应用进程代理环境变量生效，应用启动的兼容子进程可能继承这些变量。</p>
+      </details>
+      <ToastNotice message={error && !draft ? error : message} tone={error && !draft ? "error" : undefined} />
+      {draft && <SharedDialog sizeStorageKey="features/settings/network-settings-page/network-settings-page"
+        title={drafts.some(item => item.id === draft.id) ? "编辑代理" : "添加代理"}
+        subtitle="配置后先加入代理池，再保存代理池使更改生效。"
+        icon={<Network size={18} aria-hidden="true" />}
+        size="small"
+        className="network-proxy-dialog"
+        busy={busy}
+        onClose={() => setDraft(null)}
+        bodyClassName="network-proxy-dialog-body"
+        footer={<><button type="button" className="secondary" onClick={() => setDraft(null)}>取消</button><button type="button" className="primary" disabled={busy} onClick={applyDraft}>{drafts.some(item => item.id === draft.id) ? "应用修改" : "加入代理池"}</button></>}
+      >
+        <div className="network-proxy-credentials"><label>代理名称<input value={draft.name} onChange={event => updateDraft(draft.id, { name: event.target.value })} maxLength={80} placeholder="例如：香港节点" autoFocus /></label><label>代理地址（HTTP/HTTPS）<input value={draft.url} onChange={event => updateDraft(draft.id, { url: event.target.value })} placeholder="http://127.0.0.1:7890" autoComplete="url" /></label></div>
+        <div className="network-proxy-credentials"><label>用户名（可选）<input value={draft.username} onChange={event => updateDraft(draft.id, { username: event.target.value })} autoComplete="off" placeholder={draft.authConfigured ? "已保存，留空保留" : "代理用户名"} /></label><label>密码（可选）<input type="password" value={draft.password} onChange={event => updateDraft(draft.id, { password: event.target.value })} autoComplete="new-password" placeholder={draft.authConfigured ? "已保存，留空保留" : "代理密码"} /></label></div>
+        <p className="network-pool-hint">凭据仅在本机加密保存。更换已保存的认证信息时，请同时填写用户名和密码。SOCKS5 暂不支持。</p>
+        {error && <p className="network-settings-error" role="alert">{error}</p>}
+      </SharedDialog>}
+    </>}
   </section>;
 
   return <section className={`settings-grid settings-list network-settings${mobile ? " mobile-network-settings" : ""}`}>
