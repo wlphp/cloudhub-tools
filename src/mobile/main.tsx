@@ -9,6 +9,7 @@ import "./mobile-domains.css";
 import "../shared/dialogs.css";
 import "./mobile.css";
 import "./mobile-dialogs.css";
+import "./mobile-app-lock.css";
 import "../features/app/startup-splash.css";
 
 // 手机端禁用双指/双击缩放：Android 由 viewport 的 user-scalable=no 处理；

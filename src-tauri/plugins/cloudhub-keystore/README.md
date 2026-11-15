@@ -7,5 +7,6 @@
 - Rust 启动时先读取系统安全存储；首次升级时从旧 `.key` 迁移，成功写入并回读校验后才删除旧文件。
 - 系统密钥丢失、数据库存在但密钥缺失、旧密钥与系统密钥冲突时均停止访问数据库，不生成替代密钥覆盖数据。
 - Android 最低版本为 API 24（与移动 App 配置一致）。Android Keystore 是否由硬件安全模块保护取决于设备厂商和机型；本插件不要求生物识别。
+- 移动端另提供 `isBiometricAvailable` 与 `authenticateBiometric` 内部方法（androidx.biometric / LAContext），供应用锁做解锁门禁。它们只返回验证结果，不绑定任何密钥材料；生物识别不可用时由应用锁回退到 PIN 或图案。
 
 换机通过 CloudHub 的显式口令加密迁移包完成，系统密钥不跨设备复制。

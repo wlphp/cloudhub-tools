@@ -47,6 +47,7 @@ pub mod codex_backup;
 #[cfg(desktop)]
 pub mod codex_gateway;
 pub mod authenticator;
+pub mod app_lock;
 pub mod preferences;
 pub mod network;
 #[cfg(desktop)]

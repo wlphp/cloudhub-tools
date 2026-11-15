@@ -1,4 +1,5 @@
 import Foundation
+import LocalAuthentication
 import Security
 import Tauri
 
@@ -8,6 +9,12 @@ private struct StoreKeyArgs: Decodable {
 
 private struct BackupPathArgs: Decodable {
   let path: String
+}
+
+private struct BiometricAuthArgs: Decodable {
+  let title: String
+  let subtitle: String?
+  let allowDeviceCredentials: Bool
 }
 
 class SecureStorePlugin: Plugin {
@@ -109,6 +116,51 @@ class SecureStorePlugin: Plugin {
       invoke.resolve([:])
     } catch {
       invoke.reject("无法保存本机同步身份密钥")
+    }
+  }
+
+  @objc public func isBiometricAvailable(_ invoke: Invoke) throws {
+    let biometricContext = LAContext()
+    var biometricError: NSError?
+    let biometric = biometricContext.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &biometricError)
+    var any = biometric
+    if !any {
+      let credentialContext = LAContext()
+      any = credentialContext.canEvaluatePolicy(.deviceOwnerAuthentication, error: nil)
+    }
+    invoke.resolve(["biometric": biometric, "any": any])
+  }
+
+  @objc public func authenticateBiometric(_ invoke: Invoke) throws {
+    do {
+      let args = try invoke.parseArgs(BiometricAuthArgs.self)
+      let context = LAContext()
+      let policy: LAPolicy = args.allowDeviceCredentials
+        ? .deviceOwnerAuthentication
+        : .deviceOwnerAuthenticationWithBiometrics
+      var evaluateError: NSError?
+      guard context.canEvaluatePolicy(policy, error: &evaluateError) else {
+        invoke.resolve(["authenticated": false, "cancelled": false])
+        return
+      }
+      if !args.allowDeviceCredentials {
+        // 不留"输入密码"回退按钮；需要系统凭据时由前端显式以 allowDeviceCredentials 重试。
+        context.localizedFallbackTitle = ""
+      }
+      let reason = args.subtitle?.isEmpty == false ? args.subtitle! : args.title
+      context.evaluatePolicy(policy, localizedReason: reason) { success, error in
+        if success {
+          invoke.resolve(["authenticated": true, "cancelled": false])
+          return
+        }
+        let code = (error as NSError?)?.code ?? -1
+        let cancelled = code == LAError.Code.userCancel.rawValue
+          || code == LAError.Code.systemCancel.rawValue
+          || code == LAError.Code.appCancel.rawValue
+        invoke.resolve(["authenticated": false, "cancelled": cancelled])
+      }
+    } catch {
+      invoke.reject("无法启动系统身份验证")
     }
   }
 

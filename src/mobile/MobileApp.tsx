@@ -14,6 +14,9 @@ import { normalizeDnsHost } from "../features/domains/dnsHost";
 import type { AiFields } from "../platform/clients/ai";
 import { MobileCertificateRequest } from "./MobileCertificateRequest";
 import { MobileCertificates } from "./MobileCertificates";
+import { AppLockScreen } from "./AppLockScreen";
+import { MobileAppLockSettings } from "./MobileAppLockSettings";
+import { appLockClient, type AppLockStatus } from "../platform/clients/app_lock";
 import type { CertificateSummary } from "../platform/clients/certificates";
 import { SecretField } from "../shared/SecretField";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
@@ -60,7 +63,7 @@ import { MemberAvatar } from "../features/member/MemberDialog";
 import { memberClient, memberHasExperienceOfficerIdentity, type Member } from "../platform/clients/member";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
-type MobileTab = "accounts" | "servers" | "domains" | "assets" | "favorites" | "storage" | "databases" | "redis" | "certificates" | "ssh" | "panels" | "sync" | "settings" | "settingsMenu" | "networkSettings" | "operationLogs" | "apiLogs" | "about" | "flow" | "authenticator" | "personalProfile" | "member" | "more" | "home" | "monitorAlerts" | "softwareStore";
+type MobileTab = "accounts" | "servers" | "domains" | "assets" | "favorites" | "storage" | "databases" | "redis" | "certificates" | "ssh" | "panels" | "sync" | "settings" | "settingsMenu" | "networkSettings" | "appLock" | "operationLogs" | "apiLogs" | "about" | "flow" | "authenticator" | "personalProfile" | "member" | "more" | "home" | "monitorAlerts" | "softwareStore";
 
 function mobilePanelIp(panelUrl: string): string {
   try {
@@ -401,6 +404,37 @@ export function MobileApp() {
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [newAccountCloud, setNewAccountCloud] = useState("aliyun");
   const [notice, setNotice] = useState("");
+  const [appLockStatus, setAppLockStatus] = useState<AppLockStatus | null>(null);
+  const [appLockLocked, setAppLockLocked] = useState(false);
+  const appLockStatusRef = useRef<AppLockStatus | null>(null);
+  const applyAppLockStatus = (status: AppLockStatus | null) => {
+    appLockStatusRef.current = status;
+    setAppLockStatus(status);
+    setAppLockLocked(status !== null && status.enabled && status.locked);
+  };
+  // 应用启动即判定锁屏；状态读取失败时保持放行，避免预览或异常环境下误锁。
+  useEffect(() => {
+    if (!runningInTauri) return;
+    let active = true;
+    void appLockClient.status()
+      .then((status) => { if (active) applyAppLockStatus(status); })
+      .catch(() => { if (active) applyAppLockStatus(null); });
+    return () => { active = false; };
+  }, []);
+  useEffect(() => {
+    if (!runningInTauri) return;
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        void appLockClient.noteBackground().catch(() => {});
+        const current = appLockStatusRef.current;
+        if (current?.enabled && current.autoLockSeconds === 0) setAppLockLocked(true);
+        return;
+      }
+      void appLockClient.status().then((status) => applyAppLockStatus(status)).catch(() => {});
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, []);
   useEffect(() => {
     setAccountSyncProgress(null);
     if (!runningInTauri || syncingAccountId === null) return;
@@ -1406,6 +1440,7 @@ export function MobileApp() {
   const settingsPageTitle: Partial<Record<MobileTab, string>> = {
     settings: "通用",
     networkSettings: "网络与代理",
+    appLock: "应用锁",
     sync: "数据导入与迁移",
     authenticator: "身份验证器",
     operationLogs: "操作日志",
@@ -1588,6 +1623,9 @@ export function MobileApp() {
       <button type="button" onClick={() => openSettingsTab("settings")}><span>通用设置</span><ChevronRight size={18} aria-hidden="true" /></button>
       <button type="button" onClick={() => openSettingsTab("networkSettings")}><span>网络与代理</span><ChevronRight size={18} aria-hidden="true" /></button>
     </section>
+    {runningInTauri && <section className="mobile-settings-group" aria-label="安全">
+      <button type="button" onClick={() => openSettingsTab("appLock")}><span>应用锁</span><ChevronRight size={18} aria-hidden="true" /></button>
+    </section>}
     <section className="mobile-settings-group" aria-label="数据与工具">
       <button type="button" onClick={() => openSettingsTab("sync")}><span>数据导入与迁移</span><ChevronRight size={18} aria-hidden="true" /></button>
     </section>
@@ -1706,6 +1744,15 @@ export function MobileApp() {
         </> : tab === "networkSettings" ? <>
           <div className="mobile-page-title mobile-network-page-title"><div><p>系统设置</p><h1>网络设置</h1></div></div>
           <NetworkSettingsPage mobile />
+        </> : tab === "appLock" ? <>
+          <div className="mobile-page-title"><div><p>系统设置</p><h1>应用锁</h1></div></div>
+          <MobileAppLockSettings
+            onNotice={setNotice}
+            onLocked={() => {
+              setAppLockLocked(true);
+              void appLockClient.status().then((status) => applyAppLockStatus(status)).catch(() => {});
+            }}
+          />
         </> : tab === "settings" ? <>
           <div className="mobile-page-title"><div><p>通用</p><h1>通用设置</h1></div></div>
           <div className="mobile-domain-list mobile-more-list mobile-general-settings">
@@ -1794,6 +1841,16 @@ export function MobileApp() {
     setStorePluginId(pluginId);
     setTab("softwareStore");
   };
+
+  const handleAppLockUnlocked = () => {
+    setAppLockLocked(false);
+    void appLockClient.status().then((status) => applyAppLockStatus(status)).catch(() => {});
+  };
+
+  // 锁定期间不渲染应用内容：覆盖层之外没有任何敏感界面可被截屏。
+  if (appLockLocked && appLockStatus) {
+    return <AppLockScreen status={appLockStatus} onUnlocked={handleAppLockUnlocked} />;
+  }
 
   return (
     <main className={"mobile-shell" + (backAction && !isBottomNavigationTab && !productDialog ? " mobile-subpage" : "") + (tab === "personalProfile" ? " mobile-personal-profile-open" : "") + (settingsPageOpen ? " mobile-settings-page-active" : "") + (tab === "settingsMenu" ? ` mobile-settings-menu-open${settingsDrawerDirection === "back" ? " is-returning" : ""}` : "")}>

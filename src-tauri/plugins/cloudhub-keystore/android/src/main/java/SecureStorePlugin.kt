@@ -5,6 +5,10 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.AtomicFile
 import android.util.Base64
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricPrompt
+import androidx.core.content.ContextCompat
+import androidx.fragment.app.FragmentActivity
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.TauriPlugin
@@ -22,6 +26,13 @@ import javax.crypto.spec.GCMParameterSpec
 @InvokeArg
 class StoreKeyArgs {
     lateinit var key: String
+}
+
+@InvokeArg
+class BiometricAuthArgs {
+    lateinit var title: String
+    var subtitle: String? = null
+    var allowDeviceCredentials: Boolean = false
 }
 
 @TauriPlugin
@@ -156,6 +167,75 @@ class SecureStorePlugin(private val activity: Activity) : Plugin(activity) {
             invoke.resolve(JSObject())
         } catch (_: Exception) {
             invoke.reject("无法保存本机同步身份密钥")
+        }
+    }
+
+    @Command
+    fun isBiometricAvailable(invoke: Invoke) {
+        val manager = BiometricManager.from(activity.applicationContext)
+        val biometric = manager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_WEAK) ==
+            BiometricManager.BIOMETRIC_SUCCESS
+        val any = manager.canAuthenticate(
+            BiometricManager.Authenticators.BIOMETRIC_WEAK or
+                BiometricManager.Authenticators.DEVICE_CREDENTIAL,
+        ) == BiometricManager.BIOMETRIC_SUCCESS
+        invoke.resolve(JSObject().apply {
+            put("biometric", biometric)
+            put("any", any)
+        })
+    }
+
+    @Command
+    fun authenticateBiometric(invoke: Invoke) {
+        try {
+            val args = invoke.parseArgs(BiometricAuthArgs::class.java)
+            val fragmentActivity = activity as? FragmentActivity
+            if (fragmentActivity == null) {
+                invoke.reject("无法启动系统身份验证")
+                return
+            }
+            val authenticators = if (args.allowDeviceCredentials) {
+                BiometricManager.Authenticators.BIOMETRIC_WEAK or
+                    BiometricManager.Authenticators.DEVICE_CREDENTIAL
+            } else {
+                BiometricManager.Authenticators.BIOMETRIC_WEAK
+            }
+            val executor = ContextCompat.getMainExecutor(fragmentActivity)
+            val prompt = BiometricPrompt(
+                fragmentActivity,
+                executor,
+                object : BiometricPrompt.AuthenticationCallback() {
+                    override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                        invoke.resolve(JSObject().apply {
+                            put("authenticated", true)
+                            put("cancelled", false)
+                        })
+                    }
+
+                    override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                        invoke.resolve(JSObject().apply {
+                            put("authenticated", false)
+                            put("cancelled", true)
+                            put("timeout", errorCode == BiometricPrompt.ERROR_TIMEOUT)
+                        })
+                    }
+
+                    override fun onAuthenticationFailed() {
+                        // 单次指纹不匹配时系统保持弹窗继续识别，无需结束。
+                    }
+                },
+            )
+            val builder = BiometricPrompt.PromptInfo.Builder()
+                .setTitle(args.title)
+                .setAllowedAuthenticators(authenticators)
+            args.subtitle?.takeIf { it.isNotBlank() }?.let { builder.setSubtitle(it) }
+            if (!args.allowDeviceCredentials) {
+                // 允许系统凭据时由系统提供回退入口，不能再设置取消按钮。
+                builder.setNegativeButtonText("取消")
+            }
+            prompt.authenticate(builder.build())
+        } catch (_: Exception) {
+            invoke.reject("无法启动系统身份验证")
         }
     }
 

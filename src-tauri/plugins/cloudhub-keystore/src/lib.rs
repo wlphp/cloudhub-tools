@@ -58,6 +58,27 @@ pub fn store_sync_identity_seed<R: Runtime, T: Manager<R>>(manager: &T, seed: &[
   manager.cloudhub_keystore().store_sync_identity_seed(seed)
 }
 
+/// Structured outcome types for the mobile biometric gate.
+#[cfg(mobile)]
+pub use mobile::{BiometricAuthResult, BiometricAvailability};
+
+/// 移动端生物识别/系统凭据可用性探测；桌面调用方请自行 cfg 门控。
+#[cfg(mobile)]
+pub fn biometric_availability<R: Runtime, T: Manager<R>>(manager: &T) -> Result<BiometricAvailability> {
+  manager.cloudhub_keystore().biometric_availability()
+}
+
+/// 弹出系统生物识别/系统凭据验证框；仅移动端编译。
+#[cfg(mobile)]
+pub fn authenticate_biometric<R: Runtime, T: Manager<R>>(
+  manager: &T,
+  title: &str,
+  subtitle: &str,
+  allow_device_credentials: bool,
+) -> Result<BiometricAuthResult> {
+  manager.cloudhub_keystore().authenticate_biometric(title, subtitle, allow_device_credentials)
+}
+
 #[cfg(mobile)]
 pub fn exclude_data_from_backup<R: Runtime, T: Manager<R>>(manager: &T, path: &str) -> Result<()> {
   manager.cloudhub_keystore().exclude_data_from_backup(path)

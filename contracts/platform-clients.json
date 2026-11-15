@@ -177,7 +177,15 @@
     "notes_restore",
     "notes_save",
     "notes_snapshot",
-    "cloudflare_manage"
+    "cloudflare_manage",
+    "app_lock_status",
+    "app_lock_verify",
+    "app_lock_biometric_verify",
+    "app_lock_set_secret",
+    "app_lock_remove_secret",
+    "app_lock_set_config",
+    "app_lock_note_background",
+    "app_lock_lock_now"
   ],
   "domains": [
     {

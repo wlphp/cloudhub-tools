@@ -4,6 +4,8 @@
 <dict>
   <key>NSCameraUsageDescription</key>
   <string>用于扫描电脑端生成的一次性设备配对二维码。</string>
+  <key>NSFaceIDUsageDescription</key>
+  <string>用于解锁云枢工具箱的应用锁。</string>
   <key>NSLocalNetworkUsageDescription</key>
   <string>用于在同一局域网内接收用户主动开启的加密迁移包；传输会在成功一次或五分钟后自动关闭。</string>
 </dict>

@@ -17,9 +17,33 @@ struct StoreKeyRequest<'a> { key: &'a str }
 #[serde(rename_all = "camelCase")]
 struct BackupPathRequest<'a> { path: &'a str }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BiometricAuthRequest<'a> {
+  title: &'a str,
+  subtitle: &'a str,
+  allow_device_credentials: bool,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct LoadKeyResponse { key: Option<String> }
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BiometricAvailability {
+  /// 设备已注册指纹/面容等弱生物识别凭据。
+  pub biometric: bool,
+  /// 生物识别或系统锁屏凭据至少一种可用。
+  pub any: bool,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BiometricAuthResult {
+  pub authenticated: bool,
+  pub cancelled: bool,
+}
 
 #[cfg(target_os = "ios")]
 tauri::ios_plugin_binding!(init_plugin_cloudhub_keystore);
@@ -77,6 +101,25 @@ impl<R: Runtime> CloudhubKeystore<R> {
     encoded.zeroize();
     result?;
     Ok(())
+  }
+
+  /// Queries whether the device can present biometric (or system credential) authentication.
+  pub fn biometric_availability(&self) -> crate::Result<BiometricAvailability> {
+    Ok(self.0.run_mobile_plugin("isBiometricAvailable", serde_json::json!({}))?)
+  }
+
+  /// Presents the system biometric prompt. Resolves the structured outcome instead of
+  /// rejecting so user cancellation stays distinguishable from infrastructure failure.
+  pub fn authenticate_biometric(
+    &self,
+    title: &str,
+    subtitle: &str,
+    allow_device_credentials: bool,
+  ) -> crate::Result<BiometricAuthResult> {
+    Ok(self.0.run_mobile_plugin(
+      "authenticateBiometric",
+      BiometricAuthRequest { title, subtitle, allow_device_credentials },
+    )?)
   }
 }
 

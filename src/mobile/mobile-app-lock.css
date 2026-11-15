@@ -1,0 +1,481 @@
+/* 应用锁：锁屏覆盖层与“应用锁”设置页。配色沿用 mobile.css 主题变量。 */
+
+.app-lock-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: var(--mobile-bg);
+  overflow-y: auto;
+}
+
+.app-lock-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: min(340px, 100%);
+  margin: auto;
+  padding: 26px 20px;
+  border: 1px solid var(--mobile-border);
+  border-radius: 16px;
+  background: var(--mobile-surface);
+}
+
+.app-lock-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  border: 1px solid var(--mobile-border);
+  border-radius: 18px;
+  background: var(--mobile-raised);
+  color: var(--mobile-accent-strong);
+}
+
+.app-lock-card h1 {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 700;
+  color: var(--mobile-text);
+}
+
+.app-lock-subtitle {
+  margin: 0;
+  font-size: 13px;
+  color: var(--mobile-muted);
+}
+
+.app-lock-error {
+  margin: 0;
+  max-width: 100%;
+  padding: 8px 12px;
+  border: 1px solid rgba(210, 69, 79, 0.35);
+  border-radius: 9px;
+  background: rgba(210, 69, 79, 0.12);
+  color: var(--mobile-danger, #d2454f);
+  font-size: 13px;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+/* 生物识别 */
+.app-lock-biometric {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.app-lock-biometric-button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 18px 26px;
+  border: 1px solid var(--mobile-border);
+  border-radius: 16px;
+  background: var(--mobile-raised);
+  color: var(--mobile-accent-strong);
+}
+
+.app-lock-biometric-button span {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--mobile-text);
+}
+
+.app-lock-biometric-button:disabled {
+  opacity: .55;
+}
+
+.app-lock-text-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--mobile-accent);
+  font-size: 13px;
+}
+
+.app-lock-text-button:disabled {
+  opacity: .5;
+}
+
+/* 数字密码 */
+.app-lock-pin {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+}
+
+.app-lock-pin-dots {
+  display: flex;
+  gap: 12px;
+  min-height: 14px;
+}
+
+.app-lock-pin-dot {
+  width: 12px;
+  height: 12px;
+  border: 1px solid var(--mobile-border-strong, var(--mobile-border));
+  border-radius: 50%;
+  background: transparent;
+}
+
+.app-lock-pin-dot.is-filled {
+  border-color: var(--mobile-accent);
+  background: var(--mobile-accent);
+}
+
+.app-lock-keypad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  width: min(260px, 100%);
+}
+
+.app-lock-keypad-key {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 52px;
+  border: 1px solid var(--mobile-border);
+  border-radius: 12px;
+  background: var(--mobile-raised);
+  color: var(--mobile-text);
+  font-size: 19px;
+  font-weight: 600;
+}
+
+.app-lock-keypad-key:active {
+  background: var(--mobile-border);
+}
+
+.app-lock-keypad-key:disabled {
+  opacity: .45;
+}
+
+.app-lock-primary {
+  min-height: 44px;
+  width: min(260px, 100%);
+  padding: 0 15px;
+  border: 0;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #f76707, #d9480f);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.app-lock-primary:disabled {
+  opacity: .5;
+}
+
+/* 滑动图案 */
+.app-lock-pattern-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.app-lock-pattern {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+  place-items: center;
+  width: min(240px, 72vw);
+  aspect-ratio: 1;
+  touch-action: none;
+}
+
+.app-lock-pattern.is-disabled {
+  opacity: .5;
+}
+
+.app-lock-pattern-trail {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.app-lock-pattern-trail polyline,
+.app-lock-pattern-trail line {
+  fill: none;
+  stroke: var(--mobile-accent);
+  stroke-width: 6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.app-lock-pattern-dot {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--mobile-border-strong, var(--mobile-border));
+  border-radius: 50%;
+  background: var(--mobile-raised);
+  transition: transform .12s ease, background-color .12s ease, border-color .12s ease;
+}
+
+.app-lock-pattern-dot.is-active {
+  border-color: var(--mobile-accent);
+  background: var(--mobile-accent);
+  transform: scale(1.35);
+}
+
+.app-lock-pattern-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--mobile-muted);
+}
+
+/* 方式切换 */
+.app-lock-mode-switch {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.app-lock-mode-switch button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--mobile-border);
+  border-radius: 9px;
+  background: var(--mobile-raised);
+  color: var(--mobile-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.app-lock-mode-switch button.active {
+  border-color: var(--mobile-accent);
+  color: var(--mobile-accent-strong);
+}
+
+/* 设置页 */
+.app-lock-settings {
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid var(--mobile-border);
+  border-radius: 10px;
+  background: var(--mobile-surface);
+}
+
+.app-lock-settings .mobile-account-card {
+  min-height: 76px;
+  padding: 12px 14px;
+  gap: 12px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.app-lock-settings .mobile-account-card + .mobile-account-card,
+.app-lock-settings .mobile-account-card + .app-lock-editor,
+.app-lock-settings .app-lock-editor + .mobile-account-card {
+  border-top: 1px solid var(--mobile-border);
+}
+
+.app-lock-settings .mobile-provider-avatar {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  border: 1px solid var(--mobile-border);
+  border-radius: 9px;
+  background: var(--mobile-raised);
+  color: var(--mobile-accent-strong);
+}
+
+.app-lock-settings .mobile-account-copy {
+  gap: 2px;
+}
+
+.app-lock-settings .mobile-account-copy strong {
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.app-lock-settings .mobile-account-copy small {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.app-lock-settings .app-lock-settings-action {
+  flex: 0 0 auto;
+}
+
+.app-lock-settings .app-lock-settings-delay {
+  flex-wrap: wrap;
+  flex: 0 0 auto;
+}
+
+.app-lock-settings input[type="checkbox"] {
+  appearance: none;
+  position: relative;
+  display: block;
+  width: 46px;
+  height: 26px;
+  min-width: 46px;
+  flex: 0 0 46px;
+  margin: 0 0 0 auto;
+  border: 1px solid var(--mobile-border-strong, var(--mobile-border));
+  border-radius: 999px;
+  background: var(--mobile-raised);
+  cursor: pointer;
+  transition: background-color .16s ease, border-color .16s ease;
+}
+
+.app-lock-settings input[type="checkbox"]::before {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--mobile-muted);
+  transition: transform .16s ease, background-color .16s ease;
+}
+
+.app-lock-settings input[type="checkbox"]:checked {
+  border-color: var(--mobile-accent);
+  background: var(--mobile-accent);
+}
+
+.app-lock-settings input[type="checkbox"]:checked::before {
+  transform: translateX(20px);
+  background: #fff;
+}
+
+.app-lock-settings input[type="checkbox"]:disabled {
+  opacity: .5;
+}
+
+.app-lock-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  background: var(--mobile-raised);
+}
+
+.app-lock-editor-field {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.app-lock-editor-field span {
+  flex: 0 0 96px;
+  font-size: 13px;
+  color: var(--mobile-muted);
+}
+
+.app-lock-editor-field input {
+  flex: 1;
+  min-width: 0;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--mobile-border);
+  border-radius: 9px;
+  background: var(--mobile-surface);
+  color: var(--mobile-text);
+  font-size: 15px;
+  letter-spacing: .2em;
+}
+
+.app-lock-editor-hint {
+  margin: 0;
+  font-size: 13px;
+  color: var(--mobile-text);
+  text-align: center;
+}
+
+.app-lock-editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.app-lock-editor-actions button {
+  min-height: 40px;
+  padding: 0 16px;
+  border: 1px solid var(--mobile-border);
+  border-radius: 9px;
+  background: var(--mobile-surface);
+  color: var(--mobile-text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.app-lock-editor-actions .mobile-primary {
+  border: 0;
+  background: linear-gradient(135deg, #f76707, #d9480f);
+  color: #fff;
+}
+
+.app-lock-editor-actions button:disabled {
+  opacity: .5;
+}
+
+.app-lock-settings .app-lock-pattern {
+  width: min(200px, 60vw);
+  margin: 0 auto;
+}
+
+.app-lock-settings-locknow {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 12px;
+  padding: 14px;
+  border: 1px solid var(--mobile-border);
+  border-radius: 12px;
+  background: var(--mobile-surface);
+}
+
+.app-lock-settings-locknow small {
+  font-size: 12px;
+  color: var(--mobile-muted);
+}
+
+.app-lock-settings-locknow .mobile-primary {
+  align-self: flex-start;
+}
+
+.app-lock-settings-help {
+  margin: 12px;
+  padding: 10px 12px;
+  border: 1px dashed var(--mobile-border);
+  border-radius: 10px;
+  font-size: 12px;
+  color: var(--mobile-muted);
+}
+
+.app-lock-settings-help summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  color: var(--mobile-text);
+  font-weight: 600;
+}
+
+.app-lock-settings-help p {
+  margin: 8px 0 0;
+  line-height: 1.6;
+}
