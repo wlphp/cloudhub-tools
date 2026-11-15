@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { ChevronRight, Fingerprint, Grid3x3, KeyRound, LockKeyhole, Timer, ShieldCheck } from "lucide-react";
+import { PlatformError } from "../platform/api";
 import { appLockClient, type AppLockStatus } from "../platform/clients/app_lock";
 
 interface MobileAppLockSettingsProps {
@@ -20,12 +21,14 @@ const AUTO_LOCK_OPTIONS: Array<{ seconds: number; label: string }> = [
 /** 移动端“应用锁”主页：开关与入口；密码、图案的设置在独立子页完成。 */
 export function MobileAppLockSettings({ onNotice, onLocked, onNavigate }: MobileAppLockSettingsProps) {
   const [status, setStatus] = useState<AppLockStatus | null>(null);
+  const [unsupported, setUnsupported] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const refreshStatus = useCallback(async () => {
     try {
       setStatus(await appLockClient.status());
     } catch (reason) {
+      if (reason instanceof PlatformError && reason.code === "unsupported-in-preview") { setUnsupported(true); return; }
       onNotice(reason instanceof Error ? reason.message : "读取应用锁状态失败");
     }
   }, [onNotice]);
@@ -46,7 +49,11 @@ export function MobileAppLockSettings({ onNotice, onLocked, onNavigate }: Mobile
     }
   };
 
-  if (!status) return <div className="mobile-empty">正在读取应用锁状态…</div>;
+  if (!status) {
+    return unsupported
+      ? <div className="mobile-empty"><LockKeyhole size={28} aria-hidden="true" /><strong>应用锁仅移动端 App 支持</strong><span>网页预览无法访问本机安全存储与生物识别，请在手机 App 中设置。</span></div>
+      : <div className="mobile-empty">正在读取应用锁状态…</div>;
+  }
 
   const hasLocalSecret = status.hasPin || status.hasPattern;
 

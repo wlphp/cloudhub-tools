@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { KeyRound } from "lucide-react";
+import { PlatformError } from "../platform/api";
 import { appLockClient, type AppLockStatus } from "../platform/clients/app_lock";
 
 interface MobileAppLockPinSettingsProps {
@@ -13,6 +14,7 @@ const PIN_PATTERN = /^\d{4,8}$/;
 /** 数字密码独立设置页：设置或修改 4-8 位数字密码。 */
 export function MobileAppLockPinSettings({ onNotice, onDone }: MobileAppLockPinSettingsProps) {
   const [status, setStatus] = useState<AppLockStatus | null>(null);
+  const [unsupported, setUnsupported] = useState(false);
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -23,6 +25,7 @@ export function MobileAppLockPinSettings({ onNotice, onDone }: MobileAppLockPinS
     try {
       setStatus(await appLockClient.status());
     } catch (reason) {
+      if (reason instanceof PlatformError && reason.code === "unsupported-in-preview") { setUnsupported(true); return; }
       onNotice(reason instanceof Error ? reason.message : "读取应用锁状态失败");
     }
   }, [onNotice]);
@@ -48,7 +51,11 @@ export function MobileAppLockPinSettings({ onNotice, onDone }: MobileAppLockPinS
     }
   };
 
-  if (!status) return <div className="mobile-empty">正在读取应用锁状态…</div>;
+  if (!status) {
+    return unsupported
+      ? <div className="mobile-empty"><KeyRound size={28} aria-hidden="true" /><strong>应用锁仅移动端 App 支持</strong><span>网页预览无法访问本机安全存储，请在手机 App 中设置数字密码。</span></div>
+      : <div className="mobile-empty">正在读取应用锁状态…</div>;
+  }
 
   return (
     <form className="mobile-domain-list mobile-more-list app-lock-form" onSubmit={(event) => void submit(event)}>

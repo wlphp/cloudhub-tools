@@ -74,3 +74,4 @@ scripts/task-tracker.mjs
 /node-compile-cache
 /playwright-transform-cache
 /.tmp
+/.zcode

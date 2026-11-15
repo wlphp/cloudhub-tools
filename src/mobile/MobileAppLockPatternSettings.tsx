@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Grid3x3 } from "lucide-react";
+import { PlatformError } from "../platform/api";
 import { appLockClient, type AppLockStatus } from "../platform/clients/app_lock";
 import { AppLockPatternGrid } from "./AppLockPatternGrid";
 
@@ -14,6 +15,7 @@ type PatternStep = "current" | "new" | "confirm";
 /** 滑动图案独立设置页：按步骤绘制验证并保存 3×3 图案。 */
 export function MobileAppLockPatternSettings({ onNotice, onDone }: MobileAppLockPatternSettingsProps) {
   const [status, setStatus] = useState<AppLockStatus | null>(null);
+  const [unsupported, setUnsupported] = useState(false);
   const [step, setStep] = useState<PatternStep>("current");
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
@@ -26,6 +28,7 @@ export function MobileAppLockPatternSettings({ onNotice, onDone }: MobileAppLock
       setStatus(latest);
       setStep(latest.hasPattern ? "current" : "new");
     } catch (reason) {
+      if (reason instanceof PlatformError && reason.code === "unsupported-in-preview") { setUnsupported(true); return; }
       onNotice(reason instanceof Error ? reason.message : "读取应用锁状态失败");
     }
   }, [onNotice]);
@@ -66,7 +69,11 @@ export function MobileAppLockPatternSettings({ onNotice, onDone }: MobileAppLock
     }
   };
 
-  if (!status) return <div className="mobile-empty">正在读取应用锁状态…</div>;
+  if (!status) {
+    return unsupported
+      ? <div className="mobile-empty"><Grid3x3 size={28} aria-hidden="true" /><strong>应用锁仅移动端 App 支持</strong><span>网页预览无法访问本机安全存储，请在手机 App 中设置滑动图案。</span></div>
+      : <div className="mobile-empty">正在读取应用锁状态…</div>;
+  }
 
   return (
     <div className="mobile-domain-list mobile-more-list app-lock-form app-lock-pattern-page">
