@@ -8,7 +8,7 @@
 .store-tabs button.is-active { color: var(--jb-accent); border-bottom-color: var(--jb-accent); background: var(--jb-accent-soft); }
 .store-catalog { padding: 20px; min-width: 0; container: store-catalog / inline-size; }
 .store-search-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.store-search-row > label, .store-filter-row > span { font-size: 13px; flex: 0 0 60px; color: var(--jb-muted); }
+.store-search-row > label, .store-search-row > .store-platform-label, .store-filter-row > span { font-size: 13px; flex: 0 0 60px; color: var(--jb-muted); }
 .store-search-row > label { margin: 0; line-height: 1.4; }
 .store-search-input { display: flex; align-items: center; position: relative; flex: 0 1 520px; min-width: 0; }
 .store-search-input > svg { position: absolute; left: 10px; color: var(--jb-muted); pointer-events: none; }

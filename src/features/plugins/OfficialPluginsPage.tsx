@@ -94,6 +94,8 @@ function OfficialPluginsStore({ mobile = false, initialPluginId, forceInitialPag
   const [error, setError] = useState("");
   const [source, setSource] = useState("官方应用");
   const [category, setCategory] = useState("全部");
+  // 适用端筛选独立于应用分类：手机端默认只看可在移动端使用的应用，桌面客户端默认全部。
+  const [platformFilter, setPlatformFilter] = useState<string>(() => mobile || runningOnPhone ? "移动端可用" : "全部");
   const [keyword, setKeyword] = useState("");
   const [activePlugin, setActivePlugin] = useState<{ id: string; presentation: PluginPresentation } | null>(() => {
     if (!initialPluginId) return null;
@@ -116,7 +118,8 @@ function OfficialPluginsStore({ mobile = false, initialPluginId, forceInitialPag
   const applicationPositions = new Map<string, number>(orderedApplications.map((app, index) => [app.id, index + 1]));
   const applications = orderedApplications.filter(app => source === "官方应用"
     && `${app.name} ${app.publisher} ${app.description} ${app.keywords ?? ""}`.toLowerCase().includes(keyword.trim().toLowerCase())
-    && (category !== "已启用" || enabled(app.id)) && (category !== "桌面工具" || app.category === "桌面工具"));
+    && (category !== "已启用" || enabled(app.id)) && (category !== "桌面工具" || app.category === "桌面工具")
+    && (platformFilter !== "移动端可用" || app.mobile === true) && (platformFilter !== "电脑端" || app.mobile !== true));
   const visibleCount = applications.length;
   const [storePage, setStorePage] = useState(1);
   const [storePageSize, setStorePageSize] = useState(10);
@@ -129,7 +132,7 @@ function OfficialPluginsStore({ mobile = false, initialPluginId, forceInitialPag
     if (position !== undefined) void applicationSettings.updateOrder(source, position);
   }
   const drag = useSortableDrag({ selector: "[data-store-sort-id]", attribute: "data-store-sort-id", enabled: sorting && !sortDisabled, onMove: moveApplication });
-  useEffect(() => { setStorePage(1); }, [keyword, category, source]);
+  useEffect(() => { setStorePage(1); }, [keyword, category, platformFilter, source]);
 
   /** Capture the mode when opening so a mounted plugin never switches containers mid-edit. */
   function openPlugin(pluginId: string) {
@@ -253,6 +256,8 @@ function OfficialPluginsStore({ mobile = false, initialPluginId, forceInitialPag
     <section className="panel store-catalog" aria-label="软件列表" aria-busy={busy}>
       <div className="store-search-row">
         <label htmlFor="store-search">应用搜索</label><div className="store-search-input"><Search size={15} aria-hidden="true" /><input id="store-search" type="search" value={keyword} onChange={event => setKeyword(event.target.value)} placeholder="搜索应用名称、开发商或说明" /></div>
+        <span className="store-platform-label" id="store-platform-filter-label">适用端</span>
+        <div className="store-categories store-platform-filter" role="group" aria-labelledby="store-platform-filter-label">{([["移动端可用", "仅显示可在移动端使用的应用"], ["全部", "显示全部应用"], ["电脑端", "仅显示目前仅限电脑端使用的应用"]] as const).map(([item, tip]) => <button type="button" key={item} title={tip} aria-pressed={platformFilter === item} className={platformFilter === item ? "is-active" : ""} onClick={() => setPlatformFilter(item)}>{item}</button>)}</div>
         <div className="store-categories" role="group" aria-label="应用分类">{["全部", "已内置", "已启用", "免费应用", "桌面工具"].map(item => <button type="button" key={item} aria-pressed={category === item} className={category === item ? "is-active" : ""} onClick={() => setCategory(item)}>{item}</button>)}</div>
         <SortSelectionControls label="应用" keys={pagedApplications.map(app => app.id)} selected={new Set<string>()} sorting={sorting} onToggleAll={() => {}} onSortingChange={setSorting} showSelectAll={false} disabled={sortDisabled} />
         <button type="button" className="secondary store-refresh" disabled={!runningInTauri || runningOnPhone || busy} onClick={() => void operate(() => refresh())}><RefreshCw size={14} aria-hidden="true" />{busy ? "正在刷新…" : "刷新应用状态"}</button>
@@ -322,7 +327,7 @@ function OfficialPluginsStore({ mobile = false, initialPluginId, forceInitialPag
         </tr>;
         })}
       </tbody></table>
-      {visibleCount === 0 && <div className="store-empty"><Package size={30} aria-hidden="true" /><h2>{source === "第三方应用" ? "暂无第三方应用" : "没有符合条件的应用"}</h2><p>{source === "官方应用" ? "尝试调整搜索词或切换应用分类。" : "当前先提供官方内置应用，后续上架的应用将在这里展示。"}</p><button type="button" className="secondary" onClick={() => { setSource("官方应用"); setCategory("全部"); setKeyword(""); }}>查看全部官方应用</button></div>}
+      {visibleCount === 0 && <div className="store-empty"><Package size={30} aria-hidden="true" /><h2>{source === "第三方应用" ? "暂无第三方应用" : "没有符合条件的应用"}</h2><p>{source === "官方应用" ? "尝试调整搜索词或切换应用分类。" : "当前先提供官方内置应用，后续上架的应用将在这里展示。"}</p><button type="button" className="secondary" onClick={() => { setSource("官方应用"); setCategory("全部"); setPlatformFilter("全部"); setKeyword(""); }}>查看全部官方应用</button></div>}
       {visibleCount > 0 && <PaginationBar className="store-pagination" page={storePage} pageSize={storePageSize} total={visibleCount} onPageChange={setStorePage} onPageSizeChange={(size) => { setStorePageSize(size); setStorePage(1); }} />}
     </section>
     {activePlugin && activeDefinition && <SharedDialog key={activePlugin.id} sizeStorageKey={`plugin:${activePlugin.id}`} title={activePlugin.id === plugin.id ? "微信多开设置" : activeDefinition.name} size={activePlugin.presentation.size} className={`plugin-application-dialog plugin-modal-${activePlugin.presentation.size}`} onClose={closePlugin} footer={<button type="button" className="secondary" onClick={closePlugin}><ArrowLeft size={15} aria-hidden="true" />返回软件商店</button>}>{application}</SharedDialog>}

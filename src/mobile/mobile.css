@@ -4191,6 +4191,7 @@ body.theme-light .mobile-shell .mobile-tab-bar button.active { border: 0; backgr
 .software-store-page .store-catalog { min-width: 0; padding: 12px; overflow: visible; border: 1px solid var(--mobile-border); border-radius: 12px; background: var(--mobile-surface); }
 .software-store-page .store-search-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; }
 .software-store-page .store-search-row > label { grid-column: 1 / -1; color: var(--mobile-muted); font-size: 12px; }
+.software-store-page .store-platform-label { grid-column: 1 / -1; color: var(--mobile-muted); font-size: 12px; }
 .software-store-page .store-search-input { grid-column: 1 / -1; display: flex; align-items: center; min-height: 44px; padding: 0 10px; border: 1px solid var(--mobile-border); border-radius: 9px; background: var(--mobile-bg); }
 .software-store-page .store-search-input > svg { position: static; flex: 0 0 auto; }
 .software-store-page .store-search-input input { width: 100%; min-width: 0; min-height: 42px; padding: 0 0 0 8px; border: 0; outline: 0; color: var(--mobile-text); background: transparent; font-size: 13px; }
@@ -4458,6 +4459,8 @@ body.theme-light .mobile-home-apps,body.theme-light .mobile-home-alerts { backgr
 .mobile-shell .software-store-page .store-catalog { display: grid; grid-template-columns: minmax(0,1fr); gap: 12px; padding: 11px; border-radius: 16px; }
 .mobile-shell .software-store-page .store-search-row { display: grid; grid-template-columns: minmax(0,1fr); min-width: 0; gap: 9px; }
 .mobile-shell .software-store-page .store-search-row > label { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
+/* “适用端”标签保留可见，区分上下两行筛选芯片，避免两个“全部”含义混淆。 */
+.mobile-shell .software-store-page .store-platform-label { color: var(--mobile-muted); font-size: 11px; }
 .mobile-shell .software-store-page .store-search-input { min-height: 48px; padding-inline: 13px; border-radius: 12px; }
 .mobile-shell .software-store-page .store-search-input input { min-width: 0; font-size: 14px; }
 .mobile-shell .software-store-page .store-categories { display: flex; gap: 7px; width: calc(100% + 22px); margin: 0 -11px; padding: 0 11px 3px; overflow-x: auto; overscroll-behavior-inline: contain; scrollbar-width: none; }

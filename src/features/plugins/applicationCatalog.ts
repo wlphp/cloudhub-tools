@@ -2,17 +2,18 @@ import { Bot, Cpu, FileCode2, GitBranch, Globe, Gauge, HardDrive, Lock, Mail, Me
 import { officialPlugins } from "./registry";
 
 export type ApplicationSection = "flow" | "certificates" | "authenticator" | "claude" | "codex" | "frp" | "notes";
-const navigation: Record<string, { section?: ApplicationSection; order: number; sidebar: boolean; icon: typeof Cpu; keywords?: string }> = {
-  "cloudhub.model-suppliers": { order: 20, sidebar: false, icon: Bot, keywords: "AI 模型供应商 OpenAI Claude Gemini API 模型 配置 导入" },
+// mobile: 该应用提供移动端界面；软件商店“适用端”筛选据此区分移动端可用与仅电脑端，registry 的 platform 只描述桌面系统支持。
+const navigation: Record<string, { section?: ApplicationSection; order: number; sidebar: boolean; mobile?: boolean; icon: typeof Cpu; keywords?: string }> = {
+  "cloudhub.model-suppliers": { order: 20, sidebar: false, mobile: true, icon: Bot, keywords: "AI 模型供应商 OpenAI Claude Gemini API 模型 配置 导入" },
   "cloudhub.cloud-drive": { order: 17, sidebar: false, icon: HardDrive, keywords: "云盘 阿里云盘 Alipan 挂载 OSS S3 rclone MinIO R2 WinFsp macFUSE FUSE 磁盘 对象存储" },
   "cloudhub.mail": { order: 15, sidebar: false, icon: Mail, keywords: "邮件 邮箱 收信 发信 QQ 网易 IMAP SMTP email mail" },
-  "cloudhub.flow": { section: "flow", order: 1, sidebar: true, icon: GitBranch },
-  "cloudhub.certificates": { section: "certificates", order: 2, sidebar: true, icon: Lock },
-  "cloudhub.authenticator": { section: "authenticator", order: 3, sidebar: true, icon: ShieldCheck },
-  "cloudhub.claude-providers": { section: "claude", order: 4, sidebar: true, icon: Bot, keywords: "Claude Code 供应商 API 切换 模型 映射" },
-  "cloudhub.codex": { section: "codex", order: 5, sidebar: true, icon: FileCode2 },
+  "cloudhub.flow": { section: "flow", order: 1, sidebar: true, mobile: true, icon: GitBranch },
+  "cloudhub.certificates": { section: "certificates", order: 2, sidebar: true, mobile: true, icon: Lock },
+  "cloudhub.authenticator": { section: "authenticator", order: 3, sidebar: true, mobile: true, icon: ShieldCheck },
+  "cloudhub.claude-providers": { section: "claude", order: 4, sidebar: true, mobile: true, icon: Bot, keywords: "Claude Code 供应商 API 切换 模型 映射" },
+  "cloudhub.codex": { section: "codex", order: 5, sidebar: true, mobile: true, icon: FileCode2 },
   "cloudhub.frp": { section: "frp", order: 6, sidebar: true, icon: Network },
-  "cloudhub.notes": { section: "notes", order: 7, sidebar: true, icon: NotebookPen, keywords: "备忘 笔记 记录 分组 标签 检索 提醒" },
+  "cloudhub.notes": { section: "notes", order: 7, sidebar: true, mobile: true, icon: NotebookPen, keywords: "备忘 笔记 记录 分组 标签 检索 提醒" },
   "cloudhub.wechat-multi": { order: 8, sidebar: false, icon: MessageCircle, keywords: "微信 WeChat Weixin Windows" },
   "cloudhub.hardware-info": { order: 9, sidebar: false, icon: Cpu, keywords: "硬件 设备 系统 CPU 显卡" },
   "cloudhub.wsl-dashboard": { order: 10, sidebar: false, icon: SquareTerminal, keywords: "WSL Linux Ubuntu Debian 发行版" },
