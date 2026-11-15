@@ -56,11 +56,11 @@ export function AppLockPatternGrid({ onComplete, disabled = false, failureSignal
     }, FAILURE_FLASH_MS);
   }, [failureSignal]);
 
-  /** 按下归属：手指落在哪个格子就选中该格的点，与视觉位置一致。 */
-  const hitCell = (clientX: number, clientY: number, rect: DOMRect): number | null => {
-    const cell = rect.width / 3;
-    const col = Math.floor((clientX - rect.left) / cell);
-    const row = Math.floor((clientY - rect.top) / cell);
+  /** 按下归属：手指落在哪个格子就选中该格的点，与视觉位置一致。
+   * 坐标统一使用网格本地坐标（clientX/Y 减去 rect 偏移），命中判定、采样与轨迹显示共用同一坐标系。 */
+  const hitCell = (localX: number, localY: number, cell: number): number | null => {
+    const col = Math.floor(localX / cell);
+    const row = Math.floor(localY / cell);
     if (col < 0 || col > 2 || row < 0 || row > 2) return null;
     return row * 3 + col;
   };
@@ -72,13 +72,13 @@ export function AppLockPatternGrid({ onComplete, disabled = false, failureSignal
     setShake(false);
     setFlash(false);
     drawingRef.current = true;
-    const point = { x: event.clientX, y: event.clientY };
-    lastSampleRef.current = point;
     const grid = gridRef.current;
     if (!grid) return;
     const rect = grid.getBoundingClientRect();
-    setCursor({ x: point.x - rect.left, y: point.y - rect.top });
-    const index = hitCell(point.x, point.y, rect);
+    const point = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    lastSampleRef.current = point;
+    setCursor(point);
+    const index = hitCell(point.x, point.y, rect.width / 3);
     applySequence(index === null ? [] : [index]);
   };
 
@@ -87,15 +87,15 @@ export function AppLockPatternGrid({ onComplete, disabled = false, failureSignal
     const grid = gridRef.current;
     if (!grid) return;
     const rect = grid.getBoundingClientRect();
-    setCursor({ x: event.clientX - rect.left, y: event.clientY - rect.top });
+    const point = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    setCursor(point);
     const last = lastSampleRef.current;
-    const current = { x: event.clientX, y: event.clientY };
     if (last) {
       const cell = rect.width / 3;
-      const hits = collectPathHits(last.x, last.y, current.x, current.y, cell, sequenceRef.current);
+      const hits = collectPathHits(last.x, last.y, point.x, point.y, cell, sequenceRef.current);
       if (hits.length > 0) applySequence(withPassThroughDots([...sequenceRef.current, ...hits], cell));
     }
-    lastSampleRef.current = current;
+    lastSampleRef.current = point;
   };
 
   const stopDrawing = () => {
@@ -119,7 +119,7 @@ export function AppLockPatternGrid({ onComplete, disabled = false, failureSignal
     }
   };
 
-  const cell = gridRef.current?.getBoundingClientRect().width ?? 0;
+  const cell = (gridRef.current?.getBoundingClientRect().width ?? 0) / 3;
   const trailPoints = sequence.map((index) => ({
     x: ((index % 3) + 0.5) * cell,
     y: (Math.floor(index / 3) + 0.5) * cell,
