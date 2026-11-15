@@ -13,6 +13,9 @@ on:
 
 env:
   RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+  # whisper.cpp 的 ggml 后端注册使用了 macOS 10.15 才有的 std::filesystem API，
+  # Tauri CLI 默认的 10.13 部署目标会编译失败；Tauri v2 本身支持 10.15+。
+  MACOSX_DEPLOYMENT_TARGET: "10.15"
 
 permissions:
   contents: write
