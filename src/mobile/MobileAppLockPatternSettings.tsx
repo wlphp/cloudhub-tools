@@ -21,6 +21,7 @@ export function MobileAppLockPatternSettings({ onNotice, onDone }: MobileAppLock
   const [next, setNext] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [failureSignal, setFailureSignal] = useState(0);
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -53,7 +54,7 @@ export function MobileAppLockPatternSettings({ onNotice, onDone }: MobileAppLock
     if (busy || !status) return;
     if (step === "current") { setCurrent(pattern); setStep("new"); setError(""); return; }
     if (step === "new") { setNext(pattern); setStep("confirm"); setError(""); return; }
-    if (pattern !== next) { setError("两次绘制的图案不一致，请重新绘制"); setStep(firstStep); setNext(""); return; }
+    if (pattern !== next) { setError("两次绘制的图案不一致，请重新绘制"); setFailureSignal((value) => value + 1); setStep(firstStep); setNext(""); return; }
     setBusy(true);
     setError("");
     try {
@@ -62,6 +63,7 @@ export function MobileAppLockPatternSettings({ onNotice, onDone }: MobileAppLock
       onDone();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "保存失败");
+      setFailureSignal((value) => value + 1);
       setStep(firstStep);
       setNext("");
     } finally {
@@ -83,7 +85,7 @@ export function MobileAppLockPatternSettings({ onNotice, onDone }: MobileAppLock
       </p>
       <div className="app-lock-form-card">
         <p className="app-lock-step" aria-live="polite">{stepHint[step]}</p>
-        <AppLockPatternGrid disabled={busy} onComplete={(pattern) => void complete(pattern)} />
+        <AppLockPatternGrid disabled={busy} onComplete={(pattern) => void complete(pattern)} failureSignal={failureSignal} />
         {error && <p className="app-lock-form-error" role="alert">{error}</p>}
         <div className="app-lock-form-actions">
           <button type="button" className="app-lock-secondary" disabled={busy} onClick={reset}>重新绘制</button>

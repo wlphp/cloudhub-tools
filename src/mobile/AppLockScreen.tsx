@@ -22,6 +22,7 @@ export function AppLockScreen({ status, onUnlocked }: AppLockScreenProps) {
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [patternFailures, setPatternFailures] = useState(0);
   const [cooldownRemainingMs, setCooldownRemainingMs] = useState(status.cooldownMs);
   const cooldownDeadlineRef = useRef(Date.now() + status.cooldownMs);
   const autoBiometricRef = useRef(false);
@@ -106,6 +107,7 @@ export function AppLockScreen({ status, onUnlocked }: AppLockScreenProps) {
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : "滑动图案不正确";
       setError(message);
+      setPatternFailures((current) => current + 1);
       if (message.includes("尝试次数过多")) await syncCooldownFromServer();
     } finally {
       setBusy(false);
@@ -177,7 +179,7 @@ export function AppLockScreen({ status, onUnlocked }: AppLockScreenProps) {
 
           {mode === "pattern" && (
             <div className="app-lock-pattern-area">
-              <AppLockPatternGrid disabled={busy || cooling} onComplete={(pattern) => void submitPattern(pattern)} />
+              <AppLockPatternGrid disabled={busy || cooling} onComplete={(pattern) => void submitPattern(pattern)} failureSignal={patternFailures} />
               <p className="app-lock-pattern-hint">滑动连接至少 4 个点完成解锁</p>
             </div>
           )}

@@ -249,6 +249,28 @@
   opacity: .5;
 }
 
+/* 输入反馈：不足 4 点抖动；验证失败时轨迹红色闪示 */
+.app-lock-pattern.is-shake {
+  animation: app-lock-pattern-shake .4s ease;
+}
+
+@keyframes app-lock-pattern-shake {
+  10%, 90% { translate: -4px 0; }
+  20%, 80% { translate: 4px 0; }
+  30%, 50%, 70% { translate: -6px 0; }
+  40%, 60% { translate: 6px 0; }
+}
+
+.app-lock-pattern.is-flash .app-lock-pattern-trail polyline,
+.app-lock-pattern.is-flash .app-lock-pattern-trail line {
+  stroke: var(--mobile-danger, #d2454f);
+}
+
+.app-lock-pattern.is-flash .app-lock-pattern-dot.is-active {
+  border-color: var(--mobile-danger, #d2454f);
+  background: var(--mobile-danger, #d2454f);
+}
+
 .app-lock-pattern-trail {
   position: absolute;
   inset: 0;

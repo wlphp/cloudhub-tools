@@ -1,88 +1,135 @@
-import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { collectPathHits, withPassThroughDots } from "./app-lock-pattern-geometry";
 
 interface AppLockPatternGridProps {
   /** 松手且已连接至少 4 个点时回调；返回的是 "0472" 形式的点序字符串。 */
   onComplete: (pattern: string) => void;
   disabled?: boolean;
+  /** 父组件递增该值触发一次「失败轨迹红色闪示」，便于对照刚才实际登记的序列。 */
+  failureSignal?: number;
 }
 
-/** 3×3 滑动图案九宫格；锁屏与设置页共用，轨迹只保存在内存中。 */
-export function AppLockPatternGrid({ onComplete, disabled = false }: AppLockPatternGridProps) {
+const SHAKE_MS = 500;
+const FAILURE_FLASH_MS = 700;
+
+/** 3×3 滑动图案九宫格；锁屏与设置页共用，轨迹只保存在内存中。
+ * 命中判定按「上一采样点 → 当前采样点」的线段计算而非离散采样点，快速滑动不漏点；
+ * 相邻登记点连线穿过的未登记点自动补入，同一形状永远得到同一序列。 */
+export function AppLockPatternGrid({ onComplete, disabled = false, failureSignal = 0 }: AppLockPatternGridProps) {
   const gridRef = useRef<HTMLDivElement | null>(null);
   const drawingRef = useRef(false);
   const sequenceRef = useRef<number[]>([]);
+  const lastSampleRef = useRef<{ x: number; y: number } | null>(null);
+  const lastAttemptRef = useRef<number[]>([]);
+  const shakeTimerRef = useRef<number | null>(null);
+  const flashTimerRef = useRef<number | null>(null);
+  const failureSeenRef = useRef(failureSignal);
   const [sequence, setSequence] = useState<number[]>([]);
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
+  const [shake, setShake] = useState(false);
+  const [flash, setFlash] = useState(false);
 
   const applySequence = (next: number[]) => {
     sequenceRef.current = next;
     setSequence(next);
   };
 
-  const dotCenter = (index: number) => {
-    const grid = gridRef.current;
-    if (!grid) return null;
-    const rect = grid.getBoundingClientRect();
-    const cell = rect.width / 3;
-    return {
-      x: (index % 3) * cell + cell / 2,
-      y: Math.floor(index / 3) * cell + cell / 2,
-      radius: cell / 2,
-    };
+  const clearTimers = () => {
+    if (shakeTimerRef.current !== null) { window.clearTimeout(shakeTimerRef.current); shakeTimerRef.current = null; }
+    if (flashTimerRef.current !== null) { window.clearTimeout(flashTimerRef.current); flashTimerRef.current = null; }
   };
 
-  const hitDot = (clientX: number, clientY: number): number | null => {
-    const grid = gridRef.current;
-    if (!grid) return null;
-    const rect = grid.getBoundingClientRect();
+  useEffect(() => clearTimers, []);
+
+  // 父组件验证失败后递增 failureSignal：恢复显示上次登记的轨迹并标红，供用户对照纠错。
+  useEffect(() => {
+    if (failureSignal === failureSeenRef.current) return;
+    failureSeenRef.current = failureSignal;
+    if (drawingRef.current || lastAttemptRef.current.length === 0) return;
+    clearTimers();
+    applySequence(lastAttemptRef.current);
+    setFlash(true);
+    flashTimerRef.current = window.setTimeout(() => {
+      setFlash(false);
+      applySequence([]);
+      flashTimerRef.current = null;
+    }, FAILURE_FLASH_MS);
+  }, [failureSignal]);
+
+  /** 按下归属：手指落在哪个格子就选中该格的点，与视觉位置一致。 */
+  const hitCell = (clientX: number, clientY: number, rect: DOMRect): number | null => {
     const cell = rect.width / 3;
     const col = Math.floor((clientX - rect.left) / cell);
     const row = Math.floor((clientY - rect.top) / cell);
     if (col < 0 || col > 2 || row < 0 || row > 2) return null;
-    const index = row * 3 + col;
-    const center = dotCenter(index);
-    if (!center) return null;
-    const dx = clientX - rect.left - center.x;
-    const dy = clientY - rect.top - center.y;
-    // 触点略超出圆形热区也算命中，减少手指抖动导致的断线。
-    return Math.hypot(dx, dy) <= center.radius * 1.35 ? index : null;
-  };
-
-  const stopDrawing = () => {
-    drawingRef.current = false;
-    setCursor(null);
-    if (sequenceRef.current.length >= 4) onComplete(sequenceRef.current.join(""));
-    applySequence([]);
+    return row * 3 + col;
   };
 
   const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (disabled || !event.isPrimary) return;
     event.currentTarget.setPointerCapture(event.pointerId);
+    clearTimers();
+    setShake(false);
+    setFlash(false);
     drawingRef.current = true;
-    const index = hitDot(event.clientX, event.clientY);
+    const point = { x: event.clientX, y: event.clientY };
+    lastSampleRef.current = point;
+    const grid = gridRef.current;
+    if (!grid) return;
+    const rect = grid.getBoundingClientRect();
+    setCursor({ x: point.x - rect.left, y: point.y - rect.top });
+    const index = hitCell(point.x, point.y, rect);
     applySequence(index === null ? [] : [index]);
   };
 
   const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (disabled || !drawingRef.current) return;
     const grid = gridRef.current;
-    if (grid) {
-      const rect = grid.getBoundingClientRect();
-      setCursor({ x: event.clientX - rect.left, y: event.clientY - rect.top });
+    if (!grid) return;
+    const rect = grid.getBoundingClientRect();
+    setCursor({ x: event.clientX - rect.left, y: event.clientY - rect.top });
+    const last = lastSampleRef.current;
+    const current = { x: event.clientX, y: event.clientY };
+    if (last) {
+      const cell = rect.width / 3;
+      const hits = collectPathHits(last.x, last.y, current.x, current.y, cell, sequenceRef.current);
+      if (hits.length > 0) applySequence(withPassThroughDots([...sequenceRef.current, ...hits], cell));
     }
-    const index = hitDot(event.clientX, event.clientY);
-    if (index === null) return;
-    const current = sequenceRef.current;
-    if (current[current.length - 1] !== index) applySequence([...current, index]);
+    lastSampleRef.current = current;
   };
 
-  const trailPoints = sequence.map((index) => dotCenter(index)).filter((point): point is { x: number; y: number; radius: number } => point !== null);
+  const stopDrawing = () => {
+    if (!drawingRef.current) return;
+    drawingRef.current = false;
+    setCursor(null);
+    lastSampleRef.current = null;
+    const attempted = sequenceRef.current;
+    if (attempted.length >= 4) {
+      lastAttemptRef.current = attempted;
+      onComplete(attempted.join(""));
+      applySequence([]);
+    } else {
+      // 不足 4 个点：抖动提示，轨迹保留到动画结束，让用户看清画了几个点。
+      setShake(true);
+      shakeTimerRef.current = window.setTimeout(() => {
+        setShake(false);
+        applySequence([]);
+        shakeTimerRef.current = null;
+      }, SHAKE_MS);
+    }
+  };
+
+  const cell = gridRef.current?.getBoundingClientRect().width ?? 0;
+  const trailPoints = sequence.map((index) => ({
+    x: ((index % 3) + 0.5) * cell,
+    y: (Math.floor(index / 3) + 0.5) * cell,
+  }));
   const lastPoint = trailPoints[trailPoints.length - 1];
 
   return (
     <div
       ref={gridRef}
-      className={"app-lock-pattern" + (disabled ? " is-disabled" : "")}
+      className={"app-lock-pattern" + (disabled ? " is-disabled" : "") + (shake ? " is-shake" : "") + (flash ? " is-flash" : "")}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={stopDrawing}
