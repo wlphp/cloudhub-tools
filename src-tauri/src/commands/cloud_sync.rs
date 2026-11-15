@@ -222,6 +222,231 @@ fn persist(config: &Config) -> Result<(), String> {
 pub(crate) fn cloud_sync_channels() -> PlatformResult<Vec<SyncView>> {
     Ok(load_all()?.channels.iter().map(|config| view(config, true)).collect::<Result<Vec<_>, _>>()?)
 }
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CloudSyncChannelSummary {
+    id: String,
+    name: String,
+    method: String,
+    endpoint: String,
+    username: String,
+    has_password: bool,
+    has_secret_key: bool,
+    has_backup_password: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CloudSyncImportStaging {
+    token: String,
+    channels: Vec<CloudSyncChannelSummary>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CloudSyncImportSummary {
+    added: usize,
+    updated: usize,
+    skipped: usize,
+}
+
+static IMPORT_STAGE: OnceLock<Mutex<Option<(String, Instant, Vec<Config>)>>> = OnceLock::new();
+
+fn channel_summaries(channels: &[Config]) -> Vec<CloudSyncChannelSummary> {
+    channels
+        .iter()
+        .map(|config| CloudSyncChannelSummary {
+            id: config.id.clone(),
+            name: config.name.clone(),
+            method: config.method.clone(),
+            endpoint: config.endpoint.clone(),
+            username: config.username.clone(),
+            has_password: !config.password.is_empty(),
+            has_secret_key: !config.secret_key.is_empty(),
+            has_backup_password: !config.backup_password.is_empty(),
+        })
+        .collect()
+}
+
+/// 解析导入文件并校验渠道内容；文件本身是明文，凭据只在本函数内短暂存在。
+fn parse_import_channels(text: &str) -> Result<Vec<Config>, String> {
+    let value: serde_json::Value =
+        serde_json::from_str(text).map_err(|_| "云同步配置文件格式无效")?;
+    if value.get("format").and_then(|format| format.as_str()).is_some_and(|format| format != "cloudhub-tools-cloud-sync") {
+        return Err("这不是 CloudHub 导出的云同步配置文件".into());
+    }
+    let list: Vec<serde_json::Value> = match value.get("channels") {
+        Some(serde_json::Value::Array(items)) => items.clone(),
+        _ if value.as_object().is_some() => vec![value],
+        _ => return Err("云同步配置文件格式无效".into()),
+    };
+    if list.is_empty() {
+        return Err("文件中没有可导入的同步渠道".into());
+    }
+    if list.len() > 50 {
+        return Err("一次最多导入 50 条同步渠道".into());
+    }
+    list.into_iter()
+        .map(|item| {
+            serde_json::from_value::<Config>(item)
+                .map_err(|_| "云同步渠道配置无效，请使用本应用导出的配置文件".into())
+        })
+        .collect()
+}
+
+fn normalize_imported(config: &mut Config) {
+    config.name = config.name.trim().to_string();
+    config.endpoint = config.endpoint.trim().trim_end_matches('/').to_string();
+    config.remote_root = config.remote_root.trim().to_string();
+    config.profile = config.profile.trim().to_string();
+}
+
+const IMPORT_STAGE_TTL: Duration = Duration::from_secs(600);
+
+#[tauri::command]
+pub(crate) fn cloud_sync_export_file(
+    app: tauri::AppHandle,
+    channel_ids: Option<Vec<String>>,
+) -> PlatformResult<Option<String>> {
+    supported()?;
+    use tauri_plugin_dialog::DialogExt;
+    let mut channels = load_all()?.channels;
+    if let Some(ids) = &channel_ids {
+        if ids.is_empty() {
+            return Err("请选择至少一个同步渠道".into());
+        }
+        channels.retain(|config| ids.iter().any(|id| id == &config.id));
+        if channels.is_empty() {
+            return Err("所选同步渠道不存在，请刷新列表后重试".into());
+        }
+    } else if channels.is_empty() {
+        return Err("尚未添加同步渠道，先添加并保存后才能导出".into());
+    }
+    for config in &channels {
+        validate(config).map_err(|error| format!("渠道“{}”配置无效：{error}", config.name))?;
+    }
+    // 明文导出：与明文 SQL 一致，凭据由用户自行保管；此处绝不写入日志。
+    let exported = serde_json::json!({
+        "format": "cloudhub-tools-cloud-sync",
+        "version": 1,
+        "exportedAt": chrono::Utc::now().to_rfc3339(),
+        "channels": channels,
+    });
+    let bytes = Zeroizing::new(
+        serde_json::to_vec_pretty(&exported).map_err(|_| "生成云同步导出文件失败")?,
+    );
+    let file = app
+        .dialog()
+        .file()
+        .set_file_name(format!("cloudhub-cloud-sync-{}.json", chrono::Utc::now().format("%Y%m%d-%H%M%S")))
+        .add_filter("CloudHub 云同步配置", &["json"])
+        .blocking_save_file();
+    let Some(file) = file else { return Ok(None) };
+    let path = file.into_path().map_err(|_| "保存位置无效")?;
+    super::database_migration::write_new_or_replace(&path, &bytes)?;
+    Ok(Some(path.to_string_lossy().into_owned()))
+}
+
+#[tauri::command]
+pub(crate) fn cloud_sync_import_prepare(
+    app: tauri::AppHandle,
+    payload: Option<String>,
+) -> PlatformResult<Option<CloudSyncImportStaging>> {
+    supported()?;
+    use tauri_plugin_dialog::DialogExt;
+    // payload 仅浏览器预览降级使用；桌面端始终弹出文件选择框。
+    let text = if let Some(payload) = payload.filter(|value| !value.trim().is_empty()) {
+        Zeroizing::new(payload)
+    } else {
+        let Some(file) = app
+            .dialog()
+            .file()
+            .add_filter("CloudHub 云同步配置", &["json"])
+            .blocking_pick_file()
+        else {
+            return Ok(None);
+        };
+        let path = file.into_path().map_err(|_| "文件位置无效")?;
+        if std::fs::metadata(&path).map_err(|_| "无法读取云同步配置文件")?.len() > 2 * 1024 * 1024 {
+            return Err("云同步配置文件超过 2 MB 限制".into());
+        }
+        Zeroizing::new(std::fs::read_to_string(&path).map_err(|_| "无法读取云同步配置文件")?)
+    };
+    if text.len() > 2 * 1024 * 1024 {
+        return Err("云同步配置文件超过 2 MB 限制".into());
+    }
+    let mut channels = parse_import_channels(&text)?;
+    for config in &mut channels {
+        normalize_imported(config);
+        validate(config).map_err(|error| format!("渠道“{}”配置无效：{error}", config.name))?;
+    }
+    let token = uuid::Uuid::new_v4().to_string();
+    let summaries = channel_summaries(&channels);
+    let stage = IMPORT_STAGE.get_or_init(|| Mutex::new(None));
+    *stage.lock().map_err(|_| "导入状态不可用")? = Some((token.clone(), Instant::now(), channels));
+    Ok(Some(CloudSyncImportStaging { token, channels: summaries }))
+}
+
+/// 按渠道 id 或连接身份合并；merge 跳过已有，overwrite 覆盖内容并保留本机 id。
+fn apply_import(all: &mut ChannelConfigs, staged: Vec<Config>, mode: &str) -> Result<CloudSyncImportSummary, String> {
+    let mut added = 0;
+    let mut updated = 0;
+    let mut skipped = 0;
+    for mut config in staged {
+        normalize_imported(&mut config);
+        validate(&config).map_err(|error| format!("渠道“{}”配置无效：{error}", config.name))?;
+        let same_identity = |item: &Config| {
+            item.id == config.id
+                || (item.method == config.method
+                    && item.endpoint.trim_end_matches('/') == config.endpoint
+                    && item.username == config.username
+                    && item.access_key_id == config.access_key_id)
+        };
+        if let Some(index) = all.channels.iter().position(same_identity) {
+            if mode == "merge" {
+                skipped += 1;
+                continue;
+            }
+            // 覆盖已有渠道时保留本机 id，本机上传/下载记录保持关联。
+            config.id = all.channels[index].id.clone();
+            all.channels[index] = config;
+            updated += 1;
+        } else {
+            if all.channels.len() >= 50 {
+                return Err("同步渠道最多可添加 50 条".into());
+            }
+            all.channels.push(config);
+            added += 1;
+        }
+    }
+    Ok(CloudSyncImportSummary { added, updated, skipped })
+}
+
+#[tauri::command]
+pub(crate) fn cloud_sync_import_confirm(token: String, mode: Option<String>) -> PlatformResult<CloudSyncImportSummary> {
+    supported()?;
+    let mode = mode.unwrap_or_else(|| "merge".into());
+    if !["merge", "overwrite"].contains(&mode.as_str()) {
+        return Err("导入方式无效".into());
+    }
+    let staged = {
+        let stage = IMPORT_STAGE.get_or_init(|| Mutex::new(None));
+        let mut guard = stage.lock().map_err(|_| "导入状态不可用")?;
+        match guard.take() {
+            Some((staged_token, at, channels)) if staged_token == token && at.elapsed() <= IMPORT_STAGE_TTL => channels,
+            _ => return Err("导入预览已失效，请重新选择文件".into()),
+        }
+    };
+    let _guard = OPERATION.try_lock().map_err(|_| "云同步正在执行，请稍后重试")?;
+    let mut all = load_all()?;
+    let summary = apply_import(&mut all, staged, &mode)?;
+    if summary.added + summary.updated > 0 {
+        persist_all(&all)?;
+    }
+    Ok(summary)
+}
+
 #[tauri::command]
 pub(crate) async fn cloud_sync_delete(channel_id: String) -> PlatformResult<()> {
     checked_id(Some(&channel_id))?;
@@ -950,6 +1175,62 @@ mod tests {
         assert_ne!(parsed.channels[0].id, parsed.channels[1].id);
         assert_ne!(parsed.channels[0].password, parsed.channels[1].password);
         assert!(checked_id(Some("../private")).is_err());
+    }
+    #[test]
+    fn import_parse_accepts_exported_and_legacy_single_channel_files() {
+        let mut first = fixture();
+        first.id = uuid::Uuid::new_v4().to_string();
+        first.name = "家庭 NAS".into();
+        let mut second = fixture();
+        second.id = uuid::Uuid::new_v4().to_string();
+        second.name = "备用 S3".into();
+        second.method = "s3".into();
+        second.access_key_id = "AKIA-fixture".into();
+        second.secret_key = "sk-fixture".into();
+        second.bucket = "fixture-bucket".into();
+        second.password = String::new();
+        let exported = serde_json::json!({
+            "format": "cloudhub-tools-cloud-sync", "version": 1,
+            "exportedAt": "2026-01-01T00:00:00Z",
+            "channels": [first, second],
+        });
+        let parsed = parse_import_channels(&exported.to_string()).unwrap();
+        assert_eq!(parsed.len(), 2);
+        assert_eq!(parsed[1].secret_key, "sk-fixture");
+        let legacy = serde_json::to_value(&fixture()).unwrap();
+        let legacy_parsed = parse_import_channels(&legacy.to_string()).unwrap();
+        assert_eq!(legacy_parsed.len(), 1);
+        assert!(parse_import_channels(r#"{"format":"other-tool","channels":[]}"#).is_err());
+        assert!(parse_import_channels(r#"{"channels":[]}"#).is_err());
+        assert!(parse_import_channels(r#"{"channels":[{"id":"broken"}]}"#).is_err());
+    }
+    #[test]
+    fn import_merges_by_identity_and_overwrite_keeps_local_id() {
+        let mut local = fixture();
+        local.name = "本机渠道".into();
+        let mut incoming = fixture();
+        incoming.name = "导入渠道".into();
+        incoming.password = "new-fixture-password".into();
+        let mut extra = fixture();
+        extra.id = uuid::Uuid::new_v4().to_string();
+        extra.endpoint = "https://other.example/dav/".into();
+        let mut all = ChannelConfigs { channels: vec![local] };
+        let summary = apply_import(&mut all, vec![incoming, extra], "merge").unwrap();
+        assert_eq!((summary.added, summary.updated, summary.skipped), (1, 0, 1));
+        assert_eq!(all.channels.len(), 2);
+        assert_eq!(all.channels[0].name, "本机渠道");
+        let mut replacement = fixture();
+        replacement.password = "overwritten-fixture".into();
+        replacement.name = "导入渠道".into();
+        let local_id = all.channels[0].id.clone();
+        let summary = apply_import(&mut all, vec![replacement], "overwrite").unwrap();
+        assert_eq!((summary.added, summary.updated, summary.skipped), (0, 1, 0));
+        assert_eq!(all.channels[0].id, local_id);
+        assert_eq!(all.channels[0].password, "overwritten-fixture");
+        assert_eq!(all.channels[0].name, "导入渠道");
+        let mut broken = fixture();
+        broken.endpoint = "https://".into();
+        assert!(apply_import(&mut all, vec![broken], "merge").is_err());
     }
     #[test]
     fn reveal_requires_matching_identity_and_supported_secret_field() {

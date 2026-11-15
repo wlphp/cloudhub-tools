@@ -480,7 +480,7 @@ pub(crate) fn plan_import(current:&Connection,input:&str,key:&[u8],mode:&str,req
     for (table,_) in TABLES.iter().filter(|(table,_)|!policy::virtual_table(table)) {
         for (event,action,row) in [("added","INSERT","NEW"),("updated","UPDATE","NEW"),("deleted","DELETE","OLD")] {
             let module=if *table=="client_preferences" {
-                format!("CASE {row}.key WHEN 'cloud.drive.connections' THEN 'transfer_cloud_drive' WHEN 'cloudhub-tools-favorite-assets' THEN 'transfer_asset_metadata' WHEN 'cloudhub-tools-favorite-asset-order' THEN 'transfer_asset_metadata' WHEN 'cloudhub-tools-asset-notes' THEN 'transfer_asset_metadata' WHEN 'cloudhub-tools-asset-order' THEN 'transfer_asset_metadata' WHEN 'cloudhub-tools-asset-display-names' THEN 'transfer_asset_metadata' WHEN 'cloudhub-tools-managed-host-order' THEN 'transfer_asset_metadata' ELSE 'client_preferences' END")
+                format!("CASE {row}.key WHEN 'cloud.drive.connections' THEN 'transfer_cloud_drive' WHEN 'cloud.sync.config' THEN 'transfer_cloud_sync' WHEN 'cloudhub-tools-favorite-assets' THEN 'transfer_asset_metadata' WHEN 'cloudhub-tools-favorite-asset-order' THEN 'transfer_asset_metadata' WHEN 'cloudhub-tools-asset-notes' THEN 'transfer_asset_metadata' WHEN 'cloudhub-tools-asset-order' THEN 'transfer_asset_metadata' WHEN 'cloudhub-tools-asset-display-names' THEN 'transfer_asset_metadata' WHEN 'cloudhub-tools-managed-host-order' THEN 'transfer_asset_metadata' ELSE 'client_preferences' END")
             } else {format!("'{table}'")};
             validation.execute_batch(&format!("CREATE TEMP TRIGGER plan_{table}_{event} AFTER {action} ON {} BEGIN INSERT OR IGNORE INTO transfer_events VALUES({module},'{event}',{row}.rowid); END;",ident(table))).map_err(|_|err())?;
         }
@@ -581,9 +581,42 @@ fn identity(table: &str) -> &[&str] {
 }
 
 fn merge_projected(table:&str,local:&str,incoming:&str,key:Option<&[u8]>,mode:&str) -> Result<Option<String>,String> {
+    let decode=|raw:&str| -> Result<Zeroizing<String>,String> {
+        let plain=Zeroizing::new(if table=="transfer_cloud_drive" || table=="transfer_cloud_sync" {crate::core::crypto::decrypt_secret_with_key(raw,key.ok_or("缺少云盘恢复密钥")?).map_err(|_|"云盘凭据转换失败")?}else{raw.into()});
+        Ok(plain)
+    };
+    if table=="transfer_cloud_sync" {
+        // 渠道配置按 id 或连接身份（method+endpoint+username+accessKeyId）去重：
+        // 合并时跳过已有渠道，覆盖时替换内容并保留本机渠道 id。
+        let channels=|plain:&Zeroizing<String>| -> Result<Vec<serde_json::Value>,String> {
+            let value:serde_json::Value=serde_json::from_str(plain.as_str()).map_err(|_|"云同步配置格式无效".to_string())?;
+            let object=value.as_object().ok_or("云同步配置格式无效")?;
+            if let Some(channels)=object.get("channels").and_then(|c|c.as_array()) { return Ok(channels.clone()); }
+            Ok(vec![value])
+        };
+        let mut merged=channels(&decode(local)?)?;
+        for channel in channels(&decode(incoming)?)? {
+            let matched=merged.iter().position(|old| {
+                (match (old.get("id"), channel.get("id")) { (Some(a), Some(b)) => a==b, _ => false })
+                    || ["method","endpoint","username","accessKeyId"].iter().all(|field| old.get(*field)==channel.get(*field))
+            });
+            match matched {
+                Some(index)=>if mode!="merge" {
+                    let mut channel=channel;
+                    if let (Some(id),Some(object))=(merged[index].get("id").cloned(),channel.as_object_mut()) { object.insert("id".into(),id); }
+                    merged[index]=channel;
+                },
+                None=>merged.push(channel),
+            }
+        }
+        let plain=Zeroizing::new(serde_json::to_string(&serde_json::json!({ "channels": merged })).map_err(|_|"云同步配置格式无效".to_string())?);
+        let local_plain=decode(local)?;
+        if plain.as_str()==local_plain.as_str() {return Ok(None);}
+        return Ok(Some(crate::core::crypto::encrypt_secret_with_key(&plain,key.ok_or("缺少云盘恢复密钥")?)?));
+    }
     let decode=|raw:&str| -> Result<serde_json::Value,String> {
-        let plain=Zeroizing::new(if table=="transfer_cloud_drive" {crate::core::crypto::decrypt_secret_with_key(raw,key.ok_or("缺少云盘恢复密钥")?).map_err(|_|"云盘凭据转换失败")?}else{raw.into()});
-        serde_json::from_str(&plain).map_err(|_|"偏好数据格式无效".into())
+        let plain=decode(raw)?;
+        serde_json::from_str(plain.as_str()).map_err(|_|"偏好数据格式无效".into())
     };
     let mut result=decode(local)?; let original=result.clone(); let incoming=decode(incoming)?;
     match (&mut result,incoming) {
@@ -613,7 +646,7 @@ fn apply_rows_tracked(target: &Connection, source: &Connection, tables: &[String
 fn apply_rows_scoped(target: &Connection, source: &Connection, tables: &[String], mode: &str, explicit: &[String], retained: &mut HashMap<String,Vec<i64>>, key:Option<&[u8]>) -> Result<(u64, u64, u64), String> {
     target.execute_batch("CREATE TABLE IF NOT EXISTS data_transfer_identity(table_name TEXT,portable_id TEXT,target_rowid INTEGER,PRIMARY KEY(table_name,portable_id))").map_err(|_|err())?;
     for (table,_) in TABLES.iter().filter(|(t,_)|!policy::virtual_table(t)) {
-        target.execute_batch(&format!("CREATE TRIGGER IF NOT EXISTS transfer_identity_delete_{table} AFTER DELETE ON {} BEGIN DELETE FROM data_transfer_identity WHERE target_rowid=OLD.rowid AND table_name IN ('{table}'{}); END;",ident(table),if *table=="client_preferences" {",'transfer_cloud_drive','transfer_asset_metadata'"}else{""})).map_err(|_|err())?;
+        target.execute_batch(&format!("CREATE TRIGGER IF NOT EXISTS transfer_identity_delete_{table} AFTER DELETE ON {} BEGIN DELETE FROM data_transfer_identity WHERE target_rowid=OLD.rowid AND table_name IN ('{table}'{}); END;",ident(table),if *table=="client_preferences" {",'transfer_cloud_drive','transfer_asset_metadata','transfer_cloud_sync'"}else{""})).map_err(|_|err())?;
     }
     let mut mappings: HashMap<(String, i64), i64> = HashMap::new();
     let mut added = 0; let mut changed = 0; let mut skipped = 0;
@@ -809,7 +842,9 @@ mod tests {
         let names=stmt.query_map([],|r|r.get::<_,String>(0)).unwrap().collect::<rusqlite::Result<Vec<_>>>().unwrap();
         let unknown=names.into_iter().filter(|name|!policy::allowed(name)&&!policy::LOCAL_TABLES.contains(&name.as_str())).collect::<Vec<_>>();
         assert!(unknown.is_empty(),"持久化表需要明确迁移策略：{unknown:?}");
-        for key in ["ui.future-credential","memo.future-path","cloud.sync.config","cloud.sync.preview.config","cloudhub-tools-ui-zoom","cloudhub-tools-back-fab-position"] {assert!(!policy::portable_preference(key));}
+        for key in ["ui.future-credential","memo.future-path","cloud.sync.preview.config","cloudhub-tools-ui-zoom","cloudhub-tools-back-fab-position"] {assert!(!policy::portable_preference(key));}
+        // 云同步渠道配置随本任务进入可迁移范围；预览调试键仍必须保持本机。
+        assert!(policy::portable_preference("cloud.sync.config"));
     }
     #[test]
     fn narrow_replacement_only_imports_required_parents_and_never_replaces_them() {
@@ -844,6 +879,45 @@ mod tests {
         assert_eq!(restored[0]["secretKey"],"fixture-secret");assert_eq!(restored[0]["autoMount"],false);assert_eq!(restored[0]["mountPoint"],"");assert_eq!(restored[0]["cacheDir"],"");
         let notes:String=target.query_row("SELECT value FROM client_preferences WHERE key='cloudhub-tools-asset-notes'",[],|r|r.get(0)).unwrap();assert!(notes.contains("42:ecs:asset"));
         let plan=plan_import(&target,&input,&[2;32],"merge",&requested).unwrap();assert!(plan.iter().all(|item|item.added==0 && item.deleted==0));
+    }
+    #[test]
+    fn projections_transfer_cloud_sync_channels_with_sanitized_local_state() {
+        let fixture=Fixture::new();let source=fixture.db("source.sqlite3");let mut target=fixture.db("target.sqlite3");
+        let channel=|id:&str,name:&str,password:&str,auto_sync:bool,endpoint:&str| serde_json::json!({
+            "id":id,"name":name,"method":"webdav","provider":"custom","endpoint":endpoint,"username":"fixture",
+            "password":password,"accessKeyId":"","secretKey":"","bucket":"","region":"us-east-1","pathStyle":true,
+            "remoteRoot":"cloudhub-sync","profile":"default","autoSync":auto_sync,"allowInsecure":false,
+            "passwordProtected":false,"backupPassword":"","lastEtag":serde_json::Value::Null,"tables":serde_json::Value::Null,
+        });
+        let channels=serde_json::json!({"channels":[channel("11111111-1111-1111-1111-111111111111","本地","local-secret",true,"https://home.example.test/dav"),channel("22222222-2222-2222-2222-222222222222","备机","backup-secret",false,"https://backup.example.test/dav")]});
+        source.execute("INSERT INTO client_preferences VALUES('cloud.sync.config',?1,1)",[encrypt_secret_with_key(&channels.to_string(),&[1;32]).unwrap()]).unwrap();
+        let requested=vec!["transfer_cloud_sync".into()];
+        let input=export_portable(&source,&[1;32],&requested,false).unwrap();
+        assert!(input.contains("local-secret"),"明文导出必须包含渠道凭据");
+        assert!(input.contains("INSERT INTO \"transfer_cloud_sync\""));
+        assert!(input.contains("\"autoSync\": false") || input.contains("\"autoSync\":false"));
+        {let tx=target.transaction().unwrap();import_portable_scoped(&tx,&input,&[2;32],"merge",Some(&requested)).unwrap();tx.commit().unwrap();}
+        let raw:String=target.query_row("SELECT value FROM client_preferences WHERE key='cloud.sync.config'",[],|r|r.get(0)).unwrap();
+        assert!(decrypt_secret_with_key(&raw,&[1;32]).is_err());
+        let restored:serde_json::Value=serde_json::from_str(&decrypt_secret_with_key(&raw,&[2;32]).unwrap()).unwrap();
+        let list=restored["channels"].as_array().unwrap();
+        assert_eq!(list.len(),2);
+        assert_eq!(list[0]["password"],"local-secret");assert_eq!(list[0]["autoSync"],false);assert!(list[0]["lastEtag"].is_null());
+        // 再次合并不产生重复；覆盖模式替换同身份渠道并保留本机 id。
+        let plan=plan_import(&target,&input,&[2;32],"merge",&requested).unwrap();
+        assert_eq!(plan.iter().find(|item|item.table=="transfer_cloud_sync").unwrap().added,0);
+        let replaced=serde_json::json!({"channels":[channel("33333333-3333-3333-3333-333333333333","备机","new-secret",false,"https://backup.example.test/dav")]});
+        source.execute("DELETE FROM client_preferences",[]).unwrap();
+        source.execute("INSERT INTO client_preferences VALUES('cloud.sync.config',?1,1)",[encrypt_secret_with_key(&replaced.to_string(),&[1;32]).unwrap()]).unwrap();
+        let input=export_portable(&source,&[1;32],&requested,false).unwrap();
+        {let tx=target.transaction().unwrap();import_portable_scoped(&tx,&input,&[2;32],"overwrite",Some(&requested)).unwrap();tx.commit().unwrap();}
+        let raw:String=target.query_row("SELECT value FROM client_preferences WHERE key='cloud.sync.config'",[],|r|r.get(0)).unwrap();
+        let restored:serde_json::Value=serde_json::from_str(&decrypt_secret_with_key(&raw,&[2;32]).unwrap()).unwrap();
+        let list=restored["channels"].as_array().unwrap();
+        assert_eq!(list.len(),2);
+        let backup=list.iter().find(|item|item["name"]=="备机").unwrap();
+        assert_eq!(backup["id"],"22222222-2222-2222-2222-222222222222");
+        assert_eq!(backup["password"],"new-secret");
     }
     #[test]
     fn sql_requested_scope_keeps_dependency_updates_out_and_deleted_identity_does_not_attach_reused_id() {
@@ -1025,10 +1099,13 @@ mod tests {
         source.execute("INSERT INTO memo_groups VALUES('fixture',0,1)",[]).unwrap();
         source.execute("INSERT INTO memo_notes(title,group_name,created_at,updated_at,deleted_at) VALUES('deleted-note','fixture',1,1,5)",[]).unwrap();
         source.execute("INSERT INTO operation_logs(action,result,message,created_at) VALUES('fixture','ok','log-marker',1)",[]).unwrap();
-        source.execute("INSERT INTO client_preferences VALUES('cloud.sync.config','local-marker',1),('cloudhub.application-navigation','{}',1)",[]).unwrap();
+        let channels=serde_json::json!({"channels":[{"id":"11111111-1111-1111-1111-111111111111","name":"渠道","method":"webdav","provider":"custom","endpoint":"https://dav.example.test/dav","username":"fixture","password":"channel-secret-marker","accessKeyId":"","secretKey":"","bucket":"","region":"us-east-1","pathStyle":true,"remoteRoot":"cloudhub-sync","profile":"default","autoSync":true,"allowInsecure":false,"passwordProtected":false,"backupPassword":"","lastEtag":serde_json::Value::Null,"tables":serde_json::Value::Null}]});
+        source.execute("INSERT INTO client_preferences VALUES('cloud.sync.config',?1,1),('cloudhub.application-navigation','{}',1)",[encrypt_secret_with_key(&channels.to_string(),&[11;32]).unwrap()]).unwrap();
         let tables=selected(None).unwrap();
         let live=export_portable(&source,&[11;32],&tables,false).unwrap();
-        assert!(!live.contains("deleted-note")); assert!(!live.contains("log-marker")); assert!(!live.contains("local-marker"));
+        assert!(!live.contains("deleted-note")); assert!(!live.contains("log-marker"));
+        // 云同步渠道已进入可迁移范围：明文导出包含渠道凭据，并清理自动上传状态。
+        assert!(live.contains("channel-secret-marker")); assert!(live.contains("\"autoSync\":false"));
         assert!(live.contains("cloudhub.application-navigation"));
         let backup=export_portable(&source,&[11;32],&tables,true).unwrap();
         assert!(backup.contains("deleted-note"));

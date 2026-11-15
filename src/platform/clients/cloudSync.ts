@@ -1,5 +1,5 @@
 import { invokeOrWeb, jsonRequest, nativeOnly } from "./base";
-import { webApiDownload } from "../api";
+import { webApiDownload, runningInTauri } from "../api";
 import type { DatabaseImportPreview } from "./database";
 
 export type CloudSyncConfig = {
@@ -23,6 +23,13 @@ export type CloudSyncView = {
   };
   status: { busy: boolean; paused: boolean; lastUpload: string | null; lastDownload: string | null; error: string | null; progress?: CloudSyncProgress | null };
 };
+export type CloudSyncChannelSummary = {
+  id: string; name: string; method: string; endpoint: string; username: string;
+  hasPassword: boolean; hasSecretKey: boolean; hasBackupPassword: boolean;
+};
+export type CloudSyncImportStaging = { token: string; channels: CloudSyncChannelSummary[] };
+export type CloudSyncImportSummary = { added: number; updated: number; skipped: number };
+export type CloudSyncExportResult = { path?: string; content?: string };
 export function cloudSyncChannelClient(channelId = "default") {
   const path = (action: string) => `/api/cloud-sync/${action}?channelId=${encodeURIComponent(channelId)}`;
   return {
@@ -41,4 +48,14 @@ export function cloudSyncChannelClient(channelId = "default") {
 export const cloudSyncClient = {
   ...cloudSyncChannelClient(),
   channels: () => invokeOrWeb<CloudSyncView[]>("cloud_sync_channels", undefined, { path: "/api/cloud-sync/channels" }),
+  exportChannels: async (channelIds: string[]): Promise<CloudSyncExportResult> => {
+    const preview = { path: "/api/cloud-sync/export", init: jsonRequest("POST", { channelIds }) };
+    if (runningInTauri) {
+      const path = await invokeOrWeb<string | null>("cloud_sync_export_file", { channelIds }, preview);
+      return { path: path ?? undefined };
+    }
+    return invokeOrWeb<CloudSyncExportResult>("cloud_sync_export_file", { channelIds }, preview);
+  },
+  importPrepare: (payload?: string) => invokeOrWeb<CloudSyncImportStaging | null>("cloud_sync_import_prepare", { payload: payload ?? null }, { path: "/api/cloud-sync/import-preview", init: jsonRequest("POST", { payload: payload ?? null }) }),
+  importApply: (token: string, mode: "merge" | "overwrite") => invokeOrWeb<CloudSyncImportSummary>("cloud_sync_import_confirm", { token, mode }, { path: "/api/cloud-sync/import-apply", init: jsonRequest("POST", { token, mode }) }),
 };

@@ -126,12 +126,12 @@ export function UnifiedMigrationPanel({ mode, mobilePage = false, onClose, onImp
     catch (cause) { setBackup(null); setError(message(cause) + "，请重新选择备份重试。"); } finally { setBusy(false); }
   }
   const content = <>
-    <p className="sync-transfer-intro">{mobile ? "扫码接收电脑配置，或导入 .chdb 备份；预览并确认后恢复。" : "统一迁移云账号、主机、面板、证书及私钥、流水线、FRP、供应商、AI 配置、备忘录、指纹浏览器配置、验证码种子、云盘连接、资产自定义信息及外观偏好。排除日志、缓存、设备身份、云同步渠道、Codex 登录账号及下载包。扫码仅追加，不删除本地记录。"}</p>
+    <p className="sync-transfer-intro">{mobile ? "扫码接收电脑配置，或导入 .chdb 备份；预览并确认后恢复。" : "统一迁移云账号、主机、面板、证书及私钥、流水线、FRP、供应商、AI 配置、备忘录、指纹浏览器配置、验证码种子、云同步渠道、云盘连接、资产自定义信息及外观偏好。云同步渠道凭据一并迁移，手机可直接上传下载。排除日志、缓存、设备身份、Codex 登录账号及下载包。扫码仅追加，不删除本地记录。"}</p>
     {mobile ? <>
       <details className="mobile-sync-scope">
         <summary>同步数据范围与恢复规则</summary>
-        <p>支持云账号、主机连接、面板与证书、流水线、FRP、AI 与供应商、备忘录、指纹浏览器配置、验证器、云盘连接、资产收藏与备注、外观偏好。每个云渠道可单独选择范围。</p>
-        <p>不包含日志、缓存、设备身份、云同步渠道凭据、Codex 登录账号及下载文件。恢复不自动挂载云盘或启动桌面进程。</p>
+        <p>支持云账号、主机连接、面板与证书、流水线、FRP、AI 与供应商、备忘录、指纹浏览器配置、验证器、云同步渠道、云盘连接、资产收藏与备注、外观偏好。每个云渠道可单独选择范围。</p>
+        <p>不包含日志、缓存、设备身份、Codex 登录账号及下载文件。云同步渠道凭据随配置迁移，自动上传保持关闭，可在手机手动上传或下载。恢复不自动挂载云盘或启动桌面进程。</p>
         <p>下载时先选择机器和时间对应的版本，再选择模块。默认追加并保留已有记录；替换仅作用于所选模块，会删除其中备份未包含的本地记录，必须确认后执行。恢复前自动保存本机备份。</p>
       </details>
       <section className="mobile-import-card" aria-labelledby="mobile-import-scan-title">

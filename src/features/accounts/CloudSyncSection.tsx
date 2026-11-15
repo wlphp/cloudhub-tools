@@ -1,6 +1,6 @@
 import { ToastNotice } from "../../shared/ToastNotice";
 import { useEffect, useId, useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, Cloud, CloudDownload, CloudUpload, Link, Save, Plus, Pencil, Trash2, Search, History } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Cloud, CloudDownload, CloudUpload, Download, Link, Save, Plus, Pencil, Trash2, Search, History, Upload } from "lucide-react";
 import { cloudSyncClient, cloudSyncChannelClient, type CloudBackupVersion, type CloudSyncConfig, type CloudSyncView } from "../../platform/clients/cloudSync";
 import type { DatabaseImportPreview } from "../../platform/clients/database";
 import { databaseClient } from "../../platform/clients/database";
@@ -10,6 +10,7 @@ import { SharedDialog } from "../../shared/SharedDialog";
 import { PaginationBar } from "../../shared/PaginationBar";
 import { runningInTauri } from "../../platform/api";
 import { DataTransferScope, useTransferCatalog } from "./DataTransferScope";
+import { CloudSyncChannelExportDialog, CloudSyncChannelImportDialog } from "./CloudSyncTransferDialogs";
 import { appendCloudSyncHistory, backupHistoryKey, readBackupHistory, readCloudSyncHistory, type CloudSyncHistoryEntry } from "./cloud-backup-history";
 import "./cloud-backup-versions.css";
 import "./cloud-sync-editor.css";
@@ -34,6 +35,8 @@ export function CloudSyncSection({ onRestore, mobile = false }: { onRestore: (pr
   const [error, setError] = useState("");
   const [draft, setDraft] = useState<CloudSyncView | null>(null);
   const [busyChannel, setBusyChannel] = useState("");
+  const [transferDialog, setTransferDialog] = useState<"export" | "import" | null>(null);
+  const [notice, setNotice] = useState("");
   async function refresh() {
     try { setChannels(await cloudSyncClient.channels()); setError(""); }
     catch { setError("读取同步渠道失败，请重试。"); }
@@ -41,13 +44,19 @@ export function CloudSyncSection({ onRestore, mobile = false }: { onRestore: (pr
   }
   useEffect(() => { void refresh(); }, []);
   return <section className="data-settings-section cloud-sync-section" aria-label="云同步">
-    <div className="cloud-sync-list-heading"><h2>云同步</h2><div className="cloud-sync-actions"><button type="button" className="secondary" disabled={loading || !!busyChannel || !!draft} onClick={() => setDraft({ configured: false, config: { ...defaults, id: crypto.randomUUID(), name: "", hasPassword: false, hasSecretKey: false, hasBackupPassword: false }, status: { busy: false, paused: false, lastUpload: null, lastDownload: null, error: null } })}><Plus size={16} aria-hidden="true" />添加同步渠道</button></div></div>
+    <div className="cloud-sync-list-heading"><h2>云同步</h2><div className="cloud-sync-actions">{!mobile && <>
+      <button type="button" className="secondary" disabled={loading || !!busyChannel || !!draft || !channels.length} title="导出渠道配置为明文 JSON" onClick={() => { setNotice(""); setTransferDialog("export"); }}><Download size={16} aria-hidden="true" />导出渠道</button>
+      <button type="button" className="secondary" disabled={loading || !!busyChannel || !!draft} title="从明文 JSON 导入渠道配置" onClick={() => { setNotice(""); setTransferDialog("import"); }}><Upload size={16} aria-hidden="true" />导入渠道</button>
+    </>}<button type="button" className="secondary" disabled={loading || !!busyChannel || !!draft} onClick={() => setDraft({ configured: false, config: { ...defaults, id: crypto.randomUUID(), name: "", hasPassword: false, hasSecretKey: false, hasBackupPassword: false }, status: { busy: false, paused: false, lastUpload: null, lastDownload: null, error: null } })}><Plus size={16} aria-hidden="true" />添加同步渠道</button></div></div>
     <p className="cloud-sync-hint">{mobile ? "连接 WebDAV、S3 或阿里云 OSS，按设备与时间恢复历史备份。" : "每条渠道独立配置 WebDAV、S3 或阿里云 OSS 存储；上传保留历史版本，下载时选择机器和时间。"}</p>
     {loading && <p role="status">正在读取同步渠道…</p>}
     {error && <p role="alert" className="data-settings-error">{error}<button type="button" className="secondary" onClick={() => void refresh()}>重试</button></p>}
     {!loading && !error && channels.length === 0 && <div className="data-settings-panel"><p>尚未添加同步渠道，添加后即可上传备份、下载和查看云端备份列表。</p></div>}
     <div className="cloud-sync-channel-list">{channels.map(channel => <CloudSyncChannel key={channel.config.id ?? "default"} channel={channel} onRestore={onRestore} mobile={mobile} blocked={!!busyChannel && busyChannel !== channel.config.id} onBusy={busy => setBusyChannel(busy ? channel.config.id ?? "default" : "")} onChanged={() => void refresh()} />)}</div>
     {draft && <CloudSyncChannel channel={draft} onRestore={onRestore} mobile={mobile} blocked={!!busyChannel && busyChannel !== draft.config.id} onBusy={busy => setBusyChannel(busy ? draft.config.id ?? "default" : "")} onChanged={() => { setDraft(null); void refresh(); }} onCancel={() => setDraft(null)} />}
+    <ToastNotice message={notice} onDismiss={() => setNotice("")} />
+    {transferDialog === "export" && <CloudSyncChannelExportDialog channels={channels} onClose={() => setTransferDialog(null)} onStatus={setNotice} />}
+    {transferDialog === "import" && <CloudSyncChannelImportDialog onClose={() => setTransferDialog(null)} onDone={summary => { void refresh(); setNotice(`渠道导入完成：新增 ${summary.added} 条、覆盖 ${summary.updated} 条、跳过 ${summary.skipped} 条。`); }} />}
   </section>;
 }
 

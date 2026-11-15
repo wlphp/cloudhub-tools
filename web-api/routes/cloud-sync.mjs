@@ -39,6 +39,21 @@ export async function handleCloudSyncRoutes(req, res, url) {
       if ((body.config?.id ?? "default") !== channelId) throw new CloudSyncError("同步渠道不匹配");
       const result = await channels.run(() => action === "reveal" ? service.reveal(body.config, body.field) : service[action](body.config));
       send(res, 200, result ?? null);
+    }
+    else if (req.method === "POST" && action === "export") {
+      const body = JSON.parse(await readBody(req, 64 * 1024));
+      const ids = Array.isArray(body?.channelIds) ? body.channelIds.filter(id => typeof id === "string") : undefined;
+      send(res, 200, { content: channels.exportChannels(ids) });
+    }
+    else if (req.method === "POST" && action === "import-preview") {
+      const body = JSON.parse(await readBody(req, 1024 * 1024));
+      if (typeof body?.payload !== "string") throw new CloudSyncError("请先选择云同步配置文件");
+      send(res, 200, { token: body.payload, channels: channels.importPreview(body.payload).channels });
+    }
+    else if (req.method === "POST" && action === "import-apply") {
+      const body = JSON.parse(await readBody(req, 1024 * 1024));
+      if (typeof body?.token !== "string" || !body.token) throw new CloudSyncError("导入预览已失效，请重新选择文件");
+      send(res, 200, await channels.run(() => channels.importApply(body.token, body.mode ?? "merge")));
     } else if (req.method === "POST" && action === "upload") {
       const body = JSON.parse(await readBody(req, 1024));
       if (!body || Array.isArray(body) || typeof body !== "object" || Object.keys(body).length) throw new CloudSyncError("上传参数无效，请直接备份本机当前数据");

@@ -215,7 +215,7 @@ fn backup_record(path: &Path) -> Result<DatabaseBackupRecord, String> {
     Ok(DatabaseBackupRecord { id, file_name, created_at, size_bytes: metadata.len(), encrypted: &signature == backup_crypto::MAGIC })
 }
 
-fn write_new_or_replace(target: &Path, bytes: &[u8]) -> Result<(), String> {
+pub(crate) fn write_new_or_replace(target: &Path, bytes: &[u8]) -> Result<(), String> {
     use std::io::Write;
     let parent = target.parent().ok_or("保存位置无效")?;
     let temp = parent.join(format!(".cloudhub-write-{}", Uuid::new_v4()));
@@ -996,7 +996,9 @@ mod tests {
         let root=std::env::temp_dir().join(format!("cloudhub-policy-{}",Uuid::new_v4())); fs::create_dir(&root).unwrap();
         let path=root.join("snapshot.sqlite3");
         let db=crate::core::database::open_transfer_test_db(&path).unwrap();
-        db.execute_batch("INSERT INTO operation_logs(action,result,message,created_at) VALUES('fixture','ok','forbidden-log-marker',1); INSERT INTO codex_accounts(identity,label,auth_mode,auth_ciphertext,updated_at) VALUES('fixture','fixture','oauth','forbidden-account-marker',1); INSERT INTO client_preferences VALUES('cloud.sync.config','forbidden-config-marker',1); INSERT INTO memo_groups VALUES('fixture',0,1); INSERT INTO memo_notes(title,body,group_name,created_at,updated_at,deleted_at) VALUES('fixture','portable-note-marker','fixture',1,1,5);").unwrap();
+        db.execute_batch("INSERT INTO operation_logs(action,result,message,created_at) VALUES('fixture','ok','forbidden-log-marker',1); INSERT INTO codex_accounts(identity,label,auth_mode,auth_ciphertext,updated_at) VALUES('fixture','fixture','oauth','forbidden-account-marker',1); INSERT INTO memo_groups VALUES('fixture',0,1); INSERT INTO memo_notes(title,body,group_name,created_at,updated_at,deleted_at) VALUES('fixture','portable-note-marker','fixture',1,1,5);").unwrap();
+        use crate::core::crypto::encrypt_secret_with_key as encrypt_pref;
+        db.execute("INSERT INTO client_preferences VALUES('cloud.sync.config',?1,1)",[encrypt_pref("forbidden-config-marker",&[1;32]).unwrap()]).unwrap();
         drop(db);
         super::sanitize_snapshot_with_key(&path,&[1;32]).unwrap();
         let db=Connection::open(&path).unwrap();
@@ -1004,6 +1006,8 @@ mod tests {
             assert_eq!(super::table_count(&db,table).unwrap(),0);
         }
         assert_eq!(super::table_count(&db,"memo_notes").unwrap(),1);
+        // 云同步渠道配置投影为 transfer_cloud_sync 保留在快照中，值保持密文。
+        assert_eq!(super::table_count(&db,"transfer_cloud_sync").unwrap(),1);
         assert_eq!(super::table_count(&db,"cloudhub_transfer_policy").unwrap(),1);
         drop(db);
         let bytes=fs::read(&path).unwrap(); let text=String::from_utf8_lossy(&bytes);

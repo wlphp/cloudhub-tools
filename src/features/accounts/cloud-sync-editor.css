@@ -49,3 +49,7 @@ body:has(.mobile-shell) .shared-dialog-backdrop :is(.cloud-sync-history-dialog, 
 body:has(.mobile-shell) .shared-dialog-backdrop .cloud-backup-versions > .modal-actions { flex-wrap: wrap; gap: 8px; }
 body:has(.mobile-shell) .shared-dialog-backdrop .cloud-backup-versions > .modal-actions > .cloud-backup-total { flex: 1 1 100%; }
 body:has(.mobile-shell) .shared-dialog-backdrop .cloud-backup-download-dialog .cloud-sync-field { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; background: transparent; font-size: 12px; }
+/* 云同步渠道导出/导入弹层：复用 data-transfer-dialog 基座，仅补充渠道勾选列表与下拉框排版。 */
+.cloud-sync-channel-pick { display: flex; flex-direction: column; gap: 0; }
+.cloud-sync-channel-pick .data-transfer-check { margin: 4px 0; font-size: 12px; }
+.data-transfer-dialog .data-transfer-field select { box-sizing: border-box; width: 100%; min-width: 0; min-height: 36px; padding: 6px 10px; border: 1px solid var(--jb-border-strong); border-radius: 5px; background: var(--jb-input); color: var(--jb-text); font: inherit; }

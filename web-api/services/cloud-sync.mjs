@@ -112,7 +112,66 @@ export function createCloudSyncChannels({ load, persist, fetchRemote }) {
       persist({ channels: all.filter(config => config.id !== id) });
       services.delete(id);
     },
+    // 明文导出与导入保持与桌面端一致：仅本机调试服务内处理，不写入日志。
+    exportChannels(ids) {
+      const all = configs();
+      if (!all.length) fail("尚未添加同步渠道，先添加并保存后才能导出");
+      let channels = all;
+      if (Array.isArray(ids)) {
+        if (!ids.length) fail("请选择至少一个同步渠道");
+        channels = all.filter(config => ids.includes(config.id));
+        if (!channels.length) fail("所选同步渠道不存在，请刷新列表后重试");
+      }
+      for (const config of channels) mergeConfig({ ...config }, null);
+      return JSON.stringify({ format: "cloudhub-tools-cloud-sync", version: 1, exportedAt: new Date().toISOString(), channels }, null, 2);
+    },
+    importPreview(payload) {
+      return { channels: parseImportPayload(payload).map(raw => importSummary(mergeConfig({ ...raw }, null))) };
+    },
+    importApply(payload, mode) {
+      if (!["merge", "overwrite"].includes(mode)) fail("导入方式无效");
+      const incoming = parseImportPayload(payload);
+      const all = configs();
+      let added = 0, updated = 0, skipped = 0;
+      for (const raw of incoming) {
+        const config = mergeConfig({ ...raw }, null);
+        const matched = all.findIndex(item => item.id === config.id
+          || ["method", "endpoint", "username", "accessKeyId"].every(key => (item[key] ?? "") === (config[key] ?? "")));
+        if (matched >= 0) {
+          if (mode === "merge") { skipped += 1; continue; }
+          config.id = all[matched].id;
+          all[matched] = config;
+          updated += 1;
+        } else {
+          if (all.length >= 50) fail("同步渠道最多可添加 50 条");
+          all.push(config);
+          added += 1;
+        }
+      }
+      if (added + updated > 0) persist({ channels: all });
+      return { added, updated, skipped };
+    },
   };
+}
+
+function importSummary(config) {
+  return {
+    id: config.id ?? "default", name: config.name ?? "默认渠道", method: config.method ?? "webdav",
+    endpoint: config.endpoint ?? "", username: config.username ?? "",
+    hasPassword: !!config.password, hasSecretKey: !!config.secretKey, hasBackupPassword: !!config.backupPassword,
+  };
+}
+
+function parseImportPayload(payload) {
+  if (typeof payload !== "string" || !payload.trim()) fail("请先选择云同步配置文件");
+  if (payload.length > 2 * 1024 * 1024) fail("云同步配置文件超过 2 MB 限制");
+  let value;
+  try { value = JSON.parse(payload); } catch { fail("云同步配置文件格式无效"); }
+  if (value?.format && value.format !== "cloudhub-tools-cloud-sync") fail("这不是 CloudHub 导出的云同步配置文件");
+  const list = Array.isArray(value?.channels) ? value.channels : value && typeof value === "object" ? [value] : null;
+  if (!list?.length) fail("文件中没有可导入的同步渠道");
+  if (list.length > 50) fail("一次最多导入 50 条同步渠道");
+  return list;
 }
 
 function ossEndpoint(config) {

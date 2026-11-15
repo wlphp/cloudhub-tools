@@ -10,6 +10,7 @@ const moduleGroups = [
   ["流水线与 FRP", ["flow_connections", "frp_local_settings", "frp_local_servers", "frp_local_proxies", "frp_clients", "frp_local_client"]],
   ["AI 与供应商", ["claude_providers", "codex_model_providers", "codex_provider_keys", "codex_provider_aggregates", "codex_provider_aggregate_members", "ai_profiles"]],
   ["备忘录与工具", ["memo_groups", "memo_notes", "browser_environments", "authenticator_entries"]],
+  ["云同步渠道", ["transfer_cloud_sync"]],
   ["云盘、资产与外观", ["transfer_cloud_drive", "transfer_asset_metadata", "client_preferences"]],
 ] as const;
 export function useTransferCatalog(enabled = true) {

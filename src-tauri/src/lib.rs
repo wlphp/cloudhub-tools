@@ -1085,6 +1085,7 @@ pub fn run() {
         commands::cloud_sync::cloud_sync_delete_version,
         commands::cloud_sync::cloud_sync_channels, commands::cloud_sync::cloud_sync_delete,
         commands::cloud_sync::cloud_sync_reveal_secret,
+        commands::cloud_sync::cloud_sync_export_file, commands::cloud_sync::cloud_sync_import_prepare, commands::cloud_sync::cloud_sync_import_confirm,
         codex_config_source,
         codex_provider_list, codex_provider_save, codex_provider_duplicate, codex_provider_remove, codex_provider_reveal_key,
         codex_provider_preview, codex_provider_apply, codex_provider_restore, codex_provider_models, codex_provider_probe, codex_provider_usage, codex_provider_import, codex_provider_export, codex_provider_logs, codex_provider_logs_clear,

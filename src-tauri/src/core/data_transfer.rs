@@ -21,6 +21,7 @@ pub const TABLES: &[(&str, &str)] = &[
     ("browser_environments", "指纹浏览器配置"),
     ("authenticator_entries", "验证器（含种子）"),
     ("transfer_cloud_drive", "云盘连接配置"), ("transfer_asset_metadata", "资产自定义信息"),
+    ("transfer_cloud_sync", "云同步渠道"),
     ("client_preferences", "外观与使用偏好"),
 ];
 pub fn allowed(table: &str) -> bool { TABLES.iter().any(|(name, _)| *name == table) }
@@ -29,6 +30,7 @@ pub fn allowed(table: &str) -> bool { TABLES.iter().any(|(name, _)| *name == tab
 #[allow(dead_code)]
 pub const LOCAL_TABLES: &[&str] = &[
     "api_logs","operation_logs","cloud_assets","flow_pipeline_cache","network_speed_history",
+    "ip_location_cache",
     "certificate_snapshots","certificate_sync_identity","flow_sync_identity",
     "authenticator_vault","memo_reminders","ai_capabilities","claude_provider_backups",
     "codex_accounts","codex_profiles","codex_profile_backups","codex_account_controls","codex_account_events",
@@ -56,6 +58,7 @@ pub fn portable_preference(key: &str) -> bool {
 pub fn preference_module(key: &str) -> Option<&'static str> {
     match key {
         "cloud.drive.connections" => Some("transfer_cloud_drive"),
+        "cloud.sync.config" => Some("transfer_cloud_sync"),
         "cloudhub-tools-favorite-assets" | "cloudhub-tools-favorite-asset-order" |
         "cloudhub-tools-asset-notes" | "cloudhub-tools-asset-order" |
         "cloudhub-tools-asset-display-names" | "cloudhub-tools-managed-host-order" => Some("transfer_asset_metadata"),
@@ -65,11 +68,11 @@ pub fn preference_module(key: &str) -> Option<&'static str> {
         _ => None,
     }
 }
-pub fn virtual_table(table: &str) -> bool { matches!(table, "transfer_cloud_drive" | "transfer_asset_metadata") }
+pub fn virtual_table(table: &str) -> bool { matches!(table, "transfer_cloud_drive" | "transfer_asset_metadata" | "transfer_cloud_sync") }
 pub fn target_table(table: &str) -> &str { if virtual_table(table) { "client_preferences" } else { table } }
 /// Transfer-only projections; these tables never become application persistence.
 pub fn project_preferences(db: &Connection) -> Result<(), String> {
-    for table in ["transfer_cloud_drive", "transfer_asset_metadata"] {
+    for table in ["transfer_cloud_drive", "transfer_asset_metadata", "transfer_cloud_sync"] {
         db.execute_batch(&format!("CREATE TABLE IF NOT EXISTS {table}(key TEXT PRIMARY KEY,value TEXT NOT NULL,updated_at INTEGER NOT NULL DEFAULT 0)")).map_err(|_| "创建偏好投影失败")?;
     }
     let mut stmt = db.prepare("SELECT key,value,updated_at FROM client_preferences").map_err(|_| "读取偏好投影失败")?;
@@ -117,6 +120,23 @@ pub fn convert(table: &str, column: &str, value: Value, from: Option<&[u8]>, to:
             object.insert("cacheDir".into(), "".into());
         }
         let plain = zeroize::Zeroizing::new(serde_json::to_string(&connections).map_err(|_| "云盘连接格式无效")?);
+        return Ok(Value::Text(match to { Some(key) => encrypt_secret_with_key(&plain,key)?, None => plain.to_string() }));
+    }
+    if table == "transfer_cloud_sync" && column == "value" {
+        let plain = zeroize::Zeroizing::new(match from { Some(key) => decrypt_secret_with_key(&text,key).map_err(|_| "云同步配置转换失败")?, None => text });
+        let mut value: serde_json::Value = serde_json::from_str(&plain).map_err(|_| "云同步配置格式无效")?;
+        // 自动上传和 etag 是本机运行状态：自动上传仅桌面后台执行，etag 只对
+        // 上传过它的机器有意义，跨设备迁移时必须重置。
+        let sanitize = |object: &mut serde_json::Map<String, serde_json::Value>| {
+            object.insert("autoSync".into(), false.into());
+            object.insert("lastEtag".into(), serde_json::Value::Null);
+        };
+        if let Some(channels) = value.get_mut("channels").and_then(|channels| channels.as_array_mut()) {
+            for channel in channels.iter_mut() { if let Some(object) = channel.as_object_mut() { sanitize(object); } }
+        } else if let Some(object) = value.as_object_mut() {
+            sanitize(object);
+        }
+        let plain = zeroize::Zeroizing::new(serde_json::to_string(&value).map_err(|_| "云同步配置格式无效")?);
         return Ok(Value::Text(match to { Some(key) => encrypt_secret_with_key(&plain,key)?, None => plain.to_string() }));
     }
     if secret(table, column) { return convert_secret(&text).map(Value::Text).map_err(|_| "迁移凭据转换失败".into()); }
