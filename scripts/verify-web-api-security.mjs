@@ -28,6 +28,8 @@ assert.deepEqual([...defaults], [
   "http://localhost:1420",
   "http://127.0.0.1:1421",
   "http://localhost:1421",
+  "http://127.0.0.1:1422",
+  "http://localhost:1422",
 ]);
 assert.equal(webRequestOriginPolicy({ headers: { origin: "https://example.com" } }, defaults).allowed, false);
 assert.equal(webRequestOriginPolicy({ headers: { "sec-fetch-site": "cross-site" } }, defaults).allowed, false);
