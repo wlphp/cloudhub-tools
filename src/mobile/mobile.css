@@ -4655,13 +4655,25 @@ body.theme-light .mobile-shell .mobile-panel-card .mobile-panel-actions > button
 .mobile-shell .mobile-ssh-host-actions > .mobile-ssh-connect { border-color: var(--mobile-accent-border); background: var(--mobile-accent-soft); color: var(--mobile-accent-strong); }
 .mobile-shell .mobile-ssh-host-actions > button:disabled { opacity: .5; }
 .mobile-shell .mobile-ssh-host-actions > button:focus-visible { outline: 2px solid var(--mobile-focus); outline-offset: 2px; }
-.mobile-about-layout .mobile-about-update { align-items: stretch; }
-.mobile-about-layout .mobile-update-buttons { display: flex; width: 100%; justify-content: center; gap: 10px; }
-.mobile-about-layout .mobile-update-buttons button { flex: 0 1 220px; min-width: min(150px,100%); min-height: 44px; border-color: var(--mobile-border-strong); border-radius: 10px; font-size: 13px; font-weight: 600; }
-.mobile-about-layout .mobile-update-buttons button:not(.mobile-primary) { background: var(--mobile-raised); color: var(--mobile-text); }
+.mobile-about-layout .mobile-about-update { display: grid; grid-template-columns: auto minmax(0,1fr); align-items: center; gap: 8px 12px; border-radius: 10px; }
+.mobile-about-layout .mobile-about-update-copy { display: contents; }
+.mobile-about-layout .mobile-about-update-copy strong { grid-column: 1; grid-row: 1; }
+.mobile-about-layout .mobile-about-update-copy small { grid-column: 1 / -1; grid-row: 2; font-size: 12px; line-height: 1.6; }
+.mobile-about-layout .mobile-about-update > :is(progress, details, small) { grid-column: 1 / -1; }
+.mobile-about-layout .mobile-update-buttons { display: flex; grid-column: 2; grid-row: 1; width: auto; min-width: 0; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+.mobile-about-layout .mobile-update-buttons button { flex: 0 1 auto; width: auto; min-width: 0; min-height: 44px; margin: 0; padding: 0 12px; border: 1px solid var(--mobile-border); border-radius: 6px; box-shadow: none; font-size: 12px; font-weight: 500; }
+.mobile-about-layout .mobile-update-buttons button:not(.mobile-primary) { background: var(--mobile-surface); color: var(--mobile-text); }
 .mobile-about-layout .mobile-update-buttons button.mobile-primary { border-color: var(--mobile-accent-strong); background: var(--mobile-accent-strong); color: #fff; }
 .mobile-about-layout .mobile-update-buttons button:disabled { opacity: .58; }
-@media (max-width: 380px) { .mobile-about-layout .mobile-update-buttons { gap: 8px; }.mobile-about-layout .mobile-update-buttons button { flex-basis: 160px; padding-inline: 8px; font-size: 12px; } }
+.mobile-about-layout .mobile-about-platform { display: grid; grid-template-columns: 36px minmax(0,1fr) auto; align-items: center; gap: 10px; padding: 14px; border-radius: 10px; }
+.mobile-about-layout .mobile-about-platform-icon { width: 36px; height: 36px; border: 0; border-radius: 8px; }
+.mobile-about-layout .mobile-about-platform-copy small { font-size: 12px; }
+.mobile-about-layout .mobile-about-platform-action { min-height: 44px; margin: 0; padding: 0 12px; border: 1px solid var(--mobile-border); border-radius: 6px; background: var(--mobile-surface); font-size: 12px; font-weight: 500; }
+.mobile-about-layout .mobile-about-links { grid-template-columns: minmax(0,1fr); gap: 0; overflow: hidden; border: 1px solid var(--mobile-border); border-radius: 10px; background: var(--mobile-surface); }
+.mobile-about-layout .mobile-about-links a { min-height: 48px; padding: 0 14px; gap: 10px; border: 0; border-radius: 0; font-size: 13px; }
+.mobile-about-layout .mobile-about-links a + a { border-top: 1px solid var(--mobile-border); }
+.mobile-about-layout :is(.mobile-about-platform-action, .mobile-about-links a):active { background: var(--mobile-raised); }
+.mobile-about-layout :is(.mobile-about-platform-action, .mobile-about-links a):focus-visible { outline: 2px solid var(--mobile-accent); outline-offset: -3px; }
 .sync-transfer-mobile-page > .sync-transfer-intro { margin-bottom: 12px; padding: 10px 12px; border-left: 3px solid var(--mobile-accent); border-radius: 0 10px 10px 0; background: color-mix(in srgb,var(--mobile-accent) 6%,var(--mobile-surface)); }
 .sync-transfer-mobile-page .mobile-sync-scope { margin: 0 0 14px; padding: 0 12px; border: 1px solid var(--mobile-border); border-radius: 11px; background: var(--mobile-surface); }
 .sync-transfer-mobile-page .mobile-sync-scope summary { color: var(--mobile-text); font-weight: 600; }

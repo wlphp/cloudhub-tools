@@ -1,0 +1,23 @@
+.database-import-dialog .import-file-summary { display: grid; gap: 4px; margin-bottom: 14px; min-width: 0; overflow-wrap: anywhere; }
+.database-import-dialog .import-file-summary strong { font-size: 14px; color: var(--jb-text); }
+.database-import-dialog .import-file-summary span { font-size: 12px; line-height: 1.6; color: var(--jb-muted); }
+.database-import-dialog .import-impact { margin: 0 0 14px; padding: 12px; border: 1px solid var(--jb-border); border-radius: 8px; }
+.database-import-dialog .import-impact-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.database-import-dialog .import-impact-heading h3 { margin: 0; font-size: 14px; }
+body .shared-dialog-backdrop .database-import-dialog .import-impact-refresh { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; margin: 0; padding: 0 10px; border: 1px solid var(--jb-border); border-radius: 6px; background: var(--jb-surface-2); color: var(--jb-text); font: inherit; font-size: 12px; cursor: pointer; box-shadow: none; }
+.database-import-dialog .import-impact p { margin: 8px 0 0; font-size: 13px; line-height: 1.6; }
+.database-import-dialog .import-impact-total { font-weight: 600; color: var(--jb-accent-strong); }
+.database-import-dialog .import-impact-details { margin-top: 8px; color: var(--jb-muted); font-size: 12px; }
+.database-import-dialog :is(.import-impact-details, .import-options) > summary { min-height: 44px; align-content: center; cursor: pointer; }
+.database-import-dialog .import-impact-list > div { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 8px; padding: 10px 0; border-top: 1px solid var(--jb-border); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.database-import-dialog .import-impact-list strong { font-weight: 500; color: var(--jb-text); text-align: right; }
+.database-import-dialog .import-impact-list small { display: block; color: var(--jb-muted); }
+.database-import-dialog .import-options p { margin: 10px 0 0; color: var(--jb-muted); font-size: 12px; line-height: 1.6; }
+.database-import-dialog .import-options .data-transfer-check { display: flex; align-items: center; gap: 8px; min-height: 44px; margin: 0; padding: 8px 0; font-size: 13px; line-height: 1.5; }
+.database-import-dialog .import-options input[type="checkbox"] { flex: 0 0 20px; width: 20px; height: 20px; margin: 0; accent-color: var(--jb-accent); }
+.database-import-dialog .import-impact-refresh:focus-visible { outline: 2px solid var(--jb-accent); outline-offset: 2px; }
+.database-import-dialog .import-impact-refresh:disabled { opacity: .5; cursor: not-allowed; }
+.mobile-restore-result { margin-top: 12px; padding: 12px 14px; border: 1px solid var(--mobile-border); border-radius: 10px; background: var(--mobile-surface); color: var(--mobile-text); font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.mobile-restore-result > strong { font-weight: 600; }
+.mobile-restore-result summary { min-height: 44px; align-content: center; color: var(--mobile-muted); cursor: pointer; }
+.mobile-restore-result p { margin: 8px 0; font-size: 12px; color: var(--mobile-muted); }

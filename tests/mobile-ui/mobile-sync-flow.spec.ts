@@ -22,6 +22,7 @@ test("browser can select a local backup and review before restoring", async ({ p
   await page.locator(".mobile-tab-bar").getByRole("button", { name: "我的", exact: true }).click();
   await page.getByRole("button", { name: "系统设置", exact: true }).click();
   await page.getByRole("button", { name: "数据导入与迁移", exact: true }).click();
+  await page.getByRole("button", { name: /^导入本地备份/ }).click();
   await page.getByLabel("备份密码（可选）", { exact: true }).fill("测试密码");
   const chooser = page.waitForEvent("filechooser");
   await page.getByRole("button", { name: "选择 .chdb 备份", exact: true }).click();
@@ -48,6 +49,7 @@ test("errors after scanning are readable next to scan control", async ({ page })
   await page.locator(".mobile-tab-bar").getByRole("button", { name: "我的", exact: true }).click();
   await page.getByRole("button", { name: "系统设置", exact: true }).click();
   await page.getByRole("button", { name: "数据导入与迁移", exact: true }).click();
+  await page.getByRole("button", { name: /^扫码接收/ }).click();
   await page.getByRole("button", { name: "扫码接收电脑配置" }).click();
   const card = page.locator(".mobile-import-card").first();
   await expect(page.locator(".app-toast-notice").filter({ hasText: "无法连接电脑迁移服务，请检查防火墙" })).toBeVisible();
@@ -72,12 +74,15 @@ test("phone reports denied camera permission and allows retry", async ({ page })
   await page.getByRole("button",{name:"数据导入与迁移",exact:true}).click();
   await expect(page.getByRole("heading", { name: "数据导入与迁移", exact: true })).toBeVisible();
   await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page.getByRole("button", { name: /^扫码接收/ }).click();
   await expect(page.getByRole("region", { name: "数据迁移" })).toHaveCSS("box-shadow", "none");
   const scan=page.getByRole("button",{name:"扫码接收电脑配置"});
   await scan.click();
   await expect(page.getByRole("alert")).toContainText("相机权限");
   await expect(page.getByRole("button",{name:"打开相机权限设置"})).toBeVisible();
   await expect(scan).toBeEnabled();
+  await page.getByRole("button", { name: "返回数据导入与迁移", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "数据导入与迁移", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "返回设置", exact: true }).click();
   await expect(page.getByRole("heading", { name: "设置", exact: true })).toBeVisible();
 });

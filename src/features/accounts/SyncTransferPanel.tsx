@@ -4,6 +4,7 @@ import { UnifiedMigrationPanel } from "./UnifiedMigrationPanel";
 type Props = {
   mode: "desktop" | "mobile";
   mobilePage?: boolean;
+  mobileSection?: "receive" | "backup" | "cloud";
   accounts?: Account[];
   managedHosts?: ManagedHost[];
   panels?: PanelConnection[];

@@ -100,13 +100,19 @@ test("browser checks stable releases but never offers native APK installation", 
   await expect(page.getByRole("button", { name: /下载更新|安装更新/ })).toHaveCount(0);
 });
 
-test("Android update failure shows a safe message and allows retry", async ({ page }) => {
+test("Android update failure shows a safe message and allows retry", async ({ page }, testInfo) => {
   await nativeFixture(page, false);
   await page.goto("/");
   await more(page);
   await openMobileFeature(page, "系统设置");
   await page.getByRole("button", { name: "更新与关于", exact: true }).click();
   await expect(page.getByText(/当前版本无需更新/)).toBeVisible();
+  for (const width of [375, 768, 1024, 1440]) {
+    await page.setViewportSize({ width, height: 844 });
+    expect(await page.locator(".mobile-about-layout").evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+  }
+  await page.setViewportSize({ width: 375, height: 844 });
+  await page.screenshot({ path: testInfo.outputPath("about-buttons.png") });
   await page.evaluate(() => {
     const internals = (window as any).__TAURI_INTERNALS__;
     const invoke = internals.invoke;

@@ -36,6 +36,7 @@ import { assetFavoriteKey, savedFavoriteAssetKeys, stringListFromValue } from ".
 import type { AccountSaveInput } from "../platform/clients/accounts";
 import { serversClient, type InstanceAction } from "../platform/clients/servers";
 import { SyncTransferPanel } from "../features/accounts/SyncTransferPanel";
+import { MobileDataMigrationPage, type MobileMigrationDestination } from "./MobileDataMigrationPage";
 import { NetworkSettingsPage } from "../features/settings/NetworkSettingsPage";
 import { runningInTauri } from "../platform/api";
 import { MobileResourceOverview } from "./MobileResourceOverview";
@@ -65,7 +66,7 @@ import { MemberAvatar } from "../features/member/MemberDialog";
 import { memberClient, memberHasExperienceOfficerIdentity, type Member } from "../platform/clients/member";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
-type MobileTab = "accounts" | "servers" | "domains" | "assets" | "favorites" | "storage" | "databases" | "redis" | "certificates" | "ssh" | "panels" | "sync" | "settings" | "settingsMenu" | "networkSettings" | "appLock" | "appLockPin" | "appLockPattern" | "operationLogs" | "apiLogs" | "about" | "flow" | "authenticator" | "personalProfile" | "member" | "more" | "home" | "monitorAlerts" | "softwareStore";
+type MobileTab = MobileMigrationDestination | "accounts" | "servers" | "domains" | "assets" | "favorites" | "storage" | "databases" | "redis" | "certificates" | "ssh" | "panels" | "sync" | "settings" | "settingsMenu" | "networkSettings" | "appLock" | "appLockPin" | "appLockPattern" | "operationLogs" | "apiLogs" | "about" | "flow" | "authenticator" | "personalProfile" | "member" | "more" | "home" | "monitorAlerts" | "softwareStore";
 
 function mobilePanelIp(panelUrl: string): string {
   try {
@@ -1487,6 +1488,9 @@ export function MobileApp() {
     appLockPin: "数字密码",
     appLockPattern: "滑动图案",
     sync: "数据导入与迁移",
+    syncReceive: "扫码接收",
+    syncBackup: "导入本地备份",
+    syncCloud: "云同步",
     authenticator: "身份验证器",
     operationLogs: "操作日志",
     apiLogs: "API 日志",
@@ -1499,6 +1503,7 @@ export function MobileApp() {
     if (tab === "favorites") return { label: "返回我的资产", onClick: () => setTab("assets") };
     // 应用锁的两个密码子页逐级返回：数字密码/滑动图案 → 应用锁 → 设置菜单。
     if (tab === "appLockPin" || tab === "appLockPattern") return { label: "返回应用锁", onClick: () => setTab("appLock") };
+    if (tab === "syncReceive" || tab === "syncBackup" || tab === "syncCloud") return { label: "返回数据导入与迁移", onClick: () => setTab("sync") };
     if (settingsPageOpen) return { label: "返回设置", onClick: returnToSettingsMenu };
     if (tab === "domains" && selectedDomain) return { label: "返回域名列表", onClick: () => { setSelectedDomain(null); setDnsRecords([]); } };
     if (tab === "storage" && selectedBucket) return {
@@ -1788,8 +1793,11 @@ export function MobileApp() {
           {panelLoading && filteredPanels.length === 0 ? <div className="mobile-empty">正在读取面板配置…</div> : filteredPanels.length === 0 ? <div className="mobile-empty"><Monitor size={28} /><strong>{resourceSearch.panels ? "没有匹配的面板" : "暂无已配置的面板"}</strong><span>可直接在手机添加面板，也可以导入电脑中的加密配置。</span><button type="button" className="mobile-primary" onClick={addPanel}>添加运维面板</button><button type="button" className="mobile-domain-back" onClick={() => setTab("sync")}>导入电脑配置</button></div> : <><div className="mobile-domain-list">{pagedPanels.map((panel) => { const cloudType = panelCloudType(panel, accounts); const panelIp = mobilePanelIp(panel.panel_url); return <article className="mobile-domain-card mobile-panel-card" key={panel.id}><div className="mobile-panel-card-heading"><div className="mobile-server-heading">{cloudType && <span className="mobile-provider-avatar mobile-panel-cloud" data-provider={cloudType} title={`云厂商：${cloudProvider(cloudType).label}`}>{<MobileProviderMark cloudType={cloudType} />}</span>}<Monitor size={17} /><strong>{panel.name}</strong></div><span className={`mobile-panel-status ${panel.status === "online" ? "online" : panel.status === "offline" ? "offline" : "unknown"}`}>{panel.status === "online" ? "在线" : panel.status === "offline" ? "离线" : "未检查"}</span></div><div className="mobile-panel-identity"><p className="mobile-panel-url">{panel.panel_url}</p>{panelIp && <IpLocation ip={panelIp} />}<div className="mobile-panel-card-meta"><span>{panel.group_name || "未分组"}</span><small><ShieldCheck size={13} />{panel.api_key_saved ? "密钥已加密" : "缺少 API 密钥"}</small></div></div><details className="mobile-server-options"><summary>监控详情</summary><MobilePanelMetrics panel={panel} /></details><div className="mobile-panel-actions"><button type="button" aria-label={`刷新面板 ${panel.name} 状态`} title="刷新状态" disabled={panelAutoRefresh.busy || panelActionId !== null} onClick={() => void refreshPanelStatus(panel)}><RefreshCw size={17} className={panelActionId === panel.id ? "mobile-spin" : ""} /><span>刷新</span></button><button type="button" className="primary" aria-label={`打开面板 ${panel.name}`} title="打开面板" disabled={panelAutoRefresh.busy || panelOpeningId === panel.id || !panel.api_key_saved || panel.status === "offline"} onClick={() => void openPanel(panel)}><ExternalLink size={17} /><span>{panelOpeningId === panel.id ? "打开中" : "打开"}</span></button><button type="button" aria-label={`编辑面板 ${panel.name}`} title="编辑面板" disabled={panelAutoRefresh.busy || panelActionId !== null} onClick={() => editPanel(panel)}><Pencil size={17} aria-hidden="true" /><span>编辑</span></button><button type="button" className="danger" aria-label={`删除面板 ${panel.name}`} title="删除面板" disabled={panelAutoRefresh.busy || panelActionId !== null} onClick={() => void removePanel(panel)}><Trash2 size={17} aria-hidden="true" /><span>删除</span></button></div></article>; })}</div><PaginationBar className="store-pagination" page={safePanelListPage} pageSize={panelListPageSize} total={filteredPanels.length} onPageChange={setPanelListPage} onPageSizeChange={(size) => { setPanelListPageSize(size); setPanelListPage(1); }} /></>}
 
         </> : tab === "sync" ? <>
-          <div className="mobile-page-title"><div><p>系统设置</p><h1 id="sync-transfer-title">导入数据</h1></div></div>
-          <SyncTransferPanel mode="mobile" mobilePage accounts={accounts} managedHosts={managedHosts} panels={panelConnections} initialPairingUrl={pendingTransferQr ?? undefined} onInitialPairingHandled={() => setPendingTransferQr(null)} onImported={() => { void refreshAccounts(); void refreshManagedHosts(); void refreshPanelConnections(); }} />
+          <div className="mobile-page-title"><div><p>系统设置</p><h1 id="sync-transfer-title">数据导入与迁移</h1></div></div>
+          <MobileDataMigrationPage onNavigate={setTab} />
+        </> : tab === "syncReceive" || tab === "syncBackup" || tab === "syncCloud" ? <>
+          <div className="mobile-page-title"><div><p>数据导入与迁移</p><h1>{settingsPageTitle[tab]}</h1></div></div>
+          <SyncTransferPanel key={tab} mode="mobile" mobilePage mobileSection={tab === "syncReceive" ? "receive" : tab === "syncBackup" ? "backup" : "cloud"} accounts={accounts} managedHosts={managedHosts} panels={panelConnections} initialPairingUrl={tab === "syncReceive" ? pendingTransferQr ?? undefined : undefined} onInitialPairingHandled={() => setPendingTransferQr(null)} onImported={() => { void refreshAccounts(); void refreshManagedHosts(); void refreshPanelConnections(); }} />
         </> : tab === "networkSettings" ? <>
           <div className="mobile-page-title mobile-network-page-title"><div><p>系统设置</p><h1>网络设置</h1></div></div>
           <NetworkSettingsPage mobile />
@@ -1830,7 +1838,7 @@ export function MobileApp() {
             <MobileUpdatePanel update={mobileUpdate} />
             <section className="mobile-about-platform" aria-labelledby="mobile-about-desktop-title">
               <span className="mobile-about-platform-icon"><Monitor size={20} aria-hidden="true" /></span>
-              <div className="mobile-about-platform-copy"><strong id="mobile-about-desktop-title">PC 桌面版</strong><small>Windows 与 macOS 版本可在 GitHub Releases 查看并下载。</small></div>
+              <div className="mobile-about-platform-copy"><strong id="mobile-about-desktop-title">PC 桌面版</strong><small>Windows · macOS</small></div>
               <a className="mobile-about-platform-action" href="https://github.com/wlphp/cloudhub-tools/releases" target="_blank" rel="noreferrer">查看下载<ExternalLink size={14} aria-hidden="true" /></a>
             </section>
             <section className="mobile-about-links" aria-label="CloudHub 服务入口">
@@ -1940,7 +1948,7 @@ export function MobileApp() {
       </header>}
 
       {settingsPageOpen && tab !== "member" && <header className="mobile-settings-page-header">
-        <button type="button" aria-label={tab === "appLockPin" || tab === "appLockPattern" ? "返回应用锁" : "返回设置"} onClick={tab === "appLockPin" || tab === "appLockPattern" ? () => setTab("appLock") : returnToSettingsMenu}><ArrowLeft size={20} aria-hidden="true" /></button>
+        <button type="button" aria-label={backAction?.label ?? "返回设置"} onClick={backAction?.onClick ?? returnToSettingsMenu}><ArrowLeft size={20} aria-hidden="true" /></button>
         <h1>{settingsPageTitle[tab] ?? "设置"}</h1>
         <span aria-hidden="true" />
       </header>}
@@ -2038,7 +2046,7 @@ export function MobileApp() {
           <button type="button" className="primary mobile-qr-result-action" onClick={() => { setPendingOtpUri(mobileQrResult); closeMobileQrResult(); sectionOriginRef.current = null; setTab("authenticator"); }}><ShieldCheck size={17} aria-hidden="true" />添加到身份验证器</button>
         </> : mobileQrKind(mobileQrResult) === "transfer" ? <>
           <p>识别到 CloudHub 配置迁移二维码。继续后将请求电脑端确认，并由你选择导入范围。</p>
-          <button type="button" className="primary mobile-qr-result-action" onClick={() => { setPendingTransferQr(mobileQrResult); closeMobileQrResult(); setTab("sync"); }}><CloudDownload size={17} aria-hidden="true" />接收电脑配置</button>
+          <button type="button" className="primary mobile-qr-result-action" onClick={() => { setPendingTransferQr(mobileQrResult); closeMobileQrResult(); setTab("syncReceive"); }}><CloudDownload size={17} aria-hidden="true" />接收电脑配置</button>
         </> : mobileQrKind(mobileQrResult) === "link" ? <>
           <p>识别到网页链接：<strong>{new URL(mobileQrResult).host}</strong></p>
           <button type="button" className="primary mobile-qr-result-action" onClick={() => { const url = new URL(mobileQrResult); if (url.protocol !== "https:" && url.protocol !== "http:") return; void openUrl(url.toString()).then(closeMobileQrResult).catch(() => setNotice("无法打开此链接，请重试。")); }}><ExternalLink size={17} aria-hidden="true" />打开链接</button>

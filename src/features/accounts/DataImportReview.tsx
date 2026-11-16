@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, RefreshCw } from "lucide-react";
 import { databaseClient, type DatabaseImportPreview, type DatabaseRestorePlan } from "../../platform/clients/database";
 import { platformErrorMessage } from "../../platform/api";
 import { SharedDialog } from "../../shared/SharedDialog";
 import { DataTransferScope } from "./DataTransferScope";
+import { restoreCountsText } from "./restore-presentation";
+import "./data-import-review.css";
 
 export function DataImportReview({ preview, busy, onClose, onConfirm }: {
   preview: DatabaseImportPreview; busy: boolean; onClose: () => void;
@@ -35,17 +37,34 @@ export function DataImportReview({ preview, busy, onClose, onConfirm }: {
   }, [planKey, preview.token, sql, tables, mode, includeTrash]);
   const destructive = sql ? preview.importMode === "overwrite" : mode !== "merge";
   const replacing = !sql && mode === "replace";
+  const totals = currentPlan?.impacts.reduce((sum, item) => ({ added: sum.added + item.added, updated: sum.updated + item.updated, skipped: sum.skipped + item.skipped, deleted: sum.deleted + item.deleted }), { added: 0, updated: 0, skipped: 0, deleted: 0 });
+  const impacts = currentPlan?.impacts.filter(item => item.added || item.updated || item.skipped || item.deleted) ?? [];
+  const exportedDate = new Date(preview.exportedAt);
+  const exportedAt = Number.isNaN(exportedDate.getTime()) ? preview.exportedAt : exportedDate.toLocaleString("zh-CN", { hour12: false });
   return <SharedDialog sizeStorageKey="features/accounts/data-import-review/data-import-review" title={sql ? "确认导入 SQL" : "确认恢复业务数据"} icon={<AlertTriangle size={20} />} role="alertdialog" className="database-import-dialog" busy={busy} closeDisabled={busy} onClose={onClose} initialFocus="button[data-cancel]" footer={<><button type="button" className="secondary" data-cancel disabled={busy} onClick={onClose}>取消导入</button><button type="button" className="primary" disabled={busy || !tables.length || (destructive && !overwriteConfirmed)} onClick={() => { if (!destructive || overwriteConfirmed) onConfirm(sql ? undefined : tables, sql ? undefined : mode, true, includeTrash); }}>{busy ? "正在导入…" : "备份本机并导入"}</button></>}>
-    <p>文件：{preview.packageName}<br />导出时间：{preview.exportedAt}<br />共 {preview.totalRecords} 条记录。恢复前自动保存本机快照。</p>
-    {sql ? <><p>{preview.importMode === "merge" ? "追加数据并保留已有记录。" : "合并数据并覆盖重复记录。"}</p><div className="database-import-summary">{preview.categories.map(item => <span key={item.table}><b>{item.count}</b>{item.label}</span>)}</div></> : <><details className="data-settings-scope"><summary>数据范围 · 已选 {tables.length} / {preview.categories.length} 类</summary><DataTransferScope categories={preview.categories} tables={tables} onChange={next => { setTables(next); setOverwriteConfirmed(false); }} disabled={busy} /></details><label className="data-transfer-field">恢复方式<select aria-label="恢复方式" disabled={busy} value={mode} onChange={event => { setMode(event.target.value as typeof mode); setOverwriteConfirmed(false); }}><option value="merge">追加，保留已有（默认）</option><option value="overwrite">合并，覆盖重复记录</option><option value="replace">替换所选模块（删除本地独有记录）</option></select></label><p>{mode === "merge" ? "仅增加新记录，保留本地已有数据，重复记录不覆盖。" : null}</p><label className="data-transfer-check"><input type="checkbox" checked={includeTrash} disabled={busy} onChange={event => { setIncludeTrash(event.target.checked); setOverwriteConfirmed(false); }} />包含备份回收站（保留删除状态，默认不导入）</label></>}
-    <p>每次导入前自动创建本机恢复备份，可在备份管理中恢复；备份失败将终止导入。</p>
-    {sql && <label className="data-transfer-check"><input type="checkbox" checked={includeTrash} disabled={busy} onChange={event => { setIncludeTrash(event.target.checked); setOverwriteConfirmed(false); }} />包含文件回收站（保留删除状态，默认不导入）</label>}
-    {currentPlan && <p>来源范围策略：{currentPlan.sourcePolicyVersion ?? (sql ? "SQL 交换格式" : "旧版备份，验证器不恢复")}；当前策略：{currentPlan.policyVersion}。</p>}
-    <button type="button" className="secondary" disabled={busy || !tables.length} onClick={() => { setRetry(value => value + 1); setOverwriteConfirmed(false); }}>刷新恢复影响</button>
-    {currentPlan ? <section aria-label="恢复影响"><h3>预计恢复影响</h3>{currentPlan.impacts.map(item => <p key={item.table}>{item.label}：新增 {item.added} · 更新 {item.updated} · 跳过 {item.skipped} · 删除 {item.deleted}{currentPlan.dependencyModules.includes(item.table) ? "（必要依赖，仅追加）" : ""}</p>)}{currentPlan.warnings.map((warning, index) => <small key={index}>{warning} </small>)}</section> : planError ? <p role="alert">{planError} 可继续导入，恢复无法完成时会显示具体原因。<button type="button" className="secondary" disabled={busy} onClick={() => setRetry(value => value + 1)}>重新预览</button></p> : tables.length > 0 ? <p role="status">正在计算恢复影响…</p> : null}
-    {destructive && <><p role="alert" className="data-settings-error">{replacing ? "警告：将用备份替换所选模块，删除其中备份未包含的本地记录；未选择的模块不参与删除。请核对上方逐项删除数量。" : "警告：与备份重复的本地记录将被覆盖，原有内容会被替换；其他本地记录保留。"}</p><label className="data-transfer-check"><input type="checkbox" checked={overwriteConfirmed} disabled={busy} onChange={event => setOverwriteConfirmed(event.target.checked)} />{replacing ? "我确认替换所选模块并删除本地独有记录" : "我确认覆盖重复的本地记录"}</label></>}
-    <p>仅在选择验证器时恢复验证码种子；旧包不支持时保留本机。保留本机 Codex 登录账号、日志、设备身份和下载文件。恢复数据后不会启动进程或接管 Claude/Codex 配置文件。</p>
+    <div className="import-file-summary"><strong>{preview.packageName}</strong><span>{preview.totalRecords} 条记录 · {exportedAt}</span></div>
+    {sql ? <><p>{preview.importMode === "merge" ? "追加数据并保留已有记录。" : "合并数据并覆盖重复记录。"}</p><details className="data-settings-scope"><summary>文件数据范围 · {preview.categories.length} 类</summary><div className="database-import-summary">{preview.categories.filter(item => item.count > 0).map(item => <span key={item.table}><b>{item.count}</b>{item.label}</span>)}</div></details></> : <>
+      <details className="data-settings-scope"><summary>数据范围 · 已选 {tables.length} / {preview.categories.length} 类</summary><DataTransferScope categories={preview.categories} tables={tables} onChange={next => { setTables(next); setOverwriteConfirmed(false); }} disabled={busy} /></details>
+      <label className="data-transfer-field">恢复方式<select aria-label="恢复方式" disabled={busy} value={mode} onChange={event => { setMode(event.target.value as typeof mode); setOverwriteConfirmed(false); }}><option value="merge">追加，保留已有（默认）</option><option value="overwrite">合并，覆盖重复记录</option><option value="replace">替换所选模块（删除本地独有记录）</option></select></label>
+      {mode === "merge" && <p>仅增加新记录，重复记录保留本机内容。</p>}
+    </>}
+    <p className="import-backup-hint">恢复前自动备份本机；备份失败将终止导入。</p>
+    <section className="import-impact" aria-label="恢复影响">
+      <div className="import-impact-heading"><h3>预计恢复影响</h3><button type="button" className="secondary import-impact-refresh" aria-label="刷新恢复影响" title="刷新恢复影响" disabled={busy || !tables.length} onClick={() => { setRetry(value => value + 1); setOverwriteConfirmed(false); }}><RefreshCw size={15} aria-hidden="true" />刷新</button></div>
+      {currentPlan && totals ? <>
+        <p className="import-impact-total">{restoreCountsText(totals)}</p>
+        {impacts.length > 0 && <details className="import-impact-details"><summary>查看模块明细 · {impacts.length} 类</summary><div className="import-impact-list">{impacts.map(item => <div key={item.table}><span>{item.label}{currentPlan.dependencyModules.includes(item.table) && <small>必要依赖，仅追加</small>}</span><strong>{restoreCountsText(item)}</strong></div>)}</div></details>}
+      </> : planError ? <p role="alert">{planError} 可继续导入，恢复无法完成时会显示具体原因。<button type="button" className="secondary import-impact-refresh" disabled={busy} onClick={() => setRetry(value => value + 1)}>重新预览</button></p> : tables.length > 0 ? <p role="status">正在计算恢复影响…</p> : null}
+    </section>
+    <details className="data-settings-scope import-options"><summary>更多选项与恢复说明{includeTrash ? " · 已包含回收站" : ""}</summary>
+      <label className="data-transfer-check"><input type="checkbox" checked={includeTrash} disabled={busy} onChange={event => { setIncludeTrash(event.target.checked); setOverwriteConfirmed(false); }} />{sql ? "包含文件回收站" : "包含备份回收站"}（保留删除状态，默认不导入）</label>
+      <p>每次导入前自动创建本机恢复备份，可在备份管理中恢复。</p>
+      {currentPlan && <p>来源范围策略：{currentPlan.sourcePolicyVersion ?? (sql ? "SQL 交换格式" : "旧版备份，验证器不恢复")}；当前策略：{currentPlan.policyVersion}。</p>}
+      {currentPlan?.warnings.map((warning, index) => <p key={index}>{warning}</p>)}
+      <p>仅在选择验证器时恢复验证码种子；旧包不支持时保留本机。保留本机 Codex 登录账号、日志、设备身份和下载文件。恢复数据后不会启动进程或接管 Claude/Codex 配置文件。</p>
+    </details>
+    {destructive && <><p role="alert" className="data-settings-error">{replacing ? "警告：将用备份替换所选模块，删除其中备份未包含的本地记录；未选择的模块不参与删除。请展开模块明细核对删除数量。" : "警告：与备份重复的本地记录将被覆盖，原有内容会被替换；其他本地记录保留。"}</p><label className="data-transfer-check"><input type="checkbox" checked={overwriteConfirmed} disabled={busy} onChange={event => setOverwriteConfirmed(event.target.checked)} />{replacing ? "我确认替换所选模块并删除本地独有记录" : "我确认覆盖重复的本地记录"}</label></>}
     {preview.details.length > 0 && <details className="data-settings-scope"><summary>备份详细内容 · {preview.details.length} 项</summary><div className="database-import-details">{preview.details.map((item, i) => <div key={i}>{item}</div>)}</div></details>}
-    {preview.conflicts.length > 0 && <div className="database-import-conflicts"><strong>重复/冲突提示</strong>{preview.conflicts.map((item, i) => <div key={i}>{item}</div>)}</div>}
+    {preview.conflicts.length > 0 && <details className="data-settings-scope"><summary>重复/冲突提示 · {preview.conflicts.length} 项</summary><div className="database-import-conflicts">{preview.conflicts.map((item, i) => <div key={i}>{item}</div>)}</div></details>}
   </SharedDialog>;
 }

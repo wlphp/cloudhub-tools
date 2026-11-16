@@ -18,6 +18,47 @@ pub(crate) fn app_data_path() -> PlatformResult<String> {
     Ok(resolved_data_directory()?.to_string_lossy().to_string())
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AppDataEntry {
+    name: String,
+    directory: bool,
+    size_bytes: u64,
+}
+
+// Only enumerate metadata inside the app's own data directory; never expose contents.
+#[tauri::command]
+pub(crate) fn list_app_data_directory(directory: Option<String>) -> PlatformResult<Vec<AppDataEntry>> {
+    let base = resolved_data_directory()?;
+    read_data_entries(&base, directory.as_deref().unwrap_or("")).map_err(Into::into)
+}
+
+fn read_data_entries(base: &std::path::Path, directory: &str) -> Result<Vec<AppDataEntry>, String> {
+    use std::path::{Component, Path};
+    if directory.len() > 2048 || directory.contains('\0') { return Err("目录路径无效".into()); }
+    let mut target = base.to_path_buf();
+    for component in Path::new(directory).components() {
+        let Component::Normal(name) = component else { return Err("目录路径无效".into()); };
+        target.push(name);
+        let metadata = std::fs::symlink_metadata(&target).map_err(|_| "目录不存在或无法访问")?;
+        if metadata.file_type().is_symlink() || !metadata.is_dir() { return Err("不支持访问此目录".into()); }
+    }
+    let target = target.canonicalize().map_err(|_| "目录不存在或无法访问")?;
+    if !target.starts_with(base) { return Err("不支持访问此目录".into()); }
+    let mut entries = Vec::new();
+    for entry in std::fs::read_dir(target).map_err(|_| "读取目录失败，请重试")? {
+        let entry = entry.map_err(|_| "读取目录失败，请重试")?;
+        let kind = entry.file_type().map_err(|_| "读取文件信息失败")?;
+        if kind.is_symlink() || (!kind.is_dir() && !kind.is_file()) { continue; }
+        let name = entry.file_name().into_string().map_err(|_| "文件名编码不受支持")?;
+        let size_bytes = if kind.is_file() { entry.metadata().map_err(|_| "读取文件信息失败")?.len() } else { 0 };
+        entries.push(AppDataEntry { name, directory: kind.is_dir(), size_bytes });
+        if entries.len() > 2000 { return Err("目录文件过多，请使用备份管理查看备份".into()); }
+    }
+    entries.sort_by(|a, b| b.directory.cmp(&a.directory).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())));
+    Ok(entries)
+}
+
 fn resolved_data_directory() -> Result<std::path::PathBuf, String> {
     let path = data_dir()?;
     // MSIX-launched child processes can see a virtual LocalAppData path that an

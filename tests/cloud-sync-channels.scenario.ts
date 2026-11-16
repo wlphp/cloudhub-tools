@@ -44,6 +44,7 @@ export async function verifyCloudChannels(page: Page, mobile: boolean) {
     await page.locator(".mobile-tab-bar").getByRole("button", { name: "我的", exact: true }).click();
     await page.getByRole("button", { name: "系统设置", exact: true }).click();
     await page.getByRole("button", { name: "数据导入与迁移", exact: true }).click();
+    await page.getByRole("button", { name: /^云同步/ }).click();
   } else {
     await page.getByRole("button", { name: "系统设置", exact: true }).first().click();
     await page.getByRole("tab", { name: "数据管理", exact: true }).click();
@@ -101,7 +102,7 @@ export async function verifyCloudChannels(page: Page, mobile: boolean) {
   await expect(emptyDownloadHistory).toContainText("暂无操作记录");
   await emptyDownloadHistory.getByRole("button", { name: "关闭", exact: true }).click();
   await secondary.getByRole("button", { name: "下载备份", exact: true }).click();
-  await expect(rows.first().locator(".cloud-backup-download-count")).toHaveText("本机下载 0 次");
+  await expect(rows.first().locator(".cloud-backup-download-count")).toHaveCount(0);
   failPreview = false;
   await rows.first().getByRole("button", { name: /^下载 / }).click();
   await page.getByRole("dialog", { name: "下载并解密云备份", exact: true }).getByRole("button", { name: "下载并预览", exact: true }).click();

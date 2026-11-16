@@ -25,6 +25,7 @@ test("mobile channel scope recovers in place and saves only selected modules", a
   await page.locator(".mobile-tab-bar").getByRole("button", { name: "我的", exact: true }).click();
   await page.getByRole("button", { name: "系统设置", exact: true }).click();
   await page.getByRole("button", { name: "数据导入与迁移", exact: true }).click();
+  await page.getByRole("button", { name: /^云同步/ }).click();
   await page.getByRole("button", { name: "添加同步渠道", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "添加同步渠道", exact: true });
   await dialog.locator("summary").click();

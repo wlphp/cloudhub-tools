@@ -63,10 +63,11 @@ $metadataFiles = Get-ChildItem -LiteralPath (Join-Path $generatedAndroid 'app\bu
 $candidate = $null
 foreach ($metadataFile in $metadataFiles) {
     $metadata = Get-Content -LiteralPath $metadataFile.FullName -Raw | ConvertFrom-Json
-    if ($metadata.variantName -notmatch '(?i)debug$' -or $metadata.versionName -ne $appVersion) {
+    if ($metadata.variantName -notmatch '(?i)debug$') {
         continue
     }
     foreach ($element in $metadata.elements) {
+        if ($element.versionName -ne $appVersion) { continue }
         $apkPath = Join-Path $metadataFile.DirectoryName $element.outputFile
         if (Test-Path -LiteralPath $apkPath -PathType Leaf) {
             $candidate = Get-Item -LiteralPath $apkPath

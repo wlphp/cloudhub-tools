@@ -268,8 +268,11 @@ test("navigates mobile resource sections and preserves narrow layout", async ({ 
   await openMobileFeature(page, "系统设置");
   await page.getByRole("button", { name: "数据导入与迁移", exact: true }).click();
   await expect(page.getByRole("heading", { name: "数据导入与迁移", exact: true })).toBeVisible();
-  await expect(page.getByText(/请在手机 App 内扫码/)).toBeVisible();
-  await expect(page.getByRole("button", { name: "选择 .chdb 备份", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "存储位置", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^扫码接收/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^导入本地备份/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^云同步/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: "选择 .chdb 备份", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "扫码从电脑迁移（免口令）", exact: true })).toHaveCount(0);
   await expect(page.locator('[aria-labelledby="sync-mobile-send-title"]')).toHaveCount(0);
   await expectNoHorizontalOverflow(page);

@@ -23,14 +23,24 @@ type PaginationBarProps = {
   pageSizeOptions?: readonly number[];
   disabled?: boolean;
   className?: string;
+  /** 手机弹层使用上一页/页数/下一页；单页仅展示总数。 */
+  compact?: boolean;
 };
 
-export function PaginationBar({ page, pageSize, paginationPageSize = pageSize, total, hasNext, onPageChange, onPageSizeChange, pageSizeOptions = PAGE_SIZE_OPTIONS, disabled = false, className }: PaginationBarProps) {
+export function PaginationBar({ page, pageSize, paginationPageSize = pageSize, total, hasNext, onPageChange, onPageSizeChange, pageSizeOptions = PAGE_SIZE_OPTIONS, disabled = false, className, compact = false }: PaginationBarProps) {
   const [jumpDraft, setJumpDraft] = useState(String(page));
   useEffect(() => { setJumpDraft(String(page)); }, [page]);
   const pageCount = total === undefined ? null : Math.max(1, Math.ceil(total / paginationPageSize));
   const prevDisabled = disabled || page <= 1;
   const nextDisabled = disabled || (pageCount !== null ? page >= pageCount : hasNext === false);
+  if (compact) return <div className={`pagination-bar pagination-compact${className ? ` ${className}` : ""}`}>
+    {total !== undefined && <span className="pagination-total" role="status">共 {total} 条</span>}
+    {pageCount !== 1 && <nav className="pagination-compact-controls" aria-label="分页">
+      <button type="button" className="pagination-nav" aria-label="上一页" disabled={prevDisabled} onClick={() => onPageChange(page - 1)}><ChevronLeft size={16} aria-hidden="true" /></button>
+      <span className="pagination-compact-position" aria-live="polite" aria-atomic="true">{pageCount === null ? `第 ${page} 页` : `${page} / ${pageCount}`}</span>
+      <button type="button" className="pagination-nav" aria-label="下一页" disabled={nextDisabled} onClick={() => onPageChange(page + 1)}><ChevronRight size={16} aria-hidden="true" /></button>
+    </nav>}
+  </div>;
   const pageNumbers = pageCount === null ? [] : pageCount <= 5
     ? Array.from({ length: pageCount }, (_, index) => index + 1)
     : page <= 2

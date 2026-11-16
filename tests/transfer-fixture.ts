@@ -25,6 +25,7 @@ export async function transferFixture(page: Page, table: string, label: string, 
     await page.locator(".mobile-tab-bar").getByRole("button", { name: "我的", exact: true }).click();
     await page.getByRole("button", { name: "系统设置", exact: true }).click();
     await page.getByRole("button", { name: "数据导入与迁移", exact: true }).click();
+    await page.getByRole("button", { name: /^扫码接收/ }).click();
     await page.getByRole("button", { name: "扫码接收电脑配置" }).click();
   } else {
     await page.getByRole("button", { name: "系统设置", exact: true }).first().click();

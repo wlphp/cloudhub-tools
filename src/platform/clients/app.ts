@@ -1,6 +1,11 @@
 import { nativeOnly } from "./base";
 
+export type AppDataEntry = { name: string; directory: boolean; sizeBytes: number };
+
 export const appClient = {
+  listDataDirectory(directory = ""): Promise<AppDataEntry[]> {
+    return nativeOnly("list_app_data_directory", { directory });
+  },
   dataPath(): Promise<string> {
     return nativeOnly("app_data_path");
   },

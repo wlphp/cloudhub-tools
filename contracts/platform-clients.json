@@ -1,6 +1,8 @@
 {
   "version": 1,
   "mobileCommands": [
+    "list_app_data_directory",
+    "app_data_path",
     "resolve_domain_nameservers",
     "member_me",
     "member_send_code",
@@ -1502,6 +1504,7 @@
         {
           "name": "open-data-directory",
           "native": [
+            "list_app_data_directory",
             "open_app_data_directory"
           ],
           "preview": []

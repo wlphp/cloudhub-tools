@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import type { CloudSyncProgress } from "../../src/platform/clients/cloudSync";
 
-test("mobile cloud restore aligns scopes, defaults to append and requires explicit replacement acknowledgement", async ({ page }) => {
+test("mobile cloud restore aligns scopes, defaults to append and requires explicit replacement acknowledgement", async ({ page }, testInfo) => {
   let restored: unknown;
   let cancelled = 0;
   let view = {
@@ -66,6 +66,7 @@ test("mobile cloud restore aligns scopes, defaults to append and requires explic
   await page.locator(".mobile-tab-bar").getByRole("button", { name: "我的", exact: true }).click();
   await page.getByRole("button", { name: "系统设置", exact: true }).click();
   await page.getByRole("button", { name: "数据导入与迁移", exact: true }).click();
+  await page.getByRole("button", { name: /^云同步/ }).click();
   await page.getByText("同步数据范围与恢复规则", { exact: true }).click();
   await expect(page.locator(".mobile-sync-scope")).toContainText("云盘连接、资产收藏与备注、外观偏好");
   await expect(page.locator(".mobile-sync-scope")).toContainText("云同步渠道凭据");
@@ -122,6 +123,12 @@ test("mobile cloud restore aligns scopes, defaults to append and requires explic
   await page.getByRole("dialog", { name: "选择云端备份版本" }).getByRole("button", { name: /^下载 / }).click();
   await expect(review).toBeVisible();
   await review.locator("summary").filter({ hasText: /^数据范围/ }).click();
+  const scopeRow = review.locator(".data-transfer-scope > .data-transfer-check").first();
+  await expect(scopeRow).toHaveCSS("flex-direction", "row");
+  await expect(scopeRow).toHaveCSS("align-items", "center");
+  await expect(scopeRow.locator("input")).toHaveCSS("margin-top", "0px");
+  await page.setViewportSize({ width: 375, height: 844 });
+  await page.screenshot({ path: testInfo.outputPath("scope-aligned.png") });
   await review.getByRole("checkbox", { name: /流水线连接/ }).uncheck();
   await expect(review.getByLabel("恢复方式", { exact: true })).toHaveValue("merge");
   await review.getByLabel("恢复方式", { exact: true }).selectOption("replace");
@@ -131,10 +138,11 @@ test("mobile cloud restore aligns scopes, defaults to append and requires explic
   await review.getByRole("button", { name: "备份本机并导入", exact: true }).click();
   await expect(review).toHaveCount(0);
   expect(restored).toEqual({ token: "fixture-preview", tables: ["memo_notes"], mode: "merge", forceRestore: true, includeTrash: false });
-  await expect(page.locator(".app-toast-notice").filter({ hasText: "恢复完成：新增 2 条" })).toBeVisible();
+  await expect(page.locator(".mobile-restore-result").filter({ hasText: "恢复完成：新增 2 条" })).toBeVisible();
   await cloud.getByRole("button", { name: "下载备份", exact: true }).click();
   await page.getByRole("dialog", { name: "选择云端备份版本" }).getByRole("button", { name: /^下载 / }).click();
   await expect(review.getByLabel("恢复方式", { exact: true })).toHaveValue("merge");
+  await review.locator(".import-options > summary").click();
   await expect(review.getByRole("checkbox", { name: /包含备份回收站/ })).not.toBeChecked();
   await review.getByLabel("恢复方式", { exact: true }).selectOption("replace");
   const confirmRestore = review.getByRole("button", { name: "备份本机并导入", exact: true });

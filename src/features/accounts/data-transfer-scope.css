@@ -15,3 +15,27 @@
   .data-transfer-scope.data-transfer-scope { grid-template-columns: minmax(0, 1fr); }
   .data-transfer-scope :is(.data-transfer-check, .data-transfer-group-select, .data-transfer-all) { min-height: 44px; }
 }
+
+/* 手机弹层的通用表单样式不能把勾选行改成纵向布局。 */
+body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog .data-transfer-scope {
+  gap: 4px 12px;
+}
+body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog .data-transfer-scope > legend {
+  position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+}
+body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog .data-transfer-scope :is(.data-transfer-check, .data-transfer-group-select, .data-transfer-all) {
+  display: flex; flex-direction: row; align-items: center; justify-content: flex-start;
+  min-height: 44px; margin: 0; padding: 8px 10px; gap: 8px; line-height: 1.5;
+}
+body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog .data-transfer-scope > .data-transfer-check {
+  padding-inline-start: 32px;
+}
+body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog .data-transfer-scope .data-transfer-group-heading {
+  margin: 6px 0 0; padding: 0; min-height: 44px;
+}
+body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog .data-transfer-scope :is(.data-transfer-all, .data-transfer-group-select) {
+  background: transparent;
+}
+body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog .data-transfer-scope input[type="checkbox"] {
+  width: 18px; height: 18px; flex: 0 0 18px; margin: 0; align-self: center;
+}

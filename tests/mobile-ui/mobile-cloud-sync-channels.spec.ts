@@ -1,6 +1,48 @@
 import { expect, test } from "@playwright/test";
 import { verifyCloudChannels } from "../cloud-sync-channels.scenario";
 
+test("手机同步记录分页简洁，单页隐藏翻页，搜索重置页码", async ({ page }, testInfo) => {
+  const config = { id: "default", name: "测试渠道", method: "webdav", provider: "custom", endpoint: "https://storage.example.test/dav", bucket: "", remoteRoot: "cloudhub-sync", profile: "default", autoSync: false };
+  const channel = { configured: true, config, status: { busy: false, paused: false } };
+  await page.addInitScript(({ config }) => {
+    const key = `cloudhub.backup-downloads.v1:${JSON.stringify([config.id, config.method, config.endpoint, config.bucket, config.remoteRoot, config.profile])}:events`;
+    localStorage.setItem(key, JSON.stringify(Array.from({ length: 21 }, (_, index) => ({ id: `fixture-${index}`, action: "download", occurredAt: new Date(Date.UTC(2026, 10, 16, 0, index)).toISOString(), versionId: `backup-fixture-${index}.chdb` }))));
+  }, { config });
+  await page.route("**/api/**", route => {
+    const path = new URL(route.request().url()).pathname;
+    return route.fulfill({ json: path === "/api/member" ? null : path === "/api/cloud-sync/channels" ? [channel] : path === "/api/cloud-sync/state" ? channel : [] });
+  });
+  await page.goto("/");
+  await page.locator(".mobile-tab-bar").getByRole("button", { name: "我的", exact: true }).click();
+  await page.getByRole("button", { name: "系统设置", exact: true }).click();
+  await page.getByRole("button", { name: "数据导入与迁移", exact: true }).click();
+  await page.getByRole("button", { name: /^云同步/ }).click();
+  await page.getByRole("button", { name: "下载记录", exact: true }).click();
+  const history = page.getByRole("dialog", { name: "下载记录", exact: true });
+  const pagination = history.getByRole("navigation", { name: "分页", exact: true });
+  await expect(pagination).toContainText("1 / 3");
+  await expect(pagination.getByRole("button", { name: "上一页" })).toBeDisabled();
+  await pagination.getByRole("button", { name: "下一页" }).click();
+  await expect(pagination).toContainText("2 / 3");
+  await pagination.getByRole("button", { name: "下一页" }).click();
+  await expect(pagination.getByRole("button", { name: "下一页" })).toBeDisabled();
+  await expect(history.locator("tbody tr")).toHaveCount(1);
+  await expect(history.getByLabel("跳转页码")).toHaveCount(0);
+  await expect(history.getByLabel("每页条数")).toHaveCount(0);
+  for (const width of [320, 375, 768, 1024]) {
+    await page.setViewportSize({ width, height: 844 });
+    expect(await history.locator(".pagination-compact").evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+  }
+  await page.setViewportSize({ width: 375, height: 844 });
+  await page.screenshot({ path: testInfo.outputPath("history-pages.png") });
+  await history.getByRole("searchbox").fill("fixture-20.chdb");
+  await expect(pagination).toHaveCount(0);
+  await expect(history.getByText("共 1 条", { exact: true })).toHaveCount(1);
+  await page.screenshot({ path: testInfo.outputPath("history-single-page.png") });
+  await history.getByRole("searchbox").fill("");
+  await expect(pagination).toContainText("1 / 3");
+});
+
 test("mobile manages independent cloud channels and scopes every operation", async ({ page }) => {
   await verifyCloudChannels(page, true);
 });
@@ -16,6 +58,7 @@ test("迁移页和同步弹层在手机宽度下布局统一且遮罩不关闭",
   await page.locator(".mobile-tab-bar").getByRole("button", { name: "我的", exact: true }).click();
   await page.getByRole("button", { name: "系统设置", exact: true }).click();
   await page.getByRole("button", { name: "数据导入与迁移", exact: true }).click();
+  await page.getByRole("button", { name: /^云同步/ }).click();
   const card = page.getByRole("article", { name: "演示渠道", exact: true });
   await expect(card).toBeVisible();
   for (const width of [320, 390, 519, 768]) {

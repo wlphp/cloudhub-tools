@@ -81,9 +81,16 @@ body:has(.mobile-shell) .cloud-backup-versions .cloud-sync-version-list td:nth-c
 body:has(.mobile-shell) .cloud-backup-versions .cloud-backup-last-download { display: inline; margin: 0; color: var(--mobile-muted); }
 body:has(.mobile-shell) .cloud-backup-versions .cloud-sync-version-list td:last-child { margin-top: 2px; }
 body:has(.mobile-shell) .cloud-backup-versions .cloud-backup-row-actions { justify-content: flex-end; gap: 8px; }
-body:has(.mobile-shell) .shared-dialog-backdrop .cloud-backup-versions .cloud-backup-row-actions button { min-width: 88px; min-height: 40px; padding: 0 12px; border-color: var(--mobile-border); border-radius: 9px; background: var(--mobile-surface); color: var(--mobile-text); font-weight: 600; }
+body:has(.mobile-shell) .shared-dialog-backdrop .cloud-backup-versions .cloud-backup-row-actions button { min-width: 76px; min-height: 44px; padding: 0 12px; border-color: var(--mobile-border); border-radius: 6px; background: var(--mobile-surface); color: var(--mobile-text); font-weight: 500; box-shadow: none; }
 body:has(.mobile-shell) .shared-dialog-backdrop .cloud-backup-versions .cloud-backup-row-actions button:first-child { border-color: color-mix(in srgb,var(--mobile-accent) 28%,var(--mobile-border)); background: color-mix(in srgb,var(--mobile-accent) 7%,var(--mobile-surface)); color: var(--mobile-accent-strong); }
-body:has(.mobile-shell) .shared-dialog-backdrop .cloud-backup-versions .cloud-backup-row-actions .cloud-backup-delete { border-color: var(--mobile-border); background: var(--mobile-surface); color: var(--mobile-danger); }
+body:has(.mobile-shell) .shared-dialog-backdrop .cloud-backup-versions .cloud-backup-row-actions .cloud-backup-delete { min-width: 44px; width: 44px; padding: 0; border-color: transparent; background: transparent; color: var(--mobile-muted); gap: 0; }
+body:has(.mobile-shell) .cloud-backup-delete-label { display: none; }
+.cloud-backup-download-details summary { min-height: 44px; align-content: center; cursor: pointer; }
+body:has(.mobile-shell) .cloud-backup-versions td[data-label="本机下载记录"]:empty { display: none; }
+body:has(.mobile-shell) .shared-dialog-backdrop .cloud-backup-versions .cloud-backup-expand { display: block; width: 100%; min-height: 44px; margin-top: 10px; border: 1px solid var(--mobile-border); border-radius: 6px; background: var(--mobile-surface); color: var(--mobile-accent-strong); font: inherit; font-size: 13px; box-shadow: none; }
+body:has(.mobile-shell) .cloud-backup-versions .cloud-backup-search { display: flex; align-items: center; border: 1px solid var(--mobile-border); border-radius: 8px; background: var(--mobile-surface); }
+body:has(.mobile-shell) .cloud-backup-versions .cloud-backup-search:focus-within { border-color: var(--mobile-accent); outline: 2px solid var(--mobile-accent); outline-offset: 1px; }
+body:has(.mobile-shell) .shared-dialog-backdrop .cloud-backup-versions.cloud-backup-versions .cloud-backup-search input[type="search"] { border: 0; border-radius: 0; background: transparent; box-shadow: none; outline: none; }
 body:has(.mobile-shell) .cloud-backup-versions .cloud-backup-total { flex: 1 0 100%; margin: 0; padding: 0 2px 2px; color: var(--mobile-muted); }
 body:has(.mobile-shell) .shared-dialog-backdrop .cloud-backup-versions > .modal-actions { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; }
 body:has(.mobile-shell) .shared-dialog-backdrop .cloud-backup-versions > .modal-actions > .cloud-backup-total { grid-column: 1 / -1; }
