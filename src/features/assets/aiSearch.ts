@@ -28,13 +28,44 @@ export function assetSearchFilters(fields: AiFields, types: readonly string[], g
   return filters;
 }
 
-export function withinAssetExpiry(asset: LocalAsset, days: number | null, now: number): boolean {
-  if (days === null) return true;
+export type AssetExpiryTone = "expired" | "critical" | "urgent" | "warning" | "soon" | "upcoming";
+
+export function assetExpiryTimestamp(asset: LocalAsset): number | null {
   const p = asset.payload || {};
-  const raw = p.ExpiredTime || p.ExpirationTime || p.ExpirationDate || p.ExpireTime || p.ExpireDate || p.EndTime;
+  const raw = p.ExpiredTime || p.ExpirationTime || p.ExpirationDate || p.ExpireTime || p.ExpireDate || p.EndTime || p.expiredTime || p.expirationTime || p.expireTime || p.expire_time;
   let expires = NaN;
   if (typeof raw === "number") expires = raw < 100_000_000_000 ? raw * 1000 : raw;
   else if (typeof raw === "string" && /^\d{10,13}$/.test(raw)) { const value = Number(raw); expires = value < 100_000_000_000 ? value * 1000 : value; }
-  else if (typeof raw === "string" && /^\d{4}-\d{2}-\d{2}(?:$|T| )/.test(raw)) expires = Date.parse(raw);
-  return Number.isFinite(expires) && expires >= now && expires <= now + days * 86_400_000;
+  else if (typeof raw === "string" && raw.trim().length > 0 && raw.length <= 128) expires = Date.parse(raw.trim());
+  return Number.isFinite(expires) ? expires : null;
+}
+
+export function assetExpiryTone(asset: LocalAsset, now = Date.now()): AssetExpiryTone | null {
+  const expires = assetExpiryTimestamp(asset);
+  if (expires === null) return null;
+  if (expires < now) return "expired";
+  const remainingDays = Math.ceil((expires - now) / 86_400_000);
+  if (remainingDays <= 1) return "critical";
+  if (remainingDays <= 7) return "urgent";
+  if (remainingDays <= 15) return "warning";
+  if (remainingDays <= 30) return "soon";
+  if (remainingDays <= 90) return "upcoming";
+  return null;
+}
+
+export function withinAssetExpiry(asset: LocalAsset, days: number | null, now: number): boolean {
+  if (days === null) return true;
+  const expires = assetExpiryTimestamp(asset);
+  if (expires === null) return false;
+  let deadline = now + days * 86_400_000;
+  if (days === 30 || days === 90) {
+    const current = new Date(now);
+    const day = current.getDate();
+    current.setDate(1);
+    current.setMonth(current.getMonth() + (days === 30 ? 1 : 3));
+    const lastDay = new Date(current.getFullYear(), current.getMonth() + 1, 0).getDate();
+    current.setDate(Math.min(day, lastDay));
+    deadline = current.getTime();
+  }
+  return expires >= now && expires <= deadline;
 }

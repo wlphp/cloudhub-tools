@@ -1,0 +1,4 @@
+[env]
+# whisper.cpp's ggml backend otherwise compiles for the CI host CPU, which can
+# emit AVX-512 instructions that are unavailable on supported Windows PCs.
+GGML_NATIVE = { value = "OFF", force = true }

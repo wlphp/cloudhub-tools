@@ -49,3 +49,41 @@
 .home-stat-help p { margin: 0 0 8px; color: var(--mobile-muted); font-size: 12px; line-height: 1.7; }
 .mobile-shell .home-dashboard button:focus-visible, .home-stat-help summary:focus-visible { outline: 2px solid var(--mobile-accent); outline-offset: 2px; }
 .mobile-shell .home-dashboard button:active { filter: brightness(.95); }
+.mobile-software-count{margin-left:auto;color:var(--mobile-text);font-size:13px;font-variant-numeric:tabular-nums}
+.mobile-software-chart{margin-top:14px}
+.mobile-software-columns{display:grid;grid-template-columns:repeat(auto-fit,minmax(65px,1fr));gap:16px 10px}
+.mobile-software-columns>button{display:grid;gap:7px;min-width:0;border:0;background:transparent;color:var(--mobile-text);font-size:11px;text-align:center}
+.mobile-software-columns strong{font-size:16px}
+.mobile-software-column{display:flex;align-items:flex-end;justify-self:center;width:32px;height:100px;background:var(--mobile-raised);border-radius:6px;overflow:hidden}
+.mobile-software-column i{display:block;min-height:3px;width:100%;background:var(--mobile-accent);border-radius:6px}
+.mobile-home-unified .mobile-home-compact-heading{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:start;gap:12px;margin:0;padding:2px 0}
+.mobile-home-unified .mobile-home-compact-heading h1{font-size:22px;line-height:44px;margin:0}
+.mobile-home-collection-details{justify-self:end;min-width:0;max-width:100%;color:var(--mobile-muted);font-size:11px;text-align:right}
+.mobile-home-collection-details summary{display:grid;align-content:center;gap:3px;min-height:44px;list-style:none;cursor:pointer}
+.mobile-home-collection-details summary::-webkit-details-marker{display:none}
+.mobile-home-collection-details summary>span{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:5px}
+.mobile-home-collection-details summary strong{color:var(--mobile-text);font-size:11px;font-weight:600}
+.mobile-home-collection-details time{font-size:10px;font-variant-numeric:tabular-nums}
+.mobile-home-collection-details p{margin:6px 0 0;max-width:260px;font-size:11px;line-height:1.6;text-align:left}
+.mobile-home-collection-details[open] .mobile-home-collection-chevron{transform:rotate(180deg)}
+.mobile-home-warning{color:var(--mobile-warning,var(--mobile-accent-strong))}
+.mobile-home-donut-layout{display:grid;grid-template-columns:minmax(110px,145px) minmax(0,1fr);align-items:center;gap:16px;padding:8px 0}
+.mobile-home-donut-layout svg{width:100%;height:auto}
+.mobile-home-donut-total{font-size:24px;font-weight:700;fill:var(--mobile-text)}
+.mobile-home-donut-caption{font-size:10px;fill:var(--mobile-muted)}
+.mobile-home-donut-layout ul{display:grid;gap:12px;list-style:none;margin:0;padding:0;font-size:12px}
+.mobile-home-donut-layout li,.mobile-home-donut-layout li>span{display:flex;align-items:center;gap:7px}
+.mobile-home-donut-layout li{justify-content:space-between;color:var(--mobile-muted)}
+.mobile-home-donut-layout li strong{color:var(--mobile-text)}
+.mobile-home-donut-layout li i{flex:none;width:8px;height:8px;border-radius:50%}
+.mobile-home-shortcuts,.mobile-home-software-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.mobile-home-shortcuts>button{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:7px;padding:11px 9px;min-height:72px;border:1px solid var(--mobile-border);border-radius:8px;background:var(--mobile-surface);color:var(--mobile-text);text-align:left}
+.mobile-home-shortcuts svg,.mobile-home-software-grid svg{color:var(--mobile-accent-strong);flex:none}
+.mobile-home-shortcuts strong{font-size:12px}
+.mobile-home-shortcuts em{font-size:12px;font-style:normal;color:var(--mobile-muted);font-variant-numeric:tabular-nums}
+.mobile-home-shortcuts small{grid-column:1/-1;font-size:10px;color:var(--mobile-muted);line-height:1.4}
+.mobile-home-software-grid>button{display:flex;align-items:center;gap:7px;min-width:0;min-height:48px;padding:8px 9px;border:1px solid var(--mobile-border);border-radius:8px;background:var(--mobile-surface);color:var(--mobile-text);font-size:12px;text-align:left}
+.mobile-home-software-grid span{overflow-wrap:anywhere;min-width:0}
+.mobile-home-software-grid strong{margin-left:auto;font-size:12px;color:var(--mobile-muted)}
+.mobile-home-unified .mobile-software-chart{margin-top:0}
+@media(max-width:360px){.mobile-home-donut-layout{grid-template-columns:110px minmax(0,1fr);gap:10px}.mobile-home-shortcuts>button{gap:5px;padding:10px 7px}.mobile-home-shortcuts strong{font-size:11px}}

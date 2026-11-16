@@ -14,6 +14,7 @@ import { CertificateImportDialog } from "./CertificateImportDialog";
 import { BaotaCertificateManager } from "./BaotaCertificateManager";
 import { CertificateDomains } from "./CertificateDomains";
 import { AiAssistButton } from "../ai/AiAssistButton";
+import { SelectionCheckbox } from "../../shared/SortSelectionControls";
 
 type Props = {
   accounts: Account[];
@@ -107,6 +108,8 @@ export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm, r
   const [sourceFilter, setSourceFilter] = useState<CertificateSource | "all">("all");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  const [selectedCertificateIds, setSelectedCertificateIds] = useState<Set<number>>(() => new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
   const [appliedAlert,setAppliedAlert]=useState(0);
   useEffect(()=>{
     if(!alertTarget || alertTarget.request===appliedAlert) return;
@@ -146,6 +149,7 @@ export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm, r
     [rows, filter, sourceFilter],
   );
   useEffect(() => { setPage(1); }, [filter, sourceFilter, rows.length]);
+  useEffect(() => { setSelectedCertificateIds(new Set()); }, [filter, sourceFilter]);
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage = Math.min(page, pageCount);
   const pagedRows = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
@@ -309,14 +313,36 @@ export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm, r
     }
   }
   async function remove(row: Certificate) {
-    if (!(await onConfirm(`确认删除本地证书记录“${row.primaryDomain}”吗？这不会撤销 CA 已签发的证书。`))) return;
+    if (!(await onConfirm(`确认删除本地证书记录“${row.primaryDomain}”吗？删除后可在回收站恢复；这不会撤销 CA 已签发的证书。`))) return;
     try {
       await certificatesClient.remove(row.id);
       setRows((current) => current.filter((item) => item.id !== row.id));
+      setSelectedCertificateIds(current => { const next = new Set(current); next.delete(row.id); return next; });
       onStatus("证书本地记录已删除");
     } catch (reason) {
       onStatus(platformErrorMessage(reason, "删除证书失败"));
     }
+  }
+  async function removeSelected() {
+    const targets = rows.filter(row => selectedCertificateIds.has(row.id));
+    if (!targets.length || bulkDeleting) return;
+    const confirmed = await onConfirm(`确认将 ${targets.length} 张证书移入回收站吗？恢复后可找回本地证书及其私钥；这不会撤销 CA 已签发的证书。`);
+    if (!confirmed) return;
+    setBulkDeleting(true);
+    const removedIds: number[] = [];
+    let failed = 0;
+    try {
+      for (const row of targets) {
+        try { await certificatesClient.remove(row.id); removedIds.push(row.id); }
+        catch { failed += 1; }
+      }
+      if (removedIds.length) {
+        const removed = new Set(removedIds);
+        setRows(current => current.filter(row => !removed.has(row.id)));
+        setSelectedCertificateIds(current => new Set([...current].filter(id => !removed.has(id))));
+      }
+      onStatus(failed ? `已删除 ${removedIds.length} 张，${failed} 张失败；已删除的记录可在回收站恢复。` : `已将 ${removedIds.length} 张证书移入回收站，可恢复。`);
+    } finally { setBulkDeleting(false); }
   }
   async function downloadArchive(row: Certificate) {
     try {
@@ -394,6 +420,7 @@ export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm, r
             刷新
           </button>
           <span className="certificate-count">共 {filtered.length} 张</span>
+          {selectedCertificateIds.size > 0 && <><span className="certificate-selection-count">已选 {selectedCertificateIds.size} 张</span><button type="button" className="danger-button certificate-bulk-delete" disabled={bulkDeleting} onClick={() => void removeSelected()}><Trash2 size={14} />{bulkDeleting ? "删除中…" : `删除所选 (${selectedCertificateIds.size})`}</button></>}
         </div>
         {error && <div className="form-error">{error}</div>}
         {filtered.length ? (
@@ -401,6 +428,7 @@ export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm, r
             <table>
               <thead>
                 <tr>
+                  <th className="certificate-select-column"><SelectionCheckbox label="全选当前页证书" checked={pagedRows.length > 0 && pagedRows.every(row => selectedCertificateIds.has(row.id))} mixed={pagedRows.some(row => selectedCertificateIds.has(row.id)) && !pagedRows.every(row => selectedCertificateIds.has(row.id))} disabled={bulkDeleting || pagedRows.length === 0} onChange={() => setSelectedCertificateIds(current => { const next = new Set(current); const allSelected = pagedRows.every(row => next.has(row.id)); pagedRows.forEach(row => allSelected ? next.delete(row.id) : next.add(row.id)); return next; })} /></th>
                   <th>域名</th>
                   <th>来源</th>
                   <th>签发者</th>
@@ -414,6 +442,7 @@ export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm, r
                   const remaining = days(row.notAfter);
                   return (
                     <tr key={row.id}>
+                      <td className="certificate-select-column" data-label="选择"><SelectionCheckbox label={`选择证书 ${row.primaryDomain}`} checked={selectedCertificateIds.has(row.id)} disabled={bulkDeleting} onChange={() => setSelectedCertificateIds(current => { const next = new Set(current); if (next.has(row.id)) next.delete(row.id); else next.add(row.id); return next; })} /></td>
                       <td data-label="域名">
                         <strong>{row.primaryDomain}</strong>
                         <CertificateDomains domains={row.domains} title={row.primaryDomain} compact />
@@ -465,6 +494,7 @@ export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm, r
                           </button>
                           <button
                             className="danger-button"
+                            disabled={bulkDeleting}
                             onClick={() => void remove(row)}
                           >
                             <Trash2 size={14} />

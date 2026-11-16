@@ -1,3 +1,4 @@
+import { assetExpiryPolicyPreferenceKey, assetExpiryPolicyFromValue } from "./features/assets/expiryPolicy";
 import { ToastNotice } from "./shared/ToastNotice";
 import { SelectionCheckbox, SortSelectionControls, useItemSelection } from "./shared/SortSelectionControls";
 import { usePointerResize } from "./shared/usePointerResize";
@@ -35,7 +36,7 @@ import { AiLogAnalysis } from "./features/ai/AiLogAnalysis";
 import { aiPanelMonitorSummary } from "./features/servers/aiMonitorSummary";
 import { DesktopHomePage, DesktopMonitorAlertsPage } from "./features/overview/DesktopOverviewPages";
 import "./features/overview/desktop-overview.css";
-import { assetSearchFilters, withinAssetExpiry } from "./features/assets/aiSearch";
+import { assetExpiryTimestamp, assetExpiryTone, assetSearchFilters, withinAssetExpiry } from "./features/assets/aiSearch";
 import { SecretField } from "./shared/SecretField";
 import { PaginationBar, PAGE_SIZE_OPTIONS, normalizePageSize } from "./shared/PaginationBar";
 import { useGridPageSize } from "./shared/useGridPageSize";
@@ -147,6 +148,7 @@ import {
   Smartphone,
   Sparkles,
   CornerDownLeft,
+  Clock3,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -266,7 +268,7 @@ function syncAssetTypes(account: Account): ReadonlyArray<(typeof assetTypes)[num
 }
 const assetTypes = catalogAssetTypes;
 
-const bundledVersion = "0.1.145";
+const bundledVersion = "0.1.146";
 const isDevelopmentBuild = import.meta.env.DEV;
 
 const detachedTerminalHostId = (() => {
@@ -534,12 +536,16 @@ function App() {
   const [assetStatusFilter, setAssetStatusFilter] = useState("");
   const [assetGroupFilter, setAssetGroupFilter] = useState("");
   const [assetExpiryDays, setAssetExpiryDays] = useState<number | null>(null);
+  const [assetExpiryPolicy, setAssetExpiryPolicy] = useState(() => assetExpiryPolicyFromValue(readLocalStorage(assetExpiryPolicyPreferenceKey)));
+  const [assetExpiryPolicyOpen, setAssetExpiryPolicyOpen] = useState(false);
+  const [assetExpiryPolicyScope, setAssetExpiryPolicyScope] = useState<string[] | null>(null);
   const [favoriteTypeFilter, setFavoriteTypeFilter] = useState<string | null>(null);
   const [favoriteKeyword, setFavoriteKeyword] = useState("");
   const [favoriteRegionFilter, setFavoriteRegionFilter] = useState("");
   const [syncAccount, setSyncAccount] = useState<Account | null>(null);
   const [syncTypes, setSyncTypes] = useState<string[]>(assetTypes.map(([value]) => value));
   const [syncing, setSyncing] = useState(false);
+  const [batchResourceSync, setBatchResourceSync] = useState<{ completed: number; total: number; accountName: string; fetched: number; failed: number } | null>(null);
   const [syncResult, setSyncResult] = useState<{ fetched: number; counts: Record<string, number>; errors: string[] } | null>(null);
   const [syncProgress, setSyncProgress] = useState<{ accountId: number; completed: number; total: number; resourceType: string; status: string; elapsedMs?: number } | null>(null);
   const [pageSize, setPageSize] = useState(() => { const saved = Number(readLocalStorage("aliyun-page-size") || "10"); return normalizePageSize(saved === 100 ? 90 : saved); });
@@ -2276,6 +2282,35 @@ function App() {
     } catch (error) { setStatus(`资产获取失败：${String(error)}`); }
     finally { setSyncing(false); }
   }
+  async function syncSelectedAccounts() {
+    if (batchResourceSync || syncing) return;
+    const selectedAccounts = accounts.filter(account => selectedAccountIds.has(account.id));
+    const eligibleAccounts = selectedAccounts.filter(account => account.enabled && supportsResourceSync(account) && syncAssetTypes(account).length > 0);
+    if (!eligibleAccounts.length) {
+      setStatus("请先勾选已启用且支持资源同步的账号");
+      return;
+    }
+    let fetched = 0;
+    let failed = 0;
+    setBatchResourceSync({ completed: 0, total: eligibleAccounts.length, accountName: eligibleAccounts[0].account_name, fetched, failed });
+    for (const [index, account] of eligibleAccounts.entries()) {
+      setBatchResourceSync({ completed: index, total: eligibleAccounts.length, accountName: account.account_name, fetched, failed });
+      try {
+        const resourceTypes = syncAssetTypes(account).map(([type]) => type);
+        const result = await resourcesClient.sync(account.id, resourceTypes);
+        fetched += result.fetched;
+        if (result.errors.length) failed += 1;
+      } catch {
+        failed += 1;
+      }
+      setBatchResourceSync({ completed: index + 1, total: eligibleAccounts.length, accountName: account.account_name, fetched, failed });
+    }
+    await loadLocalAssets();
+    await loadApiLogs();
+    const skipped = selectedAccounts.length - eligibleAccounts.length;
+    setStatus(`所选资源同步完成：${eligibleAccounts.length} 个账号，共获取 ${fetched} 项${failed ? `，${failed} 个账号有失败项` : "，全部成功"}${skipped ? `；${skipped} 个已选账号未启用或暂不支持同步` : ""}`);
+    setBatchResourceSync(null);
+  }
   async function cancelSync(account: Account) {
     try {
       await resourcesClient.cancelSync(account.id);
@@ -2642,6 +2677,7 @@ function App() {
       if (preferences[cloudHubAccountOrderStorageKey] !== undefined) setAccountOrder(stringListFromValue(preferences[cloudHubAccountOrderStorageKey]));
       if (preferences[cloudHubAssetOrderStorageKey] !== undefined) setAssetOrder(stringListFromValue(preferences[cloudHubAssetOrderStorageKey]));
       if (preferences[cloudHubAssetDisplayNamesStorageKey] !== undefined) setAssetDisplayNames(stringRecordFromValue(preferences[cloudHubAssetDisplayNamesStorageKey]));
+      if (preferences[assetExpiryPolicyPreferenceKey] !== undefined) setAssetExpiryPolicy(assetExpiryPolicyFromValue(preferences[assetExpiryPolicyPreferenceKey]));
       if (preferences[cloudHubManagedHostOrderStorageKey] !== undefined) setManagedHostOrder(stringListFromValue(preferences[cloudHubManagedHostOrderStorageKey]));
       if (preferences[cloudHubManagedHostCollapsedGroupsStorageKey] !== undefined) setCollapsedManagedHostGroups(new Set(stringListFromValue(preferences[cloudHubManagedHostCollapsedGroupsStorageKey])));
       if (preferences[cloudHubRecentManagedHostsCollapsedStorageKey] !== undefined) setRecentManagedHostsCollapsed(preferences[cloudHubRecentManagedHostsCollapsedStorageKey] === "1");
@@ -2672,6 +2708,12 @@ function App() {
   function saveClientPreference(key: string, value: string) {
     if (runningInTauri && clientPreferencesReady) void preferencesClient.save(key, value).catch(() => {});
   }
+  useEffect(() => {
+    if (!clientPreferencesReady) return;
+    const value = JSON.stringify(assetExpiryPolicy);
+    localStorage.setItem(assetExpiryPolicyPreferenceKey, value);
+    saveClientPreference(assetExpiryPolicyPreferenceKey, value);
+  }, [assetExpiryPolicy, clientPreferencesReady]);
   useEffect(() => {
     if (!clientPreferencesReady) return;
     const value = JSON.stringify(terminalQuickCommands);
@@ -3688,6 +3730,7 @@ function App() {
         const status = String(payload.Status || payload.InstanceStatus || payload.DBInstanceStatus || payload.DomainStatus || "");
         const note = assetNotes[assetFavoriteKey(asset)] || "";
         return (resourceAccountId === null || asset.account_id === resourceAccountId)
+          && (!assetExpiryPolicyScope || assetExpiryPolicyScope.includes(asset.resource_type))
           && (!resourceTypeFilter || asset.resource_type === resourceTypeFilter)
           && (!assetKeyword || `${label} ${asset.asset_key} ${note}`.toLowerCase().includes(assetKeyword.toLowerCase()))
           && (!assetRegionFilter || region === assetRegionFilter)
@@ -3696,7 +3739,7 @@ function App() {
           && withinAssetExpiry(asset, assetExpiryDays, Date.now());
       })
       .sort((left, right) => (order.get(assetFavoriteKey(left)) ?? Number.MAX_SAFE_INTEGER) - (order.get(assetFavoriteKey(right)) ?? Number.MAX_SAFE_INTEGER));
-  }, [localAssets, assetOrder, assetNotes, resourceAccountId, resourceTypeFilter, assetKeyword, assetRegionFilter, assetStatusFilter, accounts, assetGroupFilter, assetExpiryDays]);
+  }, [localAssets, assetOrder, assetNotes, resourceAccountId, resourceTypeFilter, assetKeyword, assetRegionFilter, assetStatusFilter, accounts, assetGroupFilter, assetExpiryDays, assetExpiryPolicyScope]);
   const pagedLocalAssets = visibleLocalAssets.slice((assetPage - 1) * pageSize, assetPage * pageSize);
   const favoriteAssets = useMemo(() => {
     const keys = new Set(favoriteAssetKeys);
@@ -3794,6 +3837,7 @@ function App() {
       .sort((left, right) => right[1] - left[1])
       .map(([cloudType, count]) => ({ cloudType, count, label: getCloudProvider(cloudType).label }));
   }, [accounts]);
+  const syncableSelectedAccountCount = useMemo(() => accounts.filter(account => selectedAccountIds.has(account.id) && account.enabled && supportsResourceSync(account) && syncAssetTypes(account).length > 0).length, [accounts, selectedAccountIds]);
   const pagedPanels = visiblePanels.slice((panelPage - 1) * panelGridPagination.pageSize, panelPage * panelGridPagination.pageSize);
   const openLocalDomainTool = (asset: LocalAsset, account: Account, kind: DomainTool["kind"]) => {
     const payload = asset.payload || {};
@@ -3881,6 +3925,7 @@ function App() {
     </span>;
   };
   const logRows = useMemo(() => accounts.flatMap((account) => localAssets.filter((asset) => asset.account_id === account.id && asset.fetched_at > operationLogClearedAt).map((asset) => ({ account, asset, action: "获取并保存资产" }))).filter((row) => (!logTypeFilter || row.asset.resource_type === logTypeFilter) && (!logFilter || `${row.account.account_name} ${row.asset.resource_type} ${row.action}`.toLowerCase().includes(logFilter.toLowerCase()))).sort((a, b) => b.asset.fetched_at - a.asset.fetched_at), [accounts, localAssets, operationLogClearedAt, logTypeFilter, logFilter]);
+  const expiringAssetsWithinPolicy = localAssets.filter(asset => (resourceAccountId === null || asset.account_id === resourceAccountId) && assetExpiryPolicy.resourceTypes.includes(asset.resource_type) && withinAssetExpiry(asset, assetExpiryPolicy.days, Date.now())).length;
   const pagedLogRows = logRows.slice((logPage - 1) * pageSize, logPage * pageSize);
   const filteredApiLogs = useMemo(() => apiLogs.filter((log) => (!apiLogAccountId || log.account_id === apiLogAccountId) && (!logFilter || `${log.account_name || ""} ${log.endpoint} ${log.action} ${log.status}`.toLowerCase().includes(logFilter.toLowerCase()))), [apiLogs, apiLogAccountId, logFilter]);
   const pagedApiLogs = filteredApiLogs.slice((apiLogPage - 1) * pageSize, apiLogPage * pageSize);
@@ -4012,7 +4057,7 @@ function App() {
           </div>
         </nav>
         <ToastNotice message={status} onDismiss={() => setStatus("")} />
-        <DialogPage active={section === "home"} pageId="home" detachTitle={detachablePageTitles.home}>{() => (<DesktopHomePage accounts={accounts} assets={localAssets} applicationSettings={applicationSettings} onNavigate={setSection} onOpenSoftware={id => {
+        <DialogPage active={section === "home"} pageId="home" detachTitle={detachablePageTitles.home}>{() => (<DesktopHomePage accounts={accounts} assets={localAssets} applicationSettings={applicationSettings} favoriteCount={favoriteAssets.length} panelCount={panelConnections.length} serverCount={managedHosts.length} onNavigate={setSection} onOpenSoftware={id => {
           if (!id) { setStoreApplicationId(undefined); setSection("plugins"); return; }
           const app = sortedApplications(applicationSettings.preferences).find(item => item.id === id);
           if (app) openCatalogApplication(app);
@@ -4193,6 +4238,11 @@ function App() {
               {selectedAccountIds.size ? `导出已勾选 (${selectedAccountIds.size})` : "选择导出"}
             </button>
             <SortSelectionControls label="账号" keys={pagedAccountIds} selected={selectedAccountIds} sorting={accountSorting} onToggleAll={togglePagedAccountSelection} onSortingChange={setAccountSorting} showSelectAll={false} disabled={!clientPreferencesReady} />
+            <button type="button" className="layui-btn account-sync-selected-button" title={`逐个同步已勾选且已启用、支持采集的账号，共 ${syncableSelectedAccountCount} 个`} aria-label={`同步所选资源，共 ${syncableSelectedAccountCount} 个账号`} disabled={!syncableSelectedAccountCount || !!batchResourceSync || syncing} onClick={() => void syncSelectedAccounts()}>
+              <RefreshCw size={14} className={batchResourceSync ? "spin" : undefined} aria-hidden="true" />
+              {batchResourceSync ? `同步中 ${batchResourceSync.completed}/${batchResourceSync.total}` : `同步所选资源${syncableSelectedAccountCount ? ` (${syncableSelectedAccountCount})` : ""}`}
+            </button>
+            {batchResourceSync && <span className="account-sync-all-progress" role="status" aria-live="polite">当前：{batchResourceSync.accountName} · 已获取 {batchResourceSync.fetched} 项 · 失败账号 {batchResourceSync.failed}</span>}
           </div>
           {accounts.length === 0 ? (
             <div className="empty">
@@ -4304,6 +4354,7 @@ function App() {
                               className="teal"
                               title="选择资产类型并同步到本地"
                               aria-label={`获取 ${account.account_name} 资产`}
+                              disabled={!!batchResourceSync || syncing}
                               onClick={() => {
                                 setSyncTypes(syncAssetTypes(account).map(([value]) => value));
                                 setSyncAccount(account);
@@ -4776,6 +4827,7 @@ function App() {
               </div>
               <div className="header-stat-panel">
                 <div className="header-stat-chips" role="group" aria-label="收藏类型统计">
+                  <button type="button" className={`header-stat-chip ${favoriteTypeFilter === null ? "active" : ""}`} title="显示全部收藏资源" aria-pressed={favoriteTypeFilter === null} onClick={() => setFavoriteTypeFilter(null)}><span>全部</span><strong>{favoriteAssets.length}</strong></button>
                   {assetTypes.filter(([value]) => favoriteAssets.some((item) => item.resource_type === value)).map(([value, label]) => <button type="button" className={`header-stat-chip ${favoriteTypeFilter === value ? "active" : ""}`} key={value} title={`筛选${label}资产`} aria-pressed={favoriteTypeFilter === value} onClick={() => setFavoriteTypeFilter(favoriteTypeFilter === value ? null : value)}><span>{label}</span><strong>{favoriteAssets.filter((item) => item.resource_type === value).length}</strong></button>)}
                 </div>
               </div>
@@ -4951,19 +5003,37 @@ function App() {
         <DialogPage active={section === "resources"} pageId="resources" detachTitle={detachablePageTitles.resources}>{() => ((
           <section className="local-resource-page">
             <header className="page-header-stats">
-              <div>
-                <span className="eyebrow">LOCAL ASSETS</span>
-                <h1>资源管理</h1>
-                <p>所有资产来自本地 SQLite，不会在此页面实时请求云端。</p>
+              <div className="resource-header-main">
+                <div>
+                  <span className="eyebrow">LOCAL ASSETS</span>
+                  <h1>资源管理</h1>
+                  <p>所有资产来自本地 SQLite，不会在此页面实时请求云端。</p>
+                </div>
+                <div className="asset-expiry-summary-wrap">
+                  <div className={`asset-expiry-summary${assetExpiryDays === assetExpiryPolicy.days && assetExpiryPolicyScope !== null ? " is-active" : ""}`}>
+                    <button type="button" className="asset-expiry-summary-main" aria-pressed={assetExpiryDays === assetExpiryPolicy.days && assetExpiryPolicyScope !== null} aria-label={`查看 ${assetExpiryPolicy.days} 天内到期资产，共 ${expiringAssetsWithinPolicy} 项`} onClick={() => { setAssetKeyword(""); setResourceTypeFilter(null); setAssetRegionFilter(""); setAssetStatusFilter(""); setAssetGroupFilter(""); setAssetExpiryDays(assetExpiryPolicy.days); setAssetExpiryPolicyScope(assetExpiryPolicy.resourceTypes); }}>
+                      <span><Clock3 size={17} aria-hidden="true" />{assetExpiryPolicy.days} 天内到期</span>
+                      <strong>{expiringAssetsWithinPolicy}</strong>
+                      <small>项资产 · 点击查看明细</small>
+                    </button>
+                    <button type="button" className="asset-expiry-policy-toggle" aria-haspopup="dialog" onClick={() => setAssetExpiryPolicyOpen(true)}>到期策略</button>
+                  </div>
+                  {assetExpiryPolicyOpen && <SharedDialog title="到期策略" subtitle="设置到期汇总范围，修改后自动保存。" icon={<Clock3 size={18} />} size="small" sizeStorageKey="assets:expiry-policy" className="asset-expiry-policy-dialog" closeLabel="关闭到期策略" onClose={() => setAssetExpiryPolicyOpen(false)} footer={<button type="button" className="secondary" onClick={() => setAssetExpiryPolicyOpen(false)}>完成</button>}><div className="asset-expiry-policy" aria-label="到期汇总策略">
+                    <label className="asset-expiry-policy-days">到期范围<input key={assetExpiryPolicy.days} type="number" min={1} max={3650} defaultValue={assetExpiryPolicy.days} aria-label="到期天数" onBlur={event => { const days = Number(event.currentTarget.value); if (Number.isInteger(days) && days >= 1 && days <= 3650) setAssetExpiryPolicy(current => ({ ...current, days })); else event.currentTarget.value = String(assetExpiryPolicy.days); }} /><span>天内</span></label>
+                    <fieldset><legend>统计资源类型</legend><div>{assetTypes.map(([type, label]) => <label key={type}><input type="checkbox" checked={assetExpiryPolicy.resourceTypes.includes(type)} onChange={event => setAssetExpiryPolicy(current => ({ ...current, resourceTypes: event.target.checked ? [...new Set([...current.resourceTypes, type])] : current.resourceTypes.filter(item => item !== type) }))} />{label}</label>)}</div></fieldset>
+                    <small>策略仅统计本机已保存、具有有效到期时间的资产。</small>
+                  </div></SharedDialog>}
+                </div>
               </div>
               <div className="header-stat-panel">
                 <div className="header-stat-chips" role="group" aria-label="资产类型统计">
+                  <button type="button" className={`header-stat-chip ${resourceTypeFilter === null ? "active" : ""}`} title="显示全部资产类型" aria-pressed={resourceTypeFilter === null} onClick={() => setResourceTypeFilter(null)}><span>全部</span><strong>{localAssets.filter((item) => resourceAccountId === null || item.account_id === resourceAccountId).length}</strong></button>
                   {assetTypes.map(([value, label]) => <button type="button" className={`header-stat-chip ${resourceTypeFilter === value ? "active" : ""}`} key={value} title={`筛选${label}资产`} aria-pressed={resourceTypeFilter === value} onClick={() => setResourceTypeFilter(resourceTypeFilter === value ? null : value)}><span>{label}</span><strong>{localAssets.filter((item) => (resourceAccountId === null || item.account_id === resourceAccountId) && item.resource_type === value).length}</strong></button>)}
                 </div>
               </div>
             </header>
             <section className="panel local-assets-panel">
-              <div className="asset-list-toolbar"><input className="asset-list-search" aria-label="搜索资产" value={assetKeyword} onChange={(event) => setAssetKeyword(event.target.value)} placeholder="请输入资产名称 / ID / 账号" /><select className="resource-account-select" aria-label="当前资源账号" title="切换资源账号" value={resourceAccountId ?? "all"} onChange={(event) => { const value = event.target.value; setResourceAccountId(value === "all" ? null : Number(value)); setResourceTypeFilter(null); }}><option value="all">全部账号（汇总）</option>{accounts.map((account) => <option key={account.id} value={account.id}>{account.account_name} · {account.access_key_id}</option>)}</select><select aria-label="按账号分组筛选" title="按账号分组筛选" value={assetGroupFilter} onChange={event=>setAssetGroupFilter(event.target.value)}><option value="">全部分组</option>{Array.from(new Set(accounts.map(account=>account.group_name||"").filter(Boolean))).map(group=><option key={group} value={group}>{group}</option>)}</select><input className="asset-expiry-input" aria-label="未来到期天数" type="number" min={0} max={3650} value={assetExpiryDays??""} onChange={event=>{const value=event.target.value;if(value==="")setAssetExpiryDays(null);else if(/^\d+$/.test(value)&&Number(value)<=3650)setAssetExpiryDays(Number(value));}} placeholder="到期天数" title="筛选未来 N 天内到期的资产；留空不限。到期筛选仅使用已获取的时间，未获取和已过期资源不计入。" /><select className="asset-type-filter" aria-label="按资产类型筛选" value={resourceTypeFilter || ""} onChange={(event) => setResourceTypeFilter(event.target.value || null)}><option value="">全部类型</option>{assetTypes.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><select className="asset-region-filter" aria-label="按地域筛选" value={assetRegionFilter} onChange={(event) => setAssetRegionFilter(event.target.value)}><option value="">全部地域</option>{Array.from(new Set(localAssets.map((asset) => asset.region_id || String(asset.payload?.RegionId || asset.payload?.Location || "")).filter(Boolean))).map((region) => <option key={region} value={region}>{region}</option>)}</select><select className="asset-status-filter" aria-label="按状态筛选" value={assetStatusFilter} onChange={(event) => setAssetStatusFilter(event.target.value)}><option value="">全部状态</option>{Array.from(new Set(localAssets.map((asset) => String(asset.payload?.Status || asset.payload?.InstanceStatus || asset.payload?.DBInstanceStatus || asset.payload?.DomainStatus || "")).filter(Boolean))).map((status) => <option key={status} value={status}>{cloudStatusText(status)}</option>)}</select><AiAssistButton task="search" title="AI 自然语言筛选" current={{query:assetKeyword,group:assetGroupFilter,resource_type:resourceTypeFilter||"",expires_within_days:assetExpiryDays}} onApply={result=>{const filters=assetSearchFilters(result.fields,assetTypes.map(([value])=>value),accounts.map(account=>account.group_name||""));if(filters.query!==undefined)setAssetKeyword(filters.query);if(filters.group!==undefined)setAssetGroupFilter(filters.group);if(filters.resource_type!==undefined)setResourceTypeFilter(filters.resource_type||null);if(filters.expires_within_days!==undefined)setAssetExpiryDays(filters.expires_within_days);}} /><button type="button" className="asset-filter-clear" title="清除搜索、类型、地域、状态、分组、到期天数和当前账号筛选" onClick={()=>{setAssetKeyword("");setResourceTypeFilter(null);setAssetRegionFilter("");setAssetStatusFilter("");setAssetGroupFilter("");setAssetExpiryDays(null);setResourceAccountId(null);}}>清除筛选</button><SortSelectionControls label="资产" keys={pagedLocalAssets.map(assetFavoriteKey)} selected={assetSelection.selected} sorting={assetSorting} onToggleAll={() => assetSelection.toggleAll(pagedLocalAssets.map(assetFavoriteKey))} onSortingChange={setAssetSorting} showSelectAll={false} /></div>
+              <div className="asset-list-toolbar"><input className="asset-list-search" aria-label="搜索资产" value={assetKeyword} onChange={(event) => setAssetKeyword(event.target.value)} placeholder="请输入资产名称 / ID / 账号" /><select className="resource-account-select" aria-label="当前资源账号" title="切换资源账号" value={resourceAccountId ?? "all"} onChange={(event) => { const value = event.target.value; setResourceAccountId(value === "all" ? null : Number(value)); setResourceTypeFilter(null); }}><option value="all">全部账号（汇总）</option>{accounts.map((account) => <option key={account.id} value={account.id}>{account.account_name} · {account.access_key_id}</option>)}</select><select aria-label="按账号分组筛选" title="按账号分组筛选" value={assetGroupFilter} onChange={event=>setAssetGroupFilter(event.target.value)}><option value="">全部分组</option>{Array.from(new Set(accounts.map(account=>account.group_name||"").filter(Boolean))).map(group=><option key={group} value={group}>{group}</option>)}</select><select className="asset-expiry-input" aria-label="剩余到期时间" title="筛选有效到期时间；无到期数据和已过期资源不计入" value={assetExpiryDays ?? ""} onChange={event=>setAssetExpiryDays(event.target.value === "" ? null : Number(event.target.value))}><option value="">不限到期时间</option><option value="1">1天内</option><option value="7">7天内</option><option value="15">15天内</option><option value="30">1个月内</option><option value="90">3个月内</option></select><select className="asset-type-filter" aria-label="按资产类型筛选" value={resourceTypeFilter || ""} onChange={(event) => setResourceTypeFilter(event.target.value || null)}><option value="">全部类型</option>{assetTypes.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><select className="asset-region-filter" aria-label="按地域筛选" value={assetRegionFilter} onChange={(event) => setAssetRegionFilter(event.target.value)}><option value="">全部地域</option>{Array.from(new Set(localAssets.map((asset) => asset.region_id || String(asset.payload?.RegionId || asset.payload?.Location || "")).filter(Boolean))).map((region) => <option key={region} value={region}>{region}</option>)}</select><select className="asset-status-filter" aria-label="按状态筛选" value={assetStatusFilter} onChange={(event) => setAssetStatusFilter(event.target.value)}><option value="">全部状态</option>{Array.from(new Set(localAssets.map((asset) => String(asset.payload?.Status || asset.payload?.InstanceStatus || asset.payload?.DBInstanceStatus || asset.payload?.DomainStatus || "")).filter(Boolean))).map((status) => <option key={status} value={status}>{cloudStatusText(status)}</option>)}</select><AiAssistButton task="search" title="AI 自然语言筛选" current={{query:assetKeyword,group:assetGroupFilter,resource_type:resourceTypeFilter||"",expires_within_days:assetExpiryDays}} onApply={result=>{const filters=assetSearchFilters(result.fields,assetTypes.map(([value])=>value),accounts.map(account=>account.group_name||""));if(filters.query!==undefined)setAssetKeyword(filters.query);if(filters.group!==undefined)setAssetGroupFilter(filters.group);if(filters.resource_type!==undefined)setResourceTypeFilter(filters.resource_type||null);if(filters.expires_within_days!==undefined)setAssetExpiryDays(filters.expires_within_days);}} /><button type="button" className="asset-filter-clear" title="清除搜索、类型、地域、状态、分组和当前账号筛选，并恢复不限到期时间" onClick={()=>{setAssetKeyword("");setResourceTypeFilter(null);setAssetRegionFilter("");setAssetStatusFilter("");setAssetGroupFilter("");setAssetExpiryDays(null);setAssetExpiryPolicyScope(null);setResourceAccountId(null);}}>清除筛选</button><SortSelectionControls label="资产" keys={pagedLocalAssets.map(assetFavoriteKey)} selected={assetSelection.selected} sorting={assetSorting} onToggleAll={() => assetSelection.toggleAll(pagedLocalAssets.map(assetFavoriteKey))} onSortingChange={setAssetSorting} showSelectAll={false} /></div>
               {visibleLocalAssets.length ? <div className="table-wrap"><table><thead><tr><th className="asset-order-column">{assetSorting ? <span className="sr-only">排序</span> : <SelectionCheckbox label="全选当前页资产" checked={pagedLocalAssets.length > 0 && pagedLocalAssets.every(asset => assetSelection.selected.has(assetFavoriteKey(asset)))} mixed={pagedLocalAssets.some(asset => assetSelection.selected.has(assetFavoriteKey(asset))) && !pagedLocalAssets.every(asset => assetSelection.selected.has(assetFavoriteKey(asset)))} onChange={() => assetSelection.toggleAll(pagedLocalAssets.map(assetFavoriteKey))} />}</th><th>资源类型</th><th>资产名称 / ID</th><th>到期时间</th><th>账号信息</th><th>地域</th><th>状态</th><th className="asset-actions-column">操作</th></tr></thead><tbody>
                 {pagedLocalAssets.map((asset) => {
                   const account = accounts.find((item) => item.id === asset.account_id);
@@ -4974,6 +5044,9 @@ function App() {
                   const accessKey = account?.access_key_id || "";
                   const maskedKey = accessKey.length > 8 ? `${accessKey.slice(0, 4)}****${accessKey.slice(-4)}` : accessKey || "-";
                   const expiry = payload.ExpiredTime || payload.ExpirationTime || payload.ExpirationDate || payload.ExpirationTime || payload.ExpireTime || payload.ExpireDate || payload.EndTime;
+                  const expiryTimestamp = assetExpiryTimestamp(asset);
+                  const expiryTone = assetExpiryTone(asset);
+                  const expiryRemainingDays = expiryTimestamp === null ? null : Math.ceil((expiryTimestamp - Date.now()) / 86_400_000);
                   const domainActions = account?.cloud_type === "cloudflare" ? renderAssetActions(asset, account) : asset.resource_type === "domain" && account && !["oracle", "huawei", "baidu", "ucloud", "aws", "azure", "gcp", "jdcloud", "qingcloud", "ksyun"].includes(account.cloud_type) ? (
                     <div className="asset-action-buttons domain-asset-actions">
                       <button type="button" className="asset-domain-dns-button" title="打开域名解析管理" onClick={() => openLocalDomainTool(asset, account, "dns")}>解析管理</button>
@@ -4989,13 +5062,13 @@ function App() {
                   ) : null;
                   const serverActions = (account?.cloud_type === "cloudflare" || asset.resource_type === "ecs" || asset.resource_type === "swas") ? renderAssetActions(asset, account) : null;
                   const assetNote = assetNotes[assetRowKey] || "";
-                  return <tr key={assetRowKey} className={draggedAssetKey === assetRowKey ? "is-asset-dragging" : ""} data-asset-row-key={assetRowKey}>
+                  return <tr key={assetRowKey} className={draggedAssetKey === assetRowKey ? "is-asset-dragging" : ""} data-expiry-tone={assetExpiryTone(asset) ?? undefined} data-asset-row-key={assetRowKey}>
                     <td className="asset-order-cell">{assetSorting ? <button type="button" className="asset-drag-handle" aria-label={`拖动排序 ${serverName}`} title="拖动排序" onPointerDown={(event) => startAssetDrag(event, assetRowKey)}><GripVertical size={17} /></button> : <SelectionCheckbox label={`选择资产 ${serverName}`} checked={assetSelection.selected.has(assetRowKey)} onChange={() => assetSelection.toggle(assetRowKey)} />}</td>
                     <td>{assetTypes.find(([value]) => value === asset.resource_type)?.[1] || asset.resource_type}</td>
                     <td><div className="asset-name-cell"><div className="asset-note-line">{editingAssetNote?.key === assetRowKey ? <input className="asset-note-editor" value={editingAssetNote.value} autoFocus onChange={(event) => setEditingAssetNote((current) => current?.key === assetRowKey ? { ...current, value: event.target.value } : current)} onBlur={() => saveAssetNote(assetRowKey)} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") setEditingAssetNote(null); }} aria-label="资产备注" placeholder="添加备注" /> : <button type="button" className={`asset-note-button${assetNote ? " has-note" : ""}`} onClick={() => setEditingAssetNote({ key: assetRowKey, value: assetNote, initial: assetNote })}>{assetNote || "添加备注"}</button>}<AiAssetNotes name={serverName} type={asset.resource_type} note={assetNote} onSave={value=>setAssetNotes(current=>({...current,[assetRowKey]:value}))}/></div><div className="asset-name-primary">{canEditServerName && account ? (
                       editingAssetName?.key === assetRowKey ? <input className="asset-name-editor" value={editingAssetName.value} autoFocus disabled={savingAssetName === assetRowKey} onChange={(event) => setEditingAssetName((current) => current?.key === assetRowKey ? { ...current, value: event.target.value } : current)} onBlur={() => void saveServerName(asset, account, assetRowKey)} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") setEditingAssetName(null); }} aria-label="服务器名称" /> : <button type="button" className="asset-name-edit-button" title="点击修改服务器名称" onClick={() => setEditingAssetName({ key: assetRowKey, value: serverName === "-" ? "" : serverName, initial: serverName === "-" ? "" : serverName })}><strong>{serverName}</strong></button>
                     ) : <strong>{displayValue(payload.InstanceName || payload.DBInstanceDescription || payload.SiteName || payload.DomainName || payload.Name || asset.asset_key)}</strong>}<button type="button" className={`asset-favorite-button asset-name-favorite ${favoriteAssetKeys.includes(assetFavoriteKey(asset)) ? "is-favorite" : ""}`} title={favoriteAssetKeys.includes(assetFavoriteKey(asset)) ? "取消收藏" : "收藏资源"} aria-label={favoriteAssetKeys.includes(assetFavoriteKey(asset)) ? "取消收藏" : "收藏资源"} onClick={() => toggleAssetFavorite(asset)}>{favoriteAssetKeys.includes(assetFavoriteKey(asset)) ? <Star size={10} fill="currentColor" /> : <Star size={10} />}</button></div><small className="asset-subline">{asset.asset_key}</small></div></td>
-                    <td>{formatAssetDate(expiry)}</td>
+                    <td className="asset-expiry-cell">{formatAssetDate(expiryTimestamp ?? expiry)}{expiryRemainingDays !== null && <small className="asset-expiry-remaining" data-expiry-tone={expiryTone ?? undefined}>{expiryRemainingDays < 0 ? `已过期 ${Math.abs(expiryRemainingDays)} 天` : `剩余 ${expiryRemainingDays} 天`}</small>}</td>
                     <td><div className="asset-account-name"><CloudAvatar cloudType={account?.cloud_type || "other"} /><strong>{account?.account_name || `账号 ${asset.account_id}`}</strong></div><small className="asset-subline">{cloudProvider(account?.cloud_type || "other").label} · {maskedKey}</small><small className="asset-subline">{account?.group_name || "未分组"}</small></td>
                     <td>{displayValue(asset.region_id || payload.RegionId || payload.Location)}</td>
                     <td>{cloudStatusText(payload.Status || payload.InstanceStatus || payload.DBInstanceStatus || payload.DomainStatus)}</td>

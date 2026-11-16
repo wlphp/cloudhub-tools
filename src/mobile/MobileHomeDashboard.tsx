@@ -1,89 +1,55 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
-import { ArrowUpRight, BellRing, ChevronRight, Cloud, HardDrive, ShieldCheck } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, type MutableRefObject, type ReactNode } from "react";
+import { ArrowUpRight, BellRing, ChevronDown, Cloud, Clock3, HardDrive, Star } from "lucide-react";
 import type { Account, LocalAsset } from "../shared/types";
 import type { MobileFeatureDestination } from "./MobileMorePage";
-import { runningInTauri } from "../platform/api";
-import { certificatesClient, type CertificateSummary } from "../platform/clients/certificates";
-import { monitorAlertsClient, type MonitorSnapshot } from "../platform/clients/monitorAlerts";
-import { homeStatistics } from "./home-statistics";
+import { monitorAlertsClient } from "../platform/clients/monitorAlerts";
+import { resourceKinds, formatHomeElapsed } from "../features/overview/homeModel";
 import "./home-dashboard.css";
 
-type Props = { accounts: Account[]; assets: LocalAsset[]; assetError?: boolean; onActiveAlertCount: (count: number | null) => void; onNavigate: (tab: MobileFeatureDestination | "monitorAlerts") => void; refreshRef?: MutableRefObject<(() => Promise<void>) | null> };
-const destinations: Record<string, MobileFeatureDestination> = { ecs: "servers", swas: "servers", domain: "domains", oss: "storage", rds: "databases", redis: "redis" };
-const dateLabel = (value: number) => new Date(value < 100_000_000_000 ? value * 1000 : value).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
-
-export function MobileHomeDashboard({ accounts, assets, assetError, onActiveAlertCount, onNavigate, refreshRef }: Props) {
-  const [dimension, setDimension] = useState<"types" | "providers">("types");
-  const [snapshot, setSnapshot] = useState<MonitorSnapshot | null>(null);
-  const [certificates, setCertificates] = useState<CertificateSummary[]>([]);
-  const [certificateError, setCertificateError] = useState(false);
-  const [certificatesLoaded, setCertificatesLoaded] = useState(false);
-  const [monitorError, setMonitorError] = useState(false);
-  const [loading, setLoading] = useState(true);
+type Props = { accounts: Account[]; assets: LocalAsset[]; favoriteCount: number; assetError?: boolean; onActiveAlertCount: (count: number | null) => void; onNavigate: (tab: MobileFeatureDestination | "monitorAlerts") => void; refreshRef?: MutableRefObject<(() => Promise<void>) | null>; children?: ReactNode };
+export function MobileHomeDashboard({ accounts, assets, favoriteCount, assetError, onActiveAlertCount, onNavigate, refreshRef, children }: Props) {
+  const [activeAlerts, setActiveAlerts] = useState<number | null>(null);
+  const [error, setError] = useState(false);
   const [now, setNow] = useState(Date.now);
   const revision = useRef(0);
-  const lastActiveCount = useRef<number | null>(null);
   const refresh = useCallback(async () => {
     const token = ++revision.current;
-    setLoading(true);
-    const [monitor, certs] = await Promise.allSettled([runningInTauri ? monitorAlertsClient.snapshot() : Promise.resolve(null), certificatesClient.summaries()]);
-    if (token !== revision.current) return;
     setNow(Date.now());
-    if (monitor.status === "fulfilled" && (!monitor.value || (Array.isArray(monitor.value.alerts) && Number.isFinite(monitor.value.checkedAt)))) {
-      setSnapshot(monitor.value);
-      setMonitorError(Boolean(monitor.value?.lastError));
-      lastActiveCount.current = monitor.value && monitor.value.checkedAt > 0 ? monitor.value.alerts.filter(alert => alert.active && !alert.ignored).length : null;
-      onActiveAlertCount(lastActiveCount.current);
-    } else { setMonitorError(true); onActiveAlertCount(lastActiveCount.current); }
-    if (certs.status === "fulfilled" && Array.isArray(certs.value)) { setCertificates(certs.value); setCertificateError(false); setCertificatesLoaded(true); }
-    else setCertificateError(true);
-    setLoading(false);
+    try {
+      const snapshot = await monitorAlertsClient.snapshot();
+      if (token !== revision.current) return;
+      const count = snapshot.alerts.filter(alert => alert.active).length;
+      setActiveAlerts(count); onActiveAlertCount(count); setError(Boolean(snapshot.lastError));
+    } catch { if (token === revision.current) setError(true); }
   }, [onActiveAlertCount]);
   useEffect(() => {
     void refresh();
     const visibleRefresh = () => { if (!document.hidden) void refresh(); };
     const timer = window.setInterval(visibleRefresh, 60000);
-    window.addEventListener("focus", visibleRefresh);
-    document.addEventListener("visibilitychange", visibleRefresh);
+    window.addEventListener("focus", visibleRefresh); document.addEventListener("visibilitychange", visibleRefresh);
     if (refreshRef) refreshRef.current = refresh;
-    return () => { revision.current++; window.clearInterval(timer); window.removeEventListener("focus", visibleRefresh); document.removeEventListener("visibilitychange", visibleRefresh); if (refreshRef?.current === refresh) refreshRef.current = null; };
+    return () => { revision.current++; clearInterval(timer); window.removeEventListener("focus", visibleRefresh); document.removeEventListener("visibilitychange", visibleRefresh); if (refreshRef?.current === refresh) refreshRef.current = null; };
   }, [refresh, refreshRef]);
-  const stats = useMemo(() => homeStatistics(assets, accounts, certificates, now), [assets, accounts, certificates, now]);
-  const active = snapshot?.alerts.filter(alert => alert.active && !alert.ignored) ?? [];
-  const known = Boolean(snapshot && snapshot.checkedAt > 0);
-  const groups = [
-    { label: "超级严重", count: active.filter(alert => alert.severity === "emergency").length, tone: "danger" },
-    { label: "紧急", count: active.filter(alert => alert.severity === "critical").length, tone: "warning" },
-    { label: "提醒", count: active.filter(alert => alert.severity === "warning").length, tone: "accent" },
-  ];
-  const rows = stats[dimension];
-  const max = Math.max(1, ...rows.map(row => row.count));
-  const assetAvailable = !assetError || assets.length > 0;
-  const expiryBuckets = [{ label: "已过期", count: stats.expiry.expired, tone: "danger" }, { label: "7天内", count: stats.expiry.week, tone: "warning" }, { label: "8–30天", count: stats.expiry.month, tone: "accent" }, { label: "30天后", count: stats.expiry.later, tone: "muted" }];
-  const expiryMax = Math.max(1, ...expiryBuckets.map(row => row.count));
-  return <section className="home-dashboard" aria-label="资产与风险概览" aria-busy={loading}>
-    <header className="home-dashboard-heading"><div><p>本地资源看板</p><h1>资产与风险概览</h1></div><span>本机数据</span></header>
-    <div className="home-stat-grid">
-      {[{ label: "资产总数", value: assetAvailable ? assets.length : null, caption: "查看列表", icon: HardDrive, tone: "accent", destination: "assets" }, { label: "云账号", value: accounts.length, caption: "查看列表", icon: Cloud, tone: "accent", destination: "accounts" }, { label: "待处理预警", value: known ? active.length : null, caption: known ? "未解除且未忽略" : loading ? "正在读取" : "状态未知", icon: BellRing, tone: !known ? "muted" : active.length ? "danger" : "accent", destination: "monitorAlerts" }, { label: "30天内到期", value: assetAvailable && certificatesLoaded && !certificateError ? stats.expiry.week + stats.expiry.month : null, caption: "含独立证书 · 不含已过期", icon: ShieldCheck, tone: "accent", destination: "assets" }].map(metric => {
-        const Icon = metric.icon;
-        return <button type="button" key={metric.label} data-tone={metric.tone} data-placeholder={metric.value === null ? "" : undefined} onClick={() => onNavigate(metric.destination as MobileFeatureDestination | "monitorAlerts")}><span className="home-stat-label"><i className="home-stat-chip" aria-hidden="true"><Icon size={15} strokeWidth={1.8} /></i>{metric.label}<ArrowUpRight className="home-stat-arrow" size={13} aria-hidden="true" /></span><strong>{metric.value ?? "—"}</strong><small>{metric.caption}</small></button>;
-      })}
-    </div>
-    {assetError && <p className="home-dashboard-notice" role="status">资产缓存读取失败{assets.length ? "，保留上次数据" : "，资产统计暂不可用"}。</p>}
-    <section className="home-chart-card" aria-label="资产分布">
-      <header><h2>资产分布</h2><div className="home-chart-switch" role="group" aria-label="资产统计维度"><button type="button" aria-pressed={dimension === "types"} onClick={() => setDimension("types")}>按类型</button><button type="button" aria-pressed={dimension === "providers"} onClick={() => setDimension("providers")}>按云厂商</button></div></header>
-      {rows.length ? <ul className="home-bars">{rows.map(row => <li key={row.key}><button type="button" onClick={() => onNavigate(dimension === "types" ? destinations[row.key] ?? "assets" : "assets")} aria-label={`${row.label} ${row.count} 项，查看${dimension === "types" && destinations[row.key] ? row.label : "全部资产"}`}><span>{row.label}</span><span className="home-bar-track" aria-hidden="true"><i style={{ width: `${row.count / max * 100}%` }} /></span><strong>{row.count}</strong></button></li>)}</ul> : <p className="home-chart-empty">{assetError ? "资产统计暂不可用" : "暂无本地资产，添加云账号并同步资源后查看。"}</p>}
-      <p className="home-chart-note">{stats.oldestCache ? `最早缓存 ${dateLabel(stats.oldestCache)}` : "暂无完整的资产缓存时间"} · 不实时请求云端</p>
+  const latestFetch = assets.reduce((latest, asset) => Math.max(latest, asset.fetched_at || 0), 0);
+  const counts = resourceKinds.map(kind => ({ ...kind, count: kind.key === "other" ? assets.filter(asset => !["ecs", "swas", "domain", "oss"].includes(asset.resource_type)).length : assets.filter(asset => asset.resource_type === kind.key).length }));
+  let offset = 0;
+  return <section className="home-dashboard mobile-home-unified" aria-label="首页资源概况">
+    <header className="home-dashboard-heading mobile-home-compact-heading"><h1>首页</h1><details className="mobile-home-collection-details"><summary><span><Clock3 size={13} aria-hidden="true" />最近采集<strong>{latestFetch ? formatHomeElapsed(latestFetch, now) : "暂无记录"}</strong><ChevronDown size={13} className="mobile-home-collection-chevron" aria-hidden="true" /></span>{latestFetch > 0 && <time dateTime={new Date(latestFetch).toISOString()}>{new Date(latestFetch).toLocaleString("zh-CN")}</time>}</summary><p>云账号与本机已保存资源概况；采集时间仅统计本机已保存的记录，不会实时请求云端。</p></details></header>
+    <div className="home-stat-grid">{[
+      { label: "云账号", count: accounts.length, caption: `已启用 ${accounts.filter(account => account.enabled).length}`, icon: Cloud, destination: "accounts" },
+      { label: "已保存资源", count: assetError && !assets.length ? null : assets.length, caption: "本机资产清单", icon: HardDrive, destination: "assets" },
+      { label: "已收藏", count: favoriteCount, caption: "已收藏的资源", icon: Star, destination: "favorites" },
+      { label: "未解除预警", count: activeAlerts, caption: activeAlerts === null ? "本机监控状态" : "查看监控预警明细", icon: BellRing, destination: "monitorAlerts" },
+    ].map(({label, count, caption, icon: Icon, destination}) => <button key={label} type="button" onClick={() => onNavigate(destination as MobileFeatureDestination | "monitorAlerts")}><span className="home-stat-label"><Icon size={17} />{label}<ArrowUpRight size={13} className="home-stat-arrow" /></span><strong className={destination === "monitorAlerts" ? "mobile-home-warning" : undefined}>{count ?? "—"}</strong><small>{caption}</small></button>)}</div>
+    {assetError && <p className="home-dashboard-notice" role="status">资产缓存读取失败{assets.length ? "，保留上次数据" : ""}。</p>}
+    {error && <p className="home-dashboard-notice" role="status">最近读取或巡检失败，预警数量为上次可用快照。</p>}
+    <section className="home-chart-card"><header><div><h2>资源类型分布</h2><p className="home-chart-note">按本机已保存的云资源统计</p></div></header>
+      <div className="mobile-home-donut-layout"><svg viewBox="0 0 120 120" role="img" aria-label={`资源类型分布，共 ${assets.length} 项`}><circle cx="60" cy="60" r="48" fill="none" stroke="var(--mobile-border)" strokeWidth="14" />{counts.filter(item => item.count).map(item => {
+        const length = item.count / assets.length * 301.59;
+        const circle = <circle key={item.key} cx="60" cy="60" r="48" fill="none" stroke={item.color} strokeWidth="14" strokeDasharray={`${length} ${301.59 - length}`} strokeDashoffset={-offset} transform="rotate(-90 60 60)" />;
+        offset += length; return circle;
+      })}<text x="60" y="57" textAnchor="middle" className="mobile-home-donut-total">{assets.length}</text><text x="60" y="75" textAnchor="middle" className="mobile-home-donut-caption">资源</text></svg><ul>{counts.map(item => <li key={item.key}><span><i style={{background: item.color}} />{item.label}</span><strong>{item.count}</strong></li>)}</ul></div>
     </section>
-    <section className="home-chart-card" aria-label="预警概况"><header><h2>预警概况</h2><button type="button" className="home-chart-link" onClick={() => onNavigate("monitorAlerts")}>全部预警<ChevronRight size={15} aria-hidden="true" /></button></header>
-      {!known ? <p className="home-chart-empty">{!runningInTauri ? "浏览器预览无法读取预警，请在 App 中查看。" : loading ? "正在读取预警快照…" : "尚未完成巡检，当前风险状态未知。"}</p> : <><div className="home-risk-counts">{groups.map(group => <button type="button" key={group.label} data-tone={group.tone} onClick={() => onNavigate("monitorAlerts")}><strong>{group.count}</strong><span>{group.label}</span></button>)}</div><div className="home-risk-track" aria-label={`未解除预警 ${active.length} 条`}>{groups.filter(group => group.count).map(group => <i key={group.label} data-tone={group.tone} style={{ flex: group.count }} />)}</div><p className="home-chart-note">{active.length ? "仅统计未解除、未忽略的预警" : "当前快照没有待处理预警，不代表所有资产已巡检"} · 巡检于 {dateLabel(snapshot!.checkedAt)}</p><div className="home-risk-sources">{[{ key: "resources", label: "云资源" }, { key: "certificates", label: "证书" }, { key: "panels", label: "面板" }, { key: "notes", label: "备忘录" }].map(source => <span key={source.key}>{source.label}<strong>{active.filter(alert => alert.section === source.key).length}</strong></span>)}</div></>}
-      {monitorError && <p className="home-dashboard-notice" role="status">最近读取或巡检失败{known ? "，以上为上次快照" : "，预警状态未知"}。</p>}
-    </section>
-    <section className="home-chart-card" aria-label="到期关注"><header><h2>到期关注</h2><button type="button" className="home-chart-link" onClick={() => onNavigate("certificates")}>证书管理<ChevronRight size={15} aria-hidden="true" /></button></header>
-      <ul className="home-bars">{expiryBuckets.map(row => <li key={row.label}><span className="home-expiry-row" data-tone={row.tone}><span>{row.label}</span><span className="home-bar-track" aria-hidden="true"><i style={{ width: `${row.count / expiryMax * 100}%` }} /></span><strong>{assetAvailable ? row.count : "—"}</strong></span></li>)}</ul>
-      <p className="home-chart-note">资产 {assets.length} 项 + 独立证书 {certificateError ? "读取失败" : !certificatesLoaded ? "正在读取" : `${certificates.length} 项`} · 有效期待补全 {stats.expiry.unknown} 项。区间互不重叠。</p>
-      {certificateError && <p className="home-dashboard-notice" role="status">证书读取失败，到期图暂只含已读取的数据，不能作为完整统计。</p>}
-      <details className="home-stat-help"><summary>统计口径与数据说明</summary><p>资产总数不包含独立证书库。到期统计合并两类记录，无有效期、按量付费和待签发证书列为待补全，不视为有效。预警来自本机巡检快照，读取失败或未巡检不代表正常。历史趋势将在积累真实每日快照后提供。</p></details>
-    </section>
+    {children}
   </section>;
 }

@@ -9,7 +9,8 @@ export type PetComputerAction = "shutdown" | "restart" | "taskManager" | "lock" 
 export interface PetSettings {
   life: PetLifeSettings;
   appearance: "alpaca" | "dog" | "penguin" | "fish";
-  enabled: boolean; monitoring: boolean; panels: boolean; panelAccess: boolean; certificates: boolean; servers: boolean;
+  enabled: boolean; monitoring: boolean; panels: boolean; panelDisk: boolean; panelServices: boolean; panelAccess: boolean; certificates: boolean; servers: boolean;
+  lightServers: boolean; domains: boolean; databases: boolean; redis: boolean;
   excludedAssetAlerts: string[];
   size: number; roam: "edge" | "free" | "still"; activity: number; sound: boolean; reducedMotion: boolean;
   quiet: boolean; intervalSeconds: number; expiryDays: number; cpuThreshold: number; diskThreshold: number; keepInTray: boolean;
@@ -50,7 +51,8 @@ export const sortPetAlerts = sortMonitorAlerts;
 export const defaultPetSettings: PetSettings = {
   life: defaultPetLife,
   appearance: "alpaca",
-  enabled: false, monitoring: false, panels: false, panelAccess: true, certificates: true, servers: true, excludedAssetAlerts: [],
+  enabled: false, monitoring: false, panels: false, panelDisk: false, panelServices: false, panelAccess: true, certificates: true, servers: true,
+  lightServers: true, domains: true, databases: true, redis: true, excludedAssetAlerts: [],
   size: 120, roam: "edge", activity: 1, sound: false, reducedMotion: false, quiet: false,
   intervalSeconds: 300, expiryDays: 30, cpuThreshold: 90, diskThreshold: 90, keepInTray: false,
   voice: defaultPetVoice,

@@ -611,8 +611,38 @@ body.theme-light .ide-theme .error-list{color:#b3424c;background:#fceef0;border:
 button.header-stat-chip{cursor:pointer}
 button.header-stat-chip:hover{border-color:var(--jb-accent);color:var(--jb-accent-strong)}
 button.header-stat-chip.active{border-color:var(--jb-accent);background:var(--jb-accent-soft);color:var(--jb-accent-strong)}
+.local-resource-page .page-header-stats{display:grid;grid-template-columns:minmax(0,1fr);align-items:stretch;gap:16px;margin-bottom:22px}
+.resource-header-main{display:grid;grid-template-columns:minmax(0,1fr) minmax(240px,360px);align-items:center;gap:24px;width:100%}
+.asset-expiry-summary-wrap{display:grid;gap:8px}
+.asset-expiry-summary{position:relative;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:stretch;min-height:94px;border:1px solid var(--jb-border);border-radius:10px;background:var(--jb-surface);color:var(--jb-text);transition:border-color .16s,background .16s}
+.asset-expiry-summary:hover,.asset-expiry-summary.is-active{border-color:var(--jb-accent);background:var(--jb-accent-soft)}
+.asset-expiry-summary-main{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:3px 12px;padding:13px 16px;border:0;background:transparent;color:inherit;text-align:left;cursor:pointer}
+.asset-expiry-summary-main>span{display:flex;align-items:center;gap:7px;color:var(--jb-muted);font-size:12px}
+.asset-expiry-summary-main>span svg{color:var(--jb-accent)}
+.asset-expiry-summary-main>strong{grid-column:2;grid-row:1/3;font-size:32px;line-height:1;font-variant-numeric:tabular-nums;color:var(--jb-warning,#c87918)}
+.asset-expiry-summary-main>small{color:var(--jb-muted);font-size:11px}
+.asset-expiry-policy-toggle{align-self:center;margin-right:12px;padding:5px 8px;border:1px solid var(--jb-border);border-radius:6px;background:var(--jb-surface);color:var(--jb-muted);font-size:11px;white-space:nowrap;cursor:pointer}
+.asset-expiry-policy-toggle:hover{border-color:var(--jb-accent);color:var(--jb-accent-strong)}
+.asset-expiry-policy{display:grid;gap:10px;padding:12px;border:1px solid var(--jb-border);border-radius:8px;background:var(--jb-surface)}
+.asset-expiry-policy-days{display:flex;align-items:center;gap:7px;color:var(--jb-text);font-size:12px}
+.asset-expiry-policy-days input{width:78px;min-height:30px;padding:4px 7px;border:1px solid var(--jb-border);border-radius:5px;background:var(--jb-bg);color:var(--jb-text)}
+.asset-expiry-policy fieldset{margin:0;padding:7px 9px;border:1px solid var(--jb-border);border-radius:6px}
+.asset-expiry-policy legend{padding:0 4px;color:var(--jb-muted);font-size:11px}
+.asset-expiry-policy fieldset>div{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
+.asset-expiry-policy fieldset label{display:flex;align-items:center;gap:6px;color:var(--jb-text);font-size:11px}
+.asset-expiry-policy fieldset input{width:14px;height:14px;margin:0;accent-color:var(--jb-accent)}
+.asset-expiry-policy>small{color:var(--jb-muted);font-size:10px}
+.asset-expiry-policy-dialog .asset-expiry-policy{gap:16px;padding:0;border:0;background:transparent}
+.asset-expiry-policy-dialog .asset-expiry-policy fieldset>div{gap:8px 16px}
+.asset-expiry-policy-dialog .asset-expiry-policy fieldset label{min-height:32px;margin:0}
+.asset-expiry-policy-dialog .asset-expiry-policy-days{justify-content:flex-start;margin:0}
+.asset-expiry-cell{font-variant-numeric:tabular-nums}
+.asset-expiry-remaining{display:block;margin-top:4px;font-size:11px;font-weight:600;color:var(--expiry-tone-color,var(--jb-muted))}
+.local-resource-page .page-header-stats .header-stat-panel{width:100%;align-items:flex-start;margin-left:0}
+.local-resource-page .page-header-stats .header-stat-chips{justify-content:flex-start}
 /* 窄屏（手机端）换行后统计块仍保持左对齐，沿用移动端既有外观 */
 @media(max-width:680px){.page-header-stats .header-stat-panel{margin-left:0}}
+@media(max-width:680px){.resource-header-main{grid-template-columns:minmax(0,1fr)}.asset-expiry-summary{min-height:76px}.asset-expiry-policy fieldset>div{grid-template-columns:repeat(2,minmax(0,1fr))}}
 
 /* 统一「更多」下拉菜单（对齐面板管理配置菜单的样式） */
 .shared-more-wrap{position:relative;display:inline-flex}
@@ -644,3 +674,4 @@ button.header-stat-chip.active{border-color:var(--jb-accent);background:var(--jb
 .panel-insecure-tls{border-color:color-mix(in srgb,var(--jb-warning,#d7b46a) 30%,var(--jb-border));border-left:3px solid var(--jb-warning,#d7b46a);background:color-mix(in srgb,var(--jb-warning,#d7b46a) 7%,var(--jb-surface));color:var(--jb-text)}
 .panel-insecure-tls input{accent-color:var(--jb-warning,#d7b46a)}
 .panel-insecure-tls small{color:var(--jb-muted)}
+.account-section .layui-toolbar .account-sync-selected-button{display:inline-flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap}.account-section .layui-toolbar .account-sync-selected-button:disabled{opacity:.55;cursor:not-allowed}.account-section .layui-toolbar .account-sync-all-progress{flex:1 1 190px;min-width:150px;color:var(--jb-muted);font-size:11px;white-space:normal;line-height:1.35}

@@ -39,10 +39,10 @@ for (const width of [375, 768, 1024, 1440]) {
     }
     if (width === 1440) expect(new Set(dimensions.controls.map(control => Math.round(control.top))).size).toBeLessThanOrEqual(2);
     await page.getByLabel("按账号分组筛选").selectOption("生产");
-    await page.getByLabel("未来到期天数").fill("5");
+    await page.getByLabel("剩余到期时间").selectOption("7");
     await expect(page.locator(".local-assets-panel tbody tr")).toHaveCount(0);
     await filters.getByRole("button", { name: "清除筛选", exact: true }).click();
-    await expect(page.getByLabel("未来到期天数")).toHaveValue("");
+    await expect(page.getByLabel("剩余到期时间")).toHaveValue("");
     await expect(page.getByLabel("按账号分组筛选")).toHaveValue("");
     await expect(page.locator(".local-assets-panel tbody tr")).toHaveCount(1);
     await filters.scrollIntoViewIfNeeded();

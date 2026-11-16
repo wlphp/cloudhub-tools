@@ -32,6 +32,18 @@ const LEGACY_HISTORY: &str = "desktop-pet-alerts-v1";
 const POSITION: &str = "desktop-pet-position-v1";
 const LABEL: &str = "desktop-pet";
 const NOTICE_LABEL: &str = "desktop-pet-alert";
+fn default_enabled() -> bool { true }
+fn migrate_product_switches(mut value: Value) -> Value {
+    if let Some(object) = value.as_object_mut() {
+        let panels = object.get("panels").and_then(Value::as_bool).unwrap_or(false);
+        for key in ["panelDisk", "panelServices"] { object.entry(key).or_insert(Value::Bool(panels)); }
+        let enabled = object.get("servers").and_then(Value::as_bool).unwrap_or(true);
+        for key in ["lightServers", "domains", "databases", "redis"] {
+            object.entry(key).or_insert(Value::Bool(enabled));
+        }
+    }
+    value
+}
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
@@ -40,9 +52,17 @@ pub struct Settings {
     pub appearance: String,
     pub monitoring: bool,
     pub panels: bool,
+    #[serde(default)]
+    pub panel_disk: bool,
+    #[serde(default)]
+    pub panel_services: bool,
     pub panel_access: bool,
     pub certificates: bool,
     pub servers: bool,
+    pub light_servers: bool,
+    pub domains: bool,
+    pub databases: bool,
+    pub redis: bool,
     #[serde(default)]
     pub excluded_asset_alerts: Vec<String>,
     pub size: u32,
@@ -116,9 +136,21 @@ impl VoiceSettings {
 pub struct MonitorSettings {
     pub monitoring: bool,
     pub panels: bool,
+    #[serde(default)]
+    pub panel_disk: bool,
+    #[serde(default)]
+    pub panel_services: bool,
     pub panel_access: bool,
     pub certificates: bool,
     pub servers: bool,
+    #[serde(default = "default_enabled")]
+    pub light_servers: bool,
+    #[serde(default = "default_enabled")]
+    pub domains: bool,
+    #[serde(default = "default_enabled")]
+    pub databases: bool,
+    #[serde(default = "default_enabled")]
+    pub redis: bool,
     pub excluded_asset_alerts: Vec<String>,
     pub interval_seconds: u64,
     pub expiry_days: i64,
@@ -130,9 +162,15 @@ impl From<&Settings> for MonitorSettings {
         Self {
             monitoring: settings.monitoring,
             panels: settings.panels,
+            panel_disk: settings.panel_disk,
+            panel_services: settings.panel_services,
             panel_access: settings.panel_access,
             certificates: settings.certificates,
             servers: settings.servers,
+            light_servers: settings.light_servers,
+            domains: settings.domains,
+            databases: settings.databases,
+            redis: settings.redis,
             excluded_asset_alerts: settings.excluded_asset_alerts.clone(),
             interval_seconds: settings.interval_seconds,
             expiry_days: settings.expiry_days,
@@ -145,9 +183,15 @@ impl MonitorSettings {
     fn apply(self, settings: &mut Settings) {
         settings.monitoring = self.monitoring;
         settings.panels = self.panels;
+        settings.panel_disk = self.panel_disk;
+        settings.panel_services = self.panel_services;
         settings.panel_access = self.panel_access;
         settings.certificates = self.certificates;
         settings.servers = self.servers;
+        settings.light_servers = self.light_servers;
+        settings.domains = self.domains;
+        settings.databases = self.databases;
+        settings.redis = self.redis;
         settings.excluded_asset_alerts = self.excluded_asset_alerts;
         settings.interval_seconds = self.interval_seconds;
         settings.expiry_days = self.expiry_days;
@@ -162,9 +206,15 @@ impl Default for Settings {
             appearance: "alpaca".into(),
             monitoring: false,
             panels: false,
+            panel_disk: false,
+            panel_services: false,
             panel_access: true,
             certificates: true,
             servers: true,
+            light_servers: true,
+            domains: true,
+            databases: true,
+            redis: true,
             excluded_asset_alerts: Vec::new(),
             size: 120,
             roam: "edge".into(),
@@ -246,11 +296,12 @@ fn read_settings() -> Result<Settings, String> {
     let all = preferences::list(&open_db()?)?;
     let mut settings: Settings = all
         .get(CONFIG)
-        .map(|v| serde_json::from_str(v).map_err(|_| "桌宠设置读取失败".to_string()))
+        .map(|v| serde_json::from_str::<Value>(v).and_then(|value| serde_json::from_value(migrate_product_switches(value))).map_err(|_| "桌宠设置读取失败".to_string()))
         .transpose()?
         .unwrap_or_default();
     if let Some(monitor) = all.get(MONITOR_CONFIG) {
-        let monitor: MonitorSettings = serde_json::from_str(monitor).map_err(|_| "监控策略读取失败".to_string())?;
+        let value: Value = serde_json::from_str(monitor).map_err(|_| "监控策略读取失败".to_string())?;
+        let monitor: MonitorSettings = serde_json::from_value(migrate_product_switches(value)).map_err(|_| "监控策略读取失败".to_string())?;
         monitor.apply(&mut settings);
     }
     settings.validate()?;
@@ -403,6 +454,13 @@ pub async fn monitor_alerts_check(window: tauri::WebviewWindow, app: tauri::AppH
 pub fn monitor_alerts_ignore(window: tauri::WebviewWindow, app: tauri::AppHandle, keys: Vec<String>, ignored: bool) -> PlatformResult<Snapshot> {
     caller(&window)?;
     Ok(ignore_alerts(&app, keys, ignored)?)
+}
+
+#[cfg(mobile)]
+#[tauri::command]
+pub fn monitor_alerts_clear_selected(window: tauri::WebviewWindow, app: tauri::AppHandle, keys: Vec<String>) -> PlatformResult<Snapshot> {
+    caller(&window)?;
+    clear_selected_alerts(&app, keys)
 }
 
 #[cfg(desktop)]
@@ -1146,6 +1204,10 @@ fn ignore_alerts(app: &tauri::AppHandle, keys: Vec<String>, ignored: bool) -> Re
 #[tauri::command]
 pub fn pet_clear_selected(window: tauri::WebviewWindow, app: tauri::AppHandle, keys: Vec<String>) -> PlatformResult<Snapshot> {
     caller(&window)?;
+    clear_selected_alerts(&app, keys)
+}
+
+fn clear_selected_alerts(app: &tauri::AppHandle, keys: Vec<String>) -> PlatformResult<Snapshot> {
     if keys.is_empty() || keys.len() > 5000 || keys.iter().any(|key| key.is_empty() || key.len() > 1024) {
         return Err("预警清理参数无效".into());
     }
@@ -1239,17 +1301,19 @@ async fn inspect(app: &tauri::AppHandle, settings: &Settings) -> Result<(), Stri
         retire_missing(&mut state.alerts, "cert:", &[], now);
         retire_missing(&mut state.alerts, "site:", &[], now);
     }
-    if !settings.servers {
+    if !settings.servers && !settings.light_servers && !settings.domains && !settings.databases && !settings.redis {
         retire_missing(&mut state.alerts, "asset:", &[], now);
     }
-    if !settings.panels || !settings.panel_access {
-        let retired: Vec<String> = state.alerts.iter().filter(|a| a.key.starts_with("panel:") &&
-            if a.key.ends_with(":connection") { !settings.panel_access } else { !settings.panels }
-        ).map(|a| a.key.clone()).collect();
+    {
+        let enabled = |key: &str| {
+            if key.ends_with(":connection") { settings.panel_access }
+            else if key.ends_with(":metric:cpu") { settings.panels }
+            else if key.ends_with(":metric:disk") { settings.panel_disk }
+            else { settings.panel_services }
+        };
+        let retired: Vec<String> = state.alerts.iter().filter(|a| a.key.starts_with("panel:") && !enabled(&a.key)).map(|a| a.key.clone()).collect();
         for key in retired { retire_missing(&mut state.alerts, &key, &[], now); }
-        app.state::<MonitoringStore>().failures.lock().map_err(|_| "巡检状态不可用")?.retain(|key, _| {
-            if key.ends_with(":connection") { settings.panel_access } else { settings.panels }
-        });
+        app.state::<MonitoringStore>().failures.lock().map_err(|_| "巡检状态不可用")?.retain(|key, _| enabled(key));
     }
     if settings.certificates {
         let rows = certificates::list(&open_db()?, None)?;
@@ -1309,7 +1373,7 @@ async fn inspect(app: &tauri::AppHandle, settings: &Settings) -> Result<(), Stri
             }
         }
     }
-    if settings.servers {
+    if settings.servers || settings.light_servers || settings.domains || settings.databases || settings.redis {
         let rows = assets::list(&open_db()?, None, None)?;
         retire_missing(
             &mut state.alerts,
@@ -1322,11 +1386,23 @@ async fn inspect(app: &tauri::AppHandle, settings: &Settings) -> Result<(), Stri
         );
         for a in rows {
             let asset_alert_key = format!("asset:{}:{}:{}", a.account_id, a.resource_type, a.asset_key);
+            let product_enabled = match a.resource_type.as_str() {
+                "ecs" | "cvm" | "server" | "instance" => settings.servers,
+                "lighthouse" | "swas" => settings.light_servers,
+                "domain" => settings.domains,
+                "rds" => settings.databases,
+                "redis" => settings.redis,
+                _ => false,
+            };
+            if !product_enabled {
+                retire_missing(&mut state.alerts, &asset_alert_key, &[], now);
+                continue;
+            }
             if settings.excluded_asset_alerts.contains(&asset_alert_key) {
                 observed.push(asset_alert_key);
                 continue;
             }
-            if !["ecs", "cvm", "lighthouse", "swas", "server", "instance", "domain"]
+            if !["ecs", "cvm", "lighthouse", "swas", "server", "instance", "domain", "rds", "redis"]
                 .contains(&a.resource_type.as_str())
             {
                 continue;
@@ -1337,7 +1413,7 @@ async fn inspect(app: &tauri::AppHandle, settings: &Settings) -> Result<(), Stri
                 "ExpirationDate",
                 "ExpireTime",
                 "ExpireDate",
-                "EndTime",
+                "EndTime", "expiredTime", "expirationTime", "expireTime", "expire_time",
             ]
             .iter()
             .find_map(|k| a.payload.get(*k).and_then(date));
@@ -1369,7 +1445,7 @@ async fn inspect(app: &tauri::AppHandle, settings: &Settings) -> Result<(), Stri
             }
         }
     }
-    if settings.panels || settings.panel_access {
+    if settings.panels || settings.panel_disk || settings.panel_services || settings.panel_access {
         let panels = panel_connections::list(&open_db()?)?;
         retire_missing(
             &mut state.alerts,
@@ -1405,11 +1481,11 @@ async fn inspect(app: &tauri::AppHandle, settings: &Settings) -> Result<(), Stri
                         .lock()
                         .map_err(|_| "巡检状态不可用")?
                         .remove(&connection);
-                    if !settings.panels { continue; }
                     for (metric, limit) in [
                         ("cpu", settings.cpu_threshold),
                         ("disk", settings.disk_threshold),
                     ] {
+                        if !(if metric == "cpu" { settings.panels } else { settings.panel_disk }) { continue; }
                         let key = format!("panel:{}:metric:{metric}", panel.id);
                         let value = metrics
                             .get(metric)
@@ -1433,7 +1509,7 @@ async fn inspect(app: &tauri::AppHandle, settings: &Settings) -> Result<(), Stri
                             if let Some(alert) = panel_metric_alert(panel.id, &panel.name, metric, value, limit, count) { candidates.push(alert); }
                         }
                     }
-                    if let Some(services) = services {
+                    if let Some(services) = services.filter(|_| settings.panel_services) {
                         for (name, running) in services {
                             let key = format!("panel:{}:service:{name}", panel.id);
                             if running {

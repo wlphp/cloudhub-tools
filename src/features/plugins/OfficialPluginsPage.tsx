@@ -5,7 +5,7 @@ import { useSortableDrag } from "../../shared/useSortableDrag";
 import { useDialogDocument } from "../../shared/DialogDocument";
 import { useEffect, useRef, useState } from "react";
 import { SharedDialog } from "../../shared/SharedDialog";
-import { ArrowLeft, Cpu, Globe, MessageCircle, NotebookPen, RefreshCw, Search, Package, SquareTerminal } from "lucide-react";
+import { ArrowLeft, ChevronDown, Cpu, Globe, MessageCircle, NotebookPen, RefreshCw, Search, Package, SquareTerminal } from "lucide-react";
 import { runningInTauri, runningOnPhone, runningOnWindows } from "../../platform/api";
 import { pluginsClient, type WechatPluginStatus } from "../../platform/clients/plugins";
 import { officialPlugins } from "./registry";
@@ -128,6 +128,7 @@ function OfficialPluginsStore({ mobile = false, initialPluginId, forceInitialPag
   const visibleCount = applications.length;
   const [storePage, setStorePage] = useState(1);
   const [storePageSize, setStorePageSize] = useState(10);
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const pagedApplications = applications.slice((storePage - 1) * storePageSize, storePage * storePageSize);
   const [sorting, setSorting] = useState(false);
   const sortDisabled = !applicationSettings.ready || applicationSettings.saving;
@@ -269,7 +270,8 @@ function OfficialPluginsStore({ mobile = false, initialPluginId, forceInitialPag
   }
 
   return <section className="utility-page official-plugins-page software-store-page">
-    <header><div className="store-heading"><span className="eyebrow">SOFTWARE STORE</span><div className="store-heading-line"><h1>软件商店</h1><span>官方工具免费内置 · 本地运行</span></div><p>集中管理云枢工具箱应用与插件，内置工具随客户端更新。</p></div><span className="store-total">{officialPlugins.length} 个内置应用</span></header>
+    <header className={mobile ? "store-mobile-heading" : undefined}><div className="store-heading"><span className="eyebrow">SOFTWARE STORE</span><div className="store-heading-line"><h1>软件商店</h1><span>官方工具免费内置 · 本地运行</span></div><p>集中管理云枢工具箱应用与插件，内置工具随客户端更新。</p></div><span className="store-total">{officialPlugins.length} 个内置应用</span></header>
+    {mobile && <button type="button" className="store-mobile-filter-toggle" aria-expanded={mobileFiltersOpen} onClick={() => setMobileFiltersOpen(open => !open)}>{mobileFiltersOpen ? "收起筛选" : `筛选与排序 · ${source} · ${platformFilter} · ${category}`}<ChevronDown size={16} aria-hidden="true" /></button>}
     <div className="store-tabs" role="group" aria-label="应用来源">{["官方应用", "第三方应用"].map(item => <button key={item} type="button" aria-pressed={source === item} className={source === item ? "is-active" : ""} onClick={() => setSource(item)}>{item}</button>)}</div>
     <section className="panel store-catalog" aria-label="软件列表" aria-busy={busy}>
       <div className="store-search-row">
@@ -283,7 +285,7 @@ function OfficialPluginsStore({ mobile = false, initialPluginId, forceInitialPag
       <div className="store-filter-row"><span>最近使用</span>{recent && <button type="button" className="store-recent" onClick={() => { setSource("官方应用"); setCategory("全部"); setKeyword(""); openPlugin(plugin.id); }}><MessageCircle size={14} aria-hidden="true" />微信多开</button>}{hardwareRecent && <button type="button" className="store-recent" onClick={() => { setSource("官方应用"); setCategory("全部"); setKeyword(""); openPlugin(hardwarePlugin.id); }}><Cpu size={14} aria-hidden="true" />电脑信息</button>}{wslRecent && <button type="button" className="store-recent" onClick={() => { setSource("官方应用"); setCategory("全部"); setKeyword(""); openPlugin(wslPlugin.id); }}><SquareTerminal size={14} aria-hidden="true" />WSL 管理</button>}{!recent && !hardwareRecent && !wslRecent && <small>暂无使用记录</small>}</div>
       {!runningInTauri && <p className="store-platform-note" role="status">浏览器预览不支持启动本地软件，请在 Windows 桌面客户端使用。</p>}
       {runningInTauri && status && !status.supported && <p className="store-platform-note" role="status">微信多开插件仅支持 Windows 桌面端。</p>}
-        <table className="store-table"><caption className="store-table-caption">应用列表</caption><thead><tr><th scope="col">{sorting ? "排序" : "序号"}</th><th scope="col">软件名称</th><th scope="col">开发商</th><th scope="col">说明</th><th scope="col">价格</th><th scope="col">平台</th><th scope="col">操作</th></tr></thead><tbody>
+      <table className="store-table"><caption className="store-table-caption">应用列表</caption><thead><tr><th scope="col">{sorting ? "排序" : "序号"}</th><th scope="col">软件名称</th><th scope="col">开发商</th><th scope="col">说明</th><th scope="col">价格</th><th scope="col">平台</th><th scope="col">操作</th></tr></thead><tbody>
         {pagedApplications.map(app => {
         const Icon = app.icon;
         const serialCell = <td data-label="序号" className="store-serial-number">{sorting ? <ListSortHandle id={app.id} name={app.name} ids={pagedApplications.map(item => item.id)} disabled={sortDisabled} onStart={drag.startDrag} onMove={moveApplication} /> : applicationPositions.get(app.id)}</td>;
@@ -348,7 +350,7 @@ function OfficialPluginsStore({ mobile = false, initialPluginId, forceInitialPag
       </tbody></table>
       {visibleCount === 0 && <div className="store-empty"><Package size={30} aria-hidden="true" /><h2>{source === "第三方应用" ? "暂无第三方应用" : "没有符合条件的应用"}</h2><p>{source === "官方应用" ? "尝试调整搜索词或切换应用分类。" : "当前先提供官方内置应用，后续上架的应用将在这里展示。"}</p><button type="button" className="secondary" onClick={() => { setSource("官方应用"); setCategory("全部"); setPlatformFilter("全部"); setKeyword(""); }}>查看全部官方应用</button></div>}
       {visibleCount > 0 && <PaginationBar className="store-pagination" page={storePage} pageSize={storePageSize} total={visibleCount} onPageChange={setStorePage} onPageSizeChange={(size) => { setStorePageSize(size); setStorePage(1); }} />}
-    </section>
+     </section>
     {activePlugin && activeDefinition && <SharedDialog key={activePlugin.id} sizeStorageKey={`plugin:${activePlugin.id}`} title={activePlugin.id === plugin.id ? "微信多开设置" : activeDefinition.name} size={activePlugin.presentation.size} className={`plugin-application-dialog plugin-modal-${activePlugin.presentation.size}`} onClose={closePlugin} footer={<button type="button" className="secondary" onClick={closePlugin}><ArrowLeft size={15} aria-hidden="true" />返回软件商店</button>}>{application}</SharedDialog>}
     {presentationFor && <PluginPresentationDialog targetId={presentationFor} applicationSettings={applicationSettings} onClose={() => setPresentationFor(null)} />}
     {detailsFor && applicationCatalog.find(item => item.id === detailsFor) && <ApplicationDetailsDialog app={applicationCatalog.find(item => item.id === detailsFor)!} order={applicationPositions.get(detailsFor)} onClose={() => setDetailsFor(null)} onConfigure={() => { const id = detailsFor; setDetailsFor(null); setPresentationFor(id); }} />}

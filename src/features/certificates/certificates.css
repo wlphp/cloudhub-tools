@@ -221,12 +221,16 @@
 .certificate-page .certificate-source-filter select{box-sizing:border-box;width:112px;border-radius:4px;color:var(--jb-text)}
 .certificate-page .certificate-panel:not(.baota-certificate-manager) .certificate-toolbar>button{flex:none;padding:0 10px;border-radius:4px;white-space:nowrap}
 .certificate-page .certificate-panel:not(.baota-certificate-manager) .table-wrap table{min-width:980px;width:100%}
-.certificate-page .certificate-panel:not(.baota-certificate-manager) th:nth-child(1){width:25%}
-.certificate-page .certificate-panel:not(.baota-certificate-manager) th:nth-child(2){width:110px}
-.certificate-page .certificate-panel:not(.baota-certificate-manager) th:nth-child(3){width:auto}
-.certificate-page .certificate-panel:not(.baota-certificate-manager) th:nth-child(4){width:150px}
-.certificate-page .certificate-panel:not(.baota-certificate-manager) th:nth-child(5){width:86px}
-.certificate-page .certificate-panel:not(.baota-certificate-manager) th:nth-child(6){width:216px}
+.certificate-page .certificate-panel:not(.baota-certificate-manager) th:nth-child(1),.certificate-page .certificate-panel:not(.baota-certificate-manager) td.certificate-select-column{width:38px}
+.certificate-page .certificate-panel:not(.baota-certificate-manager) th:nth-child(2){width:25%}
+.certificate-page .certificate-panel:not(.baota-certificate-manager) th:nth-child(3){width:110px}
+.certificate-page .certificate-panel:not(.baota-certificate-manager) th:nth-child(4){width:auto}
+.certificate-page .certificate-panel:not(.baota-certificate-manager) th:nth-child(5){width:150px}
+.certificate-page .certificate-panel:not(.baota-certificate-manager) th:nth-child(6){width:86px}
+.certificate-page .certificate-panel:not(.baota-certificate-manager) th:nth-child(7){width:216px}
+.certificate-page .certificate-selection-count{color:var(--jb-muted);font-size:12px;white-space:nowrap}
+.certificate-page .certificate-toolbar .certificate-bulk-delete{display:inline-flex;align-items:center;gap:5px;min-height:30px;border-radius:4px;white-space:nowrap}
+.certificate-page .certificate-select-column{white-space:nowrap}
 .certificate-page .certificate-panel:not(.baota-certificate-manager) :is(th,td){box-sizing:border-box;vertical-align:middle;padding:10px 12px;font-size:12px;line-height:1.5;text-align:left}
 .certificate-page .certificate-panel:not(.baota-certificate-manager) td:first-child>strong{display:block;font-size:13px;font-weight:600}
 .certificate-page .certificate-panel:not(.baota-certificate-manager) .certificate-domain-view{min-height:24px;margin-top:4px;padding:0 6px;border-radius:4px;font-size:11px}

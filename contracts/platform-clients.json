@@ -153,6 +153,7 @@
     "cloud_sync_download",
     "cloud_sync_reveal_secret",
     "monitor_alerts_check",
+    "monitor_alerts_clear_selected",
     "monitor_alerts_ignore",
     "monitor_alerts_save_settings",
     "monitor_alerts_settings",

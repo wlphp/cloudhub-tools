@@ -99,7 +99,7 @@ pub(crate) use commands::trash::{trash_list, trash_restore, trash_purge, trash_e
 #[cfg(desktop)]
 use commands::desktop_pet::{pet_settings, pet_snapshot, pet_save_settings, pet_show, pet_hide, pet_layout, pet_move, pet_open, pet_computer_action, pet_snooze, pet_ignore, pet_check, pet_sprite, pet_regions, pet_notice, pet_dismiss, pet_chat_services, pet_chat, pet_chat_cancel, pet_chat_read_image, pet_life_state, pet_life_action, pet_life_weather, pet_voice_status, pet_voice_transcribe, pet_voice_open_models_dir, pet_voice_download_model, pet_voice_cancel_model_download, pet_voice_intent};
 #[cfg(mobile)]
-use commands::monitoring::{monitor_alerts_check, monitor_alerts_ignore, monitor_alerts_save_settings, monitor_alerts_settings, monitor_alerts_snapshot};
+use commands::monitoring::{monitor_alerts_clear_selected, monitor_alerts_check, monitor_alerts_ignore, monitor_alerts_save_settings, monitor_alerts_settings, monitor_alerts_snapshot};
 pub(crate) use commands::baota_certificates::{confirm_baota_certificate_retry,list_baota_site_certificates, sync_baota_site_certificates, remove_baota_site_domain, import_baota_site_certificate, renew_baota_site_certificate, deploy_certificate_to_baota_site, resolve_baota_site_domain};
 pub(crate) use commands::certificate_import::{prepare_certificate_import_text, prepare_certificate_import_files, select_certificate_import_files, confirm_certificate_import, cancel_certificate_import};
 pub(crate) use commands::logs::{clear_api_logs, clear_operation_logs, list_api_logs};
@@ -1039,7 +1039,7 @@ pub fn run() {
     let builder = builder.invoke_handler(tauri::generate_handler![
         app_data_path, list_app_data_directory,
         monitor_alerts_settings, monitor_alerts_snapshot, monitor_alerts_save_settings,
-        monitor_alerts_check, monitor_alerts_ignore,
+        monitor_alerts_check, monitor_alerts_ignore, monitor_alerts_clear_selected,
         member_me, member_web_handoff, member_send_code, member_login, member_avatar, member_nickname, member_bio, member_logout, member_login_logs, member_messages, member_message, member_messages_read_all,
         query_ip_location, list_ip_locations, delete_ip_location, ai_list_models, ai_test_vision, ai_export_config, ai_prepare_import, ai_confirm_import, ai_cancel_import,
         ai_list_profiles, ai_reveal_key, ai_save_profile, ai_delete_profile, ai_preview, ai_run, ai_cancel,

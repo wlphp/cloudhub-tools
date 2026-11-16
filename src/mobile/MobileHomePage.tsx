@@ -1,66 +1,37 @@
-import { useMemo, useState, type MutableRefObject } from "react";
-import { Activity, AppWindow, BellRing, ChevronRight, Cloud, Database, Folder, Globe2, HardDrive, Layers, Monitor, Server, ShieldCheck, Star, Terminal } from "lucide-react";
-import type { MobileFeatureDestination } from "./MobileMorePage";
+import { useCallback, useState, type MutableRefObject } from "react";
+import { useSoftwareCounts } from "../features/overview/useSoftwareCounts";
+import { homeShortcuts } from "../features/overview/homeModel";
 import { MobileHomeDashboard } from "./MobileHomeDashboard";
+import { cloudProvider } from "../features/cloud/catalog";
+import { applicationPreference, sortedApplications } from "../features/plugins/applicationCatalog";
+import type { MobileFeatureDestination } from "./MobileMorePage";
 import type { Account, LocalAsset } from "../shared/types";
-import { applicationCatalog, applicationPreference, sortedApplications } from "../features/plugins/applicationCatalog";
 import type { ApplicationPreferenceState } from "../features/plugins/useApplicationPreferences";
 
-const icons = { Cloud, HardDrive, Star, Server, Globe2, Folder, Database, Layers, ShieldCheck, Terminal, Monitor, AppWindow, BellRing };
-type IconName = keyof typeof icons;
-type HomeApplication = { id: MobileFeatureDestination | "alerts"; title: string; icon: IconName };
-const defaultApps: HomeApplication[] = [
-  { id: "accounts", title: "我的账号", icon: "Cloud" }, { id: "assets", title: "我的资产", icon: "HardDrive" },
-  { id: "favorites", title: "我的收藏", icon: "Star" }, { id: "servers", title: "服务器", icon: "Server" },
-  { id: "domains", title: "域名与 DNS", icon: "Globe2" },
-  { id: "storage", title: "对象存储", icon: "Folder" }, { id: "databases", title: "云数据库", icon: "Database" },
-  { id: "redis", title: "Redis", icon: "Layers" }, { id: "certificates", title: "证书管理", icon: "ShieldCheck" },
-  { id: "ssh", title: "SSH 终端", icon: "Terminal" }, { id: "panels", title: "运维面板", icon: "Monitor" },
-  { id: "flow", title: "云效流水线", icon: "AppWindow" }, { id: "authenticator", title: "身份验证器", icon: "ShieldCheck" },
-  { id: "alerts", title: "监控预警", icon: "BellRing" },
-];
-const usageKey = "cloudhub.mobile-home-usage";
-
-function loadUsage(): Partial<Record<HomeApplication["id"], number>> {
-  try {
-    const value: unknown = JSON.parse(localStorage.getItem(usageKey) ?? "{}");
-    return value && typeof value === "object" && !Array.isArray(value) ? value as Partial<Record<HomeApplication["id"], number>> : {};
-  } catch { return {}; }
-}
-
-export function MobileHomePage({ accounts, assets, search, favoriteCount, applicationSettings, assetError, onActiveAlertCount, onNavigate, onOpenSoftware, refreshRef }: { accounts: Account[]; assets: LocalAsset[]; search: string; favoriteCount: number; applicationSettings: ApplicationPreferenceState; assetError?: boolean; onActiveAlertCount: (count: number | null) => void; onNavigate: (tab: MobileFeatureDestination | "monitorAlerts") => void; onOpenSoftware: (id: string) => void; refreshRef?: MutableRefObject<(() => Promise<void>) | null> }) {
-  const [usage, setUsage] = useState(loadUsage);
-  const ranked = useMemo(() => [...defaultApps].sort((a, b) => (usage[b.id] ?? 0) - (usage[a.id] ?? 0) || defaultApps.indexOf(a) - defaultApps.indexOf(b)), [usage]);
-  const filtered = ranked.filter(app => app.title.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()));
-  const common = filtered.slice(0, 4);
-  const shortcutCount: Partial<Record<HomeApplication["id"], number>> = {
-    accounts: accounts.length,
-    assets: assets.length,
-    favorites: favoriteCount,
-    servers: assets.filter(asset => asset.resource_type === "ecs" || asset.resource_type === "swas").length,
-    domains: assets.filter(asset => asset.resource_type === "domain").length,
-  };
-  const commonSoftware = sortedApplications(applicationSettings.preferences)
-    .filter(app => applicationPreference(app, applicationSettings.preferences).home && app.name.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()));
-  const activate = (id: HomeApplication["id"]) => {
-    const next = { ...usage, [id]: Math.min(9999, (usage[id] ?? 0) + 1) };
-    setUsage(next);
-    try { localStorage.setItem(usageKey, JSON.stringify(next)); } catch { /* 当前会话内排序仍然有效。 */ }
-    onNavigate(id === "alerts" ? "monitorAlerts" : id);
-  };
-
-  return <div className="mobile-home-page">
-    <section className="mobile-home-apps" aria-labelledby="mobile-home-apps-title">
-      <div className="mobile-home-section-heading"><div><p>快捷访问</p><h1 id="mobile-home-apps-title">常用应用</h1></div><span><Activity size={15} aria-hidden="true" />常用优先</span></div>
-      <div className="mobile-home-app-grid">{common.map(app => { const Icon = icons[app.icon]; const count = shortcutCount[app.id]; return <button type="button" key={app.id} onClick={() => activate(app.id)}><span className="mobile-home-app-icon"><Icon size={21} strokeWidth={1.8} aria-hidden="true" />{count !== undefined && <span className="mobile-home-app-count">{count > 99 ? "99+" : count}</span>}</span><span>{app.title}</span></button>; })}</div>
-      {filtered.length === 0 && <p className="mobile-home-empty">没有匹配的应用</p>}
-      {!accounts.length && <button type="button" className="mobile-home-add-account" onClick={() => activate("accounts")}><Cloud size={17} aria-hidden="true" />添加云账号<ChevronRight size={17} aria-hidden="true" /></button>}
-    </section>
-    <section className="mobile-home-resource-stats" aria-label="常用软件">
-      {commonSoftware.map(app => { const Icon = app.icon; return <button type="button" key={app.id} onClick={() => onOpenSoftware(app.id)} aria-label={`打开${app.name}`}><Icon size={15} aria-hidden="true" /><span>{app.name}</span></button>; })}
-      {!commonSoftware.length && <p>{search ? "没有匹配的常用软件" : applicationCatalog.some(app => applicationPreference(app, applicationSettings.preferences).home) ? "没有匹配的常用软件" : "可在软件商店设置首页显示的软件"}</p>}
-    </section>
-
-    <div hidden={Boolean(search.trim())}><MobileHomeDashboard accounts={accounts} assets={assets} assetError={assetError} onActiveAlertCount={onActiveAlertCount} onNavigate={onNavigate} refreshRef={refreshRef} /></div>
+export function MobileHomePage({ accounts, assets, search, favoriteCount, panelCount, sshCount, applicationSettings, assetError, onActiveAlertCount, onNavigate, onOpenSoftware, refreshRef }: { accounts: Account[]; assets: LocalAsset[]; search: string; favoriteCount: number; panelCount: number; sshCount: number; applicationSettings: ApplicationPreferenceState; assetError?: boolean; onActiveAlertCount: (count: number | null) => void; onNavigate: (tab: MobileFeatureDestination | "monitorAlerts") => void; onOpenSoftware: (id: string) => void; refreshRef?: MutableRefObject<(() => Promise<void>) | null> }) {
+  const [activeAlerts, setActiveAlerts] = useState<number | null>(null);
+  const handleAlertCount = useCallback((count: number | null) => { setActiveAlerts(count); onActiveAlertCount(count); }, [onActiveAlertCount]);
+  const query = search.trim().toLocaleLowerCase();
+  const homeSoftware = sortedApplications(applicationSettings.preferences).filter(app => applicationPreference(app, applicationSettings.preferences).home);
+  const { softwareCounts, softwareCountsLoaded } = useSoftwareCounts(homeSoftware.map(app => app.id).join(","));
+  const commonSoftware = homeSoftware.filter(app => app.name.toLocaleLowerCase().includes(query));
+  const shortcuts = homeShortcuts.filter(item => `${item.label} ${item.description}`.toLocaleLowerCase().includes(query));
+  const shortcutCounts: Partial<Record<(typeof homeShortcuts)[number]["section"], number>> = { accounts: accounts.length, resources: assets.length, monitorAlerts: activeAlerts ?? undefined, servers: sshCount, favorites: favoriteCount, panels: panelCount };
+  const navigate = (section: (typeof homeShortcuts)[number]["section"]) => onNavigate(section === "resources" ? "assets" : section);
+  const providers = [...accounts.reduce((map, account) => map.set(account.cloud_type, (map.get(account.cloud_type) ?? 0) + 1), new Map<string, number>())].sort((a,b) => b[1] - a[1]);
+  const maxProvider = Math.max(1, ...providers.map(([,count]) => count));
+  const softwareRows = homeSoftware.filter(app => (softwareCounts[app.id] ?? 0) > 0);
+  const maxSoftwareCount = Math.max(1, ...softwareRows.map(app => softwareCounts[app.id]));
+  const entries = <>
+    <section className="home-chart-card"><header><div><h2>快捷入口</h2><p className="home-chart-note">常用管理页面 · 最多显示 8 项</p></div></header><div className="mobile-home-shortcuts">{shortcuts.map(({ section, label, description, icon: Icon }) => <button type="button" key={section} onClick={() => navigate(section)}><Icon size={19} aria-hidden="true" /><strong>{label}</strong>{shortcutCounts[section] !== undefined && <em>{shortcutCounts[section]}</em>}<small>{description}</small></button>)}</div>{!shortcuts.length && <p className="home-chart-empty">没有匹配的快捷入口</p>}</section>
+    <section className="home-chart-card"><header><div><h2>常用软件</h2><p className="home-chart-note">按软件商店的首页显示设置</p></div></header><div className="mobile-home-software-grid">{commonSoftware.map(app => { const Icon = app.icon; const count = softwareCounts[app.id]; return <button type="button" key={app.id} onClick={() => onOpenSoftware(app.id)}><Icon size={19} aria-hidden="true" /><span>{app.name}</span>{count !== undefined && count > 0 && <strong>{count}</strong>}</button>; })}</div>{!commonSoftware.length && <p className="home-chart-empty">{query ? "没有匹配的常用软件" : "可在软件商店设置首页显示的软件"}</p>}</section>
+  </>;
+  return <div className="mobile-home-page mobile-home-pc-aligned">
+    <div hidden={Boolean(query)}><MobileHomeDashboard accounts={accounts} assets={assets} favoriteCount={favoriteCount} assetError={assetError} onActiveAlertCount={handleAlertCount} onNavigate={onNavigate} refreshRef={refreshRef}>
+      {entries}
+      <section className="home-chart-card"><header><div><h2>云厂商账号</h2><p className="home-chart-note">{providers.length} 个厂商 · {accounts.filter(account => !account.enabled).length} 个未启用</p></div></header>{providers.length ? <ul className="home-bars">{providers.map(([provider,count]) => <li key={provider}><button type="button" onClick={() => onNavigate("accounts")}><span>{cloudProvider(provider).label}</span><span className="home-bar-track" aria-hidden="true"><i style={{width: `${count / maxProvider * 100}%`}} /></span><strong>{count}</strong></button></li>)}</ul> : <p className="home-chart-empty">添加云账号后，这里会显示各厂商账号分布。</p>}</section>
+      <section className="home-chart-card mobile-software-chart"><header><div><h2>软件数据统计</h2><p className="home-chart-note">首页常用软件中可读取的本地记录数量</p></div></header>{softwareRows.length ? <div className="mobile-software-columns">{softwareRows.map(app => <button type="button" key={app.id} onClick={() => onOpenSoftware(app.id)} aria-label={`${app.name}，${softwareCounts[app.id]} 项`}><strong>{softwareCounts[app.id]}</strong><span className="mobile-software-column" aria-hidden="true"><i style={{height: `${softwareCounts[app.id] / maxSoftwareCount * 100}%`}} /></span><span>{app.name}</span></button>)}</div> : <p className="home-chart-empty">{softwareCountsLoaded ? "暂无可统计的软件记录" : "正在读取本机软件数量…"}</p>}</section>
+    </MobileHomeDashboard></div>
+    {query && entries}
   </div>;
 }

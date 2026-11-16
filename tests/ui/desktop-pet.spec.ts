@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 const fishFrames: number[][] = JSON.parse(readFileSync(new URL("../../src/features/desktop-pet/assets/fish-frames.json", import.meta.url), "utf8"));
 const penguinFrames: number[][] = JSON.parse(readFileSync(new URL("../../src/features/desktop-pet/assets/penguin-frames.json", import.meta.url), "utf8"));
 const dogFrames: number[][] = JSON.parse(readFileSync(new URL("../../src/features/desktop-pet/assets/dog-frames.json", import.meta.url), "utf8"));
+const defaultPetVoice = { enabled: true, wakeEnabled: false, wakeWord: "小驼", modelFile: "", language: "zh", autoSend: true, maxSeconds: 60 };
 const defaultPetLife = { enabled: false, province: "", city: "", weather: false, schedule: true, workStart: "09:00", lunchStart: "12:00", lunchEnd: "13:30", workEnd: "18:00", leaveBefore: 10, ignoreHolidays: true, restDates: [] as string[], workDates: [] as string[], water: true, waterMinutes: 60, waterRoam: true, stretch: false, stretchMinutes: 90 };
 
 async function openPetSettings(page: Page) {
@@ -118,8 +119,8 @@ test("life weather waits for chat and ops messages and opens a native official d
 });
 
 async function fixture(page: Page, enabled = true) {
-  await page.addInitScript(({ enabled, life }) => {
-    let settings = { enabled, life, appearance: "alpaca", monitoring: false, panels: false, panelAccess: true, certificates: true, servers: true, excludedAssetAlerts: [] as string[], size: 160, roam: "still", activity: 0, sound: false, reducedMotion: false, quiet: false, intervalSeconds: 300, expiryDays: 30, cpuThreshold: 90, diskThreshold: 90, keepInTray: false };
+  await page.addInitScript(({ enabled, life, voice }) => {
+    let settings = { enabled, life, voice, appearance: "alpaca", monitoring: false, panels: false, panelDisk: false, panelServices: false, panelAccess: true, certificates: true, servers: true, lightServers: true, domains: true, databases: true, redis: true, excludedAssetAlerts: [] as string[], size: 160, roam: "still", activity: 0, sound: false, reducedMotion: false, quiet: false, intervalSeconds: 300, expiryDays: 30, cpuThreshold: 90, diskThreshold: 90, keepInTray: false };
     let lifeState = { notices: [] as any[], weatherCheckedAt: 0, weatherAttemptAt: 0, weatherError: null as string | null, region: "", calendarYear: 2026, calendarSupported: true };
     let id = 0;
     const callbacks: Record<number, (v: unknown) => void> = {};
@@ -127,6 +128,7 @@ async function fixture(page: Page, enabled = true) {
     let petSnapshot: { alerts: any[]; checkedAt: number; lastError: string | null } = { alerts: [], checkedAt: 0, lastError: null };
     (window as any).petCalls = [];
     (window as any).petEvent = (event: string, payload: any) => { if (event === "pet-alerts-changed") petSnapshot = payload; if (event === "pet-life-changed") lifeState = payload; (events[event] || []).forEach(n => callbacks[n]?.({ event, payload })); };
+    (window as any).__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener: (_event: string, handler: number) => { delete callbacks[handler]; for (const handlers of Object.values(events)) { const index = handlers.indexOf(handler); if (index >= 0) handlers.splice(index, 1); } } };
     (window as any).__TAURI_INTERNALS__ = {
       metadata: { currentWindow: { label: "desktop-pet" }, currentWebview: { label: "desktop-pet" } },
       transformCallback: (cb: (v: unknown) => void) => { callbacks[++id] = cb; return id; },
@@ -135,6 +137,7 @@ async function fixture(page: Page, enabled = true) {
         if (command.startsWith("pet_") || command === "plugin:window|start_dragging") (window as any).petCalls.push({ command, args });
         if (command === "plugin:event|listen") { (events[args.event] ||= []).push(args.handler); return args.handler; }
         if (command === "pet_settings") return settings;
+        if (command === "pet_voice_status") return { modelsDir: "", models: [], catalog: [], selected: null, ready: false, listening: false };
         if (command === "pet_layout" && args.expanded) { (window as any).petEvent("pet-docked", false); return; }
         if (command === "pet_move" && (args.reveal || args.reset)) { (window as any).petEvent("pet-docked", false); return; }
         if (command === "pet_move" && args.dock && (window as any).holdPetDrop) return new Promise(resolve => { (window as any).finishPetDrop = () => { (window as any).petEvent("pet-docked",true); resolve(undefined); }; });
@@ -174,7 +177,7 @@ async function fixture(page: Page, enabled = true) {
         return [];
       },
     };
-  }, { enabled, life: defaultPetLife });
+  }, { enabled, life: defaultPetLife, voice: defaultPetVoice });
 }
 
 test("four dock directions stay transparent and support click and keyboard reveal", async ({ page }) => {
@@ -893,7 +896,7 @@ test("companion settings page keeps only pet and life controls", async ({ page }
   const pet=page.getByRole("checkbox",{name:/启用桌宠/});
   await expect(pet).not.toBeChecked();
   await expect(page.locator(".pet-settings-disclosure[open]")).toHaveCount(0);
-  await expect(page.locator(".pet-control-card")).toHaveCount(2);
+  await expect(page.locator(".pet-control-card")).toHaveCount(3);
   await expect(petSection.getByRole("checkbox", { name: /启用运维预警/ })).toHaveCount(0);
   await page.evaluate(() => { (window as any).failPetSave=true; });
   await pet.click(); await expect(page.locator(".app-toast-notice[role=alert]")).toBeVisible(); await expect(pet).not.toBeChecked();
@@ -962,8 +965,11 @@ test("monitor alerts summarizes products and manages supported per-asset strateg
     (window as any).petEvent("pet-alerts-changed", { checkedAt: now, lastError: null, alerts: [{ key: "asset:1:ecs:i-test", title: "测试服务器即将到期", detail: "剩余 10 天", section: "resources", severity: "warning", active: true, ignored: false, firstSeen: now, updatedAt: now, snoozedUntil: 0, notifiedAt: now, occurrences: 3 }] });
   });
   await page.getByRole("button", { name: "监控预警", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "被预警产品" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "查看资源预警，3条" })).toContainText("3 次");
+  await expect(page.getByRole("heading", { name: "未解除预警" })).toBeVisible();
+  const alertRow = page.getByRole("button", { name: /测试服务器即将到期/ });
+  await expect(alertRow).toBeVisible();
+  await alertRow.click();
+  await expect(page.getByText("发生 3 次", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "立即巡检" }).click();
   await expect.poll(() => page.evaluate(() => (window as any).petCalls.some((call: any) => call.command === "pet_check"))).toBe(true);
   await page.getByRole("button", { name: "预警策略" }).click();
@@ -972,7 +978,7 @@ test("monitor alerts summarizes products and manages supported per-asset strateg
   await expect(dialog.getByLabel("按资产类型筛选")).toBeVisible();
   await expect(dialog.getByRole("checkbox", { name: "全选当前筛选资产参与监控" })).toBeVisible();
   await expect(dialog.getByRole("checkbox", { name: "启用运维预警" })).toBeChecked();
-  await expect(dialog.getByRole("checkbox", { name: "HTTPS 证书到期" })).toBeChecked();
+  await expect(dialog.getByRole("checkbox", { name: "HTTPS 证书" })).toBeChecked();
   await expect(dialog.getByLabel("策略巡检间隔")).toHaveValue("300");
   await expect(dialog.getByLabel("策略到期提醒")).toHaveValue("30");
   await expect(dialog.getByLabel("策略CPU告警阈值")).toHaveValue("90");

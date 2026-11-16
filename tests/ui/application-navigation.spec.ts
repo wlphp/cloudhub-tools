@@ -108,7 +108,7 @@ test("optional software can be shown on the home page independently of enablemen
   await settings.getByLabel("在首页显示应用", { exact: true }).check();
   await settings.getByRole("button", { name: "完成" }).click();
   await nav(page).getByRole("button", { name: "首页", exact: true }).click();
-  await expect(page.getByRole("button", { name: "打开WSL 管理", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^打开WSL 管理/ })).toBeVisible();
   await nav(page).getByRole("button", { name: "软件商店", exact: true }).click();
   await expect(page.locator(".store-table")).toBeVisible();
   await expect(row(page, "微信多开").getByRole("button", { name: "设置", exact: true })).toBeVisible();

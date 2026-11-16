@@ -2109,7 +2109,7 @@
 .ide-theme .account-section .layui-toolbar .account-keyword-input {
   width: 170px;
 }
-.ide-theme .account-section .layui-toolbar :where(.account-search-button, .account-add-button, .account-group-button, .account-export-button, .account-import-button) {
+.ide-theme .account-section .layui-toolbar :where(.account-search-button, .account-add-button, .account-group-button, .account-export-button, .account-import-button, .account-sync-selected-button) {
   min-height: 30px;
   height: 30px;
   padding: 0 9px;
@@ -2124,6 +2124,8 @@
   background: var(--jb-surface-3) !important;
   color: var(--jb-text) !important;
 }
+.ide-theme .account-section .layui-toolbar .account-sync-selected-button { border: 1px solid var(--jb-border-strong) !important; background: var(--jb-surface-3) !important; color: var(--jb-text) !important; }
+.ide-theme .account-section .layui-toolbar .account-sync-selected-button:hover:not(:disabled) { border-color: var(--jb-subtle) !important; background: var(--jb-border-strong) !important; color: var(--jb-text) !important; }
 .ide-theme .account-section .layui-toolbar :where(.account-search-button, .account-group-button, .account-export-button, .account-import-button):hover:not(:disabled) {
   border-color: var(--jb-subtle) !important;
   background: var(--jb-border-strong) !important;
@@ -2322,7 +2324,7 @@
 }
 .ide-theme .local-resource-page .asset-list-toolbar .resource-account-select { flex: 0 0 190px; width: 190px; min-width: 0; }
 .ide-theme .local-resource-page .asset-list-toolbar .ai-assist-button { height: 30px !important; min-height: 30px !important; padding: 0 9px !important; font-size: 12px !important; white-space: nowrap; flex: 0 0 auto; }
-.ide-theme .local-resource-page .asset-list-toolbar .asset-expiry-input { flex: 0 0 84px; min-width: 84px; }
+.ide-theme .local-resource-page .asset-list-toolbar .asset-expiry-input { flex: 0 0 112px; min-width: 112px; }
 .ide-theme .local-resource-page .asset-list-toolbar .asset-filter-clear { height: 30px; padding: 0 9px; border-radius: 3px; font-size: 12px; }
 .ide-theme .local-resource-page .local-assets-panel table {
   min-width: 1060px;
@@ -2344,6 +2346,19 @@
 .ide-theme .local-resource-page .local-assets-panel tr:hover td {
   background: var(--jb-border);
 }
+.ide-theme .local-resource-page .local-assets-panel tr[data-expiry-tone="expired"] { --expiry-tone-color: var(--jb-danger); }
+.ide-theme .local-resource-page .local-assets-panel tr[data-expiry-tone="critical"] { --expiry-tone-color: var(--jb-danger); }
+.ide-theme .local-resource-page .local-assets-panel tr[data-expiry-tone="urgent"] { --expiry-tone-color: var(--jb-accent); }
+.ide-theme .local-resource-page .local-assets-panel tr[data-expiry-tone="warning"] { --expiry-tone-color: var(--jb-warning); }
+.ide-theme .local-resource-page .local-assets-panel tr[data-expiry-tone="soon"] { --expiry-tone-color: var(--jb-accent-strong); }
+.ide-theme .local-resource-page .local-assets-panel tr[data-expiry-tone="upcoming"] { --expiry-tone-color: var(--jb-success); }
+.ide-theme .local-resource-page .local-assets-panel tr[data-expiry-tone="expired"] td { background: color-mix(in srgb,var(--jb-danger) 16%,var(--jb-bg)); }
+.ide-theme .local-resource-page .local-assets-panel tr[data-expiry-tone="critical"] td { background: color-mix(in srgb,var(--jb-danger) 11%,var(--jb-bg)); }
+.ide-theme .local-resource-page .local-assets-panel tr[data-expiry-tone="urgent"] td { background: color-mix(in srgb,var(--jb-accent) 15%,var(--jb-bg)); }
+.ide-theme .local-resource-page .local-assets-panel tr[data-expiry-tone="warning"] td { background: color-mix(in srgb,var(--jb-warning) 13%,var(--jb-bg)); }
+.ide-theme .local-resource-page .local-assets-panel tr[data-expiry-tone="soon"] td { background: color-mix(in srgb,var(--jb-accent-strong) 10%,var(--jb-bg)); }
+.ide-theme .local-resource-page .local-assets-panel tr[data-expiry-tone="upcoming"] td { background: color-mix(in srgb,var(--jb-success) 9%,var(--jb-bg)); }
+.ide-theme .local-resource-page .local-assets-panel tr[data-expiry-tone] td:first-child { box-shadow: inset 3px 0 0 var(--expiry-tone-color); }
 .ide-theme .local-resource-page .asset-subline {
   color: var(--jb-subtle);
 }

@@ -446,7 +446,7 @@ test("软件商店支持来源切换、搜索和应用分类筛选", async ({ pa
   await store.getByRole("button", { name: "桌面工具", exact: true }).click();
   await expect(appRow).not.toHaveCount(0);
   await expect(appRow.filter({ hasText: "指纹浏览器" })).toHaveCount(1);
-  await store.getByRole("button", { name: "全部", exact: true }).click();
+  await store.getByLabel("应用分类").getByRole("button", { name: "全部", exact: true }).click();
   await expect(appRow).toHaveCount(officialCount);
   await page.setViewportSize({ width: 1440, height: 1000 });
   const alignment = await store.evaluate(element => {
