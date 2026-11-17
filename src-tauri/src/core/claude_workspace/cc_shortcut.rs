@@ -50,7 +50,7 @@ fn store(path: &std::path::Path, bytes: &[u8]) -> Result<(), String> {
             fs::rename(&temporary, path).map_err(|_| "无法保存终端配置")
         })();
         if result.is_err() { let _ = fs::remove_file(&temporary); }
-        result
+        result.map_err(|error| error.to_owned())
     }
 }
 fn targets() -> Result<Vec<PathBuf>, String> {

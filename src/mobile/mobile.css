@@ -4689,7 +4689,7 @@ body.theme-light .mobile-shell .mobile-panel-card .mobile-panel-actions > button
 .mobile-about-layout .mobile-about-update-copy small { grid-column: 1 / -1; grid-row: 2; font-size: 12px; line-height: 1.6; }
 .mobile-about-layout .mobile-about-update > :is(progress, details, small) { grid-column: 1 / -1; }
 .mobile-about-layout .mobile-update-buttons { display: flex; grid-column: 2; grid-row: 1; width: auto; min-width: 0; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
-.mobile-about-layout .mobile-update-buttons button { flex: 0 1 auto; width: auto; min-width: 0; min-height: 44px; margin: 0; padding: 0 12px; border: 1px solid var(--mobile-border); border-radius: 6px; box-shadow: none; font-size: 12px; font-weight: 500; }
+.mobile-about-layout .mobile-update-buttons button { flex: 0 0 auto; width: max-content; min-width: max-content; max-width: 100%; min-height: 44px; margin: 0; padding: 0 12px; border: 1px solid var(--mobile-border); border-radius: 6px; box-shadow: none; font-size: 12px; font-weight: 500; white-space: nowrap; }
 .mobile-about-layout .mobile-update-buttons button:not(.mobile-primary) { background: var(--mobile-surface); color: var(--mobile-text); }
 .mobile-about-layout .mobile-update-buttons button.mobile-primary { border-color: var(--mobile-accent-strong); background: var(--mobile-accent-strong); color: #fff; }
 .mobile-about-layout .mobile-update-buttons button:disabled { opacity: .58; }
@@ -4891,8 +4891,6 @@ body:has(.mobile-shell) .cloud-sync-actions button { min-height: 46px; border-ra
 .mobile-alert-row-detail p{margin:0 0 8px}
 .mobile-alert-row-detail>small{color:var(--mobile-muted);font-size:10px}
 .mobile-alert-row-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:7px;margin-top:9px}
-.mobile-alert-pagination-bar{flex-wrap:wrap;gap:8px;min-width:0;margin:0;padding:10px 0 0}
-.mobile-alert-pagination-bar .pagination-pages{flex-wrap:wrap}
 .mobile-alerts-pc-aligned .mobile-alerts-heading{gap:8px;margin-bottom:10px}
 .mobile-alerts-compact-title{display:flex;align-items:center;justify-content:space-between;gap:10px}
 .mobile-alerts-compact-title h1{display:flex;align-items:center;gap:7px;margin:0;font-size:21px;line-height:44px}

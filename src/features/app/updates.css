@@ -1,16 +1,71 @@
-.update-source-control { padding: 12px 20px; border-top: 1px solid var(--jb-border, var(--mobile-border)); color: var(--jb-text, var(--mobile-text)); min-width: 0; }
-.update-source-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
-.update-source-toolbar label { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0; font-size: 12px; }
-.update-source-toolbar select { width: auto; max-width: 100%; height: 32px; margin: 0; padding: 0 8px; border: 1px solid var(--jb-border, var(--mobile-border)); border-radius: 4px; background: var(--jb-surface, var(--mobile-surface)); color: inherit; font: inherit; }
-.update-source-control p, .update-source-dialog p { font-size: 12px; line-height: 1.6; margin: 6px 0; overflow-wrap: anywhere; }
-.update-source-control button, .update-source-dialog button { min-height: 32px; padding: 5px 10px; font-size: 12px; }
-.update-source-control :focus-visible, .update-source-dialog :focus-visible { outline: 2px solid var(--jb-accent, var(--mobile-accent)); outline-offset: 2px; }
-.update-source-dialog { display: grid; gap: 12px; min-width: 0; }
-.update-source-node { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto; align-items: center; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--jb-border, var(--mobile-border)); font-size: 12px; }
-.update-source-node small { display: block; overflow-wrap: anywhere; margin-top: 4px; }
-.update-source-dialog details { font-size: 12px; }
-.update-source-dialog summary { cursor: pointer; }
-.mobile-about-update .update-source-control { padding: 10px 0; width: 100%; }
-.mobile-about-layout .mobile-about-update > .update-source-control { grid-column: 1 / -1; min-width: 0; box-sizing: border-box; }
-.mobile-about-layout .mobile-update-buttons button { white-space: nowrap; flex-shrink: 0; }
-@media (max-width: 600px) { .update-source-node { grid-template-columns: minmax(0, 1fr) auto; } .update-source-node > div { grid-row: 2; grid-column: 1 / -1; } .update-source-toolbar { align-items: flex-start; } .update-source-toolbar select { flex: 1; min-width: 0; } }
+.update-source-control { min-width: 0; padding: 12px 20px; border-top: 1px solid var(--jb-border, var(--mobile-border)); color: var(--jb-text, var(--mobile-text)); }
+.update-source-toolbar { display: flex; min-width: 0; align-items: center; flex-wrap: wrap; gap: 10px; }
+.update-source-toolbar label { display: flex; min-width: 0; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0; color: var(--jb-muted, var(--mobile-muted)); font-size: 12px; }
+.update-source-toolbar select { box-sizing: border-box; width: auto; max-width: 100%; height: 36px; margin: 0; padding: 0 10px; border: 1px solid var(--jb-border-strong, var(--mobile-border)); border-radius: 6px; background: var(--jb-surface, var(--mobile-surface)); color: var(--jb-text, var(--mobile-text)); font: inherit; }
+.update-source-control p, .update-source-dialog p { margin: 6px 0; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.update-source-control button, .update-source-dialog button, .update-source-shared-dialog > .modal-actions button {
+  box-sizing: border-box;
+  display: inline-flex;
+  min-width: 0;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 12px;
+  appearance: none;
+  border: 1px solid var(--jb-border-strong, var(--mobile-border));
+  border-radius: 6px;
+  background: var(--jb-surface-2, var(--mobile-raised));
+  box-shadow: none !important;
+  color: var(--jb-text, var(--mobile-text));
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.2;
+  text-align: center;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+.update-source-control button:hover:not(:disabled), .update-source-dialog button:hover:not(:disabled), .update-source-shared-dialog > .modal-actions button:hover:not(:disabled) { border-color: var(--jb-accent, var(--mobile-accent)); background: var(--jb-accent-soft, color-mix(in srgb, var(--mobile-accent) 10%, var(--mobile-surface))); }
+.update-source-control button:active:not(:disabled), .update-source-dialog button:active:not(:disabled), .update-source-shared-dialog > .modal-actions button:active:not(:disabled) { background: var(--jb-border, var(--mobile-border)); }
+.update-source-control button:disabled, .update-source-dialog button:disabled { cursor: not-allowed; opacity: .55; }
+.update-source-control .update-source-open { min-height: 40px; padding-inline: 14px; }
+.update-source-control :focus-visible, .update-source-dialog :focus-visible, .update-source-shared-dialog > .modal-actions :focus-visible { outline: 2px solid var(--jb-accent, var(--mobile-accent)); outline-offset: 2px; }
+.update-source-shared-dialog .update-source-dialog { display: grid; min-width: 0; gap: 12px; }
+.update-source-shared-dialog .update-source-dialog > .update-source-toolbar { display: flex; justify-content: flex-start; gap: 8px; }
+.update-source-shared-dialog .update-source-node { display: grid; min-width: 0; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 12px; border: 1px solid var(--jb-border, var(--mobile-border)); border-radius: 8px; background: var(--jb-surface-2, var(--mobile-raised)); font-size: 12px; }
+.update-source-node-copy { display: grid; min-width: 0; gap: 6px; }
+.update-source-node-copy > strong { min-width: 0; overflow-wrap: anywhere; color: var(--jb-text, var(--mobile-text)); font-size: 13px; font-weight: 600; }
+.update-source-node-copy > div { display: flex; min-width: 0; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.update-source-node-copy small { min-width: 0; color: var(--jb-muted, var(--mobile-muted)); overflow-wrap: anywhere; }
+.update-source-node-copy .is-available { color: var(--jb-green, #16836b); font-weight: 600; }
+.update-source-node-copy .is-unavailable { color: var(--jb-red, #c2414b); font-weight: 600; }
+.update-source-node-copy .is-untested { color: var(--jb-muted, var(--mobile-muted)); }
+.update-source-shared-dialog .update-source-node > button { min-height: 38px; }
+.update-source-shared-dialog .update-source-node > button.primary { border-color: var(--jb-accent, var(--mobile-accent)); background: var(--jb-accent, var(--mobile-accent)); color: var(--jb-text, #fff); }
+.update-source-shared-dialog .update-source-node > button[aria-pressed="true"] { cursor: default; }
+.update-source-shared-dialog .update-source-dialog details { color: var(--jb-muted, var(--mobile-muted)); font-size: 12px; }
+.update-source-shared-dialog .update-source-dialog summary { cursor: pointer; }
+.update-source-shared-dialog .update-source-dialog details p { margin: 8px 0 0; }
+.mobile-about-update .update-source-control { width: 100%; padding: 10px 0; }
+.mobile-about-layout .mobile-about-update > .update-source-control { box-sizing: border-box; grid-column: 1 / -1; min-width: 0; }
+.mobile-about-layout .mobile-update-buttons button { flex-shrink: 0; white-space: nowrap; }
+
+body:has(.mobile-shell) .update-source-shared-dialog .update-source-dialog button,
+body:has(.mobile-shell) .update-source-shared-dialog > .modal-actions button { min-height: 44px; border-radius: 8px; }
+
+@media (max-width: 600px) {
+  .update-source-toolbar { align-items: stretch; flex-direction: column; }
+  .update-source-toolbar label { display: grid; width: 100%; grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .update-source-toolbar select { width: 100%; max-width: 100%; min-width: 0; height: 44px; }
+  .update-source-control > .update-source-toolbar > .update-source-open { align-self: flex-start; min-height: 44px; border-radius: 8px; }
+  .update-source-shared-dialog .update-source-dialog > .update-source-toolbar { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .update-source-shared-dialog .update-source-dialog > .update-source-toolbar button { min-width: 0; padding-inline: 8px; white-space: normal; }
+  .update-source-shared-dialog .update-source-node { gap: 8px; padding: 10px; }
+  .update-source-shared-dialog .update-source-node > button { padding-inline: 10px; }
+}
+@media (max-width: 380px) {
+  .update-source-shared-dialog .update-source-dialog > .update-source-toolbar { grid-template-columns: minmax(0, 1fr); }
+}
