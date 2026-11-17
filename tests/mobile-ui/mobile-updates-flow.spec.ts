@@ -10,9 +10,11 @@ async function nativeFixture(page: Page, available = true) {
       transformCallback: () => 1, unregisterCallback: () => {},
       invoke: async (command: string, args: any = {}) => {
         fixture.calls.push({ command, args });
-        if (command.endsWith("|check")) return { version: "99.1.0", available, downloadable: true, size: 1048576, notes: "测试更新说明" };
+        if (command.endsWith("|check")) return { version: "99.1.0", available, downloadable: true, size: 1048576, notes: "测试更新说明", route: args.source === "direct" ? "direct" : "accelerated" };
+        if (command === "list_client_preferences") return {};
+        if (command === "app_update_probe") return { route: args.route, available: true, responseMs: 120, bytesPerSecond: 262144, message: "抽样测速完成" };
         if (command.endsWith("|download")) {
-          args.onProgress.onmessage({ downloaded: 524288, total: 1048576 });
+          args.onProgress.onmessage({ downloaded: 524288, total: 1048576, route: args.source === "direct" ? "direct" : "accelerated", message: "" });
           return new Promise<void>((resolve, reject) => { fixture.finish = resolve; fixture.reject = reject; });
         }
         if (command.endsWith("|cancel")) { fixture.reject?.("下载已取消"); return; }
@@ -41,8 +43,20 @@ test("Android checks automatically, downloads only on request, and retries insta
   await nativeFixture(page);
   await page.goto("/");
   await page.getByRole("button", { name: /发现新版/ }).click();
+  const source = page.getByRole("combobox", { name: "更新下载线路" });
+  await expect(source).toHaveValue("auto");
+  await source.selectOption("direct");
+  await expect.poll(() => page.evaluate(() => (window as any).mobileFixture.calls.filter((c: any) => c.command.endsWith("|check")).at(-1)?.args.source)).toBe("direct");
+  await page.getByRole("button", { name: "测速 / 切换" }).click();
+  const dialog = page.getByRole("dialog", { name: "软件更新 · 选择下载线路" });
+  await dialog.getByRole("button", { name: "重新测速" }).click();
+  await expect(dialog.getByText("测速完成", { exact: true })).toBeVisible();
+  expect(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+  await dialog.getByRole("button", { name: "关闭", exact: true }).click();
   expect(await page.evaluate(() => (window as any).mobileFixture.calls.filter((c: any) => c.command.endsWith("|download")).length)).toBe(0);
   await page.getByRole("button", { name: /下载更新/ }).click();
+  await expect(source).toBeDisabled();
+  expect(await page.evaluate(() => (window as any).mobileFixture.calls.find((c: any) => c.command.endsWith("|download"))?.args.source)).toBe("direct");
   await expect(page.getByRole("progressbar", { name: "更新下载进度" })).toHaveAttribute("value", "50");
   await page.getByRole("button", { name: "取消下载" }).click();
   await expect(page.getByText("下载已取消", { exact: true })).toBeVisible();
@@ -89,7 +103,8 @@ for (const width of [320, 375, 430]) {
 
 test("browser checks stable releases but never offers native APK installation", async ({ page }) => {
   await page.route("**/api/**", (route) => route.fulfill({ json: [] }));
-  await page.route("https://api.github.com/repos/wlphp/cloudhub-tools/releases/latest", (route) => route.fulfill({ json: { tag_name: "v99.1.0", draft: false, prerelease: false } }));
+  await page.route("**/api/app-update-info?source=*", (route) => route.fulfill({ json: { version: "99.1.0", notes: "测试更新", route: "accelerated" } }));
+  await page.route("**/api/app-update-probe?route=*", (route) => route.fulfill({ json: { route: new URL(route.request().url()).searchParams.get("route"), available: true, responseMs: 100, bytesPerSecond: 262144, message: "抽样测速完成" } }));
   await page.goto("/");
   await more(page);
   await openMobileFeature(page, "系统设置");
@@ -97,6 +112,11 @@ test("browser checks stable releases but never offers native APK installation", 
   await page.getByRole("button", { name: "检查更新", exact: true }).click();
   await expect(page.getByText("发现新版本 v99.1.0", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "发布页", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "测速 / 切换" }).click();
+  const dialog = page.getByRole("dialog", { name: "软件更新 · 选择下载线路" });
+  await dialog.getByRole("button", { name: "重新测速" }).click();
+  await expect(dialog.getByText("测速完成", { exact: true })).toBeVisible();
+  await dialog.getByRole("button", { name: "关闭", exact: true }).click();
   await expect(page.getByRole("button", { name: /下载更新|安装更新/ })).toHaveCount(0);
 });
 
@@ -112,7 +132,7 @@ test("Android update failure shows a safe message and allows retry", async ({ pa
     expect(await page.locator(".mobile-about-layout").evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
   }
   await page.setViewportSize({ width: 375, height: 844 });
-  await page.screenshot({ path: testInfo.outputPath("about-buttons.png") });
+  await page.screenshot({ path: testInfo.outputPath("about-buttons.png"), animations: "disabled" });
   await page.evaluate(() => {
     const internals = (window as any).__TAURI_INTERNALS__;
     const invoke = internals.invoke;
@@ -123,7 +143,7 @@ test("Android update failure shows a safe message and allows retry", async ({ pa
     };
   });
   await page.getByRole("button", { name: "检查更新", exact: true }).click();
-  await expect(page.getByText("检查失败，请检查网络后重试。", { exact: true })).toBeVisible();
+  await expect(page.getByText("所选更新线路不可用，请切换线路后重试。", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "检查更新", exact: true }).click();
   await expect(page.getByText(/当前版本无需更新/)).toBeVisible();
 });

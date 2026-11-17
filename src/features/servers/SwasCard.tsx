@@ -1,12 +1,13 @@
 import { aliyunSwasFields } from "../../shared/utils/aliyunSwas";
 import { useState } from "react";
 import { IpLocation } from "./IpLocation";
-import { Monitor, RefreshCw, ShieldCheck, Terminal } from "lucide-react";
 import { serversClient } from "../../platform/clients";
 import { platformErrorMessage } from "../../platform/api";
 import type { Account } from "../../shared/types";
 import { displayValue, firstAddress, formatAssetDate } from "../../shared/utils/display";
 import { LightFirewallDialog } from "./SecurityDialogs";
+import { ServerActionBar } from "./ServerActionBar";
+import { InstanceApiLogsDialog } from "./InstanceApiLogsDialog";
 
 function cloudStatusText(value: unknown): string {
   const status = String(value || "-");
@@ -31,6 +32,7 @@ export function SwasCard({
   const item = account.cloud_type === "aliyun" ? aliyunSwasFields(sourceItem) : sourceItem;
   const [submitting, setSubmitting] = useState<"start" | "reboot" | "force-reboot" | "stop" | null>(null);
   const [firewallOpen, setFirewallOpen] = useState(false);
+  const [operationLogsOpen, setOperationLogsOpen] = useState(false);
   const regionId = String(item._region_id || item.RegionId || "");
   const instanceId = String(item.InstanceId || "");
   const status = String(item.Status || item.InstanceStatus || item.InstanceState || "");
@@ -41,13 +43,17 @@ export function SwasCard({
   const publicIps = item.PublicIpAddress ?? item.PublicIp ?? (isTencent ? item.PublicAddresses : undefined);
   const cpu = item.Cpu ?? (isTencent ? item.CPU : undefined);
   const memory = item.MemoryInGB ?? item.Memory;
-  const memoryUnit = item.MemoryInGB != null && account.cloud_type === "aliyun" ? "GiB" : item.MemoryInGB != null || isTencent ? "GB" : "MB";
+  const memoryUnit = item.MemoryInGB != null && account.cloud_type === "aliyun" ? "GiB" : item.MemoryInGB != null || isTencent || account.cloud_type === "jdcloud" ? "GB" : "MB";
   const bandwidth = item.Bandwidth ?? (isTencent ? network?.InternetMaxBandwidthOut : undefined);
   const diskSize = item.SystemDiskSize ?? (isTencent ? disk?.DiskSize : undefined);
 
   const canControl = ["aliyun", "tencent", "jdcloud"].includes(account.cloud_type) && regionId && instanceId;
   const canFirewall = account.cloud_type === "aliyun" || account.cloud_type === "tencent" || account.cloud_type === "jdcloud";
   const canForceReboot = account.cloud_type === "aliyun" || account.cloud_type === "tencent";
+  const normalizedStatus = status.trim().toUpperCase();
+  const powerState = ["RUNNING", "ACTIVE", "NORMAL", "ON"].includes(normalizedStatus)
+    ? "running" as const
+    : ["STOPPED", "OFF", "INACTIVE"].includes(normalizedStatus) ? "stopped" as const : undefined;
   async function submit(action: "start" | "reboot" | "stop", forceReboot = false) {
     const label = action === "start" ? "开机" : action === "reboot" ? `${canForceReboot && forceReboot ? "强制" : "正常"}重启` : "关机";
     if (!(await onConfirm(`确认${label}轻量服务器“${instanceName}”？`))) return;
@@ -61,14 +67,6 @@ export function SwasCard({
     } finally {
       setSubmitting(null);
     }
-  }
-  function openMonitor() {
-    const url = account.cloud_type === "tencent"
-      ? `https://console.cloud.tencent.com/lighthouse/instance/index?rid=${encodeURIComponent(regionId)}`
-      : account.cloud_type === "jdcloud"
-        ? `https://console.jdcloud.com/lavm/instance/list?region=${encodeURIComponent(regionId)}`
-        : `https://swas.console.aliyun.com/?regionId=${encodeURIComponent(regionId)}`;
-    window.open(url, "_blank", "noopener,noreferrer");
   }
   return (
     <>
@@ -89,19 +87,31 @@ export function SwasCard({
         <div><span>私网 IP：</span>{displayValue(item.PrivateIpAddress ?? (isTencent ? item.PrivateAddresses : undefined))}</div>
         <div><span>到期时间：</span>{formatAssetDate(item.ExpiredTime || item.ExpirationTime)}</div>
         <div><span>创建时间：</span>{formatAssetDate(item.CreateTime || item.CreationTime || item.CreatedTime)}</div>
+        {account.cloud_type === "jdcloud" && <>
+          <div><span>操作系统：</span>{displayValue(item.OSType || item.ImagePlatform)}</div>
+          <div><span>月流量：</span>{item.MonthlyFlow != null ? `${displayValue(item.MonthlyFlow)} GB` : "-"}</div>
+          <div><span>磁盘类型：</span>{displayValue(item.DiskType)}</div>
+          <div><span>计费方式：</span>{displayValue(item.PaymentTiming || item.ChargeType)}</div>
+        </>}
         <div><span>{isTencent ? "可用区：" : account.cloud_type === "aliyun" && !item.VpcId ? "系统类型：" : "VPC："}</span>{displayValue(isTencent ? item.Zone : account.cloud_type === "aliyun" && !item.VpcId ? item.OSType : item.VpcId)}</div>
       </div>
-      {canControl && <div className="server-actions">
-        <button className="layui-btn layui-btn-small ssh-login-button" onClick={onSshLogin}><Terminal size={13} />SSH 登录</button>
-        {canFirewall && <button type="button" className="layui-btn layui-btn-small security-group-button" disabled={Boolean(submitting)} onClick={() => setFirewallOpen(true)}><ShieldCheck size={13} />防火墙</button>}
-        <button className="layui-btn layui-btn-small layui-btn-danger" disabled={!canControl || Boolean(submitting)} onClick={() => void submit("reboot")}>{submitting === "reboot" ? "重启中…" : "重启"}</button>
-        {canForceReboot && <button className="layui-btn layui-btn-small layui-btn-danger" disabled={Boolean(submitting)} onClick={() => void submit("reboot", true)}>{submitting === "force-reboot" ? "强制重启中…" : "强制重启"}</button>}
-        <button className="layui-btn layui-btn-small" disabled={Boolean(submitting)} onClick={onRefresh}><RefreshCw size={13} />刷新状态</button>
-        <button className="layui-btn layui-btn-small layui-btn-primary" disabled={!regionId} onClick={openMonitor}><Monitor size={13} />监控</button>
-        {status.toLowerCase() === "stopped" ? <button className="layui-btn layui-btn-small layui-btn-normal" disabled={Boolean(submitting)} onClick={() => void submit("start")}>{submitting === "start" ? "开机中…" : "开机"}</button> : <button className="layui-btn layui-btn-small layui-btn-danger" disabled={Boolean(submitting)} onClick={() => void submit("stop")}>{submitting === "stop" ? "关机中…" : "关机"}</button>}
-      </div>}
+      {canControl && <ServerActionBar
+        onSshLogin={onSshLogin}
+        onSecurityGroup={canFirewall ? () => setFirewallOpen(true) : undefined}
+        securityGroupDisabled={Boolean(submitting)}
+        onReboot={() => void submit("reboot")}
+        rebootPending={submitting === "reboot"}
+        onForceReboot={canForceReboot ? () => void submit("reboot", true) : undefined}
+        forceRebootPending={submitting === "force-reboot"}
+        onRefresh={onRefresh}
+        power={powerState === "running"
+          ? { state: "running", onClick: () => void submit("stop"), pending: submitting === "stop" }
+          : powerState === "stopped" ? { state: "stopped", onClick: () => void submit("start"), pending: submitting === "start" } : undefined}
+        onOperationLogs={instanceId ? () => setOperationLogsOpen(true) : undefined}
+      />}
     </article>
     {firewallOpen && <LightFirewallDialog account={account} regionId={regionId} instanceId={instanceId} onClose={() => setFirewallOpen(false)} onConfirm={onConfirm} onNotice={onNotice} />}
+    {operationLogsOpen && <InstanceApiLogsDialog accountId={account.id} instanceId={instanceId} name={instanceName} onClose={() => setOperationLogsOpen(false)} />}
     </>
   );
 }

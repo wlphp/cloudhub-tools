@@ -1,3 +1,4 @@
+import { UpdateSourceControl } from "../features/app/UpdateSourceControl";
 import { Download, ExternalLink, RefreshCw } from "lucide-react";
 import type { useMobileUpdates } from "./useMobileUpdates";
 
@@ -14,6 +15,7 @@ export function MobileUpdatePanel({ update }: { update: ReturnType<typeof useMob
     <div className="mobile-about-update-copy"><strong>应用更新</strong><small role="status" aria-live="polite">{message || label}</small></div>
     {phase === "downloading" && <progress aria-label="更新下载进度" max={100} value={percentage} />}
     {info?.available && info.notes && <details className="mobile-update-notes"><summary>v{info.version} 更新说明</summary><p>{info.notes}</p></details>}
+    <UpdateSourceControl settings={update.sourceSettings} route={update.route} message={update.routeMessage} locked={["checking", "downloading", "installing"].includes(phase)} />
     <div className="mobile-update-buttons">
       {phase === "downloading" ? <button type="button" onClick={() => void update.cancel()}>取消下载</button>
         : phase === "ready" || phase === "installing" ? <button type="button" className="mobile-primary" disabled={phase === "installing"} onClick={() => void update.install()}><Download size={15} aria-hidden="true" />{phase === "installing" ? "启动安装中…" : "安装更新"}</button>

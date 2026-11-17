@@ -7,6 +7,7 @@ use std::{fs,io::Read,path::{Path,PathBuf}};
 
 const LIBRARY:&str="claude.workbench.library";
 const PROJECT:&str="claude.workbench.project";
+mod cc_shortcut;
 #[derive(Clone,Default,Serialize,Deserialize)]
 #[serde(rename_all="camelCase",default)]
 struct Library{disabled_mcp:serde_json::Map<String,Value>,prompts:Vec<Prompt>,active_prompt:Option<String>}
@@ -25,6 +26,7 @@ pub struct Session{pub key:String,pub id:String,pub title:String,pub project:Str
 #[derive(Serialize)]
 #[serde(rename_all="camelCase")]
 pub struct Snapshot{
+    pub cc_shortcut:cc_shortcut::Status,
     pub config_directory:String,pub custom_config_directory:bool,pub plugin_applied:bool,pub skip_onboarding:bool,
     pub project:Option<String>,pub settings_path:String,pub mcp_path:String,pub prompt_path:String,
     pub mcp:Vec<Mcp>,pub prompts:Vec<Prompt>,pub active_prompt:Option<String>,pub skills:Vec<Skill>,
@@ -146,6 +148,7 @@ fn server_summary(name:&str,v:&Value,enabled:bool)->Mcp{
     Mcp{name:name.into(),enabled,transport:v["type"].as_str().unwrap_or("stdio").into(),command:v["command"].as_str().filter(|s|s.len()<240).unwrap_or("").into(),url,has_secrets:v["env"].as_object().is_some_and(|v|!v.is_empty())||v["headers"].as_object().is_some_and(|v|!v.is_empty())}
 }
 pub fn snapshot()->Result<Snapshot,String>{
+    let cc_shortcut=cc_shortcut::status()?;
     let config_directory=repo::claude_home()?;
     let plugin_applied=read_json(&config_directory.join("config.json"))?["primaryApiKey"]==json!("any");
     let skip_onboarding=read_json(&global_config_path()?)?["hasCompletedOnboarding"]==json!(true);
@@ -153,11 +156,12 @@ pub fn snapshot()->Result<Snapshot,String>{
     let mut mcp:Vec<_>=doc["mcpServers"].as_object().into_iter().flatten().map(|(k,v)|server_summary(k,v,true)).collect();
     mcp.extend(library.disabled_mcp.iter().filter(|(k,_)|doc["mcpServers"].get(*k).is_none()).map(|(k,v)|server_summary(k,v,false)));mcp.sort_by(|a,b|a.name.cmp(&b.name));
     let conflicts=["ANTHROPIC_BASE_URL","ANTHROPIC_AUTH_TOKEN","ANTHROPIC_API_KEY","CLAUDE_CODE_OAUTH_TOKEN","CLAUDE_CODE_USE_BEDROCK","CLAUDE_CODE_USE_VERTEX"].into_iter().filter(|k|std::env::var(k).is_ok_and(|v|!v.is_empty())).map(String::from).collect();
-    Ok(Snapshot{custom_config_directory:config_directory!=repo::default_claude_home()?,config_directory:config_directory.to_string_lossy().to_string(),plugin_applied,skip_onboarding,project:project()?.map(|p|p.to_string_lossy().to_string()),settings_path:settings_path()?.to_string_lossy().to_string(),mcp_path:mcp_path.to_string_lossy().to_string(),prompt_path:prompt_path()?.to_string_lossy().to_string(),mcp,prompts:library.prompts,active_prompt:library.active_prompt,skills:skills()?,sessions:sessions()?,environment_conflicts:conflicts})
+    Ok(Snapshot{cc_shortcut,custom_config_directory:config_directory!=repo::default_claude_home()?,config_directory:config_directory.to_string_lossy().to_string(),plugin_applied,skip_onboarding,project:project()?.map(|p|p.to_string_lossy().to_string()),settings_path:settings_path()?.to_string_lossy().to_string(),mcp_path:mcp_path.to_string_lossy().to_string(),prompt_path:prompt_path()?.to_string_lossy().to_string(),mcp,prompts:library.prompts,active_prompt:library.active_prompt,skills:skills()?,sessions:sessions()?,environment_conflicts:conflicts})
 }
 #[derive(Deserialize)]
 #[serde(tag="type",rename_all="snake_case",deny_unknown_fields)]
 pub enum Action{
+    CcShortcut{enabled:bool},
     ApplyPlugin{enabled:bool},
     SkipOnboarding{enabled:bool},
     SaveMcp{name:String,config:Value},
@@ -174,13 +178,14 @@ pub enum Action{
 }
 pub fn act(action:Action)->Result<(),String>{
     match &action{
+        Action::CcShortcut{enabled}=>return cc_shortcut::set_enabled(*enabled),
         Action::ApplyPlugin{enabled}=>return toggle_config_field(&repo::claude_home()?.join("config.json"),"primaryApiKey",json!("any"),*enabled),
         Action::SkipOnboarding{enabled}=>return toggle_config_field(&global_config_path()?,"hasCompletedOnboarding",json!(true),*enabled),
         _=>{}
     }
     let mut lib=library()?;
     match action{
-        Action::ApplyPlugin{..}|Action::SkipOnboarding{..}=>unreachable!(),
+        Action::CcShortcut{..}|Action::ApplyPlugin{..}|Action::SkipOnboarding{..}=>unreachable!(),
         Action::SaveMcp{name,mut config}=>{
             if !valid_name(&name)||!config.is_object()||config.to_string().len()>65536{return Err("MCP 名称或配置无效".into());}
             let kind=config["type"].as_str().unwrap_or("stdio");

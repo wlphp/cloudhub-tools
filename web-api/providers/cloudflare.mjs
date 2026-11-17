@@ -108,6 +108,51 @@ export async function workerAccess(id, account, input, send = request) {
   return { enabled: true, url: `https://${worker}.${data.result.subdomain}.workers.dev` };
 }
 
+function workerService(value) {
+  if (typeof value !== "string" || !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(value)) throw new Error("Worker 名称无效");
+  return value;
+}
+export function hostnameForZone(hostname, zoneName) {
+  const zone = typeof zoneName === "string" ? zoneName.replace(/\.+$/, "").toLowerCase() : "";
+  const host = typeof hostname === "string" ? hostname.replace(/\.+$/, "").toLowerCase() : "";
+  const valid = value => value.length > 0 && value.length <= 253 && /^[\x00-\x7f]+$/.test(value) && value.split(".").every(label => label.length > 0 && label.length <= 63 && /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(label));
+  if (!valid(zone) || !valid(host) || (host !== zone && !host.endsWith(`.${zone}`))) throw new Error("主机名必须是所选活动站点的域名或其子域名");
+  return host;
+}
+const workerDomainFields = ["id", "hostname", "service", "zone_id", "zone_name", "enabled", "previews_enabled"];
+export async function workerDomains(id, account, input, send = request) {
+  const service = workerService(input.name);
+  const rows = await pages(q => send(id, "GET", `accounts/${account}/workers/domains`, { ...q, service }));
+  return { items: rows.map(row => project(row, workerDomainFields)) };
+}
+export async function bindWorkerDomain(id, account, input, send = request) {
+  const service = workerService(input.name);
+  const zoneId = identifier(input.zoneId);
+  const zone = await send(id, "GET", `zones/${zoneId}`);
+  if (zone.result?.account?.id !== account) throw new Error("站点不属于当前 Cloudflare Account ID");
+  if (zone.result?.status !== "active" || zone.result?.paused === true) throw new Error("自定义域名要求所选 Cloudflare 站点处于活动状态");
+  const hostname = hostnameForZone(input.hostname, zone.result?.name);
+  const base = `accounts/${account}/workers/domains`;
+  const existing = await pages(q => send(id, "GET", base, { ...q, hostname }));
+  const match = existing.find(row => typeof row.hostname === "string" && row.hostname.toLowerCase() === hostname);
+  if (match) {
+    if (match.service === service) return { success: true, existing: true, domain: project(match, workerDomainFields) };
+    throw new Error("该自定义域名已绑定到其他 Worker，请先解除原绑定");
+  }
+  const response = await send(id, "PUT", base, {}, { hostname, service });
+  if (!response.result || typeof response.result !== "object" || Array.isArray(response.result)) throw new Error("Cloudflare 自定义域名响应格式无效");
+  return { success: true, domain: project(response.result, workerDomainFields) };
+}
+export async function unbindWorkerDomain(id, account, input, send = request) {
+  const service = workerService(input.name);
+  const domainId = identifier(input.domainId);
+  const path = `accounts/${account}/workers/domains/${domainId}`;
+  const existing = await send(id, "GET", path);
+  if (existing.result?.service !== service) throw new Error("该自定义域名不属于当前 Worker，已取消解绑");
+  await send(id, "DELETE", path);
+  return { success: true };
+}
+
 // 允许使用无凭据请求替身验证部署顺序和部分成功，不在测试中访问云端。
 export async function createWorker(id, account, input, send = request) {
   const worker = workerInput(input);
@@ -131,6 +176,9 @@ export async function createWorker(id, account, input, send = request) {
 export async function manage(id, action, input = {}) {
   const { account } = credentials(id);
   if (action === "worker_access") return workerAccess(id, account, input);
+  if (action === "worker_domains_list") return workerDomains(id, account, input);
+  if (action === "worker_domain_bind") return bindWorkerDomain(id, account, input);
+  if (action === "worker_domain_delete") return unbindWorkerDomain(id, account, input);
   if (action === "worker_create") return createWorker(id, account, input);
   if (action === "verify") { await request(id, "GET", `accounts/${account}`); return { verified: true }; }
   if (action.startsWith("dns_") || ["purge_cache", "ssl_get", "ssl_set"].includes(action)) {

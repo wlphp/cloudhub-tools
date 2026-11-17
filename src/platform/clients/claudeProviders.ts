@@ -56,6 +56,7 @@ export type ClaudeRoutingState = {
 };
 export type ClaudePrompt = { id: string; name: string; content: string };
 export type ClaudeWorkspaceState = {
+  ccShortcut: { installed: boolean; recoveryAvailable: boolean; paths: string[] };
   configDirectory: string; customConfigDirectory: boolean; pluginApplied: boolean; skipOnboarding: boolean;
   project: string | null; settingsPath: string; mcpPath: string; promptPath: string;
   mcp: { name: string; enabled: boolean; transport: string; command: string; url: string; hasSecrets: boolean }[];
@@ -65,6 +66,7 @@ export type ClaudeWorkspaceState = {
   environmentConflicts: string[];
 };
 export type ClaudeWorkspaceAction =
+  | { type: "cc_shortcut"; enabled: boolean }
   | { type: "apply_plugin" | "skip_onboarding"; enabled: boolean }
   | { type: "save_mcp"; name: string; config: Record<string, unknown> }
   | { type: "toggle_mcp"; name: string; enabled: boolean }

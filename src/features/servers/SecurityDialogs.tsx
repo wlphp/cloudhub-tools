@@ -1,201 +1,167 @@
-import { type FormEvent, useEffect, useState } from "react";
-import { SharedDialog } from "../../shared/SharedDialog";
-import { RefreshCw } from "lucide-react";
 import { serversClient } from "../../platform/clients";
-import { platformErrorMessage } from "../../platform/api";
 import type { Account } from "../../shared/types";
+import { SecurityGroupManager, type RuleDraft, type SecurityRule, type SecuritySnapshot } from "./SecurityGroupManager";
 
-type SecurityGroup = { SecurityGroupId: string; SecurityGroupName: string; Description: string; VpcId: string; NicType: string };
-type SecurityGroupRule = { Direction: string; IpProtocol: string; PortRange: string; SourceCidrIp: string; SourceGroupId: string; Policy: string; Priority: number; Description: string; NicType: string; SecurityGroupRuleId?: string };
-type SecurityGroupResponse = { groups: SecurityGroup[]; selectedSecurityGroupId: string; rules: SecurityGroupRule[]; sgVersion?: number };
-type LightFirewallRule = { RuleId: string; IpProtocol: string; PortRange: string; SourceCidrIp: string; Policy: string; Description: string; FirewallRule?: Record<string, unknown> };
-type LightFirewallResponse = { rules: LightFirewallRule[]; firewallVersion?: number };
-type VultrFirewallRule = { RuleId: string; IpProtocol: string; PortRange: string; SourceCidrIp: string; Description: string };
-type VultrFirewallResponse = { rules: VultrFirewallRule[] };
+type DialogProps = { account: Account; onClose: () => void; onConfirm: (message: string) => Promise<boolean>; onNotice: (message: string) => void };
+type ServerProps = DialogProps & { regionId: string; instanceId: string };
+type RawRule = Record<string, unknown>;
+const text = (value: unknown) => value == null ? "" : String(value);
+const ruleFields = (rule: RuleDraft) => ({ protocol: rule.protocol, ports: rule.ports, source: rule.source, description: rule.description, policy: rule.policy, priority: rule.priority });
 
-export function SecurityGroupDialog({ account, regionId, instanceId, onClose, onConfirm, onNotice }: { account: Account; regionId: string; instanceId: string; onClose: () => void; onConfirm: (message: string) => Promise<boolean>; onNotice: (message: string) => void }) {
-  const [groups, setGroups] = useState<SecurityGroup[]>([]);
-  const [selectedSecurityGroupId, setSelectedSecurityGroupId] = useState("");
-  const [rules, setRules] = useState<SecurityGroupRule[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState("");
-  const [protocol, setProtocol] = useState("tcp");
-  const [portRange, setPortRange] = useState("");
-  const [sourceCidrIp, setSourceCidrIp] = useState("0.0.0.0/0");
-  const [description, setDescription] = useState("");
-  const isTencent = account.cloud_type === "tencent";
-  const isBaidu = account.cloud_type === "baidu";
-  const [sgVersion, setSgVersion] = useState<number | undefined>();
-  const providerLabel = isTencent ? "腾讯云 CVM" : isBaidu ? "百度智能云 BCC" : "ALIYUN ECS";
-  const selectedGroup = groups.find((group) => group.SecurityGroupId === selectedSecurityGroupId);
-  const inboundRules = rules.filter((rule) => String(rule.Direction).toLowerCase() === "ingress" && String(rule.Policy || "accept").toLowerCase() === "accept");
-
-  async function loadSecurityGroups(securityGroupId = selectedSecurityGroupId) {
-    setLoading(true); setError("");
-    try {
-      const result = await serversClient.listSecurityGroups<SecurityGroupResponse>(
-        isTencent ? "tencent" : isBaidu ? "baidu" : "aliyun",
-        { id: account.id, regionId, instanceId, securityGroupId: securityGroupId || null },
-      );
-      setGroups(result.groups || []); setSelectedSecurityGroupId(result.selectedSecurityGroupId || ""); setRules(result.rules || []); setSgVersion(result.sgVersion);
-    } catch (reason) { setGroups([]); setRules([]); setError(platformErrorMessage(reason)); }
-    finally { setLoading(false); }
-  }
-  useEffect(() => { void loadSecurityGroups(""); }, []);
-
-  async function addRule(event: FormEvent) {
-    event.preventDefault();
-    const normalizedPortRange = protocol === "all" ? "-1/-1" : portRange.trim();
-    const normalizedCidr = sourceCidrIp.trim();
-    if (!selectedGroup) { setError("请先选择安全组"); return; }
-    if (!normalizedPortRange || !/^-?\d+\/-?\d+$/.test(normalizedPortRange)) { setError("端口范围请填写为 80/80 或 8000/9000"); return; }
-    if (!normalizedCidr || !normalizedCidr.includes("/")) { setError("来源地址请填写 CIDR，例如 0.0.0.0/0"); return; }
-    if (!(await onConfirm(`确认在安全组“${selectedGroup.SecurityGroupName || selectedGroup.SecurityGroupId}”开放 ${protocol.toUpperCase()} ${normalizedPortRange}，来源 ${normalizedCidr} 吗？\n安全组规则会影响所有绑定该安全组的服务器。`))) return;
-    setSubmitting(true); setError("");
-    try {
-      const payload = { id: account.id, regionId, securityGroupId: selectedGroup.SecurityGroupId, ipProtocol: protocol, portRange: normalizedPortRange, sourceCidrIp: normalizedCidr, description: description.trim() || null, nicType: selectedGroup.NicType || null, sgVersion: sgVersion ?? null };
-      await serversClient.mutateSecurityGroup(isTencent ? "tencent" : isBaidu ? "baidu" : "aliyun", "authorize", payload);
-      setPortRange(""); setDescription(""); onNotice(`已开放 ${protocol.toUpperCase()} ${normalizedPortRange}`); await loadSecurityGroups(selectedGroup.SecurityGroupId);
-    } catch (reason) { setError(platformErrorMessage(reason)); } finally { setSubmitting(false); }
-  }
-
-  async function revokeRule(rule: SecurityGroupRule) {
-    if (!selectedGroup || !rule.SourceCidrIp) return;
-    const label = `${String(rule.IpProtocol || "").toUpperCase()} ${rule.PortRange || "-"}，来源 ${rule.SourceCidrIp}`;
-    if (!(await onConfirm(`确认关闭安全组规则 ${label} 吗？\n安全组规则会影响所有绑定该安全组的服务器。`))) return;
-    setSubmitting(true); setError("");
-    try {
-      const payload = { id: account.id, regionId, securityGroupId: selectedGroup.SecurityGroupId, ipProtocol: String(rule.IpProtocol || ""), portRange: String(rule.PortRange || ""), sourceCidrIp: rule.SourceCidrIp, policy: String(rule.Policy || "accept"), priority: Number(rule.Priority || 1), nicType: rule.NicType || selectedGroup.NicType || null, securityGroupRuleId: rule.SecurityGroupRuleId || null, sgVersion: sgVersion ?? null };
-      await serversClient.mutateSecurityGroup(isTencent ? "tencent" : isBaidu ? "baidu" : "aliyun", "revoke", payload);
-      onNotice(`已关闭 ${label}`); await loadSecurityGroups(selectedGroup.SecurityGroupId);
-    } catch (reason) { setError(platformErrorMessage(reason)); } finally { setSubmitting(false); }
-  }
-
-  return <SharedDialog sizeStorageKey="features/servers/security-dialogs/security-group-dialog" className="security-group-modal" title="安全组端口" eyebrow={providerLabel} onClose={onClose} closeLabel="关闭安全组" footer={<button type="button" className="secondary" onClick={onClose}>关闭</button>}>
-      <div className="security-group-body"><p className="security-group-note">仅管理入方向允许规则。安全组对同组内所有绑定服务器生效。</p>
-        {loading ? <div className="security-group-loading">正在读取安全组规则...</div> : !groups.length ? <div className="security-group-empty">当前服务器没有可用安全组，或 AccessKey 缺少安全组读取权限。</div> : <>
-          <label className="security-group-select">安全组<select value={selectedSecurityGroupId} disabled={submitting} onChange={(event) => void loadSecurityGroups(event.target.value)}>{groups.map((group) => <option key={group.SecurityGroupId} value={group.SecurityGroupId}>{group.SecurityGroupName || group.SecurityGroupId} ({group.SecurityGroupId})</option>)}</select>{selectedGroup?.Description && <small>{selectedGroup.Description}</small>}</label>
-          <form className="security-group-add" onSubmit={(event) => void addRule(event)}><div className="security-group-add-title">开放端口</div><div className="security-group-form-grid"><label>协议<select value={protocol} disabled={submitting} onChange={(event) => setProtocol(event.target.value)}><option value="tcp">TCP</option><option value="udp">UDP</option>{!isBaidu && <option value="all">全部协议</option>}</select></label><label>端口范围<input value={protocol === "all" ? "-1/-1" : portRange} disabled={submitting || protocol === "all"} onChange={(event) => setPortRange(event.target.value)} placeholder="80/80 或 8000/9000" /></label><label>来源 CIDR<input value={sourceCidrIp} disabled={submitting} onChange={(event) => setSourceCidrIp(event.target.value)} placeholder="0.0.0.0/0" /></label><label>说明（可选）<input value={description} disabled={submitting} maxLength={80} onChange={(event) => setDescription(event.target.value)} placeholder="例如 Web 服务" /></label></div><button type="submit" className="layui-btn layui-btn-normal" disabled={submitting}>{submitting ? "提交中…" : "开放端口"}</button></form>
-          <div className="security-group-rules-head"><strong>已开放端口</strong><button type="button" className="secondary" disabled={submitting} onClick={() => void loadSecurityGroups(selectedSecurityGroupId)}><RefreshCw size={13} />刷新</button></div><div className="security-group-rule-list">{!inboundRules.length ? <div className="security-group-empty">暂无入方向允许规则</div> : inboundRules.map((rule, index) => <div className="security-group-rule" key={rule.SecurityGroupRuleId || `${rule.IpProtocol}-${rule.PortRange}-${rule.SourceCidrIp || rule.SourceGroupId}-${index}`}><div><strong>{String(rule.IpProtocol || "-").toUpperCase()} {rule.PortRange || "-"}</strong><span>来源：{rule.SourceCidrIp || `安全组 ${rule.SourceGroupId || "-"}`}</span>{rule.Description && <small>{rule.Description}</small>}</div>{rule.SourceCidrIp && (!isBaidu || rule.SecurityGroupRuleId) ? <button type="button" className="layui-btn layui-btn-danger" disabled={submitting} onClick={() => void revokeRule(rule)}>关闭</button> : <span className="security-group-readonly">组引用规则</span>}</div>)}</div>
-        </>}{error && <p className="security-group-error">{error}</p>}</div>
-    </SharedDialog>;
+function normalize(raw: RawRule, index: number, light = false): SecurityRule {
+  const source = text(raw.SourceCidrIp);
+  const sourceGroup = text(raw.SourceGroupId);
+  const policy = text(raw.Policy || "accept").toLowerCase();
+  return {
+    key: text(raw.SecurityGroupRuleId || raw.RuleId) || `${text(raw.Direction)}-${text(raw.IpProtocol)}-${text(raw.PortRange)}-${source}-${sourceGroup}-${index}`,
+    direction: text(raw.Direction || "ingress").toLowerCase(), protocol: text(raw.IpProtocol).toLowerCase(),
+    ports: text(raw.PortRange), source, sourceGroup, description: text(raw.Description),
+    policy: ["accept", "allow"].includes(policy) ? "accept" : "drop",
+    priority: typeof raw.Priority === "number" ? raw.Priority : light ? index + 1 : 1,
+    updatedAt: text(raw.UpdateTime || raw.UpdatedAt), readOnly: Boolean(raw.ReadOnly) || !source, raw,
+  };
 }
 
-export function LightFirewallDialog({ account, regionId, instanceId, onClose, onConfirm, onNotice }: { account: Account; regionId: string; instanceId: string; onClose: () => void; onConfirm: (message: string) => Promise<boolean>; onNotice: (message: string) => void }) {
-  const [rules, setRules] = useState<LightFirewallRule[]>([]);
-  const [firewallVersion, setFirewallVersion] = useState<number | undefined>();
-  const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState("");
-  const [protocol, setProtocol] = useState("tcp");
-  const [portRange, setPortRange] = useState("");
-  const [sourceCidrIp, setSourceCidrIp] = useState("0.0.0.0/0");
-  const [description, setDescription] = useState("");
-  const isTencent = account.cloud_type === "tencent";
-  const providerLabel = isTencent ? "腾讯云 Lighthouse" : account.cloud_type === "jdcloud" ? "京东云轻量应用服务器" : "阿里云轻量应用服务器";
-
-  async function loadRules() {
-    setLoading(true); setError("");
-    try {
-      const result = await serversClient.listLightFirewall<LightFirewallResponse>({ id: account.id, regionId, instanceId });
-      setRules(result.rules || []); setFirewallVersion(result.firewallVersion);
-    } catch (reason) { setRules([]); setError(platformErrorMessage(reason)); }
-    finally { setLoading(false); }
-  }
-  useEffect(() => { void loadRules(); }, []);
-
-  async function addRule(event: FormEvent) {
-    event.preventDefault();
-    const normalizedPortRange = portRange.trim();
-    const normalizedCidr = sourceCidrIp.trim();
-    if (!/^\d+\/\d+$/.test(normalizedPortRange)) { setError("端口范围请填写为 80/80 或 8000/9000"); return; }
-    const [start, end] = normalizedPortRange.split("/").map(Number);
-    if (start < 1 || end < start || end > 65535) { setError("端口范围必须在 1 到 65535 之间"); return; }
-    if (!normalizedCidr || !normalizedCidr.includes("/")) { setError("来源地址请填写 CIDR，例如 0.0.0.0/0"); return; }
-    if (!(await onConfirm(`确认在轻量服务器开放 ${protocol.toUpperCase()} ${normalizedPortRange}，来源 ${normalizedCidr} 吗？`))) return;
-    setSubmitting(true); setError("");
-    try {
-      const payload = { id: account.id, regionId, instanceId, ipProtocol: protocol, portRange: normalizedPortRange, sourceCidrIp: normalizedCidr, description: description.trim() || null, firewallVersion: firewallVersion ?? null };
-      await serversClient.mutateLightFirewall("create", payload);
-      setPortRange(""); setDescription(""); onNotice(`已开放 ${protocol.toUpperCase()} ${normalizedPortRange}`); await loadRules();
-    } catch (reason) { setError(platformErrorMessage(reason)); } finally { setSubmitting(false); }
-  }
-
-  async function deleteRule(rule: LightFirewallRule) {
-    const label = `${String(rule.IpProtocol || "-").toUpperCase()} ${rule.PortRange || "-"}，来源 ${rule.SourceCidrIp || "-"}`;
-    if (!(await onConfirm(`确认关闭轻量服务器防火墙规则 ${label} 吗？\n关闭后该端口将无法从该来源访问。`))) return;
-    setSubmitting(true); setError("");
-    try {
-      const payload = { id: account.id, regionId, instanceId, ruleId: rule.RuleId || null, firewallRule: rule.FirewallRule || null, firewallVersion: firewallVersion ?? null };
-      await serversClient.mutateLightFirewall("delete", payload);
-      onNotice(`已关闭 ${label}`); await loadRules();
-    } catch (reason) { setError(platformErrorMessage(reason)); } finally { setSubmitting(false); }
-  }
-
-  return <SharedDialog sizeStorageKey="features/servers/security-dialogs/light-firewall-dialog" className="security-group-modal" title="防火墙端口" eyebrow={providerLabel} onClose={onClose} closeLabel="关闭防火墙" footer={<button type="button" className="secondary" onClick={onClose}>关闭</button>}>
-      <div className="security-group-body"><p className="security-group-note">仅管理当前轻量服务器的入方向允许规则，变更不会影响其他服务器。</p>
-        {loading ? <div className="security-group-loading">正在读取防火墙规则...</div> : <><form className="security-group-add" onSubmit={(event) => void addRule(event)}><div className="security-group-add-title">开放端口</div><div className="security-group-form-grid"><label>协议<select value={protocol} disabled={submitting} onChange={(event) => setProtocol(event.target.value)}><option value="tcp">TCP</option><option value="udp">UDP</option></select></label><label>端口范围<input value={portRange} disabled={submitting} onChange={(event) => setPortRange(event.target.value)} placeholder="80/80 或 8000/9000" /></label><label>来源 CIDR<input value={sourceCidrIp} disabled={submitting} onChange={(event) => setSourceCidrIp(event.target.value)} placeholder="0.0.0.0/0" /></label><label>说明（可选）<input value={description} disabled={submitting} maxLength={80} onChange={(event) => setDescription(event.target.value)} placeholder="例如 Web 服务" /></label></div><button type="submit" className="layui-btn layui-btn-normal" disabled={submitting}>{submitting ? "提交中…" : "开放端口"}</button></form>
-          <div className="security-group-rules-head"><strong>已开放端口</strong><button type="button" className="secondary" disabled={submitting} onClick={() => void loadRules()}><RefreshCw size={13} />刷新</button></div><div className="security-group-rule-list">{!rules.length ? <div className="security-group-empty">暂无入方向允许规则</div> : rules.map((rule, index) => <div className="security-group-rule" key={rule.RuleId || `${rule.IpProtocol}-${rule.PortRange}-${rule.SourceCidrIp}-${index}`}><div><strong>{String(rule.IpProtocol || "-").toUpperCase()} {rule.PortRange || "-"}</strong><span>来源：{rule.SourceCidrIp || "-"}</span>{rule.Description && <small>{rule.Description}</small>}</div><button type="button" className="layui-btn layui-btn-danger" disabled={submitting} onClick={() => void deleteRule(rule)}>关闭</button></div>)}</div>
-        </>}{error && <p className="security-group-error">{error}</p>}</div>
-    </SharedDialog>;
+export function SecurityGroupDialog(props: ServerProps) {
+  const { account, regionId, instanceId } = props;
+  const provider = account.cloud_type === "volcengine" ? "volcengine" : account.cloud_type === "tencent" ? "tencent" : account.cloud_type === "baidu" ? "baidu" : "aliyun";
+  const label = { volcengine: "火山引擎 ECS", tencent: "腾讯云 CVM", baidu: "百度智能云 BCC", aliyun: "阿里云 ECS" }[provider];
+  return <SecurityGroupManager {...props} resourceKey={`${account.id}:${regionId}:${instanceId}`} adapter={{
+    label, scope: "规则变更会影响所有绑定该安全组的服务器。", ipv6: provider === "volcengine", createDeny: ["aliyun", "tencent", "volcengine"].includes(provider), references: provider === "volcengine" || provider === "aliyun", protocols: provider === "baidu" ? ["tcp", "udp", "icmp", "all"] : provider === "volcengine" ? ["tcp", "udp", "icmp", "icmpv6", "gre", "all"] : ["tcp", "udp", "icmp", "gre", "all"],
+    async load(group) {
+      const result = await serversClient.listSecurityGroups<{ groups: RawRule[]; selectedSecurityGroupId: string; rules: RawRule[]; sgVersion?: number }>(provider, { id: account.id, regionId, instanceId, securityGroupId: group || null });
+      return { groups: (result.groups || []).map(group => ({ id: text(group.SecurityGroupId), name: text(group.SecurityGroupName || group.SecurityGroupId), description: text(group.Description), nicType: text(group.NicType) })), selected: result.selectedSecurityGroupId || "", rules: (result.rules || []).map((raw, index) => {
+        const source = text(raw.SourceCidrIp || raw.SourceGroupId || raw.SourcePrefixListId || (provider === "volcengine" ? raw.PrefixListId : ""));
+        const ruleId = text(raw.SecurityGroupRuleId || raw.RuleId || raw.securityGroupRuleId || raw.ruleId || raw.id);
+        const normalized = normalize(raw, index);
+        return { ...normalized, ...(provider === "baidu" && ruleId ? { key: ruleId, raw: { ...raw, SecurityGroupRuleId: ruleId } } : {}), source, ...(provider === "tencent" ? { priority: Number(raw.Priority ?? 0) + 1 } : {}), readOnly: Boolean(raw.ReadOnly) || (!source && !(provider === "tencent" && raw.SourceGroupId)) || (provider === "baidu" && !ruleId) };
+      }), version: result.sgVersion };
+    },
+    ...(["volcengine", "aliyun", "tencent"].includes(provider) ? {
+      editPolicy: true, editPriority: provider !== "tencent",
+      canEdit: (rule: SecurityRule) => !rule.readOnly && (provider === "tencent" ? rule.raw.Priority != null && !rule.sourceGroup : Boolean(rule.raw.SecurityGroupRuleId)),
+      update(original: SecurityRule, updated: RuleDraft, snapshot: SecuritySnapshot) {
+        if (provider === "volcengine") return serversClient.updateVolcSecurityGroup({ id: account.id, regionId, instanceId, securityGroupId: snapshot.selected, securityGroupRuleId: text(original.raw.SecurityGroupRuleId), original: ruleFields(original), updated: ruleFields(updated) });
+        if (provider === "aliyun") return serversClient.updateSecurityGroup(provider, { id: account.id, regionId, securityGroupId: snapshot.selected, securityGroupRuleId: text(original.raw.SecurityGroupRuleId), original: ruleFields(original), updated: ruleFields(updated) });
+        return serversClient.updateSecurityGroup("tencent", { id: account.id, regionId, securityGroupId: snapshot.selected, priority: Number(original.raw.Priority ?? 0), ipProtocol: updated.protocol, portRange: updated.ports, sourceCidrIp: updated.source, description: updated.description || null, policy: updated.policy });
+      },
+    } : {}),
+    ...(provider === "baidu" ? {
+      groupReferences: true,
+      policyHint: "百度智能云普通安全组为纯白名单，仅支持允许策略，无优先级；如需拒绝策略请改用企业安全组。",
+      priorityHint: "百度智能云普通安全组没有优先级，命中任意一条允许规则即放行。",
+      canEdit: (rule: SecurityRule) => !rule.readOnly && Boolean(rule.raw.SecurityGroupRuleId),
+      update(original: SecurityRule, updated: RuleDraft, snapshot: SecuritySnapshot) {
+        return serversClient.updateSecurityGroup("baidu", { id: account.id, regionId, securityGroupId: snapshot.selected, securityGroupRuleId: text(original.raw.SecurityGroupRuleId), original: ruleFields(original), updated: ruleFields(updated), sgVersion: snapshot.version ?? null });
+      },
+    } : {}),
+    create(draft: RuleDraft, snapshot: SecuritySnapshot) {
+      return serversClient.mutateSecurityGroup(provider, "authorize", { id: account.id, regionId, instanceId, securityGroupId: snapshot.selected, ipProtocol: draft.protocol, portRange: draft.ports, sourceCidrIp: draft.source, description: draft.description || null, ...(["volcengine", "aliyun", "tencent"].includes(provider) ? { policy: draft.policy, priority: draft.priority } : {}), nicType: snapshot.groups.find(group => group.id === snapshot.selected)?.nicType || null, sgVersion: snapshot.version ?? null });
+    },
+    remove(rule, snapshot) {
+      return serversClient.mutateSecurityGroup(provider, "revoke", { id: account.id, regionId, instanceId, securityGroupId: snapshot.selected, ipProtocol: text(rule.raw.IpProtocol), portRange: rule.ports, sourceCidrIp: rule.source, policy: text(rule.raw.Policy || "accept"), priority: Number(rule.raw.Priority ?? 1), nicType: rule.raw.NicType || snapshot.groups.find(group => group.id === snapshot.selected)?.nicType || null, securityGroupRuleId: rule.raw.SecurityGroupRuleId || null, sgVersion: snapshot.version ?? null });
+    },
+  }} />;
 }
 
-export function VultrFirewallDialog({ account, firewallGroupId, onClose, onConfirm, onNotice }: { account: Account; firewallGroupId: string; onClose: () => void; onConfirm: (message: string) => Promise<boolean>; onNotice: (message: string) => void }) {
-  const [rules, setRules] = useState<VultrFirewallRule[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState("");
-  const [protocol, setProtocol] = useState("tcp");
-  const [port, setPort] = useState("");
-  const [sourceCidrIp, setSourceCidrIp] = useState("0.0.0.0/0");
-  const [description, setDescription] = useState("");
-
-  async function loadRules() {
-    setLoading(true); setError("");
-    try {
-      const result = await serversClient.listVultrFirewall<VultrFirewallResponse>({ id: account.id, firewallGroupId });
-      setRules(result.rules || []);
-    } catch (reason) { setRules([]); setError(platformErrorMessage(reason)); }
-    finally { setLoading(false); }
-  }
-  useEffect(() => { void loadRules(); }, [firewallGroupId]);
-
-  async function addRule(event: FormEvent) {
-    event.preventDefault();
-    const normalizedPort = port.trim();
-    const normalizedCidr = sourceCidrIp.trim();
-    if (!/^\d+(?:-\d+)?$/.test(normalizedPort)) { setError("端口请填写为 80 或 8000-9000"); return; }
-    const [start, end = start] = normalizedPort.split("-").map(Number);
-    if (start < 1 || end < start || end > 65535) { setError("端口范围必须在 1 到 65535 之间"); return; }
-    if (!normalizedCidr || !normalizedCidr.includes("/")) { setError("来源地址请填写 IPv4 CIDR，例如 0.0.0.0/0"); return; }
-    if (!(await onConfirm(`确认在 Vultr 防火墙组 ${firewallGroupId} 开放 ${protocol.toUpperCase()} ${normalizedPort}，来源 ${normalizedCidr} 吗？\n防火墙组规则会影响所有绑定该组的服务器。`))) return;
-    setSubmitting(true); setError("");
-    try {
-      const payload = { id: account.id, firewallGroupId, ipProtocol: protocol, port: normalizedPort, sourceCidrIp: normalizedCidr, description: description.trim() || null };
-      await serversClient.mutateVultrFirewall("create", payload);
-      setPort(""); setDescription(""); onNotice(`已开放 ${protocol.toUpperCase()} ${normalizedPort}`); await loadRules();
-    } catch (reason) { setError(platformErrorMessage(reason)); } finally { setSubmitting(false); }
-  }
-
-  async function deleteRule(rule: VultrFirewallRule) {
-    if (!rule.RuleId) return;
-    const label = `${String(rule.IpProtocol || "-").toUpperCase()} ${rule.PortRange || "-"}，来源 ${rule.SourceCidrIp || "-"}`;
-    if (!(await onConfirm(`确认关闭 Vultr 防火墙规则 ${label} 吗？\n关闭后，所有绑定该防火墙组的服务器都会失去该端口访问。`))) return;
-    setSubmitting(true); setError("");
-    try {
-      const payload = { id: account.id, firewallGroupId, ruleId: rule.RuleId };
-      await serversClient.mutateVultrFirewall("delete", payload);
-      onNotice(`已关闭 ${label}`); await loadRules();
-    } catch (reason) { setError(platformErrorMessage(reason)); } finally { setSubmitting(false); }
-  }
-
-  return <SharedDialog sizeStorageKey="features/servers/security-dialogs/vultr-firewall-dialog" className="security-group-modal" title="防火墙端口" eyebrow="Vultr Firewall Group" onClose={onClose} closeLabel="关闭防火墙" footer={<button type="button" className="secondary" onClick={onClose}>关闭</button>}>
-      <div className="security-group-body"><p className="security-group-note">管理防火墙组 {firewallGroupId} 的 IPv4 入方向允许规则。变更会影响所有绑定该组的服务器。</p>
-        {loading ? <div className="security-group-loading">正在读取防火墙规则...</div> : <><form className="security-group-add" onSubmit={(event) => void addRule(event)}><div className="security-group-add-title">开放端口</div><div className="security-group-form-grid"><label>协议<select value={protocol} disabled={submitting} onChange={(event) => setProtocol(event.target.value)}><option value="tcp">TCP</option><option value="udp">UDP</option></select></label><label>端口或范围<input value={port} disabled={submitting} onChange={(event) => setPort(event.target.value)} placeholder="80 或 8000-9000" /></label><label>来源 CIDR<input value={sourceCidrIp} disabled={submitting} onChange={(event) => setSourceCidrIp(event.target.value)} placeholder="0.0.0.0/0" /></label><label>说明（可选）<input value={description} disabled={submitting} maxLength={80} onChange={(event) => setDescription(event.target.value)} placeholder="例如 Web 服务" /></label></div><button type="submit" className="layui-btn layui-btn-normal" disabled={submitting}>{submitting ? "提交中…" : "开放端口"}</button></form>
-          <div className="security-group-rules-head"><strong>已开放端口</strong><button type="button" className="secondary" disabled={submitting} onClick={() => void loadRules()}><RefreshCw size={13} />刷新</button></div><div className="security-group-rule-list">{!rules.length ? <div className="security-group-empty">暂无 IPv4 入方向允许规则</div> : rules.map((rule, index) => <div className="security-group-rule" key={rule.RuleId || `${rule.IpProtocol}-${rule.PortRange}-${rule.SourceCidrIp}-${index}`}><div><strong>{String(rule.IpProtocol || "-").toUpperCase()} {rule.PortRange || "-"}</strong><span>来源：{rule.SourceCidrIp || "-"}</span>{rule.Description && <small>{rule.Description}</small>}</div><button type="button" className="layui-btn layui-btn-danger" disabled={submitting} onClick={() => void deleteRule(rule)}>关闭</button></div>)}</div>
-        </>}{error && <p className="security-group-error">{error}</p>}</div>
-    </SharedDialog>;
+export function LightFirewallDialog(props: ServerProps) {
+  const { account, regionId, instanceId } = props;
+  const label = account.cloud_type === "tencent" ? "腾讯云 Lighthouse" : account.cloud_type === "jdcloud" ? "京东云轻量应用服务器" : "阿里云轻量应用服务器";
+  return <SecurityGroupManager {...props} resourceKey={`${account.id}:${regionId}:${instanceId}:light`} adapter={{
+    label, scope: account.cloud_type === "jdcloud" ? "仅管理当前轻量服务器的 TCP/UDP 放行规则；京东云接口不支持拒绝策略及 ICMP/ALL 协议，规则修改通过新建后删除旧规则完成。" : account.cloud_type === "tencent" ? "支持 TCP、UDP、ICMP、ICMPv6、ALL 及允许/拒绝策略；IPv6 来源按协议映射。修改操作仅支持调整描述，预置无来源规则保持只读。" : account.cloud_type === "aliyun" ? "仅管理当前轻量服务器的 TCP/UDP/ICMP 放行规则；支持原位修改端口、来源和备注。" : "仅管理当前轻量服务器的访问规则，变更不会影响其他服务器。", ipv6: account.cloud_type === "jdcloud" || account.cloud_type === "tencent", createDeny: account.cloud_type === "tencent", descriptionOnlyEdit: account.cloud_type === "tencent", protocols: account.cloud_type === "tencent" ? ["tcp", "udp", "icmp", "icmpv6", "all"] : account.cloud_type === "aliyun" ? ["tcp", "udp", "icmp"] : ["tcp", "udp"],
+    async load() {
+      const result = await serversClient.listLightFirewall<{ rules: RawRule[]; firewallVersion?: number }>({ id: account.id, regionId, instanceId });
+      return { groups: [{ id: instanceId, name: "当前服务器" }], selected: instanceId, rules: (result.rules || []).map((raw, index) => normalize(raw, index, true)), version: result.firewallVersion };
+    },
+    create(draft, snapshot) {
+      return serversClient.mutateLightFirewall("create", { id: account.id, regionId, instanceId, ipProtocol: draft.protocol, portRange: draft.ports, sourceCidrIp: draft.source, description: draft.description || null, policy: account.cloud_type === "tencent" ? draft.policy : "accept", firewallVersion: snapshot.version ?? null });
+    },
+    ...(account.cloud_type === "tencent" ? {
+      update(original: SecurityRule, updated: RuleDraft, snapshot: SecuritySnapshot) {
+        return serversClient.mutateLightFirewall("update-description", { id: account.id, regionId, instanceId, firewallRule: original.raw.FirewallRule, description: updated.description, firewallVersion: snapshot.version ?? null });
+      },
+      canEdit: (rule: SecurityRule) => Boolean(rule.raw.FirewallRule && rule.source),
+    } : {}),
+    ...(account.cloud_type === "aliyun" ? {
+      canEdit: (rule: SecurityRule) => !rule.readOnly && Boolean(rule.raw.RuleId && rule.source),
+      update(original: SecurityRule, updated: RuleDraft) {
+        return serversClient.mutateLightFirewall("modify", { id: account.id, regionId, instanceId, ruleId: text(original.raw.RuleId), original: ruleFields(original), updated: ruleFields(updated) });
+      },
+    } : {}),
+    ...(account.cloud_type === "jdcloud" ? {
+      async update(original: SecurityRule, updated: RuleDraft) {
+        if (updated.policy !== original.policy || updated.priority !== original.priority) throw new Error("京东云轻量接口不支持修改策略或优先级");
+        const created: unknown = await serversClient.mutateLightFirewall("create", { id: account.id, regionId, instanceId, ipProtocol: updated.protocol, portRange: updated.ports, sourceCidrIp: updated.source, description: updated.description || null });
+        const response = created as RawRule | null;
+        const result = response?.result as RawRule | undefined;
+        const createdRuleId = typeof created === "string" ? created : text(response?.ruleId || (result?.firewallRule as RawRule | undefined)?.ruleId || result?.ruleId);
+        try {
+          await serversClient.mutateLightFirewall("delete", { id: account.id, regionId, instanceId, ruleId: original.raw.RuleId || null });
+        } catch (reason) {
+          if (createdRuleId) {
+            try { await serversClient.mutateLightFirewall("delete", { id: account.id, regionId, instanceId, ruleId: createdRuleId }); }
+            catch { throw new Error(`删除原规则失败；新规则也未能自动回滚（${text(reason)}），请检查规则列表，避免重复规则。`); }
+          }
+          throw reason;
+        }
+      },
+    } : {}),
+    remove(rule, snapshot) {
+      return serversClient.mutateLightFirewall("delete", { id: account.id, regionId, instanceId, ruleId: rule.raw.RuleId || null, firewallRule: rule.raw.FirewallRule || null, firewallVersion: snapshot.version ?? null });
+    },
+  }} />;
 }
 
+export function OracleSecurityGroupDialog(props: ServerProps & { compartmentId: string }) {
+  const { account, regionId, instanceId, compartmentId } = props;
+  return <SecurityGroupManager {...props} resourceKey={`${account.id}:${regionId}:${instanceId}:oci-nsg`} adapter={{
+    label: "Oracle Cloud 实例",
+    scope: "网络安全组（NSG）按实例网卡生效；实例未绑定 NSG 时展示所在子网的安全列表，安全列表的规则对该子网内所有实例生效。规则都是有状态的允许规则，没有优先级。",
+    protocols: ["tcp", "udp", "icmp", "all"],
+    ipv6: true,
+    policyHint: "Oracle Cloud 网络安全组与安全列表都只有允许规则，不支持拒绝；如需阻断请在云防火墙中配置。",
+    priorityHint: "Oracle Cloud 安全组没有优先级，命中任意一条允许规则即放行。",
+    canCreate: snapshot => Boolean(snapshot.selected),
+    async load(group) {
+      const result = await serversClient.listSecurityGroups<{ groups: RawRule[]; selectedSecurityGroupId: string; rules: RawRule[] }>("oracle", { id: account.id, regionId, instanceId, securityGroupId: group || null, compartmentId });
+      return {
+        groups: (result.groups || []).map(value => ({ id: text(value.SecurityGroupId), name: text(value.SecurityGroupName || value.SecurityGroupId), description: text(value.Description) })),
+        selected: result.selectedSecurityGroupId || "",
+        rules: (result.rules || []).map((raw, index) => {
+          const source = text(raw.SourceCidrIp || raw.SourceGroupId);
+          const ruleId = text(raw.RuleId);
+          // 安全列表规则没有 OCID，用 RuleIndex 定位；没有来源（组引用）的规则仍保持只读。
+          const identifiable = Boolean(ruleId) || typeof raw.RuleIndex === "number";
+          return { ...normalize(raw, index), source, raw: { ...raw, RuleId: ruleId }, readOnly: Boolean(raw.ReadOnly) || !identifiable || !text(raw.SourceCidrIp) };
+        }),
+      };
+    },
+    canEdit: (rule: SecurityRule) => !rule.readOnly && (text(rule.raw.RuleId).startsWith("ocid1.securityrule.") || typeof rule.raw.RuleIndex === "number"),
+    update(original: SecurityRule, updated: RuleDraft, snapshot: SecuritySnapshot) {
+      return serversClient.updateSecurityGroup("oracle", { id: account.id, regionId, securityGroupId: snapshot.selected, securityGroupRuleId: text(original.raw.RuleId), ruleIndex: typeof original.raw.RuleIndex === "number" ? original.raw.RuleIndex : null, original: ruleFields(original), updated: ruleFields(updated), isStateless: Boolean(original.raw.IsStateless) });
+    },
+    create(draft: RuleDraft, snapshot: SecuritySnapshot) {
+      return serversClient.mutateSecurityGroup("oracle", "authorize", { id: account.id, regionId, instanceId, compartmentId, securityGroupId: snapshot.selected, ipProtocol: draft.protocol, portRange: draft.ports, sourceCidrIp: draft.source, description: draft.description || null });
+    },
+    remove(rule, snapshot) {
+      return serversClient.mutateSecurityGroup("oracle", "revoke", { id: account.id, regionId, instanceId, compartmentId, securityGroupId: snapshot.selected, securityGroupRuleId: text(rule.raw.RuleId), ruleIndex: typeof rule.raw.RuleIndex === "number" ? rule.raw.RuleIndex : null, original: ruleFields(rule) });
+    },
+  }} />;
+}
 
+export function VultrFirewallDialog(props: DialogProps & { firewallGroupId: string }) {
+  const { account, firewallGroupId } = props;
+  return <SecurityGroupManager {...props} resourceKey={`${account.id}:${firewallGroupId}:vultr`} adapter={{
+    label: "Vultr", scope: "规则变更会影响所有绑定该安全组的服务器，当前接口仅接入 IPv4 入方向规则。", protocols: ["tcp", "udp"],
+    async load() {
+      const result = await serversClient.listVultrFirewall<{ rules: RawRule[] }>({ id: account.id, firewallGroupId });
+      return { groups: [{ id: firewallGroupId, name: "当前安全组" }], selected: firewallGroupId, rules: (result.rules || []).map((raw, index) => ({ ...normalize(raw, index, true), readOnly: !raw.RuleId || !raw.SourceCidrIp })) };
+    },
+    create(draft) {
+      if (draft.source.includes(":")) return Promise.reject(new Error("Vultr 当前接口仅支持 IPv4 来源"));
+      const [start, end] = draft.ports.split("/");
+      return serversClient.mutateVultrFirewall("create", { id: account.id, firewallGroupId, ipProtocol: draft.protocol, port: start === end ? start : `${start}-${end}`, sourceCidrIp: draft.source, description: draft.description || null });
+    },
+    remove(rule) { return serversClient.mutateVultrFirewall("delete", { id: account.id, firewallGroupId, ruleId: rule.raw.RuleId }); },
+  }} />;
+}

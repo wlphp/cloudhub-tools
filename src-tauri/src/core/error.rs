@@ -499,6 +499,29 @@ fn is_safe_esa_error(message: &str) -> bool {
 }
 
 pub(crate) fn sanitize_resource_error(message: &str) -> String {
+    if [
+        "云厂商认证失败，请检查账号凭据",
+        "云厂商权限不足，请检查账号权限",
+        "云厂商请求过于频繁，请稍后重试",
+        "云厂商或网络暂时不可用，请稍后重试",
+        "云厂商返回了无法公开的错误信息",
+        "账号地域配置无效，请检查账号设置中的默认地域",
+        "火山引擎轻量应用服务器同步尚未接入",
+        "火山引擎边缘安全加速同步尚未接入",
+        "火山引擎服务器响应格式不兼容，请更新客户端适配",
+        "火山引擎服务器分页响应异常，查询未完成",
+    ].contains(&message) { return message.to_string(); }
+    // Only authored messages are returned, never the provider's error text.
+    // Keep these diagnostics stable when a resource response is sanitized twice.
+    for (code, guidance) in [
+        ("InvalidActionOrVersion", "云厂商接口动作或版本不匹配（InvalidActionOrVersion），请更新客户端适配"),
+        ("JsonUnMarshalFailed", "云厂商接口请求格式不匹配（JsonUnMarshalFailed），请更新客户端适配"),
+        ("ServiceNotFound", "云厂商接口服务不存在（ServiceNotFound），请检查客户端适配及地域"),
+        ("OperationDenied.ServiceStopped", "云厂商服务已停止（OperationDenied.ServiceStopped），请到云控制台检查服务开通及账号状态"),
+        ("SignatureDoesNotMatch", "云厂商签名校验失败（SignatureDoesNotMatch），请检查凭据、系统时间及客户端适配"),
+    ] {
+        if message.contains(code) { return guidance.to_string(); }
+    }
     let normalized = message.to_ascii_lowercase();
     if message == "服务器查询超时，部分地域未完成；请在账号中填写服务器所在地域后重试" {
         message.to_string()
@@ -522,6 +545,18 @@ pub(crate) fn sanitize_resource_error(message: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{sanitize_resource_error, PlatformError};
+
+    #[test]
+    fn resource_api_codes_keep_guidance_after_repeated_sanitization() {
+        for code in ["InvalidActionOrVersion", "JsonUnMarshalFailed", "ServiceNotFound", "OperationDenied.ServiceStopped", "SignatureDoesNotMatch"] {
+            let message = sanitize_resource_error(&format!("{code}: untrusted provider text"));
+            assert!(message.contains(code));
+            assert!(!message.contains("untrusted provider text"));
+            assert_eq!(sanitize_resource_error(&message), message);
+        }
+        let denied = sanitize_resource_error("HTTP 403");
+        assert_eq!(sanitize_resource_error(&denied), denied);
+    }
 
     #[test]
     fn proxy_errors_preserve_authored_guidance_only() {

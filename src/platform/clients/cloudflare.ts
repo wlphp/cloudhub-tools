@@ -1,8 +1,8 @@
 import { invokeOrWeb, jsonRequest } from "./base";
 
-export type CloudflareAction = "verify" | "dns_list" | "dns_save" | "dns_delete" | "dns_proxy" | "purge_cache" | "ssl_get" | "ssl_set" | "r2_create" | "worker_create" | "worker_access" | "delete_resource";
+export type CloudflareAction = "verify" | "dns_list" | "dns_save" | "dns_delete" | "dns_proxy" | "purge_cache" | "ssl_get" | "ssl_set" | "r2_create" | "worker_create" | "worker_access" | "worker_domains_list" | "worker_domain_bind" | "worker_domain_delete" | "delete_resource";
 export const cloudflareClient = {
-  manage(id: number, action: CloudflareAction, input: Record<string, unknown> = {}): Promise<{ items?: Record<string, unknown>[]; success?: boolean; verified?: boolean; mode?: string; name?: string; url?: string; warning?: string; enabled?: boolean }> {
+  manage(id: number, action: CloudflareAction, input: Record<string, unknown> = {}): Promise<{ items?: Record<string, unknown>[]; domain?: Record<string, unknown>; existing?: boolean; success?: boolean; verified?: boolean; mode?: string; name?: string; url?: string; warning?: string; enabled?: boolean }> {
     return invokeOrWeb("cloudflare_manage", { id, action, input }, { path: "/api/cloudflare-manage", init: jsonRequest("POST", { id, action, input }) });
   },
 };

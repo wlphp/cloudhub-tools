@@ -1,16 +1,21 @@
 import { baiduServerFields } from "../../shared/utils/baiduServer";
 import { aliyunSwasFields } from "../../shared/utils/aliyunSwas";
 import { useEffect, useState } from "react";
-import { Activity, Copy, History, MoreHorizontal, Power, RefreshCw, RotateCw, ShieldCheck, Terminal, Zap } from "lucide-react";
+import { Copy, MoreHorizontal } from "lucide-react";
 import { serversClient } from "../../platform/clients";
 import { platformErrorMessage } from "../../platform/api";
 import type { Account, LocalAsset } from "../../shared/types";
 import { displayValue } from "../../shared/utils/display";
+import { remainingValidity } from "../../shared/utils/format";
 import { cloudProvider } from "../cloud/catalog";
-import { SecurityGroupDialog, VultrFirewallDialog } from "./SecurityDialogs";
+import { OracleSecurityGroupDialog, SecurityGroupDialog, VultrFirewallDialog } from "./SecurityDialogs";
 import type { OracleActionResult } from "../../platform/clients/servers";
-import { OracleResultDialog, OracleOperationLogsDialog } from "./OracleOperationDialogs";
+import { OracleResultDialog } from "./OracleOperationDialogs";
+import { InstanceApiLogsDialog } from "./InstanceApiLogsDialog";
+import { ServerActionBar } from "./ServerActionBar";
 import { IpLocation } from "./IpLocation";
+
+type PendingAction = "reboot" | "force-reboot" | "start" | "stop";
 
 function firstAddress(value: unknown): string {
   if (Array.isArray(value)) return firstAddress(value[0]);
@@ -53,18 +58,20 @@ export function ServerCard({
   const item = account.cloud_type === "baidu" ? baiduServerFields(sourceItem) : sourceItem;
   const [disks, setDisks] = useState<Record<string, unknown>[]>([]);
   const [diskLoading, setDiskLoading] = useState(true);
-  const [rebooting, setRebooting] = useState(false);
+  const [diskError, setDiskError] = useState("");
+  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
+  const rebooting = pendingAction !== null;
   const [oracleResult, setOracleResult] = useState<(OracleActionResult & { label: string }) | null>(null);
   const [operationLogsOpen, setOperationLogsOpen] = useState(false);
-  async function runOracleAction(action: string, label: string) {
-    setRebooting(true);
+  async function runOracleAction(action: string, label: string, pending: PendingAction) {
+    setPendingAction(pending);
     try {
       const result = await serversClient.oracleAction({ id: account.id, regionId, instanceId: String(item.InstanceId || ""), action });
       setOracleResult({ ...result, label });
       onNotice(`${label} API ${result.success ? "调用成功，指令已受理" : "调用失败"}`);
     } catch (error) {
       setOracleResult({ success: false, label, message: platformErrorMessage(error) });
-    } finally { setRebooting(false); }
+    } finally { setPendingAction(null); }
   }
   const [vultrMenuOpen, setVultrMenuOpen] = useState(false);
   const [vultrManaging, setVultrManaging] = useState(false);
@@ -78,9 +85,9 @@ export function ServerCard({
   const status = ["RUNNING", "ACTIVE", "ON"].includes(normalizedStatus) ? "Running" : ["STOPPED", "OFF", "INACTIVE"].includes(normalizedStatus) ? "Stopped" : rawStatus;
   const networkError = String(item._network_error || "");
   const networkAccessDenied = /Authorization failed|NotAuthorized|not authorized/i.test(networkError);
-  const supportsPowerControls = account.cloud_type === "aliyun" || account.cloud_type === "baidu" || account.cloud_type === "oracle" || account.cloud_type === "vultr";
-  const supportsForceReboot = account.cloud_type === "aliyun" || account.cloud_type === "baidu" || account.cloud_type === "oracle";
-  const canReadDisks = account.cloud_type === "aliyun" || account.cloud_type === "tencent" || account.cloud_type === "oracle";
+  const supportsPowerControls = account.cloud_type === "aliyun" || account.cloud_type === "baidu" || account.cloud_type === "oracle" || account.cloud_type === "vultr" || account.cloud_type === "volcengine";
+  const supportsForceReboot = account.cloud_type === "volcengine" || account.cloud_type === "aliyun" || account.cloud_type === "baidu" || account.cloud_type === "oracle";
+  const canReadDisks = account.cloud_type === "volcengine" || account.cloud_type === "aliyun" || account.cloud_type === "tencent" || account.cloud_type === "oracle";
   const fallbackDisks: Record<string, unknown>[] = account.cloud_type === "vultr" && item.Disk != null && item.Disk !== ""
     ? [{ DiskId: item.InstanceId, DiskName: "本地系统盘", Category: "local", Size: item.Disk, Status: item.PowerStatus || item.Status }]
     : account.cloud_type === "baidu" && Array.isArray(item.Disks) ? item.Disks as Record<string, unknown>[] : [];
@@ -98,12 +105,14 @@ export function ServerCard({
       setDiskLoading(false);
       return;
     }
+    setDiskLoading(true);
+    setDiskError("");
     serversClient.listDisks(account.id, regionId, instanceId, String(item._compartment_ocid || ""))
       .then((value) => {
         if (alive) setDisks(value || []);
       })
-      .catch(() => {
-        if (alive) setDisks([]);
+      .catch((reason) => {
+        if (alive) { setDisks([]); if (account.cloud_type === "volcengine") setDiskError(`磁盘信息未获取：${platformErrorMessage(reason)}`); }
       })
       .finally(() => {
         if (alive) setDiskLoading(false);
@@ -137,9 +146,12 @@ export function ServerCard({
     if (rebooting) return;
     const label = action === "start" ? "开机" : "关机";
     if (!(await onConfirm(`确认${label}服务器“${String(item.InstanceName || item.InstanceId)}”？`))) return;
-    if (account.cloud_type === "oracle") { await runOracleAction(action, label); return; }
+    if (account.cloud_type === "oracle") { await runOracleAction(action, label, action); return; }
+    setPendingAction(action);
     try {
-      if (account.cloud_type === "baidu") {
+      if (account.cloud_type === "volcengine") {
+        await serversClient.providerAction("volcengine", { id: account.id, regionId, instanceId: String(item.InstanceId || ""), action, forceStop: false });
+      } else if (account.cloud_type === "baidu") {
         const payload = { id: account.id, regionId, instanceId: String(item.InstanceId || ""), action, forceStop: false };
         await serversClient.providerAction("baidu", payload);
       } else if (account.cloud_type === "vultr") {
@@ -151,14 +163,17 @@ export function ServerCard({
       onNotice(`服务器${label}指令已提交`);
       onStatus();
     } catch (error) { onNotice(`服务器${label}失败：${platformErrorMessage(error)}`); }
+    finally { setPendingAction(null); }
   }
   async function reboot(forceReboot: boolean) {
     if (rebooting) return;
     if (!(await onConfirm(`确认${forceReboot ? "强制" : "正常"}重启服务器“${String(item.InstanceName || item.InstanceId || "")}”？`))) return;
-    if (account.cloud_type === "oracle") { await runOracleAction(forceReboot ? "forceReboot" : "reboot", forceReboot ? "强制重启" : "重启"); return; }
-    setRebooting(true);
+    if (account.cloud_type === "oracle") { await runOracleAction(forceReboot ? "forceReboot" : "reboot", forceReboot ? "强制重启" : "重启", forceReboot ? "force-reboot" : "reboot"); return; }
+    setPendingAction(forceReboot ? "force-reboot" : "reboot");
     try {
-      if (account.cloud_type === "baidu") {
+      if (account.cloud_type === "volcengine") {
+        await serversClient.providerAction("volcengine", { id: account.id, regionId, instanceId: String(item.InstanceId || ""), action: "reboot", forceStop: forceReboot });
+      } else if (account.cloud_type === "baidu") {
         const payload = { id: account.id, regionId, instanceId: String(item.InstanceId || ""), action: "reboot", forceStop: forceReboot };
         await serversClient.providerAction("baidu", payload);
       } else if (account.cloud_type === "vultr") {
@@ -170,12 +185,12 @@ export function ServerCard({
       onNotice("服务器重启指令已提交");
       onStatus();
     } catch (error) { onNotice(`服务器重启失败：${platformErrorMessage(error)}`); }
-    finally { setRebooting(false); }
+    finally { setPendingAction(null); }
   }
   async function manageVultr(action: "snapshot" | "label" | "tags" | "enable_backups" | "disable_backups" | "enable_ddos" | "disable_ddos" | "enable_ipv6" | "firewall") {
     const labels = {
       snapshot: "创建快照", label: "修改实例名称", tags: "修改标签", enable_backups: "开启自动备份", disable_backups: "关闭自动备份",
-      enable_ddos: "开启 DDoS 防护", disable_ddos: "关闭 DDoS 防护", enable_ipv6: "启用 IPv6", firewall: "绑定防火墙组",
+      enable_ddos: "开启 DDoS 防护", disable_ddos: "关闭 DDoS 防护", enable_ipv6: "启用 IPv6", firewall: "绑定安全组",
     };
     let value = "";
     if (action === "snapshot") {
@@ -191,7 +206,7 @@ export function ServerCard({
       if (input === null) return;
       value = input;
     } else if (action === "firewall") {
-      const input = await onPrompt("请输入要绑定的 Vultr 防火墙组 ID", String(item.FirewallGroupId || ""));
+      const input = await onPrompt("请输入要绑定的 Vultr 安全组 ID", String(item.FirewallGroupId || ""));
       if (!input?.trim()) return;
       value = input;
     }
@@ -214,7 +229,7 @@ export function ServerCard({
   return (
     <>
     {oracleResult && <OracleResultDialog result={oracleResult} onClose={() => setOracleResult(null)} />}
-    {operationLogsOpen && <OracleOperationLogsDialog accountId={account.id} instanceId={String(item.InstanceId || "")} name={resolvedDisplayName} onClose={() => setOperationLogsOpen(false)} />}
+    {operationLogsOpen && <InstanceApiLogsDialog accountId={account.id} instanceId={String(item.InstanceId || "")} name={resolvedDisplayName} onClose={() => setOperationLogsOpen(false)} />}
     <article className="server-card">
       <div className="server-header">
         <div className="server-heading">
@@ -258,15 +273,15 @@ export function ServerCard({
           {item.AllowedBandwidth == null || item.AllowedBandwidth === "" ? "-" : `${displayValue(item.AllowedBandwidth)} GB`}
         </div> : account.cloud_type !== "oracle" && <div>
           <span>带宽：</span>
-          {account.cloud_type === "baidu" ? (item.InternetMaxBandwidthOut == null ? "未获取" : `${displayValue(item.InternetMaxBandwidthOut)} Mbps（公网出带宽）`) : <>{displayValue(item.InternetMaxBandwidthIn || 0)}M入 / {displayValue(item.InternetMaxBandwidthOut || 0)}M出</>}
+          {["baidu", "volcengine"].includes(account.cloud_type) ? (item.InternetMaxBandwidthOut == null ? "未获取" : `${displayValue(item.InternetMaxBandwidthOut)} Mbps（公网出带宽）`) : <>{displayValue(item.InternetMaxBandwidthIn || 0)}M入 / {displayValue(item.InternetMaxBandwidthOut || 0)}M出</>}
         </div>}
         <div>
           <span>{account.cloud_type === "baidu" && !item.OSName ? "镜像：" : "操作系统："}</span>
           {displayValue(item.OSName || item.OSType || item.ImageId || item.imageId)}
         </div>
-        <div>
+        <div className="server-expiry-row">
           <span>{account.cloud_type === "oracle" || account.cloud_type === "vultr" ? "创建时间：" : "时间："}</span>
-          {account.cloud_type === "oracle" || account.cloud_type === "vultr" ? formatCloudDate(item.CreationTime) : <>{formatCloudDate(item.CreationTime)} ~ {account.cloud_type === "baidu" && !item.ExpiredTime && item.PaymentTiming === "Postpaid" ? "按量付费" : formatCloudDate(item.ExpiredTime)}</>}
+          <div className="server-expiry-value">{account.cloud_type === "oracle" || account.cloud_type === "vultr" ? formatCloudDate(item.CreationTime) : <>{formatCloudDate(item.CreationTime)} ~ {["baidu", "volcengine"].includes(account.cloud_type) && !item.ExpiredTime && item.PaymentTiming === "Postpaid" ? "按量付费" : formatCloudDate(item.ExpiredTime)}{item.PaymentTiming !== "Postpaid" && remainingValidity(item.ExpiredTime) && <em className="server-expiry-remaining">{remainingValidity(item.ExpiredTime)}</em>}</>}</div>
         </div>
         {account.cloud_type === "vultr" && <>
           <div><span>地域：</span>{displayValue(item.Region || regionId)}</div>
@@ -275,12 +290,13 @@ export function ServerCard({
           <div><span>IPv4 掩码：</span>{displayValue(item.NetmaskV4)}</div>
           <div><span>IPv6：</span>{displayValue(item.V6MainIp)}</div>
           <div><span>VPC：</span>{displayValue(item.VpcIds)}</div>
-          <div><span>防火墙组：</span>{displayValue(item.FirewallGroupId)}</div>
+          <div><span>安全组：</span>{displayValue(item.FirewallGroupId)}</div>
           <div><span>标签：</span>{displayValue(item.Tags)}</div>
           <div><span>自动备份：</span>{displayValue(item.Backups)}</div>
           <div><span>DDoS 防护：</span>{item.DdosProtection === true ? "已开启" : item.DdosProtection === false ? "未开启" : displayValue(item.DdosProtection)}</div>
         </>}
       </div>
+      {account.cloud_type === "volcengine" && typeof item._bandwidth_error === "string" && <div role="status">{item._bandwidth_error}</div>}
       {account.cloud_type === "baidu" && typeof item._detail_error === "string" && <div role="status">{item._detail_error}</div>}
       <div className="disk-info">
         {fallbackDisks.length ? (
@@ -292,7 +308,7 @@ export function ServerCard({
           ))
         ) : !canReadDisks ? <span>{account.cloud_type === "baidu" ? "未获取磁盘信息，请实时拉取更新" : "当前仅同步实例清单，磁盘详情暂未接入"}</span> : diskLoading ? (
           <span>磁盘信息加载中...</span>
-        ) : disks.length ? (
+        ) : diskError ? <span role="status">{diskError}</span> : disks.length ? (
           disks.map((disk) => (
             <div className="disk-item" key={String(disk.DiskId)}>
               <span className="disk-name">
@@ -308,50 +324,22 @@ export function ServerCard({
           <span>暂无磁盘信息</span>
         )}
       </div>
-      <div className="server-actions">
-        <button className="layui-btn layui-btn-small ssh-login-button server-control" data-tone="blue" onClick={onSshLogin}>
-          <Terminal size={13} />
-          SSH 登录
-        </button>
-        {["aliyun", "tencent", "baidu"].includes(account.cloud_type) && Boolean(regionId && item.InstanceId) && <button type="button" className="layui-btn layui-btn-small security-group-button" onClick={() => setSecurityGroupOpen(true)}><ShieldCheck size={13} />安全组</button>}
-        {account.cloud_type === "vultr" && Boolean(item.FirewallGroupId) && <button type="button" className="layui-btn layui-btn-small security-group-button" onClick={() => setVultrFirewallOpen(true)}><ShieldCheck size={13} />防火墙</button>}
-        {account.cloud_type === "oracle" && <button type="button" className="layui-btn layui-btn-small server-control" data-tone="accent" onClick={() => setOperationLogsOpen(true)}><History size={13} />API 操作记录</button>}
-        {supportsPowerControls && <>
-          <button className="layui-btn layui-btn-small server-control" data-tone="warning" disabled={rebooting} onClick={() => void reboot(false)}><RotateCw size={13} aria-hidden="true" />{rebooting ? "重启中…" : "重启"}</button>
-          {supportsForceReboot && <button className="layui-btn layui-btn-small server-control" data-tone="danger" disabled={rebooting} onClick={() => void reboot(true)}><Zap size={13} aria-hidden="true" />{rebooting ? "强制重启中…" : "强制重启"}</button>}
-        </>}
-        <button
-          className="layui-btn layui-btn-small server-control" data-tone="green"
-          onClick={() => void refreshStatus()}
-        >
-          <RefreshCw size={13} />
-          刷新状态
-        </button>
-        <button
-          className="layui-btn layui-btn-small server-control" data-tone="blue"
-          onClick={() => onStatus()}
-        >
-          <Activity size={13} aria-hidden="true" />监控
-        </button>
-        {supportsPowerControls && status === "Running" && (
-          <button
-            className="layui-btn layui-btn-small server-control" data-tone="danger"
-            disabled={rebooting}
-            onClick={() => void changeStatus("stop")}
-          >
-            <Power size={13} aria-hidden="true" />关机
-          </button>
-        )}
-        {supportsPowerControls && status === "Stopped" && (
-          <button
-            className="layui-btn layui-btn-small server-control" data-tone="green"
-            disabled={rebooting}
-            onClick={() => void changeStatus("start")}
-          >
-            <Power size={13} aria-hidden="true" />开机
-          </button>
-        )}
-        {account.cloud_type === "vultr" && <div className={`vultr-manage-wrap${vultrMenuOpen ? " is-open" : ""}`}>
+      <ServerActionBar
+        onSshLogin={onSshLogin}
+        onSecurityGroup={
+          ["aliyun", "tencent", "baidu", "volcengine", "oracle"].includes(account.cloud_type) && Boolean(regionId && item.InstanceId)
+            ? () => setSecurityGroupOpen(true)
+            : account.cloud_type === "vultr" && Boolean(item.FirewallGroupId) ? () => setVultrFirewallOpen(true) : undefined
+        }
+        onReboot={supportsPowerControls ? () => void reboot(false) : undefined}
+        rebootPending={pendingAction === "reboot"}
+        onForceReboot={supportsForceReboot ? () => void reboot(true) : undefined}
+        forceRebootPending={pendingAction === "force-reboot"}
+        onRefresh={() => void refreshStatus()}
+        power={!supportsPowerControls ? undefined : status === "Running"
+          ? { state: "running", onClick: () => void changeStatus("stop"), pending: pendingAction === "stop" }
+          : status === "Stopped" ? { state: "stopped", onClick: () => void changeStatus("start"), pending: pendingAction === "start" } : undefined}
+        extra={account.cloud_type === "vultr" ? <div className={`vultr-manage-wrap${vultrMenuOpen ? " is-open" : ""}`}>
           <button type="button" className="layui-btn layui-btn-small layui-btn-primary vultr-manage-button" disabled={vultrManaging} onClick={() => setVultrMenuOpen((open) => !open)}><MoreHorizontal size={15} />更多操作</button>
           {vultrMenuOpen && <div className="vultr-manage-menu">
             <button type="button" onClick={() => void manageVultr("label")}>修改实例名称</button>
@@ -360,12 +348,15 @@ export function ServerCard({
             <button type="button" onClick={() => void manageVultr(String(item.Backups).toLowerCase() === "enabled" ? "disable_backups" : "enable_backups")}>{String(item.Backups).toLowerCase() === "enabled" ? "关闭自动备份" : "开启自动备份"}</button>
             <button type="button" onClick={() => void manageVultr(item.DdosProtection === true || String(item.DdosProtection).toLowerCase() === "true" ? "disable_ddos" : "enable_ddos")}>{item.DdosProtection === true || String(item.DdosProtection).toLowerCase() === "true" ? "关闭 DDoS 防护" : "开启 DDoS 防护"}</button>
             {!item.V6MainIp && <button type="button" onClick={() => void manageVultr("enable_ipv6")}>启用 IPv6</button>}
-            <button type="button" onClick={() => void manageVultr("firewall")}>绑定防火墙组</button>
+            <button type="button" onClick={() => void manageVultr("firewall")}>绑定安全组</button>
           </div>}
-        </div>}
-      </div>
+        </div> : undefined}
+        onOperationLogs={item.InstanceId ? () => setOperationLogsOpen(true) : undefined}
+      />
     </article>
-    {securityGroupOpen && <SecurityGroupDialog account={account} regionId={regionId} instanceId={String(item.InstanceId)} onClose={() => setSecurityGroupOpen(false)} onConfirm={onConfirm} onNotice={onNotice} />}
+    {securityGroupOpen && (account.cloud_type === "oracle"
+      ? <OracleSecurityGroupDialog account={account} regionId={regionId} instanceId={String(item.InstanceId)} compartmentId={String(item._compartment_ocid || "")} onClose={() => setSecurityGroupOpen(false)} onConfirm={onConfirm} onNotice={onNotice} />
+      : <SecurityGroupDialog account={account} regionId={regionId} instanceId={String(item.InstanceId)} onClose={() => setSecurityGroupOpen(false)} onConfirm={onConfirm} onNotice={onNotice} />)}
     {vultrFirewallOpen && <VultrFirewallDialog account={account} firewallGroupId={String(item.FirewallGroupId)} onClose={() => setVultrFirewallOpen(false)} onConfirm={onConfirm} onNotice={onNotice} />}
     </>
   );

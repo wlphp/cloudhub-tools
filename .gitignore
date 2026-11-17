@@ -76,3 +76,6 @@ scripts/task-tracker.mjs
 /.tmp
 /.zcode
 /scripts
+/.workbuddy-ai
+/tests
+/tests

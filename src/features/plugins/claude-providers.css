@@ -372,6 +372,18 @@ body:has(.mobile-shell) .claude-icon-button.is-danger:not(:disabled):hover {
 .claude-config-options { border-bottom: 1px solid var(--jb-border, var(--jb-surface-3)); margin-bottom: 18px; padding-bottom: 16px; }
 .claude-config-option { display: flex; align-items: center; justify-content: space-between; gap: 24px; min-height: 58px; padding: 8px 0; box-sizing: border-box; }
 .claude-config-option > div { min-width: 0; }
+.claude-cc-shortcut { padding: 8px 0; }
+.claude-cc-actions { display: flex; flex-wrap: wrap; gap: 6px; flex-shrink: 0; }
+.claude-cc-shortcut .claude-config-label { flex-wrap: wrap; }
+.claude-cc-shortcut [role="status"] { color: var(--jb-muted); font-size: 12px; }
+.claude-cc-shortcut p { font-size: 12px; line-height: 1.6; margin: 6px 0; overflow-wrap: anywhere; }
+.claude-cc-warning { color: var(--jb-text); }
+.claude-cc-shortcut details { color: var(--jb-muted); font-size: 12px; }
+.claude-cc-shortcut summary { cursor: pointer; }
+@media (max-width: 600px) {
+  .claude-cc-shortcut .claude-config-option { align-items: flex-start; flex-direction: column; gap: 8px; }
+  .claude-cc-actions { max-width: 100%; }
+}
 .claude-config-label { display: flex; align-items: center; gap: 6px; color: var(--jb-text, var(--jb-text)); font-size: 13px; line-height: 20px; }
 .claude-providers .claude-config-label label { display: inline; margin: 0; padding: 0; color: var(--jb-text, var(--jb-text)); font: inherit; font-weight: 500; cursor: pointer; }
 .claude-config-options small { display: block; margin-top: 2px; color: var(--jb-muted, var(--jb-muted)); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }

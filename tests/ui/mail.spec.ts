@@ -48,6 +48,7 @@ test("mobile shell gives mailbox actions consistent touch-sized states", async (
  await page.evaluate(() => {
   const shell = document.createElement("div");
   shell.className = "mobile-shell";
+   shell.style.setProperty("--mobile-raised", "#242424");
   document.body.append(shell);
  });
  const actions = page.locator(".mail-toolbar-actions button");

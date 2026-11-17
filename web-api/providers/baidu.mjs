@@ -7,7 +7,11 @@ function encode(value) { return encodeURIComponent(String(value)).replace(/[!'()
 function canonicalUri(pathname) { return pathname.split("/").map((part) => encode(decodeURIComponent(part))).join("/") || "/"; }
 function queryText(query = {}, includeEmpty = false) { return Object.entries(query).filter(([key, value]) => includeEmpty || (value !== undefined && value !== null && value !== "")).map(([key, value]) => [encode(key), encode(value)]).sort(([a], [b]) => a.localeCompare(b)).map(([key, value]) => `${key}=${value}`).join("&"); }
 function canonicalHeaders(headers) { return Object.entries(headers).filter(([, value]) => value).map(([name, value]) => [name.toLowerCase(), encode(value)]).sort(([a], [b]) => a.localeCompare(b)).map(([name, value]) => `${name}:${value}`).join("\n"); }
-function errorMessage(message) { return /BceServiceRole_console_dns/i.test(message) ? "DNS 服务未完成控制台服务角色授权。请用主账号登录百度智能云控制台并开通/访问一次智能云解析 DNS，或为当前子用户授予 DNS 只读权限后重试。" : message; }
+function errorMessage(message) {
+  if (/BceServiceRole_console_dns/i.test(message)) return "DNS 服务未完成控制台服务角色授权。请用主账号登录百度智能云控制台并开通/访问一次智能云解析 DNS，或为当前子用户授予 DNS 只读权限后重试。";
+  if (/duplicated|already exists/i.test(String(message))) return "该规则已存在：百度云不允许重复添加相同规则（协议、端口范围、来源一致即视为重复，备注也参与判重）。改一下描述或端口后重试；若刚提交过，刷新列表就能看到已有规则。";
+  return message;
+}
 function account(accountId) {
   const row = getAccountSecretRecord(accountId);
   if (!row) throw new Error("云账号不存在");

@@ -109,7 +109,8 @@ export function ClaudeWorkspacePanel({ view, confirm, onScopeChanged }: { view: 
   const [mcpEditor, setMcpEditor] = useState<{ existing?: ClaudeWorkspaceState["mcp"][number] } | null>(null);
   const [promptEditor, setPromptEditor] = useState<ClaudePrompt | null>(null);
   const [preview, setPreview] = useState<{ title: string; text: string } | null>(null);
-  const load = useCallback(async () => { const next = await client.workspace(); if (next && Array.isArray(next.mcp)) setState(next); }, []);
+  const [previewCc, setPreviewCc] = useState(false);
+  const load = useCallback(async () => { if (!runningInTauri && view === "config") return; const next = await client.workspace(); if (next && Array.isArray(next.mcp)) setState(next); }, [view]);
   useEffect(() => { void load().catch(e => setError(e instanceof Error ? e.message : "读取工作区失败")); }, [load]);
   const run = async (action: () => Promise<unknown>, done: string) => {
     if (busy) return; setBusy(true); setError(""); setMessage("");
@@ -153,6 +154,18 @@ export function ClaudeWorkspacePanel({ view, confirm, onScopeChanged }: { view: 
         <div className="claude-config-option">
           <div><div className="claude-config-label"><label htmlFor="claude-skip-onboarding">跳过 Claude Code 初次安装确认</label><HelpTooltip label="首次安装确认说明">设置 hasCompletedOnboarding 标记，跳过首次使用引导。不会跳过项目目录信任或工具执行权限确认。</HelpTooltip></div><small>使用第三方 API 时跳过首次使用引导</small></div>
           <button id="claude-skip-onboarding" type="button" className="claude-config-switch" role="switch" aria-label="跳过 Claude Code 初次安装确认" aria-checked={state?.skipOnboarding ?? false} disabled={busy || !state || !runningInTauri} onClick={() => void run(() => client.workspaceAction({ type: "skip_onboarding", enabled: !state?.skipOnboarding }), "首次安装确认设置已更新")}><span /></button>
+        </div>
+        <div className="claude-cc-shortcut">
+          <div className="claude-config-option">
+            <div><div className="claude-config-label"><strong>cc 快捷启动</strong><span role="status">{runningInTauri ? (state?.ccShortcut?.installed ? "已配置" : state?.ccShortcut?.recoveryAvailable ? "待恢复" : "未配置") : (previewCc ? "调试：已配置" : "调试：未配置")}</span></div><small>输入 cc，快速启动 Claude Code</small></div>
+            <div className="claude-cc-actions">
+              <button type="button" className="secondary" disabled={busy || (runningInTauri ? !state || state.ccShortcut?.installed || state.ccShortcut?.recoveryAvailable : previewCc)} onClick={() => void run(async () => { if (runningInTauri) await client.workspaceAction({ type: "cc_shortcut", enabled: true }); else setPreviewCc(true); }, runningInTauri ? "cc 已配置，请完全退出并重新打开终端后使用" : "调试配置已应用，未修改本机终端")}><Plus size={14} aria-hidden="true" />一键配置 cc</button>
+              <button type="button" className="secondary" disabled={busy || (runningInTauri ? !state?.ccShortcut?.recoveryAvailable : !previewCc)} onClick={() => void run(async () => { if (runningInTauri) await client.workspaceAction({ type: "cc_shortcut", enabled: false }); else setPreviewCc(false); }, runningInTauri ? "已恢复，请重新打开终端；当前终端已加载的别名仍需退出" : "调试配置已恢复，未修改本机终端")}><RotateCcw size={14} aria-hidden="true" />恢复</button>
+            </div>
+          </div>
+          <p className="claude-cc-warning">注意：cc 会通过 --dangerously-skip-permissions 跳过工具权限确认，仅在可信项目中使用。</p>
+          {!runningInTauri && <p className="claude-config-help">浏览器调试：仅模拟配置与恢复，刷新页面后重置，不修改本机文件或 PATH。</p>}
+          <details><summary>使用方法与恢复说明</summary><p>配置后请完全退出并重新打开终端（包括 IDE 终端的宿主应用），输入 <code>cc</code>；支持附加参数，例如 <code>cc --resume</code>。请先安装 Claude Code，并确保 <code>claude</code> 命令可用。</p><p>Windows 写入用户目录的 <code>.local/bin/cc.bat</code>，按需追加用户 PATH。macOS/Linux 在 Bash 和 Zsh 配置中追加带标记的别名；Zsh 沿用当前 ZDOTDIR。其他 Shell 不适用。</p><p>恢复仅移除本工具添加的内容，保留其他配置；文件被外部修改时会提示检查。此设置为本机用户全局设置，不随项目或 Claude 配置目录切换。若已有同名 cc 命令，请先检查命令冲突。</p>{state?.ccShortcut?.paths.map(path => <code className="claude-work-path" key={path}>{path}</code>)}<p>参考：<a href="https://www.wlphp.com/blog.php/detail/539" target="_blank" rel="noreferrer">cc 快速启动 Claude Code</a></p></details>
         </div>
         <div className="claude-config-directory">
           <div className="claude-config-label"><label htmlFor="claude-config-directory">配置目录</label><HelpTooltip label="配置目录说明">指定本工具读写 Claude Code 用户配置的位置，不会迁移文件。项目作用域仍使用项目配置。外部启动的 Claude Code 需将 CLAUDE_CONFIG_DIR 设置为相同目录；本工具启动时会自动传入。</HelpTooltip></div>

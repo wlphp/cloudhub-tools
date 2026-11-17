@@ -121,7 +121,7 @@ export function providerSyncDescription(cloudType: string) {
     aliyun: "ECS、域名、轻量应用服务器、RDS、Redis、OSS 和 ESA 资产同步",
     vultr: "云计算、DNS、对象存储、托管数据库、块存储、VPC、防火墙、保留 IP、负载均衡、快照和 Kubernetes 资产同步",
     tencent: "CVM、域名、轻量应用服务器、云数据库、Redis、对象存储和边缘安全加速资产同步",
-    volcengine: "ECS、轻量应用服务器、MySQL RDS、Redis、TOS、火山 DNS 和 CDN 域名只读同步",
+    volcengine: "ECS、MySQL RDS、Redis、TOS 和火山 DNS 只读同步",
     ctyun: "云主机、私有 DNS、MySQL RDS、Redis 和 ZOS 存储桶只读同步",
     oracle: "Compute、DNS Zone、Database DB System 及 Object Storage 存储桶只读同步",
     huawei: "按 IAM 项目和区域同步 ECS、DNS、RDS、Redis 与 OBS 存储桶",
@@ -155,7 +155,7 @@ export function syncAssetTypes(account: Account): ReadonlyArray<(typeof assetTyp
     gcp: ["ecs", "domain", "rds", "redis", "oss"],
     oracle: ["ecs", "domain", "rds", "oss"],
     ctyun: ["ecs", "domain", "rds", "redis", "oss"],
-    volcengine: ["ecs", "domain", "swas", "rds", "redis", "oss", "esa"],
+    volcengine: ["ecs", "domain", "rds", "redis", "oss"],
     default: ["ecs", "domain", "oss", "rds", "redis", "swas", "esa"],
   };
   return assetTypes.filter(([value]) => (resourcesByProvider[account.cloud_type] || resourcesByProvider.default).includes(value));

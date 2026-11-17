@@ -30,14 +30,12 @@ pub(crate) async fn cloud_account_summary(id: i64) -> PlatformResult<Value> {
         }));
     }
     if account_cloud_type(id)? == "volcengine" {
-        let (ecs, domains, swas, oss, rds, redis, esa) = tokio::join!(
+        let (ecs, domains, oss, rds, redis) = tokio::join!(
             cloud::volc::resource_items(id, "ecs", &access_key_id, &access_key_secret),
             cloud::volc::resource_items(id, "domain", &access_key_id, &access_key_secret),
-            cloud::volc::resource_items(id, "swas", &access_key_id, &access_key_secret),
             cloud::volc::resource_items(id, "oss", &access_key_id, &access_key_secret),
             cloud::volc::resource_items(id, "rds", &access_key_id, &access_key_secret),
             cloud::volc::resource_items(id, "redis", &access_key_id, &access_key_secret),
-            cloud::volc::resource_items(id, "esa", &access_key_id, &access_key_secret),
         );
         return Ok(json!({
             "account_id": access_key_id, "account_type": "火山引擎账号",
@@ -45,7 +43,7 @@ pub(crate) async fn cloud_account_summary(id: i64) -> PlatformResult<Value> {
             "month_consume": 0, "month_bill": 0,
             "ecs_count": ecs.items.len(), "domain_count": domains.items.len(), "dns_record_count": 0,
             "oss_count": oss.items.len(), "rds_count": rds.items.len(), "redis_count": redis.items.len(),
-            "swas_count": swas.items.len(), "esa_count": esa.items.len(),
+            "swas_count": 0, "esa_count": 0,
         }));
     }
     if account_cloud_type(id)? == "ctyun" {

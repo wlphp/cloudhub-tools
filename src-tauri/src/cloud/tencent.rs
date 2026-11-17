@@ -59,14 +59,14 @@ pub(crate) async fn request(service: &str, version: &str, action: &str, payload:
 }
 
 fn number(value: Option<&Value>) -> f64 { value.and_then(Value::as_f64).or_else(|| value.and_then(Value::as_i64).map(|value| value as f64)).or_else(|| value.and_then(Value::as_str).and_then(|value| value.parse::<f64>().ok())).unwrap_or(0.0) }
-fn security_group_policy(ip_protocol: String, port_range: String, source_cidr_ip: String, description: Option<String>) -> Result<Value, String> {
+fn security_group_policy(ip_protocol: String, port_range: String, source_cidr_ip: String, description: Option<String>, action: &str) -> Result<Value, String> {
     let protocol = ip_protocol.trim().to_ascii_lowercase(); let range = port_range.trim().to_string(); let source = source_cidr_ip.trim().to_string();
     if !matches!(protocol.as_str(), "tcp" | "udp" | "icmp" | "gre" | "all") { return Err("不支持的安全组协议".into()); }
     let valid_range = range.split_once('/').and_then(|(start, end)| Some((start.parse::<i32>().ok()?, end.parse::<i32>().ok()?))).is_some_and(|(start, end)| if matches!(protocol.as_str(), "tcp" | "udp") { (start == -1 && end == -1) || (start >= 1 && end >= start && end <= 65535) } else { start == -1 && end == -1 });
     if !valid_range { return Err("端口范围与协议不匹配，请使用 80/80、8000/9000 或 -1/-1".into()); }
     if source.is_empty() || !source.contains('/') { return Err("来源地址必须是 CIDR，例如 0.0.0.0/0".into()); }
     let port = if protocol == "all" { "ALL".into() } else if let Some((start, end)) = range.split_once('/') { if start == end { start.into() } else { format!("{start}-{end}") } } else { range };
-    let mut policy = json!({"Action":"ACCEPT","CidrBlock":source,"Port":port,"Protocol":protocol.to_ascii_uppercase()}); if let Some(description) = description.map(|value| value.trim().to_string()).filter(|value| !value.is_empty()) { policy["PolicyDescription"] = json!(description); } Ok(policy)
+    let mut policy = json!({"Action":if action.eq_ignore_ascii_case("drop") { "DROP" } else { "ACCEPT" },"CidrBlock":source,"Port":port,"Protocol":protocol.to_ascii_uppercase()}); if let Some(description) = description.map(|value| value.trim().to_string()).filter(|value| !value.is_empty()) { policy["PolicyDescription"] = json!(description); } Ok(policy)
 }
 fn security_group_port(value: &Value) -> String { let port = value.as_str().unwrap_or(""); if port.eq_ignore_ascii_case("all") { "-1/-1".into() } else if let Some((start, end)) = port.split_once('-') { format!("{start}/{end}") } else if port.is_empty() { "-1/-1".into() } else { format!("{port}/{port}") } }
 fn instance(item: &Value, region: &Value) -> Value { let mut value = item.clone(); if let Value::Object(target) = &mut value { let state = item.get("InstanceState").and_then(Value::as_str).unwrap_or(""); let status = match state.to_uppercase().as_str() { "RUNNING" => "Running", "STOPPED" => "Stopped", _ => state }; let network = item.get("InternetAccessible").unwrap_or(&Value::Null); target.insert("InstanceName".into(), item.get("InstanceName").or_else(|| item.get("InstanceId")).cloned().unwrap_or(json!(""))); target.insert("Status".into(), json!(status)); target.insert("PublicIpAddress".into(), item.get("PublicIpAddresses").cloned().unwrap_or(json!([]))); target.insert("PrivateIpAddress".into(), item.get("PrivateIpAddresses").cloned().unwrap_or(json!([]))); target.insert("Cpu".into(), item.get("CPU").cloned().unwrap_or(json!(0))); target.insert("Memory".into(), item.get("Memory").cloned().unwrap_or(json!(0))); target.insert("InternetMaxBandwidthIn".into(), json!(0)); target.insert("InternetMaxBandwidthOut".into(), network.get("InternetMaxBandwidthOut").cloned().unwrap_or(json!(0))); target.insert("OSName".into(), item.get("OsName").or_else(|| item.get("OsType")).cloned().unwrap_or(json!("-"))); target.insert("CreationTime".into(), item.get("CreatedTime").cloned().unwrap_or(json!(""))); target.insert("ExpiredTime".into(), item.get("ExpiredTime").cloned().unwrap_or(json!(""))); target.insert("_region_id".into(), region.get("Region").cloned().unwrap_or(json!(""))); target.insert("_region_name".into(), region.get("RegionName").or_else(|| region.get("Region")).cloned().unwrap_or(json!(""))); } value }
@@ -129,9 +129,18 @@ pub(crate) async fn list_security_groups(id: i64, region_id: &str, instance_id: 
     Ok(json!({"groups":groups,"selectedSecurityGroupId":selected,"rules":rules}))
 }
 
-pub(crate) async fn authorize_security_group_rule(id: i64, region_id: &str, security_group_id: &str, ip_protocol: String, port_range: String, source_cidr_ip: String, description: Option<String>) -> Result<String, String> {
+pub(crate) async fn authorize_security_group_rule(id: i64, region_id: &str, security_group_id: &str, ip_protocol: String, port_range: String, source_cidr_ip: String, description: Option<String>, policy: Option<String>) -> Result<String, String> {
     if region_id.is_empty() || security_group_id.is_empty() { return Err("缺少安全组地域或安全组 ID".into()); }
-    let (access_key_id, access_key_secret) = crate::account_credentials(id)?; let result = request("cvm", "2017-03-12", "AuthorizeSecurityGroupIngress", json!({"SecurityGroupId":security_group_id,"SecurityGroupPolicySet":[security_group_policy(ip_protocol, port_range, source_cidr_ip, description)?]}), Some(region_id), &access_key_id, &access_key_secret).await?; Ok(result.get("RequestId").and_then(Value::as_str).unwrap_or_default().to_string())
+    let (access_key_id, access_key_secret) = crate::account_credentials(id)?; let result = request("cvm", "2017-03-12", "AuthorizeSecurityGroupIngress", json!({"SecurityGroupId":security_group_id,"SecurityGroupPolicySet":[security_group_policy(ip_protocol, port_range, source_cidr_ip, description, policy.as_deref().unwrap_or("accept"))?]}), Some(region_id), &access_key_id, &access_key_secret).await?; Ok(result.get("RequestId").and_then(Value::as_str).unwrap_or_default().to_string())
+}
+
+pub(crate) async fn modify_security_group_rule(id: i64, region_id: &str, security_group_id: &str, priority: i32, ip_protocol: String, port_range: String, source_cidr_ip: String, description: Option<String>, policy: String) -> Result<String, String> {
+    if region_id.trim().is_empty() || security_group_id.trim().is_empty() || priority < 0 { return Err("缺少安全组地域、安全组 ID 或规则索引".into()); }
+    let mut item = security_group_policy(ip_protocol, port_range, source_cidr_ip, description, &policy)?;
+    item["PolicyIndex"] = json!(priority);
+    let (ak, sk) = crate::account_credentials(id)?;
+    let result = request("cvm", "2017-03-12", "ModifySecurityGroupPolicies", json!({"SecurityGroupId":security_group_id,"SecurityGroupPolicySet":[item]}), Some(region_id), &ak, &sk).await?;
+    Ok(result.get("RequestId").and_then(Value::as_str).unwrap_or_default().to_string())
 }
 
 pub(crate) async fn revoke_security_group_rule(id: i64, region_id: &str, security_group_id: &str, priority: i32) -> Result<String, String> {
@@ -162,18 +171,46 @@ pub(crate) async fn cvm_instance_action(id: i64, region_id: &str, instance_id: &
     if crate::account_cloud_type(id)? != "tencent" { return Err("当前账号不是腾讯云账号".into()); } if region_id.is_empty() || instance_id.is_empty() { return Err("缺少服务器地域或实例 ID".into()); } let action_name = match action { "start" => "StartInstances", "stop" => "StopInstances", "reboot" => "RebootInstances", _ => return Err("不支持的腾讯云服务器操作".into()) }; let mut payload = json!({"InstanceIds": [instance_id]}); if force_stop && (action == "stop" || action == "reboot") { payload["ForceStop"] = json!(true); } let (access_key_id, access_key_secret) = crate::account_credentials(id)?; request("cvm", "2017-03-12", action_name, payload, Some(region_id), &access_key_id, &access_key_secret).await
 }
 
-fn lighthouse_port(port: &str) -> String { let port = port.trim(); if port.eq_ignore_ascii_case("all") { return "-1/-1".into(); } let parts = port.split('-').collect::<Vec<_>>(); if parts.len() == 2 { format!("{}/{}", parts[0], parts[1]) } else { format!("{port}/{port}") } }
-
-pub(crate) async fn list_light_firewall_rules(id: i64, region_id: &str, instance_id: &str) -> Result<Value, String> {
-    if crate::account_cloud_type(id)? != "tencent" { return Err("当前账号不是腾讯云账号".into()); } let (access_key_id, access_key_secret) = crate::account_credentials(id)?; let result = request("lighthouse", "2020-03-24", "DescribeFirewallRules", json!({"InstanceId": instance_id, "Limit": 100}), Some(region_id), &access_key_id, &access_key_secret).await?; let rules = crate::array_at(&result, &["FirewallRuleSet"]).into_iter().filter(|rule| rule.get("Action").and_then(Value::as_str).unwrap_or("ACCEPT").eq_ignore_ascii_case("ACCEPT")).map(|rule| { let firewall_rule = json!({"Protocol": rule.get("Protocol").cloned().unwrap_or(json!("")), "Port": rule.get("Port").cloned().unwrap_or(json!("")), "CidrBlock": rule.get("CidrBlock").cloned().unwrap_or(json!("")), "Action": rule.get("Action").cloned().unwrap_or(json!("ACCEPT")), "FirewallRuleDescription": rule.get("FirewallRuleDescription").cloned().unwrap_or(json!(""))}); json!({"RuleId": "", "IpProtocol": rule.get("Protocol").cloned().unwrap_or(json!("")), "PortRange": lighthouse_port(rule.get("Port").and_then(Value::as_str).unwrap_or("")), "SourceCidrIp": rule.get("CidrBlock").cloned().unwrap_or(json!("")), "Policy": rule.get("Action").cloned().unwrap_or(json!("ACCEPT")), "Description": rule.get("FirewallRuleDescription").cloned().unwrap_or(json!("")), "FirewallRule": firewall_rule}) }).collect::<Vec<_>>(); Ok(json!({"rules": rules, "firewallVersion": result.get("FirewallVersion").cloned().unwrap_or(Value::Null)}))
+fn lighthouse_firewall_rule_fields(rule: &Value) -> Result<Value, String> {
+    let mut fields = json!({});
+    for field in ["Protocol", "Port", "CidrBlock", "Ipv6CidrBlock", "Action", "FirewallRuleDescription"] {
+        if let Some(value) = rule.get(field).filter(|value| value.as_str().is_some_and(|text| !text.is_empty())) { fields[field] = value.clone(); }
+    }
+    if fields.get("Protocol").and_then(Value::as_str).unwrap_or("").is_empty() { return Err("缺少防火墙协议".into()); }
+    Ok(fields)
 }
 
-pub(crate) async fn create_light_firewall_rule(id: i64, region_id: &str, instance_id: &str, protocol: &str, port_range: &str, source: &str, description: &str, firewall_version: Option<i64>) -> Result<Value, String> {
-    if crate::account_cloud_type(id)? != "tencent" { return Err("当前账号不是腾讯云账号".into()); } let parts = port_range.split('/').collect::<Vec<_>>(); let port = if parts[0] == parts[1] { parts[0].to_string() } else { format!("{}-{}", parts[0], parts[1]) }; let mut rule = json!({"Protocol": protocol.to_ascii_uppercase(), "Port": port, "CidrBlock": source, "Action": "ACCEPT"}); if !description.is_empty() { rule["FirewallRuleDescription"] = json!(description); } let mut payload = json!({"InstanceId": instance_id, "FirewallRules": [rule]}); if let Some(version) = firewall_version { payload["FirewallVersion"] = json!(version); } let (access_key_id, access_key_secret) = crate::account_credentials(id)?; request("lighthouse", "2020-03-24", "CreateFirewallRules", payload, Some(region_id), &access_key_id, &access_key_secret).await
+fn lighthouse_port(port: &str) -> String { let port = port.trim(); if port.is_empty() || port.eq_ignore_ascii_case("all") || port == "-1/-1" { return "-1/-1".into(); } let parts = port.split('-').collect::<Vec<_>>(); if parts.len() == 2 { format!("{}/{}", parts[0], parts[1]) } else { format!("{port}/{port}") } }
+
+pub(crate) async fn list_light_firewall_rules(id: i64, region_id: &str, instance_id: &str) -> Result<Value, String> {
+    if crate::account_cloud_type(id)? != "tencent" { return Err("当前账号不是腾讯云账号".into()); } let (access_key_id, access_key_secret) = crate::account_credentials(id)?; let result = request("lighthouse", "2020-03-24", "DescribeFirewallRules", json!({"InstanceId": instance_id, "Limit": 100}), Some(region_id), &access_key_id, &access_key_secret).await?; let rules = crate::array_at(&result, &["FirewallRuleSet"]).into_iter().map(|rule| { let mut firewall_rule = json!({"Protocol": rule.get("Protocol").cloned().unwrap_or(json!("")), "Action": rule.get("Action").cloned().unwrap_or(json!("ACCEPT")), "FirewallRuleDescription": rule.get("FirewallRuleDescription").cloned().unwrap_or(json!(""))}); for field in ["Port", "CidrBlock", "Ipv6CidrBlock"] { if let Some(value) = rule.get(field).filter(|value| !value.is_null() && value.as_str().map(|text| !text.is_empty()).unwrap_or(true)) { firewall_rule[field] = value.clone(); } } let source = rule.get("CidrBlock").filter(|value| value.as_str().is_some_and(|value| !value.is_empty())).or_else(|| rule.get("Ipv6CidrBlock")).cloned().unwrap_or(json!("")); json!({"RuleId": "", "IpProtocol": rule.get("Protocol").cloned().unwrap_or(json!("")), "PortRange": lighthouse_port(rule.get("Port").and_then(Value::as_str).unwrap_or("")), "SourceCidrIp": source, "Policy": rule.get("Action").cloned().unwrap_or(json!("ACCEPT")), "Description": rule.get("FirewallRuleDescription").cloned().unwrap_or(json!("")), "FirewallRule": firewall_rule}) }).collect::<Vec<_>>(); Ok(json!({"rules": rules, "firewallVersion": result.get("FirewallVersion").cloned().unwrap_or(Value::Null)}))
+}
+
+pub(crate) async fn create_light_firewall_rule(id: i64, region_id: &str, instance_id: &str, protocol: &str, port_range: &str, source: &str, description: &str, policy: &str, firewall_version: Option<i64>) -> Result<Value, String> {
+    if crate::account_cloud_type(id)? != "tencent" { return Err("当前账号不是腾讯云账号".into()); } if !matches!(policy.to_ascii_lowercase().as_str(), "accept" | "drop") { return Err("防火墙策略无效".into()); } let parts = port_range.split('/').collect::<Vec<_>>(); let ipv6_source = source.split('/').next().is_some_and(|address| address.contains(':')); if (protocol.eq_ignore_ascii_case("icmp") && ipv6_source) || (protocol.eq_ignore_ascii_case("icmpv6") && !ipv6_source) { return Err("ICMP 仅支持 IPv4，ICMPv6 仅支持 IPv6 来源".into()); } let mut rule = json!({"Protocol": protocol.to_ascii_uppercase(), "Action": if policy.eq_ignore_ascii_case("drop") { "DROP" } else { "ACCEPT" }}); if ipv6_source { rule["Ipv6CidrBlock"] = json!(source); } else { rule["CidrBlock"] = json!(source); } if protocol.eq_ignore_ascii_case("all") { rule["Port"] = json!("ALL"); } else if matches!(protocol.to_ascii_lowercase().as_str(), "tcp" | "udp") { rule["Port"] = json!(if parts[0] == parts[1] { parts[0].to_string() } else { format!("{}-{}", parts[0], parts[1]) }); } if !description.is_empty() { rule["FirewallRuleDescription"] = json!(description); } let mut payload = json!({"InstanceId": instance_id, "FirewallRules": [rule]}); if let Some(version) = firewall_version { payload["FirewallVersion"] = json!(version); } let (access_key_id, access_key_secret) = crate::account_credentials(id)?; request("lighthouse", "2020-03-24", "CreateFirewallRules", payload, Some(region_id), &access_key_id, &access_key_secret).await
 }
 
 pub(crate) async fn delete_light_firewall_rule(id: i64, region_id: &str, instance_id: &str, firewall_rule: Value, firewall_version: Option<i64>) -> Result<Value, String> {
-    if crate::account_cloud_type(id)? != "tencent" { return Err("当前账号不是腾讯云账号".into()); } let mut payload = json!({"InstanceId": instance_id, "FirewallRules": [firewall_rule]}); if let Some(version) = firewall_version { payload["FirewallVersion"] = json!(version); } let (access_key_id, access_key_secret) = crate::account_credentials(id)?; request("lighthouse", "2020-03-24", "DeleteFirewallRules", payload, Some(region_id), &access_key_id, &access_key_secret).await
+    if crate::account_cloud_type(id)? != "tencent" { return Err("当前账号不是腾讯云账号".into()); } let firewall_rule = lighthouse_firewall_rule_fields(&firewall_rule)?; let mut payload = json!({"InstanceId": instance_id, "FirewallRules": [firewall_rule]}); if let Some(version) = firewall_version { payload["FirewallVersion"] = json!(version); } let (access_key_id, access_key_secret) = crate::account_credentials(id)?; request("lighthouse", "2020-03-24", "DeleteFirewallRules", payload, Some(region_id), &access_key_id, &access_key_secret).await
+}
+
+pub(crate) async fn update_light_firewall_rule_description(id: i64, region_id: &str, instance_id: &str, original: Value, description: &str, firewall_version: Option<i64>) -> Result<Value, String> {
+    if crate::account_cloud_type(id)? != "tencent" { return Err("当前账号不是腾讯云账号".into()); }
+    if description.chars().count() > 80 { return Err("描述最多 80 个字符".into()); }
+    let protocol = original.get("Protocol").and_then(Value::as_str).ok_or("缺少防火墙协议")?.to_ascii_uppercase();
+    if !matches!(protocol.as_str(), "TCP" | "UDP" | "ICMP" | "ICMPV6" | "ALL") { return Err("不支持修改此防火墙规则".into()); }
+    let action = original.get("Action").and_then(Value::as_str).unwrap_or("ACCEPT").to_ascii_uppercase();
+    if !matches!(action.as_str(), "ACCEPT" | "DROP") { return Err("防火墙策略无效".into()); }
+    let mut firewall_rule = json!({"Protocol": protocol, "Action": action, "FirewallRuleDescription": description.trim()});
+    if let Some(port) = original.get("Port").and_then(Value::as_str) { firewall_rule["Port"] = json!(port); }
+    if let Some(cidr) = original.get("CidrBlock").and_then(Value::as_str).filter(|value| !value.is_empty()) { firewall_rule["CidrBlock"] = json!(cidr); }
+    if let Some(cidr) = original.get("Ipv6CidrBlock").and_then(Value::as_str).filter(|value| !value.is_empty()) { firewall_rule["Ipv6CidrBlock"] = json!(cidr); }
+    let has_source = firewall_rule.get("CidrBlock").is_some() ^ firewall_rule.get("Ipv6CidrBlock").is_some();
+    let ipv6_source = firewall_rule.get("Ipv6CidrBlock").is_some();
+    if !has_source || (protocol == "ICMP" && ipv6_source) || (protocol == "ICMPV6" && !ipv6_source) { return Err("防火墙规则来源字段无效".into()); }
+    let mut payload = json!({"InstanceId": instance_id, "FirewallRule": firewall_rule}); if let Some(version) = firewall_version { payload["FirewallVersion"] = json!(version); }
+    let (access_key_id, access_key_secret) = crate::account_credentials(id)?;
+    request("lighthouse", "2020-03-24", "ModifyFirewallRuleDescription", payload, Some(region_id), &access_key_id, &access_key_secret).await
 }
 
 pub(crate) async fn finance_summary(id: i64) -> (Value, Value, Value) {
@@ -261,5 +298,16 @@ mod lighthouse_tests {
         }
         assert_eq!(result["PrivateIpAddress"], json!([]));
         assert_eq!(result["PublicIpAddress"], json!([]));
+    }
+
+    #[test]
+    fn drops_empty_tencent_firewall_source_fields() {
+        let fields = lighthouse_firewall_rule_fields(&json!({
+            "Protocol": "ALL", "Action": "ACCEPT", "Port": "ALL",
+            "CidrBlock": "0.0.0.0/0", "Ipv6CidrBlock": "", "FirewallRuleDescription": ""
+        })).unwrap();
+        assert!(fields.get("Ipv6CidrBlock").is_none());
+        assert!(fields.get("FirewallRuleDescription").is_none());
+        assert_eq!(fields["CidrBlock"], "0.0.0.0/0");
     }
 }

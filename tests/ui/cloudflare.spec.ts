@@ -11,6 +11,7 @@ test.beforeEach(async ({ page }) => {
       { account_id: 97, resource_type: "tunnel", asset_key: "demo-tunnel", payload: { Id: "00000000-0000-4000-8000-000000000001", Name: "demo-tunnel", Status: "down" }, fetched_at: 1 },
     ];
     (window as any).cfCalls = [];
+    (window as any).cfWorkerDomains = [];
     (window as any).__TAURI_INTERNALS__ = { metadata: { currentWindow: { label: "main" }, currentWebview: { label: "main" } }, transformCallback: () => 1, unregisterCallback: () => {}, invoke: async (command: string, args: any) => {
       (window as any).cfCalls.push({ command, args });
       if (command === "list_accounts") return [account];
@@ -22,6 +23,16 @@ test.beforeEach(async ({ page }) => {
         if (args.action === "worker_access") {
           if ((window as any).cfAccessMode === "denied") throw new Error("Cloudflare HTTP 403：权限不足");
           return (window as any).cfAccessMode === "disabled" ? { enabled: false } : { enabled: true, url: "https://demo-worker.example.workers.dev" };
+        }
+        if (args.action === "worker_domains_list") return { items: (window as any).cfWorkerDomains.filter((d: any) => d.service === args.input.name) };
+        if (args.action === "worker_domain_bind") {
+          const row = { id: "e".repeat(32), hostname: args.input.hostname, service: args.input.name, enabled: true };
+          (window as any).cfWorkerDomains.push(row);
+          return { success: true, domain: row };
+        }
+        if (args.action === "worker_domain_delete") {
+          (window as any).cfWorkerDomains = (window as any).cfWorkerDomains.filter((d: any) => d.id !== args.input.domainId);
+          return { success: true };
         }
         if (args.action === "worker_create") {
           if (args.input.name === "old-backend") throw new Error("不支持的 Cloudflare 操作");
@@ -164,6 +175,30 @@ test("Worker access, draft discard and partial sync feedback", async ({ page }) 
   await expect(page.locator(".app-toast-notice.is-error")).toHaveCount(0);
 });
 
+test("Worker custom domains require confirmation for binding and unbinding", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "账号管理", exact: true }).click();
+  await page.getByRole("button", { name: "打开 fixture-cloudflare 资产汇总", exact: true }).click();
+  const manager = page.getByRole("dialog", { name: "fixture-cloudflare · Cloudflare 资产管理", exact: true });
+  await manager.getByRole("button", { name: "Workers (1)", exact: true }).click();
+  await manager.getByRole("button", { name: "自定义域名", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "demo-worker · 自定义域名", exact: true });
+  await expect(dialog.getByRole("combobox", { name: "Cloudflare 活动站点" })).toHaveValue("b".repeat(32));
+  await dialog.getByRole("textbox", { name: "自定义域名" }).fill("cdn.example.test");
+  await dialog.getByRole("button", { name: "绑定域名", exact: true }).click();
+  await expect(page.getByRole("alertdialog")).toContainText("自动配置该主机名的 DNS 与证书");
+  await page.getByRole("alertdialog").getByRole("button", { name: "取消", exact: true }).click();
+  expect(await page.evaluate(() => (window as any).cfCalls.some((call: any) => call.args?.action === "worker_domain_bind"))).toBe(false);
+  await dialog.getByRole("button", { name: "绑定域名", exact: true }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "确认", exact: true }).click();
+  await expect(dialog).toContainText("cdn.example.test");
+  await dialog.getByRole("button", { name: "解除绑定", exact: true }).click();
+  await expect(page.getByRole("alertdialog")).toContainText("不再由此 Worker 提供服务");
+  await page.getByRole("alertdialog").getByRole("button", { name: "确认", exact: true }).click();
+  await expect(dialog).toContainText("此 Worker 尚无自定义域名绑定");
+  expect(await page.evaluate(() => (window as any).cfCalls.some((call: any) => call.args?.action === "worker_domain_delete"))).toBe(true);
+});
+
 test("Worker creation preserves drafts on failure and refreshes after deployment", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "账号管理", exact: true }).click();
@@ -180,9 +215,35 @@ test("Worker creation preserves drafts on failure and refreshes after deployment
   await manager.getByRole("button", { name: "新建 Worker", exact: true }).click();
   const name = editor.getByLabel("Worker 名称", { exact: true });
   const code = editor.getByRole("textbox", { name: "JavaScript 模块代码", exact: true });
-  await expect(editor.getByRole("combobox")).toHaveCount(0);
+  const template = editor.getByRole("combobox", { name: "Worker 代码模板", exact: true });
+  await expect(template).toHaveCount(1);
   await expect(code).toHaveValue("");
-  await code.fill("export default { fetch() { return new Response('Test'); } };");
+  await template.selectOption("hello-world");
+  await expect(code).toHaveValue(/Hello, " \+ greeting/);
+  const helloModuleType = await page.evaluate(async source => {
+    const module = await import(`data:text/javascript;base64,${btoa(source)}`);
+    return typeof module.default?.fetch;
+  }, await code.inputValue());
+  expect(helloModuleType).toBe("function");
+  await expect(editor).toContainText("?name=Cloudflare");
+  await template.selectOption("gh-proxy");
+  await page.getByRole("alertdialog").getByRole("button", { name: "确认", exact: true }).click();
+  await expect(code).toHaveValue(/hunshcn\/gh-proxy/);
+  await expect(code).toHaveValue(/export default \{ fetch: fetchHandler \}/);
+  await expect(code).not.toHaveValue(/addEventListener/);
+  const moduleFetchType = await page.evaluate(async source => {
+    const module = await import(`data:text/javascript;base64,${btoa(source)}`);
+    return typeof module.default?.fetch;
+  }, await code.inputValue());
+  expect(moduleFetchType).toBe("function");
+  await expect(editor.getByRole("link", { name: "GitHub 项目 ↗", exact: true })).toHaveAttribute("href", "https://github.com/hunshcn/gh-proxy");
+  await expect(editor.getByRole("link", { name: "MIT 许可 ↗", exact: true })).toHaveAttribute("href", "https://github.com/hunshcn/gh-proxy/blob/master/LICENSE");
+  await template.selectOption("");
+  const clearPrompt = page.getByRole("alertdialog").last();
+  await expect(clearPrompt).toContainText("清空当前 Worker 代码");
+  await clearPrompt.getByRole("button", { name: "取消", exact: true }).click();
+  await expect(template).toHaveValue("gh-proxy");
+  await expect(code).toHaveValue(/hunshcn\/gh-proxy/);
   await name.fill("old-backend");
   await editor.getByRole("button", { name: "创建并部署", exact: true }).click();
   await expect(editor.getByRole("alert")).toContainText("重新编译并重启");

@@ -62,6 +62,7 @@ pub mod panel_connections;
 pub mod connections;
 pub mod database_migration;
 pub mod app;
+pub mod app_updates;
 pub mod domains;
 pub mod storage;
 pub mod resources;

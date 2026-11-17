@@ -50,13 +50,9 @@ pub(crate) async fn delete_vultr_firewall_rule(id: i64, firewall_group_id: Strin
 
 #[tauri::command]
 pub(crate) async fn esa_overview(id: i64, range: String, site_id: Option<String>) -> PlatformResult<Value> {
-    if account_cloud_type(id)? == "tencent" || account_cloud_type(id)? == "volcengine" {
+    if account_cloud_type(id)? == "tencent" {
         let (access_key_id, access_key_secret) = account_credentials(id)?;
-        let zones = if account_cloud_type(id)? == "tencent" {
-            cloud::tencent::resource_items(id, "esa", &access_key_id, &access_key_secret).await
-        } else {
-            cloud::volc::resource_items(id, "esa", &access_key_id, &access_key_secret).await
-        };
+        let zones = cloud::tencent::resource_items(id, "esa", &access_key_id, &access_key_secret).await;
         let label = match range.as_str() { "yesterday" => "昨日", "week" => "近 7 日", "month" => "近 30 日", _ => "今日" };
         return Ok(json!({
             "traffic": 0, "requests": 0, "defence_requests": 0,
@@ -115,16 +111,45 @@ pub(crate) async fn esa_overview(id: i64, range: String, site_id: Option<String>
 
 #[tauri::command]
 pub(crate) async fn list_instance_disks(id: i64, region_id: String, instance_id: String, compartment_ocid: Option<String>) -> PlatformResult<Vec<Value>> {
+    if account_cloud_type(id)? == "volcengine" { return cloud::volc::servers::instance_disks(id, &region_id, &instance_id).await.map_err(Into::into); }
     if account_cloud_type(id)? == "oracle" { return cloud::oracle::instance_disks(id, &region_id, &instance_id, compartment_ocid.as_deref().unwrap_or("")).await.map_err(Into::into); }
     if account_cloud_type(id)? == "tencent" { return cloud::tencent::instance_disks(id, &region_id, &instance_id).await.map_err(Into::into); }
     cloud::aliyun::instance_disks(id, &region_id, &instance_id).await.map_err(Into::into)
 }
 
 #[tauri::command]
+pub(crate) async fn volc_instance_action(id: i64, region_id: String, instance_id: String, action: String, force_stop: bool) -> PlatformResult<Value> {
+    cloud::volc::servers::instance_action(id, &region_id, &instance_id, &action, force_stop).await.map_err(Into::into)
+}
+
+#[tauri::command]
+pub(crate) async fn list_volc_security_groups(id: i64, region_id: String, instance_id: String, security_group_id: Option<String>) -> PlatformResult<Value> {
+    cloud::volc::servers::list_security_groups(id, &region_id, &instance_id, security_group_id).await.map_err(Into::into)
+}
+
+#[tauri::command]
+pub(crate) async fn update_volc_security_group_rule(id: i64, region_id: String, instance_id: String, security_group_id: String, security_group_rule_id: String, original: cloud::volc::servers::RuleFields, updated: cloud::volc::servers::RuleFields) -> PlatformResult<Value> {
+    cloud::volc::servers::update_rule(id, &region_id, &instance_id, &security_group_id, &security_group_rule_id, original, updated).await.map_err(Into::into)
+}
+
+#[tauri::command]
+pub(crate) async fn authorize_volc_security_group_rule(id: i64, region_id: String, instance_id: String, security_group_id: String, ip_protocol: String, port_range: String, source_cidr_ip: String, description: Option<String>, policy: Option<String>, priority: Option<i32>) -> PlatformResult<()> {
+    cloud::volc::servers::mutate_rule(id, &region_id, &instance_id, &security_group_id, &ip_protocol, &port_range, &source_cidr_ip, policy.as_deref().unwrap_or("accept"), priority.unwrap_or(1), description, false).await.map_err(Into::into)
+}
+
+#[tauri::command]
+pub(crate) async fn revoke_volc_security_group_rule(id: i64, region_id: String, instance_id: String, security_group_id: String, ip_protocol: String, port_range: String, source_cidr_ip: String, policy: String, priority: i32) -> PlatformResult<()> {
+    cloud::volc::servers::mutate_rule(id, &region_id, &instance_id, &security_group_id, &ip_protocol, &port_range, &source_cidr_ip, &policy, priority, None, true).await.map_err(Into::into)
+}
+
+#[tauri::command]
 pub(crate) async fn list_aliyun_security_groups(id: i64, region_id: String, instance_id: String, security_group_id: Option<String>) -> PlatformResult<Value> { cloud::aliyun::list_security_groups(id, &region_id, &instance_id, security_group_id).await.map_err(Into::into) }
 
 #[tauri::command]
-pub(crate) async fn authorize_aliyun_security_group_rule(id: i64, region_id: String, security_group_id: String, ip_protocol: String, port_range: String, source_cidr_ip: String, description: Option<String>, nic_type: Option<String>) -> PlatformResult<String> { cloud::aliyun::authorize_security_group_rule(id, &region_id, &security_group_id, ip_protocol, port_range, source_cidr_ip, description, nic_type).await.map_err(Into::into) }
+pub(crate) async fn modify_aliyun_security_group_rule(id: i64, region_id: String, security_group_id: String, security_group_rule_id: String, original: Value, updated: Value) -> PlatformResult<String> { cloud::aliyun::modify_security_group_rule(id, &region_id, &security_group_id, &security_group_rule_id, original, updated).await.map_err(Into::into) }
+
+#[tauri::command]
+pub(crate) async fn authorize_aliyun_security_group_rule(id: i64, region_id: String, security_group_id: String, ip_protocol: String, port_range: String, source_cidr_ip: String, description: Option<String>, nic_type: Option<String>, policy: Option<String>) -> PlatformResult<String> { cloud::aliyun::authorize_security_group_rule(id, &region_id, &security_group_id, ip_protocol, port_range, source_cidr_ip, description, nic_type, policy).await.map_err(Into::into) }
 
 #[tauri::command]
 pub(crate) async fn revoke_aliyun_security_group_rule(id: i64, region_id: String, security_group_id: String, ip_protocol: String, port_range: String, source_cidr_ip: String, policy: String, priority: i32, nic_type: Option<String>) -> PlatformResult<String> { cloud::aliyun::revoke_security_group_rule(id, &region_id, &security_group_id, ip_protocol, port_range, source_cidr_ip, policy, priority, nic_type).await.map_err(Into::into) }
@@ -133,7 +158,33 @@ pub(crate) async fn revoke_aliyun_security_group_rule(id: i64, region_id: String
 pub(crate) async fn list_tencent_security_groups(id: i64, region_id: String, instance_id: String, security_group_id: Option<String>) -> PlatformResult<Value> { cloud::tencent::list_security_groups(id, &region_id, &instance_id, security_group_id).await.map_err(Into::into) }
 
 #[tauri::command]
+pub(crate) async fn modify_tencent_security_group_rule(id: i64, region_id: String, security_group_id: String, priority: i32, ip_protocol: String, port_range: String, source_cidr_ip: String, description: Option<String>, policy: String) -> PlatformResult<String> { cloud::tencent::modify_security_group_rule(id, &region_id, &security_group_id, priority, ip_protocol, port_range, source_cidr_ip, description, policy).await.map_err(Into::into) }
+
+#[tauri::command]
 pub(crate) async fn list_baidu_security_groups(id: i64, region_id: String, instance_id: String, security_group_id: Option<String>) -> PlatformResult<Value> { cloud::baidu::list_security_groups(id, &region_id, &instance_id, security_group_id).await.map_err(Into::into) }
+
+#[tauri::command]
+pub(crate) async fn list_oracle_security_groups(id: i64, region_id: String, instance_id: String, compartment_id: String, security_group_id: Option<String>) -> PlatformResult<Value> {
+    cloud::oracle::list_security_groups(id, &region_id, &instance_id, &compartment_id, security_group_id).await.map_err(Into::into)
+}
+
+#[tauri::command]
+pub(crate) async fn authorize_oracle_security_group_rule(id: i64, region_id: String, security_group_id: String, ip_protocol: String, port_range: String, source_cidr_ip: String, description: Option<String>) -> PlatformResult<String> {
+    cloud::oracle::authorize_security_group_rule(id, &region_id, &security_group_id, &ip_protocol, &port_range, &source_cidr_ip, description).await.map_err(Into::into)
+}
+
+#[tauri::command]
+pub(crate) async fn modify_oracle_security_group_rule(id: i64, region_id: String, security_group_id: String, security_group_rule_id: String, ip_protocol: String, port_range: String, source_cidr_ip: String, description: Option<String>, is_stateless: Option<bool>, rule_index: Option<usize>, original: Option<Value>) -> PlatformResult<String> {
+    cloud::oracle::modify_security_group_rule(id, &region_id, &security_group_id, &security_group_rule_id, &ip_protocol, &port_range, &source_cidr_ip, description, is_stateless.unwrap_or(false), rule_index, original).await.map_err(Into::into)
+}
+
+#[tauri::command]
+pub(crate) async fn revoke_oracle_security_group_rule(id: i64, region_id: String, security_group_id: String, security_group_rule_id: String, rule_index: Option<usize>, original: Option<Value>) -> PlatformResult<String> {
+    cloud::oracle::revoke_security_group_rule(id, &region_id, &security_group_id, &security_group_rule_id, rule_index, original).await.map_err(Into::into)
+}
+
+#[tauri::command]
+pub(crate) async fn modify_baidu_security_group_rule(id: i64, region_id: String, security_group_id: String, security_group_rule_id: String, original: Value, updated: Value, sg_version: Option<i64>) -> PlatformResult<String> { cloud::baidu::modify_security_group_rule(id, &region_id, &security_group_id, &security_group_rule_id, original, updated, sg_version).await.map_err(Into::into) }
 
 #[tauri::command]
 pub(crate) async fn reboot_instance(id: i64, region_id: String, instance_id: String, force_stop: bool) -> PlatformResult<Value> { cloud::aliyun::instance_action(id, region_id, instance_id, "reboot", force_stop).await.map_err(Into::into) }
@@ -154,9 +205,9 @@ pub(crate) async fn cvm_instance_action(id: i64, region_id: String, instance_id:
 pub(crate) async fn cvm_instance_reboot(id: i64, region_id: String, instance_id: String, force_stop: bool) -> PlatformResult<Value> { cloud::tencent::cvm_instance_reboot(id, &region_id, &instance_id, force_stop).await.map_err(Into::into) }
 
 #[tauri::command]
-pub(crate) async fn authorize_tencent_security_group_rule(id: i64, region_id: String, security_group_id: String, ip_protocol: String, port_range: String, source_cidr_ip: String, description: Option<String>, nic_type: Option<String>) -> PlatformResult<String> {
+pub(crate) async fn authorize_tencent_security_group_rule(id: i64, region_id: String, security_group_id: String, ip_protocol: String, port_range: String, source_cidr_ip: String, description: Option<String>, nic_type: Option<String>, policy: Option<String>) -> PlatformResult<String> {
     let _ = nic_type;
-    cloud::tencent::authorize_security_group_rule(id, &region_id, &security_group_id, ip_protocol, port_range, source_cidr_ip, description).await.map_err(Into::into)
+    cloud::tencent::authorize_security_group_rule(id, &region_id, &security_group_id, ip_protocol, port_range, source_cidr_ip, description, policy).await.map_err(Into::into)
 }
 
 #[tauri::command]
@@ -192,12 +243,25 @@ pub(crate) async fn swas_instance_action(id: i64, region_id: String, instance_id
     Ok(result.get("RequestId").and_then(Value::as_str).unwrap_or_default().to_string())
 }
 
-fn light_firewall_rule_input(ip_protocol: String, port_range: String, source_cidr_ip: String, description: Option<String>) -> Result<(String, String, String, String), String> {
+fn light_firewall_rule_input(ip_protocol: String, port_range: String, source_cidr_ip: String, description: Option<String>, cloud_type: &str) -> Result<(String, String, String, String), String> {
     let protocol = ip_protocol.trim().to_ascii_lowercase();
     let port_range = port_range.trim().to_string();
     let source_cidr_ip = source_cidr_ip.trim().to_string();
     let parts = port_range.split('/').collect::<Vec<_>>();
-    if !matches!(protocol.as_str(), "tcp" | "udp") { return Err("轻量服务器仅支持 TCP 或 UDP 端口规则".into()); }
+    // 腾讯云轻量支持 ALL/ICMP/ICMPv6，阿里云轻量支持 ICMP（端口固定 -1），京东云仅 TCP/UDP。
+    let special = match cloud_type {
+        "tencent" => matches!(protocol.as_str(), "all" | "icmp" | "icmpv6"),
+        "aliyun" => protocol == "icmp",
+        _ => false,
+    };
+    if !matches!(protocol.as_str(), "tcp" | "udp") && !special { return Err("当前轻量服务器接口不支持此协议".into()); }
+    if special {
+        if port_range != "-1/-1" { return Err("ICMP/ALL 协议的端口范围必须为 ALL".into()); }
+        if source_cidr_ip.is_empty() || !source_cidr_ip.contains('/') { return Err("来源地址必须是 CIDR，例如 0.0.0.0/0".into()); }
+        let ipv6_source = source_cidr_ip.split('/').next().is_some_and(|address| address.contains(':'));
+        if (protocol == "icmp" && ipv6_source) || (protocol == "icmpv6" && !ipv6_source) { return Err("ICMP 仅支持 IPv4，ICMPv6 仅支持 IPv6 来源".into()); }
+        return Ok((protocol, port_range, source_cidr_ip, description.unwrap_or_default().trim().to_string()));
+    }
     if parts.len() != 2 { return Err("端口范围格式无效，请使用 80/80 或 8000/9000".into()); }
     let start = parts[0].parse::<u16>().ok();
     let end = parts[1].parse::<u16>().ok();
@@ -217,11 +281,14 @@ pub(crate) async fn list_light_firewall_rules(id: i64, region_id: String, instan
 }
 
 #[tauri::command]
-pub(crate) async fn create_light_firewall_rule(id: i64, region_id: String, instance_id: String, ip_protocol: String, port_range: String, source_cidr_ip: String, description: Option<String>, firewall_version: Option<i64>) -> PlatformResult<String> {
+pub(crate) async fn create_light_firewall_rule(id: i64, region_id: String, instance_id: String, ip_protocol: String, port_range: String, source_cidr_ip: String, description: Option<String>, policy: Option<String>, firewall_version: Option<i64>) -> PlatformResult<String> {
     if region_id.is_empty() || instance_id.is_empty() { return Err("缺少轻量服务器地域或实例 ID".into()); }
-    let (protocol, port_range, source_cidr_ip, description) = light_firewall_rule_input(ip_protocol, port_range, source_cidr_ip, description)?;
     let cloud_type = account_cloud_type(id)?;
-    let result = if cloud_type == "aliyun" { cloud::aliyun::create_light_firewall_rule(id, &region_id, &instance_id, &protocol, &port_range, &source_cidr_ip, &description).await? } else if cloud_type == "tencent" { cloud::tencent::create_light_firewall_rule(id, &region_id, &instance_id, &protocol, &port_range, &source_cidr_ip, &description, firewall_version).await? } else if cloud_type == "jdcloud" { cloud::jdcloud::create_firewall_rule(id, &region_id, &instance_id, &protocol, &port_range, &source_cidr_ip, &description).await? } else { return Err("当前云类型暂不支持轻量服务器防火墙管理".into()); };
+    let (protocol, port_range, source_cidr_ip, description) = light_firewall_rule_input(ip_protocol, port_range, source_cidr_ip, description, &cloud_type)?;
+    let result = if cloud_type == "aliyun" { if policy.as_deref().is_some_and(|value| value != "accept") { return Err("阿里云轻量接口当前仅支持放行规则".into()); } cloud::aliyun::create_light_firewall_rule(id, &region_id, &instance_id, &protocol, &port_range, &source_cidr_ip, &description).await? } else if cloud_type == "tencent" { cloud::tencent::create_light_firewall_rule(id, &region_id, &instance_id, &protocol, &port_range, &source_cidr_ip, &description, policy.as_deref().unwrap_or("accept"), firewall_version).await? } else if cloud_type == "jdcloud" { if policy.as_deref().is_some_and(|value| value != "accept") { return Err("京东云轻量接口当前仅支持放行规则".into()); } cloud::jdcloud::create_firewall_rule(id, &region_id, &instance_id, &protocol, &port_range, &source_cidr_ip, &description).await? } else { return Err("当前云类型暂不支持轻量服务器防火墙管理".into()); };
+    if cloud_type == "jdcloud" {
+        return Ok(result.pointer("/result/firewallRule/ruleId").or_else(|| result.pointer("/result/ruleId")).or_else(|| result.get("ruleId")).and_then(Value::as_str).unwrap_or_default().to_string());
+    }
     Ok(result.get("RequestId").and_then(Value::as_str).unwrap_or_default().to_string())
 }
 
@@ -231,6 +298,19 @@ pub(crate) async fn delete_light_firewall_rule(id: i64, region_id: String, insta
     let cloud_type = account_cloud_type(id)?;
     let result = if cloud_type == "aliyun" { let rule_id = rule_id.filter(|value| !value.trim().is_empty()).ok_or("缺少阿里云防火墙规则 ID")?; cloud::aliyun::delete_light_firewall_rule(id, &region_id, &instance_id, &rule_id).await? } else if cloud_type == "tencent" { let firewall_rule = firewall_rule.filter(Value::is_object).ok_or("缺少腾讯云防火墙规则内容")?; cloud::tencent::delete_light_firewall_rule(id, &region_id, &instance_id, firewall_rule, firewall_version).await? } else if cloud_type == "jdcloud" { let rule_id = rule_id.filter(|value| !value.trim().is_empty()).ok_or("缺少京东云防火墙规则 ID")?; cloud::jdcloud::delete_firewall_rule(id, &region_id, &instance_id, &rule_id).await? } else { return Err("当前云类型暂不支持轻量服务器防火墙管理".into()); };
     Ok(result.get("RequestId").and_then(Value::as_str).unwrap_or_default().to_string())
+}
+
+#[tauri::command]
+pub(crate) async fn update_light_firewall_rule_description(id: i64, region_id: String, instance_id: String, firewall_rule: Option<Value>, description: String, firewall_version: Option<i64>) -> PlatformResult<String> {
+    if region_id.trim().is_empty() || instance_id.trim().is_empty() { return Err("缺少轻量服务器地域或实例 ID".into()); }
+    let original = firewall_rule.filter(Value::is_object).ok_or("缺少腾讯云防火墙规则内容")?;
+    let result = cloud::tencent::update_light_firewall_rule_description(id, &region_id, &instance_id, original, &description, firewall_version).await?;
+    Ok(result.get("RequestId").and_then(Value::as_str).unwrap_or_default().to_string())
+}
+
+#[tauri::command]
+pub(crate) async fn modify_light_firewall_rule(id: i64, region_id: String, instance_id: String, rule_id: String, original: Value, updated: Value) -> PlatformResult<String> {
+    cloud::aliyun::modify_light_firewall_rule(id, &region_id, &instance_id, &rule_id, original, updated).await.map_err(Into::into)
 }
 
 #[cfg(test)]

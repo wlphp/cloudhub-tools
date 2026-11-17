@@ -1,6 +1,7 @@
 import { getVersion } from "@tauri-apps/api/app";
 import { relaunch } from "@tauri-apps/plugin-process";
-import { check, type Update } from "@tauri-apps/plugin-updater";
+import { updatesClient, type DesktopUpdate, type UpdateProgress, type UpdateRoute } from "../../platform/clients/updates";
+import { useUpdateSource } from "./useUpdateSource";
 import { useEffect, useRef, useState } from "react";
 import { platformErrorMessage, runningInTauri } from "../../platform/api";
 import { appClient } from "../../platform/clients/app";
@@ -24,7 +25,12 @@ function normalizeUpdateNotes(notes?: string): string | undefined {
 export function useAppUpdates(bundledVersion: string, onStatus: (message: string) => void) {
   const [appVersion, setAppVersion] = useState(bundledVersion);
   const [updateState, setUpdateState] = useState<UpdateState>({ phase: "idle" });
-  const updateRef = useRef<Update | null>(null);
+  const updateRef = useRef<DesktopUpdate | null>(null);
+  const sourceSettings = useUpdateSource();
+  const [route, setRoute] = useState<UpdateRoute>();
+  const [routeMessage, setRouteMessage] = useState("");
+  const busy = useRef(false);
+  const progress = (event: UpdateProgress) => { setRoute(event.route); setRouteMessage(event.message); };
   const [isDevelopment, setIsDevelopment] = useState(false);
   // Ask the native binary: a debug build can also load a production frontend.
   const developmentRef = useRef<Promise<boolean> | null>(null);
@@ -37,6 +43,9 @@ export function useAppUpdates(bundledVersion: string, onStatus: (message: string
       setUpdateState({ phase: "idle" });
       return;
     }
+    if (busy.current || !sourceSettings.loaded) return;
+    busy.current = true;
+    setRouteMessage("");
     setUpdateState({ phase: "checking" });
     try {
       if (await developmentBuild()) {
@@ -44,12 +53,12 @@ export function useAppUpdates(bundledVersion: string, onStatus: (message: string
         if (!quiet) onStatus("开发版使用独立数据，不安装正式版更新");
         return;
       }
-      const update = await check();
-      const previous = updateRef.current;
+      const update = await updatesClient.checkDesktop(sourceSettings.source, progress);
       updateRef.current = update;
-      if (previous && previous !== update) void previous.close();
+      if (update) setRoute(update.route);
+      setRouteMessage("");
       if (update) {
-        setUpdateState({ phase: "available", version: update.version, notes: normalizeUpdateNotes(update.body) });
+        setUpdateState({ phase: "available", version: update.version, notes: normalizeUpdateNotes(update.notes) });
         if (!quiet) onStatus(`已检查更新：当前 v${appVersion}，发现最新 v${update.version}`);
       } else {
         setUpdateState({ phase: "current" });
@@ -57,12 +66,12 @@ export function useAppUpdates(bundledVersion: string, onStatus: (message: string
       }
     } catch (error) {
       updateRef.current = null;
-      setUpdateState(quiet ? { phase: "idle" } : { phase: "error", message: platformErrorMessage(error, "检查更新失败") });
-    }
+      setUpdateState({ phase: "error", message: platformErrorMessage(error, "检查更新失败") });
+    } finally { busy.current = false; }
   }
 
   async function installUpdate() {
-    if (!runningInTauri) return;
+    if (!runningInTauri || busy.current || !sourceSettings.loaded) return;
     try {
       if (await developmentBuild()) return;
     } catch (error) {
@@ -74,21 +83,19 @@ export function useAppUpdates(bundledVersion: string, onStatus: (message: string
       await checkForUpdates();
       return;
     }
-    let downloaded = 0;
-    let total: number | undefined;
-    setUpdateState({ phase: "downloading", version: update.version, downloaded, total });
+    busy.current = true;
+    setUpdateState({ phase: "downloading", version: update.version, downloaded: 0 });
     try {
-      await update.downloadAndInstall((event) => {
-        if (event.event === "Started") total = event.data.contentLength;
-        else if (event.event === "Progress") downloaded += event.data.chunkLength;
-        setUpdateState({ phase: "downloading", version: update.version, downloaded, total });
+      await updatesClient.installDesktop(sourceSettings.source, update.version, event => {
+        progress(event);
+        setUpdateState({ phase: "downloading", version: update.version, downloaded: event.downloaded, total: event.total ?? undefined });
       });
       updateRef.current = null;
       setUpdateState({ phase: "ready", version: update.version });
       await relaunch();
     } catch (error) {
       setUpdateState({ phase: "error", message: `安装更新失败：${platformErrorMessage(error)}` });
-    }
+    } finally { busy.current = false; }
   }
 
   useEffect(() => {
@@ -96,13 +103,8 @@ export function useAppUpdates(bundledVersion: string, onStatus: (message: string
       void getVersion().then(setAppVersion).catch(() => {});
       void developmentBuild().then(setIsDevelopment).catch(() => {});
     }
-    void checkForUpdates(true);
-    return () => {
-      const update = updateRef.current;
-      updateRef.current = null;
-      if (update) void update.close();
-    };
   }, []);
+  useEffect(() => { if (sourceSettings.loaded) void checkForUpdates(true); }, [sourceSettings.loaded]);
 
-  return { appVersion, isDevelopment, updateState, checkForUpdates, installUpdate };
+  return { appVersion, isDevelopment, updateState, checkForUpdates, installUpdate, sourceSettings, route, routeMessage };
 }

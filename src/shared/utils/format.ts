@@ -27,6 +27,16 @@ export function daysUntil(value: unknown): number | null {
   return Number.isNaN(time) ? null : Math.ceil((time - Date.now()) / 86400000);
 }
 
+export function remainingValidity(value: unknown, now = Date.now()): string {
+  if (!value) return "";
+  const expiry = new Date(String(value).trim().replace(" ", "T"));
+  if (!Number.isFinite(expiry.getTime()) || expiry.getFullYear() >= 2100) return "";
+  const remaining = expiry.getTime() - now;
+  if (remaining <= 0) return "（已到期）";
+  const days = Math.ceil(remaining / 86400000);
+  return days >= 30 ? `（剩余约 ${Math.floor(days / 30)} 个月）` : `（剩余 ${days} 天）`;
+}
+
 export type DomainStatusLabel = [string, string];
 
 export function domainStatus(item: Record<string, unknown>): DomainStatusLabel {

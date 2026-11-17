@@ -7,6 +7,24 @@ export function rpcEncode(value) {
   return encodeURIComponent(String(value)).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
 }
 
+// 把阿里云英文错误码翻译成可操作的中文；未覆盖的错误保持原文。
+function aliyunErrorMessage(data) {
+  const code = String(data?.Code || "");
+  const raw = String(data?.Message || data?.Code || "阿里云 API 返回错误");
+  switch (code) {
+    case "FirewallRuleAlreadyExist":
+      return "该防火墙规则已存在：阿里云轻量按「协议 + 端口 + 来源」判重，同一组合不能重复添加。改一下端口或来源后重试；若刚提交过，刷新列表就能看到已有规则。";
+    case "InvalidPort.ValueNotSupported":
+      return "端口格式无效：单端口填 8888，端口范围填 2000/3000，ICMP 不需要端口。";
+    case "InvalidProtocol.ValueNotSupported":
+      return "协议类型无效：阿里云轻量仅支持 TCP、UDP、ICMP。";
+    case "FirewallRuleLimitExceed":
+      return "该轻量服务器的防火墙规则数量已达上限，请先删除不再使用的规则。";
+    default:
+      return raw;
+  }
+}
+
 export async function rpc(accountId, endpoint, version, action, params = {}) {
   const row = getAccountSecretRecord(accountId);
   if (!row) throw new Error("云账号不存在");
@@ -23,7 +41,7 @@ export async function rpc(accountId, endpoint, version, action, params = {}) {
   const response = await fetch(finalUrl.toString());
   const data = await response.json();
   if (!response.ok || (data.Code && data.Code !== "200" && data.Code !== "Success")) {
-    const message = data.Message || data.Code || `Aliyun ${response.status}`;
+    const message = aliyunErrorMessage(data);
     writeApiLog(accountId, endpoint, action, query, data, "失败", message);
     throw new Error(message);
   }

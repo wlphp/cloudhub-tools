@@ -11,7 +11,7 @@ for (const development of [true, false]) {
           calls.push(command);
           if (command === "app_is_development") return development;
           if (command === "plugin:app|version") return "0.1.53";
-          if (command === "plugin:updater|check") return null;
+          if (command === "app_update_check") return null;
           if (command === "authenticator_status") return { configured: false, unlocked: false };
           if (command === "list_client_preferences") return {};
           return [];
@@ -25,13 +25,13 @@ for (const development of [true, false]) {
     if (development) {
       await expect(page.getByText(/独立数据目录 · 正式版更新已禁用/)).toBeVisible();
       await expect(check).toBeDisabled();
-      expect(await page.evaluate(() => (window as any).channelCalls.filter((call: string) => call.startsWith("plugin:updater|")))).toEqual([]);
+      expect(await page.evaluate(() => (window as any).channelCalls.filter((call: string) => call === "app_update_check" || call === "app_update_install"))).toEqual([]);
       await page.screenshot({ path: "test-results/development-channel.png" });
     } else {
       await expect(page.locator(".ide-topbar-brand")).not.toContainText("开发版");
       await expect(check).toBeEnabled();
       await check.click();
-      await expect.poll(() => page.evaluate(() => (window as any).channelCalls.filter((call: string) => call === "plugin:updater|check").length)).toBeGreaterThanOrEqual(2);
+      await expect.poll(() => page.evaluate(() => (window as any).channelCalls.filter((call: string) => call === "app_update_check").length)).toBeGreaterThanOrEqual(2);
     }
   });
 }

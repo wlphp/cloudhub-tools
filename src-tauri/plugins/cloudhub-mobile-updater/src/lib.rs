@@ -4,7 +4,8 @@ use std::{sync::atomic::{AtomicBool, Ordering}, time::Duration};
 use tauri::{ipc::Channel, plugin::{Builder, TauriPlugin}, AppHandle, Manager, Runtime, State};
 use tokio::io::AsyncWriteExt;
 
-const API: &str = "https://api.github.com/repos/wlphp/cloudhub-tools/releases/latest";
+pub mod transport;
+use transport::{Source, API};
 const MAX_APK: u64 = 300 * 1024 * 1024;
 
 struct UpdateState {
@@ -22,9 +23,9 @@ struct Asset { name: String, browser_download_url: String, size: u64, digest: Op
 struct Release { tag_name: String, draft: bool, prerelease: bool, body: Option<String>, assets: Vec<Asset> }
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct UpdateInfo { version: String, available: bool, notes: String, size: u64, downloadable: bool }
+struct UpdateInfo { version: String, available: bool, notes: String, size: u64, downloadable: bool, route: Source }
 #[derive(Clone, Serialize)]
-struct Progress { downloaded: u64, total: u64 }
+struct Progress { downloaded: u64, total: u64, route: Source, message: String }
 
 fn version(value: &str) -> Result<[u64; 3], String> {
     let parts: Vec<_> = value.strip_prefix('v').unwrap_or(value).split('.').collect();
@@ -45,39 +46,29 @@ fn apk_asset(release: &Release) -> Option<&Asset> {
         && a.digest.as_deref().and_then(|d| d.strip_prefix("sha256:"))
             .is_some_and(|d| d.len() == 64 && d.bytes().all(|c| c.is_ascii_hexdigit())))
 }
-fn client() -> Result<reqwest::Client, String> {
-    reqwest::Client::builder().user_agent("CloudHub-Mobile-Updater")
-        .connect_timeout(Duration::from_secs(20)).timeout(Duration::from_secs(600))
-        .redirect(reqwest::redirect::Policy::custom(|attempt| {
-            let url = attempt.url();
-            if attempt.previous().len() >= 5 || url.scheme() != "https" || !matches!(url.host_str(),
-                Some("github.com" | "api.github.com" | "release-assets.githubusercontent.com" | "objects.githubusercontent.com")) {
-                attempt.stop()
-            } else { attempt.follow() }
-        })).build().map_err(|_| "无法初始化更新连接".into())
-}
-async fn release() -> Result<Release, String> {
-    let mut response = client()?.get(API).header("Accept", "application/vnd.github+json")
-        .timeout(Duration::from_secs(30)).send().await.map_err(|_| "检查失败，请检查网络后重试")?;
-    if !response.status().is_success() { return Err("暂时无法读取 GitHub 版本信息，请稍后重试".into()); }
-    let mut bytes = Vec::new();
-    while let Some(chunk) = response.chunk().await.map_err(|_| "读取版本信息失败")? {
-        if bytes.len() + chunk.len() > 1024 * 1024 { return Err("版本信息超出限制".into()); }
-        bytes.extend_from_slice(&chunk);
+async fn release(source: Source, progress: Option<&Channel<Progress>>) -> Result<(Release, Source), String> {
+    let mut errors = Vec::new();
+    for &route in source.routes() {
+        if let Some(progress) = progress { let _ = progress.send(Progress { downloaded: 0, total: 0, route, message: if errors.is_empty() { format!("正在连接 {}", route.label()) } else { format!("上一线路不可用，正在尝试 {}", route.label()) } }); }
+        let result = async {
+            let value = transport::json(API, route).await?;
+            let release: Release = serde_json::from_value(value).map_err(|_| "版本信息无效")?;
+            version(&release.tag_name)?;
+            if release.draft || release.prerelease { return Err("尚未发布稳定版本".to_string()); }
+            Ok(release)
+        }.await;
+        match result { Ok(release) => return Ok((release, route)), Err(error) => errors.push(format!("{}：{error}", route.label())) }
     }
-    let release: Release = serde_json::from_slice(&bytes).map_err(|_| "版本信息无效")?;
-    version(&release.tag_name)?;
-    if release.draft || release.prerelease { return Err("尚未发布稳定版本".into()); }
-    Ok(release)
+    Err(errors.join("；"))
 }
 #[tauri::command]
-async fn check<R: Runtime>(app: AppHandle<R>) -> Result<UpdateInfo, String> {
-    let release = release().await?;
+async fn check<R: Runtime>(app: AppHandle<R>, source: Option<Source>, on_progress: Channel<Progress>) -> Result<UpdateInfo, String> {
+    let (release, route) = release(source.unwrap_or_default(), Some(&on_progress)).await?;
     let asset = apk_asset(&release);
     Ok(UpdateInfo { version: release.tag_name.trim_start_matches('v').into(),
         available: version(&release.tag_name)? > version(&app.package_info().version.to_string())?,
         notes: release.body.as_deref().unwrap_or("").chars().take(8000).collect(),
-        size: asset.map(|a| a.size).unwrap_or(0), downloadable: asset.is_some() && cfg!(target_arch = "aarch64") })
+        size: asset.map(|a| a.size).unwrap_or(0), downloadable: asset.is_some() && cfg!(target_arch = "aarch64"), route })
 }
 #[tauri::command]
 fn cancel(state: State<'_, UpdateState>) {
@@ -86,7 +77,7 @@ fn cancel(state: State<'_, UpdateState>) {
 }
 
 #[tauri::command]
-async fn download<R: Runtime>(app: AppHandle<R>, state: State<'_, UpdateState>, expected_version: String, on_progress: Channel<Progress>) -> Result<(), String> {
+async fn download<R: Runtime>(app: AppHandle<R>, state: State<'_, UpdateState>, expected_version: String, source: Option<Source>, on_progress: Channel<Progress>) -> Result<(), String> {
     let _guard = state.busy.try_lock().map_err(|_| "已有更新任务正在进行")?;
     state.cancelled.store(false, Ordering::Relaxed);
     *state.ready.lock().map_err(|_| "更新状态不可用")? = None;
@@ -97,18 +88,24 @@ async fn download<R: Runtime>(app: AppHandle<R>, state: State<'_, UpdateState>, 
     let _ = tokio::fs::remove_file(&target).await;
     let operation = async {
         if !cfg!(target_os = "android") || !cfg!(target_arch = "aarch64") { return Err("当前平台不支持 APK 更新".into()); }
-        let release = release().await?;
+        let (release, _) = release(source.unwrap_or_default(), Some(&on_progress)).await?;
         if release.tag_name.trim_start_matches('v') != expected_version
             || version(&release.tag_name)? <= version(&app.package_info().version.to_string())? {
             return Err("版本已变化，请重新检查更新".into());
         }
         let asset = apk_asset(&release).ok_or("Android 安装包尚未就绪，请稍后重试")?;
-        let mut response = client()?.get(&asset.browser_download_url).send().await.map_err(|_| "下载失败，请检查网络后重试")?;
+        let mut errors = Vec::new();
+        let mut succeeded = false;
+        for &route in source.unwrap_or_default().routes() {
+            if state.cancelled.load(Ordering::Relaxed) { return Err("下载已取消".into()); }
+            on_progress.send(Progress { downloaded: 0, total: asset.size, route, message: if errors.is_empty() { format!("正在通过 {} 下载", route.label()) } else { format!("上一线路下载失败，正在通过 {} 重新下载同一版本", route.label()) } }).map_err(|_| "更新页面已关闭")?;
+            let attempt: Result<(), String> = async {
+        let mut response = transport::client()?.get(transport::routed_url(&asset.browser_download_url, route)?).send().await.map_err(|_| "下载失败，请检查网络后重试")?;
         if !response.status().is_success() { return Err("无法下载安装包，请稍后重试".into()); }
         let mut file = tokio::fs::File::create(&partial).await.map_err(|_| "无法保存安装包")?;
         let mut hash = Sha256::new();
         let mut downloaded = 0u64;
-        on_progress.send(Progress { downloaded, total: asset.size }).map_err(|_| "更新页面已关闭")?;
+        on_progress.send(Progress { downloaded, total: asset.size, route, message: String::new() }).map_err(|_| "更新页面已关闭")?;
         loop {
             if state.cancelled.load(Ordering::Relaxed) { return Err("下载已取消".into()); }
             let chunk = tokio::time::timeout(Duration::from_secs(30), response.chunk()).await
@@ -118,7 +115,7 @@ async fn download<R: Runtime>(app: AppHandle<R>, state: State<'_, UpdateState>, 
             if downloaded > asset.size { return Err("安装包大小校验失败".into()); }
             hash.update(&chunk);
             file.write_all(&chunk).await.map_err(|_| "保存失败，请检查剩余空间")?;
-            on_progress.send(Progress { downloaded, total: asset.size }).map_err(|_| "更新页面已关闭")?;
+            on_progress.send(Progress { downloaded, total: asset.size, route, message: String::new() }).map_err(|_| "更新页面已关闭")?;
         }
         if state.cancelled.load(Ordering::Relaxed) { return Err("下载已取消".into()); }
         if downloaded != asset.size || format!("sha256:{}", hex::encode(hash.finalize())) != asset.digest.as_deref().unwrap_or("") {
@@ -126,6 +123,18 @@ async fn download<R: Runtime>(app: AppHandle<R>, state: State<'_, UpdateState>, 
         }
         file.sync_all().await.map_err(|_| "保存安装包失败")?;
         drop(file);
+                Ok(())
+            }.await;
+            match attempt {
+                Ok(()) => { succeeded = true; break; },
+                Err(error) => {
+                    let _ = tokio::fs::remove_file(&partial).await;
+                    if state.cancelled.load(Ordering::Relaxed) { return Err("下载已取消".into()); }
+                    errors.push(format!("{}：{error}", route.label()));
+                }
+            }
+        }
+        if !succeeded { return Err(errors.join("；")); }
         tokio::fs::rename(&partial, &target).await.map_err(|_| "保存安装包失败")?;
         *state.ready.lock().map_err(|_| "更新状态不可用")? = Some(expected_version);
         Ok(())

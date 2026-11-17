@@ -1,4 +1,5 @@
 import { resolveDomainNameservers } from "./web-api/routes/domain-nameservers.mjs";
+import { handleAppUpdateRoute } from "./web-api/routes/app-updates.mjs";
 import http from "node:http";
 import { handleIpLocationRoute } from "./web-api/routes/ip-location.mjs";
 import crypto from "node:crypto";
@@ -124,18 +125,138 @@ async function oracleInstanceDisks(accountId, region, instanceId, compartmentId)
   return [...bootVolumes, ...volumes].filter(Boolean);
 }
 async function oracleResources(accountId, type) { return oracleProvider.resources(accountId, type); }
+
+// Oracle Cloud 网络安全组：protocol 用数字（6=TCP、17=UDP、1=ICMP、all=全部），端口放在 tcpOptions/udpOptions 里。
+function oracleRuleProtocol(protocol) {
+  return ({ tcp: "6", udp: "17", icmp: "1", all: "all" })[String(protocol || "").trim().toLowerCase()] || "";
+}
+function oracleRulePorts(protocol, portRange) {
+  if (!["tcp", "udp"].includes(protocol)) return null;
+  const value = String(portRange || "").trim();
+  if (!value || value === "-1/-1") return { min: 1, max: 65535 };
+  const [startText, endText] = value.split("/");
+  const start = Number(startText); const end = Number(endText);
+  if (!/^\d+$/.test(startText || "") || !/^\d+$/.test(endText || "") || start < 1 || end < start || end > 65535) throw new Error("端口范围必须为 1 到 65535 之间的 80/80 或 8000/9000");
+  return { min: start, max: end };
+}
+function oracleRuleSource(source) {
+  const value = String(source || "").trim();
+  const [address, mask] = value.split("/");
+  if (!address || mask === undefined) throw new Error("来源地址必须是 CIDR，例如 0.0.0.0/0");
+  const limit = address.includes(":") ? 128 : 32;
+  if (!/^\d+$/.test(mask) || Number(mask) > limit) throw new Error("来源地址必须是有效的 CIDR");
+  return value;
+}
+function oracleSecurityRuleBody({ protocol, portRange, source, description = "", isStateless = false, ruleId }) {
+  const code = oracleRuleProtocol(protocol);
+  if (!code) throw new Error("Oracle Cloud 网络安全组仅支持 TCP、UDP、ICMP 或 ALL 规则");
+  const text = String(description || "").trim();
+  if (text.length > 255) throw new Error("规则描述无效，最多 255 个字符");
+  const rule = { direction: "INGRESS", protocol: code, source: oracleRuleSource(source), sourceType: "CIDR_BLOCK", isStateless: Boolean(isStateless), description: text };
+  if (ruleId) rule.id = ruleId;
+  const ports = oracleRulePorts(String(protocol || "").trim().toLowerCase(), portRange);
+  if (ports) rule[code === "6" ? "tcpOptions" : "udpOptions"] = { destinationPortRange: ports };
+  return rule;
+}
+function oracleSecurityRule(item) {
+  const protocol = ({ "6": "tcp", "17": "udp", "1": "icmp", "58": "icmpv6" })[String(item.protocol || "")] || "all";
+  const options = item[protocol === "tcp" ? "tcpOptions" : protocol === "udp" ? "udpOptions" : ""] || {};
+  const range = options.destinationPortRange;
+  const ports = range && range.min != null && range.max != null ? `${range.min}/${range.max}` : "-1/-1";
+  const sourceType = String(item.sourceType || "CIDR_BLOCK").toUpperCase();
+  const cidr = sourceType === "CIDR_BLOCK";
+  return { RuleId: String(item.id || ""), Direction: String(item.direction || "INGRESS").toLowerCase(), IpProtocol: protocol, PortRange: ports, SourceCidrIp: cidr ? String(item.source || "") : "", SourceGroupId: sourceType === "NETWORK_SECURITY_GROUP" ? String(item.source || "") : "", Policy: "accept", Description: String(item.description || ""), IsStateless: Boolean(item.isStateless), ReadOnly: !cidr };
+}
+async function oracleSecurityGroups(accountId, region, instanceId, compartmentId, securityGroupId) {
+  if (!region || !instanceId || !compartmentId) throw new Error("缺少 OCI 地域、实例 ID 或区间 OCID");
+  const host = `iaas.${region}.oraclecloud.com`;
+  const attachments = await oraclePages(accountId, host, "/20160918/vnicAttachments", { compartmentId, instanceId }).catch(() => []);
+  const nsgIds = []; const subnetIds = [];
+  for (const attachment of attachments) {
+    if (!attachment.vnicId) continue;
+    const vnic = await oracleRequest(accountId, host, `/20160918/vnics/${oracleEncode(attachment.vnicId)}`).then((result) => result.data).catch(() => null);
+    for (const nsg of Array.isArray(vnic?.nsgIds) ? vnic.nsgIds : []) if (!nsgIds.includes(nsg)) nsgIds.push(nsg);
+    if (vnic?.subnetId && !subnetIds.includes(vnic.subnetId)) subnetIds.push(vnic.subnetId);
+  }
+  const groups = [];
+  for (const nsgId of nsgIds) {
+    const group = await oracleRequest(accountId, host, `/20160918/networkSecurityGroups/${oracleEncode(nsgId)}`).then((result) => result.data).catch(() => null);
+    groups.push({ SecurityGroupId: nsgId, SecurityGroupName: String(group?.displayName || nsgId), Description: group?.vcnId ? `网络安全组 · VCN ${group.vcnId}` : "网络安全组", NicType: "" });
+  }
+  // 实例没有绑定 NSG 时退回子网安全列表，否则点开是一片空白；安全列表由子网共享，只读展示。
+  if (!groups.length) {
+    for (const subnetId of subnetIds) {
+      const subnet = await oracleRequest(accountId, host, `/20160918/subnets/${oracleEncode(subnetId)}`).then((result) => result.data).catch(() => null);
+      if (!subnet) continue;
+      for (const listId of Array.isArray(subnet.securityListIds) ? subnet.securityListIds : []) groups.push({ SecurityGroupId: `sl:${listId}`, SecurityGroupName: `安全列表 · ${subnet.displayName || subnetId}`, Description: "安全列表由子网共享，此处只读；如需按实例增删规则，请先给实例网卡绑定网络安全组（NSG）", NicType: "" });
+    }
+  }
+  const selected = groups.some((group) => group.SecurityGroupId === securityGroupId) ? securityGroupId : groups[0]?.SecurityGroupId || "";
+  let rules = [];
+  if (selected.startsWith("sl:")) {
+    const list = (await oracleRequest(accountId, host, `/20160918/securityLists/${oracleEncode(selected.slice(3))}`)).data;
+    // 安全列表规则没有 OCID，用「在入方向数组里的下标」当标识。
+    rules = (Array.isArray(list?.ingressSecurityRules) ? list.ingressSecurityRules : []).map((item, index) => ({ ...oracleSecurityRule(item), RuleId: "", RuleIndex: index }));
+  } else if (selected) {
+    rules = (await oraclePages(accountId, host, `/20160918/networkSecurityGroups/${oracleEncode(selected)}/securityRules`, { direction: "INGRESS" })).map((item, index) => ({ ...oracleSecurityRule(item), RuleIndex: index }));
+  }
+  return { groups, selectedSecurityGroupId: selected, rules };
+}
+function oracleSecurityGroupId(securityGroupId) {
+  const value = String(securityGroupId || "").trim();
+  if (!value.startsWith("ocid1.networksecuritygroup.")) throw new Error("网络安全组 ID 格式无效");
+  return value;
+}
+function oracleRuleSignature(protocol, ports, source, description) {
+  const value = String(ports || "").trim();
+  return [String(protocol || "").trim().toLowerCase(), !value || value === "-1/-1" ? "-1/-1" : value, String(source || "").trim(), String(description || "").trim()].join("|");
+}
+function oracleEntrySignature(item) {
+  const mapped = oracleSecurityRule(item);
+  return oracleRuleSignature(mapped.IpProtocol, mapped.PortRange, mapped.SourceCidrIp, mapped.Description);
+}
+function oracleSecurityListEntry(rule) {
+  // 安全列表条目没有 direction/id 字段，写回整表时带上会被 OCI 拒绝。
+  const { direction, id, ...entry } = rule;
+  return entry;
+}
+function oracleFindListIndex(ingress, index, original) {
+  if (!original) throw new Error("缺少原安全列表规则内容，请刷新后重试");
+  const signature = oracleRuleSignature(original.protocol, original.ports, original.source, original.description);
+  if (Number.isInteger(index) && ingress[index] && oracleEntrySignature(ingress[index]) === signature) return index;
+  // 下标对不上（列表被别处改过或刚删过一条）时按内容重新定位，避免改错规则。
+  const found = ingress.findIndex((item) => oracleEntrySignature(item) === signature);
+  if (found < 0) throw new Error("安全列表规则已被修改，请刷新后重试");
+  return found;
+}
+
+function securityGroupSourceParam(source) {
+  const value = String(source || "").trim();
+  if (!value || value.length > 128 || /[\u0000-\u001f\u007f]/.test(value)) throw new Error("安全组规则来源无效");
+  if (/^sg-[a-zA-Z0-9_-]+$/.test(value)) return ["SourceGroupId", value];
+  if (/^pl-[a-zA-Z0-9_-]+$/.test(value)) return ["SourcePrefixListId", value];
+  const [ip, mask, extra] = value.split("/");
+  if (extra !== undefined || !ip || !/^\d{1,3}$/.test(mask || "")) throw new Error("来源地址必须是 CIDR，例如 0.0.0.0/0");
+  const ipv6 = ip.includes(":");
+  try {
+    if (ipv6) new URL(`http://[${ip}]`);
+    else if (!/^(\d{1,3}\.){3}\d{1,3}$/.test(ip) || ip.split(".").some(part => Number(part) > 255)) throw new Error("invalid");
+  } catch { throw new Error("来源地址必须是有效的 CIDR"); }
+  if (Number(mask) > (ipv6 ? 128 : 32)) throw new Error("来源地址 CIDR 前缀无效");
+  return ["SourceCidrIp", value];
+}
 function securityGroupRuleParams({ regionId, securityGroupId, ipProtocol, portRange, sourceCidrIp, policy = "accept", priority = 1, nicType = "" }) {
   const protocol = String(ipProtocol || "").trim().toLowerCase();
   const range = String(portRange || "").trim();
-  const source = String(sourceCidrIp || "").trim();
+  const [sourceKey, sourceValue] = securityGroupSourceParam(sourceCidrIp);
   const [start, end, extra] = range.split("/");
   if (!regionId || !securityGroupId) throw new Error("缺少安全组地域或安全组 ID");
   if (!["tcp", "udp", "icmp", "gre", "all"].includes(protocol)) throw new Error("不支持的安全组协议");
   if (extra !== undefined || !/^-?\d+$/.test(start || "") || !/^-?\d+$/.test(end || "")) throw new Error("端口范围格式无效，请使用 80/80 或 8000/9000");
   if (!(["tcp", "udp"].includes(protocol) ? ((Number(start) === -1 && Number(end) === -1) || (Number(start) >= 1 && Number(end) >= Number(start) && Number(end) <= 65535)) : (Number(start) === -1 && Number(end) === -1))) throw new Error("端口范围与协议不匹配，请使用 80/80、8000/9000 或 -1/-1");
-  if (!source || !source.includes("/")) throw new Error("来源地址必须是 CIDR，例如 0.0.0.0/0");
   if (!Number.isInteger(Number(priority)) || Number(priority) < 1 || Number(priority) > 100) throw new Error("安全组规则优先级必须在 1 到 100 之间");
-  const params = { RegionId: regionId, SecurityGroupId: securityGroupId, IpProtocol: protocol, PortRange: range, SourceCidrIp: source, Policy: String(policy).toLowerCase() === "drop" ? "drop" : "accept", Priority: String(priority) };
+  const params = { RegionId: regionId, SecurityGroupId: securityGroupId, IpProtocol: protocol, PortRange: range, Policy: String(policy).toLowerCase() === "drop" ? "drop" : "accept", Priority: String(priority) };
+  params[sourceKey] = sourceValue;
   if (["internet", "intranet"].includes(String(nicType).toLowerCase())) params.NicType = String(nicType).toLowerCase();
   return params;
 }
@@ -149,11 +270,11 @@ async function aliyunSecurityGroupDetails(id, regionId, instanceId, securityGrou
   const selectedSecurityGroupId = groups.some((group) => group.SecurityGroupId === securityGroupId) ? securityGroupId : groups[0]?.SecurityGroupId || "";
   if (!selectedSecurityGroupId) return { groups, selectedSecurityGroupId, rules: [] };
   const detail = await rpc(id, `ecs.${regionId}.aliyuncs.com`, "2014-05-26", "DescribeSecurityGroupAttribute", { RegionId: regionId, SecurityGroupId: selectedSecurityGroupId });
-  const rules = arr(detail, ["Permissions", "Permission"]).filter((rule) => String(rule.Direction || "").toLowerCase() === "ingress").map((rule) => ({ Direction: String(rule.Direction || ""), IpProtocol: String(rule.IpProtocol || ""), PortRange: String(rule.PortRange || ""), SourceCidrIp: String(rule.SourceCidrIp || ""), SourceGroupId: String(rule.SourceGroupId || ""), Policy: String(rule.Policy || "accept"), Priority: Number(rule.Priority || 1), Description: String(rule.Description || ""), NicType: String(rule.NicType || "") }));
+  const rules = arr(detail, ["Permissions", "Permission"]).filter((rule) => String(rule.Direction || "").toLowerCase() === "ingress").map((rule) => ({ Direction: String(rule.Direction || ""), IpProtocol: String(rule.IpProtocol || ""), PortRange: String(rule.PortRange || ""), SourceCidrIp: String(rule.SourceCidrIp || ""), SourceGroupId: String(rule.SourceGroupId || ""), SourcePrefixListId: String(rule.SourcePrefixListId || ""), Policy: String(rule.Policy || "accept"), Priority: Number(rule.Priority || 1), Description: String(rule.Description || ""), NicType: String(rule.NicType || ""), SecurityGroupRuleId: rule.SecurityGroupRuleId || null }));
   return { groups, selectedSecurityGroupId, rules };
 }
 
-function tencentSecurityGroupPolicy({ ipProtocol, portRange, sourceCidrIp, description = "" }) {
+function tencentSecurityGroupPolicy({ ipProtocol, portRange, sourceCidrIp, description = "", policy: action = "accept" }) {
   const protocol = String(ipProtocol || "").trim().toLowerCase();
   const range = String(portRange || "").trim();
   const source = String(sourceCidrIp || "").trim();
@@ -164,9 +285,9 @@ function tencentSecurityGroupPolicy({ ipProtocol, portRange, sourceCidrIp, descr
   if (!validRange) throw new Error("端口范围与协议不匹配，请使用 80/80、8000/9000 或 -1/-1");
   if (!source || !source.includes("/")) throw new Error("来源地址必须是 CIDR，例如 0.0.0.0/0");
   const port = protocol === "all" ? "ALL" : start === end ? start : `${start}-${end}`;
-  const policy = { Action: "ACCEPT", CidrBlock: source, Port: port, Protocol: protocol.toUpperCase() };
-  if (String(description || "").trim()) policy.PolicyDescription = String(description).trim();
-  return policy;
+  const rule = { Action: String(action).toLowerCase() === "drop" ? "DROP" : "ACCEPT", CidrBlock: source, Port: port, Protocol: protocol.toUpperCase() };
+  if (String(description || "").trim()) rule.PolicyDescription = String(description).trim();
+  return rule;
 }
 
 function tencentSecurityGroupPort(port) {
@@ -196,19 +317,61 @@ function baiduSecurityGroupPort(portRange) {
   return end === undefined ? `${start}/${start}` : `${start}/${end}`;
 }
 
+// 百度云普通安全组：protocol 仅 tcp/udp/icmp，空值代表 all；ICMP 与 ALL 以空 portRange 表示全部端口。
+function baiduSecurityGroupProtocol(value) {
+  const protocol = String(value || "").trim().toLowerCase();
+  return protocol || "all";
+}
+// 百度云把“全部地址”返回为 all，统一换成 0.0.0.0/0，避免表单校验与改前比对失败。
+function baiduSecurityGroupSource(value) {
+  const source = String(value || "").trim();
+  return source.toLowerCase() === "all" ? "0.0.0.0/0" : source;
+}
+function baiduSecurityGroupRuleFields({ protocol, ports, source, description = "" }) {
+  const normalizedProtocol = baiduSecurityGroupProtocol(protocol);
+  const range = String(ports || "").trim();
+  const sourceValue = baiduSecurityGroupSource(source);
+  if (!["tcp", "udp", "icmp", "all"].includes(normalizedProtocol)) throw new Error("百度云安全组协议仅支持 TCP、UDP、ICMP 或 ALL");
+  let portRange = "";
+  if (["icmp", "all"].includes(normalizedProtocol)) {
+    if (!["", "-1/-1", "all", "1/65535", "1-65535"].includes(range.toLowerCase())) throw new Error("ICMP 与 ALL 协议不按端口控制，请勿指定端口范围");
+  } else if (["", "-1/-1", "all"].includes(range.toLowerCase())) {
+    portRange = "1-65535";
+  } else {
+    const [startText, endText, extra] = range.split("/");
+    const start = Number(startText);
+    const end = Number(endText);
+    if (extra !== undefined || !/^\d+$/.test(startText || "") || !/^\d+$/.test(endText || "") || start < 1 || end < start || end > 65535) throw new Error("端口范围必须为 1 到 65535 之间的 80/80 或 8000/9000");
+    portRange = `${start}-${end}`;
+  }
+  if (sourceValue.startsWith("pl-")) throw new Error("百度云普通安全组不支持前缀列表引用");
+  if (sourceValue.startsWith("sg-")) {
+    if (sourceValue.length > 128 || !/^sg-[a-zA-Z0-9_-]+$/.test(sourceValue)) throw new Error("来源安全组 ID 无效");
+  } else {
+    const [ip, mask, sourceExtra] = sourceValue.split("/");
+    if (sourceExtra !== undefined || !ip || !ip.includes(".") || ip.includes(":") || !/^\d{1,3}$/.test(mask || "")) throw new Error("来源地址必须是 IPv4 CIDR，例如 0.0.0.0/0");
+    if (ip.split(".").length !== 4 || ip.split(".").some(part => !/^\d{1,3}$/.test(part) || Number(part) > 255) || Number(mask) > 32) throw new Error("来源地址必须是 IPv4 CIDR，例如 0.0.0.0/0");
+  }
+  const remark = String(description || "").trim();
+  if (remark.length > 80 || /[\u0000-\u001f\u007f]/.test(remark)) throw new Error("安全组规则描述无效");
+  return { portRange, source: sourceValue, protocol: normalizedProtocol, description: remark };
+}
 function baiduSecurityGroupRuleInput({ ipProtocol, portRange, sourceCidrIp, description = "" }) {
-  const protocol = String(ipProtocol || "").trim().toLowerCase();
-  const range = String(portRange || "").trim();
-  const sourceIp = String(sourceCidrIp || "").trim();
-  const [startText, endText, extra] = range.split("/");
-  const start = Number(startText);
-  const end = Number(endText);
-  if (!["tcp", "udp"].includes(protocol)) throw new Error("百度云安全组端口仅支持 TCP 或 UDP");
-  if (extra !== undefined || !/^\d+$/.test(startText || "") || !/^\d+$/.test(endText || "") || start < 1 || end < start || end > 65535) throw new Error("端口范围必须为 1 到 65535 之间的 80/80 或 8000/9000");
-  if (!sourceIp || !sourceIp.includes("/")) throw new Error("来源地址必须是 CIDR，例如 0.0.0.0/0");
-  const rule = { direction: "ingress", ethertype: "IPv4", portRange: `${start}-${end}`, protocol, sourceIp };
-  if (String(description || "").trim()) rule.remark = String(description).trim();
+  const fields = baiduSecurityGroupRuleFields({ protocol: ipProtocol, ports: portRange, source: sourceCidrIp, description });
+  const rule = { direction: "ingress", ethertype: "IPv4", portRange: fields.portRange };
+  if (fields.protocol !== "all") rule.protocol = fields.protocol;
+  if (fields.source.startsWith("sg-")) rule.sourceGroupId = fields.source;
+  else rule.sourceIp = fields.source;
+  if (fields.description) rule.remark = fields.description;
   return rule;
+}
+function baiduSecurityGroupRuleUpdateBody(ruleId, fields) {
+  const body = { securityGroupRuleId: ruleId, portRange: fields.portRange };
+  if (fields.protocol !== "all") body.protocol = fields.protocol;
+  if (fields.source.startsWith("sg-")) body.sourceGroupId = fields.source;
+  else body.sourceIp = fields.source;
+  body.remark = fields.description;
+  return body;
 }
 
 async function baiduSecurityGroupDetails(id, regionId, instanceId, securityGroupId = "") {
@@ -219,28 +382,58 @@ async function baiduSecurityGroupDetails(id, regionId, instanceId, securityGroup
   const selectedSecurityGroupId = groups.some((group) => group.SecurityGroupId === securityGroupId) ? securityGroupId : groups[0]?.SecurityGroupId || "";
   if (!selectedSecurityGroupId) return { groups, selectedSecurityGroupId, rules: [] };
   const { data: detail } = await baiduRequest(id, host, `/v2/securityGroup/${encodeURIComponent(selectedSecurityGroupId)}`);
-  const rules = arr(detail, ["rules"]).filter((rule) => String(rule.direction || "").toLowerCase() === "ingress").map((rule) => ({ Direction: String(rule.direction || "ingress"), IpProtocol: String(rule.protocol || ""), PortRange: baiduSecurityGroupPort(rule.portRange), SourceCidrIp: String(rule.sourceIp || ""), SourceGroupId: String(rule.sourceGroupId || ""), Policy: "accept", Priority: 0, Description: String(rule.remark || ""), NicType: "", SecurityGroupRuleId: String(rule.securityGroupRuleId || "") }));
+  const rules = arr(detail, ["rules"]).filter((rule) => String(rule.direction || "").toLowerCase() === "ingress").map((rule) => ({ Direction: String(rule.direction || "ingress"), IpProtocol: baiduSecurityGroupProtocol(rule.protocol), PortRange: baiduSecurityGroupPort(rule.portRange), SourceCidrIp: baiduSecurityGroupSource(rule.sourceIp), SourceGroupId: String(rule.sourceGroupId || ""), Policy: "accept", Description: String(rule.remark || ""), UpdateTime: String(rule.updatedTime || ""), NicType: "", SecurityGroupRuleId: String(rule.securityGroupRuleId || rule.ruleId || rule.id || "") }));
   return { groups, selectedSecurityGroupId, rules, sgVersion: detail.sgVersion };
 }
 
-function lightFirewallRuleInput({ ipProtocol, portRange, sourceCidrIp, description = "" }) {
+function lightFirewallRuleInput({ ipProtocol, portRange, sourceCidrIp, description = "" }, cloudType = "aliyun") {
   const protocol = String(ipProtocol || "").trim().toLowerCase();
   const range = String(portRange || "").trim();
   const source = String(sourceCidrIp || "").trim();
   const [startText, endText, extra] = range.split("/");
   const start = Number(startText);
   const end = Number(endText);
-  if (!["tcp", "udp"].includes(protocol)) throw new Error("轻量服务器仅支持 TCP 或 UDP 端口规则");
+  const special = (cloudType === "tencent" && ["icmp", "icmpv6", "all"].includes(protocol)) || (cloudType === "aliyun" && protocol === "icmp");
+  if (!["tcp", "udp"].includes(protocol) && !special) throw new Error("当前轻量服务器接口不支持此协议");
+  if (special) {
+    if (range !== "-1/-1") throw new Error("ICMP/ALL 协议的端口范围必须为 ALL");
+    if (!source || !source.includes("/")) throw new Error("来源地址必须是 CIDR，例如 0.0.0.0/0");
+    const ipv6 = source.split("/")[0].includes(":");
+    if ((protocol === "icmp" && ipv6) || (protocol === "icmpv6" && !ipv6)) throw new Error("ICMP 仅支持 IPv4，ICMPv6 仅支持 IPv6 来源");
+    return { protocol, portRange: range, sourceCidrIp: source, description: String(description || "").trim() };
+  }
   if (extra !== undefined || !/^\d+$/.test(startText || "") || !/^\d+$/.test(endText || "") || start < 1 || end < start || end > 65535) throw new Error("端口范围必须为 1 到 65535 之间的 80/80 或 8000/9000");
   if (!source || !source.includes("/")) throw new Error("来源地址必须是 CIDR，例如 0.0.0.0/0");
   return { protocol, portRange: range, sourceCidrIp: source, description: String(description || "").trim() };
 }
 
+// 阿里云轻量返回的 Port：单端口是 80，范围是 2000/3000，ICMP 是 -1。统一成界面用的 80/80、2000/3000、-1/-1。
+function lightFirewallPort(portRange) {
+  const value = String(portRange ?? "").trim();
+  if (!value || value === "-1") return "-1/-1";
+  return value.includes("/") ? value : `${value}/${value}`;
+}
+// 界面格式转回阿里云要求的 Port：单端口必须是 80，不能是 80/80；ICMP 是 -1。
+function lightFirewallPortInput(portRange) {
+  const value = String(portRange ?? "").trim();
+  if (!value || value === "-1/-1") return "-1";
+  const [start, end] = value.split("/");
+  return end === undefined || start === end ? start : value;
+}
+
 function tencentLighthousePort(port) {
   const value = String(port || "").trim();
-  if (!value || value.toLowerCase() === "all") return "-1/-1";
+  if (!value || value.toLowerCase() === "all" || value === "-1/-1") return "-1/-1";
   const [start, end] = value.split("-");
   return end === undefined ? `${start}/${start}` : `${start}/${end}`;
+}
+function tencentFirewallRuleFields(rule) {
+  const fields = {};
+  for (const field of ["Protocol", "Port", "CidrBlock", "Ipv6CidrBlock", "Action", "FirewallRuleDescription"]) {
+    if (typeof rule?.[field] === "string" && rule[field]) fields[field] = rule[field];
+  }
+  if (!fields.Protocol) throw new Error("缺少防火墙协议");
+  return fields;
 }
 
 async function lightFirewallDetails(id, regionId, instanceId) {
@@ -250,13 +443,13 @@ async function lightFirewallDetails(id, regionId, instanceId) {
   if (account.cloud_type === "aliyun") {
     const data = await rpc(id, `swas.${regionId}.aliyuncs.com`, "2020-06-01", "ListFirewallRules", { RegionId: regionId, InstanceId: instanceId, PageNumber: "1", PageSize: "100" });
     const firewallRules = Array.isArray(data.FirewallRules) ? data.FirewallRules : arr(data, ["FirewallRules", "FirewallRule"]);
-    return { rules: firewallRules.filter((rule) => String(rule.Policy || "accept").toLowerCase() === "accept").map((rule) => ({ RuleId: String(rule.RuleId || ""), IpProtocol: String(rule.RuleProtocol || ""), PortRange: String(rule.Port || ""), SourceCidrIp: String(rule.SourceCidrIp || ""), Policy: String(rule.Policy || "accept"), Description: String(rule.Remark || "") })) };
+    return { rules: firewallRules.filter((rule) => String(rule.Policy || "accept").toLowerCase() === "accept").map((rule) => ({ RuleId: String(rule.RuleId || ""), IpProtocol: String(rule.RuleProtocol || ""), PortRange: lightFirewallPort(rule.Port), SourceCidrIp: String(rule.SourceCidrIp || ""), Policy: String(rule.Policy || "accept"), Description: String(rule.Remark || "") })) };
   }
   if (account.cloud_type === "tencent") {
     const data = await tencentRequest(id, "lighthouse", "2020-03-24", "DescribeFirewallRules", { InstanceId: instanceId, Limit: 100 }, regionId);
-    return { rules: arr(data, ["FirewallRuleSet"]).filter((rule) => String(rule.Action || "ACCEPT").toUpperCase() === "ACCEPT").map((rule) => {
-      const firewallRule = { Protocol: String(rule.Protocol || ""), Port: String(rule.Port || ""), CidrBlock: String(rule.CidrBlock || ""), Action: String(rule.Action || "ACCEPT"), FirewallRuleDescription: String(rule.FirewallRuleDescription || "") };
-      return { RuleId: "", IpProtocol: firewallRule.Protocol, PortRange: tencentLighthousePort(firewallRule.Port), SourceCidrIp: firewallRule.CidrBlock, Policy: firewallRule.Action, Description: firewallRule.FirewallRuleDescription, FirewallRule: firewallRule };
+    return { rules: arr(data, ["FirewallRuleSet"]).map((rule) => {
+      const firewallRule = { Protocol: String(rule.Protocol || ""), ...(rule.Port == null || rule.Port === "" ? {} : { Port: String(rule.Port) }), ...(rule.CidrBlock == null || rule.CidrBlock === "" ? {} : { CidrBlock: String(rule.CidrBlock) }), ...(rule.Ipv6CidrBlock == null || rule.Ipv6CidrBlock === "" ? {} : { Ipv6CidrBlock: String(rule.Ipv6CidrBlock) }), Action: String(rule.Action || "ACCEPT"), FirewallRuleDescription: String(rule.FirewallRuleDescription || "") };
+      return { RuleId: "", IpProtocol: firewallRule.Protocol, PortRange: tencentLighthousePort(firewallRule.Port), SourceCidrIp: firewallRule.CidrBlock || firewallRule.Ipv6CidrBlock || "", Policy: firewallRule.Action, Description: firewallRule.FirewallRuleDescription, FirewallRule: firewallRule };
     }), firewallVersion: data.FirewallVersion };
   }
   if (account.cloud_type === "jdcloud") {
@@ -687,6 +880,7 @@ const server = http.createServer(async (req, res) => {
     if (databaseImportActive) return send(res, 503, { error: "正在导入电脑备份，请稍后重试" });
     activeApiRequests += 1;
     requestTracked = true;
+    if (await handleAppUpdateRoute(req, res, url)) return;
     if (await handleDatabaseMigrationRoutes(req, res, url, send, {
       enter: async () => {
         databaseImportActive = true;
@@ -1013,14 +1207,55 @@ const server = http.createServer(async (req, res) => {
       if (!region || !instanceId) return send(res, 400, { error: "缺少轻量服务器地域或实例 ID" });
       const account = getAccountType(id);
       if (!account) return send(res, 404, { error: "云账号不存在" });
+      if (action === "update-description") {
+        if (account.cloud_type !== "tencent") return send(res, 400, { error: "当前轻量服务器接口不支持修改规则描述" });
+        const original = payload.firewallRule;
+        if (!original || typeof original !== "object" || Array.isArray(original)) return send(res, 400, { error: "缺少腾讯云防火墙规则内容" });
+        let fields;
+        try { fields = tencentFirewallRuleFields(original); } catch (error) { return send(res, 400, { error: error.message }); }
+        const protocol = fields.Protocol.toUpperCase();
+        const actionValue = (fields.Action || "ACCEPT").toUpperCase();
+        const description = String(payload.description || "").trim();
+        if (!["TCP", "UDP", "ICMP", "ICMPV6", "ALL"].includes(protocol) || !["ACCEPT", "DROP"].includes(actionValue) || description.length > 80) return send(res, 400, { error: "规则协议、策略或描述无效" });
+        const firewallRule = { Protocol: protocol, Action: actionValue, FirewallRuleDescription: description };
+        for (const field of ["Port", "CidrBlock", "Ipv6CidrBlock"]) if (fields[field]) firewallRule[field] = fields[field];
+        const hasIpv6Source = Boolean(firewallRule.Ipv6CidrBlock);
+        if (Boolean(firewallRule.CidrBlock) === hasIpv6Source || (protocol === "ICMP" && hasIpv6Source) || (protocol === "ICMPV6" && !hasIpv6Source)) return send(res, 400, { error: "防火墙规则来源字段无效" });
+        const request = { InstanceId: instanceId, FirewallRule: firewallRule };
+        if (Number.isInteger(Number(payload.firewallVersion))) request.FirewallVersion = Number(payload.firewallVersion);
+        return send(res, 200, await tencentRequest(id, "lighthouse", "2020-03-24", "ModifyFirewallRuleDescription", request, region));
+      }
+      if (action === "modify") {
+        if (account.cloud_type !== "aliyun") return send(res, 400, { error: "当前轻量服务器接口不支持修改规则" });
+        const ruleId = String(payload.ruleId || "").trim();
+        if (!ruleId) return send(res, 400, { error: "缺少阿里云防火墙规则 ID" });
+        try {
+          const updated = lightFirewallRuleInput(payload.updated || {}, "aliyun");
+          const original = lightFirewallRuleInput(payload.original || {}, "aliyun");
+          const currentList = await lightFirewallDetails(id, region, instanceId);
+          const current = currentList.rules.find(rule => String(rule.RuleId || "") === ruleId);
+          if (!current) throw new Error("轻量防火墙规则不存在，请刷新后重试");
+          const currentPort = lightFirewallPort(current.PortRange);
+          const currentFields = lightFirewallRuleInput({ ipProtocol: current.IpProtocol, portRange: currentPort, sourceCidrIp: current.SourceCidrIp, description: current.Description }, "aliyun");
+          if (JSON.stringify(original) !== JSON.stringify(currentFields)) throw new Error("轻量防火墙规则已被修改，请刷新后重试");
+          const request = { RegionId: region, InstanceId: instanceId, RuleId: ruleId, RuleProtocol: updated.protocol.toUpperCase(), Port: lightFirewallPortInput(updated.portRange), SourceCidrIp: updated.sourceCidrIp, Remark: updated.description, ClientToken: crypto.randomUUID() };
+          return send(res, 200, await rpc(id, `swas.${region}.aliyuncs.com`, "2020-06-01", "ModifyFirewallRule", request));
+        } catch (error) { return send(res, 400, { error: error?.message || "轻量防火墙规则修改失败" }); }
+      }
       if (action === "create") {
-        const rule = lightFirewallRuleInput(payload);
+        const rule = lightFirewallRuleInput(payload, account.cloud_type);
+        const policy = String(payload.policy || "accept").trim().toLowerCase();
+        if (!["accept", "drop"].includes(policy) || (policy === "drop" && account.cloud_type !== "tencent")) return send(res, 400, { error: "当前轻量服务器接口不支持此防火墙策略" });
         if (account.cloud_type === "aliyun") {
-          return send(res, 200, await rpc(id, `swas.${region}.aliyuncs.com`, "2020-06-01", "CreateFirewallRules", { RegionId: region, InstanceId: instanceId, FirewallRules: JSON.stringify([{ Port: rule.portRange, RuleProtocol: rule.protocol.toUpperCase(), SourceCidrIp: rule.sourceCidrIp, Remark: rule.description }]) }));
+          return send(res, 200, await rpc(id, `swas.${region}.aliyuncs.com`, "2020-06-01", "CreateFirewallRules", { RegionId: region, InstanceId: instanceId, FirewallRules: JSON.stringify([{ Port: lightFirewallPortInput(rule.portRange), RuleProtocol: rule.protocol.toUpperCase(), SourceCidrIp: rule.sourceCidrIp, Remark: rule.description }]) }));
         }
         if (account.cloud_type === "tencent") {
           const [start, end] = rule.portRange.split("/");
-          const firewallRule = { Protocol: rule.protocol.toUpperCase(), Port: start === end ? start : `${start}-${end}`, CidrBlock: rule.sourceCidrIp, Action: "ACCEPT" };
+          const firewallRule = { Protocol: rule.protocol.toUpperCase(), Action: policy === "drop" ? "DROP" : "ACCEPT" };
+          if (rule.sourceCidrIp.split("/")[0].includes(":")) firewallRule.Ipv6CidrBlock = rule.sourceCidrIp;
+          else firewallRule.CidrBlock = rule.sourceCidrIp;
+          if (rule.protocol === "all") firewallRule.Port = "ALL";
+          else if (["tcp", "udp"].includes(rule.protocol)) firewallRule.Port = start === end ? start : `${start}-${end}`;
           if (rule.description) firewallRule.FirewallRuleDescription = rule.description;
           const request = { InstanceId: instanceId, FirewallRules: [firewallRule] };
           if (Number.isInteger(Number(payload.firewallVersion))) request.FirewallVersion = Number(payload.firewallVersion);
@@ -1037,14 +1272,16 @@ const server = http.createServer(async (req, res) => {
         if (account.cloud_type === "tencent") {
           const firewallRule = payload.firewallRule;
           if (!firewallRule || typeof firewallRule !== "object" || Array.isArray(firewallRule)) return send(res, 400, { error: "缺少腾讯云防火墙规则内容" });
-          const request = { InstanceId: instanceId, FirewallRules: [firewallRule] };
+          let fields;
+          try { fields = tencentFirewallRuleFields(firewallRule); } catch (error) { return send(res, 400, { error: error.message }); }
+          const request = { InstanceId: instanceId, FirewallRules: [fields] };
           if (Number.isInteger(Number(payload.firewallVersion))) request.FirewallVersion = Number(payload.firewallVersion);
           return send(res, 200, await tencentRequest(id, "lighthouse", "2020-03-24", "DeleteFirewallRules", request, region));
         }
         if (account.cloud_type === "jdcloud") {
           const ruleId = String(payload.ruleId || "").trim();
           if (!ruleId) return send(res, 400, { error: "缺少京东云防火墙规则 ID" });
-          return send(res, 200, await jdcloudFirewallMutation(id, region, "DELETE", `/v1/regions/${encodeURIComponent(region)}/firewallRule`, { instanceId, ruleId, regionId: region }));
+          return send(res, 200, await jdcloudFirewallMutation(id, region, "DELETE", `/v1/regions/${encodeURIComponent(region)}/firewallRule`, { instanceId, ruleId }));
         }
       }
       return send(res, 400, { error: "不支持的轻量服务器防火墙操作" });
@@ -1121,6 +1358,18 @@ const server = http.createServer(async (req, res) => {
         if (description) params.Description = description;
         return send(res, 200, await rpc(id, `ecs.${region}.aliyuncs.com`, "2014-05-26", "AuthorizeSecurityGroup", params));
       }
+      if (action === "modify") {
+        try {
+          const updated = payload.updated || {};
+          const original = payload.original || {};
+          if (original.source && securityGroupSourceParam(original.source)[0] !== securityGroupSourceParam(updated.source)[0]) throw new Error("当前阿里云接口不支持修改来源类型");
+          const params = securityGroupRuleParams({ regionId: region, securityGroupId, ipProtocol: updated.protocol, portRange: updated.ports, sourceCidrIp: updated.source, policy: updated.policy, priority: updated.priority, nicType: payload.nicType });
+          params.SecurityGroupRuleId = String(payload.securityGroupRuleId || "").trim();
+          if (!params.SecurityGroupRuleId) throw new Error("缺少阿里云安全组规则 ID");
+          params.Description = String(updated.description || "").trim();
+          return send(res, 200, await rpc(id, `ecs.${region}.aliyuncs.com`, "2014-05-26", "ModifySecurityGroupRule", params));
+        } catch (error) { return send(res, 400, { error: error?.message || "阿里云安全组规则修改失败" }); }
+      }
       if (action === "revoke") return send(res, 200, await rpc(id, `ecs.${region}.aliyuncs.com`, "2014-05-26", "RevokeSecurityGroup", params));
       return send(res, 400, { error: "不支持的安全组规则操作" });
     }
@@ -1139,8 +1388,15 @@ const server = http.createServer(async (req, res) => {
       if (!region || !securityGroupId) return send(res, 400, { error: "缺少安全组地域或安全组 ID" });
       const action = String(payload.action || "");
       if (action === "authorize") {
-        const policy = tencentSecurityGroupPolicy({ ipProtocol: payload.ipProtocol, portRange: payload.portRange, sourceCidrIp: payload.sourceCidrIp, description: payload.description });
+        const policy = tencentSecurityGroupPolicy({ ipProtocol: payload.ipProtocol, portRange: payload.portRange, sourceCidrIp: payload.sourceCidrIp, description: payload.description, policy: payload.policy });
         return send(res, 200, await tencentRequest(id, "cvm", "2017-03-12", "AuthorizeSecurityGroupIngress", { SecurityGroupId: securityGroupId, SecurityGroupPolicySet: [policy] }, region));
+      }
+      if (action === "modify") {
+        const policyIndex = Number(payload.priority);
+        if (!Number.isInteger(policyIndex) || policyIndex < 0) return send(res, 400, { error: "缺少有效的安全组规则索引" });
+        const rule = tencentSecurityGroupPolicy(payload);
+        rule.PolicyIndex = policyIndex;
+        return send(res, 200, await tencentRequest(id, "cvm", "2017-03-12", "ModifySecurityGroupPolicies", { SecurityGroupId: securityGroupId, SecurityGroupPolicySet: [rule] }, region));
       }
       if (action === "revoke") {
         const policyIndex = Number(payload.priority);
@@ -1178,7 +1434,86 @@ const server = http.createServer(async (req, res) => {
         const { data } = await baiduRequest(id, host, `/v2/securityGroup/rule/${encodeURIComponent(ruleId)}`, query, { method: "DELETE" });
         return send(res, 200, data);
       }
+      if (action === "modify") {
+        const ruleId = String(payload.securityGroupRuleId || "").trim();
+        if (!ruleId) return send(res, 400, { error: "缺少百度云安全组规则 ID" });
+        try {
+          const updated = baiduSecurityGroupRuleFields(payload.updated || {});
+          const original = baiduSecurityGroupRuleFields(payload.original || {});
+          const { data: detail } = await baiduRequest(id, host, `/v2/securityGroup/${encodeURIComponent(securityGroupId)}`);
+          const current = arr(detail, ["rules"]).find(rule => String(rule.securityGroupRuleId || rule.ruleId || rule.id || "") === ruleId);
+          if (!current) throw new Error("安全组规则不存在，请刷新后重试");
+          const currentSource = baiduSecurityGroupSource(current.sourceIp) || String(current.sourceGroupId || "").trim();
+          const currentFields = baiduSecurityGroupRuleFields({ protocol: current.protocol, ports: baiduSecurityGroupPort(current.portRange), source: currentSource, description: current.remark });
+          if (JSON.stringify(original) !== JSON.stringify(currentFields)) throw new Error("安全组规则已被修改，请刷新后重试");
+          const query = { clientToken: crypto.randomUUID() };
+          if (payload.sgVersion != null && Number.isInteger(Number(payload.sgVersion))) query.sgVersion = Number(payload.sgVersion);
+          const body = baiduSecurityGroupRuleUpdateBody(ruleId, updated);
+          const { data } = await baiduRequest(id, host, "/v2/securityGroup/rule/update", query, { method: "PUT", body });
+          return send(res, 200, data);
+        } catch (error) { return send(res, 400, { error: error?.message || "百度云安全组规则修改失败" }); }
+      }
       return send(res, 400, { error: "不支持的百度云安全组规则操作" });
+    }
+    if (req.method === "GET" && url.pathname === "/api/oracle-security-groups") {
+      const id = Number(url.searchParams.get("id"));
+      const region = String(url.searchParams.get("region") || "");
+      const instanceId = String(url.searchParams.get("instance") || "");
+      const compartmentId = String(url.searchParams.get("compartment") || "");
+      const securityGroupId = String(url.searchParams.get("securityGroupId") || "");
+      return send(res, 200, await oracleSecurityGroups(id, region, instanceId, compartmentId, securityGroupId));
+    }
+    if (req.method === "POST" && url.pathname === "/api/oracle-security-group-rules") {
+      const payload = JSON.parse(await readBody(req));
+      const id = Number(payload.id);
+      const region = String(payload.regionId || "");
+      const action = String(payload.action || "");
+      const rawGroupId = String(payload.securityGroupId || "").trim();
+      if (!region) return send(res, 400, { error: "缺少网络安全组地域" });
+      const host = `iaas.${region}.oraclecloud.com`;
+      if (rawGroupId.startsWith("sl:")) {
+        // 子网安全列表没有单条规则接口，只能读出整表、改完再 PUT 回去（出方向原样回传）。
+        const listId = rawGroupId.slice(3);
+        if (!listId.startsWith("ocid1.securitylist.")) return send(res, 400, { error: "安全列表 ID 格式无效" });
+        const path = `/20160918/securityLists/${oracleEncode(listId)}`;
+        try {
+          const list = (await oracleRequest(id, host, path)).data;
+          const ingress = Array.isArray(list?.ingressSecurityRules) ? [...list.ingressSecurityRules] : [];
+          const egress = Array.isArray(list?.egressSecurityRules) ? list.egressSecurityRules : [];
+          if (action === "authorize") {
+            ingress.push(oracleSecurityListEntry(oracleSecurityRuleBody({ protocol: payload.ipProtocol, portRange: payload.portRange, source: payload.sourceCidrIp, description: payload.description })));
+          } else if (action === "revoke") {
+            ingress.splice(oracleFindListIndex(ingress, payload.ruleIndex, payload.original), 1);
+          } else if (action === "modify") {
+            const updated = payload.updated || {};
+            const position = oracleFindListIndex(ingress, payload.ruleIndex, payload.original);
+            ingress[position] = oracleSecurityListEntry(oracleSecurityRuleBody({ protocol: updated.protocol, portRange: updated.ports, source: updated.source, description: updated.description, isStateless: payload.isStateless }));
+          } else return send(res, 400, { error: "不支持的安全列表操作" });
+          return send(res, 200, (await oracleRequest(id, host, path, { method: "PUT", body: { ingressSecurityRules: ingress, egressSecurityRules: egress } })).data);
+        } catch (error) { return send(res, 400, { error: error?.message || "安全列表操作失败" }); }
+      }
+      let securityGroupId;
+      try { securityGroupId = oracleSecurityGroupId(rawGroupId); } catch (error) { return send(res, 400, { error: error.message }); }
+      const base = `/20160918/networkSecurityGroups/${oracleEncode(securityGroupId)}/actions`;
+      try {
+        if (action === "authorize") {
+          const rule = oracleSecurityRuleBody({ protocol: payload.ipProtocol, portRange: payload.portRange, source: payload.sourceCidrIp, description: payload.description });
+          return send(res, 200, (await oracleRequest(id, host, `${base}/addSecurityRules`, { method: "POST", body: { securityRules: [rule] } })).data);
+        }
+        if (action === "revoke") {
+          const ruleId = String(payload.securityGroupRuleId || "").trim();
+          if (!ruleId) return send(res, 400, { error: "缺少网络安全组规则 ID" });
+          return send(res, 200, (await oracleRequest(id, host, `${base}/removeSecurityRules`, { method: "POST", body: { securityRuleIds: [ruleId] } })).data);
+        }
+        if (action === "modify") {
+          const ruleId = String(payload.securityGroupRuleId || "").trim();
+          if (!ruleId) return send(res, 400, { error: "缺少网络安全组规则 ID" });
+          const updated = payload.updated || {};
+          const rule = oracleSecurityRuleBody({ protocol: updated.protocol, portRange: updated.ports, source: updated.source, description: updated.description, isStateless: payload.isStateless, ruleId });
+          return send(res, 200, (await oracleRequest(id, host, `${base}/updateSecurityRules`, { method: "POST", body: { securityRules: [rule] } })).data);
+        }
+      } catch (error) { return send(res, 400, { error: error?.message || "Oracle Cloud 网络安全组操作失败" }); }
+      return send(res, 400, { error: "不支持的网络安全组操作" });
     }
     if (req.method === "GET" && url.pathname === "/api/vultr-firewall-rules") {
       const id = Number(url.searchParams.get("id"));

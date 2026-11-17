@@ -125,6 +125,38 @@ pub(crate) async fn manage(id: i64, action: &str, input: Value) -> Result<Value,
         if data.pointer("/result/subdomain").and_then(Value::as_str) == Some("") { return Ok(json!({"enabled": true, "warning": "账号尚未配置 workers.dev 子域名，请在 Cloudflare 控制台完成配置。"})); }
         return Ok(json!({"enabled": true, "url": worker_url(worker, text(&data["result"], "subdomain"))?}));
     }
+    if action == "worker_domains_list" {
+        let worker = worker_name(text(&input, "name"))?;
+        let rows = pages(id, &format!("accounts/{account}/workers/domains"), vec![("service".into(), worker.into())], false, false).await?;
+        return Ok(json!({"items": rows.iter().map(worker_domain_item).collect::<Vec<_>>()}));
+    }
+    if action == "worker_domain_bind" {
+        let worker = worker_name(text(&input, "name"))?;
+        let zone_id = identifier(text(&input, "zoneId"))?;
+        let zone = request(id, Method::GET, &format!("zones/{zone_id}"), &[], None).await?;
+        if zone.pointer("/result/account/id").and_then(Value::as_str) != Some(account.as_str()) { return Err("站点不属于当前 Cloudflare Account ID".into()); }
+        if text(&zone["result"], "status") != "active" || zone.pointer("/result/paused").and_then(Value::as_bool) == Some(true) {
+            return Err("自定义域名要求所选 Cloudflare 站点处于活动状态".into());
+        }
+        let hostname = hostname_for_zone(text(&input, "hostname"), text(&zone["result"], "name"))?;
+        let path = format!("accounts/{account}/workers/domains");
+        let rows = pages(id, &path, vec![("hostname".into(), hostname.clone())], false, false).await?;
+        if let Some(existing) = rows.iter().find(|row| text(row, "hostname").eq_ignore_ascii_case(&hostname)) {
+            if text(existing, "service") == worker { return Ok(json!({"success": true, "existing": true, "domain": worker_domain_item(existing)})); }
+            return Err("该自定义域名已绑定到其他 Worker，请先解除原绑定".into());
+        }
+        let result = request(id, Method::PUT, &path, &[], Some(json!({"hostname": hostname, "service": worker}))).await?;
+        let domain = result.get("result").ok_or("Cloudflare 自定义域名响应格式无效")?;
+        return Ok(json!({"success": true, "domain": worker_domain_item(domain)}));
+    } else if action == "worker_domain_delete" {
+        let worker = worker_name(text(&input, "name"))?;
+        let domain_id = identifier(text(&input, "domainId"))?;
+        let path = format!("accounts/{account}/workers/domains/{domain_id}");
+        let existing = request(id, Method::GET, &path, &[], None).await?;
+        if text(&existing["result"], "service") != worker { return Err("该自定义域名不属于当前 Worker，已取消解绑".into()); }
+        request(id, Method::DELETE, &path, &[], None).await?;
+        return Ok(json!({"success": true}));
+    }
     if action == "verify" {
         request(id, Method::GET, &format!("accounts/{account}"), &[], None).await?;
         return Ok(json!({"verified": true}));
@@ -213,6 +245,29 @@ fn worker_input(input: &Value) -> Result<&str, String> {
     Ok(worker)
 }
 
+fn worker_name(value: &str) -> Result<&str, String> {
+    if !value.is_empty() && value.len() <= 63 && !value.starts_with('-') && !value.ends_with('-')
+        && value.bytes().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-') { Ok(value) }
+    else { Err("Worker 名称无效".into()) }
+}
+
+fn hostname_for_zone(hostname: &str, zone_name: &str) -> Result<String, String> {
+    let host = hostname.trim_end_matches('.').to_ascii_lowercase();
+    let zone = zone_name.trim_end_matches('.').to_ascii_lowercase();
+    let valid_dns = |value: &str| !value.is_empty() && value.len() <= 253 && value.is_ascii() && value.split('.').all(|label| {
+        !label.is_empty() && label.len() <= 63 && !label.starts_with('-') && !label.ends_with('-')
+            && label.bytes().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-')
+    });
+    if !valid_dns(&zone) || !valid_dns(&host) || (host != zone && !host.ends_with(&format!(".{zone}"))) {
+        return Err("主机名必须是所选活动站点的域名或其子域名".into());
+    }
+    Ok(host)
+}
+
+fn worker_domain_item(row: &Value) -> Value {
+    project(row, &["id", "hostname", "service", "zone_id", "zone_name", "enabled", "previews_enabled"])
+}
+
 fn worker_url(worker: &str, subdomain: &str) -> Result<String, String> {
     for label in [worker, subdomain] {
         if label.is_empty() || label.len() > 63 || label.starts_with('-') || label.ends_with('-') || !label.bytes().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-') { return Err("Worker 访问地址格式无效".into()); }
@@ -250,6 +305,16 @@ mod worker_tests {
         for code in [" ".to_string(), "\0".to_string(), "中".repeat(349526)] {
             assert!(worker_input(&json!({"name": "demo", "code": code})).is_err());
         }
+    }
+
+    #[test]
+    fn custom_domain_hostnames_are_limited_to_the_selected_zone() {
+        assert_eq!(hostname_for_zone("CDN.Example.test.", "example.test").unwrap(), "cdn.example.test");
+        assert_eq!(hostname_for_zone("example.test", "example.test").unwrap(), "example.test");
+        for host in ["other.test", "example.test.evil", "a..example.test", "https://example.test"] {
+            assert!(hostname_for_zone(host, "example.test").is_err());
+        }
+        assert!(worker_name("../bad").is_err());
     }
 
     #[test]

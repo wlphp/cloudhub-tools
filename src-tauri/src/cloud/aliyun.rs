@@ -41,12 +41,25 @@ pub(crate) async fn request(endpoint: &str, version: &str, action: &str, params:
     };
     let api_code = data.get("Code").and_then(Value::as_str);
     if !status.is_success() || api_code.is_some_and(|code| code != "200" && code != "Success") {
-        let message = data.get("Message").and_then(Value::as_str).or_else(|| data.get("Code").and_then(Value::as_str)).unwrap_or("阿里云 API 返回错误");
-        crate::write_api_log(access_key_id, endpoint, action, &json!(query), Some(&data), "失败", Some(message));
-        return Err(message.to_string());
+        let message = error_message(&data);
+        crate::write_api_log(access_key_id, endpoint, action, &json!(query), Some(&data), "失败", Some(&message));
+        return Err(message);
     }
     crate::write_api_log(access_key_id, endpoint, action, &json!(query), Some(&data), "成功", None);
     Ok(data)
+}
+
+/// 把阿里云英文错误码翻译成可操作的中文；未覆盖的错误保持原文。
+fn error_message(data: &Value) -> String {
+    let code = data.get("Code").and_then(Value::as_str).unwrap_or("");
+    let raw = data.get("Message").and_then(Value::as_str).or_else(|| data.get("Code").and_then(Value::as_str)).unwrap_or("阿里云 API 返回错误");
+    match code {
+        "FirewallRuleAlreadyExist" => "该防火墙规则已存在：阿里云轻量按「协议 + 端口 + 来源」判重，同一组合不能重复添加。改一下端口或来源后重试；若刚提交过，刷新列表就能看到已有规则。".into(),
+        "InvalidPort.ValueNotSupported" => "端口格式无效：单端口填 8888，端口范围填 2000/3000，ICMP 不需要端口。".into(),
+        "InvalidProtocol.ValueNotSupported" => "协议类型无效：阿里云轻量仅支持 TCP、UDP、ICMP。".into(),
+        "FirewallRuleLimitExceed" => "该轻量服务器的防火墙规则数量已达上限，请先删除不再使用的规则。".into(),
+        _ => raw.to_string(),
+    }
 }
 
 fn xml_text(body: &str, tag: &str) -> String { let open = format!("<{tag}>"); let close = format!("</{tag}>"); body.find(&open).and_then(|start| body[start + open.len()..].find(&close).map(|end| body[start + open.len()..start + open.len() + end].to_string())).unwrap_or_default() }
@@ -66,15 +79,29 @@ async fn oss_buckets(access_key_id: &str, access_key_secret: &str) -> Result<Vec
     Ok(values)
 }
 
+fn security_group_source_param(source: &str) -> Result<(&'static str, String), String> {
+    let value = source.trim();
+    if value.is_empty() || value.len() > 128 || value.chars().any(char::is_control) { return Err("安全组规则来源无效".into()); }
+    if value.starts_with("sg-") && value.len() > 3 && value[3..].bytes().all(|ch| ch.is_ascii_alphanumeric() || ch == b'-' || ch == b'_') { return Ok(("SourceGroupId", value.to_string())); }
+    if value.starts_with("pl-") && value.len() > 3 && value[3..].bytes().all(|ch| ch.is_ascii_alphanumeric() || ch == b'-' || ch == b'_') { return Ok(("SourcePrefixListId", value.to_string())); }
+    let (ip, mask) = value.split_once('/').ok_or("来源地址必须是 CIDR，例如 0.0.0.0/0")?;
+    let address = ip.parse::<std::net::IpAddr>().map_err(|_| "来源地址必须是有效的 CIDR".to_string())?;
+    let max_prefix = if address.is_ipv4() { 32 } else { 128 };
+    let prefix = mask.parse::<u8>().map_err(|_| "来源地址 CIDR 前缀无效".to_string())?;
+    if prefix > max_prefix { return Err("来源地址 CIDR 前缀无效".into()); }
+    Ok(("SourceCidrIp", value.to_string()))
+}
+
 fn security_group_params(region_id: String, security_group_id: String, ip_protocol: String, port_range: String, source_cidr_ip: String, policy: String, priority: i32, nic_type: Option<String>) -> Result<std::collections::BTreeMap<String, String>, String> {
-    let protocol = ip_protocol.trim().to_ascii_lowercase(); let range = port_range.trim().to_string(); let source = source_cidr_ip.trim().to_string();
+    let protocol = ip_protocol.trim().to_ascii_lowercase(); let range = port_range.trim().to_string();
+    let (source_key, source_value) = security_group_source_param(&source_cidr_ip)?;
     if region_id.is_empty() || security_group_id.trim().is_empty() { return Err("缺少安全组地域或安全组 ID".into()); }
     if !matches!(protocol.as_str(), "tcp" | "udp" | "icmp" | "gre" | "all") { return Err("不支持的安全组协议".into()); }
     let valid = range.split_once('/').and_then(|(start, end)| Some((start.parse::<i32>().ok()?, end.parse::<i32>().ok()?))).is_some_and(|(start, end)| if matches!(protocol.as_str(), "tcp" | "udp") { (start == -1 && end == -1) || (start >= 1 && end >= start && end <= 65535) } else { start == -1 && end == -1 });
     if !valid { return Err("端口范围与协议不匹配，请使用 80/80、8000/9000 或 -1/-1".into()); }
-    if source.is_empty() || !source.contains('/') { return Err("来源地址必须是 CIDR，例如 0.0.0.0/0".into()); }
     if !(1..=100).contains(&priority) { return Err("安全组规则优先级必须在 1 到 100 之间".into()); }
-    let mut params = crate::string_params(&[("RegionId", region_id), ("SecurityGroupId", security_group_id), ("IpProtocol", protocol), ("PortRange", range), ("SourceCidrIp", source), ("Policy", if policy.eq_ignore_ascii_case("drop") { "drop".into() } else { "accept".into() }), ("Priority", priority.to_string())]);
+    let mut params = crate::string_params(&[("RegionId", region_id), ("SecurityGroupId", security_group_id), ("IpProtocol", protocol), ("PortRange", range), ("Policy", if policy.eq_ignore_ascii_case("drop") { "drop".into() } else { "accept".into() }), ("Priority", priority.to_string())]);
+    params.insert(source_key.into(), source_value);
     if let Some(nic_type) = nic_type.map(|value| value.trim().to_ascii_lowercase()).filter(|value| matches!(value.as_str(), "internet" | "intranet")) { params.insert("NicType".into(), nic_type); }
     Ok(params)
 }
@@ -87,12 +114,12 @@ pub(crate) async fn list_security_groups(id: i64, region_id: &str, instance_id: 
     let response = request(&endpoint, "2014-05-26", "DescribeSecurityGroups", crate::string_params(&[("RegionId", region_id.to_string()), ("PageSize", "100".into())]), &access_key_id, &access_key_secret).await?;
     let groups = crate::array_at(&response, &["SecurityGroups", "SecurityGroup"]).into_iter().map(|group| { let vpc_id = group.get("VpcId").and_then(Value::as_str).unwrap_or(""); json!({"SecurityGroupId":group.get("SecurityGroupId").cloned().unwrap_or(json!("")),"SecurityGroupName":group.get("SecurityGroupName").cloned().unwrap_or(json!("")),"Description":group.get("Description").cloned().unwrap_or(json!("")),"VpcId":vpc_id,"NicType":if vpc_id.is_empty(){"internet"}else{"intranet"}}) }).filter(|group| attached.is_empty() || group.get("SecurityGroupId").and_then(Value::as_str).is_some_and(|value| attached.iter().any(|id| id == value))).collect::<Vec<_>>();
     let selected = security_group_id.filter(|value| groups.iter().any(|group| group.get("SecurityGroupId").and_then(Value::as_str) == Some(value.as_str()))).or_else(|| groups.first().and_then(|group| group.get("SecurityGroupId")).and_then(Value::as_str).map(String::from)).unwrap_or_default();
-    let rules = if selected.is_empty() { Vec::new() } else { let detail = request(&endpoint, "2014-05-26", "DescribeSecurityGroupAttribute", crate::string_params(&[("RegionId", region_id.to_string()), ("SecurityGroupId", selected.clone())]), &access_key_id, &access_key_secret).await?; crate::array_at(&detail, &["Permissions", "Permission"]).into_iter().filter(|rule| rule.get("Direction").and_then(Value::as_str).is_some_and(|direction| direction.eq_ignore_ascii_case("ingress"))).map(|rule| json!({"Direction":rule.get("Direction").cloned().unwrap_or(json!("")),"IpProtocol":rule.get("IpProtocol").cloned().unwrap_or(json!("")),"PortRange":rule.get("PortRange").cloned().unwrap_or(json!("")),"SourceCidrIp":rule.get("SourceCidrIp").cloned().unwrap_or(json!("")),"SourceGroupId":rule.get("SourceGroupId").cloned().unwrap_or(json!("")),"Policy":rule.get("Policy").cloned().unwrap_or(json!("accept")),"Priority":rule.get("Priority").cloned().unwrap_or(json!(1)),"Description":rule.get("Description").cloned().unwrap_or(json!("")),"NicType":rule.get("NicType").cloned().unwrap_or(json!(""))})).collect() };
+    let rules = if selected.is_empty() { Vec::new() } else { let detail = request(&endpoint, "2014-05-26", "DescribeSecurityGroupAttribute", crate::string_params(&[("RegionId", region_id.to_string()), ("SecurityGroupId", selected.clone())]), &access_key_id, &access_key_secret).await?; crate::array_at(&detail, &["Permissions", "Permission"]).into_iter().filter(|rule| rule.get("Direction").and_then(Value::as_str).is_some_and(|direction| direction.eq_ignore_ascii_case("ingress"))).map(|rule| json!({"Direction":rule.get("Direction").cloned().unwrap_or(json!("")),"IpProtocol":rule.get("IpProtocol").cloned().unwrap_or(json!("")),"PortRange":rule.get("PortRange").cloned().unwrap_or(json!("")),"SourceCidrIp":rule.get("SourceCidrIp").cloned().unwrap_or(json!("")),"SourceGroupId":rule.get("SourceGroupId").cloned().unwrap_or(json!("")),"SourcePrefixListId":rule.get("SourcePrefixListId").cloned().unwrap_or(json!("")),"Policy":rule.get("Policy").cloned().unwrap_or(json!("accept")),"Priority":rule.get("Priority").cloned().unwrap_or(json!(1)),"Description":rule.get("Description").cloned().unwrap_or(json!("")),"NicType":rule.get("NicType").cloned().unwrap_or(json!("")),"SecurityGroupRuleId":rule.get("SecurityGroupRuleId").cloned().unwrap_or(Value::Null)})).collect() };
     Ok(json!({"groups":groups,"selectedSecurityGroupId":selected,"rules":rules}))
 }
 
-pub(crate) async fn authorize_security_group_rule(id: i64, region_id: &str, security_group_id: &str, ip_protocol: String, port_range: String, source_cidr_ip: String, description: Option<String>, nic_type: Option<String>) -> Result<String, String> {
-    let (access_key_id, access_key_secret) = crate::account_credentials(id)?; let mut params = security_group_params(region_id.to_string(), security_group_id.to_string(), ip_protocol, port_range, source_cidr_ip, "accept".into(), 1, nic_type)?;
+pub(crate) async fn authorize_security_group_rule(id: i64, region_id: &str, security_group_id: &str, ip_protocol: String, port_range: String, source_cidr_ip: String, description: Option<String>, nic_type: Option<String>, policy: Option<String>) -> Result<String, String> {
+    let (access_key_id, access_key_secret) = crate::account_credentials(id)?; let mut params = security_group_params(region_id.to_string(), security_group_id.to_string(), ip_protocol, port_range, source_cidr_ip, policy.unwrap_or_else(|| "accept".into()), 1, nic_type)?;
     if let Some(description) = description.map(|value| value.trim().to_string()).filter(|value| !value.is_empty()) { params.insert("Description".into(), description); }
     let result = request(&format!("ecs.{region_id}.aliyuncs.com"), "2014-05-26", "AuthorizeSecurityGroup", params, &access_key_id, &access_key_secret).await?; Ok(result.get("RequestId").and_then(Value::as_str).unwrap_or_default().to_string())
 }
@@ -100,6 +127,28 @@ pub(crate) async fn authorize_security_group_rule(id: i64, region_id: &str, secu
 pub(crate) async fn revoke_security_group_rule(id: i64, region_id: &str, security_group_id: &str, ip_protocol: String, port_range: String, source_cidr_ip: String, policy: String, priority: i32, nic_type: Option<String>) -> Result<String, String> {
     let (access_key_id, access_key_secret) = crate::account_credentials(id)?; let params = security_group_params(region_id.to_string(), security_group_id.to_string(), ip_protocol, port_range, source_cidr_ip, policy, priority, nic_type)?;
     let result = request(&format!("ecs.{region_id}.aliyuncs.com"), "2014-05-26", "RevokeSecurityGroup", params, &access_key_id, &access_key_secret).await?; Ok(result.get("RequestId").and_then(Value::as_str).unwrap_or_default().to_string())
+}
+
+pub(crate) async fn modify_security_group_rule(id: i64, region_id: &str, security_group_id: &str, rule_id: &str, original: Value, updated: Value) -> Result<String, String> {
+    if region_id.trim().is_empty() || security_group_id.trim().is_empty() || rule_id.trim().is_empty() { return Err("缺少安全组地域、安全组 ID 或规则 ID".into()); }
+    let protocol = updated.get("protocol").and_then(Value::as_str).unwrap_or("").to_ascii_lowercase();
+    let ports = updated.get("ports").and_then(Value::as_str).unwrap_or("");
+    let source = updated.get("source").and_then(Value::as_str).unwrap_or("");
+    let (source_key, _) = security_group_source_param(source)?;
+    if let Some(original_source) = original.get("source").and_then(Value::as_str) {
+        let (original_key, _) = security_group_source_param(original_source)?;
+        if original_key != source_key { return Err("当前阿里云接口不支持修改来源类型".into()); }
+    }
+    let policy = updated.get("policy").and_then(Value::as_str).unwrap_or("accept");
+    let priority = updated.get("priority").and_then(Value::as_i64).unwrap_or(1) as i32;
+    let description = updated.get("description").and_then(Value::as_str).unwrap_or("");
+    let mut params = security_group_params(region_id.to_string(), security_group_id.to_string(), protocol, ports.to_string(), source.to_string(), policy.to_string(), priority, None)?;
+    params.insert("SecurityGroupRuleId".into(), rule_id.to_string());
+    params.insert("Direction".into(), "ingress".into());
+    params.insert("Description".into(), description.to_string());
+    let (ak, sk) = crate::account_credentials(id)?;
+    let result = request(&format!("ecs.{region_id}.aliyuncs.com"), "2014-05-26", "ModifySecurityGroupRule", params, &ak, &sk).await?;
+    Ok(result.get("RequestId").and_then(Value::as_str).unwrap_or_default().to_string())
 }
 
 fn ensure_account(id: i64) -> Result<(), String> { if crate::account_cloud_type(id)? != "aliyun" { return Err("当前账号不是阿里云账号".into()); } Ok(()) }
@@ -263,15 +312,87 @@ pub(crate) async fn finance_summary(id: i64) -> (Value, Value, Value, Value) {
 }
 
 pub(crate) async fn list_light_firewall_rules(id: i64, region: &str, instance_id: &str) -> Result<Value, String> {
-    if crate::account_cloud_type(id)? != "aliyun" { return Err("当前账号不是阿里云账号".into()); } let (access_key_id, access_key_secret) = crate::account_credentials(id)?; let result = request(&format!("swas.{region}.aliyuncs.com"), "2020-06-01", "ListFirewallRules", crate::string_params(&[("RegionId", region.to_string()), ("InstanceId", instance_id.to_string()), ("PageNumber", "1".into()), ("PageSize", "100".into())]), &access_key_id, &access_key_secret).await?; let rules = crate::array_at(&result, &["FirewallRules"]).into_iter().filter(|rule| rule.get("Policy").and_then(Value::as_str).unwrap_or("accept").eq_ignore_ascii_case("accept")).map(|rule| json!({"RuleId": rule.get("RuleId").cloned().unwrap_or(json!("")), "IpProtocol": rule.get("RuleProtocol").cloned().unwrap_or(json!("")), "PortRange": rule.get("Port").cloned().unwrap_or(json!("")), "SourceCidrIp": rule.get("SourceCidrIp").cloned().unwrap_or(json!("")), "Policy": rule.get("Policy").cloned().unwrap_or(json!("accept")), "Description": rule.get("Remark").cloned().unwrap_or(json!(""))})).collect::<Vec<_>>(); Ok(json!({"rules": rules}))
+    if crate::account_cloud_type(id)? != "aliyun" { return Err("当前账号不是阿里云账号".into()); } let (access_key_id, access_key_secret) = crate::account_credentials(id)?; let result = request(&format!("swas.{region}.aliyuncs.com"), "2020-06-01", "ListFirewallRules", crate::string_params(&[("RegionId", region.to_string()), ("InstanceId", instance_id.to_string()), ("PageNumber", "1".into()), ("PageSize", "100".into())]), &access_key_id, &access_key_secret).await?; let rules = crate::array_at(&result, &["FirewallRules"]).into_iter().filter(|rule| rule.get("Policy").and_then(Value::as_str).unwrap_or("accept").eq_ignore_ascii_case("accept")).map(|rule| json!({"RuleId": rule.get("RuleId").cloned().unwrap_or(json!("")), "IpProtocol": rule.get("RuleProtocol").cloned().unwrap_or(json!("")), "PortRange": json!(light_firewall_port(rule.get("Port").and_then(Value::as_str).unwrap_or(""))), "SourceCidrIp": rule.get("SourceCidrIp").cloned().unwrap_or(json!("")), "Policy": rule.get("Policy").cloned().unwrap_or(json!("accept")), "Description": rule.get("Remark").cloned().unwrap_or(json!(""))})).collect::<Vec<_>>(); Ok(json!({"rules": rules}))
 }
 
 pub(crate) async fn create_light_firewall_rule(id: i64, region: &str, instance_id: &str, protocol: &str, port: &str, source: &str, description: &str) -> Result<Value, String> {
-    if crate::account_cloud_type(id)? != "aliyun" { return Err("当前账号不是阿里云账号".into()); } let (access_key_id, access_key_secret) = crate::account_credentials(id)?; let rule = json!({"Port": port, "RuleProtocol": protocol.to_ascii_uppercase(), "SourceCidrIp": source, "Remark": description}); request(&format!("swas.{region}.aliyuncs.com"), "2020-06-01", "CreateFirewallRules", crate::string_params(&[("RegionId", region.to_string()), ("InstanceId", instance_id.to_string()), ("FirewallRules", json!([rule]).to_string())]), &access_key_id, &access_key_secret).await
+    if crate::account_cloud_type(id)? != "aliyun" { return Err("当前账号不是阿里云账号".into()); } let (access_key_id, access_key_secret) = crate::account_credentials(id)?; let rule = json!({"Port": light_firewall_port_input(port), "RuleProtocol": protocol.to_ascii_uppercase(), "SourceCidrIp": source, "Remark": description}); request(&format!("swas.{region}.aliyuncs.com"), "2020-06-01", "CreateFirewallRules", crate::string_params(&[("RegionId", region.to_string()), ("InstanceId", instance_id.to_string()), ("FirewallRules", json!([rule]).to_string())]), &access_key_id, &access_key_secret).await
 }
 
 pub(crate) async fn delete_light_firewall_rule(id: i64, region: &str, instance_id: &str, rule_id: &str) -> Result<Value, String> {
     if crate::account_cloud_type(id)? != "aliyun" { return Err("当前账号不是阿里云账号".into()); } let (access_key_id, access_key_secret) = crate::account_credentials(id)?; request(&format!("swas.{region}.aliyuncs.com"), "2020-06-01", "DeleteFirewallRules", crate::string_params(&[("RegionId", region.to_string()), ("InstanceId", instance_id.to_string()), ("RuleIds", rule_id.to_string())]), &access_key_id, &access_key_secret).await
+}
+
+/// 阿里云轻量返回的 Port：单端口是 `80`，范围是 `2000/3000`，ICMP 是 `-1`。统一成界面用的 `80/80`、`2000/3000`、`-1/-1`。
+fn light_firewall_port(port_range: &str) -> String {
+    let value = port_range.trim();
+    if value.is_empty() || value == "-1" { return "-1/-1".into(); }
+    match value.split_once('/') { Some((start, end)) => format!("{start}/{end}"), None => format!("{value}/{value}") }
+}
+
+/// 界面格式转回阿里云要求的 Port：单端口必须是 `80`，不能是 `80/80`；ICMP 是 `-1`。
+fn light_firewall_port_input(port_range: &str) -> String {
+    let value = port_range.trim();
+    if value.is_empty() || value == "-1/-1" { return "-1".into(); }
+    match value.split_once('/') {
+        Some((start, end)) if start == end => start.to_string(),
+        Some(_) => value.to_string(),
+        None => value.to_string(),
+    }
+}
+
+fn light_firewall_rule_fields(fields: &Value) -> Result<(String, String, String, String), String> {
+    let protocol = fields.get("protocol").and_then(Value::as_str).unwrap_or("").trim().to_ascii_lowercase();
+    if !matches!(protocol.as_str(), "tcp" | "udp" | "icmp") { return Err("阿里云轻量防火墙仅支持 TCP、UDP 或 ICMP 规则".into()); }
+    let ports = fields.get("ports").and_then(Value::as_str).unwrap_or("").trim();
+    let ports = if protocol == "icmp" {
+        if !matches!(ports, "" | "-1/-1" | "-1" | "ALL") { return Err("ICMP 协议不按端口控制，端口范围应为 ALL".into()); }
+        "-1/-1".to_string()
+    } else {
+        let (start_text, end_text, extra) = match ports.split_once('/') { Some(value) => (value.0, value.1, false), None => (ports, "", true) };
+        if extra { return Err("端口范围格式无效，请使用 80/80 或 8000/9000".into()); }
+        let start = start_text.parse::<u16>().map_err(|_| "端口范围格式无效，请使用 80/80 或 8000/9000".to_string())?;
+        let end = end_text.parse::<u16>().map_err(|_| "端口范围格式无效，请使用 80/80 或 8000/9000".to_string())?;
+        if start == 0 || end < start { return Err("端口范围必须在 1 到 65535 之间".into()); }
+        format!("{start}/{end}")
+    };
+    let source = fields.get("source").and_then(Value::as_str).unwrap_or("").trim();
+    let (ip, mask) = source.split_once('/').ok_or("来源地址必须是 IPv4 CIDR，例如 0.0.0.0/0")?;
+    let address = ip.parse::<std::net::IpAddr>().map_err(|_| "来源地址必须是有效的 CIDR".to_string())?;
+    if !address.is_ipv4() || mask.parse::<u8>().map_err(|_| "来源地址必须是有效的 CIDR".to_string())? > 32 { return Err("阿里云轻量防火墙暂不支持 IPv6 来源".into()); }
+    let description = fields.get("description").and_then(Value::as_str).unwrap_or("").trim();
+    if description.chars().count() > 80 || description.chars().any(char::is_control) { return Err("防火墙规则描述无效".into()); }
+    Ok((ports, source.to_string(), protocol, description.to_string()))
+}
+
+pub(crate) async fn modify_light_firewall_rule(id: i64, region: &str, instance_id: &str, rule_id: &str, original: Value, updated: Value) -> Result<String, String> {
+    ensure_account(id)?;
+    if region.trim().is_empty() || instance_id.trim().is_empty() { return Err("缺少轻量服务器地域或实例 ID".into()); }
+    if rule_id.is_empty() || rule_id.len() > 128 || !rule_id.bytes().all(|ch| ch.is_ascii_alphanumeric() || ch == b'-' || ch == b'_') { return Err("阿里云轻量防火墙规则 ID 无效".into()); }
+    let (ports, source, protocol, description) = light_firewall_rule_fields(&updated)?;
+    let (access_key_id, access_key_secret) = crate::account_credentials(id)?;
+    let endpoint = format!("swas.{region}.aliyuncs.com");
+    let before = request(&endpoint, "2020-06-01", "ListFirewallRules", crate::string_params(&[("RegionId", region.to_string()), ("InstanceId", instance_id.to_string()), ("PageNumber", "1".into()), ("PageSize", "100".into())]), &access_key_id, &access_key_secret).await?;
+    let current = crate::array_at(&before, &["FirewallRules"]).into_iter().find(|rule| rule.get("RuleId").and_then(Value::as_str) == Some(rule_id)).ok_or("轻量防火墙规则不存在，请刷新后重试")?;
+    let current_fields = json!({
+        "protocol": current.get("RuleProtocol").cloned().unwrap_or(Value::Null),
+        "ports": light_firewall_port(current.get("Port").and_then(Value::as_str).unwrap_or("")),
+        "source": current.get("SourceCidrIp").cloned().unwrap_or(Value::Null),
+        "description": current.get("Remark").cloned().unwrap_or(Value::Null),
+    });
+    if light_firewall_rule_fields(&original)? != light_firewall_rule_fields(&current_fields)? { return Err("轻量防火墙规则已被修改，请刷新后重试".into()); }
+    let params = crate::string_params(&[
+        ("RegionId", region.to_string()),
+        ("InstanceId", instance_id.to_string()),
+        ("RuleId", rule_id.to_string()),
+        ("RuleProtocol", protocol.to_ascii_uppercase()),
+        ("Port", light_firewall_port_input(&ports)),
+        ("SourceCidrIp", source),
+        ("Remark", description),
+        ("ClientToken", Uuid::new_v4().to_string()),
+    ]);
+    let result = request(&endpoint, "2020-06-01", "ModifyFirewallRule", params, &access_key_id, &access_key_secret).await?;
+    Ok(result.get("RequestId").and_then(Value::as_str).unwrap_or_default().to_string())
 }
 
 fn validate_object_key(key: &str) -> Result<(), String> { if key.is_empty() { return Err("对象路径不能为空".into()); } if key.as_bytes().len() > 1023 { return Err("对象路径不能超过 1023 字节".into()); } if key.starts_with('/') || key.starts_with('\\') { return Err("对象路径不能以斜杠开头".into()); } if key.chars().any(char::is_control) { return Err("对象路径不能包含控制字符".into()); } Ok(()) }
@@ -506,5 +627,40 @@ mod swas_asset_tests {
         assert_eq!(result["SystemDiskSize"], 40);
         assert!(result.get("MemoryInGB").is_none());
         assert!(result.get("Bandwidth").is_none());
+    }
+}
+
+#[cfg(test)]
+mod security_group_source_tests {
+    use super::{light_firewall_port, light_firewall_port_input, light_firewall_rule_fields, security_group_source_param};
+    use serde_json::json;
+
+    #[test]
+    fn maps_cidr_and_reference_sources_to_aliyun_parameters() {
+        assert_eq!(security_group_source_param("192.0.2.0/24").unwrap().0, "SourceCidrIp");
+        assert_eq!(security_group_source_param("sg-example").unwrap().0, "SourceGroupId");
+        assert_eq!(security_group_source_param("pl-example").unwrap().0, "SourcePrefixListId");
+        assert!(security_group_source_param("sg-bad/id").is_err());
+        assert!(security_group_source_param("192.0.2.0/33").is_err());
+    }
+
+    #[test]
+    fn validates_light_firewall_modification_fields() {
+        assert_eq!(light_firewall_port("8080"), "8080/8080");
+        let fields = light_firewall_rule_fields(&json!({"protocol":"tcp","ports":"8080/8080","source":"192.0.2.0/24","description":"web"})).unwrap();
+        assert_eq!(fields, ("8080/8080".into(), "192.0.2.0/24".into(), "tcp".into(), "web".into()));
+        assert!(light_firewall_rule_fields(&json!({"protocol":"tcp","ports":"8080","source":"192.0.2.0/24"})).is_err());
+    }
+
+    #[test]
+    fn converts_light_firewall_ports_to_aliyun_format() {
+        // 阿里云单端口必须是 80，写成 80/80 会被拒（InvalidPort.ValueNotSupported）。
+        assert_eq!(light_firewall_port_input("8080/8080"), "8080");
+        assert_eq!(light_firewall_port_input("2000/3000"), "2000/3000");
+        assert_eq!(light_firewall_port_input("-1/-1"), "-1");
+        assert_eq!(light_firewall_port("-1"), "-1/-1");
+        assert_eq!(light_firewall_port("2000/3000"), "2000/3000");
+        assert_eq!(light_firewall_rule_fields(&json!({"protocol":"icmp","ports":"-1/-1","source":"192.0.2.0/24"})).unwrap().0, "-1/-1");
+        assert!(light_firewall_rule_fields(&json!({"protocol":"icmp","ports":"8080/8080","source":"192.0.2.0/24"})).is_err());
     }
 }

@@ -20,13 +20,63 @@ fn rds(item: &Value, region: &str) -> Value { json!({"DBInstanceId": item.get("i
 fn redis(item: &Value, region: &str) -> Value { json!({"InstanceId": item.get("cacheInstanceId").or_else(|| item.get("instanceId")).or_else(|| item.get("id")), "InstanceName": item.get("cacheInstanceName").or_else(|| item.get("name")).or_else(|| item.get("cacheInstanceId")), "InstanceStatus": item.get("cacheInstanceStatus").or_else(|| item.get("status")), "InstanceType": "Redis", "InstanceClass": item.get("cacheInstanceClass").or_else(|| item.get("instanceClass")), "Capacity": item.get("cacheInstanceMemoryMB").or_else(|| item.get("memory")).unwrap_or(&json!(0)), "ConnectionDomain": item.get("cacheInstanceDomainName").or_else(|| item.get("connectionDomain")), "Port": item.get("port"), "EngineVersion": item.get("engineVersion"), "NetworkType": item.get("vpcId"), "_region_id": region, "_raw": item}) }
 fn bucket(item: &Value, region: &str) -> Value { let name = item.get("name").or_else(|| item.get("bucketName")).or_else(|| item.get("bucket")); json!({"Name": name, "BucketName": name, "Location": item.get("location").or_else(|| item.get("region")).unwrap_or(&json!(region)), "CreationDate": item.get("creationDate").or_else(|| item.get("createTime")), "StorageClass": item.get("storageClass").unwrap_or(&json!("STANDARD")), "Acl": item.get("acl").unwrap_or(&json!("private")), "ExtranetEndpoint": name.and_then(Value::as_str).filter(|v| !v.is_empty()).map(|v| format!("{v}.s3.{region}.jdcloud-oss.com")).unwrap_or_else(|| "-".into()), "IntranetEndpoint": "-", "_region_id": item.get("location").or_else(|| item.get("region")).unwrap_or(&json!(region)), "_raw": item}) }
 fn zone(item: &Value, region: &str) -> Value { json!({"DomainName": item.get("domainName").or_else(|| item.get("domain")).or_else(|| item.get("name")), "DomainStatus": item.get("status").unwrap_or(&json!("ACTIVE")), "ZoneId": item.get("id").or_else(|| item.get("domainId")).or_else(|| item.get("domainName")), "RecordCount": item.get("recordCount").or_else(|| item.get("recordNum")).unwrap_or(&json!(0)), "RegistrationDate": item.get("createTime"), "_region_id": region, "_jdcloud_dns": true, "_raw": item}) }
-fn swas(item: &Value, region: &str) -> Value { json!({"InstanceId": item.get("instanceId").or_else(|| item.get("id")), "InstanceName": item.get("name").or_else(|| item.get("instanceName")).or_else(|| item.get("instanceId")), "InstanceStatus": item.get("status").or_else(|| item.get("instanceStatus")), "Status": item.get("status").or_else(|| item.get("instanceStatus")), "PublicIpAddress": first_string(item.get("publicIpAddress").or_else(|| item.get("elasticIp")).or_else(|| item.get("publicIp"))), "PrivateIpAddress": first_string(item.get("privateIpAddress").or_else(|| item.get("privateIp"))), "InstanceType": item.get("instanceType").or_else(|| item.get("planName")).or_else(|| item.get("planId")).unwrap_or(&json!("")), "PlanId": item.get("planId").or_else(|| item.get("planName")).unwrap_or(&json!("")), "ImageId": item.get("imageId").or_else(|| item.get("imageName")).unwrap_or(&json!("")), "Cpu": item.get("cpu").or_else(|| item.get("cpuCores")).or_else(|| item.get("vCpu")).unwrap_or(&json!(0)), "Memory": item.get("memory").or_else(|| item.get("memorySize")).or_else(|| item.get("memoryMB")).unwrap_or(&json!(0)), "Bandwidth": item.get("bandwidth").or_else(|| item.get("bandwidthMbps")).unwrap_or(&json!(0)), "SystemDiskSize": item.get("systemDiskSize").or_else(|| item.get("systemDisk")).unwrap_or(&json!(0)), "ExpiredTime": item.get("expiredTime").or_else(|| item.get("expirationTime")).or_else(|| item.get("expireTime")).unwrap_or(&json!("")), "CreateTime": item.get("createTime").or_else(|| item.get("createdTime")).unwrap_or(&json!("")), "VpcId": item.get("vpcId").unwrap_or(&json!("")), "_region_id": region, "_raw": item}) }
+fn swas_field<'a>(item: &'a Value, keys: &[&str]) -> Option<&'a Value> { keys.iter().find_map(|key| item.get(*key).filter(|value| !value.is_null())) }
+
+fn swas(item: &Value, region: &str, plan: Option<&Value>, image: Option<&Value>) -> Value {
+    let charge_type = swas_field(item, &["chargeType", "ChargeType"]).cloned().unwrap_or(Value::Null);
+    let payment_timing = charge_type.as_str().map(|value| {
+        if value.to_ascii_lowercase().contains("postpaid") { "Postpaid" }
+        else if value.to_ascii_lowercase().contains("prepaid") || value.to_ascii_lowercase().contains("duration") { "Prepaid" }
+        else { "" }
+    }).unwrap_or("");
+    json!({
+        "InstanceId": swas_field(item, &["instanceId", "InstanceId", "id"]).unwrap_or(&Value::Null),
+        "InstanceName": swas_field(item, &["instanceName", "InstanceName", "name", "instanceId"]).unwrap_or(&Value::Null),
+        "InstanceStatus": swas_field(item, &["status", "instanceStatus", "InstanceStatus"]).unwrap_or(&Value::Null),
+        "Status": swas_field(item, &["status", "instanceStatus", "InstanceStatus"]).unwrap_or(&Value::Null),
+        "PublicIpAddress": first_string(swas_field(item, &["publicIpAddress", "PublicIpAddress", "elasticIp", "publicIp"])),
+        "PrivateIpAddress": first_string(swas_field(item, &["innerIpAddress", "privateIpAddress", "privateIp", "InnerIpAddress"])),
+        "InstanceType": swas_field(item, &["instanceType", "planName", "planId", "PlanId"]).or_else(|| plan.and_then(|value| swas_field(value, &["planName", "name"]))).unwrap_or(&Value::Null),
+        "PlanId": swas_field(item, &["planId", "PlanId", "planName"]).unwrap_or(&Value::Null),
+        "ImageId": swas_field(item, &["imageId", "ImageId", "imageName"]).unwrap_or(&Value::Null),
+        "ImageName": swas_field(item, &["imageName", "ImageName"]).or_else(|| image.and_then(|value| swas_field(value, &["imageName", "ImageName"]))).unwrap_or(&Value::Null),
+        "ImagePlatform": image.and_then(|value| swas_field(value, &["platform", "osType"])).unwrap_or(&Value::Null),
+        "Cpu": swas_field(item, &["cpu", "cpuCores", "vCpu", "Cpu", "CPU"]).or_else(|| plan.and_then(|value| swas_field(value, &["core", "cpu"]))).unwrap_or(&Value::Null),
+        "Memory": swas_field(item, &["memory", "memorySize", "memoryMB", "Memory"]).or_else(|| plan.and_then(|value| swas_field(value, &["memory"]))).unwrap_or(&Value::Null),
+        "Bandwidth": swas_field(item, &["bandwidth", "bandwidthMbps", "Bandwidth"]).or_else(|| plan.and_then(|value| swas_field(value, &["bandwidth"]))).unwrap_or(&Value::Null),
+        "SystemDiskSize": swas_field(item, &["systemDiskSize", "SystemDiskSize"]).or_else(|| plan.and_then(|value| swas_field(value, &["diskSize"]))).or_else(|| image.and_then(|value| swas_field(value, &["systemDiskSize"]))).unwrap_or(&Value::Null),
+        "DiskType": plan.and_then(|value| swas_field(value, &["diskType"])).unwrap_or(&Value::Null),
+        "MonthlyFlow": plan.and_then(|value| swas_field(value, &["flow"])).unwrap_or(&Value::Null),
+        "PlanClassification": plan.and_then(|value| swas_field(value, &["classification"])).unwrap_or(&Value::Null),
+        "OSType": swas_field(item, &["osType", "platform"]).or_else(|| image.and_then(|value| swas_field(value, &["platform", "osType"]))).unwrap_or(&Value::Null),
+        "ExpiredTime": swas_field(item, &["expiredTime", "ExpiredTime", "expirationTime", "expireTime"]).unwrap_or(&Value::Null),
+        "CreateTime": swas_field(item, &["createdTime", "createTime", "CreateTime", "CreationTime"]).unwrap_or(&Value::Null),
+        "CreationTime": swas_field(item, &["createdTime", "createTime", "CreateTime", "CreationTime"]).unwrap_or(&Value::Null),
+        "PaymentTiming": payment_timing,
+        "ChargeType": charge_type,
+        "BusinessStatus": swas_field(item, &["businessStatus", "BusinessStatus"]).unwrap_or(&Value::Null),
+        "RegionId": swas_field(item, &["regionId", "RegionId"]).unwrap_or(&json!(region)),
+        "VpcId": swas_field(item, &["vpcId", "VpcId"]).unwrap_or(&Value::Null),
+        "_region_id": region,
+        "_raw": item
+    })
+}
 
 pub(crate) async fn resource_items(id: i64, resource_type: &str) -> ResourceResponse {
     let now = Utc::now().timestamp_millis(); let regions = match crate::configured_regions(id, "cn-north-1") { Ok(v) => v, Err(e) => return ResourceResponse { resource_type: resource_type.into(), items: vec![], errors: vec![e], fetched_at: now } }; let mut items = Vec::new(); let mut errors = Vec::new();
     let definition = match resource_type { "ecs" => Some(("vm", "v1", "instances")), "rds" => Some(("rds", "v1", "instances")), "redis" => Some(("redis", "v1", "cacheInstance")), "oss" => Some(("oss", "v1", "buckets")), "domain" => Some(("domainservice", "v2", "domain")), "swas" => Some(("lavm", "v1", "instances")), _ => None };
     let Some((service, version, resource)) = definition else { return ResourceResponse { resource_type: resource_type.into(), items, errors: vec![format!("京东云暂未接入 {resource_type} 资源")], fetched_at: now }; };
-    for region in regions { let query = if resource_type == "oss" { BTreeMap::new() } else { crate::string_params(&[("pageNumber", "1".into()), ("pageSize", "100".into())]) }; match request(id, service, &region, &format!("/{version}/regions/{}/{}", crate::rpc_encode(&region), resource), query).await { Ok(data) => { let values = crate::array_at(&data, &["result", "instances"]).into_iter().chain(crate::array_at(&data, &["result", "cacheInstances"])).chain(crate::array_at(&data, &["result", "cacheInstance"])).chain(crate::array_at(&data, &["result", "buckets"])).chain(crate::array_at(&data, &["result", "dataList"])).chain(crate::array_at(&data, &["result", "data"])).chain(crate::array_at(&data, &["buckets"])); for item in values { items.push(match resource_type { "ecs" => instance(item, &region), "rds" => rds(item, &region), "redis" => redis(item, &region), "oss" => bucket(item, &region), "domain" => zone(item, &region), "swas" => swas(item, &region), _ => item.clone() }); } }, Err(e) => errors.push(format!("{region}: {e}")) } }
+    for region in regions { let query = if resource_type == "oss" { BTreeMap::new() } else { crate::string_params(&[("pageNumber", "1".into()), ("pageSize", "100".into())]) }; match request(id, service, &region, &format!("/{version}/regions/{}/{}", crate::rpc_encode(&region), resource), query).await { Ok(data) => { let values = crate::array_at(&data, &["result", "instances"]).into_iter().chain(crate::array_at(&data, &["result", "cacheInstances"])).chain(crate::array_at(&data, &["result", "cacheInstance"])).chain(crate::array_at(&data, &["result", "buckets"])).chain(crate::array_at(&data, &["result", "dataList"])).chain(crate::array_at(&data, &["result", "data"])).chain(crate::array_at(&data, &["buckets"])).cloned().collect::<Vec<_>>();
+            if resource_type == "swas" {
+                // Plans and images only enrich the instance list. Their failure must not make
+                // the successful base list look incomplete, otherwise native sync keeps stale
+                // cached rows and the newly mapped instance fields never become visible.
+                let plans = match request(id, "lavm", &region, &format!("/v1/regions/{}/plans", crate::rpc_encode(&region)), BTreeMap::new()).await { Ok(response) => crate::array_at(&response, &["result", "plans"]).into_iter().cloned().collect::<Vec<_>>(), Err(_) => Vec::new() };
+                let image_ids = values.iter().filter_map(|item| swas_field(item, &["imageId", "ImageId"]).and_then(Value::as_str)).filter(|value| !value.is_empty()).collect::<std::collections::BTreeSet<_>>();
+                let images = if image_ids.is_empty() { Vec::new() } else { let encoded_ids = serde_json::to_string(&image_ids).unwrap_or_else(|_| "[]".into()); match request(id, "lavm", &region, &format!("/v1/regions/{}/images", crate::rpc_encode(&region)), crate::string_params(&[("imageIds", encoded_ids)])).await { Ok(response) => crate::array_at(&response, &["result", "images"]).into_iter().cloned().collect::<Vec<_>>(), Err(_) => Vec::new() } };
+                for item in &values { let plan = swas_field(item, &["planId", "PlanId"]).and_then(Value::as_str).and_then(|key| plans.iter().find(|candidate| swas_field(candidate, &["planId"]).and_then(Value::as_str) == Some(key))); let image = swas_field(item, &["imageId", "ImageId"]).and_then(Value::as_str).and_then(|key| images.iter().find(|candidate| swas_field(candidate, &["imageId"]).and_then(Value::as_str) == Some(key))); items.push(swas(item, &region, plan, image)); }
+            } else { for item in &values { items.push(match resource_type { "ecs" => instance(item, &region), "rds" => rds(item, &region), "redis" => redis(item, &region), "oss" => bucket(item, &region), "domain" => zone(item, &region), _ => item.clone() }); } }
+        }, Err(e) => errors.push(format!("{region}: {e}")) } }
     ResourceResponse { resource_type: resource_type.into(), items, errors, fetched_at: now }
 }
 
@@ -48,9 +98,19 @@ async fn firewall_mutation(id: i64, region: &str, method: reqwest::Method, path:
     if crate::account_cloud_type(id)? != "jdcloud" { return Err("当前账号不是京东云账号".into()); }
     let (access_key_id, access_key_secret) = crate::account_credentials(id)?;
     let datetime = Utc::now().format("%Y%m%dT%H%M%SZ").to_string(); let date = &datetime[..8]; let host = format!("lavm.{region}.jdcloud-api.com"); let nonce = Uuid::new_v4().to_string();
-    let body = serde_json::to_string(&payload).map_err(|error| error.to_string())?; let payload_hash = format!("{:x}", Sha256::digest(body.as_bytes())); let canonical_headers = format!("content-type:application/json\nhost:{host}\nx-jdcloud-date:{datetime}\nx-jdcloud-nonce:{nonce}\n"); let signed_headers = "content-type;host;x-jdcloud-date;x-jdcloud-nonce";
-    let canonical_request = format!("{}\n{path}\n\n{canonical_headers}\n{signed_headers}\n{payload_hash}", method.as_str()); let scope = format!("{date}/{region}/lavm/jdcloud2_request"); let string_to_sign = format!("JDCLOUD2-HMAC-SHA256\n{datetime}\n{scope}\n{:x}", Sha256::digest(canonical_request.as_bytes())); let date_key = sign(format!("JDCLOUD2{access_key_secret}").as_bytes(), date)?; let region_key = sign(&date_key, region)?; let service_key = sign(&region_key, "lavm")?; let signing_key = sign(&service_key, "jdcloud2_request")?; let authorization = format!("JDCLOUD2-HMAC-SHA256 Credential={access_key_id}/{scope}, SignedHeaders={signed_headers}, Signature={}", hex::encode(sign(&signing_key, &string_to_sign)?));
-    let response = reqwest::Client::new().request(method.clone(), format!("https://{host}{path}")).header("Host", &host).header("Content-Type", "application/json").header("X-Jdcloud-Date", &datetime).header("X-Jdcloud-Nonce", nonce).header("Authorization", authorization).body(body).timeout(std::time::Duration::from_secs(30)).send().await.map_err(|error| format!("京东云请求失败: {error}"))?; let status = response.status(); let data: Value = response.json().await.map_err(|error| format!("京东云返回解析失败: {error}"))?; let operation = format!("{} {path}", method.as_str());
+    // JDCloud's DELETE firewall endpoint accepts its identifying fields as query parameters,
+    // not as a JSON body (which is commonly discarded by HTTP clients/proxies).
+    let deleting = method == reqwest::Method::DELETE;
+    let query_params = if deleting { payload.as_object().map(|values| values.iter().map(|(key, value)| (key.clone(), value.as_str().map(str::to_owned).unwrap_or_else(|| value.to_string()))).collect::<BTreeMap<_, _>>()).unwrap_or_default() } else { BTreeMap::new() };
+    let query_text = query(&query_params);
+    let body = if deleting { String::new() } else { serde_json::to_string(&payload).map_err(|error| error.to_string())? };
+    let payload_hash = format!("{:x}", Sha256::digest(body.as_bytes()));
+    let (canonical_headers, signed_headers) = if deleting { (format!("host:{host}\nx-jdcloud-date:{datetime}\nx-jdcloud-nonce:{nonce}\n"), "host;x-jdcloud-date;x-jdcloud-nonce") } else { (format!("content-type:application/json\nhost:{host}\nx-jdcloud-date:{datetime}\nx-jdcloud-nonce:{nonce}\n"), "content-type;host;x-jdcloud-date;x-jdcloud-nonce") };
+    let canonical_request = format!("{}\n{path}\n{query_text}\n{canonical_headers}\n{signed_headers}\n{payload_hash}", method.as_str()); let scope = format!("{date}/{region}/lavm/jdcloud2_request"); let string_to_sign = format!("JDCLOUD2-HMAC-SHA256\n{datetime}\n{scope}\n{:x}", Sha256::digest(canonical_request.as_bytes())); let date_key = sign(format!("JDCLOUD2{access_key_secret}").as_bytes(), date)?; let region_key = sign(&date_key, region)?; let service_key = sign(&region_key, "lavm")?; let signing_key = sign(&service_key, "jdcloud2_request")?; let authorization = format!("JDCLOUD2-HMAC-SHA256 Credential={access_key_id}/{scope}, SignedHeaders={signed_headers}, Signature={}", hex::encode(sign(&signing_key, &string_to_sign)?));
+    let url = format!("https://{host}{path}{}", if query_text.is_empty() { String::new() } else { format!("?{query_text}") });
+    let mut request = reqwest::Client::new().request(method.clone(), url).header("Host", &host).header("X-Jdcloud-Date", &datetime).header("X-Jdcloud-Nonce", nonce).header("Authorization", authorization);
+    if !deleting { request = request.header("Content-Type", "application/json").body(body); }
+    let response = request.timeout(std::time::Duration::from_secs(30)).send().await.map_err(|error| format!("京东云请求失败: {error}"))?; let status = response.status(); let data: Value = response.json().await.map_err(|error| format!("京东云返回解析失败: {error}"))?; let operation = format!("{} {path}", method.as_str());
     if !status.is_success() { let message = data.pointer("/error/message").or_else(|| data.get("message")).or_else(|| data.get("code")).and_then(Value::as_str).unwrap_or("京东云防火墙 API 返回错误").to_string(); crate::write_api_log(&access_key_id, &host, &operation, &payload, Some(&data), "失败", Some(&message)); return Err(message); }
     crate::write_api_log(&access_key_id, &host, &operation, &payload, Some(&data), "成功", None); Ok(data)
 }
@@ -66,5 +126,39 @@ pub(crate) async fn create_firewall_rule(id: i64, region: &str, instance_id: &st
 }
 
 pub(crate) async fn delete_firewall_rule(id: i64, region: &str, instance_id: &str, rule_id: &str) -> Result<Value, String> {
-    firewall_mutation(id, region, reqwest::Method::DELETE, &format!("/v1/regions/{}/firewallRule", crate::rpc_encode(region)), json!({"instanceId": instance_id, "ruleId": rule_id, "regionId": region})).await
+    firewall_mutation(id, region, reqwest::Method::DELETE, &format!("/v1/regions/{}/firewallRule", crate::rpc_encode(region)), json!({"instanceId": instance_id, "ruleId": rule_id})).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::swas;
+    use serde_json::json;
+
+    #[test]
+    fn maps_documented_jdcloud_light_server_fields() {
+        let plan = json!({"planId":"plan-basic","core":2,"memory":4,"bandwidth":5,"diskSize":80,"flow":1000,"diskType":"SSD"});
+        let image = json!({"imageId":"img-example","imageName":"Ubuntu 22.04","platform":"Ubuntu","systemDiskSize":"40"});
+        let item = swas(&json!({
+            "instanceId": "lavm-example", "instanceName": "web", "status": "running",
+            "createdTime": "2026-01-02T03:04:05Z", "innerIpAddress": "10.0.0.8",
+            "chargeType": "prepaid_by_duration", "planId": "plan-basic",
+            "publicIpAddress": ["192.0.2.8"], "regionId": "cn-north-1",
+            "expiredTime": "2027-01-02T03:04:05Z", "imageId": "img-example",
+            "businessStatus": "normal"
+        }), "cn-north-1", Some(&plan), Some(&image));
+
+        assert_eq!(item["InstanceId"], "lavm-example");
+        assert_eq!(item["PrivateIpAddress"], "10.0.0.8");
+        assert_eq!(item["PlanId"], "plan-basic");
+        assert_eq!(item["ImageId"], "img-example");
+        assert_eq!(item["CreateTime"], "2026-01-02T03:04:05Z");
+        assert_eq!(item["ExpiredTime"], "2027-01-02T03:04:05Z");
+        assert_eq!(item["PaymentTiming"], "Prepaid");
+        assert_eq!(item["Cpu"], 2);
+        assert_eq!(item["Memory"], 4);
+        assert_eq!(item["Bandwidth"], 5);
+        assert_eq!(item["SystemDiskSize"], 80);
+        assert_eq!(item["ImageName"], "Ubuntu 22.04");
+        assert_eq!(item["MonthlyFlow"], 1000);
+    }
 }

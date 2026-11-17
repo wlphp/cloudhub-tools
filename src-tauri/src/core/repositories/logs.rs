@@ -43,7 +43,9 @@ pub fn list_api_scoped(conn: &Connection, keyword: Option<&str>, status: Option<
     let status = status.map(str::trim).filter(|value| !value.is_empty());
     let limit = limit.clamp(1, 500);
     let offset = offset.max(0);
-    let mut statement = conn.prepare("SELECT l.id,l.account_id,a.account_name,l.endpoint,l.action,l.request_params,l.response_params,l.status,l.message,l.created_at FROM api_logs l LEFT JOIN cloud_accounts a ON a.id=l.account_id WHERE (?1 IS NULL OR COALESCE(a.account_name,'') LIKE ?1 OR l.endpoint LIKE ?1 OR l.action LIKE ?1 OR l.status LIKE ?1 OR COALESCE(l.message,'') LIKE ?1) AND (?2 IS NULL OR l.status=?2) AND (?5 IS NULL OR l.account_id=?5) AND (?6 IS NULL OR CASE WHEN json_valid(l.request_params) THEN json_extract(l.request_params, '$.instanceId') END = ?6) ORDER BY l.created_at DESC,l.id DESC LIMIT ?3 OFFSET ?4").map_err(|error| error.to_string())?;
+    // 实例过滤按“完整 JSON 字符串值”匹配 request_params：既能覆盖各云的 instanceId / InstanceId / InstanceIds:[id]
+    // 等不同字段名，又不会把 instance-a 误判成 instance-ab。
+    let mut statement = conn.prepare("SELECT l.id,l.account_id,a.account_name,l.endpoint,l.action,l.request_params,l.response_params,l.status,l.message,l.created_at FROM api_logs l LEFT JOIN cloud_accounts a ON a.id=l.account_id WHERE (?1 IS NULL OR COALESCE(a.account_name,'') LIKE ?1 OR l.endpoint LIKE ?1 OR l.action LIKE ?1 OR l.status LIKE ?1 OR COALESCE(l.message,'') LIKE ?1) AND (?2 IS NULL OR l.status=?2) AND (?5 IS NULL OR l.account_id=?5) AND (?6 IS NULL OR instr(l.request_params, '\"' || ?6 || '\"') > 0) ORDER BY l.created_at DESC,l.id DESC LIMIT ?3 OFFSET ?4").map_err(|error| error.to_string())?;
     let rows = statement.query_map(params![keyword, status, limit, offset, account_id, instance_id], |row| Ok(ApiLog {
         id: row.get(0)?, account_id: row.get(1)?, account_name: row.get(2)?, endpoint: row.get(3)?, action: row.get(4)?, request_params: row.get(5)?, response_params: row.get(6)?, status: row.get(7)?, message: row.get(8)?, created_at: row.get(9)?,
     })).map_err(|error| error.to_string())?;
@@ -125,7 +127,7 @@ mod tests {
     fn instance_logs_isolate_accounts_and_paginate_equal_timestamps() {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch("CREATE TABLE cloud_accounts (id INTEGER PRIMARY KEY, account_name TEXT); CREATE TABLE api_logs (id INTEGER PRIMARY KEY, account_id INTEGER, endpoint TEXT, action TEXT, request_params TEXT, response_params TEXT, status TEXT, message TEXT, created_at INTEGER);").unwrap();
-        for (id, account, request) in [(1, 1, r#"{"instanceId":"instance-a"}"#), (2, 1, r#"{"instanceId":"instance-b"}"#), (3, 2, r#"{"instanceId":"instance-a"}"#), (4, 1, "invalid-json"), (5, 1, r#"{"instanceId":"instance-a"}"#)] {
+        for (id, account, request) in [(1, 1, r#"{"instanceId":"instance-a"}"#), (2, 1, r#"{"instanceId":"instance-b"}"#), (3, 2, r#"{"instanceId":"instance-a"}"#), (4, 1, "invalid-json"), (5, 1, r#"{"instanceId":"instance-a"}"#), (6, 1, r#"{"InstanceId":"instance-c"}"#), (7, 1, r#"{"InstanceIds":["instance-d"]}"#), (8, 1, r#"{"instanceId":"instance-ab"}"#)] {
             conn.execute("INSERT INTO api_logs VALUES(?1,?2,'iaas','POST',?3,NULL,'成功',NULL,1)", rusqlite::params![id, account, request]).unwrap();
         }
         let first = super::list_api_scoped(&conn, None, None, 1, 0, Some(1), Some("instance-a")).unwrap();
@@ -133,6 +135,13 @@ mod tests {
         assert_eq!(first[0].id, 5);
         assert_eq!(second[0].id, 1);
         assert!(super::list_api_scoped(&conn, None, None, 1, 2, Some(1), Some("instance-a")).unwrap().is_empty());
+        // 各家云的字段名不同：驼峰、帕斯卡与 InstanceIds 数组都要能命中，且不做前缀误配。
+        let camel = super::list_api_scoped(&conn, None, None, 10, 0, Some(1), Some("instance-c")).unwrap();
+        assert_eq!(camel.iter().map(|log| log.id).collect::<Vec<_>>(), vec![6]);
+        let array = super::list_api_scoped(&conn, None, None, 10, 0, Some(1), Some("instance-d")).unwrap();
+        assert_eq!(array.iter().map(|log| log.id).collect::<Vec<_>>(), vec![7]);
+        let prefix = super::list_api_scoped(&conn, None, None, 10, 0, Some(1), Some("instance-ab")).unwrap();
+        assert_eq!(prefix.iter().map(|log| log.id).collect::<Vec<_>>(), vec![8]);
     }
 
 }

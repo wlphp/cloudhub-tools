@@ -11,7 +11,12 @@ const REGIONS: [&str; 6] = ["bj", "bd", "gz", "su", "hkg", "fwh"];
 fn canonical_uri(path: &str) -> String { let value = path.split('/').map(crate::rpc_encode).collect::<Vec<_>>().join("/"); if value.is_empty() { "/".into() } else { value } }
 fn canonical_query(query: &BTreeMap<String, String>, include_empty: bool) -> String { let mut values = query.iter().filter(|(_, value)| include_empty || !value.is_empty()).map(|(key, value)| (crate::rpc_encode(key), crate::rpc_encode(value))).collect::<Vec<_>>(); values.sort(); values.into_iter().map(|(key, value)| format!("{key}={value}")).collect::<Vec<_>>().join("&") }
 fn canonical_headers(headers: &[(&str, &str)]) -> String { let mut values = headers.iter().map(|(name, value)| (name.to_ascii_lowercase(), value.trim())).filter(|(_, value)| !value.is_empty()).map(|(name, value)| format!("{}:{}", crate::rpc_encode(&name), crate::rpc_encode(value))).collect::<Vec<_>>(); values.sort(); values.join("\n") }
-fn error_message(message: String) -> String { if message.contains("BceServiceRole_console_dns") { "DNS 服务未完成控制台服务角色授权。请用主账号登录百度智能云控制台并开通/访问一次智能云解析 DNS，或为当前子用户授予 DNS 只读权限后重试。".into() } else { message } }
+fn error_message(message: String) -> String {
+    let lower = message.to_ascii_lowercase();
+    if message.contains("BceServiceRole_console_dns") { "DNS 服务未完成控制台服务角色授权。请用主账号登录百度智能云控制台并开通/访问一次智能云解析 DNS，或为当前子用户授予 DNS 只读权限后重试。".into() }
+    else if lower.contains("duplicated") || lower.contains("already exists") { "该规则已存在：百度云不允许重复添加相同规则（协议、端口范围、来源一致即视为重复，备注也参与判重）。改一下描述或端口后重试；若刚提交过，刷新列表就能看到已有规则。".into() }
+    else { message }
+}
 async fn request_with_options(id: i64, host: &str, path: &str, query: BTreeMap<String, String>, method: &str, body: Option<Value>, include_empty: bool) -> Result<(Value, String), String> {
     if crate::account_cloud_type(id)? != "baidu" { return Err("当前账号不是百度智能云账号".into()); }
     let (access_key_id, access_key_secret) = crate::account_credentials(id)?;
@@ -106,16 +111,69 @@ pub(crate) async fn instance_action(id: i64, region_id: &str, instance_id: &str,
     let (data, _) = request_with_options(id, &host, &path, query, "PUT", body, true).await?; Ok(data)
 }
 
-fn security_group_rule_input(ip_protocol: String, port_range: String, source_cidr_ip: String, description: Option<String>) -> Result<Value, String> {
-    let protocol = ip_protocol.trim().to_ascii_lowercase(); let port_range = port_range.trim(); let source_ip = source_cidr_ip.trim();
-    let Some((start, end)) = port_range.split_once('/') else { return Err("端口范围格式无效，请使用 80/80 或 8000/9000".into()); };
-    let Ok(start) = start.parse::<u16>() else { return Err("端口范围格式无效，请使用 80/80 或 8000/9000".into()); }; let Ok(end) = end.parse::<u16>() else { return Err("端口范围格式无效，请使用 80/80 或 8000/9000".into()); };
-    if !matches!(protocol.as_str(), "tcp" | "udp") { return Err("百度云安全组端口仅支持 TCP 或 UDP".into()); }
+/// 百度云普通安全组：protocol 仅支持 tcp / udp / icmp，空值代表 all。
+fn security_group_protocol(value: &str) -> String {
+    let value = value.trim().to_ascii_lowercase();
+    if value.is_empty() { "all".into() } else { value }
+}
+
+/// ICMP 与 ALL 不按端口控制，百度云以空 portRange 表示全部端口；TCP/UDP 的空 portRange 表示 1-65535。
+fn security_group_port_range(protocol: &str, ports: &str) -> Result<String, String> {
+    if matches!(protocol, "icmp" | "all") {
+        return match ports.trim().to_ascii_lowercase().as_str() {
+            "" | "-1/-1" | "all" | "1/65535" | "1-65535" => Ok(String::new()),
+            _ => Err("ICMP 与 ALL 协议不按端口控制，请勿指定端口范围".into()),
+        };
+    }
+    if matches!(ports.trim().to_ascii_lowercase().as_str(), "-1/-1" | "all" | "") { return Ok("1-65535".into()); }
+    let (start_text, end_text, extra) = match ports.trim().split_once('/') { Some(value) => (value.0, value.1, false), None => (ports.trim(), "", true) };
+    if extra { return Err("端口范围格式无效，请使用 80/80 或 8000/9000".into()); }
+    let start = start_text.parse::<u16>().map_err(|_| "端口范围格式无效，请使用 80/80 或 8000/9000".to_string())?;
+    let end = end_text.parse::<u16>().map_err(|_| "端口范围格式无效，请使用 80/80 或 8000/9000".to_string())?;
     if start == 0 || end < start { return Err("端口范围必须在 1 到 65535 之间".into()); }
-    if source_ip.is_empty() || !source_ip.contains('/') { return Err("来源地址必须是 CIDR，例如 0.0.0.0/0".into()); }
-    let mut rule = json!({"direction":"ingress","ethertype":"IPv4","portRange":format!("{start}-{end}"),"protocol":protocol,"sourceIp":source_ip});
-    if let Some(description) = description.map(|value| value.trim().to_string()).filter(|value| !value.is_empty()) { rule["remark"] = json!(description); }
-    Ok(rule)
+    Ok(format!("{start}-{end}"))
+}
+
+/// 百度云把“全部地址”返回为 all，统一换成 0.0.0.0/0，避免表单校验与改前比对失败。
+fn security_group_source(value: &str) -> String {
+    let value = value.trim();
+    if value.eq_ignore_ascii_case("all") { "0.0.0.0/0".into() } else { value.to_string() }
+}
+
+fn security_group_source_check(source: &str) -> Result<(), String> {
+    if source.is_empty() { return Err("来源地址不能为空".into()); }
+    if let Some(id) = source.strip_prefix("sg-") {
+        if id.is_empty() || source.len() > 128 || !id.bytes().all(|ch| ch.is_ascii_alphanumeric() || ch == b'-' || ch == b'_') { return Err("来源安全组 ID 无效".into()); }
+        return Ok(());
+    }
+    if source.starts_with("pl-") { return Err("百度云普通安全组不支持前缀列表引用".into()); }
+    let (ip, mask) = source.split_once('/').ok_or("来源地址必须是 IPv4 CIDR，例如 0.0.0.0/0")?;
+    let address = ip.parse::<std::net::IpAddr>().map_err(|_| "来源地址必须是有效的 CIDR".to_string())?;
+    if !address.is_ipv4() { return Err("百度云普通安全组暂不支持 IPv6 来源".into()); }
+    if mask.parse::<u8>().map_err(|_| "来源地址必须是有效的 CIDR".to_string())? > 32 { return Err("来源地址必须是有效的 CIDR".into()); }
+    Ok(())
+}
+
+fn security_group_rule_body(protocol: &str, port_range: &str, source: &str, description: &str) -> Value {
+    let mut rule = json!({"direction":"ingress","ethertype":"IPv4","portRange":port_range});
+    if protocol != "all" { rule["protocol"] = json!(protocol); }
+    if source.starts_with("sg-") { rule["sourceGroupId"] = json!(source); } else { rule["sourceIp"] = json!(source); }
+    if !description.is_empty() { rule["remark"] = json!(description); }
+    rule
+}
+
+/// 修改接口只接受规则自身字段，避免回传 direction / ethertype 这类不可变字段。
+fn security_group_rule_patch(rule_id: &str, protocol: &str, port_range: &str, source: &str, description: &str) -> Value {
+    let mut body = json!({"securityGroupRuleId": rule_id, "portRange": port_range, "remark": description});
+    if protocol != "all" { body["protocol"] = json!(protocol); }
+    if source.starts_with("sg-") { body["sourceGroupId"] = json!(source); } else { body["sourceIp"] = json!(source); }
+    body
+}
+
+fn security_group_rule_input(ip_protocol: String, port_range: String, source_cidr_ip: String, description: Option<String>) -> Result<Value, String> {
+    let fields = json!({"protocol": ip_protocol, "ports": port_range, "source": source_cidr_ip, "description": description.unwrap_or_default()});
+    let (ports, source, protocol, description) = security_group_rule_fields(&fields)?;
+    Ok(security_group_rule_body(&protocol, &ports, &source, &description))
 }
 
 fn security_group_port(port_range: &str) -> String { let value = port_range.trim(); if value.is_empty() { return "-1/-1".into(); } if let Some((start, end)) = value.split_once('-') { format!("{start}/{end}") } else { format!("{value}/{value}") } }
@@ -127,7 +185,7 @@ pub(crate) async fn list_security_groups(id: i64, region_id: &str, instance_id: 
     let selected = security_group_id.filter(|value| groups.iter().any(|group| group.get("SecurityGroupId").and_then(Value::as_str) == Some(value.as_str()))).or_else(|| groups.first().and_then(|group| group.get("SecurityGroupId")).and_then(Value::as_str).map(String::from)).unwrap_or_default();
     if selected.is_empty() { return Ok(json!({"groups":groups,"selectedSecurityGroupId":"","rules":[]})); }
     let (detail, _) = request(id, &host, &format!("/v2/securityGroup/{selected}"), BTreeMap::new()).await?;
-    let rules = crate::array_at(&detail, &["rules"]).into_iter().filter(|rule| rule.get("direction").and_then(Value::as_str).is_some_and(|direction| direction.eq_ignore_ascii_case("ingress"))).map(|rule| json!({"Direction":rule.get("direction").cloned().unwrap_or(json!("ingress")),"IpProtocol":rule.get("protocol").cloned().unwrap_or(json!("")),"PortRange":security_group_port(rule.get("portRange").and_then(Value::as_str).unwrap_or("")),"SourceCidrIp":rule.get("sourceIp").cloned().unwrap_or(json!("")),"SourceGroupId":rule.get("sourceGroupId").cloned().unwrap_or(json!("")),"Policy":"accept","Priority":0,"Description":rule.get("remark").cloned().unwrap_or(json!("")),"NicType":"","SecurityGroupRuleId":rule.get("securityGroupRuleId").cloned().unwrap_or(json!(""))})).collect::<Vec<_>>();
+    let rules = crate::array_at(&detail, &["rules"]).into_iter().filter(|rule| rule.get("direction").and_then(Value::as_str).is_some_and(|direction| direction.eq_ignore_ascii_case("ingress"))).map(|rule| json!({"Direction":rule.get("direction").cloned().unwrap_or(json!("ingress")),"IpProtocol":security_group_protocol(rule.get("protocol").and_then(Value::as_str).unwrap_or("")),"PortRange":security_group_port(rule.get("portRange").and_then(Value::as_str).unwrap_or("")),"SourceCidrIp":security_group_source(rule.get("sourceIp").and_then(Value::as_str).unwrap_or("")),"SourceGroupId":rule.get("sourceGroupId").cloned().unwrap_or(json!("")),"Policy":"accept","Description":rule.get("remark").cloned().unwrap_or(json!("")),"UpdateTime":rule.get("updatedTime").cloned().unwrap_or(json!("")),"NicType":"","SecurityGroupRuleId":rule.get("securityGroupRuleId").or_else(|| rule.get("ruleId")).or_else(|| rule.get("id")).cloned().unwrap_or(json!(""))})).collect::<Vec<_>>();
     Ok(json!({"groups":groups,"selectedSecurityGroupId":selected,"rules":rules,"sgVersion":detail.get("sgVersion").cloned().unwrap_or(Value::Null)}))
 }
 
@@ -142,6 +200,39 @@ pub(crate) async fn revoke_security_group_rule(id: i64, region_id: &str, _securi
     if region_id.trim().is_empty() { return Err("缺少安全组地域".into()); } let rule_id = rule_id.filter(|value| !value.trim().is_empty()).ok_or("缺少百度云安全组规则 ID")?;
     let mut query = crate::string_params(&[("clientToken", uuid::Uuid::new_v4().to_string())]); if let Some(version) = sg_version { query.insert("sgVersion".into(), version.to_string()); }
     let host = format!("bcc.{region_id}.baidubce.com"); let (result, _) = request_with_options(id, &host, &format!("/v2/securityGroup/rule/{rule_id}"), query, "DELETE", None, false).await?;
+    Ok(result.get("requestId").or_else(|| result.get("RequestId")).and_then(Value::as_str).unwrap_or_default().to_string())
+}
+
+fn security_group_rule_fields(fields: &Value) -> Result<(String, String, String, String), String> {
+    let protocol = security_group_protocol(fields.get("protocol").and_then(Value::as_str).unwrap_or(""));
+    if !matches!(protocol.as_str(), "tcp" | "udp" | "icmp" | "all") { return Err("百度云安全组协议仅支持 TCP、UDP、ICMP 或 ALL".into()); }
+    let ports = security_group_port_range(&protocol, fields.get("ports").and_then(Value::as_str).unwrap_or(""))?;
+    let source = security_group_source(fields.get("source").and_then(Value::as_str).unwrap_or(""));
+    security_group_source_check(&source)?;
+    let description = fields.get("description").and_then(Value::as_str).unwrap_or("").trim();
+    if description.chars().count() > 80 || description.chars().any(char::is_control) { return Err("安全组规则描述无效".into()); }
+    Ok((ports, source, protocol, description.to_string()))
+}
+
+pub(crate) async fn modify_security_group_rule(id: i64, region_id: &str, security_group_id: &str, rule_id: &str, original: Value, updated: Value, sg_version: Option<i64>) -> Result<String, String> {
+    if region_id.trim().is_empty() || security_group_id.trim().is_empty() { return Err("缺少安全组地域或安全组 ID".into()); }
+    if rule_id.is_empty() || rule_id.len() > 128 || !rule_id.bytes().all(|ch| ch.is_ascii_alphanumeric() || ch == b'-' || ch == b'_') { return Err("百度云安全组规则 ID 无效".into()); }
+    let (ports, source, protocol, description) = security_group_rule_fields(&updated)?;
+    let host = format!("bcc.{region_id}.baidubce.com");
+    // Re-read before writing: a stale editor must not overwrite a rule changed elsewhere.
+    let (detail, _) = request(id, &host, &format!("/v2/securityGroup/{security_group_id}"), BTreeMap::new()).await?;
+    let current = crate::array_at(&detail, &["rules"]).into_iter().find(|rule| rule.get("securityGroupRuleId").or_else(|| rule.get("ruleId")).or_else(|| rule.get("id")).and_then(Value::as_str) == Some(rule_id)).ok_or("安全组规则不存在，请刷新后重试")?;
+    let current_source = { let ip = security_group_source(current.get("sourceIp").and_then(Value::as_str).unwrap_or("")); if ip.is_empty() { current.get("sourceGroupId").and_then(Value::as_str).unwrap_or("").trim().to_string() } else { ip } };
+    let current_fields = json!({
+        "protocol": current.get("protocol").cloned().unwrap_or(Value::Null),
+        "ports": security_group_port(current.get("portRange").and_then(Value::as_str).unwrap_or("")),
+        "source": current_source,
+        "description": current.get("remark").cloned().unwrap_or(Value::Null),
+    });
+    if security_group_rule_fields(&original)? != security_group_rule_fields(&current_fields)? { return Err("安全组规则已被修改，请刷新后重试".into()); }
+    let mut query = crate::string_params(&[("clientToken", uuid::Uuid::new_v4().to_string())]); if let Some(version) = sg_version { query.insert("sgVersion".into(), version.to_string()); }
+    let body = security_group_rule_patch(rule_id, &protocol, &ports, &source, &description);
+    let (result, _) = request_with_options(id, &host, "/v2/securityGroup/rule/update", query, "PUT", Some(body), true).await?;
     Ok(result.get("requestId").or_else(|| result.get("RequestId")).and_then(Value::as_str).unwrap_or_default().to_string())
 }
 
@@ -172,5 +263,42 @@ mod bcc_asset_tests {
         assert!(missing["OSName"].is_null());
         let eip = instance(&json!({"networkCapacityInMbps":0, "nicInfo":{"ips":[{"primary":"true", "eipSize":"10"}]}}), "bd");
         assert_eq!(eip["InternetMaxBandwidthOut"], 10.0);
+    }
+}
+
+#[cfg(test)]
+mod security_group_rule_tests {
+    use super::{error_message, security_group_rule_fields, security_group_source};
+    use serde_json::json;
+
+    #[test]
+    fn translates_duplicate_rule_errors() {
+        let message = error_message("Security group rule is duplicated.".into());
+        assert!(message.contains("该规则已存在"));
+        assert_eq!(error_message("InvalidAccessKeyId".into()), "InvalidAccessKeyId");
+    }
+
+    #[test]
+    fn normalizes_modifiable_rule_fields() {
+        let fields = security_group_rule_fields(&json!({"protocol":"TCP","ports":"8080/8080","source":"192.0.2.0/24","description":"web"})).unwrap();
+        assert_eq!(fields, ("8080-8080".into(), "192.0.2.0/24".into(), "tcp".into(), "web".into()));
+    }
+
+    #[test]
+    fn accepts_icmp_all_and_group_references() {
+        assert_eq!(security_group_rule_fields(&json!({"protocol":"icmp","ports":"-1/-1","source":"192.0.2.0/24"})).unwrap(), ("".into(), "192.0.2.0/24".into(), "icmp".into(), "".into()));
+        assert_eq!(security_group_rule_fields(&json!({"protocol":"","ports":"-1/-1","source":"0.0.0.0/0"})).unwrap(), ("".into(), "0.0.0.0/0".into(), "all".into(), "".into()));
+        assert_eq!(security_group_rule_fields(&json!({"protocol":"tcp","ports":"22/22","source":"sg-abc123"})).unwrap(), ("22-22".into(), "sg-abc123".into(), "tcp".into(), "".into()));
+        assert_eq!(security_group_source("all"), "0.0.0.0/0");
+    }
+
+    #[test]
+    fn rejects_unsupported_baidu_rule_fields() {
+        assert!(security_group_rule_fields(&json!({"protocol":"gre","ports":"-1/-1","source":"192.0.2.0/24"})).is_err());
+        assert!(security_group_rule_fields(&json!({"protocol":"icmpv6","ports":"-1/-1","source":"0.0.0.0/0"})).is_err());
+        assert!(security_group_rule_fields(&json!({"protocol":"icmp","ports":"8080/8080","source":"192.0.2.0/24"})).is_err());
+        assert!(security_group_rule_fields(&json!({"protocol":"tcp","ports":"8080","source":"192.0.2.0/24"})).is_err());
+        assert!(security_group_rule_fields(&json!({"protocol":"tcp","ports":"8080/8080","source":"2001:db8::/64"})).is_err());
+        assert!(security_group_rule_fields(&json!({"protocol":"tcp","ports":"22/22","source":"pl-abc123"})).is_err());
     }
 }

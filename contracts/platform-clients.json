@@ -188,7 +188,9 @@
     "app_lock_remove_secret",
     "app_lock_set_config",
     "app_lock_note_background",
-    "app_lock_lock_now"
+    "app_lock_lock_now",
+    "app_update_probe",
+    "app_update_info"
   ],
   "domains": [
     {
@@ -457,7 +459,8 @@
             "stop_instance",
             "instance_status",
             "rename_server",
-            "vultr_instance_manage"
+            "vultr_instance_manage",
+            "volc_instance_action"
           ],
           "preview": [
             {
@@ -512,12 +515,23 @@
             "list_aliyun_security_groups",
             "authorize_aliyun_security_group_rule",
             "revoke_aliyun_security_group_rule",
+            "modify_aliyun_security_group_rule",
             "list_tencent_security_groups",
             "authorize_tencent_security_group_rule",
             "revoke_tencent_security_group_rule",
+            "modify_tencent_security_group_rule",
             "list_baidu_security_groups",
             "authorize_baidu_security_group_rule",
-            "revoke_baidu_security_group_rule"
+            "revoke_baidu_security_group_rule",
+            "modify_baidu_security_group_rule",
+            "list_volc_security_groups",
+            "authorize_volc_security_group_rule",
+            "revoke_volc_security_group_rule",
+            "update_volc_security_group_rule",
+            "list_oracle_security_groups",
+            "authorize_oracle_security_group_rule",
+            "revoke_oracle_security_group_rule",
+            "modify_oracle_security_group_rule"
           ],
           "preview": [
             {
@@ -543,6 +557,14 @@
             {
               "method": "POST",
               "path": "/api/baidu-security-group-rules"
+            },
+            {
+              "method": "GET",
+              "path": "/api/oracle-security-groups"
+            },
+            {
+              "method": "POST",
+              "path": "/api/oracle-security-group-rules"
             }
           ]
         },
@@ -551,7 +573,9 @@
           "native": [
             "list_light_firewall_rules",
             "create_light_firewall_rule",
-            "delete_light_firewall_rule"
+            "delete_light_firewall_rule",
+            "update_light_firewall_rule_description",
+            "modify_light_firewall_rule"
           ],
           "preview": [
             {
@@ -1509,6 +1533,25 @@
             "open_app_data_directory"
           ],
           "preview": []
+        },
+        {
+          "name": "updates",
+          "native": [
+            "app_update_probe",
+            "app_update_info",
+            "app_update_check",
+            "app_update_install"
+          ],
+          "preview": [
+            {
+              "method": "GET",
+              "path": "/api/app-update-probe"
+            },
+            {
+              "method": "GET",
+              "path": "/api/app-update-info"
+            }
+          ]
         }
       ]
     },

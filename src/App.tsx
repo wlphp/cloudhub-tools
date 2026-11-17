@@ -56,6 +56,7 @@ import { resourceColumns } from "./features/resources/pure";
 import { fetchCachedSummary } from "./features/resources/cache";
 import { ResourceErrorList } from "./features/resources/ResourceErrorList";
 import { useAppUpdates } from "./features/app/useAppUpdates";
+import { UpdateSourceControl } from "./features/app/UpdateSourceControl";
 import { translateUiText } from "./i18n/ui-strings";
 import { useResourceWorkspace } from "./features/resources/useResourceWorkspace";
 import { accountGroups, filterAccounts } from "./features/accounts/pure";
@@ -268,7 +269,7 @@ function syncAssetTypes(account: Account): ReadonlyArray<(typeof assetTypes)[num
 }
 const assetTypes = catalogAssetTypes;
 
-const bundledVersion = "0.1.146";
+const bundledVersion = "0.1.147";
 const isDevelopmentBuild = import.meta.env.DEV;
 
 const detachedTerminalHostId = (() => {
@@ -526,7 +527,7 @@ function App() {
   const [autoRefresh, setAutoRefresh] = useState(() => readLocalStorage("aliyun-auto-refresh") !== "0");
   const [compactMode, setCompactMode] = useState(() => readLocalStorage("aliyun-compact-mode") === "1");
   const [startupAnimationEnabled, setStartupAnimationEnabled] = useState(true);
-  const { appVersion, isDevelopment, updateState, checkForUpdates, installUpdate } = useAppUpdates(bundledVersion, setStatus);
+  const { appVersion, isDevelopment, updateState, checkForUpdates, installUpdate, sourceSettings: updateSourceSettings, route: updateRoute, routeMessage: updateRouteMessage } = useAppUpdates(bundledVersion, setStatus);
   const [logFilter, setLogFilter] = useState("");
   const [logTypeFilter, setLogTypeFilter] = useState("");
   const [resourceAccountId, setResourceAccountId] = useState<number | null>(null);
@@ -1829,6 +1830,8 @@ function App() {
       } else if (account.cloud_type === "oracle") {
         const payload = { id: account.id, regionId, instanceId, action: forceStop ? "forceReboot" : "reboot" };
         await serversClient.providerAction("oracle", payload);
+      } else if (account.cloud_type === "volcengine") {
+        await serversClient.providerAction("volcengine", { id: account.id, regionId, instanceId, action: "reboot", forceStop });
       } else if (account.cloud_type === "baidu") {
         const payload = { id: account.id, regionId, instanceId, action: "reboot", forceStop };
         await serversClient.providerAction("baidu", payload);
@@ -1860,6 +1863,8 @@ function App() {
       } else if (account.cloud_type === "oracle") {
         const payload = { id: account.id, regionId, instanceId, action: "stop" };
         await serversClient.providerAction("oracle", payload);
+      } else if (account.cloud_type === "volcengine") {
+        await serversClient.providerAction("volcengine", { id: account.id, regionId, instanceId, action: "stop", forceStop: false });
       } else if (account.cloud_type === "baidu") {
         const payload = { id: account.id, regionId, instanceId, action: "stop", forceStop: false };
         await serversClient.providerAction("baidu", payload);
@@ -2318,7 +2323,9 @@ function App() {
     } catch (error) { setStatus(`取消资产同步失败：${String(error)}`); }
   }
 
-  const syncResultLevel = syncResult?.errors.length ? (syncResult.fetched > 0 ? "warning" : "has-errors") : "success";
+  const syncFailedTypes = new Set(syncResult?.errors.map(error => error.split(":", 1)[0]) ?? []);
+  const syncHasCompletedTypes = syncTypes.some(type => syncResult && Object.prototype.hasOwnProperty.call(syncResult.counts, type) && !syncFailedTypes.has(type));
+  const syncResultLevel = syncResult?.errors.length ? (syncHasCompletedTypes ? "warning" : "has-errors") : "success";
   const showOracleDatabasePermissionHint = syncAccount?.cloud_type === "oracle" && Boolean(syncResult?.errors.some((error) => /rds:.*Authorization failed or requested resource not found/i.test(error)));
 
   async function cachedSummary(account: Account) {
@@ -3880,7 +3887,7 @@ function App() {
     if (asset.resource_type === "ecs" || asset.resource_type === "swas") {
       const key = assetFavoriteKey(asset);
       const linkedPanel = panelConnections.find((panel) => panel.source_account_id === account.id && panel.source_asset_key === asset.asset_key);
-      const canControl = ["aliyun", "tencent", "baidu", "oracle", "jdcloud", "vultr"].includes(account.cloud_type);
+      const canControl = ["aliyun", "tencent", "baidu", "oracle", "jdcloud", "vultr", "volcengine"].includes(account.cloud_type);
       return <div className="asset-action-buttons server-asset-actions">
         {canControl && <button className="asset-force-reboot-button" onClick={() => void rebootLocalAsset(asset, true)}>强制重启</button>}
         <span className={`asset-more-wrap${assetMoreKey === key ? " is-open" : ""}`} onClick={(event) => event.stopPropagation()}>
@@ -5234,10 +5241,11 @@ function App() {
                   ) : runningInTauri && updateState.phase === "ready" ? (
                     <button type="button" className="primary-update-btn" disabled><RefreshCw size={14} className="spin" />正在重启…</button>
                   ) : runningInTauri ? (
-                    <button type="button" className="secondary" disabled={isDevelopment} onClick={() => void checkForUpdates()}><RefreshCw size={14} />检查更新</button>
+                    <button type="button" className="secondary" disabled={isDevelopment || updateState.phase === "checking" || updateSourceSettings.saving} onClick={() => void checkForUpdates()}><RefreshCw size={14} />检查更新</button>
                   ) : null}
                 </div>
                 <p className="about-card-status">{isDevelopment ? `开发版 v${appVersion} · 独立数据目录 · 正式版更新已禁用` : !runningInTauri ? `当前版本 v${appVersion} · 自动更新仅在桌面客户端可用` : updateState.phase === "available" ? `检测到新版本：v${updateState.version}${updateState.notes ? "，可下载并安装" : ""}` : updateState.phase === "downloading" ? `正在下载 v${updateState.version}` : updateState.phase === "ready" ? `v${updateState.version} 已安装，正在重新启动` : updateState.phase === "current" ? `当前版本 v${appVersion} 已是最新版本` : updateState.phase === "error" ? `检查更新失败：${updateState.message}` : `当前版本 v${appVersion}，启动时会自动检查新版本`}</p>
+                <UpdateSourceControl settings={updateSourceSettings} route={updateRoute} message={updateRouteMessage} locked={updateState.phase === "checking" || updateState.phase === "downloading" || updateState.phase === "ready"} />
                 {updateState.phase === "available" && updateState.notes && <div className="about-card-notes"><strong>{t("更新内容")}</strong><p>{updateState.notes}</p></div>}
                 <div className="about-card-links">
                   <a className="secondary" href="https://github.com/wlphp/cloudhub-tools" target="_blank" rel="noreferrer" onClick={(e) => { if (runningInTauri) { e.preventDefault(); void openUrl("https://github.com/wlphp/cloudhub-tools"); } }}><Globe2 size={14} />{t("开源仓库")}</a>
@@ -5316,7 +5324,7 @@ function App() {
               <div className="asset-check-grid">{syncAssetTypes(syncAccount).map(([value, label]) => <label key={value} className="asset-check"><input type="checkbox" checked={syncTypes.includes(value)} onChange={(event) => setSyncTypes((current) => event.target.checked ? [...new Set([...current, value])] : current.filter((item) => item !== value))} /><span>{syncAccount.cloud_type === "tencent" && value === "ecs" ? "CVM服务器" : label}</span></label>)}</div>
               <div className="asset-sync-account">账号：{syncAccount.account_name}</div>
               {syncing && syncProgress && <div className="asset-sync-account" role="status" aria-live="polite">进度：{syncProgress.completed} / {syncProgress.total}{syncProgress.resourceType ? ` · ${syncProgress.resourceType}` : ""}{typeof syncProgress.elapsedMs === "number" ? ` · ${Math.round(syncProgress.elapsedMs / 1000)}s` : ""}{syncProgress.status === "failed" ? " · 当前类型失败，继续处理" : ""}</div>}
-              {syncResult && <div className={`asset-sync-result ${syncResultLevel}`} role="status" aria-atomic="true"><strong>{syncResultLevel === "has-errors" ? "获取失败" : syncResultLevel === "warning" ? "获取完成（含提示）" : "获取成功并已保存到本地"}</strong><span>共保存 {syncResult.fetched} 项资产</span><div className="asset-result-counts">{syncTypes.map((type) => <span key={type}>{assetTypes.find(([value]) => value === type)?.[1] || type}：{syncResult.counts[type] ?? 0} 个</span>)}</div>{showOracleDatabasePermissionHint && <div className="asset-sync-guidance"><AlertTriangle size={16} /><div><strong>云数据库未获取</strong><span>当前 OCI 密钥缺少数据库读取权限。请在 OCI IAM 为用户或所属组授予目标资源组的 <code>read database-family</code>，或配置更精细的 DB System 只读策略后重新获取。</span></div></div>}{syncResult.errors.length > 0 && <div className="asset-sync-errors">{syncResult.errors.map((error, index) => <div key={`${error}-${index}`}>{error}</div>)}</div>}</div>}
+              {syncResult && <div className={`asset-sync-result ${syncResultLevel}`} role="status" aria-atomic="true"><strong>{syncResultLevel === "has-errors" ? "获取失败" : syncResultLevel === "warning" ? "部分资源获取失败" : syncResult.fetched === 0 ? "获取完成，暂无资产" : "获取成功并已保存到本地"}</strong><span>共保存 {syncResult.fetched} 项资产</span><div className="asset-result-counts">{syncTypes.map((type) => <span key={type}><span>{assetTypes.find(([value]) => value === type)?.[1] || type}</span><strong className={syncFailedTypes.has(type) ? "is-failed" : undefined}>{syncFailedTypes.has(type) ? "未获取" : `${syncResult.counts[type] ?? 0} 个`}</strong></span>)}</div>{showOracleDatabasePermissionHint && <div className="asset-sync-guidance"><AlertTriangle size={16} /><div><strong>云数据库未获取</strong><span>当前 OCI 密钥缺少数据库读取权限。请在 OCI IAM 为用户或所属组授予目标资源组的 <code>read database-family</code>，或配置更精细的 DB System 只读策略后重新获取。</span></div></div>}{syncResult.errors.length > 0 && <div className="asset-sync-errors">{syncResult.errors.map((error, index) => <div key={`${error}-${index}`}>{error}</div>)}</div>}</div>}
           </SharedDialog>
         )}
         <footer>

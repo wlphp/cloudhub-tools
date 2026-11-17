@@ -1,14 +1,27 @@
 import type { ManagedHost, ManagedHostDraft } from "../../shared/types";
 import { invokeOrWeb, jsonRequest, nativeOnly, queryPath } from "./base";
 
-type CloudServerProvider = "aliyun" | "tencent" | "oracle" | "baidu" | "vultr";
+type CloudServerProvider = "aliyun" | "tencent" | "oracle" | "baidu" | "vultr" | "volcengine";
 export type InstanceAction = "start" | "stop" | "reboot";
+
+const lightFirewallFields = ["Protocol", "Port", "CidrBlock", "Ipv6CidrBlock", "Action", "FirewallRuleDescription"] as const;
+function cleanLightFirewallRule(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const source = value as Record<string, unknown>;
+  const result: Record<string, unknown> = {};
+  for (const field of lightFirewallFields) {
+    const item = source[field];
+    if (typeof item === "string" && item) result[field] = item;
+  }
+  return result;
+}
 
 const securityGroupContracts = {
   aliyun: {
     list: "list_aliyun_security_groups",
     authorize: "authorize_aliyun_security_group_rule",
     revoke: "revoke_aliyun_security_group_rule",
+    modify: "modify_aliyun_security_group_rule",
     path: "/api/aliyun-security-groups",
     rulesPath: "/api/aliyun-security-group-rules",
   },
@@ -16,6 +29,7 @@ const securityGroupContracts = {
     list: "list_tencent_security_groups",
     authorize: "authorize_tencent_security_group_rule",
     revoke: "revoke_tencent_security_group_rule",
+    modify: "modify_tencent_security_group_rule",
     path: "/api/tencent-security-groups",
     rulesPath: "/api/tencent-security-group-rules",
   },
@@ -23,12 +37,22 @@ const securityGroupContracts = {
     list: "list_baidu_security_groups",
     authorize: "authorize_baidu_security_group_rule",
     revoke: "revoke_baidu_security_group_rule",
+    modify: "modify_baidu_security_group_rule",
     path: "/api/baidu-security-groups",
     rulesPath: "/api/baidu-security-group-rules",
+  },
+  oracle: {
+    list: "list_oracle_security_groups",
+    authorize: "authorize_oracle_security_group_rule",
+    revoke: "revoke_oracle_security_group_rule",
+    modify: "modify_oracle_security_group_rule",
+    path: "/api/oracle-security-groups",
+    rulesPath: "/api/oracle-security-group-rules",
   },
 } as const;
 
 async function providerAction(provider: Exclude<CloudServerProvider, "aliyun">, payload: Record<string, unknown>): Promise<void> {
+  if (provider === "volcengine") return nativeOnly("volc_instance_action", payload);
   const command = {
     tencent: payload.action === "reboot" ? "cvm_instance_reboot" : "cvm_instance_action",
     oracle: "oracle_instance_action",
@@ -106,11 +130,20 @@ export const serversClient = {
     });
   },
 
-  listSecurityGroups<T>(provider: "aliyun" | "tencent" | "baidu", payload: { id: number; regionId: string; instanceId: string; securityGroupId?: string | null }): Promise<T> {
+  listSecurityGroups<T>(provider: "aliyun" | "tencent" | "baidu" | "volcengine" | "oracle", payload: { id: number; regionId: string; instanceId: string; securityGroupId?: string | null; compartmentId?: string }): Promise<T> {
+    if (provider === "volcengine") return nativeOnly("list_volc_security_groups", payload);
     const contract = securityGroupContracts[provider];
-    return invokeOrWeb(contract.list, payload, { path: queryPath(contract.path, { id: payload.id, region: payload.regionId, instance: payload.instanceId, securityGroupId: payload.securityGroupId }) });
+    return invokeOrWeb(contract.list, payload, { path: queryPath(contract.path, { id: payload.id, region: payload.regionId, instance: payload.instanceId, securityGroupId: payload.securityGroupId, compartment: payload.compartmentId }) });
   },
-  mutateSecurityGroup(provider: "aliyun" | "tencent" | "baidu", action: "authorize" | "revoke", payload: Record<string, unknown>): Promise<void> {
+  updateVolcSecurityGroup(payload: { id: number; regionId: string; instanceId: string; securityGroupId: string; securityGroupRuleId: string; original: { protocol: string; ports: string; source: string; description: string; policy: string; priority: number }; updated: { protocol: string; ports: string; source: string; description: string; policy: string; priority: number } }): Promise<void> {
+    return nativeOnly("update_volc_security_group_rule", payload);
+  },
+  updateSecurityGroup(provider: "aliyun" | "tencent" | "baidu" | "oracle", payload: Record<string, unknown>): Promise<void> {
+    const command = securityGroupContracts[provider].modify;
+    return invokeOrWeb(command, payload, { path: `/api/${provider}-security-group-rules`, init: jsonRequest("POST", { ...payload, action: "modify" }) });
+  },
+  mutateSecurityGroup(provider: "aliyun" | "tencent" | "baidu" | "volcengine" | "oracle", action: "authorize" | "revoke", payload: Record<string, unknown>): Promise<void> {
+    if (provider === "volcengine") return nativeOnly(action === "authorize" ? "authorize_volc_security_group_rule" : "revoke_volc_security_group_rule", payload);
     const contract = securityGroupContracts[provider];
     return invokeOrWeb(contract[action], payload, {
       path: contract.rulesPath,
@@ -120,8 +153,11 @@ export const serversClient = {
   listLightFirewall<T>(payload: { id: number; regionId: string; instanceId: string }): Promise<T> {
     return invokeOrWeb("list_light_firewall_rules", payload, { path: queryPath("/api/light-firewall-rules", { id: payload.id, region: payload.regionId, instance: payload.instanceId }) });
   },
-  mutateLightFirewall(action: "create" | "delete", payload: Record<string, unknown>): Promise<void> {
-    const command = action === "create" ? "create_light_firewall_rule" : "delete_light_firewall_rule";
+  mutateLightFirewall(action: "create" | "delete" | "update-description" | "modify", rawPayload: Record<string, unknown>): Promise<unknown> {
+    const payload = (action === "delete" || action === "update-description") && "firewallRule" in rawPayload
+      ? { ...rawPayload, firewallRule: cleanLightFirewallRule(rawPayload.firewallRule) }
+      : rawPayload;
+    const command = action === "create" ? "create_light_firewall_rule" : action === "delete" ? "delete_light_firewall_rule" : action === "modify" ? "modify_light_firewall_rule" : "update_light_firewall_rule_description";
     return invokeOrWeb(command, payload, { path: "/api/light-firewall-rules", init: jsonRequest("POST", { ...payload, action }) });
   },
   listVultrFirewall<T>(payload: { id: number; firewallGroupId: string }): Promise<T> {

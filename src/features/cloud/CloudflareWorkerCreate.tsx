@@ -1,12 +1,15 @@
 import { useRef, useState } from "react";
 import { cloudflareClient } from "../../platform/clients/cloudflare";
 import { SharedDialog } from "../../shared/SharedDialog";
+import { ghProxyWorkerTemplate } from "./workerTemplates/ghProxy";
+import { helloWorldWorkerTemplate } from "./workerTemplates/helloWorld";
 
 export function CloudflareWorkerCreate({ accountId, onClose, onCreated, onConfirm }: {
   accountId: number; onClose: () => void; onCreated: () => Promise<void>; onConfirm: (message: string) => Promise<boolean>;
 }) {
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
+  const [template, setTemplate] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<{ url?: string; warning?: string } | null>(null);
@@ -14,6 +17,15 @@ export function CloudflareWorkerCreate({ accountId, onClose, onCreated, onConfir
   const lock = useRef(false);
   const errorRef = useRef<HTMLParagraphElement>(null);
   const closing = useRef(false);
+
+  async function chooseTemplate(value: string) {
+    if (value === template) return;
+    if (code.trim() && !(await onConfirm(value
+      ? "选择模板将替换当前 Worker 代码，确定继续？"
+      : "切换为空白模板将清空当前 Worker 代码，确定继续？"))) return;
+    setCode(value === "gh-proxy" ? ghProxyWorkerTemplate : value === "hello-world" ? helloWorldWorkerTemplate : "");
+    setTemplate(value);
+  }
 
   async function close() {
     if (busy || closing.current) return;
@@ -65,6 +77,19 @@ export function CloudflareWorkerCreate({ accountId, onClose, onCreated, onConfir
     </div> : <>
       <p className="security-tip">将向当前账号部署代码并开启公开的 workers.dev 地址。Token 需具备 Workers Scripts Read / Write 权限；同名资源会阻止创建。</p>
       <div className="cloudflare-worker-fields">
+        <label>代码模板<select aria-label="Worker 代码模板" value={template} disabled={busy} onChange={event => void chooseTemplate(event.target.value)}><option value="">空白 Worker（自定义代码）</option><option value="hello-world">Hello World · 简单问候</option><option value="gh-proxy">gh-proxy · GitHub 加速代理</option></select></label>
+        {template === "hello-world" && <div className="cloudflare-worker-template-info"><span>已载入最小可部署示例，访问 Worker 将返回纯文本问候。</span><small>可添加 ?name=Cloudflare 自定义问候内容，例如：Hello, Cloudflare!</small></div>}
+        {template === "gh-proxy" && <div className="cloudflare-worker-template-info">
+          <span>已载入 hunshcn/gh-proxy 的 Cloudflare Workers 模块版模板；代码保留上游 MIT 版权与许可说明。</span>
+          <nav aria-label="gh-proxy 模板来源">
+            <a href="https://github.com/hunshcn/gh-proxy" target="_blank" rel="noreferrer">GitHub 项目 ↗</a>
+            <a href="https://github.com/hunshcn/gh-proxy/blob/master/index.js" target="_blank" rel="noreferrer">上游源码 ↗</a>
+            <a href="https://github.com/hunshcn/gh-proxy/blob/master/README.md" target="_blank" rel="noreferrer">README ↗</a>
+            <a href="https://github.com/hunshcn/gh-proxy/blob/master/LICENSE" target="_blank" rel="noreferrer">MIT 许可 ↗</a>
+            <a href="https://gh.api.99988866.xyz/" target="_blank" rel="noreferrer">上游演示 ↗</a>
+          </nav>
+          <small>这是公开 GitHub 资源代理模板，部署后任何人都可能通过 workers.dev 地址使用，并消耗你的 Cloudflare 配额；请按需限制访问或配置白名单。</small>
+        </div>}
         <label>Worker 名称<input name="workerName" required maxLength={63} pattern="[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?" title="1–63 位小写字母、数字或连字符，首尾不能为连字符" placeholder="例如 my-worker" value={name} disabled={busy} onChange={event => setName(event.target.value)} autoComplete="off" spellCheck={false} /></label>
         <label>JavaScript 模块代码<textarea required rows={14} value={code} disabled={busy} onChange={event => setCode(event.target.value)} placeholder="在此粘贴完整的 Worker JavaScript 模块代码" spellCheck={false} autoComplete="off" /></label>
       </div>

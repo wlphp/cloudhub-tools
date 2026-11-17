@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createWorker, workerAccess, workerInput, dnsBody, identifier, pages, project, responseError } from "../web-api/providers/cloudflare.mjs";
+import { createWorker, workerAccess, workerInput, dnsBody, identifier, pages, project, responseError, hostnameForZone, bindWorkerDomain, unbindWorkerDomain } from "../web-api/providers/cloudflare.mjs";
 import { saveAccount } from "../web-api/services/accounts.mjs";
 
 test("Worker access reads live settings without mutating resources", async () => {
@@ -26,6 +26,44 @@ test("Worker access distinguishes disabled, unconfigured, malformed and denied s
   }
   await assert.rejects(workerAccess(1, "a".repeat(32), { name: "../bad" }, async () => { throw new Error("must not fetch"); }), /名称无效/);
   await assert.rejects(workerAccess(1, "a".repeat(32), { name: "demo" }, async () => { throw new Error("Cloudflare HTTP 403"); }), /403/);
+});
+
+test("Worker custom domains validate zone ownership, activity, hostname and existing bindings", async () => {
+  const calls = [];
+  const send = async (_id, method, path, _query, body) => {
+    calls.push({ method, path, body });
+    if (path === `zones/${"b".repeat(32)}`) return { result: { account: { id: "a".repeat(32) }, status: "active", paused: false, name: "example.test" } };
+    if (path.endsWith("/workers/domains") && method === "GET") return { result: [] };
+    if (method === "PUT") return { result: { id: "c".repeat(32), hostname: body.hostname, service: body.service } };
+    throw new Error("unexpected request");
+  };
+  const bound = await bindWorkerDomain(1, "a".repeat(32), { name: "demo", zoneId: "b".repeat(32), hostname: "cdn.example.test" }, send);
+  assert.equal(bound.success, true);
+  assert.equal(bound.domain.hostname, "cdn.example.test");
+  assert.equal(bound.domain.service, "demo");
+  assert.equal(calls.at(-1).method, "PUT");
+  assert.equal(calls.at(-1).body.service, "demo");
+  assert.equal(hostnameForZone("EXAMPLE.test.", "example.test"), "example.test");
+  for (const hostname of ["bad.test", "example.test.evil", "a..example.test", "https://example.test"]) assert.throws(() => hostnameForZone(hostname, "example.test"));
+  for (const input of [
+    { name: "../bad", zoneId: "b".repeat(32), hostname: "x.example.test" },
+    { name: "demo", zoneId: "b".repeat(32), hostname: "x.other.test" },
+  ]) await assert.rejects(bindWorkerDomain(1, "a".repeat(32), input, send));
+  await assert.rejects(bindWorkerDomain(1, "a".repeat(32), { name: "demo", zoneId: "b".repeat(32), hostname: "x.example.test" }, async () => ({ result: { account: { id: "other" }, status: "active", name: "example.test" } })), /不属于当前/);
+  await assert.rejects(bindWorkerDomain(1, "a".repeat(32), { name: "demo", zoneId: "b".repeat(32), hostname: "x.example.test" }, async () => ({ result: { account: { id: "a".repeat(32) }, status: "pending", name: "example.test" } })), /活动状态/);
+  await assert.rejects(bindWorkerDomain(1, "a".repeat(32), { name: "demo", zoneId: "b".repeat(32), hostname: "x.example.test" }, async (_id, method, path) => path === `zones/${"b".repeat(32)}` ? { result: { account: { id: "a".repeat(32) }, status: "active", name: "example.test" } } : ({ result: [{ hostname: "x.example.test", service: "another" }] })), /其他 Worker/);
+});
+
+test("Worker custom domain unbind verifies ownership before deletion", async () => {
+  const calls = [];
+  const domainId = "c".repeat(32);
+  const send = async (_id, method, path) => { calls.push({ method, path }); return { result: { service: "demo" } }; };
+  assert.deepEqual(await unbindWorkerDomain(1, "a".repeat(32), { name: "demo", domainId }, send), { success: true });
+  assert.deepEqual(calls.map(call => call.method), ["GET", "DELETE"]);
+  calls.length = 0;
+  await assert.rejects(unbindWorkerDomain(1, "a".repeat(32), { name: "demo", domainId }, async (_id, method) => { calls.push(method); return { result: { service: "another" } }; }), /不属于当前 Worker/);
+  assert.deepEqual(calls, ["GET"]);
+  await assert.rejects(unbindWorkerDomain(1, "a".repeat(32), { name: "demo", domainId: "../other" }, async () => { throw new Error("must not request"); }));
 });
 
 test("Cloudflare errors provide safe operation guidance by status", () => {
