@@ -6,12 +6,15 @@ use std::path::PathBuf;
 const CREDSSP_REG_KEY: &str = r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\CredSSP\Parameters";
 const CREDSSP_VALUE_NAME: &str = "AllowEncryptionOracle";
 const EXPLORER_ADVANCED_REG_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced";
+const HIDE_DESKTOP_ICONS_NEW_START_PANEL_REG_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\HideDesktopIcons\NewStartPanel";
+const SPOTLIGHT_DESKTOP_ICON_CLSID: &str = "{2cc5ca98-6485-489a-920e-b3e88a6ccce3}";
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ExplorerPreferences {
     show_file_extensions: bool,
     show_hidden_files: bool,
+    show_spotlight_icon: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -85,15 +88,35 @@ fn read_explorer_dword(name: &str) -> Result<Option<u32>, String> {
 }
 
 #[cfg(target_os = "windows")]
+fn read_spotlight_icon_hidden() -> Result<Option<u32>, String> {
+    use std::{os::windows::process::CommandExt, process::{Command, Stdio}};
+    let windows_dir = std::env::var_os("SystemRoot").map(PathBuf::from)
+        .ok_or_else(|| "无法定位 Windows 系统目录。".to_string())?;
+    let output = Command::new(windows_dir.join("System32").join("reg.exe"))
+        .args(["query", HIDE_DESKTOP_ICONS_NEW_START_PANEL_REG_KEY, "/v", SPOTLIGHT_DESKTOP_ICON_CLSID])
+        .creation_flags(0x08000000).stdin(Stdio::null()).stderr(Stdio::null()).output()
+        .map_err(|_| "无法读取 Windows 桌面图标设置。".to_string())?;
+    if output.status.success() {
+        parse_named_reg_dword(&String::from_utf8_lossy(&output.stdout), SPOTLIGHT_DESKTOP_ICON_CLSID)
+    } else if output.status.code() == Some(1) {
+        Ok(None)
+    } else {
+        Err("读取 Windows 桌面图标设置失败。".into())
+    }
+}
+
+#[cfg(target_os = "windows")]
 fn explorer_preferences() -> Result<ExplorerPreferences, String> {
     let hide_file_ext = read_explorer_dword("HideFileExt")?.unwrap_or(1);
     let hidden = read_explorer_dword("Hidden")?.unwrap_or(2);
-    if hide_file_ext > 1 || !(1..=2).contains(&hidden) {
+    let spotlight_hidden = read_spotlight_icon_hidden()?.unwrap_or(0);
+    if hide_file_ext > 1 || !(1..=2).contains(&hidden) || spotlight_hidden > 1 {
         return Err("Windows 文件资源管理器设置值超出支持范围；请先通过 Windows 设置检查。".into());
     }
     Ok(ExplorerPreferences {
         show_file_extensions: hide_file_ext == 0,
         show_hidden_files: hidden == 1,
+        show_spotlight_icon: spotlight_hidden == 0,
     })
 }
 
@@ -106,20 +129,23 @@ fn notify_explorer_preferences_changed() {
     // Let Explorer and other shell windows know that the current user's
     // Explorer\Advanced preferences changed. A timeout is intentionally
     // non-fatal: the registry write and its read-back remain authoritative.
-    let section: Vec<u16> = "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\0"
-        .encode_utf16()
-        .collect();
-    let mut result = 0usize;
-    unsafe {
-        SendMessageTimeoutW(
-            HWND_BROADCAST,
-            WM_SETTINGCHANGE,
-            0,
-            section.as_ptr() as isize,
-            SMTO_ABORTIFHUNG,
-            2_000,
-            &mut result,
-        );
+    for name in [
+        "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+        "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\HideDesktopIcons\\NewStartPanel",
+    ] {
+        let section: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
+        let mut result = 0usize;
+        unsafe {
+            SendMessageTimeoutW(
+                HWND_BROADCAST,
+                WM_SETTINGCHANGE,
+                0,
+                section.as_ptr() as isize,
+                SMTO_ABORTIFHUNG,
+                2_000,
+                &mut result,
+            );
+        }
     }
 }
 
@@ -139,15 +165,16 @@ pub(crate) fn windows_toolbox_explorer_preferences() -> PlatformResult<ExplorerP
 #[tauri::command]
 pub(crate) fn windows_toolbox_set_explorer_preference(setting: String, enabled: bool) -> PlatformResult<ExplorerPreferences> {
     use std::{os::windows::process::CommandExt, process::{Command, Stdio}};
-    let (name, value) = match setting.as_str() {
-        "file-extensions" => ("HideFileExt", if enabled { 0 } else { 1 }),
-        "hidden-files" => ("Hidden", if enabled { 1 } else { 2 }),
+    let (key, name, value) = match setting.as_str() {
+        "file-extensions" => (EXPLORER_ADVANCED_REG_KEY, "HideFileExt", if enabled { 0 } else { 1 }),
+        "hidden-files" => (EXPLORER_ADVANCED_REG_KEY, "Hidden", if enabled { 1 } else { 2 }),
+        "spotlight-icon" => (HIDE_DESKTOP_ICONS_NEW_START_PANEL_REG_KEY, SPOTLIGHT_DESKTOP_ICON_CLSID, if enabled { 0 } else { 1 }),
         _ => return Err("不支持的文件资源管理器显示设置。".into()),
     };
     let windows_dir = std::env::var_os("SystemRoot").map(PathBuf::from)
         .ok_or_else(|| "无法定位 Windows 系统目录；设置未更改。".to_string())?;
     let status = Command::new(windows_dir.join("System32").join("reg.exe"))
-        .args(["add", EXPLORER_ADVANCED_REG_KEY, "/v", name, "/t", "REG_DWORD", "/d"])
+        .args(["add", key, "/v", name, "/t", "REG_DWORD", "/d"])
         .arg(value.to_string()).args(["/f"])
         .creation_flags(0x08000000).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null())
         .status().map_err(|_| "无法更新 Windows 文件资源管理器设置。".to_string())?;
@@ -159,6 +186,7 @@ pub(crate) fn windows_toolbox_set_explorer_preference(setting: String, enabled: 
     let verified = match setting.as_str() {
         "file-extensions" => actual.show_file_extensions == enabled,
         "hidden-files" => actual.show_hidden_files == enabled,
+        "spotlight-icon" => actual.show_spotlight_icon == enabled,
         _ => false,
     };
     if !verified {

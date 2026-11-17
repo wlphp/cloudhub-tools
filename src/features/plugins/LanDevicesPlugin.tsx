@@ -176,7 +176,7 @@ export function LanDevicesPlugin({ onConnect }: { onConnect?: Connect }) {
         </table>
         {!filtered.length && <div className="lan-empty" role="status"><Network size={26} aria-hidden="true" /><p>{rows.length ? "没有符合筛选条件的设备。" : "还没有设备记录，选择网络并开始扫描。"}</p></div>}
       </div>
-      <PaginationBar page={page} pageSize={20} total={filtered.length} onPageChange={setPage} />
+      <PaginationBar className="store-pagination" page={page} pageSize={20} total={filtered.length} onPageChange={setPage} />
     </> : <div className="lan-history">{ledger.history.map(s => <button type="button" className="secondary" key={s.id} onClick={() => setHistoryDetail(s)}><span>{time(s.startedAt)}</span><span>{s.range} · {stateText[s.status]} · {s.devices.length} 台 · {s.completed}/{s.total} 地址</span></button>)}{!ledger.history.length && <p role="status">暂无扫描历史，每个网络保留最近 20 次。</p>}</div>}
     <details className="lan-help"><summary>扫描说明 · 未响应不代表离线</summary><p>防火墙、休眠和 Wi-Fi 客户端隔离可能影响发现。设备类型为端口推测，厂商使用小型离线 OUI 表，未命中时留空。网络档案按网卡、网关、子网等信息区分；配置相同的不同网络可能共用台账。扫描期间关闭页面仍会在客户端继续，可重新打开查看或停止。</p></details>
     {detail && <SharedDialog sizeStorageKey="features/plugins/lan-devices-plugin/lan-devices-plugin" title="设备详情" subtitle="设备信息与服务" icon={<Network size={18} aria-hidden="true" />} className="lan-device-dialog" onClose={() => setDetail(null)} footer={<><button type="button" className="secondary" disabled={busy} onClick={() => void operate(async () => { await navigator.clipboard.writeText(detail.ip); setNotice("IP 已复制"); })}><Copy size={14} aria-hidden="true" />复制 IP</button><button type="button" disabled={busy || running || !ledger.devices.some(d => lanDeviceKey(d) === lanDeviceKey(detail))} onClick={() => edit(detail)}>编辑台账</button></>}>

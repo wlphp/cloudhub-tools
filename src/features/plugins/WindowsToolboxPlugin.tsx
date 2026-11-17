@@ -8,8 +8,8 @@ import "./windows-toolbox.css";
 type Action = "desktop-icons" | "installed-apps" | "system-proxy" | "hosts" | "hosts-folder" | "flush-dns" | "display" | "restart-explorer";
 type CredSspStatus = { currentValue: number | null; backupAvailable: boolean };
 type CredSspConfirmation = "repair" | "restore";
-type ExplorerPreferences = { showFileExtensions: boolean; showHiddenFiles: boolean };
-type ExplorerSetting = "file-extensions" | "hidden-files";
+type ExplorerPreferences = { showFileExtensions: boolean; showHiddenFiles: boolean; showSpotlightIcon: boolean };
+type ExplorerSetting = "file-extensions" | "hidden-files" | "spotlight-icon";
 const actions: { id: Action; title: string; detail: string; icon: typeof Monitor; extraAction?: Action; extraLabel?: string }[] = [
   { id: "desktop-icons", title: "桌面图标设置", detail: "打开系统桌面图标配置", icon: MonitorCog },
   { id: "installed-apps", title: "已安装的应用", detail: "查看、卸载或修改本机应用", icon: AppWindow },
@@ -76,7 +76,9 @@ export function WindowsToolboxPlugin() {
     try {
       const next = await invoke<ExplorerPreferences>("windows_toolbox_set_explorer_preference", { setting, enabled });
       setExplorerPreferences(next); setExplorerSettingConfirmation(null);
-      setExplorerPreferencesMessage("设置已写入并复查成功；如果已有文件窗口未更新，请重新打开该窗口。隐藏系统文件的选项未作修改。");
+      setExplorerPreferencesMessage(setting === "spotlight-icon"
+        ? "桌面图标设置已写入并复查成功；如果桌面图标未立即更新，请重新登录或重启 Windows 资源管理器。"
+        : "设置已写入并复查成功；如果已有文件窗口未更新，请重新打开该窗口。隐藏系统文件的选项未作修改。");
     } catch (reason) { setExplorerSettingError(errorText(reason)); }
     finally { setExplorerPreferencesBusy(false); }
   }
@@ -179,9 +181,10 @@ export function WindowsToolboxPlugin() {
       {([
         { setting: "file-extensions" as const, title: "显示文件扩展名", detail: "显示或隐藏文件名后缀，如 .txt、.jpg", icon: FileType, enabled: explorerPreferences?.showFileExtensions },
         { setting: "hidden-files" as const, title: "显示隐藏文件和文件夹", detail: "不影响受保护的操作系统文件设置", icon: Eye, enabled: explorerPreferences?.showHiddenFiles },
+        { setting: "spotlight-icon" as const, title: "了解有关此图片的信息", detail: "隐藏或显示 Windows 聚焦桌面图标", icon: Eye, enabled: explorerPreferences?.showSpotlightIcon },
       ]).map(({ setting, title, detail, icon: Icon, enabled }) => <article className="windows-toolbox-card" key={setting}>
         <span className="windows-toolbox-icon" aria-hidden="true"><Icon size={18} /></span>
-        <div className="windows-toolbox-card-copy"><strong>{title}</strong><span>当前状态：{!runningInTauri || runningOnPhone ? "仅支持 Windows 桌面端" : explorerPreferencesLoading ? "正在读取…" : explorerPreferencesError ? "读取失败" : enabled ? "已开启" : "已关闭"}</span><span>{detail}</span></div>
+        <div className="windows-toolbox-card-copy"><strong>{title}</strong><span>当前状态：{!runningInTauri || runningOnPhone ? "仅支持 Windows 桌面端" : explorerPreferencesLoading ? "正在读取…" : explorerPreferencesError ? "读取失败" : setting === "spotlight-icon" ? enabled ? "桌面图标：显示" : "桌面图标：隐藏" : enabled ? "已开启" : "已关闭"}</span><span>{detail}</span></div>
         <div className="windows-toolbox-card-actions">
           {explorerPreferencesError
             ? <button type="button" className="secondary" disabled={!runningInTauri || explorerPreferencesLoading || explorerPreferencesBusy || Boolean(busy) || credSspBusy} onClick={() => void refreshExplorerPreferences()}><RefreshCw size={13} aria-hidden="true" />重试读取</button>
@@ -204,8 +207,10 @@ export function WindowsToolboxPlugin() {
     {credSspStatusError && <p className="windows-toolbox-feedback is-error" role="alert">读取远程桌面策略失败：{credSspStatusError}</p>}
     {credSspError && !credSspConfirmation && <p className="windows-toolbox-feedback is-error" role="alert">{credSspError}</p>}
     {explorerSettingConfirmation && <ConfirmDialog
-      title={`确认${explorerSettingConfirmation.enabled ? "开启" : "关闭"}${explorerSettingConfirmation.setting === "file-extensions" ? "文件扩展名显示" : "显示隐藏文件和文件夹"}`}
-      message={explorerSettingConfirmation.setting === "file-extensions"
+      title={`确认${explorerSettingConfirmation.enabled ? "开启" : "关闭"}${explorerSettingConfirmation.setting === "file-extensions" ? "文件扩展名显示" : explorerSettingConfirmation.setting === "hidden-files" ? "显示隐藏文件和文件夹" : "了解有关此图片的信息桌面图标"}`}
+      message={explorerSettingConfirmation.setting === "spotlight-icon"
+        ? `确认${explorerSettingConfirmation.enabled ? "显示" : "隐藏"}桌面上的“了解有关此图片的信息”图标？此设置只影响当前 Windows 用户。`
+        : explorerSettingConfirmation.setting === "file-extensions"
         ? `确认${explorerSettingConfirmation.enabled ? "显示" : "隐藏"}常见文件扩展名？这只改变文件资源管理器的显示方式，不会重命名或修改文件。`
         : `确认${explorerSettingConfirmation.enabled ? "显示" : "隐藏"}具有隐藏属性的文件和文件夹？此操作不会更改文件内容，也不会显示受保护的操作系统文件。`}
       confirmLabel={`确认${explorerSettingConfirmation.enabled ? "开启" : "关闭"}`}

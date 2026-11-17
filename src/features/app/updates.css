@@ -53,6 +53,17 @@
 .mobile-about-layout .mobile-about-update > .update-source-control { box-sizing: border-box; grid-column: 1 / -1; min-width: 0; }
 .mobile-about-layout .mobile-update-buttons button { flex-shrink: 0; white-space: nowrap; }
 
+/* Keep the mobile update route selector and its secondary action together. */
+@media (max-width: 600px) {
+  .mobile-about-layout .update-source-control { padding: 10px 0 4px; }
+  .mobile-about-layout .update-source-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 8px; }
+  .mobile-about-layout .update-source-toolbar label { display: grid; min-width: 0; grid-template-columns: minmax(0, 1fr); gap: 5px; }
+  .mobile-about-layout .update-source-toolbar label > span { color: var(--mobile-muted); font-size: 11px; line-height: 1.3; }
+  .mobile-about-layout .update-source-toolbar select { width: 100%; height: 44px; }
+  .mobile-about-layout .update-source-control > .update-source-toolbar > .update-source-open { min-height: 44px; align-self: end; padding-inline: 12px; border: 1px solid var(--mobile-border); border-radius: 7px; background: var(--mobile-surface); color: var(--mobile-text); font: inherit; font-size: 12px; white-space: nowrap; }
+  .mobile-about-layout .update-source-control > p { margin: 5px 0 0; font-size: 11px; }
+}
+
 body:has(.mobile-shell) .update-source-shared-dialog .update-source-dialog button,
 body:has(.mobile-shell) .update-source-shared-dialog > .modal-actions button { min-height: 44px; border-radius: 8px; }
 

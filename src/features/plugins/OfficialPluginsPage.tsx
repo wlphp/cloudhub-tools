@@ -143,8 +143,6 @@ function OfficialPluginsStore({ mobile = false, initialPluginId, forceInitialPag
   /** Capture the mode when opening so a mounted plugin never switches containers mid-edit. */
   function openPlugin(pluginId: string) {
     const app = applicationCatalog.find(item => item.id === pluginId);
-    // 手机端与移动浏览器预览只整页打开声明了移动端界面的应用；未适配的应用（如 Claude/Codex）提示去 PC 端，避免打开不可用页面。
-    if ((mobile || runningOnPhone) && app?.mobile !== true) { onStatus("该应用目前尚未提供移动端界面，请在 PC 端使用。"); return; }
     // Existing plugins retain their page/modal preference; newly catalogued modules use their owning page.
     const managedInStore = ["cloudhub.flow", "cloudhub.authenticator", "cloudhub.certificates", "cloudhub.codex", "cloudhub.frp"].includes(pluginId);
     if (app?.section && !managedInStore && pluginId !== notesPlugin.id && pluginId !== claudePlugin.id && onOpenSection(app.section) !== false) return;
@@ -271,9 +269,9 @@ function OfficialPluginsStore({ mobile = false, initialPluginId, forceInitialPag
 
   return <section className="utility-page official-plugins-page software-store-page">
     <header className={mobile ? "store-mobile-heading" : undefined}><div className="store-heading"><span className="eyebrow">SOFTWARE STORE</span><div className="store-heading-line"><h1>软件商店</h1><span>官方工具免费内置 · 本地运行</span></div><p>集中管理云枢工具箱应用与插件，内置工具随客户端更新。</p></div><span className="store-total">{officialPlugins.length} 个内置应用</span></header>
-    {mobile && <button type="button" className="store-mobile-filter-toggle" aria-expanded={mobileFiltersOpen} onClick={() => setMobileFiltersOpen(open => !open)}>{mobileFiltersOpen ? "收起筛选" : `筛选与排序 · ${source} · ${platformFilter} · ${category}`}<ChevronDown size={16} aria-hidden="true" /></button>}
-    <div className="store-tabs" role="group" aria-label="应用来源">{["官方应用", "第三方应用"].map(item => <button key={item} type="button" aria-pressed={source === item} className={source === item ? "is-active" : ""} onClick={() => setSource(item)}>{item}</button>)}</div>
-    <section className="panel store-catalog" aria-label="软件列表" aria-busy={busy}>
+    {mobile && <button type="button" className="store-mobile-filter-toggle" aria-expanded={mobileFiltersOpen} aria-controls="store-tabs store-catalog" onClick={() => setMobileFiltersOpen(open => !open)}>{mobileFiltersOpen ? "收起筛选" : `筛选与排序 · ${source} · ${platformFilter} · ${category}${keyword.trim() ? ` · ${keyword.trim()}` : ""}`}<ChevronDown size={16} aria-hidden="true" /></button>}
+    <div id="store-tabs" className="store-tabs" role="group" aria-label="应用来源">{["官方应用", "第三方应用"].map(item => <button key={item} type="button" aria-pressed={source === item} className={source === item ? "is-active" : ""} onClick={() => setSource(item)}>{item}</button>)}</div>
+    <section id="store-catalog" className="panel store-catalog" aria-label="软件列表" aria-busy={busy}>
       <div className="store-search-row">
         <label htmlFor="store-search">应用搜索</label><div className="store-search-input"><Search size={15} aria-hidden="true" /><input id="store-search" type="search" value={keyword} onChange={event => setKeyword(event.target.value)} placeholder="搜索应用名称、开发商或说明" /></div>
         <span className="store-platform-label" id="store-platform-filter-label">适用端</span>

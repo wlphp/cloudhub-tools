@@ -63,7 +63,7 @@ export function PaginationBar({ page, pageSize, paginationPageSize = pageSize, t
         ? <button key={item} type="button" className={`pagination-page-number${item === page ? " is-current" : ""}`} aria-current={item === page ? "page" : undefined} aria-label={`第 ${item} 页`} disabled={disabled || item === page} onClick={() => onPageChange(item)}>{item}</button>
         : <span key={item} className="pagination-ellipsis" aria-hidden="true">…</span>)}</nav> : <span className="pagination-page-number is-current" aria-current="page">{page}</span>}
       <button type="button" className="pagination-nav" aria-label="下一页" disabled={nextDisabled} onClick={() => onPageChange(page + 1)}><ChevronRight size={15} /></button>
-      {pageCount !== null && (
+      {pageCount !== null && pageCount > 1 && (
         <span className="pagination-jump">
           <span>到第</span>
           <input

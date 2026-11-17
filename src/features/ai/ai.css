@@ -288,28 +288,7 @@ body:has(.mobile-shell) .ai-supplier-manager .ai-supplier-operations .ai-actions
 body:has(.mobile-shell) .ai-supplier-manager .ai-supplier-operations .ai-actions button:disabled { opacity: .45; box-shadow: none; }
 body:has(.mobile-shell) .ai-supplier-manager .ai-supplier-table .ai-profile td { background: transparent; }
 /* 供应商页底部收束成分页工具栏与可展开说明，避免零散控件悬浮。 */
-body:has(.mobile-shell) .ai-supplier-manager .pagination-bar {
-  display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-start;
-  gap: 8px; margin: 12px 0 0; padding: 10px;
-  border: 1px solid var(--mobile-border); border-radius: 10px;
-  background: var(--mobile-surface); color: var(--mobile-muted); font-size: 12px;
-}
-body:has(.mobile-shell) .ai-supplier-manager .pagination-bar :is(.pagination-nav, .pagination-page-number, .pagination-jump-confirm) {
-  box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;
-  min-width: 44px; height: 44px; min-height: 44px; padding: 0 8px;
-  border: 1px solid var(--mobile-border); border-radius: 8px;
-  background: var(--mobile-raised); color: var(--mobile-text); box-shadow: none;
-}
-body:has(.mobile-shell) .ai-supplier-manager .pagination-bar .pagination-page-number.is-current {
-  opacity: 1; background: var(--mobile-accent-soft); color: var(--mobile-accent-strong);
-  border-color: var(--mobile-accent-border); font-weight: 600;
-}
-body:has(.mobile-shell) .ai-supplier-manager .pagination-bar .pagination-pages { gap: 6px; flex-wrap: wrap; }
-body:has(.mobile-shell) .ai-supplier-manager .pagination-bar .pagination-total { margin-left: auto; }
-body:has(.mobile-shell) .ai-supplier-manager .pagination-bar .pagination-size { width: auto; min-height: 44px; height: 44px; padding: 0 8px; border-radius: 8px; border-color: var(--mobile-border); background: var(--mobile-surface); font-size: 12px; }
-body:has(.mobile-shell) .ai-supplier-manager .pagination-bar .pagination-jump { order: 2; flex: 1 1 100%; justify-content: flex-end; gap: 8px; padding-top: 8px; border-top: 1px solid var(--mobile-border); }
-body:has(.mobile-shell) .ai-supplier-manager .pagination-bar .pagination-jump-input { width: 52px; min-height: 44px; height: 44px; border-radius: 8px; background: var(--mobile-surface); }
-body:has(.mobile-shell) .ai-supplier-manager .pagination-bar:has(.pagination-pages > button:only-child) .pagination-jump { display: none; }
+body:has(.mobile-shell) .ai-supplier-manager .pagination-bar.store-pagination { margin: 10px 0 0; padding: 4px 6px; border: 0; border-radius: 0; background: transparent; }
 body:has(.mobile-shell) .ai-supplier-manager .ai-supplier-help { margin: 12px 0 0; padding: 0; border: 1px solid var(--mobile-border); border-radius: 10px; background: var(--mobile-surface); overflow: hidden; }
 .ai-supplier-manager .ai-supplier-help > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; list-style: none; }
 .ai-supplier-manager .ai-supplier-help > summary::-webkit-details-marker { display: none; }

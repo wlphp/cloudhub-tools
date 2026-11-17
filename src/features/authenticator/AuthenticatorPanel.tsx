@@ -6,7 +6,7 @@ import { GroupNameInput } from "../../shared/GroupNameInput";
 import { SortSelectionControls } from "../../shared/SortSelectionControls";
 import { useSortableDrag } from "../../shared/useSortableDrag";
 import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type FormEvent, type ReactNode } from "react";
-import { Check, Copy, Download, Edit3, Eye, EyeOff, Grid2X2, GripVertical, KeyRound, List, LockKeyhole, Plus, Search, ShieldCheck, Star, Trash2, Upload } from "lucide-react";
+import { Check, ChevronDown, Copy, Download, Edit3, Eye, EyeOff, Filter, Grid2X2, GripVertical, KeyRound, List, LockKeyhole, Plus, Search, ShieldCheck, Star, Trash2, Upload } from "lucide-react";
 import { PaginationBar, PAGE_SIZE_OPTIONS } from "../../shared/PaginationBar";
 import { useGridPageSize } from "../../shared/useGridPageSize";
 import { authenticatorClient as client, type AuthCode, type AuthEntry, type AuthInput, type AuthPreview } from "../../platform/clients/authenticator";
@@ -57,6 +57,7 @@ export function AuthenticatorPanel({ mobile = false, initialOtpUri, onInitialOtp
   const [category, setCategory] = useState("all");
   const [layout, setLayout] = useState<"grid" | "list">("grid");
   const [sort, setSort] = useState("custom");
+  const [mobileToolsOpen, setMobileToolsOpen] = useState(false);
   const [sorting, setSorting] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(100);
@@ -324,6 +325,8 @@ export function AuthenticatorPanel({ mobile = false, initialOtpUri, onInitialOtp
     await prepare(true, undefined, [...new Uint8Array(await file.arrayBuffer())]);
   }
   const exportIds = entries.filter(entry => selected.has(entry.id)).map(entry => entry.id);
+  const activeCategory = categories.find(item => item.id === category)?.label;
+  const mobileToolsSummary = [search.trim(), group === "all" ? "" : groups.find(name => `g:${name}` === group), category !== "all" ? activeCategory : "", sort === "custom" ? "" : "名称顺序"].filter(Boolean).join(" · ") || "全部验证码";
   const alerts = <>{error && !modal && !draft && <ToastNotice message={error} tone="error" />}{message && <ToastNotice message={message} />}</>;
 
   const panelClassName = `auth-panel${mobile ? " auth-mobile" : ""}`;
@@ -341,6 +344,8 @@ export function AuthenticatorPanel({ mobile = false, initialOtpUri, onInitialOtp
       <button disabled={busy} onClick={() => { setModal("import"); setError(""); }}><Upload size={16} /> 导入</button>
       <button disabled={busy || !entries.length} onClick={() => { setModal("export"); setError(""); }}><Download size={16} /> {selected.size ? `导出所选（${selected.size}）` : "选择导出"}</button>
     </div></div>{alerts}
+    {mobile && <button type="button" className="mobile-list-filter-toggle auth-mobile-tools-toggle" aria-expanded={mobileToolsOpen} aria-controls="auth-mobile-tools-panel" onClick={() => setMobileToolsOpen(open => !open)}><Filter size={15} aria-hidden="true" /><span>筛选与显示 · {mobileToolsSummary}</span><ChevronDown size={15} aria-hidden="true" /></button>}
+    <div id={mobile ? "auth-mobile-tools-panel" : undefined} hidden={mobile && !mobileToolsOpen} className={mobile ? "auth-mobile-tools-panel" : undefined}>
     <div className="auth-toolbar"><div className="auth-search"><Search size={16} /><input aria-label="搜索验证码" placeholder="搜索服务商、账户或备注" value={search} onChange={(event) => setSearch(event.target.value)} /></div>
       {mobile && groups.length > 0 && <select aria-label="验证码分组" value={group} onChange={(event) => setGroup(event.target.value)}><option value="all">所有分组</option>{groups.map((name) => <option key={name} value={`g:${name}`}>{name}</option>)}</select>}
       <select aria-label="验证码排序" value={sort} onChange={(event) => setSort(event.target.value)}><option value="custom">自定义顺序</option><option value="name">按服务商名称</option></select>
@@ -351,6 +356,7 @@ export function AuthenticatorPanel({ mobile = false, initialOtpUri, onInitialOtp
       {entries.length > 0 && <div className="auth-categories" role="group" aria-label="服务商分类统计">
         {[{ id: "all", issuer: "", label: "全部", count: entries.length }, ...categories].map((item) => <button className={`auth-category ${item.id === "all" ? "" : issuerTone(item.issuer)}`} key={item.id} aria-label={`${item.id === "all" ? "全部服务商" : item.label}，共 ${item.count} 项`} aria-pressed={category === item.id} onClick={() => setCategory(item.id)}><span className="auth-category-dot" aria-hidden="true" /><span className="auth-category-name">{item.label}</span><strong>{item.count}</strong>{category === item.id && <Check size={14} aria-hidden="true" />}</button>)}
       </div>}
+    </div>
     </div>
     {entries.length > 0 && <div className="auth-selection"><SortSelectionControls label="验证码" keys={visible.map(entry => entry.id)} selected={selected} sorting={sorting} scope="本页" onToggleAll={() => setSelected(old => { const next = new Set(old); const all = visible.length > 0 && visible.every(entry => next.has(entry.id)); visible.forEach(entry => all ? next.delete(entry.id) : next.add(entry.id)); return next; })} onSortingChange={next => { setSorting(next); if (next && sort !== "custom") { setSort("custom"); setPage(1); } }} disabled={busy || visible.length < 1} />{sorting && <span>已选 {selected.size} 项 · 置顶与未置顶条目分开排序</span>}{selected.size > 0 ? <><button className="auth-primary" disabled={busy} onClick={() => { setModal("export"); setError(""); }}><Download size={14} /> 导出所选</button><button onClick={() => setSelected(new Set())}>取消选择</button><button disabled={busy} onClick={() => setModal("delete")}><Trash2 size={14} /> 删除所选</button></> : !sorting && <span className="auth-hint">勾选验证码后可导出部分条目</span>}</div>}
     {!visible.length ? <div className="auth-empty"><KeyRound size={36} /><h3>{entries.length ? "没有匹配的验证码" : "还没有验证码"}</h3><p>{entries.length ? "调整搜索条件、服务商类别或分组。" : "导入 Ente 文件、识别二维码图片，或手动添加 OTP 密钥。"}</p></div> : <div ref={gridPagination.gridRef} className={`auth-cards ${layout === "list" ? "auth-list" : ""}`}>
@@ -367,7 +373,7 @@ export function AuthenticatorPanel({ mobile = false, initialOtpUri, onInitialOtp
         {entry.kind !== "hotp" && <div className="auth-progress" role="progressbar" aria-label={`${entry.account} 剩余时间`} aria-valuemin={0} aria-valuemax={entry.period} aria-valuenow={code?.remaining ?? 0}><i style={{ transform: `scaleX(${code ? code.remaining / code.period : 0})` }} /></div>}
       </article>; })}
     </div>}
-    {filtered.length > 0 && <PaginationBar className="auth-pagination" page={safePage} pageSize={pageSize} paginationPageSize={gridPagination.pageSize} total={filtered.length} onPageChange={setPage} onPageSizeChange={(size) => { setPageSize(size); setPage(1); }} pageSizeOptions={[...PAGE_SIZE_OPTIONS, 100]} />}
+    {filtered.length > 0 && <PaginationBar className="auth-pagination store-pagination" page={safePage} pageSize={pageSize} paginationPageSize={gridPagination.pageSize} total={filtered.length} onPageChange={setPage} onPageSizeChange={(size) => { setPageSize(size); setPage(1); }} pageSizeOptions={[...PAGE_SIZE_OPTIONS, 100]} />}
 
     {draft && <Modal sizeStorageKey="features/authenticator/authenticator-panel/authenticator-panel" title={draft.id ? "编辑验证码" : "新增验证码"} busy={busy} mobileForm={mobile} close={() => { hideDraftSecret(); setDraft(null); setError(""); }} onSubmit={(event) => { event.preventDefault(); const input = draft; hideDraftSecret(); setDraft({ ...draft, secret: "" }); void action(async () => { await client.save(input); setDraft(null); await refresh(); setMessage("验证码已保存"); }); }} footer={<><button type="button" className="secondary" disabled={busy} onClick={() => { hideDraftSecret(); setDraft(null); }}>取消</button><button className="primary" disabled={busy} type="submit">{busy ? "保存中…" : "保存"}</button></>}>
       <div className="auth-form-grid"><DialogField label="服务商"><input maxLength={256} value={draft.issuer} onChange={(event) => setDraft({ ...draft, issuer: event.target.value })} /></DialogField><DialogField label="账户"><input maxLength={512} value={draft.account} onChange={(event) => setDraft({ ...draft, account: event.target.value })} /></DialogField></div>

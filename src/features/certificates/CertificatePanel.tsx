@@ -7,7 +7,7 @@ import { Check, Copy, Download, Eye, Plus, RefreshCw, Search, ShieldCheck, Trash
 import { listen } from "@tauri-apps/api/event";
 import { certificatesClient } from "../../platform/clients";
 import type { EsaCertificateTarget } from "../../platform/clients/certificates";
-import { platformErrorMessage, runningInTauri } from "../../platform/api";
+import { normalizePlatformError, platformErrorMessage, runningInTauri } from "../../platform/api";
 import type { Account, Certificate, LocalAsset } from "../../shared/types";
 import "./certificates.css";
 import { CertificateImportDialog } from "./CertificateImportDialog";
@@ -189,7 +189,8 @@ export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm, r
     try {
       setRows(await certificatesClient.list());
     } catch (reason) {
-      setError(platformErrorMessage(reason, "读取证书列表失败"));
+      const platformError = normalizePlatformError(reason);
+      setError(platformError.code === "unsupported-in-preview" ? "" : platformErrorMessage(reason, "读取证书列表失败"));
     } finally {
       setLoading(false);
     }
@@ -376,21 +377,15 @@ export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm, r
             管理本机与宝塔站点证书，私钥加密保存在本机。
           </p>
         </div>
-        <div className="certificate-header-actions"><button className="secondary" disabled={!runningInTauri} onClick={() => setImportOpen(true)}><Plus size={15} />导入证书</button><button
+        <div className="certificate-header-actions"><button className="secondary" onClick={() => setImportOpen(true)}><Plus size={15} />导入证书</button><button
           className="primary-update-btn"
           onClick={openRequest}
-          disabled={!runningInTauri}
         >
           <Plus size={15} />
           申请证书
         </button></div>
       </header>
-      {!runningInTauri && (
-        <div className="certificate-preview-warning">
-          浏览器仅供预览，申请、密钥读取与删除请使用桌面客户端。
-        </div>
-      )}
-      {!requestTarget && <div className="certificate-source-tabs"><button className={sourceView === "local" ? "active" : ""} onClick={() => setSourceView("local")}>本地证书</button><button className={sourceView === "baota" ? "active" : ""} disabled={!runningInTauri} onClick={() => setSourceView("baota")}>宝塔站点管理</button></div>}
+      {!requestTarget && <div className="certificate-source-tabs"><button className={sourceView === "local" ? "active" : ""} onClick={() => setSourceView("local")}>本地证书</button><button className={sourceView === "baota" ? "active" : ""} onClick={() => setSourceView("baota")}>宝塔站点管理</button></div>}
       {sourceView === "baota" ? <BaotaCertificateManager certificates={rows} onChanged={() => void load()} onConfirm={onConfirm} onStatus={onStatus} alertTarget={alertTarget} onAlertTargetHandled={onAlertTargetHandled} /> : <section className="panel certificate-panel">
         <div className="certificate-summary" aria-label="证书概览">
           <div><span>证书总数</span><strong>{rows.length}</strong><small>本地加密保存</small></div>
@@ -512,7 +507,7 @@ export function CertificatePanel({ accounts, localAssets, onStatus, onConfirm, r
           <div className="empty">
             <ShieldCheck size={42} />
             <h3>{loading ? "正在读取证书…" : rows.length ? "没有匹配的证书" : "暂无证书"}</h3>
-            <p>{rows.length ? "请调整搜索关键词或来源筛选。" : "可申请新证书，或导入已有证书与私钥。"}</p>
+            <p>{rows.length ? "请调整搜索关键词或来源筛选。" : !runningInTauri ? "浏览器预览未连接原生证书库；可继续检查列表与筛选，真实证书请在原生客户端查看。" : "可申请新证书，或导入已有证书与私钥。"}</p>
           </div>
         )}
         {filtered.length > 0 && <PaginationBar page={safePage} pageSize={pageSize} total={filtered.length} onPageChange={setPage} onPageSizeChange={(size) => { setPageSize(size); setPage(1); }} />}

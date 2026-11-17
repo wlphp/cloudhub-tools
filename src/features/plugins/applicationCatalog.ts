@@ -6,7 +6,7 @@ export type ApplicationSection = "flow" | "certificates" | "authenticator" | "cl
 const navigation: Record<string, { section?: ApplicationSection; order: number; sidebar: boolean; mobile?: boolean; icon: typeof Cpu; keywords?: string }> = {
   "cloudhub.model-suppliers": { order: 20, sidebar: false, mobile: true, icon: Bot, keywords: "AI 模型供应商 OpenAI Claude Gemini API 模型 配置 导入" },
   "cloudhub.cloud-drive": { order: 17, sidebar: false, icon: HardDrive, keywords: "云盘 阿里云盘 Alipan 挂载 OSS S3 rclone MinIO R2 WinFsp macFUSE FUSE 磁盘 对象存储" },
-  "cloudhub.mail": { order: 15, sidebar: false, icon: Mail, keywords: "邮件 邮箱 收信 发信 QQ 网易 IMAP SMTP email mail" },
+  "cloudhub.mail": { order: 15, sidebar: false, mobile: true, icon: Mail, keywords: "邮件 邮箱 收信 发信 QQ 网易 IMAP SMTP email mail" },
   "cloudhub.flow": { section: "flow", order: 1, sidebar: true, mobile: true, icon: GitBranch },
   "cloudhub.certificates": { section: "certificates", order: 2, sidebar: true, mobile: true, icon: Lock },
   "cloudhub.authenticator": { section: "authenticator", order: 3, sidebar: true, mobile: true, icon: ShieldCheck },
@@ -20,7 +20,7 @@ const navigation: Record<string, { section?: ApplicationSection; order: number; 
   "cloudhub.wsl-dashboard": { order: 10, sidebar: false, icon: SquareTerminal, keywords: "WSL Linux Ubuntu Debian 发行版" },
   "cloudhub.fingerprint-browser": { order: 11, sidebar: true, icon: Globe, keywords: "Chromium Chrome 代理 浏览器" },
   "cloudhub.lan-devices": { order: 12, sidebar: false, icon: Network, keywords: "局域网 扫描 IP MAC NAS 打印机 端口 LAN" },
-  "cloudhub.network-speed": { order: 13, sidebar: false, icon: Gauge, keywords: "网络 测速 下载 上传 带宽 延迟 speedtest Mbps" },
+  "cloudhub.network-speed": { order: 13, sidebar: false, mobile: true, icon: Gauge, keywords: "网络 测速 下载 上传 带宽 延迟 speedtest Mbps" },
   "cloudhub.http-debug-proxy": { order: 14, sidebar: false, icon: Network, keywords: "HTTP HTTPS Fiddler 抓包 代理 请求 响应 调试" },
   "cloudhub.environment-variables": { order: 16, sidebar: false, icon: Variable, keywords: "环境变量 Environment Variables Path JAVA_HOME 开发 Windows 系统 用户" },
   "cloudhub.startup-manager": { order: 18, sidebar: false, icon: Power, keywords: "开机启动 启动项 服务 计划任务 startup service scheduled task Windows" },

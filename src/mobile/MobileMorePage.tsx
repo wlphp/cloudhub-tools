@@ -20,15 +20,15 @@ const mobileFeatures = [
 
 const myResourceFeatures = [
   { tab: "servers", title: "服务器", description: "云服务器与轻量应用服务器", keywords: "云服务器 ECS SWAS", icon: Server },
+  { tab: "servers", title: "轻量应用服务器", description: "轻量应用服务器实例", keywords: "轻量应用服务器 SWAS", icon: Server },
   { tab: "domains", title: "域名", description: "域名与 DNS 解析", keywords: "域名 DNS 解析", icon: Globe2 },
   { tab: "storage", title: "对象存储", description: "对象存储桶与文件", keywords: "OSS S3 文件", icon: Folder },
   { tab: "databases", title: "云数据库", description: "云数据库实例", keywords: "数据库 RDS", icon: Database },
   { tab: "redis", title: "Redis", description: "Redis 缓存实例", keywords: "Redis 缓存", icon: Layers },
-  { tab: "servers", title: "轻量应用服务器", description: "轻量应用服务器实例", keywords: "轻量应用服务器 SWAS", icon: Server },
   { tab: "assets", title: "边缘安全加速", description: "边缘安全加速资源", keywords: "ESA 边缘安全加速", icon: ShieldCheck },
 ] satisfies { tab: MobileFeatureDestination; title: string; description: string; keywords: string; icon: typeof Folder }[];
 
-export function MobileMorePage({ onNavigate, accounts, assets, favoriteCount, sshCount, panelCount }: { onNavigate: (tab: MobileFeatureDestination, resourceType?: "swas" | "esa") => void; accounts: Account[]; assets: LocalAsset[]; favoriteCount: number; sshCount: number; panelCount: number }) {
+export function MobileMorePage({ onNavigate, accounts, assets, favoriteCount, sshCount, panelCount }: { onNavigate: (tab: MobileFeatureDestination, resourceType?: "ecs" | "swas" | "esa") => void; accounts: Account[]; assets: LocalAsset[]; favoriteCount: number; sshCount: number; panelCount: number }) {
   const shortcutTabs: MobileFeatureDestination[] = ["accounts", "assets", "favorites", "panels", "ssh"];
   const shortcuts = shortcutTabs.map(tab => mobileFeatures.find(feature => feature.tab === tab)!).filter(Boolean);
   const counts: Record<MobileFeatureDestination, number> = {
@@ -45,7 +45,7 @@ export function MobileMorePage({ onNavigate, accounts, assets, favoriteCount, ss
       </button>)}
     </div>
     <div className="mobile-more-feature-list" aria-label="功能入口">
-      {otherFeatures.map(({ tab, title, description, icon: Icon, count }) => <button type="button" className="mobile-more-feature" key={title} onClick={() => onNavigate(tab, title === "轻量应用服务器" ? "swas" : title === "边缘安全加速" ? "esa" : undefined)}>
+      {otherFeatures.map(({ tab, title, description, icon: Icon, count }) => <button type="button" className="mobile-more-feature" key={title} onClick={() => onNavigate(tab, title === "服务器" ? "ecs" : title === "轻量应用服务器" ? "swas" : title === "边缘安全加速" ? "esa" : undefined)}>
         <span className="mobile-more-feature-icon"><Icon size={20} strokeWidth={1.9} aria-hidden="true" /></span>
         <span className="mobile-more-feature-copy"><strong>{title}</strong><small>{description}</small></span>
         <span className="mobile-more-feature-count">（{count}）</span><ChevronRight size={20} className="mobile-more-feature-chevron" aria-hidden="true" />
