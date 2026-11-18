@@ -1,4 +1,5 @@
 import { ToastNotice } from "../../shared/ToastNotice";
+import { MultiSelectFilter } from "../../shared/MultiSelectFilter";
 import { SortSelectionControls } from "../../shared/SortSelectionControls";
 import { useSortableDrag } from "../../shared/useSortableDrag";
 import { useDialogDocument } from "../../shared/DialogDocument";
@@ -40,7 +41,7 @@ export function ModelProviders({ onChanged, privacy = false }: { onChanged?: () 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
-  const [protocol, setProtocol] = useState("all");
+  const [protocolFilters, setProtocolFilters] = useState<string[]>([]);
   const [switchEnabled, setSwitchEnabled] = useState(false);
   const [preferencesLoading, setPreferencesLoading] = useState(true);
   const [savingSwitch, setSavingSwitch] = useState(false);
@@ -214,7 +215,11 @@ export function ModelProviders({ onChanged, privacy = false }: { onChanged?: () 
     } catch { if (alive.current) setError("获取模型目录失败"); }
     finally { pending.current = false; if (alive.current) { setBusy(false); setFetchingModels(false); } }
   }
-  const visible = items.filter(v => (protocol === "all" || v.wireApi === protocol) && (v.name + " " + v.baseUrl + " " + v.models.join(" ")).toLocaleLowerCase().includes(query.toLocaleLowerCase()));
+  const visible = items.filter(v => (protocolFilters.length === 0 || protocolFilters.includes(v.wireApi)) && (v.name + " " + v.baseUrl + " " + v.models.join(" ")).toLocaleLowerCase().includes(query.toLocaleLowerCase()));
+  const protocolFilterOptions = [
+    { value: "responses", label: "Responses", count: items.filter(v => v.wireApi === "responses").length },
+    { value: "chat_completions", label: "Chat Completions", count: items.filter(v => v.wireApi === "chat_completions").length },
+  ];
   async function exportProviders(ids?: string[]) {
     try { const result = await codexProviders.export(ids); if (result) setNotice(result); } catch (e) { setError(e instanceof Error ? e.message : "导出供应商失败"); }
   }
@@ -258,7 +263,7 @@ export function ModelProviders({ onChanged, privacy = false }: { onChanged?: () 
       <div className="codex-provider-toolbar">
         <div className="codex-provider-filters">
           <label className="codex-provider-search"><Search size={15} /><input aria-label="搜索模型供应商" placeholder="搜索名称、地址或模型" value={query} onChange={e => setQuery(e.target.value)} /></label>
-          <select aria-label="供应商协议筛选" value={protocol} onChange={e => setProtocol(e.target.value)}><option value="all">全部协议</option><option value="responses">Responses</option><option value="chat_completions">Chat Completions</option></select>
+          <MultiSelectFilter className="provider-protocol-filter" label="协议" ariaLabel="供应商协议筛选" allLabel="全部协议" options={protocolFilterOptions} selected={protocolFilters} onChange={setProtocolFilters} />
           <span>{visible.length} 个供应商</span>
         </div>
         <div className="codex-provider-actions">

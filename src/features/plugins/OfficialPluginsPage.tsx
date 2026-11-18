@@ -80,11 +80,6 @@ function ApplicationDetailsButton({ app, onOpen }: { app: ApplicationDefinition;
   return <button type="button" className="table-link store-view-details" aria-label={`查看${app.name}全部信息`} onClick={() => onOpen(app.id)}>查看</button>;
 }
 
-/** Windows 桌面端可为商店应用创建带直达参数的桌面快捷方式；其余端不渲染该入口。 */
-function DesktopShortcutButton({ app, busy, onCreate }: { app: ApplicationDefinition; busy: boolean; onCreate: (app: ApplicationDefinition) => void }) {
-  return <button type="button" className="table-link store-create-shortcut" disabled={busy} title={`在桌面创建“${app.name}”快捷方式`} onClick={() => onCreate(app)}>快捷方式</button>;
-}
-
 type StoreProps = { mobile?: boolean; initialPluginId?: string; forceInitialPageMode?: boolean; applicationSettings: ApplicationPreferenceState; onOpenSection: (section: ApplicationSection) => boolean | void; onOpenPlugin?: () => void; onReturnCatalog: () => void; onLanConnect?: (ip: string, platform: "linux" | "windows", name: string) => void; accounts?: Account[]; localAssets?: LocalAsset[]; onStatus?: (message: string) => void; onConfirm?: (message: string) => Promise<boolean>; refreshActionRef?: { current: (() => Promise<void>) | null } };
 
 function OfficialPluginsStore({ mobile = false, initialPluginId, forceInitialPageMode, applicationSettings, onOpenSection, onOpenPlugin, onReturnCatalog, onLanConnect, accounts = [], localAssets = [], onStatus = () => {}, onConfirm = async () => false, refreshActionRef }: StoreProps) {
@@ -287,14 +282,13 @@ function OfficialPluginsStore({ mobile = false, initialPluginId, forceInitialPag
         {pagedApplications.map(app => {
         const Icon = app.icon;
         const serialCell = <td data-label="序号" className="store-serial-number">{sorting ? <ListSortHandle id={app.id} name={app.name} ids={pagedApplications.map(item => item.id)} disabled={sortDisabled} onStart={drag.startDrag} onMove={moveApplication} /> : applicationPositions.get(app.id)}</td>;
-        const shortcutCell = desktopShortcutReady ? <DesktopShortcutButton app={app} busy={busy} onCreate={shortcutCreate} /> : null;
         if (app.id === plugin.id) return <tr key={app.id} data-store-sort-id={app.id}>
           {serialCell}
           <td data-label="软件名称"><div className="store-app-name"><MessageCircle size={20} aria-hidden="true" /><div><strong>{plugin.name}</strong><small>v{plugin.version} · 实验性</small></div></div></td>
           <td data-label="开发商"><span className="store-publisher">官方</span><small>{plugin.publisher}</small></td>
           <td data-label="说明" className="store-description">{plugin.description}<small>{applicationDetailNotes[plugin.id]}</small></td>
           <td data-label="价格">免费</td><td data-label="平台">Windows</td>
-          <td data-label="操作"><div className="store-row-actions"><ApplicationDetailsButton app={app} onOpen={setDetailsFor} /><PresentationButton pluginId={plugin.id} onOpen={setPresentationFor} />{shortcutCell}<button type="button" className="table-link" data-plugin-entry={plugin.id} aria-expanded={activePlugin?.id === plugin.id} onClick={() => openPlugin(plugin.id)}>管理</button></div></td>
+          <td data-label="操作"><div className="store-row-actions"><ApplicationDetailsButton app={app} onOpen={setDetailsFor} /><PresentationButton pluginId={plugin.id} onOpen={setPresentationFor} /><button type="button" className="table-link" data-plugin-entry={plugin.id} aria-expanded={activePlugin?.id === plugin.id} onClick={() => openPlugin(plugin.id)}>管理</button></div></td>
         </tr>;
         if (app.id === hardwarePlugin.id) return <tr key={app.id} data-store-sort-id={app.id}>
           {serialCell}
@@ -302,7 +296,7 @@ function OfficialPluginsStore({ mobile = false, initialPluginId, forceInitialPag
           <td data-label="开发商"><span className="store-publisher">官方</span><small>{hardwarePlugin.publisher}</small></td>
           <td data-label="说明" className="store-description">{hardwarePlugin.description}<small>{applicationDetailNotes[hardwarePlugin.id]}</small></td>
           <td data-label="价格">免费</td><td data-label="平台">Windows / macOS / Linux</td>
-          <td data-label="操作"><div className="store-row-actions"><ApplicationDetailsButton app={app} onOpen={setDetailsFor} /><PresentationButton pluginId={hardwarePlugin.id} onOpen={setPresentationFor} />{shortcutCell}<button type="button" className="table-link" data-plugin-entry={hardwarePlugin.id} onClick={() => openPlugin(hardwarePlugin.id)}>管理</button></div></td>
+          <td data-label="操作"><div className="store-row-actions"><ApplicationDetailsButton app={app} onOpen={setDetailsFor} /><PresentationButton pluginId={hardwarePlugin.id} onOpen={setPresentationFor} /><button type="button" className="table-link" data-plugin-entry={hardwarePlugin.id} onClick={() => openPlugin(hardwarePlugin.id)}>管理</button></div></td>
         </tr>;
         if (app.id === wslPlugin.id) return <tr key={app.id} data-store-sort-id={app.id}>
           {serialCell}
@@ -310,7 +304,7 @@ function OfficialPluginsStore({ mobile = false, initialPluginId, forceInitialPag
           <td data-label="开发商"><span className="store-publisher">官方</span><small>{wslPlugin.publisher}</small></td>
           <td data-label="说明" className="store-description">{wslPlugin.description}<small>{applicationDetailNotes[wslPlugin.id]}</small></td>
           <td data-label="价格">免费</td><td data-label="平台">Windows / WSL</td>
-          <td data-label="操作"><div className="store-row-actions"><ApplicationDetailsButton app={app} onOpen={setDetailsFor} /><PresentationButton pluginId={wslPlugin.id} onOpen={setPresentationFor} />{shortcutCell}<button type="button" className="table-link" data-plugin-entry={wslPlugin.id} onClick={() => openPlugin(wslPlugin.id)}>管理</button></div></td>
+          <td data-label="操作"><div className="store-row-actions"><ApplicationDetailsButton app={app} onOpen={setDetailsFor} /><PresentationButton pluginId={wslPlugin.id} onOpen={setPresentationFor} /><button type="button" className="table-link" data-plugin-entry={wslPlugin.id} onClick={() => openPlugin(wslPlugin.id)}>管理</button></div></td>
         </tr>;
         if (app.id === browserPlugin.id) return <tr key={app.id} data-store-sort-id={app.id}>
           {serialCell}
@@ -318,7 +312,7 @@ function OfficialPluginsStore({ mobile = false, initialPluginId, forceInitialPag
           <td data-label="开发商"><span className="store-publisher">官方</span><small>{browserPlugin.publisher}</small></td>
           <td data-label="说明" className="store-description">{browserPlugin.description}<small>{applicationDetailNotes[browserPlugin.id]}</small></td>
           <td data-label="价格">免费</td><td data-label="平台">Windows x64</td>
-          <td data-label="操作"><div className="store-row-actions"><ApplicationDetailsButton app={app} onOpen={setDetailsFor} /><PresentationButton pluginId={browserPlugin.id} onOpen={setPresentationFor} />{shortcutCell}<button type="button" className="table-link" data-plugin-entry={browserPlugin.id} onClick={() => openPlugin(browserPlugin.id)}>管理</button></div></td>
+          <td data-label="操作"><div className="store-row-actions"><ApplicationDetailsButton app={app} onOpen={setDetailsFor} /><PresentationButton pluginId={browserPlugin.id} onOpen={setPresentationFor} /><button type="button" className="table-link" data-plugin-entry={browserPlugin.id} onClick={() => openPlugin(browserPlugin.id)}>管理</button></div></td>
         </tr>;
         if (app.id === claudePlugin.id) return <tr key={app.id} data-store-sort-id={app.id}>
           {serialCell}
@@ -326,7 +320,7 @@ function OfficialPluginsStore({ mobile = false, initialPluginId, forceInitialPag
           <td data-label="开发商"><span className="store-publisher">官方</span><small>{claudePlugin.publisher}</small></td>
           <td data-label="说明" className="store-description">{claudePlugin.description}<small>{applicationDetailNotes[claudePlugin.id]}</small></td>
           <td data-label="价格">免费</td><td data-label="平台">Windows / macOS / Linux</td>
-          <td data-label="操作"><div className="store-row-actions"><ApplicationDetailsButton app={app} onOpen={setDetailsFor} /><PresentationButton pluginId={claudePlugin.id} onOpen={setPresentationFor} />{shortcutCell}<button type="button" className="table-link" data-plugin-entry={claudePlugin.id} onClick={() => openPlugin(claudePlugin.id)}>管理</button></div></td>
+          <td data-label="操作"><div className="store-row-actions"><ApplicationDetailsButton app={app} onOpen={setDetailsFor} /><PresentationButton pluginId={claudePlugin.id} onOpen={setPresentationFor} /><button type="button" className="table-link" data-plugin-entry={claudePlugin.id} onClick={() => openPlugin(claudePlugin.id)}>管理</button></div></td>
         </tr>;
         if (app.id === notesPlugin.id) return <tr key={app.id} data-store-sort-id={app.id}>
           {serialCell}
@@ -334,7 +328,7 @@ function OfficialPluginsStore({ mobile = false, initialPluginId, forceInitialPag
           <td data-label="开发商"><span className="store-publisher">官方</span><small>{notesPlugin.publisher}</small></td>
           <td data-label="说明" className="store-description">{notesPlugin.description}<small>{applicationDetailNotes[notesPlugin.id]}</small></td>
           <td data-label="价格">免费</td><td data-label="平台">Windows / macOS / Linux</td>
-          <td data-label="操作"><div className="store-row-actions"><ApplicationDetailsButton app={app} onOpen={setDetailsFor} /><PresentationButton pluginId={notesPlugin.id} onOpen={setPresentationFor} />{shortcutCell}<button type="button" className="table-link" data-plugin-entry={notesPlugin.id} onClick={() => openPlugin(notesPlugin.id)}>管理</button></div></td>
+          <td data-label="操作"><div className="store-row-actions"><ApplicationDetailsButton app={app} onOpen={setDetailsFor} /><PresentationButton pluginId={notesPlugin.id} onOpen={setPresentationFor} /><button type="button" className="table-link" data-plugin-entry={notesPlugin.id} onClick={() => openPlugin(notesPlugin.id)}>管理</button></div></td>
         </tr>;
         return <tr key={app.id} data-store-sort-id={app.id}>
           {serialCell}
@@ -342,7 +336,7 @@ function OfficialPluginsStore({ mobile = false, initialPluginId, forceInitialPag
           <td data-label="开发商"><span className="store-publisher">官方</span><small>{app.publisher}</small></td>
           <td data-label="说明" className="store-description">{app.description}</td>
           <td data-label="价格">免费</td><td data-label="平台">{app.platform === "all" ? "桌面 / Android / iOS" : app.platform === "windows" ? "Windows" : app.id === "cloudhub.lan-devices" ? "Windows / macOS" : "Windows / macOS / Linux"}</td>
-          <td data-label="操作"><div className="store-row-actions"><ApplicationDetailsButton app={app} onOpen={setDetailsFor} /><PresentationButton pluginId={app.id} onOpen={setPresentationFor} />{shortcutCell}<button type="button" className="table-link" data-plugin-entry={app.id} onClick={() => openPlugin(app.id)}>管理</button></div></td>
+          <td data-label="操作"><div className="store-row-actions"><ApplicationDetailsButton app={app} onOpen={setDetailsFor} /><PresentationButton pluginId={app.id} onOpen={setPresentationFor} /><button type="button" className="table-link" data-plugin-entry={app.id} onClick={() => openPlugin(app.id)}>管理</button></div></td>
         </tr>;
         })}
       </tbody></table>
@@ -350,7 +344,7 @@ function OfficialPluginsStore({ mobile = false, initialPluginId, forceInitialPag
       {visibleCount > 0 && <PaginationBar className="store-pagination" page={storePage} pageSize={storePageSize} total={visibleCount} onPageChange={setStorePage} onPageSizeChange={(size) => { setStorePageSize(size); setStorePage(1); }} />}
      </section>
     {activePlugin && activeDefinition && <SharedDialog key={activePlugin.id} sizeStorageKey={`plugin:${activePlugin.id}`} title={activePlugin.id === plugin.id ? "微信多开设置" : activeDefinition.name} size={activePlugin.presentation.size} className={`plugin-application-dialog plugin-modal-${activePlugin.presentation.size}`} onClose={closePlugin} footer={<button type="button" className="secondary" onClick={closePlugin}><ArrowLeft size={15} aria-hidden="true" />返回软件商店</button>}>{application}</SharedDialog>}
-    {presentationFor && <PluginPresentationDialog targetId={presentationFor} applicationSettings={applicationSettings} onClose={() => setPresentationFor(null)} />}
+    {presentationFor && <PluginPresentationDialog targetId={presentationFor} applicationSettings={applicationSettings} shortcutReady={desktopShortcutReady} shortcutBusy={busy} onCreateShortcut={() => { const app = applicationCatalog.find(item => item.id === presentationFor); if (app) shortcutCreate(app); }} onClose={() => setPresentationFor(null)} />}
     {detailsFor && applicationCatalog.find(item => item.id === detailsFor) && <ApplicationDetailsDialog app={applicationCatalog.find(item => item.id === detailsFor)!} order={applicationPositions.get(detailsFor)} onClose={() => setDetailsFor(null)} onConfigure={() => { const id = detailsFor; setDetailsFor(null); setPresentationFor(id); }} />}
     <ToastNotice message={[message, error, applicationSettings.error].filter(Boolean).join(" ")} tone={error || applicationSettings.error ? "error" : undefined} onDismiss={() => { setMessage(""); setError(""); applicationSettings.dismissError(); }}>{applicationSettings.error && !applicationSettings.ready && <button type="button" className="table-link" onClick={applicationSettings.retry}>重试读取</button>}</ToastNotice>
   </section>;

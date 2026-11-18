@@ -53,7 +53,72 @@ export interface WslDistribution {
 
 export interface WslDistributionDetails extends WslDistribution {
   ipAddress: string | null;
+  hostname: string | null;
+  gateway: string | null;
   rootUsedBytes: number | null;
+}
+
+export interface WslDistributionNetwork {
+  name: string;
+  ipAddress: string | null;
+  hostname: string | null;
+  gateway: string | null;
+}
+
+export interface WslNetworkInfo {
+  mode: string;
+  configuredMode: string | null;
+  bridging: string | null;
+  configPath: string;
+  hostName: string | null;
+  hostIp: string | null;
+  distributions: WslDistributionNetwork[];
+  message: string | null;
+}
+
+export interface WslTopologyAdapter {
+  name: string;
+  description: string;
+  status: string;
+  ip: string | null;
+  prefix: number | null;
+  gateway: string | null;
+  metric: number | null;
+  kind: "wifi" | "ethernet" | "tun" | "vswitch" | "other";
+  active: boolean;
+}
+
+export interface WslTopologyRoute {
+  nextHop: string;
+  adapter: string;
+  metric: number;
+}
+
+export interface WslTopologyDistribution {
+  name: string;
+  ipAddress: string | null;
+  hostname: string | null;
+  gateway: string | null;
+  dns: string[];
+}
+
+export interface WslNetworkTopology {
+  mode: string;
+  configPath: string;
+  hostName: string | null;
+  capturedAt: number;
+  wslVersion: string | null;
+  kernelVersion: string | null;
+  adapters: WslTopologyAdapter[];
+  defaultRoutes: WslTopologyRoute[];
+  activeGateway: string | null;
+  activeAdapter: string | null;
+  dnsServers: string[];
+  distributions: WslTopologyDistribution[];
+  sharedNetworkStack: boolean;
+  proxyDetected: boolean;
+  proxyActive: boolean;
+  message: string | null;
 }
 
 export interface WslDistroConfig {
@@ -119,6 +184,9 @@ export const pluginsClient = {
   hardwareInfo: () => nativeOnly<HardwareInfo>("hardware_info_get"),
   wslList: () => nativeOnly<WslDistribution[]>("wsl_dashboard_list"),
   wslDetails: (name: string) => nativeOnly<WslDistributionDetails>("wsl_dashboard_details", { name }),
+  wslNetworkInfo: () => nativeOnly<WslNetworkInfo>("wsl_dashboard_network_info"),
+  wslNetworkTopology: () => nativeOnly<WslNetworkTopology>("wsl_dashboard_network_topology"),
+  wslSaveNetworkMode: (mode: string, shutdown: boolean) => nativeOnly<void>("wsl_dashboard_network_save", { mode, shutdown }),
   wslDistroConfig: (name: string) => nativeOnly<WslDistroConfig>("wsl_dashboard_config_get", { name }),
   wslSaveDistroConfig: (name: string, config: WslDistroConfig, restart: boolean) => nativeOnly<void>("wsl_dashboard_config_save", { name, config, restart }),
   wslControl: (name: string, action: "start" | "stop" | "default" | "unregister", confirmationName?: string) => nativeOnly<void>("wsl_dashboard_control", { name, action, confirmationName: confirmationName ?? null }),

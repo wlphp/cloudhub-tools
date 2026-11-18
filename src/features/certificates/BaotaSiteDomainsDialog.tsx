@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Copy, Download, FileSpreadsheet, Globe2, Layers, RefreshCw, Search } from "lucide-react";
 import { SharedDialog } from "../../shared/SharedDialog";
+import { MultiSelectFilter } from "../../shared/MultiSelectFilter";
 import { DomainIcp, icpDomain, queryIcp, type IcpState } from "./DomainIcp";
 import { ConfirmDialog } from "../../shared/ConfirmDialog";
 import { platformErrorMessage } from "../../platform/api";
@@ -80,7 +81,7 @@ export function BaotaSiteDomainsDialog({ sites, onClose, onRemove, defaultSiteNa
   const [domainSearch, setDomainSearch] = useState("");
   const [siteSearch, setSiteSearch] = useState("");
   const [defaultSiteFilter, setDefaultSiteFilter] = useState(defaultSiteName);
-  const [consistencyFilter, setConsistencyFilter] = useState("all");
+  const [consistencyFilters, setConsistencyFilters] = useState<string[]>([]);
   const [dnsCache, setDnsCache] = useState<DnsCache>({});
   const [dnsRunning, setDnsRunning] = useState(false);
   const [dnsProgress, setDnsProgress] = useState("");
@@ -174,16 +175,25 @@ export function BaotaSiteDomainsDialog({ sites, onClose, onRemove, defaultSiteNa
     finally { removingRef.current = false; setRemoving(false); setRemoveTarget(null); }
   }
   const rows = useMemo(() => siteDomainRows(sites), [sites]);
-  const matches = useMemo(() => rows.filter(row => {
+  const rowConsistency = (row: SiteDomainRow) => {
     const result = dnsCache[row.domain];
     const serverIp = row.site.serverIp?.trim();
-    const consistency = !result || !serverIp ? "unknown" : result.error ? "error" : result.ips.includes(serverIp) ? "same" : "different";
+    return !result || !serverIp ? "unknown" : result.error ? "error" : result.ips.includes(serverIp) ? "same" : "different";
+  };
+  const matches = useMemo(() => rows.filter(row => {
+    const consistency = rowConsistency(row);
     return row.domain.includes(domainSearch.trim().toLowerCase())
       && `${row.site.siteName} ${row.site.siteRemark ?? ""} ${row.site.panelName}`.toLowerCase().includes(siteSearch.trim().toLowerCase())
       && (!defaultSiteFilter.trim() || row.site.siteName.toLowerCase().includes(defaultSiteFilter.trim().toLowerCase()))
-      && (consistencyFilter === "all" || consistencyFilter === consistency);
-  }), [rows, domainSearch, siteSearch, defaultSiteFilter, consistencyFilter, dnsCache]);
-  const pagination = useDomainPage(matches.length, [domainSearch, siteSearch, defaultSiteFilter, consistencyFilter]);
+      && (consistencyFilters.length === 0 || consistencyFilters.includes(consistency));
+  }), [rows, domainSearch, siteSearch, defaultSiteFilter, consistencyFilters, dnsCache]);
+  const consistencyFilterOptions = [
+    { value: "same", label: "一致", count: rows.filter(row => rowConsistency(row) === "same").length },
+    { value: "different", label: "不一致", count: rows.filter(row => rowConsistency(row) === "different").length },
+    { value: "unknown", label: "未检测 / 无服务器 IP", count: rows.filter(row => rowConsistency(row) === "unknown").length },
+    { value: "error", label: "解析失败", count: rows.filter(row => rowConsistency(row) === "error").length },
+  ];
+  const pagination = useDomainPage(matches.length, [domainSearch, siteSearch, defaultSiteFilter, consistencyFilters]);
   const selectableRows = matches.filter(row => row.site.panelId && new Set(row.site.siteDomains.map(domain => domain.trim().toLowerCase()).filter(Boolean)).size > 1);
   const selectedRows = selectableRows.filter(row => selectedKeys.has(row.key));
   const allSelected = selectableRows.length > 0 && selectedRows.length === selectableRows.length;
@@ -273,7 +283,7 @@ export function BaotaSiteDomainsDialog({ sites, onClose, onRemove, defaultSiteNa
         <label><span>域名</span><div className="baota-domain-search"><Search size={14} aria-hidden="true" /><input aria-label="模糊搜索站点域名" placeholder="搜索域名" value={domainSearch} onChange={event => setDomainSearch(event.target.value)} /></div></label>
         <label><span>站点</span><div className="baota-domain-search"><Search size={14} aria-hidden="true" /><input aria-label="搜索所属站点" placeholder="名称 / 备注 / 面板" value={siteSearch} onChange={event => setSiteSearch(event.target.value)} /></div></label>
         <label><span>默认站点</span><div className="baota-domain-search"><Search size={14} aria-hidden="true" /><input aria-label="检索默认站点" placeholder="输入默认站点名称" value={defaultSiteFilter} onChange={event => setDefaultSiteFilter(event.target.value)} /></div></label>
-        <label className="baota-domain-consistency-filter"><span>指向一致</span><select aria-label="筛选 DNS 指向一致性" value={consistencyFilter} onChange={event => setConsistencyFilter(event.target.value)}><option value="all">全部</option><option value="same">一致</option><option value="different">不一致</option><option value="unknown">未检测 / 无服务器 IP</option><option value="error">解析失败</option></select></label>
+        <MultiSelectFilter className="baota-domain-consistency-filter" label="指向一致" ariaLabel="筛选 DNS 指向一致性" allLabel="全部" options={consistencyFilterOptions} selected={consistencyFilters} onChange={setConsistencyFilters} />
         <div className="baota-domain-filter-actions">
           <button type="button" className="secondary" disabled={!matches.length} onClick={() => setSummary(true)}><Layers size={14} aria-hidden="true" />汇总主域名</button>
           <button type="button" className="secondary" disabled={!matches.length} onClick={() => void copy([...new Set(matches.map(row => row.domain))].join("\n"))}><Copy size={14} aria-hidden="true" />复制结果</button>

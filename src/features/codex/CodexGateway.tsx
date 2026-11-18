@@ -1,17 +1,31 @@
 import { ToastNotice } from "../../shared/ToastNotice";
+import { MultiSelectFilter } from "../../shared/MultiSelectFilter";
 import { SharedDialog } from "../../shared/SharedDialog";
+import { PaginationBar } from "../../shared/PaginationBar";
 import { GatewayTunnel } from "./GatewayTunnel";
-import { useEffect, useRef, useState } from "react";
-import { Activity, AlertTriangle, Boxes, CheckCircle2, Gem, Globe, Clock3, Copy, Eye, EyeOff, Info, Link2, Play, Power, RefreshCw, Save, Server, Settings, Square, ScrollText, Users, XCircle } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Activity, AlertTriangle, Boxes, CheckCircle2, Gem, Globe, Clock3, Copy, Eye, EyeOff, Info, Link2, Play, Power, RefreshCw, RotateCcw, Save, Search, Server, Settings, SlidersHorizontal, Square, ScrollText, Users, XCircle } from "lucide-react";
 import { codexClient, type CodexAccount, type CodexGatewayState } from "../../platform/clients/codex";
+import { runningOnPhone } from "../../platform/api";
 
-import { GatewayMonitoring, PoolQuota } from "./GatewayMonitoring";
+import { GatewayMonitoring } from "./GatewayMonitoring";
+import { quotaPresentation, quotaResetTime, quotaStatusNames, remainingPercent, useQuotaClock, windowName } from "./quotaPresentation";
 
 // Recommended IDs are suggestions, never evidence of account availability.
 const recommendedModels = ["gpt-6.1-sol", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5"];
 
+function poolPlanLabel(account: CodexAccount) {
+  return account.authMode === "apikey" ? "API Key" : account.plan?.toUpperCase() ?? "未知套餐";
+}
+
 export function CodexGateway({ accounts, disabled, onStateChange, externalPool, onLanUrlChange, actionRequest }: { accounts: CodexAccount[]; disabled: boolean; onStateChange?: (state: CodexGatewayState) => void; externalPool?: number[]; onLanUrlChange?: (url: string | null) => void; actionRequest?: {id: number; kind: "pool" | "logs" | "start" | "stop" | "config"} }) {
   const [poolOpen, setPoolOpen] = useState(false);
+  const [poolQuery, setPoolQuery] = useState("");
+  const [poolConditions, setPoolConditions] = useState<string[]>([]);
+  const [poolPlanFilters, setPoolPlanFilters] = useState<string[]>([]);
+  const [poolPage, setPoolPage] = useState(1);
+  const [poolPageSize, setPoolPageSize] = useState(10);
+  const [poolFiltersOpen, setPoolFiltersOpen] = useState(() => !runningOnPhone);
   const [logsOpen, setLogsOpen] = useState(false);
   const [updatedAt, setUpdatedAt] = useState<number | null>(null);
   const [state, setState] = useState<CodexGatewayState | null>(null);
@@ -34,6 +48,7 @@ export function CodexGateway({ accounts, disabled, onStateChange, externalPool, 
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [confirmation, setConfirmation] = useState<"start" | "stop" | "wake" | null>(null);
+  const poolNow = useQuotaClock();
   const alive = useRef(true);
   const operation = useRef(false);
   const portInitialized = useRef(false);
@@ -104,6 +119,45 @@ export function CodexGateway({ accounts, disabled, onStateChange, externalPool, 
   const selectedLanUrl = selectedNetwork && lanPort ? `http://${selectedNetwork.ip}:${lanPort}/v1` : null;
   useEffect(() => { onLanUrlChange?.(selectedLanUrl); }, [selectedLanUrl, onLanUrlChange]);
   const activeIds = running ? state.accountIds : ids;
+  const activePoolIds = useMemo(() => new Set(activeIds), [activeIds]);
+  const poolPlans = useMemo(() => [...new Set(accounts.map(poolPlanLabel))].sort((left, right) => left.localeCompare(right, "zh-CN")), [accounts]);
+  const poolConditionOptions = useMemo(() => {
+    const selectedCount = accounts.filter(account => activePoolIds.has(account.id)).length;
+    const statusCounts = new Map<string, number>();
+    for (const account of accounts) {
+      const status = quotaPresentation(account, poolNow).status;
+      statusCounts.set(status, (statusCounts.get(status) || 0) + 1);
+    }
+    return [
+      { value: "selected", label: "已加入账号池", count: selectedCount },
+      { value: "unselected", label: "未加入账号池", count: accounts.length - selectedCount },
+      ...Object.entries(quotaStatusNames).map(([status, label]) => ({ value: status, label, count: statusCounts.get(status) || 0 })),
+    ];
+  }, [accounts, activePoolIds, poolNow]);
+  const poolPlanOptions = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const account of accounts) {
+      const plan = poolPlanLabel(account);
+      counts.set(plan, (counts.get(plan) || 0) + 1);
+    }
+    return poolPlans.map(plan => ({ value: plan, label: plan, count: counts.get(plan) || 0 }));
+  }, [accounts, poolPlans]);
+  const filteredPoolAccounts = useMemo(() => {
+    const needle = poolQuery.trim().toLocaleLowerCase();
+    return accounts.filter(account => {
+      if (poolPlanFilters.length && !poolPlanFilters.includes(poolPlanLabel(account))) return false;
+      const selected = activePoolIds.has(account.id);
+      if (poolConditions.length && !poolConditions.some(condition => condition === "selected" ? selected : condition === "unselected" ? !selected : quotaPresentation(account, poolNow).status === condition)) return false;
+      if (!needle) return true;
+      return [account.label, account.email, account.accountId, account.note, ...account.tags].some(value => value?.toLocaleLowerCase().includes(needle));
+    });
+  }, [accounts, activePoolIds, poolConditions, poolNow, poolPlanFilters, poolQuery]);
+  const poolPageCount = Math.max(1, Math.ceil(filteredPoolAccounts.length / poolPageSize));
+  const safePoolPage = Math.min(poolPage, poolPageCount);
+  const pagedPoolAccounts = filteredPoolAccounts.slice((safePoolPage - 1) * poolPageSize, safePoolPage * poolPageSize);
+  const pageAllSelected = pagedPoolAccounts.length > 0 && pagedPoolAccounts.every(account => activePoolIds.has(account.id));
+  const pageSelectedCount = pagedPoolAccounts.filter(account => activePoolIds.has(account.id)).length;
+  const poolFiltersActive = !!(poolQuery || poolConditions.length || poolPlanFilters.length);
   useEffect(() => {
     if (!actionRequest) return;
     if (actionRequest.kind === "pool") setPoolOpen(true);
@@ -138,7 +192,7 @@ export function CodexGateway({ accounts, disabled, onStateChange, externalPool, 
       <button onClick={() => setLogsOpen(true)}><ScrollText size={14} />调用日志</button>
       <button disabled={locked} onClick={() => void act(async () => { const next = await codexClient.gatewayState(); if (alive.current) { setState(next); setUpdatedAt(Date.now()); setMessage("服务统计已刷新"); } })}><RefreshCw size={14} />刷新统计</button>
       <button className="codex-api-start" disabled={!canStart} onClick={() => setConfirmation("start")}><Play size={14} />启动反代服务</button>
-      <button className="codex-api-stop" disabled={locked || !running} onClick={() => setConfirmation("stop")}><Square size={14} />停止服务</button>
+      <button className="codex-api-stop" disabled={locked || !running} onClick={() => setConfirmation("stop")}><Square size={14} aria-hidden="true" />停止服务</button>
     </div></div><div className="codex-header-status" aria-label="服务状态"><span className={`codex-service-indicator${running ? " is-running" : ""}`}><Activity size={15} />{state ? running ? "服务运行中" : "服务已停止" : "检查中"}</span><span><Users size={14} />服务账号 <strong>{activeIds.length} / {accounts.length}</strong></span><span><Clock3 size={14} />处理中 <strong>{state ? state.active : "—"}</strong></span><span><CheckCircle2 size={14} />已完成请求 <strong>{state ? state.completed : "—"}</strong></span><span><XCircle size={14} />失败请求 <strong>{state ? state.failed : "—"}</strong></span><small>统计刷新于 {updatedAt ? new Date(updatedAt).toLocaleTimeString() : "—"}</small></div></header>
     <ToastNotice message={error || state?.startupError} tone="error" />{message && <ToastNotice message={message} />}
     <div className="codex-config-container">
@@ -163,9 +217,58 @@ export function CodexGateway({ accounts, disabled, onStateChange, externalPool, 
     <GatewayMonitoring logsOpen={logsOpen} onClose={() => setLogsOpen(false)} accounts={accounts} state={state} locked={locked} act={act} onState={setState} />
       <details className="codex-config-note"><summary>调用说明</summary><div className="codex-service-note"><Info size={21} aria-hidden="true" /><div><p>请求使用服务账号的订阅额度或 API 账单。{state?.supportsFunctionTools ? "Responses 支持文本、函数工具及流式输出；工具由客户端执行，网关不执行本机工具。暂不支持图片或托管工具。" : "支持文本请求及流式输出，不执行本机工具。"}</p><p>统计来自当前服务进程，ChatGPT 订阅端点可能随官方客户端变化。</p></div></div></details></section>
     </div>
-    {poolOpen && <SharedDialog sizeStorageKey="features/codex/codex-gateway/codex-gateway" title="服务账号池" className="codex-dialog codex-pool-dialog" bodyClassName="codex-pool-dialog-body" onClose={() => setPoolOpen(false)} footer={<button onClick={() => setPoolOpen(false)}>完成</button>}>
-    <section className="codex-api-card"><div className="codex-api-section-heading"><h3>账号选择 <span className="codex-badge">{activeIds.length} 个账号</span></h3><div className="codex-actions"><button disabled={locked || running || !accounts.length || !state?.supportsPoolPersistence} onClick={() => updatePool(ids.length === accounts.length ? new Set() : new Set(accounts.map((account) => account.id)))}>{ids.length === accounts.length && accounts.length ? "清空选择" : "全选账号"}</button><button disabled={locked || !ids.length || !/^[A-Za-z0-9._-]{1,100}$/.test(model)} onClick={() => setConfirmation("wake")}><Power size={14} />唤醒所选账号</button></div></div><p className="codex-api-description">{state?.supportsPoolPersistence ? "账号勾选后立即保存，停止服务和重启应用后保留；修改账号池需先停止服务。" : "更新原生版本后可选择并固定保存服务账号池。"}唤醒会发送模型请求并消耗额度。</p>
-      <div className="codex-service-pool" role="group" aria-label="API 反代服务账号">{accounts.map((account) => <label key={account.id}><input type="checkbox" aria-label={account.label} checked={activeIds.includes(account.id)} disabled={locked || running || !state?.supportsPoolPersistence} onChange={() => { const next = new Set(pool); next.has(account.id) ? next.delete(account.id) : next.add(account.id); updatePool(next); }} /><PoolQuota account={account} /></label>)}</div>{!accounts.length && <p className="codex-api-description">请先在账号总览添加账号。</p>}
+    {poolOpen && <SharedDialog sizeStorageKey="features/codex/codex-gateway/codex-gateway" title="服务账号池" subtitle="选择参与 API 反代服务的账号；勾选后立即保存" className="codex-dialog codex-pool-dialog" bodyClassName="codex-pool-dialog-body" onClose={() => setPoolOpen(false)} footer={<button type="button" className="secondary" onClick={() => setPoolOpen(false)}>完成</button>}>
+    <section className="codex-pool-workspace" aria-label="服务账号池">
+      <div className="codex-pool-summary">
+        <div><strong>账号列表</strong><span className="codex-badge">{activeIds.length} 个已加入</span><small>显示 {filteredPoolAccounts.length} / {accounts.length} 个账号</small></div>
+        <div className="codex-pool-bulk-actions">
+          <button type="button" disabled={locked || running || !pagedPoolAccounts.length || !state?.supportsPoolPersistence} onClick={() => {
+            const next = new Set(pool);
+            pagedPoolAccounts.forEach(account => pageAllSelected ? next.delete(account.id) : next.add(account.id));
+            updatePool(next);
+          }}>{pageAllSelected ? "取消当前页" : "选择当前页"}</button>
+          <button type="button" disabled={locked || running || !filteredPoolAccounts.length || !state?.supportsPoolPersistence} onClick={() => updatePool(new Set([...pool, ...filteredPoolAccounts.map(account => account.id)]))}>全选筛选结果</button>
+          <button type="button" disabled={locked || running || !ids.length || !state?.supportsPoolPersistence} onClick={() => updatePool(new Set())}>清空账号池</button>
+          <button type="button" className="codex-pool-wake" disabled={locked || !ids.length || !/^[A-Za-z0-9._-]{1,100}$/.test(model)} onClick={() => setConfirmation("wake")}><Power size={14} aria-hidden="true" />唤醒所选账号</button>
+        </div>
+      </div>
+      <div className="codex-pool-filter-shell">
+        <div className="codex-pool-filter-bar">
+          <label className="codex-pool-search"><Search size={15} aria-hidden="true" /><input type="search" aria-label="检索服务账号" placeholder="检索账号、邮箱、标签或备注" value={poolQuery} onChange={event => { setPoolQuery(event.target.value); setPoolPage(1); }} /></label>
+          <button type="button" className="codex-pool-filter-toggle" aria-expanded={poolFiltersOpen} aria-controls="codex-pool-filters" onClick={() => setPoolFiltersOpen(value => !value)}><SlidersHorizontal size={14} aria-hidden="true" />筛选{poolFiltersActive ? " · 已启用" : ""}</button>
+          {poolFiltersActive && <button type="button" className="codex-pool-clear-filter" onClick={() => { setPoolQuery(""); setPoolConditions([]); setPoolPlanFilters([]); setPoolPage(1); }}><RotateCcw size={14} aria-hidden="true" />清除</button>}
+        </div>
+        <div id="codex-pool-filters" className="codex-pool-filters" hidden={!poolFiltersOpen}>
+          <MultiSelectFilter className="codex-pool-condition-filter" label="账号状态" ariaLabel="筛选账号池状态" allLabel="全部状态" options={poolConditionOptions} selected={poolConditions} onChange={next => { setPoolConditions(next); setPoolPage(1); }} />
+          <MultiSelectFilter className="codex-pool-plan-filter" label="套餐" ariaLabel="筛选账号池套餐" allLabel="全部套餐" options={poolPlanOptions} selected={poolPlanFilters} onChange={next => { setPoolPlanFilters(next); setPoolPage(1); }} />
+        </div>
+      </div>
+      <p className="codex-pool-notice" role="status">{!state?.supportsPoolPersistence ? "更新原生版本后可选择并固定保存服务账号池。" : running ? "服务运行中，账号池暂时只读；停止服务后可修改。" : "勾选变更会立即保存。唤醒会为已加入账号逐个发送真实模型请求，可能消耗额度。"}</p>
+      {!accounts.length ? <p className="codex-pool-empty">请先在账号总览添加账号。</p> : !filteredPoolAccounts.length ? <p className="codex-pool-empty">没有匹配的账号，请调整检索条件。</p> : <>
+        <div className="codex-pool-table-wrap">
+          <table className="codex-pool-table" aria-label="API 反代服务账号列表">
+            <caption>当前页 {pagedPoolAccounts.length} 个账号，已加入 {pageSelectedCount} 个</caption>
+            <thead><tr><th scope="col" className="codex-pool-select"><input type="checkbox" aria-label={pageAllSelected ? "取消选择当前页账号" : "选择当前页账号"} checked={pageAllSelected} ref={element => { if (element) element.indeterminate = pageSelectedCount > 0 && !pageAllSelected; }} disabled={locked || running || !state?.supportsPoolPersistence} onChange={() => {
+              const next = new Set(pool);
+              pagedPoolAccounts.forEach(account => pageAllSelected ? next.delete(account.id) : next.add(account.id));
+              updatePool(next);
+            }} /></th><th scope="col">账号</th><th scope="col">套餐 / 鉴权</th><th scope="col">额度状态</th><th scope="col">额度窗口</th><th scope="col">额度更新</th></tr></thead>
+            <tbody>{pagedPoolAccounts.map(account => {
+              const presentation = quotaPresentation(account, poolNow);
+              const selected = activePoolIds.has(account.id);
+              return <tr key={account.id} className={selected ? "is-selected" : ""}>
+                <td data-label="选择" className="codex-pool-select"><input type="checkbox" aria-label={`${selected ? "从" : "加入"}服务账号池：${account.label}`} checked={selected} disabled={locked || running || !state?.supportsPoolPersistence} onChange={() => { const next = new Set(pool); selected ? next.delete(account.id) : next.add(account.id); updatePool(next); }} /></td>
+                <td data-label="账号"><div className="codex-pool-account"><strong>{account.label}</strong>{account.email && account.email !== account.label && <small>{account.email}</small>}{!!account.tags.length && <small>{account.tags.join(" · ")}</small>}{account.note && <small>{account.note}</small>}{account.lastError && <small className="codex-pool-warning">上次额度刷新失败</small>}</div></td>
+                <td data-label="套餐 / 鉴权"><span className="codex-pool-plan">{poolPlanLabel(account)}</span>{account.plan && account.authMode !== "apikey" && <small>订阅账号</small>}</td>
+                <td data-label="额度状态"><span className={`codex-pool-status is-${presentation.status}`}>{quotaStatusNames[presentation.status]}</span>{presentation.remaining != null && <small>最低剩余 {Math.round(presentation.remaining)}%</small>}</td>
+                <td data-label="额度窗口">{account.authMode === "apikey" ? <span>API 账单计费<small>无订阅额度</small></span> : account.quota.windows.length ? <div className="codex-pool-window-list">{account.quota.windows.map((window, index) => <span key={index}><strong>{windowName(window.windowMinutes)}</strong><small>{remainingPercent(window) == null ? "额度未知" : `${Math.round(remainingPercent(window)!)}% 剩余`} · {quotaResetTime(window.resetsAt, poolNow)}</small></span>)}</div> : <span>尚未获取额度</span>}</td>
+                <td data-label="额度更新"><span>{account.quota.fetchedAt ? new Date(account.quota.fetchedAt).toLocaleString() : "未刷新"}</span>{presentation.status === "stale" && <small className="codex-pool-warning">缓存已过期</small>}</td>
+              </tr>;
+            })}</tbody>
+          </table>
+        </div>
+        <PaginationBar className="codex-pool-pagination store-pagination" page={safePoolPage} pageSize={poolPageSize} total={filteredPoolAccounts.length} disabled={locked} onPageChange={setPoolPage} onPageSizeChange={size => { setPoolPageSize(size); setPoolPage(1); }} />
+      </>}
     </section>
     </SharedDialog>}
 

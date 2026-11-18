@@ -22,6 +22,9 @@
 .plugin-presentation-group legend { padding: 0 5px; color: var(--jb-muted, var(--jb-muted)); font-size: 11.5px; }
 .plugin-presentation-group.is-disabled { opacity: .55; }
 
+.plugin-shortcut-actions { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.plugin-shortcut-actions small { color: var(--jb-subtle, var(--jb-muted)); font-size: 10.5px; line-height: 1.5; }
+
 .plugin-presentation-modes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .plugin-presentation-mode {
   display: flex; flex-direction: column; align-items: flex-start; gap: 4px;

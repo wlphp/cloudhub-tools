@@ -25,6 +25,8 @@
 .auth-panel input[type=checkbox],.auth-dialog input[type=checkbox] { width:15px; height:15px; margin:0; accent-color:var(--jb-accent,var(--jb-blue)); }
 .auth-toolbar { margin-bottom:12px; }
 .auth-filters { display:flex; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:12px; }
+.auth-toolbar .auth-group-filter,.auth-filters .auth-group-filter { flex:0 0 auto; min-width:0; }
+.auth-toolbar .auth-group-filter .account-provider-filter-toggle,.auth-filters .auth-group-filter .account-provider-filter-toggle { height:32px; min-width:150px; }
 .auth-categories { display:flex; flex-wrap:wrap; gap:8px; min-width:0; }
 .auth-tone-0 { --auth-category-color:var(--jb-accent,var(--jb-accent)); }
 .auth-tone-1 { --auth-category-color:var(--jb-blue); }
@@ -471,8 +473,10 @@
 .auth-panel.auth-mobile .auth-mobile-tools-panel[hidden] { display: none; }
 .auth-panel.auth-mobile .auth-mobile-tools-toggle { margin: 0; }
 .auth-panel.auth-mobile .auth-toolbar { grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
-.auth-panel.auth-mobile .auth-toolbar:has(select[aria-label="验证码分组"]) { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; }
+.auth-panel.auth-mobile .auth-toolbar:has(.auth-group-filter) { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; }
 .auth-panel.auth-mobile .auth-toolbar > select { box-sizing: border-box; height: 44px; min-height: 44px; padding: 0 8px; color: var(--mobile-text); border: 1px solid var(--mobile-border); font-size: 12px; }
+.auth-panel.auth-mobile .auth-toolbar .auth-group-filter { width: 100%; min-width: 0; }
+.auth-panel.auth-mobile .auth-toolbar .auth-group-filter .account-provider-filter-toggle { width: 100%; min-width: 0; height: 44px; min-height: 44px; padding: 0 10px; border: 1px solid var(--mobile-border); border-radius: 8px; background: var(--mobile-surface); color: var(--mobile-text); font-size: 12px; }
 .auth-panel.auth-mobile .auth-view { grid-column: auto; display: inline-flex; gap: 2px; padding: 3px; border: 1px solid var(--mobile-border); border-radius: 9px; background: var(--mobile-raised); }
 .auth-panel.auth-mobile .auth-view button { display: grid; place-items: center; min-width: 44px; width: 44px; height: 44px; min-height: 44px; margin: 0; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--mobile-muted); box-shadow: none; transform: none; }
 .auth-panel.auth-mobile .auth-view button[aria-pressed=true] { background: var(--mobile-surface); color: var(--mobile-accent-strong); }

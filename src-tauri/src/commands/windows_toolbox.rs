@@ -537,6 +537,7 @@ pub(crate) async fn windows_toolbox_open(action: String, app: tauri::AppHandle) 
         "desktop-icons" => (system_executable("rundll32.exe")?, Some("shell32.dll,Control_RunDLL desk.cpl,,0"), false),
         "installed-apps" => (PathBuf::from("ms-settings:appsfeatures"), None, false),
         "system-proxy" => (PathBuf::from("ms-settings:network-proxy"), None, false),
+        "network-connections" => (system_executable("control.exe")?, Some("ncpa.cpl"), false),
         "display" => (PathBuf::from("ms-settings:display"), None, false),
         "hosts-folder" => {
             let windows_dir = std::env::var_os("SystemRoot")

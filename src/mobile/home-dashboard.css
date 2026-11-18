@@ -87,3 +87,51 @@
 .mobile-home-software-grid strong{margin-left:auto;font-size:12px;color:var(--mobile-muted)}
 .mobile-home-unified .mobile-software-chart{margin-top:0}
 @media(max-width:360px){.mobile-home-donut-layout{grid-template-columns:110px minmax(0,1fr);gap:10px}.mobile-home-shortcuts>button{gap:5px;padding:10px 7px}.mobile-home-shortcuts strong{font-size:11px}}
+/* 首页轻量动效，与桌面端保持一致：卡片浮现、图表从零展开 */
+@keyframes mobile-home-rise{from{opacity:0;transform:translateY(10px)}}
+@keyframes mobile-home-donut-draw{from{stroke-dasharray:0 301.59}}
+@keyframes mobile-home-fade{from{opacity:0}}
+@keyframes mobile-home-bar-grow{from{transform:scaleX(0)}}
+@keyframes mobile-home-column-grow{from{transform:scaleY(0)}}
+.mobile-home-page .home-stat-grid>button{animation:mobile-home-rise 440ms cubic-bezier(.22,.8,.3,1) backwards}
+.mobile-home-page .home-stat-grid>button:nth-child(2){animation-delay:60ms}
+.mobile-home-page .home-stat-grid>button:nth-child(3){animation-delay:120ms}
+.mobile-home-page .home-stat-grid>button:nth-child(4){animation-delay:180ms}
+.mobile-home-page .home-chart-card{animation:mobile-home-rise 500ms cubic-bezier(.22,.8,.3,1) backwards}
+.mobile-home-donut-layout svg circle:not(:first-child){animation:mobile-home-donut-draw 720ms cubic-bezier(.22,.8,.3,1) 140ms backwards}
+.mobile-home-donut-layout svg circle:nth-child(3){animation-delay:220ms}
+.mobile-home-donut-layout svg circle:nth-child(4){animation-delay:300ms}
+.mobile-home-donut-layout svg circle:nth-child(5){animation-delay:380ms}
+.mobile-home-donut-layout svg circle:nth-child(6){animation-delay:460ms}
+.mobile-home-donut-total,.mobile-home-donut-caption{animation:mobile-home-fade 500ms ease-out 480ms backwards}
+.mobile-home-shortcuts>button,.mobile-home-software-grid>button{animation:mobile-home-rise 360ms cubic-bezier(.22,.8,.3,1) backwards}
+.mobile-home-shortcuts>button:nth-child(2),.mobile-home-software-grid>button:nth-child(2){animation-delay:45ms}
+.mobile-home-shortcuts>button:nth-child(3),.mobile-home-software-grid>button:nth-child(3){animation-delay:90ms}
+.mobile-home-shortcuts>button:nth-child(4),.mobile-home-software-grid>button:nth-child(4){animation-delay:135ms}
+.mobile-home-shortcuts>button:nth-child(5),.mobile-home-software-grid>button:nth-child(5){animation-delay:180ms}
+.mobile-home-shortcuts>button:nth-child(6),.mobile-home-software-grid>button:nth-child(6){animation-delay:225ms}
+.mobile-home-shortcuts>button:nth-child(7),.mobile-home-software-grid>button:nth-child(7){animation-delay:270ms}
+.mobile-home-shortcuts>button:nth-child(8),.mobile-home-software-grid>button:nth-child(8){animation-delay:315ms}
+.mobile-home-software-grid>button:nth-child(9){animation-delay:360ms}
+.mobile-home-software-grid>button:nth-child(10){animation-delay:405ms}
+.mobile-home-software-grid>button:nth-child(11){animation-delay:450ms}
+.mobile-home-software-grid>button:nth-child(12){animation-delay:495ms}
+.mobile-shell .home-dashboard .home-bars .home-bar-track>i{transform-origin:left center;animation:mobile-home-bar-grow 700ms cubic-bezier(.22,.8,.3,1) 200ms backwards}
+.mobile-shell .home-dashboard .home-bars li:nth-child(2) .home-bar-track>i{animation-delay:260ms}
+.mobile-shell .home-dashboard .home-bars li:nth-child(3) .home-bar-track>i{animation-delay:320ms}
+.mobile-shell .home-dashboard .home-bars li:nth-child(4) .home-bar-track>i{animation-delay:380ms}
+.mobile-shell .home-dashboard .home-bars li:nth-child(5) .home-bar-track>i{animation-delay:440ms}
+.mobile-shell .home-dashboard .home-bars li:nth-child(6) .home-bar-track>i{animation-delay:500ms}
+.mobile-shell .home-dashboard .home-bars li:nth-child(7) .home-bar-track>i{animation-delay:560ms}
+.mobile-software-column i{transform-origin:bottom center;animation:mobile-home-column-grow 700ms cubic-bezier(.22,.8,.3,1) 260ms backwards}
+.mobile-software-columns button:nth-child(2) .mobile-software-column i{animation-delay:320ms}
+.mobile-software-columns button:nth-child(3) .mobile-software-column i{animation-delay:380ms}
+.mobile-software-columns button:nth-child(4) .mobile-software-column i{animation-delay:440ms}
+.mobile-software-columns button:nth-child(5) .mobile-software-column i{animation-delay:500ms}
+.mobile-software-columns button:nth-child(6) .mobile-software-column i{animation-delay:560ms}
+.mobile-software-columns button:nth-child(7) .mobile-software-column i{animation-delay:620ms}
+.mobile-software-columns button:nth-child(8) .mobile-software-column i{animation-delay:680ms}
+.mobile-software-columns button:nth-child(9) .mobile-software-column i{animation-delay:740ms}
+.mobile-software-columns button:nth-child(10) .mobile-software-column i{animation-delay:800ms}
+@media(hover:hover){.home-stat-grid>button,.mobile-home-shortcuts>button,.mobile-home-software-grid>button{transition:transform .16s,border-color .16s}.home-stat-grid>button:hover,.mobile-home-shortcuts>button:hover,.mobile-home-software-grid>button:hover{transform:translateY(-2px);border-color:var(--mobile-accent-border,var(--mobile-accent))}}
+@media(prefers-reduced-motion:reduce){.mobile-home-page .home-stat-grid>button,.mobile-home-page .home-chart-card,.mobile-home-donut-layout svg circle:not(:first-child),.mobile-home-donut-total,.mobile-home-donut-caption,.mobile-home-shortcuts>button,.mobile-home-software-grid>button,.mobile-shell .home-dashboard .home-bars .home-bar-track>i,.mobile-software-column i{animation:none!important}}

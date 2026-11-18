@@ -6,6 +6,7 @@ import { runningInTauri, runningOnPhone } from "../../platform/api";
 import { httpDebugProxyClient, type HttpDebugCertificate, type HttpDebugCertificateOverview, type HttpDebugSession, type HttpDebugSnapshot } from "../../platform/clients/http-debug-proxy";
 import { SharedDialog } from "../../shared/SharedDialog";
 import { ConfirmDialog } from "../../shared/ConfirmDialog";
+import { MultiSelectFilter } from "../../shared/MultiSelectFilter";
 import { PaginationBar } from "../../shared/PaginationBar";
 import "./http-debug-proxy.css";
 import { HttpInterceptPanel } from "./HttpInterceptPanel";
@@ -31,9 +32,9 @@ export function HttpDebugProxyPlugin() {
   const [selected, setSelected] = useState<HttpDebugSession | null>(null);
   const [showSensitive, setShowSensitive] = useState(false);
   const [query, setQuery] = useState("");
-  const [methodFilter, setMethodFilter] = useState("all");
+  const [methodFilters, setMethodFilters] = useState<string[]>([]);
   const [statusFilter, setStatusFilter] = useState("");
-  const [responseTypeFilter, setResponseTypeFilter] = useState<ResponseTypeFilter>("all");
+  const [responseTypeFilters, setResponseTypeFilters] = useState<string[]>([]);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(PAGE_SIZE);
   const [busy, setBusy] = useState(false);
@@ -132,12 +133,26 @@ export function HttpDebugProxyPlugin() {
   const certificateRows = useMemo<HttpDebugCertificate[]>(() => certificateOverview
     ? [certificateOverview.application, ...certificateOverview.store.filter(item => item.fingerprint !== certificateOverview.application.fingerprint)]
     : [], [certificateOverview]);
+  const filterOptions = useMemo(() => {
+    const methodCounts = new Map<string, number>();
+    const typeCounts = new Map<string, number>();
+    for (const item of snapshot.sessions) {
+      const method = item.method.toUpperCase();
+      methodCounts.set(method, (methodCounts.get(method) ?? 0) + 1);
+      const type = responseTypeOf(item.responseContentType);
+      typeCounts.set(type, (typeCounts.get(type) ?? 0) + 1);
+    }
+    return {
+      methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "CONNECT"].map(method => ({ value: method, label: method, count: methodCounts.get(method) ?? 0 })),
+      types: [{ value: "json", label: "JSON" }, { value: "image", label: "图片" }, { value: "binary", label: "二进制" }, { value: "text", label: "文本" }, { value: "other", label: "其他/未知" }].map(option => ({ ...option, count: typeCounts.get(option.value) ?? 0 })),
+    };
+  }, [snapshot.sessions]);
   const sessions = useMemo(() => snapshot.sessions.filter(item => {
     const matchesQuery = `${item.method} ${item.url} ${item.status}`.toLowerCase().includes(query.trim().toLowerCase());
     const matchesStatus = !statusFilter || String(item.status).startsWith(statusFilter);
-    const matchesType = responseTypeFilter === "all" || responseTypeOf(item.responseContentType) === responseTypeFilter;
-    return matchesQuery && (methodFilter === "all" || item.method.toUpperCase() === methodFilter) && matchesStatus && matchesType;
-  }), [snapshot.sessions, query, methodFilter, statusFilter, responseTypeFilter]);
+    const matchesType = responseTypeFilters.length === 0 || responseTypeFilters.includes(responseTypeOf(item.responseContentType));
+    return matchesQuery && (methodFilters.length === 0 || methodFilters.includes(item.method.toUpperCase())) && matchesStatus && matchesType;
+  }), [snapshot.sessions, query, methodFilters, statusFilter, responseTypeFilters]);
   const pageCount = Math.max(1, Math.ceil(sessions.length / pageSize));
   const safePage = Math.min(page, pageCount);
   const visibleSessions = useMemo(() => sessions.slice((safePage - 1) * pageSize, safePage * pageSize), [sessions, safePage, pageSize]);
@@ -199,11 +214,11 @@ export function HttpDebugProxyPlugin() {
     {!snapshot.running && <p className="http-debug-proxy-idle">HTTP 始终可抓；HTTPS 需要安装根证书才能解密，未安装时只转发加密流量。默认启用 Windows 系统代理，并自动串联原有本机 HTTP 上游代理（如 127.0.0.1:10808）。部分应用可能忽略系统代理或使用证书固定。</p>}
 
     <HttpInterceptPanel running={snapshot.running && !unsupported} />
-    <div className="http-debug-proxy-toolbar"><strong>会话 <span>{sessions.length}{(query || methodFilter !== "all" || statusFilter || responseTypeFilter !== "all") ? ` / ${snapshot.sessions.length}` : "（应用运行期间保留）"}</span></strong><div className="http-debug-proxy-toolbar-actions">
+    <div className="http-debug-proxy-toolbar"><strong>会话 <span>{sessions.length}{(query || methodFilters.length || statusFilter || responseTypeFilters.length) ? ` / ${snapshot.sessions.length}` : "（应用运行期间保留）"}</span></strong><div className="http-debug-proxy-toolbar-actions">
       <label className="http-debug-proxy-search"><Search size={14} aria-hidden="true" /><input aria-label="筛选会话" value={query} onChange={event => { setQuery(event.target.value); setPage(1); }} placeholder="搜索域名、路径" /></label>
-      <select aria-label="按请求方法筛选" value={methodFilter} onChange={event => { setMethodFilter(event.target.value); setPage(1); }}><option value="all">全部方法</option>{["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "CONNECT"].map(method => <option key={method} value={method}>{method}</option>)}</select>
+      <MultiSelectFilter label="方法" ariaLabel="按请求方法筛选" allLabel="全部方法" options={filterOptions.methods} selected={methodFilters} total={snapshot.sessions.length} onChange={next => { setMethodFilters(next); setPage(1); }} />
       <input className="http-debug-proxy-status-filter" aria-label="按状态码筛选" inputMode="numeric" value={statusFilter} onChange={event => { setStatusFilter(event.target.value.replace(/\D/g, "").slice(0, 3)); setPage(1); }} placeholder="状态码" />
-      <select aria-label="按响应类型筛选" value={responseTypeFilter} onChange={event => { setResponseTypeFilter(event.target.value as ResponseTypeFilter); setPage(1); }}><option value="all">全部类型</option><option value="json">JSON</option><option value="image">图片</option><option value="binary">二进制</option><option value="text">文本</option><option value="other">其他/未知</option></select>
+      <MultiSelectFilter label="类型" ariaLabel="按响应类型筛选" allLabel="全部类型" options={filterOptions.types} selected={responseTypeFilters} total={snapshot.sessions.length} onChange={next => { setResponseTypeFilters(next); setPage(1); }} />
       <button type="button" className="secondary http-debug-proxy-clear" disabled={!snapshot.sessions.length || busy} onClick={() => void operate(async () => { await httpDebugProxyClient.clear(); setSelectedId(null); setSelected(null); setPage(1); await refresh(); }, "会话已清空。")}><Trash2 size={14} aria-hidden="true" />清空会话</button></div></div>
     <div className="http-debug-proxy-table-wrap"><table className="http-debug-proxy-table"><caption className="store-table-caption">HTTP 与 HTTPS 请求会话</caption><thead><tr><th>时间</th><th>方法</th><th>主机与路径</th><th>状态</th><th>耗时</th><th>操作</th></tr></thead><tbody>
       {visibleSessions.map(item => <tr key={item.id} className={selectedId === item.id ? "is-selected" : ""}><td>{time(item.timestamp)}</td><td><code>{item.method}</code></td><td className="http-debug-proxy-url" title={item.url}>{item.url}{item.note && <small className="http-debug-proxy-session-note">{item.note}</small>}</td><td>{item.status || "失败"}</td><td>{item.durationMs} ms</td><td><button type="button" className="table-link http-debug-proxy-view" onClick={() => void selectSession(item.id)} aria-label={`查看 ${item.method} ${item.url} 的详情`}><Eye size={14} aria-hidden="true" />查看</button></td></tr>)}

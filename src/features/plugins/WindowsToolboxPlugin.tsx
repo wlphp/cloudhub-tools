@@ -1,11 +1,11 @@
 import { ToastNotice } from "../../shared/ToastNotice";
 import { useEffect, useState } from "react";
 import { invoke, runningInTauri, runningOnPhone } from "../../platform/api";
-import { AppWindow, Eye, FileKey2, FileType, Loader2, Monitor, MonitorCog, Network, RefreshCw, RotateCcw, RotateCw, ShieldAlert } from "lucide-react";
+import { AppWindow, EthernetPort, Eye, FileKey2, FileType, Loader2, Monitor, MonitorCog, Network, RefreshCw, RotateCcw, RotateCw, ShieldAlert } from "lucide-react";
 import { ConfirmDialog } from "../../shared/ConfirmDialog";
 import "./windows-toolbox.css";
 
-type Action = "desktop-icons" | "installed-apps" | "system-proxy" | "hosts" | "hosts-folder" | "flush-dns" | "display" | "restart-explorer";
+type Action = "desktop-icons" | "installed-apps" | "system-proxy" | "network-connections" | "hosts" | "hosts-folder" | "flush-dns" | "display" | "restart-explorer";
 type CredSspStatus = { currentValue: number | null; backupAvailable: boolean };
 type CredSspConfirmation = "repair" | "restore";
 type ExplorerPreferences = { showFileExtensions: boolean; showHiddenFiles: boolean; showSpotlightIcon: boolean };
@@ -14,6 +14,7 @@ const actions: { id: Action; title: string; detail: string; icon: typeof Monitor
   { id: "desktop-icons", title: "桌面图标设置", detail: "打开系统桌面图标配置", icon: MonitorCog },
   { id: "installed-apps", title: "已安装的应用", detail: "查看、卸载或修改本机应用", icon: AppWindow },
   { id: "system-proxy", title: "系统代理", detail: "打开 Windows 网络代理设置", icon: Network },
+  { id: "network-connections", title: "网络连接", detail: "打开网络连接面板，管理网络适配器", icon: EthernetPort },
   { id: "hosts", title: "Hosts 文件", detail: "先备份，再以管理员身份打开", icon: FileKey2, extraAction: "hosts-folder", extraLabel: "打开文件夹" },
   { id: "flush-dns", title: "清理 DNS 缓存", detail: "需要确认 Windows 管理员授权", icon: RotateCw },
   { id: "display", title: "显示设置", detail: "打开屏幕与多显示器设置", icon: Monitor },
@@ -140,6 +141,7 @@ export function WindowsToolboxPlugin() {
         <ul>
           <li><strong>桌面图标设置：</strong>打开 Windows 桌面图标配置面板。</li>
           <li><strong>已安装的应用、系统代理、显示设置：</strong>跳转到对应的 Windows 设置页面。</li>
+          <li><strong>网络连接：</strong>打开 Windows 网络连接面板（ncpa.cpl），可查看和管理网络适配器。</li>
           <li><strong>Hosts 文件：</strong>“打开文件夹”定位到 Hosts 所在目录；“打开”会先在应用本地数据目录创建备份，再请求管理员权限用记事本打开原文件。</li>
           <li><strong>清理 DNS 缓存：</strong>请求管理员授权后运行 Windows 的 <code>ipconfig /flushdns</code>。</li>
           <li><strong>重启 Windows 资源管理器：</strong>确认后重启桌面外壳进程，桌面和任务栏可能短暂消失；通常数秒后恢复。</li>

@@ -298,3 +298,6 @@ body:has(.mobile-shell) .ai-supplier-manager .ai-supplier-help > summary { box-s
 body:has(.mobile-shell) .ai-supplier-manager .ai-supplier-help > summary > svg { color: var(--mobile-muted); }
 body:has(.mobile-shell) .ai-supplier-manager .ai-supplier-help > summary:focus-visible { outline: 2px solid var(--mobile-accent); outline-offset: -3px; }
 body:has(.mobile-shell) .ai-supplier-manager .ai-supplier-help > p { margin: 0; padding: 12px; border-top: 1px solid var(--mobile-border); color: var(--mobile-muted); font-size: 13px; line-height: 1.7; }
+
+.ai-supplier-manager .ai-supplier-protocol-filter.provider-filter-wrap{min-width:0}
+.ai-supplier-manager .ai-supplier-protocol-filter .account-provider-filter-toggle{box-sizing:border-box;height:32px;min-width:150px;max-width:230px;font-size:12px}

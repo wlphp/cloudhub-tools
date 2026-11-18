@@ -7,8 +7,8 @@ export function filterAccounts(
   options: {
     keyword: string;
     field: AccountFilterField;
-    group: string;
-    status: string;
+    groups: string[];
+    statuses: string[];
     cloudTypes: string[];
   },
 ): Account[] {
@@ -16,8 +16,8 @@ export function filterAccounts(
   return accounts.filter((account) => {
     const source = options.field === "account_name" ? account.account_name : account.access_key_id;
     const matchesKeyword = !keyword || source.toLowerCase().includes(keyword);
-    const matchesGroup = !options.group || (account.group_name || "") === options.group;
-    const matchesStatus = options.status === "all" || (options.status === "1" ? account.enabled : !account.enabled);
+    const matchesGroup = options.groups.length === 0 || options.groups.includes(account.group_name || "");
+    const matchesStatus = options.statuses.length === 0 || options.statuses.includes(account.enabled ? "1" : "0");
     const matchesCloud = options.cloudTypes.length === 0 || options.cloudTypes.includes(account.cloud_type);
     return matchesKeyword && matchesGroup && matchesStatus && matchesCloud;
   });

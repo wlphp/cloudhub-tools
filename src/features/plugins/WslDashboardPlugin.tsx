@@ -4,9 +4,9 @@ import { SortSelectionControls } from "../../shared/SortSelectionControls";
 import { ListSortHandle } from "../../shared/ListSortHandle";
 import { useSortableDrag } from "../../shared/useSortableDrag";
 import { useDialogDocument } from "../../shared/DialogDocument";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, CircleStop, Copy, Download, FolderInput, FolderOpen, Info, MessageSquare, MoreVertical, Play, Pause, RefreshCw, Save, SquareTerminal, Star, FileArchive, ScrollText, Settings2, House, Trash2 } from "lucide-react";
+import { ChevronDown, CircleStop, Copy, Download, FolderInput, FolderOpen, Info, MessageSquare, MoreVertical, Network, Play, Pause, RefreshCw, Save, SquareTerminal, Star, FileArchive, ScrollText, Settings2, House, Trash2 } from "lucide-react";
 import { MoreMenu } from "../../shared/MoreMenu";
 import { SharedDialog } from "../../shared/SharedDialog";
 import { ConfirmDialog } from "../../shared/ConfirmDialog";
@@ -14,16 +14,125 @@ import { PaginationBar } from "../../shared/PaginationBar";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { WslDeleteConfirmation } from "./WslDeleteConfirmation";
 import { invoke, runningInTauri, runningOnPhone } from "../../platform/api";
-import { pluginsClient, type WslDistribution, type WslDistributionDetails, type WslDistroConfig, type WslMirrorDistro, type WslMirrorInstallProgress, type WslOnlineDistribution, type WslOperationLog, type WslRuntimeInfo } from "../../platform/clients/plugins";
+import { pluginsClient, type WslDistribution, type WslDistributionDetails, type WslDistroConfig, type WslMirrorDistro, type WslMirrorInstallProgress, type WslNetworkInfo, type WslNetworkTopology, type WslOnlineDistribution, type WslOperationLog, type WslRuntimeInfo } from "../../platform/clients/plugins";
+import { WslNetworkTopologyDialog } from "./WslNetworkTopologyDialog";
 import { networkClient, type ProxyCandidate } from "../../platform/clients/network";
 
 interface Props { open: boolean; enabled: boolean }
-type Tab = "home" | "install" | "settings" | "logs";
+type Tab = "home" | "install" | "settings" | "network" | "logs";
 type InstallMode = "online" | "mirror" | "rootfs";
+type WslNetworkMode = "nat" | "mirrored" | "virtioproxy" | "virt" | "bridged";
 const TABS: { id: Tab; label: string; Icon: typeof House }[] = [
   { id: "home", label: "首页", Icon: House }, { id: "install", label: "安装", Icon: FileArchive },
-  { id: "settings", label: "设置", Icon: Settings2 }, { id: "logs", label: "运行日志", Icon: ScrollText },
+  { id: "settings", label: "设置", Icon: Settings2 }, { id: "network", label: "网络", Icon: Network }, { id: "logs", label: "运行日志", Icon: ScrollText },
 ];
+const WSL_NETWORK_MODES: { value: WslNetworkMode; label: string; hint: string }[] = [
+  { value: "nat", label: "NAT", hint: "默认模式。WSL 使用独立虚拟网段联网，Windows 经 localhost 访问 WSL 内服务。" },
+  { value: "mirrored", label: "镜像", hint: "WSL 复用 Windows 的网络接口与地址，localhost 双向互通。" },
+  { value: "bridged", label: "桥接", hint: "WSL 从物理网络获取独立 IP，与宿主机平级；实验特性，异常时可切回 NAT。" },
+];
+function displayWslNetworkMode(mode: string): string {
+  switch (mode.trim().toLowerCase()) {
+    case "nat": return "NAT";
+    case "mirrored": return "镜像";
+    case "bridged": return "桥接";
+    case "virtioproxy": return "VirtioProxy（实验）";
+    case "virt": return "Virt（实验）";
+    default: return mode.trim() || "未知";
+  }
+}
+/** 浏览器/H5 预览用的隔离调试数据：不是真实巡检，仅让拓扑交互可测试。 */
+function previewTopology(mode: WslNetworkMode): WslNetworkTopology {
+  return {
+    mode,
+    configPath: "C:\\Users\\<用户名>\\.wslconfig",
+    hostName: "示例主机",
+    capturedAt: Date.now(),
+    wslVersion: "示例版本",
+    kernelVersion: "示例内核",
+    adapters: [
+      { name: "WLAN", description: "示例无线网卡", status: "Up", ip: "192.168.1.9", prefix: 24, gateway: "192.168.1.1", metric: 35, kind: "wifi", active: true },
+      { name: "vEthernet (WSL)", description: "示例虚拟交换机", status: "Up", ip: "172.18.80.1", prefix: 20, gateway: null, metric: 5, kind: "vswitch", active: false },
+    ],
+    defaultRoutes: [{ nextHop: "192.168.1.1", adapter: "WLAN", metric: 35 }],
+    activeGateway: "192.168.1.1",
+    activeAdapter: "WLAN",
+    dnsServers: ["192.168.1.1"],
+    distributions: [{ name: "示例发行版", ipAddress: "172.18.84.212", hostname: "示例主机", gateway: "172.18.80.1", dns: ["192.168.1.1"] }],
+    sharedNetworkStack: false,
+    proxyDetected: false,
+    proxyActive: false,
+    message: null,
+  };
+}
+function wslNetworkRelationRows(mode: string, info: Pick<WslNetworkInfo, "hostIp" | "distributions">): { direction: string; address: string; note: string }[] {
+  const sharePath = `\\\\wsl.localhost\\${info.distributions[0]?.name ?? "实例名"}`;
+  const hostGateway = info.hostIp ? `默认网关 ${info.hostIp}` : "默认网关 IP";
+  if (mode === "mirrored") return [
+    { direction: "Windows 访问 WSL 服务", address: "localhost:<端口>", note: "双方共享网络接口，WSL 内监听 0.0.0.0 的服务可直接访问。" },
+    { direction: "Windows 访问 WSL 文件", address: sharePath, note: "资源管理器地址栏输入后直接打开。" },
+    { direction: "WSL 访问 Windows", address: "localhost 或宿主机名", note: "与访问本机一致，无需网关地址。" },
+    { direction: "局域网设备访问 WSL", address: "需放行防火墙", note: "在 Windows 防火墙对对应端口放行后才能访问。" },
+  ];
+  if (mode === "bridged") return [
+    { direction: "Windows 访问 WSL 服务", address: "<WSL IP>:<端口>", note: "WSL 与宿主机平级，使用下方列表中的 IP 直接访问。" },
+    { direction: "Windows 访问 WSL 文件", address: sharePath, note: "资源管理器地址栏输入后直接打开。" },
+    { direction: "WSL 访问 Windows", address: "宿主机局域网 IP", note: "与访问局域网内其他设备一致。" },
+    { direction: "局域网设备访问 WSL", address: "直接访问 WSL IP", note: "无需端口转发；需 WSL 内防火墙放行对应端口。" },
+  ];
+  return [
+    { direction: "Windows 访问 WSL 服务", address: "localhost:<端口>", note: "WSL 内监听 0.0.0.0 的服务会自动转发到 Windows localhost。" },
+    { direction: "Windows 访问 WSL 文件", address: sharePath, note: "资源管理器地址栏输入后直接打开。" },
+    { direction: "WSL 访问 Windows", address: hostGateway, note: "在 WSL 内执行 ip route show default 查看；WSL 内工具可直接访问该地址。" },
+    { direction: "局域网设备访问 WSL", address: "需端口转发", note: "使用 netsh interface portproxy 将 WSL 端口暴露到 Windows，见下方说明。" },
+  ];
+}
+
+function WslNetworkModeArt({ mode }: { mode: WslNetworkMode }) {
+  const pkt = (dx: string, extra?: CSSProperties) => ({ "--pkt-dx": dx, ...extra } as CSSProperties);
+  if (mode === "mirrored") return (
+    <svg className="wsl-network-mode-art" viewBox="0 0 220 76" preserveAspectRatio="xMidYMid meet" aria-hidden="true" focusable="false">
+      <rect className="art-box" x={14} y={12} width={88} height={28} rx={6} />
+      <text className="art-label" x={58} y={30} textAnchor="middle">Windows</text>
+      <rect className="art-box" x={118} y={12} width={88} height={28} rx={6} />
+      <text className="art-label" x={162} y={30} textAnchor="middle">WSL</text>
+      <path className="art-line" d="M58 40 V52 M162 40 V52 M32 52 H188" />
+      <circle className="art-pkt" cx={58} cy={52} r={2.6} style={pkt("104px")} />
+      <circle className="art-pkt art-pkt-back" cx={58} cy={52} r={2.6} style={pkt("104px", { animationDirection: "reverse", animationDelay: "-1.3s" })} />
+      <text className="art-sub" x={110} y={67} textAnchor="middle">共享网络接口 · localhost 双向互通</text>
+    </svg>
+  );
+  if (mode === "bridged") return (
+    <svg className="wsl-network-mode-art" viewBox="0 0 220 76" preserveAspectRatio="xMidYMid meet" aria-hidden="true" focusable="false">
+      <rect className="art-box" x={14} y={8} width={88} height={32} rx={6} />
+      <text className="art-label" x={58} y={22} textAnchor="middle">Windows</text>
+      <text className="art-sub" x={58} y={33} textAnchor="middle">宿主机</text>
+      <rect className="art-box" x={118} y={8} width={88} height={32} rx={6} />
+      <text className="art-label" x={162} y={22} textAnchor="middle">WSL</text>
+      <text className="art-sub" x={162} y={33} textAnchor="middle">独立 IP</text>
+      <path className="art-line" d="M58 40 V58 M162 40 V58 M16 58 H204" />
+      <circle className="art-pkt" cx={20} cy={58} r={2.6} style={pkt("142px")} />
+      <circle className="art-pkt art-pkt-back" cx={58} cy={58} r={2.6} style={pkt("142px", { animationDirection: "reverse", animationDelay: "-1.3s" })} />
+      <text className="art-sub" x={110} y={71} textAnchor="middle">局域网总线 · 与宿主机平级</text>
+    </svg>
+  );
+  return (
+    <svg className="wsl-network-mode-art" viewBox="0 0 220 76" preserveAspectRatio="xMidYMid meet" aria-hidden="true" focusable="false">
+      <rect className="art-box" x={10} y={14} width={64} height={38} rx={6} />
+      <text className="art-label" x={42} y={30} textAnchor="middle">Windows</text>
+      <text className="art-sub" x={42} y={43} textAnchor="middle">localhost</text>
+      <rect className="art-box" x={146} y={14} width={64} height={38} rx={6} />
+      <text className="art-label" x={178} y={30} textAnchor="middle">WSL</text>
+      <text className="art-sub" x={178} y={43} textAnchor="middle">172.x 网段</text>
+      <rect className="art-node" x={92} y={24} width={36} height={18} rx={4} />
+      <text className="art-node-label" x={110} y={36} textAnchor="middle">NAT</text>
+      <path className="art-line" d="M74 33 H92 M128 33 H146" />
+      <circle className="art-pkt" cx={74} cy={33} r={2.6} style={pkt("72px")} />
+      <circle className="art-pkt art-pkt-back" cx={74} cy={33} r={2.6} style={pkt("72px", { animationDirection: "reverse", animationDelay: "-1.3s" })} />
+      <text className="art-sub" x={110} y={67} textAnchor="middle">localhost 转发 · 默认网关回连</text>
+    </svg>
+  );
+}
 
 function formatWslTimestamp(value: number | null): string {
   if (value === null || !Number.isFinite(value)) return "未记录";
@@ -73,6 +182,39 @@ function DistributionIcon({ name }: { name: string }) {
   return <svg className="wsl-system-icon is-linux" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="16" fill="#4b5563"/><path d="M11 21c-1-2 0-4 1-6V11a4 4 0 0 1 8 0v4c2 2 2 5 0 7-2 2-7 2-9-1z" fill="#fff"/><path d="M13 18h6M14 12h.1M18 12h.1" stroke="#4b5563" strokeWidth="1.5" strokeLinecap="round"/></svg>;
 }
 
+function WslNetworkValue({ value, label, onCopy }: { value: string | null; label: string; onCopy?: (value: string, label: string) => void }) {
+  if (!value) return <span className="wsl-network-empty">未能获取</span>;
+  return <span className="wsl-network-value"><code>{value}</code>{onCopy && <button type="button" className="wsl-network-copy" onClick={() => onCopy(value, label)} title={`复制${label}`} aria-label={`复制${label}`}><Copy size={13} aria-hidden="true" /></button>}</span>;
+}
+
+function WslNetworkRelations({ mode, info, onCopy }: { mode: string; info: Pick<WslNetworkInfo, "hostIp" | "distributions">; onCopy?: (value: string, label: string) => void }) {
+  const rows = wslNetworkRelationRows(mode, info);
+  return <section className="wsl-network-card" aria-labelledby="wsl-network-relations-title">
+    <h4 id="wsl-network-relations-title">与宿主机的访问关系（{displayWslNetworkMode(mode)}）</h4>
+    <table className="wsl-network-relations"><thead><tr><th scope="col">方向</th><th scope="col">地址</th><th scope="col">说明</th></tr></thead><tbody>
+      {rows.map(row => { const ip = row.address.match(/\d+\.\d+\.\d+\.\d+/)?.[0] ?? null; return <tr key={row.direction}><th scope="row">{row.direction}</th><td><span className="wsl-network-value"><code>{row.address}</code>{ip && onCopy && <button type="button" className="wsl-network-copy" onClick={() => onCopy(ip, "IP 地址")} title="复制 IP 地址" aria-label="复制 IP 地址"><Copy size={13} aria-hidden="true" /></button>}</span></td><td>{row.note}</td></tr>; })}
+    </tbody></table>
+    {info.distributions.length > 0 ? <table className="wsl-network-distros"><caption>运行中发行版</caption><thead><tr><th scope="col">发行版</th><th scope="col">IP 地址</th><th scope="col">主机名</th><th scope="col">默认网关</th></tr></thead><tbody>
+      {info.distributions.map(item => <tr key={item.name}><th scope="row">{item.name}</th><td><WslNetworkValue value={item.ipAddress} label="IP 地址" onCopy={onCopy} /></td><td><WslNetworkValue value={item.hostname} label="主机名" onCopy={onCopy} /></td><td><WslNetworkValue value={item.gateway} label="网关地址" onCopy={onCopy} /></td></tr>)}
+    </tbody></table> : <p className="wsl-network-message">没有运行中的发行版，启动后可在此查看 IP、主机名与网关。</p>}
+  </section>;
+}
+
+function WslNetworkGuide({ connectAddress, onLinkError }: { connectAddress: string | null; onLinkError: (message: string) => void }) {
+  const docsUrl = "https://learn.microsoft.com/windows/wsl/networking";
+  return <details className="wsl-network-guide"><summary><span><strong>端口转发与模式说明</strong><small>展开查看各模式原理与常用命令</small></span><span className="wsl-expand-hint"><ChevronDown size={17} aria-hidden="true" /></span></summary>
+    <div className="wsl-network-guide-body">
+      <p><strong>NAT（默认）：</strong>WSL 通过虚拟交换机使用独立网段（通常为 172.x.x.x）。Windows 访问 WSL 内服务使用 localhost 自动转发；WSL 访问 Windows 使用默认网关地址。</p>
+      <p><strong>镜像：</strong>WSL 复用 Windows 的网络接口，双方使用相同的地址与 localhost。少数依赖独立网段的场景可能不兼容。</p>
+      <p><strong>桥接：</strong>实验特性。WSL 像局域网内独立设备一样获取 IP，便于其他设备直接访问；切换后网络异常请改回 NAT。</p>
+      <p><strong>NAT 模式端口转发</strong>（需管理员权限的 PowerShell，本页仅提供命令说明，不会代为指导执行）：</p>
+      <pre><code>{`netsh interface portproxy add v4tov4 listenaddress=0.0.0.0 listenport=8080 connectaddress=${connectAddress ?? "WSL_IP"} connectport=80`}</code></pre>
+      <p>删除转发使用 <code>netsh interface portproxy delete v4tov4 listenaddress=0.0.0.0 listenport=8080</code>；查看全部规则使用 <code>netsh interface portproxy show all</code>。</p>
+      <p>更多网络细节见 <a href={docsUrl} target="_blank" rel="noopener noreferrer" onClick={event => { if (runningInTauri) { event.preventDefault(); void openUrl(docsUrl).catch(() => onLinkError("无法打开微软 WSL 网络说明，请复制链接到浏览器访问。")); } }}>微软 WSL 网络说明</a>。</p>
+    </div>
+  </details>;
+}
+
 export function WslDashboardPlugin({ open, enabled }: Props) {
   const document = useDialogDocument();
   const window = document.defaultView!;
@@ -120,6 +262,16 @@ export function WslDashboardPlugin({ open, enabled }: Props) {
   const [detailInfo, setDetailInfo] = useState<WslDistributionDetails | null>(null);
   const [detailBusy, setDetailBusy] = useState(false);
   const [detailFeedback, setDetailFeedback] = useState("");
+  const [networkInfo, setNetworkInfo] = useState<WslNetworkInfo | null>(null);
+  const [networkBusy, setNetworkBusy] = useState(false);
+  const [networkError, setNetworkError] = useState("");
+  const [networkFeedback, setNetworkFeedback] = useState("");
+  const [networkModeDraft, setNetworkModeDraft] = useState<WslNetworkMode>("nat");
+  const [networkSaving, setNetworkSaving] = useState(false);
+  const [confirmNetworkApply, setConfirmNetworkApply] = useState(false);
+  const [topologyOpen, setTopologyOpen] = useState(false);
+  const [topology, setTopology] = useState<WslNetworkTopology | null>(null);
+  const [topologyBusy, setTopologyBusy] = useState(false);
   const [configTarget, setConfigTarget] = useState<WslDistribution | null>(null);
   const [distroConfig, setDistroConfig] = useState<WslDistroConfig | null>(null);
   const [configLoading, setConfigLoading] = useState(false);
@@ -215,6 +367,47 @@ export function WslDashboardPlugin({ open, enabled }: Props) {
     catch (reason) { setRuntimeInfo(null); setRuntimeInfoError(reason instanceof Error ? reason.message : "无法读取 WSL 版本信息"); }
     finally { setRuntimeInfoBusy(false); }
   }
+  async function loadNetworkInfo() {
+    setNetworkBusy(true); setNetworkError("");
+    try {
+      const info = await pluginsClient.wslNetworkInfo();
+      setNetworkInfo(info);
+      const mode = WSL_NETWORK_MODES.some(candidate => candidate.value === info.mode) ? info.mode as WslNetworkMode : "nat";
+      setNetworkModeDraft(mode);
+    } catch (reason) { setNetworkInfo(null); setNetworkError(reason instanceof Error ? reason.message : "无法读取 WSL 网络信息"); }
+    finally { setNetworkBusy(false); }
+  }
+  /** 打开拓扑弹层：桌面端实时采集，浏览器/H5 使用隔离的本地调试数据。 */
+  async function openTopology() {
+    if (topologyBusy) return;
+    if (!runningInTauri || runningOnPhone) {
+      setTopology(previewTopology(networkModeDraft));
+      setTopologyOpen(true);
+      return;
+    }
+    setTopologyBusy(true); setNetworkError("");
+    try {
+      setTopology(await pluginsClient.wslNetworkTopology());
+      setTopologyOpen(true);
+    } catch (reason) {
+      setNetworkError(reason instanceof Error ? reason.message : "无法读取本机网络拓扑");
+    } finally { setTopologyBusy(false); }
+  }
+  async function applyNetworkMode() {
+    if (networkSaving) return;
+    setNetworkSaving(true); setNetworkError(""); setNetworkFeedback(""); setMessage(""); setConfirmNetworkApply(false);
+    try {
+      await pluginsClient.wslSaveNetworkMode(networkModeDraft, true);
+      setMessage(`网络模式已切换为${displayWslNetworkMode(networkModeDraft)}，运行中的 WSL 已关闭，下次启动生效。`);
+      setNetworkInfo(await pluginsClient.wslNetworkInfo());
+      try { setItems(await pluginsClient.wslList()); } catch { /* 模式已经写入，列表刷新失败不影响保存结果 */ }
+    } catch (reason) { setNetworkError(reason instanceof Error ? reason.message : "保存 WSL 网络模式失败"); }
+    finally { setNetworkSaving(false); if (tab === "logs") void loadLogs(); }
+  }
+  async function copyNetworkValue(value: string, label: string) {
+    try { await navigator.clipboard.writeText(value); setNetworkFeedback(`${label}已复制`); }
+    catch { setNetworkFeedback("复制失败，请检查剪贴板权限后重试"); }
+  }
   async function openWindowsProxySettings() {
     setError(""); setMessage("");
     try {
@@ -228,6 +421,7 @@ export function WslDashboardPlugin({ open, enabled }: Props) {
   }
   useEffect(() => { if (open && runningInTauri && !runningOnPhone && enabled) { void refresh(); void loadSettings(); void loadLogs(); void loadRuntimeInfo(); } }, [open, enabled]);
   useEffect(() => { if (open && tab === "logs" && runningInTauri && !runningOnPhone && enabled) void loadLogs(); }, [open, tab, enabled]);
+  useEffect(() => { if (open && tab === "network" && runningInTauri && !runningOnPhone && enabled) void loadNetworkInfo(); }, [open, tab, enabled]);
   useEffect(() => { if (open && tab === "install" && installMode === "online" && runningInTauri && !runningOnPhone && enabled) void loadOnlineList(); }, [open, tab, installMode, enabled]);
   useEffect(() => { if (open && tab === "install" && installMode === "mirror" && runningInTauri && !runningOnPhone && enabled) void loadMirrorList(); }, [open, tab, installMode, enabled]);
 
@@ -559,6 +753,39 @@ export function WslDashboardPlugin({ open, enabled }: Props) {
                 {installing?.mode === "rootfs" && <div className="wsl-install-progress" role="status" aria-live="polite"><strong>正在导入 {installing.distribution}</strong><progress aria-label={`正在导入 ${installing.distribution}`} /><span>正在注册发行版，完成时间取决于 RootFS 文件大小。</span></div>}
               </section>}
             </>}
+            {tab === "network" && <section className="wsl-network" aria-labelledby="wsl-network-title">
+              <div className="wsl-logs-heading"><div><h3 id="wsl-network-title">网络</h3><p>配置 WSL 的网络模式，并查看它与 Windows 宿主机之间的访问关系。</p></div><div className="wsl-network-heading-actions"><button type="button" className="secondary" disabled={topologyBusy || (!enabled && runningInTauri && !runningOnPhone)} onClick={() => void openTopology()}><Network size={14} aria-hidden="true" />{topologyBusy ? "采集中…" : "网络拓扑"}</button>{runningInTauri && !runningOnPhone && <button type="button" className="secondary" disabled={networkBusy || !enabled} onClick={() => void loadNetworkInfo()}><RefreshCw size={14} aria-hidden="true" />{networkBusy ? "读取中…" : "刷新"}</button>}</div></div>
+              {!enabled && <p role="status">插件已停用，启用后可读取网络信息并切换模式。</p>}
+              {(!runningInTauri || runningOnPhone) ? <>
+                <p role="status">界面预览 · 网络模式与宿主机关系需在 Windows 客户端读取；下方为可交互预览的模式说明，不会写入任何配置。</p>
+                <section className="wsl-network-card"><h4>网络模式（预览）</h4>
+                  <div className="wsl-network-modes" role="radiogroup" aria-label="预览 WSL 网络模式">{WSL_NETWORK_MODES.map(mode => <button key={mode.value} type="button" role="radio" aria-checked={networkModeDraft === mode.value} className={networkModeDraft === mode.value ? "is-active" : ""} onClick={() => setNetworkModeDraft(mode.value)}><WslNetworkModeArt mode={mode.value} /><strong>{mode.label}</strong><small>{mode.hint}</small></button>)}</div>
+                  <small>预览仅切换说明内容，不会写入 .wslconfig，也不会关闭任何发行版。</small>
+                </section>
+                <WslNetworkRelations mode={networkModeDraft} info={{ hostIp: null, distributions: [] }} />
+                <WslNetworkGuide connectAddress={null} onLinkError={message => setMessage(message)} />
+              </> : <>
+                {networkBusy && !networkInfo && <p role="status">正在读取网络信息…</p>}
+                {networkError && <div className="wsl-config-error" role="alert"><span>{networkError}</span>{!networkBusy && <button type="button" className="secondary" onClick={() => void loadNetworkInfo()}>重试</button>}</div>}
+                {networkInfo && <>
+                  <section className="wsl-network-card"><h4>网络模式</h4>
+                    <dl className="wsl-network-summary">
+                      <dt>当前模式</dt><dd>{displayWslNetworkMode(networkInfo.mode)}{!networkInfo.configuredMode && <span className="wsl-network-badge">默认</span>}</dd>
+                      <dt>配置文件</dt><dd><code>{networkInfo.configPath}</code></dd>
+                      {networkInfo.bridging && <><dt>桥接开关</dt><dd>{networkInfo.bridging === "bridged" ? "已开启（[experimental] bridging）" : networkInfo.bridging}</dd></>}
+                      <dt>Windows 主机名</dt><dd>{networkInfo.hostName ?? "未知"}</dd>
+                    </dl>
+                    <div className="wsl-network-modes" role="radiogroup" aria-label="选择 WSL 网络模式">{WSL_NETWORK_MODES.map(mode => <button key={mode.value} type="button" role="radio" aria-checked={networkModeDraft === mode.value} className={networkModeDraft === mode.value ? "is-active" : ""} disabled={networkSaving || !enabled} onClick={() => setNetworkModeDraft(mode.value)}><WslNetworkModeArt mode={mode.value} /><strong>{mode.label}</strong><small>{mode.hint}</small></button>)}</div>
+                    <div className="wsl-network-actions"><button type="button" className="primary" disabled={networkSaving || !enabled || networkModeDraft === networkInfo.mode} onClick={() => setConfirmNetworkApply(true)}><Save size={14} aria-hidden="true" />{networkSaving ? "正在保存…" : "保存并应用"}</button></div>
+                    <small>保存会写入 <code>{networkInfo.configPath}</code> 并关闭所有运行中的 WSL 使其生效；镜像与桥接需要较新的 Windows 11 与 WSL，切换后网络异常可改回 NAT。</small>
+                    <ToastNotice message={networkFeedback} />
+                  </section>
+                  {networkInfo.message && <p className="wsl-network-message" role="status">{networkInfo.message}</p>}
+                  <WslNetworkRelations mode={networkInfo.mode} info={networkInfo} onCopy={(value, label) => void copyNetworkValue(value, label)} />
+                  <WslNetworkGuide connectAddress={networkInfo.distributions.find(item => item.ipAddress)?.ipAddress ?? null} onLinkError={message => setError(message)} />
+                </>}
+              </>}
+            </section>}
             {tab === "settings" && <>
               <p>设置在线安装使用的默认位置。留空时由 WSL 选择系统默认目录。</p>
               <section className="wsl-install-settings" aria-labelledby="wsl-install-location-label"><label id="wsl-install-location-label" htmlFor="wsl-install-location">默认发行版安装目录</label><div className="wsl-install-location-controls"><input id="wsl-install-location" value={defaultInstallLocation} disabled={busy || settingsBusy || !enabled} onChange={event => setDefaultInstallLocation(event.target.value)} placeholder="留空时使用 WSL 默认位置" spellCheck={false} /><button type="button" className="secondary" disabled={busy || settingsBusy || !enabled} onClick={() => void chooseInstallLocation()}>选择目录</button><button type="button" className="secondary" disabled={busy || settingsBusy || !enabled} onClick={() => void saveInstallLocation()}>{settingsBusy ? "保存中…" : "保存"}</button></div><small>本地 RootFS 安装目录在“安装”页按实例单独指定。</small></section>
@@ -637,15 +864,19 @@ export function WslDashboardPlugin({ open, enabled }: Props) {
         <dt>WSL 版本</dt><dd>{(detailInfo ?? detailTarget).version ? `WSL ${(detailInfo ?? detailTarget).version}` : "未知"}</dd>
         <dt>状态</dt><dd>{displayWslState((detailInfo ?? detailTarget).state)}{(detailInfo ?? detailTarget).isDefault && <span className="wsl-details-default">默认</span>}</dd>
         <dt>IP 地址</dt><dd className="wsl-details-ip">{detailInfo?.ipAddress ? <><code>{detailInfo.ipAddress}</code><button type="button" className="secondary" onClick={() => void copyWslIp()}><Copy size={14} aria-hidden="true" />复制 IP</button></> : <span>{(detailInfo ?? detailTarget).state.toLowerCase() === "running" ? "未能获取 IP 地址" : "发行版运行后可查看"}</span>}</dd>
+        <dt>主机名</dt><dd>{detailInfo?.hostname ?? <span>{(detailInfo ?? detailTarget).state.toLowerCase() === "running" ? "未能获取主机名" : "发行版运行后可查看"}</span>}</dd>
+        <dt>默认网关</dt><dd>{detailInfo?.gateway ? <><code>{detailInfo.gateway}</code><small>NAT 模式下即 Windows 宿主机地址，可在 WSL 内直接访问</small></> : <span>{(detailInfo ?? detailTarget).state.toLowerCase() === "running" ? "未能获取网关地址" : "发行版运行后可查看"}</span>}</dd>
         <dt>根文件系统已用</dt><dd>{formatWslBytes(detailInfo?.rootUsedBytes ?? null)}</dd>
         <dt>安装时间</dt><dd>{formatWslTimestamp((detailInfo ?? detailTarget).installedAt)}</dd>
         <dt>最后启动</dt><dd>{formatWslTimestamp((detailInfo ?? detailTarget).lastStartedAt)}</dd>
         {(detailInfo ?? detailTarget).remark && <><dt>备注</dt><dd>{(detailInfo ?? detailTarget).remark}</dd></>}
       </dl>}
       <ToastNotice message={detailFeedback} tone={detailInfo ? "info" : "error"} />
-      <small className="wsl-details-note">IP 只会在发行版运行时读取；磁盘用量统计 Linux 根文件系统已使用空间。</small>
+      <small className="wsl-details-note">IP、主机名与网关只会在发行版运行时读取；NAT 模式下默认网关即 Windows 宿主机地址；磁盘用量统计 Linux 根文件系统已使用空间。</small>
     </SharedDialog>}
+    {topology && <WslNetworkTopologyDialog open={topologyOpen} topology={topology} isPreview={!runningInTauri || runningOnPhone} onClose={() => setTopologyOpen(false)} />}
     {deleteTarget && <WslDeleteConfirmation key={deleteTarget.name} name={deleteTarget.name} busy={busy} backingUp={backingUp} error={error} message={message} onCancel={() => setDeleteTarget(null)} onBackup={() => void backup(deleteTarget)} onConfirm={confirmationName => void control(deleteTarget, "unregister", confirmationName)} />}
     {confirmWslUpdate && createPortal(<ConfirmDialog title="升级 WSL" confirmLabel="开始升级" message={`将使用 wsl.exe --update --web-download 更新本机 WSL 平台组件${wslProxyUrl.trim() ? `，并临时使用代理 ${wslProxyUrl.trim()}` : ""}。不会删除发行版或其 Linux 文件；升级期间运行中的发行版可能暂时不可用。是否继续？`} onResolve={confirmed => { setConfirmWslUpdate(false); if (confirmed) void updateWsl(); }} />, document.body)}
+    {confirmNetworkApply && createPortal(<ConfirmDialog title="切换 WSL 网络模式" confirmLabel="保存并应用" message={`将把网络模式切换为${displayWslNetworkMode(networkModeDraft)}并写入 ${networkInfo?.configPath ?? "%UserProfile%\\.wslconfig"}。切换后会关闭所有正在运行的 WSL 发行版，未保存的 Linux 会话工作可能丢失。是否继续？`} onResolve={confirmed => { setConfirmNetworkApply(false); if (confirmed) void applyNetworkMode(); }} />, document.body)}
   </div>;
 }

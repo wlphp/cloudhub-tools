@@ -1,4 +1,5 @@
 import { ToastNotice } from "../../shared/ToastNotice";
+import { MultiSelectFilter } from "../../shared/MultiSelectFilter";
 import { SharedDialog } from "../../shared/SharedDialog";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Bot, ChevronDown, Eye, EyeOff, LoaderCircle, Plus, RefreshCw, Save, Search, Trash2 } from "lucide-react";
@@ -22,7 +23,7 @@ export function AiSettings({ embedded = false }: { embedded?: boolean }) {
   const [profiles, setProfiles] = useState<AiProfile[]>([]);
   const [expanded, setExpanded] = useState(embedded);
   const [query, setQuery] = useState("");
-  const [protocol, setProtocol] = useState("");
+  const [protocolFilters, setProtocolFilters] = useState<string[]>([]);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [loading, setLoading] = useState(true);
@@ -46,10 +47,11 @@ export function AiSettings({ embedded = false }: { embedded?: boolean }) {
   const visionCount = profiles.filter(profile => profile.visionStatus === "supported").length;
   const defaultProfile = profiles.find(profile => profile.isDefault);
   const keyword = query.trim().toLocaleLowerCase();
-  const filtered = profiles.filter(profile => (!protocol || profile.protocol === protocol) && [profile.name, profile.baseUrl, profile.model, ...(profile.models ?? [])].some(value => value.toLocaleLowerCase().includes(keyword)));
+  const filtered = profiles.filter(profile => (protocolFilters.length === 0 || protocolFilters.includes(profile.protocol)) && [profile.name, profile.baseUrl, profile.model, ...(profile.models ?? [])].some(value => value.toLocaleLowerCase().includes(keyword)));
+  const protocolFilterOptions = protocols.map(item => ({ value: item.value, label: item.label, count: profiles.filter(profile => profile.protocol === item.value).length }));
   const safePage = Math.min(page, Math.max(1, Math.ceil(filtered.length / pageSize)));
   const paged = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
-  useEffect(() => { setPage(1); setDeleting(null); }, [query, protocol, pageSize]);
+  useEffect(() => { setPage(1); setDeleting(null); }, [query, protocolFilters, pageSize]);
   function clearKeyDisplay() { keyRequest.current++; setKeyVisible(false); setRevealedKey(""); setRevealing(false); }
   useEffect(() => {
     if (!keyVisible) return;
@@ -139,7 +141,7 @@ export function AiSettings({ embedded = false }: { embedded?: boolean }) {
     <div id="ai-settings-content" hidden={!expanded}>
     <>
       {message && !draft && <ToastNotice message={message} />}
-      <div className="ai-supplier-toolbar"><label className="ai-supplier-search"><Search size={15} aria-hidden="true" /><input aria-label="搜索模型供应商" placeholder="搜索名称、服务地址或模型" value={query} onChange={event => setQuery(event.target.value)} /></label><label className="ai-supplier-filter"><span>协议</span><select aria-label="筛选模型供应商协议" value={protocol} onChange={event => setProtocol(event.target.value)}><option value="">全部协议</option>{protocols.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label><span className="ai-supplier-total">共 {filtered.length} 项</span><button type="button" disabled={busy || loading} onClick={() => void action(reload)}><RefreshCw size={14} aria-hidden="true" />刷新</button></div>
+      <div className="ai-supplier-toolbar"><label className="ai-supplier-search"><Search size={15} aria-hidden="true" /><input aria-label="搜索模型供应商" placeholder="搜索名称、服务地址或模型" value={query} onChange={event => setQuery(event.target.value)} /></label><MultiSelectFilter className="ai-supplier-protocol-filter" label="协议" ariaLabel="筛选模型供应商协议" allLabel="全部协议" options={protocolFilterOptions} selected={protocolFilters} onChange={setProtocolFilters} /><span className="ai-supplier-total">共 {filtered.length} 项</span><button type="button" disabled={busy || loading} onClick={() => void action(reload)}><RefreshCw size={14} aria-hidden="true" />刷新</button></div>
       {loading ? <p role="status">正在读取模型供应商…</p> : !profiles.length ? <p className="ai-supplier-empty">尚未配置模型供应商。点击上方添加，配置不会自动上传业务数据。</p> : !filtered.length && <p className="ai-supplier-empty">没有匹配的模型供应商，请调整搜索或协议筛选。</p>}
       {!!paged.length && <div className="ai-supplier-table-wrap"><table className="ai-supplier-table" aria-label="模型供应商列表"><colgroup><col className="ai-supplier-col-name" /><col className="ai-supplier-col-protocol" /><col className="ai-supplier-col-address" /><col className="ai-supplier-col-model" /><col className="ai-supplier-col-status" /><col className="ai-supplier-col-actions" /></colgroup><thead><tr><th scope="col">名称</th><th scope="col">协议</th><th scope="col">服务地址</th><th scope="col">默认模型</th><th scope="col">状态 / 图像</th><th scope="col">操作</th></tr></thead><tbody>{paged.map(profile => {
         const rowTesting = testing?.id === profile.id ? testing.kind : null;

@@ -11,6 +11,7 @@ export interface PanelDiskInfo {
 }
 
 export function panelAddress(value: string): string {
+  if (typeof value !== "string" || !value) return "-";
   try {
     return new URL(value).hostname;
   } catch {

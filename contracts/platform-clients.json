@@ -1625,7 +1625,19 @@
             "wsl_dashboard_clone",
             "wsl_dashboard_online_list",
             "wsl_dashboard_open_terminal",
-            "wsl_dashboard_open_folder"
+            "wsl_dashboard_open_folder",
+            "wsl_dashboard_details",
+            "wsl_dashboard_config_get",
+            "wsl_dashboard_config_save",
+            "wsl_dashboard_runtime_info",
+            "wsl_dashboard_network_info",
+            "wsl_dashboard_network_save",
+            "wsl_dashboard_network_topology",
+            "wsl_dashboard_mirror_list",
+            "wsl_dashboard_mirror_install",
+            "wsl_dashboard_move",
+            "wsl_dashboard_update",
+            "wsl_dashboard_select_move_location"
           ],
           "preview": []
         },

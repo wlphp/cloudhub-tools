@@ -5,6 +5,7 @@ import { SharedDialog } from "../../shared/SharedDialog";
 import { GroupNameInput } from "../../shared/GroupNameInput";
 import { SortSelectionControls } from "../../shared/SortSelectionControls";
 import { useSortableDrag } from "../../shared/useSortableDrag";
+import { MultiSelectFilter } from "../../shared/MultiSelectFilter";
 import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type FormEvent, type ReactNode } from "react";
 import { Check, ChevronDown, Copy, Download, Edit3, Eye, EyeOff, Filter, Grid2X2, GripVertical, KeyRound, List, LockKeyhole, Plus, Search, ShieldCheck, Star, Trash2, Upload } from "lucide-react";
 import { PaginationBar, PAGE_SIZE_OPTIONS } from "../../shared/PaginationBar";
@@ -53,7 +54,7 @@ export function AuthenticatorPanel({ mobile = false, initialOtpUri, onInitialOtp
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [search, setSearch] = useState("");
-  const [group, setGroup] = useState("all");
+  const [groupFilters, setGroupFilters] = useState<string[]>([]);
   const [category, setCategory] = useState("all");
   const [layout, setLayout] = useState<"grid" | "list">("grid");
   const [sort, setSort] = useState("custom");
@@ -169,6 +170,7 @@ export function AuthenticatorPanel({ mobile = false, initialOtpUri, onInitialOtp
   }
   useEffect(() => { if (unlocked) void refresh().catch(() => clearSecrets()); }, [unlocked, clearSecrets]);
   const groups = useMemo(() => [...new Set(entries.map((entry) => entry.group).filter(Boolean))].sort(), [entries]);
+  const groupOptions = useMemo(() => groups.map((name) => ({ value: name, label: name, count: entries.filter((entry) => entry.group === name).length })), [groups, entries]);
   const categories = useMemo(() => {
     const counts = new Map<string, { id: string; issuer: string; label: string; count: number }>();
     for (const entry of entries) {
@@ -184,10 +186,10 @@ export function AuthenticatorPanel({ mobile = false, initialOtpUri, onInitialOtp
   }, [categories, category]);
   const filtered = useMemo(() => {
     const keyword = search.trim().toLocaleLowerCase();
-    return entries.filter((e) => (category === "all" || issuerKey(e.issuer) === category) && (group === "all" || e.group === group.slice(2)) && (!keyword || `${e.issuer} ${e.account} ${e.note} ${e.group}`.toLocaleLowerCase().includes(keyword)))
+    return entries.filter((e) => (category === "all" || issuerKey(e.issuer) === category) && (groupFilters.length === 0 || groupFilters.includes(e.group)) && (!keyword || `${e.issuer} ${e.account} ${e.note} ${e.group}`.toLocaleLowerCase().includes(keyword)))
       .sort((a, b) => Number(b.pinned) - Number(a.pinned) || (sort === "name" ? a.issuer.localeCompare(b.issuer) || a.account.localeCompare(b.account) : a.order - b.order));
-  }, [entries, category, group, search, sort]);
-  useEffect(() => { setPage(1); }, [category, group, search, sort]);
+  }, [entries, category, groupFilters, search, sort]);
+  useEffect(() => { setPage(1); }, [category, groupFilters, search, sort]);
   const pageCount = Math.max(1, Math.ceil(filtered.length / gridPagination.pageSize));
   const safePage = Math.min(page, pageCount);
   const visible = filtered.slice((safePage - 1) * gridPagination.pageSize, safePage * gridPagination.pageSize);
@@ -326,7 +328,7 @@ export function AuthenticatorPanel({ mobile = false, initialOtpUri, onInitialOtp
   }
   const exportIds = entries.filter(entry => selected.has(entry.id)).map(entry => entry.id);
   const activeCategory = categories.find(item => item.id === category)?.label;
-  const mobileToolsSummary = [search.trim(), group === "all" ? "" : groups.find(name => `g:${name}` === group), category !== "all" ? activeCategory : "", sort === "custom" ? "" : "名称顺序"].filter(Boolean).join(" · ") || "全部验证码";
+  const mobileToolsSummary = [search.trim(), groupFilters.length === 1 ? groupFilters[0] : groupFilters.length ? `已选 ${groupFilters.length} 个分组` : "", category !== "all" ? activeCategory : "", sort === "custom" ? "" : "名称顺序"].filter(Boolean).join(" · ") || "全部验证码";
   const alerts = <>{error && !modal && !draft && <ToastNotice message={error} tone="error" />}{message && <ToastNotice message={message} />}</>;
 
   const panelClassName = `auth-panel${mobile ? " auth-mobile" : ""}`;
@@ -347,12 +349,12 @@ export function AuthenticatorPanel({ mobile = false, initialOtpUri, onInitialOtp
     {mobile && <button type="button" className="mobile-list-filter-toggle auth-mobile-tools-toggle" aria-expanded={mobileToolsOpen} aria-controls="auth-mobile-tools-panel" onClick={() => setMobileToolsOpen(open => !open)}><Filter size={15} aria-hidden="true" /><span>筛选与显示 · {mobileToolsSummary}</span><ChevronDown size={15} aria-hidden="true" /></button>}
     <div id={mobile ? "auth-mobile-tools-panel" : undefined} hidden={mobile && !mobileToolsOpen} className={mobile ? "auth-mobile-tools-panel" : undefined}>
     <div className="auth-toolbar"><div className="auth-search"><Search size={16} /><input aria-label="搜索验证码" placeholder="搜索服务商、账户或备注" value={search} onChange={(event) => setSearch(event.target.value)} /></div>
-      {mobile && groups.length > 0 && <select aria-label="验证码分组" value={group} onChange={(event) => setGroup(event.target.value)}><option value="all">所有分组</option>{groups.map((name) => <option key={name} value={`g:${name}`}>{name}</option>)}</select>}
+      {mobile && groups.length > 0 && <MultiSelectFilter className="auth-group-filter" label="分组" ariaLabel="筛选验证码分组" allLabel="全部分组" total={entries.length} options={groupOptions} selected={groupFilters} onChange={setGroupFilters} />}
       <select aria-label="验证码排序" value={sort} onChange={(event) => setSort(event.target.value)}><option value="custom">自定义顺序</option><option value="name">按服务商名称</option></select>
       <div className="auth-view" role="group" aria-label="显示方式"><button aria-label="卡片视图" title="卡片视图" aria-pressed={layout === "grid"} onClick={() => setLayout("grid")}><Grid2X2 size={17} /></button><button aria-label="列表视图" title="列表视图" aria-pressed={layout === "list"} onClick={() => setLayout("list")}><List size={17} /></button></div>
     </div>
     <div className="auth-filters">
-      {!mobile && groups.length > 0 && <select aria-label="验证码分组" value={group} onChange={(event) => setGroup(event.target.value)}><option value="all">所有分组</option>{groups.map((name) => <option key={name} value={`g:${name}`}>{name}</option>)}</select>}
+      {!mobile && groups.length > 0 && <MultiSelectFilter className="auth-group-filter" label="分组" ariaLabel="筛选验证码分组" allLabel="全部分组" total={entries.length} options={groupOptions} selected={groupFilters} onChange={setGroupFilters} />}
       {entries.length > 0 && <div className="auth-categories" role="group" aria-label="服务商分类统计">
         {[{ id: "all", issuer: "", label: "全部", count: entries.length }, ...categories].map((item) => <button className={`auth-category ${item.id === "all" ? "" : issuerTone(item.issuer)}`} key={item.id} aria-label={`${item.id === "all" ? "全部服务商" : item.label}，共 ${item.count} 项`} aria-pressed={category === item.id} onClick={() => setCategory(item.id)}><span className="auth-category-dot" aria-hidden="true" /><span className="auth-category-name">{item.label}</span><strong>{item.count}</strong>{category === item.id && <Check size={14} aria-hidden="true" />}</button>)}
       </div>}

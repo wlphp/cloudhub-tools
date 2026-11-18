@@ -96,6 +96,8 @@
 .http-debug-proxy-toolbar-actions > select, .http-debug-proxy-toolbar-actions > .http-debug-proxy-status-filter { box-sizing: border-box; height: 36px; min-height: 36px; padding: 0 9px; border: 1px solid var(--jb-border, rgba(127,135,148,.35)); border-radius: 6px; background: var(--jb-surface-2, Canvas); color: inherit; font: inherit; font-size: 12px; }
 .http-debug-proxy-toolbar-actions > select { min-width: 112px; }
 .http-debug-proxy-toolbar-actions > .http-debug-proxy-status-filter { width: 90px; }
+.http-debug-proxy-toolbar-actions > .provider-filter-wrap { flex: 0 0 auto; align-self: center; }
+.http-debug-proxy-toolbar-actions > .provider-filter-wrap > .account-provider-filter-toggle { box-sizing: border-box; height: 36px; min-height: 36px; font-size: 12px; }
 .http-debug-proxy-toolbar-actions > label { display: flex; box-sizing: border-box; align-self: center; align-items: center; gap: 8px; width: min(340px, 38vw); height: 36px; min-height: 36px; margin: 0; padding: 0 10px; }
 .http-debug-proxy-toolbar-actions > label > svg { display: block; flex: 0 0 auto; align-self: center; }
 .http-debug-proxy-toolbar-actions > label > input { box-sizing: border-box; flex: 1 1 auto; align-self: center; height: 30px; min-height: 30px; margin: 0; line-height: 30px; }

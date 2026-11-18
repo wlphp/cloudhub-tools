@@ -62,10 +62,89 @@ pub(crate) struct WslDistributionDetails {
     version: Option<u8>,
     is_default: bool,
     ip_address: Option<String>,
+    hostname: Option<String>,
+    gateway: Option<String>,
     root_used_bytes: Option<u64>,
     installed_at: Option<i64>,
     last_started_at: Option<i64>,
     remark: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WslDistributionNetwork {
+    name: String,
+    ip_address: Option<String>,
+    hostname: Option<String>,
+    gateway: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WslNetworkInfo {
+    mode: String,
+    configured_mode: Option<String>,
+    bridging: Option<String>,
+    config_path: String,
+    host_name: Option<String>,
+    host_ip: Option<String>,
+    distributions: Vec<WslDistributionNetwork>,
+    message: Option<String>,
+}
+
+/// 拓扑图中的一张 Windows 网卡；kind 由描述推断，active 表示承载生效默认路由。
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WslTopologyAdapter {
+    name: String,
+    description: String,
+    status: String,
+    ip: Option<String>,
+    prefix: Option<u32>,
+    gateway: Option<String>,
+    metric: Option<u32>,
+    kind: String,
+    active: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WslTopologyRoute {
+    next_hop: String,
+    adapter: String,
+    metric: u32,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WslTopologyDistribution {
+    name: String,
+    ip_address: Option<String>,
+    hostname: Option<String>,
+    gateway: Option<String>,
+    dns: Vec<String>,
+}
+
+/// 供弹层渲染的完整网络拓扑；字段全部来自本机实时采集，采集不到时为 None/空。
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WslNetworkTopology {
+    mode: String,
+    config_path: String,
+    host_name: Option<String>,
+    captured_at: i64,
+    wsl_version: Option<String>,
+    kernel_version: Option<String>,
+    adapters: Vec<WslTopologyAdapter>,
+    default_routes: Vec<WslTopologyRoute>,
+    active_gateway: Option<String>,
+    active_adapter: Option<String>,
+    dns_servers: Vec<String>,
+    distributions: Vec<WslTopologyDistribution>,
+    shared_network_stack: bool,
+    proxy_detected: bool,
+    proxy_active: bool,
+    message: Option<String>,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -162,8 +241,7 @@ fn wsl_config_entries(config: &WslDistroConfig) -> Vec<(&'static str, &'static s
     ]
 }
 
-fn merge_wsl_distro_config(existing: &str, config: &WslDistroConfig) -> String {
-    let entries = wsl_config_entries(config);
+fn merge_ini_entries(existing: &str, entries: &[(&str, &str, String)]) -> String {
     let mut lines = existing.lines().map(str::to_owned).collect::<Vec<_>>();
     let mut section = String::new();
     let mut written = Vec::<(String, String)>::new();
@@ -176,12 +254,17 @@ fn merge_wsl_distro_config(existing: &str, config: &WslDistroConfig) -> String {
         if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with(';') { continue; }
         let Some((key, _)) = trimmed.split_once('=') else { continue; };
         let key = key.trim().to_ascii_lowercase();
-        let Some((_, _, value)) = entries.iter().find(|(target_section, target_key, _)| *target_section == section && target_key.to_ascii_lowercase() == key) else { continue; };
-        let pair = (section.clone(), key.clone());
-        if written.contains(&pair) { *line = String::new(); }
-        else { *line = format!("{} = {}", entries.iter().find(|(target_section, target_key, _)| *target_section == section && target_key.to_ascii_lowercase() == key).map(|(_, target_key, _)| *target_key).unwrap_or(""), value); written.push(pair); }
+        if let Some((_, target_key, value)) = entries.iter().find(|(target_section, target_key, _)| *target_section == section && target_key.to_ascii_lowercase() == key) {
+            let pair = (section.clone(), key.clone());
+            if written.contains(&pair) { *line = String::new(); }
+            else { *line = format!("{} = {}", target_key, value); written.push(pair); }
+        }
     }
-    for target_section in ["automount", "network", "interop", "user", "boot", "time", "gpu"] {
+    let mut sections: Vec<&str> = Vec::new();
+    for (target_section, _, _) in entries {
+        if !sections.contains(target_section) { sections.push(target_section); }
+    }
+    for target_section in sections {
         let header = format!("[{target_section}]");
         if let Some(start) = lines.iter().position(|line| line.trim().eq_ignore_ascii_case(&header)) {
             let end = lines.iter().enumerate().skip(start + 1).find(|(_, line)| { let line = line.trim(); line.starts_with('[') && line.ends_with(']') }).map(|(index, _)| index).unwrap_or(lines.len());
@@ -198,6 +281,11 @@ fn merge_wsl_distro_config(existing: &str, config: &WslDistroConfig) -> String {
     }
     while lines.last().is_some_and(String::is_empty) { lines.pop(); }
     format!("{}\n", lines.join("\n"))
+}
+
+fn merge_wsl_distro_config(existing: &str, config: &WslDistroConfig) -> String {
+    let entries = wsl_config_entries(config);
+    merge_ini_entries(existing, &entries)
 }
 
 fn validate_wsl_distro_config(config: WslDistroConfig) -> PlatformResult<WslDistroConfig> {
@@ -540,6 +628,46 @@ pub(crate) fn wsl_dashboard_list() -> PlatformResult<Vec<WslDistribution>> {
     #[cfg(not(windows))] { unsupported() }
 }
 
+// Arguments are passed directly to wsl.exe; the shell script is constant and contains no user input.
+#[cfg(windows)]
+const NETWORK_PROBE_SCRIPT: &str = "printf 'IP %s\\n' \"$(hostname -I 2>/dev/null)\"; printf 'NAME %s\\n' \"$(hostname 2>/dev/null)\"; printf 'GATEWAY %s\\n' \"$(ip route show default 2>/dev/null)\"; df -Pk /";
+
+/// Reads IP, hostname, default gateway and used root space from a running distribution.
+/// Any value may be missing when the distribution lacks the matching command or network.
+#[cfg(windows)]
+fn parse_distro_network_probe(text: &str) -> (Option<String>, Option<String>, Option<String>, Option<u64>) {
+    let mut ip_address = None;
+    let mut hostname = None;
+    let mut gateway = None;
+    let mut root_used_bytes = None;
+    for line in text.lines() {
+        if let Some(rest) = line.strip_prefix("IP ") {
+            ip_address = rest.split_whitespace().find_map(|value| value.parse::<std::net::IpAddr>().ok()).map(|value| value.to_string());
+        } else if let Some(rest) = line.strip_prefix("NAME ") {
+            let name = rest.trim();
+            if !name.is_empty() { hostname = Some(name.to_owned()); }
+        } else if let Some(rest) = line.strip_prefix("GATEWAY ") {
+            gateway = rest.split_whitespace().skip_while(|token| !token.eq_ignore_ascii_case("via")).nth(1)
+                .filter(|value| value.parse::<std::net::IpAddr>().is_ok())
+                .map(|value| value.to_owned());
+        } else {
+            let columns = line.split_whitespace().collect::<Vec<_>>();
+            if columns.len() >= 6 && columns.last().is_some_and(|mount| *mount == "/") {
+                if let Some(kib) = columns.get(2).and_then(|value| value.parse::<u64>().ok()) {
+                    root_used_bytes = Some(kib.saturating_mul(1024));
+                }
+            }
+        }
+    }
+    (ip_address, hostname, gateway, root_used_bytes)
+}
+
+#[cfg(windows)]
+fn probe_distribution_network(name: &str) -> Option<(Option<String>, Option<String>, Option<String>, Option<u64>)> {
+    let output = invoke_wsl(&["--distribution", name, "--exec", "/bin/sh", "-c", NETWORK_PROBE_SCRIPT]).ok()?;
+    Some(parse_distro_network_probe(&output_text(&output.stdout)))
+}
+
 #[tauri::command]
 pub(crate) async fn wsl_dashboard_details(name: String) -> PlatformResult<WslDistributionDetails> {
     let name = validate_name(&name)?.to_owned();
@@ -548,29 +676,339 @@ pub(crate) async fn wsl_dashboard_details(name: String) -> PlatformResult<WslDis
             let distribution = wsl_dashboard_list()?.into_iter().find(|item| item.name == name)
                 .ok_or("该发行版已不存在，请刷新列表")?;
             let mut ip_address = None;
+            let mut hostname = None;
+            let mut gateway = None;
             let mut root_used_bytes = None;
             if distribution.state.eq_ignore_ascii_case("running") {
-                // Arguments are passed directly to wsl.exe; the shell script is constant and contains no user input.
-                if let Ok(output) = invoke_wsl(&["--distribution", &name, "--exec", "/bin/sh", "-c", "hostname -I; df -Pk /"]) {
-                    let text = output_text(&output.stdout);
-                    let mut lines = text.lines();
-                    ip_address = lines.next().and_then(|line| line.split_whitespace().find_map(|value| value.parse::<std::net::IpAddr>().ok()))
-                        .map(|value| value.to_string());
-                    root_used_bytes = lines.skip(1).find_map(|line| {
-                        let columns = line.split_whitespace().collect::<Vec<_>>();
-                        columns.get(2)?.parse::<u64>().ok().map(|kib| kib.saturating_mul(1024))
-                    });
+                if let Some((ip, distro_hostname, distro_gateway, used_bytes)) = probe_distribution_network(&name) {
+                    ip_address = ip; hostname = distro_hostname; gateway = distro_gateway; root_used_bytes = used_bytes;
                 }
             }
             Ok(WslDistributionDetails {
                 name: distribution.name, state: distribution.state, version: distribution.version,
-                is_default: distribution.is_default, ip_address, root_used_bytes,
+                is_default: distribution.is_default, ip_address, hostname, gateway, root_used_bytes,
                 installed_at: distribution.installed_at, last_started_at: distribution.last_started_at,
                 remark: distribution.remark,
             })
         }
         #[cfg(not(windows))] { let _ = name; unsupported() }
     }).await.map_err(|_| "读取发行版详细信息任务失败，请重试")?
+}
+
+#[cfg(windows)]
+fn wslconfig_path() -> std::path::PathBuf {
+    std::env::var_os("USERPROFILE").map(std::path::PathBuf::from).unwrap_or_default().join(".wslconfig")
+}
+
+/// Reads the global WSL network mode from %USERPROFILE%\\.wslconfig.
+/// `networkingMode` is read from `[wsl2]` first and falls back to `[experimental]`;
+/// `bridging` is read from `[experimental]`.
+#[cfg(windows)]
+fn read_wslconfig_network() -> (std::path::PathBuf, Option<String>, Option<String>) {
+    let path = wslconfig_path();
+    let Ok(text) = std::fs::read_to_string(&path) else { return (path, None, None) };
+    let mut section = String::new();
+    let mut wsl2_mode = None;
+    let mut experimental_mode = None;
+    let mut bridging = None;
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') || line.starts_with(';') { continue; }
+        if line.starts_with('[') && line.ends_with(']') {
+            section = line[1..line.len() - 1].trim().to_ascii_lowercase();
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else { continue; };
+        let key = key.trim().to_ascii_lowercase();
+        let value = value.trim().to_ascii_lowercase();
+        if !value.is_empty() && value.chars().all(|character| character.is_ascii_alphanumeric()) {
+            match (section.as_str(), key.as_str()) {
+                ("wsl2", "networkingmode") => wsl2_mode = Some(value),
+                ("experimental", "networkingmode") => experimental_mode = Some(value),
+                ("experimental", "bridging") => bridging = Some(value),
+                _ => {}
+            }
+        }
+    }
+    (path, wsl2_mode.or(experimental_mode), bridging)
+}
+
+#[cfg(windows)]
+fn normalize_network_mode(mode: &str) -> PlatformResult<&'static str> {
+    match mode.trim().to_ascii_lowercase().as_str() {
+        "nat" => Ok("nat"),
+        "mirrored" => Ok("mirrored"),
+        "virtioproxy" => Ok("virtioproxy"),
+        "virt" => Ok("virt"),
+        "bridged" => Ok("bridged"),
+        _ => Err("网络模式无效，请选择 NAT、镜像、桥接或实验模式".into()),
+    }
+}
+
+#[tauri::command]
+pub(crate) async fn wsl_dashboard_network_info() -> PlatformResult<WslNetworkInfo> {
+    tauri::async_runtime::spawn_blocking(|| {
+        #[cfg(windows)] {
+            let (config_path, configured_mode, bridging) = read_wslconfig_network();
+            let mode = configured_mode.clone().unwrap_or_else(|| "nat".to_owned());
+            let host_name = std::env::var("COMPUTERNAME").ok().filter(|value| !value.trim().is_empty());
+            let distributions = wsl_dashboard_list()?.into_iter()
+                .filter(|item| item.state.eq_ignore_ascii_case("running"))
+                .filter_map(|item| {
+                    let (ip_address, hostname, gateway, _) = probe_distribution_network(&item.name)?;
+                    Some(WslDistributionNetwork { name: item.name, ip_address, hostname, gateway })
+                })
+                .collect::<Vec<_>>();
+            let host_ip = distributions.iter().find_map(|item| item.gateway.clone());
+            let message = if distributions.is_empty() {
+                Some("没有运行中的发行版，启动后可查看 IP 与网关。".to_owned())
+            } else if mode == "mirrored" {
+                Some("镜像模式下 WSL 与 Windows 共享网络接口，可能没有独立网关。".to_owned())
+            } else {
+                None
+            };
+            Ok(WslNetworkInfo { mode, configured_mode, bridging, config_path: config_path.display().to_string(), host_name, host_ip, distributions, message })
+        }
+        #[cfg(not(windows))] { unsupported() }
+    }).await.map_err(|_| "读取 WSL 网络信息任务失败，请重试")?
+}
+
+// 只读、固定的网络快照脚本，不插入任何用户输入或凭据。
+#[cfg(windows)]
+const NETWORK_SNAPSHOT_SCRIPT: &str = r#"$ErrorActionPreference='SilentlyContinue'; [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false); $adapters=@(Get-NetAdapter -IncludeHidden | Where-Object { $_.InterfaceIndex -ne 0 } | ForEach-Object { $na=$_; $ip=Get-NetIPAddress -InterfaceIndex $na.InterfaceIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.AddressState -eq 'Preferred' } | Select-Object -First 1; $gw=Get-NetRoute -InterfaceIndex $na.InterfaceIndex -DestinationPrefix '0.0.0.0/0' -AddressFamily IPv4 -ErrorAction SilentlyContinue | Sort-Object { $_.RouteMetric + $_.InterfaceMetric } | Select-Object -First 1; [pscustomobject]@{ name=[string]$na.Name; desc=[string]$na.InterfaceDescription; status=[string]$na.Status; ip=$(if($ip){[string]$ip.IPAddress}else{''}); prefix=$(if($ip){[int]$ip.PrefixLength}else{0}); metric=$([int]$na.InterfaceMetric); nextHop=$(if($gw){[string]$gw.NextHop}else{''}); routeMetric=$(if($gw){[int]($gw.RouteMetric+$gw.InterfaceMetric)}else{-1}) } }); $dns=@(Get-DnsClientServerAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | ForEach-Object { $_.ServerAddresses } | Where-Object { $_ } | Select-Object -Unique); [pscustomobject]@{ adapters=$adapters; dns=$dns } | ConvertTo-Json -Depth 5 -Compress"#;
+
+#[cfg(windows)]
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct NetAdapterSnapshot {
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    desc: String,
+    #[serde(default)]
+    status: String,
+    #[serde(default)]
+    ip: String,
+    #[serde(default)]
+    prefix: u32,
+    #[serde(default)]
+    metric: u32,
+    #[serde(default)]
+    next_hop: String,
+    #[serde(default)]
+    route_metric: i64,
+}
+
+#[cfg(windows)]
+#[derive(Deserialize)]
+struct NetSnapshot {
+    #[serde(default)]
+    adapters: Vec<NetAdapterSnapshot>,
+    #[serde(default)]
+    dns: Vec<String>,
+}
+
+#[cfg(windows)]
+fn classify_adapter(name: &str, desc: &str) -> &'static str {
+    let text = format!("{} {}", name, desc).to_ascii_lowercase();
+    if text.contains("wintun") || text.contains("singbox") || text.contains("sing-box") || text.contains("tap-windows") || (text.contains("tun") && !text.contains("vethernet")) {
+        "tun"
+    } else if text.contains("vethernet") || text.contains("hyper-v") || text.contains("wsl") {
+        "vswitch"
+    } else if text.contains("wi-fi") || text.contains("wireless") || text.contains("wlan") || text.contains("802.11") || text.contains("ax101") {
+        "wifi"
+    } else if text.contains("ethernet") || text.contains("realtek") || text.contains("intel") {
+        "ethernet"
+    } else {
+        "other"
+    }
+}
+
+#[cfg(windows)]
+fn safe_label(value: &str, limit: usize) -> String {
+    value.chars().filter(|character| !character.is_control()).take(limit).collect()
+}
+
+/// 采集 Windows 网卡/路由/DNS + WSL 发行版与版本，拼出弹层所需的完整拓扑快照。
+#[tauri::command]
+pub(crate) async fn wsl_dashboard_network_topology() -> PlatformResult<WslNetworkTopology> {
+    tauri::async_runtime::spawn_blocking(|| {
+        #[cfg(windows)] {
+            use std::io::Read;
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+            let (config_path, configured_mode, _) = read_wslconfig_network();
+            let mode = configured_mode.clone().unwrap_or_else(|| "nat".to_owned());
+            let host_name = std::env::var("COMPUTERNAME").ok().filter(|value| !value.trim().is_empty());
+
+            let mut wsl_version = None;
+            let mut kernel_version = None;
+            if let Ok(output) = invoke_wsl(&["--version"]) {
+                let info = parse_wsl_runtime_info(&output_text(&output.stdout));
+                wsl_version = info.current_version;
+                for component in &info.components {
+                    let label = component.name.to_ascii_lowercase();
+                    if label.contains("kernel") || label.contains("内核") {
+                        kernel_version = Some(component.version.clone());
+                        break;
+                    }
+                }
+            }
+
+            // 运行中的发行版：复用网络探测脚本，并补充 DNS 读取。
+            let distributions = wsl_dashboard_list()?.into_iter()
+                .filter(|item| item.state.eq_ignore_ascii_case("running"))
+                .filter_map(|item| {
+                    let output = invoke_wsl(&["--distribution", &item.name, "--exec", "/bin/sh", "-c", TOPOLOGY_PROBE_SCRIPT]).ok()?;
+                    let text = output_text(&output.stdout);
+                    let ip = probe_value(&text, "IP ").and_then(|value| value.split_whitespace().find_map(|v| v.parse::<std::net::IpAddr>().ok()).map(|v| v.to_string()));
+                    let hostname = probe_value(&text, "NAME ").map(str::to_owned);
+                    let gateway = probe_value(&text, "GW ").and_then(|value| value.split_whitespace().skip_while(|t| !t.eq_ignore_ascii_case("via")).nth(1).filter(|v| v.parse::<std::net::IpAddr>().is_ok()).map(str::to_owned));
+                    let dns = probe_value(&text, "DNS ").map(|value| value.split_whitespace().filter_map(|v| v.parse::<std::net::IpAddr>().ok().map(|_| v.to_owned())).collect()).unwrap_or_default();
+                    Some(WslTopologyDistribution { name: item.name, ip_address: ip, hostname, gateway, dns })
+                })
+                .collect::<Vec<_>>();
+
+            let shared_network_stack = {
+                let mut seen = Vec::new();
+                let mut shared = false;
+                for item in &distributions {
+                    if let Some(ip) = item.ip_address.as_deref() {
+                        if seen.iter().any(|value: &&str| *value == ip) { shared = true; break; }
+                        seen.push(ip);
+                    }
+                }
+                shared
+            };
+
+            // Windows 网卡、默认路由与 DNS：固定脚本，限长 + 超时，避免卡住界面。
+            let mut adapters = Vec::new();
+            let mut default_routes = Vec::new();
+            let mut dns_servers = Vec::new();
+            let mut active_gateway = None;
+            let mut active_adapter = None;
+            let mut proxy_detected = false;
+            let mut proxy_active = false;
+
+            let child = Command::new("powershell.exe")
+                .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", NETWORK_SNAPSHOT_SCRIPT])
+                .creation_flags(CREATE_NO_WINDOW)
+                .stdin(Stdio::null()).stderr(Stdio::null()).stdout(Stdio::piped())
+                .spawn();
+            if let Ok(mut child) = child {
+                let stdout = child.stdout.take();
+                let reader = std::thread::spawn(move || {
+                    let mut bytes = Vec::new();
+                    if let Some(stdout) = stdout { let _ = stdout.take(262145).read_to_end(&mut bytes); }
+                    bytes
+                });
+                let deadline = Instant::now() + Duration::from_secs(8);
+                let finished = loop {
+                    match child.try_wait() {
+                        Ok(Some(_)) => break true,
+                        Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(25)),
+                        _ => { let _ = child.kill(); let _ = child.wait(); break false; }
+                    }
+                };
+                let bytes = reader.join().unwrap_or_default();
+                if finished && bytes.len() <= 262144 {
+                    let text = String::from_utf8_lossy(&bytes).trim_start_matches('\u{feff}').to_owned();
+                    if let Ok(snapshot) = serde_json::from_str::<NetSnapshot>(&text) {
+                        dns_servers = snapshot.dns.into_iter().take(8)
+                            .map(|value| safe_label(&value, 64))
+                            .filter(|value| value.parse::<std::net::IpAddr>().is_ok())
+                            .collect();
+                        let mut best_metric = i64::MAX;
+                        for row in snapshot.adapters.into_iter().take(64) {
+                            let name = safe_label(&row.name, 120);
+                            let desc = safe_label(&row.desc, 160);
+                            let kind = classify_adapter(&name, &desc);
+                            if kind == "tun" { proxy_detected = true; }
+                            let ip = if row.ip.parse::<std::net::IpAddr>().is_ok() { Some(row.ip.clone()) } else { None };
+                            let gateway = if row.next_hop.parse::<std::net::IpAddr>().is_ok() { Some(row.next_hop.clone()) } else { None };
+                            let is_default = row.route_metric >= 0 && gateway.is_some();
+                            if is_default {
+                                default_routes.push(WslTopologyRoute { next_hop: row.next_hop.clone(), adapter: name.clone(), metric: row.route_metric.max(0) as u32 });
+                                if row.route_metric < best_metric {
+                                    best_metric = row.route_metric;
+                                    active_gateway = gateway.clone();
+                                    active_adapter = Some(name.clone());
+                                    proxy_active = kind == "tun";
+                                }
+                            }
+                            adapters.push(WslTopologyAdapter {
+                                name, description: desc, status: safe_label(&row.status, 32),
+                                ip, prefix: if row.prefix <= 32 { Some(row.prefix) } else { None },
+                                gateway, metric: Some(row.metric), kind: kind.to_owned(), active: false,
+                            });
+                        }
+                    }
+                }
+            }
+            default_routes.sort_by_key(|route| route.metric);
+            if let Some(active) = active_adapter.as_deref() {
+                for adapter in &mut adapters {
+                    if adapter.name == active { adapter.active = true; }
+                }
+            }
+
+            let message = if adapters.is_empty() {
+                Some("未能读取 Windows 网卡快照；拓扑中的本地网卡信息可能不完整。".to_owned())
+            } else if distributions.is_empty() {
+                Some("没有运行中的发行版，WSL 侧仅展示配置与模式信息。".to_owned())
+            } else {
+                None
+            };
+
+            Ok(WslNetworkTopology {
+                mode, config_path: config_path.display().to_string(), host_name, captured_at: now_millis(),
+                wsl_version, kernel_version, adapters, default_routes, active_gateway, active_adapter,
+                dns_servers, distributions, shared_network_stack, proxy_detected, proxy_active, message,
+            })
+        }
+        #[cfg(not(windows))] { unsupported() }
+    }).await.map_err(|_| "读取网络拓扑任务失败，请重试")?
+}
+
+// 拓扑探测脚本：IP / NAME / 默认网关 / DNS，均为固定命令、无用户输入。
+#[cfg(windows)]
+const TOPOLOGY_PROBE_SCRIPT: &str = "printf 'IP %s\\n' \"$(hostname -I 2>/dev/null)\"; printf 'NAME %s\\n' \"$(hostname 2>/dev/null)\"; printf 'GW %s\\n' \"$(ip route show default 2>/dev/null)\"; printf 'DNS %s\\n' \"$(cat /etc/resolv.conf 2>/dev/null | grep -i '^nameserver' | awk '{print $2}' | tr '\\n' ' ')\";";
+
+#[cfg(windows)]
+fn probe_value<'a>(text: &'a str, prefix: &str) -> Option<&'a str> {
+    text.lines().find_map(|line| line.strip_prefix(prefix)).map(str::trim).filter(|value| !value.is_empty())
+}
+
+#[tauri::command]
+pub(crate) async fn wsl_dashboard_network_save(mode: String, shutdown: bool) -> PlatformResult<()> {
+    tauri::async_runtime::spawn_blocking(move || {
+        #[cfg(windows)] {
+            let mode = normalize_network_mode(&mode)?;
+            let (path, _, existing_bridging) = read_wslconfig_network();
+            let mut entries: Vec<(&str, &str, String)> = vec![("wsl2", "networkingMode", mode.to_owned())];
+            if mode == "bridged" {
+                entries.push(("experimental", "bridging", "bridged".to_owned()));
+            } else if existing_bridging.is_some() {
+                entries.push(("experimental", "bridging", "disabled".to_owned()));
+            }
+            let existing = std::fs::read_to_string(&path).unwrap_or_default();
+            let newline = if existing.contains("\r\n") { "\r\n" } else { "\n" };
+            let content = merge_ini_entries(&existing, &entries).replace('\n', newline);
+            if let Err(reason) = std::fs::write(&path, &content) {
+                record_operation("保存网络模式", None, false);
+                return Err(format!("无法写入 {}：{}", path.display(), reason).into());
+            }
+            let result: PlatformResult<()> = if shutdown {
+                invoke_wsl(&["--shutdown"]).map(|_| ()).map_err(|_| "网络模式已写入 .wslconfig，但关闭 WSL 失败；请手动执行 wsl --shutdown 后生效".into())
+            } else {
+                Ok(())
+            };
+            record_operation("保存网络模式", None, result.is_ok());
+            result
+        }
+        #[cfg(not(windows))] { let _ = (mode, shutdown); unsupported() }
+    }).await.map_err(|_| "保存网络模式任务失败，请重试")?
 }
 
 #[tauri::command]

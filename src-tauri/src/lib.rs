@@ -49,7 +49,7 @@ pub(crate) use commands::wechat_plugin::{wechat_plugin_status, wechat_plugin_sel
 #[cfg(desktop)]
 pub(crate) use commands::hardware_info::{hardware_info_get, hardware_info_export_png, hardware_wifi_password_reveal};
 #[cfg(desktop)]
-pub(crate) use commands::wsl_dashboard::{wsl_dashboard_backup, wsl_dashboard_clone, wsl_dashboard_config_get, wsl_dashboard_config_save, wsl_dashboard_control, wsl_dashboard_details, wsl_dashboard_install, wsl_dashboard_import_rootfs, wsl_dashboard_list, wsl_dashboard_logs_clear, wsl_dashboard_logs_get, wsl_dashboard_mirror_install, wsl_dashboard_mirror_list, wsl_dashboard_move, wsl_dashboard_online_list, wsl_dashboard_open_folder, wsl_dashboard_open_terminal, wsl_dashboard_runtime_info, wsl_dashboard_save_settings, wsl_dashboard_select_install_location, wsl_dashboard_select_move_location, wsl_dashboard_select_rootfs_file, wsl_dashboard_settings_get, wsl_dashboard_shutdown, wsl_dashboard_update};
+pub(crate) use commands::wsl_dashboard::{wsl_dashboard_backup, wsl_dashboard_clone, wsl_dashboard_config_get, wsl_dashboard_config_save, wsl_dashboard_control, wsl_dashboard_details, wsl_dashboard_install, wsl_dashboard_import_rootfs, wsl_dashboard_list, wsl_dashboard_logs_clear, wsl_dashboard_logs_get, wsl_dashboard_mirror_install, wsl_dashboard_mirror_list, wsl_dashboard_move, wsl_dashboard_network_info, wsl_dashboard_network_save, wsl_dashboard_network_topology, wsl_dashboard_online_list, wsl_dashboard_open_folder, wsl_dashboard_open_terminal, wsl_dashboard_runtime_info, wsl_dashboard_save_settings, wsl_dashboard_select_install_location, wsl_dashboard_select_move_location, wsl_dashboard_select_rootfs_file, wsl_dashboard_settings_get, wsl_dashboard_shutdown, wsl_dashboard_update};
 #[cfg(desktop)]
 pub(crate) use commands::windows_toolbox::{windows_toolbox_credssp_apply, windows_toolbox_credssp_status, windows_toolbox_explorer_preferences, windows_toolbox_open, windows_toolbox_set_explorer_preference};
 pub(crate) use commands::ai::{ai_list_profiles, ai_reveal_key,ai_save_profile,ai_delete_profile,ai_preview,ai_run,ai_cancel};
@@ -1111,6 +1111,9 @@ pub fn run() {
         codex_provider_aggregate_list, codex_provider_aggregate_save, codex_provider_aggregate_remove,
         wsl_dashboard_update,
         wsl_dashboard_details,
+        wsl_dashboard_network_info,
+        wsl_dashboard_network_save,
+        wsl_dashboard_network_topology,
         wsl_dashboard_config_get,
         wsl_dashboard_config_save,
         wsl_dashboard_runtime_info,

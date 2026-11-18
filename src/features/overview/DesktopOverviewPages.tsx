@@ -1,6 +1,7 @@
 import { resourceKinds, homeShortcuts, formatHomeElapsed } from "./homeModel";
 import { MonitorScopeGroups } from "./MonitorScopeGroups";
 import { ToastNotice } from "../../shared/ToastNotice";
+import { MultiSelectFilter } from "../../shared/MultiSelectFilter";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Activity, BellRing, CheckCircle2, ChevronDown, ChevronUp, Cloud, Database, HardDrive, RefreshCw, ShieldAlert, Clock3, Layers3, Trash2, Search, Settings2, Star, ChartColumn } from "lucide-react";
 import type { Account, LocalAsset } from "../../shared/types";
@@ -117,7 +118,7 @@ export function DesktopMonitorAlertsPage({ onNavigate, accounts }: { onNavigate:
   const [strategySaving, setStrategySaving] = useState("");
   const [strategyError, setStrategyError] = useState("");
   const [strategyQuery, setStrategyQuery] = useState("");
-  const [strategyType, setStrategyType] = useState("all");
+  const [strategyTypes, setStrategyTypes] = useState<string[]>([]);
   const [strategySettings, setStrategySettings] = useState<PetSettings>(defaultPetSettings);
   const [strategyAssets, setStrategyAssets] = useState<LocalAsset[]>([]);
   const { confirm, confirmationDialog } = useConfirmDialog();
@@ -133,7 +134,7 @@ export function DesktopMonitorAlertsPage({ onNavigate, accounts }: { onNavigate:
     finally { setClearing(false); }
   };
   const openStrategies = async () => {
-    setStrategiesOpen(true); setStrategyLoading(true); setStrategyError(""); setStrategyQuery(""); setStrategyType("all");
+    setStrategiesOpen(true); setStrategyLoading(true); setStrategyError(""); setStrategyQuery(""); setStrategyTypes([]);
     if (!runningInTauri) { setStrategyError("预警策略仅支持桌面客户端。"); setStrategyLoading(false); return; }
     try {
       const [settings, assets] = await Promise.all([desktopPetClient.settings(), resourcesClient.listLocal()]);
@@ -198,7 +199,8 @@ export function DesktopMonitorAlertsPage({ onNavigate, accounts }: { onNavigate:
   useEffect(() => { setSelectedKeys(current => new Set([...current].filter(key => snapshot.alerts.some(alert => alert.key === key)))); }, [snapshot.alerts]);
   const checkedLabel = snapshot.checkedAt ? new Date(snapshot.checkedAt * 1000).toLocaleString() : "尚无检查记录";
   const assetTypes = [...new Set(strategyAssets.map(asset => asset.resource_type))].sort((a, b) => (assetTypeLabels[a] ?? a).localeCompare(assetTypeLabels[b] ?? b, "zh-CN"));
-  const visibleStrategyAssets = strategyAssets.filter(asset => (strategyType === "all" || asset.resource_type === strategyType) && `${assetDisplayName(asset)} ${asset.asset_key} ${assetTypeLabels[asset.resource_type] ?? asset.resource_type} ${accounts.find(account => account.id === asset.account_id)?.account_name ?? ""}`.toLowerCase().includes(strategyQuery.trim().toLowerCase()));
+  const strategyTypeOptions = assetTypes.map(type => ({ value: type, label: assetTypeLabels[type] ?? type, count: strategyAssets.filter(asset => asset.resource_type === type).length }));
+  const visibleStrategyAssets = strategyAssets.filter(asset => (strategyTypes.length === 0 || strategyTypes.includes(asset.resource_type)) && `${assetDisplayName(asset)} ${asset.asset_key} ${assetTypeLabels[asset.resource_type] ?? asset.resource_type} ${accounts.find(account => account.id === asset.account_id)?.account_name ?? ""}`.toLowerCase().includes(strategyQuery.trim().toLowerCase()));
   const selectableStrategyAssets = visibleStrategyAssets.filter(asset => monitoredAssetTypes.has(asset.resource_type) && assetStrategyEnabled(strategySettings, asset.resource_type));
   const allVisibleParticipating = selectableStrategyAssets.length > 0 && selectableStrategyAssets.every(asset => !strategySettings.excludedAssetAlerts.includes(assetAlertKey(asset)));
   const toggleVisibleStrategies = async (enabled: boolean) => {
@@ -243,7 +245,7 @@ export function DesktopMonitorAlertsPage({ onNavigate, accounts }: { onNavigate:
         </div>
         <div className="desktop-alert-strategy-preferences">{([["quiet", "免打扰", "暂停运维及生活气泡"], ["keepInTray", "关闭后驻留托盘", "后台继续提醒，从托盘退出"]] as const).map(([key, label, hint]) => <label key={key}><span>{label}<small>{hint}</small></span><input type="checkbox" checked={strategySettings[key]} disabled={!!strategySaving} onChange={event => void updateStrategySettings({ [key]: event.target.checked })} /></label>)}</div>
       </section>
-      <div className="desktop-alert-strategy-filters"><label className="desktop-alert-strategy-type"><span>类型</span><select aria-label="按资产类型筛选" value={strategyType} onChange={event => setStrategyType(event.target.value)}><option value="all">全部类型（{strategyAssets.length}）</option>{assetTypes.map(type => <option key={type} value={type}>{assetTypeLabels[type] ?? type}（{strategyAssets.filter(asset => asset.resource_type === type).length}）</option>)}</select></label><label className="desktop-alert-strategy-search"><Search size={15} aria-hidden="true" /><input type="search" value={strategyQuery} onChange={event => setStrategyQuery(event.target.value)} placeholder="搜索资产名称、ID 或账号" aria-label="搜索预警策略资产" /></label></div>
+      <div className="desktop-alert-strategy-filters"><MultiSelectFilter className="desktop-alert-strategy-type" label="类型" ariaLabel="按资产类型筛选" allLabel="全部类型" total={strategyAssets.length} options={strategyTypeOptions} selected={strategyTypes} onChange={setStrategyTypes} /><label className="desktop-alert-strategy-search"><Search size={15} aria-hidden="true" /><input type="search" value={strategyQuery} onChange={event => setStrategyQuery(event.target.value)} placeholder="搜索资产名称、ID 或账号" aria-label="搜索预警策略资产" /></label></div>
       <div className="desktop-alert-strategy-selection"><label><input type="checkbox" checked={allVisibleParticipating} disabled={!selectableStrategyAssets.length || !!strategySaving || !strategySettings.monitoring} onChange={event => void toggleVisibleStrategies(event.target.checked)} aria-label="全选当前筛选资产参与监控" /><span>全选当前筛选结果（{selectableStrategyAssets.length}）</span></label><small>仅全选支持到期监控的资产</small></div>
       <div className="desktop-alert-strategy-list" aria-busy={strategyLoading}>{strategyLoading ? <p role="status">正在读取资产与策略…</p> : visibleStrategyAssets.length ? visibleStrategyAssets.map(asset => {
         const supported = monitoredAssetTypes.has(asset.resource_type);

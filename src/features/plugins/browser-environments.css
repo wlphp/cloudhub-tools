@@ -91,6 +91,7 @@
 .browser-dialog .browser-search:focus-within { outline: 2px solid var(--jb-accent); outline-offset: 1px; }
 .browser-dialog .browser-list-toolbar > .primary { margin-left: auto; white-space: nowrap; }
 .browser-dialog .browser-list-toolbar > button[aria-label] { width: 34px; padding: 0; flex-shrink: 0; }
+.browser-list-toolbar .account-provider-filter-toggle { height: 34px; }
 .browser-dialog .browser-table-wrap { border: 1px solid var(--jb-border); border-radius: 4px; }
 .browser-dialog .browser-table-wrap:has(> .browser-empty) { border: 0; }
 .browser-dialog .browser-table { table-layout: fixed; font-size: 12px; }

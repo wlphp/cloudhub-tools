@@ -5,6 +5,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { runningInTauri } from "../../platform/api";
 import { DEFAULT_LAN_PORTS, lanClient, lanDeviceKey, lanService, type LanAnnotation, type LanDevice, type LanInterface, type LanLedger, type LanScan } from "../../platform/clients/lan";
 import { SharedDialog } from "../../shared/SharedDialog";
+import { MultiSelectFilter } from "../../shared/MultiSelectFilter";
 import { PaginationBar } from "../../shared/PaginationBar";
 import "./lan-devices.css";
 
@@ -28,7 +29,7 @@ export function LanDevicesPlugin({ onConnect }: { onConnect?: Connect }) {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState("all");
+  const [deviceFilters, setDeviceFilters] = useState<string[]>([]);
   const [tab, setTab] = useState("devices");
   const [page, setPage] = useState(1);
   const [detail, setDetail] = useState<LanDevice | null>(null);
@@ -94,7 +95,7 @@ export function LanDevicesPlugin({ onConnect }: { onConnect?: Connect }) {
     networkRequest.current++;
     if (network) void loadLedger(network.networkKey).catch(reason => { if (mounted.current && networkRef.current?.networkKey === network.networkKey) setError(String(reason)); });
   }, [network?.networkKey]);
-  useEffect(() => setPage(1), [query, filter, tab]);
+  useEffect(() => setPage(1), [query, deviceFilters, tab]);
 
   const rows = useMemo(() => {
     const map = new Map(ledger.devices.map(d => [lanDeviceKey(d), d]));
@@ -108,7 +109,13 @@ export function LanDevicesPlugin({ onConnect }: { onConnect?: Connect }) {
     const seen = new Set((currentScan?.devices ?? []).map(d => d.ip));
     return [...map.values()].map(d => ({ ...d, seen: seen.has(d.ip) && (currentScan?.devices.some(v => v.ip === d.ip && (!v.mac || !d.mac || v.mac === d.mac)) ?? false) })).sort((a, b) => Number(b.favorite) - Number(a.favorite) || a.ip.localeCompare(b.ip, undefined, { numeric: true }));
   }, [ledger.devices, currentScan]);
-  const filtered = rows.filter(d => (filter === "all" || filter === "seen" && d.seen || filter === "unseen" && !d.seen || filter === "favorite" && d.favorite || filter === "services" && d.ports.length > 0) && `${d.ip} ${d.mac} ${d.hostname} ${d.vendor} ${d.kind} ${d.manualKind} ${d.os ?? ""} ${d.manualOs ?? ""} ${d.model ?? ""} ${d.alias} ${d.note} ${d.tags} ${d.ports.map(p => `${p} ${lanService(p)}`).join(" ")}`.toLowerCase().includes(query.trim().toLowerCase()));
+  const deviceFilterOptions = [
+    { value: "seen", label: "本次发现", count: rows.filter(d => d.seen).length },
+    { value: "unseen", label: "本次未发现 / 历史", count: rows.filter(d => !d.seen).length },
+    { value: "favorite", label: "已收藏", count: rows.filter(d => d.favorite).length },
+    { value: "services", label: "有开放服务", count: rows.filter(d => d.ports.length > 0).length },
+  ];
+  const filtered = rows.filter(d => (deviceFilters.length === 0 || deviceFilters.some(item => item === "seen" && d.seen || item === "unseen" && !d.seen || item === "favorite" && d.favorite || item === "services" && d.ports.length > 0)) && `${d.ip} ${d.mac} ${d.hostname} ${d.vendor} ${d.kind} ${d.manualKind} ${d.os ?? ""} ${d.manualOs ?? ""} ${d.model ?? ""} ${d.alias} ${d.note} ${d.tags} ${d.ports.map(p => `${p} ${lanService(p)}`).join(" ")}`.toLowerCase().includes(query.trim().toLowerCase()));
   const shown = filtered.slice((page - 1) * 20, page * 20);
 
   async function start() {
@@ -152,7 +159,7 @@ export function LanDevicesPlugin({ onConnect }: { onConnect?: Connect }) {
     {currentScan?.warnings.map(w => <p className="lan-error" role="status" key={w}>{w}</p>)}
     <nav className="lan-tabs" aria-label="设备视图"><button type="button" className={tab === "devices" ? "is-active" : ""} aria-pressed={tab === "devices"} onClick={() => setTab("devices")}>设备台账 · {rows.length}</button><button type="button" className={tab === "history" ? "is-active" : ""} aria-pressed={tab === "history"} onClick={() => setTab("history")}>扫描历史 · {ledger.history.length}</button></nav>
     {tab === "devices" ? <>
-      <div className="lan-toolbar"><label>搜索<span className="lan-search"><Search size={16} aria-hidden="true" /><input type="search" aria-label="搜索设备" value={query} onChange={e => setQuery(e.target.value)} placeholder="IP、名称、类型、服务或标签" /></span></label><label>状态<select aria-label="筛选设备" value={filter} onChange={e => setFilter(e.target.value)}><option value="all">全部设备</option><option value="seen">本次发现</option><option value="unseen">本次未发现 / 历史</option><option value="favorite">已收藏</option><option value="services">有开放服务</option></select></label><div className="lan-actions">{(["csv","json"] as const).map(format => <button type="button" className="secondary" key={format} disabled={busy || running || !network || !ledger.devices.length} onClick={() => void operate(async () => { const file = await lanClient.export(network!.networkKey,format); if (file) setNotice(`设备台账已导出：${file}`); })}><Download size={13} aria-hidden="true" />{format.toUpperCase()}</button>)}</div></div>
+      <div className="lan-toolbar"><label>搜索<span className="lan-search"><Search size={16} aria-hidden="true" /><input type="search" aria-label="搜索设备" value={query} onChange={e => setQuery(e.target.value)} placeholder="IP、名称、类型、服务或标签" /></span></label><MultiSelectFilter className="lan-device-filter" label="设备状态" ariaLabel="筛选设备" allLabel="全部设备" options={deviceFilterOptions} selected={deviceFilters} onChange={setDeviceFilters} /><div className="lan-actions">{(["csv","json"] as const).map(format => <button type="button" className="secondary" key={format} disabled={busy || running || !network || !ledger.devices.length} onClick={() => void operate(async () => { const file = await lanClient.export(network!.networkKey,format); if (file) setNotice(`设备台账已导出：${file}`); })}><Download size={13} aria-hidden="true" />{format.toUpperCase()}</button>)}</div></div>
       <div className="lan-table-wrap">
         <table className="lan-table">
           <caption className="lan-table-caption">当前网络设备台账</caption>

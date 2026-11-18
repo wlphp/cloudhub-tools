@@ -1,4 +1,4 @@
-import { AppWindow, LayoutPanelLeft, RotateCcw, SlidersHorizontal } from "lucide-react";
+import { AppWindow, LayoutPanelLeft, MonitorDown, RotateCcw, SlidersHorizontal } from "lucide-react";
 import { SharedDialog } from "../../shared/SharedDialog";
 import { officialPlugins } from "./registry";
 import "./plugin-presentation.css";
@@ -16,8 +16,8 @@ const SIZE_OPTIONS: { value: PluginModalSize; label: string }[] = [
   { value: "small", label: "小弹窗" },
 ];
 
-/** 每个内置插件的打开方式设置：页面 / 弹层，以及弹层的大小。 */
-export function PluginPresentationDialog({ targetId, onClose, applicationSettings }: { targetId: string; onClose: () => void; applicationSettings: ApplicationPreferenceState }) {
+/** 每个内置插件的打开方式设置：页面 / 弹层，弹层大小，以及 Windows 桌面快捷方式。 */
+export function PluginPresentationDialog({ targetId, onClose, applicationSettings, shortcutReady = false, shortcutBusy = false, onCreateShortcut }: { targetId: string; onClose: () => void; applicationSettings: ApplicationPreferenceState; shortcutReady?: boolean; shortcutBusy?: boolean; onCreateShortcut?: () => void }) {
   const { get, set, reset, presentation } = usePluginPresentation();
   const plugin = officialPlugins.find(item => item.id === targetId);
   const app = applicationCatalog.find(item => item.id === targetId);
@@ -67,6 +67,13 @@ export function PluginPresentationDialog({ targetId, onClose, applicationSetting
               <label className="store-switch"><input type="checkbox" aria-label="在首页显示应用" checked={preferences.home} disabled={!applicationSettings.ready || applicationSettings.saving} onChange={event => void applicationSettings.update(targetId, { home: event.target.checked })} /><span aria-hidden="true" /></label>
             </div>
             {applicationSettings.error && <small className="plugin-presentation-hint" role="alert">{applicationSettings.error}</small>}
+          </fieldset>}
+          {shortcutReady && onCreateShortcut && app && <fieldset className="plugin-presentation-group plugin-shortcut-preference">
+            <legend>桌面快捷方式</legend>
+            <div className="plugin-shortcut-actions">
+              <button type="button" className="secondary" disabled={shortcutBusy} title={`在桌面创建“${app.name}”快捷方式`} onClick={onCreateShortcut}><MonitorDown size={14} aria-hidden="true" />{shortcutBusy ? "正在创建…" : `在桌面创建“${app.name}”快捷方式`}</button>
+              <small>创建带直达参数的快捷方式，双击桌面图标即可直接打开该应用。</small>
+            </div>
           </fieldset>}
     </SharedDialog>;
 }
