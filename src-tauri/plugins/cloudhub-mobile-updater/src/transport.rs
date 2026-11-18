@@ -4,6 +4,13 @@ use std::time::{Duration, Instant};
 
 pub const API: &str = "https://api.github.com/repos/wlphp/cloudhub-tools/releases/latest";
 pub const MANIFEST: &str = "https://github.com/wlphp/cloudhub-tools/releases/latest/download/latest.json";
+/// tauri-action 会把 latest.json 里的下载地址写成 GitHub 官方 release asset API 地址。
+/// 这里只放行本项目、纯数字资源 ID、无查询串/片段的地址，避免放宽成任意 URL。
+fn release_asset_api_url(url: &reqwest::Url) -> bool {
+    if url.host_str() != Some("api.github.com") { return false; }
+    let Some(id) = url.path().strip_prefix("/repos/wlphp/cloudhub-tools/releases/assets/") else { return false; };
+    !id.is_empty() && id.bytes().all(|byte| byte.is_ascii_digit())
+}
 #[derive(Clone, Copy, Default, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum Source { #[default] Auto, Accelerated, Mirror705810, Direct }
@@ -16,7 +23,7 @@ impl Source {
 pub fn public_url(original: &str) -> Result<reqwest::Url, String> {
     let url = reqwest::Url::parse(original).map_err(|_| "更新地址无效")?;
     if url.scheme() != "https" || url.port().is_some() || !url.username().is_empty() || url.password().is_some() || url.query().is_some() || url.fragment().is_some()
-        || !(original == API || (url.host_str() == Some("github.com") && url.path().starts_with("/wlphp/cloudhub-tools/releases/")
+        || !(original == API || release_asset_api_url(&url) || (url.host_str() == Some("github.com") && url.path().starts_with("/wlphp/cloudhub-tools/releases/")
             && (url.path().contains("/download/") || url.path() == "/wlphp/cloudhub-tools/releases/latest/download/latest.json"))) {
         return Err("仅允许下载本项目的公开更新资源".into());
     }
@@ -52,6 +59,23 @@ pub async fn json(original: &str, route: Source) -> Result<serde_json::Value, St
     }
     serde_json::from_slice(&bytes).map_err(|_| "版本信息无效，节点可能返回了网页".into())
 }
+
+/// 部分第三方镜像（如 github.705810.xyz）无法代理 api.github.com，返回 404 HTML。
+/// 版本元数据体积很小，失败后回退官方直连获取；安装包下载仍由调用方按所选线路进行，
+/// 因此不影响镜像对大文件的加速作用。
+fn metadata_fallback(route: Source) -> Option<Source> {
+    match route { Source::Accelerated | Source::Mirror705810 => Some(Source::Direct), Source::Direct | Source::Auto => None }
+}
+
+pub async fn json_metadata(original: &str, route: Source) -> Result<serde_json::Value, String> {
+    match json(original, route).await {
+        Ok(value) => Ok(value),
+        Err(primary) => match metadata_fallback(route) {
+            Some(fallback) => json(original, fallback).await,
+            None => Err(primary),
+        },
+    }
+}
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Probe { pub route: Source, pub available: bool, pub response_ms: u64, pub bytes_per_second: u64, pub message: String }
@@ -60,7 +84,7 @@ pub async fn probe(route: Source) -> Probe {
     let mut response_ms = 0;
     let result = async {
         if route == Source::Auto { return Err("请指定测速线路".to_string()); }
-        let release = json(API, route).await?;
+        let release = json_metadata(API, route).await?;
         let assets = release["assets"].as_array().ok_or("没有可测速的发布附件")?;
         let url = assets.iter().filter_map(|a| a["browser_download_url"].as_str())
             .find(|u| u.ends_with(".apk") || u.ends_with(".exe") || u.ends_with(".tar.gz")).ok_or("没有可测速的安装包")?;
@@ -97,5 +121,23 @@ mod tests {
         assert_eq!(routed_url(MANIFEST, Source::Accelerated).unwrap().as_str(), format!("https://gh-proxy.com/{MANIFEST}"));
         for url in ["https://evil.test/a.apk", "http://github.com/wlphp/cloudhub-tools/releases/download/v1/a", "https://github.com/other/repo/releases/download/v1/a", "https://github.com/wlphp/cloudhub-tools/releases/download/v1/a?token=x", "https://user@github.com/wlphp/cloudhub-tools/releases/download/v1/a"] { assert!(public_url(url).is_err()); }
         assert!(serde_json::from_str::<Source>("\"unknown\"").is_err());
+    }
+    #[test] fn metadata_falls_back_only_from_mirrors() {
+        assert_eq!(metadata_fallback(Source::Accelerated), Some(Source::Direct));
+        assert_eq!(metadata_fallback(Source::Mirror705810), Some(Source::Direct));
+        assert_eq!(metadata_fallback(Source::Direct), None);
+        assert_eq!(metadata_fallback(Source::Auto), None);
+    }
+    #[test] fn release_asset_api_is_allowed_only_for_this_repo_numeric_id() {
+        let ok = "https://api.github.com/repos/wlphp/cloudhub-tools/releases/assets/762567992";
+        assert!(public_url(ok).is_ok());
+        assert_eq!(routed_url(ok, Source::Direct).unwrap().as_str(), ok);
+        for url in [
+            "https://api.github.com/repos/other/repo/releases/assets/762567992",
+            "https://api.github.com/repos/wlphp/cloudhub-tools/releases/assets/abc",
+            "https://api.github.com/repos/wlphp/cloudhub-tools/releases/assets/762?token=x",
+            "http://api.github.com/repos/wlphp/cloudhub-tools/releases/assets/762",
+            "https://evil.test/repos/wlphp/cloudhub-tools/releases/assets/762",
+        ] { assert!(public_url(url).is_err()); }
     }
 }

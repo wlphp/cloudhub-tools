@@ -52,6 +52,8 @@ if (!workflow.includes("--bundles nsis")) failures.push("Windows 发布 workflow
 if (workflow.includes(",msi") || workflow.includes("msi,")) failures.push("CI 无法稳定打包 MSI（WiX light.exe 需 .NET 3.5 重启生效），Windows 仅保留 NSIS");
 if (!workflow.includes("TAURI_SIGNING_PRIVATE_KEY is required for signed updater artifacts.")) failures.push("发布 workflow 缺少更新器签名 Secret 预检");
 if (!workflow.includes("npm run verify:bundle-artifacts -- --platform windows")) failures.push("发布 workflow 缺少 Windows 安装包产物审计");
+if (!workflow.includes("node scripts/normalize-updater-json.mjs")) failures.push("发布 workflow 缺少更新清单 URL 规范化步骤（latest.json 的 api assets 地址需改写为公开下载链接）");
+if (!/normalize-updater-json[\s\S]{0,200}needs:\s*release|needs:\s*release[\s\S]{0,200}normalize-updater-json/.test(workflow)) failures.push("更新清单规范化步骤必须等待 release 任务完成后执行，避免覆盖 tauri-action 上传的清单");
 
 if (failures.length) {
   console.error("Release configuration checks failed:");

@@ -119,3 +119,20 @@ jobs:
       - name: Audit Windows bundle artifacts
         if: runner.os == 'Windows'
         run: npm run verify:bundle-artifacts -- --platform windows
+
+  normalize-updater-json:
+    name: Normalize updater manifest URLs
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v5
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Rewrite updater asset URLs to public download links
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ env.RELEASE_TAG }}
+        run: node scripts/normalize-updater-json.mjs

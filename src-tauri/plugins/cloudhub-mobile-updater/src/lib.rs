@@ -51,7 +51,7 @@ async fn release(source: Source, progress: Option<&Channel<Progress>>) -> Result
     for &route in source.routes() {
         if let Some(progress) = progress { let _ = progress.send(Progress { downloaded: 0, total: 0, route, message: if errors.is_empty() { format!("正在连接 {}", route.label()) } else { format!("上一线路不可用，正在尝试 {}", route.label()) } }); }
         let result = async {
-            let value = transport::json(API, route).await?;
+            let value = transport::json_metadata(API, route).await?;
             let release: Release = serde_json::from_value(value).map_err(|_| "版本信息无效")?;
             version(&release.tag_name)?;
             if release.draft || release.prerelease { return Err("尚未发布稳定版本".to_string()); }
