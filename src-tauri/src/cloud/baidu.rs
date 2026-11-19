@@ -98,6 +98,67 @@ pub(crate) async fn resource_items(id: i64, resource_type: &str) -> ResourceResp
     ResourceResponse { resource_type: resource_type.into(), items, errors, fetched_at: now }
 }
 
+pub(crate) async fn finance_snapshot(id: i64) -> Result<Value, String> {
+    if crate::account_cloud_type(id)? != "baidu" { return Err("当前账号不是百度智能云账号".into()); }
+    let (access_key_id, _) = crate::account_credentials(id)?;
+    let mut payload = crate::cloud::finance::base("baidu");
+    crate::cloud::finance::set_cloud_identity(&mut payload, Some(access_key_id.clone()), Some("百度智能云账号"));
+    match request_with_options(id, "billing.baidubce.com", "/v1/finance/cash/balance", BTreeMap::new(), "POST", None, false).await {
+        Ok((data, _)) => match crate::cloud::finance::number(data.get("cashBalance")) {
+            Some(balance) => {
+                crate::cloud::finance::set_balance_ok(&mut payload, Some(balance), Some(balance), None);
+                payload["currency"] = json!("CNY");
+            }
+            None => crate::cloud::finance::set_balance_error(&mut payload, "余额接口未返回 cashBalance"),
+        },
+        Err(error) => crate::cloud::finance::set_balance_error(&mut payload, &error),
+    }
+    let cycle = Utc::now().format("%Y-%m").to_string();
+    match request(id, "billing.baidubce.com", "/v1/bill/month/summary", crate::string_params(&[("billMonth", cycle)])).await {
+        Ok((data, _)) => {
+            match data.get("data").or_else(|| data.get("billSummaryList")) {
+                Some(Value::Array(items)) => {
+                    let mut consume = 0.0;
+                    let mut bill = 0.0;
+                    let mut saw_amount = false;
+                    for item in items {
+                        let cash = crate::cloud::finance::number(item.get("cash"));
+                        let credit = crate::cloud::finance::number(item.get("creditCost"));
+                        let coupon = crate::cloud::finance::number(item.get("couponPrice"));
+                        let origin = crate::cloud::finance::number(item.get("originPrice"));
+                        if cash.is_some() || credit.is_some() || coupon.is_some() || origin.is_some() {
+                            saw_amount = true;
+                        }
+                        let item_consume = cash.unwrap_or(0.0) + credit.unwrap_or(0.0) + coupon.unwrap_or(0.0);
+                        consume += item_consume;
+                        bill += origin.unwrap_or(item_consume);
+                    }
+                    if saw_amount || items.is_empty() {
+                        crate::cloud::finance::set_consume_ok(&mut payload, Some(consume), Some(bill));
+                    } else {
+                        crate::cloud::finance::set_consume_error(&mut payload, "账单接口未返回费用字段");
+                    }
+                }
+                Some(Value::Object(info)) => {
+                    let cash = crate::cloud::finance::number(info.get("cash"));
+                    let credit = crate::cloud::finance::number(info.get("creditCost"));
+                    let coupon = crate::cloud::finance::number(info.get("couponPrice"));
+                    let origin = crate::cloud::finance::number(info.get("originPrice"));
+                    if cash.is_none() && credit.is_none() && coupon.is_none() && origin.is_none() {
+                        crate::cloud::finance::set_consume_error(&mut payload, "账单接口未返回费用字段");
+                    } else {
+                        let consume = cash.unwrap_or(0.0) + credit.unwrap_or(0.0) + coupon.unwrap_or(0.0);
+                        crate::cloud::finance::set_consume_ok(&mut payload, Some(consume), Some(origin.unwrap_or(consume)));
+                    }
+                }
+                _ => crate::cloud::finance::set_consume_error(&mut payload, "账单接口返回格式不兼容"),
+            }
+        }
+        Err(error) => crate::cloud::finance::set_consume_error(&mut payload, &error),
+    }
+    Ok(payload)
+}
+
 pub(crate) async fn verify_baidu_account(id: i64) -> Result<Value, String> { verify_account(id).await }
 
 pub(crate) async fn verify_account(id: i64) -> Result<Value, String> { let regions = regions(id)?; let first = regions.first().cloned().unwrap_or_else(|| "bj".into()); pages(id, &format!("bcc.{first}.baidubce.com"), "/v2/instance", &["instances", "instanceList"]).await?; Ok(json!({"provider":"baidu","verified":true,"region_count":regions.len(),"regions":regions,"default_region":first})) }

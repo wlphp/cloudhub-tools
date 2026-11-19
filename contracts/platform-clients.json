@@ -79,6 +79,7 @@
     "get_sync_device_identity",
     "import_sync_account_bundle",
     "list_accounts",
+    "list_account_balances",
     "list_certificate_summaries",
     "list_certificates",
     "list_client_preferences",
@@ -205,6 +206,30 @@
             {
               "method": "GET",
               "path": "/api/accounts"
+            }
+          ]
+        },
+        {
+          "name": "balances",
+          "native": [
+            "list_account_balances"
+          ],
+          "preview": [
+            {
+              "method": "GET",
+              "path": "/api/account-balances"
+            }
+          ]
+        },
+        {
+          "name": "refresh-balance",
+          "native": [
+            "refresh_account_balance"
+          ],
+          "preview": [
+            {
+              "method": "POST",
+              "path": "/api/account-balance-refresh"
             }
           ]
         },

@@ -3,11 +3,13 @@ use std::sync::Mutex;
 
 use super::paths::data_dir;
 
-const CURRENT_SCHEMA_VERSION: i64 = 59;
+const CURRENT_SCHEMA_VERSION: i64 = 60;
 pub const MAIL_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS mail_accounts(id TEXT PRIMARY KEY,config TEXT NOT NULL,secret_ciphertext TEXT NOT NULL);";
 
 // Local measurement summaries only; intentionally not part of cross-device sync.
 pub const NETWORK_SPEED_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS network_speed_history(id TEXT PRIMARY KEY,started_at INTEGER NOT NULL,json TEXT NOT NULL);";
+// Account finance cache is local only; balances must not enter cross-device sync.
+pub const CLOUD_ACCOUNT_BALANCES_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS cloud_account_balances(account_id INTEGER PRIMARY KEY,cloud_type TEXT NOT NULL,payload_json TEXT NOT NULL,fetched_at INTEGER NOT NULL,FOREIGN KEY(account_id) REFERENCES cloud_accounts(id) ON DELETE CASCADE);";
 // Local credential history is deliberately excluded from device synchronization.
 pub const CODEX_CONFIG_HISTORY_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS codex_config_history(id TEXT PRIMARY KEY,home TEXT NOT NULL,instance_id TEXT,created_at INTEGER,migrated_at INTEGER,source TEXT NOT NULL,mode TEXT NOT NULL,summary TEXT NOT NULL,complete INTEGER NOT NULL,pinned INTEGER NOT NULL,legacy_key TEXT UNIQUE,content_ciphertext TEXT NOT NULL); CREATE INDEX IF NOT EXISTS codex_config_history_home ON codex_config_history(home,created_at DESC,id DESC); CREATE TABLE IF NOT EXISTS codex_config_operations(home TEXT PRIMARY KEY,snapshot_id TEXT NOT NULL,content_ciphertext TEXT NOT NULL);";
 pub const CODEX_PROVIDER_LOGS_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS codex_provider_request_logs(id TEXT PRIMARY KEY,provider_id TEXT NOT NULL,source TEXT NOT NULL,method TEXT NOT NULL,url TEXT NOT NULL,request_body TEXT NOT NULL,status INTEGER,response_body TEXT NOT NULL,error TEXT,elapsed_ms INTEGER NOT NULL,created_at INTEGER NOT NULL,client_request_body TEXT NOT NULL DEFAULT ''); CREATE INDEX IF NOT EXISTS codex_provider_request_logs_provider ON codex_provider_request_logs(provider_id,created_at DESC);";
@@ -498,6 +500,10 @@ fn migrate_connection_inner(conn: &mut Connection) -> Result<(), String> {
     if version < 59 {
         transaction.execute_batch(MAIL_SCHEMA).map_err(|_| "创建邮箱配置存储失败")?;
         transaction.pragma_update(None, "user_version", 59).map_err(|_| "保存邮箱数据库版本失败")?;
+    }
+    if version < 60 {
+        transaction.execute_batch(CLOUD_ACCOUNT_BALANCES_SCHEMA).map_err(|_| "创建云账号余额缓存失败")?;
+        transaction.pragma_update(None, "user_version", 60).map_err(|_| "保存云账号余额缓存版本失败")?;
     }
     transaction.commit().map_err(|error| format!("提交 SQLite 迁移失败: {error}"))?;
 

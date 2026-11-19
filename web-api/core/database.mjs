@@ -16,6 +16,10 @@ export function database() {
     region_id TEXT, payload_json TEXT NOT NULL, fetched_at INTEGER NOT NULL,
     PRIMARY KEY(account_id, resource_type, asset_key)
   )`);
+  db.exec(`CREATE TABLE IF NOT EXISTS cloud_account_balances (
+    account_id INTEGER PRIMARY KEY, cloud_type TEXT NOT NULL,
+    payload_json TEXT NOT NULL, fetched_at INTEGER NOT NULL
+  )`);
   db.exec(`CREATE TABLE IF NOT EXISTS api_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER, endpoint TEXT NOT NULL,
     action TEXT NOT NULL, request_params TEXT NOT NULL, response_params TEXT,

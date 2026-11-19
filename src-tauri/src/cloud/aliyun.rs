@@ -306,6 +306,60 @@ pub(crate) async fn query_whois(id: i64, domain: &str) -> Result<String, String>
     if crate::account_cloud_type(id)? != "aliyun" { return Err("当前账号不是阿里云账号".into()); } let (access_key_id, access_key_secret) = crate::account_credentials(id)?; let result = request("domain.aliyuncs.com", "2018-01-29", "QueryDomainByDomainName", crate::string_params(&[("DomainName", domain.to_string())]), &access_key_id, &access_key_secret).await?; let get = |key: &str| display(result.get(key)); let registrant_org = result.get("ZhRegistrantOrganization").or_else(|| result.get("RegistrantOrganization")); let registrant_name = result.get("ZhRegistrantName").or_else(|| result.get("RegistrantName")); Ok(format!("域名信息查询结果\n=====================================\n\n域名: {}\n域名持有者: {}\n持有者类型: {}\n联系人: {}\n联系邮箱: {}\n\n注册时间: {}\n到期时间: {}\n注册商: 阿里云\n\n实名认证: {}\n域名状态: {}\nDNS服务器: {}", get("DomainName"), display(registrant_org), get("RegistrantType"), display(registrant_name), get("Email"), get("RegistrationDate"), get("ExpirationDate"), get("RealNameStatus"), get("DomainStatus"), display(result.get("DnsList"))))
 }
 
+pub(crate) async fn finance_snapshot(id: i64) -> Result<Value, String> {
+    if crate::account_cloud_type(id)? != "aliyun" { return Err("当前账号不是阿里云账号".into()); }
+    let (access_key_id, access_key_secret) = crate::account_credentials(id)?;
+    let billing_cycle = Utc::now().format("%Y-%m").to_string();
+    let (identity, balance, bill) = tokio::join!(
+        request("sts.aliyuncs.com", "2015-04-01", "GetCallerIdentity", BTreeMap::new(), &access_key_id, &access_key_secret),
+        request("business.aliyuncs.com", "2017-12-14", "QueryAccountBalance", BTreeMap::new(), &access_key_id, &access_key_secret),
+        request("business.aliyuncs.com", "2017-12-14", "QueryBill", crate::string_params(&[("BillingCycle", billing_cycle)]), &access_key_id, &access_key_secret)
+    );
+    let mut payload = crate::cloud::finance::base("aliyun");
+    let identity_data = identity.as_ref().ok();
+    let cloud_account_id = identity_data.and_then(|data| data.get("AccountId")).and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| access_key_id.clone());
+    let account_type = identity_data.and_then(|data| data.get("IdentityType")).and_then(Value::as_str).map(|value| match value {
+        "Account" => "主账号",
+        "RAMUser" => "RAM子用户",
+        "AssumedRoleUser" => "角色用户",
+        other => other,
+    });
+    crate::cloud::finance::set_cloud_identity(&mut payload, Some(cloud_account_id), account_type);
+    match balance {
+        Ok(data) => match data.get("Data") {
+            Some(info) => {
+                let available = crate::cloud::finance::number(info.get("AvailableAmount"));
+                let cash = crate::cloud::finance::number(info.get("AvailableCashAmount"));
+                let credit = crate::cloud::finance::number(info.get("CreditAmount"));
+                if available.is_none() && cash.is_none() && credit.is_none() {
+                    crate::cloud::finance::set_balance_error(&mut payload, "余额接口未返回可用金额字段");
+                } else {
+                    crate::cloud::finance::set_balance_ok(&mut payload, available, cash, credit);
+                }
+                if let Some(currency) = info.get("Currency").and_then(Value::as_str).filter(|value| !value.trim().is_empty()) {
+                    payload["currency"] = json!(currency);
+                }
+            }
+            None => crate::cloud::finance::set_balance_error(&mut payload, "余额接口返回格式不兼容"),
+        },
+        Err(error) => crate::cloud::finance::set_balance_error(&mut payload, &error),
+    }
+    match bill {
+        Ok(data) => {
+            if data.get("Data").is_some() {
+                let items = crate::array_at(&data, &["Data", "Items", "Item"]);
+                let bill_total = items.iter().filter_map(|item| crate::cloud::finance::number(item.get("PretaxAmount"))).sum::<f64>();
+                let consume_total = items.iter().filter_map(|item| crate::cloud::finance::number(item.get("PretaxAmount")).or_else(|| crate::cloud::finance::number(item.get("PaymentAmount")))).sum::<f64>();
+                crate::cloud::finance::set_consume_ok(&mut payload, Some(consume_total), Some(bill_total));
+            } else {
+                crate::cloud::finance::set_consume_error(&mut payload, "账单接口返回格式不兼容");
+            }
+        }
+        Err(error) => crate::cloud::finance::set_consume_error(&mut payload, &error),
+    }
+    Ok(payload)
+}
+
 pub(crate) async fn finance_summary(id: i64) -> (Value, Value, Value, Value) {
     if crate::account_cloud_type(id).as_deref() != Ok("aliyun") { return (json!({}), json!({}), json!({}), json!({})); }
     let Ok((access_key_id, access_key_secret)) = crate::account_credentials(id) else { return (json!({}), json!({}), json!({}), json!({})); }; let billing_cycle = Utc::now().format("%Y-%m").to_string(); let (identity, balance, bill, dns) = tokio::join!(request("sts.aliyuncs.com", "2015-04-01", "GetCallerIdentity", BTreeMap::new(), &access_key_id, &access_key_secret), request("business.aliyuncs.com", "2017-12-14", "QueryAccountBalance", BTreeMap::new(), &access_key_id, &access_key_secret), request("business.aliyuncs.com", "2017-12-14", "QueryBill", crate::string_params(&[("BillingCycle", billing_cycle)]), &access_key_id, &access_key_secret), request("alidns.aliyuncs.com", "2015-01-09", "DescribeDomains", crate::string_params(&[("PageNumber", "1".into()), ("PageSize", "20".into())]), &access_key_id, &access_key_secret)); (identity.unwrap_or_else(|_| json!({})), balance.unwrap_or_else(|_| json!({})), bill.unwrap_or_else(|_| json!({})), dns.unwrap_or_else(|_| json!({})))

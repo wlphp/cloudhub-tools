@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { writeApiLog } from "../core/database.mjs";
 import { decryptSecret } from "../core/crypto.mjs";
 import { getAccountSecretRecord } from "../repositories/accounts.mjs";
+import * as financeCore from "./finance-core.mjs";
 
 function encode(value) { return encodeURIComponent(String(value)).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`); }
 function canonicalUri(pathname) { return pathname.split("/").map((part) => encode(decodeURIComponent(part))).join("/") || "/"; }
@@ -122,4 +123,59 @@ export async function verify(accountId) {
   const regions = configuredRegions(accountId);
   await pages(accountId, `bcc.${regions[0]}.baidubce.com`, "/v2/instance", ["instances", "instanceList"]);
   return { provider: "baidu", verified: true, region_count: regions.length, regions, default_region: regions[0] };
+}
+
+export async function finance(accountId) {
+  const row = account(accountId);
+  const payload = financeCore.base("baidu");
+  financeCore.setCloudIdentity(payload, row.access_key_id, "百度智能云账号");
+  try {
+    const { data } = await request(accountId, "billing.baidubce.com", "/v1/finance/cash/balance", {}, { method: "POST" });
+    const balance = financeCore.number(data?.cashBalance);
+    if (balance === null) financeCore.setBalanceError(payload, "余额接口未返回 cashBalance");
+    else {
+      financeCore.setBalanceOk(payload, balance, balance, null);
+      payload.currency = "CNY";
+    }
+  } catch (error) {
+    financeCore.setBalanceError(payload, error);
+  }
+  const cycle = new Date().toISOString().slice(0, 7);
+  try {
+    const { data } = await request(accountId, "billing.baidubce.com", "/v1/bill/month/summary", { billMonth: cycle });
+    const summary = data?.data ?? data?.billSummaryList;
+    if (Array.isArray(summary)) {
+      let consume = 0;
+      let bill = 0;
+      let sawAmount = false;
+      for (const item of summary) {
+        const cash = financeCore.number(item.cash);
+        const credit = financeCore.number(item.creditCost);
+        const coupon = financeCore.number(item.couponPrice);
+        const origin = financeCore.number(item.originPrice);
+        if (cash !== null || credit !== null || coupon !== null || origin !== null) sawAmount = true;
+        const itemConsume = (cash ?? 0) + (credit ?? 0) + (coupon ?? 0);
+        consume += itemConsume;
+        bill += origin ?? itemConsume;
+      }
+      if (sawAmount || summary.length === 0) financeCore.setConsumeOk(payload, consume, bill);
+      else financeCore.setConsumeError(payload, "账单接口未返回费用字段");
+    } else if (summary && typeof summary === "object") {
+      const cash = financeCore.number(summary.cash);
+      const credit = financeCore.number(summary.creditCost);
+      const coupon = financeCore.number(summary.couponPrice);
+      const origin = financeCore.number(summary.originPrice);
+      if (cash === null && credit === null && coupon === null && origin === null) {
+        financeCore.setConsumeError(payload, "账单接口未返回费用字段");
+      } else {
+        const consume = (cash ?? 0) + (credit ?? 0) + (coupon ?? 0);
+        financeCore.setConsumeOk(payload, consume, origin ?? consume);
+      }
+    } else {
+      financeCore.setConsumeError(payload, "账单接口返回格式不兼容");
+    }
+  } catch (error) {
+    financeCore.setConsumeError(payload, error);
+  }
+  return payload;
 }

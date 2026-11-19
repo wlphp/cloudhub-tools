@@ -22,7 +22,7 @@ fn json_host(service: &str, region: &str) -> String {
     match service {
         "rds_mysql" => format!("rds-mysql.{region}.volcengineapi.com"),
         "Redis" => format!("redis.{region}.volcengineapi.com"),
-        "storage_ebs" => "open.volcengineapi.com".into(),
+        "storage_ebs" | "billing" => "open.volcengineapi.com".into(),
         _ => format!("{service}.volcengineapi.com"),
     }
 }
@@ -74,6 +74,52 @@ pub(crate) async fn json_request(service: &str, version: &str, action: &str, pay
     }
     crate::write_api_log(access_key_id, &host, action, &payload, Some(&json!({"HTTPStatus": status.as_u16()})), "成功", None);
     Ok(data.get("Result").cloned().unwrap_or(data))
+}
+
+pub(crate) async fn finance_snapshot(id: i64) -> Result<Value, String> {
+    if crate::account_cloud_type(id)? != "volcengine" { return Err("当前账号不是火山引擎账号".into()); }
+    let (access_key_id, access_key_secret) = crate::account_credentials(id)?;
+    let region = "cn-beijing";
+    let balance = request("billing", "2022-01-01", "QueryBalanceAcct", BTreeMap::new(), region, &access_key_id, &access_key_secret).await;
+    let mut payload = crate::cloud::finance::base("volcengine");
+    let mut payer_id = None;
+    match &balance {
+        Ok(data) => {
+            if let Some(account_id) = data.get("AccountID").and_then(Value::as_str).filter(|value| !value.trim().is_empty()) {
+                payer_id = Some(account_id.to_string());
+            }
+            let available = crate::cloud::finance::number_field(data, &["AvailableBalance", "Balance", "AvailableAmount"]);
+            let cash = crate::cloud::finance::number_field(data, &["CashBalance", "CashAmount"]);
+            let credit = crate::cloud::finance::number_field(data, &["CreditLimit", "CreditAmount"]);
+            if available.is_none() && cash.is_none() && credit.is_none() {
+                crate::cloud::finance::set_balance_error(&mut payload, "余额接口未返回可用金额字段");
+            } else {
+                crate::cloud::finance::set_balance_ok(&mut payload, available, cash, credit);
+            }
+            if let Some(currency) = data.get("Currency").and_then(Value::as_str).filter(|value| !value.trim().is_empty()) {
+                payload["currency"] = json!(currency);
+            }
+        }
+        Err(error) => crate::cloud::finance::set_balance_error(&mut payload, error),
+    }
+    let cloud_account_id = payer_id.clone().unwrap_or_else(|| access_key_id.clone());
+    crate::cloud::finance::set_cloud_identity(&mut payload, Some(cloud_account_id), Some("火山引擎账号"));
+    let billing_period = Utc::now().format("%Y-%m").to_string();
+    let bill_params = crate::string_params(&[("BillPeriod", billing_period), ("Limit", "300".into()), ("Offset", "0".into())]);
+    match request("billing", "2022-01-01", "ListBillOverviewByProd", bill_params, region, &access_key_id, &access_key_secret).await {
+        Ok(data) => {
+            if data.get("List").is_some() {
+                let items = data.get("List").and_then(Value::as_array).cloned().unwrap_or_default();
+                let consume = items.iter().filter_map(|item| crate::cloud::finance::number_field(item, &["PayableAmount", "PaidAmount", "BillAmount"])).sum::<f64>();
+                let bill = items.iter().filter_map(|item| crate::cloud::finance::number_field(item, &["PaidAmount", "PayableAmount", "BillAmount"])).sum::<f64>();
+                crate::cloud::finance::set_consume_ok(&mut payload, Some(consume), Some(bill));
+            } else {
+                crate::cloud::finance::set_consume_error(&mut payload, "账单接口返回格式不兼容");
+            }
+        }
+        Err(error) => crate::cloud::finance::set_consume_error(&mut payload, &error),
+    }
+    Ok(payload)
 }
 
 pub(crate) async fn tos_list_buckets(region: &str, access_key_id: &str, access_key_secret: &str) -> Result<Vec<Value>, String> {

@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { writeApiLog } from "../core/database.mjs";
 import { decryptSecret } from "../core/crypto.mjs";
 import { getAccountSecretRecord } from "../repositories/accounts.mjs";
+import * as financeCore from "./finance-core.mjs";
 
 export function rpcEncode(value) {
   return encodeURIComponent(String(value)).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
@@ -103,4 +104,52 @@ export async function resources(accountId, type) {
     } catch (error) { errors.push(`${regionId}: ${error.message}`); }
   }
   return { resource_type: type, items, errors, fetched_at: Date.now() };
+}
+
+export async function finance(accountId) {
+  const row = getAccountSecretRecord(accountId);
+  if (!row) throw new Error("云账号不存在");
+  const cycle = new Date().toISOString().slice(0, 7);
+  const [identityResult, balanceResult, billResult] = await Promise.allSettled([
+    rpc(accountId, "sts.aliyuncs.com", "2015-04-01", "GetCallerIdentity"),
+    rpc(accountId, "business.aliyuncs.com", "2017-12-14", "QueryAccountBalance"),
+    rpc(accountId, "business.aliyuncs.com", "2017-12-14", "QueryBill", { BillingCycle: cycle }),
+  ]);
+  const payload = financeCore.base("aliyun");
+  const identity = identityResult.status === "fulfilled" ? identityResult.value : {};
+  const identityType = String(identity.IdentityType || "");
+  financeCore.setCloudIdentity(
+    payload,
+    identity.AccountId ? String(identity.AccountId) : row.access_key_id,
+    identityType === "Account" ? "主账号" : identityType === "RAMUser" ? "RAM子用户" : identityType === "AssumedRoleUser" ? "角色用户" : "阿里云账号",
+  );
+  if (balanceResult.status === "fulfilled") {
+    const info = balanceResult.value?.Data;
+    if (info) {
+      const available = financeCore.number(info.AvailableAmount);
+      const cash = financeCore.number(info.AvailableCashAmount);
+      const credit = financeCore.number(info.CreditAmount);
+      if (available === null && cash === null && credit === null) financeCore.setBalanceError(payload, "余额接口未返回可用金额字段");
+      else financeCore.setBalanceOk(payload, available, cash, credit);
+      if (info.Currency) payload.currency = String(info.Currency);
+    } else {
+      financeCore.setBalanceError(payload, "余额接口返回格式不兼容");
+    }
+  } else {
+    financeCore.setBalanceError(payload, balanceResult.reason?.message || balanceResult.reason);
+  }
+  if (billResult.status === "fulfilled") {
+    const data = billResult.value;
+    if (data?.Data) {
+      const items = arr(data, ["Data", "Items", "Item"]);
+      const bill = items.reduce((sum, item) => sum + (financeCore.numberField(item, ["PretaxAmount"]) ?? 0), 0);
+      const consume = items.reduce((sum, item) => sum + (financeCore.numberField(item, ["PretaxAmount"]) ?? financeCore.numberField(item, ["PaymentAmount"]) ?? 0), 0);
+      financeCore.setConsumeOk(payload, consume, bill);
+    } else {
+      financeCore.setConsumeError(payload, "账单接口返回格式不兼容");
+    }
+  } else {
+    financeCore.setConsumeError(payload, billResult.reason?.message || billResult.reason);
+  }
+  return payload;
 }

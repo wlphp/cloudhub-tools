@@ -30,9 +30,10 @@ import { listen } from "@tauri-apps/api/event";
 import { Activity, ArrowLeft, BadgeCheck, CloudDownload, Crown, House, BellRing, Mail, Store, UserRound, ScanLine, ArrowDownToLine, ArrowUpDown, ChevronDown, ChevronRight, Cloud, Database, File, FileText, Filter, Folder, Globe2, HardDrive, Plus, Power, RefreshCw, RotateCw, Search, Server, ShieldCheck, SunMoon, Trash2, Award, Terminal, Pencil, ExternalLink, Monitor, Upload, Sparkles, Settings, Star } from "lucide-react";
 import type { Account, ApiLog, LocalAsset, ManagedHost, PanelConnection, PanelConnectionDraft, TransferAccount } from "../shared/types";
 import packageJson from "../../package.json";
-import { accountsClient, certificatesClient, domainsClient, logsClient, preferencesClient, remoteClient, resourcesClient, storageClient } from "../platform/clients";
+import { accountsClient, balancesClient, certificatesClient, domainsClient, logsClient, preferencesClient, remoteClient, resourcesClient, storageClient } from "../platform/clients";
 import type { OssObjectListing } from "../platform/clients/storage";
 import { assetTypes, cloudProvider, cloudProviders, matchCloudTypeFromText, resourceLabels, syncAssetTypes } from "../features/cloud/catalog";
+import { financeAmount, financeCapability, financeStatusLabel, supportLabel, type AccountFinance } from "../features/cloud/finance";
 import { cloudHubBackFabPositionStorageKey, cloudHubFavoriteAssetsStorageKey, cloudHubUiThemeStorageKey, readUiTheme } from "../features/app/constants";
 import { assetFavoriteKey, savedFavoriteAssetKeys, stringListFromValue } from "../features/assets/preferences";
 import { assetExpiryTimestamp, assetExpiryTone, withinAssetExpiry } from "../features/assets/aiSearch";
@@ -218,6 +219,7 @@ export function MobileApp() {
   const [mobileFavoriteKeys, setMobileFavoriteKeys] = useState<string[]>(savedFavoriteAssetKeys);
   const [mobileFavoritesReady, setMobileFavoritesReady] = useState(false);
   const [accountProductCounts, setAccountProductCounts] = useState<Record<number, Record<string, number>>>({});
+  const [accountBalances, setAccountBalances] = useState<Record<number, AccountFinance>>({});
   const [accountAssetsRevision, setAccountAssetsRevision] = useState(0);
   const [uiTheme, setUiTheme] = useState<"light" | "dark">(readUiTheme);
   const [member, setMember] = useState<Member | null>(null);
@@ -608,6 +610,21 @@ export function MobileApp() {
     }).catch(() => { if (!cancelled) setAccountProductCounts({}); });
     return () => { cancelled = true; };
   }, [accounts, tab, accountAssetsRevision]);
+
+  useEffect(() => {
+    if (tab !== "accounts") return;
+    let cancelled = false;
+    // 手机端只展示桌面端写入的余额缓存，不在移动网络下自动调用厂商财务接口。
+    void balancesClient.list().then(rows => {
+      const next: Record<number, AccountFinance> = {};
+      for (const row of rows) {
+        const id = Number(row.local_account_id);
+        if (Number.isInteger(id) && id > 0) next[id] = row;
+      }
+      if (!cancelled) setAccountBalances(next);
+    }).catch(() => { if (!cancelled) setAccountBalances({}); });
+    return () => { cancelled = true; };
+  }, [accounts, tab]);
 
   const refreshDomains = useCallback(async (accountId: number | null = selectedAccountId) => {
     const isCurrentRead = beginResourceRead("domains", accountId);
@@ -1696,6 +1713,17 @@ export function MobileApp() {
           {loading && accounts.length === 0 ? <MobileLoadingSkeleton variant="list" label="正在读取云账号" /> : accounts.length === 0 ? <div className="mobile-empty"><Cloud size={30} /><strong>还没有云账号</strong><span>添加账号后，手机可以独立查询云资源。</span><button className="mobile-primary" type="button" onClick={openAddAccount}><Plus size={17} />添加云账号</button></div> : filteredAccounts.length === 0 ? <div className="mobile-empty"><Search size={30} /><strong>没有匹配的云账号</strong><span>试试其他关键词或选择全部云厂商。</span><button className="mobile-primary" type="button" onClick={() => { setAccountSearch(""); setAccountProviderFilter(null); }}>清除筛选</button></div> : <><div className="mobile-account-list">{pagedAccounts.map((account) => {
             const canSync = syncAssetTypes(account).length > 0;
             const productStats = Object.entries(accountProductCounts[account.id] ?? {}).filter(([, count]) => count > 0).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+            const finance = accountBalances[account.id];
+            const financeCapabilityInfo = financeCapability(account.cloud_type);
+            const financeCurrency = finance?.currency || financeCapabilityInfo.currency;
+            const balanceText = !account.enabled
+              ? "余额已停用"
+              : finance?.balance_status === "ok"
+                ? `余额 ${financeAmount(finance.available_amount ?? finance.available_cash_amount, financeCurrency)}`
+                : `余额 ${financeStatusLabel(finance?.balance_status) || supportLabel(financeCapabilityInfo.balance)}`;
+            const consumeText = finance?.consume_status === "ok"
+              ? ` · 本月 ${financeAmount(finance.month_consume ?? finance.month_bill, financeCurrency)}`
+              : "";
             return <MobileAccountSwipeCard key={account.id} label={account.account_name} details={
               <details className="mobile-account-product-details">
                 <summary aria-label={`${account.account_name} 产品详情`}>产品详情{productStats.length > 0 && <span>（{productStats.length} 项）</span>}</summary>
@@ -1704,7 +1732,7 @@ export function MobileApp() {
             }>
               <div className="mobile-account-select"><input className="mobile-sync-checkbox" type="checkbox" aria-label={`选择同步 ${account.account_name}`} checked={selectedSyncAccounts.includes(account.id)} disabled={bulkSyncing || syncing} onChange={event => setSelectedSyncAccounts(current => event.target.checked ? [...current, account.id] : current.filter(id => id !== account.id))} />
                 <span className="mobile-provider-avatar" data-provider={account.cloud_type}>{<MobileProviderMark cloudType={account.cloud_type} />}</span>
-                <span className="mobile-account-copy"><strong>{account.account_name}</strong><small>{cloudProvider(account.cloud_type).label} · {account.region_id || "默认地域"}</small>{syncingAccountId === account.id && <small className="mobile-account-sync-progress" role="status" aria-live="polite">正在获取{accountSyncProgress ? ` · ${accountSyncProgress.completed}/${accountSyncProgress.total}${accountSyncProgress.resourceType ? ` · ${resourceLabels[accountSyncProgress.resourceType as keyof typeof resourceLabels] ?? accountSyncProgress.resourceType}` : ""}` : "资产…"}</small>}</span>
+                <span className="mobile-account-copy"><strong>{account.account_name}</strong><small>{cloudProvider(account.cloud_type).label} · {account.region_id || "默认地域"}</small><small className="mobile-account-finance">{balanceText}{consumeText}</small>{syncingAccountId === account.id && <small className="mobile-account-sync-progress" role="status" aria-live="polite">正在获取{accountSyncProgress ? ` · ${accountSyncProgress.completed}/${accountSyncProgress.total}${accountSyncProgress.resourceType ? ` · ${resourceLabels[accountSyncProgress.resourceType as keyof typeof resourceLabels] ?? accountSyncProgress.resourceType}` : ""}` : "资产…"}</small>}</span>
                 {productStats.length > 0 && <span className="mobile-account-products" role="group" aria-label={`${account.account_name} 产品统计`}>{productStats.slice(0, 3).map(([type, count]) => <button type="button" aria-haspopup="dialog" className="mobile-account-product" key={type} onClick={() => openAccountProduct(account, type)}><span>{(resourceLabels[type as keyof typeof resourceLabels] || type)}</span><strong>{count}</strong></button>)}</span>}
               </div>
               <div className="mobile-account-swipe-actions" role="group" aria-label={`${account.account_name} 操作`}>

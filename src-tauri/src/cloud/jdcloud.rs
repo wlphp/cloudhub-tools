@@ -14,6 +14,114 @@ async fn request(id: i64, service: &str, region: &str, path: &str, params: BTree
     let response = reqwest::Client::new().get(format!("https://{host}{path}{}", if query_text.is_empty() { String::new() } else { format!("?{query_text}") })).header("Host", &host).header("X-Jdcloud-Date", &datetime).header("X-Jdcloud-Nonce", nonce).header("Authorization", authorization).timeout(std::time::Duration::from_secs(30)).send().await.map_err(|error| format!("京东云请求失败: {error}"))?; let status = response.status(); let data: Value = response.json().await.map_err(|error| format!("京东云返回解析失败: {error}"))?; if !status.is_success() { let message = data.pointer("/error/message").or_else(|| data.get("message")).or_else(|| data.get("code")).and_then(Value::as_str).unwrap_or("京东云 API 返回错误").to_string(); crate::write_api_log(&access_key_id, &host, &format!("GET {path}"), &json!(params), Some(&data), "失败", Some(&message)); return Err(message); } crate::write_api_log(&access_key_id, &host, &format!("GET {path}"), &json!(params), Some(&data), "成功", None); Ok(data)
 }
 
+/// 京东云财务接口使用独立 host（asset / billing）且账单为 POST JSON；现有 GET 签名器无法复用。
+async fn signed_request(id: i64, method: &str, service: &str, region: &str, host: &str, path: &str, query_params: &BTreeMap<String, String>, body: Option<&Value>) -> Result<Value, String> {
+    if crate::account_cloud_type(id)? != "jdcloud" { return Err("当前账号不是京东云账号".into()); }
+    let (access_key_id, access_key_secret) = crate::account_credentials(id)?;
+    let datetime = Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
+    let date = &datetime[..8];
+    let query_text = query(query_params);
+    let nonce = Uuid::new_v4().to_string();
+    let body_text = body.map(serde_json::to_string).transpose().map_err(|_| "京东云请求序列化失败".to_string())?;
+    let payload_hash = format!("{:x}", Sha256::digest(body_text.as_deref().unwrap_or("").as_bytes()));
+    let (canonical_headers, signed_headers) = if body_text.is_some() {
+        (format!("content-type:application/json\nhost:{host}\nx-jdcloud-date:{datetime}\nx-jdcloud-nonce:{nonce}\n"), "content-type;host;x-jdcloud-date;x-jdcloud-nonce")
+    } else {
+        (format!("host:{host}\nx-jdcloud-date:{datetime}\nx-jdcloud-nonce:{nonce}\n"), "host;x-jdcloud-date;x-jdcloud-nonce")
+    };
+    let canonical_request = format!("{method}\n{path}\n{query_text}\n{canonical_headers}\n{signed_headers}\n{payload_hash}");
+    let scope = format!("{date}/{region}/{service}/jdcloud2_request");
+    let string_to_sign = format!("JDCLOUD2-HMAC-SHA256\n{datetime}\n{scope}\n{:x}", Sha256::digest(canonical_request.as_bytes()));
+    let date_key = sign(format!("JDCLOUD2{access_key_secret}").as_bytes(), date)?;
+    let region_key = sign(&date_key, region)?;
+    let service_key = sign(&region_key, service)?;
+    let signing_key = sign(&service_key, "jdcloud2_request")?;
+    let authorization = format!("JDCLOUD2-HMAC-SHA256 Credential={access_key_id}/{scope}, SignedHeaders={signed_headers}, Signature={}", hex::encode(sign(&signing_key, &string_to_sign)?));
+    let url = format!("https://{host}{path}{}", if query_text.is_empty() { String::new() } else { format!("?{query_text}") });
+    let client = reqwest::Client::new();
+    let mut request = match method {
+        "POST" => client.post(url),
+        "PUT" => client.put(url),
+        "DELETE" => client.delete(url),
+        _ => client.get(url),
+    }
+    .header("Host", host)
+    .header("X-Jdcloud-Date", &datetime)
+    .header("X-Jdcloud-Nonce", nonce)
+    .header("Authorization", authorization)
+    .timeout(std::time::Duration::from_secs(30));
+    if let Some(body_text) = body_text {
+        request = request.header("Content-Type", "application/json").body(body_text);
+    }
+    let response = request.send().await.map_err(|error| format!("京东云请求失败: {error}"))?;
+    let status = response.status();
+    let data: Value = response.json().await.map_err(|error| format!("京东云返回解析失败: {error}"))?;
+    if !status.is_success() {
+        let message = data.pointer("/error/message").or_else(|| data.get("message")).or_else(|| data.get("code")).and_then(Value::as_str).unwrap_or("京东云 API 返回错误").to_string();
+        crate::write_api_log(&access_key_id, host, &format!("{method} {path}"), &json!({}), Some(&data), "失败", Some(&message));
+        return Err(message);
+    }
+    crate::write_api_log(&access_key_id, host, &format!("{method} {path}"), &json!({}), Some(&data), "成功", None);
+    Ok(data)
+}
+
+pub(crate) async fn finance_snapshot(id: i64) -> Result<Value, String> {
+    if crate::account_cloud_type(id)? != "jdcloud" { return Err("当前账号不是京东云账号".into()); }
+    let (access_key_id, _) = crate::account_credentials(id)?;
+    let region = crate::configured_regions(id, "cn-north-1")?.first().cloned().unwrap_or_else(|| "cn-north-1".into());
+    let mut payload = crate::cloud::finance::base("jdcloud");
+    crate::cloud::finance::set_cloud_identity(&mut payload, Some(access_key_id.clone()), Some("京东云账号"));
+    let balance = signed_request(id, "GET", "asset", &region, "asset.jdcloud-api.com", &format!("/v1/regions/{}/assets%3AdescribeAccountAmount", crate::rpc_encode(&region)), &BTreeMap::new(), None).await;
+    match balance {
+        Ok(data) => {
+            let result = data.get("result").unwrap_or(&data);
+            let available = crate::cloud::finance::number_field(result, &["availableAmount", "totalAmount"]);
+            let cash = crate::cloud::finance::number_field(result, &["totalAmount", "availableAmount"]);
+            let frozen = crate::cloud::finance::number_field(result, &["frozenAmount"]);
+            if available.is_none() && cash.is_none() {
+                crate::cloud::finance::set_balance_error(&mut payload, "余额接口未返回可用金额字段");
+            } else {
+                crate::cloud::finance::set_balance_ok(&mut payload, available, cash, None);
+                if let Some(frozen) = frozen {
+                    payload["frozen_amount"] = json!(frozen);
+                }
+                payload["currency"] = json!("CNY");
+            }
+        }
+        Err(error) => crate::cloud::finance::set_balance_error(&mut payload, &error),
+    }
+    let cycle = Utc::now().format("%Y-%m").to_string();
+    let bill_body = json!({
+        "startTime": format!("{cycle}-01 00:00:00"),
+        "endTime": Utc::now().format("%Y-%m-%d 23:59:59").to_string(),
+        "appCode": "",
+        "serviceCode": "",
+        "resourceIds": [],
+        "tags": [],
+        "pageIndex": 1,
+        "pageSize": 100
+    });
+    let bill_path = format!("/v1/regions/{}/billSummary%3Alist", crate::rpc_encode(&region));
+    match signed_request(id, "POST", "billing", &region, "billing.jdcloud-api.com", &bill_path, &BTreeMap::new(), Some(&bill_body)).await {
+        Ok(data) => {
+            let result = data.get("result").unwrap_or(&data);
+            let items = result.get("result").and_then(Value::as_array)
+                .or_else(|| result.get("data").and_then(Value::as_array))
+                .or_else(|| result.as_array());
+            match items {
+                Some(items) => {
+                    let consume = items.iter().filter_map(|item| crate::cloud::finance::number_field(item, &["realTotalFee", "cashPayFee", "balancePayFee", "totalFee"])).sum::<f64>();
+                    let bill = items.iter().filter_map(|item| crate::cloud::finance::number_field(item, &["totalFee", "realTotalFee"])).sum::<f64>();
+                    crate::cloud::finance::set_consume_ok(&mut payload, Some(consume), Some(bill));
+                }
+                None => crate::cloud::finance::set_consume_error(&mut payload, "账单接口返回格式不兼容"),
+            }
+        }
+        Err(error) => crate::cloud::finance::set_consume_error(&mut payload, &error),
+    }
+    Ok(payload)
+}
+
 fn first_string(value: Option<&Value>) -> Value { match value { Some(Value::String(v)) if !v.is_empty() => json!(v), Some(Value::Array(v)) => v.iter().find_map(Value::as_str).map(|v| json!(v)).unwrap_or(json!("")), Some(v) => v.clone(), None => json!("") } }
 fn instance(item: &Value, region: &str) -> Value { json!({"InstanceId": item.get("instanceId").or_else(|| item.get("id")), "InstanceName": item.get("name").or_else(|| item.get("instanceId")), "InstanceStatus": item.get("status"), "Status": item.get("status"), "PublicIpAddress": first_string(item.get("elasticIp").or_else(|| item.get("publicIpAddress"))), "PrivateIpAddress": first_string(item.get("privateIpAddress")), "InstanceType": item.get("instanceType").unwrap_or(&json!("")), "VpcId": item.get("vpcId").unwrap_or(&json!("")), "_region_id": region, "_raw": item}) }
 fn rds(item: &Value, region: &str) -> Value { json!({"DBInstanceId": item.get("instanceId").or_else(|| item.get("id")), "DBInstanceDescription": item.get("instanceName").or_else(|| item.get("name")).or_else(|| item.get("instanceId")), "DBInstanceStatus": item.get("instanceStatus").or_else(|| item.get("status")), "DBInstanceClass": item.get("instanceClass").or_else(|| item.get("instanceType")), "DBInstanceStorage": item.get("instanceStorageGB").or_else(|| item.get("storageGB")).unwrap_or(&json!(0)), "ConnectionString": item.get("internalDomainName").or_else(|| item.get("connectionString")), "Port": item.get("port"), "Engine": item.get("engine").or_else(|| item.get("engineType")), "EngineVersion": item.get("engineVersion"), "CreateTime": item.get("createTime"), "_region_id": region, "_raw": item}) }

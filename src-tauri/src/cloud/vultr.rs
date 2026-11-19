@@ -340,6 +340,82 @@ pub(crate) async fn vultr_resource_items(id: i64, resource_type: &str) -> Resour
     }
 }
 
+pub(crate) async fn finance_snapshot(id: i64) -> Result<Value, String> {
+    if crate::account_cloud_type(id)? != "vultr" { return Err("当前账号不是 Vultr 账号".into()); }
+    let (access_key_id, _) = crate::account_credentials(id)?;
+    let mut payload = crate::cloud::finance::base("vultr");
+    crate::cloud::finance::set_cloud_identity(&mut payload, Some(access_key_id), Some("Vultr 账号"));
+    let account = vultr_request(id, "account", &BTreeMap::new()).await;
+    let pending_charges = match &account {
+        Ok(data) => {
+            let info = data.get("account").unwrap_or(data);
+            let balance = crate::cloud::finance::number_field(info, &["balance"]);
+            let pending = crate::cloud::finance::number_field(info, &["pending_charges"]);
+            match balance {
+                Some(value) => {
+                    crate::cloud::finance::set_balance_ok(&mut payload, Some(value), Some(value), None);
+                    payload["currency"] = json!("USD");
+                }
+                None => crate::cloud::finance::set_balance_error(&mut payload, "余额接口未返回 balance"),
+            }
+            if let Some(last_payment) = crate::cloud::finance::number_field(info, &["last_payment_amount"]) {
+                payload["last_payment_amount"] = json!(last_payment);
+            }
+            pending
+        }
+        Err(error) => {
+            crate::cloud::finance::set_balance_error(&mut payload, error);
+            None
+        }
+    };
+    if let Some(pending) = pending_charges {
+        crate::cloud::finance::set_consume_ok(&mut payload, Some(pending), None);
+        payload["currency"] = json!("USD");
+        crate::cloud::finance::add_note(&mut payload, "本月消费为 Vultr 待结算费用，账单历史在右侧账单字段中汇总");
+    } else if account.is_ok() {
+        crate::cloud::finance::set_consume_error(&mut payload, "账户接口未返回 pending_charges");
+    }
+    let query = BTreeMap::from([("per_page".to_string(), "500".to_string())]);
+    match vultr_request(id, "billing/history", &query).await {
+        Ok(data) => {
+            let cycle = Utc::now().format("%Y-%m").to_string();
+            let entries = data.get("billing").and_then(Value::as_array).cloned().unwrap_or_default();
+            let mut total = 0.0;
+            let mut counted = false;
+            for entry in &entries {
+                let date = entry.get("date").and_then(Value::as_str).unwrap_or("");
+                if !date.starts_with(&cycle) {
+                    continue;
+                }
+                let kind = entry.get("type").and_then(Value::as_str).unwrap_or("").to_ascii_lowercase();
+                let amount = crate::cloud::finance::number(entry.get("amount"));
+                if let Some(amount) = amount {
+                    if kind.is_empty() || kind.contains("invoice") || amount > 0.0 {
+                        total += amount.abs();
+                        counted = true;
+                    }
+                }
+            }
+            if pending_charges.is_some() {
+                payload["month_bill"] = json!(if counted { total } else { 0.0 });
+            } else {
+                crate::cloud::finance::set_consume_ok(&mut payload, None, Some(if counted { total } else { 0.0 }));
+            }
+            if data.pointer("/meta/links/next").is_some() {
+                crate::cloud::finance::add_note(&mut payload, "本月账单仅统计最近 500 条账单记录");
+            }
+        }
+        Err(error) => {
+            if pending_charges.is_some() {
+                crate::cloud::finance::add_note(&mut payload, &format!("账单历史读取失败：{}", crate::cloud::finance::safe_message(&error)));
+            } else {
+                crate::cloud::finance::set_consume_error(&mut payload, &error);
+            }
+        }
+    }
+    Ok(payload)
+}
+
 pub async fn verify_vultr_account(id: i64) -> Result<Value, String> {
     let account = vultr_request(id, "account", &BTreeMap::new()).await?;
     let regions = vultr_pages(id, "regions", "regions").await?;

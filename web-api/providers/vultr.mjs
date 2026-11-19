@@ -1,6 +1,7 @@
 import { writeApiLog } from "../core/database.mjs";
 import { decryptSecret } from "../core/crypto.mjs";
 import { getAccountSecretRecord } from "../repositories/accounts.mjs";
+import * as financeCore from "./finance-core.mjs";
 
 export async function request(accountId, pathName, query = {}, init = {}) {
   const row = getAccountSecretRecord(accountId);
@@ -51,4 +52,61 @@ export async function resources(accountId, type) {
   if (!definition) return { resource_type: type, items: [], errors: [`Vultr 暂未接入 ${type} 资源`], fetched_at: Date.now() };
   try { const [pathName, key, normalize] = definition; return { resource_type: type, items: (await pages(accountId, pathName, key)).map(normalize), errors: [], fetched_at: Date.now() }; }
   catch (error) { return { resource_type: type, items: [], errors: [error.message || String(error)], fetched_at: Date.now() }; }
+}
+
+export async function finance(accountId) {
+  const row = getAccountSecretRecord(accountId);
+  if (!row) throw new Error("云账号不存在");
+  const payload = financeCore.base("vultr");
+  financeCore.setCloudIdentity(payload, row.access_key_id, "Vultr 账号");
+  let pendingCharges = null;
+  try {
+    const data = await request(accountId, "account");
+    const info = data.account || data;
+    const balance = financeCore.number(info.balance);
+    pendingCharges = financeCore.number(info.pending_charges);
+    if (balance === null) financeCore.setBalanceError(payload, "余额接口未返回 balance");
+    else {
+      financeCore.setBalanceOk(payload, balance, balance, null);
+      payload.currency = "USD";
+    }
+    if (pendingCharges !== null) {
+      financeCore.setConsumeOk(payload, pendingCharges, null);
+      payload.currency = "USD";
+      financeCore.addNote(payload, "本月消费为 Vultr 待结算费用，本月账单在账单历史中汇总");
+    } else {
+      financeCore.setConsumeError(payload, "账户接口未返回 pending_charges");
+    }
+  } catch (error) {
+    financeCore.setBalanceError(payload, error);
+    financeCore.setConsumeError(payload, error);
+  }
+  try {
+    const data = await request(accountId, "billing/history", { per_page: 500 });
+    const cycle = new Date().toISOString().slice(0, 7);
+    const entries = Array.isArray(data.billing) ? data.billing : [];
+    let total = 0;
+    let counted = false;
+    for (const entry of entries) {
+      const date = String(entry.date || "");
+      if (!date.startsWith(cycle)) continue;
+      const kind = String(entry.type || "").toLowerCase();
+      const amount = financeCore.number(entry.amount);
+      if (amount === null) continue;
+      if (!kind || kind.includes("invoice") || amount > 0) {
+        total += Math.abs(amount);
+        counted = true;
+      }
+    }
+    if (pendingCharges !== null) {
+      payload.month_bill = counted ? total : 0;
+    } else {
+      financeCore.setConsumeOk(payload, null, counted ? total : 0);
+    }
+    if (data?.meta?.links?.next) financeCore.addNote(payload, "本月账单仅统计最近 500 条账单记录");
+  } catch (error) {
+    if (pendingCharges !== null) financeCore.addNote(payload, `账单历史读取失败：${financeCore.safeMessage(error)}`);
+    else financeCore.setConsumeError(payload, error);
+  }
+  return payload;
 }

@@ -23,6 +23,8 @@ interface MoreMenuProps {
   triggerAriaLabel?: string;
   /** 附加到触发按钮上的样式类（沿用各页面既有按钮样式）。 */
   triggerClassName?: string;
+  /** 禁用触发按钮；禁用时按钮置灰且不展开菜单。 */
+  disabled?: boolean;
   /** 菜单与触发按钮的对齐方式：right 右对齐（默认）、left 左对齐、center 相对触发按钮居中。 */
   align?: "right" | "left" | "center";
   /** 受控打开状态；不传则组件内部自持。 */
@@ -36,7 +38,7 @@ interface MoreMenuProps {
  * 统一的「更多」下拉菜单：portal 到 body 渲染，避免被表格/卡片的 overflow 裁剪，
  * 打开时按触发按钮定位并自动上下翻转，点击外部或 Escape 关闭。
  */
-export function MoreMenu({ items, label, trigger, triggerIcon, triggerTitle, triggerAriaLabel, triggerClassName, align = "right", open, onOpenChange, header }: MoreMenuProps) {
+export function MoreMenu({ items, label, trigger, triggerIcon, triggerTitle, triggerAriaLabel, triggerClassName, disabled, align = "right", open, onOpenChange, header }: MoreMenuProps) {
   const document = useDialogDocument();
   const window = document.defaultView!;
   const wrapRef = useRef<HTMLSpanElement>(null);
@@ -49,6 +51,7 @@ export function MoreMenu({ items, label, trigger, triggerIcon, triggerTitle, tri
   const [position, setPosition] = useState<{ top: number; left: number; transform: string; zIndex?: number }>({ top: 0, left: 0, transform: "" });
 
   const toggle = () => {
+    if (disabled) return;
     if (isOpen) { setOpen(false); return; }
     const rect = triggerRef.current?.getBoundingClientRect();
     if (rect) {
@@ -112,7 +115,7 @@ export function MoreMenu({ items, label, trigger, triggerIcon, triggerTitle, tri
   }, [isOpen, document, window]);
 
   return <span ref={wrapRef} className={`shared-more-wrap${isOpen ? " is-open" : ""}`}>
-    <button ref={triggerRef} type="button" className={`shared-more-trigger${triggerClassName ? ` ${triggerClassName}` : ""}${isOpen ? " is-open" : ""}`} aria-haspopup="menu" aria-expanded={isOpen} title={triggerTitle} aria-label={triggerAriaLabel} onClick={(event) => { event.stopPropagation(); toggle(); }}>
+    <button ref={triggerRef} type="button" className={`shared-more-trigger${triggerClassName ? ` ${triggerClassName}` : ""}${isOpen ? " is-open" : ""}`} aria-haspopup="menu" aria-expanded={isOpen} title={triggerTitle} aria-label={triggerAriaLabel} disabled={disabled} onClick={(event) => { event.stopPropagation(); toggle(); }}>
       {trigger ?? <>{triggerIcon}{label}</>}
     </button>
     {isOpen && createPortal(

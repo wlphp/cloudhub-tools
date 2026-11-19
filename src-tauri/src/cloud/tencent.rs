@@ -213,6 +213,56 @@ pub(crate) async fn update_light_firewall_rule_description(id: i64, region_id: &
     request("lighthouse", "2020-03-24", "ModifyFirewallRuleDescription", payload, Some(region_id), &access_key_id, &access_key_secret).await
 }
 
+pub(crate) async fn finance_snapshot(id: i64) -> Result<Value, String> {
+    if crate::account_cloud_type(id)? != "tencent" { return Err("当前账号不是腾讯云账号".into()); }
+    let (access_key_id, access_key_secret) = crate::account_credentials(id)?;
+    let billing_cycle = Utc::now().format("%Y-%m").to_string();
+    let (identity, balance, bill) = tokio::join!(
+        request("cam", "2019-01-16", "GetUserAppId", json!({}), None, &access_key_id, &access_key_secret),
+        request("billing", "2018-07-09", "DescribeAccountBalance", json!({}), None, &access_key_id, &access_key_secret),
+        request("billing", "2018-07-09", "DescribeBillSummaryByPayMode", json!({"BeginTime": format!("{billing_cycle}-01"), "EndTime": Utc::now().format("%Y-%m-%d").to_string()}), None, &access_key_id, &access_key_secret)
+    );
+    let mut payload = crate::cloud::finance::base("tencent");
+    let identity_data = identity.as_ref().ok();
+    let cloud_account_id = identity_data.and_then(|data| data.get("AppId").or_else(|| data.get("UserAppId"))).and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| access_key_id.clone());
+    crate::cloud::finance::set_cloud_identity(&mut payload, Some(cloud_account_id), Some("腾讯云账号"));
+    match balance {
+        Ok(data) => {
+            if data.get("Balance").is_some() || data.get("RealBalance").is_some() || data.get("CashAccountBalance").is_some() {
+                let available = crate::cloud::finance::number(data.get("Balance").or_else(|| data.get("RealBalance"))).map(|value| value / 100.0);
+                let cash = crate::cloud::finance::number(data.get("CashAccountBalance")).map(|value| value / 100.0);
+                let credit = crate::cloud::finance::number(data.get("PresentAccountBalance").or_else(|| data.get("IncentiveAccountBalance")).or_else(|| data.get("VoucherBalance"))).map(|value| value / 100.0);
+                crate::cloud::finance::set_balance_ok(&mut payload, available, cash, credit);
+                payload["currency"] = json!("CNY");
+            } else {
+                crate::cloud::finance::set_balance_error(&mut payload, "余额接口返回格式不兼容");
+            }
+        }
+        Err(error) => crate::cloud::finance::set_balance_error(&mut payload, &error),
+    }
+    match bill {
+        Ok(data) => {
+            let ready = data.get("Ready").and_then(Value::as_i64);
+            if ready == Some(0) {
+                crate::cloud::finance::set_consume_pending(&mut payload, "账单生成中，请稍后刷新");
+            } else {
+                let overview = data.get("SummaryOverview").and_then(Value::as_array).cloned()
+                    .or_else(|| data.get("SummarySet").and_then(Value::as_array).cloned())
+                    .unwrap_or_default();
+                if data.get("SummaryOverview").is_none() && data.get("SummarySet").is_none() {
+                    crate::cloud::finance::set_consume_error(&mut payload, "账单接口返回格式不兼容");
+                } else {
+                    let consume = overview.iter().filter_map(|item| crate::cloud::finance::number(item.get("RealTotalCost")).or_else(|| crate::cloud::finance::number(item.get("TotalCost")))).sum::<f64>();
+                    let bill = overview.iter().filter_map(|item| crate::cloud::finance::number(item.get("TotalCost")).or_else(|| crate::cloud::finance::number(item.get("RealTotalCost")))).sum::<f64>();
+                    crate::cloud::finance::set_consume_ok(&mut payload, Some(consume), Some(bill));
+                }
+            }
+        }
+        Err(error) => crate::cloud::finance::set_consume_error(&mut payload, &error),
+    }
+    Ok(payload)
+}
+
 pub(crate) async fn finance_summary(id: i64) -> (Value, Value, Value) {
     if crate::account_cloud_type(id).as_deref() != Ok("tencent") { return (json!({}), json!({}), json!({})); }
     let Ok((access_key_id, access_key_secret)) = crate::account_credentials(id) else { return (json!({}), json!({}), json!({})); }; let billing_cycle = Utc::now().format("%Y-%m").to_string(); let (identity, balance, bill) = tokio::join!(request("cam", "2019-01-16", "GetUserAppId", json!({}), None, &access_key_id, &access_key_secret), request("billing", "2018-07-09", "DescribeAccountBalance", json!({}), None, &access_key_id, &access_key_secret), request("billing", "2018-07-09", "DescribeBillSummaryByPayMode", json!({"BeginTime": format!("{billing_cycle}-01"), "EndTime": Utc::now().format("%Y-%m-%d").to_string()}), None, &access_key_id, &access_key_secret)); (identity.unwrap_or_else(|_| json!({})), balance.unwrap_or_else(|_| json!({})), bill.unwrap_or_else(|_| json!({})))

@@ -1,4 +1,7 @@
 import { resolveDomainNameservers } from "./web-api/routes/domain-nameservers.mjs";
+import dns from "node:dns";
+// Node 默认可能优先使用不可达的 IPv6 地址；厂商财务/资源接口统一优先 IPv4。
+dns.setDefaultResultOrder("ipv4first");
 import { handleAppUpdateRoute } from "./web-api/routes/app-updates.mjs";
 import http from "node:http";
 import { handleIpLocationRoute } from "./web-api/routes/ip-location.mjs";
@@ -8,6 +11,7 @@ import { decryptSecret, encryptSecret } from "./web-api/core/crypto.mjs";
 import { readBody, send, sendError, sendUnsupportedInPreview } from "./web-api/core/http.mjs";
 import { allowedWebOrigins, applyWebCors } from "./web-api/core/security.mjs";
 import { handleAccountRoutes } from "./web-api/routes/accounts.mjs";
+import { handleBalanceRoutes } from "./web-api/routes/balances.mjs";
 import { handleLocalRoutes } from "./web-api/routes/local.mjs";
 import { handleAuthenticatorRoute } from "./web-api/routes/authenticator.mjs";
 import { handleNotesRoute, handleNotesOpenRoute } from "./web-api/routes/notes.mjs";
@@ -908,6 +912,7 @@ const server = http.createServer(async (req, res) => {
     if (await handleNotesRoute(req, res, url)) return;
     if (await handleTrashRoute(req, res, url)) return;
     if (await handleClaudeProvidersRoute(req, res, url)) return;
+    if (await handleBalanceRoutes(req, res, url)) return;
     if (handleLocalRoutes(req, res, url, { listAssets, deleteAsset, listApiLogs, clearApiLogs, clearOperationLogs, listManagedHosts, listPanelConnections })) return;
     if (req.method === "POST" && url.pathname === "/api/sync-assets") {
       const payload = JSON.parse(await readBody(req));

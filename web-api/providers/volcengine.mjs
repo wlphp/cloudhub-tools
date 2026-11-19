@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { writeApiLog } from "../core/database.mjs";
 import { decryptSecret } from "../core/crypto.mjs";
 import { getAccountSecretRecord } from "../repositories/accounts.mjs";
+import * as financeCore from "./finance-core.mjs";
 
 function encode(value) {
   return encodeURIComponent(String(value)).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
@@ -152,4 +153,42 @@ export async function resources(accountId, type) {
     const items = arr(data, [firstKey]).length ? arr(data, [firstKey]) : arr(data, [fallbackKey]);
     return { resource_type: type, items: items.map((item) => normalize(item, region)), errors, fetched_at: Date.now() };
   } catch (error) { errors.push(error.message); return { resource_type: type, items: [], errors, fetched_at: Date.now() }; }
+}
+
+export async function finance(accountId) {
+  const row = getAccountSecretRecord(accountId);
+  if (!row) throw new Error("云账号不存在");
+  const cycle = new Date().toISOString().slice(0, 7);
+  const balanceResult = await Promise.allSettled([request(accountId, "billing", "2022-01-01", "QueryBalanceAcct")]);
+  const billResult = await Promise.allSettled([request(accountId, "billing", "2022-01-01", "ListBillOverviewByProd", { BillPeriod: cycle, Limit: 300, Offset: 0 })]);
+  const payload = financeCore.base("volcengine");
+  const balance = balanceResult[0];
+  let accountIdText = row.access_key_id;
+  if (balance.status === "fulfilled") {
+    const data = balance.value || {};
+    if (data.AccountID) accountIdText = String(data.AccountID);
+    const available = financeCore.numberField(data, ["AvailableBalance", "Balance", "AvailableAmount"]);
+    const cash = financeCore.numberField(data, ["CashBalance", "CashAmount"]);
+    const credit = financeCore.numberField(data, ["CreditLimit", "CreditAmount"]);
+    if (available === null && cash === null && credit === null) financeCore.setBalanceError(payload, "余额接口未返回可用金额字段");
+    else financeCore.setBalanceOk(payload, available, cash, credit);
+    if (data.Currency) payload.currency = String(data.Currency);
+  } else {
+    financeCore.setBalanceError(payload, balance.reason?.message || balance.reason);
+  }
+  financeCore.setCloudIdentity(payload, accountIdText, "火山引擎账号");
+  const bill = billResult[0];
+  if (bill.status === "fulfilled") {
+    const data = bill.value || {};
+    if (Array.isArray(data.List)) {
+      const consume = data.List.reduce((sum, item) => sum + (financeCore.numberField(item, ["PayableAmount", "PaidAmount", "BillAmount"]) ?? 0), 0);
+      const total = data.List.reduce((sum, item) => sum + (financeCore.numberField(item, ["PaidAmount", "PayableAmount", "BillAmount"]) ?? 0), 0);
+      financeCore.setConsumeOk(payload, consume, total);
+    } else {
+      financeCore.setConsumeError(payload, "账单接口返回格式不兼容");
+    }
+  } else {
+    financeCore.setConsumeError(payload, bill.reason?.message || bill.reason);
+  }
+  return payload;
 }

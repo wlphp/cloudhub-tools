@@ -55,6 +55,85 @@ async fn request_payload(id: i64, method: Method, path: &str, query: &[(String, 
     Ok(data)
 }
 
+pub(crate) async fn finance_snapshot(id: i64) -> Result<Value, String> {
+    if account_cloud_type(id)? != "cloudflare" { return Err("当前账号不是 Cloudflare 账号".into()); }
+    let (account, _) = account_credentials(id)?;
+    identifier(&account)?;
+    let mut payload = crate::cloud::finance::base("cloudflare");
+    crate::cloud::finance::set_cloud_identity(&mut payload, Some(account.clone()), Some("Cloudflare 账号"));
+    match request(id, Method::GET, &format!("accounts/{account}/billing/profile"), &[], None).await {
+        Ok(data) => match data.pointer("/result/balance").and_then(|value| crate::cloud::finance::number(Some(value))) {
+            Some(balance) => {
+                crate::cloud::finance::set_balance_ok(&mut payload, Some(balance), Some(balance), None);
+                payload["currency"] = json!("USD");
+            }
+            None => crate::cloud::finance::set_balance_error(&mut payload, "计费资料未返回 balance，Token 可能需要 Billing Read 权限"),
+        },
+        Err(error) => {
+            if error.contains("HTTP 404") || error.contains("1324") {
+                crate::cloud::finance::set_balance_unsupported(&mut payload, "当前 Cloudflare 账号没有计费资料（免费计划不使用预付费余额）");
+            } else {
+                crate::cloud::finance::set_balance_error(&mut payload, &error);
+            }
+        }
+    }
+    let cycle = chrono::Utc::now().format("%Y-%m").to_string();
+    let mut consume = 0.0;
+    let mut bill = 0.0;
+    let mut counted = false;
+    let mut exceeded_pages = false;
+    let mut failure = None;
+    for page in 1..=20 {
+        let query = vec![("page".to_string(), page.to_string()), ("per_page".to_string(), "50".to_string())];
+        match request(id, Method::GET, &format!("accounts/{account}/billing/history"), &query, None).await {
+            Ok(data) => {
+                let Some(items) = data.get("result").and_then(Value::as_array) else {
+                    failure = Some("账单历史接口返回格式不兼容".to_string());
+                    break;
+                };
+                for item in items {
+                    let occurred = item.get("occurred_at").and_then(Value::as_str).unwrap_or("");
+                    if !occurred.starts_with(&cycle) {
+                        continue;
+                    }
+                    let amount = crate::cloud::finance::number(item.get("amount_to_pay").or_else(|| item.get("amount")));
+                    if let Some(amount) = amount {
+                        consume += amount;
+                        bill += amount;
+                        counted = true;
+                    }
+                }
+                let total_pages = data.pointer("/result_info/total_pages").and_then(Value::as_u64).unwrap_or(1);
+                if page >= total_pages {
+                    break;
+                }
+                if page == 20 {
+                    exceeded_pages = true;
+                }
+            }
+            Err(error) => {
+                failure = Some(error);
+                break;
+            }
+        }
+    }
+    match failure {
+        Some(error) => crate::cloud::finance::set_consume_error(&mut payload, &error),
+        None => {
+            if counted || !exceeded_pages {
+                crate::cloud::finance::set_consume_ok(&mut payload, Some(consume), Some(bill));
+                crate::cloud::finance::add_note(&mut payload, "本月消费按 Cloudflare 账单记录汇总，不含尚未出账的用量");
+            } else {
+                crate::cloud::finance::set_consume_error(&mut payload, "账单记录超过 1000 条，已停止读取");
+            }
+            if exceeded_pages {
+                crate::cloud::finance::add_note(&mut payload, "本月账单仅统计前 1000 条记录");
+            }
+        }
+    }
+    Ok(payload)
+}
+
 async fn pages(id: i64, path: &str, extra: Vec<(String, String)>, single: bool, buckets: bool) -> Result<Vec<Value>, String> {
     let mut items = Vec::new();
     let mut cursor = String::new();

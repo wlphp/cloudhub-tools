@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { writeApiLog } from "../core/database.mjs";
 import { decryptSecret } from "../core/crypto.mjs";
 import { getAccountRegion, getAccountSecretRecord } from "../repositories/accounts.mjs";
+import * as financeCore from "./finance-core.mjs";
 import * as cosProvider from "./tencent-cos.mjs";
 
 function arr(data, path) { let value = data; for (const key of path) value = value?.[key]; if (!value) return []; return Array.isArray(value) ? value : [value]; }
@@ -108,4 +109,51 @@ export async function resources(id, type) {
   if (type === "oss") { try { return { resource_type: type, items: await cosBuckets(id), errors, fetched_at: Date.now() }; } catch (error) { return { resource_type: type, items: [], errors: [error.message], fetched_at: Date.now() }; } }
   if (type === "esa") { try { return { resource_type: type, items: (await paged(id, "teo", "2022-09-01", "DescribeZones", {}, ["Zones"])).map(edgeZone), errors, fetched_at: Date.now() }; } catch (error) { return { resource_type: type, items: [], errors: [error.message], fetched_at: Date.now() }; } }
   return { resource_type: type, items: [], errors: [`腾讯云暂未接入 ${type} 资源`], fetched_at: Date.now() };
+}
+
+export async function finance(accountId) {
+  const row = getAccountSecretRecord(accountId);
+  if (!row) throw new Error("云账号不存在");
+  const cycle = new Date().toISOString().slice(0, 7);
+  const today = new Date().toISOString().slice(0, 10);
+  const [identityResult, balanceResult, billResult] = await Promise.allSettled([
+    request(accountId, "cam", "2019-01-16", "GetUserAppId"),
+    request(accountId, "billing", "2018-07-09", "DescribeAccountBalance"),
+    request(accountId, "billing", "2018-07-09", "DescribeBillSummaryByPayMode", { BeginTime: `${cycle}-01`, EndTime: today }),
+  ]);
+  const payload = financeCore.base("tencent");
+  const identity = identityResult.status === "fulfilled" ? identityResult.value : {};
+  financeCore.setCloudIdentity(payload, identity.AppId || identity.UserAppId || row.access_key_id, "腾讯云账号");
+  if (balanceResult.status === "fulfilled") {
+    const data = balanceResult.value || {};
+    if (data.Balance !== undefined || data.RealBalance !== undefined || data.CashAccountBalance !== undefined) {
+      const available = financeCore.numberField(data, ["Balance", "RealBalance"]);
+      const cash = financeCore.number(data.CashAccountBalance);
+      const credit = financeCore.numberField(data, ["PresentAccountBalance", "IncentiveAccountBalance", "VoucherBalance"]);
+      financeCore.setBalanceOk(payload, available === null ? null : available / 100, cash === null ? null : cash / 100, credit === null ? null : credit / 100);
+      payload.currency = "CNY";
+    } else {
+      financeCore.setBalanceError(payload, "余额接口返回格式不兼容");
+    }
+  } else {
+    financeCore.setBalanceError(payload, balanceResult.reason?.message || balanceResult.reason);
+  }
+  if (billResult.status === "fulfilled") {
+    const data = billResult.value || {};
+    if (Number(data.Ready) === 0) {
+      financeCore.setConsumePending(payload, "账单生成中，请稍后刷新");
+    } else {
+      const overview = Array.isArray(data.SummaryOverview) ? data.SummaryOverview : Array.isArray(data.SummarySet) ? data.SummarySet : null;
+      if (!overview) {
+        financeCore.setConsumeError(payload, "账单接口返回格式不兼容");
+      } else {
+        const consume = overview.reduce((sum, item) => sum + (financeCore.numberField(item, ["RealTotalCost", "TotalCost"]) ?? 0), 0);
+        const bill = overview.reduce((sum, item) => sum + (financeCore.numberField(item, ["TotalCost", "RealTotalCost"]) ?? 0), 0);
+        financeCore.setConsumeOk(payload, consume, bill);
+      }
+    }
+  } else {
+    financeCore.setConsumeError(payload, billResult.reason?.message || billResult.reason);
+  }
+  return payload;
 }

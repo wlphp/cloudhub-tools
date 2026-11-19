@@ -112,11 +112,21 @@ pub(crate) fn save_account(mut input: AccountInput) -> PlatformResult<CloudAccou
     validate_secret_reuse(existing.as_ref().map(|(cloud_type, access_key_id)| (cloud_type.as_str(), access_key_id.as_str())), &input.cloud_type, &input.access_key_id, has_new_secret)?;
     let old_secret = input.id.map(|id| account_repository::secret_ciphertext(&conn, id)).transpose()?.flatten();
     let secret = match input.access_key_secret.as_ref().filter(|v| !v.trim().is_empty()) { Some(value) => encrypt_secret(value)?, None => old_secret.ok_or_else(|| "首次添加必须填写 AccessKey Secret".to_string())? };
-    account_repository::save(&conn, &input, &secret, now).map_err(Into::into)
+    let saved = account_repository::save(&conn, &input, &secret, now)?;
+    let credentials_changed = has_new_secret || existing.as_ref().is_none_or(|(cloud_type, access_key_id)| cloud_type != &input.cloud_type || access_key_id.as_str() != input.access_key_id.trim());
+    if credentials_changed {
+        let _ = crate::core::repositories::balances::delete(&conn, saved.id);
+    }
+    Ok(saved)
 }
 
 #[tauri::command]
-pub(crate) fn delete_account(id: i64) -> PlatformResult<()> { account_repository::delete(&open_db()?, id, chrono::Utc::now().timestamp_millis()).map_err(Into::into) }
+pub(crate) fn delete_account(id: i64) -> PlatformResult<()> {
+    let conn = open_db()?;
+    account_repository::delete(&conn, id, chrono::Utc::now().timestamp_millis())?;
+    let _ = crate::core::repositories::balances::delete(&conn, id);
+    Ok(())
+}
 
 #[tauri::command]
 pub(crate) fn reveal_account_secret(id: i64) -> PlatformResult<String> {

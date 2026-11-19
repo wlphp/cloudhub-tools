@@ -2,7 +2,8 @@ import crypto from "node:crypto";
 import { writeApiLog } from "../core/database.mjs";
 import { decryptSecret } from "../core/crypto.mjs";
 import { sign, queryValues } from "./aws.mjs";
-import { getAccountSecretRecord } from "../repositories/accounts.mjs";
+import { getAccountSecretRecord, getAccountRegion } from "../repositories/accounts.mjs";
+import * as financeCore from "./finance-core.mjs";
 
 function account(accountId) {
   const row = getAccountSecretRecord(accountId);
@@ -126,10 +127,10 @@ export async function verify(accountId, regions = ["cn-north-1"]) {
   return { provider: "jdcloud", verified: true, region_count: regions.length, regions, default_region: regions[0] };
 }
 
-export async function mutate(accountId, region, method, pathname, payload = null) {
+export async function mutate(accountId, region, method, pathname, payload = null, options = {}) {
   const row = account(accountId);
-  const service = "lavm";
-  const host = `${service}.${region}.jdcloud-api.com`;
+  const service = options.service || "lavm";
+  const host = options.host || `${service}.${region}.jdcloud-api.com`;
   // JDCloud's DELETE firewall endpoint expects identifiers in the query, not a JSON body.
   const deleting = method === "DELETE";
   const queryText = deleting ? queryValues(payload || {}) : "";
@@ -151,4 +152,50 @@ export async function mutate(accountId, region, method, pathname, payload = null
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data?.error?.message || data?.message || data?.code || `京东云 ${response.status}`);
   return data;
+}
+
+export async function finance(accountId) {
+  const row = account(accountId);
+  const regionRow = getAccountRegion(accountId);
+  const region = String(regionRow?.region_id || "cn-north-1").split(/[,，\s]+/).find(Boolean) || "cn-north-1";
+  const payload = financeCore.base("jdcloud");
+  financeCore.setCloudIdentity(payload, row.access_key_id, "京东云账号");
+  try {
+    const data = await mutate(accountId, region, "GET", `/v1/regions/${encodeURIComponent(region)}/assets%3AdescribeAccountAmount`, null, { service: "asset", host: "asset.jdcloud-api.com" });
+    const result = data.result ?? data;
+    const available = financeCore.numberField(result, ["availableAmount", "totalAmount"]);
+    const cash = financeCore.numberField(result, ["totalAmount", "availableAmount"]);
+    if (available === null && cash === null) financeCore.setBalanceError(payload, "余额接口未返回可用金额字段");
+    else {
+      financeCore.setBalanceOk(payload, available, cash, null);
+      payload.currency = "CNY";
+    }
+  } catch (error) {
+    financeCore.setBalanceError(payload, error);
+  }
+  const cycle = new Date().toISOString().slice(0, 7);
+  try {
+    const data = await mutate(accountId, region, "POST", `/v1/regions/${encodeURIComponent(region)}/billSummary%3Alist`, {
+      startTime: `${cycle}-01 00:00:00`,
+      endTime: `${new Date().toISOString().slice(0, 10)} 23:59:59`,
+      appCode: "",
+      serviceCode: "",
+      resourceIds: [],
+      tags: [],
+      pageIndex: 1,
+      pageSize: 100,
+    }, { service: "billing", host: "billing.jdcloud-api.com" });
+    const result = data.result ?? data;
+    const items = Array.isArray(result?.result) ? result.result : Array.isArray(result?.data) ? result.data : Array.isArray(result) ? result : null;
+    if (!items) {
+      financeCore.setConsumeError(payload, "账单接口返回格式不兼容");
+    } else {
+      const consume = items.reduce((sum, item) => sum + (financeCore.numberField(item, ["realTotalFee", "cashPayFee", "balancePayFee", "totalFee"]) ?? 0), 0);
+      const bill = items.reduce((sum, item) => sum + (financeCore.numberField(item, ["totalFee", "realTotalFee"]) ?? 0), 0);
+      financeCore.setConsumeOk(payload, consume, bill);
+    }
+  } catch (error) {
+    financeCore.setConsumeError(payload, error);
+  }
+  return payload;
 }

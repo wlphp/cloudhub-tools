@@ -70,6 +70,7 @@ pub mod servers;
 pub mod ssh;
 pub mod providers;
 pub mod summary;
+pub mod balances;
 pub mod certificates;
 #[cfg(desktop)]
 pub mod env_manager;

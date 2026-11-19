@@ -2900,13 +2900,20 @@
     text-overflow: ellipsis;
   }
   .ide-theme .account-section .table-wrap th:nth-child(2),
-  .ide-theme .account-section .table-wrap td:nth-child(2) { width: 30%; }
+  .ide-theme .account-section .table-wrap td:nth-child(2) { width: 27%; }
   .ide-theme .account-section .table-wrap th:nth-child(3),
   .ide-theme .account-section .table-wrap td:nth-child(3) { width: 9%; }
   .ide-theme .account-section .table-wrap th:nth-child(4),
   .ide-theme .account-section .table-wrap td:nth-child(4) { width: 8%; }
   .ide-theme .account-section .table-wrap th:nth-child(5),
-  .ide-theme .account-section .table-wrap td:nth-child(5) { width: 70px; }
+  .ide-theme .account-section .table-wrap td:nth-child(5) { width: 7%; }
+  .ide-theme .account-section .table-wrap th:nth-child(6),
+  .ide-theme .account-section .table-wrap td:nth-child(6) { width: 70px; }
+  .ide-theme .account-section .table-wrap th.account-balance-column,
+  .ide-theme .account-section .table-wrap td.account-balance-cell {
+    width: 128px !important;
+    min-width: 128px;
+  }
   .ide-theme .account-section .table-wrap th.account-resources-column,
   .ide-theme .account-section .table-wrap td.account-resources-cell {
     width: 240px !important;
@@ -4031,6 +4038,11 @@ body.theme-light .modal-backdrop .panel-bind-modal .panel-insecure-tls input { a
   .ide-theme .account-section .table-wrap td.account-actions-cell {
     width: 168px !important;
     min-width: 168px;
+  }
+  .ide-theme .account-section .table-wrap th.account-balance-column,
+  .ide-theme .account-section .table-wrap td.account-balance-cell {
+    width: 112px !important;
+    min-width: 112px;
   }
 }
 

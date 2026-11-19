@@ -2,6 +2,7 @@ import { isIP } from "node:net";
 import { decryptSecret } from "../core/crypto.mjs";
 import { getAccountSecretRecord } from "../repositories/accounts.mjs";
 import { writeApiLog } from "../core/database.mjs";
+import * as financeCore from "./finance-core.mjs";
 
 export function identifier(value) {
   if (typeof value !== "string" || !/^[a-f\d]{32}$/i.test(value)) throw new Error("Cloudflare ID 必须为 32 位十六进制字符");
@@ -14,7 +15,7 @@ function name(value) {
 export function project(row, fields) {
   return Object.fromEntries(fields.filter(key => row[key] == null || ["string", "boolean", "number"].includes(typeof row[key])).map(key => [key, row[key] ?? null]));
 }
-function credentials(id) {
+export function credentials(id) {
   const row = getAccountSecretRecord(id);
   if (!row || !row.enabled || row.cloud_type !== "cloudflare") throw new Error("Cloudflare 账号不存在或已停用");
   return { account: identifier(row.access_key_id), token: decryptSecret(row.secret_ciphertext).trim() };
@@ -215,4 +216,67 @@ export async function manage(id, action, input = {}) {
     await request(id, "DELETE", `accounts/${account}/${suffix}`);
   } else throw new Error("不支持的 Cloudflare 操作");
   return { success: true };
+}
+
+export async function finance(id) {
+  const row = getAccountSecretRecord(id);
+  if (!row) throw new Error("云账号不存在");
+  const { account } = credentials(id);
+  const payload = financeCore.base("cloudflare");
+  financeCore.setCloudIdentity(payload, account, "Cloudflare 账号");
+  try {
+    const data = await request(id, "GET", `accounts/${account}/billing/profile`);
+    const balance = financeCore.number(data?.result?.balance);
+    if (balance === null) financeCore.setBalanceError(payload, "计费资料未返回 balance，Token 可能需要 Billing Read 权限");
+    else {
+      financeCore.setBalanceOk(payload, balance, balance, null);
+      payload.currency = "USD";
+    }
+  } catch (error) {
+    if (/HTTP 404|1324/.test(String(error?.message || error))) {
+      financeCore.setBalanceUnsupported(payload, "当前 Cloudflare 账号没有计费资料（免费计划不使用预付费余额）");
+    } else {
+      financeCore.setBalanceError(payload, error);
+    }
+  }
+  const cycle = new Date().toISOString().slice(0, 7);
+  let consume = 0;
+  let bill = 0;
+  let counted = false;
+  let failure = null;
+  let exceeded = false;
+  for (let page = 1; page <= 20; page += 1) {
+    try {
+      const data = await request(id, "GET", `accounts/${account}/billing/history`, { page, per_page: 50 });
+      if (!Array.isArray(data?.result)) {
+        failure = "账单历史接口返回格式不兼容";
+        break;
+      }
+      for (const item of data.result) {
+        if (!String(item.occurred_at || "").startsWith(cycle)) continue;
+        const amount = financeCore.number(item.amount_to_pay ?? item.amount);
+        if (amount === null) continue;
+        consume += amount;
+        bill += amount;
+        counted = true;
+      }
+      const totalPages = Number(data?.result_info?.total_pages ?? 1);
+      if (page >= totalPages) break;
+      if (page === 20) exceeded = true;
+    } catch (error) {
+      failure = error.message || String(error);
+      break;
+    }
+  }
+  if (failure) {
+    if (/HTTP 404|1324/.test(failure)) financeCore.setConsumeUnsupported(payload, "当前 Cloudflare 账号没有计费资料，无法汇总本月消费");
+    else financeCore.setConsumeError(payload, failure);
+  } else if (counted || !exceeded) {
+    financeCore.setConsumeOk(payload, consume, bill);
+    financeCore.addNote(payload, "本月消费按 Cloudflare 账单记录汇总，不含尚未出账的用量");
+    if (exceeded) financeCore.addNote(payload, "本月账单仅统计前 1000 条记录");
+  } else {
+    financeCore.setConsumeError(payload, "账单记录超过 1000 条，已停止读取");
+  }
+  return payload;
 }
