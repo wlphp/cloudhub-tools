@@ -55,6 +55,17 @@ if (!workflow.includes("npm run verify:bundle-artifacts -- --platform windows"))
 if (!workflow.includes("node scripts/normalize-updater-json.mjs")) failures.push("发布 workflow 缺少更新清单 URL 规范化步骤（latest.json 的 api assets 地址需改写为公开下载链接）");
 if (!/normalize-updater-json[\s\S]{0,200}needs:\s*release|needs:\s*release[\s\S]{0,200}normalize-updater-json/.test(workflow)) failures.push("更新清单规范化步骤必须等待 release 任务完成后执行，避免覆盖 tauri-action 上传的清单");
 
+const giteeWorkflowPath = ".github/workflows/gitee-release-sync.yml";
+if (!fs.existsSync(giteeWorkflowPath)) {
+  failures.push("缺少 Gitee 发布镜像工作流，发布完成后无法同步附件");
+} else {
+  const giteeWorkflow = fs.readFileSync(giteeWorkflowPath, "utf8");
+  if (!giteeWorkflow.includes("workflow_dispatch")) failures.push("Gitee 镜像工作流缺少 workflow_dispatch，无法在 Android 签名上传后手动补齐同步");
+  if (!giteeWorkflow.includes("node scripts/sync-gitee-release.mjs")) failures.push("Gitee 镜像工作流缺少附件同步脚本调用");
+  if (!giteeWorkflow.includes("GITEE_TOKEN")) failures.push("Gitee 镜像工作流缺少 GITEE_TOKEN 注入");
+  if (!giteeWorkflow.includes("node scripts/verify-gitee-release.mjs")) failures.push("Gitee 镜像工作流缺少同步后的附件校验步骤");
+}
+
 if (failures.length) {
   console.error("Release configuration checks failed:");
   for (const failure of failures) console.error(`- ${failure}`);
