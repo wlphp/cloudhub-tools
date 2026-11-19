@@ -49,7 +49,17 @@ jobs:
         run: |
           export NDK_HOME="$ANDROID_HOME/ndk/27.2.12479018"
           npx tauri android init --ci
-          npx tauri android build --apk --target aarch64 --ci
+          # plugins.gradle.org 偶发不可达会让 Gradle 解析 Kotlin 插件失败（v0.1.152 已复现），
+          # 重试可利用已下载缓存补齐依赖，避免整次手机发布等人工重跑。
+          for attempt in 1 2 3; do
+            if npx tauri android build --apk --target aarch64 --ci; then
+              exit 0
+            fi
+            echo "Android build attempt ${attempt} failed; retrying in $((attempt * 20))s"
+            sleep "$((attempt * 20))"
+          done
+          echo "Android build failed after 3 attempts"
+          exit 1
       - name: Save APK for signing on the release workstation
         uses: actions/upload-artifact@v4
         with:
