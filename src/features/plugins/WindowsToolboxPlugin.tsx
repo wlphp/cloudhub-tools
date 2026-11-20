@@ -1,7 +1,7 @@
 import { ToastNotice } from "../../shared/ToastNotice";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { invoke, runningInTauri, runningOnPhone } from "../../platform/api";
-import { AppWindow, EthernetPort, Eye, FileKey2, FileType, Loader2, Monitor, MonitorCog, Network, RefreshCw, RotateCcw, RotateCw, ShieldAlert } from "lucide-react";
+import { AppWindow, EthernetPort, Eye, FileKey2, FileType, Loader2, Monitor, MonitorCog, MonitorOff, Network, RefreshCw, RotateCcw, RotateCw, ShieldAlert, Sun } from "lucide-react";
 import { ConfirmDialog } from "../../shared/ConfirmDialog";
 import "./windows-toolbox.css";
 
@@ -10,6 +10,7 @@ type CredSspStatus = { currentValue: number | null; backupAvailable: boolean };
 type CredSspConfirmation = "repair" | "restore";
 type ExplorerPreferences = { showFileExtensions: boolean; showHiddenFiles: boolean; showSpotlightIcon: boolean };
 type ExplorerSetting = "file-extensions" | "hidden-files" | "spotlight-icon";
+type MonitorBrightness = { index: number; name: string; supported: boolean; current: number | null };
 const actions: { id: Action; title: string; detail: string; icon: typeof Monitor; extraAction?: Action; extraLabel?: string }[] = [
   { id: "desktop-icons", title: "桌面图标设置", detail: "打开系统桌面图标配置", icon: MonitorCog },
   { id: "installed-apps", title: "已安装的应用", detail: "查看、卸载或修改本机应用", icon: AppWindow },
@@ -53,6 +54,15 @@ export function WindowsToolboxPlugin() {
   const [explorerPreferencesMessage, setExplorerPreferencesMessage] = useState("");
   const [explorerSettingConfirmation, setExplorerSettingConfirmation] = useState<{ setting: ExplorerSetting; enabled: boolean } | null>(null);
   const [explorerSettingError, setExplorerSettingError] = useState("");
+  const [monitors, setMonitors] = useState<MonitorBrightness[] | null>(null);
+  const [monitorsLoading, setMonitorsLoading] = useState(runningInTauri && !runningOnPhone);
+  const [monitorsError, setMonitorsError] = useState("");
+  const [settingIndex, setSettingIndex] = useState<number | null>(null);
+  const [pendingValues, setPendingValues] = useState<Record<number, number>>({});
+  const pendingValuesRef = useRef<Record<number, number>>({});
+  const [displayOffConfirmation, setDisplayOffConfirmation] = useState(false);
+  const [displayOffBusy, setDisplayOffBusy] = useState(false);
+  const [displayOffError, setDisplayOffError] = useState("");
 
   async function refreshCredSsp() {
     if (!runningInTauri || runningOnPhone) return;
@@ -70,7 +80,37 @@ export function WindowsToolboxPlugin() {
     finally { setExplorerPreferencesLoading(false); }
   }
 
-  useEffect(() => { void refreshCredSsp(); void refreshExplorerPreferences(); }, []);
+  async function refreshMonitors() {
+    if (!runningInTauri || runningOnPhone) return;
+    setMonitorsLoading(true); setMonitorsError("");
+    try { setMonitors(await invoke<MonitorBrightness[]>("windows_toolbox_monitor_brightness")); }
+    catch (reason) { setMonitorsError(errorText(reason)); }
+    finally { setMonitorsLoading(false); }
+  }
+
+  function setPendingBrightness(index: number, value: number) {
+    pendingValuesRef.current = { ...pendingValuesRef.current, [index]: value };
+    setPendingValues(pendingValuesRef.current);
+  }
+
+  function clearPendingBrightness(index: number) {
+    const next = { ...pendingValuesRef.current };
+    delete next[index];
+    pendingValuesRef.current = next;
+    setPendingValues(next);
+  }
+
+  async function commitBrightness(monitor: MonitorBrightness, percent: number) {
+    if (!runningInTauri || runningOnPhone) return;
+    setSettingIndex(monitor.index); setMonitorsError("");
+    try {
+      const next = await invoke<MonitorBrightness>("windows_toolbox_set_monitor_brightness", { index: monitor.index, percent });
+      setMonitors(current => current ? current.map(item => item.index === next.index ? next : item) : current);
+    } catch (reason) { setMonitorsError(errorText(reason)); }
+    finally { setSettingIndex(null); clearPendingBrightness(monitor.index); }
+  }
+
+  useEffect(() => { void refreshCredSsp(); void refreshExplorerPreferences(); void refreshMonitors(); }, []);
 
   async function applyExplorerPreference(setting: ExplorerSetting, enabled: boolean) {
     setExplorerPreferencesBusy(true); setExplorerSettingError(""); setExplorerPreferencesMessage(""); setError(""); setMessage("");
@@ -145,6 +185,8 @@ export function WindowsToolboxPlugin() {
           <li><strong>Hosts 文件：</strong>“打开文件夹”定位到 Hosts 所在目录；“打开”会先在应用本地数据目录创建备份，再请求管理员权限用记事本打开原文件。</li>
           <li><strong>清理 DNS 缓存：</strong>请求管理员授权后运行 Windows 的 <code>ipconfig /flushdns</code>。</li>
           <li><strong>重启 Windows 资源管理器：</strong>确认后重启桌面外壳进程，桌面和任务栏可能短暂消失；通常数秒后恢复。</li>
+          <li><strong>屏幕亮度：</strong>拖动滑块调节对应显示器的亮度，松开鼠标或按键后生效；外接显示器需在其 OSD 菜单开启 DDC/CI。</li>
+          <li><strong>关闭显示器：</strong>确认后立即关闭全部显示器；移动鼠标或按任意键即可唤醒，不会丢失数据。</li>
         </ul>
       </div>
     </details>
@@ -171,6 +213,44 @@ export function WindowsToolboxPlugin() {
     {explorerPreferencesBusy && <p className="windows-toolbox-feedback is-pending" role="status" aria-live="polite">正在更新文件资源管理器显示设置并复查结果…</p>}
     {explorerPreferencesError && <p className="windows-toolbox-feedback is-error" role="alert">读取文件资源管理器设置失败：{explorerPreferencesError}</p>}
     {explorerSettingError && explorerSettingConfirmation && <p className="windows-toolbox-feedback is-error" role="alert">{explorerSettingError}</p>}
+    <section className="windows-toolbox-display" aria-label="屏幕亮度与电源">
+      <div className="windows-toolbox-display-head">
+        <div className="windows-toolbox-display-title">
+          <strong>屏幕亮度与电源</strong>
+          <span>调节每台显示器的亮度；外接显示器需在其 OSD 菜单开启 DDC/CI。</span>
+        </div>
+        <button type="button" className="secondary" disabled={!runningInTauri || runningOnPhone || monitorsLoading} onClick={() => void refreshMonitors()}><RefreshCw size={13} aria-hidden="true" />刷新</button>
+      </div>
+      {(!runningInTauri || runningOnPhone) ? <p className="windows-toolbox-display-empty">仅支持 Windows 桌面端。</p>
+        : monitorsLoading ? <p className="windows-toolbox-display-empty">正在读取显示器亮度…</p>
+        : monitorsError ? <p className="windows-toolbox-feedback is-error" role="alert">{monitorsError}</p>
+        : monitors && monitors.length > 0 ? monitors.map(monitor => {
+          const value = pendingValues[monitor.index] ?? monitor.current ?? 0;
+          return <div className="windows-toolbox-display-row" key={monitor.index}>
+            <span className="windows-toolbox-icon" aria-hidden="true"><Sun size={18} /></span>
+            <div className="windows-toolbox-display-copy">
+              <strong>{monitor.name}</strong>
+              <span>{monitor.supported ? settingIndex === monitor.index ? "正在设置…" : `当前亮度 ${value}%` : "不支持亮度调节（可能未开启 DDC/CI）"}</span>
+            </div>
+            <input type="range" min={0} max={100} step={1} value={value} aria-label={`${monitor.name}亮度`}
+              disabled={!monitor.supported || settingIndex !== null}
+              onChange={event => setPendingBrightness(monitor.index, Number(event.target.value))}
+              onPointerUp={() => {
+                const pending = pendingValuesRef.current[monitor.index];
+                if (pending !== undefined && pending !== monitor.current) void commitBrightness(monitor, pending);
+              }}
+              onKeyUp={() => {
+                const pending = pendingValuesRef.current[monitor.index];
+                if (pending !== undefined && pending !== monitor.current) void commitBrightness(monitor, pending);
+              }} />
+          </div>;
+        })
+        : <p className="windows-toolbox-display-empty">未检测到显示器。</p>}
+      <div className="windows-toolbox-display-footer">
+        <button type="button" className="secondary" disabled={!runningInTauri || runningOnPhone || displayOffBusy} onClick={() => { setDisplayOffError(""); setDisplayOffConfirmation(true); }}><MonitorOff size={14} aria-hidden="true" />关闭显示器</button>
+        <span>移动鼠标或按任意键即可唤醒</span>
+      </div>
+    </section>
     <div className="windows-toolbox-grid">
       {actions.map(({ id, title, detail, icon: Icon, extraAction, extraLabel }) => <article className="windows-toolbox-card" key={id}>
         <span className="windows-toolbox-icon" aria-hidden="true"><Icon size={18} /></span>
@@ -273,6 +353,26 @@ export function WindowsToolboxPlugin() {
         <p>将请求 Windows 管理员授权，把该策略恢复为首次修复前的 DWORD 值；如果当时未显式配置，则移除本工具添加的策略值。只处理此项，不删除同一注册表位置的其他设置。</p>
       </div>}
       {credSspPhase && <p className="windows-toolbox-credssp-phase" role="status"><Loader2 size={14} aria-hidden="true" />{credSspPhase}</p>}
+    </ConfirmDialog>}
+    {displayOffConfirmation && <ConfirmDialog
+      title="确认关闭显示器"
+      message="全部显示器将立即关闭。移动鼠标或按任意键盘按键即可重新点亮，不会丢失任何数据。"
+      confirmLabel="立即关闭"
+      busy={displayOffBusy}
+      error={displayOffError}
+      onResolve={confirmed => {
+        if (!confirmed || displayOffBusy) { if (!displayOffBusy) setDisplayOffConfirmation(false); return; }
+        setDisplayOffBusy(true); setDisplayOffError("");
+        void invoke<void>("windows_toolbox_turn_off_display")
+          .then(() => { setDisplayOffConfirmation(false); setMessage("已请求关闭显示器；移动鼠标或按任意键即可唤醒。"); })
+          .catch(reason => setDisplayOffError(errorText(reason)))
+          .finally(() => setDisplayOffBusy(false));
+      }}
+    >
+      <div className="windows-toolbox-credssp-confirm-note">
+        <strong><MonitorOff size={15} aria-hidden="true" />执行说明</strong>
+        <p>此操作通过 Windows 显示器电源消息关闭全部显示器，立即生效且随时可唤醒；不会关闭计算机，也不影响正在运行的程序。</p>
+      </div>
     </ConfirmDialog>}
   </section>;
 }

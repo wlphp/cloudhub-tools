@@ -583,3 +583,533 @@ pub(crate) async fn windows_toolbox_open(action: String, app: tauri::AppHandle) 
 pub(crate) fn windows_toolbox_open(_action: String, _app: tauri::AppHandle) -> PlatformResult<String> {
     Err("Windows 工具箱仅支持 Windows 桌面端。".into())
 }
+
+// Monitor brightness (internal panels via the high-level API, external monitors
+// via DDC/CI VCP 0x10) and turning the display off.
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MonitorBrightnessStatus {
+    index: usize,
+    name: String,
+    supported: bool,
+    /// Brightness normalized to 0-100; `None` when the monitor exposes no control.
+    current: Option<u32>,
+}
+
+#[cfg(target_os = "windows")]
+fn percent_from_device_value(current: u32, minimum: u32, maximum: u32) -> u32 {
+    if maximum <= minimum {
+        return 0;
+    }
+    let span = maximum - minimum;
+    (current.saturating_sub(minimum) * 100 + span / 2) / span
+}
+
+#[cfg(target_os = "windows")]
+fn device_value_from_percent(percent: u32, minimum: u32, maximum: u32) -> u32 {
+    if maximum <= minimum {
+        return minimum;
+    }
+    let span = maximum - minimum;
+    minimum + (span * percent.min(100) + 50) / 100
+}
+
+#[cfg(target_os = "windows")]
+type MonitorHandle = windows_sys::Win32::Foundation::HANDLE;
+
+#[cfg(target_os = "windows")]
+unsafe extern "system" fn collect_monitor_handle(
+    hmonitor: windows_sys::Win32::Graphics::Gdi::HMONITOR,
+    _hdc: windows_sys::Win32::Graphics::Gdi::HDC,
+    _rect: *mut windows_sys::Win32::Foundation::RECT,
+    data: windows_sys::Win32::Foundation::LPARAM,
+) -> windows_sys::Win32::Foundation::BOOL {
+    let handles = &mut *(data as *mut Vec<windows_sys::Win32::Graphics::Gdi::HMONITOR>);
+    handles.push(hmonitor);
+    1
+}
+
+#[cfg(target_os = "windows")]
+fn enum_display_monitors() -> Vec<windows_sys::Win32::Graphics::Gdi::HMONITOR> {
+    use windows_sys::Win32::Foundation::LPARAM;
+    use windows_sys::Win32::Graphics::Gdi::{EnumDisplayMonitors, HMONITOR};
+
+    let mut handles: Vec<HMONITOR> = Vec::new();
+    unsafe {
+        EnumDisplayMonitors(
+            std::ptr::null_mut(),
+            std::ptr::null(),
+            Some(collect_monitor_handle),
+            &mut handles as *mut Vec<HMONITOR> as LPARAM,
+        );
+    }
+    handles
+}
+
+#[cfg(target_os = "windows")]
+fn utf16_text(value: &[u16]) -> String {
+    let end = value.iter().position(|&character| character == 0).unwrap_or(value.len());
+    String::from_utf16_lossy(&value[..end]).trim().to_string()
+}
+
+#[cfg(target_os = "windows")]
+fn normalize_display_device_id(raw: &[u16]) -> Option<String> {
+    let text = utf16_text(raw);
+    if text.starts_with("DISPLAY\\") && text.len() > "DISPLAY\\".len() {
+        return Some(text);
+    }
+    // Interface form: \\?\DISPLAY#BOE0A1F#5&31af514a&0&UID4357#{e6f07b5f-...}
+    if let Some(rest) = text.strip_prefix("\\\\?\\DISPLAY#") {
+        let mut parts = rest.split('#');
+        let model = parts.next()?;
+        let instance = parts.next()?;
+        if !model.is_empty() && !instance.is_empty() {
+            return Some(format!("DISPLAY\\{model}\\{instance}"));
+        }
+    }
+    None
+}
+
+#[cfg(target_os = "windows")]
+fn monitor_device_id(hmonitor: windows_sys::Win32::Graphics::Gdi::HMONITOR) -> Option<String> {
+    use windows_sys::Win32::Graphics::Gdi::{
+        EnumDisplayDevicesW, GetMonitorInfoW, DISPLAY_DEVICEW, MONITORINFO, MONITORINFOEXW,
+    };
+    use windows_sys::Win32::UI::WindowsAndMessaging::EDD_GET_DEVICE_INTERFACE_NAME;
+
+    unsafe {
+        let mut info: MONITORINFOEXW = std::mem::zeroed();
+        info.monitorInfo.cbSize = std::mem::size_of::<MONITORINFOEXW>() as u32;
+        if GetMonitorInfoW(hmonitor, &mut info as *mut MONITORINFOEXW as *mut MONITORINFO) == 0 {
+            return None;
+        }
+        let device_name = utf16_text(&info.szDevice);
+        if device_name.is_empty() {
+            return None;
+        }
+        let device_name: Vec<u16> = device_name.encode_utf16().chain(std::iter::once(0)).collect();
+        for flags in [0u32, EDD_GET_DEVICE_INTERFACE_NAME] {
+            let mut monitor_device: DISPLAY_DEVICEW = std::mem::zeroed();
+            monitor_device.cb = std::mem::size_of::<DISPLAY_DEVICEW>() as u32;
+            if EnumDisplayDevicesW(device_name.as_ptr(), 0, &mut monitor_device, flags) != 0 {
+                if let Some(device_id) = normalize_display_device_id(&monitor_device.DeviceID) {
+                    return Some(device_id);
+                }
+            }
+        }
+    }
+    None
+}
+
+#[cfg(target_os = "windows")]
+fn read_registry_friendly_name(device_id: &str) -> Option<String> {
+    use std::{os::windows::process::CommandExt, process::{Command, Stdio}};
+    let windows_dir = std::env::var_os("SystemRoot").map(PathBuf::from)?;
+    let output = Command::new(windows_dir.join("System32").join("reg.exe"))
+        .args(["query", &format!(r"HKLM\SYSTEM\CurrentControlSet\Enum\{device_id}"), "/v", "FriendlyName"])
+        .creation_flags(0x08000000)
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        if let Some(position) = line.find("REG_SZ") {
+            let name = line[position + "REG_SZ".len()..].trim();
+            if !name.is_empty() {
+                return Some(name.to_string());
+            }
+        }
+    }
+    None
+}
+
+#[cfg(target_os = "windows")]
+fn monitor_friendly_name(
+    wmi_name: Option<&str>,
+    device_id: Option<&str>,
+    description: &str,
+    fallback_index: usize,
+) -> String {
+    if let Some(wmi_name) = wmi_name.map(str::trim).filter(|name| !name.is_empty()) {
+        return wmi_name.to_string();
+    }
+    // The device id is an OS-provided registry path fragment; restrict it to the
+    // characters such ids actually use before handing it to reg.exe.
+    if let Some(device_id) = device_id {
+        if device_id.len() <= 128
+            && device_id.chars().all(|character| {
+                character.is_ascii_alphanumeric() || matches!(character, '\\' | '&' | '_' | '.' | '-')
+            })
+        {
+            if let Some(name) = read_registry_friendly_name(device_id) {
+                return name;
+            }
+        }
+    }
+    let description = description.trim();
+    // dxva2 fills laptop panels with useful names ("Integrated Monitor") but some
+    // DDC/CI paths leak graphics-kernel strings; only trust plausible names.
+    let unusable = description.is_empty()
+        || description.eq_ignore_ascii_case("Generic PnP Monitor")
+        || description.starts_with('@')
+        || description.contains("dxgkrnl");
+    if !unusable {
+        return description.to_string();
+    }
+    format!("显示器 {}", fallback_index + 1)
+}
+
+#[cfg(target_os = "windows")]
+#[derive(Debug, Clone, Default)]
+struct WmiMonitorInfo {
+    name: Option<String>,
+    current: Option<u32>,
+    minimum: u32,
+    maximum: u32,
+}
+
+#[cfg(target_os = "windows")]
+fn run_powershell_script(script: &str) -> Result<String, String> {
+    use std::{os::windows::process::CommandExt, process::{Command, Stdio}};
+    let output = Command::new("powershell.exe")
+        .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "RemoteSigned", "-Command", script])
+        .creation_flags(0x08000000)
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .map_err(|_| "无法启动 Windows 亮度查询流程。".to_string())?;
+    if !output.status.success() {
+        return Err(format!("Windows 亮度操作执行失败（退出码 {}）。", output.status.code().unwrap_or(-1)));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+/// Laptop panels expose brightness only through WMI, not through dxva2. One
+/// PowerShell call gathers names (WmiMonitorID) and brightness ranges
+/// (WmiMonitorBrightness), keyed by the PnP instance name that starts with the
+/// display device id used elsewhere in this module.
+#[cfg(target_os = "windows")]
+fn query_wmi_monitors() -> std::collections::HashMap<String, WmiMonitorInfo> {
+    const SCRIPT: &str = r#"
+$ErrorActionPreference = 'Stop'
+try {
+  [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+  Get-CimInstance -Namespace root/wmi -ClassName WmiMonitorID | ForEach-Object {
+    $name = ''
+    foreach ($c in $_.UserFriendlyName) { if ($c -ne 0) { $name += [char]$c } }
+    Write-Output ("N|" + $_.InstanceName + "|" + $name)
+  }
+  Get-CimInstance -Namespace root/wmi -ClassName WmiMonitorBrightness | ForEach-Object {
+    $levels = @($_.Level)
+    $min = 0
+    $max = 0
+    if ($levels.Count -gt 0) { $min = $levels[0]; $max = $levels[$levels.Count - 1] }
+    Write-Output ("B|" + $_.InstanceName + "|" + $_.CurrentBrightness + "|" + $min + "|" + $max)
+  }
+} catch { }
+"#;
+    let mut monitors = std::collections::HashMap::new();
+    let Ok(output) = run_powershell_script(SCRIPT) else { return monitors };
+    for line in output.lines() {
+        let mut fields = line.split('|');
+        match fields.next() {
+            Some("N") => {
+                let (Some(instance), Some(name)) = (fields.next(), fields.next()) else { continue };
+                let name = name.trim();
+                if !name.is_empty() {
+                    monitors.entry(instance.trim().to_ascii_lowercase()).or_insert_with(WmiMonitorInfo::default).name = Some(name.to_string());
+                }
+            }
+            Some("B") => {
+                let (Some(instance), Some(current), Some(minimum), Some(maximum)) =
+                    (fields.next(), fields.next(), fields.next(), fields.next())
+                else { continue };
+                if let (Ok(current), Ok(minimum), Ok(maximum)) = (
+                    current.trim().parse::<u32>(),
+                    minimum.trim().parse::<u32>(),
+                    maximum.trim().parse::<u32>(),
+                ) {
+                    let entry = monitors.entry(instance.trim().to_ascii_lowercase()).or_insert_with(WmiMonitorInfo::default);
+                    entry.current = Some(current);
+                    entry.minimum = minimum;
+                    entry.maximum = maximum;
+                }
+            }
+            _ => {}
+        }
+    }
+    monitors
+}
+
+#[cfg(target_os = "windows")]
+fn find_wmi_monitor<'a>(
+    monitors: &'a std::collections::HashMap<String, WmiMonitorInfo>,
+    device_id: Option<&str>,
+) -> Option<&'a WmiMonitorInfo> {
+    let device_id = device_id?.to_ascii_lowercase();
+    monitors
+        .iter()
+        .find(|(instance, _)| instance.starts_with(&device_id))
+        .map(|(_, info)| info)
+}
+
+/// Set brightness through WMI for panels dxva2 cannot drive; returns the
+/// verified raw value after the monitor reports back.
+#[cfg(target_os = "windows")]
+fn wmi_set_brightness(device_id: &str, raw_value: u32) -> Result<u32, String> {
+    let script = format!(r#"
+$ErrorActionPreference = 'Stop'
+try {{
+  $target = '{device_id}'
+  $value = {raw_value}
+  $methods = Get-CimInstance -Namespace root/wmi -Class WmiMonitorBrightnessMethods | Where-Object {{ $_.InstanceName -like ($target + '*') }}
+  if (-not $methods) {{ exit 1 }}
+  foreach ($instance in @($methods)) {{ $instance.WmiSetBrightness(1, $value) | Out-Null }}
+  Start-Sleep -Milliseconds 150
+  $verified = Get-CimInstance -Namespace root/wmi -ClassName WmiMonitorBrightness | Where-Object {{ $_.InstanceName -like ($target + '*') }} | Select-Object -First 1
+  if (-not $verified) {{ exit 2 }}
+  Write-Output $verified.CurrentBrightness
+}} catch {{
+  exit 3
+}}
+"#);
+    let output = run_powershell_script(&script)?;
+    output
+        .trim()
+        .parse::<u32>()
+        .map_err(|_| "内置显示器亮度设置后未能读取到确认值。".to_string())
+}
+
+#[cfg(target_os = "windows")]
+fn read_brightness_range(handle: MonitorHandle) -> Option<(u32, u32, u32)> {
+    use windows_sys::Win32::Devices::Display::{GetMonitorBrightness, GetVCPFeatureAndVCPFeatureReply, MC_VCP_CODE_TYPE};
+    unsafe {
+        let (mut minimum, mut current, mut maximum) = (0u32, 0u32, 0u32);
+        if GetMonitorBrightness(handle, &mut minimum, &mut current, &mut maximum) != 0 && maximum > minimum {
+            return Some((current, minimum, maximum));
+        }
+        let mut value_type: MC_VCP_CODE_TYPE = 0;
+        if GetVCPFeatureAndVCPFeatureReply(handle, 0x10, &mut value_type, &mut current, &mut maximum) != 0 && maximum > minimum {
+            return Some((current, minimum, maximum));
+        }
+    }
+    None
+}
+
+#[cfg(target_os = "windows")]
+fn set_brightness_value(
+    handle: MonitorHandle,
+    wmi_info: Option<&WmiMonitorInfo>,
+    device_id: Option<&str>,
+    percent: u32,
+) -> Result<u32, String> {
+    use windows_sys::Win32::Devices::Display::{SetMonitorBrightness, SetVCPFeature};
+    // dxva2 covers external DDC/CI monitors (and any panel exposing the high-level API).
+    if let Some((_, minimum, maximum)) = read_brightness_range(handle) {
+        let value = device_value_from_percent(percent, minimum, maximum);
+        unsafe {
+            if SetMonitorBrightness(handle, value) != 0 || SetVCPFeature(handle, 0x10, value) != 0 {
+                if let Some((current, _, _)) = read_brightness_range(handle) {
+                    return Ok(percent_from_device_value(current, minimum, maximum));
+                }
+                return Ok(percent.min(100));
+            }
+        }
+    }
+    // Laptop panels only answer to WMI.
+    if let (Some(info), Some(device_id)) = (wmi_info, device_id) {
+        if info.current.is_some() && info.maximum > info.minimum {
+            let value = device_value_from_percent(percent, info.minimum, info.maximum);
+            let verified = wmi_set_brightness(device_id, value)?;
+            return Ok(percent_from_device_value(verified, info.minimum, info.maximum));
+        }
+    }
+    Err("该显示器不支持亮度控制；外接显示器请先在其 OSD 菜单开启 DDC/CI。".into())
+}
+
+#[cfg(target_os = "windows")]
+enum MonitorOperation {
+    Read,
+    Set { index: usize, percent: u32 },
+}
+
+#[cfg(target_os = "windows")]
+fn run_monitor_operation(operation: MonitorOperation) -> Result<Vec<MonitorBrightnessStatus>, String> {
+    use windows_sys::Win32::Devices::Display::{
+        DestroyPhysicalMonitors, GetNumberOfPhysicalMonitorsFromHMONITOR, GetPhysicalMonitorsFromHMONITOR, PHYSICAL_MONITOR,
+    };
+
+    let mut statuses: Vec<MonitorBrightnessStatus> = Vec::new();
+    // One WMI round-trip up front: names for every monitor plus the brightness
+    // interface for laptop panels that dxva2 cannot drive.
+    let wmi_monitors = query_wmi_monitors();
+    for hmonitor in enum_display_monitors() {
+        let mut count: u32 = 0;
+        unsafe {
+            if GetNumberOfPhysicalMonitorsFromHMONITOR(hmonitor, &mut count) == 0 || count == 0 {
+                continue;
+            }
+        }
+        let mut monitors: Vec<PHYSICAL_MONITOR> = vec![unsafe { std::mem::zeroed() }; count as usize];
+        unsafe {
+            if GetPhysicalMonitorsFromHMONITOR(hmonitor, count, monitors.as_mut_ptr()) == 0 {
+                continue;
+            }
+        }
+        let device_id = monitor_device_id(hmonitor);
+        let wmi_info = find_wmi_monitor(&wmi_monitors, device_id.as_deref());
+        for physical in &monitors {
+            // PHYSICAL_MONITOR is packed; copy the field out before taking a reference.
+            let description_buffer = physical.szPhysicalMonitorDescription;
+            let description = utf16_text(&description_buffer);
+            let mut status = MonitorBrightnessStatus {
+                index: statuses.len(),
+                name: monitor_friendly_name(
+                    wmi_info.and_then(|info| info.name.as_deref()),
+                    device_id.as_deref(),
+                    &description,
+                    statuses.len(),
+                ),
+                supported: false,
+                current: None,
+            };
+            if let Some((current, minimum, maximum)) = read_brightness_range(physical.hPhysicalMonitor) {
+                status.supported = true;
+                status.current = Some(percent_from_device_value(current, minimum, maximum));
+            } else if let Some(info) = wmi_info {
+                if info.maximum > info.minimum {
+                    if let Some(current) = info.current {
+                        status.supported = true;
+                        status.current = Some(percent_from_device_value(current, info.minimum, info.maximum));
+                    }
+                }
+            }
+            if let MonitorOperation::Set { index, percent } = operation {
+                if status.index == index {
+                    let updated = set_brightness_value(physical.hPhysicalMonitor, wmi_info, device_id.as_deref(), percent)
+                        .map_err(|reason| {
+                            unsafe { DestroyPhysicalMonitors(count, monitors.as_ptr()); }
+                            reason
+                        })?;
+                    status.supported = true;
+                    status.current = Some(updated);
+                }
+            }
+            statuses.push(status);
+        }
+        unsafe { DestroyPhysicalMonitors(count, monitors.as_ptr()); }
+    }
+    if let MonitorOperation::Set { index, .. } = operation {
+        if statuses.len() <= index {
+            return Err(format!("显示器列表已变化（当前 {} 台），请刷新后重试。", statuses.len()));
+        }
+    }
+    Ok(statuses)
+}
+
+#[cfg(target_os = "windows")]
+#[tauri::command]
+pub(crate) async fn windows_toolbox_monitor_brightness() -> PlatformResult<Vec<MonitorBrightnessStatus>> {
+    tauri::async_runtime::spawn_blocking(|| run_monitor_operation(MonitorOperation::Read))
+        .await
+        .map_err(|_| "显示器亮度读取任务异常结束。".to_string())?
+        .map_err(Into::into)
+}
+
+#[cfg(target_os = "windows")]
+#[tauri::command]
+pub(crate) async fn windows_toolbox_set_monitor_brightness(index: u32, percent: u32) -> PlatformResult<MonitorBrightnessStatus> {
+    let statuses = tauri::async_runtime::spawn_blocking(move || {
+        run_monitor_operation(MonitorOperation::Set { index: index as usize, percent })
+    })
+    .await
+    .map_err(|_| "显示器亮度设置任务异常结束。".to_string())??;
+    statuses
+        .into_iter()
+        .nth(index as usize)
+        .ok_or_else(|| "显示器编号已失效，请刷新显示器列表。".into())
+}
+
+#[cfg(target_os = "windows")]
+#[tauri::command]
+pub(crate) fn windows_toolbox_turn_off_display() -> PlatformResult<()> {
+    use windows_sys::Win32::Foundation::{LPARAM, WPARAM};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{PostMessageW, HWND_BROADCAST, SC_MONITORPOWER, WM_SYSCOMMAND};
+    let sent = unsafe {
+        PostMessageW(HWND_BROADCAST, WM_SYSCOMMAND, SC_MONITORPOWER as WPARAM, 2 as LPARAM)
+    };
+    if sent == 0 {
+        return Err("Windows 未接受关闭显示器的请求。".into());
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+#[tauri::command]
+pub(crate) async fn windows_toolbox_monitor_brightness() -> PlatformResult<Vec<MonitorBrightnessStatus>> {
+    Err("显示器亮度调节仅支持 Windows 桌面端。".into())
+}
+
+#[cfg(not(target_os = "windows"))]
+#[tauri::command]
+pub(crate) async fn windows_toolbox_set_monitor_brightness(_index: u32, _percent: u32) -> PlatformResult<MonitorBrightnessStatus> {
+    Err("显示器亮度调节仅支持 Windows 桌面端。".into())
+}
+
+#[cfg(not(target_os = "windows"))]
+#[tauri::command]
+pub(crate) fn windows_toolbox_turn_off_display() -> PlatformResult<()> {
+    Err("关闭显示器仅支持 Windows 桌面端。".into())
+}
+
+#[cfg(all(test, target_os = "windows"))]
+mod monitor_value_tests {
+    use super::{device_value_from_percent, percent_from_device_value};
+
+    #[test]
+    fn converts_device_values_to_percent() {
+        assert_eq!(percent_from_device_value(0, 0, 100), 0);
+        assert_eq!(percent_from_device_value(50, 0, 100), 50);
+        assert_eq!(percent_from_device_value(100, 0, 100), 100);
+        assert_eq!(percent_from_device_value(1, 1, 100), 0);
+        assert_eq!(percent_from_device_value(100, 1, 100), 100);
+    }
+
+    #[test]
+    fn converts_percent_to_device_values() {
+        assert_eq!(device_value_from_percent(0, 0, 100), 0);
+        assert_eq!(device_value_from_percent(50, 0, 100), 50);
+        assert_eq!(device_value_from_percent(100, 0, 100), 100);
+        assert_eq!(device_value_from_percent(100, 1, 100), 100);
+        assert_eq!(device_value_from_percent(150, 0, 100), 100);
+    }
+
+    #[test]
+    fn percent_round_trips_within_one_step() {
+        for percent in [0u32, 1, 25, 50, 75, 99, 100] {
+            let value = device_value_from_percent(percent, 0, 255);
+            let rounded = percent_from_device_value(value, 0, 255);
+            assert!(
+                (rounded as i32 - percent as i32).abs() <= 1,
+                "percent {percent} -> value {value} -> rounded {rounded}"
+            );
+        }
+    }
+
+    #[test]
+    fn enumerates_local_monitors_readonly() {
+        let statuses = super::run_monitor_operation(super::MonitorOperation::Read).expect("枚举显示器失败");
+        assert!(!statuses.is_empty());
+        for (position, status) in statuses.iter().enumerate() {
+            assert_eq!(status.index, position);
+            assert!(!status.name.is_empty());
+            if let Some(current) = status.current {
+                assert!(current <= 100);
+            }
+        }
+    }
+}

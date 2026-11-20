@@ -48,6 +48,23 @@
 .windows-toolbox-credssp-phase { display: flex; align-items: flex-start; gap: 7px; margin: 10px 0 0; color: var(--text-secondary, #737373); font-size: 12px; line-height: 1.5; }
 .windows-toolbox-credssp-phase svg, .windows-toolbox-credssp-working svg { flex: 0 0 auto; animation: windows-toolbox-spin .8s linear infinite; }
 @media (prefers-reduced-motion: reduce) { .windows-toolbox-credssp-phase svg, .windows-toolbox-credssp-working svg { animation-duration: 2s; } }
+.windows-toolbox-display { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--border-color, #ddd); border-radius: 7px; background: var(--surface, #fff); }
+.windows-toolbox-display-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.windows-toolbox-display-title { display: grid; gap: 3px; min-width: 0; }
+.windows-toolbox-display-title strong { font-size: 13px; }
+.windows-toolbox-display-title span { color: var(--text-secondary, #737373); font-size: 11px; line-height: 1.4; }
+.windows-toolbox-display-head > button { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; gap: 5px; min-height: 32px; }
+.windows-toolbox-display-row { display: flex; align-items: center; gap: 10px; min-width: 0; padding-top: 10px; border-top: 1px solid var(--border-color, #ddd); }
+.windows-toolbox-display-copy { display: grid; gap: 2px; flex: 0 0 220px; min-width: 0; }
+.windows-toolbox-display-copy strong { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.windows-toolbox-display-copy span { color: var(--text-secondary, #737373); font-size: 11px; line-height: 1.4; }
+.windows-toolbox-display-row input[type="range"] { flex: 1 1 auto; width: auto; min-width: 120px; height: 20px; margin: 0; padding: 0; border: 0; background: transparent; accent-color: var(--jb-accent, #f26a21); cursor: pointer; }
+.windows-toolbox-display-row input[type="range"]:disabled { opacity: .55; cursor: default; }
+.windows-toolbox-display-empty { margin: 0; color: var(--text-secondary, #737373); font-size: 12px; }
+.windows-toolbox-display-footer { display: flex; align-items: center; gap: 10px; padding-top: 10px; border-top: 1px solid var(--border-color, #ddd); }
+.windows-toolbox-display-footer > button { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; gap: 5px; min-height: 32px; }
+.windows-toolbox-display-footer > span { color: var(--text-secondary, #737373); font-size: 11px; min-width: 0; }
+@media (max-width: 520px) { .windows-toolbox-display-head, .windows-toolbox-display-footer { flex-wrap: wrap; } .windows-toolbox-display-row { flex-wrap: wrap; } .windows-toolbox-display-copy { flex: 1 1 160px; } .windows-toolbox-display-row input[type="range"] { flex: 1 1 100%; } }
 @media (max-width: 520px) { .windows-toolbox-card { flex-wrap: wrap; } .windows-toolbox-card-actions { width: 100%; } .windows-toolbox-card-actions > button { flex: 1 1 0; } }
 @media (max-width: 520px) { .windows-toolbox-toast { top: 12px; right: 12px; width: calc(100vw - 24px); } }
 @media (prefers-reduced-motion: reduce) { .windows-toolbox-toast { animation: none; } }
