@@ -7,6 +7,7 @@ import { type ClaudeMode, type ClaudeProviderSummary, type ClaudeRoutingConfig, 
 const CLAUDE_MODES: { id: ClaudeMode; label: string; icon: typeof Plug }[] = [
   { id: "direct", label: "直连", icon: Plug }, { id: "route", label: "路由", icon: Route }, { id: "aggregate", label: "聚合", icon: Layers },
 ];
+type ClaudeRouteStrategy = "fixed" | "failover" | "round_robin";
 
 export function providerModelCount(provider: ClaudeProviderSummary): number {
   const models = provider.modelCatalog?.length ? provider.modelCatalog : Object.values(provider.models ?? {});
@@ -61,7 +62,7 @@ export function RoutingSettings({ config, mode, running, onClose, onSave }: { co
       void onSave(draft).then(onClose).catch(reason => setError(reason instanceof Error ? reason.message : "保存失败")).finally(() => setBusy(false));
     }}
     footer={<><button type="button" className="secondary" disabled={busy} onClick={onClose}>取消</button><button type="submit" className="primary" disabled={busy}>保存</button></>}>
-    <p className="claude-config-help">端口、超时和请求用量记录由路由与聚合模式共用，不影响直连。{mode === "aggregate" ? "聚合模式不做故障转移，路由的重试和熔断设置保持不变。" : "重试与熔断用于路由队列；自动故障转移开关在页面顶部设置。"}{running ? "本地服务运行中，修改监听端口前请先回到直连。" : "保存设置不会自动启用此模式。"}</p>
+    <p className="claude-config-help">端口、超时和请求用量记录由路由与聚合模式共用，不影响直连。{mode === "aggregate" ? "聚合模式不做故障转移，路由的重试和熔断设置保持不变。" : "重试与熔断用于路由队列；路由策略在页面顶部选择。"}{running ? "本地服务运行中，修改监听端口前请先回到直连。" : "保存设置不会自动启用此模式。"}</p>
     <div className="claude-field-row">{visibleFields.map(field => <label key={field.key} className="claude-field">{field.label}
       <input type="number" required disabled={busy || (running && field.key === "port")} min={field.min} max={field.max} value={Number(draft[field.key])} onChange={e => setDraft(current => ({ ...current, [field.key]: Number(e.target.value) }))} />
     </label>)}</div>
@@ -71,7 +72,7 @@ export function RoutingSettings({ config, mode, running, onClose, onSave }: { co
 }
 
 export function ModeBar({
-  view, state, currentName, directConfigurationIssue, activeName, providers = [], scopeLabel, addressFallback, onView, onActivate, onSettings, onFailover, disabled,
+  view, state, currentName, directConfigurationIssue, activeName, providers = [], scopeLabel, addressFallback, onView, onActivate, onSettings, onRouteStrategy, roundRobinSupported, disabled,
 }: {
   view: ClaudeMode; state: ClaudeRoutingState;
   /** 直连模式下显示的当前供应商名。 */
@@ -86,7 +87,8 @@ export function ModeBar({
   onView: (mode: ClaudeMode) => void;
   onActivate: (mode: ClaudeMode) => void;
   onSettings: () => void;
-  onFailover?: (enabled: boolean) => void;
+  onRouteStrategy?: (strategy: ClaudeRouteStrategy) => void;
+  roundRobinSupported?: boolean;
   disabled: boolean;
 }) {
   const modeLabel = CLAUDE_MODES.find(mode => mode.id === state.mode)?.label ?? "直连";
@@ -96,7 +98,7 @@ export function ModeBar({
       return segments.join(" · ");
     }
     const segments = [`${modeLabel}生效中`, state.address || addressFallback || ""];
-    if (state.mode === "route") segments.push(state.config.failover ? "按队列优先级" : "固定供应商");
+    if (state.mode === "route") segments.push(state.config.roundRobin ? "请求轮询" : state.config.failover ? "优先级故障转移" : "固定供应商");
     if (state.activeProvider) segments.push(`最近响应 ${activeName || "未知供应商"}`);
     if (state.mode === "aggregate") {
       const members = providers.filter(provider => provider.id !== state.config.defaultProvider && state.config.members.includes(provider.id));
@@ -117,13 +119,20 @@ export function ModeBar({
     <HelpTooltip label="连接模式的区别">
       <strong>连接模式的区别</strong>
       <p>直连：CloudHub 不转发请求，Claude Code 直接连接所选供应商，使用原生连接方式。</p>
-      <p>路由：请求经本机 CloudHub 转发，支持切换供应商、按优先级故障转移和格式转换。</p>
+      <p>路由：请求经本机 CloudHub 转发，支持固定渠道、按优先级故障转移或按队列轮询，并可在供应商之间转换格式。</p>
       <p>聚合：多家供应商的模型汇集在 /model 中，在 Claude Code 内选择模型即可分发到对应供应商，不做故障转移。</p>
     </HelpTooltip>
     </div>
     <span className="claude-mode-status">{status}</span>
     <div className="claude-mode-actions">
-      {view === "route" && <label className="claude-check" title="启用后按队列优先级请求，失败时尝试后续供应商"><input type="checkbox" role="switch" checked={state.config.failover} disabled={disabled} onChange={event => onFailover?.(event.target.checked)} />自动故障转移</label>}
+      {view === "route" && <div className="claude-route-strategies" role="radiogroup" aria-label="路由策略">
+        <span className="claude-route-strategies-label">策略</span>
+        <label className={!state.config.failover && !state.config.roundRobin ? "is-selected" : ""} title="每个请求只发往固定供应商，不自动尝试队列中的其他渠道"><input type="radio" name="claude-route-strategy" checked={!state.config.failover && !state.config.roundRobin} disabled={disabled} onChange={() => onRouteStrategy?.("fixed")} />固定</label>
+        <label className={state.config.roundRobin ? "is-selected" : ""} title={roundRobinSupported ? "新请求按 P1、P2… 轮流分配；请求失败时按队列尝试后续渠道" : "当前本地路由版本不支持轮询"}>
+          <input type="radio" name="claude-route-strategy" checked={state.config.roundRobin} disabled={disabled || !roundRobinSupported} onChange={() => onRouteStrategy?.("round_robin")} />轮询
+        </label>
+        <label className={!state.config.roundRobin && state.config.failover ? "is-selected" : ""} title="每个请求从 P1 开始，失败时按 P1、P2… 顺序尝试后续渠道"><input type="radio" name="claude-route-strategy" checked={!state.config.roundRobin && state.config.failover} disabled={disabled} onChange={() => onRouteStrategy?.("failover")} />优先级故障转移</label>
+      </div>}
       {state.mode !== "direct" && <button type="button" className="secondary" disabled={disabled} onClick={() => onActivate("direct")}>回到直连</button>}
       {view !== "direct" && <button type="button" className="secondary claude-icon-button" disabled={disabled} aria-label={view === "route" ? "路由设置" : "聚合设置"} title={view === "route" ? "路由设置" : "聚合设置"} onClick={onSettings}><Settings2 size={15} aria-hidden="true" /></button>}
     </div>

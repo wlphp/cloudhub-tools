@@ -38,6 +38,7 @@ export interface CodexGatewayState { lanAddress?: string | null; supportsShareCo
 
 export const codexClient = {
   configSource(action: "state" | "select_project" | "open_directory" | "preview" | "preview_config" | "reveal_config" | "preview_auth" | "reveal_auth" | "preview_catalog" | "reveal_catalog", workspace: string | null = null): Promise<CodexConfigSource | null> { return nativeOnly("codex_config_source", { action, workspace }); },
+  refreshModelCatalog(workspace: string | null): Promise<number> { return nativeOnly("codex_refresh_model_catalog", { workspace }); },
   accountDetails(id: number): Promise<CodexAccountDetailView> { return nativeOnly("codex_account_details", { id }); },
   accountEvents(id: number): Promise<CodexAccountEvent[]> { return nativeOnly("codex_account_events", { id }); },
   saveAccountDetails(id: number, version: number, input: CodexAccountDetails): Promise<void> { return nativeOnly("codex_save_account_details", { id, version, input }); },

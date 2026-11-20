@@ -462,6 +462,7 @@ main { background: var(--ui-bg); }
 
 /* JetBrains-inspired new UI: neutral workbench surfaces, compact tool windows, and a single purple focus accent. */
 .ide-theme {
+  --ide-topbar-height: 32px;
   --jb-bg: #121212;
   --jb-sidebar: #171717;
   --jb-surface: #1d1d1d;
@@ -491,7 +492,7 @@ main { background: var(--ui-bg); }
 .ide-theme body, .ide-theme main { background: var(--jb-bg); }
 .ide-theme main { padding: 26px 32px 36px; }
 .ide-theme > aside { flex-basis: 220px; width: 220px; padding: 18px 12px 14px; background: var(--jb-sidebar); border-right: 1px solid var(--jb-border); }
-.ide-theme .ide-topbar { position: fixed; inset: 0 0 auto; z-index: 15; height: 32px; display: flex; align-items: center; justify-content: space-between; padding: 0 0 0 12px; border-bottom: 1px solid var(--jb-border); background: var(--jb-sidebar); color: var(--jb-muted); font-size: 11px; user-select: none; }
+.ide-theme .ide-topbar { position: fixed; inset: 0 0 auto; z-index: 15; height: var(--ide-topbar-height); display: flex; align-items: center; justify-content: space-between; padding: 0 0 0 12px; border-bottom: 1px solid var(--jb-border); background: var(--jb-sidebar); color: var(--jb-muted); font-size: 11px; user-select: none; }
 .ide-theme .ide-topbar-brand, .ide-theme .ide-topbar-actions, .ide-theme .ide-topbar-context { display: flex; align-items: center; gap: 7px; min-width: 0; }
 .ide-theme .ide-topbar-brand svg { color: var(--jb-accent); }
 .ide-theme .ide-topbar-brand { cursor: move; }
@@ -503,8 +504,8 @@ main { background: var(--ui-bg); }
 .ide-theme .ide-window-controls button { display: grid; place-items: center; width: 44px; height: 32px; padding: 0; border: 0; border-radius: 0; background: transparent; color: var(--jb-muted); cursor: pointer; }
 .ide-theme .ide-window-controls button:hover { background: var(--jb-border); color: var(--jb-text); }
 .ide-theme .ide-window-controls .ide-window-close:hover { background: #c94f5f; color: var(--jb-text); }
-.ide-theme > aside { margin-top: 32px; min-height: calc(100vh - 32px); }
-.ide-theme > main { margin-top: 32px; min-height: calc(100vh - 32px); }
+.ide-theme > aside { margin-top: var(--ide-topbar-height); min-height: calc(100vh - var(--ide-topbar-height)); }
+.ide-theme > main { margin-top: var(--ide-topbar-height); min-height: calc(100vh - var(--ide-topbar-height)); }
 .ide-theme .brand { gap: 10px; margin: 2px 8px 14px; }
 .ide-theme .brand-mark { width: 32px; height: 32px; border-radius: 50%; background: transparent; }
 .ide-theme .brand-heading { display: flex; align-items: center; min-width: 0; gap: 5px; }

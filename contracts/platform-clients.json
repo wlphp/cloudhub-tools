@@ -58,6 +58,7 @@
     "claude_provider_delete",
     "claude_provider_list",
     "claude_provider_restore_backup",
+    "claude_routing_models_save",
     "claude_provider_save",
     "claude_provider_switch",
     "complete_sync_delta_push",

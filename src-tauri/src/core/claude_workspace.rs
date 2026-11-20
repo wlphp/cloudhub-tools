@@ -3,7 +3,7 @@ use super::{crypto::{decrypt_secret,encrypt_secret},database::open_db,repositori
 use rusqlite::{params,OptionalExtension};
 use serde::{Deserialize,Serialize};
 use serde_json::{json,Value};
-use std::{fs,io::Read,path::{Path,PathBuf}};
+use std::{fs,io::{Read,Seek,SeekFrom},path::{Path,PathBuf}};
 
 const LIBRARY:&str="claude.workbench.library";
 const PROJECT:&str="claude.workbench.project";
@@ -23,6 +23,8 @@ pub struct Skill{pub name:String,pub description:String,pub trashed:bool,pub key
 #[derive(Serialize)]
 #[serde(rename_all="camelCase")]
 pub struct Session{pub key:String,pub id:String,pub title:String,pub project:String,pub modified_at:u64,pub bytes:u64,pub trashed:bool}
+#[derive(Clone,Default)]
+pub struct SessionContext{pub working_directory:Option<String>,pub title:Option<String>}
 #[derive(Serialize)]
 #[serde(rename_all="camelCase")]
 pub struct Snapshot{
@@ -311,6 +313,45 @@ pub fn install_skill(source:PathBuf)->Result<(),String>{
     let staging=root.join(format!(".install-{}",uuid::Uuid::new_v4()));
     copy_tree(&source,&staging)?;
     fs::rename(staging,root.join(name)).map_err(|_|"安装技能失败")?;Ok(())
+}
+/// Resolve only bounded, non-secret display metadata for the live routing graph.
+/// Session IDs are untrusted request headers and must never become path components directly.
+pub fn session_context(session_id:Option<&str>)->Option<SessionContext>{
+    let id=uuid::Uuid::parse_str(session_id?).ok()?.to_string();
+    let root=repo::claude_home().ok()?.join("projects");
+    let projects=fs::read_dir(root).ok()?;
+    for project in projects.take(200).flatten(){
+        if !project.file_type().is_ok_and(|kind|kind.is_dir()&&!kind.is_symlink()){continue;}
+        let file=project.path().join(format!("{id}.jsonl"));
+        if !fs::symlink_metadata(&file).is_ok_and(|meta|meta.file_type().is_file()){continue;}
+        let Ok(mut transcript)=fs::File::open(&file)else{continue;};
+        let Ok(length)=transcript.metadata().map(|meta|meta.len())else{continue;};
+        let head_length=length.min(128*1024);
+        let mut bytes=Vec::new();
+        let _=(&mut transcript).take(head_length).read_to_end(&mut bytes);
+        if length>128*1024&&transcript.seek(SeekFrom::Start(length-128*1024)).is_ok(){
+            bytes.push(b'\n');
+            let _=(&mut transcript).take(128*1024).read_to_end(&mut bytes);
+        }
+        let mut context=SessionContext::default();
+        for line in String::from_utf8_lossy(&bytes).lines(){
+            let Ok(value)=serde_json::from_str::<Value>(line)else{continue;};
+            if context.working_directory.is_none(){
+                context.working_directory=value["cwd"].as_str().filter(|path|{
+                    let candidate=Path::new(path);
+                    candidate.is_absolute()&&path.len()<=4096&&!path.chars().any(char::is_control)
+                }).map(str::to_string);
+            }
+            if matches!(value["type"].as_str(),Some("custom-title"|"ai-title")){
+                let title=value["customTitle"].as_str().or_else(||value["aiTitle"].as_str());
+                if let Some(title)=title.filter(|title|!title.trim().is_empty()&&title.len()<=256&&!title.chars().any(char::is_control)){
+                    context.title=Some(title.to_string());
+                }
+            }
+        }
+        if context.working_directory.is_some()||context.title.is_some(){return Some(context);}
+    }
+    None
 }
 fn sessions()->Result<Vec<Session>,String>{
     let root=repo::claude_home()?.join("projects");let mut result=Vec::new();

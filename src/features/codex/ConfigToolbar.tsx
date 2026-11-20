@@ -4,6 +4,7 @@ import { Eye, EyeOff, FolderOpen, RefreshCw, RotateCcw, Server } from "lucide-re
 import { codexClient, type CodexConfigSource } from "../../platform/clients/codex";
 import { platformErrorMessage } from "../../platform/api";
 import { OverviewDialog } from "./OverviewDialogs";
+import { ConfirmDialog } from "../../shared/ConfirmDialog";
 
 export function ConfigToolbar({ busy, onRestore, mobile = false }: {
   mobile?: boolean;
@@ -70,6 +71,10 @@ function ConfigPreviewDialog({ source, onClose }: { source: CodexConfigSource; o
   const [result, setResult] = useState<CodexConfigSource | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshConfirm, setRefreshConfirm] = useState(false);
+  const [catalogNotice, setCatalogNotice] = useState("");
+  const [previewVersion, setPreviewVersion] = useState(0);
   function changePreview(nextFile: typeof files[number], nextReveal = false) {
     if (nextFile === file && nextReveal === reveal) return;
     requestId.current += 1;
@@ -88,7 +93,17 @@ function ConfigPreviewDialog({ source, onClose }: { source: CodexConfigSource; o
       if (!cancelled && id === requestId.current) setError(platformErrorMessage(reason, "读取配置预览失败，请重试"));
     }).finally(() => { if (!cancelled && id === requestId.current) setLoading(false); });
     return () => { cancelled = true; };
-  }, [file, reveal, source.workspace]);
+  }, [file, reveal, source.workspace, previewVersion]);
+  async function refreshCatalog() {
+    setRefreshing(true); setError(""); setCatalogNotice("");
+    try {
+      const count = await codexClient.refreshModelCatalog(source.workspace);
+      setCatalogNotice(`已从当前供应商获取并重建 ${count} 个模型。`);
+      setPreviewVersion(value => value + 1);
+    } catch (reason) {
+      setError(platformErrorMessage(reason, "刷新模型目录失败；现有目录未更改"));
+    } finally { setRefreshing(false); }
+  }
   const auth = file === "auth";
   const catalog = file === "catalog";
   const filename = catalog ? "cloudhub-model-catalog.json" : auth ? "auth.json" : "config.toml";
@@ -109,9 +124,14 @@ function ConfigPreviewDialog({ source, onClose }: { source: CodexConfigSource; o
     <div id="codex-config-preview-content" role="tabpanel" aria-labelledby={`codex-config-preview-tab-${file}`} aria-busy={loading} tabIndex={0}>
       <code className="codex-config-preview-path">{catalog ? current.catalogPath : auth ? current.authPath : current.path}</code>
       <p>{catalog ? "用户全局配置目录中由 CloudHub 生成的模型列表文件，包含模型 ID、显示名称、上下文窗口等字段；应用供应商配置时生成或更新。" : auth ? "用户全局 auth.json 的全部字段。" : "官方 CLI 解析后的完整有效配置，包含供应商 API 地址、请求头和 MCP；不保留原文件注释与排版。"}{reveal ? "敏感值以明文显示。" : "敏感值默认隐藏。"}</p>
-      <div className="codex-config-actions"><button type="button" aria-pressed={reveal} onClick={() => changePreview(file, !reveal)}>{reveal ? <EyeOff size={13} aria-hidden="true" /> : <Eye size={13} aria-hidden="true" />}{reveal ? "隐藏密钥" : "显示密钥"}</button></div>
+      <div className="codex-config-actions">
+        <button type="button" aria-pressed={reveal} onClick={() => changePreview(file, !reveal)}>{reveal ? <EyeOff size={13} aria-hidden="true" /> : <Eye size={13} aria-hidden="true" />}{reveal ? "隐藏密钥" : "显示密钥"}</button>
+        {catalog && <button type="button" disabled={loading || refreshing} onClick={() => setRefreshConfirm(true)} title="按当前配置的供应商重新获取模型并替换全局目录"><RefreshCw size={13} aria-hidden="true" className={refreshing ? "codex-refresh-spinning" : ""} />{refreshing ? "正在刷新…" : "刷新模型列表"}</button>}
+      </div>
+      {catalogNotice && <p role="status">{catalogNotice}</p>}
       {loading ? <p role="status">正在读取 {filename}…</p> : error ? <p role="alert" className="codex-card-error">{error}</p> : content ? catalog ? <CatalogPreview content={content} formatted={formatted ?? ""} reveal={reveal} /> : <pre tabIndex={0} aria-label={`${filename} ${reveal ? "明文内容" : "脱敏内容"}`}>{formatted || "# 当前没有可展示的配置"}</pre> : <p role="status">{catalog ? "模型列表文件尚未生成，请先在默认实例应用供应商配置。" : auth ? "auth.json 尚未创建，或登录凭据保存在系统凭据库中。" : "当前没有可展示的配置。"}</p>}
     </div>
+    {refreshConfirm && <ConfirmDialog title="重新获取模型列表" message="将根据当前生效的 Codex 供应商配置查询模型，并替换全局模型目录。" detail="仅支持提供 OpenAI 兼容 /models 接口的供应商。若查询失败或返回空列表，现有目录会保留。" confirmLabel="获取并替换" onResolve={confirmed => { setRefreshConfirm(false); if (confirmed) void refreshCatalog(); }} />}
   </OverviewDialog>;
 }
 

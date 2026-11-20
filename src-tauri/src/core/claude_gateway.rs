@@ -1,10 +1,10 @@
 //! Claude-only local routing. No prompts, headers, bodies or credentials enter logs.
-use super::{claude_providers::{self as model, ApiFormat, ClaudeProvider}, claude_protocol as protocol,
+use super::{claude_providers::{self as model, ApiFormat, ClaudeProvider}, claude_protocol as protocol, claude_workspace,
     crypto::{encrypt_secret,decrypt_secret}, database::open_db, repositories::claude_providers as repo};
 use serde::{Deserialize,Serialize};
 use serde_json::{json,Value};
 use rusqlite::{params,OptionalExtension};
-use std::{collections::{HashMap,VecDeque},sync::{Arc,Mutex,OnceLock},time::{Duration,Instant}};
+use std::{collections::{HashMap,VecDeque},sync::{Arc,Mutex,OnceLock,atomic::{AtomicUsize,Ordering}},time::{Duration,Instant}};
 use tokio::{io::{AsyncReadExt,AsyncWriteExt},net::{TcpListener,TcpStream},sync::Semaphore,task::{JoinHandle,JoinSet}};
 use zeroize::Zeroizing;
 
@@ -23,11 +23,11 @@ pub enum Mode{#[default] Direct,Route,Aggregate}
 #[serde(rename_all="camelCase",default,deny_unknown_fields)]
 pub struct Config{
     pub port:u16,pub route_provider:String,pub default_provider:String,pub members:Vec<String>,
-    pub failover:bool,pub queue:Vec<String>,pub retries:usize,pub timeout_secs:u64,
+    pub failover:bool,pub round_robin:bool,pub queue:Vec<String>,pub retries:usize,pub timeout_secs:u64,
     pub first_byte_secs:u64,pub idle_secs:u64,pub failure_threshold:u32,pub cooldown_secs:u64,pub logging:bool,
 }
 impl Default for Config{
-    fn default()->Self{Self{port:15721,route_provider:String::new(),default_provider:String::new(),members:Vec::new(),failover:false,queue:Vec::new(),retries:2,timeout_secs:600,first_byte_secs:90,idle_secs:180,failure_threshold:8,cooldown_secs:90,logging:true}}
+    fn default()->Self{Self{port:15721,route_provider:String::new(),default_provider:String::new(),members:Vec::new(),failover:false,round_robin:false,queue:Vec::new(),retries:2,timeout_secs:600,first_byte_secs:90,idle_secs:180,failure_threshold:8,cooldown_secs:90,logging:true}}
 }
 impl Config{
     pub fn validate(&self)->Result<(),String>{
@@ -62,8 +62,29 @@ pub struct Log{
     pub mode:Option<Mode>,
     pub id:String,pub timestamp:i64,pub provider_id:String,pub model:String,pub actual_model:String,
     pub status:u16,pub duration_ms:u64,pub input_tokens:u64,pub output_tokens:u64,pub cache_read_tokens:u64,
+    /// 流式首块耗时；非流式请求或尚未收到数据时为 None。
+    #[serde(default)]
+    pub first_byte_ms:Option<u64>,
+    /// 同一客户端请求的各次上游尝试共用的关联 ID；旧记录为空。
+    #[serde(default)]
+    pub request_id:String,
+    /// 该记录对应的尝试序号；旧记录按首次尝试处理。
+    #[serde(default="first_attempt")]
+    pub attempt:u32,
 }
-struct Shared{config:Config,mode:Mode,providers:Vec<ClaudeProvider>,health:HashMap<String,Health>,logs:VecDeque<Log>,active_provider:String,auth:Zeroizing<String>,persist_logs:bool}
+fn first_attempt()->u32{1}
+/// 正在转发中的请求；只含路由元数据，不保存提示词、请求头或响应正文。
+#[derive(Clone,Serialize)]
+#[serde(rename_all="camelCase")]
+pub struct ActiveRequest{
+    pub id:String,pub timestamp:i64,pub mode:Mode,pub provider_id:String,pub model:String,pub actual_model:String,
+    pub attempt:u32,pub first_byte_ms:Option<u64>,
+    #[serde(skip_serializing_if="Option::is_none")]
+    pub working_directory:Option<String>,
+    #[serde(skip_serializing_if="Option::is_none")]
+    pub session_title:Option<String>,
+}
+struct Shared{config:Config,mode:Mode,providers:Vec<ClaudeProvider>,health:HashMap<String,Health>,logs:VecDeque<Log>,active:Vec<ActiveRequest>,next_provider:AtomicUsize,active_provider:String,auth:Zeroizing<String>,persist_logs:bool}
 fn saved_logs()->Result<VecDeque<Log>,String>{
     preference(LOG_KEY)?.map(|raw|serde_json::from_str(&raw).map_err(|_|"请求记录损坏".into())).unwrap_or_else(||Ok(VecDeque::new()))
 }
@@ -71,14 +92,15 @@ struct Running{shared:Arc<Mutex<Shared>>,task:JoinHandle<()>,port:u16}
 impl Drop for Running{fn drop(&mut self){self.task.abort();}}
 #[derive(Serialize)]
 #[serde(rename_all="camelCase")]
-pub struct Snapshot{pub mode:Mode,pub running:bool,pub address:Option<String>,pub config:Config,pub health:HashMap<String,Health>,pub logs:Vec<Log>,pub active_provider:String,pub recovery_available:bool}
+pub struct Snapshot{pub mode:Mode,pub running:bool,pub address:Option<String>,pub config:Config,pub health:HashMap<String,Health>,pub logs:Vec<Log>,pub active_requests:Vec<ActiveRequest>,pub active_provider:String,pub recovery_available:bool}
 pub async fn snapshot()->Result<Snapshot,String>{
     let guard=runtime().lock().await;
     if let Some(r)=guard.as_ref(){
         let s=r.shared.lock().map_err(|_|"路由状态不可用")?;
-        return Ok(Snapshot{mode:s.mode,running:!r.task.is_finished(),address:Some(format!("http://127.0.0.1:{}",r.port)),config:s.config.clone(),health:s.health.clone(),logs:s.logs.iter().rev().cloned().collect(),active_provider:s.active_provider.clone(),recovery_available:preference(RECOVERY_KEY)?.is_some()});
+        let mut active=s.active.clone();active.sort_by_key(|request|std::cmp::Reverse(request.timestamp));
+        return Ok(Snapshot{mode:s.mode,running:!r.task.is_finished(),address:Some(format!("http://127.0.0.1:{}",r.port)),config:s.config.clone(),health:s.health.clone(),logs:s.logs.iter().rev().cloned().collect(),active_requests:active,active_provider:s.active_provider.clone(),recovery_available:preference(RECOVERY_KEY)?.is_some()});
     }
-    Ok(Snapshot{mode:Mode::Direct,running:false,address:None,config:config()?,health:HashMap::new(),logs:saved_logs()?.into_iter().rev().collect(),active_provider:String::new(),recovery_available:preference(RECOVERY_KEY)?.is_some()})
+    Ok(Snapshot{mode:Mode::Direct,running:false,address:None,config:config()?,health:HashMap::new(),logs:saved_logs()?.into_iter().rev().collect(),active_requests:Vec::new(),active_provider:String::new(),recovery_available:preference(RECOVERY_KEY)?.is_some()})
 }
 pub async fn save_config(next:Config)->Result<(),String>{
     next.validate()?;
@@ -105,14 +127,40 @@ pub async fn save_config(next:Config)->Result<(),String>{
 fn find<'a>(providers:&'a[ClaudeProvider],id:&str)->Result<&'a ClaudeProvider,String>{
     providers.iter().find(|p|p.id==id).ok_or_else(||"请选择已保存的供应商".into())
 }
+fn role_model<'a>(p:&'a ClaudeProvider,role:&str)->Option<&'a str>{
+    p.models.get(role).and_then(|m|m.get("model")).and_then(Value::as_str).filter(|m|!m.is_empty())
+}
+fn requested_role(requested:&str)->Option<&'static str>{
+    model::MODEL_ROLES.into_iter().find(|role|requested==*role||requested.starts_with(&format!("claude-{role}-")))
+}
+fn strip_1m(value:&str)->&str{value.trim_end_matches("[1M]").trim_end_matches("[1m]")}
+/// 路由模式下判断供应商能否承接本次请求：角色有映射，或至少能用 Sonnet 回退。
+pub fn can_serve(p:&ClaudeProvider,requested:&str)->bool{
+    if requested.starts_with("ccs-claude-"){return true;}
+    match requested_role(requested){
+        Some(role)=>role_model(p,role).is_some()||role_model(p,"sonnet").is_some(),
+        None=>true,
+    }
+}
 fn validate_selection(mode:Mode,c:&Config,providers:&[ClaudeProvider])->Result<(),String>{
     c.validate()?;
     let ids:Vec<&str>=match mode{
-        Mode::Route=>{let mut ids=vec![c.route_provider.as_str()];if c.failover{ids.extend(c.queue.iter().map(String::as_str));}ids},
+        Mode::Route=>{let mut ids=vec![c.route_provider.as_str()];if c.failover||c.round_robin{ids.extend(c.queue.iter().map(String::as_str));}ids},
         Mode::Aggregate=>{let mut ids=vec![c.default_provider.as_str()];ids.extend(c.members.iter().map(String::as_str));ids},
         Mode::Direct=>Vec::new(),
     };
     for id in ids{let p=find(providers,id)?;if p.official_login||p.api_key.is_empty(){return Err("路由与聚合需要已填写密钥的供应商，官方订阅请使用直连".into());}validate_url(&p.base_url)?;}
+    if mode==Mode::Route{
+        let route=find(providers,&c.route_provider)?;
+        if role_model(route,"sonnet").is_none(){return Err("固定供应商至少需要配置 Sonnet 模型映射".into());}
+        if c.round_robin&&c.queue.is_empty(){return Err("轮询需要至少一家队列供应商".into());}
+        if c.failover||c.round_robin{
+            for id in &c.queue{
+                let p=find(providers,id)?;
+                if role_model(p,"sonnet").is_none(){return Err(format!("路由队列中的「{}」至少需要配置 Sonnet 模型映射",p.name));}
+            }
+        }
+    }
     if mode==Mode::Aggregate&&models(find(providers,&c.default_provider)?).is_empty(){return Err("聚合默认供应商至少需要一个已配置的模型".into());}
     Ok(())
 }
@@ -142,14 +190,40 @@ fn catalog(c:&Config,providers:&[ClaudeProvider])->Vec<Value>{
         }
     }result
 }
+fn route_role_label(role:&str)->&'static str{
+    match role{
+        "sonnet"=>"Sonnet · 路由",
+        "opus"=>"Opus · 路由",
+        "haiku"=>"Haiku · 路由",
+        "fable"=>"Fable · 路由",
+        "subagent"=>"Subagent · 路由",
+        _=>"路由",
+    }
+}
 fn project_proxy(live:&Value,c:&Config,mode:Mode,providers:&[ClaudeProvider],port:u16,auth:&str)->Result<Value,String>{
     let target=find(providers,if mode==Mode::Aggregate{&c.default_provider}else{&c.route_provider})?;
     let mut shell=target.clone();shell.api_key=auth.into();shell.base_url=format!("http://127.0.0.1:{port}");
     shell.models.clear();shell.extra_env.retain(|k,_|model::EXCLUSIVE_ENV.contains(&k.as_str()));
-    for role in ["sonnet","opus","haiku","fable"]{
-        let mapping=target.models.get(role).cloned().unwrap_or(json!({}));
-        let real=mapping["model"].as_str().unwrap_or(role);
-        shell.models.insert(role.into(),json!({"model":if mode==Mode::Aggregate{models(target).first().map(|m|m.model.clone()).unwrap_or(real.into())}else{format!("claude-{role}-5")},"displayName":mapping["displayName"].as_str().unwrap_or(real),"supports1m":if mode==Mode::Aggregate{models(target).first().is_some_and(|m|m.supports_1m)}else{mapping["supports1m"]==true}}));
+    if mode==Mode::Route{
+        // 只发布固定供应商真正配置过的角色。空角色不再生成 claude-fable-5 之类的假模型；
+        // 客户端若仍发送内置角色请求，网关会回退到该供应商的 Sonnet 映射。
+        for role in model::MODEL_ROLES{
+            let Some(mapping)=target.models.get(role) else{continue};
+            if role_model(target,role).is_none(){continue;}
+            shell.models.insert(role.into(),json!({
+                "model":format!("claude-{role}-5"),
+                "displayName":route_role_label(role),
+                "supports1m":mapping.get("supports1m").and_then(Value::as_bool).unwrap_or(false)
+            }));
+        }
+        // 原始兜底模型可能属于另一家供应商；路由模式由网关负责故障转移，不再写客户端 fallback。
+        shell.fallback_model=None;
+    }else{
+        for role in ["sonnet","opus","haiku","fable"]{
+            let mapping=target.models.get(role).cloned().unwrap_or(json!({}));
+            let real=mapping["model"].as_str().unwrap_or(role);
+            shell.models.insert(role.into(),json!({"model":models(target).first().map(|m|m.model.clone()).unwrap_or(real.into()),"displayName":mapping["displayName"].as_str().unwrap_or(real),"supports1m":models(target).first().is_some_and(|m|m.supports_1m)}));
+        }
     }
     let mut doc=model::apply_provider(live,&shell).document;
     if mode==Mode::Aggregate{
@@ -230,7 +304,7 @@ pub async fn activate(mode:Mode)->Result<(),String>{
     // Bind before changing any client file. On failure the direct setup remains usable.
     let listener=TcpListener::bind((std::net::Ipv4Addr::LOCALHOST,c.port)).await.map_err(|_|"路由端口被占用，请修改端口后重试")?;
     let auth=Zeroizing::new(format!("cloudhub-local-{}",uuid::Uuid::new_v4()));
-    let shared=Arc::new(Mutex::new(Shared{config:c.clone(),mode,providers:providers.clone(),health:HashMap::new(),logs:saved_logs()?,active_provider:String::new(),auth:auth.clone(),persist_logs:true}));
+    let shared=Arc::new(Mutex::new(Shared{config:c.clone(),mode,providers:providers.clone(),health:HashMap::new(),logs:saved_logs()?,active:Vec::new(),next_provider:AtomicUsize::new(0),active_provider:String::new(),auth:auth.clone(),persist_logs:true}));
     {
         let _writer=CONFIG_WRITER.lock().map_err(|_|"配置正在使用")?;
         restore_locked()?;
@@ -290,7 +364,7 @@ pub async fn change_config_directory(path:Option<std::path::PathBuf>)->Result<()
 pub async fn in_use(id:&str)->bool{
     runtime().lock().await.as_ref().is_some_and(|r|r.shared.lock().is_ok_and(|s|s.config.route_provider==id||s.config.default_provider==id||s.config.members.iter().any(|p|p==id)||s.config.queue.iter().any(|p|p==id)))
 }
-struct Request{path:String,body:Zeroizing<Vec<u8>>,beta:Option<String>}
+struct Request{path:String,body:Zeroizing<Vec<u8>>,beta:Option<String>,session_id:Option<String>}
 async fn read_request(s:&mut TcpStream,token:&str)->Result<Request,u16>{
     let mut bytes=Zeroizing::new(Vec::new());
     let end=loop{
@@ -319,10 +393,11 @@ async fn read_request(s:&mut TcpStream,token:&str)->Result<Request,u16>{
     if length>MAX_BODY||bytes.len()-end>length{return Err(413);}
     if !listing&&(length==0||headers.get("content-type").is_none_or(|s|s.split(';').next()!=Some("application/json"))){return Err(415);}
     let beta=headers.get("anthropic-beta").filter(|s|s.len()<2048).map(|s|s.to_string());
+    let session_id=headers.get("x-claude-code-session-id").filter(|s|uuid::Uuid::parse_str(s).is_ok()).map(|s|s.to_string());
     let path=path.to_string();
     let mut body=Zeroizing::new(bytes[end..].to_vec());let n=body.len();body.resize(length,0);
     tokio::time::timeout(Duration::from_secs(30),s.read_exact(&mut body[n..])).await.map_err(|_|408u16)?.map_err(|_|400u16)?;
-    Ok(Request{path,body,beta})
+    Ok(Request{path,body,beta,session_id})
 }
 async fn reply(s:&mut TcpStream,status:u16,body:&Value)->std::io::Result<()>{
     let bytes=body.to_string();s.write_all(format!("HTTP/1.1 {status} Result\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\nCache-Control: no-store\r\n\r\n{bytes}",bytes.len()).as_bytes()).await
@@ -341,14 +416,28 @@ fn resolve<'a>(s:&'a Shared,model:&str)->Result<Vec<&'a ClaudeProvider>,String>{
         return Ok(vec![find(&s.providers,&s.config.default_provider)?]);
     }
     let mut ids=vec![s.config.route_provider.as_str()];
-    if s.config.failover&&!s.config.queue.is_empty(){ids=s.config.queue.iter().map(String::as_str).collect();}
+    if (s.config.failover||s.config.round_robin)&&!s.config.queue.is_empty(){ids=s.config.queue.iter().map(String::as_str).collect();}
     let now=chrono::Utc::now().timestamp_millis();
-    Ok(ids.into_iter().filter(|id|!s.health.get(*id).is_some_and(|h|h.open_until.is_some_and(|t|t>now))).filter_map(|id|find(&s.providers,id).ok()).collect())
+    let mut providers:Vec<&ClaudeProvider>=ids.into_iter()
+        .filter(|id|!s.health.get(*id).is_some_and(|h|h.open_until.is_some_and(|t|t>now)))
+        .filter_map(|id|find(&s.providers,id).ok())
+        .filter(|p|can_serve(*p,model))
+        .collect();
+    // 轮询：先剔除熔断/不可承接的渠道，再在健康队列里轮转起点，保证请求尽量均分。
+    if s.config.round_robin&&!providers.is_empty(){
+        let start=s.next_provider.fetch_add(1,Ordering::Relaxed)%providers.len();
+        providers.rotate_left(start);
+    }
+    Ok(providers)
 }
 pub fn mapped_model(p:&ClaudeProvider,requested:&str)->String{
-    if let Some((_,m))=requested.strip_prefix("ccs-claude-").and_then(|s|s.split_once("--")){return m.trim_end_matches("[1M]").trim_end_matches("[1m]").into();}
-    let role=model::MODEL_ROLES.into_iter().find(|role|requested==*role||requested.starts_with(&format!("claude-{role}-")));
-    role.and_then(|r|p.models.get(r)).and_then(|m|m["model"].as_str()).filter(|m|!m.is_empty()).unwrap_or(requested).trim_end_matches("[1M]").into()
+    if let Some((_,m))=requested.strip_prefix("ccs-claude-").and_then(|s|s.split_once("--")){return strip_1m(m).into();}
+    if let Some(role)=requested_role(requested){
+        if let Some(m)=role_model(p,role){return strip_1m(m).into();}
+        // 未映射的角色回退到 Sonnet，保证故障转移时不会把虚拟 ID 发给上游。
+        if let Some(m)=role_model(p,"sonnet"){return strip_1m(m).into();}
+    }
+    strip_1m(requested).into()
 }
 pub fn endpoint(p:&ClaudeProvider,model:&str,stream:bool,count:bool)->Result<reqwest::Url,String>{
     let mut url=validate_url(&p.base_url)?;
@@ -369,6 +458,39 @@ pub fn endpoint(p:&ClaudeProvider,model:&str,stream:bool,count:bool)->Result<req
     if p.api_format==ApiFormat::Gemini&&stream{url.set_query(Some("alt=sse"));}
     Ok(url)
 }
+/** 请求级的进行中记录：构造时写入快照，Drop 时移除，避免提前返回留下幽灵请求。 */
+struct ActiveGuard{state:Arc<Mutex<Shared>>,id:String}
+impl ActiveGuard{
+    fn start(state:&Arc<Mutex<Shared>>,entry:ActiveRequest)->Self{
+        let id=entry.id.clone();
+        if let Ok(mut s)=state.lock(){
+            s.active.push(entry);
+            // 并发上限为 16，这里只兜底异常情况，避免长时间运行时无限增长。
+            while s.active.len()>32{s.active.remove(0);}
+        }
+        Self{state:state.clone(),id}
+    }
+    fn update(&self,provider_id:&str,actual_model:&str,attempt:u32){
+        if let Ok(mut s)=self.state.lock(){
+            if let Some(entry)=s.active.iter_mut().find(|request|request.id==self.id){
+                entry.provider_id=provider_id.to_string();
+                entry.actual_model=actual_model.to_string();
+                entry.attempt=attempt;
+                entry.first_byte_ms=None;
+            }
+        }
+    }
+    fn mark_first_byte(&self,ms:u64){
+        if let Ok(mut s)=self.state.lock(){
+            if let Some(entry)=s.active.iter_mut().find(|request|request.id==self.id){entry.first_byte_ms=Some(ms);}
+        }
+    }
+}
+impl Drop for ActiveGuard{
+    fn drop(&mut self){
+        if let Ok(mut s)=self.state.lock(){s.active.retain(|request|request.id!=self.id);}
+    }
+}
 async fn serve(socket:&mut TcpStream,state:Arc<Mutex<Shared>>)->std::io::Result<()>{
     let auth={state.lock().unwrap_or_else(|e|e.into_inner()).auth.clone()};
     let request=match read_request(socket,&auth).await{Ok(r)=>r,Err(status)=>return reply(socket,status,&error("本地路由请求无效或未授权")).await};
@@ -385,13 +507,22 @@ async fn serve(socket:&mut TcpStream,state:Arc<Mutex<Shared>>)->std::io::Result<
     };
     let requested=source["model"].as_str().unwrap_or("");
     if requested.is_empty()||requested.len()>512||requested.chars().any(char::is_control){return reply(socket,400,&error("模型标识无效")).await;}
+    if providers.is_empty(){return reply(socket,502,&error("没有可用的供应商（可能全部熔断，或当前模型角色未映射）；请检查路由队列和模型映射")).await;}
+    let first=&providers[0];
+    let session_context=claude_workspace::session_context(request.session_id.as_deref());
+    let active=ActiveGuard::start(&state,ActiveRequest{id:uuid::Uuid::new_v4().to_string(),timestamp:chrono::Utc::now().timestamp_millis(),mode,provider_id:first.id.clone(),model:requested.into(),actual_model:mapped_model(first,requested),attempt:1,first_byte_ms:None,
+        working_directory:session_context.as_ref().and_then(|context|context.working_directory.clone()),
+        session_title:session_context.and_then(|context|context.title)});
+    let request_id=active.id.clone();
     let streaming=source["stream"].as_bool().unwrap_or(false);
     let count=request.path.ends_with("/count_tokens");
     let client=match reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).connect_timeout(Duration::from_secs(15)).timeout(Duration::from_secs(c.timeout_secs)).build(){
         Ok(v)=>v,Err(_)=>return reply(socket,500,&error("初始化上游连接失败")).await};
     let mut final_status=503;
-    for p in providers.iter().take(if mode==Mode::Route&&c.failover{c.retries+1}else{1}){
+    for (index,p) in providers.iter().take(if mode==Mode::Route&&(c.failover||c.round_robin){c.retries+1}else{1}).enumerate(){
+        let attempt=(index+1) as u32;
         let start=Instant::now();let actual=mapped_model(p,requested);
+        active.update(&p.id,&actual,attempt);
         let mut body=source.clone();body["model"]=json!(actual);
         if count&&p.api_format!=ApiFormat::Anthropic{return reply(socket,501,&error("该上游不提供精确 token 计数")).await;}
         let payload=match protocol::request(&body,p.api_format){Ok(v)=>v,Err(e)=>return reply(socket,400,&error(&e)).await};
@@ -403,7 +534,7 @@ async fn serve(socket:&mut TcpStream,state:Arc<Mutex<Shared>>)->std::io::Result<
             if let Some(beta)=request.beta.as_ref(){req=req.header("anthropic-beta",beta);}
         }else if p.api_format==ApiFormat::Gemini{req=req.header("x-goog-api-key",&p.api_key);}else{req=req.bearer_auth(&p.api_key);}
         let result=tokio::time::timeout(Duration::from_secs(c.first_byte_secs),req.send()).await;
-        let mut log=Log{mode:Some(mode),id:uuid::Uuid::new_v4().to_string(),timestamp:chrono::Utc::now().timestamp_millis(),provider_id:p.id.clone(),model:requested.into(),actual_model:actual.clone(),status:502,duration_ms:0,input_tokens:0,output_tokens:0,cache_read_tokens:0};
+        let mut log=Log{mode:Some(mode),id:uuid::Uuid::new_v4().to_string(),timestamp:chrono::Utc::now().timestamp_millis(),provider_id:p.id.clone(),model:requested.into(),actual_model:actual.clone(),status:502,duration_ms:0,input_tokens:0,output_tokens:0,cache_read_tokens:0,first_byte_ms:None,request_id:request_id.clone(),attempt};
         let response=match result{
             Ok(Ok(r)) if r.status().is_success()=>r,
             other=>{
@@ -413,8 +544,10 @@ async fn serve(socket:&mut TcpStream,state:Arc<Mutex<Shared>>)->std::io::Result<
             }
         };
         let mut headers_sent=false;
-        let outcome=forward(socket,response,p.api_format,requested,streaming,c.idle_secs,&mut headers_sent).await;
+        let mut first_byte=None;
+        let outcome=forward(socket,response,p.api_format,requested,streaming,c.idle_secs,&mut headers_sent,&mut first_byte,start,Some(&active)).await;
         log.duration_ms=start.elapsed().as_millis() as u64;
+        log.first_byte_ms=first_byte;
         match outcome{
             Ok(tokens)=>{log.status=200;log.input_tokens=tokens["input_tokens"].as_u64().unwrap_or(0);log.output_tokens=tokens["output_tokens"].as_u64().unwrap_or(0);log.cache_read_tokens=tokens["cache_read_input_tokens"].as_u64().unwrap_or(0);record(&state,log,false);return Ok(());}
             Err(_)=>{
@@ -439,7 +572,7 @@ fn record(state:&Arc<Mutex<Shared>>,log:Log,failed:bool){
         }
     }
 }
-async fn forward(socket:&mut TcpStream,mut response:reqwest::Response,format:ApiFormat,model:&str,stream:bool,idle:u64,headers_sent:&mut bool)->Result<Value,String>{
+async fn forward(socket:&mut TcpStream,mut response:reqwest::Response,format:ApiFormat,model:&str,stream:bool,idle:u64,headers_sent:&mut bool,first_byte:&mut Option<u64>,started:Instant,live:Option<&ActiveGuard>)->Result<Value,String>{
     if !stream{
         let mut bytes=Zeroizing::new(Vec::new());
         while let Some(chunk)=response.chunk().await.map_err(|_|"上游响应读取失败")?{if bytes.len()+chunk.len()>32*1024*1024{return Err("上游响应过大".into());}bytes.extend_from_slice(&chunk);}
@@ -455,6 +588,11 @@ async fn forward(socket:&mut TcpStream,mut response:reqwest::Response,format:Api
     'read: loop{
         let chunk=tokio::time::timeout(Duration::from_secs(if idle==0{1200}else{idle}),response.chunk()).await.map_err(|_|"上游流静默超时")?.map_err(|_|"上游流中断")?;
         let Some(chunk)=chunk else{break;};
+        // 首字耗时 = 首个 SSE 数据块到达时间；同时刷新进行中记录，列表在流式回答期间也能看到。
+        if first_byte.is_none(){
+            let ms=started.elapsed().as_millis() as u64;*first_byte=Some(ms);
+            if let Some(guard)=live{guard.mark_first_byte(ms);}
+        }
         buffer.extend_from_slice(&chunk);if buffer.len()>2*1024*1024{return Err("上游事件过大".into());}
         while let Some(end)=match (buffer.windows(2).position(|v|v==b"\n\n").map(|i|i+2),buffer.windows(4).position(|v|v==b"\r\n\r\n").map(|i|i+4)){
             (Some(a),Some(b))=>Some(a.min(b)),(a,b)=>a.or(b),
@@ -514,7 +652,7 @@ mod tests{
     #[test]
     fn aggregate_ids_cannot_select_an_unpublished_model(){
         let p=provider();let c=Config{default_provider:"p".into(),..Config::default()};
-        let s=Shared{config:c,mode:Mode::Aggregate,providers:vec![p.clone()],health:HashMap::new(),logs:VecDeque::new(),active_provider:String::new(),auth:Zeroizing::new("fixture".into()),persist_logs:false};
+        let s=Shared{config:c,mode:Mode::Aggregate,providers:vec![p.clone()],health:HashMap::new(),logs:VecDeque::new(),active:Vec::new(),next_provider:AtomicUsize::new(0),active_provider:String::new(),auth:Zeroizing::new("fixture".into()),persist_logs:false};
         assert_eq!(resolve(&s,&aggregate_id("p","real-model")).unwrap()[0].id,"p");
         assert!(resolve(&s,&aggregate_id("p","missing")).is_err());
         assert_eq!(mapped_model(&p,"claude-sonnet-5"),"real-model");
@@ -526,7 +664,7 @@ mod tests{
         let entries=catalog(&c,&[p.clone(),member.clone()]);
         assert_eq!(entries.len(),2);assert_eq!(entries[0]["id"],"real-model");
         assert_eq!(entries[1]["id"],aggregate_id("other","real-model"));
-        let s=Shared{config:c,mode:Mode::Aggregate,providers:vec![p,member],health:HashMap::new(),logs:VecDeque::new(),active_provider:String::new(),auth:Zeroizing::new("fixture".into()),persist_logs:false};
+        let s=Shared{config:c,mode:Mode::Aggregate,providers:vec![p,member],health:HashMap::new(),logs:VecDeque::new(),active:Vec::new(),next_provider:AtomicUsize::new(0),active_provider:String::new(),auth:Zeroizing::new("fixture".into()),persist_logs:false};
         assert_eq!(resolve(&s,"real-model").unwrap()[0].id,"p");
         assert_eq!(resolve(&s,&aggregate_id("other","real-model")).unwrap()[0].id,"other");
         assert_eq!(resolve(&s,"real-model").unwrap().len(),1);
@@ -560,7 +698,7 @@ mod tests{
         (format!("http://{addr}/v1"),task)
     }
     fn state(providers:Vec<ClaudeProvider>,mode:Mode,config:Config)->Arc<Mutex<Shared>>{
-        Arc::new(Mutex::new(Shared{config,mode,providers,health:HashMap::new(),logs:VecDeque::new(),active_provider:String::new(),auth:Zeroizing::new("fixture".into()),persist_logs:false}))
+        Arc::new(Mutex::new(Shared{config,mode,providers,health:HashMap::new(),logs:VecDeque::new(),active:Vec::new(),next_provider:AtomicUsize::new(0),active_provider:String::new(),auth:Zeroizing::new("fixture".into()),persist_logs:false}))
     }
     async fn call(state:Arc<Mutex<Shared>>,body:Value,token:&str)->(u16,String){
         let listener=TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -584,7 +722,7 @@ mod tests{
         assert_eq!(status,200);assert!(text.contains("ok"));
         assert_eq!(first.await.unwrap()["model"],"real-model");
         assert_eq!(second.await.unwrap()["model"],"real-model");
-        let guard=shared.lock().unwrap();assert_eq!(guard.logs.len(),2);assert_eq!(guard.active_provider,"good");
+        let guard=shared.lock().unwrap();assert_eq!(guard.logs.len(),2);assert_eq!(guard.active_provider,"good");assert!(guard.active.is_empty());
         let logs=serde_json::to_string(&guard.logs).unwrap();assert!(!logs.contains("private prompt"));assert!(!logs.contains("fixture"));
     }
     #[tokio::test]
@@ -603,6 +741,7 @@ mod tests{
         assert_eq!(text.matches("event: content_block_start").count(),1);
         assert_eq!(upstream.await.unwrap()["model"],"real-model");
         assert_eq!(shared.lock().unwrap().logs[0].input_tokens,4);
+        assert!(shared.lock().unwrap().logs[0].first_byte_ms.is_some());
     }
     #[tokio::test]
     async fn unauthorized_and_invalid_upstream_return_structured_errors(){
@@ -634,5 +773,56 @@ mod tests{
         assert_eq!(live["hooks"]["Stop"][0]["updated"],true);assert_eq!(live["enabledPlugins"]["new"],true);assert!(live.get("modelPicker").is_none());
         let mut empty=json!({"env":{"ANTHROPIC_AUTH_TOKEN":"fixture"}});
         restore_document(&mut empty,&json!({"document":{}})).unwrap();assert_eq!(empty,json!({}));
+    }
+    #[test]
+    fn route_projection_only_publishes_mapped_roles_with_neutral_labels(){
+        let mut p=provider();
+        p.models.insert("subagent".into(),json!({"model":"sub-model","supports1m":true}));
+        p.fallback_model=Some(serde_json::from_value(json!({"model":"fallback"})).unwrap());
+        let c=Config{route_provider:"p".into(),..Config::default()};
+        let doc=project_proxy(&json!({"env":{"USER_OPTION":"yes"}}),&c,Mode::Route,&[p],15721,"fixture").unwrap();
+        let env=doc["env"].as_object().unwrap();
+        assert_eq!(env["ANTHROPIC_BASE_URL"],json!("http://127.0.0.1:15721"));
+        assert_eq!(env["ANTHROPIC_DEFAULT_SONNET_MODEL"],json!("claude-sonnet-5"));
+        assert_eq!(env["ANTHROPIC_DEFAULT_SONNET_MODEL_NAME"],json!("Sonnet · 路由"));
+        assert_eq!(env["CLAUDE_CODE_SUBAGENT_MODEL"],json!("claude-subagent-5[1M]"));
+        assert_eq!(env["CLAUDE_CODE_SUBAGENT_MODEL_NAME"],json!("Subagent · 路由"));
+        assert!(env.get("ANTHROPIC_DEFAULT_FABLE_MODEL").is_none());
+        assert!(env.get("ANTHROPIC_DEFAULT_FALLBACK_MODEL").is_none());
+        assert_eq!(env["USER_OPTION"],json!("yes"));
+        assert_eq!(doc["primaryModel"],json!("claude-sonnet-5"));
+    }
+    #[test]
+    fn missing_role_falls_back_to_sonnet_and_unservable_channel_is_filtered(){
+        let p=provider();
+        assert_eq!(mapped_model(&p,"claude-fable-5"),"real-model");
+        assert_eq!(mapped_model(&p,"claude-sonnet-5[1M]"),"real-model");
+        assert!(can_serve(&p,"claude-fable-5"));
+        let mut empty=provider();empty.models.clear();
+        assert_eq!(mapped_model(&empty,"claude-fable-5"),"claude-fable-5");
+        assert!(!can_serve(&empty,"claude-fable-5"));
+        assert!(can_serve(&empty,"some-real-model"));
+    }
+    #[test]
+    fn round_robin_rotates_healthy_queue_order(){
+        let mut first=provider();first.id="p".into();
+        let mut second=provider();second.id="q".into();second.name="q".into();
+        let config=Config{route_provider:"p".into(),queue:vec!["p".into(),"q".into()],round_robin:true,..Config::default()};
+        let state=Shared{config,mode:Mode::Route,providers:vec![first,second],health:HashMap::new(),logs:VecDeque::new(),active:Vec::new(),next_provider:AtomicUsize::new(0),active_provider:String::new(),auth:Zeroizing::new("fixture".into()),persist_logs:false};
+        let order=|state:&Shared|resolve(state,"real-model").unwrap().iter().map(|p|p.id.clone()).collect::<Vec<_>>();
+        assert_eq!(order(&state),vec!["p","q"]);
+        assert_eq!(order(&state),vec!["q","p"]);
+        assert_eq!(order(&state),vec!["p","q"]);
+    }
+    #[test]
+    fn route_selection_requires_sonnet_mapping(){
+        let p=provider();
+        let c=Config{route_provider:"p".into(),..Config::default()};
+        assert!(validate_selection(Mode::Route,&c,&[p.clone()]).is_ok());
+        let mut missing=provider();missing.models.clear();
+        assert!(validate_selection(Mode::Route,&c,&[missing]).is_err());
+        let mut bad=provider();bad.id="bad".into();bad.name="Bad".into();bad.models.clear();
+        let c=Config{route_provider:"p".into(),queue:vec!["bad".into()],failover:true,..Config::default()};
+        assert!(validate_selection(Mode::Route,&c,&[p,bad]).is_err());
     }
 }

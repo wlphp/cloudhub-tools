@@ -37,23 +37,36 @@ export type ClaudeProviderInput = {
 export type ClaudeMode = "direct" | "route" | "aggregate";
 export type ClaudeRoutingConfig = {
   port: number; routeProvider: string; defaultProvider: string; members: string[];
-  failover: boolean; queue: string[]; retries: number; timeoutSecs: number;
+  failover: boolean; roundRobin: boolean; queue: string[]; retries: number; timeoutSecs: number;
   firstByteSecs: number; idleSecs: number; failureThreshold: number; cooldownSecs: number; logging: boolean;
 };
 export const DEFAULT_CLAUDE_ROUTING: ClaudeRoutingConfig = {
-  port: 15721, routeProvider: "", defaultProvider: "", members: [], failover: false, queue: [],
+  port: 15721, routeProvider: "", defaultProvider: "", members: [], failover: false, roundRobin: false, queue: [],
   retries: 2, timeoutSecs: 600, firstByteSecs: 90, idleSecs: 180, failureThreshold: 8, cooldownSecs: 90, logging: true,
 };
-type ClaudeRequestLog = {
+export type ClaudeRequestLog = {
   mode?: ClaudeMode | null;
   id: string; timestamp: number; providerId: string; model: string; actualModel: string; status: number;
   durationMs: number; inputTokens: number; outputTokens: number; cacheReadTokens: number;
+  /** 流式首块耗时；非流式或未收到数据时为空。 */
+  firstByteMs?: number | null;
+  /** 同一客户端请求的各次尝试共用的关联 ID；旧记录可能为空。 */
+  requestId?: string | null;
+  /** 上游尝试序号；旧记录按 1 处理。 */
+  attempt?: number | null;
+};
+/** 正在经过本地网关转发的请求；只含路由元数据。 */
+export type ClaudeActiveRequest = {
+  id: string; timestamp: number; mode: ClaudeMode; providerId: string; model: string; actualModel: string;
+  attempt: number; firstByteMs?: number | null; workingDirectory?: string | null; sessionTitle?: string | null;
 };
 export type ClaudeRoutingState = {
   mode: ClaudeMode; running: boolean; address: string | null; config: ClaudeRoutingConfig;
   health: Record<string, { failures: number; openUntil: number | null }>;
-  logs: ClaudeRequestLog[]; activeProvider: string; recoveryAvailable: boolean;
+  logs: ClaudeRequestLog[]; activeRequests: ClaudeActiveRequest[]; activeProvider: string; recoveryAvailable: boolean;
 };
+/** 路由级模型矩阵的一次性更新；只含角色到渠道模型的绑定。 */
+export type ClaudeRoutingModelUpdate = { id: string; models: Record<string, ClaudeModelMapping> };
 export type ClaudePrompt = { id: string; name: string; content: string };
 export type ClaudeWorkspaceState = {
   ccShortcut: { installed: boolean; recoveryAvailable: boolean; paths: string[] };
@@ -85,9 +98,14 @@ export const claudeWorkbenchClient = {
   exportProviders: (ids: string[]) => nativeOnly<boolean>("claude_provider_action", { action: { type: "export_selected", ids } }),
   deleteProviders: (ids: string[]) => nativeOnly<{ deleted: number }>("claude_provider_action", { action: { type: "delete_selected", ids } }),
   state: () => nativeOnly<ClaudeRoutingState>("claude_routing_state"),
-  saveRouting: (config: ClaudeRoutingConfig) => nativeOnly<void>("claude_routing_save", { config }),
+  saveRouting: (config: ClaudeRoutingConfig) => {
+    // 旧版后端不认识 roundRobin；关闭时省略该字段，避免 deny_unknown_fields 拒绝整份配置。
+    const { roundRobin, ...rest } = config;
+    return nativeOnly<void>("claude_routing_save", { config: roundRobin ? config : rest });
+  },
   activate: (mode: ClaudeMode) => nativeOnly<void>("claude_routing_activate", { mode }),
   clearLogs: () => nativeOnly<void>("claude_routing_clear_logs"),
+  saveRoutingModels: (updates: ClaudeRoutingModelUpdate[]) => nativeOnly<void>("claude_routing_models_save", { updates }),
   providerAction: (action: { type: "duplicate"; id: string } | { type: "move"; id: string; offset: number } | { type: "import_current" | "open_config_directory" }) =>
     nativeOnly<void>("claude_provider_action", { action }),
   probe: (id: string) => nativeOnly<{ reachable: boolean; status: number | null; latencyMs: number }>("claude_provider_probe", { id }),

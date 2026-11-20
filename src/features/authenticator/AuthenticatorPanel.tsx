@@ -49,9 +49,9 @@ export function AuthenticatorPanel({ mobile = false, initialOtpUri, onInitialOtp
   const [loading, setLoading] = useState(true);
   const [entries, setEntries] = useState<AuthEntry[]>([]);
   const [codes, setCodes] = useState<Record<string, AuthCode>>({});
-  const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
   const [search, setSearch] = useState("");
   const [groupFilters, setGroupFilters] = useState<string[]>([]);
@@ -258,6 +258,11 @@ export function AuthenticatorPanel({ mobile = false, initialOtpUri, onInitialOtp
       if (text.includes("锁定")) clearSecrets();
     } finally { actionBusy.current = false; if (alive.current) setBusy(false); }
   }
+  async function unlock(event: FormEvent) {
+    event.preventDefault();
+    const value = password; setPassword("");
+    await action(async () => { await client.unlock(value, false); if (alive.current) { ++epoch.current; setPasswordRequired(false); setUnlocked(true); } });
+  }
   async function copyCode(entry: AuthEntry, target: "current" | "next" | "account" = "current") {
     if (actionBusy.current) return;
     actionBusy.current = true; setBusy(true);
@@ -283,11 +288,6 @@ export function AuthenticatorPanel({ mobile = false, initialOtpUri, onInitialOtp
         copyTimer.current = setTimeout(() => { setCopied(""); setCopyNotice(null); }, 3000);
       }
     }
-  }
-  async function unlock(event: FormEvent) {
-    event.preventDefault();
-    const value = password; setPassword("");
-    await action(async () => { await client.unlock(value, false); if (alive.current) { ++epoch.current; setPasswordRequired(false); setUnlocked(true); } });
   }
   function closeModal() {
     if (modal === "import") void client.cancel().catch(() => {});
@@ -337,7 +337,7 @@ export function AuthenticatorPanel({ mobile = false, initialOtpUri, onInitialOtp
     <LockKeyhole size={38} /><h3>迁移已有验证器</h3><p>已有数据由旧主密码加密。输入一次原密码后，改为打开即用，验证码保持不变。</p>
     <DialogField label="原主密码"><input type="password" autoComplete="current-password" autoFocus required maxLength={1024} value={password} onChange={(event) => setPassword(event.target.value)} /></DialogField>
     <button className="auth-primary" disabled={busy} type="submit">{busy ? "正在迁移…" : "迁移并打开"}</button>
-  </form></> : <div className="auth-empty auth-unavailable" role="status"><span className="auth-empty-icon" aria-hidden="true"><ShieldCheck size={30} /></span><h3>验证器暂时不可用</h3><p>{error || "本地服务未连接，请确认移动端调试服务已启动。"}</p><button disabled={busy} onClick={() => void action(openVault)}>{busy ? "连接中…" : "重新连接"}</button></div>}</section>;
+  </form></> : <><>{alerts}</><div className="auth-empty auth-unavailable" role="status"><span className="auth-empty-icon" aria-hidden="true"><ShieldCheck size={30} /></span><h3>验证器暂时不可用</h3><p>{error || "本地服务未连接，请确认移动端调试服务已启动。"}</p><button disabled={busy} onClick={() => void action(openVault)}>{busy ? "连接中…" : "重新连接"}</button></div></>}</section>;
 
   return <section className={panelClassName} onPointerDown={touch} onKeyDown={touch}>
     <ToastNotice message={copyNotice?.text} tone={copyNotice?.failed ? "error" : "info"} />

@@ -1,5 +1,5 @@
 use aes_gcm::{aead::{Aead, KeyInit}, Aes256Gcm, Key, Nonce};
-use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
+use base64::{engine::general_purpose::{STANDARD as B64, URL_SAFE, URL_SAFE_NO_PAD}, Engine as _};
 use hmac::{Hmac, Mac};
 use rand::RngCore;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -268,7 +268,13 @@ pub fn decrypt_secret(ciphertext: &str) -> Result<String, String> {
 
 pub(crate) fn decrypt_secret_with_key(ciphertext: &str, key: &[u8]) -> Result<String, String> {
     if key.len() != 32 { return Err("本地加密密钥参数无效".into()); }
-    let packed = B64.decode(ciphertext).map_err(|error| format!("读取 Secret 失败: {error}"))?;
+    // Existing installations may contain URL-safe Base64 produced by older
+    // import paths. Keep writing the canonical STANDARD format, but accept
+    // both encodings when reading persisted secrets.
+    let packed = B64.decode(ciphertext)
+        .or_else(|_| URL_SAFE.decode(ciphertext))
+        .or_else(|_| URL_SAFE_NO_PAD.decode(ciphertext))
+        .map_err(|_| "读取 Secret 失败：密文格式无效".to_string())?;
     if packed.len() < 12 { return Err("本地 Secret 数据损坏".into()); }
     let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(key));
     let value = cipher.decrypt(Nonce::from_slice(&packed[..12]), &packed[12..]).map_err(|_| "解密 Secret 失败".to_string())?;
@@ -279,6 +285,21 @@ pub(crate) fn decrypt_secret_with_key(ciphertext: &str, key: &[u8]) -> Result<St
 mod sync_envelope_tests {
     use super::*;
     use serde::{Deserialize, Serialize};
+
+    #[test]
+    fn decrypt_secret_accepts_url_safe_ciphertext() {
+        let key = [19u8; 32];
+        let url_safe_ciphertext = loop {
+            let ciphertext = encrypt_secret_with_key("test secret", &key).unwrap();
+            let packed = B64.decode(ciphertext).unwrap();
+            let url_safe = URL_SAFE_NO_PAD.encode(packed);
+            if url_safe.chars().any(|character| character == '-' || character == '_') {
+                break url_safe;
+            }
+        };
+
+        assert_eq!(decrypt_secret_with_key(&url_safe_ciphertext, &key).unwrap(), "test secret");
+    }
 
     #[test]
     fn mobile_key_selection_preserves_existing_data_and_rejects_missing_or_conflicting_keys() {

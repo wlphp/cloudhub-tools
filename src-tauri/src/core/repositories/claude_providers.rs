@@ -259,6 +259,39 @@ fn strip_marker(provider: &ClaudeProvider) -> ClaudeProvider {
     clean
 }
 
+pub fn validate_models(models: &Map<String, Value>) -> Result<(), String> {
+    if models.len() > model::MODEL_ROLES.len() || models.iter().any(|(role, value)| {
+        !model::MODEL_ROLES.contains(&role.as_str())
+            || value.as_object().is_none_or(|m| m.keys().any(|k| !["model", "displayName", "supports1m"].contains(&k.as_str())))
+            || serde_json::from_value::<model::ModelMapping>(value.clone()).is_err()
+            || value["model"].as_str().is_some_and(|s| s.len() > 240 || s.chars().any(char::is_control))
+            || value["displayName"].as_str().is_some_and(|s| s.len() > 240)
+    }) {
+        return Err("供应商模型映射无效".into());
+    }
+    Ok(())
+}
+
+/// 只更新模型映射，保留密钥、地址、协议、目录和用户字段。用于路由级模型矩阵批量保存。
+pub fn update_models(conn: &Connection, id: &str, models: Map<String, Value>, now: i64) -> Result<(), String> {
+    validate_models(&models)?;
+    let raw: String = conn
+        .query_row("SELECT settings_json FROM claude_providers WHERE id=?1", [id], |row| row.get(0))
+        .optional()
+        .map_err(|_| "读取供应商失败".to_string())?
+        .ok_or_else(|| "供应商不存在".to_string())?;
+    let mut value: Value = serde_json::from_str(&raw).map_err(|_| "供应商配置损坏".to_string())?;
+    let object = value.as_object_mut().ok_or("供应商配置损坏")?;
+    object.insert("models".to_string(), Value::Object(models));
+    let serialised = serde_json::to_string(&value).map_err(|_| "序列化供应商失败".to_string())?;
+    conn.execute(
+        "UPDATE claude_providers SET settings_json=?1, updated_at=?2 WHERE id=?3",
+        params![serialised, now, id],
+    )
+    .map_err(|_| "保存模型映射失败")?;
+    Ok(())
+}
+
 pub fn save_provider(conn: &Connection, provider: &ClaudeProvider, now: i64) -> Result<(), String> {
     let clean_input = strip_marker(provider);
     let provider = &clean_input;
@@ -283,14 +316,8 @@ pub fn save_provider(conn: &Connection, provider: &ClaudeProvider, now: i64) -> 
             || !v.is_string() || v.as_str().is_some_and(|s|s.len()>4000)
             || model::is_floor_env(k) || k.contains("TOKEN") || k.contains("KEY") || k.contains("SECRET") || k.contains("PASSWORD")
     }) { return Err("扩展环境变量只接受非敏感字符串，请使用专用认证字段保存密钥".into()); }
+    validate_models(&provider.models)?;
     let mut model_ids = std::collections::HashSet::new();
-    if provider.models.len()>model::MODEL_ROLES.len()||provider.models.iter().any(|(role,value)|{
-        !model::MODEL_ROLES.contains(&role.as_str())
-            || value.as_object().is_none_or(|m|m.keys().any(|k|!["model","displayName","supports1m"].contains(&k.as_str())))
-            || serde_json::from_value::<model::ModelMapping>(value.clone()).is_err()
-            || value["model"].as_str().is_some_and(|s|s.len()>240||s.chars().any(char::is_control))
-            || value["displayName"].as_str().is_some_and(|s|s.len()>240)
-    }){return Err("供应商模型映射无效".into());}
     if provider.model_catalog.iter().any(|m|m.model.trim().is_empty() || m.model.len()>240
         || m.model.chars().any(char::is_control) || m.display_name.len()>240 || !model_ids.insert(m.model.as_str())) {
         return Err("聚合模型 ID 不能为空、重复或超过长度限制".into());
@@ -441,6 +468,35 @@ mod tests {
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].api_key, "sk-1");
         assert_eq!(listed[0].models["sonnet"]["model"], json!("m1"));
+    }
+
+    #[test]
+    fn updating_models_preserves_connection_and_catalog() {
+        let conn = db();
+        let mut target = provider("demo", "示例", "https://example.test", "https://api.example.test/anthropic", &[("sonnet", "m1")]);
+        target.api_key = "sk-1".into();
+        target.model_catalog = vec![model::ModelMapping { model: "catalog".into(), display_name: "目录".into(), supports_1m: true }];
+        target.fallback_model = Some(model::ModelMapping { model: "fallback".into(), display_name: "兜底".into(), supports_1m: false });
+        save_provider(&conn, &target, 10).unwrap();
+        let models = Map::from_iter([("sonnet".to_string(), json!({"model": "m2", "displayName": "M2"}))]);
+        update_models(&conn, "demo", models, 20).unwrap();
+        let listed = list_providers(&conn).unwrap();
+        assert_eq!(listed[0].api_key, "sk-1");
+        assert_eq!(listed[0].base_url, "https://api.example.test/anthropic");
+        assert_eq!(listed[0].models["sonnet"]["model"], json!("m2"));
+        assert_eq!(listed[0].model_catalog.len(), 1);
+        assert!(listed[0].fallback_model.is_some());
+        let updated_at: i64 = conn.query_row("SELECT updated_at FROM claude_providers WHERE id='demo'", [], |row| row.get(0)).unwrap();
+        assert_eq!(updated_at, 20);
+    }
+
+    #[test]
+    fn updating_models_rejects_invalid_roles_and_unknown_channel() {
+        let conn = db();
+        save_provider(&conn, &provider("demo", "示例", "", "https://example.test", &[("sonnet", "m1")]), 10).unwrap();
+        let invalid = Map::from_iter([("unknown".to_string(), json!({"model": "m"}))]);
+        assert!(update_models(&conn, "demo", invalid, 20).is_err());
+        assert!(update_models(&conn, "missing", Map::new(), 20).is_err());
     }
 
     #[test]

@@ -118,6 +118,10 @@ pub fn initialize_device(
         .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
         .map_err(|_| "无法开始验证器初始化")?;
     if let Some(header) = crate::core::repositories::authenticator::header(&tx)? {
+        if header == DEVICE_HEADER {
+            return Ok(header);
+        }
+        // Keep legacy encrypted entries intact until the user supplies the old password.
         return Ok(header);
     }
     #[cfg(mobile)]
@@ -341,6 +345,9 @@ mod tests {
         let (key, envelope) = wrap_key("test-passphrase").unwrap();
         let header = repository::create(&db, &envelope).unwrap();
         repository::write(&db, &key, &entry).unwrap();
+        assert_eq!(initialize_device(&mut db, &key_path).unwrap(), header);
+        assert!(!key_path.exists());
+        assert_eq!(repository::load(&db, &key).unwrap().len(), 1);
         assert!(migrate_device(&mut db, &key_path, &header, "incorrect").is_err());
         assert!(!key_path.exists());
         assert_eq!(repository::header(&db).unwrap().unwrap(), header);

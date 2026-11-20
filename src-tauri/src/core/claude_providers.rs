@@ -48,6 +48,8 @@ pub const PROTOCOL_SELECTORS: &[&str] = &[
 /// `env` 里按名字列出的关键字段（协议选择器之外）。
 pub const FLOOR_ENV_KEYS: &[&str] = &[
     "CLAUDE_CODE_SUBAGENT_MODEL",
+    // 与模型键成对清理；漏掉它会在切换供应商后留下上一家的显示名。
+    "CLAUDE_CODE_SUBAGENT_MODEL_NAME",
     "CLAUDE_CODE_SUBAGENT_MODEL_FORCE",
     "CLOUD_ML_REGION",
     "GOOGLE_APPLICATION_CREDENTIALS",
@@ -423,12 +425,22 @@ mod tests {
 
     #[test]
     fn floor_covers_connection_keys() {
-        for key in ["ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_DEFAULT_SONNET_MODEL", "AWS_REGION", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_SUBAGENT_MODEL"] {
+        for key in ["ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_DEFAULT_SONNET_MODEL", "AWS_REGION", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_SUBAGENT_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL_NAME"] {
             assert!(is_floor_env(key), "{key} 应当是地板字段");
         }
         for key in ["apiKey", "model", "primaryModel"] {
             assert!(is_floor_top(key), "{key} 应当是地板字段");
         }
+    }
+
+    #[test]
+    fn switching_channel_clears_stale_subagent_display_name() {
+        let live = json!({"env": {"CLAUDE_CODE_SUBAGENT_MODEL": "old-model", "CLAUDE_CODE_SUBAGENT_MODEL_NAME": "old-name", "USER_KEY": "keep"}});
+        let out = apply_provider(&live, &provider()).document;
+        let env = out["env"].as_object().unwrap();
+        assert!(!env.contains_key("CLAUDE_CODE_SUBAGENT_MODEL"));
+        assert!(!env.contains_key("CLAUDE_CODE_SUBAGENT_MODEL_NAME"));
+        assert_eq!(env["USER_KEY"], json!("keep"));
     }
 
     #[test]

@@ -190,6 +190,35 @@ pub(crate) async fn claude_provider_save(provider: model::ClaudeProvider) -> Pla
     Ok(())
 }
 
+/// 路由级模型矩阵的一次性保存。只替换 `models` 字段，不接收密钥、地址或协议。
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RoutingModelUpdate {
+    pub id: String,
+    pub models: serde_json::Map<String, serde_json::Value>,
+}
+
+#[tauri::command]
+pub(crate) async fn claude_routing_models_save(updates: Vec<RoutingModelUpdate>) -> PlatformResult<()> {
+    work(move || {
+        if updates.is_empty() { return Err("没有需要保存的模型映射".into()); }
+        let mut conn = open_db()?;
+        let tx = conn.transaction().map_err(|_| "无法开始保存模型映射")?;
+        let mut seen = std::collections::HashSet::new();
+        for update in updates {
+            if update.id.trim().is_empty() || !seen.insert(update.id.clone()) {
+                return Err("模型映射包含重复或无效的供应商标识".into());
+            }
+            repository::update_models(&tx, &update.id, update.models, now())?;
+        }
+        tx.commit().map_err(|_| "保存模型映射失败".into())
+    })
+    .await?;
+    #[cfg(desktop)]
+    crate::core::claude_gateway::refresh_providers().await?;
+    Ok(())
+}
+
 #[tauri::command]
 pub(crate) async fn claude_provider_delete(id: String) -> PlatformResult<u64> {
     #[cfg(desktop)]

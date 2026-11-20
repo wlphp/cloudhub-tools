@@ -4,7 +4,7 @@ import { useSortableDrag } from "../../shared/useSortableDrag";
 import { useDialogDocument } from "../../shared/DialogDocument";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ArrowDown, ArrowUp, Check, Copy, Download, ExternalLink, FolderOpen, GripVertical, HelpCircle, ListChecks, Loader2, Minus, MoreHorizontal, Pencil, Plus, RotateCcw, Search, Server, Star, Trash2, Wand2, Wifi } from "lucide-react";
+import { ArrowDown, ArrowLeftRight, ArrowUp, Check, Copy, Download, ExternalLink, FolderOpen, GripVertical, HelpCircle, ListChecks, Loader2, Minus, MoreHorizontal, Pencil, Plus, RotateCcw, Search, Server, Star, Trash2, Wand2, Wifi } from "lucide-react";
 import { SharedDialog } from "../../shared/SharedDialog";
 import { runningInTauri } from "../../platform/api";
 import { MoreMenu } from "../../shared/MoreMenu";
@@ -15,6 +15,10 @@ import { AggregateStartDialog, ModeBar, providerModelCount, RoutingSettings, Usa
 import { ClaudeWorkspacePanel } from "./ClaudeWorkspacePanel";
 import { ClaudeProviderPresetPicker } from "./ClaudeProviderPresetPicker";
 import { ClaudeProviderUsage } from "./ClaudeProviderUsage";
+import { ClaudeRoutingGraph } from "./ClaudeRoutingGraph";
+import { ClaudeRoutingLiveFeed } from "./ClaudeRoutingLiveFeed";
+import { ClaudeRoutingModelMatrix } from "./ClaudeRoutingModelMatrix";
+import { CLAUDE_MODEL_ROLES } from "./claudeModelRoles";
 import "./claude-providers.css";
 
 const USER_AGENT_PRESETS: { value: string; label: string }[] = [
@@ -26,23 +30,30 @@ const USER_AGENT_PRESETS: { value: string; label: string }[] = [
 /** 一键设置：取当前 5 个角色中第一个已填的实际模型作为「主模型」，同步到全部角色。
  *  与 cc-switch ClaudeFormFields 中 "Apply to all" 行为一致：读表单已有值、批量推。 */
 const QUICK_PRESET_PRIORITY = ["sonnet", "opus", "fable", "haiku", "subagent"] as const;
+type ClaudeRouteStrategy = "fixed" | "failover" | "round_robin";
 
 /** 去掉模型名末尾的 [1m] 标记，作为 displayName 用。 */
 function stripOneMMarker(model: string): string {
   return model.replace(/\s*\[1m\]\s*$/i, "").trim();
 }
 
+/** 显示名称是否仍是自动值（空，或等于当前模型 / 渠道目录名称）。是则切换模型时继续跟随，
+ *  用户手动改过的名称则保留，不覆盖。 */
+function isAutoDisplayName(displayName: string | undefined, model: string, catalog: ClaudeModelMapping[]): boolean {
+  const name = (displayName ?? "").trim();
+  if (!name) return true;
+  const id = model.trim();
+  if (!id) return true;
+  if (name === id || name === stripOneMMarker(id)) return true;
+  const entry = catalog.find(item => item.model.trim() === id);
+  return Boolean(entry?.displayName && entry.displayName.trim() === name);
+}
+
 function Hint({ text }: { text: string }) {
   return <span className="claude-hint-icon" title={text} aria-label={text} tabIndex={0}><HelpCircle size={13} aria-hidden="true" /></span>;
 }
 
-const ROLES: { key: string; label: string }[] = [
-  { key: "sonnet", label: "Sonnet" },
-  { key: "opus", label: "Opus" },
-  { key: "haiku", label: "Haiku" },
-  { key: "fable", label: "Fable" },
-  { key: "subagent", label: "Subagent" },
-];
+const ROLES = CLAUDE_MODEL_ROLES;
 
 const API_FORMATS: { value: ClaudeApiFormat; label: string }[] = [
   { value: "anthropic", label: "Anthropic Messages（原生）" },
@@ -74,20 +85,14 @@ function Editor({ draft, keyConfigured, onClose, onSaved }: { draft: ClaudeProvi
       proxyBodyOverride: draft.proxyBodyOverride ?? "",
       fallbackModel: draft.fallbackModel ?? null,
     };
-    // 兜底回填：若 modelCatalog 里有该 model 的 displayName，而 5 个角色或默认兜底的
-    // displayName 仍为空，用 modelCatalog 的值补上——避免编辑已保存供应商时整列显示
-    // 「显示名称（可选）」占位。仅在 Editor 打开瞬间跑一次，运行时不动已开 Editor 的
-    // displayName 状态，用户手动清空后不会被回填。
-    const catalogByModel = new Map<string, string>();
-    for (const item of initial.modelCatalog ?? []) {
-      const id = item.model.trim();
-      if (id && item.displayName && !catalogByModel.has(id)) catalogByModel.set(id, item.displayName);
-    }
+    // 兜底回填：5 个角色或默认兜底的 displayName 为空时，用实际请求模型补上——避免编辑
+    // 已保存供应商时整列显示「显示名称（可选）」占位。仅在 Editor 打开瞬间跑一次，运行时
+    // 不动已开 Editor 的 displayName 状态，用户手动清空后不会被回填。
     const fillDisplay = (mapping: ClaudeModelMapping | null | undefined): ClaudeModelMapping | null => {
       if (!mapping) return null;
       if ((mapping.displayName ?? "").trim()) return mapping;
-      const name = catalogByModel.get(mapping.model.trim());
-      return name ? { ...mapping, displayName: name } : mapping;
+      const model = mapping.model.trim();
+      return model ? { ...mapping, displayName: stripOneMMarker(model) } : mapping;
     };
     const filledModels: Record<string, ClaudeModelMapping> = {};
     for (const [role, m] of Object.entries(initial.models ?? {})) filledModels[role] = fillDisplay(m) ?? m;
@@ -98,6 +103,7 @@ function Editor({ draft, keyConfigured, onClose, onSaved }: { draft: ClaudeProvi
   const [extraEnv, setExtraEnv] = useState(JSON.stringify(draft.extraEnv ?? {}, null, 2));
   const [pickerBusy, setPickerBusy] = useState(false);
   const [pickerMessage, setPickerMessage] = useState("");
+  const [mappingMessage, setMappingMessage] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerModels, setPickerModels] = useState<ClaudeModelMapping[] | null>(null);
   const [fullConfig, setFullConfig] = useState("");
@@ -106,10 +112,9 @@ function Editor({ draft, keyConfigured, onClose, onSaved }: { draft: ClaudeProvi
 
   const patch = (next: Partial<ClaudeProviderInput>) => setValue((current) => ({ ...current, ...next }));
   /**
-   * 更新某一行的 `model` 或 `displayName`。当用户从下拉里选了一个 model（next 命中
-   * modelCatalog 中某条），且当前 displayName 仍为空时，自动用 modelCatalog 的 displayName
-   * 兜底——避免 5 行都显示「显示名称（可选）」占位。但只要用户已手动填过 displayName，
-   * 一律保留，不被覆盖。
+   * 更新某一行的 `model` 或 `displayName`。显示名称默认跟随「实际请求模型」：当用户切换
+   * 下拉时，只要 displayName 仍是自动值（空、旧模型名或目录名称），就同步为新模型 ID；
+   * 用户手动改过的名称保留，不被覆盖。
    */
   const setModel = (role: string, field: keyof ClaudeModelMapping, next: string | boolean) =>
     setValue((current) => {
@@ -117,10 +122,8 @@ function Editor({ draft, keyConfigured, onClose, onSaved }: { draft: ClaudeProvi
       const prev = models[role] ?? { model: "" };
       const updated: ClaudeModelMapping = { ...prev, [field]: next } as ClaudeModelMapping;
       if (field === "model" && typeof next === "string") {
-        const alreadyFilled = (updated.displayName ?? "").trim();
-        if (!alreadyFilled) {
-          const catalogEntry = (current.modelCatalog ?? []).find(item => item.model.trim() === next.trim());
-          if (catalogEntry?.displayName) updated.displayName = catalogEntry.displayName;
+        if (isAutoDisplayName(prev.displayName, prev.model ?? "", current.modelCatalog ?? [])) {
+          updated.displayName = stripOneMMarker(next);
         }
       }
       models[role] = updated;
@@ -130,9 +133,10 @@ function Editor({ draft, keyConfigured, onClose, onSaved }: { draft: ClaudeProvi
     setValue((current) => {
       const prev = current.fallbackModel ?? { model: "" };
       const updated: ClaudeModelMapping = { ...prev, [field]: next } as ClaudeModelMapping;
-      if (field === "model" && typeof next === "string" && !(updated.displayName ?? "").trim()) {
-        const catalogEntry = (current.modelCatalog ?? []).find(item => item.model.trim() === next.trim());
-        if (catalogEntry?.displayName) updated.displayName = catalogEntry.displayName;
+      if (field === "model" && typeof next === "string") {
+        if (isAutoDisplayName(prev.displayName, prev.model ?? "", current.modelCatalog ?? [])) {
+          updated.displayName = stripOneMMarker(next);
+        }
       }
       return { ...current, fallbackModel: updated };
     });
@@ -141,7 +145,7 @@ function Editor({ draft, keyConfigured, onClose, onSaved }: { draft: ClaudeProvi
       ...current,
       modelCatalog: (current.modelCatalog ?? []).map((item, i) => i === index ? { ...item, [field]: next } as ClaudeModelMapping : item),
     }));
-  /** 实际请求模型下拉选项：聚合模型列表去重后按原顺序；空时为空数组（占位提示请先获取）。 */
+  /** 角色下拉选项：渠道可用模型去重后按原顺序；空时为空数组。 */
   const modelOptions = useMemo(
     () => {
       const seen = new Set<string>();
@@ -156,6 +160,7 @@ function Editor({ draft, keyConfigured, onClose, onSaved }: { draft: ClaudeProvi
     },
     [value.modelCatalog],
   );
+  const mappedRoleCount = ROLES.filter(role => value.models?.[role.key]?.model?.trim()).length;
 
   function applyQuickPreset() {
     // 与 cc-switch ClaudeFormFields 的"一键设置"语义一致：取第一个已填的实际模型作为主模型，
@@ -169,7 +174,7 @@ function Editor({ draft, keyConfigured, onClose, onSaved }: { draft: ClaudeProvi
       return "";
     })();
     if (!primary) {
-      setPickerMessage("请先在「Sonnet / Opus / Fable / Haiku / Subagent」中任意一行填入实际模型，再使用一键设置");
+      setMappingMessage("请先在「Sonnet / Opus / Fable / Haiku / Subagent」任一角色选择渠道模型，再使用一键设置");
       return;
     }
     const displayName = stripOneMMarker(primary);
@@ -178,7 +183,30 @@ function Editor({ draft, keyConfigured, onClose, onSaved }: { draft: ClaudeProvi
       next[role] = { model: primary, displayName };
     }
     patch({ models: next });
-    setPickerMessage(`已将「${primary}」应用到全部 5 个角色`);
+    setMappingMessage(`已将「${primary}」应用到全部 5 个角色`);
+  }
+
+  /** 显示名跟随模型：把 5 个角色与默认兜底的显示名称强制改写为各自的实际请求模型 ID。 */
+  function syncDisplayNames() {
+    const models = value.models ?? {};
+    let changed = 0;
+    const next: Record<string, ClaudeModelMapping> = {};
+    for (const role of ROLES) {
+      const mapping = models[role.key];
+      if (!mapping) continue;
+      const displayName = stripOneMMarker(mapping.model ?? "");
+      if ((mapping.displayName ?? "") !== displayName) changed += 1;
+      next[role.key] = { ...mapping, displayName };
+    }
+    const fallback = value.fallbackModel ?? null;
+    let nextFallback = fallback;
+    if (fallback) {
+      const displayName = stripOneMMarker(fallback.model ?? "");
+      if ((fallback.displayName ?? "") !== displayName) changed += 1;
+      nextFallback = { ...fallback, displayName };
+    }
+    patch({ models: next, fallbackModel: nextFallback });
+    setMappingMessage(changed ? `已同步 ${changed} 个显示名称` : "显示名称已与实际请求模型一致");
   }
 
   async function pullModelList() {
@@ -214,7 +242,7 @@ function Editor({ draft, keyConfigured, onClose, onSaved }: { draft: ClaudeProvi
       added ? `新增 ${added}` : "",
       removed ? `移除 ${removed}` : "",
     ].filter(Boolean).join("，");
-    setPickerMessage(summary ? `已更新聚合模型列表：${summary}` : "聚合模型列表未变更");
+    setPickerMessage(summary ? `已更新渠道可用模型：${summary}` : "渠道可用模型未变更");
     setPickerOpen(false);
     setPickerModels(null);
   }
@@ -252,7 +280,7 @@ function Editor({ draft, keyConfigured, onClose, onSaved }: { draft: ClaudeProvi
 
   return <SharedDialog sizeStorageKey="features/plugins/claude-providers-plugin/editor"
     title={draft.id ? `编辑供应商 · ${value.name || "(未命名)"}` : "添加供应商"}
-    subtitle="Claude Code 供应商配置：请求地址、API Key、模型映射、路由增强"
+    subtitle="Claude Code 供应商配置：请求地址、API Key、渠道模型、角色映射"
     icon={<Server size={20} aria-hidden="true" />}
     className="claude-provider-dialog"
     bodyClassName="claude-provider-body"
@@ -278,19 +306,37 @@ function Editor({ draft, keyConfigured, onClose, onSaved }: { draft: ClaudeProvi
       <label className="claude-field">认证字段<select value={value.apiKeyField} onChange={event => patch({ apiKeyField: event.target.value as ClaudeApiKeyField })}>{KEY_FIELDS.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
     </div>
 
-    {/* 模型映射 4 列：角色 / 显示名称 / 实际请求模型 / 1M 声明 */}
+    {/* 渠道可用模型：角色映射和聚合菜单都从这里取模型 */}
     <fieldset className="claude-models">
-      <legend>模型映射 <Hint text={"各角色写入 env 的键：Sonnet → ANTHROPIC_DEFAULT_SONNET_MODEL，Opus → ANTHROPIC_DEFAULT_OPUS_MODEL，Haiku → ANTHROPIC_DEFAULT_HAIKU_MODEL，Fable → ANTHROPIC_DEFAULT_FABLE_MODEL，Subagent → CLAUDE_CODE_SUBAGENT_MODEL（1M 在模型 ID 末尾追加 [1M]）。" + "「一键设置」取第一个已填的实际模型作主模型，同步填到全部 5 个角色；Sonnet 是默认请求模型，建议完整填入。"} /></legend>
+      <legend>渠道可用模型 <Hint text="该渠道实际提供的模型目录；角色映射从这里选择，聚合模式也使用这份目录。「获取模型列表」会从上游拉取并追加；也可手动维护。" /></legend>
       <div className="claude-models-toolbar">
-        <button type="button" className="secondary" disabled={busy} onClick={applyQuickPreset} title="把第一个已填的实际模型作为主模型，同步填到全部 5 个角色"><Wand2 size={13} aria-hidden="true" />一键设置</button>
         <button type="button" className="secondary" disabled={busy || pickerBusy || !canQueryModels} onClick={() => void pullModelList()} title={
           !canQueryModels ? "请填写请求地址与 API Key，官方登录不支持查询模型列表"
-            : "从上游拉取模型列表，弹出多选窗口让你勾选后并入聚合模型列表"
+            : "从上游拉取模型列表，弹出多选窗口让你勾选后并入渠道可用模型"
         }>
           {pickerBusy ? <Loader2 className="is-spin" size={13} aria-hidden="true" /> : <Download size={13} aria-hidden="true" />}
           获取模型列表
         </button>
         {pickerMessage && <span className="claude-models-toolbar-message">{pickerMessage}</span>}
+      </div>
+      {(value.modelCatalog ?? []).map((item, index) => <div className="claude-catalog-row" key={index}>
+        <button type="button" className="claude-icon-button" title="置为聚合默认模型" aria-label={`置为聚合默认模型 ${index + 1}`} aria-pressed={index === 0} disabled={busy} onClick={() => patch({ modelCatalog: [item, ...(value.modelCatalog ?? []).filter((_, i) => i !== index)] })}><Star size={13} fill={index === 0 ? "currentColor" : "none"} aria-hidden="true" /></button>
+        <input aria-label={`模型 ID ${index + 1}`} value={item.model} onChange={event => setCatalogItem(index, "model", event.target.value)} placeholder="模型 ID" />
+        <input aria-label={`模型名称 ${index + 1}`} value={item.displayName ?? ""} onChange={event => setCatalogItem(index, "displayName", event.target.value)} placeholder="显示名称" />
+        <label className="claude-check"><input type="checkbox" aria-label={`模型 1M ${index + 1}`} checked={Boolean(item.supports1m)} onChange={event => setCatalogItem(index, "supports1m", event.target.checked)} />1M</label>
+        <button type="button" className="claude-icon-button" title="移除模型" aria-label={`移除模型 ${index + 1}`} disabled={busy} onClick={() => patch({ modelCatalog: (value.modelCatalog ?? []).filter((_, i) => i !== index) })}><Trash2 size={13} aria-hidden="true" /></button>
+      </div>)}
+      <button type="button" className="secondary" disabled={busy} onClick={() => patch({ modelCatalog: [...(value.modelCatalog ?? []), { model: "" }] })}><Plus size={14} aria-hidden="true" />手动添加模型</button>
+    </fieldset>
+
+    {/* 角色映射：把 Claude Code 角色绑定到上方渠道模型 */}
+    <fieldset className="claude-models">
+      <legend>角色映射 <Hint text={"各角色写入 env 的键：Sonnet → ANTHROPIC_DEFAULT_SONNET_MODEL，Opus → ANTHROPIC_DEFAULT_OPUS_MODEL，Haiku → ANTHROPIC_DEFAULT_HAIKU_MODEL，Fable → ANTHROPIC_DEFAULT_FABLE_MODEL，Subagent → CLAUDE_CODE_SUBAGENT_MODEL（1M 在模型 ID 末尾追加 [1M]）。路由模式下客户端只显示中性角色名；留空表示未映射，不会发布，请求回退该渠道的 Sonnet。Sonnet 是默认请求模型，路由/固定供应商必须填写。显示名称默认跟随实际请求模型，手动改名后保留；「同步显示名」可强制全部对齐。"} /></legend>
+      <div className="claude-models-toolbar">
+        <button type="button" className="secondary" disabled={busy} onClick={applyQuickPreset} title="把第一个已填的渠道模型作为主模型，同步填到全部 5 个角色"><Wand2 size={13} aria-hidden="true" />一键设置</button>
+        <button type="button" className="secondary" disabled={busy} onClick={syncDisplayNames} title="把全部角色与默认兜底的显示名称改为各自绑定的实际请求模型 ID"><ArrowLeftRight size={13} aria-hidden="true" />同步显示名</button>
+        <span className="claude-models-toolbar-message">已映射 {mappedRoleCount}/5 个角色{value.models?.sonnet?.model?.trim() ? "" : "；Sonnet 未填写，路由/固定供应商无法启用"}</span>
+        {mappingMessage && <span className="claude-models-toolbar-message">{mappingMessage}</span>}
       </div>
       <div className="claude-model-grid-head" role="row">
         <span role="columnheader">模型角色</span>
@@ -307,7 +353,7 @@ function Editor({ draft, keyConfigured, onClose, onSaved }: { draft: ClaudeProvi
             ariaLabel={`${role.label} 实际模型`}
             value={mapping.model ?? ""}
             options={modelOptions}
-            placeholder={modelOptions.length ? "选择聚合模型" : "请先点「获取模型列表」"}
+            emptyLabel="未映射（回退 Sonnet）"
             onChange={next => setModel(role.key, "model", next)}
           />
           <label className="claude-model-1m" title="上游支持 1M 上下文"><input type="checkbox" aria-label={`${role.label} 1M 上下文`} checked={Boolean(mapping.supports1m)} onChange={event => setModel(role.key, "supports1m", event.target.checked)} /><span>1M</span></label>
@@ -315,9 +361,9 @@ function Editor({ draft, keyConfigured, onClose, onSaved }: { draft: ClaudeProvi
       })}
     </fieldset>
 
-    {/* 默认兜底模型（仅路由/聚合生效） */}
+    {/* 默认兜底模型（直连/聚合生效；路由由网关按队列策略接管） */}
     <fieldset className="claude-models">
-      <legend>默认兜底模型 <Hint text="仅在路由或聚合模式下生效；写入 env 的 ANTHROPIC_DEFAULT_FALLBACK_MODEL。直连模式下该值不会写入 settings.json。" /></legend>
+      <legend>默认兜底模型 <Hint text="直连与聚合模式生效，写入 env 的 ANTHROPIC_DEFAULT_FALLBACK_MODEL；路由模式由网关按队列策略（故障转移/轮询）接管，不再写客户端的原始 fallback。" /></legend>
       <div className="claude-model-row">
         <span className="claude-model-role">默认</span>
         <input aria-label="默认兜底模型显示名称" value={value.fallbackModel?.displayName ?? ""} onChange={event => setFallback("displayName", event.target.value)} placeholder="显示名称（可选）" />
@@ -325,7 +371,7 @@ function Editor({ draft, keyConfigured, onClose, onSaved }: { draft: ClaudeProvi
           ariaLabel="默认兜底模型"
           value={value.fallbackModel?.model ?? ""}
           options={modelOptions}
-          placeholder={modelOptions.length ? "选择聚合模型" : "请先点「获取模型列表」"}
+          emptyLabel="不使用兜底"
           onChange={next => setFallback("model", next)}
         />
         <label className="claude-model-1m" title="上游支持 1M 上下文"><input type="checkbox" aria-label="默认兜底 1M" checked={Boolean(value.fallbackModel?.supports1m)} onChange={event => setFallback("supports1m", event.target.checked)} /><span>1M</span></label>
@@ -350,19 +396,6 @@ function Editor({ draft, keyConfigured, onClose, onSaved }: { draft: ClaudeProvi
         <label className="claude-field">Header 覆盖（JSON 对象）<textarea rows={6} spellCheck={false} value={value.proxyHeaderOverride ?? ""} onChange={event => patch({ proxyHeaderOverride: event.target.value })} placeholder={'{ "X-Provider": "cloudhub-tools" }'} /></label>
         <label className="claude-field">Body 覆盖（JSON 对象）<textarea rows={6} spellCheck={false} value={value.proxyBodyOverride ?? ""} onChange={event => patch({ proxyBodyOverride: event.target.value })} placeholder={'{ "temperature": 0.2 }'} /></label>
       </div>
-    </fieldset>
-
-    {/* 聚合模型列表 */}
-    <fieldset className="claude-models">
-      <legend>聚合模型列表 <Hint text="「获取模型列表」会自动追加；也可手动维护。列表会出现在聚合菜单。" /></legend>
-      {(value.modelCatalog ?? []).map((item, index) => <div className="claude-catalog-row" key={index}>
-        <button type="button" className="claude-icon-button" title="置为默认模型" aria-label={`置为默认模型 ${index + 1}`} aria-pressed={index === 0} disabled={busy} onClick={() => patch({ modelCatalog: [item, ...(value.modelCatalog ?? []).filter((_, i) => i !== index)] })}><Star size={13} fill={index === 0 ? "currentColor" : "none"} aria-hidden="true" /></button>
-        <input aria-label={`模型 ID ${index + 1}`} value={item.model} onChange={event => setCatalogItem(index, "model", event.target.value)} placeholder="模型 ID" />
-        <input aria-label={`模型名称 ${index + 1}`} value={item.displayName ?? ""} onChange={event => setCatalogItem(index, "displayName", event.target.value)} placeholder="显示名称" />
-        <label className="claude-check"><input type="checkbox" aria-label={`模型 1M ${index + 1}`} checked={Boolean(item.supports1m)} onChange={event => setCatalogItem(index, "supports1m", event.target.checked)} />1M</label>
-        <button type="button" className="claude-icon-button" title="移除模型" aria-label={`移除模型 ${index + 1}`} disabled={busy} onClick={() => patch({ modelCatalog: (value.modelCatalog ?? []).filter((_, i) => i !== index) })}><Trash2 size={13} aria-hidden="true" /></button>
-      </div>)}
-      <button type="button" className="secondary" disabled={busy} onClick={() => patch({ modelCatalog: [...(value.modelCatalog ?? []), { model: "" }] })}><Plus size={14} aria-hidden="true" />手动添加模型</button>
     </fieldset>
 
     <label className="claude-field">备注<textarea rows={2} value={value.description ?? ""} onChange={event => patch({ description: event.target.value })} placeholder="仅用于本机识别，不参与设置" /></label>
@@ -439,7 +472,7 @@ function ModelPicker({
 
   return <SharedDialog sizeStorageKey="features/plugins/claude-providers-plugin/model-picker"
     title="选择模型"
-    subtitle="勾选要加入「聚合模型列表」的项，已在列表中的项会预选并允许取消。"
+    subtitle="勾选要加入「渠道可用模型」的项，已在列表中的项会预选并允许取消。"
     icon={<ListChecks size={20} aria-hidden="true" />}
     size="small"
     onClose={onClose}
@@ -463,18 +496,23 @@ function ModelPicker({
       />
       <button type="button" className="secondary" disabled={!visibleIds.length} onClick={() => setChecked(visibleIds, true)}>全选</button>
       <button type="button" className="secondary" disabled={!visibleIds.length} onClick={() => setChecked(visibleIds, false)}>全不选</button>
-      <label className="claude-check"><input type="checkbox" checked={onlySelected} onChange={event => setOnlySelected(event.target.checked)} />仅看已选</label>
     </div>
-    <p className="claude-models-toolbar-message" role="status">已选 {selectedCount} / {allIds.length} 个</p>
+    <div className="claude-picker-summary">
+      <span role="status">已选 {selectedCount} / {allIds.length} 个</span>
+      <label className="claude-check claude-picker-filter">
+        <input type="checkbox" checked={onlySelected} onChange={event => setOnlySelected(event.target.checked)} />
+        仅看已选
+      </label>
+    </div>
     <ul className="claude-picker-list">
-      {visibleExtra.length > 0 && <li className="claude-picker-group">已配置（不在本批上游返回）</li>}
+      {visibleExtra.length > 0 && <li className="claude-picker-group"><span>已配置（不在本批上游返回）</span><span className="claude-picker-group-count">{visibleExtra.length}</span></li>}
       {visibleExtra.map(id => <li key={`extra-${id}`} className="claude-picker-item">
         <label className="claude-check">
           <input type="checkbox" checked={draft.has(id)} onChange={event => setChecked([id], event.target.checked)} />
           <code>{id}</code>
         </label>
       </li>)}
-      {visibleFetched.length > 0 && <li className="claude-picker-group">上游返回</li>}
+      {visibleFetched.length > 0 && <li className="claude-picker-group"><span>上游返回</span><span className="claude-picker-group-count">{visibleFetched.length}</span></li>}
       {visibleFetched.map(item => <li key={`fetched-${item.model}`} className="claude-picker-item">
         <label className="claude-check">
           <input type="checkbox" checked={draft.has(item.model)} onChange={event => setChecked([item.model], event.target.checked)} />
@@ -494,13 +532,14 @@ function ModelPicker({
  * 标为「自定义 ...」让用户知道这是手动值，可重新选择覆盖。
  */
 function ModelSelect({
-  value, options, onChange, ariaLabel, placeholder,
+  value, options, onChange, ariaLabel, placeholder, emptyLabel,
 }: {
   value: string;
   options: { model: string; displayName?: string }[];
   onChange: (next: string) => void;
   ariaLabel: string;
   placeholder?: string;
+  emptyLabel?: string;
 }) {
   const trimmed = value.trim();
   const inOptions = trimmed && options.some(item => item.model === trimmed);
@@ -510,7 +549,7 @@ function ModelSelect({
     value={trimmed}
     onChange={event => onChange(event.target.value)}
   >
-    {!trimmed && <option value="">{placeholder ?? "选择模型"}</option>}
+    <option value="">{emptyLabel ?? placeholder ?? "选择模型"}</option>
     {trimmed && !inOptions && <option value={trimmed}>自定义：{trimmed}</option>}
     {options.map(item => <option key={item.model} value={item.model}>
       {item.displayName && item.displayName !== item.model ? `${item.displayName}（${item.model}）` : item.model}
@@ -525,6 +564,11 @@ function providerAccent(seed: string): { color: string; letter: string } {
   const hue = hash % 360;
   const letter = /[A-Za-z0-9]/.test(trimmed) ? trimmed[0].toUpperCase() : "?";
   return { color: `hsl(${hue}, 55%, 42%)`, letter };
+}
+
+/** 路由/固定供应商的最低要求：客户端默认请求 Sonnet，必须有对应的真实模型。 */
+function hasSonnetMapping(provider: ClaudeProviderSummary): boolean {
+  return Boolean(provider.models?.sonnet?.model?.trim());
 }
 
 /** 当前 5 小时窗口期内某供应商的累计请求与 token。 */
@@ -566,12 +610,14 @@ export function ClaudeProvidersPlugin({ mobile = false }: { mobile?: boolean } =
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [busyId, setBusyId] = useState("");
-  const [routing, setRouting] = useState<ClaudeRoutingState>({ mode: "direct", running: false, address: null, config: DEFAULT_CLAUDE_ROUTING, health: {}, logs: [], activeProvider: "", recoveryAvailable: false });
+  const [routing, setRouting] = useState<ClaudeRoutingState>({ mode: "direct", running: false, address: null, config: DEFAULT_CLAUDE_ROUTING, health: {}, logs: [], activeRequests: [], activeProvider: "", recoveryAvailable: false });
+  const [roundRobinSupported, setRoundRobinSupported] = useState(false);
   const [viewMode, setViewMode] = useState<ClaudeMode>("direct");
   const [tab, setTab] = useState<"providers" | "usage" | "mcp" | "prompts" | "skills" | "sessions" | "config">("providers");
   const [keyword, setKeyword] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [aggregateStartOpen, setAggregateStartOpen] = useState(false);
+  const [modelMatrixOpen, setModelMatrixOpen] = useState(false);
   const [routeStartOpen, setRouteStartOpen] = useState(false);
   const [routeTarget, setRouteTarget] = useState("");
   const [routeStartBusy, setRouteStartBusy] = useState(false);
@@ -595,7 +641,15 @@ export function ClaudeProvidersPlugin({ mobile = false }: { mobile?: boolean } =
   const confirm = (text: string, action: () => Promise<unknown>) => { setConfirmError(""); setConfirmation({ message: text, action }); };
   const refreshRouting = useCallback(async () => {
     const state = await claudeWorkbenchClient.state();
-    if (state && !Array.isArray(state) && state.config) setRouting(state);
+    if (state && !Array.isArray(state) && state.config) {
+      // 旧版后端没有 roundRobin 字段；只在检测到新后端时开放轮询入口。
+      setRoundRobinSupported(current => current || typeof state.config.roundRobin === "boolean");
+      setRouting({
+        ...state,
+        activeRequests: state.activeRequests ?? [],
+        config: { ...state.config, roundRobin: state.config.roundRobin ?? false },
+      });
+    }
   }, []);
   const refreshWorkspace = useCallback(async () => {
     try {
@@ -658,7 +712,15 @@ export function ClaudeProvidersPlugin({ mobile = false }: { mobile?: boolean } =
   }, [routing.running]);
   useEffect(() => {
     if (!routing.running) return;
-    const timer = window.setInterval(() => { void refreshRouting().catch(() => {}); }, 3000);
+    // 实时列表与拓扑动画依赖 2 秒快照；pending 防止慢响应叠加，后台标签页不轮询。
+    let pending = false;
+    const tick = async () => {
+      if (pending || document.visibilityState !== "visible") return;
+      pending = true;
+      try { await refreshRouting(); } catch { /* 下一轮继续 */ }
+      finally { pending = false; }
+    };
+    const timer = window.setInterval(() => void tick(), 2000);
     return () => window.clearInterval(timer);
   }, [routing.running, refreshRouting]);
 
@@ -690,8 +752,10 @@ export function ClaudeProvidersPlugin({ mobile = false }: { mobile?: boolean } =
   const current = useMemo(() => providers.find(item => item.id === currentId) ?? null, [providers, currentId]);
   const shown = providers.filter(item => `${item.name} ${item.baseUrl} ${item.description}`.toLowerCase().includes(keyword.toLowerCase()));
   const config = routing.config;
-  const routeProviders = providers.filter(item => !item.officialLogin && item.keyConfigured);
-  const aggregateDefault = config.defaultProvider || routeProviders.find(item => item.id === currentId && providerModelCount(item) > 0)?.id || routeProviders.find(item => providerModelCount(item) > 0)?.id || "";
+  const queueEnabled = config.failover || config.roundRobin;
+  const configuredProviders = providers.filter(item => !item.officialLogin && item.keyConfigured);
+  const routeProviders = configuredProviders.filter(hasSonnetMapping);
+  const aggregateDefault = config.defaultProvider || configuredProviders.find(item => item.id === currentId && providerModelCount(item) > 0)?.id || configuredProviders.find(item => providerModelCount(item) > 0)?.id || "";
   const aggregateGroup = (item: ClaudeProviderSummary) => item.id === aggregateDefault ? 0 : config.members.includes(item.id) ? 1 : 2;
   const queueRank = (item: ClaudeProviderSummary) => config.queue.includes(item.id) ? config.queue.indexOf(item.id) : Number.MAX_SAFE_INTEGER;
   const displayed = viewMode === "aggregate" ? [...shown].sort((a, b) => aggregateGroup(a) - aggregateGroup(b)) : viewMode === "route" ? [...shown].sort((a, b) => queueRank(a) - queueRank(b)) : shown;
@@ -729,20 +793,44 @@ export function ClaudeProvidersPlugin({ mobile = false }: { mobile?: boolean } =
   }
   const scopeLabel = workspace ? `项目 ${workspace}` : "用户全局";
   const saveConfig = async (next: ClaudeRoutingConfig) => { await claudeWorkbenchClient.saveRouting(next); await refreshRouting(); };
-  const toggleFailover = (enabled: boolean) => {
+  const applyRoutingModels = () => {
+    void (async () => {
+      try {
+        // 路由运行中时重新应用一次，让网关内存里的供应商映射立即更新；客户端角色列表同时重写。
+        if (routing.running && routing.mode === "route") await claudeWorkbenchClient.activate("route");
+        await load();
+        setMessage("模型映射已保存");
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : "模型映射已保存，但重新应用路由配置失败");
+      }
+    })();
+  };
+  const applyStrategy = (strategy: ClaudeRouteStrategy) => {
     const target = routeProviders.find(item => item.id === config.routeProvider)?.id || routeProviders[0]?.id || "";
     const queue = config.queue.length ? config.queue : target ? [target] : [];
-    if (enabled && !queue.length) { setError("请先添加已配置 API Key 的供应商"); return; }
-    void run("failover", () => saveConfig({ ...config, failover: enabled, queue, routeProvider: config.routeProvider || target }), "已更新故障转移设置");
+    if (strategy !== "fixed" && !queue.length) { setError("请先添加已配置 API Key 和 Sonnet 模型映射的供应商"); return; }
+    if (strategy !== "fixed") {
+      const missing = queue
+        .map(id => providers.find(item => item.id === id))
+        .filter((item): item is ClaudeProviderSummary => Boolean(item && !hasSonnetMapping(item)));
+      if (missing.length) { setError(`路由队列中的 ${missing.map(item => item.name).join("、")} 缺少 Sonnet 模型映射`); return; }
+    }
+    const failover = strategy === "failover";
+    const roundRobin = strategy === "round_robin";
+    const message = strategy === "round_robin" ? "已选择轮询策略" : strategy === "failover" ? "已选择优先级故障转移" : "已选择固定供应商策略";
+    void run("strategy", () => saveConfig({ ...config, failover, roundRobin, queue, routeProvider: config.routeProvider || target }), message);
   };
   const toggleQueue = (id: string) => {
+    const provider = providers.find(item => item.id === id);
+    if (!provider) return;
+    if (!config.queue.includes(id) && !hasSonnetMapping(provider)) { setError("加入路由队列前，请先为该供应商配置 Sonnet 模型映射"); return; }
     const queue = config.queue.includes(id) ? config.queue.filter(value => value !== id) : [...config.queue, id];
     void run("queue", () => saveConfig({ ...config, queue, routeProvider: config.routeProvider || queue[0] || "" }), "已更新路由队列");
   };
   const activate = (mode: ClaudeMode) => {
     if (mode === "aggregate") { setAggregateStartOpen(true); return; }
     if (mode === "route") {
-      const eligible = providers.filter(p => !p.officialLogin && p.keyConfigured);
+      const eligible = routeProviders;
       setRouteTarget(eligible.find(p => p.id === config.routeProvider)?.id ?? eligible.find(p => p.id === currentId)?.id ?? eligible[0]?.id ?? "");
       setRouteStartError(""); setRouteStartOpen(true); return;
     }
@@ -756,12 +844,151 @@ export function ClaudeProvidersPlugin({ mobile = false }: { mobile?: boolean } =
     [queue[index], queue[next]] = [queue[next], queue[index]];
     void run("queue", () => saveConfig({ ...config, queue }), "已更新故障转移顺序");
   };
+  /** 拓扑里直接拖动渠道后提交完整队列顺序；先本地乐观排序，保存失败时回读服务端顺序。 */
+  const reorderQueue = (queue: string[]) => {
+    if (busyId) return;
+    if (queue.length === config.queue.length && queue.every((id, index) => id === config.queue[index])) return;
+    setRouting(current => ({ ...current, config: { ...current.config, queue } }));
+    void run("queue", () => saveConfig({ ...config, queue }), "已更新故障转移顺序").finally(() => { void refreshRouting().catch(() => {}); });
+  };
   const changeScope = async (clear: boolean) => {
     await run("scope", () => claudeWorkbenchClient.chooseProject(clear), "");
   };
 
-  return <section className="claude-providers claude-management-workbench">
-    <ModeBar providers={providers} view={viewMode} state={routing} currentName={current?.name} directConfigurationIssue={Boolean(currentId) && !routing.running && ["changed", "missing", "unreadable"].includes(configurationStatus ?? "")} activeName={providers.find(item => item.id === routing.activeProvider)?.name} scopeLabel={scopeLabel} addressFallback={settingsPath} onView={mode => { setViewMode(mode); setTab("providers"); }} onActivate={activate} onSettings={() => setSettingsOpen(true)} onFailover={toggleFailover} disabled={Boolean(busyId) || routeStartBusy} />
+  const providerPanelRef = useRef<HTMLElement | null>(null);
+  const locateProvider = (id: string) => {
+    const row = providerPanelRef.current?.querySelector<HTMLElement>(`[data-claude-provider-sort-id="${id.replace(/["\\]/g, "\\$&")}"]`);
+    if (!row) { providerPanelRef.current?.querySelector<HTMLElement>(".claude-providers-head")?.scrollIntoView({ block: "center", behavior: "auto" }); return; }
+    const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    row.scrollIntoView({ block: "center", behavior: reduceMotion ? "auto" : "smooth" });
+    if (!reduceMotion) row.animate?.([{ boxShadow: "inset 0 0 0 1px var(--jb-accent)" }, { boxShadow: "inset 0 0 0 1px transparent" }], { duration: 1200, easing: "ease-out" });
+  };
+
+  const renderProviderRow = (item: ClaudeProviderSummary) => {
+    const accent = providerAccent(item.name);
+    const modelGroups = new Map<string, string[]>();
+    for (const role of ROLES.filter(role => item.models?.[role.key]?.model).slice(0, 3)) {
+      const model = item.models?.[role.key]?.model;
+      if (model) modelGroups.set(model, [...(modelGroups.get(model) ?? []), role.label]);
+    }
+    const needsRouting = !item.officialLogin && item.apiFormat !== "anthropic";
+    const usage = windowedUsage(routing.logs, item.id);
+    const isCurrent = item.id === currentId;
+    const configurationIssue = isCurrent && viewMode === "direct" && !routing.running
+      ? configurationStatus === "changed" ? "配置不一致" : configurationStatus === "missing" ? "配置文件缺失" : configurationStatus === "unreadable" ? "无法核对配置" : ""
+      : "";
+    const canSwitchBack = Boolean(configurationIssue) && configurationStatus !== "unreadable";
+    const queueIndex = config.queue.indexOf(item.id);
+    const inQueue = queueIndex >= 0;
+    const isRouteTarget = routing.running && routing.mode === "route" && item.id === (queueEnabled ? routing.activeProvider : config.routeProvider);
+    const isFixedRoute = viewMode === "route" && !queueEnabled && item.id === config.routeProvider;
+    const isRouteSelected = viewMode === "route" && (queueEnabled ? isRouteTarget : isFixedRoute);
+    const lastResponse = routing.logs.find(log => log.providerId === item.id);
+    const routeHealth = routing.health[item.id];
+    const healthLabel = routeHealth?.openUntil && routeHealth.openUntil > Date.now() ? "熔断中" : routeHealth?.failures || (lastResponse && lastResponse.status >= 400) ? "请求失败" : lastResponse ? "正常" : "未检测";
+    const group = aggregateGroup(item);
+    const ranked = viewMode === "route" && queueEnabled;
+    const rowClassName = [
+      "claude-provider-item",
+      (viewMode === "route" ? isRouteSelected : viewMode === "aggregate" ? group === 0 : isCurrent) ? "is-current" : "",
+      selectedProviders.has(item.id) ? "is-selected" : "",
+      viewMode === "route" ? "is-route-item" : "",
+      ranked ? "is-ranked" : "",
+    ].filter(Boolean).join(" ");
+    return <li key={item.id} data-claude-provider-sort-id={item.id} className={rowClassName}>
+      {providerSorting ? <button type="button" className="claude-provider-drag-handle" title="拖动排序" aria-label={`拖动排序 ${item.name}`} disabled={Boolean(busyId)} onPointerDown={event => providerDrag.startDrag(event, item.id)}><GripVertical size={16} /></button> : (<input className="claude-provider-select" type="checkbox" aria-label={"选择 " + item.name} checked={selectedProviders.has(item.id)} disabled={Boolean(busyId)} onChange={event=>setSelectedProviders(current=>{const next=new Set(current);if(event.target.checked)next.add(item.id);else next.delete(item.id);return next;})} />)}
+      {ranked && inQueue && <span className={`claude-queue-rank${isRouteSelected ? " is-current" : ""}`} title={`路由队列顺序 P${queueIndex + 1}`} aria-label={`路由队列顺序 P${queueIndex + 1}`}>P{queueIndex + 1}</span>}
+
+      <div className="claude-provider-main">
+        <div className="claude-provider-title">
+          <span className="claude-provider-logo" aria-hidden="true" style={{ background: accent.color }}>{accent.letter}</span>
+          <strong>{item.name}</strong>
+          {modelGroups.size > 0 && <button type="button" className="claude-model-toggle" aria-label={`${expandedModels.has(item.id) ? "收起" : "展开"} ${item.name} 的模型`} aria-expanded={expandedModels.has(item.id)} aria-controls={`claude-models-${item.id}`} onClick={() => setExpandedModels(current => {
+            const next = new Set(current);
+            if (next.has(item.id)) next.delete(item.id); else next.add(item.id);
+            return next;
+          })}><ArrowDown size={12} aria-hidden="true" />模型 · {modelGroups.size}</button>}
+          {viewMode === "route" && isRouteTarget && <span className="claude-tag is-current">{queueEnabled ? "最近响应" : "路由中"}</span>}
+          {viewMode === "route" && isFixedRoute && <span className="claude-tag is-fixed">固定</span>}
+          {viewMode === "route" && (queueEnabled ? inQueue : isFixedRoute) && <span className="claude-tag" title="根据本地请求记录与熔断状态显示">{healthLabel}</span>}
+          {viewMode === "aggregate" && <span className="claude-tag">{group === 0 ? "默认" : providerModelCount(item) + " 个模型"}</span>}
+          {isCurrent && viewMode === "direct" && !routing.running && <><span className={`claude-tag ${configurationIssue ? "is-configured" : "is-current"}`}>{!configurationIssue && <span className="claude-live-dot" aria-hidden="true" />}{configurationIssue ? "当前配置" : "使用中"}</span>{configurationIssue && <span className="claude-tag is-warning">{configurationIssue}</span>}</>}
+          {!item.keyConfigured && !item.officialLogin && <span className="claude-tag is-warning">缺少 Key</span>}
+          {item.officialLogin && <span className="claude-tag">官方登录</span>}
+          {needsRouting && <span className="claude-tag is-warning">需要路由</span>}
+          {viewMode !== "route" && routing.health[item.id]?.openUntil && routing.health[item.id].openUntil! > Date.now() && <span className="claude-tag is-warning">熔断中</span>}
+        </div>
+        <code className="claude-provider-url">{item.baseUrl || "未填写请求地址"}</code>
+        {item.apiFormat !== "anthropic" && <div className="claude-provider-meta">{API_FORMATS.find(format => format.value === item.apiFormat)?.label}</div>}
+        {modelGroups.size > 0 && <dl id={`claude-models-${item.id}`} className="claude-model-mappings" aria-label="模型映射" hidden={!expandedModels.has(item.id)}>
+          {Array.from(modelGroups, ([model, roles]) => <div key={model} className="claude-model-mapping">
+            <dt>{roles.join(" / ")}</dt>
+            <dd>{model}</dd>
+          </div>)}
+        </dl>}
+        {configurationIssue && <p className="claude-configuration-warning" role="status"><HelpCircle size={13} aria-hidden="true" /><span>{configurationStatus === "unreadable" ? "无法读取或解析配置，请检查文件后刷新。" : configurationStatus === "missing" ? "配置文件已缺失，点击“切换回来”恢复。" : "配置已在外部更改，点击“切换回来”恢复此渠道。"}</span></p>}
+      </div>
+      <div className="claude-provider-stats">
+        {!item.officialLogin && item.keyConfigured && runningInTauri && <ClaudeProviderUsage key={item.id + ":" + usageRevision + ":" + JSON.stringify(item)} provider={item} disabled={Boolean(busyId)} />}
+        {(isCurrent || usage.requests > 0) && <div className="claude-provider-usage" title={`最近 5 小时累计：${usage.requests} 次，${usage.tokens.toLocaleString()} tokens`}>
+          <span className="claude-stat-caption">本地 · 5h</span>
+          <span className="claude-provider-usage-label"><strong>{usage.requests}</strong> 次<span className="claude-stat-divider" aria-hidden="true">/</span><strong>{usage.tokens.toLocaleString()}</strong> tokens</span>
+        </div>}
+      </div>
+      <div className="claude-provider-actions">
+        {quotaProviderId === item.id && <SharedDialog sizeStorageKey="features/plugins/claude-providers-plugin/claude-providers-plugin" title={item.name + " · 剩余额度"} subtitle="来自供应商官方接口，与本地请求统计无关。" className="claude-providers claude-quota-dialog" size="small" onClose={() => setQuotaProviderId(null)} footer={<><button type="button" className="secondary" disabled={quotas[item.id]?.loading} onClick={() => void refreshQuota(item.id)}>{quotas[item.id]?.loading ? <Loader2 className="is-spin" size={14} aria-hidden="true" /> : <RotateCcw size={14} aria-hidden="true" />}{quotas[item.id]?.loading ? "查询中…" : "刷新额度"}</button><button type="button" className="secondary" onClick={() => setQuotaProviderId(null)}>关闭</button></>}>
+        <div className="claude-provider-quota" aria-busy={Boolean(quotas[item.id]?.loading)}>
+          {!quotas[item.id]?.data && <span className="claude-quota-status" role="status">{quotas[item.id]?.loading ? "查询中…" : quotas[item.id]?.error || "待查询"}</span>}
+          {quotas[item.id]?.data && <>
+            {quotas[item.id].data!.windows.map(window => <div className="claude-quota-window" key={window.model + window.period}>
+              <span className="claude-stat-caption">{quotas[item.id].data!.windows.some(other => other.model !== window.model) ? window.model + " · " : ""}{window.period === "5h" ? "5 小时" : "本周"}剩余</span>
+              <div className="claude-provider-usage-bar" role="progressbar" aria-label={item.name + " " + window.model + " " + (window.period === "5h" ? "5 小时" : "本周") + "官方剩余额度"} aria-valuemin={0} aria-valuemax={100} aria-valuenow={window.remainingPercent}><span style={{ width: `${window.remainingPercent}%` }} /></div>
+              <strong>{Number(window.remainingPercent.toFixed(1))}%</strong>
+              {window.resetsAt && <span className="claude-quota-reset">{window.resetsAt <= Date.now() ? "已到刷新时间，请刷新额度" : "重置 " + new Date(window.resetsAt).toLocaleString()}</span>}
+            </div>)}
+            {(["5h", "week"] as const).filter(period => !quotas[item.id].data!.windows.some(window => window.period === period)).map(period => <span className="claude-stat-caption" key={period}>{period === "5h" ? "5 小时" : "周"}额度：官方未提供可展示数据</span>)}
+            <span className="claude-stat-caption">更新于 {new Date(quotas[item.id].data!.queriedAt).toLocaleTimeString()}</span>
+          </>}
+        </div></SharedDialog>}
+        {viewMode === "direct" && <button type="button" className="secondary claude-icon-button" title={needsRouting ? "此供应商需要路由或聚合模式" : !item.keyConfigured && !item.officialLogin ? "请先填写 API Key" : configurationStatus === "unreadable" && isCurrent ? "请检查配置文件后刷新" : canSwitchBack ? "切换回来：备份当前配置并应用此渠道" : isCurrent && !routing.running && !configurationIssue ? "使用中" : "切换：备份当前配置并应用此渠道，保留 hooks 和插件等设置"} aria-label={item.name + " " + (canSwitchBack ? "切换回来" : isCurrent && !routing.running ? configurationIssue ? "无法核对" : "使用中" : "切换")} disabled={Boolean(busyId) || (isCurrent && !routing.running && !canSwitchBack) || needsRouting || (!item.keyConfigured && !item.officialLogin)} onClick={() => void run(item.id, () => claudeProvidersClient.switchTo(item.id), `已切换到 ${item.name}，重启 Claude Code 后生效`)}><Check size={14} aria-hidden="true" /></button>}
+        {viewMode === "route" && <>
+          {!queueEnabled && !isFixedRoute && <button type="button" className="secondary claude-route-primary" title={item.officialLogin ? "官方登录不支持本地路由" : !item.keyConfigured ? "请先填写 API Key" : !hasSonnetMapping(item) ? "请先配置 Sonnet 模型映射" : "设为固定供应商"} disabled={Boolean(busyId) || item.officialLogin || !item.keyConfigured || !hasSonnetMapping(item)} onClick={() => void run(item.id, () => saveConfig({ ...config, routeProvider: item.id }), "已更新固定供应商")}>设为固定</button>}
+          <button type="button" className="secondary" title={inQueue ? (queueEnabled ? "移出路由队列；队列策略至少保留一家" : "移出路由队列；队列顺序在轮询或优先级故障转移策略下生效") : item.officialLogin ? "官方登录不支持本地路由" : !item.keyConfigured ? "请先填写 API Key" : !hasSonnetMapping(item) ? "请先配置 Sonnet 模型映射" : queueEnabled ? "加入路由队列" : "加入路由队列；选择轮询或优先级故障转移后参与分配"} disabled={Boolean(busyId) || (!inQueue && (item.officialLogin || !item.keyConfigured || !hasSonnetMapping(item))) || (inQueue && queueEnabled && config.queue.length === 1)} onClick={() => toggleQueue(item.id)}><ListChecks size={13} aria-hidden="true" />{inQueue ? "移出队列" : "加入队列"}</button>
+          {queueEnabled && inQueue && <><button type="button" className="secondary claude-icon-button" aria-label={"提高 " + item.name + " 的队列顺序"} title="上移" disabled={Boolean(busyId) || queueIndex === 0} onClick={() => moveQueue(item.id, -1)}><ArrowUp size={13} aria-hidden="true" /></button><button type="button" className="secondary claude-icon-button" aria-label={"降低 " + item.name + " 的队列顺序"} title="下移" disabled={Boolean(busyId) || queueIndex === config.queue.length - 1} onClick={() => moveQueue(item.id, 1)}><ArrowDown size={13} aria-hidden="true" /></button></>}
+        </>}
+        {viewMode === "aggregate" && <>
+          {group === 0 ? <span className="claude-aggregate-default-status"><span className="claude-live-dot" aria-hidden="true" />{routing.running && routing.mode === "aggregate" ? "当前默认" : "切换后默认"}</span> : <button type="button" className="secondary claude-icon-button" aria-label={(group === 1 ? "从聚合移除 " : "添加到聚合 ") + item.name} title={item.officialLogin ? "官方订阅仅支持直连" : !item.keyConfigured ? "请先配置 API Key" : !providerModelCount(item) ? "请先配置模型列表" : group === 1 ? "移出聚合" : "添加到聚合"} disabled={Boolean(busyId) || (group !== 1 && (item.officialLogin || !item.keyConfigured || !providerModelCount(item)))} onClick={() => void run(item.id, () => saveConfig({ ...config, defaultProvider: aggregateDefault, members: group === 1 ? config.members.filter(id => id !== item.id) : [...config.members, item.id] }), "已更新聚合名单")}>{group === 1 ? <Minus size={16} aria-hidden="true" /> : <Plus size={16} aria-hidden="true" />}</button>}
+        </>}
+        <button type="button" className="secondary claude-icon-button" title={"编辑 " + item.name} aria-label={`编辑 ${item.name}`} onClick={() => setEditing(toInput(item))}><Pencil size={14} aria-hidden="true" /></button>
+        <MoreMenu
+          trigger={<MoreHorizontal size={14} aria-hidden="true" />}
+          triggerClassName="secondary claude-icon-button"
+          triggerTitle={item.name + " · 更多操作"}
+          triggerAriaLabel={item.name + " · 更多操作"}
+          items={[
+            ...(supportsQuota(item) ? [{ id: "quota", label: "查询剩余额度", icon: <RotateCcw size={13} aria-hidden="true" />, disabled: Boolean(busyId), onSelect: () => { setQuotaProviderId(item.id); if (!quotas[item.id]?.loading) void refreshQuota(item.id); } }] : []),
+            ...(viewMode === "aggregate" && group !== 0 ? [{ id: "default", label: "设为默认", icon: <Star size={13} aria-hidden="true" />, disabled: Boolean(busyId) || item.officialLogin || !item.keyConfigured || !providerModelCount(item), onSelect: () => void run(item.id, () => saveConfig({ ...config, defaultProvider: item.id, members: [...new Set([...config.members.filter(id => id !== item.id), ...(aggregateDefault ? [aggregateDefault] : [])])] }), "已更新聚合默认供应商") }] : []),
+            { id: "duplicate", label: "复制供应商", icon: <Copy size={13} aria-hidden="true" />, disabled: Boolean(busyId), onSelect: () => void run(item.id, () => claudeWorkbenchClient.providerAction({ type: "duplicate", id: item.id }), "已复制供应商") },
+            { id: "probe", label: "检测连接", icon: <Wifi size={13} aria-hidden="true" />, disabled: Boolean(busyId), onSelect: () => void run(item.id, async () => { const result = await claudeWorkbenchClient.probe(item.id); if (!result.reachable) throw new Error("无法连接供应商地址"); setMessage(`连接成功，${result.latencyMs} ms，HTTP ${result.status}`); }, "") },
+            ...(viewMode === "direct" ? [
+              { id: "up", label: "上移", icon: <ArrowUp size={13} aria-hidden="true" />, disabled: Boolean(busyId) || providers[0]?.id === item.id, onSelect: () => void run(item.id, () => claudeWorkbenchClient.providerAction({ type: "move", id: item.id, offset: -1 }), "已更新排序") },
+              { id: "down", label: "下移", icon: <ArrowDown size={13} aria-hidden="true" />, disabled: Boolean(busyId) || providers[providers.length - 1]?.id === item.id, onSelect: () => void run(item.id, () => claudeWorkbenchClient.providerAction({ type: "move", id: item.id, offset: 1 }), "已更新排序") },
+            ] : []),
+            ...(item.websiteUrl && /^https?:\/\//i.test(item.websiteUrl) ? [{ id: "site", label: "打开官网", icon: <ExternalLink size={13} aria-hidden="true" />, onSelect: () => window.open(item.websiteUrl, "_blank", "noreferrer") }] : []),
+            { id: "remove", label: "删除供应商", icon: <Trash2 size={13} aria-hidden="true" />, danger: true, disabled: Boolean(busyId) || isCurrent, onSelect: () => confirm(`确定删除供应商“${item.name}”吗？`, async () => { await claudeProvidersClient.remove(item.id); await load(); }) },
+          ]}
+        />
+      </div>
+    </li>;
+  };
+
+  const routeQueueItems = viewMode === "route" ? displayed.filter(item => config.queue.includes(item.id)) : [];
+  const routeReserveItems = viewMode === "route" ? displayed.filter(item => !config.queue.includes(item.id)) : [];
+  const routeFixedItem = viewMode === "route" && !queueEnabled ? displayed.find(item => item.id === config.routeProvider) : undefined;
+  const routeOtherItems = viewMode === "route" && !queueEnabled ? displayed.filter(item => item.id !== config.routeProvider) : [];
+
+  return <section ref={providerPanelRef} className="claude-providers claude-management-workbench">
+    <ModeBar providers={providers} view={viewMode} state={routing} currentName={current?.name} directConfigurationIssue={Boolean(currentId) && !routing.running && ["changed", "missing", "unreadable"].includes(configurationStatus ?? "")} activeName={providers.find(item => item.id === routing.activeProvider)?.name} scopeLabel={scopeLabel} addressFallback={settingsPath} onView={mode => { setViewMode(mode); setTab("providers"); }} onActivate={activate} onSettings={() => setSettingsOpen(true)} onRouteStrategy={applyStrategy} roundRobinSupported={roundRobinSupported} disabled={Boolean(busyId) || routeStartBusy} />
     <nav className="claude-work-tabs" aria-label="Claude Code 工作台">
       {([["providers", "供应商"], ["usage", "用量"], ["mcp", "MCP"], ["prompts", "提示词"], ["skills", "技能"], ["sessions", "会话"], ["config", "配置"]] as const).map(([id, label]) =>
         <button type="button" key={id} aria-current={tab === id ? "page" : undefined} onClick={() => setTab(id)}>{label}</button>)}
@@ -802,6 +1029,20 @@ export function ClaudeProvidersPlugin({ mobile = false }: { mobile?: boolean } =
 
     </details>
 
+    {viewMode !== "direct" && providers.length > 0 && <>
+      <ClaudeRoutingGraph
+        view={viewMode}
+        state={routing}
+        providers={providers}
+        onLocate={locateProvider}
+        onOpenMapping={viewMode === "route" ? () => setModelMatrixOpen(true) : undefined}
+        onOpenSettings={() => setSettingsOpen(true)}
+        onReorderQueue={viewMode === "route" ? reorderQueue : undefined}
+        actionsDisabled={Boolean(busyId) || routeStartBusy}
+      />
+      <ClaudeRoutingLiveFeed view={viewMode} state={routing} providers={providers} onLocate={locateProvider} onOpenUsage={() => setTab("usage")} />
+    </>}
+
     <header className="claude-providers-head claude-list-toolbar">
     <div className="claude-list-selection">{!providerSorting && <label className="claude-check"><input type="checkbox" aria-label="全选当前搜索结果" disabled={Boolean(busyId) || !shown.length} checked={!!shown.length && shown.every(p=>selectedProviders.has(p.id))} ref={element=>{if(element)element.indeterminate=shown.some(p=>selectedProviders.has(p.id)) && !shown.every(p=>selectedProviders.has(p.id));}} onChange={event=>{const checked=event.target.checked;setSelectedProviders(current=>{const next=new Set(current);shown.forEach(p=>checked?next.add(p.id):next.delete(p.id));return next;});}} />全选当前结果</label>}<span>共 {shown.length} 个供应商</span></div>
       <label className="claude-search"><Search size={14} aria-hidden="true" /><input type="search" aria-label="搜索供应商" placeholder="搜索供应商" value={keyword} onChange={e => setKeyword(e.target.value)} /></label>
@@ -827,7 +1068,7 @@ export function ClaudeProvidersPlugin({ mobile = false }: { mobile?: boolean } =
       }}>删除所选</button>
       </div>
     </header>
-    {viewMode === "route" && <p className="claude-config-help">{config.failover ? "按 P1、P2… 优先级请求，失败时在重试次数限制内尝试后续供应商。" : "故障转移已关闭，仅使用固定供应商；队列与顺序仍保留。"} 无请求记录时显示“未检测”，不代表连接成功。</p>}
+    {viewMode === "route" && <p className="claude-config-help">{config.roundRobin ? "轮询：新请求按 P1、P2… 轮流分配；失败时在重试次数限制内尝试后续供应商。" : config.failover ? "优先级故障转移：每个请求先尝试 P1，失败后按队列顺序尝试后续供应商。" : "固定：请求只发往选定供应商；已保存的队列不会参与分配。"} 队列渠道需配置 Sonnet 映射；未映射角色会回退到该渠道的 Sonnet。无请求记录时显示“未检测”，不代表连接成功。</p>}
     {viewMode === "aggregate" && <p className="claude-config-help">默认供应商承接不带前缀的请求；添加其他供应商后，可在 Claude Code 的 /model 中选择其模型。聚合不使用故障转移。</p>}
 
 
@@ -835,116 +1076,64 @@ export function ClaudeProvidersPlugin({ mobile = false }: { mobile?: boolean } =
       <Server size={26} aria-hidden="true" />
       <strong>还没有供应商</strong>
       <p>添加一个供应商，填写请求地址与 API Key 后即可一键切换。</p>
+    </div> : !shown.length ? <p role="status" className="claude-empty-line">没有符合条件的供应商</p> : viewMode === "route" ? <div className="claude-route-groups">
+      {queueEnabled ? <>
+        <section className="claude-route-group is-primary" aria-labelledby="claude-route-queue-heading">
+          <header className="claude-route-group-head">
+            <div className="claude-route-group-title">
+              <ListChecks size={14} aria-hidden="true" />
+              <strong id="claude-route-queue-heading">路由队列</strong>
+              <span className="claude-route-group-count">{routeQueueItems.length}</span>
+            </div>
+            <span className="claude-route-group-hint">{routeQueueItems.length > 1 ? (config.roundRobin ? "按 P1、P2… 轮流分配请求，失败时尝试下一位" : "按 P1、P2… 优先级尝试，失败时自动切换") : routeQueueItems.length === 1 ? "当前只有一家，加入更多供应商后可自动分配" : config.roundRobin ? "将供应商加入队列后参与轮询" : "将供应商加入队列后参与优先级故障转移"}</span>
+          </header>
+          {routeQueueItems.length ? <ul className="claude-provider-list">{routeQueueItems.map(renderProviderRow)}</ul> : <p className="claude-route-group-empty">队列为空。点击供应商行的“加入队列”即可参与{config.roundRobin ? "轮询" : "优先级故障转移"}。</p>}
+        </section>
+        {routeReserveItems.length > 0 && <section className="claude-route-group is-secondary" aria-labelledby="claude-route-reserve-heading">
+          <header className="claude-route-group-head">
+            <div className="claude-route-group-title">
+              <Server size={14} aria-hidden="true" />
+              <strong id="claude-route-reserve-heading">未加入路由队列</strong>
+              <span className="claude-route-group-count">{routeReserveItems.length}</span>
+            </div>
+            <span className="claude-route-group-hint">加入后可在顶部选择轮询或优先级故障转移</span>
+          </header>
+          <ul className="claude-provider-list">{routeReserveItems.map(renderProviderRow)}</ul>
+        </section>}
+      </> : <>
+        <section className="claude-route-group is-primary" aria-labelledby="claude-route-fixed-heading">
+          <header className="claude-route-group-head">
+            <div className="claude-route-group-title">
+              <Check size={14} aria-hidden="true" />
+              <strong id="claude-route-fixed-heading">固定供应商</strong>
+              <span className="claude-route-group-count">{routeFixedItem ? 1 : 0}</span>
+            </div>
+            <span className="claude-route-group-hint">{routeFixedItem ? (routing.running && routing.mode === "route" ? "当前请求发往此供应商；队列顺序保留" : "仅使用此供应商；队列顺序保留") : config.routeProvider ? "固定供应商不在当前筛选结果中" : "尚未选择固定供应商"}</span>
+          </header>
+          {routeFixedItem ? <ul className="claude-provider-list">{renderProviderRow(routeFixedItem)}</ul> : <p className="claude-route-group-empty">{config.routeProvider ? "固定供应商不在当前筛选结果中；清空搜索后可查看。" : "尚未选择固定供应商。在下方供应商行点击“设为固定”。"}</p>}
+        </section>
+        {routeOtherItems.length > 0 && <section className="claude-route-group is-secondary" aria-labelledby="claude-route-others-heading">
+          <header className="claude-route-group-head">
+            <div className="claude-route-group-title">
+              <Server size={14} aria-hidden="true" />
+              <strong id="claude-route-others-heading">其他供应商</strong>
+              <span className="claude-route-group-count">{routeOtherItems.length}</span>
+            </div>
+            <span className="claude-route-group-hint">设为固定；加入队列后可作为后备</span>
+          </header>
+          <ul className="claude-provider-list">{routeOtherItems.map(renderProviderRow)}</ul>
+        </section>}
+      </>}
     </div> : <ul className="claude-provider-list">
-      {displayed.map((item, index) => {
-        const accent = providerAccent(item.name);
-        const modelGroups = new Map<string, string[]>();
-        for (const role of ROLES.filter(role => item.models?.[role.key]?.model).slice(0, 3)) {
-          const model = item.models?.[role.key]?.model;
-          if (model) modelGroups.set(model, [...(modelGroups.get(model) ?? []), role.label]);
-        }
-        const needsRouting = !item.officialLogin && item.apiFormat !== "anthropic";
-        const usage = windowedUsage(routing.logs, item.id);
-        const isCurrent = item.id === currentId;
-        const configurationIssue = isCurrent && viewMode === "direct" && !routing.running
-          ? configurationStatus === "changed" ? "配置不一致" : configurationStatus === "missing" ? "配置文件缺失" : configurationStatus === "unreadable" ? "无法核对配置" : ""
-          : "";
-        const canSwitchBack = Boolean(configurationIssue) && configurationStatus !== "unreadable";
-        const queueIndex = config.queue.indexOf(item.id);
-        const inQueue = queueIndex >= 0;
-        const isRouteTarget = routing.running && routing.mode === "route" && item.id === (config.failover ? routing.activeProvider : config.routeProvider);
-        const lastResponse = routing.logs.find(log => log.providerId === item.id);
-        const routeHealth = routing.health[item.id];
-        const healthLabel = routeHealth?.openUntil && routeHealth.openUntil > Date.now() ? "熔断中" : routeHealth?.failures || (lastResponse && lastResponse.status >= 400) ? "请求失败" : lastResponse ? "正常" : "未检测";
+      {viewMode === "aggregate" ? displayed.map((item, index) => {
         const group = aggregateGroup(item);
-        const groupHeading = viewMode === "aggregate" && (index === 0 || aggregateGroup(displayed[index - 1]) !== group);
+        const groupHeading = index === 0 || aggregateGroup(displayed[index - 1]) !== group;
         return <Fragment key={item.id}>
           {groupHeading && <li className="claude-provider-group-heading">{group === 0 ? routing.mode === "aggregate" && routing.running ? "默认供应商" : "切换到聚合模式后的默认供应商" : (group === 1 ? "已添加" : "可添加") + " · " + providers.filter(provider => aggregateGroup(provider) === group).length}</li>}
-          <li data-claude-provider-sort-id={item.id} className={`claude-provider-item${(viewMode === "route" ? isRouteTarget : viewMode === "aggregate" ? group === 0 : isCurrent) ? " is-current" : ""}${selectedProviders.has(item.id) ? " is-selected" : ""}${viewMode === "route" ? " is-aggregate-item" : ""}`}>
-          {viewMode === "route" && (index === 0 || config.queue.includes(displayed[index - 1].id) !== inQueue) && <div className="claude-aggregate-heading">{inQueue ? "队列 · 按优先级" : "不在队列"}（{shown.filter(provider => config.queue.includes(provider.id) === inQueue).length}）</div>}
-          {providerSorting ? <button type="button" className="claude-provider-drag-handle" title="拖动排序" aria-label={`拖动排序 ${item.name}`} disabled={Boolean(busyId)} onPointerDown={event => providerDrag.startDrag(event, item.id)}><GripVertical size={16} /></button> : (<input className="claude-provider-select" type="checkbox" aria-label={"选择 " + item.name} checked={selectedProviders.has(item.id)} disabled={Boolean(busyId)} onChange={event=>setSelectedProviders(current=>{const next=new Set(current);if(event.target.checked)next.add(item.id);else next.delete(item.id);return next;})} />)}
-
-          <div className="claude-provider-main">
-            <div className="claude-provider-title">
-              <span className="claude-provider-logo" aria-hidden="true" style={{ background: accent.color }}>{accent.letter}</span>
-              <strong>{item.name}</strong>
-              {modelGroups.size > 0 && <button type="button" className="claude-model-toggle" aria-label={`${expandedModels.has(item.id) ? "收起" : "展开"} ${item.name} 的模型`} aria-expanded={expandedModels.has(item.id)} aria-controls={`claude-models-${item.id}`} onClick={() => setExpandedModels(current => {
-                const next = new Set(current);
-                if (next.has(item.id)) next.delete(item.id); else next.add(item.id);
-                return next;
-              })}><ArrowDown size={12} aria-hidden="true" />模型 · {modelGroups.size}</button>}
-              {viewMode === "route" && inQueue && <><span className="claude-tag">P{queueIndex + 1}</span><span className="claude-tag" title="根据本地请求记录与熔断状态显示">{healthLabel}</span></>}
-              {viewMode === "route" && isRouteTarget && <span className="claude-tag is-current">{config.failover ? "最近响应" : "路由中"}</span>}
-              {viewMode === "aggregate" && <span className="claude-tag">{group === 0 ? "默认" : providerModelCount(item) + " 个模型"}</span>}
-              {isCurrent && viewMode === "direct" && !routing.running && <><span className={`claude-tag ${configurationIssue ? "is-configured" : "is-current"}`}>{!configurationIssue && <span className="claude-live-dot" aria-hidden="true" />}{configurationIssue ? "当前配置" : "使用中"}</span>{configurationIssue && <span className="claude-tag is-warning">{configurationIssue}</span>}</>}
-              {!item.keyConfigured && !item.officialLogin && <span className="claude-tag is-warning">缺少 Key</span>}
-              {item.officialLogin && <span className="claude-tag">官方登录</span>}
-              {needsRouting && <span className="claude-tag is-warning">需要路由</span>}
-              {routing.health[item.id]?.openUntil && routing.health[item.id].openUntil! > Date.now() && <span className="claude-tag is-warning">熔断中</span>}
-            </div>
-            <code className="claude-provider-url">{item.baseUrl || "未填写请求地址"}</code>
-            {item.apiFormat !== "anthropic" && <div className="claude-provider-meta">{API_FORMATS.find(format => format.value === item.apiFormat)?.label}</div>}
-            {modelGroups.size > 0 && <dl id={`claude-models-${item.id}`} className="claude-model-mappings" aria-label="模型映射" hidden={!expandedModels.has(item.id)}>
-              {Array.from(modelGroups, ([model, roles]) => <div key={model} className="claude-model-mapping">
-                <dt>{roles.join(" / ")}</dt>
-                <dd>{model}</dd>
-              </div>)}
-            </dl>}
-            {configurationIssue && <p className="claude-configuration-warning" role="status"><HelpCircle size={13} aria-hidden="true" /><span>{configurationStatus === "unreadable" ? "无法读取或解析配置，请检查文件后刷新。" : configurationStatus === "missing" ? "配置文件已缺失，点击“切换回来”恢复。" : "配置已在外部更改，点击“切换回来”恢复此渠道。"}</span></p>}
-          </div>
-          <div className="claude-provider-stats">
-            {!item.officialLogin && item.keyConfigured && runningInTauri && <ClaudeProviderUsage key={item.id + ":" + usageRevision + ":" + JSON.stringify(item)} provider={item} disabled={Boolean(busyId)} />}
-            {(isCurrent || usage.requests > 0) && <div className="claude-provider-usage" title={`最近 5 小时累计：${usage.requests} 次，${usage.tokens.toLocaleString()} tokens`}>
-              <span className="claude-stat-caption">本地 · 5h</span>
-              <span className="claude-provider-usage-label"><strong>{usage.requests}</strong> 次<span className="claude-stat-divider" aria-hidden="true">/</span><strong>{usage.tokens.toLocaleString()}</strong> tokens</span>
-            </div>}
-          </div>
-          <div className="claude-provider-actions">
-            {quotaProviderId === item.id && <SharedDialog sizeStorageKey="features/plugins/claude-providers-plugin/claude-providers-plugin" title={item.name + " · 剩余额度"} subtitle="来自供应商官方接口，与本地请求统计无关。" className="claude-providers claude-quota-dialog" size="small" onClose={() => setQuotaProviderId(null)} footer={<><button type="button" className="secondary" disabled={quotas[item.id]?.loading} onClick={() => void refreshQuota(item.id)}>{quotas[item.id]?.loading ? <Loader2 className="is-spin" size={14} aria-hidden="true" /> : <RotateCcw size={14} aria-hidden="true" />}{quotas[item.id]?.loading ? "查询中…" : "刷新额度"}</button><button type="button" className="secondary" onClick={() => setQuotaProviderId(null)}>关闭</button></>}>
-            <div className="claude-provider-quota" aria-busy={Boolean(quotas[item.id]?.loading)}>
-              {!quotas[item.id]?.data && <span className="claude-quota-status" role="status">{quotas[item.id]?.loading ? "查询中…" : quotas[item.id]?.error || "待查询"}</span>}
-              {quotas[item.id]?.data && <>
-                {quotas[item.id].data!.windows.map(window => <div className="claude-quota-window" key={window.model + window.period}>
-                  <span className="claude-stat-caption">{quotas[item.id].data!.windows.some(other => other.model !== window.model) ? window.model + " · " : ""}{window.period === "5h" ? "5 小时" : "本周"}剩余</span>
-                  <div className="claude-provider-usage-bar" role="progressbar" aria-label={item.name + " " + window.model + " " + (window.period === "5h" ? "5 小时" : "本周") + "官方剩余额度"} aria-valuemin={0} aria-valuemax={100} aria-valuenow={window.remainingPercent}><span style={{ width: `${window.remainingPercent}%` }} /></div>
-                  <strong>{Number(window.remainingPercent.toFixed(1))}%</strong>
-                  {window.resetsAt && <span className="claude-quota-reset">{window.resetsAt <= Date.now() ? "已到刷新时间，请刷新额度" : "重置 " + new Date(window.resetsAt).toLocaleString()}</span>}
-                </div>)}
-                {(["5h", "week"] as const).filter(period => !quotas[item.id].data!.windows.some(window => window.period === period)).map(period => <span className="claude-stat-caption" key={period}>{period === "5h" ? "5 小时" : "周"}额度：官方未提供可展示数据</span>)}
-                <span className="claude-stat-caption">更新于 {new Date(quotas[item.id].data!.queriedAt).toLocaleTimeString()}</span>
-              </>}
-            </div></SharedDialog>}
-            {viewMode === "direct" && <button type="button" className="secondary claude-icon-button" title={needsRouting ? "此供应商需要路由或聚合模式" : !item.keyConfigured && !item.officialLogin ? "请先填写 API Key" : configurationStatus === "unreadable" && isCurrent ? "请检查配置文件后刷新" : canSwitchBack ? "切换回来：备份当前配置并应用此渠道" : isCurrent && !routing.running && !configurationIssue ? "使用中" : "切换：备份当前配置并应用此渠道，保留 hooks 和插件等设置"} aria-label={item.name + " " + (canSwitchBack ? "切换回来" : isCurrent && !routing.running ? configurationIssue ? "无法核对" : "使用中" : "切换")} disabled={Boolean(busyId) || (isCurrent && !routing.running && !canSwitchBack) || needsRouting || (!item.keyConfigured && !item.officialLogin)} onClick={() => void run(item.id, () => claudeProvidersClient.switchTo(item.id), `已切换到 ${item.name}，重启 Claude Code 后生效`)}><Check size={14} aria-hidden="true" /></button>}
-            {viewMode === "route" && <>
-              <button type="button" className="secondary" title={inQueue ? "移出路由队列；启用故障转移时至少保留一家" : "加入路由队列"} disabled={Boolean(busyId) || (!inQueue && (item.officialLogin || !item.keyConfigured)) || (inQueue && config.failover && config.queue.length === 1)} onClick={() => toggleQueue(item.id)}><ListChecks size={13} aria-hidden="true" />{inQueue ? "移出队列" : "加入队列"}</button>
-              {inQueue && <><button type="button" className="secondary claude-icon-button" aria-label={"提高 " + item.name + " 的优先级"} title="上移" disabled={Boolean(busyId) || queueIndex === 0} onClick={() => moveQueue(item.id, -1)}><ArrowUp size={13} aria-hidden="true" /></button><button type="button" className="secondary claude-icon-button" aria-label={"降低 " + item.name + " 的优先级"} title="下移" disabled={Boolean(busyId) || queueIndex === config.queue.length - 1} onClick={() => moveQueue(item.id, 1)}><ArrowDown size={13} aria-hidden="true" /></button></>}
-              {!config.failover && <button type="button" className="secondary" disabled={Boolean(busyId) || item.officialLogin || !item.keyConfigured || item.id === config.routeProvider} onClick={() => void run(item.id, () => saveConfig({ ...config, routeProvider: item.id }), "已更新固定供应商")}>{item.id === config.routeProvider ? "固定供应商" : "设为固定"}</button>}
-            </>}
-            {viewMode === "aggregate" && <>
-              {group === 0 ? <span className="claude-aggregate-default-status"><span className="claude-live-dot" aria-hidden="true" />{routing.running && routing.mode === "aggregate" ? "当前默认" : "切换后默认"}</span> : <button type="button" className="secondary claude-icon-button" aria-label={(group === 1 ? "从聚合移除 " : "添加到聚合 ") + item.name} title={item.officialLogin ? "官方订阅仅支持直连" : !item.keyConfigured ? "请先配置 API Key" : !providerModelCount(item) ? "请先配置模型列表" : group === 1 ? "移出聚合" : "添加到聚合"} disabled={Boolean(busyId) || (group !== 1 && (item.officialLogin || !item.keyConfigured || !providerModelCount(item)))} onClick={() => void run(item.id, () => saveConfig({ ...config, defaultProvider: aggregateDefault, members: group === 1 ? config.members.filter(id => id !== item.id) : [...config.members, item.id] }), "已更新聚合名单")}>{group === 1 ? <Minus size={16} aria-hidden="true" /> : <Plus size={16} aria-hidden="true" />}</button>}
-            </>}
-            <button type="button" className="secondary claude-icon-button" title={"编辑 " + item.name} aria-label={`编辑 ${item.name}`} onClick={() => setEditing(toInput(item))}><Pencil size={14} aria-hidden="true" /></button>
-            <MoreMenu
-              trigger={<MoreHorizontal size={14} aria-hidden="true" />}
-              triggerClassName="secondary claude-icon-button"
-              triggerTitle={item.name + " · 更多操作"}
-              triggerAriaLabel={item.name + " · 更多操作"}
-              items={[
-                ...(supportsQuota(item) ? [{ id: "quota", label: "查询剩余额度", icon: <RotateCcw size={13} aria-hidden="true" />, disabled: Boolean(busyId), onSelect: () => { setQuotaProviderId(item.id); if (!quotas[item.id]?.loading) void refreshQuota(item.id); } }] : []),
-                ...(viewMode === "aggregate" && group !== 0 ? [{ id: "default", label: "设为默认", icon: <Star size={13} aria-hidden="true" />, disabled: Boolean(busyId) || item.officialLogin || !item.keyConfigured || !providerModelCount(item), onSelect: () => void run(item.id, () => saveConfig({ ...config, defaultProvider: item.id, members: [...new Set([...config.members.filter(id => id !== item.id), ...(aggregateDefault ? [aggregateDefault] : [])])] }), "已更新聚合默认供应商") }] : []),
-                { id: "duplicate", label: "复制供应商", icon: <Copy size={13} aria-hidden="true" />, disabled: Boolean(busyId), onSelect: () => void run(item.id, () => claudeWorkbenchClient.providerAction({ type: "duplicate", id: item.id }), "已复制供应商") },
-                { id: "probe", label: "检测连接", icon: <Wifi size={13} aria-hidden="true" />, disabled: Boolean(busyId), onSelect: () => void run(item.id, async () => { const result = await claudeWorkbenchClient.probe(item.id); if (!result.reachable) throw new Error("无法连接供应商地址"); setMessage(`连接成功，${result.latencyMs} ms，HTTP ${result.status}`); }, "") },
-                { id: "up", label: "上移", icon: <ArrowUp size={13} aria-hidden="true" />, disabled: Boolean(busyId) || providers[0]?.id === item.id, onSelect: () => void run(item.id, () => claudeWorkbenchClient.providerAction({ type: "move", id: item.id, offset: -1 }), "已更新排序") },
-                { id: "down", label: "下移", icon: <ArrowDown size={13} aria-hidden="true" />, disabled: Boolean(busyId) || providers[providers.length - 1]?.id === item.id, onSelect: () => void run(item.id, () => claudeWorkbenchClient.providerAction({ type: "move", id: item.id, offset: 1 }), "已更新排序") },
-                ...(item.websiteUrl && /^https?:\/\//i.test(item.websiteUrl) ? [{ id: "site", label: "打开官网", icon: <ExternalLink size={13} aria-hidden="true" />, onSelect: () => window.open(item.websiteUrl, "_blank", "noreferrer") }] : []),
-                { id: "remove", label: "删除供应商", icon: <Trash2 size={13} aria-hidden="true" />, danger: true, disabled: Boolean(busyId) || isCurrent, onSelect: () => confirm(`确定删除供应商“${item.name}”吗？`, async () => { await claudeProvidersClient.remove(item.id); await load(); }) },
-              ]}
-            />
-          </div>
-        </li></Fragment>;
-      })}
+          {renderProviderRow(item)}
+        </Fragment>;
+      }) : displayed.map(renderProviderRow)}
     </ul>}
-    {!!providers.length && !shown.length && <p role="status" className="claude-empty-line">没有符合条件的供应商</p>}
     </>}
 
     {presetPickerOpen && <ClaudeProviderPresetPicker onClose={() => setPresetPickerOpen(false)} onCustom={() => { setPresetPickerOpen(false); setEditing(emptyProvider()); }} onSelect={input => { setPresetPickerOpen(false); setEditing(input); }} />}
@@ -953,6 +1142,7 @@ export function ClaudeProvidersPlugin({ mobile = false }: { mobile?: boolean } =
       return <Editor draft={editing} keyConfigured={Boolean(editingSummary?.keyConfigured)} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); setMessage("供应商已保存"); void load(); }} />;
     })()}
     {settingsOpen && viewMode !== "direct" && <RoutingSettings config={config} mode={viewMode} running={routing.running} onClose={() => setSettingsOpen(false)} onSave={saveConfig} />}
+    {modelMatrixOpen && <ClaudeRoutingModelMatrix providers={providers} config={config} onClose={() => setModelMatrixOpen(false)} onSaved={applyRoutingModels} />}
     {aggregateStartOpen && <AggregateStartDialog providers={providers} config={config} initialDefault={aggregateDefault} onClose={() => setAggregateStartOpen(false)} onStart={async next => { await saveConfig(next); await claudeWorkbenchClient.activate("aggregate"); setMessage("已启用聚合模式；请保持本应用运行。"); await load(); }} />}
     {routeStartOpen && <SharedDialog sizeStorageKey="features/plugins/claude-providers-plugin/claude-providers-plugin/2" title="让 Claude Code 使用路由模式？" size="small" closeDisabled={routeStartBusy} onClose={() => setRouteStartOpen(false)}
       onSubmit={event => {
@@ -961,7 +1151,7 @@ export function ClaudeProvidersPlugin({ mobile = false }: { mobile?: boolean } =
         setRouteStartBusy(true); setRouteStartError("");
         void (async () => {
           try {
-            await saveConfig({ ...config, routeProvider: routeTarget, queue: config.failover ? [routeTarget, ...config.queue.filter(id => id !== routeTarget)] : config.queue });
+            await saveConfig({ ...config, routeProvider: routeTarget, queue: queueEnabled ? [routeTarget, ...config.queue.filter(id => id !== routeTarget)] : config.queue });
             await claudeWorkbenchClient.activate("route");
             setRouteStartOpen(false); setMessage("已启用本地路由；已运行的 Claude Code 请重启以读取新配置。");
             await load();
@@ -973,9 +1163,9 @@ export function ClaudeProvidersPlugin({ mobile = false }: { mobile?: boolean } =
         <button type="submit" className="primary" disabled={routeStartBusy || !routeProviders.some(item => item.id === routeTarget)}>{routeStartBusy ? "启动中…" : "开始路由"}</button>
       </>}>
       <label className="claude-field">路由到<select required value={routeTarget} disabled={routeStartBusy} onChange={event => setRouteTarget(event.target.value)}><option value="">选择供应商</option>{routeProviders.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-      {!routeProviders.length && <p className="claude-error" role="alert">暂无可用供应商，请先添加供应商并配置 API Key；官方登录不支持本地路由。</p>}
+      {!routeProviders.length && <p className="claude-error" role="alert">暂无可用供应商，请先添加供应商、配置 API Key 和 Sonnet 模型映射；官方登录不支持本地路由。</p>}
       <p className="claude-config-help">启用后，当前作用域的 Claude Code 配置将指向本地路由，由本应用转发到所选供应商。保持本应用运行，已启动的 Claude Code 需要重启以读取配置。</p>
-      <p className="claude-config-help">{config.failover ? "故障转移已开启，所选供应商会排到 P1，其余队列顺序保留；启用后可在列表调整优先级。" : "故障转移已关闭，所选供应商作为固定目标；开启顶部开关后按队列优先级请求。"} 点击「回到直连」停止路由并恢复直连配置。</p>
+      <p className="claude-config-help">{config.roundRobin ? "轮询策略已选中，所选供应商会排到 P1，其余队列顺序保留；可在列表中调整顺序。" : config.failover ? "优先级故障转移已选中，所选供应商会排到 P1，其余队列顺序保留；可在列表中调整优先级。" : "固定策略已选中，所选供应商作为唯一目标；队列配置保留但不参与请求。"} 点击「回到直连」停止路由并恢复直连配置。</p>
       {routeStartError && <p className="claude-error" role="alert">{routeStartError}</p>}
     </SharedDialog>}
     {importPreview && <SharedDialog sizeStorageKey="features/plugins/claude-providers-plugin/claude-providers-plugin/3" title="选择导入供应商" subtitle="导入为新记录，不覆盖现有供应商；完全相同的配置将跳过。" closeDisabled={importBusy} onClose={closeImport} footer={<>

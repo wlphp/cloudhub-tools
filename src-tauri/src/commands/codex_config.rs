@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{fs, path::PathBuf, time::Duration};
 use tauri_plugin_dialog::DialogExt;
+use zeroize::{Zeroize, Zeroizing};
 
 #[derive(Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -128,6 +129,77 @@ pub(crate) async fn codex_config_source(
             catalog_preview,
         }))
     }).await.map_err(|_| config_error("读取 Codex 配置任务失败".into()))?.map_err(config_error)
+}
+
+/// Rebuild the user-level Codex model catalog from the active OpenAI-compatible
+/// provider. Credentials remain in the native process and are never returned.
+#[tauri::command]
+pub(crate) async fn codex_refresh_model_catalog(workspace: Option<String>) -> PlatformResult<usize> {
+    let (home, base_url, credential, context_window, compact_limit) = tauri::async_runtime::spawn_blocking(move || -> Result<_, String> {
+        let _writer = super::codex::AUTH_WRITER.lock().map_err(|_| "Codex 配置操作不可用")?;
+        let home = profile::default_home()?;
+        let workspace = workspace.map(PathBuf::from).map(|path| {
+            if !path.is_absolute() { return Err("项目目录必须为绝对路径".to_string()); }
+            let path = path.canonicalize().map_err(|_| "项目目录不存在")?;
+            if !path.is_dir() { return Err("请选择有效的项目目录".into()); }
+            Ok(path)
+        }).transpose()?;
+        let cwd = workspace.as_ref().unwrap_or(&home);
+        let mut server = rpc::AppServer::start(&home).map_err(|_| "无法读取当前 Codex 配置，请确认官方 CLI 已安装且配置有效")?;
+        let response = server.request("config/read", json!({"includeLayers": false, "cwd": cwd.to_string_lossy()}), Duration::from_secs(20))
+            .map_err(|_| "官方 CLI 无法读取当前配置")?;
+        let config = response.get("config").ok_or("当前配置无效")?;
+        let provider_id = config.get("model_provider").and_then(Value::as_str).filter(|value| !value.trim().is_empty()).ok_or("当前配置没有选择模型供应商")?;
+        let provider = config.get("model_providers").and_then(|value| value.get(provider_id)).ok_or("当前模型供应商配置不完整")?;
+        let base_url = provider.get("base_url").and_then(Value::as_str).filter(|value| !value.trim().is_empty()).ok_or("当前模型供应商没有 API 地址")?.trim().to_owned();
+        crate::core::codex::provider_probe::endpoint(&base_url, "models")?;
+
+        let inline = provider.get("experimental_bearer_token").or_else(|| provider.get("api_key")).and_then(Value::as_str).filter(|value| !value.trim().is_empty());
+        let env_key = provider.get("env_key").and_then(Value::as_str).filter(|value| !value.trim().is_empty());
+        let credential = if let Some(value) = inline {
+            Zeroizing::new(value.to_owned())
+        } else if let Some(name) = env_key {
+            if !name.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_') { return Err("当前供应商的凭据配置不受支持".into()); }
+            Zeroizing::new(std::env::var(name).map_err(|_| "当前供应商所需的环境变量未设置")?)
+        } else {
+            let auth_path = home.join("auth.json");
+            let auth_text = profile::read_auth(&auth_path).map_err(|_| "当前配置没有可读取的 API Key 凭据")?;
+            let auth: Value = serde_json::from_str(&auth_text).map_err(|_| "auth.json 格式无效")?;
+            let key = auth.get("OPENAI_API_KEY").or_else(|| auth.get("openai_api_key")).and_then(Value::as_str).filter(|value| !value.trim().is_empty()).ok_or("当前配置没有可用于查询模型的 API Key")?;
+            Zeroizing::new(key.to_owned())
+        };
+        if credential.is_empty() || credential.len() > 16_384 || credential.chars().any(char::is_control) { return Err("当前供应商凭据格式无效".into()); }
+        let context_window = config.get("model_context_window").and_then(Value::as_i64).filter(|value| (4_096..=10_000_000).contains(value));
+        let compact_limit = config.get("model_auto_compact_token_limit").and_then(Value::as_i64).filter(|value| (1_024..=10_000_000).contains(value) && context_window.is_none_or(|context| *value <= context));
+        Ok((home, base_url, credential, context_window, compact_limit))
+    }).await.map_err(|_| config_error("准备模型目录刷新失败".into()))?.map_err(config_error)?;
+
+    let result = crate::core::codex::provider_probe::run(&base_url, "responses", &credential, None).await
+        .map_err(|_| config_error("连接当前模型供应商失败，请检查网络和配置".into()))?;
+    if result.error.is_some() { return Err(config_error("当前模型供应商未能返回有效模型列表，请检查 API Key、地址或接口兼容性".into())); }
+    let count = result.models.len();
+    if count == 0 { return Err(config_error("当前模型供应商返回了空列表，现有目录未更改".into())); }
+
+    let mut settings = crate::core::codex::providers::ModelSettings {
+        models: result.models,
+        models_scoped: true,
+        default_model: None,
+        context_window,
+        compact_limit,
+    };
+    let catalog = crate::core::codex::provider_config::build_catalog(&settings, None);
+    crate::core::codex::model_catalog::validate(&catalog).map_err(|_| config_error("模型目录校验失败，现有目录未更改".into()))?;
+    let content = serde_json::to_string(&catalog).map_err(|_| config_error("生成模型目录失败".into()))?;
+    settings.models.zeroize();
+
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let _writer = super::codex::AUTH_WRITER.lock().map_err(|_| "Codex 配置操作不可用")?;
+        let path = home.join(crate::core::codex::provider_config::CATALOG_FILE);
+        profile::write_private(&path, &content)?;
+        crate::core::codex::model_catalog::write_meta(&path, &content);
+        Ok(())
+    }).await.map_err(|_| config_error("保存模型目录失败".into()))?.map_err(config_error)?;
+    Ok(count)
 }
 
 // Preserve the complete structure while masking credential values in native code.

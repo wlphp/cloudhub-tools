@@ -3484,17 +3484,22 @@ body.theme-light :where(.modal-backdrop, .resource-modal-backdrop, .terminal-con
   line-height: 1.35;
   white-space: nowrap;
 }
-.ide-theme > .app-main-sidebar{position:relative;box-sizing:border-box;height:calc(100dvh - 32px);min-height:0;padding-top:10px;overflow:hidden;transition:width 240ms cubic-bezier(.22,1,.36,1),flex-basis 240ms cubic-bezier(.22,1,.36,1),padding 240ms cubic-bezier(.22,1,.36,1)}
+/* Pin the workbench to one viewport so the sidebar cannot drift away from the window bottom. */
+@media (min-width: 651px) {
+  .ide-theme.app-shell { height: 100vh; height: 100dvh; min-height: 0; }
+  .ide-theme > main { height: calc(100vh - var(--ide-topbar-height, 32px)); height: calc(100dvh - var(--ide-topbar-height, 32px)); }
+}
+.ide-theme > .app-main-sidebar{position:relative;align-self:stretch;box-sizing:border-box;height:auto;min-height:0;margin-top:0;padding-top:calc(var(--ide-topbar-height,32px) + 10px);overflow:hidden;transition:width 240ms cubic-bezier(.22,1,.36,1),flex-basis 240ms cubic-bezier(.22,1,.36,1),padding 240ms cubic-bezier(.22,1,.36,1)}
 .ide-theme > .app-main-sidebar nav{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;scrollbar-color:var(--jb-border-strong) transparent}
-.ide-theme .app-sidebar-toggle{position:absolute;top:20px;right:3px;z-index:11;display:flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:1px solid transparent;border-radius:4px;background:var(--jb-sidebar);color:var(--jb-muted);cursor:pointer}
+.ide-theme .app-sidebar-toggle{position:absolute;top:calc(var(--ide-topbar-height,32px) + 20px);right:3px;z-index:11;display:flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:1px solid transparent;border-radius:4px;background:var(--jb-sidebar);color:var(--jb-muted);cursor:pointer}
 .ide-theme .app-sidebar-toggle:hover{background:var(--jb-selection);color:var(--jb-text);border-color:var(--jb-border)}
 .ide-theme > .app-main-sidebar .brand{height:44px;min-height:44px;flex:none;overflow:hidden;transition:gap 160ms ease}
 .ide-theme > .app-main-sidebar .brand-mark{flex:none}
 .ide-theme > .app-main-sidebar .brand>div:last-child{min-width:0;max-width:280px;white-space:nowrap;opacity:1;transition:opacity 130ms ease,max-width 240ms cubic-bezier(.22,1,.36,1)}
 .ide-theme > .app-main-sidebar nav button{display:grid;grid-template-columns:18px minmax(0,1fr);column-gap:10px;align-items:center;min-width:0;text-align:left;transition:padding 240ms cubic-bezier(.22,1,.36,1),column-gap 160ms ease}
 .ide-theme > .app-main-sidebar .app-nav-label{display:block;overflow:hidden;white-space:nowrap;opacity:1;transform:translateX(0);transition:opacity 130ms ease,transform 180ms ease}
-.ide-theme.sidebar-collapsed > .app-main-sidebar{padding:38px 6px 14px;min-width:64px}
-.ide-theme.sidebar-collapsed > .app-main-sidebar .app-sidebar-toggle{top:3px}
+.ide-theme.sidebar-collapsed > .app-main-sidebar{padding:calc(var(--ide-topbar-height,32px) + 38px) 6px 14px;min-width:64px}
+.ide-theme.sidebar-collapsed > .app-main-sidebar .app-sidebar-toggle{top:calc(var(--ide-topbar-height,32px) + 3px)}
 .ide-theme.sidebar-collapsed > .app-main-sidebar .brand{gap:0}
 .ide-theme.sidebar-collapsed > .app-main-sidebar .brand>div:last-child{max-width:0;opacity:0;visibility:hidden;pointer-events:none}
 .ide-theme.sidebar-collapsed > .app-main-sidebar nav button{padding:0 16px;column-gap:0}
