@@ -25,11 +25,13 @@
 .desktop-overview-legend i{width:9px;height:9px;border-radius:50%}
 .desktop-overview-legend strong{font-size:13px;font-variant-numeric:tabular-nums}
 .desktop-overview-shortcuts{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px}
-.desktop-overview-shortcuts button{display:grid;grid-template-columns:22px minmax(0,1fr);align-items:center;gap:6px 9px;min-width:0;min-height:74px;padding:10px 11px;border:1px solid var(--jb-border);border-radius:8px;background:transparent;color:var(--jb-text);text-align:left;font:inherit;font-size:14px;cursor:pointer}
+/* 图标 + 标题 + 计数同行排布，计数不挤压标题；描述整行换行 */
+.desktop-overview-shortcuts button{display:flex;flex-wrap:wrap;align-items:center;gap:5px 9px;min-width:0;min-height:74px;padding:10px 11px;border:1px solid var(--jb-border);border-radius:8px;background:transparent;color:var(--jb-text);text-align:left;font:inherit;font-size:14px;cursor:pointer}
 .desktop-overview-shortcuts button:hover{border-color:var(--jb-accent);background:var(--jb-surface-raised,var(--jb-surface))}
-.desktop-overview-shortcuts button svg{width:18px;height:18px;color:var(--jb-accent)}
-.desktop-overview-shortcuts button strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}
-.desktop-overview-shortcuts button span{grid-column:1/-1;overflow:hidden;color:var(--jb-muted);font-size:11px;text-overflow:ellipsis;white-space:nowrap}
+.desktop-overview-shortcuts button svg{flex:none;width:18px;height:18px;color:var(--jb-accent)}
+.desktop-overview-shortcuts button strong{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}
+.desktop-overview-shortcuts button em{flex:none;padding:2px 7px;border-radius:999px;background:var(--jb-surface-raised,var(--jb-surface));color:var(--jb-muted);font-size:12px;font-style:normal;line-height:1.4;font-variant-numeric:tabular-nums}
+.desktop-overview-shortcuts button span{flex-basis:100%;overflow:hidden;color:var(--jb-muted);font-size:11px;text-overflow:ellipsis;white-space:nowrap}
 .desktop-overview-software-card{margin-top:16px}
 .desktop-overview-software-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:9px}
 .desktop-overview-software-grid button{display:flex;align-items:center;gap:10px;min-width:0;min-height:48px;padding:10px 12px;border:1px solid var(--jb-border);border-radius:8px;background:transparent;color:var(--jb-text);font:inherit;text-align:left;cursor:pointer}

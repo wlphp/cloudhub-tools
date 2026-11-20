@@ -5345,6 +5345,7 @@ function App() {
                     </div>
                   ) : null;
                   const serverActions = (account?.cloud_type === "cloudflare" || asset.resource_type === "ecs" || asset.resource_type === "swas") ? renderAssetActions(asset, account) : null;
+                  const rawAssetStatus = payload.Status || payload.InstanceStatus || payload.DBInstanceStatus || payload.DomainStatus;
                   const assetNote = assetNotes[assetRowKey] || "";
                   return <tr key={assetRowKey} className={draggedAssetKey === assetRowKey ? "is-asset-dragging" : ""} data-expiry-tone={assetExpiryTone(asset) ?? undefined} data-asset-row-key={assetRowKey}>
                     <td className="asset-order-cell">{assetSorting ? <button type="button" className="asset-drag-handle" aria-label={`拖动排序 ${serverName}`} title="拖动排序" onPointerDown={(event) => startAssetDrag(event, assetRowKey)}><GripVertical size={17} /></button> : <SelectionCheckbox label={`选择资产 ${serverName}`} checked={assetSelection.selected.has(assetRowKey)} onChange={() => assetSelection.toggle(assetRowKey)} />}</td>
@@ -5355,7 +5356,7 @@ function App() {
                     <td className="asset-expiry-cell">{formatAssetDate(expiryTimestamp ?? expiry)}{expiryRemainingDays !== null && <small className="asset-expiry-remaining" data-expiry-tone={expiryTone ?? undefined}>{expiryRemainingDays < 0 ? `已过期 ${Math.abs(expiryRemainingDays)} 天` : `剩余 ${expiryRemainingDays} 天`}</small>}</td>
                     <td><div className="asset-account-name"><CloudAvatar cloudType={account?.cloud_type || "other"} /><strong>{account?.account_name || `账号 ${asset.account_id}`}</strong></div><small className="asset-subline">{cloudProvider(account?.cloud_type || "other").label} · {maskedKey}</small><small className="asset-subline">{account?.group_name || "未分组"}</small></td>
                     <td>{displayValue(asset.region_id || payload.RegionId || payload.Location)}</td>
-                    <td>{cloudStatusText(payload.Status || payload.InstanceStatus || payload.DBInstanceStatus || payload.DomainStatus)}</td>
+                    <td>{/^\d+$/.test(String(rawAssetStatus ?? "")) ? "—" : cloudStatusText(rawAssetStatus)}</td>
                     <td className="asset-actions-cell">{domainActions || ossActions || serverActions || <span className="asset-action-muted">—</span>}</td>
                   </tr>;
                 })}

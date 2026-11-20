@@ -144,6 +144,9 @@ body:has(.mobile-shell) .plugin-page-host .plugin-page-back svg { width: 16px; h
   gap: 16px;
   flex-wrap: wrap;
 }
+/* 编程聚焦进入页面时不出浏览器默认外框；容器不进 Tab 序，页内控件自行显示键盘焦点 */
+.plugin-page-host:focus,
+.plugin-page-host:focus-visible { outline: none; }
 /* 正文自带一层水平内边距的插件（电脑信息）：标题行同步缩进对齐 */
 .plugin-page-host:has(.hardware-info-body) .plugin-page-head { padding: 0 20px; }
 .plugin-page-head h1 { margin: 0; font-size: 21px; font-weight: 600; }
