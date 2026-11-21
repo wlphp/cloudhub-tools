@@ -48,6 +48,27 @@ pub fn load(conn: &Connection, key: &[u8; 32]) -> Result<Vec<Entry>, String> {
     });
     Ok(entries)
 }
+/// Loads every row that still holds a ciphertext, including recycle-bin rows,
+/// so a key migration can re-encrypt them. Scrubbed rows (ciphertext NULL)
+/// carry no secret and are skipped, and `write` never touches `deleted_at`,
+/// so the trashed state survives the re-encryption.
+pub fn load_for_rekey(conn: &Connection, key: &[u8; 32]) -> Result<Vec<Entry>, String> {
+    let mut statement = conn
+        .prepare("SELECT id,ciphertext FROM authenticator_entries WHERE ciphertext IS NOT NULL AND ciphertext<>'' ORDER BY id LIMIT 20001")
+        .map_err(|_| "读取验证码失败")?;
+    let rows = statement
+        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+        .map_err(|_| "读取验证码失败")?;
+    let mut entries = vec![];
+    for row in rows {
+        let (id, ciphertext) = row.map_err(|_| "读取验证码失败")?;
+        entries.push(decrypt_entry(key, &id, &ciphertext)?);
+    }
+    if entries.len() > 20000 {
+        return Err("验证码数量超过迁移上限".into());
+    }
+    Ok(entries)
+}
 pub fn write(conn: &Connection, key: &[u8; 32], entry: &Entry) -> Result<(), String> {
     let ciphertext = encrypt_entry(key, entry)?;
     // `name` is a non-secret label so the recycle bin can list entries without
@@ -100,6 +121,14 @@ pub fn remove(conn: &mut Connection, ids: &[String]) -> Result<(), String> {
     tx.commit().map_err(|_| "提交删除失败".into())
 }
 
+pub fn remove_all(conn: &mut Connection) -> Result<usize, String> {
+    let tx = conn.transaction().map_err(|_| "无法开始删除事务")?;
+    let now = chrono::Utc::now().timestamp_millis();
+    let count = tx.execute("UPDATE authenticator_entries SET deleted_at=?1 WHERE deleted_at IS NULL", [now]).map_err(|_| "删除验证码失败")?;
+    tx.commit().map_err(|_| "提交删除失败")?;
+    Ok(count)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -119,5 +148,10 @@ mod tests {
         assert_eq!(load(&db, &key).unwrap().len(), 1);
         remove(&mut db, &[entry.id.clone()]).unwrap();
         assert!(load(&db, &key).unwrap().is_empty());
+        write(&db, &key, &entry).unwrap();
+        remove_all(&mut db).unwrap();
+        assert!(load(&db, &key).unwrap().is_empty());
+        let trashed: i64 = db.query_row("SELECT count(*) FROM authenticator_entries WHERE deleted_at IS NOT NULL", [], |row| row.get(0)).unwrap();
+        assert_eq!(trashed, 1);
     }
 }

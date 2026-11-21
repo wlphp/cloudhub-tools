@@ -125,6 +125,8 @@ export const claudeWorkbenchClient = {
 /** 列表项；密钥本身不返回，只给 `keyConfigured`。 */
 export type ClaudeProviderSummary = Omit<ClaudeProviderInput, "apiKey"> & {
   keyConfigured: boolean;
+  /** An encrypted key is present, but could not be decrypted on this device. */
+  keyDecryptionFailed: boolean;
   isCurrent: boolean;
 };
 

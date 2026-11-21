@@ -17,7 +17,8 @@ fn dispatch(store: &VaultStore, request: Request) -> Result<Value, String> {
             let header = vault::initialize_device(&mut db, &vault::device_key_path()?)?;
             let required = header != vault::DEVICE_HEADER;
             if !required { access(store, owner, false, |_, _| Ok(()))?; }
-            value(Status { initialized: true, unlocked: !required, password_required: required })
+            let entry_count: i64 = db.query_row("SELECT count(*) FROM authenticator_entries WHERE deleted_at IS NULL", [], |row| row.get(0)).map_err(|_| "读取验证码数量失败")?;
+            value(Status { initialized: true, unlocked: !required, password_required: required, entry_count: entry_count.max(0) as usize })
         }
         "unlock" => {
             let password = Zeroizing::new(field::<String>(&args, "password")?);
@@ -35,7 +36,7 @@ fn dispatch(store: &VaultStore, request: Request) -> Result<Value, String> {
         "list" => access(store, owner, false, |s, db| value(repository::load(db, &s.key)?.iter().map(Entry::summary).collect::<Vec<_>>())),
         "touch" => access(store, owner, true, |_, _| Ok(Value::Null)),
         "save" => access(store, owner, true, |s, db| { save_entry(s, db, field(&args, "input")?)?; Ok(Value::Null) }),
-        "remove" => access(store, owner, true, |_, db| { repository::remove(db, &field::<Vec<String>>(&args, "ids")?)?; Ok(Value::Null) }),
+        "remove" => access(store, owner, true, |_, db| { if args.get("all").and_then(Value::as_bool) == Some(true) { repository::remove_all(db)?; } else { repository::remove(db, &field::<Vec<String>>(&args, "ids")?)?; } Ok(Value::Null) }),
         "advance" => access(store, owner, true, |s, db| {
             let id: String = field(&args, "id")?;
             let tx = db.transaction().map_err(|_| "无法开始计数事务")?;

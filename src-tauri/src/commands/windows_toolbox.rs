@@ -861,6 +861,12 @@ fn find_wmi_monitor<'a>(
 /// verified raw value after the monitor reports back.
 #[cfg(target_os = "windows")]
 fn wmi_set_brightness(device_id: &str, raw_value: u32) -> Result<u32, String> {
+    // CimInstance objects (Get-CimInstance) do not expose WMI methods as .NET
+    // methods on Windows PowerShell 5.1 — `$instance.WmiSetBrightness(...)`
+    // throws "不包含名为 WmiSetBrightness 的方法". Invoke-CimMethod is the only
+    // supported invocation form. The WMI signature is
+    // WmiSetBrightness(uint32 Timeout, uint8 Brightness), hence the byte cast.
+    let raw_value = raw_value.min(255);
     let script = format!(r#"
 $ErrorActionPreference = 'Stop'
 try {{
@@ -868,7 +874,9 @@ try {{
   $value = {raw_value}
   $methods = Get-CimInstance -Namespace root/wmi -Class WmiMonitorBrightnessMethods | Where-Object {{ $_.InstanceName -like ($target + '*') }}
   if (-not $methods) {{ exit 1 }}
-  foreach ($instance in @($methods)) {{ $instance.WmiSetBrightness(1, $value) | Out-Null }}
+  foreach ($instance in @($methods)) {{
+    Invoke-CimMethod -InputObject $instance -MethodName WmiSetBrightness -Arguments @{{ Timeout = [uint32]1; Brightness = [byte]$value }} | Out-Null
+  }}
   Start-Sleep -Milliseconds 150
   $verified = Get-CimInstance -Namespace root/wmi -ClassName WmiMonitorBrightness | Where-Object {{ $_.InstanceName -like ($target + '*') }} | Select-Object -First 1
   if (-not $verified) {{ exit 2 }}

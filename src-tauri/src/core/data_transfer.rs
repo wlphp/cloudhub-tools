@@ -30,7 +30,7 @@ pub fn allowed(table: &str) -> bool { TABLES.iter().any(|(name, _)| *name == tab
 #[allow(dead_code)]
 pub const LOCAL_TABLES: &[&str] = &[
     "api_logs","operation_logs","cloud_assets","flow_pipeline_cache","network_speed_history",
-    "ip_location_cache",
+    "ip_location_cache","cloud_account_balances",
     "certificate_snapshots","certificate_sync_identity","flow_sync_identity",
     "authenticator_vault","memo_reminders","ai_capabilities","claude_provider_backups",
     "codex_accounts","codex_profiles","codex_profile_backups","codex_account_controls","codex_account_events",

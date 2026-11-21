@@ -1479,7 +1479,8 @@ export function MobileApp() {
   const pagedBuckets = filteredBuckets.slice((safeResourceListPage(filteredBuckets.length) - 1) * resourceListPageSize, safeResourceListPage(filteredBuckets.length) * resourceListPageSize);
   const pagedDatabaseAssets = filteredDatabaseAssets.slice((safeResourceListPage(filteredDatabaseAssets.length) - 1) * resourceListPageSize, safeResourceListPage(filteredDatabaseAssets.length) * resourceListPageSize);
   const pagedRedisAssets = filteredRedisAssets.slice((safeResourceListPage(filteredRedisAssets.length) - 1) * resourceListPageSize, safeResourceListPage(filteredRedisAssets.length) * resourceListPageSize);
-  useEffect(() => { setResourceListPage(1); }, [tab, serverSearch, serverKind, serverSortAscending, domainSearch, assetAccountFilterIds, assetName, assetSearchText, resourceSearch, resourceStatus, servers, domains, buckets, databaseAssets, redisAssets]);
+  // 依赖不能包含 assetName/assetSearchText：两者是每次渲染重建的内联函数，会让本 effect 在每次渲染后执行并把页码弹回第 1 页；改用 assetSearchText 依赖的 accountForAsset 覆盖账号列表变化。
+  useEffect(() => { setResourceListPage(1); }, [tab, serverSearch, serverKind, serverSortAscending, domainSearch, assetAccountFilterIds, resourceSearch, resourceStatus, accountForAsset, servers, domains, buckets, databaseAssets, redisAssets]);
   const sshGroups = [...new Set(managedHosts.map((host) => host.group_name?.trim() || "未分组"))].sort((left, right) => left.localeCompare(right, "zh-CN"));
   const filteredHosts = filterNamed("ssh", managedHosts.filter((host) => (!resourceStatus.ssh || host.status === resourceStatus.ssh) && (!sshGroupFilter || (host.group_name?.trim() || "未分组") === sshGroupFilter)), (host) => host.name, (host) => [host.name, host.host, host.username, host.platform, host.status, host.group_name].join(" "));
   const sshListPageCount = Math.max(1, Math.ceil(filteredHosts.length / sshListPageSize));

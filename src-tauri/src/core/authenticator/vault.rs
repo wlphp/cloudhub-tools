@@ -47,6 +47,7 @@ pub struct Status {
     pub initialized: bool,
     pub unlocked: bool,
     pub password_required: bool,
+    pub entry_count: usize,
 }
 
 pub const DEVICE_HEADER: &str = "{\"format\":\"cloudhub-authenticator-device\",\"version\":1}";
@@ -55,59 +56,21 @@ pub fn device_key_path() -> Result<std::path::PathBuf, String> {
     Ok(crate::core::paths::data_dir()?.join(".authenticator.key"))
 }
 
-#[cfg(not(mobile))]
-pub fn read_device_key(path: &std::path::Path) -> Result<Zeroizing<[u8; 32]>, String> {
-    use std::io::Read;
-    let mut bytes = Zeroizing::new(Vec::new());
-    std::fs::File::open(path)
-        .map_err(|_| "验证器本机密钥文件缺失，需从独立备份恢复")?
-        .take(33)
-        .read_to_end(&mut bytes)
-        .map_err(|_| "无法读取验证器本机密钥")?;
-    Ok(Zeroizing::new(
-        bytes
-            .as_slice()
-            .try_into()
-            .map_err(|_| "验证器本机密钥文件无效")?,
-    ))
-}
-
-#[cfg(mobile)]
 pub fn read_device_key(_path: &std::path::Path) -> Result<Zeroizing<[u8; 32]>, String> {
     use hmac::{Hmac, Mac};
     use sha2::Sha256;
     let root = Zeroizing::new(crate::core::crypto::crypto_key_bytes()?);
-    let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(&root).map_err(|_| "手机验证器密钥不可用")?;
+    let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(&root).map_err(|_| "验证器密钥不可用")?;
     mac.update(b"cloudhub-authenticator-device-key:v1");
     Ok(Zeroizing::new(mac.finalize().into_bytes().into()))
 }
 
-pub fn persist_device_key(path: &std::path::Path, key: &[u8; 32]) -> Result<(), String> {
-    use std::io::Write;
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    match options.open(path) {
-        Ok(mut file) => {
-            if file.write_all(key).and_then(|_| file.sync_all()).is_err() {
-                drop(file);
-                let _ = std::fs::remove_file(path);
-                return Err("无法保存验证器本机密钥".into());
-            }
-            Ok(())
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-            if *read_device_key(path)? != *key {
-                return Err("本机已有不同的验证器密钥，未覆盖原数据".into());
-            }
-            Ok(())
-        }
-        Err(_) => Err("无法创建验证器本机密钥".into()),
-    }
+#[cfg(not(mobile))]
+fn read_legacy_device_key(path: &std::path::Path) -> Result<Zeroizing<[u8; 32]>, String> {
+    use std::io::Read;
+    let mut bytes = Zeroizing::new(Vec::new());
+    std::fs::File::open(path).map_err(|_| "无法读取旧验证器密钥")?.take(33).read_to_end(&mut bytes).map_err(|_| "无法读取旧验证器密钥")?;
+    Ok(Zeroizing::new(bytes.as_slice().try_into().map_err(|_| "旧验证器密钥文件无效")?))
 }
 
 pub fn initialize_device(
@@ -119,23 +82,43 @@ pub fn initialize_device(
         .map_err(|_| "无法开始验证器初始化")?;
     if let Some(header) = crate::core::repositories::authenticator::header(&tx)? {
         if header == DEVICE_HEADER {
+            #[cfg(not(mobile))]
+            let mut cleanup_file = false;
+            #[cfg(not(mobile))]
+            if path.exists() {
+                // Migrate only when the legacy key authenticates this database.
+                // A mismatched copied database remains intact and recoverable.
+                if let Ok(old_key) = read_legacy_device_key(path) {
+                    match crate::core::repositories::authenticator::load_for_rekey(&tx, &old_key) {
+                        Ok(entries) => {
+                            let new_key = read_device_key(path)?;
+                            for entry in entries { crate::core::repositories::authenticator::write(&tx, &new_key, &entry)?; }
+                            cleanup_file = true;
+                        }
+                        // Re-keying happens in one transaction, so a leftover
+                        // file can only mean the removal was interrupted after
+                        // the rows were already re-encrypted; drop it once the
+                        // derived key authenticates every remaining row.
+                        Err(_) => {
+                            let derived = read_device_key(path)?;
+                            if crate::core::repositories::authenticator::load_for_rekey(&tx, &derived).is_ok() {
+                                cleanup_file = true;
+                            }
+                        }
+                    }
+                }
+            }
+            #[cfg(not(mobile))]
+            if cleanup_file {
+                tx.commit().map_err(|_| "无法提交验证器密钥迁移")?;
+                let _ = std::fs::remove_file(path);
+            }
             return Ok(header);
         }
         // Keep legacy encrypted entries intact until the user supplies the old password.
         return Ok(header);
     }
-    #[cfg(mobile)]
-    let key = read_device_key(path)?;
-    #[cfg(not(mobile))]
-    let key = if path.exists() {
-        read_device_key(path)?
-    } else {
-        let mut key = Zeroizing::new([0u8; 32]);
-        rand::thread_rng().fill_bytes(&mut *key);
-        persist_device_key(path, &key)?;
-        key
-    };
-    let _ = key;
+    let _ = read_device_key(path)?;
     tx.execute(
         "INSERT INTO authenticator_vault(id,envelope_json) VALUES(1,?1)",
         [DEVICE_HEADER],
@@ -151,29 +134,24 @@ pub fn migrate_device(
     old_header: &str,
     password: &str,
 ) -> Result<Zeroizing<[u8; 32]>, String> {
-    let key = unwrap_key(old_header, password)?;
+    let old_key = unwrap_key(old_header, password)?;
     let tx = db
         .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
         .map_err(|_| "无法开始验证器迁移")?;
-    crate::core::repositories::authenticator::load(&tx, &key)?;
+    let entries = crate::core::repositories::authenticator::load_for_rekey(&tx, &old_key)?;
     if crate::core::repositories::authenticator::header(&tx)?.as_deref() != Some(old_header) {
         return Err("验证器数据已变化，请重试".into());
     }
-    #[cfg(not(mobile))]
-    persist_device_key(path, &key)?;
-    #[cfg(mobile)]
-    let key = {
-        let entries = crate::core::repositories::authenticator::load(&tx, &key)?;
-        let new_key = read_device_key(path)?;
-        for entry in entries { crate::core::repositories::authenticator::write(&tx, &new_key, &entry)?; }
-        new_key
-    };
+    let key = read_device_key(path)?;
+    for entry in entries { crate::core::repositories::authenticator::write(&tx, &key, &entry)?; }
     tx.execute(
         "UPDATE authenticator_vault SET envelope_json=?1 WHERE id=1",
         [DEVICE_HEADER],
     )
     .map_err(|_| "无法迁移验证器")?;
     tx.commit().map_err(|_| "无法提交验证器迁移")?;
+    #[cfg(not(mobile))]
+    { let _ = std::fs::remove_file(path); }
     Ok(key)
 }
 #[derive(Serialize)]
@@ -328,36 +306,61 @@ mod tests {
             DEVICE_HEADER
         );
         assert_eq!(
-            repository::load(&db, &read_device_key(&key_path).unwrap())
-                .unwrap()
-                .len(),
+            repository::load(&db, &key).unwrap().len(),
             1
         );
-        assert!(persist_device_key(&key_path, &[0u8; 32]).is_err());
-        std::fs::remove_file(&key_path).unwrap();
-        assert_eq!(
-            initialize_device(&mut db, &key_path).unwrap(),
-            DEVICE_HEADER
-        );
-        assert!(read_device_key(&key_path).is_err());
+        #[cfg(not(mobile))]
+        {
+            let trashed = super::super::formats::parse_uri(
+                "otpauth://totp/Test:bin?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
+            )
+            .unwrap();
+            // Pre-upgrade state: the legacy file key encrypts every row,
+            // including one already sitting in the recycle bin.
+            std::fs::write(&key_path, [8u8; 32]).unwrap();
+            repository::write(&db, &[8u8; 32], &entry).unwrap();
+            repository::write(&db, &[8u8; 32], &trashed).unwrap();
+            repository::remove(&mut db, &[trashed.id.clone()]).unwrap();
+            assert_eq!(
+                initialize_device(&mut db, &key_path).unwrap(),
+                DEVICE_HEADER
+            );
+            assert!(!key_path.exists());
+            assert_eq!(repository::load(&db, &key).unwrap().len(), 1);
+            assert_eq!(repository::load_for_rekey(&db, &key).unwrap().len(), 2);
+            // A removal interrupted after the rows were re-keyed must not
+            // wedge the next start: the stale file is dropped instead.
+            std::fs::write(&key_path, [8u8; 32]).unwrap();
+            assert_eq!(
+                initialize_device(&mut db, &key_path).unwrap(),
+                DEVICE_HEADER
+            );
+            assert!(!key_path.exists());
+        }
         db.execute_batch("DELETE FROM authenticator_entries; DELETE FROM authenticator_vault;")
             .unwrap();
         let (key, envelope) = wrap_key("test-passphrase").unwrap();
         let header = repository::create(&db, &envelope).unwrap();
         repository::write(&db, &key, &entry).unwrap();
+        let binned = super::super::formats::parse_uri(
+            "otpauth://totp/Test:bin?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
+        )
+        .unwrap();
+        repository::write(&db, &key, &binned).unwrap();
+        repository::remove(&mut db, &[binned.id.clone()]).unwrap();
         assert_eq!(initialize_device(&mut db, &key_path).unwrap(), header);
-        assert!(!key_path.exists());
         assert_eq!(repository::load(&db, &key).unwrap().len(), 1);
+        assert_eq!(repository::load_for_rekey(&db, &key).unwrap().len(), 2);
         assert!(migrate_device(&mut db, &key_path, &header, "incorrect").is_err());
-        assert!(!key_path.exists());
         assert_eq!(repository::header(&db).unwrap().unwrap(), header);
         let migrated = migrate_device(&mut db, &key_path, &header, "test-passphrase").unwrap();
-        assert_eq!(*migrated, *key);
-        assert_eq!(*read_device_key(&key_path).unwrap(), *key);
+        assert_eq!(*migrated, *read_device_key(&key_path).unwrap());
+        assert_ne!(*migrated, *key);
         assert_eq!(repository::header(&db).unwrap().unwrap(), DEVICE_HEADER);
         assert_eq!(repository::load(&db, &migrated).unwrap().len(), 1);
+        assert_eq!(repository::load_for_rekey(&db, &migrated).unwrap().len(), 2);
         drop(db);
-        std::fs::remove_file(key_path).unwrap();
+        if key_path.exists() { std::fs::remove_file(key_path).unwrap(); }
         std::fs::remove_file(db_path).unwrap();
         std::fs::remove_dir(path).unwrap();
     }

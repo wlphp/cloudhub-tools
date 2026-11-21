@@ -58,7 +58,11 @@ if (command !== "dev" && command !== "build") {
 
     viteChild = spawn(process.execPath, [viteEntry, ...(command === "build" ? ["build"] : [])], {
       stdio: "inherit",
-      env: { ...process.env, VITE_APP_TARGET: "mobile" },
+      env: {
+        ...process.env,
+        VITE_APP_TARGET: "mobile",
+        VITE_DEV_PORT: process.env.VITE_DEV_PORT || "1422",
+      },
     });
     viteChild.on("error", (error) => {
       console.error(`启动移动端构建失败: ${error.message}`);

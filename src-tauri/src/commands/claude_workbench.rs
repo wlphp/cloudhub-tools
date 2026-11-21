@@ -35,6 +35,15 @@ pub enum ProviderAction{
 }
 #[tauri::command]
 pub async fn claude_provider_action(app:tauri::AppHandle,action:ProviderAction)->PlatformResult<Value>{
+    // Import preview/cancel must not depend on decrypting the existing provider
+    // list; otherwise one unreadable key prevents the file picker from opening.
+    if matches!(&action, ProviderAction::PrepareImport | ProviderAction::CancelImport) {
+        return tauri::async_runtime::spawn_blocking(move || match action {
+            ProviderAction::PrepareImport => transfer::prepare(&app),
+            ProviderAction::CancelImport => transfer::cancel(),
+            _ => unreachable!(),
+        }).await.map_err(|_|crate::core::error::PlatformError::from("供应商任务失败"))?;
+    }
     if let ProviderAction::Usage { id, adapter } = &action {
         let id = id.clone();
         let p = tauri::async_runtime::spawn_blocking(move || provider(&id))
@@ -54,19 +63,25 @@ pub async fn claude_provider_action(app:tauri::AppHandle,action:ProviderAction)-
     }
     if let ProviderAction::DeleteSelected { ids } = &action {
         for id in ids {
-            if gateway::in_use(id).await { let p=provider(id)?; return Err(transfer::error(&format!("无法批量删除：「{}」仍在路由或聚合名单中，请先移除；未删除任何记录",p.name))); }
+            if gateway::in_use(id).await {
+                return Err(transfer::error("无法批量删除：所选供应商仍在路由或聚合名单中，请先移除；未删除任何记录"));
+            }
         }
     }
     tauri::async_runtime::spawn_blocking(move||->PlatformResult<Value>{
         let _writer=gateway::CONFIG_WRITER.lock().map_err(|_|"配置正在使用")?;
-        let conn=open_db()?;let providers=repo::list_providers(&conn)?;
+        let conn=open_db()?;
+        if let ProviderAction::DeleteSelected{ids}=&action {
+            return transfer::delete(&conn,ids);
+        }
+        let providers=repo::list_providers(&conn)?;
         match action{
             ProviderAction::Usage{..}|ProviderAction::Balance{..}|ProviderAction::Quota{..}=>return Err("额度请求不可用".into()),
             ProviderAction::PrepareImport=>return transfer::prepare(&app),
             ProviderAction::CancelImport=>return transfer::cancel(),
             ProviderAction::ImportSelected{token,indices}=>return transfer::import(&conn,&token,&indices),
             ProviderAction::ExportSelected{ids}=>return transfer::export(&app,&providers,&ids),
-            ProviderAction::DeleteSelected{ids}=>return transfer::delete(&conn,&providers,&ids),
+            ProviderAction::DeleteSelected{..}=>unreachable!(),
             ProviderAction::OpenConfigDirectory=>{
                 let path=repo::settings_path()?;
                 let directory=path.parent().ok_or("无法确定配置目录")?;

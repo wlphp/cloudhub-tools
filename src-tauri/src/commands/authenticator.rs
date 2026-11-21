@@ -82,6 +82,7 @@ pub(crate) async fn authenticator_status(
     work(move || {
         let mut db = open_db()?;
         let header = vault::initialize_device(&mut db, &vault::device_key_path()?)?;
+        let entry_count: i64 = db.query_row("SELECT count(*) FROM authenticator_entries WHERE deleted_at IS NULL", [], |row| row.get(0)).map_err(|_| "读取验证码数量失败")?;
         let password_required = header != vault::DEVICE_HEADER;
         let unlocked = if !password_required {
             access(&store, &owner, false, |_, _| Ok(()))?;
@@ -94,6 +95,7 @@ pub(crate) async fn authenticator_status(
             initialized: true,
             unlocked,
             password_required,
+            entry_count: entry_count.max(0) as usize,
         })
     })
     .await
@@ -329,11 +331,13 @@ pub(crate) async fn authenticator_remove(
     window: tauri::Window,
     state: State<'_, VaultStore>,
     ids: Vec<String>,
+    all: bool,
 ) -> PlatformResult<()> {
     let store = state.inner().clone();
     let owner = window.label().to_string();
-    work(move || access(&store, &owner, true, |_, db| repository::remove(db, &ids))).await
+    work(move || access(&store, &owner, true, |_, db| if all { repository::remove_all(db).map(|_| ()) } else { repository::remove(db, &ids) })).await
 }
+
 #[tauri::command]
 pub(crate) async fn authenticator_advance(
     window: tauri::Window,

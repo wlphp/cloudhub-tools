@@ -11,7 +11,7 @@ import { Check, ChevronDown, Copy, Download, Edit3, Eye, EyeOff, Filter, Grid2X2
 import { PaginationBar, PAGE_SIZE_OPTIONS } from "../../shared/PaginationBar";
 import { useGridPageSize } from "../../shared/useGridPageSize";
 import { authenticatorClient as client, type AuthCode, type AuthEntry, type AuthInput, type AuthPreview } from "../../platform/clients/authenticator";
-import { runningInTauri } from "../../platform/api";
+import { platformErrorMessage, runningInTauri } from "../../platform/api";
 import "./authenticator.css";
 import { ProviderIcon } from "./ProviderIcon";
 import { Format, requestPermissions, scan } from "@tauri-apps/plugin-barcode-scanner";
@@ -48,6 +48,7 @@ export function AuthenticatorPanel({ mobile = false, initialOtpUri, onInitialOtp
   const [unlocked, setUnlocked] = useState(false);
   const [loading, setLoading] = useState(true);
   const [entries, setEntries] = useState<AuthEntry[]>([]);
+  const [entryCount, setEntryCount] = useState(0);
   const [codes, setCodes] = useState<Record<string, AuthCode>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -71,7 +72,7 @@ export function AuthenticatorPanel({ mobile = false, initialOtpUri, onInitialOtp
     onMove: moveAuthenticatorEntry,
   });
   const [draft, setDraft] = useState<AuthInput | null>(null);
-  const [modal, setModal] = useState<"import" | "export" | "delete" | null>(null);
+  const [modal, setModal] = useState<"import" | "export" | "delete" | "delete-all" | null>(null);
   const [uriText, setUriText] = useState("");
   const [preview, setPreview] = useState<AuthPreview | null>(null);
   const [choices, setChoices] = useState<Record<string, string>>({});
@@ -158,7 +159,7 @@ export function AuthenticatorPanel({ mobile = false, initialOtpUri, onInitialOtp
   }, [mobile, clearSecrets]);
 
   async function openVault() {
-    try { const status = await client.status(); if (alive.current) { setPasswordRequired(status.passwordRequired); setUnlocked(status.unlocked); } }
+    try { const status = await client.status(); if (alive.current) { setPasswordRequired(status.passwordRequired); setUnlocked(status.unlocked); setEntryCount(status.entryCount); } }
     catch (reason) { if (alive.current) setError(reason instanceof Error ? reason.message : "读取验证器状态失败"); }
     finally { if (alive.current) setLoading(false); }
   }
@@ -166,9 +167,9 @@ export function AuthenticatorPanel({ mobile = false, initialOtpUri, onInitialOtp
   async function refresh() {
     const request = epoch.current;
     const items = await client.list();
-    if (alive.current && request === epoch.current) { setEntries(items); setSelected((old) => new Set([...old].filter((id) => items.some((item) => item.id === id)))); }
+    if (alive.current && request === epoch.current) { setEntries(items); setEntryCount(items.length); setSelected((old) => new Set([...old].filter((id) => items.some((item) => item.id === id)))); }
   }
-  useEffect(() => { if (unlocked) void refresh().catch(() => clearSecrets()); }, [unlocked, clearSecrets]);
+  useEffect(() => { if (unlocked) void refresh().catch((reason) => { setEntries([]); setSelected(new Set()); setError(platformErrorMessage(reason, "读取验证码失败")); }); }, [unlocked]);
   const groups = useMemo(() => [...new Set(entries.map((entry) => entry.group).filter(Boolean))].sort(), [entries]);
   const groupOptions = useMemo(() => groups.map((name) => ({ value: name, label: name, count: entries.filter((entry) => entry.group === name).length })), [groups, entries]);
   const categories = useMemo(() => {
@@ -341,10 +342,11 @@ export function AuthenticatorPanel({ mobile = false, initialOtpUri, onInitialOtp
 
   return <section className={panelClassName} onPointerDown={touch} onKeyDown={touch}>
     <ToastNotice message={copyNotice?.text} tone={copyNotice?.failed ? "error" : "info"} />
-    <div className="auth-header"><div><h2><ShieldCheck size={22} /> {mobile ? "身份验证器" : "验证器"}</h2><span>{entries.length} 个验证码 · 本地加密保存</span></div><div className="auth-actions">
+    <div className="auth-header"><div><h2><ShieldCheck size={22} /> {mobile ? "身份验证器" : "验证器"}</h2><span>{entryCount} 个验证码 · 本地加密保存</span></div><div className="auth-actions">
       <button disabled={busy} onClick={() => { hideDraftSecret(); setDraft(emptyDraft()); setError(""); }}><Plus size={16} /> 新增</button>
       <button disabled={busy} onClick={() => { setModal("import"); setError(""); }}><Upload size={16} /> 导入</button>
       <button disabled={busy || !entries.length} onClick={() => { setModal("export"); setError(""); }}><Download size={16} /> {selected.size ? `导出所选（${selected.size}）` : "选择导出"}</button>
+      {entryCount > 0 && <button className="danger" disabled={busy} onClick={() => setModal("delete-all")}><Trash2 size={16} /> 清空重录</button>}
     </div></div>{alerts}
     {mobile && <button type="button" className="mobile-list-filter-toggle auth-mobile-tools-toggle" aria-expanded={mobileToolsOpen} aria-controls="auth-mobile-tools-panel" onClick={() => setMobileToolsOpen(open => !open)}><Filter size={15} aria-hidden="true" /><span>筛选与显示 · {mobileToolsSummary}</span><ChevronDown size={15} aria-hidden="true" /></button>}
     <div id={mobile ? "auth-mobile-tools-panel" : undefined} hidden={mobile && !mobileToolsOpen} className={mobile ? "auth-mobile-tools-panel" : undefined}>
@@ -408,5 +410,6 @@ export function AuthenticatorPanel({ mobile = false, initialOtpUri, onInitialOtp
       {error && <p className="auth-error" role="alert">{error}</p>}
     </Modal>}
     {modal === "delete" && <Modal sizeStorageKey="features/authenticator/authenticator-panel/authenticator-panel/4" title="删除验证码" busy={busy} close={closeModal} footer={<><button type="button" className="secondary" disabled={busy} onClick={closeModal}>取消</button><button type="button" className="danger" disabled={busy} onClick={() => void action(async () => { await client.remove([...selected]); closeModal(); await refresh(); setMessage("所选验证码已删除"); })}>确认删除</button></>}><p>确定删除所选 {selected.size} 个验证码？删除后可在系统设置的回收站恢复。</p>{error && <p role="alert" className="auth-error">{error}</p>}</Modal>}
+    {modal === "delete-all" && <Modal sizeStorageKey="features/authenticator/authenticator-panel/authenticator-panel/5" title="清空并重新录入" busy={busy} close={closeModal} footer={<><button type="button" className="secondary" disabled={busy} onClick={closeModal}>取消</button><button type="button" className="danger" disabled={busy} onClick={() => void action(async () => { await client.removeAll(); setEntries([]); setSelected(new Set()); setEntryCount(0); closeModal(); setError(""); setMessage(`已将 ${entryCount} 条验证码移入回收站，可以重新录入`); })}>确认清空</button></>}><p>将清空当前密码库中的 {entryCount} 条记录并移入回收站，之后可重新录入。即使密文无法解密，也会按记录 ID 清理；此操作仅影响当前环境。</p>{error && <p role="alert" className="auth-error">{error}</p>}</Modal>}
   </section>;
 }

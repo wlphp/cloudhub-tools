@@ -223,8 +223,9 @@ export function WindowsToolboxPlugin() {
       </div>
       {(!runningInTauri || runningOnPhone) ? <p className="windows-toolbox-display-empty">仅支持 Windows 桌面端。</p>
         : monitorsLoading ? <p className="windows-toolbox-display-empty">正在读取显示器亮度…</p>
-        : monitorsError ? <p className="windows-toolbox-feedback is-error" role="alert">{monitorsError}</p>
-        : monitors && monitors.length > 0 ? monitors.map(monitor => {
+        : monitors && monitors.length > 0 ? <>
+          {monitorsError && <p className="windows-toolbox-feedback is-error" role="alert">{monitorsError}</p>}
+          {monitors.map(monitor => {
           const value = pendingValues[monitor.index] ?? monitor.current ?? 0;
           return <div className="windows-toolbox-display-row" key={monitor.index}>
             <span className="windows-toolbox-icon" aria-hidden="true"><Sun size={18} /></span>
@@ -244,7 +245,7 @@ export function WindowsToolboxPlugin() {
                 if (pending !== undefined && pending !== monitor.current) void commitBrightness(monitor, pending);
               }} />
           </div>;
-        })
+        })}</>
         : <p className="windows-toolbox-display-empty">未检测到显示器。</p>}
       <div className="windows-toolbox-display-footer">
         <button type="button" className="secondary" disabled={!runningInTauri || runningOnPhone || displayOffBusy} onClick={() => { setDisplayOffError(""); setDisplayOffConfirmation(true); }}><MonitorOff size={14} aria-hidden="true" />关闭显示器</button>

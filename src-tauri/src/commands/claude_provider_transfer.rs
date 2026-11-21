@@ -45,7 +45,12 @@ pub(super) fn import(conn:&Connection,token:&str,indices:&[usize])->PlatformResu
     let (saved_token,providers)=pending.as_ref().ok_or_else(||error("导入预览已失效，请重新选择文件"))?;
     if saved_token!=token {return Err(error("导入预览已失效，请重新选择文件"))}
     let mut seen=std::collections::HashSet::new();
-    let mut existing=repo::list_providers(conn)?;
+    // An unreadable existing key should neither block import nor be treated as
+    // a duplicate: its credential cannot be compared safely. Keep it untouched.
+    let mut existing=repo::list_providers_for_display(conn)?
+        .into_iter()
+        .filter_map(|(provider, key_decryption_failed)| (!key_decryption_failed).then_some(provider))
+        .collect::<Vec<_>>();
     let tx=conn.unchecked_transaction().map_err(|_|error("无法开始导入"))?;
     let mut count=0;
     for index in indices {
@@ -78,12 +83,14 @@ pub(super) fn export(app:&tauri::AppHandle,providers:&[ClaudeProvider],ids:&[Str
     Ok(json!(true))
 }
 
-pub(super) fn delete(conn:&Connection,providers:&[ClaudeProvider],ids:&[String])->PlatformResult<Value>{
+pub(super) fn delete(conn:&Connection,ids:&[String])->PlatformResult<Value>{
     if ids.is_empty() || ids.len()>500 {return Err(error("请选择 1–500 条供应商记录"))}
     let mut seen=std::collections::HashSet::new();
     for id in ids {
         if !seen.insert(id){return Err(error("选择包含重复记录"))}
-        providers.iter().find(|p|&p.id==id).ok_or_else(||error("所选记录不存在，请刷新后重试"))?;
+        let exists: bool = conn.query_row("SELECT EXISTS(SELECT 1 FROM claude_providers WHERE id=?1)", [id], |row| row.get(0))
+            .map_err(|_|error("无法验证所选供应商"))?;
+        if !exists {return Err(error("所选记录不存在，请刷新后重试"))}
     }
     let tx=conn.unchecked_transaction().map_err(|_|error("无法开始批量删除"))?;
     for id in ids {repo::delete_provider(&tx,id)?;}
@@ -118,10 +125,26 @@ mod tests {
         let provider=repo::presets().remove(0);
         repo::save_provider(&conn,&provider,1).unwrap();
         repo::set_current(&conn,&provider.id).unwrap();
-        let providers=repo::list_providers(&conn).unwrap();
-        let result=delete(&conn,&providers,&[provider.id.clone()]).unwrap();
+        let result=delete(&conn,&[provider.id.clone()]).unwrap();
         assert_eq!(result["deleted"],1);
         assert!(repo::list_providers(&conn).unwrap().is_empty());
         assert_eq!(repo::current_provider_id(&conn).unwrap(),None);
+    }
+
+    #[test]
+    fn batch_delete_removes_provider_without_decrypting_its_key() {
+        let conn=Connection::open_in_memory().unwrap();
+        conn.execute_batch(repo::SCHEMA).unwrap();
+        let mut provider=repo::presets().remove(0);
+        provider.api_key="cloudhub-encrypted:unreadable-test-ciphertext".into();
+        conn.execute(
+            "INSERT INTO claude_providers(id,name,settings_json,website_url,sort_index,created_at,updated_at) VALUES(?1,?2,?3,?4,0,1,1)",
+            rusqlite::params![provider.id,provider.name,serde_json::to_string(&provider).unwrap(),provider.website_url],
+        ).unwrap();
+
+        let result=delete(&conn,&[provider.id.clone()]).unwrap();
+        assert_eq!(result["deleted"],1);
+        let remaining: i64=conn.query_row("SELECT COUNT(*) FROM claude_providers", [], |row| row.get(0)).unwrap();
+        assert_eq!(remaining,0);
     }
 }

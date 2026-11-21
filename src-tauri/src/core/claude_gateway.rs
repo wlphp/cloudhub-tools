@@ -127,6 +127,11 @@ pub async fn save_config(next:Config)->Result<(),String>{
 fn find<'a>(providers:&'a[ClaudeProvider],id:&str)->Result<&'a ClaudeProvider,String>{
     providers.iter().find(|p|p.id==id).ok_or_else(||"请选择已保存的供应商".into())
 }
+fn prune_missing_route_queue(config:&mut Config,providers:&[ClaudeProvider])->bool{
+    let original_len=config.queue.len();
+    config.queue.retain(|id|providers.iter().any(|provider|provider.id==*id));
+    config.queue.len()!=original_len
+}
 fn role_model<'a>(p:&'a ClaudeProvider,role:&str)->Option<&'a str>{
     p.models.get(role).and_then(|m|m.get("model")).and_then(Value::as_str).filter(|m|!m.is_empty())
 }
@@ -293,7 +298,15 @@ pub async fn activate(mode:Mode)->Result<(),String>{
     if mode==Mode::Direct{
         recover()?;guard.take();return Ok(());
     }
-    let c=config()?;let providers=repo::list_providers(&open_db()?)?;validate_selection(mode,&c,&providers)?;
+    let mut c=config()?;let providers=repo::list_providers(&open_db()?)?;
+    // Provider records may have been removed by older app versions or a data
+    // restore that did not reconcile routing preferences. Drop orphaned queue
+    // entries before validating, so one stale failover member cannot block
+    // every otherwise-valid route target.
+    if mode==Mode::Route && prune_missing_route_queue(&mut c,&providers){
+        save_preference(CONFIG_KEY,&serde_json::to_string(&c).map_err(|_|"路由配置无效")?)?;
+    }
+    validate_selection(mode,&c,&providers)?;
     if let Some(r)=guard.as_ref(){
         let _writer=CONFIG_WRITER.lock().map_err(|_|"配置正在使用")?;
         let auth=r.shared.lock().map_err(|_|"路由状态不可用")?.auth.clone();
@@ -824,5 +837,14 @@ mod tests{
         let mut bad=provider();bad.id="bad".into();bad.name="Bad".into();bad.models.clear();
         let c=Config{route_provider:"p".into(),queue:vec!["bad".into()],failover:true,..Config::default()};
         assert!(validate_selection(Mode::Route,&c,&[p,bad]).is_err());
+    }
+    #[test]
+    fn stale_failover_queue_entries_are_pruned_before_route_validation(){
+        let p=provider();
+        let mut c=Config{route_provider:"p".into(),queue:vec!["p".into(),"deleted-provider".into()],failover:true,..Config::default()};
+        assert!(prune_missing_route_queue(&mut c,&[p.clone()]));
+        assert_eq!(c.queue,vec!["p"]);
+        assert!(validate_selection(Mode::Route,&c,&[p]).is_ok());
+        assert!(!prune_missing_route_queue(&mut c,&[provider()]));
     }
 }

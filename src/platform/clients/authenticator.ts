@@ -9,7 +9,7 @@ export type AuthEntry = {
 };
 export type AuthInput = Omit<AuthEntry, "id"> & { id?: string; secret?: string };
 export type AuthCode = { id: string; current: string; next: string | null; remaining: number; period: number; counter: string };
-export type AuthStatus = { initialized: boolean; unlocked: boolean; passwordRequired: boolean };
+export type AuthStatus = { initialized: boolean; unlocked: boolean; passwordRequired: boolean; entryCount: number };
 export type AuthPreview = { token: string; format: string; errors: string[]; items: Array<{ entry: AuthEntry; duplicateId: string | null; conflict: boolean }> };
 function request<T>(command: string, args: Record<string, unknown> = {}): Promise<T> {
   return invokeOrWeb<T>(command, args, { path: "/api/authenticator", init: jsonRequest("POST", { op: command.replace("authenticator_", ""), args }) });
@@ -23,7 +23,8 @@ export const authenticatorClient = {
   touch: () => request<void>("authenticator_touch"),
   codes: (ids: string[]) => request<AuthCode[]>("authenticator_codes", { ids }),
   save: (input: AuthInput) => request<void>("authenticator_save", { input }),
-  remove: (ids: string[]) => request<void>("authenticator_remove", { ids }),
+  remove: (ids: string[]) => request<void>("authenticator_remove", { ids, all: false }),
+  removeAll: () => request<void>("authenticator_remove", { ids: [], all: true }),
   advance: (id: string) => request<void>("authenticator_advance", { id }),
   copy: (id: string, target: "current" | "next" | "account" = "current") => runningInTauri ? nativeOnly<void>("authenticator_copy", { id, target }) : copyAuthenticatorField(id, target, authenticatorClient.list, authenticatorClient.codes),
   prepare: async (input: { text?: string; image?: number[]; qr: boolean }): Promise<AuthPreview | null> => {

@@ -12,7 +12,8 @@ export function MobileHomePage({ accounts, assets, search, favoriteCount, panelC
   const [activeAlerts, setActiveAlerts] = useState<number | null>(null);
   const handleAlertCount = useCallback((count: number | null) => { setActiveAlerts(count); onActiveAlertCount(count); }, [onActiveAlertCount]);
   const query = search.trim().toLocaleLowerCase();
-  const homeSoftware = sortedApplications(applicationSettings.preferences).filter(app => applicationPreference(app, applicationSettings.preferences).home);
+  // 手机首页只展示移动端可用的应用：仅电脑端应用在手机上无法打开，与软件商店移动端默认的“移动端可用”过滤保持一致。
+  const homeSoftware = sortedApplications(applicationSettings.preferences).filter(app => app.mobile === true && applicationPreference(app, applicationSettings.preferences).home);
   const { softwareCounts, softwareCountsLoaded } = useSoftwareCounts(homeSoftware.map(app => app.id).join(","));
   const commonSoftware = homeSoftware.filter(app => app.name.toLocaleLowerCase().includes(query));
   const shortcuts = homeShortcuts.filter(item => `${item.label} ${item.description}`.toLocaleLowerCase().includes(query));

@@ -32,6 +32,8 @@ pub struct ClaudeProviderSummary {
     pub base_url: String,
     /// 是否已经填写密钥；密钥本身永远不随列表返回。
     pub key_configured: bool,
+    /// 密钥密文存在但无法由当前本机密钥解开；仅用于显示恢复状态。
+    pub key_decryption_failed: bool,
     pub api_key_field: model::ApiKeyField,
     pub api_format: model::ApiFormat,
     pub is_full_url: bool,
@@ -107,7 +109,7 @@ mod configuration_tests {
     }
 }
 
-fn to_summary(provider: &model::ClaudeProvider) -> ClaudeProviderSummary {
+fn to_summary(provider: &model::ClaudeProvider, key_decryption_failed: bool) -> ClaudeProviderSummary {
     let mut extra = provider.extra_env.clone();
     let is_current = extra.remove(repository::IS_CURRENT_MARKER).is_some();
     ClaudeProviderSummary {
@@ -116,7 +118,8 @@ fn to_summary(provider: &model::ClaudeProvider) -> ClaudeProviderSummary {
         description: provider.description.clone(),
         website_url: provider.website_url.clone(),
         base_url: provider.base_url.clone(),
-        key_configured: !provider.api_key.is_empty(),
+        key_configured: key_decryption_failed || !provider.api_key.is_empty(),
+        key_decryption_failed,
         api_key_field: provider.api_key_field,
         api_format: provider.api_format,
         is_full_url: provider.is_full_url,
@@ -153,10 +156,11 @@ pub(crate) async fn claude_provider_list() -> PlatformResult<ClaudeProviderList>
         let current_id=crate::core::claude_workspace::current_provider(&conn)?;
         #[cfg(not(desktop))]
         let current_id=repository::current_provider_id(&conn)?;
-        let stored = repository::list_providers(&conn)?;
-        let providers = stored.iter().map(|p|{let mut summary=to_summary(p);summary.is_current=current_id.as_deref()==Some(&p.id);summary}).collect();
+        let stored = repository::list_providers_for_display(&conn)?;
+        let providers = stored.iter().map(|(p, key_decryption_failed)|{let mut summary=to_summary(p,*key_decryption_failed);summary.is_current=current_id.as_deref()==Some(&p.id);summary}).collect();
         let path = repository::settings_path()?;
-        let configuration_status = stored.iter().find(|p| current_id.as_deref() == Some(&p.id)).map(|p| configuration_status(&path, p));
+        let configuration_status = stored.iter().find(|(p, _)| current_id.as_deref() == Some(&p.id))
+            .and_then(|(p, key_decryption_failed)| (!key_decryption_failed).then(|| configuration_status(&path, p)));
         Ok(ClaudeProviderList {
             providers,
             current_id,

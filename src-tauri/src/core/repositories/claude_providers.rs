@@ -227,6 +227,36 @@ pub fn list_providers(conn: &Connection) -> Result<Vec<ClaudeProvider>, String> 
     Ok(providers)
 }
 
+/// Read provider metadata for the management list without letting one unreadable
+/// credential hide every other provider. Failed ciphertext is never returned as
+/// a usable API key; callers receive an explicit recovery status instead.
+pub fn list_providers_for_display(conn: &Connection) -> Result<Vec<(ClaudeProvider, bool)>, String> {
+    let mut statement = conn
+        .prepare("SELECT settings_json,is_current FROM claude_providers ORDER BY sort_index,name COLLATE NOCASE")
+        .map_err(|_| "读取供应商失败".to_string())?;
+    let rows = statement
+        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? == 1)))
+        .map_err(|_| "读取供应商失败".to_string())?;
+    let mut providers = Vec::new();
+    for row in rows {
+        let (raw, current) = row.map_err(|_| "读取供应商失败".to_string())?;
+        let mut value: ClaudeProvider = serde_json::from_str(&raw).map_err(|_| "供应商配置损坏".to_string())?;
+        let mut key_decryption_failed = false;
+        if let Some(cipher) = value.api_key.strip_prefix("cloudhub-encrypted:") {
+            match crate::core::crypto::decrypt_secret(cipher) {
+                Ok(plaintext) => value.api_key = plaintext,
+                Err(_) => {
+                    value.api_key.clear();
+                    key_decryption_failed = true;
+                }
+            }
+        }
+        value.extra_env.remove(IS_CURRENT_MARKER);
+        providers.push((if current { mark_current(value) } else { value }, key_decryption_failed));
+    }
+    Ok(providers)
+}
+
 /// 运行时标记，不落库到 `extra_env`。
 pub const IS_CURRENT_MARKER: &str = "__cloudhub_current";
 
@@ -468,6 +498,25 @@ mod tests {
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].api_key, "sk-1");
         assert_eq!(listed[0].models["sonnet"]["model"], json!("m1"));
+    }
+
+    #[test]
+    fn display_listing_keeps_provider_metadata_when_a_key_ciphertext_is_unreadable() {
+        let conn = db();
+        let mut broken = provider("demo", "可见供应商", "描述", "https://api.example.test", &[("sonnet", "m1")]);
+        broken.api_key = "cloudhub-encrypted:not-valid-base64!".into();
+        conn.execute(
+            "INSERT INTO claude_providers(id,name,settings_json,website_url,sort_index,created_at,updated_at) VALUES(?1,?2,?3,?4,0,1,1)",
+            params![broken.id, broken.name, serde_json::to_string(&broken).unwrap(), broken.website_url],
+        ).unwrap();
+
+        let listed = list_providers_for_display(&conn).unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].0.name, "可见供应商");
+        assert_eq!(listed[0].0.base_url, "https://api.example.test");
+        assert!(listed[0].0.api_key.is_empty());
+        assert!(listed[0].1);
+        assert!(list_providers(&conn).is_err(), "需要凭据的严格读取仍应拒绝坏密文");
     }
 
     #[test]

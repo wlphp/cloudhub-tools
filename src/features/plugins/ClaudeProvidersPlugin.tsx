@@ -4,7 +4,7 @@ import { useSortableDrag } from "../../shared/useSortableDrag";
 import { useDialogDocument } from "../../shared/DialogDocument";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ArrowDown, ArrowLeftRight, ArrowUp, Check, Copy, Download, ExternalLink, FolderOpen, GripVertical, HelpCircle, ListChecks, Loader2, Minus, MoreHorizontal, Pencil, Plus, RotateCcw, Search, Server, Star, Trash2, Wand2, Wifi } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowLeftRight, ArrowUp, Check, Copy, Download, ExternalLink, FolderOpen, GripVertical, HelpCircle, ListChecks, Loader2, Minus, MoreHorizontal, Pencil, Plus, RotateCcw, Search, Server, Star, Trash2, Wand2, Wifi } from "lucide-react";
 import { SharedDialog } from "../../shared/SharedDialog";
 import { runningInTauri } from "../../platform/api";
 import { MoreMenu } from "../../shared/MoreMenu";
@@ -73,7 +73,15 @@ const emptyProvider = (): ClaudeProviderInput => ({
   officialLogin: false, modelCatalog: [],
 });
 
-function Editor({ draft, keyConfigured, onClose, onSaved }: { draft: ClaudeProviderInput; keyConfigured: boolean; onClose: () => void; onSaved: () => void }) {
+function claudeActionError(reason: unknown, fallback = "操作失败") {
+  const message = reason instanceof Error ? reason.message : fallback;
+  if (message === "解密 Secret 失败") {
+    return "本地加密数据无法解密，当前操作已中止。可能是应用数据目录与本地密钥不匹配或记录损坏；请勿删除应用数据，并确认没有混用开发版与正式版数据目录。";
+  }
+  return message;
+}
+
+function Editor({ draft, keyConfigured, keyDecryptionFailed, onClose, onSaved }: { draft: ClaudeProviderInput; keyConfigured: boolean; keyDecryptionFailed: boolean; onClose: () => void; onSaved: () => void }) {
   const [value, setValue] = useState<ClaudeProviderInput>(() => {
     const initial: ClaudeProviderInput = {
       ...draft,
@@ -108,7 +116,7 @@ function Editor({ draft, keyConfigured, onClose, onSaved }: { draft: ClaudeProvi
   const [pickerModels, setPickerModels] = useState<ClaudeModelMapping[] | null>(null);
   const [fullConfig, setFullConfig] = useState("");
   const hasSavedKey = Boolean(draft.id) && keyConfigured;
-  const canQueryModels = !value.officialLogin && Boolean(value.baseUrl?.trim()) && (hasSavedKey || Boolean(value.apiKey?.trim()));
+  const canQueryModels = !value.officialLogin && Boolean(value.baseUrl?.trim()) && ((!keyDecryptionFailed && hasSavedKey) || Boolean(value.apiKey?.trim()));
 
   const patch = (next: Partial<ClaudeProviderInput>) => setValue((current) => ({ ...current, ...next }));
   /**
@@ -260,6 +268,7 @@ function Editor({ draft, keyConfigured, onClose, onSaved }: { draft: ClaudeProvi
     const id = value.id.trim() || `custom-${Date.now().toString(36)}`;
     if (!value.name.trim()) { setError("请填写供应商名称"); return; }
     if (!value.officialLogin && !(value.baseUrl ?? "").trim()) { setError("请填写请求地址"); return; }
+    if (keyDecryptionFailed && !(value.apiKey ?? "").trim()) { setError("此记录的已保存密钥无法解密，请重新填写 API Key 后保存。"); return; }
     const env = parseJsonObject(extraEnv);
     if (env === null) { setError("扩展环境变量必须为 JSON 对象"); return; }
     // proxy 覆盖字段在 schema 里是字符串（textarea 编辑的就是 JSON 文本），
@@ -299,7 +308,8 @@ function Editor({ draft, keyConfigured, onClose, onSaved }: { draft: ClaudeProvi
     <label className="claude-check"><input type="checkbox" checked={Boolean(value.officialLogin)} onChange={event => patch({ officialLogin: event.target.checked })} />使用 Claude 官方登录（保留当前 OAuth 行为）</label>
     <label className="claude-field">请求地址（Anthropic 风格端点）<input value={value.baseUrl ?? ""} onChange={event => patch({ baseUrl: event.target.value })} placeholder="https://api.example.com/anthropic" /></label>
     <label className="claude-field">API Key
-      <SecretField secretLabel="API Key" value={value.apiKey ?? ""} reveal={draft.id ? () => claudeWorkbenchClient.revealProvider(draft.id) : undefined} onChange={event => patch({ apiKey: event.target.value })} placeholder={draft.id ? "留空则保留已保存的密钥，点眼睛查看" : "填写供应商 API Key"} autoComplete="off" spellCheck={false} />
+      {keyDecryptionFailed && <span className="claude-error" role="status">已保存密钥无法解密；请重新填写 API Key 并保存。原密文会在保存新密钥时替换。</span>}
+      <SecretField secretLabel="API Key" value={value.apiKey ?? ""} reveal={draft.id && !keyDecryptionFailed ? () => claudeWorkbenchClient.revealProvider(draft.id) : undefined} onChange={event => patch({ apiKey: event.target.value })} placeholder={keyDecryptionFailed ? "请重新填写 API Key" : draft.id ? "留空则保留已保存的密钥，点眼睛查看" : "填写供应商 API Key"} autoComplete="off" spellCheck={false} />
     </label>
     <div className="claude-field-row">
       <label className="claude-field">上游协议格式<select value={value.apiFormat} onChange={event => patch({ apiFormat: event.target.value as ClaudeApiFormat })}>{API_FORMATS.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
@@ -588,7 +598,7 @@ export function ClaudeProvidersPlugin({ mobile = false }: { mobile?: boolean } =
   const [usageRevision, setUsageRevision] = useState(0);
   const [quotas, setQuotas] = useState<Record<string, { data?: Awaited<ReturnType<typeof claudeWorkbenchClient.quota>>; error?: string; loading?: boolean }>>({});
   const supportsQuota = (item: ClaudeProviderSummary) => {
-    try { const url = new URL(item.baseUrl ?? ""); return !item.officialLogin && item.keyConfigured && ["https://api.minimaxi.com", "https://api.minimax.io", "https://api.minimax.cn"].includes(url.origin) && !url.username && !url.password && !url.search && !url.hash; } catch { return false; }
+    try { const url = new URL(item.baseUrl ?? ""); return !item.officialLogin && item.keyConfigured && !item.keyDecryptionFailed && ["https://api.minimaxi.com", "https://api.minimax.io", "https://api.minimax.cn"].includes(url.origin) && !url.username && !url.password && !url.search && !url.hash; } catch { return false; }
   };
   const refreshQuota = async (id: string) => {
     const generation = balanceGeneration.current;
@@ -753,9 +763,11 @@ export function ClaudeProvidersPlugin({ mobile = false }: { mobile?: boolean } =
   const shown = providers.filter(item => `${item.name} ${item.baseUrl} ${item.description}`.toLowerCase().includes(keyword.toLowerCase()));
   const config = routing.config;
   const queueEnabled = config.failover || config.roundRobin;
-  const configuredProviders = providers.filter(item => !item.officialLogin && item.keyConfigured);
+  const configuredProviders = providers.filter(item => !item.officialLogin && item.keyConfigured && !item.keyDecryptionFailed);
   const routeProviders = configuredProviders.filter(hasSonnetMapping);
-  const aggregateDefault = config.defaultProvider || configuredProviders.find(item => item.id === currentId && providerModelCount(item) > 0)?.id || configuredProviders.find(item => providerModelCount(item) > 0)?.id || "";
+  const aggregateDefault = configuredProviders.some(item => item.id === config.defaultProvider && providerModelCount(item) > 0)
+    ? config.defaultProvider
+    : configuredProviders.find(item => item.id === currentId && providerModelCount(item) > 0)?.id || configuredProviders.find(item => providerModelCount(item) > 0)?.id || "";
   const aggregateGroup = (item: ClaudeProviderSummary) => item.id === aggregateDefault ? 0 : config.members.includes(item.id) ? 1 : 2;
   const queueRank = (item: ClaudeProviderSummary) => config.queue.includes(item.id) ? config.queue.indexOf(item.id) : Number.MAX_SAFE_INTEGER;
   const displayed = viewMode === "aggregate" ? [...shown].sort((a, b) => aggregateGroup(a) - aggregateGroup(b)) : viewMode === "route" ? [...shown].sort((a, b) => queueRank(a) - queueRank(b)) : shown;
@@ -875,7 +887,7 @@ export function ClaudeProvidersPlugin({ mobile = false }: { mobile?: boolean } =
     const usage = windowedUsage(routing.logs, item.id);
     const isCurrent = item.id === currentId;
     const configurationIssue = isCurrent && viewMode === "direct" && !routing.running
-      ? configurationStatus === "changed" ? "配置不一致" : configurationStatus === "missing" ? "配置文件缺失" : configurationStatus === "unreadable" ? "无法核对配置" : ""
+      ? item.keyDecryptionFailed ? "密钥无法解密" : configurationStatus === "changed" ? "配置不一致" : configurationStatus === "missing" ? "配置文件缺失" : configurationStatus === "unreadable" ? "无法核对配置" : ""
       : "";
     const canSwitchBack = Boolean(configurationIssue) && configurationStatus !== "unreadable";
     const queueIndex = config.queue.indexOf(item.id);
@@ -913,7 +925,8 @@ export function ClaudeProvidersPlugin({ mobile = false }: { mobile?: boolean } =
           {viewMode === "route" && (queueEnabled ? inQueue : isFixedRoute) && <span className="claude-tag" title="根据本地请求记录与熔断状态显示">{healthLabel}</span>}
           {viewMode === "aggregate" && <span className="claude-tag">{group === 0 ? "默认" : providerModelCount(item) + " 个模型"}</span>}
           {isCurrent && viewMode === "direct" && !routing.running && <><span className={`claude-tag ${configurationIssue ? "is-configured" : "is-current"}`}>{!configurationIssue && <span className="claude-live-dot" aria-hidden="true" />}{configurationIssue ? "当前配置" : "使用中"}</span>{configurationIssue && <span className="claude-tag is-warning">{configurationIssue}</span>}</>}
-          {!item.keyConfigured && !item.officialLogin && <span className="claude-tag is-warning">缺少 Key</span>}
+          {item.keyDecryptionFailed && <span className="claude-tag is-warning" title="本机无法解密此供应商的 API Key；编辑并重新填写密钥可修复">密钥无法解密</span>}
+          {!item.keyConfigured && !item.keyDecryptionFailed && !item.officialLogin && <span className="claude-tag is-warning">缺少 Key</span>}
           {item.officialLogin && <span className="claude-tag">官方登录</span>}
           {needsRouting && <span className="claude-tag is-warning">需要路由</span>}
           {viewMode !== "route" && routing.health[item.id]?.openUntil && routing.health[item.id].openUntil! > Date.now() && <span className="claude-tag is-warning">熔断中</span>}
@@ -926,10 +939,10 @@ export function ClaudeProvidersPlugin({ mobile = false }: { mobile?: boolean } =
             <dd>{model}</dd>
           </div>)}
         </dl>}
-        {configurationIssue && <p className="claude-configuration-warning" role="status"><HelpCircle size={13} aria-hidden="true" /><span>{configurationStatus === "unreadable" ? "无法读取或解析配置，请检查文件后刷新。" : configurationStatus === "missing" ? "配置文件已缺失，点击“切换回来”恢复。" : "配置已在外部更改，点击“切换回来”恢复此渠道。"}</span></p>}
+        {configurationIssue && <p className="claude-configuration-warning" role="status"><HelpCircle size={13} aria-hidden="true" /><span>{item.keyDecryptionFailed ? "此记录的 API Key 无法解密，请编辑并重新填写密钥后再使用。" : configurationStatus === "unreadable" ? "无法读取或解析配置，请检查文件后刷新。" : configurationStatus === "missing" ? "配置文件已缺失，点击“切换回来”恢复。" : "配置已在外部更改，点击“切换回来”恢复此渠道。"}</span></p>}
       </div>
       <div className="claude-provider-stats">
-        {!item.officialLogin && item.keyConfigured && runningInTauri && <ClaudeProviderUsage key={item.id + ":" + usageRevision + ":" + JSON.stringify(item)} provider={item} disabled={Boolean(busyId)} />}
+        {!item.officialLogin && item.keyConfigured && !item.keyDecryptionFailed && runningInTauri && <ClaudeProviderUsage key={item.id + ":" + usageRevision + ":" + JSON.stringify(item)} provider={item} disabled={Boolean(busyId)} />}
         {(isCurrent || usage.requests > 0) && <div className="claude-provider-usage" title={`最近 5 小时累计：${usage.requests} 次，${usage.tokens.toLocaleString()} tokens`}>
           <span className="claude-stat-caption">本地 · 5h</span>
           <span className="claude-provider-usage-label"><strong>{usage.requests}</strong> 次<span className="claude-stat-divider" aria-hidden="true">/</span><strong>{usage.tokens.toLocaleString()}</strong> tokens</span>
@@ -950,14 +963,14 @@ export function ClaudeProvidersPlugin({ mobile = false }: { mobile?: boolean } =
             <span className="claude-stat-caption">更新于 {new Date(quotas[item.id].data!.queriedAt).toLocaleTimeString()}</span>
           </>}
         </div></SharedDialog>}
-        {viewMode === "direct" && <button type="button" className="secondary claude-icon-button" title={needsRouting ? "此供应商需要路由或聚合模式" : !item.keyConfigured && !item.officialLogin ? "请先填写 API Key" : configurationStatus === "unreadable" && isCurrent ? "请检查配置文件后刷新" : canSwitchBack ? "切换回来：备份当前配置并应用此渠道" : isCurrent && !routing.running && !configurationIssue ? "使用中" : "切换：备份当前配置并应用此渠道，保留 hooks 和插件等设置"} aria-label={item.name + " " + (canSwitchBack ? "切换回来" : isCurrent && !routing.running ? configurationIssue ? "无法核对" : "使用中" : "切换")} disabled={Boolean(busyId) || (isCurrent && !routing.running && !canSwitchBack) || needsRouting || (!item.keyConfigured && !item.officialLogin)} onClick={() => void run(item.id, () => claudeProvidersClient.switchTo(item.id), `已切换到 ${item.name}，重启 Claude Code 后生效`)}><Check size={14} aria-hidden="true" /></button>}
+        {viewMode === "direct" && <button type="button" className="secondary claude-icon-button" title={item.keyDecryptionFailed ? "密钥无法解密，请编辑并重新填写 API Key" : needsRouting ? "此供应商需要路由或聚合模式" : !item.keyConfigured && !item.officialLogin ? "请先填写 API Key" : configurationStatus === "unreadable" && isCurrent ? "请检查配置文件后刷新" : canSwitchBack ? "切换回来：备份当前配置并应用此渠道" : isCurrent && !routing.running && !configurationIssue ? "使用中" : "切换：备份当前配置并应用此渠道，保留 hooks 和插件等设置"} aria-label={item.name + " " + (canSwitchBack ? "切换回来" : isCurrent && !routing.running ? configurationIssue ? "无法核对" : "使用中" : "切换")} disabled={Boolean(busyId) || item.keyDecryptionFailed || (isCurrent && !routing.running && !canSwitchBack) || needsRouting || (!item.keyConfigured && !item.officialLogin)} onClick={() => void run(item.id, () => claudeProvidersClient.switchTo(item.id), `已切换到 ${item.name}，重启 Claude Code 后生效`)}><Check size={14} aria-hidden="true" /></button>}
         {viewMode === "route" && <>
-          {!queueEnabled && !isFixedRoute && <button type="button" className="secondary claude-route-primary" title={item.officialLogin ? "官方登录不支持本地路由" : !item.keyConfigured ? "请先填写 API Key" : !hasSonnetMapping(item) ? "请先配置 Sonnet 模型映射" : "设为固定供应商"} disabled={Boolean(busyId) || item.officialLogin || !item.keyConfigured || !hasSonnetMapping(item)} onClick={() => void run(item.id, () => saveConfig({ ...config, routeProvider: item.id }), "已更新固定供应商")}>设为固定</button>}
-          <button type="button" className="secondary" title={inQueue ? (queueEnabled ? "移出路由队列；队列策略至少保留一家" : "移出路由队列；队列顺序在轮询或优先级故障转移策略下生效") : item.officialLogin ? "官方登录不支持本地路由" : !item.keyConfigured ? "请先填写 API Key" : !hasSonnetMapping(item) ? "请先配置 Sonnet 模型映射" : queueEnabled ? "加入路由队列" : "加入路由队列；选择轮询或优先级故障转移后参与分配"} disabled={Boolean(busyId) || (!inQueue && (item.officialLogin || !item.keyConfigured || !hasSonnetMapping(item))) || (inQueue && queueEnabled && config.queue.length === 1)} onClick={() => toggleQueue(item.id)}><ListChecks size={13} aria-hidden="true" />{inQueue ? "移出队列" : "加入队列"}</button>
+          {!queueEnabled && !isFixedRoute && <button type="button" className="secondary claude-route-primary" title={item.keyDecryptionFailed ? "密钥无法解密，请编辑并重新填写 API Key" : item.officialLogin ? "官方登录不支持本地路由" : !item.keyConfigured ? "请先填写 API Key" : !hasSonnetMapping(item) ? "请先配置 Sonnet 模型映射" : "设为固定供应商"} disabled={Boolean(busyId) || item.keyDecryptionFailed || item.officialLogin || !item.keyConfigured || !hasSonnetMapping(item)} onClick={() => void run(item.id, () => saveConfig({ ...config, routeProvider: item.id }), "已更新固定供应商")}>设为固定</button>}
+          <button type="button" className="secondary" title={inQueue ? (queueEnabled ? "移出路由队列；队列策略至少保留一家" : "移出路由队列；队列顺序在轮询或优先级故障转移策略下生效") : item.keyDecryptionFailed ? "密钥无法解密，请编辑并重新填写 API Key" : item.officialLogin ? "官方登录不支持本地路由" : !item.keyConfigured ? "请先填写 API Key" : !hasSonnetMapping(item) ? "请先配置 Sonnet 模型映射" : queueEnabled ? "加入路由队列" : "加入路由队列；选择轮询或优先级故障转移后参与分配"} disabled={Boolean(busyId) || (!inQueue && (item.keyDecryptionFailed || item.officialLogin || !item.keyConfigured || !hasSonnetMapping(item))) || (inQueue && queueEnabled && config.queue.length === 1)} onClick={() => toggleQueue(item.id)}><ListChecks size={13} aria-hidden="true" />{inQueue ? "移出队列" : "加入队列"}</button>
           {queueEnabled && inQueue && <><button type="button" className="secondary claude-icon-button" aria-label={"提高 " + item.name + " 的队列顺序"} title="上移" disabled={Boolean(busyId) || queueIndex === 0} onClick={() => moveQueue(item.id, -1)}><ArrowUp size={13} aria-hidden="true" /></button><button type="button" className="secondary claude-icon-button" aria-label={"降低 " + item.name + " 的队列顺序"} title="下移" disabled={Boolean(busyId) || queueIndex === config.queue.length - 1} onClick={() => moveQueue(item.id, 1)}><ArrowDown size={13} aria-hidden="true" /></button></>}
         </>}
         {viewMode === "aggregate" && <>
-          {group === 0 ? <span className="claude-aggregate-default-status"><span className="claude-live-dot" aria-hidden="true" />{routing.running && routing.mode === "aggregate" ? "当前默认" : "切换后默认"}</span> : <button type="button" className="secondary claude-icon-button" aria-label={(group === 1 ? "从聚合移除 " : "添加到聚合 ") + item.name} title={item.officialLogin ? "官方订阅仅支持直连" : !item.keyConfigured ? "请先配置 API Key" : !providerModelCount(item) ? "请先配置模型列表" : group === 1 ? "移出聚合" : "添加到聚合"} disabled={Boolean(busyId) || (group !== 1 && (item.officialLogin || !item.keyConfigured || !providerModelCount(item)))} onClick={() => void run(item.id, () => saveConfig({ ...config, defaultProvider: aggregateDefault, members: group === 1 ? config.members.filter(id => id !== item.id) : [...config.members, item.id] }), "已更新聚合名单")}>{group === 1 ? <Minus size={16} aria-hidden="true" /> : <Plus size={16} aria-hidden="true" />}</button>}
+          {group === 0 ? <span className="claude-aggregate-default-status"><span className="claude-live-dot" aria-hidden="true" />{routing.running && routing.mode === "aggregate" ? "当前默认" : "切换后默认"}</span> : <button type="button" className="secondary claude-icon-button" aria-label={(group === 1 ? "从聚合移除 " : "添加到聚合 ") + item.name} title={item.keyDecryptionFailed ? "密钥无法解密，请编辑并重新填写 API Key" : item.officialLogin ? "官方订阅仅支持直连" : !item.keyConfigured ? "请先配置 API Key" : !providerModelCount(item) ? "请先配置模型列表" : group === 1 ? "移出聚合" : "添加到聚合"} disabled={Boolean(busyId) || (group !== 1 && (item.keyDecryptionFailed || item.officialLogin || !item.keyConfigured || !providerModelCount(item)))} onClick={() => void run(item.id, () => saveConfig({ ...config, defaultProvider: aggregateDefault, members: group === 1 ? config.members.filter(id => id !== item.id) : [...config.members, item.id] }), "已更新聚合名单")}>{group === 1 ? <Minus size={16} aria-hidden="true" /> : <Plus size={16} aria-hidden="true" />}</button>}
         </>}
         <button type="button" className="secondary claude-icon-button" title={"编辑 " + item.name} aria-label={`编辑 ${item.name}`} onClick={() => setEditing(toInput(item))}><Pencil size={14} aria-hidden="true" /></button>
         <MoreMenu
@@ -994,7 +1007,14 @@ export function ClaudeProvidersPlugin({ mobile = false }: { mobile?: boolean } =
         <button type="button" key={id} aria-current={tab === id ? "page" : undefined} onClick={() => setTab(id)}>{label}</button>)}
     </nav>
     <ToastNotice message={error || message} tone={error ? "error" : undefined} />
-    {routing.recoveryAvailable && !routing.running && <div className="claude-status is-error">检测到待恢复的连接配置<button type="button" className="secondary" onClick={() => activate("direct")}>恢复直连配置</button></div>}
+    {routing.recoveryAvailable && !routing.running && <div className="claude-recovery-banner" role="status">
+      <AlertTriangle className="claude-recovery-icon" size={17} aria-hidden="true" />
+      <div className="claude-recovery-copy">
+        <strong>检测到待恢复的连接配置</strong>
+        <span>恢复直连会停止本地代理，并还原切换前的 Claude Code 配置。</span>
+      </div>
+      <button type="button" onClick={() => activate("direct")}><RotateCcw size={14} aria-hidden="true" />恢复直连配置</button>
+    </div>}
     {tab === "usage" && <UsagePanel state={routing} providers={providers} onClear={() => confirm("清空当前请求记录？", async () => { await claudeWorkbenchClient.clearLogs(); await refreshRouting(); })} />}
     {tab !== "providers" && tab !== "usage" && <ClaudeWorkspacePanel key={tab} view={tab} confirm={confirm} onScopeChanged={load} />}
     {tab === "providers" && <>
@@ -1139,7 +1159,7 @@ export function ClaudeProvidersPlugin({ mobile = false }: { mobile?: boolean } =
     {presetPickerOpen && <ClaudeProviderPresetPicker onClose={() => setPresetPickerOpen(false)} onCustom={() => { setPresetPickerOpen(false); setEditing(emptyProvider()); }} onSelect={input => { setPresetPickerOpen(false); setEditing(input); }} />}
     {editing && (() => {
       const editingSummary = providers.find(p => p.id === editing.id);
-      return <Editor draft={editing} keyConfigured={Boolean(editingSummary?.keyConfigured)} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); setMessage("供应商已保存"); void load(); }} />;
+      return <Editor draft={editing} keyConfigured={Boolean(editingSummary?.keyConfigured)} keyDecryptionFailed={Boolean(editingSummary?.keyDecryptionFailed)} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); setMessage("供应商已保存"); void load(); }} />;
     })()}
     {settingsOpen && viewMode !== "direct" && <RoutingSettings config={config} mode={viewMode} running={routing.running} onClose={() => setSettingsOpen(false)} onSave={saveConfig} />}
     {modelMatrixOpen && <ClaudeRoutingModelMatrix providers={providers} config={config} onClose={() => setModelMatrixOpen(false)} onSaved={applyRoutingModels} />}
@@ -1151,11 +1171,15 @@ export function ClaudeProvidersPlugin({ mobile = false }: { mobile?: boolean } =
         setRouteStartBusy(true); setRouteStartError("");
         void (async () => {
           try {
-            await saveConfig({ ...config, routeProvider: routeTarget, queue: queueEnabled ? [routeTarget, ...config.queue.filter(id => id !== routeTarget)] : config.queue });
+            const eligibleIds = new Set(routeProviders.map(item => item.id));
+            const queue = queueEnabled
+              ? [...new Set([routeTarget, ...config.queue.filter(id => id !== routeTarget && eligibleIds.has(id))])]
+              : config.queue;
+            await saveConfig({ ...config, routeProvider: routeTarget, queue });
             await claudeWorkbenchClient.activate("route");
             setRouteStartOpen(false); setMessage("已启用本地路由；已运行的 Claude Code 请重启以读取新配置。");
             await load();
-          } catch (reason) { setRouteStartError(reason instanceof Error ? reason.message : "启动路由失败"); }
+          } catch (reason) { setRouteStartError(claudeActionError(reason, "启动路由失败")); }
           finally { setRouteStartBusy(false); }
         })();
       }} footer={<>
@@ -1168,12 +1192,14 @@ export function ClaudeProvidersPlugin({ mobile = false }: { mobile?: boolean } =
       <p className="claude-config-help">{config.roundRobin ? "轮询策略已选中，所选供应商会排到 P1，其余队列顺序保留；可在列表中调整顺序。" : config.failover ? "优先级故障转移已选中，所选供应商会排到 P1，其余队列顺序保留；可在列表中调整优先级。" : "固定策略已选中，所选供应商作为唯一目标；队列配置保留但不参与请求。"} 点击「回到直连」停止路由并恢复直连配置。</p>
       {routeStartError && <p className="claude-error" role="alert">{routeStartError}</p>}
     </SharedDialog>}
-    {importPreview && <SharedDialog sizeStorageKey="features/plugins/claude-providers-plugin/claude-providers-plugin/3" title="选择导入供应商" subtitle="导入为新记录，不覆盖现有供应商；完全相同的配置将跳过。" closeDisabled={importBusy} onClose={closeImport} footer={<>
+    {importPreview && <SharedDialog sizeStorageKey="features/plugins/claude-providers-plugin/claude-providers-plugin/3" title="选择导入供应商" subtitle="导入为新记录，不覆盖现有供应商；完全相同的配置将跳过。" size="small" showResize={false} resizable={false} className="claude-import-dialog" bodyClassName="claude-import-dialog-body" closeDisabled={importBusy} onClose={closeImport} footer={<>
       <button type="button" className="secondary" disabled={importBusy} onClick={closeImport}>取消</button>
       <button type="button" className="primary" disabled={importBusy || !importSelection.size} onClick={async()=>{setImportBusy(true);setImportError("");try{const result=await claudeWorkbenchClient.importProviders(importPreview.token,[...importSelection]);setImportPreview(null);setMessage("导入 " + result.imported + " 条，跳过重复 " + result.skipped + " 条");await load();}catch(reason){setImportError(reason instanceof Error?reason.message:"导入失败");}finally{setImportBusy(false);}}}>{importBusy?"导入中…":"导入所选"}</button>
     </>}>
       <div className="claude-batch-toolbar"><button type="button" disabled={importBusy} onClick={()=>setImportSelection(new Set(importPreview.providers.map(p=>p.index)))}>全选</button><button type="button" disabled={importBusy} onClick={()=>setImportSelection(new Set())}>清空选择</button><span>已选 {importSelection.size} 条</span></div>
-      {importPreview.providers.map(p=><label className="claude-import-row" key={p.index}><input type="checkbox" disabled={importBusy} checked={importSelection.has(p.index)} onChange={event=>setImportSelection(current=>{const next=new Set(current);if(event.target.checked)next.add(p.index);else next.delete(p.index);return next;})} /><span>{p.name}<small>{p.baseUrl}</small></span></label>)}
+      <div className="claude-import-list">
+        {importPreview.providers.map(p=><label className="claude-import-row" key={p.index}><input type="checkbox" disabled={importBusy} checked={importSelection.has(p.index)} onChange={event=>setImportSelection(current=>{const next=new Set(current);if(event.target.checked)next.add(p.index);else next.delete(p.index);return next;})} /><span><strong>{p.name}</strong><small>{p.baseUrl}</small></span></label>)}
+      </div>
       {importError && <p className="claude-error" role="alert">{importError}</p>}
     </SharedDialog>}
     {configPreview && <SharedDialog sizeStorageKey="features/plugins/claude-providers-plugin/claude-providers-plugin/4" title="当前配置文件预览" subtitle={configPreview.path} onClose={() => setConfigPreview(null)} footer={<button type="button" className="secondary" onClick={() => setConfigPreview(null)}>关闭</button>}>
@@ -1193,7 +1219,7 @@ export function ClaudeProvidersPlugin({ mobile = false }: { mobile?: boolean } =
       if (confirmBusy) return;
       if (!accepted) { setConfirmation(null); return; }
       setConfirmBusy(true);
-      void confirmation.action().then(() => setConfirmation(null)).catch(reason => setConfirmError(reason instanceof Error ? reason.message : "操作失败")).finally(() => setConfirmBusy(false));
+      void confirmation.action().then(() => setConfirmation(null)).catch(reason => setConfirmError(claudeActionError(reason))).finally(() => setConfirmBusy(false));
     }} />, document.body)}
   </section>;
 }

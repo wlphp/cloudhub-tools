@@ -21,9 +21,9 @@ export function AggregateStartDialog({ providers, config, initialDefault, onClos
   const [target, setTarget] = useState(initialDefault);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const eligible = providers.filter(provider => !provider.officialLogin && provider.keyConfigured && providerModelCount(provider) > 0);
-  const memberIds = [...new Set([...config.members, ...(initialDefault && target !== initialDefault ? [initialDefault] : [])])].filter(id => id !== target);
-  const members = providers.filter(provider => memberIds.includes(provider.id));
+  const eligible = providers.filter(provider => !provider.officialLogin && provider.keyConfigured && !provider.keyDecryptionFailed && providerModelCount(provider) > 0);
+  const memberIds = [...new Set([...config.members.filter(id => eligible.some(provider => provider.id === id)), ...(initialDefault && target !== initialDefault ? [initialDefault] : [])])].filter(id => id !== target);
+  const members = eligible.filter(provider => memberIds.includes(provider.id));
   return <SharedDialog sizeStorageKey="features/plugins/claude-routing-panels/aggregate-start-dialog" title="让 Claude Code 使用聚合模式？" subtitle="默认供应商承接不带前缀的请求。" size="small" onClose={onClose} closeDisabled={busy}
     onSubmit={event => {
       event.preventDefault();
