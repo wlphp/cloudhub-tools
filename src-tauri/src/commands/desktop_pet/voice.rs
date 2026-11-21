@@ -656,7 +656,10 @@ fn capture_session(app: &AppHandle, engine: &Arc<Engine>, generation: u64, awake
     let supported = device.default_input_config().map_err(|_| "麦克风不可用，请检查设备连接")?;
     let config: cpal::StreamConfig = supported.clone().into();
     eprintln!("pet-voice: 采集参数 {}Hz {}声道 {:?}，正在启动数据流", config.sample_rate.0, config.channels, supported.sample_format());
-    let (tx, rx) = mpsc::sync_channel::<Vec<f32>>(64);
+    // 采集缓冲约 30 秒（960×512/16k）：识别期间（云端上传或本地推理最长十余秒）麦克风回调持续写入，
+    // 缓冲不足会把识别间隙里说的话整段丢弃——唤醒词恰恰常在上一段识别期间说出，症状是"喊了没反应"。
+    // 代价仅约 2MB 内存；缓冲真正写满仍按旧策略丢弃，保证内存有界。
+    let (tx, rx) = mpsc::sync_channel::<Vec<f32>>(960);
     let stream = build_capture_stream(&device, config, supported.sample_format(), supported.channels() as usize, supported.sample_rate().0, tx)
         .map_err(|_| "麦克风启动失败，请检查设备与采样格式")?;
     stream.play().map_err(|_| "麦克风启动失败")?;
@@ -774,7 +777,7 @@ fn feed<T: Copy>(data: &[T], channels: usize, resampler: &mut Resampler, convert
     let mut out = Vec::new();
     resampler.push(&mono, &mut out);
     if !out.is_empty() {
-        // 通道写满即丢弃：推理期间不积压，避免内存无限增长。
+        // 缓冲写满才丢弃（约 30 秒余量，见采集通道容量说明）：识别期间的语音排队而非丢失。
         let _ = tx.try_send(out);
     }
 }
