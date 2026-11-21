@@ -1305,30 +1305,65 @@ fn segment_transcript(app: &AppHandle, engine: &Arc<Engine>, settings: &super::S
 /// 单段语音的处理结果：Noise 表示该段被判定为环境噪声（调用方据此抬升噪声底）。
 enum SegmentOutcome { Speech, Noise }
 
+/// 临时拾音诊断开关：唤醒匹配失败（噪声/幻觉/无法识别/未命中）的段落保存为 WAV，仅本机、最多保留 10 个。
+/// 用于排查"喊唤醒词却识别失败"的真实音频质量；定位后关闭此开关并清理 voice-diagnostics 目录。
+const DIAGNOSE_FAILED_SEGMENTS: bool = true;
+
+/// 把识别失败的段落写诊断 WAV；超量删除最旧的。文件名只含时间戳，不含任何文本。
+fn dump_failed_segment(samples: &[f32]) {
+    if !DIAGNOSE_FAILED_SEGMENTS { return; }
+    let Ok(dir) = crate::core::paths::data_dir() else { return };
+    let dir = dir.join("voice-diagnostics");
+    if std::fs::create_dir_all(&dir).is_err() { return; }
+    let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
+    let path = dir.join(format!("seg-{stamp}.wav"));
+    if std::fs::write(&path, wav_bytes(samples)).is_ok() {
+        log_event(&format!("diagnostic dumped {}", path.file_name().and_then(|name| name.to_str()).unwrap_or("")));
+    }
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        let mut files: Vec<_> = entries.filter_map(|entry| entry.ok()).map(|entry| entry.path()).collect();
+        if files.len() > 10 {
+            files.sort();
+            let excess = files.len() - 10;
+            for old in files.drain(..excess) {
+                let _ = std::fs::remove_file(old);
+            }
+        }
+    }
+}
+
 /// 归一化后做唤醒词容错子串匹配；指令取唤醒词之后的剩余文本。
-/// 未命中的段落经 pet-voice-heard 上报（仅内存与界面展示，不落盘不写日志），便于排查唤醒词选词。
+/// 未命中的段落经 pet-voice-heard 上报（仅内存与界面展示，不写日志），便于排查唤醒词选词。
 /// 模型缺失、推理失败与空转写经 pet-voice-error 上报，避免"监听中却毫无反应"时无从排查。
+/// 拾音诊断开关开启时，匹配失败段落的音频会临时保存到 voice-diagnostics 目录（仅本机，最多 10 个）。
 fn handle_segment(app: &AppHandle, engine: &Arc<Engine>, settings: &super::Settings, awake: &mut Option<Instant>, samples: &mut [f32]) -> SegmentOutcome {
     if engine.manual_active.load(Ordering::SeqCst) { return SegmentOutcome::Speech; }
     engine.segments.fetch_add(1, Ordering::SeqCst);
     let len_ms = samples.len() / 16;
+    // 拾音诊断：记录原始电平（峰值/RMS），判断唤醒失败是否源于音量过低或环境噪声过高。
+    let raw_peak = samples.iter().fold(0.0f32, |max, sample| max.max(sample.abs()));
+    let raw_rms = if samples.is_empty() { 0.0 } else { (samples.iter().map(|sample| sample * sample).sum::<f32>() / samples.len() as f32).sqrt() };
+    log_event(&format!("segment {len_ms}ms raw peak={raw_peak:.3} rms={raw_rms:.4}"));
     let transcript = match segment_transcript(app, engine, settings, len_ms, samples) {
         Ok(text) => text,
         Err(error) => { log_event(&format!("segment {len_ms}ms transcribe error: {error}")); let _ = app.emit("pet-voice-error", VoiceError { message: error }); return SegmentOutcome::Speech; }
     };
     if transcript.trim().is_empty() {
         log_event(&format!("segment {len_ms}ms empty transcript"));
+        dump_failed_segment(samples);
         let _ = app.emit("pet-voice-error", VoiceError { message: "未识别到清晰语音，请靠近麦克风再试".into() });
         return SegmentOutcome::Noise;
     }
     let lowered = transcript.trim().to_lowercase();
     if TRANSCRIBE_HALLUCINATIONS.iter().any(|pattern| lowered.contains(pattern)) {
         log_event(&format!("segment {len_ms}ms hallucination dropped"));
+        dump_failed_segment(samples);
         return SegmentOutcome::Noise;
     }
     let text: String = transcript.chars().filter(|c| c.is_alphanumeric()).collect::<String>().to_lowercase();
     if text.is_empty() {
         log_event(&format!("segment {len_ms}ms filtered (no alphanumeric)"));
+        dump_failed_segment(samples);
         return SegmentOutcome::Noise;
     }
     let word: String = settings
@@ -1368,6 +1403,7 @@ fn handle_segment(app: &AppHandle, engine: &Arc<Engine>, settings: &super::Setti
             let heard = transcript.trim().to_string();
             if !heard.is_empty() {
                 log_event(&format!("segment {len_ms}ms heard"));
+                dump_failed_segment(samples);
                 let _ = app.emit("pet-voice-heard", VoiceHeard { text: heard });
             }
             SegmentOutcome::Speech
