@@ -31,6 +31,13 @@ html {
   text-size-adjust: 100%;
 }
 
+/* 双指缩放兜底：viewport user-scalable=no 覆盖大部分 WebView；这里再限制
+   触摸动作为横/纵平移，iOS 13+ Safari 与部分双击缩放场景同样被禁用，
+   上下滚动、横向标签滚动与拖拽排序不受影响（它们自身声明了对应 touch-action）。 */
+body:has(.mobile-shell) {
+  touch-action: pan-x pan-y;
+}
+
 body {
   overflow-x: hidden;
   background: var(--mobile-bg);
