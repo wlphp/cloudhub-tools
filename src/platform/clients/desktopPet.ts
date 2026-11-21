@@ -17,11 +17,15 @@ export interface PetSettings {
   voice: PetVoiceSettings;
 }
 export interface PetVoiceSettings {
-  enabled: boolean; wakeEnabled: boolean; wakeWord: string; modelFile: string; language: string; autoSend: boolean; speak: boolean; device: string; cloudAsrEnabled: boolean; cloudProfileId: string; cloudEndpoint: string; cloudModel: string; maxSeconds: number;
+  enabled: boolean; wakeEnabled: boolean; wakeWord: string; modelFile: string; language: string; autoSend: boolean; speak: boolean; device: string; cloudAsrEnabled: boolean;
+  /** 云端识别服务商："openai" 复用 AI 配置的 OpenAI 兼容接口，"xfyun" 为讯飞语音听写（独立加密凭据）。 */
+  cloudProvider: "openai" | "xfyun"; cloudProfileId: string; cloudEndpoint: string; cloudModel: string; maxSeconds: number;
 }
-export const defaultPetVoice: PetVoiceSettings = { enabled: true, wakeEnabled: false, wakeWord: "小驼", modelFile: "", language: "zh", autoSend: true, speak: true, device: "", cloudAsrEnabled: false, cloudProfileId: "", cloudEndpoint: "", cloudModel: "", maxSeconds: 60 };
+export const defaultPetVoice: PetVoiceSettings = { enabled: true, wakeEnabled: false, wakeWord: "小驼", modelFile: "", language: "zh", autoSend: true, speak: true, device: "", cloudAsrEnabled: false, cloudProvider: "openai", cloudProfileId: "", cloudEndpoint: "", cloudModel: "", maxSeconds: 60 };
+/** 讯飞语音听写凭据：随设置保存一次性传给后端加密落库，不回读。 */
+export interface PetVoiceXfyunCredentials { appId: string; apiKey: string; apiSecret: string }
 export interface PetVoiceModel { name: string; sizeBytes: number }
-export interface PetVoiceStatus { modelsDir: string; models: PetVoiceModel[]; catalog: PetVoiceModel[]; selected: string | null; ready: boolean; listening: boolean; device: string; devices: string[]; activeDevice: string; segments: number; matched: number }
+export interface PetVoiceStatus { modelsDir: string; models: PetVoiceModel[]; catalog: PetVoiceModel[]; selected: string | null; ready: boolean; listening: boolean; device: string; devices: string[]; activeDevice: string; segments: number; matched: number; xfyunConfigured: boolean }
 export interface PetVoiceDownloadProgress { stage: "connecting" | "downloading" | "done"; source: string; downloadedBytes: number; totalBytes: number | null; bytesPerSecond: number }
 export interface PetVoiceIntent { action: string; text: string; summary: string }
 export interface PetLifeSettings {
@@ -74,7 +78,7 @@ export const desktopPetClient = {
   settings: () => nativeOnly<PetSettings>("pet_settings"),
   snapshot: () => nativeOnly<PetSnapshot>("pet_snapshot"),
   notice: () => nativeOnly<PetAlert | null>("pet_notice"), dismiss: () => nativeOnly<void>("pet_dismiss"),
-  save: (settings: PetSettings) => nativeOnly<void>("pet_save_settings", { settings }),
+  save: (settings: PetSettings, xfyunCredentials?: PetVoiceXfyunCredentials) => nativeOnly<void>("pet_save_settings", { settings, xfyunCredentials: xfyunCredentials ?? null }),
   show: () => nativeOnly<void>("pet_show"), hide: () => nativeOnly<void>("pet_hide"),
   check: () => nativeOnly<void>("pet_check"),
   layout: (expanded: boolean, enlarged = false) => nativeOnly<void>("pet_layout", { expanded, enlarged }),

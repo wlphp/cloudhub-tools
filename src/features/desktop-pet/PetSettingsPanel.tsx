@@ -7,7 +7,7 @@ import { PetLifeSettings } from "./PetLifeSettings";
 import { PetVoiceSettings } from "./PetVoiceSettings";
 import { listen } from "@tauri-apps/api/event";
 import { runningInTauri, platformErrorMessage } from "../../platform/api";
-import { defaultPetSettings, defaultPetLife, defaultPetVoice, petSeverityLabel, sortPetAlerts, desktopPetClient as client, type PetSettings, type PetSnapshot } from "../../platform/clients/desktopPet";
+import { defaultPetSettings, defaultPetLife, defaultPetVoice, petSeverityLabel, sortPetAlerts, desktopPetClient as client, type PetSettings, type PetSnapshot, type PetVoiceXfyunCredentials } from "../../platform/clients/desktopPet";
 import "./desktop-pet.css";
 
 export function PetSettingsPanel({ embedded = false }: { embedded?: boolean }) {
@@ -35,10 +35,10 @@ export function PetSettingsPanel({ embedded = false }: { embedded?: boolean }) {
     try { await client.save(next); setSettings(next); }
     finally { setBusy(false); }
   }
-  async function changeVoice(voice: PetSettings["voice"]) {
+  async function changeVoice(voice: PetSettings["voice"], xfyunCredentials?: PetVoiceXfyunCredentials) {
     const next = { ...settings, voice };
     setBusy(true); setError("");
-    try { await client.save(next); setSettings(next); }
+    try { await client.save(next, xfyunCredentials); setSettings(next); }
     finally { setBusy(false); }
   }
   const toggle = (key: "enabled" | "sound" | "reducedMotion", label: string, detail?: string, disabled = false) => <label className="pet-option"><span>{label}{detail && <small>{detail}</small>}</span><input type="checkbox" disabled={!ready || busy || disabled} checked={settings[key]} onChange={e => void change({ [key]: e.target.checked })} /></label>;

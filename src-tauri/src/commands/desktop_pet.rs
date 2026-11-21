@@ -92,6 +92,8 @@ pub struct VoiceSettings {
     pub speak: bool,
     pub device: String,
     pub cloud_asr_enabled: bool,
+    /// 云端识别服务商："openai" 为 OpenAI 兼容 multipart 接口（复用 AI 配置），"xfyun" 为讯飞语音听写（独立凭据）。
+    pub cloud_provider: String,
     pub cloud_profile_id: String,
     pub cloud_endpoint: String,
     pub cloud_model: String,
@@ -109,6 +111,7 @@ impl Default for VoiceSettings {
             speak: true,
             device: String::new(),
             cloud_asr_enabled: false,
+            cloud_provider: "openai".into(),
             cloud_profile_id: String::new(),
             cloud_endpoint: String::new(),
             cloud_model: String::new(),
@@ -138,6 +141,7 @@ impl VoiceSettings {
             || (!self.model_file.trim().is_empty() && !valid_model_name(self.model_file.trim()))
             || self.device.trim().chars().count() > 120
             || self.device.chars().any(char::is_control)
+            || !matches!(self.cloud_provider.as_str(), "openai" | "xfyun")
             || self.cloud_profile_id.trim().chars().count() > 64
             || self.cloud_profile_id.chars().any(char::is_control)
             || self.cloud_endpoint.trim().chars().count() > 200
@@ -149,6 +153,43 @@ impl VoiceSettings {
             return Err("桌宠语音设置无效".into());
         }
         Ok(())
+    }
+}
+
+/// 讯飞语音听写凭据：随 pet_save_settings 传入，本地 AES-GCM 加密存储；不回传前端、不写日志。
+#[cfg(desktop)]
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VoiceXfyunCredentials {
+    pub app_id: String,
+    pub api_key: String,
+    pub api_secret: String,
+}
+#[cfg(desktop)]
+impl VoiceXfyunCredentials {
+    fn is_empty(&self) -> bool {
+        self.app_id.trim().is_empty() && self.api_key.trim().is_empty() && self.api_secret.trim().is_empty()
+    }
+    /// 全部留空表示清除已保存凭据；否则三项均必填，长度与字符集受限，防止把垃圾数据写进加密存储。
+    fn validate(&self) -> Result<(), String> {
+        let fields = [(&self.app_id, "APPID"), (&self.api_key, "APIKey"), (&self.api_secret, "APISecret")];
+        let filled = fields.iter().filter(|(value, _)| !value.trim().is_empty()).count();
+        if filled > 0 && filled < 3 {
+            return Err("讯飞凭据不完整：APPID、APIKey、APISecret 均需填写".into());
+        }
+        for (value, _) in fields {
+            if value.chars().count() > 128 || value.chars().any(char::is_control) {
+                return Err("讯飞凭据无效：过长或包含非法字符".into());
+            }
+        }
+        Ok(())
+    }
+    fn trimmed(&self) -> Self {
+        Self {
+            app_id: self.app_id.trim().into(),
+            api_key: self.api_key.trim().into(),
+            api_secret: self.api_secret.trim().into(),
+        }
     }
 }
 
@@ -964,9 +1005,15 @@ pub async fn pet_save_settings(
     window: tauri::WebviewWindow,
     app: tauri::AppHandle,
     settings: Settings,
+    xfyun_credentials: Option<VoiceXfyunCredentials>,
 ) -> PlatformResult<()> {
     caller(&window)?;
     settings.validate()?;
+    // 凭据先整体校验再入库；全部留空表示清除已保存凭据。
+    let credentials = xfyun_credentials.as_ref().map(|credentials| -> Result<VoiceXfyunCredentials, String> {
+        credentials.validate()?;
+        Ok(credentials.trimmed())
+    }).transpose()?;
     let previous = read_settings()?;
     let previous_monitor = MonitorSettings::from(&previous);
     save_json(CONFIG, &settings)?;
@@ -980,6 +1027,9 @@ pub async fn pet_save_settings(
         return Err(error.into());
     }
     voice::sync_listener(&app);
+    if let Some(credentials) = credentials {
+        if credentials.is_empty() { voice::xfyun_clear_credentials()?; } else { voice::xfyun_store_credentials(&credentials)?; }
+    }
     if previous.life != settings.life {
         // A changed schedule must not replay a pending greeting from the previous configuration.
         let _ = update_life(&app, |state| {

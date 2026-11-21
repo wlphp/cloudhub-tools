@@ -87,6 +87,8 @@ pub struct VoiceStatus {
     pub active_device: String,
     pub segments: u64,
     pub matched: u64,
+    /// 讯飞凭据是否已配置（仅布尔状态，不回传凭据内容）。
+    pub xfyun_configured: bool,
 }
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -127,6 +129,16 @@ const DOWNLOAD_CHUNK_TIMEOUT: Duration = Duration::from_secs(30);
 const DOWNLOAD_EMIT_INTERVAL: Duration = Duration::from_millis(250);
 /// 云端语音识别单段超时：超时后自动回落本地 whisper。
 const CLOUD_ASR_TIMEOUT: Duration = Duration::from_secs(6);
+/// 讯飞语音听写（流式版）接口地址：签名串与请求 host 必须与此一致，换地址需同步调整签名。
+const XFYUN_IAT_HOST: &str = "iat-api.xfyun.cn";
+const XFYUN_IAT_PATH: &str = "/v2/iat";
+/// 16k16bit 下 1280 字节一帧（40ms 音频）；官方建议 40ms 间隔，为降低识别延迟按 10ms 发送。
+const XFYUN_FRAME_BYTES: usize = 1280;
+const XFYUN_FRAME_INTERVAL: Duration = Duration::from_millis(10);
+/// 讯飞单次会话整体超时（含分帧发送节奏）：超时后回落本地识别。
+const XFYUN_SESSION_TIMEOUT: Duration = Duration::from_secs(25);
+/// 讯飞凭据在 client_preferences 中的加密存储键（AES-GCM 密文，不参与偏好导出与同步）。
+const XFYUN_CREDENTIALS_KEY: &str = "desktop-pet-voice-xfyun-v1";
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -288,6 +300,7 @@ fn current_status(app: &tauri::AppHandle) -> Result<VoiceStatus, String> {
         active_device: engine.active_device.lock().map(|active| active.clone()).unwrap_or_default(),
         segments: engine.segments.load(Ordering::SeqCst),
         matched: engine.matched.load(Ordering::SeqCst),
+        xfyun_configured: xfyun_configured(),
     })
 }
 
@@ -989,10 +1002,21 @@ mod wake_diagnostic {
 /// whisper 在静音/噪声段上的高频幻觉文本：均为训练数据里的字幕与片尾残留，真实指令不会包含。
 const TRANSCRIBE_HALLUCINATIONS: [&str; 8] = ["字幕", "谢谢观看", "謝謝觀看", "订阅", "訂閱", "amara", "thank you for watching", "please subscribe"];
 
+/// 将 16k 单声道采样打包为 16bit 小端原始 PCM（讯飞听写按 raw 编码分帧上传）。
+fn pcm16_bytes(samples: &[f32]) -> Vec<u8> {
+    let mut pcm = Vec::with_capacity(samples.len() * 2);
+    for sample in samples {
+        let quantized = (sample.clamp(-1.0, 1.0) * 32767.0).round() as i16;
+        pcm.extend_from_slice(&quantized.to_le_bytes());
+    }
+    pcm
+}
+
 /// 将 16k 单声道采样打包为内存 WAV（无临时文件）。
 fn wav_bytes(samples: &[f32]) -> Vec<u8> {
-    let mut wav = Vec::with_capacity(44 + samples.len() * 2);
-    let data_len = (samples.len() * 2) as u32;
+    let pcm = pcm16_bytes(samples);
+    let data_len = pcm.len() as u32;
+    let mut wav = Vec::with_capacity(44 + pcm.len());
     wav.extend_from_slice(b"RIFF");
     wav.extend_from_slice(&(36 + data_len).to_le_bytes());
     wav.extend_from_slice(b"WAVEfmt ");
@@ -1005,10 +1029,7 @@ fn wav_bytes(samples: &[f32]) -> Vec<u8> {
     wav.extend_from_slice(&16u16.to_le_bytes());
     wav.extend_from_slice(b"data");
     wav.extend_from_slice(&data_len.to_le_bytes());
-    for sample in samples {
-        let quantized = (sample.clamp(-1.0, 1.0) * 32767.0).round() as i16;
-        wav.extend_from_slice(&quantized.to_le_bytes());
-    }
+    wav.extend_from_slice(&pcm);
     wav
 }
 
@@ -1062,6 +1083,145 @@ async fn cloud_transcribe(url: &str, key: impl AsRef<str>, model: &str, wav: &[u
     Ok(text)
 }
 
+/// 讯飞凭据写入：JSON 明文经 encrypt_secret 加密后存 client_preferences，不落明文、不回传前端。
+pub fn xfyun_store_credentials(credentials: &super::VoiceXfyunCredentials) -> Result<(), String> {
+    let plaintext = serde_json::to_string(credentials).map_err(|_| "讯飞凭据序列化失败".to_string())?;
+    let ciphertext = crate::core::crypto::encrypt_secret(&plaintext)?;
+    let db = crate::core::storage::open_db()?;
+    crate::core::repositories::preferences::save(&db, XFYUN_CREDENTIALS_KEY, &ciphertext, chrono::Utc::now().timestamp_millis())
+}
+
+/// 清除已保存的讯飞凭据（设置里三项全部留空保存时触发）。
+pub fn xfyun_clear_credentials() -> Result<(), String> {
+    let db = crate::core::storage::open_db()?;
+    db.execute("DELETE FROM client_preferences WHERE key=?1", [XFYUN_CREDENTIALS_KEY]).map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+/// 读取讯飞凭据：密文仅在内存解密为三段字符串；未配置返回 None，解密失败提示重新保存而非泄露内容。
+fn xfyun_load_credentials() -> Result<Option<(String, String, String)>, String> {
+    let db = crate::core::storage::open_db()?;
+    let Some(ciphertext) = crate::core::repositories::preferences::list(&db)?
+        .get(XFYUN_CREDENTIALS_KEY)
+        .filter(|value| !value.trim().is_empty())
+        .cloned()
+    else {
+        return Ok(None);
+    };
+    let plaintext = crate::core::crypto::decrypt_secret(&ciphertext).map_err(|_| "讯飞凭据解密失败，请在语音设置中重新保存".to_string())?;
+    let credentials: super::VoiceXfyunCredentials = serde_json::from_str(&plaintext).map_err(|_| "讯飞凭据数据无效，请在语音设置中重新保存".to_string())?;
+    Ok(Some((credentials.app_id, credentials.api_key, credentials.api_secret)))
+}
+
+/// 状态展示用：讯飞凭据是否已配置（仅布尔状态）。
+fn xfyun_configured() -> bool {
+    matches!(xfyun_load_credentials(), Ok(Some(_)))
+}
+
+/// 按官方契约构造讯飞握手 URL：host/date/request-line 拼串 → HMAC-SHA256 → base64 鉴权参数。
+/// date 由调用方传入（RFC1123 GMT），保证签名与请求时间一致；异常密钥长度在 HMAC 中不存在失败路径。
+fn xfyun_handshake_url(api_key: &str, api_secret: &str, date: &str) -> String {
+    use base64::engine::general_purpose::STANDARD as BASE64;
+    use hmac::Mac;
+    /// 查询串编码：字母数字与 -_.~ 保留，空格/逗号/冒号/加号/斜杠等按 RFC3986 编码，与官方示例 urlencode 行为一致。
+    const QUERY_ENCODE: &percent_encoding::AsciiSet = &percent_encoding::CONTROLS
+        .add(b' ').add(b'"').add(b',').add(b':').add(b';').add(b'=').add(b'+').add(b'/').add(b'?').add(b'&').add(b'#').add(b'%');
+    let signature_origin = format!("host: {XFYUN_IAT_HOST}\ndate: {date}\nGET {XFYUN_IAT_PATH} HTTP/1.1");
+    let mut signer = hmac::Hmac::<sha2::Sha256>::new_from_slice(api_secret.as_bytes()).expect("HMAC 接受任意长度密钥");
+    signer.update(signature_origin.as_bytes());
+    let signature = BASE64.encode(signer.finalize().into_bytes());
+    let authorization = BASE64.encode(format!("api_key=\"{api_key}\", algorithm=\"hmac-sha256\", headers=\"host date request-line\", signature=\"{signature}\""));
+    format!(
+        "wss://{XFYUN_IAT_HOST}{XFYUN_IAT_PATH}?authorization={}&date={}&host={}",
+        percent_encoding::utf8_percent_encode(&authorization, QUERY_ENCODE),
+        percent_encoding::utf8_percent_encode(date, QUERY_ENCODE),
+        percent_encoding::utf8_percent_encode(XFYUN_IAT_HOST, QUERY_ENCODE),
+    )
+}
+
+/// 讯飞语音听写（流式版）：签名握手 → 分帧上传 PCM → 拼接 data.result.ws[].cw[].w。
+/// 连接失败不透出原始错误（握手 URL 含凭据派生参数），仅提示检查网络、凭据与系统时间。
+async fn xfyun_iat_transcribe(app_id: &str, api_key: &str, api_secret: &str, language: &str, pcm: &[u8]) -> Result<String, String> {
+    use base64::engine::general_purpose::STANDARD as BASE64;
+    use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message;
+
+    if app_id.is_empty() || api_key.is_empty() || api_secret.is_empty() { return Err("讯飞凭据未配置完整".into()); }
+    if pcm.is_empty() { return Err("无有效语音片段".into()); }
+    // 讯飞单次会话最长 60 秒：超长片段直接报错回落本地识别，避免截断丢句。
+    if pcm.len() > 60 * SAMPLE_RATE * 2 { return Err("语音片段超过讯飞单次 60 秒上限".into()); }
+    let date = chrono::Utc::now().format("%a, %d %b %Y %H:%M:%S GMT").to_string();
+    let (websocket, _) = tokio_tungstenite::connect_async(xfyun_handshake_url(api_key, api_secret, &date)).await
+        .map_err(|_| "讯飞语音听写连接失败：请检查网络、讯飞凭据与本机系统时间".to_string())?;
+    let (mut sink, mut stream) = websocket.split();
+    // 听写无自动语种检测：跟随语音设置映射，zh/auto 走中英混合，en 走英文。
+    let (language, accent) = match language.trim() {
+        "en" => ("en_us", ""),
+        _ => ("zh_cn", "mandarin"),
+    };
+    let business = if accent.is_empty() {
+        serde_json::json!({ "language": language, "domain": "iat" })
+    } else {
+        serde_json::json!({ "language": language, "domain": "iat", "accent": accent })
+    };
+    let send_all = async {
+        for (index, chunk) in pcm.chunks(XFYUN_FRAME_BYTES).enumerate() {
+            if index > 0 { tokio::time::sleep(XFYUN_FRAME_INTERVAL).await; }
+            let mut frame = serde_json::Map::new();
+            if index == 0 {
+                frame.insert("common".into(), serde_json::json!({ "app_id": app_id }));
+                frame.insert("business".into(), business.clone());
+            }
+            frame.insert("data".into(), serde_json::json!({
+                "status": if index == 0 { 0 } else { 1 },
+                "format": "audio/L16;rate=16000",
+                "encoding": "raw",
+                "audio": BASE64.encode(chunk),
+            }));
+            let payload = serde_json::to_string(&frame).map_err(|_| "讯飞请求帧编码失败".to_string())?;
+            sink.send(Message::text(payload)).await.map_err(|_| "讯飞语音听写发送中断".to_string())?;
+        }
+        sink.send(Message::text("{\"data\":{\"status\":2}}")).await.map_err(|_| "讯飞语音听写发送中断".to_string())?;
+        let _ = sink.close().await;
+        Ok::<(), String>(())
+    };
+    let read_all = async {
+        let mut transcript = String::new();
+        while let Some(message) = stream.next().await {
+            match message {
+                Ok(Message::Text(text)) => {
+                    let json: serde_json::Value = serde_json::from_str(text.as_str())
+                        .map_err(|_| format!("讯飞响应非 JSON：{}", truncate_diag(text.as_str())))?;
+                    let code = json.get("code").and_then(|value| value.as_i64()).unwrap_or(-1);
+                    if code != 0 {
+                        let detail = json.get("message").and_then(|value| value.as_str()).unwrap_or("未知错误");
+                        return Err(format!("讯飞语音听写返回错误 {code}：{detail}"));
+                    }
+                    if let Some(characters) = json.pointer("/data/result/ws").and_then(|value| value.as_array()) {
+                        for word in characters {
+                            if let Some(characters) = word.get("cw").and_then(|value| value.as_array()) {
+                                for character in characters {
+                                    transcript.push_str(character.get("w").and_then(|value| value.as_str()).unwrap_or(""));
+                                }
+                            }
+                        }
+                    }
+                    if json.pointer("/data/status").and_then(|value| value.as_i64()) == Some(2) { break; }
+                }
+                Ok(_) => {}
+                Err(error) => return Err(format!("讯飞语音听写连接中断：{}", truncate_diag(&error.to_string()))),
+            }
+        }
+        Ok::<String, String>(transcript)
+    };
+    let (transcript, _) = tokio::time::timeout(XFYUN_SESSION_TIMEOUT, async { tokio::join!(read_all, send_all) })
+        .await
+        .map_err(|_| "讯飞语音听写会话超时".to_string())?;
+    let transcript = transcript?;
+    if transcript.trim().is_empty() { return Err("讯飞语音听写未返回文本".into()); }
+    Ok(transcript)
+}
+
 /// 云端识别走语音设置所选 AI 配置；凭据仅在内存中解密使用，音频不落盘。
 fn cloud_segment_transcript(settings: &super::Settings, samples: &mut [f32]) -> Result<String, String> {
     let profile_id = settings.voice.cloud_profile_id.trim();
@@ -1078,17 +1238,35 @@ fn cloud_segment_transcript(settings: &super::Settings, samples: &mut [f32]) -> 
     tauri::async_runtime::block_on(cloud_transcribe(&url, &key, &settings.voice.cloud_model, &wav))
 }
 
-/// 单段音频转写：开启云端识别时优先上传 AI 服务商，失败自动回落本地 whisper。
+/// 讯飞听写走独立加密凭据；音频以 16k 原始 PCM 分帧上传，失败回落本地识别。
+fn cloud_segment_transcript_xfyun(settings: &super::Settings, samples: &mut [f32]) -> Result<String, String> {
+    let Some((app_id, api_key, api_secret)) = xfyun_load_credentials()? else {
+        return Err("讯飞语音听写凭据未配置，请在语音设置中填写".into());
+    };
+    normalize_peaks(samples);
+    let pcm = pcm16_bytes(samples);
+    tauri::async_runtime::block_on(xfyun_iat_transcribe(&app_id, &api_key, &api_secret, &settings.voice.language, &pcm))
+}
+
+/// 单段音频转写：开启云端识别时优先上传所选服务商（OpenAI 兼容接口或讯飞听写），失败自动回落本地 whisper。
 fn segment_transcript(app: &AppHandle, engine: &Arc<Engine>, settings: &super::Settings, len_ms: usize, samples: &mut [f32]) -> Result<String, String> {
-    if settings.voice.cloud_asr_enabled && !settings.voice.cloud_profile_id.trim().is_empty() {
-        match cloud_segment_transcript(settings, samples) {
-            Ok(text) => {
-                log_event(&format!("segment {len_ms}ms cloud transcribed"));
-                return Ok(text);
-            }
-            Err(error) => {
-                log_event(&format!("segment {len_ms}ms cloud error: {error}"));
-                let _ = app.emit("pet-voice-error", VoiceError { message: format!("云端识别失败，已回落本地识别：{error}") });
+    if settings.voice.cloud_asr_enabled {
+        // openai 兼容路径沿用旧行为：未选择 AI 配置时静默走本地；讯飞路径未配置凭据时报错提示。
+        let cloud = match settings.voice.cloud_provider.as_str() {
+            "xfyun" => Some(cloud_segment_transcript_xfyun(settings, samples)),
+            _ if !settings.voice.cloud_profile_id.trim().is_empty() => Some(cloud_segment_transcript(settings, samples)),
+            _ => None,
+        };
+        if let Some(cloud) = cloud {
+            match cloud {
+                Ok(text) => {
+                    log_event(&format!("segment {len_ms}ms cloud transcribed"));
+                    return Ok(text);
+                }
+                Err(error) => {
+                    log_event(&format!("segment {len_ms}ms cloud error: {error}"));
+                    let _ = app.emit("pet-voice-error", VoiceError { message: format!("云端识别失败，已回落本地识别：{error}") });
+                }
             }
         }
     }

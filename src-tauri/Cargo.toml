@@ -83,6 +83,9 @@ arboard = { version = "3", default-features = false }
 # 桌宠语音：本地 whisper.cpp 推理与麦克风采集；ggml 模型由用户手动放置，不随安装包分发。
 whisper-rs = "0.16"
 cpal = "0.15"
+# 桌宠语音云端识别：讯飞语音听写（流式版）为 WebSocket 协议，需 HMAC-SHA256 签名握手。
+tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 
 # Chrome for Testing encrypts stored cookie values with DPAPI-protected AES-GCM
 # keys. Reading them offline requires only CryptUnprotectData. The desktop

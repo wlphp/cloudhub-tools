@@ -2,7 +2,7 @@ import { ToastNotice } from "../../shared/ToastNotice";
 import { useEffect, useState } from "react";
 import { AudioLines, Download, FolderOpen, RefreshCw, Save, X } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
-import { defaultPetVoice, desktopPetClient as client, type PetVoiceDownloadProgress, type PetVoiceSettings as VoiceSettings, type PetVoiceStatus } from "../../platform/clients/desktopPet";
+import { defaultPetVoice, desktopPetClient as client, type PetVoiceDownloadProgress, type PetVoiceSettings as VoiceSettings, type PetVoiceStatus, type PetVoiceXfyunCredentials } from "../../platform/clients/desktopPet";
 import { aiClient, type AiProfile } from "../../platform/clients/ai";
 import { platformErrorMessage, runningInTauri } from "../../platform/api";
 
@@ -26,8 +26,10 @@ function cloudAsrPreset(baseUrl: string | undefined) {
 function originOf(baseUrl: string) {
   try { return new URL(baseUrl).origin; } catch { return baseUrl.trim().replace(/\/.*$/, ""); }
 }
-export function PetVoiceSettings({ value, onSave, disabled, petEnabled }: { value: VoiceSettings; onSave: (value: VoiceSettings) => Promise<void>; disabled: boolean; petEnabled: boolean }) {
+export function PetVoiceSettings({ value, onSave, disabled, petEnabled }: { value: VoiceSettings; onSave: (value: VoiceSettings, credentials?: PetVoiceXfyunCredentials) => Promise<void>; disabled: boolean; petEnabled: boolean }) {
   const [draft, setDraft] = useState<VoiceSettings>({ ...defaultPetVoice, ...value });
+  /// 讯飞凭据只在填写时一次性提交，后端加密落库后清空输入框；不回读、不回显已保存值。
+  const [xfyun, setXfyun] = useState<PetVoiceXfyunCredentials>({ appId: "", apiKey: "", apiSecret: "" });
   const [status, setStatus] = useState<PetVoiceStatus | null>(null);
   const [listening, setListening] = useState<{ active: boolean; error: string | null } | null>(null);
   const [download, setDownload] = useState<{ name: string; progress: PetVoiceDownloadProgress | null } | null>(null);
@@ -77,24 +79,39 @@ export function PetVoiceSettings({ value, onSave, disabled, petEnabled }: { valu
   return <article className="pet-control-card pet-voice-settings">
     <header><div><strong><AudioLines size={15} aria-hidden="true" />语音对话</strong><small>本地识别唤醒词与语音指令，录音不出本机</small></div><span className={value?.enabled ? "pet-life-enabled" : "pet-life-muted"}>{value?.enabled ? "已开启" : "未开启"}</span></header>
     <details className="pet-settings-disclosure"><summary>语音识别与常驻唤醒</summary>
-      <form onSubmit={e => { e.preventDefault(); void run(() => onSave(draft)); }}>
+      <form onSubmit={e => { e.preventDefault(); void run(async () => {
+        const credentials = draft.cloudProvider === "xfyun" && (xfyun.appId.trim() || xfyun.apiKey.trim() || xfyun.apiSecret.trim())
+          ? { appId: xfyun.appId.trim(), apiKey: xfyun.apiKey.trim(), apiSecret: xfyun.apiSecret.trim() }
+          : undefined;
+        if (credentials && (!credentials.appId || !credentials.apiKey || !credentials.apiSecret)) throw new Error("讯飞凭据不完整：APPID、APIKey、APISecret 均需填写");
+        await onSave(draft, credentials);
+        setXfyun({ appId: "", apiKey: "", apiSecret: "" });
+      }); }}>
         <fieldset disabled={disabled || loading}>
           <div className="pet-life-options">
             {check("enabled", "启用语音对话", "聊天面板出现麦克风按钮；唤醒桌宠后可直接说指令。")}
             {check("autoSend", "识别后自动执行", "关闭后识别文本填入聊天输入框，由你确认后再发送。")}
             {check("speak", "语音回应", "唤醒和执行结果用系统语音播报，勿扰模式下保持静默。")}
-            {check("cloudAsrEnabled", "云端识别", "判定为人声的片段上传到你选择的 AI 服务商转写，更快更准；失败自动回落本地识别。关闭则全程本机识别。")}
+            {check("cloudAsrEnabled", "云端识别", "判定为人声的片段上传到所选识别服务商转写，更快更准；失败自动回落本地识别。关闭则全程本机识别。")}
             {check("wakeEnabled", "常驻监听唤醒词", "麦克风保持采集；开启云端识别时命中前的片段会上传所选服务商，未命中且关闭云端时不会离开本机。")}
           </div>
           <div className="pet-life-grid">
-            {draft.cloudAsrEnabled && <label>云端识别配置（用它的密钥）<select value={draft.cloudProfileId} onChange={e => {
+            {draft.cloudAsrEnabled && <label>识别服务商<select value={draft.cloudProvider} onChange={e => {
+              const provider = e.target.value as VoiceSettings["cloudProvider"];
+              setCustomCloudModel(false);
+              change(provider === "xfyun" ? { cloudProvider: provider, cloudProfileId: "", cloudEndpoint: "", cloudModel: "" } : { cloudProvider: provider });
+            }}><option value="openai">OpenAI 兼容接口（AI 配置密钥）</option><option value="xfyun">讯飞语音听写</option></select><small>讯飞凭据独立加密保存，不复用 AI 配置密钥</small></label>}
+            {draft.cloudAsrEnabled && draft.cloudProvider === "xfyun" && <label>讯飞 APPID<input value={xfyun.appId} maxLength={128} autoComplete="off" spellCheck={false} placeholder={status?.xfyunConfigured ? "已保存，留空保持不变" : "讯飞开放平台应用的 APPID"} onChange={e => setXfyun(current => ({ ...current, appId: e.target.value }))} /><small>控制台 → 我的应用管理</small></label>}
+            {draft.cloudAsrEnabled && draft.cloudProvider === "xfyun" && <label>讯飞 APIKey<input value={xfyun.apiKey} maxLength={128} autoComplete="off" spellCheck={false} placeholder={status?.xfyunConfigured ? "已保存，留空保持不变" : "应用的 APIKey"} onChange={e => setXfyun(current => ({ ...current, apiKey: e.target.value }))} /><small>与 APISecret 成对，来自同一应用</small></label>}
+            {draft.cloudAsrEnabled && draft.cloudProvider === "xfyun" && <label>讯飞 APISecret<input type="password" value={xfyun.apiSecret} maxLength={128} autoComplete="new-password" spellCheck={false} placeholder={status?.xfyunConfigured ? "已保存，留空保持不变" : "应用的 APISecret"} onChange={e => setXfyun(current => ({ ...current, apiSecret: e.target.value }))} /><small>本地加密保存；需在讯飞控制台开通「语音听写」（免费额度每日 500 次）</small></label>}
+            {draft.cloudAsrEnabled && draft.cloudProvider !== "xfyun" && <label>云端识别配置（用它的密钥）<select value={draft.cloudProfileId} onChange={e => {
               const profile = profiles.find(item => item.id === e.target.value);
               const preset = cloudAsrPreset(profile?.baseUrl);
               setCustomCloudModel(false);
               change({ cloudProfileId: e.target.value, cloudEndpoint: preset?.endpoint ? preset.endpoint(profile?.baseUrl ?? "") : "", cloudModel: "" });
             }}><option value="">请选择</option>{profiles.map(profile => <option key={profile.id} value={profile.id}>{profile.name} · {profile.model}</option>)}</select><small>选择后自动带出转写地址与识别模型</small></label>}
-            {draft.cloudAsrEnabled && <label>转写接口地址<input value={draft.cloudEndpoint} maxLength={200} placeholder="留空 = {服务地址}/audio/transcriptions" onChange={e => change({ cloudEndpoint: e.target.value })} /><small>MiniMax 已自动填 speech_to_text；密钥只发往此地址，请使用官方文档地址</small></label>}
-            {draft.cloudAsrEnabled && <label>云端识别模型
+            {draft.cloudAsrEnabled && draft.cloudProvider !== "xfyun" && <label>转写接口地址<input value={draft.cloudEndpoint} maxLength={200} placeholder="留空 = {服务地址}/audio/transcriptions" onChange={e => change({ cloudEndpoint: e.target.value })} /><small>MiniMax 已自动填 speech_to_text；密钥只发往此地址，请使用官方文档地址</small></label>}
+            {draft.cloudAsrEnabled && draft.cloudProvider !== "xfyun" && <label>云端识别模型
               {cloudModelOptions.length > 0 && !useCustomCloudModel
                 ? <select value={draft.cloudModel} onChange={e => { if (e.target.value === "__custom") { setCustomCloudModel(true); change({ cloudModel: "" }); } else change({ cloudModel: e.target.value }); }}><option value="">请选择模型</option>{cloudModelOptions.map(model => <option key={model} value={model}>{model}</option>)}<option value="__custom">自定义…</option></select>
                 : <input value={draft.cloudModel} maxLength={120} placeholder="按服务商文档填写模型名" onChange={e => change({ cloudModel: e.target.value })} />}
