@@ -2,7 +2,7 @@ import { ConfirmDialog } from "../../shared/ConfirmDialog";
 import { createPortal } from "react-dom";
 import type { PetComputerAction } from "../../platform/clients/desktopPet";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Bell, Droplets, Home, Moon, Move, Settings, X, EyeOff, MessageCircle, Footprints, Briefcase, Heart, Plane, Power, RotateCw, MonitorCog, LockKeyhole, FolderOpen } from "lucide-react";
+import { Bell, Droplets, Home, Moon, Move, Settings, X, EyeOff, MessageCircle, Footprints, Briefcase, Heart, Plane, Power, RotateCw, MonitorCog, LockKeyhole, FolderOpen, Mic } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { defaultPetSettings, sortPetAlerts, desktopPetClient as client, type PetSettings, type PetSnapshot, type PetAlert } from "../../platform/clients/desktopPet";
@@ -47,6 +47,22 @@ export function PetWindow() {
   const [hover, setHover] = useState(false);
   const [visible, setVisible] = useState(true);
   const [protest, setProtest] = useState(false);
+  /// 桌宠贴屏幕边缘时窗口部分在屏幕外：气泡与徽标向屏幕内平移，避免文字被裁切。
+  const [edgeShift, setEdgeShift] = useState(0);
+  useEffect(() => {
+    const win = getCurrentWindow();
+    let unlisten: (() => void) | null = null;
+    const update = async () => {
+      try {
+        const pos = await win.outerPosition();
+        const scale = await win.scaleFactor();
+        setEdgeShift(Math.max(0, Math.round(-pos.x / scale)));
+      } catch { /* 读取失败时保持当前偏移 */ }
+    };
+    void update();
+    void win.onMoved(() => void update()).then(fn => { unlisten = fn; });
+    return () => { if (unlisten) unlisten(); };
+  }, []);
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
   const visibleRef = useRef(true);
@@ -60,11 +76,25 @@ export function PetWindow() {
   const life = usePetLife({ settings, blocked: dragging || panel !== null || notice !== null || hover || sleeping, visible, reduced, setPose, setDirection, stopPose: stopLifePose, onError: e => setError(platformErrorMessage(e)) });
   const [voiceHint, setVoiceHint] = useState("");
   const [pendingVoice, setPendingVoice] = useState<{ text: string; autoSend: boolean } | null>(null);
+  /// 系统语音播报：开启语音回应且非勿扰时发声，TTS 不可用时静默降级为气泡提示。
+  function speak(text: string) {
+    if (!settingsRef.current.voice.speak || settingsRef.current.quiet) return;
+    const synth = window.speechSynthesis;
+    if (!synth) return;
+    try {
+      synth.cancel();
+      const utter = new SpeechSynthesisUtterance(text.replace(/[…]+$/, ""));
+      utter.lang = settingsRef.current.voice.language === "en" ? "en-US" : "zh-CN";
+      utter.onerror = event => { if (event.error !== "interrupted" && event.error !== "canceled") setVoiceHint("系统语音播报不可用"); };
+      synth.speak(utter);
+      synth.resume();
+    } catch { /* 播报异常时保持气泡提示 */ }
+  }
   const petVoice = usePetVoice(settings, {
     openChat: (text, autoSend) => { setNotice(null); setPanel("chat"); setPendingVoice({ text, autoSend }); },
     requestComputer: action => { setError(""); setComputerConfirm(action); },
     runComputer: action => { void work(async () => { await client.computerAction(action); }); },
-    showHint: text => setVoiceHint(text),
+    showHint: (text, speakHint = false) => { setVoiceHint(text); if (speakHint) speak(text); },
     showError: message => setError(message),
   });
   useEffect(() => { if (!voiceHint) return; const timer = setTimeout(() => setVoiceHint(""), 8000); return () => clearTimeout(timer); }, [voiceHint]);
@@ -177,10 +207,10 @@ export function PetWindow() {
       </svg>
     </button>
   </main>;
-  return <main className={`pet-stage ${dockEdge === "top" && panelOpen ? "pet-top-stage" : ""} ${reduced ? "pet-reduced" : ""}`} style={{ "--pet-size": `${settings.size}px`, "--pet-sprite-image": `url("${(petAppearances[settings.appearance] || petAppearances.alpaca).sprite}")` } as React.CSSProperties}>
+  return <main className={`pet-stage ${dockEdge === "top" && panelOpen ? "pet-top-stage" : ""} ${reduced ? "pet-reduced" : ""}`} style={{ "--pet-size": `${settings.size}px`, "--pet-sprite-image": `url("${(petAppearances[settings.appearance] || petAppearances.alpaca).sprite}")`, "--pet-edge-shift": `${edgeShift}px` } as React.CSSProperties}>
     {life.notice && <PetLifeBubble notice={life.notice} action={life.action} roaming={life.roaming} appearance={settings.appearance} />}
     {!panel && !notice && !life.notice && protest && <div className="pet-speech-bubble pet-protest" role="status" aria-label="宠物在抗议被抓住">坏人，快放开我！放开我！</div>}
-    {!panel && !notice && !life.notice && !protest && (voiceHint || petVoice.listeningError) && <div className={`pet-speech-bubble${petVoice.listeningError && !voiceHint ? " pet-voice-warning" : ""}`} role="status" aria-label="语音助手状态">{petVoice.listeningError && !voiceHint ? petVoice.listeningError : voiceHint}</div>}
+    {!panel && !notice && !life.notice && !protest && (voiceHint || petVoice.listeningError) && <div className={`pet-speech-bubble${petVoice.listeningError && !voiceHint ? " pet-voice-warning" : " pet-voice-hint"}`} role="status" aria-label="语音助手状态">{petVoice.listeningError && !voiceHint ? petVoice.listeningError : voiceHint}</div>}
     {!panel && notice && !noticeExpanded && <div className={`pet-speech-bubble ${notice.active ? notice.severity : "recovered"}`} role="status" aria-label="运维消息气泡">
       <button className="pet-speech-open" onClick={() => setNoticeExpanded(true)} aria-label={`查看运维消息：${notice.title}`}>
         <span className="pet-speech-caption"><PetPortrait appearance={settings.appearance} pose={notice.active ? "alert" : "happy"} /><Bell size={13} aria-hidden="true" />{notice.active ? notice.severity === "emergency" ? "超级严重，请尽快处理" : "有件事想提醒你" : "好消息，状态恢复了"}</span>
@@ -215,7 +245,7 @@ export function PetWindow() {
     </section>}
     {computerConfirm && createPortal(<ConfirmDialog title={computerConfirm === "shutdown" ? "关闭电脑" : "重启电脑"} message={`确定${computerConfirm === "shutdown" ? "关闭" : "重启"}当前电脑吗？请先保存正在编辑的文件，操作会立即提交给 Windows。`} confirmLabel={computerConfirm === "shutdown" ? "确认关机" : "确认重启"} busy={computerBusy} error={error} onPointerDown={dragPanel} onResolve={confirmed => { if (confirmed) void computerAction(computerConfirm); else setComputerConfirm(null); }} />, document.body)}
     {error && <div className="pet-inline-error" role="alert">{error}<button aria-label="关闭错误提示" onClick={() => setError("")}>关闭</button></div>}
-    <div className="pet-avatar-wrap" onMouseEnter={() => { setHover(true); if (pose === "idle") setPose("curious"); }} onMouseLeave={() => { setHover(false); if (pose === "curious") setPose("idle"); }}>
+    <div className="pet-avatar-wrap" data-voice-listening={petVoice.listening ? (petVoice.listeningError ? "error" : "on") : undefined} onMouseEnter={() => { setHover(true); if (pose === "idle") setPose("curious"); }} onMouseLeave={() => { setHover(false); if (pose === "curious") setPose("idle"); }}>
       <button className="pet-avatar" aria-label="宠物：点击查看状态，右键打开菜单，拖动可移动" title="点击查看状态 · 右键菜单 · 拖动移动"
         onContextMenu={e => { e.preventDefault(); setPanel("menu"); setPose("idle"); }}
         onPointerDown={e => { if (e.button !== 0) return; drag.current = { x: e.screenX, y: e.screenY, moved: false }; e.currentTarget.setPointerCapture(e.pointerId); if (holdTimer.current) clearTimeout(holdTimer.current); holdTimer.current = setTimeout(() => { if (drag.current && !drag.current.moved) setProtest(true); }, 700); }}
@@ -226,7 +256,7 @@ export function PetWindow() {
         <span className={`pet-sprite pet-pose-${pose}`} style={{ ...petSpriteStyle(settings.appearance, column, row), transform: `scaleX(${direction})` }} />
       </button>
       {pose === "spray" && !reduced && <div className={`pet-water ${direction < 0 ? "to-left" : ""}`} aria-hidden="true">{Array.from({ length: 7 },(_,i) => <i key={i} style={{ "--drop": i } as React.CSSProperties} />)}</div>}
-      {petVoice.listening && <span className="pet-voice-dot" role="status" aria-label={`正在监听唤醒词：${settings.voice.wakeWord}`} title={`正在监听唤醒词“${settings.voice.wakeWord}”${petVoice.listeningError ? `（${petVoice.listeningError}）` : ""}`} />}
+      {petVoice.listening && <span className={`pet-voice-badge${petVoice.listeningError ? " pet-voice-badge-error" : ""}`} role="status" aria-label={petVoice.listeningError ? `语音监听异常：${petVoice.listeningError}` : `正在监听唤醒词：${settings.voice.wakeWord}`} title={`正在监听唤醒词“${settings.voice.wakeWord}”${petVoice.listeningError ? `（${petVoice.listeningError}）` : ""}`}><Mic size={12} aria-hidden="true" />{petVoice.listeningError ? "监听异常" : "监听中"}</span>}
       {pending.length > 0 && <button className="pet-alert-badge" aria-label={`${pending.length}项待处理提醒`} onClick={() => setPanel("status")}>{pending.length}</button>}
     </div>
   </main>;

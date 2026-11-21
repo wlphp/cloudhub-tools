@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { AudioLines, Download, FolderOpen, RefreshCw, Save, X } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 import { defaultPetVoice, desktopPetClient as client, type PetVoiceDownloadProgress, type PetVoiceSettings as VoiceSettings, type PetVoiceStatus } from "../../platform/clients/desktopPet";
+import { aiClient, type AiProfile } from "../../platform/clients/ai";
 import { platformErrorMessage, runningInTauri } from "../../platform/api";
 
 /// 桌宠语音设置卡片：语音开关、常驻唤醒词、识别模型下载与状态检测。
@@ -12,6 +13,19 @@ const MODEL_NOTES: Record<string, string> = {
   "ggml-small.bin": "识别更准，唤醒词场景推荐",
 };
 const mb = (bytes: number) => `${Math.round(bytes / 1048576)}MB`;
+/// 已知服务商的语音识别模型与转写端点预置：选择 AI 配置后自动带出，免手填。
+const CLOUD_ASR_PRESETS: Array<{ match: string; models: string[]; endpoint?: (baseUrl: string) => string }> = [
+  { match: "minimax", models: ["asr-1.0"], endpoint: (baseUrl) => `${originOf(baseUrl)}/v1/speech_to_text` },
+  { match: "siliconflow", models: ["FunAudioLLM/SenseVoiceSmall"] },
+  { match: "api.openai.com", models: ["whisper-1", "gpt-4o-mini-transcribe", "gpt-4o-transcribe"] },
+];
+function cloudAsrPreset(baseUrl: string | undefined) {
+  const lower = (baseUrl || "").toLowerCase();
+  return CLOUD_ASR_PRESETS.find(preset => lower.includes(preset.match));
+}
+function originOf(baseUrl: string) {
+  try { return new URL(baseUrl).origin; } catch { return baseUrl.trim().replace(/\/.*$/, ""); }
+}
 export function PetVoiceSettings({ value, onSave, disabled, petEnabled }: { value: VoiceSettings; onSave: (value: VoiceSettings) => Promise<void>; disabled: boolean; petEnabled: boolean }) {
   const [draft, setDraft] = useState<VoiceSettings>({ ...defaultPetVoice, ...value });
   const [status, setStatus] = useState<PetVoiceStatus | null>(null);
@@ -20,8 +34,11 @@ export function PetVoiceSettings({ value, onSave, disabled, petEnabled }: { valu
   const [heard, setHeard] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [profiles, setProfiles] = useState<AiProfile[]>([]);
+  const [customCloudModel, setCustomCloudModel] = useState(false);
   useEffect(() => { setDraft({ ...defaultPetVoice, ...value }); }, [value]);
   const refresh = () => { if (!runningInTauri) return; void client.voiceStatus().then(setStatus).catch(() => setStatus(null)); };
+  useEffect(() => { if (!runningInTauri) return; void aiClient.list().then(setProfiles).catch(() => setProfiles([])); }, []);
   useEffect(() => {
     refresh();
     const sub = listen<{ active: boolean; error: string | null }>("pet-voice-listening", e => setListening(e.payload));
@@ -29,6 +46,12 @@ export function PetVoiceSettings({ value, onSave, disabled, petEnabled }: { valu
     return () => { void sub.then(fn => fn()); void heardSub.then(fn => fn()); };
   }, []);
   const change = (patch: Partial<VoiceSettings>) => { setDraft(d => ({ ...d, ...patch })); setError(""); };
+  /// 监听期间轮询状态：实际麦克风与分段计数随语音活动实时更新。
+  useEffect(() => {
+    if (!listening?.active || !runningInTauri) return;
+    const timer = setInterval(refresh, 5000);
+    return () => clearInterval(timer);
+  }, [listening?.active]);
   const dirty = JSON.stringify(draft) !== JSON.stringify({ ...defaultPetVoice, ...value });
   async function run(action: () => Promise<void>) { setLoading(true); setError(""); try { await action(); } catch (e) { setError(platformErrorMessage(e)); } finally { setLoading(false); } }
   /// 点击下载：进度经 Channel 回传，结束后 Rust 返回最新状态；失败时仍可按指引手动下载。
@@ -45,8 +68,12 @@ export function PetVoiceSettings({ value, onSave, disabled, petEnabled }: { valu
     }
   }
   async function cancelDownload() { try { await client.voiceCancelModelDownload(); } catch { /* 取消标志已置位，无需提示 */ } }
-  const check = (key: "enabled" | "wakeEnabled" | "autoSend", label: string, description?: string) => <label className="pet-option"><span>{label}{description && <small>{description}</small>}</span><input type="checkbox" checked={draft[key]} onChange={e => change({ [key]: e.target.checked })} /></label>;
+  const check = (key: "enabled" | "wakeEnabled" | "autoSend" | "speak" | "cloudAsrEnabled", label: string, description?: string) => <label className="pet-option"><span>{label}{description && <small>{description}</small>}</span><input type="checkbox" checked={draft[key]} onChange={e => change({ [key]: e.target.checked })} /></label>;
   const percent = download?.progress?.totalBytes ? Math.min(100, Math.round((download.progress.downloadedBytes / download.progress.totalBytes) * 100)) : null;
+  const cloudProfile = profiles.find(profile => profile.id === draft.cloudProfileId);
+  const cloudPreset = cloudAsrPreset(cloudProfile?.baseUrl);
+  const cloudModelOptions = cloudPreset?.models ?? [];
+  const useCustomCloudModel = customCloudModel || (draft.cloudModel !== "" && !cloudModelOptions.includes(draft.cloudModel));
   return <article className="pet-control-card pet-voice-settings">
     <header><div><strong><AudioLines size={15} aria-hidden="true" />语音对话</strong><small>本地识别唤醒词与语音指令，录音不出本机</small></div><span className={value?.enabled ? "pet-life-enabled" : "pet-life-muted"}>{value?.enabled ? "已开启" : "未开启"}</span></header>
     <details className="pet-settings-disclosure"><summary>语音识别与常驻唤醒</summary>
@@ -55,17 +82,34 @@ export function PetVoiceSettings({ value, onSave, disabled, petEnabled }: { valu
           <div className="pet-life-options">
             {check("enabled", "启用语音对话", "聊天面板出现麦克风按钮；唤醒桌宠后可直接说指令。")}
             {check("autoSend", "识别后自动执行", "关闭后识别文本填入聊天输入框，由你确认后再发送。")}
-            {check("wakeEnabled", "常驻监听唤醒词", "麦克风保持采集，仅在本机判断唤醒词；未命中唤醒词的语音不会离开本机。")}
+            {check("speak", "语音回应", "唤醒和执行结果用系统语音播报，勿扰模式下保持静默。")}
+            {check("cloudAsrEnabled", "云端识别", "判定为人声的片段上传到你选择的 AI 服务商转写，更快更准；失败自动回落本地识别。关闭则全程本机识别。")}
+            {check("wakeEnabled", "常驻监听唤醒词", "麦克风保持采集；开启云端识别时命中前的片段会上传所选服务商，未命中且关闭云端时不会离开本机。")}
           </div>
           <div className="pet-life-grid">
+            {draft.cloudAsrEnabled && <label>云端识别配置（用它的密钥）<select value={draft.cloudProfileId} onChange={e => {
+              const profile = profiles.find(item => item.id === e.target.value);
+              const preset = cloudAsrPreset(profile?.baseUrl);
+              setCustomCloudModel(false);
+              change({ cloudProfileId: e.target.value, cloudEndpoint: preset?.endpoint ? preset.endpoint(profile?.baseUrl ?? "") : "", cloudModel: "" });
+            }}><option value="">请选择</option>{profiles.map(profile => <option key={profile.id} value={profile.id}>{profile.name} · {profile.model}</option>)}</select><small>选择后自动带出转写地址与识别模型</small></label>}
+            {draft.cloudAsrEnabled && <label>转写接口地址<input value={draft.cloudEndpoint} maxLength={200} placeholder="留空 = {服务地址}/audio/transcriptions" onChange={e => change({ cloudEndpoint: e.target.value })} /><small>MiniMax 已自动填 speech_to_text；密钥只发往此地址，请使用官方文档地址</small></label>}
+            {draft.cloudAsrEnabled && <label>云端识别模型
+              {cloudModelOptions.length > 0 && !useCustomCloudModel
+                ? <select value={draft.cloudModel} onChange={e => { if (e.target.value === "__custom") { setCustomCloudModel(true); change({ cloudModel: "" }); } else change({ cloudModel: e.target.value }); }}><option value="">请选择模型</option>{cloudModelOptions.map(model => <option key={model} value={model}>{model}</option>)}<option value="__custom">自定义…</option></select>
+                : <input value={draft.cloudModel} maxLength={120} placeholder="按服务商文档填写模型名" onChange={e => change({ cloudModel: e.target.value })} />}
+              <small>{cloudModelOptions.length > 0 ? (useCustomCloudModel ? "自定义模式：按服务商文档填写" : "已按所选服务商预置，无需手填") : "该服务商未收录预置模型，请查文档填写"}</small>
+              {useCustomCloudModel && cloudModelOptions.length > 0 && <button type="button" className="secondary" onClick={() => { setCustomCloudModel(false); change({ cloudModel: "" }); }}>返回预置选择</button>}
+            </label>}
             <label>唤醒词<input value={draft.wakeWord} maxLength={24} placeholder="如：小驼" onChange={e => change({ wakeWord: e.target.value })} /></label>
             <label>识别语言<select value={draft.language} onChange={e => change({ language: e.target.value })}><option value="zh">中文</option><option value="en">English</option><option value="auto">自动检测</option></select></label>
             <label>最长录音<select value={draft.maxSeconds} onChange={e => change({ maxSeconds: Number(e.target.value) })}>{[30, 60, 90, 120].map(seconds => <option key={seconds} value={seconds}>{seconds} 秒</option>)}</select></label>
             <label>识别模型<select value={draft.modelFile} onChange={e => change({ modelFile: e.target.value })}><option value="">{status?.models.length ? `自动选择（${status.models[0].name}）` : "自动选择"}</option>{status?.models.map(model => <option key={model.name} value={model.name}>{model.name} · {mb(model.sizeBytes)}</option>)}</select></label>
+            <label>麦克风<select value={draft.device} onChange={e => change({ device: e.target.value })}><option value="系统默认">系统默认</option>{status?.devices.map(device => <option key={device} value={device}>{device}</option>)}{draft.device && !status?.devices.includes(draft.device) && <option value={draft.device}>{draft.device}（已断开）</option>}</select></label>
           </div>
           <div className="pet-life-weather-status"><span>
             {status ? (status.ready ? `模型就绪：${status.selected}` : "未找到模型：可点击下方按钮在线下载，或手动放入模型文件夹") : runningInTauri ? "正在检查语音模型…" : "仅桌面端支持"}
-            {listening?.active && <small role="status">{listening.error ? listening.error : `正在监听唤醒词“${draft.wakeWord}”`}</small>}
+            {listening?.active && <small role="status">{listening.error ? listening.error : `正在监听唤醒词“${draft.wakeWord}”`}{status?.activeDevice ? ` · 实际麦克风：${status.activeDevice}` : " · 等待首次采集"}{status ? ` · 已转写 ${status.segments} 段（命中 ${status.matched}）` : ""}</small>}
             {listening?.active && heard && <small role="status">最后听到：“{heard}”</small>}
           </span>
           <div className="pet-life-status-actions">

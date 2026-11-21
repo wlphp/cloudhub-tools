@@ -89,6 +89,12 @@ pub struct VoiceSettings {
     pub model_file: String,
     pub language: String,
     pub auto_send: bool,
+    pub speak: bool,
+    pub device: String,
+    pub cloud_asr_enabled: bool,
+    pub cloud_profile_id: String,
+    pub cloud_endpoint: String,
+    pub cloud_model: String,
     pub max_seconds: u32,
 }
 impl Default for VoiceSettings {
@@ -100,6 +106,12 @@ impl Default for VoiceSettings {
             model_file: String::new(),
             language: "zh".into(),
             auto_send: true,
+            speak: true,
+            device: String::new(),
+            cloud_asr_enabled: false,
+            cloud_profile_id: String::new(),
+            cloud_endpoint: String::new(),
+            cloud_model: String::new(),
             max_seconds: 60,
         }
     }
@@ -124,6 +136,15 @@ impl VoiceSettings {
             || !(language == "auto" || (language.len() == 2 && language.chars().all(|c| c.is_ascii_lowercase())))
             || !(15..=120).contains(&self.max_seconds)
             || (!self.model_file.trim().is_empty() && !valid_model_name(self.model_file.trim()))
+            || self.device.trim().chars().count() > 120
+            || self.device.chars().any(char::is_control)
+            || self.cloud_profile_id.trim().chars().count() > 64
+            || self.cloud_profile_id.chars().any(char::is_control)
+            || self.cloud_endpoint.trim().chars().count() > 200
+            || self.cloud_endpoint.chars().any(char::is_control)
+            || (!self.cloud_endpoint.trim().is_empty() && !self.cloud_endpoint.trim().starts_with("https://"))
+            || self.cloud_model.trim().chars().count() > 120
+            || self.cloud_model.chars().any(char::is_control)
         {
             return Err("桌宠语音设置无效".into());
         }
@@ -880,6 +901,13 @@ fn dock_after_drag(app: &tauri::AppHandle, w: &tauri::WebviewWindow) -> Result<(
     Ok(())
 }
 
+/// 桌宠空闲窗口尺寸：宽度为宠物加左右余量；高度需容纳多行语音提示气泡（气泡底距 22px + 数行文本 + 余量），
+/// 所有设置窗口尺寸的路径（创建、同步、布局）必须统一走这里，避免保存设置后气泡再次被窗口裁切。
+#[cfg(desktop)]
+fn pet_idle_size(size: u32) -> (f64, f64) {
+    (size as f64 + 80., size as f64 + 130.)
+}
+
 #[cfg(desktop)]
 pub fn sync_window(app: &tauri::AppHandle) -> Result<(), String> {
     if let Some(w) = app.get_webview_window(LABEL) { undock(app,&w)?; }
@@ -896,23 +924,22 @@ pub fn sync_window(app: &tauri::AppHandle) -> Result<(), String> {
     }
     if let Some(w) = app.get_webview_window(LABEL) {
         w.set_maximizable(false).map_err(|_| "无法关闭桌宠系统最大化")?;
-        w.set_size(tauri::LogicalSize::new(
-            settings.size as f64 + 80.,
-            settings.size as f64 + 40.,
-        ))
-        .map_err(|_| "无法调整桌宠大小")?;
+        let (width, height) = pet_idle_size(settings.size);
+        w.set_size(tauri::LogicalSize::new(width, height))
+            .map_err(|_| "无法调整桌宠大小")?;
         let p = w.outer_position().map_err(|_| "无法读取桌宠位置")?;
         position(&w, Some(p.x), Some(p.y))?;
         w.show().map_err(|_| "无法显示桌宠")?;
         let _ = w.emit("pet-visibility", true);
     } else {
+        let (width, height) = pet_idle_size(settings.size);
         let w = tauri::WebviewWindowBuilder::new(
             app,
             LABEL,
             tauri::WebviewUrl::App("index.html?desktopPet=1".into()),
         )
         .title("CloudHub 宠物")
-        .inner_size(settings.size as f64 + 80., settings.size as f64 + 40.)
+        .inner_size(width, height)
         .transparent(true)
         .background_color(tauri::webview::Color(0, 0, 0, 0))
         .decorations(false)
@@ -1048,7 +1075,7 @@ pub fn pet_layout(
         let (width, height): (f64, f64) = if expanded {
             if enlarged.unwrap_or(false) { (520., 720.) } else { (360., 480.) }
         } else {
-            (s.size as f64 + 80., s.size as f64 + 40.)
+            pet_idle_size(s.size)
         };
         let monitor = w.current_monitor().map_err(|_| "无法读取桌宠显示器")?
             .or(w.primary_monitor().map_err(|_| "无法读取主显示器")?);

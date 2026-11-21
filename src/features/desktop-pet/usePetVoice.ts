@@ -10,8 +10,8 @@ export interface PetVoiceCallbacks {
   requestComputer: (action: "shutdown" | "restart") => void;
   /** 直接执行的低风险动作 */
   runComputer: (action: "lock" | "taskManager" | "explorer") => void;
-  /** 状态提示气泡 */
-  showHint: (text: string) => void;
+  /** 状态提示气泡；speak 为 true 时桌宠同步语音播报 */
+  showHint: (text: string, speak?: boolean) => void;
   showError: (message: string) => void;
 }
 
@@ -36,6 +36,15 @@ export function usePetVoice(settings: PetSettings, callbacks: PetVoiceCallbacks)
   callbacksRef.current = callbacks;
   const busy = useRef(false);
   const runRef = useRef<(text: string) => void>(() => {});
+  const lastTransient = useRef<{ text: string; at: number }>({ text: "", at: 0 });
+  /// 同一提示 30 秒内不重复弹出，避免连续语音段刷屏；speak 为 true 时同步语音播报。
+  const notifyOnce = (text: string, format: (text: string) => string, speak = false) => {
+    if (!text) return;
+    const now = Date.now();
+    if (lastTransient.current.text === text && now - lastTransient.current.at < 30_000) return;
+    lastTransient.current = { text, at: now };
+    callbacksRef.current.showHint(format(text), speak);
+  };
 
   useEffect(() => {
     async function runCommand(text: string) {
@@ -60,18 +69,18 @@ export function usePetVoice(settings: PetSettings, callbacks: PetVoiceCallbacks)
           case "taskManager":
           case "explorer":
             await client.computerAction(intent.action as PetComputerAction);
-            callbacksRef.current.showHint(VOICE_ACTIONS[intent.action] || intent.summary || "已完成");
+            callbacksRef.current.showHint(VOICE_ACTIONS[intent.action] || intent.summary || "已完成", true);
             break;
           case "openApp":
             await client.open("resources");
-            callbacksRef.current.showHint("已打开云枢工具箱");
+            callbacksRef.current.showHint("已打开云枢工具箱", true);
             break;
           case "weather": {
             const state = await client.lifeWeather();
             const active = state.notices.filter(notice => notice.kind === "weather" && notice.expiresAt > Date.now() / 1000);
             callbacksRef.current.showHint(active.length
               ? `天气预警：${active.slice(0, 3).map(notice => notice.title).join("；")}`
-              : `已查询${state.region || "所在地区"}：当前没有生效的天气预警`);
+              : `已查询${state.region || "所在地区"}：当前没有生效的天气预警`, true);
             break;
           }
           default:
@@ -86,8 +95,16 @@ export function usePetVoice(settings: PetSettings, callbacks: PetVoiceCallbacks)
     runRef.current = text => void runCommand(text);
     const subscriptions = [
       listen<ListeningEvent>("pet-voice-listening", e => { setListening(!!e.payload?.active); setListeningError(e.payload?.error || ""); }),
-      listen("pet-voice-awake", () => callbacksRef.current.showHint("我在听，请说指令…")),
+      listen("pet-voice-awake", () => callbacksRef.current.showHint("我在听，请说指令…", true)),
       listen<{ text: string }>("pet-voice-command", e => runRef.current(e.payload?.text || "")),
+      // 听到但未命中唤醒词：展示转写结果，便于确认麦克风工作并校准唤醒词选词。
+      listen<{ text: string }>("pet-voice-heard", e => {
+        const text = (e.payload?.text || "").trim();
+        const word = settingsRef.current.voice.wakeWord.trim();
+        notifyOnce(text, heard => word ? `听到“${heard.slice(0, 16)}”，请说“${word}”唤醒我` : `听到“${heard.slice(0, 16)}”，尚未设置唤醒词`);
+      }),
+      // 常驻监听中的瞬时识别失败（模型异常、推理失败、空转写、云端错误）：气泡 + 语音播报，让用户无需看屏也知道出了什么问题。
+      listen<{ message: string }>("pet-voice-error", e => notifyOnce((e.payload?.message || "").trim(), message => message, true)),
     ];
     return () => subscriptions.forEach(promise => void promise.then(unlisten => unlisten()));
   }, []);

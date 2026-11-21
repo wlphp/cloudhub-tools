@@ -17,11 +17,11 @@ export interface PetSettings {
   voice: PetVoiceSettings;
 }
 export interface PetVoiceSettings {
-  enabled: boolean; wakeEnabled: boolean; wakeWord: string; modelFile: string; language: string; autoSend: boolean; maxSeconds: number;
+  enabled: boolean; wakeEnabled: boolean; wakeWord: string; modelFile: string; language: string; autoSend: boolean; speak: boolean; device: string; cloudAsrEnabled: boolean; cloudProfileId: string; cloudEndpoint: string; cloudModel: string; maxSeconds: number;
 }
-export const defaultPetVoice: PetVoiceSettings = { enabled: true, wakeEnabled: false, wakeWord: "小驼", modelFile: "", language: "zh", autoSend: true, maxSeconds: 60 };
+export const defaultPetVoice: PetVoiceSettings = { enabled: true, wakeEnabled: false, wakeWord: "小驼", modelFile: "", language: "zh", autoSend: true, speak: true, device: "", cloudAsrEnabled: false, cloudProfileId: "", cloudEndpoint: "", cloudModel: "", maxSeconds: 60 };
 export interface PetVoiceModel { name: string; sizeBytes: number }
-export interface PetVoiceStatus { modelsDir: string; models: PetVoiceModel[]; catalog: PetVoiceModel[]; selected: string | null; ready: boolean; listening: boolean }
+export interface PetVoiceStatus { modelsDir: string; models: PetVoiceModel[]; catalog: PetVoiceModel[]; selected: string | null; ready: boolean; listening: boolean; device: string; devices: string[]; activeDevice: string; segments: number; matched: number }
 export interface PetVoiceDownloadProgress { stage: "connecting" | "downloading" | "done"; source: string; downloadedBytes: number; totalBytes: number | null; bytesPerSecond: number }
 export interface PetVoiceIntent { action: string; text: string; summary: string }
 export interface PetLifeSettings {

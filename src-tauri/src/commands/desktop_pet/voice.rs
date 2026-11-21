@@ -3,6 +3,7 @@
 use base64::Engine as _;
 use serde::Serialize;
 use std::{
+    io::Write as _,
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -26,15 +27,24 @@ const HARD_LIMIT_SECONDS: usize = 130;
 const WAKE_COMMAND_WINDOW: Duration = Duration::from_secs(10);
 const VAD_FRAME: usize = 512;
 const VAD_THRESHOLD: f32 = 0.02;
+/// 噪声底自适应：抬升快（外放声立即跟随），回落慢（抬升后的阈值不会被短暂安静几秒内拉回）。
 const NOISE_FLOOR_ALPHA: f32 = 0.05;
+const NOISE_FLOOR_DECAY_ALPHA: f32 = 0.002;
 const NOISE_FLOOR_MIN: f32 = 0.002;
 const NOISE_FLOOR_FACTOR: f32 = 2.5;
 const DC_BLOCK_ALPHA: f32 = 0.01;
 const SPEECH_START_FRAMES: usize = 3;
 const SPEECH_END_FRAMES: usize = 25;
+/// 相邻语音段的最大拼接间隔：词间停顿被 VAD 切段后，仍在窗口内的段会合并后统一识别。
+const SEGMENT_MERGE_GAP: Duration = Duration::from_millis(1000);
 const PREROLL_FRAMES: usize = 25;
 const MIN_SEGMENT_FRAMES: usize = 9;
 const MAX_SEGMENT_FRAMES: usize = 15 * (SAMPLE_RATE / VAD_FRAME);
+/// 采集启动后的环境噪声校准帧数（约 3 秒）：先量底噪再启用语音检测。
+const CALIBRATION_FRAMES: usize = 96;
+/// 长噪声段抬高噪声底的上限：阈值最高 0.06（= 0.024 × 2.5），外放声（典型 RMS ≤ 0.056）被挡住而说话音量（≥ 0.08）仍触发。
+const NOISE_FLOOR_BUMP_CAP: f32 = 0.024;
+const NOISE_FLOOR_BUMP_RATIO: f32 = 0.85;
 const DEVICE_STALL: Duration = Duration::from_secs(30);
 const SETTINGS_CHECK_INTERVAL: Duration = Duration::from_secs(5);
 
@@ -47,6 +57,10 @@ pub struct Engine {
     manual_active: AtomicBool,
     download_name: Mutex<Option<String>>,
     download_cancel: AtomicBool,
+    /// 运行诊断：实际采集设备名与分段计数（不含任何转写文本，便于界面直读）。
+    active_device: Mutex<String>,
+    segments: AtomicU64,
+    matched: AtomicU64,
 }
 struct LoadedModel {
     path: PathBuf,
@@ -68,6 +82,11 @@ pub struct VoiceStatus {
     pub selected: Option<String>,
     pub ready: bool,
     pub listening: bool,
+    pub device: String,
+    pub devices: Vec<String>,
+    pub active_device: String,
+    pub segments: u64,
+    pub matched: u64,
 }
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -85,6 +104,12 @@ pub struct VoiceCommand {
 pub struct VoiceHeard {
     pub text: String,
 }
+/// 监听过程中的瞬时识别失败；仅内存与界面展示，不落盘不写日志。
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VoiceError {
+    pub message: String,
+}
 
 /// 内置模型目录：名称与近似体积（用于界面展示与下载校验）。
 const MODEL_CATALOG: [(&str, u64); 3] = [
@@ -100,6 +125,8 @@ const MODEL_SOURCES: [&str; 2] = [
 const DOWNLOAD_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 const DOWNLOAD_CHUNK_TIMEOUT: Duration = Duration::from_secs(30);
 const DOWNLOAD_EMIT_INTERVAL: Duration = Duration::from_millis(250);
+/// 云端语音识别单段超时：超时后自动回落本地 whisper。
+const CLOUD_ASR_TIMEOUT: Duration = Duration::from_secs(6);
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -183,6 +210,8 @@ pub fn transcribe_samples(engine: &Engine, model: &Path, language: &str, samples
     let loaded = guard.as_ref().ok_or("语音模型未加载")?;
     let mut state = loaded.context.create_state().map_err(|_| "语音识别初始化失败")?;
     let mut params = whisper_rs::FullParams::new(whisper_rs::SamplingStrategy::Greedy { best_of: 1 });
+    // whisper 默认单线程推理，1.5 秒音频要转 30 秒；按可用核心并行后回到秒级。
+    params.set_n_threads(std::thread::available_parallelism().map(|count| count.get() as i32).unwrap_or(4).min(8));
     let language = language.trim().to_ascii_lowercase();
     params.set_language(if language == "auto" { None } else { Some(language.as_str()) });
     params.set_translate(false);
@@ -219,6 +248,20 @@ fn decode_audio(audio: &str) -> Result<Vec<f32>, String> {
     Ok(samples)
 }
 
+/// 枚举可用的麦克风设备名（支持采集的设备），供语音设置选择。
+fn input_device_names() -> Vec<String> {
+    let host = cpal::default_host();
+    host.devices()
+        .map(|devices| {
+            devices
+                .filter_map(|device| {
+                    device.default_input_config().ok().and_then(|_| device.name().ok()).filter(|name| !name.is_empty())
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 fn current_status(app: &tauri::AppHandle) -> Result<VoiceStatus, String> {
     let settings = read_settings()?;
     let dir = models_dir()?;
@@ -229,6 +272,7 @@ fn current_status(app: &tauri::AppHandle) -> Result<VoiceStatus, String> {
         let name = settings.voice.model_file.trim().to_string();
         models.iter().any(|m| m.name == name).then_some(name)
     };
+    let engine = &app.state::<PetStore>().voice;
     Ok(VoiceStatus {
         models_dir: dir.to_string_lossy().into_owned(),
         ready: selected.is_some(),
@@ -238,7 +282,12 @@ fn current_status(app: &tauri::AppHandle) -> Result<VoiceStatus, String> {
             .iter()
             .map(|(name, size)| VoiceModelInfo { name: (*name).into(), size_bytes: *size })
             .collect(),
-        listening: app.state::<PetStore>().voice.listening.load(Ordering::SeqCst),
+        listening: engine.listening.load(Ordering::SeqCst),
+        device: settings.voice.device.trim().to_string(),
+        devices: input_device_names(),
+        active_device: engine.active_device.lock().map(|active| active.clone()).unwrap_or_default(),
+        segments: engine.segments.load(Ordering::SeqCst),
+        matched: engine.matched.load(Ordering::SeqCst),
     })
 }
 
@@ -441,13 +490,41 @@ pub fn pet_voice_cancel_model_download(window: tauri::WebviewWindow, app: tauri:
     Ok(())
 }
 
+/// 云端失败响应的日志摘要：截断并压平换行；错误路径的响应体不含转写文本。
+fn truncate_diag(body: &str) -> String {
+    let summary: String = body.chars().take(160).collect();
+    summary.replace('\n', " ").replace('\r', " ")
+}
+
+/// 监听事件诊断日志：仅设备名、分段计数与结果种类，不含任何转写文本；超过 256KB 自动重建。
+fn log_event(message: &str) {    let Ok(dir) = crate::core::paths::data_dir() else { return };
+    let path = dir.join("pet-voice.log");
+    let open = || std::fs::OpenOptions::new().append(true).create(true).open(&path);
+    let mut file = match open() { Ok(file) => file, Err(_) => return };
+    if file.metadata().map(|meta| meta.len() > 256 * 1024).unwrap_or(false) {
+        drop(file);
+        let _ = std::fs::remove_file(&path);
+        file = match open() { Ok(file) => file, Err(_) => return };
+    }
+    let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let _ = writeln!(file, "[{stamp}] {message}");
+}
+
 /// 依据设置启停常驻监听：调用于应用初始化与设置保存之后。
 pub fn sync_listener(app: &AppHandle) {
     let engine = app.state::<PetStore>().voice.clone();
-    let want = read_settings()
-        .map(|settings| settings.voice.enabled && settings.voice.wake_enabled)
-        .unwrap_or(false);
+    let want = match read_settings() {
+        Ok(settings) => settings.voice.enabled && settings.voice.wake_enabled,
+        Err(error) => {
+            // 设置读取失败时监听绝不能静默不启动：上报事件与终端日志，便于排查。
+            eprintln!("pet-voice: 设置读取失败，常驻监听未启动：{error}");
+            log_event(&format!("sync settings error: {error}"));
+            let _ = app.emit("pet-voice-listening", ListeningState { active: false, error: Some(format!("语音监听未启动：{error}")) });
+            false
+        }
+    };
     let running = engine.listening.load(Ordering::SeqCst);
+    log_event(&format!("sync want={want} running={running}"));
     if !want {
         if running {
             engine.generation.fetch_add(1, Ordering::SeqCst);
@@ -459,14 +536,24 @@ pub fn sync_listener(app: &AppHandle) {
     if running { return; }
     let generation = engine.generation.fetch_add(1, Ordering::SeqCst) + 1;
     engine.listening.store(true, Ordering::SeqCst);
+    eprintln!("pet-voice: 常驻监听启动（generation {generation}）");
     let _ = std::thread::Builder::new().name("pet-voice-wake".into()).spawn({
         let app = app.clone();
-        move || wake_loop(app, engine, generation)
+        move || {
+            // 线程崩溃必须复位 listening 并上报，否则徽标常亮而监听已死，无从排查。
+            let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| wake_loop(app.clone(), engine.clone(), generation)));
+            if outcome.is_err() {
+                engine.listening.store(false, Ordering::SeqCst);
+                if let Ok(mut active) = engine.active_device.lock() { active.clear(); }
+                let _ = app.emit("pet-voice-listening", ListeningState { active: false, error: Some("语音监听异常退出，请重新保存语音设置以重启".into()) });
+            }
+        }
     });
 }
 
 fn wake_loop(app: AppHandle, engine: Arc<Engine>, generation: u64) {
     let mut awake: Option<Instant> = None;
+    log_event(&format!("listener start gen={generation}"));
     let _ = app.emit("pet-voice-listening", ListeningState { active: true, error: None });
     loop {
         if !engine.listening.load(Ordering::SeqCst) || engine.generation.load(Ordering::SeqCst) != generation {
@@ -481,17 +568,23 @@ fn wake_loop(app: AppHandle, engine: Arc<Engine>, generation: u64) {
         }
         match capture_session(&app, &engine, generation, &mut awake) {
             Ok(SessionEnd::Stopped) => break,
-            Ok(SessionEnd::SettingsChanged) => continue,
+            Ok(SessionEnd::SettingsChanged) => {
+                log_event("session settings changed, recapturing");
+                continue;
+            }
             Err(error) => {
                 if !engine.listening.load(Ordering::SeqCst) || engine.generation.load(Ordering::SeqCst) != generation {
                     break;
                 }
+                log_event(&format!("capture error: {error}"));
                 let _ = app.emit("pet-voice-listening", ListeningState { active: true, error: Some(error) });
                 std::thread::sleep(Duration::from_secs(10));
             }
         }
     }
+    log_event("listener stop");
     engine.listening.store(false, Ordering::SeqCst);
+    if let Ok(mut active) = engine.active_device.lock() { active.clear(); }
     let _ = app.emit("pet-voice-listening", ListeningState { active: false, error: None });
 }
 
@@ -504,14 +597,34 @@ fn capture_session(app: &AppHandle, engine: &Arc<Engine>, generation: u64, awake
     let settings = read_settings().map_err(|_| "读取桌宠设置失败".to_string())?;
     resolve_model(&settings)?;
     let host = cpal::default_host();
-    let device = host.default_input_device().ok_or("未检测到麦克风")?;
+    // 用户在语音设置中选择的麦克风优先；未选择时跟随系统默认设备（可能被虚拟音频软件抢占）。
+    let wanted = settings.voice.device.trim();
+    let device = if wanted.is_empty() {
+        host.default_input_device().ok_or("未检测到麦克风")?
+    } else {
+        host.devices()
+            .map_err(|_| "无法枚举麦克风设备")?
+            .find(|candidate| candidate.name().map(|name| name == wanted).unwrap_or(false))
+            .ok_or(format!("找不到麦克风“{wanted}”，请在语音设置中重新选择"))?
+    };
+    eprintln!("pet-voice: 输入设备：{}", device.name().unwrap_or_else(|_| "未知".into()));
+    let resolved_name = device.name().unwrap_or_default();
+    log_event(&format!("capture device={resolved_name}"));
+    if let Ok(mut active) = engine.active_device.lock() { *active = resolved_name; }
+    engine.segments.store(0, Ordering::SeqCst);
+    engine.matched.store(0, Ordering::SeqCst);
     let supported = device.default_input_config().map_err(|_| "麦克风不可用，请检查设备连接")?;
     let config: cpal::StreamConfig = supported.clone().into();
+    eprintln!("pet-voice: 采集参数 {}Hz {}声道 {:?}，正在启动数据流", config.sample_rate.0, config.channels, supported.sample_format());
     let (tx, rx) = mpsc::sync_channel::<Vec<f32>>(64);
     let stream = build_capture_stream(&device, config, supported.sample_format(), supported.channels() as usize, supported.sample_rate().0, tx)
         .map_err(|_| "麦克风启动失败，请检查设备与采样格式")?;
     stream.play().map_err(|_| "麦克风启动失败")?;
-    let mut pending = PendingSegment::default();
+    eprintln!("pet-voice: 麦克风采集已开始");
+    log_event("stream started");
+    let mut pending = PendingSegment { calibrating: CALIBRATION_FRAMES, ..Default::default() };
+    // 词间停顿会被 VAD 切成多个段：间隔在窗口内的段合并后再识别，避免“小…驼”只转写一半。
+    let mut merged: Option<(Vec<f32>, Instant, f32)> = None;
     let mut buffer: Vec<f32> = Vec::with_capacity(VAD_FRAME * 4);
     let mut last_data = Instant::now();
     let mut last_settings = Instant::now();
@@ -527,6 +640,7 @@ fn capture_session(app: &AppHandle, engine: &Arc<Engine>, generation: u64, awake
                     || current.voice.wake_word != settings.voice.wake_word
                     || current.voice.language != settings.voice.language
                     || current.voice.model_file != settings.voice.model_file
+                    || current.voice.device != settings.voice.device
                 {
                     break Ok(SessionEnd::SettingsChanged);
                 }
@@ -538,12 +652,30 @@ fn capture_session(app: &AppHandle, engine: &Arc<Engine>, generation: u64, awake
                 buffer.extend(chunk);
                 while buffer.len() >= VAD_FRAME {
                     let frame: Vec<f32> = buffer.drain(..VAD_FRAME).collect();
-                    if let Some(mut segment) = pending.push(&frame) {
-                        handle_segment(app, engine, &settings, awake, &mut segment);
+                    if let Some((segment, avg_rms)) = pending.push(&frame) {
+                        // 已有合并段过期或拼接后超长：先把旧缓冲送去识别，再接收新段。
+                        if merged.as_ref().is_some_and(|(samples, last, _)| {
+                            last.elapsed() > SEGMENT_MERGE_GAP || samples.len() + segment.len() > MAX_SEGMENT_FRAMES * VAD_FRAME
+                        }) {
+                            flush_segment(app, engine, &settings, awake, &mut pending, &mut merged);
+                        }
+                        if let Some((samples, last, seen_avg)) = &mut merged {
+                            samples.extend_from_slice(&segment);
+                            *seen_avg = seen_avg.max(avg_rms);
+                            *last = Instant::now();
+                        } else {
+                            merged = Some((segment, Instant::now(), avg_rms));
+                        }
                     }
+                }
+                if merged.as_ref().is_some_and(|(_, last, _)| last.elapsed() >= SEGMENT_MERGE_GAP) {
+                    flush_segment(app, engine, &settings, awake, &mut pending, &mut merged);
                 }
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {
+                if merged.as_ref().is_some_and(|(_, last, _)| last.elapsed() >= SEGMENT_MERGE_GAP) {
+                    flush_segment(app, engine, &settings, awake, &mut pending, &mut merged);
+                }
                 if last_data.elapsed() >= DEVICE_STALL {
                     break Err("麦克风无响应，请检查设备连接".into());
                 }
@@ -551,8 +683,19 @@ fn capture_session(app: &AppHandle, engine: &Arc<Engine>, generation: u64, awake
             Err(mpsc::RecvTimeoutError::Disconnected) => break Err("麦克风数据中断".into()),
         }
     };
+    // 会话结束（停止/换设置）前把未到期的合并段识别完，避免丢词。
+    flush_segment(app, engine, &settings, awake, &mut pending, &mut merged);
     drop(stream);
     result
+}
+
+/// 将合并完成的语音段送识别；判定为环境噪声时按段均 RMS 抬升噪声底，让阈值跟随外放等持续环境声。
+fn flush_segment(app: &AppHandle, engine: &Arc<Engine>, settings: &super::Settings, awake: &mut Option<Instant>, pending: &mut PendingSegment, merged: &mut Option<(Vec<f32>, Instant, f32)>) {
+    let Some((mut buffered, _, avg_rms)) = merged.take() else { return };
+    if matches!(handle_segment(app, engine, settings, awake, &mut buffered), SegmentOutcome::Noise) {
+        pending.noise_floor = pending.noise_floor.max((avg_rms * NOISE_FLOOR_BUMP_RATIO).min(NOISE_FLOOR_BUMP_CAP));
+        log_event(&format!("noise floor raised to {:.4}", pending.noise_floor));
+    }
 }
 
 fn stream_error(_error: cpal::StreamError) {}
@@ -637,7 +780,8 @@ impl Resampler {
     }
 }
 
-/// 能量 VAD：静音预滚 + 起音确认 + 静音收尾，阈值随噪音底自适应；返回完整语音段。
+/// 能量 VAD：静音预滚 + 起音确认 + 静音收尾，阈值随噪音底自适应；返回完整语音段及其均 RMS。
+/// 启动前先校准约 3 秒环境底噪，避免外放音频等持续环境声把检测器淹没。
 #[derive(Default)]
 struct PendingSegment {
     preroll: Vec<f32>,
@@ -646,14 +790,22 @@ struct PendingSegment {
     silence: usize,
     active: bool,
     noise_floor: f32,
+    calibrating: usize,
+    active_rms_sum: f64,
+    active_frames: u32,
 }
 impl PendingSegment {
     /// 起音阈值取噪音底估计的倍数且不低于绝对下限：安静麦克风不误触，嘈杂麦克风不常开。
     fn speech_threshold(&self) -> f32 {
         (self.noise_floor * NOISE_FLOOR_FACTOR).max(VAD_THRESHOLD)
     }
-    fn push(&mut self, frame: &[f32]) -> Option<Vec<f32>> {
+    fn push(&mut self, frame: &[f32]) -> Option<(Vec<f32>, f32)> {
         let rms = (frame.iter().map(|s| s * s).sum::<f32>() / frame.len().max(1) as f32).sqrt();
+        if self.calibrating > 0 {
+            self.calibrating -= 1;
+            self.noise_floor = (self.noise_floor + NOISE_FLOOR_ALPHA * (rms - self.noise_floor)).max(NOISE_FLOOR_MIN);
+            return None;
+        }
         if !self.active {
             self.preroll.extend_from_slice(frame);
             let keep = PREROLL_FRAMES * VAD_FRAME;
@@ -665,15 +817,20 @@ impl PendingSegment {
                 if self.speech >= SPEECH_START_FRAMES {
                     self.active = true;
                     self.silence = 0;
+                    self.active_rms_sum = 0.0;
+                    self.active_frames = 0;
                     self.samples = std::mem::take(&mut self.preroll);
                 }
             } else {
                 self.speech = 0;
-                self.noise_floor = (self.noise_floor + NOISE_FLOOR_ALPHA * (rms - self.noise_floor)).max(NOISE_FLOOR_MIN);
+                let alpha = if rms < self.noise_floor { NOISE_FLOOR_DECAY_ALPHA } else { NOISE_FLOOR_ALPHA };
+                self.noise_floor = (self.noise_floor + alpha * (rms - self.noise_floor)).max(NOISE_FLOOR_MIN);
             }
             return None;
         }
         self.samples.extend_from_slice(frame);
+        self.active_rms_sum += (rms * rms) as f64;
+        self.active_frames += 1;
         if rms >= self.speech_threshold() {
             self.silence = 0;
         } else {
@@ -681,12 +838,15 @@ impl PendingSegment {
         }
         if self.silence >= SPEECH_END_FRAMES || self.samples.len() >= MAX_SEGMENT_FRAMES * VAD_FRAME {
             let samples = std::mem::take(&mut self.samples);
+            let avg_rms = if self.active_frames > 0 { (self.active_rms_sum / self.active_frames as f64).sqrt() as f32 } else { 0.0 };
             self.active = false;
             self.speech = 0;
             self.silence = 0;
+            self.active_rms_sum = 0.0;
+            self.active_frames = 0;
             self.preroll.clear();
             if samples.len() >= MIN_SEGMENT_FRAMES * VAD_FRAME {
-                return Some(samples);
+                return Some((samples, avg_rms));
             }
         }
         None
@@ -770,14 +930,201 @@ fn find_fuzzy_wake(text: &str, word: &str) -> Option<String> {
     })
 }
 
+/// 临时诊断：转写用户实测录音，验证真实人声的识别效果。
+#[cfg(test)]
+mod wake_diagnostic {
+    use super::*;
+
+    fn read_wav_mono16(path: &Path) -> Vec<f32> {
+        let bytes = std::fs::read(path).expect("读取测试音频失败");
+        let mut index = 12usize;
+        while index + 8 <= bytes.len() {
+            let id = &bytes[index..index + 4];
+            let size = u32::from_le_bytes([bytes[index + 4], bytes[index + 5], bytes[index + 6], bytes[index + 7]]) as usize;
+            if id == b"data" {
+                return bytes[index + 8..index + 8 + size]
+                    .chunks_exact(2)
+                    .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]) as f32 / 32768.0)
+                    .collect();
+            }
+            index += 8 + size + (size & 1);
+        }
+        panic!("WAV 无 data 块");
+    }
+
+    #[test]
+    #[ignore]
+    fn transcribe_wake_words() {
+        let wav = std::env::temp_dir().join("voice-test3.wav");
+        let model = std::path::PathBuf::from(std::env::var("LOCALAPPDATA").unwrap())
+            .join("CloudHubTools-Dev").join("voice-models").join("ggml-small.bin");
+        let engine = Engine::default();
+        let samples = read_wav_mono16(&wav);
+        // 与实时管线一致：按块喂入重采样器（16k 设备等于直通）与 VAD，校准期同样丢弃前 3 秒。
+        let mut resampler = Resampler::new(16000);
+        let mut pending = PendingSegment { calibrating: CALIBRATION_FRAMES, ..Default::default() };
+        let mut segments: Vec<(Vec<f32>, f32)> = Vec::new();
+        let mut buffer: Vec<f32> = Vec::with_capacity(VAD_FRAME * 4);
+        for chunk in samples.chunks(1024) {
+            let mut out = Vec::new();
+            resampler.push(chunk, &mut out);
+            buffer.extend(out);
+            while buffer.len() >= VAD_FRAME {
+                let frame: Vec<f32> = buffer.drain(..VAD_FRAME).collect();
+                if let Some((segment, avg_rms)) = pending.push(&frame) {
+                    segments.push((segment, avg_rms));
+                }
+            }
+        }
+        println!("管线产出 {} 段", segments.len());
+        for (index, (mut segment, avg_rms)) in segments.into_iter().enumerate() {
+            let started = Instant::now();
+            let text = transcribe_samples(&engine, &model, "zh", &mut segment).unwrap_or_default();
+            let normalized: String = text.chars().filter(|c| c.is_alphanumeric()).collect::<String>().to_lowercase();
+            println!("段{index} len={}ms rms={avg_rms:.4} [耗时{:?}] 原文: {:?} 命中: {}", segment.len() / 16, started.elapsed(), text.trim(), find_fuzzy_wake(&normalized, "小驼").is_some());
+        }
+    }
+}
+
+/// whisper 在静音/噪声段上的高频幻觉文本：均为训练数据里的字幕与片尾残留，真实指令不会包含。
+const TRANSCRIBE_HALLUCINATIONS: [&str; 8] = ["字幕", "谢谢观看", "謝謝觀看", "订阅", "訂閱", "amara", "thank you for watching", "please subscribe"];
+
+/// 将 16k 单声道采样打包为内存 WAV（无临时文件）。
+fn wav_bytes(samples: &[f32]) -> Vec<u8> {
+    let mut wav = Vec::with_capacity(44 + samples.len() * 2);
+    let data_len = (samples.len() * 2) as u32;
+    wav.extend_from_slice(b"RIFF");
+    wav.extend_from_slice(&(36 + data_len).to_le_bytes());
+    wav.extend_from_slice(b"WAVEfmt ");
+    wav.extend_from_slice(&16u32.to_le_bytes());
+    wav.extend_from_slice(&1u16.to_le_bytes());
+    wav.extend_from_slice(&1u16.to_le_bytes());
+    wav.extend_from_slice(&16000u32.to_le_bytes());
+    wav.extend_from_slice(&(16000u32 * 2).to_le_bytes());
+    wav.extend_from_slice(&2u16.to_le_bytes());
+    wav.extend_from_slice(&16u16.to_le_bytes());
+    wav.extend_from_slice(b"data");
+    wav.extend_from_slice(&data_len.to_le_bytes());
+    for sample in samples {
+        let quantized = (sample.clamp(-1.0, 1.0) * 32767.0).round() as i16;
+        wav.extend_from_slice(&quantized.to_le_bytes());
+    }
+    wav
+}
+
+/// 读取语音设置所选 AI 配置的凭据（密钥走既有加密存储，保持零化包装不落普通字符串）。
+fn cloud_profile_credentials(profile_id: &str) -> Result<(String, impl AsRef<str>), String> {
+    let db = crate::core::storage::open_db()?;
+    let (profile, key) = crate::core::repositories::ai::load(&db, profile_id).map_err(|_| "AI 配置读取失败".to_string())?;
+    Ok((profile.base_url, key))
+}
+
+/// 云端语音识别：multipart 上传 + JSON 返回 text（OpenAI /audio/transcriptions 与 MiniMax /v1/speech_to_text 均兼容）。
+async fn cloud_transcribe(url: &str, key: impl AsRef<str>, model: &str, wav: &[u8]) -> Result<String, String> {
+    let url = url.trim();
+    if url.is_empty() { return Err("云端识别地址为空".into()); }
+    if !url.starts_with("https://") { return Err("云端识别地址必须为 https".into()); }
+    if model.trim().is_empty() { return Err("云端识别模型未填写".into()); }
+    let boundary = "CloudHubVoiceBoundary7d1a";
+    let mut body = Vec::with_capacity(wav.len() + 512);
+    body.extend_from_slice(format!("--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"audio.wav\"\r\nContent-Type: audio/wav\r\n\r\n").as_bytes());
+    body.extend_from_slice(wav);
+    body.extend_from_slice(b"\r\n");
+    body.extend_from_slice(format!("--{boundary}\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\n{}\r\n--{boundary}--\r\n", model.trim()).as_bytes());
+    let client = reqwest::Client::new();
+    let response = client
+        .post(url)
+        .header("Authorization", format!("Bearer {}", key.as_ref()))
+        .header("Content-Type", format!("multipart/form-data; boundary={boundary}"))
+        .timeout(CLOUD_ASR_TIMEOUT)
+        .body(body)
+        .send()
+        .await
+        .map_err(|_| "云端识别请求失败，请检查网络".to_string())?
+        .error_for_status()
+        .map_err(|error| {
+            let code = error.status().map(|status| status.as_str().to_string()).unwrap_or_else(|| "未知".into());
+            format!("云端识别返回错误状态：{code}")
+        })?;
+    let body = response.text().await.map_err(|_| "云端识别响应读取失败".to_string())?;
+    let json: serde_json::Value = serde_json::from_str(&body)
+        .map_err(|_| format!("云端识别响应非 JSON：{}", truncate_diag(&body)))?;
+    // MiniMax 等服务商把业务错误包在 HTTP 200 的 base_resp 里（如密钥无效、欠费），必须显式检查。
+    if let Some(base) = json.get("base_resp") {
+        let code = base.get("status_code").and_then(|value| value.as_i64()).unwrap_or(0);
+        if code != 0 {
+            let msg = base.get("status_msg").and_then(|value| value.as_str()).unwrap_or("未知错误");
+            return Err(format!("服务商返回错误 {code}：{msg}"));
+        }
+    }
+    let text = json.get("text").and_then(|value| value.as_str()).unwrap_or("").trim().to_string();
+    if text.is_empty() { return Err(format!("云端识别未返回文本：{}", truncate_diag(&body))); }
+    Ok(text)
+}
+
+/// 云端识别走语音设置所选 AI 配置；凭据仅在内存中解密使用，音频不落盘。
+fn cloud_segment_transcript(settings: &super::Settings, samples: &mut [f32]) -> Result<String, String> {
+    let profile_id = settings.voice.cloud_profile_id.trim();
+    if profile_id.is_empty() { return Err("未选择云端识别的 AI 配置".into()); }
+    let (base_url, key) = cloud_profile_credentials(profile_id)?;
+    if key.as_ref().is_empty() { return Err("AI 配置缺少密钥".into()); }
+    // 转写地址：填了自定义地址直接用（如 MiniMax 的 /v1/speech_to_text）；留空走 OpenAI 风格 {服务地址}/audio/transcriptions。
+    let url = match settings.voice.cloud_endpoint.trim() {
+        "" => format!("{}/audio/transcriptions", base_url.trim().trim_end_matches('/')),
+        endpoint => endpoint.to_string(),
+    };
+    normalize_peaks(samples);
+    let wav = wav_bytes(samples);
+    tauri::async_runtime::block_on(cloud_transcribe(&url, &key, &settings.voice.cloud_model, &wav))
+}
+
+/// 单段音频转写：开启云端识别时优先上传 AI 服务商，失败自动回落本地 whisper。
+fn segment_transcript(app: &AppHandle, engine: &Arc<Engine>, settings: &super::Settings, len_ms: usize, samples: &mut [f32]) -> Result<String, String> {
+    if settings.voice.cloud_asr_enabled && !settings.voice.cloud_profile_id.trim().is_empty() {
+        match cloud_segment_transcript(settings, samples) {
+            Ok(text) => {
+                log_event(&format!("segment {len_ms}ms cloud transcribed"));
+                return Ok(text);
+            }
+            Err(error) => {
+                log_event(&format!("segment {len_ms}ms cloud error: {error}"));
+                let _ = app.emit("pet-voice-error", VoiceError { message: format!("云端识别失败，已回落本地识别：{error}") });
+            }
+        }
+    }
+    let (model, _) = resolve_model(settings)?;
+    transcribe_samples(engine, &model, &settings.voice.language, samples)
+}
+
+/// 单段语音的处理结果：Noise 表示该段被判定为环境噪声（调用方据此抬升噪声底）。
+enum SegmentOutcome { Speech, Noise }
+
 /// 归一化后做唤醒词容错子串匹配；指令取唤醒词之后的剩余文本。
 /// 未命中的段落经 pet-voice-heard 上报（仅内存与界面展示，不落盘不写日志），便于排查唤醒词选词。
-fn handle_segment(app: &AppHandle, engine: &Arc<Engine>, settings: &super::Settings, awake: &mut Option<Instant>, samples: &mut [f32]) {
-    if engine.manual_active.load(Ordering::SeqCst) { return; }
-    let Ok((model, _)) = resolve_model(settings) else { return };
-    let Ok(transcript) = transcribe_samples(engine, &model, &settings.voice.language, samples) else { return };
+/// 模型缺失、推理失败与空转写经 pet-voice-error 上报，避免"监听中却毫无反应"时无从排查。
+fn handle_segment(app: &AppHandle, engine: &Arc<Engine>, settings: &super::Settings, awake: &mut Option<Instant>, samples: &mut [f32]) -> SegmentOutcome {
+    if engine.manual_active.load(Ordering::SeqCst) { return SegmentOutcome::Speech; }
+    engine.segments.fetch_add(1, Ordering::SeqCst);
+    let len_ms = samples.len() / 16;
+    let transcript = match segment_transcript(app, engine, settings, len_ms, samples) {
+        Ok(text) => text,
+        Err(error) => { log_event(&format!("segment {len_ms}ms transcribe error: {error}")); let _ = app.emit("pet-voice-error", VoiceError { message: error }); return SegmentOutcome::Speech; }
+    };
+    if transcript.trim().is_empty() {
+        log_event(&format!("segment {len_ms}ms empty transcript"));
+        let _ = app.emit("pet-voice-error", VoiceError { message: "未识别到清晰语音，请靠近麦克风再试".into() });
+        return SegmentOutcome::Noise;
+    }
+    let lowered = transcript.trim().to_lowercase();
+    if TRANSCRIBE_HALLUCINATIONS.iter().any(|pattern| lowered.contains(pattern)) {
+        log_event(&format!("segment {len_ms}ms hallucination dropped"));
+        return SegmentOutcome::Noise;
+    }
     let text: String = transcript.chars().filter(|c| c.is_alphanumeric()).collect::<String>().to_lowercase();
-    if text.is_empty() { return; }
+    if text.is_empty() {
+        log_event(&format!("segment {len_ms}ms filtered (no alphanumeric)"));
+        return SegmentOutcome::Noise;
+    }
     let word: String = settings
         .voice
         .wake_word
@@ -789,25 +1136,35 @@ fn handle_segment(app: &AppHandle, engine: &Arc<Engine>, settings: &super::Setti
     let after_wake = if word.is_empty() { None } else { find_fuzzy_wake(&text, &word) };
     match after_wake {
         Some(rest) if !rest.is_empty() => {
+            engine.matched.fetch_add(1, Ordering::SeqCst);
+            log_event(&format!("segment {len_ms}ms MATCHED (command dispatched)"));
             *awake = None;
             let _ = app.emit("pet-voice-command", VoiceCommand { text: rest });
+            SegmentOutcome::Speech
         }
         Some(_) => {
+            engine.matched.fetch_add(1, Ordering::SeqCst);
+            log_event(&format!("segment {len_ms}ms MATCHED (awake)"));
             *awake = Some(Instant::now() + WAKE_COMMAND_WINDOW);
             let _ = app.emit("pet-voice-awake", ());
+            SegmentOutcome::Speech
         }
         None => {
             if let Some(until) = *awake {
                 if Instant::now() <= until {
+                    engine.matched.fetch_add(1, Ordering::SeqCst);
+                    log_event(&format!("segment {len_ms}ms MATCHED (awake command)"));
                     *awake = None;
                     let _ = app.emit("pet-voice-command", VoiceCommand { text });
-                    return;
+                    return SegmentOutcome::Speech;
                 }
             }
             let heard = transcript.trim().to_string();
             if !heard.is_empty() {
+                log_event(&format!("segment {len_ms}ms heard"));
                 let _ = app.emit("pet-voice-heard", VoiceHeard { text: heard });
             }
+            SegmentOutcome::Speech
         }
     }
 }
