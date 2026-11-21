@@ -319,6 +319,33 @@ pub async fn pet_voice_transcribe(window: tauri::WebviewWindow, app: tauri::AppH
     let result: Result<String, String> = async {
         if !settings.voice.enabled { return Err("请先在桌宠设置中启用语音对话".into()); }
         let mut samples = decode_audio(&audio)?;
+        // 手动听写与常驻监听共用同一云端识别选择：云端优先（更快更准），失败或空结果静默回落本地。
+        if settings.voice.cloud_asr_enabled
+            && (settings.voice.cloud_provider == "xfyun" || !settings.voice.cloud_profile_id.trim().is_empty())
+        {
+            let cloud_settings = settings.clone();
+            let mut cloud_samples = samples.clone();
+            let cloud = match tauri::async_runtime::spawn_blocking(move || {
+                if cloud_settings.voice.cloud_provider == "xfyun" {
+                    cloud_segment_transcript_xfyun(&cloud_settings, &mut cloud_samples)
+                } else {
+                    cloud_segment_transcript(&cloud_settings, &mut cloud_samples)
+                }
+            })
+            .await
+            {
+                Ok(inner) => inner,
+                Err(_) => Err("云端识别任务失败".to_string()),
+            };
+            match cloud {
+                Ok(text) if !text.trim().is_empty() => {
+                    log_event("manual cloud transcribed");
+                    return Ok(text);
+                }
+                Ok(_) => log_event("manual cloud empty"),
+                Err(error) => log_event(&format!("manual cloud error: {error}")),
+            }
+        }
         let (model, _) = resolve_model(&settings)?;
         let task_engine = engine.clone();
         let language = settings.voice.language.clone();
@@ -1079,7 +1106,7 @@ async fn cloud_transcribe(url: &str, key: impl AsRef<str>, model: &str, wav: &[u
         }
     }
     let text = json.get("text").and_then(|value| value.as_str()).unwrap_or("").trim().to_string();
-    if text.is_empty() { return Err(format!("云端识别未返回文本：{}", truncate_diag(&body))); }
+    // 空文本 = 服务端判定无清晰语音（噪声段），由调用方静默回落本地识别，不算错误。
     Ok(text)
 }
 
@@ -1218,8 +1245,8 @@ async fn xfyun_iat_transcribe(app_id: &str, api_key: &str, api_secret: &str, lan
         .await
         .map_err(|_| "讯飞语音听写会话超时".to_string())?;
     let transcript = transcript?;
-    if transcript.trim().is_empty() { return Err("讯飞语音听写未返回文本".into()); }
-    Ok(transcript)
+    // 空结果 = 讯飞判定无清晰语音（噪声段），由调用方静默回落本地识别，不算错误。
+    Ok(transcript.trim().to_string())
 }
 
 /// 云端识别走语音设置所选 AI 配置；凭据仅在内存中解密使用，音频不落盘。
@@ -1257,17 +1284,18 @@ fn segment_transcript(app: &AppHandle, engine: &Arc<Engine>, settings: &super::S
             _ if !settings.voice.cloud_profile_id.trim().is_empty() => Some(cloud_segment_transcript(settings, samples)),
             _ => None,
         };
-        if let Some(cloud) = cloud {
-            match cloud {
-                Ok(text) => {
-                    log_event(&format!("segment {len_ms}ms cloud transcribed"));
-                    return Ok(text);
-                }
-                Err(error) => {
-                    log_event(&format!("segment {len_ms}ms cloud error: {error}"));
-                    let _ = app.emit("pet-voice-error", VoiceError { message: format!("云端识别失败，已回落本地识别：{error}") });
-                }
+        match cloud {
+            Some(Ok(text)) if !text.trim().is_empty() => {
+                log_event(&format!("segment {len_ms}ms cloud transcribed"));
+                return Ok(text);
             }
+            // 云端判定无清晰语音（噪声段）：静默回落本地识别，不弹错误提示，避免环境噪声反复打扰。
+            Some(Ok(_)) => log_event(&format!("segment {len_ms}ms cloud empty")),
+            Some(Err(error)) => {
+                log_event(&format!("segment {len_ms}ms cloud error: {error}"));
+                let _ = app.emit("pet-voice-error", VoiceError { message: format!("云端识别失败，已回落本地识别：{error}") });
+            }
+            None => {}
         }
     }
     let (model, _) = resolve_model(settings)?;
