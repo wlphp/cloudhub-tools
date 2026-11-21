@@ -639,6 +639,8 @@ fn capture_session(app: &AppHandle, engine: &Arc<Engine>, generation: u64, awake
     let host = cpal::default_host();
     // 用户在语音设置中选择的麦克风优先；未选择时跟随系统默认设备（可能被虚拟音频软件抢占）。
     let wanted = settings.voice.device.trim();
+    // 兼容旧版本下拉框把文本"系统默认"当作设备名存进设置的配置，与空值同样视为跟随系统默认。
+    let wanted = if wanted == "系统默认" { "" } else { wanted };
     let device = if wanted.is_empty() {
         host.default_input_device().ok_or("未检测到麦克风")?
     } else {
