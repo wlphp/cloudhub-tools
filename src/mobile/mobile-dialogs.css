@@ -171,15 +171,15 @@ body:has(.mobile-shell) .shared-dialog-backdrop .mobile-identity-ribbon {
   border-radius: 5px;
   background: linear-gradient(110deg, #66552d, #3d3528);
   color: #ffdf8d;
-  font-size: 11px;
+  font-size: var(--mobile-fs-meta);
   font-weight: 650;
   white-space: nowrap;
 }
 body:has(.mobile-shell) .shared-dialog-backdrop .mobile-identity-ribbon.is-super_admin { border-color: #b5b0ff55; background: linear-gradient(110deg, #49436c, #302d46); color: #d4d1ff; }
-body:has(.mobile-shell) .shared-dialog-backdrop .mobile-identity-brand { margin-top: 15px; color: #c5c0d2; font-size: 10px; font-weight: 600; letter-spacing: 1.8px; }
-body:has(.mobile-shell) .shared-dialog-backdrop .mobile-identity-card h3 { max-width: 100%; margin: 0; overflow: hidden; color: #fff; font-size: 20px; font-weight: 600; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
-body:has(.mobile-shell) .shared-dialog-backdrop .mobile-identity-card > p { margin: 0; color: #c8c4d2; font-size: 12px; line-height: 1.5; }
-body:has(.mobile-shell) .shared-dialog-backdrop .mobile-identity-card > time { color: #aaa5b6; font-size: 10px; }
+body:has(.mobile-shell) .shared-dialog-backdrop .mobile-identity-brand { margin-top: 15px; color: #c5c0d2; font-size: var(--mobile-fs-meta); font-weight: 600; letter-spacing: 1.8px; }
+body:has(.mobile-shell) .shared-dialog-backdrop .mobile-identity-card h3 { max-width: 100%; margin: 0; overflow: hidden; color: #fff; font-size: var(--mobile-fs-title); font-weight: 600; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+body:has(.mobile-shell) .shared-dialog-backdrop .mobile-identity-card > p { margin: 0; color: #c8c4d2; font-size: var(--mobile-fs-body); line-height: 1.5; }
+body:has(.mobile-shell) .shared-dialog-backdrop .mobile-identity-card > time { color: #aaa5b6; font-size: var(--mobile-fs-meta); }
 body:has(.mobile-shell) .shared-dialog-backdrop .mobile-identity-save {
   position: relative;
   z-index: 1;
@@ -193,7 +193,7 @@ body:has(.mobile-shell) .shared-dialog-backdrop .mobile-identity-save {
   border-radius: 999px;
   background: linear-gradient(110deg, #ffe6a1, #f7bd4e);
   color: #574321;
-  font-size: 14px;
+  font-size: var(--mobile-fs-control);
   font-weight: 700;
   cursor: pointer;
   box-shadow: inset 0 1px 0 #ffffff99, 0 8px 20px #0003;
@@ -204,7 +204,7 @@ body:has(.mobile-shell) .shared-dialog-backdrop .mobile-identity-confetti { posi
 body:has(.mobile-shell) .shared-dialog-backdrop .mobile-identity-confetti.is-one { top: 28px; left: 16%; transform: rotate(-28deg); background: #5bd4d5; }
 body:has(.mobile-shell) .shared-dialog-backdrop .mobile-identity-confetti.is-two { top: 52px; right: 19%; transform: rotate(35deg); background: #f5cc68; }
 body:has(.mobile-shell) .shared-dialog-backdrop .mobile-identity-confetti.is-three { top: 120px; left: 9%; transform: rotate(42deg); background: #f5cc68; }
-body:has(.mobile-shell) .shared-dialog-backdrop .mobile-identity-card-error { position: relative; z-index: 1; margin: 0; color: #ffaaa5; font-size: 12px; }
+body:has(.mobile-shell) .shared-dialog-backdrop .mobile-identity-card-error { position: relative; z-index: 1; margin: 0; color: #ffaaa5; font-size: var(--mobile-fs-body); }
 body:has(.mobile-shell) .shared-dialog-backdrop .mobile-identity-card-error + .mobile-identity-save { margin-top: 2px; }
 body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog > .modal-head {
   position: relative;
@@ -216,8 +216,8 @@ body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog > .modal-
   border: 0;
   background: transparent;
 }
-body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog .shared-dialog-heading h2 { font-size: 16px; font-weight: 600; letter-spacing: -.2px; line-height: 1.4; }
-body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog .shared-dialog-heading p { font-size: 12px; line-height: 1.5; color: var(--mobile-muted); }
+body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog .shared-dialog-heading h2 { font-size: var(--mobile-fs-title); font-weight: 600; letter-spacing: -.2px; line-height: 1.4; }
+body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog .shared-dialog-heading p { font-size: var(--mobile-fs-body); line-height: 1.5; color: var(--mobile-muted); }
 body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog > .modal-head > svg,
 body:has(.mobile-shell) .shared-dialog-backdrop .shared-dialog-mobile-icon {
   display: grid;
@@ -276,7 +276,7 @@ body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog :is(input
   background: var(--mobile-surface);
   color: var(--mobile-text);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--mobile-fs-control);
   font-weight: 400;
   line-height: 1.5;
   box-shadow: 0 1px 2px #10182806, inset 0 1px 2px #10182803;
@@ -303,7 +303,7 @@ body:has(.mobile-shell) .shared-dialog-backdrop .dialog-field {
   border-radius: 10px;
   background: linear-gradient(110deg, var(--dialog-row), color-mix(in srgb, var(--dialog-row) 45%, var(--dialog-surface)));
   color: var(--mobile-text);
-  font-size: 12px;
+  font-size: var(--mobile-fs-body);
   font-weight: 500;
   line-height: 1.5;
 }
@@ -319,7 +319,7 @@ body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog .modal-bo
 body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog .cloud-backup-toolbar > label.cloud-backup-search { margin-bottom: 0; }
 body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog input[type="checkbox"] { flex: 0 0 auto; width: 18px; height: 18px; accent-color: var(--mobile-accent); }
 body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog fieldset { display: grid; gap: 8px; min-width: 0; margin: 0; padding: 0; border: 0; }
-body:has(.mobile-shell) .shared-dialog-backdrop .dialog-field-label { margin: 0; color: var(--mobile-text); font-size: 12px; line-height: 1.5; }
+body:has(.mobile-shell) .shared-dialog-backdrop .dialog-field-label { margin: 0; color: var(--mobile-text); font-size: var(--mobile-fs-body); line-height: 1.5; }
 .dialog-field-required { margin-right: 4px; color: var(--mobile-danger); }
 .dialog-field-content { min-width: 0; }
 .dialog-field-control { position: relative; min-width: 0; }
@@ -331,8 +331,8 @@ body:has(.mobile-shell) .shared-dialog-backdrop .dialog-field-icon:has(.mobile-p
 body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog .dialog-field-with-icon:has(.mobile-provider-logo) select { padding-left: 42px; }
 body:has(.mobile-shell) .shared-dialog-backdrop .dialog-field-icon:has(.lucide-power) { color: #20a65a; }
 body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog .dialog-field-with-icon :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) { padding-left: 34px; }
-.dialog-field-hint { margin: 4px 0 0; color: var(--mobile-muted); font-size: 12px; font-weight: 400; line-height: 1.5; }
-.dialog-field-count { position: absolute; right: 12px; bottom: 10px; color: var(--mobile-muted); font-size: 12px; line-height: 1.5; pointer-events: none; }
+.dialog-field-hint { margin: 4px 0 0; color: var(--mobile-muted); font-size: var(--mobile-fs-body); font-weight: 400; line-height: 1.5; }
+.dialog-field-count { position: absolute; right: 12px; bottom: 10px; color: var(--mobile-muted); font-size: var(--mobile-fs-body); line-height: 1.5; pointer-events: none; }
 body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog .dialog-field-counted textarea { min-height: 64px; padding-bottom: 24px; resize: vertical; }
 body:has(.mobile-shell) .shared-dialog-backdrop .dialog-notice,
 body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog .mobile-form-hint {
@@ -343,7 +343,7 @@ body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog .mobile-f
   border-radius: 10px;
   background: var(--mobile-accent-soft);
   color: var(--mobile-accent);
-  font-size: 12px;
+  font-size: var(--mobile-fs-body);
   font-weight: 400;
   line-height: 1.6;
 }
@@ -378,7 +378,7 @@ body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog .modal-ac
   background: linear-gradient(135deg, var(--dialog-row), color-mix(in srgb, var(--dialog-border) 40%, var(--dialog-row))) !important;
   color: var(--mobile-text);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--mobile-fs-control);
   font-weight: 600;
   line-height: 1.5;
 }
@@ -389,14 +389,14 @@ body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog .modal-ac
 body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog .recycle-bin-foot { padding: 10px 16px 10px; }
 body:has(.mobile-shell) .shared-dialog-backdrop .mobile-dns-body { display: grid; gap: 8px; padding: 0; overflow: visible; }
 body:has(.mobile-shell) .shared-dialog-backdrop .mobile-cert-zone-label { margin-bottom: 0; }
-body:has(.mobile-shell) .shared-dialog-backdrop .mobile-certificate-dialog .mobile-cert-request-hint { margin: 0; font-size: 12px; }
+body:has(.mobile-shell) .shared-dialog-backdrop .mobile-certificate-dialog .mobile-cert-request-hint { margin: 0; font-size: var(--mobile-fs-body); }
 @media (min-width: 360px) {
   body:has(.mobile-shell) .shared-dialog-backdrop .dialog-field { display: grid; grid-template-columns: minmax(84px, 28%) minmax(0, 1fr); align-items: start; gap: 8px; }
   body:has(.mobile-shell) .shared-dialog-backdrop .dialog-field-heading { padding-top: 13px; }
 }
 @media (max-width: 539px) {
-  body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog .shared-dialog-heading h2 { font-size: 15px; }
-  body:has(.mobile-shell) .shared-dialog-backdrop .dialog-field-label { font-size: 12px; }
+  body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog .shared-dialog-heading h2 { font-size: var(--mobile-fs-title); }
+  body:has(.mobile-shell) .shared-dialog-backdrop .dialog-field-label { font-size: var(--mobile-fs-body); }
 }
 @media (min-width: 540px) {
   body:has(.mobile-shell) .shared-dialog-backdrop .dialog-field { padding: 4px 10px; }
@@ -418,10 +418,10 @@ body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog.shared-co
 body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog.shared-confirm-dialog .dialog-header-actions { align-self: center; }
 body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog.shared-confirm-dialog .dialog-header-actions > button { border-radius: 8px !important; background: transparent !important; }
 body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog.shared-confirm-dialog > .modal-body { flex: 0 1 auto; display: block; padding: 14px 16px 20px; }
-body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog.shared-confirm-dialog .confirm-message { color: var(--mobile-text); font-size: 14px; font-weight: 550; line-height: 1.6; }
-body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog.shared-confirm-dialog .confirm-detail { margin-top: 8px; color: var(--mobile-muted); font-size: 13px; font-weight: 400; line-height: 1.6; }
-body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog.shared-confirm-dialog .modal-body [role="alert"] { margin-top: 10px; color: var(--mobile-danger); font-size: 13px; }
+body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog.shared-confirm-dialog .confirm-message { color: var(--mobile-text); font-size: var(--mobile-fs-strong); font-weight: 550; line-height: 1.6; }
+body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog.shared-confirm-dialog .confirm-detail { margin-top: 8px; color: var(--mobile-muted); font-size: var(--mobile-fs-control); font-weight: 400; line-height: 1.6; }
+body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog.shared-confirm-dialog .modal-body [role="alert"] { margin-top: 10px; color: var(--mobile-danger); font-size: var(--mobile-fs-control); }
 body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog.shared-confirm-dialog > .modal-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding: 0 16px 16px; }
-body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog.shared-confirm-dialog .modal-actions > button { width: 100%; min-width: 0; height: 44px; min-height: 44px; padding: 0 12px; border-radius: 9px; font-size: 14px; font-weight: 600; box-shadow: none; }
+body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog.shared-confirm-dialog .modal-actions > button { width: 100%; min-width: 0; height: 44px; min-height: 44px; padding: 0 12px; border-radius: 9px; font-size: var(--mobile-fs-control); font-weight: 600; box-shadow: none; }
 body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog.shared-confirm-dialog.is-danger { --dialog-primary: color-mix(in srgb, var(--mobile-danger) 80%, #000); }
 body:has(.mobile-shell) .shared-dialog-backdrop .shared-content-dialog.shared-confirm-dialog.is-danger > .modal-head > svg { color: var(--mobile-danger); background: color-mix(in srgb, var(--mobile-danger) 8%, var(--mobile-surface)); }

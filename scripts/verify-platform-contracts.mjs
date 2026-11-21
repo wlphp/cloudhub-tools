@@ -43,6 +43,14 @@ const mobileHandlerMatch = rustLibSource.match(/#\[cfg\(mobile\)\]\s*let builder
 assert.ok(desktopHandlerMatch, "未找到桌面 Tauri 命令注册表");
 assert.ok(mobileHandlerMatch, "未找到移动端 Tauri 命令注册表");
 const handlerSource = desktopHandlerMatch[1];
+const petClientSource = await readFile(path.join(root, "src/platform/clients/desktopPet.ts"), "utf8");
+const petWindowSource = await readFile(path.join(root, "src-tauri/src/commands/desktop_pet.rs"), "utf8");
+const petAllowlist = petWindowSource.match(/\[LABEL, NOTICE_LABEL\]\.contains\(&invoke\.message\.webview_ref\(\)\.label\(\)\)\s*&&\s*!\[([\s\S]*?)\]\s*\.contains\(&invoke\.message\.command\(\)\)/);
+assert.ok(petAllowlist, "未找到桌宠窗口命令白名单");
+const petCommands = new Set([...petAllowlist[1].matchAll(/"(pet_\w+)"/g)].map(([, command]) => command));
+for (const [, command] of petClientSource.matchAll(/nativeOnly<[^\n]+?>\("(pet_\w+)"/g)) {
+  assert.ok(petCommands.has(command), `桌宠窗口命令白名单缺少 ${command}`);
+}
 const mobileHandlerCommands = mobileHandlerMatch[1].split(",").map((command) => command.trim()).filter(Boolean).sort();
 const expectedMobileCommands = [...contract.mobileCommands].sort();
 assert.equal(new Set(expectedMobileCommands).size, expectedMobileCommands.length, "mobileCommands 中存在重复项");

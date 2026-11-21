@@ -8,7 +8,7 @@ import dogFrames from "./assets/dog-frames.json";
 import type { PetSettings } from "../../platform/clients/desktopPet";
 
 export const petAppearances: Record<PetSettings["appearance"], { label: string; sprite: string }> = {
-  alpaca: { label: "羊驼", sprite: alpacaSprite },
+  alpaca: { label: "小小驼", sprite: alpacaSprite },
   dog: { label: "小狗（柯基）", sprite: dogSprite },
   fish: { label: "大鱼（DeepSeek）", sprite: fishSprite },
   penguin: { label: "企鹅", sprite: penguinSprite },

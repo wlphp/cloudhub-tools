@@ -2,23 +2,34 @@ import { ConfirmDialog } from "../../shared/ConfirmDialog";
 import { createPortal } from "react-dom";
 import type { PetComputerAction } from "../../platform/clients/desktopPet";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Bell, Droplets, Home, Moon, Move, Settings, X, EyeOff, MessageCircle, Footprints, Briefcase, Heart, Plane, Power, RotateCw, MonitorCog, LockKeyhole, FolderOpen, Mic } from "lucide-react";
+import { Bell, Box, Droplets, Home, Moon, Move, Settings, X, EyeOff, MessageCircle, Footprints, Briefcase, Heart, Plane, Power, RotateCw, MonitorCog, LockKeyhole, FolderOpen, Mic, Minus, Pin, PinOff, Trash2 } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { defaultPetSettings, sortPetAlerts, desktopPetClient as client, type PetSettings, type PetSnapshot, type PetAlert } from "../../platform/clients/desktopPet";
-import { platformErrorMessage } from "../../platform/api";
+import { defaultPetSettings, isMimoSpeechPreset, sortPetAlerts, desktopPetClient as client, type PetSettings, type PetSnapshot, type PetAlert, type PetSpeechPreset } from "../../platform/clients/desktopPet";
+import { platformErrorMessage, runningInTauri, runningOnWindows } from "../../platform/api";
 import { petAppearances, petSpriteStyle, petFrameFor, type PetPose } from "./appearances";
 import { PetPortrait } from "./PetPortrait";
 import { DialogHeaderActions } from "../../shared/DialogHeaderActions";
-import { PetChat } from "./PetChat";
+import { PetChat, type PetChatPage, type PetVoiceTurn } from "./PetChat";
 import { usePetLife } from "./usePetLife";
 import { usePetVoice } from "./usePetVoice";
 import { PetLifeBubble } from "./PetLifeBubble";
-import { AlertList } from "./PetSettingsPanel";
+import { PetAlertsPage } from "./PetAlertsPage";
 import { usePetWindowTheme } from "./usePetWindowTheme";
+import { PetActionGroups, type PetActionGroup } from "./PetActionGroups";
+import { PetChatResizeEdges } from "./PetChatResizeEdges";
 import "./desktop-pet.css";
 
 type Pose = PetPose;
+const useWindowsSpeech = runningInTauri && runningOnWindows;
+const speechTuning = {
+  system: { pitch: 1, rate: 1 },
+  warm: { pitch: 1.12, rate: 0.92 },
+  clear: { pitch: 1, rate: 1.04 },
+  bright: { pitch: 1.28, rate: 1.14 },
+  steady: { pitch: 0.8, rate: 0.84 },
+} satisfies Record<Exclude<PetSpeechPreset, "mimoBingtang" | "mimoMoli">, { pitch: number; rate: number }>;
+const petPanelRegions = ".shared-dialog-backdrop,.app-confirm-backdrop,.pet-floating-card,.pet-speech-bubble,.pet-inline-error";
 
 export function PetWindow() {
   usePetWindowTheme();
@@ -36,11 +47,9 @@ export function PetWindow() {
   const [snapshot, setSnapshot] = useState<PetSnapshot>({ alerts: [], checkedAt: 0, lastError: null });
   const [pose, setPose] = useState<Pose>("idle");
   const [frame, setFrame] = useState(0);
-  const [panel, setPanel] = useState<"menu" | "status" | "chat" | null>(null);
-  const [alertBusy, setAlertBusy] = useState(false);
-  const [enlarged, setEnlarged] = useState(false);
+  const [panel, setPanel] = useState<"menu" | "chat" | null>(null);
   const [notice, setNotice] = useState<PetAlert | null>(null);
-  const [noticeExpanded, setNoticeExpanded] = useState(false);
+  const [focusedAlert, setFocusedAlert] = useState<PetAlert | null>(null);
   const [error, setError] = useState("");
   const [direction, setDirection] = useState(1);
   const [sleeping, setSleeping] = useState(false);
@@ -75,26 +84,104 @@ export function PetWindow() {
   const stopLifePose = useCallback(() => setPose(p => (p === "run" || p === "walk") ? "idle" : p), []);
   const life = usePetLife({ settings, blocked: dragging || panel !== null || notice !== null || hover || sleeping, visible, reduced, setPose, setDirection, stopPose: stopLifePose, onError: e => setError(platformErrorMessage(e)) });
   const [voiceHint, setVoiceHint] = useState("");
-  const [pendingVoice, setPendingVoice] = useState<{ text: string; autoSend: boolean } | null>(null);
-  /// 系统语音播报：开启语音回应且非勿扰时发声，TTS 不可用时静默降级为气泡提示。
-  function speak(text: string) {
-    if (!settingsRef.current.voice.speak || settingsRef.current.quiet) return;
+  const [chatStarted, setChatStarted] = useState(false);
+  const [historyVersion, setHistoryVersion] = useState(0);
+  const [historyClearOpen, setHistoryClearOpen] = useState(false);
+  const [historyClearBusy, setHistoryClearBusy] = useState(false);
+  const [historyClearError, setHistoryClearError] = useState("");
+  const historyClearPending = useRef(false);
+  const [chatPage, setChatPage] = useState<PetChatPage>("chat");
+  const [chatPinned, setChatPinned] = useState(true);
+  const [chatMaximized, setChatMaximized] = useState(false);
+  const [pendingVoice, setPendingVoice] = useState<PetVoiceTurn[]>([]);
+  const activeSystemSpeech = useRef<SpeechSynthesisUtterance | null>(null);
+  const [systemSpeaking, setSystemSpeaking] = useState(false);
+  function stopSystemSpeech() {
+    activeSystemSpeech.current = null;
+    setSystemSpeaking(false);
+    window.speechSynthesis?.cancel();
+  }
+
+  function speak(text: string, options: { interrupt?: boolean; previewPreset?: PetSpeechPreset; onUnavailable?: (error: unknown) => void; onDone?: () => void } = {}) {
+    const { voice, quiet } = settingsRef.current;
+    const { interrupt = false, previewPreset, onUnavailable = error => setVoiceHint(platformErrorMessage(error)), onDone } = options;
+    if (quiet || (!previewPreset && (!text.trim() || !voice.enabled || !voice.speak))) { onDone?.(); return; }
+    const preset = previewPreset ?? voice.speechPreset ?? "system";
+    if (useWindowsSpeech) {
+      void client.voiceSpeak(previewPreset ? null : text, interrupt, previewPreset).catch(onUnavailable).finally(onDone);
+      return;
+    }
+    if (runningInTauri && isMimoSpeechPreset(preset)) {
+      if (interrupt) stopSystemSpeech();
+      void client.voiceSpeak(previewPreset ? null : text, interrupt, previewPreset).then(onDone).catch(error => {
+        if (previewPreset) { onUnavailable(error); onDone?.(); return; }
+        const current = settingsRef.current;
+        if (current.quiet || !current.voice.enabled || !current.voice.speak || current.voice.speechPreset !== preset) { onDone?.(); return; }
+        setVoiceHint(`${platformErrorMessage(error)}，已切换到系统语音`);
+        speakUsingSystem(text, "system", options);
+      });
+      return;
+    }
+    speakUsingSystem(text, preset, options);
+  }
+  function speakUsingSystem(text: string, preset: PetSpeechPreset, options: Parameters<typeof speak>[1] = {}) {
+    const { interrupt = false, previewPreset, onUnavailable = error => setVoiceHint(platformErrorMessage(error)), onDone } = options;
+    const { voice } = settingsRef.current;
     const synth = window.speechSynthesis;
-    if (!synth) return;
+    const unavailable = () => onUnavailable(new Error("系统语音播报不可用，请检查播放设备和系统语音包。"));
+    if (!synth) { unavailable(); onDone?.(); return; }
     try {
-      synth.cancel();
-      const utter = new SpeechSynthesisUtterance(text.replace(/[…]+$/, ""));
-      utter.lang = settingsRef.current.voice.language === "en" ? "en-US" : "zh-CN";
-      utter.onerror = event => { if (event.error !== "interrupted" && event.error !== "canceled") setVoiceHint("系统语音播报不可用"); };
+      if (interrupt) stopSystemSpeech();
+      const sample = voice.language === "en" ? "Hello, I'm your desktop companion. I'll be here whenever you need me." : "你好，我是你的桌面伙伴。有需要的时候，随时叫我。";
+      const utter = new SpeechSynthesisUtterance(previewPreset ? sample : text.replace(/[…]+$/, ""));
+      utter.lang = voice.language === "en" ? "en-US" : "zh-CN";
+      if (preset !== "system" && !isMimoSpeechPreset(preset)) {
+        const voices = synth.getVoices().filter(item => item.localService && item.lang.slice(0, 2) === utter.lang.slice(0, 2));
+        utter.voice = voices.find(item => item.lang === utter.lang && item.default)
+          ?? voices.find(item => item.lang === utter.lang) ?? voices[0] ?? null;
+        Object.assign(utter, speechTuning[preset]);
+      }
+      utter.onstart = () => { activeSystemSpeech.current = utter; setSystemSpeaking(true); };
+      const finish = () => {
+        if (activeSystemSpeech.current === utter) {
+          activeSystemSpeech.current = null;
+          setSystemSpeaking(false);
+        }
+      };
+      utter.onend = () => { finish(); onDone?.(); };
+      utter.onerror = event => {
+        finish();
+        if (event.error !== "interrupted" && event.error !== "canceled") unavailable();
+        if (previewPreset || (event.error !== "interrupted" && event.error !== "canceled")) onDone?.();
+      };
       synth.speak(utter);
       synth.resume();
-    } catch { /* 播报异常时保持气泡提示 */ }
+    } catch { unavailable(); onDone?.(); }
   }
+  const speechSelection = `${settings.voice.speechPreset}:${settings.voice.speechMimoProfileId}`;
+  const previousSpeech = useRef(speechSelection);
+  useEffect(() => {
+    const changed = previousSpeech.current !== speechSelection;
+    previousSpeech.current = speechSelection;
+    if (!changed && settings.voice.enabled && settings.voice.speak && !settings.quiet) return;
+    if (runningInTauri) void client.voiceSpeak(null).catch(() => {});
+    stopSystemSpeech();
+  }, [settings.voice.enabled, settings.voice.speak, speechSelection, settings.quiet]);
   const petVoice = usePetVoice(settings, {
-    openChat: (text, autoSend) => { setNotice(null); setPanel("chat"); setPendingVoice({ text, autoSend }); },
+    queueChat: (text, autoSend, commandId, localReply) => {
+      setChatStarted(true);
+      if (typeof localReply === "string") openChatPage("chat");
+      setPendingVoice(turns => [...turns, { text, autoSend, commandId, localReply }]);
+      if (!autoSend && panel !== "chat") setVoiceHint("语音内容已留在聊天输入框");
+    },
     requestComputer: action => { setError(""); setComputerConfirm(action); },
     runComputer: action => { void work(async () => { await client.computerAction(action); }); },
     showHint: (text, speakHint = false) => { setVoiceHint(text); if (speakHint) speak(text); },
+    acknowledgeWake: hasCommand => {
+      const message = hasCommand ? "我在。" : "我在，请说。";
+      setVoiceHint(message);
+      if (!useWindowsSpeech) speak(message, { interrupt: true });
+    },
     showError: message => setError(message),
   });
   useEffect(() => { if (!voiceHint) return; const timer = setTimeout(() => setVoiceHint(""), 8000); return () => clearTimeout(timer); }, [voiceHint]);
@@ -106,27 +193,42 @@ export function PetWindow() {
     let disposed = false;
     const edgeSubscription = listen<"left" | "right" | "top" | "bottom">("pet-dock-edge", e => setDockEdge(e.payload));
     void Promise.all([client.settings(), client.snapshot()]).then(([s,a]) => { if (!disposed) { setSettings(s); setSnapshot({ ...a, alerts: sortPetAlerts(a.alerts) }); setReady(true); if (s.monitoring && !s.quiet) setNotice(sortPetAlerts(a.alerts).find(alert => alert.active && !alert.ignored && alert.snoozedUntil <= Date.now()/1000) || null); } }).catch(e => setError(platformErrorMessage(e)));
-    const subscriptions = [listen<boolean>("pet-docked", e => { setDocked(e.payload); if (e.payload) { setPanel(null); setNotice(null); setNoticeExpanded(false); setEnlarged(false); life.suppressDueNotices(); setHover(false); setSleeping(false); setPose("idle"); setDirection(1); if (actionTimer.current) clearTimeout(actionTimer.current); } }), listen<boolean>("pet-visibility", e => { setVisible(e.payload); if (!e.payload) { setPanel(null); setNotice(null); setPose("idle"); } }), listen<PetSettings>("pet-settings-changed", e => setSettings(e.payload)), listen<PetSnapshot>("pet-alerts-changed", e => setSnapshot({ ...e.payload, alerts: sortPetAlerts(e.payload.alerts) })), listen<PetAlert>("pet-notification", e => { if (visibleRef.current && !settingsRef.current.quiet) { setNoticeExpanded(false); if(actionTimer.current) clearTimeout(actionTimer.current); setNotice(e.payload); setPose(e.payload.active ? "alert" : "happy"); } })];
+    const subscriptions = [listen<boolean>("pet-docked", e => { setDocked(e.payload); if (e.payload) { setPanel(null); setNotice(null); life.suppressDueNotices(); setHover(false); setSleeping(false); setPose("idle"); setDirection(1); if (actionTimer.current) clearTimeout(actionTimer.current); } }), listen<boolean>("pet-visibility", e => { setVisible(e.payload); if (!e.payload) { setPanel(null); setNotice(null); setPose("idle"); } }), listen<PetSettings>("pet-settings-changed", e => setSettings(e.payload)), listen<PetSnapshot>("pet-alerts-changed", e => setSnapshot({ ...e.payload, alerts: sortPetAlerts(e.payload.alerts) })), listen<PetAlert>("pet-notification", e => { if (visibleRef.current && !settingsRef.current.quiet) { if(actionTimer.current) clearTimeout(actionTimer.current); setNotice(e.payload); setPose(e.payload.active ? "alert" : "happy"); } })];
     const media = matchMedia("(prefers-reduced-motion: reduce)");
     const change = () => setSystemReduced(media.matches); media.addEventListener("change", change);
     return () => { disposed = true; void edgeSubscription.then(fn => fn()); media.removeEventListener("change", change); subscriptions.forEach(p => void p.then(fn => fn())); if (actionTimer.current) clearTimeout(actionTimer.current); if (holdTimer.current) clearTimeout(holdTimer.current); document.documentElement.classList.remove("pet-window-page"); };
   }, []);
-  useEffect(() => { if (settings.quiet) { setNotice(null); setNoticeExpanded(false); } }, [settings.quiet]);
-  const panelOpen = panel !== null || notice !== null || life.notice !== null;
-  const largeLayout = computerConfirm !== null || (panelOpen && panel !== "menu" && (enlarged || panel === "chat"));
-  useEffect(() => { void work(() => client.layout(panelOpen, largeLayout)); }, [panelOpen, largeLayout]);
+  useEffect(() => { if (settings.quiet) setNotice(null); }, [settings.quiet]);
+  const panelOpen = panel !== null || notice !== null || life.notice !== null || historyClearOpen || computerConfirm !== null;
+  const chatVisible = panel === "chat" && !docked;
+  const largeLayout = computerConfirm !== null || historyClearOpen;
+  const expandedLayout = chatVisible ? chatMaximized : largeLayout;
+  const activePin = !chatVisible || chatPinned;
+  useEffect(() => { if (!chatVisible) setChatMaximized(false); }, [chatVisible]);
+  useEffect(() => { void work(() => client.layout(panelOpen, expandedLayout, chatVisible, activePin)); }, [panelOpen, expandedLayout, chatVisible, activePin]);
   useEffect(() => {
     const update = () => {
-      const regions = [...document.querySelectorAll(".app-confirm-backdrop,.pet-floating-card,.pet-speech-bubble,.pet-alert-badge,.pet-inline-error")].map(el => { const r=el.getBoundingClientRect(); return [r.left,r.top,r.right,r.bottom]; });
+      const regions = chatVisible ? [] : [...document.querySelectorAll(`${petPanelRegions},.pet-alert-badge`)].map(el => el.getBoundingClientRect()).filter(r => r.width && r.height).map(r => [r.left,r.top,r.right,r.bottom]);
       void client.regions(regions).catch(e => setError(platformErrorMessage(e)));
     };
-    const observer=new ResizeObserver(update); observer.observe(document.body); document.querySelectorAll(".app-confirm-backdrop,.pet-floating-card,.pet-speech-bubble,.pet-inline-error").forEach(el=>observer.observe(el));
-    update(); return () => observer.disconnect();
-  }, [panel, notice, noticeExpanded, snapshot, error, life.notice, docked, computerConfirm, protest]);
+    const observer=new ResizeObserver(update); observer.observe(document.body); document.querySelectorAll(petPanelRegions).forEach(el=>observer.observe(el));
+    const portals = new MutationObserver(update);
+    portals.observe(document.body, { childList: true });
+    update(); return () => { observer.disconnect(); portals.disconnect(); };
+  }, [panel, chatVisible, notice, snapshot, error, life.notice, docked, computerConfirm, historyClearOpen, protest, voiceHint]);
   useEffect(() => {
-    const key = (e: KeyboardEvent) => { if (e.key === "Escape") { setPanel(null); setNotice(null); setNoticeExpanded(false); setEnlarged(false); setProtest(false); setPose(sleeping ? "sleep" : "idle"); } };
+    const key = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented || e.isComposing) return;
+      if (historyClearOpen) return;
+      if (chatVisible && chatPage !== "chat") {
+        setFocusedAlert(null);
+        setChatPage(chatPage === "settings" ? "chat" : "settings");
+        return;
+      }
+      setPanel(null); setNotice(null); setProtest(false); setPose(sleeping ? "sleep" : "idle");
+    };
     window.addEventListener("keydown", key); return () => window.removeEventListener("keydown", key);
-  }, [sleeping]);
+  }, [sleeping, chatVisible, chatPage, historyClearOpen]);
   useEffect(() => {
     if (docked || !visible || reduced || !["idle", "walk", "run", "spray"].includes(pose)) { setFrame(0); return; }
     const timer = setInterval(() => setFrame(f => (f + 1) % 6), pose === "idle" ? 480 : pose === "walk" ? 240 : 130);
@@ -162,11 +264,6 @@ export function PetWindow() {
   const [column, row] = petFrameFor(settings.appearance, pose, frame);
   useEffect(() => { void client.sprite(column, row, direction < 0, settings.appearance).catch(e => setError(platformErrorMessage(e))); }, [column, row, direction, settings.appearance]);
   const pending = snapshot.alerts.filter(a => a.active && !a.ignored && a.snoozedUntil <= Date.now()/1000);
-  async function ignoreAlerts(keys: string[], ignored = true) {
-    setAlertBusy(true);
-    try { await work(async () => { setSnapshot(await client.ignore(keys, ignored)); }); }
-    finally { setAlertBusy(false); }
-  }
   useEffect(() => { setNotice(current => current && snapshot.alerts.some(a => a.key === current.key && (a.ignored || a.snoozedUntil > Date.now()/1000)) ? null : current); }, [snapshot]);
   async function computerAction(action: PetComputerAction) {
     if (computerPending.current) return;
@@ -174,9 +271,44 @@ export function PetWindow() {
     await work(async () => { await client.computerAction(action); setComputerConfirm(null); });
     computerPending.current = false; setComputerBusy(false);
   }
-  function closePanel() { setPanel(null); if (noticeExpanded) setNotice(null); setNoticeExpanded(false); setEnlarged(false); setPose(sleeping ? "sleep" : "idle"); }
+  function closePanel() { setPanel(null); setPose(sleeping ? "sleep" : "idle"); }
+  function changeChatPage(page: PetChatPage) {
+    setFocusedAlert(null);
+    setChatPage(page);
+  }
+  function openChatPage(page: PetChatPage, alert: PetAlert | null = null) {
+    setNotice(null);
+    setChatStarted(true);
+    setFocusedAlert(alert);
+    setChatPage(page);
+    setPanel("chat");
+  }
+  function playPetAction(next: Pose, duration?: number) {
+    closePanel();
+    perform(next, duration);
+  }
+  function requestPowerAction(action: "shutdown" | "restart") {
+    setError("");
+    setComputerConfirm(action);
+  }
+  async function clearChatHistory() {
+    if (historyClearPending.current) return;
+    historyClearPending.current = true;
+    setHistoryClearBusy(true);
+    setHistoryClearError("");
+    try {
+      await client.clearChatHistory();
+      setHistoryVersion(version => version + 1);
+      setHistoryClearOpen(false);
+    } catch (e) {
+      setHistoryClearError(platformErrorMessage(e));
+    } finally {
+      historyClearPending.current = false;
+      setHistoryClearBusy(false);
+    }
+  }
   function dragPanel(e: React.PointerEvent<HTMLElement>) {
-    if (e.button !== 0 || (e.target as HTMLElement).closest("button")) return;
+    if (e.button !== 0 || (chatVisible && chatMaximized) || (e.target as HTMLElement).closest("button")) return;
     e.preventDefault();
     void work(async () => { await getCurrentWindow().startDragging(); await client.move(0, 0, false, true); });
   }
@@ -193,7 +325,90 @@ export function PetWindow() {
     drag.current = null;
     setDragging(false); setPose("idle");
   }
-  if (docked) return <main className={`pet-stage pet-docked-stage ${reduced ? "pet-reduced" : ""}`} data-docked="true" data-edge={dockEdge}>
+  const petName = petAppearances[settings.appearance].label;
+  const appearance = settings.appearance;
+  const companionActions: PetActionGroup = {
+    label: "桌宠互动",
+    actions: [
+      { label: "喷水玩一下", icon: Droplets, onClick: () => playPetAction("spray") },
+      { label: sleeping ? "起来活动" : "休息一下", icon: Moon, onClick: () => { closePanel(); setSleeping(!sleeping); setPose(sleeping ? "idle" : "sleep"); } },
+    ],
+  };
+  if (appearance !== "alpaca") companionActions.actions.push(
+    { label: appearance === "fish" ? "游动一会" : "散步一会", icon: Footprints, onClick: () => { setSleeping(false); playPetAction("walk", 4000); } },
+    { label: appearance === "dog" ? "趴着陪伴" : "坐着玩耍", icon: Heart, onClick: () => playPetAction("lie_down", 6000) },
+    { label: "陪我工作", icon: Briefcase, onClick: () => playPetAction("work", 6000) },
+  );
+  if (appearance === "penguin" || appearance === "fish") {
+    companionActions.actions.push({ label: "飞行玩一下", icon: Plane, onClick: () => playPetAction("hanging", 4000) });
+  }
+  const chatActions: PetActionGroup = {
+    label: "聊天与提醒",
+    actions: [
+      { label: "和宠物聊天", icon: MessageCircle, onClick: () => openChatPage("chat") },
+      { label: "查看提醒", icon: Bell, count: pending.length || undefined, onClick: () => openChatPage("alerts") },
+      { label: "桌宠设置", icon: Settings, onClick: () => openChatPage("settings") },
+      { label: "清空聊天记录", icon: Trash2, danger: true, onClick: () => { setHistoryClearError(""); setHistoryClearOpen(true); } },
+    ],
+  };
+  const desktopActions: PetActionGroup[] = [
+    { label: "桌面管理", actions: [
+      { label: "回到屏幕下沿", icon: Move, onClick: () => void work(() => client.move(0, 0, true, true)) },
+      { label: "打开云枢", icon: Home, onClick: () => void work(() => client.open("resources")) },
+      { label: "隐藏桌宠", icon: EyeOff, title: "隐藏桌宠后，运维预警仍会继续运行", onClick: () => void work(client.hide) },
+    ] },
+  ];
+  if (runningOnWindows) desktopActions.push({
+    label: "电脑快捷操作",
+    actions: [
+      { label: "任务管理器", icon: MonitorCog, disabled: computerBusy, onClick: () => void computerAction("taskManager") },
+      { label: "文件资源管理器", icon: FolderOpen, disabled: computerBusy, onClick: () => void computerAction("explorer") },
+      { label: "锁定电脑", icon: LockKeyhole, disabled: computerBusy, onClick: () => void computerAction("lock") },
+      { label: "重启电脑", icon: RotateCw, disabled: computerBusy, danger: true, onClick: () => requestPowerAction("restart") },
+      { label: "关闭电脑", icon: Power, disabled: computerBusy, danger: true, onClick: () => requestPowerAction("shutdown") },
+    ],
+  });
+  const quickChatActions = {
+    ...chatActions,
+    actions: [...chatActions.actions, { label: "全部技能", icon: Box, onClick: () => openChatPage("skills") }],
+  };
+  return <main className={`pet-stage ${docked ? "pet-docked-stage" : dockEdge === "top" && panelOpen ? "pet-top-stage" : ""} ${reduced ? "pet-reduced" : ""}`} data-chat-open={chatVisible || undefined} data-docked={docked ? "true" : undefined} data-edge={docked ? dockEdge : undefined} style={{ "--pet-size": `${settings.size}px`, "--pet-sprite-image": `url("${(petAppearances[settings.appearance] || petAppearances.alpaca).sprite}")`, "--pet-edge-shift": `${edgeShift}px` } as React.CSSProperties}>
+    {chatStarted && <section hidden={!chatVisible} style={chatVisible ? undefined : { display: "none" }} className="modal-form-layout dialog-common-theme pet-floating-card pet-chat-card" data-page={chatPage} data-maximized={chatMaximized || undefined} role="dialog" aria-label={`与${petName}聊天`}>
+      <header className="pet-panel-titlebar" onPointerDown={dragPanel} onContextMenu={e => { e.preventDefault(); setPanel("menu"); }} title="拖动标题栏移动 · 右键打开菜单">
+        <strong><PetPortrait appearance={settings.appearance} pose="happy" /><span>{petName}</span></strong>
+        <div className="pet-chat-title-tools">
+          <button type="button" aria-label="置顶窗口" title={chatPinned ? "取消置顶" : "置顶窗口"} aria-pressed={chatPinned} onClick={() => setChatPinned(value => !value)}>{chatPinned ? <Pin size={15} aria-hidden="true" /> : <PinOff size={15} aria-hidden="true" />}</button>
+          {chatPage === "chat" && <button type="button" aria-label="设置" title="设置" onClick={() => setChatPage("settings")}><Settings size={16} aria-hidden="true" /></button>}
+          <button type="button" aria-label="收起到桌宠" title="收起到桌宠" onClick={closePanel}><Minus size={16} aria-hidden="true" /></button>
+          <DialogHeaderActions expanded={chatMaximized} onExpandedChange={setChatMaximized} resizeLabels={{ expand: "最大化窗口", restore: "还原窗口" }}>
+            <button type="button" className="pet-chat-close" aria-label="关闭" title="关闭（Esc）" onClick={() => { setChatPage("chat"); closePanel(); }}><X size={16} aria-hidden="true" /></button>
+          </DialogHeaderActions>
+        </div>
+      </header>
+      <div className="modal-body pet-panel-body">
+        {chatVisible && error && <div className="pet-chat-error" role="alert">
+          <span>{error}</span>
+          <button type="button" aria-label="关闭错误提示" title="关闭错误提示" onClick={() => setError("")}><X size={14} aria-hidden="true" /></button>
+        </div>}
+        <PetChat settings={settings} settingsReady={ready} onSettingsSave={next => client.save(next)} page={chatPage} onPageChange={changeChatPage}
+        skillsActions={<PetActionGroups groups={[companionActions, chatActions, ...desktopActions]} />}
+        alerts={{ count: pending.length, page: <PetAlertsPage key={focusedAlert?.key ?? "alerts"} snapshot={snapshot} monitoring={settings.monitoring} initialAlert={focusedAlert} onSnapshotChange={setSnapshot} /> }}
+        visible={chatVisible} historyVersion={historyVersion} clearingHistory={historyClearOpen} pendingVoice={pendingVoice[0]}
+        voiceActivity={{ listening: petVoice.listening, listeningError: petVoice.listeningError, recognizing: petVoice.recognizing, processing: petVoice.processing, playing: petVoice.playing || systemSpeaking }}
+        onVoiceConsumed={() => setPendingVoice(turns => turns.slice(1))}
+        onVoiceTranscript={transcript => petVoice.submit(transcript)}
+        onReplay={reply => speak(reply, { interrupt: true })}
+        onVoicePreview={preset => new Promise<void>((resolve, reject) => {
+          speak("", { interrupt: true, previewPreset: preset, onUnavailable: reject, onDone: resolve });
+        })}
+        onVoiceError={setError}
+        onVoiceReply={(reply, commandId) => speak(reply, {
+          onUnavailable: () => setError("系统语音播报不可用，回答已保存在聊天记录"),
+          onDone: () => { if (commandId !== undefined) void client.voiceContinue(commandId).catch(() => {}); },
+        })} /></div>
+    </section>}
+    {chatVisible && !chatMaximized && <PetChatResizeEdges onError={setError} />}
+    {docked ?
     <button className="pet-dock-handle" aria-label="拉出宠物" title="点击绳环拉出宠物，也可以按住拖动"
       onClick={() => { if (!drag.current?.moved && !dragging) void work(() => client.reveal()); }}
       onPointerDown={e => { if (e.button !== 0) return; drag.current = { x: e.screenX, y: e.screenY, moved: false }; e.currentTarget.setPointerCapture(e.pointerId); }}
@@ -205,59 +420,40 @@ export function PetWindow() {
         <path className="pet-rope-thread" d="M12 0V31M12 35C9 35 7 40 7 46C7 51 9 55 12 55" />
         <path className="pet-rope-knot" d="M9 30L15 32M9 33L15 35" />
       </svg>
-    </button>
-  </main>;
-  return <main className={`pet-stage ${dockEdge === "top" && panelOpen ? "pet-top-stage" : ""} ${reduced ? "pet-reduced" : ""}`} style={{ "--pet-size": `${settings.size}px`, "--pet-sprite-image": `url("${(petAppearances[settings.appearance] || petAppearances.alpaca).sprite}")`, "--pet-edge-shift": `${edgeShift}px` } as React.CSSProperties}>
+    </button> : <>
     {life.notice && <PetLifeBubble notice={life.notice} action={life.action} roaming={life.roaming} appearance={settings.appearance} />}
     {!panel && !notice && !life.notice && protest && <div className="pet-speech-bubble pet-protest" role="status" aria-label="宠物在抗议被抓住">坏人，快放开我！放开我！</div>}
     {!panel && !notice && !life.notice && !protest && (voiceHint || petVoice.listeningError) && <div className={`pet-speech-bubble${petVoice.listeningError && !voiceHint ? " pet-voice-warning" : " pet-voice-hint"}`} role="status" aria-label="语音助手状态">{petVoice.listeningError && !voiceHint ? petVoice.listeningError : voiceHint}</div>}
-    {!panel && notice && !noticeExpanded && <div className={`pet-speech-bubble ${notice.active ? notice.severity : "recovered"}`} role="status" aria-label="运维消息气泡">
-      <button className="pet-speech-open" onClick={() => setNoticeExpanded(true)} aria-label={`查看运维消息：${notice.title}`}>
+    {!panel && notice && <div className={`pet-speech-bubble ${notice.active ? notice.severity : "recovered"}`} role="status" aria-label="运维消息气泡">
+      <button className="pet-speech-open" onClick={() => openChatPage("alerts", notice)} aria-label={`查看运维消息：${notice.title}`}>
         <span className="pet-speech-caption"><PetPortrait appearance={settings.appearance} pose={notice.active ? "alert" : "happy"} /><Bell size={13} aria-hidden="true" />{notice.active ? notice.severity === "emergency" ? "超级严重，请尽快处理" : "有件事想提醒你" : "好消息，状态恢复了"}</span>
         <strong>{notice.title}</strong><span className="pet-speech-detail">{notice.detail}</span><span className="pet-speech-hint">点击查看{pending.length > 1 ? ` · 共 ${pending.length} 项待处理` : ""}</span>
       </button><button className="pet-speech-close" aria-label="关闭消息气泡" title="关闭消息气泡" onClick={() => { setNotice(null); setPose(sleeping ? "sleep" : "idle"); }}><X size={14} /></button>
     </div>}
-    {(panel || (notice && noticeExpanded)) && <section className={panel === "menu" ? "modal-form-layout dialog-common-theme pet-floating-card pet-quick-menu" : `modal-form-layout dialog-common-theme pet-floating-card pet-status-card${panel === "chat" ? " pet-chat-card" : ""}`} role="dialog" aria-label={panel === "menu" ? "宠物快捷菜单" : panel === "chat" ? "和宠物聊天" : "宠物运维状态"}>
-      <header className="pet-panel-titlebar" onPointerDown={dragPanel} title="拖动标题栏移动"><strong><PetPortrait appearance={settings.appearance} pose={panel === "chat" ? "happy" : "idle"} />{panel === "chat" ? <MessageCircle size={15} aria-hidden="true" /> : panel !== "menu" && <Bell size={15} aria-hidden="true" />}{panel === "menu" ? "宠物" : panel === "chat" ? "和宠物聊天" : notice && !panel ? notice.active ? notice.severity === "emergency" ? "超级严重，请尽快处理" : "有事情需要处理" : "状态已恢复" : "运维状态"}</strong>{panel === "status" && <span className="pet-pending-count">{pending.length} 项待处理</span>}<DialogHeaderActions expanded={enlarged} onExpandedChange={setEnlarged} showResize={panel !== "menu" && panel !== "chat"}><button className="close" aria-label="关闭" title="关闭（Esc）" onClick={closePanel}><X size={16} /></button></DialogHeaderActions></header>
-      <div className="modal-body pet-panel-body">{panel === "chat" ? <PetChat appearance={settings.appearance} voice={settings.voice} pendingVoice={pendingVoice} onVoiceConsumed={() => setPendingVoice(null)} onVoiceTranscript={transcript => petVoice.submit(transcript)} /> : panel === "menu" ? <div className="pet-menu">
-        <button onClick={() => { setPanel(null); perform("spray"); }}><Droplets size={16} />喷水玩一下</button>
-        {settings.appearance !== "alpaca" && <>
-          <button onClick={() => { setSleeping(false); setPanel(null); perform("walk", 4000); }}><Footprints size={16} />{settings.appearance === "fish" ? "游动一会" : "散步一会"}</button>
-          <button onClick={() => { setPanel(null); perform("lie_down", 6000); }}><Heart size={16} />{(settings.appearance === "penguin" || settings.appearance === "fish") ? "坐着玩耍" : "趴着陪伴"}</button>
-          <button onClick={() => { setPanel(null); perform("work", 6000); }}><Briefcase size={16} />陪我工作</button>
-        </>}
-        {(settings.appearance === "penguin" || settings.appearance === "fish") && <button onClick={() => { setPanel(null); perform("hanging", 4000); }}><Plane size={16} />飞行玩一下</button>}
-        <button onClick={() => { setSleeping(!sleeping); setPose(sleeping ? "idle" : "sleep"); setPanel(null); }}><Moon size={16} />{sleeping ? "起来活动" : "休息一下"}</button>
-        <button onClick={() => { setNotice(null); setPanel("chat"); }}><MessageCircle size={16} />和宠物聊天</button>
-        <button onClick={() => setPanel("status")}><Bell size={16} />查看提醒（{pending.length}）</button>
-        <button onClick={() => void work(() => client.move(0,0,true,true))}><Move size={16} />回到屏幕下沿</button>
-        <button onClick={() => void work(() => client.open("resources"))}><Home size={16} />打开云枢</button>
-        <button onClick={() => void work(() => client.open("settings"))}><Settings size={16} />桌宠设置</button>
-        <button title="隐藏桌宠后，运维预警仍会继续运行" onClick={() => void work(client.hide)}><EyeOff size={16} />隐藏桌宠</button>
-        <span className="pet-menu-section">电脑快捷操作</span>
-        <button disabled={computerBusy} onClick={() => void computerAction("taskManager")}><MonitorCog size={16} />任务管理器</button>
-        <button disabled={computerBusy} onClick={() => void computerAction("explorer")}><FolderOpen size={16} />文件资源管理器</button>
-        <button disabled={computerBusy} onClick={() => void computerAction("lock")}><LockKeyhole size={16} />锁定电脑</button>
-        <button disabled={computerBusy} onClick={() => { setError(""); setComputerConfirm("restart"); }}><RotateCw size={16} />重启电脑</button>
-        <button disabled={computerBusy} onClick={() => { setError(""); setComputerConfirm("shutdown"); }}><Power size={16} />关闭电脑</button>
-      </div> : notice && !panel ? <div className={`pet-notice ${notice.severity}`}><strong>{notice.title}</strong><p>{notice.detail}</p><button onClick={() => void work(() => client.open(notice.section, notice.key))}>查看详情</button>{notice.active && <button onClick={() => void work(async () => { await client.snooze(notice.key); setNotice(null); setPose(sleeping ? "sleep" : "idle"); })}>一小时后提醒</button>}{notice.active && <button disabled={alertBusy} onClick={() => void ignoreAlerts([notice.key])}>忽略</button>}</div> : <><AlertList snapshot={snapshot} onSnooze={key => void work(() => client.snooze(key))} onIgnore={(keys, ignored) => void ignoreAlerts(keys, ignored)} busy={alertBusy} /></>}</div>
-      {panel !== "chat" && panel !== "menu" && !(notice && !panel) && <footer className="pet-status-footer"><span>{settings.monitoring ? "巡检已开启" : "巡检已暂停"}</span><span>{snapshot.checkedAt ? `检查于 ${new Date(snapshot.checkedAt*1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "尚未检查"}</span></footer>}
+    {panel === "menu" && <section className="modal-form-layout dialog-common-theme pet-floating-card pet-quick-menu" role="dialog" aria-label="宠物快捷菜单">
+      <header className="pet-panel-titlebar" onPointerDown={dragPanel} title="拖动标题栏移动">
+        <strong><PetPortrait appearance={settings.appearance} />{petName}</strong>
+        <DialogHeaderActions showResize={false}><button className="pet-menu-close" aria-label="关闭" title="关闭（Esc）" onClick={closePanel}><X size={16} /></button></DialogHeaderActions>
+      </header>
+      <div className="modal-body pet-panel-body"><PetActionGroups groups={[quickChatActions, companionActions, ...desktopActions]} /></div>
     </section>}
+    {historyClearOpen && createPortal(<ConfirmDialog title="清空聊天记录" message="确定永久删除本机保存的桌宠聊天记录和已发送图片？" tone="danger" confirmLabel="清空聊天记录" busy={historyClearBusy} error={historyClearError} onPointerDown={dragPanel} onResolve={confirmed => { if (confirmed) void clearChatHistory(); else setHistoryClearOpen(false); }} />, document.body)}
     {computerConfirm && createPortal(<ConfirmDialog title={computerConfirm === "shutdown" ? "关闭电脑" : "重启电脑"} message={`确定${computerConfirm === "shutdown" ? "关闭" : "重启"}当前电脑吗？请先保存正在编辑的文件，操作会立即提交给 Windows。`} confirmLabel={computerConfirm === "shutdown" ? "确认关机" : "确认重启"} busy={computerBusy} error={error} onPointerDown={dragPanel} onResolve={confirmed => { if (confirmed) void computerAction(computerConfirm); else setComputerConfirm(null); }} />, document.body)}
-    {error && <div className="pet-inline-error" role="alert">{error}<button aria-label="关闭错误提示" onClick={() => setError("")}>关闭</button></div>}
+    {!chatVisible && error && <div className="pet-inline-error" role="alert">{error}<button aria-label="关闭错误提示" onClick={() => setError("")}>关闭</button></div>}
     <div className="pet-avatar-wrap" data-voice-listening={petVoice.listening ? (petVoice.listeningError ? "error" : "on") : undefined} onMouseEnter={() => { setHover(true); if (pose === "idle") setPose("curious"); }} onMouseLeave={() => { setHover(false); if (pose === "curious") setPose("idle"); }}>
-      <button className="pet-avatar" aria-label="宠物：点击查看状态，右键打开菜单，拖动可移动" title="点击查看状态 · 右键菜单 · 拖动移动"
+      <button className="pet-avatar" aria-label="宠物：点击查看提醒，右键打开菜单，拖动可移动" title="点击查看提醒 · 右键菜单 · 拖动移动"
         onContextMenu={e => { e.preventDefault(); setPanel("menu"); setPose("idle"); }}
         onPointerDown={e => { if (e.button !== 0) return; drag.current = { x: e.screenX, y: e.screenY, moved: false }; e.currentTarget.setPointerCapture(e.pointerId); if (holdTimer.current) clearTimeout(holdTimer.current); holdTimer.current = setTimeout(() => { if (drag.current && !drag.current.moved) setProtest(true); }, 700); }}
         onPointerMove={e => { const start = drag.current; if (start && !start.moved && Math.hypot(e.screenX-start.x,e.screenY-start.y)>5) { start.moved = true; if (holdTimer.current) clearTimeout(holdTimer.current); setProtest(false); setPose("hanging"); void dragAvatar(); } }}
-        onPointerUp={() => { if (holdTimer.current) clearTimeout(holdTimer.current); setProtest(false); const d=drag.current; drag.current=null; if (d && !d.moved) { setPanel("status"); perform("happy",650); } }}
+        onPointerUp={() => { if (holdTimer.current) clearTimeout(holdTimer.current); setProtest(false); const d=drag.current; drag.current=null; if (d && !d.moved) { openChatPage("alerts"); perform("happy",650); } }}
         onPointerCancel={() => { if (holdTimer.current) clearTimeout(holdTimer.current); setProtest(false); drag.current=null; setPose("idle"); }}
-        onClick={e => { if (e.detail === 0) setPanel("status"); }}>
+        onClick={e => { if (e.detail === 0) openChatPage("alerts"); }}>
         <span className={`pet-sprite pet-pose-${pose}`} style={{ ...petSpriteStyle(settings.appearance, column, row), transform: `scaleX(${direction})` }} />
       </button>
       {pose === "spray" && !reduced && <div className={`pet-water ${direction < 0 ? "to-left" : ""}`} aria-hidden="true">{Array.from({ length: 7 },(_,i) => <i key={i} style={{ "--drop": i } as React.CSSProperties} />)}</div>}
       {petVoice.listening && <span className={`pet-voice-badge${petVoice.listeningError ? " pet-voice-badge-error" : ""}`} role="status" aria-label={petVoice.listeningError ? `语音监听异常：${petVoice.listeningError}` : `正在监听唤醒词：${settings.voice.wakeWord}`} title={`正在监听唤醒词“${settings.voice.wakeWord}”${petVoice.listeningError ? `（${petVoice.listeningError}）` : ""}`}><Mic size={12} aria-hidden="true" />{petVoice.listeningError ? "监听异常" : "监听中"}</span>}
-      {pending.length > 0 && <button className="pet-alert-badge" aria-label={`${pending.length}项待处理提醒`} onClick={() => setPanel("status")}>{pending.length}</button>}
+      {pending.length > 0 && <button className="pet-alert-badge" aria-label={`${pending.length}项待处理提醒`} onClick={() => openChatPage("alerts")}>{pending.length}</button>}
     </div>
+    </>}
   </main>;
 }

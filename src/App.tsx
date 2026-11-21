@@ -348,6 +348,7 @@ function App() {
   const [showLoginDialog, setShowLoginDialog] = useState(false);
   const [member, setMember] = useState<Member | null>(null);
   const memberCenterOpeningRef = useRef(false);
+  const [memberCenterToast, setMemberCenterToast] = useState<{ kind: "progress"; text: string } | { kind: "handoff"; text: string; url: string } | null>(null);
   useEffect(() => {
     if (!("__TAURI_INTERNALS__" in window)) return;
     let active = true;
@@ -713,17 +714,29 @@ function App() {
     openExternalLink(target);
   }
 
+  async function copyMemberCenterHandoff(url: string) {
+    try {
+      await navigator.clipboard.writeText(url);
+      setMemberCenterToast(null);
+      setStatus("会员中心登录链接已复制，60秒内粘贴到浏览器打开即可自动登录");
+    } catch {
+      setStatus("复制会员中心登录链接失败，请重试");
+    }
+  }
+
   async function openMemberCenter() {
     setShowIdentityMenu(false);
     if (memberCenterOpeningRef.current) return;
     memberCenterOpeningRef.current = true;
     try {
       const memberCenterUrl = "https://yun.wlphp.com/member.html";
-      if (!runningInTauri) { openExternalLink(memberCenterUrl); return; }
+      if (!runningInTauri) { openExternalLink(memberCenterUrl); setStatus("官网会员页已在新窗口打开"); return; }
+      setMemberCenterToast({ kind: "progress", text: "正在创建会员中心临时登录链接…" });
       let ticket: string;
       try {
         ticket = await memberClient.webHandoff();
       } catch (reason) {
+        setMemberCenterToast(null);
         const detail = platformErrorMessage(reason, "会员服务请求失败");
         try {
           await openUrl(memberCenterUrl);
@@ -733,15 +746,12 @@ function App() {
         }
         return;
       }
+      const handoffUrl = `${memberCenterUrl}#handoff=${encodeURIComponent(ticket)}`;
       try {
-        await openUrl(`${memberCenterUrl}#handoff=${encodeURIComponent(ticket)}`);
+        await openUrl(handoffUrl);
+        setMemberCenterToast({ kind: "handoff", url: handoffUrl, text: "会员中心已在浏览器打开，将自动登录；若未看到浏览器窗口，可复制登录链接手动打开（60秒内有效）" });
       } catch {
-        try {
-          await openUrl(memberCenterUrl);
-          setStatus("临时登录链接已创建，但系统未能打开自动登录链接；已打开官网会员页，请登录后继续");
-        } catch {
-          setStatus("临时登录链接已创建，但系统无法打开浏览器，请检查系统默认浏览器");
-        }
+        setMemberCenterToast({ kind: "handoff", url: handoffUrl, text: "临时登录链接已创建，但系统未能打开浏览器，请复制登录链接手动打开（60秒内有效）" });
       }
     } finally {
       memberCenterOpeningRef.current = false;
@@ -2923,6 +2933,15 @@ function App() {
     if(!runningInTauri || isDetachedTerminalWindow) return;
     const subscription=listen<{section:string;key:string|null}>("pet-open-section",event=>{
       const {section:target,key}=event.payload;
+      if (target === "aiSettings") {
+        window.dispatchEvent(new Event("cloudhub-ai-settings"));
+        return;
+      }
+      if (target === "petSettings" || target === "about") {
+        setSettingsTab(target === "about" ? "about" : "pet");
+        setSection("settings");
+        return;
+      }
       if(!["panels","resources","certificates","settings","notes"].includes(target)) return;
       setSection(target as "panels"|"resources"|"certificates"|"settings"|"notes");
       if(!key) return;
@@ -4277,6 +4296,7 @@ function App() {
           </div>
         </nav>
         <ToastNotice message={status} onDismiss={() => setStatus("")} />
+        {memberCenterToast && <ToastNotice message={memberCenterToast.text} tone={memberCenterToast.kind === "progress" ? "progress" : "info"} duration={memberCenterToast.kind === "progress" ? 0 : 20000} onDismiss={() => setMemberCenterToast(null)}>{memberCenterToast.kind === "handoff" && <button type="button" onClick={() => void copyMemberCenterHandoff(memberCenterToast.url)}>复制登录链接</button>}</ToastNotice>}
         <DialogPage active={section === "home"} pageId="home" detachTitle={detachablePageTitles.home}>{() => (<DesktopHomePage accounts={accounts} assets={localAssets} applicationSettings={applicationSettings} favoriteCount={favoriteAssets.length} panelCount={panelConnections.length} serverCount={managedHosts.length} onNavigate={setSection} onOpenSoftware={id => {
           if (!id) { setStoreApplicationId(undefined); setSection("plugins"); return; }
           const app = sortedApplications(applicationSettings.preferences).find(item => item.id === id);

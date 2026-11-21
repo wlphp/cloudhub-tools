@@ -48,7 +48,7 @@
 .auth-panel .auth-selection > label { display:inline-flex; flex-direction:row; align-items:center; gap:6px; margin:0; padding:0; font:inherit; line-height:20px; }
 .auth-selection > span { line-height:20px; }
 .auth-selection input[type=checkbox] { flex:none; padding:0; }
-.auth-cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(290px,100%),min(380px,100%))); justify-content:start; gap:12px; }
+.auth-cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(290px,100%),1fr)); gap:12px; }
 .auth-card { position:relative; border:1px solid var(--jb-border,var(--jb-border)); border-radius:7px; background:var(--jb-surface,var(--jb-surface)); padding:15px 14px 11px; overflow:hidden; min-width:0; }
 .auth-card-top { display:flex; align-items:center; gap:8px; }
 .auth-card-heading { min-width:0; }

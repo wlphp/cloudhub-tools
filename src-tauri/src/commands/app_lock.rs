@@ -180,6 +180,22 @@ fn load_config() -> AppLockConfig {
         .unwrap_or_default()
 }
 
+#[cfg(desktop)]
+pub(crate) fn require_unlocked(app: &tauri::AppHandle, db: &rusqlite::Connection) -> Result<(), String> {
+    use rusqlite::OptionalExtension;
+    let saved: Option<String> = db.query_row(
+        "SELECT value FROM client_preferences WHERE key=?1",
+        [CONFIG_KEY],
+        |row| row.get(0),
+    ).optional().map_err(|_| "无法读取应用锁配置")?;
+    let config = saved.as_deref().map(serde_json::from_str::<AppLockConfig>)
+        .transpose().map_err(|_| "应用锁配置无效")?.unwrap_or_default();
+    if app.state::<AppLockStore>().refresh_locked(&config) {
+        return Err("请先在云枢主窗口解锁，再查询本地资料。".into());
+    }
+    Ok(())
+}
+
 fn save_config(config: &AppLockConfig) -> Result<(), String> {
     write_preference(CONFIG_KEY, &serde_json::to_string(config).map_err(|error| error.to_string())?)
 }

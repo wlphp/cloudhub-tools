@@ -4,20 +4,30 @@ import { desktopPetClient as client, type PetComputerAction, type PetSettings } 
 import { platformErrorMessage } from "../../platform/api";
 
 export interface PetVoiceCallbacks {
-  /** 打开聊天面板并填入/自动发送文本 */
-  openChat: (text: string, autoSend: boolean) => void;
+  queueChat: (text: string, autoSend: boolean, commandId?: number, localReply?: string | null) => void;
   /** 需要人工确认的系统动作（关机/重启），由现有 ConfirmDialog 承接 */
   requestComputer: (action: "shutdown" | "restart") => void;
   /** 直接执行的低风险动作 */
   runComputer: (action: "lock" | "taskManager" | "explorer") => void;
   /** 状态提示气泡；speak 为 true 时桌宠同步语音播报 */
   showHint: (text: string, speak?: boolean) => void;
+  acknowledgeWake: (hasCommand: boolean) => void;
   showError: (message: string) => void;
 }
 
 interface ListeningEvent {
   active: boolean;
   error: string | null;
+}
+
+interface VoiceActivityEvent {
+  generation: number;
+  active: boolean;
+}
+
+function applyVoiceActivity(current: number | null, { generation, active }: VoiceActivityEvent) {
+  if (active) return Math.max(current ?? generation, generation);
+  return current === generation ? null : current;
 }
 
 const VOICE_ACTIONS: Record<string, string> = {
@@ -30,12 +40,14 @@ const VOICE_ACTIONS: Record<string, string> = {
 export function usePetVoice(settings: PetSettings, callbacks: PetVoiceCallbacks) {
   const [listening, setListening] = useState(false);
   const [listeningError, setListeningError] = useState("");
+  const [recognizing, setRecognizing] = useState<number | null>(null);
+  const [playing, setPlaying] = useState<number | null>(null);
+  const [processing, setProcessing] = useState(false);
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
   const callbacksRef = useRef(callbacks);
   callbacksRef.current = callbacks;
-  const busy = useRef(false);
-  const runRef = useRef<(text: string) => void>(() => {});
+  const runRef = useRef<(text: string, commandId?: number) => void>(() => {});
   const lastTransient = useRef<{ text: string; at: number }>({ text: "", at: 0 });
   /// 同一提示 30 秒内不重复弹出，避免连续语音段刷屏；speak 为 true 时同步语音播报。
   const notifyOnce = (text: string, format: (text: string) => string, speak = false) => {
@@ -47,19 +59,29 @@ export function usePetVoice(settings: PetSettings, callbacks: PetVoiceCallbacks)
   };
 
   useEffect(() => {
-    async function runCommand(text: string) {
+    let disposed = false;
+    let listeningVersion = 0;
+    let commands = Promise.resolve();
+    async function runCommand(text: string, commandId?: number) {
       const trimmed = text.trim();
-      if (!trimmed || busy.current) return;
+      if (!trimmed || disposed) return;
       const voice = settingsRef.current.voice;
       if (!voice.enabled) return;
-      if (!voice.autoSend) { callbacksRef.current.openChat(trimmed, false); return; }
-      busy.current = true;
+      if (!voice.autoSend) { callbacksRef.current.queueChat(trimmed, false, commandId); return; }
+      setProcessing(true);
       try {
+        const localReply = await client.chatLookup(trimmed);
+        if (disposed || !settingsRef.current.voice.enabled) return;
+        if (localReply !== null) {
+          callbacksRef.current.queueChat(trimmed, true, commandId, localReply);
+          return;
+        }
         const services = await client.chatServices();
         const service = services[0];
         if (!service) { callbacksRef.current.showError("请先在AI设置中配置并启用一个服务"); return; }
         callbacksRef.current.showHint(`正在理解“${trimmed.slice(0, 20)}”…`);
         const intent = await client.voiceIntent(crypto.randomUUID(), service, trimmed);
+        if (disposed || !settingsRef.current.voice.enabled) return;
         switch (intent.action) {
           case "shutdown":
           case "restart":
@@ -84,19 +106,24 @@ export function usePetVoice(settings: PetSettings, callbacks: PetVoiceCallbacks)
             break;
           }
           default:
-            callbacksRef.current.openChat(intent.text || trimmed, true);
+            callbacksRef.current.queueChat(intent.text || trimmed, true, commandId, null);
         }
       } catch (error) {
         callbacksRef.current.showError(platformErrorMessage(error));
       } finally {
-        busy.current = false;
+        if (!disposed) setProcessing(false);
       }
     }
-    runRef.current = text => void runCommand(text);
+    runRef.current = (text, commandId) => { commands = commands.then(() => runCommand(text, commandId)); };
     const subscriptions = [
-      listen<ListeningEvent>("pet-voice-listening", e => { setListening(!!e.payload?.active); setListeningError(e.payload?.error || ""); }),
-      listen("pet-voice-awake", () => callbacksRef.current.showHint("我在听，请说指令…", true)),
-      listen<{ text: string }>("pet-voice-command", e => runRef.current(e.payload?.text || "")),
+      listen<ListeningEvent>("pet-voice-listening", e => { listeningVersion++; setListening(!!e.payload?.active); setListeningError(e.payload?.error || ""); }),
+      listen<VoiceActivityEvent>("pet-voice-recognizing", e => setRecognizing(current => applyVoiceActivity(current, e.payload))),
+      listen<VoiceActivityEvent>("pet-voice-playing", e => setPlaying(current => applyVoiceActivity(current, e.payload))),
+      listen("pet-voice-awake", () => callbacksRef.current.acknowledgeWake(false)),
+      listen<{ text: string; woke: boolean; commandId: number }>("pet-voice-command", e => {
+        if (e.payload?.woke) callbacksRef.current.acknowledgeWake(true);
+        runRef.current(e.payload?.text || "", e.payload?.commandId);
+      }),
       // 听到但未命中唤醒词：展示转写结果，便于确认麦克风工作并校准唤醒词选词。
       listen<{ text: string }>("pet-voice-heard", e => {
         const text = (e.payload?.text || "").trim();
@@ -105,8 +132,23 @@ export function usePetVoice(settings: PetSettings, callbacks: PetVoiceCallbacks)
       }),
       // 常驻监听中的瞬时识别失败（模型异常、推理失败、空转写、云端错误）：气泡 + 语音播报，让用户无需看屏也知道出了什么问题。
       listen<{ message: string }>("pet-voice-error", e => notifyOnce((e.payload?.message || "").trim(), message => message, true)),
+      listen<{ message: string }>("pet-voice-playback-error", e => {
+        if (e.payload?.message) callbacksRef.current.showError(e.payload.message);
+      }),
     ];
-    return () => subscriptions.forEach(promise => void promise.then(unlisten => unlisten()));
+    void subscriptions[0].then(async () => {
+      if (disposed) return;
+      const version = listeningVersion;
+      const status = await client.voiceStatus();
+      if (!disposed && listeningVersion === version) {
+        setListening(!!status.listening);
+        setListeningError(status.listeningError || "");
+      }
+    }).catch(() => {});
+    return () => {
+      disposed = true;
+      subscriptions.forEach(promise => void promise.then(unlisten => unlisten()));
+    };
   }, []);
-  return { listening, listeningError, submit: (text: string) => runRef.current(text) };
+  return { listening, listeningError, recognizing: recognizing !== null, playing: playing !== null, processing, submit: (text: string) => runRef.current(text) };
 }

@@ -1,13 +1,13 @@
 import { ToastNotice } from "../../shared/ToastNotice";
 import { PetPortrait } from "./PetPortrait";
 import { useEffect, useState } from "react";
-import { Check, ChevronDown, PawPrint } from "lucide-react";
+import { ChevronDown, PawPrint } from "lucide-react";
 import { petAppearances } from "./appearances";
 import { PetLifeSettings } from "./PetLifeSettings";
 import { PetVoiceSettings } from "./PetVoiceSettings";
 import { listen } from "@tauri-apps/api/event";
 import { runningInTauri, platformErrorMessage } from "../../platform/api";
-import { defaultPetSettings, defaultPetLife, defaultPetVoice, petSeverityLabel, sortPetAlerts, desktopPetClient as client, type PetSettings, type PetSnapshot, type PetVoiceXfyunCredentials } from "../../platform/clients/desktopPet";
+import { defaultPetSettings, defaultPetLife, defaultPetVoice, desktopPetClient as client, type PetSettings, type PetVoiceXfyunCredentials } from "../../platform/clients/desktopPet";
 import "./desktop-pet.css";
 
 export function PetSettingsPanel({ embedded = false }: { embedded?: boolean }) {
@@ -35,8 +35,8 @@ export function PetSettingsPanel({ embedded = false }: { embedded?: boolean }) {
     try { await client.save(next); setSettings(next); }
     finally { setBusy(false); }
   }
-  async function changeVoice(voice: PetSettings["voice"], xfyunCredentials?: PetVoiceXfyunCredentials) {
-    const next = { ...settings, voice };
+  async function changeVoice(voice: PetSettings["voice"], quiet: boolean, xfyunCredentials?: PetVoiceXfyunCredentials) {
+    const next = { ...settings, voice, quiet };
     setBusy(true); setError("");
     try { await client.save(next, xfyunCredentials); setSettings(next); }
     finally { setBusy(false); }
@@ -63,7 +63,7 @@ export function PetSettingsPanel({ embedded = false }: { embedded?: boolean }) {
         </article>
       </div>
       <PetLifeSettings value={settings.life} onSave={changeLife} disabled={!ready || busy} petEnabled={settings.enabled} />
-      <PetVoiceSettings value={settings.voice ?? defaultPetVoice} onSave={changeVoice} disabled={!ready || busy} petEnabled={settings.enabled} />
+      <PetVoiceSettings value={settings.voice ?? defaultPetVoice} quiet={settings.quiet} onSave={changeVoice} disabled={!ready || busy} petEnabled={settings.enabled} />
     </>}
     </div>}
   </section>;
@@ -79,17 +79,4 @@ function isPetSettings(value: unknown): value is PetSettings {
     && typeof settings.activity === "number" && typeof settings.intervalSeconds === "number" && typeof settings.expiryDays === "number"
     && typeof settings.cpuThreshold === "number" && typeof settings.diskThreshold === "number"
     && (!settings.voice || typeof settings.voice === "object");
-}
-
-export function AlertList({ snapshot, onSnooze, onIgnore, busy = false, showIgnored = false }: { snapshot: PetSnapshot; onSnooze: (key: string) => void; onIgnore: (keys: string[], ignored: boolean) => void; busy?: boolean; showIgnored?: boolean }) {
-  const [openError,setOpenError]=useState("");
-  const [status, setStatus] = useState<"active" | "recovered">("active");
-  const visibleAlerts = snapshot.alerts.filter(a => showIgnored || !a.ignored);
-  const alerts = sortPetAlerts(visibleAlerts.filter(a => status === "active" ? a.active : !a.active));
-  const pendingKeys = snapshot.alerts.filter(a => a.active && !a.ignored).map(a => a.key);
-  return <><div className="pet-alert-tools"><div className="pet-alert-filters" role="group" aria-label="提醒状态筛选"><button aria-pressed={status === "active"} onClick={() => setStatus("active")}>未解除 <span>{visibleAlerts.filter(a => a.active).length}</span></button><button aria-pressed={status === "recovered"} onClick={() => setStatus("recovered")}>已解除 <span>{visibleAlerts.filter(a => !a.active).length}</span></button></div>{status === "active" && pendingKeys.length > 0 && <button className="secondary" disabled={busy} title="将当前所有未解除提醒静音；预警仍会继续监控" onClick={() => onIgnore(pendingKeys, true)}>全部静音</button>}</div><div className="pet-alert-list">{openError && <p role="alert" className="pet-error">{openError}</p>}{!alerts.length && <div className="pet-alert-empty"><Check size={22} aria-hidden="true" /><strong>{status === "active" ? "暂无未解除提醒" : "暂无已解除提醒"}</strong><p>{status === "active" ? "未获取到数据的资源不视为正常。" : "恢复后的提醒会显示在这里。"}</p></div>}{alerts.map(a => <article className={`pet-alert-item ${a.active ? a.severity : "recovered"}`} key={a.key}>
-    <div className="pet-alert-title"><span className="pet-alert-dot" aria-hidden="true" /><strong>{a.title}</strong><span className="pet-alert-state">{!a.active ? "已解除" : a.ignored ? "已静音" : a.snoozedUntil > Date.now()/1000 ? "已暂缓" : petSeverityLabel(a.severity)}</span></div>
-    {a.active && a.ignored && <p className="pet-alert-muted-note">预警仍在监控，系统已停止重复通知。</p>}<p>{a.detail}</p>
-    <div className="pet-alert-actions"><time dateTime={new Date(a.updatedAt * 1000).toISOString()} title={new Date(a.updatedAt * 1000).toLocaleString()}>{new Date(a.updatedAt * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time><button className="secondary pet-alert-open" onClick={() => void client.open(a.section, a.key).catch(e=>setOpenError(platformErrorMessage(e)))}>查看详情</button>{a.active && !a.ignored && <button className="secondary" disabled={busy} onClick={() => onSnooze(a.key)}>一小时后提醒</button>}{a.active && <button className="secondary" disabled={busy} onClick={() => onIgnore([a.key], !a.ignored)}>{a.ignored ? "取消静音" : "静音提醒"}</button>}</div>
-  </article>)}</div></>;
 }

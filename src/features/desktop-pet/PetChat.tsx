@@ -1,14 +1,16 @@
-import { PetPortrait } from "./PetPortrait";
-import type { PetSettings, PetVoiceSettings, PetVoiceStatus } from "../../platform/clients/desktopPet";
-import { useEffect, useRef, useState } from "react";
-import { ImagePlus, Mic, Send, Square, Trash2, X, Image as ImageIcon } from "lucide-react";
+import type { PetSettings, PetSpeechPreset, PetVoiceStatus } from "../../platform/clients/desktopPet";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { Mic, Paperclip, ScissorsLineDashed, Send, Square, Volume2, X } from "lucide-react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { desktopPetClient as client, type PetChatMessage, type PetChatService } from "../../platform/clients/desktopPet";
-import { platformErrorMessage, runningInTauri } from "../../platform/api";
+import { desktopPetClient as client, type PetChatMessage, type PetChatService, type PetChatTurn } from "../../platform/clients/desktopPet";
+import { platformErrorMessage, runningInTauri, runningOnWindows } from "../../platform/api";
 import type { AiImage } from "../../platform/clients/ai";
 import { AiImageEditor } from "../ai/AiImageEditor";
+import { petAppearances } from "./appearances";
+import { PetChatSettings, type PetChatPage } from "./PetChatSettings";
 
 const RECORD_RATE = 16000;
+const hasWindowsSnipping = runningInTauri && runningOnWindows;
 function mergePcm(chunks: Float32Array[], fromRate: number): Int16Array {
   let total = 0;
   for (const chunk of chunks) total += chunk.length;
@@ -51,17 +53,46 @@ interface RecordingSession {
   timer: number;
 }
 
-export function PetChat({ appearance, voice, pendingVoice, onVoiceConsumed, onVoiceTranscript }: {
-  appearance: PetSettings["appearance"];
-  voice: PetVoiceSettings;
-  pendingVoice: { text: string; autoSend: boolean } | null;
+export interface PetVoiceTurn {
+  text: string;
+  autoSend: boolean;
+  commandId?: number;
+  localReply?: string | null;
+}
+
+export type { PetChatPage } from "./PetChatSettings";
+
+export function PetChat({ settings, settingsReady, onSettingsSave, page, onPageChange, skillsActions, alerts, visible, historyVersion, clearingHistory, pendingVoice, voiceActivity, onVoiceConsumed, onVoiceTranscript, onVoiceReply, onVoiceError, onReplay, onVoicePreview }: {
+  settings: PetSettings;
+  settingsReady: boolean;
+  onSettingsSave: (settings: PetSettings) => Promise<void>;
+  page: PetChatPage;
+  onPageChange: (page: PetChatPage) => void;
+  skillsActions: ReactNode;
+  alerts: { count: number; page: ReactNode };
+  visible: boolean;
+  historyVersion: number;
+  clearingHistory: boolean;
+  pendingVoice: PetVoiceTurn | undefined;
+  voiceActivity: { listening: boolean; listeningError: string; recognizing: boolean; processing: boolean; playing: boolean };
   onVoiceConsumed: () => void;
   onVoiceTranscript: (text: string) => void;
+  onVoiceReply: (reply: string, commandId?: number) => void;
+  onVoiceError: (message: string) => void;
+  onReplay: (reply: string) => void;
+  onVoicePreview: (preset: PetSpeechPreset) => Promise<void>;
 }) {
+  const { appearance, voice, quiet } = settings;
+  const chatVisible = visible && page === "chat";
   const [services, setServices] = useState<PetChatService[]>([]);
   const [serviceId, setServiceId] = useState("");
   const [loaded, setLoaded] = useState(false);
-  const [messages, setMessages] = useState<PetChatMessage[]>([]);
+  const [turns, setTurns] = useState<PetChatTurn[]>([]);
+  const [pendingMessage, setPendingMessage] = useState<PetChatMessage | null>(null);
+  const [loadedHistoryVersion, setLoadedHistoryVersion] = useState<number | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [hasOlder, setHasOlder] = useState(false);
+  const [historyRetry, setHistoryRetry] = useState(0);
   const [text, setText] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -70,6 +101,7 @@ export function PetChat({ appearance, voice, pendingVoice, onVoiceConsumed, onVo
   const [imageReading, setImageReading] = useState(false);
   const [dropActive, setDropActive] = useState(false);
   const [voiceStatus, setVoiceStatus] = useState<PetVoiceStatus | null>(null);
+  const [requestingMic, setRequestingMic] = useState(false);
   const [recording, setRecording] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
   const [transcribing, setTranscribing] = useState(false);
@@ -77,31 +109,117 @@ export function PetChat({ appearance, voice, pendingVoice, onVoiceConsumed, onVo
   const root = useRef<HTMLDivElement>(null);
   const imageEpoch = useRef(0);
   const request = useRef<string | null>(null);
+  const lookupRequest = useRef<string | null>(null);
+  const voiceDraft = useRef<PetVoiceTurn | null>(null);
+  const visibleRef = useRef(chatVisible);
+  visibleRef.current = chatVisible;
   const mounted = useRef(true);
   const log = useRef<HTMLDivElement>(null);
+  const prependScroll = useRef<{ height: number; top: number } | null>(null);
+  const historyRead = useRef(0);
   const input = useRef<HTMLTextAreaElement>(null);
   const session = useRef<RecordingSession | null>(null);
   const stopRef = useRef<(cancel?: boolean) => void>(() => {});
   const service = services.find(item => item.id === serviceId);
   const visionReady = !!service?.supportsImages;
   const imageBusy = !!editingFile || imageReading;
+  const voiceInputActive = requestingMic || recording || transcribing;
+  const historyReady = loadedHistoryVersion === historyVersion;
   function addImage(file: File) {
-    if (busy) return;
+    if (busy || voiceInputActive) return;
     if (!visionReady) { setError("请先在 AI 设置中完成所选服务的图像能力测试。"); return; }
     imageEpoch.current++;
     setImageReading(false); setImage(null); setError(""); setEditingFile(file);
   }
+  async function pasteScreenshot() {
+    const keyboardHint = "请先截屏，再在输入框按 Ctrl+V（macOS 按 ⌘V）粘贴。";
+    if (!navigator.clipboard?.read) { setError(keyboardHint); input.current?.focus(); return; }
+    const epoch = ++imageEpoch.current;
+    setImageReading(true);
+    setError("");
+    try {
+      const items = await navigator.clipboard.read();
+      const item = items.find(entry => entry.types.includes("image/png") || entry.types.includes("image/jpeg"));
+      const type = item?.types.includes("image/png") ? "image/png" : "image/jpeg";
+      const blob = await item?.getType(type);
+      if (!mounted.current || epoch !== imageEpoch.current || !visibleRef.current) return;
+      if (blob) addImage(new File([blob], type === "image/png" ? "screenshot.png" : "screenshot.jpg", { type }));
+      else setError("剪贴板中没有可用的图片。" + keyboardHint);
+    } catch {
+      if (mounted.current && epoch === imageEpoch.current && visibleRef.current) setError(keyboardHint);
+    } finally {
+      if (mounted.current && epoch === imageEpoch.current) setImageReading(false);
+    }
+  }
+  function captureScreenshot() {
+    if (!hasWindowsSnipping) { void pasteScreenshot(); return; }
+    setError("");
+    input.current?.focus();
+    void client.open("screenshot").catch(e => { if (mounted.current) setError(platformErrorMessage(e)); });
+  }
   useEffect(() => {
     mounted.current = true;
-    void client.chatServices().then(items => { if (mounted.current) { setServices(items); setServiceId(items[0]?.id || ""); setLoaded(true); input.current?.focus(); } }).catch(e => { if (mounted.current) { setError(platformErrorMessage(e)); setLoaded(true); } });
     return () => { mounted.current = false; imageEpoch.current++; if (request.current) void client.cancelChat(request.current).catch(() => {}); };
   }, []);
   useEffect(() => {
-    if (!runningInTauri || !voice.enabled) return;
+    const read = ++historyRead.current;
+    setHistoryLoading(true);
+    setTurns([]);
+    setHasOlder(false);
+    setError("");
+    void client.chatHistory().then(result => {
+      if (read !== historyRead.current) return;
+      setTurns(result.turns);
+      setHasOlder(result.hasOlder);
+      setLoadedHistoryVersion(historyVersion);
+    }).catch(e => { if (read === historyRead.current) setError(platformErrorMessage(e)); })
+      .finally(() => { if (read === historyRead.current) setHistoryLoading(false); });
+    return () => { historyRead.current++; prependScroll.current = null; };
+  }, [historyVersion, historyRetry]);
+
+  async function loadOlder() {
+    if (!hasOlder || historyLoading || clearingHistory || !turns.length) return;
+    const read = ++historyRead.current;
+    setHistoryLoading(true);
+    try {
+      const before = turns.find(turn => typeof turn.id === "number")?.id;
+      if (typeof before !== "number") return;
+      const result = await client.chatHistory(before);
+      if (read !== historyRead.current) return;
+      if (log.current && result.turns.length) prependScroll.current = { height: log.current.scrollHeight, top: log.current.scrollTop };
+      setTurns(current => [...result.turns, ...current]);
+      setHasOlder(result.hasOlder);
+    } catch (e) {
+      if (read === historyRead.current) setError(platformErrorMessage(e));
+    } finally {
+      if (read === historyRead.current) setHistoryLoading(false);
+    }
+  }
+  useEffect(() => {
+    let disposed = false;
+    void client.chatServices().then(items => {
+      if (disposed) return;
+      setServices(items);
+      setServiceId(previous => items.some(item => item.id === previous) ? previous : items[0]?.id || "");
+      setLoaded(true);
+    }).catch(e => {
+      if (!disposed) { setError(platformErrorMessage(e)); setLoaded(true); }
+    });
+    return () => { disposed = true; };
+  }, [visible]);
+  useEffect(() => {
+    if (chatVisible && loaded) input.current?.focus();
+    if (!chatVisible && session.current) stopRef.current(true);
+  }, [chatVisible, loaded]);
+  useEffect(() => {
+    if (!visible) setTurns(current => current.some(turn => turn.local) ? current.filter(turn => !turn.local) : current);
+  }, [visible]);
+  useEffect(() => {
+    if (!runningInTauri || !visible || !voice.enabled) return;
     let disposed = false;
     void client.voiceStatus().then(status => { if (!disposed) setVoiceStatus(status); }).catch(() => {});
     return () => { disposed = true; };
-  }, [voice.enabled]);
+  }, [visible, voice.enabled]);
   useEffect(() => {
     if (!recording) return;
     const key = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); stopRef.current(true); } };
@@ -109,24 +227,28 @@ export function PetChat({ appearance, voice, pendingVoice, onVoiceConsumed, onVo
     return () => window.removeEventListener("keydown", key, true);
   }, [recording]);
   useEffect(() => {
-    if (!pendingVoice || !loaded) return;
+    if (!pendingVoice || !loaded || !historyReady || clearingHistory || busy || recording || transcribing || request.current) return;
     const { text: incoming, autoSend } = pendingVoice;
     onVoiceConsumed();
-    if (autoSend) { void sendText(incoming); return; }
+    if (autoSend) {
+      void sendText(incoming, pendingVoice);
+      return;
+    }
+    voiceDraft.current = pendingVoice;
     setText(previous => previous ? `${previous}${previous.endsWith(" ") ? "" : " "}${incoming}` : incoming);
-    input.current?.focus();
-  }, [pendingVoice, loaded]);
+    if (visibleRef.current) input.current?.focus();
+  }, [pendingVoice, loaded, historyReady, clearingHistory, busy, recording, transcribing, service]);
   useEffect(() => {
-    if (!runningInTauri) return;
+    if (!runningInTauri || !visible) return;
     let disposed = false;
     const listener = getCurrentWebview().onDragDropEvent(event => {
       const payload = event.payload;
       if (payload.type === "leave") { setDropActive(false); return; }
       const bounds = root.current?.getBoundingClientRect();
       const x = payload.position.x / window.devicePixelRatio, y = payload.position.y / window.devicePixelRatio;
-      const inside = !!bounds && x >= bounds.left && x <= bounds.right && y >= bounds.top && y <= bounds.bottom;
-      setDropActive(inside && payload.type !== "drop" && !busy && visionReady);
-      if (payload.type !== "drop" || !inside || busy) return;
+      const inside = visibleRef.current && !!bounds && x >= bounds.left && x <= bounds.right && y >= bounds.top && y <= bounds.bottom;
+      setDropActive(inside && payload.type !== "drop" && !busy && !voiceInputActive && visionReady);
+      if (payload.type !== "drop" || !inside || busy || voiceInputActive) return;
       if (payload.paths.length !== 1) { setError("请一次拖入一张图片。"); return; }
       if (!visionReady) { setError("请先在 AI 设置中完成所选服务的图像能力测试。"); return; }
       const epoch = ++imageEpoch.current;
@@ -138,29 +260,58 @@ export function PetChat({ appearance, voice, pendingVoice, onVoiceConsumed, onVo
         .finally(() => { if (!disposed && mounted.current && epoch === imageEpoch.current) setImageReading(false); });
     });
     return () => { disposed = true; void listener.then(unlisten => unlisten()); };
-  }, [busy, visionReady, serviceId]);
-  useEffect(() => { if (log.current) log.current.scrollTop = log.current.scrollHeight; }, [messages, busy]);
-  async function sendText(content: string) {
-    if (!service || (!content.trim() && !image) || request.current || imageBusy) return;
-    const sentImage = image;
-    const conversation = [...messages.slice(-18), { role: "user" as const, text: content.trim() || "请看看这张图片。", ...(sentImage ? { image: sentImage.dataUrl } : {}) }];
+  }, [visible, busy, voiceInputActive, visionReady, serviceId]);
+  useLayoutEffect(() => {
+    if (!chatVisible || !log.current) return;
+    const previous = prependScroll.current;
+    prependScroll.current = null;
+    log.current.scrollTop = previous ? previous.top + log.current.scrollHeight - previous.height : log.current.scrollHeight;
+  }, [chatVisible, turns, busy]);
+  async function sendText(content: string, voiceTurn = voiceDraft.current) {
+    const background = voiceTurn?.autoSend === true;
+    const sentImage = background ? null : image;
+    if (!historyReady || clearingHistory || (!content.trim() && !sentImage) || request.current || (!background && imageBusy)) return;
+    const userMessage = { role: "user" as const, text: content.trim() || "请看看这张图片。", ...(sentImage ? { image: sentImage.dataUrl } : {}) };
     const id = crypto.randomUUID(); request.current = id;
-    setMessages(conversation); setText(""); setImage(null); setError(""); setBusy(true);
+    lookupRequest.current = id;
+    if (!background) { voiceDraft.current = null; setText(""); setImage(null); }
+    setPendingMessage(userMessage); setError(""); setBusy(true);
     try {
-      const reply = await client.chat(id, service, conversation, sentImage || undefined);
-      if (mounted.current && request.current === id) setMessages([...conversation, { role: "assistant", text: reply }]);
+      const localReply = voiceTurn?.localReply === undefined
+        ? await client.chatLookup(userMessage.text, !!sentImage)
+        : voiceTurn.localReply;
+      if (!mounted.current || request.current !== id) return;
+      lookupRequest.current = null;
+      if (localReply !== null) {
+        if (visibleRef.current) setTurns(current => [...current, { id, user: userMessage.text, reply: localReply, local: true }]);
+        return;
+      }
+      if (!service) throw new Error("请先在 AI 设置中配置聊天服务，或输入“查资料”查看本地查询用法。");
+      const turn = await client.chat(id, service, userMessage.text, sentImage || undefined);
+      if (mounted.current && request.current === id) {
+        setTurns(current => [...current, turn]);
+        if (voiceTurn) onVoiceReply(turn.reply, voiceTurn.commandId);
+      }
     } catch (e) {
-      if (mounted.current && request.current === id) { setMessages(conversation.slice(0, -1)); setText(conversation[conversation.length - 1].text); setImage(sentImage); setError(platformErrorMessage(e)); }
+      if (mounted.current && request.current === id) {
+        if (!background) { voiceDraft.current = voiceTurn; setText(userMessage.text); setImage(sentImage); }
+        const message = platformErrorMessage(e);
+        setError(message);
+        if (background && !visibleRef.current) onVoiceError(message);
+      }
     } finally {
-      if (mounted.current && request.current === id) { request.current = null; setBusy(false); input.current?.focus(); }
+      if (lookupRequest.current === id) lookupRequest.current = null;
+      if (mounted.current && request.current === id) { request.current = null; setPendingMessage(null); setBusy(false); if (visibleRef.current) input.current?.focus(); }
     }
   }
   async function startRecording() {
-    if (session.current || busy || imageBusy) return;
+    if (voiceInputActive || session.current || busy || imageBusy) return;
     setError("");
     if (!navigator.mediaDevices?.getUserMedia || typeof AudioContext === "undefined" || !AudioContext.prototype.createScriptProcessor) { setError("当前环境不支持麦克风录音。"); return; }
+    setRequestingMic(true);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (!mounted.current || !visibleRef.current) { stream.getTracks().forEach(track => track.stop()); return; }
       const context = new AudioContext({ sampleRate: RECORD_RATE });
       const source = context.createMediaStreamSource(stream);
       const processor = context.createScriptProcessor(4096, 1, 1);
@@ -180,6 +331,8 @@ export function PetChat({ appearance, voice, pendingVoice, onVoiceConsumed, onVo
       setRecording(true); setRecordSeconds(0);
     } catch (e) {
       setError(microphoneError(e));
+    } finally {
+      if (mounted.current) setRequestingMic(false);
     }
   }
   async function stopRecording(cancel = false) {
@@ -197,9 +350,8 @@ export function PetChat({ appearance, voice, pendingVoice, onVoiceConsumed, onVo
     setTranscribing(true);
     try {
       const pcm = mergePcm(current.chunks, current.context.sampleRate);
-      const transcript = (await client.voiceTranscribe(pcmToBase64(pcm))).trim();
-      if (!mounted.current) return;
-      if (!transcript) { setError("未识别到语音内容，请靠近麦克风再试一次"); return; }
+      const transcript = await client.voiceTranscribe(pcmToBase64(pcm));
+      if (!mounted.current || transcript === null) return;
       onVoiceTranscript(transcript);
     } catch (e) {
       if (mounted.current) setError(platformErrorMessage(e));
@@ -211,32 +363,91 @@ export function PetChat({ appearance, voice, pendingVoice, onVoiceConsumed, onVo
   async function stop() {
     const id = request.current;
     if (!id) return;
+    if (lookupRequest.current === id) {
+      lookupRequest.current = null;
+      request.current = null;
+      setPendingMessage(null);
+      setBusy(false);
+      return;
+    }
     try { await client.cancelChat(id); } catch (e) { if (mounted.current) setError(platformErrorMessage(e)); }
   }
+  const hasDraft = !!(text.trim() || image);
+  const liveStatus = requestingMic ? { label: "正在打开麦克风", tone: "active" }
+    : recording ? { label: "录音中", tone: "listening" }
+    : transcribing ? { label: "识别中", tone: "active" }
+    : busy ? { label: "回复中", tone: "active" }
+    : voiceActivity.processing ? { label: "理解指令中", tone: "active" }
+    : voiceActivity.playing ? { label: "播报中", tone: "active" }
+    : voiceActivity.recognizing ? { label: "识别中", tone: "active" }
+    : imageReading ? { label: "读取图片中", tone: "active" }
+    : voiceActivity.listeningError && voice.enabled && voice.wakeEnabled ? { label: "监听异常", tone: "error", title: voiceActivity.listeningError }
+    : voiceActivity.listening && voice.enabled && voice.wakeEnabled ? { label: "监听中", tone: "listening", title: `等待唤醒词“${voice.wakeWord}”` }
+    : { label: "待命", tone: "idle" };
   const voiceTitle = !voice.enabled ? "语音对话未启用，可在宠物设置中开启"
     : !voiceStatus ? "正在检查语音模型…"
     : !voiceStatus.ready ? `尚未放置语音模型，请先在宠物设置中配置（模型文件夹：${voiceStatus.modelsDir}）`
     : recording ? "停止录音并识别" : "语音输入，点击开始说话";
-  return <div ref={root} className={`pet-chat${dropActive ? " is-image-drag-over" : ""}`} onDragOver={e => { if (Array.from(e.dataTransfer.types).includes("Files")) { e.preventDefault(); setDropActive(!busy && visionReady); } }} onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropActive(false); }} onDrop={e => { const files = Array.from(e.dataTransfer.files); if (!files.length) return; e.preventDefault(); setDropActive(false); if (files.length !== 1) { setError("请一次拖入一张图片。"); return; } addImage(files[0]); }}>
-    <div className="pet-chat-service"><label><span className="pet-chat-service-dot" aria-hidden="true" />聊天服务<select aria-label="聊天使用的AI服务" disabled={busy || !services.length} value={serviceId} onChange={e => { imageEpoch.current++; setServiceId(e.target.value); setMessages([]); setImage(null); setEditingFile(null); setImageReading(false); setError(""); }}>
-      {!services.length && <option value="">{loaded ? "尚未配置" : "读取中…"}</option>}{services.map(service => <option key={service.id} value={service.id}>{service.name} · {service.model}</option>)}
-    </select></label>{visionReady && <span className="pet-chat-vision"><ImageIcon size={12} />可识图</span>}<button title="清空对话" aria-label="清空对话" disabled={busy || !messages.length || imageBusy} onClick={() => { setMessages([]); setError(""); }}><Trash2 size={14} /></button></div>
+  const serviceControls = <div className="pet-chat-service">
+    <label><span className="pet-chat-input-label">聊天使用的 AI 服务</span>
+      <select disabled={busy || !services.length} value={serviceId} onChange={e => { imageEpoch.current++; setServiceId(e.target.value); setImage(null); setEditingFile(null); setImageReading(false); setError(""); }}>
+        {!services.length && <option value="">{loaded ? "尚未配置" : "读取中…"}</option>}
+        {services.map(service => <option key={service.id} value={service.id}>{service.name} · {service.model}</option>)}
+      </select>
+    </label>
+  </div>;
+  const messages = turns.flatMap<PetChatMessage & { key: string; local?: boolean }>(turn => [
+    { key: `${turn.id}-user`, role: "user", text: turn.user, image: turn.image },
+    { key: `${turn.id}-assistant`, role: "assistant", text: turn.reply, local: turn.local },
+  ]);
+  if (pendingMessage) messages.push({ key: "pending", ...pendingMessage });
+  return <>
+    {page !== "chat" && <PetChatSettings page={page} onPageChange={onPageChange} settings={settings} ready={settingsReady} serviceControls={serviceControls} skillsActions={skillsActions} alerts={alerts}
+      supportsImages={visionReady} canTry={!!service && !busy && !imageBusy && !recording}
+      onSave={onSettingsSave} onVoicePreview={onVoicePreview} onTry={prompt => { voiceDraft.current = null; setText(previous => previous.trim() ? `${previous}\n${prompt}` : prompt); onPageChange("chat"); }} />}
+    <div hidden={page !== "chat"} ref={root} className={`pet-chat${dropActive ? " is-image-drag-over" : ""}`} onDragOver={e => { if (Array.from(e.dataTransfer.types).includes("Files")) { e.preventDefault(); setDropActive(!busy && !voiceInputActive && visionReady); } }} onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropActive(false); }} onDrop={e => { const files = Array.from(e.dataTransfer.files); if (!files.length) return; e.preventDefault(); setDropActive(false); if (busy || voiceInputActive) return; if (files.length !== 1) { setError("请一次拖入一张图片。"); return; } addImage(files[0]); }}>
+    {error && <p className="pet-chat-error" role="alert">{error}</p>}
     <div className="pet-chat-log" ref={log} role="log" aria-label="与宠物的聊天记录" aria-live="polite">
-      {!messages.length && <div className="pet-chat-welcome"><PetPortrait appearance={appearance} pose="happy" className="pet-chat-welcome-avatar" /><strong>今天想聊点什么？</strong><p>聊聊日常，或发张图一起看看。</p>{loaded && !services.length && <button onClick={() => void client.open("settings").catch(e => setError(platformErrorMessage(e)))}>去设置 AI 服务</button>}</div>}
-      {messages.map((message, i) => <div key={i} className={`pet-chat-message ${message.role}`}><small>{message.role === "assistant" && <PetPortrait appearance={appearance} className="pet-chat-avatar" />}{message.role === "user" ? "你" : "宠物"}</small>{message.image && <img className="pet-chat-message-image" src={message.image} alt="本次消息附带的图片" />}<p>{message.text}</p></div>)}
-      {busy && <p className="pet-chat-thinking" role="status">正在想…</p>}
+      {hasOlder && <button type="button" className="pet-chat-pill pet-chat-load-older" disabled={historyLoading} onClick={() => void loadOlder()}>{historyLoading ? "读取中…" : "查看更早的消息"}</button>}
+      {!historyReady && !historyLoading && <button type="button" className="pet-chat-pill" onClick={() => setHistoryRetry(value => value + 1)}>重试读取聊天记录</button>}
+      {!hasOlder && historyReady &&
+      <div className="pet-chat-message assistant pet-chat-welcome">
+        <p>你好，我是{petAppearances[appearance].label}。可以试试“查备忘录 项目交接”或“查资料”。</p>
+        {loaded && !services.length && <button type="button" className="pet-chat-pill" onClick={() => onPageChange("general")}>设置聊天服务</button>}
+      </div>}
+      {messages.map(message => <div key={message.key} className={`pet-chat-message ${message.role}`}>
+        <span className="pet-chat-input-label">{message.role === "user" ? "你" : petAppearances[appearance].label}</span>
+        {message.image && <img className="pet-chat-message-image" src={message.image} alt="本次消息附带的图片" />}
+        <p>{message.text}</p>
+        {message.role === "assistant" && <div className="pet-chat-message-meta"><small>{message.local ? "本地查询" : "AI 生成"}</small>
+          {!message.local && voice.enabled && voice.speak && !quiet && <button type="button" aria-label="朗读这条回复" title="朗读这条回复" onClick={() => onReplay(message.text)}><Volume2 size={15} aria-hidden="true" /></button>}
+        </div>}
+      </div>)}
     </div>
     {editingFile && <div className="pet-chat-image-editor"><AiImageEditor initialFile={editingFile} onCancel={() => { imageEpoch.current++; setEditingFile(null); }} onPrepared={prepared => { setImage(prepared); setEditingFile(null); input.current?.focus(); }} /></div>}
-    {imageReading && <p className="pet-chat-thinking" role="status">正在读取图片…</p>}
-    {recording && <p className="pet-chat-recording" role="status"><Mic size={13} aria-hidden="true" />正在聆听… {recordSeconds}s · 说完点“停止”，Esc 取消，最长 {voice.maxSeconds} 秒</p>}
-    {transcribing && <p className="pet-chat-thinking" role="status">正在识别语音…</p>}
-    {error && <p className="pet-chat-error" role="alert">{error}</p>}
-    <form className="pet-chat-composer" onSubmit={e => { e.preventDefault(); void sendText(text); }}>
+    <form className="pet-chat-composer" data-voice-active={voiceInputActive || undefined} onSubmit={e => { e.preventDefault(); if (!voiceInputActive) void sendText(text); }}>
       {image && <div className="pet-chat-image-preview"><img src={image.dataUrl} alt="待发送的处理后图片" /><span>已准备图片<small>随本条消息发送</small></span><button type="button" aria-label="移除待发送图片" title="移除图片" disabled={busy} onClick={() => setImage(null)}><X size={14} /></button></div>}
-      <label className="pet-chat-input-label" htmlFor="pet-chat-input">和宠物说句话</label><textarea id="pet-chat-input" ref={input} rows={2} maxLength={2000} disabled={busy || !serviceId || imageBusy || recording} value={text} onChange={e => setText(e.target.value)} placeholder={visionReady ? "说点什么，或粘贴一张图片…" : "说点什么…"} onPaste={e => { const file = Array.from(e.clipboardData.items).find(item => item.kind === "file" && item.type.startsWith("image/"))?.getAsFile(); if (file) { e.preventDefault(); addImage(file); } }} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void sendText(text); } }} />
-      <div className="pet-chat-compose-tools">{voice.enabled && <button type="button" className={`pet-chat-voice${recording ? " is-recording" : ""}`} disabled={busy || transcribing || imageBusy || !voiceStatus} title={voiceTitle} aria-label={recording ? "停止录音" : "语音输入"} onClick={() => void (recording ? stopRecording(false) : startRecording())}>{recording ? <Square size={12} /> : <Mic size={16} />}{recording ? `停止 ${recordSeconds}s` : "语音"}</button>}<button type="button" className="pet-chat-add-image" disabled={busy || !visionReady || imageReading} title={visionReady ? "选择图片，也可粘贴或拖入 PNG / JPEG" : "请先在 AI 设置中完成图像能力测试"} onClick={() => fileInput.current?.click()}><ImagePlus size={16} />图片</button><small>Enter 发送 · Shift+Enter 换行</small>{busy ? <button type="button" className="primary pet-chat-send" onClick={e => { e.preventDefault(); void stop(); }}><Square size={12} />停止</button> : <button type="submit" className="primary pet-chat-send" disabled={(!text.trim() && !image) || !serviceId || imageBusy}><Send size={13} />发送</button>}</div>
+      <div className="pet-chat-live-status" role="status" data-tone={liveStatus.tone} title={liveStatus.title}>
+        <span className="pet-chat-status-dot" aria-hidden="true" />
+        <span>{liveStatus.label}</span>
+        {recording && <span aria-hidden="true">· {recordSeconds}s</span>}
+      </div>
+      <label className="pet-chat-input-label" htmlFor="pet-chat-input">和宠物说句话</label><textarea id="pet-chat-input" ref={input} rows={2} maxLength={2000} disabled={busy || imageBusy || voiceInputActive} value={text} onChange={e => { if (!e.target.value.trim()) voiceDraft.current = null; setText(e.target.value); }} placeholder={voiceInputActive ? "" : visionReady ? "输入问题或直接发送图片" : "输入你想问的问题"} onPaste={e => { const file = Array.from(e.clipboardData.items).find(item => item.kind === "file" && item.type.startsWith("image/"))?.getAsFile(); if (file) { e.preventDefault(); addImage(file); } }} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void sendText(text); } }} />
+      <div className="pet-chat-compose-tools">
+        <button type="button" aria-label={visionReady ? "添加图片" : "设置图片识别"} disabled={busy || imageReading || voiceInputActive} title={visionReady ? "选择图片，也可粘贴或拖入 PNG / JPEG" : "在 AI 设置中启用图片识别"} onClick={() => {
+          if (visionReady) fileInput.current?.click();
+          else void client.open("settings").catch(e => setError(platformErrorMessage(e)));
+        }}><Paperclip size={17} aria-hidden="true" /></button>
+        <button type="button" aria-label={hasWindowsSnipping ? "系统截图" : "粘贴截图"} disabled={busy || imageReading || voiceInputActive || (!hasWindowsSnipping && !visionReady)}
+          title={hasWindowsSnipping ? "Windows 截图（Win+Shift+S），截完可用 Ctrl+V 粘贴" : "粘贴剪贴板里的图片"} onClick={captureScreenshot}><ScissorsLineDashed size={17} aria-hidden="true" /></button>
+        <div className="pet-chat-compose-actions">
+          {busy && <button type="button" className="pet-chat-send" aria-label="停止生成" title="停止生成" onClick={() => void stop()}><Square size={14} aria-hidden="true" /></button>}
+          {!busy && hasDraft && !voiceInputActive && <button type="submit" className="pet-chat-send" aria-label="发送" title="Enter 发送 · Shift+Enter 换行" disabled={!historyReady || clearingHistory || imageBusy}><Send size={16} aria-hidden="true" /></button>}
+          {voice.enabled && <button type="button" className="pet-chat-voice" disabled={!recording && (busy || voiceInputActive || imageBusy || !voiceStatus)} title={voiceTitle} aria-label={recording ? "停止录音" : "语音输入"} onClick={() => void (recording ? stopRecording(false) : startRecording())}><Mic size={17} aria-hidden="true" /></button>}
+        </div>
+      </div>
       <input hidden ref={fileInput} type="file" accept="image/png,image/jpeg,.png,.jpg,.jpeg" aria-label="选择聊天图片" onChange={e => { const file = e.target.files?.[0]; e.target.value = ""; if (file) addImage(file); }} />
     </form>
-    <div className="pet-chat-footer">仅发送本次对话和确认的图片{loaded && service && !visionReady && <button onClick={() => void client.open("settings").catch(e => setError(platformErrorMessage(e)))}>启用识图</button>}</div>
-  </div>;
+    </div>
+  </>;
 }

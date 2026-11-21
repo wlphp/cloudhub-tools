@@ -23,7 +23,13 @@ mod computer;
 #[cfg(desktop)]
 mod voice;
 #[cfg(desktop)]
-pub use voice::{pet_voice_cancel_model_download, pet_voice_download_model, pet_voice_intent, pet_voice_open_models_dir, pet_voice_status, pet_voice_transcribe};
+mod chat_history;
+#[cfg(desktop)]
+mod lookup;
+#[cfg(desktop)]
+pub use lookup::pet_chat_lookup;
+#[cfg(desktop)]
+pub use voice::{pet_voice_cancel_model_download, pet_voice_continue, pet_voice_download_model, pet_voice_intent, pet_voice_open_models_dir, pet_voice_speak, pet_voice_status, pet_voice_transcribe};
 
 const CONFIG: &str = "desktop-pet-config-v1";
 const MONITOR_CONFIG: &str = "monitor-alerts-config-v1";
@@ -80,7 +86,7 @@ pub struct Settings {
     pub voice: VoiceSettings,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct VoiceSettings {
     pub enabled: bool,
@@ -90,6 +96,8 @@ pub struct VoiceSettings {
     pub language: String,
     pub auto_send: bool,
     pub speak: bool,
+    pub speech_preset: SpeechPreset,
+    pub speech_mimo_profile_id: String,
     pub device: String,
     pub cloud_asr_enabled: bool,
     /// 云端识别服务商："openai" 为 OpenAI 兼容 multipart 接口（复用 AI 配置），"xfyun" 为讯飞语音听写（独立凭据）。
@@ -99,16 +107,43 @@ pub struct VoiceSettings {
     pub cloud_model: String,
     pub max_seconds: u32,
 }
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SpeechPreset {
+    #[default]
+    System,
+    Warm,
+    Clear,
+    Bright,
+    Steady,
+    MimoBingtang,
+    MimoMoli,
+}
+
+impl SpeechPreset {
+    #[cfg(desktop)]
+    fn mimo_voice(self) -> Option<&'static str> {
+        match self {
+            Self::MimoBingtang => Some("冰糖"),
+            Self::MimoMoli => Some("茉莉"),
+            _ => None,
+        }
+    }
+}
+
 impl Default for VoiceSettings {
     fn default() -> Self {
         Self {
             enabled: true,
             wake_enabled: false,
-            wake_word: "小驼".into(),
+            wake_word: "小小驼".into(),
             model_file: String::new(),
             language: "zh".into(),
             auto_send: true,
             speak: true,
+            speech_preset: SpeechPreset::System,
+            speech_mimo_profile_id: String::new(),
             device: String::new(),
             cloud_asr_enabled: false,
             cloud_provider: "openai".into(),
@@ -138,6 +173,7 @@ impl VoiceSettings {
             || word.chars().any(char::is_control)
             || !(language == "auto" || (language.len() == 2 && language.chars().all(|c| c.is_ascii_lowercase())))
             || !(15..=120).contains(&self.max_seconds)
+            || (!self.speech_mimo_profile_id.is_empty() && uuid::Uuid::parse_str(&self.speech_mimo_profile_id).is_err())
             || (!self.model_file.trim().is_empty() && !valid_model_name(self.model_file.trim()))
             || self.device.trim().chars().count() > 120
             || self.device.chars().any(char::is_control)
@@ -329,6 +365,8 @@ pub struct MonitoringStore {
     #[cfg(desktop)]
     pub expanded: AtomicBool,
     #[cfg(desktop)]
+    chat_window: Mutex<ChatWindowLayout>,
+    #[cfg(desktop)]
     pub top_anchored: AtomicBool,
     #[cfg(desktop)]
     pub docked: Mutex<Option<(i32, i32, docking::Edge)>>,
@@ -353,6 +391,23 @@ pub struct MonitoringStore {
 }
 #[cfg(desktop)]
 pub type PetStore = MonitoringStore;
+
+#[cfg(desktop)]
+#[derive(Default)]
+struct ChatWindowLayout {
+    active: bool,
+    size: Option<tauri::LogicalSize<f64>>,
+    restore: Option<(tauri::PhysicalPosition<i32>, tauri::PhysicalSize<u32>)>,
+    drag: Option<ChatResizeAnchor>,
+}
+
+#[cfg(desktop)]
+struct ChatResizeAnchor {
+    origin: tauri::PhysicalPosition<i32>,
+    size: tauri::PhysicalSize<u32>,
+    scale: f64,
+    limit: tauri::PhysicalSize<u32>,
+}
 
 fn read_settings() -> Result<Settings, String> {
     let all = preferences::list(&open_db()?)?;
@@ -424,6 +479,7 @@ pub fn restricted<R: tauri::Runtime>(
                 "pet_show",
                 "pet_hide",
                 "pet_layout",
+                "pet_resize_chat",
                 "pet_move",
                 "pet_open",
                 "pet_computer_action",
@@ -437,8 +493,11 @@ pub fn restricted<R: tauri::Runtime>(
                 "pet_dismiss",
                 "pet_chat_services",
                 "pet_chat",
+                "pet_chat_lookup",
                 "pet_chat_cancel",
                 "pet_chat_read_image",
+                "pet_chat_history",
+                "pet_chat_clear_history",
                 "pet_life_state",
                 "pet_life_action",
                 "pet_life_weather",
@@ -448,6 +507,8 @@ pub fn restricted<R: tauri::Runtime>(
                 "pet_voice_download_model",
                 "pet_voice_cancel_model_download",
                 "pet_voice_intent",
+                "pet_voice_speak",
+                "pet_voice_continue",
             ]
             .contains(&invoke.message.command())
         {
@@ -648,6 +709,7 @@ pub struct ChatService {
     model: String,
     revision: i64,
     supports_images: bool,
+    supports_mimo_speech: bool,
 }
 #[cfg(desktop)]
 fn chat_caller(window: &tauri::WebviewWindow) -> Result<(), String> {
@@ -662,7 +724,10 @@ fn chat_error(message: String) -> crate::core::error::PlatformError {
 pub fn pet_chat_services(window: tauri::WebviewWindow) -> PlatformResult<Vec<ChatService>> {
     chat_caller(&window)?;
     Ok(crate::core::repositories::ai::list(&open_db()?)?.into_iter()
-        .filter(|p| p.enabled).map(|p| ChatService { id: p.id, name: p.name, model: p.model, revision: p.updated_at, supports_images: p.vision_status == "supported" }).collect())
+        .filter(|p| p.enabled).map(|p| {
+            let supports_mimo_speech = voice::mimo_profile_available(&p);
+            ChatService { id: p.id, name: p.name, model: p.model, revision: p.updated_at, supports_images: p.vision_status == "supported", supports_mimo_speech }
+        }).collect())
 }
 #[cfg(desktop)]
 #[tauri::command]
@@ -704,25 +769,60 @@ impl Drop for ChatGuard<'_> {
 }
 #[cfg(desktop)]
 #[tauri::command]
+pub async fn pet_chat_history(window: tauri::WebviewWindow, before: Option<i64>) -> PlatformResult<chat_history::Page> {
+    chat_caller(&window)?;
+    tauri::async_runtime::spawn_blocking(move || chat_history::page(before)).await
+        .map_err(|_| chat_error("无法读取本地聊天记录".into()))?.map_err(chat_error)
+}
+
+#[cfg(desktop)]
+#[tauri::command]
+pub async fn pet_chat_clear_history(window: tauri::WebviewWindow, app: tauri::AppHandle) -> PlatformResult<()> {
+    chat_caller(&window)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let store = app.state::<crate::core::ai::RequestStore>();
+        let active = store.active.lock().map_err(|_| "聊天任务状态不可用")?;
+        if active.keys().any(|id| id.starts_with("pet:")) {
+            return Err("请等当前回复结束后再清空聊天记录".into());
+        }
+        chat_history::clear()
+    }).await.map_err(|_| chat_error("无法清空聊天记录".into()))?.map_err(chat_error)
+}
+
+#[cfg(desktop)]
+#[tauri::command]
 pub async fn pet_chat(
     window: tauri::WebviewWindow,
     store: tauri::State<'_, crate::core::ai::RequestStore>,
     request_id: String,
     profile_id: String,
     revision: i64,
-    messages: Vec<ChatMessage>,
+    message: String,
     image: Option<crate::core::ai_images::ImageInput>,
-) -> PlatformResult<String> {
-    let result: Result<String, String> = async {
+) -> PlatformResult<chat_history::Record> {
+    let result: Result<chat_history::Record, String> = async {
     chat_caller(&window)?;
     if uuid::Uuid::parse_str(&request_id).is_err() { return Err("聊天请求标识无效".into()); }
-    let text = format!("当前宠物形象：{}。\n\n{}", match read_settings()?.appearance.as_str() { "dog" => "小狗（柯基）", "penguin" => "企鹅", "fish" => "大鱼（DeepSeek）", _ => "羊驼" }, chat_context(&messages)?);
     let id = format!("pet:{request_id}");
     let (sender, mut receiver) = tokio::sync::watch::channel(false);
     store.begin(&id, &profile_id, sender)?;
     let _guard = ChatGuard { store: &store, id };
     let (profile, key) = crate::core::repositories::ai::load(&open_db()?, &profile_id)?;
     if profile.updated_at != revision { return Err("AI配置已更新，请关闭聊天后重新打开".into()); }
+    let mut messages = vec![ChatMessage { role: "user".into(), text: message.clone() }];
+    let mut context = chat_context(&messages)?;
+    let history_profile = profile_id.clone();
+    let recent = tauri::async_runtime::spawn_blocking(move || chat_history::recent(&history_profile, revision))
+        .await.map_err(|_| "无法读取聊天上下文")??;
+    for turn in recent {
+        messages.splice(..0, [
+            ChatMessage { role: "user".into(), text: turn.user },
+            ChatMessage { role: "assistant".into(), text: turn.reply },
+        ]);
+        let Ok(next) = chat_context(&messages) else { break };
+        context = next;
+    }
+    let text = format!("当前宠物形象：{}。\n\n{}", match read_settings()?.appearance.as_str() { "dog" => "小狗（柯基）", "penguin" => "企鹅", "fish" => "大鱼（DeepSeek）", _ => "小小驼" }, context);
     let image = if let Some(image) = image {
         chat_image_allowed(&profile.vision_status, image.reviewed)?;
         Some(tauri::async_runtime::spawn_blocking(move || crate::core::ai_images::normalize(&image.data_url))
@@ -734,7 +834,13 @@ pub async fn pet_chat(
         result = crate::core::ai::request_with_options(&profile, &key, &crate::core::ai::Task::PetChat, &text, image.as_ref(), false, |_, _| {}) => result,
     }?;
     if result.0.summary.trim().is_empty() { return Err("回复为空，请重试".into()); }
-    Ok(result.0.summary)
+    let turn = chat_history::Turn {
+        user: message,
+        reply: result.0.summary,
+        image: image.map(|image| image.data_url),
+    };
+    tauri::async_runtime::spawn_blocking(move || chat_history::append(&profile_id, revision, turn))
+        .await.map_err(|_| "无法保存聊天记录")?
     }.await;
     result.map_err(chat_error)
 }
@@ -954,9 +1060,8 @@ pub fn sync_window(app: &tauri::AppHandle) -> Result<(), String> {
     if let Some(w) = app.get_webview_window(LABEL) { undock(app,&w)?; }
     else { *app.state::<MonitoringStore>().docked.lock().map_err(|_| "桌宠贴边状态不可用")? = None; }
     let settings = read_settings()?;
-    app.state::<MonitoringStore>()
-        .size
-        .store(settings.size, Ordering::SeqCst);
+    let store = app.state::<MonitoringStore>();
+    store.size.store(settings.size, Ordering::SeqCst);
     if !settings.enabled {
         if let Some(w) = app.get_webview_window(LABEL) {
             w.destroy().map_err(|_| "无法关闭桌宠")?;
@@ -965,14 +1070,17 @@ pub fn sync_window(app: &tauri::AppHandle) -> Result<(), String> {
     }
     if let Some(w) = app.get_webview_window(LABEL) {
         w.set_maximizable(false).map_err(|_| "无法关闭桌宠系统最大化")?;
-        let (width, height) = pet_idle_size(settings.size);
-        w.set_size(tauri::LogicalSize::new(width, height))
-            .map_err(|_| "无法调整桌宠大小")?;
+        if !store.expanded.load(Ordering::SeqCst) {
+            let (width, height) = pet_idle_size(settings.size);
+            w.set_size(tauri::LogicalSize::new(width, height))
+                .map_err(|_| "无法调整桌宠大小")?;
+        }
         let p = w.outer_position().map_err(|_| "无法读取桌宠位置")?;
         position(&w, Some(p.x), Some(p.y))?;
         w.show().map_err(|_| "无法显示桌宠")?;
         let _ = w.emit("pet-visibility", true);
     } else {
+        *store.chat_window.lock().map_err(|_| "桌宠窗口状态不可用")? = ChatWindowLayout::default();
         let (width, height) = pet_idle_size(settings.size);
         let w = tauri::WebviewWindowBuilder::new(
             app,
@@ -1112,24 +1220,42 @@ pub fn pet_layout(
     app: tauri::AppHandle,
     expanded: bool,
     enlarged: Option<bool>,
+    chat: Option<bool>,
+    pinned: Option<bool>,
 ) -> PlatformResult<()> {
     caller(&window)?;
     let state = app.state::<MonitoringStore>();
     state.expanded.store(expanded, Ordering::SeqCst);
     if let Some(w) = app.get_webview_window(LABEL) {
+        let mut chat_window = state.chat_window.lock().map_err(|_| "桌宠窗口状态不可用")?;
         if expanded { undock(&app,&w)?; }
         else if let Some((_,_,edge)) = *state.docked.lock().map_err(|_| "桌宠贴边状态不可用")? { let _ = w.emit("pet-dock-edge",edge); let _ = w.emit("pet-docked",true); return Ok(()); }
-        let s = read_settings()?;
+        let chat = expanded && chat.unwrap_or(false);
+        let enlarged = enlarged.unwrap_or(false);
+        w.set_always_on_top(!chat || pinned.unwrap_or(true))
+            .map_err(|_| "无法切换桌宠窗口置顶状态")?;
+        if chat && chat_window.active {
+            return resize_chat_to_work_area(&w, &mut chat_window, enlarged);
+        }
+        if chat_window.active {
+            resize_chat_to_work_area(&w, &mut chat_window, false)?;
+            let scale = w.scale_factor().map_err(|_| "无法读取桌宠缩放")?;
+            chat_window.size = Some(w.inner_size().map_err(|_| "无法读取桌宠大小")?.to_logical(scale));
+            chat_window.active = false;
+            chat_window.drag = None;
+        }
         let old = w.outer_size().map_err(|_| "无法读取桌宠大小")?;
         let p = w.outer_position().map_err(|_| "无法读取桌宠位置")?;
-        let (width, height): (f64, f64) = if expanded {
-            if enlarged.unwrap_or(false) { (520., 720.) } else { (360., 480.) }
+        let (width, height): (f64, f64) = if chat {
+            chat_window.size.map(|size| (size.width, size.height)).unwrap_or((384., 860.))
+        } else if expanded {
+            if enlarged { (520., 720.) } else { (360., 480.) }
         } else {
-            pet_idle_size(s.size)
+            pet_idle_size(read_settings()?.size)
         };
         let monitor = w.current_monitor().map_err(|_| "无法读取桌宠显示器")?
             .or(w.primary_monitor().map_err(|_| "无法读取主显示器")?);
-        let (width, height) = monitor.map(|m| {
+        let (width, height) = monitor.as_ref().map(|m| {
             let area = m.work_area();
             (width.min(area.size.width as f64 / m.scale_factor()),
              height.min(area.size.height as f64 / m.scale_factor()))
@@ -1142,6 +1268,100 @@ pub fn pet_layout(
             Some(p.x),
             Some(if state.top_anchored.load(Ordering::SeqCst) { p.y } else { p.y + old.height as i32 - new.height as i32 }),
         )?;
+        if chat {
+            chat_window.active = true;
+            resize_chat_to_work_area(&w, &mut chat_window, enlarged)?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(desktop)]
+fn resize_chat_to_work_area(
+    window: &tauri::WebviewWindow,
+    layout: &mut ChatWindowLayout,
+    maximized: bool,
+) -> PlatformResult<()> {
+    if maximized == layout.restore.is_some() { return Ok(()); }
+    if let Some((origin, size)) = layout.restore {
+        window.set_size(size).map_err(|_| "无法还原聊天窗口大小")?;
+        position(window, Some(origin.x), Some(origin.y))?;
+        layout.restore = None;
+        return Ok(());
+    }
+
+    let monitor = window.current_monitor().map_err(|_| "无法读取桌宠显示器")?
+        .or(window.primary_monitor().map_err(|_| "无法读取主显示器")?)
+        .ok_or("未找到聊天窗口所在的显示器")?;
+    let area = monitor.work_area();
+    let origin = window.outer_position().map_err(|_| "无法读取聊天窗口位置")?;
+    let size = window.inner_size().map_err(|_| "无法读取聊天窗口大小")?;
+    if window.set_size(area.size).is_err() || window.set_position(area.position).is_err() {
+        let _ = window.set_size(size);
+        let _ = window.set_position(origin);
+        return Err("无法最大化聊天窗口".into());
+    }
+    layout.restore = Some((origin, size));
+    layout.drag = None;
+    Ok(())
+}
+
+#[cfg(desktop)]
+#[derive(Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ChatResizeEdge { N, Ne, E, Se, S, Sw, W, Nw }
+
+#[cfg(desktop)]
+#[tauri::command]
+pub fn pet_resize_chat(
+    window: tauri::WebviewWindow,
+    edge: ChatResizeEdge,
+    dx: i32,
+    dy: i32,
+    start: bool,
+) -> PlatformResult<()> {
+    chat_caller(&window)?;
+    if dx.unsigned_abs() > 32_768 || dy.unsigned_abs() > 32_768 {
+        return Err("聊天窗口拖动距离无效".into());
+    }
+    let store = window.state::<MonitoringStore>();
+    let mut layout = store.chat_window.lock().map_err(|_| "桌宠窗口状态不可用")?;
+    if !layout.active || layout.restore.is_some() { return Ok(()); }
+    if start {
+        let size = window.inner_size().map_err(|_| "无法读取聊天窗口大小")?;
+        let limit = window.current_monitor().ok().flatten().map(|monitor| monitor.work_area().size)
+            .unwrap_or(tauri::PhysicalSize::new(8192, 8192));
+        layout.drag = Some(ChatResizeAnchor {
+            origin: window.outer_position().map_err(|_| "无法读取聊天窗口位置")?,
+            size,
+            scale: window.scale_factor().map_err(|_| "无法读取桌宠缩放")?,
+            limit,
+        });
+    }
+    let Some(anchor) = &layout.drag else { return Ok(()) };
+    if start && dx == 0 && dy == 0 { return Ok(()); }
+    let x_dir = match edge {
+        ChatResizeEdge::W | ChatResizeEdge::Nw | ChatResizeEdge::Sw => -1,
+        ChatResizeEdge::E | ChatResizeEdge::Ne | ChatResizeEdge::Se => 1,
+        _ => 0,
+    };
+    let y_dir = match edge {
+        ChatResizeEdge::N | ChatResizeEdge::Ne | ChatResizeEdge::Nw => -1,
+        ChatResizeEdge::S | ChatResizeEdge::Se | ChatResizeEdge::Sw => 1,
+        _ => 0,
+    };
+    let axis = |size: u32, origin: i32, direction: i32, delta: i32, minimum: f64, limit: u32| {
+        let min_px = ((minimum * anchor.scale).round() as i64).min(size as i64);
+        let delta_px = (delta as f64 * anchor.scale).round() as i64;
+        let next = (size as i64 + delta_px * i64::from(direction)).clamp(min_px, i64::from(limit.max(size)));
+        let origin = if direction < 0 { i64::from(origin) + i64::from(size) - next } else { i64::from(origin) };
+        (next as u32, origin.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32)
+    };
+    let (width, x) = axis(anchor.size.width, anchor.origin.x, x_dir, dx, 300., anchor.limit.width);
+    let (height, y) = axis(anchor.size.height, anchor.origin.y, y_dir, dy, 320., anchor.limit.height);
+    window.set_size(tauri::PhysicalSize::new(width, height)).map_err(|_| "无法调整聊天窗口大小")?;
+    if x_dir < 0 || y_dir < 0 {
+        window.set_position(tauri::PhysicalPosition::new(x, y)).map_err(|_| "无法调整聊天窗口位置")?;
     }
     Ok(())
 }
@@ -1200,7 +1420,14 @@ pub fn pet_open(
     key: Option<String>,
 ) -> PlatformResult<()> {
     caller(&window)?;
-    if !["panels", "resources", "certificates", "settings", "notes"].contains(&section.as_str()) {
+    if section == "screenshot" && key.is_none() {
+        chat_caller(&window)?;
+        #[cfg(windows)]
+        return open_windows_snipping_overlay();
+        #[cfg(not(windows))]
+        return Err("当前系统不支持打开 Windows 截图".into());
+    }
+    if !["panels", "resources", "certificates", "settings", "petSettings", "about", "notes", "aiSettings"].contains(&section.as_str()) {
         return Err("无效的桌宠入口".into());
     }
     if let Some(ref key)=key { if key.len()>1024 || !snapshot()?.alerts.iter().any(|a|a.key==*key && a.section==section) { return Err("提醒不存在".into()); } }
@@ -1211,6 +1438,38 @@ pub fn pet_open(
         let _ = main.emit("pet-open-section", serde_json::json!({"section":section,"key":key}));
     }
     Ok(())
+}
+
+#[cfg(windows)]
+fn open_windows_snipping_overlay() -> PlatformResult<()> {
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+        SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_EXTENDEDKEY,
+        KEYEVENTF_KEYUP, VK_LSHIFT, VK_LWIN, VK_S,
+    };
+
+    let key = |virtual_key, flags| INPUT {
+        r#type: INPUT_KEYBOARD,
+        Anonymous: INPUT_0 { ki: KEYBDINPUT { wVk: virtual_key, wScan: 0, dwFlags: flags, time: 0, dwExtraInfo: 0 } },
+    };
+    let inputs = [
+        key(VK_LWIN, KEYEVENTF_EXTENDEDKEY),
+        key(VK_LSHIFT, 0),
+        key(VK_S, 0),
+        key(VK_S, KEYEVENTF_KEYUP),
+        key(VK_LSHIFT, KEYEVENTF_KEYUP),
+        key(VK_LWIN, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP),
+    ];
+    let input_size = std::mem::size_of::<INPUT>() as i32;
+    // 一次提交系统快捷键。按键和参数固定，不接受前端传入的键值。
+    let sent = unsafe { SendInput(inputs.len() as u32, inputs.as_ptr(), input_size) } as usize;
+    if sent == inputs.len() {
+        return Ok(());
+    }
+    if sent > 0 {
+        let releases = &inputs[sent.max(inputs.len() - sent)..];
+        unsafe { SendInput(releases.len() as u32, releases.as_ptr(), input_size) };
+    }
+    Err("无法打开 Windows 截图，请按 Win+Shift+S 重试。".into())
 }
 #[cfg(desktop)]
 #[tauri::command]
@@ -1772,9 +2031,13 @@ pub fn initialize(app: &tauri::AppHandle) {
                 let p = w.cursor_position().ok()?;
                 let origin = w.inner_position().ok()?;
                 let scale = w.scale_factor().ok()?;
-                let height = w.inner_size().ok()?.height as f64 / scale;
+                let bounds = w.inner_size().ok()?;
+                let height = bounds.height as f64 / scale;
                 let cx = (p.x - origin.x as f64) / scale;
                 let cy = (p.y - origin.y as f64) / scale;
+                if store.chat_window.lock().ok()?.active {
+                    return Some(cx >= 0. && cy >= 0. && cx < bounds.width as f64 / scale && cy < height);
+                }
                 if store
                     .regions
                     .lock()

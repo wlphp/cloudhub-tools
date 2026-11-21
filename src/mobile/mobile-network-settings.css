@@ -35,13 +35,13 @@
 }
 
 .mnet-head-copy strong {
-  font-size: 15px;
+  font-size: var(--mobile-fs-strong);
   font-weight: 650;
   color: var(--mobile-text);
 }
 
 .mnet-head-copy small {
-  font-size: 12px;
+  font-size: var(--mobile-fs-body);
   color: var(--mobile-muted);
 }
 
@@ -69,7 +69,7 @@
   border-radius: 12px;
   background: var(--mobile-surface);
   color: var(--mobile-muted);
-  font-size: 13px;
+  font-size: var(--mobile-fs-body);
   line-height: 1.7;
 }
 
@@ -121,14 +121,14 @@
 }
 
 .mnet-row-copy strong {
-  font-size: 14px;
+  font-size: var(--mobile-fs-strong);
   font-weight: 650;
   color: var(--mobile-text);
 }
 
 .mnet-row-copy small {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--mobile-fs-body);
   line-height: 1.45;
   color: var(--mobile-muted);
 }
@@ -177,7 +177,7 @@
 
 .mnet-empty {
   padding: 15px 14px;
-  font-size: 12px;
+  font-size: var(--mobile-fs-body);
   line-height: 1.6;
   text-align: center;
   color: var(--mobile-muted);
@@ -232,7 +232,7 @@
   display: flex;
   align-items: center;
   gap: 5px;
-  font-size: 14px;
+  font-size: var(--mobile-fs-strong);
   font-weight: 650;
   color: var(--mobile-text);
 }
@@ -243,7 +243,7 @@
 }
 
 .mnet-proxy-copy small {
-  font-size: 12px;
+  font-size: var(--mobile-fs-body);
   color: var(--mobile-muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -306,7 +306,7 @@
   border-radius: 12px;
   background: linear-gradient(135deg, #f76707, #d9480f);
   color: #fff;
-  font-size: 15px;
+  font-size: var(--mobile-fs-control);
   font-weight: 650;
   box-shadow: 0 10px 22px rgba(234, 88, 12, 0.22);
 }
@@ -318,7 +318,7 @@
 .mnet-save-note {
   margin: 0;
   padding: 0 4px;
-  font-size: 12px;
+  font-size: var(--mobile-fs-body);
   line-height: 1.6;
   color: var(--mobile-muted);
 }
@@ -327,7 +327,7 @@
   padding: 10px 12px;
   border: 1px dashed var(--mobile-border);
   border-radius: 10px;
-  font-size: 12px;
+  font-size: var(--mobile-fs-body);
   color: var(--mobile-muted);
 }
 

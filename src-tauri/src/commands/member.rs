@@ -75,8 +75,8 @@ fn api_error(status: u16, action: &str) -> &'static str {
         _ => "会员服务请求失败，请稍后重试",
     }
 }
-async fn request(action: &str, payload: Option<Value>, secret: Option<&str>) -> Result<Value, String> {
-    let client = reqwest::Client::builder().timeout(Duration::from_secs(35)).connect_timeout(Duration::from_secs(10))
+async fn request_with_timeout(action: &str, payload: Option<Value>, secret: Option<&str>, timeout: Duration) -> Result<Value, String> {
+    let client = reqwest::Client::builder().timeout(timeout).connect_timeout(Duration::from_secs(10))
         .redirect(reqwest::redirect::Policy::none()).build().map_err(|_| "会员服务网络初始化失败")?;
     let query_payload = matches!(action, "member.login_logs" | "member.messages");
     let mut builder = if payload.is_some() && !query_payload { client.post(API) } else { client.get(API) };
@@ -109,6 +109,9 @@ async fn request(action: &str, payload: Option<Value>, secret: Option<&str>) -> 
     }
     Ok(value["data"].take())
 }
+async fn request(action: &str, payload: Option<Value>, secret: Option<&str>) -> Result<Value, String> {
+    request_with_timeout(action, payload, secret, Duration::from_secs(35)).await
+}
 fn member(value: &Value) -> Result<Member, String> {
     let mut result: Member = serde_json::from_value(value["member"].clone()).map_err(|_| "会员资料格式无效")?;
     if result.nickname.trim().is_empty() { result.nickname = "匿名用户".into(); }
@@ -129,7 +132,8 @@ pub(crate) async fn member_me() -> PlatformResult<Option<Member>> {
 pub(crate) async fn member_web_handoff() -> PlatformResult<String> {
     let _guard = SESSION_LOCK.lock().await;
     let secret = token()?.ok_or("请先登录")?;
-    let data = request("member.web_handoff", Some(json!({})), Some(&secret)).await?;
+    // Handoff tickets live for 60 seconds; a stalled connection must fail fast so the UI can fall back.
+    let data = request_with_timeout("member.web_handoff", Some(json!({})), Some(&secret), Duration::from_secs(10)).await?;
     let ticket = data["ticket"].as_str().ok_or("会员中心登录链接生成失败")?;
     if ticket.len() != 64 || !ticket.bytes().all(|c| c.is_ascii_hexdigit()) { return Err("会员中心登录链接格式无效".into()); }
     Ok(ticket.to_owned())
