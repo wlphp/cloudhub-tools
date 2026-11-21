@@ -782,7 +782,9 @@ fn feed<T: Copy>(data: &[T], channels: usize, resampler: &mut Resampler, convert
     }
 }
 
-/// 任意块大小的线性插值重采样到 16kHz，带直流阻断（廉价麦克风常带直流偏置，抬高噪音底使 VAD 失真）。
+/// 任意块大小的线性插值重采样到 16kHz，带直流阻断（廉价麦克风常带直流偏置，抬高噪音底使 VAD 失真）
+/// 与 150Hz 高通（桌面震动、风扇、麦克风爆音等低频隆隆声会触发 VAD 并持续抬高噪声底，
+/// 使正常音量的唤醒词低于阈值而失效；语音共振峰在 250Hz~3kHz 不受影响）。
 struct Resampler {
     step: f64,
     frac: f64,
@@ -790,9 +792,13 @@ struct Resampler {
     next: f32,
     ready: bool,
     dc: f32,
+    hp_in: f32,
+    hp_out: f32,
+    hp_alpha: f32,
 }
 impl Resampler {
     fn new(native_rate: u32) -> Self {
+        let rc = 1.0 / (std::f64::consts::TAU * 150.0);
         Self {
             step: (SAMPLE_RATE as f64 / native_rate.max(1) as f64).clamp(1.0 / 32.0, 32.0),
             frac: 0.0,
@@ -800,12 +806,18 @@ impl Resampler {
             next: 0.0,
             ready: false,
             dc: 0.0,
+            hp_in: 0.0,
+            hp_out: 0.0,
+            hp_alpha: (rc / (rc + 1.0 / native_rate.max(1) as f64)) as f32,
         }
     }
     fn push(&mut self, input: &[f32], out: &mut Vec<f32>) {
         for &raw in input {
             self.dc += DC_BLOCK_ALPHA * (raw - self.dc);
-            let value = raw - self.dc;
+            let dc_free = raw - self.dc;
+            self.hp_out = self.hp_alpha * (self.hp_out + dc_free - self.hp_in);
+            self.hp_in = dc_free;
+            let value = self.hp_out;
             if !self.ready {
                 self.ready = true;
                 self.prev = value;
@@ -1212,7 +1224,8 @@ async fn xfyun_iat_transcribe(app_id: &str, api_key: &str, api_secret: &str, lan
             sink.send(Message::text(payload)).await.map_err(|_| "讯飞语音听写发送中断".to_string())?;
         }
         sink.send(Message::text("{\"data\":{\"status\":2}}")).await.map_err(|_| "讯飞语音听写发送中断".to_string())?;
-        let _ = sink.close().await;
+        // 不能在发送结束帧后立即关闭：讯飞收到 status=2 才开始发最终结果帧，过早的关闭握手会掐断结果
+        // （实测表现为空文本）。读取侧收到 status=2 即返回，连接随函数结束丢弃，由服务端自行清理。
         Ok::<(), String>(())
     };
     let read_all = async {
