@@ -34,7 +34,8 @@ async function request(url, options = {}) {
   }
   const body = await response.text();
   if (!response.ok) {
-    throw new Error(`Gitee API request failed (${response.status}).`);
+    const detail = body.replace(/\s+/g, " ").trim().slice(0, 300);
+    throw new Error(`Gitee API request failed (${response.status}).${detail ? ` Gitee said: ${detail}` : ""}`);
   }
   try {
     return body ? JSON.parse(body) : null;
@@ -108,6 +109,56 @@ if (!release || !release.id) {
   throw new Error(`Gitee release ${tag} was not returned by the API.`);
 }
 
+// Gitee 免费账户限制单仓库附件总容量（1GB），历史版本附件会逐渐占满配额，
+// 之后所有大文件上传都会被 Gitee 以 400 拒绝。镜像只需保证最近版本可下载，
+// 因此同步前先清理旧版本附件：保留当前版本和最新的另一个版本，其余全删。
+const PRUNE_KEEP_OTHER_RELEASES = 1;
+function tagVersionKey(name) {
+  const match = /^v(\d+)\.(\d+)\.(\d+)/.exec(name);
+  return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null;
+}
+function compareTagsDesc(left, right) {
+  const leftKey = tagVersionKey(left);
+  const rightKey = tagVersionKey(right);
+  if (leftKey && rightKey) {
+    for (let i = 0; i < 3; i += 1) {
+      if (leftKey[i] !== rightKey[i]) return rightKey[i] - leftKey[i];
+    }
+    return 0;
+  }
+  return right.localeCompare(left);
+}
+async function pruneOldReleaseAttachments() {
+  let releases;
+  try {
+    releases = await request(`${api}/releases?page=1&per_page=100`);
+  } catch (error) {
+    console.log(`Skipped pruning old Gitee attachments (listing failed): ${error.message}`);
+    return;
+  }
+  if (!Array.isArray(releases)) return;
+  const keepTags = new Set([tag]);
+  const otherTags = releases
+    .map((item) => item.tag_name)
+    .filter((name) => name && name !== tag)
+    .sort(compareTagsDesc);
+  for (const name of otherTags.slice(0, PRUNE_KEEP_OTHER_RELEASES)) keepTags.add(name);
+  for (const item of releases) {
+    if (keepTags.has(item.tag_name) || !item?.id) continue;
+    const attachments = Array.isArray(item.assets) ? item.assets : [];
+    for (const attachment of attachments) {
+      if (!attachment?.id || !attachment?.name) continue;
+      try {
+        await request(`${api}/releases/${item.id}/attach_files/${attachment.id}`, { method: "DELETE" });
+        console.log(`Pruned ${attachment.name} from ${item.tag_name}`);
+      } catch (error) {
+        console.log(`Could not prune ${attachment.name} from ${item.tag_name}: ${error.message}`);
+      }
+    }
+  }
+}
+await pruneOldReleaseAttachments();
+
 const attachmentsUrl = `${api}/releases/${release.id}/attach_files`;
 const existing = await request(`${attachmentsUrl}?page=1&per_page=100`);
 
@@ -152,7 +203,8 @@ function uploadAttachment(file, filename) {
         });
         response.on("end", () => {
           if (response.statusCode < 200 || response.statusCode >= 300) {
-            reject(new Error(`Gitee attachment upload failed (${response.statusCode}).`));
+            const detail = body.replace(/\s+/g, " ").trim().slice(0, 300);
+            reject(new Error(`Gitee attachment upload failed (${response.statusCode}).${detail ? ` Gitee said: ${detail}` : ""}`));
             return;
           }
           resolve(body);
