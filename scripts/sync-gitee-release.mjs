@@ -136,16 +136,28 @@ async function pruneOldReleaseAttachments() {
     console.log(`Skipped pruning old Gitee attachments (listing failed): ${error.message}`);
     return;
   }
-  if (!Array.isArray(releases)) return;
+  if (!Array.isArray(releases) || releases.length === 0) {
+    console.log("Skipped pruning old Gitee attachments (no releases listed).");
+    return;
+  }
   const keepTags = new Set([tag]);
   const otherTags = releases
     .map((item) => item.tag_name)
     .filter((name) => name && name !== tag)
     .sort(compareTagsDesc);
   for (const name of otherTags.slice(0, PRUNE_KEEP_OTHER_RELEASES)) keepTags.add(name);
+  console.log(`Pruning releases outside keep set: ${[...keepTags].join(", ")}`);
   for (const item of releases) {
     if (keepTags.has(item.tag_name) || !item?.id) continue;
-    const attachments = Array.isArray(item.assets) ? item.assets : [];
+    // Release 列表里的 assets 不含附件 id，删除必须走 attach_files 端点。
+    let attachments;
+    try {
+      attachments = await request(`${api}/releases/${item.id}/attach_files?page=1&per_page=100`);
+    } catch (error) {
+      console.log(`Could not list attachments of ${item.tag_name}: ${error.message}`);
+      continue;
+    }
+    if (!Array.isArray(attachments) || attachments.length === 0) continue;
     for (const attachment of attachments) {
       if (!attachment?.id || !attachment?.name) continue;
       try {
