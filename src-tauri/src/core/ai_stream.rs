@@ -30,6 +30,13 @@ impl Collector {
             events: 0,
         }
     }
+    /// 已累积的模型文本：调用方据此把新增部分透出给增量回调（未完成前仅供展示侧使用）。
+    pub fn text_len(&self) -> usize {
+        self.text.len()
+    }
+    pub fn text(&self) -> &str {
+        &self.text
+    }
     pub fn push(&mut self, bytes: &[u8]) -> Result<(), String> {
         self.buffer.extend_from_slice(bytes);
         if self.buffer.len() > 524_288 {

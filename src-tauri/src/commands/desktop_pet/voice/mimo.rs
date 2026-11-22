@@ -1,10 +1,20 @@
 use super::{Engine, Ordering};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use serde::Serialize;
 use std::{
-    sync::{mpsc, OnceLock},
+    sync::{atomic::AtomicU32, mpsc, Arc, OnceLock},
     time::{Duration, Instant},
 };
+use tauri::{AppHandle, Emitter};
+
+/// 播报实时声纹（0..1）：供前端"小人"口型同步；系统语音与浏览器播报无此事件，前端回落伪口型。
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct VoiceAmplitude {
+    generation: u64,
+    level: f32,
+}
 
 const MAX_RESPONSE: usize = 16 * 1024 * 1024;
 const PROFILE_ERROR: &str = "请在播报音色中选择有效的小米 MiMo AI 配置";
@@ -169,7 +179,7 @@ fn parse_wave(wave: &[u8]) -> Option<PcmVoice> {
     })
 }
 
-pub(super) fn play(engine: &Engine, generation: u64, audio: PcmVoice) -> Result<(), String> {
+pub(super) fn play(engine: &Engine, generation: u64, audio: PcmVoice, app: &AppHandle) -> Result<(), String> {
     let _lock = engine.speech_lock.lock().map_err(|_| OUTPUT_ERROR)?;
     if engine.speech_generation.load(Ordering::SeqCst) != generation {
         return Ok(());
@@ -181,16 +191,19 @@ pub(super) fn play(engine: &Engine, generation: u64, audio: PcmVoice) -> Result<
     let (tx, rx) = mpsc::sync_channel(2);
     let deadline = Instant::now()
         + Duration::from_secs_f64(audio.samples.len() as f64 / audio.sample_rate as f64 + 5.0);
+    // 播放数据回调写入实时 RMS，循环里限频转发给前端做口型同步。
+    let amplitude = Arc::new(AtomicU32::new(0));
     let stream = match config.sample_format() {
-        cpal::SampleFormat::F32 => output_stream::<f32>(&device, config.config(), audio, tx),
-        cpal::SampleFormat::I16 => output_stream::<i16>(&device, config.config(), audio, tx),
-        cpal::SampleFormat::U16 => output_stream::<u16>(&device, config.config(), audio, tx),
-        cpal::SampleFormat::I32 => output_stream::<i32>(&device, config.config(), audio, tx),
+        cpal::SampleFormat::F32 => output_stream::<f32>(&device, config.config(), audio, tx, Arc::clone(&amplitude)),
+        cpal::SampleFormat::I16 => output_stream::<i16>(&device, config.config(), audio, tx, Arc::clone(&amplitude)),
+        cpal::SampleFormat::U16 => output_stream::<u16>(&device, config.config(), audio, tx, Arc::clone(&amplitude)),
+        cpal::SampleFormat::I32 => output_stream::<i32>(&device, config.config(), audio, tx, Arc::clone(&amplitude)),
         _ => return Err(OUTPUT_ERROR.into()),
     }
     .map_err(|_| OUTPUT_ERROR)?;
     stream.play().map_err(|_| OUTPUT_ERROR)?;
     let mut drain_until = None;
+    let mut last_emit = Instant::now();
     let result = loop {
         if engine.speech_generation.load(Ordering::SeqCst) != generation
             || drain_until.is_some_and(|until| Instant::now() >= until)
@@ -207,6 +220,12 @@ pub(super) fn play(engine: &Engine, generation: u64, audio: PcmVoice) -> Result<
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {}
         }
+        if last_emit.elapsed() >= Duration::from_millis(64) {
+            last_emit = Instant::now();
+            let rms = f32::from_bits(amplitude.load(Ordering::SeqCst));
+            let level = (rms * 4.0).clamp(0.0, 1.0);
+            let _ = app.emit("pet-voice-amplitude", VoiceAmplitude { generation, level });
+        }
     };
     drop(stream);
     if let Ok(mut tail) = engine.speech_tail.lock() {
@@ -220,6 +239,7 @@ fn output_stream<T: cpal::SizedSample + cpal::FromSample<f32>>(
     config: cpal::StreamConfig,
     audio: PcmVoice,
     tx: mpsc::SyncSender<Result<Duration, ()>>,
+    amplitude: Arc<AtomicU32>,
 ) -> Result<cpal::Stream, cpal::BuildStreamError> {
     let channels = usize::from(config.channels);
     let step = f64::from(audio.sample_rate) / f64::from(config.sample_rate.0);
@@ -238,6 +258,8 @@ fn output_stream<T: cpal::SizedSample + cpal::FromSample<f32>>(
                     .unwrap_or_default();
                 let _ = tx.try_send(Ok(delay + Duration::from_millis(20)));
             }
+            let mut sum_squares = 0.0_f32;
+            let mut frames = 0_usize;
             for frame in output.chunks_mut(channels) {
                 let index = position as usize;
                 let sample = match audio.samples.get(index) {
@@ -251,6 +273,12 @@ fn output_stream<T: cpal::SizedSample + cpal::FromSample<f32>>(
                     None => 0.0,
                 };
                 frame.fill(T::from_sample_(sample));
+                sum_squares += sample * sample;
+                frames += 1;
+            }
+            if frames > 0 {
+                let rms = (sum_squares / frames as f32).sqrt();
+                amplitude.store(rms.to_bits(), Ordering::SeqCst);
             }
         },
         move |_| {

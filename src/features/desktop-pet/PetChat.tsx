@@ -43,6 +43,23 @@ function microphoneError(error: unknown): string {
   return "麦克风启动失败，请检查设备后重试。";
 }
 
+/// 从累积文本中切出完整句子（中英文句读与换行，连续终止符并入同句）；返回句子与剩余未完部分。
+function takeSentences(buffer: string) {
+  const sentences: string[] = [];
+  let end = 0;
+  for (let index = 0; index < buffer.length; index++) {
+    if ("。！？!?；;\n".includes(buffer[index])) {
+      let stop = index + 1;
+      while (stop < buffer.length && "。！？!?；;\n".includes(buffer[stop])) stop++;
+      const sentence = buffer.slice(end, stop).trim();
+      if (sentence) sentences.push(sentence);
+      end = stop;
+      index = stop - 1;
+    }
+  }
+  return { sentences, rest: buffer.slice(end) };
+}
+
 interface RecordingSession {
   stream: MediaStream;
   context: AudioContext;
@@ -62,7 +79,7 @@ export interface PetVoiceTurn {
 
 export type { PetChatPage } from "./PetChatSettings";
 
-export function PetChat({ settings, settingsReady, onSettingsSave, page, onPageChange, skillsActions, alerts, visible, historyVersion, clearingHistory, pendingVoice, voiceActivity, onVoiceConsumed, onVoiceTranscript, onVoiceReply, onVoiceError, onReplay, onVoicePreview }: {
+export function PetChat({ settings, settingsReady, onSettingsSave, page, onPageChange, skillsActions, alerts, visible, historyVersion, clearingHistory, pendingVoice, voiceActivity, onVoiceConsumed, onVoiceTranscript, onSpeakSentence, onInterruptSpeech, onVoiceReplyDone, onVoiceError, onReplay, onVoicePreview }: {
   settings: PetSettings;
   settingsReady: boolean;
   onSettingsSave: (settings: PetSettings) => Promise<void>;
@@ -77,7 +94,12 @@ export function PetChat({ settings, settingsReady, onSettingsSave, page, onPageC
   voiceActivity: { listening: boolean; listeningError: string; recognizing: boolean; processing: boolean; playing: boolean };
   onVoiceConsumed: () => void;
   onVoiceTranscript: (text: string) => void;
-  onVoiceReply: (reply: string, commandId?: number) => void;
+  /** 逐句播报一句回复；done 在该句播完（或不可用）后调用，用于串行化句子顺序。 */
+  onSpeakSentence: (text: string, done: () => void) => void;
+  /** 打断当前语音播报：清空队列外，由上层停止系统语音与 Rust 侧播放。 */
+  onInterruptSpeech: () => void;
+  /** 本轮全部句子播报完成后回调，用于刷新语音追问窗口。 */
+  onVoiceReplyDone: (commandId?: number) => void;
   onVoiceError: (message: string) => void;
   onReplay: (reply: string) => void;
   onVoicePreview: (preset: PetSpeechPreset) => Promise<void>;
@@ -111,6 +133,12 @@ export function PetChat({ settings, settingsReady, onSettingsSave, page, onPageC
   const request = useRef<string | null>(null);
   const lookupRequest = useRef<string | null>(null);
   const voiceDraft = useRef<PetVoiceTurn | null>(null);
+  /// 流式回复的渐进显示与逐句播报队列：句子按到达顺序串行播报，全部播完后刷新追问窗口。
+  const [streamedReply, setStreamedReply] = useState("");
+  const speakBuffer = useRef("");
+  const speakQueue = useRef<{ pending: string[]; busy: boolean; finished: (() => void) | null }>({ pending: [], busy: false, finished: null });
+  const speakHandlers = useRef({ speak: onSpeakSentence, interrupt: onInterruptSpeech });
+  speakHandlers.current = { speak: onSpeakSentence, interrupt: onInterruptSpeech };
   const visibleRef = useRef(chatVisible);
   visibleRef.current = chatVisible;
   const mounted = useRef(true);
@@ -267,6 +295,28 @@ export function PetChat({ settings, settingsReady, onSettingsSave, page, onPageC
     prependScroll.current = null;
     log.current.scrollTop = previous ? previous.top + log.current.scrollHeight - previous.height : log.current.scrollHeight;
   }, [chatVisible, turns, busy]);
+  /// 播报队列串行出队；队列清空时触发 finished（本轮全部句子播完）。
+  function drainSpeakQueue() {
+    const queue = speakQueue.current;
+    if (queue.busy) return;
+    const sentence = queue.pending.shift();
+    if (!sentence) {
+      if (queue.finished) { const finished = queue.finished; queue.finished = null; finished(); }
+      return;
+    }
+    queue.busy = true;
+    speakHandlers.current.speak(sentence, () => { queue.busy = false; drainSpeakQueue(); });
+  }
+  function enqueueSpeak(sentences: string[]) {
+    if (!sentences.length) return;
+    speakQueue.current.pending.push(...sentences);
+    drainSpeakQueue();
+  }
+  /// 丢弃未播句子并打断当前句：新一轮语音回复或请求失败时调用。
+  function stopSpeakQueue() {
+    speakQueue.current = { pending: [], busy: false, finished: null };
+    speakHandlers.current.interrupt();
+  }
   async function sendText(content: string, voiceTurn = voiceDraft.current) {
     const background = voiceTurn?.autoSend === true;
     const sentImage = background ? null : image;
@@ -275,7 +325,11 @@ export function PetChat({ settings, settingsReady, onSettingsSave, page, onPageC
     const id = crypto.randomUUID(); request.current = id;
     lookupRequest.current = id;
     if (!background) { voiceDraft.current = null; setText(""); setImage(null); }
-    setPendingMessage(userMessage); setError(""); setBusy(true);
+    setPendingMessage(userMessage); setError(""); setBusy(true); setStreamedReply("");
+    speakBuffer.current = "";
+    speakQueue.current = { pending: [], busy: false, finished: null };
+    // 新一轮语音回复开始前打断上一轮残留播报，避免新旧声音叠加。
+    if (background) speakHandlers.current.interrupt();
     try {
       const localReply = voiceTurn?.localReply === undefined
         ? await client.chatLookup(userMessage.text, !!sentImage)
@@ -287,10 +341,26 @@ export function PetChat({ settings, settingsReady, onSettingsSave, page, onPageC
         return;
       }
       if (!service) throw new Error("请先在 AI 设置中配置聊天服务，或输入“查资料”查看本地查询用法。");
-      const turn = await client.chat(id, service, userMessage.text, sentImage || undefined);
+      const turn = await client.chatStream(id, service, userMessage.text, delta => {
+        if (!mounted.current || request.current !== id) return;
+        speakBuffer.current += delta;
+        setStreamedReply(previous => previous + delta);
+        const { sentences, rest } = takeSentences(speakBuffer.current);
+        if (sentences.length) {
+          speakBuffer.current = rest;
+          enqueueSpeak(sentences);
+        }
+      }, sentImage || undefined);
       if (mounted.current && request.current === id) {
         setTurns(current => [...current, turn]);
-        if (voiceTurn) onVoiceReply(turn.reply, voiceTurn.commandId);
+        if (voiceTurn) {
+          // 流结束：最后一段未完句入队，全部句子播完后刷新语音追问窗口。
+          speakQueue.current.finished = () => onVoiceReplyDone(voiceTurn.commandId);
+          const tail = speakBuffer.current.trim();
+          speakBuffer.current = "";
+          if (tail) enqueueSpeak([tail]);
+          else drainSpeakQueue();
+        }
       }
     } catch (e) {
       if (mounted.current && request.current === id) {
@@ -298,10 +368,12 @@ export function PetChat({ settings, settingsReady, onSettingsSave, page, onPageC
         const message = platformErrorMessage(e);
         setError(message);
         if (background && !visibleRef.current) onVoiceError(message);
+        if (background) stopSpeakQueue();
+        setStreamedReply("");
       }
     } finally {
       if (lookupRequest.current === id) lookupRequest.current = null;
-      if (mounted.current && request.current === id) { request.current = null; setPendingMessage(null); setBusy(false); if (visibleRef.current) input.current?.focus(); }
+      if (mounted.current && request.current === id) { request.current = null; setPendingMessage(null); setBusy(false); setStreamedReply(""); if (visibleRef.current) input.current?.focus(); }
     }
   }
   async function startRecording() {
@@ -400,7 +472,10 @@ export function PetChat({ settings, settingsReady, onSettingsSave, page, onPageC
     { key: `${turn.id}-user`, role: "user", text: turn.user, image: turn.image },
     { key: `${turn.id}-assistant`, role: "assistant", text: turn.reply, local: turn.local },
   ]);
-  if (pendingMessage) messages.push({ key: "pending", ...pendingMessage });
+  if (pendingMessage) {
+    messages.push({ key: "pending", ...pendingMessage });
+    if (streamedReply) messages.push({ key: "pending-reply", role: "assistant", text: streamedReply });
+  }
   return <>
     {page !== "chat" && <PetChatSettings page={page} onPageChange={onPageChange} settings={settings} ready={settingsReady} serviceControls={serviceControls} skillsActions={skillsActions} alerts={alerts}
       supportsImages={visionReady} canTry={!!service && !busy && !imageBusy && !recording}

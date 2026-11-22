@@ -9,6 +9,8 @@ export interface PetVoiceCallbacks {
   requestComputer: (action: "shutdown" | "restart") => void;
   /** 直接执行的低风险动作 */
   runComputer: (action: "lock" | "taskManager" | "explorer") => void;
+  /** AI 提议的 CMD 命令：仅传入命令与摘要，执行前必须经用户弹窗确认 */
+  requestShell: (command: string, summary: string) => void;
   /** 状态提示气泡；speak 为 true 时桌宠同步语音播报 */
   showHint: (text: string, speak?: boolean) => void;
   acknowledgeWake: (hasCommand: boolean) => void;
@@ -36,12 +38,17 @@ const VOICE_ACTIONS: Record<string, string> = {
   explorer: "已打开文件资源管理器",
 };
 
+/// 含系统操作/查询类关键词才走 LLM 意图分类，其余直接进聊天，省一跳请求延迟。
+/// shell 关键词在未开启电脑指令时也会进分类，由意图层兜底回落 chat，避免误判漏网。
+const INTENT_KEYWORDS = /关机|重启|重新启动|锁屏|锁定|任务管理器|资源管理器|天气|气温|云枢|执行|运行|命令|脚本/;
+
 /// 桌宠语音编排：订阅常驻唤醒事件，转写结果经 AI 意图分类后调用既有白名单动作。
 export function usePetVoice(settings: PetSettings, callbacks: PetVoiceCallbacks) {
   const [listening, setListening] = useState(false);
   const [listeningError, setListeningError] = useState("");
   const [recognizing, setRecognizing] = useState<number | null>(null);
   const [playing, setPlaying] = useState<number | null>(null);
+  const [amplitude, setAmplitude] = useState<number | null>(null);
   const [processing, setProcessing] = useState(false);
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
@@ -76,17 +83,32 @@ export function usePetVoice(settings: PetSettings, callbacks: PetVoiceCallbacks)
           callbacksRef.current.queueChat(trimmed, true, commandId, localReply);
           return;
         }
+        // 无系统操作关键词的普通聊天跳过意图分类，直接把原话交给聊天流式回复。
+        if (!INTENT_KEYWORDS.test(trimmed)) {
+          callbacksRef.current.queueChat(trimmed, true, commandId, null);
+          return;
+        }
         const services = await client.chatServices();
         const service = services[0];
         if (!service) { callbacksRef.current.showError("请先在AI设置中配置并启用一个服务"); return; }
         callbacksRef.current.showHint(`正在理解“${trimmed.slice(0, 20)}”…`);
-        const intent = await client.voiceIntent(crypto.randomUUID(), service, trimmed);
+        const intent = await client.voiceIntent(crypto.randomUUID(), service, trimmed, settingsRef.current.voice.shellEnabled);
         if (disposed || !settingsRef.current.voice.enabled) return;
         switch (intent.action) {
           case "shutdown":
           case "restart":
             callbacksRef.current.requestComputer(intent.action);
             break;
+          case "shell": {
+            const command = (intent.command || "").trim();
+            // 后端仅在设置开启时才允许 shell 意图；这里再核对一次，未开启一律回落聊天。
+            if (!settingsRef.current.voice.shellEnabled || !command) {
+              callbacksRef.current.queueChat(intent.text || trimmed, true, commandId, null);
+              break;
+            }
+            callbacksRef.current.requestShell(command, intent.summary);
+            break;
+          }
           case "lock":
           case "taskManager":
           case "explorer":
@@ -118,7 +140,12 @@ export function usePetVoice(settings: PetSettings, callbacks: PetVoiceCallbacks)
     const subscriptions = [
       listen<ListeningEvent>("pet-voice-listening", e => { listeningVersion++; setListening(!!e.payload?.active); setListeningError(e.payload?.error || ""); }),
       listen<VoiceActivityEvent>("pet-voice-recognizing", e => setRecognizing(current => applyVoiceActivity(current, e.payload))),
-      listen<VoiceActivityEvent>("pet-voice-playing", e => setPlaying(current => applyVoiceActivity(current, e.payload))),
+      listen<VoiceActivityEvent>("pet-voice-playing", e => { setPlaying(current => applyVoiceActivity(current, e.payload)); if (!e.payload?.active) setAmplitude(null); else setAmplitude(0); }),
+      // MiMo 播报的实时声纹（0..1）：小人嘴型按它开合；系统语音没有该事件，前端用伪随机口型。
+      listen<{ generation: number; level: number }>("pet-voice-amplitude", e => {
+        const level = e.payload?.level;
+        if (typeof level === "number") setAmplitude(Math.max(0, Math.min(1, level)));
+      }),
       listen("pet-voice-awake", () => callbacksRef.current.acknowledgeWake(false)),
       listen<{ text: string; woke: boolean; commandId: number }>("pet-voice-command", e => {
         if (e.payload?.woke) callbacksRef.current.acknowledgeWake(true);
@@ -150,5 +177,5 @@ export function usePetVoice(settings: PetSettings, callbacks: PetVoiceCallbacks)
       subscriptions.forEach(promise => void promise.then(unlisten => unlisten()));
     };
   }, []);
-  return { listening, listeningError, recognizing: recognizing !== null, playing: playing !== null, processing, submit: (text: string) => runRef.current(text) };
+  return { listening, listeningError, recognizing: recognizing !== null, playing: playing !== null, amplitude, processing, submit: (text: string) => runRef.current(text) };
 }

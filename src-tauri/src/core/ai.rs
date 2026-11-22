@@ -69,6 +69,7 @@ pub enum Task {
     Frp,
     PetChat,
     PetCommand,
+    PetShell,
 }
 impl Task {
     fn fields(&self) -> &'static [&'static str] {
@@ -93,12 +94,14 @@ impl Task {
             Self::Frp => &["name", "kind", "local_ip", "local_port", "remote_port", "custom_domain"],
             Self::Diagnose | Self::Configuration | Self::PetChat => &[],
             Self::PetCommand => &["action", "text"],
+            Self::PetShell => &["action", "command", "text"],
         }
     }
     fn instruction(&self) -> &'static str {
         match self {
             Self::PetChat => "你是CloudHub的宠物伙伴，温和、自然、简洁地与用户用中文聊天，也能解答运维问题。输入包含当前宠物形象和按角色标记的对话历史，回应最后一条用户消息。将完整回复写入summary，其他字段留空。不声称读取本机数据或执行操作，不索要凭据。",
             Self::PetCommand => "你是桌宠语音意图分类器。输入是用户对桌宠说的一句话。fields.action只允许填：shutdown(关机)、restart(重启)、lock(锁屏)、taskManager(任务管理器)、explorer(资源管理器)、weather(查询天气)、openApp(打开云枢工具箱)、chat(其他一切内容)。明确要求执行系统操作时选对应动作；weather与openApp的fields.text留空；选择chat时fields.text必须原样保留用户的话。summary用一句中文概括判断。意图不确定或句子含糊时一律选chat，不猜测系统操作。",
+            Self::PetShell => "你是桌宠语音意图分类器，在本机开启电脑指令时可以为用户起草单条CMD命令。输入是用户对桌宠说的一句话。fields.action只允许填：shutdown(关机)、restart(重启)、lock(锁屏)、taskManager(任务管理器)、explorer(资源管理器)、weather(查询天气)、openApp(打开云枢工具箱)、shell(执行电脑命令)、chat(其他一切内容)。明确要求执行系统操作时选对应动作；选择shell时fields.command必须填一条单步CMD命令：禁止命令链、管道、重定向与换行（&、|、>、<、%），禁止格式化磁盘、删除目录、改注册表、改引导、管理用户或服务、强杀进程、下载文件等高危操作，无法用一条简单安全的命令完成时选chat；命令执行前还会经过本地校验和用户确认。weather与openApp的fields.text留空；选择chat时fields.text必须原样保留用户的话。summary用一句中文概括判断。意图不确定或句子含糊时一律选chat，不猜测系统操作。",
             Self::Connection => "这是连接测试，summary只填写连接正常。",
             Self::VisionTest => "读取图片从左到右的8个独立格子的颜色。fields.colors填写red或blue组成的8项英文列表，用逗号分隔；不要猜测。summary简短描述图片。",
             Self::Server => "提取托管服务器信息。单台服务器填写fields，多台服务器每台分别填写items；port为1至65535整数，platform只可linux或windows。仅输出有明确依据的名称、主机地址、端口、系统、用户名、分组、标签和备注；禁止输出密码、私钥、口令或其他认证凭据。",
@@ -264,6 +267,28 @@ pub fn body(profile: &Profile, task: &Task, text: &str) -> Value {
     }
 }
 
+/// 桌宠聊天指令：纯文本回复，不再要求写入 JSON 草稿的 summary 字段。
+const PET_CHAT_INSTRUCTION: &str = "你是CloudHub的宠物伙伴，温和、自然、简洁地与用户用中文聊天，也能解答运维问题。输入包含当前宠物形象和按角色标记的对话历史，回应最后一条用户消息。直接输出回复正文，不要使用JSON或代码块包裹。不声称读取本机数据或执行操作，不索要凭据。";
+
+/// 桌宠聊天请求体：与 body() 相同的协议形状，但指令为纯文本回复，gemini 不再强制 JSON MIME。
+fn pet_body(profile: &Profile, text: &str) -> Value {
+    let instruction = PET_CHAT_INSTRUCTION;
+    match profile.protocol.as_str() {
+        "openai_chat" => {
+            json!({"model":profile.model,"max_tokens":profile.max_output_tokens,"messages":[{"role":"system","content":instruction},{"role":"user","content":text}]})
+        }
+        "openai_responses" => {
+            json!({"model":profile.model,"max_output_tokens":profile.max_output_tokens,"store":false,"instructions":instruction,"input":text})
+        }
+        "claude" => {
+            json!({"model":profile.model,"max_tokens":profile.max_output_tokens,"system":instruction,"messages":[{"role":"user","content":text}]})
+        }
+        _ => {
+            json!({"systemInstruction":{"parts":[{"text":instruction}]},"contents":[{"role":"user","parts":[{"text":text}]}],"generationConfig":{"maxOutputTokens":profile.max_output_tokens}})
+        }
+    }
+}
+
 fn rejection_detail(status: u16, bytes: &[u8]) -> Option<String> {
     let value: Value = serde_json::from_slice(bytes).ok()?;
     let error = value.get("error")?;
@@ -281,6 +306,29 @@ fn rejection_detail(status: u16, bytes: &[u8]) -> Option<String> {
     Some(format!("AI服务拒绝请求（HTTP {status}）：{category}"))
 }
 
+/// 按协议把归一化截图注入请求体：任务路径与桌宠纯文本路径共用，依赖 body/pet_body 相同的协议形状。
+fn inject_image(
+    profile: &Profile,
+    value: &mut Value,
+    text: &str,
+    image: &crate::core::ai_images::NormalizedImage,
+) {
+    match profile.protocol.as_str() {
+        "openai_chat" => {
+            value["messages"][1]["content"] = json!([{"type":"text","text":text},{"type":"image_url","image_url":{"url":image.data_url}}])
+        }
+        "openai_responses" => {
+            value["input"] = json!([{"role":"user","content":[{"type":"input_text","text":text},{"type":"input_image","image_url":image.data_url}]}])
+        }
+        "claude" => {
+            value["messages"][0]["content"] = json!([{"type":"text","text":text},{"type":"image","source":{"type":"base64","media_type":image.mime,"data":image.base64}}])
+        }
+        _ => {
+            value["contents"][0]["parts"] = json!([{"text":text},{"inlineData":{"mimeType":image.mime,"data":image.base64}}])
+        }
+    }
+}
+
 fn request_body(
     profile: &Profile,
     task: &Task,
@@ -290,20 +338,7 @@ fn request_body(
 ) -> Value {
     let mut value = body(profile, task, text);
     if let Some(image) = image {
-        match profile.protocol.as_str() {
-            "openai_chat" => {
-                value["messages"][1]["content"] = json!([{"type":"text","text":text},{"type":"image_url","image_url":{"url":image.data_url}}])
-            }
-            "openai_responses" => {
-                value["input"] = json!([{"role":"user","content":[{"type":"input_text","text":text},{"type":"input_image","image_url":image.data_url}]}])
-            }
-            "claude" => {
-                value["messages"][0]["content"] = json!([{"type":"text","text":text},{"type":"image","source":{"type":"base64","media_type":image.mime,"data":image.base64}}])
-            }
-            _ => {
-                value["contents"][0]["parts"] = json!([{"text":text},{"inlineData":{"mimeType":image.mime,"data":image.base64}}])
-            }
-        }
+        inject_image(profile, &mut value, text, image);
     }
     if streaming && profile.protocol != "gemini" {
         value["stream"] = json!(true);
@@ -314,37 +349,11 @@ fn request_body(
     value
 }
 
-fn parse(
+/// 完成校验 + 按协议提取回复文本与用量：JSON 草稿解析与桌宠纯文本路径共用。
+fn response_text(
     profile: &Profile,
-    task: &Task,
     value: &Value,
-    key: &str,
-) -> Result<(Draft, Option<u64>, Option<u64>), String> {
-    // A completed response can still contain a tool request alongside valid text.
-    // Reject it before extracting text, including requests hidden in extra choices.
-    fn has_tool(value: &Value) -> bool {
-        match value {
-            Value::Object(object) => {
-                object.get("tool_calls").is_some_and(|v| {
-                    !v.is_null() && v.as_array().is_none_or(|items| !items.is_empty())
-                }) || object.get("function_call").is_some_and(|v| !v.is_null())
-                    || object.get("functionCall").is_some_and(|v| !v.is_null())
-                    || object
-                        .get("type")
-                        .and_then(Value::as_str)
-                        .is_some_and(|kind| {
-                            matches!(kind, "tool_use" | "server_tool_use" | "function_call")
-                                || kind.ends_with("_call")
-                        })
-                    || object.values().any(has_tool)
-            }
-            Value::Array(values) => values.iter().any(has_tool),
-            _ => false,
-        }
-    }
-    if has_tool(value) {
-        return Err("模型响应包含未授权工具".into());
-    }
+) -> Result<(String, Option<u64>, Option<u64>), String> {
     let (text, input, output) = match profile.protocol.as_str() {
         "openai_chat" => {
             if value
@@ -437,6 +446,41 @@ fn parse(
             )
         }
     };
+    Ok((text, input, output))
+}
+
+fn parse(
+    profile: &Profile,
+    task: &Task,
+    value: &Value,
+    key: &str,
+) -> Result<(Draft, Option<u64>, Option<u64>), String> {
+    // A completed response can still contain a tool request alongside valid text.
+    // Reject it before extracting text, including requests hidden in extra choices.
+    fn has_tool(value: &Value) -> bool {
+        match value {
+            Value::Object(object) => {
+                object.get("tool_calls").is_some_and(|v| {
+                    !v.is_null() && v.as_array().is_none_or(|items| !items.is_empty())
+                }) || object.get("function_call").is_some_and(|v| !v.is_null())
+                    || object.get("functionCall").is_some_and(|v| !v.is_null())
+                    || object
+                        .get("type")
+                        .and_then(Value::as_str)
+                        .is_some_and(|kind| {
+                            matches!(kind, "tool_use" | "server_tool_use" | "function_call")
+                                || kind.ends_with("_call")
+                        })
+                    || object.values().any(has_tool)
+            }
+            Value::Array(values) => values.iter().any(has_tool),
+            _ => false,
+        }
+    }
+    if has_tool(value) {
+        return Err("模型响应包含未授权工具".into());
+    }
+    let (text, input, output) = response_text(profile, value)?;
     if !key.is_empty() && text.contains(key) {
         return Err("模型返回了敏感内容，结果已拦截".into());
     }
@@ -504,6 +548,57 @@ pub async fn request_with_options<F: FnMut(&str, usize) + Send>(
     streaming: bool,
     mut progress: F,
 ) -> Result<(Draft, Option<u64>, Option<u64>), String> {
+    let body = request_body(profile, task, text, image, streaming);
+    let value = collect_response(profile, key, &body, streaming, progress, None).await?;
+    parse(profile, task, &value, key)
+}
+
+/// 桌宠聊天：纯文本回复，不走 JSON 草稿信封（省输出 token、更快出首个字），
+/// 增量文本经 delta 回调透出供逐句显示与播报；服务商不支持 SSE 时退化为一次性返回，delta 不触发。
+/// 提示词不含密钥，模型无从回显；流式增量先于最终校验透出，密钥/凭据拦截仍在完成时兜底。
+pub async fn request_pet_reply<F, G>(
+    profile: &Profile,
+    key: &str,
+    text: &str,
+    image: Option<&crate::core::ai_images::NormalizedImage>,
+    progress: F,
+    mut delta: G,
+) -> Result<String, String>
+where
+    F: FnMut(&str, usize) + Send,
+    G: FnMut(&str) + Send,
+{
+    let mut body = pet_body(profile, text);
+    if let Some(image) = image {
+        inject_image(profile, &mut body, text, image);
+    }
+    if profile.protocol != "gemini" {
+        body["stream"] = json!(true);
+        if profile.protocol == "openai_chat" {
+            body["stream_options"] = json!({"include_usage":true});
+        }
+    }
+    let value = collect_response(profile, key, &body, true, progress, Some(&mut delta as &mut (dyn FnMut(&str) + Send))).await?;
+    let (reply, _, _) = response_text(profile, &value)?;
+    let reply = reply.trim();
+    if reply.is_empty() { return Err("回复为空，请重试".into()); }
+    if reply.len() > 24_000 { return Err("回复超过处理上限".into()); }
+    if !key.is_empty() && reply.contains(key) { return Err("模型返回了敏感内容，结果已拦截".into()); }
+    let safe = preview(reply)?;
+    if safe.removed_lines > 0 { return Err("回复包含疑似凭据，已停止处理".into()); }
+    Ok(reply.to_string())
+}
+
+/// 发送请求并收集响应：streaming 时走 SSE 经 Collector 逐事件校验，on_delta 存在时透出新增文本。
+/// 返回按协议归一后的原始 JSON，由 parse/response_text 做完成校验与文本提取。
+async fn collect_response<F: FnMut(&str, usize) + Send>(
+    profile: &Profile,
+    key: &str,
+    body: &Value,
+    streaming: bool,
+    mut progress: F,
+    mut on_delta: Option<&mut (dyn FnMut(&str) + Send)>,
+) -> Result<Value, String> {
     let mut url = ai::endpoint(
         &profile.base_url,
         &profile.protocol,
@@ -527,7 +622,7 @@ pub async fn request_with_options<F: FnMut(&str, usize) + Send>(
     progress("connecting", 0);
     let mut builder = client
         .post(url)
-        .json(&request_body(profile, task, text, image, streaming));
+        .json(body);
     builder = match profile.protocol.as_str() {
         "claude" => builder
             .header("x-api-key", key)
@@ -571,6 +666,7 @@ pub async fn request_with_options<F: FnMut(&str, usize) + Send>(
     let mut collector = crate::core::ai_stream::Collector::new(&profile.protocol);
     let mut bytes = Vec::new();
     let mut received = 0usize;
+    let mut emitted = 0usize;
     let mut last_progress = Instant::now();
     while let Some(chunk) = response.chunk().await.map_err(|_| "读取AI响应失败")? {
         received += chunk.len();
@@ -583,6 +679,14 @@ pub async fn request_with_options<F: FnMut(&str, usize) + Send>(
         }
         if event_stream {
             collector.push(&chunk)?;
+            if let Some(callback) = on_delta.as_deref_mut() {
+                let total = collector.text_len();
+                if total > emitted {
+                    let text = collector.text();
+                    callback(&text[emitted..total]);
+                    emitted = total;
+                }
+            }
             if collector.finished {
                 break;
             }
@@ -596,9 +700,8 @@ pub async fn request_with_options<F: FnMut(&str, usize) + Send>(
     } else {
         serde_json::from_slice(&bytes).map_err(|_| "AI服务返回无效响应")?
     };
-    let result = parse(profile, task, &value, key)?;
     progress("done", received);
-    Ok(result)
+    Ok(value)
 }
 
 #[cfg(test)]
@@ -771,6 +874,68 @@ mod tests {
             }
             assert!(!payload.to_string().contains("test-only-ai-key"));
         }
+    }
+    /// 桌宠纯文本流式：SSE 分片时增量回调拼接结果与最终回复一致；非 SSE 响应退化为一次性返回。
+    #[tokio::test]
+    async fn pet_reply_streams_plain_text_and_falls_back_without_sse() {
+        let reply_text = "你好呀。今天也要加油。";
+        let variants = [
+            (
+                "openai_chat",
+                vec![
+                    json!({"choices":[{"delta":{"content":"你好呀。"}}]}),
+                    json!({"choices":[{"delta":{"content":"今天也要加油。"}}]}),
+                    json!({"choices":[{"delta":{},"finish_reason":"stop"}]}),
+                ],
+            ),
+            (
+                "claude",
+                vec![
+                    json!({"type":"content_block_start","content_block":{"type":"text","text":""}}),
+                    json!({"type":"content_block_delta","delta":{"type":"text_delta","text":"你好呀。"}}),
+                    json!({"type":"content_block_delta","delta":{"type":"text_delta","text":"今天也要加油。"}}),
+                    json!({"type":"message_delta","delta":{"stop_reason":"end_turn"}}),
+                    json!({"type":"message_stop"}),
+                ],
+            ),
+            (
+                "gemini",
+                vec![
+                    json!({"candidates":[{"content":{"parts":[{"text":"你好呀。"}]}}]}),
+                    json!({"candidates":[{"finishReason":"STOP","content":{"parts":[{"text":"今天也要加油。"}]}}]}),
+                ],
+            ),
+        ];
+        for (protocol, events) in variants {
+            let mut body = events.into_iter().map(|event| format!("data: {event}\r\n\r\n")).collect::<String>();
+            if protocol == "openai_chat" {
+                body.push_str("data: [DONE]\r\n\r\n");
+            }
+            let (base, handle) = mock_content_type("200 OK", body, "", "text/event-stream").await;
+            let mut config = profile(protocol);
+            config.base_url = base;
+            config.allow_loopback_http = true;
+            let mut deltas = Vec::new();
+            let reply = request_pet_reply(&config, "test-only-ai-key", "测试", None, |_, _| {}, |delta| deltas.push(delta.to_string())).await.unwrap();
+            assert_eq!(reply, reply_text);
+            assert_eq!(deltas.concat(), reply_text);
+            let captured = handle.await.unwrap();
+            let payload: Value = serde_json::from_str(captured.split_once("\r\n\r\n").unwrap().1).unwrap();
+            assert!(!payload.to_string().contains("test-only-ai-key"));
+            if protocol != "gemini" {
+                assert_eq!(payload["stream"], json!(true));
+            }
+        }
+        let json_body = json!({"choices":[{"finish_reason":"stop","message":{"content":reply_text}}]}).to_string();
+        let (base, handle) = mock("200 OK", json_body, "").await;
+        let mut config = profile("openai_chat");
+        config.base_url = base;
+        config.allow_loopback_http = true;
+        let mut deltas = Vec::new();
+        let reply = request_pet_reply(&config, "test-only-ai-key", "测试", None, |_, _| {}, |delta| deltas.push(delta.to_string())).await.unwrap();
+        assert_eq!(reply, reply_text);
+        assert!(deltas.is_empty());
+        let _ = handle.await.unwrap();
     }
     #[tokio::test]
     async fn all_protocols_use_expected_routes_headers_and_parse_real_http() {

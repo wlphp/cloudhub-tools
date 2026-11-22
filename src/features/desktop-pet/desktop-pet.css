@@ -270,11 +270,46 @@ body.theme-light .pet-alert-item.recovered .pet-alert-state {color:var(--jb-gree
 /* 桌宠语音：监听指示、麦克风按钮、录音状态与提示气泡 */
 .pet-voice-badge{position:absolute;left:var(--pet-edge-shift, 0px);top:-2px;display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:10px;background:var(--jb-green);color:#fff;font-size:11px;line-height:18px;font-weight:600;box-shadow:0 2px 5px #0003;pointer-events:none;z-index:3}
 .pet-voice-badge-error{background:var(--jb-red)}
-.pet-avatar-wrap[data-voice-listening="on"] .pet-sprite{animation:pet-voice-glow 2.2s ease-in-out infinite}
-.pet-avatar-wrap[data-voice-listening="error"] .pet-sprite{animation-name:pet-voice-glow-error}
+.pet-avatar-wrap[data-voice-listening="on"] :is(.pet-sprite,.pet-humanoid){animation:pet-voice-glow 2.2s ease-in-out infinite}
+.pet-avatar-wrap[data-voice-listening="error"] :is(.pet-sprite,.pet-humanoid){animation-name:pet-voice-glow-error}
 @keyframes pet-voice-glow{0%,100%{filter:drop-shadow(0 0 2px transparent)}50%{filter:drop-shadow(0 0 8px color-mix(in srgb,var(--jb-green) 80%,transparent))}}
 @keyframes pet-voice-glow-error{0%,100%{filter:drop-shadow(0 0 2px transparent)}50%{filter:drop-shadow(0 0 8px color-mix(in srgb,var(--jb-red) 80%,transparent))}}
 .pet-reduced .pet-avatar-wrap[data-voice-listening] .pet-sprite{animation:none}
+/* 语音播报中的形象反馈：精灵图与小人整体轻微弹跳，示意"正在说话" */
+.pet-avatar-wrap[data-voice-playing="on"] :is(.pet-sprite,.pet-humanoid){animation:pet-voice-talk-bounce .62s ease-in-out infinite}
+@keyframes pet-voice-talk-bounce{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-3px) scale(1.02)}}
+.pet-reduced .pet-avatar-wrap[data-voice-playing] :is(.pet-sprite,.pet-humanoid){animation:none}
+@media(prefers-reduced-motion:reduce){.pet-avatar-wrap[data-voice-playing] :is(.pet-sprite,.pet-humanoid){animation:none}}
+/* 程序化"小人"形象：SVG 助手机器人，口型随播报开合（MiMo 有真实声纹，系统语音用伪口型） */
+.pet-humanoid{display:block;width:100%;height:100%;pointer-events:none}
+.pet-humanoid.pet-portrait{flex:0 0 36px;width:36px;height:36px}
+.pet-humanoid-inner{display:block;width:100%;height:100%;transform:var(--pet-humanoid-flip,none);animation:pet-humanoid-bob 3.4s ease-in-out infinite}
+.pet-humanoid-tilt .pet-humanoid-inner{animation-duration:3.4s}
+.pet-humanoid svg{display:block;width:100%;height:100%;transform:var(--pet-humanoid-flip,none) rotate(var(--pet-humanoid-tilt,0deg))}
+.pet-humanoid-tilt{--pet-humanoid-tilt:-7deg}
+.pet-humanoid-sleep .pet-humanoid-inner,.pet-humanoid-static .pet-humanoid-inner{animation:none}
+.pet-humanoid-shadow{fill:#00000026}
+.pet-humanoid-head,.pet-humanoid-body{fill:#5b9bd8;stroke:#33608f;stroke-width:1.5}
+.pet-humanoid-face{fill:#eef4fc;stroke:#33608f;stroke-width:1.2}
+.pet-humanoid-antenna line{stroke:#33608f;stroke-width:3;stroke-linecap:round}
+.pet-humanoid-antenna circle{fill:#ffcf5c;stroke:#33608f;stroke-width:1.2}
+.pet-humanoid-antenna{transform-box:fill-box;transform-origin:50% 100%;animation:pet-humanoid-sway 3.4s ease-in-out infinite}
+.pet-humanoid-sleep .pet-humanoid-antenna,.pet-humanoid-static .pet-humanoid-antenna{animation:none}
+.pet-humanoid-eyes path{fill:none;stroke:#2b3a4d;stroke-width:2.6;stroke-linecap:round}
+.pet-humanoid-eye{fill:#2b3a4d;transform-box:fill-box;transform-origin:center;animation:pet-humanoid-blink 4.6s ease-in-out infinite}
+.pet-humanoid-sleep .pet-humanoid-eye,.pet-humanoid-static .pet-humanoid-eye{animation:none}
+.pet-humanoid-mouth{fill:#2b3a4d}
+.pet-humanoid-chest{fill:#ffcf5c;stroke:#33608f;stroke-width:1.2}
+.pet-humanoid-talking .pet-humanoid-chest{animation:pet-humanoid-pulse 1s ease-in-out infinite}
+.pet-humanoid-arm,.pet-humanoid-leg{fill:#4b8ac6;stroke:#33608f;stroke-width:1.5}
+@keyframes pet-humanoid-bob{0%,100%{transform:var(--pet-humanoid-flip,none) translateY(0)}50%{transform:var(--pet-humanoid-flip,none) translateY(-3px)}}
+@keyframes pet-humanoid-blink{0%,93.5%,100%{transform:scaleY(1)}96%{transform:scaleY(.12)}}
+@keyframes pet-humanoid-sway{0%,100%{transform:rotate(-6deg)}50%{transform:rotate(6deg)}}
+@keyframes pet-humanoid-pulse{0%,100%{opacity:.7}50%{opacity:1;filter:drop-shadow(0 0 4px #ffcf5c)}}
+.pet-reduced .pet-humanoid-inner,.pet-reduced .pet-humanoid-antenna,.pet-reduced .pet-humanoid-eye,.pet-reduced .pet-humanoid-talking .pet-humanoid-chest{animation:none}
+@media(prefers-reduced-motion:reduce){.pet-humanoid-inner,.pet-humanoid-antenna,.pet-humanoid-eye,.pet-humanoid-talking .pet-humanoid-chest{animation:none}}
+/* CMD 命令确认弹窗中的命令原文：等宽、可选中、超长滚动 */
+.pet-shell-command{margin:8px 0 0;padding:8px 10px;max-height:140px;overflow:auto;font:12px/1.5 Consolas,"Courier New",monospace;white-space:pre-wrap;word-break:break-all;background:var(--jb-surface-3,#20242b);border:1px solid var(--jb-border-strong,#3a4150);border-radius:5px;color:var(--jb-text,#e6e6e6);user-select:text}
 /* 语音状态气泡：薄荷绿提示样式，白底窗口上也有足够对比度；错误态保持红色 */
 .pet-speech-bubble.pet-voice-hint,.pet-speech-bubble.pet-voice-warning{padding:9px 14px;font-size:12.5px;font-weight:500;letter-spacing:.2px}
 .pet-speech-bubble.pet-voice-hint{border-color:color-mix(in srgb,var(--jb-green) 45%,transparent);background:color-mix(in srgb,var(--jb-green) 10%,var(--jb-surface-2))}

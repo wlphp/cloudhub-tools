@@ -93,7 +93,7 @@ export function PetVoiceSettings({ value, quiet, onSave, disabled, petEnabled }:
     }
   }
   async function cancelDownload() { try { await client.voiceCancelModelDownload(); } catch { /* 取消标志已置位，无需提示 */ } }
-  const check = (key: "enabled" | "wakeEnabled" | "autoSend" | "speak" | "cloudAsrEnabled", label: string, description?: string) => <label className="pet-option"><span>{label}{description && <small>{description}</small>}</span><input type="checkbox" checked={draft[key]} onChange={e => change({ [key]: e.target.checked })} /></label>;
+  const check = (key: "enabled" | "wakeEnabled" | "autoSend" | "speak" | "cloudAsrEnabled" | "shellEnabled", label: string, description?: string) => <label className="pet-option"><span>{label}{description && <small>{description}</small>}</span><input type="checkbox" checked={draft[key]} onChange={e => change({ [key]: e.target.checked })} /></label>;
   const percent = download?.progress?.totalBytes ? Math.min(100, Math.round((download.progress.downloadedBytes / download.progress.totalBytes) * 100)) : null;
   const cloudProfile = profiles.find(profile => profile.id === draft.cloudProfileId);
   const cloudPreset = cloudAsrPreset(cloudProfile?.baseUrl);
@@ -116,6 +116,7 @@ export function PetVoiceSettings({ value, quiet, onSave, disabled, petEnabled }:
           <div className="pet-life-options">
             {check("enabled", "启用语音对话", "唤醒后可连续追问，回答结束后有 20 秒可继续说话。聊天窗口可手动打开查看记录。")}
             {check("autoSend", "识别后自动执行", "关闭后识别文本填入聊天输入框，由你确认后再发送。")}
+            {check("shellEnabled", "电脑指令（CMD）", "开启后可对桌宠说“帮我执行 ipconfig”这类命令：AI 生成单条 CMD 命令，弹窗展示完整命令，你确认后才执行；命令链与高危命令（格式化、删库等）会被拒绝并记录审计日志。默认关闭。")}
             {check("speak", "语音回应", "播报唤醒提示、执行结果和语音提问的回答。")}
             <label className="pet-option"><span>桌宠勿扰<small>开启后静音语音播报和互动声音，并暂停主动提醒。</small></span><input type="checkbox" checked={draftQuiet} onChange={e => setDraftQuiet(e.target.checked)} /></label>
             {check("cloudAsrEnabled", "云端识别", "判定为人声的片段上传到所选识别服务商转写，更快更准；失败自动回落本地识别。关闭则全程本机识别。")}
@@ -144,7 +145,7 @@ export function PetVoiceSettings({ value, quiet, onSave, disabled, petEnabled }:
               <small>{cloudModelOptions.length > 0 ? (useCustomCloudModel ? "自定义模式：按服务商文档填写" : "已按所选服务商预置，无需手填") : "该服务商未收录预置模型，请查文档填写"}</small>
               {useCustomCloudModel && cloudModelOptions.length > 0 && <button type="button" className="secondary" onClick={() => { setCustomCloudModel(false); change({ cloudModel: "" }); }}>返回预置选择</button>}
             </label>}
-            <label>唤醒词<input value={draft.wakeWord} maxLength={24} placeholder="如：小驼，小花" onChange={e => change({ wakeWord: e.target.value })} /><small>多个唤醒词用逗号隔开，喊任意一个即可。</small></label>
+            <label>唤醒词<input value={draft.wakeWord} maxLength={24} placeholder="如：小驼，小花" onChange={e => change({ wakeWord: e.target.value })} /><small>多个唤醒词用逗号隔开，喊任意一个即可；识别成同音字（如“驼/坨”）也能唤醒。</small></label>
             <label>识别语言<select value={draft.language} onChange={e => change({ language: e.target.value })}><option value="zh">中文</option><option value="en">English</option><option value="auto">自动检测</option></select></label>
             <label>最长录音<select value={draft.maxSeconds} onChange={e => change({ maxSeconds: Number(e.target.value) })}>{[30, 60, 90, 120].map(seconds => <option key={seconds} value={seconds}>{seconds} 秒</option>)}</select></label>
             <label>识别模型<select value={draft.modelFile} onChange={e => change({ modelFile: e.target.value })}><option value="">{status?.models.length ? `自动选择（${status.models[0].name}）` : "自动选择"}</option>{status?.models.map(model => <option key={model.name} value={model.name}>{model.name} · {mb(model.sizeBytes)}</option>)}</select></label>

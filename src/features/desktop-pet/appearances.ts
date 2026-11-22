@@ -12,12 +12,14 @@ export const petAppearances: Record<PetSettings["appearance"], { label: string; 
   dog: { label: "小狗（柯基）", sprite: dogSprite },
   fish: { label: "大鱼（DeepSeek）", sprite: fishSprite },
   penguin: { label: "企鹅", sprite: penguinSprite },
+  human: { label: "小人", sprite: "" },
 };
 
 export type PetPose = "idle" | "walk" | "run" | "lie_down" | "spray" | "sleep" | "happy" | "curious" | "hanging" | "work" | "alert";
 
 // Logical 6 x 4 states; dog-frames.json also drives native alpha hit testing.
 export function petFrameFor(appearance: PetSettings["appearance"], pose: PetPose, frame = 0): [number, number] {
+  if (appearance === "human") return [0, 0];
   if (appearance !== "alpaca") {
     if (pose === "idle") return [frame % 3, 0];
     if (pose === "walk") return [3 + frame % 2, 0];

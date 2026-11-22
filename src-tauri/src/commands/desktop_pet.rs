@@ -21,6 +21,8 @@ mod docking;
 #[cfg(desktop)]
 mod computer;
 #[cfg(desktop)]
+mod shell;
+#[cfg(desktop)]
 mod voice;
 #[cfg(desktop)]
 mod chat_history;
@@ -106,6 +108,8 @@ pub struct VoiceSettings {
     pub cloud_endpoint: String,
     pub cloud_model: String,
     pub max_seconds: u32,
+    /// 电脑指令：开启后 AI 可提议单条 CMD 命令，弹窗确认后才执行（默认关闭）。
+    pub shell_enabled: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -151,6 +155,7 @@ impl Default for VoiceSettings {
             cloud_endpoint: String::new(),
             cloud_model: String::new(),
             max_seconds: 60,
+            shell_enabled: false,
         }
     }
 }
@@ -334,7 +339,7 @@ impl Settings {
     fn validate(&self) -> Result<(), String> {
         self.life.validate()?;
         self.voice.validate()?;
-        if !["alpaca", "dog", "penguin", "fish"].contains(&self.appearance.as_str()) || !(80..=240).contains(&self.size)
+        if !["alpaca", "dog", "penguin", "fish", "human"].contains(&self.appearance.as_str()) || !(80..=240).contains(&self.size)
             || !["edge", "free", "still"].contains(&self.roam.as_str())
             || self.activity > 2
             || !(60..=3600).contains(&self.interval_seconds)
@@ -483,6 +488,7 @@ pub fn restricted<R: tauri::Runtime>(
                 "pet_move",
                 "pet_open",
                 "pet_computer_action",
+                "pet_shell_command",
                 "pet_snooze",
                 "pet_ignore",
                 "pet_clear_selected",
@@ -492,7 +498,7 @@ pub fn restricted<R: tauri::Runtime>(
                 "pet_notice",
                 "pet_dismiss",
                 "pet_chat_services",
-                "pet_chat",
+                "pet_chat_stream",
                 "pet_chat_lookup",
                 "pet_chat_cancel",
                 "pet_chat_read_image",
@@ -592,6 +598,17 @@ pub async fn pet_computer_action(window: tauri::WebviewWindow, action: computer:
     if window.label() != LABEL { return Err("电脑快捷操作仅允许从桌宠窗口执行".into()); }
     tauri::async_runtime::spawn_blocking(move || computer::run(action)).await
         .map_err(|_| "电脑快捷操作执行失败")?.map_err(Into::into)
+}
+
+/// AI 提议的 CMD 命令执行入口：仅桌宠窗口可调用，命令在弹窗确认后才到达这里。
+#[cfg(desktop)]
+#[tauri::command]
+pub async fn pet_shell_command(window: tauri::WebviewWindow, command: String) -> PlatformResult<shell::ShellResult> {
+    if window.label() != LABEL { return Err("电脑指令仅允许从桌宠窗口执行".into()); }
+    shell::validate(&command)?;
+    tauri::async_runtime::spawn_blocking(move || shell::run(&command)).await
+        .map_err(|_| "电脑指令任务失败")?
+        .map_err(Into::into)
 }
 
 const LIFE_HISTORY: &str = "desktop-pet-life-v1";
@@ -789,9 +806,16 @@ pub async fn pet_chat_clear_history(window: tauri::WebviewWindow, app: tauri::Ap
     }).await.map_err(|_| chat_error("无法清空聊天记录".into()))?.map_err(chat_error)
 }
 
+/// 桌宠聊天流式增量事件：文本片段按 SSE 到达顺序透出，前端负责累积显示与逐句播报。
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PetChatDelta {
+    pub text: String,
+}
+
 #[cfg(desktop)]
 #[tauri::command]
-pub async fn pet_chat(
+pub async fn pet_chat_stream(
     window: tauri::WebviewWindow,
     store: tauri::State<'_, crate::core::ai::RequestStore>,
     request_id: String,
@@ -799,6 +823,7 @@ pub async fn pet_chat(
     revision: i64,
     message: String,
     image: Option<crate::core::ai_images::ImageInput>,
+    on_delta: tauri::ipc::Channel<PetChatDelta>,
 ) -> PlatformResult<chat_history::Record> {
     let result: Result<chat_history::Record, String> = async {
     chat_caller(&window)?;
@@ -822,21 +847,22 @@ pub async fn pet_chat(
         let Ok(next) = chat_context(&messages) else { break };
         context = next;
     }
-    let text = format!("当前宠物形象：{}。\n\n{}", match read_settings()?.appearance.as_str() { "dog" => "小狗（柯基）", "penguin" => "企鹅", "fish" => "大鱼（DeepSeek）", _ => "小小驼" }, context);
+    let text = format!("当前宠物形象：{}。\n\n{}", match read_settings()?.appearance.as_str() { "dog" => "小狗（柯基）", "penguin" => "企鹅", "fish" => "大鱼（DeepSeek）", "human" => "小人（语音助手）", _ => "小小驼" }, context);
     let image = if let Some(image) = image {
         chat_image_allowed(&profile.vision_status, image.reviewed)?;
         Some(tauri::async_runtime::spawn_blocking(move || crate::core::ai_images::normalize(&image.data_url))
             .await.map_err(|_| "处理截图失败".to_string())??)
     } else { None };
-    let result = tokio::select! {
+    let reply = tokio::select! {
         biased;
         _ = receiver.changed() => Err("聊天已停止".to_string()),
-        result = crate::core::ai::request_with_options(&profile, &key, &crate::core::ai::Task::PetChat, &text, image.as_ref(), false, |_, _| {}) => result,
+        result = crate::core::ai::request_pet_reply(&profile, &key, &text, image.as_ref(), |_, _| {}, |delta| {
+            let _ = on_delta.send(PetChatDelta { text: delta.to_string() });
+        }) => result,
     }?;
-    if result.0.summary.trim().is_empty() { return Err("回复为空，请重试".into()); }
     let turn = chat_history::Turn {
         user: message,
-        reply: result.0.summary,
+        reply,
         image: image.map(|image| image.data_url),
     };
     tauri::async_runtime::spawn_blocking(move || chat_history::append(&profile_id, revision, turn))
@@ -984,7 +1010,7 @@ fn position(window: &tauri::WebviewWindow, x: Option<i32>, y: Option<i32>) -> Re
 }
 #[cfg(test)]
 fn head_rect(appearance: usize) -> [u32; 4] {
-    static HEADS: std::sync::OnceLock<[[u32;4];4]> = std::sync::OnceLock::new();
+    static HEADS: std::sync::OnceLock<[[u32;4];5]> = std::sync::OnceLock::new();
     HEADS.get_or_init(|| serde_json::from_str(include_str!("../../../src/features/desktop-pet/assets/pet-heads.json")).expect("bundled pet head bounds"))[appearance]
 }
 
@@ -1182,13 +1208,13 @@ pub fn pet_sprite(
 ) -> PlatformResult<()> {
     caller(&window)?;
     let appearance = appearance.as_deref().unwrap_or("alpaca");
-    if column > 5 || row > 3 || !["alpaca", "dog", "penguin", "fish"].contains(&appearance) {
+    if column > 5 || row > 3 || !["alpaca", "dog", "penguin", "fish", "human"].contains(&appearance) {
         return Err("桌宠动画帧无效".into());
     }
     *app.state::<MonitoringStore>()
         .sprite
         .lock()
-        .map_err(|_| "桌宠状态不可用")? = (column, row, flipped, match appearance { "dog" => 1, "penguin" => 2, "fish" => 3, _ => 0 });
+        .map_err(|_| "桌宠状态不可用")? = (column, row, flipped, match appearance { "dog" => 1, "penguin" => 2, "fish" => 3, "human" => 4, _ => 0 });
     Ok(())
 }
 #[cfg(desktop)]
@@ -2001,14 +2027,15 @@ pub fn initialize(app: &tauri::AppHandle) {
     // Hit testing uses the same alpha pixels and sprite frame as the UI, not the window rectangle.
     let handle = app.clone();
     tauri::async_runtime::spawn(async move {
-        let mut masks = [None, None, None, None];
+        // 第 5 槽为小人形象：SVG 绘制无 PNG 掩码，None 使整个头像方形保持可点击。
+        let mut masks = [None, None, None, None, None];
         // Repeated set_ignore_cursor_events calls churn the compositor style and
         // leave ghost trails on the transparent window; only apply actual changes.
         let mut ignoring: Option<bool> = None;
         loop {
             tokio::time::sleep(Duration::from_millis(65)).await;
             let Some(w) = handle.get_webview_window(LABEL) else {
-                masks = [None, None, None, None];
+                masks = [None, None, None, None, None];
                 tokio::time::sleep(Duration::from_secs(1)).await;
                 continue;
             };
@@ -2145,7 +2172,7 @@ fn sprite_rect(appearance: usize, column: u32, row: u32) -> (u32, u32, u32, u32)
 mod tests {
     #[test]
     fn all_head_crops_stay_inside_the_standing_frame() {
-        for appearance in 0..4 {
+        for appearance in 0..5 {
             let [x,y,width,height] = super::head_rect(appearance);
             assert!(width>0 && height>0 && x+width<=256 && y+height<=256);
         }

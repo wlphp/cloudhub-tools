@@ -8,7 +8,7 @@ export type PetComputerAction = "shutdown" | "restart" | "taskManager" | "lock" 
 
 export interface PetSettings {
   life: PetLifeSettings;
-  appearance: "alpaca" | "dog" | "penguin" | "fish";
+  appearance: "alpaca" | "dog" | "penguin" | "fish" | "human";
   enabled: boolean; monitoring: boolean; panels: boolean; panelDisk: boolean; panelServices: boolean; panelAccess: boolean; certificates: boolean; servers: boolean;
   lightServers: boolean; domains: boolean; databases: boolean; redis: boolean;
   excludedAssetAlerts: string[];
@@ -25,14 +25,17 @@ export interface PetVoiceSettings {
   speechMimoProfileId: string;
   /** 云端识别服务商："openai" 复用 AI 配置的 OpenAI 兼容接口，"xfyun" 为讯飞语音听写（独立加密凭据）。 */
   cloudProvider: "openai" | "xfyun"; cloudProfileId: string; cloudEndpoint: string; cloudModel: string; maxSeconds: number;
+  /** 电脑指令：开启后 AI 可提议单条 CMD 命令，弹窗确认后才执行。 */
+  shellEnabled: boolean;
 }
-export const defaultPetVoice: PetVoiceSettings = { enabled: true, wakeEnabled: false, wakeWord: "小小驼", modelFile: "", language: "zh", autoSend: true, speak: true, speechPreset: "system", speechMimoProfileId: "", device: "", cloudAsrEnabled: false, cloudProvider: "openai", cloudProfileId: "", cloudEndpoint: "", cloudModel: "", maxSeconds: 60 };
+export const defaultPetVoice: PetVoiceSettings = { enabled: true, wakeEnabled: false, wakeWord: "小小驼", modelFile: "", language: "zh", autoSend: true, speak: true, speechPreset: "system", speechMimoProfileId: "", device: "", cloudAsrEnabled: false, cloudProvider: "openai", cloudProfileId: "", cloudEndpoint: "", cloudModel: "", maxSeconds: 60, shellEnabled: false };
 /** 讯飞语音听写凭据：随设置保存一次性传给后端加密落库，不回读。 */
 export interface PetVoiceXfyunCredentials { appId: string; apiKey: string; apiSecret: string }
 export interface PetVoiceModel { name: string; sizeBytes: number }
 export interface PetVoiceStatus { modelsDir: string; models: PetVoiceModel[]; catalog: PetVoiceModel[]; selected: string | null; ready: boolean; listening: boolean; device: string; devices: string[]; activeDevice: string; listeningError: string | null; lastResult: "transcribing" | "unclear" | "unmatched" | "awakened" | "command" | "failed" | null; segments: number; matched: number; xfyunConfigured: boolean }
 export interface PetVoiceDownloadProgress { stage: "connecting" | "downloading" | "done"; source: string; downloadedBytes: number; totalBytes: number | null; bytesPerSecond: number }
-export interface PetVoiceIntent { action: string; text: string; summary: string }
+export interface PetVoiceIntent { action: string; text: string; summary: string; command: string | null }
+export interface PetShellResult { output: string; exitCode: number; timedOut: boolean; durationMs: number }
 export interface PetLifeSettings {
   enabled: boolean; province: string; city: string; weather: boolean; schedule: boolean;
   workStart: string; lunchStart: string; lunchEnd: string; workEnd: string; leaveBefore: number;
@@ -77,13 +80,15 @@ export const desktopPetClient = {
   voiceSpeak: (text: string | null, interrupt = false, previewPreset?: PetSpeechPreset) => nativeOnly<void>("pet_voice_speak", { text, interrupt, previewPreset: previewPreset ?? null }),
   voiceContinue: (commandId: number) => nativeOnly<void>("pet_voice_continue", { commandId }),
   voiceTranscribe: (audio: string) => nativeOnly<string | null>("pet_voice_transcribe", { audio }),
-  voiceIntent: (requestId: string, service: PetChatService, text: string) => nativeOnly<PetVoiceIntent>("pet_voice_intent", { requestId, profileId: service.id, revision: service.revision, text }),
+  voiceIntent: (requestId: string, service: PetChatService, text: string, shellEnabled = false) => nativeOnly<PetVoiceIntent>("pet_voice_intent", { requestId, profileId: service.id, revision: service.revision, text, shellEnabled }),
+  shellCommand: (command: string) => nativeOnly<PetShellResult>("pet_shell_command", { command }),
   openVoiceModelsDir: () => nativeOnly<void>("pet_voice_open_models_dir"),
   voiceDownloadModel: (name: string, onProgress: (progress: PetVoiceDownloadProgress) => void) => nativeOnly<PetVoiceStatus>("pet_voice_download_model", { name, onProgress: new Channel<PetVoiceDownloadProgress>(onProgress) }),
   voiceCancelModelDownload: () => nativeOnly<void>("pet_voice_cancel_model_download"),
   chatServices: () => nativeOnly<PetChatService[]>("pet_chat_services"),
   chatLookup: (message: string, hasImage = false) => nativeOnly<string | null>("pet_chat_lookup", { message, hasImage }),
-  chat: (requestId: string, service: PetChatService, message: string, image?: AiImage) => nativeOnly<PetChatTurn>("pet_chat", { requestId, profileId: service.id, revision: service.revision, message, image: image ?? null }),
+  /** 流式聊天：增量文本经 onDelta 回调透出（服务商不支持流式时不触发），完整回复以返回值为准。 */
+  chatStream: (requestId: string, service: PetChatService, message: string, onDelta: (text: string) => void, image?: AiImage) => nativeOnly<PetChatTurn>("pet_chat_stream", { requestId, profileId: service.id, revision: service.revision, message, image: image ?? null, onDelta: new Channel<{ text: string }>(payload => onDelta(payload.text)) }),
   chatHistory: (before?: number) => nativeOnly<PetChatHistoryPage>("pet_chat_history", { before: before ?? null }),
   clearChatHistory: () => nativeOnly<void>("pet_chat_clear_history"),
   readChatImage: (sourcePath: string) => nativeOnly<string>("pet_chat_read_image", { sourcePath }),

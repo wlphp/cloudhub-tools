@@ -74,7 +74,7 @@ function isPetSettings(value: unknown): value is PetSettings {
   const settings = value as Partial<PetSettings>;
   return ["enabled", "monitoring", "panels", "panelAccess", "certificates", "servers", "sound", "reducedMotion", "quiet", "keepInTray"].every(key => typeof settings[key as keyof PetSettings] === "boolean")
     && Array.isArray(settings.excludedAssetAlerts) && settings.excludedAssetAlerts.every(key => typeof key === "string")
-    && ["alpaca", "dog", "penguin", "fish"].includes(String(settings.appearance))
+    && ["alpaca", "dog", "penguin", "fish", "human"].includes(String(settings.appearance))
     && typeof settings.size === "number" && ["edge", "free", "still"].includes(String(settings.roam))
     && typeof settings.activity === "number" && typeof settings.intervalSeconds === "number" && typeof settings.expiryDays === "number"
     && typeof settings.cpuThreshold === "number" && typeof settings.diskThreshold === "number"

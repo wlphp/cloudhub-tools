@@ -6,7 +6,7 @@ use std::{
     io::Write as _,
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
         mpsc, Arc, Mutex,
     },
     time::{Duration, Instant},
@@ -37,9 +37,11 @@ const NOISE_FLOOR_MIN: f32 = 0.002;
 const NOISE_FLOOR_FACTOR: f32 = 2.5;
 const DC_BLOCK_ALPHA: f32 = 0.01;
 const SPEECH_START_FRAMES: usize = 3;
-const SPEECH_END_FRAMES: usize = 25;
+/// 静音收尾帧数（约 0.5 秒）：说完话到开始识别的固定等待，太长拖慢响应，太短易截断尾音。
+const SPEECH_END_FRAMES: usize = 15;
 /// 相邻语音段的最大拼接间隔：词间停顿被 VAD 切段后，仍在窗口内的段会合并后统一识别。
-const SEGMENT_MERGE_GAP: Duration = Duration::from_millis(1000);
+/// 600ms 覆盖常见词间停顿（<500ms），比 1s 减少"说完词干等"的固定延迟。
+const SEGMENT_MERGE_GAP: Duration = Duration::from_millis(600);
 const PREROLL_FRAMES: usize = 25;
 const MIN_SEGMENT_FRAMES: usize = 9;
 const MAX_SEGMENT_FRAMES: usize = 15 * (SAMPLE_RATE / VAD_FRAME);
@@ -72,6 +74,9 @@ pub struct Engine {
     last_result: Mutex<Option<WakeResult>>,
     segments: AtomicU64,
     matched: AtomicU64,
+    /// 云端空结果退避：连续空段落计数与暂停云端识别的截止时刻。
+    cloud_empty_streak: AtomicU32,
+    cloud_skip_until: Mutex<Option<Instant>>,
 }
 struct LoadedModel {
     path: PathBuf,
@@ -203,6 +208,10 @@ const DOWNLOAD_CHUNK_TIMEOUT: Duration = Duration::from_secs(30);
 const DOWNLOAD_EMIT_INTERVAL: Duration = Duration::from_millis(250);
 /// 云端语音识别单段超时：超时后自动回落本地 whisper。
 const CLOUD_ASR_TIMEOUT: Duration = Duration::from_secs(6);
+/// 云端空结果退避：连续 N 段空结果（判定为噪声）后暂停云端识别一段时间，
+/// 避免环境噪声排队占用云端配额与识别循环，延误紧随其后的真实指令。
+const CLOUD_EMPTY_BACKOFF_AFTER: u32 = 3;
+const CLOUD_EMPTY_BACKOFF: Duration = Duration::from_secs(30);
 /// 讯飞语音听写（流式版）接口地址：签名串与请求 host 必须与此一致，换地址需同步调整签名。
 const XFYUN_IAT_HOST: &str = "iat-api.xfyun.cn";
 const XFYUN_IAT_PATH: &str = "/v2/iat";
@@ -514,7 +523,8 @@ async fn speak_native(app: &AppHandle, engine: &Arc<Engine>, generation: u64, te
         let result = match audio {
             Ok(audio) => {
                 let engine = engine.clone();
-                tauri::async_runtime::spawn_blocking(move || mimo::play(&engine, generation, audio))
+                let app = app.clone();
+                tauri::async_runtime::spawn_blocking(move || mimo::play(&engine, generation, audio, &app))
                     .await.map_err(|_| "播放小米 MiMo 音频失败".to_string())?
             }
             Err(error) => Err(error),
@@ -1258,16 +1268,18 @@ impl PendingSegment {
 }
 
 /// 语音意图：AI 只能从固定动作枚举中选择，解析失败一律回落 chat。
+/// shell_enabled 时额外允许 shell 动作（单条 CMD 命令，需本地校验通过且用户确认）。
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VoiceIntent {
     pub action: String,
+    pub command: Option<String>,
     pub text: String,
     pub summary: String,
 }
 const VOICE_ACTIONS: [&str; 7] = ["shutdown", "restart", "lock", "taskManager", "explorer", "weather", "openApp"];
 
-fn intent_from_draft(draft: crate::core::ai::Draft, original: &str) -> VoiceIntent {
+fn intent_from_draft(draft: crate::core::ai::Draft, original: &str, shell_enabled: bool) -> VoiceIntent {
     let action = draft
         .fields
         .get("action")
@@ -1276,13 +1288,21 @@ fn intent_from_draft(draft: crate::core::ai::Draft, original: &str) -> VoiceInte
         .trim()
         .to_string();
     if VOICE_ACTIONS.contains(&action.as_str()) {
-        VoiceIntent { action, text: String::new(), summary: draft.summary }
+        VoiceIntent { action, command: None, text: String::new(), summary: draft.summary }
+    } else if shell_enabled && action == "shell" {
+        // 命令先过本地校验：黑名单或格式不合法时回落 chat，避免把无效命令弹给用户。
+        let command = draft.fields.get("command").and_then(|value| value.as_str()).unwrap_or("").trim().to_string();
+        match super::shell::validate(&command).map(|valid| valid.to_string()) {
+            Ok(valid) => VoiceIntent { action, command: Some(valid), text: String::new(), summary: draft.summary },
+            Err(_) => VoiceIntent { action: "chat".into(), command: None, text: original.to_string(), summary: draft.summary },
+        }
     } else {
-        VoiceIntent { action: "chat".into(), text: original.to_string(), summary: draft.summary }
+        VoiceIntent { action: "chat".into(), command: None, text: original.to_string(), summary: draft.summary }
     }
 }
 
 /// AI 意图分类：输入语音转写文本，返回白名单动作或 chat。可经 pet_chat_cancel 取消。
+/// shell_enabled 由前端按设置传入：开启时提示词才包含 shell 动作，未开启时模型无从选择。
 #[tauri::command]
 pub async fn pet_voice_intent(
     window: tauri::WebviewWindow,
@@ -1291,6 +1311,7 @@ pub async fn pet_voice_intent(
     profile_id: String,
     revision: i64,
     text: String,
+    shell_enabled: bool,
 ) -> PlatformResult<VoiceIntent> {
     let result: Result<VoiceIntent, String> = async {
         chat_caller(&window)?;
@@ -1307,12 +1328,13 @@ pub async fn pet_voice_intent(
         let (profile, key) = crate::core::repositories::ai::load(&crate::core::storage::open_db()?, &profile_id)?;
         if profile.updated_at != revision { return Err("AI配置已更新，请关闭聊天后重新打开".into()); }
         let prompt_text = format!("用户说：{text}");
+        let task = if shell_enabled { crate::core::ai::Task::PetShell } else { crate::core::ai::Task::PetCommand };
         let outcome = tokio::select! {
             biased;
             _ = receiver.changed() => Err("识别已停止".to_string()),
-            result = crate::core::ai::request(&profile, &key, &crate::core::ai::Task::PetCommand, &prompt_text) => result,
+            result = crate::core::ai::request(&profile, &key, &task, &prompt_text) => result,
         }?;
-        Ok(intent_from_draft(outcome.0, &text))
+        Ok(intent_from_draft(outcome.0, &text, shell_enabled))
     }
     .await;
     result.map_err(chat_error)
@@ -1322,34 +1344,54 @@ fn has_voice_command_content(text: &str) -> bool {
     text.chars().filter(|character| character.is_alphanumeric()).nth(3).is_some()
 }
 
+/// 匹配用字符归一化：汉字转无声调拼音（同音字如"驼/坨/陀"一致），字母转小写。
+fn match_letters(character: char) -> String {
+    use pinyin::ToPinyin;
+    match character.to_pinyin() {
+        Some(pinyin) => pinyin.plain().to_string(),
+        None => character.to_lowercase().collect(),
+    }
+}
+
 /// 忽略大小写与标点来查找唤醒词，用原文偏移保留后续指令中的空格与标点。
+/// 文本与唤醒词统一转无声调拼音后做包含匹配：识别器把唤醒词写成同音字（驼/坨等）也能命中。
+/// 拼音串没有分词边界，极端情况下可能被同拼音的其他句子误唤醒，后果只是提前进入唤醒态，可接受。
 fn wake_command<'a>(text: &'a str, wake_words: &str) -> Option<&'a str> {
     let mut normalized = String::new();
     let mut original_ends = Vec::new();
     for (offset, character) in text.char_indices().filter(|(_, character)| character.is_alphanumeric()) {
-        for lower in character.to_lowercase() {
-            normalized.push(lower);
+        for letter in match_letters(character).chars() {
+            normalized.push(letter);
             original_ends.resize(normalized.len(), offset + character.len_utf8());
         }
     }
     let mut words: Vec<String> = wake_words.split([',', '，', '、'])
-        .map(|part| part.chars().filter(|c| c.is_alphanumeric()).flat_map(char::to_lowercase).collect())
+        .map(|part| {
+            let mut word = String::new();
+            for character in part.chars().filter(|character| character.is_alphanumeric()) {
+                word.push_str(&match_letters(character));
+            }
+            word
+        })
         .filter(|word: &String| !word.is_empty())
         .collect();
     words.sort_by_key(|word| std::cmp::Reverse(word.len()));
-    let (start, mut word) = words.iter().filter_map(|word| {
+    let (start, word) = words.iter().filter_map(|word| {
         normalized.find(word.as_str()).map(|start| (start, word))
     }).min_by_key(|(start, _)| *start)?;
-    let matched_end = start + word.len();
-    // 连喊宠物名字时，识别器可能重复唤醒词或加儿化尾音。仅在整段剩余都是名字时视为单独唤醒。
+    let mut matched_end = start + word.len();
+    // 连喊宠物名字时，识别器可能重复唤醒词或加儿化尾音（拼音域为 "er"）。
+    // 儿音仅在剥掉后能继续吞并重复唤醒词或直接收尾时才剥，避免误吞"二""而"等同音字。
     let mut suffix = &normalized[matched_end..];
     loop {
-        if word.ends_with(|c: char| ('\u{4e00}'..='\u{9fff}').contains(&c)) {
-            suffix = suffix.strip_prefix(['儿', '兒']).unwrap_or(suffix);
+        let stripped = suffix.strip_prefix("er").unwrap_or(suffix);
+        if stripped.is_empty() || words.iter().any(|candidate| stripped.starts_with(candidate.as_str())) {
+            matched_end += suffix.len() - stripped.len();
+            suffix = stripped;
         }
         let Some(next) = words.iter().find(|candidate| suffix.starts_with(candidate.as_str())) else { break };
+        matched_end += next.len();
         suffix = &suffix[next.len()..];
-        word = next;
     }
     if suffix.is_empty() {
         return Some("");
@@ -1425,6 +1467,20 @@ mod wake_diagnostic {
         assert_eq!(wake_command("小驼，查天气。", "小驼，小花"), Some("查天气。"));
         assert_eq!(wake_command("小驼儿，小花儿。", "小驼，小花"), Some(""));
         assert_eq!(wake_command("小何。", "小驼，小花"), None);
+    }
+
+    /// 同音字容错：识别器把"小驼"转成"小坨/小驮"等，拼音一致仍应唤醒；
+    /// 连喊后的重复唤醒词不得混入指令文本。
+    #[test]
+    fn wake_phrase_matches_homophones_and_repeats_without_leaking_into_command() {
+        assert_eq!(wake_command("小坨小坨", "小驼"), Some(""));
+        assert_eq!(wake_command("小坨，查天气。", "小驼"), Some("查天气。"));
+        assert_eq!(wake_command("小驮，开个门。", "小驼"), Some("开个门。"));
+        assert_eq!(wake_command("小驼小驼查天气", "小驼"), Some("查天气"));
+        assert_eq!(wake_command("小驼儿查天气", "小驼"), Some("儿查天气"));
+        assert_eq!(wake_command("小蜜，帮个忙", "小米"), Some("帮个忙"));
+        // 拼音不同（tu 与 tuo）不误命中。
+        assert_eq!(wake_command("小土，外面有点吵", "小驼"), None);
     }
 
     fn read_wav_mono16(path: &Path) -> Vec<f32> {
@@ -1728,20 +1784,37 @@ fn cloud_segment_transcript_xfyun(settings: &super::Settings, samples: &mut [f32
 /// 单段音频转写：开启云端识别时优先上传所选服务商（OpenAI 兼容接口或讯飞听写），失败自动回落本地 whisper。
 fn segment_transcript(app: &AppHandle, engine: &Arc<Engine>, settings: &super::Settings, len_ms: usize, samples: &mut [f32]) -> Result<String, String> {
     if settings.voice.cloud_asr_enabled {
+        // 退避期内跳过云端：连续多段空结果说明环境噪声反复触发，直接走本地识别不排队云端。
+        let skipped = engine.cloud_skip_until.lock().is_ok_and(|until| until.is_some_and(|deadline| Instant::now() < deadline));
         // openai 兼容路径沿用旧行为：未选择 AI 配置时静默走本地；讯飞路径未配置凭据时报错提示。
-        let cloud = match settings.voice.cloud_provider.as_str() {
-            "xfyun" => Some(cloud_segment_transcript_xfyun(settings, samples)),
-            _ if !settings.voice.cloud_profile_id.trim().is_empty() => Some(cloud_segment_transcript(settings, samples)),
-            _ => None,
+        let cloud = if skipped {
+            None
+        } else {
+            match settings.voice.cloud_provider.as_str() {
+                "xfyun" => Some(cloud_segment_transcript_xfyun(settings, samples)),
+                _ if !settings.voice.cloud_profile_id.trim().is_empty() => Some(cloud_segment_transcript(settings, samples)),
+                _ => None,
+            }
         };
         match cloud {
             Some(Ok(text)) if !text.trim().is_empty() => {
+                engine.cloud_empty_streak.store(0, Ordering::Relaxed);
+                if let Ok(mut until) = engine.cloud_skip_until.lock() { *until = None; }
                 log_event(&format!("segment {len_ms}ms cloud transcribed"));
                 return Ok(text);
             }
             // 云端判定无清晰语音（噪声段）：静默回落本地识别，不弹错误提示，避免环境噪声反复打扰。
-            Some(Ok(_)) => log_event(&format!("segment {len_ms}ms cloud empty")),
+            Some(Ok(_)) => {
+                let streak = engine.cloud_empty_streak.fetch_add(1, Ordering::Relaxed) + 1;
+                if streak >= CLOUD_EMPTY_BACKOFF_AFTER {
+                    engine.cloud_empty_streak.store(0, Ordering::Relaxed);
+                    if let Ok(mut until) = engine.cloud_skip_until.lock() { *until = Some(Instant::now() + CLOUD_EMPTY_BACKOFF); }
+                    log_event(&format!("cloud asr backoff {CLOUD_EMPTY_BACKOFF:?} after {streak} empty"));
+                }
+                log_event(&format!("segment {len_ms}ms cloud empty"));
+            }
             Some(Err(error)) => {
+                engine.cloud_empty_streak.store(0, Ordering::Relaxed);
                 log_event(&format!("segment {len_ms}ms cloud error: {error}"));
                 let _ = app.emit("pet-voice-error", VoiceError { message: format!("云端识别失败，已回落本地识别：{error}") });
             }
@@ -1749,7 +1822,13 @@ fn segment_transcript(app: &AppHandle, engine: &Arc<Engine>, settings: &super::S
         }
     }
     let (model, _) = resolve_model(settings)?;
-    transcribe_samples(engine, &model, &settings.voice.language, samples)
+    let text = transcribe_samples(engine, &model, &settings.voice.language, samples);
+    // 本地识别出有效内容时结束退避，后续段落恢复云端优先。
+    if text.as_ref().is_ok_and(|text| !text.trim().is_empty()) {
+        engine.cloud_empty_streak.store(0, Ordering::Relaxed);
+        if let Ok(mut until) = engine.cloud_skip_until.lock() { *until = None; }
+    }
+    text
 }
 
 /// 单段语音的处理结果：Noise 表示该段被判定为环境噪声（调用方据此抬升噪声底）。
