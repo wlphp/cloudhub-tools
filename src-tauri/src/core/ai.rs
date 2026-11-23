@@ -175,6 +175,14 @@ pub struct Preview {
     pub removed_lines: usize,
 }
 
+/// 脱敏：密钥不会以任何形式进入日志。桌面与移动端共用，避免依赖仅桌面可用的模块。
+pub fn redact(text: &str, secret: Option<&str>) -> String {
+    match secret {
+        Some(secret) if !secret.is_empty() => text.replace(secret, "***"),
+        _ => text.to_owned(),
+    }
+}
+
 pub fn preview(text: &str) -> Result<Preview, String> {
     if text.len() > 32_000 {
         return Err("分析内容过长，请选择较短片段".into());
@@ -584,7 +592,7 @@ fn pet_log_text(text: &str, key: &str) -> String {
     if text.len() > 32_000 {
         return "[字段超过记录上限]".into();
     }
-    let text = crate::core::codex::provider_logs::redact(text, Some(key));
+    let text = redact(text, Some(key));
     match preview(&text) {
         Ok(safe) if safe.removed_lines == 0 => text,
         _ => "[疑似凭据已隐藏]".into(),

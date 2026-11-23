@@ -40,13 +40,7 @@ pub struct Exchange {
     pub elapsed_ms: u64,
 }
 
-/// 脱敏：密钥不会以任何形式进入日志。
-pub fn redact(text: &str, secret: Option<&str>) -> String {
-    match secret {
-        Some(secret) if !secret.is_empty() => text.replace(secret, "***"),
-        _ => text.to_owned(),
-    }
-}
+pub use crate::core::ai::redact;
 
 fn bounded(text: &str) -> String {
     if text.chars().count() <= MAX_BODY {
