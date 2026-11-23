@@ -4,7 +4,8 @@ import { useSortableDrag } from "../../shared/useSortableDrag";
 import { useDialogDocument } from "../../shared/DialogDocument";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { AlertTriangle, ArrowDown, ArrowLeftRight, ArrowUp, Check, Copy, Download, ExternalLink, FolderOpen, GripVertical, HelpCircle, ListChecks, Loader2, Minus, MoreHorizontal, Pencil, Plus, RotateCcw, Search, Server, Star, Trash2, Wand2, Wifi } from "lucide-react";
+import { Activity, AlertTriangle, ArrowDown, ArrowLeftRight, ArrowUp, Check, Copy, Download, ExternalLink, FolderOpen, GripVertical, HelpCircle, ListChecks, Loader2, Minus, MoreHorizontal, Pencil, Plus, RotateCcw, Search, Server, Star, Trash2, Wand2, Wifi } from "lucide-react";
+import { ConnectionDiagnosticsDialog } from "../codex/CodexDiagnostics";
 import { SharedDialog } from "../../shared/SharedDialog";
 import { runningInTauri } from "../../platform/api";
 import { MoreMenu } from "../../shared/MoreMenu";
@@ -625,6 +626,7 @@ export function ClaudeProvidersPlugin({ mobile = false }: { mobile?: boolean } =
   const [viewMode, setViewMode] = useState<ClaudeMode>("direct");
   const [tab, setTab] = useState<"providers" | "usage" | "mcp" | "prompts" | "skills" | "sessions" | "config">("providers");
   const [keyword, setKeyword] = useState("");
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [aggregateStartOpen, setAggregateStartOpen] = useState(false);
   const [modelMatrixOpen, setModelMatrixOpen] = useState(false);
@@ -1029,6 +1031,7 @@ export function ClaudeProvidersPlugin({ mobile = false }: { mobile?: boolean } =
       </span>
       <span className="claude-status-bar-actions">
         <button type="button" className="secondary" disabled={Boolean(busyId) || !settingsExists} onClick={() => void run("preview-config", async () => { setConfigPreview(await claudeProvidersClient.previewSettings()); }, "")} title="只读预览完整配置文件，包含明文密钥">预览配置</button>
+        <button type="button" className="secondary" onClick={() => setDiagnosticsOpen(true)} title="查看当前配置的请求目标、模型和本机网络状态"><Activity size={13} aria-hidden="true" />连接诊断</button>
         <button type="button" className="secondary" disabled={Boolean(busyId) || routing.running || !settingsExists} onClick={() => void run("import", () => claudeWorkbenchClient.providerAction({ type: "import_current" }), "已导入当前配置")} title="读取左侧配置文件中的请求地址、Key 和模型映射，保存到供应商列表"><Download size={13} aria-hidden="true" />从当前文件导入</button>
       </span>
       </div>
@@ -1202,6 +1205,7 @@ export function ClaudeProvidersPlugin({ mobile = false }: { mobile?: boolean } =
       </div>
       {importError && <p className="claude-error" role="alert">{importError}</p>}
     </SharedDialog>}
+    {diagnosticsOpen && <ConnectionDiagnosticsDialog client="Claude Code" collect={claudeProvidersClient.diagnostics} onClose={() => setDiagnosticsOpen(false)} />}
     {configPreview && <SharedDialog sizeStorageKey="features/plugins/claude-providers-plugin/claude-providers-plugin/4" title="当前配置文件预览" subtitle={configPreview.path} onClose={() => setConfigPreview(null)} footer={<button type="button" className="secondary" onClick={() => setConfigPreview(null)}>关闭</button>}>
       <p className="claude-config-help">完整内容，只读预览，未脱敏；可能包含明文密钥、认证信息和命令，请勿直接截图或分享。</p>
       <pre className="claude-config-preview">{JSON.stringify(configPreview.document, null, 2)}</pre>

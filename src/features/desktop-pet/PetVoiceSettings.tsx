@@ -116,7 +116,7 @@ export function PetVoiceSettings({ value, quiet, onSave, disabled, petEnabled }:
           <div className="pet-life-options">
             {check("enabled", "启用语音对话", "唤醒后可连续追问，回答结束后有 20 秒可继续说话。聊天窗口可手动打开查看记录。")}
             {check("autoSend", "识别后自动执行", "关闭后识别文本填入聊天输入框，由你确认后再发送。")}
-            {check("shellEnabled", "电脑指令（CMD）", "开启后可对桌宠说“帮我执行 ipconfig”这类命令：AI 生成单条 CMD 命令，弹窗展示完整命令，你确认后才执行；命令链与高危命令（格式化、删库等）会被拒绝并记录审计日志。默认关闭。")}
+            {check("shellEnabled", "电脑指令（CMD）", "开启后可在语音或聊天中请求单条 CMD 命令。聊天会先展示完整命令，可点确认或回复“确认”后执行；语音使用确认弹窗。命令链、脚本和一批高危操作会被拒绝并记录审计日志。默认关闭。")}
             {check("speak", "语音回应", "播报唤醒提示、执行结果和语音提问的回答。")}
             <label className="pet-option"><span>桌宠勿扰<small>开启后静音语音播报和互动声音，并暂停主动提醒。</small></span><input type="checkbox" checked={draftQuiet} onChange={e => setDraftQuiet(e.target.checked)} /></label>
             {check("cloudAsrEnabled", "云端识别", "判定为人声的片段上传到所选识别服务商转写，更快更准；失败自动回落本地识别。关闭则全程本机识别。")}

@@ -9,6 +9,8 @@ use crate::core::{ai, error::PlatformResult, repositories::certificate_sync};
 const LIMIT: usize = 8;
 const SCOPES: &[(&str, &str)] = &[
     ("备忘录", "notes"),
+    ("身份验证器", "authenticator"),
+    ("验证器", "authenticator"),
     ("笔记", "notes"),
     ("证书", "certificates"),
     ("域名", "domain"),
@@ -25,6 +27,8 @@ const SCOPES: &[(&str, &str)] = &[
     ("ESA", "esa"),
     ("云资源", "assets"),
     ("云资产", "assets"),
+    ("多云账号", "accounts"),
+    ("多云账户", "accounts"),
     ("云账号", "accounts"),
     ("云账户", "accounts"),
     ("受管主机", "hosts"),
@@ -34,7 +38,23 @@ const SCOPES: &[(&str, &str)] = &[
     ("宝塔面板", "panels"),
     ("面板", "panels"),
 ];
-const HELP: &str = "用法：查备忘录 项目交接、查证书、查域名 example.com、查云服务器、查云资源。也可以查云账号、轻量服务器、数据库、Redis、对象存储、边缘站点、受管主机和面板。";
+const HELP: &str = "用法：查备忘录 项目交接、查身份验证器、查多云账号、查余额 账号名称、查证书、查域名 example.com、查云服务器、查云资源。验证器查询仅显示条目名称，验证码请在验证器中查看。";
+
+fn balance_query(message: &str) -> Option<&str> {
+    let (before, after) = message.split_once("余额")?;
+    let prefix = ["查一下", "查查", "查询", "查看", "查", "看看"]
+        .into_iter().find_map(|prefix| before.trim().strip_prefix(prefix));
+    let name = prefix.unwrap_or(before).trim().trim_end_matches(['的', ' ']);
+    let tail = after.trim().trim_end_matches(['啊', '呀', '吗', '呢', '吧', ' ']);
+    if prefix.is_some() && name.is_empty() {
+        return Some(after.trim_start_matches([':', '：', ' ']).trim_end());
+    }
+    let question = matches!(tail, "还有多少" | "还剩多少" | "剩多少" | "有多少" | "是多少" | "多少" | "还剩多少钱" | "还有多少钱" | "有多少钱");
+    if question || (prefix.is_some() && tail.is_empty()) {
+        return Some(name);
+    }
+    None
+}
 
 fn query(message: &str) -> Option<(&'static str, &str)> {
     let message = message
@@ -45,7 +65,11 @@ fn query(message: &str) -> Option<(&'static str, &str)> {
         .unwrap_or(message)
         .trim_start_matches(['，', ',', ' ']);
     let message = message.strip_prefix("请").unwrap_or(message).trim_start();
-    let message = message.strip_prefix("帮我").unwrap_or(message).trim_start();
+    let message = message.strip_prefix("你帮我").or_else(|| message.strip_prefix("帮我"))
+        .unwrap_or(message).trim_start();
+    if let Some(name) = balance_query(message) {
+        return Some(("balance", name));
+    }
     let lower = message.to_ascii_lowercase();
     if matches!(
         lower.as_str(),
@@ -76,6 +100,8 @@ fn query(message: &str) -> Option<(&'static str, &str)> {
         return Some(("notes", rest.trim()));
     }
     let rest = [
+        "查看",
+        "读取",
         "查一下",
         "查找",
         "查询",
@@ -89,6 +115,7 @@ fn query(message: &str) -> Option<(&'static str, &str)> {
     .into_iter()
     .find_map(|prefix| message.strip_prefix(prefix))?
     .trim_start();
+    let rest = rest.strip_prefix("我的").unwrap_or(rest).trim_start();
     let rest = rest
         .strip_prefix("云枢")
         .unwrap_or(rest)
@@ -244,6 +271,71 @@ fn certificates(db: &Connection, scope: &str, term: &str) -> Result<Vec<String>,
         .collect())
 }
 
+fn balance_key(value: &str) -> String {
+    value.chars().filter(|c| !c.is_whitespace() && !matches!(c, '-' | '－' | '–' | '—'))
+        .flat_map(char::to_lowercase).collect()
+}
+
+fn account_balance(db: &Connection, term: &str) -> rusqlite::Result<String> {
+    let phrase = balance_key(term);
+    if phrase.is_empty() {
+        return Ok("请提供云枢账号名称，例如「查余额 生产阿里云」。".into());
+    }
+    let mut stmt = db.prepare(
+        "SELECT a.account_name, a.cloud_type, a.enabled, b.payload_json, b.fetched_at
+         FROM cloud_accounts a LEFT JOIN cloud_account_balances b ON b.account_id=a.id AND b.cloud_type=a.cloud_type
+         WHERE a.deleted_at IS NULL ORDER BY a.sort_order, a.id",
+    )?;
+    let mut rows = stmt.query([])?;
+    let mut exact = Vec::new();
+    let mut partial = Vec::new();
+    let alias = phrase.strip_prefix("我的").filter(|alias| !alias.is_empty());
+    while let Some(row) = rows.next()? {
+        let name: String = row.get(0)?;
+        let key = balance_key(&name);
+        let list = if key == phrase { &mut exact }
+            else if key.contains(&phrase) || alias.is_some_and(|alias| key.contains(alias)) { &mut partial }
+            else { continue };
+        if list.len() <= LIMIT {
+            list.push((name, row.get::<_, String>(1)?, row.get::<_, bool>(2)?, row.get::<_, Option<String>>(3)?, row.get::<_, Option<i64>>(4)?));
+        }
+    }
+    let mut matches = if exact.is_empty() { partial } else { exact };
+    if matches.is_empty() {
+        return Ok("没有找到匹配的云账号，请使用账号管理中的名称再试。".into());
+    }
+    if matches.len() > 1 {
+        let names = matches.iter().take(LIMIT).map(|item| safe_text(&item.0, 100)).collect::<Vec<_>>().join("、");
+        return Ok(format!("找到多个云账号：{names}。请提供更完整的名称再查余额。"));
+    }
+    let (name, cloud, enabled, payload, time) = matches.pop().expect("one matching account");
+    let name = safe_text(&name, 100);
+    if !enabled { return Ok(format!("「{name}」已停用。")); }
+    if !crate::cloud::finance::supports_balance(&cloud) {
+        return Ok(format!("云枢当前未接入「{name}」的余额查询。"));
+    }
+    let payload = payload.and_then(|value| serde_json::from_str::<serde_json::Value>(&value).ok());
+    let Some(payload) = payload else {
+        return Ok(format!("「{name}」暂无本地余额缓存，可在账号管理中刷新余额。"));
+    };
+    let last_check = time.and_then(DateTime::from_timestamp_millis).map(|time| {
+        format!("缓存更新时间：{}。", time.with_timezone(&Local).format("%Y-%m-%d %H:%M"))
+    }).unwrap_or_default();
+    let amount = ["available_amount", "available_cash_amount"].into_iter()
+        .find_map(|field| payload.get(field).and_then(serde_json::Value::as_f64));
+    if payload["balance_status"].as_str() == Some("ok") {
+        if let Some(amount) = amount {
+            let currency = payload["currency"].as_str()
+                .filter(|code| code.len() == 3 && code.bytes().all(|ch| ch.is_ascii_uppercase()))
+                .map(str::to_owned)
+                .or_else(|| crate::cloud::finance::default_currency(&cloud).as_str().map(str::to_owned))
+                .unwrap_or_default();
+            return Ok(format!("「{name}」的本地缓存可用余额为 {amount:.2} {currency}。\n{last_check}"));
+        }
+    }
+    Ok(format!("「{name}」最近一次查询未取得可用余额，可在账号管理中重试。\n{last_check}"))
+}
+
 fn summaries(db: &Connection, scope: &str, term: &str) -> rusqlite::Result<Vec<String>> {
     let sql = match scope {
         "accounts" => "SELECT account_name, cloud_type || ' · ' || CASE WHEN enabled=1 THEN '启用' ELSE '停用' END
@@ -326,8 +418,23 @@ pub async fn pet_chat_lookup(
     let response = tauri::async_runtime::spawn_blocking(move || {
         let db = open_db().map_err(|_| "无法打开云枢本地资料")?;
         crate::commands::app_lock::require_unlocked(&app, &db)?;
+        if scope == "balance" {
+            let reply = account_balance(&db, &term).map_err(|_| "无法读取本地余额缓存")?;
+            crate::commands::app_lock::require_unlocked(&app, &db)?;
+            return Ok(reply);
+        }
         let items = match scope {
             "notes" => notes(&db, &term).map_err(|_| "无法查询备忘录")?,
+            "authenticator" => {
+                use tauri::Manager;
+                let store = app.state::<crate::core::authenticator::vault::VaultStore>();
+                crate::commands::authenticator::pet_entry_labels(&store)?
+                    .into_iter()
+                    .filter(|(issuer, account)| issuer.to_ascii_lowercase().contains(&term) || account.to_ascii_lowercase().contains(&term))
+                    .take(LIMIT + 1)
+                    .map(|(issuer, account)| format!("{} · {}", safe_text(&issuer, 100), safe_text(&account, 100)))
+                    .collect()
+            }
             "certificates" | "expiry" => certificates(&db, scope, &term)?,
             _ => summaries(&db, scope, &term).map_err(|_| "无法查询云枢本地资料")?,
         };
@@ -367,12 +474,41 @@ mod tests {
             Some(("domain", "example.com"))
         );
         assert_eq!(query("查 Redis 生产"), Some(("redis", "生产")));
+        assert_eq!(query("帮我读取我的身份验证器 GitHub"), Some(("authenticator", "GitHub")));
+        assert_eq!(query("查多云账号 生产"), Some(("accounts", "生产")));
+        assert_eq!(query("我的阿里云 - 生产 余额还有多少啊"), Some(("balance", "我的阿里云 - 生产")));
+        assert_eq!(query("帮我查一下阿里云的余额"), Some(("balance", "阿里云")));
+        assert_eq!(query("查余额：生产腾讯云"), Some(("balance", "生产腾讯云")));
+        assert_eq!(query("怎么查余额？"), None);
         assert_eq!(
             query("哪些证书 30 天内到期？"),
             Some(("expiry", "哪些证书 30 天内到期"))
         );
         assert_eq!(query("现在几点了？"), Some(("time", "")));
         assert_eq!(query("怎么在备忘录里加一条记录？"), None);
+    }
+
+    #[test]
+    fn balances_use_exact_accounts_and_treat_zero_as_a_valid_cached_amount() {
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch(
+            "CREATE TABLE cloud_accounts(id INTEGER PRIMARY KEY, account_name TEXT, cloud_type TEXT, enabled INTEGER, sort_order INTEGER, deleted_at INTEGER);
+             INSERT INTO cloud_accounts VALUES
+                (1,'我的阿里云-生产','aliyun',1,0,NULL),
+                (2,'我的阿里云-生产备用','aliyun',1,1,NULL),
+                (3,'我的阿里云-删除','aliyun',1,2,123),
+                (4,'腾讯云测试','tencent',1,3,NULL);",
+        ).unwrap();
+        db.execute_batch(crate::core::database::CLOUD_ACCOUNT_BALANCES_SCHEMA).unwrap();
+        crate::core::repositories::balances::upsert(&db, 1, "aliyun",
+            &serde_json::json!({"balance_status":"ok","available_amount":0.0,"currency":"CNY","balance_message":"内部信息"}),
+            1_800_000_000_000).unwrap();
+        let result = account_balance(&db, "我的阿里云 — 生产").unwrap();
+        assert!(result.contains("0.00 CNY") && result.contains("缓存更新时间"));
+        assert!(!result.contains("生产备用") && !result.contains("内部信息"));
+        let ambiguous = account_balance(&db, "阿里云").unwrap();
+        assert!(ambiguous.contains("找到多个") && !ambiguous.contains("阿里云-删除"));
+        assert!(account_balance(&db, "腾讯云测试").unwrap().contains("暂无本地余额缓存"));
     }
 
     #[test]

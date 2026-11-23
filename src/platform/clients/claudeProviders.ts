@@ -1,3 +1,4 @@
+import type { CodexDiagnosticsReport } from "./codex";
 import { invokeOrWeb, jsonRequest, nativeOnly } from "./base";
 import type { ProviderUsage } from "./codex-providers";
 
@@ -155,5 +156,6 @@ export const claudeProvidersClient = {
   switchTo: (id: string) => invokeOrWeb<void>("claude_provider_switch", { id }, post("switch", { id })),
   restoreBackup: (backupId?: number) => invokeOrWeb<void>("claude_provider_restore_backup", backupId == null ? undefined : { backupId }, post("restore_backup", backupId == null ? {} : { backupId })),
   currentSettings: () => invokeOrWeb<unknown>("claude_provider_current_settings", undefined, post("current_settings")),
+  diagnostics: () => nativeOnly<CodexDiagnosticsReport>("claude_connection_diagnostics"),
   previewSettings: () => nativeOnly<{ path: string; document: unknown }>("claude_provider_current_settings", { preview: true }),
 };

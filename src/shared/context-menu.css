@@ -1,0 +1,64 @@
+/*
+ * 通用右键菜单外观。定位与开合由 src/shared/ContextMenu.tsx 负责，
+ * 这里只镜像「更多」下拉的表面、层级与紧凑尺寸，避免各业务页另做一套视觉。
+ */
+.shared-context-menu {
+  position: fixed;
+  z-index: var(--ui-z-dropdown, 1000);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 158px;
+  padding: 4px;
+  border: 1px solid var(--jb-border-strong);
+  border-radius: 8px;
+  background: var(--jb-surface);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, .45);
+  font: 12px/1.4 "Segoe UI", "Microsoft YaHei", sans-serif;
+}
+.shared-context-menu > button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 30px;
+  padding: 6px 9px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--jb-text);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.shared-context-menu > button:hover:not(:disabled),
+.shared-context-menu > button:focus-visible:not(:disabled) {
+  background: var(--jb-surface-3);
+  color: var(--jb-text);
+}
+.shared-context-menu > button:disabled {
+  opacity: .45;
+  cursor: default;
+}
+.shared-context-menu > button.danger {
+  color: var(--jb-danger);
+}
+.shared-context-menu .shared-context-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  color: var(--jb-muted);
+}
+.shared-context-menu > button.danger .shared-context-icon {
+  color: var(--jb-danger);
+}
+.shared-context-menu .shared-context-label {
+  flex: 1;
+  min-width: 0;
+}
+.shared-context-menu .shared-context-separator {
+  height: 1px;
+  margin: 3px 4px;
+  background: var(--jb-border);
+}

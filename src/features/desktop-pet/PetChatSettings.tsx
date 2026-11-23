@@ -1,23 +1,28 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { ArrowLeft, Bell, Box, ChevronRight, Info, LayoutGrid, MessageCircle, Mic, Paperclip } from "lucide-react";
+import { ArrowLeft, Bell, Box, ChevronRight, History, Info, LayoutGrid, MessageCircle, Mic, Paperclip, Terminal } from "lucide-react";
 import { version } from "../../../package.json";
 import { platformErrorMessage } from "../../platform/api";
 import { desktopPetClient as client, type PetSettings, type PetSpeechPreset } from "../../platform/clients/desktopPet";
 import { petAppearances } from "./appearances";
 import { PetPortrait } from "./PetPortrait";
 import { PetSpeechPresets } from "./PetSpeechPresets";
+import { PetChatCalls } from "./PetChatCalls";
+import { PetActivityHistory } from "./PetActivityHistory";
 
-export type PetChatPage = "chat" | "settings" | "general" | "alerts" | "skills" | "about";
+export type PetChatPage = "chat" | "settings" | "general" | "alerts" | "calls" | "operations" | "voiceHistory" | "skills" | "about";
 
 const pages = {
   settings: "设置",
   general: "通用设置",
   alerts: "查看提醒",
-  skills: "全部技能",
+  calls: "模型调用记录",
+  operations: "本地操作记录",
+  voiceHistory: "语音识别记录",
+  skills: "本机助手",
   about: "关于桌宠",
 };
 
-export function PetChatSettings({ page, onPageChange, settings, ready, serviceControls, skillsActions, alerts, supportsImages, canTry, onSave, onTry, onVoicePreview }: {
+export function PetChatSettings({ page, onPageChange, settings, ready, serviceControls, skillsActions, alerts, supportsImages, canTry, canTryLocal, onSave, onTry, onVoicePreview }: {
   page: Exclude<PetChatPage, "chat">;
   onPageChange: (page: PetChatPage) => void;
   settings: PetSettings;
@@ -27,6 +32,7 @@ export function PetChatSettings({ page, onPageChange, settings, ready, serviceCo
   alerts: { count: number; page: ReactNode };
   supportsImages: boolean;
   canTry: boolean;
+  canTryLocal: boolean;
   onSave: (settings: PetSettings) => Promise<void>;
   onTry: (prompt: string) => void;
   onVoicePreview: (preset: PetSpeechPreset) => Promise<void>;
@@ -34,6 +40,7 @@ export function PetChatSettings({ page, onPageChange, settings, ready, serviceCo
   const title = useRef<HTMLHeadingElement>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [promptDraft, setPromptDraft] = useState<string | null>(null);
   const name = petAppearances[settings.appearance].label;
 
   useEffect(() => { title.current?.focus(); }, [page]);
@@ -41,8 +48,8 @@ export function PetChatSettings({ page, onPageChange, settings, ready, serviceCo
   async function save(next: PetSettings) {
     setSaving(true);
     setError("");
-    try { await onSave(next); }
-    catch (e) { setError(platformErrorMessage(e)); }
+    try { await onSave(next); return true; }
+    catch (e) { setError(platformErrorMessage(e)); return false; }
     finally { setSaving(false); }
   }
 
@@ -66,11 +73,31 @@ export function PetChatSettings({ page, onPageChange, settings, ready, serviceCo
       <nav className="pet-chat-settings-group" aria-label="桌宠设置">
         <button type="button" onClick={() => onPageChange("general")}><LayoutGrid size={19} aria-hidden="true" />通用设置<ChevronRight size={16} aria-hidden="true" /></button>
         <button type="button" onClick={() => onPageChange("alerts")}><Bell size={19} aria-hidden="true" />查看提醒{alerts.count > 0 && <small className="pet-chat-alert-count">{alerts.count} 项待处理</small>}<ChevronRight size={16} aria-hidden="true" /></button>
-        <button type="button" onClick={() => onPageChange("skills")}><Box size={19} aria-hidden="true" />全部技能<ChevronRight size={16} aria-hidden="true" /></button>
+        <button type="button" onClick={() => onPageChange("calls")}><History size={19} aria-hidden="true" />模型调用记录<ChevronRight size={16} aria-hidden="true" /></button>
+        <button type="button" onClick={() => onPageChange("operations")}><Terminal size={19} aria-hidden="true" />本地操作记录<ChevronRight size={16} aria-hidden="true" /></button>
+        <button type="button" onClick={() => onPageChange("voiceHistory")}><Mic size={19} aria-hidden="true" />语音识别记录<ChevronRight size={16} aria-hidden="true" /></button>
+        <button type="button" onClick={() => onPageChange("skills")}><Box size={19} aria-hidden="true" />本机助手<ChevronRight size={16} aria-hidden="true" /></button>
         <button type="button" onClick={() => onPageChange("about")}><Info size={19} aria-hidden="true" />关于桌宠<ChevronRight size={16} aria-hidden="true" /></button>
       </nav>
     </>}
+    {page === "calls" && <PetChatCalls />}
+    {page === "operations" && <PetActivityHistory key="operation" kind="operation" />}
+    {page === "voiceHistory" && <PetActivityHistory key="voice" kind="voice" />}
     {page === "general" && <>
+      <section className="pet-chat-settings-section">
+        <h2>聊天提示词</h2>
+        <div className="pet-chat-prompt pet-chat-settings-group">
+          <label htmlFor="pet-chat-prompt">角色、语气和回复偏好</label>
+          <textarea id="pet-chat-prompt" rows={4} maxLength={2000} disabled={!ready || saving}
+            value={promptDraft ?? settings.chatPrompt ?? ""} onChange={event => setPromptDraft(event.target.value)} />
+          <div className="pet-chat-prompt-actions">
+            <button type="button" className="pet-chat-pill" disabled={!ready || saving || promptDraft === null}
+              onClick={() => void save({ ...settings, chatPrompt: promptDraft ?? "" }).then(saved => { if (saved) setPromptDraft(null); })}>保存提示词</button>
+            <button type="button" className="pet-chat-pill" disabled={!ready || saving}
+              onClick={() => void save({ ...settings, chatPrompt: "" }).then(saved => { if (saved) setPromptDraft(null); })}>恢复默认</button>
+          </div>
+        </div>
+      </section>
       <section className="pet-chat-settings-section">
         <h2>桌宠形象</h2>
         <div className="pet-chat-appearances" role="group" aria-label="桌宠形象">
@@ -109,6 +136,20 @@ export function PetChatSettings({ page, onPageChange, settings, ready, serviceCo
     {page === "alerts" && alerts.page}
     {page === "skills" && <div className="pet-chat-skills">
       {skillsActions}
+      <p className="pet-agent-intro">通过聊天调用本机能力；涉及电脑操作时会先请求确认。当前可查本地备忘录、身份验证器和多云账号，也支持调整屏幕亮度、创建桌面文件夹及少量电脑操作。更多文件与目录工具尚未接入。</p>
+      <article className="pet-chat-settings-group">
+        <h2><Box size={18} aria-hidden="true" />本机指令</h2>
+        {["查备忘录", "查身份验证器", "查多云账号", "屏幕亮度调到 30%", "在桌面创建两个空文件夹", "在桌面新建一个 HTML 网页"].map(prompt => <div key={prompt} className="pet-chat-skill-row">
+          <span>{prompt}</span><button type="button" className="pet-chat-pill" disabled={!canTryLocal} aria-label={`试试${prompt}`} onClick={() => onTry(prompt)}>试试</button>
+        </div>)}
+      </article>
+      <article className="pet-chat-settings-group">
+        <h2><Terminal size={18} aria-hidden="true" />电脑操作</h2>
+        {["锁定电脑", "打开文件资源管理器", "打开任务管理器"].map(prompt => <div key={prompt} className="pet-chat-skill-row">
+          <span>{prompt}</span><button type="button" className="pet-chat-pill" disabled={!canTryLocal} aria-label={`试试${prompt}`} onClick={() => onTry(prompt)}>试试</button>
+        </div>)}
+        <small>关机与重启只在 Windows 桌面客户端提供，并会显示确认步骤。</small>
+      </article>
       <article className="pet-chat-settings-group">
         <h2><MessageCircle size={18} aria-hidden="true" />聊天问答</h2>
         {["你会做什么？", "分享一个有趣的知识", "帮我整理今天的待办"].map(prompt => <div key={prompt} className="pet-chat-skill-row">

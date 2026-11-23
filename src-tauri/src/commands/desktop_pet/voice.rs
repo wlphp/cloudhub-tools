@@ -66,6 +66,7 @@ pub struct Engine {
     speech_generation: AtomicU64,
     speech_tail: Mutex<Option<Instant>>,
     speech_requests: tokio::sync::Mutex<()>,
+    prepared_speech: Mutex<Vec<PreparedSpeech>>,
     download_name: Mutex<Option<String>>,
     download_cancel: AtomicBool,
     /// 运行诊断：实际采集设备名与分段计数（不含任何转写文本，便于界面直读）。
@@ -405,6 +406,7 @@ $locale = [Globalization.CultureInfo]::GetCultureInfo($env:CLOUDHUB_PET_SPEECH_L
 $gender = $env:CLOUDHUB_PET_SPEECH_GENDER
 $pitch = $env:CLOUDHUB_PET_SPEECH_PITCH
 $rate = $env:CLOUDHUB_PET_SPEECH_RATE
+$prepare = $env:CLOUDHUB_PET_SPEECH_PREPARE -eq '1'
 
 # Windows Settings installs voices in the Windows Runtime catalog. Keep the classic
 # synthesizer available for voices supplied only through the legacy catalog.
@@ -446,8 +448,12 @@ if ($gender -ne 'NotSet') {
         try {
             $stream = [IO.WindowsRuntimeStreamExtensions]::AsStreamForRead($audio.GetInputStreamAt(0))
             try {
-                $player = [Media.SoundPlayer]::new($stream)
-                try { $player.PlaySync() } finally { $player.Dispose() }
+                if ($prepare) {
+                    $stream.CopyTo([Console]::OpenStandardOutput())
+                } else {
+                    $player = [Media.SoundPlayer]::new($stream)
+                    try { $player.PlaySync() } finally { $player.Dispose() }
+                }
             } finally {
                 $stream.Dispose()
             }
@@ -460,8 +466,14 @@ if ($gender -ne 'NotSet') {
 
 Add-Type -AssemblyName System.Speech
 $speech = [System.Speech.Synthesis.SpeechSynthesizer]::new()
+$wave = $null
 try {
-    $speech.SetOutputToDefaultAudioDevice()
+    if ($prepare) {
+        $wave = [IO.MemoryStream]::new()
+        $speech.SetOutputToWaveStream($wave)
+    } else {
+        $speech.SetOutputToDefaultAudioDevice()
+    }
     if ($gender -eq 'NotSet') {
         $speech.SelectVoiceByHints([System.Speech.Synthesis.VoiceGender]::NotSet,
             [System.Speech.Synthesis.VoiceAge]::NotSet, 0, $locale)
@@ -478,17 +490,32 @@ try {
         $language = $voice.Culture.Name
         $speech.SpeakSsml("<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='$language'><prosody pitch='$pitch' rate='$rate'>$escaped</prosody></speak>")
     }
+    if ($prepare) {
+        $speech.SetOutputToNull()
+        $wave.WriteTo([Console]::OpenStandardOutput())
+    }
 } finally {
     $speech.Dispose()
+    if ($null -ne $wave) { $wave.Dispose() }
 }
 "#;
 
+struct PreparedSpeech {
+    id: uuid::Uuid,
+    generation: u64,
+    voice: super::VoiceSettings,
+    text: String,
+    audio: mimo::PcmVoice,
+}
+
 #[tauri::command]
-pub async fn pet_voice_speak(window: tauri::WebviewWindow, app: AppHandle, text: Option<String>, interrupt: bool, preview_preset: Option<super::SpeechPreset>) -> PlatformResult<()> {
+pub async fn pet_voice_speak(window: tauri::WebviewWindow, app: AppHandle, text: Option<String>, interrupt: bool, preview_preset: Option<super::SpeechPreset>, prepare_id: Option<uuid::Uuid>, prepared_id: Option<uuid::Uuid>) -> PlatformResult<()> {
     chat_caller(&window)?;
     let engine = app.state::<PetStore>().voice.clone();
     let generation = if interrupt || text.is_none() || preview_preset.is_some() {
-        engine.speech_generation.fetch_add(1, Ordering::SeqCst) + 1
+        let generation = engine.speech_generation.fetch_add(1, Ordering::SeqCst) + 1;
+        if let Ok(mut prepared) = engine.prepared_speech.lock() { prepared.clear(); }
+        generation
     } else {
         engine.speech_generation.load(Ordering::SeqCst)
     };
@@ -497,19 +524,75 @@ pub async fn pet_voice_speak(window: tauri::WebviewWindow, app: AppHandle, text:
         if text.trim().is_empty() { return Ok(()) }
         if text.chars().count() > 16_000 { return Err(chat_error("语音播报文本过长".into())); }
     }
-    speak_native(&app, &engine, generation, text.unwrap_or_default(), preview_preset).await.map_err(chat_error)
+    let text = text.unwrap_or_default();
+    if let Some(id) = prepare_id {
+        if !interrupt && preview_preset.is_none() && prepared_id.is_none() {
+            prepare_speech(&engine, generation, id, text).await.map_err(chat_error)?;
+        }
+        return Ok(());
+    }
+    speak_native(&app, &engine, generation, text, preview_preset, prepared_id).await.map_err(chat_error)
 }
 
-async fn speak_native(app: &AppHandle, engine: &Arc<Engine>, generation: u64, text: String, preview_preset: Option<super::SpeechPreset>) -> Result<(), String> {
+async fn prepare_speech(engine: &Arc<Engine>, generation: u64, id: uuid::Uuid, text: String) -> Result<(), String> {
+    let settings = read_settings()?;
+    if settings.quiet || !settings.voice.enabled || !settings.voice.speak { return Ok(()); }
+    let audio = if let Some(voice) = settings.voice.speech_preset.mimo_voice() {
+        let synthesis = mimo::synthesize(&settings.voice.speech_mimo_profile_id, voice, &text, &settings.voice.language);
+        tokio::pin!(synthesis);
+        loop {
+            tokio::select! {
+                result = &mut synthesis => break result?,
+                _ = tokio::time::sleep(Duration::from_millis(50)) => {
+                    if engine.speech_generation.load(Ordering::SeqCst) != generation { return Ok(()); }
+                }
+            }
+        }
+    } else {
+        #[cfg(windows)]
+        {
+            let input = speech_text(&text, &settings.voice.language);
+            let voice = settings.voice.clone();
+            let engine = engine.clone();
+            tauri::async_runtime::spawn_blocking(move || prepare_windows(&engine, generation, &voice, &input))
+                .await.map_err(|_| "声音预合成任务失败")??
+        }
+        #[cfg(not(windows))]
+        return Ok(());
+    };
+    if let Ok(mut prepared) = engine.prepared_speech.lock() {
+        if engine.speech_generation.load(Ordering::SeqCst) == generation {
+            prepared.retain(|item| item.generation == generation && item.id != id);
+            if prepared.len() == 2 { prepared.remove(0); }
+            prepared.push(PreparedSpeech { id, generation, voice: settings.voice, text, audio });
+        }
+    }
+    Ok(())
+}
+
+async fn speak_native(app: &AppHandle, engine: &Arc<Engine>, generation: u64, text: String, preview_preset: Option<super::SpeechPreset>, prepared_id: Option<uuid::Uuid>) -> Result<(), String> {
     let _request = engine.speech_requests.lock().await;
     if engine.speech_generation.load(Ordering::SeqCst) != generation { return Ok(()); }
     let settings = read_settings()?;
     if settings.quiet || (preview_preset.is_none() && (!settings.voice.enabled || !settings.voice.speak)) { return Ok(()); }
     let _activity = VoiceActivity::start(app, "pet-voice-playing", generation);
+    let prepared = prepared_id.and_then(|id| {
+        let mut prepared = engine.prepared_speech.lock().ok()?;
+        let index = prepared.iter().position(|item| item.id == id && item.generation == generation
+            && item.voice == settings.voice && item.text == text)?;
+        Some(prepared.remove(index).audio)
+    });
+    if let Some(audio) = prepared {
+        let app = app.clone();
+        let playback_engine = engine.clone();
+        let played = tauri::async_runtime::spawn_blocking(move || mimo::play(&playback_engine, generation, audio, &app)).await;
+        if matches!(played, Ok(Ok(()))) { return Ok(()); }
+        if engine.speech_generation.load(Ordering::SeqCst) != generation { return Ok(()); }
+    }
     let preset = preview_preset.unwrap_or(settings.voice.speech_preset);
     if let Some(voice) = preset.mimo_voice() {
         let content = if preview_preset.is_some() { "嗯，我在。有什么需要我帮忙的吗？" } else { &text };
-        let synthesis = mimo::synthesize(&settings.voice.speech_mimo_profile_id, voice, content);
+        let synthesis = mimo::synthesize(&settings.voice.speech_mimo_profile_id, voice, content, &settings.voice.language);
         tokio::pin!(synthesis);
         let audio = loop {
             tokio::select! {
@@ -562,23 +645,39 @@ pub fn pet_voice_continue(window: tauri::WebviewWindow, app: AppHandle, command_
     Ok(())
 }
 
+fn speech_text(text: &str, language: &str) -> String {
+    let dot = if language == "en" { " dot " } else { " 点 " };
+    let mut result = String::with_capacity(text.len());
+    let mut start = 0;
+    for (index, ch) in text.char_indices().chain(std::iter::once((text.len(), '\0'))) {
+        if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '/') { continue; }
+        let original = &text[start..index];
+        let domain = original.trim_end_matches('.');
+        let looks_like_domain = domain.rsplit_once('.').is_some_and(|(prefix, suffix)| {
+            !prefix.is_empty() && !prefix.contains('/') && suffix.len() >= 2
+                && suffix.bytes().all(|letter| letter.is_ascii_alphabetic())
+                && prefix.split('.').all(|label| !label.is_empty() && label.bytes().any(|letter| letter.is_ascii_alphanumeric()))
+        });
+        if original.eq_ignore_ascii_case("ICP/IP") {
+            result.push_str(if language == "en" { "I C P, I P" } else { "I C P，I P" });
+        } else if looks_like_domain {
+            result.push_str(&domain.replace('.', dot));
+            result.push_str(&original[domain.len()..]);
+        } else {
+            result.push_str(original);
+        }
+        if index < text.len() && ch != '`' { result.push(ch); }
+        start = index + ch.len_utf8();
+    }
+    result
+}
+
 #[cfg(windows)]
-fn speak_windows(engine: &Engine, generation: u64, text: &str, preview_preset: Option<super::SpeechPreset>) -> Result<(), String> {
+fn windows_speech_child(voice: &super::VoiceSettings, preset: super::SpeechPreset, prepare: bool) -> Result<std::process::Child, String> {
     use std::{os::windows::process::CommandExt, process::{Command, Stdio}};
     use super::SpeechPreset;
-
     let error = || "Windows 语音播报失败，请检查默认播放设备和系统语音包".to_string();
-    let _speech = engine.speech_lock.lock().map_err(|_| error())?;
-    if engine.speech_generation.load(Ordering::SeqCst) != generation { return Ok(()) }
-    let settings = read_settings()?;
-    if settings.quiet || (preview_preset.is_none() && (!settings.voice.enabled || !settings.voice.speak)) { return Ok(()) }
-    let locale = if settings.voice.language == "en" { "en-US" } else { "zh-CN" };
-    let text = match (preview_preset, locale) {
-        (Some(_), "en-US") => "Hello, I'm your desktop companion. I'll be here whenever you need me.",
-        (Some(_), _) => "你好，我是你的桌面伙伴。有需要的时候，随时叫我。",
-        (None, _) => text,
-    };
-    let preset = preview_preset.unwrap_or(settings.voice.speech_preset);
+    let locale = if voice.language == "en" { "en-US" } else { "zh-CN" };
     let (gender, pitch, rate) = match preset {
         SpeechPreset::System | SpeechPreset::MimoBingtang | SpeechPreset::MimoMoli => ("NotSet", "+0%", "+0%"),
         SpeechPreset::Warm => ("Female", "+12%", "-8%"),
@@ -589,16 +688,62 @@ fn speak_windows(engine: &Engine, generation: u64, text: &str, preview_preset: O
     let program = std::env::var_os("SystemRoot").map(PathBuf::from).ok_or_else(error)?
         .join("System32/WindowsPowerShell/v1.0/powershell.exe");
     // 播报内容仅通过 stdin 交给固定脚本，避免将对话内容放在命令行或诊断日志中。
-    let mut child = Command::new(program)
+    Command::new(program)
         .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", WINDOWS_SPEECH_SCRIPT])
         .env("CLOUDHUB_PET_SPEECH_LOCALE", locale)
         .env("CLOUDHUB_PET_SPEECH_GENDER", gender)
         .env("CLOUDHUB_PET_SPEECH_PITCH", pitch)
         .env("CLOUDHUB_PET_SPEECH_RATE", rate)
         .env("CLOUDHUB_PET_SPEECH_ALTERNATE", if preset == SpeechPreset::Bright { "1" } else { "0" })
+        .env("CLOUDHUB_PET_SPEECH_PREPARE", if prepare { "1" } else { "0" })
         .creation_flags(0x0800_0000)
-        .stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::null())
-        .spawn().map_err(|_| error())?;
+        .stdin(Stdio::piped()).stdout(if prepare { Stdio::piped() } else { Stdio::null() }).stderr(Stdio::null())
+        .spawn().map_err(|_| error())
+}
+
+#[cfg(windows)]
+fn prepare_windows(engine: &Engine, generation: u64, voice: &super::VoiceSettings, text: &str) -> Result<mimo::PcmVoice, String> {
+    use std::io::Read;
+    let error = || "无法预合成 Windows 语音".to_string();
+    let mut child = windows_speech_child(voice, voice.speech_preset, true)?;
+    let stdout = child.stdout.take().ok_or_else(error)?;
+    let reader = std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        stdout.take(16 * 1024 * 1024).read_to_end(&mut bytes).map(|_| bytes)
+    });
+    let deadline = Instant::now() + Duration::from_secs(12);
+    let result = (|| {
+        child.stdin.take().ok_or_else(error)?.write_all(text.as_bytes()).map_err(|_| error())?;
+        loop {
+            if engine.speech_generation.load(Ordering::SeqCst) != generation || Instant::now() >= deadline {
+                return Err(error());
+            }
+            if let Some(status) = child.try_wait().map_err(|_| error())? {
+                return if status.success() { Ok(()) } else { Err(error()) };
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+    })();
+    if result.is_err() { let _ = child.kill(); let _ = child.wait(); }
+    let bytes = reader.join().map_err(|_| error())?.map_err(|_| error())?;
+    result?;
+    mimo::parse_wave(&bytes).ok_or_else(error)
+}
+
+#[cfg(windows)]
+fn speak_windows(engine: &Engine, generation: u64, text: &str, preview_preset: Option<super::SpeechPreset>) -> Result<(), String> {
+    let error = || "Windows 语音播报失败，请检查默认播放设备和系统语音包".to_string();
+    let _speech = engine.speech_lock.lock().map_err(|_| error())?;
+    if engine.speech_generation.load(Ordering::SeqCst) != generation { return Ok(()) }
+    let settings = read_settings()?;
+    if settings.quiet || (preview_preset.is_none() && (!settings.voice.enabled || !settings.voice.speak)) { return Ok(()) }
+    let text = match (preview_preset, settings.voice.language.as_str()) {
+        (Some(_), "en") => "Hello, I'm your desktop companion. I'll be here whenever you need me.",
+        (Some(_), _) => "你好，我是你的桌面伙伴。有需要的时候，随时叫我。",
+        (None, _) => text,
+    };
+    let text = speech_text(text, &settings.voice.language);
+    let mut child = windows_speech_child(&settings.voice, preview_preset.unwrap_or(settings.voice.speech_preset), false)?;
     log_event("playback requested");
 
     let deadline = Instant::now() + Duration::from_secs(180);
@@ -640,7 +785,7 @@ fn acknowledge_wake(app: &AppHandle, engine: &Arc<Engine>, settings: &super::Set
     let engine = engine.clone();
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        if let Err(message) = speak_native(&app, &engine, generation, message.into(), None).await {
+        if let Err(message) = speak_native(&app, &engine, generation, message.into(), None, None).await {
             log_event("wake playback unavailable");
             let _ = app.emit("pet-voice-playback-error", VoiceError { message });
         }
@@ -655,6 +800,7 @@ fn capturing_playback(engine: &Engine) -> bool {
 #[tauri::command]
 pub async fn pet_voice_transcribe(window: tauri::WebviewWindow, app: tauri::AppHandle, audio: String) -> PlatformResult<Option<String>> {
     chat_caller(&window)?;
+    let started = Instant::now();
     let settings = read_settings()?;
     let engine = app.state::<PetStore>().voice.clone();
     engine.manual_active.store(true, Ordering::SeqCst);
@@ -697,6 +843,13 @@ pub async fn pet_voice_transcribe(window: tauri::WebviewWindow, app: tauri::AppH
     }
     .await;
     engine.manual_active.store(false, Ordering::SeqCst);
+    let (status, detail) = match &result {
+        Ok(text) if text.trim().is_empty() => ("未识别", None),
+        Ok(text) if !has_voice_command_content(text) => ("文字过短", Some(text.as_str())),
+        Ok(text) => ("已识别", Some(text.as_str())),
+        Err(_) => ("识别失败", None),
+    };
+    super::activity::record(&app, super::activity::Kind::Voice, started, "手动语音输入", status, detail);
     let text = result.map_err(chat_error)?;
     let text = text.trim().to_string();
     if text.is_empty() { return Err(chat_error("未识别到语音内容，请靠近麦克风再试一次".into())); }
@@ -1030,6 +1183,7 @@ fn capture_session(app: &AppHandle, engine: &Arc<Engine>, generation: u64, setti
     let mut pending = PendingSegment { calibrating: CALIBRATION_FRAMES, ..Default::default() };
     // 词间停顿会被 VAD 切成多个段：间隔在窗口内的段合并后再识别，避免“小…驼”只转写一半。
     let mut merged: Option<(Vec<f32>, Instant, f32)> = None;
+    let mut capturing = None;
     let mut buffer: Vec<f32> = Vec::with_capacity(VAD_FRAME * 4);
     let mut last_data = Instant::now();
     let mut last_settings = Instant::now();
@@ -1051,12 +1205,17 @@ fn capture_session(app: &AppHandle, engine: &Arc<Engine>, generation: u64, setti
                     buffer.clear();
                     merged = None;
                     pending = PendingSegment { noise_floor: pending.noise_floor, calibrating: pending.calibrating, ..Default::default() };
+                    capturing = None;
                     continue;
                 }
                 buffer.extend(chunk);
                 while buffer.len() >= VAD_FRAME {
                     let frame: Vec<f32> = buffer.drain(..VAD_FRAME).collect();
-                    if let Some((segment, avg_rms)) = pending.push(&frame) {
+                    let segment = pending.push(&frame);
+                    if capturing.is_none() && (pending.active || segment.is_some()) {
+                        capturing = Some(VoiceActivity::start(app, "pet-voice-capturing", generation));
+                    }
+                    if let Some((segment, avg_rms)) = segment {
                         // 已有合并段过期或拼接后超长：先把旧缓冲送去识别，再接收新段。
                         if merged.as_ref().is_some_and(|(samples, last, _)| {
                             last.elapsed() > SEGMENT_MERGE_GAP || samples.len() + segment.len() > MAX_SEGMENT_FRAMES * VAD_FRAME
@@ -1085,6 +1244,9 @@ fn capture_session(app: &AppHandle, engine: &Arc<Engine>, generation: u64, setti
                 }
             }
             Err(mpsc::RecvTimeoutError::Disconnected) => break Err("麦克风数据中断".into()),
+        }
+        if !pending.active && merged.is_none() {
+            capturing = None;
         }
     };
     // 结束采集时丢弃旧会话缓存，避免在关闭监听或更换识别设置后继续上传。
@@ -1860,6 +2022,8 @@ fn handle_segment(app: &AppHandle, engine: &Arc<Engine>, generation: u64, settin
     let raw_peak = samples.iter().fold(0.0f32, |max, sample| max.max(sample.abs()));
     let raw_rms = if samples.is_empty() { 0.0 } else { (samples.iter().map(|sample| sample * sample).sum::<f32>() / samples.len() as f32).sqrt() };
     log_event(&format!("segment {len_ms}ms raw peak={raw_peak:.3} rms={raw_rms:.4}"));
+    let started = Instant::now();
+    let record = |status: &str, detail: Option<&str>| super::activity::record(app, super::activity::Kind::Voice, started, "常驻监听", status, detail);
     let transcription = {
         let _activity = VoiceActivity::start(app, "pet-voice-recognizing", generation);
         segment_transcript(app, engine, settings, len_ms, samples)
@@ -1869,6 +2033,7 @@ fn handle_segment(app: &AppHandle, engine: &Arc<Engine>, generation: u64, settin
     let transcript = match transcription {
         Ok(text) => text,
         Err(error) => {
+            record("识别失败", None);
             set_wake_result(engine, WakeResult::Failed);
             log_event(&format!("segment {len_ms}ms transcribe error: {error}"));
             let _ = app.emit("pet-voice-error", VoiceError { message: error });
@@ -1876,6 +2041,7 @@ fn handle_segment(app: &AppHandle, engine: &Arc<Engine>, generation: u64, settin
         }
     };
     if transcript.trim().is_empty() {
+        record("未识别", None);
         log_event(&format!("segment {len_ms}ms empty transcript"));
         set_wake_result(engine, WakeResult::Unclear);
         let _ = app.emit("pet-voice-error", VoiceError { message: "未识别到清晰语音，请靠近麦克风再试".into() });
@@ -1883,12 +2049,14 @@ fn handle_segment(app: &AppHandle, engine: &Arc<Engine>, generation: u64, settin
     }
     let lowered = transcript.trim().to_lowercase();
     if TRANSCRIBE_HALLUCINATIONS.iter().any(|pattern| lowered.contains(pattern)) {
+        record("已过滤", None);
         log_event(&format!("segment {len_ms}ms hallucination dropped"));
         set_wake_result(engine, WakeResult::Unclear);
         return SegmentOutcome::Noise;
     }
     let after_wake = wake_command(&transcript, &settings.voice.wake_word);
     if after_wake.is_none() && !has_voice_command_content(&transcript) {
+        record("文字过短", Some(&transcript));
         log_event(&format!("segment {len_ms}ms filtered (short transcript)"));
         set_wake_result(engine, WakeResult::Unclear);
         return if transcript.chars().any(char::is_alphanumeric) { SegmentOutcome::Speech } else { SegmentOutcome::Noise };
@@ -1898,6 +2066,7 @@ fn handle_segment(app: &AppHandle, engine: &Arc<Engine>, generation: u64, settin
     let next_window = Some(now + WAKE_COMMAND_WINDOW);
     match after_wake {
         Some(rest) if has_voice_command_content(rest) => {
+            record("唤醒并识别指令", Some(&transcript));
             engine.matched.fetch_add(1, Ordering::SeqCst);
             set_wake_result(engine, WakeResult::Command);
             log_event(&format!("segment {len_ms}ms MATCHED (command dispatched)"));
@@ -1908,6 +2077,7 @@ fn handle_segment(app: &AppHandle, engine: &Arc<Engine>, generation: u64, settin
             SegmentOutcome::Speech
         }
         Some(_) => {
+            record("已唤醒", Some(&transcript));
             engine.matched.fetch_add(1, Ordering::SeqCst);
             set_wake_result(engine, WakeResult::Awakened);
             log_event(&format!("segment {len_ms}ms MATCHED (awake)"));
@@ -1919,6 +2089,7 @@ fn handle_segment(app: &AppHandle, engine: &Arc<Engine>, generation: u64, settin
         }
         None => {
             if conversation.accepts_follow_up(heard_at) {
+                record("识别到追问", Some(&transcript));
                 engine.matched.fetch_add(1, Ordering::SeqCst);
                 set_wake_result(engine, WakeResult::Command);
                 log_event(&format!("segment {len_ms}ms MATCHED (follow-up command)"));
@@ -1928,6 +2099,7 @@ fn handle_segment(app: &AppHandle, engine: &Arc<Engine>, generation: u64, settin
             }
             let heard = transcript.trim().to_string();
             if !heard.is_empty() {
+                record("未命中唤醒词", Some(&transcript));
                 log_event(&format!("segment {len_ms}ms heard"));
                 set_wake_result(engine, WakeResult::Unmatched);
                 let _ = app.emit("pet-voice-heard", VoiceHeard { text: heard });

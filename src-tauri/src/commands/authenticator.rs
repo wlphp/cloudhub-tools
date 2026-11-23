@@ -176,6 +176,15 @@ pub(crate) async fn authenticator_list(
     })
     .await
 }
+
+#[cfg(desktop)]
+pub(super) fn pet_entry_labels(store: &VaultStore) -> Result<Vec<(String, String)>, String> {
+    access(store, "main", false, |session, db| {
+        Ok(repository::load(db, &session.key)?.into_iter()
+            .map(|entry| (entry.issuer.clone(), entry.account.clone()))
+            .collect())
+    })
+}
 #[tauri::command]
 pub(crate) async fn authenticator_touch(
     window: tauri::Window,

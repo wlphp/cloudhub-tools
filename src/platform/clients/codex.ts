@@ -30,6 +30,18 @@ export interface CodexAccountDetails { email: string; password: string; twoFacto
 export interface CodexAccountDetailView { details: CodexAccountDetails; version: number; auth: CodexAuthMetadata; availableSecrets: string[]; lastRefresh: string | null }
 export interface CodexLaunchConfig { version: string; model: string | null; contextWindow: number | null; compactLimit: number | null }
 export interface CodexConfigSource { path: string; workspace: string | null; exists: boolean; authExists: boolean; preview: Record<string, string | number | boolean | null> | null; configPreview: Record<string, unknown> | null; authPath: string; authPreview: Record<string, unknown> | null; catalogPath: string; catalogPreview: Record<string, unknown> | null }
+/** Codex 连接诊断：只读采集当前配置、实际请求出口与模型来源，不含凭据。 */
+export interface CodexDiagnosticsSetting { key: string; value: string | null }
+export interface CodexDiagnosticsRoute { key: string; label: string; url: string; note: string | null; effective: boolean; host: string | null; port: number | null; kind: "loopback" | "lan" | "public" | "unknown"; status: "listening" | "refused" | "reachable" | "unreachable" | "invalid" | "missing"; latencyMs: number | null; resolved: string[]; listenerProcess: string | null; listenerPid: number | null }
+export interface CodexDiagnosticsModelEntry { id: string; name: string | null; contextWindow: number | null }
+export interface CodexDiagnosticsModelSource { name: string; path: string; exists: boolean; count: number; fetchedAt: string | null; clientVersion: string | null; etag: string | null; models: CodexDiagnosticsModelEntry[] }
+export interface CodexDiagnosticsAdapter { name: string; description: string; ip: string | null; gateway: string | null; metric: number | null; kind: string }
+export interface CodexDiagnosticsReport {
+  home: string; configPath: string; configExists: boolean; configModified: number | null; collectedAt: number; durationMs: number;
+  settings: CodexDiagnosticsSetting[]; routes: CodexDiagnosticsRoute[]; modelSources: CodexDiagnosticsModelSource[];
+  network: { available: boolean; error: string | null; adapters: CodexDiagnosticsAdapter[]; defaultAdapter: string | null; systemProxyEnabled: boolean; systemProxyServer: string | null; envProxies: { name: string; value: string }[]; hosts: { host: string; ip: string }[]; processes: { pid: number; name: string; count: number }[] };
+  warnings: string[]; currentModel: string | null;
+}
 export interface CodexInstance { id: string; accountId: number; name: string; workDir: string; kind: "cli" | "desktop"; running: boolean; lastError: string | null }
 export interface CodexGatewaySettings { loggingEnabled: boolean; strategy: "round_robin" | "quota_first" | "ordered"; cooldownSeconds: number }
 export interface CodexCallDetail { request: unknown; forwarded: unknown; response: unknown; events: unknown[]; eventCount: number; truncated: boolean }
@@ -38,6 +50,7 @@ export interface CodexGatewayState { lanAddress?: string | null; supportsShareCo
 
 export const codexClient = {
   configSource(action: "state" | "select_project" | "open_directory" | "preview" | "preview_config" | "reveal_config" | "preview_auth" | "reveal_auth" | "preview_catalog" | "reveal_catalog", workspace: string | null = null): Promise<CodexConfigSource | null> { return nativeOnly("codex_config_source", { action, workspace }); },
+  diagnostics(): Promise<CodexDiagnosticsReport> { return nativeOnly("codex_diagnostics"); },
   refreshModelCatalog(workspace: string | null): Promise<number> { return nativeOnly("codex_refresh_model_catalog", { workspace }); },
   accountDetails(id: number): Promise<CodexAccountDetailView> { return nativeOnly("codex_account_details", { id }); },
   accountEvents(id: number): Promise<CodexAccountEvent[]> { return nativeOnly("codex_account_events", { id }); },

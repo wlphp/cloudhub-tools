@@ -1,0 +1,84 @@
+/* Codex 连接诊断弹层：沿用 codex 现有主题变量，不引入新的视觉系统。 */
+.codex-diagnostics-dialog { width: min(1000px, calc(100vw - 32px)); }
+.codex-diagnostics-dialog .codex-dialog-content { gap: 18px; }
+.codex-diagnostics-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.codex-diagnostics-toolbar button { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; font-size: 12px; }
+.codex-diagnostics-toolbar button[aria-pressed="true"] { border-color: var(--jb-accent, #9b8cff); }
+.codex-diagnostics-meta { margin-left: auto; color: var(--jb-muted, #a4a4a4); font-size: 11px; }
+.codex-diagnostics-spin { animation: codex-diagnostics-spin 1s linear infinite; }
+@keyframes codex-diagnostics-spin { to { transform: rotate(360deg); } }
+
+.codex-diagnostics-dialog section > h3 { display: flex; align-items: center; gap: 7px; margin: 0 0 6px; font-size: 13px; }
+.codex-diagnostics-caption { margin: 0 0 10px; color: var(--jb-muted, #a4a4a4); font-size: 11px; line-height: 1.7; }
+
+.codex-diagnostics-warnings { padding: 12px 14px; border: 1px solid color-mix(in srgb, var(--jb-warning, #ffb4aa) 40%, var(--jb-border, #3b3b3b)); border-radius: 7px; background: color-mix(in srgb, var(--jb-warning, #ffb4aa) 8%, var(--jb-surface, #2b2b2b)); }
+.codex-diagnostics-warnings h3 { margin: 0 0 8px; color: var(--jb-warning, #ffb4aa); font-size: 13px; }
+.codex-diagnostics-warnings ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
+
+.codex-diagnostics-routes { display: grid; gap: 10px; }
+.codex-diagnostics-route { padding: 12px 14px; border: 1px solid var(--jb-border, #3b3b3b); border-radius: 7px; background: var(--jb-surface, #2b2b2b); }
+.codex-diagnostics-route.is-effective { border-color: color-mix(in srgb, var(--jb-accent, #9b8cff) 55%, var(--jb-border, #3b3b3b)); }
+.codex-diagnostics-route.is-shadowed { opacity: .72; }
+.codex-diagnostics-route > header { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.codex-diagnostics-route > header strong { font-size: 13px; }
+.codex-diagnostics-state { padding: 2px 7px; border: 1px solid var(--jb-border, #3b3b3b); border-radius: 4px; font-size: 11px; }
+.codex-diagnostics-state.tone-ok { color: var(--jb-success, #63d7ad); border-color: color-mix(in srgb, var(--jb-success, #63d7ad) 45%, var(--jb-border, #3b3b3b)); }
+.codex-diagnostics-state.tone-danger { color: var(--jb-danger, #ef7070); border-color: color-mix(in srgb, var(--jb-danger, #ef7070) 45%, var(--jb-border, #3b3b3b)); }
+.codex-diagnostics-state.tone-warn { color: var(--jb-warning, #ffb4aa); border-color: color-mix(in srgb, var(--jb-warning, #ffb4aa) 45%, var(--jb-border, #3b3b3b)); }
+.codex-diagnostics-state.tone-muted { color: var(--jb-muted, #a4a4a4); }
+.codex-diagnostics-flag { margin-left: auto; padding: 2px 7px; border-radius: 4px; background: color-mix(in srgb, var(--jb-accent, #9b8cff) 16%, var(--jb-surface, #2b2b2b)); color: var(--jb-accent, #9b8cff); font-size: 11px; }
+.codex-diagnostics-flag.is-muted { background: transparent; color: var(--jb-muted, #a4a4a4); }
+.codex-diagnostics-url { display: block; margin: 8px 0; padding: 6px 9px; border: 1px solid var(--jb-border, #3b3b3b); border-radius: 4px; background: var(--jb-bg, #202020); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.codex-diagnostics-route dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 20px; margin: 0; font-size: 11px; }
+.codex-diagnostics-route dl > div { display: grid; grid-template-columns: 62px minmax(0, 1fr); gap: 8px; min-width: 0; }
+.codex-diagnostics-route dl > .is-wide { grid-column: 1 / -1; }
+.codex-diagnostics-route dt { color: var(--jb-muted, #a4a4a4); }
+.codex-diagnostics-route dd { margin: 0; overflow-wrap: anywhere; }
+
+.codex-diagnostics-topology { display: grid; gap: 8px; padding: 14px; border: 1px solid var(--jb-border, #3b3b3b); border-radius: 7px; background: var(--jb-surface, #2b2b2b); }
+.codex-diagnostics-node { display: flex; align-items: baseline; gap: 10px; padding: 10px 12px; border: 1px solid var(--jb-border, #3b3b3b); border-radius: 6px; background: var(--jb-bg, #202020); font-size: 12px; }
+.codex-diagnostics-node span { color: var(--jb-muted, #a4a4a4); font-size: 11px; }
+.codex-diagnostics-links { display: flex; flex-wrap: wrap; gap: 6px; padding-left: 18px; }
+.codex-diagnostics-link { padding: 3px 8px; border: 1px dashed var(--jb-border, #3b3b3b); border-radius: 4px; color: var(--jb-muted, #a4a4a4); font-size: 11px; }
+.codex-diagnostics-link.is-ok { color: var(--jb-success, #63d7ad); border-color: color-mix(in srgb, var(--jb-success, #63d7ad) 50%, var(--jb-border, #3b3b3b)); }
+.codex-diagnostics-link.is-danger { color: var(--jb-danger, #ef7070); border-color: color-mix(in srgb, var(--jb-danger, #ef7070) 50%, var(--jb-border, #3b3b3b)); }
+.codex-diagnostics-hop { padding-left: 8px; color: var(--jb-muted, #a4a4a4); font-size: 10px; letter-spacing: .04em; }
+.codex-diagnostics-adapters, .codex-diagnostics-externals { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.codex-diagnostics-adapters > li, .codex-diagnostics-externals > li { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; padding: 8px 10px; border: 1px solid var(--jb-border, #3b3b3b); border-radius: 5px; font-size: 11px; }
+.codex-diagnostics-adapters > li.is-default { border-color: color-mix(in srgb, var(--jb-accent, #9b8cff) 55%, var(--jb-border, #3b3b3b)); }
+.codex-diagnostics-adapters > li > span, .codex-diagnostics-externals > li > span { color: var(--jb-muted, #a4a4a4); overflow-wrap: anywhere; }
+.codex-diagnostics-adapters em { margin-left: auto; padding: 1px 6px; border-radius: 4px; background: color-mix(in srgb, var(--jb-accent, #9b8cff) 16%, var(--jb-surface, #2b2b2b)); color: var(--jb-accent, #9b8cff); font-size: 10px; font-style: normal; }
+.codex-diagnostics-adapters > li.is-muted, .codex-diagnostics-externals > li.is-muted { color: var(--jb-muted, #a4a4a4); border-style: dashed; }
+.codex-diagnostics-facts { display: grid; gap: 4px; margin-top: 4px; padding-top: 10px; border-top: 1px solid var(--jb-border, #3b3b3b); font-size: 11px; }
+.codex-diagnostics-facts > div { display: grid; grid-template-columns: 82px minmax(0, 1fr); gap: 10px; min-width: 0; }
+.codex-diagnostics-facts dt { color: var(--jb-muted, #a4a4a4); }
+.codex-diagnostics-facts dd { margin: 0; overflow-wrap: anywhere; }
+
+.codex-diagnostics-settings { display: grid; gap: 2px; margin: 0; }
+.codex-diagnostics-settings > div { display: grid; grid-template-columns: 210px minmax(0, 1fr); align-items: baseline; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--jb-border, #3b3b3b); min-width: 0; font-size: 12px; }
+.codex-diagnostics-settings dt code { font-size: 11px; color: var(--jb-accent, #9b8cff); overflow-wrap: anywhere; }
+.codex-diagnostics-settings dd { display: flex; align-items: center; gap: 8px; margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.codex-diagnostics-settings dd span { min-width: 0; }
+.codex-diagnostics-settings dd button { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; }
+.codex-diagnostics-settings > div.is-empty dd { color: var(--jb-muted, #a4a4a4); }
+.codex-diagnostics-path { margin: 8px 0 0; color: var(--jb-muted, #a4a4a4); font-size: 11px; overflow-wrap: anywhere; }
+
+.codex-diagnostics-models { display: grid; gap: 10px; }
+.codex-diagnostics-model-source { padding: 10px 12px; border: 1px solid var(--jb-border, #3b3b3b); border-radius: 6px; background: var(--jb-surface, #2b2b2b); }
+.codex-diagnostics-model-source.is-missing { border-style: dashed; opacity: .8; }
+.codex-diagnostics-model-source > header { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 12px; }
+.codex-diagnostics-model-source > header span { color: var(--jb-muted, #a4a4a4); font-size: 11px; }
+.codex-diagnostics-model-source > code { display: block; margin: 6px 0; font-size: 11px; color: var(--jb-muted, #a4a4a4); overflow-wrap: anywhere; }
+.codex-diagnostics-model-meta { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0; color: var(--jb-muted, #a4a4a4); font-size: 10px; overflow-wrap: anywhere; }
+.codex-diagnostics-model-source details { margin-top: 8px; }
+.codex-diagnostics-model-source summary { cursor: pointer; font-size: 11px; color: var(--jb-muted, #a4a4a4); }
+.codex-diagnostics-model-source ul { display: grid; gap: 3px; margin: 8px 0 0; padding: 0; list-style: none; max-height: 260px; overflow: auto; }
+.codex-diagnostics-model-source ul > li { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; padding: 4px 6px; border-radius: 4px; background: var(--jb-bg, #202020); font-size: 11px; }
+.codex-diagnostics-model-source ul > li > code { color: var(--jb-accent, #9b8cff); overflow-wrap: anywhere; }
+.codex-diagnostics-model-source ul > li > span { color: var(--jb-muted, #a4a4a4); }
+
+@media (max-width: 720px) {
+  .codex-diagnostics-settings > div { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .codex-diagnostics-route dl { grid-template-columns: minmax(0, 1fr); }
+  .codex-diagnostics-meta { margin-left: 0; flex-basis: 100%; }
+}

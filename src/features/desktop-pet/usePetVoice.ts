@@ -2,8 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { desktopPetClient as client, type PetComputerAction, type PetSettings } from "../../platform/clients/desktopPet";
 import { platformErrorMessage } from "../../platform/api";
+import { petComputerCommand } from "./petComputerCommand";
 
 export interface PetVoiceCallbacks {
+  openVoiceDraft: () => void;
   queueChat: (text: string, autoSend: boolean, commandId?: number, localReply?: string | null) => void;
   /** 需要人工确认的系统动作（关机/重启），由现有 ConfirmDialog 承接 */
   requestComputer: (action: "shutdown" | "restart") => void;
@@ -50,6 +52,8 @@ export function usePetVoice(settings: PetSettings, callbacks: PetVoiceCallbacks)
   const [playing, setPlaying] = useState<number | null>(null);
   const [amplitude, setAmplitude] = useState<number | null>(null);
   const [processing, setProcessing] = useState(false);
+  const [draftText, setDraftText] = useState("");
+  const draftControls = useRef({ cancel: () => {}, send: () => {} });
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
   const callbacksRef = useRef(callbacks);
@@ -69,12 +73,40 @@ export function usePetVoice(settings: PetSettings, callbacks: PetVoiceCallbacks)
     let disposed = false;
     let listeningVersion = 0;
     let commands = Promise.resolve();
+    let draft: { text: string; commandId?: number } | null = null;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let capturing: number | null = null;
+    let recognizing: number | null = null;
+    function takeDraft() {
+      clearTimeout(timer);
+      const current = draft;
+      draft = null;
+      if (!disposed) setDraftText("");
+      return current;
+    }
+    function sendDraft() {
+      const current = takeDraft();
+      if (current && settingsRef.current.voice.enabled && settingsRef.current.voice.wakeEnabled) {
+        runRef.current(current.text, current.commandId);
+      }
+    }
+    function scheduleDraft() {
+      clearTimeout(timer);
+      if (draft && capturing === null && recognizing === null) {
+        timer = setTimeout(sendDraft, 1800);
+      }
+    }
+    draftControls.current = { cancel: takeDraft, send: sendDraft };
     async function runCommand(text: string, commandId?: number) {
       const trimmed = text.trim();
       if (!trimmed || disposed) return;
       const voice = settingsRef.current.voice;
       if (!voice.enabled) return;
       if (!voice.autoSend) { callbacksRef.current.queueChat(trimmed, false, commandId); return; }
+      if (petComputerCommand(trimmed)) {
+        callbacksRef.current.queueChat(trimmed, true, commandId);
+        return;
+      }
       setProcessing(true);
       try {
         const localReply = await client.chatLookup(trimmed);
@@ -138,8 +170,21 @@ export function usePetVoice(settings: PetSettings, callbacks: PetVoiceCallbacks)
     }
     runRef.current = (text, commandId) => { commands = commands.then(() => runCommand(text, commandId)); };
     const subscriptions = [
-      listen<ListeningEvent>("pet-voice-listening", e => { listeningVersion++; setListening(!!e.payload?.active); setListeningError(e.payload?.error || ""); }),
-      listen<VoiceActivityEvent>("pet-voice-recognizing", e => setRecognizing(current => applyVoiceActivity(current, e.payload))),
+      listen<ListeningEvent>("pet-voice-listening", e => {
+        listeningVersion++;
+        setListening(!!e.payload?.active);
+        setListeningError(e.payload?.error || "");
+        if (!e.payload?.active) { capturing = null; recognizing = null; takeDraft(); }
+      }),
+      listen<VoiceActivityEvent>("pet-voice-capturing", e => {
+        capturing = applyVoiceActivity(capturing, e.payload);
+        scheduleDraft();
+      }),
+      listen<VoiceActivityEvent>("pet-voice-recognizing", e => {
+        recognizing = applyVoiceActivity(recognizing, e.payload);
+        setRecognizing(recognizing);
+        scheduleDraft();
+      }),
       listen<VoiceActivityEvent>("pet-voice-playing", e => { setPlaying(current => applyVoiceActivity(current, e.payload)); if (!e.payload?.active) setAmplitude(null); else setAmplitude(0); }),
       // MiMo 播报的实时声纹（0..1）：小人嘴型按它开合；系统语音没有该事件，前端用伪随机口型。
       listen<{ generation: number; level: number }>("pet-voice-amplitude", e => {
@@ -149,7 +194,14 @@ export function usePetVoice(settings: PetSettings, callbacks: PetVoiceCallbacks)
       listen("pet-voice-awake", () => callbacksRef.current.acknowledgeWake(false)),
       listen<{ text: string; woke: boolean; commandId: number }>("pet-voice-command", e => {
         if (e.payload?.woke) callbacksRef.current.acknowledgeWake(true);
-        runRef.current(e.payload?.text || "", e.payload?.commandId);
+        const text = e.payload?.text?.trim();
+        const voice = settingsRef.current.voice;
+        if (!text || !voice.enabled || !voice.wakeEnabled) return;
+        if (!voice.autoSend) { runRef.current(text, e.payload.commandId); return; }
+        if (!draft) callbacksRef.current.openVoiceDraft();
+        draft = { text: draft ? `${draft.text} ${text}` : text, commandId: e.payload.commandId };
+        setDraftText(draft.text);
+        scheduleDraft();
       }),
       // 听到但未命中唤醒词：展示转写结果，便于确认麦克风工作并校准唤醒词选词。
       listen<{ text: string }>("pet-voice-heard", e => {
@@ -174,8 +226,14 @@ export function usePetVoice(settings: PetSettings, callbacks: PetVoiceCallbacks)
     }).catch(() => {});
     return () => {
       disposed = true;
+      takeDraft();
       subscriptions.forEach(promise => void promise.then(unlisten => unlisten()));
     };
   }, []);
-  return { listening, listeningError, recognizing: recognizing !== null, playing: playing !== null, amplitude, processing, submit: (text: string) => runRef.current(text) };
+  useEffect(() => {
+    if (!settings.voice.enabled || !settings.voice.wakeEnabled) draftControls.current.cancel();
+  }, [settings.voice.enabled, settings.voice.wakeEnabled]);
+  return { listening, listeningError, recognizing: recognizing !== null, playing: playing !== null, amplitude, processing,
+    draftText, cancelDraft: () => draftControls.current.cancel(), sendDraft: () => draftControls.current.send(),
+    submit: (text: string) => runRef.current(text) };
 }

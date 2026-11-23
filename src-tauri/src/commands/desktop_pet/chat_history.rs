@@ -3,14 +3,24 @@ use crate::core::crypto::{decrypt_secret, encrypt_secret};
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 
-const PAGE_SIZE: usize = 8;
+const PAGE_SIZE: usize = 9;
 
 #[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct Attachment {
+    pub name: String,
+    pub text: String,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(super) struct Turn {
     pub user: String,
     pub reply: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub image: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attachment: Option<Attachment>,
 }
 
 #[derive(Serialize)]

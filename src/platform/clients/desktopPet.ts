@@ -5,8 +5,21 @@ import { monitorSeverityLabel, sortMonitorAlerts, type MonitorAlert, type Monito
 export type PetAlert = MonitorAlert;
 export type PetSnapshot = MonitorSnapshot;
 export type PetComputerAction = "shutdown" | "restart" | "taskManager" | "lock" | "explorer";
+export type PetMonitor = { index: number; name: string; supported: boolean; current: number | null };
+export type PetActivityKind = "operation" | "voice";
+export interface PetActivityEntry {
+  id: string;
+  time: number;
+  durationMs: number;
+  title: string;
+  status: string;
+  detail: string | null;
+}
 
 export interface PetSettings {
+  chatPrompt?: string;
+  agentAccessMode?: "ask" | "full";
+  harnessTraceEnabled?: boolean;
   life: PetLifeSettings;
   appearance: "alpaca" | "dog" | "penguin" | "fish" | "human";
   enabled: boolean; monitoring: boolean; panels: boolean; panelDisk: boolean; panelServices: boolean; panelAccess: boolean; certificates: boolean; servers: boolean;
@@ -56,14 +69,19 @@ export const defaultPetLife: PetLifeSettings = {
   ignoreHolidays: true, restDates: [], workDates: [], water: true, waterMinutes: 60, waterRoam: true, stretch: false, stretchMinutes: 90,
 };
 export const emptyPetLifeState: PetLifeState = { notices: [], weatherCheckedAt: 0, weatherAttemptAt: 0, weatherError: null, region: "", calendarYear: 0, calendarSupported: false };
-export interface PetChatService { id: string; name: string; model: string; revision: number; supportsImages: boolean; supportsMimoSpeech: boolean }
-export interface PetChatMessage { role: "user" | "assistant"; text: string; image?: string }
-export interface PetChatTurn { id: number | string; user: string; reply: string; image?: string; local?: boolean }
+export interface PetChatService { id: string; name: string; model: string; models?: string[]; revision: number; supportsImages: boolean; supportsMimoSpeech: boolean }
+export interface PetChatAttachment { name: string; text: string }
+export interface PetChatMessage { role: "user" | "assistant"; text: string; image?: string; attachment?: PetChatAttachment }
+export interface PetChatTurn { id: number | string; user: string; reply: string; image?: string; attachment?: PetChatAttachment; local?: boolean; failed?: boolean }
+export interface PetChatTraceStep { id: number; tool: string; title: string; state: "running" | "completed" | "failed"; detail?: string }
+export interface PetChatStreamEvent { text: string; status?: string; step?: PetChatTraceStep }
 export interface PetChatHistoryPage { turns: PetChatTurn[]; hasOlder: boolean }
 export type PetChatResizeEdge = "n" | "ne" | "e" | "se" | "s" | "sw" | "w" | "nw";
 export const petSeverityLabel = monitorSeverityLabel;
 export const sortPetAlerts = sortMonitorAlerts;
 export const defaultPetSettings: PetSettings = {
+  agentAccessMode: "ask",
+  harnessTraceEnabled: false,
   life: defaultPetLife,
   appearance: "alpaca",
   enabled: false, monitoring: false, panels: false, panelDisk: false, panelServices: false, panelAccess: true, certificates: true, servers: true,
@@ -77,7 +95,8 @@ export const desktopPetClient = {
   lifeAction: (id: string, action: "ack" | "snooze" | "testWater" | "openWeather") => nativeOnly<PetLifeState>("pet_life_action", { id, action }),
   lifeWeather: () => nativeOnly<PetLifeState>("pet_life_weather"),
   voiceStatus: () => nativeOnly<PetVoiceStatus>("pet_voice_status"),
-  voiceSpeak: (text: string | null, interrupt = false, previewPreset?: PetSpeechPreset) => nativeOnly<void>("pet_voice_speak", { text, interrupt, previewPreset: previewPreset ?? null }),
+  voiceSpeak: (text: string | null, interrupt = false, previewPreset?: PetSpeechPreset, preparedId?: string) => nativeOnly<void>("pet_voice_speak", { text, interrupt, previewPreset: previewPreset ?? null, preparedId }),
+  voicePrepare: (text: string, prepareId: string) => nativeOnly<void>("pet_voice_speak", { text, interrupt: false, prepareId }),
   voiceContinue: (commandId: number) => nativeOnly<void>("pet_voice_continue", { commandId }),
   voiceTranscribe: (audio: string) => nativeOnly<string | null>("pet_voice_transcribe", { audio }),
   voiceIntent: (requestId: string, service: PetChatService, text: string, shellEnabled = false) => nativeOnly<PetVoiceIntent>("pet_voice_intent", { requestId, profileId: service.id, revision: service.revision, text, shellEnabled }),
@@ -88,10 +107,14 @@ export const desktopPetClient = {
   chatServices: () => nativeOnly<PetChatService[]>("pet_chat_services"),
   chatLookup: (message: string, hasImage = false) => nativeOnly<string | null>("pet_chat_lookup", { message, hasImage }),
   /** 流式聊天：增量文本经 onDelta 回调透出（服务商不支持流式时不触发），完整回复以返回值为准。 */
-  chatStream: (requestId: string, service: PetChatService, message: string, onDelta: (text: string) => void, image?: AiImage) => nativeOnly<PetChatTurn>("pet_chat_stream", { requestId, profileId: service.id, revision: service.revision, message, image: image ?? null, onDelta: new Channel<{ text: string }>(payload => onDelta(payload.text)) }),
+  chatStream: (requestId: string, service: PetChatService, message: string, onDelta: (event: PetChatStreamEvent) => void, image?: AiImage, model?: string, compactContext = false, limitResponse = false, attachment?: PetChatAttachment) => nativeOnly<PetChatTurn>("pet_chat_stream", { requestId, profileId: service.id, revision: service.revision, model, message, image: image ?? null, attachment: attachment ?? null, compactContext, limitResponse, onDelta: new Channel<PetChatStreamEvent>(onDelta) }),
   chatHistory: (before?: number) => nativeOnly<PetChatHistoryPage>("pet_chat_history", { before: before ?? null }),
+  chatCalls: () => nativeOnly<PetChatCall[]>("pet_chat_calls"),
+  activityHistory: (kind: PetActivityKind) => nativeOnly<PetActivityEntry[]>("pet_activity_history", { kind }),
   clearChatHistory: () => nativeOnly<void>("pet_chat_clear_history"),
   readChatImage: (sourcePath: string) => nativeOnly<string>("pet_chat_read_image", { sourcePath }),
+  readChatDocument: (sourcePath: string) => nativeOnly<PetChatAttachment>("pet_chat_read_document", { sourcePath }),
+  readChatDocumentBytes: (name: string, contentBase64: string) => nativeOnly<PetChatAttachment>("pet_chat_read_document_bytes", { name, contentBase64 }),
   cancelChat: (requestId: string) => nativeOnly<void>("pet_chat_cancel", { requestId }),
   settings: () => nativeOnly<PetSettings>("pet_settings"),
   snapshot: () => nativeOnly<PetSnapshot>("pet_snapshot"),
@@ -107,7 +130,29 @@ export const desktopPetClient = {
   reveal: () => nativeOnly<void>("pet_move", { dx: 0, dy: 0, reset: false, remember: false, reveal: true }),
   open: (section: string, key?: string) => nativeOnly<void>("pet_open", { section, key: key ?? null }),
   computerAction: (action: PetComputerAction) => nativeOnly<void>("pet_computer_action", { action }),
+  createDesktopFolders: (count: number) => nativeOnly<{ created: string[]; error: string | null }>("pet_create_desktop_folders", { count }),
+  createDesktopHtml: (content: string) => nativeOnly<string>("pet_create_desktop_html", { content }),
+  createDesktopWorkbook: () => nativeOnly<string>("pet_create_desktop_workbook"),
+  monitors: () => nativeOnly<PetMonitor[]>("windows_toolbox_monitor_brightness"),
+  setBrightness: (index: number, percent: number) => nativeOnly<PetMonitor>("windows_toolbox_set_monitor_brightness", { index, percent }),
   snooze: (key: string, minutes = 60) => nativeOnly<void>("pet_snooze", { key, minutes }),
   ignore: (keys: string[], ignored = true) => nativeOnly<PetSnapshot>("pet_ignore", { keys, ignored }),
   clearSelected: (keys: string[]) => nativeOnly<PetSnapshot>("pet_clear_selected", { keys }),
 };
+export interface PetChatCall {
+  id: string;
+  startedAt: number;
+  durationMs: number;
+  outcome: "success" | "failed" | "cancelled";
+  trace: {
+    request: (Record<string, unknown> & { model: string }) | null;
+    endpoint?: string | null;
+    requestBody?: unknown;
+    responseBody?: unknown;
+    httpStatus: number | null;
+    eventStream: boolean | null;
+    receivedBytes: number;
+    inputTokens: number | null;
+    outputTokens: number | null;
+  };
+}

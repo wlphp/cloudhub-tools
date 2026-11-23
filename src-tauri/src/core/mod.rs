@@ -6,6 +6,10 @@ pub mod mail;
 pub mod ai;
 pub mod ai_stream;
 pub mod ai_images;
+#[cfg(desktop)]
+pub mod pet_web;
+#[cfg(desktop)]
+pub mod ai_documents;
 pub mod ai_models;
 pub mod ai_transfer;
 #[cfg(desktop)]

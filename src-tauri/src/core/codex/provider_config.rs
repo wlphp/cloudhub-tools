@@ -261,6 +261,9 @@ pub fn build_config(home:&Path,base_url:&str,model:&str,settings:&super::provide
     let source=read_optional(home,"config.toml")?;
     let mut document=source.as_deref().map(|s|s.as_str()).unwrap_or("").parse::<Document>().map_err(|_| "目标 TOML 配置格式无效，请修正后重试")?;
     for (key,next) in [("model",value(model)),("model_provider",value("cloudhub_provider")),("cli_auth_credentials_store",value("file")),("model_catalog_json",value(CATALOG_FILE))] {set_value(document.as_table_mut(),key,next)?;}
+    // 供应商接管期间内置接口必须回到官方地址：残留的 openai_base_url 会让
+    // 官方 CLI 的登录、刷新与额度请求绕过本供应商，或被上一家中转继续截获。
+    for key in ["openai_base_url","chatgpt_base_url"] {document.as_table_mut().remove(key);}
     for (key,next) in [("model_context_window",settings.context_window),("model_auto_compact_token_limit",settings.compact_limit)] {
         if document.get(key).is_some_and(|item|!item.is_value()) {return Err("供应商配置存在类型冲突".into());}
         if let Some(next)=next {set_value(document.as_table_mut(),key,value(next))?;} else {document.remove(key);}
@@ -305,6 +308,33 @@ pub fn clear_third_party_overrides(home:&Path)->Result<Option<String>,String> {
     Ok(summary)
 }
 
+/// 官方客户端接口所在的默认主机。`openai_base_url` / `chatgpt_base_url` 被改指向
+/// 其它主机时，即使 `model_provider` 仍是官方 `openai`，请求也会被第三方中转接管
+/// （magpie 等工具正是改写这两个键）。因此它们与 `model_provider` 同样属于接管项。
+fn is_official_endpoint(value:&str)->bool {
+    let rest=value.trim().split("://").nth(1).unwrap_or(value.trim());
+    let authority=rest.split(['/','?','#']).next().unwrap_or("");
+    // 用户信息可能含凭据，比较主机前先去掉。
+    let authority=authority.rsplit('@').next().unwrap_or(authority);
+    let host=if let Some(inner)=authority.strip_prefix('[') {inner.split(']').next().unwrap_or(inner)} else {authority.split(':').next().unwrap_or(authority)};
+    let host=host.to_ascii_lowercase();
+    host=="openai.com"||host.ends_with(".openai.com")||host=="chatgpt.com"||host.ends_with(".chatgpt.com")
+}
+
+/// 移除指向非官方主机的接口重定向，返回是否发生了清理，摘要追加到 `parts`。
+/// 非字符串值与指向官方主机的值原样保留：它们不是接管，也不是可安全解释的地址。
+fn strip_endpoint_redirects(document:&mut Document,parts:&mut Vec<String>)->bool {
+    let mut stripped=false;
+    for key in ["openai_base_url","chatgpt_base_url"] {
+        let Some(item)=document.as_table_mut().remove(key) else {continue;};
+        let redirect=item.as_str().is_some_and(|value|!is_official_endpoint(value));
+        if !redirect {document.as_table_mut().insert(key,item);continue;}
+        parts.push(format!("{key} 重定向"));
+        stripped=true;
+    }
+    stripped
+}
+
 pub fn official_config(home:&Path)->Result<(Option<Zeroizing<String>>,Option<String>),String> {
     let Some(source)=read_optional(home,"config.toml")? else {return Ok((None,None));};
     let mut document=source.as_str().parse::<Document>().map_err(|_| "Codex config.toml 格式无效，无法恢复官方直连")?;
@@ -313,10 +343,12 @@ pub fn official_config(home:&Path)->Result<(Option<Zeroizing<String>>,Option<Str
     // 官方内置供应商与无法识别的非字符串值不属于第三方接管，写回时原样保留。
     let provider_foreign=provider.as_deref().is_some_and(|value|value!="openai");
     let catalog=document.as_table_mut().remove("model_catalog_json").is_some();
-    let hijacked=provider_foreign||catalog;
-    let model=if hijacked {document.as_table_mut().remove("model").and_then(|item|item.as_str().map(str::to_owned))} else {None};
     let mut parts=Vec::new();
-    if let Some(value)=provider.filter(|_|provider_foreign) {parts.push(format!("model_provider = {value}"));}
+    // 先收集摘要，摘要顺序与界面提示保持一致：供应商、接口重定向、模型目录、默认模型。
+    if let Some(value)=provider.as_ref().filter(|_|provider_foreign) {parts.push(format!("model_provider = {value}"));}
+    let redirected=strip_endpoint_redirects(&mut document,&mut parts);
+    let hijacked=provider_foreign||catalog||redirected;
+    let model=if hijacked {document.as_table_mut().remove("model").and_then(|item|item.as_str().map(str::to_owned))} else {None};
     if catalog {parts.push("第三方模型目录".into());}
     if model.is_some() {parts.push("第三方默认模型".into());}
     if parts.is_empty() {return Ok((Some(source),None));}
@@ -502,6 +534,47 @@ mod tests {
         assert!(text.contains("model_provider = \"openai\""));
         assert!(!text.contains("model_catalog_json"));
         assert!(!text.contains("model = \"gpt-6-sol\""));
+    }
+    #[test]
+    fn endpoint_redirect_hijack_is_cleared_even_with_official_provider() {
+        // magpie 这类工具不改 model_provider，而是把内置接口重定向到本机网关。
+        let temp=profile::TemporaryProfile::new("{}").unwrap();
+        profile::write_private(&temp.path.join("config.toml"),"model_provider = \"openai\"\nmodel = \"gpt-6-luna\"\nopenai_base_url = \"http://127.0.0.1:3425/backend-api/codex\"\nchatgpt_base_url = \"http://127.0.0.1:3425/backend-api\"\nmodel_reasoning_effort = \"medium\"\n").unwrap();
+        let removed=clear_third_party_overrides(&temp.path).unwrap();
+        assert_eq!(removed.as_deref(),Some("openai_base_url 重定向、chatgpt_base_url 重定向、第三方默认模型"));
+        let text=profile::read_auth(&temp.path.join("config.toml")).unwrap();
+        assert!(!text.contains("openai_base_url"));
+        assert!(!text.contains("chatgpt_base_url"));
+        assert!(!text.contains("model = "));
+        assert!(text.contains("model_provider = \"openai\""));
+        assert!(text.contains("model_reasoning_effort = \"medium\""));
+        // 幂等：第二次没有可清理的接管项。
+        assert_eq!(clear_third_party_overrides(&temp.path).unwrap(),None);
+    }
+    #[test]
+    fn official_or_uninterpretable_endpoints_are_kept() {
+        let temp=profile::TemporaryProfile::new("{}").unwrap();
+        profile::write_private(&temp.path.join("config.toml"),"openai_base_url = \"https://api.openai.com/v1\"\nchatgpt_base_url = 3\n").unwrap();
+        assert_eq!(clear_third_party_overrides(&temp.path).unwrap(),None);
+        assert_eq!(profile::read_auth(&temp.path.join("config.toml")).unwrap().as_str(),"openai_base_url = \"https://api.openai.com/v1\"\nchatgpt_base_url = 3\n");
+    }
+    #[test]
+    fn endpoint_host_matching_never_trusts_lookalike_domains() {
+        for official in ["https://api.openai.com/v1","https://openai.com","https://chatgpt.com/backend-api","http://API.OpenAI.com/v1"] {
+            assert!(is_official_endpoint(official),"{official}");
+        }
+        for foreign in ["http://127.0.0.1:3425/backend-api/codex","https://openai.com.evil.test/v1","https://notopenai.com/v1","https://chatgpt.com.attacker.test"] {
+            assert!(!is_official_endpoint(foreign),"{foreign}");
+        }
+    }
+    #[test]
+    fn provider_config_drops_stale_endpoint_redirects() {
+        let temp=profile::TemporaryProfile::new("{}").unwrap();
+        profile::write_private(&temp.path.join("config.toml"),"openai_base_url = \"http://127.0.0.1:3425/backend-api/codex\"\nchatgpt_base_url = \"http://127.0.0.1:3425/backend-api\"\n").unwrap();
+        let output=build_config(&temp.path,"https://example.com/v1","model-test",&super::super::providers::ModelSettings::default(),"fixture-token",false).unwrap();
+        assert!(!output.contains("openai_base_url"));
+        assert!(!output.contains("chatgpt_base_url"));
+        assert!(output.contains("https://example.com/v1"));
     }
     #[test]
     fn clearing_reports_invalid_toml_instead_of_silently_keeping_hijack() {

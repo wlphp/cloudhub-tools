@@ -597,6 +597,7 @@ pub(crate) struct MonitorBrightnessStatus {
     current: Option<u32>,
 }
 
+
 #[cfg(target_os = "windows")]
 fn percent_from_device_value(current: u32, minimum: u32, maximum: u32) -> u32 {
     if maximum <= minimum {
@@ -894,6 +895,7 @@ try {{
 
 #[cfg(target_os = "windows")]
 fn read_brightness_range(handle: MonitorHandle) -> Option<(u32, u32, u32)> {
+    if handle.is_null() { return None; }
     use windows_sys::Win32::Devices::Display::{GetMonitorBrightness, GetVCPFeatureAndVCPFeatureReply, MC_VCP_CODE_TYPE};
     unsafe {
         let (mut minimum, mut current, mut maximum) = (0u32, 0u32, 0u32);
@@ -924,7 +926,7 @@ fn set_brightness_value(
                 if let Some((current, _, _)) = read_brightness_range(handle) {
                     return Ok(percent_from_device_value(current, minimum, maximum));
                 }
-                return Ok(percent.min(100));
+                return Err("已发送亮度设置，但无法读取显示器亮度来确认结果。".into());
             }
         }
     }
@@ -957,16 +959,13 @@ fn run_monitor_operation(operation: MonitorOperation) -> Result<Vec<MonitorBrigh
     let wmi_monitors = query_wmi_monitors();
     for hmonitor in enum_display_monitors() {
         let mut count: u32 = 0;
-        unsafe {
-            if GetNumberOfPhysicalMonitorsFromHMONITOR(hmonitor, &mut count) == 0 || count == 0 {
-                continue;
-            }
-        }
+        let has_count = unsafe { GetNumberOfPhysicalMonitorsFromHMONITOR(hmonitor, &mut count) != 0 } && count != 0;
         let mut monitors: Vec<PHYSICAL_MONITOR> = vec![unsafe { std::mem::zeroed() }; count as usize];
-        unsafe {
-            if GetPhysicalMonitorsFromHMONITOR(hmonitor, count, monitors.as_mut_ptr()) == 0 {
-                continue;
-            }
+        let has_physical = has_count && unsafe { GetPhysicalMonitorsFromHMONITOR(hmonitor, count, monitors.as_mut_ptr()) != 0 };
+        if !has_physical {
+            // Keep logical displays visible even without a DDC/CI handle. WMI may still support them.
+            monitors.clear();
+            monitors.push(unsafe { std::mem::zeroed() });
         }
         let device_id = monitor_device_id(hmonitor);
         let wmi_info = find_wmi_monitor(&wmi_monitors, device_id.as_deref());
@@ -1000,7 +999,9 @@ fn run_monitor_operation(operation: MonitorOperation) -> Result<Vec<MonitorBrigh
                 if status.index == index {
                     let updated = set_brightness_value(physical.hPhysicalMonitor, wmi_info, device_id.as_deref(), percent)
                         .map_err(|reason| {
-                            unsafe { DestroyPhysicalMonitors(count, monitors.as_ptr()); }
+                            if has_physical {
+                                unsafe { DestroyPhysicalMonitors(count, monitors.as_ptr()); }
+                            }
                             reason
                         })?;
                     status.supported = true;
@@ -1009,7 +1010,9 @@ fn run_monitor_operation(operation: MonitorOperation) -> Result<Vec<MonitorBrigh
             }
             statuses.push(status);
         }
-        unsafe { DestroyPhysicalMonitors(count, monitors.as_ptr()); }
+        if has_physical {
+            unsafe { DestroyPhysicalMonitors(count, monitors.as_ptr()); }
+        }
     }
     if let MonitorOperation::Set { index, .. } = operation {
         if statuses.len() <= index {
@@ -1030,16 +1033,29 @@ pub(crate) async fn windows_toolbox_monitor_brightness() -> PlatformResult<Vec<M
 
 #[cfg(target_os = "windows")]
 #[tauri::command]
-pub(crate) async fn windows_toolbox_set_monitor_brightness(index: u32, percent: u32) -> PlatformResult<MonitorBrightnessStatus> {
-    let statuses = tauri::async_runtime::spawn_blocking(move || {
+pub(crate) async fn windows_toolbox_set_monitor_brightness(window: tauri::WebviewWindow, index: u32, percent: u32) -> PlatformResult<MonitorBrightnessStatus> {
+    if percent > 100 { return Err("亮度须在 0 到 100 之间。".into()); }
+    let started = std::time::Instant::now();
+    let result = tauri::async_runtime::spawn_blocking(move || {
         run_monitor_operation(MonitorOperation::Set { index: index as usize, percent })
     })
     .await
-    .map_err(|_| "显示器亮度设置任务异常结束。".to_string())??;
-    statuses
-        .into_iter()
-        .nth(index as usize)
-        .ok_or_else(|| "显示器编号已失效，请刷新显示器列表。".into())
+    .map_err(|_| "显示器亮度设置任务异常结束。".to_string())
+    .and_then(|result| result)
+    .and_then(|statuses| statuses.into_iter().nth(index as usize)
+        .ok_or_else(|| "显示器编号已失效，请刷新显示器列表。".into()));
+    if window.label() == "desktop-pet" {
+        use crate::commands::desktop_pet::activity::{record, Kind};
+        use tauri::Manager;
+        let title = format!("将屏幕 {} 的亮度调到 {percent}%", u64::from(index) + 1);
+        let detail = match &result {
+            Ok(status) => status.current.map(|current| format!("当前亮度 {current}%")),
+            Err(error) => Some(error.clone()),
+        };
+        record(window.app_handle(), Kind::Operation, started, &title,
+            if result.is_ok() { "成功" } else { "失败" }, detail.as_deref());
+    }
+    result.map_err(Into::into)
 }
 
 #[cfg(target_os = "windows")]

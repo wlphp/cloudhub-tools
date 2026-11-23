@@ -18,7 +18,9 @@ pub fn read_source_file(source_path: &str) -> Result<String, String> {
     let mime = match reader.format() {
         Some(ImageFormat::Png) => "image/png",
         Some(ImageFormat::Jpeg) => "image/jpeg",
-        _ => return Err("请使用有效的PNG或JPEG截图".into()),
+        Some(ImageFormat::Gif) => "image/gif",
+        Some(ImageFormat::WebP) => "image/webp",
+        _ => return Err("图片格式暂不支持，请使用PNG、JPEG、GIF或WebP".into()),
     };
     let (width, height) = reader.into_dimensions().map_err(|_| "图片尺寸无效")?;
     if width == 0 || height == 0 || width > 12000 || height > 12000 || u64::from(width) * u64::from(height) > 20_000_000 {
@@ -49,8 +51,9 @@ pub fn normalize(data_url: &str) -> Result<NormalizedImage, String> {
     let expected = match kind {
         "data:image/png;base64" => ImageFormat::Png,
         "data:image/jpeg;base64" => ImageFormat::Jpeg,
+        "data:image/gif;base64" => ImageFormat::Gif,
         "data:image/webp;base64" => ImageFormat::WebP,
-        _ => return Err("截图格式无效，请使用PNG或JPEG图片".into()),
+        _ => return Err("图片格式无效，请使用PNG、JPEG、GIF或WebP图片".into()),
     };
     let bytes = B64.decode(encoded).map_err(|_| "截图数据无效")?;
     if bytes.len() > 2_097_152 {

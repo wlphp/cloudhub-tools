@@ -53,6 +53,7 @@ pub(super) async fn synthesize(
     profile_id: &str,
     voice: &str,
     text: &str,
+    language: &str,
 ) -> Result<PcmVoice, String> {
     let safe =
         crate::core::ai::preview(text).map_err(|error| format!("已跳过小米 MiMo 合成：{error}"))?;
@@ -86,7 +87,7 @@ pub(super) async fn synthesize(
     let mut response = client
         .post(url)
         .bearer_auth(key.as_str())
-        .json(&request_body(voice, text))
+        .json(&request_body(voice, &super::speech_text(text, language)))
         .send()
         .await
         .map_err(|_| "无法连接小米 MiMo，请检查网络后重试")?;
@@ -135,7 +136,7 @@ fn parse_response(body: &[u8]) -> Option<PcmVoice> {
     parse_wave(&STANDARD.decode(data).ok()?)
 }
 
-fn parse_wave(wave: &[u8]) -> Option<PcmVoice> {
+pub(super) fn parse_wave(wave: &[u8]) -> Option<PcmVoice> {
     if wave.get(..4)? != b"RIFF" || wave.get(8..12)? != b"WAVE" {
         return None;
     }

@@ -116,6 +116,7 @@ import {
   GitBranch,
   House,
   BellRing,
+  Bot,
   Network,
   GripVertical,
   Eye,
@@ -126,7 +127,6 @@ import {
   List,
   NotebookPen,
   MapPin,
-  PawPrint,
   Terminal,
   FileText,
   Plus,
@@ -301,7 +301,7 @@ const settingsTabs: { id: SettingsTab; label: string; icon: typeof SlidersHorizo
   { id: "general", label: "通用设置", icon: SlidersHorizontal },
   { id: "network", label: "网络与代理", icon: Network },
   { id: "data", label: "数据管理", icon: Database },
-  { id: "pet", label: "宠物管理", icon: PawPrint },
+  { id: "pet", label: "本机助手", icon: Bot },
   { id: "about", label: "关于", icon: Info },
 ];
 

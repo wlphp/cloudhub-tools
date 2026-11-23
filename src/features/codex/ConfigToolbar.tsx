@@ -1,10 +1,11 @@
 import { ToastNotice } from "../../shared/ToastNotice";
 import { useEffect, useRef, useState } from "react";
-import { Eye, EyeOff, FolderOpen, RefreshCw, RotateCcw, Server } from "lucide-react";
+import { Activity, Eye, EyeOff, FolderOpen, RefreshCw, RotateCcw, Server } from "lucide-react";
 import { codexClient, type CodexConfigSource } from "../../platform/clients/codex";
 import { platformErrorMessage } from "../../platform/api";
 import { OverviewDialog } from "./OverviewDialogs";
 import { ConfirmDialog } from "../../shared/ConfirmDialog";
+import { CodexDiagnosticsDialog } from "./CodexDiagnostics";
 
 export function ConfigToolbar({ busy, onRestore, mobile = false }: {
   mobile?: boolean;
@@ -15,6 +16,7 @@ export function ConfigToolbar({ busy, onRestore, mobile = false }: {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const alive = useRef(true);
   const working = useRef(false);
   useEffect(() => {
@@ -46,6 +48,7 @@ export function ConfigToolbar({ busy, onRestore, mobile = false }: {
         <span className={source?.exists ? "is-present" : ""}><Server size={14} aria-hidden="true" /><span>配置文件 <code title={source?.path}>{source?.path ?? (error ? "读取失败" : "正在读取…")}</code>{source && !source.exists && <small>（尚未创建）</small>}</span></span>
         <div className="codex-config-actions">
           <button type="button" disabled={locked || !source} onClick={() => setPreviewOpen(true)} title="查看完整配置、auth.json 和模型目录文件，敏感值默认隐藏"><Eye size={13} aria-hidden="true" />预览配置</button>
+          <button type="button" disabled={locked} onClick={() => setDiagnosticsOpen(true)} title="实时采集当前请求出口、模型来源与本机网络拓扑，用于排查账号切换后仍被中转接管"><Activity size={13} aria-hidden="true" />连接诊断</button>
         </div>
       </div>
       <span className="codex-config-scope" title={source?.workspace ?? "用户全局"}><FolderOpen size={14} aria-hidden="true" />{source?.workspace ? `项目 ${source.workspace}` : "用户全局"}</span>
@@ -60,6 +63,7 @@ export function ConfigToolbar({ busy, onRestore, mobile = false }: {
     </details>
     {error && <ToastNotice message={error} tone="error" />}
     {previewOpen && source && <ConfigPreviewDialog source={source} onClose={() => setPreviewOpen(false)} />}
+    {diagnosticsOpen && <CodexDiagnosticsDialog onClose={() => setDiagnosticsOpen(false)} />}
   </>;
 }
 

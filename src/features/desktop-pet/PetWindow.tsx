@@ -1,8 +1,9 @@
 import { ConfirmDialog } from "../../shared/ConfirmDialog";
+import { ToastNotice } from "../../shared/ToastNotice";
 import { createPortal } from "react-dom";
-import type { PetComputerAction } from "../../platform/clients/desktopPet";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Bell, Box, Droplets, Home, Moon, Move, Settings, X, EyeOff, MessageCircle, Footprints, Briefcase, Heart, Plane, Power, RotateCw, MonitorCog, LockKeyhole, FolderOpen, Mic, Minus, Pin, PinOff, Trash2 } from "lucide-react";
+import type { PetComputerAction, PetMonitor } from "../../platform/clients/desktopPet";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent } from "react";
+import { Bell, Box, Copy, Droplets, History, Home, Moon, Move, Settings, X, EyeOff, MessageCircle, Footprints, Briefcase, Heart, Plane, Power, RotateCw, MonitorCog, LockKeyhole, FolderOpen, Mic, Minus, Pin, PinOff, Trash2, Maximize2, Minimize2, MoreHorizontal } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { defaultPetSettings, isMimoSpeechPreset, sortPetAlerts, desktopPetClient as client, type PetSettings, type PetSnapshot, type PetAlert, type PetSpeechPreset } from "../../platform/clients/desktopPet";
@@ -11,6 +12,7 @@ import { petAppearances, petSpriteStyle, petFrameFor, type PetPose } from "./app
 import { PetPortrait } from "./PetPortrait";
 import { PetHumanoid } from "./PetHumanoid";
 import { DialogHeaderActions } from "../../shared/DialogHeaderActions";
+import { ContextMenu, type ContextMenuItem } from "../../shared/ContextMenu";
 import { PetChat, type PetChatPage, type PetVoiceTurn } from "./PetChat";
 import { usePetLife } from "./usePetLife";
 import { usePetVoice } from "./usePetVoice";
@@ -19,6 +21,7 @@ import { PetAlertsPage } from "./PetAlertsPage";
 import { usePetWindowTheme } from "./usePetWindowTheme";
 import { PetActionGroups, type PetActionGroup } from "./PetActionGroups";
 import { PetChatResizeEdges } from "./PetChatResizeEdges";
+import type { PetComputerCommand } from "./petComputerCommand";
 import "./desktop-pet.css";
 
 type Pose = PetPose;
@@ -39,6 +42,8 @@ export function PetWindow() {
     return () => document.documentElement.classList.remove("pet-window-page");
   }, []);
   const [computerConfirm, setComputerConfirm] = useState<"shutdown" | "restart" | null>(null);
+  const [brightnessChoice, setBrightnessChoice] = useState<{ monitors: PetMonitor[]; percent: number; resolve: (target: string) => void } | null>(null);
+  const [brightnessTarget, setBrightnessTarget] = useState("");
   const [computerBusy, setComputerBusy] = useState(false);
   const computerPending = useRef(false);
   /// AI 提议的 CMD 命令：弹窗展示完整命令，用户确认后才调用 pet_shell_command 执行。
@@ -98,6 +103,9 @@ export function PetWindow() {
   const [chatPage, setChatPage] = useState<PetChatPage>("chat");
   const [chatPinned, setChatPinned] = useState(true);
   const [chatMaximized, setChatMaximized] = useState(false);
+  /// 标题栏右键快捷菜单：记录指针位置，菜单项复用同一套聊天操作。
+  const [chatMenu, setChatMenu] = useState<{ x: number; y: number; copyText?: string } | null>(null);
+  const [copyNotice, setCopyNotice] = useState("");
   const [pendingVoice, setPendingVoice] = useState<PetVoiceTurn[]>([]);
   const activeSystemSpeech = useRef<SpeechSynthesisUtterance | null>(null);
   const [systemSpeaking, setSystemSpeaking] = useState(false);
@@ -107,18 +115,18 @@ export function PetWindow() {
     window.speechSynthesis?.cancel();
   }
 
-  function speak(text: string, options: { interrupt?: boolean; previewPreset?: PetSpeechPreset; onUnavailable?: (error: unknown) => void; onDone?: () => void } = {}) {
+  function speak(text: string, options: { interrupt?: boolean; previewPreset?: PetSpeechPreset; preparedId?: string; onUnavailable?: (error: unknown) => void; onDone?: () => void } = {}) {
     const { voice, quiet } = settingsRef.current;
     const { interrupt = false, previewPreset, onUnavailable = error => setVoiceHint(platformErrorMessage(error)), onDone } = options;
     if (quiet || (!previewPreset && (!text.trim() || !voice.enabled || !voice.speak))) { onDone?.(); return; }
     const preset = previewPreset ?? voice.speechPreset ?? "system";
     if (useWindowsSpeech) {
-      void client.voiceSpeak(previewPreset ? null : text, interrupt, previewPreset).catch(onUnavailable).finally(onDone);
+      void client.voiceSpeak(previewPreset ? null : text, interrupt, previewPreset, options.preparedId).catch(onUnavailable).finally(onDone);
       return;
     }
     if (runningInTauri && isMimoSpeechPreset(preset)) {
       if (interrupt) stopSystemSpeech();
-      void client.voiceSpeak(previewPreset ? null : text, interrupt, previewPreset).then(onDone).catch(error => {
+      void client.voiceSpeak(previewPreset ? null : text, interrupt, previewPreset, options.preparedId).then(onDone).catch(error => {
         if (previewPreset) { onUnavailable(error); onDone?.(); return; }
         const current = settingsRef.current;
         if (current.quiet || !current.voice.enabled || !current.voice.speak || current.voice.speechPreset !== preset) { onDone?.(); return; }
@@ -173,6 +181,7 @@ export function PetWindow() {
     stopSystemSpeech();
   }, [settings.voice.enabled, settings.voice.speak, speechSelection, settings.quiet]);
   const petVoice = usePetVoice(settings, {
+    openVoiceDraft: () => openChatPage("chat"),
     queueChat: (text, autoSend, commandId, localReply) => {
       setChatStarted(true);
       if (typeof localReply === "string") openChatPage("chat");
@@ -208,9 +217,10 @@ export function PetWindow() {
   const panelOpen = panel !== null || notice !== null || life.notice !== null || historyClearOpen || computerConfirm !== null || shellConfirm !== null;
   const chatVisible = panel === "chat" && !docked;
   const largeLayout = computerConfirm !== null || historyClearOpen || shellConfirm !== null;
-  const expandedLayout = chatVisible ? chatMaximized : largeLayout;
+  const expandedLayout = chatVisible ? chatMaximized || settings.harnessTraceEnabled : largeLayout;
   const activePin = !chatVisible || chatPinned;
   useEffect(() => { if (!chatVisible) setChatMaximized(false); }, [chatVisible]);
+  useEffect(() => { if (!chatVisible) setChatMenu(null); }, [chatVisible]);
   useEffect(() => { void work(() => client.layout(panelOpen, expandedLayout, chatVisible, activePin)); }, [panelOpen, expandedLayout, chatVisible, activePin]);
   useEffect(() => {
     const update = () => {
@@ -225,7 +235,7 @@ export function PetWindow() {
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || e.defaultPrevented || e.isComposing) return;
-      if (historyClearOpen) return;
+      if (historyClearOpen || brightnessChoice) return;
       if (chatVisible && chatPage !== "chat") {
         setFocusedAlert(null);
         setChatPage(chatPage === "settings" ? "chat" : "settings");
@@ -234,7 +244,7 @@ export function PetWindow() {
       setPanel(null); setNotice(null); setProtest(false); setPose(sleeping ? "sleep" : "idle");
     };
     window.addEventListener("keydown", key); return () => window.removeEventListener("keydown", key);
-  }, [sleeping, chatVisible, chatPage, historyClearOpen]);
+  }, [sleeping, chatVisible, chatPage, historyClearOpen, brightnessChoice]);
   useEffect(() => {
     if (docked || !visible || reduced || !["idle", "walk", "run", "spray"].includes(pose)) { setFrame(0); return; }
     const timer = setInterval(() => setFrame(f => (f + 1) % 6), pose === "idle" ? 480 : pose === "walk" ? 240 : 130);
@@ -277,6 +287,57 @@ export function PetWindow() {
     await work(async () => { await client.computerAction(action); setComputerConfirm(null); });
     computerPending.current = false; setComputerBusy(false);
   }
+  async function chatComputerCommand(command: PetComputerCommand): Promise<string> {
+    if ("folders" in command) {
+      if (command.folders === null) throw new Error("每次可以创建 1 到 20 个桌面文件夹。");
+      openChatPage("chat");
+      const { created, error } = await client.createDesktopFolders(command.folders);
+      if (!created.length && error) throw new Error(error);
+      return [`已在桌面创建 ${created.length} 个空文件夹。`, ...created, error].filter(Boolean).join("\n");
+    }
+    if (!runningOnWindows) throw new Error("电脑快捷操作目前仅支持 Windows 桌面端。");
+    openChatPage("chat");
+    if ("brightness" in command) {
+      if (command.brightness === null) throw new Error("亮度须在 0 到 100 之间。");
+      const percent = command.brightness;
+      const monitors = await client.monitors();
+      if (!monitors.length) throw new Error("未检测到可用显示器。");
+      let targets = monitors;
+      if (monitors.length > 1) {
+        const target = await new Promise<string>(resolve => {
+          setBrightnessTarget("");
+          setBrightnessChoice({ monitors, percent, resolve });
+        });
+        if (!target) return "已取消亮度调整。";
+        const current = await client.monitors();
+        if (current.length !== monitors.length || current.some((monitor, index) => monitor.name !== monitors[index].name || monitor.index !== monitors[index].index)) {
+          throw new Error("显示器列表已变化，请重新发送亮度指令。");
+        }
+        targets = target === "all" ? current : current.filter(monitor => String(monitor.index) === target);
+      }
+      const results: string[] = [];
+      for (const monitor of targets) {
+        const label = `屏幕 ${monitor.index + 1} · ${monitor.name}`;
+        if (!monitor.supported) {
+          results.push(`${label}：系统无法通过软件调节，外接屏可检查 DDC/CI 是否开启。`);
+          continue;
+        }
+        try {
+          const updated = await client.setBrightness(monitor.index, percent);
+          results.push(`${label}：当前亮度 ${updated.current ?? "未知"}${updated.current == null ? "" : "%"}。`);
+        } catch (error) {
+          results.push(`${label}：${platformErrorMessage(error)}`);
+        }
+      }
+      return results.join("\n");
+    }
+    if (command.action === "shutdown" || command.action === "restart") {
+      requestPowerAction(command.action);
+      return command.action === "shutdown" ? "请在弹窗中确认是否关机。" : "请在弹窗中确认是否重启。";
+    }
+    await client.computerAction(command.action);
+    return { lock: "已提交锁屏请求。", taskManager: "已打开任务管理器。", explorer: "已打开文件资源管理器。" }[command.action];
+  }
   /// 执行用户确认过的 CMD 命令：短状态气泡 + 语音播报，完整输出经本地回复显示在聊天面板。
   async function runShellCommand(command: string) {
     if (shellPending.current) return;
@@ -296,7 +357,7 @@ export function PetWindow() {
     });
     shellPending.current = false; setShellBusy(false);
   }
-  function closePanel() { setPanel(null); setPose(sleeping ? "sleep" : "idle"); }
+  function closePanel() { setChatMenu(null); setPanel(null); setPose(sleeping ? "sleep" : "idle"); }
   function changeChatPage(page: PetChatPage) {
     setFocusedAlert(null);
     setChatPage(page);
@@ -311,6 +372,26 @@ export function PetWindow() {
   function playPetAction(next: Pose, duration?: number) {
     closePanel();
     perform(next, duration);
+  }
+  function openChatMenu(event: MouseEvent<HTMLElement>) {
+    if (!(event.target instanceof Element)) return;
+    if (chatPage !== "chat" && !event.target.closest(".pet-panel-titlebar")) return;
+    event.preventDefault();
+    const body = event.target.closest("[data-pet-message-text]");
+    const selection = body?.ownerDocument.getSelection();
+    const selected = body?.contains(selection?.anchorNode ?? null) && body.contains(selection?.focusNode ?? null)
+      ? selection?.toString() : undefined;
+    const copyText = selected?.trim() ? selected : body?.textContent?.trim() ? body.textContent : undefined;
+    setChatMenu({ x: event.clientX, y: event.clientY, copyText });
+  }
+
+  async function copyChatText(text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopyNotice("已复制到剪贴板");
+    } catch {
+      setCopyNotice("复制失败，请选择文本后手动复制。");
+    }
   }
   function requestPowerAction(action: "shutdown" | "restart") {
     setError("");
@@ -331,6 +412,11 @@ export function PetWindow() {
       historyClearPending.current = false;
       setHistoryClearBusy(false);
     }
+  }
+  /// 右键菜单「清理聊天记录」与聊天页清空按钮共用同一确认流程；取消或关闭后回到原页面。
+  function requestClearHistory() {
+    setHistoryClearError("");
+    setHistoryClearOpen(true);
   }
   function dragPanel(e: React.PointerEvent<HTMLElement>) {
     if (e.button !== 0 || (chatVisible && chatMaximized) || (e.target as HTMLElement).closest("button")) return;
@@ -374,7 +460,7 @@ export function PetWindow() {
       { label: "和宠物聊天", icon: MessageCircle, onClick: () => openChatPage("chat") },
       { label: "查看提醒", icon: Bell, count: pending.length || undefined, onClick: () => openChatPage("alerts") },
       { label: "桌宠设置", icon: Settings, onClick: () => openChatPage("settings") },
-      { label: "清空聊天记录", icon: Trash2, danger: true, onClick: () => { setHistoryClearError(""); setHistoryClearOpen(true); } },
+      { label: "清空聊天记录", icon: Trash2, danger: true, onClick: requestClearHistory },
     ],
   };
   const desktopActions: PetActionGroup[] = [
@@ -398,15 +484,35 @@ export function PetWindow() {
     ...chatActions,
     actions: [...chatActions.actions, { label: "全部技能", icon: Box, onClick: () => openChatPage("skills") }],
   };
+  const textToCopy = chatMenu?.copyText;
+  const chatMenuItems: ContextMenuItem[] = [
+    ...(textToCopy ? [{ id: "copy", label: "复制", icon: <Copy size={14} aria-hidden="true" />, onSelect: () => void copyChatText(textToCopy) }] : []),
+    ...(chatPage !== "chat" ? [{ id: "chat", label: "回到聊天", icon: <MessageCircle size={14} aria-hidden="true" />, onSelect: () => setChatPage("chat") }] : []),
+    ...(chatPage !== "settings" ? [{ id: "settings", label: "设置", icon: <Settings size={14} aria-hidden="true" />, onSelect: () => setChatPage("settings") }] : []),
+    { id: "calls", label: "模型调用记录", icon: <History size={14} aria-hidden="true" />, onSelect: () => changeChatPage("calls") },
+    { id: "skills", label: "全部技能", icon: <Box size={14} aria-hidden="true" />, onSelect: () => changeChatPage("skills") },
+    { id: "maximize", label: chatMaximized || settings.harnessTraceEnabled ? "还原窗口" : "最大化", icon: chatMaximized || settings.harnessTraceEnabled ? <Minimize2 size={14} aria-hidden="true" /> : <Maximize2 size={14} aria-hidden="true" />, onSelect: () => {
+      const expanded = !(chatMaximized || settings.harnessTraceEnabled);
+      setChatMaximized(expanded);
+      if (!expanded && settings.harnessTraceEnabled) void client.save({ ...settings, harnessTraceEnabled: false }).catch(reason => setError(platformErrorMessage(reason, "无法关闭步骤面板")));
+    } },
+    { id: "pin", label: chatPinned ? "取消置顶" : "置顶窗口", icon: chatPinned ? <PinOff size={14} aria-hidden="true" /> : <Pin size={14} aria-hidden="true" />, onSelect: () => setChatPinned(value => !value) },
+    { id: "more", label: "更多操作…", icon: <MoreHorizontal size={14} aria-hidden="true" />, onSelect: () => setPanel("menu") },
+    { id: "clear", label: "清理聊天记录", icon: <Trash2 size={14} aria-hidden="true" />, danger: true, separated: true, onSelect: requestClearHistory },
+    { id: "close", label: "关闭", icon: <X size={14} aria-hidden="true" />, onSelect: () => { setChatPage("chat"); closePanel(); } },
+  ];
   return <main className={`pet-stage ${docked ? "pet-docked-stage" : dockEdge === "top" && panelOpen ? "pet-top-stage" : ""} ${reduced ? "pet-reduced" : ""}`} data-chat-open={chatVisible || undefined} data-docked={docked ? "true" : undefined} data-edge={docked ? dockEdge : undefined} style={{ "--pet-size": `${settings.size}px`, ...(petAppearances[appearance].sprite ? { "--pet-sprite-image": `url("${petAppearances[appearance].sprite}")` } : {}), "--pet-edge-shift": `${edgeShift}px` } as React.CSSProperties}>
-    {chatStarted && <section hidden={!chatVisible} style={chatVisible ? undefined : { display: "none" }} className="modal-form-layout dialog-common-theme pet-floating-card pet-chat-card" data-page={chatPage} data-maximized={chatMaximized || undefined} role="dialog" aria-label={`与${petName}聊天`}>
-      <header className="pet-panel-titlebar" onPointerDown={dragPanel} onContextMenu={e => { e.preventDefault(); setPanel("menu"); }} title="拖动标题栏移动 · 右键打开菜单">
+    {chatStarted && <section hidden={!chatVisible} style={chatVisible ? undefined : { display: "none" }} className="modal-form-layout dialog-common-theme pet-floating-card pet-chat-card" data-page={chatPage} data-maximized={chatMaximized || undefined} role="dialog" aria-label={`与${petName}聊天`} onContextMenu={openChatMenu}>
+      <header className="pet-panel-titlebar" onPointerDown={dragPanel} title="拖动标题栏移动 · 右键打开菜单">
         <strong><PetPortrait appearance={settings.appearance} pose="happy" /><span>{petName}</span></strong>
         <div className="pet-chat-title-tools">
           <button type="button" aria-label="置顶窗口" title={chatPinned ? "取消置顶" : "置顶窗口"} aria-pressed={chatPinned} onClick={() => setChatPinned(value => !value)}>{chatPinned ? <Pin size={15} aria-hidden="true" /> : <PinOff size={15} aria-hidden="true" />}</button>
           {chatPage === "chat" && <button type="button" aria-label="设置" title="设置" onClick={() => setChatPage("settings")}><Settings size={16} aria-hidden="true" /></button>}
           <button type="button" aria-label="收起到桌宠" title="收起到桌宠" onClick={closePanel}><Minus size={16} aria-hidden="true" /></button>
-          <DialogHeaderActions expanded={chatMaximized} onExpandedChange={setChatMaximized} resizeLabels={{ expand: "最大化窗口", restore: "还原窗口" }}>
+          <DialogHeaderActions expanded={chatMaximized || settings.harnessTraceEnabled} onExpandedChange={expanded => {
+            setChatMaximized(expanded);
+            if (!expanded && settings.harnessTraceEnabled) void client.save({ ...settings, harnessTraceEnabled: false }).catch(reason => setError(platformErrorMessage(reason, "无法关闭步骤面板")));
+          }} resizeLabels={{ expand: "最大化窗口", restore: "还原窗口" }}>
             <button type="button" className="pet-chat-close" aria-label="关闭" title="关闭（Esc）" onClick={() => { setChatPage("chat"); closePanel(); }}><X size={16} aria-hidden="true" /></button>
           </DialogHeaderActions>
         </div>
@@ -423,16 +529,25 @@ export function PetWindow() {
         voiceActivity={{ listening: petVoice.listening, listeningError: petVoice.listeningError, recognizing: petVoice.recognizing, processing: petVoice.processing, playing: voicePlaying }}
         onVoiceConsumed={() => setPendingVoice(turns => turns.slice(1))}
         onVoiceTranscript={transcript => petVoice.submit(transcript)}
-        onReplay={reply => speak(reply, { interrupt: true })}
+        voiceDraftText={petVoice.draftText} onVoiceDraftSend={petVoice.sendDraft} onVoiceDraftCancel={petVoice.cancelDraft}
+        onComputerCommand={chatComputerCommand}
+        onReplay={(reply, done) => speak(reply, { interrupt: true, onDone: done })}
         onVoicePreview={preset => new Promise<void>((resolve, reject) => {
           speak("", { interrupt: true, previewPreset: preset, onUnavailable: reject, onDone: resolve });
         })}
         onVoiceError={setError}
-        onSpeakSentence={(text, done) => speak(text, { onDone: done, onUnavailable: error => { setVoiceHint(platformErrorMessage(error)); done(); } })}
+        onPrepareSentence={(text, id) => {
+          const { voice, quiet } = settingsRef.current;
+          return runningInTauri && !quiet && voice.enabled && voice.speak && (useWindowsSpeech || isMimoSpeechPreset(voice.speechPreset))
+            ? client.voicePrepare(text, id) : Promise.resolve();
+        }}
+        onSpeakSentence={(text, done, preparedId) => speak(text, { preparedId, onDone: done, onUnavailable: error => setVoiceHint(platformErrorMessage(error)) })}
         onInterruptSpeech={() => { stopSystemSpeech(); void client.voiceSpeak(null, true).catch(() => {}); }}
         onVoiceReplyDone={commandId => { if (commandId !== undefined) void client.voiceContinue(commandId).catch(() => {}); }} /></div>
     </section>}
     {chatVisible && !chatMaximized && <PetChatResizeEdges onError={setError} />}
+    {chatVisible && chatMenu && <ContextMenu x={chatMenu.x} y={chatMenu.y} label={`${petName}聊天窗口操作`} items={chatMenuItems} onClose={() => setChatMenu(null)} />}
+    {chatVisible && copyNotice && <ToastNotice message={copyNotice} onDismiss={() => setCopyNotice("")} />}
     {docked ?
     <button className="pet-dock-handle" aria-label="拉出宠物" title="点击绳环拉出宠物，也可以按住拖动"
       onClick={() => { if (!drag.current?.moved && !dragging) void work(() => client.reveal()); }}
@@ -463,6 +578,18 @@ export function PetWindow() {
       <div className="modal-body pet-panel-body"><PetActionGroups groups={[quickChatActions, companionActions, ...desktopActions]} /></div>
     </section>}
     {historyClearOpen && createPortal(<ConfirmDialog title="清空聊天记录" message="确定永久删除本机保存的桌宠聊天记录和已发送图片？" tone="danger" confirmLabel="清空聊天记录" busy={historyClearBusy} error={historyClearError} onPointerDown={dragPanel} onResolve={confirmed => { if (confirmed) void clearChatHistory(); else setHistoryClearOpen(false); }} />, document.body)}
+    {brightnessChoice && createPortal(<ConfirmDialog title="选择显示器" message={`检测到 ${brightnessChoice.monitors.length} 台显示器。请选择要调到 ${brightnessChoice.percent}% 的屏幕。`} confirmLabel="调整亮度" confirmDisabled={!brightnessTarget} onPointerDown={dragPanel}
+      onResolve={confirmed => { brightnessChoice.resolve(confirmed ? brightnessTarget : ""); setBrightnessChoice(null); }}>
+      <label className="pet-brightness-choice">目标显示器
+        <select value={brightnessTarget} onChange={event => setBrightnessTarget(event.target.value)}>
+          <option value="">请选择显示器</option>
+          {brightnessChoice.monitors.map(monitor => <option key={monitor.index} value={monitor.index} disabled={!monitor.supported}>
+            {monitor.index + 1} · {monitor.name}{!monitor.supported ? "（无法软件调节）" : monitor.current == null ? "" : `（当前 ${monitor.current}%）`}
+          </option>)}
+          <option value="all" disabled={!brightnessChoice.monitors.some(monitor => monitor.supported)}>全部调整</option>
+        </select>
+      </label>
+    </ConfirmDialog>, document.body)}
     {computerConfirm && createPortal(<ConfirmDialog title={computerConfirm === "shutdown" ? "关闭电脑" : "重启电脑"} message={`确定${computerConfirm === "shutdown" ? "关闭" : "重启"}当前电脑吗？请先保存正在编辑的文件，操作会立即提交给 Windows。`} confirmLabel={computerConfirm === "shutdown" ? "确认关机" : "确认重启"} busy={computerBusy} error={error} onPointerDown={dragPanel} onResolve={confirmed => { if (confirmed) void computerAction(computerConfirm); else setComputerConfirm(null); }} />, document.body)}
     {shellConfirm && createPortal(<ConfirmDialog title="执行电脑命令" tone="danger" message={`${shellConfirm.summary || "AI 建议执行以下 CMD 命令"}。请核对命令内容，确认后才会在本机执行，高危命令会被直接拒绝。`} confirmLabel="确认执行" busy={shellBusy} error={error} onPointerDown={dragPanel} onResolve={confirmed => { if (confirmed) void runShellCommand(shellConfirm.command); else setShellConfirm(null); }}><pre className="pet-shell-command">{shellConfirm.command}</pre></ConfirmDialog>, document.body)}
     {!chatVisible && error && <div className="pet-inline-error" role="alert">{error}<button aria-label="关闭错误提示" onClick={() => setError("")}>关闭</button></div>}
