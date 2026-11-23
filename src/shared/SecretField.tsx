@@ -9,10 +9,12 @@ type Props = Omit<InputHTMLAttributes<HTMLInputElement>, "type" | "value" | "def
   rows?: number;
   secretLabel?: string;
   reveal?: () => Promise<string>;
+  /// 回显失败时的提示文案：默认给出通用指引；传入函数可展示后端返回的具体原因（如“尚未保存凭据”）。
+  revealErrorMessage?: (error: unknown) => string;
 };
 
 /** Saved values are displayed separately and never become form edits. */
-export function SecretField({ value, defaultValue = "", multiline = false, rows = 5, secretLabel = "密钥", reveal, onChange, ...props }: Props) {
+export function SecretField({ value, defaultValue = "", multiline = false, rows = 5, secretLabel = "密钥", reveal, revealErrorMessage, onChange, ...props }: Props) {
   const [localValue, setLocalValue] = useState(defaultValue);
   const [visible, setVisible] = useState(false);
   const [savedValue, setSavedValue] = useState<string | null>(null);
@@ -46,8 +48,8 @@ export function SecretField({ value, defaultValue = "", multiline = false, rows 
       if (generation.current !== request) return;
       setSavedValue(secret);
       setVisible(true);
-    } catch {
-      if (generation.current === request) setError("无法读取已保存凭据，请在 App 内重试。");
+    } catch (failure) {
+      if (generation.current === request) setError(revealErrorMessage ? revealErrorMessage(failure) : "无法读取已保存凭据，请在 App 内重试。");
     } finally {
       if (generation.current === request) setBusy(false);
     }

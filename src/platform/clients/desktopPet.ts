@@ -95,6 +95,8 @@ export const desktopPetClient = {
   lifeAction: (id: string, action: "ack" | "snooze" | "testWater" | "openWeather") => nativeOnly<PetLifeState>("pet_life_action", { id, action }),
   lifeWeather: () => nativeOnly<PetLifeState>("pet_life_weather"),
   voiceStatus: () => nativeOnly<PetVoiceStatus>("pet_voice_status"),
+  /// 回显本机已加密保存的讯飞凭据；仅在用户主动点小眼睛时调用，未保存时后端返回提示。
+  voiceRevealXfyun: () => nativeOnly<PetVoiceXfyunCredentials>("pet_voice_reveal_xfyun"),
   voiceSpeak: (text: string | null, interrupt = false, previewPreset?: PetSpeechPreset, preparedId?: string) => nativeOnly<void>("pet_voice_speak", { text, interrupt, previewPreset: previewPreset ?? null, preparedId }),
   voicePrepare: (text: string, prepareId: string) => nativeOnly<void>("pet_voice_speak", { text, interrupt: false, prepareId }),
   voiceContinue: (commandId: number) => nativeOnly<void>("pet_voice_continue", { commandId }),

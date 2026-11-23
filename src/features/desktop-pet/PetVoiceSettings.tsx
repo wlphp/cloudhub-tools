@@ -38,10 +38,12 @@ function originOf(baseUrl: string) {
 export function PetVoiceSettings({ value, quiet, onSave, disabled, petEnabled }: { value: VoiceSettings; quiet: boolean; onSave: (value: VoiceSettings, quiet: boolean, credentials?: PetVoiceXfyunCredentials) => Promise<void>; disabled: boolean; petEnabled: boolean }) {
   const [draft, setDraft] = useState<VoiceSettings>({ ...defaultPetVoice, ...value });
   const [draftQuiet, setDraftQuiet] = useState(quiet);
-  /// 讯飞凭据只在填写时一次性提交，后端加密落库后清空输入框；不回读、不回显已保存值。
+  /// 讯飞凭据只在填写时一次性提交，后端加密落库后清空输入框；已保存值仅在用户点小眼睛时按需解密回显。
   const [xfyun, setXfyun] = useState<PetVoiceXfyunCredentials>({ appId: "", apiKey: "", apiSecret: "" });
   /// 保存成功后递增，用于重置三个密钥框的小眼睛状态（恢复遮罩）。
   const [xfyunEpoch, setXfyunEpoch] = useState(0);
+  /// 已解密凭据的临时缓存：三个小眼睛共用一份回显结果，避免每点一次都重新解密；保存后立即作废。
+  const xfyunSaved = useRef<PetVoiceXfyunCredentials | null>(null);
   const [status, setStatus] = useState<PetVoiceStatus | null>(null);
   const [download, setDownload] = useState<{ name: string; progress: PetVoiceDownloadProgress | null } | null>(null);
   const [heard, setHeard] = useState("");
@@ -96,6 +98,12 @@ export function PetVoiceSettings({ value, quiet, onSave, disabled, petEnabled }:
     }
   }
   async function cancelDownload() { try { await client.voiceCancelModelDownload(); } catch { /* 取消标志已置位，无需提示 */ } }
+  /// 小眼睛回显：按字段取本机已保存的凭据；未保存时后端返回提示，错误信息不含任何凭据内容。
+  const revealXfyun = useCallback(async (field: keyof PetVoiceXfyunCredentials) => {
+    const saved = xfyunSaved.current ?? await client.voiceRevealXfyun();
+    xfyunSaved.current = saved;
+    return saved[field];
+  }, []);
   const check = (key: "enabled" | "wakeEnabled" | "autoSend" | "speak" | "cloudAsrEnabled" | "shellEnabled", label: string, description?: string) => <label className="pet-option"><span>{label}{description && <small>{description}</small>}</span><input type="checkbox" checked={draft[key]} onChange={e => change({ [key]: e.target.checked })} /></label>;
   const percent = download?.progress?.totalBytes ? Math.min(100, Math.round((download.progress.downloadedBytes / download.progress.totalBytes) * 100)) : null;
   const cloudProfile = profiles.find(profile => profile.id === draft.cloudProfileId);
@@ -112,6 +120,7 @@ export function PetVoiceSettings({ value, quiet, onSave, disabled, petEnabled }:
         if (credentials && (!credentials.appId || !credentials.apiKey || !credentials.apiSecret)) throw new Error("讯飞凭据不完整：APPID、APIKey、APISecret 均需填写");
         await onSave(draft, draftQuiet, credentials);
         setXfyun({ appId: "", apiKey: "", apiSecret: "" });
+        xfyunSaved.current = null;
         setXfyunEpoch(current => current + 1);
         setHeard("");
         refresh();
@@ -132,9 +141,9 @@ export function PetVoiceSettings({ value, quiet, onSave, disabled, petEnabled }:
               setCustomCloudModel(false);
               change(provider === "xfyun" ? { cloudProvider: provider, cloudProfileId: "", cloudEndpoint: "", cloudModel: "" } : { cloudProvider: provider });
             }}><option value="openai">OpenAI 兼容接口（AI 配置密钥）</option><option value="xfyun">讯飞语音听写</option></select><small>讯飞凭据独立加密保存，不复用 AI 配置密钥</small></label>}
-            {draft.cloudAsrEnabled && draft.cloudProvider === "xfyun" && <label>讯飞 APPID<SecretField key={`xfyun-appid-${xfyunEpoch}`} secretLabel="讯飞 APPID" aria-label="讯飞 APPID" value={xfyun.appId} maxLength={128} autoComplete="off" spellCheck={false} placeholder={status?.xfyunConfigured ? "已保存，留空保持不变" : "讯飞开放平台应用的 APPID"} onChange={e => setXfyun(current => ({ ...current, appId: e.target.value }))} /><small>控制台 → 我的应用管理</small></label>}
-            {draft.cloudAsrEnabled && draft.cloudProvider === "xfyun" && <label>讯飞 APIKey<SecretField key={`xfyun-apikey-${xfyunEpoch}`} secretLabel="讯飞 APIKey" aria-label="讯飞 APIKey" value={xfyun.apiKey} maxLength={128} autoComplete="off" spellCheck={false} placeholder={status?.xfyunConfigured ? "已保存，留空保持不变" : "应用的 APIKey"} onChange={e => setXfyun(current => ({ ...current, apiKey: e.target.value }))} /><small>与 APISecret 成对，来自同一应用</small></label>}
-            {draft.cloudAsrEnabled && draft.cloudProvider === "xfyun" && <label>讯飞 APISecret<SecretField key={`xfyun-apisecret-${xfyunEpoch}`} secretLabel="讯飞 APISecret" aria-label="讯飞 APISecret" value={xfyun.apiSecret} maxLength={128} autoComplete="new-password" spellCheck={false} placeholder={status?.xfyunConfigured ? "已保存，留空保持不变" : "应用的 APISecret"} onChange={e => setXfyun(current => ({ ...current, apiSecret: e.target.value }))} /><small>本地加密保存；需在讯飞控制台开通「语音听写」（免费额度每日 500 次）</small></label>}
+            {draft.cloudAsrEnabled && draft.cloudProvider === "xfyun" && <label>讯飞 APPID<SecretField key={`xfyun-appid-${xfyunEpoch}`} secretLabel="讯飞 APPID" aria-label="讯飞 APPID" value={xfyun.appId} maxLength={128} autoComplete="off" spellCheck={false} placeholder={status?.xfyunConfigured ? "已保存，留空保持不变" : "讯飞开放平台应用的 APPID"} reveal={() => revealXfyun("appId")} revealErrorMessage={failure => platformErrorMessage(failure, "无法读取已保存的讯飞凭据")} onChange={e => setXfyun(current => ({ ...current, appId: e.target.value }))} /><small>控制台 → 我的应用管理</small></label>}
+            {draft.cloudAsrEnabled && draft.cloudProvider === "xfyun" && <label>讯飞 APIKey<SecretField key={`xfyun-apikey-${xfyunEpoch}`} secretLabel="讯飞 APIKey" aria-label="讯飞 APIKey" value={xfyun.apiKey} maxLength={128} autoComplete="off" spellCheck={false} placeholder={status?.xfyunConfigured ? "已保存，留空保持不变" : "应用的 APIKey"} reveal={() => revealXfyun("apiKey")} revealErrorMessage={failure => platformErrorMessage(failure, "无法读取已保存的讯飞凭据")} onChange={e => setXfyun(current => ({ ...current, apiKey: e.target.value }))} /><small>与 APISecret 成对，来自同一应用</small></label>}
+            {draft.cloudAsrEnabled && draft.cloudProvider === "xfyun" && <label>讯飞 APISecret<SecretField key={`xfyun-apisecret-${xfyunEpoch}`} secretLabel="讯飞 APISecret" aria-label="讯飞 APISecret" value={xfyun.apiSecret} maxLength={128} autoComplete="new-password" spellCheck={false} placeholder={status?.xfyunConfigured ? "已保存，留空保持不变" : "应用的 APISecret"} reveal={() => revealXfyun("apiSecret")} revealErrorMessage={failure => platformErrorMessage(failure, "无法读取已保存的讯飞凭据")} onChange={e => setXfyun(current => ({ ...current, apiSecret: e.target.value }))} /><small>本地加密保存；需在讯飞控制台开通「语音听写」（免费额度每日 500 次）</small></label>}
             {draft.cloudAsrEnabled && draft.cloudProvider !== "xfyun" && <label>云端识别配置（用它的密钥）<select value={draft.cloudProfileId} onChange={e => {
               const profile = profiles.find(item => item.id === e.target.value);
               const preset = cloudAsrPreset(profile?.baseUrl);

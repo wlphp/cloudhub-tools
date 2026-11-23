@@ -1813,6 +1813,17 @@ fn xfyun_configured() -> bool {
     matches!(xfyun_load_credentials(), Ok(Some(_)))
 }
 
+/// 讯飞凭据回显：仅在用户主动点小眼睛时解密并返回三项凭据。
+/// 未保存或解密失败时只返回提示文案，绝不携带任何凭据内容。
+#[tauri::command]
+pub fn pet_voice_reveal_xfyun(window: tauri::WebviewWindow) -> PlatformResult<super::VoiceXfyunCredentials> {
+    caller(&window)?;
+    let Some((app_id, api_key, api_secret)) = xfyun_load_credentials()? else {
+        return Err("尚未保存讯飞凭据，请先填写并保存".into());
+    };
+    Ok(super::VoiceXfyunCredentials { app_id, api_key, api_secret })
+}
+
 /// 按官方契约构造讯飞握手 URL：host/date/request-line 拼串 → HMAC-SHA256 → base64 鉴权参数。
 /// date 由调用方传入（RFC1123 GMT），保证签名与请求时间一致；异常密钥长度在 HMAC 中不存在失败路径。
 fn xfyun_handshake_url(api_key: &str, api_secret: &str, date: &str) -> String {

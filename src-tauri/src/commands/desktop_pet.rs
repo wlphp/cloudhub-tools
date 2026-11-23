@@ -35,7 +35,7 @@ mod lookup;
 #[cfg(desktop)]
 pub use lookup::pet_chat_lookup;
 #[cfg(desktop)]
-pub use voice::{pet_voice_cancel_model_download, pet_voice_continue, pet_voice_download_model, pet_voice_intent, pet_voice_open_models_dir, pet_voice_speak, pet_voice_status, pet_voice_transcribe};
+pub use voice::{pet_voice_cancel_model_download, pet_voice_continue, pet_voice_download_model, pet_voice_intent, pet_voice_open_models_dir, pet_voice_reveal_xfyun, pet_voice_speak, pet_voice_status, pet_voice_transcribe};
 
 const CONFIG: &str = "desktop-pet-config-v1";
 const MONITOR_CONFIG: &str = "monitor-alerts-config-v1";
@@ -552,6 +552,7 @@ pub fn restricted<R: tauri::Runtime>(
                 "pet_voice_intent",
                 "pet_voice_speak",
                 "pet_voice_continue",
+                "pet_voice_reveal_xfyun",
             ]
             .contains(&invoke.message.command())
         {
