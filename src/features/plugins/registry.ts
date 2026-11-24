@@ -53,7 +53,7 @@ export const officialPlugins = [{
   permissions: ["在本机 SQLite 数据库中保存笔记、分组和标签", "按标题、正文、账号和标签检索笔记", "到点通过桌宠或独立提醒窗口弹出备忘录提醒", "复用系统剪贴板复制用户选择的账号或密码"],
 }, {
   id: "cloudhub.claude-providers",
-  name: "Claude 管理",
+  name: "Claude 终端",
   version: "0.1.0",
   publisher: "云枢工具箱",
   description: "管理 Claude Code 供应商，支持直连、路由、聚合，以及 MCP、提示词、技能与会话。",
@@ -63,6 +63,16 @@ export const officialPlugins = [{
   // 供应商 API Key 本地加密保存；写入 Claude Code 配置前先备份，
   // 且只改写连接与鉴权字段，hooks 等用户配置原样保留。
   permissions: ["在本机 SQLite 数据库中加密保存供应商 API Key", "读写用户或所选项目的 Claude Code 配置（修改前备份）", "启动本机回环路由并按所选供应商转换请求协议", "连接用户配置的供应商地址以查询模型及转发请求", "管理 MCP 配置、CLAUDE.md、已安装技能和本地会话", "记录不含提示词与凭据的请求用量"],
+}, {
+  id: "cloudhub.claude-desktop",
+  name: "Claude Desktop",
+  version: "0.1.0",
+  publisher: "云枢工具箱",
+  description: "管理 Claude Desktop 官方登录、第三方直连、本机路由和模型聚合。",
+  category: "开发工具",
+  distribution: "builtin",
+  platform: "desktop",
+  permissions: ["读写 Claude Desktop 本机配置并加密备份", "加密保存供应商 API Key，第三方直连时写入 Desktop 配置", "启动本机回环网关并转发所选供应商请求"],
 }, {
   id: "cloudhub.lan-devices",
   name: "局域网设备",
@@ -143,6 +153,16 @@ export const officialPlugins = [{
   distribution: "builtin",
   platform: "desktop",
   permissions: ["主动下载并校验官方 rclone 引擎", "检测 WinFsp、macFUSE 或 Linux FUSE 并打开安装说明", "在本机 SQLite 加密保存存储凭据", "通过阿里云盘官方 PKCE 授权访问文件", "连接用户配置的存储服务并按权限读写文件", "启动和管理磁盘挂载进程及本地文件缓存"],
+}, {
+  id: "cloudhub.desktop-pet",
+  name: "桌面宠物",
+  version: "0.1.0",
+  publisher: "云枢工具箱",
+  description: "管理桌宠外观、活动范围、生活提醒与语音对话。",
+  category: "桌面工具",
+  distribution: "builtin",
+  platform: "desktop",
+  permissions: ["显示桌面宠物并在本机保存设置", "按配置查询地区天气预警", "启用语音功能时使用麦克风，可按配置连接语音服务"],
 }, {
   id: "cloudhub.model-suppliers",
   name: "模型供应商",

@@ -622,7 +622,7 @@ fn pet_log_json(value: &Value, key: &str) -> Value {
     }
 }
 
-fn pet_log_body(value: &Value, key: &str) -> Value {
+pub(crate) fn pet_log_body(value: &Value, key: &str) -> Value {
     let safe = pet_log_json(value, key);
     if safe.to_string().len() > 128 * 1024 {
         json!({"omitted": "正文超过记录上限"})

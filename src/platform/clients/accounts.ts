@@ -48,7 +48,7 @@ type SyncAccountPreview = {
   regionId: string | null;
 };
 type SyncManagedHostPreview = Pick<ManagedHost, "name" | "host" | "port" | "username" | "platform"> & { syncId: string; authMethod: string };
-type SyncPanelPreview = { syncId: string; name: string; panelUrl: string; allowInsecureTls: boolean };
+type SyncPanelPreview = { syncId: string; name: string; panelUrl: string; allowInsecureTls: boolean; monitorEnabled: boolean };
 type SyncFlowPreview = { syncId: string; name: string; edition: string; organizationId: string | null; pipelineCount: number };
 type SyncDeletionPreview = { entityType: "cloud_account" | "managed_host" | "panel_connection"; syncId: string; name: string; willDelete: boolean };
 export type SyncDeviceIdentity = { deviceId: string; publicKey: string };

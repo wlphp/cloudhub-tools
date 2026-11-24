@@ -1,6 +1,7 @@
 import { ConfirmDialog } from "../../shared/ConfirmDialog";
 import { ToastNotice } from "../../shared/ToastNotice";
 import { createPortal } from "react-dom";
+import { petChatParentPage } from "./PetChatSettings";
 import type { PetComputerAction, PetMonitor } from "../../platform/clients/desktopPet";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent } from "react";
 import { Bell, Box, Copy, Droplets, History, Home, Moon, Move, Settings, X, EyeOff, MessageCircle, Footprints, Briefcase, Heart, Plane, Power, RotateCw, MonitorCog, LockKeyhole, FolderOpen, Mic, Minus, Pin, PinOff, Trash2, Maximize2, Minimize2, MoreHorizontal } from "lucide-react";
@@ -103,6 +104,11 @@ export function PetWindow() {
   const [chatPage, setChatPage] = useState<PetChatPage>("chat");
   const [chatPinned, setChatPinned] = useState(true);
   const [chatMaximized, setChatMaximized] = useState(false);
+  const [chatTraceSplit, setChatTraceSplit] = useState(400);
+  const [chatTraceWidth, setChatTraceWidth] = useState<number | null>(null);
+  const chatCard = useRef<HTMLElement>(null);
+  const chatTraceSplitDrag = useRef<{ pointerId: number; clientX: number; split: number } | null>(null);
+  const maxChatTraceSplit = Math.max(400, window.innerWidth - 320);
   /// 标题栏右键快捷菜单：记录指针位置，菜单项复用同一套聊天操作。
   const [chatMenu, setChatMenu] = useState<{ x: number; y: number; copyText?: string } | null>(null);
   const [copyNotice, setCopyNotice] = useState("");
@@ -217,11 +223,27 @@ export function PetWindow() {
   const panelOpen = panel !== null || notice !== null || life.notice !== null || historyClearOpen || computerConfirm !== null || shellConfirm !== null;
   const chatVisible = panel === "chat" && !docked;
   const largeLayout = computerConfirm !== null || historyClearOpen || shellConfirm !== null;
-  const expandedLayout = chatVisible ? chatMaximized || settings.harnessTraceEnabled : largeLayout;
+  const expandedLayout = chatVisible ? chatMaximized : largeLayout;
   const activePin = !chatVisible || chatPinned;
   useEffect(() => { if (!chatVisible) setChatMaximized(false); }, [chatVisible]);
   useEffect(() => { if (!chatVisible) setChatMenu(null); }, [chatVisible]);
-  useEffect(() => { void work(() => client.layout(panelOpen, expandedLayout, chatVisible, activePin)); }, [panelOpen, expandedLayout, chatVisible, activePin]);
+  useEffect(() => {
+    let disposed = false;
+    void work(async () => {
+      try {
+        await client.layout(panelOpen, expandedLayout, chatVisible, activePin, chatVisible && settings.harnessTraceEnabled);
+      } finally {
+        if (!disposed && !settings.harnessTraceEnabled) setChatTraceWidth(null);
+      }
+    });
+    return () => { disposed = true; };
+  }, [panelOpen, expandedLayout, chatVisible, activePin, settings.harnessTraceEnabled]);
+  useEffect(() => {
+    if (!chatVisible || !settings.harnessTraceEnabled) return;
+    const clampSplit = () => setChatTraceSplit(value => Math.min(value, Math.max(400, window.innerWidth - 320)));
+    window.addEventListener("resize", clampSplit);
+    return () => window.removeEventListener("resize", clampSplit);
+  }, [chatVisible, settings.harnessTraceEnabled]);
   useEffect(() => {
     const update = () => {
       const regions = chatVisible ? [] : [...document.querySelectorAll(`${petPanelRegions},.pet-alert-badge`)].map(el => el.getBoundingClientRect()).filter(r => r.width && r.height).map(r => [r.left,r.top,r.right,r.bottom]);
@@ -238,7 +260,7 @@ export function PetWindow() {
       if (historyClearOpen || brightnessChoice) return;
       if (chatVisible && chatPage !== "chat") {
         setFocusedAlert(null);
-        setChatPage(chatPage === "settings" ? "chat" : "settings");
+        setChatPage(petChatParentPage(chatPage));
         return;
       }
       setPanel(null); setNotice(null); setProtest(false); setPose(sleeping ? "sleep" : "idle");
@@ -489,10 +511,10 @@ export function PetWindow() {
     ...(textToCopy ? [{ id: "copy", label: "复制", icon: <Copy size={14} aria-hidden="true" />, onSelect: () => void copyChatText(textToCopy) }] : []),
     ...(chatPage !== "chat" ? [{ id: "chat", label: "回到聊天", icon: <MessageCircle size={14} aria-hidden="true" />, onSelect: () => setChatPage("chat") }] : []),
     ...(chatPage !== "settings" ? [{ id: "settings", label: "设置", icon: <Settings size={14} aria-hidden="true" />, onSelect: () => setChatPage("settings") }] : []),
-    { id: "calls", label: "模型调用记录", icon: <History size={14} aria-hidden="true" />, onSelect: () => changeChatPage("calls") },
+    { id: "records", label: "调用记录", icon: <History size={14} aria-hidden="true" />, onSelect: () => changeChatPage("records") },
     { id: "skills", label: "全部技能", icon: <Box size={14} aria-hidden="true" />, onSelect: () => changeChatPage("skills") },
-    { id: "maximize", label: chatMaximized || settings.harnessTraceEnabled ? "还原窗口" : "最大化", icon: chatMaximized || settings.harnessTraceEnabled ? <Minimize2 size={14} aria-hidden="true" /> : <Maximize2 size={14} aria-hidden="true" />, onSelect: () => {
-      const expanded = !(chatMaximized || settings.harnessTraceEnabled);
+    { id: "maximize", label: chatMaximized ? "还原窗口" : "最大化", icon: chatMaximized ? <Minimize2 size={14} aria-hidden="true" /> : <Maximize2 size={14} aria-hidden="true" />, onSelect: () => {
+      const expanded = !chatMaximized;
       setChatMaximized(expanded);
       if (!expanded && settings.harnessTraceEnabled) void client.save({ ...settings, harnessTraceEnabled: false }).catch(reason => setError(platformErrorMessage(reason, "无法关闭步骤面板")));
     } },
@@ -502,14 +524,14 @@ export function PetWindow() {
     { id: "close", label: "关闭", icon: <X size={14} aria-hidden="true" />, onSelect: () => { setChatPage("chat"); closePanel(); } },
   ];
   return <main className={`pet-stage ${docked ? "pet-docked-stage" : dockEdge === "top" && panelOpen ? "pet-top-stage" : ""} ${reduced ? "pet-reduced" : ""}`} data-chat-open={chatVisible || undefined} data-docked={docked ? "true" : undefined} data-edge={docked ? dockEdge : undefined} style={{ "--pet-size": `${settings.size}px`, ...(petAppearances[appearance].sprite ? { "--pet-sprite-image": `url("${petAppearances[appearance].sprite}")` } : {}), "--pet-edge-shift": `${edgeShift}px` } as React.CSSProperties}>
-    {chatStarted && <section hidden={!chatVisible} style={chatVisible ? undefined : { display: "none" }} className="modal-form-layout dialog-common-theme pet-floating-card pet-chat-card" data-page={chatPage} data-maximized={chatMaximized || undefined} role="dialog" aria-label={`与${petName}聊天`} onContextMenu={openChatMenu}>
+    {chatStarted && <section ref={chatCard} hidden={!chatVisible} style={chatVisible ? { "--pet-chat-trace-split": `${chatTraceSplit}px`, "--pet-chat-main-width": chatTraceWidth === null ? undefined : `${chatTraceWidth}px` } as React.CSSProperties : { display: "none" }} className="modal-form-layout dialog-common-theme pet-floating-card pet-chat-card" data-page={chatPage} data-maximized={chatMaximized || undefined} data-trace-visible={chatVisible && settings.harnessTraceEnabled || undefined} role="dialog" aria-label={`与${petName}聊天`} onContextMenu={openChatMenu}>
       <header className="pet-panel-titlebar" onPointerDown={dragPanel} title="拖动标题栏移动 · 右键打开菜单">
         <strong><PetPortrait appearance={settings.appearance} pose="happy" /><span>{petName}</span></strong>
         <div className="pet-chat-title-tools">
           <button type="button" aria-label="置顶窗口" title={chatPinned ? "取消置顶" : "置顶窗口"} aria-pressed={chatPinned} onClick={() => setChatPinned(value => !value)}>{chatPinned ? <Pin size={15} aria-hidden="true" /> : <PinOff size={15} aria-hidden="true" />}</button>
           {chatPage === "chat" && <button type="button" aria-label="设置" title="设置" onClick={() => setChatPage("settings")}><Settings size={16} aria-hidden="true" /></button>}
           <button type="button" aria-label="收起到桌宠" title="收起到桌宠" onClick={closePanel}><Minus size={16} aria-hidden="true" /></button>
-          <DialogHeaderActions expanded={chatMaximized || settings.harnessTraceEnabled} onExpandedChange={expanded => {
+          <DialogHeaderActions expanded={chatMaximized} onExpandedChange={expanded => {
             setChatMaximized(expanded);
             if (!expanded && settings.harnessTraceEnabled) void client.save({ ...settings, harnessTraceEnabled: false }).catch(reason => setError(platformErrorMessage(reason, "无法关闭步骤面板")));
           }} resizeLabels={{ expand: "最大化窗口", restore: "还原窗口" }}>
@@ -522,7 +544,14 @@ export function PetWindow() {
           <span>{error}</span>
           <button type="button" aria-label="关闭错误提示" title="关闭错误提示" onClick={() => setError("")}><X size={14} aria-hidden="true" /></button>
         </div>}
-        <PetChat settings={settings} settingsReady={ready} onSettingsSave={next => client.save(next)} page={chatPage} onPageChange={changeChatPage}
+        <PetChat settings={settings} settingsReady={ready} onSettingsSave={async next => {
+          if (next.harnessTraceEnabled && !settings.harnessTraceEnabled) {
+            const width = chatCard.current?.querySelector(".pet-chat-main")?.getBoundingClientRect().width;
+            if (width) { setChatTraceWidth(width); setChatTraceSplit(width + 20); }
+          }
+          try { await client.save(next); }
+          catch (reason) { if (!settings.harnessTraceEnabled) setChatTraceWidth(null); throw reason; }
+        }} page={chatPage} onPageChange={changeChatPage}
         skillsActions={<PetActionGroups groups={[companionActions, chatActions, ...desktopActions]} />}
         alerts={{ count: pending.length, page: <PetAlertsPage key={focusedAlert?.key ?? "alerts"} snapshot={snapshot} monitoring={settings.monitoring} initialAlert={focusedAlert} onSnapshotChange={setSnapshot} /> }}
         visible={chatVisible} historyVersion={historyVersion} clearingHistory={historyClearOpen} pendingVoice={pendingVoice[0]}
@@ -544,8 +573,16 @@ export function PetWindow() {
         onSpeakSentence={(text, done, preparedId) => speak(text, { preparedId, onDone: done, onUnavailable: error => setVoiceHint(platformErrorMessage(error)) })}
         onInterruptSpeech={() => { stopSystemSpeech(); void client.voiceSpeak(null, true).catch(() => {}); }}
         onVoiceReplyDone={commandId => { if (commandId !== undefined) void client.voiceContinue(commandId).catch(() => {}); }} /></div>
+    {chatVisible && !chatMaximized && settings.harnessTraceEnabled && <div className="pet-chat-trace-splitter" role="separator" aria-label="调整聊天与步骤面板宽度" aria-orientation="vertical" aria-valuemin={320} aria-valuemax={maxChatTraceSplit} aria-valuenow={chatTraceSplit} tabIndex={0}
+      onPointerDown={event => { if (event.button !== 0) return; event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId); chatTraceSplitDrag.current = { pointerId: event.pointerId, clientX: event.clientX, split: chatTraceSplit }; }}
+      onPointerMove={event => { const drag = chatTraceSplitDrag.current; if (drag?.pointerId === event.pointerId) setChatTraceSplit(Math.max(320, Math.min(maxChatTraceSplit, drag.split + event.clientX - drag.clientX))); }}
+      onPointerUp={event => { if (chatTraceSplitDrag.current?.pointerId === event.pointerId) chatTraceSplitDrag.current = null; }}
+      onPointerCancel={() => { chatTraceSplitDrag.current = null; }}
+      onLostPointerCapture={() => { chatTraceSplitDrag.current = null; }}
+      onKeyDown={event => { if (event.key === "ArrowLeft") { event.preventDefault(); setChatTraceSplit(value => Math.max(320, value - 16)); } else if (event.key === "ArrowRight") { event.preventDefault(); setChatTraceSplit(value => Math.min(maxChatTraceSplit, value + 16)); } }} />}
     </section>}
     {chatVisible && !chatMaximized && <PetChatResizeEdges onError={setError} />}
+
     {chatVisible && chatMenu && <ContextMenu x={chatMenu.x} y={chatMenu.y} label={`${petName}聊天窗口操作`} items={chatMenuItems} onClose={() => setChatMenu(null)} />}
     {chatVisible && copyNotice && <ToastNotice message={copyNotice} onDismiss={() => setCopyNotice("")} />}
     {docked ?

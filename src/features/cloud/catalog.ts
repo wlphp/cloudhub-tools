@@ -38,6 +38,7 @@ export const emptyPanelConnectionDraft: PanelConnectionDraft = {
   sort_order: 0,
   api_key: "",
   allow_insecure_tls: true,
+  monitor_enabled: true,
   group_name: "",
   remark: "",
   ssh_port: 22,

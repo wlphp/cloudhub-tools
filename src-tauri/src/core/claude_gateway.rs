@@ -42,10 +42,10 @@ impl Config{
         Ok(())
     }
 }
-fn preference(key:&str)->Result<Option<String>,String>{
+pub(super) fn preference(key:&str)->Result<Option<String>,String>{
     open_db()?.query_row("SELECT value FROM client_preferences WHERE key=?1",[key],|r|r.get(0)).optional().map_err(|_|"读取 Claude 工作台设置失败".into())
 }
-fn save_preference(key:&str,value:&str)->Result<(),String>{
+pub(super) fn save_preference(key:&str,value:&str)->Result<(),String>{
     open_db()?.execute("INSERT INTO client_preferences(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at",
         params![key,value,chrono::Utc::now().timestamp_millis()]).map_err(|_|"保存 Claude 工作台设置失败".to_string())?;Ok(())
 }
@@ -88,7 +88,7 @@ struct Shared{config:Config,mode:Mode,providers:Vec<ClaudeProvider>,health:HashM
 fn saved_logs()->Result<VecDeque<Log>,String>{
     preference(LOG_KEY)?.map(|raw|serde_json::from_str(&raw).map_err(|_|"请求记录损坏".into())).unwrap_or_else(||Ok(VecDeque::new()))
 }
-struct Running{shared:Arc<Mutex<Shared>>,task:JoinHandle<()>,port:u16}
+pub(super) struct Running{desktop:Option<DesktopRoutes>,shared:Arc<Mutex<Shared>>,task:JoinHandle<()>,port:u16}
 impl Drop for Running{fn drop(&mut self){self.task.abort();}}
 #[derive(Serialize)]
 #[serde(rename_all="camelCase")]
@@ -105,12 +105,13 @@ pub async fn snapshot()->Result<Snapshot,String>{
 pub async fn save_config(next:Config)->Result<(),String>{
     next.validate()?;
     let guard=runtime().lock().await;
+    let _writer=CONFIG_WRITER.lock().map_err(|_|"配置正在使用")?;
+    check_desktop_port(next.port)?;
     if let Some(r)=guard.as_ref(){
         if next.port!=r.port{return Err("请先回到直连，再修改监听端口".into());}
         let providers=repo::list_providers(&open_db()?)?;
         let mode=r.shared.lock().map_err(|_|"路由状态不可用")?.mode;
         validate_selection(mode,&next,&providers)?;
-        let _writer=CONFIG_WRITER.lock().map_err(|_|"配置正在使用")?;
         let auth=r.shared.lock().map_err(|_|"路由状态不可用")?.auth.clone();
         let previous=config()?;
         save_preference(CONFIG_KEY,&serde_json::to_string(&next).map_err(|_|"路由配置无效")?)?;
@@ -123,6 +124,12 @@ pub async fn save_config(next:Config)->Result<(),String>{
         return Ok(());
     }
     save_preference(CONFIG_KEY,&serde_json::to_string(&next).map_err(|_|"路由配置无效")?)
+}
+fn check_desktop_port(port:u16)->Result<(),String>{
+    if port==super::claude_desktop::configured_port()?{
+        return Err("Claude Code 与 Claude Desktop 的监听端口必须不同".into());
+    }
+    Ok(())
 }
 fn find<'a>(providers:&'a[ClaudeProvider],id:&str)->Result<&'a ClaudeProvider,String>{
     providers.iter().find(|p|p.id==id).ok_or_else(||"请选择已保存的供应商".into())
@@ -299,6 +306,7 @@ pub async fn activate(mode:Mode)->Result<(),String>{
         recover()?;guard.take();return Ok(());
     }
     let mut c=config()?;let providers=repo::list_providers(&open_db()?)?;
+    check_desktop_port(c.port)?;
     // Provider records may have been removed by older app versions or a data
     // restore that did not reconcile routing preferences. Drop orphaned queue
     // entries before validating, so one stale failover member cannot block
@@ -329,21 +337,117 @@ pub async fn activate(mode:Mode)->Result<(),String>{
         save_preference(RECOVERY_KEY,&encrypt_secret(&recovery.to_string())?)?;
         if let Err(e)=repo::write_settings(&doc){let _=restore_locked();return Err(e);}
     }
-    let state=shared.clone();
-    let task=tokio::spawn(async move{
-        let slots=Arc::new(Semaphore::new(16));let mut workers=JoinSet::new();
-        loop{tokio::select!{
-            accept=listener.accept()=>{
-                let Ok((mut socket,peer))=accept else{break;};
-                if !peer.ip().is_loopback(){continue;}
-                let Ok(permit)=slots.clone().try_acquire_owned()else{continue;};
-                let s=state.clone();
-                workers.spawn(async move{let _permit=permit;let _=tokio::time::timeout(Duration::from_secs(1210),serve(&mut socket,s)).await;});
+    *guard=Some(launch(listener, shared, c.port, None));Ok(())
+}
+
+#[derive(Clone)]
+pub(super) struct DesktopModel {
+    pub id: String,
+    pub label: String,
+    pub provider: Arc<ClaudeProvider>,
+    pub upstream: String,
+    pub supports_1m: bool,
+}
+type DesktopRoutes = Arc<Mutex<(Mode, Arc<Vec<DesktopModel>>)>>;
+
+impl Running {
+    pub(super) fn is_running(&self) -> bool {
+        !self.task.is_finished()
+    }
+
+    pub(super) fn update_desktop_routes(&self, mode: Mode, routes: Arc<Vec<DesktopModel>>) {
+        if let Some(current) = &self.desktop {
+            *current.lock().unwrap_or_else(|e| e.into_inner()) = (mode, routes);
+        }
+    }
+
+    pub(super) fn update_desktop_config(&self, mut config: Config) {
+        config.port = self.port;
+        let mut state = self.shared.lock().unwrap_or_else(|e| e.into_inner());
+        if !config.logging {
+            state.logs.clear();
+        }
+        state.config = config;
+    }
+
+    pub(super) fn desktop_snapshot(&self) -> Result<Snapshot, String> {
+        let (mode, models) = self.desktop.as_ref().ok_or("缺少 Claude Desktop 模型路由")?
+            .lock().map_err(|_| "Claude Desktop 模型路由不可用")?.clone();
+        let state = self.shared.lock().map_err(|_| "Claude Desktop 网关状态不可用")?;
+        let mut config = state.config.clone();
+        let mut seen = std::collections::HashSet::new();
+        let mut providers = models.iter().map(|model| &model.provider.id)
+            .filter(|id| seen.insert((*id).clone()));
+        if let Some(first) = providers.next() {
+            if mode == Mode::Aggregate {
+                config.default_provider = first.clone();
+                config.members = providers.cloned().collect();
+            } else {
+                config.route_provider = first.clone();
             }
-            _=workers.join_next(),if !workers.is_empty()=>{}
-        }}
+        }
+        Ok(Snapshot {
+            mode,
+            running: self.is_running(),
+            address: Some(format!("http://127.0.0.1:{}", self.port)),
+            config,
+            health: state.health.iter().map(|(id, health)| (id.clone(), Health { failures: health.failures, open_until: None })).collect(),
+            logs: state.logs.iter().rev().cloned().collect(),
+            active_requests: state.active.clone(),
+            active_provider: state.active_provider.clone(),
+            recovery_available: false,
+        })
+    }
+}
+
+pub(super) async fn start_desktop(port: u16, token: &str, mode: Mode, models: Arc<Vec<DesktopModel>>, config: Config) -> Result<Running, String> {
+    let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port)).await
+        .map_err(|_| format!("Claude Desktop 网关端口 {port} 被占用，请关闭占用程序后重试"))?;
+    let port = listener.local_addr().map_err(|_| "无法读取 Claude Desktop 网关地址")?.port();
+    let shared = Arc::new(Mutex::new(Shared {
+        config: Config { port, ..config },
+        mode,
+        providers: Vec::new(),
+        health: HashMap::new(),
+        logs: VecDeque::new(),
+        active: Vec::new(),
+        next_provider: AtomicUsize::new(0),
+        active_provider: String::new(),
+        auth: Zeroizing::new(token.to_owned()),
+        persist_logs: false,
+    }));
+    Ok(launch(listener, shared, port, Some(Arc::new(Mutex::new((mode, models))))))
+}
+
+fn launch(listener: TcpListener, shared: Arc<Mutex<Shared>>, port: u16, desktop: Option<DesktopRoutes>) -> Running {
+    let state = shared.clone();
+    let desktop_routes = desktop.clone();
+    let task = tokio::spawn(async move {
+        let slots = Arc::new(Semaphore::new(16));
+        let mut workers = JoinSet::new();
+        loop {
+            tokio::select! {
+                accept = listener.accept() => {
+                    let Ok((mut socket, peer)) = accept else { break; };
+                    if !peer.ip().is_loopback() { continue; }
+                    let Ok(permit) = slots.clone().try_acquire_owned() else { continue; };
+                    let state = state.clone();
+                    let routes = desktop_routes.clone();
+                    workers.spawn(async move {
+                        let _permit = permit;
+                        let _ = tokio::time::timeout(Duration::from_secs(1210), async {
+                            match routes {
+                                Some(routes) => serve_with_routes(&mut socket, state, Some(routes)).await,
+                                None => serve(&mut socket, state).await,
+                            }
+                        }).await;
+                    });
+                }
+                _ = workers.join_next(), if !workers.is_empty() => {}
+            }
+        }
     });
-    *guard=Some(Running{shared,task,port:c.port});Ok(())
+    Running { desktop, shared, task, port }
 }
 pub async fn clear_logs()->Result<(),String>{
     save_preference(LOG_KEY,"[]")?;
@@ -505,25 +609,44 @@ impl Drop for ActiveGuard{
     }
 }
 async fn serve(socket:&mut TcpStream,state:Arc<Mutex<Shared>>)->std::io::Result<()>{
+    serve_with_routes(socket, state, None).await
+}
+
+async fn serve_with_routes(socket: &mut TcpStream, state: Arc<Mutex<Shared>>, desktop: Option<DesktopRoutes>) -> std::io::Result<()> {
     let auth={state.lock().unwrap_or_else(|e|e.into_inner()).auth.clone()};
     let request=match read_request(socket,&auth).await{Ok(r)=>r,Err(status)=>return reply(socket,status,&error("本地路由请求无效或未授权")).await};
+    let desktop = desktop.map(|routes| routes.lock().unwrap_or_else(|e| e.into_inner()).clone());
     if request.path=="/v1/models"{
-        let entries={let s=state.lock().unwrap_or_else(|e|e.into_inner());catalog(&s.config,&s.providers)};
+        let entries = match &desktop {
+            Some((_, models)) => models.iter().map(|m| json!({
+                "id": m.id, "display_name": m.label, "type": "model", "created_at": "2026-01-01T00:00:00Z"
+            })).collect(),
+            None => { let s = state.lock().unwrap_or_else(|e| e.into_inner()); catalog(&s.config, &s.providers) }
+        };
         return reply(socket,200,&json!({"data":entries,"has_more":false,"first_id":entries.first().map(|v|&v["id"]),"last_id":entries.last().map(|v|&v["id"])})).await;
     }
     let source:Value=match serde_json::from_slice(&request.body){Ok(v)=>v,Err(_)=>return reply(socket,400,&error("请求 JSON 无效")).await};
+    let desktop_model = desktop.as_ref().and_then(|(_, models)| {
+        let requested = source["model"].as_str().unwrap_or("");
+        models.iter().find(|model| model.id == strip_1m(requested))
+    });
     let (c,mode,providers)={
         let s=state.lock().unwrap_or_else(|e|e.into_inner());
         let requested=source["model"].as_str().unwrap_or("");
-        let providers=resolve(&s,requested).unwrap_or_default().into_iter().cloned().collect::<Vec<_>>();
-        (s.config.clone(),s.mode,providers)
+        let providers = match &desktop {
+            Some(_) => desktop_model.map(|m| vec![m.provider.as_ref().clone()]).unwrap_or_default(),
+            None => resolve(&s,requested).unwrap_or_default().into_iter().cloned().collect(),
+        };
+        (s.config.clone(),desktop.as_ref().map_or(s.mode, |(mode, _)| *mode),providers)
     };
     let requested=source["model"].as_str().unwrap_or("");
     if requested.is_empty()||requested.len()>512||requested.chars().any(char::is_control){return reply(socket,400,&error("模型标识无效")).await;}
-    if providers.is_empty(){return reply(socket,502,&error("没有可用的供应商（可能全部熔断，或当前模型角色未映射）；请检查路由队列和模型映射")).await;}
+    if providers.is_empty(){return reply(socket,502,&error(if desktop.is_some(){"该模型未注册到 Claude Desktop 网关，请重新应用配置"}else{"没有可用的供应商（可能全部熔断，或当前模型角色未映射）；请检查路由队列和模型映射"})).await;}
     let first=&providers[0];
-    let session_context=claude_workspace::session_context(request.session_id.as_deref());
-    let active=ActiveGuard::start(&state,ActiveRequest{id:uuid::Uuid::new_v4().to_string(),timestamp:chrono::Utc::now().timestamp_millis(),mode,provider_id:first.id.clone(),model:requested.into(),actual_model:mapped_model(first,requested),attempt:1,first_byte_ms:None,
+    let actual_model = |p: &ClaudeProvider| desktop_model.map(|m| m.upstream.clone())
+        .unwrap_or_else(|| mapped_model(p, requested));
+    let session_context = desktop.is_none().then(|| claude_workspace::session_context(request.session_id.as_deref())).flatten();
+    let active=ActiveGuard::start(&state,ActiveRequest{id:uuid::Uuid::new_v4().to_string(),timestamp:chrono::Utc::now().timestamp_millis(),mode,provider_id:first.id.clone(),model:requested.into(),actual_model:actual_model(first),attempt:1,first_byte_ms:None,
         working_directory:session_context.as_ref().and_then(|context|context.working_directory.clone()),
         session_title:session_context.and_then(|context|context.title)});
     let request_id=active.id.clone();
@@ -534,7 +657,7 @@ async fn serve(socket:&mut TcpStream,state:Arc<Mutex<Shared>>)->std::io::Result<
     let mut final_status=503;
     for (index,p) in providers.iter().take(if mode==Mode::Route&&(c.failover||c.round_robin){c.retries+1}else{1}).enumerate(){
         let attempt=(index+1) as u32;
-        let start=Instant::now();let actual=mapped_model(p,requested);
+        let start=Instant::now();let actual=actual_model(p);
         active.update(&p.id,&actual,attempt);
         let mut body=source.clone();body["model"]=json!(actual);
         if count&&p.api_format!=ApiFormat::Anthropic{return reply(socket,501,&error("该上游不提供精确 token 计数")).await;}
@@ -571,7 +694,7 @@ async fn serve(socket:&mut TcpStream,state:Arc<Mutex<Shared>>)->std::io::Result<
             }
         }
     }
-    reply(socket,if final_status==429{429}else{502},&error("供应商请求失败或全部处于熔断状态，请检查密钥、模型和健康状态")).await
+    reply(socket,if final_status==429{429}else{502},&error(if desktop.is_some(){"供应商请求失败，请检查密钥和模型"}else{"供应商请求失败或全部处于熔断状态，请检查密钥、模型和健康状态"})).await
 }
 fn record(state:&Arc<Mutex<Shared>>,log:Log,failed:bool){
     if let Ok(mut s)=state.lock(){
@@ -723,6 +846,50 @@ mod tests{
         let result=reqwest::Client::new().post(format!("http://{addr}/v1/messages")).bearer_auth(token).json(&body).send().await.unwrap();
         let status=result.status().as_u16();let text=result.text().await.unwrap();task.await.unwrap();(status,text)
     }
+    #[tokio::test]
+    async fn desktop_alias_routes_to_its_selected_provider() {
+        let reply_body = json!({
+            "id": "msg_fixture", "type": "message", "role": "assistant",
+            "content": [{"type": "text", "text": "ok"}]
+        });
+        let (url, received) = upstream(200, "application/json", reply_body.to_string()).await;
+        let mut selected = provider();
+        selected.base_url = url;
+        let model = DesktopModel {
+            id: "claude-sonnet-cloudhub-fixture".into(),
+            label: "Fixture".into(),
+            provider: Arc::new(selected),
+            upstream: "exact-upstream-model".into(),
+            supports_1m: true,
+        };
+        let id = model.id.clone();
+        let running = start_desktop(0, "fixture", Mode::Aggregate, Arc::new(vec![model]), Config::default()).await.unwrap();
+        let client = reqwest::Client::new();
+        let base = format!("http://127.0.0.1:{}", running.port);
+        let models: Value = client.get(format!("{base}/v1/models")).bearer_auth("fixture")
+            .send().await.unwrap().json().await.unwrap();
+        assert_eq!(models["data"][0]["id"], id);
+        let response = client.post(format!("{base}/v1/messages")).bearer_auth("fixture")
+            .json(&json!({"model": format!("{id}[1m]"), "messages": [{"role": "user", "content": "hello"}]}))
+            .send().await.unwrap();
+        assert_eq!(response.status(), 200);
+        response.bytes().await.unwrap();
+        assert_eq!(received.await.unwrap()["model"], "exact-upstream-model");
+        let snapshot = tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                let snapshot = running.desktop_snapshot().unwrap();
+                if !snapshot.logs.is_empty() && snapshot.active_requests.is_empty() {
+                    break snapshot;
+                }
+                tokio::task::yield_now().await;
+            }
+        }).await.unwrap();
+        assert!(snapshot.mode == Mode::Aggregate);
+        assert!(snapshot.logs[0].mode == Some(Mode::Aggregate));
+        assert_eq!(snapshot.logs[0].actual_model, "exact-upstream-model");
+        assert!(!serde_json::to_string(&snapshot.logs).unwrap().contains("hello"));
+    }
+
     #[tokio::test]
     async fn live_route_failover_maps_models_and_records_metadata_only(){
         let (bad,first)=upstream(503,"application/json","{}".into()).await;

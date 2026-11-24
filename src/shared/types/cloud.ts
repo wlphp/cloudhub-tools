@@ -124,6 +124,8 @@ export type PanelConnection = {
   panel_url: string;
   sort_order: number;
   allow_insecure_tls: boolean;
+  /** 是否参与监控预警巡检；关闭后面板仍可刷新查看，但不产生面板相关预警。 */
+  monitor_enabled: boolean;
   group_name?: string | null;
   source_account_id?: number | null;
   source_asset_key?: string | null;
@@ -144,6 +146,7 @@ export type PanelConnectionDraft = {
   sort_order: number;
   api_key: string;
   allow_insecure_tls: boolean;
+  monitor_enabled: boolean;
   group_name: string;
   source_account_id?: number | null;
   source_asset_key?: string | null;

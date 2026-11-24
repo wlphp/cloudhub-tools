@@ -82,7 +82,7 @@ function claudeActionError(reason: unknown, fallback = "操作失败") {
   return message;
 }
 
-function Editor({ draft, keyConfigured, keyDecryptionFailed, onClose, onSaved }: { draft: ClaudeProviderInput; keyConfigured: boolean; keyDecryptionFailed: boolean; onClose: () => void; onSaved: () => void }) {
+export function Editor({ draft, keyConfigured, keyDecryptionFailed, onClose, onSaved, desktopSave }: { desktopSave?: (input: ClaudeProviderInput) => Promise<unknown>; draft: ClaudeProviderInput; keyConfigured: boolean; keyDecryptionFailed: boolean; onClose: () => void; onSaved: () => void }) {
   const [value, setValue] = useState<ClaudeProviderInput>(() => {
     const initial: ClaudeProviderInput = {
       ...draft,
@@ -266,7 +266,7 @@ function Editor({ draft, keyConfigured, keyDecryptionFailed, onClose, onSaved }:
 
   async function submit() {
     if (busy) return;
-    const id = value.id.trim() || `custom-${Date.now().toString(36)}`;
+    const id = value.id.trim() || (desktopSave ? (globalThis.crypto.randomUUID?.() ?? `preview-${Date.now().toString(36)}`) : `custom-${Date.now().toString(36)}`);
     if (!value.name.trim()) { setError("请填写供应商名称"); return; }
     if (!value.officialLogin && !(value.baseUrl ?? "").trim()) { setError("请填写请求地址"); return; }
     if (keyDecryptionFailed && !(value.apiKey ?? "").trim()) { setError("此记录的已保存密钥无法解密，请重新填写 API Key 后保存。"); return; }
@@ -281,7 +281,7 @@ function Editor({ draft, keyConfigured, keyDecryptionFailed, onClose, onSaved }:
     if (value.modelCatalog?.some(item => !item.model.trim())) { setError("请填写模型列表中每项的模型 ID"); return; }
     setBusy(true); setError("");
     try {
-      await claudeProvidersClient.save({ ...value, id, extraEnv: env });
+      await (desktopSave ?? claudeProvidersClient.save)({ ...value, id, extraEnv: env });
       onSaved();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "保存供应商失败");
@@ -290,7 +290,7 @@ function Editor({ draft, keyConfigured, keyDecryptionFailed, onClose, onSaved }:
 
   return <SharedDialog sizeStorageKey="features/plugins/claude-providers-plugin/editor"
     title={draft.id ? `编辑供应商 · ${value.name || "(未命名)"}` : "添加供应商"}
-    subtitle="Claude Code 供应商配置：请求地址、API Key、渠道模型、角色映射"
+    subtitle={desktopSave ? "填写请求地址、API Key 和渠道模型" : "Claude Code 供应商配置：请求地址、API Key、渠道模型、角色映射"}
     icon={<Server size={20} aria-hidden="true" />}
     className="claude-provider-dialog"
     bodyClassName="claude-provider-body"
@@ -306,21 +306,22 @@ function Editor({ draft, keyConfigured, keyDecryptionFailed, onClose, onSaved }:
       <label className="claude-field">供应商名称<input value={value.name} maxLength={60} autoFocus onChange={event => patch({ name: event.target.value })} placeholder="例如：公司专用账号" /></label>
       <label className="claude-field">官网链接<input value={value.websiteUrl ?? ""} onChange={event => patch({ websiteUrl: event.target.value })} placeholder="https://example.com" /></label>
     </div>
-    <label className="claude-check"><input type="checkbox" checked={Boolean(value.officialLogin)} onChange={event => patch({ officialLogin: event.target.checked })} />使用 Claude 官方登录（保留当前 OAuth 行为）</label>
+    {!desktopSave && <label className="claude-check"><input type="checkbox" checked={Boolean(value.officialLogin)} onChange={event => patch({ officialLogin: event.target.checked })} />使用 Claude 官方登录（保留当前 OAuth 行为）</label>}
     <label className="claude-field">请求地址（Anthropic 风格端点）<input value={value.baseUrl ?? ""} onChange={event => patch({ baseUrl: event.target.value })} placeholder="https://api.example.com/anthropic" /></label>
     <label className="claude-field">API Key
       {keyDecryptionFailed && <span className="claude-error" role="status">已保存密钥无法解密；请重新填写 API Key 并保存。原密文会在保存新密钥时替换。</span>}
-      <SecretField secretLabel="API Key" value={value.apiKey ?? ""} reveal={draft.id && !keyDecryptionFailed ? () => claudeWorkbenchClient.revealProvider(draft.id) : undefined} onChange={event => patch({ apiKey: event.target.value })} placeholder={keyDecryptionFailed ? "请重新填写 API Key" : draft.id ? "留空则保留已保存的密钥，点眼睛查看" : "填写供应商 API Key"} autoComplete="off" spellCheck={false} />
+      <SecretField secretLabel="API Key" value={value.apiKey ?? ""} reveal={!desktopSave && draft.id && !keyDecryptionFailed ? () => claudeWorkbenchClient.revealProvider(draft.id) : undefined} onChange={event => patch({ apiKey: event.target.value })} placeholder={keyDecryptionFailed ? "请重新填写 API Key" : draft.id ? (desktopSave ? "留空保留已保存的密钥" : "留空则保留已保存的密钥，点眼睛查看") : "填写供应商 API Key"} autoComplete="off" spellCheck={false} />
     </label>
     <div className="claude-field-row">
       <label className="claude-field">上游协议格式<select value={value.apiFormat} onChange={event => patch({ apiFormat: event.target.value as ClaudeApiFormat })}>{API_FORMATS.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
       <label className="claude-field">认证字段<select value={value.apiKeyField} onChange={event => patch({ apiKeyField: event.target.value as ClaudeApiKeyField })}>{KEY_FIELDS.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
     </div>
 
+    {desktopSave && <label className="claude-check"><input type="checkbox" checked={Boolean(value.isFullUrl)} onChange={event => patch({ isFullUrl: event.target.checked })} />请求地址已包含完整 API 路径</label>}
     {/* 渠道可用模型：角色映射和聚合菜单都从这里取模型 */}
     <fieldset className="claude-models">
-      <legend>渠道可用模型 <Hint text="该渠道实际提供的模型目录；角色映射从这里选择，聚合模式也使用这份目录。「获取模型列表」会从上游拉取并追加；也可手动维护。" /></legend>
-      <div className="claude-models-toolbar">
+      <legend>渠道可用模型 {!desktopSave && <Hint text="该渠道实际提供的模型目录；角色映射从这里选择，聚合模式也使用这份目录。「获取模型列表」会从上游拉取并追加；也可手动维护。" />}</legend>
+      {!desktopSave && <div className="claude-models-toolbar">
         <button type="button" className="secondary" disabled={busy || pickerBusy || !canQueryModels} onClick={() => void pullModelList()} title={
           !canQueryModels ? "请填写请求地址与 API Key，官方登录不支持查询模型列表"
             : "从上游拉取模型列表，弹出多选窗口让你勾选后并入渠道可用模型"
@@ -329,7 +330,7 @@ function Editor({ draft, keyConfigured, keyDecryptionFailed, onClose, onSaved }:
           获取模型列表
         </button>
         {pickerMessage && <span className="claude-models-toolbar-message">{pickerMessage}</span>}
-      </div>
+      </div>}
       {(value.modelCatalog ?? []).map((item, index) => <div className="claude-catalog-row" key={index}>
         <button type="button" className="claude-icon-button" title="置为聚合默认模型" aria-label={`置为聚合默认模型 ${index + 1}`} aria-pressed={index === 0} disabled={busy} onClick={() => patch({ modelCatalog: [item, ...(value.modelCatalog ?? []).filter((_, i) => i !== index)] })}><Star size={13} fill={index === 0 ? "currentColor" : "none"} aria-hidden="true" /></button>
         <input aria-label={`模型 ID ${index + 1}`} value={item.model} onChange={event => setCatalogItem(index, "model", event.target.value)} placeholder="模型 ID" />
@@ -340,6 +341,7 @@ function Editor({ draft, keyConfigured, keyDecryptionFailed, onClose, onSaved }:
       <button type="button" className="secondary" disabled={busy} onClick={() => patch({ modelCatalog: [...(value.modelCatalog ?? []), { model: "" }] })}><Plus size={14} aria-hidden="true" />手动添加模型</button>
     </fieldset>
 
+    {!desktopSave && <>
     {/* 角色映射：把 Claude Code 角色绑定到上方渠道模型 */}
     <fieldset className="claude-models">
       <legend>角色映射 <Hint text={"各角色写入 env 的键：Sonnet → ANTHROPIC_DEFAULT_SONNET_MODEL，Opus → ANTHROPIC_DEFAULT_OPUS_MODEL，Haiku → ANTHROPIC_DEFAULT_HAIKU_MODEL，Fable → ANTHROPIC_DEFAULT_FABLE_MODEL，Subagent → CLAUDE_CODE_SUBAGENT_MODEL（1M 在模型 ID 末尾追加 [1M]）。路由模式下客户端只显示中性角色名；留空表示未映射，不会发布，请求回退该渠道的 Sonnet。Sonnet 是默认请求模型，路由/固定供应商必须填写。显示名称默认跟随实际请求模型，手动改名后保留；「同步显示名」可强制全部对齐。"} /></legend>
@@ -409,9 +411,10 @@ function Editor({ draft, keyConfigured, keyDecryptionFailed, onClose, onSaved }:
       </div>
     </fieldset>
 
+    </>}
     <label className="claude-field">备注<textarea rows={2} value={value.description ?? ""} onChange={event => patch({ description: event.target.value })} placeholder="仅用于本机识别，不参与设置" /></label>
 
-    <details className="claude-advanced" onToggle={event => {
+    {!desktopSave && <details className="claude-advanced" onToggle={event => {
       if ((event.target as HTMLDetailsElement).open) {
         setFullConfig(JSON.stringify(value, null, 2));
       }
@@ -421,7 +424,7 @@ function Editor({ draft, keyConfigured, keyDecryptionFailed, onClose, onSaved }:
         <label className="claude-field">扩展环境变量（JSON 对象）<textarea rows={5} spellCheck={false} value={extraEnv} onChange={event => setExtraEnv(event.target.value)} placeholder='{ "DISABLE_INSTALLATION_CHECKS": "1" }' /></label>
         <label className="claude-field">配置 JSON（只读 / 实时同步）<textarea rows={8} spellCheck={false} value={fullConfig} onChange={event => setFullConfig(event.target.value)} /></label>
       </div>
-    </details>
+    </details>}
 
     {error && <p className="claude-error" role="alert">{error}</p>}
     {pickerOpen && pickerModels && <ModelPicker
@@ -591,6 +594,42 @@ function windowedUsage(logs: ClaudeRoutingState["logs"], providerId: string) {
   return { requests: scoped.length, tokens };
 }
 
+const claudeCliCommands = [
+  { command: "/init", description: "为当前项目生成 CLAUDE.md，用来记录项目约定和开发指引。" },
+  { command: "/model", description: "打开模型选择器，切换 Claude 使用的模型。" },
+  { command: "/clear", description: "清空当前上下文，开始新对话。旧对话仍可恢复。" },
+  { command: "/compact", description: "总结当前对话，释放上下文空间，再继续当前任务。" },
+  { command: "/status", description: "查看 Claude Code 版本、当前模型、账号和连接状态。" },
+  { command: "/resume", description: "打开会话列表，选择并继续之前的对话。" },
+];
+
+function ClaudeCliCommandsPanel() {
+  const document = useDialogDocument();
+  const [notice, setNotice] = useState<{ message: string } | null>(null);
+
+  async function copyCommand(command: string) {
+    try {
+      await document.defaultView!.navigator.clipboard.writeText(command);
+      setNotice({ message: `已复制 ${command}` });
+    } catch {
+      setNotice({ message: `复制 ${command} 失败，请选中命令文本手动复制。` });
+    }
+  }
+
+  return <section aria-label="Claude Code CLI 常用命令">
+    <ul className="claude-cli-commands">
+      {claudeCliCommands.map(({ command, description }) => <li key={command}>
+        <code>{command}</code>
+        <span>{description}</span>
+        <button type="button" className="secondary" aria-label={`复制命令 ${command}`} onClick={() => void copyCommand(command)}>
+          <Copy size={14} aria-hidden="true" />复制
+        </button>
+      </li>)}
+    </ul>
+    <ToastNotice message={notice?.message} onDismiss={() => setNotice(null)} />
+  </section>;
+}
+
 export function ClaudeProvidersPlugin({ mobile = false }: { mobile?: boolean } = {}) {
   const document = useDialogDocument();
   const window = document.defaultView!;
@@ -624,7 +663,7 @@ export function ClaudeProvidersPlugin({ mobile = false }: { mobile?: boolean } =
   const [routing, setRouting] = useState<ClaudeRoutingState>({ mode: "direct", running: false, address: null, config: DEFAULT_CLAUDE_ROUTING, health: {}, logs: [], activeRequests: [], activeProvider: "", recoveryAvailable: false });
   const [roundRobinSupported, setRoundRobinSupported] = useState(false);
   const [viewMode, setViewMode] = useState<ClaudeMode>("direct");
-  const [tab, setTab] = useState<"providers" | "usage" | "mcp" | "prompts" | "skills" | "sessions" | "config">("providers");
+  const [tab, setTab] = useState<"providers" | "commands" | "usage" | "mcp" | "prompts" | "skills" | "sessions" | "config">("providers");
   const [keyword, setKeyword] = useState("");
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -1005,7 +1044,7 @@ export function ClaudeProvidersPlugin({ mobile = false }: { mobile?: boolean } =
   return <section ref={providerPanelRef} className="claude-providers claude-management-workbench">
     <ModeBar providers={providers} view={viewMode} state={routing} currentName={current?.name} directConfigurationIssue={Boolean(currentId) && !routing.running && ["changed", "missing", "unreadable"].includes(configurationStatus ?? "")} activeName={providers.find(item => item.id === routing.activeProvider)?.name} scopeLabel={scopeLabel} addressFallback={settingsPath} onView={mode => { setViewMode(mode); setTab("providers"); }} onActivate={activate} onSettings={() => setSettingsOpen(true)} onRouteStrategy={applyStrategy} roundRobinSupported={roundRobinSupported} disabled={Boolean(busyId) || routeStartBusy} />
     <nav className="claude-work-tabs" aria-label="Claude Code 工作台">
-      {([["providers", "供应商"], ["usage", "用量"], ["mcp", "MCP"], ["prompts", "提示词"], ["skills", "技能"], ["sessions", "会话"], ["config", "配置"]] as const).map(([id, label]) =>
+      {([["providers", "供应商"], ["commands", "常用命令"], ["usage", "用量"], ["mcp", "MCP"], ["prompts", "提示词"], ["skills", "技能"], ["sessions", "会话"], ["config", "配置"]] as const).map(([id, label]) =>
         <button type="button" key={id} aria-current={tab === id ? "page" : undefined} onClick={() => setTab(id)}>{label}</button>)}
     </nav>
     <ToastNotice message={error || message} tone={error ? "error" : undefined} />
@@ -1018,7 +1057,8 @@ export function ClaudeProvidersPlugin({ mobile = false }: { mobile?: boolean } =
       <button type="button" onClick={() => activate("direct")}><RotateCcw size={14} aria-hidden="true" />恢复直连配置</button>
     </div>}
     {tab === "usage" && <UsagePanel state={routing} providers={providers} onClear={() => confirm("清空当前请求记录？", async () => { await claudeWorkbenchClient.clearLogs(); await refreshRouting(); })} />}
-    {tab !== "providers" && tab !== "usage" && <ClaudeWorkspacePanel key={tab} view={tab} confirm={confirm} onScopeChanged={load} />}
+    {tab === "commands" && <ClaudeCliCommandsPanel />}
+    {tab !== "providers" && tab !== "usage" && tab !== "commands" && <ClaudeWorkspacePanel key={tab} view={tab} confirm={confirm} onScopeChanged={load} />}
     {tab === "providers" && <>
 
     <details className="claude-config-disclosure" open={mobile ? undefined : true}>

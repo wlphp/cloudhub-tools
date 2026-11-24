@@ -3,15 +3,16 @@ use serde_json::json;
 
 use crate::PanelConnection;
 
-pub const SELECT: &str = "SELECT id,name,panel_url,sort_order,allow_insecure_tls,group_name,source_account_id,source_asset_key,api_key_ciphertext,status,summary_json,last_checked_at,last_error,remark,created_at,updated_at FROM panel_connections WHERE deleted_at IS NULL";
+pub const SELECT: &str = "SELECT id,name,panel_url,sort_order,allow_insecure_tls,monitor_enabled,group_name,source_account_id,source_asset_key,api_key_ciphertext,status,summary_json,last_checked_at,last_error,remark,created_at,updated_at FROM panel_connections WHERE deleted_at IS NULL";
 
 fn row(row: &rusqlite::Row<'_>) -> rusqlite::Result<PanelConnection> {
-    let summary: String = row.get(10)?;
+    let summary: String = row.get(11)?;
     Ok(PanelConnection {
         id: row.get(0)?, name: row.get(1)?, panel_url: row.get(2)?, sort_order: row.get(3)?, allow_insecure_tls: row.get::<_, i64>(4)? == 1,
-        group_name: row.get(5)?, source_account_id: row.get(6)?, source_asset_key: row.get(7)?, api_key_saved: row.get::<_, Option<String>>(8)?.is_some(),
-        status: row.get(9)?, summary: serde_json::from_str(&summary).unwrap_or_else(|_| json!({})), last_checked_at: row.get(11)?, last_error: row.get(12)?,
-        remark: row.get(13)?, created_at: row.get(14)?, updated_at: row.get(15)?,
+        monitor_enabled: row.get::<_, i64>(5)? == 1,
+        group_name: row.get(6)?, source_account_id: row.get(7)?, source_asset_key: row.get(8)?, api_key_saved: row.get::<_, Option<String>>(9)?.is_some(),
+        status: row.get(10)?, summary: serde_json::from_str(&summary).unwrap_or_else(|_| json!({})), last_checked_at: row.get(12)?, last_error: row.get(13)?,
+        remark: row.get(14)?, created_at: row.get(15)?, updated_at: row.get(16)?,
     })
 }
 
@@ -41,19 +42,19 @@ pub fn id_by_url(conn: &Connection, panel_url: &str) -> Result<Option<i64>, Stri
     conn.query_row("SELECT id FROM panel_connections WHERE panel_url=?1 AND deleted_at IS NULL", [panel_url], |row| row.get(0)).optional().map_err(|error| error.to_string())
 }
 
-pub fn import_update(conn: &Connection, id: i64, name: &str, ciphertext: &str, sort_order: i64, allow_insecure_tls: bool, group_name: Option<&str>, source_account_id: Option<i64>, source_asset_key: Option<&str>, remark: Option<&str>, now: i64) -> Result<(), String> {
-    conn.execute("UPDATE panel_connections SET name=?1,api_key_ciphertext=?2,sort_order=?3,allow_insecure_tls=?4,group_name=?5,source_account_id=?6,source_asset_key=?7,remark=?8,updated_at=?9 WHERE id=?10", params![name,ciphertext,sort_order,allow_insecure_tls as i64,group_name,source_account_id,source_asset_key,remark,now,id]).map(|_| ()).map_err(|error| error.to_string())
+pub fn import_update(conn: &Connection, id: i64, name: &str, ciphertext: &str, sort_order: i64, allow_insecure_tls: bool, monitor_enabled: bool, group_name: Option<&str>, source_account_id: Option<i64>, source_asset_key: Option<&str>, remark: Option<&str>, now: i64) -> Result<(), String> {
+    conn.execute("UPDATE panel_connections SET name=?1,api_key_ciphertext=?2,sort_order=?3,allow_insecure_tls=?4,monitor_enabled=?5,group_name=?6,source_account_id=?7,source_asset_key=?8,remark=?9,updated_at=?10 WHERE id=?11", params![name,ciphertext,sort_order,allow_insecure_tls as i64,monitor_enabled as i64,group_name,source_account_id,source_asset_key,remark,now,id]).map(|_| ()).map_err(|error| error.to_string())
 }
 
-pub fn import_insert(conn: &Connection, name: &str, panel_url: &str, ciphertext: &str, sort_order: i64, allow_insecure_tls: bool, group_name: Option<&str>, source_account_id: Option<i64>, source_asset_key: Option<&str>, remark: Option<&str>, now: i64) -> Result<(), String> {
-    conn.execute("INSERT INTO panel_connections(name,panel_url,api_key_ciphertext,sort_order,allow_insecure_tls,group_name,source_account_id,source_asset_key,status,summary_json,remark,created_at,updated_at,sync_id) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,'unknown','{}',?9,?10,?10,?11)", params![name,panel_url,ciphertext,sort_order,allow_insecure_tls as i64,group_name,source_account_id,source_asset_key,remark,now,uuid::Uuid::new_v4().to_string()]).map(|_| ()).map_err(|error| error.to_string())
+pub fn import_insert(conn: &Connection, name: &str, panel_url: &str, ciphertext: &str, sort_order: i64, allow_insecure_tls: bool, monitor_enabled: bool, group_name: Option<&str>, source_account_id: Option<i64>, source_asset_key: Option<&str>, remark: Option<&str>, now: i64) -> Result<(), String> {
+    conn.execute("INSERT INTO panel_connections(name,panel_url,api_key_ciphertext,sort_order,allow_insecure_tls,monitor_enabled,group_name,source_account_id,source_asset_key,status,summary_json,remark,created_at,updated_at,sync_id) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,'unknown','{}',?10,?11,?11,?12)", params![name,panel_url,ciphertext,sort_order,allow_insecure_tls as i64,monitor_enabled as i64,group_name,source_account_id,source_asset_key,remark,now,uuid::Uuid::new_v4().to_string()]).map(|_| ()).map_err(|error| error.to_string())
 }
 
-pub struct ExportRow { pub id: i64, pub name: String, pub panel_url: String, pub sort_order: i64, pub ciphertext: String, pub allow_insecure_tls: bool, pub group_name: Option<String>, pub source_account_id: Option<i64>, pub source_asset_key: Option<String>, pub remark: Option<String> }
+pub struct ExportRow { pub id: i64, pub name: String, pub panel_url: String, pub sort_order: i64, pub ciphertext: String, pub allow_insecure_tls: bool, pub monitor_enabled: bool, pub group_name: Option<String>, pub source_account_id: Option<i64>, pub source_asset_key: Option<String>, pub remark: Option<String> }
 
 pub fn export_rows(conn: &Connection) -> Result<Vec<ExportRow>, String> {
-    let mut statement = conn.prepare("SELECT id,name,panel_url,sort_order,api_key_ciphertext,allow_insecure_tls,group_name,source_account_id,source_asset_key,remark FROM panel_connections ORDER BY sort_order ASC, name COLLATE NOCASE").map_err(|error| error.to_string())?;
-    let rows = statement.query_map([], |row| Ok(ExportRow { id: row.get(0)?, name: row.get(1)?, panel_url: row.get(2)?, sort_order: row.get(3)?, ciphertext: row.get(4)?, allow_insecure_tls: row.get::<_, i64>(5)? == 1, group_name: row.get(6)?, source_account_id: row.get(7)?, source_asset_key: row.get(8)?, remark: row.get(9)? })).map_err(|error| error.to_string())?;
+    let mut statement = conn.prepare("SELECT id,name,panel_url,sort_order,api_key_ciphertext,allow_insecure_tls,monitor_enabled,group_name,source_account_id,source_asset_key,remark FROM panel_connections ORDER BY sort_order ASC, name COLLATE NOCASE").map_err(|error| error.to_string())?;
+    let rows = statement.query_map([], |row| Ok(ExportRow { id: row.get(0)?, name: row.get(1)?, panel_url: row.get(2)?, sort_order: row.get(3)?, ciphertext: row.get(4)?, allow_insecure_tls: row.get::<_, i64>(5)? == 1, monitor_enabled: row.get::<_, i64>(6)? == 1, group_name: row.get(7)?, source_account_id: row.get(8)?, source_asset_key: row.get(9)?, remark: row.get(10)? })).map_err(|error| error.to_string())?;
     rows.map(|row| row.map_err(|error| error.to_string())).collect()
 }
 
@@ -63,11 +64,11 @@ pub fn save(conn: &Connection, input: &crate::PanelConnectionInput, name: &str, 
     let status = if unverified_error.is_some() { "offline" } else { "online" };
     let id = match input.id {
         Some(id) => {
-            conn.execute("UPDATE panel_connections SET name=?1,panel_url=?2,api_key_ciphertext=?3,sort_order=?4,allow_insecure_tls=?5,group_name=?6,source_account_id=?7,source_asset_key=?8,status=?9,summary_json=?10,last_checked_at=?11,last_error=?12,remark=?13,updated_at=?11 WHERE id=?14", params![name,panel_url,api_key_ciphertext,input.sort_order.max(0),input.allow_insecure_tls as i64,input.group_name,input.source_account_id,input.source_asset_key,status,summary_json,now,unverified_error,input.remark,id]).map_err(|error| error.to_string())?;
+            conn.execute("UPDATE panel_connections SET name=?1,panel_url=?2,api_key_ciphertext=?3,sort_order=?4,allow_insecure_tls=?5,monitor_enabled=?6,group_name=?7,source_account_id=?8,source_asset_key=?9,status=?10,summary_json=?11,last_checked_at=?12,last_error=?13,remark=?14,updated_at=?12 WHERE id=?15", params![name,panel_url,api_key_ciphertext,input.sort_order.max(0),input.allow_insecure_tls as i64,input.monitor_enabled as i64,input.group_name,input.source_account_id,input.source_asset_key,status,summary_json,now,unverified_error,input.remark,id]).map_err(|error| error.to_string())?;
             id
         }
         None => {
-            conn.execute("INSERT INTO panel_connections(name,panel_url,api_key_ciphertext,sort_order,allow_insecure_tls,group_name,source_account_id,source_asset_key,status,summary_json,last_checked_at,last_error,remark,created_at,updated_at,sync_id) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?11,?11,?14)", params![name,panel_url,api_key_ciphertext,input.sort_order.max(0),input.allow_insecure_tls as i64,input.group_name,input.source_account_id,input.source_asset_key,status,summary_json,now,unverified_error,input.remark,uuid::Uuid::new_v4().to_string()]).map_err(|error| error.to_string())?;
+            conn.execute("INSERT INTO panel_connections(name,panel_url,api_key_ciphertext,sort_order,allow_insecure_tls,monitor_enabled,group_name,source_account_id,source_asset_key,status,summary_json,last_checked_at,last_error,remark,created_at,updated_at,sync_id) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?12,?12,?15)", params![name,panel_url,api_key_ciphertext,input.sort_order.max(0),input.allow_insecure_tls as i64,input.monitor_enabled as i64,input.group_name,input.source_account_id,input.source_asset_key,status,summary_json,now,unverified_error,input.remark,uuid::Uuid::new_v4().to_string()]).map_err(|error| error.to_string())?;
             conn.last_insert_rowid()
         }
     };
@@ -109,7 +110,7 @@ mod tests {
 
     // 只取面板自己用到的列，与 database.rs 的建表语句保持一致；sync_id 由迁移补上，
     // 这里一并建出来，save 的 INSERT 才不会因为缺列而报错。
-    const TEST_SCHEMA: &str = "CREATE TABLE panel_connections (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, panel_url TEXT NOT NULL UNIQUE, api_key_ciphertext TEXT NOT NULL, sort_order INTEGER NOT NULL DEFAULT 0, allow_insecure_tls INTEGER NOT NULL DEFAULT 0, group_name TEXT, source_account_id INTEGER, source_asset_key TEXT, status TEXT NOT NULL DEFAULT 'unknown', summary_json TEXT NOT NULL DEFAULT '{}', last_checked_at INTEGER, last_error TEXT, remark TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, deleted_at INTEGER, sync_id TEXT);";
+    const TEST_SCHEMA: &str = "CREATE TABLE panel_connections (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, panel_url TEXT NOT NULL UNIQUE, api_key_ciphertext TEXT NOT NULL, sort_order INTEGER NOT NULL DEFAULT 0, allow_insecure_tls INTEGER NOT NULL DEFAULT 0, monitor_enabled INTEGER NOT NULL DEFAULT 1, group_name TEXT, source_account_id INTEGER, source_asset_key TEXT, status TEXT NOT NULL DEFAULT 'unknown', summary_json TEXT NOT NULL DEFAULT '{}', last_checked_at INTEGER, last_error TEXT, remark TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, deleted_at INTEGER, sync_id TEXT);";
 
     fn input(id: Option<i64>) -> crate::PanelConnectionInput {
         crate::PanelConnectionInput {
@@ -119,6 +120,7 @@ mod tests {
             sort_order: 0,
             api_key: None,
             allow_insecure_tls: false,
+            monitor_enabled: true,
             group_name: None,
             source_account_id: None,
             source_asset_key: None,

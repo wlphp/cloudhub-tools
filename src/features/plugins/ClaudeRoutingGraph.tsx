@@ -130,7 +130,7 @@ function WindmillMark({ rotorRef }: { rotorRef?: ReactRef<SVGGElement> }) {
   </g>;
 }
 
-export function ClaudeRoutingGraph({ view, state, providers, onLocate, onOpenMapping, onOpenSettings, onReorderQueue, actionsDisabled = false }: {
+export function ClaudeRoutingGraph({ view, state, providers, onLocate, onOpenMapping, onOpenSettings, onReorderQueue, actionsDisabled = false, desktop = false }: {
   view: Exclude<ClaudeMode, "direct">;
   state: ClaudeRoutingState;
   providers: ClaudeProviderSummary[];
@@ -139,7 +139,9 @@ export function ClaudeRoutingGraph({ view, state, providers, onLocate, onOpenMap
   onOpenSettings?: () => void;
   onReorderQueue?: (queue: string[]) => void;
   actionsDisabled?: boolean;
+  desktop?: boolean;
 }) {
+  const clientLabel = desktop ? "Claude Desktop" : "Claude Code";
   const config = state.config;
   const providerById = useMemo(() => new Map(providers.map(provider => [provider.id, provider])), [providers]);
   const [open, setOpen] = useState(true);
@@ -270,7 +272,7 @@ export function ClaudeRoutingGraph({ view, state, providers, onLocate, onOpenMap
       .sort((left, right) => left.timestamp - right.timestamp)
       .map((request, index) => ({
         id: request.id,
-        label: "Claude Code",
+        label: clientLabel,
         detail: index === 0 ? "客户端请求" : `并发请求 ${index + 1}`,
         model: request.model,
         timestamp: request.timestamp,
@@ -289,7 +291,7 @@ export function ClaudeRoutingGraph({ view, state, providers, onLocate, onOpenMap
     const recent = [...recentByRequest.entries()]
       .map(([id, log]) => ({
         id,
-        label: "Claude Code",
+        label: clientLabel,
         detail: log.status >= 400 ? "最近失败" : "刚完成",
         model: log.model,
         timestamp: log.timestamp,
@@ -302,9 +304,9 @@ export function ClaudeRoutingGraph({ view, state, providers, onLocate, onOpenMap
     const recentSlots = Math.max(0, MAX_RECENT_CLIENTS - visibleActive.length);
     const visibleRecent = recentSlots ? recent.slice(-recentSlots) : [];
     const nodes = [...visibleRecent, ...visibleActive].sort((left, right) => left.timestamp - right.timestamp);
-    if (!nodes.length) return [{ id: "idle", label: "Claude Code", detail: live ? "等待请求" : "客户端请求", model: "", timestamp: 0, active: false }];
+    if (!nodes.length) return [{ id: "idle", label: clientLabel, detail: live ? "等待请求" : "客户端请求", model: "", timestamp: 0, active: false }];
     return nodes;
-  }, [activeRequests, lingerNow, live, state.logs, view]);
+  }, [activeRequests, clientLabel, lingerNow, live, state.logs, view]);
   const clientKey = clientNodes.map(client => client.id).join("|");
   /** 近 20 秒的请求量换算成每分钟 RPM；没有请求也没有进行中请求时目标转速为 0。 */
   const windmillRpm = useMemo(() => {
@@ -352,6 +354,10 @@ export function ClaudeRoutingGraph({ view, state, providers, onLocate, onOpenMap
 
   const summary = (() => {
     const traffic = activeRequests.length ? `${activeRequests.length} 个请求转发中 · ` : "";
+    if (desktop) {
+      if (live) return `${traffic}${view === "route" ? "请求转发到已选供应商。" : "按 Claude Desktop 所选模型转发到对应供应商。"}`;
+      return state.running ? "Claude Desktop 当前使用其他连接模式。" : "Claude Desktop 本机网关未运行。";
+    }
     if (view === "aggregate") {
       const defaultName = providerById.get(config.defaultProvider)?.name;
       if (live) return `${traffic}默认供应商${defaultName ? ` ${defaultName}` : ""} 承接普通请求，聚合成员按模型分发。`;
@@ -553,7 +559,7 @@ export function ClaudeRoutingGraph({ view, state, providers, onLocate, onOpenMap
         <span className={`claude-route-graph-badge${live ? " is-live" : ""}`}><i aria-hidden="true" />{live ? "实时" : state.running ? "仅预览" : "未启动"}</span>
         <span className="claude-route-graph-summary" title={summary}>{summary}</span>
       </div>
-      {onOpenMapping && <button type="button" className="claude-route-graph-action" onClick={onOpenMapping} title="编辑角色 × 渠道模型映射"><Table2 size={12} aria-hidden="true" />模型映射</button>}
+      {onOpenMapping && <button type="button" className="claude-route-graph-action" onClick={onOpenMapping} title={desktop ? "查看 Claude Desktop 模型目录" : "编辑角色 × 渠道模型映射"}><Table2 size={12} aria-hidden="true" />{desktop ? "模型目录" : "模型映射"}</button>}
       <button type="button" className="claude-route-graph-toggle" aria-expanded={open} aria-controls="claude-route-graph-body" title={open ? "收起路由拓扑" : "展开路由拓扑"} aria-label={open ? "收起路由拓扑" : "展开路由拓扑"} onClick={() => setOpen(current => !current)}><ChevronDown size={14} aria-hidden="true" /></button>
     </header>
     {open && <div id="claude-route-graph-body" className="claude-route-graph-body">
@@ -578,7 +584,7 @@ export function ClaudeRoutingGraph({ view, state, providers, onLocate, onOpenMap
             return <path key={provider.id} data-claude-route-wire={provider.id} className={classes.join(" ")} d={layout.hubToTarget[provider.id] ?? ""} />;
           })}
         </svg>}
-        <div className={`claude-route-graph-sources${clientNodes.length > 1 ? " is-multiple" : ""}`} role="group" aria-label={activeRequests.length > 1 ? `${activeRequests.length} 个并发 Claude Code 请求` : activeRequests.length === 1 ? "Claude Code 客户端请求" : clientNodes[0]?.id !== "idle" ? "最近的 Claude Code 请求" : "Claude Code 客户端"}>
+        <div className={`claude-route-graph-sources${clientNodes.length > 1 ? " is-multiple" : ""}`} role="group" aria-label={activeRequests.length > 1 ? `${activeRequests.length} 个并发 ${clientLabel} 请求` : activeRequests.length === 1 ? `${clientLabel} 客户端请求` : clientNodes[0]?.id !== "idle" ? `最近的 ${clientLabel} 请求` : `${clientLabel} 客户端`}>
           {clientNodes.map(client => {
             const directoryName = client.workingDirectory?.split(/[\\/]/).filter(Boolean).slice(-1)[0];
             const contextLabel = client.sessionTitle || directoryName;
@@ -605,7 +611,7 @@ export function ClaudeRoutingGraph({ view, state, providers, onLocate, onOpenMap
           <small className="claude-route-graph-address" title={state.address ?? undefined}>{state.running && state.address ? state.address.replace(/^https?:\/\//, "") : `127.0.0.1:${config.port}`}</small>
           <span className="claude-route-graph-mode">{view === "aggregate" ? (live ? "聚合中" : "聚合配置") : strategyLabel}</span>
         </div>
-        <ul className="claude-route-graph-targets" aria-label={view === "aggregate" ? "聚合供应商" : "路由队列"}>
+        <ul className="claude-route-graph-targets" aria-label={view === "aggregate" ? "聚合供应商" : desktop ? "固定供应商" : "路由队列"}>
           {targets.map(({ provider, queueIndex }) => {
             const health = state.health[provider.id];
             const open_ = Boolean(health?.openUntil && health.openUntil > Date.now());
@@ -621,16 +627,16 @@ export function ClaudeRoutingGraph({ view, state, providers, onLocate, onOpenMap
               : isActive
                 ? view === "aggregate" ? "最近响应" : queueEnabled ? "最近响应" : "路由中"
                 : failed ? open_ ? "熔断中" : "请求失败"
-                : view === "route" && !queueEnabled ? "队列保留"
+                : !desktop && view === "route" && !queueEnabled ? "队列保留"
                 : last ? "正常" : live ? "待请求" : "未检测";
             const accent = providerAccent(provider.name);
-            const modelInfo = providerModel(provider);
+            const modelInfo = desktop && provider.modelCatalog?.length ? { role: "模型", model: provider.modelCatalog[0].model } : providerModel(provider);
             const modelText = latestActive
               ? `实际 · ${latestActive.actualModel}`
               : isActive && last
                 ? `实际 · ${last.actualModel}`
                 : `${modelInfo.role} · ${modelInfo.model || "未配置模型"}`;
-            const missingSonnet = view === "route" && !provider.models?.sonnet?.model?.trim();
+            const missingSonnet = !desktop && view === "route" && !provider.models?.sonnet?.model?.trim();
             const providerUsage = usage.byProvider.get(provider.id);
             const providerUsageTitle = providerUsage
               ? `近 5 小时已完成请求尝试：请求 ${formatRoutingCount(providerUsage.requests)}，错误 ${formatRoutingCount(providerUsage.errors)}，成功率 ${providerUsage.requests ? Math.round(((providerUsage.requests - providerUsage.errors) / providerUsage.requests) * 100) : 100}%，平均延迟 ${formatRoutingLatency(providerUsage.durationMs / providerUsage.requests)}（请求总耗时，含失败尝试与流式生成），Token ${formatRoutingCount(providerUsage.tokens)}（输入 + 输出 + 缓存读取）`
@@ -669,7 +675,7 @@ export function ClaudeRoutingGraph({ view, state, providers, onLocate, onOpenMap
                   </small></span>
                   <span className="claude-route-graph-meta">
                     {providerUsage && <span className="claude-route-graph-latency" title="近 5 小时平均请求总耗时（含失败尝试与流式生成）">平均 {formatRoutingLatency(providerUsage.durationMs / providerUsage.requests)}</span>}
-                    {isDefault && <span className="claude-route-graph-tag is-default">默认</span>}
+                    {isDefault && !desktop && <span className="claude-route-graph-tag is-default">默认</span>}
                     {view === "route" && queueIndex >= 0 && (queueEnabled || provider.id !== config.routeProvider) && <span className="claude-route-graph-tag">{queueEnabled ? `P${queueIndex + 1}` : `队列 ${queueIndex + 1}`}</span>}
                     {view === "route" && !queueEnabled && provider.id === config.routeProvider && <span className="claude-route-graph-tag">固定</span>}
                     {missingSonnet && <span className="claude-route-graph-tag is-warning">缺 Sonnet</span>}
@@ -679,7 +685,7 @@ export function ClaudeRoutingGraph({ view, state, providers, onLocate, onOpenMap
               </div>
             </li>;
           })}
-          {!targets.length && <li className="claude-route-graph-empty">{view === "aggregate" ? "队列为空。请在下方列表将供应商加入聚合。" : queueEnabled ? "队列为空。请在下方列表将供应商加入路由队列。" : "尚未选择固定供应商。请在下方列表点击“设为固定”。"}</li>}
+          {!targets.length && <li className="claude-route-graph-empty">{desktop ? `请在下方列表${view === "route" ? "启用路由" : "设置聚合"}。` : view === "aggregate" ? "队列为空。请在下方列表将供应商加入聚合。" : queueEnabled ? "队列为空。请在下方列表将供应商加入路由队列。" : "尚未选择固定供应商。请在下方列表点击“设为固定”。"}</li>}
           {hiddenCount > 0 && <li className="claude-route-graph-more">另有 {hiddenCount} 家供应商，下方列表可查看全部</li>}
         </ul>
         {particles.length > 0 && <svg className="claude-route-graph-particles" width={layout ? Math.ceil(layout.width) : 0} height={layout ? Math.ceil(layout.height) : 0} aria-hidden="true">
@@ -689,8 +695,10 @@ export function ClaudeRoutingGraph({ view, state, providers, onLocate, onOpenMap
           </g>)}
         </svg>}
       </div>
-      <p className="claude-route-graph-note">{view === "route" ? "模型列显示各渠道首个已映射角色（通常为 Sonnet）；实际请求模型见右侧实时请求与用量日志。没有请求记录显示“未检测”，不代表连接失败。" : "默认供应商承接不带前缀的请求；成员按模型分发，不做故障转移。"}</p>
-      {view === "route" ? <details className="claude-route-graph-rules">
+      <p className="claude-route-graph-note">{desktop ? "模型列展示供应商配置中的首个模型，实际请求模型可在实时请求中查看。" : view === "route" ? "模型列显示各渠道首个已映射角色（通常为 Sonnet）；实际请求模型见右侧实时请求与用量日志。没有请求记录显示“未检测”，不代表连接失败。" : "默认供应商承接不带前缀的请求；成员按模型分发，不做故障转移。"}</p>
+      {desktop ? <details className="claude-route-graph-rules"><summary>转发规则</summary>
+        <p>模型 ID 绑定到上游供应商和模型。网关按该绑定转发，失败时向客户端返回错误。</p>
+      </details> : view === "route" ? <details className="claude-route-graph-rules">
         <summary>路由规则</summary>
         <ul>
           {config.roundRobin ? <>

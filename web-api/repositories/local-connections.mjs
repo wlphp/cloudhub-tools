@@ -29,13 +29,17 @@ export function listManagedHosts() {
 }
 
 export function listPanelConnections() {
-  const rows = database().prepare(`SELECT id,name,panel_url,sort_order,allow_insecure_tls,group_name,
+  const db = database();
+  // 浏览器预览可能打开旧版本原生库：列缺失时按“参与监控”处理，不要因此让接口失败。
+  const columns = new Set(db.prepare("PRAGMA table_info(panel_connections)").all().map((row) => row.name));
+  const monitorColumn = columns.has("monitor_enabled") ? "monitor_enabled" : "1 AS monitor_enabled";
+  const rows = db.prepare(`SELECT id,name,panel_url,sort_order,allow_insecure_tls,${monitorColumn},group_name,
       source_account_id,source_asset_key,(api_key_ciphertext IS NOT NULL AND api_key_ciphertext<>'') AS api_key_saved,
       status,summary_json,last_checked_at,remark,created_at,updated_at
     FROM panel_connections ORDER BY sort_order ASC,name COLLATE NOCASE`).all();
   return rows.map((row) => ({
     id: Number(row.id), name: row.name, panel_url: row.panel_url, sort_order: Number(row.sort_order),
-    allow_insecure_tls: Boolean(row.allow_insecure_tls), group_name: row.group_name,
+    allow_insecure_tls: Boolean(row.allow_insecure_tls), monitor_enabled: Boolean(row.monitor_enabled), group_name: row.group_name,
     source_account_id: row.source_account_id == null ? null : Number(row.source_account_id), source_asset_key: row.source_asset_key,
     api_key_saved: Boolean(row.api_key_saved), status: row.status, summary: jsonObject(row.summary_json),
     last_checked_at: row.last_checked_at == null ? null : Number(row.last_checked_at), remark: row.remark,

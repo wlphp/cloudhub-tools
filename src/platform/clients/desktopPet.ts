@@ -1,3 +1,4 @@
+import { officialPlugins } from "../../features/plugins/registry";
 import { nativeOnly } from "./base";
 import { Channel } from "@tauri-apps/api/core";
 import type { AiImage } from "./ai";
@@ -6,7 +7,7 @@ export type PetAlert = MonitorAlert;
 export type PetSnapshot = MonitorSnapshot;
 export type PetComputerAction = "shutdown" | "restart" | "taskManager" | "lock" | "explorer";
 export type PetMonitor = { index: number; name: string; supported: boolean; current: number | null };
-export type PetActivityKind = "operation" | "voice";
+export type PetActivityKind = "operation" | "voice" | "tts";
 export interface PetActivityEntry {
   id: string;
   time: number;
@@ -14,6 +15,9 @@ export interface PetActivityEntry {
   title: string;
   status: string;
   detail: string | null;
+  endpoint?: string | null;
+  requestBody?: unknown;
+  responseBody?: unknown;
 }
 
 export interface PetSettings {
@@ -107,7 +111,29 @@ export const desktopPetClient = {
   voiceDownloadModel: (name: string, onProgress: (progress: PetVoiceDownloadProgress) => void) => nativeOnly<PetVoiceStatus>("pet_voice_download_model", { name, onProgress: new Channel<PetVoiceDownloadProgress>(onProgress) }),
   voiceCancelModelDownload: () => nativeOnly<void>("pet_voice_cancel_model_download"),
   chatServices: () => nativeOnly<PetChatService[]>("pet_chat_services"),
-  chatLookup: (message: string, hasImage = false) => nativeOnly<string | null>("pet_chat_lookup", { message, hasImage }),
+  chatLookup: async (message: string, hasImage = false) => {
+    const reply = await nativeOnly<string | null>("pet_chat_lookup", { message, hasImage });
+    if (reply !== null || hasImage) return reply;
+
+    const request = message.trim().replace(/[。？?！!]+$/, "")
+      .replace(/^小小驼[，,\s]*/, "").replace(/^(?:请|帮我)+/, "").trim();
+    const match = /^(?:查一下|查询|查看|列出|查|找)\s*(?:云枢(?:里的?|的)?\s*)?(.+)$/.exec(request);
+    if (!match) return null;
+    const topic = match[1].trim();
+    const catalog = /^(?:模块|功能|应用)(?:[\s:：]+(.*))?$/.exec(topic);
+    const term = (catalog ? (catalog[1] ?? "") : topic).trim().toLowerCase();
+    const plugins = officialPlugins.filter(({ name, description }) => {
+      const title = name.toLowerCase();
+      return catalog
+        ? title.includes(term) || description.toLowerCase().includes(term)
+        : title === term || term.startsWith(title + " ");
+    });
+    if (!catalog && plugins.length === 0) return null;
+    const result = plugins.length
+      ? plugins.map(({ name }) => `· ${name}`).join("\n")
+      : "应用目录里没有匹配的模块。";
+    return `【云枢本地来源 · 应用目录】\n${result}\n\n可在云枢的应用列表中打开对应模块。本次仅查询应用名称。`;
+  },
   /** 流式聊天：增量文本经 onDelta 回调透出（服务商不支持流式时不触发），完整回复以返回值为准。 */
   chatStream: (requestId: string, service: PetChatService, message: string, onDelta: (event: PetChatStreamEvent) => void, image?: AiImage, model?: string, compactContext = false, limitResponse = false, attachment?: PetChatAttachment) => nativeOnly<PetChatTurn>("pet_chat_stream", { requestId, profileId: service.id, revision: service.revision, model, message, image: image ?? null, attachment: attachment ?? null, compactContext, limitResponse, onDelta: new Channel<PetChatStreamEvent>(onDelta) }),
   chatHistory: (before?: number) => nativeOnly<PetChatHistoryPage>("pet_chat_history", { before: before ?? null }),
@@ -124,7 +150,7 @@ export const desktopPetClient = {
   save: (settings: PetSettings, xfyunCredentials?: PetVoiceXfyunCredentials) => nativeOnly<void>("pet_save_settings", { settings, xfyunCredentials: xfyunCredentials ?? null }),
   show: () => nativeOnly<void>("pet_show"), hide: () => nativeOnly<void>("pet_hide"),
   check: () => nativeOnly<void>("pet_check"),
-  layout: (expanded: boolean, enlarged = false, chat = false, pinned = true) => nativeOnly<void>("pet_layout", { expanded, enlarged, chat, pinned }),
+  layout: (expanded: boolean, enlarged = false, chat = false, pinned = true, trace = false) => nativeOnly<void>("pet_layout", { expanded, enlarged, chat, pinned, trace }),
   resizeChat: (edge: PetChatResizeEdge, dx: number, dy: number, start: boolean) => nativeOnly<void>("pet_resize_chat", { edge, dx, dy, start }),
   sprite: (column: number, row: number, flipped: boolean, appearance: PetSettings["appearance"] = "alpaca") => nativeOnly<void>("pet_sprite", { column, row, flipped, appearance }),
   regions: (regions: number[][]) => nativeOnly<void>("pet_regions", { regions }),

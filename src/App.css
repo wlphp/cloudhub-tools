@@ -196,6 +196,9 @@ main{flex:1 1 auto;min-width:0;padding:36px 48px;max-width:none;margin:0;width:1
 .managed-server-status{border-radius:3px;background:var(--jb-border);color:var(--jb-muted)}
 .managed-server-status.online{background:#244838;color:#82d9a7}
 .managed-server-status.offline{background:#533238;color:#f1a0a5}
+.panel-row-monitor-tag,.panel-row-alert-tag{display:inline-flex;align-items:center;gap:4px;padding:2px 6px;border:1px solid var(--jb-border-strong);border-radius:3px;background:var(--jb-surface-3);color:var(--jb-muted);font-size:11px;white-space:nowrap}
+.panel-row-alert-tag{border-color:color-mix(in srgb,var(--jb-red) 45%,var(--jb-border));background:color-mix(in srgb,var(--jb-red) 14%,var(--jb-bg));color:var(--jb-red,#ef7070)}
+.panel-monitor-row.unmonitored .panel-row-status-line{opacity:.85}
 .panel-row-metrics{gap:5px;background:var(--jb-surface-2)}
 .panel-resource-metric>span,.panel-disk-label{color:var(--jb-muted)}
 .panel-resource-metric>strong{color:var(--jb-text);font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:11px}
@@ -710,4 +713,9 @@ button.header-stat-chip.active{border-color:var(--jb-accent);background:var(--jb
 .panel-insecure-tls{border-color:color-mix(in srgb,var(--jb-warning,#d7b46a) 30%,var(--jb-border));border-left:3px solid var(--jb-warning,#d7b46a);background:color-mix(in srgb,var(--jb-warning,#d7b46a) 7%,var(--jb-surface));color:var(--jb-text)}
 .panel-insecure-tls input{accent-color:var(--jb-warning,#d7b46a)}
 .panel-insecure-tls small{color:var(--jb-muted)}
+.panel-monitor-toggle{display:flex!important;align-items:flex-start;gap:9px;margin-top:10px;padding:11px 12px;border:1px solid var(--jb-border-strong);border-radius:7px;background:var(--jb-surface-2);color:var(--jb-text);cursor:pointer}
+.panel-monitor-toggle input{width:auto!important;margin:3px 0 0!important;accent-color:var(--jb-accent-strong)}
+.panel-monitor-toggle strong,.panel-monitor-toggle small{display:block}
+.panel-monitor-toggle strong{font-size:12px}
+.panel-monitor-toggle small{margin-top:3px;color:var(--jb-muted);font-size:11px}
 .account-section .layui-toolbar .account-sync-selected-button{display:inline-flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap}.account-section .layui-toolbar .account-sync-selected-button:disabled{opacity:.55;cursor:not-allowed}.account-section .layui-toolbar .account-sync-all-progress{flex:1 1 190px;min-width:150px;color:var(--jb-muted);font-size:11px;white-space:normal;line-height:1.35}

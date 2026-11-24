@@ -1,7 +1,7 @@
 import { ToastNotice } from "../../shared/ToastNotice";
 import { PetPortrait } from "./PetPortrait";
-import { useEffect, useState } from "react";
-import { ChevronDown, PawPrint } from "lucide-react";
+import { useEffect, useId, useState } from "react";
+import { Save } from "lucide-react";
 import { petAppearances } from "./appearances";
 import { PetLifeSettings } from "./PetLifeSettings";
 import { PetVoiceSettings } from "./PetVoiceSettings";
@@ -10,12 +10,24 @@ import { runningInTauri, platformErrorMessage } from "../../platform/api";
 import { defaultPetSettings, defaultPetLife, defaultPetVoice, desktopPetClient as client, type PetSettings, type PetVoiceXfyunCredentials } from "../../platform/clients/desktopPet";
 import "./desktop-pet.css";
 
-export function PetSettingsPanel({ embedded = false }: { embedded?: boolean }) {
-  const [settings, setSettings] = useState<PetSettings>(defaultPetSettings);
-  const [ready, setReady] = useState(false);
+const tabs = [
+  { id: "companion", label: "桌宠陪伴" },
+  { id: "life", label: "生活陪伴" },
+  { id: "voice", label: "语音对话" },
+] as const;
+
+type CompanionSettings = Pick<PetSettings, "enabled" | "appearance" | "size" | "roam" | "activity" | "sound" | "reducedMotion">;
+
+let previewSettings = defaultPetSettings;
+
+export function PetSettingsPanel() {
+  const tabsId = useId();
+  const [activeTab, setActiveTab] = useState<(typeof tabs)[number]["id"]>("companion");
+  const [settings, setSettings] = useState<PetSettings>(() => runningInTauri ? defaultPetSettings : previewSettings);
+  const [companionDraft, setCompanionDraft] = useState<Partial<CompanionSettings>>({});
+  const [ready, setReady] = useState(!runningInTauri);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [expanded, setExpanded] = useState(embedded);
   useEffect(() => {
     if (!runningInTauri) return;
     let disposed = false;
@@ -24,48 +36,116 @@ export function PetSettingsPanel({ embedded = false }: { embedded?: boolean }) {
       if (!isPetSettings(s)) { setError("桌宠设置无效，请重启应用后重试。"); return; }
       setSettings({ ...s, life: { ...defaultPetLife, ...s.life } }); setReady(true);
     }).catch(e => { if (!disposed) setError(platformErrorMessage(e)); });
-    const events = [listen<PetSettings>("pet-settings-changed", e => { if (!disposed) setSettings(e.payload); })];
+    const events = [listen<PetSettings>("pet-settings-changed", e => {
+      if (disposed) return;
+      const next = { ...e.payload, life: { ...defaultPetLife, ...e.payload.life } };
+      setSettings(current => ({
+        ...next,
+        life: JSON.stringify(current.life) === JSON.stringify(next.life) ? current.life : next.life,
+        voice: JSON.stringify(current.voice) === JSON.stringify(next.voice) ? current.voice : next.voice,
+      }));
+    })];
     return () => { disposed = true; events.forEach(p => void p.then(unlisten => unlisten())); };
   }, []);
   async function work(action: () => Promise<void>) { setBusy(true); setError(""); try { await action(); } catch (e) { setError(platformErrorMessage(e)); } finally { setBusy(false); } }
-  async function change(patch: Partial<PetSettings>) { const next = { ...settings, ...patch }; await work(async () => { await client.save(next); setSettings(next); }); }
+  async function save(next: PetSettings, credentials?: PetVoiceXfyunCredentials) {
+    if (runningInTauri) await client.save(next, credentials);
+    else {
+      if (credentials) throw new Error("请在桌面客户端保存语音服务凭据。");
+      previewSettings = next;
+    }
+    setSettings(next);
+  }
+  const companion = { ...settings, ...companionDraft };
+  const companionDirty = (Object.keys(companionDraft) as (keyof CompanionSettings)[]).some(key => companion[key] !== settings[key]);
+  function change(patch: Partial<CompanionSettings>) { setCompanionDraft(current => ({ ...current, ...patch })); }
   async function changeLife(life: PetSettings["life"]) {
     const next = { ...settings, life };
     setBusy(true); setError("");
-    try { await client.save(next); setSettings(next); }
+    try { await save(next); }
     finally { setBusy(false); }
   }
   async function changeVoice(voice: PetSettings["voice"], quiet: boolean, xfyunCredentials?: PetVoiceXfyunCredentials) {
     const next = { ...settings, voice, quiet };
     setBusy(true); setError("");
-    try { await client.save(next, xfyunCredentials); setSettings(next); }
+    try { await save(next, xfyunCredentials); }
     finally { setBusy(false); }
   }
-  const toggle = (key: "enabled" | "sound" | "reducedMotion", label: string, detail?: string, disabled = false) => <label className="pet-option"><span>{label}{detail && <small>{detail}</small>}</span><input type="checkbox" disabled={!ready || busy || disabled} checked={settings[key]} onChange={e => void change({ [key]: e.target.checked })} /></label>;
-  return <section className={expanded ? "pet-settings-section is-expanded" : "pet-settings-section"} aria-label="桌面陪伴与生活陪伴设置">
-    <div className="pet-settings-heading"><PawPrint size={20} /><div className="pet-settings-title"><strong>桌面陪伴与生活陪伴</strong><small>桌宠互动与生活提醒设置</small></div><div className="pet-settings-summary" aria-label="桌面陪伴状态">
-      <span className={settings.enabled ? "is-on" : "is-off"}><i aria-hidden="true" />桌宠 {settings.enabled ? "已启用" : "已关闭"}</span>
-    </div>{!embedded && <button className="pet-settings-expand" aria-expanded={expanded} aria-controls="pet-settings-content" onClick={() => setExpanded(value => !value)}>{expanded ? "收起" : "展开"}<ChevronDown size={15} /></button>}</div>
-    {expanded && <div id="pet-settings-content">
-    {!runningInTauri ? <p>桌宠、后台巡检和托盘驻留仅支持桌面应用，浏览器预览不可用。</p> : <>
+  const toggle = (key: "enabled" | "sound" | "reducedMotion", label: string, detail?: string, disabled = false) => <label className="pet-option"><span>{label}{detail && <small>{detail}</small>}</span><input type="checkbox" disabled={!ready || busy || disabled} checked={companion[key]} onChange={e => change({ [key]: e.target.checked })} /></label>;
+  return <section className="pet-settings-section" aria-label="桌面宠物设置">
+    <div className="pet-settings-tabs" role="tablist" aria-label="宠物设置分类">
+      {tabs.map(({ id, label }, index) => <button
+        key={id}
+        type="button"
+        role="tab"
+        id={`${tabsId}-tab-${id}`}
+        aria-controls={`${tabsId}-panel-${id}`}
+        aria-selected={activeTab === id}
+        tabIndex={activeTab === id ? 0 : -1}
+        onClick={() => setActiveTab(id)}
+        onKeyDown={event => {
+          let next: number;
+          switch (event.key) {
+            case "ArrowLeft": next = (index + tabs.length - 1) % tabs.length; break;
+            case "ArrowRight": next = (index + 1) % tabs.length; break;
+            case "Home": next = 0; break;
+            case "End": next = tabs.length - 1; break;
+            default: return;
+          }
+          event.preventDefault();
+          setActiveTab(tabs[next].id);
+          event.currentTarget.parentElement?.querySelectorAll("button")[next]?.focus();
+        }}
+      >{label}</button>)}
+    </div>
+    {!runningInTauri && <p>浏览器调试预览。设置在当前页面会话内生效，显示桌宠、播报与查询天气等操作需使用桌面客户端。</p>}
       {error && <ToastNotice message={error} tone="error" />}
-      <div className="pet-settings-columns">
-        <article className="pet-control-card pet-companion-card">
-          <header><div><PetPortrait appearance={settings.appearance} className="pet-settings-portrait" /><strong>桌宠陪伴</strong><small>点击宠物查看提醒，拖动可移动</small></div>{toggle("enabled", "启用桌宠")}</header>
-          <details className="pet-settings-disclosure"><summary>桌宠外观与行为</summary><div className="pet-settings-detail-grid">
-            <label className="pet-option">宠物形象<select disabled={!ready || busy} value={settings.appearance} onChange={e => void change({ appearance: e.target.value as PetSettings["appearance"] })}>{Object.entries(petAppearances).map(([key, item]) => <option key={key} value={key}>{item.label}</option>)}</select></label>
-            <label className="pet-option">桌宠大小<select disabled={!ready || busy} value={settings.size} onChange={e => void change({ size: Number(e.target.value) })}><option value={80}>特小</option><option value={120}>小</option><option value={160}>中</option><option value={200}>大</option></select></label>
-            <label className="pet-option">活动范围<select disabled={!ready || busy} value={settings.roam} onChange={e => void change({ roam: e.target.value as PetSettings["roam"] })}><option value="edge">沿屏幕下沿</option><option value="free">屏幕内漫游</option><option value="still">原地陪伴</option></select></label>
-            <label className="pet-option">活跃程度<select disabled={!ready || busy} value={settings.activity} onChange={e => void change({ activity: Number(e.target.value) })}><option value={0}>安静</option><option value={1}>适中</option><option value={2}>活泼</option></select></label>
-            {toggle("reducedMotion", "减少动态", "遵循系统减少动态设置", !settings.enabled)}
-            {toggle("sound", "互动声音", "默认静音", !settings.enabled)}
-          </div><div className="pet-settings-actions"><button className="secondary" disabled={!ready || busy || !settings.enabled} onClick={() => void work(client.show)}>显示桌宠</button><button className="secondary" disabled={!ready || busy || !settings.enabled} onClick={() => void work(() => client.move(0, 0, true, true))}>重置位置</button></div></details>
-        </article>
+      <div role="tabpanel" id={`${tabsId}-panel-companion`} aria-labelledby={`${tabsId}-tab-companion`} hidden={activeTab !== "companion"}>
+        <form className="pet-companion-card" onSubmit={event => {
+          event.preventDefault();
+          void work(async () => { await save(companion); setCompanionDraft({}); });
+        }}>
+          <fieldset disabled={!ready || busy}>
+            <div className="pet-settings-topic">
+              <PetPortrait appearance={companion.appearance} className="pet-settings-portrait" />
+              <div><h3>桌宠陪伴</h3><p>点击宠物查看提醒，拖动可移动</p></div>
+              <span role="status">{ready ? (settings.enabled ? "桌宠已启用" : "桌宠已关闭") : error ? "设置读取失败" : "正在读取设置"}</span>
+            </div>
+            <div className="pet-settings-groups">
+            <section className="pet-life-group" aria-label="外观与显示">
+              <h4>外观与显示</h4>
+              <div className="pet-life-options">{toggle("enabled", "启用桌宠")}</div>
+              <div className="pet-life-grid">
+            <label>宠物形象<select disabled={!ready || busy} value={companion.appearance} onChange={e => change({ appearance: e.target.value as PetSettings["appearance"] })}>{Object.entries(petAppearances).map(([key, item]) => <option key={key} value={key}>{item.label}</option>)}</select></label>
+            <label>桌宠大小<select disabled={!ready || busy} value={companion.size} onChange={e => change({ size: Number(e.target.value) })}><option value={80}>特小</option><option value={120}>小</option><option value={160}>中</option><option value={200}>大</option></select></label>
+              </div>
+              <div className="pet-settings-actions">
+                <button type="button" className="secondary" disabled={!settings.enabled} onClick={() => void work(client.show)}>显示桌宠</button>
+                <button type="button" className="secondary" disabled={!settings.enabled} onClick={() => void work(() => client.move(0, 0, true, true))}>重置位置</button>
+              </div>
+            </section>
+            <section className="pet-life-group" aria-label="活动与互动">
+              <h4>活动与互动</h4>
+              <div className="pet-life-grid">
+            <label>活动范围<select disabled={!ready || busy} value={companion.roam} onChange={e => change({ roam: e.target.value as PetSettings["roam"] })}><option value="edge">沿屏幕下沿</option><option value="free">屏幕内漫游</option><option value="still">原地陪伴</option></select></label>
+            <label>活跃程度<select disabled={!ready || busy} value={companion.activity} onChange={e => change({ activity: Number(e.target.value) })}><option value={0}>安静</option><option value={1}>适中</option><option value={2}>活泼</option></select></label>
+              </div>
+              <div className="pet-life-options">
+                {toggle("reducedMotion", "减少动态", "遵循系统减少动态设置", !companion.enabled)}
+                {toggle("sound", "互动声音", "默认静音", !companion.enabled)}
+              </div>
+            </section>
+            </div>
+            <div className="pet-life-actions"><span>{companionDirty ? "有未保存的修改" : "设置已保存"}</span><button type="submit" className="primary" disabled={!companionDirty}><Save size={14} />保存桌宠设置</button></div>
+          </fieldset>
+        </form>
       </div>
-      <PetLifeSettings value={settings.life} onSave={changeLife} disabled={!ready || busy} petEnabled={settings.enabled} />
-      <PetVoiceSettings value={settings.voice ?? defaultPetVoice} quiet={settings.quiet} onSave={changeVoice} disabled={!ready || busy} petEnabled={settings.enabled} />
-    </>}
-    </div>}
+      <div role="tabpanel" id={`${tabsId}-panel-life`} aria-labelledby={`${tabsId}-tab-life`} hidden={activeTab !== "life"}>
+        <PetLifeSettings value={settings.life} onSave={changeLife} disabled={!ready || busy} petEnabled={settings.enabled} />
+      </div>
+      <div role="tabpanel" id={`${tabsId}-panel-voice`} aria-labelledby={`${tabsId}-tab-voice`} hidden={activeTab !== "voice"}>
+        <PetVoiceSettings value={settings.voice ?? defaultPetVoice} quiet={settings.quiet} onSave={changeVoice} disabled={!ready || busy} petEnabled={settings.enabled} />
+      </div>
   </section>;
 }
 

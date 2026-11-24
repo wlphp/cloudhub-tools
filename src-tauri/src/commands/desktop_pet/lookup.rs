@@ -13,6 +13,8 @@ const SCOPES: &[(&str, &str)] = &[
     ("验证器", "authenticator"),
     ("笔记", "notes"),
     ("证书", "certificates"),
+    ("域名备案", "icp_module"),
+    ("域名解析", "dns_module"),
     ("域名", "domain"),
     ("云服务器", "ecs"),
     ("服务器", "ecs"),
@@ -27,6 +29,14 @@ const SCOPES: &[(&str, &str)] = &[
     ("ESA", "esa"),
     ("云资源", "assets"),
     ("云资产", "assets"),
+    ("资产", "assets"),
+    ("Workers", "workers"),
+    ("Pages", "pages"),
+    ("隧道", "tunnel"),
+    ("DNS 记录", "dns_module"),
+    ("DNS解析", "dns_module"),
+    ("DNS", "dns_module"),
+    ("备案", "icp_module"),
     ("多云账号", "accounts"),
     ("多云账户", "accounts"),
     ("云账号", "accounts"),
@@ -56,6 +66,34 @@ fn balance_query(message: &str) -> Option<&str> {
     None
 }
 
+fn domain_asset_query(message: &str) -> Option<&str> {
+    let message = ["查一下", "查询", "查看", "查", "看看"]
+        .into_iter()
+        .find_map(|prefix| message.strip_prefix(prefix))
+        .unwrap_or(message)
+        .trim_start();
+    let (message, leading_asset_scope) = ["资产查询", "云资产", "资产", "云资源"]
+        .into_iter()
+        .find_map(|prefix| message.strip_prefix(prefix))
+        .map_or((message, false), |rest| (rest.trim_start_matches([' ', ':', '：']), true));
+    let (domain, suffix) = message.split_at(
+        message.find(|c: char| !c.is_ascii_alphanumeric() && !matches!(c, '.' | '-'))
+            .unwrap_or(message.len()),
+    );
+    let suffix = suffix.trim().trim_start_matches('的').trim_start();
+    if !(leading_asset_scope && suffix.is_empty()) && !matches!(suffix, "资产查询" | "资产" | "云资产" | "云资源" | "有哪些资产" | "有哪些资源") {
+        return None;
+    }
+    let domain = domain.strip_suffix('.').unwrap_or(domain);
+    let (_, zone) = domain.rsplit_once('.')?;
+    if domain.len() > 253 || !zone.bytes().any(|b| b.is_ascii_alphabetic()) ||
+        !domain.split('.').all(|label| !label.is_empty() && label.len() <= 63 &&
+            !label.starts_with('-') && !label.ends_with('-')) {
+        return None;
+    }
+    Some(domain)
+}
+
 fn query(message: &str) -> Option<(&'static str, &str)> {
     let message = message
         .trim()
@@ -67,6 +105,9 @@ fn query(message: &str) -> Option<(&'static str, &str)> {
     let message = message.strip_prefix("请").unwrap_or(message).trim_start();
     let message = message.strip_prefix("你帮我").or_else(|| message.strip_prefix("帮我"))
         .unwrap_or(message).trim_start();
+    if let Some(domain) = domain_asset_query(message) {
+        return Some(("domain_assets", domain));
+    }
     if let Some(name) = balance_query(message) {
         return Some(("balance", name));
     }
@@ -250,6 +291,10 @@ fn certificates(db: &Connection, scope: &str, term: &str) -> Result<Vec<String>,
                     .not_after
                     .is_some_and(|expiry| (now..=now + days * 86400).contains(&expiry));
             }
+            if scope == "domain_assets" {
+                return std::iter::once(&item.primary_domain).chain(&item.domains)
+                    .any(|domain| related_domain(domain, term));
+            }
             item.domains
                 .iter()
                 .any(|domain| domain.to_ascii_lowercase().contains(term))
@@ -336,6 +381,100 @@ fn account_balance(db: &Connection, term: &str) -> rusqlite::Result<String> {
     Ok(format!("「{name}」最近一次查询未取得可用余额，可在账号管理中重试。\n{last_check}"))
 }
 
+fn related_domain(candidate: &str, term: &str) -> bool {
+    let candidate = candidate.trim_end_matches('.').to_ascii_lowercase();
+    candidate == term || candidate.strip_suffix(term).is_some_and(|prefix| prefix.ends_with('.'))
+        || candidate.strip_prefix("*.").is_some_and(|zone| {
+            term.strip_suffix(zone).and_then(|prefix| prefix.strip_suffix('.'))
+                .is_some_and(|label| !label.is_empty() && !label.contains('.'))
+        })
+}
+
+fn local_time(timestamp: i64) -> String {
+    DateTime::from_timestamp_millis(timestamp)
+        .map(|time| time.with_timezone(&Local).format("%Y-%m-%d %H:%M").to_string())
+        .unwrap_or_else(|| "未知".into())
+}
+
+fn domain_asset_rows(db: &Connection, scope: &str, term: &str) -> rusqlite::Result<Vec<String>> {
+    let sql = if scope == "baota" {
+        "SELECT l.site_name, p.name, l.last_checked_at
+         FROM certificate_source_links l JOIN panel_connections p ON p.id=l.panel_id
+         WHERE p.deleted_at IS NULL AND EXISTS (
+             SELECT 1 FROM json_each(CASE WHEN json_valid(l.site_domains_json) THEN l.site_domains_json ELSE '[]' END)
+             WHERE type='text' AND (rtrim(lower(value), '.')=?1 OR substr(rtrim(lower(value), '.'), -length(?1)-1)='.' || ?1)
+             UNION ALL SELECT 1 WHERE rtrim(lower(l.site_name), '.')=?1
+         ) AND ?3='baota'
+         ORDER BY l.last_checked_at DESC, l.id LIMIT ?2"
+    } else {
+        "WITH assets AS (
+             SELECT c.asset_key, a.account_name, c.fetched_at,
+                    CASE WHEN json_valid(c.payload_json) THEN c.payload_json ELSE '{}' END AS data
+             FROM cloud_assets c JOIN cloud_accounts a ON a.id=c.account_id
+             WHERE a.deleted_at IS NULL AND c.resource_type=?3
+         ), names AS (
+             SELECT account_name, fetched_at, asset_key,
+                    coalesce(nullif(data->>'DomainName',''), nullif(data->>'SiteName',''),
+                             nullif(data->>'ZoneName',''), nullif(data->>'domain',''),
+                             nullif(data->>'name',''), nullif(data->>'Name',''), asset_key) AS label
+             FROM assets
+         ), domains AS (
+             SELECT *, rtrim(lower(label), '.') AS host FROM names
+         )
+         SELECT CAST(label AS TEXT), account_name, fetched_at FROM domains
+         WHERE host=?1 OR substr(host, -length(?1)-1)='.' || ?1 OR rtrim(lower(asset_key), '.')=?1
+         ORDER BY fetched_at DESC, account_name, asset_key LIMIT ?2"
+    };
+    let mut statement = db.prepare(sql)?;
+    let rows = statement.query_map(params![term, LIMIT + 1, scope], |row| {
+        let name: String = row.get(0)?;
+        let owner: String = row.get(1)?;
+        let timestamp: Option<i64> = row.get(2)?;
+        let mut item = format!("{} · {}", safe_text(&name, 253), safe_text(&owner, 120));
+        if let Some(timestamp) = timestamp {
+            let _ = write!(item, " · 同步于 {}", local_time(timestamp));
+        }
+        Ok(item)
+    })?;
+    rows.collect()
+}
+
+fn append_local_section(reply: &mut String, source: &str, items: &[String], empty: &str) {
+    let _ = write!(reply, "\n\n【本地来源 · {source}】");
+    if items.is_empty() {
+        let _ = write!(reply, "\n{empty}");
+    }
+    for (index, item) in items.iter().take(LIMIT).enumerate() {
+        let _ = write!(reply, "\n{}. {item}", index + 1);
+    }
+    if items.len() > LIMIT {
+        reply.push_str("\n还有更多结果，可在对应模块查看。");
+    }
+}
+
+fn domain_assets(db: &Connection, term: &str) -> Result<String, String> {
+    let mut reply = format!("云枢本地资产查询 · {term}");
+    for (scope, source, coverage_sql) in [
+        ("domain", "域名管理", "SELECT EXISTS(SELECT 1 FROM cloud_assets c JOIN cloud_accounts a ON a.id=c.account_id WHERE a.deleted_at IS NULL AND c.resource_type=?1)"),
+        ("esa", "边缘站点", "SELECT EXISTS(SELECT 1 FROM cloud_assets c JOIN cloud_accounts a ON a.id=c.account_id WHERE a.deleted_at IS NULL AND c.resource_type=?1)"),
+        ("baota", "宝塔站点证书巡检", "SELECT EXISTS(SELECT 1 FROM certificate_source_links l JOIN panel_connections p ON p.id=l.panel_id WHERE p.deleted_at IS NULL AND ?1='baota')"),
+    ] {
+        let items = domain_asset_rows(db, scope, term).map_err(|_| "无法查询本地域名资产")?;
+        let empty = if !items.is_empty() {
+            ""
+        } else if db.query_row(coverage_sql, [scope], |row| row.get::<_, bool>(0))
+            .map_err(|_| "无法检查本地资产缓存")? {
+            "本地缓存中没有匹配记录。"
+        } else {
+            "暂无本地缓存，可到对应模块同步后再查。"
+        };
+        append_local_section(&mut reply, source, &items, empty);
+    }
+    append_local_section(&mut reply, "证书管理", &certificates(db, "domain_assets", term)?, "本地没有匹配的证书。");
+    reply.push_str("\n\nDNS 记录和备案详情可在云枢的域名管理中查询。");
+    Ok(reply)
+}
+
 fn summaries(db: &Connection, scope: &str, term: &str) -> rusqlite::Result<Vec<String>> {
     let sql = match scope {
         "accounts" => "SELECT account_name, cloud_type || ' · ' || CASE WHEN enabled=1 THEN '启用' ELSE '停用' END
@@ -414,12 +553,23 @@ pub async fn pet_chat_lookup(
     if scope == "help" {
         return Ok(Some(HELP.into()));
     }
+    if scope == "dns_module" {
+        return Ok(Some("【云枢模块指引 · 域名管理】\n选择域名后打开「解析管理」，即可查看 DNS 记录。此次未读取记录。".into()));
+    }
+    if scope == "icp_module" {
+        return Ok(Some("【云枢模块指引 · 域名管理】\n选择域名后打开「备案查询」，即可查询备案详情。此次未读取记录。".into()));
+    }
     let term = term.to_ascii_lowercase();
     let response = tauri::async_runtime::spawn_blocking(move || {
         let db = open_db().map_err(|_| "无法打开云枢本地资料")?;
         crate::commands::app_lock::require_unlocked(&app, &db)?;
         if scope == "balance" {
             let reply = account_balance(&db, &term).map_err(|_| "无法读取本地余额缓存")?;
+            crate::commands::app_lock::require_unlocked(&app, &db)?;
+            return Ok(format!("【本地来源 · 多云账号与余额缓存】\n{reply}"));
+        }
+        if scope == "domain_assets" {
+            let reply = domain_assets(&db, &term)?;
             crate::commands::app_lock::require_unlocked(&app, &db)?;
             return Ok(reply);
         }
@@ -439,19 +589,18 @@ pub async fn pet_chat_lookup(
             _ => summaries(&db, scope, &term).map_err(|_| "无法查询云枢本地资料")?,
         };
         crate::commands::app_lock::require_unlocked(&app, &db)?;
+        let source = match scope {
+            "notes" => "备忘录",
+            "authenticator" => "身份验证器",
+            "certificates" | "expiry" => "证书管理",
+            "accounts" => "多云账号",
+            "hosts" => "受管主机",
+            "panels" => "运维面板",
+            _ => "云资源缓存",
+        };
         let mut reply = String::new();
-        if items.is_empty() {
-            reply.push_str("本地没有匹配的记录。可以换个关键词，或在云枢对应模块查看。");
-        }
-        for (index, item) in items.iter().take(LIMIT).enumerate() {
-            if index > 0 {
-                reply.push_str("\n\n");
-            }
-            let _ = write!(reply, "{}. {item}", index + 1);
-        }
-        if items.len() > LIMIT {
-            reply.push_str("\n\n还有更多结果，可以缩小关键词。");
-        }
+        append_local_section(&mut reply, source, &items, "本地没有匹配的记录。可以换个关键词，或在云枢对应模块查看。");
+        let reply = reply.trim_start().to_owned();
         Ok::<_, String>(reply)
     })
     .await
@@ -473,6 +622,13 @@ mod tests {
             query("查云枢里的域名 example.com"),
             Some(("domain", "example.com"))
         );
+        assert_eq!(query("wlphp.com 资产查询"), Some(("domain_assets", "wlphp.com")));
+        assert_eq!(query("资产查询：example.test"), Some(("domain_assets", "example.test")));
+        assert_eq!(query("查域名备案 example.test"), Some(("icp_module", "example.test")));
+        assert_eq!(query("查云资源 example.test"), Some(("domain_assets", "example.test")));
+        assert_eq!(query("帮我看看 EXAMPLE.test. 有哪些资产"), Some(("domain_assets", "EXAMPLE.test")));
+        assert_eq!(query("联网搜索 example.test 资产查询"), None);
+        assert_eq!(query("1.1.1.1 资产查询"), None);
         assert_eq!(query("查 Redis 生产"), Some(("redis", "生产")));
         assert_eq!(query("帮我读取我的身份验证器 GitHub"), Some(("authenticator", "GitHub")));
         assert_eq!(query("查多云账号 生产"), Some(("accounts", "生产")));
@@ -486,6 +642,39 @@ mod tests {
         );
         assert_eq!(query("现在几点了？"), Some(("time", "")));
         assert_eq!(query("怎么在备忘录里加一条记录？"), None);
+    }
+
+    #[test]
+    fn domain_sources_match_label_boundaries_and_skip_deleted_accounts() {
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch(
+            r#"CREATE TABLE cloud_accounts(id INTEGER, account_name TEXT, deleted_at INTEGER);
+             CREATE TABLE cloud_assets(account_id INTEGER, resource_type TEXT, asset_key TEXT,
+                 payload_json TEXT, fetched_at INTEGER);
+             CREATE TABLE panel_connections(id INTEGER, name TEXT, deleted_at INTEGER);
+             CREATE TABLE certificate_source_links(id INTEGER, panel_id INTEGER, site_name TEXT,
+                 site_domains_json TEXT, last_checked_at INTEGER);
+             INSERT INTO cloud_accounts VALUES(1,'当前账号',NULL),(2,'已删除',1);
+             INSERT INTO panel_connections VALUES(1,'测试面板',NULL);
+             INSERT INTO cloud_assets VALUES
+                (1,'domain','example.test','{}',1800000000000),
+                (1,'esa','site-1','{"SiteName":"www.example.test","privateKey":"hidden"}',1800000000000),
+                (1,'esa','site-2','{"SiteName":"otherexample.test"}',1800000000000),
+                (2,'domain','www.example.test','{}',1800000000000);
+             INSERT INTO certificate_source_links VALUES
+                (1,1,'站点别名','["www.example.test"]',1800000000000);"#,
+        ).unwrap();
+        let domains = domain_asset_rows(&db, "domain", "example.test").unwrap();
+        let sites = domain_asset_rows(&db, "esa", "example.test").unwrap();
+        let panels = domain_asset_rows(&db, "baota", "example.test").unwrap();
+        assert_eq!(domains.len(), 1);
+        assert_eq!(sites.len(), 1);
+        assert_eq!(panels.len(), 1);
+        assert!(sites[0].contains("www.example.test") && sites[0].contains("同步于"));
+        assert!(!sites[0].contains("hidden"));
+        assert!(panels[0].contains("测试面板"));
+        assert!(related_domain("*.example.test", "www.example.test"));
+        assert!(!related_domain("*.example.test", "sub.www.example.test"));
     }
 
     #[test]

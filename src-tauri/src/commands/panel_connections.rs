@@ -246,7 +246,7 @@ pub(crate) fn export_panel_connections_file(panel_ids: Option<Vec<i64>>) -> Plat
     let mut panels = Vec::new();
     for row in rows {
         if selected_ids.as_ref().is_some_and(|ids| !ids.contains(&row.id)) { continue; }
-        panels.push(ExportPanelConnection { name: row.name, panel_url: row.panel_url, sort_order: row.sort_order, api_key: decrypt_secret(&row.ciphertext)?, allow_insecure_tls: row.allow_insecure_tls, group_name: row.group_name, source_account_id: row.source_account_id, source_asset_key: row.source_asset_key, remark: row.remark });
+        panels.push(ExportPanelConnection { name: row.name, panel_url: row.panel_url, sort_order: row.sort_order, api_key: decrypt_secret(&row.ciphertext)?, allow_insecure_tls: row.allow_insecure_tls, monitor_enabled: row.monitor_enabled, group_name: row.group_name, source_account_id: row.source_account_id, source_asset_key: row.source_asset_key, remark: row.remark });
     }
     if panels.is_empty() { return Err("未找到选择的面板".into()); }
     let base = dirs::home_dir().unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
@@ -277,10 +277,12 @@ pub(crate) fn import_panel_connections(panels: Vec<ImportPanelConnection>) -> Pl
         let panel_url = normalize_panel_url(&panel.panel_url)?;
         if name.is_empty() || panel.api_key.trim().is_empty() { return Err(format!("第 {} 条面板缺少名称或 API 密钥", index + 1).into()); }
         let ciphertext = encrypt_secret(panel.api_key.trim())?;
+        // 旧导出文件与旧客户端没有该字段，默认保持参与监控，避免导入后静默停止巡检。
+        let monitor_enabled = panel.monitor_enabled.unwrap_or(true);
         let existing_id = panel_repository::id_by_url(&conn, &panel_url)?;
         match existing_id {
-            Some(id) => panel_repository::import_update(&conn, id, name, &ciphertext, panel.sort_order.unwrap_or(0).max(0), panel.allow_insecure_tls.unwrap_or(false), panel.group_name.as_deref(), panel.source_account_id, panel.source_asset_key.as_deref(), panel.remark.as_deref(), now)?,
-            None => panel_repository::import_insert(&conn, name, &panel_url, &ciphertext, panel.sort_order.unwrap_or(0).max(0), panel.allow_insecure_tls.unwrap_or(false), panel.group_name.as_deref(), panel.source_account_id, panel.source_asset_key.as_deref(), panel.remark.as_deref(), now)?,
+            Some(id) => panel_repository::import_update(&conn, id, name, &ciphertext, panel.sort_order.unwrap_or(0).max(0), panel.allow_insecure_tls.unwrap_or(false), monitor_enabled, panel.group_name.as_deref(), panel.source_account_id, panel.source_asset_key.as_deref(), panel.remark.as_deref(), now)?,
+            None => panel_repository::import_insert(&conn, name, &panel_url, &ciphertext, panel.sort_order.unwrap_or(0).max(0), panel.allow_insecure_tls.unwrap_or(false), monitor_enabled, panel.group_name.as_deref(), panel.source_account_id, panel.source_asset_key.as_deref(), panel.remark.as_deref(), now)?,
         };
         imported += 1;
     }

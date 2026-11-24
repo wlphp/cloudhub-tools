@@ -41,13 +41,15 @@ function outputSpeed(log: ClaudeRequestLog): number | null {
  * 路由拓扑下方的实时请求列表。
  * 数据只来自本地网关快照：进行中的请求 + 已完成的请求元数据；不读取提示词、请求头或响应正文。
  */
-export function ClaudeRoutingLiveFeed({ view, state, providers, onLocate, onOpenUsage }: {
+export function ClaudeRoutingLiveFeed({ view, state, providers, onLocate, onOpenUsage, desktop = false }: {
   view: Exclude<ClaudeMode, "direct">;
   state: ClaudeRoutingState;
   providers: ClaudeProviderSummary[];
   onLocate?: (id: string) => void;
   onOpenUsage?: () => void;
+  desktop?: boolean;
 }) {
+  const clientLabel = desktop ? "Claude Desktop" : "Claude Code";
   const [range, setRange] = useState<Range>("live");
   const [now, setNow] = useState(() => Date.now());
   const listRef = useRef<HTMLUListElement | null>(null);
@@ -118,8 +120,8 @@ export function ClaudeRoutingLiveFeed({ view, state, providers, onLocate, onOpen
       ? "本地路由未运行；当前范围没有记录，可切换到「今天」或「全部」查看历史请求。"
       : "本地路由未运行；启动后请求会实时出现在这里。"
     : state.mode !== view
-      ? `Claude Code 当前使用${state.mode === "aggregate" ? "聚合" : "路由"}模式；这里只显示${view === "route" ? "路由" : "聚合"}请求。`
-      : "暂无请求。Claude Code 发起请求后会在这里实时出现。";
+      ? `${clientLabel} 当前使用${state.mode === "aggregate" ? "聚合" : "路由"}模式；这里只显示${view === "route" ? "路由" : "聚合"}请求。`
+      : `暂无请求。${clientLabel} 发起请求后会在这里实时出现。`;
 
   const providerName = (id: string) => providerById.get(id)?.name ?? id;
   const providerLogo = (id: string) => {

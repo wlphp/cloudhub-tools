@@ -5,7 +5,7 @@ import type { ClaudeProviderInput } from "../../platform/clients/claudeProviders
 import { PROVIDER_PRESETS, presetToInput } from "./claudeProviderPresets";
 import { AiSupplierImport } from "../ai/AiSupplierImport";
 
-export function ClaudeProviderPresetPicker({ onClose, onSelect, onCustom }: { onClose: () => void; onSelect: (value: ClaudeProviderInput) => void; onCustom: () => void }) {
+export function ClaudeProviderPresetPicker({ onClose, onSelect, onCustom, desktop = false }: { desktop?: boolean; onClose: () => void; onSelect: (value: ClaudeProviderInput) => void; onCustom: () => void }) {
   const [keyword, setKeyword] = useState("");
   const [family, setFamily] = useState<string | null>(null);
   const query = keyword.trim().toLocaleLowerCase();
@@ -33,8 +33,8 @@ export function ClaudeProviderPresetPicker({ onClose, onSelect, onCustom }: { on
             extraEnv: {}, officialLogin: false, modelCatalog: catalog,
           });
         }} />
-        <h3>账号登录</h3>
-        <div className="claude-preset-grid"><button type="button" className="claude-preset-card" onClick={() => onSelect({ id: "", name: "Claude 官方", baseUrl: "https://api.anthropic.com", websiteUrl: "https://www.anthropic.com/claude-code", officialLogin: true, apiKey: "", apiKeyField: "auth_token", apiFormat: "anthropic", isFullUrl: true, models: {}, extraEnv: {}, modelCatalog: [] })}><Server size={22} aria-hidden="true" /><span className="claude-preset-details"><strong>Claude Official</strong><small>使用已有 Claude 登录状态，不在此进行登录</small></span><ChevronRight size={16} aria-hidden="true" /></button></div>
+        {!desktop && <><h3>账号登录</h3>
+        <div className="claude-preset-grid"><button type="button" className="claude-preset-card" onClick={() => onSelect({ id: "", name: "Claude 官方", baseUrl: "https://api.anthropic.com", websiteUrl: "https://www.anthropic.com/claude-code", officialLogin: true, apiKey: "", apiKeyField: "auth_token", apiFormat: "anthropic", isFullUrl: true, models: {}, extraEnv: {}, modelCatalog: [] })}><Server size={22} aria-hidden="true" /><span className="claude-preset-details"><strong>Claude Official</strong><small>使用已有 Claude 登录状态，不在此进行登录</small></span><ChevronRight size={16} aria-hidden="true" /></button></div></>}
         <h3>模型厂商 <span>{groups.length} 家</span></h3>
         <div className="claude-preset-grid">{groups.map(group => <button type="button" className="claude-preset-card" key={group.name} onClick={() => group.variants.length === 1 ? onSelect(presetToInput(group.variants[0])) : setFamily(group.name)}>
           <Server size={22} aria-hidden="true" /><span className="claude-preset-details"><strong>{group.name}</strong><small>{new URL(group.variants[0].website).hostname}{group.variants.length > 1 ? ` · ${group.variants.length} 个版本` : ""}</small></span><ChevronRight size={16} aria-hidden="true" />

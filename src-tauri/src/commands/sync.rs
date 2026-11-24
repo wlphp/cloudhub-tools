@@ -1771,6 +1771,7 @@ struct SyncImportPanelPreview {
     name: String,
     panel_url: String,
     allow_insecure_tls: bool,
+    monitor_enabled: bool,
 }
 
 #[derive(Serialize)]
@@ -1815,6 +1816,7 @@ fn preview_sync_bundle(bundle: &SyncAccountBundle) -> PlatformResult<SyncImportP
         }).collect(),
         panels: bundle.panels.iter().map(|panel| SyncImportPanelPreview {
             sync_id: panel.sync_id.clone(), name: panel.name.clone(), panel_url: panel.panel_url.clone(), allow_insecure_tls: panel.allow_insecure_tls,
+            monitor_enabled: panel.monitor_enabled,
         }).collect(),
         flow_connections: bundle.flow_connections.iter().map(|item| SyncImportFlowPreview {
             sync_id: item.sync_id.clone(), name: item.name.clone(), edition: item.edition.clone(), organization_id: item.organization_id.clone(),

@@ -3,7 +3,7 @@ use std::sync::Mutex;
 
 use super::paths::data_dir;
 
-const CURRENT_SCHEMA_VERSION: i64 = 60;
+const CURRENT_SCHEMA_VERSION: i64 = 61;
 pub const MAIL_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS mail_accounts(id TEXT PRIMARY KEY,config TEXT NOT NULL,secret_ciphertext TEXT NOT NULL);";
 
 // Local measurement summaries only; intentionally not part of cross-device sync.
@@ -505,6 +505,21 @@ fn migrate_connection_inner(conn: &mut Connection) -> Result<(), String> {
         transaction.execute_batch(CLOUD_ACCOUNT_BALANCES_SCHEMA).map_err(|_| "创建云账号余额缓存失败")?;
         transaction.pragma_update(None, "user_version", 60).map_err(|_| "保存云账号余额缓存版本失败")?;
     }
+    if version < 61 {
+        // 旧测试夹具或极旧库可能尚无面板表；表存在时才补列并重建同步触发器，
+        // 新库由 CREATE TABLE 直接带上该列。
+        let has_panel_table: bool = transaction
+            .query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='panel_connections')", [], |row| row.get(0))
+            .map_err(|error| error.to_string())?;
+        if has_panel_table {
+            // 面板“参与监控预警”开关：默认开启，同时让同步触发器把该字段视为业务变更。
+            ensure_column("panel_connections", "monitor_enabled", "INTEGER NOT NULL DEFAULT 1")?;
+            transaction.execute_batch("DROP TRIGGER IF EXISTS panel_connections_sync_insert; DROP TRIGGER IF EXISTS panel_connections_sync_update; DROP TRIGGER IF EXISTS panel_connections_sync_delete;")
+                .map_err(|_| "更新面板同步触发器失败")?;
+            create_sync_triggers(&transaction, "panel_connections", "panel_connection", &["name", "panel_url", "api_key_ciphertext", "sort_order", "allow_insecure_tls", "monitor_enabled", "group_name", "source_account_id", "source_asset_key", "remark"])?;
+        }
+        transaction.pragma_update(None, "user_version", 61).map_err(|_| "保存面板监控开关版本失败")?;
+    }
     transaction.commit().map_err(|error| format!("提交 SQLite 迁移失败: {error}"))?;
 
     Ok(())
@@ -575,7 +590,7 @@ fn open_db_at(path: &std::path::Path) -> Result<Connection, String> {
       CREATE TABLE IF NOT EXISTS ssh_connections (account_id INTEGER NOT NULL, asset_key TEXT NOT NULL, host TEXT NOT NULL, port INTEGER NOT NULL DEFAULT 22, username TEXT NOT NULL, password_ciphertext TEXT, host_key_fingerprint TEXT, updated_at INTEGER NOT NULL, PRIMARY KEY(account_id, asset_key), FOREIGN KEY(account_id) REFERENCES cloud_accounts(id) ON DELETE CASCADE);
       CREATE TABLE IF NOT EXISTS rdp_connections (target_key TEXT PRIMARY KEY, host TEXT NOT NULL, port INTEGER NOT NULL DEFAULT 3389, username TEXT NOT NULL, password_ciphertext TEXT, updated_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS managed_hosts (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, host TEXT NOT NULL, port INTEGER NOT NULL DEFAULT 22, username TEXT NOT NULL, password_ciphertext TEXT NOT NULL DEFAULT '', platform TEXT NOT NULL DEFAULT 'linux', auth_method TEXT NOT NULL DEFAULT 'password', private_key_ciphertext TEXT, key_passphrase_ciphertext TEXT, group_name TEXT, tags TEXT, source_account_id INTEGER, source_asset_key TEXT, host_key_fingerprint TEXT, status TEXT NOT NULL DEFAULT 'unknown', last_latency_ms INTEGER, metrics_json TEXT NOT NULL DEFAULT '{}', last_checked_at INTEGER, last_error TEXT, remark TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, deleted_at INTEGER);
-      CREATE TABLE IF NOT EXISTS panel_connections (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, panel_url TEXT NOT NULL UNIQUE, api_key_ciphertext TEXT NOT NULL, sort_order INTEGER NOT NULL DEFAULT 0, allow_insecure_tls INTEGER NOT NULL DEFAULT 0, group_name TEXT, source_account_id INTEGER, source_asset_key TEXT, status TEXT NOT NULL DEFAULT 'unknown', summary_json TEXT NOT NULL DEFAULT '{}', last_checked_at INTEGER, last_error TEXT, remark TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, deleted_at INTEGER);
+      CREATE TABLE IF NOT EXISTS panel_connections (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, panel_url TEXT NOT NULL UNIQUE, api_key_ciphertext TEXT NOT NULL, sort_order INTEGER NOT NULL DEFAULT 0, allow_insecure_tls INTEGER NOT NULL DEFAULT 0, monitor_enabled INTEGER NOT NULL DEFAULT 1, group_name TEXT, source_account_id INTEGER, source_asset_key TEXT, status TEXT NOT NULL DEFAULT 'unknown', summary_json TEXT NOT NULL DEFAULT '{}', last_checked_at INTEGER, last_error TEXT, remark TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, deleted_at INTEGER);
       CREATE TABLE IF NOT EXISTS operation_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER, action TEXT NOT NULL, result TEXT NOT NULL, message TEXT, created_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS client_preferences (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS ip_location_cache (ip TEXT PRIMARY KEY, result_json TEXT NOT NULL);

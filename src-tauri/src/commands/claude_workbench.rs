@@ -9,6 +9,11 @@ mod balance;
 mod quota;
 
 #[tauri::command]
+pub async fn claude_desktop_action(action: crate::core::claude_desktop::Action) -> PlatformResult<Value> {
+    crate::core::claude_desktop::action(action).await.map_err(Into::into)
+}
+
+#[tauri::command]
 pub async fn claude_routing_state()->PlatformResult<gateway::Snapshot>{gateway::snapshot().await.map_err(Into::into)}
 #[tauri::command]
 pub async fn claude_routing_save(config:gateway::Config)->PlatformResult<()>{gateway::save_config(config).await.map_err(Into::into)}

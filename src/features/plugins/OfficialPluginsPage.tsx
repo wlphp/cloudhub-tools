@@ -52,6 +52,7 @@ const applicationDetailNotes: Record<string, string> = {
 };
 
 function applicationPlatform(app: ApplicationDefinition) {
+  if (app.id === "cloudhub.claude-desktop") return "Windows / macOS";
   if (app.platform === "all") return "Windows / macOS / Linux / Android / iOS";
   if (app.id === "cloudhub.hardware-info") return "Windows / macOS / Linux";
   if (app.id === "cloudhub.wsl-dashboard") return "Windows / WSL";
@@ -335,7 +336,7 @@ function OfficialPluginsStore({ mobile = false, initialPluginId, forceInitialPag
           <td data-label="软件名称"><div className="store-app-name"><Icon size={20} aria-hidden="true" /><div><strong>{app.name}</strong><small>v{app.version} · 官方</small></div></div></td>
           <td data-label="开发商"><span className="store-publisher">官方</span><small>{app.publisher}</small></td>
           <td data-label="说明" className="store-description">{app.description}</td>
-          <td data-label="价格">免费</td><td data-label="平台">{app.platform === "all" ? "桌面 / Android / iOS" : app.platform === "windows" ? "Windows" : app.id === "cloudhub.lan-devices" ? "Windows / macOS" : "Windows / macOS / Linux"}</td>
+          <td data-label="价格">免费</td><td data-label="平台">{app.platform === "all" ? "桌面 / Android / iOS" : app.platform === "windows" ? "Windows" : ["cloudhub.lan-devices", "cloudhub.claude-desktop"].includes(app.id) ? "Windows / macOS" : "Windows / macOS / Linux"}</td>
           <td data-label="操作"><div className="store-row-actions"><ApplicationDetailsButton app={app} onOpen={setDetailsFor} /><PresentationButton pluginId={app.id} onOpen={setPresentationFor} /><button type="button" className="table-link" data-plugin-entry={app.id} onClick={() => openPlugin(app.id)}>管理</button></div></td>
         </tr>;
         })}

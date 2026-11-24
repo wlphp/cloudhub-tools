@@ -11,7 +11,7 @@ const en: Record<string, string> = {
   "云效流水线": "Pipelines",
   "HTTPS 证书": "Certificates",
   "身份验证器": "Authenticator",
-  "Claude 管理": "Claude",
+  "Claude 终端": "Claude Terminal",
   "Codex 管理": "Codex",
   "内网穿透": "Tunneling",
   "备忘录": "Notes",

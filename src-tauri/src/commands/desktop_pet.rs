@@ -431,6 +431,8 @@ struct ChatWindowLayout {
     active: bool,
     size: Option<tauri::LogicalSize<f64>>,
     restore: Option<(tauri::PhysicalPosition<i32>, tauri::PhysicalSize<u32>)>,
+    trace_restore: Option<(tauri::PhysicalPosition<i32>, tauri::PhysicalSize<u32>)>,
+    trace_width_delta: Option<u32>,
     drag: Option<ChatResizeAnchor>,
 }
 
@@ -1532,6 +1534,7 @@ pub fn pet_layout(
     enlarged: Option<bool>,
     chat: Option<bool>,
     pinned: Option<bool>,
+    trace: Option<bool>,
 ) -> PlatformResult<()> {
     caller(&window)?;
     let state = app.state::<MonitoringStore>();
@@ -1545,9 +1548,16 @@ pub fn pet_layout(
         w.set_always_on_top(!chat || pinned.unwrap_or(true))
             .map_err(|_| "无法切换桌宠窗口置顶状态")?;
         if chat && chat_window.active {
-            return resize_chat_to_work_area(&w, &mut chat_window, enlarged);
+            if !trace.unwrap_or(false) && chat_window.trace_restore.is_some() {
+                resize_chat_for_trace(&w, &mut chat_window, false)?;
+            }
+            resize_chat_to_work_area(&w, &mut chat_window, enlarged)?;
+            return resize_chat_for_trace(&w, &mut chat_window, trace.unwrap_or(false));
         }
         if chat_window.active {
+            if chat_window.trace_restore.is_some() {
+                resize_chat_for_trace(&w, &mut chat_window, false)?;
+            }
             resize_chat_to_work_area(&w, &mut chat_window, false)?;
             let scale = w.scale_factor().map_err(|_| "无法读取桌宠缩放")?;
             chat_window.size = Some(w.inner_size().map_err(|_| "无法读取桌宠大小")?.to_logical(scale));
@@ -1557,7 +1567,7 @@ pub fn pet_layout(
         let old = w.outer_size().map_err(|_| "无法读取桌宠大小")?;
         let p = w.outer_position().map_err(|_| "无法读取桌宠位置")?;
         let (width, height): (f64, f64) = if chat {
-            chat_window.size.map(|size| (size.width, size.height)).unwrap_or((384., 860.))
+            chat_window.size.map(|size| (size.width, size.height)).unwrap_or((384., 788.))
         } else if expanded {
             if enlarged { (520., 720.) } else { (360., 480.) }
         } else {
@@ -1581,8 +1591,39 @@ pub fn pet_layout(
         if chat {
             chat_window.active = true;
             resize_chat_to_work_area(&w, &mut chat_window, enlarged)?;
+            resize_chat_for_trace(&w, &mut chat_window, trace.unwrap_or(false))?;
         }
     }
+    Ok(())
+}
+
+#[cfg(desktop)]
+fn resize_chat_for_trace(window: &tauri::WebviewWindow, layout: &mut ChatWindowLayout, enabled: bool) -> PlatformResult<()> {
+    if enabled == layout.trace_restore.is_some() { return Ok(()); }
+    if let Some((origin, size)) = layout.trace_restore {
+        window.set_size(size).map_err(|_| "无法收起步骤面板")?;
+        position(window, Some(origin.x), Some(origin.y))?;
+        layout.trace_restore = None;
+        layout.trace_width_delta = None;
+        return Ok(());
+    }
+    let scale = window.scale_factor().map_err(|_| "无法读取桌宠缩放")?;
+    let origin = window.outer_position().map_err(|_| "无法读取聊天窗口位置")?;
+    let size = window.inner_size().map_err(|_| "无法读取聊天窗口大小")?;
+    let monitor = window.current_monitor().map_err(|_| "无法读取桌宠显示器")?
+        .or(window.primary_monitor().map_err(|_| "无法读取主显示器")?)
+        .ok_or("未找到聊天窗口所在的显示器")?;
+    let area = monitor.work_area();
+    let work_width = (area.size.width as f64 / scale).round() as u32;
+    let current_width = (size.width as f64 / scale).round() as u32;
+    let target_width = current_width.saturating_add(390).min(work_width);
+    if target_width <= current_width { return Ok(()); }
+    window.set_size(tauri::LogicalSize::new(target_width as f64, size.height as f64 / scale))
+        .map_err(|_| "无法展开步骤面板")?;
+    position(window, Some(origin.x), Some(origin.y))?;
+    let expanded_size = window.inner_size().map_err(|_| "无法读取聊天窗口大小")?;
+    layout.trace_width_delta = Some(expanded_size.width.saturating_sub(size.width));
+    layout.trace_restore = Some((origin, size));
     Ok(())
 }
 
@@ -1650,6 +1691,7 @@ pub fn pet_resize_chat(
     }
     let Some(anchor) = &layout.drag else { return Ok(()) };
     if start && dx == 0 && dy == 0 { return Ok(()); }
+    let trace_width_delta = layout.trace_width_delta;
     let x_dir = match edge {
         ChatResizeEdge::W | ChatResizeEdge::Nw | ChatResizeEdge::Sw => -1,
         ChatResizeEdge::E | ChatResizeEdge::Ne | ChatResizeEdge::Se => 1,
@@ -1667,11 +1709,16 @@ pub fn pet_resize_chat(
         let origin = if direction < 0 { i64::from(origin) + i64::from(size) - next } else { i64::from(origin) };
         (next as u32, origin.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32)
     };
-    let (width, x) = axis(anchor.size.width, anchor.origin.x, x_dir, dx, 300., anchor.limit.width);
+    let min_width = if trace_width_delta.is_some() { 720. } else { 300. };
+    let (width, x) = axis(anchor.size.width, anchor.origin.x, x_dir, dx, min_width, anchor.limit.width);
     let (height, y) = axis(anchor.size.height, anchor.origin.y, y_dir, dy, 320., anchor.limit.height);
     window.set_size(tauri::PhysicalSize::new(width, height)).map_err(|_| "无法调整聊天窗口大小")?;
     if x_dir < 0 || y_dir < 0 {
         window.set_position(tauri::PhysicalPosition::new(x, y)).map_err(|_| "无法调整聊天窗口位置")?;
+    }
+    if let Some(width_delta) = trace_width_delta {
+        let origin = window.outer_position().map_err(|_| "无法读取聊天窗口位置")?;
+        layout.trace_restore = Some((origin, tauri::PhysicalSize::new(width.saturating_sub(width_delta), height)));
     }
     Ok(())
 }
@@ -2107,17 +2154,21 @@ async fn inspect(app: &tauri::AppHandle, settings: &Settings) -> Result<(), Stri
     }
     if settings.panels || settings.panel_disk || settings.panel_services || settings.panel_access {
         let panels = panel_connections::list(&open_db()?)?;
+        // 关闭了“参与监控预警”的面板不参与巡检，它们的历史预警按“已移出监测范围”退休，
+        // 不能因为本轮没有观察结果就误判为资源恢复。
         retire_missing(
             &mut state.alerts,
             "panel:",
             &panels
                 .iter()
+                .filter(|p| p.monitor_enabled)
                 .map(|p| format!("panel:{}:", p.id))
                 .collect::<Vec<_>>(),
             now,
         );
         let store = app.state::<MonitoringStore>();
         for panel in panels {
+            if !panel.monitor_enabled { continue; }
             if !read_settings()?.monitoring {
                 return Ok(());
             }

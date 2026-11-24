@@ -50,6 +50,7 @@ pub(in crate::commands::desktop_pet) fn profile_available(
 }
 
 pub(super) async fn synthesize(
+    app: &AppHandle,
     profile_id: &str,
     voice: &str,
     text: &str,
@@ -84,22 +85,17 @@ pub(super) async fn synthesize(
         })
         .as_ref()
         .map_err(|_| "小米 MiMo 网络客户端不可用")?;
+    let request = request_body(voice, &super::speech_text(text, language));
+    let mut call = super::super::activity::ApiCall::new(app, super::super::activity::Kind::Tts, "MiMo 语音合成 API", "POST", url.as_str(), request.clone(), &[key.as_str()]);
     let mut response = client
         .post(url)
         .bearer_auth(key.as_str())
-        .json(&request_body(voice, &super::speech_text(text, language)))
+        .json(&request)
         .send()
         .await
         .map_err(|_| "无法连接小米 MiMo，请检查网络后重试")?;
-    if !response.status().is_success() {
-        return Err(match response.status().as_u16() {
-            401 | 403 => "小米 MiMo 拒绝请求，请检查 API Key 和账户权限",
-            402 => "小米 MiMo 账户额度不足，请检查账户",
-            429 => "小米 MiMo 请求过于频繁，请稍后重试",
-            _ => "小米 MiMo 合成失败，请稍后重试",
-        }
-        .into());
-    }
+    let status = response.status();
+    call.response(serde_json::json!({"httpStatus":status.as_u16()}));
     let mut body = Vec::new();
     while let Some(chunk) = response
         .chunk()
@@ -111,7 +107,29 @@ pub(super) async fn synthesize(
         }
         body.extend_from_slice(&chunk);
     }
-    parse_response(&body).ok_or_else(|| AUDIO_ERROR.into())
+    let mut response_json = serde_json::from_slice::<serde_json::Value>(&body).unwrap_or_else(|_| serde_json::json!({"说明":"响应不是JSON","receivedBytes":body.len()}));
+    if let Some(choices) = response_json.get_mut("choices").and_then(serde_json::Value::as_array_mut) {
+        for choice in choices {
+            if let Some(audio) = choice.pointer_mut("/message/audio").and_then(serde_json::Value::as_object_mut) {
+                if let Some(data) = audio.remove("data") {
+                    audio.insert("data".into(), serde_json::json!({"说明":"音频数据不保存","encodedCharacters":data.as_str().map(str::len)}));
+                }
+            }
+        }
+    }
+    call.response(serde_json::json!({"httpStatus":status.as_u16(),"body":response_json}));
+    if !status.is_success() {
+        return Err(match response.status().as_u16() {
+            401 | 403 => "小米 MiMo 拒绝请求，请检查 API Key 和账户权限",
+            402 => "小米 MiMo 账户额度不足，请检查账户",
+            429 => "小米 MiMo 请求过于频繁，请稍后重试",
+            _ => "小米 MiMo 合成失败，请稍后重试",
+        }
+        .into());
+    }
+    let audio = parse_response(&body).ok_or_else(|| AUDIO_ERROR.to_string())?;
+    call.success();
+    Ok(audio)
 }
 
 fn request_body(voice: &str, text: &str) -> serde_json::Value {

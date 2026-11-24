@@ -1,3 +1,4 @@
+import { ClaudeDesktopPlugin } from "./ClaudeDesktopPlugin";
 import { lazy, Suspense } from "react";
 import { HardwareInfoPlugin } from "./HardwareInfoPlugin";
 import { WslDashboardPlugin } from "./WslDashboardPlugin";
@@ -21,6 +22,7 @@ const CertificatePanel = lazy(() => import("../certificates/CertificatePanel").t
 const CodexPanel = lazy(() => import("../codex/CodexPanel").then(module => ({ default: module.CodexPanel })));
 const FrpPanel = lazy(() => import("../frp/FrpPanel").then(module => ({ default: module.FrpPanel })));
 const AiSettings = lazy(() => import("../ai/AiSettings").then(module => ({ default: module.AiSettings })));
+const PetSettingsPanel = lazy(() => import("../desktop-pet/PetSettingsPanel").then(module => ({ default: module.PetSettingsPanel })));
 
 /** Page and dialog containers share the same business UI. */
 export function PluginApplication({ pluginId, wslEnabled, mobile = false, accounts = [], localAssets = [], onStatus = () => {}, onConfirm = async () => false, onNotify, onError, onLanConnect }: {
@@ -36,6 +38,7 @@ export function PluginApplication({ pluginId, wslEnabled, mobile = false, accoun
   onLanConnect?: (ip: string, platform: "linux" | "windows", name: string) => void;
 }) {
   switch (pluginId) {
+    case "cloudhub.desktop-pet": return <Suspense fallback={<p role="status">正在加载桌面宠物…</p>}><PetSettingsPanel /></Suspense>;
     case "cloudhub.model-suppliers": return <Suspense fallback={<p role="status">正在加载模型供应商…</p>}><AiSettings embedded /></Suspense>;
     case "cloudhub.cloud-drive": return <Suspense fallback={<p role="status">正在加载云盘挂载…</p>}><CloudDrivePlugin /></Suspense>;
     case "cloudhub.mail": return <Suspense fallback={<p role="status">正在加载邮件管理…</p>}><MailPlugin /></Suspense>;
@@ -48,6 +51,7 @@ export function PluginApplication({ pluginId, wslEnabled, mobile = false, accoun
     case "cloudhub.hardware-info": return <HardwareInfoPlugin open onOpened={() => {}} />;
     case "cloudhub.wsl-dashboard": return <WslDashboardPlugin open enabled={wslEnabled} />;
     case "cloudhub.fingerprint-browser": return <Suspense fallback={<p role="status">正在加载浏览器环境…</p>}><BrowserEnvironments open /></Suspense>;
+    case "cloudhub.claude-desktop": return <div className="claude-providers-dialog"><ClaudeDesktopPlugin /></div>;
     case "cloudhub.claude-providers": return <div className="claude-providers-dialog"><ClaudeProvidersPlugin mobile={mobile} /></div>;
     case "cloudhub.notes": return <NotesPanel mobile={mobile} />;
     case "cloudhub.lan-devices": return <LanDevicesPlugin onConnect={onLanConnect} />;

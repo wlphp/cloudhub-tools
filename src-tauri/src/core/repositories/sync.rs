@@ -11,6 +11,8 @@ pub struct SyncSelection {
     pub panel_sync_ids: Vec<String>,
 }
 
+pub(crate) const fn panel_monitor_default() -> bool { true }
+
 #[derive(Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncConfigSnapshot {
@@ -191,6 +193,9 @@ pub struct SyncPanelRecord {
     pub sort_order: i64,
     pub api_key: String,
     pub allow_insecure_tls: bool,
+    /// 旧版同步包不带该字段，缺省视为参与监控。
+    #[serde(default = "panel_monitor_default")]
+    pub monitor_enabled: bool,
     pub group_name: Option<String>,
     pub source_account_sync_id: Option<String>,
     pub source_asset_key: Option<String>,
@@ -200,7 +205,7 @@ pub struct SyncPanelRecord {
 impl Zeroize for SyncPanelRecord {
     fn zeroize(&mut self) {
         self.sync_id.zeroize(); self.name.zeroize(); self.panel_url.zeroize(); self.sort_order.zeroize(); self.api_key.zeroize();
-        self.allow_insecure_tls.zeroize(); self.group_name.zeroize(); self.source_account_sync_id.zeroize();
+        self.allow_insecure_tls.zeroize(); self.monitor_enabled.zeroize(); self.group_name.zeroize(); self.source_account_sync_id.zeroize();
         self.source_asset_key.zeroize(); self.remark.zeroize();
     }
 }
@@ -536,12 +541,12 @@ fn build_account_bundle_from(conn: &Connection, account_sync_ids: &[String], man
     };
     if managed_hosts.len() != managed_host_sync_ids.len() { return Err("所选托管主机有记录已不存在".into()); }
     let panels = if panel_sync_ids.is_empty() { Vec::new() } else {
-        let sql = format!("SELECT p.sync_id,p.name,p.panel_url,p.sort_order,p.api_key_ciphertext,p.allow_insecure_tls,p.group_name,a.sync_id,p.source_asset_key,p.remark FROM panel_connections p LEFT JOIN cloud_accounts a ON a.id=p.source_account_id WHERE p.sync_id IN ({}) ORDER BY p.sync_id", placeholders(panel_sync_ids.len()));
+        let sql = format!("SELECT p.sync_id,p.name,p.panel_url,p.sort_order,p.api_key_ciphertext,p.allow_insecure_tls,p.monitor_enabled,p.group_name,a.sync_id,p.source_asset_key,p.remark FROM panel_connections p LEFT JOIN cloud_accounts a ON a.id=p.source_account_id WHERE p.sync_id IN ({}) ORDER BY p.sync_id", placeholders(panel_sync_ids.len()));
         let mut statement = conn.prepare(&sql).map_err(|error| error.to_string())?;
         let rows = statement.query_map(params_from_iter(panel_sync_ids.iter()), |row| Ok(SyncPanelRecord {
             sync_id: row.get(0)?, name: row.get(1)?, panel_url: row.get(2)?, sort_order: row.get(3)?, api_key: row.get(4)?,
-            allow_insecure_tls: row.get::<_, i64>(5)? == 1, group_name: row.get(6)?, source_account_sync_id: row.get(7)?,
-            source_asset_key: row.get(8)?, remark: row.get(9)?,
+            allow_insecure_tls: row.get::<_, i64>(5)? == 1, monitor_enabled: row.get::<_, i64>(6)? == 1, group_name: row.get(7)?, source_account_sync_id: row.get(8)?,
+            source_asset_key: row.get(9)?, remark: row.get(10)?,
         })).map_err(|error| error.to_string())?;
         rows.collect::<Result<Vec<_>, _>>().map_err(|error| error.to_string())?
     };
@@ -754,8 +759,8 @@ where F: Fn(&str) -> Result<String, String>, H: FnOnce(&rusqlite::Transaction<'_
         };
         let ciphertext = encrypt(&panel.api_key)?;
         transaction.execute(
-            "INSERT INTO panel_connections(sync_id,name,panel_url,api_key_ciphertext,sort_order,allow_insecure_tls,group_name,source_account_id,source_asset_key,status,summary_json,remark,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,'unknown','{}',?10,?11,?11) ON CONFLICT(sync_id) DO UPDATE SET name=excluded.name,panel_url=excluded.panel_url,api_key_ciphertext=excluded.api_key_ciphertext,sort_order=excluded.sort_order,allow_insecure_tls=excluded.allow_insecure_tls,group_name=excluded.group_name,source_account_id=excluded.source_account_id,source_asset_key=excluded.source_asset_key,status='unknown',summary_json='{}',last_checked_at=NULL,last_error=NULL,remark=excluded.remark,updated_at=excluded.updated_at",
-            params![panel.sync_id, panel.name.trim(), panel.panel_url.trim().trim_end_matches('/'), ciphertext, panel.sort_order.max(0), panel.allow_insecure_tls as i64, panel.group_name, source_account_id, source_account_id.and(panel.source_asset_key.as_deref()), panel.remark, now],
+            "INSERT INTO panel_connections(sync_id,name,panel_url,api_key_ciphertext,sort_order,allow_insecure_tls,monitor_enabled,group_name,source_account_id,source_asset_key,status,summary_json,remark,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,'unknown','{}',?11,?12,?12) ON CONFLICT(sync_id) DO UPDATE SET name=excluded.name,panel_url=excluded.panel_url,api_key_ciphertext=excluded.api_key_ciphertext,sort_order=excluded.sort_order,allow_insecure_tls=excluded.allow_insecure_tls,monitor_enabled=excluded.monitor_enabled,group_name=excluded.group_name,source_account_id=excluded.source_account_id,source_asset_key=excluded.source_asset_key,status='unknown',summary_json='{}',last_checked_at=NULL,last_error=NULL,remark=excluded.remark,updated_at=excluded.updated_at",
+            params![panel.sync_id, panel.name.trim(), panel.panel_url.trim().trim_end_matches('/'), ciphertext, panel.sort_order.max(0), panel.allow_insecure_tls as i64, panel.monitor_enabled as i64, panel.group_name, source_account_id, source_account_id.and(panel.source_asset_key.as_deref()), panel.remark, now],
         ).map_err(|error| format!("导入面板配置失败: {error}"))?;
     }
     for (entity_type, ids) in [
@@ -838,6 +843,7 @@ pub struct PanelConfig {
     pub panel_url: String,
     pub sort_order: i64,
     pub allow_insecure_tls: bool,
+    pub monitor_enabled: bool,
     pub group_name: Option<String>,
     pub source_account_sync_id: Option<String>,
     pub source_asset_key: Option<String>,
@@ -910,12 +916,13 @@ pub fn build_config_snapshot(conn: &mut Connection, selection: &SyncSelection) -
 
     let mut panels = Vec::new();
     if !selection.panel_sync_ids.is_empty() {
-        let sql = format!("SELECT p.sync_id,p.name,p.panel_url,p.sort_order,p.allow_insecure_tls,p.group_name,a.sync_id,p.source_account_id,p.source_asset_key,p.remark FROM panel_connections p LEFT JOIN cloud_accounts a ON a.id=p.source_account_id WHERE p.sync_id IN ({}) ORDER BY p.sync_id", placeholders(selection.panel_sync_ids.len()));
+        let sql = format!("SELECT p.sync_id,p.name,p.panel_url,p.sort_order,p.allow_insecure_tls,p.monitor_enabled,p.group_name,a.sync_id,p.source_account_id,p.source_asset_key,p.remark FROM panel_connections p LEFT JOIN cloud_accounts a ON a.id=p.source_account_id WHERE p.sync_id IN ({}) ORDER BY p.sync_id", placeholders(selection.panel_sync_ids.len()));
         let mut statement = transaction.prepare(&sql).map_err(|error| error.to_string())?;
         let rows = statement.query_map(params_from_iter(selection.panel_sync_ids.iter()), |row| Ok((PanelConfig {
             sync_id: row.get(0)?, name: row.get(1)?, panel_url: row.get(2)?, sort_order: row.get(3)?, allow_insecure_tls: row.get::<_, i64>(4)? == 1,
-            group_name: row.get(5)?, source_account_sync_id: row.get(6)?, source_asset_key: row.get(8)?, remark: row.get(9)?,
-        }, row.get::<_, Option<i64>>(7)?))).map_err(|error| error.to_string())?;
+            monitor_enabled: row.get::<_, i64>(5)? == 1,
+            group_name: row.get(6)?, source_account_sync_id: row.get(7)?, source_asset_key: row.get(9)?, remark: row.get(10)?,
+        }, row.get::<_, Option<i64>>(8)?))).map_err(|error| error.to_string())?;
         for row in rows {
             let (config, local_account_id) = row.map_err(|error| error.to_string())?;
             if local_account_id.is_some() && config.source_account_sync_id.is_none() { return Err("面板关联的云账号不存在，无法安全转换跨设备引用".into()); }
@@ -1158,10 +1165,10 @@ mod tests {
 
     fn config_fixture() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch("CREATE TABLE cloud_accounts(id INTEGER PRIMARY KEY,sync_id TEXT,account_name TEXT,cloud_type TEXT,group_name TEXT,access_key_id TEXT,secret_ciphertext TEXT,credential_meta TEXT,region_id TEXT,sort_order INTEGER,enabled INTEGER,remark TEXT,created_at INTEGER NOT NULL DEFAULT 0,updated_at INTEGER NOT NULL DEFAULT 0); CREATE UNIQUE INDEX idx_test_account_sync_id ON cloud_accounts(sync_id); CREATE TABLE managed_hosts(id INTEGER PRIMARY KEY,sync_id TEXT,name TEXT,host TEXT,port INTEGER,username TEXT,password_ciphertext TEXT,platform TEXT,auth_method TEXT,private_key_ciphertext TEXT,key_passphrase_ciphertext TEXT,group_name TEXT,tags TEXT,source_account_id INTEGER,source_asset_key TEXT,host_key_fingerprint TEXT,remark TEXT,status TEXT,last_latency_ms INTEGER,metrics_json TEXT,last_checked_at INTEGER,last_error TEXT,created_at INTEGER NOT NULL DEFAULT 0,updated_at INTEGER NOT NULL DEFAULT 0); CREATE UNIQUE INDEX idx_test_host_sync_id ON managed_hosts(sync_id); CREATE TABLE panel_connections(id INTEGER PRIMARY KEY,sync_id TEXT,name TEXT,panel_url TEXT,api_key_ciphertext TEXT,sort_order INTEGER,allow_insecure_tls INTEGER,group_name TEXT,source_account_id INTEGER,source_asset_key TEXT,remark TEXT,status TEXT,summary_json TEXT,last_checked_at INTEGER,last_error TEXT,created_at INTEGER NOT NULL DEFAULT 0,updated_at INTEGER NOT NULL DEFAULT 0); CREATE UNIQUE INDEX idx_test_panel_sync_id ON panel_connections(sync_id); CREATE TABLE sync_tombstones(entity_type TEXT,entity_sync_id TEXT,version_json TEXT,deleted_at INTEGER,PRIMARY KEY(entity_type,entity_sync_id));
+        conn.execute_batch("CREATE TABLE cloud_accounts(id INTEGER PRIMARY KEY,sync_id TEXT,account_name TEXT,cloud_type TEXT,group_name TEXT,access_key_id TEXT,secret_ciphertext TEXT,credential_meta TEXT,region_id TEXT,sort_order INTEGER,enabled INTEGER,remark TEXT,created_at INTEGER NOT NULL DEFAULT 0,updated_at INTEGER NOT NULL DEFAULT 0); CREATE UNIQUE INDEX idx_test_account_sync_id ON cloud_accounts(sync_id); CREATE TABLE managed_hosts(id INTEGER PRIMARY KEY,sync_id TEXT,name TEXT,host TEXT,port INTEGER,username TEXT,password_ciphertext TEXT,platform TEXT,auth_method TEXT,private_key_ciphertext TEXT,key_passphrase_ciphertext TEXT,group_name TEXT,tags TEXT,source_account_id INTEGER,source_asset_key TEXT,host_key_fingerprint TEXT,remark TEXT,status TEXT,last_latency_ms INTEGER,metrics_json TEXT,last_checked_at INTEGER,last_error TEXT,created_at INTEGER NOT NULL DEFAULT 0,updated_at INTEGER NOT NULL DEFAULT 0); CREATE UNIQUE INDEX idx_test_host_sync_id ON managed_hosts(sync_id); CREATE TABLE panel_connections(id INTEGER PRIMARY KEY,sync_id TEXT,name TEXT,panel_url TEXT,api_key_ciphertext TEXT,sort_order INTEGER,allow_insecure_tls INTEGER,monitor_enabled INTEGER NOT NULL DEFAULT 1,group_name TEXT,source_account_id INTEGER,source_asset_key TEXT,remark TEXT,status TEXT,summary_json TEXT,last_checked_at INTEGER,last_error TEXT,created_at INTEGER NOT NULL DEFAULT 0,updated_at INTEGER NOT NULL DEFAULT 0); CREATE UNIQUE INDEX idx_test_panel_sync_id ON panel_connections(sync_id); CREATE TABLE sync_tombstones(entity_type TEXT,entity_sync_id TEXT,version_json TEXT,deleted_at INTEGER,PRIMARY KEY(entity_type,entity_sync_id));
           INSERT INTO cloud_accounts(id,sync_id,account_name,cloud_type,group_name,access_key_id,secret_ciphertext,credential_meta,region_id,sort_order,enabled,remark) VALUES(42,'11111111-1111-4111-8111-111111111111','prod','aliyun','primary','ACCESS-ID-SECRETLIKE','CLOUD-SECRET-MUST-NOT-LEAK','{\"private_key\":\"OCI-KEY-MUST-NOT-LEAK\"}','cn-hangzhou',0,1,'production account');
           INSERT INTO managed_hosts(id,sync_id,name,host,port,username,password_ciphertext,platform,auth_method,private_key_ciphertext,key_passphrase_ciphertext,group_name,tags,source_account_id,source_asset_key,host_key_fingerprint,remark,status,last_latency_ms,metrics_json,last_checked_at,last_error) VALUES(7,'22222222-2222-4222-8222-222222222222','web-1','web.example.test',22,'root','SSH-PASSWORD-MUST-NOT-LEAK','linux','password','SSH-KEY-MUST-NOT-LEAK','SSH-PASSPHRASE-MUST-NOT-LEAK','prod','web',42,'i-abc','SHA256:fingerprint','managed host','online',7,'{\"cpu\":1}',10,'runtime error');
-          INSERT INTO panel_connections(id,sync_id,name,panel_url,api_key_ciphertext,sort_order,allow_insecure_tls,group_name,source_account_id,source_asset_key,remark,status,summary_json,last_checked_at,last_error) VALUES(9,'33333333-3333-4333-8333-333333333333','panel','https://panel.example.test','PANEL-API-KEY-MUST-NOT-LEAK',2,0,'ops',42,'server-1','panel config','online','{\"secret\":\"runtime\"}',10,'runtime error');").unwrap();
+          INSERT INTO panel_connections(id,sync_id,name,panel_url,api_key_ciphertext,sort_order,allow_insecure_tls,monitor_enabled,group_name,source_account_id,source_asset_key,remark,status,summary_json,last_checked_at,last_error) VALUES(9,'33333333-3333-4333-8333-333333333333','panel','https://panel.example.test','PANEL-API-KEY-MUST-NOT-LEAK',2,0,1,'ops',42,'server-1','panel config','online','{\"secret\":\"runtime\"}',10,'runtime error');").unwrap();
         conn
     }
 
@@ -1247,7 +1254,7 @@ mod tests {
             panels: vec![SyncPanelRecord {
                 sync_id: "33333333-3333-4333-8333-333333333333".into(), name: "panel-copy".into(),
                 panel_url: "https://panel.example.test".into(), sort_order: 0, api_key: "DO-NOT-RETURN-PANEL-KEY".into(),
-                allow_insecure_tls: false, group_name: None, source_account_sync_id: None, source_asset_key: None, remark: None,
+                allow_insecure_tls: false, monitor_enabled: true, group_name: None, source_account_sync_id: None, source_asset_key: None, remark: None,
             }], flow_connections: vec![], certificates: vec![], ai_profiles: vec![], authenticators: vec![], deletions: vec![],
         };
         let conflicts = super::find_bundle_conflicts(&conn, &bundle).unwrap();
@@ -1280,7 +1287,7 @@ mod tests {
             panels: vec![SyncPanelRecord {
                 sync_id: "33333333-3333-4333-8333-333333333333".into(), name: "panel-updated".into(),
                 panel_url: "https://new-panel.example.test".into(), sort_order: 0, api_key: "new-panel-key".into(),
-                allow_insecure_tls: false, group_name: None, source_account_sync_id: None, source_asset_key: None, remark: None,
+                allow_insecure_tls: false, monitor_enabled: true, group_name: None, source_account_sync_id: None, source_asset_key: None, remark: None,
             }], flow_connections: vec![], certificates: vec![], ai_profiles: vec![], authenticators: vec![], deletions: vec![],
         };
         assert!(super::find_bundle_conflicts(&conn, &bundle).unwrap().is_empty());

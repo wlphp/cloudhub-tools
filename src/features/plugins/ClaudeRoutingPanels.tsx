@@ -42,7 +42,7 @@ export function AggregateStartDialog({ providers, config, initialDefault, onClos
   </SharedDialog>;
 }
 
-export function RoutingSettings({ config, mode, running, onClose, onSave }: { config: ClaudeRoutingConfig; mode: "route" | "aggregate"; running: boolean; onClose: () => void; onSave: (config: ClaudeRoutingConfig) => Promise<void> }) {
+export function RoutingSettings({ config, mode, running, onClose, onSave, desktop = false }: { config: ClaudeRoutingConfig; mode: "route" | "aggregate"; running: boolean; onClose: () => void; onSave: (config: ClaudeRoutingConfig) => Promise<void>; desktop?: boolean }) {
   const [draft, setDraft] = useState(config);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -55,14 +55,14 @@ export function RoutingSettings({ config, mode, running, onClose, onSave }: { co
     { key: "failureThreshold", label: "连续失败熔断阈值", min: 1, max: 20 },
     { key: "cooldownSecs", label: "熔断恢复等待（秒）", min: 0, max: 300 },
   ];
-  const visibleFields = fields.filter(field => mode === "route" || !["retries", "failureThreshold", "cooldownSecs"].includes(field.key));
-  return <SharedDialog sizeStorageKey="features/plugins/claude-routing-panels/routing-settings" title={mode === "route" ? "Claude Code 路由设置" : "Claude Code 聚合设置"} size="small" onClose={onClose} closeDisabled={busy}
+  const visibleFields = fields.filter(field => desktop ? ["port", "timeoutSecs", "firstByteSecs", "idleSecs"].includes(field.key) : mode === "route" || !["retries", "failureThreshold", "cooldownSecs"].includes(field.key));
+  return <SharedDialog sizeStorageKey={desktop ? "claude-desktop-routing-settings" : "features/plugins/claude-routing-panels/routing-settings"} title={desktop ? "Claude Desktop 网关设置" : mode === "route" ? "Claude Code 路由设置" : "Claude Code 聚合设置"} size="small" onClose={onClose} closeDisabled={busy}
     onSubmit={event => {
       event.preventDefault(); if (busy) return; setBusy(true); setError("");
       void onSave(draft).then(onClose).catch(reason => setError(reason instanceof Error ? reason.message : "保存失败")).finally(() => setBusy(false));
     }}
     footer={<><button type="button" className="secondary" disabled={busy} onClick={onClose}>取消</button><button type="submit" className="primary" disabled={busy}>保存</button></>}>
-    <p className="claude-config-help">端口、超时和请求用量记录由路由与聚合模式共用，不影响直连。{mode === "aggregate" ? "聚合模式不做故障转移，路由的重试和熔断设置保持不变。" : "重试与熔断用于路由队列；路由策略在页面顶部选择。"}{running ? "本地服务运行中，修改监听端口前请先回到直连。" : "保存设置不会自动启用此模式。"}</p>
+    {desktop ? <p className="claude-config-help">路由与聚合共用监听端口、超时和用量设置。监听端口须与 Claude Code 不同。{running ? "请先切回直连，再修改监听端口。" : "新端口会在下次启用路由或聚合时使用。"}用量仅保留在本次网关运行期间。</p> : <p className="claude-config-help">端口、超时和请求用量记录由路由与聚合模式共用，不影响直连。{mode === "aggregate" ? "聚合模式不做故障转移，路由的重试和熔断设置保持不变。" : "重试与熔断用于路由队列；路由策略在页面顶部选择。"}{running ? "本地服务运行中，修改监听端口前请先回到直连。" : "保存设置不会自动启用此模式。"}</p>}
     <div className="claude-field-row">{visibleFields.map(field => <label key={field.key} className="claude-field">{field.label}
       <input type="number" required disabled={busy || (running && field.key === "port")} min={field.min} max={field.max} value={Number(draft[field.key])} onChange={e => setDraft(current => ({ ...current, [field.key]: Number(e.target.value) }))} />
     </label>)}</div>
@@ -144,7 +144,7 @@ export function ModeBar({
   </>;
 }
 
-export function UsagePanel({ state, providers, onClear }: { state: ClaudeRoutingState; providers: ClaudeProviderSummary[]; onClear: () => void }) {
+export function UsagePanel({ state, providers, onClear }: { state: ClaudeRoutingState; providers: ClaudeProviderSummary[]; onClear?: () => void }) {
   const [keyword, setKeyword] = useState("");
   const [modeFilter, setModeFilter] = useState("all");
   const logMode = (mode: ClaudeMode | null | undefined) => mode === "route" || mode === "aggregate" ? mode : "unknown";
@@ -155,11 +155,11 @@ export function UsagePanel({ state, providers, onClear }: { state: ClaudeRouting
   }), { requests: 0, failed: 0, input: 0, output: 0, cache: 0 }), [logs]);
   return <section className="claude-usage">
     <div className="claude-metrics">{[["请求", totals.requests], ["失败", totals.failed], ["输入 Token", totals.input], ["输出 Token", totals.output], ["缓存命中", totals.cache]].map(([label, value]) => <div key={label}><span>{label}</span><strong>{Number(value).toLocaleString()}</strong></div>)}</div>
-    <p className="claude-config-help">仅记录经过本地服务的请求；直连请求不在此统计。旧日志未记录连接模式的显示为“未知”。统计随当前筛选更新，清空日志将删除全部记录。</p>
+    <p className="claude-config-help">{onClear ? "仅记录经过本地服务的请求；直连请求不在此统计。旧日志未记录连接模式的显示为“未知”。统计随当前筛选更新，清空日志将删除全部记录。" : "显示本次 Claude Desktop 网关运行保留的最近 500 条请求记录。统计随当前筛选更新。"}</p>
     <div className="claude-work-toolbar claude-usage-toolbar">
       <input type="search" aria-label="搜索请求日志" placeholder="搜索模式、模型、供应商或状态" value={keyword} onChange={e => setKeyword(e.target.value)} />
       <label className="claude-usage-mode-filter"><span>连接模式</span><select value={modeFilter} onChange={event => setModeFilter(event.target.value)}><option value="all">全部</option><option value="route">路由</option><option value="aggregate">聚合</option><option value="unknown">未知</option></select></label>
-      <button type="button" className="secondary claude-usage-clear" onClick={onClear}><Trash2 size={14} aria-hidden="true" />清空日志</button>
+      {onClear && <button type="button" className="secondary claude-usage-clear" onClick={onClear}><Trash2 size={14} aria-hidden="true" />清空日志</button>}
     </div>
     <div className="claude-table-scroll"><table><thead><tr><th>时间</th><th>连接模式</th><th>供应商</th><th>请求模型 → 实际模型</th><th>状态</th><th>耗时</th><th>输入 / 输出</th></tr></thead><tbody>{logs.map(log => <tr key={log.id}><td>{new Date(log.timestamp).toLocaleTimeString()}</td><td>{modeLabel(log.mode)}</td><td>{providers.find(p => p.id === log.providerId)?.name ?? log.providerId}</td><td><code>{log.model} → {log.actualModel}</code></td><td>{log.status}</td><td>{log.durationMs} ms</td><td>{log.inputTokens} / {log.outputTokens}</td></tr>)}</tbody></table></div>
     {!logs.length && <p role="status" className="claude-empty-line">{state.logs.length ? "没有符合筛选条件的请求，请切换到全部模式或清空搜索。" : "暂无本地路由或聚合请求记录"}</p>}

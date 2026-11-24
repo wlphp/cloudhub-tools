@@ -527,18 +527,30 @@ pub async fn pet_voice_speak(window: tauri::WebviewWindow, app: AppHandle, text:
     let text = text.unwrap_or_default();
     if let Some(id) = prepare_id {
         if !interrupt && preview_preset.is_none() && prepared_id.is_none() {
-            prepare_speech(&engine, generation, id, text).await.map_err(chat_error)?;
+            prepare_speech(&app, &engine, generation, id, text).await.map_err(chat_error)?;
         }
         return Ok(());
     }
-    speak_native(&app, &engine, generation, text, preview_preset, prepared_id).await.map_err(chat_error)
+    let started = Instant::now();
+    let result = speak_native(&app, &engine, generation, text.clone(), preview_preset, prepared_id).await;
+    if preview_preset.is_some() || !text.trim().is_empty() {
+        super::activity::record(
+            &app,
+            super::activity::Kind::Tts,
+            started,
+            if preview_preset.is_some() { "语音试听" } else { "语音播报" },
+            if result.is_ok() { "成功" } else { "失败" },
+            if result.is_ok() && preview_preset.is_none() { Some(text.as_str()) } else if result.is_err() { Some("语音合成未完成") } else { None },
+        );
+    }
+    result.map_err(chat_error)
 }
 
-async fn prepare_speech(engine: &Arc<Engine>, generation: u64, id: uuid::Uuid, text: String) -> Result<(), String> {
+async fn prepare_speech(app: &AppHandle, engine: &Arc<Engine>, generation: u64, id: uuid::Uuid, text: String) -> Result<(), String> {
     let settings = read_settings()?;
     if settings.quiet || !settings.voice.enabled || !settings.voice.speak { return Ok(()); }
     let audio = if let Some(voice) = settings.voice.speech_preset.mimo_voice() {
-        let synthesis = mimo::synthesize(&settings.voice.speech_mimo_profile_id, voice, &text, &settings.voice.language);
+        let synthesis = mimo::synthesize(app, &settings.voice.speech_mimo_profile_id, voice, &text, &settings.voice.language);
         tokio::pin!(synthesis);
         loop {
             tokio::select! {
@@ -592,7 +604,7 @@ async fn speak_native(app: &AppHandle, engine: &Arc<Engine>, generation: u64, te
     let preset = preview_preset.unwrap_or(settings.voice.speech_preset);
     if let Some(voice) = preset.mimo_voice() {
         let content = if preview_preset.is_some() { "嗯，我在。有什么需要我帮忙的吗？" } else { &text };
-        let synthesis = mimo::synthesize(&settings.voice.speech_mimo_profile_id, voice, content, &settings.voice.language);
+        let synthesis = mimo::synthesize(app, &settings.voice.speech_mimo_profile_id, voice, content, &settings.voice.language);
         tokio::pin!(synthesis);
         let audio = loop {
             tokio::select! {
@@ -813,11 +825,12 @@ pub async fn pet_voice_transcribe(window: tauri::WebviewWindow, app: tauri::AppH
         {
             let cloud_settings = settings.clone();
             let mut cloud_samples = samples.clone();
+            let cloud_app = app.clone();
             let cloud = match tauri::async_runtime::spawn_blocking(move || {
                 if cloud_settings.voice.cloud_provider == "xfyun" {
-                    cloud_segment_transcript_xfyun(&cloud_settings, &mut cloud_samples)
+                    cloud_segment_transcript_xfyun(&cloud_app, &cloud_settings, &mut cloud_samples)
                 } else {
-                    cloud_segment_transcript(&cloud_settings, &mut cloud_samples)
+                    cloud_segment_transcript(&cloud_app, &cloud_settings, &mut cloud_samples)
                 }
             })
             .await
@@ -1737,11 +1750,13 @@ fn cloud_profile_credentials(profile_id: &str) -> Result<(String, impl AsRef<str
 }
 
 /// 云端语音识别：multipart 上传 + JSON 返回 text（OpenAI /audio/transcriptions 与 MiniMax /v1/speech_to_text 均兼容）。
-async fn cloud_transcribe(url: &str, key: impl AsRef<str>, model: &str, wav: &[u8]) -> Result<String, String> {
+async fn cloud_transcribe(app: &AppHandle, url: &str, key: impl AsRef<str>, model: &str, wav: &[u8]) -> Result<String, String> {
     let url = url.trim();
     if url.is_empty() { return Err("云端识别地址为空".into()); }
     if !url.starts_with("https://") { return Err("云端识别地址必须为 https".into()); }
     if model.trim().is_empty() { return Err("云端识别模型未填写".into()); }
+    let mut call = super::activity::ApiCall::new(app, super::activity::Kind::Voice, "云端语音识别 API", "POST", url,
+        serde_json::json!({"model":model.trim(),"file":{"filename":"audio.wav","contentType":"audio/wav","bytes":wav.len(),"说明":"音频内容不保存"}}), &[key.as_ref()]);
     let boundary = "CloudHubVoiceBoundary7d1a";
     let mut body = Vec::with_capacity(wav.len() + 512);
     body.extend_from_slice(format!("--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"audio.wav\"\r\nContent-Type: audio/wav\r\n\r\n").as_bytes());
@@ -1749,7 +1764,7 @@ async fn cloud_transcribe(url: &str, key: impl AsRef<str>, model: &str, wav: &[u
     body.extend_from_slice(b"\r\n");
     body.extend_from_slice(format!("--{boundary}\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\n{}\r\n--{boundary}--\r\n", model.trim()).as_bytes());
     let client = reqwest::Client::new();
-    let response = client
+    let mut response = client
         .post(url)
         .header("Authorization", format!("Bearer {}", key.as_ref()))
         .header("Content-Type", format!("multipart/form-data; boundary={boundary}"))
@@ -1757,15 +1772,18 @@ async fn cloud_transcribe(url: &str, key: impl AsRef<str>, model: &str, wav: &[u
         .body(body)
         .send()
         .await
-        .map_err(|_| "云端识别请求失败，请检查网络".to_string())?
-        .error_for_status()
-        .map_err(|error| {
-            let code = error.status().map(|status| status.as_str().to_string()).unwrap_or_else(|| "未知".into());
-            format!("云端识别返回错误状态：{code}")
-        })?;
-    let body = response.text().await.map_err(|_| "云端识别响应读取失败".to_string())?;
-    let json: serde_json::Value = serde_json::from_str(&body)
-        .map_err(|_| "云端识别响应非 JSON".to_string())?;
+        .map_err(|_| "云端识别请求失败，请检查网络".to_string())?;
+    let http_status = response.status();
+    call.response(serde_json::json!({"httpStatus":http_status.as_u16()}));
+    let mut response_bytes = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|_| "云端识别响应读取失败".to_string())? {
+        if chunk.len() > (256 * 1024usize).saturating_sub(response_bytes.len()) { return Err("云端识别响应过大".into()); }
+        response_bytes.extend_from_slice(&chunk);
+    }
+    let parsed = serde_json::from_slice::<serde_json::Value>(&response_bytes);
+    call.response(serde_json::json!({"httpStatus":http_status.as_u16(),"body":parsed.as_ref().ok().cloned().unwrap_or_else(|| serde_json::json!({"说明":"非JSON响应","receivedBytes":response_bytes.len()}))}));
+    if !http_status.is_success() { return Err(format!("云端识别返回错误状态：{}", http_status.as_u16())); }
+    let json = parsed.map_err(|_| "云端识别响应非 JSON".to_string())?;
     // MiniMax 等服务商把业务错误包在 HTTP 200 的 base_resp 里（如密钥无效、欠费），必须显式检查。
     if let Some(base) = json.get("base_resp") {
         let code = base.get("status_code").and_then(|value| value.as_i64()).unwrap_or(0);
@@ -1774,6 +1792,7 @@ async fn cloud_transcribe(url: &str, key: impl AsRef<str>, model: &str, wav: &[u
         }
     }
     let text = json.get("text").and_then(|value| value.as_str()).unwrap_or("").trim().to_string();
+    call.success();
     // 空文本 = 服务端判定无清晰语音（噪声段），由调用方静默回落本地识别，不算错误。
     Ok(text)
 }
@@ -1847,7 +1866,7 @@ fn xfyun_handshake_url(api_key: &str, api_secret: &str, date: &str) -> String {
 
 /// 讯飞语音听写（流式版）：签名握手 → 分帧上传 PCM → 拼接 data.result.ws[].cw[].w。
 /// 连接失败不透出原始错误（握手 URL 含凭据派生参数），仅提示检查网络、凭据与系统时间。
-async fn xfyun_iat_transcribe(app_id: &str, api_key: &str, api_secret: &str, language: &str, pcm: &[u8]) -> Result<String, String> {
+async fn xfyun_iat_transcribe(app: &AppHandle, app_id: &str, api_key: &str, api_secret: &str, language: &str, pcm: &[u8]) -> Result<String, String> {
     use base64::engine::general_purpose::STANDARD as BASE64;
     use futures_util::{SinkExt, StreamExt};
     use tokio_tungstenite::tungstenite::Message;
@@ -1856,10 +1875,6 @@ async fn xfyun_iat_transcribe(app_id: &str, api_key: &str, api_secret: &str, lan
     if pcm.is_empty() { return Err("无有效语音片段".into()); }
     // 讯飞单次会话最长 60 秒：超长片段直接报错回落本地识别，避免截断丢句。
     if pcm.len() > 60 * SAMPLE_RATE * 2 { return Err("语音片段超过讯飞单次 60 秒上限".into()); }
-    let date = chrono::Utc::now().format("%a, %d %b %Y %H:%M:%S GMT").to_string();
-    let (websocket, _) = tokio_tungstenite::connect_async(xfyun_handshake_url(api_key, api_secret, &date)).await
-        .map_err(|_| "讯飞语音听写连接失败：请检查网络、讯飞凭据与本机系统时间".to_string())?;
-    let (mut sink, mut stream) = websocket.split();
     // 听写无自动语种检测：跟随语音设置映射，zh/auto 走中英混合，en 走英文。
     let (language, accent) = match language.trim() {
         "en" => ("en_us", ""),
@@ -1870,6 +1885,12 @@ async fn xfyun_iat_transcribe(app_id: &str, api_key: &str, api_secret: &str, lan
     } else {
         serde_json::json!({ "language": language, "domain": "iat", "accent": accent })
     };
+    let mut call = super::activity::ApiCall::new(app, super::activity::Kind::Voice, "讯飞语音识别 API", "WEBSOCKET", "wss://iat-api.xfyun.cn/v2/iat",
+        serde_json::json!({"business":business,"common":{"app_id":"[已隐藏]"},"data":{"format":"audio/L16;rate=16000","encoding":"raw","bytes":pcm.len(),"说明":"音频内容和鉴权参数不保存"}}), &[app_id, api_key, api_secret]);
+    let date = chrono::Utc::now().format("%a, %d %b %Y %H:%M:%S GMT").to_string();
+    let (websocket, _) = tokio_tungstenite::connect_async(xfyun_handshake_url(api_key, api_secret, &date)).await
+        .map_err(|_| "讯飞语音听写连接失败：请检查网络、讯飞凭据与本机系统时间".to_string())?;
+    let (mut sink, mut stream) = websocket.split();
     let send_all = async {
         for (index, chunk) in pcm.chunks(XFYUN_FRAME_BYTES).enumerate() {
             if index > 0 { tokio::time::sleep(XFYUN_FRAME_INTERVAL).await; }
@@ -1899,6 +1920,7 @@ async fn xfyun_iat_transcribe(app_id: &str, api_key: &str, api_secret: &str, lan
                 Ok(Message::Text(text)) => {
                     let json: serde_json::Value = serde_json::from_str(text.as_str())
                         .map_err(|_| "讯飞响应非 JSON".to_string())?;
+                    call.response(json.clone());
                     let code = json.get("code").and_then(|value| value.as_i64()).unwrap_or(-1);
                     if code != 0 {
                         return Err(format!("讯飞语音听写返回错误 {code}"));
@@ -1924,12 +1946,13 @@ async fn xfyun_iat_transcribe(app_id: &str, api_key: &str, api_secret: &str, lan
         .await
         .map_err(|_| "讯飞语音听写会话超时".to_string())?;
     let transcript = transcript?;
+    call.success();
     // 空结果 = 讯飞判定无清晰语音（噪声段），由调用方静默回落本地识别，不算错误。
     Ok(transcript.trim().to_string())
 }
 
 /// 云端识别走语音设置所选 AI 配置；凭据仅在内存中解密使用，音频不落盘。
-fn cloud_segment_transcript(settings: &super::Settings, samples: &mut [f32]) -> Result<String, String> {
+fn cloud_segment_transcript(app: &AppHandle, settings: &super::Settings, samples: &mut [f32]) -> Result<String, String> {
     let profile_id = settings.voice.cloud_profile_id.trim();
     if profile_id.is_empty() { return Err("未选择云端识别的 AI 配置".into()); }
     let (base_url, key) = cloud_profile_credentials(profile_id)?;
@@ -1941,17 +1964,17 @@ fn cloud_segment_transcript(settings: &super::Settings, samples: &mut [f32]) -> 
     };
     normalize_peaks(samples);
     let wav = wav_bytes(samples);
-    tauri::async_runtime::block_on(cloud_transcribe(&url, &key, &settings.voice.cloud_model, &wav))
+    tauri::async_runtime::block_on(cloud_transcribe(app, &url, &key, &settings.voice.cloud_model, &wav))
 }
 
 /// 讯飞听写走独立加密凭据；音频以 16k 原始 PCM 分帧上传，失败回落本地识别。
-fn cloud_segment_transcript_xfyun(settings: &super::Settings, samples: &mut [f32]) -> Result<String, String> {
+fn cloud_segment_transcript_xfyun(app: &AppHandle, settings: &super::Settings, samples: &mut [f32]) -> Result<String, String> {
     let Some((app_id, api_key, api_secret)) = xfyun_load_credentials()? else {
         return Err("讯飞语音听写凭据未配置，请在语音设置中填写".into());
     };
     normalize_peaks(samples);
     let pcm = pcm16_bytes(samples);
-    tauri::async_runtime::block_on(xfyun_iat_transcribe(&app_id, &api_key, &api_secret, &settings.voice.language, &pcm))
+    tauri::async_runtime::block_on(xfyun_iat_transcribe(app, &app_id, &api_key, &api_secret, &settings.voice.language, &pcm))
 }
 
 /// 单段音频转写：开启云端识别时优先上传所选服务商（OpenAI 兼容接口或讯飞听写），失败自动回落本地 whisper。
@@ -1964,8 +1987,8 @@ fn segment_transcript(app: &AppHandle, engine: &Arc<Engine>, settings: &super::S
             None
         } else {
             match settings.voice.cloud_provider.as_str() {
-                "xfyun" => Some(cloud_segment_transcript_xfyun(settings, samples)),
-                _ if !settings.voice.cloud_profile_id.trim().is_empty() => Some(cloud_segment_transcript(settings, samples)),
+                "xfyun" => Some(cloud_segment_transcript_xfyun(app, settings, samples)),
+                _ if !settings.voice.cloud_profile_id.trim().is_empty() => Some(cloud_segment_transcript(app, settings, samples)),
                 _ => None,
             }
         };

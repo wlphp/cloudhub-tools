@@ -82,7 +82,7 @@ export function PetVoiceSettings({ value, quiet, onSave, disabled, petEnabled }:
     const timer = setInterval(refresh, 2000);
     return () => clearInterval(timer);
   }, [refresh, value.enabled, value.wakeEnabled]);
-  const dirty = draftQuiet !== quiet || JSON.stringify(draft) !== JSON.stringify({ ...defaultPetVoice, ...value });
+  const dirty = (draft.cloudProvider === "xfyun" && Object.values(xfyun).some(value => value.trim())) || draftQuiet !== quiet || JSON.stringify(draft) !== JSON.stringify({ ...defaultPetVoice, ...value });
   async function run(action: () => Promise<void>) { setLoading(true); setError(""); try { await action(); } catch (e) { setError(platformErrorMessage(e)); } finally { setLoading(false); } }
   /// 点击下载：进度经 Channel 回传，结束后 Rust 返回最新状态；失败时仍可按指引手动下载。
   async function startDownload(name: string) {
@@ -110,9 +110,8 @@ export function PetVoiceSettings({ value, quiet, onSave, disabled, petEnabled }:
   const cloudPreset = cloudAsrPreset(cloudProfile?.baseUrl);
   const cloudModelOptions = cloudPreset?.models ?? [];
   const useCustomCloudModel = customCloudModel || (draft.cloudModel !== "" && !cloudModelOptions.includes(draft.cloudModel));
-  return <article className="pet-control-card pet-voice-settings">
-    <header><div><strong><AudioLines size={15} aria-hidden="true" />语音对话</strong><small>唤醒与语音指令，支持本地或云端识别</small></div><span className={value.enabled && !quiet ? "pet-life-enabled" : "pet-life-muted"}>{!value.enabled ? "未开启" : quiet ? "勿扰中 · 播报静音" : "已开启"}</span></header>
-    <details className="pet-settings-disclosure"><summary>语音识别与常驻唤醒</summary>
+  return <article className="pet-voice-settings">
+    <header className="pet-settings-topic"><div><h3><AudioLines size={15} aria-hidden="true" />语音对话</h3><p>唤醒与语音指令，支持本地或云端识别</p></div><span className={value.enabled && !quiet ? "pet-life-enabled" : "pet-life-muted"}>{!value.enabled ? "未开启" : quiet ? "勿扰中 · 播报静音" : "已开启"}</span></header>
       <form onSubmit={e => { e.preventDefault(); void run(async () => {
         const credentials = draft.cloudProvider === "xfyun" && (xfyun.appId.trim() || xfyun.apiKey.trim() || xfyun.apiSecret.trim())
           ? { appId: xfyun.appId.trim(), apiKey: xfyun.apiKey.trim(), apiSecret: xfyun.apiSecret.trim() }
@@ -126,16 +125,29 @@ export function PetVoiceSettings({ value, quiet, onSave, disabled, petEnabled }:
         refresh();
       }); }}>
         <fieldset disabled={disabled || loading}>
-          <div className="pet-life-options">
+          <div className="pet-settings-groups">
+          <section className="pet-life-group" aria-label="对话与指令">
+            <h4>对话与指令</h4>
+            <div className="pet-life-options">
             {check("enabled", "启用语音对话", "唤醒后可连续追问，回答结束后有 20 秒可继续说话。聊天窗口可手动打开查看记录。")}
             {check("autoSend", "识别后自动执行", "关闭后识别文本填入聊天输入框，由你确认后再发送。")}
             {check("shellEnabled", "电脑指令（CMD）", "开启后可在语音或聊天中请求单条 CMD 命令。聊天会先展示完整命令，可点确认或回复“确认”后执行；语音使用确认弹窗。命令链、脚本和一批高危操作会被拒绝并记录审计日志。默认关闭。")}
+            </div>
+          </section>
+          <section className="pet-life-group" aria-label="播报与勿扰">
+            <h4>播报与勿扰</h4>
+            <div className="pet-life-options">
             {check("speak", "语音回应", "播报唤醒提示、执行结果和语音提问的回答。")}
             <label className="pet-option"><span>桌宠勿扰<small>开启后静音语音播报和互动声音，并暂停主动提醒。</small></span><input type="checkbox" checked={draftQuiet} onChange={e => setDraftQuiet(e.target.checked)} /></label>
-            {check("cloudAsrEnabled", "云端识别", "判定为人声的片段上传到所选识别服务商转写，更快更准；失败自动回落本地识别。关闭则全程本机识别。")}
-            {check("wakeEnabled", "常驻监听唤醒词", "麦克风保持采集；开启云端识别时命中前的片段会上传所选服务商，未命中且关闭云端时不会离开本机。")}
+            </div>
+          </section>
           </div>
-          <div className="pet-life-grid">
+          <section className="pet-life-group" aria-label="云端识别">
+            <h4>云端识别</h4>
+            <div className="pet-life-options">
+            {check("cloudAsrEnabled", "云端识别", "判定为人声的片段上传到所选识别服务商转写，更快更准；失败自动回落本地识别。关闭则全程本机识别。")}
+            </div>
+            {draft.cloudAsrEnabled && <div className="pet-life-grid">
             {draft.cloudAsrEnabled && <label>识别服务商<select value={draft.cloudProvider} onChange={e => {
               const provider = e.target.value as VoiceSettings["cloudProvider"];
               setCustomCloudModel(false);
@@ -158,6 +170,14 @@ export function PetVoiceSettings({ value, quiet, onSave, disabled, petEnabled }:
               <small>{cloudModelOptions.length > 0 ? (useCustomCloudModel ? "自定义模式：按服务商文档填写" : "已按所选服务商预置，无需手填") : "该服务商未收录预置模型，请查文档填写"}</small>
               {useCustomCloudModel && cloudModelOptions.length > 0 && <button type="button" className="secondary" onClick={() => { setCustomCloudModel(false); change({ cloudModel: "" }); }}>返回预置选择</button>}
             </label>}
+            </div>}
+          </section>
+          <section className="pet-life-group" aria-label="麦克风与本地识别">
+            <h4>麦克风与本地识别</h4>
+            <div className="pet-life-options">
+            {check("wakeEnabled", "常驻监听唤醒词", "麦克风保持采集；开启云端识别时命中前的片段会上传所选服务商，未命中且关闭云端时不会离开本机。")}
+            </div>
+            <div className="pet-life-grid">
             <label>唤醒词<input value={draft.wakeWord} maxLength={24} placeholder="如：小驼，小花" onChange={e => change({ wakeWord: e.target.value })} /><small>多个唤醒词用逗号隔开，喊任意一个即可；识别成同音字（如“驼/坨”）也能唤醒。</small></label>
             <label>识别语言<select value={draft.language} onChange={e => change({ language: e.target.value })}><option value="zh">中文</option><option value="en">English</option><option value="auto">自动检测</option></select></label>
             <label>最长录音<select value={draft.maxSeconds} onChange={e => change({ maxSeconds: Number(e.target.value) })}>{[30, 60, 90, 120].map(seconds => <option key={seconds} value={seconds}>{seconds} 秒</option>)}</select></label>
@@ -202,13 +222,13 @@ export function PetVoiceSettings({ value, quiet, onSave, disabled, petEnabled }:
               <li>ggml-small.bin（约 466MB，识别更准，唤醒词场景推荐）</li>
               <li>下载地址：huggingface.co/ggerganov/whisper.cpp 的 Models 目录（国内可用 hf-mirror.com 镜像）</li>
             </ul>
-            <p className="pet-life-help">语音全程在本机识别；只有唤醒后的指令或聊天文本会发送给你选择的 AI 服务。</p>
+            <p className="pet-life-help">关闭云端识别时，录音在本机转写。唤醒后的指令或聊天文本仍可发送给你选择的 AI 服务。</p>
           </details>
+          </section>
           {!petEnabled && <p className="pet-life-help">开启桌宠后可使用语音对话。</p>}
           {error && <ToastNotice message={error} tone="error" />}
-          <div className="pet-life-actions"><span>{dirty ? "有未保存的修改" : "设置已保存"}</span><button type="submit" className="secondary" disabled={!dirty}><Save size={14} />保存语音设置</button></div>
+          <div className="pet-life-actions"><span>{dirty ? "有未保存的修改" : "设置已保存"}</span><button type="submit" className="primary" disabled={!dirty}><Save size={14} />保存语音设置</button></div>
         </fieldset>
       </form>
-    </details>
   </article>;
 }

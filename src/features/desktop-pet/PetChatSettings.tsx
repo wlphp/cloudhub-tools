@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { ArrowLeft, Bell, Box, ChevronRight, History, Info, LayoutGrid, MessageCircle, Mic, Paperclip, Terminal } from "lucide-react";
+import { ArrowLeft, Bell, Box, ChevronRight, History, Info, LayoutGrid, MessageCircle, Mic, Paperclip, Terminal, AudioLines } from "lucide-react";
 import { version } from "../../../package.json";
 import { platformErrorMessage } from "../../platform/api";
 import { desktopPetClient as client, type PetSettings, type PetSpeechPreset } from "../../platform/clients/desktopPet";
@@ -9,16 +9,23 @@ import { PetSpeechPresets } from "./PetSpeechPresets";
 import { PetChatCalls } from "./PetChatCalls";
 import { PetActivityHistory } from "./PetActivityHistory";
 
-export type PetChatPage = "chat" | "settings" | "general" | "alerts" | "calls" | "operations" | "voiceHistory" | "skills" | "about";
+export type PetChatPage = "chat" | "settings" | "general" | "alerts" | "records" | "calls" | "operations" | "voiceHistory" | "ttsHistory" | "skills" | "about";
+
+export function petChatParentPage(page: PetChatPage): PetChatPage {
+  if (["calls", "operations", "voiceHistory", "ttsHistory"].includes(page)) return "records";
+  return page === "settings" ? "chat" : "settings";
+}
 
 const pages = {
   settings: "设置",
   general: "通用设置",
   alerts: "查看提醒",
+  records: "调用记录",
   calls: "模型调用记录",
   operations: "本地操作记录",
   voiceHistory: "语音识别记录",
-  skills: "本机助手",
+  ttsHistory: "语音合成记录",
+  skills: "本机技能",
   about: "关于桌宠",
 };
 
@@ -60,7 +67,7 @@ export function PetChatSettings({ page, onPageChange, settings, ready, serviceCo
 
   return <div className={`pet-chat-settings${page === "alerts" ? " pet-chat-alerts-page" : ""}`}>
     <div className="pet-chat-page-head">
-      <button type="button" aria-label={page === "settings" ? "返回聊天" : "返回设置"} onClick={() => onPageChange(page === "settings" ? "chat" : "settings")}><ArrowLeft size={20} aria-hidden="true" /></button>
+      <button type="button" aria-label={petChatParentPage(page) === "records" ? "返回记录" : page === "settings" ? "返回聊天" : "返回设置"} onClick={() => onPageChange(petChatParentPage(page))}><ArrowLeft size={20} aria-hidden="true" /></button>
       <h1 ref={title} tabIndex={-1}>{pages[page]}</h1>
     </div>
     {error && <p className="pet-chat-error" role="alert">{error}</p>}
@@ -73,16 +80,21 @@ export function PetChatSettings({ page, onPageChange, settings, ready, serviceCo
       <nav className="pet-chat-settings-group" aria-label="桌宠设置">
         <button type="button" onClick={() => onPageChange("general")}><LayoutGrid size={19} aria-hidden="true" />通用设置<ChevronRight size={16} aria-hidden="true" /></button>
         <button type="button" onClick={() => onPageChange("alerts")}><Bell size={19} aria-hidden="true" />查看提醒{alerts.count > 0 && <small className="pet-chat-alert-count">{alerts.count} 项待处理</small>}<ChevronRight size={16} aria-hidden="true" /></button>
-        <button type="button" onClick={() => onPageChange("calls")}><History size={19} aria-hidden="true" />模型调用记录<ChevronRight size={16} aria-hidden="true" /></button>
-        <button type="button" onClick={() => onPageChange("operations")}><Terminal size={19} aria-hidden="true" />本地操作记录<ChevronRight size={16} aria-hidden="true" /></button>
-        <button type="button" onClick={() => onPageChange("voiceHistory")}><Mic size={19} aria-hidden="true" />语音识别记录<ChevronRight size={16} aria-hidden="true" /></button>
-        <button type="button" onClick={() => onPageChange("skills")}><Box size={19} aria-hidden="true" />本机助手<ChevronRight size={16} aria-hidden="true" /></button>
+        <button type="button" onClick={() => onPageChange("records")}><History size={19} aria-hidden="true" />调用记录<ChevronRight size={16} aria-hidden="true" /></button>
+        <button type="button" onClick={() => onPageChange("skills")}><Box size={19} aria-hidden="true" />本机技能<ChevronRight size={16} aria-hidden="true" /></button>
         <button type="button" onClick={() => onPageChange("about")}><Info size={19} aria-hidden="true" />关于桌宠<ChevronRight size={16} aria-hidden="true" /></button>
       </nav>
     </>}
+    {page === "records" && <nav className="pet-chat-settings-group" aria-label="桌宠记录">
+      <button type="button" onClick={() => onPageChange("calls")}><History size={19} aria-hidden="true" />模型调用记录<ChevronRight size={16} aria-hidden="true" /></button>
+      <button type="button" onClick={() => onPageChange("operations")}><Terminal size={19} aria-hidden="true" />本地操作记录<ChevronRight size={16} aria-hidden="true" /></button>
+      <button type="button" onClick={() => onPageChange("voiceHistory")}><Mic size={19} aria-hidden="true" />语音识别记录<ChevronRight size={16} aria-hidden="true" /></button>
+      <button type="button" onClick={() => onPageChange("ttsHistory")}><AudioLines size={19} aria-hidden="true" />语音合成记录<ChevronRight size={16} aria-hidden="true" /></button>
+    </nav>}
     {page === "calls" && <PetChatCalls />}
     {page === "operations" && <PetActivityHistory key="operation" kind="operation" />}
     {page === "voiceHistory" && <PetActivityHistory key="voice" kind="voice" />}
+    {page === "ttsHistory" && <PetActivityHistory key="tts" kind="tts" />}
     {page === "general" && <>
       <section className="pet-chat-settings-section">
         <h2>聊天提示词</h2>

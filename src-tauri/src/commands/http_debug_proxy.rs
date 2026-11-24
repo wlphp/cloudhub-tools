@@ -162,8 +162,15 @@ fn windows_tool(name:&str)->Option<std::path::PathBuf>{
     std::env::var_os("SystemRoot").map(std::path::PathBuf::from).map(|root|root.join("System32").join(name)).filter(|path|path.is_file())
 }
 #[cfg(target_os = "windows")]
+fn hidden_reg() -> Option<std::process::Command> {
+    use std::os::windows::process::CommandExt;
+    let mut command = std::process::Command::new(windows_tool("reg.exe")?);
+    command.creation_flags(0x08000000);
+    Some(command)
+}
+#[cfg(target_os = "windows")]
 fn reg_value(name: &str) -> Option<String> {
-    let out = std::process::Command::new(windows_tool("reg.exe")?).args(["query", r"HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings", "/v", name]).output().ok()?;
+    let out = hidden_reg()?.args(["query", r"HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings", "/v", name]).output().ok()?;
     if !out.status.success() { return None; }
     let text = String::from_utf8_lossy(&out.stdout);
     text.lines().find_map(|line| {
@@ -176,9 +183,9 @@ fn reg_value(name: &str) -> Option<String> {
 fn set_reg(name: &str, kind: &str, value: Option<&str>) -> Result<(), String> {
     if value.is_none() && reg_value(name).is_none() { return Ok(()); }
     let result = if let Some(value) = value {
-        std::process::Command::new(windows_tool("reg.exe").ok_or("无法定位 Windows 注册表工具")?).args(["add", r"HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings", "/v", name, "/t", kind, "/d", value, "/f"]).output()
+        hidden_reg().ok_or("无法定位 Windows 注册表工具")?.args(["add", r"HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings", "/v", name, "/t", kind, "/d", value, "/f"]).output()
     } else {
-        std::process::Command::new(windows_tool("reg.exe").ok_or("无法定位 Windows 注册表工具")?).args(["delete", r"HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings", "/v", name, "/f"]).output()
+        hidden_reg().ok_or("无法定位 Windows 注册表工具")?.args(["delete", r"HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings", "/v", name, "/f"]).output()
     }.map_err(|_| "无法更新 Windows 代理设置")?;
     if result.status.success() { refresh_wininet(); Ok(()) } else { Err("更新 Windows 代理设置失败".into()) }
 }
@@ -748,7 +755,7 @@ fn install_certificate(cert_pem:&str, install:bool)->Result<(),String>{
             let thumb_hex=hex::encode_upper(thumb);
             let user_key=format!(r"HKCU\Software\Microsoft\SystemCertificates\Root\Certificates\{thumb_hex}");
             let machine_key=format!(r"HKLM\Software\Microsoft\SystemCertificates\Root\Certificates\{thumb_hex}");
-            let has_registry_key=|key:&str|windows_tool("reg.exe").and_then(|tool|std::process::Command::new(tool).args(["query",key]).output().ok()).is_some_and(|output|output.status.success());
+            let has_registry_key=|key:&str|hidden_reg().and_then(|mut command|{command.args(["query",key]);command.output().ok()}).is_some_and(|output|output.status.success());
             let user=has_registry_key(&user_key);
             let machine=has_registry_key(&machine_key);
             return Err(format!("证书写入操作返回成功，但重新打开当前用户根证书库后未找到对应指纹（用户存储记录：{}；本机存储记录：{}）",if user{"存在"}else{"不存在"},if machine{"存在"}else{"不存在"}));

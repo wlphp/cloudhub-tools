@@ -165,10 +165,16 @@ export function PetChat({ settings, settingsReady, onSettingsSave, page, onPageC
   async function toggleHarnessTrace() {
     if (!settingsReady) return;
     const enabled = !settings.harnessTraceEnabled;
+    if (log.current) {
+      const element = log.current;
+      traceScroll.current = { top: element.scrollTop, follow: element.scrollHeight - element.clientHeight - element.scrollTop < 36 };
+      followReply.current = traceScroll.current.follow;
+    }
     try {
       await onSettingsSave({ ...settings, harnessTraceEnabled: enabled });
       setError("");
     } catch (reason) {
+      traceScroll.current = null;
       setError(platformErrorMessage(reason, "无法切换步骤面板"));
     }
   }
@@ -212,6 +218,8 @@ export function PetChat({ settings, settingsReady, onSettingsSave, page, onPageC
   const mounted = useRef(true);
   const log = useRef<HTMLDivElement>(null);
   const followReply = useRef(true);
+  const initialHistoryScroll = useRef(true);
+  const traceScroll = useRef<{ top: number; follow: boolean } | null>(null);
   const prependScroll = useRef<{ height: number; top: number } | null>(null);
   const historyRead = useRef(0);
   const input = useRef<HTMLTextAreaElement>(null);
@@ -313,6 +321,8 @@ export function PetChat({ settings, settingsReady, onSettingsSave, page, onPageC
   }, []);
   useEffect(() => {
     const read = ++historyRead.current;
+    initialHistoryScroll.current = true;
+    followReply.current = true;
     setHistoryLoading(true);
     setTurns([]);
     setHasOlder(false);
@@ -441,8 +451,28 @@ export function PetChat({ settings, settingsReady, onSettingsSave, page, onPageC
     const previous = prependScroll.current;
     prependScroll.current = null;
     if (previous) log.current.scrollTop = previous.top + log.current.scrollHeight - previous.height;
-    else if (followReply.current) log.current.scrollTop = log.current.scrollHeight;
-  }, [chatVisible, turns, busy, showThinking]);
+    else if (initialHistoryScroll.current || followReply.current) {
+      log.current.scrollTop = log.current.scrollHeight;
+      followReply.current = true;
+      if (!historyLoading && loadedHistoryVersion === historyVersion) initialHistoryScroll.current = false;
+    }
+  }, [chatVisible, turns, busy, showThinking, historyLoading, loadedHistoryVersion, historyVersion]);
+  useLayoutEffect(() => {
+    if (!chatVisible || !log.current) return;
+    followReply.current = true;
+    log.current.scrollTop = log.current.scrollHeight;
+    const observer = new ResizeObserver(() => {
+      if (log.current && followReply.current) log.current.scrollTop = log.current.scrollHeight;
+    });
+    observer.observe(log.current);
+    return () => observer.disconnect();
+  }, [chatVisible]);
+  useLayoutEffect(() => {
+    if (!log.current || !traceScroll.current) return;
+    log.current.scrollTop = traceScroll.current.top;
+    followReply.current = traceScroll.current.follow;
+    traceScroll.current = null;
+  }, [settings.harnessTraceEnabled]);
   useLayoutEffect(() => {
     if (chatVisible && streamedReply && followReply.current && log.current) {
       log.current.scrollTop = log.current.scrollHeight;
@@ -829,7 +859,7 @@ export function PetChat({ settings, settingsReady, onSettingsSave, page, onPageC
     if (streamedReply.trim()) messages.push({ key: "pending-reply", role: "assistant", text: streamedReply });
   }
   const speakingReplyKey = voiceActivity.playing ? replayKey ?? automaticReplyKey : null;
-  return <>
+  return <div className="pet-chat-fragment-root">
     {visible && modelDialogOpen && <PetChatModelDialog services={services} current={service} currentModel={selectedModel} busy={busy}
       onClose={() => setModelDialogOpen(false)}
       onManage={() => { setModelDialogOpen(false); void client.open("aiSettings").catch(error => setError(platformErrorMessage(error))); }}
@@ -854,6 +884,7 @@ export function PetChat({ settings, settingsReady, onSettingsSave, page, onPageC
     <div className="pet-chat-log" ref={log} role="log" aria-label="与宠物的聊天记录" aria-live="polite"
       onScroll={event => {
         const element = event.currentTarget;
+        if (initialHistoryScroll.current) return;
         followReply.current = element.scrollHeight - element.scrollTop - element.clientHeight < 36;
       }}>
       {hasOlder && <button type="button" className="pet-chat-pill pet-chat-load-older" disabled={historyLoading} onClick={() => void loadOlder()}>{historyLoading ? "读取中…" : "查看更早的消息"}</button>}
@@ -943,5 +974,5 @@ export function PetChat({ settings, settingsReady, onSettingsSave, page, onPageC
       {traceResult && <section className="pet-chat-trace-result"><strong>{busy ? "当前状态" : traceResult.startsWith("执行失败：") ? "执行失败" : "最终结果"}</strong><p>{traceResult.slice(0, 500)}{traceResult.length > 500 ? "…" : ""}</p></section>}
     </section>}
     </div>
-  </>;
+  </div>;
 }

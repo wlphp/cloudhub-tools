@@ -1,9 +1,10 @@
-import { Bot, Cpu, FileCode2, GitBranch, Globe, Gauge, HardDrive, Lock, Mail, MessageCircle, MonitorCog, Network, NotebookPen, ShieldCheck, SquareTerminal, Variable, Power } from "lucide-react";
+import { Bot, Cpu, FileCode2, GitBranch, Globe, Gauge, HardDrive, Lock, Mail, MessageCircle, MonitorCog, Network, NotebookPen, PawPrint, ShieldCheck, SquareTerminal, Variable, Power } from "lucide-react";
 import { officialPlugins } from "./registry";
 
 export type ApplicationSection = "flow" | "certificates" | "authenticator" | "claude" | "codex" | "frp" | "notes";
 // mobile: 该应用提供移动端界面；软件商店“适用端”筛选据此区分移动端可用与仅电脑端，registry 的 platform 只描述桌面系统支持。
 const navigation: Record<string, { section?: ApplicationSection; order: number; sidebar: boolean; mobile?: boolean; icon: typeof Cpu; keywords?: string }> = {
+  "cloudhub.desktop-pet": { order: 21, sidebar: false, icon: PawPrint, keywords: "桌宠 桌面陪伴 生活提醒 语音唤醒 desktop pet" },
   "cloudhub.model-suppliers": { order: 20, sidebar: false, mobile: true, icon: Bot, keywords: "AI 模型供应商 OpenAI Claude Gemini API 模型 配置 导入" },
   "cloudhub.cloud-drive": { order: 17, sidebar: false, icon: HardDrive, keywords: "云盘 阿里云盘 Alipan 挂载 OSS S3 rclone MinIO R2 WinFsp macFUSE FUSE 磁盘 对象存储" },
   "cloudhub.mail": { order: 15, sidebar: false, mobile: true, icon: Mail, keywords: "邮件 邮箱 收信 发信 QQ 网易 IMAP SMTP email mail" },
@@ -12,6 +13,7 @@ const navigation: Record<string, { section?: ApplicationSection; order: number; 
   "cloudhub.authenticator": { section: "authenticator", order: 3, sidebar: true, mobile: true, icon: ShieldCheck },
   // Claude / Codex 管理依赖本机配置文件与本地进程，未提供移动端界面，不进入商店“移动端可用”列表。
   "cloudhub.claude-providers": { section: "claude", order: 4, sidebar: true, icon: Bot, keywords: "Claude Code 供应商 API 切换 模型 映射" },
+  "cloudhub.claude-desktop": { order: 4.5, sidebar: false, icon: MonitorCog, keywords: "Claude Desktop 桌面 供应商 直连 路由 聚合" },
   "cloudhub.codex": { section: "codex", order: 5, sidebar: true, icon: FileCode2 },
   "cloudhub.frp": { section: "frp", order: 6, sidebar: true, icon: Network },
   "cloudhub.notes": { section: "notes", order: 7, sidebar: true, mobile: true, icon: NotebookPen, keywords: "备忘 笔记 记录 分组 标签 检索 提醒" },
