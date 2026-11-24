@@ -18,6 +18,7 @@ pub mod authenticator;
 pub mod claude_providers;
 #[cfg(desktop)]
 pub mod claude_desktop;
+#[cfg(desktop)]
 pub mod claude_gateway;
 #[cfg(desktop)]
 pub mod claude_protocol;
