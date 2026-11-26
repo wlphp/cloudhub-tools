@@ -274,6 +274,41 @@ impl PlatformError {
         ].contains(&message.as_str()) {
             return Self { kind: "platform-error", code: "claude-workbench", message, retryable: false };
         }
+        // Pi coding agent 配置的固定提示，均不含路径或密钥。
+        if [
+            "API Key 格式无效",
+            "PI_CODING_AGENT_DIR 必须是绝对路径",
+            "Pi 供应商不存在，请刷新后重试",
+            "Pi 供应商名称无效",
+            "Pi 供应商标识只能包含字母、数字、点、下划线和短横线",
+            "Pi 供应商标识已存在",
+            "Pi 供应商配置损坏",
+            "Pi 思考级别无效",
+            "Pi 接口协议无效",
+            "Pi 模型 ID 不能重复",
+            "Pi 模型 ID 无效",
+            "Pi 模型上下文或输出上限无效",
+            "Pi 模型列表需要 1 至 200 个模型",
+            "Pi 模型名称无效",
+            "Pi 配置不是合法 JSON，未改写",
+            "Pi 配置中的 providers 必须是对象，未改写",
+            "Pi 配置必须是 JSON 对象，未改写",
+            "Pi 配置是链接、目录或超过大小限制，未读取",
+            "Pi 配置状态不可用",
+            "Pi 配置目录尚未创建，请先运行一次 pi",
+            "Pi 配置路径无效",
+            "Pi 默认模型无效",
+            "写入 Pi 配置失败",
+            "创建 Pi 配置目录失败",
+            "备份 Pi 配置失败",
+            "无法打开 Pi 配置目录",
+            "无法确定 Pi 配置目录",
+            "该供应商是 Pi 默认供应商，请先切换默认模型",
+            "读取 Pi 配置失败",
+            "Pi 配置任务失败",
+        ].contains(&message.as_str()) {
+            return Self { kind: "platform-error", code: "pi-config", message, retryable: false };
+        }
         // Exact authored diagnostics only: never forward arbitrary native error text.
         if ["桌宠设置读取失败", "桌宠设置无效", "桌宠数据保存失败", "此窗口不支持桌宠操作",
             "提醒记录读取失败", "提醒状态不可用", "无法关闭提醒", "无法显示桌面提醒",

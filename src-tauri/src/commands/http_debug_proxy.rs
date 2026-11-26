@@ -859,7 +859,7 @@ pub(crate) async fn http_debug_proxy_start(system_proxy:bool)->PlatformResult<Sn
             let task_shared=shared.clone();
             let task_upstream=upstream.clone();
             let task=tokio::spawn(async move {
-                let slots=Arc::new(Semaphore::new(16));
+                let slots=Arc::new(Semaphore::new(1000));
                 loop { match listener.accept(){
                     Ok((stream,peer))=>{
                         if let Ok(mut shared)=task_shared.lock(){shared.stats.accepted_connections=shared.stats.accepted_connections.saturating_add(1);}

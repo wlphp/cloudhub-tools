@@ -15,6 +15,8 @@ const navigation: Record<string, { section?: ApplicationSection; order: number; 
   "cloudhub.claude-providers": { section: "claude", order: 4, sidebar: true, icon: Bot, keywords: "Claude Code 供应商 API 切换 模型 映射" },
   "cloudhub.claude-desktop": { order: 4.5, sidebar: false, icon: MonitorCog, keywords: "Claude Desktop 桌面 供应商 直连 路由 聚合" },
   "cloudhub.codex": { section: "codex", order: 5, sidebar: true, icon: FileCode2 },
+  // Pi 配置在本机 ~/.pi/agent，未提供移动端界面。
+  "cloudhub.pi": { order: 5.5, sidebar: false, icon: SquareTerminal, keywords: "Pi pi-coding-agent 编码助手 供应商 模型 models.json 斜杠命令" },
   "cloudhub.frp": { section: "frp", order: 6, sidebar: true, icon: Network },
   "cloudhub.notes": { section: "notes", order: 7, sidebar: true, mobile: true, icon: NotebookPen, keywords: "备忘 笔记 记录 分组 标签 检索 提醒" },
   "cloudhub.wechat-multi": { order: 8, sidebar: false, icon: MessageCircle, keywords: "微信 WeChat Weixin Windows" },

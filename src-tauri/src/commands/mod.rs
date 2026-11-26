@@ -11,6 +11,8 @@ pub mod icp;
 #[cfg(desktop)]
 pub mod claude_workbench;
 #[cfg(desktop)]
+pub mod pi_config;
+#[cfg(desktop)]
 pub mod browser;
 #[cfg(desktop)]
 pub mod wechat_plugin;

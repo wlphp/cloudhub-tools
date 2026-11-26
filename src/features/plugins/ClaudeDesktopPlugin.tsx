@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { Activity, ArrowDown, Download, Eye, EyeOff, FolderOpen, GripVertical, Layers, Pencil, Plug, Plus, RotateCcw, Route, Search, Server, Settings2, Trash2 } from "lucide-react";
+import { Activity, AlertTriangle, ArrowDown, Download, Eye, EyeOff, FolderOpen, GripVertical, Layers, Pencil, Plug, Plus, RotateCcw, Route, Search, Server, Settings2, Trash2 } from "lucide-react";
 import { runningInTauri, runningOnPhone } from "../../platform/api";
 import { claudeDesktopAction, diagnoseClaudeDesktopConnection, getClaudeDesktopRoutingState, initialDesktopSelection, revealClaudeDesktopConfigKey, type ClaudeDesktopState, type DesktopAction, type DesktopConfigFile, type DesktopConnectionDiagnosis, type DesktopProvider, type DesktopSelection } from "../../platform/clients/claudeDesktop";
 import { claudeProvidersClient, DEFAULT_CLAUDE_ROUTING, type ClaudeMode, type ClaudeProviderInput, type ClaudeRoutingState } from "../../platform/clients/claudeProviders";
@@ -385,8 +385,14 @@ export function ClaudeDesktopPlugin() {
       </button>}
     </div>}
     {nativeDesktop && state.selection.mode !== "direct" && !state.running && <div className="claude-recovery-banner" role="status">
-      <span>Claude Desktop 本机网关已停止。</span>
-      <button type="button" className="secondary" disabled={busy} onClick={() => void run(() => perform({ type: "resume" }))}>重新启动网关</button>
+      <AlertTriangle className="claude-recovery-icon" size={16} aria-hidden="true" />
+      <div className="claude-recovery-copy">
+        <strong>Claude Desktop 本机网关已停止</strong>
+        <span>当前为「{nameOf(state.selection.mode)}」模式，网关未运行时 Claude Desktop 的请求无法转发。</span>
+      </div>
+      <button type="button" className="secondary" disabled={busy} onClick={() => void run(() => perform({ type: "resume" }))}>
+        <RotateCcw size={14} aria-hidden="true" />重新启动网关
+      </button>
     </div>}
     {notice && <p className="claude-config-help" role="status">{notice}</p>}
     {error && !pending && !importOptions && !remove && <p className="claude-error" role="alert">{error}</p>}

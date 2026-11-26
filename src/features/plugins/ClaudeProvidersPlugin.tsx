@@ -11,6 +11,7 @@ import { runningInTauri } from "../../platform/api";
 import { MoreMenu } from "../../shared/MoreMenu";
 import { ConfirmDialog } from "../../shared/ConfirmDialog";
 import { SecretField } from "../../shared/SecretField";
+import { backupDate, ConfigBackupHistoryDialog } from "./ConfigBackupHistoryDialog";
 import { claudeProvidersClient, claudeWorkbenchClient, DEFAULT_CLAUDE_ROUTING, type ClaudeMode, type ClaudeRoutingState, type ClaudeRoutingConfig, type ClaudeModelMapping, type ClaudeApiFormat, type ClaudeApiKeyField, type ClaudeProviderInput, type ClaudeProviderSummary, type ClaudeProviderList, type ClaudeWorkspaceState } from "../../platform/clients/claudeProviders";
 import { AggregateStartDialog, ModeBar, providerModelCount, RoutingSettings, UsagePanel } from "./ClaudeRoutingPanels";
 import { ClaudeWorkspacePanel } from "./ClaudeWorkspacePanel";
@@ -1250,15 +1251,13 @@ export function ClaudeProvidersPlugin({ mobile = false }: { mobile?: boolean } =
       <p className="claude-config-help">完整内容，只读预览，未脱敏；可能包含明文密钥、认证信息和命令，请勿直接截图或分享。</p>
       <pre className="claude-config-preview">{JSON.stringify(configPreview.document, null, 2)}</pre>
     </SharedDialog>}
-    {backupHistoryOpen && <SharedDialog sizeStorageKey="features/plugins/claude-providers-plugin/claude-providers-plugin/5" title="Claude Code 配置备份历史" subtitle="历史备份会一直保留；恢复后也不会删除所选记录。恢复前会自动备份当前配置。" size="large" onClose={() => setBackupHistoryOpen(false)} footer={<button type="button" className="secondary" onClick={() => setBackupHistoryOpen(false)}>关闭</button>}>
-      <div className="claude-backup-history" role="list">
-        {backups.map((backup, index) => <div className="claude-backup-history-row" role="listitem" key={backup.id}>
-          <span><strong>{new Date(backup.createdAt).toLocaleString()}</strong><small>{index === 0 ? "最近备份" : `历史备份 #${backups.length - index}`}</small></span>
-          <button type="button" className="secondary" disabled={Boolean(busyId)} onClick={() => confirm(`恢复 ${new Date(backup.createdAt).toLocaleString()} 的配置？当前配置会先另存为一条新备份。`, async () => { await claudeProvidersClient.restoreBackup(backup.id); setBackupHistoryOpen(false); setMessage("已恢复所选历史配置，所有历史备份仍保留"); await load(); })}><RotateCcw size={13} aria-hidden="true" />恢复此备份</button>
-        </div>)}
-        {!backups.length && <p className="claude-config-help">当前配置目录还没有历史备份。</p>}
-      </div>
-    </SharedDialog>}
+    {backupHistoryOpen && <ConfigBackupHistoryDialog sizeStorageKey="features/plugins/claude-providers-plugin/backup-history"
+      title="Claude Code 配置备份历史" backups={backups} busy={Boolean(busyId)} onClose={() => setBackupHistoryOpen(false)}
+      onRestore={backup => confirm(`恢复 ${backupDate(backup)} 的配置？当前配置会先另存为一条新备份。`, async () => {
+        await claudeProvidersClient.restoreBackup(backup.id);
+        setMessage("已恢复所选历史配置");
+        await load();
+      })} />}
     {confirmation && createPortal(<ConfirmDialog message={confirmation.message} busy={confirmBusy} error={confirmError} onResolve={accepted => {
       if (confirmBusy) return;
       if (!accepted) { setConfirmation(null); return; }

@@ -7,7 +7,7 @@ export type ImportableAiSupplier = { profile: AiProfile; apiKey: string };
 
 /** Reads the shared model-supplier catalog; secrets are revealed only after an explicit import click. */
 export function AiSupplierImport({ target, onImport }: {
-  target: "codex" | "claude";
+  target: "codex" | "claude" | "pi";
   onImport: (value: ImportableAiSupplier) => void;
 }) {
   const [profiles, setProfiles] = useState<AiProfile[]>([]);

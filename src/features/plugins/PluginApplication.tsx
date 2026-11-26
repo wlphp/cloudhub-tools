@@ -10,6 +10,7 @@ import { EnvironmentVariablesPlugin } from "./EnvironmentVariablesPlugin";
 import { StartupManagerPlugin } from "./StartupManagerPlugin";
 import { WindowsToolboxPlugin } from "./WindowsToolboxPlugin";
 import { HttpDebugProxyPlugin } from "./HttpDebugProxyPlugin";
+import { PiConfigPlugin } from "./PiConfigPlugin";
 import type { Account, LocalAsset } from "../../shared/types";
 
 const BrowserEnvironments = lazy(() => import("./BrowserEnvironments").then(module => ({ default: module.BrowserEnvironments })));
@@ -53,6 +54,7 @@ export function PluginApplication({ pluginId, wslEnabled, mobile = false, accoun
     case "cloudhub.fingerprint-browser": return <Suspense fallback={<p role="status">正在加载浏览器环境…</p>}><BrowserEnvironments open /></Suspense>;
     case "cloudhub.claude-desktop": return <div className="claude-providers-dialog"><ClaudeDesktopPlugin /></div>;
     case "cloudhub.claude-providers": return <div className="claude-providers-dialog"><ClaudeProvidersPlugin mobile={mobile} /></div>;
+    case "cloudhub.pi": return <div className="claude-providers-dialog"><PiConfigPlugin /></div>;
     case "cloudhub.notes": return <NotesPanel mobile={mobile} />;
     case "cloudhub.lan-devices": return <LanDevicesPlugin onConnect={onLanConnect} />;
     case "cloudhub.network-speed": return <Suspense fallback={<p role="status">正在加载网络测速…</p>}><NetworkSpeedPlugin /></Suspense>;

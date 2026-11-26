@@ -74,6 +74,17 @@ export const officialPlugins = [{
   platform: "desktop",
   permissions: ["读写 Claude Desktop 本机配置并加密备份", "加密保存供应商 API Key，第三方直连时写入 Desktop 配置", "启动本机回环网关并转发所选供应商请求"],
 }, {
+  id: "cloudhub.pi",
+  name: "Pi 编码助手",
+  version: "0.1.0",
+  publisher: "云枢工具箱",
+  description: "管理 Pi 编码助手的自定义供应商与默认模型，内置常用供应商预设和常用命令。",
+  category: "开发工具",
+  distribution: "builtin",
+  platform: "desktop",
+  // 只改写界面保存的 providers 条目，写入前备份；密钥不回传界面。
+  permissions: ["读写本机 ~/.pi/agent 下的 models.json 与 settings.json（修改前备份）", "按用户输入写入供应商 API Key，界面不回显", "打开 Pi 配置目录"],
+}, {
   id: "cloudhub.lan-devices",
   name: "局域网设备",
   version: "0.1.0",

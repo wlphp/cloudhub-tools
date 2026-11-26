@@ -1054,6 +1054,30 @@
 .codex-page .codex-reference-grid .codex-card .codex-account-action-row > button svg { width: 12px; height: 12px; flex-shrink: 0; }
 
 .codex-dialog > .codex-overview-dialog-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 10px; padding: 14px 20px; }
+.codex-switch-dialog { width: min(680px, calc(100vw - 32px)); }
+.codex-switch-dialog > header { padding-bottom: 14px !important; }
+.codex-switch-dialog > header h2 { font-size: 18px !important; }
+.codex-switch-dialog .codex-dialog-content { display: grid; gap: 10px; min-width: 0; overflow-x: hidden; padding: 16px 20px; }
+.codex-switch-summary { display: grid; gap: 3px; min-width: 0; padding: 12px 14px; border: 1px solid color-mix(in srgb, var(--jb-accent) 32%, var(--jb-border)); border-radius: 6px; background: color-mix(in srgb, var(--jb-accent) 7%, var(--jb-surface)); }
+.codex-switch-kicker { color: var(--jb-muted); font-size: 11px; }
+.codex-switch-summary strong { min-width: 0; color: var(--jb-text); font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.codex-switch-path { display: flex; align-items: flex-start; gap: 9px; min-width: 0; padding: 10px 12px; border: 1px solid var(--jb-border); border-radius: 6px; background: var(--jb-surface-2); }
+.codex-switch-path > svg { flex: 0 0 auto; margin-top: 2px; color: var(--jb-muted); }
+.codex-switch-path > div { display: grid; gap: 3px; min-width: 0; }
+.codex-switch-path > div > span { color: var(--jb-muted); font-size: 11px; }
+.codex-switch-path code { color: var(--jb-text); font-family: var(--font-mono, Consolas, monospace); font-size: 11px; overflow-wrap: anywhere; user-select: text; }
+.codex-switch-impact { min-width: 0; padding: 10px 12px; border: 1px solid var(--jb-border); border-radius: 6px; background: var(--jb-surface); }
+.codex-switch-impact h3 { margin: 0 0 6px; color: var(--jb-text); font-size: 12px; font-weight: 600; }
+.codex-switch-impact ul { display: grid; gap: 4px; margin: 0; padding-left: 18px; color: var(--jb-muted); font-size: 11.5px; line-height: 1.55; }
+.codex-switch-expiry { display: inline-flex; margin-top: 8px; padding: 3px 7px; border: 1px solid var(--jb-border); border-radius: 10px; color: var(--jb-muted); font-size: 10.5px; }
+.codex-switch-dialog > .codex-overview-dialog-actions { gap: 8px; padding: 10px 20px; }
+.codex-switch-dialog > .codex-overview-dialog-actions button { min-width: 88px; min-height: 38px; }
+.codex-switch-dialog > .codex-overview-dialog-actions .codex-dialog-primary { min-width: 0; }
+@media (max-width: 560px) {
+  .codex-switch-dialog .codex-dialog-content { padding: 14px; }
+  .codex-switch-dialog > .codex-overview-dialog-actions { padding: 10px 14px; }
+  .codex-switch-dialog > .codex-overview-dialog-actions button { flex: 1 1 auto; }
+}
 .codex-error-reauthorize { display: inline-flex; }
 .codex-error-detail-dialog .codex-error-reauthorize > button { background: var(--jb-accent,#9b8cff); border-color: var(--jb-accent,#9b8cff); color: var(--jb-on-accent,#fff); }
 .codex-error-detail-dialog > .modal-head h2 { font-size: 16px; }
