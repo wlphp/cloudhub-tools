@@ -9,7 +9,7 @@ import { codexClient, type CodexAccount, type CodexGatewayState } from "../../pl
 import { runningOnPhone } from "../../platform/api";
 
 import { GatewayMonitoring } from "./GatewayMonitoring";
-import { quotaPresentation, quotaResetTime, quotaStatusNames, remainingPercent, useQuotaClock, windowName } from "./quotaPresentation";
+import { isQuotaResetDue, quotaPresentation, quotaResetTime, quotaStatusNames, remainingPercent, useQuotaClock, windowName } from "./quotaPresentation";
 
 // Recommended IDs are suggestions, never evidence of account availability.
 const recommendedModels = ["gpt-6.1-sol", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5"];
@@ -261,7 +261,7 @@ export function CodexGateway({ accounts, disabled, onStateChange, externalPool, 
                 <td data-label="账号"><div className="codex-pool-account"><strong>{account.label}</strong>{account.email && account.email !== account.label && <small>{account.email}</small>}{!!account.tags.length && <small>{account.tags.join(" · ")}</small>}{account.note && <small>{account.note}</small>}{account.lastError && <small className="codex-pool-warning">上次额度刷新失败</small>}</div></td>
                 <td data-label="套餐 / 鉴权"><span className="codex-pool-plan">{poolPlanLabel(account)}</span>{account.plan && account.authMode !== "apikey" && <small>订阅账号</small>}</td>
                 <td data-label="额度状态"><span className={`codex-pool-status is-${presentation.status}`}>{quotaStatusNames[presentation.status]}</span>{presentation.remaining != null && <small>最低剩余 {Math.round(presentation.remaining)}%</small>}</td>
-                <td data-label="额度窗口">{account.authMode === "apikey" ? <span>API 账单计费<small>无订阅额度</small></span> : account.quota.windows.length ? <div className="codex-pool-window-list">{account.quota.windows.map((window, index) => <span key={index}><strong>{windowName(window.windowMinutes)}</strong><small>{remainingPercent(window) == null ? "额度未知" : `${Math.round(remainingPercent(window)!)}% 剩余`} · {quotaResetTime(window.resetsAt, poolNow)}</small></span>)}</div> : <span>尚未获取额度</span>}</td>
+                <td data-label="额度窗口">{account.authMode === "apikey" ? <span>API 账单计费<small>无订阅额度</small></span> : account.quota.windows.length ? <div className="codex-pool-window-list">{account.quota.windows.map((window, index) => <span key={index}><strong>{windowName(window.windowMinutes)}</strong><small className={isQuotaResetDue(window.resetsAt, poolNow) ? "codex-quota-reset-due" : undefined}>{remainingPercent(window) == null ? "额度未知" : `${Math.round(remainingPercent(window)!)}% 剩余`} · {quotaResetTime(window.resetsAt, poolNow)}</small></span>)}</div> : <span>尚未获取额度</span>}</td>
                 <td data-label="额度更新"><span>{account.quota.fetchedAt ? new Date(account.quota.fetchedAt).toLocaleString() : "未刷新"}</span>{presentation.status === "stale" && <small className="codex-pool-warning">缓存已过期</small>}</td>
               </tr>;
             })}</tbody>

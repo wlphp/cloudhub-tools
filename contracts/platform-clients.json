@@ -1451,6 +1451,26 @@
             "codex_restore_profile"
           ],
           "preview": []
+        },
+        {
+          "name": "pelican",
+          "native": [
+            "codex_pelican_start",
+            "codex_pelican_active",
+            "codex_pelican_get",
+            "codex_pelican_cancel",
+            "codex_pelican_dismiss",
+            "codex_pelican_retry",
+            "codex_pelican_artifact",
+            "codex_pelican_browser",
+            "codex_pelican_history",
+            "codex_pelican_delete",
+            "codex_pelican_clear_all",
+            "codex_pelican_retention_get",
+            "codex_pelican_retention_set",
+            "codex_pelican_cleanup"
+          ],
+          "preview": []
         }
       ]
     },

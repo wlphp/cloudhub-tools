@@ -8,6 +8,7 @@ import { createPortal } from "react-dom";
 import { Plus, Pencil, Copy, Trash2, RefreshCw, Search, Server, Play, FlaskConical, Upload, Download, FileText, CheckSquare, Layers, GripVertical } from "lucide-react";
 import { ProviderEditorPage, providerEditorInput } from "./ProviderEditorPage";
 import { ProviderImportDialog } from "./ProviderImportDialog";
+import { CodexProviderPresetPicker } from "./CodexProviderPresetPicker";
 import { ProviderUsageControl, readUsageSelection, USAGE_PREFERENCE_PREFIX } from "./ProviderUsageControl";
 import { ProviderProbeDialog } from "./ProviderProbeDialog";
 import { ProviderLaunchDialog, type ProviderLaunchTarget } from "./ProviderLaunchDialog";
@@ -166,11 +167,13 @@ export function ModelProviders({ onChanged, privacy = false }: { onChanged?: () 
     catch (e) { if (alive.current) setError(e instanceof Error ? e.message : "刷新供应商失败"); }
     finally { pending.current = false; if (alive.current) setBusy(false); }
   }
+  const [picking, setPicking] = useState(false);
   function edit(value?: CodexProvider) {
     const keys = value?.keys.map(k => ({ ...k, secret: null, settings: { ...k.settings, models: k.settings?.modelsScoped || k.settings?.models?.length ? k.settings.models ?? [] : value.models, modelsScoped: true } }));
     setError("");
     setCatalogMessage("");
-    setEditing(value && keys ? { ...value, keys } : { ...fresh(), name: `供应商 ${items.length + 1}` });
+    if (value && keys) setEditing({ ...value, keys });
+    else setPicking(true);
   }
   function updateKeys(keys: ProviderInput["keys"]) {
     setEditing(current => current ? { ...current, keys } : current);
@@ -314,6 +317,9 @@ export function ModelProviders({ onChanged, privacy = false }: { onChanged?: () 
       </article>)}</div>
     </section>}
     </section>
+    {picking && <CodexProviderPresetPicker base={{ ...fresh(), name: `供应商 ${items.length + 1}` }} onClose={() => setPicking(false)}
+      onCustom={() => { setPicking(false); setEditing({ ...fresh(), name: `供应商 ${items.length + 1}` }); }}
+      onSelect={value => { setPicking(false); setEditing(value); }} />}
     {editing && <ProviderEditorPage value={editing} busy={busy} fetchingModels={fetchingModels} catalogMessage={catalogMessage} error={error} onChange={setEditing} onKeysChange={updateKeys} onFetchModels={() => void fetchModels()} onSave={() => void run(() => codexProviders.save(providerEditorInput(editing)), true)} onClose={() => { setEditing(null); setError(""); }} />}
     {aggregateEditing && <AggregateDialog value={aggregateEditing} providers={items.filter(v => v.wireApi === "chat_completions")} busy={busy} onClose={() => setAggregateEditing(null)} onChange={setAggregateEditing} onSave={() => void runAggregate(() => codexProviders.aggregateSave(aggregateEditing), true)} error={error} />}
     {launching && <ProviderLaunchDialog target={launching} privacy={privacy} switchEnabled={switchEnabled} onEnableSwitch={() => setProviderSwitchEnabled(true)} onClose={() => { setLaunching(null); onChanged?.(); }} />}

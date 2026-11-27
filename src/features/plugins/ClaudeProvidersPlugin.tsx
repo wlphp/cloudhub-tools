@@ -1,10 +1,10 @@
 import { ToastNotice } from "../../shared/ToastNotice";
-import { SortSelectionControls } from "../../shared/SortSelectionControls";
+import { SelectionCheckbox, SortSelectionControls } from "../../shared/SortSelectionControls";
 import { useSortableDrag } from "../../shared/useSortableDrag";
 import { useDialogDocument } from "../../shared/DialogDocument";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Activity, AlertTriangle, ArrowDown, ArrowLeftRight, ArrowUp, Check, Copy, Download, ExternalLink, FolderOpen, GripVertical, HelpCircle, ListChecks, Loader2, Minus, MoreHorizontal, Pencil, Plus, RotateCcw, Search, Server, Star, Trash2, Wand2, Wifi } from "lucide-react";
+import { Activity, AlertTriangle, ArrowDown, ArrowDownToLine, ArrowLeftRight, ArrowUp, Check, Copy, Download, ExternalLink, FolderOpen, GripVertical, HelpCircle, ListChecks, Loader2, Minus, MoreHorizontal, Pencil, Plus, RotateCcw, Search, Server, Star, Trash2, Wand2, Wifi, X } from "lucide-react";
 import { ConnectionDiagnosticsDialog } from "../codex/CodexDiagnostics";
 import { SharedDialog } from "../../shared/SharedDialog";
 import { runningInTauri } from "../../platform/api";
@@ -12,6 +12,7 @@ import { MoreMenu } from "../../shared/MoreMenu";
 import { ConfirmDialog } from "../../shared/ConfirmDialog";
 import { SecretField } from "../../shared/SecretField";
 import { backupDate, ConfigBackupHistoryDialog } from "./ConfigBackupHistoryDialog";
+import { queryClaudeDesktopModels, revealClaudeDesktopProviderKey } from "../../platform/clients/claudeDesktop";
 import { claudeProvidersClient, claudeWorkbenchClient, DEFAULT_CLAUDE_ROUTING, type ClaudeMode, type ClaudeRoutingState, type ClaudeRoutingConfig, type ClaudeModelMapping, type ClaudeApiFormat, type ClaudeApiKeyField, type ClaudeProviderInput, type ClaudeProviderSummary, type ClaudeProviderList, type ClaudeWorkspaceState } from "../../platform/clients/claudeProviders";
 import { AggregateStartDialog, ModeBar, providerModelCount, RoutingSettings, UsagePanel } from "./ClaudeRoutingPanels";
 import { ClaudeWorkspacePanel } from "./ClaudeWorkspacePanel";
@@ -221,11 +222,15 @@ export function Editor({ draft, keyConfigured, keyDecryptionFailed, onClose, onS
 
   async function pullModelList() {
     if (pickerBusy) return;
+    if (!runningInTauri) { setPickerMessage("请在桌面客户端获取模型列表，当前可手动添加模型"); return; }
     if (!canQueryModels) { setPickerMessage("请填写请求地址与 API Key"); return; }
     setPickerBusy(true); setPickerMessage(""); setError("");
     try {
-      const available = await claudeWorkbenchClient.models(draft.id, { ...value, apiKey: value.apiKey ?? "" });
-      if (!available.length) { setPickerMessage("上游未返回模型，请手动填入"); setPickerBusy(false); return; }
+      const payload = { ...value, apiKey: value.apiKey ?? "" };
+      const available = desktopSave
+        ? await queryClaudeDesktopModels(draft.id, payload)
+        : await claudeWorkbenchClient.models(draft.id, payload);
+      if (!available.length) { setPickerMessage("上游未返回模型，请手动添加"); return; }
       setPickerModels(available);
       setPickerOpen(true);
     } catch (reason) {
@@ -289,11 +294,17 @@ export function Editor({ draft, keyConfigured, keyDecryptionFailed, onClose, onS
     } finally { setBusy(false); }
   }
 
+  const baseUrlPlaceholder = value.apiFormat === "anthropic"
+    ? "https://api.example.com/anthropic"
+    : value.apiFormat === "gemini"
+      ? "https://generativelanguage.googleapis.com"
+      : "https://api.example.com/v1";
+
   return <SharedDialog sizeStorageKey="features/plugins/claude-providers-plugin/editor"
     title={draft.id ? `编辑供应商 · ${value.name || "(未命名)"}` : "添加供应商"}
-    subtitle={desktopSave ? "填写请求地址、API Key 和渠道模型" : "Claude Code 供应商配置：请求地址、API Key、渠道模型、角色映射"}
+    subtitle={desktopSave ? "Claude Desktop 供应商配置：请求地址、API Key 和渠道可用模型" : "Claude Code 供应商配置：请求地址、API Key、渠道模型、角色映射"}
     icon={<Server size={20} aria-hidden="true" />}
-    className="claude-provider-dialog"
+    className="claude-provider-dialog pi-editor"
     bodyClassName="claude-provider-body"
     closeLabel="关闭供应商编辑"
     onClose={onClose}
@@ -301,45 +312,47 @@ export function Editor({ draft, keyConfigured, keyDecryptionFailed, onClose, onS
     onSubmit={event => { event.preventDefault(); void submit(); }}
     footer={<>
       <button type="button" className="secondary" onClick={onClose} disabled={busy}>取消</button>
-      <button type="submit" className="primary" disabled={busy}>{busy ? "保存中…" : "保存"}</button>
+      <button type="submit" className="primary" disabled={busy || pickerBusy}><Check size={14} aria-hidden="true" />{busy ? "保存中…" : "保存"}</button>
     </>}>
     <div className="claude-field-row">
       <label className="claude-field">供应商名称<input value={value.name} maxLength={60} autoFocus onChange={event => patch({ name: event.target.value })} placeholder="例如：公司专用账号" /></label>
       <label className="claude-field">官网链接<input value={value.websiteUrl ?? ""} onChange={event => patch({ websiteUrl: event.target.value })} placeholder="https://example.com" /></label>
     </div>
     {!desktopSave && <label className="claude-check"><input type="checkbox" checked={Boolean(value.officialLogin)} onChange={event => patch({ officialLogin: event.target.checked })} />使用 Claude 官方登录（保留当前 OAuth 行为）</label>}
-    <label className="claude-field">请求地址（Anthropic 风格端点）<input value={value.baseUrl ?? ""} onChange={event => patch({ baseUrl: event.target.value })} placeholder="https://api.example.com/anthropic" /></label>
+    <label className="claude-field">请求地址<input value={value.baseUrl ?? ""} disabled={pickerBusy} onChange={event => patch({ baseUrl: event.target.value })} autoComplete="off" spellCheck={false} placeholder={baseUrlPlaceholder} /></label>
     <label className="claude-field">API Key
       {keyDecryptionFailed && <span className="claude-error" role="status">已保存密钥无法解密；请重新填写 API Key 并保存。原密文会在保存新密钥时替换。</span>}
-      <SecretField secretLabel="API Key" value={value.apiKey ?? ""} reveal={!desktopSave && draft.id && !keyDecryptionFailed ? () => claudeWorkbenchClient.revealProvider(draft.id) : undefined} onChange={event => patch({ apiKey: event.target.value })} placeholder={keyDecryptionFailed ? "请重新填写 API Key" : draft.id ? (desktopSave ? "留空保留已保存的密钥" : "留空则保留已保存的密钥，点眼睛查看") : "填写供应商 API Key"} autoComplete="off" spellCheck={false} />
+      <SecretField secretLabel="API Key" value={value.apiKey ?? ""} disabled={pickerBusy} reveal={draft.id && keyConfigured && !keyDecryptionFailed ? () => (desktopSave ? revealClaudeDesktopProviderKey(draft.id) : claudeWorkbenchClient.revealProvider(draft.id)) : undefined} onChange={event => patch({ apiKey: event.target.value })} placeholder={keyDecryptionFailed ? "请重新填写 API Key" : draft.id ? "留空则保留已保存的密钥，点眼睛查看" : "填写供应商 API Key"} autoComplete="off" spellCheck={false} />
     </label>
     <div className="claude-field-row">
-      <label className="claude-field">上游协议格式<select value={value.apiFormat} onChange={event => patch({ apiFormat: event.target.value as ClaudeApiFormat })}>{API_FORMATS.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
-      <label className="claude-field">认证字段<select value={value.apiKeyField} onChange={event => patch({ apiKeyField: event.target.value as ClaudeApiKeyField })}>{KEY_FIELDS.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
+      <label className="claude-field">上游协议格式<select value={value.apiFormat} disabled={pickerBusy} onChange={event => patch({ apiFormat: event.target.value as ClaudeApiFormat })}>{API_FORMATS.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
+      <label className="claude-field">认证字段<select value={value.apiKeyField} disabled={pickerBusy} onChange={event => patch({ apiKeyField: event.target.value as ClaudeApiKeyField })}>{KEY_FIELDS.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
     </div>
 
     {desktopSave && <label className="claude-check"><input type="checkbox" checked={Boolean(value.isFullUrl)} onChange={event => patch({ isFullUrl: event.target.checked })} />请求地址已包含完整 API 路径</label>}
     {/* 渠道可用模型：角色映射和聚合菜单都从这里取模型 */}
-    <fieldset className="claude-models">
-      <legend>渠道可用模型 {!desktopSave && <Hint text="该渠道实际提供的模型目录；角色映射从这里选择，聚合模式也使用这份目录。「获取模型列表」会从上游拉取并追加；也可手动维护。" />}</legend>
-      {!desktopSave && <div className="claude-models-toolbar">
-        <button type="button" className="secondary" disabled={busy || pickerBusy || !canQueryModels} onClick={() => void pullModelList()} title={
+    <fieldset className="claude-models pi-editor-models">
+      <legend>渠道可用模型 <span className="pi-model-count">{(value.modelCatalog ?? []).length}</span>{!desktopSave && <Hint text="该渠道实际提供的模型目录；角色映射从这里选择，聚合模式也使用这份目录。「获取模型列表」会从上游拉取并追加；也可手动维护。" />}</legend>
+      <div className="claude-models-toolbar pi-models-toolbar">
+        <button type="button" className="secondary pi-fetch-models" disabled={busy || pickerBusy || (runningInTauri && !canQueryModels)} onClick={() => void pullModelList()} title={
           !canQueryModels ? "请填写请求地址与 API Key，官方登录不支持查询模型列表"
-            : "从上游拉取模型列表，弹出多选窗口让你勾选后并入渠道可用模型"
+            : "从上游拉取模型列表，弹出多选窗口勾选后并入渠道可用模型"
         }>
-          {pickerBusy ? <Loader2 className="is-spin" size={13} aria-hidden="true" /> : <Download size={13} aria-hidden="true" />}
-          获取模型列表
+          {pickerBusy ? <Loader2 className="is-spin" size={13} aria-hidden="true" /> : <ArrowDownToLine size={13} aria-hidden="true" />}
+          {pickerBusy ? "正在获取…" : "获取模型列表"}
         </button>
-        {pickerMessage && <span className="claude-models-toolbar-message">{pickerMessage}</span>}
-      </div>}
-      {(value.modelCatalog ?? []).map((item, index) => <div className="claude-catalog-row" key={index}>
-        <button type="button" className="claude-icon-button" title="置为聚合默认模型" aria-label={`置为聚合默认模型 ${index + 1}`} aria-pressed={index === 0} disabled={busy} onClick={() => patch({ modelCatalog: [item, ...(value.modelCatalog ?? []).filter((_, i) => i !== index)] })}><Star size={13} fill={index === 0 ? "currentColor" : "none"} aria-hidden="true" /></button>
-        <input aria-label={`模型 ID ${index + 1}`} value={item.model} onChange={event => setCatalogItem(index, "model", event.target.value)} placeholder="模型 ID" />
-        <input aria-label={`模型名称 ${index + 1}`} value={item.displayName ?? ""} onChange={event => setCatalogItem(index, "displayName", event.target.value)} placeholder="显示名称" />
+        {pickerMessage && <span className="claude-models-toolbar-message" role="status">{pickerMessage}</span>}
+      </div>
+      {(value.modelCatalog ?? []).length > 0 && <div className="pi-model-list" role="list" aria-label="渠道可用模型列表">
+      {(value.modelCatalog ?? []).map((item, index) => <div className="pi-model-row is-claude-catalog" role="listitem" key={index}>
+        <button type="button" className={`secondary claude-icon-button claude-default-star${index === 0 ? " is-active" : ""}`} title="置为聚合默认模型" aria-label={`置为聚合默认模型 ${index + 1}`} aria-pressed={index === 0} disabled={busy} onClick={() => patch({ modelCatalog: [item, ...(value.modelCatalog ?? []).filter((_, i) => i !== index)] })}><Star size={13} fill={index === 0 ? "currentColor" : "none"} aria-hidden="true" /></button>
+        <input aria-label={`模型 ID ${index + 1}`} value={item.model} onChange={event => setCatalogItem(index, "model", event.target.value)} autoComplete="off" spellCheck={false} placeholder="模型 ID" />
+        <input aria-label={`模型名称 ${index + 1}`} value={item.displayName ?? ""} onChange={event => setCatalogItem(index, "displayName", event.target.value)} maxLength={120} autoComplete="off" placeholder="显示名称（可选）" />
         <label className="claude-check"><input type="checkbox" aria-label={`模型 1M ${index + 1}`} checked={Boolean(item.supports1m)} onChange={event => setCatalogItem(index, "supports1m", event.target.checked)} />1M</label>
-        <button type="button" className="claude-icon-button" title="移除模型" aria-label={`移除模型 ${index + 1}`} disabled={busy} onClick={() => patch({ modelCatalog: (value.modelCatalog ?? []).filter((_, i) => i !== index) })}><Trash2 size={13} aria-hidden="true" /></button>
+        <button type="button" className="secondary claude-icon-button" title="移除模型" aria-label={`移除模型 ${index + 1}`} disabled={busy} onClick={() => patch({ modelCatalog: (value.modelCatalog ?? []).filter((_, i) => i !== index) })}><X size={14} aria-hidden="true" /></button>
       </div>)}
-      <button type="button" className="secondary" disabled={busy} onClick={() => patch({ modelCatalog: [...(value.modelCatalog ?? []), { model: "" }] })}><Plus size={14} aria-hidden="true" />手动添加模型</button>
+      </div>}
+      <button type="button" className="secondary pi-add-model" disabled={busy || (value.modelCatalog ?? []).length >= 200} onClick={() => patch({ modelCatalog: [...(value.modelCatalog ?? []), { model: "" }] })}><Plus size={14} aria-hidden="true" />手动添加模型</button>
     </fieldset>
 
     {!desktopSave && <>
@@ -485,60 +498,75 @@ function ModelPicker({
     onApply(add, remove);
   };
 
+  const selectedVisible = visibleIds.filter(id => draft.has(id)).length;
+  const allVisible = visibleIds.length > 0 && selectedVisible === visibleIds.length;
+
   return <SharedDialog sizeStorageKey="features/plugins/claude-providers-plugin/model-picker"
-    title="选择模型"
-    subtitle="勾选要加入「渠道可用模型」的项，已在列表中的项会预选并允许取消。"
-    icon={<ListChecks size={20} aria-hidden="true" />}
+    title="选择渠道模型"
     size="small"
+    initialFocus="[type=search]"
     onClose={onClose}
-    className="claude-model-picker-dialog"
-    bodyClassName="claude-model-picker"
+    className="pi-catalog-dialog"
     footer={<>
       <button type="button" className="secondary" onClick={onClose}>取消</button>
-      <button type="button" className="primary" onClick={apply}>应用</button>
+      <button type="button" className="primary" disabled={selectedCount > 200} onClick={apply}>应用（{selectedCount}）</button>
     </>}
   >
-    <div className="claude-models-toolbar">
-      <input
-        type="search"
-        className="claude-picker-search"
-        aria-label="搜索模型"
-        placeholder="搜索模型 ID"
-        value={query}
-        onChange={event => setQuery(event.target.value)}
-        onKeyDown={event => { if (event.key === "Enter") event.preventDefault(); }}
-        autoFocus
-      />
-      <button type="button" className="secondary" disabled={!visibleIds.length} onClick={() => setChecked(visibleIds, true)}>全选</button>
-      <button type="button" className="secondary" disabled={!visibleIds.length} onClick={() => setChecked(visibleIds, false)}>全不选</button>
-    </div>
-    <div className="claude-picker-summary">
-      <span role="status">已选 {selectedCount} / {allIds.length} 个</span>
-      <label className="claude-check claude-picker-filter">
-        <input type="checkbox" checked={onlySelected} onChange={event => setOnlySelected(event.target.checked)} />
-        仅看已选
-      </label>
-    </div>
-    <ul className="claude-picker-list">
-      {visibleExtra.length > 0 && <li className="claude-picker-group"><span>已配置（不在本批上游返回）</span><span className="claude-picker-group-count">{visibleExtra.length}</span></li>}
-      {visibleExtra.map(id => <li key={`extra-${id}`} className="claude-picker-item">
-        <label className="claude-check">
-          <input type="checkbox" checked={draft.has(id)} onChange={event => setChecked([id], event.target.checked)} />
-          <code>{id}</code>
+    <section className="pi-catalog" aria-label="渠道模型">
+      <div className="pi-catalog-toolbar">
+        <label className="claude-search pi-catalog-search">
+          <Search size={14} aria-hidden="true" />
+          <input
+            type="search"
+            aria-label="搜索渠道模型"
+            placeholder="搜索模型 ID"
+            value={query}
+            onChange={event => setQuery(event.target.value)}
+            onKeyDown={event => { if (event.key === "Enter") event.preventDefault(); }}
+          />
         </label>
-      </li>)}
-      {visibleFetched.length > 0 && <li className="claude-picker-group"><span>上游返回</span><span className="claude-picker-group-count">{visibleFetched.length}</span></li>}
-      {visibleFetched.map(item => <li key={`fetched-${item.model}`} className="claude-picker-item">
-        <label className="claude-check">
-          <input type="checkbox" checked={draft.has(item.model)} onChange={event => setChecked([item.model], event.target.checked)} />
-          <span className="claude-picker-item-body">
-            <code>{item.model}</code>
-            {item.displayName && item.displayName !== item.model && <small className="claude-picker-item-sub">{item.displayName}</small>}
-          </span>
+        <label className="claude-check claude-picker-filter">
+          <input type="checkbox" checked={onlySelected} onChange={event => setOnlySelected(event.target.checked)} />
+          仅看已选
         </label>
-      </li>)}
-      {!visibleIds.length && <li className="claude-picker-empty">没有匹配的模型</li>}
-    </ul>
+        <button type="button" className="secondary" disabled={!selectedCount} onClick={() => setChecked(allIds, false)}>清空选择</button>
+      </div>
+      <div className="pi-catalog-results">
+        <div className="pi-catalog-heading">
+          <label className="claude-check">
+            <SelectionCheckbox
+              label="全选当前结果"
+              checked={allVisible}
+              mixed={selectedVisible > 0 && !allVisible}
+              disabled={!visibleIds.length}
+              onChange={() => setChecked(visibleIds, !allVisible)}
+            />
+            全选当前结果
+          </label>
+          <span role="status">{visibleIds.length} 个结果 · 已选 {selectedCount}</span>
+        </div>
+        {visibleIds.length > 0 ? <ul className="claude-picker-list pi-catalog-list">
+          {visibleExtra.length > 0 && <li className="claude-picker-group"><span>已配置（不在本批上游返回）</span><span className="claude-picker-group-count">{visibleExtra.length}</span></li>}
+          {visibleExtra.map(id => <li key={`extra-${id}`} className={`claude-picker-item${draft.has(id) ? " is-selected" : ""}`}>
+            <label className="claude-check">
+              <input type="checkbox" checked={draft.has(id)} onChange={event => setChecked([id], event.target.checked)} />
+              <span className="claude-picker-item-body"><code>{id}</code></span>
+            </label>
+          </li>)}
+          {visibleFetched.length > 0 && visibleExtra.length > 0 && <li className="claude-picker-group"><span>上游返回</span><span className="claude-picker-group-count">{visibleFetched.length}</span></li>}
+          {visibleFetched.map(item => <li key={`fetched-${item.model}`} className={`claude-picker-item${draft.has(item.model) ? " is-selected" : ""}`}>
+            <label className="claude-check">
+              <input type="checkbox" checked={draft.has(item.model)} onChange={event => setChecked([item.model], event.target.checked)} />
+              <span className="claude-picker-item-body">
+                <code>{item.model}</code>
+                {item.displayName && item.displayName !== item.model && <small className="claude-picker-item-sub">{item.displayName}</small>}
+              </span>
+            </label>
+          </li>)}
+        </ul> : <p className="claude-picker-empty">没有匹配的模型，请换一个关键词。</p>}
+      </div>
+      {selectedCount > 200 && <p className="claude-error" role="alert">最多可选择 200 个渠道模型，请减少选择。</p>}
+    </section>
   </SharedDialog>;
 }
 

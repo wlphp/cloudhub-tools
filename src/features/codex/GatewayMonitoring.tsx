@@ -4,14 +4,14 @@ import { RefreshCw, Save, Zap } from "lucide-react";
 import { SharedDialog } from "../../shared/SharedDialog";
 import { codexClient, type CodexAccount, type CodexCallDetail, type CodexCallLog, type CodexGatewayState, type CodexGatewaySettings } from "../../platform/clients/codex";
 
-import { quotaPresentation, quotaResetTime, quotaStatusNames, remainingPercent, useQuotaClock, windowName } from "./quotaPresentation";
+import { isQuotaResetDue, quotaPresentation, quotaResetTime, quotaStatusNames, remainingPercent, useQuotaClock, windowName } from "./quotaPresentation";
 
 export function PoolQuota({ account }: { account: CodexAccount }) {
   const now = useQuotaClock();
   const presentation = quotaPresentation(account, now);
   return <span className="codex-pool-account"><strong>{account.label}</strong><small>{quotaStatusNames[presentation.status]}</small>
     {account.authMode === "apikey" ? <small>API 账单计费 · 无订阅额度</small> : account.quota.windows.length ? account.quota.windows.map((window, index) => <small key={index}>
-      {windowName(window.windowMinutes)} · {remainingPercent(window) != null ? `${Math.round(remainingPercent(window)!)}% 剩余（缓存）` : "额度未知"}<br />{quotaResetTime(window.resetsAt, now)}
+      {windowName(window.windowMinutes)} · {remainingPercent(window) != null ? `${Math.round(remainingPercent(window)!)}% 剩余（缓存）` : "额度未知"}<br /><span className={isQuotaResetDue(window.resetsAt, now) ? "codex-quota-reset-due" : undefined}>{quotaResetTime(window.resetsAt, now)}</span>
     </small>) : <small>尚未获取额度</small>}
     <small>额度更新：{account.quota.fetchedAt ? new Date(account.quota.fetchedAt).toLocaleString() : "未刷新"}{presentation.status === "stale" ? " · 已过期" : ""}</small>
     {account.lastError && <small className="codex-pool-warning">上次额度刷新失败</small>}

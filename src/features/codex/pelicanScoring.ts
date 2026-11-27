@@ -1,0 +1,307 @@
+import { scoredPelicanBenchmark, type BenchmarkRule, type JsonValue } from "./pelicanBenchmarks";
+
+export interface PelicanScoreCheck {
+  kind: BenchmarkRule["kind"];
+  passed: boolean;
+  dimension: "format" | "answer";
+  field?: string;
+  count?: number;
+  expected?: string;
+  actual?: string;
+}
+
+export interface PelicanScoreResult {
+  version: "cockpit-strict-v1" | "cockpit-exact-v2";
+  format: "passed" | "failed" | null;
+  answer: "passed" | "partial" | "failed" | "unavailable" | null;
+  status: "passed" | "failed" | "partial" | "invalid" | "tooLong";
+  passed: number;
+  total: number;
+  checks: PelicanScoreCheck[];
+}
+
+export const PELICAN_GRADING_MAX_CHARS = 64 * 1024;
+
+export function parseExactJson(text: string): JsonValue {
+  let offset = 0;
+  const whitespace = () => {
+    while (/[\t\n\r ]/.test(text[offset] ?? "") && offset < text.length) offset++;
+  };
+  const fail = (): never => {
+    throw new Error("Invalid exact JSON");
+  };
+  const readString = (): string => {
+    if (text[offset++] !== '"') return fail();
+    const start = offset - 1;
+    while (offset < text.length) {
+      const char = text[offset++];
+      if (char === "\\") offset++;
+      else if (char === '"') return JSON.parse(text.slice(start, offset)) as string;
+    }
+    return fail();
+  };
+  const decimal = (token: string): string => {
+    const [coefficient, exponent = "0"] = token.toLowerCase().split("e");
+    const [whole, fraction = ""] = coefficient.replace(/^-/, "").split(".");
+    let digits = (whole + fraction).replace(/^0+/, "");
+    if (!digits) return "0";
+    let end = digits.length;
+    while (digits[end - 1] === "0") end--;
+    const power = Number(exponent) - fraction.length + digits.length - end;
+    digits = digits.slice(0, end);
+    return `${coefficient.startsWith("-") ? "-" : ""}${digits}e${power}`;
+  };
+  const readValue = (depth: number): JsonValue => {
+    if (depth > 64) return fail();
+    whitespace();
+    const char = text[offset];
+    if (char === '"') return readString();
+    if (char === "{" || char === "[") {
+      const isObj = char === "{";
+      const objResult: Record<string, JsonValue> = Object.create(null) as Record<string, JsonValue>;
+      const arrResult: JsonValue[] = [];
+      const keys = new Set<string>();
+      const close = isObj ? "}" : "]";
+      offset++;
+      whitespace();
+      if (text[offset] === close) {
+        offset++;
+        return isObj ? objResult : arrResult;
+      }
+      while (offset < text.length) {
+        whitespace();
+        let key = "";
+        if (isObj) {
+          key = readString();
+          if (keys.has(key)) return fail();
+          keys.add(key);
+          whitespace();
+          if (text[offset++] !== ":") return fail();
+        }
+        const item = readValue(depth + 1);
+        if (isObj) objResult[key] = item;
+        else arrResult.push(item);
+        whitespace();
+        const delimiter = text[offset++];
+        if (delimiter === close) return isObj ? objResult : arrResult;
+        if (delimiter !== ",") return fail();
+      }
+      return fail();
+    }
+    for (const literal of ["true", "false", "null"]) {
+      if (text.startsWith(literal, offset)) {
+        offset += literal.length;
+        return JSON.parse(literal) as JsonValue;
+      }
+    }
+    const numberToken = /^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?/.exec(text.slice(offset))?.[0];
+    if (!numberToken) return fail();
+    offset += numberToken.length;
+    const parsed = Number(numberToken);
+    if (!Number.isFinite(parsed) || decimal(numberToken) !== decimal(String(parsed))) return fail();
+    return parsed;
+  };
+  const result = readValue(0);
+  whitespace();
+  if (offset !== text.length) return fail();
+  return result;
+}
+
+export function exactJsonEqual(actual: JsonValue | undefined, expected: JsonValue): boolean {
+  if (actual === expected) return true;
+  if (actual === null || expected === null || typeof actual !== "object" || typeof expected !== "object") return false;
+  if (Array.isArray(actual) !== Array.isArray(expected)) return false;
+  const keys = Object.keys(expected);
+  return (
+    Object.keys(actual).length === keys.length &&
+    keys.every(
+      key =>
+        Object.prototype.hasOwnProperty.call(actual, key) &&
+        exactJsonEqual((actual as Record<string, JsonValue>)[key], (expected as Record<string, JsonValue>)[key]),
+    )
+  );
+}
+
+function evaluateRule(
+  rule: BenchmarkRule,
+  reply: string,
+): { valid: boolean; checks: PelicanScoreCheck[]; formatPassed?: boolean; answerValid?: boolean } {
+  const dimension: "format" | "answer" = ["json", "noComma", "bullets", "placeholders"].includes(rule.kind)
+    ? "format"
+    : "answer";
+  let passed = false;
+  let actual: string | undefined;
+  let expected: string | undefined;
+  let valid = true;
+
+  switch (rule.kind) {
+    case "jsonFields": {
+      let parsed: JsonValue | undefined;
+      try {
+        parsed = parseExactJson(reply.trim());
+      } catch { /* malformed JSON stays ungraded */ }
+      const object =
+        parsed !== undefined && parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
+          ? (parsed as Record<string, JsonValue>)
+          : undefined;
+      const names = rule.fields.map(field => field.name);
+      const formatPassed =
+        !!object &&
+        Object.keys(object).length === names.length &&
+        names.every(name => Object.prototype.hasOwnProperty.call(object, name));
+      return {
+        valid: formatPassed,
+        formatPassed,
+        answerValid: !!object,
+        checks: rule.fields.map(field => ({
+          kind: rule.kind,
+          dimension: "answer",
+          field: field.name,
+          expected: JSON.stringify(field.value),
+          actual: object && Object.prototype.hasOwnProperty.call(object, field.name) ? JSON.stringify(object[field.name]) : undefined,
+          passed: !!object && exactJsonEqual(object[field.name], field.value),
+        })),
+      };
+    }
+    case "json": {
+      const json = reply.trim().replace(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/i, "$1").trim();
+      try {
+        JSON.parse(json);
+        passed = true;
+      } catch { /* invalid JSON fails format check */ }
+      break;
+    }
+    case "noComma":
+      passed = !reply.includes(",");
+      break;
+    case "bullets":
+      actual = String((reply.match(/^[ \t]*\*[^*\r\n][^\r\n]*$|^[ \t]*-[^\r\n]*$/gm) ?? []).length);
+      expected = String(rule.count);
+      passed = actual === expected;
+      break;
+    case "placeholders": {
+      let opened = false;
+      let count = 0;
+      for (const character of reply) {
+        if (character === "\n" || character === "\r") opened = false;
+        else if (character === "[") opened = true;
+        else if (character === "]" && opened) {
+          count++;
+          opened = false;
+        }
+      }
+      actual = String(count);
+      expected = String(rule.count);
+      passed = Number(actual) >= rule.count;
+      break;
+    }
+    case "choice": {
+      const matches = [...reply.matchAll(/^Answer:[ \t]*([A-F])[ \t]*\r?$/gim)];
+      valid = matches.length === 1 && reply.slice((matches[0].index ?? 0) + matches[0][0].length).trim() === "";
+      actual = valid ? matches[0][1].toUpperCase() : undefined;
+      expected = rule.answer;
+      passed = valid && actual === expected;
+      break;
+    }
+    case "boldInteger": {
+      const match = /\*\*([0-9]{1,6})\*\*\s*[.!]?\s*$/.exec(reply);
+      valid = !!match;
+      actual = match ? String(Number(match[1])) : undefined;
+      expected = rule.answer;
+      passed = valid && actual === expected;
+      break;
+    }
+    case "solution": {
+      const start = reply.indexOf("<solution>");
+      const end = reply.indexOf("</solution>");
+      valid =
+        start >= 0 &&
+        end > start &&
+        start === reply.lastIndexOf("<solution>") &&
+        end === reply.lastIndexOf("</solution>") &&
+        !reply.slice(end + "</solution>".length).trim();
+      const answers = valid ? reply.slice(start + "<solution>".length, end).split(",").map(word => word.trim()) : [];
+      valid = valid && answers.length === rule.answers.length && answers.every(Boolean);
+      const normalize = (word: string) => word.toLowerCase().replace(/-/g, " ").replace(/\s+/g, " ").trim();
+      return {
+        valid,
+        checks: rule.answers.map((answer, index) => ({
+          kind: rule.kind,
+          dimension,
+          expected: answer,
+          actual: valid ? answers[index] : undefined,
+          passed: valid && normalize(answers[index]) === normalize(answer),
+        })),
+      };
+    }
+  }
+
+  return {
+    valid,
+    checks: [
+      {
+        kind: rule.kind,
+        dimension,
+        passed,
+        expected,
+        actual,
+        ...("count" in rule ? { count: rule.count } : {}),
+      },
+    ],
+  };
+}
+
+export function gradePelicanReply(prompt: string, reply: string): PelicanScoreResult | null {
+  const benchmark = scoredPelicanBenchmark(prompt);
+  if (!benchmark) return null;
+  const base = { version: benchmark.graderVersion, passed: 0, total: 0, checks: [] as PelicanScoreCheck[], format: null, answer: null };
+  if (reply.length > PELICAN_GRADING_MAX_CHARS) return { ...base, status: "tooLong" };
+  const evaluations = benchmark.rules.map(rule => evaluateRule(rule, reply));
+  const checks = evaluations.flatMap(entry => entry.checks);
+  if (!reply.trim()) checks.forEach(check => { check.passed = false; });
+  const passed = checks.filter(check => check.passed).length;
+  const status = evaluations.some(entry => !entry.valid)
+    ? "invalid"
+    : passed === checks.length
+      ? "passed"
+      : passed
+        ? "partial"
+        : "failed";
+  const formatChecks = checks.filter(check => check.dimension === "format");
+  const answerChecks = checks.filter(check => check.dimension === "answer");
+  const answerValid = evaluations.every(entry => entry.answerValid ?? entry.valid);
+  const answerPassed = answerChecks.filter(check => check.passed).length;
+  return {
+    version: benchmark.graderVersion,
+    status,
+    passed,
+    total: checks.length,
+    checks,
+    format:
+      reply.trim() && evaluations.every(entry => entry.formatPassed ?? entry.valid) && formatChecks.every(check => check.passed)
+        ? "passed"
+        : "failed",
+    answer: !answerChecks.length
+      ? null
+      : !answerValid
+        ? "unavailable"
+        : answerPassed === answerChecks.length
+          ? "passed"
+          : answerPassed
+            ? "partial"
+            : "failed",
+  };
+}
+
+export function formatRuleLabel(kind: BenchmarkRule["kind"], count?: number): string {
+  switch (kind) {
+    case "jsonFields": return "精确 JSON 答案";
+    case "json": return "有效 JSON";
+    case "noComma": return "无英文逗号";
+    case "bullets": return `恰好 ${count ?? 0} 项列表`;
+    case "placeholders": return `至少 ${count ?? 0} 个占位符`;
+    case "choice": return "最终选项";
+    case "boldInteger": return "最终加粗整数";
+    case "solution": return "逐项答案";
+  }
+}

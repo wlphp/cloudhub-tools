@@ -1,0 +1,49 @@
+/* 公共卡片网格多选选择器（参考：测试 Codex 唤醒 账号选择）。颜色只用主题变量。 */
+.selection-picker { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.selection-picker-heading { color: var(--jb-text); font-size: 13px; font-weight: 600; }
+
+.selection-picker label.selection-picker-search { display: flex; flex-direction: row; align-items: center; gap: 8px; box-sizing: border-box; width: 100%; height: 34px; min-height: 34px; margin: 0; padding: 0 12px; border: 1px solid var(--jb-border); border-radius: 8px; background: var(--jb-surface); color: var(--jb-muted); cursor: text; }
+.selection-picker label.selection-picker-search:focus-within { border-color: var(--jb-accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--jb-accent) 22%, transparent); }
+.selection-picker label.selection-picker-search > svg { flex: 0 0 auto; }
+.selection-picker label.selection-picker-search > input { flex: 1 1 auto; width: 0; min-width: 0; height: 100%; min-height: 0; margin: 0; padding: 0; border: 0; outline: 0; background: transparent; box-shadow: none; color: var(--jb-text); font-size: 12.5px; }
+
+.selection-picker-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+.selection-picker .selection-picker-toolbar > select { width: auto; height: 30px; min-height: 30px; margin: 0; padding: 0 8px; border: 1px solid var(--jb-border); border-radius: 7px; background: var(--jb-surface); color: var(--jb-text); font-size: 12px; box-shadow: none; }
+.selection-picker .selection-picker-toolbar > button,
+.selection-picker .selection-picker-actions > button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; height: 30px; min-height: 30px; margin: 0; padding: 0 10px; border: 1px solid var(--jb-border); border-radius: 7px; background: var(--jb-surface); color: var(--jb-text); font-size: 12px; white-space: nowrap; box-shadow: none; appearance: none; cursor: pointer; }
+.selection-picker .selection-picker-toolbar > button:hover:not(:disabled),
+.selection-picker .selection-picker-actions > button:hover:not(:disabled) { border-color: color-mix(in srgb, var(--jb-accent) 45%, var(--jb-border)); }
+.selection-picker .selection-picker-toolbar > button[aria-pressed="true"] { border-color: var(--jb-accent); color: var(--jb-accent); }
+.selection-picker :is(.selection-picker-toolbar > button, .selection-picker-actions > button):disabled { opacity: .55; cursor: default; }
+.selection-picker :is(.selection-picker-toolbar > button, .selection-picker-actions > button):focus-visible { outline: 2px solid var(--jb-accent); outline-offset: 1px; }
+
+.selection-picker-summary { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; color: var(--jb-muted); font-size: 12px; }
+.selection-picker-actions { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-left: auto; }
+.selection-picker label.selection-picker-select-all { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; box-sizing: border-box; height: 30px; margin: 0; padding: 0 10px; border: 1px solid var(--jb-border); border-radius: 7px; background: var(--jb-surface); color: var(--jb-text); font-size: 12px; white-space: nowrap; cursor: pointer; user-select: none; }
+.selection-picker label.selection-picker-select-all.is-disabled { opacity: .55; cursor: default; }
+.selection-picker label.selection-picker-select-all:focus-within { border-color: var(--jb-accent); }
+
+.selection-picker-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
+.selection-picker label.selection-card { position: relative; display: flex; flex-direction: column; align-items: stretch; gap: 6px; box-sizing: border-box; min-width: 0; margin: 0; padding: 10px 12px; border: 1px solid var(--jb-border); border-radius: 9px; background: var(--jb-surface); color: var(--jb-text); font-size: 12px; cursor: pointer; transition: border-color .15s, background-color .15s; }
+.selection-picker label.selection-card:hover { border-color: color-mix(in srgb, var(--jb-accent) 35%, var(--jb-border)); }
+.selection-picker label.selection-card.is-selected { border-color: color-mix(in srgb, var(--jb-accent) 60%, var(--jb-border)); background: color-mix(in srgb, var(--jb-accent) 6%, var(--jb-surface)); }
+.selection-picker label.selection-card.is-disabled { cursor: default; }
+.selection-picker label.selection-card:has(.selection-card-input:focus-visible) { outline: 2px solid var(--jb-accent); outline-offset: 1px; }
+.selection-picker input.selection-card-input { position: absolute; width: 1px; height: 1px; min-height: 0; margin: 0; padding: 0; border: 0; opacity: 0; pointer-events: none; }
+
+.selection-card-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.selection-card-mark { display: inline-flex; flex: 0 0 16px; align-items: center; justify-content: center; box-sizing: border-box; width: 16px; height: 16px; border: 1.5px solid var(--jb-border-strong, var(--jb-border)); border-radius: 4px; background: var(--jb-surface); color: #fff; }
+.selection-card.is-selected .selection-card-mark { border-color: var(--jb-accent); background: var(--jb-accent); }
+.selection-card-title { flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--jb-text); font-size: 13px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.selection-card-body { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; padding-left: 24px; }
+.selection-card-meta { flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--jb-muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.selection-card-aside { display: inline-flex; flex: 0 1 auto; justify-content: flex-end; min-width: 0; }
+.selection-card-footer { padding-left: 24px; min-width: 0; overflow-wrap: anywhere; }
+
+.selection-picker-pagination { padding-top: 10px; border-top: 1px solid var(--jb-border); }
+.selection-picker-empty { margin: 0; padding: 22px 14px; border: 1px dashed var(--jb-border); border-radius: 9px; color: var(--jb-muted); font-size: 12px; text-align: center; }
+
+@media (max-width: 560px) {
+  .selection-picker-grid { grid-template-columns: 1fr; }
+  .selection-picker-actions { margin-left: 0; }
+}

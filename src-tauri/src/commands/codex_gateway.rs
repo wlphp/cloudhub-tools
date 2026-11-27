@@ -318,9 +318,17 @@ pub(crate) async fn codex_wake_account(
     app: tauri::AppHandle,
     id: i64,
     model: String,
+    prompt: Option<String>,
+    effort: Option<String>,
 ) -> PlatformResult<()> {
     // Users must explicitly confirm consumption in the UI; no timer or auto-wakeup.
-    run_account_test(app, id, model, "Reply with OK.".into(), "low".into()).await.map(|_| ())
+    // prompt/effort are validated again in gateway::test_account (length and effort allow-list).
+    let prompt = prompt
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "Reply with OK.".into());
+    let effort = effort.filter(|value| !value.is_empty()).unwrap_or_else(|| "low".into());
+    run_account_test(app, id, model, prompt, effort).await.map(|_| ())
 }
 
 #[tauri::command]

@@ -106,7 +106,6 @@
 .codex-provider-preset-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
 :is(.codex-page,.codex-dialog) .codex-provider-editor .codex-provider-preset-grid>button { justify-content:flex-start; padding:10px; gap:10px; text-align:left; min-width:0; }
 .codex-provider-preset-grid>button>span:last-child { min-width:0; overflow-wrap:anywhere; }
-.codex-provider-preset-initial { display:grid; place-items:center; flex:none; width:30px; height:30px; border-radius:6px; background:var(--jb-bg,var(--jb-input)); color:var(--jb-accent,var(--jb-accent)); }
 .codex-provider-editor .codex-provider-secret-field input { padding-right:76px; }
 .codex-provider-editor .codex-provider-secret-actions { position:absolute; top:50%; right:4px; display:flex; align-items:center; gap:2px; transform:translateY(-50%); }
 .codex-provider-editor .codex-provider-secret-actions>button { position:static; display:grid; place-items:center; width:30px; height:30px; min-height:30px; margin:0; padding:0; border:0; background:transparent; transform:none; }

@@ -52,6 +52,8 @@ pub mod codex_instances;
 pub mod codex_backup;
 #[cfg(desktop)]
 pub mod codex_gateway;
+#[cfg(desktop)]
+pub mod codex_pelican;
 pub mod authenticator;
 pub mod app_lock;
 pub mod preferences;

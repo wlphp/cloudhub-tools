@@ -12,7 +12,8 @@ import { CodexSettingsDialog } from "./CodexSettingsDialog";
 import { ConfigToolbar } from "./ConfigToolbar";
 import { ConfigHistoryDialog } from "./ConfigHistoryDialog";
 import { ModelProviders } from "./ModelProviders";
-import { AccountTestDialog } from "./AccountTestDialog";
+import { AccountTestHost } from "./AccountTestDialog";
+import { WakeAccountsDialog } from "./WakeAccountsDialog";
 import { AddAccountDialog } from "./AddAccountDialog";
 import { AccountDetailsDialog } from "./AccountDetailsDialog";
 import { CodexAccountLogsDialog } from "./CodexAccountLogsDialog";
@@ -30,7 +31,7 @@ import { RemoteApiLogs } from "./RemoteApiLogs";
 import { BatchProxyDialog } from "./BatchProxyDialog";
 import { CodexGateway } from "./CodexGateway";
 import { ServiceSummary, type GatewayAction } from "./ServiceSummary";
-import { quotaPresentation, quotaResetTime, quotaStatusNames, remainingPercent, useQuotaClock, windowName, type QuotaStatus } from "./quotaPresentation";
+import { isQuotaResetDue, quotaPresentation, quotaResetTime, quotaStatusNames, remainingPercent, useQuotaClock, windowName, type QuotaStatus } from "./quotaPresentation";
 
 const time = (value: number | null) => value ? new Date(value).toLocaleString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }) : "尚未刷新";
 
@@ -57,8 +58,8 @@ export function CodexPanel({ mobile = false }: { mobile?: boolean }) {
   const [recycleOpen, setRecycleOpen] = useState(false);
   const [deleteIds, setDeleteIds] = useState<number[] | null>(null);
   const [wakeIds, setWakeIds] = useState<number[] | null>(null);
-  const [testAccounts, setTestAccounts] = useState<CodexAccount[] | null>(null);
-  const [wakeModel, setWakeModel] = useState("");
+  const [testOpen, setTestOpen] = useState(false);
+  const [testInitialIds, setTestInitialIds] = useState<number[]>([]);
   const [models, setModels] = useState<string[]>([]);
   const [reverseSort, setReverseSort] = useState(false);
   const [privacy, setPrivacy] = useState(false);
@@ -273,24 +274,6 @@ export function CodexPanel({ mobile = false }: { mobile?: boolean }) {
     })();
   }
 
-  async function wake() {
-    const ids = wakeIds;
-    if (!ids?.length || !/^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,127}$/.test(wakeModel.trim())) return;
-    await act("唤醒账号", async () => {
-      stopBatch.current = false;
-      let done = 0, failures = 0;
-      try {
-        for (const id of ids) {
-          if (!alive.current || stopBatch.current) break;
-          setBatch({ total: ids.length, done, label: accounts.find(account => account.id === id)?.label ?? "账号", stopping: false });
-          try { await codexClient.wakeAccount(id, wakeModel.trim()); } catch { failures++; }
-          done++;
-        }
-        if (alive.current) { setWakeIds(null); setNotice(`唤醒已处理 ${done} / ${ids.length} 个账号，成功 ${done - failures} 个，失败 ${failures} 个${stopBatch.current ? "，已停止后续请求" : ""}。额度需手动刷新以获取最新数据。`); }
-      } finally { if (alive.current) setBatch(null); }
-    });
-  }
-
   async function batchDelete() {
     if (!deleteIds) return;
     await act("批量删除账号", async () => {
@@ -307,13 +290,13 @@ export function CodexPanel({ mobile = false }: { mobile?: boolean }) {
   return <section className={"codex-page codex-overview-reference" + (privacy ? " codex-privacy-view" : "")} aria-busy={!!busy}>
     {settingsOpen && <CodexSettingsDialog preferences={preferences} busy={!!busy} canOpenDefault={!!state?.canOpenDefault} onClose={() => setSettingsOpen(false)} onSave={next => void saveOverview(next)} onOpenGroups={() => { setSettingsOpen(false); setError(""); setGroupsOpen(true); }} onOpenLogs={() => { setSettingsOpen(false); setRemoteLogsOpen(true); }} onOpenApi={() => { setSettingsOpen(false); setActivePanel("api"); }} onStartCodex={() => { setSettingsOpen(false); void act("打开 Codex", async () => { await codexClient.openDefault(); if (alive.current) setNotice("已请求打开默认 Codex 客户端"); }); }} />}
     {addAccountOpen && <AddAccountDialog busy={!!busy} error={error} canOpenDefault={!!state?.canOpenDefault} onClose={() => setAddAccountOpen(false)} onOfficialLogin={() => void act("打开 Codex", async () => { await codexClient.openDefault(); if (alive.current) setNotice("请在官方 Codex 客户端完成登录，然后返回此窗口导入本机登录"); })} onOAuth={() => { setAddAccountOpen(false); void act("启动 OAuth 授权", async () => { const result = await codexClient.startLogin(); if (alive.current) { setLogin(result.token); setLoginUrl(result.authUrl); loginToken.current = result.token; } }); }} onImportLocal={() => { setAddAccountOpen(false); void act("导入本机", async () => { const next = await codexClient.importLocal(); if (alive.current) { setState(next); setNotice("已导入本机登录账号，重复身份会更新凭据"); } }); }} onImportText={async (content, force = false) => { if (operation.current) return false; operation.current = true; setBusy("导入账号"); setError(""); setNotice(""); try { const next = await codexClient.importText(content, force); if (alive.current) { setState(next); setAddAccountOpen(false); setNotice(force ? "已强制导入，凭据已加密保存；可用性请实际验证" : "账号导入完成，凭据已加密保存"); } return true; } catch (reason) { if (alive.current) setError(reason instanceof Error ? reason.message : "导入失败：后端未返回具体原因"); return false; } finally { operation.current = false; if (alive.current) setBusy(""); } }} onImportFile={format => { setAddAccountOpen(false); setError(""); setImportFormat(format); setImporting(true); }} />}
-    {testAccounts && <AccountTestDialog accounts={testAccounts} models={models} onClose={() => setTestAccounts(null)} />}
+    <AccountTestHost open={testOpen} initialSelectedIds={testInitialIds} accounts={overviewAccounts} models={models} privacy={privacy} onOpen={() => setTestOpen(true)} onClose={() => setTestOpen(false)} onAccountUpdated={replace} />
     <header className="codex-heading"><div><span className="codex-eyebrow">AI 工具</span><h1><Bot size={25} />Codex 管理</h1><p>本地加密账号 · 订阅额度 · 客户端切换</p></div></header>
     <ConfigToolbar mobile={mobile} busy={!!busy} onRestore={() => setRestoring(true)} />
     {groupsOpen && <AccountGroupsDialog groups={preferences.groups} accounts={overviewAccounts} busy={!!busy} error={error} onClose={() => setGroupsOpen(false)} onSave={groups => saveOverview({ ...preferences, groups }, () => { setGroupsOpen(false); if (!groups.some(group => group.id === groupId)) setGroupId(""); })} />}
     {recycleOpen && <CodexRecycleDialog onClose={() => setRecycleOpen(false)} onChanged={async () => { const next = await codexClient.state(); if (alive.current) setState(next); }} />}
-    {deleteIds && <Modal sizeStorageKey="features/codex/codex-panel/codex-panel" title="批量删除 Codex 账号" busy={!!busy} onClose={() => setDeleteIds(null)}><p>将 {deleteIds.length} 个账号移入回收站，可在回收站恢复。关联的服务和实例必须先停止。</p>{error && <p role="alert" className="codex-card-error">{error}</p>}<div className="codex-dialog-actions"><button disabled={!!busy} onClick={() => setDeleteIds(null)}>取消</button><button disabled={!!busy || !deleteIds.length} onClick={() => void batchDelete()}>确认移入回收站</button></div></Modal>}
-    {wakeIds && <Modal sizeStorageKey="features/codex/codex-panel/codex-panel/2" title="唤醒 Codex 账号" busy={!!busy} onClose={() => setWakeIds(null)}><p>向 {wakeIds.length} 个账号逐个发送真实的简短模型请求，会消耗额度。请先停止账号关联的服务和实例。</p><label>唤醒模型<input aria-label="唤醒模型" list="codex-wake-models" value={wakeModel} maxLength={128} disabled={!!busy} onChange={event => setWakeModel(event.target.value)} /><datalist id="codex-wake-models">{models.map(model => <option key={model} value={model} />)}</datalist></label><p>模型可用性由账号权限决定；失败账号会计入结果，可通过 API 日志排查。</p>{batch && <p role="status">{batch.done} / {batch.total} · {batch.label}</p>}{error && <p role="alert" className="codex-card-error">{error}</p>}<div className="codex-dialog-actions">{busy ? <button disabled={batch?.stopping} onClick={() => { stopBatch.current = true; setBatch(current => current ? { ...current, stopping: true } : null); }}>停止后续请求</button> : <><button onClick={() => setWakeIds(null)}>取消</button><button disabled={!/^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,127}$/.test(wakeModel.trim())} onClick={() => void wake()}>确认消耗额度并唤醒</button></>}</div></Modal>}
+    {deleteIds && <ConfirmDialog tone="danger" title="批量移入回收站" message={`将 ${deleteIds.length} 个账号移入回收站，之后可在回收站恢复。`} detail="关联的服务和实例必须先停止，否则对应账号会移入失败。" confirmLabel="移入回收站" busy={!!busy} confirmDisabled={!deleteIds.length} error={error || undefined} onResolve={confirmed => { if (confirmed) void batchDelete(); else setDeleteIds(null); }} />}
+    {wakeIds && <WakeAccountsDialog initialSelectedIds={wakeIds} accounts={overviewAccounts} models={models} privacy={privacy} onClose={() => setWakeIds(null)} onFinished={message => setNotice(message)} />}
     <div className="codex-tabs" role="tablist" aria-label="Codex 管理面板">
       {panels.map(({ id, label, icon: Icon }, index) => <button key={id} id={`codex-tab-${id}`} role="tab" aria-selected={activePanel === id} aria-controls={`codex-panel-${id}`} tabIndex={activePanel === id ? 0 : -1} onClick={() => setActivePanel(id)} onKeyDown={(event) => {
         const next = event.key === "ArrowRight" ? (index + 1) % panels.length : event.key === "ArrowLeft" ? (index + panels.length - 1) % panels.length : event.key === "Home" ? 0 : event.key === "End" ? panels.length - 1 : null;
@@ -344,13 +327,13 @@ export function CodexPanel({ mobile = false }: { mobile?: boolean }) {
 <button disabled={!!busy || !selected.size || !state?.cliAvailable || !targets.length} onClick={() => void refresh(targets.map(account => account.id))}><RefreshCw size={14} />刷新所选 ({selected.size ? targets.length : 0})</button>
 <button disabled={!!busy || !selected.size || !targets.length} onClick={() => void refresh(targets.map(account => account.id), "benefits")}><RefreshCw size={14} />刷新所选订阅权益</button>
 <button disabled={!!busy || !selected.size} onClick={() => { setError(""); setDeleteIds(accounts.filter(account => selected.has(account.id)).map(account => account.id)); }}>删除所选 ({selected.size})</button>
-      <button disabled={!!busy || !targets.length} onClick={() => void act("读取测试模型", async () => { const available = gateway?.running ? await codexClient.gatewayModels() : []; if (alive.current) { setModels(available); setTestAccounts(targets); } })}><Bot size={14} />鹈鹕测智</button>
+      <button disabled={!!busy} onClick={() => void act("读取测试模型", async () => { const available = runningInTauri && gateway?.running ? await codexClient.gatewayModels().catch(() => []) : []; if (alive.current) { setModels(available); setTestInitialIds([...selected]); setTestOpen(true); } })}><Bot size={14} />账号测智</button>
       <button disabled={!!busy} onClick={() => setRecycleOpen(true)}><Trash2 size={14} />回收站</button>
-      <button disabled={!!busy || !targets.length} onClick={() => void act("读取唤醒模型", async () => { const available = gateway?.running ? await codexClient.gatewayModels() : []; if (alive.current) { setModels(available); setWakeModel(available[0] ?? ""); setWakeIds(targets.map(account => account.id)); } })}><Play size={14} />唤醒账号 ({targets.length})</button>
+      <button disabled={!!busy} onClick={() => void act("读取唤醒模型", async () => { const available = runningInTauri && gateway?.running ? await codexClient.gatewayModels().catch(() => []) : []; if (alive.current) { setModels(available); setWakeIds(selected.size ? targets.map(account => account.id) : []); } })}><Play size={14} />唤醒账号{selected.size ? ` (${targets.length})` : ""}</button>
       {selected.size > 0 && preferences.groups.length > 0 && <label className="codex-plan"><select aria-label="将所选账号加入分组" value="" disabled={!!busy || !preferencesReady} onChange={event => { const id = event.target.value; if (id) void saveOverview({ ...preferences, groups: preferences.groups.map(group => group.id === id ? { ...group, accountIds: [...new Set([...group.accountIds, ...selected])] } : group) }); }}><option value="">加入分组 ({selected.size})</option>{preferences.groups.map(group => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label>}
       {selected.size > 0 && groupId && <button disabled={!!busy || !preferencesReady} onClick={() => void saveOverview({ ...preferences, groups: preferences.groups.map(group => group.id === groupId ? { ...group, accountIds: group.accountIds.filter(id => !selected.has(id)) } : group) })}>从当前分组移除所选</button>}
       <button disabled={!!busy || !visible.some(account => account.lastError)} onClick={() => { setError(""); setDeleteIds(visible.filter(account => account.lastError).map(account => account.id)); }}>清理错误账号</button>
-      {(query || planFilters.length || statusFilters.length || tagFilters.length) && <button onClick={() => { setQuery(""); setPlanFilters([]); setStatusFilters([]); setTagFilters([]); }}>清除筛选</button>}
+      {(Boolean(query) || planFilters.length > 0 || statusFilters.length > 0 || tagFilters.length > 0) && <button onClick={() => { setQuery(""); setPlanFilters([]); setStatusFilters([]); setTagFilters([]); }}>清除筛选</button>}
     </div></details></div></div>
     {state && !overviewAccounts.length ? <div className="codex-empty"><Bot size={35} /><h2>添加你的第一个 Codex 账号</h2><p>导入本机登录或选择账号 JSON。账号凭据只在本机加密保存。</p></div> : !visible.length && state ? <div className="codex-empty"><Search size={28} /><h2>没有匹配的账号</h2><p>调整搜索关键词、套餐或额度状态筛选。</p></div> : viewMode === "table" ? <AccountTable accounts={paged} selected={selected} currentId={state?.currentAccountId} busy={!!busy} refreshingIds={refreshingIds} now={now} onSelect={id => setSelected(current => { const next = new Set(current); next.has(id) ? next.delete(id) : next.add(id); return next; })} onDetails={setInspecting} onSwitch={account => void act("准备切号", async () => { try { const preview = await codexClient.prepareSwitch(account.id); if (alive.current) setSwitching(preview); } catch (reason) { if (isCodexDefaultProcessBusy(reason)) { setCloseDefaultRequest({ inPreview: false, retry: async () => { const preview = await codexClient.prepareSwitch(account.id); if (alive.current) setSwitching(preview); } }); return; } throw reason; } })} onRefresh={account => void refreshOne(account.id)} onLogs={setLogsAccount} onDelete={account => { setError(""); setDeleting(account); }} /> : <div ref={gridPagination.gridRef} className={"codex-grid codex-reference-grid" + (viewMode === "list" ? " codex-list-view" : "") + (preferences.compact ? " codex-compact-view" : "")}>{preferences.showServiceEntry && <ServiceSummary accounts={accounts} state={gateway} lanUrl={summaryLanUrl} active={activePanel === "accounts"} busy={!!busy} onOpen={kind => { setActivePanel("api"); setGatewayAction(current => ({id:(current?.id ?? 0)+1,kind})); }} onInstances={() => setActivePanel("instances")} onRefresh={() => void act("刷新服务统计", async () => { const next = await codexClient.gatewayState(); if (alive.current) setGateway(next); })} />}{paged.map((account) => <article className={`codex-card${state?.currentAccountId === account.id ? " current" : ""}`} key={account.id} aria-label={`Codex 账号 ${account.label}`}>
       <div className="codex-card-title"><input type="checkbox" aria-label={`选择 ${account.label}`} checked={selected.has(account.id)} disabled={!!busy} onChange={() => setSelected((current) => { const next = new Set(current); next.has(account.id) ? next.delete(account.id) : next.add(account.id); return next; })} /><h2 title={account.label}>{account.label}</h2>{account.isWebSession && <span className="codex-badge codex-web-session-badge" title="仅支持查看额度">Web Session</span>}{state?.currentAccountId === account.id && <span className="codex-badge codex-current-badge">当前</span>}{account.lastError && <span className="codex-badge codex-error-badge">刷新失败</span>}<span className={"codex-badge codex-plan-badge" + (account.plan && account.plan !== "free" ? " is-paid" : "")}>{account.authMode === "apikey" ? "API KEY" : account.plan?.toUpperCase() ?? "未知套餐"}</span></div>
@@ -360,7 +343,7 @@ export function CodexPanel({ mobile = false }: { mobile?: boolean }) {
       {account.authMode === "chatgpt" && <p className="codex-account-id" title={"用户 ID：" + (account.userId ?? "未获取") + " · 工作区 ID：" + (account.accountId ?? "未获取")}>{account.loginProvider ? "使用 " + ({ google: "Google", apple: "Apple", windowslive: "Microsoft", microsoft: "Microsoft", auth0: "邮箱", openai: "OpenAI" }[account.loginProvider.toLowerCase()] ?? account.loginProvider) + " 登录" : "登录方式未获取"} | 用户 ID：{account.userId ?? "未获取"}</p>}
       {account.lastError && <AccountRefreshError key={account.lastError} accountLabel={account.label} reason={account.lastError}>{account.authMode === "chatgpt" && <button disabled={!!busy || !!login || !state?.cliAvailable} onClick={() => void act("重新授权", async () => { const result = await codexClient.startLogin(account.id); if (alive.current) { setLogin(result.token); setLoginUrl(result.authUrl); loginToken.current = result.token; setNotice("请使用该账号重新登录，完成后会核对身份并更新凭据"); } else await codexClient.cancelLogin(result.token); })}>重新授权</button>}</AccountRefreshError>}
       <div className={"codex-account-status" + ((quotaPresentation(account, now).status === "stale") ? "" : " codex-visually-hidden")} data-status={quotaPresentation(account, now).status}>{quotaStatusNames[quotaPresentation(account, now).status]}{(quotaPresentation(account, now).status === "stale") ? " · 以下为上次缓存" : ""}</div>
-      <div className="codex-quota">{account.quota.windows.length ? account.quota.windows.map((window, index) => <div className={"codex-quota-window" + (remainingPercent(window) != null && remainingPercent(window)! <= 20 ? " is-low" : "")} key={`${window.name}-${index}`}><div className="codex-quota-label"><span>{windowName(window.windowMinutes)}</span><strong>{remainingPercent(window) == null ? "额度未知" : `${Math.round(remainingPercent(window)!)}% 剩余`}</strong></div>{remainingPercent(window) != null && <progress aria-label={`${window.name}剩余额度`} max={100} value={remainingPercent(window)!} />}<small title="距额度重置剩余时间">{quotaResetTime(window.resetsAt, now)}</small></div>) : <p>{account.authMode === "apikey" ? "API Key 按 API 账单计费，不展示订阅额度" : "尚未获取额度"}</p>}</div>
+      <div className="codex-quota">{account.quota.windows.length ? account.quota.windows.map((window, index) => <div className={"codex-quota-window" + (remainingPercent(window) != null && remainingPercent(window)! <= 20 ? " is-low" : "")} key={`${window.name}-${index}`}><div className="codex-quota-label"><span>{windowName(window.windowMinutes)}</span><strong>{remainingPercent(window) == null ? "额度未知" : `${Math.round(remainingPercent(window)!)}% 剩余`}</strong></div>{remainingPercent(window) != null && <progress aria-label={`${window.name}剩余额度`} max={100} value={remainingPercent(window)!} />}<small className={isQuotaResetDue(window.resetsAt, now) ? "codex-quota-reset-due" : undefined} title="距额度重置剩余时间">{quotaResetTime(window.resetsAt, now)}</small></div>) : <p>{account.authMode === "apikey" ? "API Key 按 API 账单计费，不展示订阅额度" : "尚未获取额度"}</p>}</div>
       </AccountControls>
       {account.note && <p className="codex-note">{account.note}</p>}
       <div className="codex-card-bottom"><small title={"额度更新：" + time(account.quota.fetchedAt)}>{time(account.quota.fetchedAt)}</small><div className="codex-card-actions">

@@ -1,45 +1,67 @@
 import { useState } from "react";
-import { ArrowLeft, ChevronRight, Search, Server, Settings2 } from "lucide-react";
+import { ArrowLeft, ChevronRight, Server, Settings2 } from "lucide-react";
 import { SharedDialog } from "../../shared/SharedDialog";
 import type { ClaudeProviderInput } from "../../platform/clients/claudeProviders";
 import { PROVIDER_PRESETS, presetToInput } from "./claudeProviderPresets";
 import { AiSupplierImport } from "../ai/AiSupplierImport";
+import { ProviderBrandIcon } from "../../shared/provider-brand/ProviderBrandIcon";
+import { PRESET_CATEGORY_LABELS, PRESET_CATEGORY_ORDER, PresetCategoryLayout, PresetSearch, countPresetCategories, presetCategoryOf, type PresetCategory } from "../../shared/provider-brand/ProviderPresetCategories";
+
+const officialInput: ClaudeProviderInput = { id: "", name: "Claude 官方", baseUrl: "https://api.anthropic.com", websiteUrl: "https://www.anthropic.com/claude-code", officialLogin: true, apiKey: "", apiKeyField: "auth_token", apiFormat: "anthropic", isFullUrl: true, models: {}, extraEnv: {}, modelCatalog: [] };
+const allGroups = [...new Set(PROVIDER_PRESETS.map(item => item.family))].map(name => {
+  const variants = PROVIDER_PRESETS.filter(item => item.family === name);
+  return { name, variants, category: presetCategoryOf(name, variants[0].baseUrl) };
+});
 
 export function ClaudeProviderPresetPicker({ onClose, onSelect, onCustom, desktop = false }: { desktop?: boolean; onClose: () => void; onSelect: (value: ClaudeProviderInput) => void; onCustom: () => void }) {
   const [keyword, setKeyword] = useState("");
   const [family, setFamily] = useState<string | null>(null);
+  const [category, setCategory] = useState<PresetCategory>("all");
   const query = keyword.trim().toLocaleLowerCase();
-  const groups = [...new Set(PROVIDER_PRESETS.map(item => item.family))].map(name => ({ name, variants: PROVIDER_PRESETS.filter(item => item.family === name) }))
-    .filter(group => group.variants.some(item => `${item.family} ${item.name} ${item.website} ${item.baseUrl}`.toLocaleLowerCase().includes(query)));
+  const groups = allGroups.filter(group => group.variants.some(item => `${item.family} ${item.name} ${item.website} ${item.baseUrl}`.toLocaleLowerCase().includes(query)));
+  const loginVisible = !desktop && "claude official anthropic 官方".includes(query);
+  const counts = countPresetCategories(groups, { login: loginVisible ? 1 : 0 });
+  const shows = (key: PresetCategory) => category === "all" || category === key;
   const variants = PROVIDER_PRESETS.filter(item => item.family === family);
+  const hasResults = (loginVisible && shows("login")) || groups.some(group => shows(group.category));
   return <SharedDialog sizeStorageKey="features/plugins/claude-provider-preset-picker/claude-provider-preset-picker" title="添加供应商" subtitle="先选择厂商及版本，再填写 API Key；选择预设不会立即写入配置。" icon={<Server size={20} aria-hidden="true" />} className="claude-providers claude-preset-dialog" onClose={onClose} footer={<button type="button" className="secondary" onClick={onClose}>取消</button>}>
     <div className="claude-preset-browser">
       {family ? <>
         <button type="button" className="secondary claude-preset-back" onClick={() => setFamily(null)}><ArrowLeft size={14} aria-hidden="true" />返回厂商列表</button>
         <h3>{family} · 选择版本</h3>
         <div className="claude-preset-grid">{variants.map(item => <button type="button" className="claude-preset-card" key={item.id} onClick={() => onSelect(presetToInput(item))}>
+          <ProviderBrandIcon name={item.family} hints={[item.website, item.baseUrl]} />
           <span className="claude-preset-details"><strong>{item.name}</strong><small>{item.baseUrl}</small><small>{item.model ? "默认模型：" + item.model : "模型需按套餐手动填写或获取"}</small></span><ChevronRight size={16} aria-hidden="true" />
         </button>)}</div>
       </> : <>
-        <label className="claude-preset-search"><Search size={16} aria-hidden="true" /><input type="search" aria-label="搜索厂商预设" placeholder="搜索厂商、地区、套餐或 API 地址，例如 Kimi、智谱、MiniMax" value={keyword} onChange={event => setKeyword(event.target.value)} autoFocus /></label>
-        <button type="button" className="claude-preset-card" onClick={onCustom}><Settings2 size={22} aria-hidden="true" /><span className="claude-preset-details"><strong>自定义配置</strong><small>手动填写请求地址、协议和 API Key</small></span><ChevronRight size={16} aria-hidden="true" /></button>
-        <AiSupplierImport target="claude" onImport={({ profile, apiKey }) => {
-          const apiFormat = ({ openai_chat: "openai_chat", openai_responses: "openai_responses", claude: "anthropic", gemini: "gemini" } as const)[profile.protocol];
-          const catalog = [...new Set([profile.model, ...(profile.models ?? [])].map(model => model.trim()).filter(Boolean))].map(model => ({ model }));
-          const model = profile.model || catalog[0]?.model || "";
-          onSelect({ id: "", name: profile.name, description: "从模型供应商导入", baseUrl: profile.baseUrl, apiKey,
-            apiKeyField: "auth_token", apiFormat, isFullUrl: true,
-            models: model ? { sonnet: { model }, opus: { model }, haiku: { model } } : {},
-            extraEnv: {}, officialLogin: false, modelCatalog: catalog,
-          });
-        }} />
-        {!desktop && <><h3>账号登录</h3>
-        <div className="claude-preset-grid"><button type="button" className="claude-preset-card" onClick={() => onSelect({ id: "", name: "Claude 官方", baseUrl: "https://api.anthropic.com", websiteUrl: "https://www.anthropic.com/claude-code", officialLogin: true, apiKey: "", apiKeyField: "auth_token", apiFormat: "anthropic", isFullUrl: true, models: {}, extraEnv: {}, modelCatalog: [] })}><Server size={22} aria-hidden="true" /><span className="claude-preset-details"><strong>Claude Official</strong><small>使用已有 Claude 登录状态，不在此进行登录</small></span><ChevronRight size={16} aria-hidden="true" /></button></div></>}
-        <h3>模型厂商 <span>{groups.length} 家</span></h3>
-        <div className="claude-preset-grid">{groups.map(group => <button type="button" className="claude-preset-card" key={group.name} onClick={() => group.variants.length === 1 ? onSelect(presetToInput(group.variants[0])) : setFamily(group.name)}>
-          <Server size={22} aria-hidden="true" /><span className="claude-preset-details"><strong>{group.name}</strong><small>{new URL(group.variants[0].website).hostname}{group.variants.length > 1 ? ` · ${group.variants.length} 个版本` : ""}</small></span><ChevronRight size={16} aria-hidden="true" />
-        </button>)}</div>
-        {!groups.length && <p role="status" className="claude-config-help">没有匹配的厂商，请换个关键词，或选择上方“自定义配置”。</p>}
+        <PresetSearch value={keyword} onChange={setKeyword} label="搜索厂商预设" placeholder="搜索厂商、地区、套餐或 API 地址，例如 Kimi、智谱、MiniMax" autoFocus />
+        <PresetCategoryLayout counts={counts} value={category} onChange={setCategory}>
+          {category === "all" && <>
+            <button type="button" className="claude-preset-card" onClick={onCustom}><Settings2 size={22} aria-hidden="true" /><span className="claude-preset-details"><strong>自定义配置</strong><small>手动填写请求地址、协议和 API Key</small></span><ChevronRight size={16} aria-hidden="true" /></button>
+            <AiSupplierImport target="claude" onImport={({ profile, apiKey }) => {
+              const apiFormat = ({ openai_chat: "openai_chat", openai_responses: "openai_responses", claude: "anthropic", gemini: "gemini" } as const)[profile.protocol];
+              const catalog = [...new Set([profile.model, ...(profile.models ?? [])].map(model => model.trim()).filter(Boolean))].map(model => ({ model }));
+              const model = profile.model || catalog[0]?.model || "";
+              onSelect({ id: "", name: profile.name, description: "从模型供应商导入", baseUrl: profile.baseUrl, apiKey,
+                apiKeyField: "auth_token", apiFormat, isFullUrl: true,
+                models: model ? { sonnet: { model }, opus: { model }, haiku: { model } } : {},
+                extraEnv: {}, officialLogin: false, modelCatalog: catalog,
+              });
+            }} />
+          </>}
+          {loginVisible && shows("login") && <><h3>账号登录</h3>
+            <div className="claude-preset-grid"><button type="button" className="claude-preset-card" onClick={() => onSelect(officialInput)}><ProviderBrandIcon name="Claude" /><span className="claude-preset-details"><strong>Claude Official</strong><small>使用已有 Claude 登录状态，不在此进行登录</small></span><ChevronRight size={16} aria-hidden="true" /></button></div></>}
+          {PRESET_CATEGORY_ORDER.filter(key => key !== "login" && shows(key)).map(key => {
+            const items = groups.filter(group => group.category === key);
+            return items.length > 0 && <section key={key} className="claude-preset-browser" aria-label={PRESET_CATEGORY_LABELS[key]}>
+              <h3>{PRESET_CATEGORY_LABELS[key]} <span>{items.length} 家</span></h3>
+              <div className="claude-preset-grid">{items.map(group => <button type="button" className="claude-preset-card" key={group.name} onClick={() => group.variants.length === 1 ? onSelect(presetToInput(group.variants[0])) : setFamily(group.name)}>
+                <ProviderBrandIcon name={group.name} hints={[group.variants[0].website, group.variants[0].baseUrl]} /><span className="claude-preset-details"><strong>{group.name}</strong><small>{new URL(group.variants[0].website).hostname}{group.variants.length > 1 ? ` · ${group.variants.length} 个版本` : ""}</small></span><ChevronRight size={16} aria-hidden="true" />
+              </button>)}</div>
+            </section>;
+          })}
+          {!hasResults && <p role="status" className="claude-config-help">没有匹配的厂商，请换个关键词，或在“全部”中选择“自定义配置”。</p>}
+        </PresetCategoryLayout>
       </>}
       <p className="claude-config-help">云枢工具箱内置厂商预设。默认模型需以账户实际权限为准，保存前均可修改。不包含尚未接入的第三方账号登录。</p>
     </div>

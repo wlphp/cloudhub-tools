@@ -30,7 +30,7 @@ function saveDialogSize(key: string, size: DialogSize) {
 }
 
 /** Shared shell; dragging and sizing use the existing app primitives. */
-export function SharedDialog({ title, titleExtra, subtitle, eyebrow, icon, children, footer, headerActions, onClose, className = "", bodyClassName = "", footerClassName = "", backdropClassName = "", size = "large", closeLabel, showResize = true, defaultExpanded = false, closeDisabled = false, busy = false, role = "dialog", onSubmit, formRef, noValidate = false, initialFocus, onHeaderPointerDown, describedBy, resizable = true, sizeStorageKey, preserveSize = false }: {
+export function SharedDialog({ title, titleExtra, subtitle, eyebrow, icon, children, footer, headerActions, onClose, className = "", bodyClassName = "", footerClassName = "", backdropClassName = "", size = "large", closeLabel, showResize = true, defaultExpanded = false, closeDisabled = false, busy = false, role = "dialog", onSubmit, formRef, noValidate = false, initialFocus, onHeaderPointerDown, describedBy, resizable = true, detachable = true, sizeStorageKey, preserveSize = false, variant = "default" }: {
   title: string;
   /** 标题旁的补充徽标（如“已置顶”），随标题整行排版、自身不折行。 */
   titleExtra?: ReactNode;
@@ -60,9 +60,13 @@ export function SharedDialog({ title, titleExtra, subtitle, eyebrow, icon, child
   describedBy?: string;
   /** 启用四边 + 四角拖拽调宽高；配合 sizeStorageKey 把拖拽后的尺寸记住，下次打开沿用。 */
   resizable?: boolean;
+  /** 是否允许移到独立窗口；简单确认框应关闭此入口，避免头部出现无关操作。 */
+  detachable?: boolean;
   sizeStorageKey?: string;
   /** Keep the current dimensions when an interaction changes the dialog content. */
   preserveSize?: boolean;
+  /** 外观变体：`pet` 为桌宠紧凑外观，交互仍走本组件；固定尺寸且不提供独立窗口。 */
+  variant?: "default" | "pet";
 }) {
   const id = useId();
   const contextDocument = useDialogDocument();
@@ -79,11 +83,12 @@ export function SharedDialog({ title, titleExtra, subtitle, eyebrow, icon, child
   const detachingRef = useRef(false);
   const [detachError, setDetachError] = useState("");
   const mounted = useRef(false);
-  const canDetach = runningInTauri && !runningOnPhone;
+  const compact = variant === "pet";
+  const canDetach = detachable && runningInTauri && !runningOnPhone && !compact;
   const view = ownerDocument.defaultView!;
   const dialog = useRef<HTMLElement>(null);
   const backdrop = useRef<HTMLDivElement>(portal);
-  const sizingEnabled = resizable && !runningOnPhone && !detached;
+  const sizingEnabled = resizable && !compact && !runningOnPhone && !detached;
   const storageKey = sizeStorageKey || `shared:${className || size}`;
   const [restored, setRestored] = useState(() => ({ key: storageKey, size: sizingEnabled ? loadDialogSize(storageKey) : null }));
   const restoredSize = sizingEnabled ? (restored.key === storageKey ? restored.size : loadDialogSize(storageKey)) : null;
@@ -129,7 +134,8 @@ export function SharedDialog({ title, titleExtra, subtitle, eyebrow, icon, child
   }, [parentDocument, portal]);
 
   useLayoutEffect(() => {
-    portal.className = `modal-backdrop ide-theme shared-dialog-backdrop ${backdropClassName}${detached ? " dialog-popout-host" : ""}`;
+    // 桌宠外观不挂全局 modal 类，避免 ide-theme / 窄窗口通用规则的 !important 覆盖。
+    portal.className = compact ? `pet-dialog-backdrop ${backdropClassName}` : `modal-backdrop ide-theme shared-dialog-backdrop ${backdropClassName}${detached ? " dialog-popout-host" : ""}`;
     portal.dataset.sharedDialogHost = "true";
   });
 
@@ -210,7 +216,7 @@ export function SharedDialog({ title, titleExtra, subtitle, eyebrow, icon, child
   };
 
   useEffect(() => {
-    const background = detached ? [] : [...ownerDocument.querySelectorAll<HTMLElement>("#root, body > .workspace-popout, body > .modal-backdrop, body > .app-confirm-backdrop")]
+    const background = detached ? [] : [...ownerDocument.querySelectorAll<HTMLElement>("#root, body > .workspace-popout, body > .modal-backdrop, body > .pet-dialog-backdrop, body > .app-confirm-backdrop")]
       .filter(element => element !== backdrop.current && !element.contains(backdrop.current));
     const owner = Symbol();
     background.forEach(element => {
@@ -321,28 +327,61 @@ export function SharedDialog({ title, titleExtra, subtitle, eyebrow, icon, child
     handle.addEventListener("lostpointercapture", finish);
   };
 
-  const content = <><div className={`modal-body ${bodyClassName}`}>{children}</div>{footer && <footer className={`modal-actions ${footerClassName}`}>{footer}</footer>}</>;
+  // 桌宠外观：在当前窗口内拖动标题栏移动弹层，位置限制在可视区域内。
+  const startCompactDrag = (event: ReactPointerEvent<HTMLElement>) => {
+    const element = dialog.current;
+    if (!element || event.button !== 0 || (event.target as Element).closest("button, a, input, select, textarea, label")) return;
+    event.preventDefault();
+    dragCleanup.current?.();
+    const header = event.currentTarget, pointerId = event.pointerId;
+    const rect = element.getBoundingClientRect();
+    const startX = event.clientX, startY = event.clientY;
+    Object.assign(element.style, { position: "fixed", left: `${rect.left}px`, top: `${rect.top}px`, right: "auto", bottom: "auto", margin: "0", transform: "none" });
+    header.setPointerCapture(pointerId);
+    header.classList.add("is-dragging");
+    const onMove = (move: PointerEvent) => {
+      if (move.pointerId !== pointerId) return;
+      element.style.left = `${Math.min(Math.max(8, rect.left + move.clientX - startX), Math.max(8, view.innerWidth - rect.width - 8))}px`;
+      element.style.top = `${Math.min(Math.max(8, rect.top + move.clientY - startY), Math.max(8, view.innerHeight - rect.height - 8))}px`;
+    };
+    const finish = () => {
+      header.removeEventListener("pointermove", onMove);
+      header.removeEventListener("pointerup", finish);
+      header.removeEventListener("pointercancel", finish);
+      header.removeEventListener("lostpointercapture", finish);
+      if (header.hasPointerCapture(pointerId)) header.releasePointerCapture(pointerId);
+      header.classList.remove("is-dragging");
+      dragCleanup.current = null;
+    };
+    dragCleanup.current = finish;
+    header.addEventListener("pointermove", onMove);
+    header.addEventListener("pointerup", finish);
+    header.addEventListener("pointercancel", finish);
+    header.addEventListener("lostpointercapture", finish);
+  };
+  const closeButton = <button type="button" className={compact ? "pet-dialog-close" : "close"} disabled={closeDisabled} aria-label={closeLabel ?? `关闭${title}`} title="关闭" onClick={() => close.current()}><X size={compact ? 16 : 18} aria-hidden="true" /></button>;
+  const content = <><div className={`${compact ? "pet-dialog-body" : "modal-body"} ${bodyClassName}`}>{children}</div>{footer && <footer className={`${compact ? "pet-dialog-footer" : "modal-actions"} ${footerClassName}`}>{footer}</footer>}</>;
   return portalReady ? createPortal(
     <DialogDocument.Provider value={ownerDocument}>
-      <section ref={dialog} className={`modal modal-form-layout dialog-common-theme shared-content-dialog shared-dialog-${size} ${sizingEnabled ? "dialog-resizable" : ""} ${restoredSize ? "dialog-user-size" : ""} ${className}`} data-dialog-size-key={storageKey} role={role} aria-modal={detached ? undefined : true} aria-busy={busy || detaching} aria-labelledby={`${id}-title`} aria-describedby={describedBy ?? (subtitle ? `${id}-subtitle` : undefined)} style={restoredSize ? { "--dialog-user-width": `${restoredSize.width}px`, "--dialog-user-height": `${restoredSize.height}px` } as CSSProperties : undefined} tabIndex={-1} onPointerDownCapture={preserveCurrentSize} onKeyDownCapture={preserveCurrentSize}>
-        <header className="modal-head" onPointerDown={event => {
-          if (!detached) { onHeaderPointerDown?.(event); return; }
+      <section ref={dialog} className={compact ? `pet-dialog ${className}` : `modal modal-form-layout dialog-common-theme shared-content-dialog shared-dialog-${size} ${sizingEnabled ? "dialog-resizable" : ""} ${restoredSize ? "dialog-user-size" : ""} ${className}`} data-dialog-size-key={storageKey} role={role} aria-modal={detached ? undefined : true} aria-busy={busy || detaching} aria-labelledby={`${id}-title`} aria-describedby={describedBy ?? (subtitle ? `${id}-subtitle` : undefined)} style={restoredSize ? { "--dialog-user-width": `${restoredSize.width}px`, "--dialog-user-height": `${restoredSize.height}px` } as CSSProperties : undefined} tabIndex={-1} onPointerDownCapture={preserveCurrentSize} onKeyDownCapture={preserveCurrentSize}>
+        <header className={compact ? "pet-dialog-head" : "modal-head"} onPointerDown={event => {
+          if (!detached) { if (onHeaderPointerDown) onHeaderPointerDown(event); else if (compact) startCompactDrag(event); return; }
           if (event.button !== 0 || (event.target as Element).closest("button, a, input, select, textarea, label")) return;
           event.preventDefault();
           event.stopPropagation();
           dragCleanup.current?.();
           dragCleanup.current = dragDetachedDialog(detached, event.currentTarget, event, () => setDetachError("独立窗口拖动失败，请重试。"));
         }}>
-          {icon ?? <span className="shared-dialog-mobile-icon" aria-hidden="true"><PanelsTopLeft size={22} /></span>}
-          <div className="shared-dialog-heading">{eyebrow && <span className="eyebrow">{eyebrow}</span>}<h2 id={`${id}-title`}>{title}{titleExtra && <span className="shared-dialog-title-extra">{titleExtra}</span>}</h2>{subtitle && <p id={`${id}-subtitle`}>{subtitle}</p>}</div>
-          <DialogHeaderActions key={`${storageKey}:${Boolean(restoredSize)}:${Boolean(detached)}`} showResize={showResize && !detached} defaultExpanded={defaultExpanded && !restoredSize && !detached}>
+          {compact ? icon : icon ?? <span className="shared-dialog-mobile-icon" aria-hidden="true"><PanelsTopLeft size={22} /></span>}
+          <div className={compact ? "pet-dialog-heading" : "shared-dialog-heading"}>{eyebrow && <span className="eyebrow">{eyebrow}</span>}<h2 id={`${id}-title`}>{title}{titleExtra && <span className="shared-dialog-title-extra">{titleExtra}</span>}</h2>{subtitle && <p id={`${id}-subtitle`}>{subtitle}</p>}</div>
+          {compact ? <div className="pet-dialog-actions">{headerActions}{closeButton}</div> : <DialogHeaderActions key={`${storageKey}:${Boolean(restoredSize)}:${Boolean(detached)}`} showResize={showResize && !detached} defaultExpanded={defaultExpanded && !restoredSize && !detached}>
             {headerActions}
             {canDetach && !detached && <button type="button" className="dialog-size-button" disabled={detaching} aria-label="移到独立窗口" title="移到独立窗口（也可拖出主窗口）" onClick={() => void detach()}><ExternalLink size={16} aria-hidden="true" /></button>}
-            <button type="button" className="close" disabled={closeDisabled} aria-label={closeLabel ?? `关闭${title}`} title="关闭" onClick={() => close.current()}><X size={18} aria-hidden="true" /></button>
-          </DialogHeaderActions>
+            {closeButton}
+          </DialogHeaderActions>}
         </header>
         {detachError && <p className="dialog-detach-error" role="alert">{detachError}</p>}
-        {onSubmit ? <form ref={formRef} className="modal-form-content" noValidate={noValidate} onSubmit={onSubmit}>{content}</form> : content}
+        {onSubmit ? <form ref={formRef} className={compact ? "pet-dialog-form" : "modal-form-content"} noValidate={noValidate} onSubmit={onSubmit}>{content}</form> : content}
         {sizingEnabled && resizeDirections.map(direction => <div key={direction} className={`dialog-resize-handle dialog-resize-${direction}`} aria-hidden="true" onPointerDown={event => startResize(event, direction)} />)}
       </section>
     </DialogDocument.Provider>,

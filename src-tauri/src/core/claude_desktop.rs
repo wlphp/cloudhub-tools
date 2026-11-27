@@ -78,6 +78,8 @@ pub enum Action {
     SaveGatewaySettings { settings: GatewaySettings },
     OpenConfigDirectory,
     RevealConfigKey,
+    RevealProviderKey { id: String },
+    ModelCatalog { id: Option<String>, draft: Value },
     Reorder { ids: Vec<String> },
     Save { provider: Value },
     Delete { id: String },
@@ -323,6 +325,122 @@ fn get_provider<'a>(state: &'a Settings, id: &str) -> Result<&'a ClaudeProvider,
         .iter()
         .find(|p| p.id == id)
         .ok_or_else(|| "请选择有效的供应商".into())
+}
+
+pub async fn query_provider_models(
+    p: &ClaudeProvider,
+) -> Result<Vec<super::claude_providers::ModelMapping>, String> {
+    if p.official_login || p.api_key.trim().is_empty() {
+        return Err("请填写供应商请求地址与 API Key".into());
+    }
+    let mut url = gateway::validate_url(&p.base_url)?;
+    let path = url.path().trim_end_matches('/').to_string();
+    let base = ["/messages", "/responses", "/chat/completions", "/anthropic"]
+        .iter()
+        .find(|s| path.ends_with(**s))
+        .map(|s| path.trim_end_matches(s))
+        .unwrap_or(&path);
+    url.set_path(&if p.api_format == ApiFormat::Gemini {
+        format!(
+            "{}/models",
+            if base.ends_with("/v1beta") {
+                base.to_string()
+            } else {
+                format!("{base}/v1beta")
+            }
+        )
+    } else {
+        format!(
+            "{}/models",
+            if base.ends_with("/v1") {
+                base.to_string()
+            } else {
+                format!("{base}/v1")
+            }
+        )
+    });
+    let deepseek = url.host_str() == Some("api.deepseek.com");
+    if deepseek {
+        url.set_path("/models");
+    }
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(std::time::Duration::from_secs(20))
+        .build()
+        .map_err(|_| "无法初始化模型查询")?;
+    let mut req = client.get(url);
+    req = if deepseek {
+        req.bearer_auth(&p.api_key)
+    } else {
+        match p.api_format {
+            ApiFormat::Anthropic => {
+                let req = req.header("anthropic-version", "2023-06-01");
+                if p.api_key_field == ApiKeyField::ApiKey {
+                    req.header("x-api-key", &p.api_key)
+                } else {
+                    req.bearer_auth(&p.api_key)
+                }
+            }
+            ApiFormat::Gemini => req.header("x-goog-api-key", &p.api_key),
+            _ => req.bearer_auth(&p.api_key),
+        }
+    };
+    let mut response = req.send().await.map_err(|_| "模型列表请求失败，请检查网络")?;
+    if !response.status().is_success() {
+        let status = response.status().as_u16();
+        let reason = match status {
+            401 => "认证失败，请检查 API Key 是否有效",
+            403 => "当前账户或密钥无权访问模型列表",
+            404 | 405 => "该地址不提供模型列表接口，请检查供应商地址或手动添加模型",
+            429 => "请求过于频繁或额度受限，请稍后重试",
+            500..=599 => "供应商服务暂时不可用，请稍后重试",
+            _ => "供应商拒绝模型列表请求，请检查配置",
+        };
+        return Err(format!("获取模型列表失败（HTTP {status}）：{reason}"));
+    }
+    let mut bytes = zeroize::Zeroizing::new(Vec::new());
+    while let Some(chunk) = response.chunk().await.map_err(|_| "模型列表读取失败")? {
+        if bytes.len() + chunk.len() > 2 * 1024 * 1024 {
+            return Err("模型列表超过大小限制".into());
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    let value: Value = serde_json::from_slice(&bytes).map_err(|_| "模型列表格式无效")?;
+    let items = value["data"]
+        .as_array()
+        .or_else(|| value["models"].as_array())
+        .ok_or("上游未返回模型列表")?;
+    let trimmed_key = p.api_key.trim();
+    let mut seen = HashSet::new();
+    let mut result = Vec::new();
+    for item in items.iter().take(2000) {
+        let id = item["id"]
+            .as_str()
+            .or_else(|| item["name"].as_str())
+            .unwrap_or("")
+            .trim_start_matches("models/")
+            .trim();
+        if id.is_empty()
+            || id.len() > 240
+            || id.chars().any(char::is_control)
+            || (!trimmed_key.is_empty() && id == trimmed_key)
+            || !seen.insert(id.to_owned())
+        {
+            continue;
+        }
+        let display_name = item["display_name"]
+            .as_str()
+            .or_else(|| item["displayName"].as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty() && s.len() <= 240 && *s != trimmed_key)
+            .unwrap_or(id);
+        result.push(super::claude_providers::ModelMapping {
+            model: id.into(),
+            display_name: display_name.into(),
+            supports_1m: false,
+        });
+    }
+    Ok(result)
 }
 
 fn provider_models(p: &ClaudeProvider) -> Vec<super::claude_providers::ModelMapping> {
@@ -658,6 +776,30 @@ pub async fn action(action: Action) -> Result<Value, String> {
                 .filter(|key| !key.is_empty())
                 .ok_or("连接方案中没有密钥")?;
             return Ok(json!({ "key": key }));
+        }
+        Action::RevealProviderKey { id } => {
+            let saved = get_provider(&state, &id)?;
+            if saved.api_key.is_empty() {
+                return Err("该供应商尚未保存密钥".into());
+            }
+            return Ok(json!({ "key": saved.api_key }));
+        }
+        Action::ModelCatalog { id, mut draft } => {
+            if draft["apiKey"].as_str().is_none_or(|key| key.trim().is_empty()) {
+                let id = id.filter(|s| !s.trim().is_empty()).ok_or("请填写供应商请求地址与 API Key")?;
+                let saved = get_provider(&state, &id)?;
+                let draft_url = draft["baseUrl"].as_str().unwrap_or("").trim().trim_end_matches('/');
+                let saved_url = saved.base_url.trim().trim_end_matches('/');
+                let draft_format: ApiFormat = serde_json::from_value(draft["apiFormat"].clone()).unwrap_or_default();
+                if draft_url != saved_url || draft_format != saved.api_format {
+                    return Err("修改地址或协议后，请重新填写 API Key 再查询".into());
+                }
+                draft["apiKey"] = json!(saved.api_key);
+            }
+            let p: ClaudeProvider = serde_json::from_value(draft).map_err(|_| "供应商表单无效")?;
+            drop(runtime);
+            let models = query_provider_models(&p).await?;
+            return Ok(json!(models));
         }
         Action::Reorder { ids } => {
             let positions: HashMap<_, _> = ids

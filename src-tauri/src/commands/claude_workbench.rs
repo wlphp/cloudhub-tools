@@ -153,50 +153,17 @@ pub async fn claude_provider_probe(id:String)->PlatformResult<Probe>{
 pub async fn claude_provider_models(id:String,draft:Option<model::ClaudeProvider>)->PlatformResult<Vec<model::ModelMapping>>{
     let p=if let Some(mut draft)=draft {
         if draft.api_key.trim().is_empty() && !id.is_empty() {
-            draft.api_key=provider(&id)?.api_key;
+            let saved = provider(&id)?;
+            if draft.base_url.trim().trim_end_matches('/') != saved.base_url.trim().trim_end_matches('/')
+                || draft.api_format != saved.api_format
+            {
+                return Err("修改地址或协议后，请重新填写 API Key 再查询".into());
+            }
+            draft.api_key=saved.api_key;
         }
         draft
     } else { provider(&id)? };
-    if p.official_login||p.api_key.trim().is_empty(){return Err("请填写供应商请求地址与 API Key".into());}
-    let mut url=gateway::validate_url(&p.base_url)?;
-    let path=url.path().trim_end_matches('/').to_string();
-    // Anthropic 兼容供应商的请求地址可能填成 /anthropic，但模型发现接口
-    // 通常仍位于兼容 API 根路径 /v1/models，不能拼成 /anthropic/v1/models。
-    let base=["/messages","/responses","/chat/completions","/anthropic"].iter().find(|s|path.ends_with(**s)).map(|s|path.trim_end_matches(s)).unwrap_or(&path);
-    url.set_path(&if p.api_format==model::ApiFormat::Gemini{format!("{}/models",if base.ends_with("/v1beta"){base.to_string()}else{format!("{base}/v1beta")})}else{format!("{}/models",if base.ends_with("/v1"){base.to_string()}else{format!("{base}/v1")})});
-    // DeepSeek 官方模型发现使用 OpenAI 兼容接口，与聊天协议和认证字段无关。
-    let deepseek = url.host_str() == Some("api.deepseek.com");
-    if deepseek { url.set_path("/models"); }
-    let client=reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).timeout(std::time::Duration::from_secs(20)).build().map_err(|_|"无法初始化模型查询")?;
-    let mut req=client.get(url);
-    req=if deepseek { req.bearer_auth(&p.api_key) } else { match p.api_format{model::ApiFormat::Anthropic=>{
-        let req=req.header("anthropic-version","2023-06-01");
-        if p.api_key_field==model::ApiKeyField::ApiKey{req.header("x-api-key",&p.api_key)}else{req.bearer_auth(&p.api_key)}
-    },model::ApiFormat::Gemini=>req.header("x-goog-api-key",&p.api_key),_=>req.bearer_auth(&p.api_key)} };
-    let mut response=req.send().await.map_err(|_|"模型列表请求失败，请检查网络")?;
-    if !response.status().is_success(){
-        let status=response.status().as_u16();
-        let reason=match status {
-            401=>"认证失败，请检查已保存的 API Key；新填写或修改的 Key 需要先保存",
-            403=>"当前账户或密钥无权访问模型列表",
-            404|405=>"该地址不提供模型列表接口，请检查供应商地址",
-            429=>"请求过于频繁或额度受限，请稍后重试",
-            500..=599=>"供应商服务暂时不可用，请稍后重试",
-            _=>"供应商拒绝模型列表请求，请检查配置",
-        };
-        return Err(format!("获取模型列表失败（HTTP {status}）：{reason}").into());
-    }
-    let mut bytes=zeroize::Zeroizing::new(Vec::new());
-    while let Some(chunk)=response.chunk().await.map_err(|_|"模型列表读取失败")?{if bytes.len()+chunk.len()>2*1024*1024{return Err("模型列表超过大小限制".into());}bytes.extend_from_slice(&chunk);}
-    let value:Value=serde_json::from_slice(&bytes).map_err(|_|"模型列表格式无效")?;
-    let items=value["data"].as_array().or_else(||value["models"].as_array()).ok_or("上游未返回模型列表")?;
-    let mut result=Vec::new();
-    for item in items.iter().take(2000){
-        let id=item["id"].as_str().or_else(||item["name"].as_str()).unwrap_or("").trim_start_matches("models/");
-        if id.is_empty()||id.len()>240||id.chars().any(char::is_control){continue;}
-        result.push(model::ModelMapping{model:id.into(),display_name:item["display_name"].as_str().or_else(||item["displayName"].as_str()).filter(|s|s.len()<=240).unwrap_or(id).into(),supports_1m:false});
-    }
-    Ok(result)
+    crate::core::claude_desktop::query_provider_models(&p).await.map_err(Into::into)
 }
 
 #[tauri::command]

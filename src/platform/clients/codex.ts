@@ -88,7 +88,8 @@ export const codexClient = {
   gatewayLanInterfaces(): Promise<{ip: string; adapter: string; network: string}[]> { return nativeOnly("codex_gateway_lan_interfaces"); },
   setGatewayAllowLan(enabled: boolean): Promise<CodexGatewayState> { return nativeOnly("codex_gateway_set_allow_lan", { enabled }); },
   saveGatewayPool(accountIds: number[]): Promise<CodexGatewayState> { return nativeOnly("codex_gateway_save_pool", { accountIds }); },
-  wakeAccount(id: number, model: string): Promise<void> { return nativeOnly("codex_wake_account", { id, model }); },
+  /** prompt/effort 省略时由原生端使用默认简短提示词与低推理强度。 */
+  wakeAccount(id: number, model: string, options?: { prompt?: string; effort?: string }): Promise<void> { return nativeOnly("codex_wake_account", { id, model, prompt: options?.prompt ?? null, effort: options?.effort ?? null }); },
   testAccount(id: number, model: string, prompt: string, effort: string): Promise<{ text: string; durationMs: number; inputTokens: number | null; outputTokens: number | null }> { return nativeOnly("codex_test_account", { id, model, prompt, effort }); },
   exportAccountsFile(accountId: number | null = null, accountIds: number[] | null = null, format: CodexExportFormat = "cockpit_tools"): Promise<boolean> { return nativeOnly("codex_export_accounts_file", { accountId, accountIds, format }); },
   exportAccountsText(accountId: number | null = null, accountIds: number[] | null = null, format: CodexExportFormat = "cockpit_tools"): Promise<string> { return nativeOnly("codex_export_accounts_text", { accountId, accountIds, format }); },

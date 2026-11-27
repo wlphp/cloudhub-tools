@@ -1,25 +1,11 @@
 import { useDialogDocument } from "../../shared/DialogDocument";
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, Copy, Download, Eye, EyeOff, LoaderCircle, Plus, Save, Search, Settings, ShieldCheck, Trash2 } from "lucide-react";
+import { Copy, Download, Eye, EyeOff, LoaderCircle, Plus, Save, Settings, ShieldCheck, Trash2 } from "lucide-react";
 import { OverviewDialog } from "./OverviewDialogs";
 import { ConfirmDialog } from "../../shared/ConfirmDialog";
 import { codexClient } from "../../platform/clients/codex";
 import { codexProviders, type ModelSettings, type ProviderInput } from "../../platform/clients/codex-providers";
-import { AiSupplierImport } from "../ai/AiSupplierImport";
-
-// Public endpoint shortcuts only. Fetch the available model catalogue with the user's own key.
-const presets: { name: string; baseUrl: string; wireApi: ProviderInput["wireApi"]; group: string }[] = [
-  { name: "OpenAI API", baseUrl: "https://api.openai.com/v1", wireApi: "responses", group: "官方 API" },
-  { name: "DeepSeek", baseUrl: "https://api.deepseek.com", wireApi: "responses", group: "官方 API" },
-  { name: "智谱 GLM", baseUrl: "https://open.bigmodel.cn/api/coding/paas/v4", wireApi: "chat_completions", group: "官方 API" },
-  { name: "Kimi", baseUrl: "https://api.moonshot.cn/v1", wireApi: "chat_completions", group: "官方 API" },
-  { name: "阿里云百炼", baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1", wireApi: "chat_completions", group: "官方 API" },
-  { name: "MiniMax 国内", baseUrl: "https://api.minimaxi.com/v1", wireApi: "chat_completions", group: "官方 API" },
-  { name: "MiniMax 国际", baseUrl: "https://api.minimax.io/v1", wireApi: "chat_completions", group: "官方 API" },
-  { name: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1", wireApi: "chat_completions", group: "聚合 / 中转" },
-  { name: "SiliconFlow", baseUrl: "https://api.siliconflow.cn/v1", wireApi: "chat_completions", group: "聚合 / 中转" },
-];
 
 export function providerEditorInput(value: ProviderInput): ProviderInput {
   const model = value.settings?.defaultModel?.trim();
@@ -43,8 +29,6 @@ interface Props {
 
 export function ProviderEditorPage({ value, busy, fetchingModels, catalogMessage, error, onChange, onKeysChange, onFetchModels, onSave, onClose }: Props) {
   const document = useDialogDocument();
-  const [presetOpen, setPresetOpen] = useState(false);
-  const [query, setQuery] = useState("");
   const [discarding, setDiscarding] = useState(false);
   const [readingConfig, setReadingConfig] = useState(false);
   const [commonConfig, setCommonConfig] = useState("");
@@ -55,7 +39,6 @@ export function ProviderEditorPage({ value, busy, fetchingModels, catalogMessage
   const alive = useRef(true);
   const reading = useRef(false);
   const modelListId = useId();
-  const presetsId = useId();
   useEffect(() => {
     alive.current = true;
     return () => { alive.current = false; };
@@ -132,26 +115,6 @@ export function ProviderEditorPage({ value, busy, fetchingModels, catalogMessage
     <form id={formId} onSubmit={event => { event.preventDefault(); if (canSave && !busy) onSave(); }}>
       <div className="codex-provider-editor-body">
         <div className="codex-provider-editor-card codex-provider-form">
-          {!value.id && <div className="codex-provider-presets">
-            <AiSupplierImport target="codex" onImport={({ profile, apiKey }) => {
-              const models = [...new Set([profile.model, ...(profile.models ?? [])].map(model => model.trim()).filter(Boolean))];
-              const wireApi = profile.protocol === "openai_responses" ? "responses" : "chat_completions";
-              onChange({ ...value, name: profile.name, baseUrl: profile.baseUrl, wireApi, models,
-                settings: { ...value.settings, defaultModel: profile.model || models[0] || null },
-              });
-              onKeysChange([{ ...value.keys[0], name: "导入密钥", secret: apiKey, settings: { ...value.keys[0]?.settings, models, modelsScoped: true } }]);
-            }} />
-            <button type="button" className="codex-provider-preset-toggle" disabled={busy} aria-expanded={presetOpen} aria-controls={presetsId} onClick={() => setPresetOpen(open => !open)}><span>从预设模板创建 <small>{presets.length} 个供应商</small></span><ChevronDown size={14} className={presetOpen ? "is-open" : ""} /></button>
-            {presetOpen && <div id={presetsId} className="codex-provider-preset-list" role="region" aria-label="供应商预设列表">
-              <label className="codex-provider-preset-search"><Search size={14} /><input aria-label="搜索供应商预设" placeholder="搜索供应商…" disabled={busy} value={query} onChange={event => setQuery(event.target.value)} /></label>
-              {["官方 API", "聚合 / 中转"].map(group => {
-                const matches = presets.filter(preset => preset.group === group && (preset.name + " " + preset.baseUrl).toLowerCase().includes(query.trim().toLowerCase()));
-                return matches.length > 0 && <div key={group}><h3>{group}</h3><div className="codex-provider-preset-grid">{matches.map(preset => <button type="button" key={preset.name} disabled={busy} onClick={() => { onChange({ ...value, name: preset.name, baseUrl: preset.baseUrl, wireApi: preset.wireApi }); setPresetOpen(false); setQuery(""); }}><span className="codex-provider-preset-initial">{preset.name.slice(0, 1)}</span><span><strong>{preset.name}</strong><small>{preset.wireApi === "responses" ? "Responses API" : "Chat Completions"}</small></span></button>)}</div></div>;
-              })}
-              {!presets.some(preset => (preset.name + " " + preset.baseUrl).toLowerCase().includes(query.trim().toLowerCase())) && <p>没有匹配的供应商</p>}
-              <p>模板填入名称、地址和协议；模型请使用自己的密钥获取或手动填写。</p>
-            </div>}
-          </div>}
           <div className="codex-provider-editor-fields">
             <label>名称<input aria-label="名称" maxLength={100} required disabled={busy} value={value.name} onChange={event => onChange({ ...value, name: event.target.value })} /></label>
             <label>接入模式<select aria-label="接入模式" disabled={busy} value={value.wireApi} onChange={event => onChange({ ...value, wireApi: event.target.value as ProviderInput["wireApi"] })}><option value="responses">API Key · Responses API</option><option value="chat_completions">API Key · Chat Completions</option><option value="official" disabled>官方登录（在账号总览中管理）</option></select></label>

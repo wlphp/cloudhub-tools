@@ -1,4 +1,4 @@
-import { ConfirmDialog } from "../../shared/ConfirmDialog";
+import { PetConfirmDialog } from "./PetDialog";
 import { ToastNotice } from "../../shared/ToastNotice";
 import { createPortal } from "react-dom";
 import { petChatParentPage } from "./PetChatSettings";
@@ -614,8 +614,8 @@ export function PetWindow() {
       </header>
       <div className="modal-body pet-panel-body"><PetActionGroups groups={[quickChatActions, companionActions, ...desktopActions]} /></div>
     </section>}
-    {historyClearOpen && createPortal(<ConfirmDialog title="清空聊天记录" message="确定永久删除本机保存的桌宠聊天记录和已发送图片？" tone="danger" confirmLabel="清空聊天记录" busy={historyClearBusy} error={historyClearError} onPointerDown={dragPanel} onResolve={confirmed => { if (confirmed) void clearChatHistory(); else setHistoryClearOpen(false); }} />, document.body)}
-    {brightnessChoice && createPortal(<ConfirmDialog title="选择显示器" message={`检测到 ${brightnessChoice.monitors.length} 台显示器。请选择要调到 ${brightnessChoice.percent}% 的屏幕。`} confirmLabel="调整亮度" confirmDisabled={!brightnessTarget} onPointerDown={dragPanel}
+    {historyClearOpen && createPortal(<PetConfirmDialog title="清空聊天记录" message="确定永久删除本机保存的桌宠聊天记录和已发送图片？" tone="danger" confirmLabel="清空聊天记录" busy={historyClearBusy} error={historyClearError} onResolve={confirmed => { if (confirmed) void clearChatHistory(); else setHistoryClearOpen(false); }} />, document.body)}
+    {brightnessChoice && createPortal(<PetConfirmDialog title="选择显示器" message={`检测到 ${brightnessChoice.monitors.length} 台显示器。请选择要调到 ${brightnessChoice.percent}% 的屏幕。`} confirmLabel="调整亮度" confirmDisabled={!brightnessTarget}
       onResolve={confirmed => { brightnessChoice.resolve(confirmed ? brightnessTarget : ""); setBrightnessChoice(null); }}>
       <label className="pet-brightness-choice">目标显示器
         <select value={brightnessTarget} onChange={event => setBrightnessTarget(event.target.value)}>
@@ -626,9 +626,9 @@ export function PetWindow() {
           <option value="all" disabled={!brightnessChoice.monitors.some(monitor => monitor.supported)}>全部调整</option>
         </select>
       </label>
-    </ConfirmDialog>, document.body)}
-    {computerConfirm && createPortal(<ConfirmDialog title={computerConfirm === "shutdown" ? "关闭电脑" : "重启电脑"} message={`确定${computerConfirm === "shutdown" ? "关闭" : "重启"}当前电脑吗？请先保存正在编辑的文件，操作会立即提交给 Windows。`} confirmLabel={computerConfirm === "shutdown" ? "确认关机" : "确认重启"} busy={computerBusy} error={error} onPointerDown={dragPanel} onResolve={confirmed => { if (confirmed) void computerAction(computerConfirm); else setComputerConfirm(null); }} />, document.body)}
-    {shellConfirm && createPortal(<ConfirmDialog title="执行电脑命令" tone="danger" message={`${shellConfirm.summary || "AI 建议执行以下 CMD 命令"}。请核对命令内容，确认后才会在本机执行，高危命令会被直接拒绝。`} confirmLabel="确认执行" busy={shellBusy} error={error} onPointerDown={dragPanel} onResolve={confirmed => { if (confirmed) void runShellCommand(shellConfirm.command); else setShellConfirm(null); }}><pre className="pet-shell-command">{shellConfirm.command}</pre></ConfirmDialog>, document.body)}
+    </PetConfirmDialog>, document.body)}
+    {computerConfirm && createPortal(<PetConfirmDialog title={computerConfirm === "shutdown" ? "关闭电脑" : "重启电脑"} message={`确定${computerConfirm === "shutdown" ? "关闭" : "重启"}当前电脑吗？请先保存正在编辑的文件，操作会立即提交给 Windows。`} confirmLabel={computerConfirm === "shutdown" ? "确认关机" : "确认重启"} busy={computerBusy} error={error} onResolve={confirmed => { if (confirmed) void computerAction(computerConfirm); else setComputerConfirm(null); }} />, document.body)}
+    {shellConfirm && createPortal(<PetConfirmDialog title="执行电脑命令" tone="danger" message={`${shellConfirm.summary || "AI 建议执行以下 CMD 命令"}。请核对命令内容，确认后才会在本机执行，高危命令会被直接拒绝。`} confirmLabel="确认执行" busy={shellBusy} error={error} onResolve={confirmed => { if (confirmed) void runShellCommand(shellConfirm.command); else setShellConfirm(null); }}><pre className="pet-shell-command">{shellConfirm.command}</pre></PetConfirmDialog>, document.body)}
     {!chatVisible && error && <div className="pet-inline-error" role="alert">{error}<button aria-label="关闭错误提示" onClick={() => setError("")}>关闭</button></div>}
     <div className="pet-avatar-wrap" data-voice-listening={petVoice.listening ? (petVoice.listeningError ? "error" : "on") : undefined} data-voice-playing={voicePlaying ? "on" : undefined} onMouseEnter={() => { setHover(true); if (pose === "idle") setPose("curious"); }} onMouseLeave={() => { setHover(false); if (pose === "curious") setPose("idle"); }}>
       <button className="pet-avatar" aria-label="宠物：点击查看提醒，右键打开菜单，拖动可移动" title="点击查看提醒 · 右键菜单 · 拖动移动"

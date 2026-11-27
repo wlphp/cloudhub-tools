@@ -1148,11 +1148,187 @@ pub struct AccountTestResult {
     pub output_tokens: Option<u64>,
 }
 
+pub const PELICAN_DELIVERY_INSTRUCTIONS: &str = "Follow the output format requested by the user. For HTML or SVG creation tasks, return a complete standalone HTML document without Markdown fences or external dependencies. For other tasks, answer directly in the requested format; do not wrap plain text or JSON in HTML. Do not use external tools or search.";
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PelicanQuotaSnapshot {
+    pub used_percent: f64,
+    pub remaining_percent: i32,
+    pub window_minutes: Option<i64>,
+    pub reset_at: Option<i64>,
+}
+
+pub struct PelicanChatResult {
+    pub reply: String,
+    pub usage: Option<Value>,
+    pub response_id: Option<String>,
+    pub response_model: Option<String>,
+    pub quota: Option<PelicanQuotaSnapshot>,
+}
+
+fn pelican_header_number(headers: &reqwest::header::HeaderMap, name: &str) -> Option<f64> {
+    headers.get(name)?.to_str().ok()?.trim().parse::<f64>().ok()
+}
+
+fn pelican_quota_from_headers(headers: &reqwest::header::HeaderMap) -> Option<PelicanQuotaSnapshot> {
+    let used_percent = pelican_header_number(headers, "x-codex-primary-used-percent")?.clamp(0.0, 100.0);
+    let reset_at = pelican_header_number(headers, "x-codex-primary-reset-after-seconds")
+        .filter(|seconds| *seconds >= 0.0)
+        .map(|seconds| chrono::Utc::now().timestamp() + seconds.round() as i64);
+    Some(PelicanQuotaSnapshot {
+        used_percent,
+        remaining_percent: (100.0 - used_percent).round().clamp(0.0, 100.0) as i32,
+        window_minutes: pelican_header_number(headers, "x-codex-primary-window-minutes")
+            .filter(|minutes| *minutes > 0.0)
+            .map(|minutes| minutes.round() as i64),
+        reset_at,
+    })
+}
+
+pub async fn pelican_chat(
+    id: i64,
+    model: String,
+    prompt: String,
+    effort: String,
+    mut cancel: tokio::sync::watch::Receiver<bool>,
+    mut on_delta: impl FnMut(&str) + Send,
+) -> Result<PelicanChatResult, String> {
+    if !model_valid(&model) {
+        return Err("模型名称无效".into());
+    }
+    if prompt.trim().is_empty()
+        || prompt.len() > 100_000
+        || !matches!(effort.as_str(), "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra")
+    {
+        return Err("测试参数无效".into());
+    }
+    if *cancel.borrow() {
+        return Err("PELICAN_CANCELLED".into());
+    }
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .connect_timeout(Duration::from_secs(30))
+        .build()
+        .map_err(|_| "初始化模型测试请求失败")?;
+    let mut remote = None;
+    let body = json!({
+        "model": model,
+        "instructions": PELICAN_DELIVERY_INSTRUCTIONS,
+        "reasoning": { "effort": effort },
+        "input": [{ "role": "user", "content": [{ "type": "input_text", "text": prompt }] }],
+        "stream": true,
+        "store": false,
+        "tools": []
+    });
+    let mut response = tokio::select! {
+        biased;
+        _ = cancel.changed() => return Err("PELICAN_CANCELLED".into()),
+        result = upstream(&client, id, body, None, &mut remote) => result.map_err(|(_, msg)| msg)?,
+    };
+    let quota = pelican_quota_from_headers(response.headers());
+    let mut decoder = SseDecoder::default();
+    let mut completed = false;
+    let mut reply = String::new();
+    let mut usage = None;
+    let mut response_id = None;
+    let mut response_model = None;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(15 * 60);
+    loop {
+        let next_chunk = tokio::select! {
+            biased;
+            _ = cancel.changed() => {
+                if let Some(log) = remote.as_mut() { log.finish("cancelled"); }
+                return Err("PELICAN_CANCELLED".into());
+            }
+            _ = tokio::time::sleep_until(deadline) => {
+                if let Some(log) = remote.as_mut() { log.finish("timeout"); }
+                return Err("PELICAN_TIMEOUT".into());
+            }
+            chunk = tokio::time::timeout(Duration::from_secs(120), response.chunk()) => {
+                match chunk {
+                    Ok(Ok(value)) => value,
+                    Ok(Err(_)) => {
+                        if let Some(log) = remote.as_mut() { log.finish("stream_error"); }
+                        return Err("PELICAN_STREAM_INCOMPLETE".into());
+                    }
+                    Err(_) => {
+                        if let Some(log) = remote.as_mut() { log.finish("timeout"); }
+                        return Err("PELICAN_TIMEOUT".into());
+                    }
+                }
+            }
+        };
+        let Some(chunk) = next_chunk else { break };
+        for value in decoder.feed(&chunk)? {
+            if let Some(log) = remote.as_mut() { log.event(&value); }
+            match value.get("type").and_then(Value::as_str) {
+                Some("response.output_text.delta") => {
+                    if let Some(delta) = value.get("delta").and_then(Value::as_str) {
+                        if reply.len() + delta.len() > 4 * 1024 * 1024 {
+                            if let Some(log) = remote.as_mut() { log.finish("output_limit"); }
+                            return Err("PELICAN_RESPONSE_TOO_LARGE".into());
+                        }
+                        reply.push_str(delta);
+                        on_delta(delta);
+                    }
+                }
+                Some("response.completed") => {
+                    completed = true;
+                    usage = value.pointer("/response/usage").cloned();
+                    response_id = value.pointer("/response/id").and_then(Value::as_str).map(str::to_string);
+                    response_model = value.pointer("/response/model").and_then(Value::as_str).map(str::to_string);
+                    if reply.is_empty() {
+                        if let Some(output) = value.pointer("/response/output").and_then(Value::as_array) {
+                            for item in output {
+                                if let Some(parts) = item.get("content").and_then(Value::as_array) {
+                                    for part in parts {
+                                        if let Some(content) = part.get("text").and_then(Value::as_str) {
+                                            if reply.len() + content.len() > 4 * 1024 * 1024 {
+                                                return Err("PELICAN_RESPONSE_TOO_LARGE".into());
+                                            }
+                                            reply.push_str(content);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Some("error" | "response.failed" | "response.incomplete") => {
+                    if let Some(log) = remote.as_mut() { log.finish("stream_error"); }
+                    let reason = value
+                        .pointer("/response/incomplete_details/reason")
+                        .or_else(|| value.pointer("/response/error/code"))
+                        .or_else(|| value.pointer("/error/code"))
+                        .and_then(Value::as_str)
+                        .filter(|s| s.len() <= 64 && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-'));
+                    return Err(match reason {
+                        Some(code) => format!("PELICAN_STREAM_INCOMPLETE: {code}"),
+                        None => "PELICAN_STREAM_INCOMPLETE".into(),
+                    });
+                }
+                _ => {}
+            }
+        }
+        if completed {
+            break;
+        }
+    }
+    if let Some(log) = remote.as_mut() {
+        log.finish(if completed { "completed" } else { "stream_error" });
+    }
+    if !completed {
+        return Err("PELICAN_STREAM_INCOMPLETE".into());
+    }
+    Ok(PelicanChatResult { reply, usage, response_id, response_model, quota })
+}
+
 pub async fn test_account(id: i64, model: String, prompt: String, effort: String) -> Result<AccountTestResult, String> {
     if !model_valid(&model) {
         return Err("唤醒模型名称无效".into());
     }
-    if prompt.trim().is_empty() || prompt.len() > 32_768 || !matches!(effort.as_str(), "low" | "medium" | "high") {
+    if prompt.trim().is_empty() || prompt.len() > 32_768 || !matches!(effort.as_str(), "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra") {
         return Err("模型测试参数无效".into());
     }
     let started = Instant::now();

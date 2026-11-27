@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { SharedDialog } from "../../shared/SharedDialog";
+import { PetDialog } from "./PetDialog";
 import type { PetChatService } from "../../platform/clients/desktopPet";
 
 export function petChatModels(service: PetChatService): string[] {
@@ -21,7 +21,7 @@ export function PetChatModelDialog({ services, current, currentModel, busy, onAp
   const models = channel ? petChatModels(channel) : [];
   const modelToApply = models.includes(model) ? model : models[0];
 
-  return <SharedDialog title="切换聊天模型" size="small" showResize={false} resizable={false}
+  return <PetDialog title="切换聊天模型"
     className="pet-chat-model-dialog" onClose={onClose}
     onSubmit={event => { event.preventDefault(); if (!busy && channel && modelToApply) onApply(channel, modelToApply); }}
     footer={<>
@@ -38,5 +38,5 @@ export function PetChatModelDialog({ services, current, currentModel, busy, onAp
         {models.map(name => <option value={name} key={name}>{name}</option>)}
       </select></label>
     </div> : <p>还没有启用的聊天渠道，请先在 AI 设置中配置。</p>}
-  </SharedDialog>;
+  </PetDialog>;
 }

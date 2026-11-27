@@ -1,5 +1,5 @@
 import { nativeOnly } from "./base";
-import type { ClaudeMode, ClaudeProviderInput, ClaudeRoutingConfig, ClaudeRoutingState } from "./claudeProviders";
+import type { ClaudeMode, ClaudeModelMapping, ClaudeProviderInput, ClaudeRoutingConfig, ClaudeRoutingState } from "./claudeProviders";
 
 export type DesktopProvider = Omit<ClaudeProviderInput, "apiKey"> & { keyConfigured: boolean };
 export type DesktopSelection = { mode: ClaudeMode; provider: string; members: string[] };
@@ -39,4 +39,15 @@ export function getClaudeDesktopRoutingState() {
 
 export function diagnoseClaudeDesktopConnection() {
   return nativeOnly<DesktopConnectionDiagnosis>("claude_desktop_action", { action: { type: "diagnose_connection" } });
+}
+
+export async function revealClaudeDesktopProviderKey(id: string) {
+  const { key } = await nativeOnly<{ key: string }>("claude_desktop_action", { action: { type: "reveal_provider_key", id } });
+  return key;
+}
+
+export function queryClaudeDesktopModels(id: string, draft: ClaudeProviderInput) {
+  return nativeOnly<ClaudeModelMapping[]>("claude_desktop_action", {
+    action: { type: "model_catalog", id: id || null, draft },
+  });
 }

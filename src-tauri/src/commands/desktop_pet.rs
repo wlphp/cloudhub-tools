@@ -1309,7 +1309,7 @@ fn undock(app: &tauri::AppHandle, w: &tauri::WebviewWindow) -> Result<(), String
         let (width,height) = docking::handle_size(edge);
         let avatar_left = (width / 2. - s.size as f64 / 2. - 40.) * scale;
         let avatar_top = (height / 2. - s.size as f64 / 2. - 28.) * scale;
-        w.set_size(tauri::LogicalSize::new(s.size as f64+80.,s.size as f64+40.)).map_err(|_| "无法展开桌宠")?;
+        w.set_size(tauri::LogicalSize::new(s.size as f64+80.,s.size as f64+130.)).map_err(|_| "无法展开桌宠")?;
         position(w,Some((raw.x as f64 + avatar_left).round() as i32),Some((raw.y as f64 + avatar_top).round() as i32))?;
         *docked = None;
         let _ = w.emit("pet-docked",false);
@@ -1347,7 +1347,7 @@ fn dock_after_drag(app: &tauri::AppHandle, w: &tauri::WebviewWindow) -> Result<(
     let anchor = (avatar.0 + (avatar_size.0 as i32-size.width as i32)/2,avatar.1 + (avatar_size.1 as i32-size.height as i32)/2);
     let (x,y) = docking::head_position(edge,anchor,(size.width,size.height),area);
     if w.set_position(tauri::PhysicalPosition::new(x,y)).is_err() {
-        let _ = w.set_size(tauri::LogicalSize::new(s.size as f64+80.,s.size as f64+40.));
+        let _ = w.set_size(tauri::LogicalSize::new(s.size as f64+80.,s.size as f64+130.));
         return Err("无法将桌宠收起到边缘".into());
     }
     *docked = Some((full.x,avatar.1-(28.*scale).round() as i32,edge));
@@ -1356,8 +1356,8 @@ fn dock_after_drag(app: &tauri::AppHandle, w: &tauri::WebviewWindow) -> Result<(
     Ok(())
 }
 
-/// 桌宠空闲窗口尺寸：宽度为宠物加左右余量；高度需容纳多行语音提示气泡（气泡底距 22px + 数行文本 + 余量），
-/// 所有设置窗口尺寸的路径（创建、同步、布局）必须统一走这里，避免保存设置后气泡再次被窗口裁切。
+/// 桌宠空闲窗口尺寸：高度包含宠物、底部锚定气泡的安全空间及多行语音提示；
+/// 所有设置窗口尺寸的路径（创建、同步、布局）必须统一走这里，避免气泡再次被窗口裁切。
 #[cfg(desktop)]
 fn pet_idle_size(size: u32) -> (f64, f64) {
     (size as f64 + 80., size as f64 + 130.)

@@ -5,13 +5,19 @@ export const quotaStatusNames = { ready: "额度充足", low: "额度偏低", ex
 export type QuotaStatus = keyof typeof quotaStatusNames;
 export const windowName = (minutes: number | null) => minutes ? minutes % 1440 === 0 ? `${minutes / 1440} 天窗口` : minutes % 60 === 0 ? `${minutes / 60} 小时窗口` : `${minutes} 分钟窗口` : "额度窗口";
 export const remainingPercent = (window: CodexQuotaWindow) => Number.isFinite(window.usedPercent) && window.usedPercent >= 0 && window.usedPercent <= 100 ? 100 - window.usedPercent : null;
+export function isQuotaResetDue(resetsAt: number | null, now: number): boolean {
+  if (resetsAt == null || !Number.isFinite(resetsAt) || resetsAt <= 0) return false;
+  const time = resetsAt * 1000;
+  return Number.isFinite(time) && time <= now;
+}
+
 export function quotaResetTime(resetsAt: number | null, now: number): string {
   if (resetsAt == null || !Number.isFinite(resetsAt) || resetsAt <= 0) return "重置时间未知";
   const date = new Date(resetsAt * 1000);
   if (!Number.isFinite(date.getTime())) return "重置时间未知";
   const pad = (value: number) => String(value).padStart(2, "0");
   const timestamp = `${pad(date.getMonth() + 1)}/${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
-  if (date.getTime() <= now) return `已到重置时间，待刷新（${timestamp}）`;
+  if (isQuotaResetDue(resetsAt, now)) return `已到重置时间，待刷新（${timestamp}）`;
   const minutes = Math.ceil((date.getTime() - now) / 60000);
   const days = Math.floor(minutes / 1440);
   const hours = Math.floor(minutes % 1440 / 60);

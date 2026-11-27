@@ -7,6 +7,7 @@ pub mod desktop;
 pub mod gateway;
 pub mod gateway_config;
 pub mod gateway_controls;
+pub mod pelican;
 pub mod process;
 pub mod profile;
 pub mod rpc;

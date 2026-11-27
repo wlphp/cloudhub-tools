@@ -76,6 +76,12 @@ body.dialog-popout-page { margin: 0; overflow: hidden; }
 .shared-confirm-dialog > .modal-body {min-height:0;overflow:auto;padding:16px}
 .shared-confirm-dialog > .modal-body p {margin:0;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.6}
 .shared-confirm-dialog > footer.app-confirm-actions {display:flex;justify-content:flex-end;gap:8px;margin:0;padding:10px 12px}
+.shared-confirm-dialog .modal-body .confirm-message { color: var(--jb-text); font-size: 13px; font-weight: 550; }
+.shared-confirm-dialog .modal-body .confirm-detail { margin-top: 7px; color: var(--jb-muted); font-size: 12px; line-height: 1.55; }
+.shared-confirm-dialog.is-danger > .modal-head > svg { flex: 0 0 auto; padding: 6px; box-sizing: content-box; border: 1px solid color-mix(in srgb, var(--jb-danger) 42%, var(--jb-border)); border-radius: 5px; background: color-mix(in srgb, var(--jb-danger) 9%, var(--jb-surface)); color: var(--jb-danger); }
+.shared-confirm-dialog.is-danger > .modal-actions > .primary { border-color: color-mix(in srgb, var(--jb-danger) 82%, var(--jb-border)) !important; background: color-mix(in srgb, var(--jb-danger) 86%, var(--jb-surface)) !important; color: #fff !important; }
+.shared-confirm-dialog.is-danger > .modal-actions > .primary:hover:not(:disabled) { filter: brightness(1.08); }
+.shared-confirm-dialog > .modal-actions > button { min-width: 88px; min-height: 34px; }
 :is(.modal,.resource-modal,.codex-dialog,.flow-dialog,.certificate-dialog,.modal-form-layout,.ai-config-dialog,.ai-asset-note-dialog,.app-confirm-dialog,.auth-dialog,.sync-transfer-panel,.terminal-quick-dialog,.terminal-connect-card,.dns-editor-modal,.security-group-modal,[role=dialog],dialog) > :is(header,.modal-head,.detail-toolbar,.terminal-quick-dialog-head,.terminal-connect-card-head,.frp-editor-header,.flow-details-header,.certificate-dialog-header,.auth-dialog-header) { cursor: move; }
 :is(.modal,.resource-modal,.codex-dialog,.flow-dialog,.certificate-dialog,.modal-form-layout,.ai-config-dialog,.ai-asset-note-dialog,.app-confirm-dialog,.auth-dialog,.sync-transfer-panel,.terminal-quick-dialog,.terminal-connect-card,.dns-editor-modal,.security-group-modal,[role=dialog],dialog) > :is(header,.modal-head,.detail-toolbar,.terminal-quick-dialog-head,.terminal-connect-card-head,.frp-editor-header,.flow-details-header,.certificate-dialog-header,.auth-dialog-header).dialog-dragging-header { cursor: move; }
 .dialog-header-actions .dialog-size-button { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; min-height: 32px; padding: 6px; border: 1px solid var(--jb-border-strong,var(--jb-border-strong)); border-radius: 4px; color: var(--jb-text,var(--jb-text)); background: var(--jb-surface-3,var(--jb-surface-3)); cursor: pointer; }
@@ -330,5 +336,3 @@ body.theme-light :is(.modal,.resource-modal,.codex-dialog,.codex-log-dialog,.flo
 .transfer-list{max-height:280px;overflow:auto;border:1px solid var(--jb-border);border-radius:6px}
 .transfer-row{display:flex;align-items:flex-start;gap:8px;padding:9px 10px;border-bottom:1px solid var(--jb-border);cursor:pointer}
 .transfer-row:last-child{border-bottom:0}.transfer-row input{width:auto!important;margin-top:2px}.transfer-row span{min-width:0;display:grid;gap:2px}.transfer-row strong,.transfer-row small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.transfer-row small{color:var(--jb-muted);font-size:11px}.transfer-error{color:#ffb9b1;font-size:12px}
-/* 确认框复用共享结构，主要问题与操作后果分层显示。 */
-.shared-confirm-dialog .modal-body .confirm-detail { margin-top: 8px; color: var(--jb-muted); font-size: 13px; }
