@@ -177,7 +177,9 @@ const existing = await request(`${attachmentsUrl}?page=1&per_page=100`);
 // fetch() applies undici's default 300s headers timeout, which aborts large
 // attachment uploads to Gitee midway. Stream the multipart body over
 // node:https instead and allow a much longer upload window.
-const uploadTimeoutMs = 30 * 60 * 1000;
+// v0.1.166 实测 Gitee 大附件通道约 1MB/分钟：49MB 的 APK 需要 50-60 分钟，
+// 30 分钟窗口必然超时，这里放宽到 90 分钟。
+const uploadTimeoutMs = 90 * 60 * 1000;
 function uploadAttachment(file, filename) {
   const endpoint = new URL(attachmentsUrl);
   const boundary = `----cloudhub-release-${randomBytes(12).toString("hex")}`;
@@ -241,6 +243,14 @@ function uploadAttachment(file, filename) {
 
 for (const file of files) {
   const filename = path.basename(file);
+  const fileSize = fs.statSync(file).size;
+  const existingAsset = existing.find((item) => item.name === filename);
+  // Gitee 通道对大文件只有约 1MB/分钟；同名同尺寸视为已镜像成功，跳过可让
+  // 失败重跑从数小时缩短到几秒。尺寸不匹配或 API 未返回尺寸时走删除重传。
+  if (existingAsset && Number(existingAsset.size) === fileSize) {
+    console.log(`Skipped ${filename} (already mirrored with matching size)`);
+    continue;
+  }
   for (const attachment of existing.filter((item) => item.name === filename)) {
     await request(`${attachmentsUrl}/${attachment.id}`, { method: "DELETE" });
   }
