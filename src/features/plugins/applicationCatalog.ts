@@ -15,6 +15,7 @@ const navigation: Record<string, { section?: ApplicationSection; order: number; 
   "cloudhub.claude-providers": { section: "claude", order: 4, sidebar: true, icon: Bot, keywords: "Claude Code 供应商 API 切换 模型 映射" },
   "cloudhub.claude-desktop": { order: 4.5, sidebar: false, icon: MonitorCog, keywords: "Claude Desktop 桌面 供应商 直连 路由 聚合" },
   "cloudhub.codex": { section: "codex", order: 5, sidebar: true, icon: FileCode2 },
+  "cloudhub.antigravity": { order: 5.2, sidebar: false, mobile: true, icon: Bot, keywords: "Antigravity Google AI 账号 配额 导入 导出 refresh_token" },
   // Pi 配置在本机 ~/.pi/agent，未提供移动端界面。
   "cloudhub.pi": { order: 5.5, sidebar: false, icon: SquareTerminal, keywords: "Pi pi-coding-agent 编码助手 供应商 模型 models.json 斜杠命令" },
   "cloudhub.frp": { section: "frp", order: 6, sidebar: true, icon: Network },

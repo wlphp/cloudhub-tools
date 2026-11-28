@@ -10,6 +10,7 @@ import { browserClient } from "../../platform/clients/browser";
 import { mailClient } from "../../platform/clients/mail";
 import { cloudDriveClient } from "../../platform/clients/cloudDrive";
 import { codexClient } from "../../platform/clients/codex";
+import { antigravityClient } from "../../platform/clients/antigravity";
 export function useSoftwareCounts(applicationIds: string) {
   const [softwareCounts, setSoftwareCounts] = useState<Record<string, number>>({});
   const [softwareCountsLoaded, setSoftwareCountsLoaded] = useState(false);
@@ -29,6 +30,7 @@ export function useSoftwareCounts(applicationIds: string) {
     if (enabled.has("cloudhub.mail")) counts["cloudhub.mail"] = mailClient.accounts().then(items => items.length);
     if (enabled.has("cloudhub.cloud-drive")) counts["cloudhub.cloud-drive"] = cloudDriveClient.snapshot().then(snapshot => snapshot.connections.length);
     if (enabled.has("cloudhub.codex")) counts["cloudhub.codex"] = codexClient.state().then(state => state.accounts.length);
+    if (enabled.has("cloudhub.antigravity")) counts["cloudhub.antigravity"] = antigravityClient.list().then(state => state.accounts.length);
     void Promise.allSettled(Object.entries(counts).map(async ([id, request]) => [id, await request] as const)).then(results => {
       if (!active) return;
       setSoftwareCounts(Object.fromEntries(results.flatMap(result => result.status === "fulfilled" ? [result.value] : [])));

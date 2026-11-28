@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { CalendarDays, Edit3, RefreshCw, Shield } from "lucide-react";
 import { codexClient, type CodexAccount } from "../../platform/clients/codex";
 
-export function AccountControls({ account, busy, now, act, onAccount, onEdit, onNotice, headerAction, children, onRefreshBenefits, refreshing = false }: { account: CodexAccount; busy: boolean; now: number; act: (name: string, run: () => Promise<void>) => Promise<void>; onAccount: (account: CodexAccount) => void; onEdit: () => void; onNotice?: (message: string) => void; headerAction?: ReactNode; children?: ReactNode; refreshing?: boolean; onRefreshBenefits?: () => Promise<void> }) {
+export function AccountControls({ account, busy, now, act, onAccount, onEdit, onNotice, headerAction, children, renderOverview, onRefreshBenefits, refreshing = false }: { account: CodexAccount; busy: boolean; now: number; act: (name: string, run: () => Promise<void>) => Promise<void>; onAccount: (account: CodexAccount) => void; onEdit: () => void; onNotice?: (message: string) => void; headerAction?: ReactNode; children?: ReactNode; renderOverview?: (controls: ReactNode, subscription: ReactNode) => ReactNode; refreshing?: boolean; onRefreshBenefits?: () => Promise<void> }) {
   void now;
   const [modal, setModal] = useState<"proxy" | "reset" | null>(null);
   const [url, setUrl] = useState("");
@@ -28,18 +28,15 @@ export function AccountControls({ account, busy, now, act, onAccount, onEdit, on
     catch (reason) { if (alive.current) setError(reason instanceof Error ? reason.message : "读取本机代理配置失败，请手动填写代理地址"); }
     finally { if (alive.current) setDetecting(false); }
   };
-  return <>
-    <div className="codex-account-controls">
+  const controls = <div className="codex-account-controls">
       <span className="codex-account-kind">{account.isWebSession ? "Web Session" : account.authMode === "chatgpt" ? "Team Name：" + ((account.workspaceName?.toLowerCase() === "personal" ? "个人账户" : account.workspaceName) || (["team", "business", "enterprise", "edu"].includes(account.plan?.toLowerCase() ?? "") ? "团队名称未获取" : "个人账户")) : "API Key 账号"}</span>
       <div className="codex-account-action-row">
       {headerAction}
       <button className="codex-note-chip" disabled={busy} aria-label={`编辑 ${account.label} 备注`} onClick={onEdit}><Edit3 size={13} />{account.note ? "改备注" : "加备注"}</button>{account.authMode === "chatgpt" && benefits?.resetCredits != null && <button className="codex-reset-chip" data-available={benefits.resetCredits > 0} disabled={busy} aria-label={`查看 ${account.label} 重置次数`} onClick={() => { setError(""); setModal("reset"); }}><RefreshCw size={12} />重置 {benefits.resetCredits}</button>}
       <button className="codex-proxy-chip" data-configured={!!account.proxyUrl} disabled={busy} aria-label={`配置 ${account.label} 代理`} title={account.proxyUrl ? `已配置：${account.proxyUrl}` : "沿用系统网络设置"} onClick={() => { setUrl(account.proxyUrl ?? ""); setError(""); setProxies([]); setDetected(false); setModal("proxy"); }}><Shield size={13} />{account.proxyUrl ? "代理已设" : "代理"}</button>
       </div>
-    </div>
-
-    {children}
-    {account.authMode === "chatgpt" && <div className={`codex-subscription${expires && remainingDays! > 0 ? " is-active" : ""}`}>
+    </div>;
+  const subscription = account.authMode === "chatgpt" && <div className={`codex-subscription${expires && remainingDays! > 0 ? " is-active" : ""}`}>
       <div><CalendarDays size={14} /><strong>{remainingDays == null ? "未获取订阅信息" : remainingDays === 0 ? "订阅已到期" : `订阅有效期 ${remainingDays} 天`}</strong><button disabled={busy} aria-label={`刷新 ${account.label} 订阅与重置次数`} title={refreshing ? "此账号正在刷新，请稍候" : "刷新订阅有效期和剩余重置次数"} aria-busy={refreshing} onClick={() => void refresh()}><RefreshCw className={refreshing ? "codex-refresh-spinning" : undefined} size={13} />{refreshing ? "刷新中…" : "刷新"}</button></div>
       {(expires != null || benefits?.fetchedAt || benefits?.subscriptionError || benefits?.creditsError) && <details className="codex-benefit-details" open={subscriptionExpanded} onToggle={event => setSubscriptionExpanded(event.currentTarget.open)}><summary>{expires != null && benefits?.subscriptionError ? "查看订阅详情 · 上次缓存" : "查看订阅详情"}</summary>
       {subscriptionExpanded && <>
@@ -49,7 +46,10 @@ export function AccountControls({ account, busy, now, act, onAccount, onEdit, on
       {benefits?.creditsError && <RefreshFailure key={benefits.creditsError} label="重置次数查询失败" reason={benefits.creditsError} />}
       </>}
       </details>}
-    </div>}
+    </div>;
+
+  return <>
+    {renderOverview ? renderOverview(controls, subscription) : <>{controls}{children}{subscription}</>}
     {modal && <SharedDialog sizeStorageKey="features/codex/account-controls/account-controls" title={modal === "proxy" ? "账号代理" : "主动重置额度"} className={`codex-dialog${modal === "reset" ? " codex-reset-dialog" : ""}`} closeLabel="关闭账号设置" closeDisabled={busy || detecting} onClose={close}>
       <p className="codex-account-dialog-label">{account.label}</p>
       {modal === "proxy" ? <form onSubmit={(event) => { event.preventDefault(); if (detecting) return; if (url.trim() && !url.includes("://")) { setError("代理地址缺少协议，请填写 http://127.0.0.1:10808 这样的完整地址"); return; } void run("保存账号代理", async () => { const next = await codexClient.saveProxy(account.id, url); if (alive.current) { onAccount(next); setModal(null); } }); }}>

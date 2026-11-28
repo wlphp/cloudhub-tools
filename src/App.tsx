@@ -228,6 +228,14 @@ import type {
 
 
 const empty = emptyAccountDraft;
+
+function extractIpFromText(raw: string): string | null {
+  const ipv4 = raw.match(/\b(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\b/);
+  if (ipv4) return ipv4[0];
+  const ipv6 = raw.match(/\[([0-9a-fA-F:]{2,})\]/);
+  if (ipv6 && ipv6[1].includes(":")) return ipv6[1];
+  return null;
+}
 const emptyManagedHost = emptyManagedHostDraft;
 const labels = resourceLabels;
 const cloudProviders = catalogCloudProviders;
@@ -5247,7 +5255,29 @@ function App() {
             <PanelIpLocationProgress panels={panelLocationTargets} />
             <section className="managed-server-toolbar panel-management-toolbar">
               <div className="panel-toolbar-primary">
-                <label className="managed-host-search" title="搜索面板"><Search size={16} /><input aria-label="搜索面板" value={panelKeyword} onChange={(event) => setPanelKeyword(event.target.value)} placeholder="搜索面板名称、IP 地址或备注" /></label>
+                <div className="managed-host-search" title="搜索面板">
+                  <Search size={16} aria-hidden="true" />
+                  <input aria-label="搜索面板" value={panelKeyword} onChange={(event) => setPanelKeyword(event.target.value)} placeholder="搜索面板名称、IP 地址或备注" />
+                  <button
+                    type="button"
+                    className="panel-extract-ip-btn"
+                    title="从搜索框或剪贴板内容中提取 IP 地址"
+                    onClick={async () => {
+                      let source = panelKeyword.trim();
+                      if (!source && navigator.clipboard?.readText) {
+                        try { source = (await navigator.clipboard.readText()).trim(); } catch { /* ignore clipboard permission error */ }
+                      }
+                      const ip = extractIpFromText(source);
+                      if (ip) {
+                        setPanelKeyword(ip);
+                      } else {
+                        setStatus("未检测到有效的 IP 地址");
+                      }
+                    }}
+                  >
+                    提取 IP
+                  </button>
+                </div>
                 <div className="provider-filter-wrap panel-group-filter-wrap">
                   <button type="button" className={`account-provider-filter-toggle${panelGroupFilterOpen ? " is-open" : ""}${panelGroupFilters.length ? " has-selection" : ""}`} aria-label="按分组筛选面板" title="按分组筛选面板，可多选，括号内为分组下的面板数量" aria-expanded={panelGroupFilterOpen} disabled={panelSorting} onClick={togglePanelGroupFilterOpen}>
                     <span>{panelGroupFilterLabel}</span>

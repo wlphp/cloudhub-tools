@@ -97,3 +97,5 @@ pub mod notes;
 pub mod trash;
 pub mod claude_providers;
 pub mod lan;
+#[cfg(desktop)]
+pub mod antigravity;

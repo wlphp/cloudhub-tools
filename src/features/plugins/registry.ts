@@ -189,5 +189,6 @@ export const officialPlugins = [{
   { id: "cloudhub.certificates", name: "HTTPS 证书", description: "申请、导入和管理 HTTPS 证书及续期配置。", category: "运维工具" },
   { id: "cloudhub.authenticator", name: "身份验证器", description: "管理本地动态验证码及验证器条目。", category: "安全工具" },
   { id: "cloudhub.codex", name: "Codex 管理", description: "管理 Codex 账号、模型供应商与本地运行配置。", category: "开发工具" },
+  { id: "cloudhub.antigravity", name: "Antigravity 管理", description: "管理 Antigravity 多账号、模型配额监控与账号导入导出（兼容 Antigravity-Manager 格式）。", category: "开发工具" },
   { id: "cloudhub.frp", name: "内网穿透", description: "管理本地 FRP 连接、代理和运行状态。", category: "运维工具" },
 ] as const).map(item => ({ ...item, version: "0.1.0", publisher: "云枢工具箱", distribution: "builtin" as const, platform: "desktop" as const, permissions: [] }))] as const;

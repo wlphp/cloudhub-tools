@@ -521,12 +521,11 @@ function ProviderEditor({ initial, busy, onClose, onSave }: { initial: Draft; bu
     try {
       const models = await piModelCatalog({ provider: initial.originalId, baseUrl: value.baseUrl.trim(), api: value.api, apiKey: value.apiKey.trim() || undefined });
       const existing = new Set(value.models.map(model => model.id.trim()));
-      const available = models.filter(id => !existing.has(id));
-      if (available.length) {
-        setSelectedModels([]);
-        setCatalog(available);
+      if (models.length) {
+        setSelectedModels(models.filter(id => existing.has(id)));
+        setCatalog(models);
       } else {
-        setCatalogError("上游模型已全部添加。");
+        setCatalogError("上游未返回模型，请手动添加。");
       }
     } catch (cause) {
       setCatalogError(errorText(cause));
@@ -583,6 +582,21 @@ function ProviderEditor({ initial, busy, onClose, onSave }: { initial: Draft; bu
           title={!catalogSupported ? "该协议请手动添加模型" : undefined}>
           <ArrowDownToLine size={13} aria-hidden="true" />{catalogBusy ? "正在获取…" : "获取模型列表"}
         </button>
+        {value.models.length > 0 && (
+          <label className="claude-check" style={{ marginLeft: "auto" }}>
+            <SelectionCheckbox
+              label="全选推理模型"
+              checked={value.models.every(model => model.reasoning)}
+              mixed={value.models.some(model => model.reasoning) && !value.models.every(model => model.reasoning)}
+              disabled={busy}
+              onChange={() => {
+                const nextReasoning = !value.models.every(model => model.reasoning);
+                setValue(current => ({ ...current, models: current.models.map(model => ({ ...model, reasoning: nextReasoning })) }));
+              }}
+            />
+            全选推理模型
+          </label>
+        )}
         {catalogError && <span className="claude-models-toolbar-message" role="status">{catalogError}</span>}
       </div>
       <div className="pi-model-list" role="list" aria-label="渠道可用模型列表">
@@ -597,22 +611,33 @@ function ProviderEditor({ initial, busy, onClose, onSave }: { initial: Draft; bu
     </fieldset>
     {error && <p className="claude-error" role="alert">{error}</p>}
   </SharedDialog>
-  {catalog && <SharedDialog sizeStorageKey="features/plugins/pi-config-plugin/model-catalog" size="small"
-    title="选择渠道模型" className="pi-catalog-dialog" initialFocus="[type=search]" onClose={() => setCatalog(null)}
-    footer={<>
-      <button type="button" className="secondary" onClick={() => setCatalog(null)}>取消</button>
-      <button type="button" className="primary" disabled={!selectedModels.length || selectedModels.length + value.models.filter(model => model.id.trim()).length > 200}
-        onClick={() => {
-          setValue(current => {
-            const existing = new Set(current.models.map(model => model.id.trim()));
-            return { ...current, models: [...current.models.filter(model => model.id.trim()), ...selectedModels.filter(id => !existing.has(id)).map(id => ({ id, reasoning: false }))] };
-          });
-          setCatalog(null);
-        }}>添加所选（{selectedModels.length}）</button>
-    </>}>
-    <PiCatalogList catalog={catalog} selected={selectedModels} onChange={setSelectedModels}
-      remaining={Math.max(0, 200 - value.models.filter(model => model.id.trim()).length)} />
-  </SharedDialog>}</>;
+  {catalog && (() => {
+    const catalogSet = new Set(catalog);
+    const manualCount = value.models.filter(model => model.id.trim() && !catalogSet.has(model.id.trim())).length;
+    const remaining = Math.max(0, 200 - manualCount);
+    return <SharedDialog sizeStorageKey="features/plugins/pi-config-plugin/model-catalog" size="small"
+      title="选择渠道模型" className="pi-catalog-dialog" initialFocus="[type=search]" onClose={() => setCatalog(null)}
+      footer={<>
+        <button type="button" className="secondary" onClick={() => setCatalog(null)}>取消</button>
+        <button type="button" className="primary" disabled={selectedModels.length > remaining}
+          onClick={() => {
+            setValue(current => {
+              const selectedSet = new Set(selectedModels);
+              const kept = current.models.filter(model => {
+                const id = model.id.trim();
+                return id && (!catalogSet.has(id) || selectedSet.has(id));
+              });
+              const keptIds = new Set(kept.map(model => model.id.trim()));
+              const additions = selectedModels.filter(id => !keptIds.has(id)).map(id => ({ id, reasoning: false }));
+              return { ...current, models: [...kept, ...additions] };
+            });
+            setCatalog(null);
+          }}>确认选择（{selectedModels.length}）</button>
+      </>}>
+      <PiCatalogList catalog={catalog} selected={selectedModels} onChange={setSelectedModels}
+        remaining={remaining} />
+    </SharedDialog>;
+  })()}</>;
 }
 
 function PiCatalogList({ catalog, selected, onChange, remaining }: {

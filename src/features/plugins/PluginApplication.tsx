@@ -21,6 +21,7 @@ const FlowPanel = lazy(() => import("../flow/FlowPanel").then(module => ({ defau
 const AuthenticatorPanel = lazy(() => import("../authenticator/AuthenticatorPanel").then(module => ({ default: module.AuthenticatorPanel })));
 const CertificatePanel = lazy(() => import("../certificates/CertificatePanel").then(module => ({ default: module.CertificatePanel })));
 const CodexPanel = lazy(() => import("../codex/CodexPanel").then(module => ({ default: module.CodexPanel })));
+const AntigravityPanel = lazy(() => import("../antigravity/AntigravityPanel").then(module => ({ default: module.AntigravityPanel })));
 const FrpPanel = lazy(() => import("../frp/FrpPanel").then(module => ({ default: module.FrpPanel })));
 const AiSettings = lazy(() => import("../ai/AiSettings").then(module => ({ default: module.AiSettings })));
 const PetSettingsPanel = lazy(() => import("../desktop-pet/PetSettingsPanel").then(module => ({ default: module.PetSettingsPanel })));
@@ -47,6 +48,7 @@ export function PluginApplication({ pluginId, wslEnabled, mobile = false, accoun
     case "cloudhub.authenticator": return <Suspense fallback={<p role="status">正在加载身份验证器…</p>}><AuthenticatorPanel mobile={mobile} /></Suspense>;
     case "cloudhub.certificates": return <Suspense fallback={<p role="status">正在加载 HTTPS 证书…</p>}><CertificatePanel accounts={accounts} localAssets={localAssets} onStatus={onStatus} onConfirm={onConfirm} /></Suspense>;
     case "cloudhub.codex": return <Suspense fallback={<p role="status">正在加载 Codex 管理…</p>}><CodexPanel mobile={mobile} /></Suspense>;
+    case "cloudhub.antigravity": return <Suspense fallback={<p role="status">正在加载 Antigravity 管理…</p>}><AntigravityPanel mobile={mobile} /></Suspense>;
     case "cloudhub.frp": return <Suspense fallback={<p role="status">正在加载内网穿透…</p>}><FrpPanel /></Suspense>;
     case "cloudhub.wechat-multi": return <WechatPluginSettings onNotify={onNotify} onError={onError} />;
     case "cloudhub.hardware-info": return <HardwareInfoPlugin open onOpened={() => {}} />;
