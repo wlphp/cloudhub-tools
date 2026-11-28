@@ -53,6 +53,7 @@ pub fn client() -> Result<Client, String> {
         .build().map_err(|_| "创建供应商请求失败".into())
 }
 
+#[allow(dead_code)]
 pub async fn bounded_json(mut response: reqwest::Response) -> Result<Value, &'static str> {
     if response.content_length().is_some_and(|n| n > LIMIT as u64) { return Err("response_too_large"); }
     let mut bytes = Vec::new();

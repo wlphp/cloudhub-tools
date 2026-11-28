@@ -9,6 +9,7 @@ import { ConfirmDialog } from "../../shared/ConfirmDialog";
 import { ToastNotice } from "../../shared/ToastNotice";
 import { useDialogDocument } from "../../shared/DialogDocument";
 import { useSortableDrag } from "../../shared/useSortableDrag";
+import { ProviderBrandIcon } from "../../shared/provider-brand/ProviderBrandIcon";
 import { PiProviderPresetPicker, type PiPresetSelection } from "./PiProviderPresetPicker";
 import { backupDate, ConfigBackupHistoryDialog } from "./ConfigBackupHistoryDialog";
 import { PiResourcePanel, piResourceTabs } from "./PiResourcePanel";
@@ -422,7 +423,12 @@ function ProvidersTab({ state, busy, onRefresh, onAdd, onEdit, onDelete, onSetDe
             onChange={event => updateSelection([provider.id], event.target.checked)} />}
           <div className="claude-provider-main">
             <div className="claude-provider-title">
-              <span className="claude-provider-logo" aria-hidden="true">{provider.name.slice(0, 1).toUpperCase()}</span>
+              <ProviderBrandIcon
+                name={provider.name}
+                hints={[provider.id, provider.baseUrl ?? undefined, ...provider.models.map(m => m.id)]}
+                fallback={provider.name.trim().slice(0, 1).toUpperCase()}
+                className="is-small claude-provider-brand-logo"
+              />
               <strong>{provider.name}</strong>
               {firstModel && <button type="button" className="claude-model-toggle" aria-expanded={open} aria-controls={`pi-models-${provider.id}`}
                 onClick={() => setExpanded(previous => {

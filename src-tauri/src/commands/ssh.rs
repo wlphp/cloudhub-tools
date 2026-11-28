@@ -153,7 +153,11 @@ pub(crate) async fn ssh_connect(store: tauri::State<'_, SshTerminalStore>, input
         expected_fingerprint: saved.as_ref().and_then(|value| value.host_key_fingerprint.clone()),
         observed_fingerprint: observed_fingerprint.clone(),
     };
-    let config = Arc::new(client::Config::default());
+    let config = Arc::new(client::Config {
+        keepalive_interval: Some(std::time::Duration::from_secs(30)),
+        keepalive_max: 3,
+        ..client::Config::default()
+    });
     let mut session = client::connect(config, (host.clone(), port), handler).await
         .map_err(|error| {
             if observed_fingerprint.lock().ok().and_then(|value| value.clone()).is_some() {
@@ -237,7 +241,11 @@ pub(crate) async fn ssh_test_connection(input: SshConnectInput) -> PlatformResul
     let credentials = ssh_credentials(&input, &saved)?;
     let observed_fingerprint = Arc::new(Mutex::new(None));
     let handler = SshHostKeyHandler { expected_fingerprint: saved.as_ref().and_then(|value| value.host_key_fingerprint.clone()), observed_fingerprint: observed_fingerprint.clone() };
-    let config = Arc::new(client::Config::default());
+    let config = Arc::new(client::Config {
+        keepalive_interval: Some(std::time::Duration::from_secs(30)),
+        keepalive_max: 3,
+        ..client::Config::default()
+    });
     let mut session = client::connect(config, (host.as_str(), port), handler).await.map_err(|error| format!("连接 SSH 主机失败: {error}"))?;
     authenticate_ssh(&mut session, &username, &credentials, "测试").await?;
     session.disconnect(russh::Disconnect::ByApplication, "SSH connection test completed", "en").await.map_err(|error| format!("关闭测试连接失败: {error}"))?;
@@ -253,7 +261,11 @@ fn ssh_file_profile(store: &tauri::State<'_, SshTerminalStore>, session_id: &str
 async fn ssh_exec(profile: SshConnectionProfile, command: &str, stdin: Option<Vec<u8>>) -> Result<Vec<u8>, String> {
     let observed_fingerprint = Arc::new(Mutex::new(None));
     let handler = SshHostKeyHandler { expected_fingerprint: Some(profile.fingerprint.clone()), observed_fingerprint };
-    let config = Arc::new(client::Config::default());
+    let config = Arc::new(client::Config {
+        keepalive_interval: Some(std::time::Duration::from_secs(30)),
+        keepalive_max: 3,
+        ..client::Config::default()
+    });
     let mut session = client::connect(config, (profile.host.as_str(), profile.port), handler).await.map_err(|error| format!("文件管理连接 SSH 主机失败: {error}"))?;
     authenticate_ssh(&mut session, &profile.username, &profile.credentials, "文件管理").await?;
     let mut channel = session.channel_open_session().await.map_err(|error| format!("打开文件管理通道失败: {error}"))?;
@@ -353,25 +365,55 @@ pub(crate) async fn ssh_make_directory(store: tauri::State<'_, SshTerminalStore>
 #[tauri::command]
 pub(crate) async fn ssh_delete_path(store: tauri::State<'_, SshTerminalStore>, session_id: String, path: String) -> PlatformResult<()> { let profile = ssh_file_profile(&store, &session_id)?; let path = validate_remote_path(&path, false)?; ssh_exec(profile, &format!("rm -rf -- {}", shell_quote(path)), None).await?; Ok(()) }
 
+fn drain_ssh_output(output: &mpsc::Receiver<String>) -> Result<String, ()> {
+    let mut collected = String::new();
+    loop {
+        match output.try_recv() {
+            Ok(chunk) => collected.push_str(&chunk),
+            Err(mpsc::TryRecvError::Empty) => return Ok(collected),
+            Err(mpsc::TryRecvError::Disconnected) => {
+                if !collected.is_empty() {
+                    return Ok(collected);
+                }
+                return Err(());
+            }
+        }
+    }
+}
+
 #[tauri::command]
 pub(crate) fn ssh_read(store: tauri::State<'_, SshTerminalStore>, session_id: String) -> PlatformResult<String> {
     let mut terminals = store.terminals.lock().map_err(|_| "SSH 终端状态不可用".to_string())?;
     let terminal = terminals.get_mut(&session_id).ok_or("SSH 会话已关闭")?;
-    Ok(terminal.output.try_iter().collect())
+    match drain_ssh_output(&terminal.output) {
+        Ok(output) => Ok(output),
+        Err(()) => {
+            terminals.remove(&session_id);
+            Err("SSH 会话已关闭".into())
+        }
+    }
 }
 
 #[tauri::command]
 pub(crate) fn ssh_write(store: tauri::State<'_, SshTerminalStore>, session_id: String, data: String) -> PlatformResult<()> {
     let mut terminals = store.terminals.lock().map_err(|_| "SSH 终端状态不可用".to_string())?;
     let terminal = terminals.get_mut(&session_id).ok_or("SSH 会话已关闭")?;
-    Ok(terminal.commands.send(SshCommand::Data(data)).map_err(|_| "SSH 会话已关闭".to_string())?)
+    if terminal.commands.send(SshCommand::Data(data)).is_err() {
+        terminals.remove(&session_id);
+        return Err("SSH 会话已关闭".into());
+    }
+    Ok(())
 }
 
 #[tauri::command]
 pub(crate) fn ssh_resize(store: tauri::State<'_, SshTerminalStore>, session_id: String, cols: u32, rows: u32) -> PlatformResult<()> {
     let mut terminals = store.terminals.lock().map_err(|_| "SSH 终端状态不可用".to_string())?;
     let terminal = terminals.get_mut(&session_id).ok_or("SSH 会话已关闭")?;
-    Ok(terminal.commands.send(SshCommand::Resize(cols, rows)).map_err(|_| "SSH 会话已关闭".to_string())?)
+    if terminal.commands.send(SshCommand::Resize(cols, rows)).is_err() {
+        terminals.remove(&session_id);
+        return Err("SSH 会话已关闭".into());
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -381,4 +423,23 @@ pub(crate) fn ssh_disconnect(store: tauri::State<'_, SshTerminalStore>, session_
         let _ = terminal.commands.send(SshCommand::Disconnect);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::drain_ssh_output;
+    use std::sync::mpsc;
+
+    #[test]
+    fn drain_ssh_output_flushes_buffered_data_before_reporting_disconnect() {
+        let (tx, rx) = mpsc::channel();
+        tx.send("hello ".to_string()).unwrap();
+        tx.send("world".to_string()).unwrap();
+        assert_eq!(drain_ssh_output(&rx), Ok("hello world".to_string()));
+        assert_eq!(drain_ssh_output(&rx), Ok(String::new()));
+        tx.send("bye".to_string()).unwrap();
+        drop(tx);
+        assert_eq!(drain_ssh_output(&rx), Ok("bye".to_string()));
+        assert_eq!(drain_ssh_output(&rx), Err(()));
+    }
 }

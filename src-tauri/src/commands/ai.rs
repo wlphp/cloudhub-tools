@@ -233,3 +233,30 @@ pub(crate) async fn ai_test_vision(
         .map_err(error)?;
     Ok(VisionResult { profile, passed })
 }
+
+fn usage_error(message: String) -> PlatformError {
+    PlatformError {
+        kind: "provider-usage",
+        code: "codex-provider",
+        retryable: false,
+        message,
+    }
+}
+
+#[tauri::command]
+pub(crate) async fn ai_provider_usage(
+    profile_id: String,
+    adapter: String,
+) -> PlatformResult<crate::core::provider_usage::Usage> {
+    let (profile, key) = tauri::async_runtime::spawn_blocking(move || {
+        repository::load(&open_db()?, &profile_id).map_err(usage_error)
+    })
+    .await
+    .map_err(|_| usage_error("读取供应商额度参数失败".into()))??;
+    if !profile.has_key || key.trim().is_empty() {
+        return Err(usage_error("请先配置供应商 API Key 后再查询额度".into()));
+    }
+    crate::core::provider_usage::query(&profile.base_url, &key, &adapter)
+        .await
+        .map_err(usage_error)
+}

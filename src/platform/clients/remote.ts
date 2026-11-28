@@ -5,7 +5,7 @@ import type {
   SshConnectResult,
   SshDirectoryListing,
 } from "../../shared/types";
-import { invokeOrWeb, nativeOnly } from "./base";
+import { invokeOrWeb, jsonRequest, nativeOnly } from "./base";
 
 export const remoteClient = {
   revealPanelApiKey(id: number): Promise<string> { return nativeOnly("reveal_panel_api_key", { id }); },
@@ -16,7 +16,7 @@ export const remoteClient = {
   temporaryPanelLogin(id: number): Promise<string> { return nativeOnly("panel_temporary_login", { id }); },
   openPanelTemporaryLogin(id: number): Promise<void> { return nativeOnly("open_panel_temporary_login", { id }); },
   deletePanel(id: number): Promise<void> { return nativeOnly("delete_panel_connection", { id }); },
-  updatePanelOrder(ids: number[]): Promise<void> { return nativeOnly("update_panel_connection_order", { ids }); },
+  updatePanelOrder(ids: number[]): Promise<void> { return invokeOrWeb("update_panel_connection_order", { ids }, { path: "/api/panel-connection-order", init: jsonRequest("POST", { ids }) }); },
   updatePanelRemark(id: number, remark: string | null): Promise<PanelConnection> { return nativeOnly("update_panel_connection_remark", { id, remark }); },
   exportPanels(panelIds?: number[]): Promise<string> { return nativeOnly("export_panel_connections_file", { panelIds }); },
   importPanels(panels: unknown[]): Promise<number> { return nativeOnly("import_panel_connections", { panels }); },

@@ -4,6 +4,6 @@ export function providerAccent(seed: string): { color: string; letter: string } 
   let hash = 0;
   for (let index = 0; index < trimmed.length; index += 1) hash = (hash * 31 + trimmed.charCodeAt(index)) >>> 0;
   const hue = hash % 360;
-  const letter = /[A-Za-z0-9]/.test(trimmed) ? trimmed[0].toUpperCase() : "?";
+  const letter = Array.from(trimmed)[0]?.toUpperCase() ?? "?";
   return { color: `hsl(${hue}, 55%, 42%)`, letter };
 }

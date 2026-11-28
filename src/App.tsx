@@ -274,7 +274,7 @@ function syncAssetTypes(account: Account): ReadonlyArray<(typeof assetTypes)[num
 }
 const assetTypes = catalogAssetTypes;
 
-const bundledVersion = "0.1.165";
+const bundledVersion = "0.1.166";
 const isDevelopmentBuild = import.meta.env.DEV;
 
 const detachedTerminalHostId = (() => {
@@ -886,9 +886,24 @@ function App() {
     };
   }, [managedHostContextMenu]);
 
+  const activeSshDisconnected = Boolean(sshSessionId && terminalTabs.find(tab => tab.sessionId === sshSessionId)?.disconnected);
+
+  const isSshClosedError = (error: unknown) => {
+    const text = platformErrorMessage(error);
+    return text.includes("SSH 会话已关闭") || text.includes("SSH 会话已断开");
+  };
+
+  const markSshSessionDisconnected = (sessionId: string) => {
+    setTerminalTabs((current) => current.map((tab) => (
+      tab.sessionId === sessionId && !tab.disconnected ? { ...tab, disconnected: true } : tab
+    )));
+    setSshError("SSH 会话已断开，可点击重新连接");
+  };
+
   useEffect(() => {
-    if (!sshSessionId) return;
+    if (!sshSessionId || activeSshDisconnected) return;
     let disposed = false;
+    let timer = 0;
     const read = async () => {
       try {
         const output = await remoteClient.readSsh(sshSessionId);
@@ -903,17 +918,27 @@ function App() {
           if (sshTerminalRef.current) sshTerminalRef.current.write(output);
         }
       } catch (error) {
-        if (!disposed && terminalAuditStore.current.recording?.sessionId === sshSessionId) {
+        if (disposed) return;
+        disposed = true;
+        window.clearInterval(timer);
+        if (terminalAuditStore.current.recording?.sessionId === sshSessionId) {
           terminalAuditStore.current.stop("连接中断", auditSecretsRef.current);
           setTerminalRecordings([...terminalAuditStore.current.recordings]);
         }
-        if (!disposed) setSshError(`SSH 会话已断开：${String(error)}`);
+        if (isSshClosedError(error)) {
+          markSshSessionDisconnected(sshSessionId);
+        } else {
+          setTerminalTabs((current) => current.map((tab) => (
+            tab.sessionId === sshSessionId ? { ...tab, disconnected: true } : tab
+          )));
+          setSshError(`SSH 会话已断开：${platformErrorMessage(error)}`);
+        }
       }
     };
     void read();
-    const timer = window.setInterval(() => void read(), 250);
+    timer = window.setInterval(() => void read(), 250);
     return () => { disposed = true; window.clearInterval(timer); };
-  }, [sshSessionId]);
+  }, [sshSessionId, activeSshDisconnected]);
 
   useLayoutEffect(() => {
     const host = sshTerminalHostRef.current;
@@ -921,6 +946,8 @@ function App() {
     let disposed = false;
     let observer: ResizeObserver | null = null;
     let resizeTimer: number | undefined;
+    let lastCols = 0;
+    let lastRows = 0;
     let entry = sshTerminalCacheRef.current.get(sshSessionId);
 
     const activate = (cached: NonNullable<typeof entry>) => {
@@ -935,12 +962,27 @@ function App() {
       sshTerminalRef.current = cached.terminal;
       const syncSize = () => {
         if (disposed) return;
+        if (host.clientWidth < 40 || host.clientHeight < 40) return;
         cached.fit();
+        const cols = cached.terminal.cols;
+        const rows = cached.terminal.rows;
+        if (!cols || !rows || (cols === lastCols && rows === lastRows)) return;
+        if (terminalTabsRef.current.find((tab) => tab.sessionId === sshSessionId)?.disconnected) return;
         window.clearTimeout(resizeTimer);
         resizeTimer = window.setTimeout(() => {
           if (disposed) return;
-          void remoteClient.resizeSsh(sshSessionId, cached.terminal.cols, cached.terminal.rows)
-            .catch((error) => { if (!disposed) setSshError(`调整 SSH 终端大小失败：${String(error)}`); });
+          if (terminalTabsRef.current.find((tab) => tab.sessionId === sshSessionId)?.disconnected) return;
+          lastCols = cached.terminal.cols;
+          lastRows = cached.terminal.rows;
+          void remoteClient.resizeSsh(sshSessionId, lastCols, lastRows)
+            .catch((error) => {
+              if (disposed) return;
+              if (isSshClosedError(error)) {
+                markSshSessionDisconnected(sshSessionId);
+                return;
+              }
+              setSshError(`调整 SSH 终端大小失败：${platformErrorMessage(error)}`);
+            });
         }, 100);
       };
       observer = new ResizeObserver(syncSize);
@@ -966,8 +1008,16 @@ function App() {
       terminal.loadAddon(fitAddon);
       terminal.open(container);
       const input = terminal.onData((data) => {
+        if (terminalTabsRef.current.find((tab) => tab.sessionId === sshSessionId)?.disconnected) return;
         void remoteClient.writeSsh(sshSessionId, data)
-          .catch((error) => { if (sshTerminalRef.current === terminal) setSshError(`发送 SSH 输入失败：${String(error)}`); });
+          .catch((error) => {
+            if (sshTerminalRef.current !== terminal) return;
+            if (isSshClosedError(error)) {
+              markSshSessionDisconnected(sshSessionId);
+              return;
+            }
+            setSshError(`发送 SSH 输入失败：${platformErrorMessage(error)}`);
+          });
       });
       const cached = { terminal, container, fit: () => fitAddon.fit(), disposeInput: () => input.dispose() };
       sshTerminalCacheRef.current.set(sshSessionId, cached);
@@ -976,7 +1026,7 @@ function App() {
       sshPendingOutputRef.current = "";
       activate(cached);
     }).catch((error) => {
-      if (!disposed) setSshError(`加载 SSH 终端失败：${String(error)}`);
+      if (!disposed) setSshError(`加载 SSH 终端失败：${platformErrorMessage(error)}`);
     });
 
     return () => {
@@ -1026,11 +1076,14 @@ function App() {
   /** 终端底部命令栏：命令按普通按键发给远端 PTY，屏幕回显因此与手动敲入完全一致。 */
   async function submitSshCommand() {
     const command = sshCommandInput.trim();
-    if (!command || !sshSessionId || sshCommandSending) return;
+    if (!command || !sshSessionId || sshCommandSending || activeSshDisconnected) return;
     setSshCommandSending(true);
     setSshCommandInput("");
     try { await remoteClient.writeSsh(sshSessionId, `${command}\n`); }
-    catch (error) { setSshError(`发送命令失败：${String(error)}`); }
+    catch (error) {
+      if (isSshClosedError(error)) markSshSessionDisconnected(sshSessionId);
+      else setSshError(`发送命令失败：${platformErrorMessage(error)}`);
+    }
     finally { setSshCommandSending(false); }
   }
 
@@ -1720,7 +1773,7 @@ function App() {
     setSshUsername(tab.username);
     setSshSessionId(tab.sessionId);
     setSshPassword("");
-    setSshError("");
+    setSshError(tab.disconnected ? "SSH 会话已断开，可点击重新连接" : "");
     setSshFiles([]);
     setSshFilePath("/");
     setSshFileError("");
@@ -1766,6 +1819,19 @@ function App() {
     setSshFileError("");
     await Promise.all(closing.map((tab) => remoteClient.disconnectSsh(tab.sessionId).catch(() => undefined)));
     setStatus(`已关闭全部 ${closing.length} 个会话`);
+  }
+  async function reconnectActiveTerminalTab() {
+    const tab = terminalTabsRef.current.find((item) => item.id === activeTerminalTabId || item.sessionId === sshSessionId);
+    if (!tab) return;
+    await closeTerminalTab(tab.id);
+    if (tab.target.managedHostId) {
+      const host = managedHosts.find((item) => item.id === tab.target.managedHostId);
+      if (host) {
+        await openManagedHostSsh(host);
+        return;
+      }
+    }
+    duplicateTerminalTab(tab);
   }
   function duplicateTerminalTab(tab: TerminalWorkspaceTab) {
     setTerminalTabMenu(null);
@@ -5310,7 +5376,7 @@ function App() {
                   {terminalTabs.map((tab) => {
                     const label = tab.target.managedHostId ? managedHosts.find((host) => host.id === tab.target.managedHostId)?.name || displayValue(tab.target.asset.payload.InstanceName || tab.target.asset.asset_key) : displayValue(tab.target.asset.payload.InstanceName || tab.target.asset.asset_key);
                     const activeTab = tab.id === activeTerminalTabId;
-                    return <div className={`terminal-tab${activeTab ? " active" : ""}${detachingTerminalTabId === tab.id ? " is-detaching" : ""}`} key={tab.id} role="presentation"><button type="button" className="terminal-tab-select" role="tab" aria-selected={activeTab} title={`${label} · 拖出可分离窗口`} onContextMenu={(event) => { event.preventDefault(); setTerminalTabMenu({ tabId: tab.id, x: Math.max(8, Math.min(event.clientX, window.innerWidth - 184)), y: Math.max(8, Math.min(event.clientY, window.innerHeight - 150)) }); }} onPointerDown={(event) => startTerminalTabDrag(event, tab.id)} onPointerMove={(event) => moveTerminalTabDrag(event, tab)} onPointerUp={endTerminalTabDrag} onPointerCancel={endTerminalTabDrag} onClick={() => { if (terminalTabSuppressClickRef.current === tab.id) { terminalTabSuppressClickRef.current = null; return; } activateTerminalTab(tab); }}><i aria-hidden="true" /><span>{label}</span></button><button type="button" className="terminal-tab-detach" title={`分离 ${label}`} aria-label={`分离 ${label}`} onClick={(event) => { event.stopPropagation(); void detachTerminalTab(tab); }}><ExternalLink size={13} /></button><button type="button" className="terminal-tab-close" title={`关闭 ${label}`} aria-label={`关闭 ${label}`} onClick={() => void closeTerminalTab(tab.id)}><X size={14} /></button></div>;
+                    return <div className={`terminal-tab${activeTab ? " active" : ""}${tab.disconnected ? " is-disconnected" : ""}${detachingTerminalTabId === tab.id ? " is-detaching" : ""}`} key={tab.id} role="presentation"><button type="button" className="terminal-tab-select" role="tab" aria-selected={activeTab} title={`${label}${tab.disconnected ? "（已断开）" : ""} · 拖出可分离窗口`} onContextMenu={(event) => { event.preventDefault(); setTerminalTabMenu({ tabId: tab.id, x: Math.max(8, Math.min(event.clientX, window.innerWidth - 184)), y: Math.max(8, Math.min(event.clientY, window.innerHeight - 150)) }); }} onPointerDown={(event) => startTerminalTabDrag(event, tab.id)} onPointerMove={(event) => moveTerminalTabDrag(event, tab)} onPointerUp={endTerminalTabDrag} onPointerCancel={endTerminalTabDrag} onClick={() => { if (terminalTabSuppressClickRef.current === tab.id) { terminalTabSuppressClickRef.current = null; return; } activateTerminalTab(tab); }}><i aria-hidden="true" /><span>{label}</span></button><button type="button" className="terminal-tab-detach" title={`分离 ${label}`} aria-label={`分离 ${label}`} onClick={(event) => { event.stopPropagation(); void detachTerminalTab(tab); }}><ExternalLink size={13} /></button><button type="button" className="terminal-tab-close" title={`关闭 ${label}`} aria-label={`关闭 ${label}`} onClick={() => void closeTerminalTab(tab.id)}><X size={14} /></button></div>;
                   })}
                 </div>
                 {action}
@@ -5320,7 +5386,7 @@ function App() {
                   {terminalThemeMenuOpen && <span className="ssh-terminal-theme-menu" role="menu">{(Object.entries(terminalThemes) as [TerminalThemeName, typeof terminalThemes[TerminalThemeName]][]).map(([name, theme]) => <button type="button" role="menuitemradio" aria-checked={terminalThemeName === name} className={terminalThemeName === name ? "active" : ""} key={name} onClick={() => { setTerminalThemeName(name); setTerminalThemeMenuOpen(false); }}>{theme.label}</button>)}</span>}
                 </span>
                 </div>
-                {sshSessionId ? <div className="terminal-session-shell"><div ref={sshWorkspaceRef} className="ssh-terminal-workspace" style={{ gridTemplateColumns: `minmax(360px, 1fr) 8px minmax(330px, ${sshFilePaneWidth}px)`, ["--ssh-file-pane-width" as string]: `${sshFilePaneWidth}px` }}><div className="ssh-terminal-pane"><div className="ssh-terminal-viewport" ref={sshTerminalHostRef} aria-label="SSH 终端" style={{ background: terminalThemes[terminalThemeName].background }} /><div className="ssh-terminal-input-bar"><CornerDownLeft size={15} className="ssh-terminal-input-icon" aria-hidden="true" /><input value={sshCommandInput} onChange={(event) => setSshCommandInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void submitSshCommand(); } }} placeholder="输入命令并回车执行" aria-label="终端命令输入" spellCheck={false} disabled={sshCommandSending} autoComplete="off" /><button type="button" onClick={() => void submitSshCommand()} disabled={sshCommandSending || !sshCommandInput.trim()}>{sshCommandSending ? "发送中…" : "发送(Ctrl+Enter)"}</button></div></div><div className={`ssh-file-resizer${isDetachedTerminalWindow && detachedRightPanel === null ? " is-collapsed" : ""}`} role="separator" aria-label="调整文件管理面板宽度" aria-orientation="vertical" onPointerDown={startSshFileResize} /> <div className={`ssh-side-panel${detachedRightPanel ? ` is-${detachedRightPanel}` : " is-collapsed"}`}><div className="ssh-side-tabs" role="tablist" aria-label="终端侧边栏"><button type="button" role="tab" aria-selected={detachedRightPanel === "monitor"} className={detachedRightPanel === "monitor" ? "active" : ""} onClick={() => setDetachedRightPanel((current) => current === "monitor" ? null : "monitor")}><Monitor size={14} />监控</button><button type="button" role="tab" aria-selected={detachedRightPanel === "files"} className={detachedRightPanel === "files" ? "active" : ""} onClick={() => setDetachedRightPanel((current) => current === "files" ? null : "files")}><FolderOpen size={14} />文件管理</button><button type="button" role="tab" aria-selected={detachedRightPanel === "audit"} className={detachedRightPanel === "audit" ? "active" : ""} onClick={() => setDetachedRightPanel(current => current === "audit" ? null : "audit")}><History size={14} />录像审计{terminalAuditStore.current.recording && <i className="terminal-audit-dot" />}</button></div><aside className={`ssh-file-manager${sshFileDragActive ? " is-dragging" : ""}`} aria-label="远程文件管理" onDragEnter={(event) => { event.preventDefault(); setSshFileDragActive(true); }} onDragOver={(event) => event.preventDefault()} onDragLeave={(event) => { if (event.currentTarget === event.target) setSshFileDragActive(false); }} onDrop={(event) => { event.preventDefault(); setSshFileDragActive(false); void uploadSshFiles(event.dataTransfer.files); }}><div className="ssh-file-toolbar"><button type="button" title="返回上级目录" disabled={sshFilesLoading || sshFilePath === "/"} onClick={() => void loadSshFiles(parentSshPath(sshFilePath))}><ChevronLeft size={16} /></button><input className="ssh-file-path" value={sshFilePath} onChange={(event) => setSshFilePath(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void loadSshFiles(event.currentTarget.value); }} aria-label="远程目录路径" /><button type="button" title="刷新目录" disabled={sshFilesLoading} onClick={() => void loadSshFiles()}><RefreshCw size={15} className={sshFilesLoading ? "spin" : ""} /></button></div><div className="ssh-file-actions"><button type="button" title="上传文件" disabled={sshFilesLoading} onClick={() => sshUploadInputRef.current?.click()}><Upload size={15} />上传</button><button type="button" title="新建文件夹" disabled={sshFilesLoading} onClick={() => void makeSshDirectory()}><FolderPlus size={15} />新建</button><input ref={sshUploadInputRef} className="ssh-file-upload-input" type="file" multiple onChange={(event) => { const files = event.currentTarget.files; event.currentTarget.value = ""; if (files?.length) void uploadSshFiles(files); }} /></div>{sshFileEditor ? <div className="ssh-file-editor"><div className="ssh-file-editor-head"><span title={sshFileEditor.path}>{sshFileEditor.path}</span><button type="button" title="关闭编辑器" onClick={() => setSshFileEditor(null)}><X size={15} /></button></div><textarea value={sshFileEditor.content} spellCheck={false} onChange={(event) => setSshFileEditor((current) => current ? { ...current, content: event.target.value } : current)} /><div className="ssh-file-editor-actions"><button type="button" onClick={() => setSshFileEditor(null)}>关闭</button><button type="button" className="primary" disabled={sshFileSaving} onClick={() => void saveSshFile()}><Save size={15} />{sshFileSaving ? "保存中" : "保存"}</button></div></div> : <div className="ssh-file-list"><div className="ssh-file-list-head"><span>名称</span><span>大小</span><span>权限 / 所有者</span></div>{sshFiles.map((entry) => <div className="ssh-file-row" key={entry.path} onDoubleClick={() => void openSshFile(entry)}><button type="button" className="ssh-file-name" title={`${entry.isDir ? "进入目录" : "打开文本文件"}：${entry.name}`} onClick={() => void openSshFile(entry)}>{entry.isDir ? <FolderOpen size={16} /> : <FileCode2 size={16} />}<span>{entry.name}</span></button><span>{entry.isDir ? "文件夹" : sshFileSize(entry.size)}</span><span>{entry.mode}/{entry.owner}</span><div className="ssh-file-row-actions">{entry.isFile && <button type="button" className="ssh-file-download" title="下载到本机并定位文件" onClick={() => void downloadSshFile(entry)}><Download size={14} /><span>下载</span></button>}<button type="button" title="删除" className="danger" onClick={() => void deleteSshEntry(entry)}><Trash2 size={14} /></button></div></div>)}{!sshFilesLoading && sshFiles.length === 0 && <div className="ssh-file-empty">此目录为空</div>}{sshFilesLoading && <div className="ssh-file-empty">正在读取目录…</div>}</div>}{sshFileError && <div className="ssh-file-error">{sshFileError}</div>}</aside>{detachedRightPanel === "audit" && renderTerminalAudit()}<div className="ssh-monitor-panel" aria-label="服务器监控"><div className="ssh-monitor-head"><strong>监控</strong></div><div className="ssh-monitor-card ssh-monitor-system"><div className="ssh-monitor-system-line"><span className="ssh-monitor-address"><MapPin size={12} />{detachedMonitorIp}</span><button type="button" className="ssh-monitor-copy" title="复制 IP 地址" aria-label="复制 IP 地址" onClick={() => void copyAssetIp(detachedMonitorIp)}><Copy size={12} /></button></div><strong>{detachedMonitorOsMatch?.[1] || detachedMonitorOs}</strong>{detachedMonitorOsMatch && <strong>({detachedMonitorOsMatch[2]})</strong>}<span>持续运行：{formatMonitorUptime(detachedMonitorMetrics.uptime)}</span><span>负载：{String(detachedMonitorMetrics.load || "-")}</span><span className="ssh-monitor-process-line"><span>进程数：{String(detachedMonitorMetrics.processes || "-")}</span><span>活跃：{String(detachedMonitorMetrics.active_processes || "-")}</span></span></div><div className="ssh-monitor-card"><h3>CPU　{String(detachedCpuMetrics.cores || "-")}核</h3><div className="ssh-monitor-inline-bar"><i><b style={{ width: `${Math.min(100, Math.max(0, Number(detachedCpuMetrics.usage || 0)))}%` }} /></i><span>{Number(detachedCpuMetrics.usage || 0).toFixed(2)}%</span></div><span>{String(detachedCpuMetrics.model || "-")}</span></div><div className="ssh-monitor-card"><h3>内存　{formatMonitorMemory(detachedMemoryMetrics.used)} / {formatMonitorMemory(detachedMemoryMetrics.total)}</h3><div className="ssh-monitor-inline-bar"><i><b style={{ width: `${detachedMemoryMetrics.total ? Math.min(100, Number(detachedMemoryMetrics.used || 0) / Number(detachedMemoryMetrics.total) * 100) : 0}%` }} /></i><span>{detachedMemoryMetrics.total ? (Number(detachedMemoryMetrics.used || 0) / Number(detachedMemoryMetrics.total) * 100).toFixed(2) : "0.00"}%</span></div><span>SWAP：{detachedMonitorMetrics.swap && typeof detachedMonitorMetrics.swap === "object" ? `${formatMonitorMemory((detachedMonitorMetrics.swap as Record<string, unknown>).used)} / ${formatMonitorMemory((detachedMonitorMetrics.swap as Record<string, unknown>).total)}` : "- / -"}</span></div><div className="ssh-monitor-card"><h3>网络IO</h3><div className="ssh-monitor-table-head"><span>速度</span><span>已用流量</span></div><div className="ssh-monitor-table-row"><span className="up">↑ {detachedNetworkMetrics.up_rate !== undefined ? formatBytes(Number(detachedNetworkMetrics.up_rate)) : "-"}</span><span>{detachedNetworkMetrics.up_total !== undefined ? formatBytes(Number(detachedNetworkMetrics.up_total)) : "-"}</span></div><div className="ssh-monitor-table-row"><span className="down">↓ {detachedNetworkMetrics.down_rate !== undefined ? formatBytes(Number(detachedNetworkMetrics.down_rate)) : "-"}</span><span>{detachedNetworkMetrics.down_total !== undefined ? formatBytes(Number(detachedNetworkMetrics.down_total)) : "-"}</span></div></div><div className="ssh-monitor-card"><h3>磁盘IO</h3><div className="ssh-monitor-table-head ssh-disk-io-head"><span>读</span><span>写</span><span>延迟　iops</span></div><div className="ssh-monitor-table-row ssh-disk-io-row"><span>读：{detachedDiskIoMetrics.read !== undefined ? formatBytes(Number(detachedDiskIoMetrics.read)) : "-"}</span><span>写：{detachedDiskIoMetrics.write !== undefined ? formatBytes(Number(detachedDiskIoMetrics.write)) : "-"}</span><span>{String(detachedDiskIoMetrics.latency || 0)}ms　{String(detachedDiskIoMetrics.iops || 0)}</span></div></div></div></div></div>{sshError && <div className="error-list ssh-error">{sshError}</div>}</div> : detachedRightPanel === "audit" && terminalRecordings.length > 0 ? <div className="terminal-audit-standalone"><button type="button" className="terminal-audit-back" onClick={() => setDetachedRightPanel(null)}>返回终端</button>{renderTerminalAudit()}</div> : <div className="terminal-stage-empty">
+                {sshSessionId ? <div className="terminal-session-shell"><div ref={sshWorkspaceRef} className="ssh-terminal-workspace" style={{ gridTemplateColumns: `minmax(360px, 1fr) 8px minmax(330px, ${sshFilePaneWidth}px)`, ["--ssh-file-pane-width" as string]: `${sshFilePaneWidth}px` }}><div className="ssh-terminal-pane"><div className="ssh-terminal-viewport" ref={sshTerminalHostRef} aria-label="SSH 终端" style={{ background: terminalThemes[terminalThemeName].background }} /><div className="ssh-terminal-input-bar"><CornerDownLeft size={15} className="ssh-terminal-input-icon" aria-hidden="true" /><input value={sshCommandInput} onChange={(event) => setSshCommandInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void submitSshCommand(); } }} placeholder="输入命令并回车执行" aria-label="终端命令输入" spellCheck={false} disabled={sshCommandSending} autoComplete="off" /><button type="button" onClick={() => void submitSshCommand()} disabled={sshCommandSending || !sshCommandInput.trim()}>{sshCommandSending ? "发送中…" : "发送(Ctrl+Enter)"}</button></div></div><div className={`ssh-file-resizer${isDetachedTerminalWindow && detachedRightPanel === null ? " is-collapsed" : ""}`} role="separator" aria-label="调整文件管理面板宽度" aria-orientation="vertical" onPointerDown={startSshFileResize} /> <div className={`ssh-side-panel${detachedRightPanel ? ` is-${detachedRightPanel}` : " is-collapsed"}`}><div className="ssh-side-tabs" role="tablist" aria-label="终端侧边栏"><button type="button" role="tab" aria-selected={detachedRightPanel === "monitor"} className={detachedRightPanel === "monitor" ? "active" : ""} onClick={() => setDetachedRightPanel((current) => current === "monitor" ? null : "monitor")}><Monitor size={14} />监控</button><button type="button" role="tab" aria-selected={detachedRightPanel === "files"} className={detachedRightPanel === "files" ? "active" : ""} onClick={() => setDetachedRightPanel((current) => current === "files" ? null : "files")}><FolderOpen size={14} />文件管理</button><button type="button" role="tab" aria-selected={detachedRightPanel === "audit"} className={detachedRightPanel === "audit" ? "active" : ""} onClick={() => setDetachedRightPanel(current => current === "audit" ? null : "audit")}><History size={14} />录像审计{terminalAuditStore.current.recording && <i className="terminal-audit-dot" />}</button></div><aside className={`ssh-file-manager${sshFileDragActive ? " is-dragging" : ""}`} aria-label="远程文件管理" onDragEnter={(event) => { event.preventDefault(); setSshFileDragActive(true); }} onDragOver={(event) => event.preventDefault()} onDragLeave={(event) => { if (event.currentTarget === event.target) setSshFileDragActive(false); }} onDrop={(event) => { event.preventDefault(); setSshFileDragActive(false); void uploadSshFiles(event.dataTransfer.files); }}><div className="ssh-file-toolbar"><button type="button" title="返回上级目录" disabled={sshFilesLoading || sshFilePath === "/"} onClick={() => void loadSshFiles(parentSshPath(sshFilePath))}><ChevronLeft size={16} /></button><input className="ssh-file-path" value={sshFilePath} onChange={(event) => setSshFilePath(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void loadSshFiles(event.currentTarget.value); }} aria-label="远程目录路径" /><button type="button" title="刷新目录" disabled={sshFilesLoading} onClick={() => void loadSshFiles()}><RefreshCw size={15} className={sshFilesLoading ? "spin" : ""} /></button></div><div className="ssh-file-actions"><button type="button" title="上传文件" disabled={sshFilesLoading} onClick={() => sshUploadInputRef.current?.click()}><Upload size={15} />上传</button><button type="button" title="新建文件夹" disabled={sshFilesLoading} onClick={() => void makeSshDirectory()}><FolderPlus size={15} />新建</button><input ref={sshUploadInputRef} className="ssh-file-upload-input" type="file" multiple onChange={(event) => { const files = event.currentTarget.files; event.currentTarget.value = ""; if (files?.length) void uploadSshFiles(files); }} /></div>{sshFileEditor ? <div className="ssh-file-editor"><div className="ssh-file-editor-head"><span title={sshFileEditor.path}>{sshFileEditor.path}</span><button type="button" title="关闭编辑器" onClick={() => setSshFileEditor(null)}><X size={15} /></button></div><textarea value={sshFileEditor.content} spellCheck={false} onChange={(event) => setSshFileEditor((current) => current ? { ...current, content: event.target.value } : current)} /><div className="ssh-file-editor-actions"><button type="button" onClick={() => setSshFileEditor(null)}>关闭</button><button type="button" className="primary" disabled={sshFileSaving} onClick={() => void saveSshFile()}><Save size={15} />{sshFileSaving ? "保存中" : "保存"}</button></div></div> : <div className="ssh-file-list"><div className="ssh-file-list-head"><span>名称</span><span>大小</span><span>权限 / 所有者</span></div>{sshFiles.map((entry) => <div className="ssh-file-row" key={entry.path} onDoubleClick={() => void openSshFile(entry)}><button type="button" className="ssh-file-name" title={`${entry.isDir ? "进入目录" : "打开文本文件"}：${entry.name}`} onClick={() => void openSshFile(entry)}>{entry.isDir ? <FolderOpen size={16} /> : <FileCode2 size={16} />}<span>{entry.name}</span></button><span>{entry.isDir ? "文件夹" : sshFileSize(entry.size)}</span><span>{entry.mode}/{entry.owner}</span><div className="ssh-file-row-actions">{entry.isFile && <button type="button" className="ssh-file-download" title="下载到本机并定位文件" onClick={() => void downloadSshFile(entry)}><Download size={14} /><span>下载</span></button>}<button type="button" title="删除" className="danger" onClick={() => void deleteSshEntry(entry)}><Trash2 size={14} /></button></div></div>)}{!sshFilesLoading && sshFiles.length === 0 && <div className="ssh-file-empty">此目录为空</div>}{sshFilesLoading && <div className="ssh-file-empty">正在读取目录…</div>}</div>}{sshFileError && <div className="ssh-file-error">{sshFileError}</div>}</aside>{detachedRightPanel === "audit" && renderTerminalAudit()}<div className="ssh-monitor-panel" aria-label="服务器监控"><div className="ssh-monitor-head"><strong>监控</strong></div><div className="ssh-monitor-card ssh-monitor-system"><div className="ssh-monitor-system-line"><span className="ssh-monitor-address"><MapPin size={12} />{detachedMonitorIp}</span><button type="button" className="ssh-monitor-copy" title="复制 IP 地址" aria-label="复制 IP 地址" onClick={() => void copyAssetIp(detachedMonitorIp)}><Copy size={12} /></button></div><strong>{detachedMonitorOsMatch?.[1] || detachedMonitorOs}</strong>{detachedMonitorOsMatch && <strong>({detachedMonitorOsMatch[2]})</strong>}<span>持续运行：{formatMonitorUptime(detachedMonitorMetrics.uptime)}</span><span>负载：{String(detachedMonitorMetrics.load || "-")}</span><span className="ssh-monitor-process-line"><span>进程数：{String(detachedMonitorMetrics.processes || "-")}</span><span>活跃：{String(detachedMonitorMetrics.active_processes || "-")}</span></span></div><div className="ssh-monitor-card"><h3>CPU　{String(detachedCpuMetrics.cores || "-")}核</h3><div className="ssh-monitor-inline-bar"><i><b style={{ width: `${Math.min(100, Math.max(0, Number(detachedCpuMetrics.usage || 0)))}%` }} /></i><span>{Number(detachedCpuMetrics.usage || 0).toFixed(2)}%</span></div><span>{String(detachedCpuMetrics.model || "-")}</span></div><div className="ssh-monitor-card"><h3>内存　{formatMonitorMemory(detachedMemoryMetrics.used)} / {formatMonitorMemory(detachedMemoryMetrics.total)}</h3><div className="ssh-monitor-inline-bar"><i><b style={{ width: `${detachedMemoryMetrics.total ? Math.min(100, Number(detachedMemoryMetrics.used || 0) / Number(detachedMemoryMetrics.total) * 100) : 0}%` }} /></i><span>{detachedMemoryMetrics.total ? (Number(detachedMemoryMetrics.used || 0) / Number(detachedMemoryMetrics.total) * 100).toFixed(2) : "0.00"}%</span></div><span>SWAP：{detachedMonitorMetrics.swap && typeof detachedMonitorMetrics.swap === "object" ? `${formatMonitorMemory((detachedMonitorMetrics.swap as Record<string, unknown>).used)} / ${formatMonitorMemory((detachedMonitorMetrics.swap as Record<string, unknown>).total)}` : "- / -"}</span></div><div className="ssh-monitor-card"><h3>网络IO</h3><div className="ssh-monitor-table-head"><span>速度</span><span>已用流量</span></div><div className="ssh-monitor-table-row"><span className="up">↑ {detachedNetworkMetrics.up_rate !== undefined ? formatBytes(Number(detachedNetworkMetrics.up_rate)) : "-"}</span><span>{detachedNetworkMetrics.up_total !== undefined ? formatBytes(Number(detachedNetworkMetrics.up_total)) : "-"}</span></div><div className="ssh-monitor-table-row"><span className="down">↓ {detachedNetworkMetrics.down_rate !== undefined ? formatBytes(Number(detachedNetworkMetrics.down_rate)) : "-"}</span><span>{detachedNetworkMetrics.down_total !== undefined ? formatBytes(Number(detachedNetworkMetrics.down_total)) : "-"}</span></div></div><div className="ssh-monitor-card"><h3>磁盘IO</h3><div className="ssh-monitor-table-head ssh-disk-io-head"><span>读</span><span>写</span><span>延迟　iops</span></div><div className="ssh-monitor-table-row ssh-disk-io-row"><span>读：{detachedDiskIoMetrics.read !== undefined ? formatBytes(Number(detachedDiskIoMetrics.read)) : "-"}</span><span>写：{detachedDiskIoMetrics.write !== undefined ? formatBytes(Number(detachedDiskIoMetrics.write)) : "-"}</span><span>{String(detachedDiskIoMetrics.latency || 0)}ms　{String(detachedDiskIoMetrics.iops || 0)}</span></div></div></div></div></div>{sshError && <div className="error-list ssh-error ssh-error-bar"><span>{sshError}</span><div className="ssh-error-actions">{activeSshDisconnected && <button type="button" className="secondary ssh-reconnect-btn" disabled={sshConnecting} onClick={() => void reconnectActiveTerminalTab()}><RefreshCw size={13} aria-hidden="true" />重新连接</button>}<button type="button" className="ssh-error-dismiss" aria-label="关闭提示" title="关闭提示" onClick={() => setSshError("")}><X size={14} aria-hidden="true" /></button></div></div>}</div> : detachedRightPanel === "audit" && terminalRecordings.length > 0 ? <div className="terminal-audit-standalone"><button type="button" className="terminal-audit-back" onClick={() => setDetachedRightPanel(null)}>返回终端</button>{renderTerminalAudit()}</div> : <div className="terminal-stage-empty">
             <h1>选择一台服务器开始连接</h1>
             <p>从左侧服务器列表打开 SSH 终端，连接后可在右侧直接浏览和管理远程文件。</p>
             <button className="layui-btn layui-btn-normal" onClick={() => openManagedHostDialog()}><Plus size={16} />添加服务器</button>

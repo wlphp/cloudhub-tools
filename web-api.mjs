@@ -24,7 +24,7 @@ import { handleCloudSyncRoutes } from "./web-api/routes/cloud-sync.mjs";
 import { listAccounts, deleteAccount, getAccountSecretRecord, getAccountType, getAccountRegion, getAccountTypeAndRegion, getAccountForUpdate, saveAccountRecord, importAccountRecords } from "./web-api/repositories/accounts.mjs";
 import { listAssets, deleteAsset, updateServerName } from "./web-api/repositories/assets.mjs";
 import { listApiLogs, clearApiLogs, clearOperationLogs } from "./web-api/repositories/logs.mjs";
-import { listManagedHosts, listPanelConnections } from "./web-api/repositories/local-connections.mjs";
+import { listManagedHosts, listPanelConnections, updatePanelOrder } from "./web-api/repositories/local-connections.mjs";
 import { rpc, rpcEncode, resources as aliyunRpcResources } from "./web-api/providers/aliyun-rpc.mjs";
 import * as ctyunProvider from "./web-api/providers/ctyun.mjs";
 import * as qiniuProvider from "./web-api/providers/qiniu.mjs";
@@ -913,7 +913,7 @@ const server = http.createServer(async (req, res) => {
     if (await handleTrashRoute(req, res, url)) return;
     if (await handleClaudeProvidersRoute(req, res, url)) return;
     if (await handleBalanceRoutes(req, res, url)) return;
-    if (handleLocalRoutes(req, res, url, { listAssets, deleteAsset, listApiLogs, clearApiLogs, clearOperationLogs, listManagedHosts, listPanelConnections })) return;
+    if (await handleLocalRoutes(req, res, url, { listAssets, deleteAsset, listApiLogs, clearApiLogs, clearOperationLogs, listManagedHosts, listPanelConnections, updatePanelOrder })) return;
     if (req.method === "POST" && url.pathname === "/api/sync-assets") {
       const payload = JSON.parse(await readBody(req));
       return send(res, 200, await syncCloudAssets(Number(payload.account_id), Array.isArray(payload.resource_types) ? payload.resource_types : [], { database, cloudResources }));

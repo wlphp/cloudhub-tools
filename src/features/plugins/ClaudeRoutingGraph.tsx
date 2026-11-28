@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type Ref as ReactRef } from "react";
 import { ChevronDown, GripVertical, Settings2, Table2, Terminal } from "lucide-react";
 import { useSortableDrag } from "../../shared/useSortableDrag";
+import { ProviderBrandIcon, providerBrandKey } from "../../shared/provider-brand/ProviderBrandIcon";
 import type { ClaudeActiveRequest, ClaudeMode, ClaudeProviderSummary, ClaudeRequestLog, ClaudeRoutingState } from "../../platform/clients/claudeProviders";
 import { CLAUDE_MODEL_ROLES } from "./claudeModelRoles";
 import { formatRoutingCount, formatRoutingLatency, formatRoutingTokens, ROUTING_USAGE_WINDOW_MS, summarizeRoutingUsage } from "./claudeRoutingUsage";
@@ -631,6 +632,13 @@ export function ClaudeRoutingGraph({ view, state, providers, onLocate, onOpenMap
                 : last ? "正常" : live ? "待请求" : "未检测";
             const accent = providerAccent(provider.name);
             const modelInfo = desktop && provider.modelCatalog?.length ? { role: "模型", model: provider.modelCatalog[0].model } : providerModel(provider);
+            const brandHints = [
+              provider.websiteUrl,
+              provider.baseUrl,
+              modelInfo.model,
+              ...(provider.modelCatalog?.map(m => m.model) ?? []),
+            ];
+            const hasBrand = Boolean(providerBrandKey(provider.name, ...brandHints));
             const modelText = latestActive
               ? `实际 · ${latestActive.actualModel}`
               : isActive && last
@@ -669,7 +677,11 @@ export function ClaudeRoutingGraph({ view, state, providers, onLocate, onOpenMap
                   onClick={() => onLocate?.(provider.id)}
                 >
                   <span className={`claude-route-graph-dot${busy ? " is-live" : isActive ? " is-current" : failed ? " is-error" : ""}`} aria-hidden="true" />
-                  <span className="claude-route-graph-logo" style={{ background: accent.color }} aria-hidden="true">{accent.letter}</span>
+                  {hasBrand ? (
+                    <ProviderBrandIcon name={provider.name} hints={brandHints} className="claude-route-graph-brand-logo" />
+                  ) : (
+                    <span className="claude-route-graph-logo" style={{ background: accent.color }} aria-hidden="true">{accent.letter}</span>
+                  )}
                   <span className="claude-route-graph-main"><strong>{provider.name}</strong><small>{modelText}</small><small className="claude-route-graph-usage" title={providerUsageTitle}>
                     {providerUsage ? <>5h · 请求 {formatRoutingCount(providerUsage.requests)} · <span className={providerUsage.errors ? "is-error" : ""}>错误 {formatRoutingCount(providerUsage.errors)}</span> · {formatRoutingTokens(providerUsage.tokens)} tok</> : "5h · 暂无记录"}
                   </small></span>

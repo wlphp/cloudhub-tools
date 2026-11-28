@@ -7,6 +7,7 @@ import { SharedDialog } from "../../shared/SharedDialog";
 import { HelpTooltip } from "../../shared/HelpTooltip";
 import { SortSelectionControls } from "../../shared/SortSelectionControls";
 import { useSortableDrag } from "../../shared/useSortableDrag";
+import { ProviderBrandIcon } from "../../shared/provider-brand/ProviderBrandIcon";
 import { ClaudeProviderPresetPicker } from "./ClaudeProviderPresetPicker";
 import { ClaudeRoutingGraph } from "./ClaudeRoutingGraph";
 import { ClaudeRoutingLiveFeed } from "./ClaudeRoutingLiveFeed";
@@ -431,7 +432,13 @@ export function ClaudeDesktopPlugin() {
           }}><GripVertical size={16} aria-hidden="true" /></button>}
         <div className="claude-provider-main">
           <div className="claude-provider-title">
-            <span className="claude-provider-logo" aria-hidden="true">{provider.name.slice(0, 1)}</span><strong>{provider.name}</strong>
+            <ProviderBrandIcon
+              name={provider.name}
+              hints={[provider.websiteUrl, provider.baseUrl, ...(provider.modelCatalog?.map(m => m.model) ?? [])]}
+              fallback={provider.name.trim().slice(0, 1)}
+              className="is-small claude-provider-brand-logo"
+            />
+            <strong>{provider.name}</strong>
             {provider.officialLogin && <span className="claude-tag is-fixed">官方登录</span>}
             {selected && <span className="claude-tag is-current">{state.selection.members.includes(provider.id) ? "已加入聚合" : `已配置${nameOf(view)}`}</span>}
             {view === "direct" && !selected && <span className={`claude-tag ${requirement ? "is-warning" : "is-configured"}`}>{requirement?.label ?? "可直连"}</span>}

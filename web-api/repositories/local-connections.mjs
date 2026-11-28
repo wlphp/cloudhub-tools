@@ -46,3 +46,21 @@ export function listPanelConnections() {
     created_at: Number(row.created_at), updated_at: Number(row.updated_at),
   }));
 }
+
+/** 浏览器预览的本地调试存储：按前端提交的顺序重写面板排序号（与原生数据隔离）。 */
+export function updatePanelOrder(ids) {
+  const ordered = (Array.isArray(ids) ? ids : []).map(Number).filter((id) => Number.isInteger(id) && id > 0);
+  if (!ordered.length) throw new Error("面板排序 ID 无效");
+  const db = database();
+  const now = Date.now();
+  const update = db.prepare("UPDATE panel_connections SET sort_order=?,updated_at=? WHERE id=?");
+  db.exec("BEGIN");
+  try {
+    ordered.forEach((id, index) => update.run(index, now, id));
+    db.exec("COMMIT");
+  } catch (error) {
+    try { db.exec("ROLLBACK"); } catch { /* 事务已回滚或未开启 */ }
+    throw error;
+  }
+  return listPanelConnections();
+}

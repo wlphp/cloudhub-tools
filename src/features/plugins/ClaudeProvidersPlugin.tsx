@@ -17,6 +17,7 @@ import { claudeProvidersClient, claudeWorkbenchClient, DEFAULT_CLAUDE_ROUTING, t
 import { AggregateStartDialog, ModeBar, providerModelCount, RoutingSettings, UsagePanel } from "./ClaudeRoutingPanels";
 import { ClaudeWorkspacePanel } from "./ClaudeWorkspacePanel";
 import { ClaudeProviderPresetPicker } from "./ClaudeProviderPresetPicker";
+import { ProviderBrandIcon, providerBrandKey } from "../../shared/provider-brand/ProviderBrandIcon";
 import { ClaudeProviderUsage } from "./ClaudeProviderUsage";
 import { ClaudeRoutingGraph } from "./ClaudeRoutingGraph";
 import { ClaudeRoutingLiveFeed } from "./ClaudeRoutingLiveFeed";
@@ -605,7 +606,7 @@ function providerAccent(seed: string): { color: string; letter: string } {
   let hash = 0;
   for (let index = 0; index < trimmed.length; index += 1) hash = (hash * 31 + trimmed.charCodeAt(index)) >>> 0;
   const hue = hash % 360;
-  const letter = /[A-Za-z0-9]/.test(trimmed) ? trimmed[0].toUpperCase() : "?";
+  const letter = Array.from(trimmed)[0]?.toUpperCase() ?? "?";
   return { color: `hsl(${hue}, 55%, 42%)`, letter };
 }
 
@@ -948,6 +949,13 @@ export function ClaudeProvidersPlugin({ mobile = false }: { mobile?: boolean } =
 
   const renderProviderRow = (item: ClaudeProviderSummary) => {
     const accent = providerAccent(item.name);
+    const brandHints = [
+      item.websiteUrl,
+      item.baseUrl,
+      item.models?.sonnet?.model,
+      ...(item.modelCatalog?.map(m => m.model) ?? []),
+    ];
+    const hasBrand = Boolean(providerBrandKey(item.name, ...brandHints));
     const modelGroups = new Map<string, string[]>();
     for (const role of ROLES.filter(role => item.models?.[role.key]?.model).slice(0, 3)) {
       const model = item.models?.[role.key]?.model;
@@ -983,7 +991,11 @@ export function ClaudeProvidersPlugin({ mobile = false }: { mobile?: boolean } =
 
       <div className="claude-provider-main">
         <div className="claude-provider-title">
-          <span className="claude-provider-logo" aria-hidden="true" style={{ background: accent.color }}>{accent.letter}</span>
+          {hasBrand ? (
+            <ProviderBrandIcon name={item.name} hints={brandHints} className="is-small claude-provider-brand-logo" />
+          ) : (
+            <span className="claude-provider-logo" aria-hidden="true" style={{ background: accent.color }}>{accent.letter}</span>
+          )}
           <strong>{item.name}</strong>
           {modelGroups.size > 0 && <button type="button" className="claude-model-toggle" aria-label={`${expandedModels.has(item.id) ? "收起" : "展开"} ${item.name} 的模型`} aria-expanded={expandedModels.has(item.id)} aria-controls={`claude-models-${item.id}`} onClick={() => setExpandedModels(current => {
             const next = new Set(current);

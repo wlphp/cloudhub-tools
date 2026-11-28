@@ -247,6 +247,7 @@ export type TerminalWorkspaceTab = {
   output: string;
   authMethod?: SshAuthMethod;
   credentialsSaved?: boolean;
+  disconnected?: boolean;
 };
 
 export type SavedSshConnection = {

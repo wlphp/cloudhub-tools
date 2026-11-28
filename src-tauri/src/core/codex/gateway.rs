@@ -368,7 +368,7 @@ pub(crate) async fn read_request(stream: &mut TcpStream, host: &str, key: &str) 
             }
         }
     }
-    let listing = method == "GET" && path == "/v1/models";
+    let listing = method == "GET" && matches!(path.as_str(), "/v1/models" | "/v1/usage");
     if !listing && method != "POST" { return Err(405); }
     if !listing && !gemini && !matches!(path.as_str(), "/v1/responses" | "/v1/chat/completions" | "/v1/completions" | "/v1/messages") {
         return Err(404);
@@ -926,6 +926,48 @@ pub(crate) fn public_catalog_error(message: &str) -> String {
     }.to_string()
 }
 
+fn gateway_usage_payload(shared: &Shared) -> Value {
+    let pool_size = shared.pool.len();
+    let Ok(controls) = shared.controls.lock() else {
+        return json!({"object":"cloudhub_gateway_usage","poolSize":pool_size,"windows":[]});
+    };
+    let mut five_hour: Vec<(f64, Option<i64>)> = Vec::new();
+    let mut weekly: Vec<(f64, Option<i64>)> = Vec::new();
+    let mut other: Vec<(String, f64, Option<i64>)> = Vec::new();
+    for id in &shared.pool {
+        let Some(snapshot) = controls.quotas.get(id) else { continue; };
+        for window in &snapshot.windows {
+            if !window.used_percent.is_finite() { continue; }
+            let remaining = (100.0 - window.used_percent).clamp(0.0, 100.0);
+            let mins = window.window_minutes;
+            if mins.is_some_and(|m| m > 0 && m <= 480) || window.name.contains("5") {
+                five_hour.push((remaining, window.resets_at));
+            } else if mins.is_some_and(|m| m >= 1440) || window.name.contains("周") || window.name.to_ascii_lowercase().contains("week") {
+                weekly.push((remaining, window.resets_at));
+            } else {
+                other.push((window.name.clone(), remaining, window.resets_at));
+            }
+        }
+    }
+    let mut windows = Vec::new();
+    if !five_hour.is_empty() {
+        let avg = five_hour.iter().map(|(v, _)| *v).sum::<f64>() / five_hour.len() as f64;
+        let resets_at = five_hour.iter().filter_map(|(_, r)| *r).min();
+        windows.push(json!({"name":"5 小时","remaining":(avg * 10.0).round() / 10.0,"total":100.0,"unit":"%","resetsAt":resets_at}));
+    }
+    if !weekly.is_empty() {
+        let avg = weekly.iter().map(|(v, _)| *v).sum::<f64>() / weekly.len() as f64;
+        let resets_at = weekly.iter().filter_map(|(_, r)| *r).min();
+        windows.push(json!({"name":"每周","remaining":(avg * 10.0).round() / 10.0,"total":100.0,"unit":"%","resetsAt":resets_at}));
+    }
+    if windows.is_empty() {
+        if let Some((name, remaining, resets_at)) = other.into_iter().next() {
+            windows.push(json!({"name":name,"remaining":(remaining * 10.0).round() / 10.0,"total":100.0,"unit":"%","resetsAt":resets_at}));
+        }
+    }
+    json!({"object":"cloudhub_gateway_usage","poolSize":pool_size,"windows":windows})
+}
+
 async fn serve(stream: &mut TcpStream, host: &str, shared: &Shared, trace: &mut RequestTrace) {
     let request = match read_request(stream, host, &shared.key).await {
         Ok(v) => v,
@@ -936,7 +978,12 @@ async fn serve(stream: &mut TcpStream, host: &str, shared: &Shared, trace: &mut 
         }
     };
     let protocol=Protocol::for_path(&request.path);
-    trace.entry.endpoint = match request.path.as_str() { "/v1/models" => "/v1/models", "/v1/responses" => "/v1/responses", "/v1/chat/completions" => "/v1/chat/completions", "/v1/completions"=>"/v1/completions", "/v1/messages"=>"/v1/messages", _ if protocol==Protocol::Gemini=>"/v1beta/models/:generateContent", _ => "unsupported" };
+    trace.entry.endpoint = match request.path.as_str() { "/v1/models" => "/v1/models", "/v1/usage" => "/v1/usage", "/v1/responses" => "/v1/responses", "/v1/chat/completions" => "/v1/chat/completions", "/v1/completions"=>"/v1/completions", "/v1/messages"=>"/v1/messages", _ if protocol==Protocol::Gemini=>"/v1beta/models/:generateContent", _ => "unsupported" };
+    if request.path == "/v1/usage" {
+        trace.result(200, "completed");
+        let _ = json_reply(stream, 200, &gateway_usage_payload(shared)).await;
+        return;
+    }
     if request.path == "/v1/models" {
         match model_catalog(shared).await {
             Ok(ids) => { trace.result(200, "completed"); let data: Vec<Value> = ids.into_iter().map(|id| json!({"id":id,"object":"model","created":0,"owned_by":"openai"})).collect(); let _ = json_reply(stream, 200, &json!({"object":"list","data":data})).await; }

@@ -3,6 +3,7 @@ import { ArrowUpRight, Radio } from "lucide-react";
 import type { ClaudeMode, ClaudeProviderSummary, ClaudeRequestLog, ClaudeRoutingState } from "../../platform/clients/claudeProviders";
 import { formatRoutingTokens } from "./claudeRoutingUsage";
 import { providerAccent } from "./claudeRoutingVisuals";
+import { ProviderBrandIcon, providerBrandKey } from "../../shared/provider-brand/ProviderBrandIcon";
 
 /** 实时页只回看最近 10 分钟的完成记录；更早的请求去「用量」页看。 */
 const LIVE_WINDOW_MS = 10 * 60 * 1000;
@@ -124,8 +125,19 @@ export function ClaudeRoutingLiveFeed({ view, state, providers, onLocate, onOpen
       : `暂无请求。${clientLabel} 发起请求后会在这里实时出现。`;
 
   const providerName = (id: string) => providerById.get(id)?.name ?? id;
-  const providerLogo = (id: string) => {
-    const accent = providerAccent(providerName(id));
+  const providerLogo = (id: string, actualModel?: string) => {
+    const provider = providerById.get(id);
+    const name = provider?.name ?? id;
+    const hints = [
+      provider?.websiteUrl,
+      provider?.baseUrl,
+      actualModel,
+      ...(provider?.modelCatalog?.map(m => m.model) ?? []),
+    ];
+    if (providerBrandKey(name, ...hints)) {
+      return <ProviderBrandIcon name={name} hints={hints} className="claude-live-feed-brand-logo" />;
+    }
+    const accent = providerAccent(name);
     return <span className="claude-live-feed-logo" style={{ background: accent.color }} aria-hidden="true">{accent.letter}</span>;
   };
   const providerLink = (id: string) => {
@@ -159,7 +171,7 @@ export function ClaudeRoutingLiveFeed({ view, state, providers, onLocate, onOpen
         return <li key={`active-${request.id}`} data-feed-key={`active-${request.id}`} className="claude-live-feed-row is-live">
           <div className="claude-live-feed-line">
             <time dateTime={new Date(request.timestamp).toISOString()}>{formatClock(request.timestamp)}</time>
-            <span className="claude-live-feed-provider">{providerLogo(request.providerId)}{providerLink(request.providerId)}</span>
+            <span className="claude-live-feed-provider">{providerLogo(request.providerId, request.actualModel)}{providerLink(request.providerId)}</span>
             <code className="claude-live-feed-model" title={`${request.model} → ${request.actualModel}`}>{request.model} → {request.actualModel}</code>
             <span className="claude-live-feed-status is-live"><i aria-hidden="true" />正在回答…</span>
             <span className="claude-live-feed-duration">已等待 {formatDuration(elapsed)}</span>
@@ -176,7 +188,7 @@ export function ClaudeRoutingLiveFeed({ view, state, providers, onLocate, onOpen
         return <li key={`log-${log.id}`} data-feed-key={`log-${log.id}`} className={`claude-live-feed-row${log.status >= 400 ? " is-error" : ""}`}>
           <div className="claude-live-feed-line">
             <time dateTime={new Date(log.timestamp).toISOString()}>{formatClock(log.timestamp)}</time>
-            <span className="claude-live-feed-provider">{providerLogo(log.providerId)}{providerLink(log.providerId)}</span>
+            <span className="claude-live-feed-provider">{providerLogo(log.providerId, log.actualModel)}{providerLink(log.providerId)}</span>
             <code className="claude-live-feed-model" title={`${log.model} → ${log.actualModel}`}>{log.model} → {log.actualModel}</code>
             <span className={`claude-live-feed-status${log.status >= 400 ? " is-error" : ""}`}>{log.status >= 400 ? `失败 ${log.status}` : "完成"}</span>
             <span className="claude-live-feed-duration">{formatDuration(log.durationMs)}</span>

@@ -1,12 +1,14 @@
 import { Children, useState, type ReactNode } from "react";
 import { MoreHorizontal } from "lucide-react";
 
-export function MobileAccountSwipeCard({ label, children, details }: { label: string; children: ReactNode; details?: ReactNode }) {
+export function MobileAccountSwipeCard({ label, children, details, sortId, sorting = false }: { label: string; children: ReactNode; details?: ReactNode; sortId?: string; sorting?: boolean }) {
   const [content, ...actions] = Children.toArray(children);
   const [expanded, setExpanded] = useState(false);
 
   return <article
-    className={`mobile-account-card mobile-account-swipe-card${expanded ? " is-actions-open" : ""}`}
+    data-account-card={sortId === undefined ? undefined : ""}
+    data-account-sort-id={sortId}
+    className={`mobile-account-card mobile-account-swipe-card${sorting ? " is-sorting" : ""}`}
     onKeyDown={(event) => {
       if (event.key === "Escape") setExpanded(false);
     }}
@@ -21,7 +23,7 @@ export function MobileAccountSwipeCard({ label, children, details }: { label: st
   >
     <div className="mobile-account-swipe-main">
       {content}
-      <div className="mobile-account-menu-anchor">
+      {!sorting && <div className="mobile-account-menu-anchor">
       <button
         type="button"
         className="mobile-account-menu"
@@ -33,7 +35,7 @@ export function MobileAccountSwipeCard({ label, children, details }: { label: st
         <MoreHorizontal size={19} />
       </button>
       {expanded && actions}
-      </div>
+      </div>}
     </div>
     {details}
   </article>;

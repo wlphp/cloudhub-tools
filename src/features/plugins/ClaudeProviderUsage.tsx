@@ -20,7 +20,7 @@ export function ClaudeProviderUsage({ provider, disabled }: { provider: ClaudePr
   const usageProvider: UsageProvider = { id: provider.id, name: provider.name, version: 0, keys: [{ id: "primary", name: "供应商 API Key" }] };
   const saved = preferences && readUsageSelection(preferences[PREFERENCE_PREFIX + provider.id], usageProvider);
   let official = false;
-  try { official = ["api.deepseek.com", "api.minimaxi.com", "www.minimaxi.com", "api.minimax.io", "www.minimax.io", "open.bigmodel.cn", "api.z.ai"].includes(new URL(provider.baseUrl ?? "").hostname); } catch { /* 未配置地址时仍允许打开设置 */ }
+  try { official = ["api.deepseek.com", "api.minimaxi.com", "www.minimaxi.com", "api.minimax.io", "www.minimax.io", "open.bigmodel.cn", "api.z.ai", "api.xiaomimimo.com", "api.moonshot.cn", "api.moonshot.ai", "api.siliconflow.cn", "api.siliconflow.com", "openrouter.ai", "apihub.agnes-ai.com"].includes(new URL(provider.baseUrl ?? "").hostname.toLocaleLowerCase()); } catch { /* 未配置地址时仍允许打开设置 */ }
   return <div className="claude-provider-quota-control" title={error || undefined}>
     {preferences ? <ProviderUsageControl provider={usageProvider} savedSelection={saved || (official ? { adapter: "auto", keyId: "primary" } : null)}
       disabled={disabled} privacy={false} preferencePrefix={PREFERENCE_PREFIX} autoQuery

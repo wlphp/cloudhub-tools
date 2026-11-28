@@ -6,13 +6,15 @@ const source = fs.readFileSync(new URL("../src/features/plugins/claudeProviderPr
 const { outputText } = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } });
 const { PROVIDER_PRESETS, presetToInput } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString("base64")}`);
 assert.equal(new Set(PROVIDER_PRESETS.map(item => item.id)).size, PROVIDER_PRESETS.length);
+const API_FORMATS = new Set(["anthropic", "openai_chat", "openai_responses", "gemini"]);
 for (const item of PROVIDER_PRESETS) {
   const input = presetToInput(item);
   assert.equal(new URL(item.baseUrl).protocol, "https:");
   assert.equal(new URL(item.website).search, "");
   assert.equal(input.apiKey, "");
   assert.equal(input.id, "");
-  assert.equal(input.apiFormat, "anthropic");
+  assert.ok(API_FORMATS.has(input.apiFormat), `${item.id} 协议 ${input.apiFormat} 不在支持范围内`);
+  assert.equal(input.apiKeyField, "auth_token");
   for (const mapping of Object.values(input.models)) assert.ok(!mapping.model.includes("[1M]"));
   input.extraEnv.test = "local";
   assert.equal(item.extraEnv?.test, undefined);
@@ -26,4 +28,15 @@ const qwen = presetToInput(PROVIDER_PRESETS.find(item => item.id === "qwen-payg"
 assert.notEqual(qwen.models.sonnet.model, qwen.models.opus.model);
 const manual = presetToInput(PROVIDER_PRESETS.find(item => item.id === "qwen-coding"));
 assert.deepEqual(manual.models, {});
+const openai = presetToInput(PROVIDER_PRESETS.find(item => item.id === "openai"));
+assert.equal(openai.apiFormat, "openai_responses");
+assert.equal(openai.baseUrl, "https://api.openai.com/v1");
+assert.deepEqual(openai.models, {});
+const openrouter = presetToInput(PROVIDER_PRESETS.find(item => item.id === "openrouter"));
+assert.equal(openrouter.apiFormat, "anthropic");
+assert.equal(openrouter.baseUrl, "https://openrouter.ai/api/v1");
+const siliconflow = presetToInput(PROVIDER_PRESETS.find(item => item.id === "siliconflow"));
+assert.equal(siliconflow.apiFormat, "anthropic");
+assert.equal(siliconflow.baseUrl, "https://api.siliconflow.cn/anthropic");
+assert.ok(siliconflow.models.haiku.model.includes("/"));
 console.log(`已验证 ${new Set(PROVIDER_PRESETS.map(item => item.family)).size} 家厂商、${PROVIDER_PRESETS.length} 个预设：地址、空密钥、模型映射、1M 声明与数据隔离正常。`);

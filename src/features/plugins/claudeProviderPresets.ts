@@ -1,13 +1,15 @@
-import type { ClaudeModelMapping, ClaudeProviderInput } from "../../platform/clients/claudeProviders";
+import type { ClaudeApiFormat, ClaudeModelMapping, ClaudeProviderInput } from "../../platform/clients/claudeProviders";
 
 // Reviewed against cc-switch/src/config/claudeProviderPresets.ts on 2026-10-19.
 // Reference data only: no remote scripts, affiliate links, OAuth adapters or hidden presets.
 // Source: https://github.com/farion1231/cc-switch/blob/main/src/config/claudeProviderPresets.ts
+// 2026-11-28 补齐 Codex 预设侧已有而此处缺失的厂商：OpenAI（Responses，经本地网关协议转换）、
+// OpenRouter 与 SiliconFlow（anthropic 兼容端点，与 src-tauri/src/core/repositories/claude_providers.rs 预设一致）。
 export interface ProviderPreset {
   id: string; family: string; name: string; website: string; baseUrl: string;
-  model?: string; haiku?: string; opus?: string; extraEnv?: Record<string, string>;
+  model?: string; haiku?: string; opus?: string; extraEnv?: Record<string, string>; apiFormat?: ClaudeApiFormat;
 }
-const preset = (id: string, family: string, name: string, website: string, baseUrl: string, model?: string, options: Partial<Pick<ProviderPreset, "haiku" | "opus" | "extraEnv">> = {}): ProviderPreset =>
+const preset = (id: string, family: string, name: string, website: string, baseUrl: string, model?: string, options: Partial<Pick<ProviderPreset, "haiku" | "opus" | "extraEnv" | "apiFormat">> = {}): ProviderPreset =>
   ({ id, family, name, website, baseUrl, model, ...options });
 const qwenModels = { haiku: "qwen3.8-flash[1M]", opus: "qwen3.8-max[1M]", extraEnv: { CLAUDE_CODE_MAX_CONTEXT_TOKENS: "983616" } };
 export const PROVIDER_PRESETS: ProviderPreset[] = [
@@ -16,6 +18,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
   preset("bailing", "BaiLing · 百灵", "按量付费", "https://developer.ant-ling.com", "https://api.ant-ling.com/anthropic", "Ling-2.6-1T"),
   preset("byteplus", "BytePlus", "Coding Plan", "https://www.byteplus.com/en/product/modelark", "https://ark.ap-southeast.bytepluses.com/api/coding", "ark-code-latest"),
   preset("deepseek", "DeepSeek", "官方 API", "https://platform.deepseek.com", "https://api.deepseek.com/anthropic", "deepseek-v4-pro[1M]", { haiku: "deepseek-flash[1M]" }),
+  preset("openai", "OpenAI", "官方 API · Responses", "https://platform.openai.com", "https://api.openai.com/v1", undefined, { apiFormat: "openai_responses" }),
   preset("volc-payg", "火山引擎", "豆包 · 按量付费", "https://www.volcengine.com", "https://ark.cn-beijing.volces.com/api/compatible", "doubao-seed-2-1-pro-260628"),
   preset("volc-coding", "火山引擎", "Coding Plan", "https://www.volcengine.com/activity/codingplan", "https://ark.cn-beijing.volces.com/api/coding", "ark-code-latest"),
   preset("volc-agent", "火山引擎", "Agent Plan", "https://www.volcengine.com/activity/agentplan", "https://ark.cn-beijing.volces.com/api/plan", "ark-code-latest"),
@@ -47,9 +50,12 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
   preset("mimo-token", "Xiaomi MiMo · 小米", "Token Plan · 国内", "https://platform.xiaomimimo.com/#/token-plan", "https://token-plan-cn.xiaomimimo.com/anthropic", "mimo-v2.6-pro[1M]"),
   preset("glm-cn", "Zhipu GLM · 智谱", "国内", "https://open.bigmodel.cn", "https://open.bigmodel.cn/api/anthropic", "glm-5.3[1M]"),
   preset("glm-intl", "Zhipu GLM · 智谱", "国际 · Z.ai", "https://z.ai", "https://api.z.ai/api/anthropic", "glm-5.3[1M]"),
+  // 聚合平台：OpenRouter 走原生 anthropic 兼容端点；SiliconFlow 端点与其 Claude Code 接入文档一致。
+  preset("openrouter", "OpenRouter", "官方 API", "https://openrouter.ai", "https://openrouter.ai/api/v1", "anthropic/claude-sonnet-4.5", { opus: "anthropic/claude-opus-4.1", haiku: "anthropic/claude-haiku-4.5" }),
+  preset("siliconflow", "SiliconFlow", "官方 API", "https://siliconflow.cn", "https://api.siliconflow.cn/anthropic", "deepseek-ai/DeepSeek-V3", { haiku: "Qwen/Qwen2.5-7B-Instruct" }),
 ];
 export function presetToInput(item: ProviderPreset): ClaudeProviderInput {
   const mapping = (model: string) => ({ model: model.replace(/\s*\[1m\]$/i, ""), supports1m: /\[1m\]$/i.test(model) });
   const models: Record<string, ClaudeModelMapping> = item.model ? { sonnet: mapping(item.model), opus: mapping(item.opus ?? item.model), haiku: mapping(item.haiku ?? item.model) } : {};
-  return { id: "", name: item.family.split(" · ")[0] + " · " + item.name, description: "", websiteUrl: item.website, baseUrl: item.baseUrl, apiKey: "", apiKeyField: "auth_token", apiFormat: "anthropic", isFullUrl: true, officialLogin: false, models, modelCatalog: [...new Set([item.model, item.opus, item.haiku].filter((model): model is string => Boolean(model)))].map(mapping), extraEnv: { ...item.extraEnv } };
+  return { id: "", name: item.family.split(" · ")[0] + " · " + item.name, description: "", websiteUrl: item.website, baseUrl: item.baseUrl, apiKey: "", apiKeyField: "auth_token", apiFormat: item.apiFormat ?? "anthropic", isFullUrl: true, officialLogin: false, models, modelCatalog: [...new Set([item.model, item.opus, item.haiku].filter((model): model is string => Boolean(model)))].map(mapping), extraEnv: { ...item.extraEnv } };
 }

@@ -1,6 +1,7 @@
 import { invokeOrWeb, jsonRequest, nativeOnly } from "./base";
 import { Channel } from "@tauri-apps/api/core";
 import { runningInTauri } from "../api";
+import type { ProviderUsage } from "./codex-providers";
 
 export type AiProtocol = "openai_chat" | "openai_responses" | "claude" | "gemini";
 export type AiProfile = {
@@ -30,6 +31,7 @@ export const aiClient = {
     ? nativeOnly<AiReply>("ai_run", { input, onProgress: new Channel<AiProgress>(onProgress || (()=>{})) })
     : invokeOrWeb<AiReply>("ai_run", { input }, { path: "/api/ai/run", init: jsonRequest("POST", input) }),
   models: (input:{requestId:string;profileId?:string;expectedRevision?:number;draft?:Pick<AiProfileInput,"protocol"|"baseUrl"|"apiKey"|"allowLoopbackHttp"|"timeoutSeconds">}) => invokeOrWeb<string[]>("ai_list_models", { input }, { path: "/api/ai/models", init: jsonRequest("POST", input) }),
+  usage: (profileId: string, adapter: string) => nativeOnly<ProviderUsage>("ai_provider_usage", { profileId, adapter }),
   testVision: (input:ServiceInput) => nativeOnly<{profile:AiProfile;passed:boolean}>("ai_test_vision", {input}),
   cancel: (requestId: string) => invokeOrWeb<void>("ai_cancel", { requestId }, { path: "/api/ai/cancel", init: jsonRequest("POST", { requestId }) }),
   exportConfig: (ids: string[]) => nativeOnly<boolean>("ai_export_config", { ids }),

@@ -60,6 +60,54 @@
   box-shadow: inset 0 -2px var(--jb-accent-strong);
 }
 
+.terminal-tab.is-disconnected .terminal-tab-select i {
+  background: var(--jb-danger, #e5534b) !important;
+}
+
+.ssh-error-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ssh-error-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.ssh-reconnect-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  min-height: 26px;
+  padding: 0 9px;
+  border-radius: 5px;
+  font-size: 12px;
+}
+
+.ssh-error-dismiss {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  min-height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.ssh-error-dismiss:hover {
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
+
 .terminal-tab-select {
   display: flex;
   align-items: center;

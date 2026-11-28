@@ -30,6 +30,7 @@
     "ai_list_profiles",
     "ai_prepare_import",
     "ai_preview",
+    "ai_provider_usage",
     "ai_reveal_key",
     "ai_run",
     "ai_save_profile",
@@ -1510,6 +1511,7 @@
           "name": "capabilities",
           "native": [
             "ai_list_models",
+            "ai_provider_usage",
             "ai_test_vision",
             "ai_read_image_file"
           ],

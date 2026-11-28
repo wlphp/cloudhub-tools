@@ -9,6 +9,7 @@ import { Plus, Pencil, Copy, Trash2, RefreshCw, Search, Server, Play, FlaskConic
 import { ProviderEditorPage, providerEditorInput } from "./ProviderEditorPage";
 import { ProviderImportDialog } from "./ProviderImportDialog";
 import { CodexProviderPresetPicker } from "./CodexProviderPresetPicker";
+import { ProviderBrandIcon } from "../../shared/provider-brand/ProviderBrandIcon";
 import { ProviderUsageControl, readUsageSelection, USAGE_PREFERENCE_PREFIX } from "./ProviderUsageControl";
 import { ProviderProbeDialog } from "./ProviderProbeDialog";
 import { ProviderLaunchDialog, type ProviderLaunchTarget } from "./ProviderLaunchDialog";
@@ -292,7 +293,12 @@ export function ModelProviders({ onChanged, privacy = false }: { onChanged?: () 
             {providerSorting ? <button type="button" className="codex-provider-reorder-handle" title="拖动排序，或使用上下方向键" aria-label={`排序 ${v.name}，按上下方向键调整位置`} disabled={busy} onKeyDown={event => { if (event.key === "ArrowUp" || event.key === "ArrowDown") { event.preventDefault(); moveProvider(v.id, event.key === "ArrowUp" ? -1 : 1); } }} onPointerDown={event => { if (!busy) providerDrag.startDrag(event, v.id); }}><GripVertical size={17} /></button> : (
             <input type="checkbox" aria-label={`选择导出 ${v.name}`} checked={checkedProviders.includes(v.id)} disabled={busy} onChange={event => setCheckedProviders(current => event.target.checked ? [...new Set([...current, v.id])] : current.filter(id => id !== v.id))} />)}
             <div className="codex-provider-row-info" role="button" tabIndex={0} aria-pressed={selected} onClick={() => setSelectedProviderId(v.id)} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedProviderId(v.id); } }}>
-              <span className="codex-provider-avatar" aria-hidden="true">{v.name.trim().slice(0, 1).toLocaleUpperCase() || <Server size={17} />}</span>
+              <ProviderBrandIcon
+                name={v.name}
+                hints={[v.baseUrl, ...v.models]}
+                fallback={v.name.trim().slice(0, 1).toLocaleUpperCase() || <Server size={17} />}
+                className="codex-provider-avatar codex-provider-brand-icon"
+              />
               <span className="codex-provider-row-copy"><strong>{v.name}</strong><span>{v.wireApi === "responses" ? "Responses API" : "Chat Completions"} · {v.baseUrl} · {v.keys.length} 个密钥 · {v.models.length} 个模型</span></span>
             </div>
             <ProviderUsageControl key={v.id + ":" + v.version} provider={v} savedSelection={readUsageSelection(usagePreferences[USAGE_PREFERENCE_PREFIX + v.id], v)} disabled={busy} privacy={privacy} onSaved={value => setUsagePreferences(current => ({ ...current, [USAGE_PREFERENCE_PREFIX + v.id]: value }))} />

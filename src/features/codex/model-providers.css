@@ -33,7 +33,12 @@
 .codex-provider-row-info { display:flex; align-items:center; gap:12px; flex:1; min-width:0; cursor:pointer; }
 .codex-provider-row-info:focus-visible { outline:2px solid var(--accent-color,var(--jb-accent,var(--jb-accent))); outline-offset:3px; border-radius:4px; }
 .codex-provider-avatar { display:grid; place-items:center; flex:0 0 40px; width:40px; height:40px; border-radius:8px; background:color-mix(in srgb,var(--border-color,#7775) 40%,transparent); color:var(--text-color,var(--jb-text)); font-size:18px; font-weight:650; }
-.codex-provider-row.is-selected .codex-provider-avatar { background:color-mix(in srgb,var(--accent-color,var(--jb-accent,var(--jb-accent))) 20%,transparent); color:var(--accent-color,var(--jb-accent,var(--jb-accent))); }
+.codex-provider-brand-icon.provider-brand-icon { display:inline-flex; align-items:center; justify-content:center; flex:0 0 40px; width:40px; height:40px; border:1px solid var(--jb-border); border-radius:8px; background:var(--jb-surface); color:var(--text-color,var(--jb-text)); font-size:22px; }
+.codex-provider-brand-icon.provider-brand-icon > svg { display:block; flex:none; width:22px; height:22px; }
+.codex-provider-brand-icon.provider-brand-icon.is-fallback { border-color:transparent; background:color-mix(in srgb,var(--border-color,#7775) 40%,transparent); color:var(--text-color,var(--jb-text)); font-size:18px; font-weight:650; }
+.codex-provider-row.is-selected .codex-provider-avatar.is-fallback,
+.codex-provider-row.is-selected .codex-provider-avatar:not(.provider-brand-icon) { background:color-mix(in srgb,var(--accent-color,var(--jb-accent,var(--jb-accent))) 20%,transparent); color:var(--accent-color,var(--jb-accent,var(--jb-accent))); }
+.codex-provider-row.is-selected .codex-provider-brand-icon.provider-brand-icon:not(.is-fallback) { border-color:color-mix(in srgb,var(--accent-color,var(--jb-accent,var(--jb-accent))) 45%,var(--jb-border)); }
 .codex-provider-row-copy { display:grid; gap:3px; min-width:0; }
 .codex-provider-row-copy strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:14px; }
 .codex-provider-row-copy>span { color:var(--jb-muted); font-size:12px; overflow-wrap:anywhere; }

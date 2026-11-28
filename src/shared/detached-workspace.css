@@ -6,10 +6,82 @@
 .workspace-popout > .detachable-page-body { box-sizing: border-box; flex: 1; min-height: 0; overflow: auto; padding: 8px 32px 24px; }
 .terminal-workspace-popout-page > .detachable-page-body { padding: 0; overflow: hidden; }
 .page-detach-tools { display: flex; flex: 0 0 auto; align-items: center; justify-content: flex-end; width: fit-content; max-width: 100%; margin: 0 0 8px auto; }
-.workspace-popout > .page-detach-tools { padding: 8px 16px 0; margin-bottom: 0; }
+.workspace-popout > .page-detach-tools { box-sizing: border-box; width: 100%; margin: 0; padding: 8px 32px 0; }
 .workspace-popout > .page-detach-tools button { background: var(--jb-surface-2); }
+
+/* 使「脱离父页面」右边界与各类自带内边距/最大宽度页面的标题和正文右边界对齐 */
+.page-detach-tools:has(+ .detachable-page-body > .plugin-page-host),
+.page-detach-tools:has(+ .detachable-page-body > .notes-panel),
+.page-detach-tools:has(+ .detachable-page-body > .auth-panel) { margin-right: 20px; }
+.page-detach-tools:has(+ .detachable-page-body > .plugin-page-host .hardware-info-body) { margin-right: 40px; }
+.page-detach-tools:has(+ .detachable-page-body > .certificate-page) { margin-right: 18px; }
+.page-detach-tools:has(+ .detachable-page-body > .codex-page) { margin-right: 28px; }
+.page-detach-tools:has(+ .detachable-page-body > .codex-page.codex-overview-reference) { margin-right: 16px; }
+.page-detach-tools:has(+ .detachable-page-body > .desktop-overview-page) {
+  box-sizing: border-box; width: 100%; max-width: 1600px; margin: 0 auto 8px; padding-right: 32px;
+}
+.page-detach-tools:has(+ .detachable-page-body > .desktop-monitor-alerts-page) { max-width: none; margin: 0 0 8px; }
+.page-detach-tools:has(+ .detachable-page-body > .flow-page) {
+  box-sizing: border-box; width: 100%; margin: 0 0 8px; padding-right: clamp(18px, 2.2vw, 34px);
+}
+.page-detach-tools:has(+ .detachable-page-body > .frp-page) { max-width: 1500px; }
+
+.workspace-popout > .page-detach-tools:has(+ .detachable-page-body > :is(.plugin-page-host, .notes-panel, .auth-panel)) { margin-right: 0; padding-right: 52px; }
+.workspace-popout > .page-detach-tools:has(+ .detachable-page-body > .plugin-page-host .hardware-info-body) { margin-right: 0; padding-right: 72px; }
+.workspace-popout > .page-detach-tools:has(+ .detachable-page-body > .certificate-page) { margin-right: 0; padding-right: 50px; }
+.workspace-popout > .page-detach-tools:has(+ .detachable-page-body > .codex-page) { margin-right: 0; padding-right: 60px; }
+.workspace-popout > .page-detach-tools:has(+ .detachable-page-body > .codex-page.codex-overview-reference) { margin-right: 0; padding-right: 48px; }
+.workspace-popout > .page-detach-tools:has(+ .detachable-page-body > .desktop-overview-page) { max-width: 1664px; margin: 0 auto; padding-inline: 32px 64px; }
+.workspace-popout > .page-detach-tools:has(+ .detachable-page-body > .desktop-monitor-alerts-page) { max-width: none; margin: 0; padding-right: 64px; }
+.workspace-popout > .page-detach-tools:has(+ .detachable-page-body > .flow-page) { margin: 0; padding-right: calc(32px + clamp(18px, 2.2vw, 34px)); }
+.workspace-popout > .page-detach-tools:has(+ .detachable-page-body > .frp-page) { max-width: 1564px; }
+
 .ide-theme .terminal-session-header > .terminal-workspace-popout { align-self: stretch; height: auto; min-height: 0; margin: 0; border-block: 0; border-radius: 0; }
-@media (max-width: 900px) { .workspace-popout > .detachable-page-body { padding: 8px 16px 16px; } .terminal-workspace-popout-page > .detachable-page-body { padding: 0; } }
+@media (max-width: 1000px) {
+  .page-detach-tools:has(+ .detachable-page-body > .desktop-overview-page) { padding-right: 20px; }
+  .workspace-popout > .page-detach-tools:has(+ .detachable-page-body > .desktop-overview-page) { padding-right: 52px; }
+}
+@media (max-width: 900px) {
+  .workspace-popout > .detachable-page-body { padding: 8px 16px 16px; }
+  .workspace-popout > .page-detach-tools { padding: 8px 16px 0; }
+  .workspace-popout > .page-detach-tools:has(+ .detachable-page-body > :is(.plugin-page-host, .notes-panel, .auth-panel)) { padding-right: 36px; }
+  .workspace-popout > .page-detach-tools:has(+ .detachable-page-body > .plugin-page-host .hardware-info-body) { padding-right: 56px; }
+  .workspace-popout > .page-detach-tools:has(+ .detachable-page-body > .certificate-page) { padding-right: 34px; }
+  .workspace-popout > .page-detach-tools:has(+ .detachable-page-body > .codex-page) { padding-right: 44px; }
+  .workspace-popout > .page-detach-tools:has(+ .detachable-page-body > .codex-page.codex-overview-reference) { padding-right: 32px; }
+  .workspace-popout > .page-detach-tools:has(+ .detachable-page-body > .desktop-overview-page) { padding-inline: 16px 36px; }
+  .page-detach-tools:has(+ .detachable-page-body > .flow-page) { padding-right: 16px; }
+  .workspace-popout > .page-detach-tools:has(+ .detachable-page-body > .flow-page) { padding-right: 32px; }
+  .terminal-workspace-popout-page > .detachable-page-body { padding: 0; }
+}
+@media (max-width: 768px) {
+  .page-detach-tools:has(+ .detachable-page-body > .codex-page) { margin-right: 14px; }
+  .page-detach-tools:has(+ .detachable-page-body > .codex-page.codex-overview-reference) { margin-right: 12px; }
+  .workspace-popout > .page-detach-tools:has(+ .detachable-page-body > .codex-page) { padding-right: 30px; }
+  .workspace-popout > .page-detach-tools:has(+ .detachable-page-body > .codex-page.codex-overview-reference) { padding-right: 28px; }
+}
+@media (max-width: 760px) {
+  .page-detach-tools:has(+ .detachable-page-body > :is(.plugin-page-host, .notes-panel, .certificate-page)) { margin-right: 12px; }
+  .page-detach-tools:has(+ .detachable-page-body > .plugin-page-host .hardware-info-body) { margin-right: 32px; }
+  .workspace-popout > .page-detach-tools:has(+ .detachable-page-body > :is(.plugin-page-host, .notes-panel, .certificate-page)) { padding-right: 28px; }
+  .workspace-popout > .page-detach-tools:has(+ .detachable-page-body > .plugin-page-host .hardware-info-body) { padding-right: 48px; }
+}
+@media (max-width: 650px) {
+  .page-detach-tools:has(+ .detachable-page-body > .desktop-overview-page) { padding-right: 12px; }
+  .workspace-popout > .page-detach-tools:has(+ .detachable-page-body > .desktop-overview-page) { padding-right: 28px; }
+  .page-detach-tools:has(+ .detachable-page-body > .auth-panel) { margin-right: 12px; }
+  .workspace-popout > .page-detach-tools:has(+ .detachable-page-body > .auth-panel) { padding-right: 28px; }
+}
+@media (max-width: 600px) {
+  .page-detach-tools:has(+ .detachable-page-body > .plugin-page-host .hardware-info-body) { margin-right: 26px; }
+  .workspace-popout > .page-detach-tools:has(+ .detachable-page-body > .plugin-page-host .hardware-info-body) { padding-right: 42px; }
+  .page-detach-tools:has(+ .detachable-page-body > .frp-page) { padding-right: 18px; }
+  .workspace-popout > .page-detach-tools:has(+ .detachable-page-body > .frp-page) { padding-right: 34px; }
+}
+@media (max-width: 560px) {
+  .page-detach-tools:has(+ .detachable-page-body > .flow-page:not(.frp-page)) { padding-right: 11px; }
+  .workspace-popout > .page-detach-tools:has(+ .detachable-page-body > .flow-page:not(.frp-page)) { padding-right: 27px; }
+}
 .workspace-popout .managed-servers-page.managed-servers-page { margin: 0; height: 100dvh; min-height: 0; }
 .terminal-host-title-row[data-workspace-drag],
 .terminal-session-header[data-workspace-drag] { cursor: grab; touch-action: none; user-select: none; }

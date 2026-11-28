@@ -18,5 +18,5 @@
 :is(.favorite-card-drag-handle, .panel-drag-handle, .terminal-host-drag-handle, .terminal-group-drag-handle, .codex-provider-reorder-handle, .auth-drag-handle):active { cursor: grabbing; }
 
 @media (prefers-reduced-motion: reduce) {
-  :is([data-favorite-asset-key], [data-panel-id], [data-managed-host-id], [data-managed-host-group], [data-provider-sort-id], [data-asset-row-key], [data-account-sort-id], [data-claude-provider-sort-id], [data-note-sort-id], [data-authenticator-sort-id]) { transition: none !important; animation: none !important; }
+  :is([data-favorite-asset-key], [data-panel-id], [data-managed-host-id], [data-managed-host-group], [data-provider-sort-id], [data-asset-row-key], [data-account-sort-id], [data-claude-provider-sort-id], [data-note-sort-id], [data-authenticator-sort-id], [data-ai-supplier-sort-id]) { transition: none !important; animation: none !important; }
 }

@@ -12,6 +12,7 @@ pub mod pet_web;
 pub mod ai_documents;
 pub mod ai_models;
 pub mod ai_transfer;
+pub mod provider_usage;
 #[cfg(desktop)]
 pub mod codex;
 pub mod authenticator;
