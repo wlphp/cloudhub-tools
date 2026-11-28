@@ -20,7 +20,17 @@ type CompanionSettings = Pick<PetSettings, "enabled" | "appearance" | "size" | "
 
 let previewSettings = defaultPetSettings;
 
+// 桌宠是桌面端窗口功能；手机端按 H5 调试入口约定保留面板入口，但精灵图不进入移动端构建，这里给出诚实说明而不是缺图预览。
+const petUnavailableOnMobile = import.meta.env.VITE_APP_TARGET === "mobile";
+
 export function PetSettingsPanel() {
+  if (petUnavailableOnMobile) {
+    return <section className="desktop-pet-panel" role="note" aria-label="桌宠为桌面端功能说明">
+      <h2>桌面宠物</h2>
+      <p>桌宠是桌面端专属功能：手机端不运行桌宠窗口，也不预览形象动画，相关精灵图资源不随手机安装包分发。</p>
+      <p>配置、形象预览与语音对话请在 Windows / macOS 客户端的软件商店中打开本应用。</p>
+    </section>;
+  }
   const tabsId = useId();
   const [activeTab, setActiveTab] = useState<(typeof tabs)[number]["id"]>("companion");
   const [settings, setSettings] = useState<PetSettings>(() => runningInTauri ? defaultPetSettings : previewSettings);

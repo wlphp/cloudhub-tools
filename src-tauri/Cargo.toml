@@ -99,3 +99,11 @@ windows-sys = { version = "0.59", features = ["Win32_Security_Cryptography", "Wi
 tauri-plugin-barcode-scanner = "2.5.1"
 tauri-plugin-fs = "2"
 tauri-plugin-clipboard-manager = "2"
+
+# 发布二进制瘦身：去符号表 + 交叉优化 + 单编译单元 + 体积优先的优化等级。
+# 注意：不能启用 panic="abort"，core/mail.rs 依赖 catch_unwind 做兜底。
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+opt-level = "s"

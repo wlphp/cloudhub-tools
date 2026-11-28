@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { createConnection } from "node:net";
-import { cpSync, existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { cpSync, existsSync, readdirSync, unlinkSync } from "node:fs";
+import { join, resolve } from "node:path";
 
 const command = process.argv[2];
 if (command !== "dev" && command !== "build") {
@@ -69,6 +69,25 @@ if (command !== "dev" && command !== "build") {
       stop(1);
     });
     viteChild.on("exit", (code, signal) => {
+      if (command === "build" && code === 0 && !stopping) {
+        // 桌宠精灵图只服务桌面端窗口；移动端构建把前端资产整体嵌入 libapp.so，
+        // 不剔除会让四张 PNG（约 7.4MB）白白进入 APK。面板在移动端有诚实提示兜底。
+        try {
+          const distAssets = resolve("dist/assets");
+          let removed = 0;
+          if (existsSync(distAssets)) {
+            for (const entry of readdirSync(distAssets)) {
+              if (/(dog|penguin|alpaca|fish)-sprites-[^.]+\.png$/.test(entry)) {
+                unlinkSync(join(distAssets, entry));
+                removed += 1;
+              }
+            }
+          }
+          if (removed > 0) console.log(`移动端构建已剔除桌宠精灵图 ${removed} 张，节省约 7.4MB 安装体积。`);
+        } catch (error) {
+          console.error(`剔除桌宠精灵图失败: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
       if (!stopping) stop(code ?? (signal ? 1 : 0));
     });
     process.once("SIGINT", () => stop(0, "SIGINT"));
